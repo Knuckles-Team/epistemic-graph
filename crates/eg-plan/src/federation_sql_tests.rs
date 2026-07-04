@@ -1,4 +1,4 @@
-//! External-SQL federation proofs (CONCEPT:KG-2.239, feature `federation-sql`): an
+//! External-SQL federation proofs (CONCEPT:EG-KG.query.feature, feature `federation-sql`): an
 //! EXTERNAL relational-SQL source (`ForeignSourceSpec::Sql`) composes with the LOCAL
 //! graph/vector in ONE plan, and the fused result equals the manual join.
 //!

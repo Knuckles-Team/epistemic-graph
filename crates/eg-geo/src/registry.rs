@@ -1,6 +1,6 @@
-//! CRS **registry** + generic affine / Helmert transforms (CONCEPT:EG-262).
+//! CRS **registry** + generic affine / Helmert transforms (CONCEPT:EG-KG.domains.geo-registry).
 //!
-//! [`crate::crs`] (CONCEPT:EG-255) gave the engine the hard-coded WGS84 ⇄ Web-Mercator ⇄
+//! [`crate::crs`] (CONCEPT:EG-KG.domains.coordinate-reference-system) gave the engine the hard-coded WGS84 ⇄ Web-Mercator ⇄
 //! UTM math. EG-262 layers a *registry* on top: an [`CrsRegistry`] keyed by EPSG code that
 //! resolves a code to a [`CrsDef`] — one of the built-in projected systems **or** a generic
 //! **affine** / **Helmert** parameter set defined relative to the WGS84 lon/lat pivot. This
@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 use crate::crs::{utm_to_wgs84, web_mercator_to_wgs84, wgs84_to_utm, wgs84_to_web_mercator, Crs};
 use crate::geometry::{Geometry, LineString, Point, Polygon};
 
-/// A 2-D affine transform mapping `(x, y) → (x', y')` (CONCEPT:EG-262):
+/// A 2-D affine transform mapping `(x, y) → (x', y')` (CONCEPT:EG-KG.domains.geo-registry):
 ///
 /// ```text
 /// x' = a·x + b·y + xoff
@@ -89,7 +89,7 @@ impl Affine {
         }
     }
 
-    /// A **4-parameter 2-D Helmert similarity** (CONCEPT:EG-262): uniform `scale`, a
+    /// A **4-parameter 2-D Helmert similarity** (CONCEPT:EG-KG.domains.geo-registry): uniform `scale`, a
     /// `rotation` (radians, CCW) and a `(tx, ty)` translation — a conformal transform
     /// (angles preserved), the planar special case of the classic Helmert datum shift and
     /// exactly what georeferences a scanned map or ties two survey grids together:
@@ -162,7 +162,7 @@ impl Affine {
     }
 }
 
-/// How the registry resolves an EPSG code to concrete forward/inverse math (CONCEPT:EG-262).
+/// How the registry resolves an EPSG code to concrete forward/inverse math (CONCEPT:EG-KG.domains.geo-registry).
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum CrsDef {
     /// EPSG:4326 — WGS84 geographic lon/lat degrees (the pivot; identity to itself).
@@ -177,7 +177,7 @@ pub enum CrsDef {
     Affine(Affine),
 }
 
-/// A registry mapping EPSG codes to [`CrsDef`]s (CONCEPT:EG-262). Seed it with
+/// A registry mapping EPSG codes to [`CrsDef`]s (CONCEPT:EG-KG.domains.geo-registry). Seed it with
 /// [`CrsRegistry::standard`] (the EG-255 built-ins) and [`CrsRegistry::register`] any
 /// custom affine/Helmert CRS, then [`CrsRegistry::transform`] geometries between any two
 /// registered codes.
@@ -265,7 +265,7 @@ impl CrsRegistry {
         }
     }
 
-    /// Transform `geom` from EPSG `from` to EPSG `to` (CONCEPT:EG-262), routing every
+    /// Transform `geom` from EPSG `from` to EPSG `to` (CONCEPT:EG-KG.domains.geo-registry), routing every
     /// coordinate through the WGS84 pivot (`from → 4326 → to`) and rebuilding the same
     /// geometry structure (recursing through multis/collections and polygon holes). This is
     /// the `ST_Transform` entry point. Same-code transforms clone unchanged; an unregistered
@@ -288,14 +288,14 @@ impl CrsRegistry {
 }
 
 /// Transform a geometry through a standard [`CrsRegistry`] (the EG-255 built-ins + UTM)
-/// — the one-shot `ST_Transform` convenience (CONCEPT:EG-262). For custom affine/Helmert
+/// — the one-shot `ST_Transform` convenience (CONCEPT:EG-KG.domains.geo-registry). For custom affine/Helmert
 /// CRSs, build a [`CrsRegistry`], `register_affine`, and call [`CrsRegistry::transform`].
 pub fn st_transform(geom: &Geometry, from: Crs, to: Crs) -> Result<Geometry, String> {
     CrsRegistry::standard().transform(geom, from.epsg, to.epsg)
 }
 
 /// Apply a fallible per-coordinate transform to every vertex, rebuilding the structure
-/// (CONCEPT:EG-262). Mirrors `crate::crs::map_coords` but kept local so the registry owns
+/// (CONCEPT:EG-KG.domains.geo-registry). Mirrors `crate::crs::map_coords` but kept local so the registry owns
 /// its own error strings.
 fn map_coords(
     g: &Geometry,

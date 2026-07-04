@@ -1,4 +1,4 @@
-//! Distributed graph compute handlers (CONCEPT:KG-2.227).
+//! Distributed graph compute handlers (CONCEPT:EG-KG.storage.feature).
 //!
 //! `DistributedCompute` runs a Pregel/GAS cross-shard algorithm (PageRank /
 //! connected-components / BFS) across a set of graphs spanning multiple Raft groups,
@@ -123,7 +123,7 @@ async fn persist_and_index(
 }
 
 /// Reload every persisted materialized view into the in-RAM index on boot
-/// (CONCEPT:KG-2.227). Called once after the redb store is up. Returns the count
+/// (CONCEPT:EG-KG.storage.feature). Called once after the redb store is up. Returns the count
 /// reloaded. A missing/empty table reloads nothing (a fresh DB).
 pub async fn reload_matviews(state: &Arc<RwLock<ServerState>>) -> Result<usize, String> {
     let backend = {

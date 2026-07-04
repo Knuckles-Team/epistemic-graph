@@ -1,4 +1,4 @@
-//! Postgres wire round-trip integration test (CONCEPT:KG-2.189).
+//! Postgres wire round-trip integration test (CONCEPT:AU-KG.query.raw-python).
 //!
 //! Starts the real pgwire listener over an in-process `ServerState`, connects with
 //! the real `tokio-postgres` client, and proves the shim end-to-end:
@@ -7,7 +7,7 @@
 //!   * an `INSERT INTO nodes …` (routed through the GraphTxn write path) is visible
 //!     to a subsequent `SELECT` on the same connection.
 //!
-//! It also proves the durability barrier (CONCEPT:KG-2.190): a pgwire INSERT runs
+//! It also proves the durability barrier (CONCEPT:EG-KG.query.concept-10): a pgwire INSERT runs
 //! the SAME post-write durable-record block dispatch runs, so the wire write is
 //!   * fire-and-forget `record()`'d in the default (non-authoritative) regime
 //!     (regression: today's behavior intact, plus the per-op record M8 was missing),
@@ -115,7 +115,7 @@ async fn spawn_listener(state: Arc<RwLock<ServerState>>) -> String {
     spawn_listener_mode(state, pgwire::PgWireAuthMode::Trust).await
 }
 
-/// Bind + serve with an EXPLICIT auth mode (CONCEPT:KG-2.202). Used by the auth
+/// Bind + serve with an EXPLICIT auth mode (CONCEPT:EG-KG.query.concept-13). Used by the auth
 /// tests to pin SCRAM deterministically (no process-global env toggle).
 async fn spawn_listener_mode(
     state: Arc<RwLock<ServerState>>,
@@ -209,7 +209,7 @@ async fn wire_insert_then_select_round_trip() {
 }
 
 // ───────────────────────────────────────────────────────────────────────────
-// Extended / prepared protocol (CONCEPT:KG-2.197) — real driver path.
+// Extended / prepared protocol (CONCEPT:EG-KG.query.describe) — real driver path.
 // `tokio-postgres`'s `prepare`/`query`/`execute` use the extended protocol
 // (Parse/Bind/Describe/Execute/Sync), which is what psycopg3/asyncpg/JDBC/sqlx/
 // SQLAlchemy use by DEFAULT. These prove a real driver's prepared+parameterized
@@ -288,7 +288,7 @@ async fn extended_parameterized_delete_then_select() {
     assert_eq!(rows.len(), 0, "deleted node must be gone");
 }
 
-/// Multi-row INSERT (CONCEPT:KG-2.198): `INSERT … VALUES (…),(…),(…)` adds three
+/// Multi-row INSERT (CONCEPT:EG-KG.query.follow-up): `INSERT … VALUES (…),(…),(…)` adds three
 /// nodes in one statement; a COUNT confirms all landed.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn multi_row_insert_then_count() {
@@ -313,7 +313,7 @@ async fn multi_row_insert_then_count() {
     assert_eq!(c, 3, "all three multi-insert rows present");
 }
 
-/// `INSERT … RETURNING id` (CONCEPT:KG-2.198): the write returns the affected row
+/// `INSERT … RETURNING id` (CONCEPT:EG-KG.query.follow-up): the write returns the affected row
 /// as a result set, not just a CommandComplete tag.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn insert_returning_row() {
@@ -394,7 +394,7 @@ impl PersistenceBackend for RecordingBackend {
     fn shutdown(&self) {}
 }
 
-/// Non-authoritative regression (CONCEPT:KG-2.190): with a durable backend present
+/// Non-authoritative regression (CONCEPT:EG-KG.query.concept-10): with a durable backend present
 /// but `redb_authoritative = false`, a pgwire INSERT must take the write-BEHIND path
 /// — fire-and-forget `record()` (NOT the awaited `record_durable`). Proves today's
 /// behavior is intact AND the per-op `record()` the M8 path was missing now fires.
@@ -432,7 +432,7 @@ async fn wire_insert_non_authoritative_records_write_behind() {
     );
 }
 
-/// Authoritative durability (CONCEPT:KG-2.190): under `EPISTEMIC_GRAPH_REDB_AUTHORITATIVE`
+/// Authoritative durability (CONCEPT:EG-KG.query.concept-10): under `EPISTEMIC_GRAPH_REDB_AUTHORITATIVE`
 /// a pgwire INSERT is commit-before-ack — `record_durable` is AWAITED before the
 /// CommandComplete is sent. We prove the wire write is durable WITHOUT any checkpoint
 /// by reading the row back from a SEPARATE redb backend reopened on the same dir: the
@@ -506,7 +506,7 @@ async fn wire_insert_authoritative_is_durable_without_checkpoint() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// Extended-protocol durable-on-ack (CONCEPT:KG-2.197 + KG-2.198): a parameterized
+/// Extended-protocol durable-on-ack (CONCEPT:EG-KG.query.describe + KG-2.198): a parameterized
 /// `UPDATE … WHERE id = $1` issued over the EXTENDED protocol under redb-authoritative
 /// mode is commit-before-ack — `record_durable` (a `CompareAndSetNodeFields` method)
 /// is AWAITED before the client's `execute()` returns. We prove the wire write is
@@ -580,7 +580,7 @@ async fn extended_update_authoritative_is_durable_without_checkpoint() {
 }
 
 // ───────────────────────────────────────────────────────────────────────────
-// Synthetic catalog (CONCEPT:KG-2.201) — a real driver introspects on connect.
+// Synthetic catalog (CONCEPT:EG-KG.query.datafusion) — a real driver introspects on connect.
 // A tokio-postgres client lists tables via information_schema, reflects the
 // `nodes` columns, calls version()/current_schema(), then SELECTs — all succeed.
 // ───────────────────────────────────────────────────────────────────────────
@@ -659,7 +659,7 @@ async fn catalog_introspection_then_select() {
 }
 
 // ───────────────────────────────────────────────────────────────────────────
-// pg-wire SCRAM auth bridged to the engine identity (CONCEPT:KG-2.202).
+// pg-wire SCRAM auth bridged to the engine identity (CONCEPT:EG-KG.query.concept-13).
 // A SCRAM login succeeds with the derived password, is REJECTED with the wrong
 // one, and post-login queries run under the mapped engine AgentIdentity/ACL.
 // ───────────────────────────────────────────────────────────────────────────
@@ -877,7 +877,7 @@ fn error_chain(err: &tokio_postgres::Error) -> String {
 }
 
 // ───────────────────────────────────────────────────────────────────────────
-// Mixed-store wire transactions (CONCEPT:EG-049) — BEGIN/COMMIT/ROLLBACK over the
+// Mixed-store wire transactions (CONCEPT:EG-KG.compute.kg-transaction-is-pinned) — BEGIN/COMMIT/ROLLBACK over the
 // simple-query protocol, on ONE persistent connection (== one EngineBackend).
 // ───────────────────────────────────────────────────────────────────────────
 
@@ -1072,7 +1072,7 @@ async fn wire_txn_error_blocks_until_rollback_25p02() {
 }
 
 /// SET graph is rejected while a transaction is open (a txn stays within one graph /
-/// redb shard, CONCEPT:KG-2.207).
+/// redb shard, CONCEPT:EG-KG.sharding.semantic-embedding-store-backed).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn wire_txn_set_graph_rejected_while_open() {
     let state = seeded_state();

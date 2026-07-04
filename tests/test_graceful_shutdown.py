@@ -1,4 +1,4 @@
-"""Reference-counted graceful shutdown proof (CONCEPT:KG-2.223).
+"""Reference-counted graceful shutdown proof (CONCEPT:EG-KG.backend.tiny-shared).
 
 Two contracts, both proven against the actual compiled binary on a private socket
 + persist dir (self-contained, independent of the session-wide ``full`` fixture):
@@ -19,7 +19,7 @@ Two contracts, both proven against the actual compiled binary on a private socke
    (previously dead code).
 
 Both use the stock ``full`` build, which is redb-authoritative by default
-(CONCEPT:KG-2.195) so every ``nodes.add`` is commit-before-ack.
+(CONCEPT:AU-KG.backend.backend-modes) so every ``nodes.add`` is commit-before-ack.
 """
 
 import os
@@ -70,7 +70,7 @@ def _launch(
     raise RuntimeError("server did not bind its socket in time")
 
 
-@pytest.mark.concept("CONCEPT:KG-2.223")
+@pytest.mark.concept("CONCEPT:EG-KG.backend.tiny-shared")
 def test_idle_shutdown_self_terminates_and_checkpoints(tmp_path):
     binary = _build_full()
     if binary is None:
@@ -132,7 +132,7 @@ def test_idle_shutdown_self_terminates_and_checkpoints(tmp_path):
         os.remove(socket_path)
 
 
-@pytest.mark.concept("CONCEPT:KG-2.223")
+@pytest.mark.concept("CONCEPT:EG-KG.backend.tiny-shared")
 def test_sigterm_is_graceful(tmp_path):
     binary = _build_full()
     if binary is None:

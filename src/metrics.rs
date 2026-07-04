@@ -1,4 +1,4 @@
-// CONCEPT:KG-2.51 — Engine Observability (Prometheus metrics)
+// CONCEPT:EG-OS.observability.engine-metrics — Engine Observability (Prometheus metrics)
 //
 // First-class metrics for the Rust tier: request rate/latency per operation,
 // in-flight admission state, per-graph activity and size, checkpoint health,
@@ -69,7 +69,7 @@ mod imp {
         m
     }
 
-    // CONCEPT:EG-011 — labelled-histogram helper for the write-lock-gap series.
+    // CONCEPT:EG-OS.observability.write-lock-gap-histogram — labelled-histogram helper for the write-lock-gap series.
     // Mirrors `counter_vec`/`gauge_vec` (register-on-build), with a caller-supplied
     // bucket layout so the lock-gap metrics can span sub-ms .. tens-of-seconds.
     fn histogram_vec(name: &str, help: &str, labels: &[&str], buckets: Vec<f64>) -> HistogramVec {
@@ -81,7 +81,7 @@ mod imp {
         m
     }
 
-    // CONCEPT:EG-011 — write-lock-gap bucket layout. The starvation we measure
+    // CONCEPT:EG-OS.observability.write-lock-gap-histogram — write-lock-gap bucket layout. The starvation we measure
     // (semantic_search 0.02s idle → 14s under the `__commons__` firehose) spans
     // five orders of magnitude: an uncontended batch holds the topology lock for
     // tens of microseconds, while a starved writer can wait tens of seconds behind
@@ -130,7 +130,7 @@ mod imp {
         );
         static ref READ_RESERVED_ADMITTED: IntCounter = counter(
             "epistemic_graph_read_reserved_admitted_total",
-            "Read/query requests admitted via the RESERVED read lane (CONCEPT:EG-044) \
+            "Read/query requests admitted via the RESERVED read lane (CONCEPT:EG-KG.coordination.reserved-read-lane) \
              after the global pool / per-graph cap was saturated by writes — each is an \
              interactive read that would otherwise have been shed BUSY behind ingestion",
         );
@@ -181,7 +181,7 @@ mod imp {
             "epistemic_graph_access_denied_total",
             "Graph operations denied by the isolation ACL",
         );
-        // Per-graph write-coalescer observability (CONCEPT:KG-2.182). The win is
+        // Per-graph write-coalescer observability (CONCEPT:EG-KG.sharding.per-graph-write-coalescer). The win is
         // visible as ops/batch > 1: BATCHES counts topology-lock acquisitions on the
         // coalesced path, OPS counts the writes those acquisitions applied, so
         // (OPS / BATCHES) is the lock-acquisitions-saved ratio per graph.
@@ -197,7 +197,7 @@ mod imp {
              write_batches_total for the average batch size (ops per lock acquisition)",
             &["graph"],
         );
-        // ── Write-lock-gap histograms (CONCEPT:EG-011) ──
+        // ── Write-lock-gap histograms (CONCEPT:EG-OS.observability.write-lock-gap-histogram) ──
         // The contention this measures: under the `__commons__` ingestion firehose a
         // read (semantic_search) goes 0.02s idle → 14s, because writers serialize on
         // the per-graph topology write lock and a reader/late-writer queues behind the
@@ -218,7 +218,7 @@ mod imp {
             &["graph"],
             lock_gap_buckets(),
         );
-        // ── Cost / efficiency autoscale signals (CONCEPT:KG-2.234, Lane V) ──
+        // ── Cost / efficiency autoscale signals (CONCEPT:EG-KG.compute.lane-v, Lane V) ──
         static ref GRAPH_MEMORY_BYTES: IntGaugeVec = gauge_vec(
             "epistemic_graph_graph_memory_bytes",
             "Approximate resident RAM per graph (node/edge property blobs + topology \
@@ -241,13 +241,13 @@ mod imp {
             "Cold graphs hibernated (in-RAM state dropped) by the budget enforcer to keep \
              a tenant under its memory budget",
         );
-        // CONCEPT:EG-091 — slow-query counter. Increments once per query whose
+        // CONCEPT:EG-OS.observability.slow-query-descriptor — slow-query counter. Increments once per query whose
         // end-to-end execution met/exceeded EPISTEMIC_GRAPH_SLOW_QUERY_MS; stays at
         // zero unless the slow-query threshold is configured.
         static ref SLOW_QUERIES: IntCounter = counter(
             "epistemic_graph_slow_query_total",
             "Queries whose end-to-end execution met/exceeded EPISTEMIC_GRAPH_SLOW_QUERY_MS \
-             (CONCEPT:EG-091). Zero unless the slow-query threshold is configured",
+             (CONCEPT:EG-OS.observability.slow-query-descriptor). Zero unless the slow-query threshold is configured",
         );
     }
 
@@ -297,31 +297,31 @@ mod imp {
         GRAPH_EDGES.with_label_values(&[&label]).set(edges);
     }
 
-    /// Set the per-graph resident-memory estimate gauge (CONCEPT:KG-2.234), in bytes.
+    /// Set the per-graph resident-memory estimate gauge (CONCEPT:EG-KG.compute.lane-v), in bytes.
     pub fn set_graph_memory(graph: &str, bytes: i64) {
         GRAPH_MEMORY_BYTES
             .with_label_values(&[&graph_label(graph)])
             .set(bytes);
     }
 
-    /// Mark a graph hibernated (1) or resident (0) (CONCEPT:KG-2.234).
+    /// Mark a graph hibernated (1) or resident (0) (CONCEPT:EG-KG.compute.lane-v).
     pub fn set_graph_hibernated(graph: &str, hibernated: bool) {
         GRAPH_HIBERNATED
             .with_label_values(&[&graph_label(graph)])
             .set(hibernated as i64);
     }
 
-    /// Record `n` LRU nodes evicted by the per-tenant budget enforcer (CONCEPT:KG-2.234).
+    /// Record `n` LRU nodes evicted by the per-tenant budget enforcer (CONCEPT:EG-KG.compute.lane-v).
     pub fn budget_evicted(n: u64) {
         BUDGET_EVICTIONS.inc_by(n);
     }
 
-    /// Record one graph hibernated by the budget enforcer (CONCEPT:KG-2.234).
+    /// Record one graph hibernated by the budget enforcer (CONCEPT:EG-KG.compute.lane-v).
     pub fn budget_hibernated() {
         BUDGET_HIBERNATIONS.inc();
     }
 
-    /// Record one query that crossed the slow-query threshold (CONCEPT:EG-091).
+    /// Record one query that crossed the slow-query threshold (CONCEPT:EG-OS.observability.slow-query-descriptor).
     pub fn slow_query() {
         SLOW_QUERIES.inc();
     }
@@ -358,7 +358,7 @@ mod imp {
     }
 
     /// Record one committed coalesced write batch of `ops` single-op writes against
-    /// `graph` (CONCEPT:KG-2.182): +1 lock acquisition, +`ops` applied writes.
+    /// `graph` (CONCEPT:EG-KG.sharding.per-graph-write-coalescer): +1 lock acquisition, +`ops` applied writes.
     pub fn write_batch_committed(graph: &str, ops: usize) {
         let label = graph_label(graph);
         WRITE_BATCHES.with_label_values(&[&label]).inc();
@@ -368,7 +368,7 @@ mod imp {
     }
 
     /// Observe the time one write waited from enqueue to acquiring the per-graph
-    /// topology write lock (CONCEPT:EG-011) — the starvation cost a reader/late-writer
+    /// topology write lock (CONCEPT:EG-OS.observability.write-lock-gap-histogram) — the starvation cost a reader/late-writer
     /// pays behind the `__commons__` ingestion firehose.
     pub fn observe_write_lock_wait(graph: &str, seconds: f64) {
         WRITE_LOCK_WAIT
@@ -377,7 +377,7 @@ mod imp {
     }
 
     /// Observe the time the per-graph topology write lock was held to apply one
-    /// coalesced batch (CONCEPT:EG-011) — the contention cost; reads block for this.
+    /// coalesced batch (CONCEPT:EG-OS.observability.write-lock-gap-histogram) — the contention cost; reads block for this.
     pub fn observe_write_lock_hold(graph: &str, seconds: f64) {
         WRITE_LOCK_HOLD
             .with_label_values(&[&graph_label(graph)])
@@ -480,7 +480,7 @@ mod tests {
         access_denied();
         busy_rejected();
         checkpoint_completed(0.02);
-        // CONCEPT:EG-011 — write-lock-gap histograms register + render.
+        // CONCEPT:EG-OS.observability.write-lock-gap-histogram — write-lock-gap histograms register + render.
         observe_write_lock_wait("agent:metrics-test", 0.003);
         observe_write_lock_hold("agent:metrics-test", 0.0005);
 

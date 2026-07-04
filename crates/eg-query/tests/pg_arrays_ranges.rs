@@ -1,4 +1,4 @@
-//! CONCEPT:EG-104 — Postgres array/range types + common scalar/table functions.
+//! CONCEPT:EG-KG.query.greatest-least-int4range-tsrange — Postgres array/range types + common scalar/table functions.
 //!
 //! Verifies the drop-in surface ORMs/BI tools emit: the common scalar functions (which
 //! are already in DataFusion 43 vs the `greatest`/`least`/`EXTRACT` gaps EG-104 fills),

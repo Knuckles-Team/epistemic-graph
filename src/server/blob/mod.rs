@@ -1,4 +1,4 @@
-//! Streamed, content-addressed BLOB substrate (CONCEPT:KG-2.206).
+//! Streamed, content-addressed BLOB substrate (CONCEPT:EG-KG.storage.blob-namespace).
 //!
 //! The bytes tier under multimodal media (image/video/audio/file). A blob is
 //! transferred as MANY ordinary one-Response-per-Request frames sharing a
@@ -15,11 +15,11 @@
 
 pub mod store;
 
-// Content-defined chunking (CONCEPT:EG-071): the Gear/FastCDC rolling-hash splitter
+// Content-defined chunking (CONCEPT:EG-KG.storage.backward-manifest-read): the Gear/FastCDC rolling-hash splitter
 // that replaces fixed-stride chunking, so the sha256 CAS dedups edited copies.
 pub mod cdc;
 
-// In-process bounded-memory streaming facade over the CAS (CONCEPT:EG-036, M3 R4):
+// In-process bounded-memory streaming facade over the CAS (CONCEPT:EG-KG.sharding.m3-r4, M3 R4):
 // stream a multi-GB blob between an arbitrary `Read`/`Write` and the CAS without
 // buffering the whole blob. The in-process twin of the wire upload/fetch cursor.
 pub mod stream;
@@ -40,7 +40,7 @@ pub use store::{BlobManifest, ChunkStore, RedbChunkStore, SweepStats, DEFAULT_CH
 /// kilobytes, not gigabytes.
 pub struct UploadCursor {
     pub chunk_digests: Vec<String>,
-    /// Per-chunk byte lengths, parallel to `chunk_digests` (CONCEPT:EG-071): the
+    /// Per-chunk byte lengths, parallel to `chunk_digests` (CONCEPT:EG-KG.storage.backward-manifest-read): the
     /// variable content-defined boundaries the manifest records. Chunk boundaries
     /// arrive pre-cut on the wire (the client chunks — `BlobChunkPut` carries one
     /// chunk per frame), so the server records whatever lengths it is fed; the

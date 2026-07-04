@@ -1,5 +1,5 @@
 //! **Weighted spatial-network routing** — shortest path, isochrones and TSP tours
-//! (CONCEPT:EG-266).
+//! (CONCEPT:EG-KG.domains.geo-routing).
 //!
 //! The logistics / urban-planning surface needs to *route over a network*: a road graph, a
 //! delivery grid, a transit map. This module models a weighted spatial network ([`Network`])
@@ -20,7 +20,7 @@
 //! Pure-Rust, dependency-free (only a `BinaryHeap` from `std`), reusing EG-256's geodesic
 //! [`haversine_distance`](crate::geodesic::haversine_distance) for great-circle costs/heuristics.
 //!
-//! ## Turn restrictions & time-dependent weights (CONCEPT:EG-312)
+//! ## Turn restrictions & time-dependent weights (CONCEPT:EG-KG.domains.geo-partitioning)
 //!
 //! Real road networks are not plain weighted graphs: a manoeuvre *through* a junction has a
 //! cost of its own (a no-left-turn is banned, a u-turn is expensive), and an edge's cost
@@ -45,14 +45,14 @@ use std::collections::{BinaryHeap, HashMap};
 use crate::geodesic::haversine_distance;
 use crate::geometry::Point;
 
-/// A weighted directed edge to node `to` with non-negative `weight` (CONCEPT:EG-266).
+/// A weighted directed edge to node `to` with non-negative `weight` (CONCEPT:EG-KG.domains.geo-routing).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Edge {
     pub to: usize,
     pub weight: f64,
 }
 
-/// A weighted spatial network (CONCEPT:EG-266): nodes carry a [`Point`] location, edges are
+/// A weighted spatial network (CONCEPT:EG-KG.domains.geo-routing): nodes carry a [`Point`] location, edges are
 /// directed weighted links held in an adjacency list. Build it with [`Network::add_node`]
 /// and [`Network::add_edge`] / [`Network::add_undirected_edge`], then route over it.
 #[derive(Clone, Debug, Default)]
@@ -120,7 +120,7 @@ impl Network {
     }
 
     /// Add an undirected edge whose weight is the **great-circle distance** (metres) between
-    /// the two nodes' lon/lat locations (CONCEPT:EG-266) — the convenient way to weight a
+    /// the two nodes' lon/lat locations (CONCEPT:EG-KG.domains.geo-routing) — the convenient way to weight a
     /// geographic network so A\*'s Haversine heuristic is admissible.
     pub fn add_undirected_geodesic(&mut self, a: usize, b: usize) -> Result<(), String> {
         let w = haversine_distance(&self.locations[a], &self.locations[b]);
@@ -129,7 +129,7 @@ impl Network {
 
     // ── shortest path ─────────────────────────────────────────────────────────────────
 
-    /// **Dijkstra** shortest path from `source` to `target` (CONCEPT:EG-266). Returns the
+    /// **Dijkstra** shortest path from `source` to `target` (CONCEPT:EG-KG.domains.geo-routing). Returns the
     /// least-cost [`Path`], or `None` if `target` is unreachable. Uniform-cost search with a
     /// binary-heap frontier; requires non-negative edge weights (enforced at insert time).
     pub fn dijkstra(&self, source: usize, target: usize) -> Option<Path> {
@@ -137,7 +137,7 @@ impl Network {
             .and_then(|(dist, prev)| reconstruct(source, target, &dist, &prev))
     }
 
-    /// **A\*** shortest path (CONCEPT:EG-266) using the caller-supplied `heuristic`
+    /// **A\*** shortest path (CONCEPT:EG-KG.domains.geo-routing) using the caller-supplied `heuristic`
     /// (an estimated remaining cost from a node's [`Point`] to the target). The heuristic
     /// must be **admissible** (never over-estimate) for the result to be optimal.
     pub fn astar(
@@ -183,7 +183,7 @@ impl Network {
     }
 
     /// **A\*** with the built-in great-circle (Haversine) heuristic to the target's location
-    /// (CONCEPT:EG-266) — admissible when edge weights are geodesic distances in metres.
+    /// (CONCEPT:EG-KG.domains.geo-routing) — admissible when edge weights are geodesic distances in metres.
     pub fn astar_greatcircle(&self, source: usize, target: usize) -> Option<Path> {
         if target >= self.locations.len() {
             return None;
@@ -194,7 +194,7 @@ impl Network {
 
     // ── isochrone ─────────────────────────────────────────────────────────────────────
 
-    /// **Isochrone** (CONCEPT:EG-266): every node reachable from `source` with a total path
+    /// **Isochrone** (CONCEPT:EG-KG.domains.geo-routing): every node reachable from `source` with a total path
     /// cost `≤ budget`, each paired with its shortest-path cost, ascending by cost. A
     /// one-to-many Dijkstra pruned at the budget — "everything within N minutes/metres".
     pub fn isochrone(&self, source: usize, budget: f64) -> Vec<(usize, f64)> {
@@ -211,7 +211,7 @@ impl Network {
         out
     }
 
-    /// Shortest-path cost from `source` to every node (CONCEPT:EG-266); `None`/`inf` for
+    /// Shortest-path cost from `source` to every node (CONCEPT:EG-KG.domains.geo-routing); `None`/`inf` for
     /// unreachable nodes. Handy for building a network distance matrix.
     pub fn shortest_path_costs(&self, source: usize) -> Vec<f64> {
         self.search(source, None, f64::INFINITY)
@@ -264,9 +264,9 @@ impl Network {
         Some((dist, prev))
     }
 
-    // ── turn restrictions / turn costs (CONCEPT:EG-312) ─────────────────────────────────
+    // ── turn restrictions / turn costs (CONCEPT:EG-KG.domains.geo-partitioning) ─────────────────────────────────
 
-    /// **Dijkstra honouring turn costs** (CONCEPT:EG-312). Like [`Network::dijkstra`] but the
+    /// **Dijkstra honouring turn costs** (CONCEPT:EG-KG.domains.geo-partitioning). Like [`Network::dijkstra`] but the
     /// cost of every manoeuvre `(prev → node → next)` is charged from the `turns` model, so a
     /// banned turn (cost `INFINITY`) is never taken and a penalised turn (e.g. a u-turn) is
     /// avoided when a cheaper legal route exists. The optimal legal [`Path`] or `None`.
@@ -283,7 +283,7 @@ impl Network {
         self.search_turns(source, target, turns, |_| 0.0)
     }
 
-    /// **A\*** honouring turn costs (CONCEPT:EG-312) with a caller-supplied admissible
+    /// **A\*** honouring turn costs (CONCEPT:EG-KG.domains.geo-partitioning) with a caller-supplied admissible
     /// `heuristic` (estimated remaining cost from a node's [`Point`] to the target). Same
     /// turn-aware edge expansion as [`Network::dijkstra_with_turns`].
     pub fn astar_with_turns<T: TurnCost>(
@@ -296,7 +296,7 @@ impl Network {
         self.search_turns(source, target, turns, heuristic)
     }
 
-    /// **A\*** honouring turn costs with the built-in great-circle heuristic (CONCEPT:EG-312) —
+    /// **A\*** honouring turn costs with the built-in great-circle heuristic (CONCEPT:EG-KG.domains.geo-partitioning) —
     /// admissible when edge weights are geodesic distances in metres (see
     /// [`Network::astar_greatcircle`]).
     pub fn astar_greatcircle_with_turns<T: TurnCost>(
@@ -312,7 +312,7 @@ impl Network {
         self.search_turns(source, target, turns, move |p| haversine_distance(p, &goal))
     }
 
-    /// Core turn-aware Dijkstra/A\* (CONCEPT:EG-312). State = `(prev_node, node)`; the turn
+    /// Core turn-aware Dijkstra/A\* (CONCEPT:EG-KG.domains.geo-partitioning). State = `(prev_node, node)`; the turn
     /// cost `turns(prev, node, next)` is added when relaxing `node → next` (skipped when the
     /// state is the start, which has no prior edge). A turn cost of `INFINITY`/NaN prunes the
     /// move. Deterministic: relaxation order follows the heap's `(priority, …)` ordering and
@@ -376,9 +376,9 @@ impl Network {
         None
     }
 
-    // ── time-dependent / time-window edge weights (CONCEPT:EG-312) ──────────────────────
+    // ── time-dependent / time-window edge weights (CONCEPT:EG-KG.domains.geo-partitioning) ──────────────────────
 
-    /// **Time-dependent shortest path** (CONCEPT:EG-312): the least-cost [`Path`] from
+    /// **Time-dependent shortest path** (CONCEPT:EG-KG.domains.geo-partitioning): the least-cost [`Path`] from
     /// `source` to `target` when departing `source` at time `t_start`, where each edge's cost
     /// is a function of the moment it is entered (traffic profiles, opening hours). The `cost`
     /// model receives `(from, to, base_weight, t_depart)` and returns the realised traversal
@@ -457,7 +457,7 @@ impl Network {
     }
 }
 
-/// A routed path (CONCEPT:EG-266): the ordered node ids from source to target and the total
+/// A routed path (CONCEPT:EG-KG.domains.geo-routing): the ordered node ids from source to target and the total
 /// accumulated `cost`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Path {
@@ -514,9 +514,9 @@ impl Ord for Frontier {
     }
 }
 
-// ── turn-cost model (CONCEPT:EG-312) ────────────────────────────────────────────────────
+// ── turn-cost model (CONCEPT:EG-KG.domains.geo-partitioning) ────────────────────────────────────────────────────
 
-/// A **turn-cost model** (CONCEPT:EG-312): the extra cost of the manoeuvre that, having
+/// A **turn-cost model** (CONCEPT:EG-KG.domains.geo-partitioning): the extra cost of the manoeuvre that, having
 /// arrived at junction `via` from `from`, leaves `via` toward `to`. Returning `f64::INFINITY`
 /// **bans** the turn (e.g. a no-left-turn); a finite value is added to the path cost (e.g. a
 /// u-turn penalty or a signalised-junction delay). Any `Fn(usize, usize, usize) -> f64` is a
@@ -532,7 +532,7 @@ impl<F: Fn(usize, usize, usize) -> f64> TurnCost for F {
     }
 }
 
-/// A table-driven [`TurnCost`] model (CONCEPT:EG-312): explicit per-turn penalties/bans plus a
+/// A table-driven [`TurnCost`] model (CONCEPT:EG-KG.domains.geo-partitioning): explicit per-turn penalties/bans plus a
 /// blanket **u-turn penalty** applied to any `from → via → from` manoeuvre. Explicit table
 /// entries take precedence over the u-turn default, so a specific u-turn can be individually
 /// allowed, penalised or banned. Build with [`TurnRestrictions::new`] then [`ban`] /
@@ -548,31 +548,31 @@ pub struct TurnRestrictions {
 }
 
 impl TurnRestrictions {
-    /// An empty model — no restrictions and a zero u-turn penalty (CONCEPT:EG-312).
+    /// An empty model — no restrictions and a zero u-turn penalty (CONCEPT:EG-KG.domains.geo-partitioning).
     pub fn new() -> Self {
         Self::default()
     }
 
     /// Set the blanket u-turn penalty (builder form) charged to any `from → via → from`
-    /// manoeuvre lacking an explicit table entry (CONCEPT:EG-312).
+    /// manoeuvre lacking an explicit table entry (CONCEPT:EG-KG.domains.geo-partitioning).
     pub fn with_uturn_penalty(mut self, penalty: f64) -> Self {
         self.uturn_penalty = penalty;
         self
     }
 
-    /// Set the blanket u-turn penalty in place (CONCEPT:EG-312).
+    /// Set the blanket u-turn penalty in place (CONCEPT:EG-KG.domains.geo-partitioning).
     pub fn set_uturn_penalty(&mut self, penalty: f64) -> &mut Self {
         self.uturn_penalty = penalty;
         self
     }
 
-    /// **Ban** the turn `from → via → to` (cost `INFINITY`) — CONCEPT:EG-312.
+    /// **Ban** the turn `from → via → to` (cost `INFINITY`) — CONCEPT:EG-KG.domains.geo-partitioning.
     pub fn ban(&mut self, from: usize, via: usize, to: usize) -> &mut Self {
         self.table.insert((from, via, to), f64::INFINITY);
         self
     }
 
-    /// **Penalise** the turn `from → via → to` by `cost` (added to the path) — CONCEPT:EG-312.
+    /// **Penalise** the turn `from → via → to` by `cost` (added to the path) — CONCEPT:EG-KG.domains.geo-partitioning.
     pub fn penalize(&mut self, from: usize, via: usize, to: usize, cost: f64) -> &mut Self {
         self.table.insert((from, via, to), cost);
         self
@@ -591,7 +591,7 @@ impl TurnCost for TurnRestrictions {
     }
 }
 
-/// A turn-aware priority-queue entry (CONCEPT:EG-312): like [`Frontier`] but the search state
+/// A turn-aware priority-queue entry (CONCEPT:EG-KG.domains.geo-partitioning): like [`Frontier`] but the search state
 /// is the directed edge `(prev, node)` just travelled, so a node can be re-entered from a
 /// different predecessor. Ordered so the smallest `priority` pops first.
 struct TurnFrontier {
@@ -619,7 +619,7 @@ impl Ord for TurnFrontier {
     }
 }
 
-/// Rebuild the node sequence for a turn-aware search (CONCEPT:EG-312) by walking the
+/// Rebuild the node sequence for a turn-aware search (CONCEPT:EG-KG.domains.geo-partitioning) by walking the
 /// `(prev, node)` predecessor-state chain back to the start state.
 fn reconstruct_turns(
     winning: (usize, usize),
@@ -639,9 +639,9 @@ fn reconstruct_turns(
     Some(Path { nodes, cost })
 }
 
-// ── time-dependent edge-cost model (CONCEPT:EG-312) ─────────────────────────────────────
+// ── time-dependent edge-cost model (CONCEPT:EG-KG.domains.geo-partitioning) ─────────────────────────────────────
 
-/// A **time-dependent edge-cost model** (CONCEPT:EG-312): the realised cost (travel time) of
+/// A **time-dependent edge-cost model** (CONCEPT:EG-KG.domains.geo-partitioning): the realised cost (travel time) of
 /// traversing edge `from → to` (base weight `base_weight`) when it is entered at `t_depart`.
 /// Returning a non-finite or negative value closes the edge at that instant (e.g. outside
 /// opening hours). Any `Fn(usize, usize, f64, f64) -> f64` is a model, and [`TrafficProfile`]
@@ -657,12 +657,12 @@ impl<F: Fn(usize, usize, f64, f64) -> f64> TimeCost for F {
     }
 }
 
-/// A piecewise **time-window** [`TimeCost`] model (CONCEPT:EG-312) — a traffic / opening-hours
+/// A piecewise **time-window** [`TimeCost`] model (CONCEPT:EG-KG.domains.geo-partitioning) — a traffic / opening-hours
 /// profile. Each directed edge `(from, to)` may carry `[start, end)` windows with a cost
 /// **multiplier** on the base weight (e.g. `3.0` for rush-hour congestion, `INFINITY` to close
 /// the edge outside opening hours). Windows are tested in insertion order and the first match
 /// wins (deterministic); outside every window the base weight applies unchanged.
-/// One `(start, end, multiplier)` time-window on an edge (CONCEPT:EG-312).
+/// One `(start, end, multiplier)` time-window on an edge (CONCEPT:EG-KG.domains.geo-partitioning).
 type TimeWindow = (f64, f64, f64);
 
 #[derive(Clone, Debug, Default)]
@@ -671,13 +671,13 @@ pub struct TrafficProfile {
 }
 
 impl TrafficProfile {
-    /// An empty profile (every edge at its base weight for all time) — CONCEPT:EG-312.
+    /// An empty profile (every edge at its base weight for all time) — CONCEPT:EG-KG.domains.geo-partitioning.
     pub fn new() -> Self {
         Self::default()
     }
 
     /// Add a `[start, end)` window on directed edge `from → to` multiplying the base weight by
-    /// `multiplier` for departures inside it (CONCEPT:EG-312). `INFINITY` closes the edge in
+    /// `multiplier` for departures inside it (CONCEPT:EG-KG.domains.geo-partitioning). `INFINITY` closes the edge in
     /// that window. Returns `&mut self` for chaining.
     pub fn add_window(
         &mut self,
@@ -710,7 +710,7 @@ impl TimeCost for TrafficProfile {
 
 // ── TSP (nearest-neighbour + 2-opt) ────────────────────────────────────────────────────
 
-/// Build a full distance matrix over `points` using `metric` (CONCEPT:EG-266). Symmetric
+/// Build a full distance matrix over `points` using `metric` (CONCEPT:EG-KG.domains.geo-routing). Symmetric
 /// when `metric` is; the diagonal is zero. Pass [`haversine_distance`] for a geographic
 /// tour or [`Point::distance`] for a planar one.
 pub fn distance_matrix(points: &[Point], metric: impl Fn(&Point, &Point) -> f64) -> Vec<Vec<f64>> {
@@ -727,7 +727,7 @@ pub fn distance_matrix(points: &[Point], metric: impl Fn(&Point, &Point) -> f64)
 }
 
 /// The total length of `tour` over distance matrix `dist`, **including** the return leg to
-/// the start (a closed tour) (CONCEPT:EG-266).
+/// the start (a closed tour) (CONCEPT:EG-KG.domains.geo-routing).
 pub fn tour_length(tour: &[usize], dist: &[Vec<f64>]) -> f64 {
     if tour.len() < 2 {
         return 0.0;
@@ -739,7 +739,7 @@ pub fn tour_length(tour: &[usize], dist: &[Vec<f64>]) -> f64 {
     total + dist[tour[tour.len() - 1]][tour[0]] // close the loop
 }
 
-/// A **nearest-neighbour** TSP tour from `start` over distance matrix `dist` (CONCEPT:EG-266):
+/// A **nearest-neighbour** TSP tour from `start` over distance matrix `dist` (CONCEPT:EG-KG.domains.geo-routing):
 /// greedily hop to the closest unvisited node. Fast seed, typically ~25% above optimal.
 pub fn nearest_neighbour_tour(dist: &[Vec<f64>], start: usize) -> Vec<usize> {
     let n = dist.len();
@@ -770,7 +770,7 @@ pub fn nearest_neighbour_tour(dist: &[Vec<f64>], start: usize) -> Vec<usize> {
     tour
 }
 
-/// Improve a closed `tour` in place with **2-opt** (CONCEPT:EG-266): repeatedly reverse a
+/// Improve a closed `tour` in place with **2-opt** (CONCEPT:EG-KG.domains.geo-routing): repeatedly reverse a
 /// segment whenever doing so shortens the tour, until no improving move remains. Returns the
 /// improved tour (never longer than the input).
 pub fn two_opt(mut tour: Vec<usize>, dist: &[Vec<f64>]) -> Vec<usize> {
@@ -801,7 +801,7 @@ pub fn two_opt(mut tour: Vec<usize>, dist: &[Vec<f64>]) -> Vec<usize> {
 }
 
 /// Solve a TSP over `points` from `start`: build a Haversine distance matrix, seed with
-/// nearest-neighbour, refine with 2-opt (CONCEPT:EG-266). Returns the tour order and its
+/// nearest-neighbour, refine with 2-opt (CONCEPT:EG-KG.domains.geo-routing). Returns the tour order and its
 /// closed length in metres. For a planar tour, build the matrix with [`distance_matrix`] and
 /// call [`nearest_neighbour_tour`] + [`two_opt`] directly.
 pub fn solve_tsp(points: &[Point], start: usize) -> (Vec<usize>, f64) {
@@ -969,9 +969,9 @@ mod tests {
         assert!(len.is_finite() && len > 0.0);
     }
 
-    // ── turn restrictions / turn costs (CONCEPT:EG-312) ─────────────────────────────────
+    // ── turn restrictions / turn costs (CONCEPT:EG-KG.domains.geo-partitioning) ─────────────────────────────────
 
-    /// The [`TurnRestrictions`] model (CONCEPT:EG-312): explicit bans/penalties win over the
+    /// The [`TurnRestrictions`] model (CONCEPT:EG-KG.domains.geo-partitioning): explicit bans/penalties win over the
     /// blanket u-turn penalty; unrestricted turns are free.
     #[test]
     fn eg312_turn_restrictions_model_lookup() {
@@ -987,7 +987,7 @@ mod tests {
     }
 
     /// A banned turn forces a strictly longer *legal* path than the turn-free optimum
-    /// (CONCEPT:EG-312). Plain Dijkstra takes `0→1→2` (cost 2); banning the turn `0→1→2`
+    /// (CONCEPT:EG-KG.domains.geo-partitioning). Plain Dijkstra takes `0→1→2` (cost 2); banning the turn `0→1→2`
     /// forces the detour `0→3→2` (cost 3).
     ///
     /// ```text
@@ -1031,7 +1031,7 @@ mod tests {
 
     /// A no-left-turn at a junction is worked around either by a **u-turn** (charged the u-turn
     /// penalty) or by a longer **detour**; the u-turn penalty decides which the router picks
-    /// (CONCEPT:EG-312). Small penalty → u-turn route `0→1→4→1→2`; large penalty → detour
+    /// (CONCEPT:EG-KG.domains.geo-partitioning). Small penalty → u-turn route `0→1→4→1→2`; large penalty → detour
     /// `0→1→3→2`.
     #[test]
     fn eg312_uturn_penalty_changes_route_choice() {
@@ -1073,7 +1073,7 @@ mod tests {
         assert_eq!(via_detour.nodes, vec![0, 1, 3, 2], "goes around the block");
     }
 
-    /// Turn-aware routing with no restrictions reproduces plain Dijkstra (CONCEPT:EG-312) — the
+    /// Turn-aware routing with no restrictions reproduces plain Dijkstra (CONCEPT:EG-KG.domains.geo-partitioning) — the
     /// additive layer is a pure superset.
     #[test]
     fn eg312_turns_with_empty_model_match_plain_dijkstra() {
@@ -1086,9 +1086,9 @@ mod tests {
         assert_eq!(plain.nodes, turns.nodes);
     }
 
-    // ── time-dependent / time-window edge weights (CONCEPT:EG-312) ──────────────────────
+    // ── time-dependent / time-window edge weights (CONCEPT:EG-KG.domains.geo-partitioning) ──────────────────────
 
-    /// A two-route network where departure time selects the path (CONCEPT:EG-312). Route A
+    /// A two-route network where departure time selects the path (CONCEPT:EG-KG.domains.geo-partitioning). Route A
     /// (`0→1→3`, base 2) is fast off-peak but jams 5× during `[8, 9)`; route B (`0→2→3`, base
     /// 3.2) is steady. Departing at `t=0` picks A; departing at `t=8` picks B.
     #[test]
@@ -1118,7 +1118,7 @@ mod tests {
     }
 
     /// A closed edge (opening-hours window with an `INFINITY` multiplier) is skipped when
-    /// departing inside the closure, forcing an alternate route (CONCEPT:EG-312).
+    /// departing inside the closure, forcing an alternate route (CONCEPT:EG-KG.domains.geo-partitioning).
     #[test]
     fn eg312_time_window_closes_edge_outside_opening_hours() {
         let mut g = Network::new();
@@ -1145,7 +1145,7 @@ mod tests {
     }
 
     /// A constant [`TimeCost`] (base weight for all time) reproduces plain Dijkstra
-    /// (CONCEPT:EG-312).
+    /// (CONCEPT:EG-KG.domains.geo-partitioning).
     #[test]
     fn eg312_constant_time_cost_matches_plain_dijkstra() {
         let g = diamond();

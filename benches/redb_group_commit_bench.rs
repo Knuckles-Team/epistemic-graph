@@ -1,4 +1,4 @@
-//! Redb durable group-commit micro-linger reproduction (CONCEPT:EG-024).
+//! Redb durable group-commit micro-linger reproduction (CONCEPT:EG-KG.backend.adaptive-linger-coalesce).
 //!
 //! Live profiling showed the single `eg-redb-writer` thread pinned ~100% on ext4
 //! writeback (disk ~83% util, ~50ms write latency, queue depth 42) while every tokio

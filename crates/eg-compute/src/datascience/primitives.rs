@@ -1,4 +1,4 @@
-// CONCEPT:KG-2.22a — ML Primitives
+// CONCEPT:EG-KG.compute.ml-primitives — ML Primitives
 //
 // Core machine learning building blocks implemented in Rust.
 // These replace scipy/sklearn hot paths and are served over the Tokio

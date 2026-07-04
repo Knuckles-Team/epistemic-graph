@@ -1,4 +1,4 @@
-//! The OWL/SPARQL compose-oracle proofs (CONCEPT:KG-2.220).
+//! The OWL/SPARQL compose-oracle proofs (CONCEPT:EG-KG.ontology.concept-12).
 //!
 //! Mirrors the [`crate::oracle`] pattern for the semantic tier: a SINGLE
 //! `UnifiedQuery` plan that seeds its candidate set from `Op::Reason` (OWL-inferred

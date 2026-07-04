@@ -1,4 +1,4 @@
-# CONCEPT:KG-2.19 — Epistemic Graph Service Client
+# CONCEPT:EG-KG.query.wire-protocol — Epistemic Graph Service Client
 #
 # Async Python client for the Tokio-based epistemic-graph service.
 # Communicates over UDS or TCP using Length-prefixed MessagePack framing
@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 class ResultTooLargeError(RuntimeError):
     """Raised when an unbounded read (e.g. ``nodes.list()`` / ``GetNodes``) would
     return more than the engine's configured node cap
-    (``EPISTEMIC_GRAPH_MAX_RESPONSE_NODES``, CONCEPT:KG-2.264).
+    (``EPISTEMIC_GRAPH_MAX_RESPONSE_NODES``, CONCEPT:EG-KG.ingest.resets-socket-so-assimilation).
 
     The engine refuses to serialize a pathological full-graph dump (which would
     overrun/reset the connection) and instead returns a typed ``RESULT_TOO_LARGE``
@@ -36,7 +36,7 @@ class ResultTooLargeError(RuntimeError):
 
 
 class NodeClient:
-    """CONCEPT:KG-2.0 — Topology Node Namespace"""
+    """CONCEPT:AU-KG.query.object-graph-mapper — Topology Node Namespace"""
 
     def __init__(self, client: EpistemicGraphClient) -> None:
         self._client = client
@@ -59,7 +59,7 @@ class NodeClient:
     async def compare_and_set(
         self, node_id: str, conditions: dict[str, Any], updates: dict[str, Any]
     ) -> bool:
-        """Atomic compare-and-set on a node's property blob (CONCEPT:KG-2 backend-
+        """Atomic compare-and-set on a node's property blob (CONCEPT:EG-KG.compute.backend backend-
         agnostic atomic claim). If every ``(field, expected)`` in ``conditions``
         matches the node's current value (a MISSING field reads as ``None``), the
         ``updates`` are merged in and ``True`` is returned; otherwise (node absent,
@@ -78,7 +78,7 @@ class NodeClient:
     async def claim_next(
         self, label: str, updates: dict[str, Any]
     ) -> tuple[str, dict[str, Any]] | None:
-        """Atomically claim the oldest pending node of ``label`` (CONCEPT:KG-2.303).
+        """Atomically claim the oldest pending node of ``label`` (CONCEPT:EG-KG.compute.atomically-claim-oldest-pending).
 
         Among ``label``'s nodes whose ``status == "pending"``, the engine picks the
         smallest ``seq`` and merges ``updates`` (the claim marker) in ONE round-trip
@@ -100,7 +100,7 @@ class NodeClient:
         """Dump EVERY node in the graph (unbounded full-graph read).
 
         On a large graph this is refused by the engine's overload backstop
-        (CONCEPT:KG-2.264): if the graph has more than
+        (CONCEPT:EG-KG.ingest.resets-socket-so-assimilation): if the graph has more than
         ``EPISTEMIC_GRAPH_MAX_RESPONSE_NODES`` nodes (default 50_000), this raises
         :class:`ResultTooLargeError` instead of materializing a gigabyte-scale
         frame that would reset the connection. Use :meth:`list_by_label` (which is
@@ -131,7 +131,7 @@ class NodeClient:
     async def properties_batch(
         self, node_ids: builtins.list[str]
     ) -> dict[str, dict[str, Any] | None]:
-        """Fetch properties for many nodes in ONE round-trip (CONCEPT:KG-2.16).
+        """Fetch properties for many nodes in ONE round-trip (CONCEPT:EG-KG.memory.forgetting-curve-decay).
 
         Returns a mapping ``node_id -> properties`` (``None`` for ids absent from
         the graph). Collapses what would be N ``properties()`` calls — and N
@@ -173,7 +173,7 @@ class NodeClient:
     async def neighbors(self, node_id: str) -> builtins.list[str]:
         return await self._client._send("GetNeighbors", {"node_id": node_id})
 
-    # ── Cross-graph union reads (CONCEPT:KG-2.171) ───────────────────────
+    # ── Cross-graph union reads (CONCEPT:EG-KG.query.cross-graph-union) ───────────────────────
     # Read across a SET of content graphs as if one, so writes can be partitioned
     # across per-graph write locks (each lane its own graph) while reads see the
     # union. Missing lane graphs in the set are skipped engine-side.
@@ -212,7 +212,7 @@ class NodeClient:
 
 
 class EdgeClient:
-    """CONCEPT:KG-2.0 — Topology Edge Namespace"""
+    """CONCEPT:AU-KG.query.object-graph-mapper — Topology Edge Namespace"""
 
     def __init__(self, client: EpistemicGraphClient) -> None:
         self._client = client
@@ -314,7 +314,7 @@ class EdgeClient:
     async def properties_batch(
         self, edges: builtins.list[tuple[str, str]]
     ) -> builtins.list[builtins.list[dict[str, Any]]]:
-        """Fetch properties for many edges in ONE round-trip (CONCEPT:KG-2.16).
+        """Fetch properties for many edges in ONE round-trip (CONCEPT:EG-KG.memory.forgetting-curve-decay).
 
         Returns a list parallel to ``edges``; each element is the list of property
         dicts for that ``(source, target)`` pair (a pair may carry multiple edges;
@@ -338,7 +338,7 @@ class EdgeClient:
 
 
 class GraphOperationsClient:
-    """CONCEPT:KG-2.6 — Graph Algorithms Namespace"""
+    """CONCEPT:AU-KG.research.research-pipeline-runner — Graph Algorithms Namespace"""
 
     def __init__(self, client: EpistemicGraphClient) -> None:
         self._client = client
@@ -355,7 +355,7 @@ class GraphOperationsClient:
         )
 
     async def parse_files(self, files: list[tuple[str, bytes]]) -> list[dict[str, Any]]:
-        """Parse many files in ONE round-trip (CONCEPT:KG-2.16 batch op).
+        """Parse many files in ONE round-trip (CONCEPT:EG-KG.memory.forgetting-curve-decay batch op).
 
         ``files`` is a list of ``(file_path, source_bytes)``. Returns one parse
         result per input file, **in input order**, each with the same shape as
@@ -367,7 +367,7 @@ class GraphOperationsClient:
 
     async def index_repository(self, files: list[tuple[str, bytes]]) -> dict[str, Any]:
         """Parse a batch AND resolve cross-file edges in ONE round-trip
-        (CONCEPT:KG-2.8r).
+        (CONCEPT:EG-KG.compute.turn-each-project).
 
         ``files`` is a list of ``(file_path, source_bytes)`` — the SAME blob as
         :meth:`parse_files`, but the batch is treated as one resolution scope (a
@@ -399,7 +399,7 @@ class GraphOperationsClient:
         elements: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """Turn a captured desktop frame into durable graph entities in ONE round-trip
-        (CONCEPT:KG-2.185).
+        (CONCEPT:AU-KG.ontology.owl-screen-bridge).
 
         ``png`` is the screenshot bytes (only its dimensions + content hash are kept,
         for frame-diff — the image itself is not persisted). ``elements`` is the AT-SPI
@@ -446,7 +446,7 @@ class GraphOperationsClient:
         query_embedding: list[float],
         k: int = 5,
     ) -> list[dict[str, Any]]:
-        """One-round-trip hybrid discovery (CONCEPT:KG-2.132).
+        """One-round-trip hybrid discovery (CONCEPT:EG-KG.retrieval.one-round-trip-discovery).
 
         Ranks nodes by BOTH lexical keyword overlap (over ``name``/``description``/
         ``type``) AND semantic similarity to ``query_embedding``, returning the
@@ -468,7 +468,7 @@ class GraphOperationsClient:
         )
 
     async def match_ontology_terms(self, query: str) -> list[dict[str, Any]]:
-        """CONCEPT:EG-010 — embedding-free lexical classification gate.
+        """CONCEPT:EG-ORCH.routing.lexical-capability-escalation — embedding-free lexical classification gate.
 
         Returns the capability-node terms (Tool/Skill/MCPServer names+synonyms)
         that appear as whole words in ``query``, each as
@@ -518,7 +518,7 @@ class GraphOperationsClient:
 
     async def batch_l2_normalize(self, vectors: list[list[float]]) -> list[list[float]]:
         """L2-normalize a batch of vectors IN-ENGINE via the eg-numeric kernel
-        (CONCEPT:EG-330, compute-near-data). Returns each row's unit vector `v/‖v‖`
+        (CONCEPT:EG-KG.compute.l2-normalize-batch-vectors, compute-near-data). Returns each row's unit vector `v/‖v‖`
         (a zero vector is returned unchanged). Requires the engine's `numeric` feature."""
         return await self._client._send("BatchL2Normalize", {"vectors": vectors})
 
@@ -582,11 +582,11 @@ class GraphOperationsClient:
         return await self._client._send("ConnectedComponents")
 
     async def strongly_connected_components(self) -> list[list[str]]:
-        """CONCEPT:KG-2.16 — Tarjan's SCC via Tokio service."""
+        """CONCEPT:EG-KG.memory.forgetting-curve-decay — Tarjan's SCC via Tokio service."""
         return await self._client._send("StronglyConnectedComponents")
 
     async def minimum_spanning_tree(self) -> list[tuple[str, str, float]]:
-        """CONCEPT:KG-2.16 — Kruskal's MST via Tokio service."""
+        """CONCEPT:EG-KG.memory.forgetting-curve-decay — Kruskal's MST via Tokio service."""
         return await self._client._send("MinimumSpanningTree")
 
     async def community_detection(self, resolution: float = 1.0) -> list[list[str]]:
@@ -625,7 +625,7 @@ class GraphOperationsClient:
         merge_threshold: float = 0.92,
         node_type: str | None = None,
     ) -> list[dict]:
-        """Native entity-resolution candidate generation (CONCEPT:KG-2.260).
+        """Native entity-resolution candidate generation (CONCEPT:AU-KG.compute.when-exposes-native).
 
         Composes embedding similarity + clustering server-side into ONE read op and
         returns merge proposals — each ``{canonical, members, score, kind}`` where
@@ -646,7 +646,7 @@ class GraphOperationsClient:
 
 
 class AnalyticsClient:
-    """CONCEPT:KG-2.6 — Analytics and Centrality Namespace"""
+    """CONCEPT:AU-KG.research.research-pipeline-runner — Analytics and Centrality Namespace"""
 
     def __init__(self, client: EpistemicGraphClient) -> None:
         self._client = client
@@ -680,7 +680,7 @@ class AnalyticsClient:
 
 
 class LifecycleClient:
-    """CONCEPT:KG-2.6 — Lifecycle and State Management Namespace"""
+    """CONCEPT:AU-KG.research.research-pipeline-runner — Lifecycle and State Management Namespace"""
 
     def __init__(self, client: EpistemicGraphClient) -> None:
         self._client = client
@@ -719,7 +719,7 @@ class LifecycleClient:
         floor: float = 0.0,
         prune: bool = False,
     ) -> dict[str, Any]:
-        """CONCEPT:KG-2.16 — Ebbinghaus forgetting-curve decay.
+        """CONCEPT:EG-KG.memory.forgetting-curve-decay — Ebbinghaus forgetting-curve decay.
 
         Decays every node's and edge's belief ``confidence`` by
         ``R = 0.5 ** (Δt / half_life_secs)`` since its last access, persisting the
@@ -741,7 +741,7 @@ class LifecycleClient:
 
 
 class ReasoningClient:
-    """CONCEPT:KG-2.17 — Compiled Semantic Reasoner Namespace.
+    """CONCEPT:EG-KG.compute.compiled-semantic-reasoner — Compiled Semantic Reasoner Namespace.
 
     Forward-chaining OWL/RDFS inference executed in the Rust engine. Materialises
     inferred edges and type annotations in-place and returns the inferred triples.
@@ -787,7 +787,7 @@ class ReasoningClient:
 
 
 class LedgerClient:
-    """CONCEPT:KG-2.0 — Ledger Namespace"""
+    """CONCEPT:AU-KG.query.object-graph-mapper — Ledger Namespace"""
 
     def __init__(self, client: EpistemicGraphClient) -> None:
         self._client = client
@@ -803,7 +803,7 @@ class LedgerClient:
 
 
 class ChannelsClient:
-    """CONCEPT:KG-2.0 — Dynamic Communication Channels Namespace"""
+    """CONCEPT:AU-KG.query.object-graph-mapper — Dynamic Communication Channels Namespace"""
 
     def __init__(self, client: EpistemicGraphClient) -> None:
         self._client = client
@@ -871,7 +871,7 @@ class ChannelsClient:
 
 
 class MultiTenantClient:
-    """CONCEPT:KG-2.6 — Multi-Tenant Management Namespace"""
+    """CONCEPT:AU-KG.research.research-pipeline-runner — Multi-Tenant Management Namespace"""
 
     def __init__(self, client: EpistemicGraphClient) -> None:
         self._client = client
@@ -889,7 +889,7 @@ class MultiTenantClient:
 
 
 class ReshardingClient:
-    """CONCEPT:EG-038 — M3 catalog-driven resharding admin namespace.
+    """CONCEPT:EG-KG.sharding.resharding-admin-api — M3 catalog-driven resharding admin namespace.
 
     Drives, over the wire, the M3 ops the engine has building blocks for: online
     single-node resharding (EG-032), the durable tenant catalog (EG-031), and the
@@ -951,7 +951,7 @@ class ReshardingClient:
 
 
 class ConsensusClient:
-    """CONCEPT:KG-2.6 — Zero-Trust Consensus Namespace"""
+    """CONCEPT:AU-KG.research.research-pipeline-runner — Zero-Trust Consensus Namespace"""
 
     def __init__(self, client: EpistemicGraphClient) -> None:
         self._client = client
@@ -984,7 +984,7 @@ class ConsensusClient:
 
 
 class FinanceClient:
-    """CONCEPT:KG-2.6 — Quantitative Finance Namespace"""
+    """CONCEPT:AU-KG.research.research-pipeline-runner — Quantitative Finance Namespace"""
 
     def __init__(self, client: EpistemicGraphClient) -> None:
         self._client = client
@@ -1244,7 +1244,7 @@ class FinanceClient:
         """Match a limit-order book. Each order: {id, side, price, quantity, timestamp}."""
         return await self._client._send("FinanceMatchOrders", {"orders": orders})
 
-    # ── Market making / microstructure (CONCEPT:KG-2.20f) ──────────────
+    # ── Market making / microstructure (CONCEPT:EG-KG.domains.market-microstructure-sizing-backtest) ──────────────
     async def avellaneda_stoikov(
         self,
         mid: float,
@@ -1415,7 +1415,7 @@ class FinanceClient:
             {"times": times, "t_horizon": t_horizon, "n_windows": n_windows},
         )
 
-    # ── Kyle insider/stealth surveillance (CONCEPT:KG-2.20k) ───────────
+    # ── Kyle insider/stealth surveillance (CONCEPT:EG-KG.domains.concept-2) ───────────
     async def kyle_lambda(
         self, price_changes: list[float], signed_order_flow: list[float]
     ) -> float:
@@ -1434,7 +1434,7 @@ class FinanceClient:
         price_changes: list[float],
         baseline_sigma: float = 0.0,
     ) -> dict[str, Any]:
-        """Kyle insider/stealth-trading surveillance scores (CONCEPT:KG-2.20k).
+        """Kyle insider/stealth-trading surveillance scores (CONCEPT:EG-KG.domains.concept-2).
 
         Returns ``kyle_lambda``, ``informed_share`` (VPIN α), ``detection_hazard``,
         ``cumulative_suspicion``, ``stealth_ratio`` and ``legal_risk_score`` ∈ [0,1].
@@ -1453,7 +1453,7 @@ class FinanceClient:
             },
         )
 
-    # ── Position sizing (CONCEPT:KG-2.20f) ─────────────────────────────
+    # ── Position sizing (CONCEPT:EG-KG.domains.market-microstructure-sizing-backtest) ─────────────────────────────
     async def kelly_fraction(self, q: float, c: float, fraction: float = 0.25) -> float:
         """Fractional Kelly for a YES contract: f* = (q−c)/(1−c), scaled."""
         return await self._client._send(
@@ -1478,7 +1478,7 @@ class FinanceClient:
             {"alpha": alpha, "beta": beta, "level": level},
         )
 
-    # ── Backtest validation (CONCEPT:KG-2.20f) ─────────────────────────
+    # ── Backtest validation (CONCEPT:EG-KG.domains.market-microstructure-sizing-backtest) ─────────────────────────
     async def purged_cpcv(
         self,
         n_samples: int,
@@ -1531,7 +1531,7 @@ class FinanceClient:
             {"losses_a": losses_a, "losses_b": losses_b, "h": h},
         )
 
-    # ── Forensic accounting (CONCEPT:KG-2.20g) ─────────────────────────
+    # ── Forensic accounting (CONCEPT:EG-KG.domains.forensic-accounting-kernels) ─────────────────────────
     async def forensic_report(
         self, this_year: dict[str, Any], prior_year: dict[str, Any]
     ) -> dict[str, Any]:
@@ -1543,7 +1543,7 @@ class FinanceClient:
             {"this_year": this_year, "prior_year": prior_year},
         )
 
-    # ── State-space / stat-arb (CONCEPT:KG-2.20h) ──────────────────────
+    # ── State-space / stat-arb (CONCEPT:EG-KG.domains.state-space-statistical-arbitrage) ──────────────────────
     async def kalman_filter_1d(
         self,
         observations: list[float],
@@ -1660,7 +1660,7 @@ class FinanceClient:
             "FinanceMarkovTransitionMatrix", {"states": states, "n_states": n_states}
         )
 
-    # ── Signal combination / sizing / calibration (CONCEPT:KG-2.20i) ───
+    # ── Signal combination / sizing / calibration (CONCEPT:EG-KG.domains.quant-finance) ───
     async def order_book_imbalance(
         self, v_bid: list[float], v_ask: list[float]
     ) -> list[float]:
@@ -1774,7 +1774,7 @@ class FinanceClient:
             },
         )
 
-    # ── Derivatives: SABR volatility surface (CONCEPT:KG-2.20j) ─────────
+    # ── Derivatives: SABR volatility surface (CONCEPT:AU-KG.domains.derivatives) ─────────
     async def sabr_implied_vol(
         self,
         f: float,
@@ -1846,7 +1846,7 @@ class FinanceClient:
 
 
 class DataScienceClient:
-    """CONCEPT:KG-2.22 — Data Science Primitives Namespace.
+    """CONCEPT:EG-KG.compute.rust-native-training-loss — Data Science Primitives Namespace.
 
     Rust-backed OLS / K-means / PCA / dataset-stats / split. Arrays are shipped
     whole per call (one round-trip) — never loop per row over the wire.
@@ -1915,7 +1915,7 @@ class DataScienceClient:
         """Predict with a model blob returned by ``fit_estimator``."""
         return await self._client._send("DsPredictEstimator", {"model": model, "x": x})
 
-    # ── Training loss / optimizer kernels (CONCEPT:KG-2.22) ──────────────────
+    # ── Training loss / optimizer kernels (CONCEPT:EG-KG.compute.rust-native-training-loss) ──────────────────
     # The Rust performance path for the in-house training substrate (Wave C / C1),
     # mirroring data-science-mcp `trainers/objectives.py`. Batch a step over the
     # wire instead of marshalling per element.
@@ -2024,7 +2024,7 @@ class DataScienceClient:
         )
 
 
-# Per-RPC timeouts (CONCEPT:KG-2.19). A wedged or overloaded engine must never
+# Per-RPC timeouts (CONCEPT:EG-KG.query.wire-protocol). A wedged or overloaded engine must never
 # hang a caller forever — every request is bounded. Normal CRUD uses the short
 # default; known-heavy ops (full-graph parse/scan/algorithms) get a generous
 # budget so a legitimately long job is not aborted. Both are overridable per
@@ -2070,14 +2070,14 @@ _HEAVY_RPC_METHODS = frozenset(
         "GetSubgraph",
         "GetNodes",
         "GetEdges",
-        # SQL scans the whole node set (CONCEPT:KG-2.178) — give it the heavy budget.
+        # SQL scans the whole node set (CONCEPT:EG-KG.query.read-only-sql-query) — give it the heavy budget.
         "Sql",
-        # Cypher MATCH/BFS scans the node set too (CONCEPT:KG-2.179).
+        # Cypher MATCH/BFS scans the node set too (CONCEPT:EG-KG.query.dep-free-behind).
         "CypherQuery",
-        # A txn commit (CONCEPT:KG-2.180) applies the whole staged write-set under
+        # A txn commit (CONCEPT:EG-KG.txn.multi-op-occ-acid) applies the whole staged write-set under
         # one lock — a large multi-op commit may legitimately take longer.
         "Commit",
-        # An online backup (CONCEPT:EG-090) streams a per-shard MVCC snapshot verbatim to
+        # An online backup (CONCEPT:EG-KG.sharding.reshard-on-restore) streams a per-shard MVCC snapshot verbatim to
         # a bundle dir — give it the heavy budget. Restore stages a rebuilt copy likewise.
         "Backup",
         "Restore",
@@ -2086,7 +2086,7 @@ _HEAVY_RPC_METHODS = frozenset(
 
 
 class QueryClient:
-    """CONCEPT:KG-2.178 — Read-only SQL Query Namespace.
+    """CONCEPT:EG-KG.query.read-only-sql-query — Read-only SQL Query Namespace.
 
     ``SELECT ... FROM nodes WHERE ... LIMIT ...`` over the connection's graph,
     served by the engine's DataFusion surface (requires a server built with the
@@ -2115,7 +2115,7 @@ class QueryClient:
         RETURN column.
 
         ``MATCH (a:Label)-[:REL]->(b:Label2) WHERE a.prop = 'x' RETURN a, b LIMIT
-        k`` over the connection's graph (CONCEPT:KG-2.179). DEP-FREE on the engine
+        k`` over the connection's graph (CONCEPT:EG-KG.query.dep-free-behind). DEP-FREE on the engine
         side — compiled to the label index / VF2 / BFS, NO DataFusion — so it works
         against a server built with only the ``cypher`` feature (the lean Pi build).
 
@@ -2132,7 +2132,7 @@ class QueryClient:
 
     async def graphql(self, query: str) -> dict[str, Any]:
         """Run a GraphQL READ ``query`` and return the GraphQL ``{"data": …}`` dict
-        (CONCEPT:KG-2.235).
+        (CONCEPT:EG-KG.query.sparql-completeness).
 
         The query's root fields are node TYPES (labels) with optional ``first``/
         ``limit`` and property-equality arguments and nested EDGE selections, e.g.::
@@ -2152,7 +2152,7 @@ class QueryClient:
 
     async def import_sqlite_file(self, path: str) -> dict[str, Any]:
         """Import every user table (+ rows) from an on-disk ``sqlite3`` ``.db`` file at
-        ``path`` into the engine's user-table store (CONCEPT:EG-331).
+        ``path`` into the engine's user-table store (CONCEPT:EG-KG.query.eg-feature).
 
         The file is read via the bundled C sqlite3 (server built ``--features
         sqlite-file``, folded into ``full``/``node``; a ``pi`` build returns "not
@@ -2168,7 +2168,7 @@ class QueryClient:
         self, path: str, tables: list[str] | None = None
     ) -> dict[str, Any]:
         """Export user tables OUT to a fresh, valid ``sqlite3`` ``.db`` file at ``path``
-        that a ``sqlite3`` CLI can open (CONCEPT:EG-332).
+        that a ``sqlite3`` CLI can open (CONCEPT:EG-KG.query.full-protocol).
 
         ``tables`` ``None``/empty ⇒ every user table; else exactly the named tables (each
         must exist). Any pre-existing file at ``path`` is overwritten. Written via the
@@ -2186,7 +2186,7 @@ class QueryClient:
         plan: list[dict[str, Any]],
         reorder_filter_selectivity: float | None = None,
     ) -> list[dict[str, Any]]:
-        """Run ONE cross-modal plan (CONCEPT:KG-2.208/209) and return ranked rows.
+        """Run ONE cross-modal plan (CONCEPT:AU-KG.compute.vector/209) and return ranked rows.
 
         ``plan`` is an ordered list of operator dicts — a CLOSED algebra over a
         shared ``RowSet`` (ordered ids + optional scores). Each op is the
@@ -2206,7 +2206,7 @@ class QueryClient:
         built with the ``query`` feature). When ``reorder_filter_selectivity`` is
         given (a fraction in ``[0,1]``), the cost model reorders an adjacent
         ``(Filter, Rank)`` pair filter-first vs vector-first by that selectivity
-        (CONCEPT:KG-2.209) — the result set is unchanged, only the work differs.
+        (CONCEPT:EG-KG.query.concept-14) — the result set is unchanged, only the work differs.
 
         Returns a list of ``{"id": str, "score": float | None}`` rows, in the plan's
         final order (descending score after a ``Rank``).
@@ -2223,7 +2223,7 @@ class QueryClient:
         text: str,
         reorder_filter_selectivity: float | None = None,
     ) -> list[dict[str, Any]]:
-        """Run a UQL TEXT query (CONCEPT:KG-2.214) — the human/agent-writable
+        """Run a UQL TEXT query (CONCEPT:AU-KG.query.top-nodes-by-degree) — the human/agent-writable
         front-end over :meth:`unified`.
 
         ``text`` is a UQL pipeline that the engine PARSES into the SAME cross-modal
@@ -2246,7 +2246,7 @@ class QueryClient:
 
         ``reorder_filter_selectivity`` behaves exactly as in :meth:`unified` — a
         ``[0,1]`` fraction triggering the cost-based (Filter, Rank) reorder
-        (CONCEPT:KG-2.209), which never changes the result set.
+        (CONCEPT:EG-KG.query.concept-14), which never changes the result set.
 
         On a syntax error the engine returns a clear, caret-annotated parse error
         (raised as the transport's error). Returns the same
@@ -2260,7 +2260,7 @@ class QueryClient:
         return [{"id": id_, "score": score} for id_, score in rows]
 
     async def register_foreign_source(self, name: str, source: dict[str, Any]) -> str:
-        """Register a named EXTERNAL source for query federation (CONCEPT:KG-2.232,
+        """Register a named EXTERNAL source for query federation (CONCEPT:EG-KG.query.query-federation,
         Lane P), returning the registered name.
 
         ``source`` is the externally-tagged ``ForeignSourceSpec``: either a REMOTE
@@ -2280,7 +2280,7 @@ class QueryClient:
                 "field_map": {"id": "doi", "score": "relevance"},
             }}
 
-        or an EXTERNAL relational-SQL database — Postgres/MySQL (CONCEPT:KG-2.239); the
+        or an EXTERNAL relational-SQL database — Postgres/MySQL (CONCEPT:EG-KG.query.feature); the
         engine runs the SQL OUT to the foreign RDBMS over a pure-Rust/rustls ``sqlx``
         client and fuses the rows in-plan (the "engine federates external SQL" half that
         sql-mcp alone cannot give). Requires a server built with ``federation-sql``::
@@ -2317,7 +2317,7 @@ class QueryClient:
     async def nl_query(
         self, text: str, graph: str | None = None
     ) -> list[dict[str, Any]]:
-        """CONCEPT:EG-328 — Natural-language → executable query → rows (EG-078/EG-080).
+        """CONCEPT:EG-KG.ingest.broker-streams-namespaces — Natural-language → executable query → rows (EG-078/EG-080).
 
         Send free-text ``text`` to the engine's ``Method::NlQuery``: the configured/injected
         ``NlPlanner`` (an OpenAI-compatible endpoint, e.g. agent-utilities' LLM, set via
@@ -2347,7 +2347,7 @@ class QueryClient:
 
 
 class TxnClient:
-    """CONCEPT:KG-2.180 — Multi-op OCC ACID Transaction Namespace.
+    """CONCEPT:EG-KG.txn.multi-op-occ-acid — Multi-op OCC ACID Transaction Namespace.
 
     Optimistic, snapshot-isolation, server-staged transactions. ``begin()``
     returns a server-issued ``txn_id``; the ``add_node``/``remove_node``/
@@ -2381,7 +2381,7 @@ class TxnClient:
         properties: dict[str, Any] | None = None,
         graph: str | None = None,
     ) -> bool:
-        """Stage an add-node. ``graph`` (CONCEPT:KG-2.226) targets a graph OTHER than
+        """Stage an add-node. ``graph`` (CONCEPT:EG-KG.txn.routes-cross-shard-txn) targets a graph OTHER than
         the txn's default — making the txn multi-graph (cross-shard if it spans Raft
         groups, routed through 2PC at commit); omit for the single-graph default."""
         params: dict[str, Any] = {
@@ -2453,7 +2453,7 @@ class TxnClient:
     async def add_embedding(
         self, txn_id: str, node_id: str, embedding: list[float]
     ) -> bool:
-        """Stage a VECTOR upsert (CONCEPT:KG-2.225 — cross-modal ACID). The embedding
+        """Stage a VECTOR upsert (CONCEPT:EG-KG.txn.reader-never-sees-node — cross-modal ACID). The embedding
         lands atomically WITH the txn's graph/property/blob-ref writes in ONE redb
         WriteTransaction at commit (requires the redb persistence backend)."""
         return await self._client._send(
@@ -2462,7 +2462,7 @@ class TxnClient:
         )
 
     async def blob_ref(self, txn_id: str, node_id: str, digest: str) -> bool:
-        """Stage a BLOB REFERENCE (CONCEPT:KG-2.225). Records a durable graph-side
+        """Stage a BLOB REFERENCE (CONCEPT:EG-KG.txn.reader-never-sees-node). Records a durable graph-side
         ``__blob__`` link to an already-stored content-addressed blob; lands
         atomically with the node/vector/property at commit."""
         return await self._client._send(
@@ -2477,7 +2477,7 @@ class TxnClient:
         points: list[tuple[int, list[float]]],
         graph: str | None = None,
     ) -> bool:
-        """Stage a TIME-SERIES measurement batch (CONCEPT:EG-360 — extended cross-modal
+        """Stage a TIME-SERIES measurement batch (CONCEPT:EG-KG.backend.cross-modal-atomic-commit — extended cross-modal
         staging). The points land atomically WITH the txn's graph/property/vector/blob
         writes in ONE redb ``WriteTransaction`` at commit. ``points`` are
         ``(ts_ns, [values])`` — the SAME shape :meth:`TimeSeriesClient.append` carries.
@@ -2494,7 +2494,7 @@ class TxnClient:
         return await self._client._send("TxnAddMeasurement", params)
 
     async def axiom(self, txn_id: str, turtle: str, graph: str | None = None) -> bool:
-        """Stage OWL AXIOMS as Turtle (CONCEPT:EG-361). At commit they lower to graph
+        """Stage OWL AXIOMS as Turtle (CONCEPT:EG-KG.txn.extended-cross-modal). At commit they lower to graph
         node/edge writes in the SAME atomic ``WriteTransaction`` so the OWL reasoner
         sees them consistently with the txn's other staged modalities. Requires a
         server built with the ``owl`` feature."""
@@ -2506,7 +2506,7 @@ class TxnClient:
     async def construct(
         self, txn_id: str, sparql: str, graph: str | None = None
     ) -> bool:
-        """Stage a SPARQL CONSTRUCT (CONCEPT:EG-362). At commit the produced triples
+        """Stage a SPARQL CONSTRUCT (CONCEPT:EG-KG.query.extended-cross-modal). At commit the produced triples
         lower to graph node/edge writes in the SAME atomic ``WriteTransaction``.
         Requires a server built with the ``sparql`` feature."""
         params: dict[str, Any] = {"txn_id": txn_id, "sparql": sparql}
@@ -2521,7 +2521,7 @@ class TxnClient:
         reorder_filter_selectivity: float | None = None,
     ) -> list[dict[str, Any]]:
         """Run a UNIFIED cross-modal UQL read INSIDE the txn with read-your-own-writes
-        (CONCEPT:EG-359 — in-txn cross-modal RYOW). ``text`` is the SAME UQL surface
+        (CONCEPT:EG-KG.query.txn-cross-modal-ryow — in-txn cross-modal RYOW). ``text`` is the SAME UQL surface
         :meth:`QueryClient.unified_query_text` parses; the read runs over a snapshot
         OVERLAID with THIS txn's staged (uncommitted) write-set, so a staged
         node/edge/embedding is visible before commit and invisible off-txn until
@@ -2540,7 +2540,7 @@ class TxnClient:
         plan: list[dict[str, Any]],
         reorder_filter_selectivity: float | None = None,
     ) -> list[dict[str, Any]]:
-        """In-txn cross-modal RYOW read from a pre-built ``Op`` plan (CONCEPT:EG-359) —
+        """In-txn cross-modal RYOW read from a pre-built ``Op`` plan (CONCEPT:EG-KG.query.txn-cross-modal-ryow) —
         the AST counterpart of :meth:`unified_query`, mirroring :meth:`QueryClient.unified`.
         ``plan`` is the SAME ordered list of externally-tagged operator dicts ``unified``
         carries; the read runs over a snapshot OVERLAID with THIS txn's staged writes.
@@ -2563,7 +2563,7 @@ class TxnClient:
 
 
 class TimeSeriesClient:
-    """CONCEPT:KG-2.210/211 — Native Time-Series Namespace.
+    """CONCEPT:AU-KG.retrieval.god-nodes-communities/211 — Native Time-Series Namespace.
 
     Append/scan/query time-partitioned series stored beside the graph (their own
     ``series.redb``), served by a server built with the ``tsdb`` feature. Series are
@@ -2593,7 +2593,7 @@ class TimeSeriesClient:
         metadata: dict[str, Any] | None = None,
     ) -> None:
         """Register a ``:Series`` node in the connection's graph linking the series
-        to a KG entity — the series-id registry shape (CONCEPT:KG-2.210).
+        to a KG entity — the series-id registry shape (CONCEPT:AU-KG.retrieval.god-nodes-communities).
 
         The series data itself lives in the time-series store (keyed by
         ``series_id``); this writes a small node into the GRAPH so the series is
@@ -2724,7 +2724,7 @@ class TimeSeriesClient:
 
 
 class RdfClient:
-    """CONCEPT:KG-2.217 / KG-2.218 — Native RDF/SPARQL Namespace.
+    """CONCEPT:EG-KG.ontology.kg-native-rdf-sparql / KG-2.218 — Native RDF/SPARQL Namespace.
 
     The RDF dataset maps onto the SAME property-graph the rest of the engine uses
     (a resource object becomes a typed edge, a literal object a typed property cell
@@ -2767,7 +2767,7 @@ class RdfClient:
         turtle: str | None = None,
         ntriples: str | None = None,
     ) -> dict[str, int]:
-        """Physically RETRACT Turtle OR N-Triples from the connection's graph (CONCEPT:EG-017).
+        """Physically RETRACT Turtle OR N-Triples from the connection's graph (CONCEPT:EG-KG.query.named-graph-support).
 
         The inverse of :meth:`add_triples`: parses the document and surgically removes
         each triple (a literal triple drops the property cell; a resource triple removes
@@ -2784,7 +2784,7 @@ class RdfClient:
         )
 
     async def drop_named_graph(self, graph: str) -> str:
-        """DROP a named RDF graph (CONCEPT:EG-017): physically clear ALL of its RDF
+        """DROP a named RDF graph (CONCEPT:EG-KG.query.named-graph-support): physically clear ALL of its RDF
         content (property-graph nodes/edges + the lossless multi-valued-literal quad
         rows) in one op. Durable. The coarse-grained retract used when an ontology owns
         a dedicated named graph; the SPARQL ``DROP/CLEAR GRAPH`` op routes here. The op
@@ -2804,7 +2804,7 @@ class RdfClient:
         variable). Requires a server built with the ``sparql`` feature.
 
         ``base_iri`` + ``type_convention`` select the LPG→RDF projection vocabulary
-        (CONCEPT:KG-2.240). Both default to empty ⇒ the IDENTITY projection (node-type
+        (CONCEPT:EG-KG.ontology.lpg-rdf-projection-vocabulary). Both default to empty ⇒ the IDENTITY projection (node-type
         and property keys emitted verbatim, no ``rdf:type`` synthesis), preserving the
         prior behavior. A caller that passes ``base_iri`` (e.g. agent-utilities'
         ``http://agent-utilities.dev/ontology#``) + ``type_convention="camel"`` makes
@@ -2837,7 +2837,7 @@ class RdfClient:
         min_confidence: float = 0.0,
     ) -> dict[str, Any]:
         """Run the native OWL 2 (EL⁺ + RL) reasoner over the connection's graph and
-        materialize entailments — confidence-weighted (CONCEPT:KG-2.219 / KG-2.236).
+        materialize entailments — confidence-weighted (CONCEPT:EG-KG.ontology.incremental-materialization / KG-2.236).
         Classifies the OWL axioms already in the graph (loaded via :meth:`add_triples`)
         plus any extra ``ontology`` Turtle, then returns::
 
@@ -2877,7 +2877,7 @@ class RdfClient:
         min_confidence: float = 0.0,
     ) -> dict[str, Any]:
         """Distributed (cross-shard) confidence-weighted OWL reasoning over the UNION of
-        ``graphs`` (CONCEPT:KG-2.236). Gathers each graph/shard's TBox axioms + decayed-
+        ``graphs`` (CONCEPT:EG-KG.ontology.concept-13). Gathers each graph/shard's TBox axioms + decayed-
         confidence type facts, runs ONE weighted EL⁺/RL closure over the union (the
         cross-shard union-read seam), and returns the SAME shape as :meth:`owl_reason` —
         provably identical to reasoning over the same axioms in a single graph. The
@@ -2895,7 +2895,7 @@ class RdfClient:
 
 
 class StreamingClient:
-    """CONCEPT:KG-2.229/230 — Streaming / CDC / subscriptions / triggers.
+    """CONCEPT:EG-KG.query.streaming-cdc-subscriptions/230 — Streaming / CDC / subscriptions / triggers.
 
     A reactive surface over the engine's per-graph durable change record (the
     ledger): every durable mutation emits an ordered, cursor-addressable change into
@@ -3029,7 +3029,7 @@ class StreamingClient:
 
 
 class BlobClient:
-    """CONCEPT:KG-2.206 — Streamed content-addressed BLOB namespace.
+    """CONCEPT:EG-KG.storage.blob-namespace — Streamed content-addressed BLOB namespace.
 
     Store / fetch large media (image / audio / video) bytes as a content-addressed,
     deduplicated, refcount-GC'd blob beside the graph. The whole file is never
@@ -3042,7 +3042,7 @@ class BlobClient:
 
     The CONTENT lives here keyed by digest (graph-independent); a caller links it
     into the graph with a ``:MediaAsset``/``:Media`` node + a ``blob_ref`` (the
-    cross-modal ACID path, CONCEPT:KG-2.225). Usage::
+    cross-modal ACID path, CONCEPT:EG-KG.txn.reader-never-sees-node). Usage::
 
         digest = await client.blob.store(image_bytes)        # content-addressed
         same   = await client.blob.store(image_bytes)        # == digest, deduped
@@ -3142,7 +3142,7 @@ def _as_bytes(value: Any) -> Any:
 
 
 class BrokerClient:
-    """CONCEPT:EG-328 — Native message-broker + streams namespace (EG-275..284/314).
+    """CONCEPT:EG-KG.ingest.broker-streams-namespaces — Native message-broker + streams namespace (EG-275..284/314).
 
     A thin, typed binding over the engine's RabbitMQ/Kafka-class broker built on the
     KG-2.303 work-queue: exchange/queue admin + routed publish + consumer-group
@@ -3481,7 +3481,7 @@ class BrokerClient:
 
 
 class RbacClient:
-    """CONCEPT:EG-328 — RBAC policy administration namespace (EG-092).
+    """CONCEPT:EG-KG.ingest.broker-streams-namespaces — RBAC policy administration namespace (EG-092).
 
     A thin binding over ``Method::RbacAdmin`` (an admin/governance op, not a
     graph call): manage durable roles + a role hierarchy + resource/action grants that
@@ -3558,7 +3558,7 @@ class RbacClient:
 
 
 class AdminClient:
-    """CONCEPT:EG-328 — Ops / maintenance namespace: online backup + restore (EG-090).
+    """CONCEPT:EG-KG.ingest.broker-streams-namespaces — Ops / maintenance namespace: online backup + restore (EG-090).
 
     A thin binding over the ``Method::Backup`` / ``Method::Restore`` admin RPCs.
     :meth:`backup` takes an ONLINE consistent snapshot (per-shard ``begin_read()`` MVCC,
@@ -3591,7 +3591,7 @@ class AdminClient:
 
 
 class EpistemicGraphClient:
-    """CONCEPT:KG-2.19 — Epistemic Graph Core Client
+    """CONCEPT:EG-KG.query.wire-protocol — Epistemic Graph Core Client
 
     Async client for the epistemic-graph Tokio service using Composition.
 
@@ -3630,7 +3630,7 @@ class EpistemicGraphClient:
         self._agent_id = agent_id
         self._request_id = 0
         self._closed = False
-        # ── CONCEPT:EG-043 — single-connection request PIPELINING (demux) ──
+        # ── CONCEPT:EG-KG.backend.framed-response — single-connection request PIPELINING (demux) ──
         # The engine (src/server/transport.rs) processes many requests on ONE
         # connection concurrently and writes responses back OUT OF ORDER, each
         # tagged with its `Response.id`. So instead of a lock held across the
@@ -3676,7 +3676,7 @@ class EpistemicGraphClient:
         self.rdf = RdfClient(self)
         self.streaming = StreamingClient(self)
         self.blob = BlobClient(self)
-        # CONCEPT:EG-328 — B1.7 multi-lang client drivers: broker/streams (EG-275..284/314),
+        # CONCEPT:EG-KG.ingest.broker-streams-namespaces — B1.7 multi-lang client drivers: broker/streams (EG-275..284/314),
         # RBAC admin (EG-092), backup/restore (EG-090). NlQuery (EG-080) lives on `query`.
         self.broker = BrokerClient(self)
         self.rbac = RbacClient(self)
@@ -3774,7 +3774,7 @@ class EpistemicGraphClient:
         swapping them in is transparent. Must be called with ``self._lock`` held.
         """
         # Tear down the old demux reader and fail any calls still bound to the
-        # dead connection (CONCEPT:EG-043) before swapping in the fresh stream.
+        # dead connection (CONCEPT:EG-KG.backend.framed-response) before swapping in the fresh stream.
         self._mark_dead(ConnectionError("connection reset; reconnecting"))
         with contextlib.suppress(Exception):  # discard the poisoned stream
             self._writer.close()
@@ -3800,7 +3800,7 @@ class EpistemicGraphClient:
             hashlib.sha256,
         ).hexdigest()
 
-    # ── CONCEPT:EG-043 — pipelined connection: reader/demux internals ──────────
+    # ── CONCEPT:EG-KG.backend.framed-response — pipelined connection: reader/demux internals ──────────
 
     @staticmethod
     def _retrieve_exc(fut: asyncio.Future) -> None:
@@ -3840,7 +3840,7 @@ class EpistemicGraphClient:
         """Background demultiplexer: read frames, resolve futures by ``id``.
 
         One task per live connection. Responses arrive in ANY order (the engine
-        pipelines, CONCEPT:EG-043); each is routed to its caller by the
+        pipelines, CONCEPT:EG-KG.backend.framed-response); each is routed to its caller by the
         ``Response.id`` correlation id the protocol already carries. On EOF /
         transport error every in-flight call is failed so no caller hangs and the
         next call reconnects.
@@ -3961,7 +3961,7 @@ class EpistemicGraphClient:
 
         if resp.get("error") is not None:
             err_msg = resp.get("error", "Unknown error")
-            # The engine's overload backstop (CONCEPT:KG-2.264) returns a typed
+            # The engine's overload backstop (CONCEPT:EG-KG.ingest.resets-socket-so-assimilation) returns a typed
             # RESULT_TOO_LARGE error for an oversize full-graph dump. Surface it as
             # a dedicated, catchable exception (still a RuntimeError subclass) so a
             # caller can fall back to a bounded query without string-matching.
@@ -3984,7 +3984,7 @@ class EpistemicGraphClient:
     async def close(self) -> None:
         if not self._closed:
             # Stop the demux reader and fail any straggler in-flight calls
-            # (CONCEPT:EG-043) before tearing the transport down.
+            # (CONCEPT:EG-KG.backend.framed-response) before tearing the transport down.
             self._mark_dead(ConnectionError("client closed"))
             with contextlib.suppress(Exception):
                 await self._writer.wait_closed()
@@ -4005,7 +4005,7 @@ class EpistemicGraphClient:
         return await self._send("Health")
 
     async def resource_stats(self) -> dict[str, Any]:
-        """Return the per-tenant / per-graph resource snapshot (CONCEPT:KG-2.234).
+        """Return the per-tenant / per-graph resource snapshot (CONCEPT:EG-KG.compute.lane-v).
 
         The autoscale signals an external autoscaler (agent-utilities OS-5.27)
         consumes in ONE round-trip: per-graph + per-tenant resident memory, node/edge
@@ -4019,7 +4019,7 @@ class EpistemicGraphClient:
     async def supports(self, op: str) -> bool:
         """True if the connected engine advertises protocol op ``op``.
 
-        Capability negotiation (CONCEPT:KG-2.19): the server's ``Health`` response
+        Capability negotiation (CONCEPT:EG-KG.query.wire-protocol): the server's ``Health`` response
         carries an ``ops`` list. The probe is cached for the connection's life. An
         older engine that doesn't advertise ``ops`` reports no extra ops, so newer
         callers (e.g. ``ParseFiles``) gracefully fall back to per-item paths.
@@ -4088,7 +4088,7 @@ class SyncEpistemicGraphClient:
         self.rdf = self._SyncWrapper(self._client.rdf, self._loop)
         self.streaming = self._SyncWrapper(self._client.streaming, self._loop)
         self.blob = self._SyncWrapper(self._client.blob, self._loop)
-        # CONCEPT:EG-328 — B1.7 broker/streams + RBAC + backup namespaces.
+        # CONCEPT:EG-KG.ingest.broker-streams-namespaces — B1.7 broker/streams + RBAC + backup namespaces.
         self.broker = self._SyncWrapper(self._client.broker, self._loop)
         self.rbac = self._SyncWrapper(self._client.rbac, self._loop)
         self.admin = self._SyncWrapper(self._client.admin, self._loop)

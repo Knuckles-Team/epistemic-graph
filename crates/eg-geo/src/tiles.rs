@@ -1,5 +1,5 @@
 //! **Web-map tiling** — XYZ / TMS tile addressing + Mapbox Vector Tile encoding
-//! (CONCEPT:EG-265).
+//! (CONCEPT:EG-KG.domains.map-tiles).
 //!
 //! The GIS / logistics / urban-planning surface needs to *serve maps*. This module gives
 //! the engine the two halves of a tile server, pure-Rust and dependency-free (the
@@ -37,7 +37,7 @@ pub const DEFAULT_EXTENT: u32 = 4096;
 
 // ── tile addressing ──────────────────────────────────────────────────────────────────
 
-/// A single map tile in the slippy-map `z/x/y` grid over Web-Mercator (CONCEPT:EG-265).
+/// A single map tile in the slippy-map `z/x/y` grid over Web-Mercator (CONCEPT:EG-KG.domains.map-tiles).
 ///
 /// `x` runs west→east `0..2^z`. `y` runs **north→south** in the **XYZ** convention (the
 /// default here; Google/OSM/Mapbox) and **south→north** in **TMS**. Use [`Tile::to_tms`]
@@ -60,7 +60,7 @@ impl Tile {
         1u64 << z
     }
 
-    /// Flip the `y` index between the XYZ and TMS conventions (CONCEPT:EG-265):
+    /// Flip the `y` index between the XYZ and TMS conventions (CONCEPT:EG-KG.domains.map-tiles):
     /// `y' = 2^z − 1 − y`. The transform is its own inverse.
     pub fn flip_y(&self) -> Tile {
         let n = Self::tiles_per_axis(self.z);
@@ -71,20 +71,20 @@ impl Tile {
         }
     }
 
-    /// This tile's `y` re-expressed in the **TMS** convention (CONCEPT:EG-265). Assumes
+    /// This tile's `y` re-expressed in the **TMS** convention (CONCEPT:EG-KG.domains.map-tiles). Assumes
     /// `self` is XYZ; TMS `y` counts from the south edge.
     pub fn to_tms(&self) -> Tile {
         self.flip_y()
     }
 
-    /// This tile's `y` re-expressed in the **XYZ** convention (CONCEPT:EG-265). Assumes
+    /// This tile's `y` re-expressed in the **XYZ** convention (CONCEPT:EG-KG.domains.map-tiles). Assumes
     /// `self` is TMS. Since the flip is an involution this is identical to [`Tile::to_tms`],
     /// but the two names document intent at the call site.
     pub fn to_xyz(&self) -> Tile {
         self.flip_y()
     }
 
-    /// The tile's bounds as a Web-Mercator (EPSG:3857) [`Bbox`] in metres (CONCEPT:EG-265).
+    /// The tile's bounds as a Web-Mercator (EPSG:3857) [`Bbox`] in metres (CONCEPT:EG-KG.domains.map-tiles).
     /// XYZ convention: `y = 0` is the northern-most row (largest `maxy`).
     pub fn bounds(&self) -> Bbox {
         let n = Self::tiles_per_axis(self.z) as f64;
@@ -98,7 +98,7 @@ impl Tile {
     }
 
     /// The tile's bounds as a WGS84 lon/lat (EPSG:4326) [`Bbox`] in **degrees**
-    /// (CONCEPT:EG-265). Computed by inverse-projecting the Mercator corners.
+    /// (CONCEPT:EG-KG.domains.map-tiles). Computed by inverse-projecting the Mercator corners.
     pub fn bounds_lonlat(&self) -> Bbox {
         let m = self.bounds();
         let sw = web_mercator_to_wgs84(&Point::new(m.minx, m.miny));
@@ -107,7 +107,7 @@ impl Tile {
     }
 }
 
-/// The XYZ tile index `(x, y)` covering `(lon, lat)` degrees at zoom `z` (CONCEPT:EG-265) —
+/// The XYZ tile index `(x, y)` covering `(lon, lat)` degrees at zoom `z` (CONCEPT:EG-KG.domains.map-tiles) —
 /// the standard slippy-map formula. Longitude is wrapped/clamped into `0..2^z`; latitude is
 /// clamped to the Web-Mercator limit (≈ ±85.0511°) so poles map to the edge rows.
 pub fn lonlat_to_tile(lon: f64, lat: f64, z: u32) -> (u32, u32) {
@@ -135,7 +135,7 @@ pub enum MvtValue {
     Bool(bool),
 }
 
-/// One feature to encode into an MVT layer (CONCEPT:EG-265): a stable `id`, an eg-geo
+/// One feature to encode into an MVT layer (CONCEPT:EG-KG.domains.map-tiles): a stable `id`, an eg-geo
 /// [`Geometry`] (in the SAME CRS as the tile bounds passed to [`encode_mvt`] — normally
 /// Web-Mercator metres), and optional `properties`.
 #[derive(Clone, Debug, PartialEq)]
@@ -156,7 +156,7 @@ impl MvtFeature {
     }
 }
 
-/// One MVT layer (CONCEPT:EG-265): a name, an integer `extent` (grid resolution) and its
+/// One MVT layer (CONCEPT:EG-KG.domains.map-tiles): a name, an integer `extent` (grid resolution) and its
 /// features. Use [`DEFAULT_EXTENT`] (4096) unless you have a reason not to.
 #[derive(Clone, Debug, PartialEq)]
 pub struct MvtLayer {
@@ -187,7 +187,7 @@ const CMD_MOVETO: u32 = 1;
 const CMD_LINETO: u32 = 2;
 const CMD_CLOSEPATH: u32 = 7;
 
-/// Encode a set of layers into an MVT tile blob (CONCEPT:EG-265). Each feature's geometry
+/// Encode a set of layers into an MVT tile blob (CONCEPT:EG-KG.domains.map-tiles). Each feature's geometry
 /// is clipped to `tile_bounds` and mapped into that layer's integer `extent` grid (origin
 /// top-left, `y` down, per the MVT spec). `tile_bounds` is normally `tile.bounds()`
 /// (Web-Mercator metres) and the feature geometries must be in the same CRS.
@@ -314,7 +314,7 @@ fn encode_value(v: &MvtValue) -> Vec<u8> {
     out
 }
 
-/// Encode a single geometry into an MVT command stream (CONCEPT:EG-265), clipping to
+/// Encode a single geometry into an MVT command stream (CONCEPT:EG-KG.domains.map-tiles), clipping to
 /// `bounds` and mapping into the `extent` grid. Returns `(geom_type, command_integers)`.
 fn encode_geometry(g: &Geometry, bounds: &Bbox, extent: u32) -> (u32, Vec<u32>) {
     match g {
@@ -515,7 +515,7 @@ fn clip_segment(mut a: Point, mut b: Point, bx: &Bbox) -> Option<(Point, Point)>
     }
 }
 
-/// Clip a polyline to `bounds`, yielding the surviving contiguous parts (CONCEPT:EG-265).
+/// Clip a polyline to `bounds`, yielding the surviving contiguous parts (CONCEPT:EG-KG.domains.map-tiles).
 fn clip_line(pts: &[Point], bounds: &Bbox) -> Vec<Vec<Point>> {
     let mut parts: Vec<Vec<Point>> = Vec::new();
     if pts.len() < 2 {
@@ -658,7 +658,7 @@ fn intern_value(values: &mut Vec<MvtValue>, v: MvtValue) -> usize {
 
 // ── decoding (round-trip / inspection) ─────────────────────────────────────────────────
 
-/// One geometry command decoded from an MVT feature (CONCEPT:EG-265): the command id
+/// One geometry command decoded from an MVT feature (CONCEPT:EG-KG.domains.map-tiles): the command id
 /// (`1` MoveTo, `2` LineTo, `7` ClosePath) plus the absolute grid points it moved the
 /// cursor through (empty for ClosePath).
 #[derive(Clone, Debug, PartialEq)]
@@ -667,7 +667,7 @@ pub struct DecodedCommand {
     pub points: Vec<(i32, i32)>,
 }
 
-/// A decoded MVT feature (CONCEPT:EG-265).
+/// A decoded MVT feature (CONCEPT:EG-KG.domains.map-tiles).
 #[derive(Clone, Debug, PartialEq)]
 pub struct DecodedFeature {
     pub id: u64,
@@ -675,7 +675,7 @@ pub struct DecodedFeature {
     pub commands: Vec<DecodedCommand>,
 }
 
-/// A decoded MVT layer (CONCEPT:EG-265).
+/// A decoded MVT layer (CONCEPT:EG-KG.domains.map-tiles).
 #[derive(Clone, Debug, PartialEq)]
 pub struct DecodedLayer {
     pub name: String,
@@ -684,7 +684,7 @@ pub struct DecodedLayer {
     pub features: Vec<DecodedFeature>,
 }
 
-/// Parse an MVT tile blob back into layers/features/commands (CONCEPT:EG-265). The inverse
+/// Parse an MVT tile blob back into layers/features/commands (CONCEPT:EG-KG.domains.map-tiles). The inverse
 /// of [`encode_mvt`] for the geometry command stream — used to verify encodings and to
 /// round-trip. Returns `Err` on a malformed/truncated blob.
 pub fn decode_mvt(bytes: &[u8]) -> Result<Vec<DecodedLayer>, String> {

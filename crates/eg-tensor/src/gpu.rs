@@ -1,8 +1,8 @@
-//! GPU-accelerable tensor-op dispatch seam (CONCEPT:EG-326 seam / EG-327 CUDA).
+//! GPU-accelerable tensor-op dispatch seam (CONCEPT:EG-KG.compute.gpu-distance-seam seam / EG-327 CUDA).
 //!
 //! The same seam pattern as `eg-ann::distance`, for the tensor elementwise kernel — the
 //! dense, embarrassingly-parallel map over a buffer that is the natural GPU offload for the
-//! array modality (CONCEPT:EG-085). [`elementwise_dispatch`] runs a scalar op over an `f64`
+//! array modality (CONCEPT:EG-KG.storage.content-addressed-dedup). [`elementwise_dispatch`] runs a scalar op over an `f64`
 //! buffer on the ACTIVE backend:
 //!
 //!   * [`CpuBackend`] — the pure-Rust map, ALWAYS compiled in and the fallback.
@@ -16,7 +16,7 @@
 
 use crate::tensor::ElementwiseOp;
 
-/// Integer op code shared by the CPU map and the CUDA kernel (CONCEPT:EG-327).
+/// Integer op code shared by the CPU map and the CUDA kernel (CONCEPT:EG-KG.backend.real-cuda-tensor-backend).
 #[inline]
 pub fn op_code(op: ElementwiseOp) -> i32 {
     match op {
@@ -27,7 +27,7 @@ pub fn op_code(op: ElementwiseOp) -> i32 {
     }
 }
 
-/// A backend that applies a scalar op to every element of an `f64` buffer (CONCEPT:EG-326).
+/// A backend that applies a scalar op to every element of an `f64` buffer (CONCEPT:EG-KG.compute.gpu-distance-seam).
 /// Every backend MUST agree with the CPU backend so GPU/CPU tensor results are identical.
 pub trait TensorBackend: Send + Sync {
     /// Stable backend name (`"cpu"`, `"cuda"`).
@@ -36,7 +36,7 @@ pub trait TensorBackend: Send + Sync {
     fn elementwise(&self, data: &[f64], op: ElementwiseOp, scalar: f64) -> Vec<f64>;
 }
 
-/// The always-compiled pure-Rust CPU backend (CONCEPT:EG-326).
+/// The always-compiled pure-Rust CPU backend (CONCEPT:EG-KG.compute.gpu-distance-seam).
 #[derive(Debug, Default, Clone, Copy)]
 pub struct CpuBackend;
 
@@ -56,13 +56,13 @@ impl TensorBackend for CpuBackend {
     }
 }
 
-/// Apply a scalar op over `data` on the ACTIVE backend (CONCEPT:EG-326) — the single call
+/// Apply a scalar op over `data` on the ACTIVE backend (CONCEPT:EG-KG.compute.gpu-distance-seam) — the single call
 /// site `Tensor::elementwise` uses; the device choice is invisible to it.
 pub fn elementwise_dispatch(data: &[f64], op: ElementwiseOp, scalar: f64) -> Vec<f64> {
     active_backend().elementwise(data, op, scalar)
 }
 
-/// The active tensor backend (CONCEPT:EG-326): CUDA when compiled + a device is present,
+/// The active tensor backend (CONCEPT:EG-KG.compute.gpu-distance-seam): CUDA when compiled + a device is present,
 /// else CPU.
 pub fn active_backend() -> &'static dyn TensorBackend {
     #[cfg(feature = "gpu-cuda")]
@@ -80,18 +80,18 @@ pub fn active_backend_name() -> &'static str {
     active_backend().name()
 }
 
-// ── CONCEPT:EG-327 — the real CUDA tensor backend ────────────────────────────
+// ── CONCEPT:EG-KG.backend.real-cuda-tensor-backend — the real CUDA tensor backend ────────────────────────────
 
 #[cfg(feature = "gpu-cuda")]
 pub mod cuda {
-    //! REAL CUDA elementwise backend (CONCEPT:EG-327), NVRTC-compiled at first use. On any
+    //! REAL CUDA elementwise backend (CONCEPT:EG-KG.backend.real-cuda-tensor-backend), NVRTC-compiled at first use. On any
     //! device/compile/launch failure the dispatch falls back to CPU.
     use super::{op_code, ElementwiseOp, TensorBackend};
     use std::sync::{Arc, OnceLock};
 
     use cudarc::driver::{CudaContext, CudaFunction, LaunchConfig, PushKernelArg};
 
-    /// The elementwise kernel, CUDA-C (CONCEPT:EG-327). One thread per element; the four op
+    /// The elementwise kernel, CUDA-C (CONCEPT:EG-KG.backend.real-cuda-tensor-backend). One thread per element; the four op
     /// branches match [`super::CpuBackend::elementwise`] exactly (add/sub/mul/div, f64).
     const KERNEL_SRC: &str = r#"
 extern "C" __global__ void elementwise(
@@ -170,7 +170,7 @@ extern "C" __global__ void elementwise(
         }
     }
 
-    /// The process-global CUDA backend, `Some` only if a device initialised (CONCEPT:EG-327).
+    /// The process-global CUDA backend, `Some` only if a device initialised (CONCEPT:EG-KG.backend.real-cuda-tensor-backend).
     pub fn backend() -> Option<&'static dyn TensorBackend> {
         static B: OnceLock<Option<CudaBackend>> = OnceLock::new();
         B.get_or_init(|| {
@@ -222,7 +222,7 @@ mod tests {
         );
     }
 
-    /// GPU↔CPU parity (CONCEPT:EG-351). When a CUDA device is present, the real CUDA
+    /// GPU↔CPU parity (CONCEPT:EG-KG.compute.tensor-gpu-distance). When a CUDA device is present, the real CUDA
     /// elementwise kernel MUST match the CPU ground truth for every op; when no device is
     /// available `cuda::backend()` is `None` and the test SKIPS cleanly. So it is a no-op
     /// in GPU-less CI yet auto-validates the EG-327 kernel wherever a GPU exists (e.g. the

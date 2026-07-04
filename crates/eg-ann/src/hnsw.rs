@@ -1,4 +1,4 @@
-//! HnswIndex — a Hierarchical Navigable Small World graph index (CONCEPT:EG-301).
+//! HnswIndex — a Hierarchical Navigable Small World graph index (CONCEPT:EG-KG.retrieval.hnsw-vector-index).
 //!
 //! A pure-Rust, additive ANN index that complements the [`IvfPq`](crate::IvfPq)
 //! (EG-069) and exact [`FlatIndex`](crate::FlatIndex) (EG-297) indices already in
@@ -75,7 +75,7 @@ impl PartialOrd for Cand {
     }
 }
 
-/// A persistable HNSW graph index (CONCEPT:EG-301).
+/// A persistable HNSW graph index (CONCEPT:EG-KG.retrieval.hnsw-vector-index).
 ///
 /// Build it with [`HnswIndex::new`], stream points in with [`HnswIndex::insert`],
 /// and query with [`HnswIndex::search`]. The index owns the full f32 vectors (graph
@@ -162,7 +162,7 @@ impl HnswIndex {
         n
     }
 
-    /// Deterministic exponential level for an id (CONCEPT:EG-301). A SplitMix64 hash
+    /// Deterministic exponential level for an id (CONCEPT:EG-KG.retrieval.hnsw-vector-index). A SplitMix64 hash
     /// of `(id, seed)` yields `u ∈ (0,1)`, and `level = floor(-ln(u) * mL)`, the
     /// standard HNSW law — but sourced from a pure hash so it needs no RNG state and
     /// is identical across runs and reloads.
@@ -300,7 +300,7 @@ impl HnswIndex {
         self.nodes[node].neighbors[layer] = scored.into_iter().map(|c| c.node).collect();
     }
 
-    /// Insert `(id, vector)` into the graph (CONCEPT:EG-301). Assigns a level via the
+    /// Insert `(id, vector)` into the graph (CONCEPT:EG-KG.retrieval.hnsw-vector-index). Assigns a level via the
     /// deterministic hash law, greedily descends the sparse upper layers, then runs
     /// an `efConstruction` beam search at each layer ≤ the node's level, wiring
     /// bidirectional edges and re-pruning over-full neighbours. `vector.len()` must
@@ -366,7 +366,7 @@ impl HnswIndex {
         }
     }
 
-    /// Approximate top-`k` nearest neighbours to `query` (CONCEPT:EG-301). Descends
+    /// Approximate top-`k` nearest neighbours to `query` (CONCEPT:EG-KG.retrieval.hnsw-vector-index). Descends
     /// the upper layers greedily, then beam-searches layer 0 with beam width `ef`
     /// (clamped to ≥ `k`). Results carry EXACT distances and are sorted nearest-first
     /// with deterministic `(distance, id)` tie-breaking — directly comparable and
@@ -480,7 +480,7 @@ mod tests {
             .collect()
     }
 
-    /// THE BAR (CONCEPT:EG-301): recall@10 ≥ 0.9 vs the exact [`FlatIndex`] ground
+    /// THE BAR (CONCEPT:EG-KG.retrieval.hnsw-vector-index): recall@10 ≥ 0.9 vs the exact [`FlatIndex`] ground
     /// truth on a random set at a reasonable `ef`.
     #[test]
     fn eg301_recall_at_10_meets_target_vs_flat() {

@@ -1,4 +1,4 @@
-//! Cypher execution (CONCEPT:KG-2.179). Runs a parsed [`CypherQuery`] over an
+//! Cypher execution (CONCEPT:EG-KG.query.dep-free-behind). Runs a parsed [`CypherQuery`] over an
 //! off-lock `GraphView` and materializes a `QueryResult` — the SAME carrier the
 //! SQL surface uses. NO DataFusion: every pattern shape compiles to one of the
 //! engine's own primitives.
@@ -11,11 +11,11 @@
 //!     (`resolve_match`): start from the label-index candidates, then extend hop by
 //!     hop. A FIXED hop extends to relationship-typed neighbours; a VARIABLE-length
 //!     hop (`*min..max`) extends via petgraph BFS. Fixed and variable-length hops
-//!     freely combine in one pattern (CONCEPT:EG-063), and an already-bound node var
+//!     freely combine in one pattern (CONCEPT:EG-KG.query.concept-2), and an already-bound node var
 //!     anchors its position — which is also how `OPTIONAL MATCH` / `WITH`
-//!     pipelining join onto prior bindings (CONCEPT:EG-062).
+//!     pipelining join onto prior bindings (CONCEPT:EG-KG.query.eg-extend-read-side).
 //!
-//! Read clauses (CONCEPT:EG-062): a read query is a pipeline of reading stages
+//! Read clauses (CONCEPT:EG-KG.query.eg-extend-read-side): a read query is a pipeline of reading stages
 //! (`MATCH`/`OPTIONAL MATCH`/`WITH`) terminated by a `RETURN` that supports
 //! `ORDER BY`/`SKIP`/`LIMIT`/`DISTINCT`/`*` and aggregation.
 
@@ -41,13 +41,13 @@ use super::proc::{registry, YieldValue};
 /// unbounded RETURN would buffer the whole result in one message.
 const MAX_ROWS: usize = 50_000;
 
-/// Query parameters (`$name` → JSON value), supplied by the caller (CONCEPT:EG-141).
+/// Query parameters (`$name` → JSON value), supplied by the caller (CONCEPT:EG-KG.query.param-list-drives-unwind).
 pub type Params = serde_json::Map<String, Value>;
 
-/// A var→node-id binding row. A path variable (CONCEPT:EG-063) is stored under the
+/// A var→node-id binding row. A path variable (CONCEPT:EG-KG.query.concept-2) is stored under the
 /// `@path@<var>` key as a JSON-array string of the node ids along the path; an edge
 /// variable (write path) under `@edge@<var>` as `src\0tgt`; a SCALAR value bound by
-/// `UNWIND`/`CALL`/`YIELD` (CONCEPT:EG-141/142) under `@val@<var>` as a JSON string.
+/// `UNWIND`/`CALL`/`YIELD` (CONCEPT:EG-KG.query.param-list-drives-unwind/142) under `@val@<var>` as a JSON string.
 type Binding = HashMap<String, String>;
 
 /// Parse + run `cypher` over `view` (read-only, single graph). Synchronous and
@@ -56,7 +56,7 @@ pub fn exec_cypher(view: &GraphView, cypher: &str) -> Result<QueryResult, String
     exec_cypher_params(view, cypher, &Params::new())
 }
 
-/// Parse + run `cypher` over `view` with `$name` query parameters (CONCEPT:EG-141) —
+/// Parse + run `cypher` over `view` with `$name` query parameters (CONCEPT:EG-KG.query.param-list-drives-unwind) —
 /// e.g. `UNWIND $ids AS x MATCH (n {id: x}) RETURN n`. `exec_cypher` is the
 /// zero-parameter form.
 pub fn exec_cypher_params(
@@ -69,7 +69,7 @@ pub fn exec_cypher_params(
     finalize(view, &query, bindings)
 }
 
-// ── read-stage pipeline (CONCEPT:EG-062) ─────────────────────────────────────
+// ── read-stage pipeline (CONCEPT:EG-KG.query.eg-extend-read-side) ─────────────────────────────────────
 
 /// Run the reading-stage pipeline, threading bindings from one stage to the next.
 fn run_stages(
@@ -157,7 +157,7 @@ fn val_key(var: &str) -> String {
     format!("@val@{var}")
 }
 
-/// Evaluate an UNWIND list operand into its element values (CONCEPT:EG-141).
+/// Evaluate an UNWIND list operand into its element values (CONCEPT:EG-KG.query.param-list-drives-unwind).
 fn eval_list(b: &Binding, params: &Params, list: &ListExpr) -> Result<Vec<Value>, String> {
     match list {
         ListExpr::List(items) => items
@@ -177,7 +177,7 @@ fn eval_list(b: &Binding, params: &Params, list: &ListExpr) -> Result<Vec<Value>
 }
 
 /// Resolve a [`PropVal`] to a JSON value against the live params + binding
-/// (CONCEPT:EG-141): a literal as-is, a `$param` from `params`, a `Ref` from the
+/// (CONCEPT:EG-KG.query.param-list-drives-unwind): a literal as-is, a `$param` from `params`, a `Ref` from the
 /// binding (its scalar `@val@` value, else its bound node id as a string).
 fn resolve_prop_val(b: &Binding, params: &Params, pv: &PropVal) -> Result<Value, String> {
     match pv {
@@ -200,7 +200,7 @@ fn bound_value(b: &Binding, var: &str) -> Option<Value> {
     }
 }
 
-/// Run a `CALL { subquery }` (CONCEPT:EG-142) and produce the per-result-row binding
+/// Run a `CALL { subquery }` (CONCEPT:EG-KG.query.cypher-planning) and produce the per-result-row binding
 /// additions to merge (cartesian) onto each outer row. Node-valued RETURN vars stay
 /// anchorable node bindings; scalar/property/aggregate columns become `@val@`
 /// sidecars keyed by the projected column name.
@@ -275,7 +275,7 @@ fn subquery_additions(
     Ok(out)
 }
 
-/// Run a `CALL proc.name(args) YIELD …` stage (CONCEPT:EG-142): resolve the args,
+/// Run a `CALL proc.name(args) YIELD …` stage (CONCEPT:EG-KG.query.cypher-planning): resolve the args,
 /// consult the procedure registry, and bind each yielded column onto every incoming
 /// row × procedure result row. A `Node` yield binds an anchorable node id; a `Scalar`
 /// yield binds a `@val@` sidecar under the (aliased) column name.
@@ -330,7 +330,7 @@ fn run_call_proc(
 /// `anchor` pre-binds variables (empty for a fresh MATCH; the incoming binding for
 /// an `OPTIONAL MATCH` / post-`WITH` MATCH) — any pattern position whose variable is
 /// already in `anchor` is constrained to that id, which is the join mechanism
-/// (CONCEPT:EG-062). Fixed and variable-length hops combine freely (CONCEPT:EG-063).
+/// (CONCEPT:EG-KG.query.eg-extend-read-side). Fixed and variable-length hops combine freely (CONCEPT:EG-KG.query.concept-2).
 fn resolve_match(
     view: &GraphView,
     pattern: &Pattern,
@@ -339,14 +339,14 @@ fn resolve_match(
     params: &Params,
 ) -> Result<Vec<Binding>, String> {
     // Start candidates: the anchored id if the start var is bound, else the label set,
-    // then narrowed by any inline property constraints (CONCEPT:EG-141).
+    // then narrowed by any inline property constraints (CONCEPT:EG-KG.query.param-list-drives-unwind).
     let start_ids: Vec<String> = match pattern.start.var.as_ref().and_then(|v| anchor.get(v)) {
         Some(id) => vec![id.clone()],
         None => label_candidates(view, &pattern.start),
     }
     .into_iter()
     // An ANCHORED start node still has its `:Label`/inline props enforced here — the
-    // label-index candidate set only pre-filters the un-anchored case (CONCEPT:EG-142
+    // label-index candidate set only pre-filters the un-anchored case (CONCEPT:EG-KG.query.cypher-planning
     // lets a CALL/YIELD node id flow into a labelled MATCH).
     .filter(|id| {
         pattern
@@ -382,7 +382,7 @@ fn resolve_match(
                         continue;
                     }
                 }
-                // inline property constraints (CONCEPT:EG-141)
+                // inline property constraints (CONCEPT:EG-KG.query.param-list-drives-unwind)
                 if !node_props_match(view, &t, node, b, params) {
                     continue;
                 }
@@ -517,7 +517,7 @@ fn rel_matches(view: &GraphView, from: &str, to: &str, rel: Option<&str>) -> boo
     false
 }
 
-// ── path / WITH plumbing (CONCEPT:EG-062 / EG-063) ───────────────────────────
+// ── path / WITH plumbing (CONCEPT:EG-KG.query.eg-extend-read-side / EG-063) ───────────────────────────
 
 /// The binding key a path variable's node-id sequence is stored under.
 fn path_key(var: &str) -> String {
@@ -548,7 +548,7 @@ fn record_path(pattern: &Pattern, binding: &mut Binding, pv: &str) {
 }
 
 /// Project a binding through a `WITH` item list: keep only the listed variables,
-/// applying aliases (and carrying their path-var sidecar) (CONCEPT:EG-062).
+/// applying aliases (and carrying their path-var sidecar) (CONCEPT:EG-KG.query.eg-extend-read-side).
 fn project_with(b: &Binding, items: &[WithItem]) -> Binding {
     let mut nb = Binding::new();
     for it in items {
@@ -623,7 +623,7 @@ fn scope_vars(stages: &[ReadStage]) -> Vec<String> {
     scope
 }
 
-// ── WHERE evaluation (CONCEPT:EG-062) ────────────────────────────────────────
+// ── WHERE evaluation (CONCEPT:EG-KG.query.eg-extend-read-side) ────────────────────────────────────────
 
 fn where_holds(view: &GraphView, binding: &Binding, where_clause: &Option<WhereExpr>) -> bool {
     match where_clause {
@@ -702,7 +702,7 @@ fn as_f64(v: &Value) -> Option<f64> {
     v.as_f64()
 }
 
-// ── RETURN finalization (CONCEPT:EG-062) ─────────────────────────────────────
+// ── RETURN finalization (CONCEPT:EG-KG.query.eg-extend-read-side) ─────────────────────────────────────
 
 /// Project bindings through the RETURN spec: expand `*`, evaluate items (with
 /// aggregation + grouping), then `DISTINCT` → `ORDER BY` → `SKIP` → `LIMIT` → encode.
@@ -784,7 +784,7 @@ fn eval_scalar(view: &GraphView, binding: &Binding, expr: &Expr) -> Value {
             if let Some(p) = binding.get(&path_key(v)) {
                 serde_json::from_str(p).unwrap_or(Value::Null)
             } else if let Some(s) = binding.get(&val_key(v)) {
-                // A scalar bound by UNWIND/CALL/YIELD (CONCEPT:EG-141/142).
+                // A scalar bound by UNWIND/CALL/YIELD (CONCEPT:EG-KG.query.param-list-drives-unwind/142).
                 serde_json::from_str(s).unwrap_or(Value::Null)
             } else if let Some(id) = binding.get(v) {
                 Value::String(id.clone())
@@ -801,7 +801,7 @@ fn eval_scalar(view: &GraphView, binding: &Binding, expr: &Expr) -> Value {
     }
 }
 
-/// Compute the grouped aggregate rows (CONCEPT:EG-062). The non-aggregate items form
+/// Compute the grouped aggregate rows (CONCEPT:EG-KG.query.eg-extend-read-side). The non-aggregate items form
 /// the GROUP BY key; with no such items the whole input is one group (so `count(*)`
 /// over an empty input still returns a single `0` row).
 fn aggregate(
@@ -856,7 +856,7 @@ fn aggregate(
     out
 }
 
-/// Compute one aggregate over a group of bindings (CONCEPT:EG-062).
+/// Compute one aggregate over a group of bindings (CONCEPT:EG-KG.query.eg-extend-read-side).
 fn compute_agg(view: &GraphView, expr: &Expr, group: &[&Binding]) -> Value {
     match expr {
         Expr::CountStar => Value::Number(group.len().into()),
@@ -1012,7 +1012,7 @@ fn node_has_label(blob: &[u8], label: &str) -> bool {
 }
 
 /// Do node `id`'s stored properties satisfy `node`'s inline property constraints
-/// (`(n {k: v})`, CONCEPT:EG-141)? Each constraint value resolves against the live
+/// (`(n {k: v})`, CONCEPT:EG-KG.query.param-list-drives-unwind)? Each constraint value resolves against the live
 /// params + binding, then must equal the node's stored property. No inline map ⇒ true.
 fn node_props_match(
     view: &GraphView,
@@ -1042,11 +1042,11 @@ fn node_prop(view: &GraphView, node_id: &str, prop: &str) -> Option<Value> {
     val.get(prop).cloned()
 }
 
-// ── write path (CONCEPT:EG-020 / EG-061) ─────────────────────────────────────
+// ── write path (CONCEPT:EG-KG.query.register-each-user-table / EG-061) ─────────────────────────────────────
 
 /// Parse + run a Cypher statement that MAY mutate `core` — `CREATE`/`MERGE`/`SET`/
 /// `[DETACH] DELETE`/`REMOVE`, with an optional leading `MATCH … WHERE` and trailing
-/// `RETURN` (CONCEPT:EG-020/EG-061). A pure-read query is delegated to the unchanged
+/// `RETURN` (CONCEPT:EG-KG.query.register-each-user-table/EG-061). A pure-read query is delegated to the unchanged
 /// snapshot read path, so this is the one entry-point a caller needs whether the
 /// statement reads or writes. Writes map to eg-core's OWN native ops — NO DataFusion
 /// — and `mark_dirty()` is called once after a mutation so caches refresh.
@@ -1054,7 +1054,7 @@ pub fn exec_cypher_write(core: &GraphCore, cypher: &str) -> Result<QueryResult, 
     exec_cypher_write_params(core, cypher, &Params::new())
 }
 
-/// The parameterized form of [`exec_cypher_write`] (CONCEPT:EG-141) — the single
+/// The parameterized form of [`exec_cypher_write`] (CONCEPT:EG-KG.query.param-list-drives-unwind) — the single
 /// entry-point for a read-or-write statement with `$name` query parameters.
 pub fn exec_cypher_write_params(
     core: &GraphCore,
@@ -1070,7 +1070,7 @@ pub fn exec_cypher_write_params(
     }
 }
 
-/// Execute a parsed write statement against `core` (CONCEPT:EG-020 / EG-061).
+/// Execute a parsed write statement against `core` (CONCEPT:EG-KG.query.register-each-user-table / EG-061).
 fn exec_write(core: &GraphCore, w: &WriteQuery, params: &Params) -> Result<QueryResult, String> {
     // Resolve the leading MATCH (if any) over a snapshot into bindings. No MATCH ⇒
     // one empty binding (the write clauses run exactly once).
@@ -1125,7 +1125,7 @@ fn exec_write(core: &GraphCore, w: &WriteQuery, params: &Params) -> Result<Query
 }
 
 /// Apply ONE write clause for a single binding, extending the binding with any
-/// newly created/merged variables (CONCEPT:EG-020 / EG-061).
+/// newly created/merged variables (CONCEPT:EG-KG.query.register-each-user-table / EG-061).
 fn apply_write_op(
     core: &GraphCore,
     snap: &GraphView,
@@ -1147,7 +1147,7 @@ fn apply_write_op(
 }
 
 /// `CREATE <pattern>`: realize each node (reuse a bound var, else create) and each
-/// hop's edge (CONCEPT:EG-020).
+/// hop's edge (CONCEPT:EG-KG.query.register-each-user-table).
 fn apply_create(
     core: &GraphCore,
     binding: &mut Binding,
@@ -1178,7 +1178,7 @@ fn apply_create(
 }
 
 /// Resolve a CREATE node position to an id: reuse a bound variable, else create a new
-/// node carrying its label (`type`) + inline props (CONCEPT:EG-020).
+/// node carrying its label (`type`) + inline props (CONCEPT:EG-KG.query.register-each-user-table).
 fn realize_node(
     core: &GraphCore,
     binding: &mut Binding,
@@ -1212,7 +1212,7 @@ fn realize_node(
 }
 
 /// `MERGE (n:Label {props})`: match a node by label + ALL inline props; create iff
-/// absent. Idempotent. Binds `n` (CONCEPT:EG-020).
+/// absent. Idempotent. Binds `n` (CONCEPT:EG-KG.query.register-each-user-table).
 fn apply_merge(
     core: &GraphCore,
     binding: &mut Binding,
@@ -1241,7 +1241,7 @@ fn apply_merge(
 }
 
 /// `SET v.prop = literal [, …]`: merge each assignment onto the bound node via the
-/// engine's atomic `compare_and_set_fields` (CONCEPT:EG-020).
+/// engine's atomic `compare_and_set_fields` (CONCEPT:EG-KG.query.register-each-user-table).
 fn apply_set(
     core: &GraphCore,
     binding: &Binding,
@@ -1268,7 +1268,7 @@ fn apply_set(
 }
 
 /// `REMOVE v.prop | v:Label [, …]`: delete a property or remove a label from the
-/// bound node (CONCEPT:EG-061). A read-modify-write over the engine's field map: read
+/// bound node (CONCEPT:EG-KG.query.cypher-execution). A read-modify-write over the engine's field map: read
 /// the node blob, drop the field / label, write the blob back via `add_node` (which
 /// replaces an existing node's properties in place).
 fn apply_remove(
@@ -1333,7 +1333,7 @@ fn apply_remove(
 
 /// Remove `label` from a node's property object, mirroring the label-index fields
 /// (`type`/`node_type`/`label` scalar, or membership in the `labels` array). Returns
-/// whether anything changed (CONCEPT:EG-061).
+/// whether anything changed (CONCEPT:EG-KG.query.cypher-execution).
 fn remove_label(obj: &mut serde_json::Map<String, Value>, label: &str) -> bool {
     let mut changed = false;
     for key in ["type", "node_type", "label"] {
@@ -1353,7 +1353,7 @@ fn remove_label(obj: &mut serde_json::Map<String, Value>, label: &str) -> bool {
 }
 
 /// `[DETACH] DELETE v [, …]`: remove bound node variables (DETACH also drops their
-/// incident edges), or a bound edge variable's edge (CONCEPT:EG-020).
+/// incident edges), or a bound edge variable's edge (CONCEPT:EG-KG.query.register-each-user-table).
 fn apply_delete(
     core: &GraphCore,
     snap: &GraphView,
@@ -1437,7 +1437,7 @@ fn gen_node_id() -> String {
 }
 
 /// A Cypher inline-property list → a JSON object map, resolving each value against the
-/// live params + binding (literal / `$param` / bound-var reference; CONCEPT:EG-141).
+/// live params + binding (literal / `$param` / bound-var reference; CONCEPT:EG-KG.query.param-list-drives-unwind).
 fn props_to_map(
     props: Option<&[(String, PropVal)]>,
     binding: &Binding,
@@ -1621,7 +1621,7 @@ mod tests {
         assert_eq!(qr.rows.len(), 2);
     }
 
-    // ── read clauses (CONCEPT:EG-062) ──────────────────────────────────────────
+    // ── read clauses (CONCEPT:EG-KG.query.eg-extend-read-side) ──────────────────────────────────────────
 
     #[test]
     fn order_by_skip_limit() {
@@ -1723,7 +1723,7 @@ mod tests {
         assert_eq!(cells_of(&qr, 0)[0], Value::String("alice".into()));
     }
 
-    // ── var-length generalization (CONCEPT:EG-063) ─────────────────────────────
+    // ── var-length generalization (CONCEPT:EG-KG.query.concept-2) ─────────────────────────────
 
     #[test]
     fn mixed_fixed_and_var_length_pattern() {
@@ -1753,7 +1753,7 @@ mod tests {
         assert_eq!(seq, vec!["alice", "bob"]);
     }
 
-    // ── UNWIND (CONCEPT:EG-141) ─────────────────────────────────────────────────
+    // ── UNWIND (CONCEPT:EG-KG.query.param-list-drives-unwind) ─────────────────────────────────────────────────
 
     #[test]
     fn unwind_list_literal_yields_one_row_per_element() {
@@ -1769,7 +1769,7 @@ mod tests {
 
     #[test]
     fn unwind_param_then_match_inline_prop() {
-        // CONCEPT:EG-141 — a $param list drives UNWIND, and each unwound value is
+        // CONCEPT:EG-KG.query.param-list-drives-unwind — a $param list drives UNWIND, and each unwound value is
         // referenced by a read-side inline property `(n:Person {name: nm})`.
         let v = fixture();
         let mut params = Params::new();
@@ -1792,7 +1792,7 @@ mod tests {
         assert_eq!(c[1], Value::Number(3.into()));
     }
 
-    // ── CALL subquery + procedures (CONCEPT:EG-142 / EG-143) ────────────────────
+    // ── CALL subquery + procedures (CONCEPT:EG-KG.query.cypher-planning / EG-143) ────────────────────
 
     #[test]
     fn call_subquery_joins_rows() {
@@ -1829,7 +1829,7 @@ mod tests {
         assert!(err.contains("unknown procedure"), "{err}");
     }
 
-    // ── APOC/GDS procedure library (CONCEPT:EG-143) ─────────────────────────────
+    // ── APOC/GDS procedure library (CONCEPT:EG-KG.query.eg-2) ─────────────────────────────
 
     #[test]
     fn call_db_relationship_types_builtin() {
@@ -1902,7 +1902,7 @@ mod tests {
 
     #[test]
     fn call_proc_result_feeds_downstream_match() {
-        // CONCEPT:EG-143 — a YIELD `node` binds an anchorable node id, so a downstream
+        // CONCEPT:EG-KG.query.eg-2 — a YIELD `node` binds an anchorable node id, so a downstream
         // labelled MATCH re-anchors on it and filters by label (keeps only the Doc).
         let v = fixture();
         let qr = exec_cypher(
@@ -1913,7 +1913,7 @@ mod tests {
         assert_eq!(ids(&qr, 0), vec!["d1"]);
     }
 
-    // ── write path (CONCEPT:EG-020 / EG-061) ───────────────────────────────────
+    // ── write path (CONCEPT:EG-KG.query.register-each-user-table / EG-061) ───────────────────────────────────
 
     fn col0(qr: &QueryResult) -> Vec<String> {
         let mut out: Vec<String> = qr
@@ -2028,7 +2028,7 @@ mod tests {
         assert_eq!(cells_of(&qr, 0)[0], Value::String("open".into()));
     }
 
-    // ── REMOVE (CONCEPT:EG-061) ─────────────────────────────────────────────────
+    // ── REMOVE (CONCEPT:EG-KG.query.cypher-execution) ─────────────────────────────────────────────────
 
     #[test]
     fn remove_property_deletes_field() {

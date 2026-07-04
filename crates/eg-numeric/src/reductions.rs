@@ -162,7 +162,7 @@ pub fn quantile(a: ArrayView1<f64>, q: f64) -> Result<f64> {
 }
 
 // ---------------------------------------------------------------------------
-// Axis / keepdims / integer-array reductions (CONCEPT:EG-355)
+// Axis / keepdims / integer-array reductions (CONCEPT:EG-KG.compute.concept-4)
 //
 // These close the "bare 1-D float64 only" gap: `np.mean(m, axis=1)`, integer
 // arrays (coerced to f64 at the pyo3 boundary), and multi-dim inputs now route

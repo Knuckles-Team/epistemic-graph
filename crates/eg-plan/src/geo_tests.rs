@@ -1,4 +1,4 @@
-//! Spatial modality executor proofs (CONCEPT:EG-083).
+//! Spatial modality executor proofs (CONCEPT:EG-KG.ontology.singles-concept).
 //!
 //! A small `City` layer with a `geometry` (POINT WKT) property drives the three spatial
 //! surfaces end-to-end through the fused executor:

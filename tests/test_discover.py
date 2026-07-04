@@ -1,5 +1,5 @@
 """``GraphOperationsClient.discover`` sends the one-round-trip Discover RPC
-(CONCEPT:KG-2.132) — hybrid keyword + semantic discovery that returns hydrated
+(CONCEPT:EG-KG.retrieval.one-round-trip-discovery) — hybrid keyword + semantic discovery that returns hydrated
 node text.
 
 The engine-side ranking (HNSW dense retrieval + keyword re-rank over

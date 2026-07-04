@@ -1,4 +1,4 @@
-//! WASM-sandboxed UDF runtime (CONCEPT:KG-2.228).
+//! WASM-sandboxed UDF runtime (CONCEPT:EG-KG.query.rowset-execution).
 //!
 //! An agent pushes a custom compute function as a WebAssembly module; the engine
 //! runs it SANDBOXED over a byte payload (the serialized input rows) and reads back

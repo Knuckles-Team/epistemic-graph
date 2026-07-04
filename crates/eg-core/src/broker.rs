@@ -1,5 +1,5 @@
-//! Message-broker exchanges / routing primitives (CONCEPT:EG-275) — the
-//! RabbitMQ-class layer on top of the native work-queue (CONCEPT:KG-2.303).
+//! Message-broker exchanges / routing primitives (CONCEPT:EG-KG.compute.message-broker-exchanges) — the
+//! RabbitMQ-class layer on top of the native work-queue (CONCEPT:EG-KG.compute.atomically-claim-oldest-pending).
 //!
 //! ## What this is
 //! A durable, pure-Rust broker modeled ENTIRELY as graph nodes on a control graph
@@ -7,7 +7,7 @@
 //! storage engine, NO parallel mechanism. Exchanges and bindings are ordinary nodes;
 //! a queue's messages are pending nodes labeled `qmsg:<queue>` so that the existing
 //! atomic [`GraphCore::claim_next_fields`](crate::graph::GraphCore::claim_next_fields)
-//! (CONCEPT:KG-2.303) delivers them FIFO and a compare-and-set acks them. Publishing
+//! (CONCEPT:EG-KG.compute.atomically-claim-oldest-pending) delivers them FIFO and a compare-and-set acks them. Publishing
 //! resolves the exchange's bindings through the pure [`route`] matcher and appends one
 //! pending message to every matched queue atomically under one write guard
 //! ([`GraphCore::broker_enqueue`](crate::graph::GraphCore::broker_enqueue)).
@@ -51,7 +51,7 @@ pub fn queue_seq_node_id(queue: &str) -> String {
 }
 
 /// The `type`/label a queue's pending message nodes carry — the label
-/// `claim_next_fields` scans to deliver the queue FIFO (CONCEPT:KG-2.303).
+/// `claim_next_fields` scans to deliver the queue FIFO (CONCEPT:EG-KG.compute.atomically-claim-oldest-pending).
 pub fn queue_msg_label(queue: &str) -> String {
     format!("qmsg:{queue}")
 }
@@ -67,7 +67,7 @@ const QUEUE_SEQ_TYPE: &str = "BrokerQueueSeq";
 
 // ── Pure primitives ──────────────────────────────────────────────────────
 
-/// The three routing disciplines (CONCEPT:EG-275), mirroring AMQP 0.9.1.
+/// The three routing disciplines (CONCEPT:EG-KG.compute.message-broker-exchanges), mirroring AMQP 0.9.1.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ExchangeKind {
     /// Deliver to queues bound with a routing key EQUAL to the message's.
@@ -99,14 +99,14 @@ impl ExchangeKind {
     }
 }
 
-/// A durable exchange definition (CONCEPT:EG-275).
+/// A durable exchange definition (CONCEPT:EG-KG.compute.message-broker-exchanges).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Exchange {
     pub name: String,
     pub kind: ExchangeKind,
 }
 
-/// A durable exchange→queue binding (CONCEPT:EG-275). For a topic exchange the
+/// A durable exchange→queue binding (CONCEPT:EG-KG.compute.message-broker-exchanges). For a topic exchange the
 /// `routing_key` is a `*`/`#` pattern; for direct it is an exact key; for fanout it
 /// is ignored.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -116,7 +116,7 @@ pub struct Binding {
     pub routing_key: String,
 }
 
-/// AMQP 0.9.1 topic wildcard match (CONCEPT:EG-275). Both `pattern` and `key` are
+/// AMQP 0.9.1 topic wildcard match (CONCEPT:EG-KG.compute.message-broker-exchanges). Both `pattern` and `key` are
 /// dot-delimited word lists; `*` matches EXACTLY one word and `#` matches ZERO OR MORE
 /// words. Correct for the tricky cases (`#` at either end, adjacent `#`, empty key).
 pub fn topic_matches(pattern: &str, key: &str) -> bool {
@@ -158,7 +158,7 @@ fn topic_matches_words(pattern: &[&str], key: &[&str]) -> bool {
 }
 
 /// Resolve a published `routing_key` against an exchange's `kind` + `bindings` to the
-/// set of destination queues (CONCEPT:EG-275) — the PURE routing core. Order-stable
+/// set of destination queues (CONCEPT:EG-KG.compute.message-broker-exchanges) — the PURE routing core. Order-stable
 /// (bindings order) and de-duplicated (a queue bound twice is enqueued once).
 pub fn route(kind: ExchangeKind, bindings: &[Binding], routing_key: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
@@ -228,7 +228,7 @@ fn to_msgpack(v: &serde_json::Value) -> Vec<u8> {
     rmp_serde::to_vec_named(v).unwrap_or_default()
 }
 
-/// Declare (idempotently upsert) an exchange (CONCEPT:EG-275). Re-declaring with the
+/// Declare (idempotently upsert) an exchange (CONCEPT:EG-KG.compute.message-broker-exchanges). Re-declaring with the
 /// SAME kind is a no-op success; re-declaring with a DIFFERENT kind is rejected
 /// (AMQP `PRECONDITION_FAILED` semantics).
 pub fn declare_exchange(core: &GraphCore, name: &str, kind: ExchangeKind) -> Result<(), String> {
@@ -258,7 +258,7 @@ pub fn load_exchange_kind(core: &GraphCore, name: &str) -> Option<ExchangeKind> 
     ExchangeKind::parse(obj.get("kind")?.as_str()?)
 }
 
-/// Delete an exchange and ALL of its bindings (CONCEPT:EG-275). Returns whether the
+/// Delete an exchange and ALL of its bindings (CONCEPT:EG-KG.compute.message-broker-exchanges). Returns whether the
 /// exchange existed. Queues + their messages are untouched (only the routing edges go).
 pub fn delete_exchange(core: &GraphCore, name: &str) -> bool {
     let existed = core.has_node(&exchange_node_id(name));
@@ -271,7 +271,7 @@ pub fn delete_exchange(core: &GraphCore, name: &str) -> bool {
     existed
 }
 
-/// Bind `queue` to `exchange` under `routing_key` (CONCEPT:EG-275), idempotently. Also
+/// Bind `queue` to `exchange` under `routing_key` (CONCEPT:EG-KG.compute.message-broker-exchanges), idempotently. Also
 /// ensures the queue's durable sequence counter node exists so publishes start at 0.
 pub fn bind_queue(core: &GraphCore, exchange: &str, queue: &str, routing_key: &str) {
     ensure_queue_seq(core, queue);
@@ -287,7 +287,7 @@ pub fn bind_queue(core: &GraphCore, exchange: &str, queue: &str, routing_key: &s
     );
 }
 
-/// Remove a specific `exchange`/`queue`/`routing_key` binding (CONCEPT:EG-275).
+/// Remove a specific `exchange`/`queue`/`routing_key` binding (CONCEPT:EG-KG.compute.message-broker-exchanges).
 /// Returns whether a matching binding existed.
 pub fn unbind_queue(core: &GraphCore, exchange: &str, queue: &str, routing_key: &str) -> bool {
     let id = binding_node_id(exchange, queue, routing_key);
@@ -298,7 +298,7 @@ pub fn unbind_queue(core: &GraphCore, exchange: &str, queue: &str, routing_key: 
     existed
 }
 
-/// All bindings currently attached to `exchange` (CONCEPT:EG-275).
+/// All bindings currently attached to `exchange` (CONCEPT:EG-KG.compute.message-broker-exchanges).
 pub fn load_bindings(core: &GraphCore, exchange: &str) -> Vec<Binding> {
     core.get_nodes_by_label(BINDING_TYPE, 0)
         .into_iter()
@@ -331,7 +331,7 @@ pub fn ensure_queue_seq(core: &GraphCore, queue: &str) {
     }
 }
 
-/// Publish `payload` to `exchange` with `routing_key` (CONCEPT:EG-275). Resolves the
+/// Publish `payload` to `exchange` with `routing_key` (CONCEPT:EG-KG.compute.message-broker-exchanges). Resolves the
 /// destination queues through [`route`] over the exchange's current bindings, then
 /// appends one pending message to EACH matched queue atomically under one write guard.
 /// Returns the number of queues the message was delivered to (0 = unroutable / unknown
@@ -351,7 +351,7 @@ pub fn publish(core: &GraphCore, exchange: &str, routing_key: &str, payload: &[u
 }
 
 // ══════════════════════════════════════════════════════════════════════════
-// Broker policy extensions (CONCEPT:EG-276 DLQ / EG-277 TTL / EG-278 priority /
+// Broker policy extensions (CONCEPT:EG-KG.compute.dead-letter-queues DLQ / EG-277 TTL / EG-278 priority /
 // EG-279 delay/schedule / EG-280 consumer-groups + QoS). Every addition here is
 // ADDITIVE over EG-275: a queue with NO policy node and a message with NO
 // priority/delay/expiry field claims/acks exactly as EG-275 does. Time is never
@@ -362,12 +362,12 @@ pub fn publish(core: &GraphCore, exchange: &str, routing_key: &str, payload: &[u
 
 const QUEUE_POLICY_TYPE: &str = "BrokerQueuePolicy";
 
-/// Node id for a queue's durable policy node (CONCEPT:EG-276/277/278).
+/// Node id for a queue's durable policy node (CONCEPT:EG-KG.compute.dead-letter-queues/277/278).
 pub fn queue_policy_node_id(queue: &str) -> String {
     format!("broker:qpolicy:{queue}")
 }
 
-/// A queue's durable policy (CONCEPT:EG-276 DLQ / EG-277 TTL / EG-278 priority).
+/// A queue's durable policy (CONCEPT:EG-KG.compute.dead-letter-queues DLQ / EG-277 TTL / EG-278 priority).
 /// Every field optional; an all-`None` policy (the default when no policy node
 /// exists) makes the queue behave exactly as EG-275.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -386,7 +386,7 @@ pub struct QueuePolicy {
     pub max_priority: Option<u8>,
 }
 
-/// Declare (idempotently upsert) a queue's policy node (CONCEPT:EG-276/277/278).
+/// Declare (idempotently upsert) a queue's policy node (CONCEPT:EG-KG.compute.dead-letter-queues/277/278).
 /// Also ensures the queue's seq counter exists so a policy-only queue is publishable.
 pub fn declare_queue(core: &GraphCore, queue: &str, policy: &QueuePolicy) {
     ensure_queue_seq(core, queue);
@@ -409,7 +409,7 @@ pub fn declare_queue(core: &GraphCore, queue: &str, policy: &QueuePolicy) {
     );
 }
 
-/// Read a queue's policy (CONCEPT:EG-276/277/278); an absent node ⇒ the default
+/// Read a queue's policy (CONCEPT:EG-KG.compute.dead-letter-queues/277/278); an absent node ⇒ the default
 /// all-`None` policy (EG-275 behavior).
 pub fn load_queue_policy(core: &GraphCore, queue: &str) -> QueuePolicy {
     match node_object(core, &queue_policy_node_id(queue)) {
@@ -418,7 +418,7 @@ pub fn load_queue_policy(core: &GraphCore, queue: &str) -> QueuePolicy {
     }
 }
 
-/// Route + enqueue `payload` with resolved policy fields (CONCEPT:EG-277/278/279) —
+/// Route + enqueue `payload` with resolved policy fields (CONCEPT:EG-KG.compute.message-ttl-expiry/278/279) —
 /// the shared core behind [`publish_ex`] and the dead-letter republish. Per QUEUE it
 /// resolves `expires_at` from the per-message TTL else the queue's `message_ttl_ms`
 /// (so per-queue TTL is honored), then merges `priority` / `deliver_at` / `expires_at`
@@ -473,7 +473,7 @@ fn publish_resolved(
     delivered
 }
 
-/// Policy-carrying publish (CONCEPT:EG-277 TTL / EG-278 priority / EG-279 delay).
+/// Policy-carrying publish (CONCEPT:EG-KG.compute.message-ttl-expiry TTL / EG-278 priority / EG-279 delay).
 /// Stamps `priority` on each message; resolves `delay_ms`/`ttl_ms` against the
 /// EXPLICIT `now_ms` to absolute `deliver_at`/`expires_at` etas (so replay is
 /// deterministic). With `priority == 0` and every option `None`, the message node is
@@ -528,7 +528,7 @@ struct Candidate {
     lease_until: Option<u64>,
 }
 
-/// Total order for the claim pick (CONCEPT:EG-278): highest priority first, then
+/// Total order for the claim pick (CONCEPT:EG-KG.compute.priority-queues): highest priority first, then
 /// oldest seq (FIFO within a band), ties broken by id for determinism. Returns the
 /// preferred of `a` (incumbent) and `b` (challenger).
 fn prefer(a: Option<Candidate>, b: Candidate) -> Option<Candidate> {
@@ -547,7 +547,7 @@ fn prefer(a: Option<Candidate>, b: Candidate) -> Option<Candidate> {
     }
 }
 
-/// Consume one message from `queue` for a consumer-group member (CONCEPT:EG-280
+/// Consume one message from `queue` for a consumer-group member (CONCEPT:EG-KG.compute.groups-qos-prefetch-honoring
 /// groups + QoS/prefetch), honoring EG-277 TTL / EG-278 priority / EG-279 delay.
 ///
 /// Picks the highest-priority, oldest, DUE (`deliver_at <= now`), non-expired message
@@ -555,7 +555,7 @@ fn prefer(a: Option<Candidate>, b: Candidate) -> Option<Candidate> {
 /// (EG-280 lease-return / redelivery). Enforces per-consumer `prefetch` (0 ⇒ unlimited)
 /// by counting the consumer's in-flight (unexpired-lease) messages. Takes a visibility
 /// lease of `lease_ms` (0 ⇒ none) and bumps `delivery_count`. Lazily dead-letters any
-/// expired messages it steps over (CONCEPT:EG-277). Returns the claimed `(id, props)`
+/// expired messages it steps over (CONCEPT:EG-KG.compute.message-ttl-expiry). Returns the claimed `(id, props)`
 /// or `None` (nothing due / prefetch full). Deterministic in its explicit args.
 pub fn broker_consume(
     core: &GraphCore,
@@ -708,7 +708,7 @@ pub fn broker_consume(
 }
 
 /// Acknowledge (remove) a claimed message, freeing its consumer's in-flight slot
-/// (CONCEPT:EG-280). Returns whether the message existed.
+/// (CONCEPT:EG-KG.compute.groups-qos-prefetch-honoring). Returns whether the message existed.
 pub fn broker_ack(core: &GraphCore, _queue: &str, node_id: &str) -> bool {
     let existed = core.has_node(node_id);
     if existed {
@@ -724,7 +724,7 @@ pub fn broker_ack(core: &GraphCore, _queue: &str, node_id: &str) -> bool {
     existed
 }
 
-/// Reject a claimed message (CONCEPT:EG-276). If `requeue` and the message's
+/// Reject a claimed message (CONCEPT:EG-KG.compute.dead-letter-queues). If `requeue` and the message's
 /// `delivery_count` is still under the queue's `max_delivery_count`, it returns to
 /// claimable (`pending`, lease cleared); otherwise it is dead-lettered to the queue's
 /// DL target (preserving `x-death`) or dropped when no DL exchange is set. Returns the
@@ -782,7 +782,7 @@ pub fn broker_reject(
     }
 }
 
-/// Dead-letter one message (CONCEPT:EG-276): if the queue has a `dl_exchange`,
+/// Dead-letter one message (CONCEPT:EG-KG.compute.dead-letter-queues): if the queue has a `dl_exchange`,
 /// republish the payload to it (routing key = `dl_routing_key` else the original),
 /// preserving priority and appending an `x-death` record (original queue/exchange/
 /// routing-key/reason/count/time) — then remove the original node. With no DL exchange
@@ -846,7 +846,7 @@ fn dead_letter(
     core.remove_node(node_id.to_string());
 }
 
-/// Reaper sweep (CONCEPT:EG-277): across every known queue, dead-letter/drop messages
+/// Reaper sweep (CONCEPT:EG-KG.compute.message-ttl-expiry): across every known queue, dead-letter/drop messages
 /// whose `expires_at` has passed and return messages whose visibility lease has expired
 /// to claimable (EG-280). Called periodically by the scheduler with the current clock
 /// (`now_ms` explicit → deterministic replay). Queues are discovered from their durable
@@ -916,8 +916,8 @@ pub fn sweep_expired(core: &GraphCore, now_ms: u64) -> usize {
 }
 
 // ══════════════════════════════════════════════════════════════════════════
-// Replayable append-log streams (CONCEPT:EG-283) + publisher confirms / consumer
-// QoS acks (CONCEPT:EG-284) — the Kafka-class retain+offset log and the
+// Replayable append-log streams (CONCEPT:EG-KG.compute.replayable-append-log) + publisher confirms / consumer
+// QoS acks (CONCEPT:EG-KG.compute.publisher-confirms-consumer-qos) — the Kafka-class retain+offset log and the
 // at-least-once confirm/ack surface, both ADDITIVE over EG-275/276..280.
 //
 // EG-283 STREAMS differ from the KG-2.303 work-queue in ONE way: a queue message
@@ -948,51 +948,51 @@ pub const BROKER_COUNTER_TYPE: &str = "BrokerCounter";
 /// Type carried by a stream's durable monotonic offset counter node.
 pub const STREAM_OFFSET_TYPE: &str = "BrokerStreamOffset";
 
-/// Node id for a stream's durable retention-policy / config node (CONCEPT:EG-283).
+/// Node id for a stream's durable retention-policy / config node (CONCEPT:EG-KG.compute.replayable-append-log).
 pub fn stream_config_node_id(stream: &str) -> String {
     format!("broker:stream:{stream}")
 }
 
-/// Node id for a stream's durable monotonic offset counter (CONCEPT:EG-283).
+/// Node id for a stream's durable monotonic offset counter (CONCEPT:EG-KG.compute.replayable-append-log).
 pub fn stream_offset_node_id(stream: &str) -> String {
     format!("broker:soff:{stream}")
 }
 
-/// The label a stream's RETAINED message nodes carry (CONCEPT:EG-283). Distinct from
+/// The label a stream's RETAINED message nodes carry (CONCEPT:EG-KG.compute.replayable-append-log). Distinct from
 /// the queue label `qmsg:<queue>` so a stream is never scanned by the queue claim.
 pub fn stream_msg_label(stream: &str) -> String {
     format!("smsg:{stream}")
 }
 
-/// Node id for the message appended to `stream` at `offset` (CONCEPT:EG-283).
+/// Node id for the message appended to `stream` at `offset` (CONCEPT:EG-KG.compute.replayable-append-log).
 pub fn stream_msg_node_id(stream: &str, offset: i64) -> String {
     format!("broker:smsg:{stream}:{offset}")
 }
 
-/// Node id for a consumer-group's committed read offset on a stream (CONCEPT:EG-283).
+/// Node id for a consumer-group's committed read offset on a stream (CONCEPT:EG-KG.compute.replayable-append-log).
 /// The `\u{1}` delimiter cannot appear in a stream/group name, so the id is unique.
 pub fn stream_commit_node_id(stream: &str, group: &str) -> String {
     format!("broker:scommit:{stream}\u{1}{group}")
 }
 
 /// Node id of the broker-wide monotonic publisher-confirm delivery-tag counter
-/// (CONCEPT:EG-284).
+/// (CONCEPT:EG-KG.compute.publisher-confirms-consumer-qos).
 pub fn confirm_seq_node_id() -> String {
     "broker:confirm_seq".to_string()
 }
 
-/// Node id of the broker-wide monotonic consumer delivery-tag counter (CONCEPT:EG-284).
+/// Node id of the broker-wide monotonic consumer delivery-tag counter (CONCEPT:EG-KG.compute.publisher-confirms-consumer-qos).
 pub fn dtag_seq_node_id() -> String {
     "broker:dtag_seq".to_string()
 }
 
 /// Node id of the reverse-lookup node mapping a consumer `delivery_tag` → the claimed
-/// message node id + queue, so ack/nack-by-tag resolves in O(1) (CONCEPT:EG-284).
+/// message node id + queue, so ack/nack-by-tag resolves in O(1) (CONCEPT:EG-KG.compute.publisher-confirms-consumer-qos).
 pub fn dtag_lookup_node_id(tag: i64) -> String {
     format!("broker:dtag:{tag}")
 }
 
-/// A stream's durable retention policy (CONCEPT:EG-283). Both bounds optional; an
+/// A stream's durable retention policy (CONCEPT:EG-KG.compute.replayable-append-log). Both bounds optional; an
 /// all-`None` policy (the default when no config node exists) makes the stream an
 /// unbounded append log that [`stream_trim`] never touches.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -1003,7 +1003,7 @@ pub struct StreamRetention {
     pub max_age_ms: Option<u64>,
 }
 
-/// Where a [`stream_read`] starts (CONCEPT:EG-283): the earliest retained message
+/// Where a [`stream_read`] starts (CONCEPT:EG-KG.compute.replayable-append-log): the earliest retained message
 /// (offset 0), only messages published AFTER now (the current end), or an explicit
 /// offset. Reads are inclusive of the resolved start offset.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1017,7 +1017,7 @@ pub enum ReadFrom {
 }
 
 impl ReadFrom {
-    /// Decode the wire encoding used by `Method::StreamRead` (CONCEPT:EG-283): a
+    /// Decode the wire encoding used by `Method::StreamRead` (CONCEPT:EG-KG.compute.replayable-append-log): a
     /// negative value ⇒ [`ReadFrom::Latest`]; otherwise an explicit offset (`0` is the
     /// earliest). Keeps the protocol a single `i64` field, deterministic on replay.
     pub fn from_wire(v: i64) -> Self {
@@ -1029,7 +1029,7 @@ impl ReadFrom {
     }
 }
 
-/// A publisher-confirm token (CONCEPT:EG-284): a broker-wide monotonic `delivery_tag`
+/// A publisher-confirm token (CONCEPT:EG-KG.compute.publisher-confirms-consumer-qos): a broker-wide monotonic `delivery_tag`
 /// identifying the publish, plus whether the broker durably accepted it (`confirmed`)
 /// or nacked it (unknown exchange). Mirrors AMQP publisher confirms / Kafka acks.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1039,7 +1039,7 @@ pub struct ConfirmToken {
 }
 
 /// Ensure a stream's durable monotonic offset counter node exists (starting at 0),
-/// mirroring [`ensure_queue_seq`] (CONCEPT:EG-283). Called on declare + publish so a
+/// mirroring [`ensure_queue_seq`] (CONCEPT:EG-KG.compute.replayable-append-log). Called on declare + publish so a
 /// declared-but-empty OR an undeclared-but-published stream is still monotonic.
 pub fn ensure_stream_offset(core: &GraphCore, stream: &str) {
     let id = stream_offset_node_id(stream);
@@ -1053,7 +1053,7 @@ pub fn ensure_stream_offset(core: &GraphCore, stream: &str) {
     }
 }
 
-/// Declare (idempotently upsert) a stream's retention policy (CONCEPT:EG-283). Also
+/// Declare (idempotently upsert) a stream's retention policy (CONCEPT:EG-KG.compute.replayable-append-log). Also
 /// ensures the offset counter exists so a freshly-declared stream is publishable.
 /// Re-declaring with a new policy replaces it (RabbitMQ-stream style), which never
 /// touches already-appended messages.
@@ -1078,7 +1078,7 @@ pub fn declare_stream(core: &GraphCore, stream: &str, retention: &StreamRetentio
     );
 }
 
-/// Read a stream's retention policy (CONCEPT:EG-283), or `None` if it was never
+/// Read a stream's retention policy (CONCEPT:EG-KG.compute.replayable-append-log), or `None` if it was never
 /// declared (⇒ an unbounded append log).
 pub fn load_stream_retention(core: &GraphCore, stream: &str) -> Option<StreamRetention> {
     let o = node_object(core, &stream_config_node_id(stream))?;
@@ -1086,7 +1086,7 @@ pub fn load_stream_retention(core: &GraphCore, stream: &str) -> Option<StreamRet
 }
 
 /// The stream's current end offset — the value the NEXT publish will use, i.e. the
-/// count of offsets ever issued (CONCEPT:EG-283). `0` for an unknown/empty stream.
+/// count of offsets ever issued (CONCEPT:EG-KG.compute.replayable-append-log). `0` for an unknown/empty stream.
 pub fn stream_end_offset(core: &GraphCore, stream: &str) -> i64 {
     node_object(core, &stream_offset_node_id(stream))
         .and_then(|o| o.get("next_offset").and_then(|v| v.as_i64()))
@@ -1094,7 +1094,7 @@ pub fn stream_end_offset(core: &GraphCore, stream: &str) -> i64 {
 }
 
 /// Append `payload` to `stream` and return its assigned monotonic offset
-/// (CONCEPT:EG-283). Ensures the offset counter, then atomically bumps it and writes
+/// (CONCEPT:EG-KG.compute.replayable-append-log). Ensures the offset counter, then atomically bumps it and writes
 /// one RETAINED message node (labeled `smsg:<stream>`) carrying the hex payload +
 /// `ts = now_ms`. Unlike a queue publish the message is NEVER auto-consumed; it is
 /// read by [`stream_read`] and only removed by [`stream_trim`]. Deterministic: the
@@ -1144,7 +1144,7 @@ pub fn stream_read(
     out
 }
 
-/// Trim `stream` per its declared retention (CONCEPT:EG-283): drop messages beyond
+/// Trim `stream` per its declared retention (CONCEPT:EG-KG.compute.replayable-append-log): drop messages beyond
 /// `max_messages` (oldest first) AND/OR older than `max_age_ms` (`now_ms - ts`),
 /// returning the number removed. An undeclared / all-`None` policy trims nothing (an
 /// unbounded log). Removal runs under ONE write guard; the drop set is offset-ordered
@@ -1195,7 +1195,7 @@ pub fn stream_trim(core: &GraphCore, stream: &str, now_ms: u64) -> usize {
     core.stream_trim_nodes(&drop_ids)
 }
 
-/// Commit a consumer-group's read `offset` on `stream` (CONCEPT:EG-283), so the group
+/// Commit a consumer-group's read `offset` on `stream` (CONCEPT:EG-KG.compute.replayable-append-log), so the group
 /// can resume from where it left off. Idempotent upsert of a small commit node.
 pub fn commit_offset(core: &GraphCore, stream: &str, group: &str, offset: i64) {
     let props = serde_json::json!({
@@ -1207,7 +1207,7 @@ pub fn commit_offset(core: &GraphCore, stream: &str, group: &str, offset: i64) {
     core.add_node(stream_commit_node_id(stream, group), to_msgpack(&props));
 }
 
-/// Read a consumer-group's committed offset on `stream` (CONCEPT:EG-283), or `None`
+/// Read a consumer-group's committed offset on `stream` (CONCEPT:EG-KG.compute.replayable-append-log), or `None`
 /// if the group has never committed (⇒ resume from earliest / its own choice).
 pub fn committed_offset(core: &GraphCore, stream: &str, group: &str) -> Option<i64> {
     node_object(core, &stream_commit_node_id(stream, group))?
@@ -1215,7 +1215,7 @@ pub fn committed_offset(core: &GraphCore, stream: &str, group: &str) -> Option<i
         .as_i64()
 }
 
-/// Publish with a publisher confirm (CONCEPT:EG-284). Allocates a broker-wide
+/// Publish with a publisher confirm (CONCEPT:EG-KG.compute.publisher-confirms-consumer-qos). Allocates a broker-wide
 /// monotonic `delivery_tag`, then routes+enqueues exactly like [`publish_ex`]. Returns
 /// a [`ConfirmToken`]: `confirmed = true` once the message is durably enqueued (the
 /// exchange exists — an unroutable-but-accepted publish still confirms, RabbitMQ-style),
@@ -1257,7 +1257,7 @@ pub fn publish_confirmed(
 }
 
 /// Resolve a consumer `delivery_tag` to its `(node_id, queue)` via the reverse-lookup
-/// node (CONCEPT:EG-284). `None` if the tag was never issued / already acked.
+/// node (CONCEPT:EG-KG.compute.publisher-confirms-consumer-qos). `None` if the tag was never issued / already acked.
 fn resolve_delivery_tag(core: &GraphCore, tag: i64) -> Option<(String, String)> {
     let o = node_object(core, &dtag_lookup_node_id(tag))?;
     Some((
@@ -1282,7 +1282,7 @@ pub fn broker_ack_tag(core: &GraphCore, delivery_tag: i64) -> bool {
     existed
 }
 
-/// Nack a claimed message by its consumer `delivery_tag` (CONCEPT:EG-284) — the
+/// Nack a claimed message by its consumer `delivery_tag` (CONCEPT:EG-KG.compute.publisher-confirms-consumer-qos) — the
 /// tag-addressed sibling of [`broker_reject`]. With `requeue` the message returns to
 /// the claimable pool (at-least-once redelivery) unless it has exhausted its delivery
 /// budget, in which case it is dead-lettered; without `requeue` it is dead-lettered /
@@ -1297,7 +1297,7 @@ pub fn broker_nack_tag(core: &GraphCore, delivery_tag: i64, requeue: bool, now_m
 }
 
 // ══════════════════════════════════════════════════════════════════════════
-// CONCEPT:EG-314 idempotent producer (effectively-once publish) — ADDITIVE over
+// CONCEPT:EG-KG.ingest.broker-reject-publish idempotent producer (effectively-once publish) — ADDITIVE over
 // EG-275/276..284. A publish MAY carry a `(producer_id, seq)` idempotency stamp;
 // the broker keeps a durable per-producer monotonic high-water mark on the SAME
 // control graph and DROPS a re-published `(producer_id, seq)` it has already seen
@@ -1313,17 +1313,17 @@ pub fn broker_nack_tag(core: &GraphCore, delivery_tag: i64, requeue: bool, now_m
 // discipline EG-275..284 follow.
 // ══════════════════════════════════════════════════════════════════════════
 
-/// Type carried by a producer's durable dedup high-water-mark node (CONCEPT:EG-314).
+/// Type carried by a producer's durable dedup high-water-mark node (CONCEPT:EG-KG.ingest.broker-reject-publish).
 pub const PRODUCER_SEQ_TYPE: &str = "BrokerProducerSeq";
 
-/// Node id for a producer's durable dedup state (CONCEPT:EG-314) — the per-producer
+/// Node id for a producer's durable dedup state (CONCEPT:EG-KG.ingest.broker-reject-publish) — the per-producer
 /// monotonic `last_seq` high-water mark the broker dedups against. The `producer_id`
 /// is caller-chosen (a stable publisher identity), so the id is deterministic.
 pub fn producer_seq_node_id(producer_id: &str) -> String {
     format!("broker:producer:{producer_id}")
 }
 
-/// Outcome of an idempotent publish (CONCEPT:EG-314). `confirmed` mirrors the EG-284
+/// Outcome of an idempotent publish (CONCEPT:EG-KG.ingest.broker-reject-publish). `confirmed` mirrors the EG-284
 /// publisher-confirm (the exchange existed / the broker accepted it); `duplicate` is
 /// `true` when a `(producer_id, seq)` stamp was recognised as already-seen and the
 /// message was DROPPED (effectively-once — a duplicate still confirms so the retrying
@@ -1337,7 +1337,7 @@ pub struct IdempotentPublish {
 }
 
 /// Publish `payload` with an OPTIONAL `(producer_id, seq)` idempotency stamp
-/// (CONCEPT:EG-314) — the effectively-once sibling of [`publish_confirmed`].
+/// (CONCEPT:EG-KG.ingest.broker-reject-publish) — the effectively-once sibling of [`publish_confirmed`].
 ///
 /// * `producer_id == None` (or empty) ⇒ the plain at-least-once path: routes+enqueues
 ///   exactly like [`publish_ex`], never touching any producer node — byte-identical to
@@ -1427,7 +1427,7 @@ pub fn publish_idempotent(
 mod tests {
     use super::*;
 
-    // ── CONCEPT:EG-275 topic wildcard matcher ────────────────────────────
+    // ── CONCEPT:EG-KG.compute.message-broker-exchanges topic wildcard matcher ────────────────────────────
 
     #[test]
     fn eg275_topic_exact_match() {
@@ -1472,7 +1472,7 @@ mod tests {
         assert!(!topic_matches("*.#", "")); // * still needs one word
     }
 
-    // ── CONCEPT:EG-275 pure route() over kinds ────────────────────────────
+    // ── CONCEPT:EG-KG.compute.message-broker-exchanges pure route() over kinds ────────────────────────────
 
     fn b(q: &str, rk: &str) -> Binding {
         Binding {
@@ -1530,7 +1530,7 @@ mod tests {
         );
     }
 
-    // ── CONCEPT:EG-275 hex payload round-trip ─────────────────────────────
+    // ── CONCEPT:EG-KG.compute.message-broker-exchanges hex payload round-trip ─────────────────────────────
 
     #[test]
     fn eg275_hex_roundtrips_binary_payload() {
@@ -1546,7 +1546,7 @@ mod tests {
         assert_eq!(hex_decode("abc"), None); // odd length
     }
 
-    // ── CONCEPT:EG-275 graph-backed declare/bind/publish/consume ──────────
+    // ── CONCEPT:EG-KG.compute.message-broker-exchanges graph-backed declare/bind/publish/consume ──────────
 
     #[test]
     fn eg275_declare_is_idempotent_and_kind_locked() {
@@ -1611,7 +1611,7 @@ mod tests {
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    // Policy-extension test helpers + fixtures (CONCEPT:EG-276..280)
+    // Policy-extension test helpers + fixtures (CONCEPT:EG-KG.compute.dead-letter-queues..280)
     // ══════════════════════════════════════════════════════════════════════
 
     /// Direct exchange `ex` → queue `q` (routing key `k`), the common test rig.
@@ -1642,7 +1642,7 @@ mod tests {
         broker_consume(core, "dlq", "g", "c", now, 0, 0)
     }
 
-    // ── CONCEPT:EG-276 dead-letter queues ─────────────────────────────────
+    // ── CONCEPT:EG-KG.compute.dead-letter-queues dead-letter queues ─────────────────────────────────
 
     #[test]
     fn eg276_declare_queue_policy_roundtrips() {
@@ -1725,7 +1725,7 @@ mod tests {
         assert!(!core.has_node(&id));
     }
 
-    // ── CONCEPT:EG-277 message TTL + expiry ───────────────────────────────
+    // ── CONCEPT:EG-KG.compute.message-ttl-expiry message TTL + expiry ───────────────────────────────
 
     #[test]
     fn eg277_expired_message_dead_lettered_lazily_on_claim() {
@@ -1793,7 +1793,7 @@ mod tests {
         assert_eq!(p.get("delivery_count").and_then(|v| v.as_i64()), Some(2));
     }
 
-    // ── CONCEPT:EG-278 priority queues ────────────────────────────────────
+    // ── CONCEPT:EG-KG.compute.priority-queues priority queues ────────────────────────────────────
 
     #[test]
     fn eg278_claim_is_priority_desc_then_fifo() {
@@ -1848,7 +1848,7 @@ mod tests {
         }
     }
 
-    // ── CONCEPT:EG-279 delayed / scheduled delivery ───────────────────────
+    // ── CONCEPT:EG-KG.compute.delayed-scheduled-delivery delayed / scheduled delivery ───────────────────────
 
     #[test]
     fn eg279_delayed_message_held_until_eta() {
@@ -1880,7 +1880,7 @@ mod tests {
         assert!(broker_consume(&core, "q", "g", "c", 1, 0, 0).is_none()); // delayed still held
     }
 
-    // ── CONCEPT:EG-280 consumer groups + QoS / prefetch ───────────────────
+    // ── CONCEPT:EG-KG.compute.groups-qos-prefetch-honoring consumer groups + QoS / prefetch ───────────────────
 
     #[test]
     fn eg280_prefetch_limits_inflight_and_ack_frees_a_slot() {
@@ -1934,7 +1934,7 @@ mod tests {
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    // CONCEPT:EG-283 replayable append-log streams
+    // CONCEPT:EG-KG.compute.replayable-append-log replayable append-log streams
     // ══════════════════════════════════════════════════════════════════════
 
     #[test]
@@ -2071,7 +2071,7 @@ mod tests {
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    // CONCEPT:EG-284 publisher confirms + consumer QoS acks
+    // CONCEPT:EG-KG.compute.publisher-confirms-consumer-qos publisher confirms + consumer QoS acks
     // ══════════════════════════════════════════════════════════════════════
 
     #[test]
@@ -2160,7 +2160,7 @@ mod tests {
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    // CONCEPT:EG-314 idempotent producer (effectively-once publish)
+    // CONCEPT:EG-KG.ingest.broker-reject-publish idempotent producer (effectively-once publish)
     // ══════════════════════════════════════════════════════════════════════
 
     #[test]

@@ -1,8 +1,8 @@
-//! Graph-Data-Science `CALL gds.*` procedures (CONCEPT:EG-298).
+//! Graph-Data-Science `CALL gds.*` procedures (CONCEPT:EG-KG.query.gds-call-procedures).
 //!
 //! This is the Cypher `CALL gds.<algo>(config) YIELD …` surface over the
 //! deterministic Neo4j-GDS-parity kernels shipped in
-//! [`eg_compute::graph_algos`] (CONCEPT:EG-144). Each procedure:
+//! [`eg_compute::graph_algos`] (CONCEPT:EG-KG.compute.graph-data-science-algorithms). Each procedure:
 //!
 //!   1. **Projects** the current graph view (nodes + edges, with an optional
 //!      `relationshipWeightProperty`) into an
@@ -20,7 +20,7 @@
 //! tie-break falls back to sorted node-id order, so a given graph + config always
 //! yields the same rows.
 //!
-//! Backward-compatibility (CONCEPT:EG-298): these procedures REPLACE the earlier
+//! Backward-compatibility (CONCEPT:EG-KG.query.gds-call-procedures): these procedures REPLACE the earlier
 //! EG-143 GDS stubs (which ran over the live `GraphView` with no config), and they
 //! keep yielding the legacy `node` / `score` / `communityId` / `componentId`
 //! columns *in addition to* the GDS-canonical `nodeId` column, so existing
@@ -41,7 +41,7 @@ use eg_compute::graph_algos::{
 use super::proc::{CypherProcedure, ProcRow, YieldValue};
 
 /// Every EG-298 GDS procedure, ready to fold into the procedure registry
-/// (CONCEPT:EG-298). Consumed by `proc::build_registry`.
+/// (CONCEPT:EG-KG.query.gds-call-procedures). Consumed by `proc::build_registry`.
 pub fn gds_procedures() -> Vec<Box<dyn CypherProcedure>> {
     vec![
         Box::new(PageRank),
@@ -55,10 +55,10 @@ pub fn gds_procedures() -> Vec<Box<dyn CypherProcedure>> {
     ]
 }
 
-// ── projection + config helpers (CONCEPT:EG-298) ────────────────────────────────
+// ── projection + config helpers (CONCEPT:EG-KG.query.gds-call-procedures) ────────────────────────────────
 
 /// Project the current graph view into a generic [`AdjacencyGraph`] over string
-/// node ids (CONCEPT:EG-298). Every node in the view is registered (so isolated
+/// node ids (CONCEPT:EG-KG.query.gds-call-procedures). Every node in the view is registered (so isolated
 /// nodes still appear in per-node results); each directed edge contributes weight
 /// `1.0`, or — when `weight_prop` is set — the numeric value of that property on
 /// the edge (falling back to `1.0` when absent). Parallel edges between the same
@@ -81,7 +81,7 @@ fn project(view: &GraphView, weight_prop: Option<&str>) -> AdjacencyGraph<String
 }
 
 /// The numeric `prop` on the first `(s, t)` edge property record carrying it, if
-/// any (CONCEPT:EG-298).
+/// any (CONCEPT:EG-KG.query.gds-call-procedures).
 fn edge_weight(view: &GraphView, s: &str, t: &str, prop: &str) -> Option<f64> {
     let blobs = view.edge_properties.get(&(s.to_string(), t.to_string()))?;
     for blob in blobs {
@@ -94,7 +94,7 @@ fn edge_weight(view: &GraphView, s: &str, t: &str, prop: &str) -> Option<f64> {
     None
 }
 
-/// A parsed GDS config map (CONCEPT:EG-298): the first `{…}` object argument to a
+/// A parsed GDS config map (CONCEPT:EG-KG.query.gds-call-procedures): the first `{…}` object argument to a
 /// `CALL gds.*(config)`, with typed accessors that supply GDS-default values.
 struct Config<'a> {
     map: Option<&'a serde_json::Map<String, Value>>,
@@ -130,7 +130,7 @@ impl<'a> Config<'a> {
 }
 
 /// A finite `f64` as a JSON number (an integer when integral, mirroring the
-/// executor's numeric coercion), else null (CONCEPT:EG-298).
+/// executor's numeric coercion), else null (CONCEPT:EG-KG.query.gds-call-procedures).
 fn num(x: f64) -> Value {
     if x.fract() == 0.0 && x.abs() < 9.007e15 {
         Value::Number((x as i64).into())
@@ -142,7 +142,7 @@ fn num(x: f64) -> Value {
 }
 
 /// One `(node, nodeId, <score-col>)` row: the id is bound twice — as the legacy
-/// anchorable `node` column and as the GDS-canonical `nodeId` column (CONCEPT:EG-298).
+/// anchorable `node` column and as the GDS-canonical `nodeId` column (CONCEPT:EG-KG.query.gds-call-procedures).
 fn scored_row(id: String, col: &str, score: f64) -> ProcRow {
     vec![
         ("node".to_string(), YieldValue::Node(id.clone())),
@@ -160,7 +160,7 @@ fn scored_rows(scored: Vec<(String, f64)>, col: &str) -> Vec<ProcRow> {
 }
 
 /// `(node, nodeId, <group-col>)` rows from a partition (`Vec<Vec<id>>`): every node
-/// tagged with its 0-based group index (CONCEPT:EG-298).
+/// tagged with its 0-based group index (CONCEPT:EG-KG.query.gds-call-procedures).
 fn partition_rows(groups: Vec<Vec<String>>, col: &str) -> Vec<ProcRow> {
     let mut out = Vec::new();
     for (gid, members) in groups.into_iter().enumerate() {
@@ -178,9 +178,9 @@ fn partition_rows(groups: Vec<Vec<String>>, col: &str) -> Vec<ProcRow> {
     out
 }
 
-// ── centrality / ranking (CONCEPT:EG-298) ───────────────────────────────────────
+// ── centrality / ranking (CONCEPT:EG-KG.query.gds-call-procedures) ───────────────────────────────────────
 
-/// `gds.pageRank(config)` — power-iteration PageRank (CONCEPT:EG-298).
+/// `gds.pageRank(config)` — power-iteration PageRank (CONCEPT:EG-KG.query.gds-call-procedures).
 /// Config: `dampingFactor` (0.85), `maxIterations` (20), `tolerance` (1e-7),
 /// `relationshipWeightProperty`. Yields `nodeId` / `node`, `score`.
 struct PageRank;
@@ -203,7 +203,7 @@ impl CypherProcedure for PageRank {
     }
 }
 
-/// `gds.betweenness(config)` — Brandes betweenness centrality (CONCEPT:EG-298).
+/// `gds.betweenness(config)` — Brandes betweenness centrality (CONCEPT:EG-KG.query.gds-call-procedures).
 /// Config: `orientation` (`NATURAL` directed [default] / `UNDIRECTED`),
 /// `relationshipWeightProperty` (topology only; Brandes here is hop-based).
 /// Yields `nodeId` / `node`, `score`.
@@ -226,7 +226,7 @@ impl CypherProcedure for Betweenness {
     }
 }
 
-/// `gds.degree(config)` — degree centrality (CONCEPT:EG-298).
+/// `gds.degree(config)` — degree centrality (CONCEPT:EG-KG.query.gds-call-procedures).
 /// Config: `orientation` (`NATURAL`→out-degree [default] / `REVERSE`→in-degree /
 /// `UNDIRECTED`→total). Yields `nodeId` / `node`, `score`.
 struct Degree;
@@ -249,9 +249,9 @@ impl CypherProcedure for Degree {
     }
 }
 
-// ── community / components (CONCEPT:EG-298) ──────────────────────────────────────
+// ── community / components (CONCEPT:EG-KG.query.gds-call-procedures) ──────────────────────────────────────
 
-/// `gds.louvain(config)` — Louvain community detection (CONCEPT:EG-298).
+/// `gds.louvain(config)` — Louvain community detection (CONCEPT:EG-KG.query.gds-call-procedures).
 /// Config: `resolution` (1.0), `maxLevels` (50), `maxIterations`/`maxSweeps` (100),
 /// `relationshipWeightProperty`. Yields `nodeId` / `node`, `communityId`.
 struct Louvain;
@@ -275,7 +275,7 @@ impl CypherProcedure for Louvain {
     }
 }
 
-/// `gds.wcc(config)` — weakly-connected components (CONCEPT:EG-298).
+/// `gds.wcc(config)` — weakly-connected components (CONCEPT:EG-KG.query.gds-call-procedures).
 /// Config: `relationshipWeightProperty` (topology only). Yields `nodeId` / `node`,
 /// `componentId`.
 struct Wcc;
@@ -296,7 +296,7 @@ impl CypherProcedure for Wcc {
     }
 }
 
-/// `gds.scc(config)` — strongly-connected components (Tarjan) (CONCEPT:EG-298).
+/// `gds.scc(config)` — strongly-connected components (Tarjan) (CONCEPT:EG-KG.query.gds-call-procedures).
 /// Config: `relationshipWeightProperty` (topology only). Yields `nodeId` / `node`,
 /// `componentId`.
 struct Scc;
@@ -317,10 +317,10 @@ impl CypherProcedure for Scc {
     }
 }
 
-// ── shortest path (CONCEPT:EG-298) ──────────────────────────────────────────────
+// ── shortest path (CONCEPT:EG-KG.query.gds-call-procedures) ──────────────────────────────────────────────
 
 /// `gds.dijkstra(source [, target] [, config])` — single-source (or
-/// source→target) weighted shortest path (CONCEPT:EG-298). String args are the
+/// source→target) weighted shortest path (CONCEPT:EG-KG.query.gds-call-procedures). String args are the
 /// source and optional target node ids; an optional `{…}` config supplies
 /// `relationshipWeightProperty`. Yields `nodeId` / `node`, `cost` — one row per
 /// reachable node (or a single row for `target` when given, empty when
@@ -362,10 +362,10 @@ impl CypherProcedure for Dijkstra {
     }
 }
 
-// ── node similarity (CONCEPT:EG-298) ────────────────────────────────────────────
+// ── node similarity (CONCEPT:EG-KG.query.gds-call-procedures) ────────────────────────────────────────────
 
 /// `gds.nodeSimilarity(config)` — all-pairs Jaccard/cosine node similarity
-/// (CONCEPT:EG-298). Config: `similarityMetric` (`JACCARD` [default] / `COSINE`),
+/// (CONCEPT:EG-KG.query.gds-call-procedures). Config: `similarityMetric` (`JACCARD` [default] / `COSINE`),
 /// `similarityCutoff` (0.0), `topK` (0 = unlimited), `relationshipWeightProperty`
 /// (weights the cosine vectors). Yields `node1`, `node2`, `similarity` — unordered
 /// pairs (`node1 < node2`) sorted by descending score then ascending ids, capped
@@ -445,7 +445,7 @@ mod tests {
             .collect()
     }
 
-    // ── CONCEPT:EG-298 — projection + config helpers ────────────────────────────
+    // ── CONCEPT:EG-KG.query.gds-call-procedures — projection + config helpers ────────────────────────────
 
     #[test]
     fn eg298_project_includes_isolated_nodes_and_edges() {
@@ -475,7 +475,7 @@ mod tests {
         assert!((cfg.f64("tolerance", 1e-7) - 1e-7).abs() < 1e-20);
     }
 
-    // ── CONCEPT:EG-298 — CALL gds.* over a known small graph ────────────────────
+    // ── CONCEPT:EG-KG.query.gds-call-procedures — CALL gds.* over a known small graph ────────────────────
 
     #[test]
     fn eg298_call_gds_pagerank_ranks_and_projects_nodeid() {

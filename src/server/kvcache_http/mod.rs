@@ -1,5 +1,5 @@
-//! Remote KV-cache HTTP surface (CONCEPT:EG-187) — exposes the `eg-kvcache` shared,
-//! content-addressed backend ([`eg_kvcache::SharedKvIndex`], CONCEPT:EG-186) over
+//! Remote KV-cache HTTP surface (CONCEPT:EG-KG.backend.is-configured-so-co) — exposes the `eg-kvcache` shared,
+//! content-addressed backend ([`eg_kvcache::SharedKvIndex`], CONCEPT:EG-KG.enrichment.content-address-separation) over
 //! HTTP so parallel **vLLM / LMCache** instances SHARE KV-cache blocks by token-hash.
 //!
 //! ## What this is (and is NOT)
@@ -15,13 +15,13 @@
 //! (NO axum/hyper/warp, so the Pi contract holds). Its parser keeps the body as raw
 //! BYTES (KV pages are binary) and captures headers for the bearer-token guard.
 //!
-//! ## API (CONCEPT:EG-187)
+//! ## API (CONCEPT:EG-KG.backend.is-configured-so-co)
 //!
 //! * `GET  /kv/<hash>`          → the block bytes (`200`) or `404` if absent (or STALE,
-//!   CONCEPT:EG-364 — a stale entry reads as absent).
+//!   CONCEPT:EG-KG.storage.content-addressed-put — a stale entry reads as absent).
 //! * `PUT  /kv/<hash>` (binary) → store the block under `<hash>` (`201 Created` on a
 //!   new block, `200 OK` on a dedup hit against an existing block). An optional
-//!   `X-EG-Data-Version: <n>` header (CONCEPT:EG-364) version-tags the entry so it goes
+//!   `X-EG-Data-Version: <n>` header (CONCEPT:EG-KG.storage.content-addressed-put) version-tags the entry so it goes
 //!   stale on a later graph write; absent ⇒ a pure content-addressed page (never
 //!   version-invalidated).
 //! * `HEAD /kv/<hash>`          → `200` if present + fresh, `404` if absent/stale.
@@ -29,11 +29,11 @@
 //!   HTTP-method-agnostic existence probe for clients that cannot issue `HEAD`).
 //! * `GET  /kv/stats`           → `200` JSON occupancy + dedup + `stale_retired` stats.
 //! * `GET  /kv/version`         → `200` JSON `{"tracking":bool,"version":n|null}` (the
-//!   current data version, CONCEPT:EG-364).
+//!   current data version, CONCEPT:EG-KG.storage.content-addressed-put).
 //! * `PUT  /kv/version/<n>`     → advance the data version to `<n>`, retiring every
-//!   now-stale versioned entry (the hook a graph write drives, CONCEPT:EG-364).
+//!   now-stale versioned entry (the hook a graph write drives, CONCEPT:EG-KG.storage.content-addressed-put).
 //!
-//! ## Data-version invalidation (CONCEPT:EG-364)
+//! ## Data-version invalidation (CONCEPT:EG-KG.storage.content-addressed-put)
 //!
 //! A cached *derived context* (an assembled prompt / retrieved subgraph a connector
 //! stored under a token-hash) goes STALE when the underlying graph data changes. The
@@ -75,7 +75,7 @@ pub const KVCACHE_ADDR_ENV: &str = "EPISTEMIC_GRAPH_KVCACHE_ADDR";
 /// Env var: the bearer token. When set, the guard is armed and anonymous access is
 /// refused; every request must present `Authorization: Bearer <token>`.
 pub const KVCACHE_TOKEN_ENV: &str = "EPISTEMIC_GRAPH_KVCACHE_TOKEN";
-/// Request header (CONCEPT:EG-364): the `GraphCore::version()` (KG-2.180) the PUT body was
+/// Request header (CONCEPT:EG-KG.storage.content-addressed-put): the `GraphCore::version()` (KG-2.180) the PUT body was
 /// DERIVED at. When present, the stored entry is version-tagged and goes stale once the
 /// surface's current data version advances past it (a graph write drives
 /// `PUT /kv/version/<n>`). Absent ⇒ a pure content-addressed KV page
@@ -110,7 +110,7 @@ impl KvCacheStore {
     }
 
     /// Store `block` under `hash`, stamped with the [`DataVersion`] it was `derived_at`
-    /// (CONCEPT:EG-364). Returns `true` iff a NEW block was created (`false` on a dedup hit
+    /// (CONCEPT:EG-KG.storage.content-addressed-put). Returns `true` iff a NEW block was created (`false` on a dedup hit
     /// against an already-present block).
     fn put(&self, hash: &str, block: Vec<u8>, derived_at: DataVersion) -> bool {
         self.index
@@ -123,14 +123,14 @@ impl KvCacheStore {
         self.index.lock().unwrap().contains(hash)
     }
 
-    /// Advance the surface's current data version (CONCEPT:EG-364) — driven by a graph
+    /// Advance the surface's current data version (CONCEPT:EG-KG.storage.content-addressed-put) — driven by a graph
     /// write (`PUT /kv/version/<n>`). Retires every now-stale version-tagged entry so no
     /// stale agent/LLM context is served after the underlying data changed.
     fn set_data_version(&self, version: DataVersion) {
         self.index.lock().unwrap().set_data_version(version);
     }
 
-    /// The surface's current data version as connector-friendly JSON (CONCEPT:EG-364).
+    /// The surface's current data version as connector-friendly JSON (CONCEPT:EG-KG.storage.content-addressed-put).
     fn version_json(&self) -> String {
         let v = self.index.lock().unwrap().current_version();
         let (tracking, version) = match v {
@@ -158,7 +158,7 @@ impl KvCacheStore {
     }
 }
 
-// ── bearer-token auth guard (CONCEPT:EG-187) ──────────────────────────────────────
+// ── bearer-token auth guard (CONCEPT:EG-KG.backend.is-configured-so-co) ──────────────────────────────────────
 
 /// A configured bearer token. `None` ⇒ anonymous access.
 #[derive(Clone, Debug)]
@@ -183,7 +183,7 @@ fn authorized(auth: &Option<KvAuth>, headers: &HashMap<String, String>) -> bool 
         .unwrap_or(false)
 }
 
-/// Parse the `X-EG-Data-Version` header (CONCEPT:EG-364) into a [`DataVersion`]. A valid
+/// Parse the `X-EG-Data-Version` header (CONCEPT:EG-KG.storage.content-addressed-put) into a [`DataVersion`]. A valid
 /// unsigned integer ⇒ [`DataVersion::At`]; absent or unparseable ⇒ [`DataVersion::Agnostic`]
 /// (a pure content-addressed KV page — the backward-compatible default that keeps existing
 /// connectors' entries out of version invalidation).
@@ -245,7 +245,7 @@ impl KvResponse {
 }
 
 /// Route + execute one request → a [`KvResponse`]. Pure (sync) so it is fully
-/// unit-testable without a socket (CONCEPT:EG-187).
+/// unit-testable without a socket (CONCEPT:EG-KG.backend.is-configured-so-co).
 fn handle(store: &KvCacheStore, auth: &Option<KvAuth>, req: &KvRequest) -> KvResponse {
     if !authorized(auth, &req.headers) {
         return KvResponse::error(
@@ -271,7 +271,7 @@ fn handle(store: &KvCacheStore, auth: &Option<KvAuth>, req: &KvRequest) -> KvRes
     }
 
     // `GET /kv/version` → the current data version; `PUT /kv/version/<n>` advances it
-    // (CONCEPT:EG-364) — the hook a graph write drives to invalidate stale context.
+    // (CONCEPT:EG-KG.storage.content-addressed-put) — the hook a graph write drives to invalidate stale context.
     if rest == "version" {
         return match req.method.as_str() {
             "GET" | "HEAD" => KvResponse::json("200 OK", store.version_json()),
@@ -329,7 +329,7 @@ fn handle(store: &KvCacheStore, auth: &Option<KvAuth>, req: &KvRequest) -> KvRes
         }
         "PUT" => {
             // Version-tag the entry with the `X-EG-Data-Version` header if the connector
-            // supplied one (CONCEPT:EG-364); absent ⇒ a pure content-addressed page
+            // supplied one (CONCEPT:EG-KG.storage.content-addressed-put); absent ⇒ a pure content-addressed page
             // (Agnostic, never version-invalidated).
             let derived_at = parse_data_version(&req.headers);
             let created = store.put(hash, req.body.clone(), derived_at);
@@ -406,7 +406,7 @@ async fn read_request(stream: &mut tokio::net::TcpStream) -> Option<KvRequest> {
 
 /// Serve the KV-cache HTTP surface on `addr` until the process exits. Spawned by
 /// `main.rs` only when built `--features kvcache-server` AND
-/// `EPISTEMIC_GRAPH_KVCACHE_ADDR` is set (CONCEPT:EG-187). One task per connection,
+/// `EPISTEMIC_GRAPH_KVCACHE_ADDR` is set (CONCEPT:EG-KG.backend.is-configured-so-co). One task per connection,
 /// one response per request, connection: close — the SAME idiom as the s3 listener.
 pub async fn serve(addr: &str) -> std::io::Result<()> {
     let store = Arc::new(KvCacheStore::new());
@@ -422,7 +422,7 @@ fn resolve_auth() -> Option<KvAuth> {
         .map(|token| KvAuth { token })
 }
 
-/// `serve` with an EXPLICIT store + auth (CONCEPT:EG-187) — tests bind an ephemeral
+/// `serve` with an EXPLICIT store + auth (CONCEPT:EG-KG.backend.is-configured-so-co) — tests bind an ephemeral
 /// store on a random port without process env.
 pub async fn serve_with_store(
     addr: &str,
@@ -461,7 +461,7 @@ pub async fn serve_with_store(
 
 #[cfg(test)]
 mod tests {
-    //! CONCEPT:EG-187 — PUT→GET round-trip of a binary block, HEAD/exists probes, 404
+    //! CONCEPT:EG-KG.backend.is-configured-so-co — PUT→GET round-trip of a binary block, HEAD/exists probes, 404
     //! on a missing block, stats JSON, dedup reflected in stats, the bearer-token
     //! guard accept/reject, and a live TCP listener round-trip.
     use super::*;
@@ -658,7 +658,7 @@ mod tests {
         );
     }
 
-    /// CONCEPT:EG-364 — a version-tagged PUT is served while the data version holds, then
+    /// CONCEPT:EG-KG.storage.content-addressed-put — a version-tagged PUT is served while the data version holds, then
     /// a `PUT /kv/version/<n>` (a graph write) makes the stale entry a 404 MISS; a
     /// re-PUT at the new version serves fresh bytes. The stale context is never returned.
     #[test]
@@ -708,7 +708,7 @@ mod tests {
         assert_eq!(get.body, b"ctx-v6", "fresh context served");
     }
 
-    /// CONCEPT:EG-364 — a PUT WITHOUT the version header is a pure content-addressed page
+    /// CONCEPT:EG-KG.storage.content-addressed-put — a PUT WITHOUT the version header is a pure content-addressed page
     /// (Agnostic) that survives version bumps, so existing connectors are unaffected.
     #[test]
     fn eg359_unversioned_put_is_agnostic_and_survives_bumps() {
@@ -728,7 +728,7 @@ mod tests {
         assert_eq!(get.body, b"kv-bytes");
     }
 
-    /// CONCEPT:EG-364 — `GET /kv/version` reports tracking state, and a bad version path
+    /// CONCEPT:EG-KG.storage.content-addressed-put — `GET /kv/version` reports tracking state, and a bad version path
     /// is a 400.
     #[test]
     fn eg359_version_endpoint_reports_and_validates() {

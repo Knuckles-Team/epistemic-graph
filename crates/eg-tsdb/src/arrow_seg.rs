@@ -1,5 +1,5 @@
 //! Arrow/columnar segment path — the DataFusion-scannable representation
-//! (CONCEPT:KG-2.210, feature `arrow-seg`).
+//! (CONCEPT:AU-KG.retrieval.god-nodes-communities, feature `arrow-seg`).
 //!
 //! A `Segment` is a contiguous Arrow `RecordBatch` of `(ts: Int64, value: Float64)`
 //! for one series — the SAME shape eg-query hands DataFusion for graph rows, so the

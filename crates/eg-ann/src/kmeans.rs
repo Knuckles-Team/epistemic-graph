@@ -11,7 +11,7 @@ use rand::Rng;
 use rand_chacha::ChaCha8Rng;
 use rayon::prelude::*;
 
-/// Squared Euclidean distance between two equal-length slices. CONCEPT:EG-014 —
+/// Squared Euclidean distance between two equal-length slices. CONCEPT:EG-KG.compute.lane-chunked-dot-product —
 /// SIMD-friendly: 8 independent accumulator lanes over `chunks_exact(8)` (no FP
 /// dependency chain, no per-element bounds check) so it autovectorizes to packed
 /// AVX2 over the 1024-dim contiguous slices. Hot in the brute-force fallback, the
@@ -135,7 +135,7 @@ pub fn kmeans(
             .map(|v| nearest_centroid(v, &centroids, dim, k))
             .collect();
 
-        // Accumulate sums + counts. CONCEPT:EG-013 — the per-iteration accumulation
+        // Accumulate sums + counts. CONCEPT:EG-KG.compute.kmeans-accumulation — the per-iteration accumulation
         // is O(n*dim) (the coarse quantizer at dim=1024, n≈16k is ~16M adds/iter);
         // fold per-thread partials then reduce so it runs across all cores instead
         // of a single-threaded scan.

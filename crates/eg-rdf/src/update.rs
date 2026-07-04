@@ -1,5 +1,5 @@
 //! W2-parity — SPARQL 1.1 UPDATE executed over the native property-graph write ops
-//! (CONCEPT:EG-017).
+//! (CONCEPT:EG-KG.query.named-graph-support).
 //!
 //! This is the REAL update path that replaces the naive `INSERT DATA` string-split shim
 //! (`graph_ops.rs`). It wires `spargebra::Update` / `GraphUpdateOperation` to the
@@ -246,7 +246,7 @@ pub fn execute(
 
 // ── EG-300 constraint-enforced commit (WriteGuard hook) ─────────────────────────
 
-/// The failure of a guarded commit (CONCEPT:EG-300): either the underlying
+/// The failure of a guarded commit (CONCEPT:EG-KG.ontology.rdf-update-guard): either the underlying
 /// parse/execute failed, or a [`WriteGuard`] refused the change set.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UpdateError {
@@ -267,7 +267,7 @@ impl std::fmt::Display for UpdateError {
 
 impl std::error::Error for UpdateError {}
 
-/// Parse + execute a SPARQL UPDATE string under a [`WriteGuard`] (CONCEPT:EG-300).
+/// Parse + execute a SPARQL UPDATE string under a [`WriteGuard`] (CONCEPT:EG-KG.ontology.rdf-update-guard).
 pub fn execute_guarded_str(
     update_str: &str,
     store: &dyn GraphStore,
@@ -278,7 +278,7 @@ pub fn execute_guarded_str(
     execute_guarded(&update, store, proj, guard)
 }
 
-/// Execute a parsed SPARQL UPDATE as a **constraint-enforced transaction** (CONCEPT:EG-300).
+/// Execute a parsed SPARQL UPDATE as a **constraint-enforced transaction** (CONCEPT:EG-KG.ontology.rdf-update-guard).
 ///
 /// The whole change set is the transaction boundary. When the guard is [`WriteGuard::active`]:
 ///
@@ -389,7 +389,7 @@ fn exec_delete_insert(
     pattern: &spargebra::algebra::GraphPattern,
     report: &mut UpdateReport,
 ) -> Result<(), String> {
-    // CONCEPT:EG-134 — ADD / COPY / MOVE. spargebra performs the W3C rewriting at parse
+    // CONCEPT:EG-KG.query.sparql-add-copy-move — ADD / COPY / MOVE. spargebra performs the W3C rewriting at parse
     // time: each desugars to a whole-graph `?s ?p ?o` copy (this `DeleteInsert`) plus a
     // preceding DROP of the destination (COPY/MOVE) and a trailing DROP of the source
     // (MOVE), which the `Clear`/`Drop` arms already execute via `GraphStore::clear`. So
@@ -452,7 +452,7 @@ fn exec_delete_insert(
 }
 
 /// Recognize the canonical whole-graph copy `spargebra` emits for ADD/COPY/MOVE
-/// (CONCEPT:EG-134): an empty DELETE, a single INSERT quad-pattern of three variables
+/// (CONCEPT:EG-KG.query.sparql-add-copy-move): an empty DELETE, a single INSERT quad-pattern of three variables
 /// `?s ?p ?o` into a constant destination graph, and a WHERE that is exactly the SAME
 /// three variables over one source graph (a bare BGP ⇒ the default graph, or a
 /// `GRAPH <src> { … }`). Returns `(from, to)` as bare-iri graph names (`None` = the
@@ -748,13 +748,13 @@ fn strip_iri(s: &str) -> &str {
         .unwrap_or(s)
 }
 
-// ── reusable engine retract / insert ops (CONCEPT:EG-017) ───────────────────────
+// ── reusable engine retract / insert ops (CONCEPT:EG-KG.query.named-graph-support) ───────────────────────
 //
 // These are the CLEAN, REUSABLE physical-write primitives the rest of the engine (the
 // `RemoveTriples` wire method, the ontology UNLOAD path, the WAL replay) calls — the
 // inverse of `mapping::load_triples`, NOT logic buried inside the UPDATE executor.
 
-/// Physically RETRACT a set of RDF triples from a graph core (CONCEPT:EG-017). Surgical:
+/// Physically RETRACT a set of RDF triples from a graph core (CONCEPT:EG-KG.query.named-graph-support). Surgical:
 /// a literal triple drops one property key (matched by lexical value); a resource triple
 /// removes the one matching typed edge, preserving any others between the same pair; a
 /// folded `rdf:type` also clears the node `type` label. Returns the count removed. This
@@ -1169,7 +1169,7 @@ mod tests {
         );
     }
 
-    /// ADD merges src into dst WITHOUT clearing dst (CONCEPT:EG-134). Both graphs' triples
+    /// ADD merges src into dst WITHOUT clearing dst (CONCEPT:EG-KG.query.sparql-add-copy-move). Both graphs' triples
     /// survive in dst; the source is left intact.
     #[test]
     fn add_merges_into_destination() {
@@ -1212,7 +1212,7 @@ mod tests {
         );
     }
 
-    /// COPY replaces dst with src (CONCEPT:EG-134): dst's prior content is dropped first,
+    /// COPY replaces dst with src (CONCEPT:EG-KG.query.sparql-add-copy-move): dst's prior content is dropped first,
     /// then src is copied in; src stays intact.
     #[test]
     fn copy_replaces_destination() {
@@ -1263,7 +1263,7 @@ mod tests {
         );
     }
 
-    /// MOVE replaces dst with src AND empties src (CONCEPT:EG-134).
+    /// MOVE replaces dst with src AND empties src (CONCEPT:EG-KG.query.sparql-add-copy-move).
     #[test]
     fn move_replaces_and_empties_source() {
         let store = MapStore::new();

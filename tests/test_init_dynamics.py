@@ -3,7 +3,7 @@ import epistemic_graph
 from epistemic_graph.client import SyncEpistemicGraphClient
 
 
-@pytest.mark.concept("CONCEPT:KG-2.0")
+@pytest.mark.concept("CONCEPT:AU-KG.query.object-graph-mapper")
 def test_initial_graph_dynamics(clean_graph):
     """Verify that a clean, newly instantiated EpistemicGraph is properly configured and empty."""
     assert isinstance(clean_graph, SyncEpistemicGraphClient)

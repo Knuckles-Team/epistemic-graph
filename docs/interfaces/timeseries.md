@@ -5,7 +5,7 @@ primitives a time-series workload needs — including ASOF joins, which DataFusi
 pure-Rust and shares the engine's one durability model.
 
 > Status snapshot: the store and time-ops are supported as native functions, now bound into the unified
-> planner (`Op::Window` execution, EG-067) with per-point retention trim (EG-068). A columnar segment
+> planner (`Op::Window` execution, EG-KG.query.streaming-execution) with per-point retention trim (EG-KG.temporal.bucket-cutoff-trim). A columnar segment
 > layout backs analytical/SQL-window scans (EG-089), and a **PromQL** `/api/v1/query` HTTP API (EG-172)
 > serves the metric series. TimescaleDB hypertables + continuous aggregates (EG-117) layer on over pgwire.
 > See the [capability matrix](../capabilities.md#time-series-eg-tsdb).
@@ -16,7 +16,7 @@ pure-Rust and shares the engine's one durability model.
 
 - `append_batch` amortizes the fsync across a group of points in one transaction;
 - `range` does a bounded scan over a `[from, to)` window;
-- `evict_before` applies retention, trimming straddling buckets at the boundary (per-point trim, EG-068),
+- `evict_before` applies retention, trimming straddling buckets at the boundary (per-point trim, EG-KG.temporal.bucket-cutoff-trim),
   not just whole-bucket eviction.
 
 A **columnar (struct-of-arrays) segment layout** (EG-089) backs analytical scans over the tsdb/table store
@@ -34,7 +34,7 @@ A **columnar (struct-of-arrays) segment layout** (EG-089) backs analytical scans
 | `decay_weighted_mean` | Ebbinghaus decay-weighted mean (shared `eg_core::decay` curve) |
 | `series_ewma`, `series_rolling_zscore` | EWMA and rolling z-score (reuse the finance kernels) |
 
-## Unified-planner binding (EG-067)
+## Unified-planner binding (EG-KG.query.streaming-execution)
 
 The time-ops are wired behind the planner's `Op::Window` (with the eg-plan→eg-tsdb dependency edge +
 cost-based reorder), so a temporal aggregate composes inline in a [UQL](../uql.md) pipeline with

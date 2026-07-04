@@ -1,4 +1,4 @@
-//! Columnar (struct-of-arrays) segment for analytical scans (CONCEPT:EG-089).
+//! Columnar (struct-of-arrays) segment for analytical scans (CONCEPT:EG-KG.temporal.columnar-schema-inference).
 //!
 //! Where `store.rs` chunks a series row-wise (one `Point` = one row of field
 //! values) and `arrow_seg.rs` projects a window INTO Arrow/DataFusion, this module
@@ -31,7 +31,7 @@ use serde::{Deserialize, Serialize};
 use crate::point::Point;
 
 /// The scalar type a columnar [`Column`] holds. Mirrors the field kinds the store's
-/// `Point` (f64 fields) and a general relational batch need (CONCEPT:EG-089).
+/// `Point` (f64 fields) and a general relational batch need (CONCEPT:EG-KG.temporal.columnar-schema-inference).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ColType {
     /// 64-bit signed integer (e.g. a timestamp column).
@@ -47,7 +47,7 @@ pub enum ColType {
 /// One scalar cell used when *building* a segment from rows, or reading one back.
 /// The columnar store never holds these — it explodes them into per-column vectors —
 /// but they are the row-shaped currency the build/materialize API speaks
-/// (CONCEPT:EG-089).
+/// (CONCEPT:EG-KG.temporal.columnar-schema-inference).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum CellValue {
     I64(i64),
@@ -73,7 +73,7 @@ impl CellValue {
 }
 
 /// A packed validity bitmap: 1 bit per row, `true` (bit set) = the row's value is
-/// present, `false` = NULL (CONCEPT:EG-089). Kept beside each column's dense value
+/// present, `false` = NULL (CONCEPT:EG-KG.temporal.columnar-schema-inference). Kept beside each column's dense value
 /// vector so nulls never perturb the contiguous typed data.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NullBitmap {
@@ -134,7 +134,7 @@ impl NullBitmap {
     }
 }
 
-/// A single column's dense typed values, struct-of-arrays style (CONCEPT:EG-089).
+/// A single column's dense typed values, struct-of-arrays style (CONCEPT:EG-KG.temporal.columnar-schema-inference).
 /// A NULL row still occupies a slot (a type-default placeholder); the segment's null
 /// bitmap is authoritative for presence, so the value vector stays contiguous/dense.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -204,7 +204,7 @@ impl ColumnData {
     }
 }
 
-/// One named column: its dense value vector + a validity bitmap (CONCEPT:EG-089).
+/// One named column: its dense value vector + a validity bitmap (CONCEPT:EG-KG.temporal.columnar-schema-inference).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Column {
     pub name: String,
@@ -235,7 +235,7 @@ impl Column {
 
     /// Typed scan over the `i64` column: `Option<i64>` per row (`None` = NULL). Returns
     /// an empty iterator (via `None` type-mismatch guard) if the column is not `I64`.
-    /// The row-materialization-free analytical read path (CONCEPT:EG-089).
+    /// The row-materialization-free analytical read path (CONCEPT:EG-KG.temporal.columnar-schema-inference).
     pub fn iter_i64(&self) -> impl Iterator<Item = Option<i64>> + '_ {
         let vals = match &self.data {
             ColumnData::I64(v) => Some(v.as_slice()),
@@ -252,7 +252,7 @@ impl Column {
         })
     }
 
-    /// Typed scan over the `f64` column (CONCEPT:EG-089).
+    /// Typed scan over the `f64` column (CONCEPT:EG-KG.temporal.columnar-schema-inference).
     pub fn iter_f64(&self) -> impl Iterator<Item = Option<f64>> + '_ {
         let vals = match &self.data {
             ColumnData::F64(v) => Some(v.as_slice()),
@@ -269,7 +269,7 @@ impl Column {
         })
     }
 
-    /// Typed scan over the `bool` column (CONCEPT:EG-089).
+    /// Typed scan over the `bool` column (CONCEPT:EG-KG.temporal.columnar-schema-inference).
     pub fn iter_bool(&self) -> impl Iterator<Item = Option<bool>> + '_ {
         let vals = match &self.data {
             ColumnData::Bool(v) => Some(v.as_slice()),
@@ -286,7 +286,7 @@ impl Column {
         })
     }
 
-    /// Typed scan over the `str` column, borrowing each present value (CONCEPT:EG-089).
+    /// Typed scan over the `str` column, borrowing each present value (CONCEPT:EG-KG.temporal.columnar-schema-inference).
     pub fn iter_str(&self) -> impl Iterator<Item = Option<&str>> + '_ {
         let vals = match &self.data {
             ColumnData::Str(v) => Some(v.as_slice()),
@@ -318,7 +318,7 @@ impl Column {
     }
 }
 
-/// One column of a segment schema: a name + its scalar type (CONCEPT:EG-089).
+/// One column of a segment schema: a name + its scalar type (CONCEPT:EG-KG.temporal.columnar-schema-inference).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FieldDef {
     pub name: String,
@@ -335,7 +335,7 @@ impl FieldDef {
 }
 
 /// A struct-of-arrays batch of rows: one [`Column`] per field + a shared row count
-/// (CONCEPT:EG-089). Serde-serializable so it persists via the store's `rmp-serde`
+/// (CONCEPT:EG-KG.temporal.columnar-schema-inference). Serde-serializable so it persists via the store's `rmp-serde`
 /// chunk codec.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ColumnarSegment {
@@ -344,7 +344,7 @@ pub struct ColumnarSegment {
 }
 
 impl ColumnarSegment {
-    /// Build a segment from a schema + row tuples (CONCEPT:EG-089). Each row must have
+    /// Build a segment from a schema + row tuples (CONCEPT:EG-KG.temporal.columnar-schema-inference). Each row must have
     /// exactly `schema.len()` cells; a cell's concrete type must match its column's
     /// declared type (or be `Null`). NULL cells set the column's validity bit to 0 and
     /// store a type-default placeholder so the value vector stays dense.
@@ -389,7 +389,7 @@ impl ColumnarSegment {
     /// Infer a schema from the FIRST non-null cell of each column of `rows`, then build.
     /// A column that is entirely NULL defaults to [`ColType::F64`] (the series field
     /// type). Convenience over [`from_rows`](Self::from_rows) when the caller has row
-    /// data but no explicit schema (CONCEPT:EG-089).
+    /// data but no explicit schema (CONCEPT:EG-KG.temporal.columnar-schema-inference).
     pub fn from_rows_inferred(names: &[String], rows: &[Vec<CellValue>]) -> Result<Self, String> {
         let mut types = vec![None; names.len()];
         for row in rows {
@@ -414,7 +414,7 @@ impl ColumnarSegment {
         Self::from_rows(&schema, rows)
     }
 
-    /// Build a segment straight from stored [`Point`]s (CONCEPT:EG-089): a `ts: I64`
+    /// Build a segment straight from stored [`Point`]s (CONCEPT:EG-KG.temporal.columnar-schema-inference): a `ts: I64`
     /// column plus one `F64` column per field (`f0`, `f1`, …). All points must share
     /// the same field count; a point shorter than the max is NULL-padded. The
     /// columnar projection of a series window for analytical scans (SUM/AVG/min-max
@@ -454,7 +454,7 @@ impl ColumnarSegment {
     }
 
     /// Borrow a column by name — the analytical entry point (a scan projects ONE
-    /// column and iterates it, never materializing a row) (CONCEPT:EG-089).
+    /// column and iterates it, never materializing a row) (CONCEPT:EG-KG.temporal.columnar-schema-inference).
     pub fn column(&self, name: &str) -> Option<&Column> {
         self.columns.iter().find(|c| c.name == name)
     }
@@ -468,12 +468,12 @@ impl ColumnarSegment {
     }
 
     /// Serialize to the store's `rmp-serde` chunk encoding so a columnar segment
-    /// persists beside the row-wise chunks (CONCEPT:EG-089).
+    /// persists beside the row-wise chunks (CONCEPT:EG-KG.temporal.columnar-schema-inference).
     pub fn to_bytes(&self) -> Result<Vec<u8>, String> {
         rmp_serde::to_vec(self).map_err(|e| format!("columnar segment encode: {e}"))
     }
 
-    /// Reconstruct a segment from its persisted `rmp-serde` bytes (CONCEPT:EG-089).
+    /// Reconstruct a segment from its persisted `rmp-serde` bytes (CONCEPT:EG-KG.temporal.columnar-schema-inference).
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, String> {
         rmp_serde::from_slice(bytes).map_err(|e| format!("columnar segment decode: {e}"))
     }
@@ -515,7 +515,7 @@ mod tests {
         ]
     }
 
-    /// CONCEPT:EG-089 — build a struct-of-arrays segment from rows and read each
+    /// CONCEPT:EG-KG.temporal.columnar-schema-inference — build a struct-of-arrays segment from rows and read each
     /// typed column back through its zero-row-materialization iterator.
     #[test]
     fn eg_089_columnar_build_from_rows_and_typed_scan() {
@@ -536,7 +536,7 @@ mod tests {
         assert_eq!(ok, vec![Some(true), Some(false), Some(true)]);
     }
 
-    /// CONCEPT:EG-089 — the null bitmap is authoritative for presence; a NULL slot
+    /// CONCEPT:EG-KG.temporal.columnar-schema-inference — the null bitmap is authoritative for presence; a NULL slot
     /// still holds a dense type-default so the value vector never gets a sentinel.
     #[test]
     fn eg_089_columnar_null_bitmap_handling() {
@@ -553,7 +553,7 @@ mod tests {
         assert_eq!(sum, 5.0);
     }
 
-    /// CONCEPT:EG-089 — a segment serde round-trips through the `rmp-serde` chunk
+    /// CONCEPT:EG-KG.temporal.columnar-schema-inference — a segment serde round-trips through the `rmp-serde` chunk
     /// codec so it persists beside the store's row-wise chunks.
     #[test]
     fn eg_089_columnar_persist_round_trip() {
@@ -563,7 +563,7 @@ mod tests {
         assert_eq!(seg, back);
     }
 
-    /// CONCEPT:EG-089 — build a columnar segment straight from stored `Point`s: a
+    /// CONCEPT:EG-KG.temporal.columnar-schema-inference — build a columnar segment straight from stored `Point`s: a
     /// `ts` column + one `f*` column per field, NULL-padding a short point.
     #[test]
     fn eg_089_columnar_from_points() {
@@ -585,7 +585,7 @@ mod tests {
         assert_eq!(f1, vec![Some(100.0), None]);
     }
 
-    /// CONCEPT:EG-089 — a type-mismatched cell is rejected, and schema inference picks
+    /// CONCEPT:EG-KG.temporal.columnar-schema-inference — a type-mismatched cell is rejected, and schema inference picks
     /// the first non-null cell's type per column.
     #[test]
     fn eg_089_columnar_type_mismatch_and_inference() {

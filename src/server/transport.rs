@@ -99,7 +99,7 @@ impl Drop for ConnGuard {
 }
 
 /// Watch the active-connection count and fire the shutdown signal once it has been
-/// 0 continuously for `idle_secs` seconds (CONCEPT:KG-2.223 — the tiny shared
+/// 0 continuously for `idle_secs` seconds (CONCEPT:EG-KG.backend.tiny-shared — the tiny shared
 /// daemon self-terminates a grace period after its last client disconnects, the
 /// auto-bundled-engine mode agent-utilities' EngineResolver opts into by passing
 /// `--idle-shutdown-secs`). A connection arriving DURING the grace period resets
@@ -162,7 +162,7 @@ fn encode_response(resp: &Response) -> Vec<u8> {
 /// Serialize a [`Response`] to a complete, length-prefixed wire frame
 /// (`4-byte big-endian len ++ MessagePack body`). The id-tagged response is what
 /// the client demuxes by, so a frame can be written in ANY order relative to the
-/// requests that produced it (CONCEPT:EG-043).
+/// requests that produced it (CONCEPT:EG-KG.backend.framed-response).
 fn encode_frame(resp: &Response) -> Vec<u8> {
     let body = encode_response(resp);
     let mut frame = Vec::with_capacity(4 + body.len());
@@ -171,7 +171,7 @@ fn encode_frame(resp: &Response) -> Vec<u8> {
     frame
 }
 
-/// Per-connection in-flight cap (CONCEPT:EG-043). Bounds how many requests ONE
+/// Per-connection in-flight cap (CONCEPT:EG-KG.backend.framed-response). Bounds how many requests ONE
 /// connection may have dispatching CONCURRENTLY, so a single client cannot spawn
 /// unbounded server tasks/memory — the global `ServerState::max_in_flight`
 /// semaphore remains the box-wide admission cap (which sheds `BUSY`). Auto-sized
@@ -187,7 +187,7 @@ fn per_connection_inflight_limit() -> usize {
 /// The admission permits a request was granted (held by the dispatch task and
 /// dropped when it completes), or `Busy` if it must be shed. The three permit slots
 /// are mutually exclusive paths: a NORMAL admission holds `global`+`per_graph`; a
-/// RESERVED-read admission (CONCEPT:EG-044) holds only `read`.
+/// RESERVED-read admission (CONCEPT:EG-KG.coordination.reserved-read-lane) holds only `read`.
 enum Admission {
     Granted {
         global: Option<tokio::sync::OwnedSemaphorePermit>,
@@ -198,7 +198,7 @@ enum Admission {
 }
 
 /// Admit one request against the global pool + per-graph fairness cap, with a
-/// RESERVED READ LANE (CONCEPT:EG-044) so an ingestion WRITE firehose that saturates
+/// RESERVED READ LANE (CONCEPT:EG-KG.coordination.reserved-read-lane) so an ingestion WRITE firehose that saturates
 /// both can never shed an interactive read/query to BUSY.
 ///
 /// * Both reads and writes try the NORMAL path first: a global in-flight permit AND
@@ -255,7 +255,7 @@ fn admit_request(
 }
 
 /// Handle one client connection with single-connection request PIPELINING
-/// (CONCEPT:EG-043): length-prefixed MessagePack frames, per-request backpressure
+/// (CONCEPT:EG-KG.backend.framed-response): length-prefixed MessagePack frames, per-request backpressure
 /// admission (per-connection + global + per-graph), and CONCURRENT dispatch whose
 /// id-tagged responses are written back OUT OF ORDER.
 ///
@@ -297,7 +297,7 @@ where
         )
     };
 
-    // CONCEPT:EG-320 — the optional QoS/SLO scheduler. `None` unless
+    // CONCEPT:EG-KG.coordination.backpressure-busy-signal — the optional QoS/SLO scheduler. `None` unless
     // `EPISTEMIC_GRAPH_QOS` is configured (built once, process-global), in which case
     // the default admission path below is byte-for-byte unchanged. When `Some`, each
     // request is first gated on priority-class / per-tenant fair-share / quota BEFORE the
@@ -360,7 +360,7 @@ where
         };
 
         // ── Admission: global pool + per-graph fairness (Phase C-D) with a RESERVED
-        // READ LANE (CONCEPT:EG-044) ───────────────────────────────────────────────
+        // READ LANE (CONCEPT:EG-KG.coordination.reserved-read-lane) ───────────────────────────────────────────────
         // Classify read vs write so an ingestion WRITE firehose that saturates the
         // global pool AND a graph's per-graph cap can NEVER shed an interactive
         // read/query to BUSY: a read that loses the normal path falls back to a small
@@ -368,7 +368,7 @@ where
         // Writes stay strictly back-pressured — shed BUSY (retry), never dropped.
         let is_write = crate::server::access::requires_write(&req.method);
 
-        // ── CONCEPT:EG-320 — QoS/SLO admission gate (opt-in) ─────────────────────────
+        // ── CONCEPT:EG-KG.coordination.backpressure-busy-signal — QoS/SLO admission gate (opt-in) ─────────────────────────
         // Runs BEFORE the baseline admission. Classifies the request by priority class +
         // tenant and applies priority preemption / per-tenant fair-share / hard quota. A
         // shed request returns a typed, retryable `BUSY:` signal; an admitted one yields a
@@ -432,7 +432,7 @@ where
             drop(read_permit);
             drop(pg_permit);
             drop(g_permit);
-            // CONCEPT:EG-320 — release the QoS slot (tenant/class/global counters) once
+            // CONCEPT:EG-KG.coordination.backpressure-busy-signal — release the QoS slot (tenant/class/global counters) once
             // the request completes; `None` when QoS is not configured.
             drop(qos_permit);
             drop(conn_permit);
@@ -567,7 +567,7 @@ mod tests {
 
     #[test]
     fn encode_frame_is_len_prefixed_and_decodes() {
-        // CONCEPT:EG-043 — a framed response is `4-byte BE len ++ MessagePack body`,
+        // CONCEPT:EG-KG.backend.framed-response — a framed response is `4-byte BE len ++ MessagePack body`,
         // and the body round-trips back to the same id/result so the client can
         // demux it out of order.
         let resp = Response::ok(42, crate::protocol::ResultPayload::String("pong".into()));
@@ -585,7 +585,7 @@ mod tests {
 
     #[test]
     fn per_connection_limit_is_bounded_and_positive() {
-        // CONCEPT:EG-043 — the per-connection in-flight cap auto-sizes from cores
+        // CONCEPT:EG-KG.backend.framed-response — the per-connection in-flight cap auto-sizes from cores
         // but is always clamped so one connection can neither stall (floor) nor
         // spawn unbounded work (ceiling).
         let n = per_connection_inflight_limit();
@@ -606,7 +606,7 @@ mod tests {
         assert!(coord.is_requested());
     }
 
-    // ── CONCEPT:EG-044 — reserved read-lane admission guarantee ──────────────────
+    // ── CONCEPT:EG-KG.coordination.reserved-read-lane — reserved read-lane admission guarantee ──────────────────
 
     /// A read MUST stay admittable when the global pool AND the per-graph cap are
     /// fully saturated by writes — it falls back to the reserved read lane — while a

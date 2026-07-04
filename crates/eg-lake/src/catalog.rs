@@ -1,4 +1,4 @@
-//! Iceberg-REST catalog stub (CONCEPT:EG-317).
+//! Iceberg-REST catalog stub (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns).
 //!
 //! The interop seam that lets an external engine *discover* our tables: a minimal
 //! in-memory catalog keyed by `(namespace, table)` → metadata location, that renders
@@ -11,7 +11,7 @@
 //!   [`IcebergRestCatalog::load_table`], returning `metadata-location` (+ inline
 //!   metadata) so the client fetches the `metadata.json` this crate wrote.
 //!
-//! ## What is a stub (documented, per CONCEPT:EG-317)
+//! ## What is a stub (documented, per CONCEPT:EG-KG.storage.lsn-as-snapshot-returns)
 //! This is the catalog *contents + response shapes*, NOT an HTTP server: wiring these
 //! bodies onto an axum route on the engine's server tier is the (documented) seam. It
 //! is read-only (no create/commit/drop transactions) and does credential/OAuth-free.
@@ -22,7 +22,7 @@ use std::collections::BTreeMap;
 
 use serde_json::{json, Value};
 
-/// One registered table's catalog entry (CONCEPT:EG-317).
+/// One registered table's catalog entry (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns).
 #[derive(Clone, Debug, PartialEq)]
 pub struct TableEntry {
     pub namespace: String,
@@ -34,7 +34,7 @@ pub struct TableEntry {
     pub metadata_json: Option<String>,
 }
 
-/// A minimal in-memory Iceberg-REST catalog (CONCEPT:EG-317).
+/// A minimal in-memory Iceberg-REST catalog (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns).
 #[derive(Clone, Debug, Default)]
 pub struct IcebergRestCatalog {
     // key: (namespace, name)
@@ -46,7 +46,7 @@ impl IcebergRestCatalog {
         IcebergRestCatalog::default()
     }
 
-    /// Register / update a table's metadata location (CONCEPT:EG-317). Called by the
+    /// Register / update a table's metadata location (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns). Called by the
     /// materialization tier after it writes a new `metadata.json`.
     pub fn register(
         &mut self,
@@ -77,7 +77,7 @@ impl IcebergRestCatalog {
         self.tables.is_empty()
     }
 
-    /// `GET /v1/namespaces` response body (CONCEPT:EG-317).
+    /// `GET /v1/namespaces` response body (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns).
     pub fn list_namespaces(&self) -> Value {
         let mut namespaces: Vec<String> = self.tables.keys().map(|(ns, _)| ns.clone()).collect();
         namespaces.sort();
@@ -87,7 +87,7 @@ impl IcebergRestCatalog {
         json!({ "namespaces": levels })
     }
 
-    /// `GET /v1/namespaces/{ns}/tables` response body (CONCEPT:EG-317).
+    /// `GET /v1/namespaces/{ns}/tables` response body (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns).
     pub fn list_tables(&self, namespace: &str) -> Value {
         let identifiers: Vec<Value> = self
             .tables
@@ -98,7 +98,7 @@ impl IcebergRestCatalog {
         json!({ "identifiers": identifiers })
     }
 
-    /// The metadata location for a table, or `None` if unknown (CONCEPT:EG-317).
+    /// The metadata location for a table, or `None` if unknown (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns).
     pub fn metadata_location(&self, namespace: &str, name: &str) -> Option<&str> {
         self.tables
             .get(&(namespace.to_string(), name.to_string()))
@@ -106,7 +106,7 @@ impl IcebergRestCatalog {
     }
 
     /// `GET /v1/namespaces/{ns}/tables/{t}` (LoadTable) response body, or `None` if the
-    /// table is not registered (CONCEPT:EG-317).
+    /// table is not registered (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns).
     pub fn load_table(&self, namespace: &str, name: &str) -> Option<Value> {
         let entry = self
             .tables

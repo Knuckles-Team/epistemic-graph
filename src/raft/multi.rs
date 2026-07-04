@@ -1,11 +1,11 @@
-//! Multi-Raft manager + routing (CONCEPT:KG-2.205).
+//! Multi-Raft manager + routing (CONCEPT:EG-KG.sharding.raft-resharding).
 //!
 //! A [`MultiRaft`] holds N openraft groups in one process, keyed by [`GroupId`],
 //! each its OWN [`store::EgStore`] state machine applying to its own graph data —
 //! but ALL groups share:
 //!
 //! * **ONE redb Database** (the M2 `graph.redb`): every group's durable log + meta
-//!   is keyed by `(group_id, …)` (CONCEPT:KG-2.204). This is the spike's FD-ceiling
+//!   is keyed by `(group_id, …)` (CONCEPT:EG-KG.storage.one-fsync-covers-raft). This is the spike's FD-ceiling
 //!   fix — NOT a redb file per group.
 //! * **ONE TCP listener per node**: the [`network`] frame is tagged with the group
 //!   id, and the shared listener demuxes each RPC to the right group's [`EgRaft`]
@@ -24,7 +24,7 @@
 //! A graph belongs to exactly one group, and a transaction stays inside one group.
 //! Atomically touching two graphs in two DIFFERENT groups (a cross-group / 2-phase
 //! commit) is a SEPARATE, larger project and is deliberately NOT in this increment
-//! (documented follow-up CONCEPT:KG-2.207). The router enforces the boundary by
+//! (documented follow-up CONCEPT:EG-KG.sharding.semantic-embedding-store-backed). The router enforces the boundary by
 //! construction (each graph resolves to one group).
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -43,12 +43,12 @@ use super::{
     AppCtx, EgRaft, GroupId, NodeId, RaftHandle, RaftRequest, RaftResponse, DEFAULT_GROUP,
 };
 
-/// Routes a graph name to the Raft group that owns it (CONCEPT:KG-2.205 +
+/// Routes a graph name to the Raft group that owns it (CONCEPT:EG-KG.sharding.raft-resharding +
 /// KG-2.266). One graph belongs to exactly one group. Resolution order:
 ///
 /// 1. an explicit per-graph **override** ([`assign`], used by reshard + tests) —
 ///    highest priority, a graph pinned to a specific group;
-/// 2. otherwise the **tenant-range ring** ([`set_group_ring`], CONCEPT:KG-2.266):
+/// 2. otherwise the **tenant-range ring** ([`set_group_ring`], CONCEPT:AU-KG.ingest.mirror-inbound):
 ///    the graph name hashes (stable FNV-1a) onto a sorted set of group ids, so
 ///    un-pinned tenants SPREAD across groups instead of all landing on one;
 /// 3. otherwise [`DEFAULT_GROUP`].
@@ -61,7 +61,7 @@ use super::{
 #[derive(Default)]
 pub struct GroupRouter {
     overrides: DashMap<String, GroupId>,
-    /// The tenant-range ring (CONCEPT:KG-2.266): a sorted, de-duplicated set of group
+    /// The tenant-range ring (CONCEPT:AU-KG.ingest.mirror-inbound): a sorted, de-duplicated set of group
     /// ids that un-pinned graphs hash-distribute across. EMPTY ⇒ single-group default.
     ring: parking_lot::RwLock<Vec<GroupId>>,
 }
@@ -95,7 +95,7 @@ impl GroupRouter {
         ring[(fnv1a(graph_name) % ring.len() as u64) as usize]
     }
 
-    /// Configure the tenant-range ring (CONCEPT:KG-2.266): un-pinned graphs
+    /// Configure the tenant-range ring (CONCEPT:AU-KG.ingest.mirror-inbound): un-pinned graphs
     /// hash-distribute across these group ids. The set is sorted + de-duplicated so
     /// the mapping is stable regardless of input order. Pass an EMPTY slice to
     /// collapse back to the single-group default. Replaces any prior ring.
@@ -117,7 +117,7 @@ impl GroupRouter {
         self.overrides.insert(graph_name.to_string(), group_id);
     }
 
-    /// The distinct groups a set of graph names spans (CONCEPT:KG-2.222). A txn whose
+    /// The distinct groups a set of graph names spans (CONCEPT:EG-KG.storage.lane-n-increment). A txn whose
     /// write-set touches graphs that resolve to >1 group is a CROSS-SHARD txn and must
     /// route through the 2PC coordinator; a set that resolves to exactly one group is
     /// the single-group FAST PATH (unchanged). This is the span-detection the commit
@@ -146,7 +146,7 @@ impl GroupRouter {
 }
 
 /// The deterministic round-robin target leader for group `gid` over its SORTED voter
-/// set (CONCEPT:KG-2.270). Identical on every node (the voter set is the replicated
+/// set (CONCEPT:EG-KG.sharding.multi-raft). Identical on every node (the voter set is the replicated
 /// membership, sorted), so all nodes agree which node should lead each group WITHOUT
 /// coordination — the property that makes the cooperative balancer converge. `None`
 /// for an empty voter set.
@@ -158,13 +158,13 @@ pub(crate) fn desired_leader(gid: GroupId, sorted_voters: &[NodeId]) -> Option<N
 }
 
 /// What one [`rebalance_leaders`](MultiRaft::rebalance_leaders) pass decided, for
-/// observability + tests (CONCEPT:KG-2.270 → KG-2.273).
+/// observability + tests (CONCEPT:EG-KG.sharding.multi-raft → KG-2.273).
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct RebalanceReport {
     /// Per local group: the round-robin target leader node id.
     pub targets: BTreeMap<GroupId, NodeId>,
     /// Groups this node (as their CURRENT leader) gracefully HANDED OFF this pass via
-    /// the native openraft-0.10 `trigger().transfer_leader(target)` (CONCEPT:KG-2.273),
+    /// the native openraft-0.10 `trigger().transfer_leader(target)` (CONCEPT:AU-KG.backend.authority-has-already-acked),
     /// because the round-robin target is another node. Empty on an already-balanced
     /// cluster (or on a node that leads nothing it shouldn't).
     pub transferred: Vec<GroupId>,
@@ -193,7 +193,7 @@ impl Group {
     }
 }
 
-/// The per-node multi-group manager (CONCEPT:KG-2.205). Holds the live group map +
+/// The per-node multi-group manager (CONCEPT:EG-KG.sharding.raft-resharding). Holds the live group map +
 /// the single shared RPC listener that demuxes by group id. The group map is shared
 /// (`Arc<RwLock<…>>`) with the listener so a `create_group` is visible to incoming
 /// RPCs immediately.
@@ -204,15 +204,15 @@ pub struct MultiRaft {
     /// The shared M2 backend handle every group's store is opened over.
     backend: Arc<dyn crate::server::persistence::PersistenceBackend>,
     ctx: AppCtx,
-    /// Shared per-peer outbound connection pool (CONCEPT:KG-2.265) — one per node,
+    /// Shared per-peer outbound connection pool (CONCEPT:AU-KG.ontology.manage-arbitrary) — one per node,
     /// reused by every group's network clients.
     pool: Arc<network::PeerPool>,
     listener_handle: tokio::task::JoinHandle<()>,
-    /// Per-tenant migration locks (CONCEPT:KG-2.224). A reshard or hibernate of a
+    /// Per-tenant migration locks (CONCEPT:EG-KG.storage.100m-tenant). A reshard or hibernate of a
     /// graph takes its lock so the two cannot race / interleave for one tenant; ops
     /// on DIFFERENT graphs proceed concurrently. Lazily created per graph name.
     tenant_locks: Arc<DashMap<String, Arc<tokio::sync::Mutex<()>>>>,
-    /// Per-group cooldown timestamps for the leader balancer (CONCEPT:KG-2.273). A
+    /// Per-group cooldown timestamps for the leader balancer (CONCEPT:AU-KG.backend.authority-has-already-acked). A
     /// triggered transfer hands leadership away, so [`rebalance_leaders`] refuses to
     /// re-issue a transfer for a group within [`TRANSFER_COOLDOWN`] — this stops it
     /// spamming transfer commands while the handoff settles when polled on a tick.
@@ -222,7 +222,7 @@ pub struct MultiRaft {
 }
 
 /// Minimum interval between two balancer-triggered leader transfers for the SAME group
-/// (CONCEPT:KG-2.273). Comfortably above `election_timeout_max` (3s) so a handoff has
+/// (CONCEPT:AU-KG.backend.authority-has-already-acked). Comfortably above `election_timeout_max` (3s) so a handoff has
 /// settled before the balancer would consider another — no flapping.
 const TRANSFER_COOLDOWN: std::time::Duration = std::time::Duration::from_secs(10);
 
@@ -267,7 +267,7 @@ impl MultiRaft {
         }))
     }
 
-    /// Acquire the per-tenant migration lock for `graph_name` (CONCEPT:KG-2.224), so a
+    /// Acquire the per-tenant migration lock for `graph_name` (CONCEPT:EG-KG.storage.100m-tenant), so a
     /// reshard and a hibernate of the SAME graph serialize. Lazily creates the lock.
     /// Returns an owned guard the caller holds for the duration of the migration.
     pub async fn tenant_lock(&self, graph_name: &str) -> tokio::sync::OwnedMutexGuard<()> {
@@ -280,7 +280,7 @@ impl MultiRaft {
     }
 
     /// Ensure group `gid` is running on this node, creating it (single-member,
-    /// bootstrap) if absent — the resharding target-group seam (CONCEPT:KG-2.224).
+    /// bootstrap) if absent — the resharding target-group seam (CONCEPT:EG-KG.storage.100m-tenant).
     /// Idempotent: a no-op if the group already runs. The new group shares the SAME
     /// listener + `graph.redb`; its durable log/meta are keyed by `gid`.
     pub async fn ensure_group(&self, gid: GroupId) -> Result<(), String> {
@@ -299,18 +299,18 @@ impl MultiRaft {
         self.router.clone()
     }
 
-    /// The node's shared per-peer connection pool (CONCEPT:KG-2.265) — exposed for
+    /// The node's shared per-peer connection pool (CONCEPT:AU-KG.ontology.manage-arbitrary) — exposed for
     /// metrics/tests (e.g. asserting RPCs reused a warm connection).
     pub fn pool(&self) -> Arc<network::PeerPool> {
         self.pool.clone()
     }
 
-    /// Configure a tenant-range ring of `n_groups` groups (CONCEPT:KG-2.266) and bring
+    /// Configure a tenant-range ring of `n_groups` groups (CONCEPT:AU-KG.ingest.mirror-inbound) and bring
     /// each up on THIS node, distributing un-pinned graphs across them. Group ids are
     /// `0..n_groups` (so [`DEFAULT_GROUP`] = 0 is always in the ring). Each group is a
     /// single-member bootstrap on this node; to make a group span multiple NODES, the
     /// other nodes [`join_group`] it and the leader [`add_group_member`]s them
-    /// (CONCEPT:KG-2.268). `n_groups <= 1` leaves the ring empty (the single-group
+    /// (CONCEPT:EG-KG.storage.kg-kg-2). `n_groups <= 1` leaves the ring empty (the single-group
     /// default), so this is a safe superset.
     ///
     /// [`join_group`]: MultiRaft::join_group
@@ -329,7 +329,7 @@ impl MultiRaft {
 
     /// The shared `ServerState` (registry + persistence) every group applies into —
     /// reached via the manager's [`AppCtx`]. Used by the cross-shard 2PC coordinator
-    /// (CONCEPT:KG-2.222) to validate slices against live group state.
+    /// (CONCEPT:EG-KG.storage.lane-n-increment) to validate slices against live group state.
     pub fn app_state(&self) -> Arc<RwLock<crate::server::ServerState>> {
         self.ctx.state.clone()
     }
@@ -340,7 +340,7 @@ impl MultiRaft {
     }
 
     /// Create + start group `gid` on this node with the given peer set. The store is
-    /// opened over the SHARED M2 backend keyed by `gid` (CONCEPT:KG-2.204), so all
+    /// opened over the SHARED M2 backend keyed by `gid` (CONCEPT:EG-KG.storage.one-fsync-covers-raft), so all
     /// groups share ONE `graph.redb`. The lowest-id member bootstraps.
     pub async fn create_group(
         &self,
@@ -352,7 +352,7 @@ impl MultiRaft {
             return Err(format!("group {gid} already open on node {}", self.node_id));
         }
         // The store's ctx carries the router so its snapshot dump is SCOPED to this
-        // group's tenant-range graphs (CONCEPT:KG-2.267), not the whole registry.
+        // group's tenant-range graphs (CONCEPT:AU-KG.ingest.staged), not the whole registry.
         let store_ctx = AppCtx {
             state: self.ctx.state.clone(),
             router: Some(self.router.clone()),
@@ -369,7 +369,7 @@ impl MultiRaft {
             .validate()
             .map_err(|e| format!("invalid raft config: {e}"))?,
         );
-        // openraft 0.10 (CONCEPT:KG-2.273): the v1 `RaftStorage`/`Adaptor` split is
+        // openraft 0.10 (CONCEPT:AU-KG.backend.authority-has-already-acked): the v1 `RaftStorage`/`Adaptor` split is
         // gone — `EgStore` implements `RaftLogStorage` AND `RaftStateMachine` on
         // `Arc<EgStore>`, so we hand the SAME store in as both (a cheap clone). They
         // share the one underlying redb-backed log + state machine.
@@ -401,7 +401,7 @@ impl MultiRaft {
         Ok(())
     }
 
-    // ── R3: multi-node membership join (CONCEPT:KG-2.268) ──────────────────
+    // ── R3: multi-node membership join (CONCEPT:EG-KG.storage.kg-kg-2) ──────────────────
     //
     // `create_group(.., is_bootstrap=true)` brings a group up as a SINGLE-member
     // cluster on one node. To make a group span multiple NODES you (a) stand the
@@ -412,7 +412,7 @@ impl MultiRaft {
     // add-learner → change-membership lifecycle, per group, over the shared listener.
 
     /// Stand group `gid` up on THIS node as an EMPTY, non-bootstrapping member ready to
-    /// receive replication (CONCEPT:KG-2.268). Unlike [`ensure_group`] (which
+    /// receive replication (CONCEPT:EG-KG.storage.kg-kg-2). Unlike [`ensure_group`] (which
     /// single-member bootstraps), this NEVER calls `initialize`: the group joins an
     /// existing cluster only when its leader calls [`add_group_member`] for this node.
     /// Idempotent. `peers` may be empty — a follower learns peer addresses from the
@@ -445,7 +445,7 @@ impl MultiRaft {
         Some(voters)
     }
 
-    /// Add `new_node` (reachable at `addr`) to group `gid` as a VOTER (CONCEPT:KG-2.268).
+    /// Add `new_node` (reachable at `addr`) to group `gid` as a VOTER (CONCEPT:EG-KG.storage.kg-kg-2).
     /// MUST be called on the group's current LEADER (membership changes are leader-only
     /// in Raft). Runs the openraft two-step join:
     ///
@@ -487,7 +487,7 @@ impl MultiRaft {
         Ok(())
     }
 
-    /// Remove `node` from group `gid`'s voter set (CONCEPT:KG-2.268). MUST be called on
+    /// Remove `node` from group `gid`'s voter set (CONCEPT:EG-KG.storage.kg-kg-2). MUST be called on
     /// the LEADER. Idempotent (a no-op if `node` is not a voter); refuses to remove the
     /// LAST voter (that would make the group leaderless / unrecoverable).
     pub async fn remove_group_member(&self, gid: GroupId, node: NodeId) -> Result<(), String> {
@@ -521,7 +521,7 @@ impl MultiRaft {
         Ok(())
     }
 
-    // ── R1: leader balancing across groups (CONCEPT:KG-2.270 → KG-2.273) ────
+    // ── R1: leader balancing across groups (CONCEPT:EG-KG.sharding.multi-raft → KG-2.273) ────
     //
     // With N groups over M nodes, leaders cluster on the bootstrap node (it
     // single-member-initializes every group). [`rebalance_leaders`] spreads leadership by
@@ -540,7 +540,7 @@ impl MultiRaft {
     // round-robin spread within roughly one heartbeat, not a couple of election timeouts.
 
     /// Run one leader-balancing pass over the groups running on THIS node
-    /// (CONCEPT:KG-2.273). For each group THIS node leads whose round-robin target is a
+    /// (CONCEPT:AU-KG.backend.authority-has-already-acked). For each group THIS node leads whose round-robin target is a
     /// different node, it issues the native `trigger().transfer_leader(target)` for an
     /// instant graceful handoff (rate-limited per group by [`TRANSFER_COOLDOWN`] so it
     /// never spams transfers while one settles). A no-op for single-voter groups and for
@@ -644,7 +644,7 @@ impl MultiRaft {
 }
 
 /// Serve one connection on the shared listener, demuxing each framed RPC to the
-/// group it is tagged for (CONCEPT:KG-2.205). An RPC for a group this node doesn't
+/// group it is tagged for (CONCEPT:EG-KG.sharding.raft-resharding). An RPC for a group this node doesn't
 /// run gets a per-variant error reply (openraft treats it as a transient failure).
 async fn serve_conn(
     mut stream: tokio::net::TcpStream,
@@ -659,7 +659,7 @@ async fn serve_conn(
         let frame: RaftFrame = rmp_serde::from_slice(&body)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
         // A `One` frame demuxes to one group; a `Batch` (coalesced heartbeats,
-        // CONCEPT:KG-2.271) demuxes each tagged sub-RPC to ITS group and replies in the
+        // CONCEPT:EG-KG.storage.concept-2) demuxes each tagged sub-RPC to ITS group and replies in the
         // SAME order so each awaiting caller matches its own reply.
         let reply = match frame {
             RaftFrame::One(rpc) => {

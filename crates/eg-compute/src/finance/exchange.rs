@@ -1,4 +1,4 @@
-// CONCEPT:KG-2.20e — Exchange & Execution Engine
+// CONCEPT:EG-KG.compute.exchange-execution — Exchange & Execution Engine
 //
 // TWAP/VWAP execution algorithms, order book simulation, market impact,
 // and pairs trading signal computation. Complements the existing

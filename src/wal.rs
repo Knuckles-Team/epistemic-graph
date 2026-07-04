@@ -1,4 +1,4 @@
-//! Per-graph write-ahead log (CONCEPT:KG-2.8 / OS-5.9, Phase B2).
+//! Per-graph write-ahead log (CONCEPT:EG-KG.storage.nonblocking-checkpoint / OS-5.9, Phase B2).
 //!
 //! The snapshot persistence (`persist.rs`) is an RDB-style point-in-time image
 //! written every `--checkpoint-interval`. A crash between checkpoints loses every
@@ -40,7 +40,7 @@ pub fn is_durable_mutation(m: &Method) -> bool {
     ) {
         return true;
     }
-    // Message-broker admin + publish (CONCEPT:EG-275): each mutates control-graph
+    // Message-broker admin + publish (CONCEPT:EG-KG.compute.message-broker-exchanges): each mutates control-graph
     // nodes and replays deterministically (routing + monotonic seq derive from graph
     // state; `apply` below re-runs the SAME broker fn over the same pre-image).
     #[cfg(feature = "broker")]
@@ -51,7 +51,7 @@ pub fn is_durable_mutation(m: &Method) -> bool {
             | Method::BindQueue { .. }
             | Method::UnbindQueue { .. }
             | Method::Publish { .. }
-            // Broker policy extensions (CONCEPT:EG-276..280): all mutate control-graph
+            // Broker policy extensions (CONCEPT:EG-KG.compute.dead-letter-queues..280): all mutate control-graph
             // nodes deterministically from explicit args (caller `now_ms`), so replay
             // reproduces identical state (routing + monotonic seq derive from graph).
             | Method::DeclareQueue { .. }
@@ -60,7 +60,7 @@ pub fn is_durable_mutation(m: &Method) -> bool {
             | Method::BrokerAck { .. }
             | Method::BrokerReject { .. }
             | Method::SweepExpired { .. }
-            // Streams (CONCEPT:EG-283) + publisher-confirm / consumer-ack (CONCEPT:
+            // Streams (CONCEPT:EG-KG.compute.replayable-append-log) + publisher-confirm / consumer-ack (CONCEPT:
             // EG-284): the mutating variants (append/trim/commit/confirm/ack-tag/
             // nack-tag) write control-graph nodes deterministically from explicit args
             // (caller `now_ms` + durable counters), so replay reproduces them. Pure
@@ -72,7 +72,7 @@ pub fn is_durable_mutation(m: &Method) -> bool {
             | Method::PublishConfirmed { .. }
             | Method::BrokerAckTag { .. }
             | Method::BrokerNackTag { .. }
-            // Idempotent producer (CONCEPT:EG-314): the dedup check + high-water-mark
+            // Idempotent producer (CONCEPT:EG-KG.ingest.broker-reject-publish): the dedup check + high-water-mark
             // bump mutate a durable producer node deterministically from explicit args,
             // so replay reproduces the identical mark + duplicate-verdict.
             | Method::PublishIdempotent { .. }
@@ -91,7 +91,7 @@ pub fn is_durable_mutation(m: &Method) -> bool {
             | Method::BatchUpdate { .. }
             | Method::ClaimNext { .. }
             | Method::ClearGraph
-            // Agent-memory / scene-graph / trajectory mutations (CONCEPT:EG-318):
+            // Agent-memory / scene-graph / trajectory mutations (CONCEPT:EG-KG.memory.eg-batch-decay-caller):
             // each writes durable nodes/edges via an eg-core primitive whose
             // generated ids derive deterministically from sorted inputs / node-count
             // / step ordinals and whose only clock is the EXPLICIT caller `now_ms`, so
@@ -200,7 +200,7 @@ impl WalWriter {
 /// handlers for exactly the `is_durable_mutation` set.
 ///
 /// This is the single canonical "durable Method → GraphCore mutation" path: WAL
-/// replay (below) and the Raft state machine (CONCEPT:KG-2.188, `src/raft`) both
+/// replay (below) and the Raft state machine (CONCEPT:AU-KG.ingest.source-sync-canonical, `src/raft`) both
 /// call it, so a committed Raft log entry applies BYTE-IDENTICALLY to how a
 /// replayed WAL record does. Deterministic (replaying the same Method over the
 /// same pre-image yields the same state), which is the Raft state-machine contract.
@@ -233,7 +233,7 @@ pub fn apply(core: &GraphCore, m: &Method) {
             label,
             updates_msgpack,
         } => {
-            // Deterministic replay (CONCEPT:KG-2.303): re-run the same oldest-pending
+            // Deterministic replay (CONCEPT:EG-KG.compute.atomically-claim-oldest-pending): re-run the same oldest-pending
             // pick + CAS over identical state. `updates` carries no clock, so the
             // claimed node + merged marker are reproduced byte-identically; the
             // returned node id is ignored on replay.
@@ -322,7 +322,7 @@ pub fn apply(core: &GraphCore, m: &Method) {
                 );
             }
         }
-        // `RemoveTriples` (feature `rdf`, CONCEPT:EG-017): deterministic replay =
+        // `RemoveTriples` (feature `rdf`, CONCEPT:EG-KG.query.named-graph-support): deterministic replay =
         // re-parse the SAME source and re-retract. Idempotent — re-removing an absent
         // triple is a no-op. The lossless quad store is durable on its own file.
         #[cfg(feature = "rdf")]
@@ -338,13 +338,13 @@ pub fn apply(core: &GraphCore, m: &Method) {
                 let _ = eg_rdf::update::remove_triples(core, &triples);
             }
         }
-        // `DropNamedGraph` (feature `rdf`, CONCEPT:EG-017): the named graph IS this
+        // `DropNamedGraph` (feature `rdf`, CONCEPT:EG-KG.query.named-graph-support): the named graph IS this
         // registry graph, so dropping it clears the whole core. The quad-store rows are
         // dropped durably on their own redb file at original execution, so replay only
         // needs to rebuild the empty in-graph state.
         #[cfg(feature = "rdf")]
         Method::DropNamedGraph => core.clear(),
-        // Message-broker replay (CONCEPT:EG-275): re-run the SAME broker fn. Routing
+        // Message-broker replay (CONCEPT:EG-KG.compute.message-broker-exchanges): re-run the SAME broker fn. Routing
         // reads the (already-replayed) bindings and the seq comes from the durable
         // counter node, so message nodes are reproduced byte-identically; results are
         // ignored on replay.
@@ -380,7 +380,7 @@ pub fn apply(core: &GraphCore, m: &Method) {
         } => {
             let _ = crate::broker::publish(core, exchange, routing_key, payload);
         }
-        // Broker policy extensions (CONCEPT:EG-276..280): re-run the SAME broker fn
+        // Broker policy extensions (CONCEPT:EG-KG.compute.dead-letter-queues..280): re-run the SAME broker fn
         // with the SAME explicit args. Routing reads (already-replayed) bindings, seq
         // comes from the durable counter, and `now_ms` is logged — so the message /
         // dead-letter / claim state is reproduced byte-identically. Results ignored.
@@ -455,7 +455,7 @@ pub fn apply(core: &GraphCore, m: &Method) {
         Method::SweepExpired { now_ms } => {
             let _ = crate::broker::sweep_expired(core, *now_ms);
         }
-        // Streams (CONCEPT:EG-283) + confirms/acks (CONCEPT:EG-284): re-run the SAME
+        // Streams (CONCEPT:EG-KG.compute.replayable-append-log) + confirms/acks (CONCEPT:EG-KG.compute.publisher-confirms-consumer-qos): re-run the SAME
         // broker fn with the SAME explicit args. Offsets/tags come from durable counter
         // nodes and `now_ms` is logged, so message / commit / tag state is reproduced
         // byte-identically. Results are ignored on replay.
@@ -512,7 +512,7 @@ pub fn apply(core: &GraphCore, m: &Method) {
                 *now_ms,
             );
         }
-        // Idempotent producer (CONCEPT:EG-314): re-run the SAME publish with the SAME
+        // Idempotent producer (CONCEPT:EG-KG.ingest.broker-reject-publish): re-run the SAME publish with the SAME
         // producer_id/seq over the same pre-image — a first apply records the mark +
         // enqueues; a replay of an already-recorded seq is a no-op duplicate. Result
         // ignored.
@@ -553,7 +553,7 @@ pub fn apply(core: &GraphCore, m: &Method) {
         } => {
             let _ = crate::broker::broker_nack_tag(core, *delivery_tag, *requeue, *now_ms);
         }
-        // Agent-memory / scene-graph / trajectory replay (CONCEPT:EG-318): re-run the
+        // Agent-memory / scene-graph / trajectory replay (CONCEPT:EG-KG.memory.eg-batch-decay-caller): re-run the
         // SAME eg-core primitive with the SAME explicit args over the same pre-image.
         // Every generated id derives deterministically (sorted inputs / monotonic
         // node-count / step ordinal) and the only clock is the logged `now_ms`, so the
@@ -656,7 +656,7 @@ pub fn apply(core: &GraphCore, m: &Method) {
     }
 }
 
-/// Decode a MessagePack-encoded JSON object blob for WAL replay (CONCEPT:EG-318). A
+/// Decode a MessagePack-encoded JSON object blob for WAL replay (CONCEPT:EG-KG.memory.eg-batch-decay-caller). A
 /// missing/undecodable/non-object blob yields an empty map — the same discipline the
 /// dispatch handler uses, so replay applies the identical props.
 fn wal_json_object(blob: &[u8]) -> serde_json::Map<String, serde_json::Value> {
@@ -666,7 +666,7 @@ fn wal_json_object(blob: &[u8]) -> serde_json::Map<String, serde_json::Value> {
     }
 }
 
-/// Decode a MessagePack-encoded pose blob for WAL replay (CONCEPT:EG-318/EG-087).
+/// Decode a MessagePack-encoded pose blob for WAL replay (CONCEPT:EG-KG.memory.eg-batch-decay-caller/EG-087).
 /// `None` only if the blob is not a decodable JSON object — matching the dispatch
 /// handler's `decode_pose` so replay reconstructs the identical scene node.
 fn wal_pose(blob: &[u8]) -> Option<eg_core::scene::Pose> {
@@ -801,7 +801,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// CONCEPT:EG-318 — the memory/scene/trajectory durable Methods are all
+    /// CONCEPT:EG-KG.memory.eg-batch-decay-caller — the memory/scene/trajectory durable Methods are all
     /// classified `is_durable_mutation` and replay byte-identically: a fresh graph
     /// fed only the logged Methods reproduces the SAME summary children, world
     /// transform, and discounted return as the live graph, because every generated id

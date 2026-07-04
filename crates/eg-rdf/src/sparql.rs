@@ -1,4 +1,4 @@
-//! W2 — Native SPARQL 1.1 evaluation over a `GraphView` (CONCEPT:KG-2.218).
+//! W2 — Native SPARQL 1.1 evaluation over a `GraphView` (CONCEPT:EG-KG.ontology.concept-11).
 //!
 //! DECISION (embed-vs-compile, from the spike): we COMPILE `spargebra`'s parsed
 //! algebra down to scans over OUR property-graph `GraphView`, rather than EMBED
@@ -15,7 +15,7 @@
 //! PROJECT, DISTINCT, SLICE, and a BASIC fixed-length property path (`p1/p2` seq
 //! and a single predicate).
 //!
-//! Completeness increment (CONCEPT:KG-2.235): aggregates (`COUNT`/`SUM`/`AVG`/`MIN`/
+//! Completeness increment (CONCEPT:EG-KG.query.sparql-completeness): aggregates (`COUNT`/`SUM`/`AVG`/`MIN`/
 //! `MAX` with `GROUP BY` — the `Group`+`Extend` algebra), the fuller property paths
 //! (`p+` / `p*` / `p?`, alternative `a|b`, inverse `^p`, and their nesting), and the
 //! `GRAPH ?g { … }` named-graph form (a single dataset here ⇒ `?g` binds the request
@@ -57,7 +57,7 @@ impl Binding {
     }
 }
 
-/// LPG→RDF projection vocabulary (CONCEPT:KG-2.240). Controls how the live property
+/// LPG→RDF projection vocabulary (CONCEPT:EG-KG.ontology.lpg-rdf-projection-vocabulary). Controls how the live property
 /// graph is projected into RDF terms during SPARQL evaluation. The engine stays
 /// GENERAL — it hardcodes NO ontology URL; the namespace + class-naming convention
 /// are supplied by the caller (e.g. agent-utilities passes its `au:` namespace +
@@ -218,7 +218,7 @@ pub fn parse_query(q: &str) -> Result<Query, String> {
 /// dataset — the back-compat name a [`Dataset::single`] registers its view under.
 pub const DEFAULT_GRAPH_NAME: &str = "urn:eg:graph:default";
 
-/// An RDF dataset over live property-graph views (CONCEPT:EG-017 — true named-graph
+/// An RDF dataset over live property-graph views (CONCEPT:EG-KG.query.named-graph-support — true named-graph
 /// semantics): a DEFAULT graph plus zero-or-more NAMED graphs, each a `GraphView`.
 /// `GRAPH <g> { … }` evaluates against the matching named member (empty if absent);
 /// `GRAPH ?g { … }` ranges over the named members binding `?g` to each — instead of
@@ -251,7 +251,7 @@ impl<'a> Dataset<'a> {
     }
 }
 
-/// RDF-merge a set of graph views into ONE owned view (CONCEPT:EG-054), used to build
+/// RDF-merge a set of graph views into ONE owned view (CONCEPT:EG-KG.ontology.from-from-named), used to build
 /// the `FROM`-scoped default graph: node-property and edge-property maps are unioned
 /// (node ids are unique per graph so the first cell wins; edge blob-lists concatenate).
 /// Only the SPARQL-scanned maps are populated — the topology (`graph`/`node_map`) is not
@@ -275,7 +275,7 @@ fn merge_views<'v>(views: impl Iterator<Item = &'v GraphView>) -> GraphView {
 }
 
 /// A remote SPARQL endpoint the evaluator can delegate a `SERVICE` clause to
-/// (CONCEPT:EG-052). This is the SEAM: `eg-rdf` owns the algebra + the SILENT / join
+/// (CONCEPT:EG-KG.query.sparql-service-federation-client). This is the SEAM: `eg-rdf` owns the algebra + the SILENT / join
 /// semantics but knows NOTHING about HTTP — the facade supplies a `ureq`-backed impl
 /// (feature `sparql-service`), keeping the Pi/crate-DAG contract intact (no HTTP dep
 /// enters this pure-Rust crate). `select` runs one remote SELECT and returns its
@@ -287,7 +287,7 @@ pub trait RemoteSparql: Sync {
 
 /// The active evaluation context: the dataset, the graph the current scans resolve
 /// against (the default, or a `GRAPH`-scoped named graph), the LPG→RDF projection, and
-/// the OPTIONAL remote-`SERVICE` client (CONCEPT:EG-052; `None` ⇒ SERVICE is unavailable).
+/// the OPTIONAL remote-`SERVICE` client (CONCEPT:EG-KG.query.sparql-service-federation-client; `None` ⇒ SERVICE is unavailable).
 struct Ctx<'a> {
     ds: &'a Dataset<'a>,
     active: &'a GraphView,
@@ -307,7 +307,7 @@ impl<'a> Ctx<'a> {
     }
 }
 
-/// The outcome of evaluating ANY SPARQL query form (CONCEPT:EG-017).
+/// The outcome of evaluating ANY SPARQL query form (CONCEPT:EG-KG.query.named-graph-support).
 #[derive(Debug, Clone)]
 pub enum QueryOutcome {
     /// `SELECT` — a solution table.
@@ -326,7 +326,7 @@ pub fn run(view: &GraphView, query_str: &str) -> Result<SparqlResult, String> {
 }
 
 /// Parse + evaluate a SPARQL SELECT, projecting the live property graph into RDF terms
-/// under `proj` (CONCEPT:KG-2.240). With [`Projection::raw`] this equals [`run`].
+/// under `proj` (CONCEPT:EG-KG.ontology.lpg-rdf-projection-vocabulary). With [`Projection::raw`] this equals [`run`].
 /// Non-SELECT forms are coerced to a row table (see [`run_outcome`] for the typed form).
 pub fn run_projected(
     view: &GraphView,
@@ -337,7 +337,7 @@ pub fn run_projected(
 }
 
 /// Parse + evaluate a SPARQL query of ANY form (SELECT/ASK/CONSTRUCT/DESCRIBE) over a
-/// single GraphView, returning the typed [`QueryOutcome`] (CONCEPT:EG-017).
+/// single GraphView, returning the typed [`QueryOutcome`] (CONCEPT:EG-KG.query.named-graph-support).
 pub fn run_outcome(
     view: &GraphView,
     query_str: &str,
@@ -359,7 +359,7 @@ pub fn run_outcome_dataset(
 }
 
 /// Parse + evaluate a SPARQL query over a [`Dataset`] with an OPTIONAL remote-`SERVICE`
-/// client bound (CONCEPT:EG-052). Identical to [`run_outcome_dataset`] except a
+/// client bound (CONCEPT:EG-KG.query.sparql-service-federation-client). Identical to [`run_outcome_dataset`] except a
 /// `SERVICE <ep> { … }` clause dispatches through `service` (a `None` client makes every
 /// non-SILENT SERVICE an error — the fail-closed default). This is the ONE additive entry
 /// the facade calls; all existing entry points forward `service = None` (no behavior change).
@@ -401,7 +401,7 @@ pub fn evaluate_outcome(
     evaluate_outcome_svc(ds, query, proj, None)
 }
 
-/// Service-aware core of [`evaluate_outcome`] (CONCEPT:EG-052): identical, but threads an
+/// Service-aware core of [`evaluate_outcome`] (CONCEPT:EG-KG.query.sparql-service-federation-client): identical, but threads an
 /// optional remote-`SERVICE` client into the evaluation `Ctx`. The public `evaluate_outcome`
 /// forwards `None` (no SERVICE), so no existing caller changes behavior.
 fn evaluate_outcome_svc(
@@ -410,7 +410,7 @@ fn evaluate_outcome_svc(
     proj: &Projection,
     service: Option<&dyn RemoteSparql>,
 ) -> Result<QueryOutcome, String> {
-    // FROM / FROM NAMED (CONCEPT:EG-054): if the query carries a dataset spec, honor it
+    // FROM / FROM NAMED (CONCEPT:EG-KG.ontology.from-from-named): if the query carries a dataset spec, honor it
     // to scope the active dataset instead of always using the server-registered one.
     // `merged_default` owns the FROM-union view (if any) so it outlives the borrow.
     let merged_default;
@@ -489,7 +489,7 @@ pub fn eval_where(
         ds,
         active: ds.default,
         proj,
-        // UPDATE/DESCRIBE WHERE never spans a remote SERVICE (CONCEPT:EG-052).
+        // UPDATE/DESCRIBE WHERE never spans a remote SERVICE (CONCEPT:EG-KG.query.sparql-service-federation-client).
         service: None,
     };
     eval_pattern(&ctx, pattern)
@@ -534,7 +534,7 @@ fn outcome_to_result(outcome: QueryOutcome) -> SparqlResult {
     }
 }
 
-// ── CONSTRUCT / DESCRIBE (CONCEPT:EG-017) ───────────────────────────────────────
+// ── CONSTRUCT / DESCRIBE (CONCEPT:EG-KG.query.named-graph-support) ───────────────────────────────────────
 
 /// Instantiate a CONSTRUCT template against each WHERE solution → the result graph.
 /// A pattern whose terms can't all be resolved/built for a given solution is skipped
@@ -769,7 +769,7 @@ fn eval_pattern(ctx: &Ctx, p: &GraphPattern) -> Result<Vec<Solution>, String> {
             l.append(&mut r);
             Ok(l)
         }
-        // Sub-SELECT (CONCEPT:EG-051): evaluate the inner pattern, then RESTRICT each
+        // Sub-SELECT (CONCEPT:EG-KG.ontology.sub-select): evaluate the inner pattern, then RESTRICT each
         // solution to the projected `variables` so inner-only bindings can't leak out and
         // corrupt an outer join. Top-level SELECT output is unchanged — the result columns
         // already derive from the projected set — so this is a pure correctness fix that
@@ -786,7 +786,7 @@ fn eval_pattern(ctx: &Ctx, p: &GraphPattern) -> Result<Vec<Solution>, String> {
                 })
                 .collect())
         }
-        // GROUP BY + aggregates (CONCEPT:KG-2.235). `Group` produces one solution per
+        // GROUP BY + aggregates (CONCEPT:EG-KG.query.sparql-completeness). `Group` produces one solution per
         // group binding the GROUP BY vars + the aggregate-result vars; the wrapping
         // `Extend` (below) re-binds those to the projected names. With no GROUP BY var
         // the whole result is one group (`SELECT (COUNT(*) AS ?n) …`).
@@ -818,7 +818,7 @@ fn eval_pattern(ctx: &Ctx, p: &GraphPattern) -> Result<Vec<Solution>, String> {
                 })
                 .collect())
         }
-        // GRAPH … { … } — true named-graph scoping (CONCEPT:EG-017). A constant graph
+        // GRAPH … { … } — true named-graph scoping (CONCEPT:EG-KG.query.named-graph-support). A constant graph
         // IRI re-scopes evaluation to THAT named graph (empty if it is not in the
         // dataset). A variable `?g` ranges over EVERY named graph, evaluating the inner
         // pattern against each and binding `?g` to its IRI (the union). This replaces
@@ -866,7 +866,7 @@ fn eval_pattern(ctx: &Ctx, p: &GraphPattern) -> Result<Vec<Solution>, String> {
                 .take(end.saturating_sub(*start))
                 .collect())
         }
-        // MINUS (CONCEPT:EG-055): set-difference. Keep each LEFT solution that is NOT
+        // MINUS (CONCEPT:EG-KG.ontology.minus): set-difference. Keep each LEFT solution that is NOT
         // compatible with ANY right solution. SPARQL MINUS compatibility is agreement on
         // the SHARED bound variables; a left solution whose domain is DISJOINT from a
         // right solution is NOT removed by it (so a right pattern sharing no variable
@@ -878,7 +878,7 @@ fn eval_pattern(ctx: &Ctx, p: &GraphPattern) -> Result<Vec<Solution>, String> {
                 .filter(|ls| !r.iter().any(|rs| minus_compatible(ls, rs)))
                 .collect())
         }
-        // ORDER BY (CONCEPT:EG-125): a CORRECTNESS fix — the evaluator previously hit the
+        // ORDER BY (CONCEPT:EG-KG.ontology.order-by-values-exists): a CORRECTNESS fix — the evaluator previously hit the
         // catch-all and errored, so ordered queries never returned in order. Evaluate the
         // inner pattern, then STABLE-sort its solutions by the `OrderExpression` list.
         GraphPattern::OrderBy { inner, expression } => {
@@ -886,13 +886,13 @@ fn eval_pattern(ctx: &Ctx, p: &GraphPattern) -> Result<Vec<Solution>, String> {
             sort_solutions(ctx, &mut sols, expression);
             Ok(sols)
         }
-        // VALUES (CONCEPT:EG-125): inline a ground-term data table into solutions; the
+        // VALUES (CONCEPT:EG-KG.ontology.order-by-values-exists): inline a ground-term data table into solutions; the
         // enclosing operator (a JOIN, typically) merges them with the rest of the pattern.
         GraphPattern::Values {
             variables,
             bindings,
         } => Ok(values_solutions(variables, bindings)),
-        // SERVICE <ep> { … } — federated query (CONCEPT:EG-052). Dispatch the inner pattern
+        // SERVICE <ep> { … } — federated query (CONCEPT:EG-KG.query.sparql-service-federation-client). Dispatch the inner pattern
         // to a remote endpoint via `ctx.service`; the returned solutions flow up so the
         // enclosing Join/LeftJoin combines them with the local BGP (via `hash_join`).
         GraphPattern::Service {
@@ -906,7 +906,7 @@ fn eval_pattern(ctx: &Ctx, p: &GraphPattern) -> Result<Vec<Solution>, String> {
     }
 }
 
-/// Evaluate a `SERVICE <ep> { inner }` clause (CONCEPT:EG-052) by delegating `inner` to a
+/// Evaluate a `SERVICE <ep> { inner }` clause (CONCEPT:EG-KG.query.sparql-service-federation-client) by delegating `inner` to a
 /// remote SPARQL endpoint through `ctx.service`.
 ///
 /// SILENT semantics: on ANY failure — a variable endpoint, no bound client, or a remote
@@ -951,7 +951,7 @@ fn eval_service(
     }
 }
 
-/// Build the SPARQL SELECT text sent to a remote SERVICE endpoint (CONCEPT:EG-052): wrap
+/// Build the SPARQL SELECT text sent to a remote SERVICE endpoint (CONCEPT:EG-KG.query.sparql-service-federation-client): wrap
 /// `inner` in a `SELECT` projecting its in-scope variables and render it with spargebra's
 /// `Display` (which emits valid SPARQL 1.1). The projected vars are what the enclosing join
 /// binds on, so the remote side returns exactly the columns the local pattern needs.
@@ -974,7 +974,7 @@ fn build_service_query(inner: &GraphPattern) -> String {
     .to_string()
 }
 
-/// Stable-sort solutions by an `ORDER BY` comparator list (CONCEPT:EG-125). Each
+/// Stable-sort solutions by an `ORDER BY` comparator list (CONCEPT:EG-KG.ontology.order-by-values-exists). Each
 /// `OrderExpression` is Asc/Desc over an expression; solutions compare on the first
 /// expression that distinguishes them (numeric when both sides parse as numbers, else
 /// lexical). An UNBOUND/error value sorts FIRST in ascending order (SPARQL orders the
@@ -996,7 +996,7 @@ fn sort_solutions(ctx: &Ctx, sols: &mut [Solution], order: &[OrderExpression]) {
     });
 }
 
-/// The SPARQL `ORDER BY` term-type precedence rank (CONCEPT:EG-135). The spec fixes a
+/// The SPARQL `ORDER BY` term-type precedence rank (CONCEPT:EG-KG.ontology.completing-eg-order-by). The spec fixes a
 /// total order ACROSS term kinds — an unbound value sorts before any bound value, then
 /// blank nodes, then IRIs, then literals — and only compares *values* within the same
 /// kind. Prior to EG-135 the comparator ignored the kind and compared every bound value
@@ -1013,7 +1013,7 @@ fn order_rank(b: &Option<Binding>) -> u8 {
 }
 
 /// Compare two (possibly unbound) `ORDER BY` values under the full SPARQL term ordering
-/// (CONCEPT:EG-135, completing the EG-125 ORDER BY arm). Terms first order by KIND
+/// (CONCEPT:EG-KG.ontology.completing-eg-order-by, completing the EG-125 ORDER BY arm). Terms first order by KIND
 /// ([`order_rank`]: unbound < blank node < IRI < literal); only within the SAME kind do
 /// values compare — blank/IRI lexically by term id, and literals by a typed comparison:
 /// numerically when both lexical forms parse as numbers, else lexically (xsd:dateTime /
@@ -1046,7 +1046,7 @@ fn cmp_binding(a: &Option<Binding>, b: &Option<Binding>) -> std::cmp::Ordering {
     }
 }
 
-/// Turn an inline `VALUES` table into solutions (CONCEPT:EG-125): one solution per row,
+/// Turn an inline `VALUES` table into solutions (CONCEPT:EG-KG.ontology.order-by-values-exists): one solution per row,
 /// binding each variable to its ground term; an `UNDEF` cell (`None`) leaves that
 /// variable unbound in that row.
 fn values_solutions(variables: &[Variable], bindings: &[Vec<Option<GroundTerm>>]) -> Vec<Solution> {
@@ -1064,7 +1064,7 @@ fn values_solutions(variables: &[Variable], bindings: &[Vec<Option<GroundTerm>>]
         .collect()
 }
 
-/// A `VALUES` ground term → a solution binding (CONCEPT:EG-125): an IRI becomes a `Node`
+/// A `VALUES` ground term → a solution binding (CONCEPT:EG-KG.ontology.order-by-values-exists): an IRI becomes a `Node`
 /// (`<iri>`), a literal its lexical `Literal` value (matching how the BGP matcher binds).
 fn ground_term_binding(gt: &GroundTerm) -> Binding {
     match gt {
@@ -1075,7 +1075,7 @@ fn ground_term_binding(gt: &GroundTerm) -> Binding {
     }
 }
 
-/// SPARQL MINUS compatibility (CONCEPT:EG-055): `l` and `r` are compatible iff they
+/// SPARQL MINUS compatibility (CONCEPT:EG-KG.ontology.minus): `l` and `r` are compatible iff they
 /// agree on every variable bound in BOTH and share at least one such variable. A right
 /// solution with a disjoint domain returns `false`, so it never removes a left solution.
 fn minus_compatible(l: &Solution, r: &Solution) -> bool {
@@ -1105,7 +1105,7 @@ fn canonical_solution(s: &Solution) -> String {
 #[cfg(test)]
 const DEFAULT_GRAPH_IRI: &str = "<urn:eg:graph:default>";
 
-// ── GROUP BY + aggregates (CONCEPT:KG-2.235) ────────────────────────────────────
+// ── GROUP BY + aggregates (CONCEPT:EG-KG.query.sparql-completeness) ────────────────────────────────────
 
 /// Evaluate `GROUP BY group_vars` + the `aggregates` over `rows`. Returns one
 /// solution per distinct group-key, binding each group-by var to its value AND each
@@ -1258,7 +1258,7 @@ fn eval_bgp(ctx: &Ctx, patterns: &[TriplePattern]) -> Vec<Solution> {
     acc
 }
 
-/// Property-path evaluation (CONCEPT:KG-2.235). spargebra DESUGARS a sequence path
+/// Property-path evaluation (CONCEPT:EG-KG.query.sparql-completeness). spargebra DESUGARS a sequence path
 /// (`p1/p2`) into a BGP with anonymous-bnode intermediates, so a single-predicate
 /// path reaching here is handled by the one-triple-pattern matcher. The variable-
 /// length / combinator forms (`p+`, `p*`, `p?`, alternative `a|b`, inverse `^p`, and
@@ -1351,7 +1351,7 @@ fn path_pairs(ctx: &Ctx, path: &PropertyPathExpression) -> Result<Vec<(String, S
             }
             dedup_pairs(out)
         }
-        // Negated property set `!(p1|…|pn)` (CONCEPT:EG-056): every resource edge whose
+        // Negated property set `!(p1|…|pn)` (CONCEPT:EG-KG.ontology.negated-property-set): every resource edge whose
         // projected predicate IRI is NOT one of the negated predicates.
         PropertyPathExpression::NegatedPropertySet(preds) => {
             let negated: std::collections::HashSet<String> =
@@ -1362,7 +1362,7 @@ fn path_pairs(ctx: &Ctx, path: &PropertyPathExpression) -> Result<Vec<(String, S
 }
 
 /// Every `(subject, object)` resource pair carrying a typed edge whose projected
-/// predicate IRI is NOT in `negated` — the negated property set `!p` (CONCEPT:EG-056).
+/// predicate IRI is NOT in `negated` — the negated property set `!p` (CONCEPT:EG-KG.ontology.negated-property-set).
 fn negated_edge_pairs(
     ctx: &Ctx,
     negated: &std::collections::HashSet<String>,
@@ -1452,7 +1452,7 @@ fn dedup_pairs(v: Vec<(String, String)>) -> Vec<(String, String)> {
 /// `proj`. Predicate may be an IRI or a variable; object an IRI/literal/variable;
 /// subject an IRI/bnode/variable. Subject/object resource IRIs, property/edge predicate
 /// IRIs, and the synthesized `rdf:type` object are all produced by `proj` so the
-/// projected triples match the caller's vocabulary (CONCEPT:KG-2.240).
+/// projected triples match the caller's vocabulary (CONCEPT:EG-KG.ontology.lpg-rdf-projection-vocabulary).
 fn match_triple_pattern(ctx: &Ctx, tp: &TriplePattern) -> Vec<Solution> {
     let view = ctx.active;
     let proj = ctx.proj;
@@ -1583,7 +1583,7 @@ fn bind_object_node(pat: &TermPattern, node_id: &str, sol: &mut Solution) -> boo
             true
         }
         TermPattern::Literal(_) => false, // a literal pattern can't match a resource
-        // RDF-star (CONCEPT:EG-130): a quoted-triple object pattern does not match a
+        // RDF-star (CONCEPT:EG-KG.ontology.concept-5): a quoted-triple object pattern does not match a
         // plain resource node (LPG persistence of quoted triples is a documented
         // follow-up; quoted triples round-trip natively via parse/serialize).
         #[cfg(feature = "sparql-star")]
@@ -1661,7 +1661,7 @@ fn eval_filter(ctx: &Ctx, expr: &Expression, sol: &Solution) -> bool {
     eval_expr_bool(ctx, expr, sol).unwrap_or(false)
 }
 
-// Rich FILTER expression evaluation (CONCEPT:EG-053). The evaluator has three layers:
+// Rich FILTER expression evaluation (CONCEPT:EG-KG.ontology.rich-filter). The evaluator has three layers:
 //   * `eval_term`     — evaluates ANY expression to a typed term `Binding` (Node vs
 //                       Literal), preserving the type info `isIRI`/`STR`/`DATATYPE` need.
 //   * `eval_expr_bool`— the boolean (FILTER) layer: logical ops, comparisons, `IN`,
@@ -1701,7 +1701,7 @@ fn eval_expr_bool(ctx: &Ctx, expr: &Expression, sol: &Solution) -> Option<bool> 
         }
         Expression::Coalesce(args) => args.iter().find_map(|e| eval_expr_bool(ctx, e, sol)),
         Expression::FunctionCall(f, args) => eval_bool_function(ctx, f, args, sol),
-        // FILTER EXISTS / NOT EXISTS (CONCEPT:EG-125). `NOT EXISTS` parses to
+        // FILTER EXISTS / NOT EXISTS (CONCEPT:EG-KG.ontology.order-by-values-exists). `NOT EXISTS` parses to
         // `Not(Exists(…))`, so the negation is handled by the `Not` arm above. Evaluate
         // the sub-pattern under the active context and report whether ANY of its solutions
         // is COMPATIBLE with the current solution (agrees on the shared variables) — the
@@ -1715,7 +1715,7 @@ fn eval_expr_bool(ctx: &Ctx, expr: &Expression, sol: &Solution) -> Option<bool> 
     }
 }
 
-/// Evaluate any expression to a typed term `Binding` (CONCEPT:EG-053). Preserves the
+/// Evaluate any expression to a typed term `Binding` (CONCEPT:EG-KG.ontology.rich-filter). Preserves the
 /// Node/Literal distinction so `isIRI`/`isLiteral`/`STR`/`DATATYPE` resolve correctly.
 fn eval_term(ctx: &Ctx, e: &Expression, sol: &Solution) -> Option<Binding> {
     match e {
@@ -1750,7 +1750,7 @@ fn eval_term(ctx: &Ctx, e: &Expression, sol: &Solution) -> Option<Binding> {
         Expression::Coalesce(args) => args.iter().find_map(|a| eval_term(ctx, a, sol)),
         Expression::FunctionCall(f, args) => eval_str_function(ctx, f, args, sol),
         // Boolean-valued expressions render as an xsd:boolean lexical — including
-        // `EXISTS` used in a value context, e.g. `BIND(EXISTS { … } AS ?x)` (CONCEPT:EG-125).
+        // `EXISTS` used in a value context, e.g. `BIND(EXISTS { … } AS ?x)` (CONCEPT:EG-KG.ontology.order-by-values-exists).
         Expression::Bound(_)
         | Expression::Equal(..)
         | Expression::SameTerm(..)
@@ -1773,7 +1773,7 @@ fn eval_term(ctx: &Ctx, e: &Expression, sol: &Solution) -> Option<Binding> {
     }
 }
 
-/// Boolean SPARQL built-ins (CONCEPT:EG-053): `REGEX`, `CONTAINS`/`STRSTARTS`/`STRENDS`,
+/// Boolean SPARQL built-ins (CONCEPT:EG-KG.ontology.rich-filter): `REGEX`, `CONTAINS`/`STRSTARTS`/`STRENDS`,
 /// `LANGMATCHES`, and the `isIRI`/`isBlank`/`isLiteral`/`isNumeric` type tests.
 fn eval_bool_function(
     ctx: &Ctx,
@@ -1837,14 +1837,14 @@ fn eval_bool_function(
                 .map(|b| matches!(b, Binding::Literal(_)))
                 .unwrap_or(false),
         ),
-        // RDF-star (CONCEPT:EG-130): isTRIPLE tests whether the term is a quoted triple.
+        // RDF-star (CONCEPT:EG-KG.ontology.concept-5): isTRIPLE tests whether the term is a quoted triple.
         #[cfg(feature = "sparql-star")]
         F::IsTriple => Some(
             eval_term(ctx, args.first()?, sol)
                 .map(|b| is_quoted(&b))
                 .unwrap_or(false),
         ),
-        // GeoSPARQL boolean spatial relations (CONCEPT:EG-261): a `geof:sf*` call parses
+        // GeoSPARQL boolean spatial relations (CONCEPT:EG-KG.ontology.concept-10): a `geof:sf*` call parses
         // to `Function::Custom(<geof-ns>…)`; we evaluate the two operands to their WKT
         // lexical forms and lower the relation onto eg-geo's DE-9IM predicates.
         #[cfg(feature = "geosparql")]
@@ -1858,7 +1858,7 @@ fn eval_bool_function(
     }
 }
 
-/// String/term-valued SPARQL built-ins (CONCEPT:EG-053): `STR`/`IRI`/`LANG`/`DATATYPE`,
+/// String/term-valued SPARQL built-ins (CONCEPT:EG-KG.ontology.rich-filter): `STR`/`IRI`/`LANG`/`DATATYPE`,
 /// `UCASE`/`LCASE`/`STRLEN`/`CONCAT`/`SUBSTR`, plus the boolean built-ins rendered as an
 /// xsd:boolean lexical so they compose inside other string expressions.
 fn eval_str_function(
@@ -1917,7 +1917,7 @@ fn eval_str_function(
             };
             Some(Binding::Literal(slice))
         }
-        // ── Term constructors (CONCEPT:EG-127) ────────────────────────────────
+        // ── Term constructors (CONCEPT:EG-KG.ontology.concept-4) ────────────────────────────────
         // BNODE() → a fresh blank node; BNODE(str) → a blank node labelled from the
         // arg. The arg-less form is NON-DETERMINISTIC (see `next_rand_u64`) and must
         // stay out of any cached/deterministic evaluation path.
@@ -1936,7 +1936,7 @@ fn eval_str_function(
         F::Uuid => Some(Binding::Node(format!("<urn:uuid:{}>", fresh_uuid()))),
         F::StrUuid => Some(Binding::Literal(fresh_uuid())),
 
-        // ── Hash built-ins (CONCEPT:EG-127) ──────────────────────────────────
+        // ── Hash built-ins (CONCEPT:EG-KG.ontology.concept-4) ──────────────────────────────────
         // Pure-Rust RustCrypto, gated behind `sparql-hash` (OUT of pi). When the
         // feature is off they fall through to `_ => None` (unsupported, fails SAFE).
         #[cfg(feature = "sparql-hash")]
@@ -1970,7 +1970,7 @@ fn eval_str_function(
             sol,
         )?))),
 
-        // ── Numeric built-ins (CONCEPT:EG-127) ───────────────────────────────
+        // ── Numeric built-ins (CONCEPT:EG-KG.ontology.concept-4) ───────────────────────────────
         F::Abs => Some(Binding::Literal(fmt_num(
             num(ctx, args.first()?, sol)?.abs(),
         ))),
@@ -1987,7 +1987,7 @@ fn eval_str_function(
         // RAND() → xsd:double in [0,1). NON-DETERMINISTIC.
         F::Rand => Some(Binding::Literal(fmt_num(rand_f64()))),
 
-        // ── Date-time built-ins (CONCEPT:EG-127) ─────────────────────────────
+        // ── Date-time built-ins (CONCEPT:EG-KG.ontology.concept-4) ─────────────────────────────
         // NOW() → the current xsd:dateTime (UTC). NON-DETERMINISTIC.
         F::Now => Some(Binding::Literal(now_xsd_datetime())),
         F::Year => Some(Binding::Literal(fmt_num(
@@ -2015,7 +2015,7 @@ fn eval_str_function(
             &parse_datetime(&expr_str(ctx, args.first()?, sol)?)?.tz,
         ))),
 
-        // ── String extras (CONCEPT:EG-127) ───────────────────────────────────
+        // ── String extras (CONCEPT:EG-KG.ontology.concept-4) ───────────────────────────────────
         F::StrBefore => {
             let s = expr_str(ctx, args.first()?, sol)?;
             let sep = expr_str(ctx, args.get(1)?, sol)?;
@@ -2058,7 +2058,7 @@ fn eval_str_function(
             sol,
         )?))),
 
-        // ── RDF-star / SPARQL-star term accessors (CONCEPT:EG-130) ────────────
+        // ── RDF-star / SPARQL-star term accessors (CONCEPT:EG-KG.ontology.concept-5) ────────────
         // A quoted triple is a first-class term encoded as the canonical `<< s p o >>`
         // string in a `Binding::Node`; TRIPLE constructs it and SUBJECT/PREDICATE/OBJECT
         // project its components.
@@ -2102,7 +2102,7 @@ fn eval_str_function(
             }
             .to_string(),
         )),
-        // GeoSPARQL value functions (CONCEPT:EG-261): `geof:distance(a,b,units)` → a
+        // GeoSPARQL value functions (CONCEPT:EG-KG.ontology.concept-10): `geof:distance(a,b,units)` → a
         // numeric literal; `geof:buffer(g,radius,units)` → a WKT lexical (a wktLiteral).
         // A boolean `geof:sf*` used in a value context renders as "true"/"false".
         #[cfg(feature = "geosparql")]
@@ -2181,7 +2181,7 @@ fn ebv(b: &Binding) -> bool {
     }
 }
 
-/// Datatype-aware `=` (CONCEPT:EG-053): numeric comparison when both sides parse as
+/// Datatype-aware `=` (CONCEPT:EG-KG.ontology.rich-filter): numeric comparison when both sides parse as
 /// numbers, else lexical-term equality.
 fn terms_equal(ctx: &Ctx, a: &Expression, b: &Expression, sol: &Solution) -> bool {
     match (eval_term(ctx, a, sol), eval_term(ctx, b, sol)) {
@@ -2208,7 +2208,7 @@ fn num(ctx: &Ctx, e: &Expression, sol: &Solution) -> Option<f64> {
 
 // ── EG-127 helpers: hashing, non-deterministic sources, date-time, URI encoding ──
 
-/// Hex-encoded digest of `input` for the SPARQL hash built-ins (CONCEPT:EG-127). The
+/// Hex-encoded digest of `input` for the SPARQL hash built-ins (CONCEPT:EG-KG.ontology.concept-4). The
 /// `sha2::Digest` bound is the shared RustCrypto `digest::Digest` trait (re-exported by
 /// `md-5`/`sha1`/`sha2` at the same 0.10 line), so it accepts `Md5`/`Sha1`/`Sha2*`.
 #[cfg(feature = "sparql-hash")]
@@ -2633,7 +2633,7 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
         );
     }
 
-    // ── CONCEPT:KG-2.235 — SPARQL completeness ──────────────────────────────
+    // ── CONCEPT:EG-KG.query.sparql-completeness — SPARQL completeness ──────────────────────────────
 
     /// Pull the single aggregate cell from a 1-row, 1-projected-var result.
     fn agg_cell(res: &SparqlResult, var: &str) -> String {
@@ -2786,7 +2786,7 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
         assert_eq!(s.get("g").unwrap().as_str(), DEFAULT_GRAPH_IRI);
     }
 
-    // ── CONCEPT:KG-2.240 — LPG→RDF projection vocabulary ────────────────────────
+    // ── CONCEPT:EG-KG.ontology.lpg-rdf-projection-vocabulary — LPG→RDF projection vocabulary ────────────────────────
 
     /// The AU namespace + CamelCase projection — exactly what agent-utilities passes.
     const AU_NS: &str = "http://agent-utilities.dev/ontology#";
@@ -2982,7 +2982,7 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
         );
     }
 
-    // ── CONCEPT:EG-017 — ASK / CONSTRUCT / DESCRIBE / named graphs ──────────────
+    // ── CONCEPT:EG-KG.query.named-graph-support — ASK / CONSTRUCT / DESCRIBE / named graphs ──────────────
 
     /// ASK returns true when the pattern matches, false when it does not.
     #[test]
@@ -3141,7 +3141,7 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
         assert_eq!(ra.solutions.len(), 1, "ex:a visible in graph A");
     }
 
-    // ── CONCEPT:EG-051 — sub-SELECT ─────────────────────────────────────────────
+    // ── CONCEPT:EG-KG.ontology.sub-select — sub-SELECT ─────────────────────────────────────────────
 
     /// EG-051: a sub-SELECT that BINDS more vars than it projects must restrict each
     /// inner solution to the projected set, so an inner-only var can't leak and corrupt
@@ -3213,7 +3213,7 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
         assert_eq!(names, vec!["Alice", "Bob", "Carol"], "got {res:?}");
     }
 
-    // ── CONCEPT:EG-053 — rich FILTER ────────────────────────────────────────────
+    // ── CONCEPT:EG-KG.ontology.rich-filter — rich FILTER ────────────────────────────────────────────
 
     fn filtered_names(view: &GraphView, filter: &str) -> Vec<String> {
         let q = format!(
@@ -3286,7 +3286,7 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
         assert_eq!(filtered_names(&view, "STRLEN(?name) = 3"), vec!["Bob"]);
     }
 
-    // ── CONCEPT:EG-055 — MINUS ──────────────────────────────────────────────────
+    // ── CONCEPT:EG-KG.ontology.minus — MINUS ──────────────────────────────────────────────────
 
     /// EG-055: MINUS removes every left solution compatible with a right solution.
     /// alice/carol HAVE an ex:knows ⇒ removed; bob does not ⇒ kept.
@@ -3311,7 +3311,7 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
         assert_eq!(names, vec!["Bob"], "got {res:?}");
     }
 
-    // ── CONCEPT:EG-056 — negated property set `!p` ──────────────────────────────
+    // ── CONCEPT:EG-KG.ontology.negated-property-set — negated property set `!p` ──────────────────────────────
 
     /// EG-056: `!ex:knows` matches every resource edge whose predicate is NOT ex:knows.
     #[test]
@@ -3357,7 +3357,7 @@ ex:alice ex:knows ex:bob ; ex:likes ex:carol .
         );
     }
 
-    // ── CONCEPT:EG-125 — ORDER BY / VALUES / EXISTS ─────────────────────────────
+    // ── CONCEPT:EG-KG.ontology.order-by-values-exists — ORDER BY / VALUES / EXISTS ─────────────────────────────
 
     fn ordered_names(view: &GraphView, clause: &str) -> Vec<String> {
         let q = format!(
@@ -3456,7 +3456,7 @@ ex:alice ex:knows ex:bob ; ex:likes ex:carol .
         );
     }
 
-    // ── CONCEPT:EG-135 — SPARQL algebra completeness (ORDER BY spec / VALUES / MINUS) ──
+    // ── CONCEPT:EG-KG.ontology.completing-eg-order-by — SPARQL algebra completeness (ORDER BY spec / VALUES / MINUS) ──
 
     /// A fixture with a repeated primary sort key (`ex:dept`) so multi-key ORDER BY and
     /// top-k tie-breaking are exercised.
@@ -3623,7 +3623,7 @@ ex:c ex:dept "Sales" ; ex:name "Bob" ; ex:rank "1"^^xsd:integer .
         );
     }
 
-    // ── CONCEPT:EG-054 — FROM / FROM NAMED ──────────────────────────────────────
+    // ── CONCEPT:EG-KG.ontology.from-from-named — FROM / FROM NAMED ──────────────────────────────────────
 
     /// EG-054: a `FROM <g>` clause scopes the default graph to that graph, so a plain
     /// (non-GRAPH) BGP only sees `g`'s triples — not the whole registered dataset.
@@ -3700,7 +3700,7 @@ ex:c ex:dept "Sales" ; ex:name "Bob" ; ex:rank "1"^^xsd:integer .
         assert!(from_a[0].contains("<http://ex/a>"), "got {from_a:?}");
     }
 
-    // ── CONCEPT:EG-052 — SPARQL SERVICE federation ──────────────────────────────
+    // ── CONCEPT:EG-KG.query.sparql-service-federation-client — SPARQL SERVICE federation ──────────────────────────────
 
     /// A mock [`RemoteSparql`] returning a fixed canned outcome, standing in for the
     /// facade's `ureq` client so the SERVICE algebra + SILENT/join semantics test in
@@ -4022,7 +4022,7 @@ ex:gB    geo:asWKT "POINT(5 5)"^^geo:wktLiteral .
     }
 
     /// Load three polygon features (container + strictly-interior + boundary-tangential),
-    /// each with the canonical `geo:asWKT` shape, for the RCC8 query test (CONCEPT:EG-155).
+    /// each with the canonical `geo:asWKT` shape, for the RCC8 query test (CONCEPT:EG-KG.ontology.concept-7).
     #[cfg(feature = "geosparql")]
     fn rcc8_view() -> GraphView {
         let ttl = r#"

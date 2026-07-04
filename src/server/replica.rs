@@ -1,8 +1,8 @@
 //! Cross-region async read-replica tier + capacity guardrails
-//! (CONCEPT:EG-322 replica tier, CONCEPT:EG-323 guardrails).
+//! (CONCEPT:EG-KG.sharding.follower-pull-loop replica tier, CONCEPT:EG-KG.coordination.circuit-breaker guardrails).
 //!
 //! The engine already has TWO consistency tiers: a single-node redb-authoritative store,
-//! and synchronous multi-Raft groups + super-cluster federated *read* (CONCEPT:EG-243).
+//! and synchronous multi-Raft groups + super-cluster federated *read* (CONCEPT:EG-KG.ontology.federation-client).
 //! Neither gives a geographically-distant region a LOCAL, low-latency read copy that does
 //! not pay a cross-region Raft round-trip on every write. This module adds the missing
 //! tier — an **asynchronous, eventually-consistent read replica** — plus the capacity
@@ -10,10 +10,10 @@
 //! primary.
 //!
 //! Everything here is gated behind `federation-search` (the same pure-Rust `ureq` stack
-//! CONCEPT:EG-243 already links) and is therefore OUT of the Pi tier — no new dependency,
+//! CONCEPT:EG-KG.ontology.federation-client already links) and is therefore OUT of the Pi tier — no new dependency,
 //! and a `pi`/`default` build links none of it.
 //!
-//! ## The async read-replica tier (CONCEPT:EG-322)
+//! ## The async read-replica tier (CONCEPT:EG-KG.sharding.follower-pull-loop)
 //!
 //! * **Primary side** — every committed durable mutation is appended to a bounded
 //!   in-memory [`ReplicationLog`] keyed by a monotone **LSN** (log sequence number). A
@@ -26,7 +26,7 @@
 //!   byte-identically), and advances its cursor. Reads on a follower are served from its
 //!   local registry — zero cross-region latency, bounded staleness.
 //!
-//! ## Capacity guardrails (CONCEPT:EG-323)
+//! ## Capacity guardrails (CONCEPT:EG-KG.coordination.circuit-breaker)
 //!
 //! Three composable, pure, unit-testable guards that the transport / follower consult:
 //!
@@ -36,7 +36,7 @@
 //!   Stops a dead region from tying up follower threads on doomed pulls.
 //! * **Per-tenant quota** ([`CapacityGuard`]) — a hard cap on concurrent in-flight work
 //!   per tenant, so one greedy tenant cannot exhaust the pool (bounds blast radius). This
-//!   complements the QoS scheduler (CONCEPT:EG-320): QoS *reorders* admission by priority,
+//!   complements the QoS scheduler (CONCEPT:EG-KG.coordination.backpressure-busy-signal): QoS *reorders* admission by priority,
 //!   this is an absolute *ceiling* that also protects the replica-serve path.
 //! * **Backpressure** — when the global in-flight count crosses a high-water mark the guard
 //!   returns [`GuardDecision::Backpressure`] so the caller sheds load (a `BUSY` retry-later)
@@ -51,9 +51,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::protocol::{GraphType, Method};
 
-// ── CONCEPT:EG-322 — the replication log + shipped op ────────────────────────
+// ── CONCEPT:EG-KG.sharding.follower-pull-loop — the replication log + shipped op ────────────────────────
 
-/// One committed mutation shipped to a follower (CONCEPT:EG-322). Carries the same
+/// One committed mutation shipped to a follower (CONCEPT:EG-KG.sharding.follower-pull-loop). Carries the same
 /// fields a `RaftRequest` does plus the monotone LSN that orders the stream.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReplicationOp {
@@ -69,7 +69,7 @@ pub struct ReplicationOp {
     pub method: Method,
 }
 
-/// A follower's position relative to the primary's log (CONCEPT:EG-322).
+/// A follower's position relative to the primary's log (CONCEPT:EG-KG.sharding.follower-pull-loop).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReplicaLag {
     /// The follower cursor is within the retained ring — a normal incremental pull.
@@ -79,7 +79,7 @@ pub enum ReplicaLag {
     Behind,
 }
 
-/// A bounded, monotone-LSN in-memory log of recent committed mutations (CONCEPT:EG-322).
+/// A bounded, monotone-LSN in-memory log of recent committed mutations (CONCEPT:EG-KG.sharding.follower-pull-loop).
 ///
 /// The primary appends every durable mutation here; a follower reads the ordered tail
 /// after its cursor. The ring bounds primary memory: once `capacity` is exceeded the
@@ -102,7 +102,7 @@ impl ReplicationLog {
         }
     }
 
-    /// Append a committed mutation and return its assigned LSN (CONCEPT:EG-322). O(1)
+    /// Append a committed mutation and return its assigned LSN (CONCEPT:EG-KG.sharding.follower-pull-loop). O(1)
     /// amortized; drops the oldest op once the ring is full.
     pub fn append(
         &self,
@@ -131,7 +131,7 @@ impl ReplicationLog {
         self.next_lsn.load(Ordering::SeqCst).saturating_sub(1)
     }
 
-    /// The ordered tail of ops with `lsn > since` (CONCEPT:EG-322), plus whether the
+    /// The ordered tail of ops with `lsn > since` (CONCEPT:EG-KG.sharding.follower-pull-loop), plus whether the
     /// follower has fallen behind the retained ring. `Behind` ⇒ the requested cursor is
     /// older than the oldest retained op (the follower missed ops and must re-snapshot).
     pub fn since(&self, since: u64) -> (Vec<ReplicationOp>, ReplicaLag) {
@@ -148,9 +148,9 @@ impl ReplicationLog {
     }
 }
 
-// ── CONCEPT:EG-323 — circuit breaker ─────────────────────────────────────────
+// ── CONCEPT:EG-KG.coordination.circuit-breaker — circuit breaker ─────────────────────────────────────────
 
-/// Circuit-breaker state (CONCEPT:EG-323).
+/// Circuit-breaker state (CONCEPT:EG-KG.coordination.circuit-breaker).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BreakerState {
     /// Calls flow; consecutive failures are counted.
@@ -161,7 +161,7 @@ pub enum BreakerState {
     HalfOpen,
 }
 
-/// A per-target circuit breaker (CONCEPT:EG-323). Pure decision logic driven by an
+/// A per-target circuit breaker (CONCEPT:EG-KG.coordination.circuit-breaker). Pure decision logic driven by an
 /// explicit `now: Instant`, so it is deterministically unit-testable without sleeping.
 #[derive(Debug)]
 pub struct CircuitBreaker {
@@ -193,7 +193,7 @@ impl CircuitBreaker {
         }
     }
 
-    /// The breaker's state at `now` (CONCEPT:EG-323) — `Open` while cooling down, else
+    /// The breaker's state at `now` (CONCEPT:EG-KG.coordination.circuit-breaker) — `Open` while cooling down, else
     /// `HalfOpen` if the cooldown just elapsed and no trial is in flight, else `Closed`.
     pub fn state_at(&self, now: Instant) -> BreakerState {
         let g = self.state.lock().expect("breaker poisoned");
@@ -204,7 +204,7 @@ impl CircuitBreaker {
         }
     }
 
-    /// Whether a call may proceed at `now` (CONCEPT:EG-323). `Closed` ⇒ yes; `Open` ⇒ no;
+    /// Whether a call may proceed at `now` (CONCEPT:EG-KG.coordination.circuit-breaker). `Closed` ⇒ yes; `Open` ⇒ no;
     /// `HalfOpen` ⇒ yes for exactly ONE trial call (the caller reports its outcome via
     /// [`on_success`]/[`on_failure`]). Advances the internal state (arms the trial gate).
     ///
@@ -227,7 +227,7 @@ impl CircuitBreaker {
         }
     }
 
-    /// Record a successful call at `now` (CONCEPT:EG-323): resets the failure count and
+    /// Record a successful call at `now` (CONCEPT:EG-KG.coordination.circuit-breaker): resets the failure count and
     /// fully closes the breaker (clears any half-open trial).
     pub fn on_success(&self, _now: Instant) {
         self.consecutive_failures.store(0, Ordering::SeqCst);
@@ -236,7 +236,7 @@ impl CircuitBreaker {
         g.half_open_in_flight = false;
     }
 
-    /// Record a failed call at `now` (CONCEPT:EG-323): increments the failure count and,
+    /// Record a failed call at `now` (CONCEPT:EG-KG.coordination.circuit-breaker): increments the failure count and,
     /// once it reaches the threshold (or a half-open trial failed), OPENS for the cooldown.
     pub fn on_failure(&self, now: Instant) {
         let fails = self.consecutive_failures.fetch_add(1, Ordering::SeqCst) + 1;
@@ -249,9 +249,9 @@ impl CircuitBreaker {
     }
 }
 
-// ── CONCEPT:EG-323 — per-tenant quota + backpressure guard ───────────────────
+// ── CONCEPT:EG-KG.coordination.circuit-breaker — per-tenant quota + backpressure guard ───────────────────
 
-/// The guard's verdict for one request (CONCEPT:EG-323).
+/// The guard's verdict for one request (CONCEPT:EG-KG.coordination.circuit-breaker).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GuardDecision {
     /// Admit; the returned token must be released via [`CapacityGuard::release`].
@@ -262,11 +262,11 @@ pub enum GuardDecision {
     Backpressure,
 }
 
-/// Per-tenant concurrency quota + global backpressure guardrail (CONCEPT:EG-323).
+/// Per-tenant concurrency quota + global backpressure guardrail (CONCEPT:EG-KG.coordination.circuit-breaker).
 ///
 /// A pure counting gate: it tracks global in-flight and per-tenant in-flight, and admits
 /// only when the tenant is under its quota AND global load is under the high-water mark.
-/// Complements the QoS scheduler (CONCEPT:EG-320) — QoS reorders by priority, this is the
+/// Complements the QoS scheduler (CONCEPT:EG-KG.coordination.backpressure-busy-signal) — QoS reorders by priority, this is the
 /// absolute ceiling that also fronts the replica-serve path.
 #[derive(Debug)]
 pub struct CapacityGuard {
@@ -287,7 +287,7 @@ impl CapacityGuard {
         }
     }
 
-    /// Try to admit one request for `tenant` (CONCEPT:EG-323). On [`GuardDecision::Admit`]
+    /// Try to admit one request for `tenant` (CONCEPT:EG-KG.coordination.circuit-breaker). On [`GuardDecision::Admit`]
     /// the caller MUST later call [`release`](CapacityGuard::release) with the same tenant.
     pub fn try_acquire(&self, tenant: &str) -> GuardDecision {
         // Backpressure first — a saturated pool sheds regardless of tenant.
@@ -303,7 +303,7 @@ impl CapacityGuard {
         GuardDecision::Admit
     }
 
-    /// Release one admitted request for `tenant` (CONCEPT:EG-323). Idempotent-safe: never
+    /// Release one admitted request for `tenant` (CONCEPT:EG-KG.coordination.circuit-breaker). Idempotent-safe: never
     /// underflows below zero.
     pub fn release(&self, tenant: &str) {
         if let Some(mut e) = self.per_tenant.get_mut(tenant) {
@@ -321,12 +321,12 @@ impl CapacityGuard {
     }
 }
 
-// ── CONCEPT:EG-322 — process-global primary log + /replicate serve ────────────
+// ── CONCEPT:EG-KG.sharding.follower-pull-loop — process-global primary log + /replicate serve ────────────
 
-/// The process-global primary replication log (CONCEPT:EG-322), armed ONCE from the
+/// The process-global primary replication log (CONCEPT:EG-KG.sharding.follower-pull-loop), armed ONCE from the
 /// environment on first use. `None` unless `EPISTEMIC_GRAPH_REPLICATE` is truthy — then
 /// the commit path appends every durable mutation here and [`serve`] streams the tail. A
-/// non-replicated primary never arms it and pays nothing (mirrors the CONCEPT:EG-320
+/// non-replicated primary never arms it and pays nothing (mirrors the CONCEPT:EG-KG.coordination.backpressure-busy-signal
 /// `qos::configured()` opt-in idiom). Ring capacity from `EPISTEMIC_GRAPH_REPLICATE_RING`
 /// (default 100 000).
 pub fn global_log() -> Option<&'static ReplicationLog> {
@@ -353,8 +353,8 @@ pub fn global_log() -> Option<&'static ReplicationLog> {
     .as_ref()
 }
 
-/// Serve the primary's `/replicate?since=<lsn>` endpoint (CONCEPT:EG-322) using the same
-/// hand-rolled dependency-free HTTP framing idiom as the CONCEPT:EG-243 `/federated`
+/// Serve the primary's `/replicate?since=<lsn>` endpoint (CONCEPT:EG-KG.sharding.follower-pull-loop) using the same
+/// hand-rolled dependency-free HTTP framing idiom as the CONCEPT:EG-KG.ontology.federation-client `/federated`
 /// listener. A follower GETs the ordered tail after its cursor; the body is a JSON array
 /// of [`ReplicationOp`]. When the follower has fallen behind the retained ring the response
 /// carries an `x-replica-lag: behind` header so the follower knows to re-snapshot.
@@ -429,9 +429,9 @@ pub async fn serve(listener: tokio::net::TcpListener) {
     }
 }
 
-// ── CONCEPT:EG-322 — follower config + apply + pull loop ──────────────────────
+// ── CONCEPT:EG-KG.sharding.follower-pull-loop — follower config + apply + pull loop ──────────────────────
 
-/// Env-driven configuration for a cross-region read replica (CONCEPT:EG-322).
+/// Env-driven configuration for a cross-region read replica (CONCEPT:EG-KG.sharding.follower-pull-loop).
 #[derive(Debug, Clone)]
 pub struct ReplicaConfig {
     /// The primary engine's base-URL (e.g. `https://eg-primary.example:7900`).
@@ -446,12 +446,12 @@ pub struct ReplicaConfig {
     pub cooldown_secs: u64,
 }
 
-/// Env var naming the primary for a follower node (CONCEPT:EG-322). Presence turns this
+/// Env var naming the primary for a follower node (CONCEPT:EG-KG.sharding.follower-pull-loop). Presence turns this
 /// node into a read replica of that primary.
 pub const REPLICA_PRIMARY_ENV: &str = "EPISTEMIC_GRAPH_REPLICA_PRIMARY";
 
 impl ReplicaConfig {
-    /// Parse the follower config from the environment (CONCEPT:EG-322). Returns `None`
+    /// Parse the follower config from the environment (CONCEPT:EG-KG.sharding.follower-pull-loop). Returns `None`
     /// unless [`REPLICA_PRIMARY_ENV`] is set (this node is a plain primary otherwise).
     pub fn from_env() -> Option<Self> {
         let primary_url = std::env::var(REPLICA_PRIMARY_ENV)
@@ -473,7 +473,7 @@ impl ReplicaConfig {
     }
 }
 
-/// Apply a shipped replication batch into the local registry (CONCEPT:EG-322) — the
+/// Apply a shipped replication batch into the local registry (CONCEPT:EG-KG.sharding.follower-pull-loop) — the
 /// follower's state-machine step. Each op creates its graph if absent, then applies the
 /// mutation through the canonical `crate::wal::apply` path (byte-identical to Raft/WAL
 /// replay), so a follower converges to the primary's state. Returns the highest LSN
@@ -502,7 +502,7 @@ pub async fn apply_replicated_batch(
 }
 
 /// Pull one tail batch from the primary's `/replicate?since=<cursor>` endpoint
-/// (CONCEPT:EG-322). Blocking `ureq` (mirrors the CONCEPT:EG-243 federation client), so
+/// (CONCEPT:EG-KG.sharding.follower-pull-loop). Blocking `ureq` (mirrors the CONCEPT:EG-KG.ontology.federation-client federation client), so
 /// callers run it inside `spawn_blocking`. Returns the decoded ops on success.
 pub fn pull_replication_tail(
     cfg: &ReplicaConfig,
@@ -528,7 +528,7 @@ pub fn pull_replication_tail(
         .map_err(|e| format!("replication tail not ReplicationOp-shaped: {e}"))
 }
 
-/// Run the follower pull loop until the process exits (CONCEPT:EG-322). Periodically pulls
+/// Run the follower pull loop until the process exits (CONCEPT:EG-KG.sharding.follower-pull-loop). Periodically pulls
 /// the primary's tail (guarded by a [`CircuitBreaker`] so a dead primary fails fast for a
 /// cooldown rather than blocking every tick), applies it, and advances the cursor. Spawned
 /// from `main` when [`ReplicaConfig::from_env`] is `Some`.

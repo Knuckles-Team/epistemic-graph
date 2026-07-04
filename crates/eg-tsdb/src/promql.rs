@@ -1,4 +1,4 @@
-//! CONCEPT:EG-172 — a pure-Rust PromQL parser + evaluator over the eg-tsdb series
+//! CONCEPT:EG-KG.query.promql-parser-evaluator — a pure-Rust PromQL parser + evaluator over the eg-tsdb series
 //! model.
 //!
 //! This is the dependency-free engine half of EG-172: a hand-rolled recursive-descent
@@ -19,7 +19,7 @@
 //! `Ts`); PromQL's second-granular semantics (`rate` per-second, the 5m lookback) are
 //! computed by converting ns→s at the point of use.
 //!
-//! ## Supported surface (CONCEPT:EG-172)
+//! ## Supported surface (CONCEPT:EG-KG.query.promql-parser-evaluator)
 //!
 //!  * Selectors with matchers `=`, `!=`, `=~`, `!~`; instant + range (`metric[5m]`);
 //!    `offset <dur>`.
@@ -30,7 +30,7 @@
 //!    between scalars and vectors, and vector↔vector with default / `on` / `ignoring`
 //!    one-to-one label matching, plus set ops `and` / `or` / `unless`.
 //!
-//! ## Extended surface (CONCEPT:EG-302)
+//! ## Extended surface (CONCEPT:EG-KG.query.bottomk-selection)
 //!
 //!  * `_over_time` family over a range vector: `sum_over_time`, `avg_over_time`,
 //!    `min_over_time`, `max_over_time`, `count_over_time`, `stddev_over_time`,
@@ -275,7 +275,7 @@ impl BinOp {
     }
 }
 
-/// Aggregation operators (`sum`/`avg`/`min`/`max`/`count` + CONCEPT:EG-302
+/// Aggregation operators (`sum`/`avg`/`min`/`max`/`count` + CONCEPT:EG-KG.query.bottomk-selection
 /// `stddev`/`stdvar`/`topk`/`bottomk`/`quantile`/`count_values`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AggOp {
@@ -284,17 +284,17 @@ pub enum AggOp {
     Min,
     Max,
     Count,
-    /// CONCEPT:EG-302 — population standard deviation of a group's values.
+    /// CONCEPT:EG-KG.query.bottomk-selection — population standard deviation of a group's values.
     Stddev,
-    /// CONCEPT:EG-302 — population variance of a group's values.
+    /// CONCEPT:EG-KG.query.bottomk-selection — population variance of a group's values.
     Stdvar,
-    /// CONCEPT:EG-302 — the largest `k` elements of each group (`topk(k, v)`).
+    /// CONCEPT:EG-KG.query.bottomk-selection — the largest `k` elements of each group (`topk(k, v)`).
     Topk,
-    /// CONCEPT:EG-302 — the smallest `k` elements of each group (`bottomk(k, v)`).
+    /// CONCEPT:EG-KG.query.bottomk-selection — the smallest `k` elements of each group (`bottomk(k, v)`).
     Bottomk,
-    /// CONCEPT:EG-302 — the φ-quantile of each group (`quantile(phi, v)`).
+    /// CONCEPT:EG-KG.query.bottomk-selection — the φ-quantile of each group (`quantile(phi, v)`).
     Quantile,
-    /// CONCEPT:EG-302 — count of each distinct value into a new label
+    /// CONCEPT:EG-KG.query.bottomk-selection — count of each distinct value into a new label
     /// (`count_values("label", v)`).
     CountValues,
 }
@@ -1043,7 +1043,7 @@ fn agg_op(name: &str) -> Option<AggOp> {
         "min" => Some(AggOp::Min),
         "max" => Some(AggOp::Max),
         "count" => Some(AggOp::Count),
-        // CONCEPT:EG-302 extended aggregations.
+        // CONCEPT:EG-KG.query.bottomk-selection extended aggregations.
         "stddev" => Some(AggOp::Stddev),
         "stdvar" => Some(AggOp::Stdvar),
         "topk" => Some(AggOp::Topk),
@@ -1258,7 +1258,7 @@ impl<'a> Evaluator<'a> {
                     f64::NAN
                 }))
             }
-            // CONCEPT:EG-302 — `<agg>_over_time` over a range vector.
+            // CONCEPT:EG-KG.query.bottomk-selection — `<agg>_over_time` over a range vector.
             "sum_over_time" | "avg_over_time" | "min_over_time" | "max_over_time"
             | "count_over_time" | "stddev_over_time" | "stdvar_over_time" | "last_over_time" => {
                 let arg = one_arg(func, args)?;
@@ -1275,7 +1275,7 @@ impl<'a> Evaluator<'a> {
                 let series = as_range(rv, "quantile_over_time")?;
                 Ok(Value::Instant(quantile_over_time(phi, series)))
             }
-            // CONCEPT:EG-302 — range-vector deltas / derivatives.
+            // CONCEPT:EG-KG.query.bottomk-selection — range-vector deltas / derivatives.
             "delta" | "idelta" | "deriv" => {
                 let arg = one_arg(func, args)?;
                 let rv = self.eval_instant(arg, t)?;
@@ -1291,7 +1291,7 @@ impl<'a> Evaluator<'a> {
                 let secs = self.scalar_arg(&args[1], t, "predict_linear t")?;
                 Ok(Value::Instant(predict_linear(series, secs, t)))
             }
-            // CONCEPT:EG-302 — clamp / round.
+            // CONCEPT:EG-KG.query.bottomk-selection — clamp / round.
             "clamp" => {
                 if args.len() != 3 {
                     return err("clamp expects (vector, min, max)");
@@ -1329,7 +1329,7 @@ impl<'a> Evaluator<'a> {
                 };
                 Ok(Value::Instant(round(samples, to_nearest)))
             }
-            // CONCEPT:EG-302 — label functions.
+            // CONCEPT:EG-KG.query.bottomk-selection — label functions.
             "label_replace" => {
                 if args.len() != 5 {
                     return err("label_replace expects (vector, dst, replacement, src, regex)");
@@ -1656,7 +1656,7 @@ fn quantile(phi: f64, vals: &mut [f64]) -> f64 {
     vals[lower] * (1.0 - weight) + vals[upper] * weight
 }
 
-/// CONCEPT:EG-302 — `topk(k, v)` / `bottomk(k, v)`. Keeps each selected sample's own
+/// CONCEPT:EG-KG.query.bottomk-selection — `topk(k, v)` / `bottomk(k, v)`. Keeps each selected sample's own
 /// labels (including `__name__`). Ties are broken deterministically by label key.
 fn topk_bottomk(
     op: AggOp,
@@ -1685,7 +1685,7 @@ fn topk_bottomk(
     out
 }
 
-/// CONCEPT:EG-302 — `quantile(phi, v)` per group.
+/// CONCEPT:EG-KG.query.bottomk-selection — `quantile(phi, v)` per group.
 fn quantile_agg(
     phi: f64,
     samples: Vec<InstantSample>,
@@ -1706,7 +1706,7 @@ fn quantile_agg(
         .collect()
 }
 
-/// CONCEPT:EG-302 — `count_values("label", v)`: within each group, count the samples
+/// CONCEPT:EG-KG.query.bottomk-selection — `count_values("label", v)`: within each group, count the samples
 /// carrying each distinct value and emit one series per value with `label=<value>`.
 fn count_values(
     samples: Vec<InstantSample>,
@@ -1735,7 +1735,7 @@ fn count_values(
 
 // ───────────────────────────── _over_time / delta / deriv (EG-302) ─────────────────────────────
 
-/// CONCEPT:EG-302 — the `<agg>_over_time` family over a range vector. All drop the
+/// CONCEPT:EG-KG.query.bottomk-selection — the `<agg>_over_time` family over a range vector. All drop the
 /// metric name EXCEPT `last_over_time`, which preserves the series' labels verbatim
 /// (Prometheus semantics).
 fn over_time_family(func: &str, series: Vec<RangeSeries>) -> Vec<InstantSample> {
@@ -1765,7 +1765,7 @@ fn over_time_family(func: &str, series: Vec<RangeSeries>) -> Vec<InstantSample> 
     out
 }
 
-/// CONCEPT:EG-302 — `quantile_over_time(phi, range-vector)`.
+/// CONCEPT:EG-KG.query.bottomk-selection — `quantile_over_time(phi, range-vector)`.
 fn quantile_over_time(phi: f64, series: Vec<RangeSeries>) -> Vec<InstantSample> {
     let mut out = Vec::new();
     for s in series {
@@ -1783,7 +1783,7 @@ fn quantile_over_time(phi: f64, series: Vec<RangeSeries>) -> Vec<InstantSample> 
     out
 }
 
-/// CONCEPT:EG-302 — `delta` (last−first, no extrapolation, matching the crate's
+/// CONCEPT:EG-KG.query.bottomk-selection — `delta` (last−first, no extrapolation, matching the crate's
 /// non-extrapolating `rate`), `idelta` (last−penultimate), `deriv` (least-squares
 /// slope per second). All need ≥2 points and drop the metric name.
 fn delta_family(func: &str, series: Vec<RangeSeries>, t: Ts) -> Vec<InstantSample> {
@@ -1806,7 +1806,7 @@ fn delta_family(func: &str, series: Vec<RangeSeries>, t: Ts) -> Vec<InstantSampl
     out
 }
 
-/// CONCEPT:EG-302 — `predict_linear(range-vector, t)`: least-squares extrapolation
+/// CONCEPT:EG-KG.query.bottomk-selection — `predict_linear(range-vector, t)`: least-squares extrapolation
 /// `t` seconds past the evaluation instant. Needs ≥2 points; drops the metric name.
 fn predict_linear(series: Vec<RangeSeries>, secs: f64, t: Ts) -> Vec<InstantSample> {
     let mut out = Vec::new();
@@ -1850,7 +1850,7 @@ fn linear_regression(points: &[(Ts, f64)], intercept_time: Ts) -> (f64, f64) {
 
 // ───────────────────────────── clamp / round (EG-302) ─────────────────────────────
 
-/// CONCEPT:EG-302 — `clamp(v, min, max)`. If `min > max` the result is empty
+/// CONCEPT:EG-KG.query.bottomk-selection — `clamp(v, min, max)`. If `min > max` the result is empty
 /// (Prometheus semantics). Drops the metric name.
 fn clamp(samples: Vec<InstantSample>, min: f64, max: f64) -> Vec<InstantSample> {
     if min > max {
@@ -1859,7 +1859,7 @@ fn clamp(samples: Vec<InstantSample>, min: f64, max: f64) -> Vec<InstantSample> 
     map_values(strip_name(samples), move |v| v.max(min).min(max))
 }
 
-/// CONCEPT:EG-302 — `round(v, to_nearest)`: round to the nearest multiple of
+/// CONCEPT:EG-KG.query.bottomk-selection — `round(v, to_nearest)`: round to the nearest multiple of
 /// `to_nearest` (default 1), ties away from zero. Drops the metric name.
 fn round(samples: Vec<InstantSample>, to_nearest: f64) -> Vec<InstantSample> {
     let inv = if to_nearest == 0.0 {
@@ -1880,7 +1880,7 @@ fn str_arg<'a>(e: &'a Expr, ctx: &str) -> Result<&'a str, PromqlError> {
     }
 }
 
-/// CONCEPT:EG-302 — `label_replace(v, dst, replacement, src, regex)`. For each series,
+/// CONCEPT:EG-KG.query.bottomk-selection — `label_replace(v, dst, replacement, src, regex)`. For each series,
 /// if `regex` fully matches the value of `src`, `dst` is set to `replacement` with
 /// `$1`/`${1}` capture-group references expanded (an empty result removes `dst`);
 /// otherwise the series is passed through unchanged. All other labels — including
@@ -1909,7 +1909,7 @@ fn label_replace(
     Ok(out)
 }
 
-/// CONCEPT:EG-302 — `label_join(v, dst, separator, src_label...)`: join the values of
+/// CONCEPT:EG-KG.query.bottomk-selection — `label_join(v, dst, separator, src_label...)`: join the values of
 /// the source labels with `separator` into `dst` (an empty join removes `dst`). All
 /// other labels are preserved.
 fn label_join(
@@ -2894,7 +2894,7 @@ pub fn query_range(
     Evaluator::new(source).eval_range(&ast, start, end, step)
 }
 
-// ───────────────────────────── tests (CONCEPT:EG-172) ─────────────────────────────
+// ───────────────────────────── tests (CONCEPT:EG-KG.query.promql-parser-evaluator) ─────────────────────────────
 
 #[cfg(test)]
 mod tests {

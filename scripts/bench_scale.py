@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Multi-shard scale harness for epistemic-graph (CONCEPT:KG-2.7 P3).
+"""Multi-shard scale harness for epistemic-graph (CONCEPT:AU-KG.query.vendor-agnostic-traversal P3).
 
 Demonstrates **server-tier linear scaling** and measures the per-agent memory
 footprint, then turns the marketed "100,000,000 concurrent agents" into a

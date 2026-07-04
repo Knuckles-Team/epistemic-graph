@@ -1,4 +1,4 @@
-//! **KML — Keyhole Markup Language** reader + writer (CONCEPT:EG-306).
+//! **KML — Keyhole Markup Language** reader + writer (CONCEPT:EG-KG.domains.geo-formats).
 //!
 //! KML is the XML map format of Google Earth / Google Maps / My Maps and a common export from
 //! GIS tools. This module round-trips the geometry-bearing subset — `<Placemark>` wrapping a
@@ -15,20 +15,20 @@
 //! `(x = lon, y = lat)`, so longitude/latitude map straight across; the optional altitude is
 //! read and discarded (eg-geo is planar 2-D). Polygon rings use
 //! `<outerBoundaryIs><LinearRing>…` for the exterior and `<innerBoundaryIs><LinearRing>…` for
-//! each hole (CONCEPT:EG-257 interior rings).
+//! each hole (CONCEPT:EG-KG.domains.geometry-collections interior rings).
 
 use crate::geometry::{Geometry, LineString, Point, Polygon};
 
 // ── public value model ───────────────────────────────────────────────────────────────
 
-/// One KML `<Placemark>`: an optional name and geometry (CONCEPT:EG-306).
+/// One KML `<Placemark>`: an optional name and geometry (CONCEPT:EG-KG.domains.geo-formats).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Placemark {
     pub name: Option<String>,
     pub geometry: Option<Geometry>,
 }
 
-/// A parsed KML document — its placemarks (CONCEPT:EG-306).
+/// A parsed KML document — its placemarks (CONCEPT:EG-KG.domains.geo-formats).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Kml {
     pub placemarks: Vec<Placemark>,
@@ -36,7 +36,7 @@ pub struct Kml {
 
 impl Kml {
     /// Flatten all placemark geometries into one [`Geometry::GeometryCollection`]
-    /// (CONCEPT:EG-306); placemarks without a geometry are skipped.
+    /// (CONCEPT:EG-KG.domains.geo-formats); placemarks without a geometry are skipped.
     pub fn to_geometry(&self) -> Geometry {
         Geometry::GeometryCollection(
             self.placemarks
@@ -49,7 +49,7 @@ impl Kml {
 
 // ── reader ─────────────────────────────────────────────────────────────────────────
 
-/// Parse KML XML text into a [`Kml`] (CONCEPT:EG-306). Finds every `<Placemark>` (at any depth
+/// Parse KML XML text into a [`Kml`] (CONCEPT:EG-KG.domains.geo-formats). Finds every `<Placemark>` (at any depth
 /// under `<Document>`/`<Folder>`), extracting its `<name>` and first geometry.
 pub fn read_kml(xml: &str) -> Result<Kml, String> {
     let root = parse_xml(xml)?;
@@ -158,7 +158,7 @@ fn collapse_multigeometry(parts: Vec<Geometry>) -> Geometry {
 }
 
 /// Parse a `<Polygon>`: `<outerBoundaryIs><LinearRing><coordinates>` exterior plus any
-/// `<innerBoundaryIs>` holes (CONCEPT:EG-257).
+/// `<innerBoundaryIs>` holes (CONCEPT:EG-KG.domains.geometry-collections).
 fn parse_polygon(node: &XmlNode) -> Result<Polygon, String> {
     let outer = node
         .child("outerBoundaryIs")
@@ -193,7 +193,7 @@ fn find_coordinates_text(node: &XmlNode) -> Option<&str> {
 }
 
 /// Parse a KML `<coordinates>` blob: whitespace-separated `lon,lat[,alt]` tuples
-/// (CONCEPT:EG-306). Altitude is read and discarded (eg-geo is 2-D).
+/// (CONCEPT:EG-KG.domains.geo-formats). Altitude is read and discarded (eg-geo is 2-D).
 fn parse_coordinates(text: &str) -> Result<Vec<Point>, String> {
     let mut pts = Vec::new();
     for tuple in text.split_whitespace() {
@@ -217,7 +217,7 @@ fn parse_coordinates(text: &str) -> Result<Vec<Point>, String> {
 
 // ── writer ─────────────────────────────────────────────────────────────────────────
 
-/// Serialise a [`Kml`] to a KML 2.2 document string (CONCEPT:EG-306).
+/// Serialise a [`Kml`] to a KML 2.2 document string (CONCEPT:EG-KG.domains.geo-formats).
 pub fn write_kml(kml: &Kml) -> String {
     let mut s = String::new();
     s.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
@@ -318,7 +318,7 @@ fn push_escaped(s: &mut String, text: &str) {
     }
 }
 
-// ── a minimal well-formed-XML DOM (CONCEPT:EG-306) ───────────────────────────────────
+// ── a minimal well-formed-XML DOM (CONCEPT:EG-KG.domains.geo-formats) ───────────────────────────────────
 
 /// A tiny XML element node — enough for KML: element name, concatenated direct text, and child
 /// elements. Attributes are parsed but dropped (KML geometry needs none).
@@ -338,7 +338,7 @@ impl XmlNode {
     }
 }
 
-/// Parse a well-formed XML string into a single root [`XmlNode`] (CONCEPT:EG-306). Handles open
+/// Parse a well-formed XML string into a single root [`XmlNode`] (CONCEPT:EG-KG.domains.geo-formats). Handles open
 /// / close / self-closing tags, text (with `&amp;`/`&lt;`/`&gt;`/`&quot;`/`&apos;` entities and
 /// `<![CDATA[…]]>`), and skips the `<?xml?>` prolog, comments and `<!…>` declarations. Returns
 /// the outermost element (e.g. `<kml>`).

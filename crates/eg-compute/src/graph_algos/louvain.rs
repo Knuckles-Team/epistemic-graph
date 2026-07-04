@@ -1,11 +1,11 @@
-// CONCEPT:EG-144 — Community detection via Louvain modularity optimization
+// CONCEPT:EG-KG.compute.louvain-community-detection — Community detection via Louvain modularity optimization
 // (Neo4j GDS `gds.louvain` parity).
 
 use super::graph::AdjacencyGraph;
 use std::collections::HashMap;
 use std::hash::Hash;
 
-/// Configuration for [`louvain`]. CONCEPT:EG-144
+/// Configuration for [`louvain`]. CONCEPT:EG-KG.compute.louvain-community-detection
 #[derive(Debug, Clone, Copy)]
 pub struct LouvainConfig {
     /// Resolution γ scaling the modularity null model (higher ⇒ more, smaller
@@ -32,7 +32,7 @@ impl Default for LouvainConfig {
     }
 }
 
-/// Result of a Louvain run. CONCEPT:EG-144
+/// Result of a Louvain run. CONCEPT:EG-KG.compute.louvain-community-detection
 #[derive(Debug, Clone)]
 pub struct LouvainResult<N> {
     /// Communities: members sorted, communities ordered by smallest member.
@@ -50,7 +50,7 @@ pub struct LouvainResult<N> {
 /// (no oscillation).
 ///
 /// Complexity: near-linear per level, `O(L · (V + E))` in practice for `L`
-/// levels. CONCEPT:EG-144
+/// levels. CONCEPT:EG-KG.compute.louvain-community-detection
 pub fn louvain<N>(graph: &AdjacencyGraph<N>, config: &LouvainConfig) -> LouvainResult<N>
 where
     N: Clone + Eq + Hash + Ord,

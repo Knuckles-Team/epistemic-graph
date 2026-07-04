@@ -1,4 +1,4 @@
-// CONCEPT:KG-2.19 — Dynamic Communication Channels
+// CONCEPT:EG-KG.coordination.dynamic-channels — Dynamic Communication Channels
 //
 // Ephemeral P2P and group channels for inter-agent communication.
 // Channels have a lifecycle: Create → Join → Leave → Close.

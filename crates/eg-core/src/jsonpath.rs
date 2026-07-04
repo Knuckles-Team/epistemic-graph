@@ -1,4 +1,4 @@
-//! CONCEPT:EG-084 — document/JSON deep indexing: a pure-Rust JSONPath evaluator +
+//! CONCEPT:EG-KG.compute.json-deep-indexing — document/JSON deep indexing: a pure-Rust JSONPath evaluator +
 //! Postgres-style JSON containment, over the SAME `serde_json::Value` the node
 //! property blobs already decode to. ZERO new dependency (serde_json is already an
 //! eg-core dep) — a small hand-rolled path walk, deliberately NOT a heavy JSONPath
@@ -17,7 +17,7 @@
 
 use serde_json::Value;
 
-/// One parsed step of a JSONPath (CONCEPT:EG-084).
+/// One parsed step of a JSONPath (CONCEPT:EG-KG.compute.json-deep-indexing).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Segment {
     /// `.key` / `['key']` — descend into an object field.
@@ -28,7 +28,7 @@ pub enum Segment {
     Wildcard,
 }
 
-/// Parse a JSONPath string into its [`Segment`]s (CONCEPT:EG-084). A leading `$` is
+/// Parse a JSONPath string into its [`Segment`]s (CONCEPT:EG-KG.compute.json-deep-indexing). A leading `$` is
 /// optional; `$` alone (or the empty string) is the root and yields no segments.
 /// Returns `None` on a malformed path (the caller then treats it as "matches nothing").
 pub fn parse_path(path: &str) -> Option<Vec<Segment>> {
@@ -126,7 +126,7 @@ fn take_bare_key(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) -> String
 }
 
 /// Evaluate parsed `segments` against `root`, returning every matched value
-/// (CONCEPT:EG-084). A wildcard fans out, so more than one value can match; a missing
+/// (CONCEPT:EG-KG.compute.json-deep-indexing). A wildcard fans out, so more than one value can match; a missing
 /// key/index simply drops that branch (⇒ empty result = "path absent").
 pub fn eval<'a>(root: &'a Value, segments: &[Segment]) -> Vec<&'a Value> {
     let mut cur = vec![root];
@@ -156,7 +156,7 @@ pub fn eval<'a>(root: &'a Value, segments: &[Segment]) -> Vec<&'a Value> {
     cur
 }
 
-/// Parse `path` and evaluate it against `root` in one call (CONCEPT:EG-084). A
+/// Parse `path` and evaluate it against `root` in one call (CONCEPT:EG-KG.compute.json-deep-indexing). A
 /// malformed path yields an empty result (matches nothing).
 pub fn eval_path<'a>(root: &'a Value, path: &str) -> Vec<&'a Value> {
     match parse_path(path) {
@@ -166,12 +166,12 @@ pub fn eval_path<'a>(root: &'a Value, path: &str) -> Vec<&'a Value> {
 }
 
 /// Does `path` resolve to at least one value in `root`? (existence — the `@?` /
-/// `jsonb_path_query` existence primitive, CONCEPT:EG-084).
+/// `jsonb_path_query` existence primitive, CONCEPT:EG-KG.compute.json-deep-indexing).
 pub fn path_exists(root: &Value, path: &str) -> bool {
     !eval_path(root, path).is_empty()
 }
 
-/// Does any value at `path` equal `wanted`? (CONCEPT:EG-084). Direct JSON equality,
+/// Does any value at `path` equal `wanted`? (CONCEPT:EG-KG.compute.json-deep-indexing). Direct JSON equality,
 /// with a Postgres-`->>`-style fallback: when `wanted` is a JSON string, a matched
 /// scalar also compares equal if its canonical text form equals the string (so
 /// `props->>'age' = '30'` matches a numeric `30`).
@@ -189,7 +189,7 @@ pub fn path_eq(root: &Value, path: &str, wanted: &Value) -> bool {
 }
 
 /// Does the value at `path` CONTAIN `needle` per Postgres `@>` JSON containment
-/// (CONCEPT:EG-084)? When `path` is the root (`$`) this is `props @> needle`. If the
+/// (CONCEPT:EG-KG.compute.json-deep-indexing)? When `path` is the root (`$`) this is `props @> needle`. If the
 /// path fans out (wildcard), containment holds if ANY matched value contains `needle`.
 pub fn path_contains(root: &Value, path: &str, needle: &Value) -> bool {
     eval_path(root, path)
@@ -197,7 +197,7 @@ pub fn path_contains(root: &Value, path: &str, needle: &Value) -> bool {
         .any(|v| json_contains(v, needle))
 }
 
-/// Postgres `@>` containment (CONCEPT:EG-084): does `haystack` contain `needle`?
+/// Postgres `@>` containment (CONCEPT:EG-KG.compute.json-deep-indexing): does `haystack` contain `needle`?
 ///   * object ⊇ object — every needle key present with a contained value;
 ///   * array ⊇ array   — every needle element is contained by some haystack element;
 ///   * array ⊇ scalar  — the scalar is contained by some element (`'[1,2]' @> '2'`);
@@ -216,7 +216,7 @@ pub fn json_contains(haystack: &Value, needle: &Value) -> bool {
 }
 
 /// Canonical string form of a SCALAR leaf value, used as the inverted path-index key
-/// (CONCEPT:EG-084). Strings index under their text, bools/numbers under their
+/// (CONCEPT:EG-KG.compute.json-deep-indexing). Strings index under their text, bools/numbers under their
 /// `to_string()`. Arrays/objects/null are NOT scalar-indexable (return `None`).
 /// Mirrors `graph::GraphCore::property_value_key` so a JSONPath equality index agrees
 /// with the flat property index.

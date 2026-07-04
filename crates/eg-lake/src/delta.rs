@@ -1,4 +1,4 @@
-//! Minimal Delta Lake `_delta_log` writer (CONCEPT:EG-317).
+//! Minimal Delta Lake `_delta_log` writer (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns).
 //!
 //! Delta Lake's transaction log is a directory `_delta_log/` of zero-padded,
 //! newline-delimited-JSON commit files (`00000000000000000000.json`, `...001.json`,
@@ -21,14 +21,14 @@ use serde_json::{json, Value};
 use crate::schema::LakeSchema;
 use crate::snapshot::{Lsn, SnapshotLog};
 
-/// The Delta protocol versions we write to (CONCEPT:EG-317). Reader v1 / writer v2 is
+/// The Delta protocol versions we write to (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns). Reader v1 / writer v2 is
 /// the classic, widely-supported baseline (no deletion vectors / column mapping),
 /// which every Delta reader understands.
 const MIN_READER_VERSION: i64 = 1;
 const MIN_WRITER_VERSION: i64 = 2;
 
 /// One emitted `_delta_log` file: its object-store-relative path and its
-/// newline-delimited-JSON content (CONCEPT:EG-317).
+/// newline-delimited-JSON content (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns).
 #[derive(Clone, Debug, PartialEq)]
 pub struct DeltaLogFile {
     /// e.g. `_delta_log/00000000000000000000.json`.
@@ -38,7 +38,7 @@ pub struct DeltaLogFile {
 }
 
 /// Encode a [`LakeSchema`] as Delta's `schemaString` (a JSON-encoded struct)
-/// (CONCEPT:EG-317).
+/// (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns).
 fn delta_schema_string(schema: &LakeSchema) -> String {
     let fields: Vec<Value> = schema
         .fields
@@ -56,13 +56,13 @@ fn delta_schema_string(schema: &LakeSchema) -> String {
     struct_json.to_string()
 }
 
-/// The zero-padded Delta log filename for a version (CONCEPT:EG-317).
+/// The zero-padded Delta log filename for a version (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns).
 fn version_filename(version: u64) -> String {
     format!("_delta_log/{version:020}.json")
 }
 
 /// Build the full `_delta_log` for a table from its schema and the durable
-/// [`SnapshotLog`] (CONCEPT:EG-317).
+/// [`SnapshotLog`] (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns).
 ///
 /// Each distinct LSN that added or removed a file becomes one contiguous Delta version
 /// (0, 1, 2, …), in LSN order — so the log an external reader replays reproduces the
@@ -98,7 +98,7 @@ pub fn build_delta_log(
                     "timestamp": created_time_ms,
                     "operation": if version == 0 { "CREATE TABLE" } else { "WRITE" },
                     "operationParameters": {},
-                    "engineInfo": "epistemic-graph/eg-lake CONCEPT:EG-317",
+                    "engineInfo": "epistemic-graph/eg-lake CONCEPT:EG-KG.storage.lsn-as-snapshot-returns",
                     // Expose the engine LSN so a reader can correlate a Delta version
                     // with our as-of snapshot version.
                     "readVersion": version.saturating_sub(1),
@@ -181,7 +181,7 @@ pub fn build_delta_log(
 }
 
 /// Parse a `_delta_log` commit file's newline-delimited JSON back into action values
-/// (CONCEPT:EG-317). Used by the round-trip test and any consumer replaying the log.
+/// (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns). Used by the round-trip test and any consumer replaying the log.
 pub fn parse_delta_actions(content: &str) -> Result<Vec<Value>, String> {
     content
         .lines()
@@ -191,7 +191,7 @@ pub fn parse_delta_actions(content: &str) -> Result<Vec<Value>, String> {
 }
 
 /// Replay a set of `_delta_log` files (in version order) to the live set of Parquet
-/// file paths (CONCEPT:EG-317) — the reconstruction an external Delta reader performs:
+/// file paths (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns) — the reconstruction an external Delta reader performs:
 /// every `add` path minus every `remove` path.
 pub fn live_paths(files: &[DeltaLogFile]) -> Result<Vec<String>, String> {
     let mut live: Vec<String> = Vec::new();

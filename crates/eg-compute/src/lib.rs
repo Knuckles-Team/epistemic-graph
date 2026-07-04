@@ -13,7 +13,7 @@ pub use eg_core::{compute, graph, isolation, registry};
 pub use eg_types::{acl, protocol, types, wire};
 
 pub mod algorithms;
-// CONCEPT:EG-144 — standalone graph data-science algorithms (Neo4j GDS parity).
+// CONCEPT:EG-KG.compute.graph-data-science-algorithms — standalone graph data-science algorithms (Neo4j GDS parity).
 // Pure-Rust, deterministic, generic over node id; decoupled from the live engine
 // graph so it is unit-testable in isolation. Always-on (no heavy deps).
 pub mod ast;
@@ -25,7 +25,7 @@ pub mod screen;
 pub mod datascience;
 #[cfg(feature = "finance")]
 pub mod finance;
-// CONCEPT:EG-086 — Bayesian-update / mixture / fusion helpers over the
+// CONCEPT:EG-KG.compute.bayesian-fusion-helpers — Bayesian-update / mixture / fusion helpers over the
 // `eg_types::Distribution` value. Conjugate posteriors are closed-form (no
 // sampling), so this rides the pure `reasoning` feature (no heavy dep).
 #[cfg(feature = "reasoning")]

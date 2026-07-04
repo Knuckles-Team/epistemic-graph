@@ -1,4 +1,4 @@
-//! Native TS query primitives over a `Vec<Point>` (CONCEPT:KG-2.210).
+//! Native TS query primitives over a `Vec<Point>` (CONCEPT:AU-KG.retrieval.god-nodes-communities).
 //!
 //! These are the operators a time-series workload needs that plain SQL / the graph
 //! algebra do NOT give natively. They take the ts-sorted `Vec<Point>` the store
@@ -16,7 +16,7 @@
 //!   * `ohlc_bars` / `downsample` — OHLC bars + rollup (continuous-aggregate building
 //!     block).
 //!   * `decay_weighted_mean` — recency-weighted series aggregate using the ONE shared
-//!     Ebbinghaus curve (`eg_core::decay`) the memory layer uses (CONCEPT:KG-2.211).
+//!     Ebbinghaus curve (`eg_core::decay`) the memory layer uses (CONCEPT:EG-KG.compute.handled-outside-single-anchor).
 //!
 //! Where the math is already in the engine we REUSE it (`ewma_signal`,
 //! `rolling_zscore` from `eg_compute::finance::signals`) — no re-implementation.
@@ -227,7 +227,7 @@ pub fn downsample(points: &[Point], width: Ts, agg: Agg) -> Vec<Point> {
 // ───────────────────────── decay / recency composition ─────────────────────────
 
 /// Recency-weighted mean of field 0 of a series as of `now` (ns), using the ONE
-/// shared Ebbinghaus curve (`eg_core::decay`, CONCEPT:KG-2.211) — the SAME function
+/// shared Ebbinghaus curve (`eg_core::decay`, CONCEPT:EG-KG.compute.handled-outside-single-anchor) — the SAME function
 /// the semantic-memory confidence decay calls. `half_life_secs` parameterises the
 /// curve; ages are computed in seconds (ns→s) so memory (days) and series (seconds)
 /// are the same model at different scales. This is the "unify memory + series" proof:
@@ -263,7 +263,7 @@ pub fn series_rolling_zscore(points: &[Point], window: usize) -> Vec<f64> {
     eg_compute::finance::signals::rolling_zscore(&vals, window)
 }
 
-// ───────────────────── multimodal sensor fusion (CONCEPT:EG-098) ────────────────
+// ───────────────────── multimodal sensor fusion (CONCEPT:EG-KG.query.multi-rate-sensor-stream) ────────────────
 //
 // Time-align N HETEROGENEOUS sensor streams (camera/LiDAR/audio/tactile/proprioceptive)
 // to ONE common clock and emit fused multi-channel rows. Each stream's cell is an OPAQUE
@@ -275,7 +275,7 @@ pub fn series_rolling_zscore(points: &[Point], window: usize) -> Vec<f64> {
 // (EG-067) with the EG-085 tensor modality into the robotics fusion op EG-088's CEP can
 // then run over.
 
-/// One opaque sample cell in a sensor stream (CONCEPT:EG-098). Either a plain scalar
+/// One opaque sample cell in a sensor stream (CONCEPT:EG-KG.query.multi-rate-sensor-stream). Either a plain scalar
 /// reading, or an opaque BLOB reference — an EG-085 tensor blob id (a camera/LiDAR
 /// frame) — carried through fusion UNTOUCHED. `sensor_fuse` never decodes a `Blob`
 /// (per-channel tensor decode is a documented follow-up); it only time-aligns the cell.
@@ -312,7 +312,7 @@ impl Sample {
     }
 }
 
-/// A named heterogeneous sensor stream to fuse (CONCEPT:EG-098). `samples` MUST be
+/// A named heterogeneous sensor stream to fuse (CONCEPT:EG-KG.query.multi-rate-sensor-stream). `samples` MUST be
 /// ts-sorted (as they come out of the store) — the ASOF merge relies on it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct SeriesRef {
@@ -322,7 +322,7 @@ pub struct SeriesRef {
     pub samples: Vec<Sample>,
 }
 
-/// One fused multi-channel row (CONCEPT:EG-098): the common-clock timestamp and one
+/// One fused multi-channel row (CONCEPT:EG-KG.query.multi-rate-sensor-stream): the common-clock timestamp and one
 /// aligned cell per input stream, IN STREAM ORDER. A `None` channel is a GAP — that
 /// stream had no sample at-or-before `ts` within `tolerance`.
 #[derive(Clone, Debug, PartialEq)]
@@ -332,7 +332,7 @@ pub struct FusedRow {
 }
 
 /// Time-align N heterogeneous sensor `streams` to ONE common clock and emit fused
-/// multi-channel rows (CONCEPT:EG-098). The common clock is the sorted, de-duplicated
+/// multi-channel rows (CONCEPT:EG-KG.query.multi-rate-sensor-stream). The common clock is the sorted, de-duplicated
 /// UNION of every stream's sample timestamps — so every sensor event across all streams
 /// becomes a fusion instant. For each instant, each stream contributes its latest sample
 /// at-or-before that instant via a backward ASOF join (`asof_join_backward`), within

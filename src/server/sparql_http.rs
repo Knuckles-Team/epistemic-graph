@@ -1,4 +1,4 @@
-//! W3C SPARQL 1.1 Protocol HTTP endpoint (CONCEPT:EG-017, feature `sparql-http`).
+//! W3C SPARQL 1.1 Protocol HTTP endpoint (CONCEPT:EG-KG.query.named-graph-support, feature `sparql-http`).
 //!
 //! A minimal, dependency-free HTTP/1.1 listener (the SAME hand-rolled idiom as the
 //! Prometheus `--metrics-addr` exposition — no axum/hyper/warp, so the Pi contract
@@ -10,7 +10,7 @@
 //!   * `POST /sparql`  `application/sparql-update`     → UPDATE (body = the update)
 //!   * `POST /sparql`  `application/x-www-form-urlencoded` with `query=` or `update=`
 //!
-//! Result media types are content-negotiated (CONCEPT:EG-050) from the `Accept` header
+//! Result media types are content-negotiated (CONCEPT:EG-KG.ontology.content-negotiation-serializers) from the `Accept` header
 //! (with an `output=`/`format=` query-param override): SELECT/ASK serve SPARQL-results
 //! JSON (default), XML, CSV or TSV; CONSTRUCT/DESCRIBE serve N-Triples (default) or
 //! Turtle. With no `Accept` header the per-form default is used (byte-identical to the
@@ -42,7 +42,7 @@ use eg_rdf::update::GraphStore;
 pub const DEFAULT_GRAPH_ENV: &str = "EPISTEMIC_GRAPH_SPARQL_DEFAULT_GRAPH";
 /// Env var carrying the bind address (`host:port`) when `--sparql-addr` is not passed.
 pub const SPARQL_ADDR_ENV: &str = "EPISTEMIC_GRAPH_SPARQL_ADDR";
-/// SSRF allowlist for outbound `SERVICE` federation (CONCEPT:EG-052, feature
+/// SSRF allowlist for outbound `SERVICE` federation (CONCEPT:EG-KG.query.sparql-service-federation-client, feature
 /// `sparql-service`): a comma-separated set of allowed endpoint hosts / `scheme://host:port`
 /// origins. **Empty / unset ⇒ SERVICE is DISABLED (fail-closed)** — no remote client is
 /// bound, so a `SERVICE <ep> { … }` clause errors (or, under `SERVICE SILENT`, yields the
@@ -161,7 +161,7 @@ async fn handle(
     {
         return ("204 No Content", "text/plain", String::new());
     }
-    // Natural-language query facade route (CONCEPT:EG-080, feature `nl-query`): POST
+    // Natural-language query facade route (CONCEPT:EG-KG.query.fence-stripper, feature `nl-query`): POST
     // `{text, graph}` → the NL planner → UQL → executed rows as JSON. Served on the SAME
     // hand-rolled HTTP facade listener as `/sparql` (no new HTTP dep). A build without
     // `nl-query` has no `/nl` route (it 404s below like any other unknown path).
@@ -169,7 +169,7 @@ async fn handle(
     if path == "/nl" {
         return handle_nl(state, &req).await;
     }
-    // W3C SPARQL 1.1 Graph Store HTTP Protocol (CONCEPT:EG-134) — direct graph management.
+    // W3C SPARQL 1.1 Graph Store HTTP Protocol (CONCEPT:EG-KG.query.graph-store-http-protocol) — direct graph management.
     if path.starts_with("/rdf-graphs") {
         return handle_graph_store(state, &req, path, query_string).await;
     }
@@ -237,7 +237,7 @@ async fn handle(
     }
 }
 
-/// Natural-language query facade route (CONCEPT:EG-080). Accepts a JSON body
+/// Natural-language query facade route (CONCEPT:EG-KG.query.fence-stripper). Accepts a JSON body
 /// `{"text": "...", "graph": "..."}` (graph optional — defaults to the SPARQL default
 /// graph), builds an AUTHENTICATED in-process `Method::NlQuery` request, and runs it
 /// through the FULL dispatch path (the planner + RLS + the deterministic
@@ -398,7 +398,7 @@ async fn run_query(
 }
 
 /// Evaluate a parsed dataset query, binding the outbound `SERVICE` client when the
-/// `sparql-service` feature is on AND the SSRF allowlist is non-empty (CONCEPT:EG-052).
+/// `sparql-service` feature is on AND the SSRF allowlist is non-empty (CONCEPT:EG-KG.query.sparql-service-federation-client).
 /// Otherwise (feature off, or allowlist empty) NO client is bound — SERVICE is fail-closed.
 /// Runs inside the caller's `spawn_blocking` (the `ureq` client is blocking).
 fn run_dataset_query(ds: &Dataset, query: &str) -> Result<QueryOutcome, String> {
@@ -416,7 +416,7 @@ fn run_dataset_query(ds: &Dataset, query: &str) -> Result<QueryOutcome, String> 
     }
 }
 
-// ── SPARQL SERVICE federation client (CONCEPT:EG-052, feature `sparql-service`) ───
+// ── SPARQL SERVICE federation client (CONCEPT:EG-KG.query.sparql-service-federation-client, feature `sparql-service`) ───
 
 /// A `ureq`-backed [`eg_rdf::sparql::RemoteSparql`] with an SSRF allowlist. Reuses the SAME
 /// pure-Rust rustls `ureq` stack `federation` already links (no new crate enters the tree).
@@ -658,7 +658,7 @@ async fn run_update(
     report.map(|_| ())
 }
 
-// ── W3C SPARQL 1.1 Graph Store HTTP Protocol (CONCEPT:EG-134) ─────────────────────
+// ── W3C SPARQL 1.1 Graph Store HTTP Protocol (CONCEPT:EG-KG.query.graph-store-http-protocol) ─────────────────────
 //
 // Direct RDF-graph management over HTTP, DISTINCT from the query/update `/sparql`
 // endpoint: the resource IS the graph, addressed by its name.
@@ -928,7 +928,7 @@ fn term_json(b: &Binding) -> serde_json::Value {
     }
 }
 
-// ── content negotiation (CONCEPT:EG-050) ─────────────────────────────────────────
+// ── content negotiation (CONCEPT:EG-KG.ontology.content-negotiation-serializers) ─────────────────────────────────────────
 
 /// Candidate SELECT/ASK output media types, DEFAULT (SPARQL-results JSON) first.
 const SELECT_FORMS: &[&str] = &[
@@ -938,7 +938,7 @@ const SELECT_FORMS: &[&str] = &[
     "text/tab-separated-values",
 ];
 /// Candidate CONSTRUCT/DESCRIBE output media types, DEFAULT (N-Triples) first.
-/// Beyond N-Triples/Turtle (EG-050), the RDF 1.1 concrete-syntax matrix (CONCEPT:EG-136/
+/// Beyond N-Triples/Turtle (EG-050), the RDF 1.1 concrete-syntax matrix (CONCEPT:EG-KG.ontology.eg-concrete-syntax-matrix/
 /// EG-137) adds N-Quads + TriG (quad forms, always available under `rdf`) and the
 /// dependency-light hand-rolled JSON-LD (`application/ld+json`, via `eg_rdf::jsonld`,
 /// needs no extra feature). RDF/XML rides the out-of-pi `rdf-xml` feature so it is only
@@ -962,7 +962,7 @@ const GRAPH_FORMS: &[&str] = &[
 ];
 
 /// Serialize a CONSTRUCT/DESCRIBE / Graph-Store-Protocol result to the negotiated graph
-/// media type (CONCEPT:EG-050/EG-136/EG-137). N-Quads/TriG place the triples in the
+/// media type (CONCEPT:EG-KG.ontology.content-negotiation-serializers/EG-136/EG-137). N-Quads/TriG place the triples in the
 /// default graph (`None`); JSON-LD emits the expanded form; RDF/XML rides `rdf-xml`.
 fn serialize_graph(ct: &str, triples: &[eg_rdf::oxrdf::Triple]) -> Result<String, String> {
     match ct {
@@ -976,7 +976,7 @@ fn serialize_graph(ct: &str, triples: &[eg_rdf::oxrdf::Triple]) -> Result<String
     }
 }
 
-/// Resolve the response media type (CONCEPT:EG-050): an `output=`/`format=` override
+/// Resolve the response media type (CONCEPT:EG-KG.ontology.content-negotiation-serializers): an `output=`/`format=` override
 /// (constrained to this form's candidates) wins; otherwise negotiate the `Accept` header.
 fn choose_ct(accept: &str, fmt_override: Option<&str>, forms: &[&'static str]) -> &'static str {
     if let Some(tok) = fmt_override {
@@ -1008,7 +1008,7 @@ fn override_ct(token: &str, forms: &[&'static str]) -> Option<&'static str> {
     forms.iter().copied().find(|&f| f == want)
 }
 
-/// Pick the best media type among `forms` for an `Accept` header (CONCEPT:EG-050).
+/// Pick the best media type among `forms` for an `Accept` header (CONCEPT:EG-KG.ontology.content-negotiation-serializers).
 /// Empty / `*/*` / no acceptable match → the per-form default (`forms[0]`). Honors
 /// q-values and `type/*` wildcards; on a q-tie the client's listed order is respected.
 fn negotiate(accept: &str, forms: &[&'static str]) -> &'static str {
@@ -1044,7 +1044,7 @@ fn negotiate(accept: &str, forms: &[&'static str]) -> &'static str {
     best.map(|(f, _)| f).unwrap_or(forms[0])
 }
 
-// ── hand-written SPARQL 1.1 Query Results serializers (CONCEPT:EG-050) ────────────
+// ── hand-written SPARQL 1.1 Query Results serializers (CONCEPT:EG-KG.ontology.content-negotiation-serializers) ────────────
 
 /// The ASK boolean rendered for the negotiated media type (JSON default, XML, or a bare
 /// `true`/`false` for CSV/TSV). The JSON form is byte-identical to the prior fixed output.
@@ -1272,7 +1272,7 @@ mod tests {
         assert_eq!(j["results"]["bindings"][0]["s"]["value"], "http://x");
     }
 
-    // ── CONCEPT:EG-050 content negotiation + serializers ─────────────────────────
+    // ── CONCEPT:EG-KG.ontology.content-negotiation-serializers content negotiation + serializers ─────────────────────────
 
     fn sample_result() -> SparqlResult {
         let mut sol = eg_rdf::sparql::Solution::new();
@@ -1313,7 +1313,7 @@ mod tests {
         );
     }
 
-    /// CONCEPT:EG-136/EG-137 — the concrete-syntax matrix is content-negotiable on the
+    /// CONCEPT:EG-KG.ontology.eg-concrete-syntax-matrix/EG-137 — the concrete-syntax matrix is content-negotiable on the
     /// graph forms: N-Quads/TriG/JSON-LD (always) and RDF/XML (under `rdf-xml`), by both
     /// Accept header and the `output=`/`format=` short token, and each serializes.
     #[test]
@@ -1422,7 +1422,7 @@ mod tests {
         assert_eq!(boolean_body("text/csv", true), "true");
     }
 
-    // ── CONCEPT:EG-052 — SPARQL SERVICE federation client ────────────────────────
+    // ── CONCEPT:EG-KG.query.sparql-service-federation-client — SPARQL SERVICE federation client ────────────────────────
 
     /// The results-JSON parse is the exact inverse of `term_json`'s uri/bnode/literal split.
     #[cfg(feature = "sparql-service")]
@@ -1447,7 +1447,7 @@ mod tests {
         assert_eq!(term_json(sol.get("l").unwrap())["type"], "literal");
     }
 
-    // ── CONCEPT:EG-134 — Graph Store HTTP Protocol ──────────────────────────────
+    // ── CONCEPT:EG-KG.query.graph-store-http-protocol — Graph Store HTTP Protocol ──────────────────────────────
 
     /// Indirect (`/rdf-graphs/service?graph=` / `?default`) and direct (`/rdf-graphs/<name>`)
     /// naming both resolve to the target graph; a bare `/rdf-graphs` names nothing.

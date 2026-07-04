@@ -1,4 +1,4 @@
-//! Raft cluster configuration parsed from the environment (CONCEPT:KG-2.188).
+//! Raft cluster configuration parsed from the environment (CONCEPT:AU-KG.ingest.source-sync-canonical).
 //!
 //! Raft only ACTIVATES when built `--features raft` AND configured here. With the
 //! feature on but no `EPISTEMIC_GRAPH_RAFT_NODE_ID`, [`RaftClusterConfig::from_env`]
@@ -19,7 +19,7 @@ pub struct RaftClusterConfig {
     pub peers: PeerMap,
     /// The `host:port` this node binds its Raft-RPC listener to. Defaults to this
     /// node's own PEERS entry (the advertised address), but can be overridden by
-    /// `EPISTEMIC_GRAPH_RAFT_BIND_ADDR` (CONCEPT:KG-2.273) so a CONTAINERIZED member can
+    /// `EPISTEMIC_GRAPH_RAFT_BIND_ADDR` (CONCEPT:AU-KG.backend.authority-has-already-acked) so a CONTAINERIZED member can
     /// bind `0.0.0.0:9100` locally while still ADVERTISING its routable host IP
     /// (`10.0.0.x:9100`) to peers — a container on an overlay net cannot bind the host's
     /// external IP directly. Bare-metal members leave it unset and bind their own addr.
@@ -66,7 +66,7 @@ impl RaftClusterConfig {
             })?;
         // The listener bind address defaults to the advertised (PEERS) address, but a
         // containerized member overrides it (e.g. `0.0.0.0:9100`) while peers still dial
-        // its routable host IP from PEERS — see `bind_addr` docs (CONCEPT:KG-2.273).
+        // its routable host IP from PEERS — see `bind_addr` docs (CONCEPT:AU-KG.backend.authority-has-already-acked).
         let bind_addr = match std::env::var("EPISTEMIC_GRAPH_RAFT_BIND_ADDR") {
             Ok(v) if !v.trim().is_empty() => v.trim().to_string(),
             _ => advertise_addr,

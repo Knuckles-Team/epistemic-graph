@@ -1,6 +1,6 @@
-"""CONCEPT:EG-043 — TRUE single-connection request PIPELINING.
+"""CONCEPT:EG-KG.backend.framed-response — TRUE single-connection request PIPELINING.
 
-The follow-up E flagged for the connection POOL (CONCEPT:EG-037): remove the
+The follow-up E flagged for the connection POOL (CONCEPT:EG-KG.backend.multiplexed-connections): remove the
 per-connection *serialization* so ONE TCP/UDS connection carries many in-flight
 requests at once. The engine (``src/server/transport.rs::handle_connection``) now
 reads frames in a loop and ``tokio::spawn``s a dispatch task per request, writing

@@ -1,4 +1,4 @@
-"""Round-trip tests for the Ebbinghaus temporal decay (CONCEPT:KG-2.16).
+"""Round-trip tests for the Ebbinghaus temporal decay (CONCEPT:EG-KG.compute.graph-compute-engine).
 
 Exercises the live UDS path: client.lifecycle.decay_sweep / touch_nodes against
 the running epistemic-graph-server (started by the conftest session fixture).

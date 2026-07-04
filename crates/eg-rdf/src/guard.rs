@@ -5,7 +5,7 @@
 //! the SHACL/ICV engine in the DAG (eg-shacl depends on eg-rdf, not the reverse), so it
 //! cannot call the ICV check directly without a dependency cycle. This module inverts the
 //! dependency: eg-rdf defines the [`WriteGuard`] hook the commit path invokes, and the
-//! upper layer (eg-shacl's ICV policy, CONCEPT:EG-146/EG-300) *implements* it.
+//! upper layer (eg-shacl's ICV policy, CONCEPT:EG-KG.ontology.wired-into-commit-write/EG-300) *implements* it.
 //!
 //! The guard is handed, per graph, the pre-change base graph plus the NET additions /
 //! removals a change set would apply, and decides whether the commit is allowed. A
@@ -15,7 +15,7 @@
 
 use crate::oxrdf::{Graph, Triple};
 
-/// A write-time constraint guard (CONCEPT:EG-300). The commit path calls
+/// A write-time constraint guard (CONCEPT:EG-KG.ontology.rdf-update-guard). The commit path calls
 /// [`WriteGuard::check_graph`] once per affected graph with the projected change; the
 /// implementation (e.g. eg-shacl's ICV policy) returns `Ok(())` to allow the commit or a
 /// [`GuardRejection`] to abort it.
@@ -39,7 +39,7 @@ pub trait WriteGuard {
     ) -> Result<(), GuardRejection>;
 }
 
-/// A structured commit rejection (CONCEPT:EG-300): which graph was refused, a
+/// A structured commit rejection (CONCEPT:EG-KG.ontology.rdf-update-guard): which graph was refused, a
 /// human-readable summary, and the guard's own violation payload as JSON (e.g. eg-shacl's
 /// introduced `IcvViolation`s, each with its SPARQL witness). Kept as `serde_json::Value`
 /// so eg-rdf never links the SHACL result types.

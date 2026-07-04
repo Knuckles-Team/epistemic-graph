@@ -1,4 +1,4 @@
-//! Arrow materialization of a user table (CONCEPT:EG-018) so it registers as a
+//! Arrow materialization of a user table (CONCEPT:EG-KG.query.register-user-tables-alongside) so it registers as a
 //! DataFusion `TableProvider` ALONGSIDE the graph's `nodes`/`edges` tables — the
 //! unified-engine payoff: a single SELECT can JOIN a user table to the graph.
 //!
@@ -32,7 +32,7 @@ pub fn arrow_type(ty: ColumnType) -> DataType {
         ColumnType::Text | ColumnType::Json => DataType::Utf8,
         ColumnType::Bool => DataType::Boolean,
         ColumnType::Bytes => DataType::Binary,
-        // CONCEPT:EG-115 — a pgvector column materializes as `List<Float32>`; the exec
+        // CONCEPT:EG-KG.query.pgvector-binary-wire — a pgvector column materializes as `List<Float32>`; the exec
         // path's `pg_col_type` maps a Float32-element list to the wire vector type.
         ColumnType::Vector(_) => {
             DataType::List(Arc::new(Field::new("item", DataType::Float32, true)))
@@ -103,7 +103,7 @@ pub fn materialize(
                 }
                 Arc::new(b.finish())
             }
-            // CONCEPT:EG-115 — a vector column → a `List<Float32>` array (one list per row).
+            // CONCEPT:EG-KG.query.pgvector-binary-wire — a vector column → a `List<Float32>` array (one list per row).
             DataType::List(_) => {
                 let mut b = ListBuilder::new(Float32Builder::new());
                 for row in rows {

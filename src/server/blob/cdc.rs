@@ -1,4 +1,4 @@
-//! Content-defined chunking (CONCEPT:EG-071).
+//! Content-defined chunking (CONCEPT:EG-KG.storage.backward-manifest-read).
 //!
 //! A hand-written **Gear/FastCDC** rolling-hash chunker that replaces the fixed
 //! 2 MiB stride splitter. Boundaries are chosen by the BYTES, not by absolute
@@ -28,7 +28,7 @@
 //! No external dependency: the gear table is generated at compile time.
 
 /// 256-entry Gear table — one pseudo-random 64-bit value per byte value. Generated
-/// deterministically at compile time with splitmix64 (CONCEPT:EG-071): a fixed
+/// deterministically at compile time with splitmix64 (CONCEPT:EG-KG.storage.backward-manifest-read): a fixed
 /// table keeps chunk boundaries — and therefore blob/chunk digests — stable across
 /// builds and processes, which the content-addressed dedup relies on.
 const GEAR: [u64; 256] = build_gear_table();
@@ -61,7 +61,7 @@ pub const DEFAULT_AVG_SIZE: usize = 2 * 1024 * 1024;
 /// `avg_bits - NORMALIZATION` bits. 2 is the value the FastCDC paper recommends.
 const NORMALIZATION: u32 = 2;
 
-/// A content-defined chunker (CONCEPT:EG-071). Cheap to construct and `Copy`; holds
+/// A content-defined chunker (CONCEPT:EG-KG.storage.backward-manifest-read). Cheap to construct and `Copy`; holds
 /// only the size bounds and the two precomputed normalized masks.
 #[derive(Debug, Clone, Copy)]
 pub struct Chunker {
@@ -211,7 +211,7 @@ mod tests {
         assert_eq!(distinct.len(), 256, "all 256 gear entries distinct");
     }
 
-    /// (c) Every interior chunk respects the min/max bounds (CONCEPT:EG-071). Only
+    /// (c) Every interior chunk respects the min/max bounds (CONCEPT:EG-KG.storage.backward-manifest-read). Only
     /// the final chunk may fall below `min` (the remainder).
     #[test]
     fn chunk_sizes_respect_min_and_max_bounds() {
@@ -254,7 +254,7 @@ mod tests {
 
     /// (b) An early insertion shifts only the first chunk(s); the rolling hash
     /// re-synchronises and the vast majority of downstream boundaries — hence chunk
-    /// contents — are identical (CONCEPT:EG-071, shift-resistance). A fixed-stride
+    /// contents — are identical (CONCEPT:EG-KG.storage.backward-manifest-read, shift-resistance). A fixed-stride
     /// splitter would share almost nothing here.
     #[test]
     fn early_insertion_preserves_most_boundaries() {

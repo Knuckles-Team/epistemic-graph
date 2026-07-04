@@ -1,6 +1,6 @@
-//! A **durable, bulk-loaded STR (Sort-Tile-Recursive) R-tree** (CONCEPT:EG-263).
+//! A **durable, bulk-loaded STR (Sort-Tile-Recursive) R-tree** (CONCEPT:EG-KG.domains.spatial-strtree-index).
 //!
-//! [`crate::rtree`] gave the engine an in-memory packed *Hilbert* R-tree (CONCEPT:EG-083)
+//! [`crate::rtree`] gave the engine an in-memory packed *Hilbert* R-tree (CONCEPT:EG-KG.ontology.singles-concept)
 //! that answers `query_bbox` and is rebuilt per query. EG-263 adds a richer index that is:
 //!
 //! * **STR-packed** — the Guttman/Leutenegger *Sort-Tile-Recursive* bulk load: sort item
@@ -42,7 +42,7 @@ enum NodeKind {
     Internal(Vec<usize>),
 }
 
-/// A durable STR-packed R-tree over item bounding boxes (CONCEPT:EG-263). Build once from
+/// A durable STR-packed R-tree over item bounding boxes (CONCEPT:EG-KG.domains.spatial-strtree-index). Build once from
 /// `(item_id, Bbox)` pairs, persist via serde, query many times.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct StrTree {
@@ -60,7 +60,7 @@ impl StrTree {
     }
 
     /// Build with an explicit `node_size` (branching factor / leaf capacity, min 2)
-    /// (CONCEPT:EG-263). `item_id`s are returned verbatim by the query methods.
+    /// (CONCEPT:EG-KG.domains.spatial-strtree-index). `item_id`s are returned verbatim by the query methods.
     pub fn build_with_node_size(items: &[(usize, Bbox)], node_size: usize) -> StrTree {
         let node_size = node_size.max(2);
         let num_items = items.len();
@@ -130,7 +130,7 @@ impl StrTree {
         self.root.map(|r| self.nodes[r].bbox)
     }
 
-    /// **Range query** (CONCEPT:EG-263): the ids of every indexed item whose box intersects
+    /// **Range query** (CONCEPT:EG-KG.domains.spatial-strtree-index): the ids of every indexed item whose box intersects
     /// `query`. Descends only into nodes whose box intersects the query. Order unspecified.
     pub fn query_bbox(&self, query: &Bbox) -> Vec<usize> {
         let mut out = Vec::new();
@@ -157,7 +157,7 @@ impl StrTree {
         out
     }
 
-    /// **Containment query** (CONCEPT:EG-263): the ids of every indexed item whose box lies
+    /// **Containment query** (CONCEPT:EG-KG.domains.spatial-strtree-index): the ids of every indexed item whose box lies
     /// **fully inside** `window`. Prunes any subtree whose covering box does not intersect the
     /// window; a subtree entirely inside the window is fully harvested. Order unspecified.
     pub fn query_contained_in(&self, window: &Bbox) -> Vec<usize> {
@@ -185,7 +185,7 @@ impl StrTree {
         out
     }
 
-    /// **k-nearest-neighbour** (CONCEPT:EG-263): the up-to-`k` items whose box is closest to
+    /// **k-nearest-neighbour** (CONCEPT:EG-KG.domains.spatial-strtree-index): the up-to-`k` items whose box is closest to
     /// `point`, nearest first, each with its box `mindist` (0.0 when the point is inside the
     /// box). Best-first branch-and-bound over a min-heap keyed on box `mindist`, so whole
     /// subtrees prune once their nearest possible box is farther than the current k-th hit.
@@ -301,7 +301,7 @@ fn cover(boxes: impl Iterator<Item = Bbox>) -> Option<Bbox> {
 }
 
 /// The Sort-Tile-Recursive tiling of `entries` into groups of at most `node_size`
-/// (CONCEPT:EG-263): sort by box centre-x, cut into `√P` vertical slices, sort each slice by
+/// (CONCEPT:EG-KG.domains.spatial-strtree-index): sort by box centre-x, cut into `√P` vertical slices, sort each slice by
 /// centre-y, then chunk `node_size` per group. `key` extracts each entry's box.
 fn str_tile<T: Clone>(
     mut entries: Vec<T>,

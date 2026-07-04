@@ -1,4 +1,4 @@
-//! Generic namespaced Key→Value surface (CONCEPT:EG-022).
+//! Generic namespaced Key→Value surface (CONCEPT:EG-KG.storage.namespaced-kv-surface).
 //!
 //! A drop-in KV store layered over the SAME durable substrate the rest of the
 //! engine uses (redb). It is NOT graph-scoped — a KV pair is keyed by

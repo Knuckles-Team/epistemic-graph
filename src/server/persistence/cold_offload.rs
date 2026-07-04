@@ -1,4 +1,4 @@
-//! Cold-tenant whole-graph offload (CONCEPT:EG-034, M3).
+//! Cold-tenant whole-graph offload (CONCEPT:EG-KG.sharding.eg-r6, M3).
 //!
 //! ## What it solves
 //!
@@ -32,7 +32,7 @@ use tokio::sync::RwLock;
 use crate::graph::GraphCore;
 use crate::server::ServerState;
 
-/// Per-graph last-access tracker + offload bookkeeping (CONCEPT:EG-034). The engine calls
+/// Per-graph last-access tracker + offload bookkeeping (CONCEPT:EG-KG.sharding.eg-r6). The engine calls
 /// [`touch`](ColdTenantTracker::touch) on every read/write of a graph; the periodic
 /// [`offload_cold_tenants`] sweep reads it to pick idle graphs. Cheap relaxed atomics +
 /// one mutex-guarded map, off the per-op hot path (a `touch` is one map upsert).
@@ -98,7 +98,7 @@ impl ColdTenantTracker {
     }
 }
 
-/// Offload one resident graph's whole in-RAM state, durability-gated (CONCEPT:EG-034).
+/// Offload one resident graph's whole in-RAM state, durability-gated (CONCEPT:EG-KG.sharding.eg-r6).
 /// Returns the freed node count, or `None` when it was NOT safe to drop (durability could
 /// not be confirmed — the graph stays resident, no loss). Reuses [`GraphCore::hibernate`]
 /// (KG-2.224) so reads serve via the KG-2.191 read-through afterward.
@@ -119,7 +119,7 @@ pub fn offload_graph_core(core: &GraphCore, authoritative: bool) -> Option<usize
 }
 
 /// Sweep the registry and offload every graph idle longer than `idle_window`
-/// (CONCEPT:EG-034). Returns the number of graphs offloaded. The shared `__commons__`
+/// (CONCEPT:EG-KG.sharding.eg-r6). Returns the number of graphs offloaded. The shared `__commons__`
 /// graph is never offloaded (every agent needs it hot). No-op when `idle_window` is huge
 /// / nothing is cold. Pure-Rust; reuses the hibernate + read-through path, so it never
 /// loses data.

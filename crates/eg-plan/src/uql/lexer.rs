@@ -1,4 +1,4 @@
-//! UQL lexer (CONCEPT:KG-2.214) — a hand-written, dependency-free tokenizer.
+//! UQL lexer (CONCEPT:AU-KG.query.top-nodes-by-degree) — a hand-written, dependency-free tokenizer.
 //!
 //! Turns a UQL source string into a flat `Vec<Token>` with byte spans, so the
 //! recursive-descent [`super::parser`] never touches raw characters. Pure Rust, no

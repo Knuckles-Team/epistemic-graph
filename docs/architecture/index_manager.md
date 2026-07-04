@@ -1,4 +1,4 @@
-# Unified IndexManager (CONCEPT:KG-2.213)
+# Unified IndexManager (CONCEPT:AU-KG.retrieval.architecture-report)
 
 One registry/seam over the engine's secondary indexes, so a planner consults **one
 place** instead of knowing each index individually.
@@ -9,10 +9,10 @@ The engine's secondary indexes grew ad-hoc, each bolted onto `GraphCore`:
 
 | Index | Concept | Where it lives | Shape |
 |-------|---------|----------------|-------|
-| Lazy LABEL index (`label → ids`) | `CONCEPT:KG-2.176` | `eg-core/src/graph.rs` (`label_index` cell) | equality lookup |
-| Bounded PROPERTY equality index (`key → value → ids`) | `CONCEPT:KG-2.199` | `eg-core/src/graph.rs` (`property_index` cell) | equality lookup |
-| aho-corasick ontology term index | `CONCEPT:EG-010` | `eg-core/src/graph.rs` (`ontology_index` cell) | lexical scan |
-| Vector index (HNSW / eg-ann IVF-PQ) | `CONCEPT:KG-2.207` | `eg-core/src/compute/semantic.rs` (`SemanticStore`) | kNN |
+| Lazy LABEL index (`label → ids`) | `CONCEPT:EG-KG.compute.consult-lazy` | `eg-core/src/graph.rs` (`label_index` cell) | equality lookup |
+| Bounded PROPERTY equality index (`key → value → ids`) | `CONCEPT:EG-KG.query.concept-12` | `eg-core/src/graph.rs` (`property_index` cell) | equality lookup |
+| aho-corasick ontology term index | `CONCEPT:EG-ORCH.routing.lexical-capability-escalation` | `eg-core/src/graph.rs` (`ontology_index` cell) | lexical scan |
+| Vector index (HNSW / eg-ann IVF-PQ) | `CONCEPT:EG-KG.sharding.semantic-embedding-store-backed` | `eg-core/src/compute/semantic.rs` (`SemanticStore`) | kNN |
 
 All are lazy + `version()`/`mark_dirty`-invalidated, but there was **no single
 registry**: eg-query's pushdown and eg-plan's Filter leg each had to know the
@@ -56,7 +56,7 @@ batch (a different data shape than node ids), so it has its own registry —
 seam at the relational boundary. `NodesTableProvider::supports_filters_pushdown`
 and `::scan` consult **one** `PushdownRegistry` (`indexable_eq` /  `lookup`)
 instead of bespoke per-column checks scattered across provider methods. The
-bounded + demand-driven equality policy (`CONCEPT:KG-2.199`,
+bounded + demand-driven equality policy (`CONCEPT:EG-KG.query.concept-12`,
 `EPISTEMIC_GRAPH_INDEXED_PROPERTIES` / `EPISTEMIC_GRAPH_MAX_INDEXED_PROPERTIES`) is
 preserved exactly, and the predicates stay `Inexact` so DataFusion re-applies them
 — results are byte-identical to the full-scan path.
@@ -82,5 +82,5 @@ the registry generically, so they pick the new index up with no edit. A future
 stateful index whose cache lives in its own struct (not a `GraphCore` cell) clears
 it from `IndexManager::invalidate_all`, keeping invalidation a single seam.
 
-This increment leaves the text (`CONCEPT:KG-2.215`), spatial, and time
-(`CONCEPT:KG-2.210`) indexes **unbuilt** — it only opens the seam.
+This increment leaves the text (`CONCEPT:AU-KG.query.text-spatial-time`), spatial, and time
+(`CONCEPT:AU-KG.retrieval.god-nodes-communities`) indexes **unbuilt** — it only opens the seam.

@@ -1,4 +1,4 @@
-//! Scalar UDFs (CONCEPT:KG-2.178) that decode the raw `props: Binary` msgpack blob
+//! Scalar UDFs (CONCEPT:EG-KG.query.read-only-sql-query) that decode the raw `props: Binary` msgpack blob
 //! to reach a field the inferred schema widened (e.g. JSON-stringified) or dropped:
 //!   json_get(props, key)     -> Utf8   (string value, or JSON-stringified scalar)
 //!   json_get_f64(props, key) -> Float64
@@ -128,7 +128,7 @@ pub(crate) fn json_get_i64_udf() -> ScalarUDF {
     )
 }
 
-// ── epistemic_decay scalar UDF (CONCEPT:KG-2.184) ──────────────────────────
+// ── epistemic_decay scalar UDF (CONCEPT:EG-KG.query.version-keyed-cache) ──────────────────────────
 
 /// Ebbinghaus 30-day-half-life confidence decay, lifted from the engine's
 /// `weight_semantic_results` (`src/server/compute.rs` ~line 44) so SQL projections
@@ -185,9 +185,9 @@ pub(crate) fn epistemic_decay_udf() -> ScalarUDF {
     )
 }
 
-// ── pgvector distance UDFs (CONCEPT:EG-115) ─────────────────────────────────
+// ── pgvector distance UDFs (CONCEPT:EG-KG.query.pgvector-binary-wire) ─────────────────────────────────
 
-/// Extract row `row` of `array` as a dense `Vec<f32>` (CONCEPT:EG-115), accepting the
+/// Extract row `row` of `array` as a dense `Vec<f32>` (CONCEPT:EG-KG.query.pgvector-binary-wire), accepting the
 /// forms a vector argument arrives in: a `List`/`FixedSizeList` of `Float32`/`Float64`
 /// (a stored vector column, materialized as `List<Float32>`), or a `Utf8` pgvector text
 /// literal `[1,2,3]` (an `ORDER BY emb <-> '[1,2,3]'` query literal). Returns `None` for
@@ -281,7 +281,7 @@ fn dist_neg_ip(a: &[f32], b: &[f32]) -> Option<f64> {
     )
 }
 
-/// A pgvector distance scalar UDF (CONCEPT:EG-115): `fn(vector, vector) -> Float64`.
+/// A pgvector distance scalar UDF (CONCEPT:EG-KG.query.pgvector-binary-wire): `fn(vector, vector) -> Float64`.
 /// The signature accepts ANY two argument types (`Signature::any(2)`) so it takes both
 /// a stored `List<Float32>` column AND a `Utf8` query literal (`'[1,2,3]'`) in either
 /// position; each row's operands are decoded by [`row_to_vector`] and reduced by
@@ -337,22 +337,22 @@ fn vector_distance_udf(name: &'static str, kernel: fn(&[f32], &[f32]) -> Option<
     })
 }
 
-/// `vector_l2(a, b)` — L2 distance, the `<->` operator (CONCEPT:EG-115).
+/// `vector_l2(a, b)` — L2 distance, the `<->` operator (CONCEPT:EG-KG.query.pgvector-binary-wire).
 pub(crate) fn vector_l2_udf() -> ScalarUDF {
     vector_distance_udf("vector_l2", dist_l2)
 }
 
-/// `vector_cosine(a, b)` — cosine distance, the `<=>` operator (CONCEPT:EG-115).
+/// `vector_cosine(a, b)` — cosine distance, the `<=>` operator (CONCEPT:EG-KG.query.pgvector-binary-wire).
 pub(crate) fn vector_cosine_udf() -> ScalarUDF {
     vector_distance_udf("vector_cosine", dist_cosine)
 }
 
-/// `vector_ip(a, b)` — negative inner product, the `<#>` operator (CONCEPT:EG-115).
+/// `vector_ip(a, b)` — negative inner product, the `<#>` operator (CONCEPT:EG-KG.query.pgvector-binary-wire).
 pub(crate) fn vector_ip_udf() -> ScalarUDF {
     vector_distance_udf("vector_ip", dist_neg_ip)
 }
 
-// ── TimescaleDB time_bucket (CONCEPT:EG-117) ────────────────────────────────
+// ── TimescaleDB time_bucket (CONCEPT:EG-KG.query.continuous-aggregate-lowering) ────────────────────────────────
 
 /// Parse a Postgres interval spelling (`'1 hour'`, `'30 minutes'`, `'15 min'`,
 /// `'1 day'`, `'2 weeks'`, `'10 s'`) OR a bare integer to a width in SECONDS. `None`
@@ -457,7 +457,7 @@ fn row_to_string(array: &dyn Array, row: usize) -> Option<String> {
     }
 }
 
-/// `time_bucket(width, ts) -> Int64` (CONCEPT:EG-117) — floor `ts` (epoch seconds) to
+/// `time_bucket(width, ts) -> Int64` (CONCEPT:EG-KG.query.continuous-aggregate-lowering) — floor `ts` (epoch seconds) to
 /// the start of its `width`-wide bucket, the TimescaleDB time-bucket label. `width` is
 /// a Postgres interval string (`'1 hour'`) or an integer number of seconds; `ts` is an
 /// Int64/Float64 epoch or a Timestamp. NULL on an un-parseable width or a NULL ts —
@@ -512,9 +512,9 @@ pub(crate) fn time_bucket_udf() -> ScalarUDF {
     })
 }
 
-// ── ParadeDB BM25 UDFs (CONCEPT:EG-119) ─────────────────────────────────────
+// ── ParadeDB BM25 UDFs (CONCEPT:EG-KG.query.paradedb-bm25) ─────────────────────────────────────
 
-/// `bm25_match(col, query) -> Boolean` (CONCEPT:EG-119) — the desugaring target of the
+/// `bm25_match(col, query) -> Boolean` (CONCEPT:EG-KG.query.paradedb-bm25) — the desugaring target of the
 /// ParadeDB `col @@@ 'query'` operator. A lexical term-contains filter (case-insensitive
 /// whitespace tokens) so a `WHERE col @@@ 'q'` query runs directly through DataFusion;
 /// the full BM25-ranked pushdown onto eg-text's Tantivy index is the server-side
@@ -565,7 +565,7 @@ pub(crate) fn bm25_match_udf() -> ScalarUDF {
 }
 
 /// `bm25_score(…) -> Float64` — the desugaring target of `paradedb.score(...)`
-/// (CONCEPT:EG-119), now backed by REAL BM25 relevance (CONCEPT:EG-311).
+/// (CONCEPT:EG-KG.query.paradedb-bm25), now backed by REAL BM25 relevance (CONCEPT:EG-KG.query.bm25-ranking-snippets).
 ///
 /// A per-row DataFusion scalar UDF only sees its own arguments — so which call form it
 /// receives decides whether it can rank:
@@ -635,7 +635,7 @@ pub(crate) fn bm25_score_udf() -> ScalarUDF {
 }
 
 /// `bm25_snippet(…) -> Utf8` — the desugaring target of `paradedb.snippet(...)`
-/// (CONCEPT:EG-119), now producing a REAL highlighted fragment (CONCEPT:EG-311).
+/// (CONCEPT:EG-KG.query.paradedb-bm25), now producing a REAL highlighted fragment (CONCEPT:EG-KG.query.bm25-ranking-snippets).
 ///
 /// Like `bm25_score`, the call form decides what it can do:
 ///   * `bm25_snippet(doc_text, 'query' [, maxlen])` ⇒ a real `<b>…</b>`-highlighted
@@ -711,9 +711,9 @@ pub(crate) fn bm25_snippet_udf() -> ScalarUDF {
     })
 }
 
-// ── greatest / least (CONCEPT:EG-104) ───────────────────────────────────────
+// ── greatest / least (CONCEPT:EG-KG.query.greatest-least-int4range-tsrange) ───────────────────────────────────────
 
-/// The common result type for a `greatest`/`least` call (CONCEPT:EG-104): `Int64` when
+/// The common result type for a `greatest`/`least` call (CONCEPT:EG-KG.query.greatest-least-int4range-tsrange): `Int64` when
 /// every non-NULL argument is an integer, `Float64` when any is floating, else `Utf8`
 /// (strings / mixed) — mirroring Postgres' "resolve to a common type" rule with a small
 /// bounded lattice. NULL-typed arguments (a bare `NULL` literal) are neutral.
@@ -747,7 +747,7 @@ fn unify_minmax(types: &[DataType]) -> DataType {
     }
 }
 
-/// `greatest(...)` / `least(...)` variadic scalar UDFs (CONCEPT:EG-104) — DataFusion 43
+/// `greatest(...)` / `least(...)` variadic scalar UDFs (CONCEPT:EG-KG.query.greatest-least-int4range-tsrange) — DataFusion 43
 /// ships neither. Each argument column is cast to the unified result type
 /// ([`unify_minmax`]) and reduced row-wise, IGNORING NULLs (Postgres semantics: the
 /// result is NULL only when EVERY argument is NULL in that row). `is_greatest` picks max
@@ -853,20 +853,20 @@ fn minmax_udf(name: &'static str, is_greatest: bool) -> ScalarUDF {
     })
 }
 
-/// `greatest(...)` — the row-wise maximum, ignoring NULLs (CONCEPT:EG-104).
+/// `greatest(...)` — the row-wise maximum, ignoring NULLs (CONCEPT:EG-KG.query.greatest-least-int4range-tsrange).
 pub(crate) fn greatest_udf() -> ScalarUDF {
     minmax_udf("greatest", true)
 }
 
-/// `least(...)` — the row-wise minimum, ignoring NULLs (CONCEPT:EG-104).
+/// `least(...)` — the row-wise minimum, ignoring NULLs (CONCEPT:EG-KG.query.greatest-least-int4range-tsrange).
 pub(crate) fn least_udf() -> ScalarUDF {
     minmax_udf("least", false)
 }
 
-// ── PostgreSQL range types (CONCEPT:EG-104) ─────────────────────────────────
+// ── PostgreSQL range types (CONCEPT:EG-KG.query.greatest-least-int4range-tsrange) ─────────────────────────────────
 
 /// A range normalized to a discrete half-open integer interval `[start, end)`
-/// (CONCEPT:EG-104). Postgres' full range-type fidelity (a dedicated type OID, discrete
+/// (CONCEPT:EG-KG.query.greatest-least-int4range-tsrange). Postgres' full range-type fidelity (a dedicated type OID, discrete
 /// canonicalization, float/`numeric` element ranges, and multiranges) is heavier than
 /// DataFusion's type system supports, so EG-104 models a range PRAGMATICALLY as its
 /// canonical Postgres TEXT form `[lo,hi)` and reduces it to a discrete i64 half-open
@@ -912,7 +912,7 @@ impl HalfOpen {
 }
 
 /// Parse a Postgres range text form (`[1,5)`, `(0,10]`, `[10,)`, `empty`) into the
-/// discrete half-open interval (CONCEPT:EG-104). `None` when the text isn't a range —
+/// discrete half-open interval (CONCEPT:EG-KG.query.greatest-least-int4range-tsrange). `None` when the text isn't a range —
 /// the predicate UDFs then yield NULL (the "never error" discipline). Bounds are parsed
 /// as i64; an omitted bound is ±∞.
 fn parse_range(s: &str) -> Option<HalfOpen> {
@@ -974,7 +974,7 @@ fn row_to_i64(array: &dyn Array, row: usize) -> Option<i64> {
     row_to_epoch_secs(array, row).or_else(|| row_to_string(array, row)?.trim().parse::<i64>().ok())
 }
 
-/// `int4range(lo, hi[, bounds]) -> Utf8` (CONCEPT:EG-104) — the Postgres integer-range
+/// `int4range(lo, hi[, bounds]) -> Utf8` (CONCEPT:EG-KG.query.greatest-least-int4range-tsrange) — the Postgres integer-range
 /// constructor. Emits the canonical text `[lo,hi)` (2-arg default `'[)'`); the optional
 /// 3rd argument is a bounds spelling (`'[]'`, `'[)'`, `'(]'`, `'()'`). An omitted/NULL
 /// bound is rendered as unbounded (`[lo,)`). NULL when both bounds are NULL.
@@ -982,7 +982,7 @@ pub(crate) fn int4range_udf() -> ScalarUDF {
     range_ctor_udf("int4range")
 }
 
-/// `tsrange(lo, hi[, bounds]) -> Utf8` (CONCEPT:EG-104) — the Postgres timestamp-range
+/// `tsrange(lo, hi[, bounds]) -> Utf8` (CONCEPT:EG-KG.query.greatest-least-int4range-tsrange) — the Postgres timestamp-range
 /// constructor. Bounds are coerced to whole epoch-seconds (see [`HalfOpen`] limitation)
 /// and rendered as the canonical text `[lo,hi)`, so `tsrange` and `int4range` share the
 /// same predicate UDFs.
@@ -1056,7 +1056,7 @@ fn range_ctor_udf(name: &'static str) -> ScalarUDF {
     })
 }
 
-/// `range_contains(range, value) -> Boolean` (CONCEPT:EG-104) — the range `@>` element
+/// `range_contains(range, value) -> Boolean` (CONCEPT:EG-KG.query.greatest-least-int4range-tsrange) — the range `@>` element
 /// test: is the point `value` inside the range text `range`? NULL operands ⇒ NULL.
 pub(crate) fn range_contains_udf() -> ScalarUDF {
     use arrow::array::BooleanArray;
@@ -1103,7 +1103,7 @@ pub(crate) fn range_contains_udf() -> ScalarUDF {
     })
 }
 
-/// A binary range→range predicate UDF (CONCEPT:EG-104): `(range, range) -> Boolean`.
+/// A binary range→range predicate UDF (CONCEPT:EG-KG.query.greatest-least-int4range-tsrange): `(range, range) -> Boolean`.
 /// Backs `range_overlaps` (`&&`), `range_contains_range` (`@>`), and `range_contained_by`
 /// (`<@`) — each parses both text operands and applies `kernel`. NULL operands ⇒ NULL.
 fn range_pred_udf(name: &'static str, kernel: fn(&HalfOpen, &HalfOpen) -> bool) -> ScalarUDF {
@@ -1156,24 +1156,24 @@ fn range_pred_udf(name: &'static str, kernel: fn(&HalfOpen, &HalfOpen) -> bool) 
     })
 }
 
-/// `range_overlaps(a, b) -> Boolean` (CONCEPT:EG-104) — the range `&&` overlap test.
+/// `range_overlaps(a, b) -> Boolean` (CONCEPT:EG-KG.query.greatest-least-int4range-tsrange) — the range `&&` overlap test.
 pub(crate) fn range_overlaps_udf() -> ScalarUDF {
     range_pred_udf("range_overlaps", |a, b| a.overlaps(b))
 }
 
-/// `range_contains_range(a, b) -> Boolean` (CONCEPT:EG-104) — the range `@>` test
+/// `range_contains_range(a, b) -> Boolean` (CONCEPT:EG-KG.query.greatest-least-int4range-tsrange) — the range `@>` test
 /// (`a` covers all of `b`).
 pub(crate) fn range_contains_range_udf() -> ScalarUDF {
     range_pred_udf("range_contains_range", |a, b| a.contains_range(b))
 }
 
-/// `range_contained_by(a, b) -> Boolean` (CONCEPT:EG-104) — the range `<@` test
+/// `range_contained_by(a, b) -> Boolean` (CONCEPT:EG-KG.query.greatest-least-int4range-tsrange) — the range `<@` test
 /// (`a` is covered by `b`).
 pub(crate) fn range_contained_by_udf() -> ScalarUDF {
     range_pred_udf("range_contained_by", |a, b| b.contains_range(a))
 }
 
-// ── finance aggregate UDFs (CONCEPT:KG-2.184, feature `finance`) ────────────
+// ── finance aggregate UDFs (CONCEPT:EG-KG.query.version-keyed-cache, feature `finance`) ────────────
 
 /// `var(returns) -> Float64` and `cvar(returns) -> Float64` aggregate UDFs over a
 /// Float64 returns column, delegating the kernel to `eg_compute::finance::risk`.

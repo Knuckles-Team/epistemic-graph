@@ -1,4 +1,4 @@
-//! W1 — Native RDF ⇄ property-graph mapping over `GraphCore` (CONCEPT:KG-2.217).
+//! W1 — Native RDF ⇄ property-graph mapping over `GraphCore` (CONCEPT:EG-KG.ontology.kg-native-rdf-sparql).
 //!
 //! THE MAPPING (verbatim — faithful for the common shape; the one lossy edge is
 //! handled by the opt-in [`crate::quads`] redb table):
@@ -122,7 +122,7 @@ fn term_node_id(t: &Term) -> Option<String> {
 }
 
 /// Register the `:NamedGraph` marker node-shape that links this RDF dataset to its
-/// registry graph (CONCEPT:KG-2.217). Idempotent — re-loading the same graph leaves
+/// registry graph (CONCEPT:EG-KG.ontology.kg-native-rdf-sparql). Idempotent — re-loading the same graph leaves
 /// one marker. `graph_name` is the registry key (the named-graph IRI/name).
 pub fn register_named_graph(core: &GraphCore, graph_name: &str) {
     let id = format!("__named_graph__:{graph_name}");
@@ -175,7 +175,7 @@ pub fn load_triples(
                     entry.insert(pred, literal_to_cell(lit));
                 }
             }
-            // RDF-star (CONCEPT:EG-130): quoted-triple objects are NOT persisted through
+            // RDF-star (CONCEPT:EG-KG.ontology.concept-5): quoted-triple objects are NOT persisted through
             // the LPG node/edge store in this increment (documented follow-up). They
             // round-trip natively via the parse/serialize path; skip here rather than
             // fabricate a node/edge that export could not reverse.
@@ -379,7 +379,7 @@ pub fn to_ntriples(triples: &[Triple]) -> Result<String, String> {
     String::from_utf8(buf).map_err(|e| format!("nt utf8: {e}"))
 }
 
-/// Serialize triples to a Turtle string (CONCEPT:EG-050 — the `text/turtle` content-
+/// Serialize triples to a Turtle string (CONCEPT:EG-KG.ontology.content-negotiation-serializers — the `text/turtle` content-
 /// negotiation form for CONSTRUCT/DESCRIBE). Mirrors [`to_ntriples`] but uses the oxttl
 /// `TurtleSerializer`, which abbreviates predicate/object lists into compact Turtle.
 pub fn to_turtle(triples: &[Triple]) -> Result<String, String> {
@@ -400,7 +400,7 @@ pub fn to_turtle(triples: &[Triple]) -> Result<String, String> {
 // serializers already in the `rdf` feature (pure Rust, in pi — not a heavy dep). RDF/XML
 // and JSON-LD 1.1 add the pure-Rust `oxrdfxml`/`oxjsonld` crates behind their own
 // features (`rdf-xml`/`json-ld`), kept OUT of pi. These are the graph-result forms wired
-// into the `/sparql` content-negotiation seam (CONCEPT:EG-050) for CONSTRUCT/DESCRIBE.
+// into the `/sparql` content-negotiation seam (CONCEPT:EG-KG.ontology.content-negotiation-serializers) for CONSTRUCT/DESCRIBE.
 
 /// Lift a triple into a quad in the named `graph` (or the default graph when `None`).
 fn triple_to_quad(t: &Triple, graph: Option<&str>) -> Result<Quad, String> {
@@ -460,7 +460,7 @@ pub fn parse_trig(doc: &str) -> Result<Vec<Quad>, String> {
     Ok(out)
 }
 
-/// Serialize triples to RDF/XML (CONCEPT:EG-131, feature `rdf-xml`).
+/// Serialize triples to RDF/XML (CONCEPT:EG-KG.ontology.feature, feature `rdf-xml`).
 #[cfg(feature = "rdf-xml")]
 pub fn to_rdfxml(triples: &[Triple]) -> Result<String, String> {
     use oxrdfxml::RdfXmlSerializer;
@@ -485,7 +485,7 @@ pub fn parse_rdfxml(doc: &str) -> Result<Vec<Triple>, String> {
     Ok(out)
 }
 
-/// Serialize triples to JSON-LD 1.1 (CONCEPT:EG-131, feature `json-ld`). Expansion form;
+/// Serialize triples to JSON-LD 1.1 (CONCEPT:EG-KG.ontology.feature, feature `json-ld`). Expansion form;
 /// context compaction/framing are a documented follow-up.
 #[cfg(feature = "json-ld")]
 pub fn to_jsonld(triples: &[Triple], graph: Option<&str>) -> Result<String, String> {
@@ -513,7 +513,7 @@ pub fn parse_jsonld(doc: &str) -> Result<Vec<Quad>, String> {
 
 // ── EG-137: named-graph-aware `from_*` reader surface ────────────────────────────
 //
-// CONCEPT:EG-137 completes the RDF 1.1 concrete-syntax matrix — TriG + N-Quads (quad,
+// CONCEPT:EG-KG.ontology.completes-rdf-concrete-syntax completes the RDF 1.1 concrete-syntax matrix — TriG + N-Quads (quad,
 // named-graph-aware) and RDF/XML — alongside Turtle/N-Triples (EG-050). The writers
 // (`to_trig`/`to_nquads`/`to_rdfxml`) sit above; these `from_*` readers give the matrix
 // a first-class, uniformly-named reader surface (delegating to the same oxttl/oxrdfxml
@@ -577,7 +577,7 @@ fn canonical_term(t: &Term) -> String {
             }
             format!("{parts:?}")
         }
-        // RDF-star (CONCEPT:EG-130): a quoted-triple object contributes a canonical,
+        // RDF-star (CONCEPT:EG-KG.ontology.concept-5): a quoted-triple object contributes a canonical,
         // recursively-normalized `<<s p o>>` key so the round-trip set comparison is
         // meaningful (not collapsed to a placeholder).
         #[cfg(feature = "sparql-star")]

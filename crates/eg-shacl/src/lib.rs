@@ -1,4 +1,4 @@
-//! eg-shacl — a pure-Rust **SHACL Core** validation engine (CONCEPT:EG-132).
+//! eg-shacl — a pure-Rust **SHACL Core** validation engine (CONCEPT:EG-KG.ontology.concept-6).
 //!
 //! Validates an RDF **data graph** against an RDF **shapes graph** — both the
 //! `eg_rdf::oxrdf::Graph` term/graph model this crate reuses (so it sits ABOVE eg-rdf in
@@ -22,7 +22,7 @@
 //! Pi contract: pure Rust, no C/native dep. `sh:sparql` constraints are parsed to a
 //! deferred marker but NOT evaluated (a documented follow-up — see [`shapes::Constraint`]).
 //!
-//! The [`icv`] module layers **Integrity Constraint Validation** (CONCEPT:EG-146) on
+//! The [`icv`] module layers **Integrity Constraint Validation** (CONCEPT:EG-KG.ontology.wired-into-commit-write) on
 //! top: the same shapes read as Stardog-style **closed-world** DB integrity constraints
 //! ([`validate_icv`]), with a SPARQL **explain witness** per violation and a
 //! [`check_write`] guard for constraint-enforced transactions.

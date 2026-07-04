@@ -1,4 +1,4 @@
-//! SHACL / RDF / XSD IRI constants (CONCEPT:EG-132).
+//! SHACL / RDF / XSD IRI constants (CONCEPT:EG-KG.ontology.concept-6).
 //!
 //! Plain `&str` IRIs; the parser wraps them in `oxrdf::NamedNodeRef` on demand. Keeping
 //! them as bare strings (not `NamedNode`) means the vocab table allocates nothing.

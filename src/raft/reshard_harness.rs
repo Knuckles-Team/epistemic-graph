@@ -1,4 +1,4 @@
-//! Online-resharding + tenant-hibernation gauntlet (CONCEPT:KG-2.224).
+//! Online-resharding + tenant-hibernation gauntlet (CONCEPT:EG-KG.storage.100m-tenant).
 //!
 //! Spins a live one-node, two-group cluster over a shared `graph.redb` (the SAME
 //! machinery the cross-shard harness uses) and proves the two elastic-tenant

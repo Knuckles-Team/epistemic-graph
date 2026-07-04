@@ -1,5 +1,5 @@
 //! End-to-end tests for PL/pgSQL procedural functions — `CREATE FUNCTION … LANGUAGE
-//! plpgsql` (CONCEPT:EG-340 / EG-341). Exercises the FULL path a `psql`/ORM client
+//! plpgsql` (CONCEPT:EG-KG.query.eg-validate-procedural-body / EG-341). Exercises the FULL path a `psql`/ORM client
 //! drives: `classify` the DDL, persist the function in the redb [`TableStore`] function
 //! catalog, then call it with a bare `SELECT fn(args)` / `CALL proc(args)` through
 //! `exec_sql_typed_with_tables`, which detects the plpgsql function and runs the
@@ -56,7 +56,7 @@ fn graph_with_agents() -> GraphView {
     core.analysis_snapshot()
 }
 
-/// The headline test: a FOR loop accumulating a sum + an IF branch (CONCEPT:EG-341).
+/// The headline test: a FOR loop accumulating a sum + an IF branch (CONCEPT:EG-KG.query.concept-7).
 #[test]
 fn plpgsql_for_loop_sum_with_if_branch_eg341() {
     let (store, _p) = TableStore::open_temp().unwrap();
@@ -87,7 +87,7 @@ fn plpgsql_for_loop_sum_with_if_branch_eg341() {
     assert_eq!(res.rows[0][0], json!(-1));
 }
 
-/// `SELECT … INTO var` binds an embedded query result to a variable (CONCEPT:EG-341).
+/// `SELECT … INTO var` binds an embedded query result to a variable (CONCEPT:EG-KG.query.concept-7).
 #[test]
 fn plpgsql_select_into_from_graph_eg341() {
     let (store, _p) = TableStore::open_temp().unwrap();
@@ -110,7 +110,7 @@ fn plpgsql_select_into_from_graph_eg341() {
     assert_eq!(res.rows[0][0], json!(3));
 }
 
-/// WHILE loop + assignment computing a factorial (CONCEPT:EG-341).
+/// WHILE loop + assignment computing a factorial (CONCEPT:EG-KG.query.concept-7).
 #[test]
 fn plpgsql_while_loop_factorial_eg341() {
     let (store, _p) = TableStore::open_temp().unwrap();
@@ -138,7 +138,7 @@ fn plpgsql_while_loop_factorial_eg341() {
     );
 }
 
-/// A `LOOP … EXIT WHEN …` with ELSIF ladder (CONCEPT:EG-341).
+/// A `LOOP … EXIT WHEN …` with ELSIF ladder (CONCEPT:EG-KG.query.concept-7).
 #[test]
 fn plpgsql_loop_exit_when_and_elsif_eg341() {
     let (store, _p) = TableStore::open_temp().unwrap();
@@ -184,7 +184,7 @@ fn plpgsql_loop_exit_when_and_elsif_eg341() {
 
 /// `CALL proc(args)` executes the body (returns no rows). Correctness of the control flow
 /// is asserted via a `RAISE EXCEPTION` that fires only on a wrong intermediate sum
-/// (CONCEPT:EG-340). A clean `Ok` proves the FOR loop computed the expected value.
+/// (CONCEPT:EG-KG.query.eg-validate-procedural-body). A clean `Ok` proves the FOR loop computed the expected value.
 #[test]
 fn plpgsql_call_procedure_runs_body_eg340() {
     let (store, _p) = TableStore::open_temp().unwrap();
@@ -221,7 +221,7 @@ fn plpgsql_call_procedure_runs_body_eg340() {
     assert!(err.contains("boom"), "unexpected error: {err}");
 }
 
-/// A plpgsql function persists across a store reopen and still runs (CONCEPT:EG-340).
+/// A plpgsql function persists across a store reopen and still runs (CONCEPT:EG-KG.query.eg-validate-procedural-body).
 #[test]
 fn plpgsql_function_persists_across_reopen_eg340() {
     let (store, path) = TableStore::open_temp().unwrap();

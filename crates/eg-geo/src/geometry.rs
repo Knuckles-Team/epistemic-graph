@@ -1,12 +1,12 @@
 //! The geometry value model: single geometries `Point` / `LineString` / `Polygon`
-//! (CONCEPT:EG-083) plus the **full OGC collection model** `MultiPoint` /
+//! (CONCEPT:EG-KG.ontology.singles-concept) plus the **full OGC collection model** `MultiPoint` /
 //! `MultiLineString` / `MultiPolygon` / `GeometryCollection` and polygon **interior
-//! rings (holes)** (CONCEPT:EG-257), all behind one [`Geometry`] enum, each with an
+//! rings (holes)** (CONCEPT:EG-KG.domains.geometry-collections), all behind one [`Geometry`] enum, each with an
 //! axis-aligned bounding box ([`Bbox`]).
 //!
 //! Coordinates are planar `f64` `(x, y)` (longitude/latitude or a projected plane —
 //! the predicates in [`crate::predicates`] are Euclidean/planar; the geodesic metrics
-//! in [`crate::geodesic`] (CONCEPT:EG-256) treat `x = lon`, `y = lat` in degrees).
+//! in [`crate::geodesic`] (CONCEPT:EG-KG.ontology.concept-8) treat `x = lon`, `y = lat` in degrees).
 //! Every type derives serde so a `Geometry` persists as a typed value in the engine's
 //! redb per-graph store.
 
@@ -50,7 +50,7 @@ impl LineString {
 }
 
 /// A polygon defined by an exterior ring (a closed [`LineString`]) plus zero or more
-/// **interior rings (holes)** (CONCEPT:EG-257). Backward-compatible: [`Polygon::new`]
+/// **interior rings (holes)** (CONCEPT:EG-KG.domains.geometry-collections). Backward-compatible: [`Polygon::new`]
 /// still takes only the exterior (holes default empty); [`Polygon::with_interiors`]
 /// adds holes.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -73,7 +73,7 @@ impl Polygon {
         }
     }
 
-    /// A polygon with an exterior ring and interior rings (holes) (CONCEPT:EG-257).
+    /// A polygon with an exterior ring and interior rings (holes) (CONCEPT:EG-KG.domains.geometry-collections).
     pub fn with_interiors(exterior: LineString, interiors: Vec<LineString>) -> Self {
         Self {
             exterior,
@@ -81,7 +81,7 @@ impl Polygon {
         }
     }
 
-    /// Ray-casting point-in-polygon (even-odd rule), hole-aware (CONCEPT:EG-257): a
+    /// Ray-casting point-in-polygon (even-odd rule), hole-aware (CONCEPT:EG-KG.domains.geometry-collections): a
     /// point is inside iff it is inside the exterior ring AND not strictly inside any
     /// interior ring. Points exactly on the exterior boundary — or on a hole boundary —
     /// are treated as inside (boundary-inclusive), matching the OGC `within`/`contains`
@@ -102,7 +102,7 @@ impl Polygon {
 }
 
 /// One spatial value: a single geometry, a homogeneous multi-geometry, or a mixed
-/// collection (CONCEPT:EG-083 for the singles, CONCEPT:EG-257 for the collections).
+/// collection (CONCEPT:EG-KG.ontology.singles-concept for the singles, CONCEPT:EG-KG.domains.geometry-collections for the collections).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Geometry {
     Point(Point),
@@ -124,7 +124,7 @@ pub(crate) enum Prim<'a> {
 
 impl Geometry {
     /// The axis-aligned bounding box of this geometry (`None` for an empty geometry).
-    /// A multi/collection's bbox is the union of its parts' boxes (CONCEPT:EG-257).
+    /// A multi/collection's bbox is the union of its parts' boxes (CONCEPT:EG-KG.domains.geometry-collections).
     pub fn bbox(&self) -> Option<Bbox> {
         match self {
             Geometry::Point(p) => Bbox::of_points(std::slice::from_ref(p)),
@@ -164,7 +164,7 @@ impl Geometry {
     }
 
     /// Flatten this geometry into its atomic single primitives (recursing through multis
-    /// and collections), appending borrowed refs to `out` (CONCEPT:EG-257).
+    /// and collections), appending borrowed refs to `out` (CONCEPT:EG-KG.domains.geometry-collections).
     pub(crate) fn primitives<'a>(&'a self, out: &mut Vec<Prim<'a>>) {
         match self {
             Geometry::Point(p) => out.push(Prim::Point(p)),
@@ -371,7 +371,7 @@ mod tests {
 
     #[test]
     fn point_in_polygon_with_hole() {
-        // 10×10 square with a 4×4 hole in the middle (CONCEPT:EG-257).
+        // 10×10 square with a 4×4 hole in the middle (CONCEPT:EG-KG.domains.geometry-collections).
         let exterior = LineString::new(vec![
             Point::new(0.0, 0.0),
             Point::new(10.0, 0.0),

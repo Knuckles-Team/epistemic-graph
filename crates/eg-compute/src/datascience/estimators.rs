@@ -1,4 +1,4 @@
-// CONCEPT:KG-2.22b — Rust-Native ML Estimators (sklearn hard-cut)
+// CONCEPT:EG-KG.compute.rust-native-ml-estimators — Rust-Native ML Estimators (sklearn hard-cut)
 //
 // Regression estimators implemented in pure Rust to replace scikit-learn on the
 // data-science-mcp hot path: Ridge / Lasso / ElasticNet (linear family),

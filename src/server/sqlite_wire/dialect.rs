@@ -1,4 +1,4 @@
-//! SQLite-dialect → engine-dialect translation (CONCEPT:EG-075).
+//! SQLite-dialect → engine-dialect translation (CONCEPT:EG-KG.query.concept-3).
 //!
 //! SQLite has NO client/server wire protocol (it is an embedded library + a file
 //! format), so "SQLite-compatible" here means: accept a statement written in the
@@ -37,7 +37,7 @@ pub enum Translated {
 }
 
 /// Translate a SQLite-dialect statement into either a no-op or engine-dialect SQL
-/// (CONCEPT:EG-075). See the module header for the exact rules.
+/// (CONCEPT:EG-KG.query.concept-3). See the module header for the exact rules.
 pub fn translate_sqlite_sql(sql: &str) -> Translated {
     let trimmed = sql.trim();
     // `PRAGMA …` (with or without a trailing `;`) → a no-op the surface acks directly.

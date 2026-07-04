@@ -1,4 +1,4 @@
-//! Pure-compute data-science ops (CONCEPT:KG-2.22): sklearn-parity estimators,
+//! Pure-compute data-science ops (CONCEPT:EG-KG.compute.rust-native-training-loss): sklearn-parity estimators,
 //! primitives, and training kernels. Stateless — no graph core, runs inline.
 
 // See finance.rs: the Result router moves the large `Method` enum by value on the
@@ -8,10 +8,10 @@
 use crate::protocol::{Method, Response, ResultPayload};
 
 /// Handle a `Ds*` method. `Err(method)` hands a non-datascience method back to the
-/// dispatcher (routing fall-through). (CONCEPT:KG-2.19 — server dispatch convention)
+/// dispatcher (routing fall-through). (CONCEPT:EG-KG.query.dispatch-convention — server dispatch convention)
 pub(crate) fn try_handle(req_id: u64, method: Method) -> Result<Response, Method> {
     let resp = match method {
-        // ── Data Science Primitives (CONCEPT:KG-2.22) ─────────────────
+        // ── Data Science Primitives (CONCEPT:EG-KG.compute.rust-native-training-loss) ─────────────────
         Method::DsLinearRegression { x, y } => {
             let result = crate::datascience::primitives::linear_regression(&x, &y);
             Response::ok(req_id, ResultPayload::Json(serde_json::json!(result)))
@@ -63,7 +63,7 @@ pub(crate) fn try_handle(req_id: u64, method: Method) -> Result<Response, Method
             Response::ok(req_id, ResultPayload::Json(serde_json::json!(preds)))
         }
 
-        // ── Training loss / optimizer kernels (CONCEPT:KG-2.22) ────────
+        // ── Training loss / optimizer kernels (CONCEPT:EG-KG.compute.rust-native-training-loss) ────────
         Method::DsSoftmax {
             logits,
             temperature,

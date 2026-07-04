@@ -1,4 +1,4 @@
-//! S3 / MinIO content-addressed chunk backend (CONCEPT:KG-2.206) — feature `blob-s3`.
+//! S3 / MinIO content-addressed chunk backend (CONCEPT:EG-KG.storage.blob-namespace) — feature `blob-s3`.
 //!
 //! The fleet/billions-scale answer behind the SAME [`ChunkStore`] trait: chunk
 //! bytes go to an object store (native multipart, lifecycle, replication, erasure

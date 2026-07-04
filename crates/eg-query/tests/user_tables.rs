@@ -1,4 +1,4 @@
-//! End-to-end tests for arbitrary user-defined relational tables (CONCEPT:EG-018):
+//! End-to-end tests for arbitrary user-defined relational tables (CONCEPT:EG-KG.query.register-user-tables-alongside):
 //! the FULL path a `psql`/ORM client drives — `classify` the statement, route DDL/DML
 //! to the redb [`TableStore`], then read back through DataFusion via
 //! `exec_sql_typed_with_tables`, including a JOIN between a user table and the graph
@@ -48,7 +48,7 @@ fn run(store: &TableStore, view: &GraphView, sql: &str) -> Option<TypedQueryResu
             None
         }
         StatementKind::AlterTable(plan) => {
-            // CONCEPT:EG-018 ADD COLUMN + CONCEPT:EG-310 the rest — mirror the facade.
+            // CONCEPT:EG-KG.query.register-user-tables-alongside ADD COLUMN + CONCEPT:EG-KG.query.rename-table-moves-catalog the rest — mirror the facade.
             use eg_query::AlterTableAction as A;
             match plan.action {
                 A::AddColumn(col) => store.add_column(&plan.name, to_store_column(&col)).unwrap(),
@@ -95,7 +95,7 @@ fn run(store: &TableStore, view: &GraphView, sql: &str) -> Option<TypedQueryResu
             store.delete_where(&del.table, &del.selector.pred).unwrap();
             None
         }
-        // CONCEPT:EG-103 — route CREATE VIEW / CREATE FUNCTION to the store so the
+        // CONCEPT:EG-KG.query.route-create-view-create — route CREATE VIEW / CREATE FUNCTION to the store so the
         // system-catalog tests can assert views (relkind='v') and functions (pg_proc)
         // are reflected. Mirrors the pgwire shim's routing.
         StatementKind::CreateView(plan) => {
@@ -108,7 +108,7 @@ fn run(store: &TableStore, view: &GraphView, sql: &str) -> Option<TypedQueryResu
             store.create_function(&plan.func, plan.or_replace).unwrap();
             None
         }
-        // CONCEPT:EG-116/EG-313 — route `CREATE INDEX … USING hnsw|ivfflat` to the
+        // CONCEPT:EG-KG.query.real-ann-top-k/EG-313 — route `CREATE INDEX … USING hnsw|ivfflat` to the
         // durable ANN index catalog so a matching `ORDER BY col <-> $1 LIMIT k` pushes
         // down to a real eg-ann index. Mirrors the pgwire shim's routing.
         StatementKind::CreateAnnIndex(plan) => {
@@ -299,7 +299,7 @@ fn create_table_cannot_shadow_graph_tables() {
 
 #[test]
 fn create_view_over_nodes_and_select_through_it() {
-    // CONCEPT:EG-072 — a view over the graph `nodes` table registers as a read-only
+    // CONCEPT:EG-KG.query.create-drop-view — a view over the graph `nodes` table registers as a read-only
     // relation, and a SELECT through it (even joined to a user table) resolves.
     let (store, _p) = TableStore::open_temp().unwrap();
     let view = graph_with_stocks();
@@ -381,7 +381,7 @@ fn every_column_type_roundtrips() {
     assert_eq!(rows[0][7], Cell::Json(json!({"k": [1, 2]})));
 }
 
-// ── pgvector vector type + distance operators (CONCEPT:EG-115) ───────────────
+// ── pgvector vector type + distance operators (CONCEPT:EG-KG.query.pgvector-binary-wire) ───────────────
 
 /// Create a `vector(3)` table with three orthonormal embeddings, then exercise the
 /// `<->` (L2) and `<=>` (cosine) nearest-neighbour path end-to-end: `classify` (a
@@ -437,7 +437,7 @@ fn vector_column_distance_nearest_neighbour() {
     assert_eq!(d.rows[0][0], json!(0.0));
 }
 
-// ── pgvector real ANN top-k pushdown (CONCEPT:EG-313) ────────────────────────
+// ── pgvector real ANN top-k pushdown (CONCEPT:EG-KG.query.real-pgvector-ann-top) ────────────────────────
 
 /// Seed a `vecs (id INT, emb vector(4))` table with `n` distinct deterministic
 /// embeddings — the shared fixture for the EG-313 pushdown-vs-brute-force tests.
@@ -474,7 +474,7 @@ fn brute_nearest_ids(query: &str, k: usize, n: usize, op: &str) -> Vec<Value> {
 
 /// With a `hnsw` index registered, `ORDER BY emb <-> $q LIMIT k` pushes down to a real
 /// eg-ann HNSW index and returns the TRUE nearest-k — bit-identical to the brute-force
-/// reference (CONCEPT:EG-313).
+/// reference (CONCEPT:EG-KG.query.real-pgvector-ann-top).
 #[test]
 fn eg313_hnsw_pushdown_matches_brute_force_l2() {
     let (store, _p) = TableStore::open_temp().unwrap();
@@ -506,7 +506,7 @@ fn eg313_hnsw_pushdown_matches_brute_force_l2() {
 }
 
 /// With an `ivfflat` index the pushdown consults a real eg-ann IVF-PQ index; the true
-/// nearest-k (after exact rerank) still equals the brute-force reference (CONCEPT:EG-313).
+/// nearest-k (after exact rerank) still equals the brute-force reference (CONCEPT:EG-KG.query.real-pgvector-ann-top).
 #[test]
 fn eg313_ivfflat_pushdown_matches_brute_force_l2() {
     let (store, _p) = TableStore::open_temp().unwrap();
@@ -537,7 +537,7 @@ fn eg313_ivfflat_pushdown_matches_brute_force_l2() {
 }
 
 /// A `vector_cosine_ops` (`<=>`) index pushes the cosine nearest-neighbour query down;
-/// the result equals the cosine brute-force reference (CONCEPT:EG-313).
+/// the result equals the cosine brute-force reference (CONCEPT:EG-KG.query.real-pgvector-ann-top).
 #[test]
 fn eg313_cosine_pushdown_matches_brute_force() {
     let (store, _p) = TableStore::open_temp().unwrap();
@@ -566,7 +566,7 @@ fn eg313_cosine_pushdown_matches_brute_force() {
 }
 
 /// No registered index ⇒ the exec path keeps the EG-115 brute-force fallback and still
-/// returns the correct nearest-k (CONCEPT:EG-313). A cosine `<=>` query with only an L2
+/// returns the correct nearest-k (CONCEPT:EG-KG.query.real-pgvector-ann-top). A cosine `<=>` query with only an L2
 /// index registered ALSO falls back (metric not covered), still correct.
 #[test]
 fn eg313_no_matching_index_falls_back_to_brute_force() {
@@ -628,7 +628,7 @@ fn vector_dimension_mismatch_rejected() {
     );
 }
 
-// ── Postgres system catalogs (CONCEPT:EG-103) ────────────────────────────────
+// ── Postgres system catalogs (CONCEPT:EG-KG.query.route-create-view-create) ────────────────────────────────
 // A real psql/ORM introspects pg_catalog + information_schema over the live schema.
 // These build a table + view + function, then assert the synthesized system views
 // reflect them with the right relkind/types over the SAME exec path.
@@ -858,12 +858,12 @@ fn psql_backslash_d_style_query_eg103() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// CONCEPT:EG-310 — ALTER TABLE beyond ADD COLUMN (DROP/RENAME COLUMN, RENAME TABLE,
+// CONCEPT:EG-KG.query.rename-table-moves-catalog — ALTER TABLE beyond ADD COLUMN (DROP/RENAME COLUMN, RENAME TABLE,
 // ALTER COLUMN TYPE with per-row coercion, DROP CONSTRAINT). Each exercises the full
 // classify → route → redb store path and reads back through DataFusion.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// CONCEPT:EG-310 — DROP COLUMN removes it from the schema AND drops its cell from
+/// CONCEPT:EG-KG.query.rename-table-moves-catalog — DROP COLUMN removes it from the schema AND drops its cell from
 /// every stored row; the surviving columns keep their values.
 #[test]
 fn eg310_drop_column_removes_schema_and_cells() {
@@ -904,7 +904,7 @@ fn eg310_drop_column_removes_schema_and_cells() {
     assert!(exec_sql_typed_with_tables(&view, &store, "SELECT price FROM prices").is_err());
 }
 
-/// CONCEPT:EG-310 — RENAME COLUMN keeps every stored value (rows are positional); the
+/// CONCEPT:EG-KG.query.rename-table-moves-catalog — RENAME COLUMN keeps every stored value (rows are positional); the
 /// old name disappears and the new name projects the same data.
 #[test]
 fn eg310_rename_column_preserves_values() {
@@ -935,7 +935,7 @@ fn eg310_rename_column_preserves_values() {
     assert!(exec_sql_typed_with_tables(&view, &store, "SELECT price FROM prices").is_err());
 }
 
-/// CONCEPT:EG-310 — RENAME TABLE moves the catalog entry, the sequence, and every stored
+/// CONCEPT:EG-KG.query.rename-table-moves-catalog — RENAME TABLE moves the catalog entry, the sequence, and every stored
 /// row; the old name is gone and SERIAL ids continue (never reused).
 #[test]
 fn eg310_rename_table_moves_rows() {
@@ -968,7 +968,7 @@ fn eg310_rename_table_moves_rows() {
     assert_eq!(res.rows.last().unwrap()[0], json!(3));
 }
 
-/// CONCEPT:EG-310 — ALTER COLUMN TYPE migrates every stored cell best-effort: numeric
+/// CONCEPT:EG-KG.query.rename-table-moves-catalog — ALTER COLUMN TYPE migrates every stored cell best-effort: numeric
 /// text → bigint, int → double, and int → text all coerce correctly.
 #[test]
 fn eg310_alter_column_type_coerces_rows() {
@@ -1009,7 +1009,7 @@ fn eg310_alter_column_type_coerces_rows() {
     assert_eq!(res.rows[1][0], json!(100));
 }
 
-/// CONCEPT:EG-310 — ALTER COLUMN TYPE rejects an incompatible value and rolls back the
+/// CONCEPT:EG-KG.query.rename-table-moves-catalog — ALTER COLUMN TYPE rejects an incompatible value and rolls back the
 /// WHOLE change: the schema type and every stored cell are left untouched.
 #[test]
 fn eg310_alter_column_type_rejects_incompatible() {
@@ -1036,7 +1036,7 @@ fn eg310_alter_column_type_rejects_incompatible() {
     assert_eq!(res.rows[0][0], json!("abc"));
 }
 
-/// CONCEPT:EG-310 — every ALTER rejects a nonexistent column/table; `IF EXISTS` turns the
+/// CONCEPT:EG-KG.query.rename-table-moves-catalog — every ALTER rejects a nonexistent column/table; `IF EXISTS` turns the
 /// DROP COLUMN into a harmless no-op.
 #[test]
 fn eg310_reject_nonexistent() {
@@ -1056,7 +1056,7 @@ fn eg310_reject_nonexistent() {
     assert!(store.drop_column("t", "a", false).is_err());
 }
 
-/// CONCEPT:EG-310 — RENAME TABLE onto an existing name, and RENAME COLUMN onto an
+/// CONCEPT:EG-KG.query.rename-table-moves-catalog — RENAME TABLE onto an existing name, and RENAME COLUMN onto an
 /// existing column name, are both rejected (no clobber).
 #[test]
 fn eg310_reject_collisions() {
@@ -1069,7 +1069,7 @@ fn eg310_reject_collisions() {
     assert!(store.rename_column("a", "x", "y").is_err()); // target column exists
 }
 
-/// CONCEPT:EG-310 — DROP CONSTRAINT clears a UNIQUE/PK constraint (matched by Postgres's
+/// CONCEPT:EG-KG.query.rename-table-moves-catalog — DROP CONSTRAINT clears a UNIQUE/PK constraint (matched by Postgres's
 /// synthesized name), after which a previously-rejected duplicate insert succeeds.
 #[test]
 fn eg310_drop_constraint_relaxes_uniqueness() {
@@ -1101,7 +1101,7 @@ fn eg310_drop_constraint_relaxes_uniqueness() {
     assert!(store.drop_constraint("u", "u_nope", true).is_ok());
 }
 
-/// CONCEPT:EG-310 — every ALTER persists across a store reopen (redb durability): the
+/// CONCEPT:EG-KG.query.rename-table-moves-catalog — every ALTER persists across a store reopen (redb durability): the
 /// migrated schema and rows survive dropping and re-opening the database file.
 #[test]
 fn eg310_persists_across_reopen() {
@@ -1143,7 +1143,7 @@ fn eg310_persists_across_reopen() {
     assert_eq!(res.rows[0][1], json!("42")); // int -> text migration survived
 }
 
-/// CONCEPT:EG-310 — a multi-statement `BEGIN … ALTER … COMMIT` applies the ALTER in the
+/// CONCEPT:EG-KG.query.rename-table-moves-catalog — a multi-statement `BEGIN … ALTER … COMMIT` applies the ALTER in the
 /// SAME redb write txn; an incompatible ALTER COLUMN TYPE aborts and rolls back the LOT.
 #[test]
 fn eg310_multi_statement_txn_atomic() {

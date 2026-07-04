@@ -1,5 +1,5 @@
 //! rules.rs — user-defined custom rules + instance-level (ABox) RL/Datalog reasoning
-//! with OWL equality (CONCEPT:EG-021).
+//! with OWL equality (CONCEPT:EG-KG.ontology.eg-runtime-swrl-datalog).
 //!
 //! `owl.rs` is a TBox/concept-level EL⁺ completion. It reasons about CLASSES — the
 //! subsumption hierarchy and class consistency — but it cannot take a user's ad-hoc
@@ -47,7 +47,7 @@
 //!
 //! Example: `gp: parent(?x,?y) ^ parent(?y,?z) -> grandparent(?x,?z) @0.9`.
 //!
-//! ## SWRL / RuleML atoms + built-ins (CONCEPT:EG-060)
+//! ## SWRL / RuleML atoms + built-ins (CONCEPT:EG-KG.ontology.concept-3)
 //!
 //! The same surface ALSO parses SWRL-style atoms — the existing forms ARE the SWRL
 //! atom types: a unary `C(x)` is a SWRL **ClassAtom**, a binary `p(x,y)` over an object
@@ -359,7 +359,7 @@ fn parse_term(t: &str) -> Result<RTerm, String> {
     if t.starts_with('"') {
         return Ok(RTerm::Const(t.trim_matches('"').to_string()));
     }
-    // A bare numeric token is a literal constant (CONCEPT:EG-060): so a SWRL built-in
+    // A bare numeric token is a literal constant (CONCEPT:EG-KG.ontology.concept-3): so a SWRL built-in
     // argument can be written `swrlb:greaterThan(?age, 18)` without quoting. Without this
     // `18` would parse as an (unbindable) variable named "18". Non-numeric bare tokens
     // keep the existing variable semantics, so all pre-existing rules parse unchanged.
@@ -448,7 +448,7 @@ impl RuleSet {
     }
 }
 
-// ── SWRL built-in library (CONCEPT:EG-060) ───────────────────────────────────
+// ── SWRL built-in library (CONCEPT:EG-KG.ontology.concept-3) ───────────────────────────────────
 
 /// The SWRL built-ins namespace.
 const SWRLB_NS: &str = "http://www.w3.org/2003/11/swrlb#";
@@ -465,7 +465,7 @@ fn swrl_builtin_name(pred: &str) -> Option<&str> {
     bare.strip_prefix(SWRLB_NS)
 }
 
-/// Evaluate a SWRL built-in atom against the current `binding` (CONCEPT:EG-060).
+/// Evaluate a SWRL built-in atom against the current `binding` (CONCEPT:EG-KG.ontology.concept-3).
 ///
 /// Returns `None` when the built-in does NOT hold for this binding (the join path dies);
 /// `Some(extra)` when it holds, where `extra` carries any output variable the built-in
@@ -751,7 +751,7 @@ impl Engine {
             return;
         }
         let atom = &body[idx];
-        // SWRL built-in atom (CONCEPT:EG-060): evaluated against the current binding
+        // SWRL built-in atom (CONCEPT:EG-KG.ontology.concept-3): evaluated against the current binding
         // rather than matched against stored facts. A comparison acts as a filter; a
         // math / string producer binds its (first-argument) result variable. Built-ins
         // are deterministic constraints (confidence 1.0, so `conf_acc` is unchanged).
@@ -893,7 +893,7 @@ impl Engine {
 /// subClassOf, subPropertyOf, domain, range, symmetric, inverse, property-chains /
 /// transitive, and functional / inverse-functional → `owl:sameAs`. These run in the
 /// SAME fixpoint as the user's custom rules, so a custom rule can build on (and feed)
-/// OWL-inferred facts (CONCEPT:EG-021).
+/// OWL-inferred facts (CONCEPT:EG-KG.ontology.eg-runtime-swrl-datalog).
 pub fn builtin_rules(ont: &Ontology) -> Vec<Rule> {
     let x = || RTerm::Var("x".into());
     let y = || RTerm::Var("y".into());
@@ -1101,7 +1101,7 @@ pub fn builtin_rules(ont: &Ontology) -> Vec<Rule> {
 
 // ── Top-level entry points + the server-op request/response shape ─────────────
 
-/// The materialised result of a rule-reasoning run (CONCEPT:EG-021).
+/// The materialised result of a rule-reasoning run (CONCEPT:EG-KG.ontology.eg-runtime-swrl-datalog).
 #[derive(Clone, Debug, Default)]
 pub struct RuleReasonResult {
     /// Every fact (asserted + derived) as `(predicate, args, confidence)`.
@@ -1228,7 +1228,7 @@ pub fn facts_from_triples(triples: &[Triple]) -> Vec<(String, Vec<String>, f64)>
     out
 }
 
-// ── Server-op-ready request / response (CONCEPT:EG-021) ───────────────────────
+// ── Server-op-ready request / response (CONCEPT:EG-KG.ontology.eg-runtime-swrl-datalog) ───────────────────────
 
 /// A runtime rule-reasoning request — the parameterised-rules path a server op
 /// (`RunRules`, or the extended `RunDatalogReasoning`) passes straight through. The
@@ -1274,7 +1274,7 @@ pub struct RuleReasonResponse {
 
 /// Execute a [`RuleReasonRequest`]: parse the Turtle into an ontology + ABox facts,
 /// register the custom rules, run the fixpoint, and project a filtered response. This
-/// is the function a server `RunRules` op calls (CONCEPT:EG-021).
+/// is the function a server `RunRules` op calls (CONCEPT:EG-KG.ontology.eg-runtime-swrl-datalog).
 #[cfg(feature = "rdf")]
 pub fn run_rule_reasoning(req: &RuleReasonRequest) -> Result<RuleReasonResponse, String> {
     let triples = if req.ontology_ttl.trim().is_empty() {
@@ -1295,7 +1295,7 @@ pub fn run_rule_reasoning(req: &RuleReasonRequest) -> Result<RuleReasonResponse,
 
 /// Reason over a live [`eg_core::graph::GraphView`] (its folded TBox axioms + asserted
 /// facts) plus runtime rules — the GraphView entry a `Reason`/`RunRules` op uses when no
-/// explicit ontology document is supplied (CONCEPT:EG-021).
+/// explicit ontology document is supplied (CONCEPT:EG-KG.ontology.eg-runtime-swrl-datalog).
 #[cfg(feature = "rdf")]
 pub fn run_rule_reasoning_on_view(
     view: &eg_core::graph::GraphView,
@@ -1558,7 +1558,7 @@ ex:bob   ex:parent ex:carol .
     }
 
     /// SWRL built-in atoms parse as body atoms WITHOUT disturbing the existing DSL
-    /// (CONCEPT:EG-060): a plain bare-predicate Datalog rule parses unchanged, and a
+    /// (CONCEPT:EG-KG.ontology.concept-3): a plain bare-predicate Datalog rule parses unchanged, and a
     /// `swrlb:` built-in atom keeps its predicate intact (and a bare numeric arg becomes
     /// a constant, not a variable).
     #[test]
@@ -1575,7 +1575,7 @@ ex:bob   ex:parent ex:carol .
         assert_eq!(r.body[1].args[0], RTerm::Var("a".into()));
     }
 
-    /// A SWRL comparison built-in filters bindings (CONCEPT:EG-060): only individuals
+    /// A SWRL comparison built-in filters bindings (CONCEPT:EG-KG.ontology.concept-3): only individuals
     /// whose age ≥ 18 are classified `Adult`.
     #[test]
     fn swrl_comparison_builtin_filters() {
@@ -1602,7 +1602,7 @@ ex:bob   ex:age 12 .
         );
     }
 
-    /// A SWRL math built-in binds its result variable (CONCEPT:EG-060): `?n = ?a + 1`.
+    /// A SWRL math built-in binds its result variable (CONCEPT:EG-KG.ontology.concept-3): `?n = ?a + 1`.
     #[test]
     fn swrl_math_builtin_binds_result() {
         let ttl = r#"
@@ -1622,7 +1622,7 @@ ex:alice ex:age 30 .
         );
     }
 
-    /// A SWRL string built-in binds its result variable (CONCEPT:EG-060): upper-casing a
+    /// A SWRL string built-in binds its result variable (CONCEPT:EG-KG.ontology.concept-3): upper-casing a
     /// data value, and a `stringConcat` producer.
     #[test]
     fn swrl_string_builtin_binds_result() {

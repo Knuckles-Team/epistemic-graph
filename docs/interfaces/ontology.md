@@ -8,7 +8,7 @@ weighting** and **Ebbinghaus time-decay** of derived facts.
 > Status snapshot: EL⁺ + RL classification, consistency, incremental materialization, confidence
 > weighting, time-decay, distributed reasoning, the **OWL-DL tableau** (cardinality, `allValuesFrom`,
 > `owl-dl` feature), **SWRL user rules** (`swrlb:` built-ins) and `rdfs:range` completion are all
-> **supported** (EG-058/059/060) — the EL/RL fast path stays the default. See the
+> **supported** (EG-KG.ontology.owl-reasoning/059/060) — the EL/RL fast path stays the default. See the
 > [capability matrix](../capabilities.md#owl-reasoning-eg-rdfowl).
 
 ## The lifecycle
@@ -39,7 +39,7 @@ The reasoner saturates the ontology to a monotone fixpoint:
   properties, `rdfs:domain` (lifted to EL `∃r.⊤ ⊑ D`).
 - **Consistency** — any satisfiable class forced to subsume `owl:Nothing` flags the ontology
   inconsistent.
-- **Confidence weighting** (KG-2.236) — a per-axiom `eg:confidence` annotation propagates as a
+- **Confidence weighting** (EG-KG.ontology.concept-13) — a per-axiom `eg:confidence` annotation propagates as a
   noisy-OR (MAX over derivations of `axiom_conf × ∏ premise_conf`).
 - **Ebbinghaus time-decay** — derived facts decay by `conf · exp(−ln2 · age / half_life)` against
   `now − last_access` (`GRAPH_SERVICE_DECAY_HALF_LIFE`, default 7 days).
@@ -69,10 +69,10 @@ honest about how strong and how fresh each inference is.
 ## Scope
 
 - **Default envelope**: OWL 2 EL⁺ + RL forward-chaining (the fast path). `rdfs:range` is enforced in
-  completion (EG-058).
+  completion (EG-KG.ontology.owl-reasoning).
 - **Full DL**: the `owl-dl` feature adds a pure-Rust DL **tableau** (cardinality, `allValuesFrom`,
   nominals, negation) run consistency → classification → instance, plus **SWRL** user rules with the
-  `swrlb:` built-in library (EG-059/060). These are opt-in beyond the EL/RL default.
+  `swrlb:` built-in library (EG-KG.ontology.concept-2/060). These are opt-in beyond the EL/RL default.
 
 ## Tier note
 

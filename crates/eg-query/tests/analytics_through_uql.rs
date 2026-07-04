@@ -1,6 +1,6 @@
-//! Analytics-through-UQL on ALL SQL paths (CONCEPT:EG-353) — proves the `eg-numeric`
+//! Analytics-through-UQL on ALL SQL paths (CONCEPT:EG-KG.query.concept-8) — proves the `eg-numeric`
 //! Surface-B operators (`cosine_sim`/`covariance`/`zscore`/`svd`/`pca`/`kmeans`,
-//! CONCEPT:EG-329/335/336/344) AND the DataFusion-native statistical aggregates
+//! CONCEPT:EG-KG.query.surface-b-numeric-operators/335/336/344) AND the DataFusion-native statistical aggregates
 //! (`corr`/`stddev`/`var`/`median`/`approx_percentile_cont`) run IN-ENGINE over resident
 //! columns through the query surface — with NO numpy round-trip.
 //!
@@ -207,7 +207,7 @@ fn analytics_resolve_through_the_rpc_path_too_eg353() {
 /// (relational `x` + vector `emb`) to an inline timeseries relation on node id, then run
 /// BOTH a kernel operator (`covariance`) and a DataFusion-native aggregate (`corr`) over
 /// the JOINED result set — through the wire read path. numpy has no data layer to join
-/// across; here it is one SQL statement. (CONCEPT:EG-345/EG-353.)
+/// across; here it is one SQL statement. (CONCEPT:EG-KG.query.eg-3/EG-353.)
 #[test]
 fn cross_modal_join_then_analytics_through_wire_eg353() {
     let snap = graph().analysis_snapshot();

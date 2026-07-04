@@ -1,7 +1,7 @@
-//! Integrity Constraint Validation — ICV (CONCEPT:EG-146).
+//! Integrity Constraint Validation — ICV (CONCEPT:EG-KG.ontology.wired-into-commit-write).
 //!
 //! Stardog-style **closed-world** integrity constraints layered on the SHACL Core
-//! engine (CONCEPT:EG-132). Where standard SHACL/OWL description-logic validation is
+//! engine (CONCEPT:EG-KG.ontology.concept-6). Where standard SHACL/OWL description-logic validation is
 //! *open-world* (a missing required property is "unknown", never a failure), ICV
 //! interprets the SAME SHACL shapes as **database integrity constraints** under the
 //! **Closed-World Assumption (CWA)** and the **Unique-Name Assumption (UNA)**:
@@ -29,7 +29,7 @@
 //!    that a constraint-enforced transaction sits on; the write-path enforcement wiring
 //!    (a per-graph [`crate::policy::IcvPolicy`] + [`crate::policy::IcvPolicyRegistry`]
 //!    implementing eg-rdf's `WriteGuard`, so `eg_rdf::update::execute_guarded` REJECTS a
-//!    commit that would introduce a violation) is CONCEPT:EG-300 — see [`crate::policy`].
+//!    commit that would introduce a violation) is CONCEPT:EG-KG.ontology.rdf-update-guard — see [`crate::policy`].
 //!
 //! Surpassing Stardog: ICV can run over the **OWL-reasoned view** — pass the
 //! materialized OWL inferences to [`validate_icv_with_inferences`] so constraints are
@@ -48,7 +48,7 @@ use crate::shapes::{Constraint, NodeKind, Path, RangeKind, Shape, ShapesGraph};
 use crate::validate::{graph_from_turtle, validate};
 use crate::vocab;
 
-/// One integrity-constraint violation (CONCEPT:EG-146): the underlying SHACL
+/// One integrity-constraint violation (CONCEPT:EG-KG.ontology.wired-into-commit-write): the underlying SHACL
 /// [`ValidationResult`] plus the **explain witness** — a SPARQL query that returns the
 /// offending data so the failure is self-demonstrating.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -62,7 +62,7 @@ pub struct IcvViolation {
     pub witness: String,
 }
 
-/// The ICV report (CONCEPT:EG-146): a closed-world integrity check outcome.
+/// The ICV report (CONCEPT:EG-KG.ontology.wired-into-commit-write): a closed-world integrity check outcome.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IcvReport {
     /// `true` iff there is no violation of severity `Violation` — i.e. the graph
@@ -84,7 +84,7 @@ impl IcvReport {
     }
 }
 
-/// The accept/reject outcome of a guarded write (CONCEPT:EG-146).
+/// The accept/reject outcome of a guarded write (CONCEPT:EG-KG.ontology.wired-into-commit-write).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WriteCheck {
     /// `true` iff the proposed change introduces NO new `Violation`-severity breach.
@@ -98,7 +98,7 @@ pub struct WriteCheck {
 }
 
 /// Validate a data graph against a shapes graph as **closed-world integrity
-/// constraints** (CONCEPT:EG-146). Returns an [`IcvReport`] with a SPARQL witness per
+/// constraints** (CONCEPT:EG-KG.ontology.wired-into-commit-write). Returns an [`IcvReport`] with a SPARQL witness per
 /// violation. Reuses the SHACL Core engine ([`crate::validate::validate`]) for
 /// detection — so ICV and SHACL agree exactly on WHAT is a violation; ICV adds the
 /// closed-world framing + the witness.
@@ -118,7 +118,7 @@ pub fn validate_icv(shapes_graph: &Graph, data_graph: &Graph) -> IcvReport {
     IcvReport::from_violations(violations)
 }
 
-/// Validate over the **OWL-reasoned view** (CONCEPT:EG-146, the "surpass Stardog"
+/// Validate over the **OWL-reasoned view** (CONCEPT:EG-KG.ontology.wired-into-commit-write, the "surpass Stardog"
 /// angle): the supplied `inferred` triples (e.g. the materialized output of eg-rdf's
 /// `owl` EL⁺/RL reasoner) are merged into the data graph, then the closed-world ICV
 /// check runs over the ENTAILED model. So an integrity constraint like `sh:class` is
@@ -141,21 +141,21 @@ pub fn validate_icv_with_inferences(
 }
 
 /// Convenience: parse a shapes + data Turtle document and run the closed-world ICV
-/// check (CONCEPT:EG-146). Returns a parse error string if either document fails.
+/// check (CONCEPT:EG-KG.ontology.wired-into-commit-write). Returns a parse error string if either document fails.
 pub fn validate_icv_turtle(shapes_ttl: &str, data_ttl: &str) -> Result<IcvReport, String> {
     let shapes = graph_from_turtle(shapes_ttl)?;
     let data = graph_from_turtle(data_ttl)?;
     Ok(validate_icv(&shapes, &data))
 }
 
-/// **Guard mode** (CONCEPT:EG-146): would applying `additions` and `removals` to
+/// **Guard mode** (CONCEPT:EG-KG.ontology.wired-into-commit-write): would applying `additions` and `removals` to
 /// `base` introduce an integrity violation? Evaluates the closed-world ICV check on the
 /// projected graph (`base − removals + additions`) and diffs it against `base`,
 /// returning accept/reject plus the introduced / resolved / pre-existing violations.
 ///
 /// This is the pure decision function a constraint-enforced transaction sits on: an
 /// engine write path can call `check_write` on the staged change set and refuse the
-/// commit when `accepted` is false. The actual write/commit-path wiring is CONCEPT:EG-300
+/// commit when `accepted` is false. The actual write/commit-path wiring is CONCEPT:EG-KG.ontology.rdf-update-guard
 /// — [`crate::policy::IcvPolicyRegistry`] implements eg-rdf's `WriteGuard` so
 /// `eg_rdf::update::execute_guarded` enforces this per graph.
 pub fn check_write(
@@ -340,7 +340,7 @@ fn build_witness(res: &ValidationResult, registry: &HashMap<String, Shape>) -> S
 
     let header = |what: &str| {
         format!(
-            "# CONCEPT:EG-146 ICV witness — {what}\n# focus: {focus}  shape: {}\n",
+            "# CONCEPT:EG-KG.ontology.wired-into-commit-write ICV witness — {what}\n# focus: {focus}  shape: {}\n",
             res.source_shape
         )
     };

@@ -1,5 +1,5 @@
 //! ICV write-path enforcement, exercised end-to-end through the eg-rdf SPARQL UPDATE /
-//! commit path (CONCEPT:EG-300).
+//! commit path (CONCEPT:EG-KG.ontology.rdf-update-guard).
 //!
 //! The enforcement WIRING lives in `eg-rdf` (the [`eg_rdf::guard::WriteGuard`] hook +
 //! [`eg_rdf::update::execute_guarded`]); the ICV POLICY that implements the hook lives in
@@ -83,7 +83,7 @@ fn eg300_enforce_rejects_violating_change_and_leaves_store_unchanged() {
     match err {
         UpdateError::Rejected(rej) => {
             assert_eq!(rej.graph, None, "default-graph rejection");
-            assert!(rej.message.contains("EG-300"));
+            assert!(rej.message.contains("EG-KG.ontology.rdf-update-guard"));
             // Structured detail lists the introduced violation(s) with SPARQL witness.
             let arr = rej.details.as_array().expect("details array");
             assert!(!arr.is_empty(), "at least one introduced violation");

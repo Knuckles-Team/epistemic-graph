@@ -1,4 +1,4 @@
-//! The dense N-D array value model (CONCEPT:EG-085): a [`Tensor`] = `dtype` + `shape`
+//! The dense N-D array value model (CONCEPT:EG-KG.storage.content-addressed-dedup): a [`Tensor`] = `dtype` + `shape`
 //! + a row-major typed [`Buffer`]. Coordinates are C-order (last axis varies fastest).
 //!
 //! Every type derives serde so a `Tensor` persists as a typed value in the engine's
@@ -125,7 +125,7 @@ pub enum ElementwiseOp {
 }
 
 /// A dense N-D array: a `dtype`/`shape` manifest over a row-major [`Buffer`]
-/// (CONCEPT:EG-085). The invariant `shape.iter().product() == data.len()` holds for any
+/// (CONCEPT:EG-KG.storage.content-addressed-dedup). The invariant `shape.iter().product() == data.len()` holds for any
 /// `Tensor` returned by this crate; [`Tensor::new`] enforces it.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Tensor {
@@ -270,7 +270,7 @@ impl Tensor {
     /// Apply a scalar op to every element (dtype-preserving; computed in `f64` then
     /// narrowed). Shape is unchanged.
     pub fn elementwise(&self, op: ElementwiseOp, scalar: f64) -> Tensor {
-        // Apply the scalar op on the ACTIVE tensor backend (CONCEPT:EG-326): the CUDA
+        // Apply the scalar op on the ACTIVE tensor backend (CONCEPT:EG-KG.compute.gpu-distance-seam): the CUDA
         // kernel when `gpu-cuda` is built + a device is present, else the pure-Rust CPU
         // map — identical results either way.
         let out: Vec<f64> = crate::gpu::elementwise_dispatch(&self.data.to_f64(), op, scalar);

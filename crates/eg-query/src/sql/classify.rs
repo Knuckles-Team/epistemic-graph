@@ -1,5 +1,5 @@
-//! Pure parse-to-classify helper for the Postgres wire shim (CONCEPT:KG-2.189,
-//! DML completeness CONCEPT:KG-2.198).
+//! Pure parse-to-classify helper for the Postgres wire shim (CONCEPT:AU-KG.query.raw-python,
+//! DML completeness CONCEPT:EG-KG.query.follow-up).
 //!
 //! A SQL statement arriving over the pgwire surface must be routed by KIND
 //! *before* it is executed: a `SELECT` is a read (it reuses the DataFusion
@@ -13,7 +13,7 @@
 //! re-exported by `datafusion::sql` — so there is no second SQL grammar in the
 //! tree and a statement that parses here parses identically downstream.
 //!
-//! ## DML shapes supported (CONCEPT:KG-2.198)
+//! ## DML shapes supported (CONCEPT:EG-KG.query.follow-up)
 //! Over the `nodes` table only (the graph's node store):
 //!   * `INSERT INTO nodes (id, …) VALUES (…)[, (…)…]` — single OR multi-row.
 //!   * `UPDATE nodes SET k = v[, …] WHERE id = '…'` — also a simple equality WHERE
@@ -41,9 +41,9 @@ use datafusion::sql::sqlparser::ast::{
     OnConflictAction as SqlOnConflictAction, OnInsert, SelectItem, SetExpr, Statement, TableFactor,
     TableWithJoins, UnaryOperator, Value as SqlValue, Values,
 };
-// CONCEPT:EG-114/116/117 — the Postgres-family extension plan shapes classify routes to.
+// CONCEPT:EG-KG.query.postgres-family-extension-plan/116/117 — the Postgres-family extension plan shapes classify routes to.
 use super::pgfamily::{AnnIndexPlan, ContinuousAggPlan, CypherCallPlan, HypertablePlan};
-// CONCEPT:EG-084 — the wire predicate the JSON operators lower onto. Surfaced by
+// CONCEPT:EG-KG.compute.json-deep-indexing — the wire predicate the JSON operators lower onto. Surfaced by
 // `eg-types/query`, which the `sql` feature (this module's gate) always enables.
 use datafusion::sql::sqlparser::dialect::PostgreSqlDialect;
 use datafusion::sql::sqlparser::parser::Parser;
@@ -64,7 +64,7 @@ pub enum StatementKind {
     /// creations, fully decoded into id + property objects so they can be applied
     /// through a `GraphTxn`. A single-row INSERT is just a one-element vector.
     InsertNodes(InsertNodes),
-    /// `INSERT INTO nodes (id, …) SELECT …` (CONCEPT:EG-046) — populate the node
+    /// `INSERT INTO nodes (id, …) SELECT …` (CONCEPT:EG-KG.query.insert-into-nodes-select) — populate the node
     /// store from the projected rows of a SELECT (which may itself JOIN user tables
     /// and the graph). The SELECT text is re-run through the DataFusion read path;
     /// each result row builds an id + property object applied like `InsertNodes`.
@@ -72,7 +72,7 @@ pub enum StatementKind {
     /// `UPDATE nodes SET k = v[, …] WHERE …` — decoded SET map + a simple WHERE
     /// predicate, routed to `compare_and_set_fields` per matched node under a txn.
     UpdateNodes(UpdateNodes),
-    /// `UPDATE nodes SET … FROM <other> WHERE …` (CONCEPT:EG-047) — a correlated,
+    /// `UPDATE nodes SET … FROM <other> WHERE …` (CONCEPT:EG-KG.query.join-multitable-routing) — a correlated,
     /// multi-table update: the matched ids AND per-row SET values are resolved
     /// through DataFusion (`resolve_sql` yields `(id, <set-cols…>)`), then applied
     /// per node via the serializable CAS gate.
@@ -80,26 +80,26 @@ pub enum StatementKind {
     /// `DELETE FROM nodes WHERE …` — a simple WHERE predicate, routed to
     /// `remove_node` per matched node under a txn.
     DeleteNodes(DeleteNodes),
-    /// `DELETE FROM nodes USING <other> WHERE …` (CONCEPT:EG-047) — a correlated,
+    /// `DELETE FROM nodes USING <other> WHERE …` (CONCEPT:EG-KG.query.join-multitable-routing) — a correlated,
     /// multi-table delete: the matched ids are resolved through DataFusion
     /// (`resolve_sql` yields `id`), then each is removed under its one-shot txn.
     DeleteNodesJoin(DeleteNodesJoin),
 
-    // ── arbitrary user-defined relational tables (CONCEPT:EG-018) ──────────────
+    // ── arbitrary user-defined relational tables (CONCEPT:EG-KG.query.register-user-tables-alongside) ──────────────
     /// `CREATE TABLE name (col type, …) [IF NOT EXISTS]` — a new user table whose
     /// schema is recorded in the redb table catalog (NOT the graph projection).
     CreateTable(CreateTablePlan),
     /// `DROP TABLE [IF EXISTS] name` — remove a user table and all its rows.
     DropTable(DropTablePlan),
-    /// `ALTER TABLE name …` — a user-table schema change. `ADD COLUMN` (CONCEPT:EG-018)
-    /// plus (CONCEPT:EG-310) `DROP COLUMN`, `RENAME COLUMN a TO b`, `RENAME TO newtable`,
+    /// `ALTER TABLE name …` — a user-table schema change. `ADD COLUMN` (CONCEPT:EG-KG.query.register-user-tables-alongside)
+    /// plus (CONCEPT:EG-KG.query.rename-table-moves-catalog) `DROP COLUMN`, `RENAME COLUMN a TO b`, `RENAME TO newtable`,
     /// `ALTER COLUMN col TYPE newtype`, and `DROP CONSTRAINT`.
     AlterTable(AlterTablePlan),
-    /// `CREATE VIEW name AS <select>` (CONCEPT:EG-072) — record a read-only named
+    /// `CREATE VIEW name AS <select>` (CONCEPT:EG-KG.query.create-drop-view) — record a read-only named
     /// query in the durable view catalog; a later SELECT that references it expands
     /// the stored SELECT during context build.
     CreateView(CreateViewPlan),
-    /// `DROP VIEW [IF EXISTS] name` (CONCEPT:EG-072) — remove a view catalog entry.
+    /// `DROP VIEW [IF EXISTS] name` (CONCEPT:EG-KG.query.create-drop-view) — remove a view catalog entry.
     DropView(DropViewPlan),
     /// `INSERT INTO <user_table> (cols…) VALUES (…)[, …]` — literal multi-row insert
     /// into a user table (not `nodes`).
@@ -112,7 +112,7 @@ pub enum StatementKind {
     /// `DELETE FROM <user_table> WHERE <col> = <literal>` — typed delete from a user table.
     DeleteTable(DeleteTable),
 
-    // ── transactions + bulk ingest (CONCEPT:EG-020) ────────────────────────────
+    // ── transactions + bulk ingest (CONCEPT:EG-KG.query.register-each-user-table) ────────────────────────────
     /// `BEGIN` / `START TRANSACTION` — open a multi-statement transaction.
     Begin,
     /// `COMMIT` — apply the open transaction's buffered ops in one redb txn.
@@ -123,7 +123,7 @@ pub enum StatementKind {
     /// switches the connection into copy-in mode and streams rows into the user table.
     CopyIn(CopyPlan),
 
-    // ── extensions (CONCEPT:EG-102) ────────────────────────────────────────────
+    // ── extensions (CONCEPT:EG-KG.query.create-drop-extension-over) ────────────────────────────────────────────
     /// `CREATE EXTENSION [IF NOT EXISTS] name [WITH SCHEMA …]` — record `name` in the
     /// durable extension catalog so a client's setup script proceeds. The concrete
     /// surface each extension unlocks (pgvector types/ops, AGE, TimescaleDB, pg_search)
@@ -133,31 +133,31 @@ pub enum StatementKind {
     DropExtension { name: String, if_exists: bool },
 
     // ── Postgres-family extension parity (wave 19) ─────────────────────────────
-    /// `SELECT <proj> FROM cypher('graph', $$ <cypher> $$) AS (cols…)` (CONCEPT:EG-114)
+    /// `SELECT <proj> FROM cypher('graph', $$ <cypher> $$) AS (cols…)` (CONCEPT:EG-KG.query.postgres-family-extension-plan)
     /// — an Apache-AGE set-returning function. The inner Cypher runs on the named
     /// graph; its agtype (JSON) result is projected onto the `AS` columns.
     CypherCall(CypherCallPlan),
-    /// `CREATE INDEX … USING hnsw|ivfflat (col opclass)` (CONCEPT:EG-116) — register a
+    /// `CREATE INDEX … USING hnsw|ivfflat (col opclass)` (CONCEPT:EG-KG.query.real-ann-top-k) — register a
     /// pgvector ANN index so a `ORDER BY col <-> $1 LIMIT k` query pushes down to eg-ann.
     CreateAnnIndex(AnnIndexPlan),
-    /// `SELECT create_hypertable('t','ts')` (CONCEPT:EG-117) — record TimescaleDB
+    /// `SELECT create_hypertable('t','ts')` (CONCEPT:EG-KG.query.continuous-aggregate-lowering) — record TimescaleDB
     /// time-partitioning metadata for a table.
     CreateHypertable(HypertablePlan),
     /// `CREATE MATERIALIZED VIEW … WITH (timescaledb.continuous) AS SELECT …`
-    /// (CONCEPT:EG-117) — a continuous aggregate lowered onto the durable view catalog.
+    /// (CONCEPT:EG-KG.query.continuous-aggregate-lowering) — a continuous aggregate lowered onto the durable view catalog.
     CreateContinuousAggregate(ContinuousAggPlan),
 
-    // ── SQL stored functions (CONCEPT:EG-118) ───────────────────────────────────
+    // ── SQL stored functions (CONCEPT:EG-KG.query.create-drop-function) ───────────────────────────────────
     /// `CREATE [OR REPLACE] FUNCTION name(arg type, …) RETURNS … AS $$ … $$ LANGUAGE sql`
     /// — record a SQL-language stored function in the durable function catalog. A later
     /// `SELECT fn(args)` (scalar) inlines the body expression, and a `FROM fn(args)`
     /// (`RETURNS TABLE`/`SETOF`) expands the body as a parameterized-view subquery.
     CreateFunction(CreateFunctionPlan),
-    /// `DROP FUNCTION [IF EXISTS] name [(…)]` (CONCEPT:EG-118) — remove a function.
+    /// `DROP FUNCTION [IF EXISTS] name [(…)]` (CONCEPT:EG-KG.query.create-drop-function) — remove a function.
     DropFunction(DropFunctionPlan),
 }
 
-/// A decoded `COPY <table> [(cols…)] FROM STDIN` (CONCEPT:EG-020). `columns` empty ⇒
+/// A decoded `COPY <table> [(cols…)] FROM STDIN` (CONCEPT:EG-KG.query.register-each-user-table). `columns` empty ⇒
 /// all columns in schema order. `format` selects the row decoder applied to the
 /// streamed `CopyData` bytes.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -171,7 +171,7 @@ pub struct CopyPlan {
     pub header: bool,
 }
 
-/// The wire format of a `COPY … FROM STDIN` body (CONCEPT:EG-020).
+/// The wire format of a `COPY … FROM STDIN` body (CONCEPT:EG-KG.query.register-each-user-table).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CopyFormat {
     /// Postgres TEXT format: tab-delimited, `\N` is NULL.
@@ -182,7 +182,7 @@ pub enum CopyFormat {
     Binary,
 }
 
-/// One column of a `CREATE TABLE` / `ALTER TABLE ADD COLUMN` (CONCEPT:EG-018). The
+/// One column of a `CREATE TABLE` / `ALTER TABLE ADD COLUMN` (CONCEPT:EG-KG.query.register-user-tables-alongside). The
 /// `type_name` is the raw SQL type spelling (e.g. `BIGINT`, `DOUBLE PRECISION`,
 /// `TIMESTAMP`); the executor resolves it to a `tables::ColumnType`. `nullable` is
 /// false when `NOT NULL` (or `PRIMARY KEY`) was declared; `primary_key` records a
@@ -193,17 +193,17 @@ pub struct ColumnDef {
     pub type_name: String,
     pub nullable: bool,
     pub primary_key: bool,
-    /// `UNIQUE` (or `PRIMARY KEY`) (CONCEPT:EG-020).
+    /// `UNIQUE` (or `PRIMARY KEY`) (CONCEPT:EG-KG.query.register-each-user-table).
     pub unique: bool,
-    /// `SERIAL`/`BIGSERIAL` or `DEFAULT nextval(...)` — auto-increment (CONCEPT:EG-020).
+    /// `SERIAL`/`BIGSERIAL` or `DEFAULT nextval(...)` — auto-increment (CONCEPT:EG-KG.query.register-each-user-table).
     pub serial: bool,
-    /// `DEFAULT <literal>` value (CONCEPT:EG-020).
+    /// `DEFAULT <literal>` value (CONCEPT:EG-KG.query.register-each-user-table).
     pub default: Option<Value>,
-    /// A simple `CHECK (col OP literal)` (CONCEPT:EG-020).
+    /// A simple `CHECK (col OP literal)` (CONCEPT:EG-KG.query.register-each-user-table).
     pub check: Option<ColCheck>,
 }
 
-/// A decoded `CREATE TABLE` (CONCEPT:EG-018).
+/// A decoded `CREATE TABLE` (CONCEPT:EG-KG.query.register-user-tables-alongside).
 #[derive(Debug, Clone, PartialEq)]
 pub struct CreateTablePlan {
     pub name: String,
@@ -211,15 +211,15 @@ pub struct CreateTablePlan {
     pub if_not_exists: bool,
 }
 
-/// A decoded `DROP TABLE` (CONCEPT:EG-018).
+/// A decoded `DROP TABLE` (CONCEPT:EG-KG.query.register-user-tables-alongside).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DropTablePlan {
     pub name: String,
     pub if_exists: bool,
 }
 
-/// A decoded `ALTER TABLE` on a user table (CONCEPT:EG-018 for `ADD COLUMN`;
-/// CONCEPT:EG-310 for the rest). `name` is the target table; `action` is the single
+/// A decoded `ALTER TABLE` on a user table (CONCEPT:EG-KG.query.register-user-tables-alongside for `ADD COLUMN`;
+/// CONCEPT:EG-KG.query.rename-table-moves-catalog for the rest). `name` is the target table; `action` is the single
 /// operation to apply (exactly one per statement, mirroring the ADD COLUMN increment).
 #[derive(Debug, Clone, PartialEq)]
 pub struct AlterTablePlan {
@@ -228,30 +228,30 @@ pub struct AlterTablePlan {
 }
 
 /// The specific `ALTER TABLE` operation this statement carries. `AddColumn` is the
-/// original EG-018 op; the remainder are CONCEPT:EG-310 (ALTER TABLE beyond ADD COLUMN).
+/// original EG-018 op; the remainder are CONCEPT:EG-KG.query.rename-table-moves-catalog (ALTER TABLE beyond ADD COLUMN).
 #[derive(Debug, Clone, PartialEq)]
 pub enum AlterTableAction {
-    /// `ADD COLUMN col type` — append a column to the table's schema (CONCEPT:EG-018).
+    /// `ADD COLUMN col type` — append a column to the table's schema (CONCEPT:EG-KG.query.register-user-tables-alongside).
     AddColumn(ColumnDef),
     /// `DROP [COLUMN] [IF EXISTS] col` — remove a column from the schema and drop its
-    /// cells from every stored row (CONCEPT:EG-310).
+    /// cells from every stored row (CONCEPT:EG-KG.query.rename-table-moves-catalog).
     DropColumn { column: String, if_exists: bool },
     /// `RENAME [COLUMN] a TO b` — rename a column in place (rows are positional, so no
-    /// per-row migration is needed) (CONCEPT:EG-310).
+    /// per-row migration is needed) (CONCEPT:EG-KG.query.rename-table-moves-catalog).
     RenameColumn { from: String, to: String },
     /// `RENAME TO newtable` — rename the table (its catalog entry, sequence, and every
-    /// stored row's key) (CONCEPT:EG-310).
+    /// stored row's key) (CONCEPT:EG-KG.query.rename-table-moves-catalog).
     RenameTable { new_name: String },
     /// `ALTER [COLUMN] col [SET DATA] TYPE newtype` — change a column's declared type,
-    /// best-effort coercing every stored cell to the new type (CONCEPT:EG-310). The
+    /// best-effort coercing every stored cell to the new type (CONCEPT:EG-KG.query.rename-table-moves-catalog). The
     /// `new_type` is the raw SQL type spelling; the executor resolves it to a
     /// `tables::ColumnType`.
     AlterColumnType { column: String, new_type: String },
-    /// `DROP CONSTRAINT [IF EXISTS] name` — drop a named table constraint (CONCEPT:EG-310).
+    /// `DROP CONSTRAINT [IF EXISTS] name` — drop a named table constraint (CONCEPT:EG-KG.query.rename-table-moves-catalog).
     DropConstraint { constraint: String, if_exists: bool },
 }
 
-/// A compound WHERE on a user table (CONCEPT:EG-045). Unlike [`WhereEq`] there is no
+/// A compound WHERE on a user table (CONCEPT:EG-KG.query.compound-predicate-decode). Unlike [`WhereEq`] there is no
 /// `id` special-casing — a user table has no implicit id column. The full predicate
 /// is carried as a serializable [`eg_types::RowPredicate`] and evaluated per row by
 /// the redb store INSIDE the open write transaction (serializable for free).
@@ -260,20 +260,20 @@ pub struct TableWhereEq {
     pub pred: eg_types::RowPredicate,
 }
 
-/// A decoded literal `INSERT INTO <user_table> … VALUES …` (CONCEPT:EG-018), with an
-/// optional `ON CONFLICT` action and `RETURNING` flag (CONCEPT:EG-048).
+/// A decoded literal `INSERT INTO <user_table> … VALUES …` (CONCEPT:EG-KG.query.register-user-tables-alongside), with an
+/// optional `ON CONFLICT` action and `RETURNING` flag (CONCEPT:EG-KG.query.delete-returning-sees-row).
 #[derive(Debug, Clone, PartialEq)]
 pub struct InsertTable {
     pub table: String,
     pub columns: Vec<String>,
     pub rows: Vec<Vec<Value>>,
-    /// `ON CONFLICT (...) DO NOTHING|DO UPDATE` (CONCEPT:EG-048), or `None`.
+    /// `ON CONFLICT (...) DO NOTHING|DO UPDATE` (CONCEPT:EG-KG.query.delete-returning-sees-row), or `None`.
     pub on_conflict: Option<OnConflict>,
-    /// Whether a `RETURNING` clause was present (CONCEPT:EG-048).
+    /// Whether a `RETURNING` clause was present (CONCEPT:EG-KG.query.delete-returning-sees-row).
     pub returning: bool,
 }
 
-/// A decoded `INSERT INTO nodes (id, …) SELECT …` (CONCEPT:EG-046). The SELECT text is
+/// A decoded `INSERT INTO nodes (id, …) SELECT …` (CONCEPT:EG-KG.query.insert-into-nodes-select). The SELECT text is
 /// re-run through the DataFusion read path so it can JOIN user tables and the graph;
 /// each projected row becomes a node insert. `columns` must include `id`.
 #[derive(Debug, Clone, PartialEq)]
@@ -281,12 +281,12 @@ pub struct InsertNodesSelect {
     pub columns: Vec<String>,
     pub select_sql: String,
     pub returning: bool,
-    /// `ON CONFLICT` action applied per resolved row (CONCEPT:EG-048).
+    /// `ON CONFLICT` action applied per resolved row (CONCEPT:EG-KG.query.delete-returning-sees-row).
     pub on_conflict: Option<OnConflict>,
 }
 
 /// A decoded `INSERT … ON CONFLICT (target_cols) DO NOTHING|DO UPDATE SET …`
-/// (CONCEPT:EG-048). For `nodes` the conflict key is always the node `id` (the
+/// (CONCEPT:EG-KG.query.delete-returning-sees-row). For `nodes` the conflict key is always the node `id` (the
 /// `target_cols` are informational); for a user table `target_cols` name the
 /// unique/PK columns whose duplicate triggers the action (validated via the store's
 /// existing uniqueness check).
@@ -296,7 +296,7 @@ pub struct OnConflict {
     pub action: OnConflictAction,
 }
 
-/// The action an `ON CONFLICT` clause takes on a conflicting row (CONCEPT:EG-048).
+/// The action an `ON CONFLICT` clause takes on a conflicting row (CONCEPT:EG-KG.query.delete-returning-sees-row).
 #[derive(Debug, Clone, PartialEq)]
 pub enum OnConflictAction {
     /// `DO NOTHING` — skip the conflicting row.
@@ -305,7 +305,7 @@ pub enum OnConflictAction {
     DoUpdate(Map<String, Value>),
 }
 
-/// A decoded `UPDATE nodes SET … FROM <other> WHERE …` (CONCEPT:EG-047). `resolve_sql`
+/// A decoded `UPDATE nodes SET … FROM <other> WHERE …` (CONCEPT:EG-KG.query.join-multitable-routing). `resolve_sql`
 /// is a SELECT that projects `id` plus one column per SET target (aliased to the
 /// target column name); the executor reads it, then applies each row's SET values to
 /// the node with that id via the serializable CAS gate.
@@ -316,7 +316,7 @@ pub struct UpdateNodesJoin {
     pub returning: bool,
 }
 
-/// A decoded `DELETE FROM nodes USING <other> WHERE …` (CONCEPT:EG-047). `resolve_sql`
+/// A decoded `DELETE FROM nodes USING <other> WHERE …` (CONCEPT:EG-KG.query.join-multitable-routing). `resolve_sql`
 /// is a SELECT that projects the `id` of every node to remove.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeleteNodesJoin {
@@ -324,7 +324,7 @@ pub struct DeleteNodesJoin {
     pub returning: bool,
 }
 
-/// A decoded `CREATE VIEW name AS <select>` (CONCEPT:EG-072). `select_sql` is the raw
+/// A decoded `CREATE VIEW name AS <select>` (CONCEPT:EG-KG.query.create-drop-view). `select_sql` is the raw
 /// SELECT text stored in the durable view catalog; `or_replace` mirrors
 /// `CREATE OR REPLACE VIEW`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -334,14 +334,14 @@ pub struct CreateViewPlan {
     pub or_replace: bool,
 }
 
-/// A decoded `DROP VIEW [IF EXISTS] name` (CONCEPT:EG-072).
+/// A decoded `DROP VIEW [IF EXISTS] name` (CONCEPT:EG-KG.query.create-drop-view).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DropViewPlan {
     pub name: String,
     pub if_exists: bool,
 }
 
-/// A decoded `CREATE [OR REPLACE] FUNCTION …` (CONCEPT:EG-118). `func` is the durable
+/// A decoded `CREATE [OR REPLACE] FUNCTION …` (CONCEPT:EG-KG.query.create-drop-function). `func` is the durable
 /// definition persisted in the function catalog; `or_replace` mirrors `OR REPLACE`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CreateFunctionPlan {
@@ -349,7 +349,7 @@ pub struct CreateFunctionPlan {
     pub or_replace: bool,
 }
 
-/// A decoded `DROP FUNCTION [IF EXISTS] name [(…)]` (CONCEPT:EG-118). Functions are
+/// A decoded `DROP FUNCTION [IF EXISTS] name [(…)]` (CONCEPT:EG-KG.query.create-drop-function). Functions are
 /// keyed by name (overloading by argument-type signature is a documented follow-up), so
 /// the argument-type list — if present — is parsed and ignored.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -358,7 +358,7 @@ pub struct DropFunctionPlan {
     pub if_exists: bool,
 }
 
-/// A decoded `INSERT INTO <user_table> (cols…) SELECT …` (CONCEPT:EG-018). The SELECT
+/// A decoded `INSERT INTO <user_table> (cols…) SELECT …` (CONCEPT:EG-KG.query.register-user-tables-alongside). The SELECT
 /// is kept as text and run through the SAME DataFusion path (so it can JOIN user
 /// tables and the graph), and its rows are then inserted.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -368,7 +368,7 @@ pub struct InsertSelect {
     pub select_sql: String,
 }
 
-/// A decoded `UPDATE <user_table> SET … WHERE <col> = <literal>` (CONCEPT:EG-018).
+/// A decoded `UPDATE <user_table> SET … WHERE <col> = <literal>` (CONCEPT:EG-KG.query.register-user-tables-alongside).
 #[derive(Debug, Clone, PartialEq)]
 pub struct UpdateTable {
     pub table: String,
@@ -376,7 +376,7 @@ pub struct UpdateTable {
     pub selector: TableWhereEq,
 }
 
-/// A decoded `DELETE FROM <user_table> WHERE <col> = <literal>` (CONCEPT:EG-018).
+/// A decoded `DELETE FROM <user_table> WHERE <col> = <literal>` (CONCEPT:EG-KG.query.register-user-tables-alongside).
 #[derive(Debug, Clone, PartialEq)]
 pub struct DeleteTable {
     pub table: String,
@@ -390,7 +390,7 @@ pub struct DeleteTable {
 pub enum WhereEq {
     /// `WHERE id = <value>` — addresses exactly one node by its id (fast path).
     Id(String),
-    /// Any other WHERE (CONCEPT:EG-045): a compound `AND`/`OR`/`NOT`/`IN`/`BETWEEN`/
+    /// Any other WHERE (CONCEPT:EG-KG.query.compound-predicate-decode): a compound `AND`/`OR`/`NOT`/`IN`/`BETWEEN`/
     /// range/`IS [NOT] NULL` predicate, OR a single `<prop> = <literal>`. `where_sql`
     /// is the predicate text (`expr.to_string()`) the shim re-runs through the
     /// DataFusion read path to resolve candidate ids; `pred` is the serializable AST
@@ -412,7 +412,7 @@ pub struct InsertNode {
 }
 
 /// One or more decoded `INSERT` rows plus whether a `RETURNING` clause was present,
-/// and an optional `ON CONFLICT` action applied per row (CONCEPT:EG-048).
+/// and an optional `ON CONFLICT` action applied per row (CONCEPT:EG-KG.query.delete-returning-sees-row).
 #[derive(Debug, Clone, PartialEq)]
 pub struct InsertNodes {
     pub rows: Vec<InsertNode>,
@@ -443,13 +443,13 @@ pub struct DeleteNodes {
 /// a write whose shape this increment cannot route (e.g. a write into a table
 /// other than `nodes`, a complex WHERE, or a join/subquery in DML).
 pub fn classify(sql: &str) -> Result<StatementKind, String> {
-    // CONCEPT:EG-102 — `DROP EXTENSION` has no `sqlparser` AST node (no
+    // CONCEPT:EG-KG.query.create-drop-extension-over — `DROP EXTENSION` has no `sqlparser` AST node (no
     // `ObjectType::Extension`), so recognize it textually BEFORE the parser (mirrors
     // the `COPY … FROM STDIN` pre-check) and route it to the extension catalog.
     if let Some((name, if_exists)) = parse_drop_extension(sql) {
         return Ok(StatementKind::DropExtension { name, if_exists });
     }
-    // CONCEPT:EG-118 — `CREATE [OR REPLACE] FUNCTION … LANGUAGE sql` and `DROP FUNCTION`.
+    // CONCEPT:EG-KG.query.create-drop-function — `CREATE [OR REPLACE] FUNCTION … LANGUAGE sql` and `DROP FUNCTION`.
     // The dollar-quoted `$$ … $$` body + the typed argument/`RETURNS TABLE(...)` lists do
     // not round-trip through `sqlparser` 0.51's `CreateFunction` AST cleanly, so — exactly
     // like AGE `cypher()` / `DROP EXTENSION` — the shape is recognized TEXTUALLY before the
@@ -461,19 +461,19 @@ pub fn classify(sql: &str) -> Result<StatementKind, String> {
     if is_drop_function(sql) {
         return parse_drop_function(sql).map(StatementKind::DropFunction);
     }
-    // CONCEPT:EG-114 — Apache AGE `cypher('g', $$ … $$) AS (cols…)`. `sqlparser` 0.51
+    // CONCEPT:EG-KG.query.postgres-family-extension-plan — Apache AGE `cypher('g', $$ … $$) AS (cols…)`. `sqlparser` 0.51
     // cannot parse the typed `AS` column list on a table function, so recognize it
     // textually before the parser (like `DROP EXTENSION`) and route to the Cypher engine.
     if let Some(plan) = super::pgfamily::parse_cypher_call(sql) {
         return Ok(StatementKind::CypherCall(plan));
     }
-    // CONCEPT:EG-116 — pgvector `CREATE INDEX … USING hnsw|ivfflat (col opclass)`. The
+    // CONCEPT:EG-KG.query.real-ann-top-k — pgvector `CREATE INDEX … USING hnsw|ivfflat (col opclass)`. The
     // opclass (and `IF NOT EXISTS` on an index) does not parse in `sqlparser` 0.51, so
     // recognize the ANN-index shape textually. A non-ANN `CREATE INDEX` returns `None`.
     if let Some(plan) = super::pgfamily::parse_create_ann_index(sql) {
         return Ok(StatementKind::CreateAnnIndex(plan));
     }
-    // CONCEPT:EG-117 — TimescaleDB continuous aggregate. The dotted
+    // CONCEPT:EG-KG.query.continuous-aggregate-lowering — TimescaleDB continuous aggregate. The dotted
     // `WITH (timescaledb.continuous)` option does not parse, so recognize it textually;
     // a plain `CREATE MATERIALIZED VIEW` returns `None` and the parser rejects it (a
     // documented follow-up in `classify_create_view`).
@@ -499,7 +499,7 @@ pub fn classify(sql: &str) -> Result<StatementKind, String> {
     };
 
     match stmt {
-        // CONCEPT:EG-117 — `SELECT create_hypertable('t','ts')` parses as an ordinary
+        // CONCEPT:EG-KG.query.continuous-aggregate-lowering — `SELECT create_hypertable('t','ts')` parses as an ordinary
         // query; detect it before falling through to the read path.
         Statement::Query(_) => {
             if let Some(plan) = super::pgfamily::detect_create_hypertable(stmt) {
@@ -526,9 +526,9 @@ pub fn classify(sql: &str) -> Result<StatementKind, String> {
             returning,
         ),
         Statement::Delete(delete) => classify_any_delete(delete),
-        // ── DDL (CONCEPT:EG-018) ──────────────────────────────────────────────
+        // ── DDL (CONCEPT:EG-KG.query.register-user-tables-alongside) ──────────────────────────────────────────────
         Statement::CreateTable(ct) => classify_create_table(ct).map(StatementKind::CreateTable),
-        // ── extensions (CONCEPT:EG-102) ─────────────────────────────────────────
+        // ── extensions (CONCEPT:EG-KG.query.create-drop-extension-over) ─────────────────────────────────────────
         Statement::CreateExtension {
             name,
             if_not_exists,
@@ -543,7 +543,7 @@ pub fn classify(sql: &str) -> Result<StatementKind, String> {
         Statement::AlterTable {
             name, operations, ..
         } => classify_alter_table(name, operations).map(StatementKind::AlterTable),
-        // ── views (CONCEPT:EG-072) ─────────────────────────────────────────────
+        // ── views (CONCEPT:EG-KG.query.create-drop-view) ─────────────────────────────────────────────
         Statement::CreateView {
             name,
             query,
@@ -551,7 +551,7 @@ pub fn classify(sql: &str) -> Result<StatementKind, String> {
             materialized,
             ..
         } => classify_create_view(name, query, *or_replace, *materialized),
-        // ── transactions + COPY (CONCEPT:EG-020) ──────────────────────────────
+        // ── transactions + COPY (CONCEPT:EG-KG.query.register-each-user-table) ──────────────────────────────
         Statement::StartTransaction { .. } => Ok(StatementKind::Begin),
         Statement::Commit { .. } => Ok(StatementKind::Commit),
         Statement::Rollback { .. } => Ok(StatementKind::Rollback),
@@ -576,7 +576,7 @@ fn is_copy_from_stdin(sql: &str) -> bool {
 }
 
 /// Decode `COPY <table> [(cols…)] FROM STDIN [WITH (FORMAT csv|binary|text), …]`
-/// (CONCEPT:EG-020). Only `FROM STDIN` into a user table is accepted; `COPY TO`,
+/// (CONCEPT:EG-KG.query.register-each-user-table). Only `FROM STDIN` into a user table is accepted; `COPY TO`,
 /// `COPY (query)`, and `COPY … FROM 'file'`/`PROGRAM` are rejected (no server-side
 /// filesystem access over the wire).
 fn classify_copy(
@@ -650,7 +650,7 @@ fn classify_copy(
 }
 
 /// Where a `$N` parameter placeholder appears, for type inference in the extended
-/// protocol's Describe step (CONCEPT:KG-2.197). The shim can't statically know a
+/// protocol's Describe step (CONCEPT:EG-KG.query.describe). The shim can't statically know a
 /// column's type, so it resolves `Column(name)` against the inferred node schema;
 /// `IdColumn` is always TEXT; `Literal(_)` carries the directly-derivable type.
 #[derive(Debug, Clone, PartialEq)]
@@ -676,7 +676,7 @@ pub enum ParamLiteralType {
 
 /// Infer, for each `$N` placeholder (index `N-1` in the returned vector), WHERE it
 /// is used so the extended-protocol Describe step can report a usable parameter
-/// type (CONCEPT:KG-2.197). Pure: parses the SQL and walks the relevant clauses
+/// type (CONCEPT:EG-KG.query.describe). Pure: parses the SQL and walks the relevant clauses
 /// (`SET k = $n`, `WHERE col = $n` / `col OP $n`, `VALUES (…, $n, …)` against the
 /// insert column list). A param with no resolvable context defaults to
 /// `Literal(Text)`. The vector length is the max `$N` seen (dense, 1-based).
@@ -823,7 +823,7 @@ fn placeholder_index(expr: &Expr) -> Option<usize> {
 }
 
 /// Rewrite a READ statement into a SCHEMA-PROBE form for the extended-protocol
-/// Describe step (CONCEPT:KG-2.197): drop the `WHERE`/`HAVING` predicate and any
+/// Describe step (CONCEPT:EG-KG.query.describe): drop the `WHERE`/`HAVING` predicate and any
 /// `LIMIT`/`OFFSET` so the probe returns ROWS regardless of the (unbound) parameter
 /// values. The projection, `FROM`, joins, and `GROUP BY` are KEPT, so the result
 /// COLUMN schema is identical to the real query — but the engine's schema-on-read
@@ -907,8 +907,8 @@ pub fn returning_columns(sql: &str) -> Option<Vec<String>> {
     Some(cols)
 }
 
-/// Rewrite the pgvector distance operators (CONCEPT:EG-115) AND the ParadeDB BM25
-/// operators/functions (CONCEPT:EG-119) in `sql` to the engine's registered scalar UDF
+/// Rewrite the pgvector distance operators (CONCEPT:EG-KG.query.pgvector-binary-wire) AND the ParadeDB BM25
+/// operators/functions (CONCEPT:EG-KG.query.paradedb-bm25) in `sql` to the engine's registered scalar UDF
 /// calls, so DataFusion — which has no operator for them — can plan the query:
 ///   * `a <-> b` (L2 distance)              → `vector_l2(a, b)`
 ///   * `a <=> b` (cosine distance)          → `vector_cosine(a, b)`
@@ -989,7 +989,7 @@ fn rewrite_setexpr_vector_ops(body: &mut SetExpr, changed: &mut bool) {
 /// by re-parsing `fname(left, right)` (both operands already serialize to valid SQL),
 /// avoiding a version-fragile hand-construction of `sqlparser`'s `Function` AST.
 fn rewrite_expr_vector_ops(expr: &mut Expr, changed: &mut bool) {
-    // CONCEPT:EG-104 — `EXTRACT(field FROM src)` → `date_part('field', src)`. DataFusion
+    // CONCEPT:EG-KG.query.greatest-least-int4range-tsrange — `EXTRACT(field FROM src)` → `date_part('field', src)`. DataFusion
     // 43 here has no ExprPlanner that lowers the `EXTRACT` AST node (it errors "Extract not
     // supported by ExprPlanner"), but the equivalent `date_part` scalar function IS
     // registered, so rewrite to it. Recurse into `src` first so a nested vector op inside
@@ -1010,7 +1010,7 @@ fn rewrite_expr_vector_ops(expr: &mut Expr, changed: &mut bool) {
         Expr::BinaryOp { left, op, right } => {
             rewrite_expr_vector_ops(left, changed);
             rewrite_expr_vector_ops(right, changed);
-            // CONCEPT:EG-119 — ParadeDB `col @@@ 'query'` BM25 search. `@@@` tokenizes as
+            // CONCEPT:EG-KG.query.paradedb-bm25 — ParadeDB `col @@@ 'query'` BM25 search. `@@@` tokenizes as
             // `AtAt` with a `@`(PGAbs)-wrapped right operand; rewrite to `bm25_match(col,
             // 'query')` so DataFusion can plan a lexical filter (the eg-text BM25 pushdown
             // + ranking is the server-side lowering).
@@ -1042,7 +1042,7 @@ fn rewrite_expr_vector_ops(expr: &mut Expr, changed: &mut bool) {
                 }
             }
         }
-        // CONCEPT:EG-119 — `paradedb.score(x)`/`paradedb.snippet(x)` → the registered
+        // CONCEPT:EG-KG.query.paradedb-bm25 — `paradedb.score(x)`/`paradedb.snippet(x)` → the registered
         // `bm25_score`/`bm25_snippet` UDFs. Rename the function + recurse into its args.
         Expr::Function(f) => {
             if f.name.0.len() == 2 && f.name.0[0].value.eq_ignore_ascii_case("paradedb") {
@@ -1085,7 +1085,7 @@ fn vector_udf_call(fname: &str, left: &Expr, right: &Expr) -> Option<Expr> {
 
 /// Parse a single (internally-generated) expression text back into an `Expr` with the
 /// same Postgres dialect the rest of the SQL surface uses. `None` if it fails to parse —
-/// callers then leave the original node untouched (CONCEPT:EG-104/EG-115/EG-119).
+/// callers then leave the original node untouched (CONCEPT:EG-KG.query.greatest-least-int4range-tsrange/EG-115/EG-119).
 fn reparse_expr(text: &str) -> Option<Expr> {
     Parser::new(&PostgreSqlDialect {})
         .try_with_sql(text)
@@ -1097,7 +1097,7 @@ fn reparse_expr(text: &str) -> Option<Expr> {
 /// Decode `INSERT INTO nodes (id, …) VALUES (…)[, (…)…]` into [`InsertNodes`].
 /// Only the `nodes` table, a column list including `id`, and literal `VALUES`
 /// rows are accepted — anything else is an explicit error (no silent mis-route).
-/// Multiple `VALUES` rows produce multiple [`InsertNode`]s (CONCEPT:KG-2.198).
+/// Multiple `VALUES` rows produce multiple [`InsertNode`]s (CONCEPT:EG-KG.query.follow-up).
 fn classify_insert(insert: &Insert) -> Result<InsertNodes, String> {
     require_nodes_table(&insert.table_name.to_string(), "INSERT")?;
     if insert.columns.is_empty() {
@@ -1130,7 +1130,7 @@ fn classify_insert(insert: &Insert) -> Result<InsertNodes, String> {
     })
 }
 
-/// Decode a sqlparser `ON CONFLICT` clause into an [`OnConflict`] (CONCEPT:EG-048).
+/// Decode a sqlparser `ON CONFLICT` clause into an [`OnConflict`] (CONCEPT:EG-KG.query.delete-returning-sees-row).
 /// `None`/absent ⇒ no upsert. A MySQL `ON DUPLICATE KEY UPDATE` and an
 /// `ON CONFLICT … DO UPDATE` with a `WHERE` are rejected (explicit follow-ups).
 fn decode_on_conflict(on: Option<&OnInsert>) -> Result<Option<OnConflict>, String> {
@@ -1156,7 +1156,7 @@ fn decode_on_conflict(on: Option<&OnInsert>) -> Result<Option<OnConflict>, Strin
         SqlOnConflictAction::DoUpdate(do_update) => {
             if do_update.selection.is_some() {
                 return Err(
-                    "ON CONFLICT DO UPDATE … WHERE is not supported (CONCEPT:EG-048)".to_string(),
+                    "ON CONFLICT DO UPDATE … WHERE is not supported (CONCEPT:EG-KG.query.delete-returning-sees-row)".to_string(),
                 );
             }
             let mut set = Map::new();
@@ -1218,7 +1218,7 @@ fn classify_update(
     returning: &Option<Vec<SelectItem>>,
 ) -> Result<UpdateNodes, String> {
     require_nodes_target(table, "UPDATE")?;
-    // CONCEPT:EG-047 — a `FROM` clause is routed to `classify_update_nodes_join` by the
+    // CONCEPT:EG-KG.query.join-multitable-routing — a `FROM` clause is routed to `classify_update_nodes_join` by the
     // caller before reaching here, so `from` is always `None` on this simple path.
     let _ = from;
     if assignments.is_empty() {
@@ -1248,7 +1248,7 @@ fn classify_update(
 /// Decode `DELETE FROM nodes WHERE <simple eq>` into [`DeleteNodes`].
 fn classify_delete(delete: &Delete) -> Result<DeleteNodes, String> {
     if delete.using.is_some() {
-        return Err("DELETE … USING is not supported (CONCEPT:KG-2.198 follow-up)".to_string());
+        return Err("DELETE … USING is not supported (CONCEPT:EG-KG.query.follow-up follow-up)".to_string());
     }
     let tables = match &delete.from {
         FromTable::WithFromKeyword(t) | FromTable::WithoutKeyword(t) => t,
@@ -1265,7 +1265,7 @@ fn classify_delete(delete: &Delete) -> Result<DeleteNodes, String> {
     })
 }
 
-// ── user-table dispatch + DDL/DML parsing (CONCEPT:EG-018) ───────────────────
+// ── user-table dispatch + DDL/DML parsing (CONCEPT:EG-KG.query.register-user-tables-alongside) ───────────────────
 
 /// `nodes`/`edges` are the graph projection's reserved table names — a user
 /// `CREATE TABLE`/DML cannot use them, and DML routing sends them to the graph path.
@@ -1285,7 +1285,7 @@ fn insert_leaf(insert: &Insert) -> String {
 fn classify_any_insert(insert: &Insert) -> Result<StatementKind, String> {
     let leaf = insert_leaf(insert);
     if leaf.eq_ignore_ascii_case("nodes") {
-        // A SELECT/WITH body → `INSERT INTO nodes … SELECT` (CONCEPT:EG-046); a literal
+        // A SELECT/WITH body → `INSERT INTO nodes … SELECT` (CONCEPT:EG-KG.query.insert-into-nodes-select); a literal
         // VALUES body → the existing single/multi-row node insert.
         let is_select = matches!(
             insert.source.as_ref().map(|s| s.body.as_ref()),
@@ -1302,7 +1302,7 @@ fn classify_any_insert(insert: &Insert) -> Result<StatementKind, String> {
     classify_insert_table(insert, leaf)
 }
 
-/// Decode `INSERT INTO nodes (id, …) SELECT …` (CONCEPT:EG-046). The column list must
+/// Decode `INSERT INTO nodes (id, …) SELECT …` (CONCEPT:EG-KG.query.insert-into-nodes-select). The column list must
 /// include `id`; the SELECT body is kept as text to re-run through the DataFusion read
 /// path (so it may JOIN user tables and the graph).
 fn classify_insert_nodes_select(insert: &Insert) -> Result<StatementKind, String> {
@@ -1395,7 +1395,7 @@ fn classify_any_update(
         _ => return Err("UPDATE target must be a table".to_string()),
     };
     if leaf.eq_ignore_ascii_case("nodes") {
-        // CONCEPT:EG-047 — a `FROM <other>` clause or a JOIN on the target makes this a
+        // CONCEPT:EG-KG.query.join-multitable-routing — a `FROM <other>` clause or a JOIN on the target makes this a
         // correlated multi-table update; resolve ids + per-row SET values via DataFusion.
         if from.is_some() || !table.joins.is_empty() {
             return classify_update_nodes_join(table, assignments, from, selection, returning)
@@ -1464,7 +1464,7 @@ fn classify_any_delete(delete: &Delete) -> Result<StatementKind, String> {
         _ => return Err("DELETE target must be a table".to_string()),
     };
     if leaf.eq_ignore_ascii_case("nodes") {
-        // CONCEPT:EG-047 — a `USING <other>` clause or a JOIN on the target makes this a
+        // CONCEPT:EG-KG.query.join-multitable-routing — a `USING <other>` clause or a JOIN on the target makes this a
         // correlated multi-table delete; resolve ids via DataFusion.
         if delete.using.is_some() || !target.joins.is_empty() {
             return classify_delete_nodes_join(
@@ -1500,7 +1500,7 @@ fn decode_table_where(
     let expr = selection.ok_or_else(|| {
         format!("{verb} {table} requires a WHERE clause (unscoped {verb} refused)")
     })?;
-    // CONCEPT:EG-045 — decode the full compound predicate; the store evaluates it
+    // CONCEPT:EG-KG.query.compound-predicate-decode — decode the full compound predicate; the store evaluates it
     // per row inside its write transaction.
     let pred = decode_predicate(expr)?;
     Ok(TableWhereEq { pred })
@@ -1528,8 +1528,8 @@ fn classify_create_table(ct: &CreateTable) -> Result<CreateTablePlan, String> {
     })
 }
 
-/// Decode one sqlparser column definition into a [`ColumnDef`] (CONCEPT:EG-018 +
-/// constraints CONCEPT:EG-020): name, raw type spelling, NULL/NOT NULL/PRIMARY KEY,
+/// Decode one sqlparser column definition into a [`ColumnDef`] (CONCEPT:EG-KG.query.register-user-tables-alongside +
+/// constraints CONCEPT:EG-KG.query.register-each-user-table): name, raw type spelling, NULL/NOT NULL/PRIMARY KEY,
 /// UNIQUE, column DEFAULT (literal or `nextval` ⇒ SERIAL), SERIAL/BIGSERIAL types, and
 /// a simple `CHECK (col OP literal)`. A `PRIMARY KEY` column is implicitly NOT NULL.
 fn decode_column_def(c: &SqlColumnDef) -> Result<ColumnDef, String> {
@@ -1601,7 +1601,7 @@ fn is_nextval(expr: &Expr) -> bool {
     false
 }
 
-/// Decode a simple `CHECK (col OP literal)` into a [`ColCheck`] (CONCEPT:EG-020). The
+/// Decode a simple `CHECK (col OP literal)` into a [`ColCheck`] (CONCEPT:EG-KG.query.register-each-user-table). The
 /// left side must be a column (its name is not re-checked — the constraint is enforced
 /// on the column it is declared on); the right must be a literal. A complex CHECK
 /// (AND/OR, functions, cross-column) is rejected so it is never silently dropped.
@@ -1660,7 +1660,7 @@ fn flip_cmp(op: CmpOp) -> CmpOp {
 }
 
 /// Decode `DROP TABLE [IF EXISTS] name` or `DROP VIEW [IF EXISTS] name`
-/// (CONCEPT:EG-072). Only `TABLE`/`VIEW` objects are handled; any other `DROP …` is
+/// (CONCEPT:EG-KG.query.create-drop-view). Only `TABLE`/`VIEW` objects are handled; any other `DROP …` is
 /// rejected so it isn't silently mis-routed.
 fn classify_drop(
     object_type: ObjectType,
@@ -1683,7 +1683,7 @@ fn classify_drop(
     }
 }
 
-/// Decode `CREATE [OR REPLACE] VIEW name AS <select>` (CONCEPT:EG-072). Read-only:
+/// Decode `CREATE [OR REPLACE] VIEW name AS <select>` (CONCEPT:EG-KG.query.create-drop-view). Read-only:
 /// the view name may not shadow a reserved graph table, the body must be a plain
 /// query, and MATERIALIZED views are rejected (a follow-up).
 fn classify_create_view(
@@ -1693,7 +1693,7 @@ fn classify_create_view(
     materialized: bool,
 ) -> Result<StatementKind, String> {
     if materialized {
-        return Err("CREATE MATERIALIZED VIEW is not supported (CONCEPT:EG-072)".to_string());
+        return Err("CREATE MATERIALIZED VIEW is not supported (CONCEPT:EG-KG.query.create-drop-view)".to_string());
     }
     let name = last_ident(name);
     if is_reserved_table(&name) {
@@ -1708,7 +1708,7 @@ fn classify_create_view(
     }))
 }
 
-/// The extension names the engine recognizes (CONCEPT:EG-102). `CREATE EXTENSION` on
+/// The extension names the engine recognizes (CONCEPT:EG-KG.query.create-drop-extension-over). `CREATE EXTENSION` on
 /// one of these is accepted + recorded so a client's setup script proceeds; each
 /// extension's concrete surface (pgvector types/ops EG-115, AGE, TimescaleDB,
 /// pg_search) lands in its own later item.
@@ -1719,7 +1719,7 @@ fn is_recognized_extension(name: &str) -> bool {
     )
 }
 
-/// Decode `CREATE EXTENSION [IF NOT EXISTS] name [WITH SCHEMA …]` (CONCEPT:EG-102).
+/// Decode `CREATE EXTENSION [IF NOT EXISTS] name [WITH SCHEMA …]` (CONCEPT:EG-KG.query.create-drop-extension-over).
 /// A recognized extension is accepted + recorded; an unknown name is rejected with a
 /// precise error (never silently accepted) so a client learns the surface is absent.
 fn classify_create_extension(name: &str, if_not_exists: bool) -> Result<StatementKind, String> {
@@ -1736,7 +1736,7 @@ fn classify_create_extension(name: &str, if_not_exists: bool) -> Result<Statemen
 }
 
 /// Recognize `DROP EXTENSION [IF EXISTS] name [CASCADE|RESTRICT]` textually
-/// (CONCEPT:EG-102) — `sqlparser` 0.51 has no `DROP EXTENSION` AST node. Returns
+/// (CONCEPT:EG-KG.query.create-drop-extension-over) — `sqlparser` 0.51 has no `DROP EXTENSION` AST node. Returns
 /// `(name, if_exists)` when the statement is a single-extension drop, else `None`
 /// (so `classify` falls through to the parser for every non-`DROP EXTENSION` input).
 fn parse_drop_extension(sql: &str) -> Option<(String, bool)> {
@@ -1773,10 +1773,10 @@ fn parse_drop_extension(sql: &str) -> Option<(String, bool)> {
     Some((name.to_string(), if_exists))
 }
 
-// ── SQL stored functions (CONCEPT:EG-118) ─────────────────────────────────────
+// ── SQL stored functions (CONCEPT:EG-KG.query.create-drop-function) ─────────────────────────────────────
 
 /// Whether `sql` begins `CREATE [OR REPLACE] FUNCTION …` (case-insensitive). Used to
-/// route to the textual [`parse_create_function`] before the parser (CONCEPT:EG-118).
+/// route to the textual [`parse_create_function`] before the parser (CONCEPT:EG-KG.query.create-drop-function).
 fn is_create_function(sql: &str) -> bool {
     let mut toks = sql.split_whitespace();
     if !toks
@@ -1806,7 +1806,7 @@ fn is_create_function(sql: &str) -> bool {
     next.eq_ignore_ascii_case("FUNCTION")
 }
 
-/// Whether `sql` begins `DROP FUNCTION …` (case-insensitive) (CONCEPT:EG-118).
+/// Whether `sql` begins `DROP FUNCTION …` (case-insensitive) (CONCEPT:EG-KG.query.create-drop-function).
 fn is_drop_function(sql: &str) -> bool {
     let mut toks = sql.split_whitespace();
     toks.next().is_some_and(|t| t.eq_ignore_ascii_case("DROP"))
@@ -1816,7 +1816,7 @@ fn is_drop_function(sql: &str) -> bool {
 }
 
 /// Parse `CREATE [OR REPLACE] FUNCTION name(arg type, …) RETURNS <ret> AS $$ body $$
-/// LANGUAGE sql` textually (CONCEPT:EG-118) into a [`CreateFunctionPlan`]. `<ret>` is a
+/// LANGUAGE sql` textually (CONCEPT:EG-KG.query.create-drop-function) into a [`CreateFunctionPlan`]. `<ret>` is a
 /// scalar type, `TABLE(col type, …)`, or `SETOF type`; the `AS <body>` and `LANGUAGE
 /// <lang>` clauses may appear in either order. Only `LANGUAGE sql` is implemented — a
 /// procedural `LANGUAGE plpgsql` body is a documented follow-up and returns a precise
@@ -1824,7 +1824,7 @@ fn is_drop_function(sql: &str) -> bool {
 fn parse_create_function(sql: &str) -> Result<CreateFunctionPlan, String> {
     let s = sql.trim();
     let rest = strip_leading_kw(s, "CREATE")
-        .ok_or("CREATE FUNCTION: expected `CREATE` (CONCEPT:EG-118)")?;
+        .ok_or("CREATE FUNCTION: expected `CREATE` (CONCEPT:EG-KG.query.create-drop-function)")?;
     let (or_replace, rest) = match strip_leading_kw(rest, "OR") {
         Some(r) => (
             true,
@@ -1854,7 +1854,7 @@ fn parse_create_function(sql: &str) -> Result<CreateFunctionPlan, String> {
     let (returns, after_ret) = parse_returns(after)?;
 
     let (body, language) = parse_body_and_language(after_ret)?;
-    // CONCEPT:EG-340 — a `LANGUAGE plpgsql` body is a procedural block run by the
+    // CONCEPT:EG-KG.query.eg-validate-procedural-body — a `LANGUAGE plpgsql` body is a procedural block run by the
     // interpreter (`sql::plpgsql`); `LANGUAGE sql` stays the EG-118 inline-expansion path.
     let lang = if language.eq_ignore_ascii_case("sql") {
         FunctionLanguage::Sql
@@ -1863,18 +1863,18 @@ fn parse_create_function(sql: &str) -> Result<CreateFunctionPlan, String> {
     } else {
         return Err(format!(
             "CREATE FUNCTION LANGUAGE `{language}` is not implemented — only LANGUAGE sql \
-             (CONCEPT:EG-118) and LANGUAGE plpgsql (CONCEPT:EG-340) are supported"
+             (CONCEPT:EG-KG.query.create-drop-function) and LANGUAGE plpgsql (CONCEPT:EG-KG.query.eg-validate-procedural-body) are supported"
         ));
     };
     let body = body.trim().to_string();
     if body.is_empty() {
         return Err("CREATE FUNCTION body is empty".to_string());
     }
-    // CONCEPT:EG-340/EG-341 — validate the procedural body parses NOW so a malformed
+    // CONCEPT:EG-KG.query.eg-validate-procedural-body/EG-341 — validate the procedural body parses NOW so a malformed
     // block fails at `CREATE FUNCTION`, not on first call.
     if matches!(lang, FunctionLanguage::PlPgSql) {
         super::plpgsql::parse_body(&body)
-            .map_err(|e| format!("CREATE FUNCTION plpgsql body: {e} (CONCEPT:EG-341)"))?;
+            .map_err(|e| format!("CREATE FUNCTION plpgsql body: {e} (CONCEPT:EG-KG.query.concept-7)"))?;
     }
     Ok(CreateFunctionPlan {
         func: StoredFunction {
@@ -1889,7 +1889,7 @@ fn parse_create_function(sql: &str) -> Result<CreateFunctionPlan, String> {
 }
 
 /// Parse `DROP FUNCTION [IF EXISTS] name [(argtypes…)] [CASCADE|RESTRICT]` textually
-/// (CONCEPT:EG-118). The optional argument-type signature and CASCADE/RESTRICT are
+/// (CONCEPT:EG-KG.query.create-drop-function). The optional argument-type signature and CASCADE/RESTRICT are
 /// parsed and ignored (functions are keyed by name; overloading is a follow-up).
 fn parse_drop_function(sql: &str) -> Result<DropFunctionPlan, String> {
     let s = sql.trim().trim_end_matches(';').trim();
@@ -1988,7 +1988,7 @@ fn read_balanced_parens(s: &str, open: usize) -> Option<(&str, usize)> {
 }
 
 /// Split `inner` (the text between an argument list's parens) into `name type` defs at
-/// top-level commas (CONCEPT:EG-118). Empty (or whitespace-only) `inner` ⇒ no args. Each
+/// top-level commas (CONCEPT:EG-KG.query.create-drop-function). Empty (or whitespace-only) `inner` ⇒ no args. Each
 /// entry's FIRST token is the name and the REST is the type spelling (so `n numeric(10,2)`
 /// and `ts double precision` decode correctly). `what` names the context for errors.
 fn parse_arg_defs(inner: &str, what: &str) -> Result<Vec<CatalogArg>, String> {
@@ -2003,7 +2003,7 @@ fn parse_arg_defs(inner: &str, what: &str) -> Result<Vec<CatalogArg>, String> {
         let type_name = it.next().map(|t| t.trim()).unwrap_or("");
         if name.is_empty() || type_name.is_empty() {
             return Err(format!(
-                "CREATE FUNCTION {what} `{piece}` must be `name type` (CONCEPT:EG-118)"
+                "CREATE FUNCTION {what} `{piece}` must be `name type` (CONCEPT:EG-KG.query.create-drop-function)"
             ));
         }
         out.push(CatalogArg {
@@ -2053,7 +2053,7 @@ fn split_top_level_commas(s: &str) -> Vec<&str> {
     parts
 }
 
-/// Parse a `RETURNS` spec at the START of `after` (CONCEPT:EG-118): `TABLE(col type, …)`,
+/// Parse a `RETURNS` spec at the START of `after` (CONCEPT:EG-KG.query.create-drop-function): `TABLE(col type, …)`,
 /// `SETOF <type>`, or a scalar `<type>`. Returns the decoded [`FunctionReturns`] and the
 /// remaining text (the `AS`/`LANGUAGE` tail).
 fn parse_returns(after: &str) -> Result<(FunctionReturns, &str), String> {
@@ -2102,7 +2102,7 @@ fn read_return_type_word(s: &str) -> Result<(String, &str), String> {
     Ok((ty.to_string(), s[end..].trim_start()))
 }
 
-/// Parse the `AS <body>` + `LANGUAGE <lang>` tail (CONCEPT:EG-118), in EITHER order.
+/// Parse the `AS <body>` + `LANGUAGE <lang>` tail (CONCEPT:EG-KG.query.create-drop-function), in EITHER order.
 /// `<body>` is a `$$…$$`/`$tag$…$tag$` dollar body or a `'…'` single-quoted string.
 /// Returns `(body, language)`.
 fn parse_body_and_language(tail: &str) -> Result<(String, String), String> {
@@ -2167,7 +2167,7 @@ fn read_function_body(s: &str) -> Result<(String, &str), String> {
 }
 
 /// Find the byte index of the first whole-word, case-insensitive occurrence of `kw` in
-/// `s` at TOP LEVEL — not inside `'…'`, `$$…$$`, or `(…)` (CONCEPT:EG-118). Returns
+/// `s` at TOP LEVEL — not inside `'…'`, `$$…$$`, or `(…)` (CONCEPT:EG-KG.query.create-drop-function). Returns
 /// `None` if absent.
 fn find_top_level_kw(s: &str, kw: &str) -> Option<usize> {
     let bytes = s.as_bytes();
@@ -2226,9 +2226,9 @@ fn is_ident_byte(b: u8) -> bool {
     b.is_ascii_alphanumeric() || b == b'_'
 }
 
-/// Decode a single-operation `ALTER TABLE`. `ADD COLUMN` is CONCEPT:EG-018; the rest —
+/// Decode a single-operation `ALTER TABLE`. `ADD COLUMN` is CONCEPT:EG-KG.query.register-user-tables-alongside; the rest —
 /// `DROP COLUMN`, `RENAME COLUMN`, `RENAME TO`, `ALTER COLUMN … TYPE`, `DROP CONSTRAINT` —
-/// are CONCEPT:EG-310. Exactly one operation per statement (mirroring the ADD COLUMN
+/// are CONCEPT:EG-KG.query.rename-table-moves-catalog. Exactly one operation per statement (mirroring the ADD COLUMN
 /// increment); a compound `ALTER TABLE … , …` is rejected.
 fn classify_alter_table(
     name: &ObjectName,
@@ -2246,7 +2246,7 @@ fn classify_alter_table(
         AlterTableOperation::AddColumn { column_def, .. } => {
             AlterTableAction::AddColumn(decode_column_def(column_def)?)
         }
-        // CONCEPT:EG-310 — `DROP [COLUMN] [IF EXISTS] col`.
+        // CONCEPT:EG-KG.query.rename-table-moves-catalog — `DROP [COLUMN] [IF EXISTS] col`.
         AlterTableOperation::DropColumn {
             column_name,
             if_exists,
@@ -2255,7 +2255,7 @@ fn classify_alter_table(
             column: column_name.value.clone(),
             if_exists: *if_exists,
         },
-        // CONCEPT:EG-310 — `RENAME [COLUMN] a TO b`.
+        // CONCEPT:EG-KG.query.rename-table-moves-catalog — `RENAME [COLUMN] a TO b`.
         AlterTableOperation::RenameColumn {
             old_column_name,
             new_column_name,
@@ -2263,7 +2263,7 @@ fn classify_alter_table(
             from: old_column_name.value.clone(),
             to: new_column_name.value.clone(),
         },
-        // CONCEPT:EG-310 — `RENAME TO newtable`. Reject renaming onto a reserved graph name.
+        // CONCEPT:EG-KG.query.rename-table-moves-catalog — `RENAME TO newtable`. Reject renaming onto a reserved graph name.
         AlterTableOperation::RenameTable { table_name } => {
             let new_name = last_ident(table_name);
             if is_reserved_table(&new_name) {
@@ -2273,7 +2273,7 @@ fn classify_alter_table(
             }
             AlterTableAction::RenameTable { new_name }
         }
-        // CONCEPT:EG-310 — `ALTER [COLUMN] col [SET DATA] TYPE newtype`; only a TYPE change
+        // CONCEPT:EG-KG.query.rename-table-moves-catalog — `ALTER [COLUMN] col [SET DATA] TYPE newtype`; only a TYPE change
         // is supported (SET/DROP NOT NULL / DEFAULT are follow-ups).
         AlterTableOperation::AlterColumn { column_name, op } => match op {
             AlterColumnOperation::SetDataType { data_type, .. } => {
@@ -2288,7 +2288,7 @@ fn classify_alter_table(
                 ))
             }
         },
-        // CONCEPT:EG-310 — `DROP CONSTRAINT [IF EXISTS] name`.
+        // CONCEPT:EG-KG.query.rename-table-moves-catalog — `DROP CONSTRAINT [IF EXISTS] name`.
         AlterTableOperation::DropConstraint {
             name, if_exists, ..
         } => AlterTableAction::DropConstraint {
@@ -2328,7 +2328,7 @@ fn decode_where(selection: Option<&Expr>, verb: &str) -> Result<WhereEq, String>
             }
         }
     }
-    // CONCEPT:EG-045 — any other WHERE decodes to a serializable compound predicate.
+    // CONCEPT:EG-KG.query.compound-predicate-decode — any other WHERE decodes to a serializable compound predicate.
     // `where_sql` is re-run through the read path to resolve candidate ids; `pred`
     // is re-checked under the write guard for serializable semantics.
     let pred = decode_predicate(expr)?;
@@ -2339,7 +2339,7 @@ fn decode_where(selection: Option<&Expr>, verb: &str) -> Result<WhereEq, String>
 }
 
 /// Decode a sqlparser `Expr` WHERE tree into a serializable [`eg_types::RowPredicate`]
-/// (CONCEPT:EG-045). Supports `AND`/`OR`, the six scalar comparisons, `NOT`, `IN`,
+/// (CONCEPT:EG-KG.query.compound-predicate-decode). Supports `AND`/`OR`, the six scalar comparisons, `NOT`, `IN`,
 /// `BETWEEN`, `IS [NOT] NULL`, and parenthesised nesting. The left operand of a
 /// comparison/`IN`/`BETWEEN`/`IS NULL` must be a (possibly qualified) column; the
 /// right operands must be literals (reusing `ident_column` + `expr_to_json`).
@@ -2422,7 +2422,7 @@ fn decode_predicate(expr: &Expr) -> Result<eg_types::RowPredicate, String> {
             col: ident_column(inner)?,
         }),
         other => Err(format!(
-            "unsupported WHERE predicate (CONCEPT:EG-045 supports AND/OR/NOT/IN/\
+            "unsupported WHERE predicate (CONCEPT:EG-KG.query.compound-predicate-decode supports AND/OR/NOT/IN/\
              BETWEEN/comparisons/IS [NOT] NULL): `{other}`"
         )),
     }
@@ -2476,7 +2476,7 @@ fn require_nodes_target(
     target: &datafusion::sql::sqlparser::ast::TableWithJoins,
     verb: &str,
 ) -> Result<(), String> {
-    // CONCEPT:EG-047 — a JOIN on the target routes to the multi-table path before this
+    // CONCEPT:EG-KG.query.join-multitable-routing — a JOIN on the target routes to the multi-table path before this
     // check; the plain path never carries joins.
     match &target.relation {
         TableFactor::Table { name, .. } => require_nodes_table(&name.to_string(), verb),
@@ -2485,7 +2485,7 @@ fn require_nodes_target(
 }
 
 /// Decode `UPDATE nodes SET c = e[, …] FROM <other> WHERE …` into an
-/// [`UpdateNodesJoin`] (CONCEPT:EG-047). Renders a resolver SELECT projecting the node
+/// [`UpdateNodesJoin`] (CONCEPT:EG-KG.query.join-multitable-routing). Renders a resolver SELECT projecting the node
 /// `id` plus each SET value expression (aliased to its target column) over the target +
 /// FROM relations and the WHERE predicate, so the executor can read `(id, <set-cols…>)`
 /// through DataFusion and apply each row.
@@ -2535,7 +2535,7 @@ fn classify_update_nodes_join(
 }
 
 /// Decode `DELETE FROM nodes USING <other> WHERE …` into a [`DeleteNodesJoin`]
-/// (CONCEPT:EG-047). Renders a resolver SELECT projecting the node `id` over the target
+/// (CONCEPT:EG-KG.query.join-multitable-routing). Renders a resolver SELECT projecting the node `id` over the target
 /// + USING relations and the WHERE predicate.
 fn classify_delete_nodes_join(
     target: &TableWithJoins,
@@ -2614,14 +2614,14 @@ fn sql_value_to_json(v: &SqlValue) -> Result<Value, String> {
     }
 }
 
-// ── Postgres/Mongo JSON operator lowering onto `Pred::JsonPath` (CONCEPT:EG-084) ──
+// ── Postgres/Mongo JSON operator lowering onto `Pred::JsonPath` (CONCEPT:EG-KG.compute.json-deep-indexing) ──
 //
 // DataFusion has no JSONPath, so the deep JSON operators are decoded HERE into the
 // `Pred::JsonPath` wire predicate; `eg-plan`'s FILTER leg then evaluates them per-row
 // (via `eg_core::jsonpath`) and the planner consults eg-core's inverted path-index for
 // selectivity. All functions are pure decoders over the sqlparser `Expr` — no execution.
 
-/// CONCEPT:EG-084 — lower a Postgres JSON WHERE expression onto a [`Pred::JsonPath`].
+/// CONCEPT:EG-KG.compute.json-deep-indexing — lower a Postgres JSON WHERE expression onto a [`Pred::JsonPath`].
 /// Recognizes:
 ///   * `col ->> 'k' = 'v'` / `col -> 'k' = <lit>` — deep equality over an accessor chain;
 ///   * `col #> '{a,b}' = <lit>` / `#>>` — path-array accessor equality;
@@ -2699,7 +2699,7 @@ fn bare_column(expr: &Expr) -> Option<String> {
 }
 
 /// Build a JSONPath string from a Postgres accessor chain (`col -> 'a' ->> 'b'`,
-/// `col #> '{a,b}'`), returning `(column, "$['a']['b']")` (CONCEPT:EG-084). Requires at
+/// `col #> '{a,b}'`), returning `(column, "$['a']['b']")` (CONCEPT:EG-KG.compute.json-deep-indexing). Requires at
 /// least one accessor operator — a bare column returns `None` (it is not a JSON access).
 fn json_accessor_path(expr: &Expr) -> Option<(String, String)> {
     match expr {
@@ -2783,7 +2783,7 @@ fn json_literal(expr: &Expr) -> Result<Value, String> {
 }
 
 /// Recognize `jsonb_path_query`/`jsonb_path_exists`/… `(col, '$.path')`, returning
-/// `(column, jsonpath)` (CONCEPT:EG-084).
+/// `(column, jsonpath)` (CONCEPT:EG-KG.compute.json-deep-indexing).
 fn jsonb_fn_path(expr: &Expr) -> Option<(String, String)> {
     let Expr::Function(Function { name, args, .. }) = expr else {
         return None;
@@ -2811,7 +2811,7 @@ fn jsonb_fn_path(expr: &Expr) -> Option<(String, String)> {
     Some((col, path))
 }
 
-/// CONCEPT:EG-084 — lower a Mongo-style `$match` document filter onto ANDed
+/// CONCEPT:EG-KG.compute.json-deep-indexing — lower a Mongo-style `$match` document filter onto ANDed
 /// [`Pred::JsonPath`]s. Each entry maps a dotted field path to either a bare value / an
 /// `{ "$eq": v }` spec (equality), `{ "$exists": true }` (existence), or `{ "$contains":
 /// v }` (a Mongo-ism for our `@>` containment). No Mongo/doc-query SURFACE exists in the
@@ -2861,7 +2861,7 @@ pub fn mongo_match_to_preds(filter: &Value) -> Result<Vec<Pred>, String> {
     Ok(preds)
 }
 
-/// A Mongo dotted field path (`a.b`) ⇒ the JSONPath `$['a']['b']` (CONCEPT:EG-084).
+/// A Mongo dotted field path (`a.b`) ⇒ the JSONPath `$['a']['b']` (CONCEPT:EG-KG.compute.json-deep-indexing).
 fn mongo_field_to_path(field: &str) -> String {
     let mut p = String::from("$");
     for seg in field.split('.') {
@@ -3026,7 +3026,7 @@ mod tests {
         let StatementKind::UpdateNodes(u) = k else {
             panic!("expected UpdateNodes");
         };
-        // CONCEPT:EG-045 — a non-id single-eq WHERE now decodes to a Predicate.
+        // CONCEPT:EG-KG.query.compound-predicate-decode — a non-id single-eq WHERE now decodes to a Predicate.
         let WhereEq::Predicate { pred, .. } = u.selector else {
             panic!("expected Predicate, got {:?}", u.selector);
         };
@@ -3042,7 +3042,7 @@ mod tests {
 
     #[test]
     fn update_compound_where_decodes_predicate() {
-        // CONCEPT:EG-045 — AND/OR/range now decode instead of being rejected.
+        // CONCEPT:EG-KG.query.compound-predicate-decode — AND/OR/range now decode instead of being rejected.
         let k =
             classify("UPDATE nodes SET active = false WHERE rank > 2 AND type = 'Agent'").unwrap();
         let StatementKind::UpdateNodes(u) = k else {
@@ -3174,7 +3174,7 @@ mod tests {
 
     #[test]
     fn update_unsupported_where_rejected() {
-        // CONCEPT:EG-045 — function calls / non-literal RHS are still rejected.
+        // CONCEPT:EG-KG.query.compound-predicate-decode — function calls / non-literal RHS are still rejected.
         let e = classify("UPDATE nodes SET rank = 1 WHERE lower(type) = 'agent'").unwrap_err();
         assert!(
             e.contains("WHERE") || e.contains("column") || e.contains("value"),
@@ -3243,7 +3243,7 @@ mod tests {
         assert!(classify("SELECT 1; SELECT 2").is_err());
     }
 
-    // ── user-defined table DDL/DML (CONCEPT:EG-018) ───────────────────────────
+    // ── user-defined table DDL/DML (CONCEPT:EG-KG.query.register-user-tables-alongside) ───────────────────────────
 
     #[test]
     fn create_table_decodes_columns_and_options() {
@@ -3291,7 +3291,7 @@ mod tests {
         assert_eq!(col.name, "currency");
     }
 
-    /// CONCEPT:EG-310 — the new ALTER TABLE ops classify into the right actions.
+    /// CONCEPT:EG-KG.query.rename-table-moves-catalog — the new ALTER TABLE ops classify into the right actions.
     #[test]
     fn eg310_alter_table_actions_decode() {
         let decode = |sql: &str| match classify(sql).unwrap() {
@@ -3352,7 +3352,7 @@ mod tests {
         );
     }
 
-    /// CONCEPT:EG-310 — ALTER on a reserved graph table (and renaming onto one) is refused.
+    /// CONCEPT:EG-KG.query.rename-table-moves-catalog — ALTER on a reserved graph table (and renaming onto one) is refused.
     #[test]
     fn eg310_alter_table_rejects_reserved() {
         assert!(classify("ALTER TABLE nodes DROP COLUMN x").is_err());
@@ -3390,7 +3390,7 @@ mod tests {
             panic!("expected UpdateTable");
         };
         assert_eq!(u.table, "prices");
-        // CONCEPT:EG-045 — the user-table selector is now a RowPredicate.
+        // CONCEPT:EG-KG.query.compound-predicate-decode — the user-table selector is now a RowPredicate.
         assert_eq!(
             u.selector.pred,
             eg_types::RowPredicate::Cmp {
@@ -3426,7 +3426,7 @@ mod tests {
         serde_json::Number::from_f64(f).map(Value::Number).unwrap()
     }
 
-    // ── constraints, transactions, COPY (CONCEPT:EG-020) ──────────────────────
+    // ── constraints, transactions, COPY (CONCEPT:EG-KG.query.register-each-user-table) ──────────────────────
 
     #[test]
     fn create_table_decodes_constraints() {
@@ -3500,7 +3500,7 @@ mod tests {
         assert!(classify("COPY prices TO STDOUT").is_err());
     }
 
-    // ── INSERT INTO nodes … SELECT (CONCEPT:EG-046) ───────────────────────────
+    // ── INSERT INTO nodes … SELECT (CONCEPT:EG-KG.query.insert-into-nodes-select) ───────────────────────────
 
     #[test]
     fn insert_nodes_select_classifies() {
@@ -3528,7 +3528,7 @@ mod tests {
         assert!(matches!(k, StatementKind::InsertNodes(_)), "{k:?}");
     }
 
-    // ── ON CONFLICT + user-table RETURNING (CONCEPT:EG-048) ───────────────────
+    // ── ON CONFLICT + user-table RETURNING (CONCEPT:EG-KG.query.delete-returning-sees-row) ───────────────────
 
     #[test]
     fn insert_nodes_on_conflict_do_nothing() {
@@ -3584,7 +3584,7 @@ mod tests {
         assert!(e.contains("WHERE"), "{e}");
     }
 
-    // ── UPDATE…FROM / DELETE…USING on nodes (CONCEPT:EG-047) ──────────────────
+    // ── UPDATE…FROM / DELETE…USING on nodes (CONCEPT:EG-KG.query.join-multitable-routing) ──────────────────
 
     #[test]
     fn update_nodes_from_classifies_join() {
@@ -3643,7 +3643,7 @@ mod tests {
         ));
     }
 
-    // ── CREATE VIEW / DROP VIEW (CONCEPT:EG-072) ──────────────────────────────
+    // ── CREATE VIEW / DROP VIEW (CONCEPT:EG-KG.query.create-drop-view) ──────────────────────────────
 
     #[test]
     fn create_and_drop_view_classify() {
@@ -3678,7 +3678,7 @@ mod tests {
         assert!(classify("CREATE MATERIALIZED VIEW v AS SELECT 1").is_err());
     }
 
-    // ── CREATE / DROP EXTENSION (CONCEPT:EG-102) ──────────────────────────────
+    // ── CREATE / DROP EXTENSION (CONCEPT:EG-KG.query.create-drop-extension-over) ──────────────────────────────
 
     #[test]
     fn create_extension_classify() {
@@ -3803,7 +3803,7 @@ mod tests {
         assert!(!lower.contains("paradedb."), "paradedb.* left in: {out}");
     }
 
-    // ── CONCEPT:EG-084 — JSON operator lowering onto `Pred::JsonPath` ─────────
+    // ── CONCEPT:EG-KG.compute.json-deep-indexing — JSON operator lowering onto `Pred::JsonPath` ─────────
 
     fn parse_where_expr(s: &str) -> Expr {
         Parser::new(&PostgreSqlDialect {})

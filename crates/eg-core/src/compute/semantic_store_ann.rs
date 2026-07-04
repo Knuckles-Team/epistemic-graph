@@ -1,4 +1,4 @@
-// CONCEPT:KG-2.207 — Semantic Embedding Store backed by the native eg-ann
+// CONCEPT:EG-KG.sharding.semantic-embedding-store-backed — Semantic Embedding Store backed by the native eg-ann
 // IVF-PQ + OPQ + SQ8-refine index (feature `ann`).
 //
 // Drop-in replacement for the hnsw_rs `SemanticStore`: identical public API
@@ -10,7 +10,7 @@
 // SemanticStore checkpoint contract); call `save_index`/`load_index` for the
 // no-rebuild persistent index path.
 //
-// CONCEPT:EG-015 — contiguous embedding arena. EG-014 proved the brute-force/ANN
+// CONCEPT:EG-KG.storage.arena-row-append — contiguous embedding arena. EG-014 proved the brute-force/ANN
 // path is MEMORY-BOUND, not core-bound: the embeddings used to live as a
 // `HashMap<String, Vec<f32>>`, i.e. one scattered heap allocation per vector
 // (~168k separate ~4 KB allocations for 168k×1024). Every brute-force scan
@@ -18,7 +18,7 @@
 // only got ~2× of a possible ~20×. The embeddings now live in ONE flat row-major
 // `Vec<f32>` of `rows×dim` plus a parallel `Vec<String>` id table; a scan streams
 // contiguous rows (`par_chunks_exact(dim)`), which is hardware-prefetchable,
-// cache-friendly and NUMA-friendly. CONCEPT:EG-016 — each row's L2 norm is cached
+// cache-friendly and NUMA-friendly. CONCEPT:EG-KG.compute.cached-row-norm — each row's L2 norm is cached
 // so cosine is ONE dot product per candidate instead of two.
 
 use crate::compute::semantic_ann::{AnnIndex, ANN_BUILD_THRESHOLD};
@@ -34,7 +34,7 @@ const BRUTE_FORCE_THRESHOLD: usize = 32;
 /// Rebuild/compact the index once tombstoned rows exceed this fraction of total.
 const COMPACT_TOMBSTONE_PCT: f32 = 0.30;
 
-// CONCEPT:EG-013 — index readiness state. The cold-start bug was that the FIRST
+// CONCEPT:EG-KG.storage.semantic-index-directory — index readiness state. The cold-start bug was that the FIRST
 // `semantic_search` after a restart triggered a full IVF-PQ+OPQ build INLINE on the
 // request path (single-threaded SVD over a 1024² matrix + k-means over 168k vectors
 // → minutes, pegging one core, never finishing within the request timeout). The
@@ -44,7 +44,7 @@ const COMPACT_TOMBSTONE_PCT: f32 = 0.30;
 const STATE_COLD: u8 = 0;
 const STATE_READY: u8 = 1;
 
-/// CONCEPT:EG-015 — the contiguous row-major embedding arena.
+/// CONCEPT:EG-KG.storage.arena-row-append — the contiguous row-major embedding arena.
 ///
 /// Invariants:
 ///   * `data.len() == ids.len() * dim` (fully dense — there are NO tombstone rows;
@@ -62,7 +62,7 @@ struct EmbeddingArena {
     ids: Vec<String>,
     /// node id → its current row index.
     id_to_row: HashMap<String, usize>,
-    /// CONCEPT:EG-016 — cached per-row L2 norm (`norms[r] = ‖row r‖₂`). Lets cosine
+    /// CONCEPT:EG-KG.compute.cached-row-norm — cached per-row L2 norm (`norms[r] = ‖row r‖₂`). Lets cosine
     /// skip recomputing `√(emb·emb)` on every query.
     norms: Vec<f32>,
 }
@@ -107,7 +107,7 @@ impl EmbeddingArena {
             tracing::warn!(
                 old_dim = self.dim,
                 new_dim = emb.len(),
-                "embedding dimensionality changed — re-initializing the arena (CONCEPT:EG-015)"
+                "embedding dimensionality changed — re-initializing the arena (CONCEPT:EG-KG.storage.arena-row-append)"
             );
             self.data.clear();
             self.ids.clear();
@@ -134,7 +134,7 @@ impl EmbeddingArena {
         drift
     }
 
-    /// Reconstruct an arena from the persisted flat wire shape (CONCEPT:EG-015).
+    /// Reconstruct an arena from the persisted flat wire shape (CONCEPT:EG-KG.storage.arena-row-append).
     /// `dim` may be `0` in older flat snapshots — it is then derived from the row
     /// count. Norms are recomputed on load (cheap; keeps the wire shape minimal and
     /// avoids any persisted-vs-recomputed drift).
@@ -160,7 +160,7 @@ impl EmbeddingArena {
         }
     }
 
-    /// CONCEPT:EG-015 — one-time migration read of the LEGACY `HashMap` wire shape.
+    /// CONCEPT:EG-KG.storage.arena-row-append — one-time migration read of the LEGACY `HashMap` wire shape.
     /// A snapshot written before the arena (or by the hnsw default backend) persists
     /// `embeddings: HashMap<String, Vec<f32>>`; we fold it into the dense arena on
     /// load and write the flat shape thereafter (read-old / write-new).
@@ -172,7 +172,7 @@ impl EmbeddingArena {
         arena
     }
 
-    /// Resident bytes held by the flat embedding buffer (CONCEPT:KG-2.234).
+    /// Resident bytes held by the flat embedding buffer (CONCEPT:EG-KG.compute.lane-v).
     #[inline]
     fn embedding_bytes(&self) -> u64 {
         (self.data.len() * std::mem::size_of::<f32>()) as u64
@@ -180,7 +180,7 @@ impl EmbeddingArena {
 }
 
 pub struct SemanticStore {
-    /// CONCEPT:EG-015 — contiguous arena of all live embeddings (see above).
+    /// CONCEPT:EG-KG.storage.arena-row-append — contiguous arena of all live embeddings (see above).
     arena: EmbeddingArena,
     /// eg-ann IVF-PQ index. `None` until the store is WARMED (off the query path)
     /// or a persisted index is reopened. The index is non-serialized, so a fresh
@@ -188,7 +188,7 @@ pub struct SemanticStore {
     index: RwLock<Option<AnnIndex>>,
     /// LIVE embedding count the index reflects (staleness check after load).
     built_len: RwLock<usize>,
-    /// CONCEPT:EG-013 — `STATE_COLD`/`STATE_READY`. `Ready` ⟺ `index` is `Some` and
+    /// CONCEPT:EG-KG.storage.semantic-index-directory — `STATE_COLD`/`STATE_READY`. `Ready` ⟺ `index` is `Some` and
     /// reflects the current embeddings. Read on every search to decide ANN-vs-brute.
     state: AtomicU8,
 }
@@ -214,7 +214,7 @@ impl std::fmt::Debug for SemanticStore {
     }
 }
 
-// CONCEPT:EG-015 — persist the FLAT arena (`dim` + `ids` + row-major `data`) rather
+// CONCEPT:EG-KG.storage.arena-row-append — persist the FLAT arena (`dim` + `ids` + row-major `data`) rather
 // than the old per-vector `HashMap`. Norms are derived on load. The Deserialize side
 // still reads the legacy `embeddings` map (one-time migration; read-old/write-new).
 impl Serialize for SemanticStore {
@@ -232,7 +232,7 @@ impl<'de> Deserialize<'de> for SemanticStore {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         #[derive(Deserialize)]
         struct Raw {
-            // CONCEPT:EG-015 new flat wire shape.
+            // CONCEPT:EG-KG.storage.arena-row-append new flat wire shape.
             #[serde(default)]
             dim: Option<usize>,
             #[serde(default)]
@@ -276,14 +276,14 @@ impl SemanticStore {
         }
     }
 
-    /// Raw stored embedding for `node_id`, if present (CONCEPT:KG-2.255 — the MMR
+    /// Raw stored embedding for `node_id`, if present (CONCEPT:AU-KG.retrieval.mmr-diversification — the MMR
     /// reranker needs per-candidate vectors to compute pairwise diversity).
     pub fn get_embedding(&self, node_id: &str) -> Option<Vec<f32>> {
         self.arena.get(node_id).map(|s| s.to_vec())
     }
 
     pub fn add_embedding(&mut self, node_id: String, embedding: Vec<f32>) {
-        // CONCEPT:EG-015 — append/overwrite a contiguous row (no per-vector alloc).
+        // CONCEPT:EG-KG.storage.arena-row-append — append/overwrite a contiguous row (no per-vector alloc).
         let drift = self.arena.insert(node_id.clone(), &embedding);
         let live_len = self.arena.len();
 
@@ -331,7 +331,7 @@ impl SemanticStore {
         if self.arena.len() < BRUTE_FORCE_THRESHOLD.max(ANN_BUILD_THRESHOLD) {
             return self.brute_force_search(query_embedding, n_results);
         }
-        // CONCEPT:EG-013 — NEVER build the index inline on the request path. Use the
+        // CONCEPT:EG-KG.storage.semantic-index-directory — NEVER build the index inline on the request path. Use the
         // ANN index only if it has been warmed AND still reflects the current
         // embeddings; otherwise serve an EXACT brute-force result (sub-second even at
         // 168k×1024) while the background warm task builds/loads the index. `try_read`
@@ -349,7 +349,7 @@ impl SemanticStore {
         self.brute_force_search(query_embedding, n_results)
     }
 
-    /// kNN search restricted to ids passing `allow` (CONCEPT:EG-070). The predicate is
+    /// kNN search restricted to ids passing `allow` (CONCEPT:EG-KG.retrieval.hybrid-metadata-prefilter). The predicate is
     /// pushed INTO the ANN scan (or the exact brute-force fallback) so filtering happens
     /// DURING the probe rather than as an over-fetch + post-filter in the planner. Same
     /// backend-selection logic as [`Self::semantic_search`]: brute force below the build
@@ -388,7 +388,7 @@ impl SemanticStore {
         self.index.read().is_some() && *self.built_len.read() == self.arena.len()
     }
 
-    /// CONCEPT:EG-013 — build the IVF-PQ index OFF the query path. Called by the
+    /// CONCEPT:EG-KG.storage.semantic-index-directory — build the IVF-PQ index OFF the query path. Called by the
     /// background warm-on-start task (and `save_index`), NEVER by `semantic_search`.
     /// No-op for stores below the build threshold (brute force is exact + fast).
     /// `label` is the graph name, for the build-throughput log line.
@@ -417,7 +417,7 @@ impl SemanticStore {
         let span = tracing::info_span!("ann_index_build", graph = label, n_vectors = n);
         let _g = span.enter();
         let start = std::time::Instant::now();
-        // CONCEPT:EG-015 — build straight off the contiguous arena (no HashMap rebuild).
+        // CONCEPT:EG-KG.storage.arena-row-append — build straight off the contiguous arena (no HashMap rebuild).
         *idx = AnnIndex::build(&self.arena.ids, &self.arena.data, self.arena.dim);
         let built = idx.is_some();
         *self.built_len.write() = if built { n } else { 0 };
@@ -430,11 +430,11 @@ impl SemanticStore {
             n_vectors = n,
             build_ms = start.elapsed().as_millis() as u64,
             ready = built,
-            "semantic ANN index build complete (CONCEPT:EG-013)"
+            "semantic ANN index build complete (CONCEPT:EG-KG.storage.semantic-index-directory)"
         );
     }
 
-    /// Brute-force cosine similarity search. CONCEPT:EG-014/EG-015 — this is the path
+    /// Brute-force cosine similarity search. CONCEPT:EG-KG.compute.lane-chunked-dot-product/EG-015 — this is the path
     /// EVERY query takes until the ANN index warms (and after every restart), so it
     /// is rayon-parallel across all cores with a partial-select top-k. EG-015 streams
     /// the embeddings as CONTIGUOUS rows (`par_chunks_exact(dim)`) out of one flat
@@ -446,7 +446,7 @@ impl SemanticStore {
         self.brute_force_search_filtered(query_embedding, n_results, |_| true)
     }
 
-    /// Brute-force cosine search restricted to ids that pass `allow` (CONCEPT:EG-070 —
+    /// Brute-force cosine search restricted to ids that pass `allow` (CONCEPT:EG-KG.retrieval.hybrid-metadata-prefilter —
     /// the exact fallback for the pre-filtered path when the ANN index is cold/stale or
     /// the store is below the build threshold). The predicate is applied INSIDE the
     /// parallel scan so disallowed rows never reach the top-k.
@@ -477,7 +477,7 @@ impl SemanticStore {
             .par_chunks_exact(dim)
             .enumerate()
             .filter_map(|(row, emb)| {
-                let emb_norm = norms[row]; // CONCEPT:EG-016 cached
+                let emb_norm = norms[row]; // CONCEPT:EG-KG.compute.cached-row-norm cached
                 if emb_norm == 0.0 || !allow(arena.ids[row].as_str()) {
                     None
                 } else {
@@ -541,7 +541,7 @@ impl SemanticStore {
         self.arena.is_empty()
     }
 
-    /// Approximate resident bytes held by the embedding vectors (CONCEPT:KG-2.234):
+    /// Approximate resident bytes held by the embedding vectors (CONCEPT:EG-KG.compute.lane-v):
     /// the flat arena's `len × 4` (f32). Used by the per-tenant memory-budget
     /// estimate; the IVF-PQ index built on top is rebuildable and not counted (the
     /// raw vectors are the durable footprint).
@@ -550,7 +550,7 @@ impl SemanticStore {
     }
 }
 
-/// SIMD-friendly dot product (CONCEPT:EG-014). Accumulating into a single `f32`
+/// SIMD-friendly dot product (CONCEPT:EG-KG.compute.lane-chunked-dot-product). Accumulating into a single `f32`
 /// serializes the floating-point dependency chain and defeats vectorization; instead
 /// we accumulate into 8 independent lanes over `chunks_exact(8)` slices. The fixed
 /// length-8 inner loop is bounds-check-free (the compiler proves `len == 8`) and maps
@@ -574,7 +574,7 @@ fn dot_product(a: &[f32], b: &[f32]) -> f32 {
     s
 }
 
-/// CONCEPT:EG-016 — L2 norm via the SIMD dot kernel (cached per row at insert).
+/// CONCEPT:EG-KG.compute.cached-row-norm — L2 norm via the SIMD dot kernel (cached per row at insert).
 #[inline]
 fn l2_norm(v: &[f32]) -> f32 {
     dot_product(v, v).sqrt()
@@ -591,7 +591,7 @@ mod tests {
 
     #[test]
     fn simd_dot_product_matches_scalar_within_epsilon() {
-        // CONCEPT:EG-014 — the 8-lane chunked dot product must equal the scalar one
+        // CONCEPT:EG-KG.compute.lane-chunked-dot-product — the 8-lane chunked dot product must equal the scalar one
         // for ALL lengths, including non-multiples of 8 (the `chunks_exact` tail).
         for &len in &[0usize, 1, 7, 8, 9, 15, 16, 31, 1000, 1024] {
             let a: Vec<f32> = (0..len).map(|i| (i as f32 * 0.013).sin()).collect();
@@ -607,7 +607,7 @@ mod tests {
 
     #[test]
     fn parallel_brute_force_matches_sequential_topk() {
-        // CONCEPT:EG-014/EG-015 — the rayon-parallel contiguous brute force +
+        // CONCEPT:EG-KG.compute.lane-chunked-dot-product/EG-015 — the rayon-parallel contiguous brute force +
         // partial-select top-k must return exactly the same top-k (ids and order) as a
         // naive sequential cosine scan. N below ANN_BUILD_THRESHOLD so `semantic_search`
         // takes the brute path.
@@ -675,7 +675,7 @@ mod tests {
 
     #[test]
     fn arena_overwrite_is_in_place_and_dense() {
-        // CONCEPT:EG-015 — overwriting an id reuses its row (the arena stays dense:
+        // CONCEPT:EG-KG.storage.arena-row-append — overwriting an id reuses its row (the arena stays dense:
         // data.len() == rows*dim, no tombstones) and the new vector wins in search.
         let mut store = SemanticStore::new();
         for i in 0..10 {
@@ -721,7 +721,7 @@ mod tests {
 
     #[test]
     fn legacy_hashmap_snapshot_migrates_to_arena() {
-        // CONCEPT:EG-015 — a snapshot written in the OLD `embeddings: HashMap` wire
+        // CONCEPT:EG-KG.storage.arena-row-append — a snapshot written in the OLD `embeddings: HashMap` wire
         // shape (or by the hnsw default backend) must still load: read-old/write-new.
         #[derive(serde::Serialize)]
         struct LegacyStore {
@@ -810,7 +810,7 @@ mod tests {
 
     #[test]
     fn search_never_builds_inline_cold_start_is_brute_force() {
-        // CONCEPT:EG-013 — the cold-start fix. A large store loaded fresh (index
+        // CONCEPT:EG-KG.storage.semantic-index-directory — the cold-start fix. A large store loaded fresh (index
         // `None`, state `Cold`, exactly the post-restart shape) must answer searches
         // WITHOUT triggering an inline IVF-PQ build: the store stays Cold and serves
         // exact brute-force results. Only `warm` (off the query path) builds it.

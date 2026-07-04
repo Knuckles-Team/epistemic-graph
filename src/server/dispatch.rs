@@ -18,9 +18,9 @@ use crate::isolation::AccessLevel;
 use crate::protocol::{Method, Request, Response, ResultPayload};
 
 /// Dispatch a single request to the appropriate handler, recording
-/// per-operation request counters and latency (CONCEPT:KG-2.51).
+/// per-operation request counters and latency (CONCEPT:EG-KG.txn.per-graph-write-isolation).
 pub async fn dispatch(state: &Arc<RwLock<ServerState>>, req: Request) -> Response {
-    // CONCEPT:EG-091 — slow-query descriptor, captured BEFORE the method is moved
+    // CONCEPT:EG-OS.observability.slow-query-descriptor — slow-query descriptor, captured BEFORE the method is moved
     // into `dispatch_inner`. `None` (zero cost) unless EPISTEMIC_GRAPH_SLOW_QUERY_MS
     // enabled it AND this is a query method.
     let slow = crate::slow_query::describe(&req.method);
@@ -65,7 +65,7 @@ async fn dispatch_inner(state: &Arc<RwLock<ServerState>>, req: Request) -> Respo
             let mem_bytes = 0;
             // ``version`` + ``ops`` let clients negotiate capabilities (e.g. only
             // use ``ParseFiles`` against an engine that advertises it) and fall
-            // back gracefully against an older binary. (CONCEPT:KG-2.19)
+            // back gracefully against an older binary. (CONCEPT:EG-KG.query.dispatch-routing)
             Response::ok(
                 req.id,
                 ResultPayload::Json(serde_json::json!({
@@ -111,7 +111,7 @@ async fn dispatch_inner(state: &Arc<RwLock<ServerState>>, req: Request) -> Respo
                 // Parse on the blocking pool, NOT the async reactor: parse_files is
                 // CPU-bound (rayon tree-sitter over every file) and a large batch
                 // would otherwise stall the runtime thread, blocking unrelated
-                // requests until it finishes. (CONCEPT:KG-2.8 — work off-reactor, A4)
+                // requests until it finishes. (CONCEPT:EG-KG.compute.off-reactor-dispatch — work off-reactor, A4)
                 let results = match compute_off_lock(req.id, move || {
                     crate::parser::tree_sitter::parse_files(&owned)
                 })
@@ -147,7 +147,7 @@ async fn dispatch_inner(state: &Arc<RwLock<ServerState>>, req: Request) -> Respo
                 let owned: Vec<(String, Vec<u8>)> =
                     files.into_iter().map(|(p, b)| (p, b.into_vec())).collect();
                 // Off-reactor like ParseFiles: parse (rayon) + resolution are
-                // CPU-bound over the whole batch. (CONCEPT:KG-2.8r)
+                // CPU-bound over the whole batch. (CONCEPT:EG-KG.compute.turn-each-project)
                 let result = match compute_off_lock(req.id, move || {
                     crate::parser::resolve::index_repository(&owned)
                 })
@@ -170,7 +170,7 @@ async fn dispatch_inner(state: &Arc<RwLock<ServerState>>, req: Request) -> Respo
 
         Method::ObserveScreen { obs_msgpack } => {
             // MessagePack map → a captured desktop frame. png rides as a bin field;
-            // elements are the AT-SPI accessibles. (CONCEPT:KG-2.185)
+            // elements are the AT-SPI accessibles. (CONCEPT:AU-KG.ontology.owl-screen-bridge)
             #[derive(serde::Deserialize)]
             struct Wire {
                 session_id: String,
@@ -213,7 +213,7 @@ async fn dispatch_inner(state: &Arc<RwLock<ServerState>>, req: Request) -> Respo
 
         Method::Checkpoint => {
             info!("Checkpoint requested");
-            // Route through the configured durable backend (CONCEPT:KG-2.177) so a
+            // Route through the configured durable backend (CONCEPT:EG-KG.storage.kg-kg) so a
             // protocol-triggered checkpoint persists via whichever tier is active.
             let backend = { state.read().await.persistence.clone() };
             let result = match backend {
@@ -229,7 +229,7 @@ async fn dispatch_inner(state: &Arc<RwLock<ServerState>>, req: Request) -> Respo
             }
         }
 
-        // ── Cost / efficiency (CONCEPT:KG-2.234, Lane V) ──────────────
+        // ── Cost / efficiency (CONCEPT:EG-KG.compute.lane-v, Lane V) ──────────────
         #[cfg(feature = "cost")]
         Method::ResourceStats => {
             let snapshot = crate::cost::collect_resource_stats(state).await;
@@ -253,7 +253,7 @@ async fn dispatch_inner(state: &Arc<RwLock<ServerState>>, req: Request) -> Respo
             {
                 Ok(()) => {
                     crate::metrics::set_graph_size(&graph_name, 0, 0);
-                    // Authoritative durable graph registration (CONCEPT:KG-2.187):
+                    // Authoritative durable graph registration (CONCEPT:EG-KG.backend.authoritative-dispatch):
                     // persist the graph's real name/type so a kill -9 before the next
                     // checkpoint still recovers it. Commit-before-ack: on failure the
                     // create is reported as an error (graph identity not durable).
@@ -297,7 +297,7 @@ async fn dispatch_inner(state: &Arc<RwLock<ServerState>>, req: Request) -> Respo
             match s.registry.delete_graph(graph_name) {
                 Ok(()) => {
                     crate::metrics::drop_graph(graph_name);
-                    // In-memory teardown (CONCEPT:KG-2.237) — distinct from the durable
+                    // In-memory teardown (CONCEPT:EG-KG.backend.many-repeated-create-delete) — distinct from the durable
                     // purge below. The registry entry (the live GraphCore) is gone, but
                     // per-graph state keyed by NAME elsewhere in ServerState would
                     // survive and shadow a same-name recreate. Drop it so the recreate
@@ -312,11 +312,11 @@ async fn dispatch_inner(state: &Arc<RwLock<ServerState>>, req: Request) -> Respo
                     //    unbounded entry leak across many churn cycles).
                     s.write_coalescer.remove(graph_name);
                     s.per_graph_inflight.remove(graph_name);
-                    // Cold-tenant tracker (CONCEPT:EG-040, R6): forget this graph's access
+                    // Cold-tenant tracker (CONCEPT:EG-KG.backend.r6-feature, R6): forget this graph's access
                     // timestamp + offload mark so they don't leak across a same-name recreate.
                     #[cfg(feature = "redb")]
                     s.cold_tracker.forget(graph_name);
-                    // Authoritative durable purge (CONCEPT:KG-2.221): the registry
+                    // Authoritative durable purge (CONCEPT:EG-KG.backend.tenant-delete-recreate-same): the registry
                     // entry is gone from RAM, but the graph's durable rows (nodes/
                     // edges/ledger/semantic/graph_meta, keyed by the sanitized name)
                     // must ALSO be removed — otherwise a recreate of the SAME name
@@ -359,7 +359,7 @@ async fn dispatch_inner(state: &Arc<RwLock<ServerState>>, req: Request) -> Respo
             Response::ok(req.id, ResultPayload::Json(serde_json::json!(graphs)))
         }
 
-        // ── M3 catalog-driven resharding admin (CONCEPT:EG-038) ──────
+        // ── M3 catalog-driven resharding admin (CONCEPT:EG-KG.backend.m3-admin-dispatch) ──────
         // The wire surface that drives online resharding (EG-032), the tenant catalog
         // (EG-031) and the rebalance planner (EG-035) + its execution (EG-039). All
         // self-routing service-level ops handled here (not the per-graph chain), so they
@@ -372,7 +372,7 @@ async fn dispatch_inner(state: &Arc<RwLock<ServerState>>, req: Request) -> Respo
         | Method::CatalogList
         | Method::RebalancePlan { .. }
         | Method::RebalanceExecute { .. }
-        // ── Online backup / restore + PITR (CONCEPT:EG-090) ──────────
+        // ── Online backup / restore + PITR (CONCEPT:EG-KG.sharding.reshard-on-restore) ──────────
         // Routed through the SAME admin handler: self-routing service-level DR ops that
         // reach the concrete redb backend via `as_redb`. Non-redb builds return a clean
         // "not available" error from the handler.
@@ -523,7 +523,7 @@ async fn dispatch_inner(state: &Arc<RwLock<ServerState>>, req: Request) -> Respo
             Response::ok(req.id, ResultPayload::String("registered".to_string()))
         }
 
-        // ── RBAC policy administration (CONCEPT:EG-092) ──────────────────
+        // ── RBAC policy administration (CONCEPT:EG-KG.compute.feature) ──────────────────
         // Gated at the handler; a non-security build has no arm and falls to the
         // dispatch "not available in this build" catch-all (mirrors EG-090).
         #[cfg(feature = "security")]
@@ -594,7 +594,7 @@ async fn dispatch_inner(state: &Arc<RwLock<ServerState>>, req: Request) -> Respo
             .await
         }
 
-        // ── Transactions (CONCEPT:KG-2.180 — multi-op OCC ACID) ──────
+        // ── Transactions (CONCEPT:EG-KG.txn.multi-op-occ-acid — multi-op OCC ACID) ──────
         // Stateful + self-routing: a Txn* op targets the graph the txn was opened
         // against (resolved from `open_txns`), NOT necessarily `req.graph`, and
         // BeginTxn carries its own graph. So they are handled here (with `state`)
@@ -630,7 +630,7 @@ async fn dispatch_inner(state: &Arc<RwLock<ServerState>>, req: Request) -> Respo
             }
         }
 
-        // ── Time-series (CONCEPT:KG-2.210/211 — native TSDB) ─────────
+        // ── Time-series (CONCEPT:AU-KG.retrieval.god-nodes-communities/211 — native TSDB) ─────────
         // Stateful + self-routing: a Ts* op targets the SERIES store (keyed by
         // `series_id`), NOT a graph, so it is handled here (with `state`, which
         // holds the `SeriesStore`) BEFORE the graph-op path — never through
@@ -650,7 +650,7 @@ async fn dispatch_inner(state: &Arc<RwLock<ServerState>>, req: Request) -> Respo
             }
         }
 
-        // ── Blob (CONCEPT:KG-2.206) ──────────────────────────────────
+        // ── Blob (CONCEPT:EG-KG.storage.blob-namespace) ──────────────────────────────────
         // Content-addressed, NOT graph-scoped: a blob is keyed by digest and may be
         // referenced across graphs, so route at the top level (like txn) before the
         // per-graph chain. The variants only exist with the `blob` feature; without
@@ -672,7 +672,7 @@ async fn dispatch_inner(state: &Arc<RwLock<ServerState>>, req: Request) -> Respo
             }
         }
 
-        // ── Key→Value (CONCEPT:EG-022) ───────────────────────────────
+        // ── Key→Value (CONCEPT:EG-KG.storage.namespaced-kv-surface) ───────────────────────────────
         // Namespaced KV, NOT graph-scoped: a pair is keyed by (namespace, key) and
         // lives off the node/edge graph, so route at the top level (like blob/txn)
         // before the per-graph chain. The variants only exist with the `kv` feature;
@@ -690,7 +690,7 @@ async fn dispatch_inner(state: &Arc<RwLock<ServerState>>, req: Request) -> Respo
             }
         }
 
-        // ── SQLite `.db` file import/export (CONCEPT:EG-331/EG-332) ──
+        // ── SQLite `.db` file import/export (CONCEPT:EG-KG.query.eg-feature/EG-332) ──
         // File-scoped, NOT graph-scoped: both ops target a filesystem `path` and move
         // rows through the process-global user-table store (behind `query`), so they
         // self-route here (like the Blob*/Kv* ops) BEFORE the per-graph chain. Gated
@@ -705,7 +705,7 @@ async fn dispatch_inner(state: &Arc<RwLock<ServerState>>, req: Request) -> Respo
             }
         }
 
-        // ── Streaming / CDC / subscriptions (CONCEPT:KG-2.229/230) ───
+        // ── Streaming / CDC / subscriptions (CONCEPT:EG-KG.query.streaming-cdc-subscriptions/230) ───
         // The reactive READ + REGISTER surface over the CDC hub on `state` (the WRITE
         // side — emitting changes — lives in the dispatch_graph_op write-side-effect
         // block). These are NOT graph-mutating (CdcRead/Watch/FiredTriggers tail a
@@ -730,7 +730,7 @@ async fn dispatch_inner(state: &Arc<RwLock<ServerState>>, req: Request) -> Respo
             }
         }
 
-        // ── Live CEP standing queries (CONCEPT:EG-299) ───────────────
+        // ── Live CEP standing queries (CONCEPT:EG-KG.query.protocol-types) ───────────────
         // The PUSH half of the event-stream + CEP modality: register a CEP pattern once
         // (CepSubscribe), then long-poll the matches it detects as CDC changes flow
         // (CepPoll). The engine is fed by the CDC hub (the write side lives in the
@@ -749,7 +749,7 @@ async fn dispatch_inner(state: &Arc<RwLock<ServerState>>, req: Request) -> Respo
             }
         }
 
-        // ── Distributed OWL reasoning (CONCEPT:KG-2.236) ─────────────
+        // ── Distributed OWL reasoning (CONCEPT:EG-KG.ontology.concept-13) ─────────────
         // Cross-shard: reasons over the UNION of several graphs, so it self-routes
         // here (with `state` to gather each shard's snapshot) BEFORE the per-graph
         // chain — never through `dispatch_graph_op`, which targets a single `req.graph`.
@@ -764,7 +764,7 @@ async fn dispatch_inner(state: &Arc<RwLock<ServerState>>, req: Request) -> Respo
         }
 
         // ── Graph operations (dispatch to target graph) ──────────────
-        // Natural-language query (CONCEPT:EG-078/EG-080): the graph rides the METHOD
+        // Natural-language query (CONCEPT:EG-KG.query.core-query-input/EG-080): the graph rides the METHOD
         // (the `/nl` HTTP facade path has no request envelope), so route to the method's
         // `graph`, falling back to the request envelope's graph when it is empty. The
         // handler (behind `nl-query`) turns NL→UQL and runs the deterministic
@@ -830,46 +830,46 @@ async fn dispatch_graph_op(
     }
 
     let core = entry.core.clone();
-    // Persistence (CONCEPT:KG-2.177): clone the durable backend handle under the
+    // Persistence (CONCEPT:EG-KG.storage.kg-kg): clone the durable backend handle under the
     // registry lock so a durable mutation can record itself after it applies, with
     // no extra locking and no file I/O on this Tokio worker (the backend hands the
     // write to its own off-reactor writer). Only durable DATA mutations are
     // recorded, and only when a backend is configured (i.e. a persist dir is set).
     let persistence = s.persistence.clone();
-    // redb-authoritative mode (CONCEPT:KG-2.187): when ON, the durable mutation must
+    // redb-authoritative mode (CONCEPT:EG-KG.backend.authoritative-dispatch): when ON, the durable mutation must
     // be COMMITTED to redb BEFORE we ack the client (commit-before-ack), and a
     // commit failure becomes an ERROR response. Read once under the same lock.
     let redb_authoritative = s.redb_authoritative;
-    // Change-Data-Capture hub (CONCEPT:KG-2.229/230): clone the handle under the same
+    // Change-Data-Capture hub (CONCEPT:EG-KG.query.streaming-cdc-subscriptions/230): clone the handle under the same
     // lock so a successful durable mutation can emit an ordered change into this
     // graph's feed AFTER it applies. `None` ⇒ a non-streaming build ⇒ no emit, the
     // write path is byte-for-byte unchanged.
     #[cfg(feature = "streaming")]
     let cdc = s.cdc.clone();
-    // Per-graph write coalescer (CONCEPT:KG-2.182): clone the registry handle so the
+    // Per-graph write coalescer (CONCEPT:EG-KG.sharding.per-graph-write-coalescer): clone the registry handle so the
     // hot single-op writes can be batched onto this graph's writer (lazily created,
     // keyed by name — automatic per new graph/connector), collapsing N concurrent
     // topology-lock acquisitions into one per batch. Cheap Arc clone under the lock.
     let write_coalescer = s.write_coalescer.clone();
-    // In-engine Raft replication (CONCEPT:KG-2.188): if a cluster is active, capture
+    // In-engine Raft replication (CONCEPT:AU-KG.ingest.source-sync-canonical): if a cluster is active, capture
     // the handle + the graph's type so a durable mutation can be routed through
     // consensus. `None` ⇒ single-node ⇒ everything below is byte-for-byte unchanged.
     #[cfg(feature = "raft")]
     let raft = s.raft.clone();
     #[cfg(feature = "raft")]
     let graph_type = entry.graph_type;
-    // The graph's type, captured under the registry lock for the CONCEPT:EG-322 replication
+    // The graph's type, captured under the registry lock for the CONCEPT:EG-KG.sharding.follower-pull-loop replication
     // append below (a follower needs it to CREATE the graph on first apply).
     #[cfg(feature = "federation-search")]
     let repl_graph_type = entry.graph_type;
-    // Cold-tenant access tracking (CONCEPT:EG-040, R6): clone the tracker under the same
+    // Cold-tenant access tracking (CONCEPT:EG-KG.backend.r6-feature, R6): clone the tracker under the same
     // registry lock so this graph's access recency is recorded after the lock is released
     // (a `touch` is one cheap map upsert, off the graph lock). The periodic cold-offload
     // sweep reads it to hibernate IDLE graphs; a recently-touched graph is never selected.
-    // `redb`-only — whole-graph offload is a durable-tier capability (CONCEPT:EG-034).
+    // `redb`-only — whole-graph offload is a durable-tier capability (CONCEPT:EG-KG.sharding.eg-r6).
     #[cfg(feature = "redb")]
     let cold_tracker = s.cold_tracker.clone();
-    // Per-agent Row-Level Security (CONCEPT:KG-2.231): clone the isolation policy
+    // Per-agent Row-Level Security (CONCEPT:EG-KG.sharding.row-level-security): clone the isolation policy
     // under the same registry lock so the read-only query handler can filter its
     // off-lock snapshot down to the rows the caller may see. Only the read/query
     // surfaces need it (writes are already graph-ACL-gated above); cheap clone of a
@@ -886,12 +886,12 @@ async fn dispatch_graph_op(
     let _ = &rls;
     drop(s); // Release registry lock before graph lock.
 
-    // Record this graph's access for the cold-offload sweep (CONCEPT:EG-040, R6) — both
+    // Record this graph's access for the cold-offload sweep (CONCEPT:EG-KG.backend.r6-feature, R6) — both
     // reads and writes touch, so a graph being actively used is never offloaded.
     #[cfg(feature = "redb")]
     cold_tracker.touch(graph_name);
 
-    // Tamper-evident audit verification (CONCEPT:KG-2.231): a read-only walk of the
+    // Tamper-evident audit verification (CONCEPT:EG-KG.sharding.row-level-security): a read-only walk of the
     // target graph's durable hash-chained audit log. Routed to the redb backend's
     // owner thread (which flushes pending first). Handled here — AFTER the registry
     // lock is released — so blocking on the writer-thread reply never holds the lock.
@@ -911,7 +911,7 @@ async fn dispatch_graph_op(
         };
     }
 
-    // ── Raft write-routing barrier (CONCEPT:KG-2.188) ──────────────────────
+    // ── Raft write-routing barrier (CONCEPT:AU-KG.ingest.source-sync-canonical) ──────────────────────
     // When a cluster is active, a durable mutation goes through Raft consensus
     // (the leader's `client_write`) BEFORE it is applied+acked: the entry is
     // replicated to a quorum and then APPLIED on every node by the Raft state
@@ -956,7 +956,7 @@ async fn dispatch_graph_op(
 
     crate::metrics::graph_op(graph_name);
 
-    // CDC pre-image (CONCEPT:KG-2.229): for a durable single-row mutation, capture the
+    // CDC pre-image (CONCEPT:EG-KG.query.streaming-cdc-subscriptions): for a durable single-row mutation, capture the
     // affected node/edge's CURRENT property blob BEFORE the write applies, so the
     // emitted change carries an accurate `before`. Reads the core directly, so it is
     // correct for both the inline and the coalescer apply paths. No-op (Skip) for a
@@ -976,7 +976,7 @@ async fn dispatch_graph_op(
     };
 
     let response = 'dispatch: {
-        // Per-graph write coalescer (CONCEPT:KG-2.182): the five high-frequency
+        // Per-graph write coalescer (CONCEPT:EG-KG.sharding.per-graph-write-coalescer): the five high-frequency
         // single-op writes are batched onto this graph's writer so M concurrent
         // writers cost ⌈M/batch⌉ topology-lock acquisitions instead of M. The shell
         // below still owns dirty/WAL/gauge off the returned Response, so durability
@@ -990,7 +990,7 @@ async fn dispatch_graph_op(
             };
         // Pure-compute domains (stateless: no graph core / lock) route first; a
         // method that isn't theirs is handed back via Err and falls through to the
-        // graph-op match below. (CONCEPT:KG-2.19 — thin routing; logic in handlers/.)
+        // graph-op match below. (CONCEPT:EG-KG.query.dispatch-routing — thin routing; logic in handlers/.)
         // Feature-gated: in a slim build the line is absent and the method flows
         // straight through to graph_ops (whose catch-all reports "not available").
         #[cfg(feature = "finance")]
@@ -1003,9 +1003,9 @@ async fn dispatch_graph_op(
             Ok(r) => break 'dispatch r,
             Err(m) => m,
         };
-        // Read-only query surface — SQL (CONCEPT:KG-2.178, DataFusion behind
-        // `query`) AND Cypher (CONCEPT:KG-2.179, dep-free behind `cypher`) AND GraphQL
-        // (CONCEPT:KG-2.235, pure-Rust eg-graphql behind `graphql`): borrows the graph
+        // Read-only query surface — SQL (CONCEPT:EG-KG.query.read-only-sql-query, DataFusion behind
+        // `query`) AND Cypher (CONCEPT:EG-KG.query.dep-free-behind, dep-free behind `cypher`) AND GraphQL
+        // (CONCEPT:EG-KG.query.sparql-completeness, pure-Rust eg-graphql behind `graphql`): borrows the graph
         // core for an off-lock snapshot, runs on the blocking pool. Gated on ANY of the
         // three features so CypherQuery still routes in a cypher-only (no-DataFusion) Pi
         // build and GraphQl routes in a graphql build; the handler's per-method arm
@@ -1031,7 +1031,7 @@ async fn dispatch_graph_op(
             Ok(r) => break 'dispatch r,
             Err(m) => m,
         };
-        // Native RDF/SPARQL surface (CONCEPT:KG-2.217/218, features `rdf`/`sparql`):
+        // Native RDF/SPARQL surface (CONCEPT:EG-KG.ontology.kg-native-rdf-sparql/218, features `rdf`/`sparql`):
         // AddTriples (durable — the shell below records it like any write),
         // GetRdf + Sparql (read-only, off-lock snapshot). Graph-scoped, so the
         // handler takes the graph core + name; AddTriples also reads the optional
@@ -1054,7 +1054,7 @@ async fn dispatch_graph_op(
             Ok(r) => break 'dispatch r,
             Err(m) => m,
         };
-        // WASM-sandboxed UDF surface (CONCEPT:KG-2.228, feature `wasm-udf`):
+        // WASM-sandboxed UDF surface (CONCEPT:EG-KG.query.rowset-execution, feature `wasm-udf`):
         // RegisterUdf compiles+caches, RunUdf runs sandboxed (fuel+memory+no host
         // caps) — both off-reactor. Process-global (not graph-scoped), so it takes
         // `state` for the UdfRegistry. A method whose feature is off falls through.
@@ -1063,7 +1063,7 @@ async fn dispatch_graph_op(
             Ok(r) => break 'dispatch r,
             Err(m) => m,
         };
-        // Query federation (CONCEPT:KG-2.232, feature `federation`):
+        // Query federation (CONCEPT:EG-KG.query.query-federation, feature `federation`):
         // RegisterForeignSource records a named foreign source on ServerState. The
         // `Op::ForeignScan` op itself runs through the unified-query handler above
         // (inline spec). Process-global, so it takes `state`. A method whose feature
@@ -1073,7 +1073,7 @@ async fn dispatch_graph_op(
             Ok(r) => break 'dispatch r,
             Err(m) => m,
         };
-        // Distributed graph compute (CONCEPT:KG-2.227, feature `compute-dist`):
+        // Distributed graph compute (CONCEPT:EG-KG.storage.feature, feature `compute-dist`):
         // DistributedCompute + the matview lifecycle. Cross-shard, so it takes
         // `state` (it gathers each shard graph's snapshot from the registry).
         #[cfg(feature = "compute-dist")]
@@ -1110,7 +1110,7 @@ async fn dispatch_graph_op(
 
     // Record the durable mutation after it SUCCEEDED in memory.
     //
-    // Two regimes (CONCEPT:KG-2.177 / KG-2.187):
+    // Two regimes (CONCEPT:EG-KG.storage.kg-kg / KG-2.187):
     //   * NOT authoritative (default): write-BEHIND. The abstracted backend remains
     //     the system-of-record; `record()` is fire-and-forget — serialize + hand to
     //     the off-reactor writer, no file I/O on this Tokio worker, no await. This is
@@ -1142,7 +1142,7 @@ async fn dispatch_graph_op(
                 p.record(&fname, &m);
             }
             // Ship the committed mutation to any cross-region read replica
-            // (CONCEPT:EG-322): append it to the process-global replication log so a
+            // (CONCEPT:EG-KG.sharding.follower-pull-loop): append it to the process-global replication log so a
             // follower's `/replicate?since=<lsn>` pull streams it. Only records when a
             // replication log has been armed (env `EPISTEMIC_GRAPH_REPLICATE`), so a
             // non-replicated primary pays nothing.
@@ -1153,7 +1153,7 @@ async fn dispatch_graph_op(
         }
     }
 
-    // Emit the CDC change (CONCEPT:KG-2.229/230) AFTER the write succeeded in memory
+    // Emit the CDC change (CONCEPT:EG-KG.query.streaming-cdc-subscriptions/230) AFTER the write succeeded in memory
     // and (in authoritative mode) committed durably — the durable-fail path above
     // returns early, so reaching here means the change is real. The hub assigns the
     // per-graph seq, appends the ring, maintains continuous queries, fires triggers,
@@ -1169,7 +1169,7 @@ async fn dispatch_graph_op(
 }
 
 /// Route the five high-frequency single-op writes through the per-graph write
-/// coalescer (CONCEPT:KG-2.182). On success returns the same `Response` the inline
+/// coalescer (CONCEPT:EG-KG.sharding.per-graph-write-coalescer). On success returns the same `Response` the inline
 /// handler would have produced (so the dispatch shell's dirty/WAL/gauge logic runs
 /// identically against it). Returns `Err(method)` — handing the method back
 /// untouched — for any method that isn't coalescable, or when the coalescer is
@@ -1280,7 +1280,7 @@ async fn try_coalesce_write(
     Ok(resp)
 }
 
-// ── Agent-memory / scene / trajectory dispatch round-trip (CONCEPT:EG-318) ────
+// ── Agent-memory / scene / trajectory dispatch round-trip (CONCEPT:EG-KG.memory.eg-batch-decay-caller) ────
 //
 // Drive the EG-318 Methods through the SAME `dispatch` entrypoint a wire request
 // hits (auth → routing → access-classify → handler → GraphCore), proving each wire
@@ -1365,7 +1365,7 @@ mod eg318_dispatch_tests {
         rmp_serde::to_vec_named(&v).unwrap()
     }
 
-    /// CONCEPT:EG-318/EG-220 — CreateSummaryNode over the wire → SummaryChildren
+    /// CONCEPT:EG-KG.memory.eg-batch-decay-caller/EG-220 — CreateSummaryNode over the wire → SummaryChildren
     /// reads back the linked children.
     #[tokio::test(flavor = "multi_thread")]
     async fn eg318_create_summary_then_read_children() {
@@ -1416,7 +1416,7 @@ mod eg318_dispatch_tests {
         }
     }
 
-    /// CONCEPT:EG-318/EG-221 — Consolidate over the wire returns the deterministic
+    /// CONCEPT:EG-KG.memory.eg-batch-decay-caller/EG-221 — Consolidate over the wire returns the deterministic
     /// semantic node id.
     #[tokio::test(flavor = "multi_thread")]
     async fn eg318_consolidate_returns_semantic_id() {
@@ -1451,7 +1451,7 @@ mod eg318_dispatch_tests {
         }
     }
 
-    /// CONCEPT:EG-318/EG-222 — Maintain (decay + evict) over the wire returns the
+    /// CONCEPT:EG-KG.memory.eg-batch-decay-caller/EG-222 — Maintain (decay + evict) over the wire returns the
     /// `(decayed, pruned_ids)` tuple.
     #[tokio::test(flavor = "multi_thread")]
     async fn eg318_maintain_decays_and_evicts() {
@@ -1490,7 +1490,7 @@ mod eg318_dispatch_tests {
         assert_eq!(pruned, vec!["low"]);
     }
 
-    /// CONCEPT:EG-318/EG-087 — AddSceneObject over the wire → WorldTransform reads
+    /// CONCEPT:EG-KG.memory.eg-batch-decay-caller/EG-087 — AddSceneObject over the wire → WorldTransform reads
     /// back the composed world pose.
     #[tokio::test(flavor = "multi_thread")]
     async fn eg318_scene_object_then_world_transform() {
@@ -1521,7 +1521,7 @@ mod eg318_dispatch_tests {
         }
     }
 
-    /// CONCEPT:EG-318/EG-099 — StartTrajectory + AppendStep over the wire →
+    /// CONCEPT:EG-KG.memory.eg-batch-decay-caller/EG-099 — StartTrajectory + AppendStep over the wire →
     /// DiscountedReturn computes `Σ gamma^t · reward`.
     #[tokio::test(flavor = "multi_thread")]
     async fn eg318_trajectory_append_then_discounted_return() {
@@ -1584,7 +1584,7 @@ mod eg318_dispatch_tests {
     }
 }
 
-// ── Blob substrate dispatch round-trip (CONCEPT:KG-2.206) ─────────────────────
+// ── Blob substrate dispatch round-trip (CONCEPT:EG-KG.storage.blob-namespace) ─────────────────────
 //
 // Drives the Blob* methods through the SAME `dispatch` entrypoint a wire request
 // hits (auth → routing → handler → CAS), proving streamed round-trip integrity +

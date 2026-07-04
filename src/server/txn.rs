@@ -1,4 +1,4 @@
-//! Server-side staged OCC transactions (CONCEPT:KG-2.180 — multi-operation ACID).
+//! Server-side staged OCC transactions (CONCEPT:EG-KG.txn.multi-op-occ-acid — multi-operation ACID).
 //!
 //! Design: **optimistic, snapshot-isolation, server-staged**. A transaction is
 //! opened with `BeginTxn`, then `TxnAddNode`/`TxnRemoveNode`/`TxnAddEdge`/
@@ -17,7 +17,7 @@
 //! the cheap coarse guard: if it is unchanged since begin, no write landed and the
 //! per-node re-check is skipped entirely.
 //!
-//! Isolation levels (CONCEPT:KG-2.183 — M6b). `BeginTxn` carries an
+//! Isolation levels (CONCEPT:EG-KG.txn.serializable-zero-cost — M6b). `BeginTxn` carries an
 //! `isolation: Option<String>` hint:
 //!   * `None` / `"snapshot"` — the default. Validation is exactly the per-NODE
 //!     fingerprint read-set above (catches write-write on touched nodes). This is
@@ -33,7 +33,7 @@
 //!
 //! Any other isolation value is REJECTED at `BeginTxn`.
 //!
-//! PITR hook (CONCEPT:KG-2.183): point-in-time recovery would replay the
+//! PITR hook (CONCEPT:EG-KG.txn.serializable-zero-cost): point-in-time recovery would replay the
 //! append-only `ledger` table up to a target version/timestamp; the natural slot is
 //! the commit path in `handlers/txn.rs` right after `core.mark_dirty()` (each
 //! committed txn maps to a version bump that a PITR cursor can target). Not
@@ -61,7 +61,7 @@ pub fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-/// Auto-rollback transactions idle past `ttl_secs` (CONCEPT:KG-2.180 safety rail).
+/// Auto-rollback transactions idle past `ttl_secs` (CONCEPT:EG-KG.txn.multi-op-occ-acid safety rail).
 /// Called by the background maintenance tick in `main.rs`. Returns the number of
 /// expired transactions reclaimed. Holds only the `open_txns` DashMap per-entry
 /// locks briefly; never the topology lock — an abandoned txn that never committed
@@ -116,7 +116,7 @@ fn hash_bytes(bytes: &[u8]) -> u64 {
     h.finish()
 }
 
-/// Transaction isolation level (CONCEPT:KG-2.183). `Snapshot` is today's behavior
+/// Transaction isolation level (CONCEPT:EG-KG.txn.serializable-zero-cost). `Snapshot` is today's behavior
 /// (per-node OCC read-set only); `Serializable` additionally re-evaluates a captured
 /// predicate read-set at commit to reject phantom/range anomalies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -164,7 +164,7 @@ pub(crate) fn parse_isolation(
 }
 
 /// A predicate/range read the txn relied on, captured at begin and re-evaluated at
-/// commit (CONCEPT:KG-2.183 serializable). Currently the one supported predicate is
+/// commit (CONCEPT:EG-KG.txn.serializable-zero-cost serializable). Currently the one supported predicate is
 /// a label scan — the minimal staged-read primitive the txn subsystem can express
 /// without a protocol change.
 #[derive(Debug, Clone)]
@@ -211,7 +211,7 @@ impl PredicateRead {
     }
 }
 
-/// One open server-staged transaction (CONCEPT:KG-2.180). Holds the target graph
+/// One open server-staged transaction (CONCEPT:EG-KG.txn.multi-op-occ-acid). Holds the target graph
 /// name, the OCC begin-version, the staged durable-mutation write-set, and the
 /// per-node read-set fingerprints for conflict detection. Stored behind a `Mutex`
 /// in `ServerState::open_txns` keyed by a server-issued `txn_id`.
@@ -225,7 +225,7 @@ pub struct GraphTxnState {
     pub(crate) write_set: Vec<Method>,
     /// Per-node fingerprints captured when first referenced — the OCC read-set.
     pub(crate) read_set: HashMap<String, NodeFingerprint>,
-    /// Isolation level (CONCEPT:KG-2.183). `Snapshot` validates only `read_set`;
+    /// Isolation level (CONCEPT:EG-KG.txn.serializable-zero-cost). `Snapshot` validates only `read_set`;
     /// `Serializable` additionally re-checks `predicate_reads`.
     pub(crate) isolation: IsolationLevel,
     /// Predicate/range reads captured at begin and re-evaluated at commit under
@@ -237,7 +237,7 @@ pub struct GraphTxnState {
     /// Monotonic ms timestamp of the last staged/begun activity, for TTL idle
     /// expiry. Updated on every stage so an actively-used txn is never swept.
     pub(crate) last_active_ms: u64,
-    /// Multi-graph staged write-set (CONCEPT:KG-2.226 — Lane N). A `Txn*` op naming a
+    /// Multi-graph staged write-set (CONCEPT:EG-KG.txn.routes-cross-shard-txn — Lane N). A `Txn*` op naming a
     /// graph OTHER than the default `graph` accumulates here, keyed by graph name, in
     /// stage order. EMPTY for an ordinary single-graph txn (the fast path pays
     /// nothing). At commit, if these touch graphs in a DIFFERENT Raft group than the
@@ -253,7 +253,7 @@ pub struct GraphTxnState {
     /// KG-2.225). Each records a durable graph-side `__blob__` link to an already-
     /// stored content-addressed blob; lands in the SAME cross-modal commit txn.
     pub(crate) blob_refs: Vec<(String, String)>,
-    /// Staged TIME-SERIES measurement batches for the DEFAULT graph (CONCEPT:EG-360 —
+    /// Staged TIME-SERIES measurement batches for the DEFAULT graph (CONCEPT:EG-KG.backend.cross-modal-atomic-commit —
     /// extended cross-modal staging). EMPTY for a txn with no measurements. When
     /// non-empty, the commit lands each batch into the graph's SERIES tables inside the
     /// SAME redb `WriteTransaction` as the graph/vector/blob writes, so a node and the
@@ -262,19 +262,19 @@ pub struct GraphTxnState {
     /// `TsScan` (read-your-own-writes on the tsdb modality).
     pub(crate) measurements: Vec<StagedMeasurement>,
     /// Staged OWL AXIOM writes, already LOWERED to graph-native `AddNode`/`AddEdge`
-    /// methods at stage time (CONCEPT:EG-361). Kept separate from `write_set` for
+    /// methods at stage time (CONCEPT:EG-KG.txn.extended-cross-modal). Kept separate from `write_set` for
     /// provenance, but applied through the SAME cross-modal wtx (`apply_method_rows`
     /// durably + `apply_staged` in-memory) so the committed OWL axioms are visible to the
     /// reasoner consistently with the txn's other modalities. EMPTY for a non-axiom txn.
     pub(crate) axioms: Vec<Method>,
     /// Staged SPARQL CONSTRUCT results, already LOWERED to graph-native `AddNode`/
-    /// `AddEdge` methods at stage time (CONCEPT:EG-362 — the CONSTRUCT is evaluated
+    /// `AddEdge` methods at stage time (CONCEPT:EG-KG.txn.construct-evaluated — the CONSTRUCT is evaluated
     /// against the committed snapshot when staged). Applied through the SAME cross-modal
     /// wtx as `axioms`. EMPTY for a non-construct txn.
     pub(crate) constructs: Vec<Method>,
 }
 
-/// One staged time-series measurement batch (CONCEPT:EG-360). Carries the decoded points
+/// One staged time-series measurement batch (CONCEPT:EG-KG.backend.cross-modal-atomic-commit). Carries the decoded points
 /// plus the schema fields the durable SERIES tables need on FIRST write of a series
 /// (`n_fields`/`bucket_ns`/`field_names`); for an already-existing series the stored meta
 /// is authoritative and these are ignored. Decoded once at stage time so the commit path
@@ -341,7 +341,7 @@ impl GraphTxnState {
         }
     }
 
-    /// Stage a VECTOR upsert into the cross-modal write-set (CONCEPT:KG-2.225). The
+    /// Stage a VECTOR upsert into the cross-modal write-set (CONCEPT:EG-KG.txn.reader-never-sees-node). The
     /// node it targets is captured into the OCC read-set (so a concurrent change to
     /// that node still conflicts), then the embedding is queued to land atomically at
     /// commit. Only the DEFAULT graph's vectors participate in the one-txn barrier.
@@ -357,7 +357,7 @@ impl GraphTxnState {
         self.last_active_ms = now_ms;
     }
 
-    /// Stage a BLOB REFERENCE into the cross-modal write-set (CONCEPT:KG-2.225). The
+    /// Stage a BLOB REFERENCE into the cross-modal write-set (CONCEPT:EG-KG.txn.reader-never-sees-node). The
     /// node is captured into the OCC read-set; the `(node_id, digest)` ref lands
     /// atomically with the node/vector/property at commit.
     pub(crate) fn stage_blob_ref(
@@ -373,7 +373,7 @@ impl GraphTxnState {
     }
 
     /// Stage a TIME-SERIES measurement batch into the cross-modal write-set
-    /// (CONCEPT:EG-360). Measurements are not graph nodes, so nothing is added to the OCC
+    /// (CONCEPT:EG-KG.backend.cross-modal-atomic-commit). Measurements are not graph nodes, so nothing is added to the OCC
     /// node read-set; the batch is queued to land atomically with the txn's other
     /// modalities at commit.
     pub(crate) fn stage_measurement(&mut self, measurement: StagedMeasurement, now_ms: u64) {
@@ -381,7 +381,7 @@ impl GraphTxnState {
         self.last_active_ms = now_ms;
     }
 
-    /// Stage OWL AXIOM writes, pre-lowered to `AddNode`/`AddEdge` methods (CONCEPT:EG-361).
+    /// Stage OWL AXIOM writes, pre-lowered to `AddNode`/`AddEdge` methods (CONCEPT:EG-KG.txn.extended-cross-modal).
     /// Each method's referenced nodes are captured into the OCC read-set (so a concurrent
     /// change to a touched node still conflicts), then the methods are queued to land in
     /// the SAME cross-modal commit.
@@ -394,7 +394,7 @@ impl GraphTxnState {
     }
 
     /// Stage SPARQL CONSTRUCT results, pre-lowered to `AddNode`/`AddEdge` methods
-    /// (CONCEPT:EG-362). Same OCC read-set capture + atomic-commit semantics as
+    /// (CONCEPT:EG-KG.txn.construct-evaluated). Same OCC read-set capture + atomic-commit semantics as
     /// [`Self::stage_axiom`].
     pub(crate) fn stage_construct(&mut self, core: &GraphCore, methods: Vec<Method>, now_ms: u64) {
         for m in &methods {
@@ -416,7 +416,7 @@ impl GraphTxnState {
     }
 
     /// Stage one durable mutation against a NAMED graph that may differ from the
-    /// txn's default (CONCEPT:KG-2.226 — multi-graph). When `graph` equals the
+    /// txn's default (CONCEPT:EG-KG.txn.routes-cross-shard-txn — multi-graph). When `graph` equals the
     /// default, this routes to [`Self::stage`] (the single-graph read-set/OCC path,
     /// unchanged). Otherwise the op accumulates in `extra_writes` for that graph; the
     /// op is NOT applied (the cross-shard coordinator applies the multi-graph slices
@@ -440,7 +440,7 @@ impl GraphTxnState {
     }
 
     /// Every graph this txn touches: the default plus any extra-graph targets
-    /// (CONCEPT:KG-2.226). Used at commit to detect a cross-shard span.
+    /// (CONCEPT:EG-KG.txn.routes-cross-shard-txn). Used at commit to detect a cross-shard span.
     pub(crate) fn touched_graphs(&self) -> Vec<String> {
         let mut out = vec![self.graph.clone()];
         out.extend(self.extra_writes.keys().cloned());
@@ -448,7 +448,7 @@ impl GraphTxnState {
     }
 
     /// True when this txn staged ops against a graph other than its default
-    /// (CONCEPT:KG-2.226) — i.e. it is a multi-graph txn whose span the commit path
+    /// (CONCEPT:EG-KG.txn.routes-cross-shard-txn) — i.e. it is a multi-graph txn whose span the commit path
     /// must evaluate against the router.
     pub(crate) fn is_multi_graph(&self) -> bool {
         !self.extra_writes.is_empty()
@@ -507,7 +507,7 @@ impl GraphTxnState {
     /// Returns `true` when the transaction may commit.
     pub(crate) fn validate(&self, core: &GraphCore) -> bool {
         // Coarse guard: no write landed at all since begin → nothing to re-check
-        // (CONCEPT:KG-2.183 — serializable pays nothing when the graph is untouched).
+        // (CONCEPT:EG-KG.txn.serializable-zero-cost — serializable pays nothing when the graph is untouched).
         if core.version() == self.begin_version {
             return true;
         }
@@ -533,7 +533,7 @@ impl GraphTxnState {
     }
 }
 
-/// Server-issued monotonic transaction-id source (CONCEPT:KG-2.180). A plain
+/// Server-issued monotonic transaction-id source (CONCEPT:EG-KG.txn.multi-op-occ-acid). A plain
 /// `AtomicU64` counter — no `rand`/`Date` dependency — rendered as a hex string so
 /// the client can thread it back opaquely. Unique within a server process, which is
 /// all the keying of `ServerState::open_txns` requires.

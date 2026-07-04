@@ -1,4 +1,4 @@
-// CONCEPT:KG-2.20c — HMM Regime Detection Engine
+// CONCEPT:EG-KG.compute.hmm-regime-detection — HMM Regime Detection Engine
 //
 // Hidden Markov Model for market regime detection.
 // Implements Baum-Welch (EM) for parameter estimation and Viterbi for decoding.

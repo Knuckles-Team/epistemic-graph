@@ -1,4 +1,4 @@
-// CONCEPT:KG-2.16 - High-Performance Graph Algorithms
+// CONCEPT:EG-KG.compute.graph-compute-engine - High-Performance Graph Algorithms
 //
 // PageRank, centrality, community detection, BFS/DFS traversals,
 // connected components — all operating on GraphCore.
@@ -13,7 +13,7 @@ use crate::graph::{GraphCore, GraphView};
 /// Hard wall-clock budget for one [`community_detection`] call. Louvain is
 /// pass- and level-capped, but a very large or adversarial graph can make each
 /// pass expensive; this deadline guarantees the call always returns a valid
-/// partition in bounded time instead of appearing to hang. (CONCEPT:KG-2.16)
+/// partition in bounded time instead of appearing to hang. (CONCEPT:EG-KG.compute.graph-compute-engine)
 const COMMUNITY_DETECTION_BUDGET: Duration = Duration::from_secs(15);
 
 // ── Traversal Algorithms ─────────────────────────────────────────────────
@@ -405,7 +405,7 @@ pub fn connected_components(core: &GraphView) -> Vec<Vec<String>> {
 
 /// Strongly connected components via Tarjan's algorithm.
 ///
-/// CONCEPT:KG-2.16 — Unlike weakly connected components which treat edges as
+/// CONCEPT:EG-KG.compute.graph-compute-engine — Unlike weakly connected components which treat edges as
 /// undirected, SCC respects edge direction. Two nodes are in the same SCC iff
 /// there is a directed path from each to the other. This is critical for
 /// belief cluster detection where causal direction matters.
@@ -423,7 +423,7 @@ pub fn strongly_connected_components(core: &GraphView) -> Vec<Vec<String>> {
 
 /// Minimum spanning tree via Kruskal's algorithm.
 ///
-/// CONCEPT:KG-2.16 — Returns the MST edges as `(source, target, weight)` tuples.
+/// CONCEPT:EG-KG.compute.graph-compute-engine — Returns the MST edges as `(source, target, weight)` tuples.
 /// Edge weights are extracted from the `weight` field of edge properties JSON.
 /// Edges without a weight field default to 1.0. Useful for argument coherence
 /// analysis — the MST reveals the minimum-cost skeleton connecting all beliefs.
@@ -501,7 +501,7 @@ pub fn minimum_spanning_tree(core: &GraphView) -> Vec<(String, String, f64)> {
 ///
 /// `resolution` (γ) scales the modularity null model (higher ⇒ more, smaller
 /// communities). Bounded by a wall-clock deadline so it always returns in bounded
-/// time (CONCEPT:KG-2.16).
+/// time (CONCEPT:EG-KG.compute.graph-compute-engine).
 pub fn community_detection(core: &GraphView, resolution: f64) -> Vec<Vec<String>> {
     let resolution = if resolution > 0.0 { resolution } else { 1.0 };
 
@@ -1002,7 +1002,7 @@ pub struct MergeProposal {
     pub kind: String,
 }
 
-/// Native entity-resolution candidate generator (CONCEPT:KG-2.260).
+/// Native entity-resolution candidate generator (CONCEPT:AU-KG.compute.when-exposes-native).
 ///
 /// Composes the existing embedding + clustering primitives into ONE server-side
 /// read op so the agent-utilities dedup ladder's residual escalates here instead
@@ -1322,7 +1322,7 @@ pub fn batch_update(core: &GraphCore, operations_msgpack: &[u8]) -> Result<Vec<u
 
     // The whole batch runs under ONE write transaction so it is atomic w.r.t.
     // concurrent readers/writers — no other operation observes a half-applied
-    // batch (CONCEPT:KG-2.16, Phase C-B).
+    // batch (CONCEPT:EG-KG.compute.graph-compute-engine, Phase C-B).
     let mut txn = core.txn();
 
     let mut added_nodes = 0u32;

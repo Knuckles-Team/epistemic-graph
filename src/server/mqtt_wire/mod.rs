@@ -1,4 +1,4 @@
-//! MQTT 3.1.1 (+ basic 5.0) wire-protocol listener (CONCEPT:EG-281) — a HAND-ROLLED
+//! MQTT 3.1.1 (+ basic 5.0) wire-protocol listener (CONCEPT:EG-KG.query.mqtt-packet-codec) — a HAND-ROLLED
 //! MQTT broker front-end that lets a standard MQTT client (paho, mosquitto_pub/sub,
 //! MQTT.js) speak to the native message broker built on the KG-2.303 work-queue.
 //!
@@ -7,7 +7,7 @@
 //! broker. Every exchange/binding/queue/message lives as graph nodes on a control graph
 //! (`crate::broker`); this module only frames MQTT control packets on the wire and maps
 //! each onto the SAME broker primitives THROUGH the engine dispatch
-//! (`crate::server::dispatch::dispatch`) the AMQP wire (CONCEPT:EG-275/276..280) uses —
+//! (`crate::server::dispatch::dispatch`) the AMQP wire (CONCEPT:EG-KG.compute.message-broker-exchanges/276..280) uses —
 //! no parallel mechanism, no new broker method.
 //!
 //! MQTT topics map naturally onto a broker TOPIC exchange + bindings: a client PUBLISH
@@ -20,7 +20,7 @@
 //! 3.1.1 spec (the Pi-contract idiom pgwire / amqp-wire / redis-wire use), so a
 //! default/pi build carries zero MQTT dependency.
 //!
-//! ## Protocol subset (CONCEPT:EG-281)
+//! ## Protocol subset (CONCEPT:EG-KG.query.mqtt-packet-codec)
 //! LANDED: CONNECT/CONNACK, PUBLISH (QoS 0 + QoS 1 with PUBACK), SUBSCRIBE/SUBACK
 //! (topic filters incl. `+`/`#` wildcards → broker topic bindings), UNSUBSCRIBE/
 //! UNSUBACK, PINGREQ/PINGRESP, DISCONNECT. Auth is a localhost TRUST surface (any
@@ -28,10 +28,10 @@
 //! gracefully): retained messages, will messages, QoS 2 (PUBREC/PUBREL/PUBCOMP), TLS,
 //! and session persistence.
 //!
-//! ## Publisher confirms + idempotent publish (CONCEPT:EG-314 / EG-284)
+//! ## Publisher confirms + idempotent publish (CONCEPT:EG-KG.ingest.mqtt-publish-property-block / EG-284)
 //! MQTT's QoS-1 PUBLISH → PUBACK already IS the publisher-confirm surface (the broker
 //! durably enqueues, then the PUBACK acknowledges), so no extra frame is needed. Every
-//! PUBLISH is routed through `Method::PublishIdempotent` (CONCEPT:EG-314): an MQTT 5.0
+//! PUBLISH is routed through `Method::PublishIdempotent` (CONCEPT:EG-KG.ingest.mqtt-publish-property-block): an MQTT 5.0
 //! client MAY attach the User Properties `producer-id` + `producer-seq`, and the broker
 //! dedups a re-published `(producer-id, seq)` against that producer's durable
 //! high-water mark for effectively-once delivery — the QoS-1 PUBACK is still returned
@@ -83,7 +83,7 @@ fn next_req_id() -> u64 {
     REQ_ID.fetch_add(1, Ordering::Relaxed)
 }
 
-/// Serve the MQTT wire protocol on `addr` until the listener errors (CONCEPT:EG-281).
+/// Serve the MQTT wire protocol on `addr` until the listener errors (CONCEPT:EG-KG.query.mqtt-packet-codec).
 pub async fn serve(addr: &str, state: Arc<RwLock<ServerState>>) -> std::io::Result<()> {
     let graph = std::env::var(MQTT_GRAPH_ENV).unwrap_or_else(|_| "__commons__".to_string());
     let exchange =
@@ -143,7 +143,7 @@ fn obj(map: serde_json::Value) -> Vec<u8> {
     rmp_serde::to_vec_named(map.as_object().unwrap()).unwrap_or_default()
 }
 
-/// Claim the oldest pending message from `queue` (CONCEPT:KG-2.303), marking it
+/// Claim the oldest pending message from `queue` (CONCEPT:EG-KG.compute.atomically-claim-oldest-pending), marking it
 /// `claimed`. Returns `(node_id, routing_key, body)` or `None`.
 async fn claim_one(
     state: &Arc<RwLock<ServerState>>,
@@ -178,7 +178,7 @@ async fn claim_one(
     Some((id, rk, body))
 }
 
-/// Finalize a delivered message: CAS its status `claimed → acked` (CONCEPT:KG-2.303 ack
+/// Finalize a delivered message: CAS its status `claimed → acked` (CONCEPT:EG-KG.compute.atomically-claim-oldest-pending ack
 /// path). Best-effort — a lost ack simply leaves the node `claimed`.
 async fn ack_message(state: &Arc<RwLock<ServerState>>, graph: &str, node_id: &str) {
     let conditions = obj(serde_json::json!({ "status": "claimed" }));
@@ -195,7 +195,7 @@ async fn ack_message(state: &Arc<RwLock<ServerState>>, graph: &str, node_id: &st
     .await;
 }
 
-// ── Topic ↔ routing-key translation (CONCEPT:EG-281) ──────────────────────
+// ── Topic ↔ routing-key translation (CONCEPT:EG-KG.query.mqtt-packet-codec) ──────────────────────
 
 /// An MQTT PUBLISH topic (`sport/tennis`) → broker routing key (`sport.tennis`). MQTT
 /// levels are `/`-delimited; the broker's topic matcher is `.`-delimited word lists.
@@ -209,7 +209,7 @@ fn key_to_mqtt_topic(key: &str) -> String {
 }
 
 /// Scan an MQTT 5.0 PUBLISH property block for the idempotency User Properties
-/// `producer-id` + `producer-seq` (CONCEPT:EG-314), returning `(producer_id,
+/// `producer-id` + `producer-seq` (CONCEPT:EG-KG.ingest.mqtt-publish-property-block), returning `(producer_id,
 /// producer_seq)`. Steps over the other PUBLISH properties by their known wire widths;
 /// an unrecognised property id ends the scan (its width is undeterminable) with whatever
 /// was found so far. `producer-seq` accepts a decimal string value.
@@ -341,7 +341,7 @@ async fn handle_connection(
                 let body = c.rest();
                 // Route through the idempotent path — with no producer-id it is a plain
                 // at-least-once publish (byte-identical to before); with one the broker
-                // dedups (CONCEPT:EG-314).
+                // dedups (CONCEPT:EG-KG.ingest.mqtt-publish-property-block).
                 let _ = engine_call(
                     &state,
                     &graph,
@@ -463,7 +463,7 @@ async fn handle_connection(
 }
 
 /// Deliver a bounded batch of pending messages from the session queue as QoS-0 PUBLISH
-/// packets (ack'd immediately). CONCEPT:EG-281 — the poll-driven push pump.
+/// packets (ack'd immediately). CONCEPT:EG-KG.query.mqtt-packet-codec — the poll-driven push pump.
 async fn pump_subscription(
     socket: &mut TcpStream,
     state: &Arc<RwLock<ServerState>>,
@@ -670,7 +670,7 @@ impl<'a> Cursor<'a> {
     }
     /// A variable-byte-length-prefixed MQTT binary block (a `u16`-length-prefixed slot
     /// is `mqtt_str`; this is the property-block form). Returns the block bytes and
-    /// advances past them (CONCEPT:EG-314 — reach the PUBLISH property block).
+    /// advances past them (CONCEPT:EG-KG.ingest.mqtt-publish-property-block — reach the PUBLISH property block).
     fn take_props(&mut self) -> Vec<u8> {
         let rem = &self.b[self.i.min(self.b.len())..];
         if let Some((plen, consumed)) = decode_remaining_length(rem) {
@@ -723,7 +723,7 @@ impl<'a> Cursor<'a> {
 
 #[cfg(test)]
 mod tests {
-    //! CONCEPT:EG-281 — MQTT packet-codec unit tests (the byte layouts the hand-rolled
+    //! CONCEPT:EG-KG.query.mqtt-packet-codec — MQTT packet-codec unit tests (the byte layouts the hand-rolled
     //! framing depends on) + a served listener round-trip (CONNECT/SUBSCRIBE/PUBLISH/
     //! deliver) that proves the mapping onto the broker end-to-end.
     use super::*;
@@ -822,7 +822,7 @@ mod tests {
         assert_eq!(mqtt_filter_to_pattern(&filters[0]), "sport.*.score");
     }
 
-    // ── CONCEPT:EG-314 idempotent publish over MQTT 5.0 user properties ───
+    // ── CONCEPT:EG-KG.ingest.mqtt-publish-property-block idempotent publish over MQTT 5.0 user properties ───
 
     #[test]
     fn eg314_parse_publish_properties_extracts_producer_user_props() {
@@ -874,7 +874,7 @@ mod tests {
         assert_eq!(parse_connect_version(&v5), 5);
     }
 
-    // ── Served listener round-trip (CONCEPT:EG-281) ───────────────────────
+    // ── Served listener round-trip (CONCEPT:EG-KG.query.mqtt-packet-codec) ───────────────────────
 
     /// A minimal `ServerState` for the broker round-trip. Every optional/feature-gated
     /// field is `None`/empty so it compiles under any feature combination.

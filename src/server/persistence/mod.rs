@@ -1,4 +1,4 @@
-//! Pluggable durable persistence backend (CONCEPT:KG-2.177).
+//! Pluggable durable persistence backend (CONCEPT:EG-KG.storage.kg-kg).
 //!
 //! The engine's durability has been a single hard-wired pair of paths: the
 //! snapshot RDB (`persist.rs`) + the off-reactor WAL (`wal_service.rs`). This
@@ -36,7 +36,7 @@ pub mod snapshot_wal;
 #[cfg(feature = "redb")]
 pub mod redb_backend;
 
-// M3 — catalog-driven resharding (CONCEPT:EG-030 / EG-031). Both are redb-only:
+// M3 — catalog-driven resharding (CONCEPT:EG-KG.sharding.atomic-shard-swap / EG-031). Both are redb-only:
 //   * `shard_migrate` — OFFLINE K-shard migration tool that rewrites an existing
 //     `graph.redb`/`graph-<n>.redb` set into a NEW K using the SAME EG-026 routing,
 //     preserving every durable row verbatim (incl. the tamper-evident audit chain).
@@ -48,7 +48,7 @@ pub mod shard_migrate;
 #[cfg(feature = "redb")]
 pub mod tenant_catalog;
 
-// M3 keystone (CONCEPT:EG-032 / EG-034). Both redb-only:
+// M3 keystone (CONCEPT:EG-KG.backend.catalog-shard-resolve / EG-034). Both redb-only:
 //   * `online_reshard` — move ONE graph between shards while the engine RUNS (verbatim
 //     row copy + catalog route flip + source GC), building on EG-030's copy + EG-031's
 //     catalog. The keystone the offline EG-030 tool skips.
@@ -60,7 +60,7 @@ pub mod online_reshard;
 #[cfg(feature = "redb")]
 pub mod cold_offload;
 
-// M3 R3 — rebalancing planner (CONCEPT:EG-035). A PURE, deterministic policy layer
+// M3 R3 — rebalancing planner (CONCEPT:EG-KG.sharding.even-load-rebalance). A PURE, deterministic policy layer
 // over observable per-shard/per-graph load + the EG-031 catalog that EMITS a plan of
 // `{graph, from_shard, to_shard}` moves to even out load. It does NOT execute the
 // plan — that is R1 online resharding (online_reshard above). Parallel-safe, no M2 dep.
@@ -98,7 +98,7 @@ pub trait PersistenceBackend: Send + Sync {
     fn record(&self, graph_fname: &str, method: &Method);
 
     /// Record a single applied DATA mutation AND await its durable commit
-    /// (CONCEPT:KG-2.187 commit-before-ack barrier). Used ONLY when redb is
+    /// (CONCEPT:EG-KG.backend.authoritative-dispatch commit-before-ack barrier). Used ONLY when redb is
     /// authoritative: dispatch awaits this before acking the write to the client,
     /// so a write is never acknowledged unless it is on disk. The enqueue must
     /// still fold into the SAME group-commit batch as every other concurrent
@@ -119,7 +119,7 @@ pub trait PersistenceBackend: Send + Sync {
         Ok(())
     }
 
-    /// Durably register a graph's identity (CONCEPT:KG-2.187). Under authoritative
+    /// Durably register a graph's identity (CONCEPT:EG-KG.backend.authoritative-dispatch). Under authoritative
     /// mode the per-mutation write path persists node/edge ROWS but not the graph's
     /// name/type, yet `load_all` rebuilds the registry from a durable graph manifest
     /// (redb `graph_meta`). So dispatch calls this when a graph is created (and it
@@ -136,7 +136,7 @@ pub trait PersistenceBackend: Send + Sync {
     }
 
     /// Durably remove ALL state for a graph when its tenant is DELETED
-    /// (CONCEPT:KG-2.221). The default per-mutation write path persists rows keyed by
+    /// (CONCEPT:EG-KG.backend.tenant-delete-recreate-same). The default per-mutation write path persists rows keyed by
     /// the graph's sanitized name but has NO row-removal on `DeleteGraph`; that left
     /// a deleted tenant's nodes/edges/meta resident in the durable tier, so a
     /// recreate of the SAME name inherited them via the read-through-on-RAM-miss path
@@ -151,7 +151,7 @@ pub trait PersistenceBackend: Send + Sync {
     }
 
     /// Read a single node's stored properties back from the durable tier
-    /// (CONCEPT:KG-2.187 read-through). Returns `Ok(None)` when the node is not
+    /// (CONCEPT:EG-KG.backend.authoritative-dispatch read-through). Returns `Ok(None)` when the node is not
     /// present durably, `Ok(Some(props))` when it is. The default is `Ok(None)`
     /// — only an authoritative backend that can serve a RAM-miss read implements
     /// it. Provided so a future read-through-on-eviction path has a backend seam
@@ -164,7 +164,7 @@ pub trait PersistenceBackend: Send + Sync {
         Ok(None)
     }
 
-    /// SYNC read-through of a single node's stored properties (CONCEPT:KG-2.191).
+    /// SYNC read-through of a single node's stored properties (CONCEPT:EG-KG.storage.read-through-seam-exercised).
     /// The eg-core read path (`GraphCore::get_node_properties`) is synchronous, so
     /// the read-through it consults on a RAM miss must be sync too. The redb backend
     /// already performs its point-read over a blocking channel to its off-reactor
@@ -180,7 +180,7 @@ pub trait PersistenceBackend: Send + Sync {
         Ok(None)
     }
 
-    /// **Cross-modal ACID commit (CONCEPT:KG-2.225 + EG-360).** Land a graph + vector +
+    /// **Cross-modal ACID commit (CONCEPT:EG-KG.txn.reader-never-sees-node + EG-360).** Land a graph + vector +
     /// blob-ref + measurement + property write-set for ONE graph atomically. The redb
     /// backend overrides this to commit ALL modalities in ONE `WriteTransaction`
     /// (commit-before-ack): on any error nothing lands (full rollback — no partial
@@ -220,14 +220,14 @@ pub trait PersistenceBackend: Send + Sync {
     /// Idempotent.
     fn shutdown(&self);
 
-    /// Downcast hook (CONCEPT:KG-2.204 / KG-2.231). The Raft store needs the CONCRETE
+    /// Downcast hook (CONCEPT:EG-KG.storage.one-fsync-covers-raft / KG-2.231). The Raft store needs the CONCRETE
     /// [`redb_backend::RedbBackend`] to reach its durable-log API (which is not part
     /// of this trait — the log is a Raft concern, not a general persistence one); the
     /// `security` audit path likewise needs it for `audit_verify_blocking`. So this
     /// lets a caller recover the concrete type from the `Arc<dyn PersistenceBackend>`
     /// in `ServerState`. The default returns `None`; only the redb backend overrides it.
     /// Gated on `redb` (the only build where `RedbBackend` exists) — also consumed by the
-    /// M3 catalog-driven resharding admin RPC (CONCEPT:EG-038).
+    /// M3 catalog-driven resharding admin RPC (CONCEPT:EG-KG.backend.m3-admin-dispatch).
     #[cfg(feature = "redb")]
     fn as_redb(&self) -> Option<&redb_backend::RedbBackend> {
         None

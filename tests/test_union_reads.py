@@ -1,4 +1,4 @@
-"""NodeClient cross-graph union reads send the union RPCs (CONCEPT:KG-2.171)."""
+"""NodeClient cross-graph union reads send the union RPCs (CONCEPT:EG-KG.query.cross-graph-union)."""
 
 from __future__ import annotations
 

@@ -1,10 +1,10 @@
-//! eg-query — the SQL/Cypher query surface (CONCEPT:KG-2.178).
+//! eg-query — the SQL/Cypher query surface (CONCEPT:EG-KG.query.read-only-sql-query).
 //!
 //! Read-only relational query over a single graph's nodes. ALL DataFusion/Arrow
 //! code lives behind the `sql` cargo feature so a default build links none of it
 //! (the engine stays lean for a Raspberry Pi).
 //!
-//! The `cypher` feature (CONCEPT:KG-2.179) is a DEP-FREE Cypher subset — a
+//! The `cypher` feature (CONCEPT:EG-KG.query.dep-free-behind) is a DEP-FREE Cypher subset — a
 //! hand-written recursive-descent parser compiled to the engine's own primitives
 //! (the eg-core label index, `vf2_subgraph_match`, petgraph BFS). It pulls NO
 //! DataFusion, so it ships in the lean Pi build.
@@ -12,7 +12,7 @@
 #[cfg(feature = "sql")]
 pub mod sql;
 
-/// Arbitrary user-defined relational tables (CONCEPT:EG-018) — the durable redb
+/// Arbitrary user-defined relational tables (CONCEPT:EG-KG.query.register-user-tables-alongside) — the durable redb
 /// table store + DataFusion materialization. Behind `sql` (needs Arrow/DataFusion/redb).
 #[cfg(feature = "sql")]
 pub mod tables;

@@ -1,6 +1,6 @@
 """LMCache ``native_plugin`` L2-adapter connector for the EG-187 KV surface.
 
-CONCEPT:EG-337 — the LMCache-side *native connector* half of the driver. It
+CONCEPT:EG-KG.backend.shipped-pip-installable-python — the LMCache-side *native connector* half of the driver. It
 complements :class:`~epistemic_graph.kvcache.connector.RemoteKVConnector` (the
 ``get`` / ``put`` / ``exists`` / ``stats`` HTTP client) by exposing it through
 the shape LMCache's **``native_plugin`` L2 adapter** loads.
@@ -10,8 +10,8 @@ Why this exists (vs the ``resp`` adapter)
 LMCache's decoupled ``lmcache server`` writes its L2 tier through an
 ``--l2-adapter`` plugin. The zero-code path points the built-in ``resp`` adapter
 at the engine's Redis RESP wire — but that lands blocks in the engine's *generic
-Redis keyspace*, so the engine's **content-addressed dedup (CONCEPT:EG-186)** and
-the **``/kv/stats`` counters (CONCEPT:EG-187)** do NOT apply. This connector
+Redis keyspace*, so the engine's **content-addressed dedup (CONCEPT:EG-KG.enrichment.content-address-separation)** and
+the **``/kv/stats`` counters (CONCEPT:EG-KG.backend.is-configured-so-co)** do NOT apply. This connector
 instead speaks the **EG-187 HTTP KV surface**, so every L2 write is
 content-addressed and deduped and the stats counters move.
 
@@ -48,7 +48,7 @@ It is loaded via ``--l2-adapter``::
 (all optional — with none supplied the connector reads the engine's EG-187
 environment via :meth:`KvCacheConfig.from_env`). There is deliberately **no**
 ``submit_batch_delete``: the shared, content-addressed pool is evicted by the
-engine's own tiered store (CONCEPT:EG-185), so L2 delete is a no-op.
+engine's own tiered store (CONCEPT:EG-KG.memory.byte-bounded-tiers), so L2 delete is a no-op.
 
 Graceful degradation is inherited from :class:`RemoteKVConnector`: every
 transport/protocol error maps to a cache miss, so an unreachable engine never
@@ -82,7 +82,7 @@ logger = logging.getLogger(__name__)
 class RemoteKVL2Connector:
     """Native-client bridge from LMCache's ``native_plugin`` L2 adapter → EG-187.
 
-    CONCEPT:EG-337. Instantiated by LMCache's ``native_plugin`` factory with the
+    CONCEPT:EG-KG.backend.shipped-pip-installable-python. Instantiated by LMCache's ``native_plugin`` factory with the
     ``adapter_params`` dict spread as keyword arguments, then wrapped in
     ``NativeConnectorL2Adapter``. All parameters are optional; anything not
     supplied is sourced from the engine's EG-187 environment
@@ -192,7 +192,7 @@ class RemoteKVL2Connector:
             updates["max_connections"] = max(workers * 2, cfg.max_connections)
         return replace(cfg, **updates)
 
-    # -- native-client contract (CONCEPT:EG-337) ------------------------------
+    # -- native-client contract (CONCEPT:EG-KG.backend.shipped-pip-installable-python) ------------------------------
     def event_fd(self) -> int:
         """The pollable fd signalled on every batch completion (one for all ops)."""
         return self._efd

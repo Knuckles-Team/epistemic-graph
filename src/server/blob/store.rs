@@ -1,4 +1,4 @@
-//! Content-addressed chunk store (CAS) — CONCEPT:KG-2.206.
+//! Content-addressed chunk store (CAS) — CONCEPT:EG-KG.storage.bounded-blob-memory.
 //!
 //! The bytes tier under the `:Media`/`:Blob` graph shape. A media file is split
 //! into fixed-size chunks; each chunk is stored ONCE keyed by its sha256
@@ -39,7 +39,7 @@ use std::sync::Arc;
 
 /// Default chunk size: 2 MiB (in the 1–4 MB band the streaming protocol targets;
 /// matches the spike). The pre-EG-071 FIXED stride; content-defined chunking
-/// ([`crate::server::blob::cdc`], CONCEPT:EG-071) now targets this as its AVERAGE.
+/// ([`crate::server::blob::cdc`], CONCEPT:EG-KG.storage.backward-manifest-read) now targets this as its AVERAGE.
 /// Still the default chunk size of the wire upload cursor (`BlobBegin`).
 pub const DEFAULT_CHUNK_SIZE: usize = 2 * 1024 * 1024;
 
@@ -47,7 +47,7 @@ pub const DEFAULT_CHUNK_SIZE: usize = 2 * 1024 * 1024;
 /// lengths + total length. Serialized to MessagePack; the blob digest is the sha256
 /// of those bytes.
 ///
-/// ## On-disk format & backward read (CONCEPT:EG-071)
+/// ## On-disk format & backward read (CONCEPT:EG-KG.storage.backward-manifest-read)
 ///
 /// EG-071 switched the splitter from a fixed 2 MiB stride to content-defined
 /// (Gear/FastCDC) chunking, so chunks are now VARIABLE length. `chunk_lens` records
@@ -65,7 +65,7 @@ pub const DEFAULT_CHUNK_SIZE: usize = 2 * 1024 * 1024;
 pub struct BlobManifest {
     /// Hex sha256 chunk digests, in file order.
     pub chunks: Vec<String>,
-    /// Per-chunk byte length, parallel to `chunks` (CONCEPT:EG-071). Empty in a
+    /// Per-chunk byte length, parallel to `chunks` (CONCEPT:EG-KG.storage.backward-manifest-read). Empty in a
     /// pre-EG-071 fixed-stride manifest — see [`chunk_lengths`](Self::chunk_lengths).
     #[serde(default)]
     pub chunk_lens: Vec<u32>,
@@ -80,7 +80,7 @@ impl BlobManifest {
     /// Per-chunk byte lengths, in file order. Returns the recorded `chunk_lens` for
     /// content-defined (EG-071) manifests; for a legacy fixed-stride manifest (empty
     /// `chunk_lens`, non-zero `chunk_size`) it RECONSTRUCTS them — every chunk is
-    /// `chunk_size` except a possibly-shorter final one. CONCEPT:EG-071 backward read.
+    /// `chunk_size` except a possibly-shorter final one. CONCEPT:EG-KG.storage.backward-manifest-read backward read.
     pub fn chunk_lengths(&self) -> Vec<u32> {
         if !self.chunk_lens.is_empty() || self.chunks.is_empty() {
             return self.chunk_lens.clone();
@@ -103,7 +103,7 @@ impl BlobManifest {
 
     /// Per-chunk `(offset, len)` boundaries, in file order — the running prefix sum
     /// of [`chunk_lengths`](Self::chunk_lengths). For random-access/seek over a blob
-    /// (CONCEPT:EG-071 variable boundaries).
+    /// (CONCEPT:EG-KG.storage.backward-manifest-read variable boundaries).
     pub fn chunk_offsets(&self) -> Vec<(u64, u32)> {
         let mut out = Vec::with_capacity(self.chunks.len());
         let mut off = 0u64;
@@ -200,7 +200,7 @@ const CAS_CHUNKS: TableDefinition<&str, &[u8]> = TableDefinition::new("cas_chunk
 const CAS_BLOBS: TableDefinition<&str, &[u8]> = TableDefinition::new("cas_blobs");
 const CAS_REFCOUNT: TableDefinition<&str, u64> = TableDefinition::new("cas_refcount");
 
-/// Chunks to flush per group commit (CONCEPT:KG-2.206 — bounded memory). At the
+/// Chunks to flush per group commit (CONCEPT:EG-KG.storage.bounded-blob-memory — bounded memory). At the
 /// 2 MiB default chunk size this is a ~64 MiB write window: redb buffers at most
 /// this many dirty chunk pages before forcing an `Immediate` commit, so peak RSS is
 /// bounded by the GROUP WINDOW, NOT the blob size. (Committing each chunk
@@ -863,7 +863,7 @@ mod tests {
         );
     }
 
-    /// CONCEPT:EG-071 backward read — a PRE-EG-071 manifest (serialized with only
+    /// CONCEPT:EG-KG.storage.backward-manifest-read backward read — a PRE-EG-071 manifest (serialized with only
     /// `chunks`/`len`/fixed `chunk_size`, no `chunk_lens`) still deserializes, its
     /// chunk lengths reconstruct from the fixed stride, and the blob reassembles
     /// byte-for-byte (the chunk bytes are self-describing, so no migration is needed).

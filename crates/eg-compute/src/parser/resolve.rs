@@ -1,4 +1,4 @@
-// CONCEPT:KG-2.8r / KG-2.100 — Cross-file, type/scope-resolved call + import graph.
+// CONCEPT:EG-KG.compute.turn-each-project / KG-2.100 — Cross-file, type/scope-resolved call + import graph.
 //
 // `parse_file`/`parse_files` extract per-symbol call sites (the `call_sites`
 // property: receiver/callee/argc triples) and per-file raw import edges, but
@@ -8,7 +8,7 @@
 //   - a class's base/interface names → the class SYMBOL ids   (`inherits`/`realizes`)
 //   - a file's import module strings → the file that defines the module (`depends_on`)
 //
-// Call resolution is now **type/scope-aware** (CONCEPT:KG-2.100): a method call
+// Call resolution is now **type/scope-aware** (CONCEPT:EG-KG.compute.type-scope-resolved-call): a method call
 // `obj.run()` / `self.run()` binds to the `run` method of the receiver's class
 // (or an inherited one), and same-name overloads disambiguate by argument count —
 // instead of the old name-only match. Every resolved call edge carries a
@@ -41,7 +41,7 @@ pub struct IndexResult {
     pub calls_resolved: usize,
     /// Call sites seen but not bound (external/stdlib/ambiguous) — the remainder.
     pub calls_unresolved: usize,
-    /// Of `calls_resolved`, those bound by receiver/class scope (CONCEPT:KG-2.100).
+    /// Of `calls_resolved`, those bound by receiver/class scope (CONCEPT:EG-KG.compute.type-scope-resolved-call).
     pub calls_scope_resolved: usize,
     /// Of `calls_resolved`, those disambiguated by argument-count match.
     pub calls_type_resolved: usize,
@@ -49,7 +49,7 @@ pub struct IndexResult {
     pub inherits_edges: usize,
     /// Class→interface `realizes` edges emitted.
     pub realizes_edges: usize,
-    /// Model-free `similar_to` edges emitted (CONCEPT:KG-2.101).
+    /// Model-free `similar_to` edges emitted (CONCEPT:EG-KG.compute.model-free-similar-code).
     pub similar_edges: usize,
     /// Import statements bound to an in-batch file.
     pub imports_resolved: usize,
@@ -76,7 +76,7 @@ struct ClassDef {
 /// Parse a batch of `(file_path, source_bytes)` and resolve cross-file edges in
 /// one pass. The batch IS the resolution scope: a repository (or a delta set)
 /// should be shipped together so intra-repo calls/imports resolve.
-// CONCEPT:EG-011 — span the parse+resolve indexing pass (AST throughput trace).
+// CONCEPT:EG-KG.compute.parse-resolve-span — span the parse+resolve indexing pass (AST throughput trace).
 #[tracing::instrument(
     skip(files),
     fields(n_files = files.len(), total_bytes = files.iter().map(|(_, b)| b.len()).sum::<usize>())
@@ -291,7 +291,7 @@ pub fn resolve(files: &[(String, Vec<u8>)], results: &[ParseResult]) -> IndexRes
         }
     }
 
-    // ── Model-free similarity: LSH-band the MinHash signatures (CONCEPT:KG-2.101) ──
+    // ── Model-free similarity: LSH-band the MinHash signatures (CONCEPT:EG-KG.compute.model-free-similar-code) ──
     out.similar_edges = similarity_edges(&out.nodes, &mut edges);
 
     // `call_sites`/`minhash` are resolution-only inputs; don't leak them onto nodes.

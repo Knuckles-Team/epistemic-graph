@@ -1,4 +1,4 @@
-//! SQLite `.db` FILE import/export handler (CONCEPT:EG-331 / CONCEPT:EG-332) — the
+//! SQLite `.db` FILE import/export handler (CONCEPT:EG-KG.query.eg-feature / CONCEPT:EG-KG.query.full-protocol) — the
 //! documented EG-075 follow-up: reading/writing a real on-disk `sqlite3` `.db` FILE,
 //! distinct from the `sqlite-wire` NDJSON dialect surface (which speaks SQLite SQL over
 //! a socket but never touches a `.db` file).
@@ -70,7 +70,7 @@ pub(crate) async fn try_handle(req_id: u64, method: Method) -> Result<Response, 
     }
 }
 
-// ── Import (CONCEPT:EG-331) ───────────────────────────────────────────────────
+// ── Import (CONCEPT:EG-KG.query.eg-feature) ───────────────────────────────────────────────────
 
 /// Read every user table (+ its rows) from the `sqlite3` `.db` file at `path` into
 /// `store`. A same-name table already in the store is REPLACED (drop-then-recreate) so
@@ -249,7 +249,7 @@ fn sqlite_value_to_json(v: SqlValue, ty: ColumnType) -> Result<JsonValue, String
     }
 }
 
-// ── Export (CONCEPT:EG-332) ───────────────────────────────────────────────────
+// ── Export (CONCEPT:EG-KG.query.full-protocol) ───────────────────────────────────────────────────
 
 /// Write the selected user tables OUT to a FRESH, valid `sqlite3` `.db` file at `path`
 /// (the `sqlite3` CLI can open it). `tables` empty ⇒ every user table; else exactly the
@@ -418,7 +418,7 @@ mod tests {
         )
     }
 
-    /// CONCEPT:EG-331 / CONCEPT:EG-332 — the full `.db` file round-trip: write a source
+    /// CONCEPT:EG-KG.query.eg-feature / CONCEPT:EG-KG.query.full-protocol — the full `.db` file round-trip: write a source
     /// SQLite file with the C sqlite library, IMPORT it into an isolated engine table
     /// store, EXPORT that store back out to a fresh `.db`, then RE-OPEN the exported file
     /// with the sqlite library (proving it is a valid, `sqlite3`-readable database) and

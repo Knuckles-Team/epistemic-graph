@@ -1,4 +1,4 @@
-//! CONCEPT:EG-087 — scene-graph / 3D world-model primitives.
+//! CONCEPT:EG-KG.compute.scene-graph-primitives — scene-graph / 3D world-model primitives.
 //!
 //! Pure, deterministic 3D math (no clock/RNG, no I/O) backing the native
 //! scene-graph modality on [`crate::graph::GraphCore`]: a `:SceneObject` carries a
@@ -10,7 +10,7 @@
 //!
 //! The types serialize to/from the arbitrary-JSON node property map (via
 //! [`Pose::to_json`] / [`Pose::from_json`]) so they need NO storage-schema change —
-//! exactly the convention the `Distribution` properties (CONCEPT:EG-086) use. All
+//! exactly the convention the `Distribution` properties (CONCEPT:EG-KG.compute.uncertainty-values) use. All
 //! math here is total and side-effect-free, so a `world_transform` replays
 //! identically from the WAL / on a Raft follower.
 //!

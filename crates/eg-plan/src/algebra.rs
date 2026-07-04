@@ -1,4 +1,4 @@
-//! The unified operator algebra (CONCEPT:KG-2.208) — re-exported from the wire DTO.
+//! The unified operator algebra (CONCEPT:AU-KG.compute.vector) — re-exported from the wire DTO.
 //!
 //! The serializable plan AST (`Op`, `Pred`, `Plan`) is the wire DTO and therefore
 //! lives at the BOTTOM of the DAG in [`eg_types::wire`] (so `eg-types::protocol`'s

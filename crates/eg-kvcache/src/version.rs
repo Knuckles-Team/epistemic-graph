@@ -1,4 +1,4 @@
-//! Data-version invalidation for the KV cache (CONCEPT:EG-364).
+//! Data-version invalidation for the KV cache (CONCEPT:EG-KG.storage.content-addressed-put).
 //!
 //! ## The gap this closes
 //!
@@ -15,8 +15,8 @@
 //!
 //! ## The fix — mirror `eg-core`'s version-keyed result cache
 //!
-//! `eg-core::ResultCache` (CONCEPT:KG-2.233) already solved the analogous problem for
-//! query RESULTS: it keys every entry by the `GraphCore::version()` (CONCEPT:KG-2.180) —
+//! `eg-core::ResultCache` (CONCEPT:EG-KG.coordination.distributed-cache-coherence) already solved the analogous problem for
+//! query RESULTS: it keys every entry by the `GraphCore::version()` (CONCEPT:EG-KG.txn.multi-op-occ-acid) —
 //! a monotonic OCC write-generation bumped on EVERY committed write — so a single atomic
 //! version bump retires every cached result at once (a stale entry can simply never be
 //! looked up again). We mirror that **epoch** here: each cached KV/context entry captures
@@ -48,7 +48,7 @@
 //! feature be **zero-cost / opt-in**: a cache used purely for content-addressed KV pages
 //! (put `Agnostic`, never call `set_data_version`) behaves EXACTLY as before.
 
-/// The data-version an entry was derived at — the invalidation epoch (CONCEPT:EG-364).
+/// The data-version an entry was derived at — the invalidation epoch (CONCEPT:EG-KG.storage.content-addressed-put).
 ///
 /// Deliberately an enum, NOT a bare `u64`, because a real `GraphCore::version()` starts
 /// at `0` and increments; so `0` is a *valid* graph version and cannot double as the
@@ -62,7 +62,7 @@ pub enum DataVersion {
     /// so the content-addressed dedup / tiering path is untouched and zero-cost.
     Agnostic,
     /// The entry was DERIVED from graph data at this `GraphCore::version()`
-    /// (CONCEPT:KG-2.180). It stays fresh only while the store's current version equals
+    /// (CONCEPT:EG-KG.txn.multi-op-occ-acid). It stays fresh only while the store's current version equals
     /// this; a newer version retires it (stale LLM/agent context).
     At(u64),
 }

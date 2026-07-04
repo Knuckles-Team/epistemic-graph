@@ -1,9 +1,9 @@
-// CONCEPT:KG-2.233 — cold object-store tier seam (feature `cold-tier`).
+// CONCEPT:EG-KG.storage.cold-object-store-tier — cold object-store tier seam (feature `cold-tier`).
 //
 // The engine keeps a graph's HOT state in RAM, with a redb durable tier under it
-// (CONCEPT:KG-2.195) and node-property read-through on a RAM miss (CONCEPT:KG-2.191).
+// (CONCEPT:AU-KG.backend.backend-modes) and node-property read-through on a RAM miss (CONCEPT:EG-KG.storage.read-through-seam-exercised).
 // A COLD tenant — one not touched for a long time — still costs RAM (and, in the
-// authoritative model, redb file space) even after hibernation (CONCEPT:KG-2.224)
+// authoritative model, redb file space) even after hibernation (CONCEPT:EG-KG.storage.100m-tenant)
 // drops its RAM, because a full topology/edge rehydrate needs the durable tier.
 //
 // The cold tier extends the eviction/hibernation ladder with a THIRD rung: a cold
@@ -30,7 +30,7 @@
 // `from_msgpack` blob — the same shape a snapshot file holds — so offload is
 // "serialize + hand to the cold store" and rehydrate is "fetch + `from_msgpack`".
 
-/// A cold object-store tier for whole-graph offload/rehydrate (CONCEPT:KG-2.233).
+/// A cold object-store tier for whole-graph offload/rehydrate (CONCEPT:EG-KG.storage.cold-object-store-tier).
 /// Implemented in the facade over a local map / redb (default) or an object store
 /// (feature-gated). Keyed by the LOGICAL graph name; the impl sanitizes it to its
 /// own key shape. Blocking is allowed — a cold offload/rehydrate is a rare, off-hot-
@@ -120,7 +120,7 @@ mod tests {
         tier.remove("missing").unwrap();
     }
 
-    /// Full RAM→cold→RAM round-trip over a real `GraphCore` (CONCEPT:KG-2.233):
+    /// Full RAM→cold→RAM round-trip over a real `GraphCore` (CONCEPT:EG-KG.storage.cold-object-store-tier):
     /// offload spills the whole serialized graph to the cold tier and HIBERNATES the
     /// RAM (node count → 0); rehydrate brings every node/edge/property back, exactly
     /// as before the offload, and drops the cold copy.

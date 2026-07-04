@@ -1,4 +1,4 @@
-//! 3-node Raft cluster test (CONCEPT:KG-2.188).
+//! 3-node Raft cluster test (CONCEPT:AU-KG.ingest.source-sync-canonical).
 //!
 //! Spins three in-process Raft nodes on three local TCP ports, each with its own
 //! redb-AUTHORITATIVE persistence dir. Verifies the full HA contract:
@@ -306,7 +306,7 @@ where
 
 use super::store::EgStore;
 use super::AppCtx;
-// openraft 0.10 v2 split-storage traits (CONCEPT:KG-2.273): the combined `RaftStorage`
+// openraft 0.10 v2 split-storage traits (CONCEPT:AU-KG.backend.authority-has-already-acked): the combined `RaftStorage`
 // is gone — log ops live on `RaftLogStorage` + its super-trait `RaftLogReader`, and
 // `append` signals durability through an `IOFlushed` callback.
 use openraft::entry::RaftEntry;
@@ -624,7 +624,7 @@ async fn two_groups_one_node_commit_independently() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// M2 hardening (CONCEPT:KG-2.265 / KG-2.266 / KG-2.267)
+// M2 hardening (CONCEPT:AU-KG.ontology.manage-arbitrary / KG-2.266 / KG-2.267)
 // ─────────────────────────────────────────────────────────────────────────
 
 /// KG-2.265: the per-peer connection pool REUSES a warm connection across
@@ -827,7 +827,7 @@ async fn group_snapshot_is_scoped_to_its_tenant_range() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// M2 remaining (CONCEPT:KG-2.268 / KG-2.270 / KG-2.271)
+// M2 remaining (CONCEPT:EG-KG.storage.kg-kg-2 / KG-2.270 / KG-2.271)
 //   R3 multi-node membership join · R1 leader balancing · R2 heartbeat coalescing
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -1075,7 +1075,7 @@ async fn multi_node_group_join_then_leader_rebalance() {
     assert_eq!(target, 2, "round-robin target for group 7 is node 2");
 
     // EVERY node runs a balancing pass (as a real cluster does). openraft 0.10
-    // (CONCEPT:KG-2.273): node 1 (the incumbent leader) issues the NATIVE
+    // (CONCEPT:AU-KG.backend.authority-has-already-acked): node 1 (the incumbent leader) issues the NATIVE
     // `trigger().transfer_leader(2)` — a graceful, near-instant handoff — because the
     // round-robin target for group 7 is node 2. No cooperative heartbeat-yield is
     // involved any more, and node 2 (a follower) does NOT campaign on its own.
@@ -1132,7 +1132,7 @@ async fn multi_node_group_join_then_leader_rebalance() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
-// ── Distributed graph compute (CONCEPT:KG-2.227) ─────────────────────────────
+// ── Distributed graph compute (CONCEPT:EG-KG.storage.feature) ─────────────────────────────
 //
 // These prove the cross-shard Pregel engine produces the SAME result as the
 // single-graph algorithm run over the UNION graph: a graph split across two shard
@@ -1393,7 +1393,7 @@ mod dist_compute {
     }
 }
 
-// ── Materialized view durability (CONCEPT:KG-2.227) ──────────────────────────
+// ── Materialized view durability (CONCEPT:EG-KG.storage.feature) ──────────────────────────
 //
 // A materialized view round-trips through the redb durable tier: the handler computes
 // + persists it, and a fresh scan (the boot reload path) recovers the SAME view. Tests

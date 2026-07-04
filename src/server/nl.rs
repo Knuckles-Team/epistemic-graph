@@ -1,7 +1,7 @@
-//! Natural-language query planner resolution for the facade (CONCEPT:EG-080).
+//! Natural-language query planner resolution for the facade (CONCEPT:EG-KG.query.fence-stripper).
 //!
 //! The engine's NL surface is LLM-OPTIONAL and pure-Rust in the core: the
-//! [`eg_plan::NlPlanner`] seam (CONCEPT:EG-078) turns NL into a UQL query STRING that then
+//! [`eg_plan::NlPlanner`] seam (CONCEPT:EG-KG.query.core-query-input) turns NL into a UQL query STRING that then
 //! runs through the existing deterministic `UnifiedQueryText` pipeline. This module owns
 //! WHICH planner the facade uses:
 //!
@@ -19,14 +19,14 @@ use std::sync::{Arc, OnceLock};
 
 use eg_plan::{NlPlanner, UreqNlPlanner};
 
-/// An operator-injected planner (CONCEPT:EG-080). Set ONCE, before first use, by an
+/// An operator-injected planner (CONCEPT:EG-KG.query.fence-stripper). Set ONCE, before first use, by an
 /// embedder that wants the engine to drive its own NL→query. Wins over the config default.
 static INJECTED: OnceLock<Arc<dyn NlPlanner>> = OnceLock::new();
 /// The lazily-built, config-derived default planner (`None` when nothing is configured).
 /// Built at most once, on the first `NlQuery` that finds no injected planner.
 static CONFIG_DEFAULT: OnceLock<Option<Arc<dyn NlPlanner>>> = OnceLock::new();
 
-/// Inject the NL planner the facade should use (CONCEPT:EG-080). An embedder calls this
+/// Inject the NL planner the facade should use (CONCEPT:EG-KG.query.fence-stripper). An embedder calls this
 /// at startup to opt into the engine driving NL→query with its own planner. Idempotent:
 /// a second call after the planner is set (or after the config default was already
 /// resolved) is ignored, so the wiring is stable for the process lifetime.
@@ -58,7 +58,7 @@ const ENDPOINT_ENV: &str = "EPISTEMIC_GRAPH_NL_ENDPOINT";
 const MODEL_ENV: &str = "EPISTEMIC_GRAPH_NL_MODEL";
 const API_KEY_ENV_ENV: &str = "EPISTEMIC_GRAPH_NL_API_KEY_ENV";
 
-/// Build the standalone config default planner (CONCEPT:EG-080). Reads config +
+/// Build the standalone config default planner (CONCEPT:EG-KG.query.fence-stripper). Reads config +
 /// env-overrides; returns `None` (no NL surface) when no endpoint is configured.
 fn build_default_from_config() -> Option<Arc<dyn NlPlanner>> {
     let settings = load_or_scaffold_settings();
@@ -175,7 +175,7 @@ fn scaffold_minimal_config() {
             "endpoint": "",
             "model": "gpt-4o-mini",
             "api_key_env": "OPENAI_API_KEY",
-            "_comment": "epistemic-graph CONCEPT:EG-080 — set `endpoint` to an \
+            "_comment": "epistemic-graph CONCEPT:EG-KG.query.fence-stripper — set `endpoint` to an \
     OpenAI-compatible /chat/completions URL to enable the NL query surface (Method::NlQuery \
     + /nl). `api_key_env` names the env var holding the bearer key (empty for a local \
     keyless endpoint)."

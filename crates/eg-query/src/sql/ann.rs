@@ -1,4 +1,4 @@
-//! Real pgvector ANN top-k pushdown execution (CONCEPT:EG-313).
+//! Real pgvector ANN top-k pushdown execution (CONCEPT:EG-KG.query.real-pgvector-ann-top).
 //!
 //! EG-116 recognized `CREATE INDEX … USING hnsw|ivfflat (col opclass)` (an
 //! [`AnnIndexPlan`]) and a `SELECT … FROM t ORDER BY col <-> $q LIMIT k` nearest-
@@ -10,11 +10,11 @@
 //! vectors and returning the true top-k — instead of brute force. When no index
 //! covers the `(table, column, metric)`, the caller keeps the brute-force path.
 //!
-//! ## Correctness + determinism (CONCEPT:EG-313)
+//! ## Correctness + determinism (CONCEPT:EG-KG.query.real-pgvector-ann-top)
 //! The graph ANN indices (HNSW graph traversal, IVF-PQ coarse+PQ codes) are
 //! *approximate*. To return the TRUE nearest-k (matching a brute-force reference)
 //! this module uses the standard "ANN recall + exact rerank" pipeline eg-ann was
-//! built for (CONCEPT:EG-297): consult the ANN index for an over-fetched candidate
+//! built for (CONCEPT:EG-KG.query.concept-5): consult the ANN index for an over-fetched candidate
 //! pool, then re-score those candidates on their FULL f32 vectors with the exact
 //! [`FlatIndex`] and take the precise top-k. Every stage is deterministic —
 //! eg-ann's level assignment is a clock-free hash, its k-means is `ChaCha8Rng`-
@@ -32,7 +32,7 @@ use eg_ann::{FlatIndex, HnswIndex, IvfPq, IvfPqParams, Metric, SearchParams};
 
 use super::pgfamily::{AnnMethod, VectorMetric};
 
-/// Deterministic seed for every eg-ann index built for a pushdown (CONCEPT:EG-313) —
+/// Deterministic seed for every eg-ann index built for a pushdown (CONCEPT:EG-KG.query.real-pgvector-ann-top) —
 /// fixed so repeated runs of the same query are bit-identical.
 const ANN_SEED: u64 = 0x00E6_0313;
 /// Candidate over-fetch factor: pull `k * OVERFETCH` candidates from the ANN index
@@ -46,7 +46,7 @@ const HNSW_M: usize = 16;
 const HNSW_EF_CONSTRUCTION: usize = 200;
 
 /// Map a pgvector [`VectorMetric`] (from the opclass / distance operator) to the
-/// eg-ann [`Metric`] (CONCEPT:EG-313). `<->`→L2, `<=>`→cosine, `<#>`→(neg)inner.
+/// eg-ann [`Metric`] (CONCEPT:EG-KG.query.real-pgvector-ann-top). `<->`→L2, `<=>`→cosine, `<#>`→(neg)inner.
 pub(crate) fn metric_to_ann(metric: VectorMetric) -> Metric {
     match metric {
         VectorMetric::L2 => Metric::L2,
@@ -56,7 +56,7 @@ pub(crate) fn metric_to_ann(metric: VectorMetric) -> Metric {
 }
 
 /// Decode the query-vector operand of an [`AnnSearchPlan`](super::pgfamily::AnnSearchPlan)
-/// (its `query` SQL text) into a dense `Vec<f32>` (CONCEPT:EG-313). Accepts the
+/// (its `query` SQL text) into a dense `Vec<f32>` (CONCEPT:EG-KG.query.real-pgvector-ann-top). Accepts the
 /// pgvector literal forms `'[1,2,3]'` / `[1,2,3]` (with or without the surrounding
 /// single quotes). Returns `None` for an unresolved bind placeholder (`$1`) or any
 /// non-literal the pushdown cannot resolve here — the caller then keeps the
@@ -71,7 +71,7 @@ pub(crate) fn parse_query_vector(raw: &str) -> Option<Vec<f32>> {
         .filter(|v| !v.is_empty())
 }
 
-/// Whether `sql` carries a `WHERE` clause (CONCEPT:EG-313). The ANN pushdown pre-
+/// Whether `sql` carries a `WHERE` clause (CONCEPT:EG-KG.query.real-pgvector-ann-top). The ANN pushdown pre-
 /// selects the top-k rows over the WHOLE column, so a `WHERE` would change pgvector's
 /// filter-THEN-rank semantics; the caller declines the pushdown (keeps brute force)
 /// when this is true. A lightweight, parse-free scan sufficient for the recognized
@@ -105,7 +105,7 @@ fn isqrt(n: usize) -> usize {
 }
 
 /// Consult a REAL eg-ann index over `vectors` and return the TRUE top-`k` row
-/// positions (indices into `vectors`), nearest-first (CONCEPT:EG-313).
+/// positions (indices into `vectors`), nearest-first (CONCEPT:EG-KG.query.real-pgvector-ann-top).
 ///
 /// * `method` — `hnsw` ⇒ [`HnswIndex`], `ivfflat` ⇒ [`IvfPq`]; the index type the
 ///   `CREATE INDEX` registered.
@@ -183,7 +183,7 @@ pub(crate) fn ann_topk_rows(
 }
 
 /// Extract the dense f32 vectors of a `List<Float32>` / `FixedSizeList<Float32>`
-/// column at `col_idx` (CONCEPT:EG-313): returns `(orig_row_index, vector)` for every
+/// column at `col_idx` (CONCEPT:EG-KG.query.real-pgvector-ann-top): returns `(orig_row_index, vector)` for every
 /// row whose vector is non-null AND matches `dim`. Rows failing either are skipped
 /// (they can't be a nearest-neighbour under a well-formed query anyway).
 fn column_vectors(batch: &RecordBatch, col_idx: usize, dim: usize) -> Vec<(usize, Vec<f32>)> {
@@ -219,12 +219,12 @@ fn column_vectors(batch: &RecordBatch, col_idx: usize, dim: usize) -> Vec<(usize
 }
 
 /// Whether an Arrow field is a pgvector `vector` column — a `List`/`FixedSizeList`
-/// with a `Float32` element (CONCEPT:EG-115/EG-313).
+/// with a `Float32` element (CONCEPT:EG-KG.query.pgvector-binary-wire/EG-313).
 fn is_vector_field(dt: &DataType) -> bool {
     matches!(dt, DataType::List(f) | DataType::FixedSizeList(f, _) if *f.data_type() == DataType::Float32)
 }
 
-/// Execute the ANN top-k pushdown over one materialized table batch (CONCEPT:EG-313):
+/// Execute the ANN top-k pushdown over one materialized table batch (CONCEPT:EG-KG.query.real-pgvector-ann-top):
 /// build/consult the registered eg-ann index over `column`'s vectors, then return a
 /// NEW batch narrowed to the true nearest-k rows, in nearest-first order. Returns
 /// `None` (⇒ the caller keeps the brute-force full-scan) when the pushdown does not
@@ -278,7 +278,7 @@ mod tests {
     use arrow::datatypes::{Field, Schema};
     use std::sync::Arc;
 
-    /// A brute-force exact top-k reference (CONCEPT:EG-313) over the SAME rows the
+    /// A brute-force exact top-k reference (CONCEPT:EG-KG.query.real-pgvector-ann-top) over the SAME rows the
     /// pushdown sees — the ground truth every ANN-pushdown test is measured against.
     fn brute_topk(vectors: &[Vec<f32>], query: &[f32], k: usize, metric: Metric) -> Vec<usize> {
         let mut scored: Vec<(usize, f32)> = vectors

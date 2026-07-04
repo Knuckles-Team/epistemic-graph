@@ -1,4 +1,4 @@
-//! Federation proofs (CONCEPT:KG-2.232, Lane P): a FOREIGN source composes with the
+//! Federation proofs (CONCEPT:EG-KG.query.query-federation, Lane P): a FOREIGN source composes with the
 //! LOCAL graph in ONE plan, and the fused result equals the manual join.
 //!
 //! The foreign source here is a MOCK HTTP/JSON API served by a tiny in-test TCP server

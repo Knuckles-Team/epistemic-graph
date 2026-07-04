@@ -1,4 +1,4 @@
-//! # eg-stream — the event-stream + complex-event-processing (CEP) modality (CONCEPT:EG-088)
+//! # eg-stream — the event-stream + complex-event-processing (CEP) modality (CONCEPT:EG-KG.query.pipelined-execution)
 //!
 //! A pure-Rust leaf crate (a sibling of `eg-ann` / `eg-geo` / `eg-tensor`) giving the
 //! engine a **bounded NFA-based CEP engine** over a time-ordered event stream, with **NO
@@ -19,7 +19,7 @@
 //! ## How it ties into the engine
 //!
 //! * **Windowing primitive (EG-067).** [`Window::Sliding`] / [`Window::Tumbling`] are the
-//!   CEP-side windows; the engine's `Op::Window { secs }` (CONCEPT:EG-067) is the plan-AST
+//!   CEP-side windows; the engine's `Op::Window { secs }` (CONCEPT:EG-KG.query.streaming-execution) is the plan-AST
 //!   windowing primitive an `Op::Cep` sits beside — the two share the "trailing window over
 //!   a time-ordered RowSet" model.
 //! * **Wire variant.** The wire algebra `Op::Cep { pattern }` lives in `eg-types::wire`

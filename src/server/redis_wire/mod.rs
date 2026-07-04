@@ -1,13 +1,13 @@
-//! Redis RESP wire-protocol listener (CONCEPT:EG-174) — a native, HAND-ROLLED
+//! Redis RESP wire-protocol listener (CONCEPT:EG-KG.ontology.resp2-resp3-codec-round) — a native, HAND-ROLLED
 //! Redis server so a Redis client, an ORM cache layer, or `redis-cli` connects
 //! DIRECTLY to the engine and runs the core Redis command set.
 //!
 //! ## What this is (and is NOT)
 //!
-//! Like the SQL wire shims (pgwire / mysql-wire, CONCEPT:EG-074) and the Bolt
-//! adapter (CONCEPT:EG-159), this is an ADAPTER — NOT a re-implemented Redis. The
+//! Like the SQL wire shims (pgwire / mysql-wire, CONCEPT:EG-KG.compute.subsystems-reference) and the Bolt
+//! adapter (CONCEPT:EG-KG.query.bolt-wire-protocol), this is an ADAPTER — NOT a re-implemented Redis. The
 //! bytes are stored on the engine's own durable Key→Value substrate
-//! ([`crate::server::kv::KvStore`], CONCEPT:EG-022): every Redis key lives as a
+//! ([`crate::server::kv::KvStore`], CONCEPT:EG-KG.storage.namespaced-kv-surface): every Redis key lives as a
 //! single msgpack [`Entry`] envelope in one `redis` namespace, so a `SET` that
 //! returned `OK` survives a `kill -9` exactly like a `KvPut`. The five Redis data
 //! types (string / list / hash / set / zset) are modeled as variants of one
@@ -20,7 +20,7 @@
 //! mysql-wire / bolt-wire follow). PURE-RUST, so it stays outside the Pi forbidden
 //! set; it is deliberately OUT of the `pi` tier (a network listener).
 //!
-//! ## Protocol subset (CONCEPT:EG-174)
+//! ## Protocol subset (CONCEPT:EG-KG.ontology.resp2-resp3-codec-round)
 //!
 //! LANDED: the RESP2 + RESP3 codec (simple strings, errors, integers, bulk
 //! strings, arrays, and the RESP3 map/set/double/boolean/null types) + inline
@@ -31,7 +31,7 @@
 //! `ZADD`/`ZRANGE`/`ZSCORE`, `SCAN`, `TYPE`, plus `AUTH`/`SELECT`/`QUIT`/`CONFIG`/
 //! `CLIENT` niceties.
 //!
-//! ## Pub/sub + transactions (CONCEPT:EG-307)
+//! ## Pub/sub + transactions (CONCEPT:EG-KG.txn.pubsub-transactions)
 //!
 //! LANDED (EG-307): the publish/subscribe surface — `SUBSCRIBE`/`UNSUBSCRIBE`,
 //! `PSUBSCRIBE`/`PUNSUBSCRIBE` (glob-pattern channels), and `PUBLISH`, backed by a
@@ -78,7 +78,7 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-// ── the stored value model (CONCEPT:EG-174) ─────────────────────────────────────
+// ── the stored value model (CONCEPT:EG-KG.ontology.resp2-resp3-codec-round) ─────────────────────────────────────
 
 /// One Redis value, tagged by type. Serialized (msgpack) inside an [`Entry`] and
 /// stored as ONE KV value per key — read-modify-write under the store mutex.
@@ -131,7 +131,7 @@ type CommandParse = Result<Option<(Vec<Vec<u8>>, usize)>, String>;
 const WRONGTYPE: &str = "WRONGTYPE Operation against a key holding the wrong kind of value";
 const NOT_INT: &str = "ERR value is not an integer or out of range";
 
-// ── the store (CONCEPT:EG-174) — Redis types over the engine KV surface ──────────
+// ── the store (CONCEPT:EG-KG.ontology.resp2-resp3-codec-round) — Redis types over the engine KV surface ──────────
 
 /// A Redis keyspace layered over one [`KvStore`] namespace. Durable when the KV
 /// store is (a persist dir), else in-memory scratch — exactly the KV contract.
@@ -144,7 +144,7 @@ pub struct RedisStore {
 
 impl RedisStore {
     /// Open the Redis keyspace. `Some(dir)` ⇒ durable `{dir}/redis-kv/kv.redb`;
-    /// `None` ⇒ in-memory scratch (CONCEPT:EG-174).
+    /// `None` ⇒ in-memory scratch (CONCEPT:EG-KG.ontology.resp2-resp3-codec-round).
     pub fn open(persist_dir: Option<&str>) -> Result<Self, String> {
         let sub = persist_dir.map(|d| format!("{d}/redis-kv"));
         let kv = KvStore::open(sub.as_deref())?;
@@ -669,9 +669,9 @@ fn glob_match(pat: &str, text: &str) -> bool {
     pi == p.len()
 }
 
-// ── pub/sub registry (CONCEPT:EG-307) ────────────────────────────────────────────
+// ── pub/sub registry (CONCEPT:EG-KG.txn.pubsub-transactions) ────────────────────────────────────────────
 
-/// One message delivered to a subscriber's mailbox (CONCEPT:EG-307). A `Channel`
+/// One message delivered to a subscriber's mailbox (CONCEPT:EG-KG.txn.pubsub-transactions). A `Channel`
 /// message is rendered as a RESP `message` push; a `Pattern` message (from a glob
 /// `PSUBSCRIBE`) as a `pmessage` push carrying the originating pattern.
 #[derive(Clone, Debug)]
@@ -721,7 +721,7 @@ struct PubSubInner {
     patterns: HashMap<String, HashSet<u64>>,
 }
 
-/// The per-listener publish/subscribe registry (CONCEPT:EG-307). Shared (via `Arc`)
+/// The per-listener publish/subscribe registry (CONCEPT:EG-KG.txn.pubsub-transactions). Shared (via `Arc`)
 /// across every connection the listener accepts; each connection registers an
 /// unbounded mpsc mailbox on connect and drops it on disconnect. `PUBLISH` fans a
 /// payload out to every exact-channel subscriber plus every glob-pattern subscriber
@@ -837,7 +837,7 @@ impl PubSub {
     }
 }
 
-// ── RESP2 / RESP3 codec (CONCEPT:EG-174) ─────────────────────────────────────────
+// ── RESP2 / RESP3 codec (CONCEPT:EG-KG.ontology.resp2-resp3-codec-round) ─────────────────────────────────────────
 
 /// A RESP reply value. Version-aware: [`encode`](Resp::encode) renders the RESP3
 /// extended types (map/set/double/boolean/null) natively when the connection has
@@ -853,7 +853,7 @@ enum Resp {
     Map(Vec<(Resp, Resp)>),
     Set(Vec<Resp>),
     /// A RESP3 push message (`>`, used for pub/sub delivery + subscribe confirms,
-    /// CONCEPT:EG-307). Downgrades to a plain array (`*`) on RESP2 — the RESP2
+    /// CONCEPT:EG-KG.txn.pubsub-transactions). Downgrades to a plain array (`*`) on RESP2 — the RESP2
     /// wire has no distinct push type, exactly how real Redis behaves.
     Push(Vec<Resp>),
     Double(f64),
@@ -1064,11 +1064,11 @@ fn parse_array_command(buf: &[u8]) -> CommandParse {
     Ok(Some((args, pos)))
 }
 
-// ── command dispatch (CONCEPT:EG-174) ─────────────────────────────────────────────
+// ── command dispatch (CONCEPT:EG-KG.ontology.resp2-resp3-codec-round) ─────────────────────────────────────────────
 
 /// Per-connection mutable state threaded through command execution. Carries the
 /// RESP version + auth flag, the pub/sub subscription sets, and the `MULTI`
-/// transaction queue (CONCEPT:EG-174 core; CONCEPT:EG-307 pub/sub + transactions).
+/// transaction queue (CONCEPT:EG-KG.ontology.resp2-resp3-codec-round core; CONCEPT:EG-KG.txn.pubsub-transactions pub/sub + transactions).
 struct ConnState {
     proto: u8,
     authed: bool,
@@ -1076,13 +1076,13 @@ struct ConnState {
     /// This connection's unique id in the [`PubSub`] registry (0 until registered;
     /// the pure-`execute` unit tests never register, which is fine).
     id: u64,
-    /// Channels this connection is `SUBSCRIBE`d to (CONCEPT:EG-307).
+    /// Channels this connection is `SUBSCRIBE`d to (CONCEPT:EG-KG.txn.pubsub-transactions).
     sub_channels: HashSet<String>,
-    /// Glob patterns this connection is `PSUBSCRIBE`d to (CONCEPT:EG-307).
+    /// Glob patterns this connection is `PSUBSCRIBE`d to (CONCEPT:EG-KG.txn.pubsub-transactions).
     sub_patterns: HashSet<String>,
     /// `true` between `MULTI` and `EXEC`/`DISCARD`: commands are queued not run.
     in_multi: bool,
-    /// The queued commands awaiting `EXEC` (CONCEPT:EG-307).
+    /// The queued commands awaiting `EXEC` (CONCEPT:EG-KG.txn.pubsub-transactions).
     queued: Vec<Vec<Vec<u8>>>,
     /// Set when a queued command was malformed → `EXEC` aborts with `EXECABORT`.
     multi_dirty: bool,
@@ -1477,7 +1477,7 @@ fn parse_num<T: std::str::FromStr>(arg: Option<&Vec<u8>>) -> Result<T, String> {
         .ok_or_else(|| "ERR value is not an integer or out of range".to_string())
 }
 
-// ── pub/sub + transaction dispatch (CONCEPT:EG-307) ───────────────────────────────
+// ── pub/sub + transaction dispatch (CONCEPT:EG-KG.txn.pubsub-transactions) ───────────────────────────────
 
 /// Commands that are ALWAYS run immediately, never queued, even inside a `MULTI`
 /// block (they steer the transaction / session itself).
@@ -1541,7 +1541,7 @@ fn allowed_in_subscribe(cmd: &str) -> bool {
     )
 }
 
-/// Top-level command dispatch used by the connection driver (CONCEPT:EG-307).
+/// Top-level command dispatch used by the connection driver (CONCEPT:EG-KG.txn.pubsub-transactions).
 /// Unlike [`execute`] (one reply) this returns a VECTOR of replies — subscribe /
 /// unsubscribe emit one confirmation per channel — and threads the [`PubSub`]
 /// registry plus the connection's transaction/subscription state. Non-pub/sub,
@@ -1657,7 +1657,7 @@ fn dispatch(
     }
 }
 
-/// Execute a queued `MULTI` transaction atomically (CONCEPT:EG-307): run every
+/// Execute a queued `MULTI` transaction atomically (CONCEPT:EG-KG.txn.pubsub-transactions): run every
 /// queued command in order with no other connection interleaving, returning the
 /// array of their replies. A prior malformed queued command aborts with
 /// `EXECABORT`; `EXEC` outside a transaction is an error.
@@ -1679,7 +1679,7 @@ fn exec_transaction(store: &RedisStore, conn: &mut ConnState, password: Option<&
     vec![Resp::Array(Some(results))]
 }
 
-/// `SUBSCRIBE` / `PSUBSCRIBE` (CONCEPT:EG-307): add each channel/pattern to the
+/// `SUBSCRIBE` / `PSUBSCRIBE` (CONCEPT:EG-KG.txn.pubsub-transactions): add each channel/pattern to the
 /// registry + the connection's set, emitting one confirmation push per channel with
 /// the running total subscription count.
 fn subscribe(pubsub: &PubSub, conn: &mut ConnState, chans: &[Vec<u8>], pattern: bool) -> Vec<Resp> {
@@ -1708,7 +1708,7 @@ fn subscribe(pubsub: &PubSub, conn: &mut ConnState, chans: &[Vec<u8>], pattern: 
     out
 }
 
-/// `UNSUBSCRIBE` / `PUNSUBSCRIBE` (CONCEPT:EG-307): drop the named channels (or ALL
+/// `UNSUBSCRIBE` / `PUNSUBSCRIBE` (CONCEPT:EG-KG.txn.pubsub-transactions): drop the named channels (or ALL
 /// of this kind when none are named), one confirmation push each. Unsubscribing from
 /// nothing still emits a single null-channel confirmation, matching Redis.
 fn unsubscribe(
@@ -1763,7 +1763,7 @@ fn unsubscribe(
 
 /// Drive ONE Redis connection: parse commands from the socket, execute, reply,
 /// until the client quits or the socket closes. Generic over the byte stream so an
-/// in-process test can drive it over any duplex transport (CONCEPT:EG-174).
+/// in-process test can drive it over any duplex transport (CONCEPT:EG-KG.ontology.resp2-resp3-codec-round).
 async fn handle_connection<S>(
     s: &mut S,
     store: Arc<RedisStore>,
@@ -1787,7 +1787,7 @@ where
 /// [`PubSub`] unregister runs on every exit path). `select!`s between the socket and
 /// this connection's subscriber mailbox: buffered client commands are executed
 /// first, then it awaits either more bytes or a published message to push out
-/// (CONCEPT:EG-307).
+/// (CONCEPT:EG-KG.txn.pubsub-transactions).
 async fn drive_connection<S>(
     s: &mut S,
     store: &Arc<RedisStore>,
@@ -1857,7 +1857,7 @@ where
 
 /// Bind `addr` and serve Redis RESP connections until the process exits. Spawned by
 /// `main.rs` only when built `--features redis-wire` AND `EPISTEMIC_GRAPH_REDIS_ADDR`
-/// is set (CONCEPT:EG-174). The Redis keyspace is durable when a persist dir is
+/// is set (CONCEPT:EG-KG.ontology.resp2-resp3-codec-round). The Redis keyspace is durable when a persist dir is
 /// configured on [`ServerState`], else in-memory scratch.
 pub async fn serve(addr: &str, state: Arc<RwLock<ServerState>>) -> std::io::Result<()> {
     let persist_dir = { state.read().await.persist_dir.clone() };
@@ -1868,7 +1868,7 @@ pub async fn serve(addr: &str, state: Arc<RwLock<ServerState>>) -> std::io::Resu
     serve_with_store(addr, store, password).await
 }
 
-/// `serve` with an EXPLICIT store + password (CONCEPT:EG-174) — tests bind an
+/// `serve` with an EXPLICIT store + password (CONCEPT:EG-KG.ontology.resp2-resp3-codec-round) — tests bind an
 /// ephemeral store on a random port without touching process env / `ServerState`.
 pub async fn serve_with_store(
     addr: &str,
@@ -1877,7 +1877,7 @@ pub async fn serve_with_store(
 ) -> std::io::Result<()> {
     let listener = TcpListener::bind(addr).await?;
     // One pub/sub registry per listener, shared across every accepted connection
-    // (CONCEPT:EG-307).
+    // (CONCEPT:EG-KG.txn.pubsub-transactions).
     let pubsub = Arc::new(PubSub::default());
     tracing::info!(
         "redis-wire: serving Redis RESP protocol on {} (durable={}, auth={})",
@@ -1900,7 +1900,7 @@ pub async fn serve_with_store(
 
 #[cfg(test)]
 mod tests {
-    //! CONCEPT:EG-174 — RESP2/RESP3 codec round-trips, command-parse coverage, the
+    //! CONCEPT:EG-KG.ontology.resp2-resp3-codec-round — RESP2/RESP3 codec round-trips, command-parse coverage, the
     //! Redis data-type command execution over the KV store, plus an in-process
     //! listener smoke test driving the real `serve_with_store` over a TCP socket
     //! with hand-built RESP frames (no redis client crate).
@@ -2201,7 +2201,7 @@ mod tests {
         assert_eq!(read_reply(&mut s).await, b"$5\r\nhello\r\n");
     }
 
-    // ── pub/sub + transactions (CONCEPT:EG-307) ──────────────────────────────────
+    // ── pub/sub + transactions (CONCEPT:EG-KG.txn.pubsub-transactions) ──────────────────────────────────
 
     fn ps() -> PubSub {
         PubSub::default()

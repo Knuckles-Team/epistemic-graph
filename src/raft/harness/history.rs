@@ -1,4 +1,4 @@
-//! Recorded operation history (CONCEPT:KG-2.212).
+//! Recorded operation history (CONCEPT:AU-KG.ontology.emits-database-ontology-entities).
 //!
 //! The load generator records every mutation it issues as two events — an
 //! `Invoke` when the write is dispatched and a `Complete` (ack OR err) when the

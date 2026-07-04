@@ -1,5 +1,5 @@
 //! Facade-side [`ColdTier`](crate::cold_tier::ColdTier) implementations
-//! (CONCEPT:KG-2.233): the durable redb-backed default and the object-store (S3/
+//! (CONCEPT:EG-KG.coordination.distributed-cache-coherence): the durable redb-backed default and the object-store (S3/
 //! MinIO) variant behind the SEPARATE `cold-tier-s3` feature.
 //!
 //! The seam + the dep-free `InMemoryColdTier` live DAG-low in eg-core

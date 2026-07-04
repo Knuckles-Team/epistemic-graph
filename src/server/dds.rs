@@ -1,4 +1,4 @@
-//! Native DDS/RTPS transport seam for the ROS2 wire (CONCEPT:EG-347).
+//! Native DDS/RTPS transport seam for the ROS2 wire (CONCEPT:EG-KG.ingest.dds-transport).
 //!
 //! The EG-325 [`super::ros2_bridge`] joins a ROS2 graph WITHOUT a DDS stack — it tunnels
 //! ROS2 topics through a `rosbridge_server` over WebSocket JSON. This module adds the
@@ -18,7 +18,7 @@
 //! exercised by a real loopback pub/sub test below. It publishes/subscribes CDR-encoded
 //! `std_msgs/String` messages over RTPS, which is a real DDS wire.
 //!
-//! ## rmw name/type mangling for live-`ros2` interop (CONCEPT:EG-349)
+//! ## rmw name/type mangling for live-`ros2` interop (CONCEPT:EG-KG.ingest.rmw-topic-prefix)
 //!
 //! On top of the raw RTPS wire, the native leg now applies the **rmw** name/type mangling
 //! convention (ROS 2 Humble+, `rmw_cyclonedds`/`rmw_fastrtps`) so a topic published here is
@@ -49,7 +49,7 @@ use super::ros2_bridge::{cdc_to_publish, publish_to_method, RosbridgeOp};
 use crate::protocol::Method;
 use crate::wire::CdcEvent;
 
-/// The ROS2 transport seam (CONCEPT:EG-347): publish/subscribe/advertise ROS2 topics over
+/// The ROS2 transport seam (CONCEPT:EG-KG.ingest.dds-transport): publish/subscribe/advertise ROS2 topics over
 /// a concrete transport (native DDS/RTPS, or the EG-325 rosbridge WebSocket). Messages are
 /// the `std_msgs/String`-shaped JSON `{"data": "<json-string>"}` the rosbridge protocol and
 /// the CDC mapping already use, so ONE shaping serves both legs.
@@ -74,7 +74,7 @@ pub trait DdsTransport: Send + Sync {
     /// `std_msgs/String`-shaped message the caller maps with [`inbound_to_method`].
     async fn poll_inbound(&self) -> Result<Option<(String, Value)>, String>;
 
-    /// Publish an engine CDC change on `topic` (CONCEPT:EG-347). The default reuses the
+    /// Publish an engine CDC change on `topic` (CONCEPT:EG-KG.ingest.dds-transport). The default reuses the
     /// EG-325 [`cdc_to_publish`] shaping, so the DDS leg and the rosbridge leg put the
     /// IDENTICAL `std_msgs/String` payload on the wire — the ONE seam, two transports.
     async fn publish_cdc(&self, event: &CdcEvent, topic: &str) -> Result<(), String> {
@@ -86,14 +86,14 @@ pub trait DdsTransport: Send + Sync {
     }
 }
 
-/// Map an inbound DDS/ROS2 message to an engine [`Method`] (CONCEPT:EG-347). This is the
+/// Map an inbound DDS/ROS2 message to an engine [`Method`] (CONCEPT:EG-KG.ingest.dds-transport). This is the
 /// SAME EG-325 [`publish_to_method`] mapping, so inbound DDS and inbound rosbridge converge
 /// on one ingest path (an `AddNode` applied via `crate::wal::apply`).
 pub fn inbound_to_method(msg: &Value) -> Option<Method> {
     publish_to_method(msg)
 }
 
-// ── rmw name/type mangling for live-ros2 interop (CONCEPT:EG-349) ─────────────
+// ── rmw name/type mangling for live-ros2 interop (CONCEPT:EG-KG.ingest.rmw-topic-prefix) ─────────────
 //
 // ROS 2 does NOT put a bare topic/type name on the DDS wire — the `rmw` layer
 // (`rmw_cyclonedds`/`rmw_fastrtps`, Humble+) MANGLES both so DDS discovery (SPDP/SEDP)
@@ -102,12 +102,12 @@ pub fn inbound_to_method(msg: &Value) -> Option<Method> {
 // (no DDS deps) encode that convention and are unit-tested against the spec below.
 
 /// The `rmw` DDS-topic prefix for an ordinary ROS **topic** (as opposed to a service
-/// request `rq`/reply `rr`) — CONCEPT:EG-349. rmw prepends `rt` to the fully-qualified ROS
+/// request `rq`/reply `rr`) — CONCEPT:EG-KG.ingest.rmw-topic-prefix. rmw prepends `rt` to the fully-qualified ROS
 /// topic name, so the ROS topic `/chatter` becomes the DDS topic `rt/chatter`.
 pub const RMW_ROS_TOPIC_PREFIX: &str = "rt";
 
 /// The 4-byte CDR **encapsulation header** ROS 2 (rmw) prepends to every serialized sample
-/// (CONCEPT:EG-349): representation id `CDR_LE` (`0x00 0x01`, little-endian — the rmw
+/// (CONCEPT:EG-KG.ingest.rmw-topic-prefix): representation id `CDR_LE` (`0x00 0x01`, little-endian — the rmw
 /// default on little-endian hosts) followed by two zero options bytes. rustdds'
 /// `CDRSerializerAdapter` reports `RepresentationIdentifier::CDR_LE` as its output encoding
 /// and the RTPS `SerializedPayload` frames it with exactly these bytes, so a sample written
@@ -115,7 +115,7 @@ pub const RMW_ROS_TOPIC_PREFIX: &str = "rt";
 pub const CDR_LE_ENCAPSULATION_HEADER: [u8; 4] = [0x00, 0x01, 0x00, 0x00];
 
 /// Mangle a ROS 2 topic name to the DDS topic name a live `ros2` daemon uses
-/// (CONCEPT:EG-349). rmw first fully-qualifies the ROS name (a leading `/`), then prepends
+/// (CONCEPT:EG-KG.ingest.rmw-topic-prefix). rmw first fully-qualifies the ROS name (a leading `/`), then prepends
 /// the [`RMW_ROS_TOPIC_PREFIX`], so `/chatter` → `rt/chatter` and a bare `chatter` (or
 /// `/chatter`) both map to `rt/chatter`. Matches `rmw_cyclonedds`/`rmw_fastrtps`.
 pub fn mangle_topic_name(ros_topic: &str) -> String {
@@ -129,7 +129,7 @@ pub fn mangle_topic_name(ros_topic: &str) -> String {
 }
 
 /// Mangle a ROS 2 message type to the DDS type name a live `ros2` daemon advertises in
-/// discovery (CONCEPT:EG-349): `<pkg>::<namespace>::dds_::<Msg>_`. Accepts either the
+/// discovery (CONCEPT:EG-KG.ingest.rmw-topic-prefix): `<pkg>::<namespace>::dds_::<Msg>_`. Accepts either the
 /// rosbridge 2-part form `std_msgs/String` (the `<namespace>` defaults to `msg`) or the
 /// 3-part `std_msgs/msg/String`. So `std_msgs/String` and `std_msgs/msg/String` both map to
 /// `std_msgs::msg::dds_::String_` (matching `rmw_cyclonedds`/`rmw_fastrtps`).
@@ -146,7 +146,7 @@ pub fn mangle_type_name(ros_type: &str) -> String {
     format!("{pkg}::{namespace}::dds_::{msg}_")
 }
 
-// ── Native DDS/RTPS transport via pure-Rust rustdds (CONCEPT:EG-347) ──────────
+// ── Native DDS/RTPS transport via pure-Rust rustdds (CONCEPT:EG-KG.ingest.dds-transport) ──────────
 #[cfg(feature = "ros2-dds")]
 mod native {
     use super::*;
@@ -170,7 +170,7 @@ mod native {
     type Writer = DataWriter<Ros2String, CDRSerializerAdapter<Ros2String>>;
     type Reader = DataReader<Ros2String, CDRDeserializerAdapter<Ros2String>>;
 
-    /// Native DDS/RTPS [`DdsTransport`] (CONCEPT:EG-347) over pure-Rust `rustdds`. Owns one
+    /// Native DDS/RTPS [`DdsTransport`] (CONCEPT:EG-KG.ingest.dds-transport) over pure-Rust `rustdds`. Owns one
     /// DDS `DomainParticipant` + a publisher/subscriber pair, and a per-topic writer/reader
     /// map. NO CycloneDDS/rmw/C toolchain — 100% Rust on the wire.
     pub struct NativeDdsTransport {
@@ -220,7 +220,7 @@ mod native {
         }
 
         /// Create the underlying DDS [`Topic`] using the **rmw-mangled** name+type
-        /// (CONCEPT:EG-349) so a live `ros2` daemon discovers/subscribes it zero-config:
+        /// (CONCEPT:EG-KG.ingest.rmw-topic-prefix) so a live `ros2` daemon discovers/subscribes it zero-config:
         /// the ROS name `name` is put on the wire as [`mangle_topic_name`] (`rt/…`) and the
         /// ROS type `type_name` as [`mangle_type_name`] (`<pkg>::<ns>::dds_::<Msg>_`). The
         /// caller-facing writer/reader map still keys on the un-mangled ROS `name`.

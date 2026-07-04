@@ -1,4 +1,4 @@
-//! Query-federation handlers (CONCEPT:KG-2.232, Lane P).
+//! Query-federation handlers (CONCEPT:EG-KG.query.query-federation, Lane P).
 //!
 //! `RegisterForeignSource` records a named EXTERNAL source (a remote epistemic-graph
 //! engine or an HTTP/JSON API — [`eg_types::wire::ForeignSourceSpec`]) in the

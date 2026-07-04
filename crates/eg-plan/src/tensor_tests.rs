@@ -1,4 +1,4 @@
-//! Array / tensor modality executor proofs (CONCEPT:EG-085).
+//! Array / tensor modality executor proofs (CONCEPT:EG-KG.storage.content-addressed-dedup).
 //!
 //! A small `Frame` layer, each node carrying a dense N-D array in a `tensor` property
 //! (the serde form of `eg_tensor::Tensor`), drives the two tensor surfaces end-to-end
@@ -53,7 +53,7 @@ fn run(plan: &Plan, view: &GraphView) -> Vec<String> {
     ids
 }
 
-/// Run `plan` with a CAS write-back store attached (CONCEPT:EG-304), returning the
+/// Run `plan` with a CAS write-back store attached (CONCEPT:EG-KG.storage.derived-tensor-writeback-sink), returning the
 /// surviving ids (sorted) so a caller can assert BOTH the RowSet and the store contents.
 fn run_with_store(plan: &Plan, view: &GraphView, store: &Mutex<TensorStore>) -> Vec<String> {
     let sem = SemanticStore::new();
@@ -138,7 +138,7 @@ fn tensor_op_reduce_and_elementwise_pass_through() {
     assert_eq!(run(&plan, &view), vec!["F1", "F2", "F3"]);
 }
 
-/// CONCEPT:EG-304 — a `TensorOp`'s derived tensor is WRITTEN BACK into the attached
+/// CONCEPT:EG-KG.storage.derived-tensor-writeback-sink — a `TensorOp`'s derived tensor is WRITTEN BACK into the attached
 /// content-addressed store and is RETRIEVABLE by its content hash: the executor persists
 /// the reduce result to the CAS, and the recomputed derived tensor round-trips out under
 /// the SAME deterministic hash.
@@ -178,7 +178,7 @@ fn tensor_op_cas_write_back_persists_derived_tensor_eg304() {
     );
 }
 
-/// CONCEPT:EG-304 — identical derived tensors DEDUP: all three frames carry the same
+/// CONCEPT:EG-KG.storage.derived-tensor-writeback-sink — identical derived tensors DEDUP: all three frames carry the same
 /// tensor, so the reduce yields three identical results that content-address to ONE blob.
 #[test]
 fn tensor_op_cas_dedups_identical_derived_tensors_eg304() {
@@ -204,7 +204,7 @@ fn tensor_op_cas_dedups_identical_derived_tensors_eg304() {
     );
 }
 
-/// CONCEPT:EG-304 — a `None` store ctx is UNCHANGED: the executor validates the op and
+/// CONCEPT:EG-KG.storage.derived-tensor-writeback-sink — a `None` store ctx is UNCHANGED: the executor validates the op and
 /// keeps the same rows exactly as before, with no write-back and no panic.
 #[test]
 fn tensor_op_no_store_ctx_unchanged_eg304() {

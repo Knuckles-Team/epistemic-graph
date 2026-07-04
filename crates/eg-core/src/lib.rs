@@ -8,7 +8,7 @@
 //! unchanged.
 pub use eg_types::{acl, protocol, types, wire};
 
-// CONCEPT:EG-275 — message-broker exchanges/routing on top of the KG-2.303 queue.
+// CONCEPT:EG-KG.compute.message-broker-exchanges — message-broker exchanges/routing on top of the KG-2.303 queue.
 #[cfg(feature = "broker")]
 pub mod broker;
 #[cfg(feature = "cold-tier")]
@@ -18,22 +18,22 @@ pub mod decay;
 pub mod graph;
 pub mod index;
 pub mod isolation;
-/// CONCEPT:EG-084 — pure-Rust JSONPath evaluator + Postgres-`@>` containment.
+/// CONCEPT:EG-KG.compute.jsonpath-evaluator — pure-Rust JSONPath evaluator + Postgres-`@>` containment.
 pub mod jsonpath;
-/// CONCEPT:EG-308 — durable JSONPath index persistence. The dep-free
+/// CONCEPT:EG-KG.storage.path-index-store — durable JSONPath index persistence. The dep-free
 /// `PathIndexPersistence` seam + in-memory default are always compiled; the
 /// redb-backed `RedbPathIndexStore` is gated behind the `path-persist` feature.
 pub mod path_persist;
 #[cfg(feature = "security")]
 pub mod rbac;
-/// CONCEPT:EG-303 — durable RBAC/identity persistence (redb-backed, feature `security`).
+/// CONCEPT:EG-KG.compute.durable-rbac-identity-persistence — durable RBAC/identity persistence (redb-backed, feature `security`).
 #[cfg(feature = "security")]
 pub mod rbac_persist;
 pub mod read_through;
 pub mod registry;
 #[cfg(feature = "result-cache")]
 pub mod result_cache;
-/// CONCEPT:EG-087 — scene-graph / 3D world-model primitives (poses, transform
+/// CONCEPT:EG-KG.compute.scene-graph-primitives — scene-graph / 3D world-model primitives (poses, transform
 /// composition, AABBs). Pure deterministic math; the `GraphCore` scene methods
 /// (`add_scene_object`, `world_transform`, spatial relations) live in `graph`.
 pub mod scene;

@@ -1,4 +1,4 @@
-# Numeric kernel — one kernel, two surfaces (CONCEPT:EG-321)
+# Numeric kernel — one kernel, two surfaces (CONCEPT:AU-KG.compute.numeric-kernel)
 
 > **P1 of the Analytics Program** (`plans/epistemic-graph-analytics_program.md`,
 > design `reports/epistemic-graph-numeric-kernel-handoff.md`). A slim, **BLAS/LAPACK-free**
@@ -28,7 +28,7 @@ flowchart TD
 
     subgraph SA["Surface A — in-process Python"]
         M1["epistemic_graph.numeric<br/>(extension module)"]
-        M2["agent_utilities.numeric.xp<br/>(np-shim, numpy fallback) — KG-2.312"]
+        M2["agent_utilities.numeric.xp<br/>(np-shim, numpy fallback) — AU-KG.compute.surface-analytics-program"]
         M1 --> M2
     end
 
@@ -96,19 +96,19 @@ Curated from the real audit (`grep np\.` over `agent_utilities/`) — **not** "a
 
 Every op is asserted `np.allclose` vs numpy on randomized inputs, with mandatory edge
 cases (nan/inf, singular matrices, empty arrays). P1 landed **847 parity checks, 0
-failures**. The corpus lives in agent-utilities (`tests/test_numeric_parity.py`, KG-2.312)
+failures**. The corpus lives in agent-utilities (`tests/test_numeric_parity.py`, AU-KG.compute.surface-analytics-program)
 and runs against the compiled kernel when present, else the numpy fallback. A **second,
-engine-side** corpus (`crates/eg-numeric/tests/test_kernel_parity.py`, CONCEPT:EG-346)
+engine-side** corpus (`crates/eg-numeric/tests/test_kernel_parity.py`, CONCEPT:AU-KG.compute.is-installed-kernel-discovery)
 tests the compiled kernel DIRECTLY (not the shim) and is what the CI gate runs — see below.
 
-## Packaging: ONE published package — `epistemic-graph[numeric]` (CONCEPT:EG-346 / KG-2.315)
+## Packaging: ONE published package — `epistemic-graph[numeric]` (CONCEPT:AU-KG.compute.is-installed-kernel-discovery / AU-KG.compute.shim-goes-kernel-live)
 
 The Surface-A kernel ships as **package data folded into the single `epistemic-graph`
 wheel** — there is **NO separate `eg-numeric` package on PyPI**. `pip install
 epistemic-graph` gets the server; `pip install epistemic-graph[numeric]` additionally
 provides the compiled kernel importable as **`epistemic_graph.numeric`**, so
 `agent_utilities.numeric.xp` runs **kernel-LIVE** (`HAVE_KERNEL == True`) instead of the
-numpy fallback (KG-2.315). The `[numeric]` extra only pulls `numpy` (for the kernel's
+numpy fallback (AU-KG.compute.shim-goes-kernel-live). The `[numeric]` extra only pulls `numpy` (for the kernel's
 zero-copy interop); the `.so` itself is self-contained (pure-Rust, BLAS/LAPACK-free).
 
 **How the fold works (release build).** The kernel is still a distinct maturin target — a
@@ -174,7 +174,7 @@ pyo3-0.22's native range, so no forward-compat flag is needed there).
   `epistemic-graph[numeric]` (folded into the one engine wheel — no separate `eg-numeric`
   package). The `xp` shim stays so future backend swaps remain mechanical.
 
-## Surface B — in-database analytics operators (P4, CONCEPT:EG-329/EG-330/EG-335/EG-336/EG-344/EG-345)
+## Surface B — in-database analytics operators (P4, CONCEPT:EG-KG.query.surface-b-numeric-operators/EG-KG.compute.l2-normalize-batch-vectors/EG-KG.query.concept-6/EG-KG.query.svd-eg-pca-column/EG-KG.query.kmeans-clustering-half-one/EG-KG.query.eg-3)
 
 The pure kernel rlib is wired into the engine's query surface so analytics run **where the
 data lives** — no fetch-to-Python, no FFI. Two reach paths:
@@ -213,9 +213,9 @@ implemented in `crates/eg-query/src/sql/numeric.rs`):
 | `l2_normalize(v)` | scalar → `List<Float32>` | `linalg::norm` | unit vector `v/‖v‖` (pgvector type — feeds `cosine_sim`/ANN in-query); zero-norm returned unchanged. |
 | `zscore(col)` | scalar-over-batch → `Float64` | `reductions::mean`/`std` | standardize `(x-mean)/std` (population `ddof=0`) over the materialized batch. Exact for the engine's single-partition MemTable/`NodesTableProvider` (one batch/table); a global two-pass is the `(x-avg(x) OVER())/stddev(x) OVER()` window form. |
 | `covariance(a, b)` | UDAF → `Float64` | `reductions::mean` | sample covariance `Σ(aᵢ-ā)(bᵢ-b̄)/(n-1)`; buffers aligned non-null pairs, merge state = two `List<Float64>` columns. |
-| `svd(vec_col)` (EG-336) | UDAF → `List<Float64>` | `linalg::svdvals` | **column→matrix**: stacks the aggregated vector column into an `n×d` matrix (each row = one matrix row; same operand forms as `cosine_sim` — a `List<Float{32,64}>` column or `'[..]'` text) and returns its singular values (descending). |
-| `pca(vec_col, k)` (EG-335) | UDAF → `List<List<Float64>>` | `reductions::mean` + `linalg::eigh` | **column→matrix**: mean-centers the `n×d` matrix, eigendecomposes the `d×d` sample covariance (`ddof=1`), and returns the top-`k` principal-component DIRECTIONS as `k` unit vectors of length `d`, **descending by explained variance** (sign arbitrary; `k` clamped to `d`; projected coords = `X_centered·componentsᵀ` downstream). |
-| `kmeans(vec_col, k)` (EG-344) | UDAF → `List<Int64>` | `cluster::kmeans_labels` | **column→matrix**: stacks the aggregated vector column into an `n×d` matrix and returns **one hard cluster label (`0..k`) per row, in ingestion order**. Pure-Rust Lloyd + k-means++ (`eg-numeric`'s ChaCha20 RNG, seeded → deterministic; **no linfa/BLAS**); `k` clamped to `n`, empty clusters re-seeded to the farthest point. |
+| `svd(vec_col)` (EG-KG.query.svd-eg-pca-column) | UDAF → `List<Float64>` | `linalg::svdvals` | **column→matrix**: stacks the aggregated vector column into an `n×d` matrix (each row = one matrix row; same operand forms as `cosine_sim` — a `List<Float{32,64}>` column or `'[..]'` text) and returns its singular values (descending). |
+| `pca(vec_col, k)` (EG-KG.query.concept-6) | UDAF → `List<List<Float64>>` | `reductions::mean` + `linalg::eigh` | **column→matrix**: mean-centers the `n×d` matrix, eigendecomposes the `d×d` sample covariance (`ddof=1`), and returns the top-`k` principal-component DIRECTIONS as `k` unit vectors of length `d`, **descending by explained variance** (sign arbitrary; `k` clamped to `d`; projected coords = `X_centered·componentsᵀ` downstream). |
+| `kmeans(vec_col, k)` (EG-KG.query.kmeans-clustering-half-one) | UDAF → `List<Int64>` | `cluster::kmeans_labels` | **column→matrix**: stacks the aggregated vector column into an `n×d` matrix and returns **one hard cluster label (`0..k`) per row, in ingestion order**. Pure-Rust Lloyd + k-means++ (`eg-numeric`'s ChaCha20 RNG, seeded → deterministic; **no linfa/BLAS**); `k` clamped to `n`, empty clusters re-seeded to the farthest point. |
 
 **Column→matrix marshalling** (the deferred-in-P4 bridge, `svd`/`pca`/`kmeans`): all three
 are UDAFs whose `Accumulator` (`MatrixAcc`) decodes each ingested row via `row_to_vector` (the
@@ -248,15 +248,15 @@ turns the SQL operators on whenever the query surface is also built (i.e. the ma
 eg-numeric's pyo3 (`python`) feature is off in every engine build, so a `numeric` engine links
 faer/ndarray but **no Python extension**. Verified: `cargo tree | grep -ci pyo3` = 0.
 
-**Shipped this increment:** `kmeans(vec_col, k)` (EG-344) — the clustering column→matrix UDAF,
+**Shipped this increment:** `kmeans(vec_col, k)` (EG-KG.query.kmeans-clustering-half-one) — the clustering column→matrix UDAF,
 backed by a new pure-Rust `eg-numeric::cluster` k-means kernel (Lloyd + k-means++, NO linfa) —
-and **cross-modal join→analytics** (EG-345, below). Prior increment: `svd`/`pca` (EG-336/335).
+and **cross-modal join→analytics** (EG-KG.query.eg-3, below). Prior increment: `svd`/`pca` (EG-KG.query.svd-eg-pca-column/335).
 **Still deferred (later P4):** graph-algo/timeseries unification under the one kernel (native
 `Method` surfaces beyond SQL).
 
 ---
 
-## The differentiator — cross-modal join → PCA/cluster in-engine (CONCEPT:EG-345)
+## The differentiator — cross-modal join → PCA/cluster in-engine (CONCEPT:EG-KG.query.eg-3)
 
 This is the capability that lets epistemic-graph **surpass numpy**: **join graph + vector +
 timeseries, then run PCA / k-means / covariance over the JOINED result set IN-ENGINE.** numpy

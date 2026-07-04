@@ -1,4 +1,4 @@
-//! UQL — the Unified Query Language front-end (CONCEPT:KG-2.214).
+//! UQL — the Unified Query Language front-end (CONCEPT:AU-KG.query.top-nodes-by-degree).
 //!
 //! A human/agent-writable TEXT surface that parses to the SAME [`eg_types::wire::Plan`]
 //! AST `Method::UnifiedQuery` already executes — so one query expresses
@@ -256,7 +256,7 @@ mod tests {
         );
     }
 
-    // ── CONCEPT:KG-2.235 — surface clauses for the newer ops ─────────────────
+    // ── CONCEPT:EG-KG.query.uql-surface-clauses — surface clauses for the newer ops ─────────────────
 
     /// `AS OF @<ts>` parses to `Op::AsOf { ts }` (the time CONTEXT op). Proof:
     /// parse → the hand-built Plan.

@@ -1,4 +1,4 @@
-//! MSSQL TDS wire round-trip smoke test (CONCEPT:EG-077).
+//! MSSQL TDS wire round-trip smoke test (CONCEPT:EG-KG.query.hand-rolled-tds-server).
 //!
 //! Starts the real hand-rolled TDS listener over an in-process `ServerState`, then
 //! drives the raw protocol from a plain `TcpStream` (no `tiberius` — the server side

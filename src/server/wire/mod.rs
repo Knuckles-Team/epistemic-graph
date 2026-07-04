@@ -1,4 +1,4 @@
-//! Wire-agnostic SQL execution core (CONCEPT:EG-074) — the multi-wire keystone.
+//! Wire-agnostic SQL execution core (CONCEPT:EG-KG.compute.subsystems-reference) — the multi-wire keystone.
 //!
 //! ## What this is
 //! This module extracts the WIRE-NEUTRAL half of a database wire protocol out of the
@@ -59,7 +59,7 @@ use crate::server::ServerState;
 
 // ── wire-neutral currency ────────────────────────────────────────────────────
 
-/// A wire-NEUTRAL execution error (CONCEPT:EG-074): a SQLSTATE `code` + a `message`.
+/// A wire-NEUTRAL execution error (CONCEPT:EG-KG.compute.subsystems-reference): a SQLSTATE `code` + a `message`.
 /// Each wire maps this to its own error frame. Postgres maps it 1:1 to a
 /// `PgWireError::UserError(ErrorInfo{ severity:"ERROR", code, message })`, so the
 /// exact SQLSTATE and text a client sees are preserved byte-for-byte.
@@ -83,7 +83,7 @@ impl std::error::Error for WireError {}
 /// The wire-neutral result alias for the execution core.
 pub type WireResult<T> = Result<T, WireError>;
 
-/// The wire-NEUTRAL outcome of executing one statement (CONCEPT:EG-074). Each wire
+/// The wire-NEUTRAL outcome of executing one statement (CONCEPT:EG-KG.compute.subsystems-reference). Each wire
 /// encodes this into its own protocol bytes; the core never constructs
 /// protocol-specific responses.
 pub enum WireOutcome {
@@ -132,7 +132,7 @@ impl WireOutcome {
     }
 }
 
-/// The wire-agnostic contract every wire drives (CONCEPT:EG-074). A wire owns its
+/// The wire-agnostic contract every wire drives (CONCEPT:EG-KG.compute.subsystems-reference). A wire owns its
 /// framing/auth/encoding; the query semantics live entirely behind this trait.
 #[async_trait]
 pub trait WireProtocol: Send + Sync {
@@ -164,7 +164,7 @@ pub(crate) fn user_err(msg: impl Into<String>) -> WireError {
     }
 }
 
-/// The "current transaction is aborted" error (SQLSTATE 25P02, CONCEPT:EG-049) —
+/// The "current transaction is aborted" error (SQLSTATE 25P02, CONCEPT:EG-KG.compute.kg-transaction-is-pinned) —
 /// what a SQL client is told for every statement issued inside a failed transaction
 /// block until it is ended with COMMIT/ROLLBACK.
 pub(crate) fn aborted_txn_err() -> WireError {
@@ -177,8 +177,8 @@ pub(crate) fn aborted_txn_err() -> WireError {
 
 // ── shared user-table helpers ─────────────────────────────────────────────────
 
-/// The shared user-table store, opening it on first use (CONCEPT:EG-018). Delegates to
-/// the process-wide `crate::server::sql_tables` singleton (CONCEPT:EG-023) so every
+/// The shared user-table store, opening it on first use (CONCEPT:EG-KG.query.register-user-tables-alongside). Delegates to
+/// the process-wide `crate::server::sql_tables` singleton (CONCEPT:EG-KG.query.mirrors-pgwire) so every
 /// wire and the wire `Method::Sql` DDL/DML path open the SAME redb file exactly once —
 /// redb permits one handle per file per process, so they MUST share.
 pub(crate) fn user_table_store() -> WireResult<TableStore> {
@@ -204,8 +204,8 @@ pub(crate) fn to_store_columns(cols: &[eg_query::ColumnDef]) -> WireResult<Vec<C
         .collect()
 }
 
-/// Lower a decoded `ALTER TABLE` plan into the matching buffered [`TxnOp`] (CONCEPT:EG-018
-/// ADD COLUMN + CONCEPT:EG-310 the rest), so a `BEGIN … ALTER … COMMIT` applies it in the
+/// Lower a decoded `ALTER TABLE` plan into the matching buffered [`TxnOp`] (CONCEPT:EG-KG.query.register-user-tables-alongside
+/// ADD COLUMN + CONCEPT:EG-KG.query.rename-table-moves-catalog the rest), so a `BEGIN … ALTER … COMMIT` applies it in the
 /// SAME redb write txn as the surrounding statements.
 pub(crate) fn alter_txn_op(plan: AlterTablePlan) -> WireResult<TxnOp> {
     let table = plan.name;
@@ -311,7 +311,7 @@ pub(crate) fn returning_result(
     TypedQueryResult { columns, rows }
 }
 
-/// A single-column, single-row text result (CONCEPT:EG-117) — the shape a scalar
+/// A single-column, single-row text result (CONCEPT:EG-KG.query.continuous-aggregate-lowering) — the shape a scalar
 /// set-returning function like `create_hypertable(...)` returns to a client.
 pub(crate) fn single_text_result(col: &str, val: &str) -> TypedQueryResult {
     TypedQueryResult {
@@ -325,7 +325,7 @@ pub(crate) fn single_text_result(col: &str, val: &str) -> TypedQueryResult {
 
 // ── per-connection copy + transaction state ───────────────────────────────────
 
-/// Per-connection `COPY … FROM STDIN` state (CONCEPT:EG-020): the resolved target,
+/// Per-connection `COPY … FROM STDIN` state (CONCEPT:EG-KG.query.register-each-user-table): the resolved target,
 /// the streamed bytes accumulated across copy frames, and the decode format. Lives in
 /// [`WireSession::copy`] between the copy-in response and the wire's copy-done hook.
 pub struct CopyState {
@@ -366,7 +366,7 @@ impl CopyState {
     }
 }
 
-/// The buffered graph-node ops of an OPEN wire transaction (CONCEPT:EG-049).
+/// The buffered graph-node ops of an OPEN wire transaction (CONCEPT:EG-KG.compute.kg-transaction-is-pinned).
 /// Applied as ONE atomic in-memory batch (under a single `GraphCore::txn`) and
 /// recorded as ONE durable group at `COMMIT`; dropped on `ROLLBACK`.
 #[derive(Default)]
@@ -375,7 +375,7 @@ struct GraphTxnBuffer {
 }
 
 /// One buffered graph-node mutation inside an open wire transaction
-/// (CONCEPT:EG-049). Resolved (against a read-your-own-writes overlaid snapshot)
+/// (CONCEPT:EG-KG.compute.kg-transaction-is-pinned). Resolved (against a read-your-own-writes overlaid snapshot)
 /// at statement time and replayed at `COMMIT`. Carries exactly what both the
 /// in-memory replay (`GraphCore::txn`) and the durable `Method` need.
 enum NodeOp {
@@ -428,7 +428,7 @@ impl XmodalStaged {
 
 // ── the shared session core ────────────────────────────────────────────────────
 
-/// A per-connection, wire-agnostic SQL session (CONCEPT:EG-074). Holds the shared
+/// A per-connection, wire-agnostic SQL session (CONCEPT:EG-KG.compute.subsystems-reference). Holds the shared
 /// `ServerState`, the current target graph (mutated by `SET graph = …`), the
 /// authenticated actor, and the open mixed-store transaction buffers. One instance
 /// per connection so the `SET graph` selection is connection-scoped. Shared by every
@@ -444,7 +444,7 @@ pub struct WireSession {
     /// point this latches the graph (unless an explicit `SET graph` already chose one).
     startup_resolved: std::sync::atomic::AtomicBool,
     /// The authenticated actor (engine `agent_id`) for this connection
-    /// (CONCEPT:KG-2.202). `None` = anonymous (trust mode / no auth). Latched once
+    /// (CONCEPT:EG-KG.query.concept-13). `None` = anonymous (trust mode / no auth). Latched once
     /// from the wire's startup `user` AFTER auth has succeeded. Every graph access
     /// then enforces the engine ACL under this actor.
     actor: parking_lot::Mutex<Option<String>>,
@@ -452,24 +452,24 @@ pub struct WireSession {
     /// `user` should be adopted as the ACL actor). `false` for a trust/dev path,
     /// where the actor stays anonymous (back-compat single-tenant behavior).
     auth_maps_actor: bool,
-    /// The OPEN multi-statement transaction's buffered user-table ops (CONCEPT:EG-020),
+    /// The OPEN multi-statement transaction's buffered user-table ops (CONCEPT:EG-KG.query.register-each-user-table),
     /// or `None` when no `BEGIN` is active. `COMMIT` applies the buffer in ONE redb
     /// write txn; `ROLLBACK` drops it. Scoped per connection.
     txn: parking_lot::Mutex<Option<TableTxn>>,
-    /// The OPEN transaction's buffered GRAPH-NODE ops (CONCEPT:EG-049), applied as
+    /// The OPEN transaction's buffered GRAPH-NODE ops (CONCEPT:EG-KG.compute.kg-transaction-is-pinned), applied as
     /// ONE atomic in-memory batch at `COMMIT` (parallel to the user-table `txn`
     /// buffer). Empty when no `BEGIN` is active or the txn touched no nodes.
     graph_txn: parking_lot::Mutex<GraphTxnBuffer>,
     /// The graph a mixed-store transaction is pinned to, captured at `BEGIN`
-    /// (CONCEPT:EG-049 / KG-2.207): a txn stays within ONE graph / redb shard, so
+    /// (CONCEPT:EG-KG.compute.kg-transaction-is-pinned / KG-2.207): a txn stays within ONE graph / redb shard, so
     /// `SET graph` is rejected while a txn is open. `None` when no txn is active.
     txn_graph: parking_lot::Mutex<Option<String>>,
-    /// Whether the OPEN transaction has entered the ABORTED state (CONCEPT:EG-049):
+    /// Whether the OPEN transaction has entered the ABORTED state (CONCEPT:EG-KG.compute.kg-transaction-is-pinned):
     /// a statement inside the txn errored, so every subsequent statement except
     /// `COMMIT`/`ROLLBACK` is rejected with SQLSTATE 25P02 until the block ends.
     /// Cleared on `BEGIN`/`COMMIT`/`ROLLBACK`.
     txn_failed: parking_lot::Mutex<bool>,
-    /// In-flight `COPY … FROM STDIN` state (CONCEPT:EG-020), set between the copy-in
+    /// In-flight `COPY … FROM STDIN` state (CONCEPT:EG-KG.query.register-each-user-table), set between the copy-in
     /// response and the wire's copy-done/copy-fail hook.
     copy: parking_lot::Mutex<Option<CopyState>>,
     /// The OPEN transaction's staged CROSS-MODAL write-set (CONCEPT:EG-372) — vectors,
@@ -515,17 +515,17 @@ impl WireSession {
         }
     }
 
-    /// Buffer a graph-node op into the open transaction's node buffer (CONCEPT:EG-049).
+    /// Buffer a graph-node op into the open transaction's node buffer (CONCEPT:EG-KG.compute.kg-transaction-is-pinned).
     fn buffer_node(&self, op: NodeOp) {
         self.graph_txn.lock().ops.push(op);
     }
 
-    /// Whether the OPEN transaction is in the ABORTED state (CONCEPT:EG-049).
+    /// Whether the OPEN transaction is in the ABORTED state (CONCEPT:EG-KG.compute.kg-transaction-is-pinned).
     fn txn_aborted(&self) -> bool {
         *self.txn_failed.lock()
     }
 
-    /// Open a fresh transaction (CONCEPT:EG-049): reset both buffers + the aborted
+    /// Open a fresh transaction (CONCEPT:EG-KG.compute.kg-transaction-is-pinned): reset both buffers + the aborted
     /// flag and pin the txn to the current graph (a txn stays within one shard).
     fn begin_txn(&self) {
         *self.txn.lock() = Some(TableTxn::new());
@@ -546,7 +546,7 @@ impl WireSession {
         std::mem::take(&mut self.xmodal.lock())
     }
 
-    /// End the OPEN transaction (CONCEPT:EG-049): drop both buffers, the pinned
+    /// End the OPEN transaction (CONCEPT:EG-KG.compute.kg-transaction-is-pinned): drop both buffers, the pinned
     /// graph, and the aborted flag. Shared by COMMIT and ROLLBACK. Returns the
     /// user-table `TableTxn` (if any) and the buffered node ops, so COMMIT can
     /// apply them.
@@ -559,7 +559,7 @@ impl WireSession {
     }
 
     /// Append a copy-in data frame's bytes into the per-connection copy buffer
-    /// (CONCEPT:EG-020). The wire's copy-data hook calls this; a frame with no COPY in
+    /// (CONCEPT:EG-KG.query.register-each-user-table). The wire's copy-data hook calls this; a frame with no COPY in
     /// progress is a protocol error.
     pub(crate) fn append_copy_data(&self, data: &[u8]) -> WireResult<()> {
         if let Some(state) = self.copy.lock().as_mut() {
@@ -570,7 +570,7 @@ impl WireSession {
         }
     }
 
-    /// Take the in-flight copy state (CONCEPT:EG-020) at copy-done, leaving `None`.
+    /// Take the in-flight copy state (CONCEPT:EG-KG.query.register-each-user-table) at copy-done, leaving `None`.
     pub(crate) fn take_copy_state(&self) -> Option<CopyState> {
         self.copy.lock().take()
     }
@@ -596,7 +596,7 @@ impl WireSession {
         if name.is_empty() {
             return Some(Err(user_err("SET graph requires a graph name")));
         }
-        // CONCEPT:EG-049 / KG-2.207 — a transaction is pinned to ONE graph (redb
+        // CONCEPT:EG-KG.compute.kg-transaction-is-pinned / KG-2.207 — a transaction is pinned to ONE graph (redb
         // shard) at BEGIN; switching graphs mid-txn would split a supposedly-atomic
         // commit across shards, so reject it.
         if self.in_txn() {
@@ -619,7 +619,7 @@ impl WireSession {
     }
 
     /// Enforce the engine ACL for this connection's actor against `graph` at the
-    /// requested `access` level (CONCEPT:KG-2.202). Reuses the SAME
+    /// requested `access` level (CONCEPT:EG-KG.query.concept-13). Reuses the SAME
     /// `IsolationLayer::check_access` the engine's MessagePack dispatch uses, with
     /// the same back-compat invariant: while NO identities are registered the layer
     /// has no rules and everything is allowed (single-tenant / trust deployments are
@@ -671,7 +671,7 @@ impl WireSession {
     pub(crate) async fn run_read(&self, graph: &str, sql: String) -> WireResult<TypedQueryResult> {
         let core = self.graph_core(graph).await?;
         let mut snap = core.analysis_snapshot();
-        // CONCEPT:EG-049 — read-your-own-writes: overlay this connection's buffered
+        // CONCEPT:EG-KG.compute.kg-transaction-is-pinned — read-your-own-writes: overlay this connection's buffered
         // graph-node ops onto the snapshot so a SELECT (or a candidate-id / RETURNING
         // read) issued INSIDE an open transaction observes the transaction's own
         // uncommitted inserts/updates/deletes. Off-txn reads are byte-for-byte
@@ -679,7 +679,7 @@ impl WireSession {
         if self.in_txn() {
             self.apply_node_buffer(&mut snap);
         }
-        // CONCEPT:EG-018: register the user tables alongside the graph projection so a
+        // CONCEPT:EG-KG.query.register-user-tables-alongside: register the user tables alongside the graph projection so a
         // SELECT can read a user table, JOIN it to `nodes`/`edges`, or both in ONE plan.
         let store = user_table_store()?;
         tokio::task::spawn_blocking(move || {
@@ -690,7 +690,7 @@ impl WireSession {
         .map_err(|msg| user_err(format!("SQL error: {msg}")))
     }
 
-    /// Replay this connection's buffered graph-node ops onto `view` (CONCEPT:EG-049),
+    /// Replay this connection's buffered graph-node ops onto `view` (CONCEPT:EG-KG.compute.kg-transaction-is-pinned),
     /// in statement order, so a read over `view` reflects the open transaction's own
     /// writes. Never touches the live `GraphCore`.
     fn apply_node_buffer(&self, view: &mut crate::graph::GraphView) {
@@ -710,7 +710,7 @@ impl WireSession {
     }
 
     /// Build a read-your-own-writes overlaid snapshot of `graph` for the OPEN
-    /// transaction (CONCEPT:EG-049) — the live snapshot plus every buffered node op.
+    /// transaction (CONCEPT:EG-KG.compute.kg-transaction-is-pinned) — the live snapshot plus every buffered node op.
     /// Used to resolve RETURNING rows / ON CONFLICT checks against the txn's own
     /// uncommitted state.
     async fn overlaid_snapshot(&self, graph: &str) -> WireResult<crate::graph::GraphView> {
@@ -720,7 +720,7 @@ impl WireSession {
         Ok(view)
     }
 
-    /// The classify → read/write dispatch (CONCEPT:KG-2.197 / EG-049), factored out
+    /// The classify → read/write dispatch (CONCEPT:EG-KG.query.describe / EG-049), factored out
     /// of [`WireSession::execute`] so the caller can latch the aborted-txn state on a
     /// returned error. When `in_txn`, graph-node and user-table DML buffer instead of
     /// applying; otherwise behavior is the immediate path.
@@ -736,14 +736,14 @@ impl WireSession {
                 let result = self.run_read(graph, sql.to_string()).await?;
                 Ok(WireOutcome::Rows(result))
             }
-            // ── graph-node DML (CONCEPT:EG-049): buffer when in a txn ──────────────
+            // ── graph-node DML (CONCEPT:EG-KG.compute.kg-transaction-is-pinned): buffer when in a txn ──────────────
             StatementKind::InsertNodes(ins) if in_txn => self.buffer_insert(graph, sql, ins).await,
             StatementKind::InsertNodes(ins) => self.run_insert(graph, sql, ins).await,
             StatementKind::UpdateNodes(upd) if in_txn => self.buffer_update(graph, sql, upd).await,
             StatementKind::UpdateNodes(upd) => self.run_update(graph, sql, upd).await,
             StatementKind::DeleteNodes(del) if in_txn => self.buffer_delete(graph, sql, del).await,
             StatementKind::DeleteNodes(del) => self.run_delete(graph, sql, del).await,
-            // ── arbitrary user-defined relational tables (CONCEPT:EG-018/EG-020) ───
+            // ── arbitrary user-defined relational tables (CONCEPT:EG-KG.query.register-user-tables-alongside/EG-020) ───
             StatementKind::CreateTable(plan) if in_txn => {
                 let columns = to_store_columns(&plan.columns)?;
                 self.buffer(TxnOp::CreateTable {
@@ -764,7 +764,7 @@ impl WireSession {
                 Ok(WireOutcome::command("DROP TABLE"))
             }
             StatementKind::DropTable(plan) => self.run_drop_table(plan).await,
-            // CONCEPT:EG-018 ADD COLUMN + CONCEPT:EG-310 the rest — staged into the txn.
+            // CONCEPT:EG-KG.query.register-user-tables-alongside ADD COLUMN + CONCEPT:EG-KG.query.rename-table-moves-catalog the rest — staged into the txn.
             StatementKind::AlterTable(plan) if in_txn => {
                 self.buffer(alter_txn_op(plan)?);
                 Ok(WireOutcome::command("ALTER TABLE"))
@@ -817,14 +817,14 @@ impl WireSession {
                 Ok(WireOutcome::command("DELETE"))
             }
             StatementKind::DeleteTable(del) => self.run_delete_table(del).await,
-            // CONCEPT:EG-046 — INSERT INTO nodes … SELECT (facade dispatch).
+            // CONCEPT:EG-KG.query.insert-into-nodes-select — INSERT INTO nodes … SELECT (facade dispatch).
             StatementKind::InsertNodesSelect(ins) if in_txn => {
                 self.buffer_insert_nodes_select(graph, sql, ins).await
             }
             StatementKind::InsertNodesSelect(ins) => {
                 self.run_insert_nodes_select(graph, sql, ins).await
             }
-            // CONCEPT:EG-047 — UPDATE nodes … FROM … / DELETE FROM nodes … USING … .
+            // CONCEPT:EG-KG.query.update-delete-from — UPDATE nodes … FROM … / DELETE FROM nodes … USING … .
             StatementKind::UpdateNodesJoin(upd) if in_txn => {
                 self.buffer_update_nodes_join(graph, sql, upd).await
             }
@@ -837,10 +837,10 @@ impl WireSession {
             StatementKind::DeleteNodesJoin(del) => {
                 self.run_delete_nodes_join(graph, sql, del).await
             }
-            // CONCEPT:EG-072 — CREATE/DROP VIEW over the durable view catalog.
+            // CONCEPT:EG-KG.query.create-drop-view — CREATE/DROP VIEW over the durable view catalog.
             StatementKind::CreateView(plan) => self.run_create_view(plan).await,
             StatementKind::DropView(plan) => self.run_drop_view(plan).await,
-            // CONCEPT:EG-102 — CREATE/DROP EXTENSION over the durable extension catalog.
+            // CONCEPT:EG-KG.query.create-drop-extension-over — CREATE/DROP EXTENSION over the durable extension catalog.
             StatementKind::CreateExtension {
                 name,
                 if_not_exists,
@@ -848,20 +848,20 @@ impl WireSession {
             StatementKind::DropExtension { name, if_exists } => {
                 self.run_drop_extension(name, if_exists).await
             }
-            // CONCEPT:EG-118 — CREATE/DROP FUNCTION over the durable function catalog.
+            // CONCEPT:EG-KG.query.create-drop-function — CREATE/DROP FUNCTION over the durable function catalog.
             StatementKind::CreateFunction(plan) => self.run_create_function(plan).await,
             StatementKind::DropFunction(plan) => self.run_drop_function(plan).await,
             // ── Postgres-family extension parity (wave 19) ──────────────────────────
-            // CONCEPT:EG-114 — Apache AGE cypher() set-returning function.
+            // CONCEPT:EG-KG.query.postgres-family-extension-plan — Apache AGE cypher() set-returning function.
             StatementKind::CypherCall(plan) => self.run_cypher_call(graph, plan).await,
-            // CONCEPT:EG-116 — pgvector ANN index registration.
+            // CONCEPT:EG-KG.query.real-ann-top-k — pgvector ANN index registration.
             StatementKind::CreateAnnIndex(plan) => self.run_create_ann_index(plan).await,
-            // CONCEPT:EG-117 — TimescaleDB hypertable + continuous aggregate.
+            // CONCEPT:EG-KG.query.continuous-aggregate-lowering — TimescaleDB hypertable + continuous aggregate.
             StatementKind::CreateHypertable(plan) => self.run_create_hypertable(plan).await,
             StatementKind::CreateContinuousAggregate(plan) => {
                 self.run_create_continuous_aggregate(plan).await
             }
-            // `COPY … FROM STDIN` (CONCEPT:EG-020): switch into copy-in mode; the
+            // `COPY … FROM STDIN` (CONCEPT:EG-KG.query.register-each-user-table): switch into copy-in mode; the
             // streamed rows are ingested by the wire's copy-done hook.
             StatementKind::CopyIn(plan) => self.start_copy(plan).await,
             // Transaction-control statements are handled before dispatch.
@@ -871,7 +871,7 @@ impl WireSession {
         }
     }
 
-    /// `COMMIT` a MIXED-STORE wire transaction (CONCEPT:EG-049). The open txn may
+    /// `COMMIT` a MIXED-STORE wire transaction (CONCEPT:EG-KG.compute.kg-transaction-is-pinned). The open txn may
     /// have buffered BOTH graph-node ops (into `graph_txn`) and user-table ops (into
     /// `txn`). This commits them best-effort ORDERED across the two stores (NOT 2PC):
     ///
@@ -888,7 +888,7 @@ impl WireSession {
     /// txn ends). This window is documented in `docs/service_mode.md` and the pgwire
     /// module header. On any error the whole COMMIT returns an error.
     ///
-    /// An aborted transaction (a statement inside it errored, CONCEPT:EG-049) commits
+    /// An aborted transaction (a statement inside it errored, CONCEPT:EG-KG.compute.kg-transaction-is-pinned) commits
     /// as a ROLLBACK — nothing is applied. A `COMMIT` with no open transaction is a
     /// no-op (Postgres-compatible).
     async fn run_commit(&self) -> WireResult<WireOutcome> {
@@ -1011,7 +1011,7 @@ impl WireSession {
         Ok(WireOutcome::TxnEnd { tag: "COMMIT" })
     }
 
-    /// `COPY <table> [(cols…)] FROM STDIN` (CONCEPT:EG-020): resolve the target schema,
+    /// `COPY <table> [(cols…)] FROM STDIN` (CONCEPT:EG-KG.query.register-each-user-table): resolve the target schema,
     /// stash the copy state, and return a copy-in outcome so the wire streams rows.
     async fn start_copy(&self, plan: CopyPlan) -> WireResult<WireOutcome> {
         let store = user_table_store()?;
@@ -1048,7 +1048,7 @@ impl WireSession {
         })
     }
 
-    /// `CREATE TABLE` (CONCEPT:EG-018): record the schema in the durable redb table
+    /// `CREATE TABLE` (CONCEPT:EG-KG.query.register-user-tables-alongside): record the schema in the durable redb table
     /// catalog. The whole DDL commits (commit-before-ack) before the tag is returned.
     async fn run_create_table(&self, plan: CreateTablePlan) -> WireResult<WireOutcome> {
         let columns = to_store_columns(&plan.columns)?;
@@ -1065,7 +1065,7 @@ impl WireSession {
         Ok(WireOutcome::command("CREATE TABLE"))
     }
 
-    /// `DROP TABLE` (CONCEPT:EG-018): remove the catalog entry + every row.
+    /// `DROP TABLE` (CONCEPT:EG-KG.query.register-user-tables-alongside): remove the catalog entry + every row.
     async fn run_drop_table(&self, plan: DropTablePlan) -> WireResult<WireOutcome> {
         let store = user_table_store()?;
         tokio::task::spawn_blocking(move || store.drop_table(&plan.name, plan.if_exists))
@@ -1075,7 +1075,7 @@ impl WireSession {
         Ok(WireOutcome::command("DROP TABLE"))
     }
 
-    /// CONCEPT:EG-072 — `CREATE [OR REPLACE] VIEW name AS SELECT …`: persist the view
+    /// CONCEPT:EG-KG.query.create-drop-view — `CREATE [OR REPLACE] VIEW name AS SELECT …`: persist the view
     /// text in the durable view catalog (commit-before-ack); `build_ctx` expands it on read.
     async fn run_create_view(&self, plan: CreateViewPlan) -> WireResult<WireOutcome> {
         let store = user_table_store()?;
@@ -1088,7 +1088,7 @@ impl WireSession {
         Ok(WireOutcome::command("CREATE VIEW"))
     }
 
-    /// CONCEPT:EG-072 — `DROP VIEW [IF EXISTS] name`.
+    /// CONCEPT:EG-KG.query.create-drop-view — `DROP VIEW [IF EXISTS] name`.
     async fn run_drop_view(&self, plan: DropViewPlan) -> WireResult<WireOutcome> {
         let store = user_table_store()?;
         tokio::task::spawn_blocking(move || store.drop_view(&plan.name, plan.if_exists))
@@ -1098,7 +1098,7 @@ impl WireSession {
         Ok(WireOutcome::command("DROP VIEW"))
     }
 
-    /// CONCEPT:EG-102 — `CREATE EXTENSION [IF NOT EXISTS] name`: record the enablement
+    /// CONCEPT:EG-KG.query.create-drop-extension-over — `CREATE EXTENSION [IF NOT EXISTS] name`: record the enablement
     /// in the durable extension catalog (commit-before-ack) so a client's setup script
     /// proceeds; the extension's concrete surface lands in its own later item.
     async fn run_create_extension(
@@ -1114,7 +1114,7 @@ impl WireSession {
         Ok(WireOutcome::command("CREATE EXTENSION"))
     }
 
-    /// CONCEPT:EG-102 — `DROP EXTENSION [IF EXISTS] name`.
+    /// CONCEPT:EG-KG.query.create-drop-extension-over — `DROP EXTENSION [IF EXISTS] name`.
     async fn run_drop_extension(&self, name: String, if_exists: bool) -> WireResult<WireOutcome> {
         let store = user_table_store()?;
         tokio::task::spawn_blocking(move || store.drop_extension(&name, if_exists))
@@ -1124,7 +1124,7 @@ impl WireSession {
         Ok(WireOutcome::command("DROP EXTENSION"))
     }
 
-    /// CONCEPT:EG-118 — `CREATE [OR REPLACE] FUNCTION … LANGUAGE sql`: persist the SQL
+    /// CONCEPT:EG-KG.query.create-drop-function — `CREATE [OR REPLACE] FUNCTION … LANGUAGE sql`: persist the SQL
     /// stored function in the durable function catalog (commit-before-ack). A later
     /// `SELECT fn(args)` / `FROM fn(args)` expands it during the read path.
     async fn run_create_function(&self, plan: CreateFunctionPlan) -> WireResult<WireOutcome> {
@@ -1136,7 +1136,7 @@ impl WireSession {
         Ok(WireOutcome::command("CREATE FUNCTION"))
     }
 
-    /// CONCEPT:EG-118 — `DROP FUNCTION [IF EXISTS] name`.
+    /// CONCEPT:EG-KG.query.create-drop-function — `DROP FUNCTION [IF EXISTS] name`.
     async fn run_drop_function(&self, plan: DropFunctionPlan) -> WireResult<WireOutcome> {
         let store = user_table_store()?;
         tokio::task::spawn_blocking(move || store.drop_function(&plan.name, plan.if_exists))
@@ -1146,7 +1146,7 @@ impl WireSession {
         Ok(WireOutcome::command("DROP FUNCTION"))
     }
 
-    /// CONCEPT:EG-114 — `SELECT … FROM cypher('graph', $$ … $$) AS (cols…)`: run the
+    /// CONCEPT:EG-KG.query.postgres-family-extension-plan — `SELECT … FROM cypher('graph', $$ … $$) AS (cols…)`: run the
     /// inner Cypher on the named graph over its off-lock snapshot, then project the
     /// agtype (JSON) result onto the typed `AS` columns. Behind the `cypher` feature.
     async fn run_cypher_call(&self, graph: &str, plan: CypherCallPlan) -> WireResult<WireOutcome> {
@@ -1179,7 +1179,7 @@ impl WireSession {
         }
     }
 
-    /// CONCEPT:EG-116 — `CREATE INDEX … USING hnsw|ivfflat (col opclass)`: acknowledge
+    /// CONCEPT:EG-KG.query.real-ann-top-k — `CREATE INDEX … USING hnsw|ivfflat (col opclass)`: acknowledge
     /// the pgvector ANN index so a client's setup script proceeds. A matching
     /// `ORDER BY col <-> $1 LIMIT k` query still returns correct results via the
     /// EG-115 brute-force `vector_l2()` scan; a durable ANN-index catalog + the eg-ann
@@ -1189,7 +1189,7 @@ impl WireSession {
         Ok(WireOutcome::command("CREATE INDEX"))
     }
 
-    /// CONCEPT:EG-117 — `SELECT create_hypertable('t','ts')`: accept the time-partition
+    /// CONCEPT:EG-KG.query.continuous-aggregate-lowering — `SELECT create_hypertable('t','ts')`: accept the time-partition
     /// declaration and return the TimescaleDB-shaped single-cell result so a client's
     /// migration proceeds. Durable partition-metadata + chunk management is a follow-up.
     async fn run_create_hypertable(&self, plan: HypertablePlan) -> WireResult<WireOutcome> {
@@ -1200,7 +1200,7 @@ impl WireSession {
         )))
     }
 
-    /// CONCEPT:EG-117 — `CREATE MATERIALIZED VIEW … WITH (timescaledb.continuous) AS
+    /// CONCEPT:EG-KG.query.continuous-aggregate-lowering — `CREATE MATERIALIZED VIEW … WITH (timescaledb.continuous) AS
     /// SELECT …`: lower the continuous aggregate onto the durable view catalog, so
     /// `SELECT * FROM <name>` recomputes the `time_bucket` aggregate live. Incremental
     /// materialized refresh (`refresh_continuous_aggregate`) is a documented follow-up.
@@ -1227,9 +1227,9 @@ impl WireSession {
         }
     }
 
-    /// CONCEPT:EG-046 — `INSERT INTO nodes (cols…) SELECT …`: run the SELECT through the
+    /// CONCEPT:EG-KG.query.insert-into-nodes-select — `INSERT INTO nodes (cols…) SELECT …`: run the SELECT through the
     /// read path, then materialize each row as a node (the `id` column → node id, the rest
-    /// → properties), honoring `ON CONFLICT` (CONCEPT:EG-048). RETURNING optional.
+    /// → properties), honoring `ON CONFLICT` (CONCEPT:EG-KG.query.delete-returning-sees-row). RETURNING optional.
     async fn run_insert_nodes_select(
         &self,
         graph: &str,
@@ -1311,7 +1311,7 @@ impl WireSession {
         }
     }
 
-    /// CONCEPT:EG-047 — `UPDATE nodes SET … FROM … WHERE …`: the classifier rendered a
+    /// CONCEPT:EG-KG.query.update-delete-from — `UPDATE nodes SET … FROM … WHERE …`: the classifier rendered a
     /// resolution `SELECT nodes.id, <set-exprs…> FROM …`; each row gives the matched id
     /// plus its per-row SET values. Applied via the serializable merge under the guard.
     async fn run_update_nodes_join(
@@ -1369,7 +1369,7 @@ impl WireSession {
         }
     }
 
-    /// CONCEPT:EG-047 — `DELETE FROM nodes USING … WHERE …`: the classifier rendered a
+    /// CONCEPT:EG-KG.query.update-delete-from — `DELETE FROM nodes USING … WHERE …`: the classifier rendered a
     /// resolution `SELECT nodes.id FROM … USING …`; remove each resolved node.
     async fn run_delete_nodes_join(
         &self,
@@ -1409,7 +1409,7 @@ impl WireSession {
         }
     }
 
-    /// `ALTER TABLE …` (CONCEPT:EG-018 ADD COLUMN + CONCEPT:EG-310 DROP/RENAME COLUMN,
+    /// `ALTER TABLE …` (CONCEPT:EG-KG.query.register-user-tables-alongside ADD COLUMN + CONCEPT:EG-KG.query.rename-table-moves-catalog DROP/RENAME COLUMN,
     /// RENAME TABLE, ALTER COLUMN TYPE, DROP CONSTRAINT). Lowered to a single buffered
     /// [`TxnOp`] and applied in one redb write txn (atomic row migration).
     async fn run_alter_table(&self, plan: AlterTablePlan) -> WireResult<WireOutcome> {
@@ -1424,7 +1424,7 @@ impl WireSession {
         Ok(WireOutcome::command("ALTER TABLE"))
     }
 
-    /// `INSERT INTO <user_table> … VALUES …` (CONCEPT:EG-018). Commit-before-ack.
+    /// `INSERT INTO <user_table> … VALUES …` (CONCEPT:EG-KG.query.register-user-tables-alongside). Commit-before-ack.
     async fn run_insert_table(&self, ins: InsertTable) -> WireResult<WireOutcome> {
         let store = user_table_store()?;
         let n = tokio::task::spawn_blocking(move || {
@@ -1436,7 +1436,7 @@ impl WireSession {
         Ok(WireOutcome::command_rows("INSERT", n))
     }
 
-    /// `INSERT INTO <user_table> (cols…) SELECT …` (CONCEPT:EG-018). Runs the SELECT
+    /// `INSERT INTO <user_table> (cols…) SELECT …` (CONCEPT:EG-KG.query.register-user-tables-alongside). Runs the SELECT
     /// through the SAME DataFusion path (so it can JOIN user tables AND the graph),
     /// then durably inserts the projected rows. The SELECT result column COUNT must
     /// match the insert column list.
@@ -1459,8 +1459,8 @@ impl WireSession {
         Ok(WireOutcome::command_rows("INSERT", n))
     }
 
-    /// `UPDATE <user_table> SET … WHERE <predicate>` (CONCEPT:EG-018, compound
-    /// predicate CONCEPT:EG-045). The store evaluates the predicate per row inside
+    /// `UPDATE <user_table> SET … WHERE <predicate>` (CONCEPT:EG-KG.query.register-user-tables-alongside, compound
+    /// predicate CONCEPT:EG-KG.query.compound-predicate-decode). The store evaluates the predicate per row inside
     /// its redb write transaction (serializable).
     async fn run_update_table(&self, upd: UpdateTable) -> WireResult<WireOutcome> {
         let store = user_table_store()?;
@@ -1473,8 +1473,8 @@ impl WireSession {
         Ok(WireOutcome::command_rows("UPDATE", n))
     }
 
-    /// `DELETE FROM <user_table> WHERE <predicate>` (CONCEPT:EG-018, compound
-    /// predicate CONCEPT:EG-045).
+    /// `DELETE FROM <user_table> WHERE <predicate>` (CONCEPT:EG-KG.query.register-user-tables-alongside, compound
+    /// predicate CONCEPT:EG-KG.query.compound-predicate-decode).
     async fn run_delete_table(&self, del: DeleteTable) -> WireResult<WireOutcome> {
         let store = user_table_store()?;
         let pred = del.selector.pred;
@@ -1486,7 +1486,7 @@ impl WireSession {
     }
 
     /// Resolve the candidate node ids a WHERE selects. `Id` is the fast path (one id,
-    /// only included if the node exists). `Predicate` (CONCEPT:EG-045) re-runs the
+    /// only included if the node exists). `Predicate` (CONCEPT:EG-KG.query.compound-predicate-decode) re-runs the
     /// WHERE text through the SAME DataFusion read path as a `SELECT id FROM nodes
     /// WHERE …`, so any compound `AND`/`OR`/`IN`/`BETWEEN`/range predicate the read
     /// surface understands resolves the candidate set. These ids are then re-checked
@@ -1563,7 +1563,7 @@ impl WireSession {
         Ok((cols, type_map))
     }
 
-    // ── buffered graph-node DML inside an open transaction (CONCEPT:EG-049) ──────
+    // ── buffered graph-node DML inside an open transaction (CONCEPT:EG-KG.compute.kg-transaction-is-pinned) ──────
     // These mirror the immediate `run_*` node-DML methods but BUFFER a `NodeOp`
     // instead of applying it — the buffer is replayed atomically at COMMIT
     // (`run_commit`). Candidate-id / SELECT resolution runs immediately over a
@@ -1571,7 +1571,7 @@ impl WireSession {
     // so an in-txn statement sees earlier statements' buffered writes. RETURNING is
     // resolved against the post-buffer overlaid snapshot.
 
-    /// Buffered `INSERT INTO nodes …` (CONCEPT:EG-049).
+    /// Buffered `INSERT INTO nodes …` (CONCEPT:EG-KG.compute.kg-transaction-is-pinned).
     async fn buffer_insert(
         &self,
         graph: &str,
@@ -1603,7 +1603,7 @@ impl WireSession {
         }
     }
 
-    /// Buffered `UPDATE nodes SET … WHERE …` (CONCEPT:EG-049). Candidate ids resolve
+    /// Buffered `UPDATE nodes SET … WHERE …` (CONCEPT:EG-KG.compute.kg-transaction-is-pinned). Candidate ids resolve
     /// over the RYOW overlay; each becomes an unconditional-merge `Cas`. RETURNING
     /// reads back the post-update rows from the overlaid snapshot (which now includes
     /// the just-buffered merges).
@@ -1638,7 +1638,7 @@ impl WireSession {
         }
     }
 
-    /// Buffered `DELETE FROM nodes WHERE …` (CONCEPT:EG-049). RETURNING captures the
+    /// Buffered `DELETE FROM nodes WHERE …` (CONCEPT:EG-KG.compute.kg-transaction-is-pinned). RETURNING captures the
     /// rows from the overlaid snapshot BEFORE the removes are buffered (they are gone
     /// after).
     async fn buffer_delete(
@@ -1670,7 +1670,7 @@ impl WireSession {
         }
     }
 
-    /// Buffered `INSERT INTO nodes … SELECT …` (CONCEPT:EG-049). The SELECT resolves
+    /// Buffered `INSERT INTO nodes … SELECT …` (CONCEPT:EG-KG.compute.kg-transaction-is-pinned). The SELECT resolves
     /// over the RYOW overlay; `ON CONFLICT` is evaluated against the txn's own evolving
     /// buffered state (a local overlaid view advanced per row), so a conflict against a
     /// row inserted earlier in the SAME transaction is honored.
@@ -1748,7 +1748,7 @@ impl WireSession {
         }
     }
 
-    /// Buffered `UPDATE nodes SET … FROM … WHERE …` (CONCEPT:EG-049). The resolution
+    /// Buffered `UPDATE nodes SET … FROM … WHERE …` (CONCEPT:EG-KG.compute.kg-transaction-is-pinned). The resolution
     /// SELECT resolves over the RYOW overlay; each matched id becomes an
     /// unconditional-merge `Cas`. Duplicate ids from the join are applied once.
     async fn buffer_update_nodes_join(
@@ -1794,7 +1794,7 @@ impl WireSession {
         }
     }
 
-    /// Buffered `DELETE FROM nodes USING … WHERE …` (CONCEPT:EG-049). RETURNING
+    /// Buffered `DELETE FROM nodes USING … WHERE …` (CONCEPT:EG-KG.compute.kg-transaction-is-pinned). RETURNING
     /// captures rows from the overlaid snapshot before the removes are buffered.
     async fn buffer_delete_nodes_join(
         &self,
@@ -1868,7 +1868,7 @@ impl WireSession {
         }
     }
 
-    /// `UPDATE nodes SET … WHERE …` (CONCEPT:KG-2.198). Resolves the matched ids,
+    /// `UPDATE nodes SET … WHERE …` (CONCEPT:EG-KG.query.follow-up). Resolves the matched ids,
     /// then for each runs `compare_and_set_fields` with EMPTY conditions (an
     /// unconditional merge of the SET map — a single atomic read-modify-write per
     /// node under the topology write guard) and durably records the resulting
@@ -1888,7 +1888,7 @@ impl WireSession {
             .map_err(|e| user_err(format!("encode CAS conditions: {e}")))?;
         let upd_blob = rmp_serde::to_vec_named(&serde_json::Value::Object(updates.clone()))
             .map_err(|e| user_err(format!("encode CAS updates: {e}")))?;
-        // CONCEPT:EG-045 — when the WHERE is a compound predicate, re-check it under
+        // CONCEPT:EG-KG.query.compound-predicate-decode — when the WHERE is a compound predicate, re-check it under
         // the write guard so a row that changed between candidate resolution and the
         // write is skipped (serializable). The `id` fast path has no predicate.
         let pred = match &upd.selector {
@@ -1928,7 +1928,7 @@ impl WireSession {
         }
     }
 
-    /// `DELETE FROM nodes WHERE …` (CONCEPT:KG-2.198). Resolves the matched ids
+    /// `DELETE FROM nodes WHERE …` (CONCEPT:EG-KG.query.follow-up). Resolves the matched ids
     /// (capturing each node's properties FIRST when RETURNING is requested, since
     /// the row is gone after removal), removes each via `remove_node` (the same
     /// write path `Method::RemoveNode` dispatch uses) under its one-shot txn, and
@@ -1952,7 +1952,7 @@ impl WireSession {
         } else {
             None
         };
-        // CONCEPT:EG-045 — re-check a compound predicate under the write guard so a
+        // CONCEPT:EG-KG.query.compound-predicate-decode — re-check a compound predicate under the write guard so a
         // row that changed between candidate resolution and removal is skipped
         // (serializable). The `id` fast path has no predicate.
         let pred = match &del.selector {
@@ -2051,7 +2051,7 @@ impl WireSession {
     }
 
     /// Record a whole COMMIT's worth of graph-node mutations as ONE durable GROUP
-    /// (CONCEPT:EG-049). Mirrors the two-regime logic of
+    /// (CONCEPT:EG-KG.compute.kg-transaction-is-pinned). Mirrors the two-regime logic of
     /// [`WireSession::record_durable_write`] but for a batch:
     ///
     ///   * redb-AUTHORITATIVE → `commit_crossmodal` commits ALL methods in ONE
@@ -2107,7 +2107,7 @@ impl WireSession {
     }
 
     /// Build a `column name → PgColType` map for the current graph by sampling node
-    /// property blobs (CONCEPT:KG-2.197 describe support). Used to resolve the type
+    /// property blobs (CONCEPT:EG-KG.query.describe describe support). Used to resolve the type
     /// of a parameter that sits opposite a property column (`WHERE rank > $1`), and
     /// to type a RETURNING result column, WITHOUT a DataFusion round-trip. Schema-
     /// on-read: the first non-null value seen for a column wins (matching the
@@ -2147,7 +2147,7 @@ impl WireSession {
     // duplicated here; the wire is a thin parser/router. Because it lives on the SHARED
     // `WireSession` core it lights up for the whole EG-074 multi-wire family.
 
-    /// Lower buffered graph-node ops (CONCEPT:EG-049) to the durable `Method`s that both
+    /// Lower buffered graph-node ops (CONCEPT:EG-KG.compute.kg-transaction-is-pinned) to the durable `Method`s that both
     /// the in-txn UQL overlay and the cross-modal COMMIT consume, so the NodeOp→Method
     /// mapping is never re-derived.
     #[cfg(feature = "query")]
@@ -2569,7 +2569,7 @@ impl WireProtocol for WireSession {
 
     /// One-time, on the first query: (1) adopt the wire's startup `database` as the
     /// target graph (priority 1), and (2) latch the authenticated actor from the wire's
-    /// startup `user` (CONCEPT:KG-2.202). Both are only readable once the handshake
+    /// startup `user` (CONCEPT:EG-KG.query.concept-13). Both are only readable once the handshake
     /// completes, so they latch on the first query.
     ///
     /// The graph adoption is skipped if a `SET graph` already chose one, if the param
@@ -2602,7 +2602,7 @@ impl WireProtocol for WireSession {
         *self.graph.lock() = db.clone();
     }
 
-    /// The shared SQL execution core for every wire (CONCEPT:EG-074 / KG-2.197).
+    /// The shared SQL execution core for every wire (CONCEPT:EG-KG.compute.subsystems-reference / KG-2.197).
     /// `sql` is already a complete literal statement (any wire-specific parameter form
     /// has been substituted before calling). Classifies and routes:
     ///   * `SET graph = …` → connection-scoped graph switch.
@@ -2638,7 +2638,7 @@ impl WireProtocol for WireSession {
 
         let kind = eg_query::classify(sql).map_err(user_err)?;
 
-        // ── transaction control (CONCEPT:EG-020 / EG-049) — no graph access needed ──
+        // ── transaction control (CONCEPT:EG-KG.query.register-each-user-table / EG-049) — no graph access needed ──
         // BEGIN/COMMIT/ROLLBACK report a txn-status change so the wire reports the
         // correct in-transaction status to the driver.
         match &kind {
@@ -2658,7 +2658,7 @@ impl WireProtocol for WireSession {
             _ => {}
         }
 
-        // ── aborted-transaction gate (CONCEPT:EG-049) ──────────────────────────────
+        // ── aborted-transaction gate (CONCEPT:EG-KG.compute.kg-transaction-is-pinned) ──────────────────────────────
         // Once a statement inside an open txn has errored, every subsequent statement
         // except COMMIT/ROLLBACK (handled above) is rejected with 25P02 until the
         // block ends — matching Postgres' failed-transaction semantics.
@@ -2667,10 +2667,10 @@ impl WireProtocol for WireSession {
         }
 
         // Enforce the engine ACL under the connection's authenticated actor
-        // (CONCEPT:KG-2.202) BEFORE touching the graph: a read needs Read access, any
+        // (CONCEPT:EG-KG.query.concept-13) BEFORE touching the graph: a read needs Read access, any
         // DML needs Write. A no-rules deployment is a no-op (back-compat).
         let access = match kind {
-            // CONCEPT:EG-114 — an AGE cypher() call is a read.
+            // CONCEPT:EG-KG.query.postgres-family-extension-plan — an AGE cypher() call is a read.
             StatementKind::Read | StatementKind::CypherCall(_) => AccessLevel::Read,
             _ => AccessLevel::Write,
         };
@@ -2678,17 +2678,17 @@ impl WireProtocol for WireSession {
 
         // While a transaction is OPEN, buffer BOTH user-table DDL/DML (into `txn`)
         // and graph-node DML (into `graph_txn`); the buffers are applied at COMMIT.
-        // Reads run immediately but over a read-your-own-writes overlay (CONCEPT:EG-049)
+        // Reads run immediately but over a read-your-own-writes overlay (CONCEPT:EG-KG.compute.kg-transaction-is-pinned)
         // so they observe the txn's own buffered writes.
         let in_txn = self.in_txn();
 
-        // CONCEPT:EG-091 — slow-query timing for the wire SQL path (psql/BI/ORM).
+        // CONCEPT:EG-OS.observability.slow-query-descriptor — slow-query timing for the wire SQL path (psql/BI/ORM).
         // `None` (zero cost) unless EPISTEMIC_GRAPH_SLOW_QUERY_MS is set.
         let slow = crate::slow_query::describe_sql(sql);
         let slow_start = slow.as_ref().map(|_| std::time::Instant::now());
 
         // Run the dispatch, latching the transaction into the aborted state on any
-        // error so subsequent statements are rejected with 25P02 (CONCEPT:EG-049).
+        // error so subsequent statements are rejected with 25P02 (CONCEPT:EG-KG.compute.kg-transaction-is-pinned).
         let result = self.dispatch_kind(&graph, sql, kind, in_txn).await;
         if let (Some(slow), Some(start)) = (slow, slow_start) {
             slow.log_if_slow(start.elapsed());

@@ -1,4 +1,4 @@
-//! Per-tenant memory budget + autoscale signals (CONCEPT:KG-2.234, Lane V —
+//! Per-tenant memory budget + autoscale signals (CONCEPT:EG-KG.compute.lane-v, Lane V —
 //! cost/efficiency).
 //!
 //! The engine already bounds memory per *graph* (`EPISTEMIC_GRAPH_MAX_NODES_PER_GRAPH`
@@ -41,7 +41,7 @@ use tokio::sync::RwLock;
 use crate::graph::GraphCore;
 use crate::server::ServerState;
 
-/// Derive the tenant a graph belongs to (CONCEPT:KG-2.234). The convention across the
+/// Derive the tenant a graph belongs to (CONCEPT:EG-KG.compute.lane-v). The convention across the
 /// ecosystem is `tenant:scope` graph names (`agent:planner`, `team:research`,
 /// `enterprise-acme:billing`); the tenant is the prefix before the FIRST `:`. A name
 /// with no `:` (e.g. `__commons__`) is its own tenant. This is the one place the
@@ -53,7 +53,7 @@ pub fn tenant_of(graph_name: &str) -> &str {
     }
 }
 
-/// Process-global cost bookkeeping (CONCEPT:KG-2.234): which graphs the enforcer has
+/// Process-global cost bookkeeping (CONCEPT:EG-KG.compute.lane-v): which graphs the enforcer has
 /// hibernated (so the snapshot reports resident-vs-hibernated accurately even though a
 /// hibernated graph just looks like an empty one), and a monotonic eviction counter for
 /// the rate signal. A singleton (like `metrics::SEEN_GRAPHS`) so it needs no ServerState
@@ -95,7 +95,7 @@ fn is_hibernated(graph: &str) -> bool {
 
 // ── Configuration ─────────────────────────────────────────────────────────
 
-/// Per-tenant memory budget configuration (CONCEPT:KG-2.234), read once at startup.
+/// Per-tenant memory budget configuration (CONCEPT:EG-KG.compute.lane-v), read once at startup.
 #[derive(Debug, Clone, Copy)]
 pub struct CostConfig {
     /// Process-wide resident-memory ceiling, bytes. `0` ⇒ disabled (no budgeting).
@@ -121,7 +121,7 @@ fn system_total_bytes() -> Option<u64> {
 }
 
 impl CostConfig {
-    /// Resolve from the environment (CONCEPT:KG-2.234). ONE knob is enough to turn it on
+    /// Resolve from the environment (CONCEPT:EG-KG.compute.lane-v). ONE knob is enough to turn it on
     /// with a sensible auto-sized default:
     ///
     /// * `EPISTEMIC_GRAPH_MEMORY_BUDGET` — the global resident-memory ceiling. Accepts a
@@ -178,7 +178,7 @@ fn parse_bytes(s: &str) -> Option<u64> {
 
 // ── Resource snapshot (autoscale signals) ───────────────────────────────────
 
-/// Per-graph resource snapshot (CONCEPT:KG-2.234).
+/// Per-graph resource snapshot (CONCEPT:EG-KG.compute.lane-v).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct GraphResourceStats {
     pub graph: String,
@@ -191,7 +191,7 @@ pub struct GraphResourceStats {
     pub hibernated: bool,
 }
 
-/// Per-tenant rollup (CONCEPT:KG-2.234).
+/// Per-tenant rollup (CONCEPT:EG-KG.compute.lane-v).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TenantResourceStats {
     pub tenant: String,
@@ -207,7 +207,7 @@ pub struct TenantResourceStats {
     pub over_budget: bool,
 }
 
-/// The full resource snapshot returned by `Method::ResourceStats` (CONCEPT:KG-2.234) and
+/// The full resource snapshot returned by `Method::ResourceStats` (CONCEPT:EG-KG.compute.lane-v) and
 /// scraped into Prometheus. The signals an autoscaler (OS-5.27) needs in ONE round-trip.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ResourceSnapshot {
@@ -253,7 +253,7 @@ fn process_rss_bytes() -> u64 {
     0
 }
 
-/// Gather a [`ResourceSnapshot`] across the registry (CONCEPT:KG-2.234). Reads node/edge
+/// Gather a [`ResourceSnapshot`] across the registry (CONCEPT:EG-KG.compute.lane-v). Reads node/edge
 /// counts + the memory estimate per graph, rolls them up per tenant, and pulls the live
 /// in-flight admission state — the structured signal an autoscaler scales on. Off the hot
 /// path (a `ResourceStats` request / the metrics scrape).
@@ -270,7 +270,7 @@ pub async fn collect_resource_stats(state: &Arc<RwLock<ServerState>>) -> Resourc
         let permits = s.max_in_flight.available_permits();
         // The global admission semaphore was constructed with the configured max; recover
         // it from the env so `in_flight = max - available` is exact. The UNSET default
-        // now auto-sizes from host capacity (CONCEPT:EG-028) — the SAME derivation
+        // now auto-sizes from host capacity (CONCEPT:AU-KG.backend.b-auto-size) — the SAME derivation
         // `main.rs` used to build the semaphore, so the gauge stays exact on a Pi and a
         // big box alike (previously hard-coded 1024).
         let max = std::env::var("EPISTEMIC_GRAPH_MAX_INFLIGHT")
@@ -375,7 +375,7 @@ pub async fn collect_resource_stats(state: &Arc<RwLock<ServerState>>) -> Resourc
 
 // ── Budget enforcement ──────────────────────────────────────────────────────
 
-/// Enforce the per-tenant memory budgets ONCE (CONCEPT:KG-2.234). For every tenant over
+/// Enforce the per-tenant memory budgets ONCE (CONCEPT:EG-KG.compute.lane-v). For every tenant over
 /// its effective budget (the smaller of its configured budget and its fair share of the
 /// global ceiling), reclaim memory from its COLDEST graphs until it is back under budget:
 ///
@@ -495,7 +495,7 @@ pub async fn enforce_memory_budgets(
 }
 
 /// Evict one graph's LRU nodes down to `max_nodes`, durability-gated under authoritative
-/// mode (CONCEPT:KG-2.191) — the same no-loss gate `persist::evict_oversized_all` uses,
+/// mode (CONCEPT:EG-KG.storage.read-through-seam-exercised) — the same no-loss gate `persist::evict_oversized_all` uses,
 /// applied to a single graph. In the rebuildable-cache model (non-authoritative), drop
 /// the LRU directly (the durable backend re-hydrates on access). Returns nodes evicted.
 async fn evict_graph_to(
@@ -547,10 +547,10 @@ async fn checkpoint_before_hibernate(
     }
 }
 
-// ── Cost model / capacity planning (CONCEPT:KG-2.234) ───────────────────────
+// ── Cost model / capacity planning (CONCEPT:EG-KG.compute.lane-v) ───────────────────────
 
 /// A capacity estimate for a target tenant count + average working set
-/// (CONCEPT:KG-2.234). Maps a workload onto a resource footprint so an operator can pick
+/// (CONCEPT:EG-KG.compute.lane-v). Maps a workload onto a resource footprint so an operator can pick
 /// a deployment tier (Pi → cluster) and size the shard count. See `docs/cost-model.md`.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub struct CapacityEstimate {
@@ -570,7 +570,7 @@ pub struct CapacityEstimate {
 }
 
 /// Estimate the resource footprint for `tenants` tenants each with an `avg_working_set`
-/// (CONCEPT:KG-2.234). `global_budget` is the per-shard resident-memory ceiling, and
+/// (CONCEPT:EG-KG.compute.lane-v). `global_budget` is the per-shard resident-memory ceiling, and
 /// `resident_fraction` (0.0–1.0) is the share of tenants expected hot at once (the rest
 /// hibernate / read-through). Pure arithmetic — no engine state — so it is a planning
 /// helper callable offline (and the doc's worked examples derive from it).
@@ -630,7 +630,7 @@ mod tests {
         assert!(!cfg.enabled());
     }
 
-    // ── Budget-enforcement integration proofs (CONCEPT:KG-2.234) ────────────
+    // ── Budget-enforcement integration proofs (CONCEPT:EG-KG.compute.lane-v) ────────────
     // These need a real durable backend (redb) so eviction is durability-gated and a
     // rehydrate read serves the evicted node back. Gated on `redb` (present in
     // pi/node/cluster/full); the budget/snapshot logic itself is feature `cost`.

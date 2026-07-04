@@ -1,4 +1,4 @@
-//! AST parse-throughput baseline (CONCEPT:EG-012).
+//! AST parse-throughput baseline (CONCEPT:EG-KG.txn.write-path-benchmarks).
 //!
 //! A criterion throughput bench for `parse_files` — the tree-sitter primitive behind
 //! the `ParseFiles` protocol op and the code-ingestion phase the EG-011 span now

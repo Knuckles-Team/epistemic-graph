@@ -1,6 +1,6 @@
-//! CONCEPT:EG-308 — durable JSONPath index persistence.
+//! CONCEPT:EG-KG.storage.path-index-store — durable JSONPath index persistence.
 //!
-//! CONCEPT:EG-084 built an in-memory inverted JSONPath index (`path → value → ids`
+//! CONCEPT:EG-KG.compute.json-deep-indexing built an in-memory inverted JSONPath index (`path → value → ids`
 //! for equality + `path → ids` for existence) on [`crate::graph::GraphCore`], built
 //! demand-driven under the write guard and invalidated by `mark_dirty()`, exactly
 //! like the KG-2.199 property index. EG-308 makes THAT derived state **durable**: the
@@ -8,7 +8,7 @@
 //! boot, so a restart skips the full node rescan the demand-driven build would
 //! otherwise pay on the first JSON filter after a cold start.
 //!
-//! Design (mirrors the redb-backed RBAC store, CONCEPT:EG-303, and the dep-light
+//! Design (mirrors the redb-backed RBAC store, CONCEPT:EG-KG.compute.durable-rbac-identity-persistence, and the dep-light
 //! `ColdTier`/`ReadThrough` seams):
 //!   * The persistence **seam** — [`PathIndexPersistence`] + [`PersistedPathIndex`] —
 //!     is defined DEP-FREE here in eg-core, so `GraphCore` depends only on a trait
@@ -26,9 +26,9 @@
 
 use std::collections::BTreeMap;
 
-/// A serializable snapshot of the demand-driven JSONPath index (CONCEPT:EG-308).
+/// A serializable snapshot of the demand-driven JSONPath index (CONCEPT:EG-KG.storage.path-index-store).
 ///
-/// Mirrors the two inverted maps the in-memory `PathIndex` (CONCEPT:EG-084) holds,
+/// Mirrors the two inverted maps the in-memory `PathIndex` (CONCEPT:EG-KG.compute.json-deep-indexing) holds,
 /// but in `BTreeMap` form for a **deterministic** byte serialization (stable key
 /// order), so persisting the same logical index twice yields identical bytes:
 ///   * `by_value`: `jsonpath → (canonical scalar value → node ids)` (equality/`->>`);
@@ -42,7 +42,7 @@ pub struct PersistedPathIndex {
     /// `jsonpath → node ids` for which the path resolves to ANY value (existence).
     pub present: BTreeMap<String, Vec<String>>,
     /// The source graph's OCC `version()` at the moment this snapshot was persisted
-    /// (CONCEPT:EG-308 / KG-2.180). A warm-start reader can compare it against the
+    /// (CONCEPT:EG-KG.storage.path-index-store / KG-2.180). A warm-start reader can compare it against the
     /// live graph version to reason about freshness.
     pub stamp: u64,
 }
@@ -54,13 +54,13 @@ impl PersistedPathIndex {
     }
 
     /// Is this an empty snapshot (nothing built yet)? An empty snapshot rehydrates to
-    /// exactly the cold in-memory default (CONCEPT:EG-308).
+    /// exactly the cold in-memory default (CONCEPT:EG-KG.storage.path-index-store).
     pub fn is_empty(&self) -> bool {
         self.by_value.is_empty() && self.present.is_empty()
     }
 }
 
-/// The durable-persistence seam for the JSONPath index (CONCEPT:EG-308). Defined
+/// The durable-persistence seam for the JSONPath index (CONCEPT:EG-KG.storage.path-index-store). Defined
 /// DEP-FREE in eg-core (like [`crate::cold_tier::ColdTier`] /
 /// [`crate::read_through::ReadThrough`]) so a `GraphCore` holds only a trait object
 /// and no build links a persistence backend it did not ask for.
@@ -76,7 +76,7 @@ pub trait PathIndexPersistence: std::fmt::Debug + Send + Sync {
     fn save(&self, idx: &PersistedPathIndex);
 }
 
-/// A dep-free, in-process [`PathIndexPersistence`] (CONCEPT:EG-308). Sharing ONE
+/// A dep-free, in-process [`PathIndexPersistence`] (CONCEPT:EG-KG.storage.path-index-store). Sharing ONE
 /// `Arc<InMemoryPathIndexStore>` across two `GraphCore`s simulates a save→reopen
 /// (the second core rehydrates what the first persisted), which is what the default
 /// (`cargo test -p eg-core`, no redb) round-trip test exercises. Also the natural
@@ -107,7 +107,7 @@ impl PathIndexPersistence for InMemoryPathIndexStore {
 #[cfg(feature = "path-persist")]
 pub use redb_store::{PathPersistError, RedbPathIndexStore};
 
-/// The real durable, redb-backed [`PathIndexPersistence`] (CONCEPT:EG-308, feature
+/// The real durable, redb-backed [`PathIndexPersistence`] (CONCEPT:EG-KG.storage.path-index-store, feature
 /// `path-persist`). Mirrors the EG-303 [`crate::rbac_persist::RbacStore`]: ONE redb
 /// table in `{persist_dir}/path_index.redb`, a single well-known key holding the
 /// serde-json bytes of the whole [`PersistedPathIndex`], written in one durable
@@ -122,11 +122,11 @@ mod redb_store {
     use redb::{Database, ReadableDatabase, TableDefinition};
 
     /// `key → serde_json bytes`. One table, one well-known key (`snapshot`), written
-    /// in a single durable transaction (CONCEPT:EG-308).
+    /// in a single durable transaction (CONCEPT:EG-KG.storage.path-index-store).
     const PATH_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("path_index_v1");
     const SNAPSHOT_KEY: &str = "snapshot";
 
-    /// Errors from the durable path-index store (CONCEPT:EG-308). Flattened to a
+    /// Errors from the durable path-index store (CONCEPT:EG-KG.storage.path-index-store). Flattened to a
     /// message string (matching the EG-303 / cold-tier convention); io + serde carry
     /// their native errors so callers can inspect them.
     #[derive(Debug)]
@@ -163,7 +163,7 @@ mod redb_store {
         }
     }
 
-    /// A durable, redb-backed JSONPath-index store (CONCEPT:EG-308). Cheap to `clone`
+    /// A durable, redb-backed JSONPath-index store (CONCEPT:EG-KG.storage.path-index-store). Cheap to `clone`
     /// (shares one `Arc<Database>`).
     pub struct RedbPathIndexStore {
         db: Arc<Database>,
@@ -177,7 +177,7 @@ mod redb_store {
 
     impl RedbPathIndexStore {
         /// Open (or create) `{dir}/path_index.redb` and ensure the table exists
-        /// (CONCEPT:EG-308). The dir is created if absent; opening validates the store
+        /// (CONCEPT:EG-KG.storage.path-index-store). The dir is created if absent; opening validates the store
         /// is writable up front, so subsequent write-throughs are best-effort.
         pub fn open<P: AsRef<Path>>(dir: P) -> Result<Self, PathPersistError> {
             std::fs::create_dir_all(dir.as_ref())?;
@@ -241,7 +241,7 @@ mod redb_store {
 
         fn save(&self, idx: &PersistedPathIndex) {
             // Best-effort: a failed write-through must never fail the graph write that
-            // triggered it — the index is always rebuildable on demand (CONCEPT:EG-308).
+            // triggered it — the index is always rebuildable on demand (CONCEPT:EG-KG.storage.path-index-store).
             let _ = self.try_save(idx);
         }
     }
@@ -269,7 +269,7 @@ mod tests {
     #[test]
     fn eg308_in_memory_store_round_trips_snapshot() {
         // save → load through the dep-free in-memory store restores the identical
-        // logical index (CONCEPT:EG-308).
+        // logical index (CONCEPT:EG-KG.storage.path-index-store).
         let store = InMemoryPathIndexStore::new();
         assert!(store.load().is_none(), "cold store is empty");
         let snap = sample();
@@ -284,7 +284,7 @@ mod tests {
     fn eg308_persisted_bytes_are_deterministic() {
         // The BTreeMap containers give a stable byte serialization: two builds of the
         // same logical index (inserted in different orders) serialize identically
-        // (CONCEPT:EG-308, mirrors EG-303's deterministic identity bytes).
+        // (CONCEPT:EG-KG.storage.path-index-store, mirrors EG-303's deterministic identity bytes).
         let a = sample();
         let mut b_by_value: BTreeMap<String, BTreeMap<String, Vec<String>>> = BTreeMap::new();
         let mut lang = BTreeMap::new();
@@ -309,7 +309,7 @@ mod tests {
     #[test]
     fn eg308_redb_store_round_trips_through_save_reopen() {
         // The real durable path: persist to a redb file, then REOPEN the same dir in a
-        // fresh store and load — the index survives the "process restart" (CONCEPT:EG-308).
+        // fresh store and load — the index survives the "process restart" (CONCEPT:EG-KG.storage.path-index-store).
         let dir = std::env::temp_dir().join(format!(
             "eg308-redb-{}-{}",
             std::process::id(),

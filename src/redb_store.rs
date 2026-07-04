@@ -1,4 +1,4 @@
-//! Pure redb durable-row machinery (CONCEPT:KG-2.177 / KG-2.195 / KG-2.216).
+//! Pure redb durable-row machinery (CONCEPT:EG-KG.storage.kg-kg / KG-2.195 / KG-2.216).
 //!
 //! This is the SERVER-INDEPENDENT half of the redb durable tier: the on-disk
 //! table layout, the `Method → redb rows` apply, the group-commit, and the
@@ -36,7 +36,7 @@ pub(crate) const EDGES: TableDefinition<(&str, &str, &str, u32), &[u8]> =
     TableDefinition::new("edges");
 pub(crate) const LEDGER: TableDefinition<(&str, u64), &str> = TableDefinition::new("ledger");
 pub(crate) const SEMANTIC: TableDefinition<&str, &[u8]> = TableDefinition::new("semantic_store");
-// Tamper-evident hash-chained audit log (CONCEPT:KG-2.231, feature `security`). One
+// Tamper-evident hash-chained audit log (CONCEPT:EG-KG.sharding.row-level-security, feature `security`). One
 // row per durable mutation, keyed `(graph, seq)`, value = `prev_hash | entry_hash |
 // line` (see `crate::audit`). Appended in the SAME WriteTransaction as the mutation
 // it records, so the audit entry and the data it audits are durable together. The
@@ -44,29 +44,29 @@ pub(crate) const SEMANTIC: TableDefinition<&str, &[u8]> = TableDefinition::new("
 // `security`.
 pub(crate) const AUDIT: TableDefinition<(&str, u64), &[u8]> = TableDefinition::new("audit_chain");
 pub(crate) const GRAPH_META: TableDefinition<&str, &[u8]> = TableDefinition::new("graph_meta");
-// Durable Raft log table (CONCEPT:KG-2.204). Defined here so `commit_ops` (shared
+// Durable Raft log table (CONCEPT:EG-KG.storage.one-fsync-covers-raft). Defined here so `commit_ops` (shared
 // with the server's group-commit writer, which folds replicated log appends into
 // the SAME `WriteTransaction` as graph mutations) is self-contained. The embedded
 // path never appends log ops, so this table stays empty for an embedded-only DB —
 // the const costs nothing and keeps the two callers on one durable layout.
 pub(crate) const RAFT_LOG: TableDefinition<(u64, u64), &[u8]> = TableDefinition::new("raft_log");
-// Cross-shard 2PC prepare records (CONCEPT:KG-2.222). One row per participant group
+// Cross-shard 2PC prepare records (CONCEPT:EG-KG.storage.lane-n-increment). One row per participant group
 // of an in-flight cross-shard transaction, keyed by `(txn_id, group_id)`, holding
 // that group's PREPARED-but-not-applied slice (its staged write-set). Durable so an
 // in-doubt txn survives a coordinator/participant crash between PREPARE and COMMIT
 // and is resolved on restart. Lives in `graph.redb` for the same single-file reason
 // as the Raft log; the PURE put/clear/scan logic lives here (shared store) next to
 // NODES/EDGES/purge_graph_rows, while the writer-thread `Cmd` arms in `redb_backend`
-// call into it (mirrors how the graph-row machinery is shared, CONCEPT:KG-2.216).
+// call into it (mirrors how the graph-row machinery is shared, CONCEPT:EG-KG.backend.engine-modes).
 pub(crate) const XSHARD_PREPARE: TableDefinition<(&str, u64), &[u8]> =
     TableDefinition::new("xshard_prepare");
 // The coordinator's durable DECISION record for a cross-shard txn, keyed by `txn_id`
-// (CONCEPT:KG-2.222). The value is `1` = COMMIT, `0` = ABORT. Writing this row is the
+// (CONCEPT:EG-KG.storage.lane-n-increment). The value is `1` = COMMIT, `0` = ABORT. Writing this row is the
 // ATOMIC COMMIT POINT: once it reads COMMIT every participant will apply on recovery;
 // absent/ABORT ⇒ no participant applies (presumed-abort). Cleared after resolution.
 pub(crate) const XSHARD_DECISION: TableDefinition<&str, u8> =
     TableDefinition::new("xshard_decision");
-// Named distributed-compute MATERIALIZED VIEWS (CONCEPT:KG-2.227). One row per matview
+// Named distributed-compute MATERIALIZED VIEWS (CONCEPT:EG-KG.storage.feature). One row per matview
 // keyed by `name`, holding the MessagePack-serialized `MatView` (its definition +
 // current result rows). Durable so a matview survives restart; the handler reloads the
 // in-RAM `MatViewStore` from this table on boot and refreshes incrementally on a delta.
@@ -75,16 +75,16 @@ pub(crate) const XSHARD_DECISION: TableDefinition<&str, u8> =
 pub(crate) const MATVIEWS: TableDefinition<&str, &[u8]> = TableDefinition::new("matviews");
 
 /// In-doubt cross-shard prepare records `(txn_id, group_id, slice-blob)` returned by
-/// the recovery scan (CONCEPT:KG-2.222).
+/// the recovery scan (CONCEPT:EG-KG.storage.lane-n-increment).
 pub(crate) type XshardPrepareScan = Result<Vec<(String, u64, Vec<u8>)>, String>;
 
 /// Persisted materialized views `(name, blob)` returned by the boot reload scan
-/// (CONCEPT:KG-2.227).
+/// (CONCEPT:EG-KG.storage.feature).
 #[cfg(feature = "compute-dist")]
 pub(crate) type MatViewScanResult = Result<Vec<(String, Vec<u8>)>, String>;
 
 /// Encryption-at-rest cipher handle threaded through the durable read/write paths
-/// (CONCEPT:KG-2.231). A thin wrapper so the SAME function signatures carry it
+/// (CONCEPT:EG-KG.sharding.row-level-security). A thin wrapper so the SAME function signatures carry it
 /// whether or not the `security` feature is compiled: without `security` it is a
 /// zero-sized no-op (every `seal`/`unseal` is the identity), so the durable format
 /// and code path are byte-for-byte unchanged; with `security` + a configured key it
@@ -112,7 +112,7 @@ impl<'a> DurableCrypto<'a> {
     /// Seal a value blob for storage. Identity when no cipher is active.
     ///
     /// Returns `Cow` so the **encryption-OFF** path (the default — no key configured)
-    /// BORROWS the caller's plaintext with ZERO allocation/copy (CONCEPT:EG-029 #4): the
+    /// BORROWS the caller's plaintext with ZERO allocation/copy (CONCEPT:EG-KG.storage.redb-store #4): the
     /// bytes are handed straight to redb's `insert` via `as_ref()`, byte-for-byte
     /// identical to what `plaintext.to_vec()` produced before, so the on-disk format is
     /// unchanged. Only when a cipher IS active does it allocate the owned ciphertext
@@ -170,7 +170,7 @@ pub struct GraphDump {
 }
 
 /// Commit all buffered mutations (and any Raft log appends) in ONE write
-/// transaction at the given durability (CONCEPT:KG-2.204). A graph mutation and a
+/// transaction at the given durability (CONCEPT:EG-KG.storage.one-fsync-covers-raft). A graph mutation and a
 /// Raft log entry in the same batch therefore share ONE `WriteTransaction` and
 /// ONE fsync. The embedded path passes an empty `raft_log_ops`.
 pub(crate) fn commit_ops(
@@ -179,7 +179,7 @@ pub(crate) fn commit_ops(
     raft_log_ops: &mut Vec<(u64, u64, Vec<u8>)>,
     durability: Durability,
     crypto: DurableCrypto<'_>,
-    // O(1) audit-chain tail cache (CONCEPT:EG-025), owned by the caller across batches.
+    // O(1) audit-chain tail cache (CONCEPT:EG-KG.storage.embedded-store), owned by the caller across batches.
     #[cfg(feature = "security")] audit_tail: &mut AuditTailCache,
 ) -> Result<(), String> {
     if ops.is_empty() && raft_log_ops.is_empty() {
@@ -223,16 +223,16 @@ pub(crate) fn commit_ops(
     Ok(())
 }
 
-/// One node's vector upsert for a cross-modal commit (CONCEPT:KG-2.225).
+/// One node's vector upsert for a cross-modal commit (CONCEPT:EG-KG.txn.reader-never-sees-node).
 pub type VectorUpsert = (String, Vec<f32>);
 
-/// A blob-reference for a cross-modal commit (CONCEPT:KG-2.225): a `(node_id, digest)`
+/// A blob-reference for a cross-modal commit (CONCEPT:EG-KG.txn.reader-never-sees-node): a `(node_id, digest)`
 /// pair recorded as a durable graph-side link to an already-stored blob. The blob
 /// BYTES live in the content-addressed `blob.redb` (pre-uploaded); THIS is the durable
 /// graph pointer that must land atomically with the node/vector/property.
 pub type BlobRefRow = (String, String);
 
-/// **Cross-modal ACID commit (CONCEPT:KG-2.225)** — land a graph + vector + blob-ref +
+/// **Cross-modal ACID commit (CONCEPT:EG-KG.txn.reader-never-sees-node)** — land a graph + vector + blob-ref +
 /// property write-set for ONE graph in ONE redb [`WriteTransaction`], all-or-nothing.
 ///
 /// This is the durable barrier the single-graph cross-modal txn commits through. Every
@@ -245,7 +245,7 @@ pub type BlobRefRow = (String, String);
 ///   * **blob refs** → a `__blob__` reserved property on the node carrying the digest,
 ///     written into NODES, so the graph-side link to the (separately content-addressed)
 ///     blob lands in the SAME transaction as everything else.
-///   * **measurements** (CONCEPT:EG-360) → each time-series batch is appended into
+///   * **measurements** (CONCEPT:EG-KG.backend.cross-modal-atomic-commit) → each time-series batch is appended into
 ///     SERIES_CHUNKS/SERIES_META on THIS transaction via the shared eg-tsdb chunk
 ///     encoding ([`eg_tsdb::store::append_batch_in_wtx`]), so the points land in the
 ///     SAME `graph.redb` commit as the node/vector/blob writes (not a separate
@@ -265,13 +265,13 @@ pub(crate) fn commit_crossmodal(
     methods: &[Method],
     vectors: &[VectorUpsert],
     blob_refs: &[BlobRefRow],
-    // Staged time-series measurement batches (CONCEPT:EG-360). Each lands in the SAME
+    // Staged time-series measurement batches (CONCEPT:EG-KG.backend.cross-modal-atomic-commit). Each lands in the SAME
     // `WriteTransaction` as the graph/vector/blob writes, into SERIES_CHUNKS/SERIES_META
     // in THIS `graph.redb` (not a separate `series.redb`), so a measurement and the node
     // it annotates are durable together — never one without the other.
     measurements: &[crate::MeasurementBatch],
     crypto: DurableCrypto<'_>,
-    // O(1) audit-chain tail cache (CONCEPT:EG-025), shared with the group-commit path.
+    // O(1) audit-chain tail cache (CONCEPT:EG-KG.storage.embedded-store), shared with the group-commit path.
     #[cfg(feature = "security")] audit_tail: &mut AuditTailCache,
 ) -> Result<(), String> {
     let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
@@ -337,7 +337,7 @@ pub(crate) fn commit_crossmodal(
                 .map_err(|e| e.to_string())?;
         }
 
-        // 4. Measurements (CONCEPT:EG-360) — append each time-series batch into
+        // 4. Measurements (CONCEPT:EG-KG.backend.cross-modal-atomic-commit) — append each time-series batch into
         // SERIES_CHUNKS/SERIES_META ON THIS transaction (the shared eg-tsdb chunk
         // encoding, via `append_batch_in_wtx`), so the points land in the SAME
         // `graph.redb` commit as the node/vector/blob writes. redb's exclusive
@@ -520,7 +520,7 @@ pub(crate) fn apply_method_rows(
     Ok(())
 }
 
-/// Per-graph audit-chain tail cache (CONCEPT:EG-025): `graph -> (last_seq, last_hash)`.
+/// Per-graph audit-chain tail cache (CONCEPT:EG-KG.storage.embedded-store): `graph -> (last_seq, last_hash)`.
 ///
 /// **Why this exists (profiling rationale).** After EG-024 (group-commit micro-linger)
 /// freed the disk, the single `eg-redb-writer` thread became ~99.9% CPU-bound in
@@ -540,7 +540,7 @@ pub(crate) fn apply_method_rows(
 pub(crate) type AuditTailCache = std::collections::HashMap<String, (u64, crate::audit::Hash)>;
 
 /// Append ONE tamper-evident audit-chain entry for a durable mutation, inside the
-/// caller's open WriteTransaction (CONCEPT:KG-2.231; O(1) via CONCEPT:EG-025). Uses the
+/// caller's open WriteTransaction (CONCEPT:EG-KG.sharding.row-level-security; O(1) via CONCEPT:EG-KG.storage.embedded-store). Uses the
 /// cached per-graph chain tail (`last seq` + its hash) to get `prev_hash` + next `seq`,
 /// links the new entry, inserts it, and updates the cache to the just-appended entry —
 /// so the NEXT op chains off RAM with NO per-op range scan. On a cache miss (first touch
@@ -607,7 +607,7 @@ pub(crate) fn append_audit_entry(
     Ok(())
 }
 
-/// Verify a graph's hash-chained audit log (CONCEPT:KG-2.231). Range-scans
+/// Verify a graph's hash-chained audit log (CONCEPT:EG-KG.sharding.row-level-security). Range-scans
 /// `(graph, 0..)` in seq order and walks the chain via `crate::audit::verify_chain`.
 #[cfg(feature = "security")]
 pub(crate) fn verify_audit(
@@ -630,7 +630,7 @@ pub(crate) fn verify_audit(
     ))
 }
 
-// ── O(1) edge-ordinal counter (CONCEPT:EG-029 #3) ────────────────────────────
+// ── O(1) edge-ordinal counter (CONCEPT:EG-KG.storage.redb-store #3) ────────────────────────────
 //
 // **Why this exists (profiling rationale).** Assigning an edge's ordinal used to
 // RANGE-SCAN that (graph,src,tgt)'s existing edge rows on EVERY `AddEdge` to find
@@ -664,7 +664,7 @@ pub(crate) fn verify_audit(
 // strictly monotonic per (graph,src,tgt).
 thread_local! {
     /// True iff this thread is a dedicated redb group-commit writer (`eg-redb-writer`
-    /// / `eg-redb-writer-<i>`, CONCEPT:EG-026). Computed once per thread; gates whether
+    /// / `eg-redb-writer-<i>`, CONCEPT:EG-KG.backend.sharded-k-way-durable). Computed once per thread; gates whether
     /// the in-RAM edge-ordinal counter below is authoritative.
     static IS_REDB_WRITER: bool = std::thread::current()
         .name()
@@ -853,13 +853,13 @@ fn clear_graph_rows(
     Ok(())
 }
 
-/// Drop EVERY durable row for `graph` in ONE durable transaction (CONCEPT:KG-2.221,
+/// Drop EVERY durable row for `graph` in ONE durable transaction (CONCEPT:EG-KG.backend.tenant-delete-recreate-same,
 /// the tenant-DELETE path). Unlike `clear_graph_rows` (which empties a LIVE graph's
 /// data but keeps its `graph_meta` identity), this ALSO removes the `semantic_store`
 /// blob and the `graph_meta` row, so the graph ceases to exist durably — a recreate
 /// of the same name then starts from a clean slate instead of inheriting the deleted
 /// incarnation's rows on a read-through / `load_all`. Lives in the SHARED redb_store
-/// so the embedded engine's delete path purges correctly too (CONCEPT:KG-2.216).
+/// so the embedded engine's delete path purges correctly too (CONCEPT:EG-KG.backend.engine-modes).
 pub(crate) fn purge_graph_rows(db: &Database, graph: &str) -> Result<(), String> {
     let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
     wtx.set_durability(Durability::Immediate)
@@ -880,7 +880,7 @@ pub(crate) fn purge_graph_rows(db: &Database, graph: &str) -> Result<(), String>
     Ok(())
 }
 
-// ── Cross-shard 2PC durable rows (CONCEPT:KG-2.222) — pure, server-INDEPENDENT ──
+// ── Cross-shard 2PC durable rows (CONCEPT:EG-KG.storage.lane-n-increment) — pure, server-INDEPENDENT ──
 // Shared store helpers (mirroring NODES/EDGES/purge_graph_rows): the `Cmd` arms in
 // `redb_backend`'s off-reactor writer thread call straight into these.
 
@@ -964,7 +964,7 @@ pub(crate) fn get_xshard_decision(db: &Database, txn_id: &str) -> Result<Option<
         .map(|v| v.value() == 1))
 }
 
-/// Durably upsert a named materialized view's serialized blob (CONCEPT:KG-2.227).
+/// Durably upsert a named materialized view's serialized blob (CONCEPT:EG-KG.storage.feature).
 #[cfg(feature = "compute-dist")]
 pub(crate) fn put_matview(db: &Database, name: &str, blob: &[u8]) -> Result<(), String> {
     let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
@@ -1061,7 +1061,7 @@ pub(crate) fn apply_checkpoint(
     Ok(count)
 }
 
-/// Read ONE graph's durable rows back into an owned [`GraphDump`] (CONCEPT:KG-2.224 —
+/// Read ONE graph's durable rows back into an owned [`GraphDump`] (CONCEPT:EG-KG.storage.100m-tenant —
 /// tenant rehydration). Range-scans each table by the `graph` key prefix, so a cold
 /// tenant rehydrates from redb without reading the whole store. `None` when the graph
 /// has no durable identity (`graph_meta`) row — a genuine absence, not a hibernation.
@@ -1222,7 +1222,7 @@ fn decode_meta(blob: &[u8]) -> (String, GraphType) {
 #[cfg(all(test, feature = "security"))]
 mod security_tests {
     //! Encryption-at-rest + tamper-evident audit proofs over the durable store
-    //! (CONCEPT:KG-2.231), exercised through the SAME `commit_ops`/read/`verify_audit`
+    //! (CONCEPT:EG-KG.sharding.row-level-security), exercised through the SAME `commit_ops`/read/`verify_audit`
     //! the server + embedded engine use.
     use super::*;
     use crate::crypto::ValueCipher;
@@ -1272,7 +1272,7 @@ mod security_tests {
             .collect()
     }
 
-    /// CONCEPT:EG-029 #3 — the O(1) edge-ordinal counter assigns CORRECT, strictly
+    /// CONCEPT:EG-KG.storage.redb-store #3 — the O(1) edge-ordinal counter assigns CORRECT, strictly
     /// monotonic ordinals across many `AddEdge` to one node (per-op across SEPARATE commit
     /// batches on the dedicated writer thread — the hot path that used to range-scan every
     /// time), and a FRESH writer thread (the restart case) RE-SEEDS each (src,tgt) from one
@@ -1360,7 +1360,7 @@ mod security_tests {
             .unwrap();
     }
 
-    /// CONCEPT:EG-029 #4 — with encryption OFF, `seal` returns `Cow::Borrowed` and the
+    /// CONCEPT:EG-KG.storage.redb-store #4 — with encryption OFF, `seal` returns `Cow::Borrowed` and the
     /// stored value blob is BYTE-FOR-BYTE the caller's plaintext (zero clone, no format
     /// change). Proven by reading the stored bytes back and comparing to the input.
     #[test]
@@ -1509,7 +1509,7 @@ mod security_tests {
         assert_eq!(broken.first_broken_seq, Some(1), "wrong break position");
     }
 
-    /// CONCEPT:EG-025 — the O(1) tail-cache append produces an IDENTICAL, verifiable
+    /// CONCEPT:EG-KG.storage.embedded-store — the O(1) tail-cache append produces an IDENTICAL, verifiable
     /// chain to the old per-op scan across: (1) many ops in ONE commit batch
     /// (intra-batch chaining off RAM), (2) several commit batches reusing the cache
     /// (inter-batch), and (3) a fresh cache that must RE-SEED the tail from one scan

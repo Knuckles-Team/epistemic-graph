@@ -1,4 +1,4 @@
-//! WASM-sandboxed UDF handlers (CONCEPT:KG-2.228).
+//! WASM-sandboxed UDF handlers (CONCEPT:EG-KG.query.rowset-execution).
 //!
 //! `RegisterUdf` compiles + caches an agent-supplied WebAssembly module in the
 //! process-global [`eg_wasm::UdfRegistry`] on `ServerState`; `RunUdf` runs a cached

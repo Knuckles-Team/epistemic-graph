@@ -1,6 +1,6 @@
 //! `RowSet` — the shared intermediate that flows between cross-modal operators.
 //!
-//! **The load-bearing design choice (CONCEPT:KG-2.208).** Graph traversals,
+//! **The load-bearing design choice (CONCEPT:AU-KG.compute.vector).** Graph traversals,
 //! relational filters and vector kNN all *produce and consume the same shape* — an
 //! ordered set of node ids, each optionally carrying a score. So instead of three
 //! incompatible result types (Arrow `RecordBatch` ↔ `Vec<NodeIndex>` ↔
@@ -68,7 +68,7 @@ impl RowSet {
 
     /// Build from `(id, score?)` pairs preserving order, deduping by id (first wins).
     /// The inverse of reading `rows()` out — used by the WASM `Udf` op to rebuild the
-    /// RowSet from a UDF's output rows (CONCEPT:KG-2.228).
+    /// RowSet from a UDF's output rows (CONCEPT:EG-KG.query.rowset-execution).
     pub fn from_rows<I: IntoIterator<Item = (String, Option<f32>)>>(rows: I) -> Self {
         let mut seen = HashSet::new();
         let rows = rows

@@ -1,4 +1,4 @@
-# Analytics in UQL — the native analytical database (CONCEPT:EG-353)
+# Analytics in UQL — the native analytical database (CONCEPT:EG-KG.query.concept-8)
 
 epistemic-graph is an **analytical database with native analytical tools**: the linear-
 algebra / statistics kernel (`eg-numeric` — faer + ndarray, BLAS/LAPACK-free) is exposed
@@ -43,7 +43,7 @@ neither `eg-numeric` nor `faer`; the engine binary never links pyo3 (`cargo tree
 
 ## Catalog — kernel-backed analytical functions (`eg-numeric`)
 
-These are the `eg-numeric`-backed operators (CONCEPT:EG-329/335/336/344). They accept the
+These are the `eg-numeric`-backed operators (CONCEPT:EG-KG.query.surface-b-numeric-operators/335/336/344). They accept the
 same vector-operand forms as the pgvector operators: a stored `List<Float{32,64}>` column
 **or** a `'[1,2,3]'` text literal.
 
@@ -81,7 +81,7 @@ kernel. These run in-engine over resident columns just like the kernel operators
 > its place for the operations DataFusion has **no** built-in for — PCA, SVD, k-means,
 > cosine similarity, L2-normalization — which are the analytical differentiators.
 
-## Cross-modal join → analytics (the numpy-surpassing differentiator, EG-345)
+## Cross-modal join → analytics (the numpy-surpassing differentiator, EG-KG.query.eg-3)
 
 Because the analytics are SQL functions, they compose with joins across modalities —
 graph/relational columns, vector embeddings, and timeseries — in **one statement**. numpy

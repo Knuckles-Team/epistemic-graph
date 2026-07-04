@@ -1,4 +1,4 @@
-//! Document/JSON modality executor proofs (CONCEPT:EG-084).
+//! Document/JSON modality executor proofs (CONCEPT:EG-KG.compute.json-deep-indexing).
 //!
 //! A small `Doc` layer of deep JSON documents drives the `Pred::JsonPath` FILTER leg
 //! end-to-end through the fused executor:
@@ -47,7 +47,7 @@ fn run(plan: &Plan, view: &GraphView) -> Vec<String> {
     ids
 }
 
-/// CONCEPT:EG-084 — deep `->>`-style equality on a nested path (`$.meta.lang = 'rust'`).
+/// CONCEPT:EG-KG.compute.json-deep-indexing — deep `->>`-style equality on a nested path (`$.meta.lang = 'rust'`).
 #[test]
 fn eg084_jsonpath_eq_deep_filter() {
     let view = docs();
@@ -67,7 +67,7 @@ fn eg084_jsonpath_eq_deep_filter() {
     assert_eq!(run(&plan, &view), vec!["d1", "d3"]);
 }
 
-/// CONCEPT:EG-084 — a JSON-string literal coerces to text for a numeric leaf
+/// CONCEPT:EG-KG.compute.json-deep-indexing — a JSON-string literal coerces to text for a numeric leaf
 /// (`$.meta.year ->> = '2024'` matches the numeric `2024`).
 #[test]
 fn eg084_jsonpath_eq_numeric_text_coercion() {
@@ -83,7 +83,7 @@ fn eg084_jsonpath_eq_numeric_text_coercion() {
     assert_eq!(run(&plan, &view), vec!["d1", "d2"]);
 }
 
-/// CONCEPT:EG-084 — deep existence: only d1/d2 carry a `tags` array.
+/// CONCEPT:EG-KG.compute.json-deep-indexing — deep existence: only d1/d2 carry a `tags` array.
 #[test]
 fn eg084_jsonpath_exists_filter() {
     let view = docs();
@@ -96,7 +96,7 @@ fn eg084_jsonpath_exists_filter() {
     assert_eq!(run(&plan, &view), vec!["d1", "d2"]);
 }
 
-/// CONCEPT:EG-084 — `@>` containment at the root (`props @> '{"meta":{"lang":"go"}}'`).
+/// CONCEPT:EG-KG.compute.json-deep-indexing — `@>` containment at the root (`props @> '{"meta":{"lang":"go"}}'`).
 #[test]
 fn eg084_jsonpath_contains_filter() {
     let view = docs();
@@ -111,7 +111,7 @@ fn eg084_jsonpath_contains_filter() {
     assert_eq!(run(&plan, &view), vec!["d2"]);
 }
 
-/// CONCEPT:EG-084 — array `@>` containment (`$.tags @> '["b"]'`) keeps d1 and d2.
+/// CONCEPT:EG-KG.compute.json-deep-indexing — array `@>` containment (`$.tags @> '["b"]'`) keeps d1 and d2.
 #[test]
 fn eg084_jsonpath_array_contains_filter() {
     let view = docs();
@@ -126,7 +126,7 @@ fn eg084_jsonpath_array_contains_filter() {
     assert_eq!(run(&plan, &view), vec!["d1", "d2"]);
 }
 
-/// CONCEPT:EG-084 — a relational pred + a JSONPath pred compose in ONE Filter: the
+/// CONCEPT:EG-KG.compute.json-deep-indexing — a relational pred + a JSONPath pred compose in ONE Filter: the
 /// relational leg (DataFusion) AND the per-row JSON leg both apply.
 #[test]
 fn eg084_jsonpath_composes_with_relational() {

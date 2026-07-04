@@ -1,12 +1,12 @@
-//! Distributed cache-coherence over the CDC feed (CONCEPT:KG-2.233).
+//! Distributed cache-coherence over the CDC feed (CONCEPT:EG-KG.coordination.distributed-cache-coherence).
 //!
-//! The result cache (CONCEPT:KG-2.233) is version-keyed PER `GraphCore`: a LOCAL
+//! The result cache (CONCEPT:EG-KG.coordination.distributed-cache-coherence) is version-keyed PER `GraphCore`: a LOCAL
 //! write bumps that node's `version()` and retires its own cached results. But in a
 //! replicated deployment a write that lands on replica A must also retire B's cached
 //! results for the same graph — otherwise B would keep serving a stale answer until
 //! its own version happened to move.
 //!
-//! The CDC feed (`src/server/cdc.rs`, CONCEPT:KG-2.229) is the cross-replica
+//! The CDC feed (`src/server/cdc.rs`, CONCEPT:EG-KG.query.streaming-cdc-subscriptions) is the cross-replica
 //! invalidation signal. Every durable mutation already emits an ordered, cursor-
 //! addressable [`CdcEvent`] into the per-graph feed. A replica that TAILS a peer's
 //! CDC feed (or its own, when changes arrive via replication/mirroring) drives this

@@ -2,7 +2,7 @@ import pytest
 import epistemic_graph
 
 
-@pytest.mark.concept("CONCEPT:KG-2.0")
+@pytest.mark.concept("CONCEPT:AU-KG.query.object-graph-mapper")
 def test_node_addition_and_removal(clean_graph):
     """Test standard node insertion, retrieval, checking, and deletion."""
     # Add nodes with JSON properties
@@ -32,7 +32,7 @@ def test_node_addition_and_removal(clean_graph):
     assert len(clean_graph.nodes.list()) == 1
 
 
-@pytest.mark.concept("CONCEPT:KG-2.0")
+@pytest.mark.concept("CONCEPT:AU-KG.query.object-graph-mapper")
 def test_edge_addition_and_removal(clean_graph):
     """Test standard edge creation, property assignment, FFI validation, and removal."""
     clean_graph.nodes.add("A", {})
@@ -93,7 +93,7 @@ def test_topological_sorting(clean_graph):
         clean_graph.graph.topological_sort()
 
 
-@pytest.mark.concept("CONCEPT:KG-2.0")
+@pytest.mark.concept("CONCEPT:AU-KG.query.object-graph-mapper")
 def test_cycle_detection(clean_graph):
     """Test that DFS-coloring can detect cycles and return precise paths."""
     clean_graph.nodes.add("A", "{}")
@@ -114,7 +114,7 @@ def test_cycle_detection(clean_graph):
     assert cycle == ["A", "B", "C", "A"]
 
 
-@pytest.mark.concept("CONCEPT:KG-2.0")
+@pytest.mark.concept("CONCEPT:AU-KG.query.object-graph-mapper")
 def test_shortest_path_bfs(clean_graph):
     """Test unweighted BFS shortest path computations."""
     clean_graph.nodes.add("1", "{}")
@@ -136,7 +136,7 @@ def test_shortest_path_bfs(clean_graph):
     assert clean_graph.graph.shortest_path("1", "unconnected") is None
 
 
-@pytest.mark.concept("CONCEPT:KG-2.0")
+@pytest.mark.concept("CONCEPT:AU-KG.query.object-graph-mapper")
 def test_blast_radius(clean_graph):
     """Test depth-limited BFS blast radius transitive impact mapping."""
     clean_graph.nodes.add("root", "{}")
@@ -157,7 +157,7 @@ def test_blast_radius(clean_graph):
     assert set(blast_d2) == {"child1", "child2", "grandchild"}
 
 
-@pytest.mark.concept("CONCEPT:KG-2.0")
+@pytest.mark.concept("CONCEPT:AU-KG.query.object-graph-mapper")
 def test_ast_ingestion(clean_graph, tmp_path):
     """Test AST repository parser extracts file structural components correctly."""
     # Write Python file
@@ -187,7 +187,7 @@ def test_ast_ingestion(clean_graph, tmp_path):
     assert clean_graph.edges.has("harness.js", "harness.js::executeTask") is True
 
 
-@pytest.mark.concept("CONCEPT:KG-2.0")
+@pytest.mark.concept("CONCEPT:AU-KG.query.object-graph-mapper")
 def test_vf2_subgraph_match(clean_graph):
     """Test VF2 subgraph pattern matching with property matching."""
     # Target graph
@@ -219,7 +219,7 @@ def test_vf2_subgraph_match(clean_graph):
     assert matches[0] == {"P1": "A", "P2": "B"}
 
 
-@pytest.mark.concept("CONCEPT:KG-2.0")
+@pytest.mark.concept("CONCEPT:AU-KG.query.object-graph-mapper")
 def test_reactive_state_ledger(clean_graph):
     """Test State Ledger serialization, transaction replay, and JSON states."""
     clean_graph.nodes.add("X", '{"value": 10}')
@@ -250,7 +250,7 @@ def test_reactive_state_ledger(clean_graph):
     assert clean_graph.edges.has("Y", "Z") is True
 
 
-@pytest.mark.concept("CONCEPT:KG-2.20")
+@pytest.mark.concept("CONCEPT:AU-KG.memory.mementified-context")
 @pytest.mark.asyncio
 async def test_rust_ast_parser_fallback():
     """Test RustASTParser local python fallback parsing behaves properly."""
@@ -270,7 +270,7 @@ async def test_rust_ast_parser_fallback():
     assert "my_method" in symbols
 
 
-@pytest.mark.concept("CONCEPT:KG-2.8r")
+@pytest.mark.concept("CONCEPT:EG-KG.compute.turn-each-project")
 def test_index_repository_resolves_cross_file_edges(clean_graph):
     """IndexRepository round-trip: a batch resolves a cross-file call (run→shared)
     to a `calls` symbol→symbol edge and the import to a `depends_on` file→file
@@ -318,7 +318,7 @@ def test_index_repository_resolves_cross_file_edges(clean_graph):
     assert not any(e["edge_type"].endswith("_raw") for e in res["edges"])
 
 
-@pytest.mark.concept("CONCEPT:KG-2.0")
+@pytest.mark.concept("CONCEPT:AU-KG.query.object-graph-mapper")
 def test_get_subgraph_batched(clean_graph):
     """Batched GetSubgraph returns decoded node properties + induced edges in
     one round-trip (replaces N per-node GetNodeProperties + a full edge scan)."""

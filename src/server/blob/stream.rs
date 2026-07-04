@@ -1,4 +1,4 @@
-//! Bounded-memory streaming facade over the CAS — CONCEPT:EG-036 (M3 R4 extension).
+//! Bounded-memory streaming facade over the CAS — CONCEPT:EG-KG.sharding.m3-r4 (M3 R4 extension).
 //!
 //! The KG-2.206 substrate already streams a blob over the WIRE chunk-by-chunk (the
 //! `BlobBegin`/`BlobChunkPut`/`BlobCommit` upload cursor + `BlobFetchBegin`/
@@ -21,7 +21,7 @@ use super::store::{hex_digest, BlobManifest, ChunkStore, CommittedBlob};
 const READ_BLOCK: usize = 256 * 1024;
 
 /// Stream `reader` into the CAS, cutting it into VARIABLE content-defined chunks with
-/// the Gear/FastCDC chunker (CONCEPT:EG-071), and commit the manifest — returning the
+/// the Gear/FastCDC chunker (CONCEPT:EG-KG.storage.backward-manifest-read), and commit the manifest — returning the
 /// content-addressed [`CommittedBlob`]. `chunk_size` is the TARGET AVERAGE chunk size
 /// (min/max derive from it, see [`Chunker::from_avg`]); `chunk_size == 0` uses the
 /// chunker default. Bounded memory: at most one boundary-search window (≈ the
@@ -164,7 +164,7 @@ mod tests {
         out
     }
 
-    /// CONCEPT:EG-071 (a) end-to-end: a blob streamed through the content-defined
+    /// CONCEPT:EG-KG.storage.backward-manifest-read (a) end-to-end: a blob streamed through the content-defined
     /// splitter into the CAS and back out is byte-for-byte identical, the manifest is
     /// content-defined (variable lengths, `chunk_size == 0`), and the recorded
     /// `chunk_lens` cover the blob exactly.
@@ -196,7 +196,7 @@ mod tests {
         assert_eq!(out, data, "byte-for-byte round trip through CDC");
     }
 
-    /// CONCEPT:EG-071 (b) dedup / shift-resistance end-to-end: two blobs differing
+    /// CONCEPT:EG-KG.storage.backward-manifest-read (b) dedup / shift-resistance end-to-end: two blobs differing
     /// only by a few bytes inserted near the START share the VAST majority of their
     /// chunk digests in the CAS, because the rolling hash re-synchronises past the
     /// edit. A fixed-stride splitter would share almost no chunks.

@@ -5,9 +5,9 @@
 // unsafe is a compile error until it is explicitly justified the same way.
 #![deny(unsafe_code)]
 
-// CONCEPT:KG-2.16 - High-Performance Graph Compute Engine
-// CONCEPT:ORCH-1.29 - Compiled Orchestration Kernel
-// CONCEPT:KG-2.19 - Tokio Service Layer
+// CONCEPT:EG-KG.compute.graph-compute-engine - High-Performance Graph Compute Engine
+// CONCEPT:EG-ORCH.execution.compiled-orchestration-kernel - Compiled Orchestration Kernel
+// CONCEPT:EG-KG.query.tokio-service-server - Tokio Service Layer
 //
 // Tokio service layer handling MessagePack RPC.
 // All logic delegated to graph, algorithms, and reasoning modules.
@@ -19,7 +19,7 @@
 // historical `crate::` paths so every module's `crate::protocol::` /
 // `crate::graph::` / `crate::registry::` reference resolves unchanged.
 pub use eg_core::{compute, decay, graph, index, isolation, registry};
-// CONCEPT:EG-275 — message-broker primitives, re-exported under `crate::broker`.
+// CONCEPT:EG-KG.compute.message-broker-exchanges — message-broker primitives, re-exported under `crate::broker`.
 #[cfg(feature = "broker")]
 pub use eg_core::broker;
 pub use eg_types::{acl, protocol, types, wire};
@@ -37,11 +37,11 @@ pub use eg_compute::{algorithms, ast, parser, screen};
 #[cfg(feature = "server")]
 pub mod channels;
 pub mod metrics;
-// CONCEPT:EG-091 — OTLP span export + tracing init (server-only: the subscriber
+// CONCEPT:EG-OS.observability.slow-query-descriptor — OTLP span export + tracing init (server-only: the subscriber
 // init needs tracing-subscriber, which is server-gated).
 #[cfg(feature = "server")]
 pub mod otel;
-// CONCEPT:EG-091 — slow-query log. Server-only (only the server dispatch/pgwire
+// CONCEPT:EG-OS.observability.slow-query-descriptor — slow-query log. Server-only (only the server dispatch/pgwire
 // paths execute queries).
 #[cfg(feature = "server")]
 pub mod persist;
@@ -49,14 +49,14 @@ pub mod persist;
 pub mod persist_lock;
 #[cfg(feature = "server")]
 pub mod slow_query;
-// Pure redb durable-row machinery (CONCEPT:KG-2.216) — server-INDEPENDENT, gated on
+// Pure redb durable-row machinery (CONCEPT:EG-KG.backend.engine-modes) — server-INDEPENDENT, gated on
 // `redb` ALONE so the embedded API (and the server's `redb_backend`) share ONE
 // durable format with no Tokio. Built whenever the `redb` crate is linked.
 #[cfg(feature = "redb")]
 pub mod redb_store;
 
 /// One staged time-series measurement batch for a cross-modal ACID commit
-/// (CONCEPT:EG-360): `(series_id, n_fields, bucket_ns, field_names, points)` where each
+/// (CONCEPT:EG-KG.backend.cross-modal-atomic-commit): `(series_id, n_fields, bucket_ns, field_names, points)` where each
 /// point is `(ts_nanos, field_values)`. Carried as PLAIN data (no `eg-tsdb` type) so it
 /// threads through the `PersistenceBackend` trait + the server-independent `redb_store`
 /// without pulling the `tsdb` feature into either — the redb backend converts it to
@@ -64,7 +64,7 @@ pub mod redb_store;
 /// named alias so the `&[MeasurementBatch]` params don't trip the `type_complexity` lint.
 pub type MeasurementBatch = (String, usize, u64, Vec<String>, Vec<(i64, Vec<f64>)>);
 
-// Engine-level security (CONCEPT:KG-2.231, Lane O): encryption-at-rest for the redb
+// Engine-level security (CONCEPT:EG-KG.sharding.row-level-security, Lane O): encryption-at-rest for the redb
 // durable value blobs (`crypto`) + the hash-chained tamper-evident audit log over the
 // ledger (`audit`). PURE-RUST (RustCrypto chacha20poly1305 + sha2). Gated on
 // `security` (→ `redb`).
@@ -72,7 +72,7 @@ pub type MeasurementBatch = (String, usize, u64, Vec<String>, Vec<(i64, Vec<f64>
 pub mod audit;
 #[cfg(feature = "security")]
 pub mod crypto;
-// In-process embedded library API (CONCEPT:KG-2.216) — SQLite/DuckDB-style. Drives
+// In-process embedded library API (CONCEPT:EG-KG.backend.engine-modes) — SQLite/DuckDB-style. Drives
 // the SAME GraphCore + redb durable rows the socket dispatch does, with NO Tokio
 // server/socket/HMAC. Gated on `embedded` (→ `redb`); needs NO `server` feature.
 #[cfg(feature = "embedded")]
@@ -88,23 +88,23 @@ pub mod server;
 pub mod wal;
 #[cfg(feature = "server")]
 pub mod wal_service;
-// Per-graph write coalescer (CONCEPT:KG-2.182): batches concurrent single-op
+// Per-graph write coalescer (CONCEPT:EG-KG.sharding.per-graph-write-coalescer): batches concurrent single-op
 // writes to one graph into a single topology-lock acquisition. Tokio-based, so it
 // lives in the server-gated top-level crate alongside wal_service.
 #[cfg(feature = "server")]
 pub mod write_coalescer;
-// Hardware capacity auto-detection (CONCEPT:EG-028). Derives the concurrency / buffer /
+// Hardware capacity auto-detection (CONCEPT:AU-KG.backend.b-auto-size). Derives the concurrency / buffer /
 // per-graph node-cap DEFAULTS from (cpu_count, total_RAM) so the SAME binary is lean +
 // OOM-safe on a Raspberry Pi 3 (4 cores / 1 GiB) and exploits a 64-core / 247 GiB box.
 // PURE-RUST (available_parallelism + /proc/meminfo), no deps; always compiled.
 pub mod autosize;
-// Per-tenant memory budget + autoscale signals (CONCEPT:KG-2.234, Lane V). The budget
+// Per-tenant memory budget + autoscale signals (CONCEPT:EG-KG.compute.lane-v, Lane V). The budget
 // enforcer (periodic over-budget eviction/hibernation), the per-tenant resident-RAM
 // tracking, the ResourceStats snapshot, and the capacity-planning cost model. PURE-RUST
 // (a sweep over the registry reusing the existing evict/hibernate ops); gated on `cost`.
 #[cfg(feature = "cost")]
 pub mod cost;
-// In-engine Raft replication (CONCEPT:KG-2.188) — cluster tier only, behind the
+// In-engine Raft replication (CONCEPT:AU-KG.ingest.source-sync-canonical) — cluster tier only, behind the
 // `raft` feature. A default/pi/full build links no openraft. The module is
 // self-`#![cfg(feature = "raft")]`-gated; this `mod` line is also gated so it does
 // not even appear in a non-raft build.

@@ -1,4 +1,4 @@
-"""Engine-side response-size guard (CONCEPT:KG-2.264) — round trip.
+"""Engine-side response-size guard (CONCEPT:EG-KG.ingest.resets-socket-so-assimilation) — round trip.
 
 The unbounded ``GetNodes`` full-graph dump is refused once the graph exceeds the
 ``EPISTEMIC_GRAPH_MAX_RESPONSE_NODES`` cap: the engine returns a typed

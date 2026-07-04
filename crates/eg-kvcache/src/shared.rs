@@ -1,4 +1,4 @@
-//! The shared multi-instance KV-cache backend (CONCEPT:EG-186).
+//! The shared multi-instance KV-cache backend (CONCEPT:EG-KG.enrichment.content-address-separation).
 //!
 //! Where [`crate::TieredCache`] (EG-185) makes ONE instance survive OOM by tiering, the
 //! shared backend lets MANY instances (parallel vLLM / LMCache workers) **share KV
@@ -37,8 +37,8 @@ use crate::value::Block;
 use crate::version::DataVersion;
 
 /// The backend seam an external vLLM/LMCache connector calls to share KV blocks by
-/// content hash (CONCEPT:EG-186), with data-version invalidation layered on top
-/// (CONCEPT:EG-364).
+/// content hash (CONCEPT:EG-KG.enrichment.content-address-separation), with data-version invalidation layered on top
+/// (CONCEPT:EG-KG.storage.content-addressed-put).
 ///
 /// Implementors may be in-process ([`SharedKvIndex`]) or remote (an RPC / object-store
 /// client — a follow-up). The `hash` is a content address (see [`crate::content_hash`]),
@@ -47,7 +47,7 @@ use crate::version::DataVersion;
 /// past it, the entry is a MISS (stale LLM/agent context is never served).
 pub trait SharedKvBackend {
     /// Fetch the block stored under `hash`, if present AND still fresh for the store's
-    /// current [`DataVersion`] (CONCEPT:EG-364). A stale entry (derived at an older
+    /// current [`DataVersion`] (CONCEPT:EG-KG.storage.content-addressed-put). A stale entry (derived at an older
     /// version) reads as absent.
     fn get_block(&self, hash: &str) -> Option<Block>;
 
@@ -61,10 +61,10 @@ pub trait SharedKvBackend {
     fn put_block(&mut self, hash: &str, block: Block, derived_at: DataVersion) -> bool;
 
     /// Whether a fresh (non-stale) block exists under `hash` — a cheap probe to skip a
-    /// redundant upload. A stale entry reads as absent (CONCEPT:EG-364).
+    /// redundant upload. A stale entry reads as absent (CONCEPT:EG-KG.storage.content-addressed-put).
     fn contains(&self, hash: &str) -> bool;
 
-    /// Advance the store's current data version (CONCEPT:EG-364) — the hook a graph
+    /// Advance the store's current data version (CONCEPT:EG-KG.storage.content-addressed-put) — the hook a graph
     /// write drives (a committed write bumps `GraphCore::version()`, KG-2.180, then calls
     /// this). EAGERLY retires every version-tagged entry that is now stale (freeing its
     /// bytes + ref-counts), mirroring `ResultCache`'s atomic version-bump retire
@@ -73,7 +73,7 @@ pub trait SharedKvBackend {
 }
 
 /// One content-addressed entry: the shared bytes, how many holders reference it, and the
-/// [`DataVersion`] it was derived at (CONCEPT:EG-364).
+/// [`DataVersion`] it was derived at (CONCEPT:EG-KG.storage.content-addressed-put).
 struct SharedEntry {
     /// `Arc` so `get_block` hands out the bytes without a deep copy per reader.
     data: Arc<Vec<u8>>,
@@ -83,7 +83,7 @@ struct SharedEntry {
     version: DataVersion,
 }
 
-/// Occupancy / dedup statistics for a [`SharedKvIndex`] (CONCEPT:EG-186).
+/// Occupancy / dedup statistics for a [`SharedKvIndex`] (CONCEPT:EG-KG.enrichment.content-address-separation).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SharedStats {
     /// Distinct blocks stored (post-dedup).
@@ -101,7 +101,7 @@ pub struct SharedStats {
     /// Lifetime `get_block` misses.
     pub get_misses: u64,
     /// Lifetime entries RETIRED as stale by a [`SharedKvBackend::set_data_version`] bump
-    /// (CONCEPT:EG-364) — the invalidation proof counter a test reads.
+    /// (CONCEPT:EG-KG.storage.content-addressed-put) — the invalidation proof counter a test reads.
     pub stale_retired: u64,
 }
 
@@ -112,7 +112,7 @@ impl SharedStats {
     }
 }
 
-/// An in-process, content-addressed, ref-counted shared KV block store (CONCEPT:EG-186).
+/// An in-process, content-addressed, ref-counted shared KV block store (CONCEPT:EG-KG.enrichment.content-address-separation).
 ///
 /// The canonical [`SharedKvBackend`] implementation: identical blocks are stored ONCE
 /// and ref-counted so they are freed only when the last holder [`release`](Self::release)s
@@ -120,7 +120,7 @@ impl SharedStats {
 #[derive(Default)]
 pub struct SharedKvIndex {
     blocks: HashMap<String, SharedEntry>,
-    /// The store's current data version (CONCEPT:EG-364). Defaults to
+    /// The store's current data version (CONCEPT:EG-KG.storage.content-addressed-put). Defaults to
     /// [`DataVersion::Agnostic`] — version-tracking is INACTIVE until a
     /// [`SharedKvIndex::set_data_version`] call, so a store used purely for
     /// content-addressed dedup (EG-186) behaves exactly as before (zero-cost / opt-in).
@@ -149,7 +149,7 @@ impl SharedKvIndex {
         hash
     }
 
-    /// The store's current data version (CONCEPT:EG-364).
+    /// The store's current data version (CONCEPT:EG-KG.storage.content-addressed-put).
     pub fn current_version(&self) -> DataVersion {
         self.current_version
     }
@@ -202,7 +202,7 @@ impl SharedKvBackend for SharedKvIndex {
     fn get_block(&self, hash: &str) -> Option<Block> {
         // NOTE: `&self` — stats are updated by callers that need them; a `&mut` variant
         // could count here. We keep the trait read-only-friendly for remote impls.
-        // Freshness gate (CONCEPT:EG-364): a stale entry (derived at an older version)
+        // Freshness gate (CONCEPT:EG-KG.storage.content-addressed-put): a stale entry (derived at an older version)
         // reads as absent so no stale LLM/agent context is ever served. `set_data_version`
         // eagerly retires such entries; this lazy gate is the belt-and-suspenders backstop
         // (e.g. an entry re-put at a version already behind current).
@@ -257,7 +257,7 @@ impl SharedKvBackend for SharedKvIndex {
 mod tests {
     use super::*;
 
-    /// CONCEPT:EG-186 — two instances putting the SAME block content dedup to one
+    /// CONCEPT:EG-KG.enrichment.content-address-separation — two instances putting the SAME block content dedup to one
     /// resident copy while the ref-count tracks both holders.
     #[test]
     fn eg186_shared_backend_dedups_identical_blocks() {
@@ -278,7 +278,7 @@ mod tests {
         );
     }
 
-    /// CONCEPT:EG-186 — ref-counting frees a block only when the LAST holder releases.
+    /// CONCEPT:EG-KG.enrichment.content-address-separation — ref-counting frees a block only when the LAST holder releases.
     #[test]
     fn eg186_shared_backend_refcounts_and_frees_on_last_release() {
         let mut idx = SharedKvIndex::new();
@@ -296,7 +296,7 @@ mod tests {
         );
     }
 
-    /// CONCEPT:EG-186 — get_block returns stored bytes and misses on an unknown hash.
+    /// CONCEPT:EG-KG.enrichment.content-address-separation — get_block returns stored bytes and misses on an unknown hash.
     #[test]
     fn eg186_shared_backend_get_and_contains() {
         let mut idx = SharedKvIndex::new();
@@ -308,7 +308,7 @@ mod tests {
         assert!(!idx.contains("deadbeef"));
     }
 
-    /// CONCEPT:EG-186 — put_block reports whether it created a NEW entry (upload-skip
+    /// CONCEPT:EG-KG.enrichment.content-address-separation — put_block reports whether it created a NEW entry (upload-skip
     /// signal for a networked backend).
     #[test]
     fn eg186_put_block_reports_new_vs_deduped() {
@@ -323,7 +323,7 @@ mod tests {
         );
     }
 
-    /// CONCEPT:EG-186 — different content lands under different addresses (no false dedup).
+    /// CONCEPT:EG-KG.enrichment.content-address-separation — different content lands under different addresses (no false dedup).
     #[test]
     fn eg186_distinct_content_distinct_address() {
         let mut idx = SharedKvIndex::new();
@@ -333,7 +333,7 @@ mod tests {
         assert_eq!(idx.stats().unique_blocks, 2);
     }
 
-    /// CONCEPT:EG-364 — a versioned (derived-context) entry is served while the data
+    /// CONCEPT:EG-KG.storage.content-addressed-put — a versioned (derived-context) entry is served while the data
     /// version is unchanged, then MISSES after a `set_data_version` bump (a graph write),
     /// and a re-publish at the new version serves fresh content. The core invalidation
     /// contract for the shared backend.
@@ -365,7 +365,7 @@ mod tests {
         );
     }
 
-    /// CONCEPT:EG-364 — a pure content-addressed (Agnostic) KV page is NEVER invalidated
+    /// CONCEPT:EG-KG.storage.content-addressed-put — a pure content-addressed (Agnostic) KV page is NEVER invalidated
     /// by a version bump, so the EG-186 dedup win is preserved across graph writes.
     #[test]
     fn eg359_agnostic_pages_survive_version_bumps() {
@@ -378,7 +378,7 @@ mod tests {
         assert_eq!(idx.stats().stale_retired, 0, "no pure page retired");
     }
 
-    /// CONCEPT:EG-364 — a re-publish of an existing versioned entry at a NEWER version
+    /// CONCEPT:EG-KG.storage.content-addressed-put — a re-publish of an existing versioned entry at a NEWER version
     /// refreshes its stamp so it is no longer stale (dedup path un-stales on republish).
     #[test]
     fn eg359_reput_refreshes_version_stamp() {

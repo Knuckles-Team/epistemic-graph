@@ -1,4 +1,4 @@
-//! Time-partitioned series store over redb (CONCEPT:KG-2.210) — the lean / Pi path.
+//! Time-partitioned series store over redb (CONCEPT:AU-KG.retrieval.god-nodes-communities) — the lean / Pi path.
 //!
 //! ## Layout (the storage thesis)
 //!
@@ -143,7 +143,7 @@ impl Chunk {
         }
     }
 
-    /// CONCEPT:EG-068 — drop the leading points older than `cutoff`, keeping only
+    /// CONCEPT:EG-KG.temporal.bucket-cutoff-trim — drop the leading points older than `cutoff`, keeping only
     /// `ts >= cutoff` (the per-point retention trim of a STRADDLING bucket). Because
     /// the chunk stays ts-sorted ascending the old points are a prefix, so the cut is
     /// a single `partition_point`; the kept suffix preserves order. Returns the number
@@ -272,7 +272,7 @@ impl SeriesStore {
     }
 
     /// List every series id present (scans the meta table's keys). Additive read used
-    /// by the PromQL facade to resolve label matchers / enumerate labels (CONCEPT:EG-172)
+    /// by the PromQL facade to resolve label matchers / enumerate labels (CONCEPT:EG-KG.query.prometheus-http-query-api)
     /// — the store keys series by opaque id, so the PromQL layer encodes a metric's
     /// labels INTO the id and enumerates them here.
     pub fn list_series(&self) -> Result<Vec<String>> {
@@ -287,7 +287,7 @@ impl SeriesStore {
     }
 
     /// Retention: drop every point of `series_id` older than `cutoff`. Returns the
-    /// number of WHOLE buckets removed. Two cases (CONCEPT:EG-068):
+    /// number of WHOLE buckets removed. Two cases (CONCEPT:EG-KG.temporal.bucket-cutoff-trim):
     ///  * a bucket whose entire span ends at-or-before `cutoff` is range-deleted whole
     ///    (the cheap fast path — one B-tree remove, no decode);
     ///  * a bucket STRADDLING `cutoff` (starts before, ends after) is rewritten in
@@ -322,7 +322,7 @@ impl SeriesStore {
                 if (bucket_end as i64) <= cutoff {
                     victims.push(bucket);
                 } else if (bucket as i64) < cutoff {
-                    // Straddles `cutoff`: trim the older prefix in place (CONCEPT:EG-068).
+                    // Straddles `cutoff`: trim the older prefix in place (CONCEPT:EG-KG.temporal.bucket-cutoff-trim).
                     let mut chunk = Chunk::decode(v.value())?;
                     if chunk.trim_before(cutoff) > 0 {
                         if chunk.ts.is_empty() {
@@ -373,7 +373,7 @@ impl SeriesStore {
 }
 
 /// Append `points` to `series_id` INTO an already-open redb [`WriteTransaction`] the
-/// CALLER owns (CONCEPT:EG-360 — cross-modal atomic commit). Byte-for-byte the SAME
+/// CALLER owns (CONCEPT:EG-KG.backend.cross-modal-atomic-commit — cross-modal atomic commit). Byte-for-byte the SAME
 /// chunk encoding + read-modify-write + meta bookkeeping as [`SeriesStore::append_batch`]
 /// (that method now delegates here), but it opens `SERIES_CHUNKS`/`SERIES_META` on the
 /// passed transaction instead of the store's own `series.redb`.

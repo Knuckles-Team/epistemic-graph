@@ -2,23 +2,23 @@
 //! popular Postgres extensions expose so a client that speaks them Just Works over
 //! the pgwire surface, lowering each onto the engine's native machinery.
 //!
-//!   * **Apache AGE** `cypher('graph', $$ … $$) AS (col type, …)` (CONCEPT:EG-114) —
+//!   * **Apache AGE** `cypher('graph', $$ … $$) AS (col type, …)` (CONCEPT:EG-KG.query.postgres-family-extension-plan) —
 //!     a set-returning function in a `FROM` clause. `sqlparser` 0.51 cannot parse the
 //!     `AS (col type, …)` column-definition list on a table function (it wants a bare
 //!     identifier after `AS`), so — exactly like `DROP EXTENSION`/`COPY … FROM STDIN`
 //!     — the shape is recognized **textually** before the parser and routed to the
 //!     Cypher engine, whose agtype (JSON) result is projected onto the `AS` columns.
-//!   * **pgvector index pushdown** (CONCEPT:EG-116) — `CREATE INDEX … USING hnsw|ivfflat
+//!   * **pgvector index pushdown** (CONCEPT:EG-KG.query.real-ann-top-k) — `CREATE INDEX … USING hnsw|ivfflat
 //!     (col vector_l2_ops)` registers an ANN index (again textual: `sqlparser` chokes on
 //!     the opclass), and a `ORDER BY col <-> $1 LIMIT k` nearest-neighbour query is
 //!     recognized so the top-k search can be pushed down to `eg-ann` instead of the
 //!     `EG-115` brute-force `vector_l2()` full-scan.
-//!   * **TimescaleDB** (CONCEPT:EG-117) — `create_hypertable('t','ts')` records the
+//!   * **TimescaleDB** (CONCEPT:EG-KG.query.continuous-aggregate-lowering) — `create_hypertable('t','ts')` records the
 //!     time-partitioning metadata, and `CREATE MATERIALIZED VIEW … WITH
 //!     (timescaledb.continuous) AS SELECT time_bucket(…) …` is a continuous aggregate
 //!     lowered onto the durable view catalog + `time_bucket` (EG-067 `Op::Window`).
 //!   * **ParadeDB** `col @@@ 'query'` BM25 search + `paradedb.score()`/`snippet()`
-//!     (CONCEPT:EG-119) — recognized so the lexical search can lower onto `eg-text`'s
+//!     (CONCEPT:EG-KG.query.paradedb-bm25) — recognized so the lexical search can lower onto `eg-text`'s
 //!     BM25 index (the `@@@` operator + `paradedb.*` functions are desugared in
 //!     `classify::desugar_vector_ops`).
 //!
@@ -41,7 +41,7 @@ use super::exec::{PgColType, TypedColumn, TypedQueryResult};
 // Plan structs (the decoded shapes classify produces)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// One `AS (name type)` column of an AGE `cypher()` call (CONCEPT:EG-114). `type_name`
+/// One `AS (name type)` column of an AGE `cypher()` call (CONCEPT:EG-KG.query.postgres-family-extension-plan). `type_name`
 /// is the raw SQL type spelling (`agtype`, `text`, `int`, …); it selects the wire type
 /// the projected agtype value is coerced to.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51,7 +51,7 @@ pub struct CypherColumn {
 }
 
 /// A decoded `SELECT <proj> FROM cypher('graph', $$ <cypher> $$) AS (cols…)`
-/// (CONCEPT:EG-114). `graph` names the graph the inner Cypher runs against, `cypher`
+/// (CONCEPT:EG-KG.query.postgres-family-extension-plan). `graph` names the graph the inner Cypher runs against, `cypher`
 /// is the Cypher text (the dollar-quoted body), `columns` are the `AS` column defs the
 /// agtype result is projected onto positionally, and `projection` is the outer SELECT
 /// list (`None` ⇒ `*` ⇒ all `AS` columns; else the named subset in order).
@@ -63,7 +63,7 @@ pub struct CypherCallPlan {
     pub projection: Option<Vec<String>>,
 }
 
-/// The pgvector distance metric an ANN index / query uses (CONCEPT:EG-116), keyed off
+/// The pgvector distance metric an ANN index / query uses (CONCEPT:EG-KG.query.real-ann-top-k), keyed off
 /// the opclass (`vector_l2_ops` → `L2`, …) and the distance operator (`<->` → `L2`, …).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum VectorMetric {
@@ -75,7 +75,7 @@ pub enum VectorMetric {
     InnerProduct,
 }
 
-/// The ANN index method (CONCEPT:EG-116). Both lower onto the same `eg-ann` IVF-PQ /
+/// The ANN index method (CONCEPT:EG-KG.query.real-ann-top-k). Both lower onto the same `eg-ann` IVF-PQ /
 /// HNSW backend; the spelling is recorded for catalog fidelity + `EXPLAIN`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AnnMethod {
@@ -84,7 +84,7 @@ pub enum AnnMethod {
 }
 
 /// A decoded `CREATE INDEX [IF NOT EXISTS] [name] ON table USING hnsw|ivfflat
-/// (col opclass)` (CONCEPT:EG-116) — an ANN index registration.
+/// (col opclass)` (CONCEPT:EG-KG.query.real-ann-top-k) — an ANN index registration.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AnnIndexPlan {
     pub name: Option<String>,
@@ -95,7 +95,7 @@ pub struct AnnIndexPlan {
     pub if_not_exists: bool,
 }
 
-/// A decoded `SELECT create_hypertable('t','ts'[, …])` (CONCEPT:EG-117) — the
+/// A decoded `SELECT create_hypertable('t','ts'[, …])` (CONCEPT:EG-KG.query.continuous-aggregate-lowering) — the
 /// time-partitioning declaration. Extra chunk-interval args are accepted but not
 /// required (recorded as metadata; chunk sizing is a documented follow-up).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -105,7 +105,7 @@ pub struct HypertablePlan {
 }
 
 /// A decoded `CREATE MATERIALIZED VIEW [IF NOT EXISTS] name WITH
-/// (timescaledb.continuous) AS <select>` (CONCEPT:EG-117) — a continuous aggregate.
+/// (timescaledb.continuous) AS <select>` (CONCEPT:EG-KG.query.continuous-aggregate-lowering) — a continuous aggregate.
 /// `select_sql` is the aggregate SELECT (typically a `time_bucket` GROUP BY) lowered
 /// onto the durable view catalog; incremental materialized refresh is a follow-up.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -116,7 +116,7 @@ pub struct ContinuousAggPlan {
 }
 
 /// A recognized pgvector nearest-neighbour query eligible for ANN index pushdown
-/// (CONCEPT:EG-116): `… FROM table [WHERE …] ORDER BY column <op> <query> LIMIT k`.
+/// (CONCEPT:EG-KG.query.real-ann-top-k): `… FROM table [WHERE …] ORDER BY column <op> <query> LIMIT k`.
 /// `query` is the query-vector operand as SQL text (a `$N` placeholder or a `'[…]'`
 /// pgvector literal) — the server resolves it and calls `eg-ann::search(query, k)`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -128,7 +128,7 @@ pub struct AnnSearchPlan {
     pub query: String,
 }
 
-/// A recognized ParadeDB BM25 search (CONCEPT:EG-119): `… FROM table WHERE column @@@
+/// A recognized ParadeDB BM25 search (CONCEPT:EG-KG.query.paradedb-bm25): `… FROM table WHERE column @@@
 /// 'query' [ORDER BY paradedb.score(...) DESC] [LIMIT k]`. The server lowers it onto
 /// `eg-text`'s BM25 index (`TextIndex::search(query, k)`).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -144,7 +144,7 @@ pub struct Bm25SearchPlan {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Recognize `SELECT <proj> FROM cypher('graph', $tag$ <cypher> $tag$) AS (cols…)`
-/// (CONCEPT:EG-114) textually, BEFORE the parser (which cannot parse the typed `AS`
+/// (CONCEPT:EG-KG.query.postgres-family-extension-plan) textually, BEFORE the parser (which cannot parse the typed `AS`
 /// column list on a table function). Returns `None` for any statement that is not this
 /// exact AGE shape, so `classify` falls through to the ordinary read path.
 pub fn parse_cypher_call(sql: &str) -> Option<CypherCallPlan> {
@@ -228,7 +228,7 @@ fn parse_projection_list(proj: &str) -> Option<Vec<String>> {
 }
 
 /// Split `name type[, name type…]` column-definition text into typed columns
-/// (CONCEPT:EG-114). The first token of each part is the name; the remainder is the
+/// (CONCEPT:EG-KG.query.postgres-family-extension-plan). The first token of each part is the name; the remainder is the
 /// (possibly multi-word, e.g. `double precision`) type spelling.
 fn parse_column_defs(inner: &str) -> Option<Vec<CypherColumn>> {
     let mut cols = Vec::new();
@@ -310,7 +310,7 @@ pub(super) fn read_dollar_quoted(s: &str, start: usize) -> Option<(String, usize
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Project a Cypher engine result (`columns` + MessagePack-encoded JSON rows) onto the
-/// AGE `AS (col type, …)` column list (CONCEPT:EG-114), coercing each value to the
+/// AGE `AS (col type, …)` column list (CONCEPT:EG-KG.query.postgres-family-extension-plan), coercing each value to the
 /// declared wire type and applying the outer projection. Positional: the Nth Cypher
 /// RETURN item fills the Nth `AS` column (AGE semantics).
 pub fn project_cypher_rows(
@@ -356,7 +356,7 @@ pub fn project_cypher_rows(
     })
 }
 
-/// The typed output columns an AGE `cypher()` call produces (CONCEPT:EG-114) — the
+/// The typed output columns an AGE `cypher()` call produces (CONCEPT:EG-KG.query.postgres-family-extension-plan) — the
 /// `AS` column list narrowed by the outer projection. Used by the pgwire Describe step
 /// (extended protocol) to report the `RowDescription` WITHOUT executing the Cypher.
 /// Lenient: an unknown projected name is dropped (Describe never errors).
@@ -380,7 +380,7 @@ pub fn cypher_output_columns(plan: &CypherCallPlan) -> Vec<TypedColumn> {
         .collect()
 }
 
-/// Map a raw SQL type spelling to the coarse pg-mappable wire type (CONCEPT:EG-114).
+/// Map a raw SQL type spelling to the coarse pg-mappable wire type (CONCEPT:EG-KG.query.postgres-family-extension-plan).
 /// AGE's `agtype` (and any JSON-ish type) surfaces as text.
 pub(crate) fn pg_type_of(type_name: &str) -> PgColType {
     match type_name.trim().to_ascii_lowercase().as_str() {
@@ -394,7 +394,7 @@ pub(crate) fn pg_type_of(type_name: &str) -> PgColType {
     }
 }
 
-/// Coerce a decoded agtype JSON value to the declared column type (CONCEPT:EG-114).
+/// Coerce a decoded agtype JSON value to the declared column type (CONCEPT:EG-KG.query.postgres-family-extension-plan).
 /// Lenient: an un-coercible value is preserved as-is rather than erroring, so a partial
 /// row still renders.
 fn coerce_value(v: Value, type_name: &str) -> Value {
@@ -434,7 +434,7 @@ fn coerce_value(v: Value, type_name: &str) -> Value {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Recognize `CREATE INDEX [CONCURRENTLY] [IF NOT EXISTS] [name] ON table USING
-/// hnsw|ivfflat (col [opclass])` (CONCEPT:EG-116) textually — `sqlparser` 0.51 cannot
+/// hnsw|ivfflat (col [opclass])` (CONCEPT:EG-KG.query.real-ann-top-k) textually — `sqlparser` 0.51 cannot
 /// parse the opclass inside the column list, nor `IF NOT EXISTS` on an index. Returns
 /// `None` for a non-ANN `CREATE INDEX` (so `classify` falls through to its ordinary —
 /// currently-unsupported — path) or any other statement.
@@ -514,7 +514,7 @@ pub fn parse_create_ann_index(sql: &str) -> Option<AnnIndexPlan> {
     })
 }
 
-/// Map a pgvector opclass name to its distance metric (CONCEPT:EG-116).
+/// Map a pgvector opclass name to its distance metric (CONCEPT:EG-KG.query.real-ann-top-k).
 fn metric_from_opclass(op: &str) -> VectorMetric {
     match op.to_ascii_lowercase().as_str() {
         "vector_cosine_ops" => VectorMetric::Cosine,
@@ -571,7 +571,7 @@ fn tokenize(sql: &str) -> Vec<String> {
 // EG-117 — create_hypertable() + continuous aggregate
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Detect `SELECT create_hypertable('t','ts'[, …])` (CONCEPT:EG-117) in a parsed query
+/// Detect `SELECT create_hypertable('t','ts'[, …])` (CONCEPT:EG-KG.query.continuous-aggregate-lowering) in a parsed query
 /// and extract the table + time column. Returns `None` for any other query so the
 /// ordinary read path applies.
 pub fn detect_create_hypertable(stmt: &Statement) -> Option<HypertablePlan> {
@@ -600,7 +600,7 @@ pub fn detect_create_hypertable(stmt: &Statement) -> Option<HypertablePlan> {
 }
 
 /// Recognize `CREATE MATERIALIZED VIEW [IF NOT EXISTS] name WITH (timescaledb.continuous)
-/// AS <select>` (CONCEPT:EG-117) textually — `sqlparser` cannot parse the dotted
+/// AS <select>` (CONCEPT:EG-KG.query.continuous-aggregate-lowering) textually — `sqlparser` cannot parse the dotted
 /// `timescaledb.continuous` option. Returns `None` for a plain materialized view (which
 /// the parser then rejects as a documented follow-up).
 pub fn parse_continuous_aggregate(sql: &str) -> Option<ContinuousAggPlan> {
@@ -673,7 +673,7 @@ fn arg_as_string(arg: &FunctionArg) -> Option<String> {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Recognize a pgvector nearest-neighbour query eligible for ANN index pushdown
-/// (CONCEPT:EG-116) and return its [`AnnSearchPlan`] IFF a registered `indexes` entry
+/// (CONCEPT:EG-KG.query.real-ann-top-k) and return its [`AnnSearchPlan`] IFF a registered `indexes` entry
 /// covers the `(table, column, metric)` — i.e. the query "chooses ANN". With no
 /// matching index the caller falls back to the EG-115 brute-force `vector_l2()` scan.
 ///
@@ -725,7 +725,7 @@ pub fn plan_ann_search(sql: &str, indexes: &[AnnIndexPlan]) -> Option<AnnSearchP
 }
 
 /// Decode an `ORDER BY column <-> query` key: returns `(column, metric, query_text)`
-/// for a pgvector distance operator, else `None` (CONCEPT:EG-116).
+/// for a pgvector distance operator, else `None` (CONCEPT:EG-KG.query.real-ann-top-k).
 fn vector_order_key(expr: &Expr) -> Option<(String, VectorMetric, String)> {
     let Expr::BinaryOp { left, op, right } = expr else {
         return None;
@@ -748,7 +748,7 @@ fn vector_order_key(expr: &Expr) -> Option<(String, VectorMetric, String)> {
 // EG-119 — ParadeDB BM25 search planner
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Recognize a ParadeDB BM25 search (CONCEPT:EG-119): `… FROM table WHERE column @@@
+/// Recognize a ParadeDB BM25 search (CONCEPT:EG-KG.query.paradedb-bm25): `… FROM table WHERE column @@@
 /// 'query' [LIMIT k]`. Returns the [`Bm25SearchPlan`] the server lowers onto `eg-text`.
 /// `@@@` tokenizes in `sqlparser` as `AtAt` with a `PGAbs`-wrapped right operand.
 pub fn plan_bm25_search(sql: &str) -> Option<Bm25SearchPlan> {
@@ -779,7 +779,7 @@ pub fn plan_bm25_search(sql: &str) -> Option<Bm25SearchPlan> {
     })
 }
 
-/// Find a `column @@@ 'query'` match anywhere in a WHERE predicate (CONCEPT:EG-119),
+/// Find a `column @@@ 'query'` match anywhere in a WHERE predicate (CONCEPT:EG-KG.query.paradedb-bm25),
 /// descending through `AND`/`OR`. Returns `(column, query_text)`.
 fn find_bm25_match(expr: &Expr) -> Option<(String, String)> {
     match expr {
@@ -1053,7 +1053,7 @@ mod tests {
         )
         .unwrap();
 
-        // CONCEPT:EG-119 `@@@` desugars to bm25_match (filter); CONCEPT:EG-117
+        // CONCEPT:EG-KG.query.paradedb-bm25 `@@@` desugars to bm25_match (filter); CONCEPT:EG-KG.query.continuous-aggregate-lowering
         // time_bucket floors the timestamp — both run in one DataFusion plan.
         let out = crate::exec_sql_over_tables(
             vec![("events".to_string(), schema, vec![batch])],
@@ -1066,7 +1066,7 @@ mod tests {
         assert_eq!(out.rows[1][0], Value::from(7_200i64));
     }
 
-    /// CONCEPT:EG-311 — REAL BM25 ranking + highlighted snippets through DataFusion.
+    /// CONCEPT:EG-KG.query.bm25-ranking-snippets — REAL BM25 ranking + highlighted snippets through DataFusion.
     /// The 2-arg `bm25_score(body, 'query')` / `bm25_snippet(body, 'query', n)` forms
     /// carry the query into the per-row UDF, so `ORDER BY bm25_score(...) DESC` puts the
     /// more-relevant document FIRST (not the constant-1.0 placeholder order) and the

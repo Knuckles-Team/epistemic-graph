@@ -1,8 +1,8 @@
-//! Cross-shard scatter-gather kNN (CONCEPT:EG-319).
+//! Cross-shard scatter-gather kNN (CONCEPT:EG-KG.query.scatter-knn-merge).
 //!
 //! `eg-ann` is per-graph / per-shard by construction — one [`crate::IvfPq`] (or
 //! [`crate::FlatIndex`] / [`crate::HnswIndex`]) per `SemanticStore`. [`merge_topk`]
-//! (CONCEPT:EG-069) is the GATHER leaf: it reduces per-shard local top-k lists into a
+//! (CONCEPT:EG-KG.retrieval.scatter-gather) is the GATHER leaf: it reduces per-shard local top-k lists into a
 //! global top-k. What was missing is the SCATTER: fan one query vector to EVERY
 //! shard's index, over-fetch per shard, collect the per-shard [`SearchResult`] lists,
 //! and merge them. This module wires that end to end.
@@ -24,7 +24,7 @@
 //! global top-k over the shards that DID answer — a degraded-but-useful result rather
 //! than a hard failure.
 //!
-//! ## Router hook (deferred — CONCEPT:EG-319 follow-up)
+//! ## Router hook (deferred — CONCEPT:EG-KG.query.scatter-knn-merge follow-up)
 //!
 //! In cluster mode a graph's vectors would be sharded across multi-Raft groups
 //! (`src/raft/multi.rs`, `GroupRouter`). The wiring point is the cluster vector-search
@@ -33,14 +33,14 @@
 //! adapter that issues the per-group `SemanticStore` search — remote via
 //! `network::PeerPool`, local for the owning group), then call [`scatter_knn`] and hand
 //! the merged top-k back to the ranker. Today `GroupRouter` maps every graph to ONE
-//! group (CONCEPT:KG-2.207), so a single graph's vectors are never split across groups
+//! group (CONCEPT:EG-KG.sharding.semantic-embedding-store-backed), so a single graph's vectors are never split across groups
 //! and the scatter degenerates to a one-shard gather — the core here is ready for the
 //! moment per-graph vector resharding lands. Kept out of the router for now to avoid
 //! touching the cross-shard txn / pgwire paths; the seam is [`ShardIndex`].
 
 use crate::ivfpq::{merge_topk_stable, SearchParams, SearchResult};
 
-/// One shard's ANN index, as seen by the cross-shard scatter (CONCEPT:EG-319).
+/// One shard's ANN index, as seen by the cross-shard scatter (CONCEPT:EG-KG.query.scatter-knn-merge).
 ///
 /// The scatter never assumes an index type — a shard is anything that can answer
 /// "your `k` nearest to this query", or say it can't. Implemented in-crate for
@@ -53,7 +53,7 @@ pub trait ShardIndex {
     fn shard_search(&self, query: &[f32], k: usize) -> Option<Vec<SearchResult>>;
 }
 
-/// Outcome of a [`scatter_knn`] fan-out (CONCEPT:EG-319).
+/// Outcome of a [`scatter_knn`] fan-out (CONCEPT:EG-KG.query.scatter-knn-merge).
 #[derive(Clone, Debug)]
 pub struct ScatterKnn {
     /// The global top-k over every shard that answered, nearest-first, id-tiebroken.
@@ -67,7 +67,7 @@ pub struct ScatterKnn {
 }
 
 /// Scatter a kNN query to every shard, gather, and merge to a global top-k
-/// (CONCEPT:EG-319).
+/// (CONCEPT:EG-KG.query.scatter-knn-merge).
 ///
 /// Each shard over-fetches `(k * over_fetch).max(k)` (an `over_fetch` of 1 fetches
 /// exactly `k` per shard — the minimum for an exact merge; a larger factor buys ANN
@@ -194,7 +194,7 @@ mod tests {
 
     #[test]
     fn eg319_scatter_over_n_shards_equals_single_index_over_union() {
-        // CONCEPT:EG-319 — scattering a kNN query to N shards and merging equals the
+        // CONCEPT:EG-KG.query.scatter-knn-merge — scattering a kNN query to N shards and merging equals the
         // top-k a single index over the UNION would return (ids AND nearest-first).
         let dim = 24;
         let data = corpus(600, dim, 1);
@@ -223,7 +223,7 @@ mod tests {
 
     #[test]
     fn eg319_missing_shard_degrades_gracefully() {
-        // CONCEPT:EG-319 — a missing/slow shard is skipped + noted, and the result is
+        // CONCEPT:EG-KG.query.scatter-knn-merge — a missing/slow shard is skipped + noted, and the result is
         // the exact top-k over the shards that DID answer (not a hard failure).
         let dim = 16;
         let data = corpus(400, dim, 2);
@@ -263,7 +263,7 @@ mod tests {
 
     #[test]
     fn eg319_k_greater_than_total_returns_all_sorted() {
-        // CONCEPT:EG-319 — asking for more neighbours than exist across all shards
+        // CONCEPT:EG-KG.query.scatter-knn-merge — asking for more neighbours than exist across all shards
         // returns every point, still globally sorted (distance, id) and de-duplicated
         // by construction (ids are shard-disjoint).
         let dim = 8;
@@ -295,7 +295,7 @@ mod tests {
 
     #[test]
     fn eg319_scatter_is_deterministic_across_repeats() {
-        // CONCEPT:EG-319 — repeated scatters (and a reversed shard order) yield the
+        // CONCEPT:EG-KG.query.scatter-knn-merge — repeated scatters (and a reversed shard order) yield the
         // IDENTICAL global top-k: the merge's (distance, id) total order removes any
         // dependence on shard arrival / ordering.
         let dim = 12;
@@ -322,7 +322,7 @@ mod tests {
 
     #[test]
     fn eg319_over_fetch_factor_preserves_exact_topk() {
-        // CONCEPT:EG-319 — a larger per-shard over-fetch never changes the exact top-k
+        // CONCEPT:EG-KG.query.scatter-knn-merge — a larger per-shard over-fetch never changes the exact top-k
         // for exact (FlatIndex) shards; it only widens the ANN recall margin.
         let dim = 20;
         let data = corpus(700, dim, 9);

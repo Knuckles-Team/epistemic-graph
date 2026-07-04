@@ -1,39 +1,39 @@
-// CONCEPT:KG-2.19 — Tokio Service Server
+// CONCEPT:EG-KG.query.tokio-service-server — Tokio Service Server
 //
 // Long-running Tokio server that holds the GraphRegistry in memory
 // and serves requests over UDS or TCP with HMAC-SHA256 authentication.
 
 mod access;
 mod auth;
-// Streamed content-addressed BLOB substrate (CONCEPT:KG-2.206). Facade-only,
+// Streamed content-addressed BLOB substrate (CONCEPT:EG-KG.storage.blob-namespace). Facade-only,
 // behind the `blob` cargo feature. Default/server-only builds compile NONE of it;
 // the Blob* methods then fall to the dispatch "not available" catch-all.
 #[cfg(feature = "blob")]
 pub mod blob;
-// Generic namespaced Key→Value surface (CONCEPT:EG-022). Self-routing (NOT graph-
+// Generic namespaced Key→Value surface (CONCEPT:EG-KG.storage.namespaced-kv-surface). Self-routing (NOT graph-
 // scoped) like blob/tsdb, behind the `kv` cargo feature. A build without it compiles
 // none of it; the Kv* methods then fall to the dispatch "not available" catch-all.
 #[cfg(feature = "kv")]
 pub mod kv;
 // Change-Data-Capture hub + continuous queries + subscriptions/triggers
-// (CONCEPT:KG-2.229/230). Facade-only, behind the `streaming` cargo feature (no heavy
+// (CONCEPT:EG-KG.query.streaming-cdc-subscriptions/230). Facade-only, behind the `streaming` cargo feature (no heavy
 // dep, folds into pi/node/cluster/full). A build without it compiles none of it.
 #[cfg(feature = "streaming")]
 pub mod cdc;
-// Live CEP standing-query surface (CONCEPT:EG-299): the PUSH half of the event-stream +
-// CEP modality (CONCEPT:EG-088). Owns an `eg_stream::live::CepEngine` (feature `stream`)
+// Live CEP standing-query surface (CONCEPT:EG-KG.query.protocol-types): the PUSH half of the event-stream +
+// CEP modality (CONCEPT:EG-KG.query.pipelined-execution). Owns an `eg_stream::live::CepEngine` (feature `stream`)
 // adapted onto the CDC feed (feature `streaming`) — register a CEP pattern once, then
 // poll pushed matches. Needs BOTH: the CDC hub to feed it (`streaming`) AND the live NFA
 // engine (`stream`, the only thing that pulls eg-stream's tokio). A build with one but
 // not the other compiles none of it.
 #[cfg(all(feature = "streaming", feature = "stream"))]
 pub mod cep;
-// Distributed result-cache coherence over the CDC feed (CONCEPT:KG-2.233): a replica
+// Distributed result-cache coherence over the CDC feed (CONCEPT:EG-KG.coordination.distributed-cache-coherence): a replica
 // tailing CDC invalidates its local version-keyed result cache on a remote write.
 // Needs BOTH the cache (`result-cache`) and the CDC feed (`streaming`).
 #[cfg(all(feature = "result-cache", feature = "streaming"))]
 pub mod cache_coherence;
-// Facade-side ColdTier impls (CONCEPT:KG-2.233): redb-durable default + S3 behind
+// Facade-side ColdTier impls (CONCEPT:EG-KG.coordination.distributed-cache-coherence): redb-durable default + S3 behind
 // `cold-tier-s3`. The seam + in-memory impl live in eg-core; this needs redb.
 #[cfg(all(feature = "cold-tier", feature = "redb"))]
 pub mod cold_tier_impl;
@@ -41,92 +41,92 @@ mod compute;
 mod dispatch;
 pub(crate) mod handlers;
 pub mod persistence;
-// Wire-agnostic SQL execution core (CONCEPT:EG-074) — the multi-wire keystone. The
+// Wire-agnostic SQL execution core (CONCEPT:EG-KG.compute.subsystems-reference) — the multi-wire keystone. The
 // wire-NEUTRAL `classify → dispatch → exec` pipeline + per-connection session/txn
 // state that EVERY wire (Postgres today; SQLite/MySQL/MSSQL Phase J; AMQP Phase Y)
 // reuses. Behind the `wire` facade feature (pulled in by `pgwire`; a future wire's
 // feature pulls it in too). Kept OUT of `node`/`full` — the orchestrator folds it in.
 #[cfg(feature = "wire")]
 pub mod wire;
-// Postgres wire-protocol shim (CONCEPT:KG-2.189). Facade-only, behind the `pgwire`
-// cargo feature (cluster tier). The FIRST `wire::WireProtocol` adapter (CONCEPT:EG-074).
+// Postgres wire-protocol shim (CONCEPT:AU-KG.query.raw-python). Facade-only, behind the `pgwire`
+// cargo feature (cluster tier). The FIRST `wire::WireProtocol` adapter (CONCEPT:EG-KG.compute.subsystems-reference).
 // Default/pi/node builds compile NONE of it.
 #[cfg(feature = "pgwire")]
 pub mod pgwire;
-// SQLite-compatible served surface (CONCEPT:EG-075) — Phase J. SQLite has NO client/
+// SQLite-compatible served surface (CONCEPT:EG-KG.query.concept-3) — Phase J. SQLite has NO client/
 // server wire protocol, so this is a lightweight NDJSON-over-TCP endpoint that accepts
 // SQLite-dialect SQL, rewrites the SQLite-isms (AUTOINCREMENT / INTEGER PRIMARY KEY /
-// PRAGMA no-ops) and runs them through the shared `WireSession` (CONCEPT:EG-074). The
+// PRAGMA no-ops) and runs them through the shared `WireSession` (CONCEPT:EG-KG.compute.subsystems-reference). The
 // SECOND `wire` consumer after pgwire; behind the `sqlite-wire` feature (pulls in
 // `wire`). Pure-Rust — NO C-linked sqlite. Kept OUT of node/full — the orchestrator folds it.
 #[cfg(feature = "sqlite-wire")]
 pub mod sqlite_wire;
-// MySQL / MariaDB wire-protocol listener (CONCEPT:EG-076). A hand-rolled MySQL
+// MySQL / MariaDB wire-protocol listener (CONCEPT:EG-KG.query.kg-2). A hand-rolled MySQL
 // client/server protocol (handshake v10 + `mysql_native_password` + `COM_QUERY`)
 // behind the `mysql-wire` cargo feature. The SECOND `wire::WireProtocol` adapter
-// (CONCEPT:EG-074), reusing the shared `WireSession` execution core. Default/pi/node/
+// (CONCEPT:EG-KG.compute.subsystems-reference), reusing the shared `WireSession` execution core. Default/pi/node/
 // full builds compile NONE of it.
 #[cfg(feature = "mysql-wire")]
 pub mod mysql_wire;
-// MSSQL TDS wire-protocol listener (CONCEPT:EG-077). A hand-rolled TDS server — the
-// MSSQL `wire::WireProtocol` adapter (CONCEPT:EG-074), sibling of `pgwire`. Behind the
+// MSSQL TDS wire-protocol listener (CONCEPT:EG-KG.query.hand-rolled-tds-server). A hand-rolled TDS server — the
+// MSSQL `wire::WireProtocol` adapter (CONCEPT:EG-KG.compute.subsystems-reference), sibling of `pgwire`. Behind the
 // `mssql-wire` cargo feature (which pulls `wire`); DELIBERATELY kept OUT of
 // `node`/`full`/`pi` — the orchestrator folds it into a tier. Default builds compile
 // NONE of it.
 #[cfg(feature = "mssql-wire")]
 pub mod mssql_wire;
-// AMQP 0.9.1 wire-protocol listener (CONCEPT:EG-275). A hand-rolled AMQP 0.9.1 server
+// AMQP 0.9.1 wire-protocol listener (CONCEPT:EG-KG.compute.message-broker-exchanges). A hand-rolled AMQP 0.9.1 server
 // mapping exchange/queue/basic.* frames onto the `broker` primitives via the engine
 // dispatch. Behind the `amqp-wire` cargo feature; links NO AMQP crate (Pi contract).
 // Default/pi/node/full builds compile NONE of it.
 #[cfg(feature = "amqp-wire")]
 pub mod amqp_wire;
-// Neo4j Bolt wire-protocol listener (CONCEPT:EG-159). A native Bolt v4.4 server — a
+// Neo4j Bolt wire-protocol listener (CONCEPT:EG-KG.query.bolt-wire-protocol). A native Bolt v4.4 server — a
 // hand-rolled PackStream v2 codec + chunked framing + message state machine over
 // `tokio::net`, routing RUN's Cypher straight to the eg-query cypher engine. Behind the
 // `bolt-wire` cargo feature (which pulls `cypher` + `server`); it does NOT use the SQL
 // `wire`/`WireSession` core (Bolt speaks Cypher). Default/pi builds compile NONE of it.
 #[cfg(feature = "bolt-wire")]
 pub mod bolt_wire;
-// Redis RESP wire-protocol listener (CONCEPT:EG-174). A native, hand-rolled Redis
+// Redis RESP wire-protocol listener (CONCEPT:EG-KG.ontology.resp2-resp3-codec-round). A native, hand-rolled Redis
 // server — a RESP2 + RESP3 codec + the core command set (string/list/hash/set/zset,
-// GET/SET/EXPIRE/SCAN/…) over the engine's durable KV surface (CONCEPT:EG-022).
+// GET/SET/EXPIRE/SCAN/…) over the engine's durable KV surface (CONCEPT:EG-KG.storage.namespaced-kv-surface).
 // Behind the `redis-wire` cargo feature (pulls `kv`); links NO redis crate (Pi
 // contract). Default/pi builds compile NONE of it.
 #[cfg(feature = "redis-wire")]
 pub mod redis_wire;
-// MQTT 3.1.1 (+ basic 5.0) wire-protocol listener (CONCEPT:EG-281). A hand-rolled MQTT
+// MQTT 3.1.1 (+ basic 5.0) wire-protocol listener (CONCEPT:EG-KG.query.mqtt-packet-codec). A hand-rolled MQTT
 // broker front-end mapping CONNECT/PUBLISH/SUBSCRIBE/… onto the `broker` topic exchange
 // + per-session queues via the engine dispatch. Behind the `mqtt-wire` cargo feature
 // (pulls `broker` + `server`); links NO MQTT crate (Pi contract). Default/pi builds
 // compile NONE of it.
 #[cfg(feature = "mqtt-wire")]
 pub mod mqtt_wire;
-// STOMP 1.2 wire-protocol listener (CONCEPT:EG-282). A hand-rolled STOMP text-frame
+// STOMP 1.2 wire-protocol listener (CONCEPT:EG-KG.ontology.stomp-frame-codec-unit). A hand-rolled STOMP text-frame
 // server mapping CONNECT/SEND/SUBSCRIBE/ACK/… onto the `broker` primitives (destinations
 // → exchange + per-subscription queues) via the engine dispatch. Behind the `stomp-wire`
 // cargo feature (pulls `broker` + `server`); links NO STOMP crate (Pi contract).
 // Default/pi builds compile NONE of it.
 #[cfg(feature = "stomp-wire")]
 pub mod stomp_wire;
-// S3-compatible object-storage REST surface (CONCEPT:EG-176). A hand-rolled HTTP/1.1
+// S3-compatible object-storage REST surface (CONCEPT:EG-KG.ontology.object-put-get-head). A hand-rolled HTTP/1.1
 // listener exposing PutObject/GetObject/ListObjectsV2/CreateBucket/… over the
 // content-addressed BLOB CAS (bytes) + the durable KV index (listing), with a
 // SigV4-lite auth guard. Behind the `s3-api` cargo feature (pulls `blob` + `kv`).
 // Default/pi builds compile NONE of it.
-/// GraphQL real subscriptions over Server-Sent Events (CONCEPT:EG-064, feature
+/// GraphQL real subscriptions over Server-Sent Events (CONCEPT:EG-KG.compute.cdc-event-emit, feature
 /// `graphql`): a live query re-resolved on every eg-core change and pushed as
 /// `text/event-stream` frames over the same hand-rolled tokio HTTP idiom.
 #[cfg(feature = "graphql")]
 pub mod graphql_sub;
-/// Remote KV-cache HTTP surface (CONCEPT:EG-187, feature `kvcache-server`): a
+/// Remote KV-cache HTTP surface (CONCEPT:EG-KG.backend.is-configured-so-co, feature `kvcache-server`): a
 /// hand-rolled HTTP listener exposing the `eg-kvcache` shared, content-addressed
 /// backend (EG-186) so parallel vLLM/LMCache instances SHARE KV blocks by token-hash
 /// over GET/PUT/HEAD /kv/<hash> + /kv/stats, with a bearer-token guard. Default/pi
 /// builds compile NONE of it (no eg-kvcache/ureq in pi).
 #[cfg(feature = "kvcache-server")]
 pub mod kvcache_http;
-/// Observability log ingestion + Parquet segment substrate (CONCEPT:EG-160/161,
+/// Observability log ingestion + Parquet segment substrate (CONCEPT:AU-KG.ingest.self-ingest/161,
 /// feature `obs`): a hand-rolled HTTP listener accepting OTLP/HTTP, Elasticsearch
 /// `_bulk`/`_doc` and JSON-lines log records, landing them in eg-tsdb series +
 /// eg-text full-text indices and rolling Parquet-on-blob-CAS segments — the first
@@ -136,33 +136,33 @@ pub mod kvcache_http;
 pub mod obs;
 #[cfg(feature = "s3-api")]
 pub mod s3;
-/// W3C SPARQL 1.1 Protocol HTTP endpoint (CONCEPT:EG-017, feature `sparql-http`).
+/// W3C SPARQL 1.1 Protocol HTTP endpoint (CONCEPT:EG-KG.query.named-graph-support, feature `sparql-http`).
 #[cfg(feature = "sparql-http")]
 pub mod sparql_http;
 
-/// PromQL + the Prometheus-compatible HTTP query API (CONCEPT:EG-172, feature
+/// PromQL + the Prometheus-compatible HTTP query API (CONCEPT:EG-KG.query.prometheus-http-query-api, feature
 /// `promql`): `/api/v1/query[_range]` + `/labels` served on the obs listener over the
 /// durable eg-tsdb series, backed by the pure-Rust `eg_tsdb::promql` engine.
 #[cfg(feature = "promql")]
 pub mod promql;
 
 /// Distributed traces: OTLP-JSON span ingest + Jaeger/OpenObserve trace-search,
-/// assembly and service-dependency-graph API (CONCEPT:EG-163, feature `traces`),
+/// assembly and service-dependency-graph API (CONCEPT:EG-OS.observability.trace-assembly, feature `traces`),
 /// served on the obs listener over the pure-Rust `eg_tsdb::traces` span store —
 /// completing the observability trilogy (logs + metrics + traces).
 #[cfg(feature = "traces")]
 pub mod traces;
-// Process-wide user-defined relational table store (CONCEPT:EG-018/EG-023): the ONE
+// Process-wide user-defined relational table store (CONCEPT:EG-KG.query.register-user-tables-alongside/EG-023): the ONE
 // `eg_query::TableStore` (redb permits a single handle per file per process) shared by
 // BOTH the wire `Method::Sql` DDL/DML path and the pgwire shim, so a table created via
 // one surface is visible to the other. Behind `query` (TableStore needs eg-query/sql).
 #[cfg(feature = "query")]
 pub mod sql_tables;
-// Natural-language query planner resolution (CONCEPT:EG-080, feature `nl-query`): owns
+// Natural-language query planner resolution (CONCEPT:EG-KG.query.fence-stripper, feature `nl-query`): owns
 // which `eg_plan::NlPlanner` the facade uses (injected vs standalone-config default).
 #[cfg(feature = "nl-query")]
 pub mod nl;
-// Super-cluster federated search (CONCEPT:EG-243, feature `federation-search`): fans a
+// Super-cluster federated search (CONCEPT:EG-KG.ontology.federation-client, feature `federation-search`): fans a
 // read query across a registry of peer engine instances (SSRF-vetted, per-peer timeouts)
 // AND the local store, then unions/de-dups + RRF-re-ranks the partials — a slow/dead peer
 // degrades to `partial: true` + `failed_peers` rather than failing the query. Behind the
@@ -170,32 +170,32 @@ pub mod nl;
 // other federation surfaces link — NO new HTTP dep, kept OUT of the Pi tier).
 #[cfg(feature = "federation-search")]
 pub mod federation;
-// Cross-region async read-replica tier (CONCEPT:EG-322) + capacity guardrails
-// (CONCEPT:EG-323): a bounded LSN replication log the primary ships over `/replicate`, an
+// Cross-region async read-replica tier (CONCEPT:EG-KG.sharding.follower-pull-loop) + capacity guardrails
+// (CONCEPT:EG-KG.coordination.circuit-breaker): a bounded LSN replication log the primary ships over `/replicate`, an
 // async follower pull-loop that applies the tail via the canonical `wal::apply` path, and
 // the pure circuit-breaker / per-tenant-quota / backpressure guards the transport + the
 // follower consult. Behind `federation-search` (reuses the same pure-Rust `ureq` stack —
 // NO new dep, kept OUT of the Pi tier).
 #[cfg(feature = "federation-search")]
 pub mod replica;
-// ROS2 bridge over the rosbridge-WebSocket JSON protocol (CONCEPT:EG-325): bridges engine
+// ROS2 bridge over the rosbridge-WebSocket JSON protocol (CONCEPT:EG-KG.domains.robotics-gpu-distribution): bridges engine
 // CDC events ↔ ROS2 topics by talking `rosbridge_suite` JSON-over-WebSocket to a
 // `rosbridge_server` — NO CycloneDDS/rmw/DDS C stack, just a pure-Rust tokio-tungstenite
 // client. Behind the `ros2-bridge` cargo feature; kept OUT of the Pi tier (a slim build
-// links no tokio-tungstenite). Also compiled behind `ros2-dds` (CONCEPT:EG-347), which
+// links no tokio-tungstenite). Also compiled behind `ros2-dds` (CONCEPT:EG-KG.ingest.dds-transport), which
 // reuses this module's PURE CDC↔ROS2 message mapping (`cdc_to_publish`/`publish_to_method`)
 // as the shared shaping for the native DDS leg — only the tungstenite driver
 // (`run_ros2_bridge`) is `ros2-bridge`-specific.
 #[cfg(any(feature = "ros2-bridge", feature = "ros2-dds"))]
 pub mod ros2_bridge;
-// Native DDS/RTPS ROS2 transport seam (CONCEPT:EG-347): the `DdsTransport` trait that
+// Native DDS/RTPS ROS2 transport seam (CONCEPT:EG-KG.ingest.dds-transport): the `DdsTransport` trait that
 // unifies the EG-325 rosbridge-WebSocket leg and a NATIVE DDS/RTPS leg behind ONE
 // interface, plus the pure-Rust `rustdds`-backed `NativeDdsTransport` impl (feature
 // `ros2-dds`). Kept OUT of pi/default/node/full — only the opt-in `full-extras` bundle
 // (a default/pi/full build links no rustdds).
 #[cfg(any(feature = "ros2-bridge", feature = "ros2-dds"))]
 pub mod dds;
-// Real-time QoS / SLO-aware admission scheduler (CONCEPT:EG-320). An additive, opt-in
+// Real-time QoS / SLO-aware admission scheduler (CONCEPT:EG-KG.coordination.backpressure-busy-signal). An additive, opt-in
 // gate (enabled by `EPISTEMIC_GRAPH_QOS`) the transport runs BEFORE the baseline
 // admission: priority-class preemption + per-tenant fair-share + hard quotas +
 // deadline-aware ordering + typed backpressure. With QoS unconfigured the transport never
@@ -203,7 +203,7 @@ pub mod dds;
 pub mod qos;
 mod state;
 mod transport;
-// Server-staged OCC ACID transactions (CONCEPT:KG-2.180). `txn` holds the staged
+// Server-staged OCC ACID transactions (CONCEPT:EG-KG.txn.multi-op-occ-acid). `txn` holds the staged
 // transaction state + id source; `handlers::txn` owns the Txn* methods.
 pub mod txn;
 
@@ -212,10 +212,10 @@ pub mod txn;
 // `server::{handle_connection,serve_uds,serve_tcp}` — used by main.rs/persist.rs/tests.
 pub use auth::compute_auth_token;
 pub use dispatch::dispatch;
-// NL planner injection (CONCEPT:EG-080): an embedder opts into engine-driven NL→query.
+// NL planner injection (CONCEPT:EG-KG.query.fence-stripper): an embedder opts into engine-driven NL→query.
 #[cfg(feature = "nl-query")]
 pub use nl::{resolve_planner as resolve_nl_planner, set_nl_planner};
-// Distributed-compute materialized-view boot reload (CONCEPT:KG-2.227): the binary
+// Distributed-compute materialized-view boot reload (CONCEPT:EG-KG.storage.feature): the binary
 // calls this on startup to repopulate the in-RAM matview index from redb.
 #[cfg(feature = "compute-dist")]
 pub use handlers::dist_compute::reload_matviews;
@@ -377,7 +377,7 @@ mod tests {
         );
     }
 
-    // ── Cross-graph union reads (CONCEPT:KG-2.171) ──────────────────────
+    // ── Cross-graph union reads (CONCEPT:EG-KG.query.cross-graph-union) ──────────────────────
 
     #[tokio::test]
     async fn test_union_read_across_graphs() {
@@ -498,7 +498,7 @@ mod tests {
         ));
     }
 
-    // ── SQL query surface (CONCEPT:KG-2.178) ────────────────────────────
+    // ── SQL query surface (CONCEPT:EG-KG.query.read-only-sql-query) ────────────────────────────
 
     /// End-to-end: add nodes, then route `Method::Sql` through the full dispatch
     /// chain and decode the `Raw(QueryResult)` payload back to rows. Proves the
@@ -558,7 +558,7 @@ mod tests {
         assert_eq!(ids, vec!["n2".to_string(), "n3".to_string()]);
     }
 
-    // ── Unified cross-modal query (CONCEPT:KG-2.208/209) ────────────────
+    // ── Unified cross-modal query (CONCEPT:AU-KG.compute.vector/209) ────────────────
 
     /// Build the canonical cross-modal fixture in `__commons__` via the full
     /// dispatch chain: Doc nodes with a `year`, CITES/MENTIONS edges, and an
@@ -636,7 +636,7 @@ mod tests {
     /// THE oracle proof, end-to-end through the SERVED surface: run the unified plan
     /// `Method::UnifiedQuery` over the full dispatch chain, then run the SAME query
     /// the siloed way via `eg_plan::oracle::separate_surfaces` over the graph's
-    /// snapshot, and assert the served result is byte-identical. (CONCEPT:KG-2.208)
+    /// snapshot, and assert the served result is byte-identical. (CONCEPT:AU-KG.compute.vector)
     #[cfg(feature = "query")]
     #[tokio::test]
     async fn test_unified_query_matches_separate_surfaces_oracle() {
@@ -722,7 +722,7 @@ mod tests {
         );
     }
 
-    /// UQL e2e (CONCEPT:KG-2.214): the SAME query written as a UQL TEXT string, served
+    /// UQL e2e (CONCEPT:AU-KG.query.top-nodes-by-degree): the SAME query written as a UQL TEXT string, served
     /// via `Method::UnifiedQueryText`, returns the BYTE-IDENTICAL result to (a) the
     /// hand-built structured `Method::UnifiedQuery` plan AND (b) the separate-surfaces
     /// oracle. This is the proof the text front-end is faithful: text → Plan → the
@@ -831,7 +831,7 @@ mod tests {
     }
 
     /// A malformed UQL string returns a CLEAR error Response (caret diagnostic), not a
-    /// panic and not a wrong result. (CONCEPT:KG-2.214)
+    /// panic and not a wrong result. (CONCEPT:AU-KG.query.top-nodes-by-degree)
     #[cfg(feature = "query")]
     #[tokio::test]
     async fn test_uql_text_bad_syntax_is_clear_error() {
@@ -857,7 +857,7 @@ mod tests {
         );
     }
 
-    /// Cost-reorder e2e (CONCEPT:KG-2.209): the SAME plan with a selective vs a broad
+    /// Cost-reorder e2e (CONCEPT:EG-KG.query.concept-14): the SAME plan with a selective vs a broad
     /// `reorder_filter_selectivity` (which flip filter-first ↔ vector-first) returns
     /// the IDENTICAL result set through the served surface — the reorder is cost-only.
     #[cfg(feature = "query")]
@@ -916,14 +916,14 @@ mod tests {
         assert!(!selective.is_empty(), "fixture yields a non-empty result");
     }
 
-    // ── Query federation / foreign sources (CONCEPT:KG-2.232, Lane P) ───────
+    // ── Query federation / foreign sources (CONCEPT:EG-KG.query.query-federation, Lane P) ───────
 
     /// THE federation compose proof through TWO in-process engines: a LOCAL engine A
     /// runs a `UnifiedQuery` whose plan `ForeignScan`s a REMOTE engine B (served over
     /// TCP, queried with the engine's own length-prefixed-MessagePack + HMAC transport),
     /// JOINS B's rows with A's local graph, ranks, and limits. The fused result equals
     /// the MANUAL join done by hand. This is the cross-engine federation seam: ONE plan,
-    /// TWO engines, no Python round-trip. (CONCEPT:KG-2.232)
+    /// TWO engines, no Python round-trip. (CONCEPT:EG-KG.query.query-federation)
     #[cfg(feature = "federation")]
     #[tokio::test]
     async fn test_federated_query_two_engines_equals_manual_join() {
@@ -1029,7 +1029,7 @@ mod tests {
         assert_eq!(fused, vec!["d2", "d4"], "ranked: d2 (closest) then d4");
     }
 
-    /// `RegisterForeignSource` is served and recorded on `ServerState`. (CONCEPT:KG-2.232)
+    /// `RegisterForeignSource` is served and recorded on `ServerState`. (CONCEPT:EG-KG.query.query-federation)
     #[cfg(feature = "federation")]
     #[tokio::test]
     async fn test_register_foreign_source_served() {
@@ -1066,7 +1066,7 @@ mod tests {
         );
     }
 
-    // ── Cypher query surface (CONCEPT:KG-2.179) ─────────────────────────
+    // ── Cypher query surface (CONCEPT:EG-KG.query.dep-free-behind) ─────────────────────────
 
     /// End-to-end: add nodes + a KNOWS edge, route `Method::CypherQuery` through
     /// the FULL dispatch chain, and decode the `Raw(QueryResult)` rows. Proves the
@@ -1163,7 +1163,7 @@ mod tests {
         assert_eq!(pair[1].as_str(), Some("bob"));
     }
 
-    /// Feature-gating contract for the Cypher surface (CONCEPT:KG-2.179): with the
+    /// Feature-gating contract for the Cypher surface (CONCEPT:EG-KG.query.dep-free-behind): with the
     /// `cypher` feature off, `Method::CypherQuery`'s handler arm is compiled away
     /// and the request must hit the not-built catch-all. (Compiled out when
     /// `cypher` is on, where the real handler answers instead.)
@@ -1184,7 +1184,7 @@ mod tests {
         );
     }
 
-    /// End-to-end (CONCEPT:KG-2.235): add the SAME alice-KNOWS->bob graph the Cypher
+    /// End-to-end (CONCEPT:EG-KG.query.sparql-completeness): add the SAME alice-KNOWS->bob graph the Cypher
     /// test builds, route `Method::GraphQl` through the FULL dispatch chain, and PROVE
     /// the GraphQL result is the expected node/field set. When `cypher` is ALSO built,
     /// cross-check that the GraphQL KNOWS traversal equals the served Cypher result for
@@ -1339,7 +1339,7 @@ mod tests {
         );
     }
 
-    /// Same feature-gating contract for the SQL surface (CONCEPT:KG-2.178): with
+    /// Same feature-gating contract for the SQL surface (CONCEPT:EG-KG.query.read-only-sql-query): with
     /// the `query` feature off, `Method::Sql`'s handler arm is compiled away and
     /// the request must hit the not-built catch-all. (Compiled out when `query` is
     /// on, where the real handler answers instead.)
@@ -1745,7 +1745,7 @@ mod tests {
         // A hot graph that has exhausted its per-graph in-flight cap sheds WRITES with
         // BUSY, but OTHER graphs keep being served from the (ample) global pool — one
         // tenant cannot starve the rest. Per-graph backpressure is a WRITE property:
-        // reads bypass the per-graph cap via the reserved read lane (CONCEPT:EG-044),
+        // reads bypass the per-graph cap via the reserved read lane (CONCEPT:EG-KG.coordination.reserved-read-lane),
         // so both probes here are writes.
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -2061,7 +2061,7 @@ mod tests {
         assert_ok(&resp);
     }
 
-    // ── Lock-free compute (CONCEPT:KG-2.51) ─────────────────────────────
+    // ── Lock-free compute (CONCEPT:EG-KG.txn.per-graph-write-isolation) ─────────────────────────────
 
     fn json_props(val: serde_json::Value) -> Option<Vec<u8>> {
         // SemanticSearch's decay path reads properties as a UTF-8 JSON string
@@ -2188,7 +2188,7 @@ mod tests {
         assert!(matches!(resp.result, Some(ResultPayload::Raw(_))));
     }
 
-    /// One-round-trip hybrid discovery (CONCEPT:KG-2.132): a single `Discover`
+    /// One-round-trip hybrid discovery (CONCEPT:EG-KG.retrieval.one-round-trip-discovery): a single `Discover`
     /// blends dense (HNSW) similarity with lexical keyword overlap and returns the
     /// top-k hydrated with `name`/`description`/`type` text. The keyword signal
     /// must be able to promote a lexically-strong hit above a slightly-closer pure
@@ -2395,7 +2395,7 @@ mod tests {
         assert_denied(&resp);
     }
 
-    /// CONCEPT:KG-2.51 — Per-graph write isolation (parallel writers).
+    /// CONCEPT:EG-KG.txn.per-graph-write-isolation — Per-graph write isolation (parallel writers).
     ///
     /// Writers to DIFFERENT graphs must never serialize on a global/registry lock:
     /// `dispatch_graph_op` only takes the global `ServerState` lock as a SHARED
@@ -2452,7 +2452,7 @@ mod tests {
         assert_eq!(control_core.node_count(), 25);
     }
 
-    /// CONCEPT:KG-2.182 — per-graph write coalescer, end-to-end through dispatch.
+    /// CONCEPT:EG-KG.sharding.per-graph-write-coalescer — per-graph write coalescer, end-to-end through dispatch.
     ///
     /// Many concurrent writers to ONE hot graph (the `__commons__` firehose) must
     /// (a) ALL land via the dispatch path (no lost writes — the coalescer is not a
@@ -2547,14 +2547,14 @@ mod tests {
         assert_eq!(winners, 1, "exactly one CAS claimer wins through dispatch");
     }
 
-    // ── Multi-op OCC ACID transactions (CONCEPT:KG-2.180) ───────────────
+    // ── Multi-op OCC ACID transactions (CONCEPT:EG-KG.txn.multi-op-occ-acid) ───────────────
 
     /// Open a txn on `graph` and return its server-issued id.
     async fn begin_txn(state: &Arc<RwLock<ServerState>>, id: u64, graph: &str) -> String {
         begin_txn_iso(state, id, graph, None).await
     }
 
-    /// Open a txn on `graph` with an explicit isolation hint (CONCEPT:KG-2.183) and
+    /// Open a txn on `graph` with an explicit isolation hint (CONCEPT:EG-KG.txn.serializable-zero-cost) and
     /// return its server-issued id.
     async fn begin_txn_iso(
         state: &Arc<RwLock<ServerState>>,
@@ -2902,7 +2902,7 @@ mod tests {
         );
     }
 
-    // ── Transaction isolation levels (CONCEPT:KG-2.183 — M6b) ────────────
+    // ── Transaction isolation levels (CONCEPT:EG-KG.txn.serializable-zero-cost — M6b) ────────────
 
     /// Commit `txn` and return the Bool payload (true=committed, false=conflict).
     async fn commit_bool(
@@ -3151,7 +3151,7 @@ mod tests {
         );
     }
 
-    // ── Time-series (CONCEPT:KG-2.210/211) round-trips through full dispatch ──
+    // ── Time-series (CONCEPT:AU-KG.retrieval.god-nodes-communities/211) round-trips through full dispatch ──
     #[cfg(feature = "tsdb")]
     const TS_NS: i64 = 1_000_000_000;
 
@@ -3309,7 +3309,7 @@ mod tests {
         assert_eq!(grid.len(), 4);
     }
 
-    // ── RDF/SPARQL Method round-trips through dispatch (CONCEPT:KG-2.217/218) ──
+    // ── RDF/SPARQL Method round-trips through dispatch (CONCEPT:EG-KG.ontology.kg-native-rdf-sparql/218) ──
 
     /// AddTriples → GetRdf round-trips through the dispatch chain: Turtle in, the
     /// graph populated, N-Triples out reparses to the same triple set (xsd + @lang).
@@ -3423,7 +3423,7 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
 
     /// OwlReason Method round-trips through dispatch: an EL existential-restriction
     /// subsumption + an inferred instance membership the property-graph stored no
-    /// explicit type edge for, plus a consistency verdict (CONCEPT:KG-2.219).
+    /// explicit type edge for, plus a consistency verdict (CONCEPT:EG-KG.ontology.incremental-materialization).
     #[cfg(feature = "owl")]
     #[tokio::test]
     async fn test_owl_reason_method_round_trips() {
@@ -3490,7 +3490,7 @@ ex:myHeart a ex:HumanHeart .
     }
 
     /// DISTRIBUTED OwlReason over TWO graphs derives the SAME entailment a single graph
-    /// would (CONCEPT:KG-2.236). The shared TBox + p1 live in graph A; p2 lives in graph
+    /// would (CONCEPT:EG-KG.ontology.concept-13). The shared TBox + p1 live in graph A; p2 lives in graph
     /// B; `OwlReasonDistributed{[A,B]}` unions them and infers p2 ⊑ ScholarlyWork — an
     /// entailment NEITHER shard alone reaches (B has no axioms).
     #[cfg(feature = "owl")]
@@ -3582,7 +3582,7 @@ ex:p1 a ex:Paper .
         assert!(res.consistent);
     }
 
-    // ── Streaming / CDC / subscriptions / triggers (CONCEPT:KG-2.229/230) ──
+    // ── Streaming / CDC / subscriptions / triggers (CONCEPT:EG-KG.query.streaming-cdc-subscriptions/230) ──
     // End-to-end through the FULL dispatch path (the emit hook fires from the
     // write-side-effect block, NOT a direct hub call).
 
@@ -3604,7 +3604,7 @@ ex:p1 a ex:Paper .
     }
 
     /// A write through dispatch lands in the CDC feed in order; re-reading from a
-    /// later cursor skips what was already seen (CONCEPT:KG-2.229).
+    /// later cursor skips what was already seen (CONCEPT:EG-KG.query.streaming-cdc-subscriptions).
     #[cfg(feature = "streaming")]
     #[tokio::test]
     async fn test_cdc_ordered_read_from_cursor() {
@@ -3700,7 +3700,7 @@ ex:p1 a ex:Paper .
         assert!(matches!(tail[0].kind, crate::wire::CdcKind::RemoveNode));
         assert_eq!(tail[0].node_id, "n1");
 
-        // ClearGraph through dispatch RESETS the feed (CONCEPT:KG-2.229): the seq
+        // ClearGraph through dispatch RESETS the feed (CONCEPT:EG-KG.query.streaming-cdc-subscriptions): the seq
         // rewinds to 0 and the ring empties, so a consumer re-seeds from 0. (This is
         // what gives a wiped/cleared graph a clean change feed.)
         assert_ok(&dispatch(&state, request(7, "__commons__", None, Method::ClearGraph)).await);
@@ -3754,7 +3754,7 @@ ex:p1 a ex:Paper .
     }
 
     /// A continuous query maintained incrementally off the CDC feed equals a full
-    /// re-run over the final graph state (CONCEPT:KG-2.229).
+    /// re-run over the final graph state (CONCEPT:EG-KG.query.streaming-cdc-subscriptions).
     #[cfg(feature = "streaming")]
     #[tokio::test]
     async fn test_continuous_query_incremental_equals_full_rerun() {
@@ -3845,7 +3845,7 @@ ex:p1 a ex:Paper .
     }
 
     /// A `Watch` long-poll delivers a change to a subscriber, and a registered trigger
-    /// fires its action on a matching change (CONCEPT:KG-2.230).
+    /// fires its action on a matching change (CONCEPT:EG-KG.query.wire-codec).
     #[cfg(feature = "streaming")]
     #[tokio::test]
     async fn test_watch_and_trigger_delivery() {
@@ -3990,7 +3990,7 @@ ex:p1 a ex:Paper .
         assert_eq!(batch.events[0].node_id, "late");
     }
 
-    /// End-to-end WASM UDF through the SERVER dispatch (CONCEPT:KG-2.228): RegisterUdf
+    /// End-to-end WASM UDF through the SERVER dispatch (CONCEPT:EG-KG.query.rowset-execution): RegisterUdf
     /// compiles+caches a sandboxed module, then RunUdf runs it over a payload and the
     /// output round-trips — AND an infinite-loop UDF registered the same way is
     /// FUEL-KILLED (a trap error response), never a hang. Proves the Method surface +

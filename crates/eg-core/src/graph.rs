@@ -1,4 +1,4 @@
-// CONCEPT:KG-2.16 - Core Graph Storage Module
+// CONCEPT:EG-KG.compute.graph-compute-engine - Core Graph Storage Module
 //
 // Core petgraph DiGraph CRUD operations, node/edge storage,
 // serialization, ledger, and repository parsing.
@@ -53,7 +53,7 @@ pub struct GraphView {
 /// `Arc<Vec<u8>>` (Phase C-A) so they move into/out of the DashMap and snapshots
 /// without copying the bytes.
 /// One capability term found in a query by the ontology lexical gate
-/// (CONCEPT:EG-010). `term` is the matched alias/name, `node_type` its capability
+/// (CONCEPT:EG-ORCH.routing.lexical-capability-escalation). `term` is the matched alias/name, `node_type` its capability
 /// class (Tool/Skill/MCPServer/…), `label` the owning node's display name,
 /// `mcp_server` the owning fleet server (so a caller can bind that server's
 /// toolset directly), and `score` the matched term's character length.
@@ -68,7 +68,7 @@ pub struct OntologyMatch {
 
 /// A built aho-corasick automaton over capability terms plus the per-pattern
 /// metadata (parallel to the automaton's pattern ids). Cached on [`GraphCore`]
-/// and reused while `node_count` matches the live store (CONCEPT:EG-010).
+/// and reused while `node_count` matches the live store (CONCEPT:EG-ORCH.routing.lexical-capability-escalation).
 #[derive(Debug)]
 struct OntologyTermIndex {
     node_count: usize,
@@ -76,7 +76,7 @@ struct OntologyTermIndex {
     metas: Vec<OntologyMatch>,
 }
 
-/// Secondary property index (CONCEPT:KG-2.199): a bounded, demand-driven set of
+/// Secondary property index (CONCEPT:EG-KG.query.concept-12): a bounded, demand-driven set of
 /// per-key `value → node ids` maps for equality lookups. Built lazily on
 /// [`GraphCore`] and invalidated by `mark_dirty()`, mirroring the label index.
 ///
@@ -99,7 +99,7 @@ struct PropertyIndex {
 /// Default cap on the number of distinct property keys ever indexed.
 const DEFAULT_MAX_INDEXED_PROPERTIES: usize = 32;
 
-/// Inverted JSONPath path-index (CONCEPT:EG-084 — document/JSON deep indexing): for
+/// Inverted JSONPath path-index (CONCEPT:EG-KG.compute.json-deep-indexing — document/JSON deep indexing): for
 /// each indexed JSONPath, a `value → node ids` map (equality/`->>`) PLUS the set of
 /// ids for which the path resolves to any value (existence/containment selectivity).
 /// Built lazily on [`GraphCore`] and invalidated by `mark_dirty()`, mirroring the flat
@@ -122,7 +122,7 @@ struct PathIndex {
 
 impl PathIndex {
     /// Convert the live (HashMap) index into its durable, deterministic snapshot form
-    /// (CONCEPT:EG-308). `stamp` is the source graph's OCC `version()` at persist time.
+    /// (CONCEPT:EG-KG.storage.path-index-store). `stamp` is the source graph's OCC `version()` at persist time.
     /// The BTreeMap conversion normalizes key order so the persisted bytes are stable.
     fn to_persisted(&self, stamp: u64) -> crate::path_persist::PersistedPathIndex {
         let by_value = self
@@ -149,7 +149,7 @@ impl PathIndex {
         }
     }
 
-    /// Rehydrate a live (HashMap) index from its durable snapshot form (CONCEPT:EG-308).
+    /// Rehydrate a live (HashMap) index from its durable snapshot form (CONCEPT:EG-KG.storage.path-index-store).
     /// An empty snapshot yields the cold in-memory default, so a warm-start over an
     /// empty store is byte-for-byte the pre-EG-308 boot state.
     fn from_persisted(snap: &crate::path_persist::PersistedPathIndex) -> Self {
@@ -174,7 +174,7 @@ impl PathIndex {
     }
 }
 
-/// Default cap on the number of distinct JSONPaths ever indexed (CONCEPT:EG-084).
+/// Default cap on the number of distinct JSONPaths ever indexed (CONCEPT:EG-KG.compute.json-deep-indexing).
 const DEFAULT_MAX_INDEXED_JSON_PATHS: usize = 64;
 
 /// Capability node types whose names/synonyms form the lexical gate vocabulary.
@@ -188,7 +188,7 @@ const CAPABILITY_NODE_TYPES: &[&str] = &[
     "Resource",
 ];
 
-/// A change notification (CONCEPT:EG-064 — GraphQL real subscriptions via CDC).
+/// A change notification (CONCEPT:EG-KG.compute.cdc-event-emit — GraphQL real subscriptions via CDC).
 /// Emitted by [`GraphCore::mark_dirty`] (and the remote-change path) AFTER a
 /// committed write, carrying the graph's post-write OCC `version`. A subscriber
 /// re-resolves its live query when it observes a bump — the foundation for a push
@@ -211,7 +211,7 @@ pub trait ChangeSink: Send + Sync {
     fn on_change(&self, event: &ChangeEvent);
 }
 
-/// Dependency-light change-notification fan-out (CONCEPT:EG-064). A
+/// Dependency-light change-notification fan-out (CONCEPT:EG-KG.compute.cdc-event-emit). A
 /// `parking_lot`-guarded list of `Weak` sinks — NO new dependency (`parking_lot` is
 /// already an eg-core dep) and NO async runtime, so eg-core's default build links
 /// nothing extra and the tokio carrier lives in the server layer. The no-subscriber
@@ -290,25 +290,25 @@ pub struct GraphCore {
     /// that are still clean, so an idle tenant costs no checkpoint I/O.
     pub dirty: std::sync::atomic::AtomicBool,
     /// Monotonic write-version counter for optimistic concurrency control
-    /// (CONCEPT:KG-2.180 — OCC ACID transactions). Bumped once per COMMITTED write
+    /// (CONCEPT:EG-KG.txn.occ-graph-core — OCC ACID transactions). Bumped once per COMMITTED write
     /// (every single-op/coalesced write via `mark_dirty`, and once per multi-op
     /// txn commit). A staged OCC transaction snapshots this at begin and re-checks
     /// it (plus the read-set node versions) under the commit lock; a concurrent
     /// inline/coalesced write that bumped it forces the txn to re-validate. Read
     /// cheaply via `version()`; never gates a read path.
     pub version: std::sync::atomic::AtomicU64,
-    /// Change-notification fan-out (CONCEPT:EG-064). `mark_dirty` (and the
+    /// Change-notification fan-out (CONCEPT:EG-KG.compute.cdc-event-emit). `mark_dirty` (and the
     /// remote-change path) emit a [`ChangeEvent`] carrying the bumped `version`; a
     /// server-layer GraphQL subscription carrier subscribes to turn a poll-only
     /// subscription into a real push (re-resolve-on-change). Dep-light + off the hot
     /// path when there are no subscribers, so the default/Pi build is unaffected.
     changes: ChangeNotifier,
     /// Cached aho-corasick index of capability-node terms for the lexical
-    /// classification gate (CONCEPT:EG-010). Built lazily and reused while the
+    /// classification gate (CONCEPT:EG-ORCH.routing.lexical-capability-escalation). Built lazily and reused while the
     /// node count is unchanged, so `match_ontology_terms` is ~µs per query
     /// instead of a full node scan. `None` until first use / after invalidation.
     ontology_index: RwLock<Option<OntologyTermIndex>>,
-    /// Cached secondary label index (CONCEPT:KG-2.176): `label → node ids` so
+    /// Cached secondary label index (CONCEPT:EG-KG.compute.consult-lazy): `label → node ids` so
     /// `get_nodes_by_label` is an O(1) map lookup instead of a full DashMap scan
     /// that deserializes every node's properties. Built lazily on first label
     /// lookup and invalidated by `mark_dirty()` after any successful write (the
@@ -318,7 +318,7 @@ pub struct GraphCore {
     /// use / after invalidation. A node appears under every label it carries
     /// across `type`/`node_type`/`label`/`labels` (mirrors `get_nodes_by_label`).
     label_index: RwLock<Option<HashMap<String, Vec<String>>>>,
-    /// Cached secondary PROPERTY index (CONCEPT:KG-2.199): for each indexed
+    /// Cached secondary PROPERTY index (CONCEPT:EG-KG.query.concept-12): for each indexed
     /// property key, a `value → node ids` map so `nodes_by_property(key, value)`
     /// is an O(1) map lookup instead of a full DashMap scan that deserializes
     /// every node's properties (the perf win behind SQL `WHERE prop = 'x'`
@@ -334,7 +334,7 @@ pub struct GraphCore {
     /// `None` until first use / after invalidation; the inner map only ever holds
     /// the keys demanded so far.
     property_index: RwLock<Option<PropertyIndex>>,
-    /// Cached inverted JSONPath path-index (CONCEPT:EG-084 — document/JSON deep
+    /// Cached inverted JSONPath path-index (CONCEPT:EG-KG.compute.json-deep-indexing — document/JSON deep
     /// indexing): `jsonpath → value → ids` (equality/`->>`) + `jsonpath → ids`
     /// (existence/`@>` selectivity), so a deep JSON filter is index-accelerated
     /// instead of a full node scan. Bounded + demand-driven exactly like
@@ -343,7 +343,7 @@ pub struct GraphCore {
     /// validity must NOT key on node count. `None` until first use / after
     /// invalidation.
     path_index: RwLock<Option<PathIndex>>,
-    /// Durable persistence for the JSONPath path-index (CONCEPT:EG-308). When a store
+    /// Durable persistence for the JSONPath path-index (CONCEPT:EG-KG.storage.path-index-store). When a store
     /// is attached (a persist dir is configured), the demand-driven `path_index` is
     /// written through on each (re)build and rehydrated at boot via
     /// [`GraphCore::rehydrate_path_index`], so a restart skips the full node rescan the
@@ -352,7 +352,7 @@ pub struct GraphCore {
     /// default/Pi build links nothing extra. `None` (the default) ⇒ the path-index is
     /// fully in-memory and every write-through is a no-op — the pre-EG-308 behavior.
     path_index_store: RwLock<Option<Arc<dyn crate::path_persist::PathIndexPersistence>>>,
-    /// The unified secondary-index registry/seam (CONCEPT:KG-2.213). Owns the
+    /// The unified secondary-index registry/seam (CONCEPT:AU-KG.retrieval.architecture-report). Owns the
     /// `SecondaryIndex` descriptors (label, property, + discoverable vector /
     /// ontology) so a planner consults ONE registry — `index_for(predicate)` /
     /// `descriptors_for_column(col)` — instead of bespoke per-index checks. The
@@ -360,7 +360,7 @@ pub struct GraphCore {
     /// invalidated); the manager only routes, so their behavior is unchanged. The
     /// registry is fixed for the graph's lifetime ⇒ no interior locking needed.
     index_manager: crate::index::IndexManager,
-    /// Read-through into the durable tier on a RAM MISS (CONCEPT:KG-2.191). Set
+    /// Read-through into the durable tier on a RAM MISS (CONCEPT:EG-KG.storage.read-through-seam-exercised). Set
     /// only under redb-AUTHORITATIVE mode, where a node may have been evicted from
     /// RAM once it is durable in redb. On a node-property miss the read path
     /// consults this to serve the evicted node's stored blob, so eviction can bound
@@ -368,7 +368,7 @@ pub struct GraphCore {
     /// off authoritative mode) means a miss is a genuine absence — behavior is then
     /// byte-for-byte unchanged. See `crate::read_through`.
     read_through: RwLock<Option<Arc<dyn crate::read_through::ReadThrough>>>,
-    /// Version-keyed query-RESULT cache (CONCEPT:KG-2.233, feature `result-cache`).
+    /// Version-keyed query-RESULT cache (CONCEPT:EG-KG.coordination.distributed-cache-coherence, feature `result-cache`).
     /// Caches the serialized bytes of a read query (`Sql`/`Cypher`/`Sparql`/
     /// `UnifiedQuery`) keyed by `(query-hash, version())`. A repeated identical query
     /// on an UNCHANGED graph hits; any write bumps `version` so the next lookup keys
@@ -398,7 +398,7 @@ pub struct GraphTxn<'a> {
 }
 
 /// Owned, serializable persistent state of a graph — exactly what a snapshot file
-/// holds. Two roles (CONCEPT:KG-2.8):
+/// holds. Two roles (CONCEPT:EG-KG.storage.nonblocking-checkpoint):
 ///
 /// * **Non-blocking checkpoint (A1):** producing it clones the node/edge/ledger/
 ///   semantic data (a memcpy, fast relative to encoding), so `checkpoint_all` can
@@ -441,13 +441,13 @@ impl GraphView {
     }
 
     /// Does this view currently hold a node with `node_id`? (Read-your-own-writes
-    /// conflict checks over an overlaid snapshot — CONCEPT:EG-049.)
+    /// conflict checks over an overlaid snapshot — CONCEPT:EG-KG.compute.kg-transaction-is-pinned.)
     pub fn has_node(&self, node_id: &str) -> bool {
         self.node_map.contains_key(node_id)
     }
 
     /// The decoded property object for a node in this view, or `None` when the node
-    /// is absent / its blob is not a decodable object (CONCEPT:EG-049 RETURNING over
+    /// is absent / its blob is not a decodable object (CONCEPT:EG-KG.compute.kg-transaction-is-pinned RETURNING over
     /// an overlaid snapshot).
     pub fn node_row_object(
         &self,
@@ -460,7 +460,7 @@ impl GraphView {
         }
     }
 
-    // ── Read-your-own-writes overlay (CONCEPT:EG-049) ────────────────────
+    // ── Read-your-own-writes overlay (CONCEPT:EG-KG.compute.kg-transaction-is-pinned) ────────────────────
     //
     // A pgwire wire transaction buffers its graph-node mutations and only applies
     // them at COMMIT (through `GraphCore::txn`). A SELECT issued INSIDE that open
@@ -536,7 +536,7 @@ impl GraphView {
     }
 
     /// Overlay a buffered edge ADD onto this snapshot (mirrors `GraphTxn::add_edge`,
-    /// CONCEPT:EG-359 — in-txn cross-modal RYOW). Adds a petgraph edge between two
+    /// CONCEPT:EG-KG.query.txn-cross-modal-ryow — in-txn cross-modal RYOW). Adds a petgraph edge between two
     /// nodes that already exist in the view (an edge to a not-yet-present endpoint is
     /// dropped, exactly like `GraphTxn::add_edge` errors on a missing endpoint), and
     /// records its property blob under `edge_properties`. This makes a staged edge
@@ -563,7 +563,7 @@ impl GraphView {
     }
 
     /// Overlay a buffered edge REMOVE onto this snapshot (mirrors
-    /// `GraphTxn::remove_edge`, CONCEPT:EG-359): drop every petgraph edge between the
+    /// `GraphTxn::remove_edge`, CONCEPT:EG-KG.query.txn-cross-modal-ryow): drop every petgraph edge between the
     /// endpoints and forget their edge properties, so a staged deletion is invisible
     /// to the in-txn Traverse leg. A no-op when either endpoint or the edge is absent.
     pub fn overlay_remove_edge(&mut self, source_id: &str, target_id: &str) {
@@ -578,7 +578,7 @@ impl GraphView {
     }
 }
 
-/// Streams a byte slice as lowercase hex DIRECTLY into a formatter (CONCEPT:EG-028).
+/// Streams a byte slice as lowercase hex DIRECTLY into a formatter (CONCEPT:AU-KG.backend.b-auto-size).
 ///
 /// `format!("…|{}", hex::encode(&blob))` allocated the 2·N-byte hex String TWICE — once
 /// for `hex::encode`'s return, then again as `format!` copied it into the final buffer —
@@ -636,7 +636,7 @@ impl<'a> GraphTxn<'a> {
         }
     }
 
-    /// Serializable gated remove (CONCEPT:EG-045). Decodes the node's CURRENT
+    /// Serializable gated remove (CONCEPT:EG-KG.txn.serializable-mutation-gate). Decodes the node's CURRENT
     /// property blob to a row map UNDER the held write guard, re-evaluates
     /// `predicate`, and removes the node only if it still matches — so a compound
     /// `DELETE … WHERE <predicate>` cannot delete a row that a concurrent writer
@@ -656,7 +656,7 @@ impl<'a> GraphTxn<'a> {
     }
 
     /// Decode a node's stored property blob into a `col -> value` row map for
-    /// predicate evaluation (CONCEPT:EG-045). The synthetic `id` column is injected
+    /// predicate evaluation (CONCEPT:EG-KG.txn.serializable-mutation-gate). The synthetic `id` column is injected
     /// (the blob stores only properties, not the node id) so a predicate may
     /// reference `id` alongside property columns. `None` if absent/undecodable.
     fn node_row_map(&self, node_id: &str) -> Option<serde_json::Map<String, serde_json::Value>> {
@@ -723,7 +723,7 @@ impl<'a> GraphTxn<'a> {
         }
     }
 
-    /// Atomic compare-and-set on a node's property blob (CONCEPT:KG-2 backend-
+    /// Atomic compare-and-set on a node's property blob (CONCEPT:EG-KG.compute.backend backend-
     /// agnostic atomic claim). Runs entirely under the held topology write guard
     /// (decode → check → merge → re-encode → write), so the read-modify-write is
     /// atomic w.r.t. other writers. For every `(field, expected)` in `conditions`
@@ -773,7 +773,7 @@ impl<'a> GraphTxn<'a> {
         true
     }
 
-    /// Serializable gated compare-and-set (CONCEPT:EG-045). Like
+    /// Serializable gated compare-and-set (CONCEPT:EG-KG.txn.serializable-mutation-gate). Like
     /// [`GraphTxn::compare_and_set_fields`] but FIRST re-evaluates `predicate`
     /// against the node's CURRENT row (decoded under the held write guard, with the
     /// synthetic `id` column injected). If the predicate no longer holds the node is
@@ -796,7 +796,7 @@ impl<'a> GraphTxn<'a> {
     }
 
     /// Non-destructively CLOSE the temporal windows of a contradicted edge
-    /// (CONCEPT:KG-2.251). Sets the matching edge's `valid_until = invalid_at`
+    /// (CONCEPT:AU-KG.ingest.list-durable-media). Sets the matching edge's `valid_until = invalid_at`
     /// (event-time close) and `tx_to = tx_now` (belief retracted) — it does NOT
     /// remove the edge, so an `AS OF` before `invalid_at` still sees the fact and the
     /// `AS OF TX` history of what-we-believed is preserved. Matches the edge(s)
@@ -860,7 +860,7 @@ impl<'a> GraphTxn<'a> {
         updated
     }
 
-    /// Atomically SUPERSEDE a prior edge with a new one (CONCEPT:KG-2.251) under the
+    /// Atomically SUPERSEDE a prior edge with a new one (CONCEPT:AU-KG.ingest.list-durable-media) under the
     /// single held write guard: close the prior edge's validity window
     /// (`valid_until = valid_at`, `tx_to = tx_now`) and insert the new edge — never
     /// deleting the prior, so the full history survives. The new edge's blob is
@@ -894,7 +894,7 @@ impl<'a> GraphTxn<'a> {
         self.add_edge(new_source, new_target, new_properties_msgpack)
     }
 
-    // ── Agent-native memory primitives (CONCEPT:EG-220 / EG-221) ─────────────
+    // ── Agent-native memory primitives (CONCEPT:EG-KG.compute.hierarchical-summary-tier-eg / EG-221) ─────────────
     //
     // The DETERMINISTIC engine substrate for the agent-native memory tier from the
     // "Are We Ready For An Agent-Native Memory System?" survey (arXiv 2606.24775).
@@ -909,7 +909,7 @@ impl<'a> GraphTxn<'a> {
     /// Decode a node's stored property blob into its raw property object (no
     /// synthetic `id` injection, unlike [`GraphTxn::node_row_map`]). `None` if the
     /// node is absent or its blob is not a decodable object. Read under the held
-    /// write guard so the read-modify-write stays atomic (CONCEPT:EG-221).
+    /// write guard so the read-modify-write stays atomic (CONCEPT:EG-KG.compute.consolidate-cluster).
     fn node_object(&self, node_id: &str) -> Option<serde_json::Map<String, serde_json::Value>> {
         let bytes = self.node_properties.get(node_id)?.value().clone();
         match rmp_serde::from_slice::<serde_json::Value>(&bytes) {
@@ -919,7 +919,7 @@ impl<'a> GraphTxn<'a> {
     }
 
     /// Unconditionally merge `updates` into a node's property object under the held
-    /// write guard (CONCEPT:EG-221). Like [`GraphTxn::compare_and_set_fields`] with
+    /// write guard (CONCEPT:EG-KG.compute.consolidate-cluster). Like [`GraphTxn::compare_and_set_fields`] with
     /// no conditions. A missing/undecodable node is a no-op returning `false`.
     fn merge_fields(
         &mut self,
@@ -952,7 +952,7 @@ impl<'a> GraphTxn<'a> {
     }
 
     /// Deterministic id for a summary node over `(level, sorted child ids)`
-    /// (CONCEPT:EG-220). Same inputs ⇒ same id, so re-summarizing a cluster at a
+    /// (CONCEPT:EG-KG.compute.hierarchical-summary-tier-eg). Same inputs ⇒ same id, so re-summarizing a cluster at a
     /// level UPSERTS the same node rather than spawning a duplicate. No RNG.
     fn derive_summary_id(level: u32, sorted_children: &[String]) -> String {
         use std::hash::{Hash, Hasher};
@@ -967,7 +967,7 @@ impl<'a> GraphTxn<'a> {
     }
 
     /// Deterministic id for a consolidated semantic node over its `(sorted episodic
-    /// ids)` cluster (CONCEPT:EG-221). No RNG.
+    /// ids)` cluster (CONCEPT:EG-KG.compute.consolidate-cluster). No RNG.
     fn derive_semantic_id(sorted_cluster: &[String]) -> String {
         use std::hash::{Hash, Hasher};
         let mut h = std::collections::hash_map::DefaultHasher::new();
@@ -977,7 +977,7 @@ impl<'a> GraphTxn<'a> {
         format!("semantic:{:016x}", h.finish())
     }
 
-    /// CONCEPT:EG-220 — create (or UPSERT) a hierarchical summary node at abstraction
+    /// CONCEPT:EG-KG.compute.hierarchical-summary-tier-eg — create (or UPSERT) a hierarchical summary node at abstraction
     /// `level`, linked to each of `child_ids` via a `SUMMARIZES` provenance edge, so a
     /// multi-level abstraction ladder can be built (a level-2 summary's children may
     /// themselves be level-1 summary nodes). The LLM-produced summary TEXT is passed
@@ -1046,7 +1046,7 @@ impl<'a> GraphTxn<'a> {
         id
     }
 
-    /// CONCEPT:EG-221 — consolidate a cluster of `episodic_ids` memory nodes into ONE
+    /// CONCEPT:EG-KG.compute.consolidate-cluster — consolidate a cluster of `episodic_ids` memory nodes into ONE
     /// semantic node (episodic → semantic consolidation), the paper's key
     /// LOCALIZED-maintenance finding: nothing outside the cluster + its immediate
     /// neighbours is touched, and there is NO global reindex.
@@ -1089,7 +1089,7 @@ impl<'a> GraphTxn<'a> {
             None => Self::derive_semantic_id(&cluster),
         };
 
-        // Bitemporal span over the children (CONCEPT:KG-2.249/2.250 preserved).
+        // Bitemporal span over the children (CONCEPT:EG-KG.compute.preserved/2.250 preserved).
         let mut tx_from_min: Option<u64> = None;
         let mut tx_to_max: Option<u64> = None;
         let mut any_open = false;
@@ -1200,7 +1200,7 @@ impl<'a> GraphTxn<'a> {
         semantic_id
     }
 
-    // ── Memory maintenance — decay + reinforcement (CONCEPT:EG-222) ────────────
+    // ── Memory maintenance — decay + reinforcement (CONCEPT:EG-KG.maintenance.combined-maintenance-primitive) ────────────
     //
     // Module 4 of the agent-native memory tier ("Are We Ready For An Agent-Native
     // Memory System?", arXiv 2606.24775): the paper's finding that "localized
@@ -1225,7 +1225,7 @@ impl<'a> GraphTxn<'a> {
     // A node WITHOUT these fields is treated as carrying the default importance and is
     // otherwise left untouched — fully backward-compatible with pre-EG-222 nodes.
 
-    /// CONCEPT:EG-222 — default `importance` for a memory node that carries no explicit
+    /// CONCEPT:EG-KG.maintenance.combined-maintenance-primitive — default `importance` for a memory node that carries no explicit
     /// `importance` field yet. Retrieval-priority weight starts here and is bumped by
     /// [`GraphTxn::reinforce`] / reduced by [`GraphTxn::decay_node`]. A node that has
     /// never been given an importance reads as this value, so untouched pre-EG-222
@@ -1233,7 +1233,7 @@ impl<'a> GraphTxn<'a> {
     pub const DEFAULT_IMPORTANCE: f64 = 1.0;
 
     /// Read a node object's current `importance`, falling back to
-    /// [`GraphTxn::DEFAULT_IMPORTANCE`] when the field is absent (CONCEPT:EG-222 —
+    /// [`GraphTxn::DEFAULT_IMPORTANCE`] when the field is absent (CONCEPT:EG-KG.maintenance.combined-maintenance-primitive —
     /// pre-EG-222 nodes read as the default).
     fn memory_importance(obj: &serde_json::Map<String, serde_json::Value>) -> f64 {
         obj.get("importance")
@@ -1241,7 +1241,7 @@ impl<'a> GraphTxn<'a> {
             .unwrap_or(Self::DEFAULT_IMPORTANCE)
     }
 
-    /// CONCEPT:EG-222 — REINFORCE a memory on retrieval: bump `access_count`, refresh
+    /// CONCEPT:EG-KG.maintenance.combined-maintenance-primitive — REINFORCE a memory on retrieval: bump `access_count`, refresh
     /// `last_access_ms` to `now_ms` (recency), and raise `importance` by `weight`
     /// (retrieval strengthens a memory). A node that carries no memory-value fields yet
     /// is seeded from [`GraphTxn::DEFAULT_IMPORTANCE`] / a zero access count, so its
@@ -1273,7 +1273,7 @@ impl<'a> GraphTxn<'a> {
         self.merge_fields(id, &updates)
     }
 
-    /// CONCEPT:EG-222 — apply time-based EXPONENTIAL decay to a memory's `importance`
+    /// CONCEPT:EG-KG.maintenance.combined-maintenance-primitive — apply time-based EXPONENTIAL decay to a memory's `importance`
     /// from the time elapsed since it was last touched: `importance *= 0.5 ^ (elapsed /
     /// half_life_ms)`, i.e. importance halves every `half_life_ms` of inactivity. The
     /// elapsed clock is measured from `last_decay_ms` if present, else `last_access_ms`
@@ -1317,7 +1317,7 @@ impl<'a> GraphTxn<'a> {
         self.merge_fields(id, &updates)
     }
 
-    /// CONCEPT:EG-222 — batch [`GraphTxn::decay_node`] over a caller-supplied working
+    /// CONCEPT:EG-KG.maintenance.combined-maintenance-primitive — batch [`GraphTxn::decay_node`] over a caller-supplied working
     /// set `ids` (LOCALIZED — the caller picks the set; the engine never scans the
     /// whole store). Returns the number of nodes actually decayed/stamped. The effect
     /// is order-independent (each node is decayed against its own clock). Runs under
@@ -1332,7 +1332,7 @@ impl<'a> GraphTxn<'a> {
         n
     }
 
-    /// CONCEPT:EG-222 — FORGET a single memory `id` locally. With `delete == false`
+    /// CONCEPT:EG-KG.maintenance.combined-maintenance-primitive — FORGET a single memory `id` locally. With `delete == false`
     /// (the default, provenance-preserving path) the node is MARKED `forgotten = true`
     /// — its bitemporal history + edges stay intact for audit / recall-on-reinforce.
     /// With `delete == true` the node (and its edges) are hard-removed. A missing node
@@ -1352,7 +1352,7 @@ impl<'a> GraphTxn<'a> {
         }
     }
 
-    /// CONCEPT:EG-222 — EVICT every memory in the working set `ids` whose (already-
+    /// CONCEPT:EG-KG.maintenance.combined-maintenance-primitive — EVICT every memory in the working set `ids` whose (already-
     /// decayed) `importance` has fallen strictly BELOW `threshold`, pruning it via
     /// [`GraphTxn::forget`] (mark when `delete == false`, hard-remove when `true`). A
     /// node carrying no `importance` reads as [`GraphTxn::DEFAULT_IMPORTANCE`], so
@@ -1379,7 +1379,7 @@ impl<'a> GraphTxn<'a> {
         pruned
     }
 
-    /// CONCEPT:EG-222 — the combined maintenance primitive the AU maintenance loop
+    /// CONCEPT:EG-KG.maintenance.combined-maintenance-primitive — the combined maintenance primitive the AU maintenance loop
     /// schedules over a working set: DECAY every node in `ids` (against its own clock),
     /// then EVICT those that fell below `evict_threshold`. LOCALIZED (only `ids`),
     /// atomic (one held write guard), deterministic + idempotent at a fixed `now_ms`.
@@ -1399,7 +1399,7 @@ impl<'a> GraphTxn<'a> {
         (decayed, pruned)
     }
 
-    // ── Scene-graph / 3D world model (CONCEPT:EG-087) ─────────────────────────
+    // ── Scene-graph / 3D world model (CONCEPT:EG-KG.compute.scene-graph-primitives) ─────────────────────────
     //
     // A `:SceneObject` node carries a local `pose` (translation + rotation quaternion
     // + scale) in its property blob; a parent/child transform hierarchy is expressed
@@ -1411,7 +1411,7 @@ impl<'a> GraphTxn<'a> {
     // clock/RNG) and atomic under the held write guard, so it replays identically.
 
     /// Deterministic id for a new scene object over `(sequence, parent, pose)`
-    /// (CONCEPT:EG-087). `sequence` is the live node count at insertion time, which
+    /// (CONCEPT:EG-KG.compute.scene-graph-primitives). `sequence` is the live node count at insertion time, which
     /// is monotonic under replay, so identical WAL replay yields the identical id
     /// while distinct inserts never collide. No RNG/clock.
     fn derive_scene_id(sequence: usize, parent: Option<&str>, pose: &crate::scene::Pose) -> String {
@@ -1461,7 +1461,7 @@ impl<'a> GraphTxn<'a> {
             .find(|t| self.has_relationship_edge(child, t, "CHILD_OF"))
     }
 
-    /// CONCEPT:EG-087 — create a `:SceneObject` node with local `pose`, optionally
+    /// CONCEPT:EG-KG.compute.scene-graph-primitives — create a `:SceneObject` node with local `pose`, optionally
     /// parented under `parent` via reciprocal `CHILD_OF`/`HAS_CHILD` edges (an absent
     /// parent is skipped — no dangling edge). Returns the new object's deterministic
     /// id. Runs under the held write guard.
@@ -1477,7 +1477,7 @@ impl<'a> GraphTxn<'a> {
         id
     }
 
-    /// CONCEPT:EG-087 — replace the local `pose` of scene object `id`. No-op
+    /// CONCEPT:EG-KG.compute.scene-graph-primitives — replace the local `pose` of scene object `id`. No-op
     /// returning `false` if the node is absent. Runs under the held write guard.
     pub fn set_pose(&mut self, id: &str, pose: &crate::scene::Pose) -> bool {
         let mut update = serde_json::Map::new();
@@ -1485,7 +1485,7 @@ impl<'a> GraphTxn<'a> {
         self.merge_fields(id, &update)
     }
 
-    /// CONCEPT:EG-087 — reparent scene object `id` under `new_parent` (or detach to a
+    /// CONCEPT:EG-KG.compute.scene-graph-primitives — reparent scene object `id` under `new_parent` (or detach to a
     /// root with `None`): drops the existing reciprocal transform edges to the old
     /// parent and links the new one, so `world_transform` recomposes down the new
     /// chain. No-op returning `false` if `id` is absent or `new_parent` is missing.
@@ -1509,7 +1509,7 @@ impl<'a> GraphTxn<'a> {
         true
     }
 
-    /// CONCEPT:EG-087 — add a spatial relationship edge `from →<rel>→ to` (e.g.
+    /// CONCEPT:EG-KG.compute.scene-graph-primitives — add a spatial relationship edge `from →<rel>→ to` (e.g.
     /// `ON`/`IN`/`NEAR`/`SUPPORTS`), idempotently. Returns `false` if either endpoint
     /// is absent or the same edge already exists. Runs under the held write guard.
     pub fn add_spatial_relation(&mut self, from: &str, to: &str, rel: &str) -> bool {
@@ -1526,7 +1526,7 @@ impl<'a> GraphTxn<'a> {
         }
     }
 
-    /// CONCEPT:EG-087 — attach (or replace) the axis-aligned bounding volume of scene
+    /// CONCEPT:EG-KG.compute.scene-graph-primitives — attach (or replace) the axis-aligned bounding volume of scene
     /// object `id`. No-op returning `false` if the node is absent. Runs under the
     /// held write guard.
     pub fn set_bounding_volume(&mut self, id: &str, aabb: &crate::scene::Aabb) -> bool {
@@ -1535,7 +1535,7 @@ impl<'a> GraphTxn<'a> {
         self.merge_fields(id, &update)
     }
 
-    // ── Action / policy / trajectory memory (CONCEPT:EG-099) ──────────────────
+    // ── Action / policy / trajectory memory (CONCEPT:EG-KG.compute.discounted-return) ──────────────────
     //
     // Episodic TRAJECTORY memory for agents / robotics (the Phase-P counterpart to
     // the EG-220/221/222 memory tier and the EG-087 scene model). A `:Trajectory`
@@ -1557,7 +1557,7 @@ impl<'a> GraphTxn<'a> {
     // and the analysis helpers read only nodes reachable from the given trajectory.
 
     /// Deterministic id for a new trajectory over `(sequence, props)`
-    /// (CONCEPT:EG-099). `sequence` is the live node count at insertion time, which is
+    /// (CONCEPT:EG-KG.compute.discounted-return). `sequence` is the live node count at insertion time, which is
     /// monotonic under replay, so identical WAL replay yields the identical id while
     /// distinct inserts never collide. No RNG/clock.
     fn derive_trajectory_id(
@@ -1574,14 +1574,14 @@ impl<'a> GraphTxn<'a> {
     }
 
     /// Deterministic id for the `step_index`-th step of trajectory `traj_id`
-    /// (CONCEPT:EG-099): `"<traj_id>:step:<index>"`. Fully replayable (a function of
+    /// (CONCEPT:EG-KG.compute.discounted-return): `"<traj_id>:step:<index>"`. Fully replayable (a function of
     /// the trajectory id + the monotonic step ordinal), unique within a trajectory,
     /// and it sorts lexicographically in append order. No RNG/clock.
     fn derive_step_id(traj_id: &str, step_index: u64) -> String {
         format!("{}:step:{:08}", traj_id, step_index)
     }
 
-    /// CONCEPT:EG-099 — START a new `:Trajectory` (episode) and return its id. The
+    /// CONCEPT:EG-KG.compute.discounted-return — START a new `:Trajectory` (episode) and return its id. The
     /// caller-supplied `props` are stored verbatim; the engine injects the structural
     /// markers `type = "Trajectory"` and initializes `step_count = 0` (only when
     /// absent, so a re-run UPSERTS without resetting an in-progress episode). If
@@ -1613,7 +1613,7 @@ impl<'a> GraphTxn<'a> {
         id
     }
 
-    /// CONCEPT:EG-099 — APPEND a `:Step{ action, reward, t, state_ref, next_state_ref }`
+    /// CONCEPT:EG-KG.compute.discounted-return — APPEND a `:Step{ action, reward, t, state_ref, next_state_ref }`
     /// to trajectory `traj_id`, extending its ordered temporal chain. The new step is:
     /// * created with the caller's `action` (stored verbatim — a string or a
     ///   structured JSON action), `reward`, `t` (the caller's timestep), its ordinal
@@ -1707,9 +1707,9 @@ impl GraphCore {
             ontology_index: RwLock::new(None),
             label_index: RwLock::new(None),
             property_index: RwLock::new(None),
-            // CONCEPT:EG-084 — cold JSONPath path-index; built lazily on first use.
+            // CONCEPT:EG-KG.compute.json-deep-indexing — cold JSONPath path-index; built lazily on first use.
             path_index: RwLock::new(None),
-            // CONCEPT:EG-308 — no durable path-index store until one is attached.
+            // CONCEPT:EG-KG.storage.path-index-store — no durable path-index store until one is attached.
             path_index_store: RwLock::new(None),
             index_manager: crate::index::IndexManager::with_default_indexes(),
             read_through: RwLock::new(None),
@@ -1718,7 +1718,7 @@ impl GraphCore {
         }
     }
 
-    /// The version-keyed query-result cache (CONCEPT:KG-2.233). The query handlers
+    /// The version-keyed query-result cache (CONCEPT:EG-KG.coordination.distributed-cache-coherence). The query handlers
     /// consult it before executing a read and populate it after a miss; correctness
     /// rests on `version()` keying (a write bumps the version, retiring every prior
     /// result). See `crate::result_cache`.
@@ -1727,7 +1727,7 @@ impl GraphCore {
         &self.result_cache
     }
 
-    /// The unified secondary-index registry/seam (CONCEPT:KG-2.213). A planner
+    /// The unified secondary-index registry/seam (CONCEPT:AU-KG.retrieval.architecture-report). A planner
     /// (eg-query's pushdown, eg-plan's Filter leg) consults this ONE registry to
     /// ask "which index covers this predicate?" / "what indexes cover column X?"
     /// instead of hard-coding per-index checks. The label/property caches it routes
@@ -1737,7 +1737,7 @@ impl GraphCore {
         &self.index_manager
     }
 
-    /// The change-notification fan-out (CONCEPT:EG-064). A server-layer GraphQL
+    /// The change-notification fan-out (CONCEPT:EG-KG.compute.cdc-event-emit). A server-layer GraphQL
     /// subscription carrier calls `core.changes().subscribe(&sink)` to receive a
     /// [`ChangeEvent`] on every committed write, turning a poll-only subscription
     /// into a real push (live query). The default build never subscribes, so the
@@ -1746,7 +1746,7 @@ impl GraphCore {
         &self.changes
     }
 
-    /// Attach a durable read-through (CONCEPT:KG-2.191). Called once at startup
+    /// Attach a durable read-through (CONCEPT:EG-KG.storage.read-through-seam-exercised). Called once at startup
     /// (only under redb-authoritative mode) so a node evicted from RAM is still
     /// served from redb on a RAM miss. A `GraphCore` with no read-through behaves
     /// exactly as before — a miss is a genuine absence.
@@ -1758,7 +1758,7 @@ impl GraphCore {
     /// the dispatch after any successful write op and by the background decay sweep.
     pub fn mark_dirty(&self) {
         self.dirty.store(true, std::sync::atomic::Ordering::Relaxed);
-        // Bump the OCC write-version (CONCEPT:KG-2.180): every committed write —
+        // Bump the OCC write-version (CONCEPT:EG-KG.txn.occ-graph-core): every committed write —
         // single-op, coalesced batch, and (via the commit path) a multi-op txn —
         // flows through `mark_dirty`, so an in-flight staged transaction's validate
         // step observes any concurrent write that landed since it began. AcqRel so
@@ -1768,16 +1768,16 @@ impl GraphCore {
             .version
             .fetch_add(1, std::sync::atomic::Ordering::AcqRel)
             + 1;
-        // Invalidate the lazy label index (CONCEPT:KG-2.176): a write may have
+        // Invalidate the lazy label index (CONCEPT:EG-KG.compute.consult-lazy): a write may have
         // added/removed a node or rewritten a node's label, so the cached
         // `label → ids` map is stale and is rebuilt on the next label lookup.
         *self.label_index.write() = None;
-        // Invalidate the lazy property index (CONCEPT:KG-2.199): a write may have
+        // Invalidate the lazy property index (CONCEPT:EG-KG.query.concept-12): a write may have
         // changed an indexed property value or added/removed a node, so the cached
         // `value → ids` maps are stale and are rebuilt (over the same demanded keys)
         // on the next `nodes_by_property` lookup.
         *self.property_index.write() = None;
-        // Invalidate the lazy JSONPath path-index (CONCEPT:EG-084): a write may have
+        // Invalidate the lazy JSONPath path-index (CONCEPT:EG-KG.compute.json-deep-indexing): a write may have
         // added/removed a node or changed a nested JSON value, so the cached
         // `path → value → ids` maps are stale and are rebuilt (over the same demanded
         // paths) on the next `nodes_by_json_path` / `nodes_with_json_path` lookup. This
@@ -1785,14 +1785,14 @@ impl GraphCore {
         // funnels through `mark_dirty` under the topology write guard, so the index is
         // never consistent-stale across a mutation.
         *self.path_index.write() = None;
-        // CONCEPT:EG-064 — fan out a change notification (post-write version) to any
+        // CONCEPT:EG-KG.compute.cdc-event-emit — fan out a change notification (post-write version) to any
         // live subscribers (the GraphQL subscription carrier). A single relaxed
         // atomic load when there are none, so this is off the write hot path.
         self.changes.emit(new_version);
     }
 
     /// Invalidate cached query results for a CHANGE that landed elsewhere
-    /// (CONCEPT:KG-2.233 — distributed cache coherence). A replica tailing the CDC
+    /// (CONCEPT:EG-KG.coordination.distributed-cache-coherence — distributed cache coherence). A replica tailing the CDC
     /// feed calls this when it observes a REMOTE write for this graph: it bumps the
     /// local `version` (so any cached result keyed on the old version becomes
     /// unreachable) AND drops the cache directly (belt-and-braces — the local data
@@ -1810,14 +1810,14 @@ impl GraphCore {
         // subsequent local read after a remote-applied change rebuilds them.
         *self.label_index.write() = None;
         *self.property_index.write() = None;
-        // CONCEPT:EG-084 — the JSONPath path-index is derived state too; retire it.
+        // CONCEPT:EG-KG.compute.json-deep-indexing — the JSONPath path-index is derived state too; retire it.
         *self.path_index.write() = None;
-        // CONCEPT:EG-064 — a replicated write must also wake local live-query
+        // CONCEPT:EG-KG.compute.cdc-event-emit — a replicated write must also wake local live-query
         // subscribers, so a subscription reflects remote writes, not just local ones.
         self.changes.emit(new_version);
     }
 
-    /// Current OCC write-version (CONCEPT:KG-2.180). A staged transaction snapshots
+    /// Current OCC write-version (CONCEPT:EG-KG.txn.occ-graph-core). A staged transaction snapshots
     /// this at begin and an OCC commit re-reads it under the topology write lock to
     /// detect concurrent writes. Cheap atomic load — never on a read hot path.
     pub fn version(&self) -> u64 {
@@ -1855,14 +1855,14 @@ impl GraphCore {
         self.txn().remove_node(node_id);
     }
 
-    // ── Distribution-valued properties (CONCEPT:EG-086) ──────────────────
+    // ── Distribution-valued properties (CONCEPT:EG-KG.compute.uncertainty-values) ──────────────────
     //
     // A `Distribution` is just a tagged JSON object, so it round-trips through
     // the existing arbitrary-JSON property map with NO schema change — these
     // are typed convenience accessors over that convention, generalizing the
     // scalar `confidence` field into a full uncertainty distribution.
 
-    /// Read a distribution-valued property `key` off `node_id` (CONCEPT:EG-086).
+    /// Read a distribution-valued property `key` off `node_id` (CONCEPT:EG-KG.compute.uncertainty-values).
     /// Returns `None` if the node is absent, its blob is undecodable, the key is
     /// missing, or the stored JSON is not a valid `Distribution`.
     pub fn get_distribution(&self, node_id: &str, key: &str) -> Option<eg_types::Distribution> {
@@ -1872,7 +1872,7 @@ impl GraphCore {
         serde_json::from_value(field).ok()
     }
 
-    /// Store `dist` as the property `key` on `node_id` (CONCEPT:EG-086), merging
+    /// Store `dist` as the property `key` on `node_id` (CONCEPT:EG-KG.compute.uncertainty-values), merging
     /// into the node's existing properties (other keys preserved). Creates the
     /// node with a single-key object if it does not yet exist. Returns whether
     /// the property was written (only fails if the value cannot be serialized).
@@ -1903,14 +1903,14 @@ impl GraphCore {
         true
     }
 
-    /// One-shot serializable gated remove (CONCEPT:EG-045). See
+    /// One-shot serializable gated remove (CONCEPT:EG-KG.txn.serializable-mutation-gate). See
     /// [`GraphTxn::remove_node_if`]; the decode → predicate re-check → remove runs
     /// under ONE topology write guard.
     pub fn remove_node_if(&self, node_id: &str, predicate: &eg_types::RowPredicate) -> bool {
         self.txn().remove_node_if(node_id, predicate)
     }
 
-    /// One-shot atomic compare-and-set over a single `txn` (CONCEPT:KG-2 backend-
+    /// One-shot atomic compare-and-set over a single `txn` (CONCEPT:EG-KG.compute.backend backend-
     /// agnostic atomic claim). See [`GraphTxn::compare_and_set_fields`] for the
     /// semantics; the whole read-modify-write runs under one topology write guard.
     pub fn compare_and_set_fields(
@@ -1923,7 +1923,7 @@ impl GraphCore {
             .compare_and_set_fields(node_id, conditions, updates)
     }
 
-    /// One-shot serializable gated compare-and-set (CONCEPT:EG-045). See
+    /// One-shot serializable gated compare-and-set (CONCEPT:EG-KG.txn.serializable-mutation-gate). See
     /// [`GraphTxn::compare_and_set_fields_if`]; the decode → predicate re-check →
     /// conditional merge runs under ONE topology write guard.
     pub fn compare_and_set_fields_if(
@@ -1937,7 +1937,7 @@ impl GraphCore {
             .compare_and_set_fields_if(node_id, predicate, conditions, updates)
     }
 
-    /// Atomically claim the oldest pending node of `label` (CONCEPT:KG-2.303 —
+    /// Atomically claim the oldest pending node of `label` (CONCEPT:EG-KG.compute.atomically-claim-oldest-pending —
     /// native task queue). Scans `label`'s nodes (via the O(1) label index) for
     /// the smallest `seq` whose `status == "pending"`, then CAS-merges `updates`
     /// (condition `status == "pending"`) under one topology write guard. Returns
@@ -1987,7 +1987,7 @@ impl GraphCore {
     }
 
     /// Atomically append one published message to EACH of `queues` under ONE
-    /// topology write guard (CONCEPT:EG-275 — message-broker enqueue on top of the
+    /// topology write guard (CONCEPT:EG-KG.compute.message-broker-exchanges — message-broker enqueue on top of the
     /// KG-2.303 work-queue). For every queue: read+bump its durable monotonic
     /// `next_seq` counter node (`broker:seq:<queue>`) and append a pending message
     /// node labeled `qmsg:<queue>` (the label
@@ -2093,7 +2093,7 @@ impl GraphCore {
     }
 
     /// Append one RETAINED message to `stream` and return its monotonic offset
-    /// (CONCEPT:EG-283 — replayable append-log streams). Under ONE topology write
+    /// (CONCEPT:EG-KG.compute.replayable-append-log — replayable append-log streams). Under ONE topology write
     /// guard: read+bump the stream's durable `next_offset` counter node
     /// (`broker:soff:<stream>`) and append a message node labeled `smsg:<stream>`
     /// carrying the hex payload + `ts = now_ms`. Unlike [`broker_enqueue`](Self::
@@ -2136,7 +2136,7 @@ impl GraphCore {
     }
 
     /// Remove a set of stream message nodes under ONE topology write guard
-    /// (CONCEPT:EG-283 — retention trim). Returns how many of `ids` were present and
+    /// (CONCEPT:EG-KG.compute.replayable-append-log — retention trim). Returns how many of `ids` were present and
     /// removed. Backs [`broker::stream_trim`](crate::broker::stream_trim): the caller
     /// resolves the offset-ordered drop set from the retention policy, so this is a
     /// deterministic bulk delete that replays byte-identically.
@@ -2158,7 +2158,7 @@ impl GraphCore {
     }
 
     /// Issue the next value of a broker-wide monotonic counter node and persist the
-    /// bump under ONE topology write guard (CONCEPT:EG-284 — publisher-confirm +
+    /// bump under ONE topology write guard (CONCEPT:EG-KG.compute.publisher-confirms-consumer-qos — publisher-confirm +
     /// consumer delivery tags). The counter's `last_tag` starts at 0, so the FIRST
     /// issued tag is `1` and every subsequent call returns a strictly greater value.
     /// Deterministic: the value derives purely from the counter node, so replaying the
@@ -2184,7 +2184,7 @@ impl GraphCore {
     }
 
     /// Idempotent-producer dedup check + high-water-mark bump under ONE topology write
-    /// guard (CONCEPT:EG-314 — effectively-once publish). `node_id` is the producer's
+    /// guard (CONCEPT:EG-KG.ingest.effectively-once-publish — effectively-once publish). `node_id` is the producer's
     /// durable dedup node (`broker:producer:<producer_id>`) holding a monotonic
     /// `last_seq`. Returns `true` when `seq` is NEW (strictly above the current mark) —
     /// recording it as the new mark — and `false` when `seq` is a DUPLICATE (at/under
@@ -2214,7 +2214,7 @@ impl GraphCore {
         true
     }
 
-    /// One-shot non-destructive edge invalidation (CONCEPT:KG-2.251). See
+    /// One-shot non-destructive edge invalidation (CONCEPT:AU-KG.ingest.list-durable-media). See
     /// [`GraphTxn::invalidate_edge`]; runs under one topology write guard.
     pub fn invalidate_edge(
         &self,
@@ -2228,7 +2228,7 @@ impl GraphCore {
             .invalidate_edge(source_id, target_id, relationship, invalid_at, tx_now)
     }
 
-    /// One-shot atomic edge supersession (CONCEPT:KG-2.251). See
+    /// One-shot atomic edge supersession (CONCEPT:AU-KG.ingest.list-durable-media). See
     /// [`GraphTxn::supersede_edge`]; the close-prior + insert-new run under ONE guard.
     #[allow(clippy::too_many_arguments)]
     pub fn supersede_edge(
@@ -2270,7 +2270,7 @@ impl GraphCore {
     /// in-memory) but bounds the returned payload, so a `MATCH (n:Label) … LIMIT k`
     /// caller no longer materializes every node's properties over the wire.
     pub fn get_nodes_by_label(&self, label: &str, limit: usize) -> Vec<(String, Vec<u8>)> {
-        // CONCEPT:KG-2.176 — consult the lazy `label → ids` index so a label
+        // CONCEPT:EG-KG.compute.consult-lazy — consult the lazy `label → ids` index so a label
         // lookup is an O(1) map hit instead of a full DashMap scan that
         // deserializes every node. The cached map is invalidated by `mark_dirty()`
         // after any successful write (the same dirty flag the checkpoint uses), so
@@ -2313,7 +2313,7 @@ impl GraphCore {
     }
 
     /// Scan the node store once and build the secondary label index
-    /// (CONCEPT:KG-2.176): each node id is filed under EVERY label it carries.
+    /// (CONCEPT:EG-KG.compute.consult-lazy): each node id is filed under EVERY label it carries.
     /// The label set is read from exactly the fields `get_nodes_by_label` matched
     /// before this index existed, so the two never diverge:
     ///   * `type` (canonical), `node_type` (the field the Python client writes —
@@ -2351,10 +2351,10 @@ impl GraphCore {
         index
     }
 
-    // ── secondary property index (CONCEPT:KG-2.199) ──────────────────────────
+    // ── secondary property index (CONCEPT:EG-KG.query.concept-12) ──────────────────────────
 
     /// Node ids whose property `key` equals `value`, via the bounded, demand-driven
-    /// secondary property index (CONCEPT:KG-2.199). Equality only. The first call
+    /// secondary property index (CONCEPT:EG-KG.query.concept-12). Equality only. The first call
     /// for a given `key` indexes it (subject to the configured cap) and caches the
     /// `value → ids` map; subsequent calls are an O(1) map hit. The cache is
     /// invalidated by `mark_dirty()` after any write, so it never serves a stale
@@ -2389,7 +2389,7 @@ impl GraphCore {
         )
     }
 
-    /// Composite equality lookup (CONCEPT:KG-2.199): node ids matching EVERY
+    /// Composite equality lookup (CONCEPT:EG-KG.query.concept-12): node ids matching EVERY
     /// `(key, value)` pair, as the intersection of the per-key equality sets. Used
     /// for pushdown of multiple `col = literal` predicates ANDed together. Returns
     /// `None` if ANY key is not (and cannot be) indexed under the bound — the caller
@@ -2506,10 +2506,10 @@ impl GraphCore {
             .unwrap_or_default()
     }
 
-    // ── inverted JSONPath path-index (CONCEPT:EG-084) ─────────────────────────
+    // ── inverted JSONPath path-index (CONCEPT:EG-KG.compute.json-deep-indexing) ─────────────────────────
 
     /// Node ids whose JSONPath `path` resolves to a scalar equal to `value`, via the
-    /// bounded, demand-driven inverted path-index (CONCEPT:EG-084). This is the
+    /// bounded, demand-driven inverted path-index (CONCEPT:EG-KG.compute.json-deep-indexing). This is the
     /// index-accelerated backing for `WHERE props->>'k' = 'v'` (and `props->'k' = …`).
     /// `value` is compared against the canonical string form of the stored scalar (see
     /// [`crate::jsonpath::canonical_scalar`]), so a numeric `30` matches `"30"`.
@@ -2539,7 +2539,7 @@ impl GraphCore {
     }
 
     /// Node ids for which JSONPath `path` resolves to ANY value — the EXISTENCE set
-    /// (CONCEPT:EG-084), the index-accelerated backing for `props @> …` / `jsonb_path_query`
+    /// (CONCEPT:EG-KG.compute.json-deep-indexing), the index-accelerated backing for `props @> …` / `jsonb_path_query`
     /// existence and a selectivity estimate for the planner. Returns `None` when `path`
     /// is not (and cannot be) indexed under the bound (full-scan fallback).
     pub fn nodes_with_json_path(&self, path: &str) -> Option<Vec<String>> {
@@ -2558,13 +2558,13 @@ impl GraphCore {
     }
 
     /// Ensure `path` is present in the JSONPath index, honouring the bound
-    /// (CONCEPT:EG-084). `Some(())` if the path is (now) indexed, `None` if the cap is
+    /// (CONCEPT:EG-KG.compute.json-deep-indexing). `Some(())` if the path is (now) indexed, `None` if the cap is
     /// full and the path is not already present (caller full-scans). Pre-seeds any paths
     /// named in `EPISTEMIC_GRAPH_INDEXED_JSON_PATHS` on the first build.
     #[allow(clippy::map_entry)]
     fn ensure_json_path_indexed(&self, idx: &mut PathIndex, path: &str) -> Option<()> {
         let cap = Self::max_indexed_json_paths();
-        // Track whether we built anything, so a durable store (CONCEPT:EG-308) is
+        // Track whether we built anything, so a durable store (CONCEPT:EG-KG.storage.path-index-store) is
         // written through exactly once per demand-driven (re)build — not on a pure
         // cache hit where the path was already indexed.
         let mut changed = false;
@@ -2580,7 +2580,7 @@ impl GraphCore {
             }
         }
         if idx.by_value.contains_key(path) {
-            // CONCEPT:EG-308 — a rehydrated seed set (or an earlier same-guard build)
+            // CONCEPT:EG-KG.storage.path-index-store — a rehydrated seed set (or an earlier same-guard build)
             // already covers `path`; persist the seed build if it happened, then hit.
             if changed {
                 self.persist_path_index(idx);
@@ -2596,14 +2596,14 @@ impl GraphCore {
         let (by_value, present) = self.build_json_path_maps(path);
         idx.by_value.insert(path.to_string(), by_value);
         idx.present.insert(path.to_string(), present);
-        // CONCEPT:EG-308 — write the freshly (re)built index through to the durable
+        // CONCEPT:EG-KG.storage.path-index-store — write the freshly (re)built index through to the durable
         // store so a restart rehydrates it instead of rescanning every node. A no-op
         // when no store is attached (the default), so the in-memory path is unchanged.
         self.persist_path_index(idx);
         Some(())
     }
 
-    /// Attach a durable JSONPath-index store (CONCEPT:EG-308). Called once at startup
+    /// Attach a durable JSONPath-index store (CONCEPT:EG-KG.storage.path-index-store). Called once at startup
     /// (only when a persist dir is configured): thereafter every demand-driven
     /// (re)build of the path-index is written through, and [`rehydrate_path_index`]
     /// can warm the index from the store at boot. A `GraphCore` with no store attached
@@ -2614,7 +2614,7 @@ impl GraphCore {
         *self.path_index_store.write() = Some(store);
     }
 
-    /// Rehydrate the persisted JSONPath index into memory at boot (CONCEPT:EG-308).
+    /// Rehydrate the persisted JSONPath index into memory at boot (CONCEPT:EG-KG.storage.path-index-store).
     /// Loads the durable snapshot (if a store is attached and non-empty) and adopts it
     /// as the live `path_index`, so the FIRST JSON filter after a restart hits the
     /// warm index instead of paying a full node rescan. Returns the number of distinct
@@ -2639,7 +2639,7 @@ impl GraphCore {
     }
 
     /// Write the current in-memory path-index through to the durable store, stamped
-    /// with the graph's OCC `version()` (CONCEPT:EG-308). A no-op when no store is
+    /// with the graph's OCC `version()` (CONCEPT:EG-KG.storage.path-index-store). A no-op when no store is
     /// attached (the default), so the fully-in-memory path is byte-for-byte unchanged.
     /// Best-effort: a persistence error is swallowed by the store impl (the index is
     /// always rebuildable on demand), so it can never fail the query that triggered it.
@@ -2651,9 +2651,9 @@ impl GraphCore {
         store.save(&snap);
     }
 
-    /// JSONPath filter selectivity for the planner cost `Stats` (CONCEPT:EG-308 —
+    /// JSONPath filter selectivity for the planner cost `Stats` (CONCEPT:EG-KG.storage.path-index-store —
     /// hooking the EG-084 inverted-index id counts into the cross-modal cost model,
-    /// CONCEPT:KG-2.209). Returns the fraction of property-bearing nodes that pass the
+    /// CONCEPT:EG-KG.query.concept-14). Returns the fraction of property-bearing nodes that pass the
     /// filter, in `[0,1]` — exactly the `filter_selectivity` a planner feeds
     /// `eg_plan::cost::Stats::estimate` to order a Filter/Rank pair:
     ///   * `value = Some(v)` — an EQUALITY filter (`props->>'k' = 'v'`): the count from
@@ -2678,7 +2678,7 @@ impl GraphCore {
 
     /// Scan the node store once and build, for one JSONPath, both the `value → ids`
     /// equality map (over the canonical scalar form of each matched leaf) and the
-    /// existence `ids` set (CONCEPT:EG-084). A malformed path yields empty maps.
+    /// existence `ids` set (CONCEPT:EG-KG.compute.json-deep-indexing). A malformed path yields empty maps.
     fn build_json_path_maps(&self, path: &str) -> (HashMap<String, Vec<String>>, Vec<String>) {
         let mut by_value: HashMap<String, Vec<String>> = HashMap::new();
         let mut present: Vec<String> = Vec::new();
@@ -2711,7 +2711,7 @@ impl GraphCore {
     }
 
     /// Cap on the number of distinct JSONPaths ever indexed
-    /// (`EPISTEMIC_GRAPH_MAX_INDEXED_JSON_PATHS`, default 64) (CONCEPT:EG-084).
+    /// (`EPISTEMIC_GRAPH_MAX_INDEXED_JSON_PATHS`, default 64) (CONCEPT:EG-KG.compute.json-deep-indexing).
     fn max_indexed_json_paths() -> usize {
         std::env::var("EPISTEMIC_GRAPH_MAX_INDEXED_JSON_PATHS")
             .ok()
@@ -2721,7 +2721,7 @@ impl GraphCore {
     }
 
     /// JSONPaths to pre-seed into the index on first build
-    /// (`EPISTEMIC_GRAPH_INDEXED_JSON_PATHS`, comma-separated) (CONCEPT:EG-084).
+    /// (`EPISTEMIC_GRAPH_INDEXED_JSON_PATHS`, comma-separated) (CONCEPT:EG-KG.compute.json-deep-indexing).
     fn seed_indexed_json_paths() -> Vec<String> {
         std::env::var("EPISTEMIC_GRAPH_INDEXED_JSON_PATHS")
             .ok()
@@ -2735,7 +2735,7 @@ impl GraphCore {
             .unwrap_or_default()
     }
 
-    /// Lexical classification gate (CONCEPT:EG-010): find every capability term
+    /// Lexical classification gate (CONCEPT:EG-ORCH.routing.lexical-capability-escalation): find every capability term
     /// (a `Tool`/`Skill`/`MCPServer`/… node's name or synonym) that appears as a
     /// whole word in `query`. Embedding-free and backend-universal — the "free"
     /// tier between structural routing and semantic `search_hybrid`: a chat turn
@@ -2881,14 +2881,14 @@ impl GraphCore {
             return Some((**a).clone());
         }
         // RAM miss. Under redb-authoritative mode a durable node may have been
-        // evicted from RAM to bound memory (CONCEPT:KG-2.191); fetch its stored
+        // evicted from RAM to bound memory (CONCEPT:EG-KG.storage.read-through-seam-exercised); fetch its stored
         // blob from the durable tier so an evicted node still reads back correctly.
         // The read-through is only ever set under authoritative mode, so this is a
         // no-op (genuine absence) in the default model — behavior unchanged.
         self.read_through_get(node_id)
     }
 
-    /// Consult the durable read-through on a RAM miss (CONCEPT:KG-2.191). Returns
+    /// Consult the durable read-through on a RAM miss (CONCEPT:EG-KG.storage.read-through-seam-exercised). Returns
     /// the node's stored property blob from the durable tier, or `None` when no
     /// read-through is attached (default model) or the node is genuinely absent.
     /// Kept lock-scoped: the read-through guard is cloned out and released BEFORE
@@ -2972,7 +2972,7 @@ impl GraphCore {
         self.edge_properties.iter().map(|e| e.value().len()).sum()
     }
 
-    /// Approximate resident RAM this graph holds, in bytes (CONCEPT:KG-2.234 —
+    /// Approximate resident RAM this graph holds, in bytes (CONCEPT:EG-KG.compute.lane-v —
     /// per-tenant memory budget). A running byte estimate over the in-RAM state:
     /// the node + edge property blobs (the bulk of a graph's footprint), plus a
     /// fixed per-node/per-edge overhead for the petgraph topology + id strings +
@@ -3104,7 +3104,7 @@ impl GraphCore {
     /// Owned, serializable snapshot of this graph's persistent state. Cheap
     /// relative to serialization (clones the node/edge/ledger/semantic data), so a
     /// checkpoint takes it under a BRIEF lock and serializes OFF the lock.
-    /// (CONCEPT:KG-2.8 — non-blocking checkpoint, A1)
+    /// (CONCEPT:EG-KG.storage.nonblocking-checkpoint — non-blocking checkpoint, A1)
     pub fn snapshot(&self) -> GraphSnapshot {
         // Hold the topology read lock for the duration: every mutation goes through
         // a write txn (topo.write()), so a read guard excludes all writers and the
@@ -3139,7 +3139,7 @@ impl GraphCore {
         self.edge_properties.clear();
         self.ledger.lock().clear();
         *self.semantic_store.write() = crate::compute::semantic::SemanticStore::new();
-        // Drop every cached query result (CONCEPT:KG-2.233): `clear` (and `hibernate`,
+        // Drop every cached query result (CONCEPT:EG-KG.coordination.distributed-cache-coherence): `clear` (and `hibernate`,
         // which reuses it) wipes the graph WITHOUT bumping `version`, so the
         // version-keyed cache must be invalidated directly or a post-wipe lookup at the
         // unchanged version could serve a stale result.
@@ -3147,7 +3147,7 @@ impl GraphCore {
         self.result_cache.invalidate_all();
     }
 
-    /// Hibernate this graph's in-memory state (CONCEPT:KG-2.224 — cold-tenant
+    /// Hibernate this graph's in-memory state (CONCEPT:EG-KG.storage.100m-tenant — cold-tenant
     /// hibernation). Drops the whole in-RAM topology / node+edge properties /
     /// semantic vectors — exactly what [`Self::clear`] frees — to reclaim a COLD
     /// tenant's memory, WITHOUT touching the durable redb tier (the caller guarantees
@@ -3162,7 +3162,7 @@ impl GraphCore {
         freed
     }
 
-    /// Offload this graph's whole in-RAM state to a cold tier (CONCEPT:KG-2.233),
+    /// Offload this graph's whole in-RAM state to a cold tier (CONCEPT:EG-KG.coordination.distributed-cache-coherence),
     /// then hibernate the RAM. Serializes the graph (`to_msgpack`), pushes it to the
     /// cold store, and only then drops the RAM — so the bytes are safely in the cold
     /// tier before RAM is freed. Returns the node count freed. The NEXT access calls
@@ -3179,7 +3179,7 @@ impl GraphCore {
         Ok(self.hibernate())
     }
 
-    /// Rehydrate this graph from the cold tier (CONCEPT:KG-2.233): fetch its
+    /// Rehydrate this graph from the cold tier (CONCEPT:EG-KG.coordination.distributed-cache-coherence): fetch its
     /// offloaded blob and reload it via `from_msgpack`, then drop the cold copy. A
     /// no-op returning `Ok(false)` when the graph was not offloaded (already hot or
     /// never cold). On success the graph's full topology/edges/properties/vectors are
@@ -3324,7 +3324,7 @@ impl GraphCore {
         view
     }
 
-    // ── Read-Only Compute Snapshots (CONCEPT:KG-2.51) ────────────────────
+    // ── Read-Only Compute Snapshots (CONCEPT:EG-KG.txn.per-graph-write-isolation) ────────────────────
     // CPU-heavy read-only algorithms must not run while holding a graph lock —
     // they would starve writers for the whole computation. These snapshots take a
     // cheap O(V+E) structural copy under the topology READ lock (concurrent with
@@ -3367,7 +3367,7 @@ impl GraphCore {
     }
 
     /// An [`analysis_snapshot`](Self::analysis_snapshot) paired with the OCC
-    /// `version()` read UNDER the same topology read lock (CONCEPT:KG-2.233). Taking
+    /// `version()` read UNDER the same topology read lock (CONCEPT:EG-KG.coordination.distributed-cache-coherence). Taking
     /// both atomically lets the result cache store a query's bytes under exactly the
     /// version the snapshot reflects: a topology write bumps `version` via
     /// `mark_dirty` only while holding the topo WRITE lock, mutually exclusive with
@@ -3414,27 +3414,27 @@ impl GraphCore {
             ledger: Mutex::new(self.ledger.lock().clone()),
             semantic_store: RwLock::new(self.semantic_store.read().clone()),
             dirty: std::sync::atomic::AtomicBool::new(true),
-            // Fork starts a fresh OCC version line (CONCEPT:KG-2.180) — it is a new
+            // Fork starts a fresh OCC version line (CONCEPT:EG-KG.txn.occ-graph-core) — it is a new
             // independent graph; any txn against the fork baselines from 0.
             version: std::sync::atomic::AtomicU64::new(0),
             // A fork is a fresh, detached graph with its own (empty) subscriber set
-            // (CONCEPT:EG-064) — subscriptions attach to the live registered core.
+            // (CONCEPT:EG-KG.compute.cdc-event-emit) — subscriptions attach to the live registered core.
             changes: ChangeNotifier::default(),
             // Fork starts with cold lazy indexes; rebuilt lazily on first use.
             ontology_index: RwLock::new(None),
             label_index: RwLock::new(None),
             property_index: RwLock::new(None),
-            // CONCEPT:EG-084 — fork starts with a cold JSONPath path-index too.
+            // CONCEPT:EG-KG.compute.json-deep-indexing — fork starts with a cold JSONPath path-index too.
             path_index: RwLock::new(None),
-            // CONCEPT:EG-308 — a fork is a fresh, detached graph (not registered, not
+            // CONCEPT:EG-KG.storage.path-index-store — a fork is a fresh, detached graph (not registered, not
             // backed by a durable tier), so it carries no path-index store; its
             // path-index stays fully in-memory.
             path_index_store: RwLock::new(None),
             // A fork gets its own default index registry (the registry is fixed
-            // metadata, not graph state) (CONCEPT:KG-2.213).
+            // metadata, not graph state) (CONCEPT:AU-KG.retrieval.architecture-report).
             index_manager: crate::index::IndexManager::with_default_indexes(),
             // A fork is a fresh, detached graph (not registered, not backed by the
-            // durable tier), so it carries no read-through (CONCEPT:KG-2.191).
+            // durable tier), so it carries no read-through (CONCEPT:EG-KG.storage.read-through-seam-exercised).
             read_through: RwLock::new(None),
             // A fork starts with an empty result cache (its own version line).
             #[cfg(feature = "result-cache")]
@@ -3631,7 +3631,7 @@ impl GraphCore {
 
     /// The least-recently-added node ids that would be evicted to bring the graph
     /// down to `max_nodes` — the same set (and order) `evict_lru` removes, but
-    /// WITHOUT dropping them (CONCEPT:KG-2.191). Used by the redb-authoritative
+    /// WITHOUT dropping them (CONCEPT:EG-KG.storage.read-through-seam-exercised). Used by the redb-authoritative
     /// eviction path, which must confirm each candidate is durable in redb BEFORE
     /// dropping it (commit-before-ack makes that the common case; the check is the
     /// no-data-loss guarantee). Empty when the graph is at/under the cap.
@@ -3655,7 +3655,7 @@ impl GraphCore {
 
     /// Evict nodes down to `max_nodes` by removing the least-recently-added.
     ///
-    /// CONCEPT:KG-2.16 — Memory pressure defense. When the in-memory graph
+    /// CONCEPT:EG-KG.compute.graph-compute-engine — Memory pressure defense. When the in-memory graph
     /// grows beyond `max_nodes`, this method removes the oldest nodes (by
     /// insertion order in `node_map`) until the count is at or below the cap.
     /// Returns the number of evicted nodes.
@@ -3686,7 +3686,7 @@ impl GraphCore {
         evict_ids.len()
     }
 
-    // ── Ebbinghaus Temporal Decay (CONCEPT:KG-2.16) ──────────────────────
+    // ── Ebbinghaus Temporal Decay (CONCEPT:EG-KG.compute.graph-compute-engine) ──────────────────────
 
     /// Apply an Ebbinghaus forgetting-curve decay to every node's and edge's
     /// belief `confidence`, then optionally prune anything below `floor`.
@@ -3823,9 +3823,9 @@ impl GraphCore {
     }
 
     // ── Agent-native memory primitives — one-shot wrappers + queries ──────────
-    //     (CONCEPT:EG-220 hierarchical summary tier / EG-221 consolidation)
+    //     (CONCEPT:EG-KG.compute.hierarchical-summary-tier-eg hierarchical summary tier / EG-221 consolidation)
 
-    /// One-shot [`GraphTxn::create_summary_node`] (CONCEPT:EG-220): the whole
+    /// One-shot [`GraphTxn::create_summary_node`] (CONCEPT:EG-KG.compute.hierarchical-summary-tier-eg): the whole
     /// create-node + link-children runs under ONE topology write guard, then the
     /// lazy secondary indexes are invalidated via `mark_dirty` so a subsequent
     /// `summaries_at_level` sees the new node. Returns the summary node id.
@@ -3840,7 +3840,7 @@ impl GraphCore {
         id
     }
 
-    /// One-shot [`GraphTxn::consolidate`] (CONCEPT:EG-221): the whole
+    /// One-shot [`GraphTxn::consolidate`] (CONCEPT:EG-KG.compute.consolidate-cluster): the whole
     /// create-semantic + redirect-edges + provenance + mark-episodics runs under ONE
     /// topology write guard (atomic + localized — no global reindex), then the lazy
     /// secondary indexes are invalidated. Returns the semantic node id.
@@ -3855,7 +3855,7 @@ impl GraphCore {
     }
 
     /// Does a `source → target` edge carrying `relationship` exist? (Read helper for
-    /// the summary/consolidation queries — CONCEPT:EG-220.) Matches on the edge
+    /// the summary/consolidation queries — CONCEPT:EG-KG.compute.hierarchical-summary-tier-eg.) Matches on the edge
     /// blob's `relationship` (or legacy `type`) field.
     fn edge_has_relationship(&self, source_id: &str, target_id: &str, relationship: &str) -> bool {
         self.edge_properties
@@ -3875,7 +3875,7 @@ impl GraphCore {
             })
     }
 
-    /// CONCEPT:EG-220 — the direct children of summary node `id`: the targets of its
+    /// CONCEPT:EG-KG.compute.hierarchical-summary-tier-eg — the direct children of summary node `id`: the targets of its
     /// outgoing `SUMMARIZES` edges. Returns ids sorted + deduped. Empty if the node
     /// is absent or has no summary children.
     pub fn summary_children(&self, id: &str) -> Vec<String> {
@@ -3898,7 +3898,7 @@ impl GraphCore {
         out
     }
 
-    /// CONCEPT:EG-220 — all summary node ids at abstraction `level` (nodes typed
+    /// CONCEPT:EG-KG.compute.hierarchical-summary-tier-eg — all summary node ids at abstraction `level` (nodes typed
     /// `SummaryNode` whose `summary_level` equals `level`). Returns ids sorted +
     /// deduped. Uses the lazy label index (`get_nodes_by_label`) so the `SummaryNode`
     /// scan is O(matches) once the index is warm.
@@ -3917,10 +3917,10 @@ impl GraphCore {
         out
     }
 
-    // ── Memory maintenance — one-shot wrappers (CONCEPT:EG-222) ────────────────
+    // ── Memory maintenance — one-shot wrappers (CONCEPT:EG-KG.maintenance.combined-maintenance-primitive) ────────────────
     //     (decay + reinforcement; the AU maintenance loop schedules these)
 
-    /// One-shot [`GraphTxn::reinforce`] (CONCEPT:EG-222): bump access/recency +
+    /// One-shot [`GraphTxn::reinforce`] (CONCEPT:EG-KG.maintenance.combined-maintenance-primitive): bump access/recency +
     /// importance under ONE topology write guard, then invalidate the lazy secondary
     /// indexes. Returns whether the node existed.
     pub fn reinforce(&self, id: &str, now_ms: u64, weight: f64) -> bool {
@@ -3931,7 +3931,7 @@ impl GraphCore {
         ok
     }
 
-    /// One-shot [`GraphTxn::decay_node`] (CONCEPT:EG-222). Returns whether it
+    /// One-shot [`GraphTxn::decay_node`] (CONCEPT:EG-KG.maintenance.combined-maintenance-primitive). Returns whether it
     /// decayed/stamped the node.
     pub fn decay_node(&self, id: &str, now_ms: u64, half_life_ms: u64) -> bool {
         let ok = self.txn().decay_node(id, now_ms, half_life_ms);
@@ -3941,7 +3941,7 @@ impl GraphCore {
         ok
     }
 
-    /// One-shot [`GraphTxn::decay_memories`] (CONCEPT:EG-222): the whole working-set
+    /// One-shot [`GraphTxn::decay_memories`] (CONCEPT:EG-KG.maintenance.combined-maintenance-primitive): the whole working-set
     /// decay runs under ONE topology write guard (localized — no global scan). Returns
     /// the number of nodes decayed.
     pub fn decay_memories(&self, now_ms: u64, half_life_ms: u64, ids: &[String]) -> usize {
@@ -3952,7 +3952,7 @@ impl GraphCore {
         n
     }
 
-    /// One-shot [`GraphTxn::forget`] (CONCEPT:EG-222). `delete == false` marks
+    /// One-shot [`GraphTxn::forget`] (CONCEPT:EG-KG.maintenance.combined-maintenance-primitive). `delete == false` marks
     /// `forgotten` (provenance-preserving default); `true` hard-removes. Returns
     /// whether it acted.
     pub fn forget(&self, id: &str, delete: bool) -> bool {
@@ -3963,7 +3963,7 @@ impl GraphCore {
         ok
     }
 
-    /// One-shot [`GraphTxn::evict_below`] (CONCEPT:EG-222): prune the sub-threshold
+    /// One-shot [`GraphTxn::evict_below`] (CONCEPT:EG-KG.maintenance.combined-maintenance-primitive): prune the sub-threshold
     /// members of the working set under ONE topology write guard. Returns the pruned
     /// ids (sorted).
     pub fn evict_below(&self, ids: &[String], threshold: f64, delete: bool) -> Vec<String> {
@@ -3974,7 +3974,7 @@ impl GraphCore {
         pruned
     }
 
-    /// One-shot [`GraphTxn::maintain`] (CONCEPT:EG-222): decay-then-evict the working
+    /// One-shot [`GraphTxn::maintain`] (CONCEPT:EG-KG.maintenance.combined-maintenance-primitive): decay-then-evict the working
     /// set under ONE topology write guard (atomic + localized — no global reindex) —
     /// the primitive the AU maintenance loop schedules. Returns `(decayed, pruned_ids)`.
     pub fn maintain(
@@ -3993,9 +3993,9 @@ impl GraphCore {
     }
 
     // ── Scene-graph / 3D world model — one-shot wrappers + queries ────────────
-    //     (CONCEPT:EG-087)
+    //     (CONCEPT:EG-KG.compute.scene-graph-primitives)
 
-    /// One-shot [`GraphTxn::add_scene_object`] (CONCEPT:EG-087): create the node +
+    /// One-shot [`GraphTxn::add_scene_object`] (CONCEPT:EG-KG.compute.scene-graph-primitives): create the node +
     /// link its parent under ONE write guard, then invalidate the lazy secondary
     /// indexes so a subsequent `scene_children` / `SceneObject` label query sees it.
     /// Returns the new object's id.
@@ -4005,7 +4005,7 @@ impl GraphCore {
         id
     }
 
-    /// One-shot [`GraphTxn::set_pose`] (CONCEPT:EG-087).
+    /// One-shot [`GraphTxn::set_pose`] (CONCEPT:EG-KG.compute.scene-graph-primitives).
     pub fn set_pose(&self, id: &str, pose: &crate::scene::Pose) -> bool {
         let ok = self.txn().set_pose(id, pose);
         if ok {
@@ -4014,7 +4014,7 @@ impl GraphCore {
         ok
     }
 
-    /// One-shot [`GraphTxn::reparent`] (CONCEPT:EG-087).
+    /// One-shot [`GraphTxn::reparent`] (CONCEPT:EG-KG.compute.scene-graph-primitives).
     pub fn reparent(&self, id: &str, new_parent: Option<&str>) -> bool {
         let ok = self.txn().reparent(id, new_parent);
         if ok {
@@ -4023,7 +4023,7 @@ impl GraphCore {
         ok
     }
 
-    /// One-shot [`GraphTxn::add_spatial_relation`] (CONCEPT:EG-087).
+    /// One-shot [`GraphTxn::add_spatial_relation`] (CONCEPT:EG-KG.compute.scene-graph-primitives).
     pub fn add_spatial_relation(&self, from: &str, to: &str, rel: &str) -> bool {
         let ok = self.txn().add_spatial_relation(from, to, rel);
         if ok {
@@ -4032,7 +4032,7 @@ impl GraphCore {
         ok
     }
 
-    /// One-shot [`GraphTxn::set_bounding_volume`] (CONCEPT:EG-087).
+    /// One-shot [`GraphTxn::set_bounding_volume`] (CONCEPT:EG-KG.compute.scene-graph-primitives).
     pub fn set_bounding_volume(&self, id: &str, aabb: &crate::scene::Aabb) -> bool {
         let ok = self.txn().set_bounding_volume(id, aabb);
         if ok {
@@ -4041,7 +4041,7 @@ impl GraphCore {
         ok
     }
 
-    /// CONCEPT:EG-087 — the stored LOCAL pose of scene object `id`. `None` if the
+    /// CONCEPT:EG-KG.compute.scene-graph-primitives — the stored LOCAL pose of scene object `id`. `None` if the
     /// node is absent or carries no (decodable) `pose`.
     pub fn get_pose(&self, id: &str) -> Option<crate::scene::Pose> {
         let blob = self.get_node_properties(id)?;
@@ -4049,7 +4049,7 @@ impl GraphCore {
         crate::scene::Pose::from_json(val.as_object()?.get("pose")?)
     }
 
-    /// CONCEPT:EG-087 — the stored axis-aligned bounding volume of scene object `id`,
+    /// CONCEPT:EG-KG.compute.scene-graph-primitives — the stored axis-aligned bounding volume of scene object `id`,
     /// in its LOCAL frame. `None` if absent / no (decodable) `aabb`.
     pub fn get_bounding_volume(&self, id: &str) -> Option<crate::scene::Aabb> {
         let blob = self.get_node_properties(id)?;
@@ -4057,7 +4057,7 @@ impl GraphCore {
         crate::scene::Aabb::from_json(val.as_object()?.get("aabb")?)
     }
 
-    /// CONCEPT:EG-087 — the transform parent of scene object `id`: the target of its
+    /// CONCEPT:EG-KG.compute.scene-graph-primitives — the transform parent of scene object `id`: the target of its
     /// outgoing `CHILD_OF` edge, or `None` for a root object / absent node.
     pub fn scene_parent(&self, id: &str) -> Option<String> {
         let idx = *self.topo.read().node_map.get(id)?;
@@ -4073,7 +4073,7 @@ impl GraphCore {
             .find(|t| self.edge_has_relationship(id, t, "CHILD_OF"))
     }
 
-    /// CONCEPT:EG-087 — the WORLD pose of scene object `id`: its local pose composed
+    /// CONCEPT:EG-KG.compute.scene-graph-primitives — the WORLD pose of scene object `id`: its local pose composed
     /// with every ancestor's local pose up the `CHILD_OF` chain (root ∘ … ∘ local).
     /// `None` if `id` is absent / has no pose. A cycle guard bounds the walk (a
     /// well-formed hierarchy is acyclic; the guard just prevents a pathological loop
@@ -4102,7 +4102,7 @@ impl GraphCore {
         world
     }
 
-    /// CONCEPT:EG-087 — the direct transform children of scene object `id`: the
+    /// CONCEPT:EG-KG.compute.scene-graph-primitives — the direct transform children of scene object `id`: the
     /// targets of its outgoing `HAS_CHILD` edges. Sorted + deduped; empty if absent /
     /// no children.
     pub fn scene_children(&self, id: &str) -> Vec<String> {
@@ -4125,7 +4125,7 @@ impl GraphCore {
         out
     }
 
-    /// CONCEPT:EG-087 — all transitive transform descendants of scene object `id`
+    /// CONCEPT:EG-KG.compute.scene-graph-primitives — all transitive transform descendants of scene object `id`
     /// (breadth-first over `HAS_CHILD`). Sorted + deduped; excludes `id` itself. A
     /// visited-set makes it robust to a malformed cyclic hierarchy.
     pub fn scene_descendants(&self, id: &str) -> Vec<String> {
@@ -4145,7 +4145,7 @@ impl GraphCore {
         out.into_iter().collect()
     }
 
-    /// CONCEPT:EG-087 — every `(from, to)` pair connected by a spatial relationship
+    /// CONCEPT:EG-KG.compute.scene-graph-primitives — every `(from, to)` pair connected by a spatial relationship
     /// edge carrying `rel` (e.g. `ON`/`IN`/`NEAR`/`SUPPORTS`). Sorted + deduped.
     pub fn objects_with_relation(&self, rel: &str) -> Vec<(String, String)> {
         let mut out: Vec<(String, String)> = self
@@ -4176,9 +4176,9 @@ impl GraphCore {
     }
 
     // ── Action / policy / trajectory memory — one-shot wrappers + queries ─────
-    //     (CONCEPT:EG-099)
+    //     (CONCEPT:EG-KG.compute.discounted-return)
 
-    /// One-shot [`GraphTxn::start_trajectory`] (CONCEPT:EG-099): create/UPSERT the
+    /// One-shot [`GraphTxn::start_trajectory`] (CONCEPT:EG-KG.compute.discounted-return): create/UPSERT the
     /// `:Trajectory` node under ONE topology write guard, then invalidate the lazy
     /// secondary indexes. Returns the trajectory id.
     pub fn start_trajectory(&self, props: serde_json::Map<String, serde_json::Value>) -> String {
@@ -4187,7 +4187,7 @@ impl GraphCore {
         id
     }
 
-    /// One-shot [`GraphTxn::append_step`] (CONCEPT:EG-099): create the `:Step`, link it
+    /// One-shot [`GraphTxn::append_step`] (CONCEPT:EG-KG.compute.discounted-return): create the `:Step`, link it
     /// (`BELONGS_TO` + `HAS_STEP` + `NEXT_STEP`), and advance the trajectory's
     /// tail/count — all under ONE topology write guard (atomic), then invalidate the
     /// lazy secondary indexes. Returns the new step id, or `None` if the trajectory is
@@ -4211,7 +4211,7 @@ impl GraphCore {
         id
     }
 
-    /// Decode a step node's stored property object (CONCEPT:EG-099 read helper).
+    /// Decode a step node's stored property object (CONCEPT:EG-KG.compute.discounted-return read helper).
     /// `None` if the node is absent or its blob is not a decodable object.
     fn step_object(&self, id: &str) -> Option<serde_json::Map<String, serde_json::Value>> {
         let blob = self.get_node_properties(id)?;
@@ -4221,7 +4221,7 @@ impl GraphCore {
         }
     }
 
-    /// CONCEPT:EG-099 — the ordered `(step_id, step_object)` pairs of trajectory
+    /// CONCEPT:EG-KG.compute.discounted-return — the ordered `(step_id, step_object)` pairs of trajectory
     /// `traj_id`: the targets of its outgoing `HAS_STEP` edges, ordered by each step's
     /// `step_index` (append order). Ties on `step_index` fall back to the id for a
     /// deterministic total order. Empty if the trajectory is absent / has no steps.
@@ -4252,7 +4252,7 @@ impl GraphCore {
         steps
     }
 
-    /// CONCEPT:EG-099 — the ordered step ids of trajectory `traj_id` (append order,
+    /// CONCEPT:EG-KG.compute.discounted-return — the ordered step ids of trajectory `traj_id` (append order,
     /// following the `NEXT_STEP` chain). Empty if the trajectory is absent / has no
     /// steps.
     pub fn trajectory_steps(&self, traj_id: &str) -> Vec<String> {
@@ -4262,7 +4262,7 @@ impl GraphCore {
             .collect()
     }
 
-    /// CONCEPT:EG-099 — the DISCOUNTED return of trajectory `traj_id`: `Σ gamma^t *
+    /// CONCEPT:EG-KG.compute.discounted-return — the DISCOUNTED return of trajectory `traj_id`: `Σ gamma^t *
     /// reward` over its ordered steps, where `t` is each step's stored timestep and
     /// `reward` its reward (a step missing `reward` contributes 0; a step missing `t`
     /// reads as `t = 0`). With sequential timesteps `t = 0,1,2,…` this is the standard
@@ -4279,7 +4279,7 @@ impl GraphCore {
             .sum()
     }
 
-    /// CONCEPT:EG-099 — the UNDISCOUNTED total reward of trajectory `traj_id`: the plain
+    /// CONCEPT:EG-KG.compute.discounted-return — the UNDISCOUNTED total reward of trajectory `traj_id`: the plain
     /// sum of its steps' `reward` values (equivalent to `discounted_return` with
     /// `gamma = 1.0`). `0.0` for an absent / empty trajectory.
     pub fn total_reward(&self, traj_id: &str) -> f64 {
@@ -4289,7 +4289,7 @@ impl GraphCore {
             .sum()
     }
 
-    /// CONCEPT:EG-099 — SLIDING-window undiscounted returns over trajectory `traj_id`:
+    /// CONCEPT:EG-KG.compute.discounted-return — SLIDING-window undiscounted returns over trajectory `traj_id`:
     /// for ordered rewards `r_0 … r_{n-1}`, returns `[Σ r_i..i+window]` for each start
     /// `i` in `0..=n-window` (the n-step return at each position). Empty when `window`
     /// is 0 or larger than the step count. Deterministic. Useful for spotting the
@@ -4308,7 +4308,7 @@ impl GraphCore {
             .collect()
     }
 
-    /// CONCEPT:EG-099 — the trajectory in `traj_ids` with the HIGHEST discounted return
+    /// CONCEPT:EG-KG.compute.discounted-return — the trajectory in `traj_ids` with the HIGHEST discounted return
     /// (for prioritized replay / policy selection). Ties are broken deterministically by
     /// the smaller id. `None` for an empty input. Absent trajectories score `0.0`.
     pub fn best_trajectory(&self, traj_ids: &[String], gamma: f64) -> Option<String> {
@@ -4324,7 +4324,7 @@ impl GraphCore {
             .map(|(id, _)| id)
     }
 
-    /// CONCEPT:EG-099 — the trajectory in `traj_ids` with the LOWEST discounted return
+    /// CONCEPT:EG-KG.compute.discounted-return — the trajectory in `traj_ids` with the LOWEST discounted return
     /// (for hard-negative mining / avoidance). Ties are broken deterministically by the
     /// smaller id. `None` for an empty input. Absent trajectories score `0.0`.
     pub fn worst_trajectory(&self, traj_ids: &[String], gamma: f64) -> Option<String> {
@@ -4415,7 +4415,7 @@ pub fn walk_dir_recursive(dir: &std::path::Path, files: &mut Vec<std::path::Path
 /// VF2 subgraph match of `pattern` against an already-materialized `host`
 /// `GraphView` (vs [`GraphCore::vf2_subgraph_match`], which snapshots its own
 /// live graph first). Lets an off-lock caller — e.g. the Cypher exec
-/// (CONCEPT:KG-2.179), which already holds the `analysis_snapshot()` view — reuse
+/// (CONCEPT:EG-KG.query.dep-free-behind), which already holds the `analysis_snapshot()` view — reuse
 /// the exact same matcher without re-snapshotting. Each result maps a pattern
 /// node id → the host node id it bound to.
 pub fn vf2_match_views(host: &GraphView, pattern: &GraphView) -> Vec<HashMap<String, String>> {
@@ -4612,7 +4612,7 @@ mod tests {
         rmp_serde::to_vec_named(&map).unwrap()
     }
 
-    // ── read-your-own-writes overlay (CONCEPT:EG-049) ────────────────────────
+    // ── read-your-own-writes overlay (CONCEPT:EG-KG.compute.kg-transaction-is-pinned) ────────────────────────
 
     fn overlay_obj(map: serde_json::Value) -> serde_json::Map<String, serde_json::Value> {
         match map {
@@ -4637,7 +4637,7 @@ mod tests {
         assert!(!core.has_node("n9"), "live core untouched by overlay");
     }
 
-    // ── Distribution-valued properties (CONCEPT:EG-086) ──────────────────
+    // ── Distribution-valued properties (CONCEPT:EG-KG.compute.uncertainty-values) ──────────────────
 
     #[test]
     fn distribution_property_roundtrips() {
@@ -4768,7 +4768,7 @@ mod tests {
         ));
     }
 
-    // ── secondary property index (CONCEPT:KG-2.199) ──────────────────────────
+    // ── secondary property index (CONCEPT:EG-KG.query.concept-12) ──────────────────────────
 
     /// Serializes the env-mutating property-index tests (env is process-global and
     /// Rust runs tests on parallel threads).
@@ -4799,7 +4799,7 @@ mod tests {
         core
     }
 
-    // ── non-destructive edge invalidation / supersession (CONCEPT:KG-2.251) ──
+    // ── non-destructive edge invalidation / supersession (CONCEPT:AU-KG.ingest.list-durable-media) ──
 
     #[test]
     fn invalidate_edge_closes_windows_without_deleting() {
@@ -4930,7 +4930,7 @@ mod tests {
         );
     }
 
-    // ── inverted JSONPath path-index (CONCEPT:EG-084) ─────────────────────────
+    // ── inverted JSONPath path-index (CONCEPT:EG-KG.compute.json-deep-indexing) ─────────────────────────
 
     /// Build a graph of deep JSON documents for the path-index tests.
     fn json_graph() -> GraphCore {
@@ -5073,9 +5073,9 @@ mod tests {
         std::env::remove_var("EPISTEMIC_GRAPH_MAX_INDEXED_JSON_PATHS");
     }
 
-    // ── durable JSONPath index persistence (CONCEPT:EG-308) ───────────────────
+    // ── durable JSONPath index persistence (CONCEPT:EG-KG.storage.path-index-store) ───────────────────
 
-    /// CONCEPT:EG-308 — a demand-driven build is written through to the store, and a
+    /// CONCEPT:EG-KG.storage.path-index-store — a demand-driven build is written through to the store, and a
     /// FRESH graph rehydrates it at boot and serves the JSON filter WITHOUT any node
     /// data (proving the answer came from the persisted index, not a rescan). Sharing
     /// one `InMemoryPathIndexStore` `Arc` across the two cores simulates a save→reopen.
@@ -5119,7 +5119,7 @@ mod tests {
         assert_eq!(tags2, vec!["n1", "n2"]);
     }
 
-    /// CONCEPT:EG-308 — after a mutation the in-memory index is invalidated and rebuilt
+    /// CONCEPT:EG-KG.storage.path-index-store — after a mutation the in-memory index is invalidated and rebuilt
     /// on the next query, and that rebuild RE-PERSISTS, so the durable snapshot tracks
     /// the new graph state (never a stale view across a write).
     #[test]
@@ -5169,7 +5169,7 @@ mod tests {
         assert_eq!(snap1.stamp, core.version(), "re-persist restamps");
     }
 
-    /// CONCEPT:EG-308 — the inverted-index id counts feed the planner cost `Stats`
+    /// CONCEPT:EG-KG.storage.path-index-store — the inverted-index id counts feed the planner cost `Stats`
     /// selectivity: `json_path_selectivity` returns |matching ids| / |nodes| for an
     /// equality (`Some`) or existence (`None`) filter, and `None` when unindexable.
     #[test]
@@ -5206,7 +5206,7 @@ mod tests {
         std::env::remove_var("EPISTEMIC_GRAPH_MAX_INDEXED_JSON_PATHS");
     }
 
-    /// CONCEPT:EG-308 — with NO store attached (the default), the path-index stays
+    /// CONCEPT:EG-KG.storage.path-index-store — with NO store attached (the default), the path-index stays
     /// fully in-memory: `rehydrate_path_index` is a 0-op and queries behave exactly as
     /// the pre-EG-308 EG-084 path.
     #[test]
@@ -5225,7 +5225,7 @@ mod tests {
         assert_eq!(rust, vec!["n1", "n3"], "unchanged EG-084 behavior");
     }
 
-    /// CONCEPT:EG-064 — a committed write emits a `ChangeEvent` carrying the bumped
+    /// CONCEPT:EG-KG.compute.cdc-event-emit — a committed write emits a `ChangeEvent` carrying the bumped
     /// version to a registered [`ChangeSink`]; with no subscriber the write path is a
     /// no-op fan-out (single atomic load), and dropping the subscriber's `Arc`
     /// unsubscribes.
@@ -5334,7 +5334,7 @@ mod tests {
         std::env::remove_var("EPISTEMIC_GRAPH_INDEXED_PROPERTIES");
     }
 
-    /// CONCEPT:KG-2.191 — the read-through seam, exercised purely in eg-core with a
+    /// CONCEPT:EG-KG.storage.read-through-seam-exercised — the read-through seam, exercised purely in eg-core with a
     /// stub backing store (no facade/redb needed): after a node is dropped from RAM
     /// (eviction), `get_node_properties` serves it from the attached read-through;
     /// without a read-through the same miss is a genuine absence (default model).
@@ -5493,7 +5493,7 @@ mod tests {
 
     #[test]
     fn cas_if_gates_on_predicate() {
-        // CONCEPT:EG-045 — the serializable gate only mutates a node whose CURRENT
+        // CONCEPT:EG-KG.txn.serializable-mutation-gate — the serializable gate only mutates a node whose CURRENT
         // row still matches the predicate.
         use eg_types::{CmpOp, RowPredicate};
         let g = GraphCore::new();
@@ -5539,7 +5539,7 @@ mod tests {
 
     #[test]
     fn remove_node_if_gates_on_predicate() {
-        // CONCEPT:EG-045 — `id` is injected so a predicate may reference it.
+        // CONCEPT:EG-KG.txn.serializable-mutation-gate — `id` is injected so a predicate may reference it.
         use eg_types::{CmpOp, RowPredicate};
         let g = GraphCore::new();
         g.add_node(
@@ -5844,7 +5844,7 @@ mod tests {
         );
     }
 
-    // ── label index (CONCEPT:KG-2.176) ──────────────────────────────────
+    // ── label index (CONCEPT:EG-KG.compute.consult-lazy) ──────────────────────────────────
 
     fn ids_of(rows: &[(String, Vec<u8>)]) -> Vec<String> {
         let mut v: Vec<String> = rows.iter().map(|(id, _)| id.clone()).collect();
@@ -5930,7 +5930,7 @@ mod tests {
         assert_eq!(ids_of(&rows), vec!["a"]);
     }
 
-    // ── Agent-native memory primitives (CONCEPT:EG-220 / EG-221) ──────────────
+    // ── Agent-native memory primitives (CONCEPT:EG-KG.compute.hierarchical-summary-tier-eg / EG-221) ──────────────
 
     /// Decode a node's stored property object (test helper).
     fn obj_of(g: &GraphCore, id: &str) -> serde_json::Map<String, serde_json::Value> {
@@ -6142,7 +6142,7 @@ mod tests {
         assert_eq!(g.edge_count(), mid, "idempotent re-run stacks no edges");
     }
 
-    // ── Memory maintenance — decay + reinforcement (CONCEPT:EG-222) ────────────
+    // ── Memory maintenance — decay + reinforcement (CONCEPT:EG-KG.maintenance.combined-maintenance-primitive) ────────────
 
     /// Decode a node's `importance` as f64 (test helper).
     fn imp_of(g: &GraphCore, id: &str) -> f64 {
@@ -6378,7 +6378,7 @@ mod tests {
         assert!(obj_of(&g, "untouched").get("last_decay_ms").is_none());
     }
 
-    // ── Scene-graph / 3D world model (CONCEPT:EG-087) ─────────────────────────
+    // ── Scene-graph / 3D world model (CONCEPT:EG-KG.compute.scene-graph-primitives) ─────────────────────────
 
     use crate::scene::{Aabb, Pose, Quat, Vec3};
 
@@ -6531,7 +6531,7 @@ mod tests {
         assert!(g1.scene_parent(&orphan).is_none());
     }
 
-    // ── Action / policy / trajectory memory (CONCEPT:EG-099) ──────────────────
+    // ── Action / policy / trajectory memory (CONCEPT:EG-KG.compute.discounted-return) ──────────────────
 
     /// Build a trajectory with `rewards[i]` at timestep `i` (action = "a{i}").
     /// Returns the trajectory id.

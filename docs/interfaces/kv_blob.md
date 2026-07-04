@@ -11,7 +11,7 @@ surface.
 ## Embedded engine (`embedded` feature)
 
 `EmbeddedEngine::open(persist_dir, options)` is an in-process handle over the **same** redb durable rows
-the server uses — with no Tokio, no socket, and no HMAC (KG-2.216). It is the "100M agents, a local
+the server uses — with no Tokio, no socket, and no HMAC (EG-KG.backend.engine-modes). It is the "100M agents, a local
 engine each" path: open a persist dir and call graph ops as plain methods, with commit-before-return
 durability.
 
@@ -31,7 +31,7 @@ redb is the storage engine; the durable tables are **graph-shaped**, not a gener
 Alongside them, the **`kv` feature (EG-022)** exposes a *generic* namespaced `(namespace, key) -> bytes`
 store via the `Method::Kv*` ops (`get`/`put`/`scan`/`cas`) — durable, commit-before-ack, and not
 graph-scoped — so the engine is a drop-in RocksDB/redb-style KV store. The Redis **RESP2/3 wire**
-(`redis-wire`, EG-174) speaks the same surface with strings/hashes/lists/sets/sorted-sets + pub/sub +
+(`redis-wire`, EG-KG.ontology.resp2-resp3-codec-round) speaks the same surface with strings/hashes/lists/sets/sorted-sets + pub/sub +
 `MULTI`/`EXEC`.
 
 ## Content-addressed blob store (`blob` / `blob-s3`)
@@ -55,7 +55,7 @@ flowchart LR
 - **S3 / MinIO backend** (`blob-s3`, not in any tier bundle): chunk bytes go to object storage via the
   `object_store` SDK while manifests + refcounts stay in a redb sidecar — the protocol, manifest, and
   linkage are byte-identical to the redb backend.
-- **Content-defined chunking** (Gear/FastCDC rolling-hash, variable boundaries) is shipped (EG-071),
+- **Content-defined chunking** (Gear/FastCDC rolling-hash, variable boundaries) is shipped (EG-KG.storage.backward-manifest-read),
   replacing the earlier fixed 2 MiB split — sha256 CAS dedup + refcount GC are preserved.
 
 The blob tier is the bytes substrate under multimodal `:Media` / `:Blob` nodes, so a blob reference

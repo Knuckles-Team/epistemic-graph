@@ -1,4 +1,4 @@
-"""End-to-end round-trip of the ontology lexical gate (CONCEPT:EG-010).
+"""End-to-end round-trip of the ontology lexical gate (CONCEPT:EG-ORCH.routing.lexical-capability-escalation).
 
 Exercises the full path Python client → MessagePack/UDS → Rust
 ``Method::MatchOntologyTerms`` handler → ``GraphCore::match_ontology_terms`` →

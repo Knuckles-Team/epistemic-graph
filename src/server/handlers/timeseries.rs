@@ -1,4 +1,4 @@
-//! Native time-series handler (CONCEPT:KG-2.210/211, feature `tsdb`).
+//! Native time-series handler (CONCEPT:AU-KG.retrieval.god-nodes-communities/211, feature `tsdb`).
 //!
 //! Owns the `Ts*` methods (`TsAppend`/`TsRange`/`TsAsofJoin`/`TsWindow`/`TsGapFill`)
 //! — the one `// ── Time-series ──` protocol section. These are STATEFUL (they use

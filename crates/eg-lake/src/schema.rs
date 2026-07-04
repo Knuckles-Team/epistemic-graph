@@ -1,9 +1,9 @@
 //! The lakehouse data model: a typed schema, cell values and a row batch
-//! (CONCEPT:EG-317).
+//! (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns).
 //!
 //! This is the neutral, dependency-free currency `eg-lake` speaks. The engine's real
-//! columnar data — an `eg-tsdb::ColumnarSegment` (CONCEPT:EG-089) or a user-table row
-//! batch out of `eg-query`'s `tables/` store (CONCEPT:EG-018) — is converted INTO a
+//! columnar data — an `eg-tsdb::ColumnarSegment` (CONCEPT:EG-KG.temporal.columnar-schema-inference) or a user-table row
+//! batch out of `eg-query`'s `tables/` store (CONCEPT:EG-KG.query.register-user-tables-alongside) — is converted INTO a
 //! [`LakeBatch`] at the (documented) engine-side seam, and everything below (Parquet
 //! transcode, Delta/Iceberg logs, the catalog) operates purely on this model. Keeping
 //! the model here — rather than depending on `eg-tsdb`/`eg-query` — is what lets
@@ -16,7 +16,7 @@
 
 use serde::{Deserialize, Serialize};
 
-/// The scalar type a lakehouse column holds (CONCEPT:EG-317). The intersection of the
+/// The scalar type a lakehouse column holds (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns). The intersection of the
 /// engine's columnar `ColType` and the user-table `ColumnType`, each mapping 1:1 to an
 /// Arrow / Parquet / Delta / Iceberg type (see the per-format `type_name` helpers).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -34,7 +34,7 @@ pub enum LakeType {
 }
 
 impl LakeType {
-    /// The Delta Lake logical type name for this column (CONCEPT:EG-317). Delta's
+    /// The Delta Lake logical type name for this column (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns). Delta's
     /// schema is a JSON string of these primitive names.
     pub fn delta_type_name(self) -> &'static str {
         match self {
@@ -46,7 +46,7 @@ impl LakeType {
         }
     }
 
-    /// The Apache Iceberg logical type name for this column (CONCEPT:EG-317).
+    /// The Apache Iceberg logical type name for this column (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns).
     pub fn iceberg_type_name(self) -> &'static str {
         match self {
             LakeType::Long => "long",
@@ -60,7 +60,7 @@ impl LakeType {
     }
 }
 
-/// One named, typed column in a [`LakeSchema`] (CONCEPT:EG-317).
+/// One named, typed column in a [`LakeSchema`] (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct LakeField {
     pub name: String,
@@ -89,7 +89,7 @@ impl LakeField {
 }
 
 /// An ordered list of typed columns — the schema of a materialized table
-/// (CONCEPT:EG-317).
+/// (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct LakeSchema {
     pub fields: Vec<LakeField>,
@@ -114,7 +114,7 @@ impl LakeSchema {
     }
 }
 
-/// One scalar cell in a row (CONCEPT:EG-317). `Null` records an absent value (the
+/// One scalar cell in a row (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns). `Null` records an absent value (the
 /// engine's null-bitmap slot in EG-089); the type is carried by the schema, not the
 /// cell.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -135,7 +135,7 @@ impl CellValue {
 }
 
 /// A row-major batch of typed rows aligned to a [`LakeSchema`] — the unit the
-/// engine hands `eg-lake` to materialize (CONCEPT:EG-317). Row-major is the shape the
+/// engine hands `eg-lake` to materialize (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns). Row-major is the shape the
 /// engine's `ColumnarSegment::from_rows` / a user-table `SELECT *` already speak; the
 /// Parquet writer explodes it column-major internally.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -146,7 +146,7 @@ pub struct LakeBatch {
 
 impl LakeBatch {
     /// Build a batch, validating every row's arity against the schema
-    /// (CONCEPT:EG-317). Cell/column type mismatches are NOT coerced here — the
+    /// (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns). Cell/column type mismatches are NOT coerced here — the
     /// Parquet writer treats a wrong-typed cell as null for that column, matching the
     /// engine's schema-on-read tolerance; arity is the one hard invariant.
     pub fn new(schema: LakeSchema, rows: Vec<Vec<CellValue>>) -> Result<Self, String> {

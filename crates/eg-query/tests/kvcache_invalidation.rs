@@ -1,4 +1,4 @@
-//! Cache-coherence SEAM regression (CONCEPT:EG-369).
+//! Cache-coherence SEAM regression (CONCEPT:EG-KG.query.concept-9).
 //!
 //! The audit's cache finding: the SQL result cache is **version-keyed** — a write bumps
 //! the OCC `version()`, so the next query at the new version MISSES and re-scans, and a

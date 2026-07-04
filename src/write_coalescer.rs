@@ -1,5 +1,5 @@
 //! Per-graph write coalescer — turns N concurrent single-op writes to ONE graph
-//! into ONE topology-lock acquisition per batch (CONCEPT:KG-2.182).
+//! into ONE topology-lock acquisition per batch (CONCEPT:EG-KG.sharding.per-graph-write-coalescer).
 //!
 //! ## Why
 //! Every structural write to a graph (`add_node`/`add_edge`/CAS/…) opens a one-shot
@@ -165,7 +165,7 @@ impl Default for CoalescerConfig {
 /// Per-graph write coalescer: a bounded channel + one drain worker over a graph's
 /// [`GraphCore`]. Cloneable via `Arc`; held in [`WriteCoalescerRegistry`].
 pub struct GraphWriter {
-    // CONCEPT:EG-011 — the channel carries the op's enqueue `Instant` alongside it so
+    // CONCEPT:EG-KG.compute.parse-resolve-span — the channel carries the op's enqueue `Instant` alongside it so
     // the worker can record `write_lock_wait` = (lock acquired − enqueued). Stamped in
     // `try_enqueue`/`apply_one_inline`, so producer call sites are unchanged.
     tx: mpsc::Sender<(Instant, WriteOp)>,
@@ -198,7 +198,7 @@ impl GraphWriter {
     ///   the op (still owning its reply sender) is handed BACK so the caller applies
     ///   it inline and replies itself. Coalescing is an optimization, never a stall.
     pub fn try_enqueue(&self, op: WriteOp) -> Result<(), WriteOp> {
-        // CONCEPT:EG-011 — stamp the enqueue instant here (the moment the producer
+        // CONCEPT:EG-KG.compute.parse-resolve-span — stamp the enqueue instant here (the moment the producer
         // hands the op off) so the worker measures the true enqueue→acquire wait.
         match self.tx.try_send((Instant::now(), op)) {
             Ok(()) => Ok(()),
@@ -213,7 +213,7 @@ impl GraphWriter {
     /// same channel whether the op was batched or applied inline. Counted in the
     /// same stats as the batched path.
     pub fn apply_one_inline(&self, core: &Arc<GraphCore>, graph_name: &str, op: WriteOp) {
-        // CONCEPT:EG-011 — stamp now; the inline fallback acquires the lock essentially
+        // CONCEPT:EG-KG.compute.parse-resolve-span — stamp now; the inline fallback acquires the lock essentially
         // immediately, so its recorded wait reflects only the (tiny) acquire cost.
         apply_batch(core, graph_name, vec![(Instant::now(), op)], &self.stats);
     }
@@ -232,7 +232,7 @@ async fn run_worker(
     config: CoalescerConfig,
     stats: Arc<BatchStats>,
 ) {
-    // CONCEPT:EG-011 — each entry carries its enqueue instant (set by `try_enqueue`).
+    // CONCEPT:EG-KG.compute.parse-resolve-span — each entry carries its enqueue instant (set by `try_enqueue`).
     let mut batch: Vec<(Instant, WriteOp)> = Vec::with_capacity(config.max_batch);
     while let Some(first) = rx.recv().await {
         batch.push(first);
@@ -279,12 +279,12 @@ fn apply_batch(
         return;
     }
     let n = batch.len();
-    // CONCEPT:EG-011 — span the batch apply so the hot write path is a trace span
+    // CONCEPT:EG-KG.compute.parse-resolve-span — span the batch apply so the hot write path is a trace span
     // carrying the graph + batch size (mirrors the AST/ANN phase spans).
     let _span = tracing::debug_span!("write_coalescer.apply_batch", graph = graph_name, batch = n)
         .entered();
     let mut txn = core.txn(); // ← the SINGLE lock acquisition for the whole batch.
-                              // CONCEPT:EG-011 — the topology write lock is now HELD. Record each op's wait
+                              // CONCEPT:EG-KG.compute.parse-resolve-span — the topology write lock is now HELD. Record each op's wait
                               // (enqueue → acquire) = the starvation it paid behind the firehose, then time the
                               // hold window (acquire → release) = the contention readers/other writers block on.
     let acquired = Instant::now();
@@ -340,7 +340,7 @@ fn apply_batch(
         }
     }
     drop(txn); // release the lock; reads + the next batch can proceed.
-               // CONCEPT:EG-011 — hold = acquire → release: the window readers were blocked.
+               // CONCEPT:EG-KG.compute.parse-resolve-span — hold = acquire → release: the window readers were blocked.
     crate::metrics::observe_write_lock_hold(graph_name, acquired.elapsed().as_secs_f64());
     stats.record(n);
     crate::metrics::write_batch_committed(graph_name, n);
@@ -411,7 +411,7 @@ impl WriteCoalescerRegistry {
         Some(writer)
     }
 
-    /// Drop the cached writer for `graph_name` (CONCEPT:KG-2.237). Called by
+    /// Drop the cached writer for `graph_name` (CONCEPT:EG-KG.backend.many-repeated-create-delete). Called by
     /// `DeleteGraph` so a same-name recreate does NOT inherit the deleted
     /// incarnation's writer — whose worker task owns an `Arc<GraphCore>` of the OLD,
     /// now-orphaned core. Without this, `writer_for` would return the stale writer
@@ -716,7 +716,7 @@ mod tests {
     }
 
     /// After a delete (`remove`) + recreate, a write to the SAME name must land on the
-    /// NEW core, never the deleted incarnation's orphaned core (CONCEPT:KG-2.237).
+    /// NEW core, never the deleted incarnation's orphaned core (CONCEPT:EG-KG.backend.many-repeated-create-delete).
     /// Without `remove`, `writer_for` returns the stale writer (it is name-keyed and
     /// ignores the new core) and the write lands on the old core — the tenant-churn
     /// corruption.

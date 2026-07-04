@@ -1,4 +1,4 @@
-//! The GraphQL resolver (CONCEPT:KG-2.235): compile a parsed [`Query`] to scans +
+//! The GraphQL resolver (CONCEPT:EG-KG.query.sparql-completeness): compile a parsed [`Query`] to scans +
 //! BFS over the SAME `GraphView` the Cypher / unified executor reads, and materialize
 //! the result as JSON. NO second graph copy, NO async-graphql — the same "more scans
 //! over the one substrate" approach as eg-rdf's SPARQL compile.
@@ -25,7 +25,7 @@ use crate::parser::{
 };
 use crate::schema::{decode, node_labels, Schema};
 
-/// Execution variables (CONCEPT:EG-065): a map of `$name` → bound value, used to
+/// Execution variables (CONCEPT:EG-KG.query.fragments-variables-directives): a map of `$name` → bound value, used to
 /// substitute variable references in arguments and evaluate `@skip`/`@include`.
 pub(crate) type Variables = HashMap<String, GqlValue>;
 
@@ -45,7 +45,7 @@ pub fn execute(view: &GraphView, query: &str) -> Result<Value, String> {
     execute_with_variables(view, query, &Value::Null)
 }
 
-/// Parse + execute a GraphQL query, binding the supplied `variables` (CONCEPT:EG-065).
+/// Parse + execute a GraphQL query, binding the supplied `variables` (CONCEPT:EG-KG.query.fragments-variables-directives).
 ///
 /// `variables` is a JSON object of `name → value`; a `query Q($x: Int) { … }` op's
 /// declared defaults are applied first, then overridden by any provided value. Fragment
@@ -65,7 +65,7 @@ pub fn execute_with_variables(
         ));
     }
     let vars = bind_variables(&doc.var_defs, variables);
-    // CONCEPT:EG-295 — an Apollo Federation subgraph query (`_service`/`_entities`) is
+    // CONCEPT:EG-KG.query.apollo-federation-subgraph — an Apollo Federation subgraph query (`_service`/`_entities`) is
     // dispatched to the federation resolver before the normal node-label root path (those
     // meta-fields are not node labels, so `execute_query` would reject them).
     #[cfg(feature = "federation")]
@@ -89,7 +89,7 @@ pub fn execute_query(view: &GraphView, q: &Query) -> Result<Value, String> {
             ));
         }
         // A plain root resolves to a `[Type]` array; a relay-connection root
-        // (CONCEPT:EG-066) resolves to a connection envelope object — so insert the
+        // (CONCEPT:EG-KG.query.graphql-cursors) resolves to a connection envelope object — so insert the
         // resolved Value directly rather than always wrapping in an array.
         data.insert(root.alias.clone(), resolve_root(view, root)?);
     }
@@ -100,7 +100,7 @@ pub fn execute_query(view: &GraphView, q: &Query) -> Result<Value, String> {
     ))
 }
 
-// ── fragments / variables / directives desugar (CONCEPT:EG-065) ──────────────────
+// ── fragments / variables / directives desugar (CONCEPT:EG-KG.query.fragments-variables-directives) ──────────────────
 
 /// Bind execution variables: declared defaults first, then the JSON-provided overrides.
 pub(crate) fn bind_variables(defs: &[crate::parser::VarDef], provided: &Value) -> Variables {
@@ -120,7 +120,7 @@ pub(crate) fn bind_variables(defs: &[crate::parser::VarDef], provided: &Value) -
 
 /// Lower a [`RawDocument`] to the plain [`Field`] tree the resolver consumes: inline
 /// fragment spreads / inline fragments, apply `@skip`/`@include`, and substitute `$var`
-/// references in arguments using `vars` (CONCEPT:EG-065).
+/// references in arguments using `vars` (CONCEPT:EG-KG.query.fragments-variables-directives).
 pub(crate) fn flatten_document(doc: &RawDocument, vars: &Variables) -> Result<Vec<Field>, String> {
     let frags: HashMap<&str, &Fragment> =
         doc.fragments.iter().map(|f| (f.name.as_str(), f)).collect();
@@ -181,7 +181,7 @@ pub(crate) fn flatten_selections(
     Ok(out)
 }
 
-/// Apply `@skip(if:)` / `@include(if:)` directives (CONCEPT:EG-065): returns whether the
+/// Apply `@skip(if:)` / `@include(if:)` directives (CONCEPT:EG-KG.query.fragments-variables-directives): returns whether the
 /// element survives. Unknown directives are ignored.
 pub(crate) fn should_include(directives: &[Directive], vars: &Variables) -> Result<bool, String> {
     let mut include = true;
@@ -249,10 +249,10 @@ fn json_to_gql(v: &Value) -> GqlValue {
     }
 }
 
-// ── root resolution (plain `[Type]` array OR relay connection, CONCEPT:EG-066) ────
+// ── root resolution (plain `[Type]` array OR relay connection, CONCEPT:EG-KG.query.graphql-cursors) ────
 
 /// Resolve a root field. If its selection has a relay shape (an `edges` / `pageInfo`
-/// child), return a connection envelope (CONCEPT:EG-066); otherwise return the plain
+/// child), return a connection envelope (CONCEPT:EG-KG.query.graphql-cursors); otherwise return the plain
 /// `[Type]` array (unchanged behavior).
 pub(crate) fn resolve_root(view: &GraphView, field: &Field) -> Result<Value, String> {
     if is_relay_selection(&field.selection) {
@@ -309,7 +309,7 @@ fn resolve_plain_root(view: &GraphView, field: &Field) -> Result<Vec<Value>, Str
     Ok(out)
 }
 
-/// Resolve a root field as a relay-style connection (CONCEPT:EG-066): apply the
+/// Resolve a root field as a relay-style connection (CONCEPT:EG-KG.query.graphql-cursors): apply the
 /// `first`/`after`/`before`/`last` cursor args over the SAME deterministic (id-sorted)
 /// match order the plain path uses, and materialize the `edges { node cursor } pageInfo`
 /// envelope the selection asks for. Cursors are the base64 of the node id (the sort
@@ -445,7 +445,7 @@ pub(crate) fn ordered_matches(
     out
 }
 
-/// The relay cursor args split off a field's arguments (CONCEPT:EG-066).
+/// The relay cursor args split off a field's arguments (CONCEPT:EG-KG.query.graphql-cursors).
 #[derive(Default)]
 struct RelayArgs {
     first: Option<usize>,
@@ -497,7 +497,7 @@ fn cursor_decode(cursor: &str) -> Option<String> {
 }
 
 /// A tiny hand-written standard base64 encoder (keeps the crate dependency-free — no
-/// base64 crate pulled in for CONCEPT:EG-066 cursors).
+/// base64 crate pulled in for CONCEPT:EG-KG.query.graphql-cursors cursors).
 fn b64_encode(input: &[u8]) -> String {
     const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::new();
@@ -556,7 +556,7 @@ fn b64_decode(s: &str) -> Option<Vec<u8>> {
 }
 
 /// Resolve a node's selection set into a JSON object. `pub(crate)` so the mutation
-/// executor (CONCEPT:EG-019) can shape the object it returns for a written node using
+/// executor (CONCEPT:EG-KG.query.mutation) can shape the object it returns for a written node using
 /// the SAME selection-resolution the query path uses.
 pub(crate) fn resolve_selection(
     view: &GraphView,
@@ -573,7 +573,7 @@ pub(crate) fn resolve_selection(
     for f in selection {
         // The `__typename` meta-field resolves to the node's primary label — needed by
         // GraphQL introspection and by Apollo Federation `_entities` selections
-        // (CONCEPT:EG-295), which typically select `__typename` alongside an inline
+        // (CONCEPT:EG-KG.query.apollo-federation-subgraph), which typically select `__typename` alongside an inline
         // fragment per entity type.
         if f.name == "__typename" && f.selection.is_empty() {
             let tn = node_labels(val).into_iter().next().unwrap_or_default();

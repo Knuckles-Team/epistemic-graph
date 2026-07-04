@@ -1,4 +1,4 @@
-//! Multi-rate sensor-stream alignment for multimodal fusion (CONCEPT:EG-098).
+//! Multi-rate sensor-stream alignment for multimodal fusion (CONCEPT:EG-KG.query.multi-rate-sensor-stream).
 //!
 //! The TIME half of robotics/IoT sensor fusion: time-align N scalar sensor series that
 //! are sampled at DIFFERENT rates (e.g. a 1 kHz IMU, a 10 Hz GPS, a 30 Hz camera-scalar)
@@ -20,7 +20,7 @@
 use crate::point::{Point, Ts};
 use crate::query::asof_join_backward;
 
-/// Per-channel resample interpolation mode (CONCEPT:EG-098). Chosen per stream because
+/// Per-channel resample interpolation mode (CONCEPT:EG-KG.query.multi-rate-sensor-stream). Chosen per stream because
 /// modalities differ: a pose is `Linear`-interpolable, a discrete mode/label wants
 /// `AsofHold`, a noisy raw reading may want `Nearest`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -37,7 +37,7 @@ pub enum InterpMode {
     AsofHold,
 }
 
-/// One input stream to align (CONCEPT:EG-098): a channel `name`, its ts-sorted `points`
+/// One input stream to align (CONCEPT:EG-KG.query.multi-rate-sensor-stream): a channel `name`, its ts-sorted `points`
 /// (field 0 = the scalar reading), the per-channel [`InterpMode`], and an optional
 /// staleness `tolerance` in ns (`None` = unbounded). `points` MUST be ascending in `ts`
 /// (as they come out of the store) — the merge/bisection relies on it.
@@ -66,7 +66,7 @@ impl StreamSpec {
     }
 }
 
-/// One aligned channel (CONCEPT:EG-098): its `name` + one `Option<f64>` per grid instant,
+/// One aligned channel (CONCEPT:EG-KG.query.multi-rate-sensor-stream): its `name` + one `Option<f64>` per grid instant,
 /// `None` marking a GAP (no usable sample within tolerance / outside the span). `values`
 /// always has the same length as the [`AlignedFrame`]'s `grid`.
 #[derive(Clone, Debug, PartialEq)]
@@ -75,7 +75,7 @@ pub struct AlignedChannel {
     pub values: Vec<Option<f64>>,
 }
 
-/// N channels resampled onto ONE shared `grid` (CONCEPT:EG-098): the common time base +
+/// N channels resampled onto ONE shared `grid` (CONCEPT:EG-KG.query.multi-rate-sensor-stream): the common time base +
 /// one aligned column per input stream, in input order. This is the pure-time-series
 /// hand-off that `eg-tensor::fusion` stacks into a fused tensor frame.
 #[derive(Clone, Debug, PartialEq)]
@@ -87,7 +87,7 @@ pub struct AlignedFrame {
 /// Resample a ts-sorted scalar series (field 0 of each [`Point`]) onto `grid` under
 /// `mode`, bounding each match by `tolerance` ns (`None` = unbounded). Returns one
 /// `Option<f64>` per grid instant — `None` is a GAP. `grid` MUST be ascending; an empty
-/// `points` yields all-`None` (CONCEPT:EG-098).
+/// `points` yields all-`None` (CONCEPT:EG-KG.query.multi-rate-sensor-stream).
 pub fn resample(
     points: &[Point],
     grid: &[Ts],
@@ -163,7 +163,7 @@ fn linear(points: &[Point], t: Ts, tolerance: Option<i64>) -> Option<f64> {
     Some(pv + (nv - pv) * frac)
 }
 
-/// Time-align N multi-rate `streams` onto a shared `grid` (CONCEPT:EG-098): each stream
+/// Time-align N multi-rate `streams` onto a shared `grid` (CONCEPT:EG-KG.query.multi-rate-sensor-stream): each stream
 /// is [`resample`]d under its own mode/tolerance, yielding one [`AlignedChannel`] per
 /// stream in input order. This is the pure-time-series fusion primitive; `eg-tensor`
 /// turns the result into a dense tensor frame + mask.
@@ -181,7 +181,7 @@ pub fn align_multirate(streams: &[StreamSpec], grid: &[Ts]) -> AlignedFrame {
     }
 }
 
-/// A uniform target grid: `from`, `from+step`, … strictly `< to` (CONCEPT:EG-098).
+/// A uniform target grid: `from`, `from+step`, … strictly `< to` (CONCEPT:EG-KG.query.multi-rate-sensor-stream).
 /// `step <= 0` ⇒ empty.
 pub fn uniform_grid(from: Ts, to: Ts, step: Ts) -> Vec<Ts> {
     let mut g = Vec::new();
@@ -198,7 +198,7 @@ pub fn uniform_grid(from: Ts, to: Ts, step: Ts) -> Vec<Ts> {
 
 /// The tumbling-window START timestamps spanning `[from, to)` under EG-067 window
 /// semantics — each aligned to `width` as `(t/width)*width` (matching `time_bucket`).
-/// `width <= 0` or `from >= to` ⇒ empty (CONCEPT:EG-098). Assumes non-negative ts
+/// `width <= 0` or `from >= to` ⇒ empty (CONCEPT:EG-KG.query.multi-rate-sensor-stream). Assumes non-negative ts
 /// (epoch-ns), consistent with `time_bucket`.
 pub fn tumbling_window_starts(from: Ts, to: Ts, width: Ts) -> Vec<Ts> {
     let mut g = Vec::new();

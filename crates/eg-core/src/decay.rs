@@ -1,10 +1,10 @@
-//! The ONE temporal-decay curve (CONCEPT:KG-2.211).
+//! The ONE temporal-decay curve (CONCEPT:EG-KG.compute.handled-outside-single-anchor).
 //!
 //! The engine's memory/confidence model and the time-series store are the **same
 //! temporal model**: a fact's salience and a tick's recency-weight both fall off
 //! exponentially with age on an Ebbinghaus forgetting curve. Historically that
 //! curve was inlined in `src/server/compute.rs` (semantic-search confidence decay,
-//! CONCEPT:KG-2.16). It now lives here, at the bottom of the DAG, so BOTH the
+//! CONCEPT:EG-KG.compute.graph-compute-engine). It now lives here, at the bottom of the DAG, so BOTH the
 //! semantic-memory path AND the time-series `decay_weighted_mean` (eg-tsdb) call
 //! ONE function — proving "memory + series are one temporal model".
 //!

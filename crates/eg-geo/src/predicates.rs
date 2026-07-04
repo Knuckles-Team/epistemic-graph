@@ -1,10 +1,10 @@
-//! Planar spatial predicates (CONCEPT:EG-083): `within`, `intersects`, `distance`,
-//! extended (CONCEPT:EG-257) to recurse over multi-geometries / collections and to
+//! Planar spatial predicates (CONCEPT:EG-KG.ontology.singles-concept): `within`, `intersects`, `distance`,
+//! extended (CONCEPT:EG-KG.domains.geometry-collections) to recurse over multi-geometries / collections and to
 //! honour polygon interior rings (holes).
 //!
 //! All metrics are **Euclidean / planar** (coordinates are treated as a flat plane).
 //! The geodesic (great-circle / ellipsoidal) metrics for true lon/lat inputs live in
-//! [`crate::geodesic`] (CONCEPT:EG-256); the predicate signatures here are unchanged so
+//! [`crate::geodesic`] (CONCEPT:EG-KG.ontology.concept-8); the predicate signatures here are unchanged so
 //! eg-plan's `geo` executor keeps compiling.
 //!
 //! Composite geometries flatten to atomic [`Prim`]s: a multi's predicate recurses over
@@ -203,7 +203,7 @@ fn seg_seg_intersect(p1: &Point, p2: &Point, p3: &Point, p4: &Point) -> bool {
         || (d4 == 0.0 && point_on_segment(p4, p1, p2))
 }
 
-// ── DE-9IM topological relations (CONCEPT:EG-258) ────────────────────────────────
+// ── DE-9IM topological relations (CONCEPT:EG-KG.ontology.de-9im-relations) ────────────────────────────────
 //
 // The full OGC/DE-9IM relation set beyond EG-083's `within`/`intersects`, computed over
 // the flattened primitives (multis/collections) honouring polygon interior rings. All
@@ -270,7 +270,7 @@ pub fn crosses(a: &Geometry, b: &Geometry) -> bool {
 }
 
 /// Do the BOUNDARIES of `a` and `b` share at least one point — the DE-9IM `B(a) ∩ B(b)`
-/// cell (CONCEPT:EG-155)?
+/// cell (CONCEPT:EG-KG.ontology.concept-7)?
 ///
 /// The boundary is the polygon's rings (exterior + holes) or a linestring's chain
 /// segments; a point has an empty boundary (so it never boundary-intersects). This is the
@@ -279,7 +279,7 @@ pub fn crosses(a: &Geometry, b: &Geometry) -> bool {
 /// families (TPP vs NTPP, `ehCoveredBy`/`ehCovers` vs `ehInside`/`ehContains`): a proper
 /// part whose boundary meets its container's boundary is *tangential*, otherwise
 /// *non-tangential*. Exact for the common polygon cases; segment-based like the sibling
-/// predicates. (CONCEPT:EG-155)
+/// predicates. (CONCEPT:EG-KG.ontology.concept-7)
 pub fn boundaries_intersect(a: &Geometry, b: &Geometry) -> bool {
     let (pa, pb) = (prims(a), prims(b));
     for x in &pa {
@@ -521,7 +521,7 @@ mod tests {
         assert!(!within(&outside, &square()));
     }
 
-    /// CONCEPT:EG-155: `boundaries_intersect` is true when two polygons' rings share a
+    /// CONCEPT:EG-KG.ontology.concept-7: `boundaries_intersect` is true when two polygons' rings share a
     /// point (a boundary-tangential inner square, and an edge-abutting neighbour), and
     /// false for a strictly-interior square (whose ring never meets the container's) — the
     /// exact cell that separates tangential from non-tangential part relations. (Uses the
@@ -603,7 +603,7 @@ mod tests {
 
     #[test]
     fn point_in_polygon_with_hole_predicate() {
-        // 10×10 square with a central 4×4 hole (CONCEPT:EG-257).
+        // 10×10 square with a central 4×4 hole (CONCEPT:EG-KG.domains.geometry-collections).
         let ext = LineString::new(vec![
             Point::new(0.0, 0.0),
             Point::new(10.0, 0.0),
@@ -668,7 +668,7 @@ mod tests {
         assert!((d - 1.0).abs() < 1e-9, "nearest-part distance {d}");
     }
 
-    // ── DE-9IM relations (CONCEPT:EG-258) ────────────────────────────────────────
+    // ── DE-9IM relations (CONCEPT:EG-KG.ontology.de-9im-relations) ────────────────────────────────────────
 
     fn poly(pts: &[(f64, f64)]) -> Geometry {
         Geometry::Polygon(Polygon::new(LineString::new(

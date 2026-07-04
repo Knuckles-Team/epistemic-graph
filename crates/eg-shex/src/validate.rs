@@ -1,4 +1,4 @@
-//! The ShEx Core validation engine (CONCEPT:EG-133).
+//! The ShEx Core validation engine (CONCEPT:EG-KG.compute.concept-2).
 //!
 //! [`validate`] takes a parsed [`Schema`], an RDF data graph (`eg_rdf::oxrdf::Graph`) and
 //! a [`ShapeMap`] (focus node → shape label) and produces a [`ShexReport`]. For each
@@ -68,7 +68,7 @@ impl ShapeMap {
 /// Guard against pathological cyclic shape references.
 const MAX_DEPTH: usize = 40;
 
-/// Validate a shape map against a data graph using a parsed schema (CONCEPT:EG-133).
+/// Validate a shape map against a data graph using a parsed schema (CONCEPT:EG-KG.compute.concept-2).
 pub fn validate(schema: &Schema, data: &Graph, shape_map: &ShapeMap) -> ShexReport {
     let v = Validator { schema, data };
     let mut results = Vec::with_capacity(shape_map.entries.len());

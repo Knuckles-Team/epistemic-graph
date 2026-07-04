@@ -1,4 +1,4 @@
-//! Managed in-process Raft cluster for the harness (CONCEPT:KG-2.212).
+//! Managed in-process Raft cluster for the harness (CONCEPT:AU-KG.ontology.emits-database-ontology-entities).
 //!
 //! Wraps the same 3-node in-process machinery `raft::tests` uses (each node a
 //! `ServerState` over its OWN redb-AUTHORITATIVE persist dir, one shared listener
@@ -359,7 +359,7 @@ impl Cluster {
     }
 
     /// RESTART a previously-killed node over the SAME persist dir + port. Its durable
-    /// redb log replays locally (CONCEPT:KG-2.204) and it rejoins, catching up via the
+    /// redb log replays locally (CONCEPT:EG-KG.storage.one-fsync-covers-raft) and it rejoins, catching up via the
     /// leader's append/snapshot.
     pub async fn restart(&mut self, id: NodeId) -> Result<(), String> {
         let dir = {

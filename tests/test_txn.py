@@ -1,5 +1,5 @@
 """TxnClient stages the Txn* RPCs and threads the server-issued txn_id
-(CONCEPT:KG-2.180 — multi-op OCC ACID transactions).
+(CONCEPT:EG-KG.txn.multi-op-occ-acid — multi-op OCC ACID transactions).
 
 Fake client only — no running engine. Verifies the client builds the right
 wire methods/params (msgpack-packed property/condition blobs, txn_id threading)

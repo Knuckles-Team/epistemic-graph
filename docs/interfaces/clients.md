@@ -1,8 +1,8 @@
-# Client drivers (CONCEPT:EG-328)
+# Client drivers (CONCEPT:EG-KG.ingest.broker-streams-namespaces)
 
 > B1.7 — thin multi-language client drivers binding the Program-B engine `Method`s that
 > had no client surface: the native message **broker** + append-log **streams**
-> (EG-275..284/314), **RBAC** admin (EG-092), online **backup/restore** (EG-090), and
+> (EG-275..284/314), **RBAC** admin (EG-KG.compute.feature), online **backup/restore** (EG-090), and
 > **NL→query** (EG-080).
 
 There is **no PyO3 / FFI** between a client and the engine — the boundary is
@@ -40,9 +40,9 @@ the full graph/vector/RDF/SQL API is Python-only. **No faked SDK.**
 |--------|------------------|---------|--------|----|----|
 | Broker admin | `DeclareExchange` `DeleteExchange` `DeclareQueue` `BindQueue` `UnbindQueue` | EG-275/276/277/278 | `client.broker.*` | ✓ | ✓ |
 | Broker publish | `Publish` `PublishEx` `PublishConfirmed` `PublishIdempotent` | EG-275/279/284/314 | `client.broker.publish*` | ✓ | ✓ |
-| Broker consume | `BrokerConsume` `BrokerAck` `BrokerReject` `BrokerAckTag` `BrokerNackTag` `SweepExpired` | EG-280/276/284 | `client.broker.consume`/`ack`/`reject`/… | ✓ | ✓ |
+| Broker consume | `BrokerConsume` `BrokerAck` `BrokerReject` `BrokerAckTag` `BrokerNackTag` `SweepExpired` | EG-KG.compute.groups-qos-prefetch-honoring/276/284 | `client.broker.consume`/`ack`/`reject`/… | ✓ | ✓ |
 | Streams | `StreamDeclare` `StreamPublish` `StreamRead` `StreamTrim` `StreamCommitOffset` `StreamCommittedOffset` | EG-283 | `client.broker.stream_*` | ✓ | ✓ |
-| RBAC admin | `RbacAdmin` (AddRole/RemoveRole/AddGrant/RemoveGrant/List) | EG-092 | `client.rbac.*` | ✓ | ✓ |
+| RBAC admin | `RbacAdmin` (AddRole/RemoveRole/AddGrant/RemoveGrant/List) | EG-KG.compute.feature | `client.rbac.*` | ✓ | ✓ |
 | Ops | `Backup` `Restore` | EG-090 | `client.admin.*` | ✓ | ✓ |
 | NL→query | `NlQuery` | EG-080 | `client.query.nl_query` | ✓ | ✓ |
 
@@ -56,7 +56,7 @@ agent-utilities' LLM); the client just carries the text.
 
 ```mermaid
 flowchart LR
-  subgraph clients["Client drivers (CONCEPT:EG-328)"]
+  subgraph clients["Client drivers (CONCEPT:EG-KG.ingest.broker-streams-namespaces)"]
     PY["Python (full)\nepistemic_graph/client.py\n.broker / .rbac / .admin / query.nl_query"]
     JS["JS thin\nclients/js"]
     GO["Go thin\nclients/go"]
@@ -84,7 +84,7 @@ flowchart LR
 
   M_BROKER --> H1["handlers/graph_ops.rs\ncrate::broker (eg-core)\nEG-275..284/314"]
   M_STREAM --> H1
-  M_RBAC --> H2["dispatch.rs → isolation.rbac\neg-core acl · EG-092"]
+  M_RBAC --> H2["dispatch.rs → isolation.rbac\neg-core acl · EG-KG.compute.feature"]
   M_BAK  --> H3["handlers/admin.rs\nredb backup/restore · EG-090"]
   M_NL   --> H4["handlers/query.rs → NlPlanner\n→ UQL → run_unified · EG-078/080"]
 ```
@@ -95,7 +95,7 @@ flowchart LR
 every method the client sends must be a real variant, and the set of UNBOUND variants must
 equal `tests/protocol_unbound_baseline.txt`. B1.7 removed the broker/streams/NL/RBAC/backup
 entries from that baseline (they now have Python senders) and baselined the remaining
-un-bound EG-318 memory/scene/trajectory + CEP ops (deferred to roadmap B3.16 / B3.14).
+un-bound EG-KG.memory.eg-batch-decay-caller memory/scene/trajectory + CEP ops (deferred to roadmap B3.16 / B3.14).
 The JS/Go thin clients are generated from the same `Method` list by hand and kept in sync
 by review against `protocol.rs`.
 

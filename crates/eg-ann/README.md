@@ -1,4 +1,4 @@
-# eg-ann — native IVF-PQ + OPQ + SQ8-refine ANN index (CONCEPT:KG-2.207)
+# eg-ann — native IVF-PQ + OPQ + SQ8-refine ANN index (CONCEPT:EG-KG.sharding.semantic-embedding-store-backed)
 
 A pure-Rust, Pi-lean approximate-nearest-neighbour index that replaces the
 rebuild-on-load `hnsw_rs` store in `eg-core::compute::semantic`. Increment 1 of a
@@ -64,7 +64,7 @@ ids, `list_of`, tombstones, SQ8 min/scale), `codes.bin` (PQ codes), `refine.bin`
 with **one O(N) integer pass** — no k-means, no SVD, no f32 reconstruction.
 `tests::persist_reopen_no_rebuild_matches` proves identical results after reopen.
 With the `redb` feature, `redb_store::{save_redb,open_redb}` persist into the
-engine's redb durable tier (CONCEPT:KG-2.195) instead.
+engine's redb durable tier (CONCEPT:AU-KG.backend.backend-modes) instead.
 
 ## Updates
 
@@ -88,7 +88,7 @@ reopens via `load_index` WITHOUT rebuilding from raw vectors. The facade folds
 
 ## Deferred (later increments)
 
-- **Cross-shard scatter-gather kNN merge** (pairs with CONCEPT:KG-2.181) — the
+- **Cross-shard scatter-gather kNN merge** (pairs with CONCEPT:EG-KG.ingest.ingest-lane-affinity) — the
   index is per-graph/per-shard today; the k-way distance merge over the existing
   HRW shard fan-out is a separate increment.
 - **Hybrid filtered search** (metadata pre/post-filter pushed into the posting-list

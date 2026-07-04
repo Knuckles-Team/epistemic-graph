@@ -1,4 +1,4 @@
-# epistemic-graph — thin Go client (CONCEPT:EG-328)
+# epistemic-graph — thin Go client (CONCEPT:EG-KG.ingest.broker-streams-namespaces)
 
 A **deliberately thin** Go client for the Program-B engine `Method`s that had no client
 surface. It is **not a full SDK** — the canonical, full-featured client is the Python one
@@ -9,9 +9,9 @@ only the new wire ops from B1.7:
 |--------|---------|----------------|
 | Broker admin | `DeclareExchange` `DeleteExchange` `DeclareQueue` `BindQueue` `UnbindQueue` | EG-275/276/277/278 |
 | Broker publish | `Publish` `PublishEx` `PublishConfirmed` `PublishIdempotent` | EG-275/279/284/314 |
-| Broker consume | `BrokerConsume` `BrokerAck` `BrokerReject` `BrokerAckTag` `BrokerNackTag` `SweepExpired` | EG-280/276/284 |
+| Broker consume | `BrokerConsume` `BrokerAck` `BrokerReject` `BrokerAckTag` `BrokerNackTag` `SweepExpired` | EG-KG.compute.groups-qos-prefetch-honoring/276/284 |
 | Streams | `StreamDeclare` `StreamPublish` `StreamRead` `StreamTrim` `StreamCommitOffset` `StreamCommittedOffset` | EG-283 |
-| RBAC admin | `RbacAddRole` `RbacRemoveRole` `RbacAddGrant` `RbacRemoveGrant` `RbacList` | EG-092 |
+| RBAC admin | `RbacAddRole` `RbacRemoveRole` `RbacAddGrant` `RbacRemoveGrant` `RbacList` | EG-KG.compute.feature |
 | Ops | `Backup` `Restore` | EG-090 |
 | NL→query | `NlQuery` | EG-080 |
 

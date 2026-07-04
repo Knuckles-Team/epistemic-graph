@@ -1,4 +1,4 @@
-//! The bounded, deterministic fault gauntlet (CONCEPT:KG-2.212).
+//! The bounded, deterministic fault gauntlet (CONCEPT:AU-KG.ontology.emits-database-ontology-entities).
 //!
 //! `cargo test --features raft harness::` runs this. It exercises REAL faults against
 //! the CURRENT multi-raft + durable-log engine — partition, kill-leader, isolate,

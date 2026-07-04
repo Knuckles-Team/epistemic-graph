@@ -1,4 +1,4 @@
-// CONCEPT:KG-2.20f — Market-Microstructure, Sizing & Backtest-Validation Kernels
+// CONCEPT:EG-KG.domains.market-microstructure-sizing-backtest — Market-Microstructure, Sizing & Backtest-Validation Kernels
 //
 // Batched, stateless quantitative kernels for HFT market-making on binary CLOB
 // venues (Polymarket / Kalshi) and for rigorous strategy validation. Served over
@@ -924,7 +924,7 @@ pub fn diebold_mariano(losses_a: &[f64], losses_b: &[f64], h: usize) -> DieboldM
 }
 
 // ════════════════════════════════════════════════════════════════════════
-//  Signal combination, sizing & calibration (CONCEPT:KG-2.20i)
+//  Signal combination, sizing & calibration (CONCEPT:EG-KG.domains.quant-finance)
 // ════════════════════════════════════════════════════════════════════════
 
 /// Level-1 order-book imbalance I_t = (V_bid − V_ask)/(V_bid + V_ask) ∈ [−1, 1],
@@ -1362,7 +1362,7 @@ pub fn empirical_kelly(
 }
 
 // ════════════════════════════════════════════════════════════════════════
-//  Kyle insider/stealth-trading + dynamic legal risk (CONCEPT:KG-2.20k)
+//  Kyle insider/stealth-trading + dynamic legal risk (CONCEPT:EG-KG.domains.concept-2)
 //
 //  Distils Qiao & Xia (2026), "Insider and stealth trading with dynamic
 //  legal risk" (arXiv:2605.27684) — a continuous-time Kyle (1985)

@@ -1,6 +1,6 @@
 """Quant numerical helpers for the epistemic-graph client layer.
 
-CONCEPT:KG-2.18
+CONCEPT:AU-KG.retrieval.evidence-weighted-memory
 
 Pure-Python rolling-statistics and order-matching primitives used by the
 ergonomic client API. These were previously routed through an in-process
@@ -94,7 +94,7 @@ def group_relative_advantage(
 ) -> list[float]:
     """Group-relative advantage ``A_i = (r_i − μ) / σ`` — the GRPO/REINFORCE++ kernel.
 
-    CONCEPT:KG-2.20i
+    CONCEPT:EG-KG.domains.quant-finance
 
     Names the within-group reward normalization (the same math already exposed for
     cross-sectional finance signals as ``cross_sectional_rank`` / ``rolling_zscore``)
@@ -182,7 +182,7 @@ def ucb1_scores(
 ) -> list[float]:
     """UCB1 per-arm scores: ``mean + c*sqrt(ln(total)/count)``.
 
-    CONCEPT:AHE-3.33 — pure-Python reference for the online exploit/explore
+    CONCEPT:EG-AHE.harness.online-exploit-explore-reference — pure-Python reference for the online exploit/explore
     bandit mirrored by agent-utilities' ``ExploreExploitRouter`` (DecentMem
     online routing, arXiv:2605.22721). Kept here next to the other quant
     primitives so the Python client and a future Rust kernel arm can be held to

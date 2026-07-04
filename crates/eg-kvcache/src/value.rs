@@ -1,4 +1,4 @@
-//! The byte-block value model for the tiered cache (CONCEPT:EG-185).
+//! The byte-block value model for the tiered cache (CONCEPT:EG-KG.memory.byte-bounded-tiers).
 //!
 //! A [`TieredCache`](crate::TieredCache) value is a **byte block** (a KV-cache page: a
 //! contiguous run of attention key/value bytes for a token span). To move a value
@@ -16,7 +16,7 @@ use std::borrow::Cow;
 pub type Block = Vec<u8>;
 
 /// A cache value that can be rendered to / rebuilt from bytes so the tiered cache can
-/// compress it (WARM) and offload it (COLD), per CONCEPT:EG-185.
+/// compress it (WARM) and offload it (COLD), per CONCEPT:EG-KG.memory.byte-bounded-tiers.
 pub trait CacheValue: Clone {
     /// The value as a byte block. `Cow` so the common `Vec<u8>` case is zero-copy.
     fn as_bytes(&self) -> Cow<'_, [u8]>;
@@ -26,7 +26,7 @@ pub trait CacheValue: Clone {
     fn from_bytes(bytes: &[u8]) -> Self;
 
     /// The value's size in bytes — the unit ALL capacity accounting is done in
-    /// (CONCEPT:EG-185: tiers are bounded by bytes, not entry count).
+    /// (CONCEPT:EG-KG.memory.byte-bounded-tiers: tiers are bounded by bytes, not entry count).
     fn byte_len(&self) -> usize {
         self.as_bytes().len()
     }

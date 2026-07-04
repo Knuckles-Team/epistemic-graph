@@ -1,5 +1,5 @@
 //! **Raster tile pyramids** — a georeferenced coverage grid resampled into a
-//! slippy-map XYZ/TMS tile pyramid (CONCEPT:EG-338 build, CONCEPT:EG-339 fetch).
+//! slippy-map XYZ/TMS tile pyramid (CONCEPT:EG-KG.domains.raster-build build, CONCEPT:EG-KG.domains.raster-fetch fetch).
 //!
 //! EG-265 gave the engine the *vector* half of a tile server ([`crate::tiles`]:
 //! XYZ/TMS addressing + hand-rolled Mapbox Vector Tiles). This module adds the
@@ -11,12 +11,12 @@
 //!   plus a pixel-interleaved `data` buffer (`width * height * bands` bytes, row 0 =
 //!   north/top). serde-serialisable so a coverage persists as a typed value in the
 //!   engine's redb per-graph store, exactly like a [`crate::Geometry`].
-//! * [`Raster::tile`] (CONCEPT:EG-339) — fetch a single `z/x/y` tile: a
+//! * [`Raster::tile`] (CONCEPT:EG-KG.domains.raster-fetch) — fetch a single `z/x/y` tile: a
 //!   [`TILE_SIZE`]×[`TILE_SIZE`] [`RasterTile`] nearest-neighbour-resampled from the
 //!   source over the tile's Web-Mercator bounds ([`crate::tiles::Tile::bounds`]).
 //!   Correctly downsamples as `z` decreases and upsamples as it increases; source
 //!   pixels outside the coverage read as the `nodata` value (transparent for RGBA).
-//! * [`Raster::build_pyramid`] (CONCEPT:EG-338) — the batch op: for every zoom
+//! * [`Raster::build_pyramid`] (CONCEPT:EG-KG.domains.raster-build) — the batch op: for every zoom
 //!   `z_min..=z_max`, emit each XYZ tile that intersects the coverage. Returns a
 //!   [`Pyramid`] (an ordered `(Tile, RasterTile)` list) with per-zoom tile counts.
 //! * [`RasterTile::to_png`] / [`decode_png`] — a **hand-rolled, dependency-free**
@@ -38,7 +38,7 @@ use serde::{Deserialize, Serialize};
 /// The edge length (pixels) of a rendered raster tile — the slippy-map standard 256×256.
 pub const TILE_SIZE: u32 = 256;
 
-/// A minimal georeferenced coverage grid (CONCEPT:EG-338): a Web-Mercator (EPSG:3857)
+/// A minimal georeferenced coverage grid (CONCEPT:EG-KG.domains.raster-build): a Web-Mercator (EPSG:3857)
 /// [`Bbox`] over a `width`×`height` pixel grid with `bands` 8-bit bands per pixel.
 ///
 /// `data` is **pixel-interleaved, row-major**: the byte for pixel `(col, row)` band `b`
@@ -60,7 +60,7 @@ pub struct Raster {
     pub data: Vec<u8>,
 }
 
-/// Resampling options for [`Raster::tile`] / [`Raster::build_pyramid`] (CONCEPT:EG-339).
+/// Resampling options for [`Raster::tile`] / [`Raster::build_pyramid`] (CONCEPT:EG-KG.domains.raster-fetch).
 /// The default `nodata` is `0` — transparent / zero fill outside the coverage.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ResampleOptions {
@@ -69,7 +69,7 @@ pub struct ResampleOptions {
     pub nodata: u8,
 }
 
-/// A single rendered raster tile (CONCEPT:EG-339): a [`TILE_SIZE`]×[`TILE_SIZE`] pixel
+/// A single rendered raster tile (CONCEPT:EG-KG.domains.raster-fetch): a [`TILE_SIZE`]×[`TILE_SIZE`] pixel
 /// grid with the same band count as its source [`Raster`], pixel-interleaved row-major
 /// (row 0 = north, matching the XYZ tile). PNG-encode with [`RasterTile::to_png`] or read
 /// the raw bands from [`RasterTile::data`].
@@ -90,7 +90,7 @@ impl RasterTile {
     }
 }
 
-/// An ordered raster tile pyramid over `z_min..=z_max` (CONCEPT:EG-338), plus the number
+/// An ordered raster tile pyramid over `z_min..=z_max` (CONCEPT:EG-KG.domains.raster-build), plus the number
 /// of tiles emitted at each zoom (`counts[i]` is for zoom `z_min + i`).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Pyramid {
@@ -119,7 +119,7 @@ fn clamp_idx(v: f64, z: u32) -> u32 {
 
 impl Raster {
     /// The inclusive XYZ tile-index range `(tx_min, tx_max, ty_min, ty_max)` whose tiles
-    /// intersect this coverage at zoom `z` (CONCEPT:EG-338). The upper (east / south)
+    /// intersect this coverage at zoom `z` (CONCEPT:EG-KG.domains.raster-build). The upper (east / south)
     /// edges are treated as *exclusive* by an epsilon shrink, so a coverage whose extent
     /// lands exactly on a tile boundary does NOT spuriously spill into the next tile.
     pub fn tile_range(&self, z: u32) -> (u32, u32, u32, u32) {
@@ -154,7 +154,7 @@ impl Raster {
     }
 
     /// Fetch a single `z/x/y` tile, nearest-neighbour-resampled from the coverage over the
-    /// tile's Web-Mercator bounds (CONCEPT:EG-339). The result is [`TILE_SIZE`]×[`TILE_SIZE`]
+    /// tile's Web-Mercator bounds (CONCEPT:EG-KG.domains.raster-fetch). The result is [`TILE_SIZE`]×[`TILE_SIZE`]
     /// with the source band count; pixels outside the coverage take `opts.nodata`.
     pub fn tile(&self, z: u32, x: u32, y: u32, opts: &ResampleOptions) -> RasterTile {
         let tile = Tile::new(z, x, y);
@@ -183,7 +183,7 @@ impl Raster {
         }
     }
 
-    /// Build the full tile pyramid over `z_min..=z_max` (CONCEPT:EG-338): every XYZ tile
+    /// Build the full tile pyramid over `z_min..=z_max` (CONCEPT:EG-KG.domains.raster-build): every XYZ tile
     /// intersecting the coverage at each zoom, resampled via [`Raster::tile`]. Panics if
     /// `z_min > z_max`.
     pub fn build_pyramid(&self, z_min: u32, z_max: u32, opts: &ResampleOptions) -> Pyramid {
@@ -302,7 +302,7 @@ fn png_chunk(out: &mut Vec<u8>, kind: &[u8; 4], data: &[u8]) {
 }
 
 impl RasterTile {
-    /// Encode this tile as a PNG (CONCEPT:EG-339) — hand-rolled, dependency-free. Supports
+    /// Encode this tile as a PNG (CONCEPT:EG-KG.domains.raster-fetch) — hand-rolled, dependency-free. Supports
     /// 1/2/3/4 bands (grayscale / GA / RGB / RGBA). Returns `None` for other band counts
     /// (read [`RasterTile::data`] for raw band tiles instead).
     pub fn to_png(&self) -> Option<Vec<u8>> {
@@ -310,7 +310,7 @@ impl RasterTile {
     }
 }
 
-/// Encode a pixel-interleaved, row-major 8-bit image as PNG bytes (CONCEPT:EG-339).
+/// Encode a pixel-interleaved, row-major 8-bit image as PNG bytes (CONCEPT:EG-KG.domains.raster-fetch).
 /// `data` must be `width * height * bands` long. Uses filter type 0 (None) on every row.
 pub fn encode_png(width: u32, height: u32, bands: u32, data: &[u8]) -> Option<Vec<u8>> {
     let color_type = png_color_type(bands)?;
@@ -343,7 +343,7 @@ pub fn encode_png(width: u32, height: u32, bands: u32, data: &[u8]) -> Option<Ve
     Some(out)
 }
 
-/// Decode a PNG produced by [`encode_png`] (CONCEPT:EG-339) back into
+/// Decode a PNG produced by [`encode_png`] (CONCEPT:EG-KG.domains.raster-fetch) back into
 /// `(width, height, bands, pixel-interleaved data)`. Deliberately supports only the subset
 /// this module emits: 8-bit depth, non-interlaced, filter-0 scanlines, and zlib *stored*
 /// DEFLATE blocks. Returns `None` on any deviation. Mirrors EG-265's `decode_mvt` — a

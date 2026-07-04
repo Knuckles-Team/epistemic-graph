@@ -1,4 +1,4 @@
-//! The SHACL Core validation engine (CONCEPT:EG-132).
+//! The SHACL Core validation engine (CONCEPT:EG-KG.ontology.concept-6).
 //!
 //! [`validate`] takes a shapes graph and a data graph (both `eg_rdf::oxrdf::Graph`) and
 //! produces a [`ValidationReport`]. The algorithm mirrors the SHACL Core spec:
@@ -24,7 +24,7 @@ use crate::shapes::{
 };
 use crate::vocab;
 
-/// Validate a data graph against a shapes graph (CONCEPT:EG-132).
+/// Validate a data graph against a shapes graph (CONCEPT:EG-KG.ontology.concept-6).
 pub fn validate(shapes_graph: &Graph, data_graph: &Graph) -> ValidationReport {
     let v = Validator {
         shapes: ShapesGraph::new(shapes_graph),

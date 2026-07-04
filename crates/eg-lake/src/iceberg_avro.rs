@@ -1,5 +1,5 @@
 //! Real, spec-compliant Iceberg v2 **Avro** manifest + manifest-list writer
-//! (CONCEPT:EG-333 manifest / CONCEPT:EG-334 manifest-list).
+//! (CONCEPT:EG-KG.storage.eg-iceberg-avro-manifest manifest / CONCEPT:EG-KG.storage.iceberg-manifest-list manifest-list).
 //!
 //! The Iceberg table spec stores the file-list layer as **Avro** containers, not JSON:
 //! a snapshot's `manifest-list` (an Avro file, one `manifest_file` record per manifest)
@@ -22,7 +22,7 @@
 //!   `partition-spec-id`, `format-version`, `content`) sit in the Avro file header.
 //! * The `manifest_file` records carry the v2 `content` / `sequence_number` /
 //!   `min_sequence_number` / added·existing·deleted file & row counts.
-//! * **Per-column stats (CONCEPT:EG-350):** the `data_file` now carries the Iceberg
+//! * **Per-column stats (CONCEPT:EG-KG.storage.iceberg-avro-manifest-carries):** the `data_file` now carries the Iceberg
 //!   stats maps — `column_sizes` (108), `value_counts` (109), `null_value_counts`
 //!   (110), `nan_value_counts` (137), `lower_bounds` (125) and `upper_bounds` (128),
 //!   each an Avro `logicalType: map` (array of key/value records) keyed by the column's
@@ -45,7 +45,7 @@ use crate::iceberg::{iceberg_schema, manifest_file_path, manifest_list_path};
 use crate::schema::{CellValue, LakeSchema};
 use crate::snapshot::{ColumnStat, FileEntry, Lsn, SnapshotLog};
 
-/// Iceberg v2 `manifest_entry` Avro schema (CONCEPT:EG-333 + per-column stats EG-350).
+/// Iceberg v2 `manifest_entry` Avro schema (CONCEPT:EG-KG.storage.eg-iceberg-avro-manifest + per-column stats EG-350).
 /// Field-ids per the spec; the `data_file` carries the unpartitioned projection eg-lake
 /// tracks PLUS the six Iceberg stats maps (`logicalType: map`, keyed by column field-id)
 /// that drive external predicate pushdown / file skipping.
@@ -102,7 +102,7 @@ const MANIFEST_ENTRY_SCHEMA: &str = r#"{
   ]
 }"#;
 
-/// Iceberg v2 `manifest_file` Avro schema for the manifest list (CONCEPT:EG-334).
+/// Iceberg v2 `manifest_file` Avro schema for the manifest list (CONCEPT:EG-KG.storage.iceberg-manifest-list).
 const MANIFEST_FILE_SCHEMA: &str = r#"{
   "type": "record",
   "name": "manifest_file",
@@ -134,7 +134,7 @@ const MANIFEST_FILE_SCHEMA: &str = r#"{
 }"#;
 
 /// The real Avro Iceberg manifest artifacts for one committed snapshot
-/// (CONCEPT:EG-333/EG-334). The caller persists both byte blobs to the object store at
+/// (CONCEPT:EG-KG.storage.eg-iceberg-avro-manifest/EG-334). The caller persists both byte blobs to the object store at
 /// their respective paths (already the paths `metadata.json` references).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct IcebergManifests {
@@ -155,7 +155,7 @@ pub struct IcebergManifests {
     pub added_rows: u64,
 }
 
-/// Serialize a scalar to Iceberg **single-value binary** (CONCEPT:EG-350) — the encoding
+/// Serialize a scalar to Iceberg **single-value binary** (CONCEPT:EG-KG.storage.iceberg-avro-manifest-carries) — the encoding
 /// `lower_bounds` / `upper_bounds` values carry. Per the Iceberg spec: `long` / `timestamptz`
 /// as little-endian 8-byte, `double` as little-endian IEEE-754 8-byte, `boolean` as one
 /// byte (`0x00`/`0x01`), `string` as raw UTF-8 (no length prefix). Bounds are emitted
@@ -172,7 +172,7 @@ fn iceberg_binary(v: &CellValue) -> Vec<u8> {
 }
 
 /// One entry of an Iceberg `logicalType: map` field: an Avro `{key, value}` record with
-/// an `int` key (the column field-id) and the given value (CONCEPT:EG-350).
+/// an `int` key (the column field-id) and the given value (CONCEPT:EG-KG.storage.iceberg-avro-manifest-carries).
 fn map_entry(field_id: i32, value: AvroValue) -> AvroValue {
     AvroValue::Record(vec![
         ("key".into(), AvroValue::Int(field_id)),
@@ -181,7 +181,7 @@ fn map_entry(field_id: i32, value: AvroValue) -> AvroValue {
 }
 
 /// Wrap a built map as the `["null", array]` union value the schema declares
-/// (CONCEPT:EG-350): union branch 1 (the array) when any entry exists, else branch 0
+/// (CONCEPT:EG-KG.storage.iceberg-avro-manifest-carries): union branch 1 (the array) when any entry exists, else branch 0
 /// (null) so a reader sees the optional stat as genuinely absent.
 fn map_field(entries: Vec<AvroValue>) -> AvroValue {
     if entries.is_empty() {
@@ -192,7 +192,7 @@ fn map_field(entries: Vec<AvroValue>) -> AvroValue {
 }
 
 /// Build the six Iceberg stats-map field values for a `data_file` record from a file's
-/// per-column stats (CONCEPT:EG-350). Emits `column_sizes` / `value_counts` /
+/// per-column stats (CONCEPT:EG-KG.storage.iceberg-avro-manifest-carries). Emits `column_sizes` / `value_counts` /
 /// `null_value_counts` / `nan_value_counts` (int→long maps) and `lower_bounds` /
 /// `upper_bounds` (int→bytes maps), each keyed by the column's Iceberg field-id. A file
 /// with no gathered stats yields six null unions.
@@ -225,10 +225,10 @@ fn stats_fields(stats: Option<&Vec<ColumnStat>>) -> [(String, AvroValue); 6] {
     ]
 }
 
-/// Build one `manifest_entry` Avro value for a live data file (CONCEPT:EG-333). A
+/// Build one `manifest_entry` Avro value for a live data file (CONCEPT:EG-KG.storage.eg-iceberg-avro-manifest). A
 /// newly-added file leaves `sequence_number` / `file_sequence_number` null so the reader
 /// inherits the manifest's sequence number, per the v2 inheritance rule. The `data_file`
-/// carries the per-column Iceberg stats maps (CONCEPT:EG-350) when they were gathered.
+/// carries the per-column Iceberg stats maps (CONCEPT:EG-KG.storage.iceberg-avro-manifest-carries) when they were gathered.
 fn manifest_entry_value(location: &str, f: &FileEntry, snapshot_id: i64) -> AvroValue {
     let mut data_file = vec![
         ("content".into(), AvroValue::Int(0)), // 0 = DATA
@@ -265,7 +265,7 @@ fn manifest_entry_value(location: &str, f: &FileEntry, snapshot_id: i64) -> Avro
     ])
 }
 
-/// Write the Avro **manifest** file listing every live data file (CONCEPT:EG-333),
+/// Write the Avro **manifest** file listing every live data file (CONCEPT:EG-KG.storage.eg-iceberg-avro-manifest),
 /// with the required Iceberg manifest metadata in the container header.
 fn write_manifest(
     schema: &LakeSchema,
@@ -305,7 +305,7 @@ fn write_manifest(
 }
 
 /// Write the Avro **manifest list** with one `manifest_file` record pointing at the
-/// manifest just written (CONCEPT:EG-334).
+/// manifest just written (CONCEPT:EG-KG.storage.iceberg-manifest-list).
 fn write_manifest_list(
     manifest_path: &str,
     manifest_len: i64,
@@ -342,7 +342,7 @@ fn write_manifest_list(
         ("deleted_rows_count".into(), AvroValue::Long(0)),
         // Unpartitioned spec → the `partitions` list has one `field_summary` per
         // partition-spec field, of which there are none, so it is correctly null (NOT
-        // stubbed) (CONCEPT:EG-350). Data-file lower/upper bounds (EG-350) are the
+        // stubbed) (CONCEPT:EG-KG.storage.iceberg-avro-manifest-carries). Data-file lower/upper bounds (EG-350) are the
         // file-skipping mechanism that applies to an unpartitioned table.
         (
             "partitions".into(),
@@ -358,7 +358,7 @@ fn write_manifest_list(
 }
 
 /// Materialize the real Iceberg Avro manifest + manifest list for the current snapshot
-/// (CONCEPT:EG-333/EG-334). The paths match exactly what [`crate::iceberg::build_iceberg`]
+/// (CONCEPT:EG-KG.storage.eg-iceberg-avro-manifest/EG-334). The paths match exactly what [`crate::iceberg::build_iceberg`]
 /// references from `metadata.json`, so a committed snapshot resolves to real Avro. The
 /// caller persists both byte blobs to the object store.
 pub fn build_iceberg_manifests(
@@ -395,7 +395,7 @@ pub fn build_iceberg_manifests(
     })
 }
 
-/// Parse an Avro container's records back to values (CONCEPT:EG-333) — used by the
+/// Parse an Avro container's records back to values (CONCEPT:EG-KG.storage.eg-iceberg-avro-manifest) — used by the
 /// round-trip test and any reader that wants to verify manifest bytes.
 pub fn read_avro_records(bytes: &[u8]) -> Result<Vec<AvroValue>, String> {
     let reader = Reader::new(bytes).map_err(|e| format!("avro open: {e}"))?;

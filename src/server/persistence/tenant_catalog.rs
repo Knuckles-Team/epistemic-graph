@@ -1,5 +1,5 @@
 //! Tenant catalog — durable graph/tenant → shard (and future → node) map
-//! (CONCEPT:EG-031, M3 catalog-driven resharding).
+//! (CONCEPT:EG-KG.sharding.empty-catalog-routing, M3 catalog-driven resharding).
 //!
 //! ## Why this exists
 //!
@@ -39,12 +39,12 @@ use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 use serde::{Deserialize, Serialize};
 
 /// Durable catalog table: `sanitized_graph_name → msgpack(ShardAssignment)`
-/// (CONCEPT:EG-031). One row per explicitly-placed tenant/graph. A graph with NO row
+/// (CONCEPT:EG-KG.sharding.empty-catalog-routing). One row per explicitly-placed tenant/graph. A graph with NO row
 /// is routed by EG-026 FNV-1a, so the table only ever holds the *exceptions* to the
 /// hash (moved / rebalanced tenants) — it does not have to enumerate all 100M graphs.
 const CATALOG: TableDefinition<&str, &[u8]> = TableDefinition::new("tenant_catalog");
 
-/// Where a tenant/graph is placed (CONCEPT:EG-031). `shard` is the durable redb shard
+/// Where a tenant/graph is placed (CONCEPT:EG-KG.sharding.empty-catalog-routing). `shard` is the durable redb shard
 /// index (matches EG-026's `graph-<shard>.redb`); `node` is the FUTURE cluster node id
 /// for multi-node distribution (M3 distributed storage) — `None` today = "this node".
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -63,7 +63,7 @@ impl ShardAssignment {
     }
 }
 
-/// Durable, rebalanceable graph→shard map with a FNV-1a fallback (CONCEPT:EG-031).
+/// Durable, rebalanceable graph→shard map with a FNV-1a fallback (CONCEPT:EG-KG.sharding.empty-catalog-routing).
 ///
 /// Thread-safe (an internal `RwLock`): the routing seam reads it on the hot write path,
 /// while `assign`/`reassign` mutate it off-band. Lookups are O(1) hash-map hits; the
@@ -87,7 +87,7 @@ impl TenantCatalog {
     }
 
     /// Open (or create) a durable catalog at `catalog.redb` under `persist_dir` and
-    /// load every assignment into memory (CONCEPT:EG-031). A fresh dir yields an EMPTY
+    /// load every assignment into memory (CONCEPT:EG-KG.sharding.empty-catalog-routing). A fresh dir yields an EMPTY
     /// catalog ⇒ pure EG-026 routing until something is assigned.
     pub fn open(persist_dir: &str) -> Result<Self, String> {
         std::fs::create_dir_all(persist_dir).map_err(|e| e.to_string())?;
@@ -124,7 +124,7 @@ impl TenantCatalog {
     }
 
     /// Resolve the durable shard index for `graph_fname` against a live shard count `k`
-    /// (CONCEPT:EG-031 — the ROUTING SEAM). An explicit catalog entry wins (clamped into
+    /// (CONCEPT:EG-KG.sharding.empty-catalog-routing — the ROUTING SEAM). An explicit catalog entry wins (clamped into
     /// `0..k` so a stale/over-K entry can never index out of range); otherwise this is
     /// the unchanged EG-026 `FNV-1a(graph_fname) % k`. Empty catalog ⇒ pure EG-026.
     pub fn resolve_shard(&self, graph_fname: &str, k: usize) -> usize {
@@ -136,7 +136,7 @@ impl TenantCatalog {
     }
 
     /// Assign / re-place `graph_fname` onto `shard` (optionally on cluster `node`),
-    /// writing through to the durable table when backed (CONCEPT:EG-031). This flips
+    /// writing through to the durable table when backed (CONCEPT:EG-KG.sharding.empty-catalog-routing). This flips
     /// the ROUTE only — moving an already-populated graph's rows to the new shard is
     /// online-resharding execution (remaining M3; see the design doc).
     pub fn assign(&self, graph_fname: &str, shard: u32, node: Option<u32>) -> Result<(), String> {
@@ -158,7 +158,7 @@ impl TenantCatalog {
         Ok(())
     }
 
-    /// Reassign `graph_fname` to a different `shard` (CONCEPT:EG-031 — the resharding
+    /// Reassign `graph_fname` to a different `shard` (CONCEPT:EG-KG.sharding.empty-catalog-routing — the resharding
     /// primitive). Preserves the existing `node` placement. Convenience over `assign`.
     pub fn reassign(&self, graph_fname: &str, new_shard: u32) -> Result<(), String> {
         let node = self.lookup(graph_fname).and_then(|a| a.node);
@@ -208,7 +208,7 @@ mod tests {
 
     #[test]
     fn empty_catalog_is_pure_fnv1a() {
-        // CONCEPT:EG-031 — an empty catalog must route IDENTICALLY to EG-026 for every
+        // CONCEPT:EG-KG.sharding.empty-catalog-routing — an empty catalog must route IDENTICALLY to EG-026 for every
         // graph, so attaching it is a no-op until something is assigned.
         let cat = TenantCatalog::in_memory();
         assert!(cat.is_empty());
@@ -267,7 +267,7 @@ mod tests {
 
     #[test]
     fn durable_catalog_survives_reopen() {
-        // CONCEPT:EG-031 — assignments persist to catalog.redb and reload on open.
+        // CONCEPT:EG-KG.sharding.empty-catalog-routing — assignments persist to catalog.redb and reload on open.
         let dir = std::env::temp_dir().join(format!("eg-catalog-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();

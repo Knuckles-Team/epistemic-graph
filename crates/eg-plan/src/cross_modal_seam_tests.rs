@@ -1,4 +1,4 @@
-//! Cross-modal SEAM regression proofs (CONCEPT:EG-365).
+//! Cross-modal SEAM regression proofs (CONCEPT:EG-KG.ingest.timeseries-source-mid-pipeline).
 //!
 //! These pin the *mid-pipeline* composition seams the audit flagged as unproven: a
 //! semantic / sensor / tensor SOURCE op feeding a DOWNSTREAM ranker or reorder in ONE
@@ -26,7 +26,7 @@ fn blob(v: serde_json::Value) -> Vec<u8> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Reason → Traverse → Rank  (CONCEPT:EG-365, semantic-source mid-pipeline)
+// Reason → Traverse → Rank  (CONCEPT:EG-KG.ingest.timeseries-source-mid-pipeline, semantic-source mid-pipeline)
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// An OWL fixture whose ONLY-INFERRED `ScholarlyWork`s (`p1` Paper, `p2` Article, `p4`
@@ -160,7 +160,7 @@ fn reason_then_traverse_then_rank_equals_separate() {
     );
 }
 
-/// Plan-SHAPE proof (CONCEPT:EG-365): the cost reorder still picks the winning
+/// Plan-SHAPE proof (CONCEPT:EG-KG.ingest.timeseries-source-mid-pipeline): the cost reorder still picks the winning
 /// (Filter,Rank) order when a `Reason` SOURCE leg SEEDS the plan — the reasoning leg
 /// stays pinned at the front (it is the source, not a commuting member of the pair)
 /// while the adjacent relational/vector pair reorders per selectivity regime. Extends
@@ -313,7 +313,7 @@ fn reason_iri_midplan_filters_string_typed() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SensorFuse → Rank  (CONCEPT:EG-365, timeseries-source mid-pipeline)
+// SensorFuse → Rank  (CONCEPT:EG-KG.ingest.timeseries-source-mid-pipeline, timeseries-source mid-pipeline)
 // ─────────────────────────────────────────────────────────────────────────────
 
 const NS: i64 = 1_000_000_000;
@@ -396,7 +396,7 @@ fn sensorfuse_then_rank_composes() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TensorScan → Rank  (CONCEPT:EG-365, tensor-source mid-pipeline)
+// TensorScan → Rank  (CONCEPT:EG-KG.ingest.timeseries-source-mid-pipeline, tensor-source mid-pipeline)
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// A `Frame` layer of tensor-bearing nodes (F1,F2,F3) plus an embedding per frame so a

@@ -1,4 +1,4 @@
-//! Shapes-graph model + parser (CONCEPT:EG-132).
+//! Shapes-graph model + parser (CONCEPT:EG-KG.ontology.concept-6).
 //!
 //! Reads an RDF shapes graph (`eg_rdf::oxrdf::Graph`) into an in-memory [`Shape`] model:
 //! node/property shapes, their targets, an (optional) predicate `sh:path`, and the SHACL

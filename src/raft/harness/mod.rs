@@ -1,4 +1,4 @@
-//! Correctness + load harness (CONCEPT:KG-2.212) — the standing proof-engine.
+//! Correctness + load harness (CONCEPT:AU-KG.ontology.emits-database-ontology-entities) — the standing proof-engine.
 //!
 //! The authoritative-flip migration deadlock proved correctness-tests-passing ≠
 //! scale/fault-proven. This harness is the standing proof-engine that gates every

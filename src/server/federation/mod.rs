@@ -1,4 +1,4 @@
-//! Super-cluster federated search (CONCEPT:EG-243).
+//! Super-cluster federated search (CONCEPT:EG-KG.ontology.federation-client).
 //!
 //! Fans a *read* query across a registry of peer engine instances, runs the SAME
 //! query locally, and MERGES the partial result sets into one answer — the
@@ -11,7 +11,7 @@
 //! * [`PeerRegistry`] — the set of peer base-URLs, seeded from the comma-separated
 //!   env var [`FEDERATION_PEERS_ENV`] plus a programmatic [`PeerRegistry::register`].
 //! * SSRF safety — every peer URL is vetted with the SAME allowlist + internal-range
-//!   guard the SPARQL `SERVICE` federation uses (CONCEPT:EG-052): a peer that
+//!   guard the SPARQL `SERVICE` federation uses (CONCEPT:EG-KG.query.sparql-service-federation-client): a peer that
 //!   resolves to a loopback / link-local / RFC-1918 address is refused UNLESS the
 //!   operator opts it in via [`FEDERATION_ALLOW_ENV`]. Per-peer connect + read
 //!   timeouts bound a slow/hostile peer.
@@ -21,7 +21,7 @@
 //!   de-duplicated by key; ranked/search partials are re-ranked with Reciprocal Rank
 //!   Fusion (RRF, the `Op::FuseRrf` idea). A slow / dead peer is SKIPPED and noted in
 //!   `failed_peers` with `partial: true` — it never fails the whole query.
-//! * Schema-aware typed fusion for SQL + SPARQL (CONCEPT:EG-309) — the ranked-search
+//! * Schema-aware typed fusion for SQL + SPARQL (CONCEPT:EG-KG.query.schema-typed-fusion-sql) — the ranked-search
 //!   merge above dedups by a hash of the row payload, which is wrong for tabular
 //!   (SQL row / SPARQL solution) partials whose peers may list the SAME columns in a
 //!   DIFFERENT order, serialize the SAME value with a DIFFERENT JSON type (`30` vs
@@ -47,10 +47,10 @@ use tokio::sync::RwLock;
 use crate::server::ServerState;
 
 /// Comma-separated peer engine base-URLs, e.g.
-/// `https://eg-eu.example:7900,https://eg-us.example:7900` (CONCEPT:EG-243).
+/// `https://eg-eu.example:7900,https://eg-us.example:7900` (CONCEPT:EG-KG.ontology.federation-client).
 pub const FEDERATION_PEERS_ENV: &str = "EPISTEMIC_GRAPH_FEDERATION_PEERS";
 
-/// SSRF allowlist for outbound peer fan-out (CONCEPT:EG-243, mirrors EG-052). A
+/// SSRF allowlist for outbound peer fan-out (CONCEPT:EG-KG.ontology.federation-client, mirrors EG-052). A
 /// comma-separated list of bare hosts or `scheme://host:port` origins that may be
 /// contacted even though they resolve to an internal (loopback / RFC-1918 / link-local)
 /// address. Empty / unset ⇒ internal peers are refused (fail-closed default).
@@ -70,7 +70,7 @@ const RRF_K: f64 = 60.0;
 
 // ── Normalized federated row ──────────────────────────────────────────────
 
-/// One normalized result row shared by the local store and every peer (CONCEPT:EG-243).
+/// One normalized result row shared by the local store and every peer (CONCEPT:EG-KG.ontology.federation-client).
 /// `key` is the union/dedup identity; `score` (when present) drives re-ranking; `data`
 /// carries the opaque payload the caller cares about.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -97,7 +97,7 @@ impl FedRow {
 }
 
 /// The outcome of contacting ONE source (local or a peer): either its rows, or the
-/// error that made it degrade (CONCEPT:EG-243). A degraded peer keeps its label so the
+/// error that made it degrade (CONCEPT:EG-KG.ontology.federation-client). A degraded peer keeps its label so the
 /// merged metadata can report it in `failed_peers`.
 #[derive(Debug, Clone)]
 pub struct PeerOutcome {
@@ -107,7 +107,7 @@ pub struct PeerOutcome {
     pub rows: Result<Vec<FedRow>, String>,
 }
 
-/// The merged federated answer + provenance metadata (CONCEPT:EG-243).
+/// The merged federated answer + provenance metadata (CONCEPT:EG-KG.ontology.federation-client).
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct FederatedResponse {
     /// The merged, de-duplicated (and, for ranked queries, RRF-re-ranked) rows.
@@ -116,7 +116,7 @@ pub struct FederatedResponse {
     pub metadata: FederatedMetadata,
 }
 
-/// Provenance block returned alongside the merged rows (CONCEPT:EG-243).
+/// Provenance block returned alongside the merged rows (CONCEPT:EG-KG.ontology.federation-client).
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct FederatedMetadata {
     /// Peer base-URLs that were contacted (excludes the always-present local store).
@@ -131,7 +131,7 @@ pub struct FederatedMetadata {
 
 // ── Peer registry ─────────────────────────────────────────────────────────
 
-/// The set of peer engine base-URLs to fan a federated query out to (CONCEPT:EG-243).
+/// The set of peer engine base-URLs to fan a federated query out to (CONCEPT:EG-KG.ontology.federation-client).
 #[derive(Debug, Clone, Default)]
 pub struct PeerRegistry {
     peers: Vec<String>,
@@ -143,7 +143,7 @@ impl PeerRegistry {
         Self::default()
     }
 
-    /// Parse a comma-separated peer list (CONCEPT:EG-243). Blanks are dropped, each
+    /// Parse a comma-separated peer list (CONCEPT:EG-KG.ontology.federation-client). Blanks are dropped, each
     /// entry is trimmed, a trailing `/` is normalized off, and duplicates are removed
     /// (order-preserving) so the same peer is never queried twice.
     pub fn parse(raw: &str) -> Self {
@@ -169,7 +169,7 @@ impl PeerRegistry {
             .unwrap_or_default()
     }
 
-    /// Programmatically add a peer base-URL (CONCEPT:EG-243). No-ops on a blank or
+    /// Programmatically add a peer base-URL (CONCEPT:EG-KG.ontology.federation-client). No-ops on a blank or
     /// already-registered URL. Returns `true` when the peer was newly added.
     pub fn register(&mut self, url: impl Into<String>) -> bool {
         let url = url.into().trim().trim_end_matches('/').to_string();
@@ -191,9 +191,9 @@ impl PeerRegistry {
     }
 }
 
-// ── SSRF guard (mirrors CONCEPT:EG-052) ──────────────────────────────────
+// ── SSRF guard (mirrors CONCEPT:EG-KG.query.sparql-service-federation-client) ──────────────────────────────────
 
-/// The SSRF allowlist for peer fan-out (CONCEPT:EG-243). Built from [`FEDERATION_ALLOW_ENV`];
+/// The SSRF allowlist for peer fan-out (CONCEPT:EG-KG.ontology.federation-client). Built from [`FEDERATION_ALLOW_ENV`];
 /// an internal-range peer is only contacted when its host is named here.
 #[derive(Debug, Clone, Default)]
 pub struct PeerAllowlist {
@@ -222,7 +222,7 @@ impl PeerAllowlist {
         }
     }
 
-    /// SSRF guard (CONCEPT:EG-243, mirrors EG-052): the peer URL must be http(s), and if
+    /// SSRF guard (CONCEPT:EG-KG.ontology.federation-client, mirrors EG-052): the peer URL must be http(s), and if
     /// its host resolves to a loopback / link-local / RFC-1918 / unspecified address it
     /// is REFUSED unless (a) the bare host string is in the allowlist, or (b) the host is
     /// itself an allowlisted IP literal. A public host passes without an allowlist entry.
@@ -277,7 +277,7 @@ impl PeerAllowlist {
 }
 
 /// An internal (SSRF-sensitive) IP: loopback, unspecified, link-local, or RFC-1918 /
-/// unique-local private space (CONCEPT:EG-243, mirrors EG-052).
+/// unique-local private space (CONCEPT:EG-KG.ontology.federation-client, mirrors EG-052).
 fn is_blocked_ip(ip: &std::net::IpAddr) -> bool {
     match ip {
         std::net::IpAddr::V4(v4) => {
@@ -298,7 +298,7 @@ fn is_blocked_ip(ip: &std::net::IpAddr) -> bool {
 
 // ── Merge / dedup / RRF re-rank ───────────────────────────────────────────
 
-/// Merge the local + peer partial result sets into ONE answer (CONCEPT:EG-243).
+/// Merge the local + peer partial result sets into ONE answer (CONCEPT:EG-KG.ontology.federation-client).
 ///
 /// * Rows are UNIONED and de-duplicated by [`FedRow::key`] (first occurrence wins for
 ///   the payload; the best score seen is kept).
@@ -402,7 +402,7 @@ pub fn merge_partials(outcomes: Vec<PeerOutcome>) -> FederatedResponse {
     }
 }
 
-/// Reciprocal Rank Fusion score per key across the source ranked lists (CONCEPT:EG-243).
+/// Reciprocal Rank Fusion score per key across the source ranked lists (CONCEPT:EG-KG.ontology.federation-client).
 /// Each list is taken in its given order; a key at 0-based `rank` in a list adds
 /// `1/(RRF_K + rank + 1)`; the per-key sum across lists is the fused score.
 fn rrf_scores(lists: &[Vec<FedRow>]) -> HashMap<String, f64> {
@@ -416,9 +416,9 @@ fn rrf_scores(lists: &[Vec<FedRow>]) -> HashMap<String, f64> {
     scores
 }
 
-// ── Schema-aware typed fusion for SQL + SPARQL (CONCEPT:EG-309) ────────────
+// ── Schema-aware typed fusion for SQL + SPARQL (CONCEPT:EG-KG.query.schema-typed-fusion-sql) ────────────
 
-/// The schema field name a decoded partial carries for a given `lang` (CONCEPT:EG-309).
+/// The schema field name a decoded partial carries for a given `lang` (CONCEPT:EG-KG.query.schema-typed-fusion-sql).
 /// SQL rows carry their column names under `"columns"`; SPARQL solutions carry their
 /// projected variables under `"vars"` (see [`decode_local_rows`]).
 fn typed_schema_field(lang: &str) -> &'static str {
@@ -428,13 +428,13 @@ fn typed_schema_field(lang: &str) -> &'static str {
     }
 }
 /// `true` when a `lang` produces tabular partials that want schema-aware typed fusion
-/// rather than the ranked-search RRF merge (CONCEPT:EG-309).
+/// rather than the ranked-search RRF merge (CONCEPT:EG-KG.query.schema-typed-fusion-sql).
 pub fn is_typed_lang(lang: &str) -> bool {
     matches!(lang, "sql" | "sparql")
 }
 
 /// Pull `(column/variable names, cells)` out of a decoded [`FedRow::data`] payload
-/// (CONCEPT:EG-309). Reads the name list from `field` (`"columns"` / `"vars"`) and the
+/// (CONCEPT:EG-KG.query.schema-typed-fusion-sql). Reads the name list from `field` (`"columns"` / `"vars"`) and the
 /// values from `"cells"`; a missing/oddly-shaped payload yields empty vecs so the row is
 /// merged as an empty tuple rather than crashing the fusion.
 fn extract_schema_cells(
@@ -462,7 +462,7 @@ fn extract_schema_cells(
 }
 
 /// Reconcile one cell value to a canonical, type-aware token used for typed dedup
-/// (CONCEPT:EG-309). The intent is that logically-equal values compare equal ACROSS
+/// (CONCEPT:EG-KG.query.schema-typed-fusion-sql). The intent is that logically-equal values compare equal ACROSS
 /// heterogeneous stores even when their JSON encodings differ:
 ///
 /// * `null` → a single null token;
@@ -485,7 +485,7 @@ fn canonical_token(v: &serde_json::Value) -> String {
 }
 
 /// Canonicalize a JSON number: integral values collapse to `n<i64>` so `30` and `30.0`
-/// (and a `u64`/`i64`/integral `f64` encoding of the same value) all fuse (CONCEPT:EG-309).
+/// (and a `u64`/`i64`/integral `f64` encoding of the same value) all fuse (CONCEPT:EG-KG.query.schema-typed-fusion-sql).
 fn canonical_number_token(n: &serde_json::Number) -> String {
     if let Some(i) = n.as_i64() {
         return format!("n{i}");
@@ -502,7 +502,7 @@ fn canonical_number_token(n: &serde_json::Number) -> String {
     format!("f{n}")
 }
 
-/// Reconcile a string cell (CONCEPT:EG-309): if it is the EXACT canonical rendering of a
+/// Reconcile a string cell (CONCEPT:EG-KG.query.schema-typed-fusion-sql): if it is the EXACT canonical rendering of a
 /// number it fuses with the numeric encoding of that value; otherwise it stays text.
 fn canonical_scalar_string_token(s: &str) -> String {
     if let Ok(i) = s.parse::<i64>() {
@@ -526,7 +526,7 @@ fn canonical_scalar_string_token(s: &str) -> String {
 }
 
 /// Build the typed dedup identity for a row given its `name → value` map and the shared
-/// (sorted, order-independent) union schema (CONCEPT:EG-309). Iterating the union schema
+/// (sorted, order-independent) union schema (CONCEPT:EG-KG.query.schema-typed-fusion-sql). Iterating the union schema
 /// — not the peer's own column order — makes two peers that list the same columns in a
 /// different order produce the SAME key; a column a peer lacked contributes a `null` token
 /// so a short row fuses with a long row iff they agree on every shared column.
@@ -542,7 +542,7 @@ fn typed_dedup_key(map: &HashMap<String, serde_json::Value>, sorted_schema: &[St
     parts.join("\u{1f}")
 }
 
-/// Schema-aware typed fusion of SQL / SPARQL federated partials (CONCEPT:EG-309).
+/// Schema-aware typed fusion of SQL / SPARQL federated partials (CONCEPT:EG-KG.query.schema-typed-fusion-sql).
 ///
 /// Replaces the hash-of-JSON union+dedup of [`merge_partials`] for tabular results with a
 /// schema-aware merge: it aligns columns/variables BY NAME across every healthy source
@@ -626,7 +626,7 @@ pub fn merge_partials_typed(outcomes: Vec<PeerOutcome>, lang: &str) -> Federated
 // ── Peer fan-out (ureq, blocking) ─────────────────────────────────────────
 
 /// POST the query to ONE peer's `/federated?local=1` endpoint and parse its rows
-/// (CONCEPT:EG-243). Runs inside a `spawn_blocking` task (the `ureq` client is blocking).
+/// (CONCEPT:EG-KG.ontology.federation-client). Runs inside a `spawn_blocking` task (the `ureq` client is blocking).
 /// SSRF-vetted first; any failure (blocked / connect / read / parse) is returned as the
 /// degrade reason so the caller records it as a failed peer.
 fn fetch_one_peer(
@@ -657,7 +657,7 @@ fn fetch_one_peer(
     parse_peer_rows(&text)
 }
 
-/// Parse a peer's `/federated` JSON response back into rows (CONCEPT:EG-243). Accepts the
+/// Parse a peer's `/federated` JSON response back into rows (CONCEPT:EG-KG.ontology.federation-client). Accepts the
 /// full `{rows: [...], metadata: {...}}` envelope this module emits, or a bare `[...]`.
 fn parse_peer_rows(text: &str) -> Result<Vec<FedRow>, String> {
     let val: serde_json::Value =
@@ -675,7 +675,7 @@ fn parse_peer_rows(text: &str) -> Result<Vec<FedRow>, String> {
 }
 
 /// Fan the query out to every peer concurrently and collect the per-peer outcomes
-/// (CONCEPT:EG-243). Each peer runs in its own `spawn_blocking` task; a panic or join
+/// (CONCEPT:EG-KG.ontology.federation-client). Each peer runs in its own `spawn_blocking` task; a panic or join
 /// error degrades that peer rather than the whole query.
 pub async fn fetch_peers(
     registry: &PeerRegistry,
@@ -709,7 +709,7 @@ pub async fn fetch_peers(
 
 // ── Local execution ───────────────────────────────────────────────────────
 
-/// Run the query against the LOCAL store via in-process dispatch (CONCEPT:EG-243).
+/// Run the query against the LOCAL store via in-process dispatch (CONCEPT:EG-KG.ontology.federation-client).
 /// Routes by `lang`: `sparql`/`sql` use their native read method when that feature is
 /// compiled; everything else (default `nl`/`search`) goes through the NL/search path.
 /// The result is normalized to [`FedRow`]s so it merges uniformly with peer rows.
@@ -740,7 +740,7 @@ async fn local_execute(
     Ok(decode_local_rows(&bytes, lang))
 }
 
-/// Build the in-process read [`Method`] for a `lang` (CONCEPT:EG-243). SQL/SPARQL arms
+/// Build the in-process read [`Method`] for a `lang` (CONCEPT:EG-KG.ontology.federation-client). SQL/SPARQL arms
 /// only compile when their feature is present; otherwise every lang uses the NL/search
 /// path so a slim build still federates over the search surface.
 fn build_local_method(query: &str, lang: &str, graph: &str) -> crate::protocol::Method {
@@ -763,7 +763,7 @@ fn build_local_method(query: &str, lang: &str, graph: &str) -> crate::protocol::
     }
 }
 
-/// Decode the local `ResultPayload::Raw` into normalized rows (CONCEPT:EG-243). The
+/// Decode the local `ResultPayload::Raw` into normalized rows (CONCEPT:EG-KG.ontology.federation-client). The
 /// ranked-search path is `[(id, score)]`; SPARQL/SQL rows are flattened to a stable key
 /// + a JSON payload. Unrecognized shapes yield no local rows (peer rows still merge).
 fn decode_local_rows(bytes: &[u8], lang: &str) -> Vec<FedRow> {
@@ -836,7 +836,7 @@ fn decode_local_rows(bytes: &[u8], lang: &str) -> Vec<FedRow> {
     }
 }
 
-/// The full federated read (CONCEPT:EG-243): run locally AND fan out to peers, then merge.
+/// The full federated read (CONCEPT:EG-KG.ontology.federation-client): run locally AND fan out to peers, then merge.
 /// `local_only` short-circuits the fan-out (used when a super-cluster peer calls us with
 /// `?local=1`, preventing recursion). A local-store error degrades to a partial answer
 /// rather than failing the request.
@@ -860,8 +860,8 @@ pub async fn run_federated(
             outcomes.append(&mut peer_outcomes);
         }
     }
-    // Tabular SQL / SPARQL partials get schema-aware typed fusion (CONCEPT:EG-309); the
-    // ranked-search path keeps its hash-union + RRF re-rank (CONCEPT:EG-243) unchanged.
+    // Tabular SQL / SPARQL partials get schema-aware typed fusion (CONCEPT:EG-KG.query.schema-typed-fusion-sql); the
+    // ranked-search path keeps its hash-union + RRF re-rank (CONCEPT:EG-KG.ontology.federation-client) unchanged.
     if is_typed_lang(lang) {
         merge_partials_typed(outcomes, lang)
     } else {
@@ -871,7 +871,7 @@ pub async fn run_federated(
 
 // ── HTTP surface (`/federated`) ───────────────────────────────────────────
 
-/// Serve the `/federated` POST endpoint (CONCEPT:EG-243) using the same hand-rolled
+/// Serve the `/federated` POST endpoint (CONCEPT:EG-KG.ontology.federation-client) using the same hand-rolled
 /// HTTP framing idiom as `sparql_http` (no new HTTP dep). Body: `{query, lang}`; a
 /// `?local=1` query param short-circuits the fan-out (peer-to-peer, no recursion).
 pub async fn serve(listener: TcpListener, state: Arc<RwLock<ServerState>>) {
@@ -956,7 +956,7 @@ async fn read_request(stream: &mut tokio::net::TcpStream) -> Option<HttpRequest>
     })
 }
 
-/// Route + execute a `/federated` request (CONCEPT:EG-243).
+/// Route + execute a `/federated` request (CONCEPT:EG-KG.ontology.federation-client).
 async fn handle(
     state: &Arc<RwLock<ServerState>>,
     req: HttpRequest,
@@ -1172,7 +1172,7 @@ mod tests {
         assert_eq!(decoded[1].score, None);
     }
 
-    // ── CONCEPT:EG-309 — schema-aware typed fusion for SQL + SPARQL ──────────
+    // ── CONCEPT:EG-KG.query.schema-typed-fusion-sql — schema-aware typed fusion for SQL + SPARQL ──────────
 
     /// Build a tabular [`FedRow`] the way [`decode_local_rows`] does for a store partial:
     /// `field` is `"columns"` (SQL) or `"vars"` (SPARQL), paired 1:1 with `cells`.
@@ -1360,7 +1360,7 @@ mod tests {
     #[test]
     fn eg309_failed_peer_degrades_typed_fusion_to_partial() {
         // A dead peer under the typed path must degrade to `partial: true` with local rows
-        // preserved — identical contract to the ranked-search path (CONCEPT:EG-243).
+        // preserved — identical contract to the ranked-search path (CONCEPT:EG-KG.ontology.federation-client).
         let local = PeerOutcome {
             source: "<local>".to_string(),
             rows: Ok(vec![tabular_row(

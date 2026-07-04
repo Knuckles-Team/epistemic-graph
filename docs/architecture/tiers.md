@@ -1,7 +1,7 @@
 # One build, opt-in layers
 
 The engine ships as **one binary** built from a single Cargo workspace. There is **no
-longer a pi / pi-max / node deployment-tier split** (CONCEPT:EG-371): the `default` build
+longer a pi / pi-max / node deployment-tier split** (CONCEPT:EG-KG.sharding.deployment-tiers): the `default` build
 *is* the full-featured build — every MAIN feature that compiles without an external
 GPU/robotics toolchain. Two thin **opt-in layers** stack on top for the cases the
 single-node main build cannot cover on its own. This page is the **feature-composition

@@ -1,9 +1,9 @@
-//! M3 catalog-driven resharding ADMIN RPC (CONCEPT:EG-038).
+//! M3 catalog-driven resharding ADMIN RPC (CONCEPT:EG-KG.backend.m3-admin-dispatch).
 //!
 //! The wire surface that DRIVES the M3 ops the engine already has the building blocks for:
-//! online single-node resharding (CONCEPT:EG-032 `RedbBackend::reshard_graph`), the durable
-//! tenant catalog (CONCEPT:EG-031 `RedbBackend::catalog`), the rebalancing planner
-//! (CONCEPT:EG-035 `rebalance::plan_rebalance`), and its execution (CONCEPT:EG-039
+//! online single-node resharding (CONCEPT:EG-KG.backend.catalog-shard-resolve `RedbBackend::reshard_graph`), the durable
+//! tenant catalog (CONCEPT:EG-KG.sharding.empty-catalog-routing `RedbBackend::catalog`), the rebalancing planner
+//! (CONCEPT:EG-KG.sharding.even-load-rebalance `rebalance::plan_rebalance`), and its execution (CONCEPT:EG-KG.backend.r3-plan-execution
 //! `RedbBackend::rebalance_execute`). These CALL the existing persistence APIs — they do not
 //! reimplement them.
 //!
@@ -18,7 +18,7 @@ use tokio::sync::RwLock;
 use crate::protocol::{Method, Response};
 use crate::server::state::ServerState;
 
-/// Route an M3 admin method (CONCEPT:EG-038). `Ok(resp)` = handled; `Err(method)` = not an
+/// Route an M3 admin method (CONCEPT:EG-KG.backend.m3-admin-dispatch). `Ok(resp)` = handled; `Err(method)` = not an
 /// admin method (unreachable — the dispatch arm only routes admin variants here).
 #[cfg(feature = "redb")]
 pub(crate) async fn try_handle(
@@ -134,7 +134,7 @@ pub(crate) async fn try_handle(
                 )),
             }
         }
-        // ── Online backup / restore (CONCEPT:EG-090) ─────────────────
+        // ── Online backup / restore (CONCEPT:EG-KG.sharding.reshard-on-restore) ─────────────────
         Method::Backup { destination, label } => {
             // ONLINE, no quiesce: per-shard begin_read() MVCC snapshot streamed verbatim.
             // The engine version + wall-clock timestamp are supplied HERE (application
@@ -217,7 +217,7 @@ pub(crate) async fn try_handle(
     }
 }
 
-/// Wall-clock Unix seconds for the backup/restore RPC (CONCEPT:EG-090). Lives in the
+/// Wall-clock Unix seconds for the backup/restore RPC (CONCEPT:EG-KG.sharding.reshard-on-restore). Lives in the
 /// HANDLER (application code), never in the library `backup`/`restore_bundle` fns.
 #[cfg(feature = "redb")]
 fn now_secs() -> u64 {
@@ -337,7 +337,7 @@ fn rebalance_opts(
 }
 
 /// Live per-graph load `(sanitized_fname, resident_node_count)` over the registry + the
-/// shard count K (CONCEPT:EG-035 integration). Resident node count is the KG-2.51 per-graph
+/// shard count K (CONCEPT:EG-KG.sharding.even-load-rebalance integration). Resident node count is the KG-2.51 per-graph
 /// size dimension — a cheap, available balance metric. `__commons__` is included like any
 /// other graph. Returns `(loads, k)`.
 #[cfg(feature = "redb")]

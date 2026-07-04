@@ -1,4 +1,4 @@
-//! Rebalancing planner — CONCEPT:EG-035 (M3 catalog-driven resharding, R3).
+//! Rebalancing planner — CONCEPT:EG-KG.sharding.even-load-rebalance (M3 catalog-driven resharding, R3).
 //!
 //! ## What this is
 //!
@@ -156,7 +156,7 @@ fn sort_graphs(graphs: &mut [GraphLoad]) {
     graphs.sort_by(|a, b| b.load.cmp(&a.load).then_with(|| a.graph.cmp(&b.graph)));
 }
 
-/// Produce a deterministic rebalance plan that evens out shard load (CONCEPT:EG-035).
+/// Produce a deterministic rebalance plan that evens out shard load (CONCEPT:EG-KG.sharding.even-load-rebalance).
 ///
 /// Greedy hottest→coldest: repeatedly move ONE graph off the most-loaded shard onto
 /// the least-loaded shard, choosing the graph that most reduces the hottest-coldest
@@ -330,7 +330,7 @@ mod tests {
 
     #[test]
     fn balances_a_skewed_shard_set_deterministically() {
-        // CONCEPT:EG-035 — a heavily skewed K=4 input: shard 0 holds everything. The
+        // CONCEPT:EG-KG.sharding.even-load-rebalance — a heavily skewed K=4 input: shard 0 holds everything. The
         // graphs are INDIVISIBLE, so the best achievable imbalance is floored by the
         // single largest graph (100) — the planner drives toward that floor, never
         // splitting a graph or thrashing.
@@ -385,7 +385,7 @@ mod tests {
 
     #[test]
     fn divisible_load_reaches_tolerance() {
-        // CONCEPT:EG-035 — when the load IS evenly divisible (12 graphs of 25 across
+        // CONCEPT:EG-KG.sharding.even-load-rebalance — when the load IS evenly divisible (12 graphs of 25 across
         // K=4, mean 75), the planner balances to within the default 10% tolerance.
         let graphs: Vec<GraphLoad> = (0..12).map(|i| gl(&format!("g{i:02}"), 25)).collect();
         let shards = vec![

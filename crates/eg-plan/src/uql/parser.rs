@@ -1,4 +1,4 @@
-//! UQL recursive-descent parser (CONCEPT:KG-2.214) → the existing [`Plan`] AST.
+//! UQL recursive-descent parser (CONCEPT:AU-KG.query.top-nodes-by-degree) → the existing [`Plan`] AST.
 //!
 //! This is a pure FRONT-END: it parses a human/agent-writable text query into the
 //! SAME `wire::Plan` (`Vec<Op>`) that `Method::UnifiedQuery` already executes — it
@@ -61,12 +61,12 @@
 //! | `LIMIT 10`                           | `Limit { k: 10 }`                      |
 //!
 //! ### Feature gating (on EXECUTION, not parsing)
-//!  * **time** (CONCEPT:KG-2.250) — `AS OF [TX|VALID] @<ts>` is a real bi-temporal
+//!  * **time** (CONCEPT:AU-KG.compute.kg-2) — `AS OF [TX|VALID] @<ts>` is a real bi-temporal
 //!    point-in-time FILTER (valid time = "what was true"; `TX` = transaction time =
 //!    "what we believed"); `WINDOW <dur>` ⇒ `Op::Window`. Dep-free; base `query`.
-//!  * **rerank** (CONCEPT:KG-2.254/2.255) — graph-native `NODE_DISTANCE`/`MENTIONS` and
+//!  * **rerank** (CONCEPT:EG-KG.query.uql-parser-ops/2.255) — graph-native `NODE_DISTANCE`/`MENTIONS` and
 //!    diversity `MMR <lambda> <k>`. Dep-free; base `query`.
-//!  * **fuse / text** (CONCEPT:KG-2.253) — `FUSE`/`TEXT` gated to `text`; a non-`text`
+//!  * **fuse / text** (CONCEPT:AU-KG.compute.change-feed-subscription) — `FUSE`/`TEXT` gated to `text`; a non-`text`
 //!    build parses them but errors at run time.
 //!  * **federation** — `FOREIGN "<name>"` (resolve: `federation`). **owl** — `REASON
 //!    <Class>` gated to `owl`. `RANK BY ~"…"` (named handle) stays a reserved error
@@ -176,7 +176,7 @@ impl<'a> Parser<'a> {
 
     /// `stage = traverse | rank | text | limit | filter | asof | window | foreign |
     /// reason`. Dispatched on the leading keyword. The time/federation/owl/text
-    /// clauses (CONCEPT:KG-2.235) each lower to ONE `Op`; the owl (`REASON`) + text
+    /// clauses (CONCEPT:EG-KG.query.sparql-completeness) each lower to ONE `Op`; the owl (`REASON`) + text
     /// (`TEXT`) clauses are feature-gated to the same feature as the `Op` they lower
     /// to, so a build without that feature gives a clear "not in this build" error
     /// rather than a phantom Op.
@@ -309,7 +309,7 @@ impl<'a> Parser<'a> {
     }
 
     /// `asof = "AS" "OF" [ "TX" | "VALID" ] "@" num` → `Op::AsOf { ts, axis }`
-    /// (CONCEPT:KG-2.235 / KG-2.250). The optional axis keyword selects the timeline:
+    /// (CONCEPT:EG-KG.query.sparql-completeness / KG-2.250). The optional axis keyword selects the timeline:
     /// `TX` (or `TRANSACTION`) pins transaction time ("what we BELIEVED at ts"); the
     /// default / `VALID` pins valid time ("what was TRUE at ts"). The instant is a
     /// unix-seconds number prefixed by the `@` sigil (already lexed).
@@ -336,7 +336,7 @@ impl<'a> Parser<'a> {
         Ok(Op::AsOf { ts, axis })
     }
 
-    /// `window = "WINDOW" num [ unit ]` → `Op::Window { secs }` (CONCEPT:KG-2.235). A
+    /// `window = "WINDOW" num [ unit ]` → `Op::Window { secs }` (CONCEPT:EG-KG.query.sparql-completeness). A
     /// bare number is seconds; an optional unit suffix (`s`/`m`/`h`/`d`) scales it.
     fn parse_window(&mut self) -> Result<Op, UqlError> {
         let n = self.expect_num("a WINDOW duration (`WINDOW <dur>`)")?;
@@ -364,7 +364,7 @@ impl<'a> Parser<'a> {
     }
 
     /// `foreign = "FOREIGN" ( string | ident )` → `Op::Foreign { name }`
-    /// (CONCEPT:KG-2.235). The federation source name (a registered peer).
+    /// (CONCEPT:EG-KG.query.sparql-completeness). The federation source name (a registered peer).
     fn parse_foreign(&mut self) -> Result<Op, UqlError> {
         let name = match self.peek_kind() {
             Some(Tok::Str(s)) | Some(Tok::Ident(s)) => {
@@ -378,7 +378,7 @@ impl<'a> Parser<'a> {
     }
 
     /// `rerank = "RERANK" ( "NODE_DISTANCE" "FROM" id | "MENTIONS" )` → a graph-native
-    /// reranker op (CONCEPT:KG-2.254). `NODE_DISTANCE FROM <id>` re-orders by proximity
+    /// reranker op (CONCEPT:EG-KG.query.uql-parser-ops). `NODE_DISTANCE FROM <id>` re-orders by proximity
     /// to a focal node; `MENTIONS` re-orders by incoming-edge (provenance) salience.
     fn parse_rerank(&mut self) -> Result<Op, UqlError> {
         if self.peek_kw("MENTIONS") {
@@ -412,7 +412,7 @@ impl<'a> Parser<'a> {
         ))
     }
 
-    /// `reason = "REASON" (iri | ident | string)` → `Op::Reason` (CONCEPT:KG-2.235 /
+    /// `reason = "REASON" (iri | ident | string)` → `Op::Reason` (CONCEPT:EG-KG.query.sparql-completeness /
     /// EG-375). The OWL-inferred members of the named class seed (or, mid-pipeline, filter)
     /// the RowSet. The class may be a bare label (`REASON Mammal`) OR an explicit angle-
     /// bracketed class IRI (`REASON <http://ex/Device>` — CONCEPT:EG-375), the form the
@@ -457,7 +457,7 @@ impl<'a> Parser<'a> {
         ))
     }
 
-    /// `text = "TEXT" string` → `Op::RankText { query }` (CONCEPT:KG-2.235). Re-ranks
+    /// `text = "TEXT" string` → `Op::RankText { query }` (CONCEPT:EG-KG.query.sparql-completeness). Re-ranks
     /// the candidate RowSet by BM25 relevance to the natural-language query. Feature-
     /// gated to `text` — the feature that compiles the `Op::RankText` variant + the
     /// lexical index executor.

@@ -6,14 +6,14 @@
 //!
 //! `dim` is the embedding dimension (e.g. 768/1024); these run a handful of times
 //! at BUILD time only, never per-query. At dim=1024 the O(dim³) SVD/matmul are NOT
-//! negligible against k-means, so (CONCEPT:EG-013) the matmul is rayon-parallel
+//! negligible against k-means, so (CONCEPT:EG-KG.storage.semantic-index-directory) the matmul is rayon-parallel
 //! across output rows and the Jacobi SVD stops on RELATIVE convergence instead of a
 //! fixed 60 sweeps — together they turn the OPQ rotation update from a minutes-long
 //! single-core peg into a few seconds across all cores.
 
 use rayon::prelude::*;
 
-/// `c = a · b`, all row-major `n*n`. CONCEPT:EG-013 — parallel over output rows so
+/// `c = a · b`, all row-major `n*n`. CONCEPT:EG-KG.storage.semantic-index-directory — parallel over output rows so
 /// the OPQ rotation matmul (dim³ ≈ 1e9 flops at dim=1024) saturates all cores
 /// instead of pegging one.
 pub fn matmul(a: &[f32], b: &[f32], n: usize) -> Vec<f32> {
@@ -82,7 +82,7 @@ pub fn svd_square(a: &[f32], n: usize) -> (Vec<f32>, Vec<f32>, Vec<f32>) {
     }
 
     let eps = 1e-12_f64;
-    // CONCEPT:EG-013 — RELATIVE convergence. The previous code compared the
+    // CONCEPT:EG-KG.storage.semantic-index-directory — RELATIVE convergence. The previous code compared the
     // off-diagonal mass `off` against an ABSOLUTE 1e-12; for a dim=1024 matrix of
     // accumulated outer products `off` starts at O(1e6+), so 1e-12 never triggers
     // and all 60 sweeps always run — the single-threaded minutes-long peg. Jacobi

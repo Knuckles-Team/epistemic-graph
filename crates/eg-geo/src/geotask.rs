@@ -1,5 +1,5 @@
 //! **Map-based task tracking** — geolocated tasks + spatial assignment queries
-//! (CONCEPT:EG-267).
+//! (CONCEPT:EG-KG.domains.geo-task).
 //!
 //! The logistics / field-service surface tracks *work on a map*: deliveries, inspections,
 //! service calls — each pinned to a location, each with a status and an optional service
@@ -27,7 +27,7 @@ use serde::{Deserialize, Serialize};
 use crate::geometry::{Bbox, Geometry, Point, Polygon};
 use crate::strtree::StrTree;
 
-/// The lifecycle status of a [`GeoTask`] (CONCEPT:EG-267). `Pending` tasks are the ones the
+/// The lifecycle status of a [`GeoTask`] (CONCEPT:EG-KG.domains.geo-task). `Pending` tasks are the ones the
 /// assignment queries hand out.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TaskStatus {
@@ -50,7 +50,7 @@ impl TaskStatus {
     }
 }
 
-/// A geolocated unit of work (CONCEPT:EG-267): a stable `id`, a map `location`, a `status`
+/// A geolocated unit of work (CONCEPT:EG-KG.domains.geo-task): a stable `id`, a map `location`, a `status`
 /// and an optional `service_area` geometry (the region the task covers — e.g. a delivery
 /// zone). Plain serde so the caller can persist it however it likes.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -94,7 +94,7 @@ impl GeoTask {
     }
 }
 
-/// A resource-to-task assignment result (CONCEPT:EG-267): the resource's index (into the
+/// A resource-to-task assignment result (CONCEPT:EG-KG.domains.geo-task): the resource's index (into the
 /// caller's slice), the assigned task's index (into the index's task list) and the planar
 /// distance between them.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -104,7 +104,7 @@ pub struct Assignment {
     pub distance: f64,
 }
 
-/// A spatial index over a set of [`GeoTask`]s (CONCEPT:EG-267): owns the tasks and an STR
+/// A spatial index over a set of [`GeoTask`]s (CONCEPT:EG-KG.domains.geo-task): owns the tasks and an STR
 /// R-tree over their locations. Rebuild it (cheap, bulk-loaded) whenever the task set
 /// changes, or persist the tasks + tree via serde.
 #[derive(Clone, Debug)]
@@ -146,7 +146,7 @@ impl GeoTaskIndex {
 
     // ── spatial selection ───────────────────────────────────────────────────────────────
 
-    /// Every task whose location lies within `bbox` (CONCEPT:EG-267) — a map-viewport /
+    /// Every task whose location lies within `bbox` (CONCEPT:EG-KG.domains.geo-task) — a map-viewport /
     /// region query, R-tree pruned. Order unspecified.
     pub fn tasks_in_bbox(&self, bbox: &Bbox) -> Vec<&GeoTask> {
         self.tree
@@ -156,7 +156,7 @@ impl GeoTaskIndex {
             .collect()
     }
 
-    /// Every task whose location lies inside `polygon` (CONCEPT:EG-267): the R-tree prunes to
+    /// Every task whose location lies inside `polygon` (CONCEPT:EG-KG.domains.geo-task): the R-tree prunes to
     /// the polygon's bounding box, then an exact point-in-polygon test (hole-aware) filters.
     pub fn tasks_in_polygon(&self, polygon: &Polygon) -> Vec<&GeoTask> {
         let Some(bbox) = Geometry::Polygon(polygon.clone()).bbox() else {
@@ -173,7 +173,7 @@ impl GeoTaskIndex {
     // ── proximity ───────────────────────────────────────────────────────────────────────
 
     /// The up-to-`k` tasks nearest to `point`, nearest first, each with its planar distance
-    /// (CONCEPT:EG-267). Best-first branch-and-bound over the R-tree.
+    /// (CONCEPT:EG-KG.domains.geo-task). Best-first branch-and-bound over the R-tree.
     pub fn nearest(&self, point: &Point, k: usize) -> Vec<(&GeoTask, f64)> {
         self.tree
             .nearest(point, k)
@@ -182,14 +182,14 @@ impl GeoTaskIndex {
             .collect()
     }
 
-    /// The single nearest task to `point` (CONCEPT:EG-267), or `None` when the index is empty.
+    /// The single nearest task to `point` (CONCEPT:EG-KG.domains.geo-task), or `None` when the index is empty.
     pub fn nearest_task(&self, point: &Point) -> Option<(&GeoTask, f64)> {
         self.nearest(point, 1).into_iter().next()
     }
 
     // ── assignment ──────────────────────────────────────────────────────────────────────
 
-    /// The nearest **pending** task to a `resource` location (CONCEPT:EG-267) — the "give
+    /// The nearest **pending** task to a `resource` location (CONCEPT:EG-KG.domains.geo-task) — the "give
     /// this driver their next job" query. Scans nearest-first and returns the first pending
     /// hit; `None` if no pending task exists.
     pub fn assign_nearest_task(&self, resource: &Point) -> Option<(&GeoTask, f64)> {
@@ -208,7 +208,7 @@ impl GeoTaskIndex {
     }
 
     /// Greedily assign a fleet of `resources` to **pending** tasks, nearest pair first
-    /// (CONCEPT:EG-267): repeatedly take the closest (resource, unassigned-pending-task)
+    /// (CONCEPT:EG-KG.domains.geo-task): repeatedly take the closest (resource, unassigned-pending-task)
     /// pair until resources or pending tasks run out. Each resource and each task is used at
     /// most once. Returns the [`Assignment`]s (planar distance).
     pub fn greedy_assign(&self, resources: &[Point]) -> Vec<Assignment> {
@@ -249,7 +249,7 @@ impl GeoTaskIndex {
 
     // ── service area ────────────────────────────────────────────────────────────────────
 
-    /// Every task whose `service_area` covers `point` (CONCEPT:EG-267) — "which delivery
+    /// Every task whose `service_area` covers `point` (CONCEPT:EG-KG.domains.geo-task) — "which delivery
     /// zones include this address". A linear scan (service areas are arbitrary polygons, not
     /// point-indexed); tasks without an areal service area never match.
     pub fn tasks_covering(&self, point: &Point) -> Vec<&GeoTask> {
@@ -257,7 +257,7 @@ impl GeoTaskIndex {
     }
 }
 
-/// The nearest resource (by planar distance) to a task `location` (CONCEPT:EG-267): the
+/// The nearest resource (by planar distance) to a task `location` (CONCEPT:EG-KG.domains.geo-task): the
 /// "who should take this job" query. Returns the resource's index into `resources` and the
 /// distance, or `None` when `resources` is empty.
 pub fn nearest_resource(location: &Point, resources: &[Point]) -> Option<(usize, f64)> {

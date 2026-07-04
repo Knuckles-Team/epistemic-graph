@@ -1,4 +1,4 @@
-//! Raft node lifecycle (CONCEPT:KG-2.188 + KG-2.205): build the [`MultiRaft`]
+//! Raft node lifecycle (CONCEPT:AU-KG.ingest.source-sync-canonical + KG-2.205): build the [`MultiRaft`]
 //! manager (shared listener + group map), open the DEFAULT group for this cluster
 //! member, and return a [`RaftHandle`] the dispatch path routes writes through.
 //!
@@ -20,7 +20,7 @@ use crate::server::ServerState;
 ///
 /// * Builds the [`MultiRaft`] manager and its single shared RPC listener.
 /// * Opens the DEFAULT group over the shared M2 redb backend (its durable log +
-///   meta are keyed by the group id in `graph.redb` — CONCEPT:KG-2.204).
+///   meta are keyed by the group id in `graph.redb` — CONCEPT:EG-KG.storage.one-fsync-covers-raft).
 /// * On the bootstrap node (lowest id) the group `initialize`s the cluster.
 ///
 /// Returns a [`StartedNode`]: the [`RaftHandle`] for routing writes + the

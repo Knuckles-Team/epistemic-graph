@@ -1,4 +1,4 @@
-//! ROS2 bridge over the rosbridge-WebSocket JSON protocol (CONCEPT:EG-325).
+//! ROS2 bridge over the rosbridge-WebSocket JSON protocol (CONCEPT:EG-KG.domains.robotics-gpu-distribution).
 //!
 //! This bridges the engine to a ROS2 graph WITHOUT a DDS stack: it speaks the standard
 //! `rosbridge_suite` protocol — JSON messages over a WebSocket to a `rosbridge_server` —
@@ -9,7 +9,7 @@
 //! Two directions, both over one WebSocket connection to the rosbridge server:
 //!
 //! * **Engine → ROS2 (publish).** The bridge tails the engine's CDC feed
-//!   (CONCEPT:KG-2.229) for a configured graph and, for each change, sends a rosbridge
+//!   (CONCEPT:EG-KG.query.streaming-cdc-subscriptions) for a configured graph and, for each change, sends a rosbridge
 //!   `{"op":"publish","topic":<out_topic>,"msg":{…}}` — so a graph mutation becomes a ROS2
 //!   message any ROS2 node can subscribe to. It `advertise`s the out-topic first.
 //! * **ROS2 → engine (subscribe).** The bridge `subscribe`s to a configured in-topic and,
@@ -24,7 +24,7 @@
 //! Feature-gated behind `ros2-bridge` (out of `pi`/`default`/`node`): a slim build links
 //! no `tokio-tungstenite` (Pi contract). The PURE mapping here ([`cdc_to_publish`] /
 //! [`publish_to_method`] / [`RosbridgeOp`]) is ALSO compiled under `ros2-dds`
-//! (CONCEPT:EG-347): the native DDS/RTPS transport seam ([`super::dds`]) reuses this exact
+//! (CONCEPT:EG-KG.ingest.dds-transport): the native DDS/RTPS transport seam ([`super::dds`]) reuses this exact
 //! shaping, so the DDS leg puts the IDENTICAL `std_msgs/String` payload on the wire as the
 //! rosbridge leg. Only the tungstenite driver [`run_ros2_bridge`] is `ros2-bridge`-specific.
 
@@ -33,9 +33,9 @@ use serde::{Deserialize, Serialize};
 use crate::protocol::{GraphType, Method};
 use crate::wire::{CdcEvent, CdcKind};
 
-// ── The rosbridge JSON protocol (CONCEPT:EG-325) ─────────────────────────────
+// ── The rosbridge JSON protocol (CONCEPT:EG-KG.domains.robotics-gpu-distribution) ─────────────────────────────
 
-/// One rosbridge protocol message (CONCEPT:EG-325), tagged by the standard `op` field.
+/// One rosbridge protocol message (CONCEPT:EG-KG.domains.robotics-gpu-distribution), tagged by the standard `op` field.
 /// This is the subset the bridge uses of the `rosbridge_suite` protocol: `advertise`,
 /// `unadvertise`, `publish`, `subscribe`, `unsubscribe`. `serde(tag = "op")` +
 /// `rename_all = "snake_case"` produces exactly the wire shape rosbridge expects, e.g.
@@ -72,7 +72,7 @@ impl RosbridgeOp {
         serde_json::to_string(self).unwrap_or_else(|_| "{}".to_string())
     }
 
-    /// Parse one inbound rosbridge JSON frame (CONCEPT:EG-325). Unknown ops / malformed
+    /// Parse one inbound rosbridge JSON frame (CONCEPT:EG-KG.domains.robotics-gpu-distribution). Unknown ops / malformed
     /// frames return `None` (ignored — rosbridge also sends `status`/`service_response`
     /// frames the bridge does not act on).
     pub fn from_json(text: &str) -> Option<Self> {
@@ -84,9 +84,9 @@ impl RosbridgeOp {
 /// — a JSON payload carried in the message's `data` field, the rosbridge lingua franca.
 pub const ROS_STRING_TYPE: &str = "std_msgs/String";
 
-// ── CDC ↔ ROS2 message mapping (CONCEPT:EG-325) ──────────────────────────────
+// ── CDC ↔ ROS2 message mapping (CONCEPT:EG-KG.domains.robotics-gpu-distribution) ──────────────────────────────
 
-/// Map an engine CDC change to a rosbridge `publish` op (CONCEPT:EG-325). The ROS2 message
+/// Map an engine CDC change to a rosbridge `publish` op (CONCEPT:EG-KG.domains.robotics-gpu-distribution). The ROS2 message
 /// is a `std_msgs/String` whose `data` is a JSON string describing the change (kind, graph,
 /// node/target ids, label) — so a downstream ROS2 node parses one field. Pure + tested.
 pub fn cdc_to_publish(event: &CdcEvent, topic: &str) -> RosbridgeOp {
@@ -112,7 +112,7 @@ pub fn cdc_to_publish(event: &CdcEvent, topic: &str) -> RosbridgeOp {
     }
 }
 
-/// Map an inbound rosbridge `publish` message to an engine [`Method`] (CONCEPT:EG-325).
+/// Map an inbound rosbridge `publish` message to an engine [`Method`] (CONCEPT:EG-KG.domains.robotics-gpu-distribution).
 ///
 /// Accepts a `std_msgs/String`-shaped message whose `data` is a JSON object carrying at
 /// least a `node_id` (and optional `properties` object), OR a message that is itself that
@@ -137,9 +137,9 @@ pub fn publish_to_method(msg: &serde_json::Value) -> Option<Method> {
     })
 }
 
-// ── Config + live WebSocket driver (CONCEPT:EG-325) ──────────────────────────
+// ── Config + live WebSocket driver (CONCEPT:EG-KG.domains.robotics-gpu-distribution) ──────────────────────────
 
-/// Env-driven configuration for the ROS2 bridge (CONCEPT:EG-325).
+/// Env-driven configuration for the ROS2 bridge (CONCEPT:EG-KG.domains.robotics-gpu-distribution).
 #[derive(Debug, Clone)]
 pub struct Ros2BridgeConfig {
     /// The rosbridge server WebSocket URL, e.g. `ws://localhost:9090`.
@@ -153,11 +153,11 @@ pub struct Ros2BridgeConfig {
     pub in_topic: String,
 }
 
-/// Env var naming the rosbridge server (CONCEPT:EG-325). Presence enables the bridge.
+/// Env var naming the rosbridge server (CONCEPT:EG-KG.domains.robotics-gpu-distribution). Presence enables the bridge.
 pub const ROSBRIDGE_URL_ENV: &str = "EPISTEMIC_GRAPH_ROSBRIDGE_URL";
 
 impl Ros2BridgeConfig {
-    /// Parse the bridge config from the environment (CONCEPT:EG-325). Returns `None` unless
+    /// Parse the bridge config from the environment (CONCEPT:EG-KG.domains.robotics-gpu-distribution). Returns `None` unless
     /// [`ROSBRIDGE_URL_ENV`] is set.
     pub fn from_env() -> Option<Self> {
         let rosbridge_url = std::env::var(ROSBRIDGE_URL_ENV)
@@ -178,7 +178,7 @@ impl Ros2BridgeConfig {
     }
 }
 
-/// Apply an inbound ROS2 message to the engine graph (CONCEPT:EG-325) via the canonical
+/// Apply an inbound ROS2 message to the engine graph (CONCEPT:EG-KG.domains.robotics-gpu-distribution) via the canonical
 /// `crate::wal::apply` path (the same one Raft/WAL replay use). Creates the graph if absent.
 /// Returns `true` if the message mapped to a method and was applied.
 #[cfg(feature = "server")]
@@ -206,14 +206,14 @@ pub async fn apply_inbound(
     }
 }
 
-/// Run the ROS2 bridge until the connection drops (CONCEPT:EG-325). Connects to the
+/// Run the ROS2 bridge until the connection drops (CONCEPT:EG-KG.domains.robotics-gpu-distribution). Connects to the
 /// rosbridge server, advertises the out-topic + subscribes the in-topic, then concurrently
 /// (a) forwards the graph's CDC changes as ROS2 publishes and (b) applies inbound ROS2
 /// publishes to the engine. Spawned from `main` when [`Ros2BridgeConfig::from_env`] is
 /// `Some`; a dropped connection returns so the caller can reconnect with backoff.
 ///
 /// Gated on `ros2-bridge` specifically (not just `server`): it is the tokio-tungstenite
-/// WebSocket driver, so a `ros2-dds`-only build (CONCEPT:EG-347) — which links no
+/// WebSocket driver, so a `ros2-dds`-only build (CONCEPT:EG-KG.ingest.dds-transport) — which links no
 /// tokio-tungstenite — must not compile it. The pure CDC↔ROS2 mapping above stays shared.
 #[cfg(all(feature = "server", feature = "ros2-bridge"))]
 pub async fn run_ros2_bridge(

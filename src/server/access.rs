@@ -8,7 +8,7 @@ use crate::protocol::Method;
 /// never touch graph state and classify as Read.
 pub(crate) fn requires_write(method: &Method) -> bool {
     // `AddTriples` / `RemoveTriples` / `DropNamedGraph` (feature `rdf`) mutate the
-    // target graph's RDF content (CONCEPT:KG-2.217 / EG-017).
+    // target graph's RDF content (CONCEPT:EG-KG.ontology.kg-native-rdf-sparql / EG-017).
     #[cfg(feature = "rdf")]
     if matches!(
         method,
@@ -16,7 +16,7 @@ pub(crate) fn requires_write(method: &Method) -> bool {
     ) {
         return true;
     }
-    // Key→Value mutations (CONCEPT:EG-022, feature `kv`). KV is namespace-scoped (NOT
+    // Key→Value mutations (CONCEPT:EG-KG.storage.namespaced-kv-surface, feature `kv`). KV is namespace-scoped (NOT
     // graph-scoped) and self-routes BEFORE `dispatch_graph_op`, so this classifier is
     // not on the KV routing path — but it is the canonical read/write classifier, so
     // `KvPut`/`KvDelete`/`KvCas` are recorded here as writes (`KvGet`/`KvScan` read).
@@ -27,7 +27,7 @@ pub(crate) fn requires_write(method: &Method) -> bool {
     ) {
         return true;
     }
-    // Message-broker admin + publish (CONCEPT:EG-275, feature `broker`) all mutate the
+    // Message-broker admin + publish (CONCEPT:EG-KG.compute.message-broker-exchanges, feature `broker`) all mutate the
     // control graph's exchange/binding/message nodes, so they classify as writes (Write
     // access + WAL record). Consume/ack ride `ClaimNext`/`CompareAndSetNodeFields`,
     // already classified below.
@@ -39,7 +39,7 @@ pub(crate) fn requires_write(method: &Method) -> bool {
             | Method::BindQueue { .. }
             | Method::UnbindQueue { .. }
             | Method::Publish { .. }
-            // Broker policy extensions (CONCEPT:EG-276..280) all mutate control-graph
+            // Broker policy extensions (CONCEPT:EG-KG.compute.dead-letter-queues..280) all mutate control-graph
             // nodes (policy/message/dead-letter/claim state) → writes.
             | Method::DeclareQueue { .. }
             | Method::PublishEx { .. }
@@ -50,7 +50,7 @@ pub(crate) fn requires_write(method: &Method) -> bool {
     ) {
         return true;
     }
-    // Query-surface writes (CONCEPT:EG-023): the `Sql`/`CypherQuery`/`GraphQl` variants
+    // Query-surface writes (CONCEPT:EG-KG.query.mirrors-pgwire): the `Sql`/`CypherQuery`/`GraphQl` variants
     // carry a query STRING, so whether they mutate the graph depends on the statement,
     // not the variant. Parse just enough to classify; a write needs Write access and
     // (post-success) the dispatch shell's `mark_dirty` so the next checkpoint persists
@@ -95,7 +95,7 @@ pub(crate) fn requires_write(method: &Method) -> bool {
             | Method::ParseRepository { .. }
             | Method::DeleteGraph { .. }
             | Method::ClaimNext { .. }
-            // Agent-memory / scene-graph / trajectory mutations (CONCEPT:EG-318):
+            // Agent-memory / scene-graph / trajectory mutations (CONCEPT:EG-KG.memory.eg-batch-decay-caller):
             // each writes nodes/edges (summaries, semantic nodes, decay/evict
             // bookkeeping, scene objects, trajectories/steps) → Write access + WAL
             // record. The paired reads (SummaryChildren/SummariesAtLevel/
@@ -115,7 +115,7 @@ pub(crate) fn requires_write(method: &Method) -> bool {
     )
 }
 
-/// Whether a wire `Method::Sql` statement mutates state (CONCEPT:EG-023). Reuses the
+/// Whether a wire `Method::Sql` statement mutates state (CONCEPT:EG-KG.query.mirrors-pgwire). Reuses the
 /// SAME `eg_query::classify` the pgwire shim routes on, so a graph-node DML
 /// (INSERT/UPDATE/DELETE on `nodes`), a user-table DDL/DML (CREATE/ALTER/DROP TABLE,
 /// INSERT/UPDATE/DELETE/COPY on a user table), classify as writes; a `SELECT`/`WITH`/
@@ -134,7 +134,7 @@ pub(crate) fn sql_is_write(query: &str) -> bool {
 }
 
 /// Whether a Cypher statement is a WRITE (`CREATE`/`MERGE`/`SET`/`DELETE`/`REMOVE`)
-/// rather than a read-only `MATCH … RETURN` (CONCEPT:EG-023). The eg-query Cypher
+/// rather than a read-only `MATCH … RETURN` (CONCEPT:EG-KG.query.mirrors-pgwire). The eg-query Cypher
 /// `parse_statement` (the precise read/write split) is private, so this is a robust
 /// surface scan: it walks the text skipping `'…'` / `"…"` / `` `…` `` literals so a
 /// keyword inside a string or a quoted identifier never trips it, then matches a
@@ -143,7 +143,7 @@ pub(crate) fn sql_is_write(query: &str) -> bool {
 ///
 /// `REMOVE` is classified here AND parsed by `parse_statement` → `exec_cypher_write`
 /// as a `WriteOp::Remove` (property delete / label removal), so the two stay in lock
-/// step: a `REMOVE` statement always routes to the live write path (CONCEPT:EG-061).
+/// step: a `REMOVE` statement always routes to the live write path (CONCEPT:EG-KG.query.cypher-execution).
 #[cfg(feature = "cypher")]
 pub(crate) fn cypher_is_write(query: &str) -> bool {
     let bytes = query.as_bytes();
@@ -193,7 +193,7 @@ pub(crate) fn cypher_is_write(query: &str) -> bool {
 }
 
 /// Whether a GraphQL document is a MUTATION (a write) rather than a `query`/
-/// `subscription` (CONCEPT:EG-023). Uses eg-graphql's own `parse_operation`, so the
+/// `subscription` (CONCEPT:EG-KG.query.mirrors-pgwire). Uses eg-graphql's own `parse_operation`, so the
 /// classification matches the executor exactly; an unparseable document is treated as
 /// a non-write (the handler surfaces the parse error on a read snapshot).
 #[cfg(feature = "graphql")]

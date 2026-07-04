@@ -1,4 +1,4 @@
-"""Cross-shard scatter-gather union + affinity co-residency (CONCEPT:KG-2.181).
+"""Cross-shard scatter-gather union + affinity co-residency (CONCEPT:EG-KG.ingest.ingest-lane-affinity).
 
 Fake clients only — no running engine. Mirrors tests/test_union_reads.py.
 """

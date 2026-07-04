@@ -23,7 +23,7 @@ pub struct AgentIdentity {
     pub role: AgentRole,
     /// Teams this agent belongs to.
     pub teams: Vec<String>,
-    /// RBAC role names this agent holds (CONCEPT:EG-092). Expanded transitively
+    /// RBAC role names this agent holds (CONCEPT:EG-KG.compute.feature). Expanded transitively
     /// through the role hierarchy by the policy evaluator. `#[serde(default)]`
     /// keeps the wire/record layout backward-compatible — an identity persisted or
     /// sent before RBAC simply carries an empty set (⇒ no RBAC grants apply, so the
@@ -32,14 +32,14 @@ pub struct AgentIdentity {
     pub roles: Vec<String>,
 }
 
-// ── RBAC role model (CONCEPT:EG-092) ─────────────────────────────────────────
+// ── RBAC role model (CONCEPT:EG-KG.compute.feature) ─────────────────────────────────────────
 // Durable, serde-serializable role/grant records layered ON TOP of the per-agent
 // RLS/ACL. They persist exactly like `AgentIdentity` (in-memory in the
 // `IsolationLayer`, replayable/serializable), and the pure-Rust evaluator lives in
 // `eg-core::rbac` (behind the `security` feature). These TYPES are unconditional so
 // the wire `Method::RbacAdmin` can carry them below the `isolation` layer in the DAG.
 
-/// An action a grant permits or denies over a resource (CONCEPT:EG-092).
+/// An action a grant permits or denies over a resource (CONCEPT:EG-KG.compute.feature).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum RbacAction {
     Read,
@@ -47,14 +47,14 @@ pub enum RbacAction {
     Admin,
 }
 
-/// Whether a [`Grant`] permits or forbids the action (CONCEPT:EG-092).
+/// Whether a [`Grant`] permits or forbids the action (CONCEPT:EG-KG.compute.feature).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum GrantEffect {
     Allow,
     Deny,
 }
 
-/// What a [`Grant`] applies to (CONCEPT:EG-092). Ordered by [`specificity`] so the
+/// What a [`Grant`] applies to (CONCEPT:EG-KG.compute.feature). Ordered by [`specificity`] so the
 /// evaluator can implement "most-specific-resource wins": a named graph beats a
 /// label, which beats a glob pattern, which beats "all".
 ///
@@ -112,7 +112,7 @@ fn glob_match(pattern: &str, text: &str) -> bool {
     }
 }
 
-/// The concrete resource an access decision is about (CONCEPT:EG-092). The
+/// The concrete resource an access decision is about (CONCEPT:EG-KG.compute.feature). The
 /// `IsolationLayer` builds this from the requested graph (and, where available, a
 /// node label) before consulting the RBAC evaluator.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -132,7 +132,7 @@ impl ResourceContext {
 }
 
 /// A durable RBAC role with an optional set of parent roles forming a hierarchy
-/// (CONCEPT:EG-092). A role transitively inherits every grant of its parents.
+/// (CONCEPT:EG-KG.compute.feature). A role transitively inherits every grant of its parents.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Role {
     pub name: String,
@@ -157,7 +157,7 @@ impl Role {
 }
 
 /// A grant binding a role to an (`resource`, `action`, `effect`) triple
-/// (CONCEPT:EG-092).
+/// (CONCEPT:EG-KG.compute.feature).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Grant {
     pub role: String,
@@ -166,7 +166,7 @@ pub struct Grant {
     pub effect: GrantEffect,
 }
 
-/// A single administrative mutation of the RBAC policy (CONCEPT:EG-092), carried by
+/// A single administrative mutation of the RBAC policy (CONCEPT:EG-KG.compute.feature), carried by
 /// `Method::RbacAdmin`. Unconditional so it sits below the `isolation` layer.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RbacAdminOp {

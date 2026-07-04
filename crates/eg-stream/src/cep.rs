@@ -1,4 +1,4 @@
-//! The bounded NFA CEP engine (CONCEPT:EG-088).
+//! The bounded NFA CEP engine (CONCEPT:EG-KG.query.pipelined-execution).
 //!
 //! [`run`] detects every [`Match`] of a [`CepPattern`] over a time-ordered slice of
 //! [`Event`]s within a [`Window`]. The [`CepPattern::Sequence`] path is a genuine
@@ -37,7 +37,7 @@ impl Window {
     /// Can a match spanning `[start, end]` (inclusive timestamps) live inside this
     /// window? Also serves as the NFA prune test: a partial run whose start can no
     /// longer reach `end` in-window is dead. `pub(crate)` so the live standing-query
-    /// engine ([`crate::live`], CONCEPT:EG-088) shares the exact same admission test as
+    /// engine ([`crate::live`], CONCEPT:EG-KG.query.pipelined-execution) shares the exact same admission test as
     /// the batch NFA — live and batch must agree bit-for-bit.
     pub(crate) fn admits(&self, start: u64, end: u64) -> bool {
         match *self {
@@ -47,7 +47,7 @@ impl Window {
     }
 }
 
-/// The CEP pattern algebra (CONCEPT:EG-088).
+/// The CEP pattern algebra (CONCEPT:EG-KG.query.pipelined-execution).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum CepPattern {
     /// Match the matchers IN ORDER (a "followed-by" chain — other events may occur
@@ -104,7 +104,7 @@ struct Partial {
     events: Vec<Event>,
 }
 
-/// The incremental, event-at-a-time NFA over a `Sequence` (CONCEPT:EG-088). It holds the
+/// The incremental, event-at-a-time NFA over a `Sequence` (CONCEPT:EG-KG.query.pipelined-execution). It holds the
 /// set of live partial runs across calls, so it drives BOTH the batch [`run_sequence`]
 /// (fed every event of a pre-sorted slice) AND the live standing-query loop
 /// ([`crate::live`], fed each event as the CDC bus emits it). Because a single
@@ -242,7 +242,7 @@ fn run_absence(
     matches
 }
 
-/// Incremental `a`-NOT-followed-by-`b` stepper (CONCEPT:EG-088) for the live standing
+/// Incremental `a`-NOT-followed-by-`b` stepper (CONCEPT:EG-KG.query.pipelined-execution) for the live standing
 /// query. Unlike [`run_sequence`], `Absence` cannot decide a match the instant an `a`
 /// arrives — it must wait until either a `b` follows within the horizon (⇒ suppressed) or
 /// the horizon lapses with no follower (⇒ emit). So the live path needs an explicit

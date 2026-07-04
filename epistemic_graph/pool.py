@@ -4,9 +4,9 @@ Provides an async ConnectionPool to manage multiple connections to a single serv
 and a ShardRouter that distributes graphs across multiple backend endpoints using
 Highest Random Weight (HRW) consistent hashing.
 
-CONCEPT:KG-2.181 — Cross-shard union co-residency + scatter-gather.
+CONCEPT:EG-KG.ingest.ingest-lane-affinity — Cross-shard union co-residency + scatter-gather.
 
-The engine's cross-graph UNION read (CONCEPT:KG-2.171) is *single-shard*: the
+The engine's cross-graph UNION read (CONCEPT:EG-KG.query.cross-graph-union) is *single-shard*: the
 handler re-enters one shard's local registry, so every graph in a union set must
 be CO-RESIDENT on the shard the request routes to. Plain HRW hashing scatters
 related graphs (``__commons__`` and the per-lane ``__ingest_*`` graphs) across
@@ -31,7 +31,7 @@ Single-endpoint homelab behavior is unchanged: with one endpoint every graph
 co-resides trivially, so affinity is a no-op and scatter-gather degenerates to a
 single per-shard call.
 
-Failure mode (CONCEPT:KG-2.181): scatter-gather is **fail-loud per shard**. If any
+Failure mode (CONCEPT:EG-KG.ingest.ingest-lane-affinity): scatter-gather is **fail-loud per shard**. If any
 shard's sub-union raises (e.g. one denied graph on that shard), the exception
 propagates and the whole union fails — consistent with the engine's
 fail-loud-per-shard durability contract. We do NOT silently degrade to a partial
@@ -40,7 +40,7 @@ was unreachable" in a deduped merge, and a silently partial union is a correctne
 hazard. (A missing graph is still skipped engine-side, exactly as in the
 single-shard union — that is an empty contribution, not an error.)
 
-CONCEPT:EG-037 — Multiplexed engine connections (parallelize the wire).
+CONCEPT:EG-KG.backend.multiplexed-connections — Multiplexed engine connections (parallelize the wire).
 
 One ``EpistemicGraphClient`` connection dispatches requests SERIALLY: ``_send``
 holds a per-connection ``asyncio.Lock`` for the whole write→round-trip→read, and
@@ -87,7 +87,7 @@ logger = logging.getLogger(__name__)
 
 
 def _auto_pool_size() -> int:
-    """Auto-size a per-endpoint connection pool to the box (CONCEPT:EG-037).
+    """Auto-size a per-endpoint connection pool to the box (CONCEPT:EG-KG.backend.multiplexed-connections).
 
     The pool must give every concurrent caller hitting one shard its own
     in-flight connection — the K shard-writers, the staged pipeline's WRITE pool,
@@ -100,7 +100,7 @@ def _auto_pool_size() -> int:
     return max(8, min(2 * cpu, 64))
 
 
-# CONCEPT:KG-2.181 — anchor key for the default ingest-lane affinity group.
+# CONCEPT:EG-KG.ingest.ingest-lane-affinity — anchor key for the default ingest-lane affinity group.
 _COMMONS_ANCHOR = "__commons__"
 
 
@@ -108,7 +108,7 @@ def _default_affinity_groups() -> dict[str, str]:
     """Default graph→anchor co-residency map.
 
     Pins the per-lane ingest graphs to the ``__commons__`` shard so a union read
-    over the ingest lanes + commons resolves on one shard (CONCEPT:KG-2.171's
+    over the ingest lanes + commons resolves on one shard (CONCEPT:EG-KG.query.cross-graph-union's
     co-residency contract). ``__ingest_*`` lanes are matched by prefix at routing
     time; the explicit map covers the bare lane name.
 
@@ -142,7 +142,7 @@ def _default_affinity_groups() -> dict[str, str]:
 
 
 class AffinityRegistry:
-    """Maps a graph name to its co-residency *anchor* key (CONCEPT:KG-2.181).
+    """Maps a graph name to its co-residency *anchor* key (CONCEPT:EG-KG.ingest.ingest-lane-affinity).
 
     Routing by the anchor instead of the graph's own name forces every member of
     an affinity group onto the same shard. Members may be exact names or trailing
@@ -187,7 +187,7 @@ class ConnectionPool:
         # Optional caller identity forwarded on every request for server-side
         # ACL enforcement (see the server's isolation layer).
         self.agent_id = agent_id
-        # CONCEPT:EG-037 — auto-size to the box when the caller doesn't pin a cap,
+        # CONCEPT:EG-KG.backend.multiplexed-connections — auto-size to the box when the caller doesn't pin a cap,
         # so M concurrent callers each get their own in-flight connection instead
         # of contending on one. An explicit cap is still honored.
         self.max_size = _auto_pool_size() if max_size is None else max_size
@@ -282,7 +282,7 @@ class ConnectionPool:
         ops: list[Callable[[EpistemicGraphClient], Awaitable[Any]]],
     ) -> list[Any]:
         """Run INDEPENDENT ``ops`` concurrently, each on its own connection
-        (CONCEPT:EG-037 — parallelize the wire).
+        (CONCEPT:EG-KG.backend.multiplexed-connections — parallelize the wire).
 
         Each ``fn`` is ``async (client) -> result``; every ``fn`` gets a distinct
         pooled connection, so the engine services them as parallel per-connection
@@ -329,7 +329,7 @@ class ShardRouter:
         if not endpoints:
             raise ValueError("ShardRouter requires at least one endpoint")
         self.endpoints = endpoints
-        # CONCEPT:KG-2.181 — co-residency layer. Routing keys pass through here
+        # CONCEPT:EG-KG.ingest.ingest-lane-affinity — co-residency layer. Routing keys pass through here
         # so an affinity group's members share one shard (anchor-keyed HRW).
         self.affinity = affinity if affinity is not None else AffinityRegistry()
         self.pools: dict[str, ConnectionPool] = {}
@@ -346,7 +346,7 @@ class ShardRouter:
     def _route_key(self, graph_name: str) -> str:
         """Resolve the HRW routing key for ``graph_name`` via affinity.
 
-        CONCEPT:KG-2.181 — members of an affinity group hash by their anchor key,
+        CONCEPT:EG-KG.ingest.ingest-lane-affinity — members of an affinity group hash by their anchor key,
         which pins them to the same shard as the anchor (e.g. ingest lanes →
         ``__commons__``).
         """
@@ -373,7 +373,7 @@ class ShardRouter:
     def group_by_shard(self, graph_names: list[str]) -> dict[str, list[str]]:
         """Group ``graph_names`` by their resolved shard endpoint (order-preserving).
 
-        CONCEPT:KG-2.181 — the partition a scatter-gather union fans out over.
+        CONCEPT:EG-KG.ingest.ingest-lane-affinity — the partition a scatter-gather union fans out over.
         With affinity in play, a co-resident set collapses into one group, so the
         union takes a single per-shard call (the fast path); only graphs that
         genuinely live on different shards produce multiple groups.
@@ -403,7 +403,7 @@ class ShardRouter:
     @contextlib.asynccontextmanager
     async def connection(self, graph_name: str) -> AsyncIterator[EpistemicGraphClient]:
         """Acquire ``graph_name``'s shard connection for the ``with`` block,
-        always releasing it back to the right pool (CONCEPT:EG-037).
+        always releasing it back to the right pool (CONCEPT:EG-KG.backend.multiplexed-connections).
 
         ``async with router.connection(graph) as client: ...`` — the leak-free way
         the hot write/read path holds a connection. Order-dependent operations on
@@ -423,7 +423,7 @@ class ShardRouter:
         ops: list[Callable[[EpistemicGraphClient], Awaitable[Any]]],
     ) -> list[Any]:
         """Run INDEPENDENT ``ops`` against ``graph_name`` concurrently, each on its
-        own connection to that graph's shard (CONCEPT:EG-037).
+        own connection to that graph's shard (CONCEPT:EG-KG.backend.multiplexed-connections).
 
         The per-graph analogue of :meth:`ConnectionPool.map_concurrent`: all ``ops``
         target the same shard (so they land on the right writer) but each takes a
@@ -441,7 +441,7 @@ class ShardRouter:
 
         return await asyncio.gather(*(_run(fn) for fn in ops))
 
-    # ── Cross-shard scatter-gather union (CONCEPT:KG-2.181) ──────────────
+    # ── Cross-shard scatter-gather union (CONCEPT:EG-KG.ingest.ingest-lane-affinity) ──────────────
     # Union across graphs that may live on DIFFERENT shards. Each per-shard
     # sub-union reuses the single-shard KG-2.171 RPC (no new engine method):
     # the group's graphs are co-resident on that shard, so the shard-local
@@ -481,7 +481,7 @@ class ShardRouter:
         Preserves the single-shard union semantics: first non-null hit wins, in
         the caller's ``graphs`` order. Each shard returns its own first-found over
         its slice; we then re-apply graph order across shards to pick the global
-        first. Fail-loud per shard (CONCEPT:KG-2.181).
+        first. Fail-loud per shard (CONCEPT:EG-KG.ingest.ingest-lane-affinity).
         """
         groups = self.group_by_shard(graphs)
         if len(groups) == 1:
@@ -513,7 +513,7 @@ class ShardRouter:
 
         Each shard dedupes its own slice; we then dedupe again across shards by
         node id (first-found wins) and apply the global ``limit`` (0 ⇒ no cap).
-        Fail-loud per shard (CONCEPT:KG-2.181).
+        Fail-loud per shard (CONCEPT:EG-KG.ingest.ingest-lane-affinity).
         """
         groups = self.group_by_shard(graphs)
         per_shard = await asyncio.gather(
@@ -538,7 +538,7 @@ class ShardRouter:
     async def neighbors_union(self, node_id: str, graphs: list[str]) -> list[str]:
         """Neighbour ids unioned + deduped across ``graphs``, spanning shards.
 
-        Fail-loud per shard (CONCEPT:KG-2.181).
+        Fail-loud per shard (CONCEPT:EG-KG.ingest.ingest-lane-affinity).
         """
         groups = self.group_by_shard(graphs)
         per_shard = await asyncio.gather(

@@ -1,5 +1,5 @@
-//! Postgres wire-protocol shim (CONCEPT:KG-2.189) — the FIRST `WireProtocol` adapter
-//! (CONCEPT:EG-074). A thin facade over the engine's internal SQL surface that lets
+//! Postgres wire-protocol shim (CONCEPT:AU-KG.query.raw-python) — the FIRST `WireProtocol` adapter
+//! (CONCEPT:EG-KG.compute.subsystems-reference). A thin facade over the engine's internal SQL surface that lets
 //! `psql`, BI tools, and ORMs connect and run SQL against a graph.
 //!
 //! ## What this is (and is NOT)
@@ -22,7 +22,7 @@
 //! free. No SQL grammar, planner, or executor is reimplemented here.
 //!
 //! ## Protocols supported
-//! BOTH Postgres query protocols (CONCEPT:KG-2.197):
+//! BOTH Postgres query protocols (CONCEPT:EG-KG.query.describe):
 //!   * **Simple query** (`SimpleQueryHandler`) — a single text query string, one
 //!     round-trip. What raw `psql` and `client.simple_query(...)` use.
 //!   * **Extended / prepared** (`ExtendedQueryHandler`) — the Parse / Bind /
@@ -37,7 +37,7 @@
 //! Unchanged from KG-2.189/KG-2.198/EG-020/EG-045..049/EG-072/EG-102/EG-115 — the
 //! behavior now lives in [`crate::server::wire`]; this adapter only frames it. See the
 //! `wire` module header for the mixed-store transaction and durability semantics, and
-//! `auth.rs` for the `trust`/`scram` model (CONCEPT:KG-2.202).
+//! `auth.rs` for the `trust`/`scram` model (CONCEPT:EG-KG.query.concept-13).
 //!
 //! ## Arrow → pg type-OID mapping
 //! Result columns are described from the Arrow result schema via
@@ -83,12 +83,12 @@ pub const PGWIRE_ADDR_ENV: &str = "EPISTEMIC_GRAPH_PGWIRE_ADDR";
 /// `database` parameter is not supplied. Defaults to `__commons__`.
 pub const PGWIRE_GRAPH_ENV: &str = "EPISTEMIC_GRAPH_PGWIRE_GRAPH";
 /// Env var: explicit path to the user-defined SQL table store redb file
-/// (CONCEPT:EG-018). When unset it derives from `GRAPH_SERVICE_PERSIST_DIR`
+/// (CONCEPT:EG-KG.query.register-user-tables-alongside). When unset it derives from `GRAPH_SERVICE_PERSIST_DIR`
 /// (`<persist_dir>/sql_tables.redb`) so user tables live beside the graph durable
 /// tier; absent that, a process-temp file (in-memory-ish, lost on restart).
 pub const PGWIRE_SQL_TABLES_ENV: &str = "EPISTEMIC_GRAPH_SQL_TABLES_PATH";
 
-// ── error + outcome adaptation (CONCEPT:EG-074) ───────────────────────────────
+// ── error + outcome adaptation (CONCEPT:EG-KG.compute.subsystems-reference) ───────────────────────────────
 
 /// Map an internal error string to a pgwire user error (SQLSTATE 58000 — system
 /// error) for the Postgres-SPECIFIC surfaces of this adapter (COPY framing, etc.).
@@ -155,7 +155,7 @@ fn pg_type(t: PgColType) -> Type {
         PgColType::Float8 => Type::FLOAT8,
         PgColType::Bool => Type::BOOL,
         PgColType::Text => Type::TEXT,
-        // CONCEPT:EG-115 — pgvector `vector`. pgvector's own OID is dynamically assigned
+        // CONCEPT:EG-KG.query.pgvector-binary-wire — pgvector `vector`. pgvector's own OID is dynamically assigned
         // by the extension, so we report the stable, always-present float4-array OID
         // (`_float4` = 1021, "float-array-ish"): a client without the vector type
         // registered still resolves a sane type, and the value is sent as the pgvector
@@ -216,7 +216,7 @@ fn encode_cell(
             Value::String(s) => encoder.encode_field(&s.as_str()),
             other => encoder.encode_field(&other.to_string()),
         },
-        // CONCEPT:EG-115 — render a vector (a JSON array of numbers) as the pgvector
+        // CONCEPT:EG-KG.query.pgvector-binary-wire — render a vector (a JSON array of numbers) as the pgvector
         // text literal `[1,2,3]`; a non-array value falls back to its JSON text.
         PgColType::Vector => match cell {
             Value::Array(items) => {
@@ -273,14 +273,14 @@ fn query_response(result: TypedQueryResult, format: Option<&Format>) -> QueryRes
 
 // ── the Postgres wire adapter ──────────────────────────────────────────────────
 
-/// Per-connection Postgres wire handler (CONCEPT:EG-074). Owns the wire-agnostic
+/// Per-connection Postgres wire handler (CONCEPT:EG-KG.compute.subsystems-reference). Owns the wire-agnostic
 /// [`WireSession`] that does the actual SQL work and adds ONLY the Postgres framing:
 /// the simple/extended protocol handlers, the extended-protocol Describe support (OID
 /// resolution + result-column schema), and the COPY wire decoders. One instance per
 /// connection (a fresh factory per accepted connection in `serve`), so each
 /// connection's `SET graph` / txn state stays isolated.
 struct EngineBackend {
-    /// The shared, wire-agnostic execution core (CONCEPT:EG-074).
+    /// The shared, wire-agnostic execution core (CONCEPT:EG-KG.compute.subsystems-reference).
     session: Arc<WireSession>,
     /// The SQL parser used for the extended protocol's Parse step. Stateless.
     parser: Arc<EngineQueryParser>,
@@ -293,7 +293,7 @@ impl EngineBackend {
         auth_mode: PgWireAuthMode,
     ) -> Self {
         // Under SCRAM the authenticated libpq `user` becomes the ACL actor; under
-        // TRUST the connection stays anonymous (CONCEPT:KG-2.202).
+        // TRUST the connection stays anonymous (CONCEPT:EG-KG.query.concept-13).
         let auth_maps_actor = matches!(auth_mode, PgWireAuthMode::Scram);
         Self {
             session: Arc::new(WireSession::new(state, default_graph, auth_maps_actor)),
@@ -312,7 +312,7 @@ impl EngineBackend {
     }
 
     /// Resolve the wire `Type` OIDs for a statement's `$N` parameters
-    /// (CONCEPT:KG-2.197). Locates each param via `eg_query::infer_param_sites` (a
+    /// (CONCEPT:EG-KG.query.describe). Locates each param via `eg_query::infer_param_sites` (a
     /// column / `id` / literal site), then types it: an `id` site → TEXT; a column
     /// site → that column's type from the shared node column-type map; a literal site
     /// → its directly-derived type. A column with no observed type defaults to TEXT.
@@ -352,7 +352,7 @@ impl EngineBackend {
     }
 
     /// Derive the result-set `FieldInfo`s a statement will produce, for the Describe
-    /// step (CONCEPT:KG-2.197) — WITHOUT mutating state. The extended protocol sends
+    /// step (CONCEPT:EG-KG.query.describe) — WITHOUT mutating state. The extended protocol sends
     /// the `RowDescription` from Describe (not from Execute), so a wrong/empty schema
     /// here makes the client miscount DataRow fields. `sql` must already have any
     /// bound params substituted (portal describe) or `$N`→dummy (statement describe).
@@ -414,7 +414,7 @@ impl EngineBackend {
                     })
                     .collect())
             }
-            // CONCEPT:EG-114 — an AGE cypher() call is a read; describe the typed `AS`
+            // CONCEPT:EG-KG.query.postgres-family-extension-plan — an AGE cypher() call is a read; describe the typed `AS`
             // columns (narrowed by the projection) WITHOUT executing the Cypher.
             Ok(StatementKind::CypherCall(plan)) => Ok(eg_query::cypher_output_columns(&plan)
                 .into_iter()
@@ -428,7 +428,7 @@ impl EngineBackend {
                     )
                 })
                 .collect()),
-            // DDL / user-table DML (CONCEPT:EG-018) → no result columns (like a
+            // DDL / user-table DML (CONCEPT:EG-KG.query.register-user-tables-alongside) → no result columns (like a
             // non-RETURNING write); and unclassifiable (e.g. SET graph) → none either.
             Ok(_) | Err(_) => Ok(Vec::new()),
         }
@@ -458,7 +458,7 @@ impl SimpleQueryHandler for EngineBackend {
     }
 }
 
-// ── COPY … FROM STDIN handler (CONCEPT:EG-020) ───────────────────────────────
+// ── COPY … FROM STDIN handler (CONCEPT:EG-KG.query.register-each-user-table) ───────────────────────────────
 
 #[async_trait]
 impl pgwire::api::copy::CopyHandler for EngineBackend {
@@ -528,7 +528,7 @@ impl pgwire::api::copy::CopyHandler for EngineBackend {
 }
 
 /// Decode a `COPY … FROM STDIN` body into typed rows aligned to the copy target's
-/// columns (CONCEPT:EG-020). Supports the Postgres TEXT, CSV, and BINARY formats; each
+/// columns (CONCEPT:EG-KG.query.register-each-user-table). Supports the Postgres TEXT, CSV, and BINARY formats; each
 /// field is coerced to its target column's [`ColumnType`] so the store's typed insert
 /// path accepts it (and SERIAL/DEFAULT fill any column the COPY omits).
 fn decode_copy_rows(
@@ -705,7 +705,7 @@ fn copy_field_to_value(field: Option<&str>, ty: ColumnType) -> Result<serde_json
             other => return Err(format!("invalid boolean `{other}`")),
         },
         ColumnType::Json => serde_json::from_str(s).unwrap_or(Value::String(s.to_string())),
-        // CONCEPT:EG-115 — a vector arrives as pgvector text `[1,2,3]`; pass it through
+        // CONCEPT:EG-KG.query.pgvector-binary-wire — a vector arrives as pgvector text `[1,2,3]`; pass it through
         // as a string so the store's `Cell::coerce` parses + dimension-checks it.
         ColumnType::Text | ColumnType::Bytes | ColumnType::Vector(_) => {
             Value::String(s.to_string())
@@ -714,7 +714,7 @@ fn copy_field_to_value(field: Option<&str>, ty: ColumnType) -> Result<serde_json
     Ok(v)
 }
 
-/// Decode the Postgres BINARY COPY format into typed rows (CONCEPT:EG-020). Parses the
+/// Decode the Postgres BINARY COPY format into typed rows (CONCEPT:EG-KG.query.register-each-user-table). Parses the
 /// 11-byte `PGCOPY` signature + flags + header extension, then per row a 2-byte field
 /// count (`-1` ⇒ the trailer) and per field a 4-byte length (`-1` ⇒ NULL) + bytes
 /// decoded by the target column's type (the common scalar widths).
@@ -814,7 +814,7 @@ fn decode_binary_field(bytes: &[u8], ty: ColumnType) -> Result<serde_json::Value
                 Value::String(s.to_string())
             }
         }
-        // CONCEPT:EG-115 — the pgvector BINARY wire format is a distinct later item;
+        // CONCEPT:EG-KG.query.pgvector-binary-wire — the pgvector BINARY wire format is a distinct later item;
         // for now a vector must be sent via TEXT/CSV COPY (or INSERT).
         ColumnType::Vector(_) => {
             return Err(
@@ -827,7 +827,7 @@ fn decode_binary_field(bytes: &[u8], ty: ColumnType) -> Result<serde_json::Value
     Ok(v)
 }
 
-/// A prepared statement parsed at `Parse` time (CONCEPT:KG-2.197). Holds the raw
+/// A prepared statement parsed at `Parse` time (CONCEPT:EG-KG.query.describe). Holds the raw
 /// SQL (with `$N` placeholders intact) and the count of distinct parameters so the
 /// `Bind` step can validate and the describe step can report a `ParameterDescription`.
 #[derive(Debug, Clone)]
@@ -996,7 +996,7 @@ where
 
 /// Substitute the portal's bound parameters into the prepared SQL, replacing each
 /// `$N` placeholder with its bound value rendered as a SQL literal
-/// (CONCEPT:KG-2.197). This is what lets the extended protocol reuse the EXACT
+/// (CONCEPT:EG-KG.query.describe). This is what lets the extended protocol reuse the EXACT
 /// simple-query classify → read/write path: after substitution the statement is a
 /// plain literal SQL string, identical to what `psql` would send. Scans the SQL
 /// once, skipping `$N` inside single-quoted string literals so a literal `'$1'` is
@@ -1061,7 +1061,7 @@ impl ExtendedQueryHandler for EngineBackend {
         self.parser.clone()
     }
 
-    /// Execute a bound portal (CONCEPT:KG-2.197). Substitutes the portal's
+    /// Execute a bound portal (CONCEPT:EG-KG.query.describe). Substitutes the portal's
     /// parameters into the prepared SQL, then runs the SAME [`WireProtocol::execute`]
     /// core the simple-query path uses — so a prepared/parameterized statement from a
     /// real driver takes the identical classify → DataFusion-read / GraphTxn-write
@@ -1093,7 +1093,7 @@ impl ExtendedQueryHandler for EngineBackend {
         ))
     }
 
-    /// Describe a parsed-but-unbound statement (CONCEPT:KG-2.197): report concrete
+    /// Describe a parsed-but-unbound statement (CONCEPT:EG-KG.query.describe): report concrete
     /// parameter type OIDs (resolved against the node column schema, so a real
     /// driver can encode typed params) AND the result column schema. Params are not
     /// yet bound, so the result schema is derived from the SQL with each `$N`
@@ -1125,7 +1125,7 @@ impl ExtendedQueryHandler for EngineBackend {
         Ok(DescribeStatementResponse::new(param_types, fields))
     }
 
-    /// Describe a bound portal (CONCEPT:KG-2.197): report the result column schema
+    /// Describe a bound portal (CONCEPT:EG-KG.query.describe): report the result column schema
     /// for THIS binding. The params ARE bound, so we substitute them into the SQL
     /// (the same `substitute_params` the execute path uses) and derive the columns
     /// from that concrete statement, honouring the portal's result column format.
@@ -1158,7 +1158,7 @@ impl ExtendedQueryHandler for EngineBackend {
 }
 
 /// Replace each `$N` placeholder with a TYPED dummy literal for the unbound-statement
-/// Describe path (CONCEPT:KG-2.197). The result columns of a read depend only on its
+/// Describe path (CONCEPT:EG-KG.query.describe). The result columns of a read depend only on its
 /// projection + FROM, not the param VALUES — but a degenerate placeholder like `NULL`
 /// changes the query's typing (e.g. `WHERE rank > NULL` makes DataFusion fold the
 /// scan to an EMPTY, column-less result, which would mis-describe the schema). A typed
@@ -1227,7 +1227,7 @@ fn replace_placeholders_with_dummy(sql: &str, param_oids: &[Type]) -> String {
 struct EngineBackendFactory {
     backend: Arc<EngineBackend>,
     /// The resolved auth mode + the engine secret, used to build the per-connection
-    /// startup handler (CONCEPT:KG-2.202). The SCRAM handler holds per-connection
+    /// startup handler (CONCEPT:EG-KG.query.concept-13). The SCRAM handler holds per-connection
     /// SASL state, so a FRESH one is built in `startup_handler()` (called once per
     /// connection — a fresh factory is created per accepted connection in `serve`).
     auth_mode: PgWireAuthMode,
@@ -1262,7 +1262,7 @@ impl PgWireServerHandlers for EngineBackendFactory {
     }
 
     fn startup_handler(&self) -> Arc<impl StartupHandler> {
-        // TRUST or SCRAM (CONCEPT:KG-2.202), resolved once at serve() startup. A
+        // TRUST or SCRAM (CONCEPT:EG-KG.query.concept-13), resolved once at serve() startup. A
         // fresh handler per connection: the SCRAM SASL state machine is per-conn.
         Arc::new(auth::EngineStartupHandler::new(
             self.auth_mode,
@@ -1271,7 +1271,7 @@ impl PgWireServerHandlers for EngineBackendFactory {
     }
 
     fn copy_handler(&self) -> Arc<impl pgwire::api::copy::CopyHandler> {
-        // SAME shared backend instance (CONCEPT:EG-020) so `COPY … FROM STDIN`'s
+        // SAME shared backend instance (CONCEPT:EG-KG.query.register-each-user-table) so `COPY … FROM STDIN`'s
         // per-connection copy state is the one the query handler set up.
         self.backend.clone()
     }
@@ -1285,13 +1285,13 @@ impl PgWireServerHandlers for EngineBackendFactory {
 /// is set. The default graph is read once from `EPISTEMIC_GRAPH_PGWIRE_GRAPH`
 /// (falling back to `__commons__`).
 pub async fn serve(addr: &str, state: Arc<RwLock<ServerState>>) -> std::io::Result<()> {
-    // Resolve the auth mode once from the engine secret + env (CONCEPT:KG-2.202).
+    // Resolve the auth mode once from the engine secret + env (CONCEPT:EG-KG.query.concept-13).
     let auth_secret = state.read().await.auth_secret.clone();
     let auth_mode = PgWireAuthMode::resolve(&auth_secret);
     serve_with_auth(addr, state, auth_mode).await
 }
 
-/// `serve` with an EXPLICIT auth mode (CONCEPT:KG-2.202). `serve` resolves the mode
+/// `serve` with an EXPLICIT auth mode (CONCEPT:EG-KG.query.concept-13). `serve` resolves the mode
 /// from the env + engine secret and delegates here; integration tests call this
 /// directly so they pin trust vs scram deterministically without a process-global
 /// env toggle (tests run in parallel).
@@ -1332,7 +1332,7 @@ pub async fn serve_with_auth(
 #[cfg(test)]
 mod copy_tests {
     //! Unit tests for the `COPY … FROM STDIN` decoders + a full decode→ingest proving
-    //! "COPY ingests N rows" deterministically (CONCEPT:EG-020), without a socket.
+    //! "COPY ingests N rows" deterministically (CONCEPT:EG-KG.query.register-each-user-table), without a socket.
     use super::*;
     use eg_query::{Column, ColumnType, TableSchema};
 

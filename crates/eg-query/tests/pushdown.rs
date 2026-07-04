@@ -1,4 +1,4 @@
-//! W3-D (CONCEPT:KG-2.199): secondary/property-index predicate pushdown on the
+//! W3-D (CONCEPT:EG-KG.query.concept-12): secondary/property-index predicate pushdown on the
 //! `nodes` table. A `WHERE indexed_prop = 'x'` resolves through the eg-core/provider
 //! index instead of scanning + decoding every node, and MUST return the SAME rows as
 //! the full-scan path. A WHERE on a non-indexed predicate still works (fallback).

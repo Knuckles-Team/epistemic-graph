@@ -1,4 +1,4 @@
-//! Graph-wide kernels as TABLE FUNCTIONS (CONCEPT:KG-2.184).
+//! Graph-wide kernels as TABLE FUNCTIONS (CONCEPT:EG-KG.query.version-keyed-cache).
 //!
 //! A scalar UDF sees one row at a time and cannot run a whole-graph algorithm, so
 //! `pagerank()` and `betweenness()` are exposed as zero-arg DataFusion **table
@@ -94,13 +94,13 @@ impl TableFunctionImpl for BetweennessFunc {
     }
 }
 
-// ── generate_series (CONCEPT:EG-104) ────────────────────────────────────────
+// ── generate_series (CONCEPT:EG-KG.query.greatest-least-int4range-tsrange) ────────────────────────────────────────
 
 /// Cap on the number of rows a single `generate_series` call may materialize, so a
 /// runaway `generate_series(1, 10^12)` can't OOM the one-shot result buffer.
 const GENERATE_SERIES_MAX_ROWS: usize = 10_000_000;
 
-/// `generate_series(start, stop[, step]) -> TABLE(value int8)` (CONCEPT:EG-104) — the
+/// `generate_series(start, stop[, step]) -> TABLE(value int8)` (CONCEPT:EG-KG.query.greatest-least-int4range-tsrange) — the
 /// Postgres set-returning function ORMs/BI tools emit for numeric series and calendar
 /// spines. DataFusion 43's `default-features = false` build registers no `generate_series`
 /// table function, so EG-104 provides it: an inclusive integer series from `start` to

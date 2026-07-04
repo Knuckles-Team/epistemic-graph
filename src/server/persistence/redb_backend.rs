@@ -1,4 +1,4 @@
-//! redb write-through persistence backend (CONCEPT:KG-2.177, feature `redb`).
+//! redb write-through persistence backend (CONCEPT:EG-KG.storage.kg-kg, feature `redb`).
 //!
 //! A pluggable durable tier that mirrors every graph mutation into ONE embedded
 //! `redb` database (`{persist_dir}/graph.redb`), keyed by a `(graph, …)` PREFIX so
@@ -53,7 +53,7 @@ use super::PersistenceBackend;
 
 // The graph table layout + the PURE durable-row machinery (Method→rows apply,
 // group-commit, checkpoint/load) now live in the server-INDEPENDENT
-// `crate::redb_store` (CONCEPT:KG-2.216) so the embedded API can drive the SAME
+// `crate::redb_store` (CONCEPT:EG-KG.backend.engine-modes) so the embedded API can drive the SAME
 // durable format with no Tokio. This backend reuses them verbatim — ONE format,
 // never duplicated — and adds only the off-reactor group-commit writer thread +
 // the `PersistenceBackend` async trait wiring on top.
@@ -66,14 +66,14 @@ use crate::redb_store::{
     XshardPrepareScan, EDGES, GRAPH_META, LEDGER, NODES, RAFT_LOG, SEMANTIC, XSHARD_DECISION,
     XSHARD_PREPARE,
 };
-/// `(first, last)` present Raft log index for a group, or an error (CONCEPT:KG-2.204).
+/// `(first, last)` present Raft log index for a group, or an error (CONCEPT:EG-KG.storage.one-fsync-covers-raft).
 type LogBoundsResult = Result<(Option<u64>, Option<u64>), String>;
 // Per-group Raft metadata (vote, applied-state pointers, last-purged), keyed by
 // `(group_id, key)`. Lives in `graph.redb` alongside the log; Raft-only, so it
 // stays here with the Raft helpers rather than in the shared graph store.
 pub(crate) const RAFT_META: TableDefinition<(u64, &str), &[u8]> = TableDefinition::new("raft_meta");
 
-// Time-series tables (CONCEPT:KG-2.210). The CANONICAL `(series_id, bucket_start)`
+// Time-series tables (CONCEPT:AU-KG.retrieval.god-nodes-communities). The CANONICAL `(series_id, bucket_start)`
 // chunk schema is declared once in the eg-tsdb crate (where the store/query logic
 // lives) and re-exported here so it sits WITH the durable tier's other table
 // definitions. They use the SAME redb composite-key range-scan idiom as
@@ -85,7 +85,7 @@ pub(crate) const RAFT_META: TableDefinition<(u64, &str), &[u8]> = TableDefinitio
 #[allow(unused_imports)]
 pub(crate) use eg_tsdb::store::{SERIES_CHUNKS, SERIES_META};
 
-/// Boxed payload of a [`Cmd::CrossModalCommit`] (CONCEPT:KG-2.225 + EG-360). Holds ONE
+/// Boxed payload of a [`Cmd::CrossModalCommit`] (CONCEPT:EG-KG.txn.reader-never-sees-node + EG-360). Holds ONE
 /// graph's full multi-modal write-set — graph methods (incl. lowered OWL-axiom /
 /// SPARQL-CONSTRUCT triples), vector upserts, blob-refs, and time-series measurement
 /// batches — all of which land in ONE `WriteTransaction`.
@@ -105,7 +105,7 @@ pub(crate) enum Cmd {
         graph: String,
         method: Box<Method>,
         /// When `Some`, this op is part of the COMMIT-BEFORE-ACK barrier
-        /// (CONCEPT:KG-2.187): the writer fires this oneshot AFTER the
+        /// (CONCEPT:EG-KG.backend.authoritative-dispatch): the writer fires this oneshot AFTER the
         /// `WriteTransaction` carrying this op has durably committed, so the awaiting
         /// dispatch task only acks the client once the write is on disk. Many such
         /// senders ride the SAME group-commit batch — one fsync, N notified writers.
@@ -122,7 +122,7 @@ pub(crate) enum Cmd {
         done: oneshot::Sender<Result<(), String>>,
     },
     /// Drop EVERY durable row for one graph — nodes/edges/ledger/semantic AND the
-    /// `graph_meta` identity row — in one durable transaction (CONCEPT:KG-2.221).
+    /// `graph_meta` identity row — in one durable transaction (CONCEPT:EG-KG.backend.tenant-delete-recreate-same).
     /// Issued when a tenant is DELETED so a recreate of the SAME name starts from a
     /// clean durable slate: without this the stale rows survive (same `graph_fname`
     /// key) and leak into the recreated tenant via the read-through / `load_all`.
@@ -133,7 +133,7 @@ pub(crate) enum Cmd {
         done: oneshot::Sender<Result<(), String>>,
     },
     /// Read a single node's stored properties back (read-through on RAM miss under
-    /// authoritative mode). NO LONGER CONSTRUCTED as of CONCEPT:EG-027 — the
+    /// authoritative mode). NO LONGER CONSTRUCTED as of CONCEPT:EG-KG.storage.snapshot-read-off-writer — the
     /// point-read path now serves directly off a `begin_read()` MVCC snapshot on the
     /// shard's shared `Database` (see `read_node_blocking`), so it never routes
     /// through the writer. The variant + handler are retained (the writer loop is left
@@ -159,21 +159,21 @@ pub(crate) enum Cmd {
     Load {
         reply: std::sync::mpsc::Sender<Result<Vec<GraphDump>, String>>,
     },
-    /// Read ONE graph's durable rows back as an owned dump (CONCEPT:KG-2.224 — tenant
+    /// Read ONE graph's durable rows back as an owned dump (CONCEPT:EG-KG.storage.100m-tenant — tenant
     /// rehydration). Goes through the owner thread (exclusive file lock) and flushes
     /// pending writes first so the rehydrated dump reflects the latest durable state.
     ReadGraphDump {
         graph: String,
         reply: std::sync::mpsc::Sender<Result<Option<GraphDump>, String>>,
     },
-    /// Export ONE graph's rows VERBATIM for an online shard move (CONCEPT:EG-032). Runs
+    /// Export ONE graph's rows VERBATIM for an online shard move (CONCEPT:EG-KG.backend.catalog-shard-resolve). Runs
     /// on the SOURCE shard's writer: flush pending first (so the snapshot is complete),
     /// then scan the raw value blobs (encryption + audit chain untouched).
     ExportGraphRaw {
         graph: String,
         reply: std::sync::mpsc::Sender<Result<super::online_reshard::RawGraphRows, String>>,
     },
-    /// Import ONE graph's verbatim rows on an online shard move (CONCEPT:EG-032). Runs on
+    /// Import ONE graph's verbatim rows on an online shard move (CONCEPT:EG-KG.backend.catalog-shard-resolve). Runs on
     /// the DESTINATION shard's writer and lands them in ONE `Durability::Immediate` commit
     /// — the commit-before-ack point of the move.
     ImportGraphRaw {
@@ -181,7 +181,7 @@ pub(crate) enum Cmd {
         rows: Box<super::online_reshard::RawGraphRows>,
         reply: std::sync::mpsc::Sender<Result<(), String>>,
     },
-    /// Import ONLY the DELTA of an online shard move (CONCEPT:EG-041, R1 delta-copy). Runs
+    /// Import ONLY the DELTA of an online shard move (CONCEPT:EG-KG.backend.flush-pending-first, R1 delta-copy). Runs
     /// on the DESTINATION shard's writer under the exclusive routing quiesce; lands the
     /// small set of rows that changed since the bulk pass (upserts + removals) in ONE
     /// `Durability::Immediate` commit — the short under-quiesce write that shrinks the pause.
@@ -190,7 +190,7 @@ pub(crate) enum Cmd {
         delta: Box<super::online_reshard::RawGraphDelta>,
         reply: std::sync::mpsc::Sender<Result<(), String>>,
     },
-    /// Verify ONE graph's tamper-evident hash-chained audit log (CONCEPT:KG-2.231).
+    /// Verify ONE graph's tamper-evident hash-chained audit log (CONCEPT:EG-KG.sharding.row-level-security).
     /// Flushes pending first so the walk reflects the latest durable entries, then
     /// scans `(graph, 0..)` and reports OK or the first break.
     #[cfg(feature = "security")]
@@ -205,21 +205,21 @@ pub(crate) enum Cmd {
         seq: u64,
         reply: std::sync::mpsc::Sender<Result<(), String>>,
     },
-    /// **Cross-modal ACID commit (CONCEPT:KG-2.225).** Land a graph, vector, blob-ref,
+    /// **Cross-modal ACID commit (CONCEPT:EG-KG.txn.reader-never-sees-node).** Land a graph, vector, blob-ref,
     /// and property write-set for ONE graph in ONE `WriteTransaction`, all-or-nothing,
     /// awaiting its durable fsync (commit-before-ack). On any error nothing lands: the
     /// dropped transaction discards every modality (no partial cross-modal commit).
     CrossModalCommit {
         /// The multi-modal write-set, BOXED so the (now five-field) cross-modal payload
         /// does not bloat every `Cmd` variant — keeping `Cmd` (and the
-        /// `SendError<Cmd>` the writer-channel sends return) small (CONCEPT:EG-360).
+        /// `SendError<Cmd>` the writer-channel sends return) small (CONCEPT:EG-KG.backend.cross-modal-atomic-commit).
         payload: Box<CrossModalPayload>,
         done: oneshot::Sender<Result<(), String>>,
     },
     Shutdown {
         reply: std::sync::mpsc::Sender<()>,
     },
-    // ── Raft log/meta (CONCEPT:KG-2.204) — all on the writer thread because redb
+    // ── Raft log/meta (CONCEPT:EG-KG.storage.one-fsync-covers-raft) — all on the writer thread because redb
     // holds an EXCLUSIVE per-process file lock, so log + M2 graph data must go
     // through the ONE thread that owns the Database. ──────────────────────────
     /// Append Raft log entries `(group_id, index) -> blob` and await durable commit.
@@ -269,7 +269,7 @@ pub(crate) enum Cmd {
         key: String,
         reply: std::sync::mpsc::Sender<Result<Option<Vec<u8>>, String>>,
     },
-    // ── Cross-shard 2PC durable records (CONCEPT:KG-2.222) ──────────────────
+    // ── Cross-shard 2PC durable records (CONCEPT:EG-KG.storage.lane-n-increment) ──────────────────
     /// Durably persist ONE participant group's PREPARE slice for a cross-shard txn
     /// (commit-before-vote: a group votes yes only after this is on disk).
     XshardPreparePut {
@@ -305,7 +305,7 @@ pub(crate) enum Cmd {
         txn_id: String,
         reply: std::sync::mpsc::Sender<Result<Option<bool>, String>>,
     },
-    /// Durably upsert a named materialized view's blob (CONCEPT:KG-2.227).
+    /// Durably upsert a named materialized view's blob (CONCEPT:EG-KG.storage.feature).
     #[cfg(feature = "compute-dist")]
     MatViewPut {
         name: String,
@@ -319,7 +319,7 @@ pub(crate) enum Cmd {
     },
 }
 
-/// Adaptive group-commit micro-linger tuning for the redb writer (CONCEPT:EG-024).
+/// Adaptive group-commit micro-linger tuning for the redb writer (CONCEPT:EG-KG.backend.adaptive-linger-coalesce).
 ///
 /// Live profiling of the `eg-redb-writer` thread showed it pinned ~100% on ext4
 /// writeback (disk ~83% util, ~50ms write latency, queue depth 42) while every
@@ -334,7 +334,7 @@ pub(crate) enum Cmd {
 /// This adds a bounded, adaptive linger: when about to commit a SHALLOW barrier
 /// batch, spend ONE `recv_timeout(linger)` letting more concurrent writers arrive,
 /// then drain again. It MIRRORS the in-memory write-coalescer's `max_linger`
-/// (CONCEPT:KG-2.182, `write_coalescer.rs`) but for the DURABLE tier — it does NOT
+/// (CONCEPT:EG-KG.sharding.per-graph-write-coalescer, `write_coalescer.rs`) but for the DURABLE tier — it does NOT
 /// touch the coalescer. Durability is unchanged: authoritative writes still commit
 /// `Durability::Immediate` BEFORE their `done` fires; we only widen the batch, never
 /// defer an ack past its commit. A crash before commit still loses only un-acked writes.
@@ -378,7 +378,7 @@ impl Default for RedbGroupCommitConfig {
     }
 }
 
-/// Group-commit observability for the redb writer (CONCEPT:EG-024), mirroring
+/// Group-commit observability for the redb writer (CONCEPT:EG-KG.backend.adaptive-linger-coalesce), mirroring
 /// `write_coalescer::BatchStats`. `ops / commits` is the average batch size = the
 /// fsyncs-saved ratio; `lingered` counts commits that paid a micro-linger window.
 /// Cheap relaxed atomics, shared (`Arc`) between the writer thread and any reader.
@@ -420,7 +420,7 @@ impl RedbCommitStats {
     }
 }
 
-// ── Sharded K-way durable writer (CONCEPT:EG-026) ────────────────────────────
+// ── Sharded K-way durable writer (CONCEPT:EG-KG.backend.sharded-k-way-durable) ────────────────────────────
 //
 // redb is single-writer-PER-FILE: one `graph.redb` + one `eg-redb-writer` thread
 // serializes EVERY tenant's durable commits onto ONE core — a 64-core box writes
@@ -439,7 +439,7 @@ impl RedbCommitStats {
 // per persist-dir once created: `reconcile_shard_layout` detects the on-disk layout
 // at open and honors it (changing K needs a migration), never stranding data.
 
-/// Stable FNV-1a routing of a graph's sanitized fname to a shard index (CONCEPT:EG-026).
+/// Stable FNV-1a routing of a graph's sanitized fname to a shard index (CONCEPT:EG-KG.backend.sharded-k-way-durable).
 /// Deterministic across processes/restarts (NOT `DefaultHasher` randomness) — a graph
 /// MUST resolve to the same shard every boot or its durable rows become unreachable.
 pub(crate) fn shard_index(graph_fname: &str, k: usize) -> usize {
@@ -455,10 +455,10 @@ pub(crate) fn shard_index(graph_fname: &str, k: usize) -> usize {
 }
 
 /// Run one blocking closure PER shard CONCURRENTLY on the blocking pool and collect
-/// their results in shard order (CONCEPT:EG-042, roadmap F — parallel cross-shard read
+/// their results in shard order (CONCEPT:AU-KG.backend.roadmap-f-parallel-cross, roadmap F — parallel cross-shard read
 /// fan-out). EVERY task is spawned BEFORE any is awaited, which is the property that
 /// makes a K-shard fan-out overlap instead of serialize (a spawn-then-await-each loop is
-/// serial). The closures run off each shard's `begin_read()` MVCC snapshot (CONCEPT:EG-027),
+/// serial). The closures run off each shard's `begin_read()` MVCC snapshot (CONCEPT:EG-KG.storage.snapshot-read-off-writer),
 /// so the fan-out never routes through a writer thread. The first error short-circuits.
 async fn join_blocking_in_order<T, F>(tasks: Vec<F>) -> Result<Vec<T>, String>
 where
@@ -476,7 +476,7 @@ where
     Ok(out)
 }
 
-/// The redb file name for shard `i` of `k` (CONCEPT:EG-026). K=1 keeps the legacy
+/// The redb file name for shard `i` of `k` (CONCEPT:EG-KG.backend.sharded-k-way-durable). K=1 keeps the legacy
 /// single-file name `graph.redb` for back-compat; K>1 uses `graph-<i>.redb`.
 pub(crate) fn shard_filename(k: usize, i: usize) -> String {
     if k <= 1 {
@@ -486,7 +486,7 @@ pub(crate) fn shard_filename(k: usize, i: usize) -> String {
     }
 }
 
-/// Resolve the shard count K (CONCEPT:EG-026).
+/// Resolve the shard count K (CONCEPT:EG-KG.backend.sharded-k-way-durable).
 ///   * `EPISTEMIC_GRAPH_REDB_SHARDS` overrides (clamped 1..=64).
 ///   * Under the `raft` feature AND a configured Raft node, force K=1 — the single
 ///     writer the Raft store wraps (multi-Raft sharding is M2, out of scope here).
@@ -520,7 +520,7 @@ fn resolve_shard_count() -> usize {
 }
 
 /// Reconcile the REQUESTED shard count against what already exists on disk
-/// (CONCEPT:EG-026). K is fixed per persist-dir once created; this honors the
+/// (CONCEPT:EG-KG.backend.sharded-k-way-durable). K is fixed per persist-dir once created; this honors the
 /// on-disk layout so a re-open never strands data nor mis-routes by a changed K.
 ///   * Existing `graph-<n>.redb` shards ⇒ use that count (warn on mismatch — changing
 ///     K needs a migration).
@@ -565,7 +565,7 @@ fn reconcile_shard_layout(persist_dir: &str, requested_k: usize) -> usize {
     requested_k.max(1)
 }
 
-/// Resolve the per-shard early-flush op threshold (CONCEPT:EG-028b — auto-size the
+/// Resolve the per-shard early-flush op threshold (CONCEPT:AU-KG.backend.b-auto-sizeb — auto-size the
 /// previously HARDCODED `4096`). The writer flushes a `Pending` batch early once it
 /// holds this many ops, bounding writer memory before the bounded channel saturates.
 ///   * `EPISTEMIC_GRAPH_REDB_FLUSH_THRESHOLD` overrides (clamped 64..=1_048_576).
@@ -584,13 +584,13 @@ fn resolve_flush_threshold(capacity: usize) -> usize {
     (capacity / 2).clamp(256, 16384)
 }
 
-/// One durable shard (CONCEPT:EG-026): its OWN redb file + off-reactor group-commit
+/// One durable shard (CONCEPT:EG-KG.backend.sharded-k-way-durable): its OWN redb file + off-reactor group-commit
 /// writer thread + bounded channel + `Pending` (incl. the EG-024 linger + EG-025
 /// audit tail cache) + drop/commit counters. Single-writer-per-FILE, so K shards
 /// commit in parallel on K cores.
 struct Shard {
     db_path: String,
-    /// `Weak` handle to THIS shard's redb `Database` (CONCEPT:EG-027 — snapshot reads
+    /// `Weak` handle to THIS shard's redb `Database` (CONCEPT:EG-KG.storage.snapshot-read-off-writer — snapshot reads
     /// off the writer). redb 4.1 is MVCC: `Database::begin_read()` opens a consistent
     /// read snapshot that runs CONCURRENTLY with the single writer (no writer
     /// involvement, no commit). The writer thread owns the SOLE STRONG `Arc`; the
@@ -606,9 +606,9 @@ struct Shard {
     db: Weak<Database>,
     tx: SyncSender<Cmd>,
     dropped: Arc<AtomicU64>,
-    /// Group-commit batch-size / linger counters (CONCEPT:EG-024), per shard.
+    /// Group-commit batch-size / linger counters (CONCEPT:EG-KG.backend.adaptive-linger-coalesce), per shard.
     stats: Arc<RedbCommitStats>,
-    /// Value-blob cipher for snapshot reads off the writer (CONCEPT:EG-027). The same
+    /// Value-blob cipher for snapshot reads off the writer (CONCEPT:EG-KG.storage.snapshot-read-off-writer). The same
     /// cipher the writer thread owns; resolved ONCE at open. `None` ⇒ encryption off ⇒
     /// the read path is byte-for-byte the plaintext path.
     #[cfg(feature = "security")]
@@ -625,7 +625,7 @@ impl Shard {
         capacity: usize,
         flush_threshold: usize,
     ) -> Result<Self, String> {
-        // ONE shared `Database` handle per shard (CONCEPT:EG-027). The writer thread
+        // ONE shared `Database` handle per shard (CONCEPT:EG-KG.storage.snapshot-read-off-writer). The writer thread
         // and the snapshot-read path both hold a clone of this `Arc`; redb's MVCC lets
         // a `begin_read()` on this handle run concurrently with the writer's
         // `begin_write()`, so reads never route through the writer. (A SECOND
@@ -652,13 +652,13 @@ impl Shard {
         }
         let (tx, rx) = sync_channel::<Cmd>(capacity.max(1));
         let dropped = Arc::new(AtomicU64::new(0));
-        // Adaptive group-commit micro-linger config + observability (CONCEPT:EG-024).
+        // Adaptive group-commit micro-linger config + observability (CONCEPT:EG-KG.backend.adaptive-linger-coalesce).
         // Resolved once at open (Configuration discipline); the writer thread owns a
         // clone of the stats Arc so callers can read batch-size/throughput live.
         let group_commit = RedbGroupCommitConfig::from_env();
         let stats = Arc::new(RedbCommitStats::default());
         let stats_writer = stats.clone();
-        // Encryption-at-rest (CONCEPT:KG-2.231): resolve the value-blob cipher ONCE at
+        // Encryption-at-rest (CONCEPT:EG-KG.sharding.row-level-security): resolve the value-blob cipher ONCE at
         // open from EPISTEMIC_GRAPH_ENCRYPTION_KEY (the KMS seam). `None` ⇒ encryption
         // OFF ⇒ the durable format + write/read paths are byte-for-byte unchanged.
         #[cfg(feature = "security")]
@@ -669,11 +669,11 @@ impl Shard {
                 "redb encryption-at-rest ENABLED (value blobs sealed with ChaCha20-Poly1305)"
             );
         }
-        // Keep a clone of the cipher for the snapshot-read path (CONCEPT:EG-027); the
+        // Keep a clone of the cipher for the snapshot-read path (CONCEPT:EG-KG.storage.snapshot-read-off-writer); the
         // writer thread takes ownership of the original below.
         #[cfg(feature = "security")]
         let cipher_for_reads = cipher.clone();
-        // A `Weak` for the off-writer snapshot-read path (CONCEPT:EG-027). The writer
+        // A `Weak` for the off-writer snapshot-read path (CONCEPT:EG-KG.storage.snapshot-read-off-writer). The writer
         // thread below takes the SOLE STRONG `Arc`, so the redb file lock releases
         // exactly when that thread exits on shutdown — matching the pre-EG-027 lifetime
         // (a reopen after shutdown succeeds; a read after shutdown upgrades to `None`).
@@ -741,21 +741,21 @@ impl Shard {
     }
 }
 
-/// Handle to the redb write-through tier (CONCEPT:KG-2.177 / EG-026). The dispatch
+/// Handle to the redb write-through tier (CONCEPT:EG-KG.storage.kg-kg / EG-026). The dispatch
 /// path holds an `Arc` of this and calls `record`/`record_durable`; each routes by
 /// graph to one of K independent single-writer [`Shard`]s, so K cores commit in
 /// parallel. K=1 holds exactly one shard backed by the legacy `graph.redb`.
 pub struct RedbBackend {
     /// The K shards (len >= 1). Index `shard_index(graph_fname, K)` owns a graph.
     shards: Vec<Shard>,
-    /// Optional tenant catalog OVERRIDE for graph→shard routing (CONCEPT:EG-031, M3).
+    /// Optional tenant catalog OVERRIDE for graph→shard routing (CONCEPT:EG-KG.sharding.empty-catalog-routing, M3).
     /// `None` (the default) ⇒ pure EG-026 FNV-1a routing, byte-for-byte unchanged. When
     /// `Some` AND it holds an explicit entry for a graph, that entry's shard wins
     /// (enabling rebalanceable / resharded placement); a graph with no entry STILL
     /// falls back to FNV-1a inside `TenantCatalog::resolve_shard`. So an empty catalog
     /// is indistinguishable from no catalog — the seam never destabilizes EG-026.
     catalog: Option<Arc<crate::server::persistence::tenant_catalog::TenantCatalog>>,
-    /// Routing quiesce barrier for online resharding (CONCEPT:EG-032). Catalog-attached
+    /// Routing quiesce barrier for online resharding (CONCEPT:EG-KG.backend.catalog-shard-resolve). Catalog-attached
     /// durable writes resolve their shard + enqueue their op while holding a SHARED READ
     /// guard; [`RedbBackend::reshard_graph`] holds the EXCLUSIVE WRITE guard across a
     /// graph's move, so the route flip can never interleave a write (no lost / misrouted
@@ -766,7 +766,7 @@ pub struct RedbBackend {
 
 impl RedbBackend {
     /// Open (or create) the sharded durable tier under `persist_dir` and spawn one
-    /// off-reactor group-commit writer thread per shard (CONCEPT:EG-026). The shard
+    /// off-reactor group-commit writer thread per shard (CONCEPT:EG-KG.backend.sharded-k-way-durable). The shard
     /// count K is auto-sized (`resolve_shard_count`) and reconciled against any
     /// existing on-disk layout. K=1 is byte-for-byte the pre-EG-026 single-`graph.redb`
     /// writer. The exclusive per-FILE redb lock for every shard is acquired here at open.
@@ -776,7 +776,7 @@ impl RedbBackend {
         Ok(backend.maybe_attach_catalog_from_env(&persist_dir))
     }
 
-    /// Catalog auto-attach gate (CONCEPT:EG-033, R5). At startup attach the durable tenant
+    /// Catalog auto-attach gate (CONCEPT:EG-KG.sharding.r5-feature, R5). At startup attach the durable tenant
     /// catalog to the LIVE routing seam when `EPISTEMIC_GRAPH_TENANT_CATALOG=1` is set OR a
     /// durable `catalog.redb` already exists (a populated catalog from a prior run must be
     /// honored). When NEITHER holds — the default — NO catalog is attached and routing is
@@ -802,12 +802,12 @@ impl RedbBackend {
             Ok(cat) => {
                 if cat.is_empty() {
                     tracing::info!(
-                        "tenant catalog attached (CONCEPT:EG-033) — empty ⇒ pure EG-026 routing \
+                        "tenant catalog attached (CONCEPT:EG-KG.sharding.r5-feature) — empty ⇒ pure EG-026 routing \
                          until an online reshard assigns a placement"
                     );
                 } else {
                     tracing::info!(
-                        "tenant catalog attached (CONCEPT:EG-033) — {} explicit placement(s) \
+                        "tenant catalog attached (CONCEPT:EG-KG.sharding.r5-feature) — {} explicit placement(s) \
                          override EG-026 hash routing",
                         cat.len()
                     );
@@ -823,7 +823,7 @@ impl RedbBackend {
         }
     }
 
-    /// Open with an EXPLICIT requested shard count (CONCEPT:EG-026). Used by `open`
+    /// Open with an EXPLICIT requested shard count (CONCEPT:EG-KG.backend.sharded-k-way-durable). Used by `open`
     /// (auto-sized K) and by the sharding tests (deterministic K). The requested K is
     /// still reconciled against the on-disk layout so an existing dir's K wins.
     pub fn open_with_shards(
@@ -868,7 +868,7 @@ impl RedbBackend {
         })
     }
 
-    /// Attach a tenant catalog to OVERRIDE graph→shard routing (CONCEPT:EG-031, M3).
+    /// Attach a tenant catalog to OVERRIDE graph→shard routing (CONCEPT:EG-KG.sharding.empty-catalog-routing, M3).
     /// Builder-style so the open path stays untouched; default (no call) = pure EG-026.
     pub fn with_catalog(
         mut self,
@@ -878,7 +878,7 @@ impl RedbBackend {
         self
     }
 
-    /// The attached tenant catalog, if any (CONCEPT:EG-033). `None` ⇒ pure EG-026. The
+    /// The attached tenant catalog, if any (CONCEPT:EG-KG.sharding.r5-feature). `None` ⇒ pure EG-026. The
     /// admin/API surface uses this to populate/persist placements (`assign`/`reassign`/
     /// `remove`); a placement change that must also MOVE the graph's rows goes through
     /// [`Self::reshard_graph`] instead (which flips the route AND migrates the data).
@@ -889,8 +889,8 @@ impl RedbBackend {
     }
 
     /// Move ONE graph's rows from its current shard to `dst_shard` while the engine RUNS,
-    /// then flip the catalog route (CONCEPT:EG-032 — the M3 keystone). Requires an attached
-    /// tenant catalog (CONCEPT:EG-033 / R5). No data loss, single-writer-per-shard
+    /// then flip the catalog route (CONCEPT:EG-KG.backend.catalog-shard-resolve — the M3 keystone). Requires an attached
+    /// tenant catalog (CONCEPT:EG-KG.sharding.r5-feature / R5). No data loss, single-writer-per-shard
     /// correctness, and audit-chain validity all hold across the move; other graphs are
     /// never touched. See [`super::online_reshard`] for the verbatim copy + crash-ordering.
     ///
@@ -919,7 +919,7 @@ impl RedbBackend {
         let dst_tx = self.shards[dst_idx].tx.clone();
         let graph = graph_fname.to_string();
 
-        // CONCEPT:EG-041 (R1 delta-copy) — SNAPSHOT + DELTA to shrink the moved graph's
+        // CONCEPT:EG-KG.backend.flush-pending-first (R1 delta-copy) — SNAPSHOT + DELTA to shrink the moved graph's
         // write-pause. PHASE 1 copies the BULK verbatim off a src read snapshot WITHOUT
         // the exclusive routing quiesce, so writes keep flowing to `src` while the (large)
         // copy runs — the graph is NOT paused. PHASE 2 takes the exclusive `routing_epoch`
@@ -950,7 +950,7 @@ impl RedbBackend {
         .map_err(|e| format!("reshard delta join error: {e}"))?
     }
 
-    /// Execute a rebalance PLAN move-by-move via online resharding (CONCEPT:EG-039, R3
+    /// Execute a rebalance PLAN move-by-move via online resharding (CONCEPT:EG-KG.backend.r3-plan-execution, R3
     /// plan execution). Each move is one [`Self::reshard_graph`] — online, ONE graph at a
     /// time, every other graph unaffected. The plan's `from_shard` is informational: each
     /// move resolves its source from the catalog's CURRENT state, so applying the moves in
@@ -967,7 +967,7 @@ impl RedbBackend {
         Ok(reports)
     }
 
-    /// The shard that owns `graph_fname` (stable routing, CONCEPT:EG-026 / EG-031).
+    /// The shard that owns `graph_fname` (stable routing, CONCEPT:EG-KG.backend.sharded-k-way-durable / EG-031).
     ///
     /// Routing seam: when a tenant catalog is attached AND holds an explicit entry for
     /// this graph, the catalog's shard wins (M3 rebalanceable placement). Otherwise —
@@ -990,12 +990,12 @@ impl RedbBackend {
         &self.shards[0]
     }
 
-    /// Number of durable shards K (CONCEPT:EG-026).
+    /// Number of durable shards K (CONCEPT:EG-KG.backend.sharded-k-way-durable).
     pub fn shard_count(&self) -> usize {
         self.shards.len()
     }
 
-    /// The persist dir this store lives in (CONCEPT:EG-090) — derived from shard 0's
+    /// The persist dir this store lives in (CONCEPT:EG-KG.sharding.reshard-on-restore) — derived from shard 0's
     /// file path parent. Used by the live restore RPC to stage a rebuilt copy beside the
     /// running store (an in-place restore needs the engine stopped — the file lock).
     pub fn persist_dir(&self) -> Option<std::path::PathBuf> {
@@ -1005,13 +1005,13 @@ impl RedbBackend {
     }
 
     /// Take an ONLINE consistent backup of the whole durable store into `dst_dir`
-    /// (CONCEPT:EG-090), while the engine keeps serving. Per shard, opens a
-    /// `Database::begin_read()` MVCC snapshot (CONCEPT:EG-027) on the LIVE writer's
+    /// (CONCEPT:EG-KG.sharding.reshard-on-restore), while the engine keeps serving. Per shard, opens a
+    /// `Database::begin_read()` MVCC snapshot (CONCEPT:EG-KG.storage.snapshot-read-off-writer) on the LIVE writer's
     /// shared handle and streams every table verbatim into a bundle shard file named by
     /// the EG-026 [`shard_filename`] scheme, then writes a `MANIFEST.json`
     /// ([`super::backup::BackupManifest`]). No quiesce: MVCC lets the snapshot read the
     /// shard's latest committed state concurrently with the writer, and commit-before-ack
-    /// (CONCEPT:KG-2.187) makes each per-shard snapshot a self-consistent committed prefix.
+    /// (CONCEPT:EG-KG.backend.authoritative-dispatch) makes each per-shard snapshot a self-consistent committed prefix.
     ///
     /// `engine_version` / `timestamp_secs` / `label` are CALLER-SUPPLIED — this library
     /// never reads the wall clock. `dst_dir` is created if absent and must not already
@@ -1031,7 +1031,7 @@ impl RedbBackend {
             ..Default::default()
         };
         for (i, shard) in self.shards.iter().enumerate() {
-            // Upgrade the `Weak` to the writer's shared `Database` (CONCEPT:EG-027).
+            // Upgrade the `Weak` to the writer's shared `Database` (CONCEPT:EG-KG.storage.snapshot-read-off-writer).
             // `None` only after shutdown dropped the writer's strong Arc.
             let db = shard
                 .db
@@ -1059,19 +1059,19 @@ impl RedbBackend {
             .sum()
     }
 
-    /// Group-commit batch-size / linger counters (CONCEPT:EG-024). Returns shard 0's
+    /// Group-commit batch-size / linger counters (CONCEPT:EG-KG.backend.adaptive-linger-coalesce). Returns shard 0's
     /// LIVE counter Arc (the only shard under K=1; observability callers are K=1). Use
     /// [`commit_stats_all`] for the per-shard view under K>1.
     pub fn commit_stats(&self) -> Arc<RedbCommitStats> {
         self.shard0().stats.clone()
     }
 
-    /// Per-shard group-commit counters (CONCEPT:EG-026 observability).
+    /// Per-shard group-commit counters (CONCEPT:EG-KG.backend.sharded-k-way-durable observability).
     pub fn commit_stats_all(&self) -> Vec<Arc<RedbCommitStats>> {
         self.shards.iter().map(|s| s.stats.clone()).collect()
     }
 
-    /// On-disk file path of each shard's redb database (CONCEPT:EG-026 diagnostics).
+    /// On-disk file path of each shard's redb database (CONCEPT:EG-KG.backend.sharded-k-way-durable diagnostics).
     pub fn shard_db_paths(&self) -> Vec<String> {
         self.shards.iter().map(|s| s.db_path.clone()).collect()
     }
@@ -1094,7 +1094,7 @@ impl RedbBackend {
             .map_err(|_| "redb writer dropped tamper reply".to_string())?
     }
 
-    /// Verify ONE graph's tamper-evident hash-chained audit log (CONCEPT:KG-2.231).
+    /// Verify ONE graph's tamper-evident hash-chained audit log (CONCEPT:EG-KG.sharding.row-level-security).
     /// Routed through the owner thread (exclusive file lock), which flushes pending
     /// writes first so the walk reflects the latest durable entries.
     #[cfg(feature = "security")]
@@ -1114,7 +1114,7 @@ impl RedbBackend {
             .map_err(|_| "redb writer dropped audit_verify reply".to_string())?
     }
 
-    /// Read ONE graph's durable rows back as an owned dump (CONCEPT:KG-2.224 — tenant
+    /// Read ONE graph's durable rows back as an owned dump (CONCEPT:EG-KG.storage.100m-tenant — tenant
     /// rehydration). Routed through the owner thread (exclusive file lock) which
     /// flushes pending writes first. `None` ⇒ the graph has no durable identity.
     pub fn read_graph_dump_blocking(&self, graph_fname: &str) -> Result<Option<GraphDump>, String> {
@@ -1135,11 +1135,11 @@ impl RedbBackend {
     /// an exclusive per-process file lock; this rebuilds each `GraphCore` from the
     /// returned dumps via the SAME `add_node`/`add_edge` calls the WAL replay uses.
     async fn load_into(&self, state: &Arc<RwLock<ServerState>>) -> Result<usize, String> {
-        // PARALLEL cross-shard read fan-out (CONCEPT:EG-042, roadmap F). Each shard's
+        // PARALLEL cross-shard read fan-out (CONCEPT:AU-KG.backend.roadmap-f-parallel-cross, roadmap F). Each shard's
         // writer owns only the graphs routed to it, so the registry is rebuilt from the
         // union of all K shards' dumps. Instead of routing each shard's dump SERIALLY
         // through its writer thread's `Cmd::Load` channel, each shard now dumps OFF its
-        // OWN `begin_read()` MVCC snapshot (CONCEPT:EG-027) on the blocking pool, so the
+        // OWN `begin_read()` MVCC snapshot (CONCEPT:EG-KG.storage.snapshot-read-off-writer) on the blocking pool, so the
         // K reads run CONCURRENTLY on K cores and NEVER touch a writer thread (the EG-027
         // invariant — a read never forces a group-commit nor serializes behind a write).
         //
@@ -1210,7 +1210,7 @@ impl RedbBackend {
     }
 }
 
-/// Rebuild a live [`GraphCore`] from a durable [`GraphDump`] (CONCEPT:KG-2.224 —
+/// Rebuild a live [`GraphCore`] from a durable [`GraphDump`] (CONCEPT:EG-KG.storage.100m-tenant —
 /// tenant rehydration). Uses the SAME `add_node`/`add_edge`/semantic-restore path
 /// `load_into` uses, so a rehydrated graph is byte-identical to a freshly loaded one.
 /// The core is cleared first so a re-rehydrate is idempotent.
@@ -1264,7 +1264,7 @@ impl PersistenceBackend for RedbBackend {
                 })
                 .collect()
         };
-        // Partition the dumps by their owning shard (CONCEPT:EG-026), then hand each
+        // Partition the dumps by their owning shard (CONCEPT:EG-KG.backend.sharded-k-way-durable), then hand each
         // shard ONLY its own graphs — a graph's checkpoint MUST land in the same file
         // its per-mutation writes do (routed by the sanitized fname, exactly as
         // `record`). Each shard commits its subset in one durable transaction.
@@ -1298,7 +1298,7 @@ impl PersistenceBackend for RedbBackend {
         self.shard_for(graph_fname).record(graph_fname, method);
     }
 
-    /// COMMIT-BEFORE-ACK (CONCEPT:KG-2.187). Enqueue the mutation with a completion
+    /// COMMIT-BEFORE-ACK (CONCEPT:EG-KG.backend.authoritative-dispatch). Enqueue the mutation with a completion
     /// oneshot and await its durable commit. Backpressure-NOT-drop: a full queue
     /// BLOCKS for capacity (`SyncSender::send`) instead of shedding the write — under
     /// authoritative mode a durable mutation is NEVER silently discarded. The enqueue
@@ -1317,7 +1317,7 @@ impl PersistenceBackend for RedbBackend {
         // rather than dropping. Off the reactor via spawn_blocking so a saturated
         // writer can't stall the Tokio worker pool. Routed to the graph's shard.
         //
-        // CONCEPT:EG-032 — when a tenant catalog is attached, resolve the shard AND enqueue
+        // CONCEPT:EG-KG.backend.catalog-shard-resolve — when a tenant catalog is attached, resolve the shard AND enqueue
         // the op while holding a SHARED `routing_epoch` READ guard, so an online reshard's
         // exclusive flip cannot interleave (no lost / misrouted write). The guard is moved
         // INTO the blocking send so it is held exactly until the op is enqueued, then
@@ -1351,7 +1351,7 @@ impl PersistenceBackend for RedbBackend {
         }
     }
 
-    /// **Cross-modal ACID (CONCEPT:KG-2.225).** Land graph + vectors + blob-refs for ONE
+    /// **Cross-modal ACID (CONCEPT:EG-KG.txn.reader-never-sees-node).** Land graph + vectors + blob-refs for ONE
     /// graph in ONE redb `WriteTransaction`, awaiting its durable fsync. On any error
     /// the transaction is dropped without commit, so NONE of the modalities land — a
     /// true rollback (no partial cross-modal commit). Routed through the owner thread
@@ -1375,7 +1375,7 @@ impl PersistenceBackend for RedbBackend {
             }),
             done,
         };
-        // CONCEPT:EG-032 — same routing-epoch quiesce as `record_durable` when a catalog
+        // CONCEPT:EG-KG.backend.catalog-shard-resolve — same routing-epoch quiesce as `record_durable` when a catalog
         // is attached, so a cross-modal commit cannot race an online reshard's route flip.
         if self.catalog.is_some() {
             let guard = self.routing_epoch.clone().read_owned().await;
@@ -1450,8 +1450,8 @@ impl PersistenceBackend for RedbBackend {
         graph_fname: &str,
         node_id: &str,
     ) -> Result<Option<Vec<u8>>, String> {
-        // CONCEPT:EG-027 — SNAPSHOT READ OFF THE WRITER. The read-through point-read
-        // (only hit on a RAM miss, CONCEPT:KG-2.191) now serves the node DIRECTLY from
+        // CONCEPT:EG-KG.storage.snapshot-read-off-writer — SNAPSHOT READ OFF THE WRITER. The read-through point-read
+        // (only hit on a RAM miss, CONCEPT:EG-KG.storage.read-through-seam-exercised) now serves the node DIRECTLY from
         // a `begin_read()` MVCC snapshot on the TARGET SHARD's shared `Database`
         // (routed by the SAME EG-026 `shard_for` the writer uses). It NEVER routes
         // through the writer thread's channel and NEVER forces a group-commit, so a
@@ -1459,14 +1459,14 @@ impl PersistenceBackend for RedbBackend {
         // critical on a Pi (frequent eviction/read-through) and across shards.
         //
         // Consistency: redb is MVCC, so the snapshot sees the LATEST COMMITTED state
-        // of this shard. Commit-before-ack (CONCEPT:KG-2.187) guarantees any ACKED
+        // of this shard. Commit-before-ack (CONCEPT:EG-KG.backend.authoritative-dispatch) guarantees any ACKED
         // write is already committed, so a `begin_read()` opened after that ack sees
         // it. Writes still buffered in the writer's `Pending` are NOT yet acked (no
         // happens-before to any reader), so omitting the old forced commit changes no
         // observable read result. Eviction is durability-gated (a node leaves RAM only
         // after redb confirms it on disk), so an evicted node is always served here.
         let shard = self.shard_for(graph_fname);
-        // Upgrade the `Weak` to the writer's shared `Database` (CONCEPT:EG-027). `None`
+        // Upgrade the `Weak` to the writer's shared `Database` (CONCEPT:EG-KG.storage.snapshot-read-off-writer). `None`
         // only after shutdown dropped the writer's strong Arc — fail fast like the old
         // "writer thread is gone" channel error.
         let db = shard
@@ -1481,7 +1481,7 @@ impl PersistenceBackend for RedbBackend {
     }
 
     fn shutdown(&self) {
-        // Stop every shard's writer thread (CONCEPT:EG-026).
+        // Stop every shard's writer thread (CONCEPT:EG-KG.backend.sharded-k-way-durable).
         for shard in &self.shards {
             shard.shutdown();
         }
@@ -1492,10 +1492,10 @@ impl PersistenceBackend for RedbBackend {
     }
 }
 
-// ── Durable Raft log API (CONCEPT:KG-2.204) — inherent methods ────────────────
+// ── Durable Raft log API (CONCEPT:EG-KG.storage.one-fsync-covers-raft) — inherent methods ────────────────
 // The Raft log lives in the SAME `graph.redb` Database, written by the SAME
 // off-reactor group-commit thread, keyed by `(group_id, index)` so one table
-// serves every group (CONCEPT:KG-2.205). Sharing the writer is what lets a log
+// serves every group (CONCEPT:EG-KG.sharding.raft-resharding). Sharing the writer is what lets a log
 // append and its graph mutation coalesce into ONE fsync. All gated on `raft`
 // (only the raft module consumes them).
 #[cfg(feature = "raft")]
@@ -1636,7 +1636,7 @@ impl RedbBackend {
             .map_err(|_| "redb writer dropped raft_meta_get reply".to_string())?
     }
 
-    // ── Cross-shard 2PC durable records (CONCEPT:KG-2.222) ─────────────────────
+    // ── Cross-shard 2PC durable records (CONCEPT:EG-KG.storage.lane-n-increment) ─────────────────────
     // The 2PC coordinator persists each participant's PREPARE slice + the final
     // DECISION here so an in-doubt txn is resolvable after a crash. Each write awaits
     // an Immediate-durability commit (commit-before-vote / commit-before-apply): a
@@ -1750,7 +1750,7 @@ impl RedbBackend {
             .map_err(|_| "redb writer dropped xshard_decision_get reply".to_string())?
     }
 
-    /// Durably upsert a named materialized view's serialized blob (CONCEPT:KG-2.227).
+    /// Durably upsert a named materialized view's serialized blob (CONCEPT:EG-KG.storage.feature).
     /// Awaits the fsync so a `CreateMatView`/`RefreshMatView` ack means it is on disk.
     #[cfg(feature = "compute-dist")]
     pub async fn matview_put(&self, name: &str, blob: Vec<u8>) -> Result<(), String> {
@@ -1782,7 +1782,7 @@ impl RedbBackend {
 
 fn run(
     rx: Receiver<Cmd>,
-    // Shared `Database` handle (CONCEPT:EG-027): the writer OWNS one clone of the Arc
+    // Shared `Database` handle (CONCEPT:EG-KG.storage.snapshot-read-off-writer): the writer OWNS one clone of the Arc
     // (kept alive for the thread's whole life); the Shard holds another for off-writer
     // snapshot reads. Rebound to `&Database` immediately so the commit path below is
     // byte-for-byte the pre-EG-027 single-`Database` writer loop.
@@ -1790,7 +1790,7 @@ fn run(
     policy: FsyncPolicy,
     group_commit: RedbGroupCommitConfig,
     stats: Arc<RedbCommitStats>,
-    // Auto-sized early-flush op threshold (CONCEPT:EG-028b), per shard.
+    // Auto-sized early-flush op threshold (CONCEPT:AU-KG.backend.b-auto-sizeb), per shard.
     flush_threshold: usize,
     #[cfg(feature = "security")] cipher: Option<crate::crypto::ValueCipher>,
 ) {
@@ -1808,10 +1808,10 @@ fn run(
         _ => Duration::from_millis(1000),
     };
     // Pending mutations folded into the NEXT group commit, each with its optional
-    // commit-before-ack completion sender (CONCEPT:KG-2.187). After a commit, EVERY
+    // commit-before-ack completion sender (CONCEPT:EG-KG.backend.authoritative-dispatch). After a commit, EVERY
     // sender in the batch is fired with the batch's result — one fsync, N notified.
     let mut pending: Pending = Pending::default();
-    // CONCEPT:EG-024 — record the group-commit batch size (ops-per-fsync), then
+    // CONCEPT:EG-KG.backend.adaptive-linger-coalesce — record the group-commit batch size (ops-per-fsync), then
     // commit+notify. Only counts a batch that actually carried work; `lingered` marks
     // commits that paid a micro-linger window so the win is measurable.
     let commit_now = |pending: &mut Pending, durability: Durability, lingered: bool| {
@@ -1845,7 +1845,7 @@ fn run(
                 // barrier op is pending, commit immediately; otherwise honor policy.
                 let must_commit_now = pending.has_barrier() || matches!(policy, FsyncPolicy::Each);
                 if must_commit_now {
-                    // CONCEPT:EG-024 — adaptive group-commit micro-linger. The commit
+                    // CONCEPT:EG-KG.backend.adaptive-linger-coalesce — adaptive group-commit micro-linger. The commit
                     // trigger fires the instant the channel drains, so with low in-flight
                     // write concurrency (serial awaits) the barrier batch is ~1 op ⇒ ~1
                     // fsync/write — the profiled write ceiling. When the about-to-commit
@@ -1935,12 +1935,12 @@ fn run(
 struct Pending {
     ops: Vec<(String, Method)>,
     /// Raft log appends `(group_id, index, blob)` folded into the SAME group-commit
-    /// transaction as `ops` (CONCEPT:KG-2.204) — one fsync covers both the log entry
+    /// transaction as `ops` (CONCEPT:EG-KG.storage.one-fsync-covers-raft) — one fsync covers both the log entry
     /// and the M2 graph mutation.
     raft_log_ops: Vec<(u64, u64, Vec<u8>)>,
     /// One per awaited (commit-before-ack) op in this batch.
     waiters: Vec<oneshot::Sender<Result<(), String>>>,
-    /// O(1) per-graph audit-chain tail cache (CONCEPT:EG-025). Lives on `Pending`
+    /// O(1) per-graph audit-chain tail cache (CONCEPT:EG-KG.storage.embedded-store). Lives on `Pending`
     /// because `Pending` is owned by the writer thread's `run` loop for the thread's
     /// LIFETIME (not reset between batches) — so the cached `(seq, hash)` tail stays hot
     /// across group commits, and the per-op range-scan that was burning the now
@@ -1968,7 +1968,7 @@ fn handle_cmd(
     db: &Database,
     pending: &mut Pending,
     policy: FsyncPolicy,
-    // Auto-sized early-flush op threshold (CONCEPT:EG-028b).
+    // Auto-sized early-flush op threshold (CONCEPT:AU-KG.backend.b-auto-sizeb).
     flush_threshold: usize,
     crypto: crate::redb_store::DurableCrypto<'_>,
 ) -> bool {
@@ -1985,7 +1985,7 @@ fn handle_cmd(
             // Bound memory: if a burst outpaces the tick, flush early. The group
             // still amortizes thousands of row writes per commit, and fires every
             // commit-before-ack waiter for the ops in this flush. The threshold is
-            // hardware-auto-sized (CONCEPT:EG-028b) — small on a Pi, large on a big box.
+            // hardware-auto-sized (CONCEPT:AU-KG.backend.b-auto-sizeb) — small on a Pi, large on a big box.
             if pending.ops.len() >= flush_threshold {
                 let durability = match policy {
                     FsyncPolicy::Off => Durability::None,
@@ -2055,20 +2055,20 @@ fn handle_cmd(
         }
         Cmd::ReadGraphDump { graph, reply } => {
             // Flush pending so the rehydrated dump reflects the latest durable state,
-            // then range-scan ONE graph's rows (CONCEPT:KG-2.224).
+            // then range-scan ONE graph's rows (CONCEPT:EG-KG.storage.100m-tenant).
             commit_and_notify(db, pending, Durability::Immediate, crypto);
             let _ = reply.send(read_graph_dump(db, &graph, crypto));
             false
         }
         Cmd::ExportGraphRaw { graph, reply } => {
-            // CONCEPT:EG-032 — flush pending so every committed mutation is captured, then
+            // CONCEPT:EG-KG.backend.catalog-shard-resolve — flush pending so every committed mutation is captured, then
             // scan this graph's rows VERBATIM (raw blobs — encryption + audit chain kept).
             commit_and_notify(db, pending, Durability::Immediate, crypto);
             let _ = reply.send(super::online_reshard::export_graph_raw(db, &graph));
             false
         }
         Cmd::ImportGraphRaw { graph, rows, reply } => {
-            // CONCEPT:EG-032 — flush pending first (consistency), then land the migrated
+            // CONCEPT:EG-KG.backend.catalog-shard-resolve — flush pending first (consistency), then land the migrated
             // rows verbatim in ONE durable commit (the move's commit-before-ack point).
             commit_and_notify(db, pending, Durability::Immediate, crypto);
             let _ = reply.send(super::online_reshard::import_graph_raw(db, &graph, &rows));
@@ -2079,7 +2079,7 @@ fn handle_cmd(
             delta,
             reply,
         } => {
-            // CONCEPT:EG-041 — flush pending first (consistency), then land ONLY the delta
+            // CONCEPT:EG-KG.backend.flush-pending-first — flush pending first (consistency), then land ONLY the delta
             // rows (upserts + removals) in ONE durable commit (the under-quiesce write).
             commit_and_notify(db, pending, Durability::Immediate, crypto);
             let _ = reply.send(super::online_reshard::import_graph_delta(
@@ -2090,7 +2090,7 @@ fn handle_cmd(
         #[cfg(feature = "security")]
         Cmd::AuditVerify { graph, reply } => {
             // Flush pending so the chain walk includes the latest durable audit
-            // entries, then verify the hash chain (CONCEPT:KG-2.231).
+            // entries, then verify the hash chain (CONCEPT:EG-KG.sharding.row-level-security).
             commit_and_notify(db, pending, Durability::Immediate, crypto);
             let _ = reply.send(crate::redb_store::verify_audit(db, &graph));
             false
@@ -2143,7 +2143,7 @@ fn handle_cmd(
                 &blob_refs,
                 &measurements,
                 crypto,
-                // Shares the writer's persistent tail cache (CONCEPT:EG-025).
+                // Shares the writer's persistent tail cache (CONCEPT:EG-KG.storage.embedded-store).
                 #[cfg(feature = "security")]
                 &mut pending.audit_tail,
             );
@@ -2283,7 +2283,7 @@ fn handle_cmd(
 
 /// Commit all buffered mutations in ONE write transaction at the given durability,
 /// then fire EVERY commit-before-ack waiter for the ops in this batch with the
-/// batch's result (CONCEPT:KG-2.187). Coalescing is preserved: N awaiting writers
+/// batch's result (CONCEPT:EG-KG.backend.authoritative-dispatch). Coalescing is preserved: N awaiting writers
 /// ride one `WriteTransaction` / one fsync and are all notified after it commits.
 /// A waiter is only signalled `Ok` once its op is provably on disk.
 fn commit_and_notify(
@@ -2301,7 +2301,7 @@ fn commit_and_notify(
         &mut pending.raft_log_ops,
         durability,
         crypto,
-        // O(1) audit-chain tail cache (CONCEPT:EG-025), persistent across batches.
+        // O(1) audit-chain tail cache (CONCEPT:EG-KG.storage.embedded-store), persistent across batches.
         #[cfg(feature = "security")]
         &mut pending.audit_tail,
     );
@@ -2315,7 +2315,7 @@ fn commit_and_notify(
 // commit_ops / write_graph_meta / read_one_node now live in `crate::redb_store`
 // (imported above) — shared verbatim with the embedded path, ONE durable format.
 
-// ── Raft log/meta helpers (CONCEPT:KG-2.204) — run on the writer thread ───────
+// ── Raft log/meta helpers (CONCEPT:EG-KG.storage.one-fsync-covers-raft) — run on the writer thread ───────
 
 /// Read a `[lo, hi]` inclusive log range for one group, in index order.
 fn read_raft_log_range(db: &Database, gid: u64, lo: u64, hi: u64) -> Result<Vec<Vec<u8>>, String> {
@@ -2566,7 +2566,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// CONCEPT:KG-2.180 — a committed OCC transaction is durable through the redb
+    /// CONCEPT:EG-KG.storage.occ-durable-commit — a committed OCC transaction is durable through the redb
     /// backend: stage nodes/edge in a txn, commit through the full dispatch path
     /// (which records each staged method via `persistence.record`), drop, then
     /// reload via redb-only → the committed graph is recovered.
@@ -2680,7 +2680,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// CONCEPT:KG-2.221 — tenant DELETE + recreate-same-name must not drop the new
+    /// CONCEPT:EG-KG.backend.tenant-delete-recreate-same — tenant DELETE + recreate-same-name must not drop the new
     /// graph's writes. Under redb-authoritative mode (read-through wired exactly as
     /// `main.rs` does it) we: create "g", add "n1"={v:1}, DELETE "g", recreate "g",
     /// add "n1"={v:2}, then read "n1" back through the full dispatch path. The
@@ -2771,7 +2771,7 @@ mod tests {
 
         // (a) LIVE read-through: force every node out of RAM so the next read
         // RAM-MISSES and falls to the durable read-through (the eviction path is real
-        // under authoritative mode — it bounds memory per CONCEPT:KG-2.191).
+        // under authoritative mode — it bounds memory per CONCEPT:EG-KG.storage.read-through-seam-exercised).
         let ev = dispatch(&state, req(7, Method::EvictLRU { max_nodes: 0 })).await;
         assert!(ev.error.is_none(), "evict: {:?}", ev.error);
 
@@ -2829,7 +2829,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// CONCEPT:KG-2.237 — MANY repeated create→delete→recreate cycles on the SAME
+    /// CONCEPT:EG-KG.backend.many-repeated-create-delete — MANY repeated create→delete→recreate cycles on the SAME
     /// graph name must NOT enter a corrupted in-memory state that silently drops the
     /// recreated graph's writes (the vault-lane `__secrets__` failure). DISTINCT from
     /// KG-2.221 (durable redb purge): here every read is served HOT from RAM (no
@@ -2980,7 +2980,7 @@ mod tests {
         }
     }
 
-    /// CONCEPT:KG-2.187 — full dispatch path under AUTHORITATIVE mode: a write acked
+    /// CONCEPT:EG-KG.backend.authoritative-dispatch — full dispatch path under AUTHORITATIVE mode: a write acked
     /// through `dispatch` is durable in redb WITHOUT any checkpoint, and reloads via
     /// redb `load_all` (the authoritative source). This proves the commit-before-ack
     /// barrier covers the real dispatch write path (incl. the coalescer) AND that the
@@ -3062,7 +3062,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// CONCEPT:KG-2.187 — commit-before-ack: `record_durable` returns ONLY after the
+    /// CONCEPT:EG-KG.backend.authoritative-dispatch — commit-before-ack: `record_durable` returns ONLY after the
     /// op is durably committed. Use FsyncPolicy::Interval so the op is NOT committed
     /// by an Each-after-batch path; the only way the await completes is the group
     /// commit firing the waiter. After the await returns, a SEPARATE reopened DB sees
@@ -3099,7 +3099,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// CONCEPT:KG-2.187 — many concurrent `record_durable` calls COALESCE into group
+    /// CONCEPT:EG-KG.backend.authoritative-dispatch — many concurrent `record_durable` calls COALESCE into group
     /// commits (NOT one fsync per op): all N complete, all N are durable. We can't
     /// directly count fsyncs here, but we assert all N awaited writers resolve Ok and
     /// every node is durably present — the coalescing path (one WriteTransaction per
@@ -3146,7 +3146,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    // ── CONCEPT:EG-027 — snapshot reads off the writer ───────────────────────────
+    // ── CONCEPT:EG-KG.storage.snapshot-read-off-writer — snapshot reads off the writer ───────────────────────────
     //
     // The point-read / read-through path (`read_node`) serves directly from a redb
     // `begin_read()` MVCC snapshot on the target shard's shared `Database`, routed by
@@ -3340,7 +3340,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// CONCEPT:EG-024 — the adaptive micro-linger COALESCES concurrent in-flight
+    /// CONCEPT:EG-KG.backend.adaptive-linger-coalesce — the adaptive micro-linger COALESCES concurrent in-flight
     /// authoritative writers into fewer, larger group commits WITHOUT losing
     /// durability. We fan N concurrent `record_durable` calls (each its own task, so
     /// the writer sees them arrive within the linger window) and assert:
@@ -3435,7 +3435,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// CONCEPT:EG-024 — with the linger DISABLED (`LINGER_US=0`) the writer falls back
+    /// CONCEPT:EG-KG.backend.adaptive-linger-coalesce — with the linger DISABLED (`LINGER_US=0`) the writer falls back
     /// to the exact commit-on-drain behavior, and durability is identical. This pins
     /// the baseline the bench measures against and proves the knob is a real opt-out.
     #[tokio::test(flavor = "multi_thread")]
@@ -3498,7 +3498,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    // ── CONCEPT:KG-2.191 — read-through-on-RAM-miss + safe authoritative eviction ──
+    // ── CONCEPT:EG-KG.storage.read-through-seam-exercised — read-through-on-RAM-miss + safe authoritative eviction ──
 
     /// Populate `core` AND redb with `n` durable nodes, then install the read-through
     /// factory + the backend on `state` exactly as `main.rs` does under authoritative
@@ -3712,7 +3712,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// CONCEPT:KG-2.204 — ONE fsync covers a Raft log entry AND its graph mutation.
+    /// CONCEPT:EG-KG.storage.one-fsync-covers-raft — ONE fsync covers a Raft log entry AND its graph mutation.
     /// Under `FsyncPolicy::Interval`, the only way an awaited op completes is the
     /// group commit firing. We launch a `record_durable` (M2 graph mutation) and a
     /// `raft_log_append` (Raft log entry) CONCURRENTLY into the same tick window;
@@ -3768,7 +3768,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    // ── Cross-modal ACID (CONCEPT:KG-2.225) ─────────────────────────────────────
+    // ── Cross-modal ACID (CONCEPT:EG-KG.txn.reader-never-sees-node) ─────────────────────────────────────
 
     use crate::protocol::{Response, ResultPayload};
     use crate::server::handlers::txn::try_handle as txn_handle;
@@ -3947,7 +3947,7 @@ mod tests {
 
     /// A backend whose `commit_crossmodal` always FAILS — used to prove the handler
     /// rolls back ALL modalities (applies nothing in-memory) on a durable-commit
-    /// failure: no partial cross-modal commit (CONCEPT:KG-2.225).
+    /// failure: no partial cross-modal commit (CONCEPT:EG-KG.txn.reader-never-sees-node).
     struct FailingBackend {
         inner: Arc<RedbBackend>,
     }
@@ -4033,7 +4033,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    // ── Extended cross-modal ACID: 5 modalities in ONE wtx (CONCEPT:EG-360/361/362) ──
+    // ── Extended cross-modal ACID: 5 modalities in ONE wtx (CONCEPT:EG-KG.backend.cross-modal-atomic-commit/361/362) ──
 
     /// A data-independent CONSTRUCT that yields exactly one triple
     /// `<urn:a> <urn:p> <urn:b>` via an inline VALUES row (needs no committed data), so
@@ -4144,7 +4144,7 @@ mod tests {
 
     /// CAPSTONE: one txn stages node + embedding + blob-ref + measurement + CONSTRUCT
     /// triple; `Commit` lands ALL FIVE atomically in ONE redb `WriteTransaction`; every
-    /// modality is durably present after a full backend reload (CONCEPT:EG-360/361/362).
+    /// modality is durably present after a full backend reload (CONCEPT:EG-KG.backend.cross-modal-atomic-commit/361/362).
     #[cfg(all(feature = "tsdb", feature = "sparql"))]
     #[tokio::test(flavor = "multi_thread")]
     async fn five_modality_atomic_commit() {
@@ -4251,7 +4251,7 @@ mod tests {
 
     /// ATOMICITY: a five-modality txn whose durable commit FAILS mid-way (the always-fails
     /// backend, injected AFTER the measurement is staged) lands NONE of the five — no node,
-    /// no vector, no CONSTRUCT triple in-memory, and NO series durable (CONCEPT:EG-360).
+    /// no vector, no CONSTRUCT triple in-memory, and NO series durable (CONCEPT:EG-KG.backend.cross-modal-atomic-commit).
     #[cfg(all(feature = "tsdb", feature = "sparql"))]
     #[tokio::test(flavor = "multi_thread")]
     async fn five_modality_rolls_back_all_on_failure() {
@@ -4305,7 +4305,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// AuditVerify dispatch round-trip (CONCEPT:KG-2.231): durable writes build a
+    /// AuditVerify dispatch round-trip (CONCEPT:EG-KG.sharding.row-level-security): durable writes build a
     /// hash-chained audit log; `Method::AuditVerify` over the served dispatch returns
     /// `ok=true`; tampering an entry makes the served verify report the break.
     #[cfg(feature = "security")]
@@ -4375,7 +4375,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    // ── CONCEPT:EG-026 — sharded K-way durable writer ──────────────────────────
+    // ── CONCEPT:EG-KG.backend.sharded-k-way-durable — sharded K-way durable writer ──────────────────────────
 
     /// Routing is a stable, deterministic FNV-1a — a graph maps to the SAME shard
     /// every process/restart (else its durable rows become unreachable), stays in
@@ -4598,7 +4598,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// CONCEPT:EG-033 (R5) — the catalog auto-attach gate + the empty-catalog routing
+    /// CONCEPT:EG-KG.sharding.r5-feature (R5) — the catalog auto-attach gate + the empty-catalog routing
     /// identity. A durable `catalog.redb` ⇒ `open()` attaches it; absent (and no flag) ⇒
     /// no catalog (pure EG-026). An EMPTY catalog resolves every graph to the exact EG-026
     /// `shard_index` (byte-for-byte), and an explicit assignment overrides the hash.
@@ -4652,7 +4652,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    /// CONCEPT:EG-032 (R1) — move ONE graph between shards while the engine RUNS, with
+    /// CONCEPT:EG-KG.backend.catalog-shard-resolve (R1) — move ONE graph between shards while the engine RUNS, with
     /// concurrent writes to that graph ACROSS the flip. Every node/edge survives, the
     /// audit chain stays valid, reads/writes follow the graph to its new shard, the source
     /// rows are GC'd, and an unrelated graph is untouched.
@@ -4806,7 +4806,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// CONCEPT:EG-034 (R6) — a cold (idle) graph is offloaded: its whole in-RAM state is
+    /// CONCEPT:EG-KG.sharding.eg-r6 (R6) — a cold (idle) graph is offloaded: its whole in-RAM state is
     /// dropped to bound RAM, yet every node still SERVES on access via the KG-2.191
     /// read-through from redb. The shared `__commons__` is never offloaded.
     #[tokio::test(flavor = "multi_thread")]
@@ -4854,7 +4854,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// CONCEPT:EG-042 (roadmap F) — the per-shard read fan-out runs CONCURRENTLY, not
+    /// CONCEPT:AU-KG.backend.roadmap-f-parallel-cross (roadmap F) — the per-shard read fan-out runs CONCURRENTLY, not
     /// serially. A `Barrier(K)` only releases once all K closures are running at the SAME
     /// time; a serial spawn-then-await-each impl would block forever, which the timeout
     /// converts into a test failure. Results come back in shard order.
@@ -4879,7 +4879,7 @@ mod tests {
         assert_eq!(out, vec![0, 1, 2, 3], "results returned in shard order");
     }
 
-    /// CONCEPT:EG-042 (roadmap F) — `load_all` fans each shard's dump CONCURRENTLY off a
+    /// CONCEPT:AU-KG.backend.roadmap-f-parallel-cross (roadmap F) — `load_all` fans each shard's dump CONCURRENTLY off a
     /// `begin_read()` snapshot (off the writer) and unions them. Seed graphs spread across
     /// K=4 shards, checkpoint, drop, reopen, load → every graph is recovered from its shard.
     #[tokio::test(flavor = "multi_thread")]
@@ -4947,7 +4947,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// CONCEPT:EG-039 (R3 plan execution) — a fully-skewed placement (every graph pinned to
+    /// CONCEPT:EG-KG.backend.r3-plan-execution (R3 plan execution) — a fully-skewed placement (every graph pinned to
     /// shard 0) → `plan_rebalance` → `rebalance_execute` applies each move via online
     /// resharding → graphs spread across shards and every node survives (no loss).
     #[tokio::test(flavor = "multi_thread")]
@@ -5011,7 +5011,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// CONCEPT:EG-041 (R1 delta-copy) — moving an IDLE graph copies the whole graph in the
+    /// CONCEPT:EG-KG.backend.flush-pending-first (R1 delta-copy) — moving an IDLE graph copies the whole graph in the
     /// UNQUIESCED bulk pass, so the under-quiesce DELTA (the work that actually pauses the
     /// moved graph's writes) is 0. Proves the snapshot+delta path shrank the pause to ~0
     /// for the common idle case, with no data loss.
@@ -5074,7 +5074,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// CONCEPT:EG-038 — drive the M3 admin ops over the FULL dispatch path (protocol →
+    /// CONCEPT:EG-KG.backend.m3-admin-dispatch — drive the M3 admin ops over the FULL dispatch path (protocol →
     /// `handlers::admin` → the persistence APIs): assign a catalog placement, list it back,
     /// and get a rebalance plan. Proves the WIRE surface, not just the backend methods.
     #[tokio::test(flavor = "multi_thread")]
@@ -5170,7 +5170,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// CONCEPT:EG-040 (R6 touch wiring) — the cold sweep selects a graph IDLE past the
+    /// CONCEPT:EG-KG.backend.r6-feature (R6 touch wiring) — the cold sweep selects a graph IDLE past the
     /// window but NEVER a recently-touched one. Proves the touch-driven selection semantics
     /// the dispatch read/write path relies on.
     #[test]

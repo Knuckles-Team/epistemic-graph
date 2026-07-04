@@ -6,8 +6,8 @@ subgraph matching, petgraph BFS) — not DataFusion. Reads run over a snapshot; 
 > Status snapshot: `MATCH … WHERE … RETURN … LIMIT` reads and writes (`CREATE`/`MERGE`/`SET`/`DELETE`
 > +`DETACH`/`REMOVE`) are supported, along with `ORDER BY`/`SKIP`/`WITH`/`OPTIONAL MATCH`/`UNWIND`, the
 > richer WHERE (`OR`/`IN`/`STARTS WITH`/`CONTAINS`/`IS NULL`), aggregation, `DISTINCT`, `CALL {subquery}` /
-> `CALL proc() YIELD`, and the `gds.*` graph-data-science procedures (EG-061/062/063/141/142/143/144). A
-> **Bolt v4.4** wire (EG-159) lets Neo4j drivers connect directly. See the
+> `CALL proc() YIELD`, and the `gds.*` graph-data-science procedures (EG-KG.query.cypher-execution/062/063/141/142/143/144). A
+> **Bolt v4.4** wire (EG-KG.query.bolt-wire-protocol) lets Neo4j drivers connect directly. See the
 > [capability matrix](../capabilities.md#cypher-eg-querycypher).
 
 ## Supported grammar
@@ -21,12 +21,12 @@ LIMIT 100
 
 - **Patterns**: linear `node (edge node)*`. Nodes `(var:Label)` — both the variable and the label are
   optional. Edges `-[:REL]->`, `<-[:REL]-`, and variable-length `-[:REL*m..n]->` (now combinable with
-  surrounding fixed hops + path-variable binding, EG-063).
-- **WHERE** (EG-062): `AND`/`OR`, `var.prop <op> literal` with `= <> != < <= > >=`, plus `IN`,
+  surrounding fixed hops + path-variable binding, EG-KG.query.concept-2).
+- **WHERE** (EG-KG.query.eg-extend-read-side): `AND`/`OR`, `var.prop <op> literal` with `= <> != < <= > >=`, plus `IN`,
   `STARTS WITH`, `CONTAINS`, `IS NULL`.
 - **RETURN**: `var`, `var.prop`, `*`, `DISTINCT`, comma-separated; aggregation
   (`count`/`collect`/`sum`/`avg`/`min`/`max`).
-- **Pipeline**: `WITH`, `ORDER BY`, `SKIP`, `OPTIONAL MATCH`, and `UNWIND expr AS var` (EG-141) compose as
+- **Pipeline**: `WITH`, `ORDER BY`, `SKIP`, `OPTIONAL MATCH`, and `UNWIND expr AS var` (EG-KG.query.param-list-drives-unwind) compose as
   chained stages.
 - **LIMIT**: integer (an implicit cap of 50,000 rows protects the engine).
 
@@ -39,11 +39,11 @@ SET a.active = true
 DELETE a            // DETACH DELETE to also drop incident edges; edge-var DELETE supported
 ```
 
-`CREATE`/`MERGE`/`SET`/`DELETE` (+`DETACH`) and `REMOVE` (property/label removal, EG-061) map to native
+`CREATE`/`MERGE`/`SET`/`DELETE` (+`DETACH`) and `REMOVE` (property/label removal, EG-KG.query.cypher-execution) map to native
 eg-core mutations (`add_node`/`add_edge`/`compare_and_set_fields`/`remove_node`/`remove_edge`). MERGE is
 idempotent (create-if-absent via the label index).
 
-## Procedures — `CALL` + GDS (EG-142/143/144)
+## Procedures — `CALL` + GDS (EG-KG.query.cypher-planning/143/144)
 
 `CALL { subquery }` and `CALL proc(args) YIELD …` invoke a procedure registry that dispatches to native
 (or WASM) procedures — the Neo4j-parity keystone. The registry ships an APOC-equivalent library plus the
@@ -58,7 +58,7 @@ Available `gds.*`: PageRank, weakly/strongly-connected components, Louvain commu
 betweenness + degree centrality, single-source weighted shortest path (Dijkstra), and node similarity
 (Jaccard/cosine over neighborhoods).
 
-## Remote drivers — Bolt v4.4 (EG-159, feature `bolt-wire`)
+## Remote drivers — Bolt v4.4 (EG-KG.query.bolt-wire-protocol, feature `bolt-wire`)
 
 A native Bolt v4.4 listener (`src/server/bolt_wire/`, PackStream v2 chunked framing,
 HELLO/LOGON/RUN/PULL/DISCARD/BEGIN/COMMIT/ROLLBACK) lets Neo4j drivers (neo4j-python/js/go, `cypher-shell`)

@@ -1,4 +1,4 @@
-//! **GeoJSON** (RFC 7946) reader/writer (CONCEPT:EG-264).
+//! **GeoJSON** (RFC 7946) reader/writer (CONCEPT:EG-KG.domains.geojson-gpx-formats).
 //!
 //! GeoJSON is the lingua-franca of web mapping (Leaflet, Mapbox, OpenLayers, `ogr2ogr`). This
 //! module round-trips eg-geo [`Geometry`]s to and from GeoJSON, and models the `Feature` /
@@ -15,7 +15,7 @@ use serde_json::{json, Map, Value};
 use crate::geometry::{Geometry, LineString, Point, Polygon};
 
 /// A GeoJSON `Feature`: an optional [`Geometry`] plus a `properties` JSON object preserved
-/// verbatim (CONCEPT:EG-264). `id` (RFC 7946 §3.2) is kept when present.
+/// verbatim (CONCEPT:EG-KG.domains.geojson-gpx-formats). `id` (RFC 7946 §3.2) is kept when present.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Feature {
     pub geometry: Option<Geometry>,
@@ -34,7 +34,7 @@ impl Feature {
     }
 }
 
-/// A GeoJSON `FeatureCollection` (CONCEPT:EG-264).
+/// A GeoJSON `FeatureCollection` (CONCEPT:EG-KG.domains.geojson-gpx-formats).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct FeatureCollection {
     pub features: Vec<Feature>,
@@ -42,7 +42,7 @@ pub struct FeatureCollection {
 
 // ── geometry ⇄ serde_json::Value ───────────────────────────────────────────────────
 
-/// Encode a geometry as a GeoJSON geometry object (CONCEPT:EG-264).
+/// Encode a geometry as a GeoJSON geometry object (CONCEPT:EG-KG.domains.geojson-gpx-formats).
 pub fn geometry_to_value(g: &Geometry) -> Value {
     match g {
         Geometry::Point(p) => json!({"type": "Point", "coordinates": coord(p)}),
@@ -69,7 +69,7 @@ pub fn geometry_to_value(g: &Geometry) -> Value {
     }
 }
 
-/// Decode a GeoJSON geometry object into a [`Geometry`] (CONCEPT:EG-264).
+/// Decode a GeoJSON geometry object into a [`Geometry`] (CONCEPT:EG-KG.domains.geojson-gpx-formats).
 pub fn geometry_from_value(v: &Value) -> Result<Geometry, String> {
     let ty = v
         .get("type")
@@ -120,7 +120,7 @@ pub fn geometry_from_value(v: &Value) -> Result<Geometry, String> {
 
 // ── Feature / FeatureCollection ⇄ Value ─────────────────────────────────────────────
 
-/// Encode a [`Feature`] as a GeoJSON `Feature` object (CONCEPT:EG-264).
+/// Encode a [`Feature`] as a GeoJSON `Feature` object (CONCEPT:EG-KG.domains.geojson-gpx-formats).
 pub fn feature_to_value(f: &Feature) -> Value {
     let mut obj = Map::new();
     obj.insert("type".into(), Value::String("Feature".into()));
@@ -138,7 +138,7 @@ pub fn feature_to_value(f: &Feature) -> Value {
     Value::Object(obj)
 }
 
-/// Decode a GeoJSON `Feature` object into a [`Feature`] (CONCEPT:EG-264), preserving
+/// Decode a GeoJSON `Feature` object into a [`Feature`] (CONCEPT:EG-KG.domains.geojson-gpx-formats), preserving
 /// `properties` verbatim.
 pub fn feature_from_value(v: &Value) -> Result<Feature, String> {
     let geometry = match v.get("geometry") {
@@ -156,13 +156,13 @@ pub fn feature_from_value(v: &Value) -> Result<Feature, String> {
     })
 }
 
-/// Encode a [`FeatureCollection`] as a GeoJSON object (CONCEPT:EG-264).
+/// Encode a [`FeatureCollection`] as a GeoJSON object (CONCEPT:EG-KG.domains.geojson-gpx-formats).
 pub fn feature_collection_to_value(fc: &FeatureCollection) -> Value {
     let feats: Vec<Value> = fc.features.iter().map(feature_to_value).collect();
     json!({"type": "FeatureCollection", "features": feats})
 }
 
-/// Decode a GeoJSON `FeatureCollection` object into a [`FeatureCollection`] (CONCEPT:EG-264).
+/// Decode a GeoJSON `FeatureCollection` object into a [`FeatureCollection`] (CONCEPT:EG-KG.domains.geojson-gpx-formats).
 pub fn feature_collection_from_value(v: &Value) -> Result<FeatureCollection, String> {
     let arr = v
         .get("features")
@@ -178,12 +178,12 @@ pub fn feature_collection_from_value(v: &Value) -> Result<FeatureCollection, Str
 
 // ── string convenience (the reader/writer entry points) ─────────────────────────────
 
-/// Serialise a [`FeatureCollection`] to a GeoJSON string (CONCEPT:EG-264).
+/// Serialise a [`FeatureCollection`] to a GeoJSON string (CONCEPT:EG-KG.domains.geojson-gpx-formats).
 pub fn write_feature_collection(fc: &FeatureCollection) -> String {
     feature_collection_to_value(fc).to_string()
 }
 
-/// Parse a GeoJSON string into a [`FeatureCollection`] (CONCEPT:EG-264). Accepts a bare
+/// Parse a GeoJSON string into a [`FeatureCollection`] (CONCEPT:EG-KG.domains.geojson-gpx-formats). Accepts a bare
 /// `Feature` (wrapped into a one-feature collection) or a bare geometry (wrapped as a feature).
 pub fn read_feature_collection(s: &str) -> Result<FeatureCollection, String> {
     let v: Value = serde_json::from_str(s).map_err(|e| format!("GeoJSON: invalid JSON: {e}"))?;
@@ -199,12 +199,12 @@ pub fn read_feature_collection(s: &str) -> Result<FeatureCollection, String> {
     }
 }
 
-/// Serialise a bare [`Geometry`] to a GeoJSON geometry string (CONCEPT:EG-264).
+/// Serialise a bare [`Geometry`] to a GeoJSON geometry string (CONCEPT:EG-KG.domains.geojson-gpx-formats).
 pub fn write_geometry(g: &Geometry) -> String {
     geometry_to_value(g).to_string()
 }
 
-/// Parse a bare GeoJSON geometry string into a [`Geometry`] (CONCEPT:EG-264).
+/// Parse a bare GeoJSON geometry string into a [`Geometry`] (CONCEPT:EG-KG.domains.geojson-gpx-formats).
 pub fn read_geometry(s: &str) -> Result<Geometry, String> {
     let v: Value = serde_json::from_str(s).map_err(|e| format!("GeoJSON: invalid JSON: {e}"))?;
     geometry_from_value(&v)

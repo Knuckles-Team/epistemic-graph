@@ -1,4 +1,4 @@
-//! Event-stream / CEP modality executor proofs (CONCEPT:EG-088).
+//! Event-stream / CEP modality executor proofs (CONCEPT:EG-KG.query.pipelined-execution).
 //!
 //! A small `Event` layer, each node carrying `ts`/`key`/`attrs`, drives the CEP surface
 //! end-to-end through the fused executor:

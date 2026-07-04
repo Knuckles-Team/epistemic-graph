@@ -1,4 +1,4 @@
-//! The ShEx validation report (CONCEPT:EG-133) — a serde-serializable result of
+//! The ShEx validation report (CONCEPT:EG-KG.compute.concept-2) — a serde-serializable result of
 //! validating a shape map (focus node → shape label) against a data graph.
 //!
 //! Terms (the focus node) are carried as their canonical N-Triples lexical form

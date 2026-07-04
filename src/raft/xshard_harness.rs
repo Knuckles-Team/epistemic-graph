@@ -1,4 +1,4 @@
-//! Cross-shard 2PC atomicity + recovery gauntlet (CONCEPT:KG-2.222).
+//! Cross-shard 2PC atomicity + recovery gauntlet (CONCEPT:EG-KG.storage.lane-n-increment).
 //!
 //! The nemesis harness for the cross-shard distributed transaction: it spins a live
 //! two-group cluster (one in-process node, two Raft groups on the shared listener,
@@ -469,7 +469,7 @@ async fn recovery_aborts_in_doubt_txn_with_no_decision_record() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// 6. Lane N WIRE (CONCEPT:KG-2.226) — a USER multi-graph txn across 2 groups,
+// 6. Lane N WIRE (CONCEPT:EG-KG.txn.routes-cross-shard-txn) — a USER multi-graph txn across 2 groups,
 //    driven through the BeginTxn→stage→Commit HANDLER, is atomic.
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -477,7 +477,7 @@ use crate::protocol::{Response, ResultPayload};
 use crate::server::handlers::txn::try_handle as txn_handle;
 
 /// Register `shardA`/`shardB` in the registry + wire `state.multi_raft` so the
-/// user-facing commit path can resolve the cross-shard span (CONCEPT:KG-2.226).
+/// user-facing commit path can resolve the cross-shard span (CONCEPT:EG-KG.txn.routes-cross-shard-txn).
 async fn wire_user_graphs(state: &Arc<RwLock<ServerState>>, multi: &Arc<MultiRaft>) {
     let mut s = state.write().await;
     let _ = s.registry.create_graph(GRAPH_A, GraphType::Global, None);
@@ -587,7 +587,7 @@ async fn user_multigraph_txn_commits_atomically_across_groups() {
 /// NEMESIS: kill participant B (close its group) so its slice cannot prepare, then
 /// commit a USER multi-graph txn through the handler. It must ABORT with NO PARTIAL
 /// COMMIT — the live participant A must NOT have applied. This proves the user wire
-/// inherits the coordinator's atomicity under a participant kill (CONCEPT:KG-2.226).
+/// inherits the coordinator's atomicity under a participant kill (CONCEPT:EG-KG.txn.routes-cross-shard-txn).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn user_multigraph_txn_atomic_under_participant_kill() {
     let dir = fresh_dir("userkill");
@@ -827,7 +827,7 @@ async fn parallel_prepare_multi_writer_recovers_after_post_decision_crash() {
 //    (c) agreement with 2PC on commit/abort for the same inputs.
 // ─────────────────────────────────────────────────────────────────────────
 
-/// The dedicated cross-shard DECISION Raft group (CONCEPT:EG-082): the commit/abort
+/// The dedicated cross-shard DECISION Raft group (CONCEPT:EG-KG.txn.harness-crash): the commit/abort
 /// record is Raft-replicated into a graph here instead of the coordinator's redb.
 const GROUP_D: u64 = 400;
 

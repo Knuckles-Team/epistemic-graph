@@ -1,7 +1,7 @@
-//! CONCEPT:EG-295 — Apollo Federation v2 SUBGRAPH support over the native GraphQL
+//! CONCEPT:EG-KG.query.apollo-federation-subgraph — Apollo Federation v2 SUBGRAPH support over the native GraphQL
 //! surface, so the epistemic-graph engine composes into an Apollo supergraph as one
 //! federated subgraph (alongside the existing schema/query/mutation/subscription surface,
-//! CONCEPT:EG-064..066). This is ADDITIVE — it reuses the existing resolver primitives
+//! CONCEPT:EG-KG.compute.cdc-event-emit..066). This is ADDITIVE — it reuses the existing resolver primitives
 //! (label scans, edge traversal, selection resolution) and does NOT rewrite them.
 //!
 //! What a subgraph must provide (federation v2 spec):
@@ -15,7 +15,7 @@
 //!     up by its key and returns it, so the router can stitch fields across subgraphs.
 //!
 //! Entity mapping (the natural property-graph → federation one): every node object type
-//! derived from the graph (CONCEPT:KG-2.235) is a federated entity keyed by its node id
+//! derived from the graph (CONCEPT:EG-KG.query.sparql-completeness) is a federated entity keyed by its node id
 //! (`@key(fields: "id")`). Arbitrary/compound and nested `@key` field sets are parsed +
 //! emitted, and resolved for node-backed types keyed by a property; exotic cases (nested
 //! selection-set keys, non-node entities) are a documented follow-up.
@@ -29,10 +29,10 @@ use crate::parser::{gql_to_json, Field, Fragment, RawDocument, RawField, RawSele
 use crate::resolver::Variables;
 use crate::schema::{decode, node_labels, Schema};
 
-/// The Apollo Federation v2 spec URL this subgraph links against (CONCEPT:EG-295).
+/// The Apollo Federation v2 spec URL this subgraph links against (CONCEPT:EG-KG.query.apollo-federation-subgraph).
 pub const FEDERATION_LINK_URL: &str = "https://specs.apollo.dev/federation/v2.3";
 
-/// A `@key(fields: "…")` directive making a type a federated entity (CONCEPT:EG-295).
+/// A `@key(fields: "…")` directive making a type a federated entity (CONCEPT:EG-KG.query.apollo-federation-subgraph).
 /// `fields` is the raw field-set string (e.g. `"id"` or `"sku pkg"`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct KeyDirective {
@@ -41,7 +41,7 @@ pub struct KeyDirective {
     pub resolvable: bool,
 }
 
-/// Type-level federation metadata (CONCEPT:EG-295). A non-empty `keys` makes the type a
+/// Type-level federation metadata (CONCEPT:EG-KG.query.apollo-federation-subgraph). A non-empty `keys` makes the type a
 /// federated ENTITY.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct EntityMeta {
@@ -49,7 +49,7 @@ pub struct EntityMeta {
     pub shareable: bool,
 }
 
-/// Field-level federation directives (CONCEPT:EG-295): `@shareable` / `@external` /
+/// Field-level federation directives (CONCEPT:EG-KG.query.apollo-federation-subgraph): `@shareable` / `@external` /
 /// `@provides(fields:)` / `@requires(fields:)` / `@override(from:)`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct FieldFedMeta {
@@ -60,7 +60,7 @@ pub struct FieldFedMeta {
     pub override_from: Option<String>,
 }
 
-/// A federated view of the derived schema (CONCEPT:EG-295): the base schema-from-graph
+/// A federated view of the derived schema (CONCEPT:EG-KG.query.apollo-federation-subgraph): the base schema-from-graph
 /// plus federation directive metadata per type / per field.
 #[derive(Clone, Debug, Default)]
 pub struct FederatedSchema {
@@ -72,7 +72,7 @@ pub struct FederatedSchema {
 }
 
 impl FederatedSchema {
-    /// Derive a federated schema from a live `GraphView` (CONCEPT:EG-295). Every node
+    /// Derive a federated schema from a live `GraphView` (CONCEPT:EG-KG.query.apollo-federation-subgraph). Every node
     /// object type becomes a federated entity keyed by its node id (`@key(fields:"id")`)
     /// — the natural property-graph → federation mapping. Overlay explicit federation
     /// directives afterward with [`Self::parse_directives`].
@@ -99,7 +99,7 @@ impl FederatedSchema {
     }
 
     /// Parse Apollo federation directives out of an SDL fragment and OVERLAY them onto
-    /// this schema (CONCEPT:EG-295). Line-oriented: a `type Name @dir … {` line sets
+    /// this schema (CONCEPT:EG-KG.query.apollo-federation-subgraph). Line-oriented: a `type Name @dir … {` line sets
     /// type-level directives (`@key`/`@shareable`); a field line `field: T @dir …` inside
     /// the block sets field-level directives (`@external`/`@shareable`/`@provides`/
     /// `@requires`/`@override`). This is the "parse" half of parse+emit; combined with
@@ -187,7 +187,7 @@ impl FederatedSchema {
         }
     }
 
-    /// Render the Apollo Federation v2 SUBGRAPH SDL (CONCEPT:EG-295) — the exact string an
+    /// Render the Apollo Federation v2 SUBGRAPH SDL (CONCEPT:EG-KG.query.apollo-federation-subgraph) — the exact string an
     /// Apollo router fetches via `_service.sdl` during composition. It carries the
     /// `@link(url:"…/federation/v2.x")` schema directive, the `Query` root (the derived
     /// `[Type]` fields), and each node object type as an entity with its `@key` /
@@ -270,7 +270,7 @@ impl FederatedSchema {
     }
 }
 
-// ── query dispatch (CONCEPT:EG-295) ──────────────────────────────────────────────
+// ── query dispatch (CONCEPT:EG-KG.query.apollo-federation-subgraph) ──────────────────────────────────────────────
 
 /// Does this document select a federation meta-field (`_service` / `_entities`)? The
 /// resolver dispatches such queries here instead of the node-label root path.
@@ -280,7 +280,7 @@ pub(crate) fn is_federation_query(doc: &RawDocument) -> bool {
     )
 }
 
-/// Resolve a federation query (CONCEPT:EG-295) over `view`, returning the GraphQL-shaped
+/// Resolve a federation query (CONCEPT:EG-KG.query.apollo-federation-subgraph) over `view`, returning the GraphQL-shaped
 /// `{"data": …}` JSON. Handles `_service { sdl }`, `_entities(representations:) { … }`, the
 /// `__typename` root meta-field, and passes any ordinary node-label root field through the
 /// standard resolver — so a router's composition (`_service`) and entity-fetch
@@ -342,7 +342,7 @@ pub(crate) fn resolve(
     ))
 }
 
-/// Resolve `_service { sdl }` (CONCEPT:EG-295): the `sdl` field returns the subgraph SDL.
+/// Resolve `_service { sdl }` (CONCEPT:EG-KG.query.apollo-federation-subgraph): the `sdl` field returns the subgraph SDL.
 fn resolve_service(fed: &FederatedSchema, rf: &RawField) -> Value {
     let sdl = fed.to_federation_sdl();
     let mut obj = Map::new();
@@ -363,7 +363,7 @@ fn resolve_service(fed: &FederatedSchema, rf: &RawField) -> Value {
     Value::Object(obj)
 }
 
-/// Resolve `_entities(representations: [_Any!]!): [_Entity]!` (CONCEPT:EG-295). Each
+/// Resolve `_entities(representations: [_Any!]!): [_Entity]!` (CONCEPT:EG-KG.query.apollo-federation-subgraph). Each
 /// representation is a `{__typename, <key fields>}` JSON object; look the entity up by its
 /// key in the graph and materialize the selection (matching the representation's
 /// `__typename` against inline fragments). An unresolvable representation yields `null`,
@@ -418,7 +418,7 @@ fn resolve_entities(
     Ok(Value::Array(out))
 }
 
-/// Look an entity up by its `@key` (CONCEPT:EG-295). Picks the first key whose field-set is
+/// Look an entity up by its `@key` (CONCEPT:EG-KG.query.apollo-federation-subgraph). Picks the first key whose field-set is
 /// fully supplied by the representation; the `id` key hits the node index directly, other
 /// keys scan nodes of the type by property equality. Returns the node id + decoded props.
 fn lookup_entity(
@@ -463,7 +463,7 @@ fn json_id(v: &Value) -> Option<String> {
     }
 }
 
-/// Flatten a raw selection set for a CONCRETE entity type (CONCEPT:EG-295): like the
+/// Flatten a raw selection set for a CONCRETE entity type (CONCEPT:EG-KG.query.apollo-federation-subgraph): like the
 /// resolver's `flatten_selections` but type-condition aware — an inline fragment
 /// `... on T { … }` (or a named fragment `on T`) is included only when `T` matches
 /// `typename` (or is unconditional). Keeps `__typename` as a selectable field.
@@ -515,7 +515,7 @@ fn flatten_typed(
     Ok(out)
 }
 
-// ── directive scanning (CONCEPT:EG-295) ──────────────────────────────────────────
+// ── directive scanning (CONCEPT:EG-KG.query.apollo-federation-subgraph) ──────────────────────────────────────────
 
 /// A federation directive scanned out of an SDL segment.
 struct ScannedDir {
@@ -637,7 +637,7 @@ mod tests {
         Variables::new()
     }
 
-    /// CONCEPT:EG-295 — `_service.sdl` is a valid federation v2 subgraph SDL: it carries
+    /// CONCEPT:EG-KG.query.apollo-federation-subgraph — `_service.sdl` is a valid federation v2 subgraph SDL: it carries
     /// the `@link` to the federation spec and marks the derived node types as `@key`'d
     /// entities.
     #[test]
@@ -662,7 +662,7 @@ mod tests {
         assert!(!sdl.contains("_entities"), "sdl must not emit _entities");
     }
 
-    /// CONCEPT:EG-295 — `_entities` resolves a `{__typename,id}` representation to the
+    /// CONCEPT:EG-KG.query.apollo-federation-subgraph — `_entities` resolves a `{__typename,id}` representation to the
     /// right node, materializing the requested (typed) selection.
     #[test]
     fn federation_entities_resolves_representation_eg295() {
@@ -690,7 +690,7 @@ mod tests {
         assert!(ents[1].get("name").is_none());
     }
 
-    /// CONCEPT:EG-295 — a representation whose id has no matching node resolves to `null`,
+    /// CONCEPT:EG-KG.query.apollo-federation-subgraph — a representation whose id has no matching node resolves to `null`,
     /// keeping the `_entities` result aligned with the input list.
     #[test]
     fn federation_entities_unknown_ref_is_null_eg295() {
@@ -703,7 +703,7 @@ mod tests {
         assert_eq!(res["data"]["_entities"][0], Value::Null);
     }
 
-    /// CONCEPT:EG-295 — an entity keyed by a PROPERTY (`@key(fields:"email")`, not id) is
+    /// CONCEPT:EG-KG.query.apollo-federation-subgraph — an entity keyed by a PROPERTY (`@key(fields:"email")`, not id) is
     /// resolved by scanning nodes of the type; proves the general (non-id) key path.
     #[test]
     fn federation_entities_by_property_key_eg295() {
@@ -729,7 +729,7 @@ mod tests {
         assert_eq!(val["name"], json!("Bob"));
     }
 
-    /// CONCEPT:EG-295 — `@shareable` (type + field) and `@external` PARSE from an SDL
+    /// CONCEPT:EG-KG.query.apollo-federation-subgraph — `@shareable` (type + field) and `@external` PARSE from an SDL
     /// fragment and re-EMIT in the federation SDL (the parse+emit round-trip).
     #[test]
     fn federation_shareable_and_external_parse_and_emit_eg295() {
@@ -760,7 +760,7 @@ mod tests {
         assert!(sdl.contains("email: String @external"));
     }
 
-    /// CONCEPT:EG-295 — `@provides`/`@requires`/`@override` parse their args and re-emit.
+    /// CONCEPT:EG-KG.query.apollo-federation-subgraph — `@provides`/`@requires`/`@override` parse their args and re-emit.
     #[test]
     fn federation_provides_requires_override_round_trip_eg295() {
         let v = view();
@@ -784,7 +784,7 @@ mod tests {
         assert!(sdl.contains("@override(from: \"legacy\")"));
     }
 
-    /// CONCEPT:EG-295 — the federation dispatcher only fires for `_service`/`_entities`;
+    /// CONCEPT:EG-KG.query.apollo-federation-subgraph — the federation dispatcher only fires for `_service`/`_entities`;
     /// an ordinary query is untouched (regression guard).
     #[test]
     fn federation_query_detection_eg295() {
@@ -799,7 +799,7 @@ mod tests {
         ));
     }
 
-    /// CONCEPT:EG-295 — an ordinary node query still resolves correctly even when routed
+    /// CONCEPT:EG-KG.query.apollo-federation-subgraph — an ordinary node query still resolves correctly even when routed
     /// through the federation-aware entry point (a normal root field mixed alongside is
     /// passed to the standard resolver).
     #[test]

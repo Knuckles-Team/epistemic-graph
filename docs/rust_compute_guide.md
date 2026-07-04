@@ -104,7 +104,7 @@ Replaces `scikit-learn` on the hot path (parity-validated). Served via
   Names: `ridge`, `lasso`, `elasticnet`, `decisiontree`, `randomforest`,
   `gradientboosting`, `adaboost`, `svr` (RBF/linear via SMO). `rayon`-parallel
   forests; no external ML crates.
-- **Training kernels** (`training.rs`, CONCEPT:KG-2.22): the pure-Rust loss /
+- **Training kernels** (`training.rs`, CONCEPT:EG-KG.compute.rust-native-training-loss): the pure-Rust loss /
   optimizer performance path for the in-house training substrate — `softmax`,
   `log_softmax`, `cross_entropy` (+ analytic grad), `dpo_loss` (Bradley-Terry,
   + chosen/rejected grads), `grpo_surrogate` (PPO/GRPO clipped, + grad with a

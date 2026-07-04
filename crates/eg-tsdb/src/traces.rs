@@ -1,4 +1,4 @@
-//! CONCEPT:EG-163 — distributed span model + indexed span store + trace assembly +
+//! CONCEPT:EG-OS.observability.trace-assembly — distributed span model + indexed span store + trace assembly +
 //! service-dependency graph. The third leg of the observability trilogy (logs +
 //! metrics + traces) that lets the engine surpass OpenObserve.
 //!
@@ -33,7 +33,7 @@ pub struct SpanEvent {
     pub attrs: BTreeMap<String, String>,
 }
 
-/// One distributed-tracing span (CONCEPT:EG-163). The fixed fields are the ones
+/// One distributed-tracing span (CONCEPT:EG-OS.observability.trace-assembly). The fixed fields are the ones
 /// every tracing format carries; `attributes` is a dynamic schema-on-read map.
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Span {
@@ -151,7 +151,7 @@ pub struct ServiceEdge {
 /// The default search result cap when a caller omits one.
 pub const DEFAULT_TRACE_LIMIT: usize = 20;
 
-/// In-memory indexed span store (CONCEPT:EG-163): spans keyed by `trace_id`, with
+/// In-memory indexed span store (CONCEPT:EG-OS.observability.trace-assembly): spans keyed by `trace_id`, with
 /// secondary `service`/`operation` → trace-id indices for search. Cheap, lock-guarded,
 /// dependency-free (no redb/Arrow) so it links into `pi`-adjacent builds unchanged.
 #[derive(Default)]
@@ -428,7 +428,7 @@ mod tests {
         }
     }
 
-    /// CONCEPT:EG-163 — a flat span list assembles into a parent→children tree, with
+    /// CONCEPT:EG-OS.observability.trace-assembly — a flat span list assembles into a parent→children tree, with
     /// children ordered by start time and rollups (count/duration/services) computed.
     #[test]
     fn eg163_span_tree_assembly_parent_to_children() {
@@ -457,7 +457,7 @@ mod tests {
         assert_eq!(root.children[0].children[0].span.span_id, "c");
     }
 
-    /// CONCEPT:EG-163 — a span whose parent is absent from the trace surfaces as a
+    /// CONCEPT:EG-OS.observability.trace-assembly — a span whose parent is absent from the trace surfaces as a
     /// root rather than being dropped.
     #[test]
     fn eg163_orphan_span_surfaces_as_root() {
@@ -468,7 +468,7 @@ mod tests {
         assert_eq!(t.roots[0].span.span_id, "x");
     }
 
-    /// CONCEPT:EG-163 — search filters by service, operation, and trace duration.
+    /// CONCEPT:EG-OS.observability.trace-assembly — search filters by service, operation, and trace duration.
     #[test]
     fn eg163_search_by_service_operation_and_duration() {
         let store = SpanStore::new();
@@ -508,7 +508,7 @@ mod tests {
         assert_eq!(hits[0].trace_id, "B", "start 5000 sorts before start 0");
     }
 
-    /// CONCEPT:EG-163 — search filters by an attribute (tag) equality.
+    /// CONCEPT:EG-OS.observability.trace-assembly — search filters by an attribute (tag) equality.
     #[test]
     fn eg163_search_by_tag_filter() {
         let store = SpanStore::new();
@@ -525,7 +525,7 @@ mod tests {
         assert_eq!(hits[0].trace_id, "T");
     }
 
-    /// CONCEPT:EG-163 — the service-dependency graph derives parent→child service
+    /// CONCEPT:EG-OS.observability.trace-assembly — the service-dependency graph derives parent→child service
     /// edges with call counts across traces (leveraging the graph engine's forte).
     #[test]
     fn eg163_service_dependency_graph_edges() {

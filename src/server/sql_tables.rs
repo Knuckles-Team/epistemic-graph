@@ -1,7 +1,7 @@
-//! Process-wide user-defined relational table store (CONCEPT:EG-018/EG-023).
+//! Process-wide user-defined relational table store (CONCEPT:EG-KG.query.register-user-tables-alongside/EG-023).
 //!
 //! redb permits exactly ONE `Database` handle per file per process, so the wire
-//! `Method::Sql` DDL/DML path AND the pgwire shim (CONCEPT:KG-2.189) must share the
+//! `Method::Sql` DDL/DML path AND the pgwire shim (CONCEPT:AU-KG.query.raw-python) must share the
 //! SAME [`eg_query::TableStore`] — otherwise the two surfaces would race to open the
 //! same `sql_tables.redb` and the loser would error. This module is that single
 //! lazily-opened, process-global store; both surfaces resolve it here so a table
@@ -9,7 +9,7 @@
 
 use eg_query::TableStore;
 
-/// Env override for the durable user-table store path (CONCEPT:EG-018). When unset it
+/// Env override for the durable user-table store path (CONCEPT:EG-KG.query.register-user-tables-alongside). When unset it
 /// derives from `GRAPH_SERVICE_PERSIST_DIR` (`<persist_dir>/sql_tables.redb`) so user
 /// tables live beside the graph durable tier; absent that, a process-temp file.
 pub const SQL_TABLES_PATH_ENV: &str = "EPISTEMIC_GRAPH_SQL_TABLES_PATH";
@@ -34,7 +34,7 @@ pub fn sql_tables_path() -> std::path::PathBuf {
     std::env::temp_dir().join("epistemic_graph_sql_tables.redb")
 }
 
-/// The shared user-table store, opening it on first use (CONCEPT:EG-018). Returns a
+/// The shared user-table store, opening it on first use (CONCEPT:EG-KG.query.register-user-tables-alongside). Returns a
 /// cheap clone of the single process-wide handle.
 pub fn user_table_store() -> Result<TableStore, String> {
     let mut g = USER_TABLE_STORE

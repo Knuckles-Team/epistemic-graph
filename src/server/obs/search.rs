@@ -1,6 +1,6 @@
-//! Observability log SEARCH + query API (CONCEPT:EG-162) — the third slice of
+//! Observability log SEARCH + query API (CONCEPT:EG-KG.query.concept-4) — the third slice of
 //! Phase T ("surpass OpenObserve"), layered over the log-ingestion front door
-//! (CONCEPT:EG-160) and the Parquet-on-blob-CAS segments (CONCEPT:EG-161).
+//! (CONCEPT:AU-KG.ingest.self-ingest) and the Parquet-on-blob-CAS segments (CONCEPT:EG-KG.retrieval.observability-search).
 //!
 //! ## The search thesis
 //!
@@ -97,7 +97,7 @@ impl ObsState {
     /// Execute a log search: UNION the hot buffer + the manifest-pruned cold Parquet
     /// segments for the stream, filter by the time window, then apply the full-text
     /// (BM25-gated) + structured filters, sort by timestamp ascending, and cap at
-    /// `size` (CONCEPT:EG-162).
+    /// `size` (CONCEPT:EG-KG.query.concept-4).
     pub fn search_logs(&self, q: &LogQuery) -> Result<Vec<LogRecord>, String> {
         let mut candidates: Vec<LogRecord> = Vec::new();
 
@@ -156,7 +156,7 @@ impl ObsState {
 
     /// Run read-only `sql` over ALL log records — the cold Parquet segments (scanned
     /// out of the blob CAS) plus the hot buffers — registered as one DataFusion `logs`
-    /// table (CONCEPT:EG-162). Columns are the fixed segment schema (`ts`, `stream`,
+    /// table (CONCEPT:EG-KG.query.concept-4). Columns are the fixed segment schema (`ts`, `stream`,
     /// `severity`, `body`, `attrs`), so `SELECT severity, count(*) FROM logs GROUP BY
     /// severity` aggregates over the columnar segments; `json_get('<attrs>', 'key')`
     /// reaches a schema-on-read attribute. Synchronous — safe under `spawn_blocking`.

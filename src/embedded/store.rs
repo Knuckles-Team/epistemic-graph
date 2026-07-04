@@ -1,5 +1,5 @@
 //! Synchronous in-process redb durable store for the embedded engine
-//! (CONCEPT:KG-2.216).
+//! (CONCEPT:EG-KG.backend.engine-modes).
 //!
 //! Unlike the server's `redb_backend` — which spawns an off-reactor group-commit
 //! writer thread so thousands of concurrent socket clients amortize fsyncs — the
@@ -21,7 +21,7 @@ use crate::redb_store::{self, GraphDump};
 /// Owns `{persist_dir}/graph.redb` and commits synchronously.
 pub(super) struct EmbeddedRedbStore {
     db: Database,
-    /// Encryption-at-rest cipher (CONCEPT:KG-2.231), resolved once from
+    /// Encryption-at-rest cipher (CONCEPT:EG-KG.sharding.row-level-security), resolved once from
     /// `EPISTEMIC_GRAPH_ENCRYPTION_KEY` at open. `None` ⇒ encryption off ⇒ durable
     /// format unchanged. Only present in a `security` build.
     #[cfg(feature = "security")]
@@ -84,7 +84,7 @@ impl EmbeddedRedbStore {
         let mut ops = vec![(graph_fname.to_string(), method.clone())];
         let mut raft_log_ops = Vec::new();
         // The embedded path commits ONE op per transaction in its own process, so a
-        // fresh per-call tail cache (CONCEPT:EG-025) seeds from one scan and is O(1) for
+        // fresh per-call tail cache (CONCEPT:EG-KG.storage.embedded-store) seeds from one scan and is O(1) for
         // the single op — identical cost to before. The hot, CPU-bound writer is the
         // server's group-commit thread, which keeps its cache hot across batches.
         #[cfg(feature = "security")]
@@ -123,7 +123,7 @@ impl EmbeddedRedbStore {
     }
 
     /// Durably PURGE every row for a deleted graph (nodes/edges/ledger/semantic +
-    /// the `graph_meta` identity) in one immediate transaction (CONCEPT:KG-2.221).
+    /// the `graph_meta` identity) in one immediate transaction (CONCEPT:EG-KG.backend.tenant-delete-recreate-same).
     /// Reuses the SHARED `purge_graph_rows`, so a recreate of the same name starts
     /// from a clean durable slate — the embedded analogue of the server's
     /// `Cmd::PurgeGraph` tenant-delete teardown.

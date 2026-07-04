@@ -1,4 +1,4 @@
-"""Cross-modal SEAM regression — served end-to-end (CONCEPT:EG-370).
+"""Cross-modal SEAM regression — served end-to-end (CONCEPT:EG-KG.compute.cross-modal-seam).
 
 These exercise the write→read cross-modal seams through the REAL served engine (the
 `clean_graph` fixture in conftest.py builds `--features full` and connects a

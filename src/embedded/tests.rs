@@ -1,4 +1,4 @@
-//! Embedded API round-trip + durable-reopen tests (CONCEPT:KG-2.216).
+//! Embedded API round-trip + durable-reopen tests (CONCEPT:EG-KG.backend.engine-modes).
 
 use super::*;
 use std::path::PathBuf;
@@ -130,7 +130,7 @@ fn embedded_per_mutation_durable_without_checkpoint() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// Tenant DELETE durably PURGES the graph's redb rows (CONCEPT:KG-2.221/2.216) so a
+/// Tenant DELETE durably PURGES the graph's redb rows (CONCEPT:EG-KG.backend.tenant-delete-recreate-same/2.216) so a
 /// recreate of the SAME name after a reopen starts from a clean durable slate — the
 /// embedded analogue of the server's `delete_then_recreate_same_name_keeps_new_writes`.
 #[test]
@@ -205,7 +205,7 @@ fn embedded_sql_query() {
     assert!(!res.rows.is_empty(), "sql returned rows: {res:?}");
 }
 
-/// SQLite-equivalent (CONCEPT:EG-022 / EG-018): open a file → CREATE TABLE → INSERT →
+/// SQLite-equivalent (CONCEPT:EG-KG.storage.namespaced-kv-surface / EG-018): open a file → CREATE TABLE → INSERT →
 /// SELECT, in-process, no server — and the durable user-table rows survive a reopen of
 /// the SAME single-file store.
 #[cfg(feature = "query")]

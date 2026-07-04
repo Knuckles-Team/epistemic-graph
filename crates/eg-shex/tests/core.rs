@@ -1,4 +1,4 @@
-//! ShEx Core correctness proof (CONCEPT:EG-133).
+//! ShEx Core correctness proof (CONCEPT:EG-KG.compute.concept-2).
 //!
 //! Each test parses a ShExJ schema + a Turtle data graph, validates a shape map, and
 //! asserts the report's `conforms` flag (and, on failure, that the reason mentions the

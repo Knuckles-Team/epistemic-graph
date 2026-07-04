@@ -1,4 +1,4 @@
-//! # eg-text — embedded BM25 full-text search over node text fields (CONCEPT:KG-2.215)
+//! # eg-text — embedded BM25 full-text search over node text fields (CONCEPT:AU-KG.query.text-spatial-time)
 //!
 //! An inverted-index full-text search the engine holds beside the graph: index a
 //! `(node_id, text)` pair, query with a natural-language string, get the BM25 top-k
@@ -56,7 +56,7 @@ pub struct TextHit {
 }
 
 /// Classic BM25 relevance scoring + highlighted snippets over a single `(query, doc)`
-/// pair (CONCEPT:EG-311) — dep-free, ships in EVERY build. The REAL ranking behind the
+/// pair (CONCEPT:EG-KG.query.bm25-ranking-snippets) — dep-free, ships in EVERY build. The REAL ranking behind the
 /// eg-query `bm25_score`/`bm25_snippet` UDFs, replacing their EG-119 placeholders.
 mod bm25;
 pub use bm25::{bm25_score, bm25_snippet, Bm25, Corpus};

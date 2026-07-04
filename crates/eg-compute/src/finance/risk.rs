@@ -1,4 +1,4 @@
-// CONCEPT:KG-2.20b — Risk Analytics Engine
+// CONCEPT:EG-KG.compute.risk-analytics — Risk Analytics Engine
 //
 // Value-at-Risk, CVaR/Expected Shortfall, stress testing, and drawdown computation.
 // Replaces Python scipy.stats-based risk calculations.

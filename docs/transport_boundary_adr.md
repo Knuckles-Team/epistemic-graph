@@ -46,7 +46,7 @@ enforces the absence of PyO3 in source and built wheels.
 > **Updated.** This section previously described the crate as "L1 only", a cache in
 > front of a separate PostgreSQL/LadybugDB durable tier. That **L0/L1/L2/L3** tier
 > vocabulary is gone — the engine is now a **durable source of truth in its own
-> right** (CONCEPT:KG-2.195, "the flip").
+> right** (CONCEPT:AU-KG.backend.backend-modes, "the flip").
 
 Built with the `redb` feature (in the one main build and the `cluster` layer), the
 persist dir is the **authoritative store**: an acked
@@ -58,8 +58,8 @@ rebuildable-cache behavior, where the local `.mp` snapshot exists only for fast 
 restart.
 
 SPARQL is no longer rudimentary: the engine ships a native **SPARQL 1.1 SELECT** surface
-(spargebra → GraphView scans, CONCEPT:KG-2.218) plus an **OWL 2 EL⁺/RL reasoner**
-(CONCEPT:KG-2.219), both composable into the unified planner. Trust scoring and
+(spargebra → GraphView scans, CONCEPT:EG-KG.ontology.concept-11) plus an **OWL 2 EL⁺/RL reasoner**
+(CONCEPT:EG-KG.ontology.incremental-materialization), both composable into the unified planner. Trust scoring and
 human-in-the-loop gating remain **not** engine features — they live in the
 agent-utilities orchestration layer (request/grant-approval, risk-veto, blast-radius).
 See [the master-of-all engine](architecture/engine.md) for the durable + reasoning

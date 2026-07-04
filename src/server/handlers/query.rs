@@ -1,9 +1,9 @@
 //! Read-only query handler. Owns BOTH query methods (one module per domain, per
 //! the dispatch conventions — `Sql` + `CypherQuery` are the one `// ── Query ──`
 //! protocol section):
-//!   * `Method::Sql` (CONCEPT:KG-2.178, feature `query`) — `SELECT … FROM nodes …`
+//!   * `Method::Sql` (CONCEPT:EG-KG.query.read-only-sql-query, feature `query`) — `SELECT … FROM nodes …`
 //!     over ONE graph via DataFusion (eg-query::exec_sql).
-//!   * `Method::CypherQuery` (CONCEPT:KG-2.179, feature `cypher`) — `MATCH … RETURN
+//!   * `Method::CypherQuery` (CONCEPT:EG-KG.query.dep-free-behind, feature `cypher`) — `MATCH … RETURN
 //!     …` over ONE graph, DEP-FREE (eg-query::exec_cypher; label index / VF2 / BFS,
 //!     no DataFusion). This is the lean-Pi query path.
 //!
@@ -36,7 +36,7 @@ use eg_core::result_cache::ResultCache;
 
 /// Handle `Method::Sql` / `Method::CypherQuery`. `Err(method)` hands a non-query
 /// method (or a query method whose feature is off) back to the dispatcher
-/// (routing fall-through). (CONCEPT:KG-2.19 — server dispatch convention)
+/// (routing fall-through). (CONCEPT:EG-KG.query.dispatch-convention — server dispatch convention)
 pub(crate) async fn try_handle(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
@@ -46,14 +46,14 @@ pub(crate) async fn try_handle(
     #[cfg(feature = "security")] rls: &Arc<crate::isolation::IsolationLayer>,
 ) -> Result<Response, Method> {
     // `state` is consumed only by the `query`-gated in-txn cross-modal RYOW arms
-    // (CONCEPT:EG-359 — TxnUnifiedQuery{,Text}); keep it referenced in a
+    // (CONCEPT:EG-KG.query.txn-cross-modal-ryow — TxnUnifiedQuery{,Text}); keep it referenced in a
     // cypher/graphql-only build (no `query`) so no dead-param warning fires.
     #[cfg(not(feature = "query"))]
     let _ = state;
     match method {
         #[cfg(feature = "query")]
         Method::Sql { query, .. } => {
-            // CONCEPT:EG-023 — `Method::Sql` now routes BOTH reads AND writes (was
+            // CONCEPT:EG-KG.query.mirrors-pgwire — `Method::Sql` now routes BOTH reads AND writes (was
             // SELECT-only). Classify the statement with the SAME `eg_query::classify`
             // the pgwire shim uses, then:
             //   * a write (graph-node DML on `nodes`, or user-table DDL/DML) → the
@@ -114,12 +114,12 @@ pub(crate) async fn try_handle(
             plan,
             reorder_filter_selectivity,
         } => {
-            // ONE cross-modal plan (CONCEPT:KG-2.208/209): filter (DataFusion) →
+            // ONE cross-modal plan (CONCEPT:AU-KG.compute.vector/209): filter (DataFusion) →
             // traverse (BFS) → rank (kNN) over ONE consistent off-lock snapshot. Take
             // BOTH the GraphView (topology + property blobs) and a SemanticStore clone
             // under a brief read each — same point-in-time, so the cross-modal read is
             // snapshot-isolated — then run the whole pipeline on the blocking pool.
-            // Version-keyed, RLS-aware result cache (CONCEPT:KG-2.233 × KG-2.231): key
+            // Version-keyed, RLS-aware result cache (CONCEPT:EG-KG.coordination.distributed-cache-coherence × KG-2.231): key
             // on the plan bytes + the reorder flag + the caller's RLS context. The plan
             // + semantic store both reflect `version`, so a write retires the entry; the
             // RLS-context salt keeps agent A's fused result out of agent B's lookups.
@@ -152,7 +152,7 @@ pub(crate) async fn try_handle(
                 rls,
             );
             let semantic = core.semantic_store.read().clone();
-            // RECONCILE (CONCEPT:EG-363): committed tsdb store for `Op::TsScan` fusion.
+            // RECONCILE (CONCEPT:EG-KG.query.native-time-series): committed tsdb store for `Op::TsScan` fusion.
             #[cfg(feature = "tsdb")]
             let tsdb = state.read().await.tsdb_store.clone();
             let resp = match compute_off_lock(req_id, move || {
@@ -186,11 +186,11 @@ pub(crate) async fn try_handle(
             text,
             reorder_filter_selectivity,
         } => {
-            // UQL (CONCEPT:KG-2.214): parse the TEXT query into the SAME `wire::Plan`
+            // UQL (CONCEPT:AU-KG.query.top-nodes-by-degree): parse the TEXT query into the SAME `wire::Plan`
             // `UnifiedQuery` carries, then run the IDENTICAL `run_unified` executor —
             // a pure front-end, no new execution path. A parse error is a clear,
             // caret-annotated error Response (never a panic).
-            // Version-keyed, RLS-aware result cache (CONCEPT:KG-2.233 × KG-2.231): key
+            // Version-keyed, RLS-aware result cache (CONCEPT:EG-KG.coordination.distributed-cache-coherence × KG-2.231): key
             // on the TEXT + reorder flag + the caller's RLS context (the parse is
             // deterministic, so caching pre-parse is sound and skips the parse on a hit
             // too). The RLS-context salt keeps agent A's result out of agent B's lookups.
@@ -227,7 +227,7 @@ pub(crate) async fn try_handle(
                 rls,
             );
             let semantic = core.semantic_store.read().clone();
-            // RECONCILE (CONCEPT:EG-363): committed tsdb store for `Op::TsScan` fusion.
+            // RECONCILE (CONCEPT:EG-KG.query.native-time-series): committed tsdb store for `Op::TsScan` fusion.
             #[cfg(feature = "tsdb")]
             let tsdb = state.read().await.tsdb_store.clone();
             let resp = match compute_off_lock(req_id, move || {
@@ -256,7 +256,7 @@ pub(crate) async fn try_handle(
             };
             Ok(resp)
         }
-        // ── In-transaction cross-modal read-your-own-writes (CONCEPT:EG-359) ──
+        // ── In-transaction cross-modal read-your-own-writes (CONCEPT:EG-KG.query.txn-cross-modal-ryow) ──
         // Run the SAME unified cross-modal plan as `UnifiedQuery`, but over a
         // snapshot OVERLAID with the open txn's staged (uncommitted) write-set +
         // staged embeddings, so a node/edge/vector the txn itself staged is visible
@@ -308,7 +308,7 @@ pub(crate) async fn try_handle(
         }
         #[cfg(feature = "nl-query")]
         Method::NlQuery { text, graph } => {
-            // CONCEPT:EG-078/EG-080 — natural-language → executable query → rows. Resolve
+            // CONCEPT:EG-KG.query.core-query-input/EG-080 — natural-language → executable query → rows. Resolve
             // the configured/injected `NlPlanner`, turn the NL into a UQL query STRING,
             // then run it through the IDENTICAL `UnifiedQueryText` pipeline
             // (`eg_plan::uql::parse` + `run_unified`). NO LLM in the engine core and NO
@@ -350,7 +350,7 @@ pub(crate) async fn try_handle(
             #[cfg(feature = "security")]
             rls.filter_view(caller.unwrap_or(""), &mut snap);
             let semantic = core.semantic_store.read().clone();
-            // RECONCILE (CONCEPT:EG-363): committed tsdb store for `Op::TsScan` fusion.
+            // RECONCILE (CONCEPT:EG-KG.query.native-time-series): committed tsdb store for `Op::TsScan` fusion.
             #[cfg(feature = "tsdb")]
             let tsdb = state.read().await.tsdb_store.clone();
             let resp = match compute_off_lock(req_id, move || {
@@ -379,7 +379,7 @@ pub(crate) async fn try_handle(
         }
         #[cfg(feature = "graphql")]
         Method::GraphQl { query, variables } => {
-            // GraphQL WRITE surface (CONCEPT:EG-019/EG-023): a `mutation { … }` document
+            // GraphQL WRITE surface (CONCEPT:EG-KG.query.mutation/EG-023): a `mutation { … }` document
             // maps onto eg-core's native write ops over the LIVE `GraphCore` via
             // `execute_mutation` (which bumps the OCC version / `mark_dirty` once it
             // lands). NOT cached (it is a write) and NOT RLS pre-filtered (writes are
@@ -407,20 +407,20 @@ pub(crate) async fn try_handle(
                 eg_graphql::parse_operation(&query),
                 Ok(eg_graphql::Operation::Subscription(_))
             );
-            // GraphQL READ surface (CONCEPT:KG-2.235): compile the GraphQL query to
+            // GraphQL READ surface (CONCEPT:EG-KG.query.sparql-completeness): compile the GraphQL query to
             // scans + BFS over the SAME off-lock snapshot the Cypher path uses, via the
             // pure-Rust eg-graphql resolver (NO async-graphql / DataFusion). The result
             // is the GraphQL `{"data": …}` JSON, returned via `ResultPayload::Raw`.
             //
             // GraphQL runs under the SAME version-keyed, RLS-aware result cache the
-            // SQL/Cypher/SPARQL paths do (CONCEPT:KG-2.233 × KG-2.231): the cache KEY
+            // SQL/Cypher/SPARQL paths do (CONCEPT:EG-KG.coordination.distributed-cache-coherence × KG-2.231): the cache KEY
             // folds in the caller's RLS context so agent A's filtered `{data}` is NEVER
             // served to agent B for the same GraphQL query text, and the snapshot is
             // RLS-FILTERED to the caller's visible rows BEFORE the resolver runs — a
             // GraphQL read cannot leak rows across agents any more than a Cypher read.
             // Bind the request's GraphQL `$variables` (task #23): a `query { … }` runs
             // through `execute_with_variables` so `$var` args + `@skip`/`@include`
-            // resolve (CONCEPT:EG-065); absent ⇒ an empty object, byte-identical to the
+            // resolve (CONCEPT:EG-KG.query.fragments-variables-directives); absent ⇒ an empty object, byte-identical to the
             // no-vars path. (A `subscription { … }` stays a poll of the current matches.)
             let vars = variables.unwrap_or_else(|| serde_json::json!({}));
             #[cfg(feature = "result-cache")]
@@ -478,7 +478,7 @@ pub(crate) async fn try_handle(
         }
         #[cfg(feature = "cypher")]
         Method::CypherQuery { query } => {
-            // Cypher WRITE surface (CONCEPT:EG-020/EG-023): a `CREATE`/`MERGE`/`SET`/
+            // Cypher WRITE surface (CONCEPT:EG-KG.query.register-each-user-table/EG-023): a `CREATE`/`MERGE`/`SET`/
             // `DELETE`/`REMOVE` statement is applied to the LIVE `GraphCore` via
             // `exec_cypher_write` (native eg-core write ops — NO DataFusion; it calls
             // `mark_dirty` once after the mutation). NOT cached, NOT RLS pre-filtered
@@ -502,7 +502,7 @@ pub(crate) async fn try_handle(
             }
             // Same off-lock snapshot + blocking-pool idiom as SQL — but DEP-FREE
             // (label index / VF2 / BFS), so it runs in a no-DataFusion Pi build.
-            // Version-keyed, RLS-aware result cache (CONCEPT:KG-2.233 × KG-2.231) wraps
+            // Version-keyed, RLS-aware result cache (CONCEPT:EG-KG.coordination.distributed-cache-coherence × KG-2.231) wraps
             // it identically; this is the lean-Pi cached query path. The cache KEY folds
             // in the caller's RLS context so agent A's filtered rows are never served to
             // agent B, and the snapshot is RLS-filtered before execution.
@@ -550,10 +550,10 @@ pub(crate) async fn try_handle(
     }
 }
 
-/// Execute a unified cross-modal plan (CONCEPT:KG-2.208/209) over one off-lock
+/// Execute a unified cross-modal plan (CONCEPT:AU-KG.compute.vector/209) over one off-lock
 /// snapshot and return the result rows as `[id, score|nil]`. When
 /// `reorder_filter_selectivity` is set, the cost model reorders an adjacent
-/// (Filter, Rank) pair before execution (CONCEPT:KG-2.209). Synchronous — runs on
+/// (Filter, Rank) pair before execution (CONCEPT:EG-KG.query.concept-14). Synchronous — runs on
 /// the blocking pool via `compute_off_lock`, like the SQL/Cypher legs.
 #[cfg(feature = "query")]
 pub(crate) fn run_unified(
@@ -561,7 +561,7 @@ pub(crate) fn run_unified(
     reorder_filter_selectivity: Option<f64>,
     view: &crate::graph::GraphView,
     semantic: &eg_core::compute::semantic::SemanticStore,
-    // RECONCILE (Lane C tsdb-in-plan, CONCEPT:EG-363): the committed native tsdb
+    // RECONCILE (Lane C tsdb-in-plan, CONCEPT:EG-KG.query.native-time-series): the committed native tsdb
     // `SeriesStore` backing `Op::TsScan`, threaded in so a UQL plan fuses its
     // time-series leg with the graph/vector/relational legs. `None` ⇒ a `TsScan`
     // yields no rows (degrade, never err). Only exists under the `tsdb` feature.
@@ -576,7 +576,7 @@ pub(crate) fn run_unified(
     // Optional cost-based reorder of the adjacent (Filter, Rank) pair. The final
     // top-k requested by a trailing Limit drives the cost asymmetry; default to the
     // seed size if there is no Limit. Seed/embedding counts come straight from the
-    // snapshot, so the decision is fed by derivable stats (CONCEPT:KG-2.209).
+    // snapshot, so the decision is fed by derivable stats (CONCEPT:EG-KG.query.concept-14).
     let ops = match reorder_filter_selectivity {
         Some(sel) => {
             let seed_rows = view.node_properties.len();
@@ -599,10 +599,10 @@ pub(crate) fn run_unified(
     // `RankText`/`FuseRrf` op served today degrades to no lexical hits rather than
     // erroring. Threading a live BM25 `TextIndex` into `ServerState` (index-on-write +
     // an `AddText`/`IndexText` Method + a persist dir beside graph.redb) is the
-    // explicit follow-up integration (CONCEPT:KG-2.215 increment 2); the algebra +
+    // explicit follow-up integration (CONCEPT:AU-KG.query.text-spatial-time increment 2); the algebra +
     // index crate land + are proven here.
     let ctx = PlanCtx::new(view, semantic);
-    // RECONCILE (CONCEPT:EG-363): attach the committed tsdb store so `Op::TsScan`
+    // RECONCILE (CONCEPT:EG-KG.query.native-time-series): attach the committed tsdb store so `Op::TsScan`
     // sources real series (tsdb-in-plan fusion). Absent store ⇒ ctx unchanged.
     #[cfg(feature = "tsdb")]
     let ctx = match tsdb {
@@ -626,7 +626,7 @@ pub(crate) fn run_unified(
 
 /// Resolve an OPEN txn, build a snapshot OVERLAID with its staged write-set +
 /// embeddings, and run a unified cross-modal plan over it with read-your-own-writes
-/// (CONCEPT:EG-359). The overlay is built under the (brief) state read + per-txn
+/// (CONCEPT:EG-KG.query.txn-cross-modal-ryow). The overlay is built under the (brief) state read + per-txn
 /// lock, then the CPU-heavy plan runs OFF-lock on the blocking pool — the same
 /// off-lock idiom as `run_unified`. Not result-cached (staged writes don't bump
 /// `version()`). RLS filters the committed base snapshot to the caller's visible
@@ -675,7 +675,7 @@ async fn run_unified_overlaid(
         )
         // `guard` + `s` drop here — no lock held across the compute below.
     };
-    // RECONCILE (CONCEPT:EG-363): the committed tsdb `SeriesStore` for `Op::TsScan`
+    // RECONCILE (CONCEPT:EG-KG.query.native-time-series): the committed tsdb `SeriesStore` for `Op::TsScan`
     // fusion inside the txn, so an in-txn UQL reads COMMITTED series.
     #[cfg(feature = "tsdb")]
     let tsdb = state.read().await.tsdb_store.clone();
@@ -723,7 +723,7 @@ async fn run_unified_overlaid(
 }
 
 /// Replay a txn's staged durable-mutation `write_set` onto a cloned `GraphView` as an
-/// overlay (CONCEPT:EG-359 — in-txn cross-modal RYOW). Mirrors `handlers::txn::
+/// overlay (CONCEPT:EG-KG.query.txn-cross-modal-ryow — in-txn cross-modal RYOW). Mirrors `handlers::txn::
 /// apply_staged`, but against a view's overlay ops (no ledger/durability): so the
 /// Filter (node props) and Traverse (BFS over staged edges) legs of an in-txn unified
 /// query observe the txn's own uncommitted graph writes. Only the durable-mutation set
@@ -774,7 +774,7 @@ pub(crate) fn overlay_write_set(view: &mut crate::graph::GraphView, write_set: &
     }
 }
 
-/// Execute a classified `Method::Sql` WRITE (CONCEPT:EG-023). Mirrors the pgwire shim's
+/// Execute a classified `Method::Sql` WRITE (CONCEPT:EG-KG.query.mirrors-pgwire). Mirrors the pgwire shim's
 /// classify→execute write path, reusing the SAME engine primitives:
 ///   * graph-node DML (`INSERT`/`UPDATE`/`DELETE` on `nodes`) → the live `GraphCore`
 ///     write ops (`add_node` / `compare_and_set_fields` / `remove_node`) — the dispatch
@@ -815,7 +815,7 @@ async fn exec_sql_write(
             let r = compute_off_lock(req_id, move || {
                 let ids = matched_node_ids(&core, &upd.selector);
                 let conditions = serde_json::Map::new();
-                // CONCEPT:EG-045 — re-check a compound predicate under the write guard.
+                // CONCEPT:EG-KG.query.compound-predicate-decode — re-check a compound predicate under the write guard.
                 let pred = match &upd.selector {
                     eg_query::WhereEq::Predicate { pred, .. } => Some(pred.clone()),
                     eg_query::WhereEq::Id(_) => None,
@@ -839,7 +839,7 @@ async fn exec_sql_write(
             let core = core.clone();
             let r = compute_off_lock(req_id, move || {
                 let ids = matched_node_ids(&core, &del.selector);
-                // CONCEPT:EG-045 — re-check a compound predicate under the write guard.
+                // CONCEPT:EG-KG.query.compound-predicate-decode — re-check a compound predicate under the write guard.
                 let pred = match &del.selector {
                     eg_query::WhereEq::Predicate { pred, .. } => Some(pred.clone()),
                     eg_query::WhereEq::Id(_) => None,
@@ -885,7 +885,7 @@ async fn exec_sql_write(
             .await;
             sql_write_ack(req_id, "DROP TABLE", r)
         }
-        // CONCEPT:EG-018 ADD COLUMN + CONCEPT:EG-310 the rest — one dispatch helper.
+        // CONCEPT:EG-KG.query.register-user-tables-alongside ADD COLUMN + CONCEPT:EG-KG.query.rename-table-moves-catalog the rest — one dispatch helper.
         K::AlterTable(plan) => {
             let store = store.clone();
             let r = compute_off_lock(req_id, move || apply_alter_table(&store, plan).map(|_| 0usize)).await;
@@ -922,7 +922,7 @@ async fn exec_sql_write(
         K::UpdateTable(upd) => {
             let store = store.clone();
             let r = compute_off_lock(req_id, move || {
-                // CONCEPT:EG-045 — the store evaluates the compound predicate per row.
+                // CONCEPT:EG-KG.query.compound-predicate-decode — the store evaluates the compound predicate per row.
                 store.update_where(&upd.table, &upd.set, &upd.selector.pred)
             })
             .await;
@@ -944,7 +944,7 @@ async fn exec_sql_write(
         K::Begin => sql_write_ack(req_id, "BEGIN", Ok(Ok(0))),
         K::Commit => sql_write_ack(req_id, "COMMIT", Ok(Ok(0))),
         K::Rollback => sql_write_ack(req_id, "ROLLBACK", Ok(Ok(0))),
-        // CONCEPT:EG-046 — INSERT INTO nodes … SELECT over the RPC wire (write-ack; no RETURNING).
+        // CONCEPT:EG-KG.query.insert-into-nodes-select — INSERT INTO nodes … SELECT over the RPC wire (write-ack; no RETURNING).
         K::InsertNodesSelect(ins) => {
             let core = core.clone();
             let store = store.clone();
@@ -994,7 +994,7 @@ async fn exec_sql_write(
             .await;
             sql_write_ack(req_id, "INSERT", r)
         }
-        // CONCEPT:EG-047 — UPDATE nodes … FROM … over the RPC wire.
+        // CONCEPT:EG-KG.query.update-delete-from — UPDATE nodes … FROM … over the RPC wire.
         K::UpdateNodesJoin(upd) => {
             let core = core.clone();
             let store = store.clone();
@@ -1029,7 +1029,7 @@ async fn exec_sql_write(
             .await;
             sql_write_ack(req_id, "UPDATE", r)
         }
-        // CONCEPT:EG-047 — DELETE FROM nodes … USING … over the RPC wire.
+        // CONCEPT:EG-KG.query.update-delete-from — DELETE FROM nodes … USING … over the RPC wire.
         K::DeleteNodesJoin(del) => {
             let core = core.clone();
             let store = store.clone();
@@ -1051,7 +1051,7 @@ async fn exec_sql_write(
             .await;
             sql_write_ack(req_id, "DELETE", r)
         }
-        // CONCEPT:EG-072 — CREATE/DROP VIEW over the RPC wire.
+        // CONCEPT:EG-KG.query.create-drop-view — CREATE/DROP VIEW over the RPC wire.
         K::CreateView(plan) => {
             let store = store.clone();
             let r = compute_off_lock(req_id, move || {
@@ -1070,7 +1070,7 @@ async fn exec_sql_write(
             .await;
             sql_write_ack(req_id, "DROP VIEW", r)
         }
-        // CONCEPT:EG-102 — CREATE/DROP EXTENSION over the RPC wire.
+        // CONCEPT:EG-KG.query.create-drop-extension-over — CREATE/DROP EXTENSION over the RPC wire.
         K::CreateExtension {
             name,
             if_not_exists,
@@ -1090,7 +1090,7 @@ async fn exec_sql_write(
             .await;
             sql_write_ack(req_id, "DROP EXTENSION", r)
         }
-        // CONCEPT:EG-118 — CREATE/DROP FUNCTION over the RPC wire.
+        // CONCEPT:EG-KG.query.create-drop-function — CREATE/DROP FUNCTION over the RPC wire.
         K::CreateFunction(plan) => {
             let store = store.clone();
             let r = compute_off_lock(req_id, move || {
@@ -1110,7 +1110,7 @@ async fn exec_sql_write(
             sql_write_ack(req_id, "DROP FUNCTION", r)
         }
         // ── Postgres-family extension parity (wave 19) ──────────────────────────
-        // CONCEPT:EG-114 — Apache AGE cypher() is a read; run it + project the agtype
+        // CONCEPT:EG-KG.query.postgres-family-extension-plan — Apache AGE cypher() is a read; run it + project the agtype
         // result onto the AS columns, returning a result set (like the read path).
         K::CypherCall(plan) => {
             #[cfg(feature = "cypher")]
@@ -1153,13 +1153,13 @@ async fn exec_sql_write(
                 )
             }
         }
-        // CONCEPT:EG-116 — acknowledge the pgvector ANN index (brute-force EG-115 still
+        // CONCEPT:EG-KG.query.real-ann-top-k — acknowledge the pgvector ANN index (brute-force EG-115 still
         // serves NN queries; durable catalog + eg-ann pushdown is a follow-up).
         K::CreateAnnIndex(_) => sql_write_ack(req_id, "CREATE INDEX", Ok(Ok(0))),
-        // CONCEPT:EG-117 — accept the hypertable declaration (metadata durability is a
+        // CONCEPT:EG-KG.query.continuous-aggregate-lowering — accept the hypertable declaration (metadata durability is a
         // follow-up).
         K::CreateHypertable(_) => sql_write_ack(req_id, "CREATE TABLE", Ok(Ok(0))),
-        // CONCEPT:EG-117 — lower the continuous aggregate onto the durable view catalog.
+        // CONCEPT:EG-KG.query.continuous-aggregate-lowering — lower the continuous aggregate onto the durable view catalog.
         K::CreateContinuousAggregate(plan) => {
             let store = store.clone();
             let r = compute_off_lock(req_id, move || {
@@ -1180,7 +1180,7 @@ async fn exec_sql_write(
 }
 
 /// A scalar cell (from a resolved SELECT row) coerced to the string node-id form the
-/// engine stores (CONCEPT:EG-046/047).
+/// engine stores (CONCEPT:EG-KG.query.insert-into-nodes-select/047).
 #[cfg(feature = "query")]
 fn cell_to_node_id(v: &serde_json::Value) -> Result<String, String> {
     match v {
@@ -1192,7 +1192,7 @@ fn cell_to_node_id(v: &serde_json::Value) -> Result<String, String> {
     }
 }
 
-/// Build a `QueryResult`-shaped write ack and map the off-lock outcome (CONCEPT:EG-023).
+/// Build a `QueryResult`-shaped write ack and map the off-lock outcome (CONCEPT:EG-KG.query.mirrors-pgwire).
 #[cfg(feature = "query")]
 fn sql_write_ack(
     req_id: u64,
@@ -1218,8 +1218,8 @@ fn sql_write_ack(
     }
 }
 
-/// Resolve the node ids a WHERE selects (CONCEPT:EG-023). `Id` is the fast path (the
-/// node if it exists); `Predicate` (CONCEPT:EG-045) scans the node store once,
+/// Resolve the node ids a WHERE selects (CONCEPT:EG-KG.query.mirrors-pgwire). `Id` is the fast path (the
+/// node if it exists); `Predicate` (CONCEPT:EG-KG.query.compound-predicate-decode) scans the node store once,
 /// decodes each blob to a row map (with the synthetic `id` column injected) and
 /// evaluates the compound predicate. The matched ids are re-checked under the write
 /// guard by the caller (`compare_and_set_fields_if`/`remove_node_if`).
@@ -1252,7 +1252,7 @@ fn matched_node_ids(core: &GraphCore, selector: &eg_query::WhereEq) -> Vec<Strin
 }
 
 /// Resolve classify `ColumnDef`s (raw SQL type spellings) into store `Column`s
-/// (CONCEPT:EG-023 — mirrors the pgwire `to_store_columns`).
+/// (CONCEPT:EG-KG.query.mirrors-pgwire — mirrors the pgwire `to_store_columns`).
 #[cfg(feature = "query")]
 fn to_store_columns(cols: &[eg_query::ColumnDef]) -> Result<Vec<eg_query::Column>, String> {
     cols.iter()
@@ -1273,7 +1273,7 @@ fn to_store_columns(cols: &[eg_query::ColumnDef]) -> Result<Vec<eg_query::Column
 }
 
 /// Route a decoded `ALTER TABLE` action to the matching durable `TableStore` mutation
-/// (CONCEPT:EG-018 ADD COLUMN + CONCEPT:EG-310 DROP/RENAME COLUMN, RENAME TABLE, ALTER
+/// (CONCEPT:EG-KG.query.register-user-tables-alongside ADD COLUMN + CONCEPT:EG-KG.query.rename-table-moves-catalog DROP/RENAME COLUMN, RENAME TABLE, ALTER
 /// COLUMN TYPE, DROP CONSTRAINT). Mirrors the embedded/pgwire dispatch.
 #[cfg(feature = "query")]
 fn apply_alter_table(
@@ -1302,14 +1302,14 @@ fn apply_alter_table(
 }
 
 /// Produce the off-lock `GraphView` the query planner consumes, with per-agent
-/// Row-Level Security applied IN the read/plan path (CONCEPT:KG-2.231). Under the
+/// Row-Level Security applied IN the read/plan path (CONCEPT:EG-KG.sharding.row-level-security). Under the
 /// `security` feature the owned snapshot is filtered down to the rows `caller` may
 /// see BEFORE it reaches any query surface (SQL/Cypher/unified), so no surface can
 /// exfiltrate a forbidden row. Without the feature this is exactly
 /// `core.analysis_snapshot()` (zero overhead, behavior unchanged). Used on the
 /// `not(result-cache)` path; with the result cache the same `filter_view` is applied
 /// inline on the versioned snapshot so the version pairs atomically with the filter.
-/// CONCEPT:EG-080 — build the `schema_hint` fed to the NL planner: the distinct node
+/// CONCEPT:EG-KG.query.fence-stripper — build the `schema_hint` fed to the NL planner: the distinct node
 /// LABELS present in the target graph (capped so a huge graph stays cheap), so the model
 /// targets real labels. Scans up to a bound of the snapshot's node blobs for their
 /// `type`/`node_type`/`label` field (mirroring `get_nodes_by_label`). Best-effort — an
@@ -1359,7 +1359,7 @@ fn rls_snapshot(
     snap
 }
 
-/// ⚠ THE RLS-AWARE RESULT-CACHE KEY (CONCEPT:KG-2.233 × KG-2.231 — the headline
+/// ⚠ THE RLS-AWARE RESULT-CACHE KEY (CONCEPT:EG-KG.coordination.distributed-cache-coherence × KG-2.231 — the headline
 /// reconciliation). RLS makes a query's RESULT agent-specific: agent A and agent B
 /// running the SAME query text see DIFFERENT rows (A cannot see B's private nodes).
 /// The result cache is keyed by `(query-hash, version)`; if that hash ignored the
@@ -1403,7 +1403,7 @@ fn rls_cache_hash(
 
 #[cfg(all(test, feature = "security", feature = "query", feature = "cypher"))]
 mod rls_no_exfiltrate_tests {
-    //! Proof (CONCEPT:KG-2.231): RLS filters the read/plan-path snapshot so neither
+    //! Proof (CONCEPT:EG-KG.sharding.row-level-security): RLS filters the read/plan-path snapshot so neither
     //! SQL nor Cypher can exfiltrate a forbidden row. Agent A's query MUST exclude
     //! agent B's private node; a public node is visible to both.
     use crate::graph::GraphView;
@@ -1519,7 +1519,7 @@ mod rls_no_exfiltrate_tests {
     }
 }
 
-// ── Version-keyed result cache, end-to-end through dispatch (CONCEPT:KG-2.233) ──
+// ── Version-keyed result cache, end-to-end through dispatch (CONCEPT:EG-KG.coordination.distributed-cache-coherence) ──
 //
 // Proves the cache over the REAL `dispatch` entrypoint (auth → routing → handler →
 // cache → Cypher), on the lean Pi path (cypher, NO DataFusion):
@@ -1766,7 +1766,7 @@ mod result_cache_dispatch_tests {
     }
 }
 
-// ── ⚠ RLS × result-cache: NO cross-agent leak (CONCEPT:KG-2.233 × KG-2.231) ──
+// ── ⚠ RLS × result-cache: NO cross-agent leak (CONCEPT:EG-KG.coordination.distributed-cache-coherence × KG-2.231) ──
 //
 // THE headline reconciliation proof. With RLS ACTIVE, agent A and agent B run the
 // SAME query text against the SAME graph and the SAME version, yet:
@@ -2122,7 +2122,7 @@ mod rls_aware_cache_no_cross_agent_leak {
     }
 }
 
-// ── Server-dispatch WRITE wiring (CONCEPT:EG-023) ─────────────────────────────────
+// ── Server-dispatch WRITE wiring (CONCEPT:EG-KG.query.mirrors-pgwire) ─────────────────────────────────
 //
 // Proves the five EG-023 wirings land THROUGH the real `dispatch()` entrypoint a wire
 // request hits (auth → routing → handler → write): a GraphQL mutation creates a node a
@@ -2224,7 +2224,7 @@ mod dispatch_write_tests {
         (qr.columns, rows)
     }
 
-    /// THE GraphQL write→read proof (CONCEPT:EG-019/EG-023): a `mutation { createNode … }`
+    /// THE GraphQL write→read proof (CONCEPT:EG-KG.query.mutation/EG-023): a `mutation { createNode … }`
     /// dispatched over the wire creates a node a subsequent GraphQL query SEES.
     #[tokio::test]
     async fn graphql_mutation_creates_node_via_dispatch() {
@@ -2264,7 +2264,7 @@ mod dispatch_write_tests {
         assert_eq!(people[0]["age"], serde_json::json!(50));
     }
 
-    /// THE Cypher write→read proof (CONCEPT:EG-020/EG-023): a `CREATE` dispatched over the
+    /// THE Cypher write→read proof (CONCEPT:EG-KG.query.register-each-user-table/EG-023): a `CREATE` dispatched over the
     /// wire is then visible to a `MATCH` (which still runs the read path).
     #[tokio::test]
     async fn cypher_create_then_match_via_dispatch() {
@@ -2300,7 +2300,7 @@ mod dispatch_write_tests {
         assert_eq!(names, vec!["gizmo"], "MATCH must see the CREATEd node");
     }
 
-    /// THE wire-SQL DDL/DML round-trip (CONCEPT:EG-023): `CREATE TABLE` + `INSERT` + a
+    /// THE wire-SQL DDL/DML round-trip (CONCEPT:EG-KG.query.mirrors-pgwire): `CREATE TABLE` + `INSERT` + a
     /// `SELECT` that reads the user table back, all over `Method::Sql` through dispatch.
     #[tokio::test]
     async fn wire_sql_create_insert_select_round_trips() {
@@ -2359,7 +2359,7 @@ mod dispatch_write_tests {
     }
 
     /// `INSERT INTO nodes` over the wire lands in the graph core and a `SELECT` sees it —
-    /// the agent-utilities `graph_table`/`sql_exec` node-write path (CONCEPT:EG-023).
+    /// the agent-utilities `graph_table`/`sql_exec` node-write path (CONCEPT:EG-KG.query.mirrors-pgwire).
     #[tokio::test]
     async fn wire_sql_insert_node_then_select_via_dispatch() {
         let state = state();
@@ -2411,7 +2411,7 @@ mod dispatch_write_tests {
     }
 }
 
-// ── In-transaction cross-modal read-your-own-writes (CONCEPT:EG-359) ──────────
+// ── In-transaction cross-modal read-your-own-writes (CONCEPT:EG-KG.query.txn-cross-modal-ryow) ──────────
 // End-to-end dispatch tests for the `TxnUnifiedQuery{,Text}` overlay path: a txn's
 // STAGED (uncommitted) node + embedding + edge are visible to a unified cross-modal
 // query issued INSIDE that txn (RYOW), while an identical OFF-txn query sees nothing

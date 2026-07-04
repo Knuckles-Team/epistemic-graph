@@ -1,6 +1,6 @@
-//! Parquet columnar log segments on the blob CAS (CONCEPT:EG-161) — the
+//! Parquet columnar log segments on the blob CAS (CONCEPT:EG-KG.retrieval.observability-search) — the
 //! cheap-object-store substrate under the observability ingest front door
-//! (CONCEPT:EG-160).
+//! (CONCEPT:AU-KG.ingest.self-ingest).
 //!
 //! ## The storage thesis (surpass OpenObserve)
 //!
@@ -10,8 +10,8 @@
 //! time/stream BEFORE scanning. The engine already has every piece:
 //!
 //!  * Arrow `RecordBatch` (the same `(ts, …)` shape [`eg_tsdb::arrow_seg`] hands
-//!    DataFusion, CONCEPT:EG-089), and
-//!  * a content-addressed blob CAS ([`crate::server::blob`], CONCEPT:KG-2.206)
+//!    DataFusion, CONCEPT:EG-KG.temporal.columnar-schema-inference), and
+//!  * a content-addressed blob CAS ([`crate::server::blob`], CONCEPT:EG-KG.storage.blob-namespace)
 //!    that, with `blob-s3` on, lands chunks on S3.
 //!
 //! So a log segment is: `Vec<LogRecord>` → Arrow `RecordBatch` → Parquet bytes →
@@ -42,7 +42,7 @@ use crate::server::blob::store::{hex_digest, BlobManifest, ChunkStore, DEFAULT_C
 
 use super::LogRecord;
 
-/// The prune index for one flushed Parquet log segment (CONCEPT:EG-161). Records
+/// The prune index for one flushed Parquet log segment (CONCEPT:EG-KG.retrieval.observability-search). Records
 /// where the segment's bytes live in the CAS (`blob_digest`) plus the coordinates a
 /// query prunes on WITHOUT opening the Parquet: the stream, the closed time range
 /// `[min_ts, max_ts]` (epoch-ns), the row count and the column schema.
@@ -95,7 +95,7 @@ fn attrs_json(rec: &LogRecord) -> String {
 }
 
 /// Build an Arrow `RecordBatch` (the [`log_arrow_schema`]) from log records. Public
-/// to the obs module so the search surface (CONCEPT:EG-162) can register the scanned
+/// to the obs module so the search surface (CONCEPT:EG-KG.query.concept-4) can register the scanned
 /// hot + cold records as a DataFusion `logs` table.
 pub(super) fn records_to_batch(records: &[LogRecord]) -> Result<RecordBatch, String> {
     let ts: Int64Array = records.iter().map(|r| Some(r.ts)).collect();
@@ -221,7 +221,7 @@ pub fn store_segment_bytes(store: &dyn ChunkStore, bytes: &[u8]) -> Result<Strin
         chunk_lens,
         len: bytes.len() as u64,
         // Content-defined-shaped manifest (variable chunk_lens recorded); 0 marks it
-        // non-legacy per CONCEPT:EG-071.
+        // non-legacy per CONCEPT:EG-KG.storage.backward-manifest-read.
         chunk_size: 0,
     };
     let mbytes = rmp_serde::to_vec_named(&manifest).map_err(|e| e.to_string())?;

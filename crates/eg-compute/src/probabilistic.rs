@@ -1,8 +1,8 @@
-// CONCEPT:EG-086 — Probabilistic reasoning over distribution-valued properties.
+// CONCEPT:EG-KG.compute.probabilistic-reasoning — Probabilistic reasoning over distribution-valued properties.
 //
 // Bayesian-update / marginal / mixture / fusion helpers that operate on the
-// `eg_types::Distribution` VALUE (CONCEPT:EG-086). These generalize the scalar
-// `eg:confidence` / noisy-OR belief model (CONCEPT:KG-2.236) into full
+// `eg_types::Distribution` VALUE (CONCEPT:EG-KG.compute.probabilistic-reasoning). These generalize the scalar
+// `eg:confidence` / noisy-OR belief model (CONCEPT:EG-KG.ontology.concept-13) into full
 // distributions: instead of combining point confidences you update, marginalize,
 // mix, and fuse whole distributions.
 //
@@ -15,7 +15,7 @@
 
 use eg_types::Distribution;
 
-/// Observed evidence for a conjugate Bayesian update (CONCEPT:EG-086).
+/// Observed evidence for a conjugate Bayesian update (CONCEPT:EG-KG.compute.probabilistic-reasoning).
 #[derive(Clone, Debug, PartialEq)]
 pub enum Evidence {
     /// Bernoulli trial counts — the sufficient statistic for a Beta prior.
@@ -28,7 +28,7 @@ pub enum Evidence {
     },
 }
 
-/// Conjugate Bayesian update `posterior ∝ prior · likelihood` (CONCEPT:EG-086).
+/// Conjugate Bayesian update `posterior ∝ prior · likelihood` (CONCEPT:EG-KG.compute.probabilistic-reasoning).
 ///
 /// Supported conjugate pairs:
 /// * **Beta–Bernoulli:** `Beta(α, β)` + `Bernoulli{s, f}` ⇒ `Beta(α+s, β+f)`.
@@ -86,7 +86,7 @@ pub fn bayesian_update(prior: &Distribution, evidence: &Evidence) -> Result<Dist
     }
 }
 
-/// Marginalize the latent component out of a weighted mixture (CONCEPT:EG-086):
+/// Marginalize the latent component out of a weighted mixture (CONCEPT:EG-KG.compute.probabilistic-reasoning):
 /// `p(x) = Σᵢ wᵢ·pᵢ(x)`, returned moment-matched to a `Gaussian` via the law of
 /// total expectation/variance
 /// (`E = Σ wᵢμᵢ`, `Var = Σ wᵢ(σᵢ² + μᵢ²) − E²`). Weights are renormalized;
@@ -119,14 +119,14 @@ pub fn marginal(components: &[(f64, Distribution)]) -> Distribution {
 }
 
 /// Alias for [`marginal`]: collapse a weighted mixture to its moment-matched
-/// marginal `Gaussian` (CONCEPT:EG-086).
+/// marginal `Gaussian` (CONCEPT:EG-KG.compute.probabilistic-reasoning).
 pub fn mixture(components: &[(f64, Distribution)]) -> Distribution {
     marginal(components)
 }
 
-/// Fuse two INDEPENDENT beliefs about the same quantity (CONCEPT:EG-086) — the
+/// Fuse two INDEPENDENT beliefs about the same quantity (CONCEPT:EG-KG.compute.probabilistic-reasoning) — the
 /// distributional generalization of noisy-OR / confidence combination
-/// (CONCEPT:KG-2.236):
+/// (CONCEPT:EG-KG.ontology.concept-13):
 /// * **Gaussian × Gaussian:** precision-weighted product (sensor fusion) —
 ///   `1/σ² = 1/σ₁² + 1/σ₂²`, `μ = σ²(μ₁/σ₁² + μ₂/σ₂²)`.
 /// * **Beta × Beta:** pseudo-count pooling — `Beta(α₁+α₂−1, β₁+β₂−1)` (the

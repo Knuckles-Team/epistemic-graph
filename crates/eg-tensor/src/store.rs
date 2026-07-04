@@ -1,4 +1,4 @@
-//! Content-addressed, restart-durable tensor persistence (CONCEPT:EG-085) — the
+//! Content-addressed, restart-durable tensor persistence (CONCEPT:EG-KG.storage.content-addressed-dedup) — the
 //! CAS-persist follow-up to the in-memory [`Tensor`] value + byte-blob codec.
 //!
 //! [`TensorStore`] keeps tensors as content-addressed compact byte blobs (the
@@ -26,7 +26,7 @@ use crate::tensor::Tensor;
 /// File extension for a persisted content-addressed tensor blob.
 const BLOB_EXT: &str = "tsr";
 
-/// A content-addressed, restart-durable store of [`Tensor`] blobs (CONCEPT:EG-085).
+/// A content-addressed, restart-durable store of [`Tensor`] blobs (CONCEPT:EG-KG.storage.content-addressed-dedup).
 ///
 /// Each tensor is stored as its compact byte blob ([`Tensor::to_blob`]) keyed by
 /// [`content_hash`] of those bytes; the SAME tensor always yields the SAME key
@@ -49,7 +49,7 @@ impl TensorStore {
     /// return that hash. Idempotent — an identical tensor maps to the same key, so a
     /// re-`put` neither grows the store nor rewrites the blob.
     ///
-    /// CONCEPT:EG-304 — this is also the DERIVED-tensor write-back sink: when the query
+    /// CONCEPT:EG-KG.storage.derived-tensor-writeback-sink — this is also the DERIVED-tensor write-back sink: when the query
     /// executor (`eg-plan`) produces a tensor from an `Op::TensorOp`, it `put`s the
     /// result here, so a derived tensor becomes a durable, dedup-shared CAS blob keyed by
     /// its deterministic content hash. Two rows (or two runs) yielding the same derived
@@ -132,7 +132,7 @@ impl TensorStore {
 }
 
 /// Deterministic 128-bit FNV-1a content hash of `bytes`, rendered as 32-char lowercase
-/// hex (CONCEPT:EG-085). Portable + stable across processes/platforms — the property a
+/// hex (CONCEPT:EG-KG.storage.content-addressed-dedup). Portable + stable across processes/platforms — the property a
 /// content-addressed store needs so an address computed before a restart still resolves
 /// the same blob after. NOT cryptographic; it is a dedup / integrity address within the
 /// engine trust boundary. Pure-Rust `u128` arithmetic, no dependency.
@@ -183,7 +183,7 @@ mod tests {
         }
     }
 
-    /// CONCEPT:EG-085 — a tensor store round-trips across a persist → load (restart)
+    /// CONCEPT:EG-KG.storage.content-addressed-dedup — a tensor store round-trips across a persist → load (restart)
     /// cycle: every stored tensor is byte-for-byte recovered under the SAME content hash.
     #[test]
     fn cas_persist_load_round_trip_survives_restart() {
@@ -205,7 +205,7 @@ mod tests {
         }
     }
 
-    /// CONCEPT:EG-085 — content addressing is deterministic + dedups: the SAME tensor
+    /// CONCEPT:EG-KG.storage.content-addressed-dedup — content addressing is deterministic + dedups: the SAME tensor
     /// yields the SAME hash, and re-putting it does not grow the store.
     #[test]
     fn cas_content_hash_is_deterministic_and_dedups() {
@@ -223,7 +223,7 @@ mod tests {
         assert_eq!(store.len(), 2);
     }
 
-    /// CONCEPT:EG-085 — load is integrity-checked: a `.tsr` file whose bytes no longer
+    /// CONCEPT:EG-KG.storage.content-addressed-dedup — load is integrity-checked: a `.tsr` file whose bytes no longer
     /// hash to its filename is skipped, so corruption cannot smuggle a wrong tensor in.
     #[test]
     fn cas_load_skips_corrupt_and_foreign_files() {
@@ -248,7 +248,7 @@ mod tests {
         assert_eq!(loaded.get(&key), Some(t));
     }
 
-    /// CONCEPT:EG-085 — loading a directory that was never written yields an empty
+    /// CONCEPT:EG-KG.storage.content-addressed-dedup — loading a directory that was never written yields an empty
     /// store rather than an error.
     #[test]
     fn cas_load_missing_dir_is_empty() {
@@ -266,7 +266,7 @@ mod tests {
             .unwrap()
     }
 
-    /// CONCEPT:EG-304 — a derived tensor (a `TensorOp` result) written back into the CAS
+    /// CONCEPT:EG-KG.storage.derived-tensor-writeback-sink — a derived tensor (a `TensorOp` result) written back into the CAS
     /// is RETRIEVABLE by the content hash `put` returns, and survives a persist → load
     /// restart, proving the store is a durable sink for executor write-back.
     #[test]
@@ -289,7 +289,7 @@ mod tests {
         );
     }
 
-    /// CONCEPT:EG-304 — identical derived tensors DEDUP: writing the SAME `TensorOp`
+    /// CONCEPT:EG-KG.storage.derived-tensor-writeback-sink — identical derived tensors DEDUP: writing the SAME `TensorOp`
     /// result back many times (e.g. many rows collapsing to one value, or a re-run)
     /// addresses to ONE blob and returns the SAME hash every time.
     #[test]

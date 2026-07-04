@@ -3,7 +3,7 @@ import re
 from pathlib import Path
 
 
-@pytest.mark.concept("CONCEPT:KG-2.0")
+@pytest.mark.concept("CONCEPT:AU-KG.query.object-graph-mapper")
 def test_concept_parity():
     """Ensure all CONCEPT:ID tags used in source code are registered in docs/concepts.md."""
     concepts_file = Path(__file__).parent.parent / "docs" / "concepts.md"

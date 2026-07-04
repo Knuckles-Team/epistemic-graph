@@ -61,7 +61,7 @@ service env to `epistemic_graph` (self-contained authority) or `fanout` (+ mirro
 **cannot** override a baked container env (injection is `setdefault`).
 
 ### Circuit breaker open (ingestion stalls, "engine breaker HALF-OPEN/OPEN")
-The client tripped its breaker after engine failures (CONCEPT:OS-5.23). Once the engine is
+The client tripped its breaker after engine failures (CONCEPT:AU-OS.observability.no-op-without-metrics). Once the engine is
 healthy it auto-probes `open → half_open → closed`. Confirm in the host log:
 ```bash
 docker logs <host-daemon> 2>&1 | grep -iE 'breaker|Connected to epistemic' | tail

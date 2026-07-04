@@ -1,4 +1,4 @@
-//! Streaming / CDC / subscriptions / triggers handler (CONCEPT:KG-2.229/230,
+//! Streaming / CDC / subscriptions / triggers handler (CONCEPT:EG-KG.query.streaming-cdc-subscriptions/230,
 //! feature `streaming`).
 //!
 //! Owns the `// ── Streaming ──` protocol section. These are STATEFUL (they drive the

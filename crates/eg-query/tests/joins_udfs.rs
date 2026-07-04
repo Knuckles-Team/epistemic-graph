@@ -1,4 +1,4 @@
-//! M4 (CONCEPT:KG-2.184): edges table + JOINs, differentiated UDFs (epistemic_decay
+//! M4 (CONCEPT:EG-KG.query.version-keyed-cache): edges table + JOINs, differentiated UDFs (epistemic_decay
 //! scalar, pagerank/betweenness table functions, var/cvar finance aggregates), and
 //! the version-keyed schema cache.
 #![cfg(feature = "sql")]

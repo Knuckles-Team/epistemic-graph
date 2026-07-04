@@ -1,4 +1,4 @@
-//! GraphQL **subscription** execution (CONCEPT:EG-019).
+//! GraphQL **subscription** execution (CONCEPT:EG-KG.query.mutation).
 //!
 //! A subscription is, structurally, a query whose result a client wants to keep watching
 //! as the graph changes. The streaming TRANSPORT (a WebSocket / SSE carrier pushing each
@@ -18,7 +18,7 @@
 //!     `version()` the snapshot reflects, so a watcher can skip re-rendering when the
 //!     graph is unchanged (`version` is stable ⇒ result is stable).
 //!
-//! ## Live query — real push subscription (CONCEPT:EG-064)
+//! ## Live query — real push subscription (CONCEPT:EG-KG.compute.cdc-event-emit)
 //! [`LiveQuery`] is the streaming path: a subscription parsed ONCE, then re-resolved
 //! against a FRESH snapshot every time the graph changes. eg-core (`GraphCore::changes()`)
 //! now emits a `ChangeEvent` on each committed write; the SERVER layer drives the loop —
@@ -53,7 +53,7 @@ pub fn poll_versioned(core: &GraphCore, src: &str) -> Result<(Value, u64), Strin
     Ok((data, version))
 }
 
-/// A compiled **live query** (CONCEPT:EG-064): a GraphQL subscription parsed once, then
+/// A compiled **live query** (CONCEPT:EG-KG.compute.cdc-event-emit): a GraphQL subscription parsed once, then
 /// re-resolved against a fresh snapshot each time the graph changes. The STREAMING
 /// transport lives in the server layer (a WS/SSE carrier fed by `GraphCore::changes()`);
 /// this type is the pure-Rust, runtime-free execution the carrier drives per change —

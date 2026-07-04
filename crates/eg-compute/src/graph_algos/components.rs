@@ -1,4 +1,4 @@
-// CONCEPT:EG-144 — Connected components: weakly-connected (union-find) and
+// CONCEPT:EG-KG.compute.connected-components — Connected components: weakly-connected (union-find) and
 // strongly-connected (Tarjan). Neo4j GDS `wcc` / `scc` parity.
 
 use super::graph::AdjacencyGraph;
@@ -48,7 +48,7 @@ impl UnionFind {
 /// Returns components as `Vec<Vec<N>>` — members sorted, components ordered by
 /// their smallest member (deterministic). Isolated nodes form singletons.
 ///
-/// Complexity: `O((V + E) · α(V))`, effectively linear. CONCEPT:EG-144
+/// Complexity: `O((V + E) · α(V))`, effectively linear. CONCEPT:EG-KG.compute.connected-components
 pub fn weakly_connected_components<N>(graph: &AdjacencyGraph<N>) -> Vec<Vec<N>>
 where
     N: Clone + Eq + Hash + Ord,
@@ -72,7 +72,7 @@ where
 /// their smallest member (deterministic; neighbour iteration follows sorted index
 /// order so the discovery is reproducible).
 ///
-/// Complexity: `O(V + E)`. CONCEPT:EG-144
+/// Complexity: `O(V + E)`. CONCEPT:EG-KG.compute.connected-components
 pub fn strongly_connected_components<N>(graph: &AdjacencyGraph<N>) -> Vec<Vec<N>>
 where
     N: Clone + Eq + Hash + Ord,

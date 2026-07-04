@@ -1,4 +1,4 @@
-//! In-process embedded library API (CONCEPT:KG-2.216).
+//! In-process embedded library API (CONCEPT:EG-KG.backend.engine-modes).
 //!
 //! SQLite/DuckDB-style: `EmbeddedEngine::open(persist_dir, options)` hands back an
 //! in-process handle that owns a [`GraphRegistry`] + (optionally) the redb durable
@@ -40,7 +40,7 @@
 //! With NO persist dir the engine is in-memory only (a scratch graph), exactly like
 //! the server with no persist dir.
 //!
-//! ## SQLite-equivalent SQL (CONCEPT:EG-022 / EG-018)
+//! ## SQLite-equivalent SQL (CONCEPT:EG-KG.storage.namespaced-kv-surface / EG-018)
 //!
 //! SQLite is *embedded* — its equivalence here is this in-process mode PLUS arbitrary
 //! SQL user tables. On a `query` build [`EmbeddedEngine::sql_exec`] runs `CREATE
@@ -108,7 +108,7 @@ struct Inner {
     /// In-memory-only when there is no durable store.
     #[cfg(not(feature = "redb"))]
     _persist: Option<std::path::PathBuf>,
-    /// SQLite-equivalent arbitrary user-table store (CONCEPT:EG-018 / EG-022),
+    /// SQLite-equivalent arbitrary user-table store (CONCEPT:EG-KG.query.register-user-tables-alongside / EG-022),
     /// present on a `query` build. A single-file `{persist_dir}/sql_tables.redb` when
     /// durable, else an ephemeral temp file (SQLite's `:memory:` analogue). `sql_exec`
     /// runs CREATE TABLE / INSERT / SELECT against it WITHOUT a server — the embedded
@@ -198,7 +198,7 @@ impl EmbeddedEngine {
         }
     }
 
-    /// Open the SQLite-equivalent user-table store (CONCEPT:EG-018 / EG-022): a
+    /// Open the SQLite-equivalent user-table store (CONCEPT:EG-KG.query.register-user-tables-alongside / EG-022): a
     /// single-file `{persist_dir}/sql_tables.redb` when durable (the SAME filename the
     /// pgwire shim uses, so a table created embedded is visible out-of-process and
     /// vice-versa), else an ephemeral temp file (the `:memory:` analogue).
@@ -246,7 +246,7 @@ impl EmbeddedEngine {
     /// Delete a named graph (cannot delete `__commons__`).
     ///
     /// Under the durable store this also PURGES the graph's redb rows (nodes/edges/
-    /// ledger/semantic + the `graph_meta` identity, CONCEPT:KG-2.221) so a recreate
+    /// ledger/semantic + the `graph_meta` identity, CONCEPT:EG-KG.backend.tenant-delete-recreate-same) so a recreate
     /// of the SAME name starts from a clean durable slate instead of inheriting the
     /// deleted incarnation's rows on the next `load_all` — the embedded analogue of
     /// the server's tenant-delete teardown.
@@ -477,7 +477,7 @@ impl EmbeddedEngine {
     }
 
     /// Execute a SQL statement SQLite-style, in-process, WITHOUT a server
-    /// (CONCEPT:EG-022 / EG-018). This is the embedded equivalence to SQLite: open a
+    /// (CONCEPT:EG-KG.storage.namespaced-kv-surface / EG-018). This is the embedded equivalence to SQLite: open a
     /// file → `CREATE TABLE` / `INSERT` / `SELECT` over arbitrary user tables, durably,
     /// with no socket and no auth.
     ///
@@ -516,7 +516,7 @@ impl EmbeddedEngine {
                 store.drop_table(&plan.name, plan.if_exists)?;
                 Ok(status_result("DROP TABLE"))
             }
-            // CONCEPT:EG-018 ADD COLUMN + CONCEPT:EG-310 the rest — one dispatch helper.
+            // CONCEPT:EG-KG.query.register-user-tables-alongside ADD COLUMN + CONCEPT:EG-KG.query.rename-table-moves-catalog the rest — one dispatch helper.
             StatementKind::AlterTable(plan) => {
                 apply_alter_table(store, plan)?;
                 Ok(status_result("ALTER TABLE"))
@@ -525,7 +525,7 @@ impl EmbeddedEngine {
                 let n = store.insert_rows(&ins.table, &ins.columns, &ins.rows)?;
                 Ok(count_result(n))
             }
-            // CONCEPT:EG-118 — CREATE/DROP FUNCTION over the durable function catalog; a
+            // CONCEPT:EG-KG.query.create-drop-function — CREATE/DROP FUNCTION over the durable function catalog; a
             // later SELECT fn(args)/FROM fn(args) expands it on the read path above.
             StatementKind::CreateFunction(plan) => {
                 store.create_function(&plan.func, plan.or_replace)?;
@@ -582,7 +582,7 @@ impl EmbeddedEngine {
 }
 
 /// Resolve classify `ColumnDef`s (raw SQL type spellings) into store [`Column`]s
-/// (CONCEPT:EG-018). Mirrors the pgwire shim's `to_store_columns`, but on the public
+/// (CONCEPT:EG-KG.query.register-user-tables-alongside). Mirrors the pgwire shim's `to_store_columns`, but on the public
 /// eg-query API so the embedded path adds no cross-crate coupling.
 #[cfg(feature = "query")]
 fn to_store_columns(cols: &[eg_query::ColumnDef]) -> Result<Vec<eg_query::Column>, String> {
@@ -604,7 +604,7 @@ fn to_store_columns(cols: &[eg_query::ColumnDef]) -> Result<Vec<eg_query::Column
 }
 
 /// Route a decoded `ALTER TABLE` action to the matching durable `TableStore` mutation
-/// (CONCEPT:EG-018 ADD COLUMN + CONCEPT:EG-310 DROP/RENAME COLUMN, RENAME TABLE, ALTER
+/// (CONCEPT:EG-KG.query.register-user-tables-alongside ADD COLUMN + CONCEPT:EG-KG.query.rename-table-moves-catalog DROP/RENAME COLUMN, RENAME TABLE, ALTER
 /// COLUMN TYPE, DROP CONSTRAINT). The single facade mapping the embedded path reuses.
 #[cfg(feature = "query")]
 fn apply_alter_table(

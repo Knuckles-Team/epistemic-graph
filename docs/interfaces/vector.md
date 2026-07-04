@@ -4,9 +4,9 @@ The `ann` feature gives a native, pure-Rust approximate-nearest-neighbour index 
 `SemanticStore` backend — no faiss, no GPU at serve time, no rebuild-on-load. It is Pi-lean and folded
 into every durable serving tier.
 
-> Status snapshot: single-shard ANN is production-grade. An **HNSW** index (EG-301), **cross-shard kNN
-> scatter-gather** (EG-319, completing the EG-069 gather leaf), hybrid metadata pre-filtering pushed into the
-> ANN probe (EG-070), an exact/flat index + recall harness (EG-297), and pgvector distance operators + **real
+> Status snapshot: single-shard ANN is production-grade. An **HNSW** index (EG-KG.retrieval.hnsw-vector-index), **cross-shard kNN
+> scatter-gather** (EG-319, completing the EG-KG.retrieval.scatter-gather gather leaf), hybrid metadata pre-filtering pushed into the
+> ANN probe (EG-070), an exact/flat index + recall harness (EG-KG.query.concept-5), and pgvector distance operators + **real
 > ANN index pushdown** (EG-115/116/313) are all shipped. See the
 > [capability matrix](../capabilities.md#vector-ann-eg-ann-eg-core).
 
@@ -48,15 +48,15 @@ rebuilt in a single O(N) integer pass. Writes are atomic (temp + rename). A redb
 - Cosine similarity is served via normalized-L2 (`cos = 1 − d/2`); overwrites tombstone the prior row,
   and a VACUUM compaction reclaims them.
 
-## HNSW index (EG-301)
+## HNSW index (EG-KG.retrieval.hnsw-vector-index)
 
 Alongside IVF-PQ, eg-ann carries an **HNSW** (hierarchical-navigable-small-world) graph index for **higher
 recall-per-probe** than IVF-PQ on many datasets. It supports insert, search, and **serde persistence**
-(load without rebuild), and is tuned against the EG-297 recall@k harness so you can pick IVF-PQ vs HNSW by
+(load without rebuild), and is tuned against the EG-KG.query.concept-5 recall@k harness so you can pick IVF-PQ vs HNSW by
 the measured accuracy/latency trade-off. Over pgwire, `CREATE INDEX … USING hnsw` selects it for the
-pgvector pushdown (EG-313).
+pgvector pushdown (EG-KG.query.real-pgvector-ann-top).
 
-## Exact / flat index & recall harness (EG-297)
+## Exact / flat index & recall harness (EG-KG.query.concept-5)
 
 Alongside the IVF-PQ ANN, a **brute-force exact kNN index** provides ground truth for small sets and a
 **re-rank stage** over ANN candidates for high precision (a hybrid combining ANN recall with exact-distance
@@ -66,7 +66,7 @@ truth, so you can quantify the accuracy/latency trade-off for a given dataset.
 ## Cross-shard & pre-filtered search (EG-319/070)
 
 - **Cross-shard kNN scatter-gather** (EG-319): a vector search **scatters** across shards / Raft groups and
-  merges the per-shard top-k into a **deterministic global top-k** via the `merge_topk` gather leaf (EG-069).
+  merges the per-shard top-k into a **deterministic global top-k** via the `merge_topk` gather leaf (EG-KG.retrieval.scatter-gather).
   Program B wires the full scatter (per-shard fan-out over the `eg-ann` indexes at the server/router layer),
   completing the earlier gather-only primitive — so a kNN query on a resharded, multi-group cluster returns
   the true global neighbours.

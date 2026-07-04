@@ -5,7 +5,7 @@
 
 > **Project Name**: `epistemic-graph`
 > **Ecosystem Prefix**: `EG` / `EPG`
-> **Key Concepts**: `CONCEPT:KG-2.16` (High-Performance Graph Compute Engine), `CONCEPT:KG-2.19` (Tokio Service Layer), `CONCEPT:KG-2.20` (Rust-Native Finance), `CONCEPT:KG-2.22` (Data Science Primitives), `CONCEPT:KG-2.23` (Rust-Accelerated Reasoning), `CONCEPT:KG-2.51` (Lock-Free Compute + Engine Observability)
+> **Key Concepts**: `CONCEPT:EG-KG.compute.graph-compute-engine` (High-Performance Graph Compute Engine), `CONCEPT:EG-KG.query.wire-protocol` (Tokio Service Layer), `CONCEPT:AU-KG.memory.mementified-context` (Rust-Native Finance), `CONCEPT:EG-KG.compute.rust-native-training-loss` (Data Science Primitives), `CONCEPT:AU-KG.domains.legal-automation` (Rust-Accelerated Reasoning), `CONCEPT:EG-KG.txn.per-graph-write-isolation` (Lock-Free Compute + Engine Observability)
 
 ---
 
@@ -47,7 +47,7 @@ Two rules follow, and they shape every integration:
 There is no GIL coupling and no shared address space — design for a network boundary,
 because that is exactly what it is.
 
-## Durability model — redb-authoritative is the DEFAULT (CONCEPT:KG-2.195 — THE FLIP)
+## Durability model — redb-authoritative is the DEFAULT (CONCEPT:AU-KG.backend.backend-modes — THE FLIP)
 
 **The engine is now a durable SOURCE OF TRUTH out of the box.** When built with the
 `redb` feature — which the main build (`default`/`full`) and the `cluster` layer all
@@ -78,14 +78,14 @@ backstop).
   files written) and logs a loud warning that writes are not durable. Set a persist
   dir to make it a source of truth.
 
-The three durability rules that make "authoritative" actually safe (CONCEPT:KG-2.187/
-KG-2.191), read once at startup into `ServerState.redb_authoritative`:
+The three durability rules that make "authoritative" actually safe (CONCEPT:EG-KG.backend.authoritative-dispatch/
+EG-KG.storage.read-through-seam-exercised), read once at startup into `ServerState.redb_authoritative`:
 
 - **Commit-before-ack.** A durable mutation is COMMITTED to redb (group-commit
   fsync) BEFORE its Response is acked. Dispatch awaits `record_durable`; a commit
   failure becomes an ERROR response — an acked write is *always* on disk. Many
   concurrent awaiting writers still coalesce into ONE group-commit fsync.
-- **Eviction is read-through-safe** (CONCEPT:KG-2.191). The per-graph node cap
+- **Eviction is read-through-safe** (CONCEPT:EG-KG.storage.read-through-seam-exercised). The per-graph node cap
   resumes ENFORCING under authoritative mode so memory stays bounded — but WITHOUT
   data loss. eg-core defines a `ReadThrough` seam (`crates/eg-core/src/read_through.rs`);
   the facade implements it over the redb backend's point-read and injects one per
@@ -100,11 +100,11 @@ KG-2.191), read once at startup into `ServerState.redb_authoritative`:
   (off-reactor) instead of shedding a mutation. A durable write is never silently
   discarded.
 
-**Sharded K-way durable writer (CONCEPT:EG-026).** redb is single-writer-PER-FILE, so
+**Sharded K-way durable writer (CONCEPT:EG-KG.backend.sharded-k-way-durable).** redb is single-writer-PER-FILE, so
 ONE `graph.redb` serialized every tenant's commits onto ONE core. The durable writer
 now shards by graph into **K independent redb files** (`graph-<n>.redb`), each with its
 OWN writer thread / bounded channel / `Pending` — so the EG-024 micro-linger, the
-EG-025 O(1) audit-tail cache, commit-before-ack, group-commit and backpressure all hold
+EG-KG.storage.embedded-store O(1) audit-tail cache, commit-before-ack, group-commit and backpressure all hold
 **per shard**, and K cores commit in parallel. A graph ALWAYS routes to the same shard
 (`FNV-1a(sanitized_name) % K`), keeping its data + audit chain + group-commit co-located
 and single-writer-correct; a transaction stays within one graph (group = txn boundary)
@@ -115,12 +115,12 @@ the old single-`graph.redb` path** (the Pi degrades here, and existing deploymen
 the on-disk layout is detected and honored at open. Under an active Raft node, K is
 forced to 1 (the Raft store wraps the single writer; multi-Raft sharding is M2).
 
-**Snapshot reads off the writer (CONCEPT:EG-027).** redb 4.1 is MVCC: a
+**Snapshot reads off the writer (CONCEPT:EG-KG.storage.snapshot-read-off-writer).** redb 4.1 is MVCC: a
 `Database::begin_read()` opens a consistent read snapshot that runs CONCURRENTLY with
 the single writer (no writer involvement, no commit). The point-read / read-through
-path (`read_node`, only hit on a RAM miss — the KG-2.191 eviction read-through) now
+path (`read_node`, only hit on a RAM miss — the EG-KG.storage.read-through-seam-exercised eviction read-through) now
 serves the evicted node DIRECTLY off a `begin_read()` snapshot on the TARGET SHARD's
-shared `Database` (routed by the SAME EG-026 `shard_for`), so a read NEVER routes
+shared `Database` (routed by the SAME EG-KG.backend.sharded-k-way-durable `shard_for`), so a read NEVER routes
 through the writer thread's channel and NEVER forces a group-commit. Previously a
 read-through was sent as `Cmd::ReadNode` over the writer's blocking channel and
 forced a `Durability::Immediate` commit first — coupling reads to the write
@@ -135,7 +135,7 @@ served. The writer thread owns the SOLE strong `Arc<Database>` per shard; the re
 path holds a `Weak` and `upgrade()`s it per read (a second handle on the same file
 would hit redb's exclusive per-process file lock — so reads share the handle, they do
 not re-open). Holding a `Weak` (not a strong clone) keeps the file-lock lifetime
-identical to before EG-027: the lock releases exactly when the writer thread exits on
+identical to before EG-KG.storage.snapshot-read-off-writer: the lock releases exactly when the writer thread exits on
 `shutdown`, so an in-process reopen of the same persist dir still succeeds. The
 `Cmd::ReadNode` variant + handler are retained but no longer constructed (the writer
 loop is left byte-for-byte).
@@ -164,14 +164,14 @@ pre-flip model:
 - Durable mutations use fire-and-forget `record()` (write-behind); eviction drops
   the LRU on saturation.
 
-### Opt-in: in-engine Raft replication (CONCEPT:KG-2.188, `raft` feature, `cluster` layer)
+### Opt-in: in-engine Raft replication (CONCEPT:AU-KG.ingest.source-sync-canonical, `raft` feature, `cluster` layer)
 
 The DEFAULT remains single-node + a rebuildable cache. The `raft` cargo feature
 (the opt-in `cluster` build layer only — `cluster = ["full", "raft", …]`; NOT in
 `default`/`full`/`all`, so the main build links **no openraft**, asserted by
 `cargo tree`) runs the engine as a multi-node, highly-available
 cluster that replicates its **authoritative** state via [`openraft`] **0.10** (the v2
-split-storage API + native graceful leader transfer — CONCEPT:KG-2.273). It
+split-storage API + native graceful leader transfer — CONCEPT:AU-KG.backend.authority-has-already-acked). It
 **activates only** when built `--features raft` AND configured at runtime:
 
 - `EPISTEMIC_GRAPH_RAFT_NODE_ID` — this node's integer id (absent ⇒ single-node,
@@ -186,7 +186,7 @@ Multi-node deploy (the 4-node fleet cluster + the live single-node→cluster dat
 migration) is `services/epistemic-graph/flavors/cluster.env` +
 `docs/architecture/cluster-deployment.md`. **Under an active Raft node the writer is
 K=1** (one group = one serialized write path) — this is HA, not write-scaling;
-multi-Raft sharding (many write groups) is separate (KG-2.205/2.266) and off by default.
+multi-Raft sharding (many write groups) is separate (EG-KG.sharding.raft-resharding/2.266) and off by default.
 
 When active, a durable mutation is routed through Raft consensus (the leader's
 `client_write`) BEFORE it is applied+acked — the replication barrier. A committed
@@ -196,7 +196,7 @@ redb-authoritative M2). Followers redirect writes to the leader; leader failover
 automatic. When the feature is off, the dispatch write path is **byte-for-byte** the
 single-node path.
 
-**Durable redb Raft log (CONCEPT:KG-2.204).** The Raft log — and the vote + applied
+**Durable redb Raft log (CONCEPT:EG-KG.storage.one-fsync-covers-raft).** The Raft log — and the vote + applied
 state — live in the SAME `graph.redb` Database as the M2 graph data, keyed by
 `(group_id, index)` / `(group_id, key)`. Because the log shares M2's off-reactor
 group-commit writer, a log append and its graph mutation **coalesce into ONE
@@ -204,7 +204,7 @@ group-commit writer, a log append and its graph mutation **coalesce into ONE
 from redb (it no longer needs the leader to refill an un-snapshotted tail). The
 separate `raft.redb` sidecar is gone — one shared DB serves M2 + every group's log.
 
-**Multi-Raft scaffold (CONCEPT:KG-2.205).** A `MultiRaft` manager holds N openraft
+**Multi-Raft scaffold (CONCEPT:EG-KG.sharding.raft-resharding).** A `MultiRaft` manager holds N openraft
 groups keyed by `GroupId`, each its own state machine + `GraphCore`, **sharing ONE
 TCP listener per node** (RPC frames tagged + demuxed by group id) and **ONE shared
 `graph.redb`** (composite-key log/meta — not a file per group, the spike's FD-ceiling
@@ -213,20 +213,20 @@ fix). A `GroupRouter` maps `graph_name → GroupId`. This increment runs **one g
 routing, group create/open/close lifecycle, and multi-group isolation are exercised
 by tests. **Group = transaction boundary:** one graph belongs to one group and a txn
 stays inside a group — **no cross-group transactions yet** (documented follow-up
-CONCEPT:KG-2.207).
+CONCEPT:EG-KG.sharding.semantic-embedding-store-backed).
 
-**M2 hardening (CONCEPT:KG-2.265/266/267).** Pooled per-peer Raft connections
-(`PeerPool` reuses warm `TcpStream`s across RPCs + groups, KG-2.265),
+**M2 hardening (CONCEPT:AU-KG.ontology.manage-arbitrary/266/267).** Pooled per-peer Raft connections
+(`PeerPool` reuses warm `TcpStream`s across RPCs + groups, AU-KG.ontology.manage-arbitrary),
 group-per-tenant-range routing (`GroupRouter` hash ring + `configure_group_ring`,
 KG-2.266), and per-group snapshot scoping (`dump_graphs` filtered by the router on
-`AppCtx`, KG-2.267) are **done + lib-tested**. The final follow-ups are also done +
+`AppCtx`, AU-KG.ingest.staged) are **done + lib-tested**. The final follow-ups are also done +
 lib-tested: **multi-node membership join** (`join_group`/`add_group_member`/
-`remove_group_member` via openraft add-learner→change-membership, KG-2.268),
+`remove_group_member` via openraft add-learner→change-membership, EG-KG.storage.kg-kg-2),
 **leader balancing across groups** (`MultiRaft::rebalance_leaders` — deterministic
 round-robin `desired_leader` + the **native graceful `trigger().transfer_leader(target)`**
-handoff, KG-2.273; replaces the old 0.9 cooperative heartbeat-yield), and **heartbeat
+handoff, AU-KG.backend.authority-has-already-acked; replaces the old 0.9 cooperative heartbeat-yield), and **heartbeat
 coalescing** (`RaftFrame::Batch` + `HeartbeatCoalescer` fold same-peer heartbeats into
-one pooled round-trip, KG-2.271). The openraft **0.9→0.10 migration** (KG-2.273) moved
+one pooled round-trip, EG-KG.storage.concept-2). The openraft **0.9→0.10 migration** (AU-KG.backend.authority-has-already-acked) moved
 `src/raft/` to the v2 split storage (`RaftLogStorage` + `RaftStateMachine` on
 `Arc<EgStore>`, no `Adaptor`; `io::Error` returns; stream-based `apply`; full-snapshot
 transfer) and `RaftNetworkV2`. Validate the cluster mechanism (formation / replication /
@@ -294,29 +294,29 @@ Engine capabilities served over the protocol:
   `signal_decay`, `combine_alphas`, `cross_sectional_rank`, `momentum`,
   `mean_reversion`, `information_coefficient`); execution/microstructure
   (`twap`, `vwap`, `market_impact`, `pairs_trading`, `match_orders`);
-  **market-making / HFT** (`CONCEPT:KG-2.20f`): `avellaneda_stoikov`,
+  **market-making / HFT** (`CONCEPT:EG-KG.domains.market-microstructure-sizing-backtest`): `avellaneda_stoikov`,
   `glt_quotes`, `logit_quotes` (bounded prediction-market prices + boundary
   inventory cap), `glosten_milgrom_spread`, `expected_pnl_rate`,
   `breakeven_alpha`, `ofi_series`, `microprice_series`, `vpin_pm`, `hawkes_mle`
   (+ `hardiman_bouchaud`); **Kyle insider/stealth surveillance**
-  (`CONCEPT:KG-2.20k`, distils arXiv:2605.27684): `kyle_lambda` (empirical price
+  (`CONCEPT:EG-KG.domains.concept-2`, distils arXiv:2605.27684): `kyle_lambda` (empirical price
   impact) + `surveillance_risk` (informed-flow share / detection hazard /
   cumulative suspicion / stealth ratio / legal-risk score — defensive
   adverse-selection protection); **sizing** `kelly_fraction`, `bayesian_kelly`,
   `posterior_credible_interval`; **backtest validation** `purged_cpcv`,
   `deflated_sharpe`, `probability_backtest_overfit`, `diebold_mariano`;
-  **forensic accounting** (`CONCEPT:KG-2.20g`) `forensic_report` — Beneish M /
+  **forensic accounting** (`CONCEPT:EG-KG.domains.forensic-accounting-kernels`) `forensic_report` — Beneish M /
   Altman Z / Piotroski F / Sloan accruals over two fiscal years;
-  **state-space / stat-arb** (`CONCEPT:KG-2.20h`): `kalman_filter_1d`,
+  **state-space / stat-arb** (`CONCEPT:EG-KG.domains.state-space-statistical-arbitrage`): `kalman_filter_1d`,
   `kalman_beta` (dynamic time-varying beta), `kalman_volatility` (log-variance
   state), `adf_test` (cointegration; finite-sample-interpolated MacKinnon 1/5/10% criticals
   + approximate p-value), `ou_calibrate` + `ou_optimal_thresholds`
   (Ornstein-Uhlenbeck mean reversion with numerical-MFPT-optimal entry/exit),
   `markov_transition_matrix`; **signal combination / sizing / calibration**
-  (`CONCEPT:KG-2.20i`): `order_book_imbalance`, `information_ratio` (IC·√N),
+  (`CONCEPT:EG-KG.domains.quant-finance`): `order_book_imbalance`, `information_ratio` (IC·√N),
   `effective_independent_n` (eigenvalue participation ratio), `alpha_combination_engine`,
   `brier_score`, `convergence_gate`, `empirical_kelly` (uncertainty-adjusted);
-  **derivatives** (`CONCEPT:KG-2.20j`): `sabr_implied_vol`, `sabr_smile`, `sabr_calibrate`
+  **derivatives** (`CONCEPT:AU-KG.domains.derivatives`): `sabr_implied_vol`, `sabr_smile`, `sabr_calibrate`
   (Hagan 2002 SABR stochastic-vol surface for smile/skew vol-arb).
 - **data science** (`client.datascience.*`): primitives (`linear_regression`
   OLS, `kmeans`, `pca`, `compute_stats`, `train_test_split` with seeded shuffle);
@@ -353,7 +353,7 @@ finance     = ["eg-compute/finance", "eg-types/finance"]   # → nalgebra; wire 
 datascience = ["eg-compute/datascience", "eg-types/datascience"]  # → rand_chacha
 reasoning   = ["eg-compute/reasoning"]                # OWL/Datalog inference
 ast         = ["eg-compute/ast"]                      # → tree-sitter grammars
-# Native eg-ann IVF-PQ+OPQ+SQ8-refine vector index (CONCEPT:KG-2.207) as the
+# Native eg-ann IVF-PQ+OPQ+SQ8-refine vector index (CONCEPT:EG-KG.sharding.semantic-embedding-store-backed) as the
 # SemanticStore backend, replacing rebuild-on-load HNSW. Pure-Rust CPU serving —
 # NO GPU/faiss/native-ML — so it is in the main build. A persisted index reopens
 # WITHOUT rebuilding from raw vectors. `ann-redb` also stores the codes in the redb
@@ -364,16 +364,16 @@ compute     = ["finance", "ast", "datascience", "reasoning"]
 # Tokio service (UDS/TCP). tokio is pinned to the minimal feature set actually
 # used (rt-multi-thread, net, io-util, sync, time) — NOT "full".
 server      = ["dep:tokio", "dep:clap", "dep:tracing-subscriber"]
-# Durable redb store (CONCEPT:KG-2.177). In the main build so the standard build is
-# redb-AUTHORITATIVE by default (CONCEPT:KG-2.195 — THE FLIP).
+# Durable redb store (CONCEPT:EG-KG.storage.kg-kg). In the main build so the standard build is
+# redb-AUTHORITATIVE by default (CONCEPT:AU-KG.backend.backend-modes — THE FLIP).
 redb        = ["server", "dep:redb"]
-# Engine-level security (CONCEPT:KG-2.231): per-agent Row-Level Security (the
+# Engine-level security (CONCEPT:EG-KG.sharding.row-level-security): per-agent Row-Level Security (the
 # read/plan-path GraphView filter), encryption-at-rest for the redb value blobs, and a
 # hash-chained tamper-evident audit log over the ledger. PURE-RUST: RLS + audit chain
 # link only sha2/hmac (RustCrypto, already deps); encryption pulls chacha20poly1305
 # (RustCrypto AEAD — NO ring/openssl/C). Implies `redb`. In the main build.
 security    = ["redb", "dep:chacha20poly1305", "eg-types/security", "eg-core/security"]
-# ONE MAIN BUILD (CONCEPT:EG-371): `default == full`. `full` pulls every MAIN feature
+# ONE MAIN BUILD (CONCEPT:EG-KG.sharding.deployment-tiers): `default == full`. `full` pulls every MAIN feature
 # that compiles without an external GPU/robotics toolchain — compute, server, SQL
 # (query/DataFusion), cypher, redb, ann, security, the whole wire family, obs, … — so
 # `cargo build` IS the full-featured, durable, RLS/audit/encryption-capable source of
@@ -391,9 +391,9 @@ The facade declares `crate-type = ["rlib"]` (no `cdylib`/pyo3; maturin
 **Opt-in build layer — `full-extras` (main build + GPU/robotics).** An umbrella
 (`full-extras = ["full", "gpu-cuda", "ros2-bridge", "ros2-dds"]`) for heavy legs that
 need an external toolchain/GPU/robotics stack to actually *run* but still build clean
-everywhere: `gpu-cuda` (real CUDA via `dynamic-loading` cudarc, EG-326/327),
-`ros2-bridge` (rosbridge-WebSocket ROS2 leg, EG-325 — pure-Rust `tokio-tungstenite`),
-and `ros2-dds` (**native DDS/RTPS ROS2 leg, EG-347** — pure-Rust `rustdds`, NO
+everywhere: `gpu-cuda` (real CUDA via `dynamic-loading` cudarc, EG-KG.compute.gpu-distance-seam/327),
+`ros2-bridge` (rosbridge-WebSocket ROS2 leg, EG-KG.domains.robotics-gpu-distribution — pure-Rust `tokio-tungstenite`),
+and `ros2-dds` (**native DDS/RTPS ROS2 leg, EG-KG.ingest.dds-transport** — pure-Rust `rustdds`, NO
 CycloneDDS/rmw/C toolchain, so it CI-builds; the `DdsTransport` trait in
 `src/server/dds.rs` unifies the WS + DDS legs behind one interface). NOT in the main
 build — a `default`/`full` build links no cudarc/rustdds (asserted by
@@ -420,7 +420,7 @@ crates/
 │   │                #     EstimatorParams/FittedModel/DecisionTree/TreeNode (datascience) — feature-gated
 │   └── acl.rs       #   AgentRole/AgentIdentity (RegisterIdentity carries them over the wire)
 ├── eg-ann/          # lib eg_ann — native IVF-PQ + OPQ + SQ8-refine vector index
-│   │                #     (CONCEPT:KG-2.207). Leaf crate (serde/memmap2/rayon/rand; redb opt).
+│   │                #     (CONCEPT:EG-KG.sharding.semantic-embedding-store-backed). Leaf crate (serde/memmap2/rayon/rand; redb opt).
 │   ├── ivfpq.rs     #   IVF-PQ core: OPQ rotation, PQ codes (ADC), SQ8 refine tier
 │   ├── kmeans.rs · linalg.rs   #   k-means++ + dependency-free Jacobi-SVD (OPQ R update)
 │   ├── persist.rs   #   mmap format — no-rebuild reopen + compaction (VACUUM)
@@ -524,32 +524,32 @@ grows. Each is tied to a mechanical CI gate (a rule without a gate is a comment)
 | `EPISTEMIC_GRAPH_ALLOW_INSECURE` | `1`/`true`: explicit opt-out allowing an empty auth secret (development only; prominent warning at startup) |
 | `GRAPH_SERVICE_SOCKET` | Path to the UDS socket |
 | `GRAPH_SERVICE_PERSIST_DIR` | Persist dir (alias `--persist-dir`). When set with a redb-bearing build, the engine is a durable source of truth; absent ⇒ in-memory only |
-| `EPISTEMIC_GRAPH_PERSIST_BACKEND` | `redb` (**default**, CONCEPT:KG-2.195) = durable authoritative store; `snapshot` = opt-in rebuildable-cache (snapshot RDB + WAL). A `redb` request in a build without the `redb` feature silently falls back to snapshot |
+| `EPISTEMIC_GRAPH_PERSIST_BACKEND` | `redb` (**default**, CONCEPT:AU-KG.backend.backend-modes) = durable authoritative store; `snapshot` = opt-in rebuildable-cache (snapshot RDB + WAL). A `redb` request in a build without the `redb` feature silently falls back to snapshot |
 | `EPISTEMIC_GRAPH_REDB_AUTHORITATIVE` | Override authoritative mode. Unset ⇒ defaults ON when the redb backend is active (full/node/cluster/pi). Set `1` against a non-redb build ⇒ warns + ignored |
-| `EPISTEMIC_GRAPH_REDB_GROUP_LINGER_US` | Adaptive group-commit micro-linger (CONCEPT:EG-024), microseconds (default `1000` = 1ms; `0` disables = legacy commit-on-drain). When the `eg-redb-writer` is about to commit a SHALLOW barrier batch it spends ONE bounded `recv_timeout(linger)` letting concurrent in-flight authoritative writers fold into the SAME fsync (the profiled write ceiling was ~1 op/fsync from serial awaits). Durability is unchanged — writes still commit `Durability::Immediate` before their ack; only the batch widens |
+| `EPISTEMIC_GRAPH_REDB_GROUP_LINGER_US` | Adaptive group-commit micro-linger (CONCEPT:EG-KG.backend.adaptive-linger-coalesce), microseconds (default `1000` = 1ms; `0` disables = legacy commit-on-drain). When the `eg-redb-writer` is about to commit a SHALLOW barrier batch it spends ONE bounded `recv_timeout(linger)` letting concurrent in-flight authoritative writers fold into the SAME fsync (the profiled write ceiling was ~1 op/fsync from serial awaits). Durability is unchanged — writes still commit `Durability::Immediate` before their ack; only the batch widens |
 | `EPISTEMIC_GRAPH_REDB_GROUP_SHALLOW` | Shallow-batch op threshold for the EG-024 micro-linger (default `32`, clamped 1..4096). The writer lingers only while `pending.ops.len()` is below this; a deeper batch already coalesces, so it commits immediately (adaptive — no added latency on a deep queue) |
-| `EPISTEMIC_GRAPH_REDB_SHARDS` | **Sharded K-way durable writer (CONCEPT:EG-026).** Number of independent redb files / writer threads K, overriding the auto-size `clamp(cpu/2, 1, 8)` (clamped 1..64). Each graph routes to a fixed shard by `FNV-1a(sanitized_name) % K`, so a 64-core box commits on K cores in parallel instead of one. **K=1 is byte-for-byte the pre-EG-026 path: ONE file `graph.redb`**; K>1 uses `graph-<n>.redb`. K is FIXED per persist-dir once created — the on-disk layout is detected + honored at open (changing K needs a migration; never strands data). Forced to **1 under an active Raft node** (multi-Raft sharding is M2) |
-| `EPISTEMIC_GRAPH_REDB_FLUSH_THRESHOLD` | **Auto-sized early-flush op threshold (CONCEPT:EG-028b)**, per shard — replaces the old hardcoded `4096`. The writer flushes a `Pending` batch early once it holds this many ops (bounds writer RAM before the bounded channel saturates). Default ≈ half the WAL queue depth, clamped 256..16384 (with the legacy default queue 8192 this is exactly `4096` — unchanged; small on a Pi, large on a big box). Override clamped 64..1_048_576 |
+| `EPISTEMIC_GRAPH_REDB_SHARDS` | **Sharded K-way durable writer (CONCEPT:EG-KG.backend.sharded-k-way-durable).** Number of independent redb files / writer threads K, overriding the auto-size `clamp(cpu/2, 1, 8)` (clamped 1..64). Each graph routes to a fixed shard by `FNV-1a(sanitized_name) % K`, so a 64-core box commits on K cores in parallel instead of one. **K=1 is byte-for-byte the pre-EG-026 path: ONE file `graph.redb`**; K>1 uses `graph-<n>.redb`. K is FIXED per persist-dir once created — the on-disk layout is detected + honored at open (changing K needs a migration; never strands data). Forced to **1 under an active Raft node** (multi-Raft sharding is M2) |
+| `EPISTEMIC_GRAPH_REDB_FLUSH_THRESHOLD` | **Auto-sized early-flush op threshold (CONCEPT:AU-KG.backend.b-auto-sizeb)**, per shard — replaces the old hardcoded `4096`. The writer flushes a `Pending` batch early once it holds this many ops (bounds writer RAM before the bounded channel saturates). Default ≈ half the WAL queue depth, clamped 256..16384 (with the legacy default queue 8192 this is exactly `4096` — unchanged; small on a Pi, large on a big box). Override clamped 64..1_048_576 |
 | `GRAPH_SERVICE_ENDPOINTS` | Comma-separated shard endpoints for the Python `ShardRouter` |
-| `EPISTEMIC_GRAPH_PGWIRE_ADDR` | When set (build `--features pgwire`), the pg-wire listener binds this address (documented loopback `127.0.0.1:5433`). Unset ⇒ no listener. A connecting driver/ORM introspects a SYNTHETIC read-only catalog (CONCEPT:KG-2.201: DataFusion `information_schema` + a supplemented `pg_catalog` `pg_namespace`/`pg_class`/`pg_attribute`/`pg_type` + `version()`/`current_schema()`/`current_database()`) then runs SQL over `nodes`/`edges` |
+| `EPISTEMIC_GRAPH_PGWIRE_ADDR` | When set (build `--features pgwire`), the pg-wire listener binds this address (documented loopback `127.0.0.1:5433`). Unset ⇒ no listener. A connecting driver/ORM introspects a SYNTHETIC read-only catalog (CONCEPT:EG-KG.query.datafusion: DataFusion `information_schema` + a supplemented `pg_catalog` `pg_namespace`/`pg_class`/`pg_attribute`/`pg_type` + `version()`/`current_schema()`/`current_database()`) then runs SQL over `nodes`/`edges` |
 | `EPISTEMIC_GRAPH_PGWIRE_GRAPH` | Default graph a fresh pg-wire connection runs against when the libpq `database` param is unset. Defaults to `__commons__` |
-| `EPISTEMIC_GRAPH_PGWIRE_AUTH` | pg-wire auth mode (CONCEPT:KG-2.202): `scram` (SCRAM-SHA-256, what modern drivers negotiate) or `trust` (no auth, dev). DEFAULT = `scram` when `GRAPH_SERVICE_AUTH_SECRET` is set, else `trust`. SCRAM maps the pg `user` → an engine `agent_id`; the password is `hex(HMAC-SHA256(secret, "pgwire:"+user))`; a successful login sets the connection's ACL actor so queries run under that `AgentIdentity` (`IsolationLayer::check_access`) |
-| `EPISTEMIC_GRAPH_MYSQL_ADDR` | When set (build `--features mysql-wire`), the hand-rolled MySQL/MariaDB wire listener (CONCEPT:EG-076) binds this address (documented loopback `127.0.0.1:3306`). Unset ⇒ no listener. A MySQL driver/ORM/`mysql` CLI connects (Handshake v10 + `mysql_native_password`) and runs SQL over `nodes`/`edges` via the SAME EG-074 `WireSession` execute→classify→exec core as pgwire. Text protocol only (prepared-statement binary protocol deferred) |
+| `EPISTEMIC_GRAPH_PGWIRE_AUTH` | pg-wire auth mode (CONCEPT:EG-KG.query.concept-13): `scram` (SCRAM-SHA-256, what modern drivers negotiate) or `trust` (no auth, dev). DEFAULT = `scram` when `GRAPH_SERVICE_AUTH_SECRET` is set, else `trust`. SCRAM maps the pg `user` → an engine `agent_id`; the password is `hex(HMAC-SHA256(secret, "pgwire:"+user))`; a successful login sets the connection's ACL actor so queries run under that `AgentIdentity` (`IsolationLayer::check_access`) |
+| `EPISTEMIC_GRAPH_MYSQL_ADDR` | When set (build `--features mysql-wire`), the hand-rolled MySQL/MariaDB wire listener (CONCEPT:EG-KG.query.kg-2) binds this address (documented loopback `127.0.0.1:3306`). Unset ⇒ no listener. A MySQL driver/ORM/`mysql` CLI connects (Handshake v10 + `mysql_native_password`) and runs SQL over `nodes`/`edges` via the SAME EG-KG.compute.subsystems-reference `WireSession` execute→classify→exec core as pgwire. Text protocol only (prepared-statement binary protocol deferred) |
 | `EPISTEMIC_GRAPH_MYSQL_GRAPH` | Default graph a fresh MySQL-wire connection runs against when the connect `database` (schema) is unset. Defaults to `__commons__` |
-| `EPISTEMIC_GRAPH_MYSQL_AUTH` | MySQL-wire auth mode (CONCEPT:EG-076 / KG-2.202): `native` (`mysql_native_password`, what MySQL/MariaDB drivers negotiate) or `trust` (no auth, dev). DEFAULT = `native` when `GRAPH_SERVICE_AUTH_SECRET` is set, else `trust`. NATIVE maps the MySQL `user` → an engine `agent_id`; the password is `hex(HMAC-SHA256(secret, "mysql:"+user))`; a successful login sets the connection's ACL actor so queries run under that `AgentIdentity` (`IsolationLayer::check_access`) |
-| `EPISTEMIC_GRAPH_MSSQL_ADDR` | When set (build `--features mssql-wire`), the MSSQL **TDS** wire listener (CONCEPT:EG-077 — a hand-rolled TDS server over tokio, NO server-side `tiberius`/`tds` crate) binds this address (documented loopback `127.0.0.1:1433`). Unset ⇒ no listener. Sibling of `pgwire` in the multi-wire family (CONCEPT:EG-074): a decoded `SQLBatch` runs through the SAME shared `WireSession` core over `nodes`/`edges`. Encryption is answered `ENCRYPT_NOT_SUP` (plaintext v1); RPC/prepared, TLS, MARS deferred |
-| `EPISTEMIC_GRAPH_MSSQL_GRAPH` | Default graph a fresh TDS connection runs against when the LOGIN7 `Database` field is unset. Defaults to `__commons__`. Auth mirrors pgwire (CONCEPT:KG-2.202): with `GRAPH_SERVICE_AUTH_SECRET` set, the TDS `user`→`agent_id` and password `hex(HMAC-SHA256(secret, "mssql:"+user))` (a successful login sets the ACL actor); no secret ⇒ TRUST (dev) |
+| `EPISTEMIC_GRAPH_MYSQL_AUTH` | MySQL-wire auth mode (CONCEPT:EG-KG.query.kg-2 / EG-KG.query.concept-13): `native` (`mysql_native_password`, what MySQL/MariaDB drivers negotiate) or `trust` (no auth, dev). DEFAULT = `native` when `GRAPH_SERVICE_AUTH_SECRET` is set, else `trust`. NATIVE maps the MySQL `user` → an engine `agent_id`; the password is `hex(HMAC-SHA256(secret, "mysql:"+user))`; a successful login sets the connection's ACL actor so queries run under that `AgentIdentity` (`IsolationLayer::check_access`) |
+| `EPISTEMIC_GRAPH_MSSQL_ADDR` | When set (build `--features mssql-wire`), the MSSQL **TDS** wire listener (CONCEPT:EG-KG.query.hand-rolled-tds-server — a hand-rolled TDS server over tokio, NO server-side `tiberius`/`tds` crate) binds this address (documented loopback `127.0.0.1:1433`). Unset ⇒ no listener. Sibling of `pgwire` in the multi-wire family (CONCEPT:EG-KG.compute.subsystems-reference): a decoded `SQLBatch` runs through the SAME shared `WireSession` core over `nodes`/`edges`. Encryption is answered `ENCRYPT_NOT_SUP` (plaintext v1); RPC/prepared, TLS, MARS deferred |
+| `EPISTEMIC_GRAPH_MSSQL_GRAPH` | Default graph a fresh TDS connection runs against when the LOGIN7 `Database` field is unset. Defaults to `__commons__`. Auth mirrors pgwire (CONCEPT:EG-KG.query.concept-13): with `GRAPH_SERVICE_AUTH_SECRET` set, the TDS `user`→`agent_id` and password `hex(HMAC-SHA256(secret, "mssql:"+user))` (a successful login sets the ACL actor); no secret ⇒ TRUST (dev) |
 | `EPISTEMIC_GRAPH_MAX_INFLIGHT` | Server backpressure cap (default 1024); excess → `BUSY` |
-| `EPISTEMIC_GRAPH_MAX_RESPONSE_NODES` | Overload backstop for the unbounded `GetNodes` full-graph dump (CONCEPT:KG-2.264, default 50_000, read once at startup). When a graph exceeds this cap, `GetNodes` returns a typed `RESULT_TOO_LARGE` error (client raises `ResultTooLargeError`) telling the caller to use a bounded query (`get_nodes_by_label(label, limit)` / pagination) INSTEAD of serializing a gigabyte-scale frame that resets the connection. `0` disables the guard (legacy unbounded behavior). Bounded reads (`GetNodesByLabel`, per-id) are unaffected |
-| `EPISTEMIC_GRAPH_IDLE_SHUTDOWN_SECS` | Reference-counted idle shutdown (CONCEPT:KG-2.223, alias `--idle-shutdown-secs`). `N>0` ⇒ the engine self-terminates (checkpointing cleanly) after N seconds with ZERO active connections — the shared tiny-daemon mode agent-utilities' EngineResolver autostarts. **Absent or `0` (default) ⇒ NEVER self-terminate on idle: long-living/persistent, runs forever like a normal server.** SIGTERM/SIGINT graceful checkpointed shutdown works in BOTH modes |
-| `EPISTEMIC_GRAPH_COLD_OFFLOAD_SECS` | Cold-tenant idle offload sweep (CONCEPT:EG-040, R6, feature `redb`). `N>0` ⇒ a periodic task (every N seconds, reusing the engine's existing interval-task cadence — no new daemon) hibernates every graph idle longer than N seconds (access recency is `touch`ed on the dispatch read/write path), bounding RAM across many tenants. Durability-gated + read-through-safe (KG-2.191) so an offloaded graph is never lost, only evicted; `__commons__` is never offloaded. **Absent or `0` (default) ⇒ disabled** (no proactive idle offload; the KG-2.234 budget enforcer still runs) |
-| `EPISTEMIC_GRAPH_TENANT_CATALOG` | Tenant-catalog auto-attach gate (CONCEPT:EG-033, R5, feature `redb`). `1`/`true`/`yes`/`on` ⇒ `RedbBackend::open` attaches the durable `catalog.redb` tenant→shard override map to the live routing seam (also auto-attached when a populated `catalog.redb` already exists). **Default OFF** ⇒ pure EG-026 FNV-1a routing. An attached-but-empty catalog routes identically, so enabling it is a no-op until the M3 admin RPC (CONCEPT:EG-038) assigns a placement / runs an online reshard |
+| `EPISTEMIC_GRAPH_MAX_RESPONSE_NODES` | Overload backstop for the unbounded `GetNodes` full-graph dump (CONCEPT:EG-KG.ingest.resets-socket-so-assimilation, default 50_000, read once at startup). When a graph exceeds this cap, `GetNodes` returns a typed `RESULT_TOO_LARGE` error (client raises `ResultTooLargeError`) telling the caller to use a bounded query (`get_nodes_by_label(label, limit)` / pagination) INSTEAD of serializing a gigabyte-scale frame that resets the connection. `0` disables the guard (legacy unbounded behavior). Bounded reads (`GetNodesByLabel`, per-id) are unaffected |
+| `EPISTEMIC_GRAPH_IDLE_SHUTDOWN_SECS` | Reference-counted idle shutdown (CONCEPT:EG-KG.backend.tiny-shared, alias `--idle-shutdown-secs`). `N>0` ⇒ the engine self-terminates (checkpointing cleanly) after N seconds with ZERO active connections — the shared tiny-daemon mode agent-utilities' EngineResolver autostarts. **Absent or `0` (default) ⇒ NEVER self-terminate on idle: long-living/persistent, runs forever like a normal server.** SIGTERM/SIGINT graceful checkpointed shutdown works in BOTH modes |
+| `EPISTEMIC_GRAPH_COLD_OFFLOAD_SECS` | Cold-tenant idle offload sweep (CONCEPT:EG-KG.backend.r6-feature, R6, feature `redb`). `N>0` ⇒ a periodic task (every N seconds, reusing the engine's existing interval-task cadence — no new daemon) hibernates every graph idle longer than N seconds (access recency is `touch`ed on the dispatch read/write path), bounding RAM across many tenants. Durability-gated + read-through-safe (EG-KG.storage.read-through-seam-exercised) so an offloaded graph is never lost, only evicted; `__commons__` is never offloaded. **Absent or `0` (default) ⇒ disabled** (no proactive idle offload; the EG-KG.compute.lane-v budget enforcer still runs) |
+| `EPISTEMIC_GRAPH_TENANT_CATALOG` | Tenant-catalog auto-attach gate (CONCEPT:EG-KG.sharding.r5-feature, R5, feature `redb`). `1`/`true`/`yes`/`on` ⇒ `RedbBackend::open` attaches the durable `catalog.redb` tenant→shard override map to the live routing seam (also auto-attached when a populated `catalog.redb` already exists). **Default OFF** ⇒ pure EG-KG.backend.sharded-k-way-durable FNV-1a routing. An attached-but-empty catalog routes identically, so enabling it is a no-op until the M3 admin RPC (CONCEPT:EG-KG.backend.m3-admin-dispatch) assigns a placement / runs an online reshard |
 | `GRAPH_SERVICE_METRICS_ADDR` | Prometheus `/metrics` HTTP listener address (alias of `--metrics-addr`, e.g. `127.0.0.1:9101`). Disabled when unset; requires the `metrics` cargo feature (on by default) |
-| `EPISTEMIC_GRAPH_OBS_ADDR` | **Observability log-ingestion HTTP listener (CONCEPT:EG-160/161, feature `obs`, alias `--obs-addr`).** When set (build `--features obs`), a hand-rolled HTTP listener (the SAME dep-free idiom as `--metrics-addr`/`--sparql-addr` — NO axum/hyper) binds this address (documented loopback `127.0.0.1:5080`, O2's log-ingest port). It accepts log records over `POST /v1/logs` (OTLP/HTTP JSON), `POST /_bulk` + `POST /<stream>/_doc` (Elasticsearch-compatible), and `POST /` (JSON-lines), normalizes them to a common record and lands each in an eg-tsdb series (time range + retention) + a per-stream eg-text Tantivy full-text index (schema-on-read), then rolls Parquet columnar segments into the blob CAS (S3 when `blob-s3` is on) with a per-segment manifest (stream, time range, row count, schema) for prune-before-scan. Multi-tenant by **stream**. **Unset, or a build without `obs`, ⇒ no listener** (a warning is logged if the addr is set but the feature is off). Flush window via `EPISTEMIC_GRAPH_OBS_FLUSH_RECORDS` (default 1024 records per segment). Separate from the RPC/SPARQL/metrics transports |
-| `EPISTEMIC_GRAPH_OTLP_ENDPOINT` | **OpenTelemetry OTLP span export (CONCEPT:EG-091, feature `otel`).** When set (e.g. `http://127.0.0.1:4317`) AND the binary is built `--features otel`, a `tracing-opentelemetry` batch span exporter is layered ON TOP of the existing `tracing` subscriber, exporting the spans the engine already emits to the OTLP/gRPC collector. **Unset, or a build without `otel`, ⇒ no exporter is installed** (the fmt-only subscriber is byte-for-byte unchanged; zero overhead). A bad endpoint logs a warning and falls back to stdout-only tracing — it never blocks startup |
-| `EPISTEMIC_GRAPH_SLOW_QUERY_MS` | **Slow-query log threshold, milliseconds (CONCEPT:EG-091).** When set to a positive integer, any query (SQL / Cypher / SPARQL / UnifiedQuery over the RPC path, and pgwire SQL) whose end-to-end execution meets/exceeds this many ms is emitted as a structured `tracing::warn!` (target `epistemic_graph::slow_query`) with the query kind, truncated query text, elapsed ms, and — where available — the plan op count. Also increments the `epistemic_graph_slow_query_total` Prometheus counter (feature `metrics`). **Absent / `0` / invalid ⇒ disabled** (the only hot-path cost is a single cached-threshold compare) |
-| `EPISTEMIC_GRAPH_ENCRYPTION_KEY` | Encryption-at-rest key material (CONCEPT:KG-2.231, feature `security`). When set, the redb durable **value** blobs (node/edge property + semantic store) are sealed with a pure-Rust ChaCha20-Poly1305 AEAD (RustCrypto — NO ring/openssl) — raw `.redb` bytes hold no plaintext properties. Keys stay plaintext so range scans work. **Default OFF / opt-in** (changes the on-disk format). `ValueCipher::from_env` is the KMS hook seam (swap it for a data-key fetch). A wrong key fails the read (never silent plaintext) |
-| `EPISTEMIC_GRAPH_SPARQL_SERVICE_ALLOW` | **SPARQL SERVICE federation allowlist (CONCEPT:EG-052, feature `sparql-service`).** Comma-separated set of allowed endpoint hosts / `scheme://host:port` origins the `/sparql` endpoint may delegate a `SERVICE <ep> { … }` clause to. **Default empty/unset ⇒ SERVICE DISABLED (fail-closed)**: no remote client is bound, so a non-SILENT SERVICE errors (a `SERVICE SILENT` yields the empty solution). A host that resolves to a loopback/link-local/RFC-1918 (or unique-local IPv6) address is refused unless the allowlist names that exact IP literal (SSRF guard). The client rides the SAME pure-Rust rustls `ureq` stack `federation` links (no new dep; both are in the main build), with bounded connect/read timeouts + a response-size cap |
+| `EPISTEMIC_GRAPH_OBS_ADDR` | **Observability log-ingestion HTTP listener (CONCEPT:AU-KG.ingest.self-ingest/161, feature `obs`, alias `--obs-addr`).** When set (build `--features obs`), a hand-rolled HTTP listener (the SAME dep-free idiom as `--metrics-addr`/`--sparql-addr` — NO axum/hyper) binds this address (documented loopback `127.0.0.1:5080`, O2's log-ingest port). It accepts log records over `POST /v1/logs` (OTLP/HTTP JSON), `POST /_bulk` + `POST /<stream>/_doc` (Elasticsearch-compatible), and `POST /` (JSON-lines), normalizes them to a common record and lands each in an eg-tsdb series (time range + retention) + a per-stream eg-text Tantivy full-text index (schema-on-read), then rolls Parquet columnar segments into the blob CAS (S3 when `blob-s3` is on) with a per-segment manifest (stream, time range, row count, schema) for prune-before-scan. Multi-tenant by **stream**. **Unset, or a build without `obs`, ⇒ no listener** (a warning is logged if the addr is set but the feature is off). Flush window via `EPISTEMIC_GRAPH_OBS_FLUSH_RECORDS` (default 1024 records per segment). Separate from the RPC/SPARQL/metrics transports |
+| `EPISTEMIC_GRAPH_OTLP_ENDPOINT` | **OpenTelemetry OTLP span export (CONCEPT:EG-OS.observability.slow-query-descriptor, feature `otel`).** When set (e.g. `http://127.0.0.1:4317`) AND the binary is built `--features otel`, a `tracing-opentelemetry` batch span exporter is layered ON TOP of the existing `tracing` subscriber, exporting the spans the engine already emits to the OTLP/gRPC collector. **Unset, or a build without `otel`, ⇒ no exporter is installed** (the fmt-only subscriber is byte-for-byte unchanged; zero overhead). A bad endpoint logs a warning and falls back to stdout-only tracing — it never blocks startup |
+| `EPISTEMIC_GRAPH_SLOW_QUERY_MS` | **Slow-query log threshold, milliseconds (CONCEPT:EG-OS.observability.slow-query-descriptor).** When set to a positive integer, any query (SQL / Cypher / SPARQL / UnifiedQuery over the RPC path, and pgwire SQL) whose end-to-end execution meets/exceeds this many ms is emitted as a structured `tracing::warn!` (target `epistemic_graph::slow_query`) with the query kind, truncated query text, elapsed ms, and — where available — the plan op count. Also increments the `epistemic_graph_slow_query_total` Prometheus counter (feature `metrics`). **Absent / `0` / invalid ⇒ disabled** (the only hot-path cost is a single cached-threshold compare) |
+| `EPISTEMIC_GRAPH_ENCRYPTION_KEY` | Encryption-at-rest key material (CONCEPT:EG-KG.sharding.row-level-security, feature `security`). When set, the redb durable **value** blobs (node/edge property + semantic store) are sealed with a pure-Rust ChaCha20-Poly1305 AEAD (RustCrypto — NO ring/openssl) — raw `.redb` bytes hold no plaintext properties. Keys stay plaintext so range scans work. **Default OFF / opt-in** (changes the on-disk format). `ValueCipher::from_env` is the KMS hook seam (swap it for a data-key fetch). A wrong key fails the read (never silent plaintext) |
+| `EPISTEMIC_GRAPH_SPARQL_SERVICE_ALLOW` | **SPARQL SERVICE federation allowlist (CONCEPT:EG-KG.query.sparql-service-federation-client, feature `sparql-service`).** Comma-separated set of allowed endpoint hosts / `scheme://host:port` origins the `/sparql` endpoint may delegate a `SERVICE <ep> { … }` clause to. **Default empty/unset ⇒ SERVICE DISABLED (fail-closed)**: no remote client is bound, so a non-SILENT SERVICE errors (a `SERVICE SILENT` yields the empty solution). A host that resolves to a loopback/link-local/RFC-1918 (or unique-local IPv6) address is refused unless the allowlist names that exact IP literal (SSRF guard). The client rides the SAME pure-Rust rustls `ureq` stack `federation` links (no new dep; both are in the main build), with bounded connect/read timeouts + a response-size cap |
 | `XDG_RUNTIME_DIR` | Directory for UDS socket placement |
 
 ---

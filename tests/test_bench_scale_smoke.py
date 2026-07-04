@@ -1,4 +1,4 @@
-"""Smoke test for the multi-shard scale harness (CONCEPT:KG-2.7 P3).
+"""Smoke test for the multi-shard scale harness (CONCEPT:AU-KG.query.vendor-agnostic-traversal P3).
 
 Runs a tiny single-shard load so regressions in the harness (or the server's
 multi-tenant/sharded path) surface in CI, without a heavy benchmark.

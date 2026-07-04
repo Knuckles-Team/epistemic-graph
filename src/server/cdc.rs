@@ -1,5 +1,5 @@
 //! Change-Data-Capture hub + continuous queries + subscriptions/triggers
-//! (CONCEPT:KG-2.229/230, feature `streaming`).
+//! (CONCEPT:EG-KG.query.streaming-cdc-subscriptions/230, feature `streaming`).
 //!
 //! Reactivity layered OVER the engine's existing per-graph durable change record
 //! (the ledger): the dispatch shell already records every durable mutation
@@ -51,7 +51,7 @@ struct GraphFeed {
     /// Seq of the oldest event still retained (`ring.front().seq`); a `from_seq`
     /// below this is behind the window.
     oldest_seq: u64,
-    /// Fired-trigger log (CONCEPT:KG-2.230), its own monotonic cursor.
+    /// Fired-trigger log (CONCEPT:EG-KG.query.wire-codec), its own monotonic cursor.
     next_fire: u64,
     fired: VecDeque<FiredAction>,
     notify: Arc<Notify>,
@@ -96,7 +96,7 @@ pub struct CdcHub {
     queries: Mutex<HashMap<String, ContinuousQuery>>,
     triggers: Mutex<HashMap<String, Trigger>>,
     cap: usize,
-    /// Live CEP standing-query surface (CONCEPT:EG-299), feature `stream`. Created LAZILY
+    /// Live CEP standing-query surface (CONCEPT:EG-KG.query.protocol-types), feature `stream`. Created LAZILY
     /// on the first `CepSubscribe` (`cep_surface`), so a CDC feed with no CEP subscriber
     /// pays nothing and the drain-task spawn always happens inside the async handler (a
     /// runtime is live). Once set, `emit` feeds every change into it. A `OnceLock` so the
@@ -123,7 +123,7 @@ impl CdcHub {
         }
     }
 
-    /// The live CEP standing-query surface (CONCEPT:EG-299), lazily created on first use.
+    /// The live CEP standing-query surface (CONCEPT:EG-KG.query.protocol-types), lazily created on first use.
     /// Its drain task is spawned here — always called from the async `CepSubscribe` handler,
     /// so a Tokio runtime is live. Subsequent `emit`s feed the surface via [`CdcHub::emit`].
     #[cfg(feature = "stream")]
@@ -144,7 +144,7 @@ impl CdcHub {
             .clone()
     }
 
-    /// Emit one change into `graph`'s feed (CONCEPT:KG-2.229). Assigns the per-graph
+    /// Emit one change into `graph`'s feed (CONCEPT:EG-KG.query.streaming-cdc-subscriptions). Assigns the per-graph
     /// seq, pushes the ring (trimming the oldest past the cap), drives every continuous
     /// query + trigger that matches, then wakes watchers. Returns the assigned seq.
     pub fn emit(
@@ -184,7 +184,7 @@ impl CdcHub {
             // Drive views/triggers under no feed lock (separate locks) by cloning out.
             self.maintain(&event);
             self.fire_triggers(feed, &event);
-            // Feed the live CEP standing-query engine (CONCEPT:EG-299) if a subscriber has
+            // Feed the live CEP standing-query engine (CONCEPT:EG-KG.query.protocol-types) if a subscriber has
             // created the surface. Lock-free check; the map→publish is a bounded broadcast
             // send that never blocks the writer (a full bus drops the oldest event).
             #[cfg(feature = "stream")]
@@ -231,7 +231,7 @@ impl CdcHub {
             .unwrap_or(0)
     }
 
-    /// Reset a graph's change feed (CONCEPT:KG-2.229): drop its retained ring + fired
+    /// Reset a graph's change feed (CONCEPT:EG-KG.query.streaming-cdc-subscriptions): drop its retained ring + fired
     /// log and rewind the seq to 0. Called when the graph itself is wiped (`ClearGraph`)
     /// — the per-node changes are moot once the graph is empty, so a cleared graph
     /// starts a fresh feed (a consumer re-seeds from seq 0). Continuous queries over the
@@ -284,7 +284,7 @@ impl CdcHub {
         Ok(WatchBatch { events, next_seq })
     }
 
-    // ── Continuous queries (CONCEPT:KG-2.229) ────────────────────────────────
+    // ── Continuous queries (CONCEPT:EG-KG.query.streaming-cdc-subscriptions) ────────────────────────────────
 
     /// Register (or replace) a continuous query, seeding its value from `initial`
     /// (the current matching state computed by the handler, so the view is correct
@@ -360,7 +360,7 @@ impl CdcHub {
         }
     }
 
-    // ── Triggers / reactions (CONCEPT:KG-2.230) ──────────────────────────────
+    // ── Triggers / reactions (CONCEPT:EG-KG.query.wire-codec) ──────────────────────────────
 
     pub fn register_trigger(
         &self,

@@ -1,4 +1,4 @@
-//! # eg-numeric — the epistemic-graph numeric kernel (CONCEPT:EG-321)
+//! # eg-numeric — the epistemic-graph numeric kernel (CONCEPT:AU-KG.compute.numeric-kernel)
 //!
 //! A slim, **BLAS/LAPACK-free** numeric kernel: `ndarray` (arrays / reductions /
 //! element-wise) + `faer` (pure-Rust LAPACK-class linalg) — the "one kernel, two
@@ -21,7 +21,7 @@ pub mod error;
 pub mod linalg;
 pub mod random;
 pub mod reductions;
-// scipy.stats-parity ops (CONCEPT:EG-357/EG-358). Gated behind `analytics` (pulled
+// scipy.stats-parity ops (CONCEPT:EG-KG.compute.numeric-stats/EG-358). Gated behind `analytics` (pulled
 // by `python`) so a `pi`/`default` engine build linking the rlib pulls no statrs.
 #[cfg(feature = "analytics")]
 pub mod stats;
@@ -56,7 +56,7 @@ mod py {
         }
     }
 
-    // ---- N-D / integer extraction + axis dispatch (CONCEPT:EG-355) ----
+    // ---- N-D / integer extraction + axis dispatch (CONCEPT:EG-KG.compute.concept-4) ----
 
     /// Coerce any array-like to an owned `ArrayD<f64>`. Native float64/float32 and
     /// int64/int32 arrays are extracted zero-copy-ish (cast for the narrower/int
@@ -161,7 +161,7 @@ mod py {
         }
     }
 
-    // ---- reductions / stats (axis / keepdims / integer arrays — CONCEPT:EG-355) ----
+    // ---- reductions / stats (axis / keepdims / integer arrays — CONCEPT:EG-KG.compute.concept-4) ----
     #[pyfunction]
     #[pyo3(signature = (a, axis=None, keepdims=false))]
     fn sum(
@@ -508,7 +508,7 @@ mod py {
         ))
     }
     /// `scipy.sparse.linalg.eigsh(A, k, which="SM")` — the k smallest-magnitude
-    /// symmetric eigenpairs (CONCEPT:EG-356). Dense first cut (O(n^3)).
+    /// symmetric eigenpairs (CONCEPT:EG-KG.compute.concept-5). Dense first cut (O(n^3)).
     #[pyfunction]
     fn eigsh(
         py: Python<'_>,
@@ -585,7 +585,7 @@ mod py {
         Ok(out.into_pyarray_bound(py).unbind())
     }
 
-    // ---- scipy.stats-parity ops (CONCEPT:EG-357/EG-358) ----
+    // ---- scipy.stats-parity ops (CONCEPT:EG-KG.compute.numeric-stats/EG-358) ----
     /// `scipy.stats.spearmanr(a, b)` → `(rho, pvalue)`.
     #[pyfunction]
     fn spearmanr(a: PyReadonlyArray1<f64>, b: PyReadonlyArray1<f64>) -> PyResult<(f64, f64)> {
@@ -609,7 +609,7 @@ mod py {
         stats::norm_pdf(x, loc, scale).map_err(map_err)
     }
 
-    // ---- clustering (CONCEPT:EG-344) ----
+    // ---- clustering (CONCEPT:EG-KG.query.kmeans-clustering-half-one) ----
     #[pyfunction]
     #[pyo3(signature = (data, k, max_iter=100, seed=cluster::KMEANS_DEFAULT_SEED))]
     fn kmeans(
@@ -650,7 +650,7 @@ mod py {
         g.integers(low, high, size).into_pyarray_bound(py).unbind()
     }
 
-    /// Array constructors + dtype/module-attribute surface (CONCEPT:EG-354).
+    /// Array constructors + dtype/module-attribute surface (CONCEPT:EG-KG.compute.concept-3).
     ///
     /// numpy is the engine-**private container substrate** (rust-numpy binds the
     /// official CPython numpy, and every kernel array IS a `numpy.ndarray`). So the

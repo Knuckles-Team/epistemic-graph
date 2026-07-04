@@ -1,4 +1,4 @@
-//! The tiered KV-cache store (CONCEPT:EG-185).
+//! The tiered KV-cache store (CONCEPT:EG-KG.memory.byte-bounded-tiers).
 //!
 //! [`TieredCache`] is a three-tier, byte-budgeted cache for KV-cache blocks that lets an
 //! LLM runtime **survive OOM by offloading blocks to cheaper tiers** instead of dropping
@@ -46,7 +46,7 @@ struct WarmEntry {
 
 /// COLD-tier per-key metadata (the bytes live in the [`ColdStore`]).
 struct ColdMeta {
-    /// The codec the spilled bytes were produced with (CONCEPT:EG-315) — the tag a
+    /// The codec the spilled bytes were produced with (CONCEPT:EG-KG.storage.rle-codec-default) — the tag a
     /// promote reconstructs the block by.
     codec: Codec,
     orig_len: usize,
@@ -66,7 +66,7 @@ pub enum Tier {
     Cold,
 }
 
-/// A point-in-time snapshot of cache occupancy + activity counters (CONCEPT:EG-185).
+/// A point-in-time snapshot of cache occupancy + activity counters (CONCEPT:EG-KG.memory.byte-bounded-tiers).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct CacheStats {
     /// Entries currently in HOT.
@@ -95,13 +95,13 @@ pub struct CacheStats {
     pub demotions_to_cold: u64,
     /// Lifetime blocks dropped (fell out of the COLD budget, or a cold write failed).
     pub drops: u64,
-    /// Lifetime entries RETIRED as stale by a data-version bump (CONCEPT:EG-364) — either
+    /// Lifetime entries RETIRED as stale by a data-version bump (CONCEPT:EG-KG.storage.content-addressed-put) — either
     /// eagerly on [`TieredCache::set_data_version`] or lazily on a [`TieredCache::get`] of
     /// a now-stale key. The invalidation proof counter.
     pub invalidations: u64,
 }
 
-/// A three-tier, byte-budgeted, score-driven KV-cache store (CONCEPT:EG-185).
+/// A three-tier, byte-budgeted, score-driven KV-cache store (CONCEPT:EG-KG.memory.byte-bounded-tiers).
 ///
 /// `K` is the block key (e.g. a token-span / prefix hash), `V` the block value (any
 /// [`CacheValue`]; the common case is [`crate::Block`] = `Vec<u8>`). Construct with
@@ -118,7 +118,7 @@ where
     cold_store: Box<dyn ColdStore<K>>,
     pinned: HashSet<K>,
 
-    /// The [`DataVersion`] each resident key was derived at (CONCEPT:EG-364), layered
+    /// The [`DataVersion`] each resident key was derived at (CONCEPT:EG-KG.storage.content-addressed-put), layered
     /// ON TOP of the tier maps so the tiering/dedup/LRU/pinning machinery is untouched.
     /// A key absent here (or mapped to [`DataVersion::Agnostic`]) is a pure KV page that
     /// never goes stale — so a cache used purely for content-addressed pages (`put`, never
@@ -132,7 +132,7 @@ where
     warm_cap: usize,
     cold_cap: usize,
 
-    /// The codec used to compress blocks on HOT→WARM demotion (CONCEPT:EG-315). Defaults
+    /// The codec used to compress blocks on HOT→WARM demotion (CONCEPT:EG-KG.storage.rle-codec-default). Defaults
     /// to the dependency-free [`Codec::Rle`]; set a real codec via
     /// [`TieredCache::with_warm_codec`].
     warm_codec: Codec,
@@ -173,7 +173,7 @@ where
 
     /// A cache with an explicit COLD backing store — e.g. a durable
     /// [`crate::cold::RedbColdStore`] so demoted bytes survive an OOM / restart
-    /// (CONCEPT:EG-185).
+    /// (CONCEPT:EG-KG.memory.byte-bounded-tiers).
     pub fn with_cold_store(
         hot_cap: usize,
         warm_cap: usize,
@@ -206,7 +206,7 @@ where
         }
     }
 
-    /// Select the WARM-tier compression codec (CONCEPT:EG-315), builder-style.
+    /// Select the WARM-tier compression codec (CONCEPT:EG-KG.storage.rle-codec-default), builder-style.
     ///
     /// The default is [`Codec::Rle`] (dependency-free). Pass [`Codec::Zstd`] (feature
     /// `compression`) or [`Codec::Lz4`] (feature `lz4`) for a real codec, or
@@ -218,7 +218,7 @@ where
         self
     }
 
-    /// The WARM-tier compression codec this cache demotes with (CONCEPT:EG-315).
+    /// The WARM-tier compression codec this cache demotes with (CONCEPT:EG-KG.storage.rle-codec-default).
     pub fn warm_codec(&self) -> Codec {
         self.warm_codec
     }
@@ -231,7 +231,7 @@ where
 
     /// Insert / overwrite a block as a version-[`Agnostic`](DataVersion::Agnostic) pure KV
     /// page (never version-invalidated). It lands in HOT with a fresh score; byte pressure
-    /// is then resolved by cascading demotion (CONCEPT:EG-185). Use
+    /// is then resolved by cascading demotion (CONCEPT:EG-KG.memory.byte-bounded-tiers). Use
     /// [`put_versioned`](Self::put_versioned) for DERIVED context that must go stale on a
     /// graph write.
     pub fn put(&mut self, key: K, value: V) {
@@ -239,7 +239,7 @@ where
     }
 
     /// Insert / overwrite a block stamped with the [`DataVersion`] it was `derived_at`
-    /// (CONCEPT:EG-364). Once the cache's current version moves past it (via
+    /// (CONCEPT:EG-KG.storage.content-addressed-put). Once the cache's current version moves past it (via
     /// [`set_data_version`](Self::set_data_version)) the entry is retired / misses. Tiering
     /// is otherwise identical to [`put`](Self::put) — the version is layered on top and
     /// does not affect scoring / demotion.
@@ -262,12 +262,12 @@ where
         self.enforce_hot();
     }
 
-    /// The cache's current data version (CONCEPT:EG-364).
+    /// The cache's current data version (CONCEPT:EG-KG.storage.content-addressed-put).
     pub fn current_version(&self) -> DataVersion {
         self.current_version
     }
 
-    /// Advance the cache's current data version (CONCEPT:EG-364) — the hook a graph write
+    /// Advance the cache's current data version (CONCEPT:EG-KG.storage.content-addressed-put) — the hook a graph write
     /// drives (a committed write bumps `GraphCore::version()`, KG-2.180, then calls this).
     /// EAGERLY retires every version-tagged entry now stale (across ALL tiers, freeing its
     /// bytes — pinned or not, because staleness is a correctness concern that overrides the
@@ -288,7 +288,7 @@ where
         }
     }
 
-    /// Whether `key` is resident but STALE for the current data version (CONCEPT:EG-364).
+    /// Whether `key` is resident but STALE for the current data version (CONCEPT:EG-KG.storage.content-addressed-put).
     fn is_stale(&self, key: &K) -> bool {
         self.versions
             .get(key)
@@ -299,7 +299,7 @@ where
     /// Look a block up. On a hit it is promoted toward HOT and its score bumped; on a
     /// miss returns `None`. Requires `&mut self` because a hit mutates tiers / scores.
     ///
-    /// A resident-but-STALE entry (derived at an older data version, CONCEPT:EG-364) is
+    /// A resident-but-STALE entry (derived at an older data version, CONCEPT:EG-KG.storage.content-addressed-put) is
     /// treated as a MISS and retired here (the lazy backstop to
     /// [`set_data_version`](Self::set_data_version)'s eager sweep) so stale LLM/agent
     /// context is never served.
@@ -351,7 +351,7 @@ where
     }
 
     /// Whether `key` is resident in ANY tier AND still fresh for the current data version
-    /// (a stale entry reads as absent, CONCEPT:EG-364).
+    /// (a stale entry reads as absent, CONCEPT:EG-KG.storage.content-addressed-put).
     pub fn contains(&self, key: &K) -> bool {
         if self.is_stale(key) {
             return false;
@@ -362,7 +362,7 @@ where
     }
 
     /// Which tier `key` currently lives in, if resident and fresh. A stale entry
-    /// (CONCEPT:EG-364) reports `None`.
+    /// (CONCEPT:EG-KG.storage.content-addressed-put) reports `None`.
     pub fn tier_of(&self, key: &K) -> Option<Tier> {
         if self.is_stale(key) {
             return None;
@@ -378,7 +378,7 @@ where
         }
     }
 
-    /// Pin a key so it is NEVER demoted or evicted (CONCEPT:EG-185). If resident it is
+    /// Pin a key so it is NEVER demoted or evicted (CONCEPT:EG-KG.memory.byte-bounded-tiers). If resident it is
     /// pulled up to HOT; a not-yet-resident key is remembered so a later `put` is pinned.
     pub fn pin(&mut self, key: &K) {
         self.pinned.insert(key.clone());
@@ -424,7 +424,7 @@ where
         self.remove_resident(key)
     }
 
-    /// A snapshot of occupancy + lifetime counters (CONCEPT:EG-185).
+    /// A snapshot of occupancy + lifetime counters (CONCEPT:EG-KG.memory.byte-bounded-tiers).
     pub fn stats(&self) -> CacheStats {
         CacheStats {
             hot_entries: self.hot.len(),
@@ -539,7 +539,7 @@ where
             let e = self.hot.remove(&k).expect("lowest_hot key present");
             self.hot_bytes -= e.bytes;
             // Demote HOT → WARM: compress the raw block with the configured codec
-            // (CONCEPT:EG-315).
+            // (CONCEPT:EG-KG.storage.rle-codec-default).
             let bytes = e.value.as_bytes();
             let sb = StoredBlock::encode_with(self.warm_codec, &bytes);
             self.warm_bytes += sb.stored_len();
@@ -624,7 +624,7 @@ mod tests {
             .collect()
     }
 
-    /// CONCEPT:EG-185 — capacity is accounted in BYTES; a put over the HOT budget
+    /// CONCEPT:EG-KG.memory.byte-bounded-tiers — capacity is accounted in BYTES; a put over the HOT budget
     /// demotes rather than rejects, and stats reflect the byte split.
     #[test]
     fn eg185_capacity_accounting_is_in_bytes() {
@@ -646,7 +646,7 @@ mod tests {
         );
     }
 
-    /// CONCEPT:EG-185 — the LRU evicts the LOWEST-SCORE block first: accessing a block
+    /// CONCEPT:EG-KG.memory.byte-bounded-tiers — the LRU evicts the LOWEST-SCORE block first: accessing a block
     /// raises its score so a colder neighbour is the one demoted.
     #[test]
     fn eg185_lru_evicts_lowest_score_first() {
@@ -671,7 +671,7 @@ mod tests {
         );
     }
 
-    /// CONCEPT:EG-185 — a hit in a lower tier PROMOTES the block back to HOT.
+    /// CONCEPT:EG-KG.memory.byte-bounded-tiers — a hit in a lower tier PROMOTES the block back to HOT.
     #[test]
     fn eg185_promotion_on_access_moves_block_back_to_hot() {
         let mut c: TieredCache<u64, Block> = TieredCache::new(80, 10_000, 10_000);
@@ -696,7 +696,7 @@ mod tests {
         assert!(c.stats().promotions >= 1);
     }
 
-    /// CONCEPT:EG-185 — demotion under pressure MOVES bytes to WARM/COLD; it does NOT
+    /// CONCEPT:EG-KG.memory.byte-bounded-tiers — demotion under pressure MOVES bytes to WARM/COLD; it does NOT
     /// drop them. The value is still retrievable after cascading all the way to COLD.
     #[test]
     fn eg185_demotion_under_pressure_moves_bytes_not_drops() {
@@ -724,7 +724,7 @@ mod tests {
         }
     }
 
-    /// CONCEPT:EG-185 — a block only leaves the cache when it falls out of the COLD
+    /// CONCEPT:EG-KG.memory.byte-bounded-tiers — a block only leaves the cache when it falls out of the COLD
     /// budget (the final drop rung).
     #[test]
     fn eg185_drop_only_when_cold_budget_exceeded() {
@@ -738,7 +738,7 @@ mod tests {
         assert!(c.len() < 10, "some blocks evicted entirely");
     }
 
-    /// CONCEPT:EG-185 — a PINNED block is never demoted or evicted, even under heavy
+    /// CONCEPT:EG-KG.memory.byte-bounded-tiers — a PINNED block is never demoted or evicted, even under heavy
     /// pressure that drops everything else.
     #[test]
     fn eg185_pin_prevents_eviction_under_pressure() {
@@ -764,7 +764,7 @@ mod tests {
         );
     }
 
-    /// CONCEPT:EG-185 — `evict` forcibly removes a block from all tiers (and unpins it).
+    /// CONCEPT:EG-KG.memory.byte-bounded-tiers — `evict` forcibly removes a block from all tiers (and unpins it).
     #[test]
     fn eg185_evict_forcibly_removes_across_tiers() {
         let mut c: TieredCache<u64, Block> = TieredCache::new(1_000, 1_000, 1_000);
@@ -775,7 +775,7 @@ mod tests {
         assert!(!c.is_pinned(&7), "evict also unpins");
     }
 
-    /// CONCEPT:EG-185 — re-`put` of an existing key overwrites (no double-accounting).
+    /// CONCEPT:EG-KG.memory.byte-bounded-tiers — re-`put` of an existing key overwrites (no double-accounting).
     #[test]
     fn eg185_reput_overwrites_without_double_accounting() {
         let mut c: TieredCache<u64, Block> = TieredCache::new(1_000, 1_000, 1_000);
@@ -790,7 +790,7 @@ mod tests {
         assert_eq!(c.get(&1), Some(page(60, 1)));
     }
 
-    /// CONCEPT:EG-185 — a miss is counted and returns None.
+    /// CONCEPT:EG-KG.memory.byte-bounded-tiers — a miss is counted and returns None.
     #[test]
     fn eg185_miss_returns_none_and_counts() {
         let mut c: TieredCache<u64, Block> = TieredCache::new(1_000, 1_000, 1_000);
@@ -808,14 +808,14 @@ mod tests {
         b
     }
 
-    /// CONCEPT:EG-315 — the default cache still uses the dependency-free RLE codec.
+    /// CONCEPT:EG-KG.storage.rle-codec-default — the default cache still uses the dependency-free RLE codec.
     #[test]
     fn eg315_default_warm_codec_is_rle() {
         let c: TieredCache<u64, Block> = TieredCache::new(100, 100, 100);
         assert_eq!(c.warm_codec(), Codec::Rle);
     }
 
-    /// CONCEPT:EG-315 — with the `zstd` codec selected, a HOT→WARM demote compresses the
+    /// CONCEPT:EG-KG.storage.rle-codec-default — with the `zstd` codec selected, a HOT→WARM demote compresses the
     /// block to a WARM copy far smaller than raw, and a later hit PROMOTES it back to HOT
     /// with the exact value intact (demote/promote round-trip through a real codec).
     #[cfg(feature = "compression")]
@@ -849,7 +849,7 @@ mod tests {
         assert!(c.stats().promotions >= 1);
     }
 
-    /// CONCEPT:EG-315 — the `zstd` codec survives a full HOT→WARM→COLD cascade and back:
+    /// CONCEPT:EG-KG.storage.rle-codec-default — the `zstd` codec survives a full HOT→WARM→COLD cascade and back:
     /// every block is still recoverable byte-exact after being spilled to COLD compressed.
     #[cfg(feature = "compression")]
     #[test]
@@ -879,7 +879,7 @@ mod tests {
         }
     }
 
-    /// CONCEPT:EG-315 — incompressible pages under the `zstd` codec fall back to raw, so
+    /// CONCEPT:EG-KG.storage.rle-codec-default — incompressible pages under the `zstd` codec fall back to raw, so
     /// the tier machinery still cascades on their true (unshrunk) size and every block
     /// round-trips.
     #[cfg(feature = "compression")]
@@ -902,7 +902,7 @@ mod tests {
         }
     }
 
-    /// CONCEPT:EG-364 — a versioned (derived-context) block is served while the data
+    /// CONCEPT:EG-KG.storage.content-addressed-put — a versioned (derived-context) block is served while the data
     /// version holds, then MISSES after a `set_data_version` bump, whatever tier it sits
     /// in. Eager retire frees it and the invalidation counter records it.
     #[test]
@@ -923,7 +923,7 @@ mod tests {
         assert_eq!(c.get(&1), Some(page(60, 1)));
     }
 
-    /// CONCEPT:EG-364 — the lazy backstop: even WITHOUT calling `set_data_version` to
+    /// CONCEPT:EG-KG.storage.content-addressed-put — the lazy backstop: even WITHOUT calling `set_data_version` to
     /// eagerly sweep, a `get` of a key whose stamp is behind the current version misses
     /// (belt-and-suspenders). Here we bump first (eager) then confirm a fresh put at the
     /// new version survives — proving no false invalidation of current-version data.
@@ -943,7 +943,7 @@ mod tests {
         );
     }
 
-    /// CONCEPT:EG-364 — `put` (version-agnostic pure KV pages) is immune to version bumps,
+    /// CONCEPT:EG-KG.storage.content-addressed-put — `put` (version-agnostic pure KV pages) is immune to version bumps,
     /// so all existing tiering behaviour is preserved when versioning is unused.
     #[test]
     fn eg359_agnostic_puts_survive_version_bumps() {
@@ -955,7 +955,7 @@ mod tests {
         assert_eq!(c.stats().invalidations, 0);
     }
 
-    /// CONCEPT:EG-364 — a stale versioned block that has cascaded down to COLD is still
+    /// CONCEPT:EG-KG.storage.content-addressed-put — a stale versioned block that has cascaded down to COLD is still
     /// correctly invalidated (retired from the cold tier + its cold blob removed).
     #[test]
     fn eg359_invalidates_a_block_sitting_in_cold() {

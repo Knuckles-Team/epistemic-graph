@@ -1,4 +1,4 @@
-# CONCEPT:KG-2.19 — Epistemic Graph Service CLI
+# CONCEPT:EG-KG.query.wire-protocol — Epistemic Graph Service CLI
 #
 # Command-line interface for managing the epistemic-graph Tokio service.
 # Handles start/stop/status/ping operations.

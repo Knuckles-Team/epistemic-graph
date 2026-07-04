@@ -1,4 +1,4 @@
-// CONCEPT:KG-2.20a — Mean-Variance Optimization Engine
+// CONCEPT:EG-KG.compute.mean-variance-optimization — Mean-Variance Optimization Engine
 //
 // Full MVO implementation with multiple optimization strategies:
 // - Maximum Sharpe ratio

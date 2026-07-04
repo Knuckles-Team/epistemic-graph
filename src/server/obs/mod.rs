@@ -1,4 +1,4 @@
-//! Observability log ingestion front door (CONCEPT:EG-160) — the first slice of
+//! Observability log ingestion front door (CONCEPT:AU-KG.ingest.self-ingest) — the first slice of
 //! Phase T ("surpass OpenObserve").
 //!
 //! ## Why this exists
@@ -9,7 +9,7 @@
 //! wire protocols → land them as time-series + full-text → roll them into
 //! Parquet-on-object-store → search with SQL. This module lands the **log
 //! ingestion front door**; [`segment`] lands the **Parquet segment substrate**
-//! (CONCEPT:EG-161). Search / PromQL / dashboards are later Phase T items.
+//! (CONCEPT:EG-KG.retrieval.observability-search). Search / PromQL / dashboards are later Phase T items.
 //!
 //! ## The listener
 //!
@@ -33,14 +33,14 @@
 pub mod search;
 pub mod segment;
 
-/// CONCEPT:EG-316 — the observability EGRESS half: OTLP/HTTP-JSON export of the engine's
+/// CONCEPT:EG-OS.observability.prometheus-ingest — the observability EGRESS half: OTLP/HTTP-JSON export of the engine's
 /// OWN Prometheus metrics + its stored distributed-trace spans to an external
 /// OpenTelemetry collector (closing the loop the engine already ingests). Behind the
 /// `otel-export` feature.
 #[cfg(feature = "otel-export")]
 pub mod otel_export;
 
-/// CONCEPT:EG-316 — the Prometheus `remote_write` receiver: land snappy-compressed
+/// CONCEPT:EG-OS.observability.prometheus-ingest — the Prometheus `remote_write` receiver: land snappy-compressed
 /// protobuf `WriteRequest` POSTs (`/api/v1/write`) into the durable eg-tsdb SeriesStore
 /// so an external Prometheus can PUSH to the engine. Behind the `otel-export` feature.
 #[cfg(feature = "otel-export")]
@@ -67,7 +67,7 @@ pub use segment::SegmentManifest;
 /// e.g. `127.0.0.1:5080` (O2's default log-ingest port). Unset ⇒ no listener.
 pub const OBS_ADDR_ENV: &str = "EPISTEMIC_GRAPH_OBS_ADDR";
 /// Env var overriding the per-stream buffered-record count that triggers a Parquet
-/// segment flush (CONCEPT:EG-161). Default [`DEFAULT_FLUSH_RECORDS`].
+/// segment flush (CONCEPT:EG-KG.retrieval.observability-search). Default [`DEFAULT_FLUSH_RECORDS`].
 pub const OBS_FLUSH_RECORDS_ENV: &str = "EPISTEMIC_GRAPH_OBS_FLUSH_RECORDS";
 
 /// Default flush window: buffer this many records per stream, then roll a segment.
@@ -151,7 +151,7 @@ pub struct ObsState {
     flush_threshold: usize,
     /// Monotonic doc-id sequence for text-index document ids.
     next_doc: AtomicU64,
-    /// CONCEPT:EG-163 — the distributed-trace span store (in-memory; a durable tier
+    /// CONCEPT:EG-OS.observability.trace-assembly — the distributed-trace span store (in-memory; a durable tier
     /// mirroring logs is a follow-up). Present only under the `traces` sub-feature.
     #[cfg(feature = "traces")]
     traces: Arc<eg_tsdb::traces::SpanStore>,
@@ -194,7 +194,7 @@ impl ObsState {
         })
     }
 
-    /// CONCEPT:EG-163 — the distributed-trace span store handle, used by the trace
+    /// CONCEPT:EG-OS.observability.trace-assembly — the distributed-trace span store handle, used by the trace
     /// facade (`src/server/traces`) to ingest spans and serve trace search/assembly.
     #[cfg(feature = "traces")]
     pub fn trace_store(&self) -> Arc<eg_tsdb::traces::SpanStore> {
@@ -308,7 +308,7 @@ impl ObsState {
     }
 
     /// The durable time-series store handle — used by the PromQL facade
-    /// (CONCEPT:EG-172) to resolve selectors / enumerate labels over the same series
+    /// (CONCEPT:EG-KG.query.prometheus-http-query-api) to resolve selectors / enumerate labels over the same series
     /// the log ingest lands in.
     pub fn series_store(&self) -> Arc<SeriesStore> {
         self.series.clone()
@@ -644,7 +644,7 @@ struct HttpRequest {
     target: String,
     content_type: String,
     body: String,
-    /// CONCEPT:EG-316 — the ORIGINAL (un-lossy-UTF-8'd) request bytes, kept for the
+    /// CONCEPT:EG-OS.observability.prometheus-ingest — the ORIGINAL (un-lossy-UTF-8'd) request bytes, kept for the
     /// Prometheus `remote_write` receiver whose body is snappy-compressed BINARY (the
     /// `body` String would corrupt it). Only populated/read under `otel-export`.
     #[cfg(feature = "otel-export")]
@@ -750,7 +750,7 @@ async fn handle(state: &Arc<ObsState>, req: HttpRequest) -> (&'static str, &'sta
         return ("200 OK", "text/plain", "ok".to_string());
     }
 
-    // CONCEPT:EG-172 — the Prometheus HTTP query API (GET or POST), routed BEFORE the
+    // CONCEPT:EG-KG.query.prometheus-http-query-api — the Prometheus HTTP query API (GET or POST), routed BEFORE the
     // POST-only ingest guard (instant queries are typically GET). Gated on `promql`,
     // which implies `obs`; absent that feature these paths fall through to 404.
     #[cfg(feature = "promql")]
@@ -761,7 +761,7 @@ async fn handle(state: &Arc<ObsState>, req: HttpRequest) -> (&'static str, &'sta
         return crate::server::promql::handle(state, &req.method, path, query, &req.body).await;
     }
 
-    // CONCEPT:EG-163 — distributed-trace surface (GET or POST), routed BEFORE the
+    // CONCEPT:EG-OS.observability.trace-assembly — distributed-trace surface (GET or POST), routed BEFORE the
     // POST-only ingest guard (trace SEARCH / assembly / dependency-graph are GET).
     // Gated on `traces`, which implies `obs`; absent that feature these paths fall
     // through to 404. Covers OTLP-JSON ingest (`POST /v1/traces`), trace search
@@ -777,7 +777,7 @@ async fn handle(state: &Arc<ObsState>, req: HttpRequest) -> (&'static str, &'sta
         return crate::server::traces::handle(state, &req.method, path, query, &req.body).await;
     }
 
-    // CONCEPT:EG-316 — the Prometheus `remote_write` receiver (`POST /api/v1/write`):
+    // CONCEPT:EG-OS.observability.prometheus-ingest — the Prometheus `remote_write` receiver (`POST /api/v1/write`):
     // decode the snappy-compressed protobuf WriteRequest from the RAW body bytes (the
     // lossy-UTF-8 `body` String would corrupt the binary) and land its samples in the
     // durable eg-tsdb SeriesStore. Gated on `otel-export`; absent the feature this path
@@ -1389,7 +1389,7 @@ mod tests {
     }
 
     /// The `_search` HTTP surface: a structured search returns ES-shaped hits, and a
-    /// `{"sql":…}` body aggregates over the log segments (CONCEPT:EG-162).
+    /// `{"sql":…}` body aggregates over the log segments (CONCEPT:EG-KG.query.concept-4).
     #[tokio::test]
     async fn http_search_end_to_end() {
         // flush_threshold=2 → two records roll a segment, one stays hot.

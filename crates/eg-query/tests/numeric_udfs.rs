@@ -1,4 +1,4 @@
-//! Surface-B numeric analytics UDFs/UDAFs (CONCEPT:EG-329) — the `eg-numeric`-backed
+//! Surface-B numeric analytics UDFs/UDAFs (CONCEPT:EG-KG.query.surface-b-numeric-operators) — the `eg-numeric`-backed
 //! `cosine_sim`/`l2_normalize`/`zscore` scalar UDFs + `covariance` UDAF, asserted in-engine
 //! (compute-near-data) against hand-computed values. Only compiles under `numeric`.
 #![cfg(feature = "numeric")]
@@ -138,7 +138,7 @@ fn covariance_udaf() {
     );
 }
 
-// ── svd (CONCEPT:EG-336) / pca (CONCEPT:EG-335) — column→Array2 marshalling UDAFs ──
+// ── svd (CONCEPT:EG-KG.query.svd-eg-pca-column) / pca (CONCEPT:EG-KG.query.concept-6) — column→Array2 marshalling UDAFs ──
 //
 // Both aggregate a COLUMN OF VECTORS (text-literal operand form, as `cosine_sim` accepts)
 // into a matrix and run a faer kernel, so a `VALUES` list of vectors is the exact matrix.
@@ -242,7 +242,7 @@ fn pca_two_components_are_orthonormal_and_ordered() {
     );
 }
 
-// ── kmeans (CONCEPT:EG-344) — column→matrix clustering UDAF ──────────────────
+// ── kmeans (CONCEPT:EG-KG.query.kmeans-clustering-half-one) — column→matrix clustering UDAF ──────────────────
 //
 // `kmeans(vec_col, k)` aggregates a COLUMN OF VECTORS into an `n×d` matrix and returns one
 // cluster label per row (ingestion order) as a `List<Int64>`. Two well-separated blobs are

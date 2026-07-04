@@ -1,4 +1,4 @@
-//! Tamper-evident hash-chained audit log (CONCEPT:KG-2.231, Lane O).
+//! Tamper-evident hash-chained audit log (CONCEPT:EG-KG.sharding.row-level-security, Lane O).
 //!
 //! Every durable mutation appends ONE entry to a per-graph hash CHAIN stored in the
 //! redb `AUDIT` table, keyed `(graph, seq)`. Each entry binds the previous entry's

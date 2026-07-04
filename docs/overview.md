@@ -105,16 +105,16 @@ server-side modules (dispatch, handlers, persistence, raft, embedded, **the mult
 CDC emit) stay centralized in the shell so every write handler gets durability + reactivity for free.
 
 Six leaf/modality crates were added in the 2.2.0 cycle: **eg-geo** (GIS — geometry, R-tree, CRS, routing;
-CONCEPT:EG-083/255-267/155), **eg-tensor** (N-D arrays; CONCEPT:EG-085), **eg-stream** (windowed CEP;
-CONCEPT:EG-088), **eg-shacl** / **eg-shex** (RDF shape validation; CONCEPT:EG-132/133), and
-**eg-kvcache** (LLM KV-block tiering; CONCEPT:EG-185/186/187). The **message broker** (CONCEPT:EG-275
-family) and **agent-memory** primitives (CONCEPT:EG-099/220/221/222) live in `eg-core`; the
-**observability** stack (logs/metrics/traces/VRL/federated-search; CONCEPT:EG-160-165/172/243) lives in
-`eg-tsdb` + the facade's `obs` listener. **Program B** (waves B-1..B-6, CONCEPT:EG-298..320) then added a
+CONCEPT:EG-KG.ontology.singles-concept/255-267/155), **eg-tensor** (N-D arrays; CONCEPT:EG-KG.storage.content-addressed-dedup), **eg-stream** (windowed CEP;
+CONCEPT:EG-KG.query.pipelined-execution), **eg-shacl** / **eg-shex** (RDF shape validation; CONCEPT:EG-KG.ontology.concept-6/133), and
+**eg-kvcache** (LLM KV-block tiering; CONCEPT:EG-KG.memory.byte-bounded-tiers/186/187). The **message broker** (CONCEPT:EG-KG.compute.message-broker-exchanges
+family) and **agent-memory** primitives (CONCEPT:EG-KG.compute.discounted-return/220/221/222) live in `eg-core`; the
+**observability** stack (logs/metrics/traces/VRL/federated-search; CONCEPT:AU-KG.ingest.self-ingest-165/172/243) lives in
+`eg-tsdb` + the facade's `obs` listener. **Program B** (waves B-1..B-6, CONCEPT:EG-KG.query.gds-call-procedures..320) then added a
 seventh leaf crate — **eg-lake** (LTAP lakehouse interop: Parquet + Delta + Iceberg + LSN as-of;
-CONCEPT:EG-317, see [lakehouse-ltap](architecture/lakehouse_ltap.md)) — plus the facade's **OTel egress**
+CONCEPT:EG-KG.storage.lsn-as-snapshot-returns, see [lakehouse-ltap](architecture/lakehouse_ltap.md)) — plus the facade's **OTel egress**
 (OTLP export + Prometheus remote-write; EG-316) and **QoS/SLO scheduler** (EG-320), and exposed the
-agent-memory/scene/trajectory primitives over the wire (EG-318). See
+agent-memory/scene/trajectory primitives over the wire (EG-KG.memory.eg-batch-decay-caller). See
 [subsystems](architecture/subsystems.md) for how they compose on the one substrate.
 
 ---
@@ -156,9 +156,9 @@ flowchart LR
   lexical `RankText`, hybrid `FuseRrf` (reciprocal-rank fusion of two sub-plans — a doc strong in both
   modalities out-ranks one strong in only one), `Udf` (a registered WASM module run over the rows),
   and the time-context ops `AsOf` / `Window`.
-- The planner is **cost-reordered** (CONCEPT:KG-2.208/2.209): a selective predicate runs before a broad
+- The planner is **cost-reordered** (CONCEPT:AU-KG.compute.vector/2.209): a selective predicate runs before a broad
   one, so the most selective stage prunes the candidate set first. The result is served through the
-  version-keyed, **RLS-aware** result cache (CONCEPT:KG-2.233), so a repeated identical query on an
+  version-keyed, **RLS-aware** result cache (CONCEPT:EG-KG.coordination.distributed-cache-coherence), so a repeated identical query on an
   unchanged graph hits — and an agent never sees another agent's filtered result.
 
 A worked example in one plan: *"members the OWL reasoner infers for `Device`, that have a `partOf`
@@ -171,7 +171,7 @@ path to a `Rack`, re-ranked by similarity to a query vector, fused with a BM25 t
 
 Beyond the planner, the property-graph core exposes the classic algorithms directly (one round-trip
 each), computed off the per-graph lock on a structural snapshot so analytics never starves writers
-(CONCEPT:KG-2.51):
+(CONCEPT:EG-KG.txn.per-graph-write-isolation):
 
 - **Topological sort** — Kahn's algorithm (`petgraph::algo::toposort`); raises on a cycle.
 - **Cycle detection** — DFS coloring; returns the precise cycle path, e.g. `["A","B","C","A"]`.

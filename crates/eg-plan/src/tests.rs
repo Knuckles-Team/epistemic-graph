@@ -177,7 +177,7 @@ fn cost_reorder_picks_winner_same_result() {
     assert_eq!(a, b, "cost reorder must not change the result set");
 }
 
-/// The WASM `Udf` op (CONCEPT:KG-2.228): a registered, sandboxed wasm function runs as
+/// The WASM `Udf` op (CONCEPT:EG-KG.query.rowset-execution): a registered, sandboxed wasm function runs as
 /// a `RowSet -> RowSet` transform inside a unified plan. Here a UDF that DROPS every
 /// row whose id does NOT start with 'd' (a custom filter expressed in wasm) runs after
 /// a Scan; the result must be exactly the 'd*' nodes. Proves the op threads the RowSet
@@ -254,7 +254,7 @@ fn udf_op_without_registry_errs() {
     assert!(err.contains("registry"), "got: {err}");
 }
 
-/// Bi-temporal `AS OF` execution proofs (CONCEPT:KG-2.250). The planner now filters
+/// Bi-temporal `AS OF` execution proofs (CONCEPT:AU-KG.compute.kg-2). The planner now filters
 /// the RowSet by validity/transaction windows instead of passing rows through.
 #[cfg(test)]
 mod temporal_tests {
@@ -450,9 +450,9 @@ mod temporal_tests {
         v.get("confidence").and_then(|c| c.as_f64())
     }
 
-    /// Bitemporal cross-modal seam (CONCEPT:EG-366): the memory/confidence model
-    /// (Ebbinghaus decay, CONCEPT:KG-2.211) and the bitemporal `AS OF` filter
-    /// (CONCEPT:KG-2.250) are the SAME temporal substrate — a decay sweep re-weights
+    /// Bitemporal cross-modal seam (CONCEPT:EG-KG.query.query-plan-node): the memory/confidence model
+    /// (Ebbinghaus decay, CONCEPT:EG-KG.compute.handled-outside-single-anchor) and the bitemporal `AS OF` filter
+    /// (CONCEPT:AU-KG.compute.kg-2) are the SAME temporal substrate — a decay sweep re-weights
     /// belief while `AsOf{Valid}` re-selects liveness, and an in-between UPDATE flips a
     /// validity window. This pins BOTH signals at two instants: confidence VALUES after
     /// the sweep, and liveness at each `AS OF` timestamp before and after the update.
@@ -554,7 +554,7 @@ mod temporal_tests {
     }
 }
 
-/// Graph-native reranker proofs (CONCEPT:KG-2.254) — node-distance + mentions.
+/// Graph-native reranker proofs (CONCEPT:EG-KG.query.uql-parser-ops) — node-distance + mentions.
 #[cfg(test)]
 mod rerank_tests {
     use crate::algebra::{Op, Plan};
@@ -663,7 +663,7 @@ mod rerank_tests {
     }
 }
 
-/// `Op::Window` execution proofs (CONCEPT:EG-067). The planner now runs a real
+/// `Op::Window` execution proofs (CONCEPT:EG-KG.query.streaming-execution). The planner now runs a real
 /// eg-tsdb windowed aggregate over the input's time/value columns instead of passing
 /// the rows through.
 #[cfg(feature = "timeseries")]

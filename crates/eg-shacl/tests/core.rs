@@ -1,4 +1,4 @@
-//! SHACL Core correctness proof (CONCEPT:EG-132).
+//! SHACL Core correctness proof (CONCEPT:EG-KG.ontology.concept-6).
 //!
 //! Each test parses a shapes graph + a data graph from Turtle and asserts the report's
 //! `conforms` flag and (on failure) the reported constraint component.

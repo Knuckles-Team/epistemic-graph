@@ -1,4 +1,4 @@
-//! Single-writer guard for a persist directory (CONCEPT:KG-2.8 / OS-5.9, Phase B1).
+//! Single-writer guard for a persist directory (CONCEPT:EG-KG.storage.nonblocking-checkpoint / OS-5.9, Phase B1).
 //!
 //! Exactly one engine may own a persist dir. A second engine started on the same
 //! dir checkpoints the SAME per-graph `.mp` files and clobbers the first's

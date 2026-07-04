@@ -1,5 +1,5 @@
 """Round-trip tests for the market-microstructure, sizing, validation, and
-forensic-accounting kernels (CONCEPT:KG-2.20f / KG-2.20g).
+forensic-accounting kernels (CONCEPT:EG-KG.domains.market-microstructure-sizing-backtest / KG-2.20g).
 
 Full path: Python client -> UDS -> Rust dispatch -> result. Uses the
 session-scoped server + `clean_graph` sync client from conftest.py.

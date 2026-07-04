@@ -1,5 +1,5 @@
 """QueryClient.cypher sends the CypherQuery RPC and zips Raw(QueryResult) rows
-into dicts (CONCEPT:KG-2.179) — mirroring the SQL path, since both return the
+into dicts (CONCEPT:EG-KG.query.dep-free-behind) — mirroring the SQL path, since both return the
 identical wire shape."""
 
 from __future__ import annotations

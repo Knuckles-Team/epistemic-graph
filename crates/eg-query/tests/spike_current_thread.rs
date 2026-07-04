@@ -1,4 +1,4 @@
-//! STEP 0 de-risk spike (CONCEPT:KG-2.178): can DataFusion 43's async executor be
+//! STEP 0 de-risk spike (CONCEPT:EG-KG.query.read-only-sql-query): can DataFusion 43's async executor be
 //! driven to completion on a CURRENT-THREAD tokio runtime created INSIDE a
 //! spawn_blocking task (the established `compute_off_lock` idiom)?
 //!

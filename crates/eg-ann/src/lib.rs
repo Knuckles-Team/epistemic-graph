@@ -1,5 +1,5 @@
 //! eg-ann — native IVF-PQ + OPQ + SQ8-refine approximate-nearest-neighbour index
-//! (CONCEPT:KG-2.207).
+//! (CONCEPT:EG-KG.sharding.semantic-embedding-store-backed).
 //!
 //! A pure-Rust, Pi-lean vector index that replaces the rebuild-on-load `hnsw_rs`
 //! store in `eg-core::compute::semantic`. The headline properties:
@@ -106,7 +106,7 @@ mod tests {
 
     #[test]
     fn simd_sq_dist_matches_scalar_within_epsilon() {
-        // CONCEPT:EG-014 — the 8-lane chunked `sq_dist` must equal a naive scalar
+        // CONCEPT:EG-KG.compute.lane-chunked-dot-product — the 8-lane chunked `sq_dist` must equal a naive scalar
         // squared-distance for ALL lengths, including non-multiples of 8.
         fn scalar_sq_dist(a: &[f32], b: &[f32]) -> f32 {
             a.iter().zip(b.iter()).map(|(x, y)| (x - y) * (x - y)).sum()
@@ -213,7 +213,7 @@ mod tests {
 
     #[test]
     fn merge_topk_matches_single_combined_index() {
-        // CONCEPT:EG-069 — the gather step. Splitting the SAME hits across N shards and
+        // CONCEPT:EG-KG.retrieval.scatter-gather — the gather step. Splitting the SAME hits across N shards and
         // merging their local top-k must reproduce EXACTLY the global top-k a single
         // combined result would give (ids AND nearest-first order).
         fn mk(pairs: &[(u64, f32)]) -> Vec<SearchResult> {
@@ -260,7 +260,7 @@ mod tests {
 
     #[test]
     fn search_filtered_respects_allowlist() {
-        // CONCEPT:EG-070 — a pre-filtered search must return ONLY allowed ids, and the
+        // CONCEPT:EG-KG.retrieval.prefiltered-search — a pre-filtered search must return ONLY allowed ids, and the
         // top-k among them must match a brute-force top-k restricted to the same set.
         use std::collections::HashSet;
         let dim = 64;

@@ -1,6 +1,6 @@
 // Snapshot persistence for the multi-tenant graph registry.
 //
-// CONCEPT:KG-2.8 / OS-5.9 — fast, bounded, restart-surviving checkpoints.
+// CONCEPT:EG-KG.storage.nonblocking-checkpoint / OS-5.9 — fast, bounded, restart-surviving checkpoints.
 //
 // Each registered graph is serialized to `{persist_dir}/{sanitized_name}.mp`
 // (compact MessagePack via `GraphCore::to_msgpack`), plus a `manifest.json`
@@ -25,7 +25,7 @@ const MANIFEST: &str = "manifest.json";
 
 /// Emit a "loaded N/total graphs" progress line every this-many graphs during a
 /// multi-graph snapshot load — and only when the registry is larger than this, so
-/// the common small restart stays quiet (CONCEPT:KG-2.200).
+/// the common small restart stays quiet (CONCEPT:EG-KG.storage.authoritative-flip).
 const PROGRESS_EVERY: usize = 500;
 
 /// Map a logical graph name (which may contain `:` / `/`) to a safe filename.
@@ -41,7 +41,7 @@ pub(crate) fn sanitize(name: &str) -> String {
         .collect()
 }
 
-/// CONCEPT:EG-013 — directory holding the persisted eg-ann semantic index for
+/// CONCEPT:EG-KG.storage.semantic-index-directory — directory holding the persisted eg-ann semantic index for
 /// graph `name` (beside its `{fname}.mp` snapshot). The index is reopened from here
 /// WITHOUT rebuilding from raw vectors on the next restart (the no-rebuild win),
 /// turning the one-time IVF-PQ build into a one-time-ever cost.
@@ -83,7 +83,7 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
 /// `GraphSnapshot` (a memcpy) — the slow MessagePack encode then runs OFF the lock.
 /// Previously the read lock was held through the whole encode, which on a 450MB
 /// graph blocks every concurrent writer for ~10s each checkpoint (the periodic
-/// ingest "freeze"). (CONCEPT:KG-2.8 — non-blocking checkpoint, A1)
+/// ingest "freeze"). (CONCEPT:EG-KG.storage.nonblocking-checkpoint — non-blocking checkpoint, A1)
 pub async fn checkpoint_all(
     state: &Arc<RwLock<ServerState>>,
     wal_service: Option<&crate::wal_service::WalService>,
@@ -163,7 +163,7 @@ pub async fn checkpoint_all(
     Ok(count)
 }
 
-/// Apply an Ebbinghaus decay sweep across every registered graph (CONCEPT:KG-2.16).
+/// Apply an Ebbinghaus decay sweep across every registered graph (CONCEPT:EG-KG.compute.graph-compute-engine).
 ///
 /// Mirrors `checkpoint_all`'s lock discipline: the global registry lock is
 /// released before sweeping, and only one per-graph **write** lock is held at a
@@ -209,7 +209,7 @@ pub async fn decay_all(
 ///   Drop the oldest nodes; this is the memory backstop that makes a shard DEGRADE
 ///   under pressure instead of OOM-killing every tenant on it. Unchanged.
 ///
-/// * **redb-AUTHORITATIVE (CONCEPT:KG-2.187/2.191):** redb IS the source of truth
+/// * **redb-AUTHORITATIVE (CONCEPT:EG-KG.backend.authoritative-dispatch/2.191):** redb IS the source of truth
 ///   and there is no external tier — but with read-through-on-RAM-miss now wired,
 ///   an evicted node is still readable (its properties are served back from redb on
 ///   a miss). So the cap resumes EVICTING to bound memory, WITHOUT data loss, by a
@@ -244,7 +244,7 @@ pub async fn evict_oversized_all(state: &Arc<RwLock<ServerState>>, max_nodes: us
         return evicted;
     }
 
-    // redb-authoritative: durability-gated eviction (CONCEPT:KG-2.191). Without a
+    // redb-authoritative: durability-gated eviction (CONCEPT:EG-KG.storage.read-through-seam-exercised). Without a
     // backend there is nothing durable to confirm against, so never drop.
     let backend = match backend {
         Some(b) => b,
@@ -364,7 +364,7 @@ pub async fn load_all(
     };
 
     let mut count = 0usize;
-    // Progress logging (CONCEPT:KG-2.200): a many-graph load (a homelab carries
+    // Progress logging (CONCEPT:EG-KG.storage.authoritative-flip): a many-graph load (a homelab carries
     // thousands of tenant graphs; the one-time redb migration replays every one) is
     // otherwise a multi-second SILENT gap before the socket binds. Emit a periodic
     // "N/total graphs loaded" so an operator can SEE it advancing and distinguish
@@ -409,7 +409,7 @@ pub async fn load_all(
         };
         if let Some(core) = core {
             // A corrupt/unreadable snapshot for ONE graph must NOT abort the whole
-            // load (CONCEPT:KG-2.200). Aborting here would, under the redb migration,
+            // load (CONCEPT:EG-KG.storage.authoritative-flip). Aborting here would, under the redb migration,
             // hand checkpoint_all a PARTIAL registry and seed redb with a TRUNCATED
             // store that the next boot considers "already migrated" — silent data
             // loss for every graph after the bad one. Skip the bad graph loudly and

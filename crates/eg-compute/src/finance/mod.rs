@@ -1,4 +1,4 @@
-// CONCEPT:KG-2.20 — Rust-Native Finance Compute Suite
+// CONCEPT:EG-KG.domains.finance-compute — Rust-Native Finance Compute Suite
 //
 // Feature-gated financial compute primitives served over the Tokio service
 // protocol (MessagePack/UDS), not an in-process Python extension.

@@ -7,7 +7,7 @@ ANN stores fixed-dimension embedding vectors; the KV-cache stores opaque attenti
 a token-hash.
 
 > Status snapshot: the tiered store (EG-185), the shared multi-instance backend (EG-186), and the HTTP
-> server + vLLM/LMCache connector (EG-187) are shipped. Pure-Rust, in the one main build. See the
+> server + vLLM/LMCache connector (EG-KG.backend.is-configured-so-co) are shipped. Pure-Rust, in the one main build. See the
 > [capability matrix](../capabilities.md).
 
 ## Where the engine sits: the caching levels (L0 GPU → L1 CPU → L2 engine)
@@ -31,7 +31,7 @@ flowchart TD
       L2["L2 · durable + dedup<br/>EG-185 hot/warm/cold tiers<br/>EG-186 content-addressed dedup<br/>✓ survives server restart · persists · shared cross-instance"]
     end
     L0 -->|"miss / evict · offload KV (+ Mamba state) via CUDA-IPC"| L1
-    L1 -->|"miss / evict · resp or EG-187 native adapter"| L2
+    L1 -->|"miss / evict · resp or EG-KG.backend.is-configured-so-co native adapter"| L2
     L2 -.->|"retrieve on cold GPU"| L1
     L1 -.->|"load back into HBM"| L0
 ```
@@ -41,7 +41,7 @@ flowchart TD
 - **L2** = **this engine** (`kvcache-server`): the durable, content-addressed, deduplicating tier that
   survives everything and is **shared across instances** — two workers that PUT the same token-hash
   store the bytes **once**. LMCache reaches it either via the built-in `resp` Redis wire or the
-  engine-native EG-187 HTTP adapter (dedup + live `/kv/stats`).
+  engine-native EG-KG.backend.is-configured-so-co HTTP adapter (dedup + live `/kv/stats`).
 
 ## The tiered store (EG-185, crate `eg-kvcache`)
 
@@ -63,7 +63,7 @@ instances share KV blocks: blocks are hash-keyed, deduplicated, and ref-counted,
 lets an external vLLM/LMCache connector fetch or store a block by its token-hash. Two workers that PUT the
 same token-hash store the bytes **once** — the LMCache dedup / prefix-cache win.
 
-## HTTP server + connector (EG-187, feature `kvcache-server`)
+## HTTP server + connector (EG-KG.backend.is-configured-so-co, feature `kvcache-server`)
 
 A gated HTTP surface over the `SharedKvBackend`:
 

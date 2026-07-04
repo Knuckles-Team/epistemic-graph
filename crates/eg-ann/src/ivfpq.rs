@@ -1,4 +1,4 @@
-//! IVF-PQ index with an OPQ rotation and an SQ8 refine tier (CONCEPT:KG-2.207).
+//! IVF-PQ index with an OPQ rotation and an SQ8 refine tier (CONCEPT:EG-KG.sharding.semantic-embedding-store-backed).
 //!
 //! Pipeline (the production recall recipe the spike deferred):
 //!   1. **OPQ rotation** `R` — an orthogonal `dim*dim` matrix learned at train
@@ -123,7 +123,7 @@ pub struct IvfPq {
 impl IvfPq {
     /// Train the OPQ rotation + coarse + PQ codebooks on a representative sample.
     /// Returns an empty (no rows) index ready for `add`.
-    // CONCEPT:EG-011 — span ANN index-build (train) throughput; no-op without a subscriber.
+    // CONCEPT:EG-KG.retrieval.ann-build-span — span ANN index-build (train) throughput; no-op without a subscriber.
     #[tracing::instrument(
         skip(params, training),
         fields(n_training = training.len(), nlist = params.nlist, m = params.m)
@@ -242,7 +242,7 @@ impl IvfPq {
 
     /// Encode + append a batch of `(id, vector)`. Append-only IVF-list insert — no
     /// rebuild. Both the PQ code and the SQ8 refine row are written.
-    // CONCEPT:EG-011 — span ANN incremental-build (add) throughput; no-op without a subscriber.
+    // CONCEPT:EG-KG.retrieval.ann-build-span — span ANN incremental-build (add) throughput; no-op without a subscriber.
     #[tracing::instrument(skip(self, items), fields(n_items = items.len(), dim = self.dim))]
     pub fn add(&mut self, items: &[(u64, Vec<f32>)]) {
         let dim = self.dim;
@@ -329,7 +329,7 @@ impl IvfPq {
         self.search_filtered(query, k, sp, None)
     }
 
-    /// kNN search with an optional metadata pre-filter (CONCEPT:EG-070). `allow`, when
+    /// kNN search with an optional metadata pre-filter (CONCEPT:EG-KG.retrieval.hybrid-metadata-prefilter). `allow`, when
     /// present, is tested against each candidate's EXTERNAL id (`self.ids[row]`) DURING
     /// the ADC probe/scan, so disallowed rows never enter the candidate heap and the
     /// returned top-k already satisfies the predicate — no over-fetch-then-post-filter.
@@ -386,7 +386,7 @@ impl IvfPq {
                 if self.deleted[row] == 1 {
                     continue;
                 }
-                // CONCEPT:EG-070 — metadata pre-filter DURING the scan: skip rows whose
+                // CONCEPT:EG-KG.retrieval.hybrid-metadata-prefilter — metadata pre-filter DURING the scan: skip rows whose
                 // external id is not permitted, so the ADC/refine top-k is built only
                 // over the allowed subset.
                 if let Some(allow) = allow {
@@ -477,7 +477,7 @@ impl IvfPq {
     }
 }
 
-/// Merge per-shard kNN result lists into ONE global top-k (CONCEPT:EG-069). This is
+/// Merge per-shard kNN result lists into ONE global top-k (CONCEPT:EG-KG.retrieval.scatter-gather). This is
 /// the gather half of a cross-shard scatter-gather: each shard returns its LOCAL
 /// top-k [`SearchResult`]s (smaller `distance` = nearer) over a SHARED id space, and
 /// this reduces them to the globally-nearest `k`. A bounded binary-heap keeps only the
@@ -539,7 +539,7 @@ pub fn merge_topk(shards: &[Vec<SearchResult>], k: usize) -> Vec<SearchResult> {
     out
 }
 
-/// Deterministic gather for the cross-shard scatter (CONCEPT:EG-319). Like
+/// Deterministic gather for the cross-shard scatter (CONCEPT:EG-KG.query.scatter-knn-merge). Like
 /// [`merge_topk`] but under a TOTAL order — distance ascending, then id ascending —
 /// so ties resolve to the SMALLER id regardless of which shard delivered a hit or in
 /// what order shards answered. This is what makes a scattered kNN reproducible: two

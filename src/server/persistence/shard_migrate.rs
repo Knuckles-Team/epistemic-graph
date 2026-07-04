@@ -1,4 +1,4 @@
-//! Offline K-shard MIGRATION tool (CONCEPT:EG-030, M3 catalog-driven resharding).
+//! Offline K-shard MIGRATION tool (CONCEPT:EG-KG.sharding.atomic-shard-swap, M3 catalog-driven resharding).
 //!
 //! ## What it solves
 //!
@@ -19,7 +19,7 @@
 //!
 //! * Per-graph data (`NODES`/`EDGES`/`LEDGER`/`SEMANTIC`/`GRAPH_META`) is moved row for
 //!   row, value blob unchanged — so encryption-at-rest blobs survive WITHOUT the key.
-//! * The tamper-evident hash-chained `AUDIT` log (CONCEPT:KG-2.231) is copied
+//! * The tamper-evident hash-chained `AUDIT` log (CONCEPT:EG-KG.sharding.row-level-security) is copied
 //!   verbatim `(graph, seq) → prev_hash|entry_hash|line`, so the chain stays valid:
 //!   re-deriving it would break verification, copying preserves it.
 //! * Global, non-per-graph records — the Raft log/meta (`RAFT_LOG`/`RAFT_META`), the
@@ -50,7 +50,7 @@ use crate::redb_store::{
     AUDIT, EDGES, GRAPH_META, LEDGER, NODES, RAFT_LOG, SEMANTIC, XSHARD_DECISION, XSHARD_PREPARE,
 };
 
-/// Outcome of a migration run (CONCEPT:EG-030) — totals copied + the layout change.
+/// Outcome of a migration run (CONCEPT:EG-KG.sharding.atomic-shard-swap) — totals copied + the layout change.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct MigrationReport {
     /// Source shard file count (the OLD K).
@@ -73,7 +73,7 @@ pub struct MigrationReport {
     pub global: u64,
 }
 
-/// Discover the existing redb shard files under `dir` (CONCEPT:EG-030). Returns the
+/// Discover the existing redb shard files under `dir` (CONCEPT:EG-KG.sharding.atomic-shard-swap). Returns the
 /// `graph-<n>.redb` set ordered by index, or the single legacy `graph.redb` (K=1), or
 /// an error when the dir holds neither.
 pub fn discover_source_shards(dir: &Path) -> Result<Vec<PathBuf>, String> {
@@ -106,7 +106,7 @@ pub fn discover_source_shards(dir: &Path) -> Result<Vec<PathBuf>, String> {
 }
 
 /// Migrate the durable store under `src_dir` into a NEW shard count `new_k`, writing
-/// `graph-<n>.redb` (or `graph.redb` for K=1) into `dst_dir` (CONCEPT:EG-030).
+/// `graph-<n>.redb` (or `graph.redb` for K=1) into `dst_dir` (CONCEPT:EG-KG.sharding.atomic-shard-swap).
 ///
 /// OFFLINE only — the engine must be stopped (exclusive redb file lock). `dst_dir` must
 /// not already contain a target shard file (the tool refuses to clobber). Use a fresh
@@ -259,7 +259,7 @@ pub fn migrate_shards(
 }
 
 /// Copy the GLOBAL (non-per-graph) durable tables from every source into the new
-/// shard-0 write txn (CONCEPT:EG-030): the Raft log/meta, the cross-shard 2PC records,
+/// shard-0 write txn (CONCEPT:EG-KG.sharding.atomic-shard-swap): the Raft log/meta, the cross-shard 2PC records,
 /// and the materialized views. These are EG-026 "shard 0 home" records.
 fn copy_global_tables(src_dbs: &[Database], wtx: &redb::WriteTransaction) -> Result<u64, String> {
     let mut count = 0u64;
@@ -325,7 +325,7 @@ fn copy_global_tables(src_dbs: &[Database], wtx: &redb::WriteTransaction) -> Res
     Ok(count)
 }
 
-/// Migrate the store under `persist_dir` to `new_k` IN PLACE (CONCEPT:EG-030): the new
+/// Migrate the store under `persist_dir` to `new_k` IN PLACE (CONCEPT:EG-KG.sharding.atomic-shard-swap): the new
 /// shards are written to a temp subdir, the OLD shard files are moved aside to a
 /// timestamped `.shard-migrate-backup-<ts>` dir, and the new files are moved into
 /// place. The backup is left for the operator to delete once the engine reopens cleanly
@@ -425,7 +425,7 @@ mod tests {
         backend.shutdown();
     }
 
-    /// CONCEPT:EG-030 — migrate a K=1 store with G graphs to K=4, reopen at K=4, and
+    /// CONCEPT:EG-KG.sharding.atomic-shard-swap — migrate a K=1 store with G graphs to K=4, reopen at K=4, and
     /// confirm every graph + its nodes/edges survive AND route to the shard the engine
     /// looks for them in. The round-trip proof.
     #[tokio::test(flavor = "multi_thread")]
@@ -486,7 +486,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    /// CONCEPT:EG-030 — the in-place migration swaps shard files atomically and leaves a
+    /// CONCEPT:EG-KG.sharding.atomic-shard-swap — the in-place migration swaps shard files atomically and leaves a
     /// recoverable backup; reopening picks up the new K.
     #[tokio::test(flavor = "multi_thread")]
     async fn in_place_migration_swaps_and_backs_up() {

@@ -1,4 +1,4 @@
-//! SQL stored-function EXPANSION (CONCEPT:EG-118). `CREATE FUNCTION` persists a
+//! SQL stored-function EXPANSION (CONCEPT:EG-KG.query.create-drop-function). `CREATE FUNCTION` persists a
 //! `LANGUAGE sql` function in the durable catalog (`tables::store`); at plan time a
 //! call is EXPANDED into the query text so DataFusion's existing planner executes it —
 //! there is deliberately NO separate function evaluator (the same "reuse the SQL exec"
@@ -34,10 +34,10 @@ use datafusion::sql::sqlparser::parser::Parser;
 use crate::tables::schema::StoredFunction;
 
 /// Guard against an unbounded rewrite loop from a (rejected-at-runtime) recursive
-/// function definition (CONCEPT:EG-118).
+/// function definition (CONCEPT:EG-KG.query.create-drop-function).
 const MAX_PASSES: usize = 32;
 
-/// Expand every stored-function call in `sql` into inline SQL (CONCEPT:EG-118). A no-op
+/// Expand every stored-function call in `sql` into inline SQL (CONCEPT:EG-KG.query.create-drop-function). A no-op
 /// (returns `sql` verbatim) when there are no functions. Scalar calls are expanded
 /// textually; table-function `FROM` references are expanded at the AST level. Loops
 /// until a fixed point (or [`MAX_PASSES`]) so nested calls and function-calls-functions
@@ -48,7 +48,7 @@ pub(super) fn expand_functions(sql: &str, functions: &[StoredFunction]) -> Resul
     if functions.is_empty() {
         return Ok(sql.to_string());
     }
-    // CONCEPT:EG-340 — a `LANGUAGE plpgsql` body is NOT SQL, so it is never inlined here;
+    // CONCEPT:EG-KG.query.eg-validate-procedural-body — a `LANGUAGE plpgsql` body is NOT SQL, so it is never inlined here;
     // it executes via the procedural interpreter on a bare top-level call (`sql::plpgsql`).
     // An embedded `plfn(x)` inside a larger query is left for the planner to reject.
     let scalars: Vec<&StoredFunction> = functions
@@ -84,7 +84,7 @@ pub(super) fn expand_functions(sql: &str, functions: &[StoredFunction]) -> Resul
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Replace each `fn(args…)` scalar-function call in `text` with a scalar subquery
-/// `(<body with args substituted>)` (CONCEPT:EG-118). Left-to-right, one level per pass
+/// `(<body with args substituted>)` (CONCEPT:EG-KG.query.create-drop-function). Left-to-right, one level per pass
 /// (nested calls that end up inside the substituted body are handled by the next pass).
 fn expand_scalar_funcs(
     text: &str,
@@ -133,7 +133,7 @@ fn expand_scalar_funcs(
 }
 
 /// Build the scalar subquery `(<substituted body>)` for `f` given the call's argument
-/// texts (CONCEPT:EG-118). Errors on an argument-count mismatch.
+/// texts (CONCEPT:EG-KG.query.create-drop-function). Errors on an argument-count mismatch.
 fn build_scalar_subquery(f: &StoredFunction, arg_texts: &[String]) -> Result<String, String> {
     let subst = substitute_args(&f.body, f, arg_texts)?;
     Ok(format!("({})", subst.trim()))
@@ -144,7 +144,7 @@ fn build_scalar_subquery(f: &StoredFunction, arg_texts: &[String]) -> Result<Str
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Replace each `FROM fn(args…)` table-function reference with the body `SELECT` as a
-/// derived subquery (CONCEPT:EG-118). AST-level so the original alias is honored. On a
+/// derived subquery (CONCEPT:EG-KG.query.create-drop-function). AST-level so the original alias is honored. On a
 /// parse failure the text is returned unchanged (best-effort; DataFusion reports it).
 fn expand_table_funcs(text: &str, tables: &[&StoredFunction], changed: &mut bool) -> String {
     let Ok(mut stmts) = Parser::parse_sql(&PostgreSqlDialect {}, text) else {
@@ -204,7 +204,7 @@ fn rewrite_twj_from(twj: &mut TableWithJoins, tables: &[&StoredFunction], change
 }
 
 /// Replace a `TableFactor::Table` that names a table function with a derived subquery,
-/// or recurse into a derived/nested-join factor (CONCEPT:EG-118).
+/// or recurse into a derived/nested-join factor (CONCEPT:EG-KG.query.create-drop-function).
 fn rewrite_table_factor(tf: &mut TableFactor, tables: &[&StoredFunction], changed: &mut bool) {
     match tf {
         TableFactor::Table {
@@ -274,7 +274,7 @@ fn function_arg_text(arg: &FunctionArg) -> Option<String> {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Substitute the argument identifiers in `body` with the call's argument texts
-/// (CONCEPT:EG-118). Whole-word + quote-aware: an argument name inside a string literal,
+/// (CONCEPT:EG-KG.query.create-drop-function). Whole-word + quote-aware: an argument name inside a string literal,
 /// dollar body, or quoted identifier — or a qualified `x.arg` reference — is NOT
 /// replaced. Each substitution is PARENTHESIZED so operator precedence is preserved.
 /// Errors if the number of call arguments differs from the declared arity.
@@ -334,7 +334,7 @@ fn substitute_args(body: &str, f: &StoredFunction, arg_texts: &[String]) -> Resu
 
 /// If a string/dollar/quoted-identifier literal STARTS at byte `i`, return the byte
 /// index just past it; else `None`. Keeps a function/argument name inside a literal from
-/// being matched (CONCEPT:EG-118).
+/// being matched (CONCEPT:EG-KG.query.create-drop-function).
 fn skip_literal(s: &str, i: usize) -> Option<usize> {
     let bytes = s.as_bytes();
     match bytes.get(i)? {

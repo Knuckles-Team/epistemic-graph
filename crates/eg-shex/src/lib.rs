@@ -1,7 +1,7 @@
 //! eg-shex — a pure-Rust **ShEx (Shape Expressions) Core** validation engine
-//! (CONCEPT:EG-133).
+//! (CONCEPT:EG-KG.compute.concept-2).
 //!
-//! The complement to [`eg-shacl`](../eg_shacl) (CONCEPT:EG-132): where SHACL constrains an
+//! The complement to [`eg-shacl`](../eg_shacl) (CONCEPT:EG-KG.ontology.concept-6): where SHACL constrains an
 //! RDF graph with an RDF shapes graph, ShEx validates that focus nodes **conform** to
 //! *shape expressions*. This crate reuses the `eg_rdf::oxrdf::Graph` term/graph model for
 //! the data graph (so it sits ABOVE eg-rdf in the DAG; eg-rdf does not depend on eg-shex →

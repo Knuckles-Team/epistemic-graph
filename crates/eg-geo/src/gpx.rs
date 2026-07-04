@@ -1,4 +1,4 @@
-//! **GPX — GPS Exchange Format** track/route/waypoint reader (CONCEPT:EG-264).
+//! **GPX — GPS Exchange Format** track/route/waypoint reader (CONCEPT:EG-KG.domains.geojson-gpx-formats).
 //!
 //! GPX is the ubiquitous XML container for GPS traces (Garmin, Strava, OSM, phone apps). This
 //! is a *hand-rolled* lightweight reader — NO XML/serde-xml C dep — that extracts the three
@@ -15,7 +15,7 @@
 
 use crate::geometry::{Geometry, LineString, Point};
 
-/// The parsed contents of a GPX document (CONCEPT:EG-264).
+/// The parsed contents of a GPX document (CONCEPT:EG-KG.domains.geojson-gpx-formats).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Gpx {
     /// Standalone `<wpt>` waypoints as points (`x = lon`, `y = lat`).
@@ -27,7 +27,7 @@ pub struct Gpx {
 }
 
 impl Gpx {
-    /// Flatten everything into a single [`Geometry::GeometryCollection`] (CONCEPT:EG-264):
+    /// Flatten everything into a single [`Geometry::GeometryCollection`] (CONCEPT:EG-KG.domains.geojson-gpx-formats):
     /// waypoints as `Point`s, then routes and track segments as `LineString`s.
     pub fn to_geometry(&self) -> Geometry {
         let mut parts: Vec<Geometry> = Vec::new();
@@ -44,7 +44,7 @@ impl Gpx {
     }
 }
 
-/// Parse GPX XML text into a [`Gpx`] (CONCEPT:EG-264). Tolerant of attribute order,
+/// Parse GPX XML text into a [`Gpx`] (CONCEPT:EG-KG.domains.geojson-gpx-formats). Tolerant of attribute order,
 /// single/double quotes and self-closing tags; ignores unknown elements. Errors only when a
 /// `lat`/`lon` attribute is present but unparsable.
 pub fn read_gpx(xml: &str) -> Result<Gpx, String> {

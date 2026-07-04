@@ -1,7 +1,7 @@
-//! Hand-written recursive-descent parser for the Cypher subset (CONCEPT:KG-2.179).
+//! Hand-written recursive-descent parser for the Cypher subset (CONCEPT:EG-KG.query.dep-free-behind).
 //! Dep-free — a tiny char tokenizer + a recursive-descent grammar, no nom/pest.
 //!
-//! Grammar (the implemented subset; CONCEPT:EG-062/EG-063 extend the read side):
+//! Grammar (the implemented subset; CONCEPT:EG-KG.query.eg-extend-read-side/EG-063 extend the read side):
 //! ```text
 //! query      := stage+ RETURN retbody
 //! stage      := ('OPTIONAL')? 'MATCH' (var '=')? pattern ('WHERE' expr)?
@@ -66,7 +66,7 @@ enum Tok {
     Ident(String),
     Str(String),
     Num(f64),
-    /// `$name` — a query parameter reference (CONCEPT:EG-141).
+    /// `$name` — a query parameter reference (CONCEPT:EG-KG.query.param-list-drives-unwind).
     Param(String),
 }
 
@@ -208,7 +208,7 @@ fn tokenize(input: &str) -> Result<Vec<Tok>, String> {
                 out.push(Tok::Num(n));
             }
             '$' => {
-                // `$name` parameter reference (CONCEPT:EG-141).
+                // `$name` parameter reference (CONCEPT:EG-KG.query.param-list-drives-unwind).
                 i += 1;
                 let start = i;
                 while i < chars.len() && (chars[i].is_alphanumeric() || chars[i] == '_') {
@@ -303,7 +303,7 @@ impl Parser {
             self.next();
             label = Some(self.ident()?);
         }
-        // optional inline property map `{k: v, …}` (write path; CONCEPT:EG-020).
+        // optional inline property map `{k: v, …}` (write path; CONCEPT:EG-KG.query.register-each-user-table).
         let props = if matches!(self.peek(), Some(Tok::LBrace)) {
             Some(self.parse_prop_map()?)
         } else {
@@ -313,7 +313,7 @@ impl Parser {
         Ok(NodePat { var, label, props })
     }
 
-    /// Parse an inline `{ key: value, … }` property map (CONCEPT:EG-020/EG-141). Keys
+    /// Parse an inline `{ key: value, … }` property map (CONCEPT:EG-KG.query.register-each-user-table/EG-141). Keys
     /// are identifiers; values are a literal, a `$param`, or a bound-variable
     /// reference (`{id: x}`). An empty `{}` is valid.
     fn parse_prop_map(&mut self) -> Result<Vec<(String, PropVal)>, String> {
@@ -339,7 +339,7 @@ impl Parser {
         Ok(out)
     }
 
-    /// Parse a single [`PropVal`] operand (CONCEPT:EG-141): a `$param`, a bare
+    /// Parse a single [`PropVal`] operand (CONCEPT:EG-KG.query.param-list-drives-unwind): a `$param`, a bare
     /// identifier that is a bound-variable reference (except `true`/`false`, which are
     /// boolean literals), or any other literal.
     fn parse_prop_val(&mut self) -> Result<PropVal, String> {
@@ -432,7 +432,7 @@ impl Parser {
         }
     }
 
-    // ── WHERE boolean expressions (CONCEPT:EG-062) ────────────────────────────
+    // ── WHERE boolean expressions (CONCEPT:EG-KG.query.eg-extend-read-side) ────────────────────────────
 
     fn parse_where_expr(&mut self) -> Result<WhereExpr, String> {
         self.parse_or()
@@ -560,7 +560,7 @@ impl Parser {
         }
     }
 
-    // ── RETURN projection (CONCEPT:EG-062) ────────────────────────────────────
+    // ── RETURN projection (CONCEPT:EG-KG.query.eg-extend-read-side) ────────────────────────────────────
 
     fn parse_return_spec(&mut self) -> Result<ReturnSpec, String> {
         let distinct = if self.peek_keyword("DISTINCT") {
@@ -606,7 +606,7 @@ impl Parser {
     }
 
     /// A projection expression: an aggregate (`count(*)`, `sum(a.p)`, …) or a bare
-    /// `var` / `var.prop` (CONCEPT:EG-062).
+    /// `var` / `var.prop` (CONCEPT:EG-KG.query.eg-extend-read-side).
     fn parse_proj_expr(&mut self) -> Result<Expr, String> {
         // Aggregate: an agg-func ident immediately followed by `(`.
         if let Some(Tok::Ident(name)) = self.peek() {
@@ -686,7 +686,7 @@ impl Parser {
         }
     }
 
-    // ── read stages (CONCEPT:EG-062) ──────────────────────────────────────────
+    // ── read stages (CONCEPT:EG-KG.query.eg-extend-read-side) ──────────────────────────────────────────
 
     /// Whether the next token begins a write clause.
     fn at_write_clause(&self) -> bool {
@@ -752,7 +752,7 @@ impl Parser {
                 path_var,
             }
         } else {
-            // A read opening with UNWIND / CALL / WITH (CONCEPT:EG-141/142).
+            // A read opening with UNWIND / CALL / WITH (CONCEPT:EG-KG.query.param-list-drives-unwind/142).
             self.parse_read_stage()?
         };
 
@@ -771,7 +771,7 @@ impl Parser {
     }
 
     /// Parse one reading stage: `(OPTIONAL) MATCH …`, `WITH …`, `UNWIND …` or
-    /// `CALL …` (CONCEPT:EG-062/EG-141/EG-142).
+    /// `CALL …` (CONCEPT:EG-KG.query.eg-extend-read-side/EG-141/EG-142).
     fn parse_read_stage(&mut self) -> Result<ReadStage, String> {
         if self.peek_keyword("UNWIND") {
             return self.parse_unwind();
@@ -821,9 +821,9 @@ impl Parser {
         Ok(WithItem { var, alias })
     }
 
-    // ── UNWIND / CALL (CONCEPT:EG-141 / EG-142) ───────────────────────────────
+    // ── UNWIND / CALL (CONCEPT:EG-KG.query.param-list-drives-unwind / EG-142) ───────────────────────────────
 
-    /// `UNWIND <list> AS <var>` (CONCEPT:EG-141).
+    /// `UNWIND <list> AS <var>` (CONCEPT:EG-KG.query.param-list-drives-unwind).
     fn parse_unwind(&mut self) -> Result<ReadStage, String> {
         self.eat_keyword("UNWIND")?;
         let list = self.parse_list_expr()?;
@@ -832,7 +832,7 @@ impl Parser {
         Ok(ReadStage::Unwind { list, var })
     }
 
-    /// The UNWIND operand: `[e, …]`, `$param`, or a bound-var reference (CONCEPT:EG-141).
+    /// The UNWIND operand: `[e, …]`, `$param`, or a bound-var reference (CONCEPT:EG-KG.query.param-list-drives-unwind).
     fn parse_list_expr(&mut self) -> Result<ListExpr, String> {
         match self.peek() {
             Some(Tok::LBracket) => {
@@ -861,7 +861,7 @@ impl Parser {
         }
     }
 
-    /// `CALL { subquery }` or `CALL proc.name(args) YIELD …` (CONCEPT:EG-142).
+    /// `CALL { subquery }` or `CALL proc.name(args) YIELD …` (CONCEPT:EG-KG.query.cypher-planning).
     fn parse_call(&mut self) -> Result<ReadStage, String> {
         self.eat_keyword("CALL")?;
         if matches!(self.peek(), Some(Tok::LBrace)) {
@@ -877,7 +877,7 @@ impl Parser {
         Ok(ReadStage::CallProc { name, args, yields })
     }
 
-    /// A dotted procedure name (`gds.pageRank`, `apoc.coll.sum`) (CONCEPT:EG-142).
+    /// A dotted procedure name (`gds.pageRank`, `apoc.coll.sum`) (CONCEPT:EG-KG.query.cypher-planning).
     fn parse_proc_name(&mut self) -> Result<String, String> {
         let mut name = self.ident()?;
         while matches!(self.peek(), Some(Tok::Dot)) {
@@ -904,9 +904,9 @@ impl Parser {
         Ok(args)
     }
 
-    /// One procedure argument (CONCEPT:EG-142): an inline `[…]` list literal (of
+    /// One procedure argument (CONCEPT:EG-KG.query.cypher-planning): an inline `[…]` list literal (of
     /// literals) folds to a `PropVal::Lit(Value::Array)`; a `{…}` config-map literal
-    /// (CONCEPT:EG-298, e.g. `gds.pageRank({dampingFactor: 0.85})`) folds to a
+    /// (CONCEPT:EG-KG.query.gds-call-procedures, e.g. `gds.pageRank({dampingFactor: 0.85})`) folds to a
     /// `PropVal::Lit(Value::Object)`; otherwise a [`PropVal`].
     fn parse_arg(&mut self) -> Result<PropVal, String> {
         if matches!(self.peek(), Some(Tok::LBracket)) {
@@ -929,7 +929,7 @@ impl Parser {
     }
 
     /// `{ key: literal, … }` — a config-map literal argument for a `CALL gds.*`
-    /// procedure (CONCEPT:EG-298). Values are literals, nested `[…]` list literals,
+    /// procedure (CONCEPT:EG-KG.query.gds-call-procedures). Values are literals, nested `[…]` list literals,
     /// or nested `{…}` maps. Folds to a `serde_json::Value::Object` so the procedure
     /// receives a plain JSON config it can key `dampingFactor`/`maxIterations`/
     /// `relationshipWeightProperty`/`topK`/… out of.
@@ -956,7 +956,7 @@ impl Parser {
         Ok(Value::Object(obj))
     }
 
-    /// One value inside a config-map literal (CONCEPT:EG-298): a nested `[…]` list, a
+    /// One value inside a config-map literal (CONCEPT:EG-KG.query.gds-call-procedures): a nested `[…]` list, a
     /// nested `{…}` map, or a scalar literal.
     fn parse_map_value(&mut self) -> Result<Value, String> {
         if matches!(self.peek(), Some(Tok::LBracket)) {
@@ -978,7 +978,7 @@ impl Parser {
         self.parse_literal()
     }
 
-    /// `YIELD col [AS alias], …` (CONCEPT:EG-142).
+    /// `YIELD col [AS alias], …` (CONCEPT:EG-KG.query.cypher-planning).
     fn parse_yield_items(&mut self) -> Result<Vec<YieldItem>, String> {
         let mut items = vec![self.parse_yield_item()?];
         while matches!(self.peek(), Some(Tok::Comma)) {
@@ -1000,7 +1000,7 @@ impl Parser {
     }
 
     /// `{ <read stages> RETURN <spec> }` — the body of a `CALL { … }` subquery
-    /// (CONCEPT:EG-142). Reads only; terminated by the matching `}`.
+    /// (CONCEPT:EG-KG.query.cypher-planning). Reads only; terminated by the matching `}`.
     fn parse_subquery(&mut self) -> Result<CypherQuery, String> {
         self.expect(&Tok::LBrace)?;
         let mut stages = vec![self.parse_read_stage()?];
@@ -1016,7 +1016,7 @@ impl Parser {
         Ok(CypherQuery { stages, ret })
     }
 
-    /// A leading `p =` path-variable binding (CONCEPT:EG-063): an identifier directly
+    /// A leading `p =` path-variable binding (CONCEPT:EG-KG.query.concept-2): an identifier directly
     /// followed by `=` (a pattern always opens with `(`, so there is no ambiguity).
     fn parse_optional_path_var(&mut self) -> Result<Option<String>, String> {
         if matches!(self.peek(), Some(Tok::Ident(_))) && matches!(self.peek2(), Some(Tok::Eq)) {
@@ -1037,9 +1037,9 @@ impl Parser {
         }
     }
 
-    // ── write statements (CONCEPT:EG-020 / EG-061) ────────────────────────────
+    // ── write statements (CONCEPT:EG-KG.query.register-each-user-table / EG-061) ────────────────────────────
 
-    /// Parse one-or-more consecutive write clauses (CONCEPT:EG-020).
+    /// Parse one-or-more consecutive write clauses (CONCEPT:EG-KG.query.register-each-user-table).
     fn parse_write_clauses(&mut self) -> Result<Vec<WriteOp>, String> {
         let mut ops = Vec::new();
         while self.at_write_clause() {
@@ -1110,7 +1110,7 @@ impl Parser {
         Ok(SetItem { var, prop, value })
     }
 
-    /// `REMOVE v.prop | v:Label [, …]` (CONCEPT:EG-061).
+    /// `REMOVE v.prop | v:Label [, …]` (CONCEPT:EG-KG.query.cypher-execution).
     fn parse_remove_items(&mut self) -> Result<Vec<RemoveItem>, String> {
         let mut items = vec![self.parse_remove_item()?];
         while matches!(self.peek(), Some(Tok::Comma)) {
@@ -1204,7 +1204,7 @@ pub fn parse(input: &str) -> Result<CypherQuery, String> {
     }
 }
 
-/// Parse a Cypher-subset statement — a read or a write (CONCEPT:EG-020).
+/// Parse a Cypher-subset statement — a read or a write (CONCEPT:EG-KG.query.register-each-user-table).
 pub fn parse_statement(input: &str) -> Result<Statement, String> {
     let toks = tokenize(input)?;
     if toks.is_empty() {
@@ -1343,7 +1343,7 @@ mod tests {
 
     #[test]
     fn parses_unwind_list_literal() {
-        // CONCEPT:EG-141
+        // CONCEPT:EG-KG.query.param-list-drives-unwind
         let q = parse("UNWIND [1, 2, 3] AS x RETURN x").unwrap();
         match &q.stages[0] {
             ReadStage::Unwind { list, var } => {
@@ -1359,7 +1359,7 @@ mod tests {
 
     #[test]
     fn parses_unwind_param_then_match_with_inline_prop_ref() {
-        // CONCEPT:EG-141 — $param list + read-side inline prop referencing a var.
+        // CONCEPT:EG-KG.query.param-list-drives-unwind — $param list + read-side inline prop referencing a var.
         let q = parse("UNWIND $ids AS x MATCH (n {id: x}) RETURN n").unwrap();
         assert!(
             matches!(&q.stages[0], ReadStage::Unwind { list: ListExpr::Param(p), .. } if p == "ids")
@@ -1376,14 +1376,14 @@ mod tests {
 
     #[test]
     fn parses_call_subquery() {
-        // CONCEPT:EG-142
+        // CONCEPT:EG-KG.query.cypher-planning
         let q = parse("CALL { MATCH (a:Person) RETURN a } RETURN a").unwrap();
         assert!(matches!(&q.stages[0], ReadStage::Call { .. }));
     }
 
     #[test]
     fn parses_call_proc_yield() {
-        // CONCEPT:EG-142/EG-143
+        // CONCEPT:EG-KG.query.cypher-planning/EG-143
         let q = parse("CALL gds.pageRank() YIELD node, score RETURN node, score").unwrap();
         match &q.stages[0] {
             ReadStage::CallProc { name, args, yields } => {
@@ -1398,7 +1398,7 @@ mod tests {
 
     #[test]
     fn parses_call_proc_with_list_arg_and_alias() {
-        // CONCEPT:EG-142/EG-143
+        // CONCEPT:EG-KG.query.cypher-planning/EG-143
         let q = parse("CALL apoc.coll.sum([1, 2, 3]) YIELD value AS s RETURN s").unwrap();
         match &q.stages[0] {
             ReadStage::CallProc { name, args, yields } => {

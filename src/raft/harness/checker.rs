@@ -1,5 +1,5 @@
 //! Invariant checker over a recorded history + the cluster's final state
-//! (CONCEPT:KG-2.212).
+//! (CONCEPT:AU-KG.ontology.emits-database-ontology-entities).
 //!
 //! Three invariants this increment asserts (full Knossos-style linearizability is a
 //! later increment — see the module docs):

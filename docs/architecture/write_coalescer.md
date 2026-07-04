@@ -1,4 +1,4 @@
-# Per-Graph Write Coalescer (`CONCEPT:KG-2.182`)
+# Per-Graph Write Coalescer (`CONCEPT:EG-KG.sharding.per-graph-write-coalescer`)
 
 > Turns N concurrent single-op writes to ONE graph into ONE topology-lock
 > acquisition per batch — the within-graph parallelism that lets the `__commons__`

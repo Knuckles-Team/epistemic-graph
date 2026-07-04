@@ -1,10 +1,10 @@
-# Cost model & capacity planning (CONCEPT:KG-2.234, Lane V)
+# Cost model & capacity planning (CONCEPT:EG-KG.compute.lane-v, Lane V)
 
 This maps the engine's footprint from a single Raspberry Pi 4+ node up to an HA `cluster` onto resource footprints so an
 operator can plan capacity: *given N tenants with an average working set, how much RAM /
 how many shards do I need?* It pairs with the runtime **per-tenant memory budget** + the
 **autoscale signals** (`Method::ResourceStats`) that drive the agent-utilities autoscaler
-(OS-5.27).
+(AU-OS.config.health-gated-deploy-rollback).
 
 ## How the engine spends memory
 
@@ -33,10 +33,10 @@ The budget enforcer (`src/cost.rs::enforce_memory_budgets`) runs a periodic swee
    its **fair share** `global_ceiling / active_tenants` — reclaim its **coldest** graphs
    (fewest nodes first, preserving the hot working set):
    - **Evict** the graph's LRU nodes, durability-gated (a node is dropped from RAM only
-     after redb confirms it on disk — reuses the KG-2.191 no-loss gate). An evicted node
+     after redb confirms it on disk — reuses the EG-KG.storage.read-through-seam-exercised no-loss gate). An evicted node
      still reads back through the read-through seam.
    - If still resident and still over budget, **hibernate** the graph (`GraphCore::hibernate`,
-     KG-2.224) — drop all its in-RAM state; the durable redb tier + read-through stay
+     EG-KG.storage.100m-tenant) — drop all its in-RAM state; the durable redb tier + read-through stay
      intact, so it rehydrates on access.
 3. The **global ceiling** caps total resident RAM; the **fair per-tenant cap** stops one hot
    tenant from consuming the whole ceiling and starving others.
