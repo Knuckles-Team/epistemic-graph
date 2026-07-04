@@ -19,6 +19,8 @@ use tokio::sync::RwLock;
 
 use super::super::access::check_graph_access;
 use super::super::state::ServerState;
+#[cfg(feature = "graphql")]
+use super::super::txn::IsolationLevel;
 #[cfg(feature = "tsdb")]
 use super::super::txn::StagedMeasurement;
 use super::super::txn::{now_ms, parse_isolation, GraphTxnState};
@@ -760,6 +762,79 @@ async fn commit_cross_modal(
         Ok(committed) => Response::ok(req_id, ResultPayload::Bool(committed)),
         Err(e) => Response::err(req_id, e),
     }
+}
+
+/// DURABLE GraphQL cross-modal commit (CONCEPT:EG-419) — the facade reconcile hook the
+/// `eg-graphql` crate left open. The crate stages a multi-request cross-modal txn in its
+/// process-wide [`eg_graphql::CrossModalTxnRegistry`] and, on its own, commits only the
+/// in-memory tier (it sits BELOW the facade in the crate DAG and cannot reach
+/// `ServerState`/persistence). Here the facade GraphQL carrier `take`s the staged txn,
+/// converts it into a facade [`GraphTxnState`] (graph writes → `AddNode`/`AddEdge`,
+/// embeddings → `stage_vector`, tsdb batches → `stage_measurement`) and lands every
+/// modality DURABLY in ONE redb `WriteTransaction` via [`commit_cross_modal_txn`] — the
+/// SAME committed machinery pgwire's `commit_txn_state` drives. Returns `Ok(true)` on
+/// commit, `Ok(false)` on an OCC conflict, `Err` on an unknown txn / commit failure.
+#[cfg(feature = "graphql")]
+pub(crate) async fn commit_graphql_cross_modal(
+    state: &Arc<RwLock<ServerState>>,
+    graph_name: &str,
+    core: &crate::graph::GraphCore,
+    registry: &eg_graphql::CrossModalTxnRegistry,
+    txn_id: &str,
+    caller: Option<&str>,
+) -> Result<bool, String> {
+    let staged = registry
+        .take(txn_id)
+        .ok_or_else(|| format!("unknown transaction '{txn_id}'"))?;
+    let mut txn = GraphTxnState::new(
+        core,
+        graph_name.to_string(),
+        core.version(),
+        IsolationLevel::Snapshot,
+        None,
+        caller.unwrap_or("").to_string(),
+        now_ms(),
+    );
+    // Staged graph writes (from `sparqlUpdate` / `sparqlConstruct`, already lowered to the
+    // property-graph projection) → the SAME `AddNode`/`AddEdge` write-set the RPC/pgwire
+    // seam commits.
+    for w in staged.graph_writes() {
+        match w {
+            eg_graphql::GraphWrite::Node { id, blob } => txn.write_set.push(Method::AddNode {
+                node_id: id.clone(),
+                properties_msgpack: blob.clone(),
+            }),
+            eg_graphql::GraphWrite::Edge { from, to, blob } => {
+                txn.write_set.push(Method::AddEdge {
+                    source_id: from.clone(),
+                    target_id: to.clone(),
+                    properties_msgpack: blob.clone(),
+                })
+            }
+        }
+    }
+    for (node_id, embedding) in staged.vectors() {
+        txn.stage_vector(core, node_id.clone(), embedding.clone(), now_ms());
+    }
+    // tsdb measurement batches ride `full` (the facade enables `eg-graphql/crossmodal-tsdb`
+    // from its tsdb graphql tier). Without the facade `tsdb` feature `staged.measurements()`
+    // is empty (the crate leg is off too), so this loop is a no-op.
+    #[cfg(feature = "tsdb")]
+    for (series, points) in staged.measurements() {
+        let n_fields = points.first().map(|(_, v)| v.len()).unwrap_or(0);
+        let field_names = (0..n_fields).map(|i| format!("f{i}")).collect();
+        txn.stage_measurement(
+            StagedMeasurement {
+                series,
+                n_fields,
+                bucket_ns: DEFAULT_MEASUREMENT_BUCKET_NS,
+                field_names,
+                points,
+            },
+            now_ms(),
+        );
+    }
+    commit_cross_modal_txn(state, caller, txn).await
 }
 
 /// The reusable core of the cross-modal commit (CONCEPT:KG-2.225 + EG-360/361/362),

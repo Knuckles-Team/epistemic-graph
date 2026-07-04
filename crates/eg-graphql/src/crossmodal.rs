@@ -60,7 +60,7 @@ use crate::parser::{parse_operation, Field, GqlValue, Operation};
 /// The SAME shape the in-txn overlay ([`overlay_txn`]) and the commit ([`commit_txn`])
 /// both apply, so read-your-own-writes and the committed result are identical by
 /// construction.
-enum GraphWrite {
+pub enum GraphWrite {
     Node {
         id: String,
         blob: Vec<u8>,
@@ -74,14 +74,15 @@ enum GraphWrite {
 
 /// A staged time-series batch (CONCEPT:EG-381): a `series` name and its
 /// `(ts_ns, field_values)` points — the SAME `Vec<(i64, Vec<f64>)>` shape
-/// `eg_plan::StagedSeries::push_points` consumes.
-#[cfg(feature = "crossmodal-tsdb")]
-type StagedMeasurement = (String, Vec<(i64, Vec<f64>)>);
+/// `eg_plan::StagedSeries::push_points` consumes. Always defined (a transparent alias, no
+/// cost) so the facade-facing [`CrossModalTxn::measurements`] accessor names ONE type
+/// regardless of the `crossmodal-tsdb` feature (CONCEPT:EG-419).
+pub type StagedMeasurement = (String, Vec<(i64, Vec<f64>)>);
 
 /// One staged cross-modal transaction — the GraphQL-surface analogue of the facade's
 /// `GraphTxnState`, holding only the buffers this crate overlays + commits directly.
 #[derive(Default)]
-struct CrossModalTxn {
+pub struct CrossModalTxn {
     /// Node/edge writes lowered from `sparqlUpdate` / `sparqlConstruct` (CONCEPT:EG-379).
     graph: Vec<GraphWrite>,
     /// Embeddings staged by `stageEmbedding`.
@@ -90,6 +91,32 @@ struct CrossModalTxn {
     /// with the RPC/pgwire seam, whose measurement staging is behind `tsdb`).
     #[cfg(feature = "crossmodal-tsdb")]
     measurements: Vec<StagedMeasurement>,
+}
+
+impl CrossModalTxn {
+    /// Staged node/edge writes (CONCEPT:EG-419) — the facade lowers each to
+    /// `AddNode`/`AddEdge` for the durable `commit_cross_modal_txn`.
+    pub fn graph_writes(&self) -> &[GraphWrite] {
+        &self.graph
+    }
+
+    /// Staged embeddings (CONCEPT:EG-419).
+    pub fn vectors(&self) -> &[(String, Vec<f32>)] {
+        &self.vectors
+    }
+
+    /// Staged tsdb measurement batches (CONCEPT:EG-419) as `(series, [(ts_ns, values)])` —
+    /// EMPTY when built without `crossmodal-tsdb`, so the facade can always call it.
+    pub fn measurements(&self) -> Vec<StagedMeasurement> {
+        #[cfg(feature = "crossmodal-tsdb")]
+        {
+            self.measurements.clone()
+        }
+        #[cfg(not(feature = "crossmodal-tsdb"))]
+        {
+            Vec::new()
+        }
+    }
 }
 
 /// Holds the open GraphQL cross-modal transactions across a connection's requests
@@ -114,6 +141,58 @@ impl CrossModalTxnRegistry {
         let n = self.seq.fetch_add(1, Ordering::Relaxed) + 1;
         format!("gqltxn-{n:016x}")
     }
+
+    /// Remove + return a staged txn so the facade can commit it DURABLY (CONCEPT:EG-419).
+    /// The facade's GraphQL carrier calls this on `commitTransaction`, converts the returned
+    /// [`CrossModalTxn`] into a facade `GraphTxnState`, and lands every modality in ONE redb
+    /// `WriteTransaction` via `commit_cross_modal_txn` — instead of the in-crate in-memory
+    /// [`commit_transaction`] tier. `None` for an unknown/already-consumed id.
+    pub fn take(&self, txn_id: &str) -> Option<CrossModalTxn> {
+        self.txns.lock().unwrap().remove(txn_id)
+    }
+}
+
+/// How the facade should route a GraphQL cross-modal mutation (CONCEPT:EG-419).
+pub enum CrossModalRoute {
+    /// A lone `commitTransaction(txnId)` — the facade takes the staged txn and lands it
+    /// DURABLY via `commit_cross_modal_txn` (one redb `WriteTransaction`), matching pgwire.
+    Commit(String),
+    /// A begin/stage/read/rollback verb (or a multi-verb doc) — the facade runs it in-memory
+    /// via [`execute`] over the shared registry (staging + read-your-own-writes; no durable
+    /// side effect until commit).
+    Staging,
+    /// Not a cross-modal mutation — the facade routes it to the ordinary GraphQL mutation
+    /// path (`execute_mutation`).
+    NotCrossModal,
+}
+
+/// Classify a GraphQL mutation `src` for facade routing (CONCEPT:EG-419) with ONE parse:
+/// a lone `commitTransaction` → [`CrossModalRoute::Commit`]; a doc whose roots are all
+/// cross-modal verbs → [`CrossModalRoute::Staging`]; anything else → `NotCrossModal`.
+pub fn classify_crossmodal(src: &str) -> CrossModalRoute {
+    const VERBS: [&str; 8] = [
+        "beginTransaction",
+        "stageEmbedding",
+        "addMeasurement",
+        "sparqlUpdate",
+        "sparqlConstruct",
+        "unifiedQuery",
+        "commitTransaction",
+        "rollbackTransaction",
+    ];
+    let m = match parse_operation(src) {
+        Ok(Operation::Mutation(m)) => m,
+        _ => return CrossModalRoute::NotCrossModal,
+    };
+    if m.roots.is_empty() || !m.roots.iter().all(|f| VERBS.contains(&f.name.as_str())) {
+        return CrossModalRoute::NotCrossModal;
+    }
+    if m.roots.len() == 1 && m.roots[0].name == "commitTransaction" {
+        if let Ok(id) = arg_str(&m.roots[0], "txnId") {
+            return CrossModalRoute::Commit(id);
+        }
+    }
+    CrossModalRoute::Staging
 }
 
 /// Parse + execute a GraphQL cross-modal MUTATION over `core`, threading the shared

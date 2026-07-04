@@ -1056,6 +1056,7 @@ async fn dispatch_graph_op(
         let method = match handlers::query::try_handle(
             state,
             req_id,
+            graph_name,
             core.clone(),
             method,
             #[cfg(feature = "security")]
