@@ -684,6 +684,13 @@ pub(crate) fn run_unified(
     // top-k requested by a trailing Limit drives the cost asymmetry; default to the
     // seed size if there is no Limit. Seed/embedding counts come straight from the
     // snapshot, so the decision is fed by derivable stats (CONCEPT:EG-KG.query.concept-14).
+    // No-Legacy note (handoff-1 Lane A): the SAME filter-vs-rank decision is now also a
+    // rule inside the cross-modal optimizer (CONCEPT:EG-KG.query.filter-pushdown-rule folds
+    // this in, sharing `CostModel::order` + the `place_narrower` swap). This served path
+    // keeps the direct `reorder_filter_rank` call rather than routing through
+    // `plan_optimize`/`execute` on purpose: it runs a proven, answer-preserving single swap
+    // and must not change served-plan shape by pulling in the full multi-rule optimizer here.
+    // `reorder_filter_rank` therefore stays the internal helper shared by both surfaces.
     let ops = match reorder_filter_selectivity {
         Some(sel) => {
             let seed_rows = view.node_properties.len();

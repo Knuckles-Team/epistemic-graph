@@ -164,6 +164,18 @@ blob-s3 = ["blob", "dep:object_store"]
 # — heavy, so it is OFF by default and folded only into full/all (never the slim
 # Raspberry-Pi build). A default build links no DataFusion.
 query = ["dep:eg-query", "eg-query/sql", "dep:eg-plan", "eg-plan/query", "eg-types/query", "eg-tsdb?/arrow-seg"]
+# Cross-modal cost-based optimizer (CONCEPT:EG-KG.query.xmodal-cost-optimizer, handoff-1
+# Lane A). Facade tier selector for `eg-plan/cost-opt`; implies `query`. The optimizer
+# body already runs whenever `query` is linked (its runtime kill-switch is
+# `EPISTEMIC_GRAPH_COST_OPT=0` → identity), so this feature simply makes the optimizer an
+# explicit, default-on part of the `full` tier. Cheap (no extra deps — cost-opt = query).
+cost-opt = ["query", "dep:eg-plan", "eg-plan/cost-opt"]
+# Physical parallel runtime (CONCEPT:EG-KG.query.parallel-runtime, handoff-1 Lane B): the
+# opt-in rayon-morsel `ParallelDriver` behind the Lane-0 `Driver` seam (pool width /
+# spill budget from `EPISTEMIC_GRAPH_EXEC_THREADS` / `_SPILL_MB`). Pulls rayon via
+# `eg-plan/par-runtime`, so it is OPT-IN — NOT in default/pi/full. A default build routes
+# through the byte-identical `SerialDriver`.
+par-runtime = ["query", "dep:eg-plan", "eg-plan/par-runtime"]
 # Embedded BM25 full-text search + the lexical `RankText` op + the RRF `FuseRrf`
 # hybrid (CONCEPT:KG-2.215). Pulls eg-text's Tantivy index (the Rust Lucene —
 # zstd-sys etc.) via eg-plan's `text`, which IMPLIES `query`. HEAVY (≈140 transitive
@@ -741,7 +753,7 @@ compute = ["finance", "ast", "ast-extended", "datascience", "reasoning"]
 # a Pi requirement and the Pi build stays minimal — the RLS/audit core is itself
 # pure-Rust and Pi-safe, but is shipped only where `security` is selected).
 security = ["redb", "dep:chacha20poly1305", "eg-types/security", "eg-core/security"]
-full = ["compute", "server", "query", "cypher", "graphql", "eg-graphql/crossmodal-tsdb", "redb", "ann", "ann-redb", "tsdb", "blob", "kv", "text", "sparql", "sparql-http", "sparql-hash", "rdf-xml", "json-ld", "sparql-star", "sparql-service", "rdf-redb", "shacl", "owl", "owl-dl", "owl-plan", "streaming", "wasm-udf", "security", "federation", "federation-sql", "pgwire", "mysql-wire", "mssql-wire", "sqlite-wire", "bolt-wire", "redis-wire", "broker", "amqp-wire", "mqtt-wire", "stomp-wire", "geo", "tensor", "stream", "result-cache", "cold-tier", "cost", "otel", "otel-export", "shex", "obs", "geosparql", "nl-query", "promql", "traces", "s3-api", "federation-search", "kvcache-server", "kvcache-compression", "numeric", "sqlite-file"]
+full = ["compute", "server", "query", "cypher", "graphql", "eg-graphql/crossmodal-tsdb", "redb", "ann", "ann-redb", "tsdb", "blob", "kv", "text", "sparql", "sparql-http", "sparql-hash", "rdf-xml", "json-ld", "sparql-star", "sparql-service", "rdf-redb", "shacl", "owl", "owl-dl", "owl-plan", "streaming", "wasm-udf", "security", "federation", "federation-sql", "pgwire", "mysql-wire", "mssql-wire", "sqlite-wire", "bolt-wire", "redis-wire", "broker", "amqp-wire", "mqtt-wire", "stomp-wire", "geo", "tensor", "stream", "result-cache", "cold-tier", "cost", "cost-opt", "otel", "otel-export", "shex", "obs", "geosparql", "nl-query", "promql", "traces", "s3-api", "federation-search", "kvcache-server", "kvcache-compression", "numeric", "sqlite-file"]
 all = ["full"]
 
 # ── Opt-in build layers ON TOP of the ONE main build (CONCEPT:EG-371) ──
@@ -766,7 +778,7 @@ all = ["full"]
 # (cluster-only) and NO cudarc/rustdds (full-extras-only). It DOES link DataFusion now
 # (query is a main feature) — the old "no-DataFusion Pi contract" is retired; the build
 # targets Raspberry Pi 4+, not Pi 3.
-cluster = ["full", "raft", "compute-dist", "nonblocking"]
+cluster = ["full", "raft", "compute-dist", "nonblocking", "matview"]
 
 [dependencies]
 eg-types = { path = "crates/eg-types" }
