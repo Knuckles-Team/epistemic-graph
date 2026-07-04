@@ -15,15 +15,22 @@
 //!    with a captured predicate read-set commits AFTER a concurrent txn inserts a phantom
 //!    matching that predicate → the phantom flips `validate()` and the serializable txn
 //!    rolls back (`Commit` returns `false`), while its own cross-modal writes never land.
+//!  * **EG-391 (test 5, CONCEPT:EG-427)** — RLS per-agent visibility on a fused Reason→Rank
+//!    over BOTH the committed base and the staged-overlay legs (identities + `_owner`/
+//!    `_visibility` node blobs + caller-threaded `agent_id`; the overlay-leg seam is a
+//!    post-overlay `rls.filter_view` in `run_unified_overlaid`).
+//!  * **EG-393 (test 10, CONCEPT:EG-428)** — pgwire + `/sparql` + native consistent snapshot:
+//!    three listeners on ONE `ServerState` all observe the SAME mixed committed snapshot.
+//!  * **EG-394 (test 7, CONCEPT:EG-429)** — encryption-at-rest + cross-modal read; a keyed
+//!    `RedbBackend` reopened with the WRONG key FAILS the read (no silent plaintext).
+//!  * **EG-395 (test 8, CONCEPT:EG-430)** — streaming/CDC → live materialized cross-modal
+//!    view rebuild via a `CdcHub` continuous query maintained off the change stream.
 //!
-//! Tracked-but-`#[ignore]`d (each is a north_star.md open row with its precise gap):
-//!  * EG-391 (test 5)  — RLS per-agent visibility on a fused Reason→Rank + the overlay path.
-//!  * EG-393 (test 10) — pgwire + `/sparql` + native consistent snapshot after a mixed commit.
-//!  * EG-394 (test 7)  — encryption-at-rest + cross-modal read; a wrong key FAILS.
-//!  * EG-395 (test 8)  — streaming/CDC → live materialized cross-modal view rebuild.
-//!  * EG-396 (test 4)  — cross-shard txn spanning modalities under Raft; kill coordinator
-//!    mid-2PC → single decision.
-//!  * EG-397 (test 11) — KV-cache warm-fork fan-out reusing cross-modal context.
+//! Tracked-but-`#[ignore]`d (each a north_star.md open row with its refined precise gap):
+//!  * EG-396 (test 4, CONCEPT:EG-431) — cross-shard txn under Raft; kill coordinator mid-2PC
+//!    → single decision. GENUINE GAP + out of `full` scope (raft is a `cluster`-only feature).
+//!  * EG-397 (test 11, CONCEPT:EG-432) — KV-cache warm-fork fan-out. CROSS-REPO gap (the
+//!    warm-fork primitive lives in agent-utilities, not this engine).
 //!
 //! Gated at the module level on `query` + `tsdb` + `owl-plan` (the in-txn cross-modal
 //! executor legs); it compiles + runs under `--features full`.
@@ -536,89 +543,740 @@ async fn concurrent_serializable_phantom_conflict_eg392() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Tracked-but-unbuilt advanced roundtrips — executable specs, `#[ignore]`d with the
-// precise seam gap (each is also a docs/north_star.md OPEN row).
+// Advanced roundtrips CLOSED (handoff-1 track F, CONCEPT:EG-427..EG-430) — the
+// achievable specs turned GREEN by building the missing test-surface fixtures /
+// harnesses. The two genuinely-hard rows (EG-396 cross-shard Raft 2PC, EG-397
+// warm-fork) stay `#[ignore]`d below with a refined, precise reason + a north_star row.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// A request carrying an explicit caller `agent_id` so the RLS-aware read path can
+/// filter to that agent's visible rows (dispatch threads `req.agent_id` → `caller`).
+#[cfg(feature = "security")]
+fn req_as(id: u64, agent: &str, method: Method) -> Request {
+    Request {
+        id,
+        graph: "__commons__".into(),
+        auth_token: compute_auth_token(SECRET, id),
+        agent_id: Some(agent.to_string()),
+        method,
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EG-391 (test 5) — RLS per-agent visibility on a fused Reason→Rank + the overlay path
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// EG-391 (test 5) — RLS per-agent visibility on a fused Reason→Rank AND the overlay path.
-/// Contract: with an `IsolationLayer` carrying per-agent row-visibility rules, an in-txn
-/// `run_unified_overlaid` (which ALREADY calls `rls.filter_view` on the committed snapshot,
-/// see `handlers/query.rs`) must hide rows agent B may not see from BOTH the committed and
-/// the staged-overlay legs of a fused `Reason → Rank`, while agent A (the owner) sees them.
+/// GREEN (CONCEPT:EG-391 / seam CONCEPT:EG-427): with an `IsolationLayer` carrying per-agent
+/// row-visibility rules, an in-txn `run_unified_overlaid` must hide rows agent B may not see
+/// from BOTH the committed base AND the staged-overlay legs of a fused `Reason → Rank`, while
+/// agent A (the owner) sees them.
+///
+/// Fixture: two COMMITTED `Robot` rows (one unowned/public, one `_owner=agent_a`+`_visibility=
+/// private`) each with an embedding, seeded BEFORE any identity is registered (so the writes
+/// bypass the ACL); then identities `agent_a`/`agent_b` are registered (`has_rules()` flips
+/// on). A txn STAGES two more `Robot` rows (one public, one `agent_a`-private) with embeddings.
+/// The fused plan `[Reason<Machine> |> Rank ~[1,0] |> Limit]` runs in-txn as each agent:
+///   * agent_b sees ONLY the public rows (`pub_r`, `stg_pub`) — the committed private row is
+///     dropped by `filter_view` on the base, the STAGED private row by the EG-427 post-overlay
+///     `filter_view` (without it the staged private row would leak);
+///   * agent_a (the owner) sees ALL FOUR.
+#[cfg(feature = "security")]
 #[tokio::test]
-#[ignore = "seam not wired at test surface: RLS-in-unified needs a row-visibility fixture \
-            (isolation identities + per-node owner/grant blobs via row_visibility) AND the \
-            caller threaded into TxnUnifiedQuery (dispatch passes agent_id, but this test \
-            harness does not yet register RLS rules). filter_view exists in \
-            crates/eg-core/src/isolation.rs:386; wiring is src/server/handlers/query.rs \
-            run_unified_overlaid caller/rls args. Achievable — deferred."]
 async fn rls_per_agent_fused_reason_rank_overlay_eg391() {
-    // Contract asserted above; harness fixture (RLS identities + owner-tagged node blobs)
-    // is the remaining lift.
+    use epistemic_graph::isolation::AgentRole;
+
+    let state = state();
+
+    // ── seed the committed base BEFORE registering identities (has_rules()==false ⇒ the
+    // writes bypass the ACL). One PUBLIC (unowned) row + one agent_a-owned PRIVATE row,
+    // each with an embedding so the vector RANK ranks it. ──
+    ok(
+        &state,
+        1,
+        Method::AddNode {
+            node_id: "pub_r".into(),
+            properties_msgpack: pack(json!({ "type": "Robot" })),
+        },
+    )
+    .await;
+    ok(
+        &state,
+        2,
+        Method::AddEmbedding {
+            node_id: "pub_r".into(),
+            embedding: vec![1.0, 0.0],
+        },
+    )
+    .await;
+    ok(
+        &state,
+        3,
+        Method::AddNode {
+            node_id: "sec_r".into(),
+            properties_msgpack: pack(
+                json!({ "type": "Robot", "_owner": "agent_a", "_visibility": "private" }),
+            ),
+        },
+    )
+    .await;
+    ok(
+        &state,
+        4,
+        Method::AddEmbedding {
+            node_id: "sec_r".into(),
+            embedding: vec![1.0, 0.0],
+        },
+    )
+    .await;
+
+    // ── register the two agent identities → RLS enforcing mode. ──
+    for (i, agent) in [(5u64, "agent_a"), (6, "agent_b")] {
+        let r = dispatch(
+            &state,
+            req(
+                i,
+                Method::RegisterIdentity {
+                    agent_id: agent.into(),
+                    role: AgentRole::Agent,
+                    teams: vec![],
+                    signature: String::new(),
+                    roles: vec![],
+                },
+            ),
+        )
+        .await;
+        assert!(
+            r.error.is_none(),
+            "RegisterIdentity {agent} failed: {:?}",
+            r.error
+        );
+    }
+
+    // ── STAGE two more Robot rows in a txn: one public, one agent_a-private, each with an
+    // embedding (the staged-overlay leg the EG-427 filter must also cover). ──
+    let txn = begin(&state, 7, None).await;
+    ok(
+        &state,
+        8,
+        Method::TxnAddNode {
+            txn_id: txn.clone(),
+            node_id: "stg_pub".into(),
+            properties_msgpack: pack(json!({ "type": "Robot" })),
+            graph: None,
+        },
+    )
+    .await;
+    ok(
+        &state,
+        9,
+        Method::TxnAddEmbedding {
+            txn_id: txn.clone(),
+            node_id: "stg_pub".into(),
+            embedding: vec![1.0, 0.0],
+            graph: None,
+        },
+    )
+    .await;
+    ok(
+        &state,
+        10,
+        Method::TxnAddNode {
+            txn_id: txn.clone(),
+            node_id: "stg_sec".into(),
+            properties_msgpack: pack(
+                json!({ "type": "Robot", "_owner": "agent_a", "_visibility": "private" }),
+            ),
+            graph: None,
+        },
+    )
+    .await;
+    ok(
+        &state,
+        11,
+        Method::TxnAddEmbedding {
+            txn_id: txn.clone(),
+            node_id: "stg_sec".into(),
+            embedding: vec![1.0, 0.0],
+            graph: None,
+        },
+    )
+    .await;
+
+    // The fused Reason→Rank plan: infer Machine members over the (RLS-filtered) view, then
+    // vector-rank them. `Reason` bridges the bare `Robot` type ↔ `<http://ex/Robot>`.
+    let fused = || {
+        eg_plan::Plan::new(vec![
+            eg_plan::Op::Reason {
+                target_class: "<http://ex/Machine>".into(),
+                ontology: "@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .\n\
+                           <http://ex/Robot> rdfs:subClassOf <http://ex/Machine> .\n"
+                    .into(),
+            },
+            eg_plan::Op::Rank {
+                query: vec![1.0, 0.0],
+            },
+            eg_plan::Op::Limit { k: 10 },
+        ])
+    };
+    let run_as = |id: u64, agent: &'static str| {
+        let state = state.clone();
+        let txn = txn.clone();
+        let plan = fused();
+        async move {
+            let r = dispatch(
+                &state,
+                req_as(
+                    id,
+                    agent,
+                    Method::TxnUnifiedQuery {
+                        txn_id: txn,
+                        plan,
+                        reorder_filter_selectivity: None,
+                    },
+                ),
+            )
+            .await;
+            let mut ids = unified_ids(&r);
+            ids.sort();
+            ids
+        }
+    };
+
+    // agent_b: ONLY the public rows — the committed private row is hidden on the base leg,
+    // the STAGED private row on the overlay leg (the EG-427 post-overlay filter).
+    assert_eq!(
+        run_as(12, "agent_b").await,
+        vec!["pub_r".to_string(), "stg_pub".to_string()],
+        "agent_b must see only the public committed + staged Robot rows (RLS hides agent_a's \
+         private rows on BOTH the committed and the staged-overlay legs)"
+    );
+
+    // agent_a (the owner): sees ALL FOUR rows (committed + staged, public + its own private).
+    assert_eq!(
+        run_as(13, "agent_a").await,
+        vec![
+            "pub_r".to_string(),
+            "sec_r".to_string(),
+            "stg_pub".to_string(),
+            "stg_sec".to_string()
+        ],
+        "agent_a (owner) must see every row it owns plus the public rows"
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EG-393 (test 10) — pgwire + /sparql + native consistent snapshot after a mixed commit
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// POST a SPARQL query to the `/sparql` HTTP endpoint over a raw TCP socket and return the
+/// response body (SPARQL-results JSON). Dep-free — the endpoint is a hand-rolled HTTP/1.1
+/// listener, so a raw request avoids pulling an HTTP client into the test.
+#[cfg(feature = "sparql-http")]
+async fn sparql_post(addr: &str, query: &str) -> String {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let mut stream = tokio::net::TcpStream::connect(addr)
+        .await
+        .expect("sparql connect");
+    let reqs = format!(
+        "POST /sparql HTTP/1.1\r\nHost: localhost\r\ncontent-type: application/sparql-query\r\n\
+         content-length: {}\r\nconnection: close\r\n\r\n{}",
+        query.len(),
+        query
+    );
+    stream
+        .write_all(reqs.as_bytes())
+        .await
+        .expect("sparql write");
+    let mut buf = Vec::new();
+    stream.read_to_end(&mut buf).await.expect("sparql read");
+    let raw = String::from_utf8_lossy(&buf).to_string();
+    // Split headers from body at the blank line.
+    raw.split_once("\r\n\r\n")
+        .map(|(_, b)| b.to_string())
+        .unwrap_or(raw)
 }
 
 /// EG-393 (test 10) — pgwire + `/sparql` + native consistent snapshot after a mixed commit.
-/// Contract: after a cross-modal `BEGIN…COMMIT` (graph + vector + axiom), a read over the
-/// pgwire wire, a read over the HTTP `/sparql` surface, and a native `UnifiedQuery` must all
-/// observe the SAME committed snapshot (no surface sees a torn/partial state).
-#[tokio::test]
-#[ignore = "seam not wired at test surface: needs the pgwire listener + a tokio-postgres \
-            client (see tests/pgwire_roundtrip.rs) AND the sparql-http server bound in the \
-            same ServerState, then a tri-surface read after one commit. The committed \
-            machinery exists (EG-372 pgwire cross-modal + sparql_http); the multi-listener \
-            harness is the lift. Achievable — deferred."]
+/// GREEN (CONCEPT:EG-428): a pgwire listener, a `/sparql` HTTP listener and the native
+/// `dispatch` path all bound to the SAME in-process `ServerState`. After ONE mixed
+/// cross-modal `BEGIN…COMMIT` (graph node + embedding + a second node + a `subClassOf`
+/// graph edge + an OWL axiom), a read over EACH of the three surfaces observes the SAME
+/// committed snapshot — and BEFORE the commit, none of the three sees any of it (no surface
+/// sees a torn/partial state).
+#[cfg(all(feature = "pgwire", feature = "sparql-http"))]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn pgwire_sparql_native_consistent_snapshot_eg393() {
-    // Contract asserted above; multi-surface listener harness is the remaining lift.
+    use epistemic_graph::server::{pgwire, sparql_http};
+
+    let state = state();
+
+    // ── bind the pgwire listener on an ephemeral port (TRUST auth — no password). ──
+    let pg_probe = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let pg_addr = pg_probe.local_addr().unwrap().to_string();
+    drop(pg_probe);
+    {
+        let state = state.clone();
+        let pg_addr = pg_addr.clone();
+        tokio::spawn(async move {
+            let _ = pgwire::serve_with_auth(&pg_addr, state, pgwire::PgWireAuthMode::Trust).await;
+        });
+    }
+
+    // ── bind the /sparql listener on an ephemeral port over the SAME state. ──
+    let sparql_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let sparql_addr = sparql_listener.local_addr().unwrap().to_string();
+    {
+        let state = state.clone();
+        tokio::spawn(async move {
+            sparql_http::serve(sparql_listener, state).await;
+        });
+    }
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+    // ── a real tokio-postgres client (extended-protocol driver) on the pgwire surface. ──
+    let pg_port = pg_addr.rsplit(':').next().unwrap();
+    let (pg, pg_conn) = tokio_postgres::connect(
+        &format!("host=127.0.0.1 port={pg_port} user=tester dbname=__commons__"),
+        tokio_postgres::NoTls,
+    )
+    .await
+    .expect("pgwire connect");
+    tokio::spawn(async move {
+        let _ = pg_conn.await;
+    });
+
+    // Closures reading the SAME committed fact off each of the three surfaces.
+    let native_robots = |id: u64| {
+        let state = state.clone();
+        async move { off_txn_text(&state, id, "MATCH (:Robot) |> LIMIT 5").await }
+    };
+    let pg_robots = || async {
+        let rows = pg
+            .simple_query("SELECT id FROM nodes WHERE type = 'Robot'")
+            .await
+            .expect("pgwire SELECT");
+        rows.into_iter()
+            .filter_map(|m| match m {
+                tokio_postgres::SimpleQueryMessage::Row(r) => Some(r.get(0).unwrap().to_string()),
+                _ => None,
+            })
+            .collect::<Vec<String>>()
+    };
+    // The SPARQL surface reads the committed node as an RDF subject (its literal property
+    // yields a `?s ?p ?o` triple). We assert the subject IRI appears / is absent in the body.
+    let sparql_sees_robot = |addr: String| async move {
+        sparql_post(&addr, "SELECT ?s ?p ?o WHERE { ?s ?p ?o }")
+            .await
+            .contains("ex/robot")
+    };
+
+    // Seed ONE committed non-Robot node so the pgwire `nodes` table's schema-on-read
+    // (`infer_nodes` unions the observed property keys) always exposes a `type` column —
+    // otherwise `WHERE type = 'Robot'` over the empty pre-commit graph errors "no field
+    // named type". `Seed` matches neither the `:Robot` label nor the `ex/robot` subject,
+    // so every before-commit "sees nothing" assertion still holds.
+    ok(
+        &state,
+        99,
+        Method::AddNode {
+            node_id: "seed0".into(),
+            properties_msgpack: pack(json!({ "type": "Seed" })),
+        },
+    )
+    .await;
+
+    // ── BEFORE the commit: none of the three surfaces sees the (uncommitted) data. ──
+    assert!(
+        native_robots(100).await.is_empty(),
+        "native must see nothing before commit"
+    );
+    assert!(
+        pg_robots().await.is_empty(),
+        "pgwire must see nothing before commit"
+    );
+    assert!(
+        !sparql_sees_robot(sparql_addr.clone()).await,
+        "/sparql must see nothing before commit"
+    );
+
+    // ── ONE mixed cross-modal txn: graph node (+ literal prop) + embedding + a second node
+    // + a subClassOf graph edge + an OWL axiom. IRI-shaped ids so the RDF surface is clean. ──
+    let txn = begin(&state, 1, None).await;
+    ok(
+        &state,
+        2,
+        Method::TxnAddNode {
+            txn_id: txn.clone(),
+            node_id: "<http://ex/robot>".into(),
+            properties_msgpack: pack(json!({ "type": "Robot", "name": "unit-1" })),
+            graph: None,
+        },
+    )
+    .await;
+    ok(
+        &state,
+        3,
+        Method::TxnAddEmbedding {
+            txn_id: txn.clone(),
+            node_id: "<http://ex/robot>".into(),
+            embedding: vec![1.0, 0.0],
+            graph: None,
+        },
+    )
+    .await;
+    ok(
+        &state,
+        4,
+        Method::TxnAddNode {
+            txn_id: txn.clone(),
+            node_id: "<http://ex/machine>".into(),
+            properties_msgpack: pack(json!({ "type": "Machine" })),
+            graph: None,
+        },
+    )
+    .await;
+    ok(
+        &state,
+        5,
+        Method::TxnAddEdge {
+            txn_id: txn.clone(),
+            source_id: "<http://ex/robot>".into(),
+            target_id: "<http://ex/machine>".into(),
+            properties_msgpack: pack(
+                json!({ "relationship": "subClassOf", "type": "http://www.w3.org/2000/01/rdf-schema#subClassOf" }),
+            ),
+            graph: None,
+        },
+    )
+    .await;
+    ok(
+        &state,
+        6,
+        Method::TxnAxiom {
+            txn_id: txn.clone(),
+            turtle: "@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .\n\
+                     <http://ex/Robot> rdfs:subClassOf <http://ex/Machine> .\n"
+                .into(),
+            graph: None,
+        },
+    )
+    .await;
+    let c = dispatch(
+        &state,
+        req(
+            7,
+            Method::Commit {
+                txn_id: txn.clone(),
+            },
+        ),
+    )
+    .await;
+    assert!(
+        matches!(c.result, Some(ResultPayload::Bool(true))),
+        "mixed cross-modal commit must succeed: {:?}",
+        c.error
+    );
+
+    // ── AFTER the commit: all three surfaces observe the SAME committed snapshot. ──
+    let native = native_robots(200).await;
+    assert_eq!(
+        native,
+        vec!["<http://ex/robot>".to_string()],
+        "native must see the committed Robot node"
+    );
+    let pgwire_rows = pg_robots().await;
+    assert_eq!(
+        pgwire_rows, native,
+        "pgwire and native must agree on the committed Robot node id (one consistent snapshot)"
+    );
+    assert!(
+        sparql_sees_robot(sparql_addr.clone()).await,
+        "/sparql must observe the committed node as an RDF subject (same snapshot as pgwire+native)"
+    );
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EG-394 (test 7) — encryption-at-rest + cross-modal read; a wrong key FAILS
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Serialize the process-global `EPISTEMIC_GRAPH_ENCRYPTION_KEY` env toggle so the keyed
+/// open/reopen roundtrip never races another test reading it. This is the ONLY test in this
+/// binary that touches the encryption env.
+#[cfg(all(feature = "security", feature = "redb"))]
+static ENC_ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 /// EG-394 (test 7) — encryption-at-rest + cross-modal read; a wrong key FAILS (no silent
-/// plaintext). Contract: a `security`-encrypted redb backend written with key K1 and reopened
-/// with a WRONG key K2 must ERROR on the cross-modal read rather than returning plaintext.
-#[tokio::test]
-#[ignore = "seam not wired at test surface: needs a security-encrypted RedbBackend \
-            (src/crypto.rs + src/server/persistence/redb_backend.rs) opened with key K1, a \
-            cross-modal commit, then a reopen with a wrong key asserting a decrypt ERROR. \
-            The encryption backend exists; the keyed open/reopen roundtrip is the lift. \
-            Achievable — deferred."]
+/// plaintext). GREEN (CONCEPT:EG-429): a keyed `RedbBackend` (`EPISTEMIC_GRAPH_ENCRYPTION_KEY`
+/// = K1) takes a cross-modal commit (graph node + edge + a vector embedding, sealed with
+/// ChaCha20-Poly1305). Reopened with K1 the fused cross-modal read (`read_graph_dump` = nodes
+/// + edges + the semantic/embedding blob) DECRYPTS; reopened with a WRONG key K2 the read
+/// ERRORS (`unseal` → wrong-key) rather than returning plaintext. The raw `.redb` bytes never
+/// contain the plaintext secret.
+#[cfg(all(feature = "security", feature = "redb"))]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn encryption_at_rest_wrong_key_fails_eg394() {
-    // Contract asserted above; keyed redb open/reopen roundtrip is the remaining lift.
+    use epistemic_graph::crypto::ENCRYPTION_KEY_ENV;
+    use epistemic_graph::server::persistence::redb_backend::RedbBackend;
+    use epistemic_graph::server::persistence::PersistenceBackend;
+    use epistemic_graph::wal_service::FsyncPolicy;
+
+    let _guard = ENC_ENV_LOCK.lock().await;
+    let prev = std::env::var(ENCRYPTION_KEY_ENV).ok();
+
+    let dir = std::env::temp_dir().join(format!("eg-enc-xmodal-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let dir_s = dir.to_string_lossy().to_string();
+
+    const SECRET_PROP: &str = "top-secret-serial-42";
+    let policy = || FsyncPolicy::Interval(std::time::Duration::from_millis(20));
+
+    // ── K1: open a keyed backend, commit a cross-modal write (node + edge + embedding). ──
+    std::env::set_var(ENCRYPTION_KEY_ENV, "key-one-K1");
+    let backend = RedbBackend::open(dir_s.clone(), policy(), 64).expect("open K1");
+    let methods = vec![
+        Method::AddNode {
+            node_id: "robot".into(),
+            properties_msgpack: pack(json!({ "type": "Robot", "secret": SECRET_PROP })),
+        },
+        Method::AddNode {
+            node_id: "machine".into(),
+            properties_msgpack: pack(json!({ "type": "Machine" })),
+        },
+        Method::AddEdge {
+            source_id: "robot".into(),
+            target_id: "machine".into(),
+            properties_msgpack: pack(json!({ "type": "LINKS" })),
+        },
+    ];
+    let vectors = vec![("robot".to_string(), vec![1.0f32, 0.0])];
+    backend
+        .commit_crossmodal("__commons__", &methods, &vectors, &[], &[])
+        .await
+        .expect("cross-modal commit under K1");
+    backend.shutdown();
+
+    // The raw redb bytes must not hold the plaintext secret (only sealed values on disk).
+    let mut leaked = false;
+    if let Ok(entries) = std::fs::read_dir(&dir) {
+        for e in entries.flatten() {
+            if let Ok(bytes) = std::fs::read(e.path()) {
+                if bytes
+                    .windows(SECRET_PROP.len())
+                    .any(|w| w == SECRET_PROP.as_bytes())
+                {
+                    leaked = true;
+                }
+            }
+        }
+    }
+    assert!(
+        !leaked,
+        "plaintext secret must NOT appear in the raw .redb bytes"
+    );
+
+    // ── K1 reopen: the fused cross-modal read (nodes + edges + semantic) DECRYPTS. ──
+    let reopened = RedbBackend::open(dir_s.clone(), policy(), 64).expect("reopen K1");
+    let dump = reopened
+        .read_graph_dump_blocking("__commons__")
+        .expect("read_graph_dump under K1")
+        .expect("graph present");
+    let node_blob = dump
+        .nodes
+        .iter()
+        .find(|(id, _)| id.as_str() == "robot")
+        .map(|(_, b)| b.clone())
+        .expect("robot node present");
+    let props: serde_json::Value =
+        rmp_serde::from_slice(&node_blob).expect("decode decrypted node");
+    assert_eq!(
+        props.get("secret").and_then(|v| v.as_str()),
+        Some(SECRET_PROP),
+        "the correct key must decrypt the cross-modal node property"
+    );
+    assert!(
+        !dump.edges.is_empty(),
+        "the committed edge must decrypt too"
+    );
+    assert!(
+        !dump.semantic.is_empty(),
+        "the committed embedding (semantic blob) must be present under the right key"
+    );
+    // A point read decrypts as well.
+    assert!(
+        reopened
+            .read_node("__commons__", "robot")
+            .await
+            .unwrap()
+            .is_some(),
+        "point read decrypts under the correct key"
+    );
+    reopened.shutdown();
+
+    // ── K2 reopen (WRONG key): the cross-modal read must ERROR, never return plaintext. ──
+    std::env::set_var(ENCRYPTION_KEY_ENV, "key-two-WRONG");
+    let wrong = RedbBackend::open(dir_s.clone(), policy(), 64).expect("reopen K2");
+    let read = wrong.read_node("__commons__", "robot").await;
+    assert!(
+        read.is_err(),
+        "a wrong key must FAIL the cross-modal read (no silent plaintext), got {read:?}"
+    );
+    wrong.shutdown();
+
+    // Restore the env + clean up.
+    match prev {
+        Some(v) => std::env::set_var(ENCRYPTION_KEY_ENV, v),
+        None => std::env::remove_var(ENCRYPTION_KEY_ENV),
+    }
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// EG-395 (test 8) — streaming/CDC → live materialized cross-modal view rebuild. Contract: a
-/// cross-modal commit emits CDC events on the `CdcHub`; a materialized view subscribed to the
-/// change stream rebuilds to reflect the new cross-modal state.
+// ─────────────────────────────────────────────────────────────────────────────
+// EG-395 (test 8) — streaming/CDC → live materialized cross-modal view rebuild
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// EG-395 (test 8) — streaming/CDC → live materialized cross-modal view rebuild. GREEN
+/// (CONCEPT:EG-430): a materialized view (a `CdcHub` continuous query — the streaming-native
+/// live view available in the `full` build; the `MatViewStore` variant needs the cluster-tier
+/// `compute-dist`/`raft` layer, NOT in `full`) is subscribed to `state.cdc`. A cross-modal
+/// write (graph nodes + a vector embedding + a graph edge) emits CDC change events; the view
+/// is maintained INCREMENTALLY off that change stream (count of `Robot` nodes), and a
+/// subsequent native cross-modal read reflects the SAME new state.
+#[cfg(feature = "streaming")]
 #[tokio::test]
-#[ignore = "seam not wired at test surface: needs a CDC subscription on state.cdc \
-            (src/server/cdc.rs CdcHub) + a MatViewStore rebuild assertion after a \
-            cross-modal commit (compute-dist matviews). Both surfaces exist; the \
-            subscribe→commit→rebuild-observe harness is the lift. Achievable — deferred."]
 async fn streaming_cdc_matview_rebuild_eg395() {
-    // Contract asserted above; CDC-subscribe + matview-rebuild harness is the remaining lift.
+    use epistemic_graph::wire::{ContinuousAgg, ContinuousQuerySpec};
+
+    let state = state();
+    let hub = {
+        let s = state.read().await;
+        s.cdc.clone().expect("streaming build has a CdcHub")
+    };
+
+    // Subscribe a live materialized view: a continuous query counting `Robot` nodes,
+    // seeded at 0 and maintained incrementally as CDC changes land.
+    hub.register_query(
+        "robot_count".into(),
+        ContinuousQuerySpec {
+            graph: "__commons__".into(),
+            label: "Robot".into(),
+            agg: ContinuousAgg::Count,
+        },
+        0.0,
+    );
+    let start = hub.head_seq("__commons__");
+
+    // ── a cross-modal write: two graph nodes + a vector embedding + a graph edge. Each
+    // single-op durable mutation emits a CDC change into `__commons__`'s feed. ──
+    ok(
+        &state,
+        1,
+        Method::AddNode {
+            node_id: "r1".into(),
+            properties_msgpack: pack(json!({ "type": "Robot" })),
+        },
+    )
+    .await;
+    ok(
+        &state,
+        2,
+        Method::AddEmbedding {
+            node_id: "r1".into(),
+            embedding: vec![1.0, 0.0],
+        },
+    )
+    .await;
+    ok(
+        &state,
+        3,
+        Method::AddNode {
+            node_id: "r2".into(),
+            properties_msgpack: pack(json!({ "type": "Robot" })),
+        },
+    )
+    .await;
+    ok(
+        &state,
+        4,
+        Method::AddEdge {
+            source_id: "r1".into(),
+            target_id: "r2".into(),
+            properties_msgpack: pack(json!({ "relationship": "LINKS" })),
+        },
+    )
+    .await;
+
+    // The CDC subscription observes the ordered cross-modal change stream (the two node
+    // AddNode events at least; the edge emits too).
+    let events = hub.read("__commons__", start, 100).expect("cdc read");
+    let robot_adds = events
+        .iter()
+        .filter(|e| e.label == "Robot" && format!("{:?}", e.kind).contains("AddNode"))
+        .count();
+    assert_eq!(
+        robot_adds, 2,
+        "CDC feed must carry the two Robot AddNode changes"
+    );
+
+    // The materialized view REBUILT incrementally off the change stream: it now reflects the
+    // two committed Robot nodes (invalidated + re-counted on each delta, not re-run).
+    let view = hub
+        .read_query("robot_count")
+        .expect("continuous query registered");
+    assert_eq!(
+        view.value, 2.0,
+        "the live matview must reflect the cross-modal write"
+    );
+    assert!(
+        view.through_seq >= start,
+        "the view folded in the new changes"
+    );
+
+    // A subsequent native read reflects the SAME new state — both committed Robot nodes
+    // (a plain label scan; `r2` carries no embedding, so a vector RANK would drop it).
+    let mut robots = off_txn_text(&state, 5, "MATCH (:Robot) |> LIMIT 5").await;
+    robots.sort();
+    assert_eq!(
+        robots,
+        vec!["r1".to_string(), "r2".to_string()],
+        "a subsequent read reflects the rebuilt cross-modal state"
+    );
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Genuinely-hard rows — kept `#[ignore]`d with a REFINED precise reason (north_star OPEN).
+// ─────────────────────────────────────────────────────────────────────────────
 
 /// EG-396 (test 4) — cross-shard txn spanning modalities under Raft; kill the coordinator
-/// mid-2PC → a SINGLE decision (all shards commit or all abort — no split-brain). Contract:
-/// a 2-shard cross-modal txn whose coordinator is killed between prepare and commit resolves
-/// to one atomic outcome on recovery.
+/// mid-2PC → a SINGLE decision (all shards commit or all abort — no split-brain).
 #[tokio::test]
-#[ignore = "seam not built at test surface: NO in-process multi-node openraft cluster + 2PC \
-            coordinator-kill harness exists in tests/ (raft/multi_raft live behind the \
-            cluster feature in src/server/state.rs; there is no test scaffold that stands up \
-            >1 Raft node and injects a mid-2PC coordinator failure). Genuine gap — a cluster \
-            test harness is required before this can be written green."]
+#[ignore = "GENUINE GAP (CONCEPT:EG-431), out of the `full` test scope. The 2PC coordinator \
+            (CrossShardCoordinator) + multi_raft live behind the `cluster`/`raft`+`compute-dist` \
+            features, which are NOT in `full` (this file runs under `--features full`), so a \
+            raft-gated harness here would not even compile/run in the gate. Standing up >1 \
+            in-process openraft node, forming a cluster, and injecting a mid-2PC coordinator \
+            kill needs a `--features cluster` test binary with a loopback multi-node scaffold \
+            (cf. scripts/validate-raft-cluster.sh, which does formation/replication/failover on \
+            throwaway loopback nodes at the PROCESS level, not in-process). AGENTS.md flags the \
+            live-cadence + cross-host soak as needing real multi-node hardware. Deferred to a \
+            dedicated cluster-tier test harness."]
 async fn cross_shard_raft_2pc_single_decision_eg396() {
-    // Contract asserted above; a multi-node Raft + 2PC-kill test harness does not yet exist.
+    // Contract asserted above; a multi-node Raft + 2PC-kill test harness does not yet exist,
+    // and cannot run under `--features full` (raft is a `cluster`-only feature).
 }
 
 /// EG-397 (test 11) — KV-cache warm-fork fan-out reusing cross-modal context, isolated on
-/// divergent writes. Contract: a warm parent holding fused cross-modal context is forked to N
-/// children that share the read context but isolate their own divergent writes.
+/// divergent writes.
 #[tokio::test]
-#[ignore = "seam not in this repo: the warm-FORK sandbox capability (ForkableSandbox / \
-            WarmParentRegistry, ORCH-1.86..93) lives in agent-utilities, NOT epistemic-graph; \
-            eg-kvcache here provides the KV page store (dedup/LRU/data-version EG-364) but no \
-            fork primitive. Cross-repo gap — the fan-out test belongs to the agent-utilities \
-            warm-fork surface consuming this engine's cross-modal context."]
+#[ignore = "CROSS-REPO GAP (CONCEPT:EG-432): the warm-FORK sandbox primitive (ForkableSandbox / \
+            WarmParentRegistry / forkserver, ORCH-1.86..93) lives in agent-utilities, NOT this \
+            engine. Reachable engine-side seams are the KV page store (eg-kvcache: dedup/LRU/\
+            data-version EG-364) and the cross-modal read surface this file already proves — but \
+            NEITHER is a fork primitive: there is no in-engine `os.fork`/forkserver/CoW child that \
+            shares a warm parent's read context while isolating divergent writes. The fan-out test \
+            belongs to the agent-utilities warm-fork surface CONSUMING this engine's cross-modal \
+            context (the child would open its own client/txn against the same engine); it cannot \
+            be written green inside epistemic-graph. Tracked in docs/north_star.md."]
 async fn kvcache_warm_fork_fanout_eg397() {
     // Contract asserted above; the warm-fork primitive lives in agent-utilities, not here.
 }
