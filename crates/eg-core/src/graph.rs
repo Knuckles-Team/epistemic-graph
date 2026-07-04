@@ -4808,8 +4808,9 @@ mod tests {
     // ── secondary property index (CONCEPT:EG-KG.query.concept-12) ──────────────────────────
 
     /// Serializes the env-mutating property-index tests (env is process-global and
-    /// Rust runs tests on parallel threads).
-    static PROP_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    /// Rust runs tests on parallel threads). Shared crate-wide (`crate::PROP_ENV_LOCK`)
+    /// so the `index` manager cap test serializes against these too.
+    use crate::PROP_ENV_LOCK;
 
     fn prop_graph() -> GraphCore {
         let core = GraphCore::new();

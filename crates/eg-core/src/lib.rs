@@ -8,6 +8,14 @@
 //! unchanged.
 pub use eg_types::{acl, protocol, types, wire};
 
+/// Shared test-only serialization lock for the process-global indexed-property env
+/// vars (`EPISTEMIC_GRAPH_MAX_INDEXED_PROPERTIES` / `EPISTEMIC_GRAPH_INDEXED_PROPERTIES`).
+/// The `graph` property-index tests AND the `index` manager cap test both mutate these
+/// globals, so both acquire THIS one lock — otherwise a cap-mutating test races a
+/// default-cap test under parallel `--all-features` (a torn `nodes_by_property` read).
+#[cfg(test)]
+pub(crate) static PROP_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 // CONCEPT:EG-KG.compute.message-broker-exchanges — message-broker exchanges/routing on top of the KG-2.303 queue.
 #[cfg(feature = "broker")]
 pub mod broker;

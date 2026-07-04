@@ -692,6 +692,12 @@ mod tests {
     /// returns `None` (caller full-scans), exactly as the direct path does.
     #[test]
     fn lookup_propagates_bounded_cap_refusal() {
+        // Serialize against the `graph` property-index tests: this test pins the global
+        // cap to 1, which would otherwise race a sibling default-cap test (shared
+        // `crate::PROP_ENV_LOCK`, env is process-global under parallel test execution).
+        let _env = crate::PROP_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         std::env::set_var("EPISTEMIC_GRAPH_MAX_INDEXED_PROPERTIES", "1");
         std::env::remove_var("EPISTEMIC_GRAPH_INDEXED_PROPERTIES");
         let g = graph();
