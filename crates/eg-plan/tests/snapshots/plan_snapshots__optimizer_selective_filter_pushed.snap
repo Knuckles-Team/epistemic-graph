@@ -1,0 +1,25 @@
+---
+source: crates/eg-plan/tests/plan_snapshots.rs
+expression: render(&sel)
+---
+[
+    Scan {
+        label: "Doc",
+    },
+    Filter {
+        preds: [
+            GtNum {
+                prop: "year",
+                n: 2022.0,
+            },
+        ],
+    },
+    Rank {
+        query: [
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+        ],
+    },
+]
