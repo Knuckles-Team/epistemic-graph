@@ -1,4 +1,4 @@
-//! UQL recursive-descent parser (CONCEPT:AU-KG.query.top-nodes-by-degree) → the existing [`Plan`] AST.
+//! UQL recursive-descent parser (CONCEPT:KG-2.214) → the existing [`Plan`] AST.
 //!
 //! This is a pure FRONT-END: it parses a human/agent-writable text query into the
 //! SAME `wire::Plan` (`Vec<Op>`) that `Method::UnifiedQuery` already executes — it
@@ -26,14 +26,17 @@
 //! edge       = "-" "[" ":" rel "]" "->" [ hop_range ]
 //!            | rel [ hop_range ] ;                          (* bare-rel shorthand    *)
 //! hop_range  = "{" int [ ( "," | ".." ) int ] "}" ;        (* {2} = {2,2}; {1,3}    *)
-//! rank       = "RANK" "BY" "~" "[" num { "," num } "]" ;    (* inline literal vector *)
+//! rank       = "RANK" "BY" "~" vector_ref ;                 (* vector / text / handle *)
+//! vector_ref = "[" signed_num { "," signed_num } "]"        (* inline literal vector *)
+//!            | string | ident ;                             (* ~"text" (embed) / ~handle *)
+//! signed_num = [ "-" ] num ;                                (* negatives allowed     *)
 //! text       = "TEXT" string ;                              (* BM25 lexical rank     *)
 //! fuse       = "FUSE" "[" branch "]" { "[" branch "]" } ;   (* N-way RRF hybrid      *)
 //! branch     = stage { "|>" stage } ;
 //! rerank     = "RERANK" ( "NODE_DISTANCE" "FROM" id
 //!                       | "MENTIONS" | "MMR" num int ) ;    (* graph-native rerankers *)
 //! asof       = "AS" "OF" [ "TX" | "VALID" ] "@" num ;       (* bi-temporal point-in-time *)
-//! window     = "WINDOW" num [ unit ] ;                      (* s | m | h | d         *)
+//! window     = "WINDOW" num [ unit ] [ agg ] ;              (* s|m|h|d ; agg selector *)
 //! limit      = "LIMIT" int ;
 //! pred_list  = pred { "AND" pred } ;
 //! pred       = prop ( ">" | "<" | ( "=" | "==" ) ) value ;
@@ -48,29 +51,38 @@
 //! | `MATCH (:Doc)`                       | `Scan { label: "Doc" }`                |
 //! | `WHERE year > 2024 AND lang = 'en'`  | `Filter { preds: [GtNum, Eq] }`        |
 //! | `TRAVERSE -[:CITES]->{1,2}`          | `Traverse { rel:"CITES",min:1,max:2 }` |
-//! | `RANK BY ~[1.0,0.0]`                 | `Rank { query: [1.0, 0.0] }`           |
+//! | `RANK BY ~[1.0,-0.5]`                | `Rank { query: [1.0, -0.5] }`          |
+//! | `RANK BY ~"some text"`               | `RankEmbed { text: "some text" }`      |
 //! | `TEXT "graphs"`                      | `RankText { query: "graphs" }`         |
-//! | `FUSE [..] [..]`                     | `FuseRrf { branches, k }`              |
+//! | `FUSE [RANK BY ~[1,0]] [TEXT "q"]`   | `FuseRrf { branches, k: 0.0 }`         |
 //! | `RERANK NODE_DISTANCE FROM "n1"`     | `RankNodeDistance { center: "n1" }`    |
 //! | `RERANK MENTIONS`                    | `RankMentions {}`                      |
 //! | `RERANK MMR 0.5 10`                  | `RankMmr { lambda: 0.5, k: 10 }`       |
 //! | `AS OF @t` / `AS OF TX @t`           | `AsOf { ts, axis: Valid|Transaction }` |
 //! | `WINDOW 1 h`                         | `Window { secs: 3600 }`                |
+//! | `WINDOW 60 s SUM`                    | `WindowAgg { secs: 60, agg: "sum" }`   |
 //! | `FOREIGN "peer"`                     | `Foreign { name: "peer" }`             |
 //! | `REASON Mammal`                      | `Reason { target_class: "Mammal" }`    |
 //! | `LIMIT 10`                           | `Limit { k: 10 }`                      |
 //!
 //! ### Feature gating (on EXECUTION, not parsing)
-//!  * **time** (CONCEPT:AU-KG.compute.kg-2) — `AS OF [TX|VALID] @<ts>` is a real bi-temporal
+//!  * **time** (CONCEPT:KG-2.250) — `AS OF [TX|VALID] @<ts>` is a real bi-temporal
 //!    point-in-time FILTER (valid time = "what was true"; `TX` = transaction time =
 //!    "what we believed"); `WINDOW <dur>` ⇒ `Op::Window`. Dep-free; base `query`.
-//!  * **rerank** (CONCEPT:EG-KG.query.uql-parser-ops/2.255) — graph-native `NODE_DISTANCE`/`MENTIONS` and
+//!  * **rerank** (CONCEPT:KG-2.254/2.255) — graph-native `NODE_DISTANCE`/`MENTIONS` and
 //!    diversity `MMR <lambda> <k>`. Dep-free; base `query`.
-//!  * **fuse / text** (CONCEPT:AU-KG.compute.change-feed-subscription) — `FUSE`/`TEXT` gated to `text`; a non-`text`
-//!    build parses them but errors at run time.
+//!  * **fuse / text** (CONCEPT:KG-2.253 / EG-418) — `FUSE`/`TEXT` gated to `text`; a
+//!    non-`text` build parses them but errors with a clear "not in this build" message.
 //!  * **federation** — `FOREIGN "<name>"` (resolve: `federation`). **owl** — `REASON
-//!    <Class>` gated to `owl`. `RANK BY ~"…"` (named handle) stays a reserved error
-//!    (no server-side embedder resolver — embed client-side, pass the literal vector).
+//!    <Class>` gated to `owl`.
+//!  * **embedder seam** (CONCEPT:EG-411) — `RANK BY ~"text"` lowers to `Op::RankEmbed`,
+//!    resolved at exec time by the server-side embedder bound on the `PlanCtx` (a clear
+//!    typed error if none is bound). A bare-ident handle (`~handle`) stays a reserved
+//!    forward seam (no by-name embedding registry yet).
+//!  * **window aggregate** (CONCEPT:EG-413/414) — `WINDOW <dur>` is a real tumbling
+//!    windowed MEAN over `(ts,value)` rows (e.g. from a `TsScan`); `WINDOW <dur> <agg>`
+//!    selects the aggregate (`Op::WindowAgg`). The eg-tsdb aggregate is wired under
+//!    `timeseries`; a non-`timeseries` build passes the rows through.
 
 use eg_types::wire::{Op, Plan, Pred, TimeAxis};
 
@@ -109,15 +121,19 @@ impl std::fmt::Display for UqlError {
     }
 }
 
-/// How a `RANK BY ~<ref>` vector reference resolved. This increment binds ONLY the
-/// inline literal vector (`Op::Rank { query }`); a NAMED reference (`~"my query"` /
-/// `~handle`) is a documented forward seam (text-rank, Lane G4) and is rejected with
-/// a clear "named embedding refs not yet supported" error — until the resolver + the
-/// future `Op::TextRank` land, the grammar accepts it but the parser cannot lower it.
+/// How a `RANK BY ~<ref>` vector reference resolved:
+///  * `Inline` — a literal vector `~[…]` (possibly with negative components, CONCEPT:EG-417)
+///    → `Op::Rank { query }`.
+///  * `Text` — a quoted natural-language query `~ "text"` → `Op::RankEmbed { text }`, the
+///    server-side NL→vector seam (CONCEPT:EG-411): the executor resolves the text to a
+///    query vector via the embedder bound on the `PlanCtx` (a clear error if none is bound).
+///  * `Handle` — a bare-ident stored-embedding handle `~handle` → still a reserved forward
+///    seam (there is no by-name embedding registry yet): rejected with a clear message.
 #[derive(Clone, Debug, PartialEq)]
 enum VectorRef {
     Inline(Vec<f32>),
-    Named(String),
+    Text(String),
+    Handle(String),
 }
 
 /// Parse a UQL string into the existing [`Plan`] AST. The returned `Plan` is exactly
@@ -176,7 +192,7 @@ impl<'a> Parser<'a> {
 
     /// `stage = traverse | rank | text | limit | filter | asof | window | foreign |
     /// reason`. Dispatched on the leading keyword. The time/federation/owl/text
-    /// clauses (CONCEPT:EG-KG.query.sparql-completeness) each lower to ONE `Op`; the owl (`REASON`) + text
+    /// clauses (CONCEPT:KG-2.235) each lower to ONE `Op`; the owl (`REASON`) + text
     /// (`TEXT`) clauses are feature-gated to the same feature as the `Op` they lower
     /// to, so a build without that feature gives a clear "not in this build" error
     /// rather than a phantom Op.
@@ -190,6 +206,9 @@ impl<'a> Parser<'a> {
         } else if self.peek_kw("TEXT") {
             self.bump();
             ops.push(self.parse_text()?);
+        } else if self.peek_kw("FUSE") {
+            self.bump();
+            ops.push(self.parse_fuse()?);
         } else if self.peek_kw("LIMIT") {
             self.bump();
             ops.push(self.parse_limit()?);
@@ -215,7 +234,7 @@ impl<'a> Parser<'a> {
             ops.push(self.parse_reason()?);
         } else {
             return Err(self.err_here(
-                "expected a pipeline stage (`TRAVERSE`, `RANK`, `TEXT`, `LIMIT`, \
+                "expected a pipeline stage (`TRAVERSE`, `RANK`, `TEXT`, `FUSE`, `LIMIT`, \
                  `WHERE`, `AS OF`, `WINDOW`, `FOREIGN`, or `REASON`)",
             ));
         }
@@ -259,29 +278,36 @@ impl<'a> Parser<'a> {
         Ok((min, max))
     }
 
-    /// `rank = "RANK" "BY" "~" vector_ref`. Only an inline literal vector lowers this
-    /// increment; a named ref is the documented text-rank forward seam.
+    /// `rank = "RANK" "BY" "~" vector_ref`. An inline literal vector lowers to `Op::Rank`;
+    /// a quoted `~ "text"` lowers to `Op::RankEmbed` (the server-side NL→vector seam,
+    /// CONCEPT:EG-411); a bare-ident handle is the still-reserved by-name-embedding seam.
     fn parse_rank(&mut self) -> Result<Op, UqlError> {
         self.expect_kw("BY")?;
         self.expect(&Tok::Tilde, "`~` before the rank vector (`RANK BY ~[…]`)")?;
         match self.parse_vector_ref()? {
             VectorRef::Inline(query) => Ok(Op::Rank { query }),
-            VectorRef::Named(_) => Err(self.err_at(
+            VectorRef::Text(text) => Ok(Op::RankEmbed { text }),
+            VectorRef::Handle(_) => Err(self.err_at(
                 self.prev_start(),
-                "named embedding refs (`RANK BY ~\"text\"`) are a reserved forward \
-                 seam (text-rank, Lane G4) and not yet executable — use an inline \
-                 literal vector `RANK BY ~[…]`",
+                "a bare-ident embedding handle (`RANK BY ~handle`) is a reserved forward \
+                 seam (no by-name embedding registry yet) — use a quoted query \
+                 `RANK BY ~\"text\"` (server-side embedded) or an inline literal vector \
+                 `RANK BY ~[…]`",
             )),
         }
     }
 
-    /// `vector_ref = "[" num {"," num} "]" | string | ident`.
+    /// `vector_ref = "[" signed_num {"," signed_num} "]" | string | ident`. A component
+    /// may be negative (`~[-0.1, 0.2, -0.3]`, CONCEPT:EG-417) — a leading `-` negates the
+    /// following number, matching the Rust builder / wire DTO which accept negatives.
     fn parse_vector_ref(&mut self) -> Result<VectorRef, UqlError> {
         if self.eat(&Tok::LBracket) {
             let mut v = Vec::new();
             if !self.peek(&Tok::RBracket) {
                 loop {
-                    v.push(self.expect_num("a vector component")? as f32);
+                    let neg = self.eat(&Tok::Dash);
+                    let n = self.expect_num("a vector component")? as f32;
+                    v.push(if neg { -n } else { n });
                     if !self.eat(&Tok::Comma) {
                         break;
                     }
@@ -292,11 +318,11 @@ impl<'a> Parser<'a> {
         } else if let Some(Tok::Str(s)) = self.peek_kind() {
             let s = s.clone();
             self.bump();
-            Ok(VectorRef::Named(s))
+            Ok(VectorRef::Text(s))
         } else if let Some(Tok::Ident(s)) = self.peek_kind() {
             let s = s.clone();
             self.bump();
-            Ok(VectorRef::Named(s))
+            Ok(VectorRef::Handle(s))
         } else {
             Err(self.err_here("expected a rank vector: `[…]`, a quoted ref, or a name"))
         }
@@ -309,7 +335,7 @@ impl<'a> Parser<'a> {
     }
 
     /// `asof = "AS" "OF" [ "TX" | "VALID" ] "@" num` → `Op::AsOf { ts, axis }`
-    /// (CONCEPT:EG-KG.query.sparql-completeness / KG-2.250). The optional axis keyword selects the timeline:
+    /// (CONCEPT:KG-2.235 / KG-2.250). The optional axis keyword selects the timeline:
     /// `TX` (or `TRANSACTION`) pins transaction time ("what we BELIEVED at ts"); the
     /// default / `VALID` pins valid time ("what was TRUE at ts"). The instant is a
     /// unix-seconds number prefixed by the `@` sigil (already lexed).
@@ -336,8 +362,13 @@ impl<'a> Parser<'a> {
         Ok(Op::AsOf { ts, axis })
     }
 
-    /// `window = "WINDOW" num [ unit ]` → `Op::Window { secs }` (CONCEPT:EG-KG.query.sparql-completeness). A
-    /// bare number is seconds; an optional unit suffix (`s`/`m`/`h`/`d`) scales it.
+    /// `window = "WINDOW" num [ unit ] [ agg ]` → `Op::Window { secs }` (mean, CONCEPT:
+    /// KG-2.235 / EG-413) or `Op::WindowAgg { secs, agg }` when an aggregate selector is
+    /// present (CONCEPT:EG-414). A bare number is seconds; an optional unit suffix
+    /// (`s`/`m`/`h`/`d`) scales it; an optional trailing aggregate keyword
+    /// (`mean`/`avg`, `sum`, `min`, `max`, `count`, `first`, `last`) selects the windowed
+    /// aggregate. The unit is matched FIRST, so `WINDOW 30 min` stays 30 MINUTES (not the
+    /// `min` aggregate); write `WINDOW 30 s min` for a 30-second min-aggregate.
     fn parse_window(&mut self) -> Result<Op, UqlError> {
         let n = self.expect_num("a WINDOW duration (`WINDOW <dur>`)")?;
         let scale = match self.peek_kind() {
@@ -354,17 +385,44 @@ impl<'a> Parser<'a> {
                         self.bump();
                         scale
                     }
-                    // An un-recognized trailing word is the NEXT thing, not a unit.
+                    // An un-recognized trailing word is the NEXT thing (an agg or a stage).
                     None => 1.0,
                 }
             }
             _ => 1.0,
         };
-        Ok(Op::Window { secs: n * scale })
+        let secs = n * scale;
+        // Optional trailing aggregate selector (CONCEPT:EG-414). A bareword that names a
+        // known aggregate is consumed; anything else is left for the next stage.
+        match self.parse_window_agg() {
+            Some(agg) => Ok(Op::WindowAgg { secs, agg }),
+            None => Ok(Op::Window { secs }),
+        }
+    }
+
+    /// Peek an optional trailing `WINDOW` aggregate selector (CONCEPT:EG-414), consuming
+    /// and returning its canonical name if the next token is a known aggregate keyword;
+    /// `None` otherwise (the token is left for the next stage). Case-insensitive.
+    fn parse_window_agg(&mut self) -> Option<String> {
+        let name = match self.peek_kind()? {
+            Tok::Ident(w) => match w.to_ascii_lowercase().as_str() {
+                "mean" | "avg" | "average" => "mean",
+                "sum" => "sum",
+                "min" | "minimum" => "min",
+                "max" | "maximum" => "max",
+                "count" => "count",
+                "first" => "first",
+                "last" => "last",
+                _ => return None,
+            },
+            _ => return None,
+        };
+        self.bump();
+        Some(name.to_string())
     }
 
     /// `foreign = "FOREIGN" ( string | ident )` → `Op::Foreign { name }`
-    /// (CONCEPT:EG-KG.query.sparql-completeness). The federation source name (a registered peer).
+    /// (CONCEPT:KG-2.235). The federation source name (a registered peer).
     fn parse_foreign(&mut self) -> Result<Op, UqlError> {
         let name = match self.peek_kind() {
             Some(Tok::Str(s)) | Some(Tok::Ident(s)) => {
@@ -378,7 +436,7 @@ impl<'a> Parser<'a> {
     }
 
     /// `rerank = "RERANK" ( "NODE_DISTANCE" "FROM" id | "MENTIONS" )` → a graph-native
-    /// reranker op (CONCEPT:EG-KG.query.uql-parser-ops). `NODE_DISTANCE FROM <id>` re-orders by proximity
+    /// reranker op (CONCEPT:KG-2.254). `NODE_DISTANCE FROM <id>` re-orders by proximity
     /// to a focal node; `MENTIONS` re-orders by incoming-edge (provenance) salience.
     fn parse_rerank(&mut self) -> Result<Op, UqlError> {
         if self.peek_kw("MENTIONS") {
@@ -412,10 +470,10 @@ impl<'a> Parser<'a> {
         ))
     }
 
-    /// `reason = "REASON" (iri | ident | string)` → `Op::Reason` (CONCEPT:EG-KG.query.sparql-completeness /
+    /// `reason = "REASON" (iri | ident | string)` → `Op::Reason` (CONCEPT:KG-2.235 /
     /// EG-375). The OWL-inferred members of the named class seed (or, mid-pipeline, filter)
     /// the RowSet. The class may be a bare label (`REASON Mammal`) OR an explicit angle-
-    /// bracketed class IRI (`REASON <http://ex/Device>` — CONCEPT:EG-KG.query.reason-iri-parses-angle), the form the
+    /// bracketed class IRI (`REASON <http://ex/Device>` — CONCEPT:EG-375), the form the
     /// string-type↔IRI-class bridge resolves against. Feature-gated to `owl` — the feature
     /// that compiles the `Op::Reason` variant + its executor.
     #[cfg(feature = "owl")]
@@ -457,7 +515,7 @@ impl<'a> Parser<'a> {
         ))
     }
 
-    /// `text = "TEXT" string` → `Op::RankText { query }` (CONCEPT:EG-KG.query.sparql-completeness). Re-ranks
+    /// `text = "TEXT" string` → `Op::RankText { query }` (CONCEPT:KG-2.235). Re-ranks
     /// the candidate RowSet by BM25 relevance to the natural-language query. Feature-
     /// gated to `text` — the feature that compiles the `Op::RankText` variant + the
     /// lexical index executor.
@@ -483,6 +541,48 @@ impl<'a> Parser<'a> {
         Err(self.err_at(
             self.prev_start(),
             "`TEXT` requires the BM25 lexical index (build feature `text`); \
+             not available in this build",
+        ))
+    }
+
+    /// `fuse = "FUSE" "[" branch "]" { "[" branch "]" }` where `branch = stage { "|>"
+    /// stage }` → `Op::FuseRrf { branches, k }` (CONCEPT:EG-418 / KG-2.215/2.253). Each
+    /// bracketed `[ … ]` is a sub-pipeline branch (a `Vec<Op>`); the branches are
+    /// reciprocal-rank-fused. `k` defaults to `0.0` — the executor reads that as the
+    /// canonical `eg_text::RRF_K` — matching the Rust builder's `Op::FuseRrf` shape (the
+    /// UQL surface expresses exactly what the builder/wire already could). The canonical
+    /// tri-modal hybrid is `FUSE [RANK BY ~[…]] [TEXT "q"] [RERANK NODE_DISTANCE FROM "n"]`.
+    /// Feature-gated to `text` — the feature that compiles the `Op::FuseRrf` variant + the
+    /// RRF executor.
+    #[cfg(feature = "text")]
+    fn parse_fuse(&mut self) -> Result<Op, UqlError> {
+        let mut branches: Vec<Vec<Op>> = Vec::new();
+        while self.peek(&Tok::LBracket) {
+            self.bump(); // consume `[`
+            let mut ops: Vec<Op> = Vec::new();
+            self.parse_stage(&mut ops)?;
+            while self.eat(&Tok::Pipe) {
+                self.parse_stage(&mut ops)?;
+            }
+            self.expect(&Tok::RBracket, "`]` to close a FUSE branch")?;
+            branches.push(ops);
+        }
+        if branches.is_empty() {
+            return Err(self.err_here(
+                "expected at least one `[branch]` after FUSE (`FUSE [RANK BY ~[…]] [TEXT \"q\"]`)",
+            ));
+        }
+        // k = 0.0 ⇒ the executor uses the canonical `eg_text::RRF_K` default.
+        Ok(Op::FuseRrf { branches, k: 0.0 })
+    }
+
+    /// `FUSE` in a build WITHOUT `text`: the `Op::FuseRrf` variant is cfg'd out, so the
+    /// clause is accepted lexically but rejected with a clear message (mirrors `TEXT`).
+    #[cfg(not(feature = "text"))]
+    fn parse_fuse(&mut self) -> Result<Op, UqlError> {
+        Err(self.err_at(
+            self.prev_start(),
+            "`FUSE` requires the RRF hybrid / BM25 text index (build feature `text`); \
              not available in this build",
         ))
     }

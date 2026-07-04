@@ -1,0 +1,29 @@
+---
+source: crates/eg-plan/tests/plan_snapshots.rs
+expression: render(&parsed.ops)
+---
+[
+    Scan {
+        label: "Doc",
+    },
+    Traverse {
+        rel: "CITES",
+        min: 1,
+        max: 2,
+    },
+    Rank {
+        query: [
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+        ],
+    },
+    AsOf {
+        ts: 1700000000.0,
+        axis: Valid,
+    },
+    Limit {
+        k: 5,
+    },
+]
