@@ -1,0 +1,21 @@
+---
+source: crates/eg-plan/tests/plan_snapshots.rs
+expression: render(&parsed.ops)
+---
+[
+    Scan {
+        label: "Doc",
+    },
+    Rank {
+        query: [
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+        ],
+    },
+    RankMmr {
+        lambda: 0.3,
+        k: 5,
+    },
+]
