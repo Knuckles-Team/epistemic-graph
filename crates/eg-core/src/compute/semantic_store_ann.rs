@@ -134,6 +134,32 @@ impl EmbeddingArena {
         drift
     }
 
+    /// Remove `id` from the dense arena via O(dim) swap-remove (CONCEPT:EG-KG.storage.incremental-ann):
+    /// the last row is moved into the vacated slot so the arena stays contiguous and
+    /// dense (`data.len() == ids.len() * dim`). Returns `true` if a row was removed,
+    /// `false` if `id` was absent. The resident ANN index is tombstoned separately by
+    /// the caller — its rows are keyed independently of arena position, so a
+    /// swap-remove here does not corrupt it.
+    fn remove(&mut self, id: &str) -> bool {
+        let Some(r) = self.id_to_row.remove(id) else {
+            return false;
+        };
+        let last = self.ids.len() - 1;
+        if r != last {
+            // Move the last row's vector + norm + id into the vacated slot `r`.
+            self.data
+                .copy_within(last * self.dim..(last + 1) * self.dim, r * self.dim);
+            self.norms[r] = self.norms[last];
+            let moved = self.ids[last].clone();
+            self.ids[r] = moved.clone();
+            self.id_to_row.insert(moved, r);
+        }
+        self.data.truncate(last * self.dim);
+        self.norms.pop();
+        self.ids.pop();
+        true
+    }
+
     /// Reconstruct an arena from the persisted flat wire shape (CONCEPT:EG-KG.storage.arena-row-append).
     /// `dim` may be `0` in older flat snapshots — it is then derived from the row
     /// count. Norms are recomputed on load (cheap; keeps the wire shape minimal and
@@ -318,6 +344,29 @@ impl SemanticStore {
                 }
             }
         }
+    }
+
+    /// Incrementally remove `node_id`'s embedding (CONCEPT:EG-KG.storage.incremental-ann): swap-remove
+    /// its row from the arena (O(dim)) and tombstone its row in the resident ANN
+    /// index — NO full rebuild. Returns `true` if an embedding was removed, `false`
+    /// if the node had none. Called from the write coalescer's index-maintenance
+    /// seam when a node is removed, so kNN never returns a dead node.
+    pub fn remove_embedding(&mut self, node_id: &str) -> bool {
+        if !self.arena.remove(node_id) {
+            return false;
+        }
+        let live_len = self.arena.len();
+        if let Some(ann) = self.index.write().as_mut() {
+            ann.remove(node_id);
+            // Keep the staleness gate exact: the index still reflects the current
+            // (now smaller) live set, so search keeps using it rather than falling
+            // back to brute force.
+            *self.built_len.write() = live_len;
+            if ann.tombstone_ratio() >= COMPACT_TOMBSTONE_PCT {
+                ann.compact();
+            }
+        }
+        true
     }
 
     /// Force a clean compaction that drops all tombstones (ops/maintenance hook).
@@ -603,6 +652,72 @@ mod tests {
                 "len={len}: simd {v} vs scalar {s}"
             );
         }
+    }
+
+    #[test]
+    fn remove_embedding_drops_from_arena_and_search() {
+        // CONCEPT:EG-KG.storage.incremental-ann — a removed embedding must vanish from both the
+        // arena (swap-remove keeps it dense) and search results, with survivors intact.
+        let mut store = SemanticStore::new();
+        for i in 0..50 {
+            let mut v = vec![0.0f32; 8];
+            v[i % 8] = 1.0;
+            v[(i + 1) % 8] = (i as f32) / 50.0;
+            store.add_embedding(format!("n{i}"), v);
+        }
+        assert_eq!(store.len(), 50);
+
+        assert!(store.remove_embedding("n7"));
+        assert!(!store.remove_embedding("n7"), "second remove is a no-op");
+        assert_eq!(store.len(), 49);
+        assert!(store.get_embedding("n7").is_none());
+        // A survivor's vector is still exactly retrievable (swap-remove preserved it).
+        assert!(store.get_embedding("n8").is_some());
+
+        // Arena stays dense: data.len() == ids.len() * dim (invariant for correct rows).
+        let q = store.get_embedding("n8").unwrap();
+        let hits = store.semantic_search(&q, 5);
+        assert!(hits.iter().any(|(id, _)| id == "n8"));
+        assert!(
+            hits.iter().all(|(id, _)| id != "n7"),
+            "removed id must never surface: {hits:?}"
+        );
+    }
+
+    #[test]
+    fn remove_embedding_index_path_tombstones() {
+        // Above the ANN build threshold + warmed → the resident IVF-PQ index serves
+        // search; removing a node must tombstone its row so kNN never returns it, with
+        // no full rebuild.
+        let dim = 32;
+        let n = ANN_BUILD_THRESHOLD + 200;
+        let mut store = SemanticStore::new();
+        let mut seed = 4242u64;
+        let mut rng = || {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+            ((seed >> 33) as f32 / (1u64 << 31) as f32) - 0.5
+        };
+        let mut target = vec![0.0f32; dim];
+        for i in 0..n {
+            let v: Vec<f32> = (0..dim).map(|_| rng()).collect();
+            if i == 123 {
+                target = v.clone();
+            }
+            store.add_embedding(format!("n{i}"), v);
+        }
+        store.warm("test");
+        assert!(store.is_ready(), "index should warm above threshold");
+
+        // n123 is its own nearest neighbor before removal.
+        let before = store.semantic_search(&target, 5);
+        assert!(before.iter().any(|(id, _)| id == "n123"));
+
+        assert!(store.remove_embedding("n123"));
+        let after = store.semantic_search(&target, 5);
+        assert!(
+            after.iter().all(|(id, _)| id != "n123"),
+            "tombstoned node must not surface via the ANN index: {after:?}"
+        );
     }
 
     #[test]

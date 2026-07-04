@@ -294,6 +294,13 @@ fn apply_batch(
             acquired.saturating_duration_since(*enqueued).as_secs_f64(),
         );
     }
+    // CONCEPT:EG-KG.storage.write-changeset — collect the per-WriteOp delta for this batch so the
+    // heavy secondary indexes can be maintained incrementally under this SAME lock.
+    // Gated on the incremental switch so the kill-switch path pays ZERO extra work
+    // (no id clones, no changeset): when off, the dispatch shell's per-op mark_dirty
+    // performs the legacy invalidate-and-rebuild exactly as before.
+    let incremental = core.incremental_indexing();
+    let mut change = crate::index::ChangeSet::new();
     for (_, op) in batch {
         match op {
             WriteOp::AddNode {
@@ -301,10 +308,16 @@ fn apply_batch(
                 properties_msgpack,
                 reply,
             } => {
+                if incremental {
+                    change.record_add_node(node_id.clone());
+                }
                 txn.add_node(node_id, properties_msgpack);
                 let _ = reply.send(WriteOutcome::Ok);
             }
             WriteOp::RemoveNode { node_id, reply } => {
+                if incremental {
+                    change.record_remove_node(node_id.clone());
+                }
                 txn.remove_node(node_id);
                 let _ = reply.send(WriteOutcome::Ok);
             }
@@ -314,8 +327,20 @@ fn apply_batch(
                 properties_msgpack,
                 reply,
             } => {
+                // Only a SUCCESSFUL add-edge is a real change (a missing endpoint is
+                // an Err that touches nothing), so record it after the outcome.
+                let recorded = if incremental {
+                    Some((source_id.clone(), target_id.clone()))
+                } else {
+                    None
+                };
                 let outcome = match txn.add_edge(source_id, target_id, properties_msgpack) {
-                    Ok(()) => WriteOutcome::Ok,
+                    Ok(()) => {
+                        if let Some((s, t)) = recorded {
+                            change.record_add_edge(s, t);
+                        }
+                        WriteOutcome::Ok
+                    }
                     Err(e) => WriteOutcome::Err(e),
                 };
                 let _ = reply.send(outcome);
@@ -325,6 +350,9 @@ fn apply_batch(
                 target_id,
                 reply,
             } => {
+                if incremental {
+                    change.record_remove_edge(source_id.clone(), target_id.clone());
+                }
                 txn.remove_edge(source_id, target_id);
                 let _ = reply.send(WriteOutcome::Ok);
             }
@@ -335,9 +363,20 @@ fn apply_batch(
                 reply,
             } => {
                 let ok = txn.compare_and_set_fields(&node_id, &conditions, &updates);
+                // A lost CAS mutates nothing; only a won claim is a change.
+                if incremental && ok {
+                    change.record_update_node(node_id);
+                }
                 let _ = reply.send(WriteOutcome::Cas(ok));
             }
         }
+    }
+    // CONCEPT:EG-KG.storage.write-changeset — maintain the heavy secondary indexes (vector today;
+    // text/temporal/derived-OWL via the same seam in future) BEFORE releasing the
+    // topology lock, so a concurrent hybrid read sees the topology mutation and the
+    // index moves together — never a torn index.
+    if incremental && !change.is_empty() {
+        core.maintain_indexes(&change);
     }
     drop(txn); // release the lock; reads + the next batch can proceed.
                // CONCEPT:EG-KG.compute.parse-resolve-span — hold = acquire → release: the window readers were blocked.
@@ -761,5 +800,134 @@ mod tests {
         };
         let core = Arc::new(GraphCore::new());
         assert!(reg.writer_for("__commons__", &core).is_none());
+    }
+
+    fn emb8(i: usize, n: usize) -> Vec<f32> {
+        let mut v = vec![0.0f32; 8];
+        v[i % 8] = 1.0;
+        v[(i + 1) % 8] = (i as f32) / (n as f32);
+        v
+    }
+
+    /// A RemoveNode batch drives the incremental index-maintenance seam
+    /// (CONCEPT:EG-KG.storage.write-changeset / .incremental-ann): the removed node's embedding
+    /// is tombstoned under the SAME topology lock, so a later kNN search never
+    /// returns it. Uses a second op as a barrier — the single worker drains batches
+    /// sequentially, so awaiting a later op guarantees the earlier batch's index
+    /// maintenance completed (maintenance runs after the per-op reply, before the
+    /// lock releases).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn remove_node_batch_tombstones_embedding() {
+        let core = Arc::new(GraphCore::new());
+        core.add_node("keep".into(), node_props(1));
+        core.add_node("drop".into(), node_props(2));
+        {
+            let mut s = core.semantic_store.write();
+            s.add_embedding("keep".into(), vec![1.0, 0.0, 0.0]);
+            s.add_embedding("drop".into(), vec![0.0, 1.0, 0.0]);
+        }
+        let cfg = CoalescerConfig {
+            max_batch: 16,
+            queue_capacity: 256,
+            max_linger: Duration::from_millis(1),
+        };
+        let writer = GraphWriter::spawn("g".into(), core.clone(), cfg);
+
+        {
+            let (reply, rx) = oneshot::channel();
+            let op = WriteOp::RemoveNode {
+                node_id: "drop".into(),
+                reply,
+            };
+            if let Err(op) = writer.try_enqueue(op) {
+                writer.apply_one_inline(&core, "g", op);
+            }
+            assert!(matches!(rx.await.unwrap(), WriteOutcome::Ok));
+        }
+        // Barrier op — its completion guarantees the RemoveNode batch fully drained.
+        let _ = submit_node(&writer, "barrier", 0).await;
+
+        let s = core.semantic_store.read();
+        assert!(
+            s.get_embedding("drop").is_none(),
+            "removed node's embedding must be tombstoned by the maintenance seam"
+        );
+        assert!(
+            s.get_embedding("keep").is_some(),
+            "survivor embedding must remain"
+        );
+    }
+
+    /// Concurrency coherence (CONCEPT:EG-KG.storage.write-changeset): kNN reads running
+    /// CONCURRENTLY with a stream of node removals NEVER observe a torn index — under
+    /// one read guard, every hit's vector is still present in the store. Maintenance
+    /// runs under the batch topology lock and mutates the vector store under its own
+    /// write lock, so a reader sees the embedding set atomically, never mid-removal.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn concurrent_reads_never_see_a_torn_index() {
+        let core = Arc::new(GraphCore::new());
+        const N: usize = 200;
+        for i in 0..N {
+            core.add_node(format!("n{i}"), node_props(i as i64));
+            core.semantic_store
+                .write()
+                .add_embedding(format!("n{i}"), emb8(i, N));
+        }
+        let cfg = CoalescerConfig {
+            max_batch: 8,
+            queue_capacity: 512,
+            max_linger: Duration::from_millis(1),
+        };
+        let writer = GraphWriter::spawn("g".into(), core.clone(), cfg);
+
+        // Reader: hammer kNN while removals proceed. Under ONE read guard a search
+        // result and the presence check are consistent — a torn read would surface an
+        // id whose vector was concurrently removed.
+        let reader_core = core.clone();
+        let reader = tokio::spawn(async move {
+            let q = vec![1.0f32, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+            for _ in 0..400 {
+                {
+                    let s = reader_core.semantic_store.read();
+                    for (id, _) in s.semantic_search(&q, 10) {
+                        assert!(
+                            s.get_embedding(&id).is_some(),
+                            "torn index: hit {id} absent from the store under one guard"
+                        );
+                    }
+                }
+                tokio::task::yield_now().await;
+            }
+        });
+
+        // Writer: remove the first half, one node per op.
+        for i in 0..N / 2 {
+            let (reply, rx) = oneshot::channel();
+            let op = WriteOp::RemoveNode {
+                node_id: format!("n{i}"),
+                reply,
+            };
+            if let Err(op) = writer.try_enqueue(op) {
+                writer.apply_one_inline(&core, "g", op);
+            }
+            let _ = rx.await;
+        }
+        reader.await.unwrap();
+
+        // Barrier, then the final state: first half gone, second half intact.
+        let _ = submit_node(&writer, "barrier", 0).await;
+        let s = core.semantic_store.read();
+        for i in 0..N / 2 {
+            assert!(
+                s.get_embedding(&format!("n{i}")).is_none(),
+                "n{i} should be removed"
+            );
+        }
+        for i in N / 2..N {
+            assert!(
+                s.get_embedding(&format!("n{i}")).is_some(),
+                "n{i} should remain"
+            );
+        }
     }
 }

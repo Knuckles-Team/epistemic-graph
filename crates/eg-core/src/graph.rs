@@ -1737,6 +1737,56 @@ impl GraphCore {
         &self.index_manager
     }
 
+    /// Invalidate the lazy secondary caches — label (CONCEPT:EG-KG.compute.consult-lazy), property
+    /// equality (CONCEPT:EG-KG.query.concept-12), and JSONPath path (CONCEPT:EG-KG.compute.json-deep-indexing) —
+    /// so they rebuild on the next read. Carved out of `mark_dirty` (behavior-identical)
+    /// so the write-coalescer's index-maintenance seam (CONCEPT:EG-KG.storage.index-manager-seam) can
+    /// reuse the SAME invalidation inside its batch topology lock.
+    ///
+    /// RECONCILE-WITH-LANE-0: Lane 0 (feat/lane0-foundation) owns this carve. If it
+    /// lands first, drop this copy and keep the identical Lane-0 body — the two are
+    /// byte-for-byte the same three cache nulls.
+    pub fn invalidate_indexes(&self) {
+        *self.label_index.write() = None;
+        *self.property_index.write() = None;
+        *self.path_index.write() = None;
+    }
+
+    /// Is incremental heavy-index maintenance enabled? Read once from
+    /// `EPISTEMIC_GRAPH_INCREMENTAL_INDEX` (default ON; `0|false|off|no` = the legacy
+    /// invalidate-and-rebuild path). Kept behind the process-cached
+    /// [`crate::index::incremental_index_enabled`] so the write hot path pays a single
+    /// relaxed atomic load, never an env lookup (CONCEPT:EG-KG.storage.write-changeset).
+    #[inline]
+    pub fn incremental_indexing(&self) -> bool {
+        crate::index::incremental_index_enabled()
+    }
+
+    /// Maintain the secondary indexes after a committed write batch
+    /// (CONCEPT:EG-KG.storage.write-changeset). Called by the per-graph write coalescer
+    /// INSIDE the batch's topology write lock so a concurrent hybrid read never
+    /// observes a torn index — the topology mutation and the index moves are
+    /// published together.
+    ///
+    ///  * **Incremental (default):** route `change` through the [`IndexManager`] seam —
+    ///    each heavy index applies its own delta (the vector store tombstones the
+    ///    embeddings of removed nodes, CONCEPT:EG-KG.storage.incremental-ann), falling back to a
+    ///    full rebuild only when a delta can't be applied — then invalidate the lazy
+    ///    label/property/path caches (rebuilt on the next read).
+    ///  * **`EPISTEMIC_GRAPH_INCREMENTAL_INDEX=0` (kill-switch):** the coalescer skips
+    ///    this call entirely and the dispatch shell's per-op `mark_dirty` performs the
+    ///    legacy invalidate-and-rebuild, so behavior is byte-identical to pre-seam.
+    pub fn maintain_indexes(
+        &self,
+        change: &crate::index::ChangeSet,
+    ) -> crate::index::BatchMaintenance {
+        let outcome = self.index_manager.commit_batch(self, change);
+        // The lazy caches are rebuilt on read; keeping this here makes a coalesced
+        // batch self-contained (idempotent with the shell's per-op `mark_dirty`).
+        self.invalidate_indexes();
+        outcome
+    }
+
     /// The change-notification fan-out (CONCEPT:EG-KG.compute.cdc-event-emit). A server-layer GraphQL
     /// subscription carrier calls `core.changes().subscribe(&sink)` to receive a
     /// [`ChangeEvent`] on every committed write, turning a poll-only subscription
@@ -1768,23 +1818,10 @@ impl GraphCore {
             .version
             .fetch_add(1, std::sync::atomic::Ordering::AcqRel)
             + 1;
-        // Invalidate the lazy label index (CONCEPT:EG-KG.compute.consult-lazy): a write may have
-        // added/removed a node or rewritten a node's label, so the cached
-        // `label → ids` map is stale and is rebuilt on the next label lookup.
-        *self.label_index.write() = None;
-        // Invalidate the lazy property index (CONCEPT:EG-KG.query.concept-12): a write may have
-        // changed an indexed property value or added/removed a node, so the cached
-        // `value → ids` maps are stale and are rebuilt (over the same demanded keys)
-        // on the next `nodes_by_property` lookup.
-        *self.property_index.write() = None;
-        // Invalidate the lazy JSONPath path-index (CONCEPT:EG-KG.compute.json-deep-indexing): a write may have
-        // added/removed a node or changed a nested JSON value, so the cached
-        // `path → value → ids` maps are stale and are rebuilt (over the same demanded
-        // paths) on the next `nodes_by_json_path` / `nodes_with_json_path` lookup. This
-        // is how the index is "maintained on the mutation path": every committed write
-        // funnels through `mark_dirty` under the topology write guard, so the index is
-        // never consistent-stale across a mutation.
-        *self.path_index.write() = None;
+        // Invalidate the lazy label / property / JSONPath caches. Carved into
+        // `invalidate_indexes` (CONCEPT:EG-KG.storage.index-manager-seam) so the write-coalescer's
+        // index-maintenance seam reuses the EXACT same block under its batch lock.
+        self.invalidate_indexes();
         // CONCEPT:EG-KG.compute.cdc-event-emit — fan out a change notification (post-write version) to any
         // live subscribers (the GraphQL subscription carrier). A single relaxed
         // atomic load when there are none, so this is off the write hot path.
@@ -1806,12 +1843,10 @@ impl GraphCore {
             .fetch_add(1, std::sync::atomic::Ordering::AcqRel)
             + 1;
         self.result_cache.invalidate_all();
-        // The label/property indexes are also derived state; retire them too so a
-        // subsequent local read after a remote-applied change rebuilds them.
-        *self.label_index.write() = None;
-        *self.property_index.write() = None;
-        // CONCEPT:EG-KG.compute.json-deep-indexing — the JSONPath path-index is derived state too; retire it.
-        *self.path_index.write() = None;
+        // The label/property/path caches are derived state; retire them too so a
+        // subsequent local read after a remote-applied change rebuilds them. Same
+        // carved block as `mark_dirty` (CONCEPT:EG-KG.storage.index-manager-seam).
+        self.invalidate_indexes();
         // CONCEPT:EG-KG.compute.cdc-event-emit — a replicated write must also wake local live-query
         // subscribers, so a subscription reflects remote writes, not just local ones.
         self.changes.emit(new_version);
