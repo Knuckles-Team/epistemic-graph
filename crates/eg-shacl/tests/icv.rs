@@ -187,7 +187,8 @@ ex:PersonShape a sh:NodeShape ;
     for v in &report.violations {
         assert!(!v.witness.trim().is_empty(), "witness must be non-empty");
         assert!(
-            v.witness.contains("CONCEPT:EG-KG.ontology.wired-into-commit-write"),
+            v.witness
+                .contains("CONCEPT:EG-KG.ontology.wired-into-commit-write"),
             "witness cites EG-146: {}",
             v.witness
         );
@@ -250,7 +251,9 @@ ex:PersonShape a sh:NodeShape ;
         .iter()
         .any(|v| v.result.constraint_component.contains("MaxCount")));
     // The introduced violation carries its explain witness.
-    assert!(check.introduced[0].witness.contains("CONCEPT:EG-KG.ontology.wired-into-commit-write"));
+    assert!(check.introduced[0]
+        .witness
+        .contains("CONCEPT:EG-KG.ontology.wired-into-commit-write"));
 }
 
 // ── EG-146: check_write guard — accept a non-violating change ───────────────

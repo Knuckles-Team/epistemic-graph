@@ -814,7 +814,10 @@ pub fn parse_mapping(text: &str) -> Result<VirtualGraph, String> {
         vg.triples_maps.push(pm.finish(text.lines().count())?);
     }
     if vg.triples_maps.is_empty() {
-        return Err("obda: mapping defined no TriplesMap (CONCEPT:EG-KG.ontology.foreign-source-seam)".into());
+        return Err(
+            "obda: mapping defined no TriplesMap (CONCEPT:EG-KG.ontology.foreign-source-seam)"
+                .into(),
+        );
     }
     Ok(vg)
 }

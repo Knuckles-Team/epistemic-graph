@@ -47,7 +47,9 @@ fn eg146_icv_closed_world_and_witness_from_eg_rdf() {
         .any(|v| v.result.constraint_component.contains("Datatype")));
     // Every violation is self-explaining (SPARQL witness citing EG-146, anchored at focus).
     for v in &report.violations {
-        assert!(v.witness.contains("CONCEPT:EG-KG.ontology.wired-into-commit-write"));
+        assert!(v
+            .witness
+            .contains("CONCEPT:EG-KG.ontology.wired-into-commit-write"));
         assert!(v.witness.contains("<http://example.org/bob>"));
         assert!(v.result.message.is_some());
     }
