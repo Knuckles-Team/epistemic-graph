@@ -1,10 +1,10 @@
-//! GraphQL **cross-modal transaction** seam (CONCEPT:EG-379/380/381) — the GraphQL
+//! GraphQL **cross-modal transaction** seam (CONCEPT:EG-KG.query.eg-9/380/381) — the GraphQL
 //! surface for the EG-359..363 in-txn cross-modal seam, so a GraphQL client reaches the
 //! SAME *stage graph + vector + timeseries + OWL/CONSTRUCT → read-your-own-writes →
 //! atomic commit* power the RPC (EG-359..363) and pgwire (EG-372) surfaces already
 //! expose. North-star EG-373: every cross-modal seam is implemented at EVERY surface.
 //!
-//! ## Model — a multi-request `txnId` handle (CONCEPT:EG-380)
+//! ## Model — a multi-request `txnId` handle (CONCEPT:EG-KG.compute.eg-178)
 //! GraphQL over HTTP is request/response with no built-in session, so a multi-request
 //! transaction needs an explicit handle. `beginTransaction` mints a `txnId` and registers
 //! a staged transaction in a [`CrossModalTxnRegistry`] — a `Mutex<HashMap>`, the SAME
@@ -72,40 +72,40 @@ pub enum GraphWrite {
     },
 }
 
-/// A staged time-series batch (CONCEPT:EG-381): a `series` name and its
+/// A staged time-series batch (CONCEPT:EG-KG.compute.series-name-its): a `series` name and its
 /// `(ts_ns, field_values)` points — the SAME `Vec<(i64, Vec<f64>)>` shape
 /// `eg_plan::StagedSeries::push_points` consumes. Always defined (a transparent alias, no
 /// cost) so the facade-facing [`CrossModalTxn::measurements`] accessor names ONE type
-/// regardless of the `crossmodal-tsdb` feature (CONCEPT:EG-419).
+/// regardless of the `crossmodal-tsdb` feature (CONCEPT:EG-KG.query.facade-reconcile-hook).
 pub type StagedMeasurement = (String, Vec<(i64, Vec<f64>)>);
 
 /// One staged cross-modal transaction — the GraphQL-surface analogue of the facade's
 /// `GraphTxnState`, holding only the buffers this crate overlays + commits directly.
 #[derive(Default)]
 pub struct CrossModalTxn {
-    /// Node/edge writes lowered from `sparqlUpdate` / `sparqlConstruct` (CONCEPT:EG-379).
+    /// Node/edge writes lowered from `sparqlUpdate` / `sparqlConstruct` (CONCEPT:EG-KG.query.eg-9).
     graph: Vec<GraphWrite>,
     /// Embeddings staged by `stageEmbedding`.
     vectors: Vec<(String, Vec<f32>)>,
-    /// Time-series batches staged by `addMeasurement` (CONCEPT:EG-381). tsdb-gated (parity
+    /// Time-series batches staged by `addMeasurement` (CONCEPT:EG-KG.compute.series-name-its). tsdb-gated (parity
     /// with the RPC/pgwire seam, whose measurement staging is behind `tsdb`).
     #[cfg(feature = "crossmodal-tsdb")]
     measurements: Vec<StagedMeasurement>,
 }
 
 impl CrossModalTxn {
-    /// Staged node/edge writes (CONCEPT:EG-419) — the facade lowers each to
+    /// Staged node/edge writes (CONCEPT:EG-KG.query.facade-reconcile-hook) — the facade lowers each to
     /// `AddNode`/`AddEdge` for the durable `commit_cross_modal_txn`.
     pub fn graph_writes(&self) -> &[GraphWrite] {
         &self.graph
     }
 
-    /// Staged embeddings (CONCEPT:EG-419).
+    /// Staged embeddings (CONCEPT:EG-KG.query.facade-reconcile-hook).
     pub fn vectors(&self) -> &[(String, Vec<f32>)] {
         &self.vectors
     }
 
-    /// Staged tsdb measurement batches (CONCEPT:EG-419) as `(series, [(ts_ns, values)])` —
+    /// Staged tsdb measurement batches (CONCEPT:EG-KG.query.facade-reconcile-hook) as `(series, [(ts_ns, values)])` —
     /// EMPTY when built without `crossmodal-tsdb`, so the facade can always call it.
     pub fn measurements(&self) -> Vec<StagedMeasurement> {
         #[cfg(feature = "crossmodal-tsdb")]
@@ -120,7 +120,7 @@ impl CrossModalTxn {
 }
 
 /// Holds the open GraphQL cross-modal transactions across a connection's requests
-/// (CONCEPT:EG-380). A server carrier owns ONE instance and threads it through each
+/// (CONCEPT:EG-KG.compute.eg-178). A server carrier owns ONE instance and threads it through each
 /// GraphQL request so a `txnId` minted by `beginTransaction` survives to the later
 /// `stage*` / `unifiedQuery` / `commitTransaction` requests.
 #[derive(Default)]
@@ -142,7 +142,7 @@ impl CrossModalTxnRegistry {
         format!("gqltxn-{n:016x}")
     }
 
-    /// Remove + return a staged txn so the facade can commit it DURABLY (CONCEPT:EG-419).
+    /// Remove + return a staged txn so the facade can commit it DURABLY (CONCEPT:EG-KG.query.facade-reconcile-hook).
     /// The facade's GraphQL carrier calls this on `commitTransaction`, converts the returned
     /// [`CrossModalTxn`] into a facade `GraphTxnState`, and lands every modality in ONE redb
     /// `WriteTransaction` via `commit_cross_modal_txn` — instead of the in-crate in-memory
@@ -152,7 +152,7 @@ impl CrossModalTxnRegistry {
     }
 }
 
-/// How the facade should route a GraphQL cross-modal mutation (CONCEPT:EG-419).
+/// How the facade should route a GraphQL cross-modal mutation (CONCEPT:EG-KG.query.facade-reconcile-hook).
 pub enum CrossModalRoute {
     /// A lone `commitTransaction(txnId)` — the facade takes the staged txn and lands it
     /// DURABLY via `commit_cross_modal_txn` (one redb `WriteTransaction`), matching pgwire.
@@ -166,7 +166,7 @@ pub enum CrossModalRoute {
     NotCrossModal,
 }
 
-/// Classify a GraphQL mutation `src` for facade routing (CONCEPT:EG-419) with ONE parse:
+/// Classify a GraphQL mutation `src` for facade routing (CONCEPT:EG-KG.query.facade-reconcile-hook) with ONE parse:
 /// a lone `commitTransaction` → [`CrossModalRoute::Commit`]; a doc whose roots are all
 /// cross-modal verbs → [`CrossModalRoute::Staging`]; anything else → `NotCrossModal`.
 pub fn classify_crossmodal(src: &str) -> CrossModalRoute {
@@ -276,7 +276,7 @@ fn stage_embedding(registry: &CrossModalTxnRegistry, field: &Field) -> Result<Va
 }
 
 /// `addMeasurement(txnId, series, ts: Int, values: [Float])` → stage one time-series
-/// point (CONCEPT:EG-381). tsdb-gated: without `crossmodal-tsdb` the verb returns a clear
+/// point (CONCEPT:EG-KG.compute.series-name-its). tsdb-gated: without `crossmodal-tsdb` the verb returns a clear
 /// "not built" error rather than silently dropping the modality.
 #[cfg(feature = "crossmodal-tsdb")]
 fn add_measurement(registry: &CrossModalTxnRegistry, field: &Field) -> Result<Value, String> {
@@ -300,7 +300,7 @@ fn add_measurement(_registry: &CrossModalTxnRegistry, _field: &Field) -> Result<
 }
 
 /// `sparqlUpdate(txnId, update)` → lower an `INSERT DATA` update's triples to staged graph
-/// writes (CONCEPT:EG-379), reusing `eg_rdf::update::insert_data_triples`.
+/// writes (CONCEPT:EG-KG.query.eg-9), reusing `eg_rdf::update::insert_data_triples`.
 fn sparql_update(registry: &CrossModalTxnRegistry, field: &Field) -> Result<Value, String> {
     let txn_id = arg_str(field, "txnId")?;
     let update = arg_str(field, "update")?;
@@ -315,7 +315,7 @@ fn sparql_update(registry: &CrossModalTxnRegistry, field: &Field) -> Result<Valu
 }
 
 /// `sparqlConstruct(txnId, query)` → evaluate a CONSTRUCT/DESCRIBE against the committed
-/// snapshot and lower its produced triples to staged graph writes (CONCEPT:EG-379),
+/// snapshot and lower its produced triples to staged graph writes (CONCEPT:EG-KG.query.eg-9),
 /// reusing `eg_rdf::sparql::run_outcome`.
 fn sparql_construct(
     core: &GraphCore,
@@ -341,7 +341,7 @@ fn sparql_construct(
 
 /// `unifiedQuery(txnId, uql)` → run a UQL cross-modal plan over the committed snapshot
 /// OVERLAID with the txn's staged graph writes + embeddings (+ staged series when tsdb),
-/// giving read-your-own-writes (CONCEPT:EG-379). Returns `{ rows: [{ id, score }] }`. The
+/// giving read-your-own-writes (CONCEPT:EG-KG.query.eg-9). Returns `{ rows: [{ id, score }] }`. The
 /// overlay is empty for a fresh/other txn, so an off-txn read sees committed data only.
 fn unified_query(
     core: &GraphCore,
@@ -367,7 +367,7 @@ fn unified_query(
         &txn.vectors,
     );
     // The txn's staged, uncommitted series → an in-memory overlay `Op::TsScan` reads
-    // before the committed store (CONCEPT:EG-374 parity). Absent without tsdb.
+    // before the committed store (CONCEPT:EG-KG.query.txn-tsdb-read-your parity). Absent without tsdb.
     #[cfg(feature = "crossmodal-tsdb")]
     let staged_series = {
         let mut s = eg_plan::StagedSeries::new();
@@ -401,7 +401,7 @@ fn unified_query(
 }
 
 /// `commitTransaction(txnId)` → apply the staged graph + vector writes to the live
-/// `GraphCore` in-memory (CONCEPT:EG-379). Graph writes land through ONE `GraphTxn`
+/// `GraphCore` in-memory (CONCEPT:EG-KG.query.eg-9). Graph writes land through ONE `GraphTxn`
 /// (in-memory atomic); vectors go to the semantic store; `mark_dirty` bumps the OCC
 /// version once. Measurements are durable-only (facade reconcile — see module docs).
 /// Returns `{ committed: true }`. Drops the handle.
@@ -431,7 +431,7 @@ fn rollback_transaction(registry: &CrossModalTxnRegistry, field: &Field) -> Resu
 
 // ── overlay + commit ──────────────────────────────────────────────────────────────
 
-/// Overlay a txn's staged graph writes onto a cloned `GraphView` (CONCEPT:EG-379), so an
+/// Overlay a txn's staged graph writes onto a cloned `GraphView` (CONCEPT:EG-KG.query.eg-9), so an
 /// in-txn `unifiedQuery`'s scan/traverse legs observe the txn's own uncommitted graph
 /// writes. The SAME `GraphView::overlay_*` ops the facade's `overlay_write_set` uses.
 fn overlay_txn(view: &mut eg_core::graph::GraphView, txn: &CrossModalTxn) {
@@ -448,7 +448,7 @@ fn overlay_txn(view: &mut eg_core::graph::GraphView, txn: &CrossModalTxn) {
     }
 }
 
-/// Apply a txn's staged graph + vector writes to the live `GraphCore` (CONCEPT:EG-379).
+/// Apply a txn's staged graph + vector writes to the live `GraphCore` (CONCEPT:EG-KG.query.eg-9).
 fn commit_txn(core: &GraphCore, txn: CrossModalTxn) {
     {
         let mut gtxn = core.txn();
@@ -470,7 +470,7 @@ fn commit_txn(core: &GraphCore, txn: CrossModalTxn) {
     core.mark_dirty();
 }
 
-/// Lower a slice of RDF triples to staged graph writes (CONCEPT:EG-379), mirroring the
+/// Lower a slice of RDF triples to staged graph writes (CONCEPT:EG-KG.query.eg-9), mirroring the
 /// canonical `eg_rdf::mapping::load_triples` property-graph projection (and the facade's
 /// `handlers::txn::triples_to_methods`) so the durable rows match the in-memory model:
 ///   * literal object  → a property `{predicate: literal-cell}` on the subject node;
@@ -649,7 +649,7 @@ mod tests {
             .and_then(|r| r["score"].as_f64())
     }
 
-    /// THE cross-modal roundtrip proof (CONCEPT:EG-379/380/382): in ONE multi-request txn
+    /// THE cross-modal roundtrip proof (CONCEPT:EG-KG.query.eg-9/380/382): in ONE multi-request txn
     /// stage an embedding (vector) + a SPARQL-UPDATE graph write, read them back in-txn
     /// via `unifiedQuery` (read-your-own-writes), confirm an off-txn read is ISOLATED
     /// until commit, then confirm commit makes both modalities visible.
@@ -761,7 +761,7 @@ mod tests {
     }
 
     /// tsdb measurement staging + the in-txn `StagedSeries` read-your-own-writes overlay
-    /// (CONCEPT:EG-381). Gated by `crossmodal-tsdb`. Proves an `Op::TsScan` over the SAME
+    /// (CONCEPT:EG-KG.compute.series-name-its). Gated by `crossmodal-tsdb`. Proves an `Op::TsScan` over the SAME
     /// overlay `unifiedQuery` threads reads the txn's own uncommitted points (UQL has no
     /// `TSSCAN` source, so the plan is built directly — the overlay path is identical).
     #[cfg(feature = "crossmodal-tsdb")]

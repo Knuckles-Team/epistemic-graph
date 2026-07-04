@@ -1,4 +1,4 @@
-//! Advanced cross-modal seam proofs (CONCEPT:EG-384..EG-389).
+//! Advanced cross-modal seam proofs (CONCEPT:EG-KG.compute.asof-valid-t-sources..EG-389).
 //!
 //! The "north-star" set: the MOST complex cross-modal plans the closed algebra can
 //! express over a HAND-BUILT [`PlanCtx`] (no server, fully self-contained), each fusing
@@ -103,7 +103,7 @@ fn bitemporal_scholarly() -> (GraphView, SemanticStore) {
     (core.analysis_snapshot(), semantic)
 }
 
-/// THE bitemporal cross-modal proof (CONCEPT:EG-384): `AsOf{Valid}@t` SOURCES every node
+/// THE bitemporal cross-modal proof (CONCEPT:EG-KG.compute.asof-valid-t-sources): `AsOf{Valid}@t` SOURCES every node
 /// live at `t`, a vector `Rank` orders them, mid-plan `Reason<ScholarlyWork>` keeps only
 /// the OWL-inferred members (dropping the Topic `p3`), and `Traverse<CITES>` reaches their
 /// targets. Re-running at a LATER instant re-selects a SMALLER live member set — so a
@@ -200,7 +200,7 @@ fn spawn_mock_json(body: &'static str) -> String {
     format!("http://{addr}/")
 }
 
-/// THE federation fusion proof (CONCEPT:EG-385): ONE plan fuses FOUR modalities —
+/// THE federation fusion proof (CONCEPT:EG-KG.compute.one-plan-fuses-four): ONE plan fuses FOUR modalities —
 /// `Scan(Doc)` (graph) → `Filter(year>2023)` (real DataFusion / relational SQL) →
 /// `ForeignScan(join)` (a foreign JSON/SQL source, foreign∩local) → `Rank(q)` (vector) —
 /// and equals the hand-wired join (local-filtered ∩ foreign, vector-ranked). Reuses the
@@ -265,7 +265,7 @@ fn federation_sparql_local_vector_foreign_sql_one_plan_eg385() {
     assert_eq!(fused, vec!["d2".to_string(), "d4".to_string()]);
 }
 
-/// FAIL-CLOSED (CONCEPT:EG-385, the SSRF analog at the plan seam): a `Named` foreign source
+/// FAIL-CLOSED (CONCEPT:EG-KG.compute.one-plan-fuses-four, the SSRF analog at the plan seam): a `Named` foreign source
 /// with NO `ForeignSourceRegistry` attached to the ctx is a CLEAN typed error, never a
 /// silent pass-through — so an unbound/untrusted foreign reference cannot leak data. (The
 /// host-level SSRF allowlist that refuses internal-range peers lives at the server surface.)
@@ -323,7 +323,7 @@ fn places() -> (GraphView, SemanticStore) {
     (core.analysis_snapshot(), semantic)
 }
 
-/// THE geo cross-modal proof (CONCEPT:EG-386): `SpatialScan` (a packed-Hilbert-R-tree bbox
+/// THE geo cross-modal proof (CONCEPT:EG-KG.compute.spatialscan-packed-hilbert-r): `SpatialScan` (a packed-Hilbert-R-tree bbox
 /// scan) narrows to the in-box places, `Filter(SpatialDWithin ≤5 of origin)` refines by
 /// planar distance, `Rank` orders by vector similarity, and `AsOf{Valid}@t` keeps only the
 /// temporally-live — geometry × distance × vector × time fused in ONE plan.
@@ -410,7 +410,7 @@ fn frames_deriving_docs() -> (GraphView, SemanticStore) {
     (core.analysis_snapshot(), semantic)
 }
 
-/// THE tensor cross-modal proof (CONCEPT:EG-387): `TensorScan(Frame)` seeds the
+/// THE tensor cross-modal proof (CONCEPT:EG-KG.compute.tensorscan-frame-seeds): `TensorScan(Frame)` seeds the
 /// tensor-bearing rows, `TensorOp(Reduce, CAS-write-back)` derives + content-addresses a
 /// tensor per frame (three IDENTICAL derivations dedup to ONE CAS blob, EG-304),
 /// `Traverse<DERIVES>` walks from the surviving frames into their docs, and `Rank`
@@ -515,7 +515,7 @@ fn sessions_with_readings() -> (GraphView, SemanticStore) {
     (core.analysis_snapshot(), SemanticStore::new())
 }
 
-/// THE CEP cross-modal proof (CONCEPT:EG-388): `Scan(Event)` seeds the stream, `Cep`
+/// THE CEP cross-modal proof (CONCEPT:EG-KG.compute.scan-event-seeds-stream): `Scan(Event)` seeds the stream, `Cep`
 /// detects the `login→logout` session (keeping only E1,E2 — E3's login has no logout in
 /// the window), `Traverse<TRIGGERS>` reaches ONLY the matched events' readings (r1,r2 — NOT
 /// the dangling E3's r3), and a native eg-tsdb `Window` aggregates those readings into one
@@ -631,7 +631,7 @@ fn beliefs_reasoned() -> (GraphView, SemanticStore) {
     (core.analysis_snapshot(), semantic)
 }
 
-/// THE probabilistic cross-modal proof (CONCEPT:EG-389): `Reason<ScholarlyWork>` sources the
+/// THE probabilistic cross-modal proof (CONCEPT:EG-KG.compute.reason-scholarlywork-sources): `Reason<ScholarlyWork>` sources the
 /// OWL-inferred members (dropping the high-distribution Topic), `Rank(q)` vector-filters/
 /// orders them, `Probabilistic(Expectation)` RE-scores each surviving row by its stored
 /// distribution's mean (so the belief with the highest expectation leads), and `RankMmr`

@@ -1,4 +1,4 @@
-//! Differential multi-surface oracle (CONCEPT:EG-400) — the highest-ROI proof from the
+//! Differential multi-surface oracle (CONCEPT:EG-KG.compute.highest-roi-proof-from) — the highest-ROI proof from the
 //! external review: **modality interchangeability**. Each curated hybrid query is
 //! expressed through MULTIPLE query surfaces and every surface must lower to the SAME
 //! plan AND execute to the byte-identical [`RowSet`]. If any seam lowers one surface to

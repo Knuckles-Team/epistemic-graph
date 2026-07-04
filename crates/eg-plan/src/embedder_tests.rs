@@ -1,4 +1,4 @@
-//! Server-side embedder seam proofs (CONCEPT:EG-411/412) — the UQL `RANK BY ~ "text"`
+//! Server-side embedder seam proofs (CONCEPT:EG-KG.compute.no-embedder-bound-op/412) — the UQL `RANK BY ~ "text"`
 //! NL→vector resolver, over a HAND-BUILT [`PlanCtx`] (no server, fully self-contained).
 //!
 //! Three headline properties:
@@ -45,7 +45,7 @@ fn fixture() -> (eg_core::graph::GraphView, SemanticStore) {
     (core.analysis_snapshot(), semantic)
 }
 
-/// CONCEPT:EG-411 — with an embedder bound, `Scan → RankEmbed "hello"` ranks IDENTICALLY
+/// CONCEPT:EG-KG.compute.no-embedder-bound-op — with an embedder bound, `Scan → RankEmbed "hello"` ranks IDENTICALLY
 /// to `Scan → Rank [1,0]` (the vector the embedder resolves "hello" to): the text is
 /// resolved server-side, then kNN-ranked exactly like a literal vector.
 #[test]
@@ -88,7 +88,7 @@ fn rank_embed_ranks_by_resolved_vector() {
     );
 }
 
-/// CONCEPT:EG-411 — with NO embedder bound, `Op::RankEmbed` is a clean typed error naming
+/// CONCEPT:EG-KG.compute.no-embedder-bound-op — with NO embedder bound, `Op::RankEmbed` is a clean typed error naming
 /// the missing binding (never a panic).
 #[test]
 fn rank_embed_without_embedder_is_typed_error() {
@@ -131,7 +131,7 @@ fn rank_embed_embedder_error_propagates() {
     );
 }
 
-/// CONCEPT:EG-411 — the deterministic `HashEmbedder` fallback maps a text to a STABLE
+/// CONCEPT:EG-KG.compute.no-embedder-bound-op — the deterministic `HashEmbedder` fallback maps a text to a STABLE
 /// unit-norm vector (same text ⇒ same vector), and a bound one makes the seam run without
 /// erroring (its ranking is deterministic but semantically arbitrary, by design).
 #[test]

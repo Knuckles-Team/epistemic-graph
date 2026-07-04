@@ -1,4 +1,4 @@
-//! Advanced cross-modal seam ROUNDTRIP proofs (CONCEPT:EG-390..EG-397).
+//! Advanced cross-modal seam ROUNDTRIP proofs (CONCEPT:EG-KG.txn.one-transaction-stage-five..EG-397).
 //!
 //! The advanced cross-modal tests whose assertions need a LIVE server/txn surface a
 //! hand-built `PlanCtx` cannot stand up — driven through the REAL `dispatch` shell over an
@@ -114,7 +114,7 @@ fn pack(v: serde_json::Value) -> Vec<u8> {
 }
 
 /// MessagePack `Vec<(i64 ts_ns, Vec<f64> values)>` — the exact `TxnAddMeasurement.points`
-/// blob shape (CONCEPT:EG-360).
+/// blob shape (CONCEPT:EG-KG.backend.cross-modal-atomic-commit).
 fn pack_points(points: &[(i64, Vec<f64>)]) -> Vec<u8> {
     rmp_serde::to_vec_named(&points.to_vec()).unwrap()
 }
@@ -197,7 +197,7 @@ async fn off_txn_text(state: &Arc<RwLock<ServerState>>, id: u64, text: &str) -> 
 // EG-390 (test 2, capstone) — 5-modality in-txn RYOW → atomic commit → re-read
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// THE capstone (CONCEPT:EG-390): in ONE transaction stage FIVE modalities — a graph node
+/// THE capstone (CONCEPT:EG-KG.txn.one-transaction-stage-five): in ONE transaction stage FIVE modalities — a graph node
 /// (`sn` typed `Robot`), a vector embedding, a graph edge (`sn -LINKS-> tn`), a native tsdb
 /// measurement (series `sensor.temp`), and an OWL axiom (`Robot ⊑ Machine`) — then prove:
 ///  1. **RYOW**: every staged modality is visible to an in-txn cross-modal query — the
@@ -450,7 +450,7 @@ async fn five_modality_in_txn_ryow_then_commit_eg390() {
 // EG-392 (test 9) — concurrent SERIALIZABLE across modalities: phantom → conflict
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// THE serializable proof (CONCEPT:EG-392): a SERIALIZABLE txn `A` captures a predicate
+/// THE serializable proof (CONCEPT:EG-KG.txn.serializable-txn-captures-predicate): a SERIALIZABLE txn `A` captures a predicate
 /// read-set (nodes labelled `Sensor`) at begin and stages a cross-modal write (a node + its
 /// embedding). A concurrent txn `B` INSERTS a phantom `Sensor` and COMMITS. When `A` then
 /// commits, its serializable validation re-evaluates the predicate, sees the phantom, and

@@ -1,4 +1,4 @@
-//! GraphQL cross-modal DURABLE-commit roundtrip (CONCEPT:EG-419).
+//! GraphQL cross-modal DURABLE-commit roundtrip (CONCEPT:EG-KG.query.facade-reconcile-hook).
 //!
 //! Proves the facade reconcile hook the `eg-graphql` crate left open (EG-383): a GraphQL
 //! cross-modal `commitTransaction`, routed through the facade carrier

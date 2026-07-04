@@ -1,4 +1,4 @@
-//! UQL recursive-descent parser (CONCEPT:KG-2.214) → the existing [`Plan`] AST.
+//! UQL recursive-descent parser (CONCEPT:AU-KG.query.top-nodes-by-degree) → the existing [`Plan`] AST.
 //!
 //! This is a pure FRONT-END: it parses a human/agent-writable text query into the
 //! SAME `wire::Plan` (`Vec<Op>`) that `Method::UnifiedQuery` already executes — it
@@ -66,20 +66,20 @@
 //! | `LIMIT 10`                           | `Limit { k: 10 }`                      |
 //!
 //! ### Feature gating (on EXECUTION, not parsing)
-//!  * **time** (CONCEPT:KG-2.250) — `AS OF [TX|VALID] @<ts>` is a real bi-temporal
+//!  * **time** (CONCEPT:AU-KG.compute.kg-2) — `AS OF [TX|VALID] @<ts>` is a real bi-temporal
 //!    point-in-time FILTER (valid time = "what was true"; `TX` = transaction time =
 //!    "what we believed"); `WINDOW <dur>` ⇒ `Op::Window`. Dep-free; base `query`.
-//!  * **rerank** (CONCEPT:KG-2.254/2.255) — graph-native `NODE_DISTANCE`/`MENTIONS` and
+//!  * **rerank** (CONCEPT:EG-KG.query.uql-parser-ops/2.255) — graph-native `NODE_DISTANCE`/`MENTIONS` and
 //!    diversity `MMR <lambda> <k>`. Dep-free; base `query`.
-//!  * **fuse / text** (CONCEPT:KG-2.253 / EG-418) — `FUSE`/`TEXT` gated to `text`; a
+//!  * **fuse / text** (CONCEPT:AU-KG.compute.change-feed-subscription / EG-418) — `FUSE`/`TEXT` gated to `text`; a
 //!    non-`text` build parses them but errors with a clear "not in this build" message.
 //!  * **federation** — `FOREIGN "<name>"` (resolve: `federation`). **owl** — `REASON
 //!    <Class>` gated to `owl`.
-//!  * **embedder seam** (CONCEPT:EG-411) — `RANK BY ~"text"` lowers to `Op::RankEmbed`,
+//!  * **embedder seam** (CONCEPT:EG-KG.compute.no-embedder-bound-op) — `RANK BY ~"text"` lowers to `Op::RankEmbed`,
 //!    resolved at exec time by the server-side embedder bound on the `PlanCtx` (a clear
 //!    typed error if none is bound). A bare-ident handle (`~handle`) stays a reserved
 //!    forward seam (no by-name embedding registry yet).
-//!  * **window aggregate** (CONCEPT:EG-413/414) — `WINDOW <dur>` is a real tumbling
+//!  * **window aggregate** (CONCEPT:EG-KG.compute.tsscan-series-window-60s/414) — `WINDOW <dur>` is a real tumbling
 //!    windowed MEAN over `(ts,value)` rows (e.g. from a `TsScan`); `WINDOW <dur> <agg>`
 //!    selects the aggregate (`Op::WindowAgg`). The eg-tsdb aggregate is wired under
 //!    `timeseries`; a non-`timeseries` build passes the rows through.
@@ -122,10 +122,10 @@ impl std::fmt::Display for UqlError {
 }
 
 /// How a `RANK BY ~<ref>` vector reference resolved:
-///  * `Inline` — a literal vector `~[…]` (possibly with negative components, CONCEPT:EG-417)
+///  * `Inline` — a literal vector `~[…]` (possibly with negative components, CONCEPT:EG-KG.compute.negative-vector-component-parses)
 ///    → `Op::Rank { query }`.
 ///  * `Text` — a quoted natural-language query `~ "text"` → `Op::RankEmbed { text }`, the
-///    server-side NL→vector seam (CONCEPT:EG-411): the executor resolves the text to a
+///    server-side NL→vector seam (CONCEPT:EG-KG.compute.no-embedder-bound-op): the executor resolves the text to a
 ///    query vector via the embedder bound on the `PlanCtx` (a clear error if none is bound).
 ///  * `Handle` — a bare-ident stored-embedding handle `~handle` → still a reserved forward
 ///    seam (there is no by-name embedding registry yet): rejected with a clear message.
@@ -192,7 +192,7 @@ impl<'a> Parser<'a> {
 
     /// `stage = traverse | rank | text | limit | filter | asof | window | foreign |
     /// reason`. Dispatched on the leading keyword. The time/federation/owl/text
-    /// clauses (CONCEPT:KG-2.235) each lower to ONE `Op`; the owl (`REASON`) + text
+    /// clauses (CONCEPT:EG-KG.query.sparql-completeness) each lower to ONE `Op`; the owl (`REASON`) + text
     /// (`TEXT`) clauses are feature-gated to the same feature as the `Op` they lower
     /// to, so a build without that feature gives a clear "not in this build" error
     /// rather than a phantom Op.
@@ -280,7 +280,7 @@ impl<'a> Parser<'a> {
 
     /// `rank = "RANK" "BY" "~" vector_ref`. An inline literal vector lowers to `Op::Rank`;
     /// a quoted `~ "text"` lowers to `Op::RankEmbed` (the server-side NL→vector seam,
-    /// CONCEPT:EG-411); a bare-ident handle is the still-reserved by-name-embedding seam.
+    /// CONCEPT:EG-KG.compute.no-embedder-bound-op); a bare-ident handle is the still-reserved by-name-embedding seam.
     fn parse_rank(&mut self) -> Result<Op, UqlError> {
         self.expect_kw("BY")?;
         self.expect(&Tok::Tilde, "`~` before the rank vector (`RANK BY ~[…]`)")?;
@@ -298,7 +298,7 @@ impl<'a> Parser<'a> {
     }
 
     /// `vector_ref = "[" signed_num {"," signed_num} "]" | string | ident`. A component
-    /// may be negative (`~[-0.1, 0.2, -0.3]`, CONCEPT:EG-417) — a leading `-` negates the
+    /// may be negative (`~[-0.1, 0.2, -0.3]`, CONCEPT:EG-KG.compute.negative-vector-component-parses) — a leading `-` negates the
     /// following number, matching the Rust builder / wire DTO which accept negatives.
     fn parse_vector_ref(&mut self) -> Result<VectorRef, UqlError> {
         if self.eat(&Tok::LBracket) {
@@ -335,7 +335,7 @@ impl<'a> Parser<'a> {
     }
 
     /// `asof = "AS" "OF" [ "TX" | "VALID" ] "@" num` → `Op::AsOf { ts, axis }`
-    /// (CONCEPT:KG-2.235 / KG-2.250). The optional axis keyword selects the timeline:
+    /// (CONCEPT:EG-KG.query.sparql-completeness / KG-2.250). The optional axis keyword selects the timeline:
     /// `TX` (or `TRANSACTION`) pins transaction time ("what we BELIEVED at ts"); the
     /// default / `VALID` pins valid time ("what was TRUE at ts"). The instant is a
     /// unix-seconds number prefixed by the `@` sigil (already lexed).
@@ -364,7 +364,7 @@ impl<'a> Parser<'a> {
 
     /// `window = "WINDOW" num [ unit ] [ agg ]` → `Op::Window { secs }` (mean, CONCEPT:
     /// KG-2.235 / EG-413) or `Op::WindowAgg { secs, agg }` when an aggregate selector is
-    /// present (CONCEPT:EG-414). A bare number is seconds; an optional unit suffix
+    /// present (CONCEPT:EG-KG.compute.trailing-aggregate-selector-lowers). A bare number is seconds; an optional unit suffix
     /// (`s`/`m`/`h`/`d`) scales it; an optional trailing aggregate keyword
     /// (`mean`/`avg`, `sum`, `min`, `max`, `count`, `first`, `last`) selects the windowed
     /// aggregate. The unit is matched FIRST, so `WINDOW 30 min` stays 30 MINUTES (not the
@@ -392,7 +392,7 @@ impl<'a> Parser<'a> {
             _ => 1.0,
         };
         let secs = n * scale;
-        // Optional trailing aggregate selector (CONCEPT:EG-414). A bareword that names a
+        // Optional trailing aggregate selector (CONCEPT:EG-KG.compute.trailing-aggregate-selector-lowers). A bareword that names a
         // known aggregate is consumed; anything else is left for the next stage.
         match self.parse_window_agg() {
             Some(agg) => Ok(Op::WindowAgg { secs, agg }),
@@ -400,7 +400,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Peek an optional trailing `WINDOW` aggregate selector (CONCEPT:EG-414), consuming
+    /// Peek an optional trailing `WINDOW` aggregate selector (CONCEPT:EG-KG.compute.trailing-aggregate-selector-lowers), consuming
     /// and returning its canonical name if the next token is a known aggregate keyword;
     /// `None` otherwise (the token is left for the next stage). Case-insensitive.
     fn parse_window_agg(&mut self) -> Option<String> {
@@ -422,7 +422,7 @@ impl<'a> Parser<'a> {
     }
 
     /// `foreign = "FOREIGN" ( string | ident )` → `Op::Foreign { name }`
-    /// (CONCEPT:KG-2.235). The federation source name (a registered peer).
+    /// (CONCEPT:EG-KG.query.sparql-completeness). The federation source name (a registered peer).
     fn parse_foreign(&mut self) -> Result<Op, UqlError> {
         let name = match self.peek_kind() {
             Some(Tok::Str(s)) | Some(Tok::Ident(s)) => {
@@ -436,7 +436,7 @@ impl<'a> Parser<'a> {
     }
 
     /// `rerank = "RERANK" ( "NODE_DISTANCE" "FROM" id | "MENTIONS" )` → a graph-native
-    /// reranker op (CONCEPT:KG-2.254). `NODE_DISTANCE FROM <id>` re-orders by proximity
+    /// reranker op (CONCEPT:EG-KG.query.uql-parser-ops). `NODE_DISTANCE FROM <id>` re-orders by proximity
     /// to a focal node; `MENTIONS` re-orders by incoming-edge (provenance) salience.
     fn parse_rerank(&mut self) -> Result<Op, UqlError> {
         if self.peek_kw("MENTIONS") {
@@ -470,10 +470,10 @@ impl<'a> Parser<'a> {
         ))
     }
 
-    /// `reason = "REASON" (iri | ident | string)` → `Op::Reason` (CONCEPT:KG-2.235 /
+    /// `reason = "REASON" (iri | ident | string)` → `Op::Reason` (CONCEPT:EG-KG.query.sparql-completeness /
     /// EG-375). The OWL-inferred members of the named class seed (or, mid-pipeline, filter)
     /// the RowSet. The class may be a bare label (`REASON Mammal`) OR an explicit angle-
-    /// bracketed class IRI (`REASON <http://ex/Device>` — CONCEPT:EG-375), the form the
+    /// bracketed class IRI (`REASON <http://ex/Device>` — CONCEPT:EG-KG.query.reason-iri-parses-angle), the form the
     /// string-type↔IRI-class bridge resolves against. Feature-gated to `owl` — the feature
     /// that compiles the `Op::Reason` variant + its executor.
     #[cfg(feature = "owl")]
@@ -515,7 +515,7 @@ impl<'a> Parser<'a> {
         ))
     }
 
-    /// `text = "TEXT" string` → `Op::RankText { query }` (CONCEPT:KG-2.235). Re-ranks
+    /// `text = "TEXT" string` → `Op::RankText { query }` (CONCEPT:EG-KG.query.sparql-completeness). Re-ranks
     /// the candidate RowSet by BM25 relevance to the natural-language query. Feature-
     /// gated to `text` — the feature that compiles the `Op::RankText` variant + the
     /// lexical index executor.
@@ -546,7 +546,7 @@ impl<'a> Parser<'a> {
     }
 
     /// `fuse = "FUSE" "[" branch "]" { "[" branch "]" }` where `branch = stage { "|>"
-    /// stage }` → `Op::FuseRrf { branches, k }` (CONCEPT:EG-418 / KG-2.215/2.253). Each
+    /// stage }` → `Op::FuseRrf { branches, k }` (CONCEPT:EG-KG.compute.fuse-stage-now-dispatches / KG-2.215/2.253). Each
     /// bracketed `[ … ]` is a sub-pipeline branch (a `Vec<Op>`); the branches are
     /// reciprocal-rank-fused. `k` defaults to `0.0` — the executor reads that as the
     /// canonical `eg_text::RRF_K` — matching the Rust builder's `Op::FuseRrf` shape (the

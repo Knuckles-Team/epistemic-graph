@@ -272,10 +272,10 @@ async fn tds_select_returns_colmetadata_rows_done() {
 }
 
 // ───────────────────────────────────────────────────────────────────────────
-// Cross-modal transaction round-trip (CONCEPT:EG-378) — per-surface parity.
+// Cross-modal transaction round-trip (CONCEPT:EG-KG.query.per-surface-parity) — per-surface parity.
 //
 // The in-txn cross-modal seam routes through the SHARED `WireSession`
-// (CONCEPT:EG-074/EG-372), so the TDS wire INHERITS the pgwire seam. These tests
+// (CONCEPT:EG-KG.compute.subsystems-reference/EG-372), so the TDS wire INHERITS the pgwire seam. These tests
 // MIRROR the pgwire cross-modal cases (`tests/pgwire_roundtrip.rs`) over the TDS
 // SQLBatch protocol — every batch is handed verbatim to `WireSession::execute`, the
 // SAME core the pgwire shim runs:
@@ -347,7 +347,7 @@ fn first_col(rows: &[Vec<Value>]) -> Vec<String> {
         .collect()
 }
 
-/// Mirrors pgwire `wire_txn_update_then_cross_modal_read` (CONCEPT:EG-378 / EG-372):
+/// Mirrors pgwire `wire_txn_update_then_cross_modal_read` (CONCEPT:EG-KG.query.per-surface-parity / EG-372):
 /// inside an open txn, a staged graph UPDATE AND a staged vector `SET EMBEDDING` are BOTH
 /// read back by an in-txn cross-modal `UQL` read over the TDS wire (read-your-own-writes
 /// across the graph + vector modalities before COMMIT).
@@ -387,7 +387,7 @@ async fn tds_txn_update_then_cross_modal_read() {
     batch(&mut c, "COMMIT").await;
 }
 
-/// Mirrors pgwire `wire_txn_crossmodal_ryow_isolated_until_commit` (CONCEPT:EG-378 /
+/// Mirrors pgwire `wire_txn_crossmodal_ryow_isolated_until_commit` (CONCEPT:EG-KG.query.per-surface-parity /
 /// EG-372) — the headline per-surface parity proof over TDS. A `BEGIN; INSERT node;
 /// SET EMBEDDING; INSERT INTO series; <UQL join over graph+vector>; COMMIT` reads its OWN
 /// writes inside the txn, while a SECOND connection sees NONE of them until COMMIT. After

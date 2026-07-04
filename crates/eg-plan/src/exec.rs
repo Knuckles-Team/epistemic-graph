@@ -1,4 +1,4 @@
-//! The fused executor (CONCEPT:KG-2.208) — sequences the EXISTING legs into ONE
+//! The fused executor (CONCEPT:AU-KG.compute.vector) — sequences the EXISTING legs into ONE
 //! pipeline over a single off-lock snapshot. Each operator takes the previous
 //! [`RowSet`] and returns the next:
 //!
@@ -30,30 +30,30 @@ use eg_types::wire::TimeAxis;
 /// handler this is exactly what is already available off-lock: the `GraphView`
 /// (topology + property blobs) and a `SemanticStore` clone, both taken at one
 /// `GraphCore::version()` — so the cross-modal read is snapshot-isolated for free
-/// (CONCEPT:KG-2.180).
+/// (CONCEPT:EG-KG.txn.multi-op-occ-acid).
 pub struct PlanCtx<'a> {
     pub view: &'a GraphView,
     pub semantic: &'a SemanticStore,
-    /// The lexical BM25 index for the `RankText` / `FuseRrf` ops (CONCEPT:KG-2.215).
+    /// The lexical BM25 index for the `RankText` / `FuseRrf` ops (CONCEPT:AU-KG.query.text-spatial-time).
     /// `None` when no text index is configured — a `RankText` then yields no hits
     /// (the plan degrades, never errs), exactly as an absent embedding does for
     /// `Rank`. Gated behind `text`, so a non-text build's `PlanCtx` is unchanged.
     #[cfg(feature = "text")]
     pub text: Option<&'a eg_text::TextIndex>,
-    /// The WASM UDF registry for the `Udf { id }` op (CONCEPT:KG-2.228). `None` when no
+    /// The WASM UDF registry for the `Udf { id }` op (CONCEPT:EG-KG.query.rowset-execution). `None` when no
     /// registry is attached — a `Udf` op then errs (a UDF must be registered to run).
     /// Gated behind `wasm-udf`, so a non-wasm build's `PlanCtx` is unchanged.
     #[cfg(feature = "wasm-udf")]
     pub udf: Option<&'a eg_wasm::UdfRegistry>,
     /// The federation foreign-source registry backing `Op::Foreign` (the UQL
-    /// `FOREIGN "<name>"` marker) and a `Named` `Op::ForeignScan` (CONCEPT:EG-073).
+    /// `FOREIGN "<name>"` marker) and a `Named` `Op::ForeignScan` (CONCEPT:EG-KG.query.closure-backed-source).
     /// `None` when no foreign sources are registered — the name-resolving ops then keep
     /// their prior behavior (`Op::Foreign` passes its input through unchanged), so a
     /// default ctx is byte-for-byte the old one. Gated behind `federation`, so a
     /// non-federation build's `PlanCtx` is unchanged.
     #[cfg(feature = "federation")]
     pub foreign: Option<&'a crate::federation::ForeignSourceRegistry>,
-    /// CONCEPT:EG-304 — the content-addressed [`eg_tensor::TensorStore`] into which the
+    /// CONCEPT:EG-KG.storage.derived-tensor-writeback-sink — the content-addressed [`eg_tensor::TensorStore`] into which the
     /// tensor executor WRITES BACK every derived tensor an `Op::TensorOp` produces, so a
     /// derived tensor becomes a durable, dedup-shared CAS blob addressable by its
     /// deterministic content hash — the EG-085 CAS-write-back follow-up that v1 left
@@ -66,7 +66,7 @@ pub struct PlanCtx<'a> {
     /// so a non-tensor build's `PlanCtx` is unchanged.
     #[cfg(feature = "tensor")]
     pub tensor_store: Option<&'a std::sync::Mutex<eg_tensor::TensorStore>>,
-    /// CONCEPT:EG-363 — the native time-series [`eg_tsdb::store::SeriesStore`] backing the
+    /// CONCEPT:EG-KG.query.native-time-series — the native time-series [`eg_tsdb::store::SeriesStore`] backing the
     /// `Op::TsScan` SOURCE op, so a plan can seed its RowSet from tsdb series and fuse the
     /// time-series leg with the graph/vector/relational legs in ONE plan (tsdb-in-plan
     /// fusion). `None` (the default) makes a `TsScan` yield no rows — the plan degrades,
@@ -77,7 +77,7 @@ pub struct PlanCtx<'a> {
     /// `PlanCtx` is unchanged.
     #[cfg(feature = "timeseries")]
     pub tsdb: Option<&'a eg_tsdb::store::SeriesStore>,
-    /// CONCEPT:EG-374 — an in-memory STAGED-series overlay consulted by `Op::TsScan`
+    /// CONCEPT:EG-KG.query.txn-tsdb-read-your — an in-memory STAGED-series overlay consulted by `Op::TsScan`
     /// BEFORE the committed [`Self::tsdb`] store, so an in-txn UQL reading a series sees
     /// the transaction's OWN uncommitted staged points (read-your-own-writes). `None` (the
     /// default) makes a `TsScan` read committed series only — byte-for-byte the prior
@@ -87,7 +87,7 @@ pub struct PlanCtx<'a> {
     /// `PlanCtx` is unchanged.
     #[cfg(feature = "timeseries")]
     pub staged_series: Option<&'a StagedSeries>,
-    /// CONCEPT:EG-411 — the server-side text→vector embedder backing the `Op::RankEmbed`
+    /// CONCEPT:EG-KG.compute.no-embedder-bound-op — the server-side text→vector embedder backing the `Op::RankEmbed`
     /// op (the UQL `RANK BY ~ "text"` NL→vector seam). Resolves a natural-language query
     /// string to a query vector at exec time, which is then kNN-ranked over `semantic`
     /// exactly like a literal-vector `Op::Rank`. `None` (the default) makes an
@@ -99,7 +99,7 @@ pub struct PlanCtx<'a> {
     pub embedder: Option<&'a dyn TextEmbedder>,
 }
 
-/// A server-side text→vector embedder (CONCEPT:EG-411) — the seam that resolves a UQL
+/// A server-side text→vector embedder (CONCEPT:EG-KG.compute.no-embedder-bound-op) — the seam that resolves a UQL
 /// `RANK BY ~ "text"` query string to a query vector at plan-exec time, so a caller need
 /// not pre-embed client-side and pass a literal `~[…]` vector. A facade binds a concrete
 /// implementation (an ONNX/remote embedding-service model that produces vectors in the
@@ -114,7 +114,7 @@ pub trait TextEmbedder: Send + Sync {
     fn embed(&self, text: &str) -> Result<Vec<f32>, String>;
 }
 
-/// A deterministic, dependency-free [`TextEmbedder`] fallback (CONCEPT:EG-411) for tests
+/// A deterministic, dependency-free [`TextEmbedder`] fallback (CONCEPT:EG-KG.compute.no-embedder-bound-op) for tests
 /// and offline use: it hashes `text` into a fixed-dimension unit-norm vector, so the same
 /// text always yields the same vector and two different texts (almost always) yield
 /// different ones. It carries NO semantic meaning — it exists to exercise the resolver
@@ -163,7 +163,7 @@ impl TextEmbedder for HashEmbedder {
 }
 
 /// An in-memory overlay of a transaction's STAGED, uncommitted time-series points
-/// (CONCEPT:EG-374) — the in-txn tsdb read-your-own-writes source. The native
+/// (CONCEPT:EG-KG.query.txn-tsdb-read-your) — the in-txn tsdb read-your-own-writes source. The native
 /// [`eg_tsdb::store::SeriesStore`] is redb-file-backed with no in-memory overlay, so an
 /// in-txn `Op::TsScan` cannot see the txn's own staged `measurements` through it; this
 /// dep-free map (series id → its staged `(ts_ns, field_values)` points) is consulted
@@ -241,7 +241,7 @@ impl<'a> PlanCtx<'a> {
 
     /// Attach a server-side text→vector [`TextEmbedder`] so an `Op::RankEmbed` (the UQL
     /// `RANK BY ~ "text"` clause) resolves its query string to a vector at exec time
-    /// (CONCEPT:EG-411). Without this call an `Op::RankEmbed` is a clean typed error, so a
+    /// (CONCEPT:EG-KG.compute.no-embedder-bound-op). Without this call an `Op::RankEmbed` is a clean typed error, so a
     /// default ctx is byte-for-byte the old one.
     pub fn with_embedder(mut self, embedder: &'a dyn TextEmbedder) -> Self {
         self.embedder = Some(embedder);
@@ -263,7 +263,7 @@ impl<'a> PlanCtx<'a> {
     }
 
     /// Attach a foreign-source registry so `Op::Foreign` / a `Named` `Op::ForeignScan`
-    /// resolve their name → rows through it (CONCEPT:EG-073). A server/facade builds the
+    /// resolve their name → rows through it (CONCEPT:EG-KG.query.closure-backed-source). A server/facade builds the
     /// registry once at setup and threads it in here — the library seam that keeps the
     /// name→source binding out of the wire DTO.
     #[cfg(feature = "federation")]
@@ -274,7 +274,7 @@ impl<'a> PlanCtx<'a> {
 
     /// Attach a content-addressed [`eg_tensor::TensorStore`] so the tensor executor
     /// WRITES BACK each derived tensor an `Op::TensorOp` produces into the CAS
-    /// (CONCEPT:EG-304). A server/facade owns the store (behind a [`std::sync::Mutex`])
+    /// (CONCEPT:EG-KG.storage.derived-tensor-writeback-sink). A server/facade owns the store (behind a [`std::sync::Mutex`])
     /// and can later `persist` it to disk for durability; without this call the executor
     /// keeps its prior validate-only behavior (no write-back), so a default ctx is
     /// byte-for-byte the old one.
@@ -288,7 +288,7 @@ impl<'a> PlanCtx<'a> {
     }
 
     /// Attach a native time-series [`eg_tsdb::store::SeriesStore`] so an `Op::TsScan` op
-    /// resolves its series → `(ts, value)` rows through it (CONCEPT:EG-363). A
+    /// resolves its series → `(ts, value)` rows through it (CONCEPT:EG-KG.query.native-time-series). A
     /// server/facade opens the store once at setup and threads it in here — the library
     /// seam that keeps the store binding out of the wire DTO. Without this call a
     /// `TsScan` yields no rows (degrade, never err), so a default ctx is byte-for-byte
@@ -301,7 +301,7 @@ impl<'a> PlanCtx<'a> {
 
     /// Attach a [`StagedSeries`] overlay so an `Op::TsScan` reads a transaction's OWN
     /// staged, uncommitted time-series points BEFORE/merged-with the committed store
-    /// (CONCEPT:EG-374 — in-txn tsdb read-your-own-writes). Without this call a `TsScan`
+    /// (CONCEPT:EG-KG.query.txn-tsdb-read-your — in-txn tsdb read-your-own-writes). Without this call a `TsScan`
     /// reads committed series only, so a default ctx is byte-for-byte the old one.
     #[cfg(feature = "timeseries")]
     pub fn with_staged_series(mut self, staged: &'a StagedSeries) -> Self {
@@ -348,7 +348,7 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
         }
 
         Op::Rank { query } => {
-            // CONCEPT:EG-070 — hybrid metadata pre-filter. Push the current candidate
+            // CONCEPT:EG-KG.retrieval.hybrid-metadata-prefilter — hybrid metadata pre-filter. Push the current candidate
             // set INTO the ANN scan as an allowlist so the returned top-k already
             // satisfies the predicate — filtering happens DURING the probe instead of
             // over-fetching `k*4` and post-filtering. Semantics are unchanged: with an
@@ -362,7 +362,7 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
             Ok(RowSet::from_scored(scored))
         }
 
-        // RANK (vector-from-text, CONCEPT:EG-411) — the UQL `RANK BY ~ "text"` NL→vector
+        // RANK (vector-from-text, CONCEPT:EG-KG.compute.no-embedder-bound-op) — the UQL `RANK BY ~ "text"` NL→vector
         // seam. Resolve the text to a query vector via the server-side embedder bound on
         // the ctx, then kNN-rank the candidate set exactly like `Op::Rank`. With NO
         // embedder bound this is a clean typed error (never a panic) — the documented
@@ -412,11 +412,11 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
         Op::ForeignScan { source, join } => foreign_scan(input, source, *join, ctx),
 
         // TIME — `AS OF [TX] @<ts>` is a real RowSet-narrowing temporal filter
-        // (CONCEPT:KG-2.250): drop rows whose fact is not live at `ts` on the chosen
+        // (CONCEPT:AU-KG.compute.kg-2): drop rows whose fact is not live at `ts` on the chosen
         // timeline. Dep-free blob scan (no DataFusion), so it runs in the Pi tier.
         Op::AsOf { ts, axis } => Ok(as_of_filter(ctx.view, input, *ts, *axis)),
 
-        // TIME (`WINDOW <dur>`, CONCEPT:EG-067) — a REAL windowed aggregate over the
+        // TIME (`WINDOW <dur>`, CONCEPT:EG-KG.query.streaming-execution) — a REAL windowed aggregate over the
         // input RowSet's time/value columns via eg-tsdb's Pi-path `time_bucket`,
         // replacing the pass-through seam. Gated behind `timeseries` (the eg-plan→
         // eg-tsdb edge), kept OUT of the Pi tier; without the feature the op stays the
@@ -432,7 +432,7 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
         #[cfg(not(feature = "timeseries"))]
         Op::Window { .. } => Ok(input),
 
-        // TIME (`WINDOW <dur> <agg>`, CONCEPT:EG-414) — the selectable-aggregate windowed
+        // TIME (`WINDOW <dur> <agg>`, CONCEPT:EG-KG.compute.trailing-aggregate-selector-lowers) — the selectable-aggregate windowed
         // aggregate: resolve the `agg` selector to an eg-tsdb `Agg` and run the SAME
         // tumbling windower `Op::Window` uses. Without `timeseries` the op passes the rows
         // through, exactly like `Op::Window`.
@@ -446,7 +446,7 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
         #[cfg(not(feature = "timeseries"))]
         Op::WindowAgg { .. } => Ok(input),
 
-        // FEDERATION (`FOREIGN "<name>"`, CONCEPT:KG-2.235 / EG-073) — the name MARKER
+        // FEDERATION (`FOREIGN "<name>"`, CONCEPT:EG-KG.query.sparql-completeness / EG-073) — the name MARKER
         // the UQL clause lowers to. With a `ForeignSourceRegistry` attached to the ctx
         // (`federation` build) it now RESOLVES the name → rows through the registry (a
         // source op: the foreign rows replace the input); an unbound name is a clean
@@ -454,15 +454,15 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
         // rows through unchanged, exactly as before (existing behavior preserved).
         Op::Foreign { name } => foreign_named(name, input, ctx),
 
-        // SOURCE (spatial, CONCEPT:EG-083) — an eg-geo packed-Hilbert-R-tree bbox scan
+        // SOURCE (spatial, CONCEPT:EG-KG.ontology.singles-concept) — an eg-geo packed-Hilbert-R-tree bbox scan
         // over the layer's geometries. Gated behind `geo`; the variant only exists when
         // eg-types/geo is on (pulled by eg-plan/geo), so a non-geo build has neither the
         // variant nor this arm (the ForeignScan gating precedent).
         #[cfg(feature = "geo")]
         Op::SpatialScan { layer, bbox } => Ok(spatial_scan(ctx.view, layer, *bbox)),
 
-        // TRANSFORM (spatial CRS, CONCEPT:EG-255) — reproject each row's geometry into
-        // `to_epsg`; TRANSFORM (constructive, CONCEPT:EG-259) — derive a geometry per row
+        // TRANSFORM (spatial CRS, CONCEPT:EG-KG.domains.coordinate-reference-system) — reproject each row's geometry into
+        // `to_epsg`; TRANSFORM (constructive, CONCEPT:EG-KG.ontology.concept-9) — derive a geometry per row
         // via the eg-geo `algebra` op. Both gated behind `geo`; the variants only exist
         // when eg-types/geo is on (the SpatialScan/ForeignScan gating precedent).
         #[cfg(feature = "geo")]
@@ -472,7 +472,7 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
         #[cfg(feature = "geo")]
         Op::SpatialOp { kind } => Ok(spatial_op(ctx.view, input, kind)),
 
-        // SOURCE (tensor, CONCEPT:EG-085) — seed the RowSet with the `layer`'s
+        // SOURCE (tensor, CONCEPT:EG-KG.storage.content-addressed-dedup) — seed the RowSet with the `layer`'s
         // tensor-bearing nodes; TRANSFORM (tensor) — apply the eg-tensor op to each
         // row's stored tensor. Gated behind `tensor`; the variants only exist when
         // eg-types/tensor is on (pulled by eg-plan/tensor), so a non-tensor build has
@@ -482,7 +482,7 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
         #[cfg(feature = "tensor")]
         Op::TensorOp { kind } => Ok(tensor_op(ctx, input, kind)),
 
-        // TRANSFORM (probabilistic, CONCEPT:EG-086) — score each row by a closed-form
+        // TRANSFORM (probabilistic, CONCEPT:EG-KG.compute.uncertainty-values) — score each row by a closed-form
         // probabilistic query (expectation / marginal / conditional posterior / seeded
         // sample) over its stored `Distribution` value and re-order by that score
         // descending, dropping rows without a valid distribution or where the query does
@@ -492,7 +492,7 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
         #[cfg(feature = "probabilistic")]
         Op::Probabilistic { query } => Ok(probabilistic_op(ctx.view, input, query)),
 
-        // TRANSFORM (stream, CONCEPT:EG-088) — interpret the input RowSet as a
+        // TRANSFORM (stream, CONCEPT:EG-KG.query.pipelined-execution) — interpret the input RowSet as a
         // time-ordered event stream and run the eg-stream bounded NFA CEP engine over it,
         // keeping the rows that participate in a match. Gated behind `stream`; the variant
         // only exists when eg-types/stream is on (pulled by eg-plan/stream), so a
@@ -501,7 +501,7 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
         #[cfg(feature = "stream")]
         Op::Cep { pattern } => Ok(cep_op(ctx.view, input, pattern)),
 
-        // FUSE (multimodal sensor fusion, CONCEPT:EG-098) — time-align the named sensor
+        // FUSE (multimodal sensor fusion, CONCEPT:EG-KG.query.multi-rate-sensor-stream) — time-align the named sensor
         // streams to ONE common clock via eg-tsdb's ASOF-backed `sensor_fuse` and emit a
         // fused row per instant (id = the aligned ts, score = the present-channel count).
         // A SOURCE op: it resolves its streams off the snapshot and REPLACES the input,
@@ -515,7 +515,7 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
             tolerance_ns,
         } => Ok(sensor_fuse_op(ctx.view, streams, *tolerance_ns)),
 
-        // SOURCE (time-series, CONCEPT:EG-363) — seed the RowSet from native eg-tsdb
+        // SOURCE (time-series, CONCEPT:EG-KG.query.native-time-series) — seed the RowSet from native eg-tsdb
         // series via the `SeriesStore` attached to the ctx (`PlanCtx::with_tsdb`), so the
         // tsdb leg fuses with the graph/vector/relational legs in ONE plan. Gated behind
         // `timeseries` (the eg-plan→eg-tsdb `redb-store` edge); with no store attached it
@@ -534,7 +534,7 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
 }
 
 /// SOURCE (federation): read rows from an EXTERNAL source — a remote epistemic-graph
-/// engine or a generic HTTP/JSON API (CONCEPT:KG-2.232) — into the RowSet. When `join`
+/// engine or a generic HTTP/JSON API (CONCEPT:EG-KG.query.query-federation) — into the RowSet. When `join`
 /// is false the foreign rows REPLACE the input (a pure source, like `Scan`). When
 /// `join` is true the foreign rows are intersected with the current candidate set keyed
 /// on id (a foreign∩local JOIN), preserving the input's order — so a plan can seed
@@ -547,7 +547,7 @@ fn foreign_scan(
     join: bool,
     ctx: &PlanCtx,
 ) -> Result<RowSet, String> {
-    // CONCEPT:EG-073 — a `Named` source resolves by name through the registry on the
+    // CONCEPT:EG-KG.query.closure-backed-source — a `Named` source resolves by name through the registry on the
     // ctx; every self-describing spec kind (remote-engine / HTTP-JSON / SQL) still
     // fetches via `source_for` exactly as before.
     let foreign = match source {
@@ -555,7 +555,7 @@ fn foreign_scan(
             let registry = ctx.foreign.ok_or_else(|| {
                 format!(
                     "federation: Op::ForeignScan names foreign source '{name}' but no \
-                     ForeignSourceRegistry is attached to the PlanCtx (CONCEPT:EG-073)"
+                     ForeignSourceRegistry is attached to the PlanCtx (CONCEPT:EG-KG.query.closure-backed-source)"
                 )
             })?;
             registry.resolve(name)?
@@ -565,7 +565,7 @@ fn foreign_scan(
     Ok(fuse_foreign(input, foreign, join))
 }
 
-/// FEDERATION (`FOREIGN "<name>"`, CONCEPT:EG-073) — resolve the named foreign source
+/// FEDERATION (`FOREIGN "<name>"`, CONCEPT:EG-KG.query.closure-backed-source) — resolve the named foreign source
 /// through the registry on the ctx. With a registry attached the named source's rows
 /// REPLACE the input (a source op) and an unbound name is a clean typed error; with NO
 /// registry attached the op passes its input through unchanged (the prior behavior — so
@@ -579,7 +579,7 @@ fn foreign_named(name: &str, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
 }
 
 /// Without `federation` there is no registry and no foreign machinery, so the
-/// `FOREIGN "<name>"` marker keeps its pass-through behavior (CONCEPT:EG-073).
+/// `FOREIGN "<name>"` marker keeps its pass-through behavior (CONCEPT:EG-KG.query.closure-backed-source).
 #[cfg(not(feature = "federation"))]
 fn foreign_named(_name: &str, input: RowSet, _ctx: &PlanCtx) -> Result<RowSet, String> {
     Ok(input)
@@ -602,7 +602,7 @@ pub(crate) fn fuse_foreign(input: RowSet, foreign: RowSet, join: bool) -> RowSet
 }
 
 /// UDF (WASM): transform the current `RowSet` through a registered, SANDBOXED wasm
-/// function (CONCEPT:KG-2.228). Serializes the input rows `[(id, score?), …]` to
+/// function (CONCEPT:EG-KG.query.rowset-execution). Serializes the input rows `[(id, score?), …]` to
 /// MessagePack, runs the UDF `id` under fuel + memory limits with NO host caps, and
 /// deserializes the SAME-shape output rows back into the pipeline. A registry-less ctx
 /// or an unknown UDF id errs (a UDF must be registered to run). The bytes contract is
@@ -648,7 +648,7 @@ fn rank_text(ctx: &PlanCtx, input: &RowSet, query: &str) -> RowSet {
 
 /// FUSE (hybrid): run each of the N SUB-PLAN `branches` over the SAME `input` seed
 /// (snapshot-isolated, same `ctx`), then reciprocal-rank-fuse their ranked id lists
-/// into one RowSet (CONCEPT:KG-2.215 / KG-2.253). Each branch is a normal `Vec<Op>`
+/// into one RowSet (CONCEPT:AU-KG.query.text-spatial-time / KG-2.253). Each branch is a normal `Vec<Op>`
 /// plan, so the canonical tri-modal hybrid is `[[Rank{vec}], [RankText{q}],
 /// [RankNodeDistance{c}]]`, but any number of ranking sub-plans compose. RRF fuses the
 /// RANKS (not the incomparable cosine/BM25/distance scales), so a doc strong across
@@ -670,7 +670,7 @@ fn fuse_rrf(ctx: &PlanCtx, input: &RowSet, branches: &[Vec<Op>], k: f32) -> Resu
     Ok(RowSet::from_scored(fused))
 }
 
-/// SOURCE **or** FILTER (OWL, CONCEPT:EG-363) — dispatches on whether `input` carries
+/// SOURCE **or** FILTER (OWL, CONCEPT:EG-KG.query.native-time-series) — dispatches on whether `input` carries
 /// rows. With an EMPTY input it is a pure SOURCE (today's behavior, unchanged): every
 /// OWL-inferred, confidence-scored member of `target_class` seeds the RowSet. With a
 /// NON-EMPTY input it acts MID-PIPELINE as a confidence-preserving FILTER: keep only the
@@ -691,7 +691,7 @@ fn reason_op(view: &GraphView, input: RowSet, target_class: &str, ontology: &str
 }
 
 /// SOURCE (OWL): the individuals the native OWL 2 reasoner INFERS to be members of
-/// `target_class` (CONCEPT:KG-2.220). Parses the `ontology` Turtle (or, when empty,
+/// `target_class` (CONCEPT:EG-KG.ontology.concept-12). Parses the `ontology` Turtle (or, when empty,
 /// the axioms already present in the graph view's blobs — they round-trip as RDF),
 /// runs EL⁺ classification, reads the graph's asserted instance types, and projects
 /// every (possibly only-inferred) member of `target_class` into a `RowSet`. These are
@@ -708,14 +708,14 @@ fn reason_source(view: &GraphView, target_class: &str, ontology: &str) -> RowSet
         eg_rdf::mapping::parse_turtle(ontology).unwrap_or_default()
     };
     let mut reasoner = Reasoner::from_triples(&triples);
-    // Confidence-weighted (CONCEPT:KG-2.236): each inferred member carries its
+    // Confidence-weighted (CONCEPT:EG-KG.ontology.concept-13): each inferred member carries its
     // membership confidence as the RowSet SCORE, so a bare `Reason` plan is already
     // ranked by confidence and composes with a downstream vector `Rank`/`Limit`. The
     // closure is identical to the unweighted one for a HARD ontology (every score 1.0).
     let cls = reasoner.classify_weighted();
 
     let target = normalize_class(target_class);
-    // String-type↔IRI-class bridge (CONCEPT:EG-376): derive the bridge base from the
+    // String-type↔IRI-class bridge (CONCEPT:EG-KG.ontology.string-type-iri-class): derive the bridge base from the
     // REASON target IRI's namespace, so a node with a BARE string `type` (e.g.
     // `{"type":"Sensor"}`) is resolved as `<base/Sensor>` and — through the TBox subclass
     // closure — becomes a member of `REASON <base/Device>` when `<base/Sensor> ⊑
@@ -734,7 +734,7 @@ fn reason_source(view: &GraphView, target_class: &str, ontology: &str) -> RowSet
 }
 
 /// SOURCE (SPARQL): the node bindings of `var` in the SPARQL `query` over the view
-/// (CONCEPT:KG-2.220) — a SPARQL-selected candidate set as a RowSet. Only resource
+/// (CONCEPT:EG-KG.ontology.concept-12) — a SPARQL-selected candidate set as a RowSet. Only resource
 /// (node) bindings become ids; literal bindings are skipped (an id set is node ids).
 #[cfg(feature = "owl")]
 fn sparql_source(view: &GraphView, query: &str, var: &str) -> Result<RowSet, String> {
@@ -784,7 +784,7 @@ fn live_at(blob: &[u8], ts: u64, from_key: &str, until_key: &str) -> bool {
     from <= ts && until.is_none_or(|u| ts < u)
 }
 
-/// Narrow `input` to rows live at `ts` on the `axis` timeline (CONCEPT:KG-2.250).
+/// Narrow `input` to rows live at `ts` on the `axis` timeline (CONCEPT:AU-KG.compute.kg-2).
 /// Order-preserving (a vector-`Rank`-then-`AS OF` plan stays ranked, via
 /// [`RowSet::intersect_keep_order`]). When `input` is empty the op acts as a source,
 /// yielding every node live at `ts`.
@@ -815,10 +815,10 @@ fn as_of_filter(view: &GraphView, input: RowSet, ts: f64, axis: TimeAxis) -> Row
     input.intersect_keep_order(&kept)
 }
 
-// ── the TIME WINDOW leg — native eg-tsdb windowed aggregate (CONCEPT:EG-067) ─────
+// ── the TIME WINDOW leg — native eg-tsdb windowed aggregate (CONCEPT:EG-KG.query.streaming-execution) ─────
 
 /// TIME (`WINDOW <dur> [agg]`): a REAL tumbling windowed aggregate over the input
-/// RowSet's `(ts, value)` rows, replacing the pass-through seam (CONCEPT:EG-067 /
+/// RowSet's `(ts, value)` rows, replacing the pass-through seam (CONCEPT:EG-KG.query.streaming-execution /
 /// EG-413 / EG-414). Two row shapes are consumed, in this order:
 ///
 ///  1. **A graph-node row** — `view.node_properties` has the row's `id`. The event time
@@ -830,7 +830,7 @@ fn as_of_filter(view: &GraphView, input: RowSet, ts: f64, axis: TimeAxis) -> Row
 ///  2. **A time-series SOURCE row** — the row's `id` is NOT a graph node but parses as an
 ///     integer ts and carries a `score`. This is exactly what `Op::TsScan` (and a prior
 ///     `Op::Window`) emit: `id` = the point timestamp, `score` = the value. Adding this
-///     path is CONCEPT:EG-413 — it makes `TsScan(series) → Window(secs)` actually
+///     path is CONCEPT:EG-KG.compute.tsscan-series-window-60s — it makes `TsScan(series) → Window(secs)` actually
 ///     consume the tsdb series and produce windowed aggregates (before, a TsScan row's
 ///     numeric id was not a node, so every row was dropped and the window was empty).
 ///
@@ -890,7 +890,7 @@ fn window_aggregate(
 }
 
 /// Resolve a UQL/wire `WINDOW … <agg>` selector string to an eg-tsdb [`Agg`]
-/// (CONCEPT:EG-414). Case-insensitive; an unknown selector defaults to `Mean` (so a
+/// (CONCEPT:EG-KG.compute.trailing-aggregate-selector-lowers). Case-insensitive; an unknown selector defaults to `Mean` (so a
 /// forward-compat or mistyped selector degrades to the canonical aggregate rather than
 /// erroring).
 #[cfg(feature = "timeseries")]
@@ -908,10 +908,10 @@ fn parse_window_agg(agg: &str) -> eg_tsdb::query::Agg {
     }
 }
 
-// ── the sensor-fusion leg — native eg-tsdb ASOF alignment (CONCEPT:EG-098) ───────
+// ── the sensor-fusion leg — native eg-tsdb ASOF alignment (CONCEPT:EG-KG.query.multi-rate-sensor-stream) ───────
 
 /// FUSE (multimodal sensor fusion): time-align N heterogeneous sensor `streams` to ONE
-/// common clock and emit fused multi-channel rows (CONCEPT:EG-098). Each named stream is
+/// common clock and emit fused multi-channel rows (CONCEPT:EG-KG.query.multi-rate-sensor-stream). Each named stream is
 /// a node LAYER (matched on the `type` property, exactly as [`scan_label`]) whose nodes
 /// carry a `valid_from` event time (ns, the same column `Op::AsOf`/`Op::Window` read) and
 /// EITHER a numeric `value` (a scalar reading) OR an opaque tensor-frame reference in a
@@ -973,13 +973,13 @@ fn sensor_fuse_op(view: &GraphView, streams: &[String], tolerance_ns: u64) -> Ro
     RowSet::from_scored(scored)
 }
 
-// ── the time-series SOURCE leg — native eg-tsdb SeriesStore scan (CONCEPT:EG-363) ─
+// ── the time-series SOURCE leg — native eg-tsdb SeriesStore scan (CONCEPT:EG-KG.query.native-time-series) ─
 
 /// SOURCE (time-series): read the points of each id in `series` within the `[from, to)`
 /// window out of the native eg-tsdb [`eg_tsdb::store::SeriesStore`] and emit one row per
 /// point — `id` = the point timestamp (stringified), `score` = the point's first field
 /// value — so a downstream `Rank`/`Limit`/`Filter` fuses the time-series leg with the
-/// graph/vector/relational legs in ONE plan (tsdb-in-plan fusion, CONCEPT:EG-363).
+/// graph/vector/relational legs in ONE plan (tsdb-in-plan fusion, CONCEPT:EG-KG.query.native-time-series).
 ///
 /// Bounds are `f64` SECONDS on the wire (uniform with the other numeric plan ops); this
 /// op lowers them to the store's `i64`-nanosecond range internally, and the store's
@@ -990,7 +990,7 @@ fn sensor_fuse_op(view: &GraphView, streams: &[String], tolerance_ns: u64) -> Ro
 /// timed streams. Rows dedup by id (ts): on a ts shared across series the FIRST series'
 /// point wins ([`RowSet::from_scored`] keeps the first occurrence).
 ///
-/// CONCEPT:EG-374 — in-txn read-your-own-writes: when a [`StagedSeries`] overlay is
+/// CONCEPT:EG-KG.query.txn-tsdb-read-your — in-txn read-your-own-writes: when a [`StagedSeries`] overlay is
 /// attached ([`PlanCtx::with_staged_series`]), the transaction's OWN staged points are
 /// emitted FIRST (before the committed store), so on a ts a series staged in-txn shadows
 /// the committed value (RYOW precedence) and staged-only points (a series the txn just
@@ -1027,7 +1027,7 @@ fn tsdb_scan_op(
     RowSet::from_scored(staged_rows.chain(committed_rows))
 }
 
-// ── graph-native rerankers (CONCEPT:KG-2.254) ───────────────────────────────────
+// ── graph-native rerankers (CONCEPT:EG-KG.query.uql-parser-ops) ───────────────────────────────────
 
 /// RANK by inverse shortest-path hop distance from `center` over the topology
 /// (Graphiti's `node_distance`). Score `1/(1+hops)`; an unreachable or absent-center
@@ -1108,7 +1108,7 @@ fn rank_mentions(view: &GraphView, input: RowSet) -> RowSet {
     RowSet::from_scored(sort_by_score_desc(scored))
 }
 
-/// RANK by Maximal Marginal Relevance (CONCEPT:KG-2.255): greedily re-order the
+/// RANK by Maximal Marginal Relevance (CONCEPT:AU-KG.retrieval.mmr-diversification): greedily re-order the
 /// candidates trading off relevance against diversity. Relevance is each row's
 /// incoming score (from a prior `Rank`; defaults to a uniform rank-decay when scores
 /// are absent). Similarity is cosine over the candidates' stored embeddings. Picks the
@@ -1190,13 +1190,13 @@ fn sort_by_score_desc(mut scored: Vec<(String, f32)>) -> Vec<(String, f32)> {
 
 /// Execute a `Filter` op. Relational preds (`Eq`/`GtNum`/`LtNum`) run through real
 /// DataFusion (`sql_filter_ids`), preserving the input order + candidate-set pushdown.
-/// Spatial preds (`SpatialWithin`/`SpatialDWithin`, CONCEPT:EG-083) are split OUT and
+/// Spatial preds (`SpatialWithin`/`SpatialDWithin`, CONCEPT:EG-KG.ontology.singles-concept) are split OUT and
 /// applied per-row by eg-geo against each row's stored geometry — DataFusion has no
 /// spatial. A non-geo build has no spatial Pred variants, so every pred is relational
 /// and this is byte-for-byte the original SQL path.
 fn filter_op(ctx: &PlanCtx, preds: &[Pred], input: RowSet) -> Result<RowSet, String> {
     // Partition per-row preds (spatial via eg-geo, JSON via eg-core::jsonpath —
-    // CONCEPT:EG-084) from relational preds lowered to SQL. DataFusion has neither
+    // CONCEPT:EG-KG.compute.json-deep-indexing) from relational preds lowered to SQL. DataFusion has neither
     // spatial nor JSONPath, so each is split out and applied per-row against the stored
     // blob. A non-geo build has no spatial variants; JSONPath is always present under
     // `query`, so `relational` is every remaining pred.
@@ -1240,7 +1240,7 @@ fn filter_op(ctx: &PlanCtx, preds: &[Pred], input: RowSet) -> Result<RowSet, Str
     for p in &spatial {
         out = spatial_filter(ctx.view, out, p)?;
     }
-    // Apply each JSONPath predicate against the stored per-row JSON (CONCEPT:EG-084),
+    // Apply each JSONPath predicate against the stored per-row JSON (CONCEPT:EG-KG.compute.json-deep-indexing),
     // order- and score-preserving — exactly the spatial leg's shape.
     for p in &jsonpath {
         out = jsonpath_filter(ctx.view, out, p)?;
@@ -1251,12 +1251,12 @@ fn filter_op(ctx: &PlanCtx, preds: &[Pred], input: RowSet) -> Result<RowSet, Str
 // ── the document/JSON leg — eg-core::jsonpath over the GraphView blobs (EG-084) ──
 
 /// Is `pred` a JSONPath predicate (evaluated per-row by `eg_core::jsonpath`, NOT lowered
-/// to SQL)? (CONCEPT:EG-084.)
+/// to SQL)? (CONCEPT:EG-KG.compute.json-deep-indexing.)
 fn is_jsonpath_pred(pred: &Pred) -> bool {
     matches!(pred, Pred::JsonPath { .. })
 }
 
-/// FILTER (document/JSON, CONCEPT:EG-084): keep rows whose stored JSON satisfies the
+/// FILTER (document/JSON, CONCEPT:EG-KG.compute.json-deep-indexing): keep rows whose stored JSON satisfies the
 /// JSONPath predicate `pred`. Each row's blob is decoded to a `serde_json::Value` and the
 /// path/op is evaluated by `eg_core::jsonpath` (existence / `->>`-equality / `@>`
 /// containment). Rows with no/undecodable blob are dropped. Order- and score-preserving
@@ -1282,7 +1282,7 @@ fn jsonpath_filter(view: &GraphView, input: RowSet, pred: &Pred) -> Result<RowSe
     Ok(input.intersect_keep_order(&keep))
 }
 
-/// Decode node `id`'s stored property blob to a `serde_json::Value` (CONCEPT:EG-084) —
+/// Decode node `id`'s stored property blob to a `serde_json::Value` (CONCEPT:EG-KG.compute.json-deep-indexing) —
 /// the JSON leg's counterpart to `row_geometry`.
 fn row_json(view: &GraphView, id: &str) -> Option<serde_json::Value> {
     let blob = view.node_properties.get(id)?;
@@ -1293,7 +1293,7 @@ fn row_json(view: &GraphView, id: &str) -> Option<serde_json::Value> {
 
 /// SOURCE (spatial): every node in `layer` (matched on the `type` property, exactly as
 /// [`scan_label`]) whose stored geometry's bounding box intersects `bbox`, found via
-/// eg-geo's packed Hilbert R-tree (CONCEPT:EG-083). Each node's geometry is read as a
+/// eg-geo's packed Hilbert R-tree (CONCEPT:EG-KG.ontology.singles-concept). Each node's geometry is read as a
 /// WKT string from a conventional `geometry` (or `geom`) property — a dep-free view
 /// scan, mirroring how `scan_label`/`as_of_filter` decode the blob. The R-tree is built
 /// over the layer's geometries and queried once; the matching ids seed the RowSet.
@@ -1340,8 +1340,8 @@ fn is_spatial_pred(pred: &Pred) -> bool {
     )
 }
 
-/// FILTER (spatial): keep rows whose stored geometry satisfies `pred` (CONCEPT:EG-083 for
-/// within/dwithin; CONCEPT:EG-258 for the DE-9IM relations), reading each row's geometry
+/// FILTER (spatial): keep rows whose stored geometry satisfies `pred` (CONCEPT:EG-KG.ontology.singles-concept for
+/// within/dwithin; CONCEPT:EG-KG.ontology.de-9im-relations for the DE-9IM relations), reading each row's geometry
 /// as WKT from the node property named by the pred's `column`. The relation is evaluated
 /// as `relation(row_geometry, query_geometry)` — e.g. `SpatialContains` keeps rows whose
 /// geometry CONTAINS the query. Rows with no/invalid geometry are dropped. Order- and
@@ -1399,7 +1399,7 @@ fn spatial_filter(view: &GraphView, input: RowSet, pred: &Pred) -> Result<RowSet
     Ok(input.intersect_keep_order(&keep))
 }
 
-/// TRANSFORM (spatial CRS, CONCEPT:EG-255): reproject each row's stored geometry into
+/// TRANSFORM (spatial CRS, CONCEPT:EG-KG.domains.coordinate-reference-system): reproject each row's stored geometry into
 /// `to_epsg`. The source CRS is the row geometry's EWKT `SRID=…;` tag, or `from_epsg` when
 /// given (an explicit override always wins). Rows with no geometry, no resolvable source
 /// CRS, or an unsupported/failed reprojection are DROPPED — order- and score-preserving,
@@ -1429,7 +1429,7 @@ fn spatial_reproject(
     input.intersect_keep_order(&keep)
 }
 
-/// TRANSFORM (constructive, CONCEPT:EG-259): apply the eg-geo `algebra` op `kind` to each
+/// TRANSFORM (constructive, CONCEPT:EG-KG.ontology.concept-9): apply the eg-geo `algebra` op `kind` to each
 /// row's stored geometry (conventional `geometry`/`geom` property), producing a derived
 /// geometry. Rows whose geometry is missing/invalid or where the op yields nothing (e.g.
 /// an empty intersection, a degenerate centroid) are DROPPED — order- and score-preserving,
@@ -1490,7 +1490,7 @@ fn geometry_from_value(v: &serde_json::Value) -> Option<eg_geo::Geometry> {
 }
 
 /// Read node `id`'s geometry from the conventional `geometry`/`geom` WKT property (the
-/// column-free read used by `Op::SpatialOp`, CONCEPT:EG-259).
+/// column-free read used by `Op::SpatialOp`, CONCEPT:EG-KG.ontology.concept-9).
 #[cfg(feature = "geo")]
 fn row_geometry_conv(view: &GraphView, id: &str) -> Option<eg_geo::Geometry> {
     let blob = view.node_properties.get(id)?;
@@ -1499,7 +1499,7 @@ fn row_geometry_conv(view: &GraphView, id: &str) -> Option<eg_geo::Geometry> {
 }
 
 /// Read node `id`'s geometry AND its EWKT `SRID=…;` CRS tag from the conventional
-/// `geometry`/`geom` WKT property (used by `Op::Reproject`, CONCEPT:EG-255). The `srid`
+/// `geometry`/`geom` WKT property (used by `Op::Reproject`, CONCEPT:EG-KG.domains.coordinate-reference-system). The `srid`
 /// is `None` when the stored WKT carries no EWKT prefix.
 #[cfg(feature = "geo")]
 fn row_geometry_srid(view: &GraphView, id: &str) -> Option<(Option<u32>, eg_geo::Geometry)> {
@@ -1513,7 +1513,7 @@ fn row_geometry_srid(view: &GraphView, id: &str) -> Option<(Option<u32>, eg_geo:
 
 /// SOURCE (tensor): every node in `layer` (matched on the `type` property, exactly as
 /// [`scan_label`]) that carries a valid dense N-D array in the conventional `tensor`
-/// property (CONCEPT:EG-085). A dep-free view scan, mirroring `spatial_scan` — the
+/// property (CONCEPT:EG-KG.storage.content-addressed-dedup). A dep-free view scan, mirroring `spatial_scan` — the
 /// matching ids seed the RowSet; the tensor itself is read per-row by [`tensor_op`].
 /// (Content-addressing the tensor bytes in the blob CAS — `ChunkStore` + EG-071 — is a
 /// documented follow-up; v1 reads the tensor as a typed node property off the live
@@ -1536,12 +1536,12 @@ fn tensor_scan(view: &GraphView, layer: &str) -> RowSet {
 }
 
 /// TRANSFORM (tensor): apply the eg-tensor op `kind` (slice/reduce/elementwise) to each
-/// row's stored tensor (CONCEPT:EG-085). Rows whose tensor is missing/invalid or where
+/// row's stored tensor (CONCEPT:EG-KG.storage.content-addressed-dedup). Rows whose tensor is missing/invalid or where
 /// the op fails (e.g. a slice out of bounds) are DROPPED — order- and score-preserving
 /// via [`RowSet::intersect_keep_order`], exactly as the spatial `Filter` leg drops rows
 /// with no geometry.
 ///
-/// CONCEPT:EG-304 — CAS write-back: when a [`PlanCtx::tensor_store`] is attached, each
+/// CONCEPT:EG-KG.storage.derived-tensor-writeback-sink — CAS write-back: when a [`PlanCtx::tensor_store`] is attached, each
 /// derived tensor that the op successfully produces is WRITTEN BACK into that
 /// content-addressed [`eg_tensor::TensorStore`] (via [`eg_tensor::TensorStore::put`]),
 /// so the result becomes a durable, dedup-shared blob addressable by its deterministic
@@ -1557,7 +1557,7 @@ fn tensor_op(ctx: &PlanCtx, input: RowSet, kind: &eg_types::wire::TensorOpKind) 
         .iter()
         .filter(|r| {
             // Compute the derived tensor to VALIDATE the op per row; on success, write it
-            // back to the CAS (CONCEPT:EG-304) when a store is attached.
+            // back to the CAS (CONCEPT:EG-KG.storage.derived-tensor-writeback-sink) when a store is attached.
             match row_tensor(ctx.view, &r.id) {
                 Some(t) => match apply_tensor_op(&t, kind) {
                     Ok(derived) => {
@@ -1583,7 +1583,7 @@ fn tensor_op(ctx: &PlanCtx, input: RowSet, kind: &eg_types::wire::TensorOpKind) 
 }
 
 /// Read node `id`'s tensor from the conventional `tensor` property of its blob
-/// (CONCEPT:EG-085), decoding the typed serde form.
+/// (CONCEPT:EG-KG.storage.content-addressed-dedup), decoding the typed serde form.
 #[cfg(feature = "tensor")]
 fn row_tensor(view: &GraphView, id: &str) -> Option<eg_tensor::Tensor> {
     let blob = view.node_properties.get(id)?;
@@ -1631,7 +1631,7 @@ fn apply_tensor_op(
 
 // ── the probabilistic leg — eg-types Distribution + eg-compute Bayes (EG-086) ────
 
-/// TRANSFORM (probabilistic, CONCEPT:EG-086): evaluate `query` against each row's stored
+/// TRANSFORM (probabilistic, CONCEPT:EG-KG.compute.uncertainty-values): evaluate `query` against each row's stored
 /// `Distribution` value and SCORE the row with the closed-form result, returning the rows
 /// re-ordered by that score DESCENDING — a ranked RowSet a downstream `Limit` respects,
 /// exactly like `Rank`. Rows whose `distribution` property is missing/invalid, or where
@@ -1654,7 +1654,7 @@ fn probabilistic_op(view: &GraphView, input: RowSet, query: &eg_types::wire::Pro
 }
 
 /// Read node `id`'s distribution from the conventional `distribution` property of its
-/// blob (CONCEPT:EG-086), decoding the tagged serde form of `eg_types::Distribution`.
+/// blob (CONCEPT:EG-KG.compute.uncertainty-values), decoding the tagged serde form of `eg_types::Distribution`.
 #[cfg(feature = "probabilistic")]
 fn row_distribution(view: &GraphView, id: &str) -> Option<eg_types::Distribution> {
     let blob = view.node_properties.get(id)?;
@@ -1664,7 +1664,7 @@ fn row_distribution(view: &GraphView, id: &str) -> Option<eg_types::Distribution
 
 /// Lower the pure-serde wire `ProbQuery` (eg-types) onto the real distribution math: the
 /// `Distribution` moment/pdf/pmf/sample methods (eg-types) + the conjugate
-/// `bayesian_update` (eg-compute) behind the `probabilistic` gate (CONCEPT:EG-086).
+/// `bayesian_update` (eg-compute) behind the `probabilistic` gate (CONCEPT:EG-KG.compute.uncertainty-values).
 /// Returns `None` when the query does not apply (unsupported conjugate pair) so the
 /// caller drops the row.
 #[cfg(feature = "probabilistic")]
@@ -1713,7 +1713,7 @@ fn eval_prob_query(
 #[cfg(feature = "stream")]
 const CEP_ID_ATTR: &str = "_eg_row_id";
 
-/// TRANSFORM (stream, CONCEPT:EG-088): interpret the input RowSet as a time-ordered
+/// TRANSFORM (stream, CONCEPT:EG-KG.query.pipelined-execution): interpret the input RowSet as a time-ordered
 /// event stream — each row's node blob supplies `ts` (u64), `key` (string) and `attrs`
 /// (object) — run the eg-stream bounded NFA for `spec.pattern` over `spec.window`, and
 /// keep the input rows that PARTICIPATE in a detected match (order- and score-preserving
@@ -1750,7 +1750,7 @@ fn cep_op(view: &GraphView, input: RowSet, spec: &eg_types::wire::CepPatternSpec
     input.intersect_keep_order(&keep)
 }
 
-/// Read node `id`'s event from its blob (CONCEPT:EG-088): the conventional `ts` (u64,
+/// Read node `id`'s event from its blob (CONCEPT:EG-KG.query.pipelined-execution): the conventional `ts` (u64,
 /// required — a node with no numeric `ts` is not an event), `key` (string, defaults to
 /// empty) and `attrs` (object, defaults to empty).
 #[cfg(feature = "stream")]
@@ -1852,11 +1852,11 @@ fn where_clause(preds: &[Pred]) -> String {
             }
             Pred::GtNum { prop, n } => format!("{prop} > {n}"),
             Pred::LtNum { prop, n } => format!("{prop} < {n}"),
-            // JSONPath preds (CONCEPT:EG-084) are NOT lowered to SQL — `filter_op` splits
+            // JSONPath preds (CONCEPT:EG-KG.compute.json-deep-indexing) are NOT lowered to SQL — `filter_op` splits
             // them out and applies them per-row via `eg_core::jsonpath`, so they never
             // reach here. This defensive arm keeps the match exhaustive: a no-op `1=1`.
             Pred::JsonPath { .. } => "1=1".into(),
-            // Spatial preds (CONCEPT:EG-083 / EG-258) are NOT lowered to SQL — `filter_op`
+            // Spatial preds (CONCEPT:EG-KG.ontology.singles-concept / EG-258) are NOT lowered to SQL — `filter_op`
             // splits them out and applies them per-row via eg-geo, so they never reach here.
             // This defensive arm keeps the match exhaustive under `geo`: a no-op `1=1`.
             #[cfg(feature = "geo")]

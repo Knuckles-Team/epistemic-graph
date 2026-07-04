@@ -232,7 +232,7 @@ mod tests {
         assert!(e.msg.contains("unterminated"), "got: {}", e.msg);
     }
 
-    /// CONCEPT:EG-411 — the NL→vector seam: a quoted `RANK BY ~"text"` now LOWERS to
+    /// CONCEPT:EG-KG.compute.no-embedder-bound-op — the NL→vector seam: a quoted `RANK BY ~"text"` now LOWERS to
     /// `Op::RankEmbed { text }` (the executor resolves the text to a query vector via the
     /// embedder bound on the `PlanCtx`), instead of the old "reserved forward seam" error.
     #[test]
@@ -264,7 +264,7 @@ mod tests {
         );
     }
 
-    /// CONCEPT:EG-417 — a negative vector component parses: `RANK BY ~[-0.1, 0.2, -0.3]`
+    /// CONCEPT:EG-KG.compute.negative-vector-component-parses — a negative vector component parses: `RANK BY ~[-0.1, 0.2, -0.3]`
     /// lowers to the SAME `Op::Rank` the Rust builder / wire DTO construct (which have
     /// always accepted negatives). Proof by UQL-vs-builder equality.
     #[test]
@@ -334,7 +334,7 @@ mod tests {
         assert_eq!(min_unit.ops[1], Op::Window { secs: 1800.0 });
     }
 
-    /// CONCEPT:EG-414 — a trailing aggregate selector lowers `WINDOW` to `Op::WindowAgg`.
+    /// CONCEPT:EG-KG.compute.trailing-aggregate-selector-lowers — a trailing aggregate selector lowers `WINDOW` to `Op::WindowAgg`.
     /// `WINDOW 60 s SUM` (unit + agg) and `WINDOW 3600 MAX` (bare-seconds + agg) both carry
     /// the canonical aggregate name; `WINDOW 30 s MIN` reaches the `min` aggregate (the
     /// `s` unit is consumed first, so `min` is unambiguously the aggregate).
@@ -481,7 +481,7 @@ mod tests {
         );
     }
 
-    /// CONCEPT:EG-418 — the `FUSE` stage now dispatches: `FUSE [branch] [branch]` lowers to
+    /// CONCEPT:EG-KG.compute.fuse-stage-now-dispatches — the `FUSE` stage now dispatches: `FUSE [branch] [branch]` lowers to
     /// the SAME `Op::FuseRrf { branches, k: 0.0 }` the Rust builder / wire DTO construct
     /// (the canonical tri-modal hybrid), so RRF fusion is expressible at the UQL surface.
     /// Proof by UQL-vs-builder equality.

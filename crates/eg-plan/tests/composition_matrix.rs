@@ -1,4 +1,4 @@
-//! Cross-modal composition matrix (CONCEPT:EG-401) — systematically exercise
+//! Cross-modal composition matrix (CONCEPT:EG-KG.compute.systematically-exercise) — systematically exercise
 //! source-op × transform-op combinations and 3–5-op mixed chains, plus the edge cases
 //! the review flagged (empty set, single row, high cardinality, low-selectivity RANK,
 //! deep TRAVERSE, REASON feeding TRAVERSE/RANK). Each plan must (a) NOT panic and (b)

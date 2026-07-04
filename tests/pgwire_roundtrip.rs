@@ -1353,7 +1353,7 @@ async fn wire_reason_iri_bridges_string_typed_node() {
 }
 
 // ───────────────────────────────────────────────────────────────────────────
-// DIFFERENTIAL WIRE-SURFACE ORACLE (CONCEPT:EG-406) — the pgwire leg of the
+// DIFFERENTIAL WIRE-SURFACE ORACLE (CONCEPT:EG-KG.query.pgwire-leg) — the pgwire leg of the
 // query-surface harness. The in-process UQL-vs-builder-vs-oracle legs live in
 // `crates/eg-plan/tests/differential_oracle.rs`; this leg REUSES the live pgwire
 // listener above to prove the SQL-wire and UQL-wire surfaces agree on the SAME query,

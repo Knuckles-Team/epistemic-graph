@@ -1,4 +1,4 @@
-//! Plan-snapshot regression (CONCEPT:EG-403). Snapshots the LOGICAL plan for a curated
+//! Plan-snapshot regression (CONCEPT:EG-KG.storage.eg). Snapshots the LOGICAL plan for a curated
 //! set of hybrid queries so BOTH a lowering regression (the UQL front-end starts
 //! producing a different AST) AND an optimizer-quality regression (a selective filter
 //! silently stops being pushed ahead of a vector RANK) trip a snapshot diff. Each curated
