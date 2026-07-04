@@ -41,6 +41,10 @@
 // `index_for`/`descriptors_for_column`/`invalidate_all` iterate the registry
 // generically, so they pick the new index up with no edit. See `docs/`.
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
+use parking_lot::RwLock;
+
 use crate::graph::GraphCore;
 
 /// Is incremental heavy-index maintenance enabled process-wide? Read ONCE from
@@ -64,10 +68,13 @@ pub fn incremental_index_enabled() -> bool {
 /// One node touched by a committed write batch (CONCEPT:EG-KG.storage.write-changeset). Carries
 /// the node id and — for adds/updates — OPTIONALLY the new property blob, so a
 /// content-derived index (text / temporal) can compute its own delta without
-/// re-reading the graph. The coalescer leaves `properties_msgpack` as `None` today
-/// (the only wired consumer, the vector store, keys off removals), keeping the hot
-/// path free of a per-op blob clone; a future text/temporal index that needs the
-/// content sets a capture flag (see the write-coalescer plumbing).
+/// re-reading the graph (re-reading `core` under the batch's held topology lock would
+/// deadlock). The coalescer captures `properties_msgpack` ONLY when a `needs_content`
+/// server index is registered on the graph (CONCEPT:EG-KG.storage.incremental-text /
+/// .incremental-temporal — the flag is `IndexManager::wants_change_content`); otherwise
+/// it stays `None` and the hot path pays no per-op blob clone (the vector store keys off
+/// removals alone). For an ADD the blob is the full property map; for a CAS update it is
+/// the `updates` map (a field-scoped content index reads only its own field from it).
 #[derive(Debug, Clone)]
 pub struct NodeChange {
     pub id: String,
@@ -197,6 +204,16 @@ pub enum IndexKind {
     /// HNSW / eg-ann vector index (the `SemanticStore`). Discoverable; served
     /// through kNN, not equality lookup.
     Vector,
+    /// Server-layer eg-text Tantivy BM25 full-text index (CONCEPT:EG-KG.storage.incremental-text).
+    /// Content-derived; served through its own BM25 search surface, not equality lookup.
+    Text,
+    /// Server-layer eg-tsdb time-series index (CONCEPT:EG-KG.storage.incremental-temporal).
+    /// Content-derived; served through its own range/PromQL surface.
+    Temporal,
+    /// Server-layer eg-rdf derived-OWL materialized-closure index
+    /// (CONCEPT:EG-KG.storage.incremental-derived-owl). Differentially materialized by the
+    /// reasoner on-demand; its `apply_delta` is a documented no-op (see the adapter).
+    DerivedOwl,
     // Future index kinds register here (CONCEPT:AU-KG.query.text-spatial-time text / spatial / time)
     // with their own `SecondaryIndex` impl — the manager core does not change.
 }
@@ -267,6 +284,20 @@ pub trait SecondaryIndex: Send + Sync {
     ///   * `None` — this index can NOT resolve `predicate` under its policy (e.g.
     ///     the bounded property cap is full for a new key) ⇒ the caller full-scans.
     fn lookup(&self, core: &GraphCore, predicate: &Predicate) -> Option<Vec<String>>;
+
+    /// Does this index derive its state from node CONTENT — the property blob of an
+    /// added/updated node — rather than from ids/removals alone
+    /// (CONCEPT:EG-KG.storage.incremental-text / .incremental-temporal)? A text or
+    /// temporal index reads a node's fields, so it needs the coalescer to CAPTURE the
+    /// property msgpack into each [`NodeChange`]; the vector/label/property/ontology
+    /// indexes key off ids/removals only and keep the write hot path zero-clone.
+    ///
+    /// The DEFAULT is `false`. When a graph has NO content-consuming index registered,
+    /// the coalescer skips the per-op blob clone entirely (the vector-only default
+    /// path is unchanged); it captures blobs ONLY once such an index is registered.
+    fn needs_content(&self) -> bool {
+        false
+    }
 
     // ── Write-path maintenance seam (CONCEPT:EG-KG.storage.index-manager-seam) ─────────────
     //
@@ -462,6 +493,25 @@ impl SecondaryIndex for VectorIndexDescriptor {
     }
 }
 
+/// Builds the SERVER-LAYER secondary indexes for one graph (CONCEPT:EG-KG.storage.incremental-text /
+/// .incremental-temporal / .incremental-derived-owl). The text (`eg-text` Tantivy),
+/// temporal (`eg-tsdb`), and derived-OWL (`eg-rdf` reasoner) indexes live ABOVE
+/// `eg-core` in the crate DAG, so `eg-core` cannot name their concrete types — but
+/// they implement [`SecondaryIndex`] (defined here), so the server layer hands them
+/// in as boxed trait objects.
+///
+/// Mirrors [`crate::read_through::ReadThroughFactory`]: the [`crate::registry::GraphRegistry`]
+/// calls [`for_graph`](Self::for_graph) once per graph — for every graph that already
+/// exists when the factory is installed at startup, and for every graph created
+/// afterward — and registers the returned indexes into that graph's `IndexManager`
+/// via [`GraphCore::register_index`]. The committed-batch write path
+/// ([`GraphCore::maintain_indexes`]) then drives their incremental
+/// [`SecondaryIndex::apply_delta`] with no further per-write wiring.
+pub trait SecondaryIndexFactory: Send + Sync {
+    /// The server-layer secondary indexes for graph `name` (may be empty).
+    fn for_graph(&self, name: &str) -> Vec<Box<dyn SecondaryIndex>>;
+}
+
 /// The single registry/seam over a graph's secondary indexes (CONCEPT:EG-KG.storage.index-manager-seam).
 ///
 /// Owned by [`GraphCore`]. A planner consults ONE manager instead of bespoke
@@ -477,19 +527,38 @@ impl SecondaryIndex for VectorIndexDescriptor {
 ///
 /// Invalidation stays where it always was: each concrete index's cache lives on
 /// `GraphCore` and is dropped by `mark_dirty()`; the manager does not duplicate
-/// that (`invalidate_all` is a hook the future stateful indexes can use). The
-/// manager itself is immutable after construction (a fixed registry), so it needs
-/// no interior locking.
+/// that (`invalidate_all` is a hook the future stateful indexes can use).
+///
+/// **Two tiers of registered index.** The `indexes` vec is the FIXED set of
+/// core-owned descriptors (label / property / ontology / vector), built once at
+/// construction and read lock-free on the query hot path
+/// (`index_for`/`lookup`/`descriptors`). The `server_indexes` vec holds the
+/// SERVER-LAYER indexes (text / temporal / derived-OWL, CONCEPT:EG-KG.storage.incremental-text
+/// etc.) registered AFTER construction by the [`SecondaryIndexFactory`] — they need
+/// interior mutability (a graph gains them when the factory is installed), so they
+/// sit behind an `RwLock`. They serve no `Predicate` lookup, so they never touch the
+/// read hot path; only the write-batch maintenance loop ([`commit_batch`](Self::commit_batch)
+/// / [`rebuild_all`](Self::rebuild_all)) iterates them.
 pub struct IndexManager {
     indexes: Vec<Box<dyn SecondaryIndex>>,
+    /// Server-layer indexes registered post-construction (text/temporal/derived-OWL).
+    server_indexes: RwLock<Vec<Box<dyn SecondaryIndex>>>,
+    /// Cached "some registered server index derives from node content" — read on the
+    /// write hot path to decide whether the coalescer must capture property blobs.
+    /// Set when a `needs_content` index registers; a single relaxed atomic load, no
+    /// lock, keeps the vector-only default path zero-clone.
+    content_capture: AtomicBool,
 }
 
 impl std::fmt::Debug for IndexManager {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut kinds: Vec<IndexKind> = self.indexes.iter().map(|i| i.kind()).collect();
+        kinds.extend(self.server_indexes.read().iter().map(|i| i.kind()));
         f.debug_struct("IndexManager")
+            .field("kinds", &kinds)
             .field(
-                "kinds",
-                &self.indexes.iter().map(|i| i.kind()).collect::<Vec<_>>(),
+                "content_capture",
+                &self.content_capture.load(Ordering::Relaxed),
             )
             .finish()
     }
@@ -507,6 +576,8 @@ impl IndexManager {
     pub fn new() -> Self {
         Self {
             indexes: Vec::new(),
+            server_indexes: RwLock::new(Vec::new()),
+            content_capture: AtomicBool::new(false),
         }
     }
 
@@ -523,10 +594,33 @@ impl IndexManager {
         mgr
     }
 
-    /// Register a secondary index. Construction-time only (the registry is fixed
-    /// for a graph's lifetime).
+    /// Register a CORE secondary index (label/property/ontology/vector).
+    /// Construction-time only — the core set is fixed for a graph's lifetime and is
+    /// read lock-free on the query hot path.
     pub fn register(&mut self, index: Box<dyn SecondaryIndex>) {
         self.indexes.push(index);
+    }
+
+    /// Register a SERVER-LAYER secondary index (text/temporal/derived-OWL,
+    /// CONCEPT:EG-KG.storage.incremental-text etc.) AFTER construction, via `&self`
+    /// (the [`SecondaryIndexFactory`] installs these when a graph is created, and
+    /// `GraphCore` is shared behind an `Arc`). If the index derives from node content
+    /// ([`SecondaryIndex::needs_content`]) this flips the cached `content_capture`
+    /// flag so the write coalescer starts capturing property blobs for this graph.
+    pub fn register_server_index(&self, index: Box<dyn SecondaryIndex>) {
+        if index.needs_content() {
+            self.content_capture.store(true, Ordering::Relaxed);
+        }
+        self.server_indexes.write().push(index);
+    }
+
+    /// Does any registered server index derive from node content, so the coalescer
+    /// must capture the property blob into each [`NodeChange`]? A single relaxed
+    /// atomic load on the write hot path — `false` (the default, no content index
+    /// registered) keeps the vector-only path zero-clone.
+    #[inline]
+    pub fn wants_change_content(&self) -> bool {
+        self.content_capture.load(Ordering::Relaxed)
     }
 
     /// The pushdown registry's core question: the first registered index that
@@ -607,14 +701,35 @@ impl IndexManager {
                 }
             }
         }
+        // Server-layer indexes (text/temporal/derived-OWL) — driven by the SAME batch
+        // delta so text/tsdb/reason stay in step with the topology under one lock
+        // (CONCEPT:EG-KG.storage.incremental-text / .incremental-temporal / .incremental-derived-owl).
+        // Their `apply_delta` is infallible-in-practice (it reads ONLY the ChangeSet's
+        // captured blobs — NEVER `core`'s topology lock, which this batch already holds
+        // — so it can't deadlock); an Err therefore falls back to `full_rebuild` on the
+        // out-of-lock maintenance path, never here.
+        for idx in self.server_indexes.read().iter() {
+            match idx.apply_delta(core, change) {
+                Ok(()) => tally.deltas_applied += 1,
+                Err(_) => tally.rebuilds += 1,
+            }
+        }
         tally
     }
 
     /// Full-rebuild every registered index over `core` (the maintenance / kill-switch
     /// escape hatch). Ignores per-index errors — a stateful index that can't rebuild
     /// falls back to its own rebuild-on-read.
+    ///
+    /// **Not lock-safe under a held topology lock.** A server index's `full_rebuild`
+    /// re-reads every live node from `core`, so this is the OUT-OF-LOCK path only
+    /// (the `EPISTEMIC_GRAPH_INCREMENTAL_INDEX=0` kill-switch + explicit maintenance),
+    /// never called from inside the coalescer's batch txn.
     pub fn rebuild_all(&self, core: &GraphCore) {
         for idx in &self.indexes {
+            let _ = idx.full_rebuild(core);
+        }
+        for idx in self.server_indexes.read().iter() {
             let _ = idx.full_rebuild(core);
         }
     }
@@ -762,7 +877,12 @@ mod tests {
         for d in mgr.descriptors() {
             match d.kind {
                 IndexKind::Label | IndexKind::Property => assert!(d.serves_lookup),
-                IndexKind::Vector | IndexKind::Ontology => assert!(!d.serves_lookup),
+                // Non-lookup surfaces (kNN / lexical / range / on-demand reason).
+                IndexKind::Vector
+                | IndexKind::Ontology
+                | IndexKind::Text
+                | IndexKind::Temporal
+                | IndexKind::DerivedOwl => assert!(!d.serves_lookup),
             }
         }
     }
@@ -834,6 +954,101 @@ mod tests {
         );
         assert!(s.get_embedding("a").is_some());
         assert!(s.get_embedding("c").is_some());
+    }
+
+    /// A test server index that records the ids it saw, keyed off the ChangeSet's
+    /// captured content blob — the shape the text/temporal adapters use.
+    #[derive(Default)]
+    struct RecordingServerIndex {
+        seen_content: std::sync::Mutex<Vec<String>>,
+        needs: bool,
+    }
+    impl SecondaryIndex for RecordingServerIndex {
+        fn kind(&self) -> IndexKind {
+            IndexKind::Text
+        }
+        fn descriptor(&self) -> IndexDescriptor {
+            IndexDescriptor {
+                kind: IndexKind::Text,
+                columns: IndexColumns::NonColumnar,
+                serves_lookup: false,
+            }
+        }
+        fn covers(&self, _p: &Predicate) -> bool {
+            false
+        }
+        fn lookup(&self, _c: &GraphCore, _p: &Predicate) -> Option<Vec<String>> {
+            None
+        }
+        fn needs_content(&self) -> bool {
+            self.needs
+        }
+        fn apply_delta(&self, _c: &GraphCore, change: &ChangeSet) -> Result<(), IndexError> {
+            let mut seen = self.seen_content.lock().unwrap();
+            for nc in change.added_nodes.iter().chain(change.updated_nodes.iter()) {
+                if let Some(blob) = &nc.properties_msgpack {
+                    let v: serde_json::Value = rmp_serde::from_slice(blob).unwrap();
+                    seen.push(format!("{}={}", nc.id, v["text"].as_str().unwrap_or("")));
+                }
+            }
+            Ok(())
+        }
+    }
+
+    /// Registering a `needs_content` server index flips `wants_change_content`, and a
+    /// committed batch drives its `apply_delta` through the manager (the server-index
+    /// registration seam — CONCEPT:EG-KG.storage.incremental-text).
+    #[test]
+    fn server_index_registration_drives_apply_delta_and_content_flag() {
+        let g = GraphCore::new();
+        assert!(
+            !g.wants_change_content(),
+            "no content index registered yet ⇒ hot path stays zero-clone"
+        );
+        let rec = std::sync::Arc::new(RecordingServerIndex {
+            needs: true,
+            ..Default::default()
+        });
+        // Register a cloneable handle so the test can inspect what the index saw.
+        struct Shared(std::sync::Arc<RecordingServerIndex>);
+        impl SecondaryIndex for Shared {
+            fn kind(&self) -> IndexKind {
+                self.0.kind()
+            }
+            fn descriptor(&self) -> IndexDescriptor {
+                self.0.descriptor()
+            }
+            fn covers(&self, p: &Predicate) -> bool {
+                self.0.covers(p)
+            }
+            fn lookup(&self, c: &GraphCore, p: &Predicate) -> Option<Vec<String>> {
+                self.0.lookup(c, p)
+            }
+            fn needs_content(&self) -> bool {
+                self.0.needs_content()
+            }
+            fn apply_delta(&self, c: &GraphCore, ch: &ChangeSet) -> Result<(), IndexError> {
+                self.0.apply_delta(c, ch)
+            }
+        }
+        g.register_index(Box::new(Shared(rec.clone())));
+        assert!(
+            g.wants_change_content(),
+            "a needs_content server index flips the capture flag"
+        );
+
+        // Drive a batch carrying a captured content blob.
+        let mut cs = ChangeSet::new();
+        cs.added_nodes.push(NodeChange::with_properties(
+            "a".into(),
+            props(json!({"text": "hello world"})),
+        ));
+        let tally = g.maintain_indexes(&cs);
+        assert!(tally.deltas_applied >= 1, "server index applied: {tally:?}");
+        assert_eq!(
+            rec.seen_content.lock().unwrap().as_slice(),
+            ["a=hello world"]
+        );
     }
 
     /// An empty change short-circuits and touches nothing.

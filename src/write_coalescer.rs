@@ -300,6 +300,13 @@ fn apply_batch(
     // (no id clones, no changeset): when off, the dispatch shell's per-op mark_dirty
     // performs the legacy invalidate-and-rebuild exactly as before.
     let incremental = core.incremental_indexing();
+    // CONCEPT:EG-KG.storage.incremental-text / .incremental-temporal — a content-derived
+    // server index (text/temporal) is registered on this graph, so capture each
+    // added/updated node's property blob into the ChangeSet. The adapter reads its
+    // field from the captured blob rather than re-reading `core` under this batch's
+    // topology lock (which would deadlock). `false` (the vector-only default) keeps
+    // the hot path zero-clone — no blob is cloned.
+    let capture_content = incremental && core.wants_change_content();
     let mut change = crate::index::ChangeSet::new();
     for (_, op) in batch {
         match op {
@@ -308,7 +315,14 @@ fn apply_batch(
                 properties_msgpack,
                 reply,
             } => {
-                if incremental {
+                if capture_content {
+                    change
+                        .added_nodes
+                        .push(crate::index::NodeChange::with_properties(
+                            node_id.clone(),
+                            properties_msgpack.clone(),
+                        ));
+                } else if incremental {
                     change.record_add_node(node_id.clone());
                 }
                 txn.add_node(node_id, properties_msgpack);
@@ -364,8 +378,21 @@ fn apply_batch(
             } => {
                 let ok = txn.compare_and_set_fields(&node_id, &conditions, &updates);
                 // A lost CAS mutates nothing; only a won claim is a change.
-                if incremental && ok {
-                    change.record_update_node(node_id);
+                if ok {
+                    if capture_content {
+                        // Capture the CAS `updates` as the blob: a field-scoped content
+                        // index (text/temporal) reads only its own field from it, so a
+                        // CAS that touches that field re-indexes it and one that does not
+                        // is a no-op for the index (its prior entry stays correct).
+                        let blob =
+                            rmp_serde::to_vec_named(&serde_json::Value::Object(updates.clone()))
+                                .unwrap_or_default();
+                        change
+                            .updated_nodes
+                            .push(crate::index::NodeChange::with_properties(node_id, blob));
+                    } else if incremental {
+                        change.record_update_node(node_id);
+                    }
                 }
                 let _ = reply.send(WriteOutcome::Cas(ok));
             }

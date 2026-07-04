@@ -82,5 +82,46 @@ the registry generically, so they pick the new index up with no edit. A future
 stateful index whose cache lives in its own struct (not a `GraphCore` cell) clears
 it from `IndexManager::invalidate_all`, keeping invalidation a single seam.
 
-This increment leaves the text (`CONCEPT:AU-KG.query.text-spatial-time`), spatial, and time
-(`CONCEPT:AU-KG.retrieval.god-nodes-communities`) indexes **unbuilt** — it only opens the seam.
+## Server-layer indexes — the write side (Track D3)
+
+A core-owned index (label / property / vector) is registered once at construction in
+`with_default_indexes()` and read lock-free. But the **text** (`eg-text` Tantivy),
+**temporal** (`eg-tsdb` `SeriesStore`), and **derived-OWL** (`eg-rdf` reasoner) indexes
+live in the SERVER layer, ABOVE `eg-core` in the crate DAG — so `eg-core` cannot name
+their concrete types, and they can't be in the fixed set. They implement
+`SecondaryIndex` (defined in `eg-core`), and are registered as boxed trait objects
+AFTER construction:
+
+```text
+IndexManager
+  indexes:        Vec<Box<dyn SecondaryIndex>>          // core set (label/property/ontology/vector), lock-free read path
+  server_indexes: RwLock<Vec<Box<dyn SecondaryIndex>>>  // text/temporal/derived-OWL, registered post-construction
+  content_capture: AtomicBool                           // "some server index derives from node content"
+
+  register_server_index(&self, idx)     // &self interior mutability, flips content_capture on needs_content()
+  wants_change_content() -> bool         // one relaxed atomic load on the write hot path
+```
+
+`SecondaryIndexFactory::for_graph(name) -> Vec<Box<dyn SecondaryIndex>>` mirrors
+`ReadThroughFactory`: `GraphRegistry::set_secondary_index_factory` registers the
+per-graph server indexes onto every existing graph and every future `create_graph`,
+via `GraphCore::register_index`. `commit_batch`/`rebuild_all` iterate `server_indexes`
+in addition to the core set, so the committed write batch (`GraphCore::maintain_indexes`)
+drives their `apply_delta` under the SAME topology lock as the vector store — never a
+torn hybrid read.
+
+**Content capture + deadlock discipline.** A content-derived index overrides
+`needs_content() -> true`; the coalescer's `apply_batch` then captures each added/
+updated node's property blob into `ChangeSet.NodeChange.properties_msgpack` (zero-clone
+when no such index is registered). `apply_delta` reads content ONLY from that captured
+blob — NEVER by calling back into `core` under the held topology lock — so it can't
+deadlock; `full_rebuild`, which DOES re-read every live node, is the out-of-lock path
+only (the `EPISTEMIC_GRAPH_INCREMENTAL_INDEX=0` kill-switch + explicit maintenance).
+The adapters live in `src/server/secondary_indexes.rs`.
+
+The text (`CONCEPT:EG-KG.storage.incremental-text`), temporal
+(`CONCEPT:EG-KG.storage.incremental-temporal`), and derived-OWL
+(`CONCEPT:EG-KG.storage.incremental-derived-owl`) indexes are now **wired**; the derived-OWL
+adapter is a documented no-op because the reasoner already differentially materializes
+on-demand. Spatial (`CONCEPT:AU-KG.query.text-spatial-time`) remains a future index behind
+the same seam.
