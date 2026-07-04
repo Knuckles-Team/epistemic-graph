@@ -563,12 +563,12 @@ impl CrossShardCoordinator {
     // window where a naive design would leave a partial commit. They are the SAME
     // steps `commit_cross_shard` runs internally, exposed so a test can stop after
     // PREPARE (or after the decision) and prove recovery resolves the in-doubt txn.
-    // Gated to the harness so they add nothing to a normal build.
-
-    /// Run ONLY PHASE 1 (prepare every participant), durably persisting each slice.
-    /// Returns `true` if every participant voted YES (the txn is preparable). Applies
-    /// NOTHING — the caller is the harness simulating a crash before the decision.
-    #[cfg(any(test, feature = "harness"))]
+    // Gated to the harness (`test`/`harness`) so they add nothing to a normal build,
+    // AND to `compute-dist` (the cluster tier) so the `--features cluster`
+    // modality-spanning 2PC coordinator-kill harness
+    // (CONCEPT:EG-KG.txn.crossshard-2pc-modality-harness, `raft::xshard_modality_harness`)
+    // can drive a mid-2PC crash from a non-`test` build too.
+    #[cfg(any(test, feature = "harness", feature = "compute-dist"))]
     pub async fn prepare_only(&self, txn: &CrossShardTxn) -> Result<bool, String> {
         let redb = self.redb()?;
         let participants = self.participants(txn);
@@ -587,8 +587,9 @@ impl CrossShardCoordinator {
     }
 
     /// Durably write the coordinator's decision WITHOUT applying phase 2 (the harness
-    /// crash window: decision on disk, apply not yet done).
-    #[cfg(any(test, feature = "harness"))]
+    /// crash window: decision on disk, apply not yet done). Same gate widening as
+    /// [`Self::prepare_only`] (CONCEPT:EG-KG.txn.crossshard-2pc-modality-harness).
+    #[cfg(any(test, feature = "harness", feature = "compute-dist"))]
     pub async fn decide_only(&self, txn_id: &str, commit: bool) -> Result<(), String> {
         self.redb()?.xshard_decision_put(txn_id, commit).await
     }
