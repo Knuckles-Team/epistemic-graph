@@ -108,6 +108,13 @@ pub use exec::StagedSeries;
 #[cfg(feature = "query")]
 pub use exec::{execute, PlanCtx, PlanExt};
 
+/// The server-side text→vector embedder seam (CONCEPT:EG-411): the `TextEmbedder` trait
+/// backing the UQL `RANK BY ~ "text"` (`Op::RankEmbed`) NL→vector resolver, plus the
+/// deterministic `HashEmbedder` fallback for tests/offline use. A facade binds a concrete
+/// model onto a `PlanCtx` via `with_embedder`.
+#[cfg(feature = "query")]
+pub use exec::{HashEmbedder, TextEmbedder};
+
 // The NL→query seam surface (CONCEPT:EG-078/EG-080): the trait + the LLM-optional
 // `Option<&dyn NlPlanner>` entry point, and the concrete `UreqNlPlanner`.
 #[cfg(feature = "nl-query")]
@@ -136,6 +143,13 @@ pub use eg_text::{rrf_fuse, TextHit, TextIndex, RRF_K};
 mod fixture;
 #[cfg(all(test, feature = "query"))]
 mod tests;
+
+// The server-side embedder seam proofs (CONCEPT:EG-411/412): `RANK BY ~ "text"`
+// (`Op::RankEmbed`) resolves the text to a query vector via the embedder bound on the
+// `PlanCtx` and ranks identically to the literal-vector oracle; an unbound embedder is a
+// clean typed error; the `HashEmbedder` fallback is deterministic. Gated on `query`.
+#[cfg(all(test, feature = "query"))]
+mod embedder_tests;
 
 // The lexical BM25 `RankText` + RRF `FuseRrf` hybrid proofs (CONCEPT:KG-2.215).
 #[cfg(all(test, feature = "text"))]
