@@ -87,6 +87,79 @@ pub struct PlanCtx<'a> {
     /// `PlanCtx` is unchanged.
     #[cfg(feature = "timeseries")]
     pub staged_series: Option<&'a StagedSeries>,
+    /// CONCEPT:EG-411 — the server-side text→vector embedder backing the `Op::RankEmbed`
+    /// op (the UQL `RANK BY ~ "text"` NL→vector seam). Resolves a natural-language query
+    /// string to a query vector at exec time, which is then kNN-ranked over `semantic`
+    /// exactly like a literal-vector `Op::Rank`. `None` (the default) makes an
+    /// `Op::RankEmbed` a clean typed error — the documented "no embedder bound" behavior —
+    /// while every other op is unaffected, so a default ctx is byte-for-byte the old one.
+    /// The facade owns the model and threads it in via [`Self::with_embedder`]. Dep-free
+    /// (a trait object), so no feature gate: a plan that never uses `Op::RankEmbed` is
+    /// unchanged whether or not an embedder is bound.
+    pub embedder: Option<&'a dyn TextEmbedder>,
+}
+
+/// A server-side text→vector embedder (CONCEPT:EG-411) — the seam that resolves a UQL
+/// `RANK BY ~ "text"` query string to a query vector at plan-exec time, so a caller need
+/// not pre-embed client-side and pass a literal `~[…]` vector. A facade binds a concrete
+/// implementation (an ONNX/remote embedding-service model that produces vectors in the
+/// SAME space the graph's stored embeddings live in) onto the [`PlanCtx`] via
+/// [`PlanCtx::with_embedder`]; the executor calls [`TextEmbedder::embed`] for each
+/// `Op::RankEmbed`. `Send + Sync` so the shared `&dyn TextEmbedder` threads through the
+/// off-lock plan the executor runs on the blocking pool.
+pub trait TextEmbedder: Send + Sync {
+    /// Resolve `text` to a query vector (in the graph's embedding space). An `Err`
+    /// (e.g. an unreachable model service) surfaces as a clean typed plan error — never a
+    /// panic.
+    fn embed(&self, text: &str) -> Result<Vec<f32>, String>;
+}
+
+/// A deterministic, dependency-free [`TextEmbedder`] fallback (CONCEPT:EG-411) for tests
+/// and offline use: it hashes `text` into a fixed-dimension unit-norm vector, so the same
+/// text always yields the same vector and two different texts (almost always) yield
+/// different ones. It carries NO semantic meaning — it exists to exercise the resolver
+/// seam end-to-end without a real model, and to be the documented drop-in a facade
+/// swaps for a real embedding model. `dim` defaults to a small, cheap width.
+#[derive(Clone, Copy, Debug)]
+pub struct HashEmbedder {
+    dim: usize,
+}
+
+impl Default for HashEmbedder {
+    fn default() -> Self {
+        Self { dim: 8 }
+    }
+}
+
+impl HashEmbedder {
+    /// A hash embedder producing `dim`-dimensional vectors (`dim` clamped to ≥ 1).
+    pub fn new(dim: usize) -> Self {
+        Self { dim: dim.max(1) }
+    }
+}
+
+impl TextEmbedder for HashEmbedder {
+    fn embed(&self, text: &str) -> Result<Vec<f32>, String> {
+        use std::hash::{Hash, Hasher};
+        // One independent component per dimension: hash (text, dim_index) with a distinct
+        // seed so components are decorrelated, map to [-1, 1], then L2-normalize.
+        let mut v: Vec<f32> = (0..self.dim)
+            .map(|d| {
+                let mut h = std::collections::hash_map::DefaultHasher::new();
+                (d as u64).hash(&mut h);
+                text.hash(&mut h);
+                // u64 → [-1, 1]
+                (h.finish() as f64 / u64::MAX as f64) as f32 * 2.0 - 1.0
+            })
+            .collect();
+        let norm = v.iter().map(|x| x * x).sum::<f32>().sqrt();
+        if norm > 0.0 {
+            for x in &mut v {
+                *x /= norm;
+            }
+        }
+        Ok(v)
+    }
 }
 
 /// An in-memory overlay of a transaction's STAGED, uncommitted time-series points
@@ -162,7 +235,17 @@ impl<'a> PlanCtx<'a> {
             tsdb: None,
             #[cfg(feature = "timeseries")]
             staged_series: None,
+            embedder: None,
         }
+    }
+
+    /// Attach a server-side text→vector [`TextEmbedder`] so an `Op::RankEmbed` (the UQL
+    /// `RANK BY ~ "text"` clause) resolves its query string to a vector at exec time
+    /// (CONCEPT:EG-411). Without this call an `Op::RankEmbed` is a clean typed error, so a
+    /// default ctx is byte-for-byte the old one.
+    pub fn with_embedder(mut self, embedder: &'a dyn TextEmbedder) -> Self {
+        self.embedder = Some(embedder);
+        self
     }
 
     /// Attach a lexical BM25 index so `RankText` / `FuseRrf` ops can run.
@@ -279,6 +362,28 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
             Ok(RowSet::from_scored(scored))
         }
 
+        // RANK (vector-from-text, CONCEPT:EG-411) — the UQL `RANK BY ~ "text"` NL→vector
+        // seam. Resolve the text to a query vector via the server-side embedder bound on
+        // the ctx, then kNN-rank the candidate set exactly like `Op::Rank`. With NO
+        // embedder bound this is a clean typed error (never a panic) — the documented
+        // "no embedder bound" behavior.
+        Op::RankEmbed { text } => {
+            let embedder = ctx.embedder.ok_or_else(|| {
+                format!(
+                    "RANK BY ~ \"{text}\": no server-side text embedder is bound on this \
+                     query (bind one via PlanCtx::with_embedder, or pass an inline literal \
+                     vector `RANK BY ~[…]`)"
+                )
+            })?;
+            let query = embedder.embed(text)?;
+            let candidates = input.id_set();
+            let k = candidates.len().max(1);
+            let scored = ctx
+                .semantic
+                .semantic_search_filtered(&query, k, |id| candidates.contains(id));
+            Ok(RowSet::from_scored(scored))
+        }
+
         Op::RankNodeDistance { center } => Ok(rank_node_distance(ctx.view, input, center)),
 
         Op::RankMentions {} => Ok(rank_mentions(ctx.view, input)),
@@ -318,9 +423,28 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
         // RowSet-preserving marker the UQL `WINDOW <dur>` clause lowers to, so a plan
         // that carries it still runs unchanged.
         #[cfg(feature = "timeseries")]
-        Op::Window { secs } => Ok(window_aggregate(ctx.view, input, *secs)),
+        Op::Window { secs } => Ok(window_aggregate(
+            ctx.view,
+            input,
+            *secs,
+            eg_tsdb::query::Agg::Mean,
+        )),
         #[cfg(not(feature = "timeseries"))]
         Op::Window { .. } => Ok(input),
+
+        // TIME (`WINDOW <dur> <agg>`, CONCEPT:EG-414) — the selectable-aggregate windowed
+        // aggregate: resolve the `agg` selector to an eg-tsdb `Agg` and run the SAME
+        // tumbling windower `Op::Window` uses. Without `timeseries` the op passes the rows
+        // through, exactly like `Op::Window`.
+        #[cfg(feature = "timeseries")]
+        Op::WindowAgg { secs, agg } => Ok(window_aggregate(
+            ctx.view,
+            input,
+            *secs,
+            parse_window_agg(agg),
+        )),
+        #[cfg(not(feature = "timeseries"))]
+        Op::WindowAgg { .. } => Ok(input),
 
         // FEDERATION (`FOREIGN "<name>"`, CONCEPT:KG-2.235 / EG-073) — the name MARKER
         // the UQL clause lowers to. With a `ForeignSourceRegistry` attached to the ctx
@@ -693,46 +817,95 @@ fn as_of_filter(view: &GraphView, input: RowSet, ts: f64, axis: TimeAxis) -> Row
 
 // ── the TIME WINDOW leg — native eg-tsdb windowed aggregate (CONCEPT:EG-067) ─────
 
-/// TIME (`WINDOW <dur>`): a REAL windowed aggregate over the input RowSet's time and
-/// value columns, replacing the pass-through seam (CONCEPT:EG-067). It reads the SAME
-/// per-node columns the neighbouring ops do — the event time from each row's
-/// `valid_from` property blob (exactly as `Op::AsOf`'s Valid axis; see [`live_at`]),
-/// and the value from the row's carried `score` (what `Op::Rank` produces), falling
-/// back to a numeric `value` property so a STANDALONE `Window` (no preceding `Rank`)
-/// still aggregates. Those `(ts, value)` pairs become `eg_tsdb::Point`s, are ts-sorted
-/// (RowSet order is rank/discovery order, but `time_bucket` needs a sorted series),
-/// and are fed to the engine's Pi-path `time_bucket` primitive (`eg_tsdb::query` — no
-/// DataFusion) with `width = secs` (same unit as `valid_from`) and a MEAN aggregate
-/// (the canonical windowed agg; the wire `Op::Window { secs }` carries no agg
-/// selector). Each non-empty bucket becomes one output row — `id` = the bucket's
-/// aligned start, `score` = the aggregate — so a downstream `Limit`/`Rank` composes
-/// over the windowed series. `secs <= 0`, or no timed-and-valued rows, yields an empty
-/// RowSet (degrade, never err — mirroring `Rank` over an empty store).
+/// TIME (`WINDOW <dur> [agg]`): a REAL tumbling windowed aggregate over the input
+/// RowSet's `(ts, value)` rows, replacing the pass-through seam (CONCEPT:EG-067 /
+/// EG-413 / EG-414). Two row shapes are consumed, in this order:
+///
+///  1. **A graph-node row** — `view.node_properties` has the row's `id`. The event time
+///     is read from that node's `valid_from` property blob (exactly as `Op::AsOf`'s Valid
+///     axis; see [`live_at`]), the value from the row's carried `score` (what `Op::Rank`
+///     produces), falling back to a numeric `value` property so a STANDALONE `Window`
+///     over graph nodes (no preceding `Rank`) still aggregates. This path is byte-for-byte
+///     the prior behavior.
+///  2. **A time-series SOURCE row** — the row's `id` is NOT a graph node but parses as an
+///     integer ts and carries a `score`. This is exactly what `Op::TsScan` (and a prior
+///     `Op::Window`) emit: `id` = the point timestamp, `score` = the value. Adding this
+///     path is CONCEPT:EG-413 — it makes `TsScan(series) → Window(secs)` actually
+///     consume the tsdb series and produce windowed aggregates (before, a TsScan row's
+///     numeric id was not a node, so every row was dropped and the window was empty).
+///
+/// The resolved `(ts, value)` pairs become `eg_tsdb::Point`s, are ts-sorted (RowSet order
+/// is rank/discovery order, but `time_bucket` needs a sorted series), and are fed to the
+/// engine's Pi-path `time_bucket` primitive (`eg_tsdb::query` — no DataFusion) with
+/// `width = secs` and the caller's [`Agg`] (`Op::Window` ⇒ `Mean`; `Op::WindowAgg` ⇒ the
+/// selected aggregate). Each non-empty bucket becomes one output row — `id` = the
+/// bucket's aligned start, `score` = the aggregate — so a downstream `Limit`/`Rank`
+/// composes over the windowed series. `secs <= 0`, or no timed-and-valued rows, yields an
+/// empty RowSet (degrade, never err — mirroring `Rank` over an empty store).
 #[cfg(feature = "timeseries")]
-fn window_aggregate(view: &GraphView, input: RowSet, secs: f64) -> RowSet {
+fn window_aggregate(
+    view: &GraphView,
+    input: RowSet,
+    secs: f64,
+    agg: eg_tsdb::query::Agg,
+) -> RowSet {
     use eg_tsdb::point::Point;
-    use eg_tsdb::query::{time_bucket, Agg};
+    use eg_tsdb::query::time_bucket;
 
     let width = secs.max(0.0) as i64;
     let mut pts: Vec<Point> = input
         .rows()
         .iter()
-        .filter_map(|r| {
-            let blob = view.node_properties.get(r.id.as_str())?;
-            let v: serde_json::Value = rmp_serde::from_slice(blob.as_slice()).ok()?;
-            let ts = v.get("valid_from").and_then(|x| x.as_i64())?;
-            let value = r
-                .score
-                .map(|s| s as f64)
-                .or_else(|| v.get("value").and_then(|x| x.as_f64()))?;
-            Some(Point::single(ts, value))
+        .filter_map(|r| match view.node_properties.get(r.id.as_str()) {
+            // (1) GRAPH-NODE row — ts from `valid_from`, value from `score`|`value` prop.
+            // Byte-for-byte the prior behavior (a present node without a valid ts/value is
+            // still dropped here, never reinterpreted as a ts).
+            Some(blob) => {
+                let v: serde_json::Value = rmp_serde::from_slice(blob.as_slice()).ok()?;
+                let ts = v.get("valid_from").and_then(|x| x.as_i64())?;
+                let value = r
+                    .score
+                    .map(|s| s as f64)
+                    .or_else(|| v.get("value").and_then(|x| x.as_f64()))?;
+                Some(Point::single(ts, value))
+            }
+            // (2) TIME-SERIES SOURCE row (`Op::TsScan`/`Op::Window` output) — the id IS the
+            // ts, the score IS the value. Only reached when the id is not a graph node.
+            // `Op::TsScan` emits eg-tsdb NANOSECOND timestamps, but a `WINDOW <secs>` width
+            // is in SECONDS (the unit graph-node `valid_from` / `Op::AsOf` use), so the ts
+            // is normalized ns → s here — both sources then bucket consistently, and the
+            // emitted bucket-start ids are in the same (second) unit as the width.
+            None => {
+                let ts_ns = r.id.parse::<i64>().ok()?;
+                let value = r.score? as f64;
+                Some(Point::single(ts_ns / 1_000_000_000, value))
+            }
         })
         .collect();
     pts.sort_by_key(|p| p.ts);
-    let scored = time_bucket(&pts, width, Agg::Mean)
+    let scored = time_bucket(&pts, width, agg)
         .into_iter()
         .map(|b| (b.bucket_start.to_string(), b.value as f32));
     RowSet::from_scored(scored)
+}
+
+/// Resolve a UQL/wire `WINDOW … <agg>` selector string to an eg-tsdb [`Agg`]
+/// (CONCEPT:EG-414). Case-insensitive; an unknown selector defaults to `Mean` (so a
+/// forward-compat or mistyped selector degrades to the canonical aggregate rather than
+/// erroring).
+#[cfg(feature = "timeseries")]
+fn parse_window_agg(agg: &str) -> eg_tsdb::query::Agg {
+    use eg_tsdb::query::Agg;
+    match agg.to_ascii_lowercase().as_str() {
+        "sum" => Agg::Sum,
+        "min" | "minimum" => Agg::Min,
+        "max" | "maximum" => Agg::Max,
+        "count" => Agg::Count,
+        "first" => Agg::First,
+        "last" => Agg::Last,
+        // "mean" | "avg" | "average" and anything unknown ⇒ the canonical aggregate.
+        _ => Agg::Mean,
+    }
 }
 
 // ── the sensor-fusion leg — native eg-tsdb ASOF alignment (CONCEPT:EG-098) ───────

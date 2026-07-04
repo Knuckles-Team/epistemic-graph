@@ -428,6 +428,15 @@ pub enum Op {
     Traverse { rel: String, min: usize, max: usize },
     /// RANK (vector) — re-order by cosine similarity to `query` (SemanticStore kNN).
     Rank { query: Vec<f32> },
+    /// RANK (vector-from-TEXT, CONCEPT:EG-411) — like `Rank`, but the query vector is
+    /// RESOLVED at exec time from the natural-language `text` by the server-side embedder
+    /// bound on the `PlanCtx` (`eg_plan::PlanCtx::with_embedder`). This closes the UQL
+    /// `RANK BY ~ "text"` NL→vector seam: the front-end no longer needs the caller to
+    /// pre-embed and pass a literal vector. With NO embedder bound the op is a clean typed
+    /// ERROR (never a panic) — the documented unbound behavior. Base `query` (the
+    /// `TextEmbedder` trait is dep-free; the kNN reuses the SAME `SemanticStore` path as
+    /// `Rank`, so a build without an embedder is byte-for-byte unchanged).
+    RankEmbed { text: String },
     /// RANK (graph distance, CONCEPT:KG-2.254) — re-order the candidate set by inverse
     /// shortest-path hop distance from `center` over the graph topology, score
     /// `1/(1+hops)` (unreachable → 0). A graph-NATIVE reranker (Graphiti's
@@ -546,7 +555,23 @@ pub enum Op {
     /// CONTEXT op paired with `AsOf`; passes the rows through unchanged today (the
     /// windowed aggregate is the eg-tsdb seam) but lets the `WINDOW <dur>` UQL clause
     /// lower to ONE plan AST. Always available under `query`.
+    ///
+    /// As of CONCEPT:EG-413 the executor no longer merely passes the rows through: an
+    /// `Op::Window` over a RowSet of `(ts, value)` rows (e.g. from `Op::TsScan`, or any
+    /// scored row) now emits a REAL tumbling windowed aggregate (MEAN, via eg-tsdb's
+    /// `time_bucket`) — one row per non-empty bucket (`id` = the aligned bucket start,
+    /// `score` = the aggregate) — composing downstream into `Rank`/`Limit`. Under a
+    /// non-`timeseries` build the op keeps its RowSet-preserving passthrough behavior.
     Window { secs: f64 },
+    /// TIME (`WINDOW <dur> <agg>`, CONCEPT:EG-414) — the SELECTABLE-aggregate form of
+    /// `Op::Window`: a real tumbling windowed aggregate over `(ts, value)` rows whose
+    /// aggregate function `agg` (one of `mean`/`avg`, `sum`, `min`, `max`, `count`,
+    /// `first`, `last`; unknown ⇒ `mean`) is resolved to an `eg_tsdb::query::Agg`. Emits
+    /// one row per non-empty bucket (`id` = aligned bucket start, `score` = the aggregate),
+    /// composing downstream exactly like `Window`. Base `query` (the eg-tsdb aggregate is
+    /// only wired under `timeseries`; a non-`timeseries` build passes the rows through, as
+    /// `Window` does).
+    WindowAgg { secs: f64, agg: String },
     /// FEDERATION (`FOREIGN "<name>"`, CONCEPT:KG-2.235) — mark the seed as drawn from
     /// the named foreign source `name` (a registered federation peer). A RowSet
     /// CONTEXT op: today it passes the rows through (the cross-source pull is the
