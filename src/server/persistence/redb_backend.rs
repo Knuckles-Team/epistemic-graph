@@ -317,6 +317,24 @@ pub(crate) enum Cmd {
     MatViewScan {
         reply: std::sync::mpsc::Sender<MatViewScanResult>,
     },
+    /// Durably upsert a PLAN-BACKED matview definition (CONCEPT:EG-KG.storage.plan-backed-matview).
+    #[cfg(feature = "matview")]
+    PlanMatViewPut {
+        name: String,
+        blob: Vec<u8>,
+        done: oneshot::Sender<Result<(), String>>,
+    },
+    /// Durably delete a plan-backed matview definition.
+    #[cfg(feature = "matview")]
+    PlanMatViewDelete {
+        name: String,
+        done: oneshot::Sender<Result<(), String>>,
+    },
+    /// Scan every persisted plan-backed matview `(name, blob)` for reload on boot.
+    #[cfg(feature = "matview")]
+    PlanMatViewScan {
+        reply: std::sync::mpsc::Sender<MatViewScanResult>,
+    },
 }
 
 /// Adaptive group-commit micro-linger tuning for the redb writer (CONCEPT:EG-KG.backend.adaptive-linger-coalesce).
@@ -1776,6 +1794,47 @@ impl RedbBackend {
         rx.recv()
             .map_err(|_| "redb writer dropped matview_scan reply".to_string())?
     }
+
+    /// Durably upsert a PLAN-BACKED matview definition (CONCEPT:EG-KG.storage.plan-backed-matview).
+    /// Awaits the fsync so a `PlanMatViewDefine` ack means the definition is on disk.
+    #[cfg(feature = "matview")]
+    pub async fn plan_matview_put(&self, name: &str, blob: Vec<u8>) -> Result<(), String> {
+        let (done, rx) = oneshot::channel();
+        let name = name.to_string();
+        let tx = self.shard0().tx.clone();
+        tokio::task::spawn_blocking(move || tx.send(Cmd::PlanMatViewPut { name, blob, done }))
+            .await
+            .map_err(|e| format!("plan_matview_put join error: {e}"))?
+            .map_err(|_| "redb writer thread is gone".to_string())?;
+        rx.await
+            .map_err(|_| "redb writer dropped plan_matview_put completion".to_string())?
+    }
+
+    /// Durably delete a plan-backed matview definition (awaits the fsync).
+    #[cfg(feature = "matview")]
+    pub async fn plan_matview_delete(&self, name: &str) -> Result<(), String> {
+        let (done, rx) = oneshot::channel();
+        let name = name.to_string();
+        let tx = self.shard0().tx.clone();
+        tokio::task::spawn_blocking(move || tx.send(Cmd::PlanMatViewDelete { name, done }))
+            .await
+            .map_err(|e| format!("plan_matview_delete join error: {e}"))?
+            .map_err(|_| "redb writer thread is gone".to_string())?;
+        rx.await
+            .map_err(|_| "redb writer dropped plan_matview_delete completion".to_string())?
+    }
+
+    /// Scan every persisted plan-backed matview `(name, blob)` (reload on boot).
+    #[cfg(feature = "matview")]
+    pub fn plan_matview_scan(&self) -> MatViewScanResult {
+        let (reply, rx) = std::sync::mpsc::channel();
+        self.shard0()
+            .tx
+            .send(Cmd::PlanMatViewScan { reply })
+            .map_err(|_| "redb writer thread is gone".to_string())?;
+        rx.recv()
+            .map_err(|_| "redb writer dropped plan_matview_scan reply".to_string())?
+    }
 }
 
 // ── off-reactor group-commit writer thread ───────────────────────────────
@@ -2276,6 +2335,24 @@ fn handle_cmd(
         Cmd::MatViewScan { reply } => {
             commit_and_notify(db, pending, Durability::Immediate, crypto);
             let _ = reply.send(crate::redb_store::scan_matviews(db));
+            false
+        }
+        #[cfg(feature = "matview")]
+        Cmd::PlanMatViewPut { name, blob, done } => {
+            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            let _ = done.send(crate::redb_store::put_plan_matview(db, &name, &blob));
+            false
+        }
+        #[cfg(feature = "matview")]
+        Cmd::PlanMatViewDelete { name, done } => {
+            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            let _ = done.send(crate::redb_store::delete_plan_matview(db, &name));
+            false
+        }
+        #[cfg(feature = "matview")]
+        Cmd::PlanMatViewScan { reply } => {
+            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            let _ = reply.send(crate::redb_store::scan_plan_matviews(db));
             false
         }
     }
