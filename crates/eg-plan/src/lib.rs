@@ -95,6 +95,13 @@ pub use algebra::{Op, Plan, Pred};
 // traits + the structured result + the flat-top-k baseline, so a caller names them
 // through eg-plan.
 pub use cost::{CostModel, Order, Stats};
+
+/// The Lane-0 shared cost traits A's optimizer + B's runtime both read
+/// (CONCEPT:EG-KG.query.cost-cardinality-traits): the per-op [`cost::Cardinality`] estimator
+/// and the [`cost::CostEstimate`] triple. Gated on `query` (the estimator borrows `PlanCtx`);
+/// this tier only defines the shape — no estimator is wired, so behavior is unchanged.
+#[cfg(feature = "query")]
+pub use cost::{Cardinality, CostEstimate};
 pub use leanrag::{
     flat_top_k, AnnIndex, GraphTopology, HierResult, HierarchicalRetriever, RetrievalParams, Scored,
 };
@@ -107,6 +114,14 @@ pub mod rowset;
 pub use exec::StagedSeries;
 #[cfg(feature = "query")]
 pub use exec::{execute, PlanCtx, PlanExt};
+
+/// The Lane-0 foundation seams the follow-on lanes hang off (append-only): the logical-plan
+/// optimization hook `plan_optimize` (CONCEPT:EG-KG.query.plan-optimize-seam — Lane A's cost
+/// optimizer fills its body) and the physical `Driver` execution trait + its `SerialDriver`
+/// impl (CONCEPT:EG-KG.query.exec-driver-seam — Lane B swaps in a parallel driver). Both are
+/// identity/serial in this tier, so `execute` is behavior-identical.
+#[cfg(feature = "query")]
+pub use exec::{plan_optimize, Driver, SerialDriver};
 
 /// The server-side text→vector embedder seam (CONCEPT:EG-KG.compute.no-embedder-bound-op): the `TextEmbedder` trait
 /// backing the UQL `RANK BY ~ "text"` (`Op::RankEmbed`) NL→vector resolver, plus the
