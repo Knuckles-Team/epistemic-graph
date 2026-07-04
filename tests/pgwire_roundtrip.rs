@@ -1165,9 +1165,10 @@ async fn wire_txn_update_then_cross_modal_read() {
 /// `WriteTransaction`), and reads the committed result with a cross-modal UQL join over
 /// the graph + vector + timeseries legs. This is the pgwire entrypoint for the EG-360/361/
 /// 362 staging seam + EG-363 planner reach the RPC transport already proved. (The final
-/// read uses `MATCH (:Sensor) |> RANK BY … |> WINDOW …` — the string-type↔IRI-class bridge
-/// a `REASON <iri>` over the CONSTRUCT'd fact would need, and in-txn tsdb-RYOW, are
-/// tracked as open seam items in `docs/north_star.md`.)
+/// read uses `MATCH (:Sensor) |> RANK BY …`. The string-type↔IRI-class bridge for a
+/// `REASON <iri>` over the committed axiom is now BUILT — EG-375/376 — and proved over the
+/// wire by `wire_reason_iri_bridges_string_typed_node` below under the reasoner-exec build
+/// layer; the in-txn tsdb-RYOW overlay is likewise built, EG-374, see `docs/north_star.md`.)
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn wire_txn_mixed_five_modality_commit() {
     let state = seeded_state();
@@ -1211,9 +1212,9 @@ async fn wire_txn_mixed_five_modality_commit() {
     client.simple_query("COMMIT").await.expect("COMMIT");
 
     // A cross-modal UQL join reads the just-committed txn: the new Sensor node (graph)
-    // ranked by its committed embedding (vector). (The `WINDOW`/`TsScan` join of the
-    // committed series into this node rowset needs the tsdb-into-rowset overlay tracked
-    // in `docs/north_star.md`; the measurement above is still staged + committed here.)
+    // ranked by its committed embedding (vector). (The in-txn tsdb-RYOW overlay — a
+    // `TsScan` reading the txn's OWN staged points — is now built, EG-374; the staged
+    // measurement above still commits atomically here.)
     let joined = simple_ids(
         client
             .simple_query("UQL MATCH (:Sensor) |> RANK BY ~[1.0,0.0,0.0] |> LIMIT 5")
@@ -1240,8 +1241,9 @@ async fn wire_txn_crossmodal_ryow_isolated_until_commit() {
 
     // The UQL cross-modal join used by both connections: a Widget node filtered on the
     // graph modality and ranked by the query embedding (graph + vector legs). The
-    // timeseries WRITE is exercised below; the tsdb-into-rowset READ join is the open
-    // item tracked in `docs/north_star.md`.
+    // timeseries WRITE is exercised below; the in-txn tsdb-RYOW READ overlay (a `TsScan`
+    // reading the txn's own staged points) is now built (EG-374) and proved by the
+    // hand-built `eg_plan::tsdb_scan_tests::tsdb_in_txn_ryow_staged_overlay`.
     let uql = "UQL MATCH (:Widget) WHERE rank = 5 |> RANK BY ~[1.0,0.0,0.0] |> LIMIT 5";
 
     writer.simple_query("BEGIN").await.expect("BEGIN");
@@ -1297,5 +1299,55 @@ async fn wire_txn_crossmodal_ryow_isolated_until_commit() {
         after,
         vec!["vv1".to_string()],
         "after COMMIT the committed node + embedding are visible off-txn"
+    );
+}
+
+/// SEAM (CONCEPT:EG-375 / EG-376) — `REASON <iri>` + the string-type↔IRI-class bridge over
+/// the PGWIRE wire. Off-txn (each statement auto-commits as one atomic cross-modal write):
+/// INSERT a bare-string-typed `Sensor` node, then stage the OWL axiom `<http://ex/Sensor>
+/// ⊑ <http://ex/Device>` via `SPARQL UPDATE`. A `UQL MATCH (:Sensor) |> REASON
+/// <http://ex/Device>` read then returns the Sensor node — the bare string `type`
+/// `"Sensor"` is BRIDGED to the class IRI `<http://ex/Sensor>` (the target's namespace +
+/// the local name) and reasoned into `<http://ex/Device>` through the committed subclass
+/// axiom. This is the ORIGINAL intended `REASON <iri>` read the five-modality spec had to
+/// avoid before the bridge existed. It needs the reasoner-exec build layer (`owl-plan` →
+/// `eg-plan/owl`, which compiles the `Op::Reason` executor the UQL clause lowers to); it
+/// is in the `full` build (so the `cargo-test-full` / `clippy --features full` gates cover
+/// it) but not the narrower `owl` feature alone.
+#[cfg(feature = "owl-plan")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn wire_reason_iri_bridges_string_typed_node() {
+    let state = seeded_state();
+    let addr = spawn_listener(state).await;
+    let client = connect(&addr).await;
+
+    // A string-typed Sensor node (auto-commits as one atomic statement).
+    client
+        .simple_query("INSERT INTO nodes (id, type, rank) VALUES ('sen1', 'Sensor', 3)")
+        .await
+        .expect("insert string-typed Sensor node");
+    // The OWL axiom Sensor ⊑ Device (SPARQL UPDATE auto-commits, lowered to graph triples
+    // the reasoner reconstructs as TBox).
+    client
+        .simple_query(
+            "SPARQL UPDATE INSERT DATA { <http://ex/Sensor> \
+             <http://www.w3.org/2000/01/rdf-schema#subClassOf> <http://ex/Device> }",
+        )
+        .await
+        .expect("stage OWL subclass axiom");
+
+    // REASON <http://ex/Device> over the wire: MATCH (:Sensor) sources the string-typed
+    // node; the mid-plan REASON filters to the IRI class's members, and the bridge makes
+    // the bare `"Sensor"` a member of `<http://ex/Device>`.
+    let ids = simple_ids(
+        client
+            .simple_query("UQL MATCH (:Sensor) |> REASON <http://ex/Device> |> LIMIT 5")
+            .await
+            .expect("REASON <iri> read over the wire"),
+    );
+    assert_eq!(
+        ids,
+        vec!["sen1".to_string()],
+        "REASON <http://ex/Device> includes the string-typed Sensor via the string→IRI bridge"
     );
 }
