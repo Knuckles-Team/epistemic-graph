@@ -1248,7 +1248,9 @@ fn classify_update(
 /// Decode `DELETE FROM nodes WHERE <simple eq>` into [`DeleteNodes`].
 fn classify_delete(delete: &Delete) -> Result<DeleteNodes, String> {
     if delete.using.is_some() {
-        return Err("DELETE … USING is not supported (CONCEPT:EG-KG.query.follow-up follow-up)".to_string());
+        return Err(
+            "DELETE … USING is not supported (CONCEPT:EG-KG.query.follow-up follow-up)".to_string(),
+        );
     }
     let tables = match &delete.from {
         FromTable::WithFromKeyword(t) | FromTable::WithoutKeyword(t) => t,
@@ -1693,7 +1695,10 @@ fn classify_create_view(
     materialized: bool,
 ) -> Result<StatementKind, String> {
     if materialized {
-        return Err("CREATE MATERIALIZED VIEW is not supported (CONCEPT:EG-KG.query.create-drop-view)".to_string());
+        return Err(
+            "CREATE MATERIALIZED VIEW is not supported (CONCEPT:EG-KG.query.create-drop-view)"
+                .to_string(),
+        );
     }
     let name = last_ident(name);
     if is_reserved_table(&name) {
@@ -1873,8 +1878,9 @@ fn parse_create_function(sql: &str) -> Result<CreateFunctionPlan, String> {
     // CONCEPT:EG-KG.query.eg-validate-procedural-body/EG-341 — validate the procedural body parses NOW so a malformed
     // block fails at `CREATE FUNCTION`, not on first call.
     if matches!(lang, FunctionLanguage::PlPgSql) {
-        super::plpgsql::parse_body(&body)
-            .map_err(|e| format!("CREATE FUNCTION plpgsql body: {e} (CONCEPT:EG-KG.query.concept-7)"))?;
+        super::plpgsql::parse_body(&body).map_err(|e| {
+            format!("CREATE FUNCTION plpgsql body: {e} (CONCEPT:EG-KG.query.concept-7)")
+        })?;
     }
     Ok(CreateFunctionPlan {
         func: StoredFunction {

@@ -1575,7 +1575,9 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(feature = "compute-dist")]
     match epistemic_graph::server::reload_matviews(&state).await {
         Ok(0) => {}
-        Ok(n) => info!("Reloaded {n} materialized view(s) from redb (CONCEPT:EG-KG.storage.feature)"),
+        Ok(n) => {
+            info!("Reloaded {n} materialized view(s) from redb (CONCEPT:EG-KG.storage.feature)")
+        }
         Err(e) => tracing::warn!("materialized-view reload skipped: {e}"),
     }
 

@@ -26,7 +26,9 @@ use epistemic_graph::server::persistence::backup;
 
 #[derive(Parser, Debug)]
 #[command(name = "restore")]
-#[command(about = "Rebuild a durable persist-dir from an EG-090 backup bundle (CONCEPT:EG-KG.sharding.reshard-on-restore)")]
+#[command(
+    about = "Rebuild a durable persist-dir from an EG-090 backup bundle (CONCEPT:EG-KG.sharding.reshard-on-restore)"
+)]
 struct Args {
     /// Backup bundle directory (holds graph*.redb + MANIFEST.json).
     #[arg(long)]

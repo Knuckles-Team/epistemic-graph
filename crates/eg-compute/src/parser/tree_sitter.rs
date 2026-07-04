@@ -89,7 +89,8 @@ fn lang_for_path_extended(_ext: &str) -> Option<(Language, &'static str)> {
 /// mirrored by the Python file-discovery walk.
 pub const SUPPORTED_EXTENSIONS: &[&str] = &[
     "py", "pyi", "js", "jsx", "mjs", "cjs", "ts", "mts", "cts", "tsx", "go", "rs", "java", "c",
-    "h", "cpp", "cc", "cxx", "hpp", "hxx", "hh", "cs", // SQL DDL (CONCEPT:AU-KG.ontology.emits-database-ontology-entities):
+    "h", "cpp", "cc", "cxx", "hpp", "hxx", "hh",
+    "cs", // SQL DDL (CONCEPT:AU-KG.ontology.emits-database-ontology-entities):
     "sql", "ddl", // extended tier (CONCEPT:AU-KG.compute.built-ast-extended):
     "rb", "php", "sh", "bash", "scala", "sc", "lua",
 ];

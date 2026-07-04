@@ -548,7 +548,8 @@ impl<'a> Parser<'a> {
             let body = self.parse_stmt_list()?;
             if self.peek_is("exception") {
                 return Err(
-                    "BEGIN … EXCEPTION handlers are out of scope (CONCEPT:EG-KG.query.concept-7)".to_string(),
+                    "BEGIN … EXCEPTION handlers are out of scope (CONCEPT:EG-KG.query.concept-7)"
+                        .to_string(),
                 );
             }
             self.expect_kw("end")?;
