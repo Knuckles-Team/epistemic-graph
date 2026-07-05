@@ -870,19 +870,17 @@ async fn multi_graph_batch_update(
     caller: Option<&str>,
     batches_msgpack: &[u8],
 ) -> Response {
-    let batches: Vec<(String, serde_bytes::ByteBuf)> =
-        match rmp_serde::from_slice(batches_msgpack) {
-            Ok(b) => b,
-            Err(e) => return Response::err(req_id, format!("Invalid batches_msgpack: {}", e)),
-        };
+    let batches: Vec<(String, serde_bytes::ByteBuf)> = match rmp_serde::from_slice(batches_msgpack)
+    {
+        Ok(b) => b,
+        Err(e) => return Response::err(req_id, format!("Invalid batches_msgpack: {}", e)),
+    };
     let mut results = serde_json::Map::new();
     let mut errors = serde_json::Map::new();
     if batches.is_empty() {
         return Response::ok(
             req_id,
-            ResultPayload::Json(
-                serde_json::json!({"results": results, "errors": errors}),
-            ),
+            ResultPayload::Json(serde_json::json!({"results": results, "errors": errors})),
         );
     }
 
