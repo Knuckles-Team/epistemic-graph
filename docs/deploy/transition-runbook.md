@@ -91,6 +91,60 @@ And on the client services (`services/graph-os/compose*.yml`, messaging, host-da
 - **Remove `GRAPH_SERVICE_SOCKET`** from the node-local `~/.config/agent-utilities/config.json` on
   client nodes (or leave it — `ENGINE_ENDPOINT` overrides it, but removing it is cleaner).
 
+### The REAL root cause — node-local `config.json` on a client node
+
+The `split-storage` flavor injects `GRAPH_SERVICE_TCP_ADDR` into the swarm **service env**, but the
+**node-local `~/.config/agent-utilities/config.json`** (read by BOTH the swarm containers via the
+ro-mount AND any locally-spawned graph-os, e.g. a Claude session's `mcpServers.graph-os`) was left
+in the co-located-UDS default:
+
+```jsonc
+// WRONG for a client node:
+"GRAPH_SERVICE_SOCKET": "/run/epistemic-graph/epistemic-graph.sock",
+"EPISTEMIC_GRAPH_AUTOSTART": "1",         // explicitly autostart a local engine
+// (no GRAPH_SERVICE_TCP_ADDR / engine endpoint at all)
+```
+
+So every process that reads only the config.json (not the service env) resolves a **local engine and
+autostarts the flapping tiny-daemon**. The swarm containers escaped it only because their service env
+added the TCP addr. **Fix the node config.json on every CLIENT node** (this is the durable, one-place fix):
+
+```jsonc
+"GRAPH_SERVICE_TCP_ADDR": "10.0.0.10:9100",
+"ENGINE_MODE": "remote",
+"ENGINE_ENDPOINT": "tcp://10.0.0.10:9100",
+"EPISTEMIC_GRAPH_AUTOSTART": "0"
+// remove GRAPH_SERVICE_SOCKET
+```
+
+A locally-spawned graph-os (e.g. an agent session) must be **restarted / MCP-reconnected** to pick up
+the change — a long-running process caches the resolution at start.
+
+### Editable installs MUST include the compiled numeric kernel (the crash-on-restart trap)
+
+The containers run the **latest source** via `PYTHONPATH=/au:/eg` layered over **old, non-editable**
+pip wheels (`epistemic-graph 0.31.0`, `agent-utilities 0.51.0`). `/au` main now hard-requires the
+compiled **`eg-numeric` kernel** (`agent_utilities.numeric`, no numpy fallback), which ships as
+`epistemic_graph/numeric.abi3.so` **inside the `epistemic-graph[numeric]` wheel** — NOT in the `/eg`
+source tree. Because `/eg` source shadows `epistemic_graph.*`, the compiled submodule can never
+resolve, so `gateway/daemon.py` (host-daemon) crash-loops on `ImportError: epistemic-graph kernel
+required` — but only on **restart** (a long-running process imported once, before the cutover).
+
+**Provision the kernel into the editable tree** (idempotent; `*.so` is gitignored):
+
+```bash
+pip download --no-deps 'epistemic-graph==<engine-version>'
+python3 -c "import zipfile,glob; z=zipfile.ZipFile(glob.glob('epistemic_graph-*.whl')[0]); z.extract('epistemic_graph/numeric.abi3.so', '<repo>/epistemic-graph')"
+# → <repo>/epistemic-graph/epistemic_graph/numeric.abi3.so  (visible to every container mounting /eg)
+python3 -c "import epistemic_graph.numeric as n; assert n.__kernel__=='eg-numeric'"
+```
+
+The clean long-term fix is to make these **true editable installs with extras** — `pip install -e
+/au` and either `pip install epistemic-graph[numeric]` (kernel-bearing wheel, no `/eg` shadow) or a
+maturin build of `/eg` that lands the `.so` — so "latest editable" actually includes the built
+artifacts. Until then, `transition_deploy.sh --preflight` verifies the kernel is importable before it
+restarts anything.
+
 ### nofile (the EMFILE fix)
 
 Swarm ignores the compose `ulimits:` key, so the engine raises fds inline (`ulimit -Sn 524288`
@@ -129,7 +183,9 @@ docker service update \
 | Symptom | Cause | Fix |
 |---------|-------|-----|
 | deploy "succeeds" but engine unchanged | old script installed to the wrong node/path | use `transition_deploy.sh` (placement-aware) |
-| `Connection refused` / `after auto-start: No such file` on real verbs, `/health` 200 | client resolving/​autostarting a local tiny-daemon | apply client TCP-only hardening above |
+| `Connection refused` / `after auto-start: No such file` on real verbs, `/health` 200 | client resolving/​autostarting a local tiny-daemon | fix node `config.json` (remote TCP + `AUTOSTART=0`) AND client service env; restart the client |
+| a locally-spawned graph-os (agent session) still fails after the fix | long-running process cached the old resolution | MCP-reconnect / restart that process — config is read at start |
+| host-daemon crash-loops `ImportError: epistemic-graph kernel required` on restart | compiled `numeric.abi3.so` absent from the source-mounted `/eg`; `/au` hard-requires it | drop the wheel's `epistemic_graph/numeric.abi3.so` into `/eg` (see above); `--preflight` catches it |
 | `[Errno 24] Too many open files` | no `nofile` on client services | add `ulimit -Sn 524288` inline |
 | multiple `graph-os_graph-os.1.*` containers, intermittent breaker-open | orphan accumulation from `docker restart` of a swarm task | prefer `docker service update --force`; `docker rm -f` all but the newest |
 | engine restart hangs binding socket on a large store | first-boot `.mp→redb` migration | already redb here (no migration); otherwise raise `--health-start-period` |

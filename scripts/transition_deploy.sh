@@ -78,6 +78,35 @@ BIND_SRC="$(manager_ssh "docker service inspect $ENGINE_SERVICE --format '{{rang
 [[ -n "$BIND_SRC" ]] || die "could not find the engine-binary bind mount (Target=/usr/local/bin/epistemic-graph-server) on $ENGINE_SERVICE"
 say "engine runs on node=$NODE_LABEL ip=$NODE_IP  bind-path=$BIND_SRC"
 
+# ── 1b. preflight — fail FAST on the traps that cause crash-loops on restart ────────
+# (a) the compiled eg-numeric kernel must be importable — /au hard-requires it and it
+#     ships as a .so in the epistemic-graph[numeric] wheel, NOT the /eg source tree, so a
+#     source-mounted deploy crash-loops the host-daemon on restart without it; (b) the
+#     engine must be reachable; (c) warn if the node config.json shadows a local engine.
+preflight() {
+  local fail=0
+  # (a) numeric kernel importable via the repo's editable tree
+  if PYTHONPATH="$REPO:${PYTHONPATH:-}" python3 -c "import epistemic_graph.numeric as n; assert getattr(n,'__kernel__','')=='eg-numeric'" 2>/dev/null; then
+    say "preflight: eg-numeric kernel importable ✓"
+  else
+    echo "!! preflight: eg-numeric kernel NOT importable ($REPO/epistemic_graph/numeric.abi3.so missing)." >&2
+    echo "   fix: pip download --no-deps epistemic-graph==<ver>; unzip epistemic_graph/numeric.abi3.so into $REPO/epistemic_graph/" >&2
+    fail=1
+  fi
+  # (c) client-node config.json shadowing check (best-effort)
+  local cfg="${AGENT_UTILITIES_CONFIG_DIR:-$HOME/.config/agent-utilities}/config.json"
+  if [[ -f "$cfg" ]] && python3 -c "import json,sys; d=json.load(open('$cfg')); sys.exit(0 if (d.get('GRAPH_SERVICE_SOCKET') and not d.get('GRAPH_SERVICE_TCP_ADDR') and str(d.get('EPISTEMIC_GRAPH_AUTOSTART'))=='1') else 1)" 2>/dev/null; then
+    echo "!! preflight: node config.json ($cfg) declares a LOCAL engine socket + AUTOSTART=1 on what looks like a client node." >&2
+    echo "   fix: set GRAPH_SERVICE_TCP_ADDR/ENGINE_ENDPOINT (remote), EPISTEMIC_GRAPH_AUTOSTART=0, drop GRAPH_SERVICE_SOCKET." >&2
+    fail=1
+  fi
+  return $fail
+}
+say "preflight checks …"
+if ! preflight; then
+  [[ "$DRY_RUN" == 1 ]] && say "(dry-run) preflight found issues — continuing dry-run" || die "preflight failed — fix the above before deploying (or --dry-run to inspect)."
+fi
+
 # ── 2. build (glibc-compat-checked) ────────────────────────────────────────────────
 SRC="$REPO/target/release/epistemic-graph-server"
 if [[ "$DO_BUILD" == 1 ]]; then
