@@ -822,6 +822,22 @@ async fn dispatch_inner(state: &Arc<RwLock<ServerState>>, req: Request) -> Respo
             )
             .await
         }
+        // Batched CROSS-GRAPH write (CONCEPT:EG-KG.storage.multi-graph-batch-write) — the
+        // graphs ride the METHOD (one round-trip, many graphs), so like the txn/ts
+        // self-routing ops it is handled HERE, BEFORE the single-`req.graph`
+        // graph-op path. Each sub-batch fans through the normal per-graph write
+        // path CONCURRENTLY, so N distinct graphs commit across N of the K shard
+        // writers in parallel.
+        Method::MultiGraphBatchUpdate { batches_msgpack } => {
+            multi_graph_batch_update(
+                state,
+                req.id,
+                req.agent_id.as_deref(),
+                &batches_msgpack,
+            )
+            .await
+        }
+
         _ => {
             dispatch_graph_op(
                 state,
@@ -833,6 +849,92 @@ async fn dispatch_inner(state: &Arc<RwLock<ServerState>>, req: Request) -> Respo
             .await
         }
     }
+}
+
+/// Apply a batched cross-graph write (CONCEPT:EG-KG.storage.multi-graph-batch-write).
+///
+/// `batches_msgpack` decodes to `Vec<(graph_name, operations_msgpack)>` where each
+/// inner blob is exactly a [`Method::BatchUpdate`] payload. Every sub-batch is
+/// dispatched through the ordinary per-graph write path
+/// ([`dispatch_graph_op`]) CONCURRENTLY on the async runtime, so distinct graphs
+/// take DISTINCT per-graph write locks and commit across the K redb shard writers
+/// in parallel — the client pays ONE round-trip instead of N that each re-acquire
+/// a lock. Reuses the existing `BatchUpdate` primitive, so persistence / WAL /
+/// Raft / CDC / access-control all apply per sub-batch exactly as a normal batch.
+///
+/// The reply is `{"results": {graph: <batch_result>}, "errors": {graph: msg}}`;
+/// one graph's failure never aborts the others (partial-success contract).
+async fn multi_graph_batch_update(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+    caller: Option<&str>,
+    batches_msgpack: &[u8],
+) -> Response {
+    let batches: Vec<(String, serde_bytes::ByteBuf)> =
+        match rmp_serde::from_slice(batches_msgpack) {
+            Ok(b) => b,
+            Err(e) => return Response::err(req_id, format!("Invalid batches_msgpack: {}", e)),
+        };
+    let mut results = serde_json::Map::new();
+    let mut errors = serde_json::Map::new();
+    if batches.is_empty() {
+        return Response::ok(
+            req_id,
+            ResultPayload::Json(
+                serde_json::json!({"results": results, "errors": errors}),
+            ),
+        );
+    }
+
+    // Fan each sub-batch onto its own task so distinct graphs apply concurrently.
+    // The Arc<RwLock<ServerState>> is cheaply cloned; dispatch_graph_op takes the
+    // registry read-lock only briefly then releases it before the per-graph write
+    // lock, so the writes overlap across shard writers.
+    let caller_owned = caller.map(str::to_string);
+    let mut set = tokio::task::JoinSet::new();
+    for (graph, ops) in batches {
+        let state = Arc::clone(state);
+        let caller_owned = caller_owned.clone();
+        set.spawn(async move {
+            let resp = dispatch_graph_op(
+                &state,
+                &graph,
+                req_id,
+                caller_owned.as_deref(),
+                Method::BatchUpdate {
+                    operations_msgpack: ops.into_vec(),
+                },
+            )
+            .await;
+            (graph, resp)
+        });
+    }
+
+    while let Some(joined) = set.join_next().await {
+        match joined {
+            Ok((graph, resp)) => {
+                if let Some(err) = resp.error {
+                    errors.insert(graph, serde_json::Value::String(err));
+                } else if let Some(ResultPayload::Json(v)) = resp.result {
+                    results.insert(graph, v);
+                } else {
+                    results.insert(graph, serde_json::Value::Null);
+                }
+            }
+            Err(join_err) => {
+                // A panicked/cancelled sub-batch task — surface it, don't abort.
+                errors.insert(
+                    format!("__join_error_{}", errors.len()),
+                    serde_json::Value::String(join_err.to_string()),
+                );
+            }
+        }
+    }
+
+    Response::ok(
+        req_id,
+        ResultPayload::Json(serde_json::json!({"results": results, "errors": errors})),
+    )
 }
 
 /// Dispatch a graph-level operation to the target named graph, enforcing the
