@@ -160,27 +160,38 @@ impl KvCacheStore {
 
 // ── bearer-token auth guard (CONCEPT:EG-KG.backend.is-configured-so-co) ──────────────────────────────────────
 
-/// A configured bearer token. `None` ⇒ anonymous access.
+mod jwt;
+
+/// A configured auth mode. `None` ⇒ anonymous access. JWT is preferred:
+/// [`KvAuth::Jwt`] validates a Keycloak client-credentials token (paired with the
+/// platform's overall auth — the same tokens graph-os validates); [`KvAuth::Static`]
+/// is a shared bearer secret (the documented OpenBao-sourced fallback).
 #[derive(Clone, Debug)]
-pub struct KvAuth {
-    pub token: String,
+pub enum KvAuth {
+    Static(String),
+    Jwt(std::sync::Arc<jwt::JwtValidator>),
 }
 
-/// With a token configured, require `Authorization: Bearer <token>`. Without one,
-/// everything is anonymous-allowed (mirrors the s3 guard's posture).
+/// With auth configured, require a valid `Authorization: Bearer <token>` — a static
+/// secret match, or a signature/issuer/audience/expiry-verified Keycloak JWT. Without
+/// it, everything is anonymous-allowed (mirrors the s3 guard's posture).
 fn authorized(auth: &Option<KvAuth>, headers: &HashMap<String, String>) -> bool {
     let cfg = match auth {
         None => return true,
         Some(c) => c,
     };
-    let hdr = match headers.get("authorization") {
-        Some(h) => h,
+    let token = match headers
+        .get("authorization")
+        .and_then(|h| h.strip_prefix("Bearer "))
+        .map(str::trim)
+    {
+        Some(t) => t,
         None => return false,
     };
-    hdr.strip_prefix("Bearer ")
-        .map(str::trim)
-        .map(|t| t == cfg.token)
-        .unwrap_or(false)
+    match cfg {
+        KvAuth::Static(secret) => token == secret,
+        KvAuth::Jwt(validator) => validator.validate(token),
+    }
 }
 
 /// Parse the `X-EG-Data-Version` header (CONCEPT:EG-KG.storage.content-addressed-put) into a [`DataVersion`]. A valid
@@ -416,10 +427,16 @@ pub async fn serve(addr: &str) -> std::io::Result<()> {
 
 /// Resolve the bearer-token credential from the env (set ⇒ armed; else anonymous).
 fn resolve_auth() -> Option<KvAuth> {
+    // JWT FIRST — paired with the platform's Keycloak OIDC (same tokens graph-os uses).
+    // Falls back to the static-token guard (the documented OpenBao-sourced option),
+    // then anonymous. Backward-compatible: with no JWT/token env set, ⇒ None ⇒ anon.
+    if let Some(v) = jwt::JwtValidator::from_env() {
+        return Some(KvAuth::Jwt(std::sync::Arc::new(v)));
+    }
     std::env::var(KVCACHE_TOKEN_ENV)
         .ok()
         .filter(|s| !s.is_empty())
-        .map(|token| KvAuth { token })
+        .map(KvAuth::Static)
 }
 
 /// `serve` with an EXPLICIT store + auth (CONCEPT:EG-KG.backend.is-configured-so-co) — tests bind an ephemeral
@@ -559,9 +576,7 @@ mod tests {
     #[test]
     fn eg187_bearer_token_guard_accept_reject() {
         let s = store();
-        let auth = Some(KvAuth {
-            token: "sekret".into(),
-        });
+        let auth = Some(KvAuth::Static("sekret".into()));
         // No Authorization → 401.
         assert_eq!(
             handle(&s, &auth, &req("GET", "/kv/stats", b"", &[])).status,
