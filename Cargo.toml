@@ -591,7 +591,7 @@ s3-api = ["blob", "kv", "server"]
 # `eg-kvcache` leaf crate. Kept OUT of pi (a network listener + the shared backend). The
 # listener only starts when ALSO configured via EPISTEMIC_GRAPH_KVCACHE_ADDR.
 # EG-187: fold kvcache-server into node/full (orchestrator folds the tier lines at merge)
-kvcache-server = ["server", "dep:eg-kvcache"]
+kvcache-server = ["server", "dep:eg-kvcache", "dep:jsonwebtoken", "dep:ureq"]
 # Real WARM-tier KV-cache codec (CONCEPT:EG-315): turns on `eg-kvcache/compression`
 # (zstd) so the KV-cache warm tier can compress with a production-grade codec instead of
 # the built-in RLE. Pulls zstd ONLY through this feature, so a default/pi build links no
@@ -858,6 +858,11 @@ eg-wasm = { path = "crates/eg-wasm", optional = true }
 # same 2.x, so activating it here adds a direct edge but NO new crate to the tree (a
 # `--features pi` build still links no ureq). Gated so default/Pi builds link none of it.
 ureq = { version = "2.10", optional = true }
+# Keycloak JWT validation for the KV-cache HTTP surface (kvcache-server only, never
+# `pi`): verifies the platform's OIDC client-credentials bearer against the realm JWKS.
+# Pulls ring/rustls crypto — already present in any `kvcache-server`/`full` build via
+# `ureq`, so this adds no NEW crypto stack and stays out of `pi` (the Pi contract holds).
+jsonwebtoken = { version = "9", optional = true }
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"
 petgraph = { version = "0.6.4", features = ["serde-1"] }
