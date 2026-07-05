@@ -700,6 +700,31 @@ class LifecycleClient:
             "BatchUpdate", {"operations_msgpack": list(msgpack.packb(operations))}
         )
 
+    async def multi_graph_batch_update(
+        self, batches: dict[str, list[dict[str, Any]]]
+    ) -> dict[str, Any]:
+        """Batched CROSS-GRAPH write in ONE round-trip (CONCEPT:EG-KG.storage.multi-graph-batch-write).
+
+        ``batches`` maps ``graph_name → operations`` where each ``operations`` list
+        is exactly a :meth:`batch_update` op list. The server applies each graph's
+        sub-batch through the normal per-graph write path CONCURRENTLY, so N
+        distinct graphs commit across N of the K redb shard writers in parallel —
+        instead of the caller serializing N round-trips that each re-acquire one
+        write lock. Reuses the existing ``BatchUpdate`` primitive server-side.
+
+        Returns ``{"results": {graph: <batch_result>}, "errors": {graph: msg}}``;
+        one graph's failure never aborts the others (partial-success). Encodes as
+        ``Vec<(graph_name, operations_msgpack)>`` so the ordering is deterministic.
+        """
+        encoded = [
+            (str(graph), list(msgpack.packb(list(ops))))
+            for graph, ops in batches.items()
+        ]
+        return await self._client._send(
+            "MultiGraphBatchUpdate",
+            {"batches_msgpack": list(msgpack.packb(encoded))},
+        )
+
     async def metrics(self) -> dict[str, Any]:
         return await self._client._send("Metrics")
 
@@ -2062,6 +2087,7 @@ _HEAVY_RPC_METHODS = frozenset(
         "PageRank",
         "PersonalizedPagerank",
         "BatchUpdate",
+        "MultiGraphBatchUpdate",
         "FromMsgpack",
         "ToMsgpack",
         "GetTriples",
