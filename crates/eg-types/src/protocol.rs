@@ -741,6 +741,21 @@ pub enum Method {
         #[serde(with = "serde_bytes")]
         operations_msgpack: Vec<u8>,
     },
+    /// Batched CROSS-GRAPH write (CONCEPT:EG-KG.storage.multi-graph-batch-write). One
+    /// round-trip carries a `BatchUpdate`-shaped op list for MANY named graphs; the
+    /// server applies each graph's sub-batch through the normal per-graph write
+    /// path CONCURRENTLY, so N distinct graphs commit across N of the K redb shard
+    /// writers in parallel instead of the client serializing N round-trips that
+    /// each re-acquire one lock. `batches_msgpack` decodes to
+    /// `Vec<(graph_name, operations_msgpack)>` — each inner blob is exactly a
+    /// `BatchUpdate.operations_msgpack`, so it REUSES the existing batch primitive
+    /// (no new per-op op). Carries its graphs in the METHOD (like `NlQuery`), so it
+    /// is routed BEFORE the single-`graph` graph-op path in dispatch. The reply is
+    /// `{ "results": { graph: <batch_result> }, "errors": { graph: msg } }`.
+    MultiGraphBatchUpdate {
+        #[serde(with = "serde_bytes")]
+        batches_msgpack: Vec<u8>,
+    },
     Metrics,
     EvictLRU {
         max_nodes: usize,
