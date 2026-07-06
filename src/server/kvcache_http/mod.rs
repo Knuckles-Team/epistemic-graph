@@ -33,6 +33,22 @@
 //! * `PUT  /kv/version/<n>`     → advance the data version to `<n>`, retiring every
 //!   now-stale versioned entry (the hook a graph write drives, CONCEPT:EG-KG.storage.content-addressed-put).
 //!
+//! ### Zero-copy snapshot-fork (CONCEPT:EG-KG.memory.zero-copy-snapshot-fork)
+//!
+//! The "LMCacheMPConnector snapshot → branch" primitive over HTTP — pin a candidate set of
+//! pages, then fan out N branches that share ONE physical copy (zero-copy), copy-on-write
+//! per branch:
+//!
+//! * `POST /kv/snapshot`               (JSON `{"keys":[…]}`) → `200 {"snapshot":id,"pages":n}`
+//!   pins those pages into a snapshot.
+//! * `POST /kv/snapshot/<id>/fork`     → `200 {"branch":id}` forks an O(1), zero-copy branch.
+//! * `GET  /kv/branch/<bid>/<key>`     → the branch's view of `key` (overlay-then-shared),
+//!   `404` if it resolves in neither.
+//! * `PUT  /kv/branch/<bid>/<key>` (binary) → copy-on-write write into the branch overlay,
+//!   isolated from siblings; `404` for an unknown branch.
+//! * `GET  /kv/fork/stats`             → JSON occupancy proving `resident_fork_bytes` stays
+//!   flat at the shared-page total regardless of branch count.
+//!
 //! ## Data-version invalidation (CONCEPT:EG-KG.storage.content-addressed-put)
 //!
 //! A cached *derived context* (an assembled prompt / retrieved subgraph a connector
@@ -66,7 +82,7 @@ use std::sync::Mutex;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
-use eg_kvcache::{DataVersion, SharedKvBackend, SharedKvIndex};
+use eg_kvcache::{BranchId, DataVersion, SharedKvBackend, SharedKvIndex, SnapshotId};
 
 /// Env var: when set (and built `--features kvcache-server`) the KV-cache HTTP listener
 /// binds this address (documented loopback default `127.0.0.1:9130`). Unset ⇒ no
@@ -138,6 +154,62 @@ impl KvCacheStore {
             DataVersion::At(n) => (true, serde_json::json!(n)),
         };
         serde_json::json!({ "tracking": tracking, "version": version }).to_string()
+    }
+
+    // ── zero-copy snapshot-fork surface (CONCEPT:EG-KG.memory.zero-copy-snapshot-fork) ─────────────
+    //
+    // The "LMCacheMPConnector snapshot → branch" primitive over HTTP: a connector pins a
+    // candidate set of pages into a SNAPSHOT, forks N BRANCHES that all read those SAME
+    // physical pages (zero-copy), and writes copy-on-write per branch. This is the rung the
+    // AU `crossmodal_fork` `max_concurrency>1` path targets to make fan-out O(1) in copies.
+
+    /// Pin the current pages for `keys` into a snapshot; returns `(snapshot_id, page_count)`.
+    fn snapshot(&self, keys: &[String]) -> (u64, usize) {
+        let mut idx = self.index.lock().unwrap();
+        let id = idx.snapshot(keys);
+        let pages = idx.snapshot_page_count(id).unwrap_or(0);
+        (id.0, pages)
+    }
+
+    /// Fork a branch off `snapshot`; `None` if the snapshot is unknown.
+    fn fork(&self, snapshot: u64) -> Option<u64> {
+        self.index
+            .lock()
+            .unwrap()
+            .fork(SnapshotId(snapshot))
+            .map(|b| b.0)
+    }
+
+    /// Zero-copy branch read (overlay-then-shared). The `Arc` is cloned to owned bytes only
+    /// at the HTTP boundary (the wire needs an owned body); in-process readers stay zero-copy.
+    fn branch_get(&self, branch: u64, key: &str) -> Option<Vec<u8>> {
+        self.index
+            .lock()
+            .unwrap()
+            .branch_get(BranchId(branch), key)
+            .map(|a| (*a).clone())
+    }
+
+    /// Copy-on-write branch write; `false` if the branch is unknown.
+    fn branch_put(&self, branch: u64, key: &str, val: Vec<u8>) -> bool {
+        self.index
+            .lock()
+            .unwrap()
+            .branch_put(BranchId(branch), key, val)
+    }
+
+    fn fork_stats_json(&self) -> String {
+        let fs = self.index.lock().unwrap().fork_stats();
+        serde_json::json!({
+            "snapshots": fs.snapshots,
+            "branches": fs.branches,
+            "shared_pages": fs.shared_pages,
+            "shared_bytes": fs.shared_bytes,
+            "overlay_pages": fs.overlay_pages,
+            "overlay_bytes": fs.overlay_bytes,
+            "resident_fork_bytes": fs.resident_fork_bytes,
+        })
+        .to_string()
     }
 
     fn stats_json(&self) -> String {
@@ -300,6 +372,109 @@ fn handle(store: &KvCacheStore, auth: &Option<KvAuth>, req: &KvRequest) -> KvRes
                     KvResponse::error("400 Bad Request", "BadRequest", "version must be a u64")
                 }
             },
+            _ => KvResponse::error("405 Method Not Allowed", "MethodNotAllowed", "unsupported"),
+        };
+    }
+
+    // Zero-copy snapshot-fork surface (CONCEPT:EG-KG.memory.zero-copy-snapshot-fork).
+    // `POST /kv/snapshot` (JSON `{"keys":[...]}`) → pin those pages into a snapshot.
+    if rest == "snapshot" {
+        return match req.method.as_str() {
+            "POST" | "PUT" => {
+                let keys = serde_json::from_slice::<serde_json::Value>(&req.body)
+                    .ok()
+                    .and_then(|v| {
+                        v.get("keys").and_then(|k| k.as_array()).map(|a| {
+                            a.iter()
+                                .filter_map(|x| x.as_str().map(String::from))
+                                .collect::<Vec<_>>()
+                        })
+                    });
+                match keys {
+                    Some(keys) => {
+                        let (id, pages) = store.snapshot(&keys);
+                        KvResponse::json(
+                            "200 OK",
+                            serde_json::json!({ "snapshot": id, "pages": pages }).to_string(),
+                        )
+                    }
+                    None => KvResponse::error(
+                        "400 Bad Request",
+                        "BadRequest",
+                        "body must be JSON {\"keys\":[...]}",
+                    ),
+                }
+            }
+            _ => KvResponse::error("405 Method Not Allowed", "MethodNotAllowed", "unsupported"),
+        };
+    }
+    // `POST /kv/snapshot/<id>/fork` → fork a branch off the snapshot (O(1), zero-copy).
+    if let Some(sid) = rest
+        .strip_prefix("snapshot/")
+        .and_then(|r| r.strip_suffix("/fork"))
+    {
+        return match req.method.as_str() {
+            "POST" | "PUT" => match sid.parse::<u64>() {
+                Ok(s) => match store.fork(s) {
+                    Some(b) => {
+                        KvResponse::json("200 OK", serde_json::json!({ "branch": b }).to_string())
+                    }
+                    None => {
+                        KvResponse::error("404 Not Found", "NoSuchSnapshot", "unknown snapshot")
+                    }
+                },
+                Err(_) => {
+                    KvResponse::error("400 Bad Request", "BadRequest", "snapshot id must be a u64")
+                }
+            },
+            _ => KvResponse::error("405 Method Not Allowed", "MethodNotAllowed", "unsupported"),
+        };
+    }
+    // `GET /kv/fork/stats` → the zero-copy occupancy proof (resident stays flat vs branch count).
+    if rest == "fork/stats" {
+        return match req.method.as_str() {
+            "GET" | "HEAD" => KvResponse::json("200 OK", store.fork_stats_json()),
+            _ => KvResponse::error("405 Method Not Allowed", "MethodNotAllowed", "unsupported"),
+        };
+    }
+    // `GET /kv/branch/<bid>/<key>` (zero-copy read) + `PUT /kv/branch/<bid>/<key>` (CoW write).
+    if let Some(r) = rest.strip_prefix("branch/") {
+        let (bid, key) = match r.split_once('/') {
+            Some((b, k)) if !k.is_empty() => (b, k),
+            _ => {
+                return KvResponse::error(
+                    "400 Bad Request",
+                    "BadRequest",
+                    "expected branch/<id>/<key>",
+                )
+            }
+        };
+        let branch = match bid.parse::<u64>() {
+            Ok(b) => b,
+            Err(_) => {
+                return KvResponse::error(
+                    "400 Bad Request",
+                    "BadRequest",
+                    "branch id must be a u64",
+                )
+            }
+        };
+        return match req.method.as_str() {
+            "GET" => match store.branch_get(branch, key) {
+                Some(bytes) => KvResponse::bytes("200 OK", bytes),
+                None => KvResponse::error(
+                    "404 Not Found",
+                    "NoSuchBranchKey",
+                    "no page for that branch/key",
+                ),
+            },
+            "PUT" | "POST" => {
+                if store.branch_put(branch, key, req.body.clone()) {
+                    KvResponse::empty("200 OK")
+                } else {
+                    KvResponse::error("404 Not Found", "NoSuchBranch", "unknown branch")
+                }
+            }
             _ => KvResponse::error("405 Method Not Allowed", "MethodNotAllowed", "unsupported"),
         };
     }
@@ -762,6 +937,114 @@ mod tests {
         assert_eq!(
             handle(&s, &none, &req("PUT", "/kv/version/oops", b"", &[])).status,
             "400 Bad Request"
+        );
+    }
+
+    /// CONCEPT:EG-KG.memory.zero-copy-snapshot-fork — snapshot a set of pages, fork two branches over HTTP,
+    /// prove both read the shared page and a CoW write on one is isolated from the other,
+    /// and that `/kv/fork/stats` reports resident bytes flat (ONE shared page + one CoW page).
+    #[test]
+    fn zerocopy_snapshot_fork_over_http() {
+        let s = store();
+        let none = None;
+        // Seed two pages (content-addressed; the connector would PUT under its token-hash,
+        // but here we PUT under explicit keys and snapshot those keys).
+        handle(&s, &none, &req("PUT", "/kv/pageA", &[1u8; 256], &[]));
+        handle(&s, &none, &req("PUT", "/kv/pageB", &[2u8; 256], &[]));
+
+        // Snapshot both pages.
+        let snap = handle(
+            &s,
+            &none,
+            &req(
+                "POST",
+                "/kv/snapshot",
+                br#"{"keys":["pageA","pageB"]}"#,
+                &[],
+            ),
+        );
+        assert_eq!(snap.status, "200 OK");
+        let sj: serde_json::Value = serde_json::from_slice(&snap.body).unwrap();
+        assert_eq!(sj["pages"], 2);
+        let sid = sj["snapshot"].as_u64().unwrap();
+
+        // Fork two branches.
+        let branch = |sid: u64| -> u64 {
+            let r = handle(
+                &s,
+                &none,
+                &req("POST", &format!("/kv/snapshot/{sid}/fork"), b"", &[]),
+            );
+            assert_eq!(r.status, "200 OK");
+            serde_json::from_slice::<serde_json::Value>(&r.body).unwrap()["branch"]
+                .as_u64()
+                .unwrap()
+        };
+        let b1 = branch(sid);
+        let b2 = branch(sid);
+
+        // Both branches read the shared pages byte-for-byte.
+        let g = handle(
+            &s,
+            &none,
+            &req("GET", &format!("/kv/branch/{b1}/pageA"), b"", &[]),
+        );
+        assert_eq!(g.status, "200 OK");
+        assert_eq!(g.body, vec![1u8; 256]);
+        assert_eq!(
+            handle(
+                &s,
+                &none,
+                &req("GET", &format!("/kv/branch/{b2}/pageA"), b"", &[])
+            )
+            .body,
+            vec![1u8; 256]
+        );
+
+        // CoW write on b1 ⇒ isolated; b2 still sees the shared page.
+        let p = handle(
+            &s,
+            &none,
+            &req("PUT", &format!("/kv/branch/{b1}/pageA"), &[9u8; 256], &[]),
+        );
+        assert_eq!(p.status, "200 OK");
+        assert_eq!(
+            handle(
+                &s,
+                &none,
+                &req("GET", &format!("/kv/branch/{b1}/pageA"), b"", &[])
+            )
+            .body,
+            vec![9u8; 256],
+            "writer sees its CoW value"
+        );
+        assert_eq!(
+            handle(
+                &s,
+                &none,
+                &req("GET", &format!("/kv/branch/{b2}/pageA"), b"", &[])
+            )
+            .body,
+            vec![1u8; 256],
+            "sibling isolated from the CoW write"
+        );
+
+        // fork/stats: 2 shared pages + 1 CoW overlay page = 3 * 256 resident, NOT 2 branches × 2 pages.
+        let fs = handle(&s, &none, &req("GET", "/kv/fork/stats", b"", &[]));
+        let fj: serde_json::Value = serde_json::from_slice(&fs.body).unwrap();
+        assert_eq!(fj["branches"], 2);
+        assert_eq!(fj["shared_pages"], 2);
+        assert_eq!(fj["overlay_pages"], 1);
+        assert_eq!(fj["resident_fork_bytes"], 3 * 256);
+
+        // Unknown snapshot/branch paths are graceful.
+        assert_eq!(
+            handle(&s, &none, &req("POST", "/kv/snapshot/9999/fork", b"", &[])).status,
+            "404 Not Found"
+        );
+        assert_eq!(
+            handle(&s, &none, &req("GET", "/kv/branch/9999/pageA", b"", &[])).status,
+            "404 Not Found"
         );
     }
 }
