@@ -2566,6 +2566,104 @@ pub enum Method {
         #[serde(default)]
         writeback: bool,
     },
+
+    /// Clustering (CONCEPT:EG-KG.mining.dbscan-density — completing the family beyond
+    /// k-Means/spectral). Partitions a feature matrix into clusters via DBSCAN,
+    /// hierarchical agglomerative, GMM (EM), or k-medoids (PAM). Rows come from
+    /// EITHER explicit `features` OR a graph-derived `source` (the embeddings of a
+    /// node label — the cross-modal "cluster the vectors of these nodes" hook).
+    /// Returns rows `{cluster_id, members, centroid, score}` (+ GMM
+    /// `responsibilities`). With `writeback=true` it materializes each cluster as a
+    /// typed `:Cluster` node linked to its member nodes — a graph MUTATION, so it
+    /// classifies as a write and WAL-replays by re-clustering deterministically.
+    /// Gated `mining`; a build without it drops the variant.
+    #[cfg(feature = "mining")]
+    MineCluster {
+        /// Explicit feature matrix — each row a point. Empty ⇒ use `source`.
+        #[serde(default)]
+        features: Vec<Vec<f64>>,
+        /// Graph-derived vector source (node embeddings). Used when `features` is empty.
+        #[serde(default)]
+        source: Option<VectorSource>,
+        /// Which clustering engine to run.
+        #[serde(default)]
+        algorithm: ClusterAlgorithm,
+        /// DBSCAN neighborhood radius.
+        #[serde(default = "default_eps")]
+        eps: f64,
+        /// DBSCAN minimum points (incl. self) for a core point.
+        #[serde(default = "default_min_pts")]
+        min_pts: usize,
+        /// Target cluster count for hierarchical / GMM / k-medoids.
+        #[serde(default = "default_k")]
+        k: usize,
+        /// Hierarchical linkage: `single` · `complete` · `average` (default).
+        #[serde(default)]
+        linkage: Linkage,
+        /// EM / PAM iteration cap (GMM, k-medoids).
+        #[serde(default = "default_max_iter")]
+        max_iter: usize,
+        /// Seed for GMM's k-means++ init (deterministic).
+        #[serde(default)]
+        seed: u64,
+        /// Materialize each cluster as a typed `:Cluster` node linked to members.
+        #[serde(default)]
+        writeback: bool,
+    },
+
+    /// Anomaly / outlier detection (CONCEPT:EG-KG.mining.isolation-forest). Scores
+    /// every feature row for how anomalous it is via z-score/MAD, Isolation Forest,
+    /// LOF, or One-Class SVM, and flags rows over `threshold` (per-algorithm default
+    /// when unset). Rows come from EITHER explicit `features`, a 1-D `values` series
+    /// (each value → one row — the tsdb RCA hook), OR a graph-derived `source` (node
+    /// embeddings). Returns rows `{id, anomaly_score, is_anomaly}`. With
+    /// `writeback=true` it materializes each flagged row as a typed `:Anomaly` node
+    /// linked to its source node — a graph MUTATION (write, WAL-replayed
+    /// deterministically). Gated `mining`.
+    #[cfg(feature = "mining")]
+    MineAnomaly {
+        /// Explicit feature matrix — each row a point. Empty ⇒ use `values`/`source`.
+        #[serde(default)]
+        features: Vec<Vec<f64>>,
+        /// 1-D series convenience — each scalar becomes a one-element row (e.g. a
+        /// tsdb window for root-cause analysis). Used when `features` is empty.
+        #[serde(default)]
+        values: Vec<f64>,
+        /// Graph-derived vector source (node embeddings). Used when `features` and
+        /// `values` are both empty.
+        #[serde(default)]
+        source: Option<VectorSource>,
+        /// Which detector to run.
+        #[serde(default)]
+        algorithm: AnomalyAlgorithm,
+        /// LOF neighbor count.
+        #[serde(default = "default_lof_k")]
+        k: usize,
+        /// Isolation Forest tree count.
+        #[serde(default = "default_n_trees")]
+        n_trees: usize,
+        /// Isolation Forest subsample size.
+        #[serde(default = "default_sample_size")]
+        sample_size: usize,
+        /// Seed for Isolation Forest (deterministic).
+        #[serde(default)]
+        seed: u64,
+        /// One-Class SVM ν ∈ (0,1] (upper bound on the outlier fraction).
+        #[serde(default = "default_nu")]
+        nu: f64,
+        /// One-Class SVM RBF gamma; `≤ 0` ⇒ the `1/n_features` default.
+        #[serde(default)]
+        gamma: f64,
+        /// One-Class SVM kernel: `rbf` (default) · `linear`.
+        #[serde(default)]
+        kernel: SvmKernel,
+        /// Flag threshold (higher score = more anomalous). Unset ⇒ per-algorithm default.
+        #[serde(default)]
+        threshold: Option<f64>,
+        /// Materialize each flagged row as a typed `:Anomaly` node linked to its source.
+        #[serde(default)]
+        writeback: bool,
+    },
 }
 
 // ── Supporting Types ────────────────────────────────────────────────────
@@ -2619,6 +2717,115 @@ pub struct TransactionSource {
 #[cfg(feature = "mining")]
 fn default_mine_direction() -> String {
     "out".to_string()
+}
+
+/// A graph-derived VECTOR source for `MineCluster` / `MineAnomaly`
+/// (CONCEPT:EG-KG.mining.node-embedding-source). Each node carrying `node_label`
+/// contributes ONE feature row = its stored embedding vector, and its node id is
+/// carried alongside so write-back can link the mined `:Cluster` / `:Anomaly` node
+/// back to it. This is the cross-modal hook — "cluster / anomaly-detect the
+/// embeddings of these nodes" runs compute-near-data over resident vectors.
+#[cfg(feature = "mining")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VectorSource {
+    /// The node label whose instances each contribute one embedding row.
+    pub node_label: String,
+    /// Cap the number of nodes scanned (0 = uncapped).
+    #[serde(default)]
+    pub limit: usize,
+}
+
+/// Which clustering engine `MineCluster` runs (CONCEPT:EG-KG.mining.dbscan-density).
+#[cfg(feature = "mining")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ClusterAlgorithm {
+    #[default]
+    Dbscan,
+    Hierarchical,
+    Gmm,
+    Kmedoids,
+}
+
+/// Hierarchical agglomerative linkage criterion (CONCEPT:EG-KG.mining.hierarchical-linkage).
+#[cfg(feature = "mining")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Linkage {
+    Single,
+    Complete,
+    #[default]
+    Average,
+}
+
+/// Which detector `MineAnomaly` runs (CONCEPT:EG-KG.mining.isolation-forest).
+#[cfg(feature = "mining")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum AnomalyAlgorithm {
+    #[default]
+    Zscore,
+    Isoforest,
+    Lof,
+    Ocsvm,
+}
+
+/// One-Class SVM kernel (CONCEPT:EG-KG.mining.oneclass-svm).
+#[cfg(feature = "mining")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum SvmKernel {
+    #[default]
+    Rbf,
+    Linear,
+}
+
+/// serde default for DBSCAN `eps`.
+#[cfg(feature = "mining")]
+fn default_eps() -> f64 {
+    0.5
+}
+
+/// serde default for DBSCAN `min_pts`.
+#[cfg(feature = "mining")]
+fn default_min_pts() -> usize {
+    5
+}
+
+/// serde default cluster count `k`.
+#[cfg(feature = "mining")]
+fn default_k() -> usize {
+    3
+}
+
+/// serde default EM / PAM iteration cap.
+#[cfg(feature = "mining")]
+fn default_max_iter() -> usize {
+    100
+}
+
+/// serde default LOF neighbor count.
+#[cfg(feature = "mining")]
+fn default_lof_k() -> usize {
+    20
+}
+
+/// serde default Isolation Forest tree count.
+#[cfg(feature = "mining")]
+fn default_n_trees() -> usize {
+    100
+}
+
+/// serde default Isolation Forest subsample size.
+#[cfg(feature = "mining")]
+fn default_sample_size() -> usize {
+    256
+}
+
+/// serde default One-Class SVM ν.
+#[cfg(feature = "mining")]
+fn default_nu() -> f64 {
+    0.1
 }
 
 /// The distributed graph algorithm a `DistributedCompute` / matview runs across
