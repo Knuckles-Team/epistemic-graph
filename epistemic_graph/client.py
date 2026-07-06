@@ -2049,6 +2049,52 @@ class DataScienceClient:
         )
 
 
+class MiningClient:
+    """CONCEPT:EG-KG.mining.frequent-itemset-mining — Data-mining Namespace.
+
+    Descriptive, pattern-oriented mining that runs compute-near-data over the
+    resident graph. Phase 1 exposes association-rule mining; later phases add
+    ``cluster``/``anomaly``/``sequence``/``forecast``/``subgraph`` onto this same
+    subclient. Mirrors the ``graph_mine`` MCP verb + the ``/api/mining/*`` REST twin.
+    """
+
+    def __init__(self, client: EpistemicGraphClient) -> None:
+        self._client = client
+
+    async def associate(
+        self,
+        transactions: list[list[str]] | None = None,
+        *,
+        source: dict[str, Any] | None = None,
+        min_support: float = 0.1,
+        min_confidence: float = 0.5,
+        algorithm: str = "fpgrowth",
+        writeback: bool = False,
+    ) -> dict[str, Any]:
+        """Mine association rules (support / confidence / lift).
+
+        Provide EITHER explicit ``transactions`` (each a set of item labels) OR a
+        graph-derived ``source`` spec — ``{"node_label", "direction", "item_field",
+        "relation", "limit"}`` — that turns node neighborhoods into transactions
+        (mine directly over resident graph data). ``algorithm`` is one of
+        ``fpgrowth`` (default) / ``apriori`` / ``eclat`` (all agree). With
+        ``writeback=True`` each rule is materialized as a typed ``:AssociationRule``
+        node linked to its item nodes. Returns
+        ``{rules: [{antecedent, consequent, support, confidence, lift}], ...}``.
+        """
+        params: dict[str, Any] = {
+            "min_support": min_support,
+            "min_confidence": min_confidence,
+            "algorithm": algorithm,
+            "writeback": writeback,
+        }
+        if transactions is not None:
+            params["transactions"] = transactions
+        if source is not None:
+            params["source"] = source
+        return await self._client._send("MineAssociate", params)
+
+
 # Per-RPC timeouts (CONCEPT:EG-KG.query.wire-protocol). A wedged or overloaded engine must never
 # hang a caller forever — every request is bounded. Normal CRUD uses the short
 # default; known-heavy ops (full-graph parse/scan/algorithms) get a generous
@@ -3696,6 +3742,7 @@ class EpistemicGraphClient:
         self.consensus = ConsensusClient(self)
         self.finance = FinanceClient(self)
         self.datascience = DataScienceClient(self)
+        self.mining = MiningClient(self)
         self.query = QueryClient(self)
         self.txn = TxnClient(self)
         self.timeseries = TimeSeriesClient(self)
@@ -4108,6 +4155,7 @@ class SyncEpistemicGraphClient:
         self.consensus = self._SyncWrapper(self._client.consensus, self._loop)
         self.finance = self._SyncWrapper(self._client.finance, self._loop)
         self.datascience = self._SyncWrapper(self._client.datascience, self._loop)
+        self.mining = self._SyncWrapper(self._client.mining, self._loop)
         self.query = self._SyncWrapper(self._client.query, self._loop)
         self.txn = self._SyncWrapper(self._client.txn, self._loop)
         self.timeseries = self._SyncWrapper(self._client.timeseries, self._loop)
