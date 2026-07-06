@@ -8,9 +8,10 @@ use dashmap::DashMap;
 use parking_lot::{Mutex, RwLock, RwLockWriteGuard};
 use petgraph::stable_graph::{NodeIndex, StableDiGraph};
 use petgraph::visit::EdgeRef;
+use std::any::Any;
 use std::collections::HashMap;
 use std::io::Read;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 /// The graph TOPOLOGY — the petgraph structure + the id→index map. Mutated only
 /// under `GraphCore::topo` write lock, read under its read lock. Kept separate
@@ -26,12 +27,56 @@ pub struct Topology {
 /// produced by `GraphCore::*_snapshot`. The read-only graph algorithms operate on
 /// a `GraphView` (never on the live, locked `GraphCore`), so a long O(V·E)
 /// computation runs entirely off the graph's locks. (Phase C-B)
-#[derive(Debug, Default, Clone)]
+#[derive(Default)]
 pub struct GraphView {
     pub graph: StableDiGraph<String, String>,
     pub node_map: HashMap<String, NodeIndex>,
     pub node_properties: HashMap<String, Arc<Vec<u8>>>,
     pub edge_properties: HashMap<(String, String), Vec<Arc<Vec<u8>>>>,
+    /// Interior-mutable, type-erased memo of expensive per-snapshot DERIVED stats
+    /// (CONCEPT:EG-KG.query.column-range-stats) — e.g. the planner's per-column
+    /// min/max + histogram catalog (`eg_plan`'s `ColumnStats`). A `GraphView` is an
+    /// IMMUTABLE point-in-time snapshot (produced by `*_snapshot` at one OCC
+    /// `version()`); its `node_properties` never change after construction, so
+    /// anything derived purely from them can be computed ONCE and reused for the life
+    /// of this view without ever going stale. A committed write produces a brand-NEW
+    /// snapshot — a new `GraphView` whose memo starts empty (see the `Clone`/`Default`
+    /// impls) — so fresh data is always recomputed and a stale hit is structurally
+    /// impossible. Typed as `dyn Any` so `eg-core` stays free of the higher-tier
+    /// `eg-plan` types that populate it; the producing crate downcasts. NOT filled
+    /// here — populated lazily on first access via `get_or_init`.
+    pub plan_stats_memo: OnceLock<Arc<dyn Any + Send + Sync>>,
+}
+
+impl Clone for GraphView {
+    /// Clone the immutable graph data but START THE MEMO COLD. The clone is a
+    /// distinct value a caller may in principle mutate through its `pub` fields, so it
+    /// must not inherit the source's cached stats (which describe the source's data).
+    /// A fresh empty memo makes any derived stat recompute on demand for the clone —
+    /// staleness is impossible even under a hypothetical clone-then-mutate.
+    fn clone(&self) -> Self {
+        Self {
+            graph: self.graph.clone(),
+            node_map: self.node_map.clone(),
+            node_properties: self.node_properties.clone(),
+            edge_properties: self.edge_properties.clone(),
+            plan_stats_memo: OnceLock::new(),
+        }
+    }
+}
+
+impl std::fmt::Debug for GraphView {
+    /// The type-erased `plan_stats_memo` is a derived cache, not data (and isn't
+    /// `Debug`), so it is omitted — `Debug` shows exactly the snapshot's graph and
+    /// property data, unchanged from the former `#[derive(Debug)]`.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GraphView")
+            .field("graph", &self.graph)
+            .field("node_map", &self.node_map)
+            .field("node_properties", &self.node_properties)
+            .field("edge_properties", &self.edge_properties)
+            .finish()
+    }
 }
 
 /// Concurrent graph storage (Phase C-B — enterprise multi-write concurrency).
@@ -3400,6 +3445,7 @@ impl GraphCore {
             node_map: topo.node_map.clone(),
             node_properties: HashMap::new(),
             edge_properties: HashMap::new(),
+            plan_stats_memo: OnceLock::new(),
         }
     }
 
@@ -3421,6 +3467,7 @@ impl GraphCore {
                 .iter()
                 .map(|e| (e.key().clone(), e.value().clone()))
                 .collect(),
+            plan_stats_memo: OnceLock::new(),
         }
     }
 
@@ -3448,6 +3495,7 @@ impl GraphCore {
                 .iter()
                 .map(|e| (e.key().clone(), e.value().clone()))
                 .collect(),
+            plan_stats_memo: OnceLock::new(),
         };
         (view, version)
     }
