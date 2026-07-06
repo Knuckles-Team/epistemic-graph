@@ -276,11 +276,36 @@ struct NumericColumn {
 
 #[cfg(feature = "query")]
 impl ColumnStats {
-    /// Build the per-column stats in ONE pass over the resident node property blobs. Each
-    /// blob is decoded to JSON; every TOP-LEVEL numeric property accumulates into its column's
-    /// running min/max/count plus a capped value sample. After the pass each column's sample
-    /// is bucketed into a [`HIST_BUCKETS`]-wide equi-width histogram over the exact `[min,max]`.
+    /// Per-column stats for `view`, MEMOIZED on the snapshot so repeated `optimize()` calls
+    /// over the SAME snapshot pay the O(N) blob-decode pass ONCE (CONCEPT:EG-KG.query.column-range-stats).
+    ///
+    /// Correctness invariant (never serves stale stats): a [`eg_core::graph::GraphView`] is an
+    /// IMMUTABLE point-in-time snapshot produced by `GraphCore::*_snapshot` at one OCC
+    /// `version()`; its `node_properties` never change after construction. The memo is stored
+    /// INSIDE that view (`GraphView::plan_stats_memo`, an interior-mutable [`std::sync::OnceLock`]),
+    /// so it is physically bound to exactly the data it summarizes. A committed write produces a
+    /// brand-NEW snapshot — a fresh `GraphView` whose memo starts empty — so the next `collect`
+    /// recomputes from the new data. There is no version/identity key to get wrong and no ABA
+    /// window: a stale hit is structurally impossible because the cache and the data it describes
+    /// share one lifetime. The stored value is [`ColumnStats`] itself (type-erased through `dyn
+    /// Any` so `eg-core` need not depend on `eg-plan`); we downcast and clone it (an O(#columns)
+    /// copy — never the O(N) blob scan) to keep the returned `ColumnStats` byte-identical to the
+    /// recompute path.
     pub fn collect(view: &eg_core::graph::GraphView) -> Self {
+        let memo = view
+            .plan_stats_memo
+            .get_or_init(|| std::sync::Arc::new(Self::compute(view)));
+        memo.downcast_ref::<Self>()
+            .expect("plan_stats_memo holds ColumnStats")
+            .clone()
+    }
+
+    /// Build the per-column stats in ONE pass over the resident node property blobs — the
+    /// uncached computation [`Self::collect`] memoizes. Each blob is decoded to JSON; every
+    /// TOP-LEVEL numeric property accumulates into its column's running min/max/count plus a
+    /// capped value sample. After the pass each column's sample is bucketed into a
+    /// [`HIST_BUCKETS`]-wide equi-width histogram over the exact `[min,max]`.
+    fn compute(view: &eg_core::graph::GraphView) -> Self {
         use std::collections::HashMap;
         struct Acc {
             min: f64,
@@ -804,6 +829,97 @@ mod tests {
         assert!(
             card.cost_of(&rank, 1_000.0, &ctx).weight() > card.cost_of(&eq, 1_000.0, &ctx).weight(),
             "a brute-force vector Rank is the expensive leg"
+        );
+    }
+
+    /// The per-column histogram catalog is MEMOIZED on the snapshot (CONCEPT:EG-KG.query.column-range-stats):
+    /// (a) the memoized `collect` is byte-identical to a fresh `compute` over the SAME snapshot,
+    ///     and the identity carries through to the estimator's selectivity; (b) a write produces
+    ///     a FRESH snapshot whose memo starts empty, so its stats are recomputed over the new
+    ///     data — a stale hit is structurally impossible because the memo shares the snapshot's
+    ///     lifetime. Proves both halves of the memo's correctness contract.
+    #[cfg(feature = "query")]
+    #[test]
+    fn column_stats_memoized_and_snapshot_scoped() {
+        use eg_core::compute::semantic::SemanticStore;
+        use eg_core::graph::GraphCore;
+        fn blob(v: serde_json::Value) -> Vec<u8> {
+            rmp_serde::to_vec_named(&v).unwrap()
+        }
+
+        let core = GraphCore::new();
+        for (id, year) in [("d1", 2020.0), ("d2", 2024.0), ("d3", 2028.0)] {
+            core.add_node(
+                id.into(),
+                blob(serde_json::json!({ "type": "Doc", "year": year })),
+            );
+        }
+        let v1 = core.analysis_snapshot();
+
+        // (a) The memo is COLD before the first collect and WARM after — and the memoized
+        //     result equals a fresh recompute over the same snapshot, bucket-for-bucket.
+        assert!(
+            v1.plan_stats_memo.get().is_none(),
+            "a fresh snapshot's memo is empty"
+        );
+        let fresh = ColumnStats::compute(&v1);
+        let memoized = ColumnStats::collect(&v1);
+        assert!(
+            v1.plan_stats_memo.get().is_some(),
+            "collect populated the snapshot's memo"
+        );
+        assert_eq!(fresh.len(), memoized.len());
+        let n = 2025.0;
+        assert_eq!(fresh.frac_gt("year", n), memoized.frac_gt("year", n));
+        assert_eq!(fresh.frac_lt("year", n), memoized.frac_lt("year", n));
+        // A second collect returns the SAME (now cached) value — no rescan, same answer.
+        assert_eq!(
+            ColumnStats::collect(&v1).frac_gt("year", n),
+            memoized.frac_gt("year", n)
+        );
+
+        // The identity carries through the live estimator: the range-filter selectivity is
+        // the same whether the column stats came from the memo or a forced recompute.
+        let sem = SemanticStore::new();
+        let ctx = crate::exec::PlanCtx::new(&v1, &sem);
+        let range = Op::Filter {
+            preds: vec![Pred::GtNum {
+                prop: "year".into(),
+                n,
+            }],
+        };
+        let card_memo = ModalityCardinality::new(PlanStats::collect(&ctx));
+        let mut ps_fresh = PlanStats::collect(&ctx);
+        ps_fresh.column_stats = ColumnStats::compute(&v1); // bypass the memo
+        let card_fresh = ModalityCardinality::new(ps_fresh);
+        assert_eq!(
+            card_memo.selectivity(&range, 100.0, &ctx),
+            card_fresh.selectivity(&range, 100.0, &ctx),
+            "memoized and recomputed stats yield identical selectivity"
+        );
+
+        // (b) A write → a FRESH snapshot with an empty memo → stats recomputed over the new
+        //     data. Adding a far-larger `year` extends the column range, so frac_gt shifts.
+        core.add_node(
+            "d4".into(),
+            blob(serde_json::json!({ "type": "Doc", "year": 9000.0 })),
+        );
+        let v2 = core.analysis_snapshot();
+        assert!(
+            v2.plan_stats_memo.get().is_none(),
+            "the post-write snapshot is a new GraphView with an empty memo"
+        );
+        let s2 = ColumnStats::collect(&v2);
+        assert_ne!(
+            s2.frac_gt("year", n),
+            memoized.frac_gt("year", n),
+            "the fresh snapshot recomputes over the new data — never a stale memo hit"
+        );
+        // The original snapshot's memo is untouched and still describes the ORIGINAL data.
+        assert_eq!(
+            ColumnStats::collect(&v1).frac_gt("year", n),
+            memoized.frac_gt("year", n),
+            "an old snapshot keeps its own stats — snapshots are independent"
         );
     }
 }
