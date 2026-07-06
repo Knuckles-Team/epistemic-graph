@@ -65,7 +65,10 @@ impl std::fmt::Debug for JwtValidator {
             .field("issuer", &self.issuer)
             .field("audience", &self.audience)
             .field("jwks_url", &self.jwks_url)
-            .field("cached_kids", &self.keys.read().map(|m| m.len()).unwrap_or(0))
+            .field(
+                "cached_kids",
+                &self.keys.read().map(|m| m.len()).unwrap_or(0),
+            )
             .finish()
     }
 }

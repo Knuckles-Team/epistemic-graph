@@ -2094,6 +2094,101 @@ class MiningClient:
             params["source"] = source
         return await self._client._send("MineAssociate", params)
 
+    async def cluster(
+        self,
+        features: list[list[float]] | None = None,
+        *,
+        source: dict[str, Any] | None = None,
+        algorithm: str = "dbscan",
+        eps: float = 0.5,
+        min_pts: int = 5,
+        k: int = 3,
+        linkage: str = "average",
+        max_iter: int = 100,
+        seed: int = 0,
+        writeback: bool = False,
+    ) -> dict[str, Any]:
+        """Cluster a feature matrix (CONCEPT:EG-KG.mining.dbscan-density).
+
+        Provide EITHER an explicit ``features`` matrix (each row a point) OR a
+        graph-derived ``source`` spec — ``{"node_label", "limit"}`` — that gathers
+        the stored embeddings of a node label as the rows (the cross-modal "cluster
+        the vectors of these nodes" hook). ``algorithm`` is one of ``dbscan``
+        (default) / ``hierarchical`` / ``gmm`` / ``kmedoids``; DBSCAN uses
+        ``eps``/``min_pts``, the rest use ``k`` (hierarchical also ``linkage`` ∈
+        ``single|complete|average``; GMM/k-medoids use ``max_iter``, GMM also
+        ``seed``). With ``writeback=True`` each non-noise cluster is materialized as
+        a typed ``:Cluster`` node linked to its member nodes. Returns
+        ``{clusters: [{cluster_id, members, centroid, score}], labels, ...}`` (GMM
+        also returns ``responsibilities``).
+        """
+        params: dict[str, Any] = {
+            "algorithm": algorithm,
+            "eps": eps,
+            "min_pts": min_pts,
+            "k": k,
+            "linkage": linkage,
+            "max_iter": max_iter,
+            "seed": seed,
+            "writeback": writeback,
+        }
+        if features is not None:
+            params["features"] = features
+        if source is not None:
+            params["source"] = source
+        return await self._client._send("MineCluster", params)
+
+    async def anomaly(
+        self,
+        features: list[list[float]] | None = None,
+        *,
+        values: list[float] | None = None,
+        source: dict[str, Any] | None = None,
+        algorithm: str = "zscore",
+        k: int = 20,
+        n_trees: int = 100,
+        sample_size: int = 256,
+        seed: int = 0,
+        nu: float = 0.1,
+        gamma: float = 0.0,
+        kernel: str = "rbf",
+        threshold: float | None = None,
+        writeback: bool = False,
+    ) -> dict[str, Any]:
+        """Detect anomalies / outliers in a feature matrix (CONCEPT:EG-KG.mining.isolation-forest).
+
+        Provide EITHER an explicit ``features`` matrix, a 1-D ``values`` series
+        (each scalar becomes one row — the tsdb root-cause path), OR a graph-derived
+        ``source`` (node embeddings). ``algorithm`` is one of ``zscore`` (default,
+        robust MAD) / ``isoforest`` (Isolation Forest — ``n_trees``, ``sample_size``,
+        ``seed``) / ``lof`` (Local Outlier Factor — ``k`` neighbors) / ``ocsvm``
+        (One-Class SVM — ``nu``, ``kernel`` ∈ ``rbf|linear``, ``gamma``). Rows over
+        ``threshold`` (per-algorithm default when ``None``) are flagged. With
+        ``writeback=True`` each flagged row is materialized as a typed ``:Anomaly``
+        node linked to its source node. Returns
+        ``{rows: [{id, anomaly_score, is_anomaly}], n_anomalies, threshold, ...}``.
+        """
+        params: dict[str, Any] = {
+            "algorithm": algorithm,
+            "k": k,
+            "n_trees": n_trees,
+            "sample_size": sample_size,
+            "seed": seed,
+            "nu": nu,
+            "gamma": gamma,
+            "kernel": kernel,
+            "writeback": writeback,
+        }
+        if threshold is not None:
+            params["threshold"] = threshold
+        if features is not None:
+            params["features"] = features
+        if values is not None:
+            params["values"] = values
+        if source is not None:
+            params["source"] = source
+        return await self._client._send("MineAnomaly", params)
+
 
 # Per-RPC timeouts (CONCEPT:EG-KG.query.wire-protocol). A wedged or overloaded engine must never
 # hang a caller forever — every request is bounded. Normal CRUD uses the short

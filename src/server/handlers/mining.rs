@@ -14,10 +14,15 @@
 
 use std::sync::Arc;
 
+use eg_compute::mining::anomaly;
 use eg_compute::mining::association::{self, Algorithm, LabeledRule};
+use eg_compute::mining::cluster;
 
 use crate::graph::GraphCore;
-use crate::protocol::{Method, MineAlgorithm, Response, ResultPayload, TransactionSource};
+use crate::protocol::{
+    AnomalyAlgorithm, ClusterAlgorithm, Linkage, Method, MineAlgorithm, Response, ResultPayload,
+    SvmKernel, TransactionSource, VectorSource,
+};
 
 /// Handle a `Mine*` method. `Err(method)` hands a non-mining method back to the
 /// dispatcher (routing fall-through). (CONCEPT:EG-KG.query.dispatch-convention.)
@@ -44,6 +49,52 @@ pub(crate) fn try_handle(
             algorithm,
             writeback,
         )),
+        Method::MineCluster {
+            features,
+            source,
+            algorithm,
+            eps,
+            min_pts,
+            k,
+            linkage,
+            max_iter,
+            seed,
+            writeback,
+        } => Ok(handle_cluster(
+            req_id, &core, features, source, algorithm, eps, min_pts, k, linkage, max_iter, seed,
+            writeback,
+        )),
+        Method::MineAnomaly {
+            features,
+            values,
+            source,
+            algorithm,
+            k,
+            n_trees,
+            sample_size,
+            seed,
+            nu,
+            gamma,
+            kernel,
+            threshold,
+            writeback,
+        } => Ok(handle_anomaly(
+            req_id,
+            &core,
+            features,
+            values,
+            source,
+            algorithm,
+            k,
+            n_trees,
+            sample_size,
+            seed,
+            nu,
+            gamma,
+            kernel,
+            threshold,
+            writeback,
+        )),
         other => Err(other),
     }
 }
@@ -54,22 +105,80 @@ pub(crate) fn try_handle(
 /// (like the broker/memory replay ops). The response is discarded.
 #[allow(dead_code)]
 pub(crate) fn replay(core: &GraphCore, method: &Method) {
-    if let Method::MineAssociate {
-        transactions,
-        source,
-        min_support,
-        min_confidence,
-        algorithm,
-        writeback: true,
-    } = method
-    {
-        let txns = match build_transactions(core, transactions, source) {
-            Ok(t) => t,
-            Err(_) => return,
-        };
-        let rules =
-            association::mine_labeled(&txns, *min_support, *min_confidence, to_algo(*algorithm));
-        materialize_rules(core, &rules);
+    match method {
+        Method::MineAssociate {
+            transactions,
+            source,
+            min_support,
+            min_confidence,
+            algorithm,
+            writeback: true,
+        } => {
+            let txns = match build_transactions(core, transactions, source) {
+                Ok(t) => t,
+                Err(_) => return,
+            };
+            let rules = association::mine_labeled(
+                &txns,
+                *min_support,
+                *min_confidence,
+                to_algo(*algorithm),
+            );
+            materialize_rules(core, &rules);
+        }
+        Method::MineCluster {
+            features,
+            source,
+            algorithm,
+            eps,
+            min_pts,
+            k,
+            linkage,
+            max_iter,
+            seed,
+            writeback: true,
+        } => {
+            let (rows, ids) = build_vectors(core, features, source);
+            if rows.is_empty() {
+                return;
+            }
+            let algo = cluster_algo(*algorithm, *eps, *min_pts, *k, *linkage, *max_iter, *seed);
+            let out = cluster::cluster(&rows, algo);
+            materialize_clusters(core, &out, &ids, *algorithm);
+        }
+        Method::MineAnomaly {
+            features,
+            values,
+            source,
+            algorithm,
+            k,
+            n_trees,
+            sample_size,
+            seed,
+            nu,
+            gamma,
+            kernel,
+            threshold,
+            writeback: true,
+        } => {
+            let (rows, ids) = build_anomaly_rows(core, features, values, source);
+            if rows.is_empty() {
+                return;
+            }
+            let algo = anomaly_algo(
+                *algorithm,
+                *k,
+                *n_trees,
+                *sample_size,
+                *seed,
+                *nu,
+                *gamma,
+                *kernel,
+            );
+            let out = anomaly::detect(&rows, algo, *threshold);
+            materialize_anomalies(core, &out, &ids, *algorithm);
+        }
+        _ => {}
     }
 }
 
@@ -300,6 +409,395 @@ fn to_algo(a: MineAlgorithm) -> Algorithm {
     }
 }
 
+// ─────────────────────────── Clustering ───────────────────────────
+
+/// Handle `MineCluster` (CONCEPT:EG-KG.mining.dbscan-density): build the feature
+/// rows (explicit or node embeddings), run the chosen clustering engine, return
+/// `{clusters, labels, ...}`, and optionally write `:Cluster` nodes back.
+#[allow(clippy::too_many_arguments)]
+fn handle_cluster(
+    req_id: u64,
+    core: &GraphCore,
+    features: Vec<Vec<f64>>,
+    source: Option<VectorSource>,
+    algorithm: ClusterAlgorithm,
+    eps: f64,
+    min_pts: usize,
+    k: usize,
+    linkage: Linkage,
+    max_iter: usize,
+    seed: u64,
+    writeback: bool,
+) -> Response {
+    let (rows, ids) = build_vectors(core, &features, &source);
+    if let Err(e) = validate_matrix(&rows) {
+        return Response::err(req_id, e);
+    }
+    let algo = cluster_algo(algorithm, eps, min_pts, k, linkage, max_iter, seed);
+    let out = cluster::cluster(&rows, algo);
+
+    let written = if writeback {
+        materialize_clusters(core, &out, &ids, algorithm)
+    } else {
+        0
+    };
+
+    let cluster_rows: Vec<serde_json::Value> = out
+        .clusters
+        .iter()
+        .map(|c| {
+            // Report member node ids when the rows came from a node source, else the
+            // raw row indices.
+            let members: Vec<serde_json::Value> = c
+                .members
+                .iter()
+                .map(|&i| match ids.get(i) {
+                    Some(id) => serde_json::Value::String(id.clone()),
+                    None => serde_json::json!(i),
+                })
+                .collect();
+            serde_json::json!({
+                "cluster_id": c.cluster_id,
+                "members": members,
+                "centroid": c.centroid,
+                "score": c.score,
+            })
+        })
+        .collect();
+
+    let mut payload = serde_json::json!({
+        "clusters": cluster_rows,
+        "labels": out.labels,
+        "n_rows": rows.len(),
+        "n_clusters": out.clusters.iter().filter(|c| c.cluster_id >= 0).count(),
+        "written_back": written,
+    });
+    if let Some(resp) = &out.responsibilities {
+        payload["responsibilities"] = serde_json::json!(resp);
+    }
+    Response::ok(req_id, ResultPayload::Json(payload))
+}
+
+fn cluster_algo(
+    a: ClusterAlgorithm,
+    eps: f64,
+    min_pts: usize,
+    k: usize,
+    linkage: Linkage,
+    max_iter: usize,
+    seed: u64,
+) -> cluster::Algorithm {
+    match a {
+        ClusterAlgorithm::Dbscan => cluster::Algorithm::Dbscan { eps, min_pts },
+        ClusterAlgorithm::Hierarchical => cluster::Algorithm::Hierarchical {
+            k,
+            linkage: to_linkage(linkage),
+        },
+        ClusterAlgorithm::Gmm => cluster::Algorithm::Gmm { k, max_iter, seed },
+        ClusterAlgorithm::Kmedoids => cluster::Algorithm::KMedoids { k, max_iter },
+    }
+}
+
+fn to_linkage(l: Linkage) -> cluster::Linkage {
+    match l {
+        Linkage::Single => cluster::Linkage::Single,
+        Linkage::Complete => cluster::Linkage::Complete,
+        Linkage::Average => cluster::Linkage::Average,
+    }
+}
+
+/// Materialize each non-noise cluster as a typed `:Cluster` node (CONCEPT:EG-KG.mining.cluster-writeback),
+/// id = a deterministic digest of `algo` + its sorted member node-ids (idempotent
+/// replay). Members that are resident nodes are linked via `CLUSTER_MEMBER` edges.
+fn materialize_clusters(
+    core: &GraphCore,
+    out: &cluster::Clustering,
+    ids: &[String],
+    algorithm: ClusterAlgorithm,
+) -> usize {
+    let algo = cluster_algo_name(algorithm);
+    let mut written = 0usize;
+    for c in &out.clusters {
+        if c.cluster_id < 0 {
+            continue; // never materialize the DBSCAN noise bucket
+        }
+        let member_ids: Vec<String> = c
+            .members
+            .iter()
+            .map(|&i| match ids.get(i) {
+                Some(id) => id.clone(),
+                None => i.to_string(),
+            })
+            .collect();
+        let node_id = cluster_node_id(algo, &member_ids);
+        let props = serde_json::json!({
+            "type": "Cluster",
+            "algo": algo,
+            "cluster_id": c.cluster_id,
+            "size": member_ids.len(),
+            "members": member_ids,
+            "centroid": c.centroid,
+            "score": c.score,
+        });
+        let Ok(blob) = rmp_serde::to_vec_named(&props) else {
+            continue;
+        };
+        core.add_node(node_id.clone(), blob);
+        for mid in &member_ids {
+            if core.has_node(mid) {
+                let edge = serde_json::json!({ "relation": "CLUSTER_MEMBER" });
+                if let Ok(eb) = rmp_serde::to_vec_named(&edge) {
+                    let _ = core.add_edge(node_id.clone(), mid.clone(), eb);
+                }
+            }
+        }
+        written += 1;
+    }
+    written
+}
+
+fn cluster_algo_name(a: ClusterAlgorithm) -> &'static str {
+    match a {
+        ClusterAlgorithm::Dbscan => "dbscan",
+        ClusterAlgorithm::Hierarchical => "hierarchical",
+        ClusterAlgorithm::Gmm => "gmm",
+        ClusterAlgorithm::Kmedoids => "kmedoids",
+    }
+}
+
+fn cluster_node_id(algo: &str, member_ids: &[String]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut sorted = member_ids.to_vec();
+    sorted.sort();
+    let mut hasher = Sha256::new();
+    hasher.update(algo.as_bytes());
+    hasher.update([0u8]);
+    hasher.update(sorted.join("\u{1}").as_bytes());
+    format!("cluster:{}", hex::encode(&hasher.finalize()[..12]))
+}
+
+// ─────────────────────────── Anomaly detection ───────────────────────────
+
+/// Handle `MineAnomaly` (CONCEPT:EG-KG.mining.isolation-forest): build rows
+/// (explicit features, a 1-D values series, or node embeddings), run the detector,
+/// return per-row `{id, anomaly_score, is_anomaly}`, and optionally write `:Anomaly`
+/// nodes back for the flagged rows.
+#[allow(clippy::too_many_arguments)]
+fn handle_anomaly(
+    req_id: u64,
+    core: &GraphCore,
+    features: Vec<Vec<f64>>,
+    values: Vec<f64>,
+    source: Option<VectorSource>,
+    algorithm: AnomalyAlgorithm,
+    k: usize,
+    n_trees: usize,
+    sample_size: usize,
+    seed: u64,
+    nu: f64,
+    gamma: f64,
+    kernel: SvmKernel,
+    threshold: Option<f64>,
+    writeback: bool,
+) -> Response {
+    let (rows, ids) = build_anomaly_rows(core, &features, &values, &source);
+    if let Err(e) = validate_matrix(&rows) {
+        return Response::err(req_id, e);
+    }
+    let algo = anomaly_algo(algorithm, k, n_trees, sample_size, seed, nu, gamma, kernel);
+    let out = anomaly::detect(&rows, algo, threshold);
+
+    let written = if writeback {
+        materialize_anomalies(core, &out, &ids, algorithm)
+    } else {
+        0
+    };
+
+    let rows_json: Vec<serde_json::Value> = (0..rows.len())
+        .map(|i| {
+            let id = match ids.get(i) {
+                Some(id) => serde_json::Value::String(id.clone()),
+                None => serde_json::json!(i),
+            };
+            serde_json::json!({
+                "id": id,
+                "anomaly_score": out.scores[i],
+                "is_anomaly": out.is_anomaly[i],
+            })
+        })
+        .collect();
+
+    Response::ok(
+        req_id,
+        ResultPayload::Json(serde_json::json!({
+            "rows": rows_json,
+            "n_rows": rows.len(),
+            "n_anomalies": out.is_anomaly.iter().filter(|&&a| a).count(),
+            "threshold": out.threshold,
+            "written_back": written,
+        })),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn anomaly_algo(
+    a: AnomalyAlgorithm,
+    k: usize,
+    n_trees: usize,
+    sample_size: usize,
+    seed: u64,
+    nu: f64,
+    gamma: f64,
+    kernel: SvmKernel,
+) -> anomaly::Algorithm {
+    match a {
+        AnomalyAlgorithm::Zscore => anomaly::Algorithm::ZScoreMad,
+        AnomalyAlgorithm::Isoforest => anomaly::Algorithm::IsolationForest {
+            n_trees,
+            sample_size,
+            seed,
+        },
+        AnomalyAlgorithm::Lof => anomaly::Algorithm::Lof { k },
+        AnomalyAlgorithm::Ocsvm => anomaly::Algorithm::OneClassSvm {
+            kernel: match kernel {
+                SvmKernel::Linear => anomaly::Kernel::Linear,
+                SvmKernel::Rbf => anomaly::Kernel::Rbf { gamma },
+            },
+            nu,
+        },
+    }
+}
+
+/// Materialize each FLAGGED row as a typed `:Anomaly` node (CONCEPT:EG-KG.mining.anomaly-writeback),
+/// id = a deterministic digest of `algo` + the source node-id / row index. Linked
+/// to its source node via an `ANOMALY_OF` edge when that node is resident.
+fn materialize_anomalies(
+    core: &GraphCore,
+    out: &anomaly::Anomalies,
+    ids: &[String],
+    algorithm: AnomalyAlgorithm,
+) -> usize {
+    let algo = anomaly_algo_name(algorithm);
+    let mut written = 0usize;
+    for i in 0..out.scores.len() {
+        if !out.is_anomaly[i] {
+            continue;
+        }
+        let src = ids.get(i).cloned().unwrap_or_else(|| i.to_string());
+        let node_id = anomaly_node_id(algo, &src);
+        let props = serde_json::json!({
+            "type": "Anomaly",
+            "algo": algo,
+            "score": out.scores[i],
+            "is_anomaly": true,
+            "source": src,
+        });
+        let Ok(blob) = rmp_serde::to_vec_named(&props) else {
+            continue;
+        };
+        core.add_node(node_id.clone(), blob);
+        if core.has_node(&src) {
+            let edge = serde_json::json!({ "relation": "ANOMALY_OF" });
+            if let Ok(eb) = rmp_serde::to_vec_named(&edge) {
+                let _ = core.add_edge(node_id.clone(), src.clone(), eb);
+            }
+        }
+        written += 1;
+    }
+    written
+}
+
+fn anomaly_algo_name(a: AnomalyAlgorithm) -> &'static str {
+    match a {
+        AnomalyAlgorithm::Zscore => "zscore",
+        AnomalyAlgorithm::Isoforest => "isoforest",
+        AnomalyAlgorithm::Lof => "lof",
+        AnomalyAlgorithm::Ocsvm => "ocsvm",
+    }
+}
+
+fn anomaly_node_id(algo: &str, source: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(algo.as_bytes());
+    hasher.update([0u8]);
+    hasher.update(source.as_bytes());
+    format!("anomaly:{}", hex::encode(&hasher.finalize()[..12]))
+}
+
+// ─────────────────────────── Row builders (shared) ───────────────────────────
+
+/// Resolve the cluster feature rows: explicit `features` win; otherwise gather the
+/// embeddings of the `source` node label (the cross-modal hook). Returns the rows
+/// AND a parallel `ids` vec (node ids for the embedding path, empty for explicit).
+fn build_vectors(
+    core: &GraphCore,
+    features: &[Vec<f64>],
+    source: &Option<VectorSource>,
+) -> (Vec<Vec<f64>>, Vec<String>) {
+    if !features.is_empty() {
+        return (features.to_vec(), Vec::new());
+    }
+    match source {
+        Some(spec) => gather_embeddings(core, spec),
+        None => (Vec::new(), Vec::new()),
+    }
+}
+
+/// Resolve the anomaly rows: explicit `features` win, then a 1-D `values` series
+/// (each scalar → a one-element row — the tsdb RCA path), then node embeddings.
+fn build_anomaly_rows(
+    core: &GraphCore,
+    features: &[Vec<f64>],
+    values: &[f64],
+    source: &Option<VectorSource>,
+) -> (Vec<Vec<f64>>, Vec<String>) {
+    if !features.is_empty() {
+        return (features.to_vec(), Vec::new());
+    }
+    if !values.is_empty() {
+        return (values.iter().map(|&v| vec![v]).collect(), Vec::new());
+    }
+    match source {
+        Some(spec) => gather_embeddings(core, spec),
+        None => (Vec::new(), Vec::new()),
+    }
+}
+
+/// Gather the stored embedding of every node carrying `spec.node_label` (skipping
+/// nodes without one). Compute-near-data: the vectors are read straight off the
+/// resident semantic store.
+fn gather_embeddings(core: &GraphCore, spec: &VectorSource) -> (Vec<Vec<f64>>, Vec<String>) {
+    let owners = core.get_nodes_by_label(&spec.node_label, spec.limit);
+    let store = core.semantic_store.read();
+    let mut rows: Vec<Vec<f64>> = Vec::with_capacity(owners.len());
+    let mut ids: Vec<String> = Vec::with_capacity(owners.len());
+    for (node_id, _blob) in owners {
+        if let Some(vec) = store.get_embedding(&node_id) {
+            rows.push(vec.into_iter().map(|f| f as f64).collect());
+            ids.push(node_id);
+        }
+    }
+    (rows, ids)
+}
+
+/// Reject a ragged feature matrix (rows of differing width) with a clean error
+/// rather than letting a distance computation panic; an empty matrix is allowed
+/// (⇒ an empty result).
+fn validate_matrix(rows: &[Vec<f64>]) -> Result<(), String> {
+    if rows.is_empty() {
+        return Ok(());
+    }
+    let width = rows[0].len();
+    if width == 0 {
+        return Err("mining: feature rows must be non-empty".into());
+    }
+    if rows.iter().any(|r| r.len() != width) {
+        return Err("mining: all feature rows must have the same dimensionality".into());
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -385,5 +883,168 @@ mod tests {
         // Write-back created queryable :AssociationRule nodes.
         let rule_nodes = core.get_nodes_by_label("AssociationRule", 0);
         assert_eq!(rule_nodes.len() as u64, written);
+    }
+
+    #[test]
+    fn cluster_explicit_features_dbscan() {
+        let core = Arc::new(GraphCore::new());
+        let features = vec![
+            vec![0.0, 0.0],
+            vec![0.1, 0.1],
+            vec![0.2, 0.0],
+            vec![10.0, 10.0],
+            vec![10.1, 9.9],
+            vec![10.0, 10.2],
+        ];
+        let m = Method::MineCluster {
+            features,
+            source: None,
+            algorithm: ClusterAlgorithm::Dbscan,
+            eps: 1.0,
+            min_pts: 2,
+            k: 3,
+            linkage: Linkage::Average,
+            max_iter: 100,
+            seed: 0,
+            writeback: false,
+        };
+        let resp = try_handle(1, core, m).expect("handled");
+        let Some(ResultPayload::Json(v)) = resp.result else {
+            panic!("expected json");
+        };
+        assert_eq!(v["n_rows"], 6);
+        assert_eq!(v["n_clusters"], 2);
+        assert_eq!(v["written_back"], 0);
+    }
+
+    #[test]
+    fn cluster_over_node_embeddings_and_writeback() {
+        let core = Arc::new(GraphCore::new());
+        // Six :Doc nodes with 2-D embeddings forming two groups.
+        let embs = [
+            ("d0", [0.0f32, 0.0]),
+            ("d1", [0.2, 0.1]),
+            ("d2", [0.1, 0.2]),
+            ("d3", [9.0, 9.0]),
+            ("d4", [9.2, 8.9]),
+            ("d5", [8.9, 9.1]),
+        ];
+        for (id, e) in embs {
+            core.add_node(id.into(), node(serde_json::json!({"type": "Doc"})));
+            core.semantic_store
+                .write()
+                .add_embedding(id.to_string(), e.to_vec());
+        }
+        let m = Method::MineCluster {
+            features: Vec::new(),
+            source: Some(VectorSource {
+                node_label: "Doc".into(),
+                limit: 0,
+            }),
+            algorithm: ClusterAlgorithm::Kmedoids,
+            eps: 0.5,
+            min_pts: 5,
+            k: 2,
+            linkage: Linkage::Average,
+            max_iter: 100,
+            seed: 0,
+            writeback: true,
+        };
+        let resp = try_handle(2, Arc::clone(&core), m).expect("handled");
+        let Some(ResultPayload::Json(v)) = resp.result else {
+            panic!("expected json");
+        };
+        assert_eq!(v["n_rows"], 6);
+        assert_eq!(v["n_clusters"], 2);
+        let written = v["written_back"].as_u64().unwrap();
+        assert_eq!(written, 2);
+        // Members are reported as node ids (not indices).
+        let first = &v["clusters"][0]["members"][0];
+        assert!(first.is_string());
+        core.mark_dirty();
+        let cluster_nodes = core.get_nodes_by_label("Cluster", 0);
+        assert_eq!(cluster_nodes.len() as u64, written);
+    }
+
+    #[test]
+    fn anomaly_values_series_zscore_and_writeback() {
+        let core = Arc::new(GraphCore::new());
+        // A flat series with one spike — the tsdb RCA path via `values`.
+        let mut values: Vec<f64> = (0..10).map(|i| 1.0 + 0.01 * i as f64).collect();
+        values.push(100.0); // the anomaly
+        let m = Method::MineAnomaly {
+            features: Vec::new(),
+            values,
+            source: None,
+            algorithm: AnomalyAlgorithm::Zscore,
+            k: 20,
+            n_trees: 100,
+            sample_size: 256,
+            seed: 0,
+            nu: 0.1,
+            gamma: 0.0,
+            kernel: SvmKernel::Rbf,
+            threshold: None,
+            writeback: false,
+        };
+        let resp = try_handle(3, core, m).expect("handled");
+        let Some(ResultPayload::Json(v)) = resp.result else {
+            panic!("expected json");
+        };
+        assert_eq!(v["n_rows"], 11);
+        assert_eq!(v["n_anomalies"], 1);
+        // The spike (last row) is the flagged one.
+        let rows = v["rows"].as_array().unwrap();
+        assert!(rows[10]["is_anomaly"].as_bool().unwrap());
+    }
+
+    #[test]
+    fn anomaly_over_node_embeddings_writeback_links_source() {
+        let core = Arc::new(GraphCore::new());
+        let embs = [
+            ("m0", [0.0f32, 0.0]),
+            ("m1", [0.1, 0.0]),
+            ("m2", [0.0, 0.1]),
+            ("m3", [0.1, 0.1]),
+            ("m4", [0.05, 0.05]),
+            ("m5", [50.0, 50.0]), // outlier
+        ];
+        for (id, e) in embs {
+            core.add_node(id.into(), node(serde_json::json!({"type": "Metric"})));
+            core.semantic_store
+                .write()
+                .add_embedding(id.to_string(), e.to_vec());
+        }
+        let m = Method::MineAnomaly {
+            features: Vec::new(),
+            values: Vec::new(),
+            source: Some(VectorSource {
+                node_label: "Metric".into(),
+                limit: 0,
+            }),
+            algorithm: AnomalyAlgorithm::Zscore,
+            k: 20,
+            n_trees: 100,
+            sample_size: 256,
+            seed: 0,
+            nu: 0.1,
+            gamma: 0.0,
+            kernel: SvmKernel::Rbf,
+            threshold: None,
+            writeback: true,
+        };
+        let resp = try_handle(4, Arc::clone(&core), m).expect("handled");
+        let Some(ResultPayload::Json(v)) = resp.result else {
+            panic!("expected json");
+        };
+        assert_eq!(v["n_rows"], 6);
+        let written = v["written_back"].as_u64().unwrap();
+        assert!(written >= 1);
+        core.mark_dirty();
+        let anomaly_nodes = core.get_nodes_by_label("Anomaly", 0);
+        assert_eq!(anomaly_nodes.len() as u64, written);
+        // The anomaly node links to its source (m5) via ANOMALY_OF.
+        let succ = core.get_successors(&anomaly_nodes[0].0).unwrap_or_default();
+        assert!(succ.iter().any(|s| s == "m5"));
     }
 }
