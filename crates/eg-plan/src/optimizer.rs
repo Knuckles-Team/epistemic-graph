@@ -449,6 +449,142 @@ mod tests {
         );
     }
 
+    /// A GENUINELY selective NUMERIC-RANGE filter (`year > 980` over a 0..999 column) now
+    /// reorders FILTER-FIRST because the optimizer reads the real column distribution from the
+    /// collected [`crate::cost::ColumnStats`] histogram — while a BROAD range (`year > 20`) over
+    /// the same column stays vector-first. Proves the T-E1 gap is closed: before, `GtNum` used
+    /// a fixed 0.33 heuristic and NEVER pushed at this scale (asserted via `Stats::estimate`);
+    /// after, the stats-derived selectivity flips the selective case to filter-first. Both
+    /// reorders are result-set-preserving (the optimizer's invariant), asserted per case.
+    #[test]
+    fn selective_numeric_range_pushed_but_broad_range_stays() {
+        use crate::cost::{CostModel, Order, PlanStats, Stats};
+        use eg_core::compute::semantic::SemanticStore;
+        use eg_core::graph::GraphCore;
+        use serde_json::json;
+
+        // 1000 `Doc` nodes with year = 0..999 (a WIDE spread so a high threshold is very
+        // selective and a low one very broad) — each with an embedding so the vector `Rank`
+        // has a real cost. The scale matters: at 1000 nodes the fixed-0.33 heuristic sits
+        // ABOVE the filter-first/vector-first crossover, so only a stats-derived selectivity
+        // can push a range filter (that is exactly the ablation's finding).
+        const N: usize = 1_000;
+        let core = GraphCore::new();
+        let mut semantic = SemanticStore::new();
+        for k in 0..N {
+            let id = format!("d{k}");
+            core.add_node(
+                id.clone(),
+                rmp_serde::to_vec_named(&json!({ "type": "Doc", "year": k as i64 })).unwrap(),
+            );
+            // A trivially separable embedding (all mass on one of 4 axes by k) — enough for
+            // the `Rank` leg to score every node; the exact order is irrelevant to the SET.
+            let mut v = vec![0.0f32; 4];
+            v[k % 4] = 1.0;
+            semantic.add_embedding(id, v);
+        }
+        let view = core.analysis_snapshot();
+        let ctx = PlanCtx::new(&view, &semantic);
+
+        // The seed size the pair's cost model reasons over: rows out of the leading `Scan`.
+        let card = ModalityCardinality::new(PlanStats::collect(&ctx));
+        let seed = card.rows_out(
+            &Op::Scan {
+                label: "Doc".into(),
+            },
+            0.0,
+            &ctx,
+        );
+
+        // ── the SELECTIVE range: year > 980 (≈ 1.9% of 0..999) ──────────────────────────
+        let selective = Plan::new(vec![
+            Op::Scan {
+                label: "Doc".into(),
+            },
+            Op::Rank {
+                query: crate::fixture::query_vec(),
+            },
+            Op::Filter {
+                preds: vec![Pred::GtNum {
+                    prop: "year".into(),
+                    n: 980.0,
+                }],
+            },
+        ]);
+        // BEFORE (the fixed 0.33 heuristic): at this seed the range would NOT be pushed.
+        assert_eq!(
+            CostModel::order(&Stats::estimate(
+                seed.round().max(1.0) as usize,
+                0.33,
+                crate::cost::DEFAULT_TOP_K,
+                card.stats().embedding_count,
+            )),
+            Order::VectorFirst,
+            "with the OLD fixed 0.33 range heuristic the filter stays behind the Rank"
+        );
+        // AFTER (stats-derived): the real selectivity is ~2%, well below the crossover.
+        let sel_est = card.selectivity(&selective.ops[2], seed, &ctx);
+        assert!(
+            sel_est < 0.1,
+            "the histogram estimates year>980 as selective, got {sel_est}"
+        );
+        assert_eq!(
+            CostModel::order(&Stats::estimate(
+                seed.round().max(1.0) as usize,
+                sel_est,
+                crate::cost::DEFAULT_TOP_K,
+                card.stats().embedding_count,
+            )),
+            Order::FilterFirst,
+            "stats-derived selectivity flips the selective range to filter-first"
+        );
+        let opt_sel = optimize(&selective, &ctx);
+        assert!(
+            matches!(opt_sel.ops[1], Op::Filter { .. })
+                && matches!(opt_sel.ops[2], Op::Rank { .. }),
+            "selective range pushed AHEAD of Rank, got {:?}",
+            opt_sel.ops
+        );
+        assert_eq!(
+            sorted_ids(&execute(&selective, &ctx).unwrap()),
+            sorted_ids(&execute(&opt_sel, &ctx).unwrap()),
+            "the selective-range reorder must preserve the result set"
+        );
+
+        // ── the BROAD range: year > 20 (≈ 98% of 0..999) — must NOT be pushed ───────────
+        let broad = Plan::new(vec![
+            Op::Scan {
+                label: "Doc".into(),
+            },
+            Op::Rank {
+                query: crate::fixture::query_vec(),
+            },
+            Op::Filter {
+                preds: vec![Pred::GtNum {
+                    prop: "year".into(),
+                    n: 20.0,
+                }],
+            },
+        ]);
+        let broad_sel = card.selectivity(&broad.ops[2], seed, &ctx);
+        assert!(
+            broad_sel > 0.9,
+            "the histogram estimates year>20 as broad, got {broad_sel}"
+        );
+        let opt_broad = optimize(&broad, &ctx);
+        assert!(
+            matches!(opt_broad.ops[1], Op::Rank { .. })
+                && matches!(opt_broad.ops[2], Op::Filter { .. }),
+            "broad range stays BEHIND the Rank (vector-first), got {:?}",
+            opt_broad.ops
+        );
+        assert_eq!(
+            sorted_ids(&execute(&broad, &ctx).unwrap()),
+            sorted_ids(&execute(&opt_broad, &ctx).unwrap()),
+            "even the untouched (broad) plan is result-equivalent"
+        );
+    }
+
     /// The `FuseRrf` branch-reorder puts the CHEAPER branch first (a graph-native rerank
     /// before a brute-force vector `Rank`) — a change that RRF makes result-invariant.
     #[cfg(feature = "text")]
