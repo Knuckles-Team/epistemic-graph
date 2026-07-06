@@ -6,6 +6,9 @@
     "vector_search_k10": 80000000,
     "reason_rank_traverse": 80000000,
     "tsscan_window": 150000000,
-    "fuse_rrf": 400000000
+    "fuse_rrf": 400000000,
+    "selective_filter_rank": 400000000,
+    "cold_reopen_read": 500000000,
+    "warm_read": 50000000
   }
 }
