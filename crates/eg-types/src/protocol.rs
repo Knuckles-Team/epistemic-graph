@@ -41,6 +41,20 @@ fn default_decay_half_life() -> f64 {
     604_800.0
 }
 
+/// serde default for association-rule `min_support` (CONCEPT:EG-KG.mining.frequent-itemset-mining):
+/// keep an itemset supported by ≥10% of transactions.
+#[cfg(feature = "mining")]
+fn default_min_support() -> f64 {
+    0.1
+}
+
+/// serde default for association-rule `min_confidence` (CONCEPT:EG-KG.mining.frequent-itemset-mining):
+/// keep a rule with ≥50% conditional probability.
+#[cfg(feature = "mining")]
+fn default_min_confidence() -> f64 {
+    0.5
+}
+
 // ── Request ─────────────────────────────────────────────────────────────
 
 /// Top-level request envelope sent by the Python client.
@@ -2513,9 +2527,99 @@ pub enum Method {
     CepUnsubscribe {
         sub_id: u64,
     },
+
+    // ── Mining (CONCEPT:EG-KG.mining.frequent-itemset-mining — descriptive data mining) ──
+    // The unified data-mining surface. Phase 1 = association-rule mining; later
+    // phases add `Mine{Cluster,Anomaly,Sequence,Forecast,Subgraph,…}` variants into
+    // THIS section (kept flat + section-commented per the dispatch conventions).
+    //
+    // `MineAssociate` is compute-near-data: it accepts EITHER explicit `transactions`
+    // (each a set of item labels) OR a graph-derived `source` that turns node
+    // neighborhoods into transactions (mine directly over resident graph data). It
+    // returns rows `{antecedent, consequent, support, confidence, lift}`. With
+    // `writeback=true` it materializes each rule as a typed `:AssociationRule` node
+    // linked to its item nodes — a graph MUTATION, so it classifies as a write and
+    // WAL-replays by re-mining deterministically (explicit transactions reproduce
+    // byte-identically; a graph-derived source re-derives from the graph, like the
+    // broker/memory ops). Gated `mining`; a build without it drops the variant → the
+    // dispatch "not available in this build" catch-all.
+    #[cfg(feature = "mining")]
+    MineAssociate {
+        /// Explicit transactions — each a set of item labels. Empty ⇒ use `source`.
+        #[serde(default)]
+        transactions: Vec<Vec<String>>,
+        /// Graph-derived transaction source (compute-near-data). Used when
+        /// `transactions` is empty.
+        #[serde(default)]
+        source: Option<TransactionSource>,
+        /// Minimum fractional support (0.0–1.0) an itemset must meet.
+        #[serde(default = "default_min_support")]
+        min_support: f64,
+        /// Minimum rule confidence (0.0–1.0) to emit.
+        #[serde(default = "default_min_confidence")]
+        min_confidence: f64,
+        /// Which frequent-itemset engine to run (all agree; FP-Growth default).
+        #[serde(default)]
+        algorithm: MineAlgorithm,
+        /// Materialize each rule as a typed `:AssociationRule` node linked to its
+        /// item nodes (the discovery flywheel). Makes this a graph write.
+        #[serde(default)]
+        writeback: bool,
+    },
 }
 
 // ── Supporting Types ────────────────────────────────────────────────────
+
+/// Which frequent-itemset engine `MineAssociate` runs (CONCEPT:EG-KG.mining.frequent-itemset-mining).
+/// All three are exact and agree on the frequent-itemset set for a given support;
+/// they differ only in traversal strategy. FP-Growth is the default (no candidate
+/// generation → fastest on dense baskets).
+#[cfg(feature = "mining")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum MineAlgorithm {
+    #[default]
+    Fpgrowth,
+    Apriori,
+    Eclat,
+}
+
+/// A graph-derived transaction source for `MineAssociate` (CONCEPT:EG-KG.mining.graph-derived-transactions).
+///
+/// Each node carrying `node_label` becomes one "basket owner"; the basket is the set
+/// of `item_field` values gathered from its neighbors (following edges in
+/// `direction`), optionally filtered to a `relation`. This turns node neighborhoods
+/// into transactions so mining runs directly over resident graph data — the
+/// cross-modal hook (e.g. "for each :Capability, the set of concepts it touches" =
+/// one transaction ⇒ concept-co-occurrence rules).
+#[cfg(feature = "mining")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TransactionSource {
+    /// The node label whose instances each become one transaction/basket owner.
+    pub node_label: String,
+    /// Edge direction to gather neighbors: `out` (successors, default), `in`
+    /// (predecessors), or `any` (both).
+    #[serde(default = "default_mine_direction")]
+    pub direction: String,
+    /// Which value of each neighbor becomes an item: `label` (the neighbor's
+    /// type/label, default) or `prop:<key>` (a neighbor property value). When
+    /// `None`, the neighbor's node id is used verbatim.
+    #[serde(default)]
+    pub item_field: Option<String>,
+    /// Optional edge-relation filter: only follow edges whose `relation`/`type`
+    /// property equals this. `None` ⇒ all edges.
+    #[serde(default)]
+    pub relation: Option<String>,
+    /// Cap the number of basket owners scanned (0 = uncapped).
+    #[serde(default)]
+    pub limit: usize,
+}
+
+/// serde default for [`TransactionSource::direction`].
+#[cfg(feature = "mining")]
+fn default_mine_direction() -> String {
+    "out".to_string()
+}
 
 /// The distributed graph algorithm a `DistributedCompute` / matview runs across
 /// shards (CONCEPT:EG-KG.storage.feature). Each is a vertex-centric (Pregel/GAS) computation the

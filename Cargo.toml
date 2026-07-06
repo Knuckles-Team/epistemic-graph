@@ -105,6 +105,11 @@ ast = ["eg-compute/ast"]
 # Extended-language grammar tier (CONCEPT:KG-2.106), folded into `full`.
 ast-extended = ["eg-compute/ast-extended"]
 datascience = ["eg-compute/datascience", "eg-types/datascience"]
+# Data-mining domain (CONCEPT:EG-KG.mining.frequent-itemset-mining): association-rule
+# mining (Apriori/FP-Growth/Eclat) + the `graph_mine` surface. Pure-Rust, no heavy
+# dep, folded into `full`. Gates eg-compute/mining + eg-types/mining + the
+# handlers/mining.rs dispatch arm.
+mining = ["eg-compute/mining", "eg-types/mining"]
 reasoning = ["eg-compute/reasoning"]
 # CONCEPT:EG-321 — the Analytics-Program numeric kernel (eg-numeric: faer + ndarray,
 # BLAS/LAPACK-free). Links the PURE Rust kernel (rlib) for Surface B in-database
@@ -729,7 +734,7 @@ shacl = ["rdf", "dep:eg-shacl"]
 # tier lines at merge time (avoids a tier-line merge conflict with concurrent waves). Kept
 # OUT of `pi`.
 shex = ["rdf", "dep:eg-shex"]
-compute = ["finance", "ast", "ast-extended", "datascience", "reasoning"]
+compute = ["finance", "ast", "ast-extended", "datascience", "mining", "reasoning"]
 # `full`/`all`/`default` = THE ONE MAIN BUILD (CONCEPT:EG-371). It deliberately stays
 # SINGLE-NODE: raft is NOT folded in, so a `full` build links no openraft (replication
 # is the opt-in `cluster` layer). Consequently `compute-dist` (which NEEDS raft for

@@ -1140,6 +1140,16 @@ async fn dispatch_graph_op(
             Ok(r) => break 'dispatch r,
             Err(m) => m,
         };
+        // Data-mining domain (CONCEPT:EG-KG.mining.frequent-itemset-mining): GRAPH-SCOPED
+        // (unlike finance/datascience), so it takes the graph core — the graph-derived
+        // transaction source reads node neighborhoods and write-back materializes
+        // `:AssociationRule` nodes into it. A method whose feature is off falls through
+        // to the graph_ops not-available catch-all.
+        #[cfg(feature = "mining")]
+        let method = match handlers::mining::try_handle(req_id, core.clone(), method) {
+            Ok(r) => break 'dispatch r,
+            Err(m) => m,
+        };
         // Read-only query surface — SQL (CONCEPT:EG-KG.query.read-only-sql-query, DataFusion behind
         // `query`) AND Cypher (CONCEPT:EG-KG.query.dep-free-behind, dep-free behind `cypher`) AND GraphQL
         // (CONCEPT:EG-KG.query.sparql-completeness, pure-Rust eg-graphql behind `graphql`): borrows the graph

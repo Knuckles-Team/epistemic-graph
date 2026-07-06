@@ -12,6 +12,13 @@ pub(crate) mod datascience;
 #[cfg(feature = "finance")]
 pub(crate) mod finance;
 pub(crate) mod graph_ops;
+// Data-mining domain (CONCEPT:EG-KG.mining.frequent-itemset-mining, feature `mining`).
+// Association-rule mining. GRAPH-SCOPED (unlike finance/datascience): the
+// graph-derived source + write-back need the live graph core, so the handler takes
+// it like query/rdf. A build without `mining` omits the module and the
+// `MineAssociate` variant falls to the graph_ops "not available" catch-all.
+#[cfg(feature = "mining")]
+pub(crate) mod mining;
 // M3 catalog-driven resharding admin (CONCEPT:EG-KG.backend.m3-admin-dispatch): the wire surface that DRIVES online
 // resharding (EG-032), the tenant catalog (EG-031) and the rebalance planner (EG-035) +
 // its execution (EG-039). Always declared; the real logic is `redb`-gated (the only build

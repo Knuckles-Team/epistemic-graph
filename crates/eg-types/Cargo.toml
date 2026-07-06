@@ -17,6 +17,12 @@ name = "eg_types"
 metrics = ["dep:strum"]
 finance = []
 datascience = []
+# Data-mining domain (CONCEPT:EG-KG.mining.frequent-itemset-mining): gates the
+# `Method::MineAssociate` variant + its `TransactionSource`/`MineAlgorithm` wire
+# types. PURE serde — no heavy dep — so it folds into the serving tiers; a build
+# without it drops the variant (→ the dispatch "not available in this build"
+# catch-all), exactly like finance/datascience.
+mining = []
 # Unified cross-modal query plan AST (CONCEPT:KG-2.208) — the wire DTO embedded in
 # `Method::UnifiedQuery`. Gated so a build without the query surface drops the AST
 # (and the Method variant) from the enum, exactly like finance/datascience.
