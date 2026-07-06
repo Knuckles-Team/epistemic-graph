@@ -18,6 +18,15 @@
 //!   fetch a page a warm worker already computed. This is the seam an external
 //!   vLLM/LMCache connector calls.
 //!
+//! * **Zero-copy snapshot-fork (CONCEPT:EG-KG.memory.zero-copy-snapshot-fork)** — the
+//!   "LMCacheMPConnector snapshot → branch" primitive on [`SharedKvIndex`]:
+//!   [`snapshot`](SharedKvIndex::snapshot) pins a set of shared pages, then
+//!   [`fork`](SharedKvIndex::fork) fans out N branches that all read those SAME physical
+//!   pages by `Arc` (ONE copy, regardless of branch count), copy-on-write only when a
+//!   branch [`branch_put`](SharedKvIndex::branch_put)s. This makes warm-fork fan-out O(1)
+//!   in copies — the zero-copy rung the agent-utilities `crossmodal_fork` `max_concurrency>1`
+//!   path targets, replacing per-branch page COPIES with pointer bumps.
+//!
 //! ## Dependency posture (the Pi contract)
 //!
 //! The default build links NOTHING — the content hash (FNV-1a-128), the WARM compressor
@@ -44,7 +53,7 @@ pub mod version;
 
 pub use compress::{Codec, StoredBlock};
 pub use hash::content_hash;
-pub use shared::{SharedKvBackend, SharedKvIndex, SharedStats};
+pub use shared::{BranchId, ForkStats, SharedKvBackend, SharedKvIndex, SharedStats, SnapshotId};
 pub use tiered::{CacheStats, Tier, TieredCache};
 pub use value::{Block, CacheValue};
 pub use version::DataVersion;
