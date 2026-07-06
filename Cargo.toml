@@ -1046,6 +1046,16 @@ name = "eg096_massive_scale_bench"
 path = "benches/eg096_massive_scale_bench.rs"
 harness = false
 
+# ── Cold-open vs warm-read of the redb durable tier (Phase-2 T-E1) ──────────────
+# Times a fresh `RedbBackend` reopen + first point-read vs a subsequent warm read, so
+# the cold/warm p50 delta (the reopen amortization cost) is measurable. Needs the redb
+# backend + tokio server runtime, so `required-features = ["full"]`.
+[[bench]]
+name = "cold_warm_reopen"
+path = "benches/cold_warm_reopen.rs"
+harness = false
+required-features = ["full"]
+
 [profile.release]
 opt-level = 3
 # thin (not fat) LTO. EVIDENCED: the aarch64 wheel cross-build (zig/qemu under
