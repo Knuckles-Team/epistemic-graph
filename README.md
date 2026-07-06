@@ -80,6 +80,11 @@ database on its own. See the agent-utilities
 - **One full-featured build.** `cargo build` is the whole engine — every main feature that compiles
   without a GPU/robotics toolchain, in one published wheel; `cluster` (HA raft) and `full-extras`
   (GPU/ROS2) are opt-in build layers on top. Runs on Raspberry Pi 4+. → [One build, opt-in layers](docs/architecture/tiers.md)
+- **Measured to win the agent-memory workload.** Against a conventional stitched stack (separate vector
+  DB + BM25 + app-level fusion, no KV cache, no warm-fork), the unified engine matches recall (**1.000**)
+  while retrieving **~3.6× faster**, reusing cross-modal context across a fan-out with **`retrieval_calls == 1`**
+  (vs *N*), keeping writes **read-fresh in 25.7 ms** (incremental, not full-rebuild), and surviving a full
+  restart with a **durable KV cold-tier (100% survival, >300× vs recompute)**. → [Benchmarks](docs/benchmarks.md#phase-2-agent-memory--kv-cache-benchmark-measured)
 
 ---
 
