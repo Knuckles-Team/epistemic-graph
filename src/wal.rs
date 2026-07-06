@@ -90,6 +90,12 @@ pub fn is_durable_mutation(m: &Method) -> bool {
         Method::MineAssociate {
             writeback: true,
             ..
+        } | Method::MineCluster {
+            writeback: true,
+            ..
+        } | Method::MineAnomaly {
+            writeback: true,
+            ..
         }
     ) {
         return true;
@@ -667,11 +673,14 @@ pub fn apply(core: &GraphCore, m: &Method) {
                 *t,
             );
         }
-        // Association-rule mining write-back (CONCEPT:EG-KG.mining.frequent-itemset-mining):
-        // re-mine + re-materialize the `:AssociationRule` nodes. The node ids are a
-        // deterministic digest of antecedent⇒consequent, so replay is idempotent.
+        // Data-mining write-back (CONCEPT:EG-KG.mining.frequent-itemset-mining /
+        // dbscan-density / isolation-forest): re-run the mining op + re-materialize
+        // the `:AssociationRule` / `:Cluster` / `:Anomaly` nodes. The node ids are a
+        // deterministic digest of the mined content, so replay is idempotent.
         #[cfg(all(feature = "mining", feature = "server"))]
-        Method::MineAssociate { .. } => crate::server::handlers::mining::replay(core, m),
+        Method::MineAssociate { .. } | Method::MineCluster { .. } | Method::MineAnomaly { .. } => {
+            crate::server::handlers::mining::replay(core, m)
+        }
         _ => {}
     }
 }
