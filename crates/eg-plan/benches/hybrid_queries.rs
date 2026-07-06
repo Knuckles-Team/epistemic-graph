@@ -86,6 +86,14 @@ fn build_dataset(
             blob(json!({
                 "type": "Doc",
                 "year": 2000 + (k as i64 % 30),
+                // A WIDE monotonic numeric column (0..n) the range-pushdown ablation filters
+                // on. Unlike `year` (only 30 distinct values ⇒ min 1/30 selectivity), `score`
+                // lets a `GtNum` threshold be arbitrarily selective in ABSOLUTE terms — so the
+                // column-histogram estimate (CONCEPT:EG-KG.query.column-range-stats) recognizes a
+                // top-tail range as selective enough to push filter-first, where the fixed 0.33
+                // heuristic never did. A pure extra property: vector/edge structure (recall)
+                // is untouched.
+                "score": k as i64,
                 "topic": format!("t{}", k % 97),
                 "lang": format!("l{}", k % 13),
             })),
@@ -397,7 +405,8 @@ fn scale_rungs() -> Vec<usize> {
 /// categorical columns (`topic == "t0"` ∧ `lang == "l0"`), ~0.08% of the nodes. Categorical
 /// equality is what a filter-pushdown targets, and the cost model's per-`Eq` heuristic
 /// (0.1 each ⇒ 0.01 combined) recognizes it as selective enough to REORDER — so the
-/// optimizer actually fires here (a numeric `GtNum` range, heuristic 0.33, is declined).
+/// optimizer fires here. Its numeric-range twin is [`selective_range_preds`], which the
+/// column-histogram estimate now pushes too (previously a fixed 0.33 heuristic declined it).
 fn selective_filter_preds() -> Vec<Pred> {
     vec![
         Pred::Eq {
@@ -425,6 +434,38 @@ fn selective_filter_plan() -> Plan {
         },
         Op::Filter {
             preds: selective_filter_preds(),
+        },
+        Op::Limit { k: 20 },
+    ])
+}
+
+/// A HIGHLY selective NUMERIC-RANGE filter (`score > n-50`, i.e. only the top ~50 of `n`
+/// nodes) — the range counterpart to [`selective_filter_preds`]. This is the case the fixed
+/// per-`GtNum` heuristic (0.33) always DECLINED regardless of true selectivity; with the
+/// column-histogram estimate (CONCEPT:EG-KG.query.column-range-stats) its real ~50/n selectivity is
+/// read from the data, so the optimizer now pushes it filter-first exactly like the
+/// categorical `Eq` case. `n` is the dataset size (so the top tail stays a fixed ~50 rows —
+/// absolutely selective at every rung).
+fn selective_range_preds(n: usize) -> Vec<Pred> {
+    vec![Pred::GtNum {
+        prop: "score".into(),
+        n: n.saturating_sub(50) as f64,
+    }]
+}
+
+/// The selective-RANGE pipeline: `Scan → Rank → Filter(score > n-50) → Limit`, mirroring
+/// [`selective_filter_plan`] but with a numeric range instead of categorical equality. Demos
+/// the range-pushdown win the column stats unlock.
+fn selective_range_plan(n: usize) -> Plan {
+    Plan::new(vec![
+        Op::Scan {
+            label: "Doc".into(),
+        },
+        Op::Rank {
+            query: query_vec(DIM, QUERY_SEED),
+        },
+        Op::Filter {
+            preds: selective_range_preds(n),
         },
         Op::Limit { k: 20 },
     ])
@@ -474,6 +515,14 @@ fn bench_scale_sweep(c: &mut Criterion) {
         let sel = selective_filter_plan();
         group.bench_with_input(BenchmarkId::new("selective_filter", n), &n, |b, _| {
             b.iter(|| black_box(execute(&sel, &ctx).unwrap()))
+        });
+
+        // The RANGE counterpart: `Scan → Rank → Filter(score > n-50) → Limit`. With column
+        // stats the optimizer now pushes this selective range filter-first (the fixed 0.33
+        // heuristic never did) — the reorder win the T-E1 range ablation surfaced.
+        let sel_range = selective_range_plan(n);
+        group.bench_with_input(BenchmarkId::new("selective_range_filter", n), &n, |b, _| {
+            b.iter(|| black_box(execute(&sel_range, &ctx).unwrap()))
         });
 
         #[cfg(feature = "text")]
@@ -538,8 +587,8 @@ fn run_filter_pushdown_ablation() -> bool {
     };
     eprintln!("\n== filter-pushdown ablation (p50 interleaved iters, ms) ==");
     eprintln!(
-        "{:>10}  {:>12}  {:>12}  {:>9}  {:>12}",
-        "N", "rank_first", "filter_first", "speedup", "opt_picks"
+        "{:>10}  {:>18}  {:>12}  {:>12}  {:>9}  {:>12}",
+        "N", "variant", "rank_first", "filter_first", "speedup", "opt_picks"
     );
     for n in scale_rungs() {
         // Fewer iterations at scale so a 1M rung stays bounded (each execute is seconds).
@@ -548,53 +597,54 @@ fn run_filter_pushdown_ablation() -> bool {
         let ctx = PlanCtx::new(&view, &semantic);
         // Build the HNSW index ONCE, off the clock.
         let _ = semantic.semantic_search(&query_vec(DIM, QUERY_SEED), 1);
-        // The two PHYSICAL orderings, built EXPLICITLY so the ablation measures the
-        // reorder's real cost regardless of what the cost model chooses.
-        let rank_first = selective_filter_plan(); // Scan → Rank → Filter → Limit
-        let filter_first = Plan::new(vec![
-            Op::Scan {
-                label: "Doc".into(),
-            },
-            Op::Filter {
-                preds: selective_filter_preds(),
-            },
-            Op::Rank {
-                query: query_vec(DIM, QUERY_SEED),
-            },
-            Op::Limit { k: 20 },
-        ]);
-        // What the cost optimizer WOULD do to the rank-first plan (its heuristic
-        // per-predicate selectivity, not the real data distribution, drives this).
-        let opt_picks = if matches!(
-            optimize(&rank_first, &ctx).ops.get(1),
-            Some(Op::Filter { .. })
-        ) {
-            "filter_first"
-        } else {
-            "rank_first"
-        };
 
-        // A couple of untimed warm passes, then INTERLEAVE the two so ambient drift hits
-        // both equally.
-        for _ in 0..3 {
-            let _ = execute_ops(&rank_first.ops, &ctx).unwrap();
-            let _ = execute_ops(&filter_first.ops, &ctx).unwrap();
+        // The narrower each variant filters on (categorical `Eq` vs numeric-range `GtNum`);
+        // the RANGE one is the case column stats newly push. Each is timed as its two PHYSICAL
+        // orderings so the ablation measures the reorder's real cost regardless of the pick.
+        let variants: [(&str, Plan); 2] = [
+            ("selective_filter", selective_filter_plan()),
+            ("selective_range", selective_range_plan(n)),
+        ];
+        for (name, rank_first) in variants {
+            // The filter-first physical ordering: swap the (Rank, Filter) pair to Filter-first.
+            let filter_first = Plan::new(vec![
+                rank_first.ops[0].clone(), // Scan
+                rank_first.ops[2].clone(), // Filter
+                rank_first.ops[1].clone(), // Rank
+                rank_first.ops[3].clone(), // Limit
+            ]);
+            // What the cost optimizer WOULD pick — now driven by the REAL data distribution
+            // (column histogram) for the range variant, not the fixed 0.33 heuristic.
+            let opt_picks = if matches!(
+                optimize(&rank_first, &ctx).ops.get(1),
+                Some(Op::Filter { .. })
+            ) {
+                "filter_first"
+            } else {
+                "rank_first"
+            };
+
+            // Untimed warm passes, then INTERLEAVE the two so ambient drift hits both equally.
+            for _ in 0..3 {
+                let _ = execute_ops(&rank_first.ops, &ctx).unwrap();
+                let _ = execute_ops(&filter_first.ops, &ctx).unwrap();
+            }
+            let mut rf = Vec::with_capacity(iters);
+            let mut ff = Vec::with_capacity(iters);
+            for _ in 0..iters {
+                let t = Instant::now();
+                let _ = black_box(execute_ops(&rank_first.ops, &ctx).unwrap());
+                rf.push(t.elapsed().as_secs_f64() * 1e3);
+                let t = Instant::now();
+                let _ = black_box(execute_ops(&filter_first.ops, &ctx).unwrap());
+                ff.push(t.elapsed().as_secs_f64() * 1e3);
+            }
+            let (rf, ff) = (med(rf), med(ff));
+            eprintln!(
+                "{n:>10}  {name:>18}  {rf:>12.2}  {ff:>12.2}  {:>8.2}x  {opt_picks:>12}",
+                rf / ff
+            );
         }
-        let mut rf = Vec::with_capacity(iters);
-        let mut ff = Vec::with_capacity(iters);
-        for _ in 0..iters {
-            let t = Instant::now();
-            let _ = black_box(execute_ops(&rank_first.ops, &ctx).unwrap());
-            rf.push(t.elapsed().as_secs_f64() * 1e3);
-            let t = Instant::now();
-            let _ = black_box(execute_ops(&filter_first.ops, &ctx).unwrap());
-            ff.push(t.elapsed().as_secs_f64() * 1e3);
-        }
-        let (rf, ff) = (med(rf), med(ff));
-        eprintln!(
-            "{n:>10}  {rf:>12.2}  {ff:>12.2}  {:>8.2}x  {opt_picks:>12}",
-            rf / ff
-        );
     }
     true
 }
