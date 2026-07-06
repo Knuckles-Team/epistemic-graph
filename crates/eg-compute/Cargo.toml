@@ -17,6 +17,10 @@ name = "eg_compute"
 # DTOs they re-export (`eg_types::wire::{Order, FittedModel, ...}`) exist.
 finance = ["dep:nalgebra", "eg-types/finance"]
 datascience = ["dep:rand_chacha", "eg-types/datascience"]
+# Data-mining domain (CONCEPT:EG-KG.mining.frequent-itemset-mining): pure-Rust,
+# dependency-light frequent-itemset + association-rule mining. No heavy dep — only
+# turns on the matching eg-types feature so the `MineAssociate` wire variant exists.
+mining = ["eg-types/mining"]
 reasoning = []
 ast = [
     "dep:tree-sitter",
