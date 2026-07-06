@@ -196,11 +196,20 @@ pub struct PlanStats {
     pub embedding_count: usize,
     /// Mean out-degree `edge_count / node_count` — the graph `Traverse` fan-out factor.
     pub avg_out_degree: f64,
+    /// Per-numeric-column min/max + equi-width histogram (CONCEPT:EG-KG.query.column-range-stats).
+    /// The ONE non-O(1) member: derived from a single cheap pass over the resident node
+    /// property blobs so a `GtNum`/`LtNum` range predicate's selectivity is estimated from the
+    /// REAL data distribution instead of a fixed heuristic. Bounded (fixed buckets + a capped
+    /// per-column sample), so its memory never scales with graph size.
+    pub column_stats: ColumnStats,
 }
 
 #[cfg(feature = "query")]
 impl PlanStats {
-    /// Collect the O(1) catalog from a [`crate::exec::PlanCtx`] snapshot.
+    /// Collect the catalog from a [`crate::exec::PlanCtx`] snapshot. The scalar counts are
+    /// O(1) (`.len()` on the snapshot maps); [`ColumnStats::collect`] adds ONE cheap pass over
+    /// the resident node blobs to derive per-column numeric distributions (the input the
+    /// range-selectivity estimate reads) — done once per `plan_optimize`, not per predicate.
     pub fn collect(ctx: &crate::exec::PlanCtx) -> Self {
         let node_count = ctx.view.node_properties.len();
         let edge_count = ctx.view.edge_properties.len();
@@ -215,7 +224,192 @@ impl PlanStats {
             edge_count,
             embedding_count,
             avg_out_degree,
+            column_stats: ColumnStats::collect(ctx.view),
         }
+    }
+}
+
+/// Number of equi-width buckets per numeric column histogram (CONCEPT:EG-KG.query.column-range-stats)
+/// — a small fixed constant: enough resolution to distinguish a selective tail from a broad
+/// range, cheap to build and store.
+#[cfg(feature = "query")]
+const HIST_BUCKETS: usize = 16;
+
+/// Cap on the per-column value sample the histogram is built from
+/// (CONCEPT:EG-KG.query.column-range-stats). The running min/max always see EVERY value (so the
+/// range bounds are exact); only the bucket SHAPE is sampled, which bounds collection memory
+/// to `O(HIST_BUCKETS + SAMPLE_CAP)` per column regardless of graph size.
+#[cfg(feature = "query")]
+const SAMPLE_CAP: usize = 8_192;
+
+/// Per-numeric-column distribution statistics (CONCEPT:EG-KG.query.column-range-stats) the optimizer
+/// consults to estimate a NUMERIC-RANGE predicate's true selectivity, instead of the fixed
+/// per-predicate heuristic (the T-E1 ablation gap: a `GtNum`/`LtNum` range was NEVER pushed
+/// filter-first regardless of how selective it actually was). Derived from ONE cheap pass
+/// over the resident node property blobs during [`PlanStats::collect`] — the same snapshot the
+/// plan runs over, so no extra I/O and no config flag.
+///
+/// Representation: per column an EXACT min/max plus a fixed-width equi-width histogram over
+/// `[min, max]`. A histogram beats bare min/max on skewed data — the fraction above a
+/// threshold reads off the bucket counts (with linear interpolation inside the boundary
+/// bucket) rather than assuming a uniform spread; min/max alone is the histogram's degenerate
+/// 1-bucket case. Bounded ([`HIST_BUCKETS`] buckets + a [`SAMPLE_CAP`]-capped sample), so the
+/// stats stay O(1) in memory while collection is a single O(N) blob pass.
+#[cfg(feature = "query")]
+#[derive(Clone, Debug, Default)]
+pub struct ColumnStats {
+    cols: std::collections::HashMap<String, NumericColumn>,
+}
+
+/// One numeric column's exact `[min, max]` range and an equi-width histogram over it
+/// (CONCEPT:EG-KG.query.column-range-stats). `buckets[i]` counts sampled values in
+/// `[min + i·w, min + (i+1)·w)` with `w = (max-min)/HIST_BUCKETS`; `total` is the sampled
+/// count the fractions are taken over.
+#[cfg(feature = "query")]
+#[derive(Clone, Debug)]
+struct NumericColumn {
+    min: f64,
+    max: f64,
+    buckets: Vec<u32>,
+    total: u64,
+}
+
+#[cfg(feature = "query")]
+impl ColumnStats {
+    /// Build the per-column stats in ONE pass over the resident node property blobs. Each
+    /// blob is decoded to JSON; every TOP-LEVEL numeric property accumulates into its column's
+    /// running min/max/count plus a capped value sample. After the pass each column's sample
+    /// is bucketed into a [`HIST_BUCKETS`]-wide equi-width histogram over the exact `[min,max]`.
+    pub fn collect(view: &eg_core::graph::GraphView) -> Self {
+        use std::collections::HashMap;
+        struct Acc {
+            min: f64,
+            max: f64,
+            count: u64,
+            sample: Vec<f64>,
+        }
+        let mut acc: HashMap<String, Acc> = HashMap::new();
+        for blob in view.node_properties.values() {
+            let Ok(v) = rmp_serde::from_slice::<serde_json::Value>(blob.as_slice()) else {
+                continue;
+            };
+            let Some(obj) = v.as_object() else {
+                continue;
+            };
+            for (k, val) in obj {
+                let Some(x) = val.as_f64() else {
+                    continue; // non-numeric (string `type`, arrays, …) — skip.
+                };
+                if !x.is_finite() {
+                    continue;
+                }
+                let e = acc.entry(k.clone()).or_insert(Acc {
+                    min: x,
+                    max: x,
+                    count: 0,
+                    sample: Vec::new(),
+                });
+                e.min = e.min.min(x);
+                e.max = e.max.max(x);
+                e.count += 1;
+                if e.sample.len() < SAMPLE_CAP {
+                    e.sample.push(x);
+                }
+            }
+        }
+        let cols = acc
+            .into_iter()
+            .filter_map(|(k, a)| {
+                if a.count == 0 || !a.min.is_finite() || !a.max.is_finite() {
+                    return None;
+                }
+                let mut buckets = vec![0u32; HIST_BUCKETS];
+                let span = a.max - a.min;
+                if span <= 0.0 {
+                    // A single-value column: all mass in the first bucket.
+                    buckets[0] = a.sample.len() as u32;
+                } else {
+                    for &x in &a.sample {
+                        let mut b = (((x - a.min) / span) * HIST_BUCKETS as f64) as usize;
+                        if b >= HIST_BUCKETS {
+                            b = HIST_BUCKETS - 1;
+                        }
+                        buckets[b] += 1;
+                    }
+                }
+                Some((
+                    k,
+                    NumericColumn {
+                        min: a.min,
+                        max: a.max,
+                        buckets,
+                        total: a.sample.len() as u64,
+                    },
+                ))
+            })
+            .collect();
+        Self { cols }
+    }
+
+    /// Estimated fraction of `column`'s values strictly GREATER than `n` — a `GtNum{prop:column,
+    /// n}` predicate's selectivity. `None` when the column has no numeric stats (unknown /
+    /// non-numeric key), so the caller falls back to the fixed heuristic.
+    pub fn frac_gt(&self, column: &str, n: f64) -> Option<f64> {
+        self.cols.get(column).map(|c| c.frac_gt(n))
+    }
+
+    /// Estimated fraction of `column`'s values LESS than `n` — a `LtNum{prop:column, n}`
+    /// predicate's selectivity. `None` when the column has no numeric stats.
+    pub fn frac_lt(&self, column: &str, n: f64) -> Option<f64> {
+        self.cols.get(column).map(|c| c.frac_lt(n))
+    }
+
+    /// Number of numeric columns with collected stats (introspection / tests).
+    pub fn len(&self) -> usize {
+        self.cols.len()
+    }
+
+    /// Whether any numeric column stats were collected.
+    pub fn is_empty(&self) -> bool {
+        self.cols.is_empty()
+    }
+}
+
+#[cfg(feature = "query")]
+impl NumericColumn {
+    /// Fraction of the sampled values `> n`, read off the equi-width histogram with linear
+    /// interpolation inside the boundary bucket. Clamped to a threshold at/below `min`
+    /// (⇒ 1.0 — everything passes) or at/above `max` (⇒ 0.0 — nothing passes).
+    fn frac_gt(&self, n: f64) -> f64 {
+        if self.total == 0 {
+            return 0.0;
+        }
+        if n <= self.min {
+            return 1.0;
+        }
+        if n >= self.max {
+            return 0.0;
+        }
+        let span = self.max - self.min;
+        if span <= 0.0 {
+            return 0.0; // degenerate single value, and n is inside (min,max) is impossible
+        }
+        let w = span / self.buckets.len() as f64;
+        let bidx = (((n - self.min) / w).floor() as usize).min(self.buckets.len() - 1);
+        // Linear share of the boundary bucket lying above n, plus every fuller bucket above.
+        let bucket_hi = self.min + (bidx as f64 + 1.0) * w;
+        let frac_above_in_bucket = ((bucket_hi - n) / w).clamp(0.0, 1.0);
+        let mut above = frac_above_in_bucket * self.buckets[bidx] as f64;
+        for b in (bidx + 1)..self.buckets.len() {
+            above += self.buckets[b] as f64;
+        }
+        (above / self.total as f64).clamp(0.0, 1.0)
+    }
+
+    /// Fraction of the sampled values `< n` — the complement of `> n` (the interpolated point
+    /// mass exactly at `n` is negligible for a plan-time estimate).
+    fn frac_lt(&self, n: f64) -> f64 {
+        (1.0 - self.frac_gt(n)).clamp(0.0, 1.0)
     }
 }
 
@@ -293,10 +487,17 @@ impl ModalityCardinality {
     }
 
     /// Combined per-predicate selectivity of a relational `Filter` (independent-predicate
-    /// product): equality is highly selective, a numeric range moderately, JSONPath / spatial
-    /// broadly. Estimates only — a real catalog would use histograms.
-    fn filter_selectivity(preds: &[crate::algebra::Pred]) -> f64 {
+    /// product): equality is highly selective, JSONPath / spatial broad. A numeric RANGE
+    /// (`GtNum`/`LtNum`) is estimated from the REAL column distribution via the collected
+    /// [`ColumnStats`] histogram (CONCEPT:EG-KG.query.column-range-stats) — so a genuinely selective
+    /// range (`year > 2028` in a 2000..2029 column) reads as selective and reorders
+    /// filter-first, while a broad one (`year > 2001`) stays; only when the column has NO
+    /// numeric stats does it fall back to the fixed `RANGE_SEL_FALLBACK` heuristic. Equality /
+    /// JSONPath / spatial estimates are unchanged.
+    fn filter_selectivity(&self, preds: &[crate::algebra::Pred]) -> f64 {
         use crate::algebra::Pred;
+        /// The legacy fixed range heuristic — only used when the column is unknown to the stats.
+        const RANGE_SEL_FALLBACK: f64 = 0.33;
         let mut sel = 1.0f64;
         for p in preds {
             // The wildcard catches the `geo` spatial `Pred` variants (and any future kind);
@@ -306,7 +507,17 @@ impl ModalityCardinality {
             #[allow(unreachable_patterns)]
             let s = match p {
                 Pred::Eq { .. } => 0.1,
-                Pred::GtNum { .. } | Pred::LtNum { .. } => 0.33,
+                // Numeric range: consult the column histogram, else the fixed fallback.
+                Pred::GtNum { prop, n } => self
+                    .stats
+                    .column_stats
+                    .frac_gt(prop, *n)
+                    .unwrap_or(RANGE_SEL_FALLBACK),
+                Pred::LtNum { prop, n } => self
+                    .stats
+                    .column_stats
+                    .frac_lt(prop, *n)
+                    .unwrap_or(RANGE_SEL_FALLBACK),
                 Pred::JsonPath { .. } => 0.4,
                 // Spatial preds (geo) and any future kind: a broad default.
                 _ => 0.25,
@@ -379,7 +590,7 @@ impl Cardinality for ModalityCardinality {
             // SOURCE: a label selects a fraction of the graph (no per-label catalog).
             Op::Scan { .. } => (n * Self::LABEL_SEL).max(0.0),
             // FILTER: input × per-predicate selectivity product.
-            Op::Filter { preds } => in_card * Self::filter_selectivity(preds),
+            Op::Filter { preds } => in_card * self.filter_selectivity(preds),
             // TRAVERSE: degree histogram × path length, deduped, capped at the graph size.
             Op::Traverse { min, max, .. } => {
                 if in_card <= 0.0 {
