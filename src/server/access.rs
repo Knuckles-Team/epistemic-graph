@@ -68,6 +68,13 @@ pub(crate) fn requires_write(method: &Method) -> bool {
     if let Method::GraphQl { query, .. } = method {
         return graphql_is_mutation(query);
     }
+    // Association-rule mining (CONCEPT:EG-KG.mining.frequent-itemset-mining): only a
+    // write when it writes back the mined `:AssociationRule` nodes; a pure query
+    // (writeback=false) reads the graph-derived transactions off an off-lock snapshot.
+    #[cfg(feature = "mining")]
+    if let Method::MineAssociate { writeback, .. } = method {
+        return *writeback;
+    }
     matches!(
         method,
         Method::AddNode { .. }

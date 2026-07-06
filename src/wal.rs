@@ -79,6 +79,21 @@ pub fn is_durable_mutation(m: &Method) -> bool {
     ) {
         return true;
     }
+    // Association-rule mining write-back (CONCEPT:EG-KG.mining.frequent-itemset-mining):
+    // durable only when `writeback` materializes `:AssociationRule` nodes. `apply`
+    // below re-mines + re-writes deterministically (explicit transactions reproduce
+    // byte-identically; a graph-derived source re-derives from the graph, like the
+    // broker/memory replay ops). A pure query (writeback=false) is not logged.
+    #[cfg(feature = "mining")]
+    if matches!(
+        m,
+        Method::MineAssociate {
+            writeback: true,
+            ..
+        }
+    ) {
+        return true;
+    }
     matches!(
         m,
         Method::AddNode { .. }
@@ -652,6 +667,11 @@ pub fn apply(core: &GraphCore, m: &Method) {
                 *t,
             );
         }
+        // Association-rule mining write-back (CONCEPT:EG-KG.mining.frequent-itemset-mining):
+        // re-mine + re-materialize the `:AssociationRule` nodes. The node ids are a
+        // deterministic digest of antecedent⇒consequent, so replay is idempotent.
+        #[cfg(all(feature = "mining", feature = "server"))]
+        Method::MineAssociate { .. } => crate::server::handlers::mining::replay(core, m),
         _ => {}
     }
 }
