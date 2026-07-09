@@ -110,6 +110,13 @@ datascience = ["eg-compute/datascience", "eg-types/datascience"]
 # dep, folded into `full`. Gates eg-compute/mining + eg-types/mining + the
 # handlers/mining.rs dispatch arm.
 mining = ["eg-compute/mining", "eg-types/mining"]
+# Graph-learning / neuro-symbolic domain (CONCEPT:EG-KG.graphlearn.link-predictor): a
+# pure-Rust KAN link-predictor over the resident graph + the `graph_learn` surface,
+# whose learned per-feature edge functions are queryable `:EdgeFunction` KG nodes.
+# Pure-Rust (no torch — heavy training is delegated to data-science-mcp), folded into
+# `full` via `compute`. Gates eg-compute/graphlearn + eg-types/graphlearn + the
+# handlers/graphlearn.rs dispatch arm. Implies datascience (shared Adam kernels).
+graphlearn = ["datascience", "eg-compute/graphlearn", "eg-types/graphlearn"]
 reasoning = ["eg-compute/reasoning"]
 # CONCEPT:EG-321 — the Analytics-Program numeric kernel (eg-numeric: faer + ndarray,
 # BLAS/LAPACK-free). Links the PURE Rust kernel (rlib) for Surface B in-database
@@ -734,7 +741,7 @@ shacl = ["rdf", "dep:eg-shacl"]
 # tier lines at merge time (avoids a tier-line merge conflict with concurrent waves). Kept
 # OUT of `pi`.
 shex = ["rdf", "dep:eg-shex"]
-compute = ["finance", "ast", "ast-extended", "datascience", "mining", "reasoning"]
+compute = ["finance", "ast", "ast-extended", "datascience", "mining", "graphlearn", "reasoning"]
 # `full`/`all`/`default` = THE ONE MAIN BUILD (CONCEPT:EG-371). It deliberately stays
 # SINGLE-NODE: raft is NOT folded in, so a `full` build links no openraft (replication
 # is the opt-in `cluster` layer). Consequently `compute-dist` (which NEEDS raft for
