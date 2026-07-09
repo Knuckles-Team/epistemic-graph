@@ -295,3 +295,129 @@ graph_mine { "action": "anomaly",
 POST /api/mining/cluster  { "source": {"node_label": "Doc"}, "algorithm": "kmedoids", "k": 5, "writeback": true }
 POST /api/mining/anomaly  { "source": {"node_label": "Metric"}, "algorithm": "isoforest", "writeback": true }
 ```
+
+---
+
+# Classification — `action="classify_fit"` / `action="classify_predict"`
+
+Classification is **predictive**: `classify_fit` trains a model and returns a
+serializable blob; `classify_predict` takes the blob back plus a feature matrix and
+returns per-row labels + a per-class probability matrix — exactly the
+`fit_estimator`/`predict_estimator` pattern the datascience estimators use. This
+completes the classifier family beyond the datascience tree/forest/boosting
+estimators with the four classical linear/probabilistic/instance classifiers:
+
+- **`gaussiannb`** (default) — Gaussian Naive Bayes; per-class prior + per-feature
+  (mean, variance) likelihood for continuous features.
+- **`multinomialnb`** — Multinomial Naive Bayes; Laplace-smoothed (`alpha`)
+  class-conditional log-probabilities over non-negative count features.
+- **`knn`** — brute k-nearest-neighbor majority vote (`k` neighbors); `proba` is the
+  per-class vote fraction. (A brute scan over the feature rows — the ANN index would
+  accelerate this at 1M+ scale; the exact vote keeps parity deterministic.)
+- **`logistic`** — one-vs-rest logistic regression fit by batch gradient descent
+  (`lr`, `epochs`, L2 `l2`). Handles binary and multiclass.
+- **`svc`** — one-vs-rest linear SVM (Pegasos sub-gradient hinge loss, `c`, `epochs`,
+  `lr`).
+
+All are deterministic (GD/Pegasos are seed-free: zero init, index-ordered batch
+updates). Parity is asserted against known separable fixtures (NB/logistic/SVC recover
+a linear boundary; k-NN classifies blobs).
+
+```python
+# Fit on a labeled feature matrix → model blob, then predict fresh rows.
+fit = await c.mining.classify_fit(
+    x=[[0,0],[0.5,0.3],[0.2,0.8],[10,10],[10.5,9.7],[9.8,10.4]],
+    y=[0,0,0,1,1,1],
+    algorithm="logistic", lr=0.5, epochs=500,
+)
+out = await c.mining.classify_predict(fit["model"], x=[[0.3,0.3],[10,10]])
+# out["rows"] == [{"id":0,"label":0,"proba":[...]}, {"id":1,"label":1,"proba":[...]}]
+```
+
+## Cross-modal — classify nodes by their embeddings + ontology features
+
+`classify_predict` (and `classify_fit`) accept a vector `source` `{node_label,
+limit}` in place of explicit rows — the stored embedding (and any OWL-inferred
+property vector) of each node becomes a feature row. This is "classify these nodes
+using their embeddings" running compute-near-data, with the prediction linked back to
+its source.
+
+```python
+# Train once, then classify every :Sample node by its embedding + write :Classification.
+out = await c.mining.classify_predict(
+    model, source={"node_label": "Sample"}, writeback=True,
+)
+# → one :Classification{label, proba, source} node per row, linked CLASSIFIED_AS → the source node.
+```
+
+`classify_fit` is **read-only** (it returns a model, mutates nothing).
+`classify_predict` with `writeback=True` is a **WAL-durable** graph write (replayed by
+re-running the fitted model deterministically).
+
+---
+
+# Dimensionality reduction — `action="reduce"`
+
+Reduction is **descriptive**: it transforms the feature rows into a low-dimensional
+embedding `{id, coords}`. Beyond the datascience PCA:
+
+- **`svd`** (default) — truncated SVD via the eigendecomposition of the Gram matrix
+  XᵀX; `coords = X·V = U·Σ`. Exact linear algebra; reconstructs a low-rank matrix to
+  within round-off (returns the retained `singular_values`).
+- **`lda`** — Fisher Linear Discriminant Analysis (**supervised** — requires
+  `labels`): whiten by the within-class scatter, then take the leading eigenvectors of
+  the between-class scatter. Projects onto ≤ (n_classes−1) discriminants.
+- **`umap`** — a fuzzy k-NN neighbor graph (`n_neighbors`, `min_dist`) laid out by
+  attractive/repulsive SGD (`epochs`, `seed`).
+- **`tsne`** — perplexity-calibrated Gaussian affinities matched to a Student-t low-D
+  layout by gradient descent (`perplexity`, `epochs`, `lr`, `seed`).
+
+**Scope (honest):** SVD and LDA are exact, deterministic, parity-checkable linear
+algebra. **UMAP and t-SNE are approximate, iterative, and intended for small N**
+(viz-scale — hundreds to low thousands of rows); they preserve neighborhood/cluster
+structure, **not** exact coordinates, and are deterministic per `seed` (verified by a
+neighbor-preservation sanity check on planted clusters, not an exact-coordinate
+assertion).
+
+```python
+# Truncated SVD of an explicit matrix → 2-D coords + singular values.
+out = await c.mining.reduce(x=rows, algorithm="svd", n_components=2)
+
+# Supervised LDA needs one label per row.
+out = await c.mining.reduce(x=rows, labels=y, algorithm="lda", n_components=1)
+```
+
+## Cross-modal — reduce node embeddings for the web-UI graphviz
+
+Point `reduce` at a vector `source` to project the stored embeddings of a node label
+into 2-D and, with `writeback=True`, materialize each as an `:Embedding2D{coords}`
+node linked `REDUCED_FROM` → its source — the coordinates the web-UI graphviz renders,
+and a downstream feed for clustering.
+
+```python
+# UMAP the :Doc embeddings for the graphviz, writing :Embedding2D back.
+out = await c.mining.reduce(
+    source={"node_label": "Doc"}, algorithm="umap", n_components=2, writeback=True,
+)
+# → one :Embedding2D{coords, source} node per :Doc, linked REDUCED_FROM → the :Doc.
+```
+
+`reduce` with `writeback=True` is a **WAL-durable** graph write (replayed by re-running
+the reduction deterministically; UMAP/t-SNE reproduce per `seed`).
+
+## MCP + REST (classify / reduce)
+
+```jsonc
+// MCP
+graph_mine { "action": "classify_fit",
+             "params_json": "{\"x\":[[0,0],[10,10]],\"y\":[0,1],\"algorithm\":\"logistic\"}" }
+graph_mine { "action": "classify_predict",
+             "params_json": "{\"model\":{...},\"source\":{\"node_label\":\"Sample\"},\"writeback\":true}" }
+graph_mine { "action": "reduce",
+             "params_json": "{\"source\":{\"node_label\":\"Doc\"},\"algorithm\":\"umap\",\"writeback\":true}" }
+
+// REST twins (same _execute_tool core)
+POST /api/mining/classify_fit     { "x": [[0,0],[10,10]], "y": [0,1], "algorithm": "svc" }
+POST /api/mining/classify_predict { "model": {...}, "x": [[0.1,0.1]] }
+POST /api/mining/reduce           { "source": {"node_label": "Doc"}, "algorithm": "svd", "n_components": 2 }
+```
