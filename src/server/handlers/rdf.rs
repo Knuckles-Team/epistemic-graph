@@ -137,6 +137,22 @@ pub(crate) async fn try_handle(
             target_class,
             min_confidence,
         } => Ok(handle_owl_reason(req_id, &core, ontology, target_class, min_confidence).await),
+        #[cfg(feature = "owl")]
+        Method::OwlExplain { ontology, sub, sup } => {
+            Ok(handle_owl_explain(req_id, &core, ontology, sub, sup).await)
+        }
+        // OBDA / R2RML virtual graph query (CONCEPT:EG-KG.query.r2rml-virtual-graph). NOT
+        // graph-scoped in any meaningful way (the virtual triples come from the OBDA
+        // registry, not the request's graph core) — it matches here anyway (like
+        // Sparql/OwlReason) so it rides the SAME dispatch chain / ACL / result-cache
+        // plumbing with no new top-level routing. A build without `obda` drops the arm
+        // and the variant isn't in the enum.
+        #[cfg(feature = "obda")]
+        Method::SparqlVirtual {
+            query,
+            mapping,
+            tables,
+        } => Ok(handle_sparql_virtual(req_id, query, mapping, tables).await),
         #[cfg(feature = "rdf")]
         Method::RunRules {
             ontology_ttl,
@@ -495,6 +511,235 @@ fn owl_reason(
         consistent: res.consistent,
         unsatisfiable: res.unsatisfiable,
     })
+}
+
+/// Run the native OWL 2 reasoner over an off-lock snapshot and reconstruct the PROOF
+/// TREE for one named-class subsumption `sub ⊑ sup` (CONCEPT:EG-KG.ontology.owl-proof-tree-explanation —
+/// Stardog's flagship "explanation" feature, native here). Classifies the graph's own
+/// TBox axioms (+ any extra `ontology` Turtle) WITH confidence propagation (the same
+/// classifier `OwlReason` uses), then reconstructs
+/// [`eg_rdf::owl::Classification::explain`]'s recursive justification tree and projects
+/// it to the wire [`crate::protocol::OwlExplainResult`]. Read-only. Gated `owl`.
+#[cfg(feature = "owl")]
+async fn handle_owl_explain(
+    req_id: u64,
+    core: &Arc<GraphCore>,
+    ontology: String,
+    sub: String,
+    sup: String,
+) -> Response {
+    let snap = core.analysis_snapshot();
+    let resp = match compute_off_lock(req_id, move || owl_explain(&snap, &ontology, &sub, &sup))
+        .await
+    {
+        Ok(Ok(result)) => Response::ok(req_id, ResultPayload::raw(&result)),
+        Ok(Err(msg)) => Response::err(req_id, format!("OwlExplain error: {msg}")),
+        Err(resp) => resp,
+    };
+    resp
+}
+
+/// Classify `view` (+ optional extra `ontology` Turtle axioms) with confidence
+/// propagation, canonicalize `sub`/`sup` into the reasoner's `<iri>` node-id form, and
+/// project [`eg_rdf::owl::Classification::explain`]'s proof tree to the wire shape.
+#[cfg(feature = "owl")]
+fn owl_explain(
+    view: &crate::graph::GraphView,
+    ontology: &str,
+    sub: &str,
+    sup: &str,
+) -> Result<crate::protocol::OwlExplainResult, String> {
+    let extra = if ontology.trim().is_empty() {
+        Vec::new()
+    } else {
+        eg_rdf::mapping::parse_turtle(ontology)?
+    };
+    let mut triples = eg_rdf::owl::tbox_triples_from_view(view);
+    triples.extend(extra);
+
+    let mut reasoner = eg_rdf::owl::Reasoner::from_triples(&triples);
+    let cls = reasoner.classify_weighted();
+
+    let canon = |s: &str| -> String {
+        if s.starts_with('<') {
+            s.to_string()
+        } else {
+            format!("<{}>", s.trim_start_matches('<').trim_end_matches('>'))
+        }
+    };
+    let sub = canon(sub);
+    let sup = canon(sup);
+
+    let tree = cls.explain(&sub, &sup).map(proof_node_to_wire);
+    Ok(crate::protocol::OwlExplainResult {
+        found: tree.is_some(),
+        tree,
+        consistent: cls.consistent,
+        unsatisfiable: cls.unsatisfiable.into_iter().collect(),
+    })
+}
+
+/// Recursively project an `eg_rdf::owl::ProofNode` into its wire twin
+/// (CONCEPT:EG-KG.ontology.owl-proof-tree-explanation). A plain field-for-field walk — the tree shape is
+/// identical on both sides, this only crosses the eg-rdf → eg-types boundary.
+#[cfg(feature = "owl")]
+fn proof_node_to_wire(node: eg_rdf::owl::ProofNode) -> crate::protocol::ProofNodeWire {
+    crate::protocol::ProofNodeWire {
+        sub: node.sub,
+        sup: node.sup,
+        rule: node.rule,
+        axioms: node.axioms,
+        confidence: node.confidence,
+        premises: node.premises.into_iter().map(proof_node_to_wire).collect(),
+    }
+}
+
+/// OBDA / R2RML virtual-graph query (CONCEPT:EG-KG.query.r2rml-virtual-graph /
+/// CONCEPT:EG-KG.query.obda-query-rewrite). Registers each of `tables` as a foreign
+/// [`eg_rdf::obda::ObdaSource`] backed by the engine's own SQL user-table store
+/// ([`crate::server::sql_tables::user_table_store`]), parses `mapping` (auto-detecting
+/// standard R2RML Turtle vs. the compact EG-101 textual form), and runs `query` through
+/// the OBDA query-rewrite path: only the query-relevant columns are scanned from the
+/// table(s), only the query-relevant triples are materialized into a TRANSIENT view —
+/// the user table itself is never mutated, and nothing is persisted into any graph.
+/// Read-only. Gated `obda` (implies `sparql` + `query`).
+#[cfg(feature = "obda")]
+async fn handle_sparql_virtual(
+    req_id: u64,
+    query: String,
+    mapping: String,
+    tables: Vec<String>,
+) -> Response {
+    let out = tokio::task::spawn_blocking(move || sparql_virtual(&query, &mapping, &tables)).await;
+    match out {
+        Ok(Ok(result)) => Response::ok(req_id, ResultPayload::raw(&result)),
+        Ok(Err(msg)) => Response::err(req_id, format!("SparqlVirtual error: {msg}")),
+        Err(e) => Response::err(req_id, format!("SparqlVirtual task join error: {e}")),
+    }
+}
+
+/// A [`eg_rdf::obda::ObdaSource`] backed by one table of the engine's process-global
+/// [`eg_query::TableStore`] (CONCEPT:EG-KG.query.r2rml-virtual-graph). Bridges the
+/// SQL-side typed [`eg_query::Cell`] to the OBDA seam's lexical `String` columns (R2RML
+/// templates/literal object maps consume the lexical form; typed SQL round-tripping
+/// through a `rr:datatype` object map is a documented follow-up, mirrored from the
+/// EG-101 `ObdaSource` contract). The full row is always scanned from the table (the
+/// store's `scan` has no column-projection API); THIS layer still applies the
+/// `needed`-column projection when handing rows back, so the OBDA-side pushdown
+/// contract (only query-relevant columns end up in a materialized triple) still holds
+/// even though the underlying store scan itself is not column-pushed.
+#[cfg(feature = "obda")]
+struct TableStoreSource {
+    schema: eg_query::TableSchema,
+    rows: Vec<Vec<eg_query::Cell>>,
+}
+
+#[cfg(feature = "obda")]
+impl TableStoreSource {
+    fn load(store: &eg_query::TableStore, table: &str) -> Result<Self, String> {
+        let schema = store
+            .get_schema(table)?
+            .ok_or_else(|| format!("obda: unknown user table `{table}`"))?;
+        let rows = store.scan(table)?;
+        Ok(Self { schema, rows })
+    }
+
+    /// The lexical form of one cell (R2RML templates/literal object maps consume a
+    /// string; `Null` yields no lexical value so a template/column referencing it
+    /// correctly omits the triple, per the OBDA `expand_template`/`term_for` contract).
+    fn lexical(cell: &eg_query::Cell) -> Option<String> {
+        use eg_query::Cell;
+        match cell {
+            Cell::Null => None,
+            Cell::Int(i) => Some(i.to_string()),
+            Cell::Float(f) => Some(f.to_string()),
+            Cell::Text(s) => Some(s.clone()),
+            Cell::Bool(b) => Some(b.to_string()),
+            Cell::Timestamp(t) => Some(t.to_string()),
+            Cell::Bytes(b) => Some(hex_lexical(b)),
+            Cell::Json(v) => Some(v.to_string()),
+            Cell::Vector(v) => Some(format!("{v:?}")),
+        }
+    }
+}
+
+/// Hex-encode bytes for a lexical fallback (a `Bytes` cell has no natural R2RML lexical
+/// form; hex is a stable, unambiguous rendering). No new dependency — a tiny hand-rolled
+/// encoder, mirroring the idiom the rest of this crate uses to avoid pulling `hex` where
+/// a two-line loop suffices.
+#[cfg(feature = "obda")]
+fn hex_lexical(bytes: &[u8]) -> String {
+    use std::fmt::Write;
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        let _ = write!(out, "{b:02x}");
+    }
+    out
+}
+
+#[cfg(feature = "obda")]
+impl eg_rdf::obda::ObdaSource for TableStoreSource {
+    fn columns(&self) -> Vec<String> {
+        self.schema.columns.iter().map(|c| c.name.clone()).collect()
+    }
+
+    fn scan(
+        &self,
+        needed: &std::collections::BTreeSet<String>,
+    ) -> Result<Vec<eg_rdf::obda::ForeignRow>, String> {
+        let mut out = Vec::with_capacity(self.rows.len());
+        for row in &self.rows {
+            let mut fr = eg_rdf::obda::ForeignRow::new();
+            for (col, cell) in self.schema.columns.iter().zip(row.iter()) {
+                if !needed.is_empty() && !needed.contains(&col.name) {
+                    continue;
+                }
+                if let Some(v) = Self::lexical(cell) {
+                    fr.insert(col.name.clone(), v);
+                }
+            }
+            out.push(fr);
+        }
+        Ok(out)
+    }
+}
+
+/// The blocking half of [`handle_sparql_virtual`]: build the [`eg_rdf::obda::ObdaSourceRegistry`]
+/// from `tables`, parse `mapping`, run the OBDA query-rewrite, and project the SPARQL
+/// result to the wire shape. Split out (not `async`) so it runs on the blocking pool —
+/// the table scan + SPARQL evaluation are both synchronous CPU/redb-read work.
+#[cfg(feature = "obda")]
+fn sparql_virtual(
+    query: &str,
+    mapping: &str,
+    tables: &[String],
+) -> Result<crate::protocol::SparqlResult, String> {
+    let store = crate::server::sql_tables::user_table_store()?;
+    let mut reg = eg_rdf::obda::ObdaSourceRegistry::new();
+    for table in tables {
+        let src = TableStoreSource::load(&store, table)?;
+        reg.register(table.clone(), std::sync::Arc::new(src));
+    }
+
+    // Auto-detect standard R2RML Turtle (carries the `rr:` namespace) vs. the compact
+    // EG-101 textual mapping form (`SOURCE`/`SUBJECT`/… directives).
+    let vg = if mapping.contains("r2rml#") || mapping.contains("TriplesMap") {
+        eg_rdf::obda::parse_r2rml_turtle(mapping)?
+    } else {
+        eg_rdf::obda::parse_mapping(mapping)?
+    };
+
+    let proj = eg_rdf::sparql::Projection::raw();
+    let outcome = eg_rdf::obda::run_outcome_virtual(&vg, &reg, query, &proj)?;
+    let (vars, rows) = match outcome {
+        eg_rdf::sparql::QueryOutcome::Solutions(res) => res.to_rows(),
+        eg_rdf::sparql::QueryOutcome::Boolean(b) => {
+            (vec!["_ask".to_string()], vec![vec![Some(b.to_string())]])
+        }
+        #[cfg(feature = "rdf")]
+        eg_rdf::sparql::QueryOutcome::Graph(_) => (Vec::new(), Vec::new()),
+    };
+    Ok(crate::protocol::SparqlResult { vars, rows })
 }
 
 /// Parse Turtle/N-Triples and store into the target graph; route multi-valued

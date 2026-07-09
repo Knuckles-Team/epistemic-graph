@@ -3433,6 +3433,96 @@ class RdfClient:
             },
         )
 
+    async def explain(
+        self,
+        sub: str,
+        sup: str,
+        ontology: str | None = None,
+    ) -> dict[str, Any]:
+        """OWL proof-tree EXPLANATION (CONCEPT:EG-KG.ontology.owl-proof-tree-explanation) — Stardog's
+        flagship "explanation" feature, native here. Classifies the connection's graph
+        (its own TBox axioms, loaded via :meth:`add_triples`, plus any extra ``ontology``
+        Turtle) with confidence propagation, then reconstructs the FULL recursive proof
+        tree for the named-class subsumption ``sub`` ⊑ ``sup`` — WHICH axiom(s) and
+        WHICH premise subsumption(s) derived it, recursively down to the asserted/
+        reflexive leaves (CONCEPT:EG-KG.ontology.justification-tracking). Returns::
+
+            {
+                "found": bool,       # sub ⊑ sup holds under the classification
+                "tree": {            # None when not found
+                    "sub": str, "sup": str,
+                    "rule": str,      # "asserted" at a LEAF, else a completion rule
+                                      # name ("CR-sub", "CR-some+", ...)
+                    "axioms": [str, ...],   # axiom label(s) this node's rule cited
+                    "confidence": float,    # this node's own confidence in [0,1]
+                    "premises": [<same shape>, ...],  # recursive — empty at a leaf
+                },
+                "consistent": bool,
+                "unsatisfiable": [class, ...],
+            }
+
+        ``sub``/``sup`` accept a bare IRI or the canonical ``<iri>`` form (both are
+        canonicalized the same way ``target_class`` is elsewhere). Read-only. Requires a
+        server built with the ``owl`` feature.
+        """
+        return await self._client._send(
+            "OwlExplain",
+            {
+                "ontology": ontology or "",
+                "sub": sub,
+                "sup": sup,
+            },
+        )
+
+    async def sparql_virtual(
+        self,
+        query: str,
+        mapping: str,
+        tables: list[str],
+    ) -> list[dict[str, str | None]]:
+        """OBDA / R2RML VIRTUAL GRAPH query (CONCEPT:EG-KG.query.r2rml-virtual-graph /
+        CONCEPT:EG-KG.query.obda-query-rewrite) — Ontology-Based Data Access: run a
+        SPARQL query against the engine's OWN SQL user table(s) (created via
+        :class:`QueryClient`/``Method.Sql`` DDL or :meth:`import_sqlite_file`)
+        EXPOSED AS RDF through an R2RML-style ``mapping``, WITHOUT ever materializing
+        the whole table.
+
+        ``tables`` names the user table(s) the mapping's ``TriplesMap``\\ s reference as
+        their ``logical_source`` — each is registered as a foreign source under its own
+        table name before the mapping is parsed and the query runs. ``mapping`` is
+        either a standard R2RML Turtle document (``@prefix rr: <http://www.w3.org/ns/
+        r2rml#> .`` ...) or the compact textual form::
+
+            SOURCE  <table_name>
+            SUBJECT http://example.org/person/{id}
+            CLASS   http://example.org/Person
+            COLUMN  http://example.org/name  name
+            REF     http://example.org/knows http://example.org/person/{friend_id}
+
+        The query rewrites to a projection-pushed scan of ONLY the query-relevant
+        table columns, materializes ONLY the query-relevant triples into a transient
+        view, and evaluates the SAME SPARQL engine over it — a real query-rewrite OBDA
+        path, not an ETL/materialize step; the user table is never mutated and nothing
+        is persisted into any graph. Returns the same row-dict shape as :meth:`sparql`.
+        Read-only. Requires a server built with the ``obda`` feature (implies
+        ``sparql`` + ``query``).
+        """
+        result = await self._client._send(
+            "SparqlVirtual",
+            {
+                "query": query,
+                "mapping": mapping,
+                "tables": list(tables),
+            },
+        )
+        if not result:
+            return []
+        vars_: list[str] = result.get("vars", [])
+        rows: list[dict[str, str | None]] = []
+        for row in result.get("rows", []):
+            rows.append(dict(zip(vars_, row, strict=False)))
+        return rows
+
 
 class StreamingClient:
     """CONCEPT:EG-KG.query.streaming-cdc-subscriptions/230 — Streaming / CDC / subscriptions / triggers.
