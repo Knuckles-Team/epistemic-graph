@@ -9,14 +9,16 @@
 // `/api/mining/*` REST twin). Phase 3 completes classification (`classify_fit`/
 // `classify_predict` — Naive Bayes, k-NN, logistic, linear SVC; PREDICTIVE
 // fit→blob→predict) and dimensionality reduction (`reduce` — truncated SVD, LDA,
-// UMAP, t-SNE; DESCRIPTIVE row transform). Phase 4 begins the final family:
-// sequential-pattern mining (`sequence` — PrefixSpan, GSP) over ordered item
-// sequences; forecasting (`forecast`), text mining (`text`), and frequent-subgraph
-// mining (`subgraph`) follow onto this same surface.
+// UMAP, t-SNE; DESCRIPTIVE row transform). Phase 4 continues the final family:
+// sequential-pattern mining (`sequence` — PrefixSpan, GSP) shipped first;
+// classical forecasting (`forecast` — ARIMA, Holt-Winters/ETS, STL
+// decomposition) follows onto this same surface; text mining (`text`) and
+// frequent-subgraph mining (`subgraph`) round it out.
 
 pub mod anomaly;
 pub mod association;
 pub mod classify;
 pub mod cluster;
+pub mod forecast;
 pub mod reduce;
 pub mod sequence;

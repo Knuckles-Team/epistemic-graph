@@ -18,14 +18,15 @@ use eg_compute::mining::anomaly;
 use eg_compute::mining::association::{self, Algorithm, LabeledRule};
 use eg_compute::mining::classify::{self, FittedClassifier};
 use eg_compute::mining::cluster;
+use eg_compute::mining::forecast;
 use eg_compute::mining::reduce;
 use eg_compute::mining::sequence::{self, LabeledPattern};
 
 use crate::graph::GraphCore;
 use crate::protocol::{
-    AnomalyAlgorithm, ClassifyAlgorithm, ClusterAlgorithm, Linkage, Method, MineAlgorithm,
-    MineSeqAlgorithm, ReduceAlgorithm, Response, ResultPayload, SequenceSource, SvmKernel,
-    TransactionSource, VectorSource,
+    AnomalyAlgorithm, ClassifyAlgorithm, ClusterAlgorithm, ForecastAlgorithm, Linkage, Method,
+    MineAlgorithm, MineSeqAlgorithm, ReduceAlgorithm, Response, ResultPayload, SequenceSource,
+    SvmKernel, TransactionSource, VectorSource,
 };
 
 /// Handle a `Mine*` method. `Err(method)` hands a non-mining method back to the
@@ -164,6 +165,24 @@ pub(crate) fn try_handle(
             min_support,
             algorithm,
             writeback,
+        )),
+        Method::MineForecast {
+            values,
+            algorithm,
+            horizon,
+            p,
+            d,
+            q,
+            period,
+            alpha,
+            beta,
+            gamma,
+            confidence,
+            series_id,
+            writeback,
+        } => Ok(handle_forecast(
+            req_id, &core, values, algorithm, horizon, p, d, q, period, alpha, beta, gamma,
+            confidence, series_id, writeback,
         )),
         other => Err(other),
     }
@@ -305,6 +324,28 @@ pub(crate) fn replay(core: &GraphCore, method: &Method) {
             };
             let patterns = sequence::mine_labeled(&seqs, *min_support, to_seq_algo(*algorithm));
             materialize_patterns(core, &patterns);
+        }
+        Method::MineForecast {
+            values,
+            algorithm,
+            horizon,
+            p,
+            d,
+            q,
+            period,
+            alpha,
+            beta,
+            gamma,
+            confidence,
+            series_id,
+            writeback: true,
+        } => {
+            if values.is_empty() {
+                return;
+            }
+            let algo = forecast_algo(*algorithm, *p, *d, *q, *period, *alpha, *beta, *gamma);
+            let out = forecast::forecast(values, algo, *horizon, *confidence);
+            materialize_forecast(core, &out, *horizon, series_id, values, forecast_algo_name(*algorithm));
         }
         _ => {}
     }
@@ -1312,6 +1353,142 @@ fn pattern_node_id(items: &[String]) -> String {
     format!("seqpattern:{}", hex::encode(&hasher.finalize()[..12]))
 }
 
+// ─────────────────────────── Forecasting ───────────────────────────
+
+/// Handle `MineForecast` (CONCEPT:EG-KG.mining.arima — Phase 4): forecast
+/// `horizon` future points off a 1-D `values` series (a tsdb window handed in
+/// by the caller — the same client-supplied cut `MineAnomaly` took in Phase 2)
+/// via ARIMA/Holt-Winters/STL, return `{forecast, lower, upper, ...}`, and
+/// optionally write a `:Forecast` node back.
+#[allow(clippy::too_many_arguments)]
+fn handle_forecast(
+    req_id: u64,
+    core: &GraphCore,
+    values: Vec<f64>,
+    algorithm: ForecastAlgorithm,
+    horizon: usize,
+    p: usize,
+    d: usize,
+    q: usize,
+    period: usize,
+    alpha: f64,
+    beta: f64,
+    gamma: f64,
+    confidence: f64,
+    series_id: String,
+    writeback: bool,
+) -> Response {
+    if values.is_empty() {
+        return Response::err(req_id, "mining: forecast requires a non-empty `values` series");
+    }
+    let algo = forecast_algo(algorithm, p, d, q, period, alpha, beta, gamma);
+    let out = forecast::forecast(&values, algo, horizon, confidence);
+
+    let written = if writeback {
+        materialize_forecast(core, &out, horizon, &series_id, &values, forecast_algo_name(algorithm))
+    } else {
+        0
+    };
+
+    let mut payload = serde_json::json!({
+        "forecast": out.values,
+        "lower": out.lower,
+        "upper": out.upper,
+        "algorithm": forecast_algo_name(algorithm),
+        "horizon": horizon,
+        "n_obs": values.len(),
+        "written_back": written,
+    });
+    if matches!(algorithm, ForecastAlgorithm::Stl) {
+        payload["trend"] = serde_json::json!(out.trend);
+        payload["seasonal"] = serde_json::json!(out.seasonal);
+        payload["residual"] = serde_json::json!(out.residual);
+    }
+    Response::ok(req_id, ResultPayload::Json(payload))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn forecast_algo(
+    a: ForecastAlgorithm,
+    p: usize,
+    d: usize,
+    q: usize,
+    period: usize,
+    alpha: f64,
+    beta: f64,
+    gamma: f64,
+) -> forecast::Algorithm {
+    match a {
+        ForecastAlgorithm::Arima => forecast::Algorithm::Arima { p, d, q },
+        ForecastAlgorithm::Holtwinters => forecast::Algorithm::HoltWinters {
+            period,
+            alpha,
+            beta,
+            gamma,
+        },
+        ForecastAlgorithm::Stl => forecast::Algorithm::Stl { period },
+    }
+}
+
+fn forecast_algo_name(a: ForecastAlgorithm) -> &'static str {
+    match a {
+        ForecastAlgorithm::Arima => "arima",
+        ForecastAlgorithm::Holtwinters => "holtwinters",
+        ForecastAlgorithm::Stl => "stl",
+    }
+}
+
+/// Materialize the forecast as a typed `:Forecast` node
+/// (CONCEPT:EG-KG.mining.forecast-writeback), id = a deterministic digest of
+/// `algo` + (`series_id` when given, else the input `values` — so identical
+/// explicit input reproduces the same id on WAL replay). Linked to a resident
+/// node named `series_id` via a `FORECAST_OF` edge when one exists.
+fn materialize_forecast(
+    core: &GraphCore,
+    out: &forecast::Forecast,
+    horizon: usize,
+    series_id: &str,
+    values: &[f64],
+    algo: &str,
+) -> usize {
+    let node_id = forecast_node_id(algo, series_id, values);
+    let props = serde_json::json!({
+        "type": "Forecast",
+        "algo": algo,
+        "horizon": horizon,
+        "values": out.values,
+        "lower": out.lower,
+        "upper": out.upper,
+        "series_id": series_id,
+    });
+    let Ok(blob) = rmp_serde::to_vec_named(&props) else {
+        return 0;
+    };
+    core.add_node(node_id.clone(), blob);
+    if !series_id.is_empty() && core.has_node(series_id) {
+        let edge = serde_json::json!({ "relation": "FORECAST_OF" });
+        if let Ok(eb) = rmp_serde::to_vec_named(&edge) {
+            let _ = core.add_edge(node_id, series_id.to_string(), eb);
+        }
+    }
+    1
+}
+
+fn forecast_node_id(algo: &str, series_id: &str, values: &[f64]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(algo.as_bytes());
+    hasher.update([0u8]);
+    if !series_id.is_empty() {
+        hasher.update(series_id.as_bytes());
+    } else {
+        for v in values {
+            hasher.update(v.to_bits().to_le_bytes());
+        }
+    }
+    format!("forecast:{}", hex::encode(&hasher.finalize()[..12]))
+}
+
 // ─────────────────────────── Row builders (shared) ───────────────────────────
 
 /// Resolve the cluster feature rows: explicit `features` win; otherwise gather the
@@ -1865,5 +2042,99 @@ mod tests {
         assert!(patterns.iter().any(|p| {
             p["items"] == serde_json::json!(["view", "add_cart", "checkout"])
         }));
+    }
+
+    #[test]
+    fn forecast_arima_and_writeback() {
+        let core = Arc::new(GraphCore::new());
+        let values: Vec<f64> = (0..30).map(|t| 5.0 + 3.0 * t as f64).collect();
+        let m = Method::MineForecast {
+            values: values.clone(),
+            algorithm: ForecastAlgorithm::Arima,
+            horizon: 5,
+            p: 1,
+            d: 1,
+            q: 0,
+            period: 0,
+            alpha: 0.3,
+            beta: 0.1,
+            gamma: 0.1,
+            confidence: 0.95,
+            series_id: "metric1".into(),
+            writeback: true,
+        };
+        let resp = try_handle(17, Arc::clone(&core), m).expect("handled");
+        let Some(ResultPayload::Json(v)) = resp.result else {
+            panic!("expected json payload");
+        };
+        let forecast_vals = v["forecast"].as_array().unwrap();
+        assert_eq!(forecast_vals.len(), 5);
+        // A pure linear trend (5 + 3t) should extrapolate close to truth at h=1..5.
+        for (h, fv) in forecast_vals.iter().enumerate() {
+            let t = 30 + h;
+            let truth = 5.0 + 3.0 * t as f64;
+            let got = fv.as_f64().unwrap();
+            assert!((got - truth).abs() < 3.0, "forecast[{h}]={got} truth={truth}");
+        }
+        let written = v["written_back"].as_u64().unwrap();
+        assert_eq!(written, 1);
+        core.mark_dirty();
+        let forecast_nodes = core.get_nodes_by_label("Forecast", 0);
+        assert_eq!(forecast_nodes.len(), 1);
+    }
+
+    #[test]
+    fn forecast_missing_values_is_error() {
+        let core = Arc::new(GraphCore::new());
+        let m = Method::MineForecast {
+            values: Vec::new(),
+            algorithm: ForecastAlgorithm::Arima,
+            horizon: 5,
+            p: 1,
+            d: 1,
+            q: 0,
+            period: 0,
+            alpha: 0.3,
+            beta: 0.1,
+            gamma: 0.1,
+            confidence: 0.95,
+            series_id: String::new(),
+            writeback: false,
+        };
+        let resp = try_handle(19, core, m).expect("handled");
+        assert!(resp.result.is_none());
+    }
+
+    #[test]
+    fn forecast_holtwinters_seasonal() {
+        let core = Arc::new(GraphCore::new());
+        let values: Vec<f64> = (0..48)
+            .map(|t| 10.0 + 2.0 * t as f64 + 5.0 * (2.0 * std::f64::consts::PI * t as f64 / 12.0).sin())
+            .collect();
+        let m = Method::MineForecast {
+            values,
+            algorithm: ForecastAlgorithm::Holtwinters,
+            horizon: 12,
+            p: 1,
+            d: 1,
+            q: 0,
+            period: 12,
+            alpha: 0.5,
+            beta: 0.3,
+            gamma: 0.3,
+            confidence: 0.95,
+            series_id: String::new(),
+            writeback: false,
+        };
+        let resp = try_handle(21, core, m).expect("handled");
+        let Some(ResultPayload::Json(v)) = resp.result else {
+            panic!("expected json payload");
+        };
+        let lower = v["lower"].as_array().unwrap();
+        let upper = v["upper"].as_array().unwrap();
+        assert_eq!(lower.len(), 12);
+        for i in 0..12 {
+            assert!(lower[i].as_f64().unwrap() <= upper[i].as_f64().unwrap());
+        }
     }
 }

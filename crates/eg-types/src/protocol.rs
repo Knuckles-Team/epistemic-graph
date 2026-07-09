@@ -2809,6 +2809,65 @@ pub enum Method {
         #[serde(default)]
         writeback: bool,
     },
+
+    /// Classical time-series forecasting (CONCEPT:EG-KG.mining.arima — Phase 4).
+    /// Forecasts `horizon` future points (with an approximate confidence band)
+    /// from a 1-D `values` series — a tsdb window handed in by the caller,
+    /// mirroring `MineAnomaly`'s client-supplied `values` cut (the native
+    /// in-handler TsScan source is the same documented follow-up). `algorithm`
+    /// selects ARIMA(p,d,q) (Hannan-Rissanen), additive Holt-Winters/ETS
+    /// (degrades to Holt linear-trend when `period` is 0), or a classical STL-
+    /// style decomposition + trend/seasonal extrapolation. With
+    /// `writeback=true` it materializes the forecast as a typed `:Forecast`
+    /// node — linked to a resident node named `series_id` when one exists — a
+    /// graph MUTATION, WAL-replayed by re-forecasting deterministically. Gated
+    /// `mining`.
+    #[cfg(feature = "mining")]
+    MineForecast {
+        /// The 1-D series to forecast (required — a tsdb window handed in by
+        /// the caller).
+        #[serde(default)]
+        values: Vec<f64>,
+        /// Which forecasting engine to run.
+        #[serde(default)]
+        algorithm: ForecastAlgorithm,
+        /// Steps to forecast beyond the series.
+        #[serde(default = "default_horizon")]
+        horizon: usize,
+        /// ARIMA autoregressive order.
+        #[serde(default = "default_arima_p")]
+        p: usize,
+        /// ARIMA differencing order.
+        #[serde(default = "default_arima_d")]
+        d: usize,
+        /// ARIMA moving-average order.
+        #[serde(default)]
+        q: usize,
+        /// Seasonal period for Holt-Winters / STL (`0` ⇒ non-seasonal Holt
+        /// linear-trend fallback for Holt-Winters; trend-only for STL).
+        #[serde(default)]
+        period: usize,
+        /// Holt-Winters level smoothing.
+        #[serde(default = "default_hw_alpha")]
+        alpha: f64,
+        /// Holt-Winters trend smoothing.
+        #[serde(default = "default_hw_beta")]
+        beta: f64,
+        /// Holt-Winters seasonal smoothing.
+        #[serde(default = "default_hw_gamma")]
+        gamma: f64,
+        /// Two-sided confidence level for the forecast band (e.g. `0.95`).
+        #[serde(default = "default_confidence")]
+        confidence: f64,
+        /// Optional identity for the write-back `:Forecast` node; when it names
+        /// a resident node, the forecast is linked `FORECAST_OF` → that node.
+        /// Empty ⇒ the node id is derived from the input `values` + `algorithm`.
+        #[serde(default)]
+        series_id: String,
+        /// Materialize the forecast as a typed `:Forecast` node.
+        #[serde(default)]
+        writeback: bool,
+    },
 }
 
 // ── Supporting Types ────────────────────────────────────────────────────
@@ -2837,6 +2896,63 @@ pub enum MineSeqAlgorithm {
     #[default]
     Prefixspan,
     Gsp,
+}
+
+/// Which forecasting engine `MineForecast` runs (CONCEPT:EG-KG.mining.arima —
+/// Phase 4). ARIMA is the default (Hannan-Rissanen AR(p)/MA(q) after `d`-order
+/// differencing); `holtwinters` degrades to Holt's linear-trend method when
+/// `period` is 0; `stl` is a classical decomposition + extrapolation.
+#[cfg(feature = "mining")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ForecastAlgorithm {
+    #[default]
+    Arima,
+    #[serde(alias = "holt_winters", alias = "hw", alias = "ets")]
+    Holtwinters,
+    Stl,
+}
+
+/// serde default for [`Method::MineForecast::horizon`].
+#[cfg(feature = "mining")]
+fn default_horizon() -> usize {
+    10
+}
+
+/// serde default ARIMA autoregressive order.
+#[cfg(feature = "mining")]
+fn default_arima_p() -> usize {
+    1
+}
+
+/// serde default ARIMA differencing order.
+#[cfg(feature = "mining")]
+fn default_arima_d() -> usize {
+    1
+}
+
+/// serde default Holt-Winters level smoothing.
+#[cfg(feature = "mining")]
+fn default_hw_alpha() -> f64 {
+    0.3
+}
+
+/// serde default Holt-Winters trend smoothing.
+#[cfg(feature = "mining")]
+fn default_hw_beta() -> f64 {
+    0.1
+}
+
+/// serde default Holt-Winters seasonal smoothing.
+#[cfg(feature = "mining")]
+fn default_hw_gamma() -> f64 {
+    0.1
+}
+
+/// serde default two-sided forecast confidence level.
+#[cfg(feature = "mining")]
+fn default_confidence() -> f64 {
+    0.95
 }
 
 /// A graph-derived transaction source for `MineAssociate` (CONCEPT:EG-KG.mining.graph-derived-transactions).
