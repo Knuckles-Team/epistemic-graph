@@ -24,15 +24,20 @@ first, so in CI it always runs the real kernel.
 from __future__ import annotations
 
 import importlib
+from typing import Any
 
 import numpy as np
 import pytest
 
-_k = None
+# `Any`-typed: `_k` is the dynamically-discovered compiled kernel module (or `None`
+# if the wheel isn't installed — the `pytestmark` skip below covers that case), not
+# a value with a static Python type, so every `_k.<op>(...)` call below is exempt
+# from mypy's "may be None" attribute checks by construction.
+_k: Any = None
 for _name in ("epistemic_graph.numeric", "numeric"):
     try:
         _m = importlib.import_module(_name)
-    except Exception:
+    except ImportError:
         continue
     if getattr(_m, "__kernel__", None) == "eg-numeric":
         _k = _m

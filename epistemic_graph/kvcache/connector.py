@@ -147,7 +147,10 @@ class UrllibTransport:
         if url.startswith("https://") and not self._verify_tls:
             import ssl
 
-            kwargs["context"] = ssl._create_unverified_context()
+            # Explicit, narrow opt-out: only reached when the caller passed
+            # verify_tls=False (default True) for an https:// endpoint — e.g. a
+            # self-signed dev/test KV-cache HTTP surface. Never the default path.
+            kwargs["context"] = ssl._create_unverified_context()  # nosec B323
         try:
             with self._opener.open(req, **kwargs) as resp:
                 return _Response(status=resp.status, body=resp.read())
@@ -379,8 +382,8 @@ class RemoteKVConnector:
 
     def __exit__(
         self,
-        exc_type: type[BaseException] | None,
+        _exc_type: type[BaseException] | None,
         exc: BaseException | None,
-        tb: TracebackType | None,
+        _tb: TracebackType | None,
     ) -> None:
         self.close()

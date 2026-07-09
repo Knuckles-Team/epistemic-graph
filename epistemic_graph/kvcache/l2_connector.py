@@ -64,7 +64,7 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from itertools import count
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from .config import KvCacheConfig, _addr_to_base_url
 from .connector import RemoteKVConnector
@@ -174,7 +174,10 @@ class RemoteKVL2Connector:
     ) -> KvCacheConfig:
         """Layer explicit ``adapter_params`` over the EG-187 environment defaults."""
         cfg = KvCacheConfig.from_env()
-        updates: dict[str, object] = {}
+        # `Any`-valued (not `object`) so `replace(cfg, **updates)` below type-checks:
+        # each field of `KvCacheConfig` has its own concrete type (str/float/bool/int),
+        # and mypy can't match those against a `dict[str, object]`'s opaque value type.
+        updates: dict[str, Any] = {}
         if base_url:
             updates["base_url"] = base_url.rstrip("/")
         elif addr:

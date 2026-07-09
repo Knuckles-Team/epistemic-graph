@@ -106,6 +106,10 @@ def _make_handler(state: _KvState):
             if not self._authed():
                 return
             key = self._key()
+            if key is None:
+                self.send_response(400)
+                self.end_headers()
+                return
             length = int(self.headers.get("Content-Length", 0))
             data = self.rfile.read(length)
             new = key not in state.blocks
@@ -133,7 +137,12 @@ def kv_server():
     server = ThreadingHTTPServer(("127.0.0.1", 0), _make_handler(state))
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
-    host, port = server.server_address
+    # `server_address` is typed as an IPv4-or-IPv6 socket address (2- or 4-tuple, host
+    # possibly `bytes`); this server always binds IPv4 (`"127.0.0.1"`), so normalize to
+    # a plain str/int pair instead of unpacking the whole (union-typed) tuple.
+    addr = server.server_address
+    host = addr[0].decode() if isinstance(addr[0], bytes) else addr[0]
+    port = addr[1]
     base_url = f"http://{host}:{port}"
     try:
         yield base_url, state
