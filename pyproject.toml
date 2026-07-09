@@ -52,7 +52,11 @@ ast = []
 datascience = []
 reasoning = []
 server = []
-full = []
+# `full` folds in every optional Python dep so `pip install epistemic-graph[full]` is
+# truly complete — INCLUDING numeric (the compiled kernel `.so` is already wheel-bundled;
+# this pulls the numpy boundary interop so `epistemic_graph.numeric` works out of the box),
+# owl (pyoxigraph) and lmcache (httpx). Previously `full = []` omitted numeric — the gap.
+full = ["epistemic-graph[owl,lmcache,numeric]"]
 # CONCEPT:EG-337 — the Python LMCache/vLLM remote-backend driver for the EG-187
 # KV-cache endpoint (`epistemic_graph.kvcache`). The driver itself imports with
 # STDLIB ONLY (urllib), so this extra only pulls the optional httpx acceleration

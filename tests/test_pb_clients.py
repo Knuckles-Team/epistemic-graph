@@ -118,8 +118,10 @@ async def test_broker_wire_shapes() -> None:
         "routing_key": "user.signup",
         "payload": b"payload",
     }
-    assert by["PublishIdempotent"]["producer_id"] == "prodA"
-    assert by["PublishIdempotent"]["seq"] == 1
+    publish_idempotent = by["PublishIdempotent"]
+    assert publish_idempotent is not None
+    assert publish_idempotent["producer_id"] == "prodA"
+    assert publish_idempotent["seq"] == 1
     assert by["BrokerConsume"] == {
         "queue": "q1",
         "group": "g",
@@ -172,7 +174,10 @@ async def test_rbac_wire_shapes() -> None:
     await r.remove_grant("reader", {"Label": "Doc"}, "Write", "Deny")
     await r.list()
 
-    ops = [p["op"] for _, p, _ in fake.sent]
+    ops = []
+    for _, p, _ in fake.sent:
+        assert p is not None
+        ops.append(p["op"])
     assert ops[0] == {"AddRole": {"name": "reader", "parents": ["base"]}}
     assert ops[1] == {"RemoveRole": "reader"}
     assert ops[2] == {

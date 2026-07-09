@@ -6,6 +6,7 @@
 //!     snapshot on the target shard). The reopen cost is amortised across the shard.
 //!   * `warm_read` — a subsequent point-read on the already-open backend (handle +
 //!     snapshot path warm).
+//!
 //! The cold/warm p50 delta is the reopen amortization cost. Uses the durable reopen
 //! fixture pattern from `tests/graphql_crossmodal_durable.rs` (unique pid+nanos persist
 //! dir, `RedbBackend::open(dir, FsyncPolicy::Each, 8192)`, write, `shutdown`, reopen).
