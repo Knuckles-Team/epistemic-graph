@@ -74,6 +74,15 @@ pub mod uql;
 
 #[cfg(feature = "query")]
 pub mod exec;
+/// RowSet v2, additive (CONCEPT:EG-KG.query.knowledge-set): [`knowledge::KnowledgeSet`] is the
+/// enriched shape (kind/confidence/bitemporal window/column-projection/provenance+policy
+/// frames) a caller builds from a FINISHED `RowSet` + the `GraphView` it ran over — a
+/// terminal step above the op loop, exactly like `leanrag`. `RowSet` and `Op::execute`
+/// are unchanged; this module is only exercised when a caller explicitly asks for it.
+/// Sits under the existing `query` feature (no new cargo feature) because it borrows
+/// `GraphView::node_row_object`'s decode.
+#[cfg(feature = "query")]
+pub mod knowledge;
 /// The physical EXECUTION runtime (CONCEPT:EG-KG.query.parallel-runtime) — Lane B. The
 /// `execute_ops` driver-dispatch `execute` routes through + the rayon-morsel, memory-accounted,
 /// spilling `ParallelDriver` (feature `par-runtime`). Gated on `query` (it schedules the
@@ -126,6 +135,13 @@ pub mod rowset;
 pub use exec::StagedSeries;
 #[cfg(feature = "query")]
 pub use exec::{execute, PlanCtx, PlanExt};
+
+/// The RowSet v2 surface (CONCEPT:EG-KG.query.knowledge-set): the enriched, ready-to-consume
+/// row/set shape a caller builds from a finished `RowSet` + the `GraphView` it ran over.
+#[cfg(feature = "query")]
+pub use knowledge::{
+    KnowledgeRow, KnowledgeSet, PayloadRef, PolicyFrame, ProjectionSchema, ProvenanceFrame,
+};
 
 /// The Lane-0 foundation seams the follow-on lanes hang off (append-only): the logical-plan
 /// optimization hook `plan_optimize` (CONCEPT:EG-KG.query.plan-optimize-seam — Lane A's cost
