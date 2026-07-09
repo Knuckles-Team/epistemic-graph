@@ -26,6 +26,12 @@
 // supplies the series (explicit `values`, mirroring the anomaly RCA path) and does
 // the KG write-back (`:Forecast{horizon, values}`).
 
+// The linear-algebra kernels here (least-squares normal equations, the
+// Gauss-elimination solver, Acklam's inverse-normal quantile) read more clearly
+// with explicit `for i in 0..n { m[i][j] }` indexing than enumerate/zip rewrites.
+// Scope the lint to this compute module rather than contorting the math.
+#![allow(clippy::needless_range_loop)]
+
 /// Which forecasting engine to run, with its parameters.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Algorithm {
@@ -83,7 +89,14 @@ pub fn forecast(series: &[f64], algorithm: Algorithm, horizon: usize, confidence
 /// stationarity, fit AR(p)/MA(q) via Hannan-Rissanen, forecast forward in the
 /// differenced domain (future innovations ⇒ their expectation, 0), then
 /// integrate back `d` times to the original scale.
-pub fn arima(series: &[f64], p: usize, d: usize, q: usize, horizon: usize, confidence: f64) -> Forecast {
+pub fn arima(
+    series: &[f64],
+    p: usize,
+    d: usize,
+    q: usize,
+    horizon: usize,
+    confidence: f64,
+) -> Forecast {
     let y = difference(series, d);
     if y.len() <= p.max(1) {
         // Not enough data after differencing — fall back to a flat forecast at
@@ -387,7 +400,11 @@ pub fn stl_decompose(series: &[f64], period: usize) -> Forecast {
     };
     let residual: Vec<f64> = (0..n)
         .map(|t| {
-            let tr = if trend[t].is_finite() { trend[t] } else { series[t] - seasonal[t] };
+            let tr = if trend[t].is_finite() {
+                trend[t]
+            } else {
+                series[t] - seasonal[t]
+            };
             series[t] - tr - seasonal[t]
         })
         .collect();
@@ -486,7 +503,10 @@ fn centered_moving_average(series: &[f64], period: usize) -> Vec<f64> {
         for t in half..n.saturating_sub(half) {
             // 2×period MA: average of the two overlapping period-window means.
             let a: f64 = series[t - half..t - half + period].iter().sum::<f64>() / period as f64;
-            let b: f64 = series[t - half + 1..t - half + 1 + period].iter().sum::<f64>() / period as f64;
+            let b: f64 = series[t - half + 1..t - half + 1 + period]
+                .iter()
+                .sum::<f64>()
+                / period as f64;
             out[t] = (a + b) / 2.0;
         }
     }
@@ -684,7 +704,13 @@ fn solve_linear(mut a: Vec<Vec<f64>>, mut b: Vec<f64>) -> Vec<f64> {
         }
     }
     (0..n)
-        .map(|i| if a[i][i].abs() > 1e-12 { b[i] / a[i][i] } else { 0.0 })
+        .map(|i| {
+            if a[i][i].abs() > 1e-12 {
+                b[i] / a[i][i]
+            } else {
+                0.0
+            }
+        })
         .collect()
 }
 
@@ -713,7 +739,7 @@ fn inverse_normal_cdf(p: f64) -> f64 {
         -3.969_683_028_665_376e+01,
         2.209_460_984_245_205e+02,
         -2.759_285_104_469_687e+02,
-        1.383_577_518_672_690e+02,
+        1.383_577_518_672_69e+02,
         -3.066_479_806_614_716e+01,
         2.506_628_277_459_239e+00,
     ];
@@ -789,7 +815,9 @@ mod tests {
         (0..n)
             .map(|t| {
                 let jitter = (rng.next_f64() - 0.5) * 0.2; // +/-0.1, tiny
-                10.0 + 2.0 * t as f64 + 5.0 * (2.0 * std::f64::consts::PI * t as f64 / 12.0).sin() + jitter
+                10.0 + 2.0 * t as f64
+                    + 5.0 * (2.0 * std::f64::consts::PI * t as f64 / 12.0).sin()
+                    + jitter
             })
             .collect()
     }
@@ -801,7 +829,8 @@ mod tests {
         assert_eq!(out.values.len(), 12);
         for h in 0..12 {
             let t = 60 + h;
-            let truth = 10.0 + 2.0 * t as f64 + 5.0 * (2.0 * std::f64::consts::PI * t as f64 / 12.0).sin();
+            let truth =
+                10.0 + 2.0 * t as f64 + 5.0 * (2.0 * std::f64::consts::PI * t as f64 / 12.0).sin();
             let err = (out.values[h] - truth).abs();
             assert!(
                 err < 3.0,
@@ -849,7 +878,11 @@ mod tests {
             let t = 30 + h;
             let truth = 5.0 + 3.0 * t as f64;
             let err = (out.values[h] - truth).abs();
-            assert!(err < 2.0, "arima(1,1,0) forecast[{h}]={} truth={truth} err={err}", out.values[h]);
+            assert!(
+                err < 2.0,
+                "arima(1,1,0) forecast[{h}]={} truth={truth} err={err}",
+                out.values[h]
+            );
         }
     }
 
@@ -874,9 +907,14 @@ mod tests {
         assert_eq!(out.values.len(), 12);
         for h in 0..12 {
             let t = 48 + h;
-            let truth = 10.0 + 2.0 * t as f64 + 5.0 * (2.0 * std::f64::consts::PI * t as f64 / 12.0).sin();
+            let truth =
+                10.0 + 2.0 * t as f64 + 5.0 * (2.0 * std::f64::consts::PI * t as f64 / 12.0).sin();
             let err = (out.values[h] - truth).abs();
-            assert!(err < 4.0, "stl forecast[{h}]={} truth={truth} err={err}", out.values[h]);
+            assert!(
+                err < 4.0,
+                "stl forecast[{h}]={} truth={truth} err={err}",
+                out.values[h]
+            );
         }
     }
 
@@ -884,7 +922,17 @@ mod tests {
     fn empty_series_yields_empty_forecast() {
         let out = forecast(&[], Algorithm::Arima { p: 1, d: 0, q: 0 }, 5, 0.95);
         assert!(out.values.is_empty());
-        let out2 = forecast(&[1.0, 2.0], Algorithm::HoltWinters { period: 0, alpha: 0.3, beta: 0.1, gamma: 0.1 }, 0, 0.95);
+        let out2 = forecast(
+            &[1.0, 2.0],
+            Algorithm::HoltWinters {
+                period: 0,
+                alpha: 0.3,
+                beta: 0.1,
+                gamma: 0.1,
+            },
+            0,
+            0.95,
+        );
         assert!(out2.values.is_empty());
     }
 
@@ -900,7 +948,12 @@ mod tests {
         let series = trend_seasonal_fixture(60);
         let out = forecast(
             &series,
-            Algorithm::HoltWinters { period: 12, alpha: 0.5, beta: 0.3, gamma: 0.3 },
+            Algorithm::HoltWinters {
+                period: 12,
+                alpha: 0.5,
+                beta: 0.3,
+                gamma: 0.3,
+            },
             12,
             0.95,
         );

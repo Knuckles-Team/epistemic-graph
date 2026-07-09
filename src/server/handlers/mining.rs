@@ -253,7 +253,15 @@ pub(crate) fn try_handle(
             max_edges,
             algorithm,
             writeback,
-        } => Ok(handle_subgraph(req_id, &core, label, min_support, max_edges, algorithm, writeback)),
+        } => Ok(handle_subgraph(
+            req_id,
+            &core,
+            label,
+            min_support,
+            max_edges,
+            algorithm,
+            writeback,
+        )),
         other => Err(other),
     }
 }
@@ -448,7 +456,14 @@ pub(crate) fn replay(core: &GraphCore, method: &Method) {
             }
             let algo = forecast_algo(*algorithm, *p, *d, *q, *period, *alpha, *beta, *gamma);
             let out = forecast::forecast(values, algo, *horizon, *confidence);
-            materialize_forecast(core, &out, *horizon, series_id, values, forecast_algo_name(*algorithm));
+            materialize_forecast(
+                core,
+                &out,
+                *horizon,
+                series_id,
+                values,
+                forecast_algo_name(*algorithm),
+            );
         }
         Method::MineText {
             docs,
@@ -1274,7 +1289,15 @@ fn handle_reduce(
             "mining: LDA requires one label per row (supervised)",
         );
     }
-    let algo = reduce_algo(algorithm, n_neighbors, min_dist, perplexity, epochs, lr, seed);
+    let algo = reduce_algo(
+        algorithm,
+        n_neighbors,
+        min_dist,
+        perplexity,
+        epochs,
+        lr,
+        seed,
+    );
     let lbls = (!labels.is_empty()).then_some(labels.as_slice());
     let out = reduce::reduce(&rows, lbls, algo, n_components);
 
@@ -1558,13 +1581,23 @@ fn handle_forecast(
     writeback: bool,
 ) -> Response {
     if values.is_empty() {
-        return Response::err(req_id, "mining: forecast requires a non-empty `values` series");
+        return Response::err(
+            req_id,
+            "mining: forecast requires a non-empty `values` series",
+        );
     }
     let algo = forecast_algo(algorithm, p, d, q, period, alpha, beta, gamma);
     let out = forecast::forecast(&values, algo, horizon, confidence);
 
     let written = if writeback {
-        materialize_forecast(core, &out, horizon, &series_id, &values, forecast_algo_name(algorithm))
+        materialize_forecast(
+            core,
+            &out,
+            horizon,
+            &series_id,
+            &values,
+            forecast_algo_name(algorithm),
+        )
     } else {
         0
     };
@@ -1751,11 +1784,28 @@ fn handle_text(
     )
 }
 
-fn to_text_algo(a: TextAlgorithm, k: usize, alpha: f64, beta: f64, iterations: usize, seed: u64) -> text::Algorithm {
+fn to_text_algo(
+    a: TextAlgorithm,
+    k: usize,
+    alpha: f64,
+    beta: f64,
+    iterations: usize,
+    seed: u64,
+) -> text::Algorithm {
     match a {
         TextAlgorithm::Tfidf => text::Algorithm::Tfidf,
-        TextAlgorithm::Lda => text::Algorithm::Lda { k, alpha, beta, iterations, seed },
-        TextAlgorithm::Nmf => text::Algorithm::Nmf { k, iterations, seed },
+        TextAlgorithm::Lda => text::Algorithm::Lda {
+            k,
+            alpha,
+            beta,
+            iterations,
+            seed,
+        },
+        TextAlgorithm::Nmf => text::Algorithm::Nmf {
+            k,
+            iterations,
+            seed,
+        },
     }
 }
 
@@ -1804,13 +1854,18 @@ fn build_text_docs(
 }
 
 /// Materialize each topic as a typed `:Topic` node
-/// (CONCEPT:EG-KG.mining.topic-writeback), id = a deterministic digest of `algo`
-/// + its top terms (order-sensitive — the terms are already sorted by
+/// (CONCEPT:EG-KG.mining.topic-writeback), id = a deterministic digest of `algo` +
+/// its top terms (order-sensitive — the terms are already sorted by
 /// descending weight). Linked, via a `HAS_TOPIC` edge, to every resident
 /// source document whose DOMINANT topic (argmax of its `doc_topics`
 /// distribution) is this one — only available when the corpus came from a
 /// graph-derived `source` (`ids` non-empty).
-fn materialize_topics(core: &GraphCore, out: &text::LabeledTextResult, ids: &[String], algo: &str) -> usize {
+fn materialize_topics(
+    core: &GraphCore,
+    out: &text::LabeledTextResult,
+    ids: &[String],
+    algo: &str,
+) -> usize {
     let dominant: Vec<usize> = out
         .doc_topics
         .iter()
@@ -2013,7 +2068,11 @@ fn subgraph_algo_name(a: SubgraphAlgorithm) -> &'static str {
 /// of its canonical shape (node labels + edges). Linked, via a
 /// `SUBGRAPH_MEMBER` edge, to every resident host node appearing in ANY of its
 /// embeddings.
-fn materialize_subgraphs(core: &GraphCore, results: &[subgraph::FrequentSubgraph], ids: &[String]) -> usize {
+fn materialize_subgraphs(
+    core: &GraphCore,
+    results: &[subgraph::FrequentSubgraph],
+    ids: &[String],
+) -> usize {
     let mut written = 0usize;
     for r in results {
         let node_id = subgraph_node_id(&r.pattern);
@@ -2611,11 +2670,19 @@ mod tests {
     fn classify_predict_over_embeddings_writeback() {
         let core = Arc::new(GraphCore::new());
         // Fit a GaussianNB in-memory, then predict over node embeddings + writeback.
-        let x = vec![vec![0.0, 0.0], vec![0.2, 0.1], vec![9.0, 9.0], vec![9.1, 8.8]];
+        let x = vec![
+            vec![0.0, 0.0],
+            vec![0.2, 0.1],
+            vec![9.0, 9.0],
+            vec![9.1, 8.8],
+        ];
         let y = vec![0, 0, 1, 1];
-        let model =
-            eg_compute::mining::classify::fit(&x, &y, eg_compute::mining::classify::Algorithm::GaussianNb)
-                .unwrap();
+        let model = eg_compute::mining::classify::fit(
+            &x,
+            &y,
+            eg_compute::mining::classify::Algorithm::GaussianNb,
+        )
+        .unwrap();
         for (id, e) in [("p0", [0.1f32, 0.0]), ("p1", [9.0, 9.1])] {
             core.add_node(id.into(), node(serde_json::json!({"type": "Sample"})));
             core.semantic_store
@@ -2723,14 +2790,22 @@ mod tests {
     fn explicit_sequences_produce_patterns() {
         let core = Arc::new(GraphCore::new());
         let seqs = vec![
-            vec!["login".to_string(), "browse".to_string(), "purchase".to_string()],
+            vec![
+                "login".to_string(),
+                "browse".to_string(),
+                "purchase".to_string(),
+            ],
             vec![
                 "login".to_string(),
                 "search".to_string(),
                 "browse".to_string(),
                 "purchase".to_string(),
             ],
-            vec!["login".to_string(), "browse".to_string(), "purchase".to_string()],
+            vec![
+                "login".to_string(),
+                "browse".to_string(),
+                "purchase".to_string(),
+            ],
         ];
         let m = Method::MineSequence {
             sequences: seqs,
@@ -2747,10 +2822,9 @@ mod tests {
         assert!(v["n_patterns"].as_u64().unwrap() > 0);
         assert_eq!(v["written_back"], 0);
         let patterns = v["patterns"].as_array().unwrap();
-        assert!(patterns.iter().any(|p| {
-            p["items"]
-                == serde_json::json!(["login", "browse", "purchase"])
-        }));
+        assert!(patterns
+            .iter()
+            .any(|p| { p["items"] == serde_json::json!(["login", "browse", "purchase"]) }));
     }
 
     #[test]
@@ -2793,9 +2867,9 @@ mod tests {
         assert_eq!(pattern_nodes.len() as u64, written);
         // The full 3-item pattern must have been recovered (both sessions match).
         let patterns = v["patterns"].as_array().unwrap();
-        assert!(patterns.iter().any(|p| {
-            p["items"] == serde_json::json!(["view", "add_cart", "checkout"])
-        }));
+        assert!(patterns
+            .iter()
+            .any(|p| { p["items"] == serde_json::json!(["view", "add_cart", "checkout"]) }));
     }
 
     #[test]
@@ -2828,7 +2902,10 @@ mod tests {
             let t = 30 + h;
             let truth = 5.0 + 3.0 * t as f64;
             let got = fv.as_f64().unwrap();
-            assert!((got - truth).abs() < 3.0, "forecast[{h}]={got} truth={truth}");
+            assert!(
+                (got - truth).abs() < 3.0,
+                "forecast[{h}]={got} truth={truth}"
+            );
         }
         let written = v["written_back"].as_u64().unwrap();
         assert_eq!(written, 1);
@@ -2863,7 +2940,9 @@ mod tests {
     fn forecast_holtwinters_seasonal() {
         let core = Arc::new(GraphCore::new());
         let values: Vec<f64> = (0..48)
-            .map(|t| 10.0 + 2.0 * t as f64 + 5.0 * (2.0 * std::f64::consts::PI * t as f64 / 12.0).sin())
+            .map(|t| {
+                10.0 + 2.0 * t as f64 + 5.0 * (2.0 * std::f64::consts::PI * t as f64 / 12.0).sin()
+            })
             .collect();
         let m = Method::MineForecast {
             values,
@@ -2935,10 +3014,22 @@ mod tests {
         let fin_words = ["stock", "market", "bond", "yield", "trader"];
         for i in 0..15 {
             let n = 6 + (i % 4);
-            let pet_text: String = (0..n).map(|j| pet_words[(i + j) % pet_words.len()]).collect::<Vec<_>>().join(" ");
-            let fin_text: String = (0..n).map(|j| fin_words[(i + j) % fin_words.len()]).collect::<Vec<_>>().join(" ");
-            core.add_node(format!("doc_pet_{i}"), node(serde_json::json!({"type": "Doc", "body": pet_text})));
-            core.add_node(format!("doc_fin_{i}"), node(serde_json::json!({"type": "Doc", "body": fin_text})));
+            let pet_text: String = (0..n)
+                .map(|j| pet_words[(i + j) % pet_words.len()])
+                .collect::<Vec<_>>()
+                .join(" ");
+            let fin_text: String = (0..n)
+                .map(|j| fin_words[(i + j) % fin_words.len()])
+                .collect::<Vec<_>>()
+                .join(" ");
+            core.add_node(
+                format!("doc_pet_{i}"),
+                node(serde_json::json!({"type": "Doc", "body": pet_text})),
+            );
+            core.add_node(
+                format!("doc_fin_{i}"),
+                node(serde_json::json!({"type": "Doc", "body": fin_text})),
+            );
         }
         let m = Method::MineText {
             docs: Vec::new(),
@@ -2971,8 +3062,13 @@ mod tests {
             for prefix in ["doc_pet_", "doc_fin_"] {
                 let id = format!("{prefix}{i}");
                 let succ = core.get_successors(&id).unwrap();
-                let topic_edges: Vec<&String> = succ.iter().filter(|s| s.starts_with("topic:")).collect();
-                assert_eq!(topic_edges.len(), 1, "doc {id} should link to exactly one topic");
+                let topic_edges: Vec<&String> =
+                    succ.iter().filter(|s| s.starts_with("topic:")).collect();
+                assert_eq!(
+                    topic_edges.len(),
+                    1,
+                    "doc {id} should link to exactly one topic"
+                );
             }
         }
     }
@@ -3015,8 +3111,14 @@ mod tests {
         // Plant 4 instances of :Concept --touches--> :Capability, plus a
         // handful of unrelated noise nodes/edges under different types.
         for i in 0..4 {
-            core.add_node(format!("concept_{i}"), node(serde_json::json!({"type": "Concept"})));
-            core.add_node(format!("capability_{i}"), node(serde_json::json!({"type": "Capability"})));
+            core.add_node(
+                format!("concept_{i}"),
+                node(serde_json::json!({"type": "Concept"})),
+            );
+            core.add_node(
+                format!("capability_{i}"),
+                node(serde_json::json!({"type": "Capability"})),
+            );
             let _ = core.add_edge(
                 format!("concept_{i}"),
                 format!("capability_{i}"),
@@ -3025,7 +3127,11 @@ mod tests {
         }
         core.add_node("noise_a".into(), node(serde_json::json!({"type": "Noise"})));
         core.add_node("noise_b".into(), node(serde_json::json!({"type": "Noise"})));
-        let _ = core.add_edge("noise_a".into(), "noise_b".into(), node(serde_json::json!({"relation": "unrelated"})));
+        let _ = core.add_edge(
+            "noise_a".into(),
+            "noise_b".into(),
+            node(serde_json::json!({"relation": "unrelated"})),
+        );
 
         let m = Method::MineSubgraph {
             label: None,
@@ -3047,7 +3153,10 @@ mod tests {
             let has_capability = nodes.iter().any(|n| n == "Capability");
             has_concept && has_capability && p["edges"].as_array().unwrap().len() == 1
         });
-        assert!(hit.is_some(), "planted pattern not in response: {patterns:?}");
+        assert!(
+            hit.is_some(),
+            "planted pattern not in response: {patterns:?}"
+        );
         assert_eq!(hit.unwrap()["count"], 4);
         let written = v["written_back"].as_u64().unwrap();
         assert!(written > 0);
@@ -3074,9 +3183,21 @@ mod tests {
         for i in 0..3 {
             core.add_node(format!("n{i}"), node(serde_json::json!({"type": "N"})));
         }
-        let _ = core.add_edge("n0".into(), "n1".into(), node(serde_json::json!({"relation": "e"})));
-        let _ = core.add_edge("n1".into(), "n2".into(), node(serde_json::json!({"relation": "e"})));
-        let _ = core.add_edge("n2".into(), "n0".into(), node(serde_json::json!({"relation": "e"})));
+        let _ = core.add_edge(
+            "n0".into(),
+            "n1".into(),
+            node(serde_json::json!({"relation": "e"})),
+        );
+        let _ = core.add_edge(
+            "n1".into(),
+            "n2".into(),
+            node(serde_json::json!({"relation": "e"})),
+        );
+        let _ = core.add_edge(
+            "n2".into(),
+            "n0".into(),
+            node(serde_json::json!({"relation": "e"})),
+        );
 
         let m = Method::MineSubgraph {
             label: None,
@@ -3102,8 +3223,16 @@ mod tests {
         core.add_node("a".into(), node(serde_json::json!({"type": "A"})));
         core.add_node("b".into(), node(serde_json::json!({"type": "B"})));
         core.add_node("a2".into(), node(serde_json::json!({"type": "A"})));
-        let _ = core.add_edge("a".into(), "b".into(), node(serde_json::json!({"relation": "e"})));
-        let _ = core.add_edge("a".into(), "a2".into(), node(serde_json::json!({"relation": "e"})));
+        let _ = core.add_edge(
+            "a".into(),
+            "b".into(),
+            node(serde_json::json!({"relation": "e"})),
+        );
+        let _ = core.add_edge(
+            "a".into(),
+            "a2".into(),
+            node(serde_json::json!({"relation": "e"})),
+        );
 
         let m = Method::MineSubgraph {
             label: Some("A".into()),

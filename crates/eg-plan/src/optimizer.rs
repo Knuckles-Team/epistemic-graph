@@ -827,8 +827,10 @@ mod tests {
             let id = format!("d{k}");
             core.add_node(
                 id.clone(),
-                rmp_serde::to_vec_named(&json!({ "type": "Doc", "year": k as i64, "score": k as i64 }))
-                    .unwrap(),
+                rmp_serde::to_vec_named(
+                    &json!({ "type": "Doc", "year": k as i64, "score": k as i64 }),
+                )
+                .unwrap(),
             );
             let mut v = vec![0.0f32; 4];
             v[k % 4] = 1.0;
