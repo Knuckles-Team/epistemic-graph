@@ -23,6 +23,12 @@ datascience = []
 # without it drops the variant (→ the dispatch "not available in this build"
 # catch-all), exactly like finance/datascience.
 mining = []
+# Graph-learning / neuro-symbolic domain (CONCEPT:EG-KG.graphlearn.link-predictor):
+# gates the `Method::GraphLearnFit`/`GraphLearnPredict` variants + their
+# `GraphSource`/`GraphLearnParams` wire types. PURE serde (the model blob rides an
+# opaque `serde_json::Value`, so no KAN type leaks into the wire) — folds into the
+# serving tiers exactly like mining; a build without it drops the variants.
+graphlearn = []
 # Unified cross-modal query plan AST (CONCEPT:KG-2.208) — the wire DTO embedded in
 # `Method::UnifiedQuery`. Gated so a build without the query surface drops the AST
 # (and the Method variant) from the enum, exactly like finance/datascience.
