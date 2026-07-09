@@ -2299,6 +2299,40 @@ class MiningClient:
             params["labels"] = labels
         return await self._client._send("MineReduce", params)
 
+    async def sequence(
+        self,
+        sequences: list[list[str]] | None = None,
+        *,
+        source: dict[str, Any] | None = None,
+        min_support: float = 0.1,
+        algorithm: str = "prefixspan",
+        writeback: bool = False,
+    ) -> dict[str, Any]:
+        """Mine frequent sequential patterns (CONCEPT:EG-KG.mining.prefixspan — Phase 4).
+
+        Provide EITHER explicit ``sequences`` (each a time-ordered list of item
+        labels — an item may repeat) OR a graph-derived ``source`` spec —
+        ``{"node_label", "direction", "item_field", "relation", "limit"}`` —
+        that turns each node's ordered neighbor list (chronological edge order)
+        into one sequence (the "what reliably follows what" hook: evolution/
+        commit timelines, event streams). ``algorithm`` is one of ``prefixspan``
+        (default) / ``gsp`` (both agree — GSP is the sequence analog of Apriori,
+        PrefixSpan a projection-based no-candidate-generation engine). With
+        ``writeback=True`` each pattern is materialized as a typed
+        ``:SequentialPattern`` node linked to its resident item nodes. Returns
+        ``{patterns: [{items, support, count}], n_sequences, n_patterns, ...}``.
+        """
+        params: dict[str, Any] = {
+            "min_support": min_support,
+            "algorithm": algorithm,
+            "writeback": writeback,
+        }
+        if sequences is not None:
+            params["sequences"] = sequences
+        if source is not None:
+            params["source"] = source
+        return await self._client._send("MineSequence", params)
+
 
 # Per-RPC timeouts (CONCEPT:EG-KG.query.wire-protocol). A wedged or overloaded engine must never
 # hang a caller forever — every request is bounded. Normal CRUD uses the short
