@@ -2382,6 +2382,54 @@ class MiningClient:
         }
         return await self._client._send("MineForecast", params)
 
+    async def text(
+        self,
+        docs: list[list[str]] | None = None,
+        *,
+        source: dict[str, Any] | None = None,
+        algorithm: str = "tfidf",
+        k: int = 3,
+        alpha: float = 0.1,
+        beta: float = 0.01,
+        iterations: int = 200,
+        seed: int = 0,
+        top_n: int = 10,
+        writeback: bool = False,
+    ) -> dict[str, Any]:
+        """Mine a text corpus: TF-IDF or topic modeling (CONCEPT:EG-KG.mining.tfidf — Phase 4).
+
+        Provide EITHER explicit `docs` (each a pre-tokenized ``list[str]`` —
+        e.g. lowercased words) OR a graph-derived ``source`` spec —
+        ``{"node_label", "field", "limit"}`` — that tokenizes a text property
+        off a node label (compute-near-data, no Tantivy/eg-text dependency).
+        ``algorithm`` is one of ``tfidf`` (default — descriptive per-document
+        term weights, read-only) / ``lda`` (Latent Dirichlet Allocation via
+        collapsed Gibbs sampling — ``alpha``/``beta`` priors, ``iterations``
+        sweeps) / ``nmf`` (Non-negative Matrix Factorization by multiplicative
+        updates on the TF-IDF matrix). ``k`` sets the topic count for
+        ``lda``/``nmf``; ``top_n`` caps how many terms are kept per
+        document/topic row. With ``writeback=True`` (``lda``/``nmf`` only)
+        each topic is materialized as a typed ``:Topic`` node, linked
+        ``HAS_TOPIC`` from every resident document whose DOMINANT topic it is.
+        Returns ``{doc_terms: [...]}`` (tfidf) or ``{topics: [...],
+        doc_topics: [...]}`` (lda/nmf).
+        """
+        params: dict[str, Any] = {
+            "algorithm": algorithm,
+            "k": k,
+            "alpha": alpha,
+            "beta": beta,
+            "iterations": iterations,
+            "seed": seed,
+            "top_n": top_n,
+            "writeback": writeback,
+        }
+        if docs is not None:
+            params["docs"] = docs
+        if source is not None:
+            params["source"] = source
+        return await self._client._send("MineText", params)
+
 
 # Per-RPC timeouts (CONCEPT:EG-KG.query.wire-protocol). A wedged or overloaded engine must never
 # hang a caller forever — every request is bounded. Normal CRUD uses the short

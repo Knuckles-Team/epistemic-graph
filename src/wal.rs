@@ -690,7 +690,8 @@ pub fn apply(core: &GraphCore, m: &Method) {
         | Method::MineClassifyPredict { .. }
         | Method::MineReduce { .. }
         | Method::MineSequence { .. }
-        | Method::MineForecast { .. } => crate::server::handlers::mining::replay(core, m),
+        | Method::MineForecast { .. }
+        | Method::MineText { .. } => crate::server::handlers::mining::replay(core, m),
         _ => {}
     }
 }

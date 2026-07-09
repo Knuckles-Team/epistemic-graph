@@ -10,10 +10,10 @@
 // `classify_predict` — Naive Bayes, k-NN, logistic, linear SVC; PREDICTIVE
 // fit→blob→predict) and dimensionality reduction (`reduce` — truncated SVD, LDA,
 // UMAP, t-SNE; DESCRIPTIVE row transform). Phase 4 continues the final family:
-// sequential-pattern mining (`sequence` — PrefixSpan, GSP) shipped first;
-// classical forecasting (`forecast` — ARIMA, Holt-Winters/ETS, STL
-// decomposition) follows onto this same surface; text mining (`text`) and
-// frequent-subgraph mining (`subgraph`) round it out.
+// sequential-pattern mining (`sequence` — PrefixSpan, GSP) and classical
+// forecasting (`forecast` — ARIMA, Holt-Winters/ETS, STL decomposition) shipped
+// first; text mining (`text` — TF-IDF, LDA, NMF) follows onto this same
+// surface; frequent-subgraph mining (`subgraph`) rounds it out.
 
 pub mod anomaly;
 pub mod association;
@@ -22,3 +22,4 @@ pub mod cluster;
 pub mod forecast;
 pub mod reduce;
 pub mod sequence;
+pub mod text;

@@ -2868,6 +2868,52 @@ pub enum Method {
         #[serde(default)]
         writeback: bool,
     },
+
+    /// Text mining (CONCEPT:EG-KG.mining.tfidf — Phase 4). `tfidf` returns each
+    /// document's term weights (descriptive, read-only); `lda`/`nmf` fit a
+    /// `k`-topic model over the corpus. Documents come from EITHER explicit
+    /// `docs` (each a pre-tokenized `Vec<String>` — use `tokenize`-equivalent
+    /// client-side, or pass raw words) OR a graph-derived `source` that
+    /// tokenizes a text property off a node label (compute-near-data — no
+    /// Tantivy/eg-text dependency). With `writeback=true` (`lda`/`nmf` only)
+    /// each topic is materialized as a typed `:Topic` node, linked to any
+    /// source document that is a resident node — a graph MUTATION,
+    /// WAL-replayed by re-mining deterministically. Gated `mining`.
+    #[cfg(feature = "mining")]
+    MineText {
+        /// Explicit pre-tokenized documents. Empty ⇒ use `source`.
+        #[serde(default)]
+        docs: Vec<Vec<String>>,
+        /// Graph-derived text source (compute-near-data). Used when `docs` is
+        /// empty.
+        #[serde(default)]
+        source: Option<TextSource>,
+        /// Which text-mining engine to run.
+        #[serde(default)]
+        algorithm: TextAlgorithm,
+        /// Topic count for `lda`/`nmf`.
+        #[serde(default = "default_topic_k")]
+        k: usize,
+        /// LDA symmetric doc-topic Dirichlet prior.
+        #[serde(default = "default_lda_alpha")]
+        alpha: f64,
+        /// LDA symmetric topic-term Dirichlet prior.
+        #[serde(default = "default_lda_beta")]
+        beta: f64,
+        /// Gibbs sweeps (`lda`) / multiplicative-update iterations (`nmf`).
+        #[serde(default = "default_text_iterations")]
+        iterations: usize,
+        /// Seed for LDA's Gibbs sampler / NMF's initial factors (deterministic).
+        #[serde(default)]
+        seed: u64,
+        /// How many terms to keep per document/topic row.
+        #[serde(default = "default_top_n")]
+        top_n: usize,
+        /// Materialize each topic as a typed `:Topic` node (`lda`/`nmf` only —
+        /// a no-op for `tfidf`, which has no topics to write back).
+        #[serde(default)]
+        writeback: bool,
+    },
 }
 
 // ── Supporting Types ────────────────────────────────────────────────────
@@ -2911,6 +2957,64 @@ pub enum ForecastAlgorithm {
     #[serde(alias = "holt_winters", alias = "hw", alias = "ets")]
     Holtwinters,
     Stl,
+}
+
+/// Which text-mining engine `MineText` runs (CONCEPT:EG-KG.mining.tfidf — Phase
+/// 4). TF-IDF is the default (descriptive per-document term weights); `lda`/
+/// `nmf` fit a `k`-topic model.
+#[cfg(feature = "mining")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum TextAlgorithm {
+    #[default]
+    Tfidf,
+    Lda,
+    Nmf,
+}
+
+/// A graph-derived text source for `MineText` (CONCEPT:EG-KG.mining.tfidf —
+/// Phase 4). Each node carrying `node_label` contributes one document: its
+/// `field` string property, tokenized (lowercase, alnum-run split).
+#[cfg(feature = "mining")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TextSource {
+    /// The node label whose instances each contribute one document.
+    pub node_label: String,
+    /// The string property to tokenize into the document.
+    pub field: String,
+    /// Cap the number of nodes scanned (0 = uncapped).
+    #[serde(default)]
+    pub limit: usize,
+}
+
+/// serde default topic count for `lda`/`nmf`.
+#[cfg(feature = "mining")]
+fn default_topic_k() -> usize {
+    3
+}
+
+/// serde default LDA symmetric doc-topic prior.
+#[cfg(feature = "mining")]
+fn default_lda_alpha() -> f64 {
+    0.1
+}
+
+/// serde default LDA symmetric topic-term prior.
+#[cfg(feature = "mining")]
+fn default_lda_beta() -> f64 {
+    0.01
+}
+
+/// serde default Gibbs sweeps / NMF iterations.
+#[cfg(feature = "mining")]
+fn default_text_iterations() -> usize {
+    200
+}
+
+/// serde default terms kept per document/topic row.
+#[cfg(feature = "mining")]
+fn default_top_n() -> usize {
+    10
 }
 
 /// serde default for [`Method::MineForecast::horizon`].

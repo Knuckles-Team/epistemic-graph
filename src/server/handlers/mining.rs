@@ -21,12 +21,13 @@ use eg_compute::mining::cluster;
 use eg_compute::mining::forecast;
 use eg_compute::mining::reduce;
 use eg_compute::mining::sequence::{self, LabeledPattern};
+use eg_compute::mining::text;
 
 use crate::graph::GraphCore;
 use crate::protocol::{
     AnomalyAlgorithm, ClassifyAlgorithm, ClusterAlgorithm, ForecastAlgorithm, Linkage, Method,
     MineAlgorithm, MineSeqAlgorithm, ReduceAlgorithm, Response, ResultPayload, SequenceSource,
-    SvmKernel, TransactionSource, VectorSource,
+    SvmKernel, TextAlgorithm, TextSource, TransactionSource, VectorSource,
 };
 
 /// Handle a `Mine*` method. `Err(method)` hands a non-mining method back to the
@@ -183,6 +184,21 @@ pub(crate) fn try_handle(
         } => Ok(handle_forecast(
             req_id, &core, values, algorithm, horizon, p, d, q, period, alpha, beta, gamma,
             confidence, series_id, writeback,
+        )),
+        Method::MineText {
+            docs,
+            source,
+            algorithm,
+            k,
+            alpha,
+            beta,
+            iterations,
+            seed,
+            top_n,
+            writeback,
+        } => Ok(handle_text(
+            req_id, &core, docs, source, algorithm, k, alpha, beta, iterations, seed, top_n,
+            writeback,
         )),
         other => Err(other),
     }
@@ -346,6 +362,29 @@ pub(crate) fn replay(core: &GraphCore, method: &Method) {
             let algo = forecast_algo(*algorithm, *p, *d, *q, *period, *alpha, *beta, *gamma);
             let out = forecast::forecast(values, algo, *horizon, *confidence);
             materialize_forecast(core, &out, *horizon, series_id, values, forecast_algo_name(*algorithm));
+        }
+        Method::MineText {
+            docs,
+            source,
+            algorithm,
+            k,
+            alpha,
+            beta,
+            iterations,
+            seed,
+            top_n,
+            writeback: true,
+        } => {
+            if matches!(algorithm, TextAlgorithm::Tfidf) {
+                return; // tfidf has no topics to write back
+            }
+            let (tokenized, ids) = build_text_docs(core, docs, source);
+            if tokenized.is_empty() {
+                return;
+            }
+            let algo = to_text_algo(*algorithm, *k, *alpha, *beta, *iterations, *seed);
+            let out = text::mine_labeled(&tokenized, algo, *top_n);
+            materialize_topics(core, &out, &ids, text_algo_name(*algorithm));
         }
         _ => {}
     }
@@ -1489,6 +1528,200 @@ fn forecast_node_id(algo: &str, series_id: &str, values: &[f64]) -> String {
     format!("forecast:{}", hex::encode(&hasher.finalize()[..12]))
 }
 
+// ─────────────────────────── Text mining ───────────────────────────
+
+/// Handle `MineText` (CONCEPT:EG-KG.mining.tfidf — Phase 4): tokenize the
+/// corpus (explicit or graph-derived), run the chosen engine, return
+/// `{doc_terms}` (tfidf) or `{topics, doc_topics}` (lda/nmf), and optionally
+/// write `:Topic` nodes back (lda/nmf only).
+#[allow(clippy::too_many_arguments)]
+fn handle_text(
+    req_id: u64,
+    core: &GraphCore,
+    docs: Vec<Vec<String>>,
+    source: Option<TextSource>,
+    algorithm: TextAlgorithm,
+    k: usize,
+    alpha: f64,
+    beta: f64,
+    iterations: usize,
+    seed: u64,
+    top_n: usize,
+    writeback: bool,
+) -> Response {
+    let (tokenized, ids) = build_text_docs(core, &docs, &source);
+    if tokenized.is_empty() {
+        return Response::ok(
+            req_id,
+            ResultPayload::Json(serde_json::json!({
+                "doc_terms": [],
+                "topics": [],
+                "doc_topics": [],
+                "n_docs": 0,
+                "written_back": 0,
+            })),
+        );
+    }
+    let algo = to_text_algo(algorithm, k, alpha, beta, iterations, seed);
+    let out = text::mine_labeled(&tokenized, algo, top_n);
+
+    let written = if writeback && !matches!(algorithm, TextAlgorithm::Tfidf) {
+        materialize_topics(core, &out, &ids, text_algo_name(algorithm))
+    } else {
+        0
+    };
+
+    let doc_terms_json: Vec<serde_json::Value> = out
+        .doc_terms
+        .iter()
+        .enumerate()
+        .map(|(i, terms)| {
+            let id = ids.get(i).cloned().unwrap_or_else(|| i.to_string());
+            let term_rows: Vec<serde_json::Value> = terms
+                .iter()
+                .map(|(t, w)| serde_json::json!({ "term": t, "weight": w }))
+                .collect();
+            serde_json::json!({ "doc_id": id, "terms": term_rows })
+        })
+        .collect();
+
+    let topics_json: Vec<serde_json::Value> = out
+        .topics
+        .iter()
+        .enumerate()
+        .map(|(i, terms)| {
+            let term_rows: Vec<serde_json::Value> = terms
+                .iter()
+                .map(|(t, w)| serde_json::json!({ "term": t, "weight": w }))
+                .collect();
+            serde_json::json!({ "topic_id": i, "terms": term_rows })
+        })
+        .collect();
+
+    Response::ok(
+        req_id,
+        ResultPayload::Json(serde_json::json!({
+            "doc_terms": doc_terms_json,
+            "topics": topics_json,
+            "doc_topics": out.doc_topics,
+            "algorithm": text_algo_name(algorithm),
+            "n_docs": tokenized.len(),
+            "written_back": written,
+        })),
+    )
+}
+
+fn to_text_algo(a: TextAlgorithm, k: usize, alpha: f64, beta: f64, iterations: usize, seed: u64) -> text::Algorithm {
+    match a {
+        TextAlgorithm::Tfidf => text::Algorithm::Tfidf,
+        TextAlgorithm::Lda => text::Algorithm::Lda { k, alpha, beta, iterations, seed },
+        TextAlgorithm::Nmf => text::Algorithm::Nmf { k, iterations, seed },
+    }
+}
+
+fn text_algo_name(a: TextAlgorithm) -> &'static str {
+    match a {
+        TextAlgorithm::Tfidf => "tfidf",
+        TextAlgorithm::Lda => "lda",
+        TextAlgorithm::Nmf => "nmf",
+    }
+}
+
+/// Resolve the tokenized corpus: explicit `docs` win (already tokenized, ids
+/// empty); otherwise tokenize the `field` string property of every
+/// `source.node_label` instance (compute-near-data — no Tantivy/eg-text
+/// dependency), skipping nodes with no non-empty text. Returns the corpus AND
+/// a parallel `ids` vec (node ids for the graph-derived path).
+fn build_text_docs(
+    core: &GraphCore,
+    docs: &[Vec<String>],
+    source: &Option<TextSource>,
+) -> (Vec<Vec<String>>, Vec<String>) {
+    if !docs.is_empty() {
+        return (docs.to_vec(), Vec::new());
+    }
+    let Some(spec) = source else {
+        return (Vec::new(), Vec::new());
+    };
+    let owners = core.get_nodes_by_label(&spec.node_label, spec.limit);
+    let mut tokenized = Vec::with_capacity(owners.len());
+    let mut ids = Vec::with_capacity(owners.len());
+    for (node_id, blob) in owners {
+        let Ok(props) = rmp_serde::from_slice::<serde_json::Value>(&blob) else {
+            continue;
+        };
+        let Some(text_val) = props.get(&spec.field).and_then(|v| v.as_str()) else {
+            continue;
+        };
+        let toks = text::tokenize(text_val);
+        if toks.is_empty() {
+            continue;
+        }
+        tokenized.push(toks);
+        ids.push(node_id);
+    }
+    (tokenized, ids)
+}
+
+/// Materialize each topic as a typed `:Topic` node
+/// (CONCEPT:EG-KG.mining.topic-writeback), id = a deterministic digest of `algo`
+/// + its top terms (order-sensitive — the terms are already sorted by
+/// descending weight). Linked, via a `HAS_TOPIC` edge, to every resident
+/// source document whose DOMINANT topic (argmax of its `doc_topics`
+/// distribution) is this one — only available when the corpus came from a
+/// graph-derived `source` (`ids` non-empty).
+fn materialize_topics(core: &GraphCore, out: &text::LabeledTextResult, ids: &[String], algo: &str) -> usize {
+    let dominant: Vec<usize> = out
+        .doc_topics
+        .iter()
+        .map(|dist| {
+            dist.iter()
+                .enumerate()
+                .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
+                .map(|(t, _)| t)
+                .unwrap_or(0)
+        })
+        .collect();
+
+    let mut written = 0usize;
+    for (t, terms) in out.topics.iter().enumerate() {
+        let term_labels: Vec<&str> = terms.iter().map(|(term, _)| term.as_str()).collect();
+        let node_id = topic_node_id(algo, &term_labels);
+        let term_rows: Vec<serde_json::Value> = terms
+            .iter()
+            .map(|(term, w)| serde_json::json!({ "term": term, "weight": w }))
+            .collect();
+        let props = serde_json::json!({
+            "type": "Topic",
+            "algo": algo,
+            "terms": term_rows,
+        });
+        let Ok(blob) = rmp_serde::to_vec_named(&props) else {
+            continue;
+        };
+        core.add_node(node_id.clone(), blob);
+        for (i, doc_id) in ids.iter().enumerate() {
+            if dominant.get(i) == Some(&t) && core.has_node(doc_id) {
+                let edge = serde_json::json!({ "relation": "HAS_TOPIC" });
+                if let Ok(eb) = rmp_serde::to_vec_named(&edge) {
+                    let _ = core.add_edge(doc_id.clone(), node_id.clone(), eb);
+                }
+            }
+        }
+        written += 1;
+    }
+    written
+}
+
+fn topic_node_id(algo: &str, terms: &[&str]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(algo.as_bytes());
+    hasher.update([0u8]);
+    hasher.update(terms.join("\u{1}").as_bytes());
+    format!("topic:{}", hex::encode(&hasher.finalize()[..12]))
+}
+
 // ─────────────────────────── Row builders (shared) ───────────────────────────
 
 /// Resolve the cluster feature rows: explicit `features` win; otherwise gather the
@@ -2136,5 +2369,122 @@ mod tests {
         for i in 0..12 {
             assert!(lower[i].as_f64().unwrap() <= upper[i].as_f64().unwrap());
         }
+    }
+
+    fn words(s: &str) -> Vec<String> {
+        s.split_whitespace().map(|w| w.to_string()).collect()
+    }
+
+    #[test]
+    fn text_tfidf_explicit_docs() {
+        let core = Arc::new(GraphCore::new());
+        let docs = vec![
+            words("the cat sat on the mat"),
+            words("the dog ran in the park"),
+            words("the rocket launched into orbit"),
+        ];
+        let m = Method::MineText {
+            docs,
+            source: None,
+            algorithm: TextAlgorithm::Tfidf,
+            k: 3,
+            alpha: 0.1,
+            beta: 0.01,
+            iterations: 200,
+            seed: 1,
+            top_n: 10,
+            writeback: true, // ignored for tfidf
+        };
+        let resp = try_handle(23, Arc::clone(&core), m).expect("handled");
+        let Some(ResultPayload::Json(v)) = resp.result else {
+            panic!("expected json payload");
+        };
+        assert_eq!(v["n_docs"], 3);
+        assert_eq!(v["written_back"], 0); // tfidf never writes back
+        let doc_terms = v["doc_terms"].as_array().unwrap();
+        assert_eq!(doc_terms.len(), 3);
+        core.mark_dirty();
+        assert_eq!(core.get_nodes_by_label("Topic", 0).len(), 0);
+    }
+
+    #[test]
+    fn text_lda_graph_derived_source_and_writeback() {
+        let core = Arc::new(GraphCore::new());
+        let pet_words = ["cat", "dog", "pet", "leash", "vet"];
+        let fin_words = ["stock", "market", "bond", "yield", "trader"];
+        for i in 0..15 {
+            let n = 6 + (i % 4);
+            let pet_text: String = (0..n).map(|j| pet_words[(i + j) % pet_words.len()]).collect::<Vec<_>>().join(" ");
+            let fin_text: String = (0..n).map(|j| fin_words[(i + j) % fin_words.len()]).collect::<Vec<_>>().join(" ");
+            core.add_node(format!("doc_pet_{i}"), node(serde_json::json!({"type": "Doc", "body": pet_text})));
+            core.add_node(format!("doc_fin_{i}"), node(serde_json::json!({"type": "Doc", "body": fin_text})));
+        }
+        let m = Method::MineText {
+            docs: Vec::new(),
+            source: Some(TextSource {
+                node_label: "Doc".into(),
+                field: "body".into(),
+                limit: 0,
+            }),
+            algorithm: TextAlgorithm::Lda,
+            k: 2,
+            alpha: 0.1,
+            beta: 0.01,
+            iterations: 200,
+            seed: 42,
+            top_n: 5,
+            writeback: true,
+        };
+        let resp = try_handle(25, Arc::clone(&core), m).expect("handled");
+        let Some(ResultPayload::Json(v)) = resp.result else {
+            panic!("expected json payload");
+        };
+        assert_eq!(v["n_docs"], 30);
+        let written = v["written_back"].as_u64().unwrap();
+        assert_eq!(written, 2);
+        core.mark_dirty();
+        let topic_nodes = core.get_nodes_by_label("Topic", 0);
+        assert_eq!(topic_nodes.len(), 2);
+        // Every doc must have exactly one HAS_TOPIC edge (its dominant topic).
+        for i in 0..15 {
+            for prefix in ["doc_pet_", "doc_fin_"] {
+                let id = format!("{prefix}{i}");
+                let succ = core.get_successors(&id).unwrap();
+                let topic_edges: Vec<&String> = succ.iter().filter(|s| s.starts_with("topic:")).collect();
+                assert_eq!(topic_edges.len(), 1, "doc {id} should link to exactly one topic");
+            }
+        }
+    }
+
+    #[test]
+    fn text_nmf_explicit_docs_topics_and_doc_topics() {
+        let core = Arc::new(GraphCore::new());
+        let docs = vec![
+            words("cat dog pet leash vet cat dog"),
+            words("stock market bond yield trader stock market"),
+            words("cat dog pet vet leash"),
+            words("bond yield trader stock market"),
+        ];
+        let m = Method::MineText {
+            docs,
+            source: None,
+            algorithm: TextAlgorithm::Nmf,
+            k: 2,
+            alpha: 0.1,
+            beta: 0.01,
+            iterations: 200,
+            seed: 7,
+            top_n: 5,
+            writeback: false,
+        };
+        let resp = try_handle(27, core, m).expect("handled");
+        let Some(ResultPayload::Json(v)) = resp.result else {
+            panic!("expected json payload");
+        };
+        let topics = v["topics"].as_array().unwrap();
+        assert_eq!(topics.len(), 2);
+        let doc_topics = v["doc_topics"].as_array().unwrap();
+        assert_eq!(doc_topics.len(), 4);
+        assert_eq!(v["written_back"], 0); // writeback=false
     }
 }
