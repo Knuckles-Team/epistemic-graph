@@ -21,6 +21,16 @@ sql = ["dep:datafusion", "dep:arrow", "dep:arrow-schema", "dep:tokio", "dep:petg
 # variable-length-path BFS — already in the tree via eg-core, NOT a new heavy dep —
 # and NO DataFusion/Arrow, so it ships in the lean Pi build.
 cypher = ["dep:petgraph"]
+# CONCEPT:EG-KG.query.gds-procedure-routing — the two `CALL gds.*` procedures that
+# route to a heavier-than-graph_algos eg-compute domain instead of always-on
+# kernels, kept OUT of the base `cypher` feature so a lean Pi/`cypher`-only build
+# doesn't pay for them unless asked (same posture as `finance`/`numeric` below).
+# `cypher-mining` backs `gds.dbscan` (`eg-compute::mining::cluster::dbscan` — no
+# heavy dep, `eg-types/mining` only). `cypher-graphlearn` backs
+# `gds.linkPrediction` (`eg-compute::graphlearn::link_predict` — implies
+# `datascience`, pulling `rand_chacha`; still no BLAS/GPU dep).
+cypher-mining = ["cypher", "eg-compute/mining"]
+cypher-graphlearn = ["cypher", "eg-compute/graphlearn"]
 # Finance aggregate UDFs (`var`, `cvar`) — forward to eg-compute's finance kernels.
 # Gated (and implies `sql`) so a no-finance build skips them AND keeps nalgebra out
 # of the default tree (CONCEPT:KG-2.184).
