@@ -21,13 +21,14 @@ use eg_compute::mining::cluster;
 use eg_compute::mining::forecast;
 use eg_compute::mining::reduce;
 use eg_compute::mining::sequence::{self, LabeledPattern};
+use eg_compute::mining::subgraph::{self, HostGraph};
 use eg_compute::mining::text;
 
 use crate::graph::GraphCore;
 use crate::protocol::{
     AnomalyAlgorithm, ClassifyAlgorithm, ClusterAlgorithm, ForecastAlgorithm, Linkage, Method,
     MineAlgorithm, MineSeqAlgorithm, ReduceAlgorithm, Response, ResultPayload, SequenceSource,
-    SvmKernel, TextAlgorithm, TextSource, TransactionSource, VectorSource,
+    SubgraphAlgorithm, SvmKernel, TextAlgorithm, TextSource, TransactionSource, VectorSource,
 };
 
 /// Handle a `Mine*` method. `Err(method)` hands a non-mining method back to the
@@ -200,6 +201,13 @@ pub(crate) fn try_handle(
             req_id, &core, docs, source, algorithm, k, alpha, beta, iterations, seed, top_n,
             writeback,
         )),
+        Method::MineSubgraph {
+            label,
+            min_support,
+            max_edges,
+            algorithm,
+            writeback,
+        } => Ok(handle_subgraph(req_id, &core, label, min_support, max_edges, algorithm, writeback)),
         other => Err(other),
     }
 }
@@ -385,6 +393,23 @@ pub(crate) fn replay(core: &GraphCore, method: &Method) {
             let algo = to_text_algo(*algorithm, *k, *alpha, *beta, *iterations, *seed);
             let out = text::mine_labeled(&tokenized, algo, *top_n);
             materialize_topics(core, &out, &ids, text_algo_name(*algorithm));
+        }
+        Method::MineSubgraph {
+            label,
+            min_support,
+            max_edges,
+            algorithm,
+            writeback: true,
+        } => {
+            if matches!(algorithm, SubgraphAlgorithm::Motif) {
+                return; // motif has no patterns to write back
+            }
+            let (host, ids) = build_host_graph(core, label);
+            if host.node_count() == 0 {
+                return;
+            }
+            let results = subgraph::mine_gspan(&host, *min_support, *max_edges);
+            materialize_subgraphs(core, &results, &ids);
         }
         _ => {}
     }
@@ -1722,6 +1747,207 @@ fn topic_node_id(algo: &str, terms: &[&str]) -> String {
     format!("topic:{}", hex::encode(&hasher.finalize()[..12]))
 }
 
+// ─────────────────────────── Frequent subgraph mining + motifs ───────────────────────────
+
+/// Handle `MineSubgraph` (CONCEPT:EG-KG.mining.gspan-frequent-subgraph — Phase
+/// 4, the graph-native family member): build a labeled host graph from the
+/// RESIDENT graph itself (no rows/vectors handed in), run gSpan-style
+/// frequent-subgraph mining or a motif census, and optionally write
+/// `:FrequentSubgraph` nodes back (`gspan` only).
+fn handle_subgraph(
+    req_id: u64,
+    core: &GraphCore,
+    label: Option<String>,
+    min_support: f64,
+    max_edges: usize,
+    algorithm: SubgraphAlgorithm,
+    writeback: bool,
+) -> Response {
+    let (host, ids) = build_host_graph(core, &label);
+    let n_host_nodes = host.node_count();
+    let n_host_edges = host.edge_count();
+
+    match algorithm {
+        SubgraphAlgorithm::Gspan => {
+            let results = subgraph::mine_gspan(&host, min_support, max_edges);
+            let written = if writeback {
+                materialize_subgraphs(core, &results, &ids)
+            } else {
+                0
+            };
+            let patterns: Vec<serde_json::Value> = results
+                .iter()
+                .map(|r| {
+                    let edges: Vec<serde_json::Value> = r
+                        .pattern
+                        .edges
+                        .iter()
+                        .map(|(a, b, lbl)| serde_json::json!({ "from": a, "to": b, "label": lbl }))
+                        .collect();
+                    serde_json::json!({
+                        "nodes": r.pattern.node_labels,
+                        "edges": edges,
+                        "support": r.support,
+                        "count": r.count,
+                    })
+                })
+                .collect();
+            Response::ok(
+                req_id,
+                ResultPayload::Json(serde_json::json!({
+                    "patterns": patterns,
+                    "algorithm": subgraph_algo_name(SubgraphAlgorithm::Gspan),
+                    "n_host_nodes": n_host_nodes,
+                    "n_host_edges": n_host_edges,
+                    "written_back": written,
+                })),
+            )
+        }
+        SubgraphAlgorithm::Motif => {
+            let motifs = subgraph::count_motifs(&host);
+            Response::ok(
+                req_id,
+                ResultPayload::Json(serde_json::json!({
+                    "motifs": {
+                        "wedge": motifs.wedge,
+                        "triangle": motifs.triangle,
+                        "directed_cycle3": motifs.directed_cycle3,
+                    },
+                    "algorithm": subgraph_algo_name(SubgraphAlgorithm::Motif),
+                    "n_host_nodes": n_host_nodes,
+                    "n_host_edges": n_host_edges,
+                    "written_back": 0,
+                })),
+            )
+        }
+    }
+}
+
+/// Build a [`HostGraph`] from the resident graph (CONCEPT:EG-KG.mining.gspan-frequent-subgraph):
+/// every node's type/label property (checked in the same `type`/`node_type`/
+/// `label` precedence as `extract_item`'s `"label"` field), every edge's
+/// relation label (`relation`/`type`/`rel`, defaulting to `"_"`). When
+/// `label_filter` is given, only nodes of that ONE type are included (both
+/// edge endpoints must be included for the edge to count). Returns the host
+/// graph AND a parallel `ids` vec (dense index → resident node id).
+fn build_host_graph(core: &GraphCore, label_filter: &Option<String>) -> (HostGraph, Vec<String>) {
+    let all_nodes = core.get_nodes();
+    let mut ids: Vec<String> = Vec::new();
+    let mut labels: Vec<String> = Vec::new();
+    let mut index: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    for (node_id, blob) in &all_nodes {
+        let node_label = node_type_label(blob).unwrap_or_else(|| "_".to_string());
+        if let Some(want) = label_filter {
+            if &node_label != want {
+                continue;
+            }
+        }
+        index.insert(node_id.clone(), ids.len());
+        ids.push(node_id.clone());
+        labels.push(node_label);
+    }
+
+    let all_edges = core.get_edges();
+    let mut edges: Vec<(usize, usize, String)> = Vec::new();
+    for (src, dst, blob) in &all_edges {
+        let (Some(&si), Some(&di)) = (index.get(src), index.get(dst)) else {
+            continue;
+        };
+        let rel = edge_relation_label(blob);
+        edges.push((si, di, rel));
+    }
+    (HostGraph::build(labels, &edges), ids)
+}
+
+/// Extract a node's type/label from its property blob, per the
+/// `type`/`node_type`/`label` precedence used elsewhere in this handler.
+fn node_type_label(blob: &[u8]) -> Option<String> {
+    let val: serde_json::Value = rmp_serde::from_slice(blob).ok()?;
+    for key in ["type", "node_type", "label"] {
+        if let Some(s) = val.get(key).and_then(|v| v.as_str()) {
+            return Some(s.to_string());
+        }
+    }
+    None
+}
+
+/// Extract an edge's relation label from its property blob (`relation`/
+/// `type`/`rel`, defaulting to `"_"` when none is set — an unlabeled edge is
+/// still a valid, matchable edge, just under one shared label).
+fn edge_relation_label(blob: &[u8]) -> String {
+    let Ok(val) = rmp_serde::from_slice::<serde_json::Value>(blob) else {
+        return "_".to_string();
+    };
+    for key in ["relation", "type", "rel"] {
+        if let Some(s) = val.get(key).and_then(|v| v.as_str()) {
+            return s.to_string();
+        }
+    }
+    "_".to_string()
+}
+
+fn subgraph_algo_name(a: SubgraphAlgorithm) -> &'static str {
+    match a {
+        SubgraphAlgorithm::Gspan => "gspan",
+        SubgraphAlgorithm::Motif => "motif",
+    }
+}
+
+/// Materialize each frequent pattern as a typed `:FrequentSubgraph` node
+/// (CONCEPT:EG-KG.mining.gspan-frequent-subgraph), id = a deterministic digest
+/// of its canonical shape (node labels + edges). Linked, via a
+/// `SUBGRAPH_MEMBER` edge, to every resident host node appearing in ANY of its
+/// embeddings.
+fn materialize_subgraphs(core: &GraphCore, results: &[subgraph::FrequentSubgraph], ids: &[String]) -> usize {
+    let mut written = 0usize;
+    for r in results {
+        let node_id = subgraph_node_id(&r.pattern);
+        let edges_json: Vec<serde_json::Value> = r
+            .pattern
+            .edges
+            .iter()
+            .map(|(a, b, lbl)| serde_json::json!({ "from": a, "to": b, "label": lbl }))
+            .collect();
+        let props = serde_json::json!({
+            "type": "FrequentSubgraph",
+            "nodes": r.pattern.node_labels,
+            "edges": edges_json,
+            "support": r.support,
+            "count": r.count,
+        });
+        let Ok(blob) = rmp_serde::to_vec_named(&props) else {
+            continue;
+        };
+        core.add_node(node_id.clone(), blob);
+        for &member_idx in &r.member_nodes {
+            if let Some(member_id) = ids.get(member_idx) {
+                if core.has_node(member_id) {
+                    let edge = serde_json::json!({ "relation": "SUBGRAPH_MEMBER" });
+                    if let Ok(eb) = rmp_serde::to_vec_named(&edge) {
+                        let _ = core.add_edge(node_id.clone(), member_id.clone(), eb);
+                    }
+                }
+            }
+        }
+        written += 1;
+    }
+    written
+}
+
+fn subgraph_node_id(pattern: &subgraph::Pattern) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(pattern.node_labels.join("\u{1}").as_bytes());
+    hasher.update([0u8]);
+    for (a, b, lbl) in &pattern.edges {
+        hasher.update(a.to_le_bytes());
+        hasher.update(b.to_le_bytes());
+        hasher.update(lbl.as_bytes());
+        hasher.update([0u8]);
+    }
+    format!("subgraph:{}", hex::encode(&hasher.finalize()[..12]))
+}
+
 // ─────────────────────────── Row builders (shared) ───────────────────────────
 
 /// Resolve the cluster feature rows: explicit `features` win; otherwise gather the
@@ -2486,5 +2712,118 @@ mod tests {
         let doc_topics = v["doc_topics"].as_array().unwrap();
         assert_eq!(doc_topics.len(), 4);
         assert_eq!(v["written_back"], 0); // writeback=false
+    }
+
+    #[test]
+    fn subgraph_gspan_recovers_planted_pattern_and_writeback() {
+        let core = Arc::new(GraphCore::new());
+        // Plant 4 instances of :Concept --touches--> :Capability, plus a
+        // handful of unrelated noise nodes/edges under different types.
+        for i in 0..4 {
+            core.add_node(format!("concept_{i}"), node(serde_json::json!({"type": "Concept"})));
+            core.add_node(format!("capability_{i}"), node(serde_json::json!({"type": "Capability"})));
+            let _ = core.add_edge(
+                format!("concept_{i}"),
+                format!("capability_{i}"),
+                node(serde_json::json!({"relation": "touches"})),
+            );
+        }
+        core.add_node("noise_a".into(), node(serde_json::json!({"type": "Noise"})));
+        core.add_node("noise_b".into(), node(serde_json::json!({"type": "Noise"})));
+        let _ = core.add_edge("noise_a".into(), "noise_b".into(), node(serde_json::json!({"relation": "unrelated"})));
+
+        let m = Method::MineSubgraph {
+            label: None,
+            min_support: 0.1,
+            max_edges: 1,
+            algorithm: SubgraphAlgorithm::Gspan,
+            writeback: true,
+        };
+        let resp = try_handle(29, Arc::clone(&core), m).expect("handled");
+        let Some(ResultPayload::Json(v)) = resp.result else {
+            panic!("expected json payload");
+        };
+        assert_eq!(v["n_host_nodes"], 10);
+        assert_eq!(v["n_host_edges"], 5);
+        let patterns = v["patterns"].as_array().unwrap();
+        let hit = patterns.iter().find(|p| {
+            let nodes = p["nodes"].as_array().unwrap();
+            let has_concept = nodes.iter().any(|n| n == "Concept");
+            let has_capability = nodes.iter().any(|n| n == "Capability");
+            has_concept && has_capability && p["edges"].as_array().unwrap().len() == 1
+        });
+        assert!(hit.is_some(), "planted pattern not in response: {patterns:?}");
+        assert_eq!(hit.unwrap()["count"], 4);
+        let written = v["written_back"].as_u64().unwrap();
+        assert!(written > 0);
+        core.mark_dirty();
+        let subgraph_nodes = core.get_nodes_by_label("FrequentSubgraph", 0);
+        assert_eq!(subgraph_nodes.len() as u64, written);
+        // The planted pattern's :FrequentSubgraph must link to all 8 involved nodes.
+        let sg_id = subgraph_nodes
+            .iter()
+            .find(|(_, blob)| {
+                let props: serde_json::Value = rmp_serde::from_slice(blob).unwrap();
+                let nodes = props["nodes"].as_array().unwrap();
+                nodes.iter().any(|n| n == "Concept") && nodes.iter().any(|n| n == "Capability")
+            })
+            .map(|(id, _)| id.clone())
+            .expect("planted subgraph node present");
+        let members = core.get_successors(&sg_id).unwrap();
+        assert_eq!(members.len(), 8); // 4 concept + 4 capability nodes
+    }
+
+    #[test]
+    fn subgraph_motif_census_is_readonly() {
+        let core = Arc::new(GraphCore::new());
+        for i in 0..3 {
+            core.add_node(format!("n{i}"), node(serde_json::json!({"type": "N"})));
+        }
+        let _ = core.add_edge("n0".into(), "n1".into(), node(serde_json::json!({"relation": "e"})));
+        let _ = core.add_edge("n1".into(), "n2".into(), node(serde_json::json!({"relation": "e"})));
+        let _ = core.add_edge("n2".into(), "n0".into(), node(serde_json::json!({"relation": "e"})));
+
+        let m = Method::MineSubgraph {
+            label: None,
+            min_support: 0.1,
+            max_edges: 3,
+            algorithm: SubgraphAlgorithm::Motif,
+            writeback: true, // ignored for motif
+        };
+        let resp = try_handle(31, Arc::clone(&core), m).expect("handled");
+        let Some(ResultPayload::Json(v)) = resp.result else {
+            panic!("expected json payload");
+        };
+        assert_eq!(v["motifs"]["triangle"], 1);
+        assert_eq!(v["motifs"]["directed_cycle3"], 1);
+        assert_eq!(v["written_back"], 0);
+        core.mark_dirty();
+        assert_eq!(core.get_nodes_by_label("FrequentSubgraph", 0).len(), 0);
+    }
+
+    #[test]
+    fn subgraph_label_filter_restricts_host_graph() {
+        let core = Arc::new(GraphCore::new());
+        core.add_node("a".into(), node(serde_json::json!({"type": "A"})));
+        core.add_node("b".into(), node(serde_json::json!({"type": "B"})));
+        core.add_node("a2".into(), node(serde_json::json!({"type": "A"})));
+        let _ = core.add_edge("a".into(), "b".into(), node(serde_json::json!({"relation": "e"})));
+        let _ = core.add_edge("a".into(), "a2".into(), node(serde_json::json!({"relation": "e"})));
+
+        let m = Method::MineSubgraph {
+            label: Some("A".into()),
+            min_support: 0.1,
+            max_edges: 1,
+            algorithm: SubgraphAlgorithm::Gspan,
+            writeback: false,
+        };
+        let resp = try_handle(33, core, m).expect("handled");
+        let Some(ResultPayload::Json(v)) = resp.result else {
+            panic!("expected json payload");
+        };
+        // Only the two A nodes + the a->a2 edge should be in the filtered host
+        // graph (a->b is excluded since b is not type A).
+        assert_eq!(v["n_host_nodes"], 2);
+        assert_eq!(v["n_host_edges"], 1);
     }
 }

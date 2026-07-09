@@ -2430,6 +2430,43 @@ class MiningClient:
             params["source"] = source
         return await self._client._send("MineText", params)
 
+    async def subgraph(
+        self,
+        *,
+        label: str | None = None,
+        min_support: float = 0.1,
+        max_edges: int = 3,
+        algorithm: str = "gspan",
+        writeback: bool = False,
+    ) -> dict[str, Any]:
+        """Frequent subgraph mining + motif counting (CONCEPT:EG-KG.mining.gspan-frequent-subgraph — Phase 4).
+
+        UNLIKE every other ``mining`` method, this one mines the RESIDENT
+        GRAPH's own topology directly — no rows/vectors to pass in. ``label``,
+        when given, restricts the scanned host graph to nodes of that ONE
+        type (``None`` scans the whole resident graph heterogeneously).
+        ``algorithm`` is one of ``gspan`` (default — level-wise frequent
+        connected-subgraph pattern growth up to ``max_edges`` edges,
+        canonicalized + exactly re-counted; ``min_support`` is a fraction of
+        the host's total edge count) or ``motif`` (a label-agnostic
+        topological census: open wedges, triangles, directed 3-cycles — reads
+        ``min_support``/``max_edges`` are ignored). With ``writeback=True``
+        (``gspan`` only) each frequent pattern is materialized as a typed
+        ``:FrequentSubgraph`` node linked to every host node in any of its
+        embeddings. Returns ``{patterns: [{nodes, edges, support, count}],
+        ...}`` (gspan) or ``{motifs: {wedge, triangle, directed_cycle3}, ...}``
+        (motif).
+        """
+        params: dict[str, Any] = {
+            "min_support": min_support,
+            "max_edges": max_edges,
+            "algorithm": algorithm,
+            "writeback": writeback,
+        }
+        if label is not None:
+            params["label"] = label
+        return await self._client._send("MineSubgraph", params)
+
 
 # Per-RPC timeouts (CONCEPT:EG-KG.query.wire-protocol). A wedged or overloaded engine must never
 # hang a caller forever — every request is bounded. Normal CRUD uses the short

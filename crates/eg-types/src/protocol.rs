@@ -2914,6 +2914,42 @@ pub enum Method {
         #[serde(default)]
         writeback: bool,
     },
+
+    /// Frequent subgraph mining + motif counting (CONCEPT:EG-KG.mining.gspan-frequent-subgraph
+    /// — Phase 4, the graph-native differentiator). UNLIKE every other mining
+    /// op in this family, this one mines the RESIDENT GRAPH's own topology
+    /// directly — no rows/vectors handed in. `gspan` finds frequent connected
+    /// subgraph PATTERNS (level-wise growth up to `max_edges` edges,
+    /// canonicalized + exactly re-counted); `motif` censuses small
+    /// label-agnostic topological motifs (wedges, triangles, directed
+    /// 3-cycles). `label`, when given, restricts the scanned host graph to
+    /// nodes of that one type (both edge endpoints must match) — `None` scans
+    /// the whole resident graph heterogeneously. With `writeback=true`
+    /// (`gspan` only) each frequent pattern is materialized as a typed
+    /// `:FrequentSubgraph` node, linked to every host node appearing in any of
+    /// its embeddings — a graph MUTATION, WAL-replayed by re-mining
+    /// deterministically. Gated `mining`.
+    #[cfg(feature = "mining")]
+    MineSubgraph {
+        /// Optional: restrict the host graph to nodes of this one type.
+        /// `None` ⇒ the whole resident graph (heterogeneous).
+        #[serde(default)]
+        label: Option<String>,
+        /// Minimum fractional support (0.0–1.0, of the host's total edge
+        /// count) a pattern's embedding count must meet. Ignored by `motif`.
+        #[serde(default = "default_min_support")]
+        min_support: f64,
+        /// Pattern-size growth cap (tractability). Ignored by `motif`.
+        #[serde(default = "default_max_subgraph_edges")]
+        max_edges: usize,
+        /// Which algorithm to run.
+        #[serde(default)]
+        algorithm: SubgraphAlgorithm,
+        /// Materialize each frequent pattern as a typed `:FrequentSubgraph`
+        /// node (`gspan` only — a no-op for `motif`, which has no patterns).
+        #[serde(default)]
+        writeback: bool,
+    },
 }
 
 // ── Supporting Types ────────────────────────────────────────────────────
@@ -2970,6 +3006,24 @@ pub enum TextAlgorithm {
     Tfidf,
     Lda,
     Nmf,
+}
+
+/// Which algorithm `MineSubgraph` runs (CONCEPT:EG-KG.mining.gspan-frequent-subgraph
+/// — Phase 4). `gspan` is the default (labeled frequent-subgraph patterns);
+/// `motif` is a label-agnostic topological census.
+#[cfg(feature = "mining")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum SubgraphAlgorithm {
+    #[default]
+    Gspan,
+    Motif,
+}
+
+/// serde default for [`Method::MineSubgraph::max_edges`].
+#[cfg(feature = "mining")]
+fn default_max_subgraph_edges() -> usize {
+    3
 }
 
 /// A graph-derived text source for `MineText` (CONCEPT:EG-KG.mining.tfidf —
