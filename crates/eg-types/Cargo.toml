@@ -29,6 +29,14 @@ mining = []
 # opaque `serde_json::Value`, so no KAN type leaks into the wire) — folds into the
 # serving tiers exactly like mining; a build without it drops the variants.
 graphlearn = []
+# Engine-native epistemic layer (CONCEPT:EG-KG.epistemic.epistemic-substrate, E6):
+# gates the ADDITIVE `as_claim: bool` field on the `Mine*` write-back variants. PURE
+# serde — no wire DTO, no heavy dep (the belief-model TYPES live in the eg-epistemic
+# crate behind the facade `epistemic` feature); this only adds one optional bool per
+# mining variant, gated `all(mining, epistemic)` so it appears ONLY in a build that
+# carries BOTH the mining surface and the epistemic layer. A build without it drops
+# the field, so the wire + write-back are byte-identical to today.
+epistemic = []
 # Unified cross-modal query plan AST (CONCEPT:KG-2.208) — the wire DTO embedded in
 # `Method::UnifiedQuery`. Gated so a build without the query surface drops the AST
 # (and the Method variant) from the enum, exactly like finance/datascience.

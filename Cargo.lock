@@ -2163,6 +2163,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "eg-epistemic"
+version = "0.1.0"
+dependencies = [
+ "eg-compute",
+ "eg-core",
+ "eg-types",
+ "rmp-serde",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "eg-geo"
 version = "0.1.0"
 dependencies = [
@@ -2471,7 +2484,7 @@ dependencies = [
 
 [[package]]
 name = "epistemic-graph"
-version = "2.14.0"
+version = "2.15.0"
 dependencies = [
  "ahash 0.8.12",
  "anyhow",
@@ -2485,6 +2498,7 @@ dependencies = [
  "eg-ann",
  "eg-compute",
  "eg-core",
+ "eg-epistemic",
  "eg-graphql",
  "eg-kvcache",
  "eg-numeric",

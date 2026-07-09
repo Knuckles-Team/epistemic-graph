@@ -46,6 +46,8 @@ pub(crate) fn try_handle(
             min_confidence,
             algorithm,
             writeback,
+            #[cfg(feature = "epistemic")]
+            as_claim,
         } => Ok(handle_associate(
             req_id,
             &core,
@@ -55,6 +57,8 @@ pub(crate) fn try_handle(
             min_confidence,
             algorithm,
             writeback,
+            #[cfg(feature = "epistemic")]
+            as_claim,
         )),
         Method::MineCluster {
             features,
@@ -69,6 +73,8 @@ pub(crate) fn try_handle(
             max_iter,
             seed,
             writeback,
+            #[cfg(feature = "epistemic")]
+            as_claim,
         } => Ok(handle_cluster(
             req_id,
             &core,
@@ -84,6 +90,8 @@ pub(crate) fn try_handle(
             max_iter,
             seed,
             writeback,
+            #[cfg(feature = "epistemic")]
+            as_claim,
         )),
         Method::MineAnomaly {
             features,
@@ -101,6 +109,8 @@ pub(crate) fn try_handle(
             kernel,
             threshold,
             writeback,
+            #[cfg(feature = "epistemic")]
+            as_claim,
         } => Ok(handle_anomaly(
             req_id,
             &core,
@@ -119,6 +129,8 @@ pub(crate) fn try_handle(
             kernel,
             threshold,
             writeback,
+            #[cfg(feature = "epistemic")]
+            as_claim,
         )),
         Method::MineClassifyFit {
             x,
@@ -205,6 +217,8 @@ pub(crate) fn try_handle(
             min_support,
             algorithm,
             writeback,
+            #[cfg(feature = "epistemic")]
+            as_claim,
         } => Ok(handle_sequence(
             req_id,
             &core,
@@ -213,6 +227,8 @@ pub(crate) fn try_handle(
             min_support,
             algorithm,
             writeback,
+            #[cfg(feature = "epistemic")]
+            as_claim,
         )),
         Method::MineForecast {
             values,
@@ -228,9 +244,26 @@ pub(crate) fn try_handle(
             confidence,
             series_id,
             writeback,
+            #[cfg(feature = "epistemic")]
+            as_claim,
         } => Ok(handle_forecast(
-            req_id, &core, values, algorithm, horizon, p, d, q, period, alpha, beta, gamma,
-            confidence, series_id, writeback,
+            req_id,
+            &core,
+            values,
+            algorithm,
+            horizon,
+            p,
+            d,
+            q,
+            period,
+            alpha,
+            beta,
+            gamma,
+            confidence,
+            series_id,
+            writeback,
+            #[cfg(feature = "epistemic")]
+            as_claim,
         )),
         Method::MineText {
             docs,
@@ -253,6 +286,8 @@ pub(crate) fn try_handle(
             max_edges,
             algorithm,
             writeback,
+            #[cfg(feature = "epistemic")]
+            as_claim,
         } => Ok(handle_subgraph(
             req_id,
             &core,
@@ -261,6 +296,8 @@ pub(crate) fn try_handle(
             max_edges,
             algorithm,
             writeback,
+            #[cfg(feature = "epistemic")]
+            as_claim,
         )),
         other => Err(other),
     }
@@ -280,6 +317,8 @@ pub(crate) fn replay(core: &GraphCore, method: &Method) {
             min_confidence,
             algorithm,
             writeback: true,
+            #[cfg(feature = "epistemic")]
+            as_claim,
         } => {
             let txns = match build_transactions(core, transactions, source) {
                 Ok(t) => t,
@@ -292,6 +331,10 @@ pub(crate) fn replay(core: &GraphCore, method: &Method) {
                 to_algo(*algorithm),
             );
             materialize_rules(core, &rules);
+            #[cfg(feature = "epistemic")]
+            if *as_claim {
+                materialize_rule_claims(core, &rules, source);
+            }
         }
         Method::MineCluster {
             features,
@@ -306,6 +349,8 @@ pub(crate) fn replay(core: &GraphCore, method: &Method) {
             max_iter,
             seed,
             writeback: true,
+            #[cfg(feature = "epistemic")]
+            as_claim,
         } => {
             let (rows, ids) = build_vectors(
                 core,
@@ -320,6 +365,16 @@ pub(crate) fn replay(core: &GraphCore, method: &Method) {
             let algo = cluster_algo(*algorithm, *eps, *min_pts, *k, *linkage, *max_iter, *seed);
             let out = cluster::cluster(&rows, algo);
             materialize_clusters(core, &out, &ids, *algorithm);
+            #[cfg(feature = "epistemic")]
+            if *as_claim {
+                materialize_cluster_claims(
+                    core,
+                    &out,
+                    &ids,
+                    *algorithm,
+                    cluster_provenance(source),
+                );
+            }
         }
         Method::MineAnomaly {
             features,
@@ -337,6 +392,8 @@ pub(crate) fn replay(core: &GraphCore, method: &Method) {
             kernel,
             threshold,
             writeback: true,
+            #[cfg(feature = "epistemic")]
+            as_claim,
         } => {
             let (rows, ids) = build_anomaly_rows(
                 core,
@@ -361,6 +418,16 @@ pub(crate) fn replay(core: &GraphCore, method: &Method) {
             );
             let out = anomaly::detect(&rows, algo, *threshold);
             materialize_anomalies(core, &out, &ids, *algorithm);
+            #[cfg(feature = "epistemic")]
+            if *as_claim {
+                materialize_anomaly_claims(
+                    core,
+                    &out,
+                    &ids,
+                    *algorithm,
+                    anomaly_provenance(source),
+                );
+            }
         }
         Method::MineClassifyPredict {
             model,
@@ -428,6 +495,8 @@ pub(crate) fn replay(core: &GraphCore, method: &Method) {
             min_support,
             algorithm,
             writeback: true,
+            #[cfg(feature = "epistemic")]
+            as_claim,
         } => {
             let seqs = match build_sequences(core, sequences, source) {
                 Ok(s) => s,
@@ -435,6 +504,10 @@ pub(crate) fn replay(core: &GraphCore, method: &Method) {
             };
             let patterns = sequence::mine_labeled(&seqs, *min_support, to_seq_algo(*algorithm));
             materialize_patterns(core, &patterns);
+            #[cfg(feature = "epistemic")]
+            if *as_claim {
+                materialize_sequence_claims(core, &patterns, sequence_provenance(source));
+            }
         }
         Method::MineForecast {
             values,
@@ -450,6 +523,8 @@ pub(crate) fn replay(core: &GraphCore, method: &Method) {
             confidence,
             series_id,
             writeback: true,
+            #[cfg(feature = "epistemic")]
+            as_claim,
         } => {
             if values.is_empty() {
                 return;
@@ -464,6 +539,16 @@ pub(crate) fn replay(core: &GraphCore, method: &Method) {
                 values,
                 forecast_algo_name(*algorithm),
             );
+            #[cfg(feature = "epistemic")]
+            if *as_claim {
+                materialize_forecast_claim(
+                    core,
+                    series_id,
+                    values,
+                    forecast_algo_name(*algorithm),
+                    *confidence,
+                );
+            }
         }
         Method::MineText {
             docs,
@@ -494,6 +579,8 @@ pub(crate) fn replay(core: &GraphCore, method: &Method) {
             max_edges,
             algorithm,
             writeback: true,
+            #[cfg(feature = "epistemic")]
+            as_claim,
         } => {
             if matches!(algorithm, SubgraphAlgorithm::Motif) {
                 return; // motif has no patterns to write back
@@ -504,6 +591,10 @@ pub(crate) fn replay(core: &GraphCore, method: &Method) {
             }
             let results = subgraph::mine_gspan(&host, *min_support, *max_edges);
             materialize_subgraphs(core, &results, &ids);
+            #[cfg(feature = "epistemic")]
+            if *as_claim {
+                materialize_subgraph_claims(core, &results, subgraph_provenance(label));
+            }
         }
         _ => {}
     }
@@ -519,6 +610,7 @@ fn handle_associate(
     min_confidence: f64,
     algorithm: MineAlgorithm,
     writeback: bool,
+    #[cfg(feature = "epistemic")] as_claim: bool,
 ) -> Response {
     let txns = match build_transactions(core, &transactions, &source) {
         Ok(t) => t,
@@ -531,6 +623,10 @@ fn handle_associate(
     } else {
         0
     };
+    #[cfg(feature = "epistemic")]
+    if writeback && as_claim {
+        materialize_rule_claims(core, &rules, &source);
+    }
 
     let rows: Vec<serde_json::Value> = rules
         .iter()
@@ -756,6 +852,7 @@ fn handle_cluster(
     max_iter: usize,
     seed: u64,
     writeback: bool,
+    #[cfg(feature = "epistemic")] as_claim: bool,
 ) -> Response {
     let (rows, ids) = build_vectors(
         core,
@@ -775,6 +872,10 @@ fn handle_cluster(
     } else {
         0
     };
+    #[cfg(feature = "epistemic")]
+    if writeback && as_claim {
+        materialize_cluster_claims(core, &out, &ids, algorithm, cluster_provenance(&source));
+    }
 
     let cluster_rows: Vec<serde_json::Value> = out
         .clusters
@@ -934,6 +1035,7 @@ fn handle_anomaly(
     kernel: SvmKernel,
     threshold: Option<f64>,
     writeback: bool,
+    #[cfg(feature = "epistemic")] as_claim: bool,
 ) -> Response {
     let (rows, ids) = build_anomaly_rows(
         core,
@@ -954,6 +1056,10 @@ fn handle_anomaly(
     } else {
         0
     };
+    #[cfg(feature = "epistemic")]
+    if writeback && as_claim {
+        materialize_anomaly_claims(core, &out, &ids, algorithm, anomaly_provenance(&source));
+    }
 
     let rows_json: Vec<serde_json::Value> = (0..rows.len())
         .map(|i| {
@@ -1411,6 +1517,7 @@ fn embedding2d_node_id(source: &str) -> String {
 /// ordered sequences (explicit or graph-derived), run the chosen engine
 /// (PrefixSpan/GSP — both agree), return `{patterns, ...}`, and optionally write
 /// `:SequentialPattern` nodes back.
+#[allow(clippy::too_many_arguments)]
 fn handle_sequence(
     req_id: u64,
     core: &GraphCore,
@@ -1419,6 +1526,7 @@ fn handle_sequence(
     min_support: f64,
     algorithm: MineSeqAlgorithm,
     writeback: bool,
+    #[cfg(feature = "epistemic")] as_claim: bool,
 ) -> Response {
     let seqs = match build_sequences(core, &sequences, &source) {
         Ok(s) => s,
@@ -1431,6 +1539,10 @@ fn handle_sequence(
     } else {
         0
     };
+    #[cfg(feature = "epistemic")]
+    if writeback && as_claim {
+        materialize_sequence_claims(core, &patterns, sequence_provenance(&source));
+    }
 
     let rows: Vec<serde_json::Value> = patterns
         .iter()
@@ -1579,6 +1691,7 @@ fn handle_forecast(
     confidence: f64,
     series_id: String,
     writeback: bool,
+    #[cfg(feature = "epistemic")] as_claim: bool,
 ) -> Response {
     if values.is_empty() {
         return Response::err(
@@ -1601,6 +1714,16 @@ fn handle_forecast(
     } else {
         0
     };
+    #[cfg(feature = "epistemic")]
+    if writeback && as_claim {
+        materialize_forecast_claim(
+            core,
+            &series_id,
+            &values,
+            forecast_algo_name(algorithm),
+            confidence,
+        );
+    }
 
     let mut payload = serde_json::json!({
         "forecast": out.values,
@@ -1924,6 +2047,7 @@ fn topic_node_id(algo: &str, terms: &[&str]) -> String {
 /// RESIDENT graph itself (no rows/vectors handed in), run gSpan-style
 /// frequent-subgraph mining or a motif census, and optionally write
 /// `:FrequentSubgraph` nodes back (`gspan` only).
+#[allow(clippy::too_many_arguments)]
 fn handle_subgraph(
     req_id: u64,
     core: &GraphCore,
@@ -1932,6 +2056,7 @@ fn handle_subgraph(
     max_edges: usize,
     algorithm: SubgraphAlgorithm,
     writeback: bool,
+    #[cfg(feature = "epistemic")] as_claim: bool,
 ) -> Response {
     let (host, ids) = build_host_graph(core, &label);
     let n_host_nodes = host.node_count();
@@ -1945,6 +2070,10 @@ fn handle_subgraph(
             } else {
                 0
             };
+            #[cfg(feature = "epistemic")]
+            if writeback && as_claim {
+                materialize_subgraph_claims(core, &results, subgraph_provenance(&label));
+            }
             let patterns: Vec<serde_json::Value> = results
                 .iter()
                 .map(|r| {
@@ -2254,6 +2383,276 @@ fn validate_matrix(rows: &[Vec<f64>]) -> Result<(), String> {
     Ok(())
 }
 
+// ─────────────────── Epistemic claim write-back (E6, feature `epistemic`) ───────────────────
+//
+// CONCEPT:EG-KG.epistemic.epistemic-substrate — turn a mined finding into a
+// first-class epistemic object. When a `Mine*` request sets `as_claim=true` (which
+// requires `writeback`, since the mined `:AssociationRule`/`:Cluster`/… node is the
+// claim's evidence anchor), each finding ADDITIONALLY materializes:
+//
+//   * one `:Claim` node — `confidence` seeded from that family's quality score,
+//     normalized to `[0,1]`, and `validation_state = "unvalidated"`;
+//   * one `:Evidence` node — capturing the request's OWN `source`/`plan` provenance
+//     (no new provenance plumbing; reuse what the request already carries);
+//   * two `SUPPORTS` edges (`mined_node -> claim`, `evidence -> claim`) written with
+//     the `relationship_type` property key that `eg_epistemic::classify_relationship`
+//     + `BeliefGraph::from_graph_view` read — so the belief layer propagates confidence
+//     over the finding. (The structural mining edges use the `relation` key instead, so
+//     they stay epistemically neutral and never pollute belief.)
+//
+// Ids are deterministic: the claim id folds in the mined node id (re-mining the same
+// finding re-points at the SAME claim — idempotent WAL replay); the evidence id ALSO
+// folds in the provenance, so a DISTINCT provenance corroborates the SAME claim with an
+// ADDITIONAL supporter (the E1↔E6 corroboration path — two mining runs raise the belief
+// above one). With `as_claim` unset the whole path is skipped, so behavior is
+// byte-identical to the pre-E6 write-back.
+
+/// `validation_state` metadata seeded on every fresh `:Claim`/`:Evidence` (E6). The
+/// claim is asserted from a mined finding, not yet validated by a downstream check.
+#[cfg(feature = "epistemic")]
+const CLAIM_VALIDATION_STATE: &str = "unvalidated";
+
+/// Materialize the epistemic triad (`:Claim` + `:Evidence` + two `SUPPORTS` edges) for
+/// ONE mined finding whose typed node (`mined_node_id`) was just written back.
+#[cfg(feature = "epistemic")]
+fn materialize_claim(
+    core: &GraphCore,
+    mined_node_id: &str,
+    family: &str,
+    confidence: f64,
+    provenance: &str,
+) {
+    let confidence = confidence.clamp(0.0, 1.0);
+    let claim_id = claim_node_id(family, mined_node_id);
+    let claim_props = serde_json::json!({
+        "type": "Claim",
+        "family": family,
+        "about": mined_node_id,
+        "confidence": confidence,
+        "validation_state": CLAIM_VALIDATION_STATE,
+    });
+    if let Ok(blob) = rmp_serde::to_vec_named(&claim_props) {
+        core.add_node(claim_id.clone(), blob);
+    }
+    // The mined finding itself is evidence FOR the claim.
+    supports_edge(core, mined_node_id, &claim_id);
+    // A provenance-anchored Evidence node (distinct provenance ⇒ corroboration).
+    let evidence_id = evidence_node_id(family, mined_node_id, provenance);
+    let ev_props = serde_json::json!({
+        "type": "Evidence",
+        "family": family,
+        "about": mined_node_id,
+        "provenance": provenance,
+        "confidence": confidence,
+        "validation_state": CLAIM_VALIDATION_STATE,
+    });
+    if let Ok(blob) = rmp_serde::to_vec_named(&ev_props) {
+        core.add_node(evidence_id.clone(), blob);
+    }
+    supports_edge(core, &evidence_id, &claim_id);
+}
+
+/// Write one epistemic `source --SUPPORTS--> target` edge using the `relationship_type`
+/// property key `eg_epistemic` reads (NOT the `relation` key the structural mining edges
+/// use). Both endpoints are freshly resident, so `add_edge` always binds.
+#[cfg(feature = "epistemic")]
+fn supports_edge(core: &GraphCore, source: &str, target: &str) {
+    let edge = serde_json::json!({ "relationship_type": "SUPPORTS" });
+    if let Ok(eb) = rmp_serde::to_vec_named(&edge) {
+        let _ = core.add_edge(source.to_string(), target.to_string(), eb);
+    }
+}
+
+/// Deterministic `:Claim` node id — folds in `family` + the mined node id, so re-mining
+/// the same finding re-points at the same claim (idempotent replay + corroboration).
+#[cfg(feature = "epistemic")]
+fn claim_node_id(family: &str, mined_node_id: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    h.update(b"claim");
+    h.update([0u8]);
+    h.update(family.as_bytes());
+    h.update([0u8]);
+    h.update(mined_node_id.as_bytes());
+    format!("claim:{}", hex::encode(&h.finalize()[..12]))
+}
+
+/// Deterministic `:Evidence` node id — ALSO folds in `provenance`, so two runs over
+/// DIFFERENT provenance produce distinct evidence nodes that both support the same claim.
+#[cfg(feature = "epistemic")]
+fn evidence_node_id(family: &str, mined_node_id: &str, provenance: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    h.update(b"evidence");
+    h.update([0u8]);
+    h.update(family.as_bytes());
+    h.update([0u8]);
+    h.update(mined_node_id.as_bytes());
+    h.update([0u8]);
+    h.update(provenance.as_bytes());
+    format!("evidence:{}", hex::encode(&h.finalize()[..12]))
+}
+
+// ── Per-family claim passes (mirror each `materialize_*` node/id + quality score) ──
+
+/// Association rules → claims. Quality = `support × confidence` (both already `[0,1]`,
+/// jointly monotonic). Provenance = the transaction `source` label (or `explicit`).
+#[cfg(feature = "epistemic")]
+fn materialize_rule_claims(
+    core: &GraphCore,
+    rules: &[LabeledRule],
+    source: &Option<TransactionSource>,
+) {
+    let provenance = assoc_provenance(source);
+    for r in rules {
+        let node_id = rule_node_id(&r.antecedent, &r.consequent);
+        let confidence = (r.support * r.confidence).clamp(0.0, 1.0);
+        materialize_claim(core, &node_id, "association", confidence, &provenance);
+    }
+}
+
+#[cfg(feature = "epistemic")]
+fn assoc_provenance(source: &Option<TransactionSource>) -> String {
+    match source {
+        Some(s) => format!("txn:{}/{}", s.node_label, s.direction),
+        None => "txn:explicit".to_string(),
+    }
+}
+
+/// Clusters → claims (skipping the DBSCAN noise bucket, mirroring `materialize_clusters`).
+/// Quality = `1/(1 + compactness score)` — a tighter cluster (lower mean member→centroid
+/// distance) yields a higher-confidence claim.
+#[cfg(feature = "epistemic")]
+fn materialize_cluster_claims(
+    core: &GraphCore,
+    out: &cluster::Clustering,
+    ids: &[String],
+    algorithm: ClusterAlgorithm,
+    provenance: String,
+) {
+    let algo = cluster_algo_name(algorithm);
+    for c in &out.clusters {
+        if c.cluster_id < 0 {
+            continue; // never claim the DBSCAN noise bucket
+        }
+        let member_ids: Vec<String> = c
+            .members
+            .iter()
+            .map(|&i| match ids.get(i) {
+                Some(id) => id.clone(),
+                None => i.to_string(),
+            })
+            .collect();
+        let node_id = cluster_node_id(algo, &member_ids);
+        let confidence = 1.0 / (1.0 + c.score.max(0.0));
+        materialize_claim(core, &node_id, "cluster", confidence, &provenance);
+    }
+}
+
+#[cfg(feature = "epistemic")]
+fn cluster_provenance(source: &Option<VectorSource>) -> String {
+    match source {
+        Some(s) => format!("vectors:{}", s.node_label),
+        None => "vectors:explicit".to_string(),
+    }
+}
+
+/// Flagged anomalies → claims (only the flagged rows, mirroring `materialize_anomalies`).
+/// Quality = `score / (1 + score)` — a higher anomaly score yields a higher-confidence
+/// "this row is anomalous" claim.
+#[cfg(feature = "epistemic")]
+fn materialize_anomaly_claims(
+    core: &GraphCore,
+    out: &anomaly::Anomalies,
+    ids: &[String],
+    algorithm: AnomalyAlgorithm,
+    provenance: String,
+) {
+    let algo = anomaly_algo_name(algorithm);
+    for i in 0..out.scores.len() {
+        if !out.is_anomaly[i] {
+            continue;
+        }
+        let src = ids.get(i).cloned().unwrap_or_else(|| i.to_string());
+        let node_id = anomaly_node_id(algo, &src);
+        let s = out.scores[i].max(0.0);
+        let confidence = s / (1.0 + s);
+        materialize_claim(core, &node_id, "anomaly", confidence, &provenance);
+    }
+}
+
+#[cfg(feature = "epistemic")]
+fn anomaly_provenance(source: &Option<VectorSource>) -> String {
+    match source {
+        Some(s) => format!("vectors:{}", s.node_label),
+        None => "vectors:explicit".to_string(),
+    }
+}
+
+/// Sequential patterns → claims. Quality = the pattern's fractional `support`.
+#[cfg(feature = "epistemic")]
+fn materialize_sequence_claims(core: &GraphCore, patterns: &[LabeledPattern], provenance: String) {
+    for p in patterns {
+        let node_id = pattern_node_id(&p.items);
+        let confidence = p.support.clamp(0.0, 1.0);
+        materialize_claim(core, &node_id, "sequence", confidence, &provenance);
+    }
+}
+
+#[cfg(feature = "epistemic")]
+fn sequence_provenance(source: &Option<SequenceSource>) -> String {
+    match source {
+        Some(s) => format!("seq:{}/{}", s.node_label, s.direction),
+        None => "seq:explicit".to_string(),
+    }
+}
+
+/// The single forecast → one claim. Quality = the forecast's `confidence` band level.
+#[cfg(feature = "epistemic")]
+fn materialize_forecast_claim(
+    core: &GraphCore,
+    series_id: &str,
+    values: &[f64],
+    algo: &str,
+    confidence: f64,
+) {
+    let node_id = forecast_node_id(algo, series_id, values);
+    let provenance = if series_id.is_empty() {
+        "series:values".to_string()
+    } else {
+        format!("series:{series_id}")
+    };
+    materialize_claim(
+        core,
+        &node_id,
+        "forecast",
+        confidence.clamp(0.0, 1.0),
+        &provenance,
+    );
+}
+
+/// Frequent subgraph patterns → claims. Quality = the pattern's fractional `support`.
+#[cfg(feature = "epistemic")]
+fn materialize_subgraph_claims(
+    core: &GraphCore,
+    results: &[subgraph::FrequentSubgraph],
+    provenance: String,
+) {
+    for r in results {
+        let node_id = subgraph_node_id(&r.pattern);
+        let confidence = r.support.clamp(0.0, 1.0);
+        materialize_claim(core, &node_id, "subgraph", confidence, &provenance);
+    }
+}
+
+#[cfg(feature = "epistemic")]
+fn subgraph_provenance(label: &Option<String>) -> String {
+    match label {
+        Some(l) => format!("graph:{l}"),
+        None => "graph:*".to_string(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2288,6 +2687,8 @@ mod tests {
             min_confidence: 0.5,
             algorithm: MineAlgorithm::Apriori,
             writeback: false,
+            #[cfg(feature = "epistemic")]
+            as_claim: false,
         };
         let resp = try_handle(7, core, m).expect("handled");
         let Some(ResultPayload::Json(v)) = resp.result else {
@@ -2325,6 +2726,8 @@ mod tests {
             min_confidence: 0.5,
             algorithm: MineAlgorithm::Fpgrowth,
             writeback: true,
+            #[cfg(feature = "epistemic")]
+            as_claim: false,
         };
         let resp = try_handle(9, Arc::clone(&core), m).expect("handled");
         let Some(ResultPayload::Json(v)) = resp.result else {
@@ -2365,6 +2768,8 @@ mod tests {
             max_iter: 100,
             seed: 0,
             writeback: false,
+            #[cfg(feature = "epistemic")]
+            as_claim: false,
         };
         let resp = try_handle(1, core, m).expect("handled");
         let Some(ResultPayload::Json(v)) = resp.result else {
@@ -2409,6 +2814,8 @@ mod tests {
             max_iter: 100,
             seed: 0,
             writeback: true,
+            #[cfg(feature = "epistemic")]
+            as_claim: false,
         };
         let resp = try_handle(2, Arc::clone(&core), m).expect("handled");
         let Some(ResultPayload::Json(v)) = resp.result else {
@@ -2475,6 +2882,8 @@ mod tests {
             max_iter: 100,
             seed: 0,
             writeback: true,
+            #[cfg(feature = "epistemic")]
+            as_claim: false,
         };
         let resp = try_handle(42, Arc::clone(&core), m).expect("handled");
         let Some(ResultPayload::Json(v)) = resp.result else {
@@ -2521,6 +2930,8 @@ mod tests {
             max_iter: 100,
             seed: 0,
             writeback: false,
+            #[cfg(feature = "epistemic")]
+            as_claim: false,
         };
         let resp = try_handle(43, core, m).expect("handled");
         let Some(ResultPayload::Json(v)) = resp.result else {
@@ -2551,6 +2962,8 @@ mod tests {
             kernel: SvmKernel::Rbf,
             threshold: None,
             writeback: false,
+            #[cfg(feature = "epistemic")]
+            as_claim: false,
         };
         let resp = try_handle(3, core, m).expect("handled");
         let Some(ResultPayload::Json(v)) = resp.result else {
@@ -2599,6 +3012,8 @@ mod tests {
             kernel: SvmKernel::Rbf,
             threshold: None,
             writeback: true,
+            #[cfg(feature = "epistemic")]
+            as_claim: false,
         };
         let resp = try_handle(4, Arc::clone(&core), m).expect("handled");
         let Some(ResultPayload::Json(v)) = resp.result else {
@@ -2813,6 +3228,8 @@ mod tests {
             min_support: 0.5,
             algorithm: MineSeqAlgorithm::Prefixspan,
             writeback: false,
+            #[cfg(feature = "epistemic")]
+            as_claim: false,
         };
         let resp = try_handle(11, core, m).expect("handled");
         let Some(ResultPayload::Json(v)) = resp.result else {
@@ -2854,6 +3271,8 @@ mod tests {
             min_support: 0.5,
             algorithm: MineSeqAlgorithm::Gsp,
             writeback: true,
+            #[cfg(feature = "epistemic")]
+            as_claim: false,
         };
         let resp = try_handle(13, Arc::clone(&core), m).expect("handled");
         let Some(ResultPayload::Json(v)) = resp.result else {
@@ -2890,6 +3309,8 @@ mod tests {
             confidence: 0.95,
             series_id: "metric1".into(),
             writeback: true,
+            #[cfg(feature = "epistemic")]
+            as_claim: false,
         };
         let resp = try_handle(17, Arc::clone(&core), m).expect("handled");
         let Some(ResultPayload::Json(v)) = resp.result else {
@@ -2931,6 +3352,8 @@ mod tests {
             confidence: 0.95,
             series_id: String::new(),
             writeback: false,
+            #[cfg(feature = "epistemic")]
+            as_claim: false,
         };
         let resp = try_handle(19, core, m).expect("handled");
         assert!(resp.result.is_none());
@@ -2958,6 +3381,8 @@ mod tests {
             confidence: 0.95,
             series_id: String::new(),
             writeback: false,
+            #[cfg(feature = "epistemic")]
+            as_claim: false,
         };
         let resp = try_handle(21, core, m).expect("handled");
         let Some(ResultPayload::Json(v)) = resp.result else {
@@ -3139,6 +3564,8 @@ mod tests {
             max_edges: 1,
             algorithm: SubgraphAlgorithm::Gspan,
             writeback: true,
+            #[cfg(feature = "epistemic")]
+            as_claim: false,
         };
         let resp = try_handle(29, Arc::clone(&core), m).expect("handled");
         let Some(ResultPayload::Json(v)) = resp.result else {
@@ -3205,6 +3632,8 @@ mod tests {
             max_edges: 3,
             algorithm: SubgraphAlgorithm::Motif,
             writeback: true, // ignored for motif
+            #[cfg(feature = "epistemic")]
+            as_claim: false,
         };
         let resp = try_handle(31, Arc::clone(&core), m).expect("handled");
         let Some(ResultPayload::Json(v)) = resp.result else {
@@ -3240,6 +3669,8 @@ mod tests {
             max_edges: 1,
             algorithm: SubgraphAlgorithm::Gspan,
             writeback: false,
+            #[cfg(feature = "epistemic")]
+            as_claim: false,
         };
         let resp = try_handle(33, core, m).expect("handled");
         let Some(ResultPayload::Json(v)) = resp.result else {
@@ -3249,5 +3680,431 @@ mod tests {
         // graph (a->b is excluded since b is not type A).
         assert_eq!(v["n_host_nodes"], 2);
         assert_eq!(v["n_host_edges"], 1);
+    }
+
+    // ─────────────── E6: mining → epistemic objects (feature `epistemic`) ───────────────
+
+    /// Assert `as_claim=false` left NO epistemic objects — the write-back is
+    /// byte-identical to the pre-E6 path.
+    #[cfg(feature = "epistemic")]
+    fn assert_no_claims(core: &GraphCore) {
+        core.mark_dirty();
+        assert!(
+            core.get_nodes_by_label("Claim", 0).is_empty(),
+            "as_claim=false must not materialize Claim nodes"
+        );
+        assert!(
+            core.get_nodes_by_label("Evidence", 0).is_empty(),
+            "as_claim=false must not materialize Evidence nodes"
+        );
+    }
+
+    /// Assert `as_claim=true` materialized `:Claim` (+ `:Evidence`) objects, each with
+    /// `validation_state="unvalidated"`, a confidence in `[0,1]`, and a `SUPPORTS`
+    /// in-edge the `eg_epistemic` belief layer recognizes + propagates over. Returns
+    /// `(first claim id, its stored confidence)` for the caller's family-specific check.
+    #[cfg(feature = "epistemic")]
+    fn assert_claim_objects(core: &GraphCore) -> (String, f64) {
+        core.mark_dirty();
+        let claims = core.get_nodes_by_label("Claim", 0);
+        assert!(
+            !claims.is_empty(),
+            "as_claim=true must materialize Claim nodes"
+        );
+        assert!(
+            !core.get_nodes_by_label("Evidence", 0).is_empty(),
+            "as_claim=true must materialize Evidence nodes"
+        );
+        let (claim_id, blob) = &claims[0];
+        let props: serde_json::Value = rmp_serde::from_slice(blob).unwrap();
+        assert_eq!(props["type"], "Claim");
+        assert_eq!(props["validation_state"], "unvalidated");
+        let conf = props["confidence"].as_f64().unwrap();
+        assert!(
+            (0.0..=1.0).contains(&conf),
+            "claim confidence {conf} out of [0,1]"
+        );
+        // The DERIVED/SUPPORTS edge is understood verbatim by the epistemic layer.
+        let view = core.analysis_snapshot();
+        let bg = eg_epistemic::BeliefGraph::from_graph_view(&view);
+        let ins = bg
+            .in_edges
+            .get(claim_id)
+            .expect("claim must have supporters");
+        assert!(
+            ins.iter()
+                .any(|(_, k)| matches!(k, eg_epistemic::EdgeKind::Supports)),
+            "claim must carry a SUPPORTS in-edge"
+        );
+        let bs = eg_epistemic::propagate_confidence(
+            &bg,
+            claim_id,
+            &eg_epistemic::AuthorityPolicy::default(),
+        );
+        assert!((0.0..=1.0).contains(&bs.confidence));
+        (claim_id.clone(), conf)
+    }
+
+    #[test]
+    #[cfg(feature = "epistemic")]
+    fn associate_as_claim_materializes_claim_and_evidence() {
+        let build = |core: &GraphCore| {
+            core.add_node("cart1".into(), node(serde_json::json!({"type": "Cart"})));
+            core.add_node("cart2".into(), node(serde_json::json!({"type": "Cart"})));
+            for item in ["milk", "bread"] {
+                core.add_node(item.into(), node(serde_json::json!({"type": "Item"})));
+            }
+            for owner in ["cart1", "cart2"] {
+                for item in ["milk", "bread"] {
+                    let _ = core.add_edge(owner.into(), item.into(), node(serde_json::json!({})));
+                }
+            }
+        };
+        let mk = |as_claim: bool| Method::MineAssociate {
+            transactions: Vec::new(),
+            source: Some(TransactionSource {
+                node_label: "Cart".into(),
+                direction: "out".into(),
+                item_field: None,
+                relation: None,
+                limit: 0,
+            }),
+            min_support: 0.5,
+            min_confidence: 0.5,
+            algorithm: MineAlgorithm::Fpgrowth,
+            writeback: true,
+            as_claim,
+        };
+        // as_claim=false ⇒ unchanged (only the mined :AssociationRule nodes).
+        let c0 = Arc::new(GraphCore::new());
+        build(&c0);
+        try_handle(1, Arc::clone(&c0), mk(false)).expect("handled");
+        assert_no_claims(&c0);
+        // as_claim=true ⇒ Claim + Evidence, milk⇒bread has support=confidence=1 ⇒ conf=1.
+        let c1 = Arc::new(GraphCore::new());
+        build(&c1);
+        try_handle(2, Arc::clone(&c1), mk(true)).expect("handled");
+        let (_, conf) = assert_claim_objects(&c1);
+        assert!(
+            (conf - 1.0).abs() < 1e-9,
+            "assoc claim confidence {conf} != 1.0"
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "epistemic")]
+    fn cluster_as_claim_materializes_claim_and_evidence() {
+        let build = |core: &GraphCore| {
+            let embs = [
+                ("d0", [0.0f32, 0.0]),
+                ("d1", [0.2, 0.1]),
+                ("d2", [0.1, 0.2]),
+                ("d3", [9.0, 9.0]),
+                ("d4", [9.2, 8.9]),
+                ("d5", [8.9, 9.1]),
+            ];
+            for (id, e) in embs {
+                core.add_node(id.into(), node(serde_json::json!({"type": "Doc"})));
+                core.semantic_store
+                    .write()
+                    .add_embedding(id.to_string(), e.to_vec());
+            }
+        };
+        let mk = |as_claim: bool| Method::MineCluster {
+            features: Vec::new(),
+            source: Some(VectorSource {
+                node_label: "Doc".into(),
+                limit: 0,
+            }),
+            #[cfg(feature = "query")]
+            plan: None,
+            algorithm: ClusterAlgorithm::Kmedoids,
+            eps: 0.5,
+            min_pts: 5,
+            k: 2,
+            linkage: Linkage::Average,
+            max_iter: 100,
+            seed: 0,
+            writeback: true,
+            as_claim,
+        };
+        let c0 = Arc::new(GraphCore::new());
+        build(&c0);
+        try_handle(3, Arc::clone(&c0), mk(false)).expect("handled");
+        assert_no_claims(&c0);
+        let c1 = Arc::new(GraphCore::new());
+        build(&c1);
+        try_handle(4, Arc::clone(&c1), mk(true)).expect("handled");
+        let (_, conf) = assert_claim_objects(&c1);
+        // Two tight clusters ⇒ compactness score small ⇒ conf = 1/(1+score) close to 1.
+        assert!(
+            conf > 0.5 && conf <= 1.0,
+            "cluster claim confidence {conf} unexpected"
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "epistemic")]
+    fn anomaly_as_claim_materializes_claim_and_evidence() {
+        let build = |core: &GraphCore| {
+            let embs = [
+                ("m0", [0.0f32, 0.0]),
+                ("m1", [0.1, 0.0]),
+                ("m2", [0.0, 0.1]),
+                ("m3", [0.1, 0.1]),
+                ("m4", [0.05, 0.05]),
+                ("m5", [50.0, 50.0]), // outlier
+            ];
+            for (id, e) in embs {
+                core.add_node(id.into(), node(serde_json::json!({"type": "Metric"})));
+                core.semantic_store
+                    .write()
+                    .add_embedding(id.to_string(), e.to_vec());
+            }
+        };
+        let mk = |as_claim: bool| Method::MineAnomaly {
+            features: Vec::new(),
+            values: Vec::new(),
+            source: Some(VectorSource {
+                node_label: "Metric".into(),
+                limit: 0,
+            }),
+            #[cfg(feature = "query")]
+            plan: None,
+            algorithm: AnomalyAlgorithm::Zscore,
+            k: 20,
+            n_trees: 100,
+            sample_size: 256,
+            seed: 0,
+            nu: 0.1,
+            gamma: 0.0,
+            kernel: SvmKernel::Rbf,
+            threshold: None,
+            writeback: true,
+            as_claim,
+        };
+        let c0 = Arc::new(GraphCore::new());
+        build(&c0);
+        try_handle(5, Arc::clone(&c0), mk(false)).expect("handled");
+        assert_no_claims(&c0);
+        let c1 = Arc::new(GraphCore::new());
+        build(&c1);
+        try_handle(6, Arc::clone(&c1), mk(true)).expect("handled");
+        let (_, conf) = assert_claim_objects(&c1);
+        // Anomaly confidence = score/(1+score) ∈ (0,1).
+        assert!(
+            conf > 0.0 && conf < 1.0,
+            "anomaly claim confidence {conf} unexpected"
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "epistemic")]
+    fn sequence_as_claim_materializes_claim_and_evidence() {
+        let build = |core: &GraphCore| {
+            core.add_node("s1".into(), node(serde_json::json!({"type": "Session"})));
+            core.add_node("s2".into(), node(serde_json::json!({"type": "Session"})));
+            for ev in ["view", "add_cart", "checkout"] {
+                core.add_node(ev.into(), node(serde_json::json!({"type": "Event"})));
+            }
+            for owner in ["s1", "s2"] {
+                for ev in ["view", "add_cart", "checkout"] {
+                    let _ = core.add_edge(owner.into(), ev.into(), node(serde_json::json!({})));
+                }
+            }
+        };
+        let mk = |as_claim: bool| Method::MineSequence {
+            sequences: Vec::new(),
+            source: Some(SequenceSource {
+                node_label: "Session".into(),
+                direction: "out".into(),
+                item_field: None,
+                relation: None,
+                limit: 0,
+            }),
+            min_support: 0.5,
+            algorithm: MineSeqAlgorithm::Gsp,
+            writeback: true,
+            as_claim,
+        };
+        let c0 = Arc::new(GraphCore::new());
+        build(&c0);
+        try_handle(7, Arc::clone(&c0), mk(false)).expect("handled");
+        assert_no_claims(&c0);
+        let c1 = Arc::new(GraphCore::new());
+        build(&c1);
+        try_handle(8, Arc::clone(&c1), mk(true)).expect("handled");
+        let (_, conf) = assert_claim_objects(&c1);
+        // Both sessions share every subsequence ⇒ support=1 ⇒ conf=1.
+        assert!(
+            (conf - 1.0).abs() < 1e-9,
+            "sequence claim confidence {conf} != 1.0"
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "epistemic")]
+    fn forecast_as_claim_materializes_claim_and_evidence() {
+        let values: Vec<f64> = (0..30).map(|t| 5.0 + 3.0 * t as f64).collect();
+        let mk = |as_claim: bool| Method::MineForecast {
+            values: values.clone(),
+            algorithm: ForecastAlgorithm::Arima,
+            horizon: 5,
+            p: 1,
+            d: 1,
+            q: 0,
+            period: 0,
+            alpha: 0.3,
+            beta: 0.1,
+            gamma: 0.1,
+            confidence: 0.95,
+            series_id: "metric1".into(),
+            writeback: true,
+            as_claim,
+        };
+        let c0 = Arc::new(GraphCore::new());
+        c0.add_node(
+            "metric1".into(),
+            node(serde_json::json!({"type": "Series"})),
+        );
+        try_handle(9, Arc::clone(&c0), mk(false)).expect("handled");
+        assert_no_claims(&c0);
+        let c1 = Arc::new(GraphCore::new());
+        c1.add_node(
+            "metric1".into(),
+            node(serde_json::json!({"type": "Series"})),
+        );
+        try_handle(10, Arc::clone(&c1), mk(true)).expect("handled");
+        let (_, conf) = assert_claim_objects(&c1);
+        // Forecast claim confidence = the band level.
+        assert!(
+            (conf - 0.95).abs() < 1e-9,
+            "forecast claim confidence {conf} != 0.95"
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "epistemic")]
+    fn subgraph_as_claim_materializes_claim_and_evidence() {
+        let build = |core: &GraphCore| {
+            for i in 0..4 {
+                core.add_node(
+                    format!("concept_{i}"),
+                    node(serde_json::json!({"type": "Concept"})),
+                );
+                core.add_node(
+                    format!("capability_{i}"),
+                    node(serde_json::json!({"type": "Capability"})),
+                );
+                let _ = core.add_edge(
+                    format!("concept_{i}"),
+                    format!("capability_{i}"),
+                    node(serde_json::json!({"relation": "touches"})),
+                );
+            }
+            core.add_node("noise_a".into(), node(serde_json::json!({"type": "Noise"})));
+            core.add_node("noise_b".into(), node(serde_json::json!({"type": "Noise"})));
+            let _ = core.add_edge(
+                "noise_a".into(),
+                "noise_b".into(),
+                node(serde_json::json!({"relation": "unrelated"})),
+            );
+        };
+        let mk = |as_claim: bool| Method::MineSubgraph {
+            label: None,
+            min_support: 0.1,
+            max_edges: 1,
+            algorithm: SubgraphAlgorithm::Gspan,
+            writeback: true,
+            as_claim,
+        };
+        let c0 = Arc::new(GraphCore::new());
+        build(&c0);
+        try_handle(11, Arc::clone(&c0), mk(false)).expect("handled");
+        assert_no_claims(&c0);
+        let c1 = Arc::new(GraphCore::new());
+        build(&c1);
+        try_handle(12, Arc::clone(&c1), mk(true)).expect("handled");
+        assert_claim_objects(&c1);
+        // The planted concept→capability pattern has support 4/5 = 0.8 ⇒ some claim
+        // must carry that confidence.
+        c1.mark_dirty();
+        let has_08 = c1.get_nodes_by_label("Claim", 0).iter().any(|(_, blob)| {
+            let p: serde_json::Value = rmp_serde::from_slice(blob).unwrap();
+            p["confidence"]
+                .as_f64()
+                .map(|c| (c - 0.8).abs() < 1e-9)
+                .unwrap_or(false)
+        });
+        assert!(
+            has_08,
+            "subgraph claim for the planted pattern (support 0.8) missing"
+        );
+    }
+
+    /// The first E1↔E6 end-to-end proof (CONCEPT:EG-KG.epistemic.epistemic-substrate):
+    /// two `MineAssociate` runs over OVERLAPPING data with DISTINCT provenance
+    /// corroborate the SAME `:Claim` with a SECOND `:Evidence`; building a
+    /// `BeliefGraph::from_graph_view` and running `eg_epistemic::propagate_confidence`
+    /// shows two corroborating runs raise the belief above a single one.
+    #[test]
+    #[cfg(feature = "epistemic")]
+    fn corroboration_two_runs_raise_belief_above_one() {
+        use eg_epistemic::{propagate_confidence, AuthorityPolicy, BeliefGraph};
+        let core = Arc::new(GraphCore::new());
+        // Two owner labels (CartA / CartB) whose baskets BOTH yield {milk, bread}.
+        for c in ["ca1", "ca2"] {
+            core.add_node(c.into(), node(serde_json::json!({"type": "CartA"})));
+        }
+        for c in ["cb1", "cb2"] {
+            core.add_node(c.into(), node(serde_json::json!({"type": "CartB"})));
+        }
+        for item in ["milk", "bread"] {
+            core.add_node(item.into(), node(serde_json::json!({"type": "Item"})));
+        }
+        for owner in ["ca1", "ca2", "cb1", "cb2"] {
+            for item in ["milk", "bread"] {
+                let _ = core.add_edge(owner.into(), item.into(), node(serde_json::json!({})));
+            }
+        }
+        let mk = |label: &str| Method::MineAssociate {
+            transactions: Vec::new(),
+            source: Some(TransactionSource {
+                node_label: label.into(),
+                direction: "out".into(),
+                item_field: None,
+                relation: None,
+                limit: 0,
+            }),
+            min_support: 0.5,
+            min_confidence: 0.5,
+            algorithm: MineAlgorithm::Fpgrowth,
+            writeback: true,
+            as_claim: true,
+        };
+        let policy = AuthorityPolicy::default();
+
+        // Run 1 (provenance CartA) ⇒ the claim has ONE provenance evidence.
+        try_handle(1, Arc::clone(&core), mk("CartA")).expect("handled");
+        core.mark_dirty();
+        let claim_id = core.get_nodes_by_label("Claim", 0)[0].0.clone();
+        let bg1 = BeliefGraph::from_graph_view(&core.analysis_snapshot());
+        let belief_one = propagate_confidence(&bg1, &claim_id, &policy).confidence;
+
+        // Run 2 (DISTINCT provenance CartB, same rule ⇒ same claim) ⇒ a SECOND evidence.
+        try_handle(2, Arc::clone(&core), mk("CartB")).expect("handled");
+        core.mark_dirty();
+        let bg2 = BeliefGraph::from_graph_view(&core.analysis_snapshot());
+        let belief_two = propagate_confidence(&bg2, &claim_id, &policy).confidence;
+
+        assert!(
+            belief_two > belief_one,
+            "two corroborating runs ({belief_two}) must raise belief above one ({belief_one})"
+        );
+        // Distinct provenance ⇒ ≥2 Evidence nodes corroborating the shared claim(s).
+        assert!(
+            core.get_nodes_by_label("Evidence", 0).len() >= 2,
+            "distinct provenance must yield ≥2 Evidence nodes"
+        );
     }
 }
