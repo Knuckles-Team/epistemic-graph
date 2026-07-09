@@ -19,11 +19,13 @@ use eg_compute::mining::association::{self, Algorithm, LabeledRule};
 use eg_compute::mining::classify::{self, FittedClassifier};
 use eg_compute::mining::cluster;
 use eg_compute::mining::reduce;
+use eg_compute::mining::sequence::{self, LabeledPattern};
 
 use crate::graph::GraphCore;
 use crate::protocol::{
     AnomalyAlgorithm, ClassifyAlgorithm, ClusterAlgorithm, Linkage, Method, MineAlgorithm,
-    ReduceAlgorithm, Response, ResultPayload, SvmKernel, TransactionSource, VectorSource,
+    MineSeqAlgorithm, ReduceAlgorithm, Response, ResultPayload, SequenceSource, SvmKernel,
+    TransactionSource, VectorSource,
 };
 
 /// Handle a `Mine*` method. `Err(method)` hands a non-mining method back to the
@@ -146,6 +148,21 @@ pub(crate) fn try_handle(
             epochs,
             lr,
             seed,
+            writeback,
+        )),
+        Method::MineSequence {
+            sequences,
+            source,
+            min_support,
+            algorithm,
+            writeback,
+        } => Ok(handle_sequence(
+            req_id,
+            &core,
+            sequences,
+            source,
+            min_support,
+            algorithm,
             writeback,
         )),
         other => Err(other),
@@ -274,6 +291,20 @@ pub(crate) fn replay(core: &GraphCore, method: &Method) {
             let lbls = (!labels.is_empty()).then_some(labels.as_slice());
             let out = reduce::reduce(&rows, lbls, algo, *n_components);
             materialize_embeddings(core, &out, &ids);
+        }
+        Method::MineSequence {
+            sequences,
+            source,
+            min_support,
+            algorithm,
+            writeback: true,
+        } => {
+            let seqs = match build_sequences(core, sequences, source) {
+                Ok(s) => s,
+                Err(_) => return,
+            };
+            let patterns = sequence::mine_labeled(&seqs, *min_support, to_seq_algo(*algorithm));
+            materialize_patterns(core, &patterns);
         }
         _ => {}
     }
@@ -1131,6 +1162,156 @@ fn embedding2d_node_id(source: &str) -> String {
     format!("embedding2d:{}", hex::encode(&hasher.finalize()[..12]))
 }
 
+// ─────────────────────────── Sequential-pattern mining ───────────────────────────
+
+/// Handle `MineSequence` (CONCEPT:EG-KG.mining.prefixspan — Phase 4): build the
+/// ordered sequences (explicit or graph-derived), run the chosen engine
+/// (PrefixSpan/GSP — both agree), return `{patterns, ...}`, and optionally write
+/// `:SequentialPattern` nodes back.
+fn handle_sequence(
+    req_id: u64,
+    core: &GraphCore,
+    sequences: Vec<Vec<String>>,
+    source: Option<SequenceSource>,
+    min_support: f64,
+    algorithm: MineSeqAlgorithm,
+    writeback: bool,
+) -> Response {
+    let seqs = match build_sequences(core, &sequences, &source) {
+        Ok(s) => s,
+        Err(e) => return Response::err(req_id, e),
+    };
+    let patterns = sequence::mine_labeled(&seqs, min_support, to_seq_algo(algorithm));
+
+    let written = if writeback {
+        materialize_patterns(core, &patterns)
+    } else {
+        0
+    };
+
+    let rows: Vec<serde_json::Value> = patterns
+        .iter()
+        .map(|p| {
+            serde_json::json!({
+                "items": p.items,
+                "support": p.support,
+                "count": p.count,
+            })
+        })
+        .collect();
+
+    Response::ok(
+        req_id,
+        ResultPayload::Json(serde_json::json!({
+            "patterns": rows,
+            "n_sequences": seqs.len(),
+            "n_patterns": patterns.len(),
+            "written_back": written,
+        })),
+    )
+}
+
+/// Resolve the sequence set: explicit `sequences` win; otherwise derive them
+/// from the graph via `source`. An empty request yields no sequences (⇒ no
+/// patterns), a valid empty result.
+fn build_sequences(
+    core: &GraphCore,
+    sequences: &[Vec<String>],
+    source: &Option<SequenceSource>,
+) -> Result<Vec<Vec<String>>, String> {
+    if !sequences.is_empty() {
+        return Ok(sequences.to_vec());
+    }
+    match source {
+        Some(spec) => Ok(derive_sequences_from_graph(core, spec)),
+        None => Ok(Vec::new()),
+    }
+}
+
+/// Build one ORDERED sequence per `node_label` instance from its neighbor list
+/// (CONCEPT:EG-KG.mining.prefixspan): each sequence is the `item_field` values of
+/// the owner's neighbors in `direction`, restored to chronological (edge
+/// insertion) order — unlike `derive_from_graph`'s unordered dedup, order is the
+/// whole point of a sequence — optionally filtered to a `relation`.
+///
+/// `core.get_successors`/`get_predecessors` walk the underlying petgraph
+/// adjacency list, which is LIFO (the most-recently-added edge comes back
+/// FIRST); `neighbors_in_direction` passes that through unchanged for
+/// `out`/`in`, so it is reversed here to recover true chronological order.
+fn derive_sequences_from_graph(core: &GraphCore, spec: &SequenceSource) -> Vec<Vec<String>> {
+    let owners = core.get_nodes_by_label(&spec.node_label, spec.limit);
+    let mut out: Vec<Vec<String>> = Vec::with_capacity(owners.len());
+    for (owner_id, _blob) in owners {
+        let mut neighbors = neighbors_in_direction(core, &owner_id, &spec.direction);
+        if spec.direction != "any" {
+            neighbors.reverse();
+        }
+        let mut seq: Vec<String> = Vec::new();
+        for nbr in neighbors {
+            if let Some(rel) = &spec.relation {
+                if !edge_matches_relation(core, &owner_id, &nbr, &spec.direction, rel) {
+                    continue;
+                }
+            }
+            if let Some(item) = extract_item(core, &nbr, &spec.item_field) {
+                seq.push(item);
+            }
+        }
+        if !seq.is_empty() {
+            out.push(seq);
+        }
+    }
+    out
+}
+
+fn to_seq_algo(a: MineSeqAlgorithm) -> sequence::Algorithm {
+    match a {
+        MineSeqAlgorithm::Prefixspan => sequence::Algorithm::PrefixSpan,
+        MineSeqAlgorithm::Gsp => sequence::Algorithm::Gsp,
+    }
+}
+
+/// Materialize each mined pattern as a typed `:SequentialPattern` node
+/// (CONCEPT:EG-KG.mining.sequence-writeback), id = a deterministic digest of its
+/// (order-preserving) item list. Linked to any item that is a resident node via
+/// a `PATTERN_ITEM` edge, mirroring `materialize_rules`.
+fn materialize_patterns(core: &GraphCore, patterns: &[LabeledPattern]) -> usize {
+    let mut written = 0usize;
+    for p in patterns {
+        let node_id = pattern_node_id(&p.items);
+        let props = serde_json::json!({
+            "type": "SequentialPattern",
+            "items": p.items,
+            "support": p.support,
+            "count": p.count,
+        });
+        let Ok(blob) = rmp_serde::to_vec_named(&props) else {
+            continue;
+        };
+        core.add_node(node_id.clone(), blob);
+        for item in &p.items {
+            if core.has_node(item) {
+                let edge = serde_json::json!({ "relation": "PATTERN_ITEM" });
+                if let Ok(eb) = rmp_serde::to_vec_named(&edge) {
+                    let _ = core.add_edge(node_id.clone(), item.clone(), eb);
+                }
+            }
+        }
+        written += 1;
+    }
+    written
+}
+
+/// Deterministic, collision-resistant node id for a pattern (order matters, so
+/// the digest is over the items in sequence — unlike a rule's antecedent/
+/// consequent, which are pre-sorted sets).
+fn pattern_node_id(items: &[String]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(items.join("\u{1}").as_bytes());
+    format!("seqpattern:{}", hex::encode(&hasher.finalize()[..12]))
+}
+
 // ─────────────────────────── Row builders (shared) ───────────────────────────
 
 /// Resolve the cluster feature rows: explicit `features` win; otherwise gather the
@@ -1605,5 +1786,84 @@ mod tests {
         };
         let resp = try_handle(5, core, m).expect("handled");
         assert!(resp.result.is_none()); // an error response carries no result payload
+    }
+
+    #[test]
+    fn explicit_sequences_produce_patterns() {
+        let core = Arc::new(GraphCore::new());
+        let seqs = vec![
+            vec!["login".to_string(), "browse".to_string(), "purchase".to_string()],
+            vec![
+                "login".to_string(),
+                "search".to_string(),
+                "browse".to_string(),
+                "purchase".to_string(),
+            ],
+            vec!["login".to_string(), "browse".to_string(), "purchase".to_string()],
+        ];
+        let m = Method::MineSequence {
+            sequences: seqs,
+            source: None,
+            min_support: 0.5,
+            algorithm: MineSeqAlgorithm::Prefixspan,
+            writeback: false,
+        };
+        let resp = try_handle(11, core, m).expect("handled");
+        let Some(ResultPayload::Json(v)) = resp.result else {
+            panic!("expected json payload");
+        };
+        assert_eq!(v["n_sequences"], 3);
+        assert!(v["n_patterns"].as_u64().unwrap() > 0);
+        assert_eq!(v["written_back"], 0);
+        let patterns = v["patterns"].as_array().unwrap();
+        assert!(patterns.iter().any(|p| {
+            p["items"]
+                == serde_json::json!(["login", "browse", "purchase"])
+        }));
+    }
+
+    #[test]
+    fn sequence_graph_derived_source_and_writeback() {
+        let core = Arc::new(GraphCore::new());
+        // Two "Session" owners whose ordered "out" edges (insertion order) are the
+        // event sequence: session1/session2 both go view -> add_cart -> checkout.
+        core.add_node("s1".into(), node(serde_json::json!({"type": "Session"})));
+        core.add_node("s2".into(), node(serde_json::json!({"type": "Session"})));
+        for ev in ["view", "add_cart", "checkout"] {
+            core.add_node(ev.into(), node(serde_json::json!({"type": "Event"})));
+        }
+        for owner in ["s1", "s2"] {
+            for ev in ["view", "add_cart", "checkout"] {
+                let _ = core.add_edge(owner.into(), ev.into(), node(serde_json::json!({})));
+            }
+        }
+        let m = Method::MineSequence {
+            sequences: Vec::new(),
+            source: Some(SequenceSource {
+                node_label: "Session".into(),
+                direction: "out".into(),
+                item_field: None, // neighbor node id ⇒ "view"/"add_cart"/"checkout"
+                relation: None,
+                limit: 0,
+            }),
+            min_support: 0.5,
+            algorithm: MineSeqAlgorithm::Gsp,
+            writeback: true,
+        };
+        let resp = try_handle(13, Arc::clone(&core), m).expect("handled");
+        let Some(ResultPayload::Json(v)) = resp.result else {
+            panic!("expected json payload");
+        };
+        assert_eq!(v["n_sequences"], 2);
+        let written = v["written_back"].as_u64().unwrap();
+        assert!(written > 0);
+        core.mark_dirty();
+        let pattern_nodes = core.get_nodes_by_label("SequentialPattern", 0);
+        assert_eq!(pattern_nodes.len() as u64, written);
+        // The full 3-item pattern must have been recovered (both sessions match).
+        let patterns = v["patterns"].as_array().unwrap();
+        assert!(patterns.iter().any(|p| {
+            p["items"] == serde_json::json!(["view", "add_cart", "checkout"])
+        }));
     }
 }

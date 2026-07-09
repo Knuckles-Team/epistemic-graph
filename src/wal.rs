@@ -688,7 +688,8 @@ pub fn apply(core: &GraphCore, m: &Method) {
         | Method::MineCluster { .. }
         | Method::MineAnomaly { .. }
         | Method::MineClassifyPredict { .. }
-        | Method::MineReduce { .. } => crate::server::handlers::mining::replay(core, m),
+        | Method::MineReduce { .. }
+        | Method::MineSequence { .. } => crate::server::handlers::mining::replay(core, m),
         _ => {}
     }
 }
