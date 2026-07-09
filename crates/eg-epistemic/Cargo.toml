@@ -1,0 +1,26 @@
+[package]
+name = "eg-epistemic"
+version = "0.1.0"
+edition = "2021"
+authors = ["Audel Rouhi <knucklessg1@gmail.com>"]
+description = "Engine-native epistemic layer (claims, evidence, belief-state, contradiction, confidence propagation, justification) for the epistemic-graph engine"
+license = "MIT"
+
+[lib]
+name = "eg_epistemic"
+
+[dependencies]
+# Bottom of the DAG: the stored typed model + Distribution value.
+eg-types = { path = "../eg-types" }
+# The GraphView snapshot the propagation walk runs over (read-only, off-lock).
+eg-core = { path = "../eg-core" }
+# The conjugate Bayesian backend — `probabilistic::bayesian_update` IS the
+# ConfidenceModel numeric core (rides eg-compute's pure `reasoning` feature, no heavy dep).
+eg-compute = { path = "../eg-compute", features = ["reasoning"] }
+
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+rmp-serde = "1.3"
+
+[dev-dependencies]
+tempfile = "3"
