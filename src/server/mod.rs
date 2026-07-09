@@ -3501,6 +3501,198 @@ ex:myHeart a ex:HumanHeart .
         )));
     }
 
+    /// OwlExplain Method round-trips through dispatch (CONCEPT:EG-KG.ontology.owl-proof-tree-explanation): the
+    /// classic transitive-subClassOf chain `Dog ⊑ Animal ⊑ LivingThing` reconstructs a
+    /// FULL proof tree down to the asserted leaf, over the wire exactly like the
+    /// in-process `eg_rdf::owl` unit test proves.
+    #[cfg(feature = "owl")]
+    #[tokio::test]
+    async fn test_owl_explain_method_round_trips() {
+        let state = test_state();
+        let ttl = r#"
+@prefix ex:  <http://example.org/> .
+@prefix rdfs:<http://www.w3.org/2000/01/rdf-schema#> .
+ex:Dog rdfs:subClassOf ex:Animal .
+ex:Animal rdfs:subClassOf ex:LivingThing .
+"#;
+        assert_ok(
+            &dispatch(
+                &state,
+                request(
+                    1,
+                    "__commons__",
+                    None,
+                    Method::AddTriples {
+                        turtle: ttl.into(),
+                        ntriples: String::new(),
+                    },
+                ),
+            )
+            .await,
+        );
+        let r = dispatch(
+            &state,
+            request(
+                2,
+                "__commons__",
+                None,
+                Method::OwlExplain {
+                    ontology: String::new(),
+                    sub: "http://example.org/Dog".into(),
+                    sup: "http://example.org/LivingThing".into(),
+                },
+            ),
+        )
+        .await;
+        assert_ok(&r);
+        let res: crate::protocol::OwlExplainResult = match r.result {
+            Some(ResultPayload::Raw(b)) => rmp_serde::from_slice(&b).unwrap(),
+            other => panic!("expected Raw(OwlExplainResult), got {other:?}"),
+        };
+        assert!(res.found, "Dog ⊑ LivingThing must be entailed");
+        assert!(res.consistent);
+        let tree = res.tree.expect("found ⇒ a tree");
+        assert_eq!(tree.sub, "<http://example.org/Dog>");
+        assert_eq!(tree.sup, "<http://example.org/LivingThing>");
+        assert_ne!(tree.rule, "asserted", "the root is derived");
+        assert_eq!(tree.premises.len(), 1);
+        let mid = &tree.premises[0];
+        assert_eq!(mid.sub, "<http://example.org/Dog>");
+        assert_eq!(mid.sup, "<http://example.org/Animal>");
+        assert_eq!(mid.premises.len(), 1);
+        let leaf = &mid.premises[0];
+        assert_eq!(leaf.rule, "asserted");
+        assert!(leaf.premises.is_empty());
+
+        // A non-entailed pair explains to `found: false`, no tree.
+        let r2 = dispatch(
+            &state,
+            request(
+                3,
+                "__commons__",
+                None,
+                Method::OwlExplain {
+                    ontology: String::new(),
+                    sub: "http://example.org/Cat".into(),
+                    sup: "http://example.org/LivingThing".into(),
+                },
+            ),
+        )
+        .await;
+        assert_ok(&r2);
+        let res2: crate::protocol::OwlExplainResult = match r2.result {
+            Some(ResultPayload::Raw(b)) => rmp_serde::from_slice(&b).unwrap(),
+            other => panic!("expected Raw(OwlExplainResult), got {other:?}"),
+        };
+        assert!(!res2.found);
+        assert!(res2.tree.is_none());
+    }
+
+    /// SparqlVirtual Method round-trips through dispatch (CONCEPT:EG-KG.query.r2rml-virtual-graph /
+    /// CONCEPT:EG-KG.query.obda-query-rewrite): a real user SQL table (created via
+    /// `Method::Sql` DDL/DML — the SAME `eg_query::TableStore` `ImportSqliteFile` and the
+    /// pgwire shim share) is exposed as RDF via a compact R2RML-style mapping and queried
+    /// with SPARQL — WITHOUT any `AddTriples`/materialize step ever touching this graph.
+    #[cfg(feature = "obda")]
+    #[tokio::test]
+    async fn test_sparql_virtual_method_round_trips() {
+        let state = test_state();
+        let table = format!("eg_obda_people_{}", std::process::id());
+        let sql = |q: String| Method::Sql {
+            query: q,
+            params_msgpack: Vec::new(),
+        };
+
+        let d = dispatch(
+            &state,
+            request(1, "__commons__", None, sql(format!("DROP TABLE IF EXISTS {table}"))),
+        )
+        .await;
+        assert!(d.error.is_none(), "DROP failed: {:?}", d.error);
+
+        let c = dispatch(
+            &state,
+            request(
+                2,
+                "__commons__",
+                None,
+                sql(format!("CREATE TABLE {table} (id TEXT, name TEXT, age BIGINT)")),
+            ),
+        )
+        .await;
+        assert!(c.error.is_none(), "CREATE TABLE failed: {:?}", c.error);
+
+        let i = dispatch(
+            &state,
+            request(
+                3,
+                "__commons__",
+                None,
+                sql(format!(
+                    "INSERT INTO {table} (id, name, age) VALUES ('1', 'Alice', 30), ('2', 'Bob', 25)"
+                )),
+            ),
+        )
+        .await;
+        assert!(i.error.is_none(), "INSERT failed: {:?}", i.error);
+
+        let mapping = format!(
+            "SOURCE  {table}\nSUBJECT http://example.org/person/{{id}}\nCLASS   http://example.org/Person\nCOLUMN  http://example.org/name name\nCOLUMN  http://example.org/age  age\n"
+        );
+        let r = dispatch(
+            &state,
+            request(
+                4,
+                "__commons__",
+                None,
+                Method::SparqlVirtual {
+                    query: "PREFIX ex: <http://example.org/> SELECT ?name WHERE { ?p a ex:Person ; ex:name ?name }".into(),
+                    mapping,
+                    tables: vec![table.clone()],
+                },
+            ),
+        )
+        .await;
+        assert_ok(&r);
+        let res: crate::protocol::SparqlResult = match r.result {
+            Some(ResultPayload::Raw(b)) => rmp_serde::from_slice(&b).unwrap(),
+            other => panic!("expected Raw(SparqlResult), got {other:?}"),
+        };
+        assert_eq!(res.vars, vec!["name".to_string()]);
+        let name_idx = 0;
+        let mut names: Vec<Option<String>> =
+            res.rows.iter().map(|row| row[name_idx].clone()).collect();
+        names.sort();
+        assert_eq!(
+            names,
+            vec![Some("Alice".to_string()), Some("Bob".to_string())],
+            "the virtual graph's rows came from the SQL table, not from AddTriples"
+        );
+
+        // The request's OWN graph (__commons__) stays untouched — GetRdf sees no triples
+        // from the virtual query (proves it never materialized into a real graph).
+        let get = dispatch(
+            &state,
+            request(5, "__commons__", None, Method::GetRdf),
+        )
+        .await;
+        assert_ok(&get);
+        let nt: String = match get.result {
+            Some(ResultPayload::Raw(b)) => rmp_serde::from_slice(&b).unwrap(),
+            other => panic!("expected Raw(String), got {other:?}"),
+        };
+        assert!(
+            !nt.contains("Alice") && !nt.contains("Bob"),
+            "the virtual query must not have materialized into the request's graph"
+        );
+
+        let _ = dispatch(
+            &state,
+            request(6, "__commons__", None, sql(format!("DROP TABLE IF EXISTS {table}"))),
+        )
+        .await;
+    }
+
     /// DISTRIBUTED OwlReason over TWO graphs derives the SAME entailment a single graph
     /// would (CONCEPT:EG-KG.ontology.concept-13). The shared TBox + p1 live in graph A; p2 lives in graph
     /// B; `OwlReasonDistributed{[A,B]}` unions them and infers p2 ⊑ ScholarlyWork — an

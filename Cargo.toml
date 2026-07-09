@@ -723,6 +723,15 @@ owl-dl = ["owl", "eg-rdf/owl-dl"]
 # DataFusion, so this IMPLIES `query` (it is NOT Pi-safe) — kept OUT of `pi`, folded
 # into node/full where `query` already lives. Pulls eg-plan's `owl` (the op exec).
 owl-plan = ["owl", "query", "eg-plan/owl", "eg-types/owl-plan"]
+# OBDA / R2RML virtual graphs (CONCEPT:EG-KG.query.r2rml-virtual-graph / EG-KG.query.obda-query-rewrite,
+# Track J): expose the engine's OWN SQL user-tables (`eg_query::TableStore`, behind
+# `query`) as a virtual RDF graph via an R2RML-style mapping (`eg_rdf::obda`, behind
+# `sparql`) — a `Method::SparqlVirtual` query rewrites to a projection-pushed scan of
+# the table and evaluates SPARQL over a TRANSIENT view, never materializing the whole
+# dataset. IMPLIES `sparql` + `query` (mirrors `owl-plan`'s split rationale — the bare
+# OBDA library in eg-rdf is Pi-safe; wiring it to user tables needs DataFusion). Pure
+# Rust; no new external dep. Folds into node/full beside sparql/query.
+obda = ["sparql", "query", "eg-types/obda"]
 # Opt-in lossless redb `quads` table for multi-valued-literal predicates the
 # property blob can't hold (CONCEPT:KG-2.217). Rides the engine `redb` tier.
 rdf-redb = ["rdf", "redb", "eg-rdf/rdf-redb", "eg-plan?/rdf-redb"]
@@ -765,7 +774,7 @@ compute = ["finance", "ast", "ast-extended", "datascience", "mining", "graphlear
 # a Pi requirement and the Pi build stays minimal — the RLS/audit core is itself
 # pure-Rust and Pi-safe, but is shipped only where `security` is selected).
 security = ["redb", "dep:chacha20poly1305", "eg-types/security", "eg-core/security"]
-full = ["compute", "server", "query", "cypher", "graphql", "eg-graphql/crossmodal-tsdb", "redb", "ann", "ann-redb", "tsdb", "blob", "kv", "text", "sparql", "sparql-http", "sparql-hash", "rdf-xml", "json-ld", "sparql-star", "sparql-service", "rdf-redb", "shacl", "owl", "owl-dl", "owl-plan", "streaming", "wasm-udf", "security", "federation", "federation-sql", "pgwire", "mysql-wire", "mssql-wire", "sqlite-wire", "bolt-wire", "redis-wire", "broker", "amqp-wire", "mqtt-wire", "stomp-wire", "geo", "tensor", "stream", "result-cache", "cold-tier", "cost", "cost-opt", "otel", "otel-export", "shex", "obs", "geosparql", "nl-query", "promql", "traces", "s3-api", "federation-search", "kvcache-server", "kvcache-compression", "numeric", "sqlite-file"]
+full = ["compute", "server", "query", "cypher", "graphql", "eg-graphql/crossmodal-tsdb", "redb", "ann", "ann-redb", "tsdb", "blob", "kv", "text", "sparql", "sparql-http", "sparql-hash", "rdf-xml", "json-ld", "sparql-star", "sparql-service", "rdf-redb", "shacl", "owl", "owl-dl", "owl-plan", "obda", "streaming", "wasm-udf", "security", "federation", "federation-sql", "pgwire", "mysql-wire", "mssql-wire", "sqlite-wire", "bolt-wire", "redis-wire", "broker", "amqp-wire", "mqtt-wire", "stomp-wire", "geo", "tensor", "stream", "result-cache", "cold-tier", "cost", "cost-opt", "otel", "otel-export", "shex", "obs", "geosparql", "nl-query", "promql", "traces", "s3-api", "federation-search", "kvcache-server", "kvcache-compression", "numeric", "sqlite-file"]
 all = ["full"]
 
 # ── Opt-in build layers ON TOP of the ONE main build (CONCEPT:EG-371) ──
