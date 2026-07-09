@@ -21,6 +21,13 @@ datascience = ["dep:rand_chacha", "eg-types/datascience"]
 # dependency-light frequent-itemset + association-rule mining. No heavy dep — only
 # turns on the matching eg-types feature so the `MineAssociate` wire variant exists.
 mining = ["eg-types/mining"]
+# Graph-learning / neuro-symbolic domain (CONCEPT:EG-KG.graphlearn.link-predictor):
+# a pure-Rust KAN (Kolmogorov-Arnold) link-predictor over the resident graph whose
+# learned per-feature edge functions ARE queryable KG artifacts. Reuses the
+# analytic-gradient Adam kernels from `datascience::training`, so it implies
+# `datascience`; also turns on the matching eg-types feature so the `GraphLearn*`
+# wire variants exist. No heavy dep (no torch) — folded into `full` via `compute`.
+graphlearn = ["datascience", "eg-types/graphlearn"]
 reasoning = []
 ast = [
     "dep:tree-sitter",
