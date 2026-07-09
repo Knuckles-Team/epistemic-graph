@@ -22,6 +22,13 @@ LIMIT 100
 - **Patterns**: linear `node (edge node)*`. Nodes `(var:Label)` — both the variable and the label are
   optional. Edges `-[:REL]->`, `<-[:REL]-`, and variable-length `-[:REL*m..n]->` (now combinable with
   surrounding fixed hops + path-variable binding, EG-KG.query.concept-2).
+- **Quantified path patterns (Cypher 25, EG-KG.query.quantified-path-pattern)**: `((a)-[:REL]->(b)){m,n}`
+  repeats a WHOLE inner sub-pattern — not just one relationship — `m..n` times, e.g.
+  `MATCH (x)((a)-[:LIKES]->()-[:KNOWS]->(b)){1,3}(y) RETURN y`. A single-hop group is exactly equivalent
+  to `-[:REL*m..n]->`; the construct generalizes to multi-hop and (recursively) nested inner patterns.
+  **Deferred**: only the group's overall reachability + the FINAL repetition's end node participate in
+  the surrounding MATCH/WHERE/RETURN — per-iteration variable bindings inside the group are not exposed
+  as Cypher 25's full list values. Not supported in `CREATE`.
 - **WHERE** (EG-KG.query.eg-extend-read-side): `AND`/`OR`, `var.prop <op> literal` with `= <> != < <= > >=`, plus `IN`,
   `STARTS WITH`, `CONTAINS`, `IS NULL`.
 - **RETURN**: `var`, `var.prop`, `*`, `DISTINCT`, comma-separated; aggregation
@@ -54,9 +61,12 @@ CALL gds.pageRank.stream('social') YIELD nodeId, score
 RETURN nodeId, score ORDER BY score DESC LIMIT 10;
 ```
 
-Available `gds.*`: PageRank, weakly/strongly-connected components, Louvain community detection,
-betweenness + degree centrality, single-source weighted shortest path (Dijkstra), and node similarity
-(Jaccard/cosine over neighborhoods).
+Available `gds.*`: PageRank, weakly/strongly-connected components, Louvain community detection, Label
+Propagation, betweenness + degree centrality, single-source weighted shortest path (Dijkstra), node
+similarity (Jaccard/cosine over neighborhoods, all-pairs `gds.nodeSimilarity` + per-node top-`k`
+`gds.knn`), density clustering (`gds.dbscan`, feature `cypher-mining`), and link prediction
+(`gds.linkPrediction`, a KAN classifier over structural pair features, feature `cypher-graphlearn`) —
+CONCEPT:EG-KG.query.gds-procedure-routing.
 
 ## Remote drivers — Bolt v4.4 (EG-KG.query.bolt-wire-protocol, feature `bolt-wire`)
 

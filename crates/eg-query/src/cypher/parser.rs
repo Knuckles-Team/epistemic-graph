@@ -322,8 +322,7 @@ impl Parser {
         self.expect(&Tok::RParen)?; // closes the group
         if inner.hops.is_empty() {
             return Err(
-                "a quantified path pattern group must contain at least one relationship hop"
-                    .into(),
+                "a quantified path pattern group must contain at least one relationship hop".into(),
             );
         }
         let quantifier = self.parse_quantifier()?;
@@ -1391,8 +1390,7 @@ mod tests {
     #[test]
     fn parses_quantified_group_multi_hop_inner_pattern() {
         // The inner group pattern is itself a two-hop chain — not just one relationship.
-        let q =
-            parse("MATCH (a)((x)-[:LIKES]->()-[:KNOWS]->(y)){1,2}(b) RETURN b").unwrap();
+        let q = parse("MATCH (a)((x)-[:LIKES]->()-[:KNOWS]->(y)){1,2}(b) RETURN b").unwrap();
         let (pat, _) = first_match(&q);
         let group = pat.hops[0].0.group.as_ref().unwrap();
         assert_eq!(group.hops.len(), 2);

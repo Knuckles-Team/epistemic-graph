@@ -442,7 +442,12 @@ fn walk_hops(
 /// application of `group.hops` starting at the group's `start` position. The
 /// shallowest repetition count that reaches a node wins (each end node appears
 /// once), matching `bfs_reachable`'s dedup semantics.
-fn group_reachable(view: &GraphView, src: &str, group: &QuantifiedGroup, params: &Params) -> Vec<String> {
+fn group_reachable(
+    view: &GraphView,
+    src: &str,
+    group: &QuantifiedGroup,
+    params: &Params,
+) -> Vec<String> {
     let (min, max) = group.quantifier;
     if max == 0 {
         return Vec::new();
@@ -1766,8 +1771,7 @@ mod tests {
     #[test]
     fn create_rejects_quantified_group_pattern() {
         let core = GraphCore::new();
-        let err =
-            exec_cypher_write(&core, "CREATE (a)((x)-[:KNOWS]->(y)){1,2}(b)").unwrap_err();
+        let err = exec_cypher_write(&core, "CREATE (a)((x)-[:KNOWS]->(y)){1,2}(b)").unwrap_err();
         assert!(err.contains("quantified path pattern"), "{err}");
     }
 
