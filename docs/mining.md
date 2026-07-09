@@ -561,3 +561,68 @@ graph_mine { "action": "forecast",
 // REST twin (same _execute_tool core)
 POST /api/mining/forecast { "values": [5, 8, 11, 14], "algorithm": "holtwinters", "period": 0, "horizon": 5 }
 ```
+
+---
+
+# Text mining — `action="text"`
+
+Mines a text corpus: TF-IDF term weighting or `k`-topic modeling. Pure-Rust
+tokenization (lowercase, alnum-run split) and algorithms — no Tantivy/eg-text
+dependency (the corpus is either handed in pre-tokenized, or tokenized from a node
+text property, compute-near-data):
+
+- **`tfidf`** (default) — descriptive, read-only: per-document term weights
+  (`term_frequency * smoothed_inverse_document_frequency`).
+- **`lda`** — Latent Dirichlet Allocation fit by **collapsed Gibbs sampling**
+  (symmetric Dirichlet priors `alpha` over doc-topic, `beta` over topic-term;
+  `iterations` sweeps). Deterministic per `seed`.
+- **`nmf`** — Non-negative Matrix Factorization of the TF-IDF matrix by
+  **multiplicative updates** (Lee & Seung); `seed` only determines the initial
+  factors. Deterministic given them.
+
+```python
+# TF-IDF over an explicit, pre-tokenized corpus.
+out = await c.mining.text(docs=[
+    ["the", "cat", "sat", "on", "the", "mat"],
+    ["the", "rocket", "launched", "into", "orbit"],
+])
+# out["doc_terms"][1] ranks "rocket"/"launched"/"orbit" above the common "the".
+
+# LDA topic model — k=2 over two thematically distinct document groups.
+out = await c.mining.text(docs=pet_and_finance_docs, algorithm="lda", k=2, iterations=200, seed=42)
+# out["topics"] recovers one topic per theme; out["doc_topics"][i] is doc i's mixture.
+```
+
+## Cross-modal — topic-model a node label's text property
+
+Point `text` at a graph-derived `source` to tokenize a text property off every
+instance of a node label (e.g. every `:Doc`'s `body` field) into the corpus, with
+`writeback=True` (lda/nmf only) materializing each discovered topic as a `:Topic`
+node — linked `HAS_TOPIC` from every document whose DOMINANT topic (the argmax of
+its topic-membership distribution) it is.
+
+```python
+# Topic-model every :Doc's "body" text, writing :Topic nodes back.
+out = await c.mining.text(
+    source={"node_label": "Doc", "field": "body"}, algorithm="lda", k=5, writeback=True,
+)
+# → one :Topic{terms} node per topic, linked HAS_TOPIC ← every :Doc whose dominant
+#   topic it is — a downstream feed for association-mining topics↔entities.
+```
+
+`text` with `writeback=True` is a **WAL-durable** graph write for `lda`/`nmf`
+(replayed by re-mining deterministically); `tfidf` never writes back (no topics to
+materialize — the flag is ignored).
+
+## MCP + REST (text)
+
+```jsonc
+// MCP
+graph_mine { "action": "text",
+             "params_json": "{\"docs\":[[\"the\",\"cat\",\"sat\"]],\"algorithm\":\"tfidf\"}" }
+graph_mine { "action": "text",
+             "params_json": "{\"source\":{\"node_label\":\"Doc\",\"field\":\"body\"},\"algorithm\":\"lda\",\"k\":5,\"writeback\":true}" }
+
+// REST twin (same _execute_tool core)
+POST /api/mining/text { "docs": [["cat", "dog"], ["stock", "market"]], "algorithm": "nmf", "k": 2 }
+```
