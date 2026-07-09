@@ -2269,6 +2269,32 @@ pub enum Method {
         #[serde(default)]
         type_convention: String,
     },
+    /// OBDA / R2RML VIRTUAL GRAPH query (CONCEPT:EG-KG.query.r2rml-virtual-graph /
+    /// CONCEPT:EG-KG.query.obda-query-rewrite) — Ontology-Based Data Access: run a SPARQL query
+    /// against a set of foreign tabular sources exposed as RDF via an R2RML-style
+    /// mapping, WITHOUT ever materializing the whole dataset. `tables` names the
+    /// engine's OWN SQL user tables (the `eg_query::TableStore` behind `query`, the same
+    /// store `Method::Sql` DDL/DML and `ImportSqliteFile` write) to register as foreign
+    /// sources under their own table name (a [`TriplesMap::logical_source`] target);
+    /// `mapping` is either a standard R2RML Turtle document (`@prefix rr: …`) or the
+    /// compact EG-101 textual form (`SOURCE`/`SUBJECT`/`CLASS`/`COLUMN`/`REF`/`CONST`
+    /// directives) — auto-detected. The query rewrites to a projection-pushed scan of
+    /// only the query-relevant table columns (see `eg_rdf::obda`), materializes ONLY
+    /// those triples into a transient view, and evaluates the SAME SPARQL engine over
+    /// it — so this is a REAL query-rewrite OBDA path, not a full ETL/materialize step.
+    /// Returns a `Raw` [`SparqlResult`]. Read-only (never writes the user table OR the
+    /// request's graph). Gated `obda` (implies `sparql` + `query`).
+    #[cfg(feature = "obda")]
+    SparqlVirtual {
+        /// The SPARQL query to run against the virtual graph.
+        query: String,
+        /// An R2RML Turtle document OR the compact EG-101 textual mapping form.
+        mapping: String,
+        /// The user-table names the mapping's `TriplesMap`s reference as
+        /// `logical_source`s — each is registered as a foreign source under its own
+        /// name before the mapping is parsed and the query is run.
+        tables: Vec<String>,
+    },
     /// Run the native OWL 2 (EL⁺ + RL) reasoner over the request's graph and
     /// materialize entailments (CONCEPT:EG-KG.ontology.incremental-materialization). Classifies the OWL axioms already
     /// in the graph (the TBox loaded via `AddTriples`) plus any extra `ontology`
@@ -2315,6 +2341,27 @@ pub enum Method {
         /// Confidence threshold τ in `[0,1]` (see `OwlReason::min_confidence`).
         #[serde(default)]
         min_confidence: f64,
+    },
+
+    /// OWL proof-tree EXPLANATION (CONCEPT:EG-KG.ontology.owl-proof-tree-explanation) — Stardog's flagship
+    /// "explanation" feature, native here. Classifies the request's graph (its own TBox
+    /// axioms, loaded via `AddTriples`, plus any extra `ontology` Turtle) with confidence
+    /// propagation, then reconstructs the FULL recursive proof tree for the ONE named-class
+    /// subsumption `sub ⊑ sup` — WHICH axiom(s) + WHICH premise subsumption(s) derived it,
+    /// recursively down to the asserted/reflexive leaves — via
+    /// [`crate`]-independent reconstruction of `eg_rdf::owl::Classification::explain`'s
+    /// justification DAG (CONCEPT:EG-KG.ontology.justification-tracking). Returns a `Raw`
+    /// [`OwlExplainResult`]. Read-only (does not mutate the graph). Gated `owl`.
+    #[cfg(feature = "owl")]
+    OwlExplain {
+        /// Extra OWL axioms as Turtle (empty ⇒ reason over the graph's own axioms).
+        #[serde(default)]
+        ontology: String,
+        /// The SUBCLASS side of the subsumption to explain (a class IRI, `<...>` or bare —
+        /// canonicalized the same way `target_class` is elsewhere).
+        sub: String,
+        /// The SUPERCLASS side of the subsumption to explain.
+        sup: String,
     },
 
     // ── Custom-rule reasoning (CONCEPT:EG-KG.ontology.eg-runtime-swrl-datalog / EG-023 — runtime SWRL/Datalog rules) ──
@@ -3663,6 +3710,41 @@ pub struct OwlReasonResult {
     /// `true` iff the ontology is consistent (no class forced to subsume `owl:Nothing`).
     pub consistent: bool,
     /// Named classes derived to be unsatisfiable (`A ⊑ ⊥`); empty when consistent.
+    pub unsatisfiable: Vec<String>,
+}
+
+/// One node of a reconstructed OWL proof tree (CONCEPT:EG-KG.ontology.owl-proof-tree-explanation) — the wire
+/// projection of `eg_rdf::owl::ProofNode`. `rule == "asserted"` marks a LEAF (a
+/// reflexive seed or a base fact with no recorded justification — the proof bottoms
+/// out there); any other `rule` is a completion rule name (`"CR-sub"`, `"CR-some⁺"`,
+/// `"CR-instance"`, …) that consumed `premises` (each itself a full sub-proof) plus the
+/// cited `axioms`. Recursive — `premises` nests to the tree's actual depth (never
+/// flattened), so a client walks it exactly like the reasoner derived it.
+#[cfg(feature = "owl")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProofNodeWire {
+    pub sub: String,
+    pub sup: String,
+    pub rule: String,
+    pub axioms: Vec<String>,
+    pub confidence: f64,
+    pub premises: Vec<ProofNodeWire>,
+}
+
+/// Materialized result of a `Method::OwlExplain` run (CONCEPT:EG-KG.ontology.owl-proof-tree-explanation). Returned
+/// via `ResultPayload::raw`. `tree` is `None` when `sub ⊑ sup` does not hold (nothing
+/// to explain) — `found` mirrors that as a convenience boolean for callers that only
+/// json-decode the top level.
+#[cfg(feature = "owl")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OwlExplainResult {
+    /// Whether `sub ⊑ sup` holds under the classification (`tree.is_some()`).
+    pub found: bool,
+    /// The reconstructed proof tree, or `None` when `sub ⊑ sup` does not hold.
+    pub tree: Option<ProofNodeWire>,
+    /// `true` iff the classified ontology is consistent.
+    pub consistent: bool,
+    /// Named classes derived to be unsatisfiable; empty when consistent.
     pub unsatisfiable: Vec<String>,
 }
 

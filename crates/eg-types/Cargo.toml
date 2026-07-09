@@ -91,6 +91,13 @@ owl = ["sparql"]
 # SPLIT from `owl` because the unified-plan executor needs DataFusion (`query`) which
 # the Pi tier omits — the bare OWL reasoner (`owl`) stays Pi-safe.
 owl-plan = ["owl", "query"]
+# OBDA / R2RML virtual graphs (CONCEPT:EG-KG.query.r2rml-virtual-graph): gates the
+# `SparqlVirtual` Method variant. The OBDA engine (`eg_rdf::obda`) lives behind
+# `sparql`; the foreign-source seam this Method wires it to is the engine's OWN SQL
+# user-table store (`eg_query::TableStore`, behind `query`) — so this implies BOTH,
+# same split rationale as `owl-plan` (the bare `sparql`/`owl` surfaces stay Pi-safe;
+# OBDA over user tables needs DataFusion via `query`).
+obda = ["sparql", "query"]
 # WASM-sandboxed UDF surface (CONCEPT:KG-2.228): gates the `RegisterUdf`/`RunUdf`
 # Method variants AND the `Op::Udf { id }` variant of the cross-modal plan AST. The
 # `Udf` op lives inside the `query`-gated `Op` enum, so this implies `query`. Pure
