@@ -10,6 +10,10 @@
 //!
 //! Variable-length generalization (CONCEPT:EG-KG.query.concept-2): a pattern may combine fixed
 //! hops with a single variable-length hop, and bind a path variable (`p = (…)`).
+//!
+//! Quantified path patterns (CONCEPT:EG-KG.query.quantified-path-pattern, Cypher 25):
+//! `((a)-[:REL]->(b)){1,3}` repeats a whole inner sub-pattern (not just one
+//! relationship) `min..max` times; see [`QuantifiedGroup`].
 
 use serde_json::Value;
 
@@ -124,13 +128,46 @@ pub struct EdgePat {
     pub rel_type: Option<String>,
     pub direction: Direction,
     /// `Some((min,max))` for a `*min..max` variable-length path; `None` ⇒ a single
-    /// fixed hop.
+    /// fixed hop (or, when `group` is `Some`, this field is unused — the group
+    /// carries its own quantifier).
     pub var_len: Option<(usize, usize)>,
     /// The edge variable (`-[r:REL]->`), if named — used by `DELETE r` (CONCEPT:EG-KG.query.register-each-user-table).
     pub var: Option<String>,
     /// Inline edge properties for a write pattern. `None` on reads. Values may
     /// reference params/bound vars (CONCEPT:EG-KG.query.param-list-drives-unwind).
     pub props: Option<Vec<(String, PropVal)>>,
+    /// Cypher 25 quantified path pattern (CONCEPT:EG-KG.query.quantified-path-pattern):
+    /// `((a)-[:REL]->(b)){min,max}`. When `Some`, this hop is a synthetic
+    /// placeholder standing in for a whole repeated sub-pattern — `rel_type`/
+    /// `direction`/`var_len` above are ignored and the group's own `hops` +
+    /// `quantifier` drive matching (`group_reachable` in `exec.rs`), which
+    /// generalizes the single-relationship `bfs_reachable` to repeated
+    /// whole-subpattern expansion. `None` for every ordinary hop (the common
+    /// case, unaffected).
+    pub group: Option<Box<QuantifiedGroup>>,
+}
+
+/// The inner sub-pattern + repetition bounds of a Cypher 25 quantified path
+/// pattern `((start)(hop)*){min,max}` (CONCEPT:EG-KG.query.quantified-path-pattern).
+/// Matched by repeating whole-pattern expansion `min..=max` times (BFS over
+/// "meta-edges", each meta-edge being one full application of `hops` starting
+/// from `start`'s position) — see `group_reachable`/`expand_group_once` in
+/// `exec.rs`. **Documented limitation (deferred):** only the group's overall
+/// start (already bound going in) and the final repetition's end node
+/// participate in the surrounding MATCH/WHERE/RETURN scope; per-iteration
+/// variable bindings inside the group (e.g. every `a`/`b` across repetitions)
+/// are NOT exposed as list values the way full Cypher 25 exposes them — this
+/// engine matches reachability + the end node, not per-iteration projections.
+#[derive(Debug, Clone, PartialEq)]
+pub struct QuantifiedGroup {
+    /// The group's own start-position constraint (label/props/var), re-applied
+    /// at the start of EVERY repetition — but the var (if any) is local to the
+    /// group and not threaded to the outer binding.
+    pub start: NodePat,
+    /// The repeated hop sequence (one or more), applied once per repetition.
+    pub hops: Vec<(EdgePat, NodePat)>,
+    /// `(min, max)` repetitions, both inclusive, `min` may be `0`.
+    pub quantifier: (usize, usize),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
