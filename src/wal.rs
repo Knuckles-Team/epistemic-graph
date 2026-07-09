@@ -96,6 +96,12 @@ pub fn is_durable_mutation(m: &Method) -> bool {
         } | Method::MineAnomaly {
             writeback: true,
             ..
+        } | Method::MineClassifyPredict {
+            writeback: true,
+            ..
+        } | Method::MineReduce {
+            writeback: true,
+            ..
         }
     ) {
         return true;
@@ -678,9 +684,11 @@ pub fn apply(core: &GraphCore, m: &Method) {
         // the `:AssociationRule` / `:Cluster` / `:Anomaly` nodes. The node ids are a
         // deterministic digest of the mined content, so replay is idempotent.
         #[cfg(all(feature = "mining", feature = "server"))]
-        Method::MineAssociate { .. } | Method::MineCluster { .. } | Method::MineAnomaly { .. } => {
-            crate::server::handlers::mining::replay(core, m)
-        }
+        Method::MineAssociate { .. }
+        | Method::MineCluster { .. }
+        | Method::MineAnomaly { .. }
+        | Method::MineClassifyPredict { .. }
+        | Method::MineReduce { .. } => crate::server::handlers::mining::replay(core, m),
         _ => {}
     }
 }
