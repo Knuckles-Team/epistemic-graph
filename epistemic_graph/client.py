@@ -2300,6 +2300,101 @@ class MiningClient:
         return await self._client._send("MineReduce", params)
 
 
+class GraphLearnClient:
+    """CONCEPT:EG-KG.graphlearn.link-predictor — Graph-learning / neuro-symbolic Namespace.
+
+    A pure-Rust KAN (Kolmogorov-Arnold) link-predictor learned over the resident
+    graph. Unlike a black-box scorer, its learned per-feature edge functions ARE
+    queryable KG artifacts (``:EdgeFunction`` nodes), so *why* two nodes are predicted
+    linked is answerable from Cypher/SQL. Mirrors the ``graph_learn`` MCP verb + the
+    ``/api/graphlearn/*`` REST twin. Heavy multi-layer KAN-GNN training stays a
+    data-science-mcp/torch job whose distilled outputs flow back through this seam.
+    """
+
+    def __init__(self, client: EpistemicGraphClient) -> None:
+        self._client = client
+
+    async def fit(
+        self,
+        node_label: str,
+        *,
+        direction: str = "any",
+        relation: str | None = None,
+        limit: int = 0,
+        basis: str = "chebyshev",
+        degree: int = 4,
+        hidden: int = 0,
+        epochs: int = 200,
+        lr: float = 0.05,
+        neg_ratio: float = 1.0,
+        seed: int = 42,
+        alpha: float = 0.5,
+        writeback: bool = False,
+    ) -> dict[str, Any]:
+        """Fit a KAN link-predictor over a graph-derived subgraph (CONCEPT:EG-KG.graphlearn.link-predictor).
+
+        The subgraph is every node carrying ``node_label``; edges among them (following
+        ``direction`` ∈ ``any|out|in``, optionally filtered to ``relation``) are the
+        positive links; non-edges are sampled negatives. ``basis`` is ``chebyshev``
+        (default) or ``jacobi``; ``degree`` is the polynomial degree per edge function;
+        ``hidden=0`` (default) gives a single interpretable layer (one ``KanEdgeFn`` per
+        structural feature). With ``writeback=True`` each learned per-feature curve is
+        materialized as a typed ``:EdgeFunction`` node. Returns
+        ``{model, n_nodes, n_edges, train_auc, edge_functions: [{feature, coefficients}], ...}``.
+        The returned ``model`` blob is passed back to :meth:`predict`.
+        """
+        params: dict[str, Any] = {
+            "basis": basis,
+            "degree": degree,
+            "hidden": hidden,
+            "epochs": epochs,
+            "lr": lr,
+            "neg_ratio": neg_ratio,
+            "seed": seed,
+            "alpha": alpha,
+        }
+        source: dict[str, Any] = {"node_label": node_label, "direction": direction, "limit": limit}
+        if relation is not None:
+            source["relation"] = relation
+        return await self._client._send(
+            "GraphLearnFit",
+            {"source": source, "params": params, "writeback": writeback},
+        )
+
+    async def predict(
+        self,
+        model: dict[str, Any],
+        node_label: str,
+        *,
+        direction: str = "any",
+        relation: str | None = None,
+        limit: int = 0,
+        candidate_pairs: list[tuple[str, str]] | list[list[str]] | None = None,
+        top_k: int = 50,
+        writeback: bool = False,
+    ) -> dict[str, Any]:
+        """Score candidate links with a fitted model (CONCEPT:EG-KG.graphlearn.predicted-edge-writeback).
+
+        Provide the ``model`` blob returned by :meth:`fit`. Score either explicit
+        ``candidate_pairs`` (``[(src, dst), ...]``) or — when omitted — the ``top_k``
+        highest-probability MISSING links across the subgraph. With ``writeback=True``
+        each scored pair is materialized as a typed ``:PredictedEdge`` node linked to its
+        endpoints. Returns ``{predicted: [{src, dst, score}], n_predicted, model, ...}``.
+        """
+        source: dict[str, Any] = {"node_label": node_label, "direction": direction, "limit": limit}
+        if relation is not None:
+            source["relation"] = relation
+        params: dict[str, Any] = {
+            "model": model,
+            "source": source,
+            "top_k": top_k,
+            "writeback": writeback,
+        }
+        if candidate_pairs is not None:
+            params["candidate_pairs"] = [list(p) for p in candidate_pairs]
+        return await self._client._send("GraphLearnPredict", params)
+
+
 # Per-RPC timeouts (CONCEPT:EG-KG.query.wire-protocol). A wedged or overloaded engine must never
 # hang a caller forever — every request is bounded. Normal CRUD uses the short
 # default; known-heavy ops (full-graph parse/scan/algorithms) get a generous
@@ -3948,6 +4043,7 @@ class EpistemicGraphClient:
         self.finance = FinanceClient(self)
         self.datascience = DataScienceClient(self)
         self.mining = MiningClient(self)
+        self.graphlearn = GraphLearnClient(self)
         self.query = QueryClient(self)
         self.txn = TxnClient(self)
         self.timeseries = TimeSeriesClient(self)
@@ -4361,6 +4457,7 @@ class SyncEpistemicGraphClient:
         self.finance = self._SyncWrapper(self._client.finance, self._loop)
         self.datascience = self._SyncWrapper(self._client.datascience, self._loop)
         self.mining = self._SyncWrapper(self._client.mining, self._loop)
+        self.graphlearn = self._SyncWrapper(self._client.graphlearn, self._loop)
         self.query = self._SyncWrapper(self._client.query, self._loop)
         self.txn = self._SyncWrapper(self._client.txn, self._loop)
         self.timeseries = self._SyncWrapper(self._client.timeseries, self._loop)
