@@ -2099,6 +2099,7 @@ class MiningClient:
         features: list[list[float]] | None = None,
         *,
         source: dict[str, Any] | None = None,
+        plan: list[dict[str, Any]] | None = None,
         algorithm: str = "dbscan",
         eps: float = 0.5,
         min_pts: int = 5,
@@ -2110,10 +2111,17 @@ class MiningClient:
     ) -> dict[str, Any]:
         """Cluster a feature matrix (CONCEPT:EG-KG.mining.dbscan-density).
 
-        Provide EITHER an explicit ``features`` matrix (each row a point) OR a
-        graph-derived ``source`` spec — ``{"node_label", "limit"}`` — that gathers
-        the stored embeddings of a node label as the rows (the cross-modal "cluster
-        the vectors of these nodes" hook). ``algorithm`` is one of ``dbscan``
+        Provide explicit ``features``, a graph-derived ``source`` spec —
+        ``{"node_label", "limit"}`` — that gathers the stored embeddings of a node
+        label as the rows (the cross-modal "cluster the vectors of these nodes"
+        hook), OR a fused upstream retrieval ``plan`` (CONCEPT:EG-KG.mining.fused-plan-source
+        — the SAME externally-tagged ``Op`` list :meth:`unified_query` takes, e.g.
+        ``[{"Scan": {"label": "Doc"}}, {"Rank": {"query": [...]}}, {"Limit":
+        {"k": 50}}]``): the plan runs FIRST over the resident graph/vector/SQL/time
+        modalities, compute-near-data, and each resulting row's stored embedding
+        becomes a feature row — so ``retrieve → cluster → writeback`` is ONE round
+        trip, no client marshalling between retrieve and mine. Precedence:
+        ``features`` > ``plan`` > ``source``. ``algorithm`` is one of ``dbscan``
         (default) / ``hierarchical`` / ``gmm`` / ``kmedoids``; DBSCAN uses
         ``eps``/``min_pts``, the rest use ``k`` (hierarchical also ``linkage`` ∈
         ``single|complete|average``; GMM/k-medoids use ``max_iter``, GMM also
@@ -2134,6 +2142,8 @@ class MiningClient:
         }
         if features is not None:
             params["features"] = features
+        if plan is not None:
+            params["plan"] = {"ops": plan}
         if source is not None:
             params["source"] = source
         return await self._client._send("MineCluster", params)
@@ -2144,6 +2154,7 @@ class MiningClient:
         *,
         values: list[float] | None = None,
         source: dict[str, Any] | None = None,
+        plan: list[dict[str, Any]] | None = None,
         algorithm: str = "zscore",
         k: int = 20,
         n_trees: int = 100,
@@ -2157,9 +2168,13 @@ class MiningClient:
     ) -> dict[str, Any]:
         """Detect anomalies / outliers in a feature matrix (CONCEPT:EG-KG.mining.isolation-forest).
 
-        Provide EITHER an explicit ``features`` matrix, a 1-D ``values`` series
-        (each scalar becomes one row — the tsdb root-cause path), OR a graph-derived
-        ``source`` (node embeddings). ``algorithm`` is one of ``zscore`` (default,
+        Provide an explicit ``features`` matrix, a 1-D ``values`` series (each
+        scalar becomes one row — the tsdb root-cause path), a graph-derived
+        ``source`` (node embeddings), OR a fused upstream retrieval ``plan``
+        (CONCEPT:EG-KG.mining.fused-plan-source, same shape as :meth:`unified_query`'s —
+        e.g. TsScan/Traverse/Rank a candidate set, then anomaly-detect it in one
+        round trip). Precedence: ``features`` > ``values`` > ``plan`` > ``source``.
+        ``algorithm`` is one of ``zscore`` (default,
         robust MAD) / ``isoforest`` (Isolation Forest — ``n_trees``, ``sample_size``,
         ``seed``) / ``lof`` (Local Outlier Factor — ``k`` neighbors) / ``ocsvm``
         (One-Class SVM — ``nu``, ``kernel`` ∈ ``rbf|linear``, ``gamma``). Rows over
@@ -2185,6 +2200,8 @@ class MiningClient:
             params["features"] = features
         if values is not None:
             params["values"] = values
+        if plan is not None:
+            params["plan"] = {"ops": plan}
         if source is not None:
             params["source"] = source
         return await self._client._send("MineAnomaly", params)
@@ -2195,6 +2212,7 @@ class MiningClient:
         y: list[int] | None = None,
         *,
         source: dict[str, Any] | None = None,
+        plan: list[dict[str, Any]] | None = None,
         algorithm: str = "gaussiannb",
         k: int = 5,
         alpha: float = 1.0,
@@ -2205,13 +2223,16 @@ class MiningClient:
     ) -> dict[str, Any]:
         """Fit a classifier (PREDICTIVE) → a serializable model blob (CONCEPT:EG-KG.mining.naive-bayes).
 
-        Provide EITHER an explicit ``x`` feature matrix OR a graph-derived ``source``
-        spec — ``{"node_label", "limit"}`` — (node embeddings + ontology features),
-        plus integer ``y`` labels (one per row). ``algorithm`` is one of
-        ``gaussiannb`` (default) / ``multinomialnb`` / ``knn`` (``k`` neighbors) /
-        ``logistic`` (``lr``, ``epochs``, ``l2``) / ``svc`` (``c``, ``epochs``,
-        ``lr``). Returns ``{model, classes, n_samples, ...}``; pass the returned
-        ``model`` back to :meth:`classify_predict`. Read-only (no graph mutation).
+        Provide an explicit ``x`` feature matrix, a graph-derived ``source`` spec —
+        ``{"node_label", "limit"}`` — (node embeddings + ontology features), OR a
+        fused upstream retrieval ``plan`` (CONCEPT:EG-KG.mining.fused-plan-source, same
+        shape as :meth:`unified_query`'s), plus integer ``y`` labels (one per row —
+        must align by position with the plan's resulting row order). ``algorithm``
+        is one of ``gaussiannb`` (default) / ``multinomialnb`` / ``knn`` (``k``
+        neighbors) / ``logistic`` (``lr``, ``epochs``, ``l2``) / ``svc`` (``c``,
+        ``epochs``, ``lr``). Returns ``{model, classes, n_samples, ...}``; pass the
+        returned ``model`` back to :meth:`classify_predict`. Read-only (no graph
+        mutation).
         """
         params: dict[str, Any] = {
             "y": y or [],
@@ -2225,6 +2246,8 @@ class MiningClient:
         }
         if x is not None:
             params["x"] = x
+        if plan is not None:
+            params["plan"] = {"ops": plan}
         if source is not None:
             params["source"] = source
         return await self._client._send("MineClassifyFit", params)
@@ -2235,19 +2258,23 @@ class MiningClient:
         x: list[list[float]] | None = None,
         *,
         source: dict[str, Any] | None = None,
+        plan: list[dict[str, Any]] | None = None,
         writeback: bool = False,
     ) -> dict[str, Any]:
         """Predict labels + probabilities from a fitted ``model`` (CONCEPT:EG-KG.mining.naive-bayes).
 
-        ``model`` is the blob returned by :meth:`classify_fit`. Rows come from EITHER
-        an explicit ``x`` matrix OR a graph-derived ``source`` (node embeddings — the
-        cross-modal "classify these nodes" hook). With ``writeback=True`` each
+        ``model`` is the blob returned by :meth:`classify_fit`. Rows come from an
+        explicit ``x`` matrix, a graph-derived ``source`` (node embeddings — the
+        cross-modal "classify these nodes" hook), OR a fused upstream retrieval
+        ``plan`` (CONCEPT:EG-KG.mining.fused-plan-source). With ``writeback=True`` each
         prediction is materialized as a typed ``:Classification`` node linked to its
         source node. Returns ``{rows: [{id, label, proba}], classes, ...}``.
         """
         params: dict[str, Any] = {"model": model, "writeback": writeback}
         if x is not None:
             params["x"] = x
+        if plan is not None:
+            params["plan"] = {"ops": plan}
         if source is not None:
             params["source"] = source
         return await self._client._send("MineClassifyPredict", params)
@@ -2257,6 +2284,7 @@ class MiningClient:
         x: list[list[float]] | None = None,
         *,
         source: dict[str, Any] | None = None,
+        plan: list[dict[str, Any]] | None = None,
         labels: list[int] | None = None,
         algorithm: str = "svd",
         n_components: int = 2,
@@ -2270,8 +2298,11 @@ class MiningClient:
     ) -> dict[str, Any]:
         """Reduce a feature matrix to low-D coords (DESCRIPTIVE, CONCEPT:EG-KG.mining.truncated-svd).
 
-        Provide EITHER an explicit ``x`` matrix OR a graph-derived ``source`` (node
-        embeddings — "reduce these node vectors for the graphviz"). ``algorithm`` is
+        Provide an explicit ``x`` matrix, a graph-derived ``source`` (node
+        embeddings — "reduce these node vectors for the graphviz"), OR a fused
+        upstream retrieval ``plan`` (CONCEPT:EG-KG.mining.fused-plan-source, same shape
+        as :meth:`unified_query`'s — e.g. vector-``Rank`` a neighborhood, then
+        reduce it for the graphviz in one round trip). ``algorithm`` is
         one of ``svd`` (default, truncated SVD) / ``lda`` (supervised — needs
         ``labels``) / ``umap`` (``n_neighbors``, ``min_dist``, ``epochs``, ``seed``) /
         ``tsne`` (``perplexity``, ``epochs``, ``lr``, ``seed``); ``n_components`` sets
@@ -2293,6 +2324,8 @@ class MiningClient:
         }
         if x is not None:
             params["x"] = x
+        if plan is not None:
+            params["plan"] = {"ops": plan}
         if source is not None:
             params["source"] = source
         if labels is not None:

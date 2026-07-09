@@ -159,6 +159,42 @@ print("wrote back", res["written_back"], ":AssociationRule nodes")
 `graph_loops` + the `agent-utilities-expert` already read typed KG nodes, so the
 mined `:AssociationRule` nodes feed the evolution queue directly.
 
+## Fused `retrieve → mine → writeback` (cross-modal plans, Phase 5)
+
+`source={"node_label": ...}` (above) is already a fused, compute-near-data
+retrieval — but it can only express "every node with this label". The `plan`
+parameter (CONCEPT:EG-KG.mining.fused-plan-source) generalizes that to an
+**arbitrary upstream cross-modal retrieval plan** — the SAME `Op` algebra
+`unified_query` runs (`Scan`/`Filter`/`Traverse`/`Rank`/`RankText`/`Reason`/…):
+the plan executes FIRST, over the resident graph/vector/SQL/RDF modalities, and
+the resulting rows' stored embeddings become the mining op's feature matrix —
+so "retrieve a candidate set, then mine it, then write back" is ONE round trip,
+never two. `cluster`, `anomaly`, `classify_fit`, `classify_predict`, and
+`reduce` all accept it (precedence: explicit `features`/`x` > `plan` >
+`source`).
+
+```python
+# Vector-retrieve a neighborhood (Scan + Rank + Limit), THEN cluster it, THEN
+# write :Cluster nodes back — one call, no client round-trip in between.
+res = c.mining.cluster(
+    plan=[
+        {"Scan": {"label": "Doc"}},
+        {"Rank": {"query": [0.1, 0.1, 0.0, 0.0]}},
+        {"Limit": {"k": 50}},
+    ],
+    algorithm="kmedoids", k=3, writeback=True,
+)
+```
+
+A plan is graph-derived like `source`, so WAL replay re-executes it
+deterministically against the current graph state. A plan leg that matches no
+rows degrades to an empty feature set (never an error) — the same "no match ⇒
+empty" contract every other mining source honors. **Scope cut:** the
+synchronous, graph-scoped mining dispatch does not thread the live committed
+tsdb store through (unlike the async `UnifiedQuery` handler), so an
+`Op::TsScan` leg inside a mining `plan` currently degrades to no rows for that
+leg — a follow-up to wire the tsdb handle into the mining dispatch path.
+
 ## MCP + REST
 
 ```jsonc
