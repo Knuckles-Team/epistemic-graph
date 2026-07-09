@@ -115,9 +115,11 @@ The **Feature** column is the Cargo feature that gates the surface; the
 | `REMOVE` (property delete + label removal) | ✅ | `WriteOp::Remove` → `apply_remove` (CONCEPT:EG-KG.query.cypher-execution) |
 | `ORDER BY` / `SKIP` / `WITH` / `OPTIONAL MATCH` / `OR`+`IN`/`STARTS WITH`/`CONTAINS`/`IS NULL`, aggregation (`count`/`collect`/`sum`/`avg`/`min`/`max`), `RETURN DISTINCT`/`*` | ✅ | parser + executor (CONCEPT:EG-KG.query.eg-extend-read-side) |
 | Variable-length hop combined with fixed hops + path-variable binding | ✅ | relaxes the single-hop guard (CONCEPT:EG-KG.query.concept-2) |
+| Quantified path patterns `((a)-[:REL]->(b)){m,n}` (Cypher 25) | ✅ | repeated whole-subpattern BFS (`walk_hops`/`group_reachable`); per-iteration var bindings NOT exposed (list values), CREATE unsupported (CONCEPT:EG-KG.query.quantified-path-pattern) |
 | `UNWIND expr AS var` | ✅ | composes with WITH/MATCH pipeline (CONCEPT:EG-KG.query.param-list-drives-unwind) |
 | `CALL { subquery }` + `CALL proc(args) YIELD …` procedure framework | ✅ | invocation registry → native/WASM procedures (CONCEPT:EG-KG.query.cypher-planning) |
-| APOC-equivalent + GDS surface via `CALL gds.*` (PageRank, WCC/SCC, Louvain, betweenness/degree centrality, Dijkstra, node similarity) | ✅ | pure-Rust eg-compute (CONCEPT:EG-KG.query.eg-2 / EG-144); `CALL gds.<algo>(…) YIELD …` projects the live graph into the eg-compute adjacency + streams results as Cypher rows (CONCEPT:EG-KG.query.gds-call-procedures) |
+| APOC-equivalent + GDS surface via `CALL gds.*` (PageRank, WCC/SCC, Louvain, Label Propagation, betweenness/degree centrality, Dijkstra, node similarity + top-k KNN) | ✅ | pure-Rust eg-compute (CONCEPT:EG-KG.query.eg-2 / EG-144); `CALL gds.<algo>(…) YIELD …` projects the live graph into the eg-compute adjacency + streams results as Cypher rows (CONCEPT:EG-KG.query.gds-call-procedures) |
+| `gds.dbscan` (density clustering) + `gds.linkPrediction` (KAN link-predictor) | ✅ | routes to `mining::cluster::dbscan` / `graphlearn::link_predict` behind the `cypher-mining`/`cypher-graphlearn` features (out of the base Pi-lean `cypher` build) (CONCEPT:EG-KG.query.gds-procedure-routing) |
 
 ## GraphQL (`eg-graphql`)
 

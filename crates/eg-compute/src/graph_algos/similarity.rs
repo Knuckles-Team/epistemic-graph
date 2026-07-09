@@ -154,6 +154,74 @@ where
         .collect()
 }
 
+/// Per-node top-`k` nearest-neighbour similarity edges (CONCEPT:EG-KG.compute.node-similarity),
+/// `gds.knn` parity. Distinct from [`all_pairs_similarity`]'s GLOBAL cutoff sweep
+/// (`gds.nodeSimilarity`): each node independently keeps its `top_k` best-scoring
+/// OTHER nodes (score `> cutoff`), then the directed per-node results are folded
+/// into undirected pairs (keeping the max of the two directional scores). This
+/// engine computes the exact top-`k` via a full sweep rather than Neo4j's
+/// approximate KNN-descent sampling — exact and deterministic, at `O(V²·d̄)`
+/// instead of KNN-descent's sub-quadratic approximate cost; fine at the node
+/// counts this engine targets.
+///
+/// Complexity: `O(V² · d̄)`. Returns pairs sorted by descending score then
+/// ascending ids.
+pub fn knn_similarity<N>(
+    graph: &AdjacencyGraph<N>,
+    metric: Metric,
+    dir: Direction,
+    top_k: usize,
+    cutoff: f64,
+) -> Vec<SimilarityPair<N>>
+where
+    N: Clone + Eq + Hash + Ord,
+{
+    let n = graph.node_count();
+    let k = top_k.max(1);
+    let mut pair_best: HashMap<(usize, usize), f64> = HashMap::new();
+    for a in 0..n {
+        let mut scored: Vec<(usize, f64)> = (0..n)
+            .filter(|&b| b != a)
+            .map(|b| {
+                let s = match metric {
+                    Metric::Jaccard => jaccard_similarity(graph, a, b, dir),
+                    Metric::Cosine => cosine_similarity(graph, a, b, dir),
+                };
+                (b, s)
+            })
+            .filter(|&(_, s)| s > cutoff)
+            .collect();
+        scored.sort_by(|x, y| {
+            y.1.partial_cmp(&x.1)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| x.0.cmp(&y.0))
+        });
+        scored.truncate(k);
+        for (b, s) in scored {
+            let key = if a < b { (a, b) } else { (b, a) };
+            let e = pair_best.entry(key).or_insert(f64::MIN);
+            if s > *e {
+                *e = s;
+            }
+        }
+    }
+    let mut out: Vec<(usize, usize, f64)> =
+        pair_best.into_iter().map(|((a, b), s)| (a, b, s)).collect();
+    out.sort_by(|x, y| {
+        y.2.partial_cmp(&x.2)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| x.0.cmp(&y.0))
+            .then_with(|| x.1.cmp(&y.1))
+    });
+    out.into_iter()
+        .map(|(a, b, score)| SimilarityPair {
+            a: graph.node_at(a).clone(),
+            b: graph.node_at(b).clone(),
+            score,
+        })
+        .collect()
+}
+
 /// Intersection + union sizes of two sorted, de-duplicated index lists.
 fn set_overlap(a: &[usize], b: &[usize]) -> (usize, usize) {
     let (mut i, mut j) = (0, 0);
@@ -244,6 +312,40 @@ mod tests {
         ]);
         let (a, b) = (g.index_of(&"a").unwrap(), g.index_of(&"b").unwrap());
         assert!((cosine_similarity(&g, a, b, Direction::Out) - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn knn_similarity_keeps_top_k_per_node() {
+        // a/b share {x,y} (jaccard 1.0); c only shares {x} with each (jaccard 0.5).
+        // With top_k=1: a's + b's mutual best pick is each other (1.0); c's best
+        // pick is a (0.5, ascending-id tie-break over the equally-scored b) — but
+        // NOT b's pick (b's own top-1 is a, at a strictly higher score than c),
+        // so (b, c) never appears.
+        let g = AdjacencyGraph::from_edges([
+            ("a", "x", 1.0),
+            ("a", "y", 1.0),
+            ("b", "x", 1.0),
+            ("b", "y", 1.0),
+            ("c", "x", 1.0),
+        ]);
+        let pairs = knn_similarity(&g, Metric::Jaccard, Direction::Out, 1, 0.0);
+        assert!(pairs
+            .iter()
+            .any(|p| p.a == "a" && p.b == "b" && (p.score - 1.0).abs() < 1e-9));
+        assert!(pairs
+            .iter()
+            .any(|p| p.a == "a" && p.b == "c" && (p.score - 0.5).abs() < 1e-9));
+        assert!(!pairs
+            .iter()
+            .any(|p| (p.a == "b" && p.b == "c") || (p.a == "c" && p.b == "b")));
+        assert_eq!(pairs.len(), 2);
+    }
+
+    #[test]
+    fn knn_similarity_empty_graph_is_empty() {
+        let g: AdjacencyGraph<String> =
+            AdjacencyGraph::from_adjacency(Vec::<(String, Vec<(String, f64)>)>::new());
+        assert!(knn_similarity(&g, Metric::Jaccard, Direction::Out, 5, 0.0).is_empty());
     }
 
     #[test]
