@@ -2333,6 +2333,55 @@ class MiningClient:
             params["source"] = source
         return await self._client._send("MineSequence", params)
 
+    async def forecast(
+        self,
+        values: list[float],
+        *,
+        algorithm: str = "arima",
+        horizon: int = 10,
+        p: int = 1,
+        d: int = 1,
+        q: int = 0,
+        period: int = 0,
+        alpha: float = 0.3,
+        beta: float = 0.1,
+        gamma: float = 0.1,
+        confidence: float = 0.95,
+        series_id: str = "",
+        writeback: bool = False,
+    ) -> dict[str, Any]:
+        """Forecast `horizon` future points from a 1-D series (CONCEPT:EG-KG.mining.arima — Phase 4).
+
+        `values` is a tsdb window handed in by the caller (mirrors
+        :meth:`anomaly`'s client-supplied ``values`` cut). ``algorithm`` is one
+        of ``arima`` (default — Hannan-Rissanen AR(``p``)/MA(``q``) after
+        ``d``-order differencing) / ``holtwinters`` (additive level/trend/
+        seasonal exponential smoothing — ``alpha``/``beta``/``gamma``,
+        seasonal ``period``; degrades to Holt linear-trend when ``period`` is
+        0) / ``stl`` (classical decomposition + trend/seasonal extrapolation,
+        also returns ``trend``/``seasonal``/``residual``). ``confidence`` sets
+        the two-sided forecast-band level (e.g. ``0.95``). With
+        ``writeback=True`` the forecast is materialized as a typed
+        ``:Forecast`` node — linked to a resident node named ``series_id``
+        when one exists. Returns ``{forecast, lower, upper, horizon, ...}``.
+        """
+        params: dict[str, Any] = {
+            "values": values,
+            "algorithm": algorithm,
+            "horizon": horizon,
+            "p": p,
+            "d": d,
+            "q": q,
+            "period": period,
+            "alpha": alpha,
+            "beta": beta,
+            "gamma": gamma,
+            "confidence": confidence,
+            "series_id": series_id,
+            "writeback": writeback,
+        }
+        return await self._client._send("MineForecast", params)
+
 
 # Per-RPC timeouts (CONCEPT:EG-KG.query.wire-protocol). A wedged or overloaded engine must never
 # hang a caller forever — every request is bounded. Normal CRUD uses the short
