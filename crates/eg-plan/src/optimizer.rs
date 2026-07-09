@@ -799,4 +799,284 @@ mod tests {
         assert_eq!(sorted[0], cheap, "cheapest branch runs first");
         assert_eq!(sorted[1], expensive);
     }
+
+    // ── Track H: global N-ary chain reorder + adaptive re-optimization ──────────────
+
+    /// A THREE-op reorderable run `[Rank, broad_filter, selective_filter]` where the
+    /// PAIRWISE rule alone is structurally stuck: it commits `(Rank, broad_filter)` first
+    /// (broad → stays vector-first) and then advances PAST `selective_filter` without ever
+    /// comparing it to anything — exactly the module-level gap [`GlobalChainCost`] closes.
+    /// The full optimizer (which runs [`GlobalChainCost`] after the pairwise pass) finds the
+    /// TRUE global minimum over all `3!` orderings and pushes the selective filter ahead of
+    /// the Rank, a DIFFERENT (and cheaper) order than naive left-to-right. Result-set
+    /// equivalence is asserted via the differential execute() proof, same as every other
+    /// reorder test in this module.
+    #[test]
+    fn global_chain_reorders_three_op_segment_beyond_pairwise_reach() {
+        use eg_core::compute::semantic::SemanticStore;
+        use eg_core::graph::GraphCore;
+        use serde_json::json;
+
+        // 1000 `Doc` nodes with TWO independent wide numeric columns (mirrors
+        // `selective_numeric_range_pushed_but_broad_range_stays`'s fixture) + an embedding
+        // each so the `Rank` leg has real cost.
+        const N: usize = 1_000;
+        let core = GraphCore::new();
+        let mut semantic = SemanticStore::new();
+        for k in 0..N {
+            let id = format!("d{k}");
+            core.add_node(
+                id.clone(),
+                rmp_serde::to_vec_named(&json!({ "type": "Doc", "year": k as i64, "score": k as i64 }))
+                    .unwrap(),
+            );
+            let mut v = vec![0.0f32; 4];
+            v[k % 4] = 1.0;
+            semantic.add_embedding(id, v);
+        }
+        let view = core.analysis_snapshot();
+        let ctx = PlanCtx::new(&view, &semantic);
+        let card = ModalityCardinality::new(PlanStats::collect(&ctx));
+
+        // `year > 20` is BROAD (~98% pass); `score > 980` is SELECTIVE (~2% pass) — the same
+        // column-histogram-driven pair the range-pushdown ablation uses, just on two
+        // independent columns so both can sit in ONE reorderable run.
+        let broad_filter = Op::Filter {
+            preds: vec![Pred::GtNum {
+                prop: "year".into(),
+                n: 20.0,
+            }],
+        };
+        let selective_filter = Op::Filter {
+            preds: vec![Pred::GtNum {
+                prop: "score".into(),
+                n: 980.0,
+            }],
+        };
+        let rank = Op::Rank {
+            query: crate::fixture::query_vec(),
+        };
+
+        // Naive, as a caller might write it: rank first, broad filter next, the selective
+        // one tacked on last.
+        let naive = Plan::new(vec![
+            Op::Scan {
+                label: "Doc".into(),
+            },
+            rank.clone(),
+            broad_filter.clone(),
+            selective_filter.clone(),
+            Op::Limit { k: 20 },
+        ]);
+
+        // The OLD pairwise-only mechanism cannot reach `selective_filter` at all: it commits
+        // `(Rank, broad_filter)` — broad stays vector-first, no swap — then jumps past
+        // `selective_filter` (its non-overlapping `j += 2` advance never re-examines it).
+        let pairwise_only = FilterAsOfBeforeRank.apply(naive.ops.clone(), &card, &ctx);
+        assert_eq!(
+            pairwise_only, naive.ops,
+            "the pairwise rule alone cannot reach the stranded selective filter"
+        );
+
+        // The FULL optimizer (pairwise passes + GlobalChainCost) finds the true minimum over
+        // all 3! orderings of the run and pushes the selective filter ahead of the Rank.
+        let opt = optimize(&naive, &ctx);
+        let rank_pos = opt.ops.iter().position(|o| *o == rank).unwrap();
+        let sel_pos = opt.ops.iter().position(|o| *o == selective_filter).unwrap();
+        assert!(
+            sel_pos < rank_pos,
+            "the selective filter must be pushed ahead of Rank, got {:?}",
+            opt.ops
+        );
+        assert_ne!(
+            opt.ops, naive.ops,
+            "GlobalChainCost must find a DIFFERENT order than naive left-to-right"
+        );
+
+        // Result-set equivalence: the SAME differential proof every other reorder test uses.
+        let sorted_ids = |rs: &RowSet| {
+            let mut v = rs.ids();
+            v.sort();
+            v
+        };
+        assert_eq!(
+            sorted_ids(&execute(&naive, &ctx).unwrap()),
+            sorted_ids(&execute(&opt, &ctx).unwrap()),
+            "the 3-op global reorder must preserve the result set"
+        );
+    }
+
+    /// The cross-modal case: `[Reason, Filter, Rank]` (an OWL confidence-filter, a relational
+    /// predicate, and a vector rerank all drawing off the SAME candidate set). `optimize()`'s
+    /// chosen order for the run must match the SAME cost-minimal permutation
+    /// [`best_permutation`] computes directly — the white-box oracle this suite already uses
+    /// for the numeric-range case — and that minimum must be a genuinely DIFFERENT (cheaper)
+    /// order than the naive `[Reason, Filter, Rank]` a caller who reasons-then-filters would
+    /// write. Proven result-preserving via the mid-pipeline `Reason` pattern
+    /// [`crate::tsdb_scan_tests::reason_mid_pipeline`] establishes.
+    #[cfg(feature = "owl")]
+    #[test]
+    fn global_chain_reorders_cross_modal_reason_filter_rank() {
+        use eg_core::compute::semantic::SemanticStore;
+        use eg_core::graph::GraphCore;
+        use serde_json::json;
+
+        let ttl = r#"
+@prefix ex:  <http://example.org/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs:<http://www.w3.org/2000/01/rdf-schema#> .
+ex:Paper rdfs:subClassOf [ a owl:Restriction ; owl:onProperty ex:about ; owl:someValuesFrom ex:Topic ] .
+[ a owl:Restriction ; owl:onProperty ex:about ; owl:someValuesFrom ex:Topic ] rdfs:subClassOf ex:ScholarlyWork .
+ex:Article rdfs:subClassOf ex:Paper .
+ex:p1 a ex:Paper .
+ex:p2 a ex:Article .
+ex:p3 a ex:Topic .
+ex:p4 a ex:Paper .
+"#;
+        let core = GraphCore::new();
+        let mut iris = eg_rdf::mapping::IriStore::default();
+        eg_rdf::mapping::load_triples(
+            &core,
+            &mut iris,
+            "g",
+            eg_rdf::mapping::parse_turtle(ttl).unwrap(),
+            #[cfg(feature = "rdf-redb")]
+            None,
+        )
+        .unwrap();
+
+        let blob = |v: serde_json::Value| rmp_serde::to_vec_named(&v).unwrap();
+        // The 4 OWL individuals ALSO carry a `type`/`lang` property blob (the LPG property
+        // store the DataFusion `Filter` leg reads is separate from the RDF quads the
+        // reasoner reads, so this does not disturb the OWL classification below). p4 is
+        // the ONLY `lang: fr` — a real, meaningful `Filter` split.
+        for (p, lang) in [("p1", "en"), ("p2", "en"), ("p3", "en"), ("p4", "fr")] {
+            core.add_node(
+                format!("<http://example.org/{p}>"),
+                blob(json!({ "type": "Doc", "lang": lang })),
+            );
+        }
+        // Filler `Doc` nodes (no OWL membership) so the plan-time Scan estimate is a
+        // realistic size — real execution still excludes them (`Reason` drops every
+        // non-member regardless of position), so result-set equivalence is unaffected.
+        for k in 0..200 {
+            core.add_node(
+                format!("filler{k}"),
+                blob(json!({ "type": "Doc", "lang": if k % 2 == 0 { "en" } else { "fr" } })),
+            );
+        }
+
+        let mut semantic = SemanticStore::new();
+        semantic.add_embedding("<http://example.org/p1>".into(), vec![0.90, 0.44, 0.0, 0.0]);
+        semantic.add_embedding("<http://example.org/p2>".into(), vec![0.99, 0.10, 0.0, 0.0]);
+        semantic.add_embedding("<http://example.org/p3>".into(), vec![1.00, 0.00, 0.0, 0.0]);
+        semantic.add_embedding("<http://example.org/p4>".into(), vec![0.20, 0.97, 0.0, 0.0]);
+
+        let view = core.analysis_snapshot();
+        let ctx = PlanCtx::new(&view, &semantic);
+        let card = ModalityCardinality::new(PlanStats::collect(&ctx));
+
+        let reason = Op::Reason {
+            target_class: "<http://example.org/ScholarlyWork>".into(),
+            ontology: String::new(),
+        };
+        let filter = Op::Filter {
+            preds: vec![Pred::Eq {
+                prop: "lang".into(),
+                value: "en".into(),
+            }],
+        };
+        let rank = Op::Rank {
+            query: vec![1.0, 0.0, 0.0, 0.0],
+        };
+        let naive = Plan::new(vec![
+            Op::Scan {
+                label: "Doc".into(),
+            },
+            reason.clone(),
+            filter.clone(),
+            rank.clone(),
+        ]);
+
+        // The white-box oracle: the SAME cost-minimal permutation search `optimize()` drives.
+        let seed = card_before(&naive.ops, 1, &card, &ctx);
+        let top_k = trailing_top_k(&naive.ops, 3);
+        let expected = best_permutation(&naive.ops[1..4], seed, top_k, &card, &ctx)
+            .unwrap_or_else(|| naive.ops[1..4].to_vec());
+        assert_ne!(
+            expected,
+            naive.ops[1..4],
+            "the cost-minimal cross-modal order must differ from naive Reason-then-Filter"
+        );
+
+        let opt = optimize(&naive, &ctx);
+        assert_eq!(
+            &opt.ops[1..4],
+            expected.as_slice(),
+            "optimize() must pick the SAME cross-modal order the cost model computes, got {:?}",
+            opt.ops
+        );
+
+        // Result-set equivalence: p3 (Topic, not ScholarlyWork) and p4 (fr) are excluded
+        // either way; p1/p2 survive, ranked p2 then p1.
+        let sorted_ids = |rs: &RowSet| {
+            let mut v = rs.ids();
+            v.sort();
+            v
+        };
+        assert_eq!(
+            sorted_ids(&execute(&naive, &ctx).unwrap()),
+            sorted_ids(&execute(&opt, &ctx).unwrap()),
+            "the cross-modal reorder must preserve the result set"
+        );
+    }
+
+    /// The adaptive hook: given a corrected ACTUAL cardinality wildly different from what was
+    /// estimated, [`reoptimize_remaining`] re-costs the remaining chain and flips the order —
+    /// the runtime-feedback half of Track H. `Eq` selectivity is a FIXED 0.1 regardless of
+    /// scale, so the crossover lever here is pure SEED SIZE: `filter_first_cost` grows
+    /// linearly with the input while `vector_first_cost`'s over-fetch is capped at
+    /// `top_k/selectivity` (independent of the seed once the seed exceeds it) — so a small
+    /// seed favors filter-first and a huge one favors vector-first, a real, derivable flip
+    /// (not a hardcoded answer).
+    #[test]
+    fn adaptive_reopt_flips_order_on_a_wildly_corrected_cardinality() {
+        let fx = crate::fixture::build();
+        let ctx = PlanCtx::new(&fx.view, &fx.semantic);
+        let card = ModalityCardinality::new(PlanStats::collect(&ctx));
+
+        let filter = Op::Filter {
+            preds: vec![Pred::Eq {
+                prop: "type".into(),
+                value: "Doc".into(),
+            }],
+        };
+        let rank = Op::Rank {
+            query: crate::fixture::query_vec(),
+        };
+
+        // What the plan-time optimizer picked at the (small) ESTIMATED seed: filter-first.
+        let remaining = vec![filter.clone(), rank.clone()];
+
+        // Below the divergence threshold — no reorder, even though a reorder might in
+        // principle help; the whole point is bounded, needless-churn-free re-costing.
+        let unchanged = reoptimize_remaining(&remaining, 100.0, 120.0, &card, &ctx);
+        assert_eq!(
+            unchanged, remaining,
+            "a mere 20% miss is within ADAPTIVE_REOPT_THRESHOLD — no churn"
+        );
+
+        // A WILDLY corrected actual (the upstream op emitted 50,000x more rows than assumed)
+        // blows past the threshold and flips the regime to vector-first.
+        let flipped = reoptimize_remaining(&remaining, 100.0, 5_000_000.0, &card, &ctx);
+        assert_ne!(
+            flipped, remaining,
+            "a wildly corrected actual cardinality must re-cost and change the order"
+        );
+        assert_eq!(
+            flipped[0], rank,
+            "at this corrected scale vector-first is cheaper, so Rank must lead, got {:?}",
+            flipped
+        );
+    }
 }
