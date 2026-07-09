@@ -691,7 +691,8 @@ pub fn apply(core: &GraphCore, m: &Method) {
         | Method::MineReduce { .. }
         | Method::MineSequence { .. }
         | Method::MineForecast { .. }
-        | Method::MineText { .. } => crate::server::handlers::mining::replay(core, m),
+        | Method::MineText { .. }
+        | Method::MineSubgraph { .. } => crate::server::handlers::mining::replay(core, m),
         _ => {}
     }
 }

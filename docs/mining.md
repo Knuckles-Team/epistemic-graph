@@ -626,3 +626,68 @@ graph_mine { "action": "text",
 // REST twin (same _execute_tool core)
 POST /api/mining/text { "docs": [["cat", "dog"], ["stock", "market"]], "algorithm": "nmf", "k": 2 }
 ```
+
+---
+
+# Frequent subgraph mining + motifs — `action="subgraph"` (the graph-native differentiator)
+
+Every other mining action takes rows/vectors/sequences/series/docs as input. `subgraph`
+is different: it mines the **resident graph's own topology directly** — no input rows
+at all. This is the cross-modal headline: "structures that recur" over the graph
+itself, not over a derived feature matrix.
+
+- **`gspan`** (default) — level-wise frequent connected-subgraph PATTERN growth (the
+  graph analog of Apriori/GSP): start from every frequent single labeled edge, then
+  repeatedly extend by one edge (to a new node or closing a cycle) up to `max_edges`,
+  canonicalizing each candidate (brute-force permutation — patterns stay tiny) and
+  exactly re-counting its embeddings by backtracking subgraph isomorphism.
+  `min_support` is a fraction of the host's total edge count. **Scope (honest):**
+  support here is the raw EMBEDDING COUNT, not minimum-node-image support — a
+  documented simplification, like the brute k-NN scan or small-N UMAP/t-SNE cuts
+  elsewhere in this family.
+- **`motif`** — a classical, label-agnostic topological census (Milo-style): open
+  wedges (2-paths), triangles (closed triads), and directed 3-cycles.
+
+`label`, when given, restricts the scanned host graph to nodes of that ONE type (both
+edge endpoints must match) — `None` scans the whole resident graph heterogeneously.
+
+```python
+# Frequent 1-edge patterns across the whole resident graph.
+out = await c.mining.subgraph(min_support=0.05, max_edges=1)
+# out["patterns"] == [{"nodes": [...], "edges": [{"from":0,"to":1,"label":...}], "support":..., "count":...}, ...]
+
+# Motif census restricted to :Concept nodes.
+out = await c.mining.subgraph(label="Concept", algorithm="motif")
+# out["motifs"] == {"wedge": ..., "triangle": ..., "directed_cycle3": ...}
+```
+
+## Write-back — the discovery flywheel closes on the graph itself
+
+With `writeback=True` (`gspan` only), each frequent pattern is materialized as a typed
+`:FrequentSubgraph{nodes, edges, support, count}` node, linked `SUBGRAPH_MEMBER` to
+every host node appearing in any of its embeddings — feeding the next
+OWL-reason + mine cycle: recurring structures the KG discovers about ITSELF.
+
+```python
+# Mine frequent :Concept--touches-->:Capability-shaped structures and write them back.
+out = await c.mining.subgraph(min_support=0.1, max_edges=2, writeback=True)
+# → one :FrequentSubgraph{nodes, edges, support, count} node per pattern, linked
+#   SUBGRAPH_MEMBER → every node instance that participates in it.
+```
+
+`subgraph` with `writeback=True` is a **WAL-durable** graph write for `gspan`
+(replayed by re-mining the current graph state deterministically); `motif` never
+writes back (a pure census, no patterns to materialize — the flag is ignored).
+
+## MCP + REST (subgraph)
+
+```jsonc
+// MCP
+graph_mine { "action": "subgraph",
+             "params_json": "{\"min_support\":0.1,\"max_edges\":2,\"writeback\":true}" }
+graph_mine { "action": "subgraph",
+             "params_json": "{\"label\":\"Concept\",\"algorithm\":\"motif\"}" }
+
+// REST twin (same _execute_tool core)
+POST /api/mining/subgraph { "min_support": 0.1, "max_edges": 2, "algorithm": "gspan" }
+```
