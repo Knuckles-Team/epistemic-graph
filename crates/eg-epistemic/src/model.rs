@@ -24,7 +24,9 @@ pub enum EdgeKind {
 /// `SUPPORTS`/`CONTRADICTS` edge written by `agent-utilities` is understood verbatim.
 pub fn classify_relationship(relationship_type: &str) -> Option<EdgeKind> {
     match relationship_type.to_ascii_uppercase().as_str() {
-        "SUPPORTS" | "SUPPORTS_BELIEF" | "HAS_EVIDENCE" | "CORROBORATES" => Some(EdgeKind::Supports),
+        "SUPPORTS" | "SUPPORTS_BELIEF" | "HAS_EVIDENCE" | "CORROBORATES" => {
+            Some(EdgeKind::Supports)
+        }
         "CONTRADICTS" | "CONTRADICTS_BELIEF" | "REFUTES" => Some(EdgeKind::Contradicts),
         "ATTACKS" | "DEFEATS" | "UNDERCUTS" => Some(EdgeKind::Attacks),
         _ => None,
