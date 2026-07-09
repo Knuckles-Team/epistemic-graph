@@ -2189,6 +2189,116 @@ class MiningClient:
             params["source"] = source
         return await self._client._send("MineAnomaly", params)
 
+    async def classify_fit(
+        self,
+        x: list[list[float]] | None = None,
+        y: list[int] | None = None,
+        *,
+        source: dict[str, Any] | None = None,
+        algorithm: str = "gaussiannb",
+        k: int = 5,
+        alpha: float = 1.0,
+        lr: float = 0.1,
+        epochs: int = 300,
+        l2: float = 0.0,
+        c: float = 1.0,
+    ) -> dict[str, Any]:
+        """Fit a classifier (PREDICTIVE) → a serializable model blob (CONCEPT:EG-KG.mining.naive-bayes).
+
+        Provide EITHER an explicit ``x`` feature matrix OR a graph-derived ``source``
+        spec — ``{"node_label", "limit"}`` — (node embeddings + ontology features),
+        plus integer ``y`` labels (one per row). ``algorithm`` is one of
+        ``gaussiannb`` (default) / ``multinomialnb`` / ``knn`` (``k`` neighbors) /
+        ``logistic`` (``lr``, ``epochs``, ``l2``) / ``svc`` (``c``, ``epochs``,
+        ``lr``). Returns ``{model, classes, n_samples, ...}``; pass the returned
+        ``model`` back to :meth:`classify_predict`. Read-only (no graph mutation).
+        """
+        params: dict[str, Any] = {
+            "y": y or [],
+            "algorithm": algorithm,
+            "k": k,
+            "alpha": alpha,
+            "lr": lr,
+            "epochs": epochs,
+            "l2": l2,
+            "c": c,
+        }
+        if x is not None:
+            params["x"] = x
+        if source is not None:
+            params["source"] = source
+        return await self._client._send("MineClassifyFit", params)
+
+    async def classify_predict(
+        self,
+        model: dict[str, Any],
+        x: list[list[float]] | None = None,
+        *,
+        source: dict[str, Any] | None = None,
+        writeback: bool = False,
+    ) -> dict[str, Any]:
+        """Predict labels + probabilities from a fitted ``model`` (CONCEPT:EG-KG.mining.naive-bayes).
+
+        ``model`` is the blob returned by :meth:`classify_fit`. Rows come from EITHER
+        an explicit ``x`` matrix OR a graph-derived ``source`` (node embeddings — the
+        cross-modal "classify these nodes" hook). With ``writeback=True`` each
+        prediction is materialized as a typed ``:Classification`` node linked to its
+        source node. Returns ``{rows: [{id, label, proba}], classes, ...}``.
+        """
+        params: dict[str, Any] = {"model": model, "writeback": writeback}
+        if x is not None:
+            params["x"] = x
+        if source is not None:
+            params["source"] = source
+        return await self._client._send("MineClassifyPredict", params)
+
+    async def reduce(
+        self,
+        x: list[list[float]] | None = None,
+        *,
+        source: dict[str, Any] | None = None,
+        labels: list[int] | None = None,
+        algorithm: str = "svd",
+        n_components: int = 2,
+        n_neighbors: int = 15,
+        min_dist: float = 0.1,
+        perplexity: float = 30.0,
+        epochs: int = 300,
+        lr: float = 100.0,
+        seed: int = 0,
+        writeback: bool = False,
+    ) -> dict[str, Any]:
+        """Reduce a feature matrix to low-D coords (DESCRIPTIVE, CONCEPT:EG-KG.mining.truncated-svd).
+
+        Provide EITHER an explicit ``x`` matrix OR a graph-derived ``source`` (node
+        embeddings — "reduce these node vectors for the graphviz"). ``algorithm`` is
+        one of ``svd`` (default, truncated SVD) / ``lda`` (supervised — needs
+        ``labels``) / ``umap`` (``n_neighbors``, ``min_dist``, ``epochs``, ``seed``) /
+        ``tsne`` (``perplexity``, ``epochs``, ``lr``, ``seed``); ``n_components`` sets
+        the target dimensionality. With ``writeback=True`` each row's reduced vector is
+        materialized as a typed ``:Embedding2D`` node linked to its source node.
+        Returns ``{rows: [{id, coords}], n_components, ...}`` (svd also returns
+        ``singular_values``). UMAP/t-SNE are approximate + small-N by design.
+        """
+        params: dict[str, Any] = {
+            "algorithm": algorithm,
+            "n_components": n_components,
+            "n_neighbors": n_neighbors,
+            "min_dist": min_dist,
+            "perplexity": perplexity,
+            "epochs": epochs,
+            "lr": lr,
+            "seed": seed,
+            "writeback": writeback,
+        }
+        if x is not None:
+            params["x"] = x
+        if source is not None:
+            params["source"] = source
+        if labels is not None:
+            params["labels"] = labels
+        return await self._client._send("MineReduce", params)
+
 
 # Per-RPC timeouts (CONCEPT:EG-KG.query.wire-protocol). A wedged or overloaded engine must never
 # hang a caller forever — every request is bounded. Normal CRUD uses the short

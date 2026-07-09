@@ -75,9 +75,16 @@ pub(crate) fn requires_write(method: &Method) -> bool {
     #[cfg(feature = "mining")]
     if let Method::MineAssociate { writeback, .. }
     | Method::MineCluster { writeback, .. }
-    | Method::MineAnomaly { writeback, .. } = method
+    | Method::MineAnomaly { writeback, .. }
+    | Method::MineClassifyPredict { writeback, .. }
+    | Method::MineReduce { writeback, .. } = method
     {
         return *writeback;
+    }
+    // Classification FIT is read-only (returns a model blob; no graph mutation).
+    #[cfg(feature = "mining")]
+    if matches!(method, Method::MineClassifyFit { .. }) {
+        return false;
     }
     matches!(
         method,

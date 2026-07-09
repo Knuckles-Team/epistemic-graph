@@ -2664,6 +2664,118 @@ pub enum Method {
         #[serde(default)]
         writeback: bool,
     },
+
+    /// Classification — FIT (CONCEPT:EG-KG.mining.naive-bayes). PREDICTIVE: fit a
+    /// classifier over labeled feature rows and return a serializable model blob
+    /// (`FittedClassifier`), mirroring `DsFitEstimator`. Completes the classifier
+    /// family beyond the datascience tree/forest/boosting estimators with Naive Bayes
+    /// (Gaussian/Multinomial), k-NN, one-vs-rest logistic regression, and linear SVC.
+    /// Rows come from EITHER explicit `x` OR a graph-derived `source` (node embeddings
+    /// with OWL/ontology feature vectors — "classify nodes using their embeddings").
+    /// Read-only (no graph mutation). Gated `mining`.
+    #[cfg(feature = "mining")]
+    MineClassifyFit {
+        /// Explicit feature matrix — each row a sample. Empty ⇒ use `source`.
+        #[serde(default)]
+        x: Vec<Vec<f64>>,
+        /// Graph-derived vector source (node embeddings). Used when `x` is empty.
+        #[serde(default)]
+        source: Option<VectorSource>,
+        /// Integer class labels, one per row (required).
+        #[serde(default)]
+        y: Vec<i64>,
+        /// Which classifier to fit.
+        #[serde(default)]
+        algorithm: ClassifyAlgorithm,
+        /// k-NN neighbor count.
+        #[serde(default = "default_knn_k")]
+        k: usize,
+        /// Multinomial NB Laplace smoothing.
+        #[serde(default = "default_nb_alpha")]
+        alpha: f64,
+        /// Logistic / SVC learning rate.
+        #[serde(default = "default_class_lr")]
+        lr: f64,
+        /// Logistic / SVC gradient-descent epochs.
+        #[serde(default = "default_class_epochs")]
+        epochs: usize,
+        /// Logistic L2 regularization strength.
+        #[serde(default)]
+        l2: f64,
+        /// Linear-SVC inverse-regularization C.
+        #[serde(default = "default_svc_c")]
+        c: f64,
+    },
+
+    /// Classification — PREDICT (CONCEPT:EG-KG.mining.naive-bayes). Takes a fitted
+    /// `model` blob back plus a feature matrix and returns per-row `{labels, proba}`,
+    /// mirroring `DsPredictEstimator`. Rows come from EITHER explicit `x` OR a
+    /// graph-derived `source` (node embeddings). With `writeback=true` it materializes
+    /// each prediction as a typed `:Classification` node linked to its source node — a
+    /// graph MUTATION (write, WAL-replayed deterministically). Gated `mining`.
+    #[cfg(feature = "mining")]
+    MineClassifyPredict {
+        /// The fitted model blob from `MineClassifyFit`.
+        model: crate::wire::FittedClassifier,
+        /// Explicit feature matrix — each row a sample. Empty ⇒ use `source`.
+        #[serde(default)]
+        x: Vec<Vec<f64>>,
+        /// Graph-derived vector source (node embeddings). Used when `x` is empty.
+        #[serde(default)]
+        source: Option<VectorSource>,
+        /// Materialize each prediction as a typed `:Classification` node linked to its
+        /// source node.
+        #[serde(default)]
+        writeback: bool,
+    },
+
+    /// Dimensionality reduction (CONCEPT:EG-KG.mining.truncated-svd). DESCRIPTIVE:
+    /// transform a feature matrix into low-D `coords` via truncated SVD, LDA
+    /// (supervised — needs `labels`), UMAP, or t-SNE. Rows come from EITHER explicit
+    /// `x` OR a graph-derived `source` (node embeddings — "reduce these node vectors
+    /// for the graphviz"). Returns rows `{id, coords}`. With `writeback=true` it
+    /// materializes each row's reduced vector as a typed `:Embedding2D` node linked to
+    /// its source node — a graph MUTATION (write, WAL-replayed deterministically).
+    /// Gated `mining`.
+    #[cfg(feature = "mining")]
+    MineReduce {
+        /// Explicit feature matrix — each row a point. Empty ⇒ use `source`.
+        #[serde(default)]
+        x: Vec<Vec<f64>>,
+        /// Graph-derived vector source (node embeddings). Used when `x` is empty.
+        #[serde(default)]
+        source: Option<VectorSource>,
+        /// Class labels, one per row — REQUIRED for LDA (ignored otherwise).
+        #[serde(default)]
+        labels: Vec<i64>,
+        /// Which reduction engine to run.
+        #[serde(default)]
+        algorithm: ReduceAlgorithm,
+        /// Target dimensionality of the embedding.
+        #[serde(default = "default_n_components")]
+        n_components: usize,
+        /// UMAP neighbor count.
+        #[serde(default = "default_umap_neighbors")]
+        n_neighbors: usize,
+        /// UMAP minimum embedded distance.
+        #[serde(default = "default_umap_min_dist")]
+        min_dist: f64,
+        /// t-SNE perplexity.
+        #[serde(default = "default_tsne_perplexity")]
+        perplexity: f64,
+        /// UMAP / t-SNE optimization epochs.
+        #[serde(default = "default_reduce_epochs")]
+        epochs: usize,
+        /// t-SNE learning rate.
+        #[serde(default = "default_tsne_lr")]
+        lr: f64,
+        /// Seed for UMAP / t-SNE (deterministic layout).
+        #[serde(default)]
+        seed: u64,
+        /// Materialize each row's reduced vector as a typed `:Embedding2D` node.
+        #[serde(default)]
+        writeback: bool,
+    },
 }
 
 // ── Supporting Types ────────────────────────────────────────────────────
@@ -2826,6 +2938,110 @@ fn default_sample_size() -> usize {
 #[cfg(feature = "mining")]
 fn default_nu() -> f64 {
     0.1
+}
+
+/// Which classifier `MineClassifyFit` fits (CONCEPT:EG-KG.mining.naive-bayes).
+#[cfg(feature = "mining")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ClassifyAlgorithm {
+    /// Gaussian Naive Bayes (default) — continuous features.
+    #[default]
+    #[serde(alias = "gaussian_nb", alias = "gnb")]
+    Gaussiannb,
+    /// Multinomial Naive Bayes — count features.
+    #[serde(alias = "multinomial_nb", alias = "mnb")]
+    Multinomialnb,
+    /// k-nearest-neighbor majority vote.
+    Knn,
+    /// One-vs-rest logistic regression.
+    Logistic,
+    /// One-vs-rest linear SVM (SVC).
+    #[serde(alias = "linear_svc", alias = "linearsvc")]
+    Svc,
+}
+
+/// Which reduction engine `MineReduce` runs (CONCEPT:EG-KG.mining.truncated-svd).
+#[cfg(feature = "mining")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ReduceAlgorithm {
+    /// Truncated SVD (default) — unsupervised linear projection.
+    #[default]
+    #[serde(alias = "truncated_svd", alias = "truncatedsvd", alias = "svd")]
+    Svd,
+    /// Fisher LDA — supervised (needs labels).
+    Lda,
+    /// UMAP layout.
+    Umap,
+    /// t-SNE embedding.
+    Tsne,
+}
+
+/// serde default k-NN neighbor count.
+#[cfg(feature = "mining")]
+fn default_knn_k() -> usize {
+    5
+}
+
+/// serde default Multinomial NB Laplace smoothing.
+#[cfg(feature = "mining")]
+fn default_nb_alpha() -> f64 {
+    1.0
+}
+
+/// serde default logistic / SVC learning rate.
+#[cfg(feature = "mining")]
+fn default_class_lr() -> f64 {
+    0.1
+}
+
+/// serde default logistic / SVC epochs.
+#[cfg(feature = "mining")]
+fn default_class_epochs() -> usize {
+    300
+}
+
+/// serde default linear-SVC inverse-regularization C.
+#[cfg(feature = "mining")]
+fn default_svc_c() -> f64 {
+    1.0
+}
+
+/// serde default reduced dimensionality.
+#[cfg(feature = "mining")]
+fn default_n_components() -> usize {
+    2
+}
+
+/// serde default UMAP neighbor count.
+#[cfg(feature = "mining")]
+fn default_umap_neighbors() -> usize {
+    15
+}
+
+/// serde default UMAP minimum embedded distance.
+#[cfg(feature = "mining")]
+fn default_umap_min_dist() -> f64 {
+    0.1
+}
+
+/// serde default t-SNE perplexity.
+#[cfg(feature = "mining")]
+fn default_tsne_perplexity() -> f64 {
+    30.0
+}
+
+/// serde default UMAP / t-SNE epochs.
+#[cfg(feature = "mining")]
+fn default_reduce_epochs() -> usize {
+    300
+}
+
+/// serde default t-SNE learning rate.
+#[cfg(feature = "mining")]
+fn default_tsne_lr() -> f64 {
+    100.0
 }
 
 /// The distributed graph algorithm a `DistributedCompute` / matview runs across
