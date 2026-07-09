@@ -552,6 +552,35 @@ fn bench_scale_sweep(c: &mut Criterion) {
     group.finish();
 }
 
+/// The cross-modal 3-OP CHAIN case (Track H / `GlobalChainCost`, CONCEPT:EG-KG.query.global-plan-cost):
+/// `Scan → Rank → broad_filter(score>50) → selective_filter(score>n-50) → Limit` — TWO
+/// `Filter`s on the same wide `score` column (one broad, one highly selective) both sitting
+/// AFTER the `Rank`. The pairwise-only mechanism is structurally stuck here: it costs the
+/// adjacent `(Rank, broad_filter)` pair, keeps `Rank` first (broad stays vector-first), and
+/// then ADVANCES PAST `selective_filter` without ever comparing it to anything — the exact
+/// gap `GlobalChainCost`'s exhaustive whole-chain search closes by finding the true 3!-minimum
+/// and pushing the selective filter ahead of the `Rank`.
+fn crossmodal_chain_plan(n: usize) -> Plan {
+    Plan::new(vec![
+        Op::Scan {
+            label: "Doc".into(),
+        },
+        Op::Rank {
+            query: query_vec(DIM, QUERY_SEED),
+        },
+        Op::Filter {
+            preds: vec![Pred::GtNum {
+                prop: "score".into(),
+                n: 50.0,
+            }],
+        },
+        Op::Filter {
+            preds: selective_range_preds(n),
+        },
+        Op::Limit { k: 20 },
+    ])
+}
+
 /// A fixed-N (gateable) instance of the selective-filter pipeline. The scale sweep above
 /// shows the ON-vs-OFF win widening with N; this top-level bench gives the CI gate one
 /// stable p50 to ceiling (the grouped sweep IDs are nested and skipped by the gate). Runs
@@ -643,6 +672,42 @@ fn run_filter_pushdown_ablation() -> bool {
             eprintln!(
                 "{n:>10}  {name:>18}  {rf:>12.2}  {ff:>12.2}  {:>8.2}x  {opt_picks:>12}",
                 rf / ff
+            );
+        }
+
+        // The 3-op GLOBAL CHAIN case (Track H): naive left-to-right vs whatever
+        // `optimize()`'s exhaustive `GlobalChainCost` search actually picks — NOT a
+        // hand-forced swap like the two variants above, since this reorder can move either
+        // `Filter` past the `Rank` OR past each other (a 3-element permutation, not a pair).
+        // The "rank_first"/"filter_first" header columns are repurposed here as
+        // naive/optimized.
+        {
+            let naive = crossmodal_chain_plan(n);
+            let opt = optimize(&naive, &ctx);
+            let opt_picks = if opt.ops == naive.ops {
+                "unchanged"
+            } else {
+                "reordered"
+            };
+            for _ in 0..3 {
+                let _ = execute_ops(&naive.ops, &ctx).unwrap();
+                let _ = execute_ops(&opt.ops, &ctx).unwrap();
+            }
+            let mut nv = Vec::with_capacity(iters);
+            let mut ov = Vec::with_capacity(iters);
+            for _ in 0..iters {
+                let t = Instant::now();
+                let _ = black_box(execute_ops(&naive.ops, &ctx).unwrap());
+                nv.push(t.elapsed().as_secs_f64() * 1e3);
+                let t = Instant::now();
+                let _ = black_box(execute_ops(&opt.ops, &ctx).unwrap());
+                ov.push(t.elapsed().as_secs_f64() * 1e3);
+            }
+            let (nv, ov) = (med(nv), med(ov));
+            eprintln!(
+                "{n:>10}  {:>18}  {nv:>12.2}  {ov:>12.2}  {:>8.2}x  {opt_picks:>12}",
+                "crossmodal_chain",
+                nv / ov
             );
         }
     }
