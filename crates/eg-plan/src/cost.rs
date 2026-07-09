@@ -592,6 +592,74 @@ impl ModalityCardinality {
         };
         CostEstimate { rows, cpu, io }
     }
+
+    /// The plan-time cost of one candidate PERMUTATION of a reorderable segment — a
+    /// contiguous run of `Filter`/`AsOf`/`Reason`/`Rank`(`Embed`) ops all drawing candidates
+    /// from the SAME id-set (CONCEPT:EG-KG.query.global-plan-cost). This is the N-ARY
+    /// generalization of the two-op [`CostModel::filter_first_cost`]/[`vector_first_cost`]
+    /// asymmetry [`crate::optimizer`]'s pairwise rules draw on for a single `(narrower, Rank)`
+    /// pair — the win it unlocks: a caller-written chain of 3+ narrowers/`Rank` can be
+    /// reordered as ONE decision instead of two independent adjacent swaps, which structurally
+    /// cannot see past their own pair (e.g. `[Rank, broad_filter, selective_filter]` — the
+    /// pairwise rule commits `(Rank, broad_filter)` first and never revisits `selective_filter`
+    /// against either).
+    ///
+    /// A `Rank`/`RankEmbed` placed FIRST in `perm` (`i == 0`) is costed exactly like the
+    /// pairwise "vector-first" leg: one ANN top-k probe ([`Self::ann_topk_cost`]) that must
+    /// OVER-FETCH enough candidates to survive EVERY narrower still ahead in this permutation
+    /// — their COMBINED selectivity (the product), generalizing the pairwise
+    /// [`CostModel::vector_first_cost`]'s single trailing narrower to the whole remaining
+    /// chain — via [`CostModel::vector_first_cost`] (the SAME formula, called through
+    /// [`Stats::estimate`] so the currency matches the pairwise decision byte-for-byte in the
+    /// 2-element case). A `Rank` anywhere else, and every `Filter`/`AsOf`/`Reason`, costs+narrows
+    /// via [`Self::cost_of`]/[`Self::rows_out`], folding the running cardinality through the
+    /// chain — the SAME per-op interaction model [`crate::optimizer`]'s branch-cost folds use.
+    ///
+    /// Returns `None` when the permutation is UNSAFE under the EG-405 guard (CONCEPT:EG-405):
+    /// some intermediate would drop below 1 row, which could flip a downstream op into SOURCE
+    /// mode and change the answer — generalizing the pairwise rules' "both candidate
+    /// intermediates stay ≥ 1 row" check to every step of an N-ary chain. The caller must skip
+    /// an unsafe permutation, never treat it as free/cheapest.
+    pub(crate) fn permutation_cost(
+        &self,
+        perm: &[&Op],
+        seed: f64,
+        top_k: usize,
+        ctx: &crate::exec::PlanCtx,
+    ) -> Option<f64> {
+        let mut running = seed;
+        let mut total = 0.0;
+        for (i, op) in perm.iter().enumerate() {
+            if running < 1.0 {
+                return None; // EG-405 guard: an emptied intermediate must not be reordered past.
+            }
+            let is_rank = matches!(op, Op::Rank { .. } | Op::RankEmbed { .. });
+            if is_rank && i == 0 {
+                // Segment-source Rank: an ANN top-k that must over-fetch to survive every
+                // narrower still ahead — their combined (product) selectivity.
+                let remaining_sel: f64 = perm[1..]
+                    .iter()
+                    .map(|o| self.selectivity(o, running, ctx))
+                    .product::<f64>()
+                    .max(1e-6);
+                let stats = Stats::estimate(
+                    running.round().max(1.0) as usize,
+                    remaining_sel,
+                    top_k,
+                    self.stats.embedding_count,
+                );
+                total += CostModel::vector_first_cost(&stats);
+                running = ((top_k as f64) / remaining_sel).min(running);
+            } else {
+                total += self.cost_of(op, running, ctx).weight();
+                running = self.rows_out(op, running, ctx);
+            }
+        }
+        if running < 1.0 {
+            return None; // the permutation's own final narrowing also mustn't go empty.
+        }
+        Some(total)
+    }
 }
 
 /// The scalar comparison weight of a [`CostEstimate`] — `cpu + io` (CONCEPT:EG-KG.query.cardinality-estimators).

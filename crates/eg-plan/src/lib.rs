@@ -154,6 +154,14 @@ pub use runtime::{ParallelDriver, RuntimeConfig};
 pub use cost::{ModalityCardinality, PlanStats};
 #[cfg(feature = "query")]
 pub use optimizer::{enabled as cost_opt_enabled, optimize, rule_names as cost_opt_rule_names};
+/// The adaptive re-optimization hook (CONCEPT:EG-KG.query.adaptive-reoptimization): re-cost and,
+/// if warranted, re-order the not-yet-executed tail of a plan once an earlier op's ACTUAL
+/// output cardinality diverges from what plan-time estimation predicted — the runtime feedback
+/// loop beyond the static, once-per-`optimize()` cost decision. See
+/// [`optimizer::reoptimize_remaining`] for the divergence threshold and today's caller-driven
+/// wiring (a future `Driver` can call it automatically between ops).
+#[cfg(feature = "query")]
+pub use optimizer::{reoptimize_remaining, ADAPTIVE_REOPT_THRESHOLD};
 
 /// The server-side text→vector embedder seam (CONCEPT:EG-KG.compute.no-embedder-bound-op): the `TextEmbedder` trait
 /// backing the UQL `RANK BY ~ "text"` (`Op::RankEmbed`) NL→vector resolver, plus the

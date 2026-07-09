@@ -88,6 +88,11 @@ fn rules() -> Vec<Box<dyn Rule>> {
     rs.push(Box::new(ReorderReasonRank));
     #[cfg(feature = "text")]
     rs.push(Box::new(ReorderFuseBranches));
+    // Runs LAST: it re-scans the (possibly pairwise-touched) op list for runs of 3+
+    // reorderable ops and replaces them with the true cost-minimal permutation, so it
+    // always has the final say regardless of what the pairwise rules above already did
+    // (CONCEPT:EG-KG.query.global-plan-cost).
+    rs.push(Box::new(GlobalChainCost));
     rs
 }
 
@@ -322,6 +327,198 @@ fn branch_cost(branch: &[Op], seed: f64, card: &ModalityCardinality, ctx: &PlanC
         c = card.rows_out(op, c, ctx);
     }
     total
+}
+
+// ── Rule 4: global cost-minimal reordering of a WHOLE reorderable chain ──────────
+
+/// Is `op` a `Filter`/`AsOf`/`Reason`/`Rank`(`Embed`) — one of the kinds
+/// [`GlobalChainCost`] (CONCEPT:EG-KG.query.global-plan-cost) may reorder because they all draw
+/// candidates from the SAME id-set (the EG-405 commuting family the module doc defines).
+/// `Traverse`/`Scan`/`FuseRrf`/time-series/etc. are BARRIERS: they change the seed (a fresh
+/// candidate set), so a run never crosses one — mirrors the pairwise rules' adjacency rule,
+/// generalized from "the next op" to "every op in this maximal run".
+fn is_reorderable(op: &Op) -> bool {
+    if matches!(op, Op::Filter { .. } | Op::AsOf { .. }) || is_rank(op) {
+        return true;
+    }
+    #[cfg(feature = "owl")]
+    if matches!(op, Op::Reason { .. }) {
+        return true;
+    }
+    false
+}
+
+/// The bound on a single reorderable run's length before [`GlobalChainCost`] gives up on an
+/// exhaustive permutation search (CONCEPT:EG-KG.query.global-plan-cost). `5! = 120` candidate
+/// orderings is a trivial plan-time cost (each `optimize()` call already pays an O(1) stats
+/// collection); a run longer than this is vanishingly rare in practice (it would mean 6+
+/// `Filter`/`AsOf`/`Reason`/`Rank` ops chained with no `Traverse`/`Scan`/`Limit` between them) and
+/// is left untouched rather than risk a combinatorial blowup.
+const MAX_CHAIN_SEGMENT: usize = 5;
+
+/// Reorder every maximal run of 3+ consecutive [`is_reorderable`] ops into its cost-minimal
+/// permutation (CONCEPT:EG-KG.query.global-plan-cost) — the generalization of the pairwise
+/// [`FilterAsOfBeforeRank`]/[`ReorderReasonRank`] rules from "one adjacent pair" to "the WHOLE
+/// chain at once". A run of exactly 2 is left to those two rules (they already solve the pair
+/// case optimally); this rule only fires where the pairwise mechanism structurally cannot see
+/// far enough — 3 or more chained ops, where advancing by adjacent, non-overlapping pairs can
+/// permanently strand a later op behind an already-decided pair (the module-level example: given
+/// `[Rank, broad_filter, selective_filter]`, a pairwise pass commits `(Rank, broad_filter)` and
+/// then jumps past `selective_filter` without ever comparing it to either). Runs never start at
+/// index 0 (that op is the plan's SOURCE, not a narrower — same invariant the pairwise rules
+/// enforce) and longer than [`MAX_CHAIN_SEGMENT`] are left untouched (see its doc).
+struct GlobalChainCost;
+
+impl Rule for GlobalChainCost {
+    fn name(&self) -> &'static str {
+        "global-chain-cost"
+    }
+    fn apply(&self, ops: Vec<Op>, card: &ModalityCardinality, ctx: &PlanCtx) -> Vec<Op> {
+        reorder_chain_segments(ops, card, ctx)
+    }
+}
+
+fn reorder_chain_segments(mut ops: Vec<Op>, card: &ModalityCardinality, ctx: &PlanCtx) -> Vec<Op> {
+    let mut i = 1; // index 0 is always the source; never part of a reorderable run.
+    while i < ops.len() {
+        if !is_reorderable(&ops[i]) {
+            i += 1;
+            continue;
+        }
+        let start = i;
+        let mut end = i + 1;
+        while end < ops.len() && is_reorderable(&ops[end]) {
+            end += 1;
+        }
+        let len = end - start;
+        // Pairs are already optimal via the dedicated pairwise rules; only 3+ chains need
+        // the exhaustive search, and only up to the bounded cap.
+        if !(3..=MAX_CHAIN_SEGMENT).contains(&len) {
+            i = end;
+            continue;
+        }
+        let seed = card_before(&ops, start, card, ctx);
+        let top_k = trailing_top_k(&ops, end - 1);
+        let segment = &ops[start..end];
+        if let Some(best) = best_permutation(segment, seed, top_k, card, ctx) {
+            ops.splice(start..end, best);
+        }
+        i = end;
+    }
+    ops
+}
+
+/// Every permutation of `0..n`, depth-first, starting with the IDENTITY order — so a caller
+/// that only replaces on a STRICTLY cheaper cost (see [`best_permutation`]) keeps the original
+/// order on a tie (determinism, and "don't reorder for a wash"). `n` is bounded by
+/// [`MAX_CHAIN_SEGMENT`], so the `O(n!)` blowup never exceeds 120 permutations.
+fn permutations(indices: &[usize]) -> Vec<Vec<usize>> {
+    if indices.is_empty() {
+        return vec![vec![]];
+    }
+    let mut out = Vec::new();
+    for (pos, &val) in indices.iter().enumerate() {
+        let mut rest = indices.to_vec();
+        rest.remove(pos);
+        for mut tail in permutations(&rest) {
+            let mut perm = Vec::with_capacity(tail.len() + 1);
+            perm.push(val);
+            perm.append(&mut tail);
+            out.push(perm);
+        }
+    }
+    out
+}
+
+/// The cost-minimal reordering of `segment` over `seed` input rows (CONCEPT:EG-KG.query.global-plan-cost)
+/// — exhaustively costs every permutation via [`ModalityCardinality::permutation_cost`] and
+/// returns the cheapest one that is EG-405-safe (skipping any permutation
+/// [`ModalityCardinality::permutation_cost`] rejects). Returns `None` when every permutation is
+/// unsafe (leaves `segment` untouched) or when the cheapest found is not STRICTLY cheaper than
+/// the original (`permutations` yields the identity order first, so a tie keeps it).
+fn best_permutation(
+    segment: &[Op],
+    seed: f64,
+    top_k: usize,
+    card: &ModalityCardinality,
+    ctx: &PlanCtx,
+) -> Option<Vec<Op>> {
+    let n = segment.len();
+    let mut best: Option<(f64, Vec<usize>)> = None;
+    for perm in permutations(&(0..n).collect::<Vec<_>>()) {
+        let refs: Vec<&Op> = perm.iter().map(|&idx| &segment[idx]).collect();
+        let Some(cost) = card.permutation_cost(&refs, seed, top_k, ctx) else {
+            continue;
+        };
+        let better = match &best {
+            None => true,
+            Some((best_cost, _)) => cost < *best_cost - 1e-9,
+        };
+        if better {
+            best = Some((cost, perm));
+        }
+    }
+    best.map(|(_, order)| order.into_iter().map(|idx| segment[idx].clone()).collect())
+}
+
+// ── adaptive re-optimization (CONCEPT:EG-KG.query.adaptive-reoptimization) ───────────────────
+
+/// How far an ACTUAL cardinality may diverge from what the plan-time estimate predicted before
+/// [`reoptimize_remaining`] bothers re-costing the remaining chain (CONCEPT:EG-KG.query.adaptive-reoptimization)
+/// — a relative error threshold, so a small, ordinary estimation miss (histograms/degree
+/// averages are approximations) doesn't cause needless plan churn. `0.5` ⇒ the actual must be
+/// less than half or more than 1.5× the estimate.
+pub const ADAPTIVE_REOPT_THRESHOLD: f64 = 0.5;
+
+/// Re-cost and, if beneficial, RE-ORDER the not-yet-executed tail of a plan after an earlier op
+/// reports its ACTUAL output cardinality (CONCEPT:EG-KG.query.adaptive-reoptimization) — the runtime
+/// feedback loop beyond pure plan-time estimation: `optimize()` picks an order from the
+/// [`ModalityCardinality`] estimates before ANY op has run, but a histogram/degree-average
+/// estimate can be wrong, and a wrong estimate can pick the wrong order. This closes that loop
+/// WITHOUT re-running the whole optimizer: given `remaining_ops` (the ops still to execute),
+/// the `estimated` cardinality flowing into them (what `optimize()` assumed) and the `actual`
+/// cardinality really observed, it re-applies [`reorder_chain_segments`] (plus the pairwise
+/// rules) seeded from `actual` instead of `estimated` whenever they diverge by more than
+/// [`ADAPTIVE_REOPT_THRESHOLD`] (relative). Below the threshold — or when `remaining_ops` has no
+/// reorderable run — this is a no-op clone, so a caller can invoke it unconditionally after every
+/// op without extra cost in the common (estimate was fine) case.
+///
+/// Opt-in-by-default-ON (no env flag): a caller decides WHEN to call it (after which op, with
+/// what actual count) — this fn is pure re-costing logic, not a scheduler. Wiring it into
+/// [`crate::exec::execute`]'s per-op loop so every `apply()` call reports its real `RowSet::len()`
+/// and triggers this automatically is the documented follow-up (CONCEPT:EG-KG.query.adaptive-reoptimization) —
+/// today a caller (or a future `Driver` impl) invokes it explicitly between ops.
+pub fn reoptimize_remaining(
+    remaining_ops: &[Op],
+    estimated: f64,
+    actual: f64,
+    card: &ModalityCardinality,
+    ctx: &PlanCtx,
+) -> Vec<Op> {
+    let mut ops = remaining_ops.to_vec();
+    let denom = estimated.max(1.0);
+    let rel_err = (actual - estimated).abs() / denom;
+    if rel_err <= ADAPTIVE_REOPT_THRESHOLD {
+        return ops; // the estimate was close enough — no churn.
+    }
+    // Unlike a fresh plan (where index 0 is always a real SOURCE op the reorder rules must
+    // never move), `remaining_ops` has NO leading source of its own — the op that already ran
+    // and produced `actual` rows isn't part of this slice — so the leading run is reorderable
+    // from index 0. Find it directly and re-cost it from the CORRECTED `actual` seed via the
+    // same [`best_permutation`] exhaustive search [`GlobalChainCost`] uses, capped at
+    // [`MAX_CHAIN_SEGMENT`] exactly like the plan-time pass.
+    let mut end = 0;
+    while end < ops.len() && is_reorderable(&ops[end]) {
+        end += 1;
+    }
+    let end = end.min(MAX_CHAIN_SEGMENT);
+    if end >= 2 {
+        let top_k = trailing_top_k(&ops, end - 1);
+        if let Some(best) = best_permutation(&ops[..end], actual, top_k, card, ctx) {
+            ops.splice(0..end, best);
+        }
+    }
+    ops
 }
 
 #[cfg(test)]
