@@ -1701,6 +1701,76 @@ mod tests {
         assert_eq!(ids(&qr1, 0), vec!["bob"]);
     }
 
+    // ── CONCEPT:EG-KG.query.quantified-path-pattern — Cypher 25 QPP execution ───────────────────────
+
+    #[test]
+    fn quantified_group_single_hop_matches_equivalent_var_length() {
+        let v = fixture();
+        // ((x)-[:KNOWS]->(y)){1,3} over one relationship type is semantically the
+        // same reachability as -[:KNOWS*1..3]->.
+        let qpp = exec_cypher(
+            &v,
+            "MATCH (a:Person)((x)-[:KNOWS]->(y)){1,3}(b:Person) WHERE a.name = 'Alice' RETURN b",
+        )
+        .unwrap();
+        let var_len = exec_cypher(
+            &v,
+            "MATCH (a:Person)-[:KNOWS*1..3]->(b:Person) WHERE a.name = 'Alice' RETURN b",
+        )
+        .unwrap();
+        assert_eq!(ids(&qpp, 0), ids(&var_len, 0));
+        assert_eq!(ids(&qpp, 0), vec!["bob", "carol"]);
+    }
+
+    #[test]
+    fn quantified_group_exact_one_repetition_is_a_single_hop() {
+        let v = fixture();
+        let qr = exec_cypher(
+            &v,
+            "MATCH (a:Person)((x)-[:KNOWS]->(y)){1,1}(b:Person) WHERE a.name = 'Alice' RETURN b",
+        )
+        .unwrap();
+        assert_eq!(ids(&qr, 0), vec!["bob"]);
+    }
+
+    #[test]
+    fn quantified_group_multi_hop_inner_pattern_repeats_the_whole_subpath() {
+        let v = fixture();
+        // Repeating the 2-hop inner pattern {alice->bob->carol} once from alice
+        // reaches carol; twice would need a 4th node, which the fixture lacks.
+        // The group's own inner vars (`x`/`y`) are local to each repetition —
+        // only the outer trailing node `(end)` is exposed to RETURN (the
+        // documented QPP simplification).
+        let qr = exec_cypher(
+            &v,
+            "MATCH (a:Person {name: 'Alice'})((x)-[:KNOWS]->()-[:KNOWS]->(y)){1,2}(end) \
+             RETURN end",
+        )
+        .unwrap();
+        assert_eq!(ids(&qr, 0), vec!["carol"]);
+    }
+
+    #[test]
+    fn quantified_group_trailing_node_label_filters_end_position() {
+        let v = fixture();
+        // d1 is a :Doc, unreachable via :KNOWS anyway, but this proves the
+        // trailing node's label constraint is applied to the group's output.
+        let qr = exec_cypher(
+            &v,
+            "MATCH (a:Person)((x)-[:KNOWS]->(y)){1,3}(b:Doc) WHERE a.name = 'Alice' RETURN b",
+        )
+        .unwrap();
+        assert!(qr.rows.is_empty());
+    }
+
+    #[test]
+    fn create_rejects_quantified_group_pattern() {
+        let core = GraphCore::new();
+        let err =
+            exec_cypher_write(&core, "CREATE (a)((x)-[:KNOWS]->(y)){1,2}(b)").unwrap_err();
+        assert!(err.contains("quantified path pattern"), "{err}");
+    }
+
     #[test]
     fn return_property_projection() {
         let v = fixture();
