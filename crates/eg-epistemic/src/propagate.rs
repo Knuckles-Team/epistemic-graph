@@ -126,14 +126,15 @@ pub fn explain_belief(
     belief_of(bg, seed, policy, &mut memo, &mut visiting);
 
     let mut on_path: HashSet<String> = HashSet::new();
-    let root = build_proof(bg, seed, policy, &memo, &mut on_path, 0);
+    let root = build_proof(bg, seed, &memo, &mut on_path, 0);
     JustificationGraph { root }
 }
 
+// `build_proof` reconstructs the tree from the already-primed `memo`, so it needs no
+// `AuthorityPolicy` (the policy shaped the numbers during `belief_of`, not here).
 fn build_proof(
     bg: &BeliefGraph,
     id: &str,
-    policy: &AuthorityPolicy,
     memo: &HashMap<String, f64>,
     on_path: &mut HashSet<String>,
     depth: usize,
@@ -156,7 +157,7 @@ fn build_proof(
         .unwrap()
         .iter()
         .map(|(src, kind)| {
-            let sub = build_proof(bg, src, policy, memo, on_path, depth + 1);
+            let sub = build_proof(bg, src, memo, on_path, depth + 1);
             let rule = match kind {
                 EdgeKind::Supports => JustRule::DerivedSupport,
                 EdgeKind::Contradicts | EdgeKind::Attacks => JustRule::DerivedContradiction,
@@ -191,7 +192,11 @@ mod tests {
             [("evidence", "claim", EdgeKind::Supports)],
         );
         let bs = propagate_confidence(&bg, "claim", &AuthorityPolicy::default());
-        assert!(bs.confidence > 0.5, "support should raise belief, got {}", bs.confidence);
+        assert!(
+            bs.confidence > 0.5,
+            "support should raise belief, got {}",
+            bs.confidence
+        );
         assert_eq!(bs.supporting, vec!["evidence".to_string()]);
     }
 
@@ -203,7 +208,11 @@ mod tests {
             [("counter", "claim", EdgeKind::Contradicts)],
         );
         let bs = propagate_confidence(&bg, "claim", &AuthorityPolicy::default());
-        assert!(bs.confidence < 0.5, "contradiction should lower belief, got {}", bs.confidence);
+        assert!(
+            bs.confidence < 0.5,
+            "contradiction should lower belief, got {}",
+            bs.confidence
+        );
         assert_eq!(bs.contradicting, vec!["counter".to_string()]);
     }
 
@@ -221,7 +230,10 @@ mod tests {
         let p = AuthorityPolicy::default();
         let c = propagate_confidence(&contra, "claim", &p).confidence;
         let a = propagate_confidence(&attack, "claim", &p).confidence;
-        assert!(a < c, "attack ({a}) should discount more than contradiction ({c})");
+        assert!(
+            a < c,
+            "attack ({a}) should discount more than contradiction ({c})"
+        );
     }
 
     // A support/attack CYCLE terminates and stays in [0,1].

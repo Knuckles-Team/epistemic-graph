@@ -26,7 +26,7 @@ mod propagate;
 
 pub use adapter::BeliefGraph;
 pub use model::{
-    AuthorityPolicy, BeliefState, EdgeKind, JustRule, JustificationGraph, ProofNode, TimeAxis,
-    classify_relationship,
+    classify_relationship, AuthorityPolicy, BeliefState, EdgeKind, JustRule, JustificationGraph,
+    ProofNode, TimeAxis,
 };
 pub use propagate::{explain_belief, propagate_confidence};
