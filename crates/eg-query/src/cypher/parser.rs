@@ -7,11 +7,15 @@
 //! stage      := ('OPTIONAL')? 'MATCH' (var '=')? pattern ('WHERE' expr)?
 //!             | 'WITH' withitems ('WHERE' expr)?
 //! retbody    := ('DISTINCT')? ('*' | items) ('ORDER' 'BY' keys)? ('SKIP' int)? ('LIMIT' int)?
-//! pattern    := node (edge node)*
+//! pattern    := node (edge node | group)*
 //! node       := '(' var? (':' label)? ('{' propmap '}')? ')'
 //! edge       := '-' '[' (var)? (':' reltype)? ('*' range)? ']' '->'
 //!             | '<-' '[' (var)? (':' reltype)? ('*' range)? ']' '-'
 //! range      := int ('..' int)?
+//! group      := '(' pattern ')' quantifier node?     -- Cypher 25 QPP, e.g.
+//!                                                     -- `((a)-[:REL]->(b)){1,3}`
+//!                                                     -- (CONCEPT:EG-KG.query.quantified-path-pattern)
+//! quantifier := '{' int (',' int?)? '}'
 //! expr       := or
 //! or         := and ('OR' and)*
 //! and        := primary ('AND' primary)*
@@ -34,8 +38,8 @@ use serde_json::Value;
 
 use super::plan::{
     AggArg, AggFunc, CompareOp, Condition, CypherQuery, Direction, EdgePat, Expr, ListExpr,
-    NodePat, OrderKey, Pattern, PropVal, ReadStage, RemoveItem, ReturnItem, ReturnSpec, SetItem,
-    Statement, Test, WhereExpr, WithItem, WriteOp, WriteQuery, YieldItem,
+    NodePat, OrderKey, Pattern, PropVal, QuantifiedGroup, ReadStage, RemoveItem, ReturnItem,
+    ReturnSpec, SetItem, Statement, Test, WhereExpr, WithItem, WriteOp, WriteQuery, YieldItem,
 };
 
 /// A flat token. The tokenizer is whitespace-insensitive; punctuation is matched
@@ -282,12 +286,101 @@ impl Parser {
     fn parse_pattern(&mut self) -> Result<Pattern, String> {
         let start = self.parse_node()?;
         let mut hops = Vec::new();
-        while matches!(self.peek(), Some(Tok::Dash) | Some(Tok::ArrowLeft)) {
-            let edge = self.parse_edge()?;
-            let node = self.parse_node()?;
-            hops.push((edge, node));
+        loop {
+            if matches!(self.peek(), Some(Tok::Dash) | Some(Tok::ArrowLeft)) {
+                let edge = self.parse_edge()?;
+                let node = self.parse_node()?;
+                hops.push((edge, node));
+            } else if self.at_quantified_group_start() {
+                hops.push(self.parse_quantified_group()?);
+            } else {
+                break;
+            }
         }
         Ok(Pattern { start, hops })
+    }
+
+    /// A quantified-path-pattern GROUP is disambiguated from a plain node purely
+    /// by lookahead: a plain node's `(` is followed by a var/`:`/`{`/`)`, never by
+    /// another `(` — only a group's outer paren wraps an inner pattern that itself
+    /// opens with the inner start node's `(` (CONCEPT:EG-KG.query.quantified-path-pattern).
+    fn at_quantified_group_start(&self) -> bool {
+        matches!(self.peek(), Some(Tok::LParen)) && matches!(self.peek2(), Some(Tok::LParen))
+    }
+
+    /// `((inner-pattern)){min,max} node?` — a Cypher 25 quantified path pattern
+    /// (CONCEPT:EG-KG.query.quantified-path-pattern), e.g. `((a)-[:REL]->(b)){1,3}`. Compiles
+    /// to a synthetic `(EdgePat, NodePat)` hop whose `EdgePat.group` carries the
+    /// inner sub-pattern + quantifier; matched in `exec.rs` by repeated
+    /// whole-subpattern expansion (`group_reachable`), a generalization of the
+    /// single-relationship `*min..max` BFS. The optional trailing `node` (e.g.
+    /// `(y:Person)`) constrains the LAST repetition's end position, exactly like
+    /// an ordinary hop's end node.
+    fn parse_quantified_group(&mut self) -> Result<(EdgePat, NodePat), String> {
+        self.expect(&Tok::LParen)?; // the group's own outer paren
+        let inner = self.parse_pattern()?; // e.g. (a)-[:REL]->(b)
+        self.expect(&Tok::RParen)?; // closes the group
+        if inner.hops.is_empty() {
+            return Err(
+                "a quantified path pattern group must contain at least one relationship hop"
+                    .into(),
+            );
+        }
+        let quantifier = self.parse_quantifier()?;
+        let group = QuantifiedGroup {
+            start: inner.start,
+            hops: inner.hops,
+            quantifier,
+        };
+        let edge = EdgePat {
+            rel_type: None,
+            direction: Direction::Right, // unused: `group` drives matching, not this field
+            var_len: None,
+            var: None,
+            props: None,
+            group: Some(Box::new(group)),
+        };
+        // An explicit trailing node constrains the final repetition's end
+        // position (`(y:Label)`). A following group-start `((` is NOT consumed
+        // here — it chains onto the NEXT hop in the outer loop instead.
+        let node = if matches!(self.peek(), Some(Tok::LParen)) && !self.at_quantified_group_start()
+        {
+            self.parse_node()?
+        } else {
+            NodePat {
+                var: None,
+                label: None,
+                props: None,
+            }
+        };
+        Ok((edge, node))
+    }
+
+    /// `{min,max}` / `{min,}` / `{n}` — a QPP repetition quantifier
+    /// (CONCEPT:EG-KG.query.quantified-path-pattern). Mirrors [`Self::parse_range`]'s bound
+    /// handling (open-max defaults to the same `OPEN_MAX`).
+    fn parse_quantifier(&mut self) -> Result<(usize, usize), String> {
+        const OPEN_MAX: usize = 16;
+        self.expect(&Tok::LBrace)?;
+        let lo = match self.next() {
+            Some(Tok::Num(n)) => n as usize,
+            other => return Err(format!("expected quantifier lower bound, found {other:?}")),
+        };
+        let hi = if matches!(self.peek(), Some(Tok::Comma)) {
+            self.next();
+            match self.peek() {
+                Some(Tok::Num(n)) => {
+                    let n = *n;
+                    self.next();
+                    n as usize
+                }
+                _ => OPEN_MAX,
+            }
+        } else {
+            lo
+        };
+        self.expect(&Tok::RBrace)?;
+        Ok((lo, hi))
     }
 
     fn parse_node(&mut self) -> Result<NodePat, String> {
@@ -402,6 +495,7 @@ impl Parser {
             var_len,
             var,
             props,
+            group: None,
         })
     }
 
