@@ -6,8 +6,13 @@
 // hierarchical, GMM, k-medoids) and adds anomaly detection (`anomaly` — z-score/
 // MAD, Isolation Forest, LOF, One-Class SVM) onto this same surface (one `Mine*`
 // protocol section, one `handlers/mining.rs`, one `graph_mine` MCP verb +
-// `/api/mining/*` REST twin). Later phases add sequence/forecast/subgraph engines.
+// `/api/mining/*` REST twin). Phase 3 completes classification (`classify_fit`/
+// `classify_predict` — Naive Bayes, k-NN, logistic, linear SVC; PREDICTIVE
+// fit→blob→predict) and dimensionality reduction (`reduce` — truncated SVD, LDA,
+// UMAP, t-SNE; DESCRIPTIVE row transform). Later phases add sequence/forecast/subgraph.
 
 pub mod anomaly;
 pub mod association;
+pub mod classify;
 pub mod cluster;
+pub mod reduce;
