@@ -96,9 +96,17 @@ pub struct KanLinkModel {
     pub feat_mean: Vec<f64>,
     /// Per-feature std (floored at 1e-9) used to z-standardise inputs.
     pub feat_std: Vec<f64>,
+    /// 1-hop neighbour-aggregation self-retention used at fit time — stored so
+    /// `GraphLearnPredict` rebuilds the feature context identically.
+    #[serde(default = "default_model_alpha")]
+    pub alpha: f64,
     /// Training AUC recorded at fit time (positives vs sampled negatives).
     #[serde(default)]
     pub train_auc: f64,
+}
+
+fn default_model_alpha() -> f64 {
+    0.5
 }
 
 impl KanLinkModel {
@@ -343,6 +351,7 @@ pub fn fit_link_predictor(
         layers,
         feat_mean,
         feat_std,
+        alpha: config.alpha,
         train_auc: 0.0,
     };
     // Record training AUC.

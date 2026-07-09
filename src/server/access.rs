@@ -79,6 +79,15 @@ pub(crate) fn requires_write(method: &Method) -> bool {
     {
         return *writeback;
     }
+    // Graph learning (CONCEPT:EG-KG.graphlearn.link-predictor): only a write when it
+    // writes back the `:EdgeFunction` / `:PredictedEdge` nodes; a pure fit/predict
+    // (writeback=false) reads its rows off an off-lock snapshot.
+    #[cfg(feature = "graphlearn")]
+    if let Method::GraphLearnFit { writeback, .. } | Method::GraphLearnPredict { writeback, .. } =
+        method
+    {
+        return *writeback;
+    }
     matches!(
         method,
         Method::AddNode { .. }

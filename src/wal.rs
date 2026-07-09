@@ -100,6 +100,22 @@ pub fn is_durable_mutation(m: &Method) -> bool {
     ) {
         return true;
     }
+    // Graph-learning write-back (CONCEPT:EG-KG.graphlearn.link-predictor): durable only
+    // when `writeback` materializes `:EdgeFunction` / `:PredictedEdge` nodes. `apply`
+    // re-derives + re-writes deterministically (seeded). A pure fit/predict is not logged.
+    #[cfg(feature = "graphlearn")]
+    if matches!(
+        m,
+        Method::GraphLearnFit {
+            writeback: true,
+            ..
+        } | Method::GraphLearnPredict {
+            writeback: true,
+            ..
+        }
+    ) {
+        return true;
+    }
     matches!(
         m,
         Method::AddNode { .. }
@@ -680,6 +696,13 @@ pub fn apply(core: &GraphCore, m: &Method) {
         #[cfg(all(feature = "mining", feature = "server"))]
         Method::MineAssociate { .. } | Method::MineCluster { .. } | Method::MineAnomaly { .. } => {
             crate::server::handlers::mining::replay(core, m)
+        }
+        // Graph-learning write-back (CONCEPT:EG-KG.graphlearn.link-predictor): re-run the
+        // fit/predict + re-materialize the `:EdgeFunction` / `:PredictedEdge` nodes.
+        // The node ids are a deterministic digest, so replay is idempotent.
+        #[cfg(all(feature = "graphlearn", feature = "server"))]
+        Method::GraphLearnFit { .. } | Method::GraphLearnPredict { .. } => {
+            crate::server::handlers::graphlearn::replay(core, m)
         }
         _ => {}
     }

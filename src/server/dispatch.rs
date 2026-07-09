@@ -1150,6 +1150,15 @@ async fn dispatch_graph_op(
             Ok(r) => break 'dispatch r,
             Err(m) => m,
         };
+        // Graph-learning domain (CONCEPT:EG-KG.graphlearn.link-predictor): GRAPH-SCOPED
+        // like mining — the KAN link-predictor reads the live subgraph and write-back
+        // materializes `:PredictedEdge`/`:EdgeFunction` nodes into the core. A method
+        // whose feature is off falls through to the graph_ops not-available catch-all.
+        #[cfg(feature = "graphlearn")]
+        let method = match handlers::graphlearn::try_handle(req_id, core.clone(), method) {
+            Ok(r) => break 'dispatch r,
+            Err(m) => m,
+        };
         // Read-only query surface — SQL (CONCEPT:EG-KG.query.read-only-sql-query, DataFusion behind
         // `query`) AND Cypher (CONCEPT:EG-KG.query.dep-free-behind, dep-free behind `cypher`) AND GraphQL
         // (CONCEPT:EG-KG.query.sparql-completeness, pure-Rust eg-graphql behind `graphql`): borrows the graph
