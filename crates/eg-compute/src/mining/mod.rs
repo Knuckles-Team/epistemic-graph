@@ -9,11 +9,13 @@
 // `/api/mining/*` REST twin). Phase 3 completes classification (`classify_fit`/
 // `classify_predict` — Naive Bayes, k-NN, logistic, linear SVC; PREDICTIVE
 // fit→blob→predict) and dimensionality reduction (`reduce` — truncated SVD, LDA,
-// UMAP, t-SNE; DESCRIPTIVE row transform). Phase 4 continues the final family:
-// sequential-pattern mining (`sequence` — PrefixSpan, GSP) and classical
-// forecasting (`forecast` — ARIMA, Holt-Winters/ETS, STL decomposition) shipped
-// first; text mining (`text` — TF-IDF, LDA, NMF) follows onto this same
-// surface; frequent-subgraph mining (`subgraph`) rounds it out.
+// UMAP, t-SNE; DESCRIPTIVE row transform). Phase 4 completes the roadmap:
+// sequential-pattern mining (`sequence` — PrefixSpan, GSP), classical
+// forecasting (`forecast` — ARIMA, Holt-Winters/ETS, STL decomposition), and
+// text mining (`text` — TF-IDF, LDA, NMF) shipped first; frequent-subgraph
+// mining (`subgraph` — gSpan-style + motif counting, the graph-native
+// differentiator — it mines the resident graph's own topology directly rather
+// than rows/vectors handed in) rounds out the family.
 
 pub mod anomaly;
 pub mod association;
@@ -22,4 +24,5 @@ pub mod cluster;
 pub mod forecast;
 pub mod reduce;
 pub mod sequence;
+pub mod subgraph;
 pub mod text;

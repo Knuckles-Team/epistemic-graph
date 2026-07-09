@@ -89,6 +89,12 @@ pub(crate) fn requires_write(method: &Method) -> bool {
     if let Method::MineText { writeback, algorithm, .. } = method {
         return *writeback && !matches!(algorithm, crate::protocol::TextAlgorithm::Tfidf);
     }
+    // MineSubgraph: writeback only mutates for gspan (its :FrequentSubgraph
+    // nodes) — motif is always read-only (a pure census, no patterns to write).
+    #[cfg(feature = "mining")]
+    if let Method::MineSubgraph { writeback, algorithm, .. } = method {
+        return *writeback && !matches!(algorithm, crate::protocol::SubgraphAlgorithm::Motif);
+    }
     // Classification FIT is read-only (returns a model blob; no graph mutation).
     #[cfg(feature = "mining")]
     if matches!(method, Method::MineClassifyFit { .. }) {
