@@ -59,6 +59,8 @@ pub(crate) fn try_handle(
         Method::MineCluster {
             features,
             source,
+            #[cfg(feature = "query")]
+            plan,
             algorithm,
             eps,
             min_pts,
@@ -68,13 +70,27 @@ pub(crate) fn try_handle(
             seed,
             writeback,
         } => Ok(handle_cluster(
-            req_id, &core, features, source, algorithm, eps, min_pts, k, linkage, max_iter, seed,
+            req_id,
+            &core,
+            features,
+            source,
+            #[cfg(feature = "query")]
+            plan,
+            algorithm,
+            eps,
+            min_pts,
+            k,
+            linkage,
+            max_iter,
+            seed,
             writeback,
         )),
         Method::MineAnomaly {
             features,
             values,
             source,
+            #[cfg(feature = "query")]
+            plan,
             algorithm,
             k,
             n_trees,
@@ -91,6 +107,8 @@ pub(crate) fn try_handle(
             features,
             values,
             source,
+            #[cfg(feature = "query")]
+            plan,
             algorithm,
             k,
             n_trees,
@@ -105,6 +123,8 @@ pub(crate) fn try_handle(
         Method::MineClassifyFit {
             x,
             source,
+            #[cfg(feature = "query")]
+            plan,
             y,
             algorithm,
             k,
@@ -114,19 +134,43 @@ pub(crate) fn try_handle(
             l2,
             c,
         } => Ok(handle_classify_fit(
-            req_id, &core, x, source, y, algorithm, k, alpha, lr, epochs, l2, c,
+            req_id,
+            &core,
+            x,
+            source,
+            #[cfg(feature = "query")]
+            plan,
+            y,
+            algorithm,
+            k,
+            alpha,
+            lr,
+            epochs,
+            l2,
+            c,
         )),
         Method::MineClassifyPredict {
             model,
             x,
             source,
+            #[cfg(feature = "query")]
+            plan,
             writeback,
         } => Ok(handle_classify_predict(
-            req_id, &core, model, x, source, writeback,
+            req_id,
+            &core,
+            model,
+            x,
+            source,
+            #[cfg(feature = "query")]
+            plan,
+            writeback,
         )),
         Method::MineReduce {
             x,
             source,
+            #[cfg(feature = "query")]
+            plan,
             labels,
             algorithm,
             n_components,
@@ -142,6 +186,8 @@ pub(crate) fn try_handle(
             &core,
             x,
             source,
+            #[cfg(feature = "query")]
+            plan,
             labels,
             algorithm,
             n_components,
@@ -242,6 +288,8 @@ pub(crate) fn replay(core: &GraphCore, method: &Method) {
         Method::MineCluster {
             features,
             source,
+            #[cfg(feature = "query")]
+            plan,
             algorithm,
             eps,
             min_pts,
@@ -251,7 +299,13 @@ pub(crate) fn replay(core: &GraphCore, method: &Method) {
             seed,
             writeback: true,
         } => {
-            let (rows, ids) = build_vectors(core, features, source);
+            let (rows, ids) = build_vectors(
+                core,
+                features,
+                source,
+                #[cfg(feature = "query")]
+                plan,
+            );
             if rows.is_empty() {
                 return;
             }
@@ -263,6 +317,8 @@ pub(crate) fn replay(core: &GraphCore, method: &Method) {
             features,
             values,
             source,
+            #[cfg(feature = "query")]
+            plan,
             algorithm,
             k,
             n_trees,
@@ -274,7 +330,14 @@ pub(crate) fn replay(core: &GraphCore, method: &Method) {
             threshold,
             writeback: true,
         } => {
-            let (rows, ids) = build_anomaly_rows(core, features, values, source);
+            let (rows, ids) = build_anomaly_rows(
+                core,
+                features,
+                values,
+                source,
+                #[cfg(feature = "query")]
+                plan,
+            );
             if rows.is_empty() {
                 return;
             }
@@ -295,9 +358,17 @@ pub(crate) fn replay(core: &GraphCore, method: &Method) {
             model,
             x,
             source,
+            #[cfg(feature = "query")]
+            plan,
             writeback: true,
         } => {
-            let (rows, ids) = build_vectors(core, x, source);
+            let (rows, ids) = build_vectors(
+                core,
+                x,
+                source,
+                #[cfg(feature = "query")]
+                plan,
+            );
             if rows.is_empty() {
                 return;
             }
@@ -307,6 +378,8 @@ pub(crate) fn replay(core: &GraphCore, method: &Method) {
         Method::MineReduce {
             x,
             source,
+            #[cfg(feature = "query")]
+            plan,
             labels,
             algorithm,
             n_components,
@@ -318,7 +391,13 @@ pub(crate) fn replay(core: &GraphCore, method: &Method) {
             seed,
             writeback: true,
         } => {
-            let (rows, ids) = build_vectors(core, x, source);
+            let (rows, ids) = build_vectors(
+                core,
+                x,
+                source,
+                #[cfg(feature = "query")]
+                plan,
+            );
             if rows.is_empty() {
                 return;
             }
@@ -653,6 +732,7 @@ fn handle_cluster(
     core: &GraphCore,
     features: Vec<Vec<f64>>,
     source: Option<VectorSource>,
+    #[cfg(feature = "query")] plan: Option<crate::wire::Plan>,
     algorithm: ClusterAlgorithm,
     eps: f64,
     min_pts: usize,
@@ -662,7 +742,13 @@ fn handle_cluster(
     seed: u64,
     writeback: bool,
 ) -> Response {
-    let (rows, ids) = build_vectors(core, &features, &source);
+    let (rows, ids) = build_vectors(
+        core,
+        &features,
+        &source,
+        #[cfg(feature = "query")]
+        &plan,
+    );
     if let Err(e) = validate_matrix(&rows) {
         return Response::err(req_id, e);
     }
@@ -822,6 +908,7 @@ fn handle_anomaly(
     features: Vec<Vec<f64>>,
     values: Vec<f64>,
     source: Option<VectorSource>,
+    #[cfg(feature = "query")] plan: Option<crate::wire::Plan>,
     algorithm: AnomalyAlgorithm,
     k: usize,
     n_trees: usize,
@@ -833,7 +920,14 @@ fn handle_anomaly(
     threshold: Option<f64>,
     writeback: bool,
 ) -> Response {
-    let (rows, ids) = build_anomaly_rows(core, &features, &values, &source);
+    let (rows, ids) = build_anomaly_rows(
+        core,
+        &features,
+        &values,
+        &source,
+        #[cfg(feature = "query")]
+        &plan,
+    );
     if let Err(e) = validate_matrix(&rows) {
         return Response::err(req_id, e);
     }
@@ -970,6 +1064,7 @@ fn handle_classify_fit(
     core: &GraphCore,
     x: Vec<Vec<f64>>,
     source: Option<VectorSource>,
+    #[cfg(feature = "query")] plan: Option<crate::wire::Plan>,
     y: Vec<i64>,
     algorithm: ClassifyAlgorithm,
     k: usize,
@@ -979,7 +1074,13 @@ fn handle_classify_fit(
     l2: f64,
     c: f64,
 ) -> Response {
-    let (rows, _ids) = build_vectors(core, &x, &source);
+    let (rows, _ids) = build_vectors(
+        core,
+        &x,
+        &source,
+        #[cfg(feature = "query")]
+        &plan,
+    );
     if let Err(e) = validate_matrix(&rows) {
         return Response::err(req_id, e);
     }
@@ -1007,9 +1108,16 @@ fn handle_classify_predict(
     model: FittedClassifier,
     x: Vec<Vec<f64>>,
     source: Option<VectorSource>,
+    #[cfg(feature = "query")] plan: Option<crate::wire::Plan>,
     writeback: bool,
 ) -> Response {
-    let (rows, ids) = build_vectors(core, &x, &source);
+    let (rows, ids) = build_vectors(
+        core,
+        &x,
+        &source,
+        #[cfg(feature = "query")]
+        &plan,
+    );
     if let Err(e) = validate_matrix(&rows) {
         return Response::err(req_id, e);
     }
@@ -1138,6 +1246,7 @@ fn handle_reduce(
     core: &GraphCore,
     x: Vec<Vec<f64>>,
     source: Option<VectorSource>,
+    #[cfg(feature = "query")] plan: Option<crate::wire::Plan>,
     labels: Vec<i64>,
     algorithm: ReduceAlgorithm,
     n_components: usize,
@@ -1149,7 +1258,13 @@ fn handle_reduce(
     seed: u64,
     writeback: bool,
 ) -> Response {
-    let (rows, ids) = build_vectors(core, &x, &source);
+    let (rows, ids) = build_vectors(
+        core,
+        &x,
+        &source,
+        #[cfg(feature = "query")]
+        &plan,
+    );
     if let Err(e) = validate_matrix(&rows) {
         return Response::err(req_id, e);
     }
@@ -1950,16 +2065,22 @@ fn subgraph_node_id(pattern: &subgraph::Pattern) -> String {
 
 // ─────────────────────────── Row builders (shared) ───────────────────────────
 
-/// Resolve the cluster feature rows: explicit `features` win; otherwise gather the
-/// embeddings of the `source` node label (the cross-modal hook). Returns the rows
-/// AND a parallel `ids` vec (node ids for the embedding path, empty for explicit).
+/// Resolve the cluster feature rows: explicit `features` win; then a fused
+/// upstream `plan` (CONCEPT:EG-KG.mining.fused-plan-source); then the `source`
+/// node-label embedding scan (the cross-modal hook). Returns the rows AND a
+/// parallel `ids` vec (node ids for the embedding/plan path, empty for explicit).
 fn build_vectors(
     core: &GraphCore,
     features: &[Vec<f64>],
     source: &Option<VectorSource>,
+    #[cfg(feature = "query")] plan: &Option<crate::wire::Plan>,
 ) -> (Vec<Vec<f64>>, Vec<String>) {
     if !features.is_empty() {
         return (features.to_vec(), Vec::new());
+    }
+    #[cfg(feature = "query")]
+    if let Some(p) = plan {
+        return gather_plan_rows(core, p);
     }
     match source {
         Some(spec) => gather_embeddings(core, spec),
@@ -1968,18 +2089,24 @@ fn build_vectors(
 }
 
 /// Resolve the anomaly rows: explicit `features` win, then a 1-D `values` series
-/// (each scalar → a one-element row — the tsdb RCA path), then node embeddings.
+/// (each scalar → a one-element row — the tsdb RCA path), then a fused upstream
+/// `plan`, then node embeddings.
 fn build_anomaly_rows(
     core: &GraphCore,
     features: &[Vec<f64>],
     values: &[f64],
     source: &Option<VectorSource>,
+    #[cfg(feature = "query")] plan: &Option<crate::wire::Plan>,
 ) -> (Vec<Vec<f64>>, Vec<String>) {
     if !features.is_empty() {
         return (features.to_vec(), Vec::new());
     }
     if !values.is_empty() {
         return (values.iter().map(|&v| vec![v]).collect(), Vec::new());
+    }
+    #[cfg(feature = "query")]
+    if let Some(p) = plan {
+        return gather_plan_rows(core, p);
     }
     match source {
         Some(spec) => gather_embeddings(core, spec),
@@ -2002,6 +2129,53 @@ fn gather_embeddings(core: &GraphCore, spec: &VectorSource) -> (Vec<Vec<f64>>, V
         }
     }
     (rows, ids)
+}
+
+/// Run an upstream cross-modal RETRIEVAL `plan` (`Op::Scan|Filter|Traverse|Rank|…`)
+/// over a fresh graph+semantic snapshot and resolve each resulting row's id to its
+/// stored embedding — the SAME lookup [`gather_embeddings`] uses for a bare
+/// `VectorSource` label scan, generalized to an ARBITRARY upstream plan
+/// (CONCEPT:EG-KG.mining.fused-plan-source). This is the fused `retrieve → mine →
+/// writeback` mechanism: the retrieval legs (vector rank / graph traverse / SQL
+/// filter / OWL reason / …) run FIRST, compute-near-data, over the SAME snapshot
+/// the mining op then reads embeddings from — ONE round-trip, no client
+/// marshalling between "retrieve the candidate set" and "mine it". A plan
+/// execution error degrades to an empty row set (never panics/propagates) —
+/// consistent with every other mining source's "no match ⇒ empty" contract.
+///
+/// NOTE (scope cut): the committed native tsdb store is NOT threaded through this
+/// synchronous, graph-scoped path (mining dispatches off `Arc<GraphCore>` alone,
+/// unlike the async `UnifiedQuery` handler which also carries the server's live
+/// tsdb handle) — a plan containing `Op::TsScan` degrades to no rows for that leg
+/// exactly like an unbound embedder degrades `RankEmbed`, rather than erroring.
+/// Wiring the live tsdb store into the mining dispatch path is a follow-up.
+#[cfg(feature = "query")]
+fn gather_plan_rows(core: &GraphCore, plan: &crate::wire::Plan) -> (Vec<Vec<f64>>, Vec<String>) {
+    let snap = core.analysis_snapshot();
+    let semantic = core.semantic_store.read().clone();
+    let rows = match crate::server::handlers::query::run_unified(
+        plan.clone(),
+        None,
+        &snap,
+        &semantic,
+        #[cfg(feature = "tsdb")]
+        None,
+        #[cfg(feature = "tsdb")]
+        None,
+    ) {
+        Ok(rows) => rows,
+        Err(_) => return (Vec::new(), Vec::new()),
+    };
+    let store = core.semantic_store.read();
+    let mut feats: Vec<Vec<f64>> = Vec::with_capacity(rows.len());
+    let mut ids: Vec<String> = Vec::with_capacity(rows.len());
+    for (node_id, _score) in rows {
+        if let Some(vec) = store.get_embedding(&node_id) {
+            feats.push(vec.into_iter().map(|f| f as f64).collect());
+            ids.push(node_id);
+        }
+    }
+    (feats, ids)
 }
 
 /// Reject a ragged feature matrix (rows of differing width) with a clean error
@@ -2122,6 +2296,8 @@ mod tests {
         let m = Method::MineCluster {
             features,
             source: None,
+            #[cfg(feature = "query")]
+            plan: None,
             algorithm: ClusterAlgorithm::Dbscan,
             eps: 1.0,
             min_pts: 2,
@@ -2164,6 +2340,8 @@ mod tests {
                 node_label: "Doc".into(),
                 limit: 0,
             }),
+            #[cfg(feature = "query")]
+            plan: None,
             algorithm: ClusterAlgorithm::Kmedoids,
             eps: 0.5,
             min_pts: 5,
@@ -2189,6 +2367,109 @@ mod tests {
         assert_eq!(cluster_nodes.len() as u64, written);
     }
 
+    /// The headline fused example (CONCEPT:EG-KG.mining.fused-plan-source, Phase 5):
+    /// vector-retrieve a neighborhood via an upstream `Op::Rank` PLAN — no
+    /// `VectorSource` label spec at all — cluster the retrieved rows, and write
+    /// `:Cluster` nodes back, all in ONE `MineCluster` call. Proves
+    /// `retrieve → mine → writeback` composes as ONE plan (compute-near-data, no
+    /// client round-trip between the retrieval leg and the mining leg).
+    #[test]
+    #[cfg(feature = "query")]
+    fn fused_plan_rank_then_cluster_and_writeback() {
+        let core = Arc::new(GraphCore::new());
+        // Six :Doc nodes with 2-D embeddings forming two well-separated groups.
+        let embs = [
+            ("d0", [0.0f32, 0.0]),
+            ("d1", [0.2, 0.1]),
+            ("d2", [0.1, 0.2]),
+            ("d3", [9.0, 9.0]),
+            ("d4", [9.2, 8.9]),
+            ("d5", [8.9, 9.1]),
+        ];
+        for (id, e) in embs {
+            core.add_node(id.into(), node(serde_json::json!({"type": "Doc"})));
+            core.semantic_store
+                .write()
+                .add_embedding(id.to_string(), e.to_vec());
+        }
+        // Upstream retrieval plan: scan all :Doc nodes, then rank by cosine
+        // similarity to a query near the FIRST group — a cross-modal
+        // Scan→Rank→Limit leg that runs BEFORE the mining op ever sees a row.
+        let plan = crate::wire::Plan::new(vec![
+            crate::wire::Op::Scan {
+                label: "Doc".into(),
+            },
+            crate::wire::Op::Rank {
+                query: vec![0.1, 0.1],
+            },
+            crate::wire::Op::Limit { k: 6 },
+        ]);
+        let m = Method::MineCluster {
+            features: Vec::new(),
+            source: None,
+            plan: Some(plan),
+            algorithm: ClusterAlgorithm::Kmedoids,
+            eps: 0.5,
+            min_pts: 5,
+            k: 2,
+            linkage: Linkage::Average,
+            max_iter: 100,
+            seed: 0,
+            writeback: true,
+        };
+        let resp = try_handle(42, Arc::clone(&core), m).expect("handled");
+        let Some(ResultPayload::Json(v)) = resp.result else {
+            panic!("expected json");
+        };
+        // The plan's Rank/Limit legs ran FIRST — the vector kNN leg is an
+        // approximate search (documented "approximate, small-N" contract shared
+        // with UMAP/t-SNE elsewhere in this surface), so it may recall slightly
+        // fewer than all 6 candidates; the mining op then clustered exactly the
+        // rows the plan handed it — one round trip, no client marshalling
+        // between "retrieve" and "mine".
+        let n_rows = v["n_rows"].as_u64().unwrap();
+        assert!(
+            (4..=6).contains(&n_rows),
+            "expected the Rank leg to recall most of the 6 candidates, got {n_rows}"
+        );
+        assert_eq!(v["n_clusters"], 2); // k-medoids always forms exactly k=2 groups
+        let written = v["written_back"].as_u64().unwrap();
+        assert_eq!(written, 2);
+        core.mark_dirty();
+        let cluster_nodes = core.get_nodes_by_label("Cluster", 0);
+        assert_eq!(cluster_nodes.len() as u64, written);
+    }
+
+    /// A plan that finds NO matching rows (a label the graph doesn't carry)
+    /// degrades to an empty feature set rather than erroring — the same
+    /// "no match ⇒ empty" contract every other mining source honors.
+    #[test]
+    #[cfg(feature = "query")]
+    fn fused_plan_no_match_degrades_to_empty() {
+        let core = Arc::new(GraphCore::new());
+        let plan = crate::wire::Plan::new(vec![crate::wire::Op::Scan {
+            label: "NoSuchLabel".into(),
+        }]);
+        let m = Method::MineCluster {
+            features: Vec::new(),
+            source: None,
+            plan: Some(plan),
+            algorithm: ClusterAlgorithm::Dbscan,
+            eps: 1.0,
+            min_pts: 2,
+            k: 2,
+            linkage: Linkage::Average,
+            max_iter: 100,
+            seed: 0,
+            writeback: false,
+        };
+        let resp = try_handle(43, core, m).expect("handled");
+        let Some(ResultPayload::Json(v)) = resp.result else {
+            panic!("expected json");
+        };
+        assert_eq!(v["n_rows"], 0);
+    }
+
     #[test]
     fn anomaly_values_series_zscore_and_writeback() {
         let core = Arc::new(GraphCore::new());
@@ -2199,6 +2480,8 @@ mod tests {
             features: Vec::new(),
             values,
             source: None,
+            #[cfg(feature = "query")]
+            plan: None,
             algorithm: AnomalyAlgorithm::Zscore,
             k: 20,
             n_trees: 100,
@@ -2245,6 +2528,8 @@ mod tests {
                 node_label: "Metric".into(),
                 limit: 0,
             }),
+            #[cfg(feature = "query")]
+            plan: None,
             algorithm: AnomalyAlgorithm::Zscore,
             k: 20,
             n_trees: 100,
@@ -2287,6 +2572,8 @@ mod tests {
         let fit = Method::MineClassifyFit {
             x: x.clone(),
             source: None,
+            #[cfg(feature = "query")]
+            plan: None,
             y,
             algorithm: ClassifyAlgorithm::Logistic,
             k: 5,
@@ -2307,6 +2594,8 @@ mod tests {
             model,
             x: vec![vec![0.3, 0.3], vec![10.0, 10.0]],
             source: None,
+            #[cfg(feature = "query")]
+            plan: None,
             writeback: false,
         };
         let resp = try_handle(2, core, predict).expect("handled");
@@ -2340,6 +2629,8 @@ mod tests {
                 node_label: "Sample".into(),
                 limit: 0,
             }),
+            #[cfg(feature = "query")]
+            plan: None,
             writeback: true,
         };
         let resp = try_handle(3, Arc::clone(&core), m).expect("handled");
@@ -2378,6 +2669,8 @@ mod tests {
                 node_label: "Vec".into(),
                 limit: 0,
             }),
+            #[cfg(feature = "query")]
+            plan: None,
             labels: Vec::new(),
             algorithm: ReduceAlgorithm::Svd,
             n_components: 2,
@@ -2409,6 +2702,8 @@ mod tests {
         let m = Method::MineReduce {
             x: vec![vec![0.0, 0.0], vec![1.0, 1.0]],
             source: None,
+            #[cfg(feature = "query")]
+            plan: None,
             labels: Vec::new(), // missing → error for LDA
             algorithm: ReduceAlgorithm::Lda,
             n_components: 1,
