@@ -2817,6 +2817,180 @@ pub enum Method {
         #[serde(default)]
         writeback: bool,
     },
+
+    /// Sequential-pattern mining (CONCEPT:EG-KG.mining.prefixspan — Phase 4).
+    /// Finds frequent ORDERED subsequences (PrefixSpan or GSP; both agree) over
+    /// EITHER explicit `sequences` (each a time-ordered list of item labels — an
+    /// item may repeat) OR a graph-derived `source` that turns each node's
+    /// ordered neighbor list (following resident edge insertion order) into one
+    /// sequence — the "what reliably follows what" hook (evolution/commit
+    /// timelines, event streams). Returns rows `{items, support, count}`. With
+    /// `writeback=true` it materializes each pattern as a typed
+    /// `:SequentialPattern` node linked to any item that is a resident node — a
+    /// graph MUTATION, WAL-replayed by re-mining deterministically. Gated
+    /// `mining`.
+    #[cfg(feature = "mining")]
+    MineSequence {
+        /// Explicit ordered sequences — each a time-ordered list of item labels.
+        /// Empty ⇒ use `source`.
+        #[serde(default)]
+        sequences: Vec<Vec<String>>,
+        /// Graph-derived sequence source (compute-near-data). Used when
+        /// `sequences` is empty.
+        #[serde(default)]
+        source: Option<SequenceSource>,
+        /// Minimum fractional support (0.0–1.0) a pattern must meet.
+        #[serde(default = "default_min_support")]
+        min_support: f64,
+        /// Which sequential-pattern engine to run (both agree; PrefixSpan default).
+        #[serde(default)]
+        algorithm: MineSeqAlgorithm,
+        /// Materialize each pattern as a typed `:SequentialPattern` node linked to
+        /// its resident item nodes.
+        #[serde(default)]
+        writeback: bool,
+    },
+
+    /// Classical time-series forecasting (CONCEPT:EG-KG.mining.arima — Phase 4).
+    /// Forecasts `horizon` future points (with an approximate confidence band)
+    /// from a 1-D `values` series — a tsdb window handed in by the caller,
+    /// mirroring `MineAnomaly`'s client-supplied `values` cut (the native
+    /// in-handler TsScan source is the same documented follow-up). `algorithm`
+    /// selects ARIMA(p,d,q) (Hannan-Rissanen), additive Holt-Winters/ETS
+    /// (degrades to Holt linear-trend when `period` is 0), or a classical STL-
+    /// style decomposition + trend/seasonal extrapolation. With
+    /// `writeback=true` it materializes the forecast as a typed `:Forecast`
+    /// node — linked to a resident node named `series_id` when one exists — a
+    /// graph MUTATION, WAL-replayed by re-forecasting deterministically. Gated
+    /// `mining`.
+    #[cfg(feature = "mining")]
+    MineForecast {
+        /// The 1-D series to forecast (required — a tsdb window handed in by
+        /// the caller).
+        #[serde(default)]
+        values: Vec<f64>,
+        /// Which forecasting engine to run.
+        #[serde(default)]
+        algorithm: ForecastAlgorithm,
+        /// Steps to forecast beyond the series.
+        #[serde(default = "default_horizon")]
+        horizon: usize,
+        /// ARIMA autoregressive order.
+        #[serde(default = "default_arima_p")]
+        p: usize,
+        /// ARIMA differencing order.
+        #[serde(default = "default_arima_d")]
+        d: usize,
+        /// ARIMA moving-average order.
+        #[serde(default)]
+        q: usize,
+        /// Seasonal period for Holt-Winters / STL (`0` ⇒ non-seasonal Holt
+        /// linear-trend fallback for Holt-Winters; trend-only for STL).
+        #[serde(default)]
+        period: usize,
+        /// Holt-Winters level smoothing.
+        #[serde(default = "default_hw_alpha")]
+        alpha: f64,
+        /// Holt-Winters trend smoothing.
+        #[serde(default = "default_hw_beta")]
+        beta: f64,
+        /// Holt-Winters seasonal smoothing.
+        #[serde(default = "default_hw_gamma")]
+        gamma: f64,
+        /// Two-sided confidence level for the forecast band (e.g. `0.95`).
+        #[serde(default = "default_confidence")]
+        confidence: f64,
+        /// Optional identity for the write-back `:Forecast` node; when it names
+        /// a resident node, the forecast is linked `FORECAST_OF` → that node.
+        /// Empty ⇒ the node id is derived from the input `values` + `algorithm`.
+        #[serde(default)]
+        series_id: String,
+        /// Materialize the forecast as a typed `:Forecast` node.
+        #[serde(default)]
+        writeback: bool,
+    },
+
+    /// Text mining (CONCEPT:EG-KG.mining.tfidf — Phase 4). `tfidf` returns each
+    /// document's term weights (descriptive, read-only); `lda`/`nmf` fit a
+    /// `k`-topic model over the corpus. Documents come from EITHER explicit
+    /// `docs` (each a pre-tokenized `Vec<String>` — use `tokenize`-equivalent
+    /// client-side, or pass raw words) OR a graph-derived `source` that
+    /// tokenizes a text property off a node label (compute-near-data — no
+    /// Tantivy/eg-text dependency). With `writeback=true` (`lda`/`nmf` only)
+    /// each topic is materialized as a typed `:Topic` node, linked to any
+    /// source document that is a resident node — a graph MUTATION,
+    /// WAL-replayed by re-mining deterministically. Gated `mining`.
+    #[cfg(feature = "mining")]
+    MineText {
+        /// Explicit pre-tokenized documents. Empty ⇒ use `source`.
+        #[serde(default)]
+        docs: Vec<Vec<String>>,
+        /// Graph-derived text source (compute-near-data). Used when `docs` is
+        /// empty.
+        #[serde(default)]
+        source: Option<TextSource>,
+        /// Which text-mining engine to run.
+        #[serde(default)]
+        algorithm: TextAlgorithm,
+        /// Topic count for `lda`/`nmf`.
+        #[serde(default = "default_topic_k")]
+        k: usize,
+        /// LDA symmetric doc-topic Dirichlet prior.
+        #[serde(default = "default_lda_alpha")]
+        alpha: f64,
+        /// LDA symmetric topic-term Dirichlet prior.
+        #[serde(default = "default_lda_beta")]
+        beta: f64,
+        /// Gibbs sweeps (`lda`) / multiplicative-update iterations (`nmf`).
+        #[serde(default = "default_text_iterations")]
+        iterations: usize,
+        /// Seed for LDA's Gibbs sampler / NMF's initial factors (deterministic).
+        #[serde(default)]
+        seed: u64,
+        /// How many terms to keep per document/topic row.
+        #[serde(default = "default_top_n")]
+        top_n: usize,
+        /// Materialize each topic as a typed `:Topic` node (`lda`/`nmf` only —
+        /// a no-op for `tfidf`, which has no topics to write back).
+        #[serde(default)]
+        writeback: bool,
+    },
+
+    /// Frequent subgraph mining + motif counting (CONCEPT:EG-KG.mining.gspan-frequent-subgraph
+    /// — Phase 4, the graph-native differentiator). UNLIKE every other mining
+    /// op in this family, this one mines the RESIDENT GRAPH's own topology
+    /// directly — no rows/vectors handed in. `gspan` finds frequent connected
+    /// subgraph PATTERNS (level-wise growth up to `max_edges` edges,
+    /// canonicalized + exactly re-counted); `motif` censuses small
+    /// label-agnostic topological motifs (wedges, triangles, directed
+    /// 3-cycles). `label`, when given, restricts the scanned host graph to
+    /// nodes of that one type (both edge endpoints must match) — `None` scans
+    /// the whole resident graph heterogeneously. With `writeback=true`
+    /// (`gspan` only) each frequent pattern is materialized as a typed
+    /// `:FrequentSubgraph` node, linked to every host node appearing in any of
+    /// its embeddings — a graph MUTATION, WAL-replayed by re-mining
+    /// deterministically. Gated `mining`.
+    #[cfg(feature = "mining")]
+    MineSubgraph {
+        /// Optional: restrict the host graph to nodes of this one type.
+        /// `None` ⇒ the whole resident graph (heterogeneous).
+        #[serde(default)]
+        label: Option<String>,
+        /// Minimum fractional support (0.0–1.0, of the host's total edge
+        /// count) a pattern's embedding count must meet. Ignored by `motif`.
+        #[serde(default = "default_min_support")]
+        min_support: f64,
+        /// Pattern-size growth cap (tractability). Ignored by `motif`.
+        #[serde(default = "default_max_subgraph_edges")]
+        max_edges: usize,
+        /// Which algorithm to run.
+        #[serde(default)]
+        algorithm: SubgraphAlgorithm,
+        /// Materialize each frequent pattern as a typed `:FrequentSubgraph`
+        /// node (`gspan` only — a no-op for `motif`, which has no patterns).
+        #[serde(default)]
+        writeback: bool,
+    },
 }
 
 // ── Supporting Types ────────────────────────────────────────────────────
@@ -2833,6 +3007,151 @@ pub enum MineAlgorithm {
     Fpgrowth,
     Apriori,
     Eclat,
+}
+
+/// Which sequential-pattern engine `MineSequence` runs (CONCEPT:EG-KG.mining.prefixspan
+/// — Phase 4). Both are exact and agree on the frequent-pattern set for a given
+/// support. PrefixSpan is the default (projection-based, no candidate generation).
+#[cfg(feature = "mining")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum MineSeqAlgorithm {
+    #[default]
+    Prefixspan,
+    Gsp,
+}
+
+/// Which forecasting engine `MineForecast` runs (CONCEPT:EG-KG.mining.arima —
+/// Phase 4). ARIMA is the default (Hannan-Rissanen AR(p)/MA(q) after `d`-order
+/// differencing); `holtwinters` degrades to Holt's linear-trend method when
+/// `period` is 0; `stl` is a classical decomposition + extrapolation.
+#[cfg(feature = "mining")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ForecastAlgorithm {
+    #[default]
+    Arima,
+    #[serde(alias = "holt_winters", alias = "hw", alias = "ets")]
+    Holtwinters,
+    Stl,
+}
+
+/// Which text-mining engine `MineText` runs (CONCEPT:EG-KG.mining.tfidf — Phase
+/// 4). TF-IDF is the default (descriptive per-document term weights); `lda`/
+/// `nmf` fit a `k`-topic model.
+#[cfg(feature = "mining")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum TextAlgorithm {
+    #[default]
+    Tfidf,
+    Lda,
+    Nmf,
+}
+
+/// Which algorithm `MineSubgraph` runs (CONCEPT:EG-KG.mining.gspan-frequent-subgraph
+/// — Phase 4). `gspan` is the default (labeled frequent-subgraph patterns);
+/// `motif` is a label-agnostic topological census.
+#[cfg(feature = "mining")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum SubgraphAlgorithm {
+    #[default]
+    Gspan,
+    Motif,
+}
+
+/// serde default for [`Method::MineSubgraph::max_edges`].
+#[cfg(feature = "mining")]
+fn default_max_subgraph_edges() -> usize {
+    3
+}
+
+/// A graph-derived text source for `MineText` (CONCEPT:EG-KG.mining.tfidf —
+/// Phase 4). Each node carrying `node_label` contributes one document: its
+/// `field` string property, tokenized (lowercase, alnum-run split).
+#[cfg(feature = "mining")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TextSource {
+    /// The node label whose instances each contribute one document.
+    pub node_label: String,
+    /// The string property to tokenize into the document.
+    pub field: String,
+    /// Cap the number of nodes scanned (0 = uncapped).
+    #[serde(default)]
+    pub limit: usize,
+}
+
+/// serde default topic count for `lda`/`nmf`.
+#[cfg(feature = "mining")]
+fn default_topic_k() -> usize {
+    3
+}
+
+/// serde default LDA symmetric doc-topic prior.
+#[cfg(feature = "mining")]
+fn default_lda_alpha() -> f64 {
+    0.1
+}
+
+/// serde default LDA symmetric topic-term prior.
+#[cfg(feature = "mining")]
+fn default_lda_beta() -> f64 {
+    0.01
+}
+
+/// serde default Gibbs sweeps / NMF iterations.
+#[cfg(feature = "mining")]
+fn default_text_iterations() -> usize {
+    200
+}
+
+/// serde default terms kept per document/topic row.
+#[cfg(feature = "mining")]
+fn default_top_n() -> usize {
+    10
+}
+
+/// serde default for [`Method::MineForecast::horizon`].
+#[cfg(feature = "mining")]
+fn default_horizon() -> usize {
+    10
+}
+
+/// serde default ARIMA autoregressive order.
+#[cfg(feature = "mining")]
+fn default_arima_p() -> usize {
+    1
+}
+
+/// serde default ARIMA differencing order.
+#[cfg(feature = "mining")]
+fn default_arima_d() -> usize {
+    1
+}
+
+/// serde default Holt-Winters level smoothing.
+#[cfg(feature = "mining")]
+fn default_hw_alpha() -> f64 {
+    0.3
+}
+
+/// serde default Holt-Winters trend smoothing.
+#[cfg(feature = "mining")]
+fn default_hw_beta() -> f64 {
+    0.1
+}
+
+/// serde default Holt-Winters seasonal smoothing.
+#[cfg(feature = "mining")]
+fn default_hw_gamma() -> f64 {
+    0.1
+}
+
+/// serde default two-sided forecast confidence level.
+#[cfg(feature = "mining")]
+fn default_confidence() -> f64 {
+    0.95
 }
 
 /// A graph-derived transaction source for `MineAssociate` (CONCEPT:EG-KG.mining.graph-derived-transactions).
@@ -2870,6 +3189,36 @@ pub struct TransactionSource {
 #[cfg(feature = "mining")]
 fn default_mine_direction() -> String {
     "out".to_string()
+}
+
+/// A graph-derived sequence source for `MineSequence` (CONCEPT:EG-KG.mining.prefixspan
+/// — Phase 4). Each node carrying `node_label` becomes one ordered sequence: the
+/// list of `item_field` values gathered from its neighbors in `direction`,
+/// preserving the RESIDENT EDGE INSERTION ORDER (the natural "ordered edge
+/// sequence per node" — edges accumulate in the order they were added, so this
+/// is compute-near-data over the bitemporal write history without a separate
+/// tsdb/event-log dependency), optionally filtered to a `relation`.
+#[cfg(feature = "mining")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SequenceSource {
+    /// The node label whose instances each become one ordered sequence.
+    pub node_label: String,
+    /// Edge direction to gather neighbors: `out` (successors, default — the
+    /// natural "what happened after" order), `in` (predecessors), or `any`.
+    #[serde(default = "default_mine_direction")]
+    pub direction: String,
+    /// Which value of each neighbor becomes an item: `label` (the neighbor's
+    /// type/label, default) or `prop:<key>` (a neighbor property value). When
+    /// `None`, the neighbor's node id is used verbatim.
+    #[serde(default)]
+    pub item_field: Option<String>,
+    /// Optional edge-relation filter: only follow edges whose `relation`/`type`
+    /// property equals this. `None` ⇒ all edges.
+    #[serde(default)]
+    pub relation: Option<String>,
+    /// Cap the number of sequence owners scanned (0 = uncapped).
+    #[serde(default)]
+    pub limit: usize,
 }
 
 /// A graph-derived VECTOR source for `MineCluster` / `MineAnomaly`

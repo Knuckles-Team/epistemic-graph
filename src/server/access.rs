@@ -77,9 +77,23 @@ pub(crate) fn requires_write(method: &Method) -> bool {
     | Method::MineCluster { writeback, .. }
     | Method::MineAnomaly { writeback, .. }
     | Method::MineClassifyPredict { writeback, .. }
-    | Method::MineReduce { writeback, .. } = method
+    | Method::MineReduce { writeback, .. }
+    | Method::MineSequence { writeback, .. }
+    | Method::MineForecast { writeback, .. } = method
     {
         return *writeback;
+    }
+    // MineText: writeback only mutates for lda/nmf (their :Topic nodes) — tfidf
+    // is always read-only regardless of the flag (the handler ignores it too).
+    #[cfg(feature = "mining")]
+    if let Method::MineText { writeback, algorithm, .. } = method {
+        return *writeback && !matches!(algorithm, crate::protocol::TextAlgorithm::Tfidf);
+    }
+    // MineSubgraph: writeback only mutates for gspan (its :FrequentSubgraph
+    // nodes) — motif is always read-only (a pure census, no patterns to write).
+    #[cfg(feature = "mining")]
+    if let Method::MineSubgraph { writeback, algorithm, .. } = method {
+        return *writeback && !matches!(algorithm, crate::protocol::SubgraphAlgorithm::Motif);
     }
     // Classification FIT is read-only (returns a model blob; no graph mutation).
     #[cfg(feature = "mining")]
