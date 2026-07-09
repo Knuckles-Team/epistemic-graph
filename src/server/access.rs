@@ -78,7 +78,8 @@ pub(crate) fn requires_write(method: &Method) -> bool {
     | Method::MineAnomaly { writeback, .. }
     | Method::MineClassifyPredict { writeback, .. }
     | Method::MineReduce { writeback, .. }
-    | Method::MineSequence { writeback, .. } = method
+    | Method::MineSequence { writeback, .. }
+    | Method::MineForecast { writeback, .. } = method
     {
         return *writeback;
     }

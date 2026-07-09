@@ -491,3 +491,73 @@ graph_mine { "action": "sequence",
 // REST twin (same _execute_tool core)
 POST /api/mining/sequence { "source": {"node_label": "Session"}, "min_support": 0.5 }
 ```
+
+---
+
+# Classical forecasting — `action="forecast"`
+
+Forecasts `horizon` future points from a 1-D `values` series (a tsdb window handed in
+by the caller — the same client-supplied cut `anomaly` took in Phase 2; the native
+in-handler TsScan source is the same documented follow-up). Three hand-rolled,
+dependency-free engines, selected by `algorithm`:
+
+- **`arima`** (default) — ARIMA(`p`,`d`,`q`): `d`-order differencing to stationarity,
+  then AR(`p`)/MA(`q`) coefficients fit by the **Hannan-Rissanen** two-stage method (a
+  long auxiliary AR gives a residual proxy, then AR+MA terms are jointly estimated by
+  OLS). Deterministic (closed-form least squares, no randomness).
+- **`holtwinters`** — additive level/trend/seasonal exponential smoothing
+  (`alpha`/`beta`/`gamma`, seasonal `period`); degrades to Holt's linear-trend method
+  (ETS(A,A,N)) when `period` is 0 or the series is shorter than two seasonal cycles.
+- **`stl`** — a classical (moving-average) trend/seasonal/residual decomposition, then
+  a linear-trend + repeated-last-cycle forecast extension. A lightweight stand-in for
+  full iterative Loess-STL (also returns the fitted `trend`/`seasonal`/`residual`).
+
+Every algorithm returns an approximate confidence band (`lower`/`upper`) at the
+two-sided `confidence` level (default `0.95`), widening with the forecast horizon.
+
+```python
+# ARIMA(1,1,0) — a pure linear trend needs one difference to become ~constant.
+out = await c.mining.forecast(values=[5 + 3*t for t in range(30)], algorithm="arima", p=1, d=1, horizon=5)
+# out["forecast"] tracks the trend's continuation; out["lower"]/out["upper"] widen with h.
+
+# Holt-Winters over a seasonal series (period=12).
+out = await c.mining.forecast(values=series, algorithm="holtwinters", period=12, horizon=12)
+
+# STL decomposition + extrapolation, also returning the fitted components.
+out = await c.mining.forecast(values=series, algorithm="stl", period=12, horizon=12)
+# out["trend"], out["seasonal"], out["residual"] are each len(values) long.
+```
+
+## Write-back — materialize the forecast for the loop engine
+
+With `writeback=True`, the forecast is materialized as a typed `:Forecast{horizon,
+values, lower, upper}` node — linked `FORECAST_OF` to a resident node named
+`series_id` when one is given and exists (e.g. a `:Metric` node whose id you pass as
+`series_id`) — feeding the evolution flywheel's "anticipate where to invest" use case
+(forecasting research-topic trajectories, capacity trends, etc.).
+
+```python
+# Forecast a named metric's series and write the result back, linked to its node.
+out = await c.mining.forecast(
+    values=metric_history, algorithm="holtwinters", period=7, horizon=7,
+    series_id="metric:daily_active_users", writeback=True,
+)
+# → one :Forecast{horizon, values, lower, upper, series_id} node, linked FORECAST_OF
+#   → the :metric:daily_active_users node (if resident).
+```
+
+`forecast` with `writeback=True` is a **WAL-durable** graph write (replayed by
+re-forecasting deterministically from the same `values`).
+
+## MCP + REST (forecast)
+
+```jsonc
+// MCP
+graph_mine { "action": "forecast",
+             "params_json": "{\"values\":[5,8,11,14],\"algorithm\":\"arima\",\"p\":1,\"d\":1,\"horizon\":5}" }
+graph_mine { "action": "forecast",
+             "params_json": "{\"values\":[...],\"algorithm\":\"stl\",\"period\":12,\"horizon\":12}" }
+
+// REST twin (same _execute_tool core)
+POST /api/mining/forecast { "values": [5, 8, 11, 14], "algorithm": "holtwinters", "period": 0, "horizon": 5 }
+```
