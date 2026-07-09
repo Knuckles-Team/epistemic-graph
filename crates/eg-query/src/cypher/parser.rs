@@ -1357,6 +1357,55 @@ mod tests {
         assert_eq!(pat.hops[0].0.var_len, Some((1, 3)));
     }
 
+    // ── CONCEPT:EG-KG.query.quantified-path-pattern — Cypher 25 QPP parsing ─────────────────────────
+
+    #[test]
+    fn parses_quantified_group_single_hop() {
+        let q = parse("MATCH (a:Person)((x)-[:KNOWS]->(y)){1,3}(b:Person) RETURN b").unwrap();
+        let (pat, _) = first_match(&q);
+        assert_eq!(pat.hops.len(), 1);
+        let group = pat.hops[0]
+            .0
+            .group
+            .as_ref()
+            .expect("hop should be a quantified group");
+        assert_eq!(group.quantifier, (1, 3));
+        assert_eq!(group.hops.len(), 1);
+        assert_eq!(group.hops[0].0.rel_type.as_deref(), Some("KNOWS"));
+        assert_eq!(group.start.var.as_deref(), Some("x"));
+        assert_eq!(group.hops[0].1.var.as_deref(), Some("y"));
+        // The trailing node constrains the LAST repetition's end position.
+        assert_eq!(pat.hops[0].1.label.as_deref(), Some("Person"));
+        assert_eq!(pat.hops[0].1.var.as_deref(), Some("b"));
+    }
+
+    #[test]
+    fn parses_quantified_group_without_trailing_node() {
+        let q = parse("MATCH (a)((x)-[:KNOWS]->(y)){2,} RETURN a").unwrap();
+        let (pat, _) = first_match(&q);
+        let group = pat.hops[0].0.group.as_ref().unwrap();
+        assert_eq!(group.quantifier, (2, 16)); // open max mirrors *m.. OPEN_MAX
+        assert!(pat.hops[0].1.var.is_none());
+    }
+
+    #[test]
+    fn parses_quantified_group_multi_hop_inner_pattern() {
+        // The inner group pattern is itself a two-hop chain — not just one relationship.
+        let q =
+            parse("MATCH (a)((x)-[:LIKES]->()-[:KNOWS]->(y)){1,2}(b) RETURN b").unwrap();
+        let (pat, _) = first_match(&q);
+        let group = pat.hops[0].0.group.as_ref().unwrap();
+        assert_eq!(group.hops.len(), 2);
+        assert_eq!(group.hops[0].0.rel_type.as_deref(), Some("LIKES"));
+        assert_eq!(group.hops[1].0.rel_type.as_deref(), Some("KNOWS"));
+    }
+
+    #[test]
+    fn quantified_group_requires_at_least_one_inner_hop() {
+        let err = parse("MATCH (a)((x)){1,3}(b) RETURN b").unwrap_err();
+        assert!(err.contains("at least one relationship hop"), "{err}");
+    }
+
     #[test]
     fn parses_property_return_and_comparison() {
         let q = parse("MATCH (a:Doc) WHERE a.size > 10 RETURN a.size").unwrap();
