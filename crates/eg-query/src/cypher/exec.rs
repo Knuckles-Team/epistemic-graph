@@ -32,8 +32,8 @@ pub use eg_types::protocol::QueryResult;
 use super::parser;
 use super::plan::{
     AggArg, AggFunc, CompareOp, Condition, CypherQuery, Direction, EdgePat, Expr, ListExpr,
-    NodePat, Pattern, PropVal, ReadStage, RemoveItem, ReturnItem, ReturnSpec, SetItem, Statement,
-    Test, WhereExpr, WithItem, WriteOp, WriteQuery, YieldItem,
+    NodePat, Pattern, PropVal, QuantifiedGroup, ReadStage, RemoveItem, ReturnItem, ReturnSpec,
+    SetItem, Statement, Test, WhereExpr, WithItem, WriteOp, WriteQuery, YieldItem,
 };
 use super::proc::{registry, YieldValue};
 
@@ -368,12 +368,40 @@ fn resolve_match(
         partials.push((b, sid));
     }
 
-    for (edge, node) in &pattern.hops {
+    partials = walk_hops(view, &pattern.hops, partials, params);
+
+    let mut out: Vec<Binding> = Vec::new();
+    for (b, _) in partials {
+        if where_holds(view, &b, where_clause) {
+            out.push(b);
+        }
+    }
+    Ok(out)
+}
+
+/// Walk a fixed/variable-length/quantified-group hop chain from `partials`
+/// (binding, current-node-id pairs), applying label/prop/anchor constraints hop
+/// by hop. Factored out of [`resolve_match`] so quantified-path-pattern group
+/// expansion (CONCEPT:EG-KG.query.quantified-path-pattern) can recursively reuse the exact
+/// same hop-walking semantics for its inner sub-pattern — a group hop's `edge.group`
+/// dispatches to [`group_reachable`] instead of [`neighbors`]/[`bfs_reachable`];
+/// everything downstream (label/prop/anchor checks, variable binding) is identical.
+fn walk_hops(
+    view: &GraphView,
+    hops: &[(EdgePat, NodePat)],
+    mut partials: Vec<(Binding, String)>,
+    params: &Params,
+) -> Vec<(Binding, String)> {
+    for (edge, node) in hops {
         let mut next: Vec<(Binding, String)> = Vec::new();
         for (b, cur) in &partials {
-            let targets: Vec<String> = match edge.var_len {
-                Some((min, max)) => bfs_reachable(view, cur, edge, min, max),
-                None => neighbors(view, cur, edge),
+            let targets: Vec<String> = if let Some(group) = &edge.group {
+                group_reachable(view, cur, group, params)
+            } else {
+                match edge.var_len {
+                    Some((min, max)) => bfs_reachable(view, cur, edge, min, max),
+                    None => neighbors(view, cur, edge),
+                }
             };
             for t in targets {
                 // node label filter
@@ -403,14 +431,79 @@ fn resolve_match(
         }
         partials = next;
     }
+    partials
+}
 
-    let mut out: Vec<Binding> = Vec::new();
-    for (b, _) in partials {
-        if where_holds(view, &b, where_clause) {
-            out.push(b);
+/// Every node id reachable from `src` by repeating `group`'s whole inner
+/// sub-pattern between `group.quantifier.0` and `group.quantifier.1` times
+/// (inclusive) — a Cypher 25 quantified path pattern (CONCEPT:EG-KG.query.quantified-path-pattern).
+/// Generalizes [`bfs_reachable`] (which repeats ONE relationship) to repeating an
+/// ARBITRARY sub-pattern: each "meta-edge" of the outer BFS is one full
+/// application of `group.hops` starting at the group's `start` position. The
+/// shallowest repetition count that reaches a node wins (each end node appears
+/// once), matching `bfs_reachable`'s dedup semantics.
+fn group_reachable(view: &GraphView, src: &str, group: &QuantifiedGroup, params: &Params) -> Vec<String> {
+    let (min, max) = group.quantifier;
+    if max == 0 {
+        return Vec::new();
+    }
+    let mut reached: HashSet<String> = HashSet::new();
+    let mut out: Vec<String> = Vec::new();
+    let mut frontier: Vec<String> = vec![src.to_string()];
+
+    for depth in 1..=max {
+        let mut next_frontier: Vec<String> = Vec::new();
+        for cur in &frontier {
+            for end in expand_group_once(view, group, cur, params) {
+                if depth >= min && reached.insert(end.clone()) {
+                    out.push(end.clone());
+                }
+                next_frontier.push(end);
+            }
+        }
+        if next_frontier.is_empty() {
+            break;
+        }
+        // Dedup the frontier so a dense/cyclic graph doesn't blow up repetition
+        // count across iterations (reachability only cares about the node set).
+        next_frontier.sort();
+        next_frontier.dedup();
+        frontier = next_frontier;
+    }
+    out
+}
+
+/// One application of `group`'s inner sub-pattern anchored at `cur` (the group's
+/// `start` position must resolve to `cur`, subject to its own label/prop
+/// constraints), returning every node id the pattern's last hop reaches
+/// (CONCEPT:EG-KG.query.quantified-path-pattern). The group's own start/inner variables are
+/// LOCAL to this one application — they do not escape into the caller's binding
+/// (the documented QPP simplification: only reachability + the final end node
+/// participate in the outer scope).
+fn expand_group_once(
+    view: &GraphView,
+    group: &QuantifiedGroup,
+    cur: &str,
+    params: &Params,
+) -> Vec<String> {
+    if let Some(lbl) = &group.start.label {
+        if !node_has_label_id(view, cur, lbl) {
+            return Vec::new();
         }
     }
-    Ok(out)
+    let empty_anchor: Binding = HashMap::new();
+    if !node_props_match(view, cur, &group.start, &empty_anchor, params) {
+        return Vec::new();
+    }
+    let mut b0: Binding = HashMap::new();
+    if let Some(v) = &group.start.var {
+        b0.insert(v.clone(), cur.to_string());
+    }
+    let partials = vec![(b0, cur.to_string())];
+    walk_hops(view, &group.hops, partials, params)
+        .into_iter()
+        .map(|(_, id)| id)
+        .collect()
 }
 
 /// Relationship-typed neighbours of `cur` in `edge.direction` (a single fixed hop).
@@ -1158,6 +1251,17 @@ fn apply_create(
     let start_id = realize_node(core, binding, &pattern.start, params, mutated)?;
     let mut prev_id = start_id;
     for (edge, node) in &pattern.hops {
+        // A quantified path pattern (CONCEPT:EG-KG.query.quantified-path-pattern) describes a
+        // MATCH-time repeated-reachability shape, not a concrete relationship to
+        // realize — CREATE has no well-defined meaning for it (unlike a plain
+        // fixed hop or even `*min..max`, which at least name ONE relationship
+        // type/direction to create). Reject rather than silently creating a
+        // type-less edge.
+        if edge.group.is_some() {
+            return Err(
+                "CREATE does not support quantified path pattern groups `((...)){m,n}`".into(),
+            );
+        }
         let next_id = realize_node(core, binding, node, params, mutated)?;
         let (src, tgt) = match edge.direction {
             Direction::Right => (prev_id.clone(), next_id.clone()),
