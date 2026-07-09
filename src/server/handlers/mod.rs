@@ -19,6 +19,13 @@ pub(crate) mod graph_ops;
 // `MineAssociate` variant falls to the graph_ops "not available" catch-all.
 #[cfg(feature = "mining")]
 pub(crate) mod mining;
+// Graph-learning / neuro-symbolic domain (CONCEPT:EG-KG.graphlearn.link-predictor,
+// feature `graphlearn`). A KAN link-predictor learned over a graph-derived subgraph;
+// GRAPH-SCOPED (like mining) — the source + `:PredictedEdge`/`:EdgeFunction`
+// write-back need the live core. A build without `graphlearn` omits the module and
+// the `GraphLearn*` variants fall to the graph_ops "not available" catch-all.
+#[cfg(feature = "graphlearn")]
+pub(crate) mod graphlearn;
 // M3 catalog-driven resharding admin (CONCEPT:EG-KG.backend.m3-admin-dispatch): the wire surface that DRIVES online
 // resharding (EG-032), the tenant catalog (EG-031) and the rebalance planner (EG-035) +
 // its execution (EG-039). Always declared; the real logic is `redb`-gated (the only build

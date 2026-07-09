@@ -2664,6 +2664,47 @@ pub enum Method {
         #[serde(default)]
         writeback: bool,
     },
+
+    // ── Graph Learning (CONCEPT:EG-KG.graphlearn.link-predictor — neuro-symbolic KAN) ──
+    // A learnable link-predictor over the resident graph whose learned per-feature
+    // edge functions are themselves queryable KG nodes (interpretability, not raw
+    // accuracy). `GraphLearnFit` learns a KAN model over a graph-derived subgraph
+    // (positives = observed edges, negatives = sampled non-edges) and returns the
+    // model blob (incl. the learned edge functions); with `writeback=true` it
+    // materializes typed `:EdgeFunction` nodes. `GraphLearnPredict` scores candidate
+    // node pairs (or the top-k missing links) with a fitted model and, with
+    // `writeback=true`, materializes `:PredictedEdge` nodes. Both writeback paths are
+    // graph MUTATIONS → classify as writes and WAL-replay by re-deriving from the
+    // current graph (like mining). Gated `graphlearn`; a build without it drops the
+    // variants → the dispatch "not available in this build" catch-all.
+    #[cfg(feature = "graphlearn")]
+    GraphLearnFit {
+        /// The graph-derived subgraph to learn over (node label + relation/direction).
+        source: GraphSource,
+        /// Training + architecture knobs (all defaulted).
+        #[serde(default)]
+        params: GraphLearnParams,
+        /// Materialize the learned per-feature `:EdgeFunction` nodes (a graph write).
+        #[serde(default)]
+        writeback: bool,
+    },
+    #[cfg(feature = "graphlearn")]
+    GraphLearnPredict {
+        /// A fitted `KanLinkModel` blob (as returned by `GraphLearnFit`).
+        model: serde_json::Value,
+        /// The subgraph providing the structural features (usually the same source).
+        source: GraphSource,
+        /// Explicit candidate pairs `(src, dst)` to score. Empty ⇒ score the top-k
+        /// highest-probability MISSING links across the subgraph.
+        #[serde(default)]
+        candidate_pairs: Vec<(String, String)>,
+        /// Cap on returned predictions (0 ⇒ uncapped).
+        #[serde(default = "default_gl_top_k")]
+        top_k: usize,
+        /// Materialize each scored pair as a typed `:PredictedEdge` node (a graph write).
+        #[serde(default)]
+        writeback: bool,
+    },
 }
 
 // ── Supporting Types ────────────────────────────────────────────────────
@@ -2826,6 +2867,116 @@ fn default_sample_size() -> usize {
 #[cfg(feature = "mining")]
 fn default_nu() -> f64 {
     0.1
+}
+
+// ── Graph-learning wire types (CONCEPT:EG-KG.graphlearn.link-predictor) ──
+
+/// A graph-derived subgraph source for `GraphLearn*` (CONCEPT:EG-KG.graphlearn.link-predictor).
+///
+/// Every node carrying `node_label` becomes a vertex; edges among them (following
+/// `direction`, optionally filtered to `relation`) are the observed positive links
+/// the KAN learns from. Isolated label instances are kept as candidate endpoints.
+#[cfg(feature = "graphlearn")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphSource {
+    /// The node label whose instances form the learning subgraph's vertices.
+    pub node_label: String,
+    /// Edge direction to gather links: `any` (both, default — links are undirected
+    /// for prediction), `out` (successors), or `in` (predecessors).
+    #[serde(default = "default_gl_direction")]
+    pub direction: String,
+    /// Optional edge-relation filter: only use edges whose `relation`/`type` equals
+    /// this. `None` ⇒ all edges among the label's nodes.
+    #[serde(default)]
+    pub relation: Option<String>,
+    /// Cap the number of label nodes scanned (0 = uncapped).
+    #[serde(default)]
+    pub limit: usize,
+}
+
+/// serde default for [`GraphSource::direction`].
+#[cfg(feature = "graphlearn")]
+fn default_gl_direction() -> String {
+    "any".to_string()
+}
+
+/// Training + architecture knobs for `GraphLearnFit` (CONCEPT:EG-KG.graphlearn.link-predictor).
+#[cfg(feature = "graphlearn")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphLearnParams {
+    /// Polynomial basis for the edge functions: `chebyshev` (default) or `jacobi`.
+    #[serde(default = "default_gl_basis")]
+    pub basis: String,
+    /// Polynomial degree per edge function.
+    #[serde(default = "default_gl_degree")]
+    pub degree: usize,
+    /// Hidden width; `0` ⇒ a single interpretable layer (one edge fn per feature).
+    #[serde(default)]
+    pub hidden: usize,
+    /// Adam training epochs.
+    #[serde(default = "default_gl_epochs")]
+    pub epochs: usize,
+    /// Adam learning rate.
+    #[serde(default = "default_gl_lr")]
+    pub lr: f64,
+    /// Negatives (sampled non-edges) per positive edge.
+    #[serde(default = "default_gl_neg_ratio")]
+    pub neg_ratio: f64,
+    /// Seed for negative sampling + parameter init (deterministic).
+    #[serde(default = "default_gl_seed")]
+    pub seed: u64,
+    /// 1-hop neighbour-aggregation self-retention for the node-feature channel.
+    #[serde(default = "default_gl_alpha")]
+    pub alpha: f64,
+}
+
+#[cfg(feature = "graphlearn")]
+impl Default for GraphLearnParams {
+    fn default() -> Self {
+        Self {
+            basis: default_gl_basis(),
+            degree: default_gl_degree(),
+            hidden: 0,
+            epochs: default_gl_epochs(),
+            lr: default_gl_lr(),
+            neg_ratio: default_gl_neg_ratio(),
+            seed: default_gl_seed(),
+            alpha: default_gl_alpha(),
+        }
+    }
+}
+
+#[cfg(feature = "graphlearn")]
+fn default_gl_basis() -> String {
+    "chebyshev".to_string()
+}
+#[cfg(feature = "graphlearn")]
+fn default_gl_degree() -> usize {
+    4
+}
+#[cfg(feature = "graphlearn")]
+fn default_gl_epochs() -> usize {
+    200
+}
+#[cfg(feature = "graphlearn")]
+fn default_gl_lr() -> f64 {
+    0.05
+}
+#[cfg(feature = "graphlearn")]
+fn default_gl_neg_ratio() -> f64 {
+    1.0
+}
+#[cfg(feature = "graphlearn")]
+fn default_gl_seed() -> u64 {
+    42
+}
+#[cfg(feature = "graphlearn")]
+fn default_gl_alpha() -> f64 {
+    0.5
+}
+#[cfg(feature = "graphlearn")]
+fn default_gl_top_k() -> usize {
+    50
 }
 
 /// The distributed graph algorithm a `DistributedCompute` / matview runs across
