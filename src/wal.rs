@@ -704,7 +704,11 @@ pub fn apply(core: &GraphCore, m: &Method) {
         | Method::MineCluster { .. }
         | Method::MineAnomaly { .. }
         | Method::MineClassifyPredict { .. }
-        | Method::MineReduce { .. } => crate::server::handlers::mining::replay(core, m),
+        | Method::MineReduce { .. }
+        | Method::MineSequence { .. }
+        | Method::MineForecast { .. }
+        | Method::MineText { .. }
+        | Method::MineSubgraph { .. } => crate::server::handlers::mining::replay(core, m),
         // Graph-learning write-back (CONCEPT:EG-KG.graphlearn.link-predictor): re-run the
         // fit/predict + re-materialize the `:EdgeFunction` / `:PredictedEdge` nodes.
         // The node ids are a deterministic digest, so replay is idempotent.

@@ -18,12 +18,17 @@ use eg_compute::mining::anomaly;
 use eg_compute::mining::association::{self, Algorithm, LabeledRule};
 use eg_compute::mining::classify::{self, FittedClassifier};
 use eg_compute::mining::cluster;
+use eg_compute::mining::forecast;
 use eg_compute::mining::reduce;
+use eg_compute::mining::sequence::{self, LabeledPattern};
+use eg_compute::mining::subgraph::{self, HostGraph};
+use eg_compute::mining::text;
 
 use crate::graph::GraphCore;
 use crate::protocol::{
-    AnomalyAlgorithm, ClassifyAlgorithm, ClusterAlgorithm, Linkage, Method, MineAlgorithm,
-    ReduceAlgorithm, Response, ResultPayload, SvmKernel, TransactionSource, VectorSource,
+    AnomalyAlgorithm, ClassifyAlgorithm, ClusterAlgorithm, ForecastAlgorithm, Linkage, Method,
+    MineAlgorithm, MineSeqAlgorithm, ReduceAlgorithm, Response, ResultPayload, SequenceSource,
+    SubgraphAlgorithm, SvmKernel, TextAlgorithm, TextSource, TransactionSource, VectorSource,
 };
 
 /// Handle a `Mine*` method. `Err(method)` hands a non-mining method back to the
@@ -148,6 +153,61 @@ pub(crate) fn try_handle(
             seed,
             writeback,
         )),
+        Method::MineSequence {
+            sequences,
+            source,
+            min_support,
+            algorithm,
+            writeback,
+        } => Ok(handle_sequence(
+            req_id,
+            &core,
+            sequences,
+            source,
+            min_support,
+            algorithm,
+            writeback,
+        )),
+        Method::MineForecast {
+            values,
+            algorithm,
+            horizon,
+            p,
+            d,
+            q,
+            period,
+            alpha,
+            beta,
+            gamma,
+            confidence,
+            series_id,
+            writeback,
+        } => Ok(handle_forecast(
+            req_id, &core, values, algorithm, horizon, p, d, q, period, alpha, beta, gamma,
+            confidence, series_id, writeback,
+        )),
+        Method::MineText {
+            docs,
+            source,
+            algorithm,
+            k,
+            alpha,
+            beta,
+            iterations,
+            seed,
+            top_n,
+            writeback,
+        } => Ok(handle_text(
+            req_id, &core, docs, source, algorithm, k, alpha, beta, iterations, seed, top_n,
+            writeback,
+        )),
+        Method::MineSubgraph {
+            label,
+            min_support,
+            max_edges,
+            algorithm,
+            writeback,
+        } => Ok(handle_subgraph(req_id, &core, label, min_support, max_edges, algorithm, writeback)),
         other => Err(other),
     }
 }
@@ -274,6 +334,82 @@ pub(crate) fn replay(core: &GraphCore, method: &Method) {
             let lbls = (!labels.is_empty()).then_some(labels.as_slice());
             let out = reduce::reduce(&rows, lbls, algo, *n_components);
             materialize_embeddings(core, &out, &ids);
+        }
+        Method::MineSequence {
+            sequences,
+            source,
+            min_support,
+            algorithm,
+            writeback: true,
+        } => {
+            let seqs = match build_sequences(core, sequences, source) {
+                Ok(s) => s,
+                Err(_) => return,
+            };
+            let patterns = sequence::mine_labeled(&seqs, *min_support, to_seq_algo(*algorithm));
+            materialize_patterns(core, &patterns);
+        }
+        Method::MineForecast {
+            values,
+            algorithm,
+            horizon,
+            p,
+            d,
+            q,
+            period,
+            alpha,
+            beta,
+            gamma,
+            confidence,
+            series_id,
+            writeback: true,
+        } => {
+            if values.is_empty() {
+                return;
+            }
+            let algo = forecast_algo(*algorithm, *p, *d, *q, *period, *alpha, *beta, *gamma);
+            let out = forecast::forecast(values, algo, *horizon, *confidence);
+            materialize_forecast(core, &out, *horizon, series_id, values, forecast_algo_name(*algorithm));
+        }
+        Method::MineText {
+            docs,
+            source,
+            algorithm,
+            k,
+            alpha,
+            beta,
+            iterations,
+            seed,
+            top_n,
+            writeback: true,
+        } => {
+            if matches!(algorithm, TextAlgorithm::Tfidf) {
+                return; // tfidf has no topics to write back
+            }
+            let (tokenized, ids) = build_text_docs(core, docs, source);
+            if tokenized.is_empty() {
+                return;
+            }
+            let algo = to_text_algo(*algorithm, *k, *alpha, *beta, *iterations, *seed);
+            let out = text::mine_labeled(&tokenized, algo, *top_n);
+            materialize_topics(core, &out, &ids, text_algo_name(*algorithm));
+        }
+        Method::MineSubgraph {
+            label,
+            min_support,
+            max_edges,
+            algorithm,
+            writeback: true,
+        } => {
+            if matches!(algorithm, SubgraphAlgorithm::Motif) {
+                return; // motif has no patterns to write back
+            }
+            let (host, ids) = build_host_graph(core, label);
+            if host.node_count() == 0 {
+                return;
+            }
+            let results = subgraph::mine_gspan(&host, *min_support, *max_edges);
+            materialize_subgraphs(core, &results, &ids);
         }
         _ => {}
     }
@@ -1131,6 +1267,687 @@ fn embedding2d_node_id(source: &str) -> String {
     format!("embedding2d:{}", hex::encode(&hasher.finalize()[..12]))
 }
 
+// ─────────────────────────── Sequential-pattern mining ───────────────────────────
+
+/// Handle `MineSequence` (CONCEPT:EG-KG.mining.prefixspan — Phase 4): build the
+/// ordered sequences (explicit or graph-derived), run the chosen engine
+/// (PrefixSpan/GSP — both agree), return `{patterns, ...}`, and optionally write
+/// `:SequentialPattern` nodes back.
+fn handle_sequence(
+    req_id: u64,
+    core: &GraphCore,
+    sequences: Vec<Vec<String>>,
+    source: Option<SequenceSource>,
+    min_support: f64,
+    algorithm: MineSeqAlgorithm,
+    writeback: bool,
+) -> Response {
+    let seqs = match build_sequences(core, &sequences, &source) {
+        Ok(s) => s,
+        Err(e) => return Response::err(req_id, e),
+    };
+    let patterns = sequence::mine_labeled(&seqs, min_support, to_seq_algo(algorithm));
+
+    let written = if writeback {
+        materialize_patterns(core, &patterns)
+    } else {
+        0
+    };
+
+    let rows: Vec<serde_json::Value> = patterns
+        .iter()
+        .map(|p| {
+            serde_json::json!({
+                "items": p.items,
+                "support": p.support,
+                "count": p.count,
+            })
+        })
+        .collect();
+
+    Response::ok(
+        req_id,
+        ResultPayload::Json(serde_json::json!({
+            "patterns": rows,
+            "n_sequences": seqs.len(),
+            "n_patterns": patterns.len(),
+            "written_back": written,
+        })),
+    )
+}
+
+/// Resolve the sequence set: explicit `sequences` win; otherwise derive them
+/// from the graph via `source`. An empty request yields no sequences (⇒ no
+/// patterns), a valid empty result.
+fn build_sequences(
+    core: &GraphCore,
+    sequences: &[Vec<String>],
+    source: &Option<SequenceSource>,
+) -> Result<Vec<Vec<String>>, String> {
+    if !sequences.is_empty() {
+        return Ok(sequences.to_vec());
+    }
+    match source {
+        Some(spec) => Ok(derive_sequences_from_graph(core, spec)),
+        None => Ok(Vec::new()),
+    }
+}
+
+/// Build one ORDERED sequence per `node_label` instance from its neighbor list
+/// (CONCEPT:EG-KG.mining.prefixspan): each sequence is the `item_field` values of
+/// the owner's neighbors in `direction`, restored to chronological (edge
+/// insertion) order — unlike `derive_from_graph`'s unordered dedup, order is the
+/// whole point of a sequence — optionally filtered to a `relation`.
+///
+/// `core.get_successors`/`get_predecessors` walk the underlying petgraph
+/// adjacency list, which is LIFO (the most-recently-added edge comes back
+/// FIRST); `neighbors_in_direction` passes that through unchanged for
+/// `out`/`in`, so it is reversed here to recover true chronological order.
+fn derive_sequences_from_graph(core: &GraphCore, spec: &SequenceSource) -> Vec<Vec<String>> {
+    let owners = core.get_nodes_by_label(&spec.node_label, spec.limit);
+    let mut out: Vec<Vec<String>> = Vec::with_capacity(owners.len());
+    for (owner_id, _blob) in owners {
+        let mut neighbors = neighbors_in_direction(core, &owner_id, &spec.direction);
+        if spec.direction != "any" {
+            neighbors.reverse();
+        }
+        let mut seq: Vec<String> = Vec::new();
+        for nbr in neighbors {
+            if let Some(rel) = &spec.relation {
+                if !edge_matches_relation(core, &owner_id, &nbr, &spec.direction, rel) {
+                    continue;
+                }
+            }
+            if let Some(item) = extract_item(core, &nbr, &spec.item_field) {
+                seq.push(item);
+            }
+        }
+        if !seq.is_empty() {
+            out.push(seq);
+        }
+    }
+    out
+}
+
+fn to_seq_algo(a: MineSeqAlgorithm) -> sequence::Algorithm {
+    match a {
+        MineSeqAlgorithm::Prefixspan => sequence::Algorithm::PrefixSpan,
+        MineSeqAlgorithm::Gsp => sequence::Algorithm::Gsp,
+    }
+}
+
+/// Materialize each mined pattern as a typed `:SequentialPattern` node
+/// (CONCEPT:EG-KG.mining.sequence-writeback), id = a deterministic digest of its
+/// (order-preserving) item list. Linked to any item that is a resident node via
+/// a `PATTERN_ITEM` edge, mirroring `materialize_rules`.
+fn materialize_patterns(core: &GraphCore, patterns: &[LabeledPattern]) -> usize {
+    let mut written = 0usize;
+    for p in patterns {
+        let node_id = pattern_node_id(&p.items);
+        let props = serde_json::json!({
+            "type": "SequentialPattern",
+            "items": p.items,
+            "support": p.support,
+            "count": p.count,
+        });
+        let Ok(blob) = rmp_serde::to_vec_named(&props) else {
+            continue;
+        };
+        core.add_node(node_id.clone(), blob);
+        for item in &p.items {
+            if core.has_node(item) {
+                let edge = serde_json::json!({ "relation": "PATTERN_ITEM" });
+                if let Ok(eb) = rmp_serde::to_vec_named(&edge) {
+                    let _ = core.add_edge(node_id.clone(), item.clone(), eb);
+                }
+            }
+        }
+        written += 1;
+    }
+    written
+}
+
+/// Deterministic, collision-resistant node id for a pattern (order matters, so
+/// the digest is over the items in sequence — unlike a rule's antecedent/
+/// consequent, which are pre-sorted sets).
+fn pattern_node_id(items: &[String]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(items.join("\u{1}").as_bytes());
+    format!("seqpattern:{}", hex::encode(&hasher.finalize()[..12]))
+}
+
+// ─────────────────────────── Forecasting ───────────────────────────
+
+/// Handle `MineForecast` (CONCEPT:EG-KG.mining.arima — Phase 4): forecast
+/// `horizon` future points off a 1-D `values` series (a tsdb window handed in
+/// by the caller — the same client-supplied cut `MineAnomaly` took in Phase 2)
+/// via ARIMA/Holt-Winters/STL, return `{forecast, lower, upper, ...}`, and
+/// optionally write a `:Forecast` node back.
+#[allow(clippy::too_many_arguments)]
+fn handle_forecast(
+    req_id: u64,
+    core: &GraphCore,
+    values: Vec<f64>,
+    algorithm: ForecastAlgorithm,
+    horizon: usize,
+    p: usize,
+    d: usize,
+    q: usize,
+    period: usize,
+    alpha: f64,
+    beta: f64,
+    gamma: f64,
+    confidence: f64,
+    series_id: String,
+    writeback: bool,
+) -> Response {
+    if values.is_empty() {
+        return Response::err(req_id, "mining: forecast requires a non-empty `values` series");
+    }
+    let algo = forecast_algo(algorithm, p, d, q, period, alpha, beta, gamma);
+    let out = forecast::forecast(&values, algo, horizon, confidence);
+
+    let written = if writeback {
+        materialize_forecast(core, &out, horizon, &series_id, &values, forecast_algo_name(algorithm))
+    } else {
+        0
+    };
+
+    let mut payload = serde_json::json!({
+        "forecast": out.values,
+        "lower": out.lower,
+        "upper": out.upper,
+        "algorithm": forecast_algo_name(algorithm),
+        "horizon": horizon,
+        "n_obs": values.len(),
+        "written_back": written,
+    });
+    if matches!(algorithm, ForecastAlgorithm::Stl) {
+        payload["trend"] = serde_json::json!(out.trend);
+        payload["seasonal"] = serde_json::json!(out.seasonal);
+        payload["residual"] = serde_json::json!(out.residual);
+    }
+    Response::ok(req_id, ResultPayload::Json(payload))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn forecast_algo(
+    a: ForecastAlgorithm,
+    p: usize,
+    d: usize,
+    q: usize,
+    period: usize,
+    alpha: f64,
+    beta: f64,
+    gamma: f64,
+) -> forecast::Algorithm {
+    match a {
+        ForecastAlgorithm::Arima => forecast::Algorithm::Arima { p, d, q },
+        ForecastAlgorithm::Holtwinters => forecast::Algorithm::HoltWinters {
+            period,
+            alpha,
+            beta,
+            gamma,
+        },
+        ForecastAlgorithm::Stl => forecast::Algorithm::Stl { period },
+    }
+}
+
+fn forecast_algo_name(a: ForecastAlgorithm) -> &'static str {
+    match a {
+        ForecastAlgorithm::Arima => "arima",
+        ForecastAlgorithm::Holtwinters => "holtwinters",
+        ForecastAlgorithm::Stl => "stl",
+    }
+}
+
+/// Materialize the forecast as a typed `:Forecast` node
+/// (CONCEPT:EG-KG.mining.forecast-writeback), id = a deterministic digest of
+/// `algo` + (`series_id` when given, else the input `values` — so identical
+/// explicit input reproduces the same id on WAL replay). Linked to a resident
+/// node named `series_id` via a `FORECAST_OF` edge when one exists.
+fn materialize_forecast(
+    core: &GraphCore,
+    out: &forecast::Forecast,
+    horizon: usize,
+    series_id: &str,
+    values: &[f64],
+    algo: &str,
+) -> usize {
+    let node_id = forecast_node_id(algo, series_id, values);
+    let props = serde_json::json!({
+        "type": "Forecast",
+        "algo": algo,
+        "horizon": horizon,
+        "values": out.values,
+        "lower": out.lower,
+        "upper": out.upper,
+        "series_id": series_id,
+    });
+    let Ok(blob) = rmp_serde::to_vec_named(&props) else {
+        return 0;
+    };
+    core.add_node(node_id.clone(), blob);
+    if !series_id.is_empty() && core.has_node(series_id) {
+        let edge = serde_json::json!({ "relation": "FORECAST_OF" });
+        if let Ok(eb) = rmp_serde::to_vec_named(&edge) {
+            let _ = core.add_edge(node_id, series_id.to_string(), eb);
+        }
+    }
+    1
+}
+
+fn forecast_node_id(algo: &str, series_id: &str, values: &[f64]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(algo.as_bytes());
+    hasher.update([0u8]);
+    if !series_id.is_empty() {
+        hasher.update(series_id.as_bytes());
+    } else {
+        for v in values {
+            hasher.update(v.to_bits().to_le_bytes());
+        }
+    }
+    format!("forecast:{}", hex::encode(&hasher.finalize()[..12]))
+}
+
+// ─────────────────────────── Text mining ───────────────────────────
+
+/// Handle `MineText` (CONCEPT:EG-KG.mining.tfidf — Phase 4): tokenize the
+/// corpus (explicit or graph-derived), run the chosen engine, return
+/// `{doc_terms}` (tfidf) or `{topics, doc_topics}` (lda/nmf), and optionally
+/// write `:Topic` nodes back (lda/nmf only).
+#[allow(clippy::too_many_arguments)]
+fn handle_text(
+    req_id: u64,
+    core: &GraphCore,
+    docs: Vec<Vec<String>>,
+    source: Option<TextSource>,
+    algorithm: TextAlgorithm,
+    k: usize,
+    alpha: f64,
+    beta: f64,
+    iterations: usize,
+    seed: u64,
+    top_n: usize,
+    writeback: bool,
+) -> Response {
+    let (tokenized, ids) = build_text_docs(core, &docs, &source);
+    if tokenized.is_empty() {
+        return Response::ok(
+            req_id,
+            ResultPayload::Json(serde_json::json!({
+                "doc_terms": [],
+                "topics": [],
+                "doc_topics": [],
+                "n_docs": 0,
+                "written_back": 0,
+            })),
+        );
+    }
+    let algo = to_text_algo(algorithm, k, alpha, beta, iterations, seed);
+    let out = text::mine_labeled(&tokenized, algo, top_n);
+
+    let written = if writeback && !matches!(algorithm, TextAlgorithm::Tfidf) {
+        materialize_topics(core, &out, &ids, text_algo_name(algorithm))
+    } else {
+        0
+    };
+
+    let doc_terms_json: Vec<serde_json::Value> = out
+        .doc_terms
+        .iter()
+        .enumerate()
+        .map(|(i, terms)| {
+            let id = ids.get(i).cloned().unwrap_or_else(|| i.to_string());
+            let term_rows: Vec<serde_json::Value> = terms
+                .iter()
+                .map(|(t, w)| serde_json::json!({ "term": t, "weight": w }))
+                .collect();
+            serde_json::json!({ "doc_id": id, "terms": term_rows })
+        })
+        .collect();
+
+    let topics_json: Vec<serde_json::Value> = out
+        .topics
+        .iter()
+        .enumerate()
+        .map(|(i, terms)| {
+            let term_rows: Vec<serde_json::Value> = terms
+                .iter()
+                .map(|(t, w)| serde_json::json!({ "term": t, "weight": w }))
+                .collect();
+            serde_json::json!({ "topic_id": i, "terms": term_rows })
+        })
+        .collect();
+
+    Response::ok(
+        req_id,
+        ResultPayload::Json(serde_json::json!({
+            "doc_terms": doc_terms_json,
+            "topics": topics_json,
+            "doc_topics": out.doc_topics,
+            "algorithm": text_algo_name(algorithm),
+            "n_docs": tokenized.len(),
+            "written_back": written,
+        })),
+    )
+}
+
+fn to_text_algo(a: TextAlgorithm, k: usize, alpha: f64, beta: f64, iterations: usize, seed: u64) -> text::Algorithm {
+    match a {
+        TextAlgorithm::Tfidf => text::Algorithm::Tfidf,
+        TextAlgorithm::Lda => text::Algorithm::Lda { k, alpha, beta, iterations, seed },
+        TextAlgorithm::Nmf => text::Algorithm::Nmf { k, iterations, seed },
+    }
+}
+
+fn text_algo_name(a: TextAlgorithm) -> &'static str {
+    match a {
+        TextAlgorithm::Tfidf => "tfidf",
+        TextAlgorithm::Lda => "lda",
+        TextAlgorithm::Nmf => "nmf",
+    }
+}
+
+/// Resolve the tokenized corpus: explicit `docs` win (already tokenized, ids
+/// empty); otherwise tokenize the `field` string property of every
+/// `source.node_label` instance (compute-near-data — no Tantivy/eg-text
+/// dependency), skipping nodes with no non-empty text. Returns the corpus AND
+/// a parallel `ids` vec (node ids for the graph-derived path).
+fn build_text_docs(
+    core: &GraphCore,
+    docs: &[Vec<String>],
+    source: &Option<TextSource>,
+) -> (Vec<Vec<String>>, Vec<String>) {
+    if !docs.is_empty() {
+        return (docs.to_vec(), Vec::new());
+    }
+    let Some(spec) = source else {
+        return (Vec::new(), Vec::new());
+    };
+    let owners = core.get_nodes_by_label(&spec.node_label, spec.limit);
+    let mut tokenized = Vec::with_capacity(owners.len());
+    let mut ids = Vec::with_capacity(owners.len());
+    for (node_id, blob) in owners {
+        let Ok(props) = rmp_serde::from_slice::<serde_json::Value>(&blob) else {
+            continue;
+        };
+        let Some(text_val) = props.get(&spec.field).and_then(|v| v.as_str()) else {
+            continue;
+        };
+        let toks = text::tokenize(text_val);
+        if toks.is_empty() {
+            continue;
+        }
+        tokenized.push(toks);
+        ids.push(node_id);
+    }
+    (tokenized, ids)
+}
+
+/// Materialize each topic as a typed `:Topic` node
+/// (CONCEPT:EG-KG.mining.topic-writeback), id = a deterministic digest of `algo`
+/// + its top terms (order-sensitive — the terms are already sorted by
+/// descending weight). Linked, via a `HAS_TOPIC` edge, to every resident
+/// source document whose DOMINANT topic (argmax of its `doc_topics`
+/// distribution) is this one — only available when the corpus came from a
+/// graph-derived `source` (`ids` non-empty).
+fn materialize_topics(core: &GraphCore, out: &text::LabeledTextResult, ids: &[String], algo: &str) -> usize {
+    let dominant: Vec<usize> = out
+        .doc_topics
+        .iter()
+        .map(|dist| {
+            dist.iter()
+                .enumerate()
+                .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
+                .map(|(t, _)| t)
+                .unwrap_or(0)
+        })
+        .collect();
+
+    let mut written = 0usize;
+    for (t, terms) in out.topics.iter().enumerate() {
+        let term_labels: Vec<&str> = terms.iter().map(|(term, _)| term.as_str()).collect();
+        let node_id = topic_node_id(algo, &term_labels);
+        let term_rows: Vec<serde_json::Value> = terms
+            .iter()
+            .map(|(term, w)| serde_json::json!({ "term": term, "weight": w }))
+            .collect();
+        let props = serde_json::json!({
+            "type": "Topic",
+            "algo": algo,
+            "terms": term_rows,
+        });
+        let Ok(blob) = rmp_serde::to_vec_named(&props) else {
+            continue;
+        };
+        core.add_node(node_id.clone(), blob);
+        for (i, doc_id) in ids.iter().enumerate() {
+            if dominant.get(i) == Some(&t) && core.has_node(doc_id) {
+                let edge = serde_json::json!({ "relation": "HAS_TOPIC" });
+                if let Ok(eb) = rmp_serde::to_vec_named(&edge) {
+                    let _ = core.add_edge(doc_id.clone(), node_id.clone(), eb);
+                }
+            }
+        }
+        written += 1;
+    }
+    written
+}
+
+fn topic_node_id(algo: &str, terms: &[&str]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(algo.as_bytes());
+    hasher.update([0u8]);
+    hasher.update(terms.join("\u{1}").as_bytes());
+    format!("topic:{}", hex::encode(&hasher.finalize()[..12]))
+}
+
+// ─────────────────────────── Frequent subgraph mining + motifs ───────────────────────────
+
+/// Handle `MineSubgraph` (CONCEPT:EG-KG.mining.gspan-frequent-subgraph — Phase
+/// 4, the graph-native family member): build a labeled host graph from the
+/// RESIDENT graph itself (no rows/vectors handed in), run gSpan-style
+/// frequent-subgraph mining or a motif census, and optionally write
+/// `:FrequentSubgraph` nodes back (`gspan` only).
+fn handle_subgraph(
+    req_id: u64,
+    core: &GraphCore,
+    label: Option<String>,
+    min_support: f64,
+    max_edges: usize,
+    algorithm: SubgraphAlgorithm,
+    writeback: bool,
+) -> Response {
+    let (host, ids) = build_host_graph(core, &label);
+    let n_host_nodes = host.node_count();
+    let n_host_edges = host.edge_count();
+
+    match algorithm {
+        SubgraphAlgorithm::Gspan => {
+            let results = subgraph::mine_gspan(&host, min_support, max_edges);
+            let written = if writeback {
+                materialize_subgraphs(core, &results, &ids)
+            } else {
+                0
+            };
+            let patterns: Vec<serde_json::Value> = results
+                .iter()
+                .map(|r| {
+                    let edges: Vec<serde_json::Value> = r
+                        .pattern
+                        .edges
+                        .iter()
+                        .map(|(a, b, lbl)| serde_json::json!({ "from": a, "to": b, "label": lbl }))
+                        .collect();
+                    serde_json::json!({
+                        "nodes": r.pattern.node_labels,
+                        "edges": edges,
+                        "support": r.support,
+                        "count": r.count,
+                    })
+                })
+                .collect();
+            Response::ok(
+                req_id,
+                ResultPayload::Json(serde_json::json!({
+                    "patterns": patterns,
+                    "algorithm": subgraph_algo_name(SubgraphAlgorithm::Gspan),
+                    "n_host_nodes": n_host_nodes,
+                    "n_host_edges": n_host_edges,
+                    "written_back": written,
+                })),
+            )
+        }
+        SubgraphAlgorithm::Motif => {
+            let motifs = subgraph::count_motifs(&host);
+            Response::ok(
+                req_id,
+                ResultPayload::Json(serde_json::json!({
+                    "motifs": {
+                        "wedge": motifs.wedge,
+                        "triangle": motifs.triangle,
+                        "directed_cycle3": motifs.directed_cycle3,
+                    },
+                    "algorithm": subgraph_algo_name(SubgraphAlgorithm::Motif),
+                    "n_host_nodes": n_host_nodes,
+                    "n_host_edges": n_host_edges,
+                    "written_back": 0,
+                })),
+            )
+        }
+    }
+}
+
+/// Build a [`HostGraph`] from the resident graph (CONCEPT:EG-KG.mining.gspan-frequent-subgraph):
+/// every node's type/label property (checked in the same `type`/`node_type`/
+/// `label` precedence as `extract_item`'s `"label"` field), every edge's
+/// relation label (`relation`/`type`/`rel`, defaulting to `"_"`). When
+/// `label_filter` is given, only nodes of that ONE type are included (both
+/// edge endpoints must be included for the edge to count). Returns the host
+/// graph AND a parallel `ids` vec (dense index → resident node id).
+fn build_host_graph(core: &GraphCore, label_filter: &Option<String>) -> (HostGraph, Vec<String>) {
+    let all_nodes = core.get_nodes();
+    let mut ids: Vec<String> = Vec::new();
+    let mut labels: Vec<String> = Vec::new();
+    let mut index: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    for (node_id, blob) in &all_nodes {
+        let node_label = node_type_label(blob).unwrap_or_else(|| "_".to_string());
+        if let Some(want) = label_filter {
+            if &node_label != want {
+                continue;
+            }
+        }
+        index.insert(node_id.clone(), ids.len());
+        ids.push(node_id.clone());
+        labels.push(node_label);
+    }
+
+    let all_edges = core.get_edges();
+    let mut edges: Vec<(usize, usize, String)> = Vec::new();
+    for (src, dst, blob) in &all_edges {
+        let (Some(&si), Some(&di)) = (index.get(src), index.get(dst)) else {
+            continue;
+        };
+        let rel = edge_relation_label(blob);
+        edges.push((si, di, rel));
+    }
+    (HostGraph::build(labels, &edges), ids)
+}
+
+/// Extract a node's type/label from its property blob, per the
+/// `type`/`node_type`/`label` precedence used elsewhere in this handler.
+fn node_type_label(blob: &[u8]) -> Option<String> {
+    let val: serde_json::Value = rmp_serde::from_slice(blob).ok()?;
+    for key in ["type", "node_type", "label"] {
+        if let Some(s) = val.get(key).and_then(|v| v.as_str()) {
+            return Some(s.to_string());
+        }
+    }
+    None
+}
+
+/// Extract an edge's relation label from its property blob (`relation`/
+/// `type`/`rel`, defaulting to `"_"` when none is set — an unlabeled edge is
+/// still a valid, matchable edge, just under one shared label).
+fn edge_relation_label(blob: &[u8]) -> String {
+    let Ok(val) = rmp_serde::from_slice::<serde_json::Value>(blob) else {
+        return "_".to_string();
+    };
+    for key in ["relation", "type", "rel"] {
+        if let Some(s) = val.get(key).and_then(|v| v.as_str()) {
+            return s.to_string();
+        }
+    }
+    "_".to_string()
+}
+
+fn subgraph_algo_name(a: SubgraphAlgorithm) -> &'static str {
+    match a {
+        SubgraphAlgorithm::Gspan => "gspan",
+        SubgraphAlgorithm::Motif => "motif",
+    }
+}
+
+/// Materialize each frequent pattern as a typed `:FrequentSubgraph` node
+/// (CONCEPT:EG-KG.mining.gspan-frequent-subgraph), id = a deterministic digest
+/// of its canonical shape (node labels + edges). Linked, via a
+/// `SUBGRAPH_MEMBER` edge, to every resident host node appearing in ANY of its
+/// embeddings.
+fn materialize_subgraphs(core: &GraphCore, results: &[subgraph::FrequentSubgraph], ids: &[String]) -> usize {
+    let mut written = 0usize;
+    for r in results {
+        let node_id = subgraph_node_id(&r.pattern);
+        let edges_json: Vec<serde_json::Value> = r
+            .pattern
+            .edges
+            .iter()
+            .map(|(a, b, lbl)| serde_json::json!({ "from": a, "to": b, "label": lbl }))
+            .collect();
+        let props = serde_json::json!({
+            "type": "FrequentSubgraph",
+            "nodes": r.pattern.node_labels,
+            "edges": edges_json,
+            "support": r.support,
+            "count": r.count,
+        });
+        let Ok(blob) = rmp_serde::to_vec_named(&props) else {
+            continue;
+        };
+        core.add_node(node_id.clone(), blob);
+        for &member_idx in &r.member_nodes {
+            if let Some(member_id) = ids.get(member_idx) {
+                if core.has_node(member_id) {
+                    let edge = serde_json::json!({ "relation": "SUBGRAPH_MEMBER" });
+                    if let Ok(eb) = rmp_serde::to_vec_named(&edge) {
+                        let _ = core.add_edge(node_id.clone(), member_id.clone(), eb);
+                    }
+                }
+            }
+        }
+        written += 1;
+    }
+    written
+}
+
+fn subgraph_node_id(pattern: &subgraph::Pattern) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(pattern.node_labels.join("\u{1}").as_bytes());
+    hasher.update([0u8]);
+    for (a, b, lbl) in &pattern.edges {
+        hasher.update(a.to_le_bytes());
+        hasher.update(b.to_le_bytes());
+        hasher.update(lbl.as_bytes());
+        hasher.update([0u8]);
+    }
+    format!("subgraph:{}", hex::encode(&hasher.finalize()[..12]))
+}
+
 // ─────────────────────────── Row builders (shared) ───────────────────────────
 
 /// Resolve the cluster feature rows: explicit `features` win; otherwise gather the
@@ -1605,5 +2422,408 @@ mod tests {
         };
         let resp = try_handle(5, core, m).expect("handled");
         assert!(resp.result.is_none()); // an error response carries no result payload
+    }
+
+    #[test]
+    fn explicit_sequences_produce_patterns() {
+        let core = Arc::new(GraphCore::new());
+        let seqs = vec![
+            vec!["login".to_string(), "browse".to_string(), "purchase".to_string()],
+            vec![
+                "login".to_string(),
+                "search".to_string(),
+                "browse".to_string(),
+                "purchase".to_string(),
+            ],
+            vec!["login".to_string(), "browse".to_string(), "purchase".to_string()],
+        ];
+        let m = Method::MineSequence {
+            sequences: seqs,
+            source: None,
+            min_support: 0.5,
+            algorithm: MineSeqAlgorithm::Prefixspan,
+            writeback: false,
+        };
+        let resp = try_handle(11, core, m).expect("handled");
+        let Some(ResultPayload::Json(v)) = resp.result else {
+            panic!("expected json payload");
+        };
+        assert_eq!(v["n_sequences"], 3);
+        assert!(v["n_patterns"].as_u64().unwrap() > 0);
+        assert_eq!(v["written_back"], 0);
+        let patterns = v["patterns"].as_array().unwrap();
+        assert!(patterns.iter().any(|p| {
+            p["items"]
+                == serde_json::json!(["login", "browse", "purchase"])
+        }));
+    }
+
+    #[test]
+    fn sequence_graph_derived_source_and_writeback() {
+        let core = Arc::new(GraphCore::new());
+        // Two "Session" owners whose ordered "out" edges (insertion order) are the
+        // event sequence: session1/session2 both go view -> add_cart -> checkout.
+        core.add_node("s1".into(), node(serde_json::json!({"type": "Session"})));
+        core.add_node("s2".into(), node(serde_json::json!({"type": "Session"})));
+        for ev in ["view", "add_cart", "checkout"] {
+            core.add_node(ev.into(), node(serde_json::json!({"type": "Event"})));
+        }
+        for owner in ["s1", "s2"] {
+            for ev in ["view", "add_cart", "checkout"] {
+                let _ = core.add_edge(owner.into(), ev.into(), node(serde_json::json!({})));
+            }
+        }
+        let m = Method::MineSequence {
+            sequences: Vec::new(),
+            source: Some(SequenceSource {
+                node_label: "Session".into(),
+                direction: "out".into(),
+                item_field: None, // neighbor node id ⇒ "view"/"add_cart"/"checkout"
+                relation: None,
+                limit: 0,
+            }),
+            min_support: 0.5,
+            algorithm: MineSeqAlgorithm::Gsp,
+            writeback: true,
+        };
+        let resp = try_handle(13, Arc::clone(&core), m).expect("handled");
+        let Some(ResultPayload::Json(v)) = resp.result else {
+            panic!("expected json payload");
+        };
+        assert_eq!(v["n_sequences"], 2);
+        let written = v["written_back"].as_u64().unwrap();
+        assert!(written > 0);
+        core.mark_dirty();
+        let pattern_nodes = core.get_nodes_by_label("SequentialPattern", 0);
+        assert_eq!(pattern_nodes.len() as u64, written);
+        // The full 3-item pattern must have been recovered (both sessions match).
+        let patterns = v["patterns"].as_array().unwrap();
+        assert!(patterns.iter().any(|p| {
+            p["items"] == serde_json::json!(["view", "add_cart", "checkout"])
+        }));
+    }
+
+    #[test]
+    fn forecast_arima_and_writeback() {
+        let core = Arc::new(GraphCore::new());
+        let values: Vec<f64> = (0..30).map(|t| 5.0 + 3.0 * t as f64).collect();
+        let m = Method::MineForecast {
+            values: values.clone(),
+            algorithm: ForecastAlgorithm::Arima,
+            horizon: 5,
+            p: 1,
+            d: 1,
+            q: 0,
+            period: 0,
+            alpha: 0.3,
+            beta: 0.1,
+            gamma: 0.1,
+            confidence: 0.95,
+            series_id: "metric1".into(),
+            writeback: true,
+        };
+        let resp = try_handle(17, Arc::clone(&core), m).expect("handled");
+        let Some(ResultPayload::Json(v)) = resp.result else {
+            panic!("expected json payload");
+        };
+        let forecast_vals = v["forecast"].as_array().unwrap();
+        assert_eq!(forecast_vals.len(), 5);
+        // A pure linear trend (5 + 3t) should extrapolate close to truth at h=1..5.
+        for (h, fv) in forecast_vals.iter().enumerate() {
+            let t = 30 + h;
+            let truth = 5.0 + 3.0 * t as f64;
+            let got = fv.as_f64().unwrap();
+            assert!((got - truth).abs() < 3.0, "forecast[{h}]={got} truth={truth}");
+        }
+        let written = v["written_back"].as_u64().unwrap();
+        assert_eq!(written, 1);
+        core.mark_dirty();
+        let forecast_nodes = core.get_nodes_by_label("Forecast", 0);
+        assert_eq!(forecast_nodes.len(), 1);
+    }
+
+    #[test]
+    fn forecast_missing_values_is_error() {
+        let core = Arc::new(GraphCore::new());
+        let m = Method::MineForecast {
+            values: Vec::new(),
+            algorithm: ForecastAlgorithm::Arima,
+            horizon: 5,
+            p: 1,
+            d: 1,
+            q: 0,
+            period: 0,
+            alpha: 0.3,
+            beta: 0.1,
+            gamma: 0.1,
+            confidence: 0.95,
+            series_id: String::new(),
+            writeback: false,
+        };
+        let resp = try_handle(19, core, m).expect("handled");
+        assert!(resp.result.is_none());
+    }
+
+    #[test]
+    fn forecast_holtwinters_seasonal() {
+        let core = Arc::new(GraphCore::new());
+        let values: Vec<f64> = (0..48)
+            .map(|t| 10.0 + 2.0 * t as f64 + 5.0 * (2.0 * std::f64::consts::PI * t as f64 / 12.0).sin())
+            .collect();
+        let m = Method::MineForecast {
+            values,
+            algorithm: ForecastAlgorithm::Holtwinters,
+            horizon: 12,
+            p: 1,
+            d: 1,
+            q: 0,
+            period: 12,
+            alpha: 0.5,
+            beta: 0.3,
+            gamma: 0.3,
+            confidence: 0.95,
+            series_id: String::new(),
+            writeback: false,
+        };
+        let resp = try_handle(21, core, m).expect("handled");
+        let Some(ResultPayload::Json(v)) = resp.result else {
+            panic!("expected json payload");
+        };
+        let lower = v["lower"].as_array().unwrap();
+        let upper = v["upper"].as_array().unwrap();
+        assert_eq!(lower.len(), 12);
+        for i in 0..12 {
+            assert!(lower[i].as_f64().unwrap() <= upper[i].as_f64().unwrap());
+        }
+    }
+
+    fn words(s: &str) -> Vec<String> {
+        s.split_whitespace().map(|w| w.to_string()).collect()
+    }
+
+    #[test]
+    fn text_tfidf_explicit_docs() {
+        let core = Arc::new(GraphCore::new());
+        let docs = vec![
+            words("the cat sat on the mat"),
+            words("the dog ran in the park"),
+            words("the rocket launched into orbit"),
+        ];
+        let m = Method::MineText {
+            docs,
+            source: None,
+            algorithm: TextAlgorithm::Tfidf,
+            k: 3,
+            alpha: 0.1,
+            beta: 0.01,
+            iterations: 200,
+            seed: 1,
+            top_n: 10,
+            writeback: true, // ignored for tfidf
+        };
+        let resp = try_handle(23, Arc::clone(&core), m).expect("handled");
+        let Some(ResultPayload::Json(v)) = resp.result else {
+            panic!("expected json payload");
+        };
+        assert_eq!(v["n_docs"], 3);
+        assert_eq!(v["written_back"], 0); // tfidf never writes back
+        let doc_terms = v["doc_terms"].as_array().unwrap();
+        assert_eq!(doc_terms.len(), 3);
+        core.mark_dirty();
+        assert_eq!(core.get_nodes_by_label("Topic", 0).len(), 0);
+    }
+
+    #[test]
+    fn text_lda_graph_derived_source_and_writeback() {
+        let core = Arc::new(GraphCore::new());
+        let pet_words = ["cat", "dog", "pet", "leash", "vet"];
+        let fin_words = ["stock", "market", "bond", "yield", "trader"];
+        for i in 0..15 {
+            let n = 6 + (i % 4);
+            let pet_text: String = (0..n).map(|j| pet_words[(i + j) % pet_words.len()]).collect::<Vec<_>>().join(" ");
+            let fin_text: String = (0..n).map(|j| fin_words[(i + j) % fin_words.len()]).collect::<Vec<_>>().join(" ");
+            core.add_node(format!("doc_pet_{i}"), node(serde_json::json!({"type": "Doc", "body": pet_text})));
+            core.add_node(format!("doc_fin_{i}"), node(serde_json::json!({"type": "Doc", "body": fin_text})));
+        }
+        let m = Method::MineText {
+            docs: Vec::new(),
+            source: Some(TextSource {
+                node_label: "Doc".into(),
+                field: "body".into(),
+                limit: 0,
+            }),
+            algorithm: TextAlgorithm::Lda,
+            k: 2,
+            alpha: 0.1,
+            beta: 0.01,
+            iterations: 200,
+            seed: 42,
+            top_n: 5,
+            writeback: true,
+        };
+        let resp = try_handle(25, Arc::clone(&core), m).expect("handled");
+        let Some(ResultPayload::Json(v)) = resp.result else {
+            panic!("expected json payload");
+        };
+        assert_eq!(v["n_docs"], 30);
+        let written = v["written_back"].as_u64().unwrap();
+        assert_eq!(written, 2);
+        core.mark_dirty();
+        let topic_nodes = core.get_nodes_by_label("Topic", 0);
+        assert_eq!(topic_nodes.len(), 2);
+        // Every doc must have exactly one HAS_TOPIC edge (its dominant topic).
+        for i in 0..15 {
+            for prefix in ["doc_pet_", "doc_fin_"] {
+                let id = format!("{prefix}{i}");
+                let succ = core.get_successors(&id).unwrap();
+                let topic_edges: Vec<&String> = succ.iter().filter(|s| s.starts_with("topic:")).collect();
+                assert_eq!(topic_edges.len(), 1, "doc {id} should link to exactly one topic");
+            }
+        }
+    }
+
+    #[test]
+    fn text_nmf_explicit_docs_topics_and_doc_topics() {
+        let core = Arc::new(GraphCore::new());
+        let docs = vec![
+            words("cat dog pet leash vet cat dog"),
+            words("stock market bond yield trader stock market"),
+            words("cat dog pet vet leash"),
+            words("bond yield trader stock market"),
+        ];
+        let m = Method::MineText {
+            docs,
+            source: None,
+            algorithm: TextAlgorithm::Nmf,
+            k: 2,
+            alpha: 0.1,
+            beta: 0.01,
+            iterations: 200,
+            seed: 7,
+            top_n: 5,
+            writeback: false,
+        };
+        let resp = try_handle(27, core, m).expect("handled");
+        let Some(ResultPayload::Json(v)) = resp.result else {
+            panic!("expected json payload");
+        };
+        let topics = v["topics"].as_array().unwrap();
+        assert_eq!(topics.len(), 2);
+        let doc_topics = v["doc_topics"].as_array().unwrap();
+        assert_eq!(doc_topics.len(), 4);
+        assert_eq!(v["written_back"], 0); // writeback=false
+    }
+
+    #[test]
+    fn subgraph_gspan_recovers_planted_pattern_and_writeback() {
+        let core = Arc::new(GraphCore::new());
+        // Plant 4 instances of :Concept --touches--> :Capability, plus a
+        // handful of unrelated noise nodes/edges under different types.
+        for i in 0..4 {
+            core.add_node(format!("concept_{i}"), node(serde_json::json!({"type": "Concept"})));
+            core.add_node(format!("capability_{i}"), node(serde_json::json!({"type": "Capability"})));
+            let _ = core.add_edge(
+                format!("concept_{i}"),
+                format!("capability_{i}"),
+                node(serde_json::json!({"relation": "touches"})),
+            );
+        }
+        core.add_node("noise_a".into(), node(serde_json::json!({"type": "Noise"})));
+        core.add_node("noise_b".into(), node(serde_json::json!({"type": "Noise"})));
+        let _ = core.add_edge("noise_a".into(), "noise_b".into(), node(serde_json::json!({"relation": "unrelated"})));
+
+        let m = Method::MineSubgraph {
+            label: None,
+            min_support: 0.1,
+            max_edges: 1,
+            algorithm: SubgraphAlgorithm::Gspan,
+            writeback: true,
+        };
+        let resp = try_handle(29, Arc::clone(&core), m).expect("handled");
+        let Some(ResultPayload::Json(v)) = resp.result else {
+            panic!("expected json payload");
+        };
+        assert_eq!(v["n_host_nodes"], 10);
+        assert_eq!(v["n_host_edges"], 5);
+        let patterns = v["patterns"].as_array().unwrap();
+        let hit = patterns.iter().find(|p| {
+            let nodes = p["nodes"].as_array().unwrap();
+            let has_concept = nodes.iter().any(|n| n == "Concept");
+            let has_capability = nodes.iter().any(|n| n == "Capability");
+            has_concept && has_capability && p["edges"].as_array().unwrap().len() == 1
+        });
+        assert!(hit.is_some(), "planted pattern not in response: {patterns:?}");
+        assert_eq!(hit.unwrap()["count"], 4);
+        let written = v["written_back"].as_u64().unwrap();
+        assert!(written > 0);
+        core.mark_dirty();
+        let subgraph_nodes = core.get_nodes_by_label("FrequentSubgraph", 0);
+        assert_eq!(subgraph_nodes.len() as u64, written);
+        // The planted pattern's :FrequentSubgraph must link to all 8 involved nodes.
+        let sg_id = subgraph_nodes
+            .iter()
+            .find(|(_, blob)| {
+                let props: serde_json::Value = rmp_serde::from_slice(blob).unwrap();
+                let nodes = props["nodes"].as_array().unwrap();
+                nodes.iter().any(|n| n == "Concept") && nodes.iter().any(|n| n == "Capability")
+            })
+            .map(|(id, _)| id.clone())
+            .expect("planted subgraph node present");
+        let members = core.get_successors(&sg_id).unwrap();
+        assert_eq!(members.len(), 8); // 4 concept + 4 capability nodes
+    }
+
+    #[test]
+    fn subgraph_motif_census_is_readonly() {
+        let core = Arc::new(GraphCore::new());
+        for i in 0..3 {
+            core.add_node(format!("n{i}"), node(serde_json::json!({"type": "N"})));
+        }
+        let _ = core.add_edge("n0".into(), "n1".into(), node(serde_json::json!({"relation": "e"})));
+        let _ = core.add_edge("n1".into(), "n2".into(), node(serde_json::json!({"relation": "e"})));
+        let _ = core.add_edge("n2".into(), "n0".into(), node(serde_json::json!({"relation": "e"})));
+
+        let m = Method::MineSubgraph {
+            label: None,
+            min_support: 0.1,
+            max_edges: 3,
+            algorithm: SubgraphAlgorithm::Motif,
+            writeback: true, // ignored for motif
+        };
+        let resp = try_handle(31, Arc::clone(&core), m).expect("handled");
+        let Some(ResultPayload::Json(v)) = resp.result else {
+            panic!("expected json payload");
+        };
+        assert_eq!(v["motifs"]["triangle"], 1);
+        assert_eq!(v["motifs"]["directed_cycle3"], 1);
+        assert_eq!(v["written_back"], 0);
+        core.mark_dirty();
+        assert_eq!(core.get_nodes_by_label("FrequentSubgraph", 0).len(), 0);
+    }
+
+    #[test]
+    fn subgraph_label_filter_restricts_host_graph() {
+        let core = Arc::new(GraphCore::new());
+        core.add_node("a".into(), node(serde_json::json!({"type": "A"})));
+        core.add_node("b".into(), node(serde_json::json!({"type": "B"})));
+        core.add_node("a2".into(), node(serde_json::json!({"type": "A"})));
+        let _ = core.add_edge("a".into(), "b".into(), node(serde_json::json!({"relation": "e"})));
+        let _ = core.add_edge("a".into(), "a2".into(), node(serde_json::json!({"relation": "e"})));
+
+        let m = Method::MineSubgraph {
+            label: Some("A".into()),
+            min_support: 0.1,
+            max_edges: 1,
+            algorithm: SubgraphAlgorithm::Gspan,
+            writeback: false,
+        };
+        let resp = try_handle(33, core, m).expect("handled");
+        let Some(ResultPayload::Json(v)) = resp.result else {
+            panic!("expected json payload");
+        };
+        // Only the two A nodes + the a->a2 edge should be in the filtered host
+        // graph (a->b is excluded since b is not type A).
+        assert_eq!(v["n_host_nodes"], 2);
+        assert_eq!(v["n_host_edges"], 1);
     }
 }

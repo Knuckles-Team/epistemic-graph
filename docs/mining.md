@@ -421,3 +421,273 @@ POST /api/mining/classify_fit     { "x": [[0,0],[10,10]], "y": [0,1], "algorithm
 POST /api/mining/classify_predict { "model": {...}, "x": [[0.1,0.1]] }
 POST /api/mining/reduce           { "source": {"node_label": "Doc"}, "algorithm": "svd", "n_components": 2 }
 ```
+
+---
+
+# Sequential-pattern mining — `action="sequence"`
+
+Phase 4 begins the final family. Sequential-pattern mining finds frequent ORDERED
+subsequences over a set of sequences — an item may repeat within a sequence, and a
+pattern need not be contiguous (only order-preserving) to count. Two interchangeable
+engines, selected by `algorithm`:
+
+- **`prefixspan`** (default) — projection-based growth: count frequent next-items over
+  the current projected database (the suffix of each sequence after its first
+  occurrence of the pattern-so-far's last item), emit, recurse. No candidate
+  generation.
+- **`gsp`** (Generalized Sequential Pattern) — the sequence analog of Apriori:
+  level-wise candidate generation (join two frequent (k-1)-patterns whose overlap
+  matches) + a downward-closure prune, support counted by direct subsequence scan.
+
+Both are exact and agree on the frequent-pattern set for a given `min_support`
+(parity-tested, like Apriori/FP-Growth/Eclat).
+
+```python
+# Explicit ordered sequences (e.g. a user-journey event log).
+out = await c.mining.sequence(
+    sequences=[
+        ["login", "browse", "purchase"],
+        ["login", "search", "browse", "purchase"],
+        ["login", "browse"],
+        ["login", "browse", "purchase"],
+    ],
+    min_support=0.5,
+)
+# out["patterns"] includes {"items": ["login", "browse", "purchase"], "support": 0.75, "count": 3}
+```
+
+## Cross-modal — mine each node's ordered neighbor history (evolution/commit timelines)
+
+Point `sequence` at a graph-derived `source` to turn each node's chronological
+out/in-edge history into one sequence — "what reliably follows what" over the
+evolution/commit timeline or an event-log graph, with `writeback=True` materializing
+the discovered patterns as `:SequentialPattern` nodes.
+
+```python
+# Each :Session node's ordered "out" edges to :Event nodes become one sequence.
+out = await c.mining.sequence(
+    source={"node_label": "Session", "direction": "out"},
+    algorithm="gsp",
+    min_support=0.5,
+    writeback=True,
+)
+# → one :SequentialPattern{items, support, count} node per frequent pattern, linked
+#   PATTERN_ITEM → any item that is a resident node.
+```
+
+`sequence` with `writeback=True` is a **WAL-durable** graph write (replayed by
+re-mining deterministically — explicit sequences reproduce byte-identically; a
+graph-derived source re-derives from the current graph state).
+
+## MCP + REST (sequence)
+
+```jsonc
+// MCP
+graph_mine { "action": "sequence",
+             "params_json": "{\"sequences\":[[\"login\",\"browse\",\"purchase\"]],\"min_support\":0.5}" }
+graph_mine { "action": "sequence",
+             "params_json": "{\"source\":{\"node_label\":\"Session\"},\"algorithm\":\"gsp\",\"writeback\":true}" }
+
+// REST twin (same _execute_tool core)
+POST /api/mining/sequence { "source": {"node_label": "Session"}, "min_support": 0.5 }
+```
+
+---
+
+# Classical forecasting — `action="forecast"`
+
+Forecasts `horizon` future points from a 1-D `values` series (a tsdb window handed in
+by the caller — the same client-supplied cut `anomaly` took in Phase 2; the native
+in-handler TsScan source is the same documented follow-up). Three hand-rolled,
+dependency-free engines, selected by `algorithm`:
+
+- **`arima`** (default) — ARIMA(`p`,`d`,`q`): `d`-order differencing to stationarity,
+  then AR(`p`)/MA(`q`) coefficients fit by the **Hannan-Rissanen** two-stage method (a
+  long auxiliary AR gives a residual proxy, then AR+MA terms are jointly estimated by
+  OLS). Deterministic (closed-form least squares, no randomness).
+- **`holtwinters`** — additive level/trend/seasonal exponential smoothing
+  (`alpha`/`beta`/`gamma`, seasonal `period`); degrades to Holt's linear-trend method
+  (ETS(A,A,N)) when `period` is 0 or the series is shorter than two seasonal cycles.
+- **`stl`** — a classical (moving-average) trend/seasonal/residual decomposition, then
+  a linear-trend + repeated-last-cycle forecast extension. A lightweight stand-in for
+  full iterative Loess-STL (also returns the fitted `trend`/`seasonal`/`residual`).
+
+Every algorithm returns an approximate confidence band (`lower`/`upper`) at the
+two-sided `confidence` level (default `0.95`), widening with the forecast horizon.
+
+```python
+# ARIMA(1,1,0) — a pure linear trend needs one difference to become ~constant.
+out = await c.mining.forecast(values=[5 + 3*t for t in range(30)], algorithm="arima", p=1, d=1, horizon=5)
+# out["forecast"] tracks the trend's continuation; out["lower"]/out["upper"] widen with h.
+
+# Holt-Winters over a seasonal series (period=12).
+out = await c.mining.forecast(values=series, algorithm="holtwinters", period=12, horizon=12)
+
+# STL decomposition + extrapolation, also returning the fitted components.
+out = await c.mining.forecast(values=series, algorithm="stl", period=12, horizon=12)
+# out["trend"], out["seasonal"], out["residual"] are each len(values) long.
+```
+
+## Write-back — materialize the forecast for the loop engine
+
+With `writeback=True`, the forecast is materialized as a typed `:Forecast{horizon,
+values, lower, upper}` node — linked `FORECAST_OF` to a resident node named
+`series_id` when one is given and exists (e.g. a `:Metric` node whose id you pass as
+`series_id`) — feeding the evolution flywheel's "anticipate where to invest" use case
+(forecasting research-topic trajectories, capacity trends, etc.).
+
+```python
+# Forecast a named metric's series and write the result back, linked to its node.
+out = await c.mining.forecast(
+    values=metric_history, algorithm="holtwinters", period=7, horizon=7,
+    series_id="metric:daily_active_users", writeback=True,
+)
+# → one :Forecast{horizon, values, lower, upper, series_id} node, linked FORECAST_OF
+#   → the :metric:daily_active_users node (if resident).
+```
+
+`forecast` with `writeback=True` is a **WAL-durable** graph write (replayed by
+re-forecasting deterministically from the same `values`).
+
+## MCP + REST (forecast)
+
+```jsonc
+// MCP
+graph_mine { "action": "forecast",
+             "params_json": "{\"values\":[5,8,11,14],\"algorithm\":\"arima\",\"p\":1,\"d\":1,\"horizon\":5}" }
+graph_mine { "action": "forecast",
+             "params_json": "{\"values\":[...],\"algorithm\":\"stl\",\"period\":12,\"horizon\":12}" }
+
+// REST twin (same _execute_tool core)
+POST /api/mining/forecast { "values": [5, 8, 11, 14], "algorithm": "holtwinters", "period": 0, "horizon": 5 }
+```
+
+---
+
+# Text mining — `action="text"`
+
+Mines a text corpus: TF-IDF term weighting or `k`-topic modeling. Pure-Rust
+tokenization (lowercase, alnum-run split) and algorithms — no Tantivy/eg-text
+dependency (the corpus is either handed in pre-tokenized, or tokenized from a node
+text property, compute-near-data):
+
+- **`tfidf`** (default) — descriptive, read-only: per-document term weights
+  (`term_frequency * smoothed_inverse_document_frequency`).
+- **`lda`** — Latent Dirichlet Allocation fit by **collapsed Gibbs sampling**
+  (symmetric Dirichlet priors `alpha` over doc-topic, `beta` over topic-term;
+  `iterations` sweeps). Deterministic per `seed`.
+- **`nmf`** — Non-negative Matrix Factorization of the TF-IDF matrix by
+  **multiplicative updates** (Lee & Seung); `seed` only determines the initial
+  factors. Deterministic given them.
+
+```python
+# TF-IDF over an explicit, pre-tokenized corpus.
+out = await c.mining.text(docs=[
+    ["the", "cat", "sat", "on", "the", "mat"],
+    ["the", "rocket", "launched", "into", "orbit"],
+])
+# out["doc_terms"][1] ranks "rocket"/"launched"/"orbit" above the common "the".
+
+# LDA topic model — k=2 over two thematically distinct document groups.
+out = await c.mining.text(docs=pet_and_finance_docs, algorithm="lda", k=2, iterations=200, seed=42)
+# out["topics"] recovers one topic per theme; out["doc_topics"][i] is doc i's mixture.
+```
+
+## Cross-modal — topic-model a node label's text property
+
+Point `text` at a graph-derived `source` to tokenize a text property off every
+instance of a node label (e.g. every `:Doc`'s `body` field) into the corpus, with
+`writeback=True` (lda/nmf only) materializing each discovered topic as a `:Topic`
+node — linked `HAS_TOPIC` from every document whose DOMINANT topic (the argmax of
+its topic-membership distribution) it is.
+
+```python
+# Topic-model every :Doc's "body" text, writing :Topic nodes back.
+out = await c.mining.text(
+    source={"node_label": "Doc", "field": "body"}, algorithm="lda", k=5, writeback=True,
+)
+# → one :Topic{terms} node per topic, linked HAS_TOPIC ← every :Doc whose dominant
+#   topic it is — a downstream feed for association-mining topics↔entities.
+```
+
+`text` with `writeback=True` is a **WAL-durable** graph write for `lda`/`nmf`
+(replayed by re-mining deterministically); `tfidf` never writes back (no topics to
+materialize — the flag is ignored).
+
+## MCP + REST (text)
+
+```jsonc
+// MCP
+graph_mine { "action": "text",
+             "params_json": "{\"docs\":[[\"the\",\"cat\",\"sat\"]],\"algorithm\":\"tfidf\"}" }
+graph_mine { "action": "text",
+             "params_json": "{\"source\":{\"node_label\":\"Doc\",\"field\":\"body\"},\"algorithm\":\"lda\",\"k\":5,\"writeback\":true}" }
+
+// REST twin (same _execute_tool core)
+POST /api/mining/text { "docs": [["cat", "dog"], ["stock", "market"]], "algorithm": "nmf", "k": 2 }
+```
+
+---
+
+# Frequent subgraph mining + motifs — `action="subgraph"` (the graph-native differentiator)
+
+Every other mining action takes rows/vectors/sequences/series/docs as input. `subgraph`
+is different: it mines the **resident graph's own topology directly** — no input rows
+at all. This is the cross-modal headline: "structures that recur" over the graph
+itself, not over a derived feature matrix.
+
+- **`gspan`** (default) — level-wise frequent connected-subgraph PATTERN growth (the
+  graph analog of Apriori/GSP): start from every frequent single labeled edge, then
+  repeatedly extend by one edge (to a new node or closing a cycle) up to `max_edges`,
+  canonicalizing each candidate (brute-force permutation — patterns stay tiny) and
+  exactly re-counting its embeddings by backtracking subgraph isomorphism.
+  `min_support` is a fraction of the host's total edge count. **Scope (honest):**
+  support here is the raw EMBEDDING COUNT, not minimum-node-image support — a
+  documented simplification, like the brute k-NN scan or small-N UMAP/t-SNE cuts
+  elsewhere in this family.
+- **`motif`** — a classical, label-agnostic topological census (Milo-style): open
+  wedges (2-paths), triangles (closed triads), and directed 3-cycles.
+
+`label`, when given, restricts the scanned host graph to nodes of that ONE type (both
+edge endpoints must match) — `None` scans the whole resident graph heterogeneously.
+
+```python
+# Frequent 1-edge patterns across the whole resident graph.
+out = await c.mining.subgraph(min_support=0.05, max_edges=1)
+# out["patterns"] == [{"nodes": [...], "edges": [{"from":0,"to":1,"label":...}], "support":..., "count":...}, ...]
+
+# Motif census restricted to :Concept nodes.
+out = await c.mining.subgraph(label="Concept", algorithm="motif")
+# out["motifs"] == {"wedge": ..., "triangle": ..., "directed_cycle3": ...}
+```
+
+## Write-back — the discovery flywheel closes on the graph itself
+
+With `writeback=True` (`gspan` only), each frequent pattern is materialized as a typed
+`:FrequentSubgraph{nodes, edges, support, count}` node, linked `SUBGRAPH_MEMBER` to
+every host node appearing in any of its embeddings — feeding the next
+OWL-reason + mine cycle: recurring structures the KG discovers about ITSELF.
+
+```python
+# Mine frequent :Concept--touches-->:Capability-shaped structures and write them back.
+out = await c.mining.subgraph(min_support=0.1, max_edges=2, writeback=True)
+# → one :FrequentSubgraph{nodes, edges, support, count} node per pattern, linked
+#   SUBGRAPH_MEMBER → every node instance that participates in it.
+```
+
+`subgraph` with `writeback=True` is a **WAL-durable** graph write for `gspan`
+(replayed by re-mining the current graph state deterministically); `motif` never
+writes back (a pure census, no patterns to materialize — the flag is ignored).
+
+## MCP + REST (subgraph)
+
+```jsonc
+// MCP
+graph_mine { "action": "subgraph",
+             "params_json": "{\"min_support\":0.1,\"max_edges\":2,\"writeback\":true}" }
+graph_mine { "action": "subgraph",
+             "params_json": "{\"label\":\"Concept\",\"algorithm\":\"motif\"}" }
+
+// REST twin (same _execute_tool core)
+POST /api/mining/subgraph { "min_support": 0.1, "max_edges": 2, "algorithm": "gspan" }
+```

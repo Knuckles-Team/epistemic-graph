@@ -2299,6 +2299,174 @@ class MiningClient:
             params["labels"] = labels
         return await self._client._send("MineReduce", params)
 
+    async def sequence(
+        self,
+        sequences: list[list[str]] | None = None,
+        *,
+        source: dict[str, Any] | None = None,
+        min_support: float = 0.1,
+        algorithm: str = "prefixspan",
+        writeback: bool = False,
+    ) -> dict[str, Any]:
+        """Mine frequent sequential patterns (CONCEPT:EG-KG.mining.prefixspan — Phase 4).
+
+        Provide EITHER explicit ``sequences`` (each a time-ordered list of item
+        labels — an item may repeat) OR a graph-derived ``source`` spec —
+        ``{"node_label", "direction", "item_field", "relation", "limit"}`` —
+        that turns each node's ordered neighbor list (chronological edge order)
+        into one sequence (the "what reliably follows what" hook: evolution/
+        commit timelines, event streams). ``algorithm`` is one of ``prefixspan``
+        (default) / ``gsp`` (both agree — GSP is the sequence analog of Apriori,
+        PrefixSpan a projection-based no-candidate-generation engine). With
+        ``writeback=True`` each pattern is materialized as a typed
+        ``:SequentialPattern`` node linked to its resident item nodes. Returns
+        ``{patterns: [{items, support, count}], n_sequences, n_patterns, ...}``.
+        """
+        params: dict[str, Any] = {
+            "min_support": min_support,
+            "algorithm": algorithm,
+            "writeback": writeback,
+        }
+        if sequences is not None:
+            params["sequences"] = sequences
+        if source is not None:
+            params["source"] = source
+        return await self._client._send("MineSequence", params)
+
+    async def forecast(
+        self,
+        values: list[float],
+        *,
+        algorithm: str = "arima",
+        horizon: int = 10,
+        p: int = 1,
+        d: int = 1,
+        q: int = 0,
+        period: int = 0,
+        alpha: float = 0.3,
+        beta: float = 0.1,
+        gamma: float = 0.1,
+        confidence: float = 0.95,
+        series_id: str = "",
+        writeback: bool = False,
+    ) -> dict[str, Any]:
+        """Forecast `horizon` future points from a 1-D series (CONCEPT:EG-KG.mining.arima — Phase 4).
+
+        `values` is a tsdb window handed in by the caller (mirrors
+        :meth:`anomaly`'s client-supplied ``values`` cut). ``algorithm`` is one
+        of ``arima`` (default — Hannan-Rissanen AR(``p``)/MA(``q``) after
+        ``d``-order differencing) / ``holtwinters`` (additive level/trend/
+        seasonal exponential smoothing — ``alpha``/``beta``/``gamma``,
+        seasonal ``period``; degrades to Holt linear-trend when ``period`` is
+        0) / ``stl`` (classical decomposition + trend/seasonal extrapolation,
+        also returns ``trend``/``seasonal``/``residual``). ``confidence`` sets
+        the two-sided forecast-band level (e.g. ``0.95``). With
+        ``writeback=True`` the forecast is materialized as a typed
+        ``:Forecast`` node — linked to a resident node named ``series_id``
+        when one exists. Returns ``{forecast, lower, upper, horizon, ...}``.
+        """
+        params: dict[str, Any] = {
+            "values": values,
+            "algorithm": algorithm,
+            "horizon": horizon,
+            "p": p,
+            "d": d,
+            "q": q,
+            "period": period,
+            "alpha": alpha,
+            "beta": beta,
+            "gamma": gamma,
+            "confidence": confidence,
+            "series_id": series_id,
+            "writeback": writeback,
+        }
+        return await self._client._send("MineForecast", params)
+
+    async def text(
+        self,
+        docs: list[list[str]] | None = None,
+        *,
+        source: dict[str, Any] | None = None,
+        algorithm: str = "tfidf",
+        k: int = 3,
+        alpha: float = 0.1,
+        beta: float = 0.01,
+        iterations: int = 200,
+        seed: int = 0,
+        top_n: int = 10,
+        writeback: bool = False,
+    ) -> dict[str, Any]:
+        """Mine a text corpus: TF-IDF or topic modeling (CONCEPT:EG-KG.mining.tfidf — Phase 4).
+
+        Provide EITHER explicit `docs` (each a pre-tokenized ``list[str]`` —
+        e.g. lowercased words) OR a graph-derived ``source`` spec —
+        ``{"node_label", "field", "limit"}`` — that tokenizes a text property
+        off a node label (compute-near-data, no Tantivy/eg-text dependency).
+        ``algorithm`` is one of ``tfidf`` (default — descriptive per-document
+        term weights, read-only) / ``lda`` (Latent Dirichlet Allocation via
+        collapsed Gibbs sampling — ``alpha``/``beta`` priors, ``iterations``
+        sweeps) / ``nmf`` (Non-negative Matrix Factorization by multiplicative
+        updates on the TF-IDF matrix). ``k`` sets the topic count for
+        ``lda``/``nmf``; ``top_n`` caps how many terms are kept per
+        document/topic row. With ``writeback=True`` (``lda``/``nmf`` only)
+        each topic is materialized as a typed ``:Topic`` node, linked
+        ``HAS_TOPIC`` from every resident document whose DOMINANT topic it is.
+        Returns ``{doc_terms: [...]}`` (tfidf) or ``{topics: [...],
+        doc_topics: [...]}`` (lda/nmf).
+        """
+        params: dict[str, Any] = {
+            "algorithm": algorithm,
+            "k": k,
+            "alpha": alpha,
+            "beta": beta,
+            "iterations": iterations,
+            "seed": seed,
+            "top_n": top_n,
+            "writeback": writeback,
+        }
+        if docs is not None:
+            params["docs"] = docs
+        if source is not None:
+            params["source"] = source
+        return await self._client._send("MineText", params)
+
+    async def subgraph(
+        self,
+        *,
+        label: str | None = None,
+        min_support: float = 0.1,
+        max_edges: int = 3,
+        algorithm: str = "gspan",
+        writeback: bool = False,
+    ) -> dict[str, Any]:
+        """Frequent subgraph mining + motif counting (CONCEPT:EG-KG.mining.gspan-frequent-subgraph — Phase 4).
+
+        UNLIKE every other ``mining`` method, this one mines the RESIDENT
+        GRAPH's own topology directly — no rows/vectors to pass in. ``label``,
+        when given, restricts the scanned host graph to nodes of that ONE
+        type (``None`` scans the whole resident graph heterogeneously).
+        ``algorithm`` is one of ``gspan`` (default — level-wise frequent
+        connected-subgraph pattern growth up to ``max_edges`` edges,
+        canonicalized + exactly re-counted; ``min_support`` is a fraction of
+        the host's total edge count) or ``motif`` (a label-agnostic
+        topological census: open wedges, triangles, directed 3-cycles — reads
+        ``min_support``/``max_edges`` are ignored). With ``writeback=True``
+        (``gspan`` only) each frequent pattern is materialized as a typed
+        ``:FrequentSubgraph`` node linked to every host node in any of its
+        embeddings. Returns ``{patterns: [{nodes, edges, support, count}],
+        ...}`` (gspan) or ``{motifs: {wedge, triangle, directed_cycle3}, ...}``
+        (motif).
+        """
+        params: dict[str, Any] = {
+            "min_support": min_support,
+            "max_edges": max_edges,
+            "algorithm": algorithm,
+            "writeback": writeback,
+        }
+        if label is not None:
+            params["label"] = label
+        return await self._client._send("MineSubgraph", params)
+
 
 class GraphLearnClient:
     """CONCEPT:EG-KG.graphlearn.link-predictor — Graph-learning / neuro-symbolic Namespace.
