@@ -88,6 +88,11 @@ fn rules() -> Vec<Box<dyn Rule>> {
     rs.push(Box::new(ReorderReasonRank));
     #[cfg(feature = "text")]
     rs.push(Box::new(ReorderFuseBranches));
+    // Runs LAST: it re-scans the (possibly pairwise-touched) op list for runs of 3+
+    // reorderable ops and replaces them with the true cost-minimal permutation, so it
+    // always has the final say regardless of what the pairwise rules above already did
+    // (CONCEPT:EG-KG.query.global-plan-cost).
+    rs.push(Box::new(GlobalChainCost));
     rs
 }
 
@@ -322,6 +327,198 @@ fn branch_cost(branch: &[Op], seed: f64, card: &ModalityCardinality, ctx: &PlanC
         c = card.rows_out(op, c, ctx);
     }
     total
+}
+
+// ── Rule 4: global cost-minimal reordering of a WHOLE reorderable chain ──────────
+
+/// Is `op` a `Filter`/`AsOf`/`Reason`/`Rank`(`Embed`) — one of the kinds
+/// [`GlobalChainCost`] (CONCEPT:EG-KG.query.global-plan-cost) may reorder because they all draw
+/// candidates from the SAME id-set (the EG-405 commuting family the module doc defines).
+/// `Traverse`/`Scan`/`FuseRrf`/time-series/etc. are BARRIERS: they change the seed (a fresh
+/// candidate set), so a run never crosses one — mirrors the pairwise rules' adjacency rule,
+/// generalized from "the next op" to "every op in this maximal run".
+fn is_reorderable(op: &Op) -> bool {
+    if matches!(op, Op::Filter { .. } | Op::AsOf { .. }) || is_rank(op) {
+        return true;
+    }
+    #[cfg(feature = "owl")]
+    if matches!(op, Op::Reason { .. }) {
+        return true;
+    }
+    false
+}
+
+/// The bound on a single reorderable run's length before [`GlobalChainCost`] gives up on an
+/// exhaustive permutation search (CONCEPT:EG-KG.query.global-plan-cost). `5! = 120` candidate
+/// orderings is a trivial plan-time cost (each `optimize()` call already pays an O(1) stats
+/// collection); a run longer than this is vanishingly rare in practice (it would mean 6+
+/// `Filter`/`AsOf`/`Reason`/`Rank` ops chained with no `Traverse`/`Scan`/`Limit` between them) and
+/// is left untouched rather than risk a combinatorial blowup.
+const MAX_CHAIN_SEGMENT: usize = 5;
+
+/// Reorder every maximal run of 3+ consecutive [`is_reorderable`] ops into its cost-minimal
+/// permutation (CONCEPT:EG-KG.query.global-plan-cost) — the generalization of the pairwise
+/// [`FilterAsOfBeforeRank`]/[`ReorderReasonRank`] rules from "one adjacent pair" to "the WHOLE
+/// chain at once". A run of exactly 2 is left to those two rules (they already solve the pair
+/// case optimally); this rule only fires where the pairwise mechanism structurally cannot see
+/// far enough — 3 or more chained ops, where advancing by adjacent, non-overlapping pairs can
+/// permanently strand a later op behind an already-decided pair (the module-level example: given
+/// `[Rank, broad_filter, selective_filter]`, a pairwise pass commits `(Rank, broad_filter)` and
+/// then jumps past `selective_filter` without ever comparing it to either). Runs never start at
+/// index 0 (that op is the plan's SOURCE, not a narrower — same invariant the pairwise rules
+/// enforce) and longer than [`MAX_CHAIN_SEGMENT`] are left untouched (see its doc).
+struct GlobalChainCost;
+
+impl Rule for GlobalChainCost {
+    fn name(&self) -> &'static str {
+        "global-chain-cost"
+    }
+    fn apply(&self, ops: Vec<Op>, card: &ModalityCardinality, ctx: &PlanCtx) -> Vec<Op> {
+        reorder_chain_segments(ops, card, ctx)
+    }
+}
+
+fn reorder_chain_segments(mut ops: Vec<Op>, card: &ModalityCardinality, ctx: &PlanCtx) -> Vec<Op> {
+    let mut i = 1; // index 0 is always the source; never part of a reorderable run.
+    while i < ops.len() {
+        if !is_reorderable(&ops[i]) {
+            i += 1;
+            continue;
+        }
+        let start = i;
+        let mut end = i + 1;
+        while end < ops.len() && is_reorderable(&ops[end]) {
+            end += 1;
+        }
+        let len = end - start;
+        // Pairs are already optimal via the dedicated pairwise rules; only 3+ chains need
+        // the exhaustive search, and only up to the bounded cap.
+        if !(3..=MAX_CHAIN_SEGMENT).contains(&len) {
+            i = end;
+            continue;
+        }
+        let seed = card_before(&ops, start, card, ctx);
+        let top_k = trailing_top_k(&ops, end - 1);
+        let segment = &ops[start..end];
+        if let Some(best) = best_permutation(segment, seed, top_k, card, ctx) {
+            ops.splice(start..end, best);
+        }
+        i = end;
+    }
+    ops
+}
+
+/// Every permutation of `0..n`, depth-first, starting with the IDENTITY order — so a caller
+/// that only replaces on a STRICTLY cheaper cost (see [`best_permutation`]) keeps the original
+/// order on a tie (determinism, and "don't reorder for a wash"). `n` is bounded by
+/// [`MAX_CHAIN_SEGMENT`], so the `O(n!)` blowup never exceeds 120 permutations.
+fn permutations(indices: &[usize]) -> Vec<Vec<usize>> {
+    if indices.is_empty() {
+        return vec![vec![]];
+    }
+    let mut out = Vec::new();
+    for (pos, &val) in indices.iter().enumerate() {
+        let mut rest = indices.to_vec();
+        rest.remove(pos);
+        for mut tail in permutations(&rest) {
+            let mut perm = Vec::with_capacity(tail.len() + 1);
+            perm.push(val);
+            perm.append(&mut tail);
+            out.push(perm);
+        }
+    }
+    out
+}
+
+/// The cost-minimal reordering of `segment` over `seed` input rows (CONCEPT:EG-KG.query.global-plan-cost)
+/// — exhaustively costs every permutation via [`ModalityCardinality::permutation_cost`] and
+/// returns the cheapest one that is EG-405-safe (skipping any permutation
+/// [`ModalityCardinality::permutation_cost`] rejects). Returns `None` when every permutation is
+/// unsafe (leaves `segment` untouched) or when the cheapest found is not STRICTLY cheaper than
+/// the original (`permutations` yields the identity order first, so a tie keeps it).
+fn best_permutation(
+    segment: &[Op],
+    seed: f64,
+    top_k: usize,
+    card: &ModalityCardinality,
+    ctx: &PlanCtx,
+) -> Option<Vec<Op>> {
+    let n = segment.len();
+    let mut best: Option<(f64, Vec<usize>)> = None;
+    for perm in permutations(&(0..n).collect::<Vec<_>>()) {
+        let refs: Vec<&Op> = perm.iter().map(|&idx| &segment[idx]).collect();
+        let Some(cost) = card.permutation_cost(&refs, seed, top_k, ctx) else {
+            continue;
+        };
+        let better = match &best {
+            None => true,
+            Some((best_cost, _)) => cost < *best_cost - 1e-9,
+        };
+        if better {
+            best = Some((cost, perm));
+        }
+    }
+    best.map(|(_, order)| order.into_iter().map(|idx| segment[idx].clone()).collect())
+}
+
+// ── adaptive re-optimization (CONCEPT:EG-KG.query.adaptive-reoptimization) ───────────────────
+
+/// How far an ACTUAL cardinality may diverge from what the plan-time estimate predicted before
+/// [`reoptimize_remaining`] bothers re-costing the remaining chain (CONCEPT:EG-KG.query.adaptive-reoptimization)
+/// — a relative error threshold, so a small, ordinary estimation miss (histograms/degree
+/// averages are approximations) doesn't cause needless plan churn. `0.5` ⇒ the actual must be
+/// less than half or more than 1.5× the estimate.
+pub const ADAPTIVE_REOPT_THRESHOLD: f64 = 0.5;
+
+/// Re-cost and, if beneficial, RE-ORDER the not-yet-executed tail of a plan after an earlier op
+/// reports its ACTUAL output cardinality (CONCEPT:EG-KG.query.adaptive-reoptimization) — the runtime
+/// feedback loop beyond pure plan-time estimation: `optimize()` picks an order from the
+/// [`ModalityCardinality`] estimates before ANY op has run, but a histogram/degree-average
+/// estimate can be wrong, and a wrong estimate can pick the wrong order. This closes that loop
+/// WITHOUT re-running the whole optimizer: given `remaining_ops` (the ops still to execute),
+/// the `estimated` cardinality flowing into them (what `optimize()` assumed) and the `actual`
+/// cardinality really observed, it re-applies [`reorder_chain_segments`] (plus the pairwise
+/// rules) seeded from `actual` instead of `estimated` whenever they diverge by more than
+/// [`ADAPTIVE_REOPT_THRESHOLD`] (relative). Below the threshold — or when `remaining_ops` has no
+/// reorderable run — this is a no-op clone, so a caller can invoke it unconditionally after every
+/// op without extra cost in the common (estimate was fine) case.
+///
+/// Opt-in-by-default-ON (no env flag): a caller decides WHEN to call it (after which op, with
+/// what actual count) — this fn is pure re-costing logic, not a scheduler. Wiring it into
+/// [`crate::exec::execute`]'s per-op loop so every `apply()` call reports its real `RowSet::len()`
+/// and triggers this automatically is the documented follow-up (CONCEPT:EG-KG.query.adaptive-reoptimization) —
+/// today a caller (or a future `Driver` impl) invokes it explicitly between ops.
+pub fn reoptimize_remaining(
+    remaining_ops: &[Op],
+    estimated: f64,
+    actual: f64,
+    card: &ModalityCardinality,
+    ctx: &PlanCtx,
+) -> Vec<Op> {
+    let mut ops = remaining_ops.to_vec();
+    let denom = estimated.max(1.0);
+    let rel_err = (actual - estimated).abs() / denom;
+    if rel_err <= ADAPTIVE_REOPT_THRESHOLD {
+        return ops; // the estimate was close enough — no churn.
+    }
+    // Unlike a fresh plan (where index 0 is always a real SOURCE op the reorder rules must
+    // never move), `remaining_ops` has NO leading source of its own — the op that already ran
+    // and produced `actual` rows isn't part of this slice — so the leading run is reorderable
+    // from index 0. Find it directly and re-cost it from the CORRECTED `actual` seed via the
+    // same [`best_permutation`] exhaustive search [`GlobalChainCost`] uses, capped at
+    // [`MAX_CHAIN_SEGMENT`] exactly like the plan-time pass.
+    let mut end = 0;
+    while end < ops.len() && is_reorderable(&ops[end]) {
+        end += 1;
+    }
+    let end = end.min(MAX_CHAIN_SEGMENT);
+    if end >= 2 {
+        let top_k = trailing_top_k(&ops, end - 1);
+        if let Some(best) = best_permutation(&ops[..end], actual, top_k, card, ctx) {
+            ops.splice(0..end, best);
+        }
+    }
+    ops
 }
 
 #[cfg(test)]
@@ -601,5 +798,285 @@ mod tests {
             sort_branches_by_cost(vec![expensive.clone(), cheap.clone()], 100.0, &card, &ctx);
         assert_eq!(sorted[0], cheap, "cheapest branch runs first");
         assert_eq!(sorted[1], expensive);
+    }
+
+    // ── Track H: global N-ary chain reorder + adaptive re-optimization ──────────────
+
+    /// A THREE-op reorderable run `[Rank, broad_filter, selective_filter]` where the
+    /// PAIRWISE rule alone is structurally stuck: it commits `(Rank, broad_filter)` first
+    /// (broad → stays vector-first) and then advances PAST `selective_filter` without ever
+    /// comparing it to anything — exactly the module-level gap [`GlobalChainCost`] closes.
+    /// The full optimizer (which runs [`GlobalChainCost`] after the pairwise pass) finds the
+    /// TRUE global minimum over all `3!` orderings and pushes the selective filter ahead of
+    /// the Rank, a DIFFERENT (and cheaper) order than naive left-to-right. Result-set
+    /// equivalence is asserted via the differential execute() proof, same as every other
+    /// reorder test in this module.
+    #[test]
+    fn global_chain_reorders_three_op_segment_beyond_pairwise_reach() {
+        use eg_core::compute::semantic::SemanticStore;
+        use eg_core::graph::GraphCore;
+        use serde_json::json;
+
+        // 1000 `Doc` nodes with TWO independent wide numeric columns (mirrors
+        // `selective_numeric_range_pushed_but_broad_range_stays`'s fixture) + an embedding
+        // each so the `Rank` leg has real cost.
+        const N: usize = 1_000;
+        let core = GraphCore::new();
+        let mut semantic = SemanticStore::new();
+        for k in 0..N {
+            let id = format!("d{k}");
+            core.add_node(
+                id.clone(),
+                rmp_serde::to_vec_named(&json!({ "type": "Doc", "year": k as i64, "score": k as i64 }))
+                    .unwrap(),
+            );
+            let mut v = vec![0.0f32; 4];
+            v[k % 4] = 1.0;
+            semantic.add_embedding(id, v);
+        }
+        let view = core.analysis_snapshot();
+        let ctx = PlanCtx::new(&view, &semantic);
+        let card = ModalityCardinality::new(PlanStats::collect(&ctx));
+
+        // `year > 20` is BROAD (~98% pass); `score > 980` is SELECTIVE (~2% pass) — the same
+        // column-histogram-driven pair the range-pushdown ablation uses, just on two
+        // independent columns so both can sit in ONE reorderable run.
+        let broad_filter = Op::Filter {
+            preds: vec![Pred::GtNum {
+                prop: "year".into(),
+                n: 20.0,
+            }],
+        };
+        let selective_filter = Op::Filter {
+            preds: vec![Pred::GtNum {
+                prop: "score".into(),
+                n: 980.0,
+            }],
+        };
+        let rank = Op::Rank {
+            query: crate::fixture::query_vec(),
+        };
+
+        // Naive, as a caller might write it: rank first, broad filter next, the selective
+        // one tacked on last.
+        let naive = Plan::new(vec![
+            Op::Scan {
+                label: "Doc".into(),
+            },
+            rank.clone(),
+            broad_filter.clone(),
+            selective_filter.clone(),
+            Op::Limit { k: 20 },
+        ]);
+
+        // The OLD pairwise-only mechanism cannot reach `selective_filter` at all: it commits
+        // `(Rank, broad_filter)` — broad stays vector-first, no swap — then jumps past
+        // `selective_filter` (its non-overlapping `j += 2` advance never re-examines it).
+        let pairwise_only = FilterAsOfBeforeRank.apply(naive.ops.clone(), &card, &ctx);
+        assert_eq!(
+            pairwise_only, naive.ops,
+            "the pairwise rule alone cannot reach the stranded selective filter"
+        );
+
+        // The FULL optimizer (pairwise passes + GlobalChainCost) finds the true minimum over
+        // all 3! orderings of the run and pushes the selective filter ahead of the Rank.
+        let opt = optimize(&naive, &ctx);
+        let rank_pos = opt.ops.iter().position(|o| *o == rank).unwrap();
+        let sel_pos = opt.ops.iter().position(|o| *o == selective_filter).unwrap();
+        assert!(
+            sel_pos < rank_pos,
+            "the selective filter must be pushed ahead of Rank, got {:?}",
+            opt.ops
+        );
+        assert_ne!(
+            opt.ops, naive.ops,
+            "GlobalChainCost must find a DIFFERENT order than naive left-to-right"
+        );
+
+        // Result-set equivalence: the SAME differential proof every other reorder test uses.
+        let sorted_ids = |rs: &RowSet| {
+            let mut v = rs.ids();
+            v.sort();
+            v
+        };
+        assert_eq!(
+            sorted_ids(&execute(&naive, &ctx).unwrap()),
+            sorted_ids(&execute(&opt, &ctx).unwrap()),
+            "the 3-op global reorder must preserve the result set"
+        );
+    }
+
+    /// The cross-modal case: `[Reason, Filter, Rank]` (an OWL confidence-filter, a relational
+    /// predicate, and a vector rerank all drawing off the SAME candidate set). `optimize()`'s
+    /// chosen order for the run must match the SAME cost-minimal permutation
+    /// [`best_permutation`] computes directly — the white-box oracle this suite already uses
+    /// for the numeric-range case — and that minimum must be a genuinely DIFFERENT (cheaper)
+    /// order than the naive `[Reason, Filter, Rank]` a caller who reasons-then-filters would
+    /// write. Proven result-preserving via the mid-pipeline `Reason` pattern
+    /// [`crate::tsdb_scan_tests::reason_mid_pipeline`] establishes.
+    #[cfg(feature = "owl")]
+    #[test]
+    fn global_chain_reorders_cross_modal_reason_filter_rank() {
+        use eg_core::compute::semantic::SemanticStore;
+        use eg_core::graph::GraphCore;
+        use serde_json::json;
+
+        let ttl = r#"
+@prefix ex:  <http://example.org/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs:<http://www.w3.org/2000/01/rdf-schema#> .
+ex:Paper rdfs:subClassOf [ a owl:Restriction ; owl:onProperty ex:about ; owl:someValuesFrom ex:Topic ] .
+[ a owl:Restriction ; owl:onProperty ex:about ; owl:someValuesFrom ex:Topic ] rdfs:subClassOf ex:ScholarlyWork .
+ex:Article rdfs:subClassOf ex:Paper .
+ex:p1 a ex:Paper .
+ex:p2 a ex:Article .
+ex:p3 a ex:Topic .
+ex:p4 a ex:Paper .
+"#;
+        let core = GraphCore::new();
+        let mut iris = eg_rdf::mapping::IriStore::default();
+        eg_rdf::mapping::load_triples(
+            &core,
+            &mut iris,
+            "g",
+            eg_rdf::mapping::parse_turtle(ttl).unwrap(),
+            #[cfg(feature = "rdf-redb")]
+            None,
+        )
+        .unwrap();
+
+        let blob = |v: serde_json::Value| rmp_serde::to_vec_named(&v).unwrap();
+        // The 4 OWL individuals ALSO carry a `type`/`lang` property blob (the LPG property
+        // store the DataFusion `Filter` leg reads is separate from the RDF quads the
+        // reasoner reads, so this does not disturb the OWL classification below). p4 is
+        // the ONLY `lang: fr` — a real, meaningful `Filter` split.
+        for (p, lang) in [("p1", "en"), ("p2", "en"), ("p3", "en"), ("p4", "fr")] {
+            core.add_node(
+                format!("<http://example.org/{p}>"),
+                blob(json!({ "type": "Doc", "lang": lang })),
+            );
+        }
+        // Filler `Doc` nodes (no OWL membership) so the plan-time Scan estimate is a
+        // realistic size — real execution still excludes them (`Reason` drops every
+        // non-member regardless of position), so result-set equivalence is unaffected.
+        for k in 0..200 {
+            core.add_node(
+                format!("filler{k}"),
+                blob(json!({ "type": "Doc", "lang": if k % 2 == 0 { "en" } else { "fr" } })),
+            );
+        }
+
+        let mut semantic = SemanticStore::new();
+        semantic.add_embedding("<http://example.org/p1>".into(), vec![0.90, 0.44, 0.0, 0.0]);
+        semantic.add_embedding("<http://example.org/p2>".into(), vec![0.99, 0.10, 0.0, 0.0]);
+        semantic.add_embedding("<http://example.org/p3>".into(), vec![1.00, 0.00, 0.0, 0.0]);
+        semantic.add_embedding("<http://example.org/p4>".into(), vec![0.20, 0.97, 0.0, 0.0]);
+
+        let view = core.analysis_snapshot();
+        let ctx = PlanCtx::new(&view, &semantic);
+        let card = ModalityCardinality::new(PlanStats::collect(&ctx));
+
+        let reason = Op::Reason {
+            target_class: "<http://example.org/ScholarlyWork>".into(),
+            ontology: String::new(),
+        };
+        let filter = Op::Filter {
+            preds: vec![Pred::Eq {
+                prop: "lang".into(),
+                value: "en".into(),
+            }],
+        };
+        let rank = Op::Rank {
+            query: vec![1.0, 0.0, 0.0, 0.0],
+        };
+        let naive = Plan::new(vec![
+            Op::Scan {
+                label: "Doc".into(),
+            },
+            reason.clone(),
+            filter.clone(),
+            rank.clone(),
+        ]);
+
+        // The white-box oracle: the SAME cost-minimal permutation search `optimize()` drives.
+        let seed = card_before(&naive.ops, 1, &card, &ctx);
+        let top_k = trailing_top_k(&naive.ops, 3);
+        let expected = best_permutation(&naive.ops[1..4], seed, top_k, &card, &ctx)
+            .unwrap_or_else(|| naive.ops[1..4].to_vec());
+        assert_ne!(
+            expected,
+            naive.ops[1..4],
+            "the cost-minimal cross-modal order must differ from naive Reason-then-Filter"
+        );
+
+        let opt = optimize(&naive, &ctx);
+        assert_eq!(
+            &opt.ops[1..4],
+            expected.as_slice(),
+            "optimize() must pick the SAME cross-modal order the cost model computes, got {:?}",
+            opt.ops
+        );
+
+        // Result-set equivalence: p3 (Topic, not ScholarlyWork) and p4 (fr) are excluded
+        // either way; p1/p2 survive, ranked p2 then p1.
+        let sorted_ids = |rs: &RowSet| {
+            let mut v = rs.ids();
+            v.sort();
+            v
+        };
+        assert_eq!(
+            sorted_ids(&execute(&naive, &ctx).unwrap()),
+            sorted_ids(&execute(&opt, &ctx).unwrap()),
+            "the cross-modal reorder must preserve the result set"
+        );
+    }
+
+    /// The adaptive hook: given a corrected ACTUAL cardinality wildly different from what was
+    /// estimated, [`reoptimize_remaining`] re-costs the remaining chain and flips the order —
+    /// the runtime-feedback half of Track H. `Eq` selectivity is a FIXED 0.1 regardless of
+    /// scale, so the crossover lever here is pure SEED SIZE: `filter_first_cost` grows
+    /// linearly with the input while `vector_first_cost`'s over-fetch is capped at
+    /// `top_k/selectivity` (independent of the seed once the seed exceeds it) — so a small
+    /// seed favors filter-first and a huge one favors vector-first, a real, derivable flip
+    /// (not a hardcoded answer).
+    #[test]
+    fn adaptive_reopt_flips_order_on_a_wildly_corrected_cardinality() {
+        let fx = crate::fixture::build();
+        let ctx = PlanCtx::new(&fx.view, &fx.semantic);
+        let card = ModalityCardinality::new(PlanStats::collect(&ctx));
+
+        let filter = Op::Filter {
+            preds: vec![Pred::Eq {
+                prop: "type".into(),
+                value: "Doc".into(),
+            }],
+        };
+        let rank = Op::Rank {
+            query: crate::fixture::query_vec(),
+        };
+
+        // What the plan-time optimizer picked at the (small) ESTIMATED seed: filter-first.
+        let remaining = vec![filter.clone(), rank.clone()];
+
+        // Below the divergence threshold — no reorder, even though a reorder might in
+        // principle help; the whole point is bounded, needless-churn-free re-costing.
+        let unchanged = reoptimize_remaining(&remaining, 100.0, 120.0, &card, &ctx);
+        assert_eq!(
+            unchanged, remaining,
+            "a mere 20% miss is within ADAPTIVE_REOPT_THRESHOLD — no churn"
+        );
+
+        // A WILDLY corrected actual (the upstream op emitted 50,000x more rows than assumed)
+        // blows past the threshold and flips the regime to vector-first.
+        let flipped = reoptimize_remaining(&remaining, 100.0, 5_000_000.0, &card, &ctx);
+        assert_ne!(
+            flipped, remaining,
+            "a wildly corrected actual cardinality must re-cost and change the order"
+        );
+        assert_eq!(
+            flipped[0], rank,
+            "at this corrected scale vector-first is cheaper, so Rank must lead, got {:?}",
+            flipped
+        );
     }
 }
