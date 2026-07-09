@@ -473,15 +473,15 @@ fn backward(layers: &[KanLayer], acts: &[Vec<f64>], dlds: f64, gacc: &mut GradAc
         let layer = &layers[l];
         let x_in = &acts[l];
         let mut grad_in = vec![0.0; layer.in_dim];
-        for j in 0..layer.out_dim {
-            gacc.bias[l][j] += go[j];
+        for (j, &gj) in go.iter().enumerate() {
+            gacc.bias[l][j] += gj;
             for i in 0..layer.in_dim {
                 let f = &layer.fns[j][i];
                 let bvals = f.grad_coeffs(x_in[i]);
                 for (k, bv) in bvals.iter().enumerate() {
-                    gacc.coeffs[l][j][i][k] += go[j] * bv;
+                    gacc.coeffs[l][j][i][k] += gj * bv;
                 }
-                grad_in[i] += go[j] * f.grad_input(x_in[i]);
+                grad_in[i] += gj * f.grad_input(x_in[i]);
             }
         }
         go = grad_in;
