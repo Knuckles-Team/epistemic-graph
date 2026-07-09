@@ -2179,7 +2179,10 @@ ex:Animal rdfs:subClassOf ex:LivingThing .
         let leaf = &mid.premises[0];
         assert_eq!((leaf.sub.as_str(), leaf.sup.as_str()), (DOG, DOG));
         assert_eq!(leaf.rule, "asserted");
-        assert!(leaf.is_leaf(), "a reflexive base fact has no further premises");
+        assert!(
+            leaf.is_leaf(),
+            "a reflexive base fact has no further premises"
+        );
 
         // Depth is 3 (root → mid → leaf); every axiom label is reachable via all_axioms.
         assert_eq!(tree.depth(), 3);

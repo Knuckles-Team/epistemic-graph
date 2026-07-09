@@ -89,7 +89,12 @@ pub fn prefixspan(sequences: &[Vec<ItemId>], min_count: usize) -> Vec<Sequential
     let projected: Vec<&[ItemId]> = sequences.iter().map(|s| s.as_slice()).collect();
     let mut out = Vec::new();
     prefixspan_rec(&projected, &[], min_count, n, &mut out);
-    out.sort_by(|a, b| a.items.len().cmp(&b.items.len()).then(a.items.cmp(&b.items)));
+    out.sort_by(|a, b| {
+        a.items
+            .len()
+            .cmp(&b.items.len())
+            .then(a.items.cmp(&b.items))
+    });
     out
 }
 
@@ -111,7 +116,10 @@ fn prefixspan_rec<'a>(
             *counts.entry(it).or_insert(0) += 1;
         }
     }
-    let mut freq: Vec<(ItemId, usize)> = counts.into_iter().filter(|&(_, c)| c >= min_count).collect();
+    let mut freq: Vec<(ItemId, usize)> = counts
+        .into_iter()
+        .filter(|&(_, c)| c >= min_count)
+        .collect();
     freq.sort_unstable();
 
     for (item, count) in freq {
@@ -162,7 +170,10 @@ pub fn gsp(sequences: &[Vec<ItemId>], min_count: usize) -> Vec<SequentialPattern
         }
     }
     let mut current: Vec<Vec<ItemId>> = Vec::new();
-    let mut singles: Vec<(ItemId, usize)> = counts.into_iter().filter(|&(_, c)| c >= min_count).collect();
+    let mut singles: Vec<(ItemId, usize)> = counts
+        .into_iter()
+        .filter(|&(_, c)| c >= min_count)
+        .collect();
     singles.sort_unstable();
     for (item, count) in singles {
         current.push(vec![item]);
@@ -198,7 +209,10 @@ pub fn gsp(sequences: &[Vec<ItemId>], min_count: usize) -> Vec<SequentialPattern
             if !all_contiguous_subseqs_frequent(&cand, &freq_set) {
                 continue;
             }
-            let count = sequences.iter().filter(|s| is_subsequence(s, &cand)).count();
+            let count = sequences
+                .iter()
+                .filter(|s| is_subsequence(s, &cand))
+                .count();
             if count >= min_count {
                 next.push(cand.clone());
                 all.push(SequentialPattern {
@@ -210,7 +224,12 @@ pub fn gsp(sequences: &[Vec<ItemId>], min_count: usize) -> Vec<SequentialPattern
         }
         current = next;
     }
-    all.sort_by(|a, b| a.items.len().cmp(&b.items.len()).then(a.items.cmp(&b.items)));
+    all.sort_by(|a, b| {
+        a.items
+            .len()
+            .cmp(&b.items.len())
+            .then(a.items.cmp(&b.items))
+    });
     all
 }
 
@@ -236,7 +255,11 @@ fn all_contiguous_subseqs_frequent(cand: &[ItemId], freq_set: &HashSet<Vec<ItemI
 }
 
 /// Run the chosen sequential-pattern engine.
-pub fn mine(sequences: &[Vec<ItemId>], min_support: f64, algorithm: Algorithm) -> Vec<SequentialPattern> {
+pub fn mine(
+    sequences: &[Vec<ItemId>],
+    min_support: f64,
+    algorithm: Algorithm,
+) -> Vec<SequentialPattern> {
     let mc = min_count(min_support, sequences.len().max(1));
     match algorithm {
         Algorithm::PrefixSpan => prefixspan(sequences, mc),
@@ -278,7 +301,11 @@ pub fn mine_labeled(
     patterns
         .into_iter()
         .map(|p| LabeledPattern {
-            items: p.items.iter().map(|&i| labels[i as usize].clone()).collect(),
+            items: p
+                .items
+                .iter()
+                .map(|&i| labels[i as usize].clone())
+                .collect(),
             count: p.count,
             support: p.support,
         })
@@ -319,7 +346,10 @@ mod tests {
     fn gsp_recovers_planted_pattern() {
         let patterns = gsp(&fixture(), min_count(0.5, 8));
         let hit = patterns.iter().find(|p| p.items == vec![0, 1, 2]);
-        assert!(hit.is_some(), "planted pattern [0,1,2] not recovered by GSP");
+        assert!(
+            hit.is_some(),
+            "planted pattern [0,1,2] not recovered by GSP"
+        );
         assert_eq!(hit.unwrap().count, 6);
         assert!((hit.unwrap().support - 0.75).abs() < 1e-9);
     }
@@ -331,7 +361,9 @@ mod tests {
         let seqs = fixture();
         let canon = |mut v: Vec<SequentialPattern>| {
             v.sort_by(|a, b| a.items.cmp(&b.items));
-            v.into_iter().map(|p| (p.items, p.count)).collect::<Vec<_>>()
+            v.into_iter()
+                .map(|p| (p.items, p.count))
+                .collect::<Vec<_>>()
         };
         for mc in 1..=6 {
             let p = canon(prefixspan(&seqs, mc));
@@ -361,7 +393,12 @@ mod tests {
     fn labeled_roundtrip_produces_string_patterns() {
         let seqs = vec![
             vec!["login".into(), "browse".into(), "purchase".into()],
-            vec!["login".into(), "search".into(), "browse".into(), "purchase".into()],
+            vec![
+                "login".into(),
+                "search".into(),
+                "browse".into(),
+                "purchase".into(),
+            ],
             vec!["login".into(), "browse".into()],
             vec!["login".into(), "browse".into(), "purchase".into()],
         ];

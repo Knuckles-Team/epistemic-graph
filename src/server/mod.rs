@@ -3605,7 +3605,12 @@ ex:Animal rdfs:subClassOf ex:LivingThing .
 
         let d = dispatch(
             &state,
-            request(1, "__commons__", None, sql(format!("DROP TABLE IF EXISTS {table}"))),
+            request(
+                1,
+                "__commons__",
+                None,
+                sql(format!("DROP TABLE IF EXISTS {table}")),
+            ),
         )
         .await;
         assert!(d.error.is_none(), "DROP failed: {:?}", d.error);
@@ -3616,7 +3621,9 @@ ex:Animal rdfs:subClassOf ex:LivingThing .
                 2,
                 "__commons__",
                 None,
-                sql(format!("CREATE TABLE {table} (id TEXT, name TEXT, age BIGINT)")),
+                sql(format!(
+                    "CREATE TABLE {table} (id TEXT, name TEXT, age BIGINT)"
+                )),
             ),
         )
         .await;
@@ -3671,11 +3678,7 @@ ex:Animal rdfs:subClassOf ex:LivingThing .
 
         // The request's OWN graph (__commons__) stays untouched — GetRdf sees no triples
         // from the virtual query (proves it never materialized into a real graph).
-        let get = dispatch(
-            &state,
-            request(5, "__commons__", None, Method::GetRdf),
-        )
-        .await;
+        let get = dispatch(&state, request(5, "__commons__", None, Method::GetRdf)).await;
         assert_ok(&get);
         let nt: String = match get.result {
             Some(ResultPayload::Raw(b)) => rmp_serde::from_slice(&b).unwrap(),
@@ -3688,7 +3691,12 @@ ex:Animal rdfs:subClassOf ex:LivingThing .
 
         let _ = dispatch(
             &state,
-            request(6, "__commons__", None, sql(format!("DROP TABLE IF EXISTS {table}"))),
+            request(
+                6,
+                "__commons__",
+                None,
+                sql(format!("DROP TABLE IF EXISTS {table}")),
+            ),
         )
         .await;
     }

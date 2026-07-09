@@ -529,13 +529,12 @@ async fn handle_owl_explain(
     sup: String,
 ) -> Response {
     let snap = core.analysis_snapshot();
-    let resp = match compute_off_lock(req_id, move || owl_explain(&snap, &ontology, &sub, &sup))
-        .await
-    {
-        Ok(Ok(result)) => Response::ok(req_id, ResultPayload::raw(&result)),
-        Ok(Err(msg)) => Response::err(req_id, format!("OwlExplain error: {msg}")),
-        Err(resp) => resp,
-    };
+    let resp =
+        match compute_off_lock(req_id, move || owl_explain(&snap, &ontology, &sub, &sup)).await {
+            Ok(Ok(result)) => Response::ok(req_id, ResultPayload::raw(&result)),
+            Ok(Err(msg)) => Response::err(req_id, format!("OwlExplain error: {msg}")),
+            Err(resp) => resp,
+        };
     resp
 }
 

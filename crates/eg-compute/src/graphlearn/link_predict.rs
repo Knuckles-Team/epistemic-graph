@@ -60,7 +60,11 @@ pub struct KanLayer {
 impl KanLayer {
     fn new(in_dim: usize, out_dim: usize, basis: Basis, degree: usize) -> Self {
         let fns = (0..out_dim)
-            .map(|_| (0..in_dim).map(|_| KanEdgeFn::zeros(basis, degree)).collect())
+            .map(|_| {
+                (0..in_dim)
+                    .map(|_| KanEdgeFn::zeros(basis, degree))
+                    .collect()
+            })
             .collect();
         Self {
             in_dim,
@@ -198,9 +202,7 @@ impl FeatureCtx {
         let pr: Vec<f64> = pr_res.scores.iter().map(|(_, s)| *s).collect();
         // Raw per-node features: [normalised degree, pagerank] → 1-hop aggregated.
         let max_deg = degree.iter().cloned().fold(1.0_f64, f64::max);
-        let base: Vec<Vec<f64>> = (0..n)
-            .map(|i| vec![degree[i] / max_deg, pr[i]])
-            .collect();
+        let base: Vec<Vec<f64>> = (0..n).map(|i| vec![degree[i] / max_deg, pr[i]]).collect();
         let node_feats = aggregate_1hop(graph, &base, alpha);
         Self {
             neighbors,
@@ -337,7 +339,17 @@ pub fn fit_link_predictor(
             backward(&layers, &acts, dlds, &mut gacc);
         }
         let grad = gacc.flatten(1.0 / batch);
-        let step = adam_step(&params, &grad, &m, &v, config.lr, 0.9, 0.999, 1e-8, epoch as u64 + 1);
+        let step = adam_step(
+            &params,
+            &grad,
+            &m,
+            &v,
+            config.lr,
+            0.9,
+            0.999,
+            1e-8,
+            epoch as u64 + 1,
+        );
         params = step.params;
         m = step.m;
         v = step.v;
@@ -355,8 +367,14 @@ pub fn fit_link_predictor(
         train_auc: 0.0,
     };
     // Record training AUC.
-    let pos_scores: Vec<f64> = pos.iter().map(|&(a, b)| model.predict_prob(&ctx.pair_features(a, b))).collect();
-    let neg_scores: Vec<f64> = neg.iter().map(|&(a, b)| model.predict_prob(&ctx.pair_features(a, b))).collect();
+    let pos_scores: Vec<f64> = pos
+        .iter()
+        .map(|&(a, b)| model.predict_prob(&ctx.pair_features(a, b)))
+        .collect();
+    let neg_scores: Vec<f64> = neg
+        .iter()
+        .map(|&(a, b)| model.predict_prob(&ctx.pair_features(a, b)))
+        .collect();
     model.train_auc = auc(&pos_scores, &neg_scores);
     model
 }
@@ -686,14 +704,24 @@ mod tests {
     /// within, sparse across. Intra-community node pairs share many neighbours, so
     /// the planted latent rule ("links form between nodes sharing common neighbours")
     /// is recoverable. Returns the undirected edge list (compact indices) + node count.
-    fn planted_sbm(k: usize, size: usize, p_in: f64, p_out: f64, seed: u64) -> (usize, Vec<(usize, usize)>) {
+    fn planted_sbm(
+        k: usize,
+        size: usize,
+        p_in: f64,
+        p_out: f64,
+        seed: u64,
+    ) -> (usize, Vec<(usize, usize)>) {
         let n = k * size;
         let mut rng = SplitMix64::new(seed);
         let community = |i: usize| i / size;
         let mut edges = Vec::new();
         for a in 0..n {
             for b in (a + 1)..n {
-                let p = if community(a) == community(b) { p_in } else { p_out };
+                let p = if community(a) == community(b) {
+                    p_in
+                } else {
+                    p_out
+                };
                 if rng.next_f64() < p {
                     edges.push((a, b));
                 }
@@ -807,11 +835,7 @@ mod tests {
         // At least one structural-overlap feature must carry a learned, non-zero curve.
         let mut max_norm = 0.0f64;
         for i in 0..N_FEATURES {
-            let norm: f64 = model.layers[0].fns[0][i]
-                .coeffs
-                .iter()
-                .map(|c| c * c)
-                .sum();
+            let norm: f64 = model.layers[0].fns[0][i].coeffs.iter().map(|c| c * c).sum();
             max_norm = max_norm.max(norm);
         }
         assert!(max_norm > 1e-4, "no feature learned a non-trivial curve");

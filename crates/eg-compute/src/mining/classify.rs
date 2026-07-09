@@ -571,11 +571,7 @@ mod tests {
         // Three well-separated blobs → OvR logistic must separate all three.
         let mut x = Vec::new();
         let mut y = Vec::new();
-        for (cls, (cx, cy)) in [(0, (0.0, 0.0)), (1, (10.0, 0.0)), (2, (0.0, 10.0))]
-            .into_iter()
-            .enumerate()
-            .map(|(_, v)| v)
-        {
+        for (cls, (cx, cy)) in [(0, (0.0, 0.0)), (1, (10.0, 0.0)), (2, (0.0, 10.0))] {
             for i in 0..5 {
                 let t = i as f64 * 0.1;
                 x.push(vec![cx + t, cy - t]);

@@ -16,11 +16,9 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use eg_compute::graphlearn::edge_fn::Basis;
-use eg_compute::graphlearn::link_predict::{
-    self, FeatureCtx, KanLinkConfig, KanLinkModel,
-};
 use eg_compute::graph_algos::AdjacencyGraph;
+use eg_compute::graphlearn::edge_fn::Basis;
+use eg_compute::graphlearn::link_predict::{self, FeatureCtx, KanLinkConfig, KanLinkModel};
 
 use crate::graph::GraphCore;
 use crate::protocol::{GraphLearnParams, GraphSource, Method, Response, ResultPayload};
@@ -246,13 +244,7 @@ fn handle_predict(
     // Map indices back to node ids.
     let predicted: Vec<(String, String, f64)> = scored
         .iter()
-        .map(|&(a, b, score)| {
-            (
-                graph.node_at(a).clone(),
-                graph.node_at(b).clone(),
-                score,
-            )
-        })
+        .map(|&(a, b, score)| (graph.node_at(a).clone(), graph.node_at(b).clone(), score))
         .collect();
 
     let model_id = model_digest(&model);
@@ -318,7 +310,10 @@ fn materialize_predicted_edges(
 
 /// Build the learning subgraph (an `AdjacencyGraph<String>` over the label's nodes,
 /// isolated nodes included) + the observed positive edges as compact-index pairs.
-fn build_graph(core: &GraphCore, source: &GraphSource) -> (AdjacencyGraph<String>, Vec<(usize, usize)>) {
+fn build_graph(
+    core: &GraphCore,
+    source: &GraphSource,
+) -> (AdjacencyGraph<String>, Vec<(usize, usize)>) {
     let (graph, edge_set) = build_graph_with_set(core, source);
     let positives: Vec<(usize, usize)> = edge_set.into_iter().collect();
     (graph, positives)
@@ -489,12 +484,24 @@ mod tests {
             core.add_node(id.into(), node(serde_json::json!({ "type": "Person" })));
         }
         let edges = [
-            ("a0", "a1"), ("a0", "a2"), ("a1", "a2"), ("a2", "a3"), ("a1", "a3"),
-            ("b0", "b1"), ("b0", "b2"), ("b1", "b2"), ("b2", "b3"), ("b1", "b3"),
+            ("a0", "a1"),
+            ("a0", "a2"),
+            ("a1", "a2"),
+            ("a2", "a3"),
+            ("a1", "a3"),
+            ("b0", "b1"),
+            ("b0", "b2"),
+            ("b1", "b2"),
+            ("b2", "b3"),
+            ("b1", "b3"),
             ("a0", "b0"), // one weak cross link
         ];
         for (s, d) in edges {
-            let _ = core.add_edge(s.into(), d.into(), node(serde_json::json!({ "relation": "KNOWS" })));
+            let _ = core.add_edge(
+                s.into(),
+                d.into(),
+                node(serde_json::json!({ "relation": "KNOWS" })),
+            );
         }
         core.mark_dirty();
     }
@@ -526,10 +533,14 @@ mod tests {
         };
         assert_eq!(v["n_nodes"], 8);
         assert!(v["n_edges"].as_u64().unwrap() >= 10);
-        assert!(v["train_auc"].as_f64().unwrap() > 0.7, "train_auc={}", v["train_auc"]);
+        assert!(
+            v["train_auc"].as_f64().unwrap() > 0.7,
+            "train_auc={}",
+            v["train_auc"]
+        );
         let written = v["edge_functions_written"].as_u64().unwrap();
         assert_eq!(written, 7); // one per feature (default hidden=0)
-        // The learned edge functions are now queryable :EdgeFunction nodes.
+                                // The learned edge functions are now queryable :EdgeFunction nodes.
         core.mark_dirty();
         let ef_nodes = core.get_nodes_by_label("EdgeFunction", 0);
         assert_eq!(ef_nodes.len() as u64, written);
@@ -568,7 +579,7 @@ mod tests {
             panic!("expected json");
         };
         let n = v["n_predicted"].as_u64().unwrap();
-        assert!(n >= 1 && n <= 5);
+        assert!((1..=5).contains(&n));
         assert_eq!(v["written_back"].as_u64().unwrap(), n);
         // Each prediction has a score in [0,1].
         for row in v["predicted"].as_array().unwrap() {

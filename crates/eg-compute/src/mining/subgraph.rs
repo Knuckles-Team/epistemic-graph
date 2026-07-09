@@ -56,7 +56,11 @@ impl HostGraph {
                 in_adj[*to].push((*from, lbl.clone()));
             }
         }
-        HostGraph { labels, out_adj, in_adj }
+        HostGraph {
+            labels,
+            out_adj,
+            in_adj,
+        }
     }
 
     pub fn node_count(&self) -> usize {
@@ -97,6 +101,10 @@ fn min_count(min_support: f64, n: usize) -> usize {
 
 // ─────────────────────────── canonicalization ───────────────────────────
 
+/// A pattern's canonical encoding: `(node_labels, sorted (src, dst, edge_label)
+/// triples)` under a fixed node relabeling.
+type CanonicalForm = (Vec<String>, Vec<(usize, usize, String)>);
+
 /// Canonical form of a pattern: the lexicographically SMALLEST edge-list
 /// encoding over every relabeling (permutation) of its node indices that
 /// keeps node 0 first, etc. Patterns stay tiny (`max_edges + 1` nodes at
@@ -105,10 +113,13 @@ fn min_count(min_support: f64, n: usize) -> usize {
 fn canonicalize(pattern: &Pattern) -> Pattern {
     let n = pattern.node_labels.len();
     let mut perm: Vec<usize> = (0..n).collect();
-    let mut best: Option<(Vec<String>, Vec<(usize, usize, String)>)> = None;
+    let mut best: Option<CanonicalForm> = None;
 
     permute(&mut perm, 0, &mut |perm| {
-        let node_labels: Vec<String> = perm.iter().map(|&i| pattern.node_labels[i].clone()).collect();
+        let node_labels: Vec<String> = perm
+            .iter()
+            .map(|&i| pattern.node_labels[i].clone())
+            .collect();
         // `inv[old_idx] = new_idx`
         let mut inv = vec![0usize; n];
         for (new_idx, &old_idx) in perm.iter().enumerate() {
@@ -126,7 +137,8 @@ fn canonicalize(pattern: &Pattern) -> Pattern {
         }
     });
 
-    let (node_labels, edges) = best.unwrap_or_else(|| (pattern.node_labels.clone(), pattern.edges.clone()));
+    let (node_labels, edges) =
+        best.unwrap_or_else(|| (pattern.node_labels.clone(), pattern.edges.clone()));
     Pattern { node_labels, edges }
 }
 
@@ -201,7 +213,10 @@ fn edges_consistent(pos: usize, mapping: &[usize], host: &HostGraph, pattern: &P
         if ha == usize::MAX || hb == usize::MAX {
             continue;
         }
-        if !host.out_adj[ha].iter().any(|(nb, el)| *nb == hb && el == lbl) {
+        if !host.out_adj[ha]
+            .iter()
+            .any(|(nb, el)| *nb == hb && el == lbl)
+        {
             return false;
         }
     }
@@ -288,7 +303,11 @@ pub fn mine_gspan(host: &HostGraph, min_support: f64, max_edges: usize) -> Vec<F
 /// pattern node (labeled by the host neighbor), or close a cycle onto an
 /// EXISTING pattern node if that edge isn't already present. Candidates are
 /// de-duplicated by the caller via canonicalization.
-fn extend_candidates(host: &HostGraph, pattern: &Pattern, embeddings: &[Vec<HostNodeId>]) -> Vec<Pattern> {
+fn extend_candidates(
+    host: &HostGraph,
+    pattern: &Pattern,
+    embeddings: &[Vec<HostNodeId>],
+) -> Vec<Pattern> {
     let k = pattern.node_labels.len();
     let mut out = Vec::new();
     // Only need a handful of embeddings to discover every extension shape
@@ -299,10 +318,17 @@ fn extend_candidates(host: &HostGraph, pattern: &Pattern, embeddings: &[Vec<Host
             for (nbr, lbl) in &host.out_adj[host_i] {
                 if let Some(existing_local) = mapping.iter().position(|&h| h == *nbr) {
                     // Closes a cycle onto an existing pattern node.
-                    if !pattern.edges.iter().any(|(a, b, l)| *a == local_i && *b == existing_local && l == lbl) {
+                    if !pattern
+                        .edges
+                        .iter()
+                        .any(|(a, b, l)| *a == local_i && *b == existing_local && l == lbl)
+                    {
                         let mut edges = pattern.edges.clone();
                         edges.push((local_i, existing_local, lbl.clone()));
-                        out.push(Pattern { node_labels: pattern.node_labels.clone(), edges });
+                        out.push(Pattern {
+                            node_labels: pattern.node_labels.clone(),
+                            edges,
+                        });
                     }
                 } else {
                     // Grows to a new node.
@@ -316,10 +342,17 @@ fn extend_candidates(host: &HostGraph, pattern: &Pattern, embeddings: &[Vec<Host
             // Incoming extensions: neighbor -> host_i.
             for (nbr, lbl) in &host.in_adj[host_i] {
                 if let Some(existing_local) = mapping.iter().position(|&h| h == *nbr) {
-                    if !pattern.edges.iter().any(|(a, b, l)| *a == existing_local && *b == local_i && l == lbl) {
+                    if !pattern
+                        .edges
+                        .iter()
+                        .any(|(a, b, l)| *a == existing_local && *b == local_i && l == lbl)
+                    {
                         let mut edges = pattern.edges.clone();
                         edges.push((existing_local, local_i, lbl.clone()));
-                        out.push(Pattern { node_labels: pattern.node_labels.clone(), edges });
+                        out.push(Pattern {
+                            node_labels: pattern.node_labels.clone(),
+                            edges,
+                        });
                     }
                 } else {
                     let mut node_labels = pattern.node_labels.clone();
@@ -395,7 +428,11 @@ pub fn count_motifs(host: &HostGraph) -> MotifCounts {
     // Each 3-cycle a→b→c→a is found starting from each of its 3 edges.
     directed_cycle3 /= 3;
 
-    MotifCounts { wedge, triangle, directed_cycle3 }
+    MotifCounts {
+        wedge,
+        triangle,
+        directed_cycle3,
+    }
 }
 
 #[cfg(test)]
@@ -410,7 +447,9 @@ mod tests {
     }
     impl SplitMix64 {
         fn new(seed: u64) -> Self {
-            SplitMix64 { state: seed.wrapping_add(0x9E37_79B9_7F4A_7C15) }
+            SplitMix64 {
+                state: seed.wrapping_add(0x9E37_79B9_7F4A_7C15),
+            }
         }
         fn next_u64(&mut self) -> u64 {
             self.state = self.state.wrapping_add(0x9E37_79B9_7F4A_7C15);
@@ -504,7 +543,11 @@ mod tests {
         let host = HostGraph::build(labels, &edges);
         let results = mine_gspan(&host, 0.3, 2);
         let two_edge = results.iter().find(|r| r.pattern.edges.len() == 2);
-        assert!(two_edge.is_some(), "expected a frequent 2-edge A->B->C pattern, got: {:?}", results.iter().map(|r| &r.pattern).collect::<Vec<_>>());
+        assert!(
+            two_edge.is_some(),
+            "expected a frequent 2-edge A->B->C pattern, got: {:?}",
+            results.iter().map(|r| &r.pattern).collect::<Vec<_>>()
+        );
         assert_eq!(two_edge.unwrap().count, 4);
     }
 
@@ -559,7 +602,11 @@ mod tests {
     #[test]
     fn motif_counting_finds_a_directed_3cycle() {
         let labels = vec!["N".to_string(); 3];
-        let edges = vec![(0, 1, "e".to_string()), (1, 2, "e".to_string()), (2, 0, "e".to_string())];
+        let edges = vec![
+            (0, 1, "e".to_string()),
+            (1, 2, "e".to_string()),
+            (2, 0, "e".to_string()),
+        ];
         let host = HostGraph::build(labels, &edges);
         let motifs = count_motifs(&host);
         assert_eq!(motifs.directed_cycle3, 1);

@@ -18,10 +18,21 @@
 //   (Lee & Seung; deterministic per `seed`, which only seeds the initial `W`/
 //   `H` factors — the update rule itself has no randomness).
 
+// The topic-model matrix math (LDA count matrices, NMF multiplicative updates on
+// the term-document matrix) reads more clearly with explicit `for d in 0..n_docs
+// { m[d][t] }` indexing than enumerate/zip rewrites. Scope the lint to this
+// compute module rather than contorting the math.
+#![allow(clippy::needless_range_loop)]
+
 use std::collections::HashMap;
 
 /// An interned term id (small, dense — assigned by [`intern`]).
 pub type TermId = u32;
+
+/// A fitted topic model: `(topic-term weights, per-document topic distribution)`
+/// — `topics[k]` is topic `k`'s sparse term weights, `doc_topics[d]` is document
+/// `d`'s dense topic mixture.
+type TopicModel = (Vec<Vec<(TermId, f64)>>, Vec<Vec<f64>>);
 
 /// Which text-mining engine to run, with its parameters.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -96,7 +107,11 @@ pub fn tfidf(docs: &[Vec<TermId>], vocab_size: usize) -> Vec<Vec<(TermId, f64)>>
                 .into_iter()
                 .map(|(t, c)| (t, (c as f64 / doc_len) * idf[t as usize]))
                 .collect();
-            terms.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal).then(a.0.cmp(&b.0)));
+            terms.sort_by(|a, b| {
+                b.1.partial_cmp(&a.1)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .then(a.0.cmp(&b.0))
+            });
             terms
         })
         .collect()
@@ -118,7 +133,7 @@ pub fn lda(
     beta: f64,
     iterations: usize,
     seed: u64,
-) -> (Vec<Vec<(TermId, f64)>>, Vec<Vec<f64>>) {
+) -> TopicModel {
     let n_docs = docs.len();
     if k == 0 || vocab_size == 0 || n_docs == 0 {
         return (Vec::new(), Vec::new());
@@ -180,7 +195,11 @@ pub fn lda(
         let mut terms: Vec<(TermId, f64)> = (0..vocab_size)
             .map(|w| (w as TermId, (topic_term_counts[t][w] as f64 + beta) / denom))
             .collect();
-        terms.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal).then(a.0.cmp(&b.0)));
+        terms.sort_by(|a, b| {
+            b.1.partial_cmp(&a.1)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then(a.0.cmp(&b.0))
+        });
         topics.push(terms);
     }
     let doc_topics: Vec<Vec<f64>> = (0..n_docs)
@@ -209,7 +228,7 @@ pub fn nmf(
     k: usize,
     iterations: usize,
     seed: u64,
-) -> (Vec<Vec<(TermId, f64)>>, Vec<Vec<f64>>) {
+) -> TopicModel {
     let n_docs = docs.len();
     if k == 0 || vocab_size == 0 || n_docs == 0 {
         return (Vec::new(), Vec::new());
@@ -317,8 +336,14 @@ pub fn nmf(
 
     let mut topics: Vec<Vec<(TermId, f64)>> = Vec::with_capacity(k);
     for a in 0..k {
-        let mut terms: Vec<(TermId, f64)> = (0..vocab_size).map(|j| (j as TermId, h_mat[a][j])).collect();
-        terms.sort_by(|x, y| y.1.partial_cmp(&x.1).unwrap_or(std::cmp::Ordering::Equal).then(x.0.cmp(&y.0)));
+        let mut terms: Vec<(TermId, f64)> = (0..vocab_size)
+            .map(|j| (j as TermId, h_mat[a][j]))
+            .collect();
+        terms.sort_by(|x, y| {
+            y.1.partial_cmp(&x.1)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then(x.0.cmp(&y.0))
+        });
         topics.push(terms);
     }
     let doc_topics: Vec<Vec<f64>> = w_mat
@@ -343,13 +368,31 @@ pub fn mine(docs: &[Vec<TermId>], vocab_size: usize, algorithm: Algorithm) -> Te
             topics: Vec::new(),
             doc_topics: Vec::new(),
         },
-        Algorithm::Lda { k, alpha, beta, iterations, seed } => {
+        Algorithm::Lda {
+            k,
+            alpha,
+            beta,
+            iterations,
+            seed,
+        } => {
             let (topics, doc_topics) = lda(docs, vocab_size, k, alpha, beta, iterations, seed);
-            TextResult { doc_terms: Vec::new(), topics, doc_topics }
+            TextResult {
+                doc_terms: Vec::new(),
+                topics,
+                doc_topics,
+            }
         }
-        Algorithm::Nmf { k, iterations, seed } => {
+        Algorithm::Nmf {
+            k,
+            iterations,
+            seed,
+        } => {
             let (topics, doc_topics) = nmf(docs, vocab_size, k, iterations, seed);
-            TextResult { doc_terms: Vec::new(), topics, doc_topics }
+            TextResult {
+                doc_terms: Vec::new(),
+                topics,
+                doc_topics,
+            }
         }
     }
 }
@@ -395,7 +438,10 @@ pub fn mine_labeled(docs: &[Vec<String>], algorithm: Algorithm, top_n: usize) ->
     let result = mine(&interned, labels.len(), algorithm);
     let cap = top_n.max(1);
     let relabel = |v: Vec<(TermId, f64)>| -> Vec<(String, f64)> {
-        v.into_iter().take(cap).map(|(t, w)| (labels[t as usize].clone(), w)).collect()
+        v.into_iter()
+            .take(cap)
+            .map(|(t, w)| (labels[t as usize].clone(), w))
+            .collect()
     };
     LabeledTextResult {
         doc_terms: result.doc_terms.into_iter().map(relabel).collect(),
@@ -411,7 +457,9 @@ struct SplitMix64 {
 }
 impl SplitMix64 {
     fn new(seed: u64) -> Self {
-        SplitMix64 { state: seed.wrapping_add(0x9E37_79B9_7F4A_7C15) }
+        SplitMix64 {
+            state: seed.wrapping_add(0x9E37_79B9_7F4A_7C15),
+        }
     }
     fn next_u64(&mut self) -> u64 {
         self.state = self.state.wrapping_add(0x9E37_79B9_7F4A_7C15);
@@ -453,7 +501,10 @@ mod tests {
         // In doc 2 ("rocket" doc), "rocket" must outrank "the" (idf(rocket) > idf(the)).
         let doc2 = &out.doc_terms[2];
         let rank = |term: &str| doc2.iter().position(|(t, _)| t == term);
-        assert!(rank("rocket") < rank("the"), "rocket should outrank the common term 'the'");
+        assert!(
+            rank("rocket") < rank("the"),
+            "rocket should outrank the common term 'the'"
+        );
     }
 
     /// Two disjoint-vocabulary document groups (pets vs. finance) — LDA at k=2
@@ -466,12 +517,26 @@ mod tests {
         for i in 0..15 {
             // Deterministic, varying-length documents from each vocabulary.
             let n = 6 + (i % 4);
-            docs.push((0..n).map(|j| pet_words[(i + j) % pet_words.len()].to_string()).collect());
-            docs.push((0..n).map(|j| fin_words[(i + j) % fin_words.len()].to_string()).collect());
+            docs.push(
+                (0..n)
+                    .map(|j| pet_words[(i + j) % pet_words.len()].to_string())
+                    .collect(),
+            );
+            docs.push(
+                (0..n)
+                    .map(|j| fin_words[(i + j) % fin_words.len()].to_string())
+                    .collect(),
+            );
         }
         let out = mine_labeled(
             &docs,
-            Algorithm::Lda { k: 2, alpha: 0.1, beta: 0.01, iterations: 200, seed: 42 },
+            Algorithm::Lda {
+                k: 2,
+                alpha: 0.1,
+                beta: 0.01,
+                iterations: 200,
+                seed: 42,
+            },
             5,
         );
         assert_eq!(out.topics.len(), 2);
@@ -495,10 +560,26 @@ mod tests {
         let mut docs: Vec<Vec<String>> = Vec::new();
         for i in 0..15 {
             let n = 6 + (i % 4);
-            docs.push((0..n).map(|j| pet_words[(i + j) % pet_words.len()].to_string()).collect());
-            docs.push((0..n).map(|j| fin_words[(i + j) % fin_words.len()].to_string()).collect());
+            docs.push(
+                (0..n)
+                    .map(|j| pet_words[(i + j) % pet_words.len()].to_string())
+                    .collect(),
+            );
+            docs.push(
+                (0..n)
+                    .map(|j| fin_words[(i + j) % fin_words.len()].to_string())
+                    .collect(),
+            );
         }
-        let out = mine_labeled(&docs, Algorithm::Nmf { k: 2, iterations: 200, seed: 7 }, 5);
+        let out = mine_labeled(
+            &docs,
+            Algorithm::Nmf {
+                k: 2,
+                iterations: 200,
+                seed: 7,
+            },
+            5,
+        );
         assert_eq!(out.topics.len(), 2);
         for topic in &out.topics {
             let top_terms: Vec<&str> = topic.iter().map(|(t, _)| t.as_str()).collect();
@@ -518,10 +599,23 @@ mod tests {
             words("cat dog pet leash vet cat dog"),
             words("stock market bond yield trader stock market"),
         ];
-        let out = mine_labeled(&docs, Algorithm::Lda { k: 2, alpha: 0.1, beta: 0.01, iterations: 100, seed: 3 }, 5);
+        let out = mine_labeled(
+            &docs,
+            Algorithm::Lda {
+                k: 2,
+                alpha: 0.1,
+                beta: 0.01,
+                iterations: 100,
+                seed: 3,
+            },
+            5,
+        );
         for dist in &out.doc_topics {
             let sum: f64 = dist.iter().sum();
-            assert!((sum - 1.0).abs() < 1e-9, "doc-topic distribution should sum to 1, got {sum}");
+            assert!(
+                (sum - 1.0).abs() < 1e-9,
+                "doc-topic distribution should sum to 1, got {sum}"
+            );
         }
     }
 
