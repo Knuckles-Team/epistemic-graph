@@ -43,6 +43,6 @@ pub use louvain::{louvain, LouvainConfig, LouvainResult};
 pub use pagerank::{pagerank, PageRankConfig, PageRankResult};
 pub use shortest_path::{all_pairs_shortest_paths, dijkstra, shortest_path, DijkstraResult};
 pub use similarity::{
-    all_pairs_similarity, cosine_similarity, jaccard_similarity, knn_similarity, Direction,
-    Metric, SimilarityPair,
+    all_pairs_similarity, cosine_similarity, jaccard_similarity, knn_similarity, Direction, Metric,
+    SimilarityPair,
 };

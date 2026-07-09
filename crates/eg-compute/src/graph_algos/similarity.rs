@@ -205,7 +205,8 @@ where
             }
         }
     }
-    let mut out: Vec<(usize, usize, f64)> = pair_best.into_iter().map(|((a, b), s)| (a, b, s)).collect();
+    let mut out: Vec<(usize, usize, f64)> =
+        pair_best.into_iter().map(|((a, b), s)| (a, b, s)).collect();
     out.sort_by(|x, y| {
         y.2.partial_cmp(&x.2)
             .unwrap_or(std::cmp::Ordering::Equal)
@@ -328,9 +329,15 @@ mod tests {
             ("c", "x", 1.0),
         ]);
         let pairs = knn_similarity(&g, Metric::Jaccard, Direction::Out, 1, 0.0);
-        assert!(pairs.iter().any(|p| p.a == "a" && p.b == "b" && (p.score - 1.0).abs() < 1e-9));
-        assert!(pairs.iter().any(|p| p.a == "a" && p.b == "c" && (p.score - 0.5).abs() < 1e-9));
-        assert!(!pairs.iter().any(|p| (p.a == "b" && p.b == "c") || (p.a == "c" && p.b == "b")));
+        assert!(pairs
+            .iter()
+            .any(|p| p.a == "a" && p.b == "b" && (p.score - 1.0).abs() < 1e-9));
+        assert!(pairs
+            .iter()
+            .any(|p| p.a == "a" && p.b == "c" && (p.score - 0.5).abs() < 1e-9));
+        assert!(!pairs
+            .iter()
+            .any(|p| (p.a == "b" && p.b == "c") || (p.a == "c" && p.b == "b")));
         assert_eq!(pairs.len(), 2);
     }
 
