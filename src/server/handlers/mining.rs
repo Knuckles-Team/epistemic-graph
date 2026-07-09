@@ -16,12 +16,14 @@ use std::sync::Arc;
 
 use eg_compute::mining::anomaly;
 use eg_compute::mining::association::{self, Algorithm, LabeledRule};
+use eg_compute::mining::classify::{self, FittedClassifier};
 use eg_compute::mining::cluster;
+use eg_compute::mining::reduce;
 
 use crate::graph::GraphCore;
 use crate::protocol::{
-    AnomalyAlgorithm, ClusterAlgorithm, Linkage, Method, MineAlgorithm, Response, ResultPayload,
-    SvmKernel, TransactionSource, VectorSource,
+    AnomalyAlgorithm, ClassifyAlgorithm, ClusterAlgorithm, Linkage, Method, MineAlgorithm,
+    ReduceAlgorithm, Response, ResultPayload, SvmKernel, TransactionSource, VectorSource,
 };
 
 /// Handle a `Mine*` method. `Err(method)` hands a non-mining method back to the
@@ -93,6 +95,57 @@ pub(crate) fn try_handle(
             gamma,
             kernel,
             threshold,
+            writeback,
+        )),
+        Method::MineClassifyFit {
+            x,
+            source,
+            y,
+            algorithm,
+            k,
+            alpha,
+            lr,
+            epochs,
+            l2,
+            c,
+        } => Ok(handle_classify_fit(
+            req_id, &core, x, source, y, algorithm, k, alpha, lr, epochs, l2, c,
+        )),
+        Method::MineClassifyPredict {
+            model,
+            x,
+            source,
+            writeback,
+        } => Ok(handle_classify_predict(
+            req_id, &core, model, x, source, writeback,
+        )),
+        Method::MineReduce {
+            x,
+            source,
+            labels,
+            algorithm,
+            n_components,
+            n_neighbors,
+            min_dist,
+            perplexity,
+            epochs,
+            lr,
+            seed,
+            writeback,
+        } => Ok(handle_reduce(
+            req_id,
+            &core,
+            x,
+            source,
+            labels,
+            algorithm,
+            n_components,
+            n_neighbors,
+            min_dist,
+            perplexity,
+            epochs,
+            lr,
+            seed,
             writeback,
         )),
         other => Err(other),
@@ -177,6 +230,50 @@ pub(crate) fn replay(core: &GraphCore, method: &Method) {
             );
             let out = anomaly::detect(&rows, algo, *threshold);
             materialize_anomalies(core, &out, &ids, *algorithm);
+        }
+        Method::MineClassifyPredict {
+            model,
+            x,
+            source,
+            writeback: true,
+        } => {
+            let (rows, ids) = build_vectors(core, x, source);
+            if rows.is_empty() {
+                return;
+            }
+            let out = classify::predict(model, &rows);
+            materialize_classifications(core, &out, &ids);
+        }
+        Method::MineReduce {
+            x,
+            source,
+            labels,
+            algorithm,
+            n_components,
+            n_neighbors,
+            min_dist,
+            perplexity,
+            epochs,
+            lr,
+            seed,
+            writeback: true,
+        } => {
+            let (rows, ids) = build_vectors(core, x, source);
+            if rows.is_empty() {
+                return;
+            }
+            let algo = reduce_algo(
+                *algorithm,
+                *n_neighbors,
+                *min_dist,
+                *perplexity,
+                *epochs,
+                *lr,
+                *seed,
+            );
+            let lbls = (!labels.is_empty()).then_some(labels.as_slice());
+            let out = reduce::reduce(&rows, lbls, algo, *n_components);
+            materialize_embeddings(core, &out, &ids);
         }
         _ => {}
     }
@@ -725,6 +822,315 @@ fn anomaly_node_id(algo: &str, source: &str) -> String {
     format!("anomaly:{}", hex::encode(&hasher.finalize()[..12]))
 }
 
+// ─────────────────────────── Classification (fit / predict) ───────────────────────────
+
+/// Handle `MineClassifyFit` (CONCEPT:EG-KG.mining.naive-bayes): build the feature rows
+/// (explicit or node embeddings — the cross-modal "classify these nodes using their
+/// embeddings + ontology features" hook), fit the chosen classifier, and return the
+/// serializable model blob. PREDICTIVE + read-only (no graph mutation).
+#[allow(clippy::too_many_arguments)]
+fn handle_classify_fit(
+    req_id: u64,
+    core: &GraphCore,
+    x: Vec<Vec<f64>>,
+    source: Option<VectorSource>,
+    y: Vec<i64>,
+    algorithm: ClassifyAlgorithm,
+    k: usize,
+    alpha: f64,
+    lr: f64,
+    epochs: usize,
+    l2: f64,
+    c: f64,
+) -> Response {
+    let (rows, _ids) = build_vectors(core, &x, &source);
+    if let Err(e) = validate_matrix(&rows) {
+        return Response::err(req_id, e);
+    }
+    let algo = classify_algo(algorithm, k, alpha, lr, epochs, l2, c);
+    match classify::fit(&rows, &y, algo) {
+        Ok(model) => Response::ok(
+            req_id,
+            ResultPayload::Json(serde_json::json!({
+                "model": model,
+                "algorithm": classify_algo_name(algorithm),
+                "n_samples": rows.len(),
+                "classes": classify_classes(&model),
+            })),
+        ),
+        Err(e) => Response::err(req_id, e),
+    }
+}
+
+/// Handle `MineClassifyPredict` (CONCEPT:EG-KG.mining.naive-bayes): build rows, run the
+/// fitted model, return per-row `{id, label, proba}`, and optionally write
+/// `:Classification` nodes back for each prediction.
+fn handle_classify_predict(
+    req_id: u64,
+    core: &GraphCore,
+    model: FittedClassifier,
+    x: Vec<Vec<f64>>,
+    source: Option<VectorSource>,
+    writeback: bool,
+) -> Response {
+    let (rows, ids) = build_vectors(core, &x, &source);
+    if let Err(e) = validate_matrix(&rows) {
+        return Response::err(req_id, e);
+    }
+    let out = classify::predict(&model, &rows);
+
+    let written = if writeback {
+        materialize_classifications(core, &out, &ids)
+    } else {
+        0
+    };
+
+    let rows_json: Vec<serde_json::Value> = (0..rows.len())
+        .map(|i| {
+            let id = match ids.get(i) {
+                Some(id) => serde_json::Value::String(id.clone()),
+                None => serde_json::json!(i),
+            };
+            serde_json::json!({
+                "id": id,
+                "label": out.labels[i],
+                "proba": out.proba[i],
+            })
+        })
+        .collect();
+
+    Response::ok(
+        req_id,
+        ResultPayload::Json(serde_json::json!({
+            "rows": rows_json,
+            "classes": out.classes,
+            "n_rows": rows.len(),
+            "written_back": written,
+        })),
+    )
+}
+
+fn classify_algo(
+    a: ClassifyAlgorithm,
+    k: usize,
+    alpha: f64,
+    lr: f64,
+    epochs: usize,
+    l2: f64,
+    c: f64,
+) -> classify::Algorithm {
+    match a {
+        ClassifyAlgorithm::Gaussiannb => classify::Algorithm::GaussianNb,
+        ClassifyAlgorithm::Multinomialnb => classify::Algorithm::MultinomialNb { alpha },
+        ClassifyAlgorithm::Knn => classify::Algorithm::Knn { k },
+        ClassifyAlgorithm::Logistic => classify::Algorithm::Logistic { lr, epochs, l2 },
+        ClassifyAlgorithm::Svc => classify::Algorithm::LinearSvc { c, epochs, lr },
+    }
+}
+
+fn classify_algo_name(a: ClassifyAlgorithm) -> &'static str {
+    match a {
+        ClassifyAlgorithm::Gaussiannb => "gaussiannb",
+        ClassifyAlgorithm::Multinomialnb => "multinomialnb",
+        ClassifyAlgorithm::Knn => "knn",
+        ClassifyAlgorithm::Logistic => "logistic",
+        ClassifyAlgorithm::Svc => "svc",
+    }
+}
+
+/// The sorted class set embedded in a fitted model (for the fit response).
+fn classify_classes(model: &FittedClassifier) -> Vec<i64> {
+    match model {
+        FittedClassifier::GaussianNb { classes, .. }
+        | FittedClassifier::MultinomialNb { classes, .. }
+        | FittedClassifier::Knn { classes, .. }
+        | FittedClassifier::LinearOvr { classes, .. } => classes.clone(),
+    }
+}
+
+/// Materialize each prediction as a typed `:Classification` node (CONCEPT:EG-KG.mining.classify-writeback),
+/// id = a deterministic digest of the source node-id / row index. Linked to its source
+/// node via a `CLASSIFIED_AS` edge when that node is resident.
+fn materialize_classifications(
+    core: &GraphCore,
+    out: &classify::Classification,
+    ids: &[String],
+) -> usize {
+    let mut written = 0usize;
+    for i in 0..out.labels.len() {
+        let src = ids.get(i).cloned().unwrap_or_else(|| i.to_string());
+        let node_id = classification_node_id(&src);
+        let props = serde_json::json!({
+            "type": "Classification",
+            "label": out.labels[i],
+            "proba": out.proba[i],
+            "classes": out.classes,
+            "source": src,
+        });
+        let Ok(blob) = rmp_serde::to_vec_named(&props) else {
+            continue;
+        };
+        core.add_node(node_id.clone(), blob);
+        if core.has_node(&src) {
+            let edge = serde_json::json!({ "relation": "CLASSIFIED_AS" });
+            if let Ok(eb) = rmp_serde::to_vec_named(&edge) {
+                let _ = core.add_edge(node_id.clone(), src.clone(), eb);
+            }
+        }
+        written += 1;
+    }
+    written
+}
+
+fn classification_node_id(source: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(b"classification");
+    hasher.update([0u8]);
+    hasher.update(source.as_bytes());
+    format!("classification:{}", hex::encode(&hasher.finalize()[..12]))
+}
+
+// ─────────────────────────── Dimensionality reduction ───────────────────────────
+
+/// Handle `MineReduce` (CONCEPT:EG-KG.mining.truncated-svd): build rows (explicit or
+/// node embeddings — reduce node vectors for the graphviz), run the chosen reduction,
+/// return per-row `{id, coords}`, and optionally write `:Embedding2D` nodes back.
+#[allow(clippy::too_many_arguments)]
+fn handle_reduce(
+    req_id: u64,
+    core: &GraphCore,
+    x: Vec<Vec<f64>>,
+    source: Option<VectorSource>,
+    labels: Vec<i64>,
+    algorithm: ReduceAlgorithm,
+    n_components: usize,
+    n_neighbors: usize,
+    min_dist: f64,
+    perplexity: f64,
+    epochs: usize,
+    lr: f64,
+    seed: u64,
+    writeback: bool,
+) -> Response {
+    let (rows, ids) = build_vectors(core, &x, &source);
+    if let Err(e) = validate_matrix(&rows) {
+        return Response::err(req_id, e);
+    }
+    if matches!(algorithm, ReduceAlgorithm::Lda) && labels.len() != rows.len() {
+        return Response::err(
+            req_id,
+            "mining: LDA requires one label per row (supervised)",
+        );
+    }
+    let algo = reduce_algo(algorithm, n_neighbors, min_dist, perplexity, epochs, lr, seed);
+    let lbls = (!labels.is_empty()).then_some(labels.as_slice());
+    let out = reduce::reduce(&rows, lbls, algo, n_components);
+
+    let written = if writeback {
+        materialize_embeddings(core, &out, &ids)
+    } else {
+        0
+    };
+
+    let rows_json: Vec<serde_json::Value> = (0..out.coords.len())
+        .map(|i| {
+            let id = match ids.get(i) {
+                Some(id) => serde_json::Value::String(id.clone()),
+                None => serde_json::json!(i),
+            };
+            serde_json::json!({ "id": id, "coords": out.coords[i] })
+        })
+        .collect();
+
+    let mut payload = serde_json::json!({
+        "rows": rows_json,
+        "algorithm": reduce_algo_name(algorithm),
+        "n_rows": rows.len(),
+        "n_components": out.coords.first().map(|c| c.len()).unwrap_or(0),
+        "written_back": written,
+    });
+    if !out.singular_values.is_empty() {
+        payload["singular_values"] = serde_json::json!(out.singular_values);
+    }
+    Response::ok(req_id, ResultPayload::Json(payload))
+}
+
+fn reduce_algo(
+    a: ReduceAlgorithm,
+    n_neighbors: usize,
+    min_dist: f64,
+    perplexity: f64,
+    epochs: usize,
+    lr: f64,
+    seed: u64,
+) -> reduce::Algorithm {
+    match a {
+        ReduceAlgorithm::Svd => reduce::Algorithm::TruncatedSvd,
+        ReduceAlgorithm::Lda => reduce::Algorithm::Lda,
+        ReduceAlgorithm::Umap => reduce::Algorithm::Umap {
+            n_neighbors,
+            min_dist,
+            epochs,
+            seed,
+        },
+        ReduceAlgorithm::Tsne => reduce::Algorithm::Tsne {
+            perplexity,
+            epochs,
+            learning_rate: lr,
+            seed,
+        },
+    }
+}
+
+fn reduce_algo_name(a: ReduceAlgorithm) -> &'static str {
+    match a {
+        ReduceAlgorithm::Svd => "svd",
+        ReduceAlgorithm::Lda => "lda",
+        ReduceAlgorithm::Umap => "umap",
+        ReduceAlgorithm::Tsne => "tsne",
+    }
+}
+
+/// Materialize each row's reduced vector as a typed `:Embedding2D` node
+/// (CONCEPT:EG-KG.mining.reduce-writeback), id = a deterministic digest of the source
+/// node-id / row index. Linked to its source node via a `REDUCED_FROM` edge when that
+/// node is resident — feeding the web-UI graphviz + downstream clustering.
+fn materialize_embeddings(core: &GraphCore, out: &reduce::Reduction, ids: &[String]) -> usize {
+    let mut written = 0usize;
+    for (i, coords) in out.coords.iter().enumerate() {
+        let src = ids.get(i).cloned().unwrap_or_else(|| i.to_string());
+        let node_id = embedding2d_node_id(&src);
+        let props = serde_json::json!({
+            "type": "Embedding2D",
+            "coords": coords,
+            "dims": coords.len(),
+            "source": src,
+        });
+        let Ok(blob) = rmp_serde::to_vec_named(&props) else {
+            continue;
+        };
+        core.add_node(node_id.clone(), blob);
+        if core.has_node(&src) {
+            let edge = serde_json::json!({ "relation": "REDUCED_FROM" });
+            if let Ok(eb) = rmp_serde::to_vec_named(&edge) {
+                let _ = core.add_edge(node_id.clone(), src.clone(), eb);
+            }
+        }
+        written += 1;
+    }
+    written
+}
+
+fn embedding2d_node_id(source: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(b"embedding2d");
+    hasher.update([0u8]);
+    hasher.update(source.as_bytes());
+    format!("embedding2d:{}", hex::encode(&hasher.finalize()[..12]))
+}
+
 // ─────────────────────────── Row builders (shared) ───────────────────────────
 
 /// Resolve the cluster feature rows: explicit `features` win; otherwise gather the
@@ -1046,5 +1452,158 @@ mod tests {
         // The anomaly node links to its source (m5) via ANOMALY_OF.
         let succ = core.get_successors(&anomaly_nodes[0].0).unwrap_or_default();
         assert!(succ.iter().any(|s| s == "m5"));
+    }
+
+    #[test]
+    fn classify_fit_then_predict_roundtrip() {
+        let core = Arc::new(GraphCore::new());
+        // Separable 2-class training set.
+        let x = vec![
+            vec![0.0, 0.0],
+            vec![0.5, 0.3],
+            vec![0.2, 0.8],
+            vec![10.0, 10.0],
+            vec![10.5, 9.7],
+            vec![9.8, 10.4],
+        ];
+        let y = vec![0, 0, 0, 1, 1, 1];
+        let fit = Method::MineClassifyFit {
+            x: x.clone(),
+            source: None,
+            y,
+            algorithm: ClassifyAlgorithm::Logistic,
+            k: 5,
+            alpha: 1.0,
+            lr: 0.5,
+            epochs: 500,
+            l2: 0.0,
+            c: 1.0,
+        };
+        let resp = try_handle(1, Arc::clone(&core), fit).expect("handled");
+        let Some(ResultPayload::Json(v)) = resp.result else {
+            panic!("expected json");
+        };
+        assert_eq!(v["n_samples"], 6);
+        let model: FittedClassifier = serde_json::from_value(v["model"].clone()).unwrap();
+
+        let predict = Method::MineClassifyPredict {
+            model,
+            x: vec![vec![0.3, 0.3], vec![10.0, 10.0]],
+            source: None,
+            writeback: false,
+        };
+        let resp = try_handle(2, core, predict).expect("handled");
+        let Some(ResultPayload::Json(v)) = resp.result else {
+            panic!("expected json");
+        };
+        let rows = v["rows"].as_array().unwrap();
+        assert_eq!(rows[0]["label"], 0);
+        assert_eq!(rows[1]["label"], 1);
+    }
+
+    #[test]
+    fn classify_predict_over_embeddings_writeback() {
+        let core = Arc::new(GraphCore::new());
+        // Fit a GaussianNB in-memory, then predict over node embeddings + writeback.
+        let x = vec![vec![0.0, 0.0], vec![0.2, 0.1], vec![9.0, 9.0], vec![9.1, 8.8]];
+        let y = vec![0, 0, 1, 1];
+        let model =
+            eg_compute::mining::classify::fit(&x, &y, eg_compute::mining::classify::Algorithm::GaussianNb)
+                .unwrap();
+        for (id, e) in [("p0", [0.1f32, 0.0]), ("p1", [9.0, 9.1])] {
+            core.add_node(id.into(), node(serde_json::json!({"type": "Sample"})));
+            core.semantic_store
+                .write()
+                .add_embedding(id.to_string(), e.to_vec());
+        }
+        let m = Method::MineClassifyPredict {
+            model,
+            x: Vec::new(),
+            source: Some(VectorSource {
+                node_label: "Sample".into(),
+                limit: 0,
+            }),
+            writeback: true,
+        };
+        let resp = try_handle(3, Arc::clone(&core), m).expect("handled");
+        let Some(ResultPayload::Json(v)) = resp.result else {
+            panic!("expected json");
+        };
+        assert_eq!(v["n_rows"], 2);
+        let written = v["written_back"].as_u64().unwrap();
+        assert_eq!(written, 2);
+        core.mark_dirty();
+        let cls_nodes = core.get_nodes_by_label("Classification", 0);
+        assert_eq!(cls_nodes.len() as u64, written);
+        // The classification node links to its source via CLASSIFIED_AS.
+        let succ = core.get_successors(&cls_nodes[0].0).unwrap_or_default();
+        assert!(succ.iter().any(|s| s == "p0" || s == "p1"));
+    }
+
+    #[test]
+    fn reduce_svd_and_writeback_embedding2d() {
+        let core = Arc::new(GraphCore::new());
+        let embs = [
+            ("d0", [1.0f32, 0.0, 0.0]),
+            ("d1", [0.0, 1.0, 0.0]),
+            ("d2", [1.0, 1.0, 0.0]),
+            ("d3", [2.0, 1.0, 0.0]),
+        ];
+        for (id, e) in embs {
+            core.add_node(id.into(), node(serde_json::json!({"type": "Vec"})));
+            core.semantic_store
+                .write()
+                .add_embedding(id.to_string(), e.to_vec());
+        }
+        let m = Method::MineReduce {
+            x: Vec::new(),
+            source: Some(VectorSource {
+                node_label: "Vec".into(),
+                limit: 0,
+            }),
+            labels: Vec::new(),
+            algorithm: ReduceAlgorithm::Svd,
+            n_components: 2,
+            n_neighbors: 15,
+            min_dist: 0.1,
+            perplexity: 30.0,
+            epochs: 300,
+            lr: 100.0,
+            seed: 0,
+            writeback: true,
+        };
+        let resp = try_handle(4, Arc::clone(&core), m).expect("handled");
+        let Some(ResultPayload::Json(v)) = resp.result else {
+            panic!("expected json");
+        };
+        assert_eq!(v["n_rows"], 4);
+        assert_eq!(v["n_components"], 2);
+        assert!(v["singular_values"].is_array());
+        let written = v["written_back"].as_u64().unwrap();
+        assert_eq!(written, 4);
+        core.mark_dirty();
+        let e2d = core.get_nodes_by_label("Embedding2D", 0);
+        assert_eq!(e2d.len() as u64, written);
+    }
+
+    #[test]
+    fn reduce_lda_requires_labels() {
+        let core = Arc::new(GraphCore::new());
+        let m = Method::MineReduce {
+            x: vec![vec![0.0, 0.0], vec![1.0, 1.0]],
+            source: None,
+            labels: Vec::new(), // missing → error for LDA
+            algorithm: ReduceAlgorithm::Lda,
+            n_components: 1,
+            n_neighbors: 15,
+            min_dist: 0.1,
+            perplexity: 30.0,
+            epochs: 300,
+            lr: 100.0,
+            seed: 0,
+            writeback: false,
+        };
+        let resp = try_handle(5, core, m).expect("handled");
+        assert!(resp.result.is_none()); // an error response carries no result payload
     }
 }
