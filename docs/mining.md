@@ -421,3 +421,73 @@ POST /api/mining/classify_fit     { "x": [[0,0],[10,10]], "y": [0,1], "algorithm
 POST /api/mining/classify_predict { "model": {...}, "x": [[0.1,0.1]] }
 POST /api/mining/reduce           { "source": {"node_label": "Doc"}, "algorithm": "svd", "n_components": 2 }
 ```
+
+---
+
+# Sequential-pattern mining — `action="sequence"`
+
+Phase 4 begins the final family. Sequential-pattern mining finds frequent ORDERED
+subsequences over a set of sequences — an item may repeat within a sequence, and a
+pattern need not be contiguous (only order-preserving) to count. Two interchangeable
+engines, selected by `algorithm`:
+
+- **`prefixspan`** (default) — projection-based growth: count frequent next-items over
+  the current projected database (the suffix of each sequence after its first
+  occurrence of the pattern-so-far's last item), emit, recurse. No candidate
+  generation.
+- **`gsp`** (Generalized Sequential Pattern) — the sequence analog of Apriori:
+  level-wise candidate generation (join two frequent (k-1)-patterns whose overlap
+  matches) + a downward-closure prune, support counted by direct subsequence scan.
+
+Both are exact and agree on the frequent-pattern set for a given `min_support`
+(parity-tested, like Apriori/FP-Growth/Eclat).
+
+```python
+# Explicit ordered sequences (e.g. a user-journey event log).
+out = await c.mining.sequence(
+    sequences=[
+        ["login", "browse", "purchase"],
+        ["login", "search", "browse", "purchase"],
+        ["login", "browse"],
+        ["login", "browse", "purchase"],
+    ],
+    min_support=0.5,
+)
+# out["patterns"] includes {"items": ["login", "browse", "purchase"], "support": 0.75, "count": 3}
+```
+
+## Cross-modal — mine each node's ordered neighbor history (evolution/commit timelines)
+
+Point `sequence` at a graph-derived `source` to turn each node's chronological
+out/in-edge history into one sequence — "what reliably follows what" over the
+evolution/commit timeline or an event-log graph, with `writeback=True` materializing
+the discovered patterns as `:SequentialPattern` nodes.
+
+```python
+# Each :Session node's ordered "out" edges to :Event nodes become one sequence.
+out = await c.mining.sequence(
+    source={"node_label": "Session", "direction": "out"},
+    algorithm="gsp",
+    min_support=0.5,
+    writeback=True,
+)
+# → one :SequentialPattern{items, support, count} node per frequent pattern, linked
+#   PATTERN_ITEM → any item that is a resident node.
+```
+
+`sequence` with `writeback=True` is a **WAL-durable** graph write (replayed by
+re-mining deterministically — explicit sequences reproduce byte-identically; a
+graph-derived source re-derives from the current graph state).
+
+## MCP + REST (sequence)
+
+```jsonc
+// MCP
+graph_mine { "action": "sequence",
+             "params_json": "{\"sequences\":[[\"login\",\"browse\",\"purchase\"]],\"min_support\":0.5}" }
+graph_mine { "action": "sequence",
+             "params_json": "{\"source\":{\"node_label\":\"Session\"},\"algorithm\":\"gsp\",\"writeback\":true}" }
+
+// REST twin (same _execute_tool core)
+POST /api/mining/sequence { "source": {"node_label": "Session"}, "min_support": 0.5 }
+```

@@ -2776,6 +2776,39 @@ pub enum Method {
         #[serde(default)]
         writeback: bool,
     },
+
+    /// Sequential-pattern mining (CONCEPT:EG-KG.mining.prefixspan — Phase 4).
+    /// Finds frequent ORDERED subsequences (PrefixSpan or GSP; both agree) over
+    /// EITHER explicit `sequences` (each a time-ordered list of item labels — an
+    /// item may repeat) OR a graph-derived `source` that turns each node's
+    /// ordered neighbor list (following resident edge insertion order) into one
+    /// sequence — the "what reliably follows what" hook (evolution/commit
+    /// timelines, event streams). Returns rows `{items, support, count}`. With
+    /// `writeback=true` it materializes each pattern as a typed
+    /// `:SequentialPattern` node linked to any item that is a resident node — a
+    /// graph MUTATION, WAL-replayed by re-mining deterministically. Gated
+    /// `mining`.
+    #[cfg(feature = "mining")]
+    MineSequence {
+        /// Explicit ordered sequences — each a time-ordered list of item labels.
+        /// Empty ⇒ use `source`.
+        #[serde(default)]
+        sequences: Vec<Vec<String>>,
+        /// Graph-derived sequence source (compute-near-data). Used when
+        /// `sequences` is empty.
+        #[serde(default)]
+        source: Option<SequenceSource>,
+        /// Minimum fractional support (0.0–1.0) a pattern must meet.
+        #[serde(default = "default_min_support")]
+        min_support: f64,
+        /// Which sequential-pattern engine to run (both agree; PrefixSpan default).
+        #[serde(default)]
+        algorithm: MineSeqAlgorithm,
+        /// Materialize each pattern as a typed `:SequentialPattern` node linked to
+        /// its resident item nodes.
+        #[serde(default)]
+        writeback: bool,
+    },
 }
 
 // ── Supporting Types ────────────────────────────────────────────────────
@@ -2792,6 +2825,18 @@ pub enum MineAlgorithm {
     Fpgrowth,
     Apriori,
     Eclat,
+}
+
+/// Which sequential-pattern engine `MineSequence` runs (CONCEPT:EG-KG.mining.prefixspan
+/// — Phase 4). Both are exact and agree on the frequent-pattern set for a given
+/// support. PrefixSpan is the default (projection-based, no candidate generation).
+#[cfg(feature = "mining")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum MineSeqAlgorithm {
+    #[default]
+    Prefixspan,
+    Gsp,
 }
 
 /// A graph-derived transaction source for `MineAssociate` (CONCEPT:EG-KG.mining.graph-derived-transactions).
@@ -2829,6 +2874,36 @@ pub struct TransactionSource {
 #[cfg(feature = "mining")]
 fn default_mine_direction() -> String {
     "out".to_string()
+}
+
+/// A graph-derived sequence source for `MineSequence` (CONCEPT:EG-KG.mining.prefixspan
+/// — Phase 4). Each node carrying `node_label` becomes one ordered sequence: the
+/// list of `item_field` values gathered from its neighbors in `direction`,
+/// preserving the RESIDENT EDGE INSERTION ORDER (the natural "ordered edge
+/// sequence per node" — edges accumulate in the order they were added, so this
+/// is compute-near-data over the bitemporal write history without a separate
+/// tsdb/event-log dependency), optionally filtered to a `relation`.
+#[cfg(feature = "mining")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SequenceSource {
+    /// The node label whose instances each become one ordered sequence.
+    pub node_label: String,
+    /// Edge direction to gather neighbors: `out` (successors, default — the
+    /// natural "what happened after" order), `in` (predecessors), or `any`.
+    #[serde(default = "default_mine_direction")]
+    pub direction: String,
+    /// Which value of each neighbor becomes an item: `label` (the neighbor's
+    /// type/label, default) or `prop:<key>` (a neighbor property value). When
+    /// `None`, the neighbor's node id is used verbatim.
+    #[serde(default)]
+    pub item_field: Option<String>,
+    /// Optional edge-relation filter: only follow edges whose `relation`/`type`
+    /// property equals this. `None` ⇒ all edges.
+    #[serde(default)]
+    pub relation: Option<String>,
+    /// Cap the number of sequence owners scanned (0 = uncapped).
+    #[serde(default)]
+    pub limit: usize,
 }
 
 /// A graph-derived VECTOR source for `MineCluster` / `MineAnomaly`
