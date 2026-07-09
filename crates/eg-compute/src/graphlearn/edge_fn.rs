@@ -247,7 +247,11 @@ mod tests {
         let minus = chebyshev_values(u - h, 5);
         for k in 0..=5 {
             let num = (plus[k] - minus[k]) / (2.0 * h);
-            assert!(approx(d[k], num, 1e-5), "T'_{k} mismatch: {} vs {num}", d[k]);
+            assert!(
+                approx(d[k], num, 1e-5),
+                "T'_{k} mismatch: {} vs {num}",
+                d[k]
+            );
         }
     }
 
