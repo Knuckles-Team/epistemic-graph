@@ -2585,6 +2585,20 @@ pub enum Method {
         /// Graph-derived vector source (node embeddings). Used when `features` is empty.
         #[serde(default)]
         source: Option<VectorSource>,
+        /// Fused retrieve→mine plan (CONCEPT:EG-KG.mining.fused-plan-source): an
+        /// upstream cross-modal RETRIEVAL plan (`Op::Scan|Filter|Traverse|Rank|…`),
+        /// executed FIRST over the resident graph/vector/SQL/time modalities; the
+        /// resulting RowSet ids are then resolved to their stored embeddings (the
+        /// SAME lookup `VectorSource` uses) to build this op's feature rows — so
+        /// `retrieve → cluster → writeback` is ONE plan, ONE round-trip
+        /// (compute-near-data, no client marshalling between retrieve and mine).
+        /// Takes precedence over `source` when present; ignored when `features`
+        /// is non-empty. Gated additionally on `query` (the plan algebra lives
+        /// behind that feature) — a `mining`-only build without `query` drops
+        /// this field.
+        #[cfg(feature = "query")]
+        #[serde(default)]
+        plan: Option<crate::wire::Plan>,
         /// Which clustering engine to run.
         #[serde(default)]
         algorithm: ClusterAlgorithm,
@@ -2633,6 +2647,12 @@ pub enum Method {
         /// `values` are both empty.
         #[serde(default)]
         source: Option<VectorSource>,
+        /// Fused retrieve→mine plan (CONCEPT:EG-KG.mining.fused-plan-source) — see
+        /// `MineCluster::plan`. Takes precedence over `source`; ignored when
+        /// `features`/`values` is non-empty.
+        #[cfg(feature = "query")]
+        #[serde(default)]
+        plan: Option<crate::wire::Plan>,
         /// Which detector to run.
         #[serde(default)]
         algorithm: AnomalyAlgorithm,
@@ -2681,6 +2701,13 @@ pub enum Method {
         /// Graph-derived vector source (node embeddings). Used when `x` is empty.
         #[serde(default)]
         source: Option<VectorSource>,
+        /// Fused retrieve→mine plan (CONCEPT:EG-KG.mining.fused-plan-source) — see
+        /// `MineCluster::plan`. Takes precedence over `source`; ignored when `x`
+        /// is non-empty. NOTE: `y` labels must still align by position with the
+        /// plan's resulting row order.
+        #[cfg(feature = "query")]
+        #[serde(default)]
+        plan: Option<crate::wire::Plan>,
         /// Integer class labels, one per row (required).
         #[serde(default)]
         y: Vec<i64>,
@@ -2723,6 +2750,12 @@ pub enum Method {
         /// Graph-derived vector source (node embeddings). Used when `x` is empty.
         #[serde(default)]
         source: Option<VectorSource>,
+        /// Fused retrieve→mine plan (CONCEPT:EG-KG.mining.fused-plan-source) — see
+        /// `MineCluster::plan`. Takes precedence over `source`; ignored when `x`
+        /// is non-empty.
+        #[cfg(feature = "query")]
+        #[serde(default)]
+        plan: Option<crate::wire::Plan>,
         /// Materialize each prediction as a typed `:Classification` node linked to its
         /// source node.
         #[serde(default)]
@@ -2745,6 +2778,12 @@ pub enum Method {
         /// Graph-derived vector source (node embeddings). Used when `x` is empty.
         #[serde(default)]
         source: Option<VectorSource>,
+        /// Fused retrieve→mine plan (CONCEPT:EG-KG.mining.fused-plan-source) — see
+        /// `MineCluster::plan`. Takes precedence over `source`; ignored when `x`
+        /// is non-empty.
+        #[cfg(feature = "query")]
+        #[serde(default)]
+        plan: Option<crate::wire::Plan>,
         /// Class labels, one per row — REQUIRED for LDA (ignored otherwise).
         #[serde(default)]
         labels: Vec<i64>,
