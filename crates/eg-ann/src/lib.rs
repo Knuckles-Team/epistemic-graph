@@ -28,6 +28,9 @@ pub mod flat;
 pub mod hnsw;
 pub mod ivfpq;
 pub mod kmeans;
+/// GPU-accelerable batch-assignment backend for the k-means build hot loop
+/// (CONCEPT:EG-KG.compute.gpu-distance-seam / EG-327). See module docs.
+pub mod kmeans_gpu;
 pub mod linalg;
 pub mod persist;
 pub mod recall;
@@ -47,6 +50,9 @@ pub use flat::{FlatIndex, Metric};
 pub use hnsw::HnswIndex;
 pub use ivfpq::{
     merge_topk, merge_topk_stable, IvfPq, IvfPqParams, SearchParams, SearchResult, PQ_KSUB,
+};
+pub use kmeans_gpu::{
+    active_backend_name as kmeans_active_backend_name, batch_assign_dispatch, AssignBackend,
 };
 pub use persist::{compact, open, save};
 pub use recall::{
