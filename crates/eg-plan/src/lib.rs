@@ -214,6 +214,13 @@ pub use optimizer::{reoptimize_remaining, ADAPTIVE_REOPT_THRESHOLD};
 #[cfg(feature = "query")]
 pub use exec::{HashEmbedder, TextEmbedder};
 
+/// The full, un-flattened E1 justification tree behind `EXPLAIN BELIEF` (E5 phase 4,
+/// CONCEPT:EG-KG.epistemic.epistemic-substrate) — mirrors `Op::ExplainBelief`'s RowSet
+/// projection but returns the verbatim `eg_epistemic::JustificationGraph` a standalone
+/// `Method::ExplainBelief` wire-projects (mirroring `Method::OwlExplain`'s `ProofNodeWire`).
+#[cfg(feature = "epistemic")]
+pub use exec::explain_belief_tree;
+
 // The NL→query seam surface (CONCEPT:EG-KG.query.core-query-input/EG-080): the trait + the LLM-optional
 // `Option<&dyn NlPlanner>` entry point, and the concrete `UreqNlPlanner`.
 #[cfg(feature = "nl-query")]

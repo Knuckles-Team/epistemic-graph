@@ -272,6 +272,15 @@ pub struct GraphTxnState {
     /// against the committed snapshot when staged). Applied through the SAME cross-modal
     /// wtx as `axioms`. EMPTY for a non-construct txn.
     pub(crate) constructs: Vec<Method>,
+    /// Staged PLANNER WRITEBACK methods (CONCEPT:EG-KG.query.plan-dag, D7 — the planner-writeback
+    /// ACID seam), already LOWERED to graph-native `AddNode`/`AddEdge` methods at stage
+    /// time from a `eg_plan::Plan`'s (or `PlanDag`'s) executed `RowSet` result — e.g.
+    /// materializing a `Reason`/`Traverse`-inferred edge set. Kept separate from
+    /// `write_set` for provenance, but applied through the SAME cross-modal wtx
+    /// (`apply_method_rows` durably + `apply_staged` in-memory) as `axioms`/`constructs`,
+    /// so the committed planner-inferred edges are atomic with the txn's other staged
+    /// modalities. EMPTY for a txn with no plan writeback.
+    pub(crate) plan_writeback: Vec<Method>,
 }
 
 /// One staged time-series measurement batch (CONCEPT:EG-KG.backend.cross-modal-atomic-commit). Carries the decoded points
@@ -338,6 +347,7 @@ impl GraphTxnState {
             measurements: Vec::new(),
             axioms: Vec::new(),
             constructs: Vec::new(),
+            plan_writeback: Vec::new(),
         }
     }
 
@@ -404,15 +414,34 @@ impl GraphTxnState {
         self.last_active_ms = now_ms;
     }
 
+    /// Stage PLANNER WRITEBACK methods, pre-lowered to `AddNode`/`AddEdge` methods
+    /// (CONCEPT:EG-KG.query.plan-dag, D7 — the planner-writeback ACID seam). Same OCC
+    /// read-set capture + atomic-commit semantics as [`Self::stage_axiom`] /
+    /// [`Self::stage_construct`] — copied verbatim, this is the well-precedented shape
+    /// every staged-and-lowered modality shares.
+    pub(crate) fn stage_plan_writeback(
+        &mut self,
+        core: &GraphCore,
+        methods: Vec<Method>,
+        now_ms: u64,
+    ) {
+        for m in &methods {
+            self.observe_method(core, m);
+        }
+        self.plan_writeback.extend(methods);
+        self.last_active_ms = now_ms;
+    }
+
     /// True when this txn staged any NON-graph-topology modality — a vector, blob-ref,
-    /// measurement, OWL axiom, or CONSTRUCT — i.e. it is a CROSS-MODAL txn whose commit
-    /// must land all modalities in ONE redb `WriteTransaction`.
+    /// measurement, OWL axiom, CONSTRUCT, or planner writeback — i.e. it is a CROSS-MODAL
+    /// txn whose commit must land all modalities in ONE redb `WriteTransaction`.
     pub(crate) fn is_cross_modal(&self) -> bool {
         !self.vectors.is_empty()
             || !self.blob_refs.is_empty()
             || !self.measurements.is_empty()
             || !self.axioms.is_empty()
             || !self.constructs.is_empty()
+            || !self.plan_writeback.is_empty()
     }
 
     /// Stage one durable mutation against a NAMED graph that may differ from the
