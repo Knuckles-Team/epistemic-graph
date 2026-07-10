@@ -2017,6 +2017,33 @@ pub enum Method {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         graph: Option<String>,
     },
+    /// Stage a MATERIALIZE-BELIEF op into a txn (CONCEPT:EG-KG.epistemic.epistemic-substrate,
+    /// D5 — the explicit, AUDITED "materialize belief" op the `eg_epistemic` crate docs
+    /// call for: `BeliefState.confidence` is derived and "NEVER written back onto
+    /// `NodeData.confidence` … unless a caller runs an explicit, logged materialize
+    /// belief op"). Computes the propagated belief for `node_id` (via
+    /// `eg_epistemic::propagate_confidence` over the graph's SUPPORTS/CONTRADICTS/
+    /// ATTACKS evidence topology, read from the txn's COMMITTED snapshot — the SAME
+    /// "evaluate now" shape `TxnPlanWriteback`/`TxnConstruct` use) and stages ONE
+    /// unconditional `CompareAndSetNodeFields` that writes it onto that node's
+    /// `NodeData.confidence` — landing atomically with the txn's other staged
+    /// modalities at commit (`GraphTxnState::stage_plan_writeback`, reused verbatim —
+    /// same OCC read-set capture + cross-modal commit shape as `TxnAxiom`/
+    /// `TxnConstruct`/`TxnPlanWriteback`). The write rides the ALREADY-audited
+    /// `CompareAndSetNodeFields` path (the tamper-evident hash chain, CONCEPT:
+    /// EG-KG.sharding.row-level-security, plus the unconditional in-memory ledger) —
+    /// never silent, no new audit mechanism. OPT-IN: this is the ONLY path that ever
+    /// writes a derived belief back onto stored confidence; nothing else in the engine
+    /// does so implicitly. Gated `epistemic`; a build without it drops the variant →
+    /// the dispatch "not available in this build" catch-all.
+    #[cfg(feature = "epistemic")]
+    TxnMaterializeBelief {
+        txn_id: String,
+        /// The node whose propagated belief is computed and written back.
+        node_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        graph: Option<String>,
+    },
     /// Run a UNIFIED cross-modal query INSIDE a txn with read-your-own-writes
     /// (CONCEPT:EG-KG.query.txn-cross-modal-ryow — in-txn cross-modal RYOW). Executes the SAME `wire::Plan` AST as
     /// `UnifiedQuery`, but over a snapshot OVERLAID with the txn's staged (uncommitted)
@@ -2481,6 +2508,28 @@ pub enum Method {
         data_graph: String,
     },
 
+    /// X5-enforce (CONCEPT:EG-KG.ontology.rdf-update-guard) — (re)register a graph's
+    /// SHACL shapes as WRITE-TIME closed-world integrity constraints (ICV, reusing
+    /// `eg-shacl`'s existing `IcvPolicyRegistry`/`WriteGuard` verbatim — no new
+    /// validator). `mode` is `"off"` (default/inert) · `"warn"` (a violating change is
+    /// logged but still applied) · `"enforce"` (a violating change ABORTS the
+    /// `AddTriples`/`RemoveTriples`/`ApplyMutation` commit with the introduced
+    /// violations, each carrying its SPARQL witness). `graph` names the target graph;
+    /// `None` sets the DEFAULT-graph policy. `shapes` is the SHACL shapes Turtle
+    /// document — e.g. the SHACL a connector-manifest compiler emits alongside its
+    /// RLS/ABAC policy output (agent-utilities side); empty is only valid with
+    /// `mode="off"` (clearing a previously registered policy). Like `ShaclValidate`,
+    /// this variant is UNCONDITIONAL in the enum; the HANDLER is gated `shacl` — a
+    /// build without it drops the handler arm and the request falls through to the
+    /// dispatch "not available in this build" catch-all.
+    IcvConfigure {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        graph: Option<String>,
+        mode: String,
+        #[serde(default)]
+        shapes: String,
+    },
+
     // ── ShEx (Shape Expressions) Core validation (CONCEPT:EG-KG.compute.concept-2) ────────────
     // The complement to `ShaclValidate` (EG-132): validate that focus nodes of an RDF
     // DATA graph CONFORM to shape expressions in a ShEx schema, driven by a shape map
@@ -2895,6 +2944,14 @@ pub enum Method {
         /// source node.
         #[serde(default)]
         writeback: bool,
+        /// ADDITIONALLY materialize a `:Claim` (+ `:Evidence`) per prediction (D3,
+        /// mirroring E6) — see [`Method::MineAssociate::as_claim`]. Confidence is
+        /// seeded from the prediction's OWN max class probability (`out.proba[i]`'s
+        /// argmax), already `[0,1]` by construction (a probability simplex row).
+        /// Requires `writeback`.
+        #[cfg(all(feature = "mining", feature = "epistemic"))]
+        #[serde(default)]
+        as_claim: bool,
     },
 
     /// Dimensionality reduction (CONCEPT:EG-KG.mining.truncated-svd). DESCRIPTIVE:
@@ -2949,6 +3006,19 @@ pub enum Method {
         /// Materialize each row's reduced vector as a typed `:Embedding2D` node.
         #[serde(default)]
         writeback: bool,
+        /// ADDITIONALLY materialize a `:Claim` (+ `:Evidence`) — D3, mirroring E6 — but
+        /// ONLY for `svd` (`ReduceAlgorithm::Svd`), the one engine with a principled
+        /// `[0,1]` quality score: the retained EXPLAINED-VARIANCE RATIO
+        /// (`Σ retained singular_values² / Σ ALL row sum-of-squares`, i.e. how much of
+        /// the rows' total variance the kept components capture). `lda`/`umap`/`tsne`
+        /// have no such score (LDA's discriminant eigenvalues aren't returned;
+        /// UMAP/t-SNE are approximate neighborhood LAYOUTS with no reconstruction-error
+        /// analogue) — for those, `as_claim=true` is a documented no-op (no claim is
+        /// written; see [`Method::MineAssociate::as_claim`] for the general shape).
+        /// Requires `writeback`.
+        #[cfg(all(feature = "mining", feature = "epistemic"))]
+        #[serde(default)]
+        as_claim: bool,
     },
 
     // ── Graph Learning (CONCEPT:EG-KG.graphlearn.link-predictor — neuro-symbolic KAN) ──
@@ -3140,6 +3210,18 @@ pub enum Method {
         /// a no-op for `tfidf`, which has no topics to write back).
         #[serde(default)]
         writeback: bool,
+        /// ADDITIONALLY materialize a `:Claim` (+ `:Evidence`) per topic (D3, mirroring
+        /// E6) — `lda`/`nmf` only, a no-op for `tfidf` (which has no topics, mirroring
+        /// `writeback`). Quality = the topic's mean doc-membership strength among the
+        /// documents DOMINANTLY assigned to it (`mean(doc_topics[d][t])` over docs `d`
+        /// whose argmax topic is `t`) — a topic-coherence proxy: both LDA's Dirichlet
+        /// posterior and NMF's row-normalized `W` are already `[0,1]` distributions that
+        /// sum to 1 across topics (see `eg_compute::mining::text` module docs), so this
+        /// is a principled, already-bounded score requiring no extra normalization.
+        /// Requires `writeback`.
+        #[cfg(all(feature = "mining", feature = "epistemic"))]
+        #[serde(default)]
+        as_claim: bool,
     },
 
     /// Frequent subgraph mining + motif counting (CONCEPT:EG-KG.mining.gspan-frequent-subgraph
