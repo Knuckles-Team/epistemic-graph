@@ -158,13 +158,18 @@ probabilistic = [
 # `KnowledgeRow::evidence_refs` with a LOCATED `eg_modality::EvidenceSpan`, not just
 # node ids (see `src/knowledge.rs`). Turns on each modality crate's own `contract`
 # feature (never its heavier serving features — e.g. NOT `eg-text/tantivy`) so this
-# stays proportionate: `eg-compute/contract` (`ast::symbol::Symbol` -> `CodeSymbol`)
-# and `eg-tsdb/contract` (`traces::Span` -> `TraceSpan`, which pulls in `redb-store` +
-# `traces` since `eg-tsdb`'s own `contract` feature implies both). `eg-modality`
-# itself (the `EvidenceSpan` type + `ModalityContract` trait) is an UNCONDITIONAL dep
-# below (deps = eg-types only, per its own crate docs) so `KnowledgeRow`'s
-# `evidence_refs` field type is the SAME `Vec<EvidenceSpan>` with or without this
-# feature — only the VALUES differ (always empty when `epistemic` is off).
+# stays proportionate: `eg-compute/contract` (`ast::symbol::Symbol` -> `CodeSymbol`),
+# `eg-tsdb/contract` (`traces::Span` -> `TraceSpan`, which pulls in `redb-store` +
+# `traces` since `eg-tsdb`'s own `contract` feature implies both), and (CONCEPT:E4
+# follow-up) `eg-image/contract`, `eg-audio/contract`, `eg-video/contract`
+# (`ImageData`/`AudioData`/`VideoData` -> `ImageRegion`/`AudioSegment`/`VideoShot`,
+# metadata/region-segment-shot-level leaf crates with NO heavy codec dependency, so
+# turning them on adds no new dependency CLASS beyond what `contract` already pulls
+# for tensor/geo). `eg-modality` itself (the `EvidenceSpan` type + `ModalityContract`
+# trait) is an UNCONDITIONAL dep below (deps = eg-types only, per its own crate docs)
+# so `KnowledgeRow`'s `evidence_refs` field type is the SAME `Vec<EvidenceSpan>` with
+# or without this feature — only the VALUES differ (always empty when `epistemic` is
+# off).
 epistemic = [
     "query",
     "eg-types/epistemic",
@@ -173,6 +178,12 @@ epistemic = [
     "eg-compute/contract",
     "dep:eg-tsdb",
     "eg-tsdb/contract",
+    "dep:eg-image",
+    "eg-image/contract",
+    "dep:eg-audio",
+    "eg-audio/contract",
+    "dep:eg-video",
+    "eg-video/contract",
 ]
 # Natural-language → query planning seam (CONCEPT:EG-078) + the concrete standalone
 # `UreqNlPlanner` (CONCEPT:EG-080). The `NlPlanner` trait + `plan_and_execute*` helpers
@@ -258,6 +269,25 @@ eg-stream = { path = "../eg-stream", optional = true }
 # (no DataFusion); `redb-store` adds pure-Rust redb (no C dep, no pyo3). A default/Pi build
 # links none of it. eg-tsdb does NOT depend on eg-plan — no dependency cycle.
 eg-tsdb = { path = "../eg-tsdb", optional = true }
+# The metadata/region-level image modality (`ImageData` -> a real, located
+# `EvidenceSpan::ImageRegion`) backing the `epistemic` feature's `KnowledgeSet`
+# evidence dispatch (CONCEPT:E4 follow-up). Optional + only referenced under
+# #[cfg(feature = "epistemic")] (via eg-image's own `contract` feature, turned on
+# above); only-serde leaf crate (NO heavy image-decode dep), so a default/Pi build
+# links none of it.
+eg-image = { path = "../eg-image", optional = true }
+# The metadata/segment-level audio modality (`AudioData` -> a real, located
+# `EvidenceSpan::AudioSegment`) backing the `epistemic` feature's `KnowledgeSet`
+# evidence dispatch (CONCEPT:E4 follow-up). Optional + only referenced under
+# #[cfg(feature = "epistemic")] (via eg-audio's own `contract` feature); only-serde
+# leaf crate (NO heavy audio-codec dep), so a default/Pi build links none of it.
+eg-audio = { path = "../eg-audio", optional = true }
+# The metadata/shot-level video modality (`VideoData` -> a real, located
+# `EvidenceSpan::VideoShot`) backing the `epistemic` feature's `KnowledgeSet` evidence
+# dispatch (CONCEPT:E4 follow-up). Optional + only referenced under
+# #[cfg(feature = "epistemic")] (via eg-video's own `contract` feature); only-serde
+# leaf crate (NO heavy video/ffmpeg codec dep), so a default/Pi build links none of it.
+eg-video = { path = "../eg-video", optional = true }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 rmp-serde = "1.3"
