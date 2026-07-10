@@ -80,7 +80,12 @@ impl ExchangeMap {
     }
 
     /// Route the branch rooted at `node` to `group`, reading graph `graph` there.
-    pub fn route(&mut self, node: DagNodeId, graph: impl Into<String>, group: GroupId) -> &mut Self {
+    pub fn route(
+        &mut self,
+        node: DagNodeId,
+        graph: impl Into<String>,
+        group: GroupId,
+    ) -> &mut Self {
         self.targets.insert(node, (graph.into(), group));
         self
     }
@@ -201,8 +206,8 @@ struct ExchangeReply(Result<Vec<(String, Option<f32>)>, String>);
 /// `RemoteEngineSource::fetch` is itself sync and run on the executor's blocking pool)
 /// rather than `network`'s tokio one.
 fn blocking_round_trip(addr: &str, body: &[u8]) -> Result<Vec<u8>, String> {
-    let mut stream = TcpStream::connect(addr)
-        .map_err(|e| format!("exchange: connect {addr} failed: {e}"))?;
+    let mut stream =
+        TcpStream::connect(addr).map_err(|e| format!("exchange: connect {addr} failed: {e}"))?;
     let len = (body.len() as u32).to_be_bytes();
     stream
         .write_all(&len)
@@ -232,8 +237,8 @@ pub fn call_remote_branch(addr: &str, graph: &str, dag: &PlanDag) -> Result<RowS
     let body =
         rmp_serde::to_vec_named(&req).map_err(|e| format!("exchange: encode request: {e}"))?;
     let resp_bytes = blocking_round_trip(addr, &body)?;
-    let ExchangeReply(result) = rmp_serde::from_slice(&resp_bytes)
-        .map_err(|e| format!("exchange: decode reply: {e}"))?;
+    let ExchangeReply(result) =
+        rmp_serde::from_slice(&resp_bytes).map_err(|e| format!("exchange: decode reply: {e}"))?;
     let rows = result.map_err(|e| format!("exchange: remote error: {e}"))?;
     Ok(RowSet::from_rows(rows))
 }
@@ -368,9 +373,9 @@ pub fn execute_dag_distributed(
 
     execute_dag_with(dag, ctx, |id, _node, _joined_input| {
         if let Some((graph, group)) = remote_root.get(&id) {
-            let addr = endpoints.get(group).ok_or_else(|| {
-                format!("exchange: no endpoint configured for group {group}")
-            })?;
+            let addr = endpoints
+                .get(group)
+                .ok_or_else(|| format!("exchange: no endpoint configured for group {group}"))?;
             let branch = extract_branch(dag, id)?;
             let rows = call_remote_branch(addr, graph, &branch)?;
             return Ok(Some(rows));
@@ -424,11 +429,7 @@ mod tests {
     /// Stand a real tokio TCP listener up serving `resolver` over `serve_exchange_loop`,
     /// return its `127.0.0.1:port` address. Dropped (and the task aborted) at the end
     /// of the test's runtime.
-    async fn spawn_responder(
-        graph: &str,
-        core: &GraphCore,
-        semantic: SemanticStore,
-    ) -> String {
+    async fn spawn_responder(graph: &str, core: &GraphCore, semantic: SemanticStore) -> String {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap().to_string();
         let view = core.analysis_snapshot();
@@ -497,8 +498,8 @@ mod tests {
         let endpoints: BTreeMap<GroupId, String> =
             [(1, addr_a.clone()), (2, addr_b.clone())].into();
 
-        let out = execute_dag_distributed(&dag, &ctx, &routes, &endpoints, 0 /* local_group */)
-            .unwrap();
+        let out =
+            execute_dag_distributed(&dag, &ctx, &routes, &endpoints, 0 /* local_group */).unwrap();
         assert_eq!(out.ids(), vec!["b".to_string()]);
     }
 
@@ -561,8 +562,7 @@ mod tests {
         routes.route(0, "local-graph", 0 /* == local_group below */);
         let endpoints: BTreeMap<GroupId, String> = BTreeMap::new();
 
-        let via_distributed =
-            execute_dag_distributed(&dag, &ctx, &routes, &endpoints, 0).unwrap();
+        let via_distributed = execute_dag_distributed(&dag, &ctx, &routes, &endpoints, 0).unwrap();
         let via_plain = execute_dag(&dag, &ctx).unwrap();
         assert_eq!(via_distributed.ids(), via_plain.ids());
     }

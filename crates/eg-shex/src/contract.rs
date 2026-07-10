@@ -99,11 +99,19 @@ mod provenance_mapping {
     #[test]
     fn shape_maps_to_source_and_nonconformance_to_zero_confidence() {
         let sample = NodeResult::conformance_sample();
-        let prov = sample.provenance("x").expect("a NodeResult always has provenance");
+        let prov = sample
+            .provenance("x")
+            .expect("a NodeResult always has provenance");
         assert_eq!(prov.source, "<http://example.org/PersonShape>");
         assert_eq!(prov.confidence, 0.0);
-        assert!(prov.detail.iter().any(|d| d.contains("<http://example.org/alice>")));
-        assert!(prov.detail.iter().any(|d| d.contains("missing required predicate")));
+        assert!(prov
+            .detail
+            .iter()
+            .any(|d| d.contains("<http://example.org/alice>")));
+        assert!(prov
+            .detail
+            .iter()
+            .any(|d| d.contains("missing required predicate")));
     }
 
     #[test]
@@ -117,7 +125,14 @@ mod provenance_mapping {
         let prov = conforming.provenance("x").unwrap();
         assert_eq!(prov.confidence, 1.0);
         assert_eq!(prov.source, "<http://example.org/PersonShape>");
-        assert!(prov.detail.iter().any(|d| d.contains("<http://example.org/bob>")));
-        assert_eq!(prov.detail.len(), 1, "no reason present, so no reason: line");
+        assert!(prov
+            .detail
+            .iter()
+            .any(|d| d.contains("<http://example.org/bob>")));
+        assert_eq!(
+            prov.detail.len(),
+            1,
+            "no reason present, so no reason: line"
+        );
     }
 }

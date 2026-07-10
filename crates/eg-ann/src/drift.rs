@@ -130,13 +130,20 @@ pub fn population_stability_index(reference: &[f64], current: &[f64], bins: usiz
 
 /// L2 norm of one embedding.
 fn norm(v: &[f32]) -> f64 {
-    v.iter().map(|&x| (x as f64) * (x as f64)).sum::<f64>().sqrt()
+    v.iter()
+        .map(|&x| (x as f64) * (x as f64))
+        .sum::<f64>()
+        .sqrt()
 }
 
 /// Drift over the embedding-NORM distribution — dimension-agnostic, so it works
 /// even when `reference`/`current` embeddings came from models of different
 /// dimensionality (a full model swap, not just a re-embed).
-pub fn embedding_norm_drift(reference: &[Vec<f32>], current: &[Vec<f32>], bins: usize) -> DriftReport {
+pub fn embedding_norm_drift(
+    reference: &[Vec<f32>],
+    current: &[Vec<f32>],
+    bins: usize,
+) -> DriftReport {
     let r: Vec<f64> = reference.iter().map(|v| norm(v)).collect();
     let c: Vec<f64> = current.iter().map(|v| norm(v)).collect();
     population_stability_index(&r, &c, bins)
@@ -250,7 +257,11 @@ mod tests {
             .collect();
         let reports = embedding_dimension_drift(&reference, &current, 10).unwrap();
         assert_eq!(reports.len(), 4);
-        assert_eq!(reports[2].level, DriftLevel::Significant, "dim 2 was shifted");
+        assert_eq!(
+            reports[2].level,
+            DriftLevel::Significant,
+            "dim 2 was shifted"
+        );
         assert_eq!(reports[0].level, DriftLevel::None, "dim 0 was untouched");
     }
 

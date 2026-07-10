@@ -57,7 +57,12 @@ pub struct RiskScores {
 /// `seed[i]` is node `i`'s initial risk (any non-negative scale — normalized
 /// internally). An all-zero `seed` returns all-zero scores (nothing to
 /// propagate) rather than falling back to a uniform restart.
-pub fn propagate(n: usize, edges: &[(usize, usize, f64)], seed: &[f64], config: &RiskConfig) -> RiskScores {
+pub fn propagate(
+    n: usize,
+    edges: &[(usize, usize, f64)],
+    seed: &[f64],
+    config: &RiskConfig,
+) -> RiskScores {
     if n == 0 {
         return RiskScores {
             scores: Vec::new(),
@@ -101,7 +106,10 @@ pub fn propagate(n: usize, edges: &[(usize, usize, f64)], seed: &[f64], config: 
 
     while iterations < config.max_iterations {
         iterations += 1;
-        let dangling: f64 = (0..n).filter(|&i| out_weight[i] <= 0.0).map(|i| rank[i]).sum();
+        let dangling: f64 = (0..n)
+            .filter(|&i| out_weight[i] <= 0.0)
+            .map(|i| rank[i])
+            .sum();
         for v in 0..n {
             next[v] = (1.0 - d) * seed_dist[v] + d * dangling * seed_dist[v];
         }
@@ -147,7 +155,11 @@ mod tests {
             ..RiskConfig::default()
         };
         let out = propagate(3, &edges, &seed, &config);
-        assert!(out.converged, "expected convergence within {} iterations", config.max_iterations);
+        assert!(
+            out.converged,
+            "expected convergence within {} iterations",
+            config.max_iterations
+        );
         assert!(out.scores[0] > out.scores[1]);
         assert!(out.scores[1] > out.scores[2]);
         let total: f64 = out.scores.iter().sum();
@@ -177,6 +189,9 @@ mod tests {
         let edges = vec![(0, 1, 1.0)];
         let seed = vec![1.0, 0.0, 0.0];
         let out = propagate(3, &edges, &seed, &RiskConfig::default());
-        assert!(out.scores[2] < 1e-6, "dangling mass must not leak to non-seed node 2");
+        assert!(
+            out.scores[2] < 1e-6,
+            "dangling mass must not leak to non-seed node 2"
+        );
     }
 }

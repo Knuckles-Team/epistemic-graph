@@ -175,9 +175,7 @@ pub(crate) async fn try_handle(
             txn_id,
             node_id,
             graph,
-        } => Ok(
-            stage_materialize_belief(state, req_id, &txn_id, graph.as_deref(), node_id).await,
-        ),
+        } => Ok(stage_materialize_belief(state, req_id, &txn_id, graph.as_deref(), node_id).await),
         Method::Commit { txn_id } => Ok(commit(state, req_id, caller, &txn_id).await),
         Method::Rollback { txn_id } => Ok(rollback(state, req_id, &txn_id).await),
         other => Err(other),
@@ -1409,10 +1407,8 @@ mod materialize_belief_tests {
             panic!("expected a CompareAndSetNodeFields method, got {m:?}");
         };
         let conditions =
-            rmp_serde::from_slice::<serde_json::Map<String, serde_json::Value>>(
-                conditions_msgpack,
-            )
-            .unwrap();
+            rmp_serde::from_slice::<serde_json::Map<String, serde_json::Value>>(conditions_msgpack)
+                .unwrap();
         let updates =
             rmp_serde::from_slice::<serde_json::Map<String, serde_json::Value>>(updates_msgpack)
                 .unwrap();
@@ -1506,7 +1502,10 @@ mod materialize_belief_tests {
     #[cfg(feature = "security")]
     fn materialize_belief_rides_the_audited_cas_path() {
         let core = GraphCore::new();
-        core.add_node("claim3".into(), node(serde_json::json!({"confidence": 0.5})));
+        core.add_node(
+            "claim3".into(),
+            node(serde_json::json!({"confidence": 0.5})),
+        );
         let (methods, _confidence) =
             materialize_belief_to_methods(&core, "claim3").expect("node exists");
         let line = crate::audit::audit_line(&methods[0]);

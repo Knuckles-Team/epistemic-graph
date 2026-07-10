@@ -180,7 +180,9 @@ mod span_evidence {
     #[test]
     fn maps_trace_and_span_id_losslessly() {
         let span = Span::conformance_sample();
-        let ev = span.evidence("ignored").expect("an observed Span always has evidence");
+        let ev = span
+            .evidence("ignored")
+            .expect("an observed Span always has evidence");
         assert_eq!(
             ev,
             EvidenceSpan::TraceSpan {
