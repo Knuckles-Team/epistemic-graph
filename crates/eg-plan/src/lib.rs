@@ -190,6 +190,12 @@ pub use runtime::{ParallelDriver, RuntimeConfig};
 /// read (`ModalityCardinality` + the O(1) `PlanStats` catalog).
 #[cfg(feature = "query")]
 pub use cost::{ModalityCardinality, PlanStats};
+/// The DAG-aware optimizer (CONCEPT:EG-KG.query.dag-optimizer, E5 phase 3) — [`optimizer::optimize_dag`]
+/// reorders ops within each maximal linear chain segment of a [`dag::PlanDag`] through the
+/// SAME rule engine `optimize` drives, never crossing a branch/fan-out boundary (the DAG
+/// generalization of the EG-405 adjacency guard).
+#[cfg(feature = "query")]
+pub use optimizer::optimize_dag;
 #[cfg(feature = "query")]
 pub use optimizer::{enabled as cost_opt_enabled, optimize, rule_names as cost_opt_rule_names};
 /// The adaptive re-optimization hook (CONCEPT:EG-KG.query.adaptive-reoptimization): re-cost and,
