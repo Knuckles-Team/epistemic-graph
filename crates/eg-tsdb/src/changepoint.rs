@@ -109,8 +109,8 @@ pub fn pelt_change_points(points: &[Point], penalty: f64) -> Vec<usize> {
     for t in 1..=n {
         let mut best = f64::INFINITY;
         let mut best_s = 0usize;
-        for s in 0..t {
-            let c = f[s] + segment_cost(s, t) + penalty;
+        for (s, &f_s) in f.iter().enumerate().take(t) {
+            let c = f_s + segment_cost(s, t) + penalty;
             if c < best {
                 best = c;
                 best_s = s;
