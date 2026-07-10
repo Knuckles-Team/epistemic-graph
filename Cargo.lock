@@ -2097,6 +2097,7 @@ dependencies = [
  "bincode",
  "cudarc",
  "eg-modality",
+ "eg-numeric",
  "memmap2",
  "rand 0.8.6",
  "rand_chacha 0.3.1",
