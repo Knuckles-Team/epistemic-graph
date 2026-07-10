@@ -2500,6 +2500,220 @@ class MiningClient:
             params["label"] = label
         return await self._client._send("MineSubgraph", params)
 
+    async def entity_resolve(
+        self,
+        records: list[list[str]] | None = None,
+        *,
+        block_keys: list[str] | None = None,
+        vectors: list[list[float]] | None = None,
+        source: dict[str, Any] | None = None,
+        ids: list[str] | None = None,
+        bucket_precision: int = 1,
+        threshold: float = 0.5,
+        writeback: bool = False,
+    ) -> dict[str, Any]:
+        """Entity resolution / record linkage (CONCEPT:EG-KG.mining.entity-resolution).
+
+        Provide EITHER ``records`` (token-attribute rows for Jaccard record linkage,
+        blocked by the parallel ``block_keys``) OR embedding rows — explicit
+        ``vectors`` or a graph-derived ``source`` spec (``{"node_label", "limit"}``,
+        same shape as :meth:`cluster`'s ``source``) — for cosine entity resolution,
+        blocked by a ``bucket_precision``-rounded grid. ``ids`` optionally names the
+        explicit rows (``records``/``vectors``); a graph-derived ``source`` supplies
+        its own resident node ids. ``threshold`` is the minimum similarity (Jaccard or
+        cosine, ``[0,1]``) to emit a match. With ``writeback=True`` each match is
+        materialized as a typed ``:EntityMatch`` node linked to both members (when
+        resident node ids). Returns ``{matches: [{left, right, score}], ...}``.
+        """
+        params: dict[str, Any] = {
+            "bucket_precision": bucket_precision,
+            "threshold": threshold,
+            "writeback": writeback,
+        }
+        if records is not None:
+            params["records"] = records
+        if block_keys is not None:
+            params["block_keys"] = block_keys
+        if vectors is not None:
+            params["vectors"] = vectors
+        if source is not None:
+            params["source"] = source
+        if ids is not None:
+            params["ids"] = ids
+        return await self._client._send("MineEntityResolve", params)
+
+    async def causal_impact(
+        self,
+        series: list[float],
+        *,
+        control: list[float] | None = None,
+        intervention_index: int = 0,
+        series_id: str | None = None,
+        writeback: bool = False,
+    ) -> dict[str, Any]:
+        """Causal impact estimation (CONCEPT:EG-KG.mining.causal-impact): interrupted
+        time series (``series`` alone) or difference-in-differences (``series`` +
+        non-empty ``control``), split at ``intervention_index`` (the first
+        post-intervention observation, in BOTH series for DiD). With
+        ``writeback=True`` materializes the estimate as a typed ``:CausalEffect``
+        node (``series_id`` names it; empty ⇒ derived from the input)."""
+        params: dict[str, Any] = {
+            "series": series,
+            "intervention_index": intervention_index,
+            "writeback": writeback,
+        }
+        if control is not None:
+            params["control"] = control
+        if series_id is not None:
+            params["series_id"] = series_id
+        return await self._client._send("MineCausalImpact", params)
+
+    async def process(
+        self,
+        traces: list[list[str]],
+        *,
+        process_id: str | None = None,
+        writeback: bool = False,
+    ) -> dict[str, Any]:
+        """Process mining (CONCEPT:EG-KG.mining.process-mining): directly-follows graph
+        + alpha-miner-lite footprint (causal/parallel/choice relations, start/end
+        activity sets) over ordered event ``traces`` (each a time-ordered activity
+        sequence; an activity may repeat within a trace). With ``writeback=True``
+        materializes the footprint as a typed ``:ProcessModel`` node (``process_id``
+        names it; empty ⇒ derived from the mined footprint's own shape)."""
+        params: dict[str, Any] = {"traces": traces, "writeback": writeback}
+        if process_id is not None:
+            params["process_id"] = process_id
+        return await self._client._send("MineProcess", params)
+
+    async def root_cause(
+        self,
+        nodes: list[str],
+        scores: list[float],
+        edges: list[tuple[str, str, float]],
+        symptom: str,
+        *,
+        max_hops: int = 5,
+        decay: float = 0.85,
+        writeback: bool = False,
+    ) -> dict[str, Any]:
+        """Root-cause propagation (CONCEPT:EG-KG.mining.root-cause): given a directed
+        weighted dependency graph ``edges`` (``(cause_id, effect_id, weight)``) and a
+        per-node anomaly ``scores`` vector (index-aligned with ``nodes`` — e.g.
+        :meth:`anomaly`'s own output), find the most-likely upstream root cause of the
+        already-flagged ``symptom`` node. ``max_hops`` caps search depth; ``decay`` is
+        the per-hop score decay ``(0,1]`` (mirrors PageRank's damping). With
+        ``writeback=True`` materializes the top candidate as a typed ``:RootCause``
+        node linked to the symptom."""
+        params: dict[str, Any] = {
+            "nodes": nodes,
+            "scores": scores,
+            "edges": [list(e) for e in edges],
+            "symptom": symptom,
+            "max_hops": max_hops,
+            "decay": decay,
+            "writeback": writeback,
+        }
+        return await self._client._send("MineRootCause", params)
+
+    async def risk_propagation(
+        self,
+        nodes: list[str],
+        seed: list[float],
+        edges: list[tuple[str, str, float]],
+        *,
+        damping: float = 0.85,
+        tolerance: float = 1e-9,
+        max_iterations: int = 100,
+        writeback: bool = False,
+    ) -> dict[str, Any]:
+        """Seeded risk propagation (CONCEPT:EG-KG.mining.risk-propagation): personalized
+        PageRank over a directed weighted graph ``edges`` (``(from_id, to_id,
+        weight)``), restarting to the ``seed`` risk distribution (index-aligned with
+        ``nodes``; any non-negative scale, normalized internally) instead of
+        teleporting uniformly. With ``writeback=True`` materializes each node's
+        propagated score as a typed ``:RiskScore`` node."""
+        params: dict[str, Any] = {
+            "nodes": nodes,
+            "seed": seed,
+            "edges": [list(e) for e in edges],
+            "damping": damping,
+            "tolerance": tolerance,
+            "max_iterations": max_iterations,
+            "writeback": writeback,
+        }
+        return await self._client._send("MineRiskPropagation", params)
+
+    async def ontology_gap(
+        self,
+        *,
+        label: str | None = None,
+        writeback: bool = False,
+    ) -> dict[str, Any]:
+        """Ontology-gap detection (CONCEPT:EG-KG.mining.ontology-gap): scans the
+        resident graph's own type/relation-tagged class nodes (graph-native — no
+        ``rdf``/OWL-reasoner dependency) for completeness gaps: no declared
+        properties, an unresolved ``subClassOf`` parent (an orphan subclass), or a
+        fully disconnected class. ``label`` restricts the scan to class nodes of that
+        one type (``None`` ⇒ every node whose type is ``Class``/``OwlClass``). With
+        ``writeback=True`` materializes each gap as a typed ``:OntologyGap`` node
+        linked to its class."""
+        params: dict[str, Any] = {"writeback": writeback}
+        if label is not None:
+            params["label"] = label
+        return await self._client._send("MineOntologyGap", params)
+
+    async def retrieval_quality(
+        self,
+        traces: list[dict[str, Any]],
+        *,
+        k: int = 0,
+        query_id: str | None = None,
+        writeback: bool = False,
+    ) -> dict[str, Any]:
+        """Retrieval-quality evaluation (CONCEPT:EG-KG.mining.retrieval-quality):
+        precision@k / recall@k / MRR over stored retrieval ``traces`` (each
+        ``{"retrieved": [id, ...], "relevant": [id, ...]}``). ``k`` is the cutoff
+        (``0`` ⇒ each trace's full retrieved list). With ``writeback=True``
+        materializes the aggregate report as a typed ``:RetrievalQuality`` node
+        (``query_id`` names it; empty ⇒ derived from the input traces)."""
+        params: dict[str, Any] = {"traces": traces, "k": k, "writeback": writeback}
+        if query_id is not None:
+            params["query_id"] = query_id
+        return await self._client._send("MineRetrievalQuality", params)
+
+    async def community(
+        self,
+        *,
+        label: str | None = None,
+        algorithm: str = "louvain",
+        resolution: float = 1.0,
+        max_iterations: int = 100,
+        seed: int = 0,
+        weighted: bool = True,
+        writeback: bool = False,
+    ) -> dict[str, Any]:
+        """Community detection as a mining family (CONCEPT:EG-KG.mining.community-writeback):
+        wraps the EXISTING GDS Louvain / label-propagation kernels (no new
+        algorithm, only the epistemic writeback). Runs over the resident graph,
+        optionally restricted to one node ``label`` (like :meth:`subgraph`).
+        ``algorithm`` is ``"louvain"`` (default, uses ``resolution`` + a
+        ``seed``-ed deterministic shuffle) or ``"labelprop"`` (uses ``weighted``
+        to weight neighbor votes by edge weight); both use ``max_iterations`` as
+        their sweep cap. With ``writeback=True`` materializes each community as a
+        typed ``:Community`` node linked to its members."""
+        params: dict[str, Any] = {
+            "algorithm": algorithm,
+            "resolution": resolution,
+            "max_iterations": max_iterations,
+            "seed": seed,
+            "weighted": weighted,
+            "writeback": writeback,
+        }
+        if label is not None:
+            params["label"] = label
+        return await self._client._send("MineCommunity", params)
+
 
 class GraphLearnClient:
     """CONCEPT:EG-KG.graphlearn.link-predictor — Graph-learning / neuro-symbolic Namespace.
@@ -2832,6 +3046,42 @@ class QueryClient:
         rows = result or []
         return [{"id": id_, "score": score} for id_, score in rows]
 
+    async def explain_plan(self, plan: list[dict[str, Any]]) -> dict[str, Any]:
+        """``EXPLAIN PLAN`` (CONCEPT:EG-KG.query.plan-dag) — serialize ``plan`` (the SAME
+        externally-tagged ``Op`` list :meth:`unified` takes) as a `PlanDag` both BEFORE
+        and AFTER the DAG-aware cost optimizer, plus the active optimizer rule set. No
+        execution occurs beyond planning. Returns ``{"before": [{"id", "op", "inputs"},
+        ...], "after": [...], "applied_rules": [str, ...]}``. Requires a ``query`` server.
+        """
+        return await self._client._send("ExplainPlan", {"plan": {"ops": plan}})
+
+    async def explain_provenance(self, plan: list[dict[str, Any]]) -> dict[str, Any]:
+        """``EXPLAIN PROVENANCE`` — run ``plan`` (the SAME plan :meth:`unified` takes)
+        and, for each result row, resolve its EVIDENCE-FOR provenance over the row's
+        ``KnowledgeSet`` (E3) shape. Returns ``{"rows": [{"id", "kind", "source_refs",
+        "evidence_spans"}, ...], "resolved": bool}`` — ``resolved`` is ``False`` (every
+        row's provenance empty) when the server was built without the ``epistemic``
+        feature. Requires a ``query`` server."""
+        return await self._client._send("ExplainProvenance", {"plan": {"ops": plan}})
+
+    async def explain_policy(self, plan: list[dict[str, Any]]) -> dict[str, Any]:
+        """``EXPLAIN POLICY`` (CONCEPT:EG-KG.sharding.row-level-security) — run ``plan``
+        against BOTH the caller's RLS-filtered snapshot and the unfiltered snapshot,
+        reporting which rows the policy denied. Returns ``{"visible_ids": [str, ...],
+        "policy_denied_ids": [str, ...]}`` — ``policy_denied_ids`` is empty when no RLS
+        filtering applies (no ``security`` feature, or no caller/RLS on this
+        connection). Requires a ``query`` server."""
+        return await self._client._send("ExplainPolicy", {"plan": {"ops": plan}})
+
+    async def explain_belief(self, node_id: str) -> dict[str, Any]:
+        """``EXPLAIN BELIEF <node_id>`` — the full, un-flattened justification tree
+        (``eg_epistemic::JustificationGraph``) rooted at ``node_id``. Returns
+        ``{"root": {"claim", "rule", "confidence", "premises": [<same shape>, ...]}}``
+        — ``rule`` is one of ``"Asserted"``/``"DerivedSupport"``/
+        ``"DerivedContradiction"``/``"BayesianUpdate"``. Read-only. Requires a server
+        built with the ``epistemic`` feature (implies ``query``)."""
+        return await self._client._send("ExplainBelief", {"node_id": node_id})
+
     async def register_foreign_source(self, name: str, source: dict[str, Any]) -> str:
         """Register a named EXTERNAL source for query federation (CONCEPT:EG-KG.query.query-federation,
         Lane P), returning the registered name.
@@ -3086,6 +3336,48 @@ class TxnClient:
         if graph is not None:
             params["graph"] = graph
         return await self._client._send("TxnConstruct", params)
+
+    async def plan_writeback(
+        self,
+        txn_id: str,
+        plan: list[dict[str, Any]],
+        anchor_id: str,
+        relationship: str,
+        graph: str | None = None,
+    ) -> bool:
+        """Stage a PLANNER WRITEBACK into the txn (CONCEPT:EG-KG.query.plan-dag, D7 —
+        the planner-writeback ACID seam). ``plan`` (the SAME ``Op`` list :meth:`
+        QueryClient.unified` takes) runs READ-ONLY against the txn's committed
+        snapshot; each id in its result row set becomes an ``AddEdge`` from
+        ``anchor_id`` to that id carrying ``relationship`` — e.g. materializing a
+        Reason/Traverse-inferred edge set — staged into the SAME atomic write
+        transaction as the txn's other modalities (mirrors :meth:`axiom`/
+        :meth:`construct`). Requires a server built with the ``query`` feature."""
+        params: dict[str, Any] = {
+            "txn_id": txn_id,
+            "plan": {"ops": plan},
+            "anchor_id": anchor_id,
+            "relationship": relationship,
+        }
+        if graph is not None:
+            params["graph"] = graph
+        return await self._client._send("TxnPlanWriteback", params)
+
+    async def materialize_belief(
+        self, txn_id: str, node_id: str, graph: str | None = None
+    ) -> bool:
+        """Stage a MATERIALIZE-BELIEF op into the txn (CONCEPT:EG-KG.epistemic.epistemic-substrate,
+        D5 — the explicit, AUDITED "materialize belief" op). Computes the propagated
+        belief for ``node_id`` over the graph's SUPPORTS/CONTRADICTS/ATTACKS evidence
+        topology (read from the txn's committed snapshot) and stages an unconditional
+        compare-and-set that writes it onto that node's stored confidence, landing
+        atomically with the txn's other staged modalities at commit — the ONLY path
+        that ever writes a derived belief back onto stored confidence. Requires a
+        server built with the ``epistemic`` feature."""
+        params: dict[str, Any] = {"txn_id": txn_id, "node_id": node_id}
+        if graph is not None:
+            params["graph"] = graph
+        return await self._client._send("TxnMaterializeBelief", params)
 
     async def unified_query(
         self,
