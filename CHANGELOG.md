@@ -8,6 +8,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [2.17.0] - 2026-07-10 — Semi-naive reasoning + GPU transitive-closure
+
+Re-architects the compiled semantic reasoner (`CONCEPT:EG-KG.compute.compiled-semantic-reasoner`)
+into a **semi-naive** evaluator and adds the GPU offload the S4 deferral note identified as
+the natural target (`CONCEPT:EG-KG.compute.reasoning-closure-gpu`).
+
+### Added
+- **`crates/eg-compute/src/reasoning_closure.rs`** — the five OWL/RDFS rules evaluated
+  semi-naively over **integer-interned** relations (each round derives only from the prior
+  round's delta rather than re-scanning the whole accumulated fact set), with Rule 5
+  (transitive closure) — the one sparse-matrix-shaped rule — factored behind a
+  `ClosureBackend` seam: an always-compiled `CpuBackend` (hash-join) plus a feature-gated
+  `cuda::CudaBackend` that NVRTC-compiles a two-pass CSR-join kernel (binary-search count →
+  host exclusive-scan → scatter) and degrades to CPU on any device/compile/launch failure.
+  Mirrors the `eg-ann::kmeans_gpu` `AssignBackend` seam.
+- New `eg-compute` `gpu`/`gpu-cuda` features (+ optional `cudarc`, dynamic-loading so a
+  `gpu-cuda` build needs no CUDA toolkit); facade `gpu`/`gpu-cuda` pass them through. Kept
+  **out of `pi`/`default`/`full`** — a `pi` build links no `cudarc`.
+- Tests: a differential oracle proving the semi-naive evaluator derives the SAME fact set
+  as the prior naive fixpoint over 40 randomized ontologies, and a `#[cfg(feature =
+  "gpu-cuda")]` GPU↔CPU parity test that SKIPs cleanly on a GPU-less host and auto-validates
+  on a real device (e.g. the GB10).
+
+### Changed
+- `reasoning.rs::run_datalog_reasoning` now extracts base facts and delegates inference to
+  the semi-naive evaluator on the active backend, keeping the identical write-back tail.
+  The prior string-keyed naive fixpoint is removed (No-Legacy) — the `full` build's
+  reasoning path is now the semi-naive evaluator (same results, less repeated work).
+
 ## [2.16.0] - 2026-07-10 — Epistemic Substrate
 
 Turns the engine's `RowSet` multimodal center into an explicitly **epistemic** substrate
