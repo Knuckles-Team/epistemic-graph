@@ -1767,22 +1767,30 @@ async fn calvin_ollp_epoch_routing_restart_agrees_across_nodes() {
         "the restarted OLLP txn read k2's committed value (serializable: T_writer then T_ollp)"
     );
 
-    // ── ALL NODES AGREE: an INDEPENDENT registry, fed the identical registrations in a
-    //    DIFFERENT order (simulating a peer node that received the same gossiped batches
-    //    in a different arrival order), derives the byte-identical merged order for BOTH
-    //    epochs the txn touched — and in particular the SAME final packed seq for the
-    //    restarted txn. This is the property that lets every node run the deterministic
-    //    execution phase without a vote. ────────────────────────────────────────────────
+    // ── ALL NODES AGREE ─────────────────────────────────────────────────────────────
+    // A peer node receives the SAME per-node gossiped input tuples for every epoch the
+    // txn touched. `local_seq` is AUTHORITATIVE from the origin node's local sequencer —
+    // a peer replays the tuples verbatim, it never re-sequences them — so a faithful peer
+    // preserves each node's per-epoch order and only the CROSS-node arrival interleave may
+    // differ. Crucially the OLLP txn's STALE FIRST attempt is part of BASE_EPOCH's input
+    // log (append-only, replayed as an abort in that epoch), so it is present on every
+    // node's view of BASE_EPOCH too — the origin registered it there on attempt 1 before
+    // the recon went stale and the txn restarted into BASE_EPOCH+1.
     let fan_in_peer = EpochFanInRegistry::new();
+    // Base epoch — DIFFERENT cross-node interleave than the origin (all of NODE_1 first),
+    // but the SAME per-node order (t-writer then the phantom t-ollp), so local_seqs match.
     fan_in_peer.register_local(NODE_1, BASE_EPOCH, "t-writer");
+    fan_in_peer.register_local(NODE_1, BASE_EPOCH, "t-ollp"); // phantom stale attempt (ls=2)
     fan_in_peer.register_local(NODE_2, BASE_EPOCH, "t-peer");
+    // Restart epoch — the committed attempt.
     fan_in_peer.register_local(NODE_1, BASE_EPOCH + 1, "t-ollp");
 
     assert_eq!(
         fan_in_peer.fan_in(BASE_EPOCH),
         fan_in.fan_in(BASE_EPOCH),
-        "a peer node registering the same base-epoch inputs in a different order \
-         derives the identical merged order"
+        "a peer node holding the same base-epoch input tuples (incl. the OLLP txn's \
+         stale first attempt) derives the identical merged order despite a different \
+         cross-node arrival interleave"
     );
     assert_eq!(
         fan_in_peer.fan_in(BASE_EPOCH + 1),
@@ -1794,12 +1802,24 @@ async fn calvin_ollp_epoch_routing_restart_agrees_across_nodes() {
         Some(acquired.seq),
         "every node derives the SAME final packed seq for the restarted txn"
     );
-    // Sanity: the peer's independently-derived merge also agrees with the pure
-    // `epoch_fan_in` function called directly over the peer's own snapshot.
-    assert_eq!(
-        fan_in_peer.fan_in(BASE_EPOCH + 1),
-        epoch_fan_in(BASE_EPOCH + 1, &fan_in_peer.snapshot(BASE_EPOCH + 1))
-    );
+
+    // And prove the merge itself is order-INDEPENDENT over a fixed tuple set: feeding the
+    // origin's OWN per-epoch snapshot back through `epoch_fan_in` with every node's
+    // arrival order REVERSED yields the byte-identical merged order. The merge is a pure
+    // total sort by (local_seq, node, txn_id), so no arrival/insertion order can affect
+    // its result — the property Calvin's vote-free execution depends on.
+    for ep in [BASE_EPOCH, BASE_EPOCH + 1] {
+        let mut reordered = fan_in.snapshot(ep);
+        for inputs in reordered.values_mut() {
+            inputs.reverse();
+        }
+        assert_eq!(
+            epoch_fan_in(ep, &reordered),
+            fan_in.fan_in(ep),
+            "the epoch fan-in merge is a pure total sort — reversing each node's arrival \
+             order of the SAME tuple set cannot change the merged global order"
+        );
+    }
 
     multi.stop_listener();
     backend.shutdown();
