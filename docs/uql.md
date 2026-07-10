@@ -38,7 +38,10 @@ source     = "MATCH" "(" [ ":" ] label ")" [ "WHERE" pred_list ]   (* property-g
            | "REASON" class                                        (* OWL-inferred members *)
            | "FOREIGN" string ;                                     (* external source seed  *)
 stage      = filter | traverse | rank | text | fuse | rerank
-           | asof | window | foreign | reason | limit ;
+           | asof | window | foreign | reason | limit
+           | evidence_for | contradicts | supported_by
+           | belief_asof | valid_asof | source_reliability
+           | confidence | explain_belief ;                          (* epistemic, E2 *)
 filter     = "WHERE" pred_list ;
 traverse   = "TRAVERSE" edge ;
 edge       = "-" "[" ":" rel "]" "->" [ hop_range ]
@@ -61,6 +64,15 @@ pred_list  = pred { "AND" pred } ;
 pred       = prop ( ">" | "<" | ( "=" | "==" ) ) value ;
 value      = num | string | ident ;
 id         = ident | string ;                                      (* QUOTE ids with - . : @ *)
+(* ── epistemic (E2, CONCEPT:EG-KG.epistemic.epistemic-substrate) ── *)
+evidence_for        = "EVIDENCE" "FOR" id ;
+contradicts         = "CONTRADICTS" id ;
+supported_by        = "SUPPORTED" "BY" id ;
+belief_asof         = "BELIEF" "AS" "OF" "@" num ;
+valid_asof           = "VALID" "AS" "OF" "@" num ;                  (* alias -> AsOf{Valid} *)
+source_reliability  = "SOURCE" "RELIABILITY" id ;
+confidence          = "CONFIDENCE" ;                                (* no argument         *)
+explain_belief      = "EXPLAIN" "BELIEF" id ;
 ```
 
 ## Stages
@@ -162,6 +174,33 @@ a 30-second min-aggregate. Canonical example — downsample a series and rerank:
 #### `LIMIT`
 `LIMIT 10` → `Limit{k}`. Order-respecting top-k.
 
+#### Epistemic — belief, evidence & justification (CONCEPT:EG-KG.epistemic.epistemic-substrate, E2)
+Claims/Evidence/Sources are ordinary `type`-tagged nodes; SUPPORTS/CONTRADICTS/ATTACKS
+edges (classified from `relationship_type` — `SUPPORTS`/`SUPPORTS_BELIEF`/`HAS_EVIDENCE`/
+`CORROBORATES`, `CONTRADICTS`/`CONTRADICTS_BELIEF`/`REFUTES`, `ATTACKS`/`DEFEATS`/
+`UNDERCUTS`) are the evidence graph the confidence-propagation walk runs over (a bounded,
+cycle-guarded conjugate Bayesian update, `eg-epistemic`). Feature `epistemic`.
+
+| Clause | Op | Meaning |
+|--------|-----|---------|
+| `EVIDENCE FOR <id>` | `EvidenceFor{claim_id}` | Seed/filter to the nodes with an INCOMING support edge into `<id>`. |
+| `CONTRADICTS <id>` | `Contradicts{node_id}` | Seed/filter to the nodes with an INCOMING contradiction OR attack edge into `<id>` (an attack is a stronger contradiction). |
+| `SUPPORTED BY <id>` | `SupportedBy{node_id}` | The mirror of `EVIDENCE FOR`: the claims `<id>` itself supports (OUTGOING support edges). |
+| `CONFIDENCE` | `ConfidenceOp{}` | Re-score EACH row in the current set by its OWN propagated belief confidence, ranked descending. No argument. |
+| `SOURCE RELIABILITY <id>` | `SourceReliability{source_id}` | Re-weight every row currently in the set by `<id>`'s propagated reliability — a uniform scalar discount. |
+| `BELIEF AS OF <ts>` | `BeliefAsOf{ts}` | Pin the TRANSACTION-time axis (what the engine BELIEVED at `ts`) then re-score by propagated confidence AT that instant. |
+| `VALID AS OF <ts>` | `AsOf{ts,axis:Valid}` | A pure ALIAS for the bare `AS OF @ts` / `AS OF VALID @ts` forms — no belief propagation, just the world-truth axis. |
+| `EXPLAIN BELIEF <id>` | `ExplainBelief{node_id}` | Build the recursive justification tree rooted at `<id>` and flatten it (pre-order, deduped) to scored rows — the queryable projection of `eg_epistemic::explain_belief`. |
+
+`BELIEF AS OF` vs `VALID AS OF` is the headline bi-temporal-meets-epistemic distinction:
+a fact can be **true** (`valid_from`) long before the engine **believed**/recorded it
+(`tx_from`) — `VALID AS OF` answers "what was true", `BELIEF AS OF` answers "what did we
+believe, and how confident were we" at a given instant. `VALID AS OF` never changes what
+the bare `AS OF @ts` form parses to — it is a strict-superset alias, not a new Op.
+
+Composable example — the evidence for a claim, discounted by BELIEF-time confidence:
+`MATCH (:Claim) |> EVIDENCE FOR "c1" |> BELIEF AS OF @1700000000 |> LIMIT 10`.
+
 ## Composition, sources & commutativity (the empty ⇒ source rule)
 
 UQL ops compose as a left-to-right fold over one RowSet, but composition is **deliberately
@@ -204,10 +243,18 @@ Ebbinghaus-decayed **in-plan** and composes alongside `AS OF` in one fused pipel
 | `RERANK MENTIONS` | `RankMentions{}` |
 | `RERANK MMR 0.5 10` | `RankMmr{lambda:0.5,k:10}` |
 | `AS OF @t` / `AS OF TX @t` | `AsOf{ts:t,axis:Valid|Transaction}` |
+| `VALID AS OF @t` | `AsOf{ts:t,axis:Valid}` (ALIAS) |
 | `WINDOW 1 h` | `Window{secs:3600}` |
 | `WINDOW 60 s SUM` | `WindowAgg{secs:60,agg:"sum"}` |
 | `FOREIGN "peer"` | `Foreign{name:"peer"}` |
 | `REASON Mammal` | `Reason{target_class:"Mammal"}` |
+| `EVIDENCE FOR "c1"` | `EvidenceFor{claim_id:"c1"}` |
+| `CONTRADICTS "c1"` | `Contradicts{node_id:"c1"}` |
+| `SUPPORTED BY "c1"` | `SupportedBy{node_id:"c1"}` |
+| `BELIEF AS OF @100` | `BeliefAsOf{ts:100.0}` |
+| `SOURCE RELIABILITY "s1"` | `SourceReliability{source_id:"s1"}` |
+| `CONFIDENCE` | `ConfidenceOp{}` |
+| `EXPLAIN BELIEF "c1"` | `ExplainBelief{node_id:"c1"}` |
 | `LIMIT 10` | `Limit{k:10}` |
 
 ## Running a query
@@ -241,6 +288,9 @@ rows = await c.query.uql("MATCH (:Concept) |> AS OF @1700000000 |> RERANK MMR 0.
 - **Feature gating is on *execution*, not parsing.** A build without `text` parses `FUSE`/`TEXT`
   but errors at run time ("not in this build"); the dep-free stages (`AS OF`, `RERANK`,
   `TRAVERSE`, `WHERE`) run everywhere `query` is on.
+- **`VALID AS OF` is parsing sugar, not a new op.** It always lowers to the SAME `Op::AsOf{axis:
+  Valid}` the bare `AS OF @ts` form produces — it exists so the epistemic vocabulary reads
+  symmetrically alongside `BELIEF AS OF`, not because the underlying op differs.
 
 ## See also
 

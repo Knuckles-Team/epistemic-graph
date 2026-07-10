@@ -345,6 +345,27 @@ fn is_reorderable(op: &Op) -> bool {
     if matches!(op, Op::Reason { .. }) {
         return true;
     }
+    // EG-405 EXCLUSION (CONCEPT:EG-KG.epistemic.epistemic-substrate, E2): the epistemic ops do
+    // NOT draw candidates from the same id-set the `Filter`/`AsOf`/`Reason`/`Rank` commuting
+    // family shares — `EvidenceFor`/`Contradicts`/`SupportedBy` seed from a DIFFERENT edge-kind
+    // projection than the graph's own topology, `BeliefAsOf`/`ConfidenceOp`/`SourceReliability`
+    // re-score by a stateful belief-propagation walk (not a stateless per-row predicate), and
+    // `ExplainBelief`'s flattened output depends on tree DEPTH/order — none of these commute
+    // freely with a reorder the way a pure narrowing predicate does. Excluded EXPLICITLY (not
+    // by omission) so a future edit to this match can't silently make them reorder-eligible.
+    #[cfg(feature = "epistemic")]
+    if matches!(
+        op,
+        Op::EvidenceFor { .. }
+            | Op::Contradicts { .. }
+            | Op::SupportedBy { .. }
+            | Op::BeliefAsOf { .. }
+            | Op::SourceReliability { .. }
+            | Op::ConfidenceOp {}
+            | Op::ExplainBelief { .. }
+    ) {
+        return false;
+    }
     false
 }
 

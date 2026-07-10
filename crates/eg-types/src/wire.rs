@@ -693,6 +693,64 @@ pub enum Op {
     /// seeded `Sample` is reproducible). Mirrors the `tensor`/`stream` gating precedent.
     #[cfg(feature = "probabilistic")]
     Probabilistic { query: ProbQuery },
+    /// SOURCE/FILTER (epistemic, CONCEPT:EG-KG.epistemic.epistemic-substrate, E2) — the evidence
+    /// FOR `claim_id`: nodes linked to it by an INCOMING `SUPPORTS`/`SUPPORTS_BELIEF`/
+    /// `HAS_EVIDENCE`/`CORROBORATES` edge (classified by `eg_epistemic::classify_relationship`).
+    /// As a SOURCE (empty input) it seeds the RowSet with the supporting ids; mid-pipeline it
+    /// narrows the candidate set to the ones that ALSO support `claim_id` — the same
+    /// seed-or-filter shape as `Op::AsOf`. Gated by `epistemic` (the belief-substrate model
+    /// lives in eg-epistemic behind eg-plan's own `epistemic` gate; this is the wire variant).
+    #[cfg(feature = "epistemic")]
+    EvidenceFor { claim_id: String },
+    /// FILTER/SOURCE (epistemic, CONCEPT:EG-KG.epistemic.epistemic-substrate, E2) — evidence
+    /// AGAINST `node_id`: nodes linked to it by an INCOMING `CONTRADICTS`/`CONTRADICTS_BELIEF`/
+    /// `REFUTES` OR `ATTACKS`/`DEFEATS`/`UNDERCUTS` edge (an attack is a stronger contradiction,
+    /// so both count). Same seed-or-filter shape as `EvidenceFor`. Gated by `epistemic`.
+    #[cfg(feature = "epistemic")]
+    Contradicts { node_id: String },
+    /// FILTER/SOURCE (epistemic, CONCEPT:EG-KG.epistemic.epistemic-substrate, E2) — the claims
+    /// `node_id` itself supports: nodes reached by an OUTGOING `SUPPORTS`/`SUPPORTS_BELIEF`/
+    /// `HAS_EVIDENCE`/`CORROBORATES` edge FROM `node_id` — the mirror direction of
+    /// `EvidenceFor`. Same seed-or-filter shape. Gated by `epistemic`.
+    #[cfg(feature = "epistemic")]
+    SupportedBy { node_id: String },
+    /// TIME+TRANSFORM (epistemic, CONCEPT:EG-KG.epistemic.epistemic-substrate, E2) — pin the
+    /// candidate set to what the engine BELIEVED at transaction-time `ts` (composes the
+    /// existing `Op::AsOf { ts, axis: Transaction }` bi-temporal filter) and then RE-SCORE
+    /// each surviving row by its propagated belief confidence at that instant
+    /// (`eg_epistemic::propagate_confidence`). The UQL sibling `VALID AS OF <ts>` is a pure
+    /// ALIAS for `Op::AsOf { axis: Valid }` (no belief propagation) — this op is the one that
+    /// actually walks the support/contradiction/attack graph. Gated by `epistemic`.
+    #[cfg(feature = "epistemic")]
+    BeliefAsOf { ts: f64 },
+    /// TRANSFORM (epistemic, CONCEPT:EG-KG.epistemic.epistemic-substrate, E2) — re-weight every
+    /// row currently in the RowSet by the propagated reliability (belief confidence) of the
+    /// named `source_id` node, via `eg_epistemic::propagate_confidence`. Represents "discount
+    /// this candidate set by how much I trust source X" — a uniform scalar multiplier over
+    /// existing scores (unscored rows are treated as score `1.0`). Gated by `epistemic`.
+    #[cfg(feature = "epistemic")]
+    SourceReliability { source_id: String },
+    /// TRANSFORM (epistemic, CONCEPT:EG-KG.epistemic.epistemic-substrate, E2) — re-score EACH
+    /// row in the current RowSet by ITS OWN propagated belief confidence
+    /// (`eg_epistemic::propagate_confidence` walking that row's own support/contradiction/
+    /// attack neighbourhood), re-ordering descending — the `CONFIDENCE` UQL keyword with no
+    /// argument. Mirrors `Op::Probabilistic`'s "score-then-rank" shape but over the belief
+    /// graph instead of a stored `Distribution`. Gated by `epistemic`.
+    #[cfg(feature = "epistemic")]
+    ConfidenceOp {},
+    /// TRANSFORM (epistemic, CONCEPT:EG-KG.epistemic.epistemic-substrate, E2) — the answer to
+    /// `EXPLAIN BELIEF <node_id>`: build the recursive justification tree
+    /// (`eg_epistemic::explain_belief`) rooted at `node_id`, flatten it (pre-order, deduped) to
+    /// `(claim_id, confidence)` pairs, and either SEED the RowSet with them (empty input) or
+    /// narrow+re-score the current candidate set to the ones that appear in the tree (mirrors
+    /// the `EvidenceFor`/`Contradicts` seed-or-filter shape). The FULL nested proof tree
+    /// (rule names, premise structure) is NOT representable in the flat `RowSet` currency —
+    /// this plan-Op surface is the queryable (composes-with-`Traverse`/`Rank`/`Limit`)
+    /// projection of it; a standalone `Method::ExplainBelief` returning the tree verbatim
+    /// (mirroring `Method::OwlExplain`'s `ProofNodeWire`) is a documented follow-up, not
+    /// built here (E2 scope is the wire+UQL plan surface). Gated by `epistemic`.
+    #[cfg(feature = "epistemic")]
+    ExplainBelief { node_id: String },
     /// LIMIT — top-k, respecting the current order.
     Limit { k: usize },
 }
@@ -1194,6 +1252,46 @@ mod probabilistic_tests {
             },
             Op::Probabilistic {
                 query: ProbQuery::Sample { seed: 42 },
+            },
+            Op::Limit { k: 5 },
+        ]);
+        let bytes = rmp_serde::to_vec_named(&plan).unwrap();
+        let back: Plan = rmp_serde::from_slice(&bytes).unwrap();
+        assert_eq!(plan, back);
+    }
+}
+
+// ── epistemic wire-variant round-trip (CONCEPT:EG-KG.epistemic.epistemic-substrate, E2) ─────────────────
+#[cfg(all(test, feature = "epistemic"))]
+mod epistemic_tests {
+    use super::*;
+
+    /// The seven `Op::{EvidenceFor,Contradicts,SupportedBy,BeliefAsOf,SourceReliability,
+    /// ConfidenceOp,ExplainBelief}` variants are pure-serde and round-trip through
+    /// MessagePack (the wire format) unchanged — the proof `Method::UnifiedQuery { plan }`
+    /// can carry an epistemic plan (CONCEPT:EG-KG.epistemic.epistemic-substrate).
+    #[test]
+    fn epistemic_variants_round_trip() {
+        let plan = Plan::new(vec![
+            Op::Scan {
+                label: "Claim".into(),
+            },
+            Op::EvidenceFor {
+                claim_id: "c1".into(),
+            },
+            Op::Contradicts {
+                node_id: "c1".into(),
+            },
+            Op::SupportedBy {
+                node_id: "c1".into(),
+            },
+            Op::BeliefAsOf { ts: 100.0 },
+            Op::SourceReliability {
+                source_id: "src1".into(),
+            },
+            Op::ConfidenceOp {},
+            Op::ExplainBelief {
+                node_id: "c1".into(),
             },
             Op::Limit { k: 5 },
         ]);
