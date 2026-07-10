@@ -24,11 +24,11 @@
 //!    each `from_rowset` call. A per-view memo (mirroring `plan_stats_memo`) is a
 //!    follow-up if profiling shows repeated `from_rowset` calls over the same view
 //!    are hot.
-//!  * `source_refs` / `policy_labels` resolution stays a follow-up: `evidence_refs`
-//!    (X1, CONCEPT:E4) IS resolved now, under the `epistemic` feature (see
-//!    `resolve_evidence` below) — `source_refs` (`PROVENANCE_OF` edges) and
-//!    `policy_labels` are NOT yet, so this tier still always yields THOSE two empty.
-//!    A plain-`query` build (no `epistemic`) yields all three empty, unchanged.
+//!  * (D24, closing the X1 residue) `source_refs` and `policy_labels` are now ALSO
+//!    resolved under the `epistemic` feature, alongside `evidence_refs` (X1,
+//!    CONCEPT:E4) — see `resolve_evidence` and `resolve_provenance_and_policy`
+//!    below. A plain-`query` build (no `epistemic`) still yields all three empty,
+//!    unchanged.
 //!
 //! ## `evidence_refs` (X1, CONCEPT:E4) — located, not just node ids
 //!
@@ -53,6 +53,45 @@
 //! signature (almost any scored row would false-positive-match it), and a
 //! `ProofNode` is a query-time-derived value that is never itself a stored node
 //! (see `eg-rdf/src/contract.rs`'s `evidence()` doc for why it stays `None` anyway).
+//!
+//! ## `source_refs` / `policy_labels` (D24, closing the X1 residue)
+//!
+//! With `epistemic` on, [`KnowledgeSet::from_rowset`] also builds ONE
+//! `eg_epistemic::BeliefGraph::from_graph_view(view)` (the same blob-decode
+//! `Op::EvidenceFor`/`Op::Contradicts` already run per-op — see
+//! `eg-epistemic/src/adapter.rs`) and, per row, reads its incoming
+//! `SUPPORTS`/`SUPPORTS_BELIEF`/`HAS_EVIDENCE`/`CORROBORATES`/`CONTRADICTS`/
+//! `ATTACKS`-classified edges (`eg_epistemic::classify_relationship`) straight off
+//! `bg.in_edges` (see `resolve_provenance_and_policy`):
+//!
+//!  * `source_refs` — the ids of the incoming edges classified
+//!    `eg_epistemic::EdgeKind::Supports` — i.e. exactly the nodes
+//!    `Op::EvidenceFor { claim_id: row.id }` would seed (the SAME resolution
+//!    `explain_provenance`'s `source_refs` already runs today, just built once per
+//!    `from_rowset` call and reused across every row instead of once per one-op plan).
+//!  * `policy_labels` — a classification of that same incoming neighbourhood,
+//!    mirroring the derivation `eg-epistemic`'s (`contract`-feature-gated,
+//!    test/capability-discovery only) `ModalityContract::policy_labels` impl for
+//!    `BeliefState` uses: `"epistemic:contested"` when any incoming
+//!    `Contradicts`/`Attacks` edge exists, `"epistemic:corroborated"` when 2+
+//!    `Supports` edges exist, `"epistemic:asserted"` when exactly one. Deliberately
+//!    narrower than calling `eg_epistemic::propagate_confidence` +
+//!    `BeliefState::policy_labels()` directly: that real impl labels EVERY node
+//!    `"epistemic:asserted"` even with zero evidence edges (a legitimate "claim
+//!    asserted with no counter-evidence" reading for something already known to be a
+//!    claim) — `from_rowset` has no such prior and runs over EVERY row kind, so a row
+//!    with NO classified incoming edge at all gets an empty `policy_labels`, never a
+//!    fabricated tag on an ordinary non-epistemic row (same "never fabricate"
+//!    discipline as `resolve_evidence`, above). The impl's `as_of:<axis>` label is
+//!    also not emitted here — `BeliefGraph::from_graph_view`'s `as_of` is always
+//!    `None` (this is not an `AS OF`-pinned resolution).
+//!
+//! A row whose kind/shape carries no classified evidence edge at all — the common
+//! case for most stored data — gets empty `source_refs`/`policy_labels` either way;
+//! only a node that genuinely sits in the support/contradiction/attack graph gets
+//! non-empty values. `provenance_frame`/`policy_frame` become `Resolved` whenever
+//! `epistemic` is on, regardless of whether any individual row's lists end up
+//! non-empty (mirrors `evidence_refs`/`ProvenanceFrame::Resolved`, above).
 
 use std::collections::HashSet;
 
@@ -96,6 +135,50 @@ fn resolve_evidence(
     }
 }
 
+/// Resolve `(source_refs, policy_labels)` for one row id off a shared
+/// [`eg_epistemic::BeliefGraph`] (D24, closing the X1 residue — see the module docs'
+/// `source_refs`/`policy_labels` section for the derivation rationale). `bg` is built
+/// ONCE per [`KnowledgeSet::from_rowset`] call and shared across every row — the same
+/// `BeliefGraph::from_graph_view` blob-decode `Op::EvidenceFor`/`Op::Contradicts`
+/// already run, just amortized instead of rebuilt per op.
+///
+/// A row with no classified incoming edge at all (`bg.in_edges.get(row_id)` is
+/// `None`) returns `(Vec::new(), Vec::new())` — never fabricated.
+#[cfg(feature = "epistemic")]
+fn resolve_provenance_and_policy(
+    bg: &eg_epistemic::BeliefGraph,
+    row_id: &str,
+) -> (Vec<String>, Vec<String>) {
+    use eg_epistemic::EdgeKind;
+
+    let Some(incoming) = bg.in_edges.get(row_id) else {
+        return (Vec::new(), Vec::new());
+    };
+
+    // `source_refs`: the same incoming-`Supports` ids `Op::EvidenceFor` seeds from.
+    let source_refs: Vec<String> = incoming
+        .iter()
+        .filter(|(_, k)| *k == EdgeKind::Supports)
+        .map(|(src, _)| src.clone())
+        .collect();
+
+    // `policy_labels`: mirrors eg-epistemic's `BeliefState::policy_labels` contested/
+    // corroborated/asserted classification (see the module docs for why this stays
+    // gated on "has at least one classified edge" rather than always emitting a label).
+    let contested = incoming
+        .iter()
+        .any(|(_, k)| matches!(k, EdgeKind::Contradicts | EdgeKind::Attacks));
+    let policy_labels = if contested {
+        vec!["epistemic:contested".to_string()]
+    } else if source_refs.len() > 1 {
+        vec!["epistemic:corroborated".to_string()]
+    } else {
+        vec!["epistemic:asserted".to_string()]
+    };
+
+    (source_refs, policy_labels)
+}
+
 /// A lazy handle onto a row's stored property blob — the node id plus whether a
 /// decodable payload was actually found for it. Deliberately does NOT carry the
 /// decoded/cloned blob itself: a `KnowledgeRow` is built for every row in a
@@ -128,12 +211,12 @@ pub enum ProvenanceFrame {
     /// are empty. The only mode this tier (plain `query`) produces.
     #[default]
     None,
-    /// The `epistemic` feature resolved provenance refs per row. As of X1
-    /// (CONCEPT:E4) this covers `evidence_refs` (a row's decodable modality value's
-    /// located `EvidenceSpan`, see `resolve_evidence`); `source_refs`
-    /// (`PROVENANCE_OF` edges) is a separate, still-empty-here dimension — a caller
-    /// that needs those resolves them the same way `explain_provenance` does today
-    /// (re-running an `Op::EvidenceFor` one-op plan).
+    /// The `epistemic` feature resolved provenance refs per row: `evidence_refs` (a
+    /// row's decodable modality value's located `EvidenceSpan`, X1/CONCEPT:E4, see
+    /// `resolve_evidence`) AND, as of D24, `source_refs` (the row's own incoming
+    /// `Supports`-classified edges over the `eg_epistemic::BeliefGraph`, see
+    /// `resolve_provenance_and_policy` and the module docs) — both per-row lookups
+    /// run off the SAME `GraphView` snapshot, not a re-run plan.
     Resolved,
 }
 
@@ -144,15 +227,19 @@ pub enum PolicyFrame {
     /// No policy-label resolution ran — every row's `policy_labels` is empty.
     #[default]
     None,
-    /// The `epistemic` feature resolved policy labels per row.
+    /// The `epistemic` feature resolved policy labels per row (D24, closing the X1
+    /// residue): the contested/corroborated/asserted classification of the row's own
+    /// incoming evidence neighbourhood over the `eg_epistemic::BeliefGraph` (see
+    /// `resolve_provenance_and_policy` and the module docs).
     Resolved,
 }
 
 /// One enriched row of a [`KnowledgeSet`] — a `RowSet` `Row` (id + score) widened
 /// with the fields re-materialized from the `GraphView` snapshot: kind, a lazy
 /// payload handle, an optional column projection, the bitemporal window, belief
-/// confidence, and provenance/policy ref lists (`evidence_refs` is X1-resolved under
-/// `epistemic`, see the module docs; `source_refs`/`policy_labels` stay v1: always empty).
+/// confidence, and provenance/policy ref lists (`evidence_refs` is X1-resolved;
+/// `source_refs`/`policy_labels` are D24-resolved — both under `epistemic`, see the
+/// module docs).
 #[derive(Clone, Debug, PartialEq)]
 pub struct KnowledgeRow {
     pub id: String,
@@ -170,6 +257,12 @@ pub struct KnowledgeRow {
     pub tx_time: (Option<u64>, Option<u64>),
     /// Belief confidence (`NodeData::confidence`, default `1.0` when absent/undecodable).
     pub confidence: f64,
+    /// The row's own incoming `Supports`-classified (`SUPPORTS`/`SUPPORTS_BELIEF`/
+    /// `HAS_EVIDENCE`/`CORROBORATES`) edge sources (D24, closing the X1 residue) —
+    /// exactly the ids `Op::EvidenceFor { claim_id: id }` would seed, resolved via
+    /// the row's own `eg_epistemic::BeliefGraph` neighbourhood when `epistemic` is on
+    /// (see `resolve_provenance_and_policy`). Always `Vec::new()` without `epistemic`,
+    /// and also empty (not fabricated) for a row with no classified incoming edge.
     pub source_refs: Vec<String>,
     /// Located evidence for this row (X1, CONCEPT:E4) — e.g. a `CodeSymbol`'s exact
     /// file/line range or a `TraceSpan`'s trace/span id — resolved via the row's own
@@ -178,6 +271,11 @@ pub struct KnowledgeRow {
     /// Always `Vec::new()` without `epistemic` (byte-for-byte the v1 default), and
     /// also empty (not fabricated) for a row whose kind/shape isn't a known modality.
     pub evidence_refs: Vec<EvidenceSpan>,
+    /// `"epistemic:contested"` / `"epistemic:corroborated"` / `"epistemic:asserted"`
+    /// (D24, closing the X1 residue) — derived from the SAME incoming evidence
+    /// neighbourhood as `source_refs` when `epistemic` is on (see
+    /// `resolve_provenance_and_policy`). Always `Vec::new()` without `epistemic`, and
+    /// also empty (not fabricated) for a row with no classified incoming edge at all.
     pub policy_labels: Vec<String>,
 }
 
@@ -208,6 +306,13 @@ impl KnowledgeSet {
     /// seam that fills them in (see the `#[cfg(feature = "epistemic")]` note below).
     pub fn from_rowset(rs: &RowSet, view: &GraphView, cols: &[&str]) -> KnowledgeSet {
         let mut present: HashSet<String> = HashSet::new();
+
+        // D24 (closing the X1 residue): build ONE `BeliefGraph` off `view` — shared
+        // across every row's `source_refs`/`policy_labels` lookup below, rather than
+        // rebuilt per row (or per one-op plan, as `explain_provenance` does today).
+        #[cfg(feature = "epistemic")]
+        let belief_graph = eg_epistemic::BeliefGraph::from_graph_view(view);
+
         let rows = rs
             .rows()
             .iter()
@@ -266,6 +371,17 @@ impl KnowledgeSet {
                 #[cfg(not(feature = "epistemic"))]
                 let evidence_refs: Vec<EvidenceSpan> = Vec::new();
 
+                // D24 (closing the X1 residue): under `epistemic`, resolve this row's
+                // own incoming evidence-classified edges off the SAME shared
+                // `belief_graph` — never fabricated for a row with no classified
+                // incoming edge. See `resolve_provenance_and_policy` + the module docs.
+                #[cfg(feature = "epistemic")]
+                let (source_refs, policy_labels) =
+                    resolve_provenance_and_policy(&belief_graph, &row.id);
+                #[cfg(not(feature = "epistemic"))]
+                let (source_refs, policy_labels): (Vec<String>, Vec<String>) =
+                    (Vec::new(), Vec::new());
+
                 KnowledgeRow {
                     id: row.id.clone(),
                     kind,
@@ -275,14 +391,9 @@ impl KnowledgeSet {
                     valid_time,
                     tx_time,
                     confidence,
-                    // v1 (plain `query`): no epistemic resolution ran — always empty.
-                    // `evidence_refs` above IS resolved under `epistemic` (X1).
-                    // TODO(epistemic): `source_refs` (`PROVENANCE_OF` edges) +
-                    // `policy_labels` are the remaining follow-up — resolve them off
-                    // this SAME `view` snapshot the same way.
-                    source_refs: Vec::new(),
+                    source_refs,
                     evidence_refs,
-                    policy_labels: Vec::new(),
+                    policy_labels,
                 }
             })
             .collect();
@@ -296,16 +407,20 @@ impl KnowledgeSet {
                 requested: cols.iter().map(|c| c.to_string()).collect(),
                 present,
             },
-            // X1: `provenance_frame` reflects that `evidence_refs` WAS resolved when
+            // `provenance_frame`/`policy_frame` reflect that `evidence_refs`/
+            // `source_refs` and `policy_labels` respectively WERE resolved when
             // `epistemic` is on (mirrors `ExplainProvenanceResult::resolved` in the
             // facade, which reports the same `cfg!(feature = "epistemic")`).
-            // `policy_frame` stays `None` — no policy-label resolution exists yet.
             provenance_frame: if cfg!(feature = "epistemic") {
                 ProvenanceFrame::Resolved
             } else {
                 ProvenanceFrame::None
             },
-            policy_frame: PolicyFrame::None,
+            policy_frame: if cfg!(feature = "epistemic") {
+                PolicyFrame::Resolved
+            } else {
+                PolicyFrame::None
+            },
         }
     }
 
@@ -385,16 +500,22 @@ mod tests {
 
         let ks = KnowledgeSet::from_rowset(&rs, &view, &[]);
 
-        // `provenance_frame` tracks whether `epistemic` resolution ran AT ALL (X1) —
-        // a `Doc` row itself still gets no `evidence_refs` either way (asserted
-        // below), since "Doc" is not a known modality kind.
-        let expected_frame = if cfg!(feature = "epistemic") {
+        // `provenance_frame`/`policy_frame` track whether `epistemic` resolution ran
+        // AT ALL (X1/D24) — a `Doc` row with no evidence edges at all still gets no
+        // `evidence_refs`/`source_refs`/`policy_labels` either way (asserted below),
+        // since "Doc" is not a known modality kind and `d2` has no incoming edges.
+        let expected_provenance = if cfg!(feature = "epistemic") {
             ProvenanceFrame::Resolved
         } else {
             ProvenanceFrame::None
         };
-        assert_eq!(ks.provenance_frame, expected_frame);
-        assert_eq!(ks.policy_frame, PolicyFrame::None);
+        let expected_policy = if cfg!(feature = "epistemic") {
+            PolicyFrame::Resolved
+        } else {
+            PolicyFrame::None
+        };
+        assert_eq!(ks.provenance_frame, expected_provenance);
+        assert_eq!(ks.policy_frame, expected_policy);
 
         let row = &ks.rows[0];
         assert_eq!(row.kind, "Doc"); // fell back to legacy `type` key
@@ -550,5 +671,206 @@ mod tests {
 
         assert_eq!(ks.provenance_frame, ProvenanceFrame::Resolved);
         assert!(ks.rows[0].evidence_refs.is_empty());
+    }
+
+    /// D24 (closing the X1 residue): a claim with a SINGLE incoming `SUPPORTS` edge
+    /// gets that source's id in `source_refs` and the `"epistemic:asserted"` label
+    /// (mirrors `eg-epistemic`'s `BeliefState::policy_labels` classification for a
+    /// single, uncontested supporter — see the module docs for why `from_rowset`
+    /// only emits this when the row genuinely has a classified incoming edge).
+    #[cfg(feature = "epistemic")]
+    #[test]
+    fn epistemic_resolves_source_refs_and_asserted_policy_label() {
+        let core = GraphCore::new();
+        core.add_node(
+            "claim1".into(),
+            blob(json!({ "node_type": "Claim", "confidence": 0.5 })),
+        );
+        core.add_node(
+            "evidence1".into(),
+            blob(json!({ "node_type": "Evidence", "confidence": 0.9 })),
+        );
+        core.add_edge(
+            "evidence1".into(),
+            "claim1".into(),
+            blob(json!({ "relationship_type": "SUPPORTS" })),
+        )
+        .unwrap();
+        let view = core.analysis_snapshot();
+        let rs = RowSet::from_ids(["claim1".to_string()]);
+
+        let ks = KnowledgeSet::from_rowset(&rs, &view, &[]);
+
+        assert_eq!(ks.provenance_frame, ProvenanceFrame::Resolved);
+        assert_eq!(ks.policy_frame, PolicyFrame::Resolved);
+        let row = &ks.rows[0];
+        assert_eq!(row.source_refs, vec!["evidence1".to_string()]);
+        assert_eq!(row.policy_labels, vec!["epistemic:asserted".to_string()]);
+    }
+
+    /// D24: TWO incoming `SUPPORTS` edges (no contradiction/attack) yield BOTH
+    /// source ids and the `"epistemic:corroborated"` label.
+    #[cfg(feature = "epistemic")]
+    #[test]
+    fn epistemic_two_supporters_yield_corroborated_policy_label() {
+        let core = GraphCore::new();
+        core.add_node(
+            "claim1".into(),
+            blob(json!({ "node_type": "Claim", "confidence": 0.5 })),
+        );
+        core.add_node(
+            "evidence1".into(),
+            blob(json!({ "node_type": "Evidence", "confidence": 0.9 })),
+        );
+        core.add_node(
+            "evidence2".into(),
+            blob(json!({ "node_type": "Evidence", "confidence": 0.9 })),
+        );
+        core.add_edge(
+            "evidence1".into(),
+            "claim1".into(),
+            blob(json!({ "relationship_type": "SUPPORTS" })),
+        )
+        .unwrap();
+        core.add_edge(
+            "evidence2".into(),
+            "claim1".into(),
+            blob(json!({ "relationship_type": "HAS_EVIDENCE" })),
+        )
+        .unwrap();
+        let view = core.analysis_snapshot();
+        let rs = RowSet::from_ids(["claim1".to_string()]);
+
+        let ks = KnowledgeSet::from_rowset(&rs, &view, &[]);
+
+        let row = &ks.rows[0];
+        let mut refs = row.source_refs.clone();
+        refs.sort();
+        assert_eq!(
+            refs,
+            vec!["evidence1".to_string(), "evidence2".to_string()]
+        );
+        assert_eq!(
+            row.policy_labels,
+            vec!["epistemic:corroborated".to_string()]
+        );
+    }
+
+    /// D24: an incoming `CONTRADICTS`/`ATTACKS` edge yields `"epistemic:contested"` —
+    /// `source_refs` still only carries the `SUPPORTS`-classified id (the contradictor/
+    /// attacker is evidence AGAINST the claim, not a source FOR it).
+    #[cfg(feature = "epistemic")]
+    #[test]
+    fn epistemic_contradicted_claim_is_contested() {
+        let core = GraphCore::new();
+        core.add_node(
+            "claim1".into(),
+            blob(json!({ "node_type": "Claim", "confidence": 0.5 })),
+        );
+        core.add_node(
+            "evidence1".into(),
+            blob(json!({ "node_type": "Evidence", "confidence": 0.9 })),
+        );
+        core.add_node(
+            "counter1".into(),
+            blob(json!({ "node_type": "Evidence", "confidence": 0.9 })),
+        );
+        core.add_edge(
+            "evidence1".into(),
+            "claim1".into(),
+            blob(json!({ "relationship_type": "SUPPORTS" })),
+        )
+        .unwrap();
+        core.add_edge(
+            "counter1".into(),
+            "claim1".into(),
+            blob(json!({ "relationship_type": "CONTRADICTS" })),
+        )
+        .unwrap();
+        let view = core.analysis_snapshot();
+        let rs = RowSet::from_ids(["claim1".to_string()]);
+
+        let ks = KnowledgeSet::from_rowset(&rs, &view, &[]);
+
+        let row = &ks.rows[0];
+        assert_eq!(row.source_refs, vec!["evidence1".to_string()]);
+        assert_eq!(row.policy_labels, vec!["epistemic:contested".to_string()]);
+    }
+
+    /// D24: `evidence1` itself has no INCOMING classified edge (it is the SOURCE of
+    /// one, not the target) — `source_refs`/`policy_labels` stay empty for it, never
+    /// fabricated, even though `provenance_frame`/`policy_frame` are `Resolved`.
+    #[cfg(feature = "epistemic")]
+    #[test]
+    fn epistemic_row_with_no_incoming_edge_stays_empty_not_fabricated() {
+        let core = GraphCore::new();
+        core.add_node(
+            "claim1".into(),
+            blob(json!({ "node_type": "Claim", "confidence": 0.5 })),
+        );
+        core.add_node(
+            "evidence1".into(),
+            blob(json!({ "node_type": "Evidence", "confidence": 0.9 })),
+        );
+        core.add_edge(
+            "evidence1".into(),
+            "claim1".into(),
+            blob(json!({ "relationship_type": "SUPPORTS" })),
+        )
+        .unwrap();
+        let view = core.analysis_snapshot();
+        let rs = RowSet::from_ids(["evidence1".to_string()]);
+
+        let ks = KnowledgeSet::from_rowset(&rs, &view, &[]);
+
+        assert_eq!(ks.provenance_frame, ProvenanceFrame::Resolved);
+        assert_eq!(ks.policy_frame, PolicyFrame::Resolved);
+        let row = &ks.rows[0];
+        assert!(row.source_refs.is_empty());
+        assert!(row.policy_labels.is_empty());
+    }
+
+    /// D24: a plain, non-epistemic build yields byte-identical empty
+    /// `source_refs`/`policy_labels` + `None` frames even when the underlying graph
+    /// DOES have provenance edges — the feature gate, not the data, decides.
+    #[test]
+    fn non_epistemic_source_refs_and_policy_labels_stay_empty_even_with_edges() {
+        let core = GraphCore::new();
+        core.add_node(
+            "claim1".into(),
+            blob(json!({ "node_type": "Claim", "confidence": 0.5 })),
+        );
+        core.add_node(
+            "evidence1".into(),
+            blob(json!({ "node_type": "Evidence", "confidence": 0.9 })),
+        );
+        core.add_edge(
+            "evidence1".into(),
+            "claim1".into(),
+            blob(json!({ "relationship_type": "SUPPORTS" })),
+        )
+        .unwrap();
+        let view = core.analysis_snapshot();
+        let rs = RowSet::from_ids(["claim1".to_string()]);
+
+        let ks = KnowledgeSet::from_rowset(&rs, &view, &[]);
+
+        let expected_provenance = if cfg!(feature = "epistemic") {
+            ProvenanceFrame::Resolved
+        } else {
+            ProvenanceFrame::None
+        };
+        let expected_policy = if cfg!(feature = "epistemic") {
+            PolicyFrame::Resolved
+        } else {
+            PolicyFrame::None
+        };
+        assert_eq!(ks.provenance_frame, expected_provenance);
+        assert_eq!(ks.policy_frame, expected_policy);
+        #[cfg(not(feature = "epistemic"))]
+        {
+            assert!(ks.rows[0].source_refs.is_empty());
+            assert!(ks.rows[0].policy_labels.is_empty());
+        }
     }
 }
