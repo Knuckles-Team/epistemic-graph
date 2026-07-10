@@ -285,6 +285,15 @@ mod vector_reasoning_tests;
 #[cfg(all(test, feature = "probabilistic"))]
 mod probabilistic_tests;
 
+// The epistemic belief/evidence executor proofs (CONCEPT:EG-KG.epistemic.epistemic-substrate,
+// E2): `EvidenceFor`/`Contradicts`/`SupportedBy` seed-or-filter by classified edge kind,
+// `ConfidenceOp`/`SourceReliability` re-score by propagated belief, `BeliefAsOf` composes the
+// bitemporal filter with propagation (diverging from the pure-alias `VALID AS OF` on a
+// bitemporal fixture), and `ExplainBelief` flattens the justification tree — composing with
+// the graph/vector legs in ONE plan (`[Scan, EvidenceFor, Rank]`).
+#[cfg(all(test, feature = "epistemic"))]
+mod epistemic_tests;
+
 // Lane C proofs (CONCEPT:EG-KG.query.native-time-series): mid-pipeline OWL `Op::Reason` (a confidence-preserving
 // FILTER, not only a leaf source — `Rank → Reason → Traverse`) + the native eg-tsdb
 // `Op::TsScan` SOURCE (tsdb-in-plan fusion), over a hand-built `PlanCtx`. Compiles when
