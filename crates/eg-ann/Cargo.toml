@@ -40,6 +40,11 @@ eg-modality = { path = "../eg-modality", optional = true }
 # LAPACK-free (ndarray + faer, no statrs/pyo3), but a Pi/default `eg-ann` build
 # still links none of it unless this is opted in.
 eg-numeric = { path = "../eg-numeric", optional = true }
+# `drift.rs` passes an `ArrayView1<f64>` into `eg_numeric::reductions::percentile`
+# (its public signature), so it needs `ndarray` directly. Version-pinned to match
+# eg-numeric's own `ndarray = "0.16"` so the `ArrayView1` types unify to one crate
+# version. Optional, only under `drift` (default OFF) — Pi/default links none of it.
+ndarray = { version = "0.16", optional = true }
 
 [features]
 default = []
@@ -48,7 +53,7 @@ default = []
 redb = ["dep:redb"]
 # Embedding-set drift detection (population-stability-index over the norm /
 # per-dimension value distributions). OFF by default — see `src/drift.rs`.
-drift = ["dep:eg-numeric"]
+drift = ["dep:eg-numeric", "dep:ndarray"]
 # ModalityContract retrofit (CONCEPT:E4): `impl ModalityContract for
 # flat::FlatIndex` + the `modality_conformance_tests!` battery. OFF by default,
 # deliberately NOT folded into any tier aggregate (pi/node/full) — it is a
