@@ -545,7 +545,7 @@ impl RoleInfo {
         while changed {
             changed = false;
             let snapshot = supers.clone();
-            for (_r, sups) in supers.iter_mut() {
+            for sups in supers.values_mut() {
                 let extra: Vec<String> = sups
                     .iter()
                     .filter_map(|s| snapshot.get(s))
