@@ -2612,6 +2612,16 @@ pub enum Method {
         /// item nodes (the discovery flywheel). Makes this a graph write.
         #[serde(default)]
         writeback: bool,
+        /// ADDITIONALLY materialize a first-class epistemic object per rule (E6,
+        /// CONCEPT:EG-KG.epistemic.epistemic-substrate): a `:Claim` (confidence seeded
+        /// from the rule's quality score, normalized to `[0,1]`) plus a provenance
+        /// `:Evidence` node, both `SUPPORTS`-linked to the claim so the `eg_epistemic`
+        /// belief layer can propagate confidence over the mined finding. Requires
+        /// `writeback` (the `:AssociationRule` node is the claim's evidence anchor).
+        /// Gated `all(mining, epistemic)`; unset ⇒ write-back is byte-identical.
+        #[cfg(all(feature = "mining", feature = "epistemic"))]
+        #[serde(default)]
+        as_claim: bool,
     },
 
     /// Clustering (CONCEPT:EG-KG.mining.dbscan-density — completing the family beyond
@@ -2670,6 +2680,12 @@ pub enum Method {
         /// Materialize each cluster as a typed `:Cluster` node linked to members.
         #[serde(default)]
         writeback: bool,
+        /// ADDITIONALLY materialize a `:Claim` (+ `:Evidence`) per cluster (E6) —
+        /// see [`Method::MineAssociate::as_claim`]. Confidence is seeded from the
+        /// cluster's compactness score. Requires `writeback`.
+        #[cfg(all(feature = "mining", feature = "epistemic"))]
+        #[serde(default)]
+        as_claim: bool,
     },
 
     /// Anomaly / outlier detection (CONCEPT:EG-KG.mining.isolation-forest). Scores
@@ -2730,6 +2746,12 @@ pub enum Method {
         /// Materialize each flagged row as a typed `:Anomaly` node linked to its source.
         #[serde(default)]
         writeback: bool,
+        /// ADDITIONALLY materialize a `:Claim` (+ `:Evidence`) per flagged anomaly
+        /// (E6) — see [`Method::MineAssociate::as_claim`]. Confidence is seeded from
+        /// the row's anomaly score. Requires `writeback`.
+        #[cfg(all(feature = "mining", feature = "epistemic"))]
+        #[serde(default)]
+        as_claim: bool,
     },
 
     /// Classification — FIT (CONCEPT:EG-KG.mining.naive-bayes). PREDICTIVE: fit a
@@ -2935,6 +2957,12 @@ pub enum Method {
         /// its resident item nodes.
         #[serde(default)]
         writeback: bool,
+        /// ADDITIONALLY materialize a `:Claim` (+ `:Evidence`) per pattern (E6) —
+        /// see [`Method::MineAssociate::as_claim`]. Confidence is seeded from the
+        /// pattern's support. Requires `writeback`.
+        #[cfg(all(feature = "mining", feature = "epistemic"))]
+        #[serde(default)]
+        as_claim: bool,
     },
 
     /// Classical time-series forecasting (CONCEPT:EG-KG.mining.arima — Phase 4).
@@ -2994,6 +3022,12 @@ pub enum Method {
         /// Materialize the forecast as a typed `:Forecast` node.
         #[serde(default)]
         writeback: bool,
+        /// ADDITIONALLY materialize a `:Claim` (+ `:Evidence`) for the forecast (E6)
+        /// — see [`Method::MineAssociate::as_claim`]. Confidence is seeded from the
+        /// forecast's `confidence` band level. Requires `writeback`.
+        #[cfg(all(feature = "mining", feature = "epistemic"))]
+        #[serde(default)]
+        as_claim: bool,
     },
 
     /// Text mining (CONCEPT:EG-KG.mining.tfidf — Phase 4). `tfidf` returns each
@@ -3076,6 +3110,12 @@ pub enum Method {
         /// node (`gspan` only — a no-op for `motif`, which has no patterns).
         #[serde(default)]
         writeback: bool,
+        /// ADDITIONALLY materialize a `:Claim` (+ `:Evidence`) per frequent pattern
+        /// (E6, `gspan` only) — see [`Method::MineAssociate::as_claim`]. Confidence
+        /// is seeded from the pattern's support. Requires `writeback`.
+        #[cfg(all(feature = "mining", feature = "epistemic"))]
+        #[serde(default)]
+        as_claim: bool,
     },
 }
 
