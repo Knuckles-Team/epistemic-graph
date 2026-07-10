@@ -47,6 +47,12 @@ pub mod cold_tier_impl;
 mod compute;
 mod dispatch;
 pub(crate) mod handlers;
+// X5-enforce (CONCEPT:EG-KG.ontology.rdf-update-guard): wires the EXISTING eg-shacl ICV
+// commit guard onto the live RDF write path (AddTriples/RemoveTriples/ApplyMutation).
+// Pure-Rust (no new dep — `eg-shacl` + `std::sync::OnceLock`), gated `shacl`; a build
+// without it compiles none of it and every write path stays byte-identical.
+#[cfg(feature = "shacl")]
+pub(crate) mod icv_guard;
 pub mod persistence;
 // Wire-agnostic SQL execution core (CONCEPT:EG-KG.compute.subsystems-reference) — the multi-wire keystone. The
 // wire-NEUTRAL `classify → dispatch → exec` pipeline + per-connection session/txn

@@ -1267,11 +1267,32 @@ pub(crate) async fn try_handle(
                     }
                 }
                 let store = SingleCoreStore(core.clone());
-                match eg_rdf::update::execute_str(
+                // X5-enforce (CONCEPT:EG-KG.ontology.rdf-update-guard): run the SPARQL
+                // UPDATE under the eg-shacl ICV `WriteGuard` when `shacl` is built —
+                // `execute_guarded_str` is the library's OWN guarded twin of
+                // `execute_str` (simulate-and-diff against the registered policy;
+                // NOTHING is applied to the real store on a rejection). `SingleCoreStore`
+                // exposes only the DEFAULT graph (no `named()`), so this checks the
+                // `IcvConfigure(graph=None, …)` policy — configure the per-named-graph
+                // policy for the `AddTriples`/`RemoveTriples` surface instead. Without
+                // `shacl` this is byte-identical to the pre-X5 unguarded path.
+                #[cfg(feature = "shacl")]
+                let result = crate::server::icv_guard::with_write_guard(|guard| {
+                    eg_rdf::update::execute_guarded_str(
+                        &query,
+                        &store,
+                        &eg_rdf::sparql::Projection::raw(),
+                        guard,
+                    )
+                    .map_err(|e| e.to_string())
+                });
+                #[cfg(not(feature = "shacl"))]
+                let result = eg_rdf::update::execute_str(
                     &query,
                     &store,
                     &eg_rdf::sparql::Projection::raw(),
-                ) {
+                );
+                match result {
                     Ok(report) => match serde_json::to_value(&report) {
                         Ok(v) => Response::ok(req_id, ResultPayload::Json(v)),
                         Err(e) => Response::err(req_id, e.to_string()),
