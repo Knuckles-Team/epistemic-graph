@@ -21,6 +21,33 @@
 //!    phases build on (`dag_exec`'s multi-branch join, the DAG-aware optimizer) —
 //!    this phase only defines the shape + the lossless conversion, execution is
 //!    untouched (`exec::execute` keeps running the linear `Plan` exactly as before).
+//!
+//! ## X4 — distributed cross-shard exchange (SCOPED TODO, cluster-gated, NOT built here)
+//!
+//! `PlanDag`'s multi-input node is deliberately the seam a **cross-shard EXCHANGE**
+//! operator would hang off (CONCEPT:EG-KG.query.dag-distributed-exchange): a
+//! multi-branch plan whose branches execute on DIFFERENT Raft groups, each producing a
+//! partial `RowSet`, merged at a native exchange node — the distributed generalization
+//! of `dag_exec`'s single-node `join_inputs`. This is **not implemented in this
+//! workstream** and is a clearly-scoped follow-up, on purpose:
+//!
+//!  * It MUST be `raft`/`cluster`-feature-gated ONLY — a `default`/`full` build (which
+//!    is single-node by construction; `full` links no `raft`) must link NONE of it, so
+//!    the exchange operator + its shard-routing live behind `#[cfg(feature = "cluster")]`
+//!    beside the existing 2PC/federation/`GroupRouter` machinery (`src/raft/`), NOT in
+//!    this dep-free `eg-plan` crate.
+//!  * The concrete shape: a new cluster-gated exchange node kind that, given a branch's
+//!    `PlanNode` subtree and a target `GroupId` (via `raft::multi::GroupRouter`), ships
+//!    the sub-plan to that group (over the SAME length-prefixed-MessagePack transport
+//!    federation's `Op::ForeignScan` already uses), collects the partial `RowSet`, and
+//!    feeds it into a local `dag_exec` multi-branch join — reusing
+//!    `RowSet::intersect_keep_order` for the merge so the distributed result is identical
+//!    to the single-node one when all branches happen to route to one group.
+//!
+//! Landing X4 was descoped to keep phases 1–5 (the single-node typed DAG, its
+//! differential-oracle-proven executor, the DAG-aware optimizer, the EXPLAIN surfaces
+//! and the D7 planner-writeback ACID seam) a complete, mergeable E5. See the
+//! feat/eg-planner-dag report + docs/north_star.md for the tracked row.
 
 use crate::algebra::{Op, Plan};
 
