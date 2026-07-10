@@ -33,6 +33,28 @@ fn assert_dag_matches_linear(ops: Vec<Op>, ctx: &PlanCtx) {
     );
 }
 
+/// Same proof, but for a plan whose LINEAR execution is itself only SET-deterministic (an
+/// op like `Op::Contradicts` seeds from a freshly-built `eg_epistemic::BeliefGraph` per call,
+/// whose internal `HashMap` iteration order is not stable across separate calls even within
+/// one process — the underlying op's own documented contract is "order-independent (a set)",
+/// mirrored by the crate-private `epistemic_tests.rs::contradicts_seeds_contradiction_and_attack`
+/// sorting before comparing). Compares ids as a SORTED set instead of `stable_rows`' strict
+/// order, so this stays a genuine dag-vs-linear equivalence proof without asserting an
+/// ordering guarantee the op itself never made.
+#[cfg(feature = "epistemic")]
+fn assert_dag_matches_linear_as_set(ops: Vec<Op>, ctx: &PlanCtx) {
+    let plan = Plan::new(ops);
+    let via_linear = execute(&plan, ctx).expect("linear exec must succeed");
+    let dag = PlanDag::from(plan.clone());
+    let via_dag = eg_plan::execute_dag(&dag, ctx).expect("dag exec must succeed");
+    assert_eq!(
+        ids_sorted(&via_linear),
+        ids_sorted(&via_dag),
+        "PlanDag execution must match the linear exec's result SET for plan {:?}",
+        plan
+    );
+}
+
 // ── the curated hybrid chains from differential_oracle.rs ───────────────────────
 
 #[test]
@@ -264,7 +286,11 @@ fn epistemic_ops_dag_matches_linear() {
         }],
         &ctx,
     );
-    assert_dag_matches_linear(
+    // `Contradicts` seeds TWO matches at once (the contradiction + the attack) from a
+    // freshly-built `BeliefGraph` per call — its own contract is set-, not order-,
+    // deterministic (see `assert_dag_matches_linear_as_set`'s doc), so this is the ONE case
+    // in this file compared as a set rather than by strict `stable_rows` order.
+    assert_dag_matches_linear_as_set(
         vec![Op::Contradicts {
             node_id: "claim1".into(),
         }],
