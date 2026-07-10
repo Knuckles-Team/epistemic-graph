@@ -2860,6 +2860,7 @@ fn entity_provenance(source: &Option<VectorSource>) -> String {
 
 // ─────────────────────────── Causal impact (ITS / DiD) ───────────────────────────
 
+#[allow(clippy::too_many_arguments)]
 fn handle_causal_impact(
     req_id: u64,
     core: &GraphCore,
@@ -2983,6 +2984,7 @@ fn materialize_causal_effect_claim(
 
 // ─────────────────────────── Process mining ───────────────────────────
 
+#[allow(clippy::too_many_arguments)]
 fn handle_process(
     req_id: u64,
     core: &GraphCore,
@@ -3474,6 +3476,7 @@ fn build_ontology_classes(
     (classes, ids)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn handle_ontology_gap(
     req_id: u64,
     core: &GraphCore,
@@ -3586,6 +3589,7 @@ fn to_retrieval_trace(spec: &RetrievalTraceSpec) -> retrieval_quality::Retrieval
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn handle_retrieval_quality(
     req_id: u64,
     core: &GraphCore,
