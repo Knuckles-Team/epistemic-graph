@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/eg-types", "crates/eg-ann", "crates/eg-geo", "crates/eg-tensor", "crates/eg-stream", "crates/eg-core", "crates/eg-compute", "crates/eg-query", "crates/eg-plan", "crates/eg-tsdb", "crates/eg-text", "crates/eg-rdf", "crates/eg-shacl", "crates/eg-shex", "crates/eg-wasm", "crates/eg-graphql", "crates/eg-kvcache", "crates/eg-lake", "crates/eg-numeric", "crates/eg-epistemic", "crates/eg-modality"]
+members = ["crates/eg-types", "crates/eg-ann", "crates/eg-geo", "crates/eg-tensor", "crates/eg-stream", "crates/eg-core", "crates/eg-compute", "crates/eg-query", "crates/eg-plan", "crates/eg-tsdb", "crates/eg-text", "crates/eg-rdf", "crates/eg-shacl", "crates/eg-shex", "crates/eg-wasm", "crates/eg-graphql", "crates/eg-kvcache", "crates/eg-lake", "crates/eg-numeric", "crates/eg-epistemic", "crates/eg-modality", "crates/eg-image", "crates/eg-audio", "crates/eg-video"]
 # EG-185/186: fold eg-kvcache into node/full (the tiered + shared KV-cache leaf crate,
 # a sibling of eg-ann/eg-tensor). Added as a workspace member only; the tier aggregate
 # feature lists (node/full) and the path-dep + server-endpoint wiring are folded in by
@@ -17,6 +17,16 @@ members = ["crates/eg-types", "crates/eg-ann", "crates/eg-geo", "crates/eg-tenso
 # (eg-tensor, eg-geo) implement the trait behind their own opt-in `contract` feature
 # (default OFF) — NOT folded into any tier aggregate (pi/node/full) here or ever, since
 # it is a capability-discovery/testing seam, not a serving feature.
+# CONCEPT:E4 follow-up — eg-image/eg-audio/eg-video: three new leaf modality crates
+# (image/audio/video, metadata+region/segment/shot-index level — NO heavy image/ffmpeg
+# C codec in the default build) giving `eg_modality::EvidenceSpan::{ImageRegion,
+# AudioSegment,VideoShot}` a real backing stored value + `ModalityContract` impl behind
+# each crate's own opt-in `contract` feature (default OFF), mirroring the eg-tensor/
+# eg-geo pilots. Added as workspace members ONLY; `eg-plan`'s `epistemic` feature wires
+# their `contract` feature + the `KnowledgeSet::from_rowset` dispatch (Image/Audio/
+# Video kinds) — NOT folded into any tier aggregate (pi/node/full) here or ever, since
+# this is the SAME capability-discovery/testing seam as eg-tensor/eg-geo's, not a
+# serving feature.
 
 [package]
 name = "epistemic-graph"
