@@ -60,6 +60,12 @@ path-persist = ["dep:redb"]
 # (Pi-safe); the facade layers a redb/S3 impl on top. Folded into pi/node/cluster/
 # full alongside `result-cache`.
 cold-tier = []
+# ModalityContract retrofit (CONCEPT:E4): `impl ModalityContract for
+# index::NodeChange` + the `modality_conformance_tests!` battery. OFF by default,
+# deliberately NOT folded into any tier aggregate (pi/node/full) — it is a
+# capability-discovery/testing seam, not a serving feature. `cargo test -p eg-core
+# --features contract` runs the suite.
+contract = ["dep:eg-modality"]
 
 [dependencies]
 eg-types = { path = "../eg-types" }
@@ -82,3 +88,7 @@ rayon = { version = "1.10", optional = true }
 # identities survive a restart. Same redb 4.1 the durable tiers link; only pulled in
 # under `security` (Pi builds do not enable eg-core/security).
 redb = { version = "4.1", optional = true }
+# ModalityContract retrofit (CONCEPT:E4). Optional, only under `contract` (default
+# OFF) — a default/pi/node/full build links none of it and `index::NodeChange`
+# carries no new required trait. See `src/contract.rs`.
+eg-modality = { path = "../eg-modality", optional = true }

@@ -29,6 +29,13 @@ mining = ["eg-types/mining"]
 # wire variants exist. No heavy dep (no torch) — folded into `full` via `compute`.
 graphlearn = ["datascience", "eg-types/graphlearn"]
 reasoning = []
+# ModalityContract retrofit (CONCEPT:E4): `impl ModalityContract for MergeProposal` +
+# the `modality_conformance_tests!` battery. OFF by default, deliberately NOT folded
+# into any tier aggregate — it is a capability-discovery/testing seam, not a serving
+# feature. `MergeProposal`/`resolve_candidates` live in the always-on `algorithms`
+# module, so `contract` needs no other feature implied. `cargo test -p eg-compute
+# --features contract` runs the suite.
+contract = ["dep:eg-modality"]
 ast = [
     "dep:tree-sitter",
     "dep:tree-sitter-python",
@@ -68,6 +75,10 @@ rand = "0.8"
 # `tracing` facade compiles to a no-op unless a subscriber is installed, so this
 # adds no runtime cost to a default build.
 tracing = "0.1"
+# ModalityContract retrofit (CONCEPT:E4). Optional, only under `contract` (default
+# OFF) — a default build links none of it and `MergeProposal` carries no new
+# required trait. See `src/contract.rs`.
+eg-modality = { path = "../eg-modality", optional = true }
 
 # Optional, domain-gated heavy deps.
 nalgebra = { version = "0.32", features = ["serde"], optional = true }

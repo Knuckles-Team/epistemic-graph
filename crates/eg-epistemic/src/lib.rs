@@ -26,6 +26,13 @@ mod propagate;
 #[cfg(feature = "epistemic-tms")]
 mod tms;
 
+// ModalityContract retrofit (CONCEPT:E4): `impl ModalityContract for
+// BeliefState` — the reference "does everything" implementation (overrides
+// provenance/policy_labels/analytics_ops beyond the 4 core methods). Behind the
+// crate's own opt-in `contract` feature (default OFF). See module docs.
+#[cfg(feature = "contract")]
+mod contract;
+
 pub use adapter::BeliefGraph;
 pub use model::{
     classify_relationship, AuthorityPolicy, BeliefState, EdgeKind, JustRule, JustificationGraph,

@@ -36,6 +36,12 @@ pub mod scatter;
 #[cfg(feature = "redb")]
 pub mod redb_store;
 
+/// ModalityContract retrofit (CONCEPT:E4): `impl ModalityContract for
+/// flat::FlatIndex` + the `modality_conformance_tests!` battery. Behind the
+/// crate's own opt-in `contract` feature (default OFF). See `src/contract.rs`.
+#[cfg(feature = "contract")]
+mod contract;
+
 pub use distance::{active_backend_name, batch_distances, CpuBackend, DistanceBackend};
 pub use flat::{FlatIndex, Metric};
 pub use hnsw::HnswIndex;

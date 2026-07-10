@@ -25,6 +25,11 @@ redb = { version = "4.1", optional = true }
 zstd = { version = "0.13", optional = true }
 # CONCEPT:EG-315 — an OPTIONAL faster/lighter pure-Rust codec alternative to zstd.
 lz4_flex = { version = "0.13", optional = true }
+# ModalityContract retrofit (CONCEPT:E4). Optional (the base Pi-lean build must stay
+# dependency-free) — only `contract` pulls serde in, so `StoredBlock`/`Codec` carry no
+# derive at all outside that feature. See `src/compress.rs` / `src/contract.rs`.
+serde = { version = "1.0", features = ["derive"], optional = true }
+eg-modality = { path = "../eg-modality", optional = true }
 
 [features]
 default = []
@@ -39,6 +44,12 @@ compression = ["dep:zstd"]
 # OPTIONAL alternative WARM codec (CONCEPT:EG-315): enables `Codec::Lz4` (pure-Rust
 # `lz4_flex`) — faster/lighter than zstd. OFF by default.
 lz4 = ["dep:lz4_flex"]
+# ModalityContract retrofit (CONCEPT:E4): `impl ModalityContract for StoredBlock` +
+# the `modality_conformance_tests!` battery. OFF by default, deliberately NOT folded
+# into any tier aggregate (pi/durable/compression/lz4) — a base/pi build must stay
+# dependency-free (no serde). `cargo test -p eg-kvcache --features contract` runs the
+# suite; only this feature pulls serde in.
+contract = ["dep:eg-modality", "dep:serde"]
 
 [dev-dependencies]
 # Only the `durable` redb cold-tier test touches the filesystem.

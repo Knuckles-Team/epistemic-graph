@@ -994,7 +994,7 @@ pub fn compute_similarity_edges(core: &GraphView, threshold: f64) -> Vec<(String
 /// `canonical`) or `"extends"` (a subtype/version relationship between distinct
 /// entities — link, don't merge). The op is **read/propose only**: it never
 /// mutates the graph, so the client decides whether to apply via `BatchUpdate`.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct MergeProposal {
     pub canonical: String,
     pub members: Vec<String>,

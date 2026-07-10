@@ -21,6 +21,11 @@ pub mod graph_algos;
 pub mod parser;
 pub mod screen;
 
+// ModalityContract retrofit (CONCEPT:E4): `impl ModalityContract for MergeProposal`,
+// behind the crate's own opt-in `contract` feature (default OFF). See `src/contract.rs`.
+#[cfg(feature = "contract")]
+mod contract;
+
 #[cfg(feature = "datascience")]
 pub mod datascience;
 #[cfg(feature = "finance")]

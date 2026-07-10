@@ -77,6 +77,16 @@ json-ld = ["rdf", "dep:oxjsonld"]
 # Implies `sparql` and pulls `eg-geo` (REUSE — adds NO external dep). OUT of `pi` (spatial
 # is not a Pi requirement); folded into node/full at the aggregate-feature layer.
 geosparql = ["sparql", "dep:eg-geo"]
+# ModalityContract retrofit (CONCEPT:E4): `impl ModalityContract for
+# owl::ProofNode` + the `modality_conformance_tests!` battery — the reference
+# non-trivial `provenance()` (maps `owl::Justification` losslessly). OFF by
+# default, deliberately NOT folded into any tier aggregate (pi/node/full) — it is
+# a capability-discovery/testing seam, not a serving feature. Implies `owl` since
+# `ProofNode` lives there; ALSO implies `sparql` — pre-existing (unrelated to this
+# retrofit) `tests/icv_enforce_eg300.rs` is an unconditional integration test that
+# needs `sparql`'s `update`/`sparql` modules to build at all, so `cargo test -p
+# eg-rdf --features contract` needs it too to build the crate's full test set.
+contract = ["dep:eg-modality", "owl", "sparql"]
 
 [dependencies]
 eg-core = { path = "../eg-core" }
@@ -108,6 +118,10 @@ sha2 = { version = "0.10", optional = true }
 # Pure-Rust oxrdf-family crates pinned to the same oxrdf 0.3.3; OUT of `pi`.
 oxrdfxml = { version = "0.2", optional = true }
 oxjsonld = { version = "0.2", optional = true }
+# ModalityContract retrofit (CONCEPT:E4). Optional, only under `contract` (default
+# OFF) — a default/node/full build links none of it and `owl::ProofNode` carries no
+# new required trait. See `src/contract.rs`.
+eg-modality = { path = "../eg-modality", optional = true }
 
 [dev-dependencies]
 tempfile = "3"
