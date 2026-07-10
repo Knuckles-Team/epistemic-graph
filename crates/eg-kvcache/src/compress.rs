@@ -33,6 +33,7 @@
 /// compression entirely; the real codecs ([`Codec::Zstd`] / [`Codec::Lz4`]) only exist
 /// when their cargo feature is enabled, so a lean build cannot even name them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "contract", derive(serde::Serialize, serde::Deserialize))]
 pub enum Codec {
     /// Stored verbatim — the raw fallback (compression disabled, or it did not help).
     Raw,
@@ -50,6 +51,7 @@ pub enum Codec {
 /// A block resident in the WARM (or COLD) tier: possibly-compressed bytes plus the
 /// metadata needed to reconstruct the original block (CONCEPT:EG-KG.memory.byte-bounded-tiers, CONCEPT:EG-KG.storage.rle-codec-default).
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "contract", derive(serde::Serialize, serde::Deserialize))]
 pub struct StoredBlock {
     /// The stored bytes: encoded with `codec` (or the raw block when `codec == Raw`).
     pub data: Vec<u8>,

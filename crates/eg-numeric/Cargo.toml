@@ -28,6 +28,17 @@ python = ["dep:pyo3", "dep:numpy", "analytics"]
 # (`cargo tree --features pi` links no statrs). `python` implies it so the Surface-A
 # wheel carries the scipy-parity stats ops.
 analytics = ["dep:statrs"]
+# ModalityContract retrofit (CONCEPT:E4): `impl ModalityContract for
+# cluster::KMeansResult` + the `modality_conformance_tests!` battery. OFF by
+# default, deliberately NOT folded into any tier aggregate (pi/node/full) — it is
+# a capability-discovery/testing seam, not a serving feature. Also turns on
+# ndarray's OWN `serde` cargo feature (via the `<dep>/<feature>` Cargo syntax,
+# valid even though `ndarray` is a mandatory, non-optional dependency) so
+# `KMeansResult`'s `Array2<f64>` field can derive `Serialize`/`Deserialize` ONLY
+# under this feature — a default (non-contract) build never needs
+# `Array2<f64>: Serialize` at all. `cargo test -p eg-numeric --features contract`
+# runs the suite.
+contract = ["dep:eg-modality", "ndarray/serde"]
 
 [dependencies]
 # arrays / reductions / element-wise / broadcasting — numpy-shaped, mature.
@@ -41,6 +52,11 @@ faer = "0.20"
 rand = "0.8"
 rand_distr = "0.4"
 rand_chacha = "0.3"
+# Ubiquitous elsewhere in the workspace; a normal (always-on) dep here too, so
+# `KMeansResult`'s non-ndarray fields (`labels`/`inertia`/`n_iter`) can derive
+# serde unconditionally and only the ndarray-backed `centroids` field needs the
+# `contract`-gated `ndarray/serde` feature above.
+serde = { version = "1.0", features = ["derive"] }
 
 # Surface-A only (feature `python`): zero-copy numpy interop + GIL release.
 pyo3 = { version = "0.22", features = ["extension-module", "abi3-py39"], optional = true }
@@ -48,3 +64,7 @@ numpy = { version = "0.22", optional = true }
 # Analytics only (feature `analytics`): distribution CDFs/quantiles for the
 # scipy-parity stats ops (Student-t p-value, Normal ppf/pdf). Pure Rust, no BLAS.
 statrs = { version = "0.18", optional = true }
+# ModalityContract retrofit (CONCEPT:E4). Optional, only under `contract` (default
+# OFF) — a default/pi/node/full build links none of it and `KMeansResult` carries
+# no new required trait. See `src/contract.rs`.
+eg-modality = { path = "../eg-modality", optional = true }

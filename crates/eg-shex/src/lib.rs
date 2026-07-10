@@ -40,6 +40,11 @@ pub mod report;
 pub mod schema;
 pub mod validate;
 
+/// `ModalityContract` retrofit for [`report::NodeResult`] (CONCEPT:E4). Behind the
+/// crate's own opt-in `contract` feature (default OFF) — see `src/contract.rs`.
+#[cfg(feature = "contract")]
+mod contract;
+
 pub use report::{NodeResult, ShexReport};
 pub use schema::{
     NodeConstraint, NodeKind, Schema, Shape, ShapeExpr, ShapeLabel, TripleExpr, ValueSetValue,
