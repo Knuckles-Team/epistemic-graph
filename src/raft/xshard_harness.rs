@@ -1578,3 +1578,230 @@ async fn calvin_two_node_epoch_fan_in_derives_identical_order() {
     assert_eq!(order_on_node_1.inputs.len(), 4);
     assert_eq!(order_on_node_1.epoch, 9);
 }
+
+/// EG-349: a Calvin OLLP txn whose reconnaissance goes stale is restarted (as in
+/// [`calvin_ollp_stale_recon_is_restarted_and_commits_serializably`]) but this time the
+/// restart is routed into a SPECIFIC epoch of the MULTI-NODE `epoch_fan_in` rather than a
+/// fresh `GlobalSeq` in one sequencer's ordering domain — closing the gap
+/// `acquire_ollp_with_restart`'s doc comment left open. Proves:
+///
+///   1. The txn's first attempt is placed in the base epoch ALONGSIDE another node's
+///      (NODE_2) unrelated txn — a genuine multi-node epoch batch, not a single-node one.
+///   2. The stale-recon restart routes the SECOND attempt into `base_epoch + 1`
+///      (`epoch_for_restart`), and the txn ultimately commits with the SAME serializable
+///      outcome as the single-domain test (it observed the writer's committed write).
+///   3. ANY node re-deriving the merge from the identical exchanged per-epoch batches —
+///      simulated here by an independent [`EpochFanInRegistry`] fed the same
+///      registrations in a DIFFERENT order — computes the byte-identical [`EpochBatch`]
+///      for both epochs the txn touched, and in particular the SAME final packed seq for
+///      the restarted txn. That is "all nodes agree on the final serializable order."
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn calvin_ollp_epoch_routing_restart_agrees_across_nodes() {
+    use super::cross_shard_txn::{
+        epoch_fan_in, EpochFanInRegistry, OrderedLockManager, RecordKey, RwSet,
+    };
+    use std::collections::BTreeSet;
+
+    const NODE_1: u64 = 1; // home of the writer + the restarting OLLP txn
+    const NODE_2: u64 = 2; // a peer node contributing an unrelated txn to the same epoch
+    const BASE_EPOCH: u64 = 5;
+
+    let dir = fresh_dir("calvinepochrt");
+    let backend: Arc<dyn PersistenceBackend> =
+        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+    let (multi, coord, _state) = bring_up(&dir, backend.clone()).await;
+    let coord = Arc::new(coord);
+
+    // Seed the directory + both candidate targets — identical setup to the single-domain
+    // stale-recon test: `dir` starts pointing at `k1` (old); the writer flips it to `k2`.
+    write_node(
+        &multi,
+        GROUP_A,
+        GRAPH_A,
+        "dir",
+        serde_json::json!({ "target": "k1" }),
+    )
+    .await;
+    write_node(
+        &multi,
+        GROUP_A,
+        GRAPH_A,
+        "k1",
+        serde_json::json!({ "v": "old" }),
+    )
+    .await;
+    write_node(
+        &multi,
+        GROUP_A,
+        GRAPH_A,
+        "k2",
+        serde_json::json!({ "v": "new" }),
+    )
+    .await;
+
+    let fan_in = EpochFanInRegistry::new();
+    let lockmgr = OrderedLockManager::new();
+    let dir_key = RecordKey::new(GRAPH_A, "dir");
+
+    // ── A genuine MULTI-NODE base epoch: NODE_2 contributes an unrelated txn, NODE_1
+    //    contributes the writer — both land in BASE_EPOCH before the OLLP txn registers. ─
+    fan_in.register_local(NODE_2, BASE_EPOCH, "t-peer");
+    fan_in.register_local(NODE_1, BASE_EPOCH, "t-writer");
+    let writer_seq = fan_in
+        .packed_seq_for(BASE_EPOCH, "t-writer")
+        .expect("t-writer registered in the base epoch");
+
+    // ── T_writer: register the exclusive lock on `dir` SYNCHRONOUSLY FIRST at its
+    //    epoch-packed seq, so the OLLP txn's later registration is strictly behind it. ──
+    let rw_writer = RwSet {
+        reads: BTreeSet::new(),
+        writes: [dir_key.clone()].into_iter().collect(),
+    };
+    let tw = lockmgr.register(writer_seq, &rw_writer);
+
+    let (lm_w, mu_w, dk_w) = (lockmgr.clone(), multi.clone(), dir_key.clone());
+    let writer = tokio::spawn(async move {
+        let g = lm_w.granted(tw).await; // granted immediately (front of the queue)
+        // Wait until the OLLP txn's first attempt has registered behind us on `dir` (a
+        // lock-manager fact — its recon has already read the OLD `dir`).
+        wait_until(Duration::from_secs(5), || async {
+            lm_w.queue_depth(&dk_w) >= 2
+        })
+        .await
+        .expect("ollp txn registers behind the writer on dir");
+        // NOW mutate the directory the OLLP recon depended on, then release.
+        write_node(
+            &mu_w,
+            GROUP_A,
+            GRAPH_A,
+            "dir",
+            serde_json::json!({ "target": "k2" }),
+        )
+        .await;
+        g.release();
+    });
+
+    // ── T_ollp: drive the multi-node epoch-routing OLLP restart loop. ──────────────────
+    let derive_dir = dir_key.clone();
+    let acquired = coord
+        .acquire_ollp_with_restart_epoch(
+            &fan_in,
+            NODE_1,
+            BASE_EPOCH,
+            "t-ollp",
+            &lockmgr,
+            std::slice::from_ref(&dir_key),
+            move |observed| {
+                let dv =
+                    decode_props(observed.get(&derive_dir).cloned().flatten()).expect("dir seeded");
+                let target = dv
+                    .get("target")
+                    .and_then(|t| t.as_str())
+                    .expect("dir.target")
+                    .to_string();
+                RwSet {
+                    reads: [derive_dir.clone(), RecordKey::new(GRAPH_A, &target)]
+                        .into_iter()
+                        .collect(),
+                    writes: [RecordKey::new(GRAPH_B, "r")].into_iter().collect(),
+                }
+            },
+            5,
+        )
+        .await
+        .expect("OLLP acquisition ultimately succeeds after the epoch restart");
+
+    // The first recon (in BASE_EPOCH) went stale (dir k1→k2) → exactly one restart, into
+    // the NEXT epoch.
+    assert_eq!(
+        acquired.attempts, 2,
+        "stale first recon forces exactly one epoch restart"
+    );
+    assert_eq!(
+        acquired.epoch,
+        BASE_EPOCH + 1,
+        "the restart routed the txn into the NEXT epoch of the multi-node fan-in"
+    );
+    assert!(
+        acquired.rwset.reads.contains(&RecordKey::new(GRAPH_A, "k2")),
+        "the restarted recon discovered the post-mutation target k2"
+    );
+
+    // Deterministic execution under the held (fresh, epoch-routed) lock.
+    let k2_val = decode_props(
+        coord
+            .reconnoiter(&RecordKey::new(GRAPH_A, "k2"))
+            .await
+            .unwrap(),
+    )
+    .expect("k2 present");
+    let seen = k2_val
+        .get("v")
+        .and_then(|v| v.as_str())
+        .unwrap()
+        .to_string();
+    write_node(
+        &multi,
+        GROUP_B,
+        GRAPH_B,
+        "r",
+        serde_json::json!({ "saw": seen }),
+    )
+    .await;
+    acquired.guard.release();
+
+    writer.await.unwrap();
+
+    // SERIALIZABLE OUTCOME: identical to the single-domain test — the OLLP txn restarted
+    // and read the post-writer committed state.
+    let r_val = decode_props(
+        coord
+            .reconnoiter(&RecordKey::new(GRAPH_B, "r"))
+            .await
+            .unwrap(),
+    )
+    .expect("r written by the restarted OLLP txn");
+    assert_eq!(
+        r_val.get("saw").and_then(|s| s.as_str()),
+        Some("new"),
+        "the restarted OLLP txn read k2's committed value (serializable: T_writer then T_ollp)"
+    );
+
+    // ── ALL NODES AGREE: an INDEPENDENT registry, fed the identical registrations in a
+    //    DIFFERENT order (simulating a peer node that received the same gossiped batches
+    //    in a different arrival order), derives the byte-identical merged order for BOTH
+    //    epochs the txn touched — and in particular the SAME final packed seq for the
+    //    restarted txn. This is the property that lets every node run the deterministic
+    //    execution phase without a vote. ────────────────────────────────────────────────
+    let fan_in_peer = EpochFanInRegistry::new();
+    fan_in_peer.register_local(NODE_1, BASE_EPOCH, "t-writer");
+    fan_in_peer.register_local(NODE_2, BASE_EPOCH, "t-peer");
+    fan_in_peer.register_local(NODE_1, BASE_EPOCH + 1, "t-ollp");
+
+    assert_eq!(
+        fan_in_peer.fan_in(BASE_EPOCH),
+        fan_in.fan_in(BASE_EPOCH),
+        "a peer node registering the same base-epoch inputs in a different order \
+         derives the identical merged order"
+    );
+    assert_eq!(
+        fan_in_peer.fan_in(BASE_EPOCH + 1),
+        fan_in.fan_in(BASE_EPOCH + 1),
+        "...and the identical merged restart-epoch order"
+    );
+    assert_eq!(
+        fan_in_peer.packed_seq_for(BASE_EPOCH + 1, "t-ollp"),
+        Some(acquired.seq),
+        "every node derives the SAME final packed seq for the restarted txn"
+    );
+    // Sanity: the peer's independently-derived merge also agrees with the pure
+    // `epoch_fan_in` function called directly over the peer's own snapshot.
+    assert_eq!(
+        fan_in_peer.fan_in(BASE_EPOCH + 1),
+        epoch_fan_in(BASE_EPOCH + 1, &fan_in_peer.snapshot(BASE_EPOCH + 1))
+    );
+
+    multi.stop_listener();
+    backend.shutdown();
+    let _ = std::fs::remove_dir_all(&dir);
+}
