@@ -156,7 +156,7 @@ pub use exec::{execute, PlanCtx, PlanExt};
 #[cfg(feature = "query")]
 pub use dag::{NodeId, PlanDag, PlanNode};
 #[cfg(feature = "query")]
-pub use dag_exec::execute_dag;
+pub use dag_exec::{execute_dag, execute_dag_with};
 
 /// The RowSet v2 surface (CONCEPT:EG-KG.query.knowledge-set): the enriched, ready-to-consume
 /// row/set shape a caller builds from a finished `RowSet` + the `GraphView` it ran over.
