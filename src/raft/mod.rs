@@ -72,6 +72,15 @@ use crate::server::ServerState;
 
 pub mod config;
 pub mod cross_shard_txn;
+/// X4 — the distributed cross-shard DAG EXCHANGE operator (CONCEPT:EG-KG.query.dag-distributed-exchange),
+/// the cluster-tier extension of E5's `eg_plan::dag::PlanDag`: ships a branch subtree to
+/// its owning Raft group over a length-prefixed-MessagePack transport, runs it there via
+/// the unmodified `eg_plan::execute_dag`, and merges the partials back through
+/// `eg_plan::execute_dag_with`'s unmodified multi-branch join. Additionally gated on
+/// `query` (needs `eg_plan`'s `PlanCtx`/`dag_exec`, which a plain `raft`-without-`query`
+/// build does not link) — `cluster` implies both.
+#[cfg(feature = "query")]
+pub mod exchange;
 pub mod multi;
 pub mod network;
 pub mod node;
