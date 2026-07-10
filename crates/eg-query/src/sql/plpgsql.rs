@@ -1077,10 +1077,8 @@ fn parse_bare_call(sql: &str) -> Option<(bool, String, Vec<String>, Option<Strin
     let s = sql.trim().trim_end_matches(';').trim();
     let (is_call, rest) = if let Some(r) = strip_word(s, "call") {
         (true, r)
-    } else if let Some(r) = strip_word(s, "select") {
-        (false, r)
     } else {
-        return None;
+        (false, strip_word(s, "select")?)
     };
     let rest = rest.trim_start();
     // Function name.
