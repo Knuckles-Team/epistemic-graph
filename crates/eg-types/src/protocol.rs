@@ -1679,6 +1679,51 @@ pub enum Method {
         reorder_filter_selectivity: Option<f64>,
     },
 
+    // ── EXPLAIN surfaces (CONCEPT:EG-KG.query.plan-dag, E5 phase 4) ──────────────────
+    // Diagnostics over the SAME `wire::Plan` `UnifiedQuery` carries — no new execution
+    // path, just introspection into what the planner did / would do. Read-only.
+    /// `EXPLAIN PLAN` — serialize `plan` as a [`crate::wire::Plan`]::PlanDag conversion
+    /// (a linear plan is a degenerate chain, CONCEPT:EG-KG.query.plan-dag) both BEFORE and
+    /// AFTER the DAG-aware cost optimizer (`eg_plan::optimizer::optimize_dag`), plus the
+    /// active rule set (`eg_plan::cost_opt_rule_names()`) — the optimizer rewrite trace.
+    /// Returns an `ExplainPlanResult` via `ResultPayload::raw`. Gated `query` (same as
+    /// `UnifiedQuery`).
+    #[cfg(feature = "query")]
+    ExplainPlan {
+        plan: crate::wire::Plan,
+    },
+    /// `EXPLAIN PROVENANCE` — run `plan` and, for each result row, resolve its
+    /// EVIDENCE-FOR provenance (the SAME belief-substrate `EvidenceFor` resolution E2's
+    /// `Op::EvidenceFor` op runs) over the `KnowledgeSet` (E3) row shape. With the
+    /// `epistemic` feature OFF (or absent at runtime) every row's provenance is empty and
+    /// `resolved` is `false` — the documented "no epistemic resolution ran" behavior E3's
+    /// `KnowledgeSet` already carries (CONCEPT:EG-KG.query.knowledge-set). Returns an
+    /// `ExplainProvenanceResult` via `ResultPayload::raw`. Gated `query`.
+    #[cfg(feature = "query")]
+    ExplainProvenance {
+        plan: crate::wire::Plan,
+    },
+    /// `EXPLAIN POLICY` — run `plan` against BOTH the caller's RLS-filtered snapshot and
+    /// the UNFILTERED snapshot (reusing the SAME `eg_core::isolation::IsolationLayer`
+    /// `filter_view` every read path already applies), reporting which result rows the
+    /// policy DENIED. With the `security` feature off (or no caller/RLS configured), no
+    /// filtering applies and `policy_denied_ids` is always empty. Returns an
+    /// `ExplainPolicyResult` via `ResultPayload::raw`. Gated `query`.
+    #[cfg(feature = "query")]
+    ExplainPolicy {
+        plan: crate::wire::Plan,
+    },
+    /// `EXPLAIN BELIEF <node_id>` — the FULL, un-flattened E1 justification tree
+    /// (`eg_epistemic::JustificationGraph`, via `eg_plan::explain_belief_tree`) rooted at
+    /// `node_id` — the standalone verbatim-tree surface E2's plan-`Op::ExplainBelief`
+    /// (a flat `RowSet` projection) documents as a follow-up, mirroring
+    /// `Method::OwlExplain`'s `ProofNodeWire`. Returns an `ExplainBeliefResult` via
+    /// `ResultPayload::raw`. Gated `epistemic` (which implies `query`).
+    #[cfg(feature = "epistemic")]
+    ExplainBelief {
+        node_id: String,
+    },
+
     // ── Natural-language query (CONCEPT:EG-KG.query.core-query-input/EG-080) ─────────────────────
     /// Natural-language → executable query → rows. `text` is the NL request, `graph`
     /// the target graph (the `/nl` HTTP facade path has no request envelope, so the
@@ -1948,6 +1993,54 @@ pub enum Method {
         txn_id: String,
         /// SPARQL CONSTRUCT query whose triples are staged into the txn.
         sparql: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        graph: Option<String>,
+    },
+    /// Stage a PLANNER WRITEBACK into a txn (CONCEPT:EG-KG.query.plan-dag, D7 — the
+    /// planner-writeback ACID seam). `plan` (the SAME `wire::Plan` AST `UnifiedQuery`
+    /// carries) runs READ-ONLY against the txn's committed snapshot; each id in its
+    /// result `RowSet` becomes an `AddEdge { source_id: anchor_id, target_id: id,
+    /// relationship }` — e.g. materializing a `Reason`/`Traverse`-inferred edge set —
+    /// staged (via `GraphTxnState::stage_plan_writeback`, copying the `TxnAxiom`/
+    /// `TxnConstruct` shape verbatim) into the SAME atomic `WriteTransaction` as the
+    /// txn's other modalities. Gated `query` (mirrors `UnifiedQuery`); a build without
+    /// it drops the variant → the dispatch "not available in this build" catch-all.
+    #[cfg(feature = "query")]
+    TxnPlanWriteback {
+        txn_id: String,
+        /// The plan whose result `RowSet` is materialized as edges.
+        plan: crate::wire::Plan,
+        /// The edge SOURCE every materialized edge is anchored to.
+        anchor_id: String,
+        /// The `relationship` property every materialized edge carries.
+        relationship: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        graph: Option<String>,
+    },
+    /// Stage a MATERIALIZE-BELIEF op into a txn (CONCEPT:EG-KG.epistemic.epistemic-substrate,
+    /// D5 — the explicit, AUDITED "materialize belief" op the `eg_epistemic` crate docs
+    /// call for: `BeliefState.confidence` is derived and "NEVER written back onto
+    /// `NodeData.confidence` … unless a caller runs an explicit, logged materialize
+    /// belief op"). Computes the propagated belief for `node_id` (via
+    /// `eg_epistemic::propagate_confidence` over the graph's SUPPORTS/CONTRADICTS/
+    /// ATTACKS evidence topology, read from the txn's COMMITTED snapshot — the SAME
+    /// "evaluate now" shape `TxnPlanWriteback`/`TxnConstruct` use) and stages ONE
+    /// unconditional `CompareAndSetNodeFields` that writes it onto that node's
+    /// `NodeData.confidence` — landing atomically with the txn's other staged
+    /// modalities at commit (`GraphTxnState::stage_plan_writeback`, reused verbatim —
+    /// same OCC read-set capture + cross-modal commit shape as `TxnAxiom`/
+    /// `TxnConstruct`/`TxnPlanWriteback`). The write rides the ALREADY-audited
+    /// `CompareAndSetNodeFields` path (the tamper-evident hash chain, CONCEPT:
+    /// EG-KG.sharding.row-level-security, plus the unconditional in-memory ledger) —
+    /// never silent, no new audit mechanism. OPT-IN: this is the ONLY path that ever
+    /// writes a derived belief back onto stored confidence; nothing else in the engine
+    /// does so implicitly. Gated `epistemic`; a build without it drops the variant →
+    /// the dispatch "not available in this build" catch-all.
+    #[cfg(feature = "epistemic")]
+    TxnMaterializeBelief {
+        txn_id: String,
+        /// The node whose propagated belief is computed and written back.
+        node_id: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         graph: Option<String>,
     },
@@ -2415,6 +2508,28 @@ pub enum Method {
         data_graph: String,
     },
 
+    /// X5-enforce (CONCEPT:EG-KG.ontology.rdf-update-guard) — (re)register a graph's
+    /// SHACL shapes as WRITE-TIME closed-world integrity constraints (ICV, reusing
+    /// `eg-shacl`'s existing `IcvPolicyRegistry`/`WriteGuard` verbatim — no new
+    /// validator). `mode` is `"off"` (default/inert) · `"warn"` (a violating change is
+    /// logged but still applied) · `"enforce"` (a violating change ABORTS the
+    /// `AddTriples`/`RemoveTriples`/`ApplyMutation` commit with the introduced
+    /// violations, each carrying its SPARQL witness). `graph` names the target graph;
+    /// `None` sets the DEFAULT-graph policy. `shapes` is the SHACL shapes Turtle
+    /// document — e.g. the SHACL a connector-manifest compiler emits alongside its
+    /// RLS/ABAC policy output (agent-utilities side); empty is only valid with
+    /// `mode="off"` (clearing a previously registered policy). Like `ShaclValidate`,
+    /// this variant is UNCONDITIONAL in the enum; the HANDLER is gated `shacl` — a
+    /// build without it drops the handler arm and the request falls through to the
+    /// dispatch "not available in this build" catch-all.
+    IcvConfigure {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        graph: Option<String>,
+        mode: String,
+        #[serde(default)]
+        shapes: String,
+    },
+
     // ── ShEx (Shape Expressions) Core validation (CONCEPT:EG-KG.compute.concept-2) ────────────
     // The complement to `ShaclValidate` (EG-132): validate that focus nodes of an RDF
     // DATA graph CONFORM to shape expressions in a ShEx schema, driven by a shape map
@@ -2612,6 +2727,16 @@ pub enum Method {
         /// item nodes (the discovery flywheel). Makes this a graph write.
         #[serde(default)]
         writeback: bool,
+        /// ADDITIONALLY materialize a first-class epistemic object per rule (E6,
+        /// CONCEPT:EG-KG.epistemic.epistemic-substrate): a `:Claim` (confidence seeded
+        /// from the rule's quality score, normalized to `[0,1]`) plus a provenance
+        /// `:Evidence` node, both `SUPPORTS`-linked to the claim so the `eg_epistemic`
+        /// belief layer can propagate confidence over the mined finding. Requires
+        /// `writeback` (the `:AssociationRule` node is the claim's evidence anchor).
+        /// Gated `all(mining, epistemic)`; unset ⇒ write-back is byte-identical.
+        #[cfg(all(feature = "mining", feature = "epistemic"))]
+        #[serde(default)]
+        as_claim: bool,
     },
 
     /// Clustering (CONCEPT:EG-KG.mining.dbscan-density — completing the family beyond
@@ -2670,6 +2795,12 @@ pub enum Method {
         /// Materialize each cluster as a typed `:Cluster` node linked to members.
         #[serde(default)]
         writeback: bool,
+        /// ADDITIONALLY materialize a `:Claim` (+ `:Evidence`) per cluster (E6) —
+        /// see [`Method::MineAssociate::as_claim`]. Confidence is seeded from the
+        /// cluster's compactness score. Requires `writeback`.
+        #[cfg(all(feature = "mining", feature = "epistemic"))]
+        #[serde(default)]
+        as_claim: bool,
     },
 
     /// Anomaly / outlier detection (CONCEPT:EG-KG.mining.isolation-forest). Scores
@@ -2730,6 +2861,12 @@ pub enum Method {
         /// Materialize each flagged row as a typed `:Anomaly` node linked to its source.
         #[serde(default)]
         writeback: bool,
+        /// ADDITIONALLY materialize a `:Claim` (+ `:Evidence`) per flagged anomaly
+        /// (E6) — see [`Method::MineAssociate::as_claim`]. Confidence is seeded from
+        /// the row's anomaly score. Requires `writeback`.
+        #[cfg(all(feature = "mining", feature = "epistemic"))]
+        #[serde(default)]
+        as_claim: bool,
     },
 
     /// Classification — FIT (CONCEPT:EG-KG.mining.naive-bayes). PREDICTIVE: fit a
@@ -2807,6 +2944,14 @@ pub enum Method {
         /// source node.
         #[serde(default)]
         writeback: bool,
+        /// ADDITIONALLY materialize a `:Claim` (+ `:Evidence`) per prediction (D3,
+        /// mirroring E6) — see [`Method::MineAssociate::as_claim`]. Confidence is
+        /// seeded from the prediction's OWN max class probability (`out.proba[i]`'s
+        /// argmax), already `[0,1]` by construction (a probability simplex row).
+        /// Requires `writeback`.
+        #[cfg(all(feature = "mining", feature = "epistemic"))]
+        #[serde(default)]
+        as_claim: bool,
     },
 
     /// Dimensionality reduction (CONCEPT:EG-KG.mining.truncated-svd). DESCRIPTIVE:
@@ -2861,6 +3006,19 @@ pub enum Method {
         /// Materialize each row's reduced vector as a typed `:Embedding2D` node.
         #[serde(default)]
         writeback: bool,
+        /// ADDITIONALLY materialize a `:Claim` (+ `:Evidence`) — D3, mirroring E6 — but
+        /// ONLY for `svd` (`ReduceAlgorithm::Svd`), the one engine with a principled
+        /// `[0,1]` quality score: the retained EXPLAINED-VARIANCE RATIO
+        /// (`Σ retained singular_values² / Σ ALL row sum-of-squares`, i.e. how much of
+        /// the rows' total variance the kept components capture). `lda`/`umap`/`tsne`
+        /// have no such score (LDA's discriminant eigenvalues aren't returned;
+        /// UMAP/t-SNE are approximate neighborhood LAYOUTS with no reconstruction-error
+        /// analogue) — for those, `as_claim=true` is a documented no-op (no claim is
+        /// written; see [`Method::MineAssociate::as_claim`] for the general shape).
+        /// Requires `writeback`.
+        #[cfg(all(feature = "mining", feature = "epistemic"))]
+        #[serde(default)]
+        as_claim: bool,
     },
 
     // ── Graph Learning (CONCEPT:EG-KG.graphlearn.link-predictor — neuro-symbolic KAN) ──
@@ -2935,6 +3093,12 @@ pub enum Method {
         /// its resident item nodes.
         #[serde(default)]
         writeback: bool,
+        /// ADDITIONALLY materialize a `:Claim` (+ `:Evidence`) per pattern (E6) —
+        /// see [`Method::MineAssociate::as_claim`]. Confidence is seeded from the
+        /// pattern's support. Requires `writeback`.
+        #[cfg(all(feature = "mining", feature = "epistemic"))]
+        #[serde(default)]
+        as_claim: bool,
     },
 
     /// Classical time-series forecasting (CONCEPT:EG-KG.mining.arima — Phase 4).
@@ -2994,6 +3158,12 @@ pub enum Method {
         /// Materialize the forecast as a typed `:Forecast` node.
         #[serde(default)]
         writeback: bool,
+        /// ADDITIONALLY materialize a `:Claim` (+ `:Evidence`) for the forecast (E6)
+        /// — see [`Method::MineAssociate::as_claim`]. Confidence is seeded from the
+        /// forecast's `confidence` band level. Requires `writeback`.
+        #[cfg(all(feature = "mining", feature = "epistemic"))]
+        #[serde(default)]
+        as_claim: bool,
     },
 
     /// Text mining (CONCEPT:EG-KG.mining.tfidf — Phase 4). `tfidf` returns each
@@ -3040,6 +3210,18 @@ pub enum Method {
         /// a no-op for `tfidf`, which has no topics to write back).
         #[serde(default)]
         writeback: bool,
+        /// ADDITIONALLY materialize a `:Claim` (+ `:Evidence`) per topic (D3, mirroring
+        /// E6) — `lda`/`nmf` only, a no-op for `tfidf` (which has no topics, mirroring
+        /// `writeback`). Quality = the topic's mean doc-membership strength among the
+        /// documents DOMINANTLY assigned to it (`mean(doc_topics[d][t])` over docs `d`
+        /// whose argmax topic is `t`) — a topic-coherence proxy: both LDA's Dirichlet
+        /// posterior and NMF's row-normalized `W` are already `[0,1]` distributions that
+        /// sum to 1 across topics (see `eg_compute::mining::text` module docs), so this
+        /// is a principled, already-bounded score requiring no extra normalization.
+        /// Requires `writeback`.
+        #[cfg(all(feature = "mining", feature = "epistemic"))]
+        #[serde(default)]
+        as_claim: bool,
     },
 
     /// Frequent subgraph mining + motif counting (CONCEPT:EG-KG.mining.gspan-frequent-subgraph
@@ -3076,6 +3258,299 @@ pub enum Method {
         /// node (`gspan` only — a no-op for `motif`, which has no patterns).
         #[serde(default)]
         writeback: bool,
+        /// ADDITIONALLY materialize a `:Claim` (+ `:Evidence`) per frequent pattern
+        /// (E6, `gspan` only) — see [`Method::MineAssociate::as_claim`]. Confidence
+        /// is seeded from the pattern's support. Requires `writeback`.
+        #[cfg(all(feature = "mining", feature = "epistemic"))]
+        #[serde(default)]
+        as_claim: bool,
+    },
+
+    // ── Residual insight/mining families (Codex Gap-5) ──────────────────────
+    // Rounds out the mining surface begun by `MineAssociate` above with 8 more
+    // families, each following the SAME shape (explicit-or-graph-derived input,
+    // optional `writeback` of a typed node, optional `as_claim` epistemic
+    // writeback gated `all(mining, epistemic)`).
+    /// Entity resolution + record linkage (CONCEPT:EG-KG.mining.entity-resolution).
+    /// DISTINCT from the existing always-on `ResolveCandidates` op (all-pairs
+    /// cosine + union-find dedup-ladder proposals, no epistemic writeback): this
+    /// mining family instead supports BOTH Jaccard record linkage over token
+    /// attributes (`records`, blocked by an explicit `block_keys`) AND cosine
+    /// entity resolution over embeddings (`vectors`/`source`, blocked by a grid
+    /// bucket), and materializes each match as a typed `:EntityMatch` node — a
+    /// graph MUTATION, WAL-replayed by re-resolving deterministically. Gated `mining`.
+    #[cfg(feature = "mining")]
+    MineEntityResolve {
+        /// Token-attribute records (Jaccard record linkage). Empty ⇒ use
+        /// `vectors`/`source`.
+        #[serde(default)]
+        records: Vec<Vec<String>>,
+        /// Blocking key per record, same length as `records`. All-empty-string
+        /// (or shorter than `records`) ⇒ one global block (no blocking).
+        #[serde(default)]
+        block_keys: Vec<String>,
+        /// Explicit embedding rows (cosine entity resolution). Used when
+        /// `records` is empty; empty ⇒ use `source`.
+        #[serde(default)]
+        vectors: Vec<Vec<f64>>,
+        /// Graph-derived vector source (node embeddings) — used when `records`
+        /// and `vectors` are both empty.
+        #[serde(default)]
+        source: Option<VectorSource>,
+        /// Optional external ids parallel to `records`/`vectors` (the explicit
+        /// paths only — `source` supplies its own resident node ids). Shorter
+        /// than the input ⇒ missing entries fall back to their index.
+        #[serde(default)]
+        ids: Vec<String>,
+        /// Grid-bucket rounding precision for the `vectors`/`source` blocking path.
+        #[serde(default = "default_bucket_precision")]
+        bucket_precision: i32,
+        /// Minimum similarity (Jaccard or Cosine, `[0,1]`) to emit a match.
+        #[serde(default = "default_match_threshold")]
+        threshold: f64,
+        /// Materialize each match as a typed `:EntityMatch` node linked to both
+        /// members (when they are resident node ids).
+        #[serde(default)]
+        writeback: bool,
+        /// ADDITIONALLY materialize a `:Claim` (+ `:Evidence`) per match (E6) —
+        /// see [`Method::MineAssociate::as_claim`]. Confidence is seeded from the
+        /// match's OWN similarity. Requires `writeback`.
+        #[cfg(all(feature = "mining", feature = "epistemic"))]
+        #[serde(default)]
+        as_claim: bool,
+    },
+
+    /// Causal impact estimation (CONCEPT:EG-KG.mining.causal-impact): interrupted
+    /// time series (a single `series`) or difference-in-differences (`series` +
+    /// non-empty `control`), split at `intervention_index`. Mirrors
+    /// `MineForecast`'s "caller hands in the tsdb window" convention — no direct
+    /// tsdb coupling. With `writeback=true` materializes a typed `:CausalEffect`
+    /// node — a graph MUTATION, WAL-replayed by re-estimating deterministically.
+    /// Gated `mining`.
+    #[cfg(feature = "mining")]
+    MineCausalImpact {
+        /// The (treatment, for DiD) series to analyze — required.
+        #[serde(default)]
+        series: Vec<f64>,
+        /// The control series for difference-in-differences. Empty ⇒ plain
+        /// interrupted-time-series (no control).
+        #[serde(default)]
+        control: Vec<f64>,
+        /// Index of the FIRST post-intervention observation (in BOTH series for DiD).
+        #[serde(default)]
+        intervention_index: usize,
+        /// Optional identity for the write-back `:CausalEffect` node. Empty ⇒
+        /// derived from the input series + algorithm.
+        #[serde(default)]
+        series_id: String,
+        /// Materialize the estimate as a typed `:CausalEffect` node.
+        #[serde(default)]
+        writeback: bool,
+        /// ADDITIONALLY materialize a `:Claim` (+ `:Evidence`) for the estimate
+        /// (E6) — see [`Method::MineAssociate::as_claim`]. Confidence is seeded
+        /// from the estimate's own significance (`1 - two_sided_p`). Requires
+        /// `writeback`.
+        #[cfg(all(feature = "mining", feature = "epistemic"))]
+        #[serde(default)]
+        as_claim: bool,
+    },
+
+    /// Process mining (CONCEPT:EG-KG.mining.process-mining): directly-follows
+    /// graph + alpha-miner-lite footprint (causal / parallel / choice relations,
+    /// start/end activity sets) over ordered event `traces`. With
+    /// `writeback=true` materializes the footprint as a typed `:ProcessModel`
+    /// node — a graph MUTATION, WAL-replayed by re-mining deterministically.
+    /// Gated `mining`.
+    #[cfg(feature = "mining")]
+    MineProcess {
+        /// Ordered activity-label traces — each a time-ordered event sequence
+        /// (an activity may repeat within a trace). Required.
+        #[serde(default)]
+        traces: Vec<Vec<String>>,
+        /// Optional identity for the write-back `:ProcessModel` node. Empty ⇒
+        /// derived from the mined footprint's own shape.
+        #[serde(default)]
+        process_id: String,
+        /// Materialize the footprint as a typed `:ProcessModel` node.
+        #[serde(default)]
+        writeback: bool,
+        /// ADDITIONALLY materialize a `:Claim` (+ `:Evidence`) for the model (E6)
+        /// — see [`Method::MineAssociate::as_claim`]. Confidence is seeded from
+        /// the fraction of observed activity pairs classified `causal`/`parallel`
+        /// (vs. `choice`) — a log-coverage proxy, already `[0,1]`. Requires `writeback`.
+        #[cfg(all(feature = "mining", feature = "epistemic"))]
+        #[serde(default)]
+        as_claim: bool,
+    },
+
+    /// Root-cause propagation (CONCEPT:EG-KG.mining.root-cause): given a directed
+    /// weighted dependency graph (`edges`, `cause -> effect`) and a per-node
+    /// anomaly `scores` vector (the existing `anomaly` family's own output, or
+    /// any other score), find the most-likely upstream root cause of one
+    /// `symptom` node. With `writeback=true` materializes the top candidate as a
+    /// typed `:RootCause` node linked to the symptom — a graph MUTATION,
+    /// WAL-replayed by re-searching deterministically. Gated `mining`.
+    #[cfg(feature = "mining")]
+    MineRootCause {
+        /// Node ids, index-aligned with `scores` and referenced by `edges`.
+        #[serde(default)]
+        nodes: Vec<String>,
+        /// Anomaly score per node, index-aligned with `nodes` (negative clamps to `0.0`).
+        #[serde(default)]
+        scores: Vec<f64>,
+        /// Dependency edges `(cause_id, effect_id, weight)`; `weight` clamped to `[0,1]`.
+        #[serde(default)]
+        edges: Vec<(String, String, f64)>,
+        /// The already-flagged anomalous node whose root cause to find (required).
+        #[serde(default)]
+        symptom: String,
+        /// Search depth cap.
+        #[serde(default = "default_max_hops")]
+        max_hops: usize,
+        /// Per-hop score decay `(0,1]` (mirrors PageRank's damping factor).
+        #[serde(default = "default_decay")]
+        decay: f64,
+        /// Materialize the top candidate as a typed `:RootCause` node linked to the symptom.
+        #[serde(default)]
+        writeback: bool,
+        /// ADDITIONALLY materialize a `:Claim` (+ `:Evidence`) for the top
+        /// candidate (E6) — see [`Method::MineAssociate::as_claim`]. Confidence
+        /// mirrors `anomaly`'s `score / (1 + score)` mapping over the candidate's
+        /// OWN raw responsibility score (normalizing against the candidate list
+        /// would be trivially `1.0` for the top candidate). Requires `writeback`.
+        #[cfg(all(feature = "mining", feature = "epistemic"))]
+        #[serde(default)]
+        as_claim: bool,
+    },
+
+    /// Seeded risk propagation (CONCEPT:EG-KG.mining.risk-propagation): personalized
+    /// PageRank over a directed weighted graph (`edges`), restarting to a `seed`
+    /// risk distribution instead of teleporting uniformly. With `writeback=true`
+    /// materializes each node's propagated score as a typed `:RiskScore` node — a
+    /// graph MUTATION, WAL-replayed by re-propagating deterministically. Gated `mining`.
+    #[cfg(feature = "mining")]
+    MineRiskPropagation {
+        /// Node ids, index-aligned with `seed` and referenced by `edges`.
+        #[serde(default)]
+        nodes: Vec<String>,
+        /// Seed risk per node, index-aligned with `nodes` (any non-negative
+        /// scale — normalized internally; all-zero ⇒ all-zero result).
+        #[serde(default)]
+        seed: Vec<f64>,
+        /// Weighted directed edges `(from_id, to_id, weight)`; `weight` clamped `>= 0`.
+        #[serde(default)]
+        edges: Vec<(String, String, f64)>,
+        /// Damping factor (probability of following an edge vs. restarting to `seed`).
+        #[serde(default = "default_damping")]
+        damping: f64,
+        /// L1 convergence tolerance.
+        #[serde(default = "default_risk_tolerance")]
+        tolerance: f64,
+        /// Hard iteration cap.
+        #[serde(default = "default_max_iter")]
+        max_iterations: usize,
+        /// Materialize each node's propagated score as a typed `:RiskScore` node.
+        #[serde(default)]
+        writeback: bool,
+        /// ADDITIONALLY materialize a `:Claim` (+ `:Evidence`) per scored node (E6)
+        /// — see [`Method::MineAssociate::as_claim`]. Confidence is seeded from the
+        /// node's own propagated share (already `[0,1]`, mass-conserving). Requires `writeback`.
+        #[cfg(all(feature = "mining", feature = "epistemic"))]
+        #[serde(default)]
+        as_claim: bool,
+    },
+
+    /// Ontology-gap detection (CONCEPT:EG-KG.mining.ontology-gap): scans the
+    /// resident graph's own `type`/`relation`-tagged class nodes (GRAPH-NATIVE —
+    /// no `rdf`/OWL-reasoner dependency) for completeness gaps: no declared
+    /// properties, an unresolved `subClassOf` parent (an orphan subclass), or a
+    /// fully disconnected class. With `writeback=true` materializes each gap as a
+    /// typed `:OntologyGap` node linked to its class — a graph MUTATION,
+    /// WAL-replayed by re-scanning deterministically. Gated `mining`.
+    #[cfg(feature = "mining")]
+    MineOntologyGap {
+        /// Optional: restrict the scan to class nodes of this one type
+        /// (`None` ⇒ every node whose `type`/`node_type` is `Class` or `OwlClass`).
+        #[serde(default)]
+        label: Option<String>,
+        /// Materialize each gap as a typed `:OntologyGap` node linked to its class.
+        #[serde(default)]
+        writeback: bool,
+        /// ADDITIONALLY materialize a `:Claim` (+ `:Evidence`) per gap (E6) — see
+        /// [`Method::MineAssociate::as_claim`]. Confidence is seeded from the
+        /// gap kind's fixed documented severity (`eg_compute::mining::ontology_gap::GapKind::severity`).
+        /// Requires `writeback`.
+        #[cfg(all(feature = "mining", feature = "epistemic"))]
+        #[serde(default)]
+        as_claim: bool,
+    },
+
+    /// Retrieval-quality evaluation (CONCEPT:EG-KG.mining.retrieval-quality):
+    /// precision@k / recall@k / MRR over stored retrieval `traces`. With
+    /// `writeback=true` materializes the aggregate report as a typed
+    /// `:RetrievalQuality` node — a graph MUTATION, WAL-replayed by
+    /// re-evaluating deterministically. Gated `mining`.
+    #[cfg(feature = "mining")]
+    MineRetrievalQuality {
+        /// Retrieval traces to evaluate — required.
+        #[serde(default)]
+        traces: Vec<RetrievalTraceSpec>,
+        /// Precision/recall/MRR cutoff. `0` ⇒ use each trace's full retrieved list.
+        #[serde(default)]
+        k: usize,
+        /// Optional identity for the write-back `:RetrievalQuality` node. Empty ⇒
+        /// derived from the input traces.
+        #[serde(default)]
+        query_id: String,
+        /// Materialize the aggregate report as a typed `:RetrievalQuality` node.
+        #[serde(default)]
+        writeback: bool,
+        /// ADDITIONALLY materialize a `:Claim` (+ `:Evidence`) for the report (E6)
+        /// — see [`Method::MineAssociate::as_claim`]. Confidence is seeded from
+        /// the report's own F1 (harmonic mean of precision@k/recall@k, already
+        /// `[0,1]`). Requires `writeback`.
+        #[cfg(all(feature = "mining", feature = "epistemic"))]
+        #[serde(default)]
+        as_claim: bool,
+    },
+
+    /// Community detection as a mining family (CONCEPT:EG-KG.mining.community-writeback):
+    /// wraps the EXISTING GDS Louvain / label-propagation kernels
+    /// (`eg_compute::graph_algos`, already exposed on the Cypher `CALL gds.*`
+    /// surface) — adds NO new algorithm, only the epistemic writeback. Runs over
+    /// the resident graph (optionally restricted to one node `label`, like
+    /// `MineSubgraph`). With `writeback=true` materializes each community as a
+    /// typed `:Community` node linked to its members — a graph MUTATION,
+    /// WAL-replayed by re-detecting deterministically. Gated `mining`.
+    #[cfg(feature = "mining")]
+    MineCommunity {
+        /// Optional: restrict the projected graph to nodes of this one type.
+        #[serde(default)]
+        label: Option<String>,
+        /// Which existing GDS kernel to run.
+        #[serde(default)]
+        algorithm: CommunityAlgorithm,
+        /// Louvain modularity resolution (ignored by label-propagation).
+        #[serde(default = "default_resolution")]
+        resolution: f64,
+        /// Iteration/sweep cap.
+        #[serde(default = "default_max_iter")]
+        max_iterations: usize,
+        /// Seed for Louvain's deterministic shuffle (ignored by label-propagation).
+        #[serde(default)]
+        seed: u64,
+        /// Weight neighbor votes by edge weight (label-propagation only; ignored by Louvain).
+        #[serde(default = "default_true")]
+        weighted: bool,
+        /// Materialize each community as a typed `:Community` node linked to its members.
+        #[serde(default)]
+        writeback: bool,
+        /// ADDITIONALLY materialize a `:Claim` (+ `:Evidence`) per community (E6)
+        /// — see [`Method::MineAssociate::as_claim`]. Confidence is seeded from
+        /// the community's own internal-edge density (already `[0,1]`). Requires `writeback`.
+        #[cfg(all(feature = "mining", feature = "epistemic"))]
+        #[serde(default)]
+        as_claim: bool,
     },
 }
 
@@ -3151,6 +3626,78 @@ pub enum SubgraphAlgorithm {
 #[cfg(feature = "mining")]
 fn default_max_subgraph_edges() -> usize {
     3
+}
+
+// ── Residual insight/mining families — supporting types + defaults ─────────
+
+/// One stored retrieval trace for `MineRetrievalQuality` (CONCEPT:EG-KG.mining.retrieval-quality):
+/// what a query actually retrieved (ranked) vs. what was actually relevant.
+#[cfg(feature = "mining")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RetrievalTraceSpec {
+    /// Ranked ids the retrieval actually returned.
+    pub retrieved: Vec<String>,
+    /// Ground-truth relevant ids for this query.
+    pub relevant: Vec<String>,
+}
+
+/// Which existing GDS kernel `MineCommunity` wraps (CONCEPT:EG-KG.mining.community-writeback).
+#[cfg(feature = "mining")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum CommunityAlgorithm {
+    #[default]
+    Louvain,
+    #[serde(rename = "labelprop")]
+    LabelPropagation,
+}
+
+/// serde default for [`Method::MineEntityResolve::bucket_precision`].
+#[cfg(feature = "mining")]
+fn default_bucket_precision() -> i32 {
+    1
+}
+
+/// serde default for [`Method::MineEntityResolve::threshold`].
+#[cfg(feature = "mining")]
+fn default_match_threshold() -> f64 {
+    0.5
+}
+
+/// serde default for [`Method::MineRootCause::max_hops`].
+#[cfg(feature = "mining")]
+fn default_max_hops() -> usize {
+    5
+}
+
+/// serde default for [`Method::MineRootCause::decay`].
+#[cfg(feature = "mining")]
+fn default_decay() -> f64 {
+    0.85
+}
+
+/// serde default for [`Method::MineRiskPropagation::damping`].
+#[cfg(feature = "mining")]
+fn default_damping() -> f64 {
+    0.85
+}
+
+/// serde default for [`Method::MineRiskPropagation::tolerance`].
+#[cfg(feature = "mining")]
+fn default_risk_tolerance() -> f64 {
+    1e-9
+}
+
+/// serde default for [`Method::MineCommunity::resolution`].
+#[cfg(feature = "mining")]
+fn default_resolution() -> f64 {
+    1.0
+}
+
+/// serde default for [`Method::MineCommunity::weighted`].
+#[cfg(feature = "mining")]
+fn default_true() -> bool {
+    true
 }
 
 /// A graph-derived text source for `MineText` (CONCEPT:EG-KG.mining.tfidf —
@@ -3746,6 +4293,153 @@ pub struct OwlExplainResult {
     pub consistent: bool,
     /// Named classes derived to be unsatisfiable; empty when consistent.
     pub unsatisfiable: Vec<String>,
+}
+
+// ── EXPLAIN surface wire results (CONCEPT:EG-KG.query.plan-dag, E5 phase 4) ──────────
+// Diagnostics-only projections: `op`/`rule` render the underlying `eg_plan`/`eg_epistemic`
+// type via its `Debug` impl (a typed wire mirror of the WHOLE cross-modal `Op` algebra —
+// or the epistemic `JustRule` enum — would duplicate it for a read-only surface with no
+// other consumer; the facade, which depends on `eg_plan`, builds these strings, so
+// `eg_types` itself stays free of an `eg_plan`/`eg_epistemic` dependency, matching Rule R1).
+
+/// One node of an `EXPLAIN PLAN` dump — the wire projection of an `eg_plan::dag::PlanNode`.
+#[cfg(feature = "query")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExplainNodeWire {
+    pub id: usize,
+    /// `Debug`-rendered `eg_plan::Op`.
+    pub op: String,
+    pub inputs: Vec<usize>,
+}
+
+/// Materialized result of a `Method::ExplainPlan` run. Returned via `ResultPayload::raw`.
+#[cfg(feature = "query")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExplainPlanResult {
+    /// The plan as a `PlanDag` BEFORE the DAG-aware cost optimizer.
+    pub before: Vec<ExplainNodeWire>,
+    /// The plan as a `PlanDag` AFTER `eg_plan::optimizer::optimize_dag`.
+    pub after: Vec<ExplainNodeWire>,
+    /// The active optimizer rule set, in application order (`eg_plan::cost_opt_rule_names()`).
+    pub applied_rules: Vec<String>,
+}
+
+/// Wire mirror of `eg_modality::EvidenceSpan` (CONCEPT:E4/X1) — a DAG-safe DUP, not a
+/// re-export: `eg_types` sits BELOW `eg_modality` in the crate DAG (`eg-modality`
+/// depends on `eg-types`, never the reverse — see its own crate docs), so `eg_types`
+/// cannot depend on it, exactly the same reason `eg_modality::RowSetShape` is its own
+/// small dup of `eg_plan`'s real `RowSet` `Row` rather than a re-export. Every variant
+/// mirrors `eg_modality::evidence::EvidenceSpan` 1:1; the facade (which depends on
+/// BOTH `eg_plan` — hence transitively `eg_modality` — and `eg_types`) maps one to the
+/// other in `explain_provenance` (`src/server/handlers/query.rs`).
+#[cfg(feature = "query")]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum EvidenceSpanWire {
+    /// A character range `[start, end)` inside a text document.
+    DocumentSpan {
+        document_id: String,
+        start: usize,
+        end: usize,
+    },
+    /// A rectangular cell range inside a tabular source (inclusive bounds).
+    TableCellRange {
+        table_id: String,
+        row_start: usize,
+        row_end: usize,
+        col_start: usize,
+        col_end: usize,
+    },
+    /// A pixel-space rectangular region of an image.
+    ImageRegion {
+        image_id: String,
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+    },
+    /// A time range (milliseconds) inside an audio recording.
+    AudioSegment {
+        audio_id: String,
+        start_ms: u64,
+        end_ms: u64,
+    },
+    /// A shot boundary time range (milliseconds) inside a video.
+    VideoShot {
+        video_id: String,
+        start_ms: u64,
+        end_ms: u64,
+    },
+    /// A named symbol (function/class/etc.) inside a source file, by line range.
+    CodeSymbol {
+        file_path: String,
+        symbol: String,
+        start_line: u32,
+        end_line: u32,
+    },
+    /// A distributed-tracing span: "observed during this trace span" provenance.
+    TraceSpan { trace_id: String, span_id: String },
+}
+
+/// One result row's resolved provenance for `Method::ExplainProvenance`.
+#[cfg(feature = "query")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExplainProvenanceRowWire {
+    pub id: String,
+    /// The row's `KnowledgeSet` (E3) `kind` (`node_type`/`type`, or empty when absent).
+    pub kind: String,
+    /// Ids of nodes providing EVIDENCE FOR this row (the `Op::EvidenceFor` resolution).
+    /// Always empty when provenance resolution did not run (see `ExplainProvenanceResult::resolved`).
+    pub source_refs: Vec<String>,
+    /// Located evidence for this row (X1, CONCEPT:E4) — this row's own modality
+    /// `ModalityContract::evidence()`, when its stored shape decodes as a known
+    /// modality value type. Always empty when `epistemic` is off (see
+    /// `ExplainProvenanceResult::resolved`), and also empty (not fabricated) for a
+    /// row whose kind/shape isn't a known modality.
+    pub evidence_spans: Vec<EvidenceSpanWire>,
+}
+
+/// Materialized result of a `Method::ExplainProvenance` run. Returned via `ResultPayload::raw`.
+#[cfg(feature = "query")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExplainProvenanceResult {
+    pub rows: Vec<ExplainProvenanceRowWire>,
+    /// `true` iff the `epistemic` feature resolved real `source_refs`/`evidence_spans`
+    /// (X1, CONCEPT:E4); `false` ⇒ every row's `source_refs`/`evidence_spans` are
+    /// empty (no epistemic resolution ran — the `KnowledgeSet` v1 default,
+    /// CONCEPT:EG-KG.query.knowledge-set).
+    pub resolved: bool,
+}
+
+/// Materialized result of a `Method::ExplainPolicy` run (CONCEPT:EG-KG.sharding.row-level-security).
+/// Returned via `ResultPayload::raw`.
+#[cfg(feature = "query")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExplainPolicyResult {
+    /// Ids the caller's RLS-filtered view actually returns.
+    pub visible_ids: Vec<String>,
+    /// Ids present in the UNFILTERED result but absent from `visible_ids` — what the
+    /// policy denied. Always empty when no RLS filtering applied (no `security` feature,
+    /// or no caller/RLS on this connection).
+    pub policy_denied_ids: Vec<String>,
+}
+
+/// One node of an `EXPLAIN BELIEF` justification tree — the wire projection of
+/// `eg_epistemic::ProofNode`. `rule` is the `Debug`-rendered `eg_epistemic::JustRule`
+/// (`"Asserted"`, `"DerivedSupport"`, `"DerivedContradiction"`, `"BayesianUpdate"`).
+#[cfg(feature = "epistemic")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JustificationNodeWire {
+    pub claim: String,
+    pub rule: String,
+    pub confidence: f64,
+    pub premises: Vec<JustificationNodeWire>,
+}
+
+/// Materialized result of a `Method::ExplainBelief` run. Returned via `ResultPayload::raw`.
+#[cfg(feature = "epistemic")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExplainBeliefResult {
+    pub root: JustificationNodeWire,
 }
 
 /// Graph type for multi-tenant registry.

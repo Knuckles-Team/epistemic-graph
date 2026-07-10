@@ -110,6 +110,23 @@ pub(crate) fn requires_write(method: &Method) -> bool {
     if matches!(method, Method::MineClassifyFit { .. }) {
         return false;
     }
+    // Residual insight/mining families (CONCEPT:EG-KG.mining.entity-resolution /
+    // causal-impact / process-mining / root-cause / risk-propagation /
+    // ontology-gap / retrieval-quality / community-writeback): only a write when
+    // it writes back the family's typed nodes; a pure query (writeback=false)
+    // reads its rows off an off-lock snapshot, mirroring the mining family above.
+    #[cfg(feature = "mining")]
+    if let Method::MineEntityResolve { writeback, .. }
+    | Method::MineCausalImpact { writeback, .. }
+    | Method::MineProcess { writeback, .. }
+    | Method::MineRootCause { writeback, .. }
+    | Method::MineRiskPropagation { writeback, .. }
+    | Method::MineOntologyGap { writeback, .. }
+    | Method::MineRetrievalQuality { writeback, .. }
+    | Method::MineCommunity { writeback, .. } = method
+    {
+        return *writeback;
+    }
     // Graph learning (CONCEPT:EG-KG.graphlearn.link-predictor): only a write when it
     // writes back the `:EdgeFunction` / `:PredictedEdge` nodes; a pure fit/predict
     // (writeback=false) reads its rows off an off-lock snapshot.
@@ -143,6 +160,11 @@ pub(crate) fn requires_write(method: &Method) -> bool {
             | Method::Reconcile { .. }
             | Method::ApplyMutation { .. }
             | Method::ApplyMultisigMutation { .. }
+            // X5-enforce (CONCEPT:EG-KG.ontology.rdf-update-guard): configuring the ICV
+            // write-guard's mode/shapes for a graph is a security-relevant admin
+            // action (it can DISABLE enforcement or register a hostile shape), so it
+            // requires Write access on the request's graph — never inferred from Read.
+            | Method::IcvConfigure { .. }
             | Method::ParseRepository { .. }
             | Method::DeleteGraph { .. }
             | Method::ClaimNext { .. }

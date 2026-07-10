@@ -21,6 +21,11 @@ pub mod error;
 pub mod linalg;
 pub mod random;
 pub mod reductions;
+// ModalityContract retrofit (CONCEPT:E4): `impl ModalityContract for
+// cluster::KMeansResult` + the `modality_conformance_tests!` battery. Behind the
+// crate's own opt-in `contract` feature (default OFF). See `src/contract.rs`.
+#[cfg(feature = "contract")]
+mod contract;
 // scipy.stats-parity ops (CONCEPT:EG-KG.compute.numeric-stats/EG-358). Gated behind `analytics` (pulled
 // by `python`) so a `pi`/`default` engine build linking the rlib pulls no statrs.
 #[cfg(feature = "analytics")]

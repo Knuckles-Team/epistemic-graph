@@ -104,6 +104,109 @@ pub fn rule_names() -> Vec<&'static str> {
     rules().iter().map(|r| r.name()).collect()
 }
 
+// ── DAG-aware optimizer (CONCEPT:EG-KG.query.dag-optimizer, E5 phase 3) ──────────
+
+/// The DAG generalization of [`optimize`] (CONCEPT:EG-KG.query.dag-optimizer): reorder ops
+/// WITHIN each maximal LINEAR CHAIN SEGMENT of `dag` — [`chain_segments`] — by splicing the
+/// segment's op sequence through the UNCHANGED linear engine above (the SAME `rules()` over
+/// the SAME [`Cardinality`]/[`crate::cost::CostEstimate`] contracts every existing plan
+/// already reorders through; nothing here duplicates a cost formula).
+///
+/// **The EG-405 adjacency guard, reimplemented as a DAG narrowing.** The linear engine's
+/// invariant — reorder only an ADJACENT run, never past an intermediate that could go empty
+/// and re-seed a downstream op as a SOURCE — assumed a `Vec<Op>` has exactly one predecessor
+/// per position. A DAG breaks that assumption at a BRANCH (a node with 2+ inputs) or a
+/// FAN-OUT (a node whose output feeds 2+ others): reordering an op across such a boundary
+/// could change what the OTHER branch/consumer observes, which the linear engine never had to
+/// reason about. [`chain_segments`] computes exactly the runs where that risk is ABSENT — a
+/// node extends its predecessor's segment iff it is that predecessor's ONLY consumer AND that
+/// predecessor is its ONLY input — so a rewrite NEVER crosses a branch/fan-out boundary. This
+/// is a STRICT NARROWING of the linear rule: a degenerate chain dag (every `From<Plan>`
+/// conversion) has no branches at all, so `chain_segments` returns ONE segment spanning every
+/// node and `optimize_dag` is IDENTICAL to `optimize` (proved by
+/// `dag_optimize_matches_linear_optimize_for_a_chain` below); a genuine multi-branch dag gets
+/// the SAME per-segment reorder, just never applied across a join — proved not to cross a
+/// branch by `optimizer_never_reorders_across_a_branch_boundary`.
+///
+/// A branch/join node's own `op` position never moves (only nodes WITHIN a segment can swap
+/// with each other); the multi-branch JOIN itself (combining 2+ parents) is `dag_exec`'s
+/// capability, not a cost decision this optimizer makes.
+pub fn optimize_dag(dag: &crate::dag::PlanDag, ctx: &PlanCtx) -> crate::dag::PlanDag {
+    if dag.nodes.is_empty() {
+        return dag.clone();
+    }
+    let card = ModalityCardinality::new(PlanStats::collect(ctx));
+    let mut nodes = dag.nodes.clone();
+    for segment in chain_segments(dag) {
+        if segment.len() < 2 {
+            continue; // nothing to reorder in a length-1 segment
+        }
+        let ops: Vec<Op> = segment.iter().map(|&id| nodes[id].op.clone()).collect();
+        let mut rewritten = ops.clone();
+        for rule in rules() {
+            rewritten = rule.apply(rewritten, &card, ctx);
+        }
+        // Defensive: a `Rule` must never change the op count (it only reorders). Skip the
+        // splice rather than risk mis-mapping ids onto the wrong node if one ever did.
+        if rewritten.len() != segment.len() {
+            continue;
+        }
+        for (&id, op) in segment.iter().zip(rewritten) {
+            nodes[id].op = op;
+        }
+    }
+    crate::dag::PlanDag::new(nodes)
+}
+
+/// Every maximal LINEAR CHAIN SEGMENT of `dag` (CONCEPT:EG-KG.query.dag-optimizer) — a run of
+/// node ids, in dependency order, where each node past the first has EXACTLY the previous
+/// node as its sole input, AND the previous node has EXACTLY this node as its sole consumer.
+/// A branch point (2+ inputs) or a fan-out point (a node consumed by 2+ others) starts a NEW
+/// segment — [`optimize_dag`]'s reorder never crosses that boundary. Every node appears in
+/// EXACTLY ONE segment (singleton segments included), so the returned segments partition
+/// `dag.nodes`. Falls back to a per-node partition (every node its own segment — a safe no-op
+/// for the optimizer) on a malformed dag (`topo_order` errors) rather than panicking.
+fn chain_segments(dag: &crate::dag::PlanDag) -> Vec<Vec<crate::dag::NodeId>> {
+    let n = dag.nodes.len();
+    let mut out_degree = vec![0usize; n];
+    for node in &dag.nodes {
+        for &input in &node.inputs {
+            if input < n {
+                out_degree[input] += 1;
+            }
+        }
+    }
+    let Ok(order) = dag.topo_order() else {
+        return (0..n).map(|i| vec![i]).collect();
+    };
+
+    let mut segment_of: Vec<Option<usize>> = vec![None; n];
+    let mut segments: Vec<Vec<crate::dag::NodeId>> = Vec::new();
+    for id in order {
+        let sole_parent = match dag.nodes[id].inputs.as_slice() {
+            [only] => Some(*only),
+            _ => None,
+        };
+        // Extend the parent's segment iff the seam is a clean 1:1 edge (this node's ONLY
+        // input is the parent, AND the parent's ONLY consumer is this node) — topo order
+        // guarantees the parent was already assigned a segment.
+        let extend = sole_parent
+            .filter(|&p| out_degree[p] == 1)
+            .and_then(|p| segment_of[p]);
+        match extend {
+            Some(seg_idx) => {
+                segments[seg_idx].push(id);
+                segment_of[id] = Some(seg_idx);
+            }
+            None => {
+                segment_of[id] = Some(segments.len());
+                segments.push(vec![id]);
+            }
+        }
+    }
+    segments
+}
+
 /// One cost-based rewrite over a logical op list (CONCEPT:EG-KG.query.xmodal-cost-optimizer). Each
 /// rule takes ownership of the ops, rewrites in place, and returns them — so the engine folds
 /// the rules into one pipeline. A rule MUST preserve the result set (see the module-level
@@ -344,6 +447,27 @@ fn is_reorderable(op: &Op) -> bool {
     #[cfg(feature = "owl")]
     if matches!(op, Op::Reason { .. }) {
         return true;
+    }
+    // EG-405 EXCLUSION (CONCEPT:EG-KG.epistemic.epistemic-substrate, E2): the epistemic ops do
+    // NOT draw candidates from the same id-set the `Filter`/`AsOf`/`Reason`/`Rank` commuting
+    // family shares — `EvidenceFor`/`Contradicts`/`SupportedBy` seed from a DIFFERENT edge-kind
+    // projection than the graph's own topology, `BeliefAsOf`/`ConfidenceOp`/`SourceReliability`
+    // re-score by a stateful belief-propagation walk (not a stateless per-row predicate), and
+    // `ExplainBelief`'s flattened output depends on tree DEPTH/order — none of these commute
+    // freely with a reorder the way a pure narrowing predicate does. Excluded EXPLICITLY (not
+    // by omission) so a future edit to this match can't silently make them reorder-eligible.
+    #[cfg(feature = "epistemic")]
+    if matches!(
+        op,
+        Op::EvidenceFor { .. }
+            | Op::Contradicts { .. }
+            | Op::SupportedBy { .. }
+            | Op::BeliefAsOf { .. }
+            | Op::SourceReliability { .. }
+            | Op::ConfidenceOp {}
+            | Op::ExplainBelief { .. }
+    ) {
+        return false;
     }
     false
 }
@@ -1079,6 +1203,160 @@ ex:p4 a ex:Paper .
             flipped[0], rank,
             "at this corrected scale vector-first is cheaper, so Rank must lead, got {:?}",
             flipped
+        );
+    }
+
+    // ── DAG-aware optimizer (CONCEPT:EG-KG.query.dag-optimizer, E5 phase 3) ──────
+
+    use crate::dag::{PlanDag, PlanNode};
+
+    /// `optimize_dag` over a DEGENERATE chain dag (every `From<Plan>` conversion) is
+    /// IDENTICAL to `optimize` over the equivalent linear `Plan` — the zero-behavior-change
+    /// half of the DAG-optimizer narrowing (a chain dag has exactly one segment spanning the
+    /// whole plan, so nothing is narrowed away relative to today).
+    #[test]
+    fn dag_optimize_matches_linear_optimize_for_a_chain() {
+        let fx = crate::fixture::build();
+        let ctx = PlanCtx::new(&fx.view, &fx.semantic);
+        let plan = Plan::new(vec![
+            Op::Scan {
+                label: "Doc".into(),
+            },
+            Op::Rank {
+                query: crate::fixture::query_vec(),
+            },
+            Op::Filter {
+                preds: vec![Pred::GtNum {
+                    prop: "year".into(),
+                    n: 2022.0,
+                }],
+            },
+        ]);
+
+        let linear_opt = optimize(&plan, &ctx);
+
+        let dag = PlanDag::from(plan);
+        let dag_opt = optimize_dag(&dag, &ctx);
+        let recovered = dag_opt
+            .as_linear_plan()
+            .expect("optimize_dag must not change the dag's edges — still a linear chain");
+
+        assert_eq!(
+            recovered.ops, linear_opt.ops,
+            "optimize_dag over a chain must reorder IDENTICALLY to optimize over the Plan"
+        );
+    }
+
+    /// THE EG-405-AS-DAG-NARROWING PROOF: two INDEPENDENT chain segments (one with a
+    /// selective range filter that MUST reorder ahead of its Rank, one with a broad range
+    /// filter that MUST stay put) feed a join node. `optimize_dag` must reorder EACH segment
+    /// on its OWN merits — proving no rewrite crosses the branch boundary between them (the
+    /// selective segment's cardinality context never leaks into the broad one or vice versa),
+    /// and the join node's own op is never touched.
+    #[test]
+    fn optimizer_never_reorders_across_a_branch_boundary() {
+        use eg_core::compute::semantic::SemanticStore;
+        use eg_core::graph::GraphCore;
+        use serde_json::json;
+
+        // The SAME 1000-node/0..999-year fixture the linear ablation test above uses, so
+        // `year > 980` is genuinely selective (~2%) and `year > 20` genuinely broad (~98%).
+        const N: usize = 1_000;
+        let core = GraphCore::new();
+        let mut semantic = SemanticStore::new();
+        for k in 0..N {
+            let id = format!("d{k}");
+            core.add_node(
+                id.clone(),
+                rmp_serde::to_vec_named(&json!({ "type": "Doc", "year": k as i64 })).unwrap(),
+            );
+            let mut v = vec![0.0f32; 4];
+            v[k % 4] = 1.0;
+            semantic.add_embedding(id, v);
+        }
+        let view = core.analysis_snapshot();
+        let ctx = PlanCtx::new(&view, &semantic);
+
+        let scan_doc = || Op::Scan {
+            label: "Doc".into(),
+        };
+        let rank = || Op::Rank {
+            query: crate::fixture::query_vec(),
+        };
+        let selective_filter = Op::Filter {
+            preds: vec![Pred::GtNum {
+                prop: "year".into(),
+                n: 980.0,
+            }],
+        };
+        let broad_filter = Op::Filter {
+            preds: vec![Pred::GtNum {
+                prop: "year".into(),
+                n: 20.0,
+            }],
+        };
+
+        // Segment A: [Scan, Rank, Filter{selective}] — ids 0,1,2.
+        // Segment B: [Scan, Rank, Filter{broad}]     — ids 3,4,5.
+        // Join:      Limit joining both branch outputs — id 6.
+        let dag = PlanDag::new(vec![
+            PlanNode::new(scan_doc(), vec![]),
+            PlanNode::new(rank(), vec![0]),
+            PlanNode::new(selective_filter.clone(), vec![1]),
+            PlanNode::new(scan_doc(), vec![]),
+            PlanNode::new(rank(), vec![3]),
+            PlanNode::new(broad_filter.clone(), vec![4]),
+            PlanNode::new(Op::Limit { k: 5 }, vec![2, 5]),
+        ]);
+
+        let opt = optimize_dag(&dag, &ctx);
+
+        // Segment A reordered filter-first (the selective range wins ahead of Rank).
+        assert!(
+            matches!(opt.nodes[0].op, Op::Scan { .. }),
+            "segment A's source position never moves"
+        );
+        assert_eq!(
+            opt.nodes[1].op, selective_filter,
+            "segment A: the selective filter must be pushed AHEAD of Rank, got {:?}",
+            opt.nodes[1].op
+        );
+        assert!(
+            matches!(opt.nodes[2].op, Op::Rank { .. }),
+            "segment A: Rank pushed behind the selective filter, got {:?}",
+            opt.nodes[2].op
+        );
+
+        // Segment B is UNCHANGED (the broad filter stays vector-first) — proving segment A's
+        // reorder decision never leaked across the join boundary into segment B.
+        assert!(
+            matches!(opt.nodes[3].op, Op::Scan { .. }),
+            "segment B's source position never moves"
+        );
+        assert!(
+            matches!(opt.nodes[4].op, Op::Rank { .. }),
+            "segment B: broad filter stays BEHIND Rank (vector-first), got {:?}",
+            opt.nodes[4].op
+        );
+        assert_eq!(
+            opt.nodes[5].op, broad_filter,
+            "segment B: the broad filter must stay untouched, got {:?}",
+            opt.nodes[5].op
+        );
+
+        // The join node's own op and edges are completely untouched.
+        assert_eq!(opt.nodes[6].op, Op::Limit { k: 5 });
+        assert_eq!(opt.nodes[6].inputs, vec![2, 5]);
+
+        // `chain_segments` partitions exactly as designed: two 3-node chains + one singleton
+        // join — the structural proof the narrowing never merges across the branch.
+        let segments = chain_segments(&dag);
+        let mut sizes: Vec<usize> = segments.iter().map(|s| s.len()).collect();
+        sizes.sort_unstable();
+        assert_eq!(
+            sizes,
+            vec![1, 3, 3],
+            "expected two independent 3-op chains plus the singleton join, got {segments:?}"
         );
     }
 }

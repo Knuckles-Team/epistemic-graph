@@ -888,7 +888,13 @@ impl Classification {
 /// child proofs for each premise the rule consumed (empty at a leaf). [`Classification::explain`]
 /// builds this recursively from [`Justification`]s already recorded during saturation —
 /// NO re-derivation, just reconstruction of the DAG the closure already built.
-#[derive(Clone, Debug, PartialEq)]
+// `Serialize`/`Deserialize` derived (beyond the existing `Clone, Debug, PartialEq`)
+// so `ProofNode` satisfies `eg_modality::ConformanceTestable`'s bounds for the
+// ModalityContract retrofit (CONCEPT:E4, feature `contract`) — serde is already an
+// unconditional base dependency of this crate, so this adds no new dep and no
+// feature gate; a proof tree persisting/riding the wire is a reasonable capability
+// on its own merits (e.g. caching a computed explanation).
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ProofNode {
     pub sub: String,
     pub sup: String,

@@ -389,17 +389,22 @@ The facade declares `crate-type = ["rlib"]` (no `cdylib`/pyo3; maturin
 `bindings = "bin"`).
 
 **Opt-in build layer — `full-extras` (main build + GPU/robotics).** An umbrella
-(`full-extras = ["full", "gpu-cuda", "ros2-bridge", "ros2-dds"]`) for heavy legs that
-need an external toolchain/GPU/robotics stack to actually *run* but still build clean
-everywhere: `gpu-cuda` (real CUDA via `dynamic-loading` cudarc, EG-KG.compute.gpu-distance-seam/327),
+(`full-extras = ["full", "gpu-cuda", "ros2-bridge", "ros2-dds", "ros2-rmw"]`) for heavy
+legs that need an external toolchain/GPU/robotics stack to actually *run* but still build
+clean everywhere: `gpu-cuda` (real CUDA via `dynamic-loading` cudarc, EG-KG.compute.gpu-distance-seam/327),
 `ros2-bridge` (rosbridge-WebSocket ROS2 leg, EG-KG.domains.robotics-gpu-distribution — pure-Rust `tokio-tungstenite`),
-and `ros2-dds` (**native DDS/RTPS ROS2 leg, EG-KG.ingest.dds-transport** — pure-Rust `rustdds`, NO
-CycloneDDS/rmw/C toolchain, so it CI-builds; the `DdsTransport` trait in
-`src/server/dds.rs` unifies the WS + DDS legs behind one interface). NOT in the main
-build — a `default`/`full` build links no cudarc/rustdds (asserted by
-`cargo tree`). The CycloneDDS-C-backed `rmw` ROS2 leg stays a toolchain-gated future
-option (not CI-buildable without the C toolchain). Robotics config: `ros2-dds` reads the
-DDS domain from `EPISTEMIC_GRAPH_ROS_DDS_DOMAIN` (default `0`).
+`ros2-dds` (**native DDS/RTPS ROS2 leg, EG-KG.ingest.dds-transport** — pure-Rust `rustdds`, NO
+CycloneDDS/rmw/C toolchain, so it CI-builds), and `ros2-rmw` (**CycloneDDS-C-backed `rmw`
+ROS2 leg, S5 / EG-KG.ingest.rmw-cyclonedds-leg** — the safe `cyclonedds` Rust crate over
+vendored, cmake-built CycloneDDS C sources: `cyclonedds-src` ships the C sources IN the
+crate tarball, `cyclonedds-rust-sys`'s build.rs builds them with `cmake` + ships prebuilt
+bindgen output, so it needs a C toolchain (`cc`/`cmake`) but NOT libclang/network at build
+time; this is genuine zero-config live-`ros2` interop, a real `ros2` node discovers/pubs/
+subs with no bridge). The `DdsTransport` trait in `src/server/dds.rs` unifies the WS +
+BOTH native DDS legs behind one interface, sharing the SAME `mangle_topic_name`/
+`mangle_type_name` rmw mangling. NOT in the main build — a `default`/`full` build links
+no cudarc/rustdds/cyclonedds (asserted by `cargo tree`). Robotics config: `ros2-dds`/
+`ros2-rmw` both read the DDS domain from `EPISTEMIC_GRAPH_ROS_DDS_DOMAIN` (default `0`).
 
 ---
 

@@ -274,6 +274,95 @@ pub(crate) async fn try_handle(
             };
             Ok(resp)
         }
+        // ── EXPLAIN surfaces (CONCEPT:EG-KG.query.plan-dag, E5 phase 4) ──────────────
+        #[cfg(feature = "query")]
+        Method::ExplainPlan { plan } => {
+            let snap = explain_snapshot(
+                &core,
+                #[cfg(feature = "security")]
+                caller,
+                #[cfg(feature = "security")]
+                rls,
+            );
+            let semantic = core.semantic_store.read().clone();
+            let resp = match compute_off_lock(req_id, move || explain_plan(plan, &snap, &semantic))
+                .await
+            {
+                Ok(Ok(result)) => {
+                    let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
+                    Response::ok(req_id, ResultPayload::Raw(bytes))
+                }
+                Ok(Err(msg)) => Response::err(req_id, format!("ExplainPlan error: {msg}")),
+                Err(resp) => resp,
+            };
+            Ok(resp)
+        }
+        #[cfg(feature = "query")]
+        Method::ExplainProvenance { plan } => {
+            let snap = explain_snapshot(
+                &core,
+                #[cfg(feature = "security")]
+                caller,
+                #[cfg(feature = "security")]
+                rls,
+            );
+            let semantic = core.semantic_store.read().clone();
+            let resp =
+                match compute_off_lock(req_id, move || explain_provenance(plan, &snap, &semantic))
+                    .await
+                {
+                    Ok(Ok(result)) => {
+                        let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
+                        Response::ok(req_id, ResultPayload::Raw(bytes))
+                    }
+                    Ok(Err(msg)) => {
+                        Response::err(req_id, format!("ExplainProvenance error: {msg}"))
+                    }
+                    Err(resp) => resp,
+                };
+            Ok(resp)
+        }
+        #[cfg(feature = "query")]
+        Method::ExplainPolicy { plan } => {
+            // BOTH the unfiltered snapshot and the caller's RLS-filtered one, so the
+            // diagnostic can report exactly which rows the policy denied (reuses the
+            // SAME `IsolationLayer::filter_view` every other read path applies).
+            let full = core.analysis_snapshot();
+            let filtered = explain_snapshot(
+                &core,
+                #[cfg(feature = "security")]
+                caller,
+                #[cfg(feature = "security")]
+                rls,
+            );
+            let semantic = core.semantic_store.read().clone();
+            let resp = match compute_off_lock(req_id, move || {
+                explain_policy(plan, &full, &filtered, &semantic)
+            })
+            .await
+            {
+                Ok(Ok(result)) => {
+                    let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
+                    Response::ok(req_id, ResultPayload::Raw(bytes))
+                }
+                Ok(Err(msg)) => Response::err(req_id, format!("ExplainPolicy error: {msg}")),
+                Err(resp) => resp,
+            };
+            Ok(resp)
+        }
+        #[cfg(feature = "epistemic")]
+        Method::ExplainBelief { node_id } => {
+            let snap = core.analysis_snapshot();
+            let resp = match compute_off_lock(req_id, move || explain_belief(&node_id, &snap)).await
+            {
+                Ok(result) => {
+                    let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
+                    Response::ok(req_id, ResultPayload::Raw(bytes))
+                }
+                Err(resp) => resp,
+            };
+            Ok(resp)
+        }
         // ── In-transaction cross-modal read-your-own-writes (CONCEPT:EG-KG.query.txn-cross-modal-ryow) ──
         // Run the SAME unified cross-modal plan as `UnifiedQuery`, but over a
         // snapshot OVERLAID with the open txn's staged (uncommitted) write-set +
@@ -803,6 +892,273 @@ pub(crate) fn run_unified(
         .iter()
         .map(|r| (r.id.clone(), r.score))
         .collect())
+}
+
+// ── EXPLAIN surfaces (CONCEPT:EG-KG.query.plan-dag, E5 phase 4) ──────────────────────
+
+/// The RLS-filtered snapshot [`rls_snapshot`] builds, without that fn's `result-cache`
+/// gating (the EXPLAIN surfaces are diagnostics-only and never participate in the
+/// version-keyed result cache, so they need this unconditionally rather than
+/// duplicating the inline result-cache-aware snapshot each `UnifiedQuery`-family arm
+/// builds when `result-cache` is on).
+#[cfg(feature = "query")]
+fn explain_snapshot(
+    core: &Arc<GraphCore>,
+    #[cfg(feature = "security")] caller: Option<&str>,
+    #[cfg(feature = "security")] rls: &Arc<crate::isolation::IsolationLayer>,
+) -> crate::graph::GraphView {
+    #[cfg_attr(not(feature = "security"), allow(unused_mut))]
+    let mut snap = core.analysis_snapshot();
+    #[cfg(feature = "security")]
+    rls.filter_view(caller.unwrap_or(""), &mut snap);
+    snap
+}
+
+/// `EXPLAIN PLAN` — serialize `plan` as a `PlanDag` before/after the DAG-aware cost
+/// optimizer (`eg_plan::optimize_dag`), plus the active rule set
+/// (`eg_plan::cost_opt_rule_names()`). Pure diagnostics — no execution.
+#[cfg(feature = "query")]
+fn explain_plan(
+    plan: eg_plan::Plan,
+    view: &crate::graph::GraphView,
+    semantic: &eg_core::compute::semantic::SemanticStore,
+) -> Result<crate::protocol::ExplainPlanResult, String> {
+    use crate::protocol::{ExplainNodeWire, ExplainPlanResult};
+    use eg_plan::PlanCtx;
+
+    fn to_wire(dag: &eg_plan::PlanDag) -> Vec<ExplainNodeWire> {
+        dag.nodes
+            .iter()
+            .enumerate()
+            .map(|(id, node)| ExplainNodeWire {
+                id,
+                op: format!("{:?}", node.op),
+                inputs: node.inputs.clone(),
+            })
+            .collect()
+    }
+
+    let ctx = PlanCtx::new(view, semantic);
+    let before = eg_plan::PlanDag::from(plan);
+    let after = eg_plan::optimize_dag(&before, &ctx);
+    Ok(ExplainPlanResult {
+        before: to_wire(&before),
+        after: to_wire(&after),
+        applied_rules: eg_plan::cost_opt_rule_names()
+            .into_iter()
+            .map(str::to_string)
+            .collect(),
+    })
+}
+
+/// Map an `eg_modality::EvidenceSpan` (X1, CONCEPT:E4 — `eg_plan::KnowledgeRow`'s
+/// REAL, located per-row evidence) onto its wire mirror `EvidenceSpanWire`
+/// (`eg_types`, which cannot depend on `eg_modality` — see that type's own doc
+/// comment for the DAG reason). A 1:1 field-for-field copy, variant for variant.
+#[cfg(feature = "epistemic")]
+fn evidence_span_wire(span: &eg_modality::EvidenceSpan) -> crate::protocol::EvidenceSpanWire {
+    use crate::protocol::EvidenceSpanWire;
+    use eg_modality::EvidenceSpan;
+
+    match span {
+        EvidenceSpan::DocumentSpan {
+            document_id,
+            start,
+            end,
+        } => EvidenceSpanWire::DocumentSpan {
+            document_id: document_id.clone(),
+            start: *start,
+            end: *end,
+        },
+        EvidenceSpan::TableCellRange {
+            table_id,
+            row_start,
+            row_end,
+            col_start,
+            col_end,
+        } => EvidenceSpanWire::TableCellRange {
+            table_id: table_id.clone(),
+            row_start: *row_start,
+            row_end: *row_end,
+            col_start: *col_start,
+            col_end: *col_end,
+        },
+        EvidenceSpan::ImageRegion {
+            image_id,
+            x,
+            y,
+            width,
+            height,
+        } => EvidenceSpanWire::ImageRegion {
+            image_id: image_id.clone(),
+            x: *x,
+            y: *y,
+            width: *width,
+            height: *height,
+        },
+        EvidenceSpan::AudioSegment {
+            audio_id,
+            start_ms,
+            end_ms,
+        } => EvidenceSpanWire::AudioSegment {
+            audio_id: audio_id.clone(),
+            start_ms: *start_ms,
+            end_ms: *end_ms,
+        },
+        EvidenceSpan::VideoShot {
+            video_id,
+            start_ms,
+            end_ms,
+        } => EvidenceSpanWire::VideoShot {
+            video_id: video_id.clone(),
+            start_ms: *start_ms,
+            end_ms: *end_ms,
+        },
+        EvidenceSpan::CodeSymbol {
+            file_path,
+            symbol,
+            start_line,
+            end_line,
+        } => EvidenceSpanWire::CodeSymbol {
+            file_path: file_path.clone(),
+            symbol: symbol.clone(),
+            start_line: *start_line,
+            end_line: *end_line,
+        },
+        EvidenceSpan::TraceSpan { trace_id, span_id } => EvidenceSpanWire::TraceSpan {
+            trace_id: trace_id.clone(),
+            span_id: span_id.clone(),
+        },
+    }
+}
+
+/// `EXPLAIN PROVENANCE` — run `plan` and, for each result row, resolve its EVIDENCE-FOR
+/// provenance over the `KnowledgeSet` (E3) row shape (CONCEPT:EG-KG.query.knowledge-set),
+/// reusing the SAME belief-substrate resolution `Op::EvidenceFor` runs, PLUS (X1,
+/// CONCEPT:E4) the row's own located `evidence_refs` `KnowledgeSet::from_rowset`
+/// already resolved. With `epistemic` off, every row's `source_refs`/`evidence_spans`
+/// are empty and `resolved` is `false` — the documented "no epistemic resolution ran"
+/// `KnowledgeSet` v1 default.
+#[cfg(feature = "query")]
+fn explain_provenance(
+    plan: eg_plan::Plan,
+    view: &crate::graph::GraphView,
+    semantic: &eg_core::compute::semantic::SemanticStore,
+) -> Result<crate::protocol::ExplainProvenanceResult, String> {
+    use crate::protocol::{ExplainProvenanceResult, ExplainProvenanceRowWire};
+    use eg_plan::PlanCtx;
+
+    let ctx = PlanCtx::new(view, semantic);
+    let rs = eg_plan::execute(&plan, &ctx)?;
+    let ks = eg_plan::KnowledgeSet::from_rowset(&rs, view, &[]);
+
+    #[cfg(feature = "epistemic")]
+    let rows: Vec<ExplainProvenanceRowWire> = ks
+        .rows
+        .iter()
+        .map(|row| {
+            // Reuse the SAME `Op::EvidenceFor` resolution the plan-Op surface runs, as
+            // its own tiny one-op plan — no private eg-plan access needed.
+            let evidence_plan = eg_plan::Plan::new(vec![eg_plan::Op::EvidenceFor {
+                claim_id: row.id.clone(),
+            }]);
+            let source_refs = eg_plan::execute(&evidence_plan, &ctx)
+                .map(|r| r.ids())
+                .unwrap_or_default();
+            // X1: the row's own located evidence, already resolved by
+            // `KnowledgeSet::from_rowset` — just map it onto the wire shape.
+            let evidence_spans = row.evidence_refs.iter().map(evidence_span_wire).collect();
+            ExplainProvenanceRowWire {
+                id: row.id.clone(),
+                kind: row.kind.clone(),
+                source_refs,
+                evidence_spans,
+            }
+        })
+        .collect();
+    #[cfg(not(feature = "epistemic"))]
+    let rows: Vec<ExplainProvenanceRowWire> = ks
+        .rows
+        .iter()
+        .map(|row| ExplainProvenanceRowWire {
+            id: row.id.clone(),
+            kind: row.kind.clone(),
+            source_refs: Vec::new(),
+            evidence_spans: Vec::new(),
+        })
+        .collect();
+
+    Ok(ExplainProvenanceResult {
+        rows,
+        resolved: cfg!(feature = "epistemic"),
+    })
+}
+
+/// `EXPLAIN POLICY` — run `plan` against BOTH the unfiltered snapshot and the caller's
+/// RLS-filtered one (reusing the SAME `IsolationLayer::filter_view` every read path
+/// already applies before this fn is ever reached), reporting which result ids the
+/// policy denied. With no filtering applied (no `security` feature, or no caller/RLS on
+/// this connection) `full_view` and `filtered_view` are the identical snapshot, so
+/// `policy_denied_ids` is always empty.
+#[cfg(feature = "query")]
+fn explain_policy(
+    plan: eg_plan::Plan,
+    full_view: &crate::graph::GraphView,
+    filtered_view: &crate::graph::GraphView,
+    semantic: &eg_core::compute::semantic::SemanticStore,
+) -> Result<crate::protocol::ExplainPolicyResult, String> {
+    use crate::protocol::ExplainPolicyResult;
+    use eg_plan::PlanCtx;
+
+    let full_ctx = PlanCtx::new(full_view, semantic);
+    let filtered_ctx = PlanCtx::new(filtered_view, semantic);
+    let full_ids: std::collections::HashSet<String> = eg_plan::execute(&plan, &full_ctx)?
+        .ids()
+        .into_iter()
+        .collect();
+    let visible_ids: Vec<String> = eg_plan::execute(&plan, &filtered_ctx)?.ids();
+    let visible_set: std::collections::HashSet<&str> =
+        visible_ids.iter().map(String::as_str).collect();
+    let mut policy_denied_ids: Vec<String> = full_ids
+        .iter()
+        .filter(|id| !visible_set.contains(id.as_str()))
+        .cloned()
+        .collect();
+    policy_denied_ids.sort();
+    Ok(ExplainPolicyResult {
+        visible_ids,
+        policy_denied_ids,
+    })
+}
+
+/// `EXPLAIN BELIEF <node_id>` — the FULL, un-flattened E1 justification tree
+/// (`eg_epistemic::JustificationGraph`, via `eg_plan::explain_belief_tree`), wire-projected
+/// recursively (mirroring `Method::OwlExplain`'s `ProofNodeWire`).
+#[cfg(feature = "epistemic")]
+fn explain_belief(
+    node_id: &str,
+    view: &crate::graph::GraphView,
+) -> crate::protocol::ExplainBeliefResult {
+    use crate::protocol::{ExplainBeliefResult, JustificationNodeWire};
+
+    fn to_wire(node: &eg_epistemic::ProofNode) -> JustificationNodeWire {
+        JustificationNodeWire {
+            claim: node.claim.clone(),
+            rule: format!("{:?}", node.rule),
+            confidence: node.confidence,
+            premises: node.premises.iter().map(to_wire).collect(),
+        }
+    }
+
+    // A minimal semantic store: `explain_belief_tree` only reads `ctx.view` +
+    // `ctx.belief_policy` (default, unbound on this path — no facade caller binds a
+    // tenant-specific policy today, matching every other served epistemic op).
+    let semantic = eg_core::compute::semantic::SemanticStore::new();
+    let ctx = eg_plan::PlanCtx::new(view, &semantic);
+    let tree = eg_plan::explain_belief_tree(&ctx, node_id);
+    ExplainBeliefResult {
+        root: to_wire(&tree.root),
+    }
 }
 
 /// Resolve an OPEN txn, build a snapshot OVERLAID with its staged write-set +
