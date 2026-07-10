@@ -42,12 +42,14 @@ promql = []
 # sub-feature (which implies `obs`).
 traces = []
 # ModalityContract retrofit (CONCEPT:E4): `impl ModalityContract for
-# store::SeriesMeta` + the `modality_conformance_tests!` battery. OFF by default,
-# deliberately NOT folded into any tier aggregate (pi/node/full) — it is a
-# capability-discovery/testing seam, not a serving feature. Implies `redb-store`
-# since `SeriesMeta` lives in that module. `cargo test -p eg-tsdb --features
-# contract` runs the suite.
-contract = ["dep:eg-modality", "redb-store"]
+# store::SeriesMeta` AND `impl ModalityContract for traces::Span` (the X1 real
+# `evidence()` -> `EvidenceSpan::TraceSpan` resolver) + the
+# `modality_conformance_tests!` battery for each. OFF by default, deliberately NOT
+# folded into any tier aggregate (pi/node/full) — it is a capability-discovery/
+# testing seam, not a serving feature. Implies `redb-store` (since `SeriesMeta`
+# lives there) AND `traces` (since `Span` lives there). `cargo test -p eg-tsdb
+# --features contract` runs the suite.
+contract = ["dep:eg-modality", "redb-store", "traces"]
 
 [dependencies]
 # The ONE shared decay curve (CONCEPT:KG-2.211) lives in eg-core; the finance
