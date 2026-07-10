@@ -666,6 +666,18 @@ async fn dispatch_inner(state: &Arc<RwLock<ServerState>>, req: Request) -> Respo
                 Err(_) => Response::err(req.id, "txn dispatch routing error"),
             }
         }
+        // Planner-writeback staging (CONCEPT:EG-KG.query.plan-dag, D7) — carries its OWN
+        // `graph` (like `TxnConstruct`), so it routes straight to the txn handler with NO
+        // BeginTxn graph-default rewrite. `query`-gated to match its protocol variant.
+        #[cfg(feature = "query")]
+        Method::TxnPlanWriteback { .. } => {
+            match handlers::txn::try_handle(state, req.id, req.agent_id.as_deref(), req.method)
+                .await
+            {
+                Ok(resp) => resp,
+                Err(_) => Response::err(req.id, "txn dispatch routing error"),
+            }
+        }
 
         // ── Time-series (CONCEPT:AU-KG.retrieval.god-nodes-communities/211 — native TSDB) ─────────
         // Stateful + self-routing: a Ts* op targets the SERIES store (keyed by

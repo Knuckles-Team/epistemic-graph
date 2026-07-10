@@ -1679,6 +1679,51 @@ pub enum Method {
         reorder_filter_selectivity: Option<f64>,
     },
 
+    // ── EXPLAIN surfaces (CONCEPT:EG-KG.query.plan-dag, E5 phase 4) ──────────────────
+    // Diagnostics over the SAME `wire::Plan` `UnifiedQuery` carries — no new execution
+    // path, just introspection into what the planner did / would do. Read-only.
+    /// `EXPLAIN PLAN` — serialize `plan` as a [`crate::wire::Plan`]::PlanDag conversion
+    /// (a linear plan is a degenerate chain, CONCEPT:EG-KG.query.plan-dag) both BEFORE and
+    /// AFTER the DAG-aware cost optimizer (`eg_plan::optimizer::optimize_dag`), plus the
+    /// active rule set (`eg_plan::cost_opt_rule_names()`) — the optimizer rewrite trace.
+    /// Returns an `ExplainPlanResult` via `ResultPayload::raw`. Gated `query` (same as
+    /// `UnifiedQuery`).
+    #[cfg(feature = "query")]
+    ExplainPlan {
+        plan: crate::wire::Plan,
+    },
+    /// `EXPLAIN PROVENANCE` — run `plan` and, for each result row, resolve its
+    /// EVIDENCE-FOR provenance (the SAME belief-substrate `EvidenceFor` resolution E2's
+    /// `Op::EvidenceFor` op runs) over the `KnowledgeSet` (E3) row shape. With the
+    /// `epistemic` feature OFF (or absent at runtime) every row's provenance is empty and
+    /// `resolved` is `false` — the documented "no epistemic resolution ran" behavior E3's
+    /// `KnowledgeSet` already carries (CONCEPT:EG-KG.query.knowledge-set). Returns an
+    /// `ExplainProvenanceResult` via `ResultPayload::raw`. Gated `query`.
+    #[cfg(feature = "query")]
+    ExplainProvenance {
+        plan: crate::wire::Plan,
+    },
+    /// `EXPLAIN POLICY` — run `plan` against BOTH the caller's RLS-filtered snapshot and
+    /// the UNFILTERED snapshot (reusing the SAME `eg_core::isolation::IsolationLayer`
+    /// `filter_view` every read path already applies), reporting which result rows the
+    /// policy DENIED. With the `security` feature off (or no caller/RLS configured), no
+    /// filtering applies and `policy_denied_ids` is always empty. Returns an
+    /// `ExplainPolicyResult` via `ResultPayload::raw`. Gated `query`.
+    #[cfg(feature = "query")]
+    ExplainPolicy {
+        plan: crate::wire::Plan,
+    },
+    /// `EXPLAIN BELIEF <node_id>` — the FULL, un-flattened E1 justification tree
+    /// (`eg_epistemic::JustificationGraph`, via `eg_plan::explain_belief_tree`) rooted at
+    /// `node_id` — the standalone verbatim-tree surface E2's plan-`Op::ExplainBelief`
+    /// (a flat `RowSet` projection) documents as a follow-up, mirroring
+    /// `Method::OwlExplain`'s `ProofNodeWire`. Returns an `ExplainBeliefResult` via
+    /// `ResultPayload::raw`. Gated `epistemic` (which implies `query`).
+    #[cfg(feature = "epistemic")]
+    ExplainBelief {
+        node_id: String,
+    },
+
     // ── Natural-language query (CONCEPT:EG-KG.query.core-query-input/EG-080) ─────────────────────
     /// Natural-language → executable query → rows. `text` is the NL request, `graph`
     /// the target graph (the `/nl` HTTP facade path has no request envelope, so the
@@ -1948,6 +1993,27 @@ pub enum Method {
         txn_id: String,
         /// SPARQL CONSTRUCT query whose triples are staged into the txn.
         sparql: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        graph: Option<String>,
+    },
+    /// Stage a PLANNER WRITEBACK into a txn (CONCEPT:EG-KG.query.plan-dag, D7 — the
+    /// planner-writeback ACID seam). `plan` (the SAME `wire::Plan` AST `UnifiedQuery`
+    /// carries) runs READ-ONLY against the txn's committed snapshot; each id in its
+    /// result `RowSet` becomes an `AddEdge { source_id: anchor_id, target_id: id,
+    /// relationship }` — e.g. materializing a `Reason`/`Traverse`-inferred edge set —
+    /// staged (via `GraphTxnState::stage_plan_writeback`, copying the `TxnAxiom`/
+    /// `TxnConstruct` shape verbatim) into the SAME atomic `WriteTransaction` as the
+    /// txn's other modalities. Gated `query` (mirrors `UnifiedQuery`); a build without
+    /// it drops the variant → the dispatch "not available in this build" catch-all.
+    #[cfg(feature = "query")]
+    TxnPlanWriteback {
+        txn_id: String,
+        /// The plan whose result `RowSet` is materialized as edges.
+        plan: crate::wire::Plan,
+        /// The edge SOURCE every materialized edge is anchored to.
+        anchor_id: String,
+        /// The `relationship` property every materialized edge carries.
+        relationship: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         graph: Option<String>,
     },
@@ -3786,6 +3852,90 @@ pub struct OwlExplainResult {
     pub consistent: bool,
     /// Named classes derived to be unsatisfiable; empty when consistent.
     pub unsatisfiable: Vec<String>,
+}
+
+// ── EXPLAIN surface wire results (CONCEPT:EG-KG.query.plan-dag, E5 phase 4) ──────────
+// Diagnostics-only projections: `op`/`rule` render the underlying `eg_plan`/`eg_epistemic`
+// type via its `Debug` impl (a typed wire mirror of the WHOLE cross-modal `Op` algebra —
+// or the epistemic `JustRule` enum — would duplicate it for a read-only surface with no
+// other consumer; the facade, which depends on `eg_plan`, builds these strings, so
+// `eg_types` itself stays free of an `eg_plan`/`eg_epistemic` dependency, matching Rule R1).
+
+/// One node of an `EXPLAIN PLAN` dump — the wire projection of an `eg_plan::dag::PlanNode`.
+#[cfg(feature = "query")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExplainNodeWire {
+    pub id: usize,
+    /// `Debug`-rendered `eg_plan::Op`.
+    pub op: String,
+    pub inputs: Vec<usize>,
+}
+
+/// Materialized result of a `Method::ExplainPlan` run. Returned via `ResultPayload::raw`.
+#[cfg(feature = "query")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExplainPlanResult {
+    /// The plan as a `PlanDag` BEFORE the DAG-aware cost optimizer.
+    pub before: Vec<ExplainNodeWire>,
+    /// The plan as a `PlanDag` AFTER `eg_plan::optimizer::optimize_dag`.
+    pub after: Vec<ExplainNodeWire>,
+    /// The active optimizer rule set, in application order (`eg_plan::cost_opt_rule_names()`).
+    pub applied_rules: Vec<String>,
+}
+
+/// One result row's resolved provenance for `Method::ExplainProvenance`.
+#[cfg(feature = "query")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExplainProvenanceRowWire {
+    pub id: String,
+    /// The row's `KnowledgeSet` (E3) `kind` (`node_type`/`type`, or empty when absent).
+    pub kind: String,
+    /// Ids of nodes providing EVIDENCE FOR this row (the `Op::EvidenceFor` resolution).
+    /// Always empty when provenance resolution did not run (see `ExplainProvenanceResult::resolved`).
+    pub source_refs: Vec<String>,
+}
+
+/// Materialized result of a `Method::ExplainProvenance` run. Returned via `ResultPayload::raw`.
+#[cfg(feature = "query")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExplainProvenanceResult {
+    pub rows: Vec<ExplainProvenanceRowWire>,
+    /// `true` iff the `epistemic` feature resolved real `source_refs`; `false` ⇒ every
+    /// row's `source_refs` is empty (no epistemic resolution ran — the `KnowledgeSet` v1
+    /// default, CONCEPT:EG-KG.query.knowledge-set).
+    pub resolved: bool,
+}
+
+/// Materialized result of a `Method::ExplainPolicy` run (CONCEPT:EG-KG.sharding.row-level-security).
+/// Returned via `ResultPayload::raw`.
+#[cfg(feature = "query")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExplainPolicyResult {
+    /// Ids the caller's RLS-filtered view actually returns.
+    pub visible_ids: Vec<String>,
+    /// Ids present in the UNFILTERED result but absent from `visible_ids` — what the
+    /// policy denied. Always empty when no RLS filtering applied (no `security` feature,
+    /// or no caller/RLS on this connection).
+    pub policy_denied_ids: Vec<String>,
+}
+
+/// One node of an `EXPLAIN BELIEF` justification tree — the wire projection of
+/// `eg_epistemic::ProofNode`. `rule` is the `Debug`-rendered `eg_epistemic::JustRule`
+/// (`"Asserted"`, `"DerivedSupport"`, `"DerivedContradiction"`, `"BayesianUpdate"`).
+#[cfg(feature = "epistemic")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JustificationNodeWire {
+    pub claim: String,
+    pub rule: String,
+    pub confidence: f64,
+    pub premises: Vec<JustificationNodeWire>,
+}
+
+/// Materialized result of a `Method::ExplainBelief` run. Returned via `ResultPayload::raw`.
+#[cfg(feature = "epistemic")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExplainBeliefResult {
+    pub root: JustificationNodeWire,
 }
 
 /// Graph type for multi-tenant registry.
