@@ -29,6 +29,17 @@ mining = ["eg-types/mining"]
 # wire variants exist. No heavy dep (no torch) — folded into `full` via `compute`.
 graphlearn = ["datascience", "eg-types/graphlearn"]
 reasoning = []
+# GPU transitive-closure DISPATCH SEAM (CONCEPT:EG-KG.compute.reasoning-closure-gpu):
+# compiles the `ClosureBackend` trait + backend selection in `reasoning_closure`. The
+# pure-Rust CPU hash-join is ALWAYS the compiled-in fallback; this marker just opts a
+# build into the seam (and is implied by `gpu-cuda`). No accelerator dep on its own —
+# Pi-lean, kept OUT of pi/full by the facade. Implies `reasoning` (the module it extends).
+gpu = ["reasoning"]
+# REAL CUDA transitive-join backend: pulls `cudarc` (dynamic-loading, so it builds with
+# NO CUDA toolkit) and runs the two-pass CSR-join kernel on a GPU when a device is
+# present, else falls back to the CPU backend at runtime. Implies `gpu`. OUT of
+# pi/default/full — an extras-only feature, mirroring `eg-ann`'s `gpu-cuda`.
+gpu-cuda = ["gpu", "dep:cudarc"]
 # ModalityContract retrofit (CONCEPT:E4): `impl ModalityContract for MergeProposal`
 # AND `impl ModalityContract for ast::symbol::Symbol` (the X1 real `evidence()` ->
 # `EvidenceSpan::CodeSymbol` resolver) + the `modality_conformance_tests!` battery for
@@ -85,6 +96,11 @@ eg-modality = { path = "../eg-modality", optional = true }
 # Optional, domain-gated heavy deps.
 nalgebra = { version = "0.32", features = ["serde"], optional = true }
 rand_chacha = { version = "0.3", optional = true }
+# REAL CUDA transitive-join backend (CONCEPT:EG-KG.compute.reasoning-closure-gpu), only
+# under `gpu-cuda`. `dynamic-loading` dlopens libcuda at runtime, so a `gpu-cuda` build
+# needs no CUDA toolkit and runs (CPU fallback) on a GPU-less host. Pinned to eg-ann's
+# exact cudarc config so one process shares a single driver/context.
+cudarc = { version = "0.17", optional = true, default-features = false, features = ["driver", "nvrtc", "dynamic-loading", "cuda-12060"] }
 tree-sitter = { version = "0.23", optional = true }
 tree-sitter-python = { version = "0.23", optional = true }
 tree-sitter-rust = { version = "0.23", optional = true }
@@ -112,6 +128,9 @@ tree-sitter-lua = { version = "0.2", optional = true }
 # DEV-only — never linked into the engine binary.
 [dev-dependencies]
 criterion = "0.5"
+# Deterministic RNG for the reasoning-closure differential/parity tests (the runtime
+# `rand_chacha` dep is optional under `datascience`; tests need it unconditionally).
+rand_chacha = "0.3"
 
 # AST parse-throughput baseline (CONCEPT:EG-012). `parse_files` lives behind the
 # `ast` grammars, so the bench is gated to it (a default `cargo check --benches`

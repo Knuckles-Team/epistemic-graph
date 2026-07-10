@@ -2160,6 +2160,7 @@ name = "eg-compute"
 version = "0.27.0"
 dependencies = [
  "criterion",
+ "cudarc",
  "eg-core",
  "eg-modality",
  "eg-types",
