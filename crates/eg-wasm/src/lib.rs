@@ -43,6 +43,19 @@
 //! A fresh [`wasmtime::Store`] per call means no state leaks between invocations.
 //! The compiled [`UdfModule`] (the `wasmtime::Module`) is reusable across calls and
 //! is what `Method::RegisterUdf` caches.
+//!
+//! ## ModalityContract (CONCEPT:E4) — deliberately NOT retrofitted
+//! `eg-wasm` is a sandboxed UDF RUNTIME, not a storage modality: it moves opaque bytes
+//! in and out of a `wasmtime` sandbox and owns no persisted `{id -> value}` type of its
+//! own. Its public items (`UdfModule`, `UdfRegistry`, `UdfLimits`, `UdfError`) are a
+//! compiled-code handle, an execution registry, a limits config, and an error enum —
+//! none is a stored modality VALUE a caller would `to_rowset`/`txn_stage`/CDC-observe;
+//! the bytes it processes are a serialized `RowSet` owned by `eg-plan`, opaque here.
+//! Per the `eg-modality` README's own note (the `eg-modality` retrofit explicitly names
+//! "`eg-wasm` … as/if a concrete modality value type emerges in each … several of these
+//! are pure protocol/executor crates with no modality VALUE type of their own —
+//! `ModalityContract` may simply not apply, which is a legitimate outcome, not a gap"),
+//! this crate is a documented SKIP.
 
 #![cfg(feature = "wasm-udf")]
 
