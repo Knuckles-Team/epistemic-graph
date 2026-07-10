@@ -2061,13 +2061,29 @@ fn rescore_by_confidence(
     RowSet::from_scored(scored)
 }
 
+/// The FULL recursive [`eg_epistemic::JustificationGraph`] rooted at `node_id`
+/// (CONCEPT:EG-KG.epistemic.epistemic-substrate, E1) — the un-flattened tree
+/// `Op::ExplainBelief` (E2) projects down into the flat `RowSet` currency via
+/// [`flatten_proof`]. A standalone `Method::ExplainBelief` (E5 phase 4, mirroring
+/// `Method::OwlExplain`'s `ProofNodeWire`) wants the verbatim tree — rule names, premise
+/// structure, per-node confidence — which the plan-`Op` surface cannot carry (E2's
+/// documented scope boundary). Public so the facade handler can build the wire
+/// projection directly, reusing the SAME [`belief_policy`] resolution `explain_belief_op`
+/// uses.
+#[cfg(feature = "epistemic")]
+pub fn explain_belief_tree(ctx: &PlanCtx, node_id: &str) -> eg_epistemic::JustificationGraph {
+    let bg = eg_epistemic::BeliefGraph::from_graph_view(ctx.view);
+    let policy = belief_policy(ctx);
+    eg_epistemic::explain_belief(&bg, node_id, &policy)
+}
+
 /// `EXPLAIN BELIEF <node_id>` (`Op::ExplainBelief`) — build the recursive justification
 /// tree ([`eg_epistemic::explain_belief`]) rooted at `node_id`, flatten it pre-order
 /// (deduped) to `(claim_id, confidence)` pairs, and seed-or-filter the RowSet exactly like
 /// `EvidenceFor`/`Contradicts` (CONCEPT:EG-KG.epistemic.epistemic-substrate). The FULL nested
 /// tree (rule names, premise structure) does not fit the flat `RowSet` currency — this is
-/// the queryable, composes-in-plan projection of it (a verbatim-tree standalone `Method`,
-/// mirroring `Method::OwlExplain`, is a documented follow-up outside E2's wire+UQL scope).
+/// the queryable, composes-in-plan projection of it; [`explain_belief_tree`] above returns
+/// the verbatim tree for the standalone `Method::ExplainBelief` wire surface.
 #[cfg(feature = "epistemic")]
 fn explain_belief_op(ctx: &PlanCtx, input: RowSet, node_id: &str) -> RowSet {
     let bg = eg_epistemic::BeliefGraph::from_graph_view(ctx.view);
