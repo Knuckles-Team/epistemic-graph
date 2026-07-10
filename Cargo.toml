@@ -147,6 +147,11 @@ epistemic = [
     "eg-types/epistemic",
     "dep:eg-plan",
     "eg-plan/epistemic",
+    # X1 (CONCEPT:E4): `dep:eg-modality` makes `eg_modality::EvidenceSpan` nameable in
+    # `explain_provenance`'s `evidence_span_wire` mapper (see that dep's own comment —
+    # `eg-plan/epistemic` above already links `eg-modality` transitively; this adds no
+    # new weight, only visibility).
+    "dep:eg-modality",
 ]
 # CONCEPT:EG-321 — the Analytics-Program numeric kernel (eg-numeric: faer + ndarray,
 # BLAS/LAPACK-free). Links the PURE Rust kernel (rlib) for Surface B in-database
@@ -869,6 +874,14 @@ eg-query = { path = "crates/eg-query", optional = true }
 # DataFusion FILTER leg is gated by eg-plan's own `query`; pulled only with the
 # facade `query`, so a default/Pi build links neither it nor DataFusion.
 eg-plan = { path = "crates/eg-plan", optional = true }
+# The `ModalityContract` trait + the `EvidenceSpan` shape (CONCEPT:E4/X1). Referenced
+# only under `#[cfg(feature = "epistemic")]` (`src/server/handlers/query.rs`'s
+# `evidence_span_wire`, mapping `eg_plan::KnowledgeRow::evidence_refs` onto the wire
+# `EvidenceSpanWire`), so a build without `epistemic` links none of it. `eg-plan`
+# already links it unconditionally (deps = eg-types only, per its own crate docs), so
+# this adds no NEW transitive dependency to the tree — only makes the type nameable
+# here too.
+eg-modality = { path = "crates/eg-modality", optional = true }
 # Optional live CEP standing-query engine (feature `stream`, CONCEPT:EG-088/EG-299). The
 # BATCH `Op::Cep` executor already pulls eg-stream transitively via `eg-plan/stream`; this
 # DIRECT edge (with eg-stream's own `stream` feature, the ONLY thing that pulls tokio in
