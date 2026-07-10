@@ -16,7 +16,37 @@ use eg_modality::{
     encode_staged, ConformanceTestable, EvidenceSpan, ModalityContract, RowSetShape, StagedWrite,
 };
 
-use crate::TextHit;
+use crate::{CitationSpan, TableSpan, TextHit};
+
+/// A [`TableSpan`] (from `src/layout.rs`'s heuristic table extractor) IS
+/// field-for-field an `EvidenceSpan::TableCellRange` — this conversion only
+/// exists under `contract` since that's the only place `eg-modality` is linked
+/// (the extractor itself stays dependency-free; see `src/layout.rs`'s module docs).
+impl From<&TableSpan> for EvidenceSpan {
+    fn from(span: &TableSpan) -> Self {
+        EvidenceSpan::TableCellRange {
+            table_id: span.table_id.clone(),
+            row_start: span.row_start,
+            row_end: span.row_end,
+            col_start: span.col_start,
+            col_end: span.col_end,
+        }
+    }
+}
+
+/// A [`CitationSpan`] is a located byte range inside SOME document; the caller
+/// supplies the document id (a `CitationSpan` alone doesn't know which document it
+/// was scanned from), mirroring `TextHit`'s own `to_rowset`/`evidence` convention
+/// above ("the modality value itself does not know its own id").
+impl CitationSpan {
+    pub fn to_evidence_span(&self, document_id: &str) -> EvidenceSpan {
+        EvidenceSpan::DocumentSpan {
+            document_id: document_id.to_string(),
+            start: self.start,
+            end: self.end,
+        }
+    }
+}
 
 impl ModalityContract for TextHit {
     fn storage_kind(&self) -> &'static str {
@@ -110,6 +140,47 @@ mod evidence_mapping {
                 document_id: "doc-7".to_string(),
                 start: 0,
                 end: usize::MAX,
+            }
+        );
+    }
+}
+
+// Direct tests of the layout-extractor → `EvidenceSpan` conversions (CONCEPT:E4/X1
+// depth: table/citation spans feeding X1's `TableCellRange`/`DocumentSpan`).
+#[cfg(test)]
+mod layout_evidence_mapping {
+    use super::*;
+    use crate::{extract_tables, citation_spans};
+
+    #[test]
+    fn table_span_converts_losslessly_to_table_cell_range() {
+        let text = "| A | B |\n| --- | --- |\n| 1 | 2 |\n";
+        let tables = extract_tables(text);
+        let cell = tables[0].cell_span(1, 0).unwrap();
+        let evidence: EvidenceSpan = (&cell).into();
+        assert_eq!(
+            evidence,
+            EvidenceSpan::TableCellRange {
+                table_id: "table-0".to_string(),
+                row_start: 1,
+                row_end: 1,
+                col_start: 0,
+                col_end: 0,
+            }
+        );
+    }
+
+    #[test]
+    fn citation_span_converts_to_document_span_with_caller_supplied_id() {
+        let text = "supported by prior work [12].";
+        let spans = citation_spans(text);
+        let evidence = spans[0].to_evidence_span("doc-42");
+        assert_eq!(
+            evidence,
+            EvidenceSpan::DocumentSpan {
+                document_id: "doc-42".to_string(),
+                start: spans[0].start,
+                end: spans[0].end,
             }
         );
     }
