@@ -478,12 +478,18 @@ impl ModalityCardinality {
     const REL_SEL: f64 = 0.5; // fraction of edges whose relationship matches a `Traverse`.
     const DEDUP_DAMP: f64 = 0.7; // path expansion re-visits nodes → damp the raw fan-out.
     const TEMPORAL_SEL: f64 = 0.8; // most facts are live at a queried instant (`AsOf`).
+    // Only read from the `Op::Reason` arms below, which are themselves `owl`-gated — a
+    // build with `query` but without `owl` (e.g. eg-graphql's default feature set) never
+    // reads them, so they must be gated too or clippy's dead-code lint fires.
+    #[cfg(feature = "owl")]
     const REASON_MEMBERSHIP_SEL: f64 = 0.5; // fraction of a candidate set inferred into the class.
+    #[cfg(feature = "owl")]
     const REASON_CONF_RETENTION: f64 = 0.9; // confidence-decay attrition of inferred members.
     const COST_FILTER_PER_ROW: f64 = 1.0;
     const COST_VECTOR_PER_ROW: f64 = 20.0;
     const COST_TRAVERSE_PER_EDGE: f64 = 2.0;
     const COST_ASOF_PER_ROW: f64 = 2.0;
+    #[cfg(feature = "owl")]
     const REASON_FIXED_COST: f64 = 500.0; // EL⁺ classification is a fixed up-front closure cost.
 
     /// One ANN index top-k ≈ log2(N)·ef heap pushes (independent of the candidate count).
