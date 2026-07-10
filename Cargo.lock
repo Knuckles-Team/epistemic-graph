@@ -2310,6 +2310,7 @@ version = "0.1.0"
 dependencies = [
  "eg-core",
  "eg-geo",
+ "eg-modality",
  "eg-shacl",
  "md-5 0.10.6",
  "oxjsonld",
