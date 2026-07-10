@@ -64,6 +64,12 @@ RunRules
 # SHACL/ShEx validation (CONCEPT:EG-132/133): reached via the RDF/SPARQL surface.
 ShaclValidate
 ShexValidate
+# X5-enforce write-time ICV policy registration (CONCEPT:EG-KG.ontology.rdf-update-guard):
+# the write-time counterpart of ShaclValidate above, reached the SAME way — the SHACL
+# shapes payload is emitted by agent-utilities' connector-manifest compiler (alongside
+# its RLS/ABAC policy output) and registered directly, not through this thin
+# nodes/edges/graph client. Bind here until a Python RDF/ICV sub-client is added.
+IcvConfigure
 
 # --- EG-318 agent-memory / scene-graph / trajectory + CEP wire ops (deferred to B3.16 / B3.14) ---
 # These expose eg-core LIBRARY primitives over the wire (hierarchical summaries EG-220,
