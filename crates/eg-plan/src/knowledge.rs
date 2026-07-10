@@ -103,6 +103,7 @@ use std::collections::HashSet;
 
 use eg_core::graph::GraphView;
 use eg_modality::EvidenceSpan;
+use serde::{Deserialize, Serialize};
 
 use crate::rowset::RowSet;
 
@@ -220,7 +221,11 @@ pub struct PayloadRef {
 /// Which columns were requested for the projection, and which of those were
 /// actually present on at least one decoded row. v1 keeps this minimal — just the
 /// two name lists a caller checks "did I get what I asked for" against.
-#[derive(Clone, Debug, Default, PartialEq)]
+/// `Serialize`/`Deserialize` derived so a [`crate::dag::PlanNode`]'s optional
+/// `input_schema`/`output_schema` round-trips over the wire — needed for the X4
+/// cross-shard EXCHANGE operator (`src/raft/exchange.rs`) to ship a whole `PlanDag`
+/// branch to a remote Raft group.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ProjectionSchema {
     pub requested: Vec<String>,
     pub present: Vec<String>,
