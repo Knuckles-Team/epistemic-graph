@@ -143,6 +143,11 @@ pub(crate) fn requires_write(method: &Method) -> bool {
             | Method::Reconcile { .. }
             | Method::ApplyMutation { .. }
             | Method::ApplyMultisigMutation { .. }
+            // X5-enforce (CONCEPT:EG-KG.ontology.rdf-update-guard): configuring the ICV
+            // write-guard's mode/shapes for a graph is a security-relevant admin
+            // action (it can DISABLE enforcement or register a hostile shape), so it
+            // requires Write access on the request's graph — never inferred from Read.
+            | Method::IcvConfigure { .. }
             | Method::ParseRepository { .. }
             | Method::DeleteGraph { .. }
             | Method::ClaimNext { .. }
