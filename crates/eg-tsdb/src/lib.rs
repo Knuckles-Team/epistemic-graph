@@ -59,3 +59,9 @@ pub mod store;
 
 #[cfg(feature = "arrow-seg")]
 pub mod arrow_seg;
+
+// ModalityContract retrofit (CONCEPT:E4): `impl ModalityContract for
+// store::SeriesMeta`, behind the crate's own opt-in `contract` feature (default
+// OFF, implying `redb-store` since `SeriesMeta` lives there). See module docs.
+#[cfg(feature = "contract")]
+mod contract;

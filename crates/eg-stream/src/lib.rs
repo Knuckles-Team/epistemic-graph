@@ -48,6 +48,10 @@ mod cep;
 mod event;
 #[cfg(feature = "stream")]
 pub mod live;
+// ModalityContract retrofit (CONCEPT:E4): `impl ModalityContract for Event`, behind
+// the crate's own opt-in `contract` feature (default OFF). See module docs.
+#[cfg(feature = "contract")]
+mod contract;
 
 pub use cep::{run, CepPattern, Match, Window, MAX_ACTIVE_RUNS};
 pub use event::{AttrPredicate, Event, EventMatcher};
