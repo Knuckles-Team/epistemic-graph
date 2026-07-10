@@ -915,7 +915,7 @@ pub(crate) async fn try_handle(
             "BatchCosineSimilarity is deprecated. Use datascience primitives.".to_string(),
         ),
         // CONCEPT:EG-KG.compute.l2-normalize-batch-vectors — kernel-backed in-engine batch L2-normalize (compute-near-data).
-        // The `numeric` feature links the pure eg-numeric kernel (faer/ndarray, NO pyo3);
+        // The `numeric` feature links the pure eg-numeric kernel (faer/ndarray, no Python-extension FFI);
         // a no-numeric build (e.g. `pi`) has no eg-numeric, so the op reports it's absent.
         Method::BatchL2Normalize { vectors } => {
             #[cfg(feature = "numeric")]
