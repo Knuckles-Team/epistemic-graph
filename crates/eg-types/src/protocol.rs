@@ -3265,6 +3265,293 @@ pub enum Method {
         #[serde(default)]
         as_claim: bool,
     },
+
+    // ── Residual insight/mining families (Codex Gap-5) ──────────────────────
+    // Rounds out the mining surface begun by `MineAssociate` above with 8 more
+    // families, each following the SAME shape (explicit-or-graph-derived input,
+    // optional `writeback` of a typed node, optional `as_claim` epistemic
+    // writeback gated `all(mining, epistemic)`).
+    /// Entity resolution + record linkage (CONCEPT:EG-KG.mining.entity-resolution).
+    /// DISTINCT from the existing always-on `ResolveCandidates` op (all-pairs
+    /// cosine + union-find dedup-ladder proposals, no epistemic writeback): this
+    /// mining family instead supports BOTH Jaccard record linkage over token
+    /// attributes (`records`, blocked by an explicit `block_keys`) AND cosine
+    /// entity resolution over embeddings (`vectors`/`source`, blocked by a grid
+    /// bucket), and materializes each match as a typed `:EntityMatch` node — a
+    /// graph MUTATION, WAL-replayed by re-resolving deterministically. Gated `mining`.
+    #[cfg(feature = "mining")]
+    MineEntityResolve {
+        /// Token-attribute records (Jaccard record linkage). Empty ⇒ use
+        /// `vectors`/`source`.
+        #[serde(default)]
+        records: Vec<Vec<String>>,
+        /// Blocking key per record, same length as `records`. All-empty-string
+        /// (or shorter than `records`) ⇒ one global block (no blocking).
+        #[serde(default)]
+        block_keys: Vec<String>,
+        /// Explicit embedding rows (cosine entity resolution). Used when
+        /// `records` is empty; empty ⇒ use `source`.
+        #[serde(default)]
+        vectors: Vec<Vec<f64>>,
+        /// Graph-derived vector source (node embeddings) — used when `records`
+        /// and `vectors` are both empty.
+        #[serde(default)]
+        source: Option<VectorSource>,
+        /// Optional external ids parallel to `records`/`vectors` (the explicit
+        /// paths only — `source` supplies its own resident node ids). Shorter
+        /// than the input ⇒ missing entries fall back to their index.
+        #[serde(default)]
+        ids: Vec<String>,
+        /// Grid-bucket rounding precision for the `vectors`/`source` blocking path.
+        #[serde(default = "default_bucket_precision")]
+        bucket_precision: i32,
+        /// Minimum similarity (Jaccard or Cosine, `[0,1]`) to emit a match.
+        #[serde(default = "default_match_threshold")]
+        threshold: f64,
+        /// Materialize each match as a typed `:EntityMatch` node linked to both
+        /// members (when they are resident node ids).
+        #[serde(default)]
+        writeback: bool,
+        /// ADDITIONALLY materialize a `:Claim` (+ `:Evidence`) per match (E6) —
+        /// see [`Method::MineAssociate::as_claim`]. Confidence is seeded from the
+        /// match's OWN similarity. Requires `writeback`.
+        #[cfg(all(feature = "mining", feature = "epistemic"))]
+        #[serde(default)]
+        as_claim: bool,
+    },
+
+    /// Causal impact estimation (CONCEPT:EG-KG.mining.causal-impact): interrupted
+    /// time series (a single `series`) or difference-in-differences (`series` +
+    /// non-empty `control`), split at `intervention_index`. Mirrors
+    /// `MineForecast`'s "caller hands in the tsdb window" convention — no direct
+    /// tsdb coupling. With `writeback=true` materializes a typed `:CausalEffect`
+    /// node — a graph MUTATION, WAL-replayed by re-estimating deterministically.
+    /// Gated `mining`.
+    #[cfg(feature = "mining")]
+    MineCausalImpact {
+        /// The (treatment, for DiD) series to analyze — required.
+        #[serde(default)]
+        series: Vec<f64>,
+        /// The control series for difference-in-differences. Empty ⇒ plain
+        /// interrupted-time-series (no control).
+        #[serde(default)]
+        control: Vec<f64>,
+        /// Index of the FIRST post-intervention observation (in BOTH series for DiD).
+        #[serde(default)]
+        intervention_index: usize,
+        /// Optional identity for the write-back `:CausalEffect` node. Empty ⇒
+        /// derived from the input series + algorithm.
+        #[serde(default)]
+        series_id: String,
+        /// Materialize the estimate as a typed `:CausalEffect` node.
+        #[serde(default)]
+        writeback: bool,
+        /// ADDITIONALLY materialize a `:Claim` (+ `:Evidence`) for the estimate
+        /// (E6) — see [`Method::MineAssociate::as_claim`]. Confidence is seeded
+        /// from the estimate's own significance (`1 - two_sided_p`). Requires
+        /// `writeback`.
+        #[cfg(all(feature = "mining", feature = "epistemic"))]
+        #[serde(default)]
+        as_claim: bool,
+    },
+
+    /// Process mining (CONCEPT:EG-KG.mining.process-mining): directly-follows
+    /// graph + alpha-miner-lite footprint (causal / parallel / choice relations,
+    /// start/end activity sets) over ordered event `traces`. With
+    /// `writeback=true` materializes the footprint as a typed `:ProcessModel`
+    /// node — a graph MUTATION, WAL-replayed by re-mining deterministically.
+    /// Gated `mining`.
+    #[cfg(feature = "mining")]
+    MineProcess {
+        /// Ordered activity-label traces — each a time-ordered event sequence
+        /// (an activity may repeat within a trace). Required.
+        #[serde(default)]
+        traces: Vec<Vec<String>>,
+        /// Optional identity for the write-back `:ProcessModel` node. Empty ⇒
+        /// derived from the mined footprint's own shape.
+        #[serde(default)]
+        process_id: String,
+        /// Materialize the footprint as a typed `:ProcessModel` node.
+        #[serde(default)]
+        writeback: bool,
+        /// ADDITIONALLY materialize a `:Claim` (+ `:Evidence`) for the model (E6)
+        /// — see [`Method::MineAssociate::as_claim`]. Confidence is seeded from
+        /// the fraction of observed activity pairs classified `causal`/`parallel`
+        /// (vs. `choice`) — a log-coverage proxy, already `[0,1]`. Requires `writeback`.
+        #[cfg(all(feature = "mining", feature = "epistemic"))]
+        #[serde(default)]
+        as_claim: bool,
+    },
+
+    /// Root-cause propagation (CONCEPT:EG-KG.mining.root-cause): given a directed
+    /// weighted dependency graph (`edges`, `cause -> effect`) and a per-node
+    /// anomaly `scores` vector (the existing `anomaly` family's own output, or
+    /// any other score), find the most-likely upstream root cause of one
+    /// `symptom` node. With `writeback=true` materializes the top candidate as a
+    /// typed `:RootCause` node linked to the symptom — a graph MUTATION,
+    /// WAL-replayed by re-searching deterministically. Gated `mining`.
+    #[cfg(feature = "mining")]
+    MineRootCause {
+        /// Node ids, index-aligned with `scores` and referenced by `edges`.
+        #[serde(default)]
+        nodes: Vec<String>,
+        /// Anomaly score per node, index-aligned with `nodes` (negative clamps to `0.0`).
+        #[serde(default)]
+        scores: Vec<f64>,
+        /// Dependency edges `(cause_id, effect_id, weight)`; `weight` clamped to `[0,1]`.
+        #[serde(default)]
+        edges: Vec<(String, String, f64)>,
+        /// The already-flagged anomalous node whose root cause to find (required).
+        #[serde(default)]
+        symptom: String,
+        /// Search depth cap.
+        #[serde(default = "default_max_hops")]
+        max_hops: usize,
+        /// Per-hop score decay `(0,1]` (mirrors PageRank's damping factor).
+        #[serde(default = "default_decay")]
+        decay: f64,
+        /// Materialize the top candidate as a typed `:RootCause` node linked to the symptom.
+        #[serde(default)]
+        writeback: bool,
+        /// ADDITIONALLY materialize a `:Claim` (+ `:Evidence`) for the top
+        /// candidate (E6) — see [`Method::MineAssociate::as_claim`]. Confidence
+        /// mirrors `anomaly`'s `score / (1 + score)` mapping over the candidate's
+        /// OWN raw responsibility score (normalizing against the candidate list
+        /// would be trivially `1.0` for the top candidate). Requires `writeback`.
+        #[cfg(all(feature = "mining", feature = "epistemic"))]
+        #[serde(default)]
+        as_claim: bool,
+    },
+
+    /// Seeded risk propagation (CONCEPT:EG-KG.mining.risk-propagation): personalized
+    /// PageRank over a directed weighted graph (`edges`), restarting to a `seed`
+    /// risk distribution instead of teleporting uniformly. With `writeback=true`
+    /// materializes each node's propagated score as a typed `:RiskScore` node — a
+    /// graph MUTATION, WAL-replayed by re-propagating deterministically. Gated `mining`.
+    #[cfg(feature = "mining")]
+    MineRiskPropagation {
+        /// Node ids, index-aligned with `seed` and referenced by `edges`.
+        #[serde(default)]
+        nodes: Vec<String>,
+        /// Seed risk per node, index-aligned with `nodes` (any non-negative
+        /// scale — normalized internally; all-zero ⇒ all-zero result).
+        #[serde(default)]
+        seed: Vec<f64>,
+        /// Weighted directed edges `(from_id, to_id, weight)`; `weight` clamped `>= 0`.
+        #[serde(default)]
+        edges: Vec<(String, String, f64)>,
+        /// Damping factor (probability of following an edge vs. restarting to `seed`).
+        #[serde(default = "default_damping")]
+        damping: f64,
+        /// L1 convergence tolerance.
+        #[serde(default = "default_risk_tolerance")]
+        tolerance: f64,
+        /// Hard iteration cap.
+        #[serde(default = "default_max_iter")]
+        max_iterations: usize,
+        /// Materialize each node's propagated score as a typed `:RiskScore` node.
+        #[serde(default)]
+        writeback: bool,
+        /// ADDITIONALLY materialize a `:Claim` (+ `:Evidence`) per scored node (E6)
+        /// — see [`Method::MineAssociate::as_claim`]. Confidence is seeded from the
+        /// node's own propagated share (already `[0,1]`, mass-conserving). Requires `writeback`.
+        #[cfg(all(feature = "mining", feature = "epistemic"))]
+        #[serde(default)]
+        as_claim: bool,
+    },
+
+    /// Ontology-gap detection (CONCEPT:EG-KG.mining.ontology-gap): scans the
+    /// resident graph's own `type`/`relation`-tagged class nodes (GRAPH-NATIVE —
+    /// no `rdf`/OWL-reasoner dependency) for completeness gaps: no declared
+    /// properties, an unresolved `subClassOf` parent (an orphan subclass), or a
+    /// fully disconnected class. With `writeback=true` materializes each gap as a
+    /// typed `:OntologyGap` node linked to its class — a graph MUTATION,
+    /// WAL-replayed by re-scanning deterministically. Gated `mining`.
+    #[cfg(feature = "mining")]
+    MineOntologyGap {
+        /// Optional: restrict the scan to class nodes of this one type
+        /// (`None` ⇒ every node whose `type`/`node_type` is `Class` or `OwlClass`).
+        #[serde(default)]
+        label: Option<String>,
+        /// Materialize each gap as a typed `:OntologyGap` node linked to its class.
+        #[serde(default)]
+        writeback: bool,
+        /// ADDITIONALLY materialize a `:Claim` (+ `:Evidence`) per gap (E6) — see
+        /// [`Method::MineAssociate::as_claim`]. Confidence is seeded from the
+        /// gap kind's fixed documented severity (`eg_compute::mining::ontology_gap::GapKind::severity`).
+        /// Requires `writeback`.
+        #[cfg(all(feature = "mining", feature = "epistemic"))]
+        #[serde(default)]
+        as_claim: bool,
+    },
+
+    /// Retrieval-quality evaluation (CONCEPT:EG-KG.mining.retrieval-quality):
+    /// precision@k / recall@k / MRR over stored retrieval `traces`. With
+    /// `writeback=true` materializes the aggregate report as a typed
+    /// `:RetrievalQuality` node — a graph MUTATION, WAL-replayed by
+    /// re-evaluating deterministically. Gated `mining`.
+    #[cfg(feature = "mining")]
+    MineRetrievalQuality {
+        /// Retrieval traces to evaluate — required.
+        #[serde(default)]
+        traces: Vec<RetrievalTraceSpec>,
+        /// Precision/recall/MRR cutoff. `0` ⇒ use each trace's full retrieved list.
+        #[serde(default)]
+        k: usize,
+        /// Optional identity for the write-back `:RetrievalQuality` node. Empty ⇒
+        /// derived from the input traces.
+        #[serde(default)]
+        query_id: String,
+        /// Materialize the aggregate report as a typed `:RetrievalQuality` node.
+        #[serde(default)]
+        writeback: bool,
+        /// ADDITIONALLY materialize a `:Claim` (+ `:Evidence`) for the report (E6)
+        /// — see [`Method::MineAssociate::as_claim`]. Confidence is seeded from
+        /// the report's own F1 (harmonic mean of precision@k/recall@k, already
+        /// `[0,1]`). Requires `writeback`.
+        #[cfg(all(feature = "mining", feature = "epistemic"))]
+        #[serde(default)]
+        as_claim: bool,
+    },
+
+    /// Community detection as a mining family (CONCEPT:EG-KG.mining.community-writeback):
+    /// wraps the EXISTING GDS Louvain / label-propagation kernels
+    /// (`eg_compute::graph_algos`, already exposed on the Cypher `CALL gds.*`
+    /// surface) — adds NO new algorithm, only the epistemic writeback. Runs over
+    /// the resident graph (optionally restricted to one node `label`, like
+    /// `MineSubgraph`). With `writeback=true` materializes each community as a
+    /// typed `:Community` node linked to its members — a graph MUTATION,
+    /// WAL-replayed by re-detecting deterministically. Gated `mining`.
+    #[cfg(feature = "mining")]
+    MineCommunity {
+        /// Optional: restrict the projected graph to nodes of this one type.
+        #[serde(default)]
+        label: Option<String>,
+        /// Which existing GDS kernel to run.
+        #[serde(default)]
+        algorithm: CommunityAlgorithm,
+        /// Louvain modularity resolution (ignored by label-propagation).
+        #[serde(default = "default_resolution")]
+        resolution: f64,
+        /// Iteration/sweep cap.
+        #[serde(default = "default_max_iter")]
+        max_iterations: usize,
+        /// Seed for Louvain's deterministic shuffle (ignored by label-propagation).
+        #[serde(default)]
+        seed: u64,
+        /// Weight neighbor votes by edge weight (label-propagation only; ignored by Louvain).
+        #[serde(default = "default_true")]
+        weighted: bool,
+        /// Materialize each community as a typed `:Community` node linked to its members.
+        #[serde(default)]
+        writeback: bool,
+        /// ADDITIONALLY materialize a `:Claim` (+ `:Evidence`) per community (E6)
+        /// — see [`Method::MineAssociate::as_claim`]. Confidence is seeded from
+        /// the community's own internal-edge density (already `[0,1]`). Requires `writeback`.
+        #[cfg(all(feature = "mining", feature = "epistemic"))]
+        #[serde(default)]
+        as_claim: bool,
+    },
 }
 
 // ── Supporting Types ────────────────────────────────────────────────────
@@ -3339,6 +3626,78 @@ pub enum SubgraphAlgorithm {
 #[cfg(feature = "mining")]
 fn default_max_subgraph_edges() -> usize {
     3
+}
+
+// ── Residual insight/mining families — supporting types + defaults ─────────
+
+/// One stored retrieval trace for `MineRetrievalQuality` (CONCEPT:EG-KG.mining.retrieval-quality):
+/// what a query actually retrieved (ranked) vs. what was actually relevant.
+#[cfg(feature = "mining")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RetrievalTraceSpec {
+    /// Ranked ids the retrieval actually returned.
+    pub retrieved: Vec<String>,
+    /// Ground-truth relevant ids for this query.
+    pub relevant: Vec<String>,
+}
+
+/// Which existing GDS kernel `MineCommunity` wraps (CONCEPT:EG-KG.mining.community-writeback).
+#[cfg(feature = "mining")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum CommunityAlgorithm {
+    #[default]
+    Louvain,
+    #[serde(rename = "labelprop")]
+    LabelPropagation,
+}
+
+/// serde default for [`Method::MineEntityResolve::bucket_precision`].
+#[cfg(feature = "mining")]
+fn default_bucket_precision() -> i32 {
+    1
+}
+
+/// serde default for [`Method::MineEntityResolve::threshold`].
+#[cfg(feature = "mining")]
+fn default_match_threshold() -> f64 {
+    0.5
+}
+
+/// serde default for [`Method::MineRootCause::max_hops`].
+#[cfg(feature = "mining")]
+fn default_max_hops() -> usize {
+    5
+}
+
+/// serde default for [`Method::MineRootCause::decay`].
+#[cfg(feature = "mining")]
+fn default_decay() -> f64 {
+    0.85
+}
+
+/// serde default for [`Method::MineRiskPropagation::damping`].
+#[cfg(feature = "mining")]
+fn default_damping() -> f64 {
+    0.85
+}
+
+/// serde default for [`Method::MineRiskPropagation::tolerance`].
+#[cfg(feature = "mining")]
+fn default_risk_tolerance() -> f64 {
+    1e-9
+}
+
+/// serde default for [`Method::MineCommunity::resolution`].
+#[cfg(feature = "mining")]
+fn default_resolution() -> f64 {
+    1.0
+}
+
+/// serde default for [`Method::MineCommunity::weighted`].
+#[cfg(feature = "mining")]
+fn default_true() -> bool {
+    true
 }
 
 /// A graph-derived text source for `MineText` (CONCEPT:EG-KG.mining.tfidf —

@@ -110,6 +110,23 @@ pub(crate) fn requires_write(method: &Method) -> bool {
     if matches!(method, Method::MineClassifyFit { .. }) {
         return false;
     }
+    // Residual insight/mining families (CONCEPT:EG-KG.mining.entity-resolution /
+    // causal-impact / process-mining / root-cause / risk-propagation /
+    // ontology-gap / retrieval-quality / community-writeback): only a write when
+    // it writes back the family's typed nodes; a pure query (writeback=false)
+    // reads its rows off an off-lock snapshot, mirroring the mining family above.
+    #[cfg(feature = "mining")]
+    if let Method::MineEntityResolve { writeback, .. }
+    | Method::MineCausalImpact { writeback, .. }
+    | Method::MineProcess { writeback, .. }
+    | Method::MineRootCause { writeback, .. }
+    | Method::MineRiskPropagation { writeback, .. }
+    | Method::MineOntologyGap { writeback, .. }
+    | Method::MineRetrievalQuality { writeback, .. }
+    | Method::MineCommunity { writeback, .. } = method
+    {
+        return *writeback;
+    }
     // Graph learning (CONCEPT:EG-KG.graphlearn.link-predictor): only a write when it
     // writes back the `:EdgeFunction` / `:PredictedEdge` nodes; a pure fit/predict
     // (writeback=false) reads its rows off an off-lock snapshot.

@@ -16,19 +16,29 @@ use std::sync::Arc;
 
 use eg_compute::mining::anomaly;
 use eg_compute::mining::association::{self, Algorithm, LabeledRule};
+use eg_compute::mining::causal_impact;
 use eg_compute::mining::classify::{self, FittedClassifier};
 use eg_compute::mining::cluster;
+use eg_compute::mining::community;
+use eg_compute::mining::entity_resolution;
 use eg_compute::mining::forecast;
+use eg_compute::mining::ontology_gap;
+use eg_compute::mining::process_mining;
 use eg_compute::mining::reduce;
+use eg_compute::mining::retrieval_quality;
+use eg_compute::mining::risk_propagation;
+use eg_compute::mining::root_cause;
 use eg_compute::mining::sequence::{self, LabeledPattern};
 use eg_compute::mining::subgraph::{self, HostGraph};
 use eg_compute::mining::text;
+use eg_compute::graph_algos::AdjacencyGraph;
 
 use crate::graph::GraphCore;
 use crate::protocol::{
-    AnomalyAlgorithm, ClassifyAlgorithm, ClusterAlgorithm, ForecastAlgorithm, Linkage, Method,
-    MineAlgorithm, MineSeqAlgorithm, ReduceAlgorithm, Response, ResultPayload, SequenceSource,
-    SubgraphAlgorithm, SvmKernel, TextAlgorithm, TextSource, TransactionSource, VectorSource,
+    AnomalyAlgorithm, ClassifyAlgorithm, ClusterAlgorithm, CommunityAlgorithm, ForecastAlgorithm,
+    Linkage, Method, MineAlgorithm, MineSeqAlgorithm, ReduceAlgorithm, RetrievalTraceSpec,
+    Response, ResultPayload, SequenceSource, SubgraphAlgorithm, SvmKernel, TextAlgorithm,
+    TextSource, TransactionSource, VectorSource,
 };
 
 /// Handle a `Mine*` method. `Err(method)` hands a non-mining method back to the
@@ -307,6 +317,164 @@ pub(crate) fn try_handle(
             min_support,
             max_edges,
             algorithm,
+            writeback,
+            #[cfg(feature = "epistemic")]
+            as_claim,
+        )),
+        Method::MineEntityResolve {
+            records,
+            block_keys,
+            vectors,
+            source,
+            ids,
+            bucket_precision,
+            threshold,
+            writeback,
+            #[cfg(feature = "epistemic")]
+            as_claim,
+        } => Ok(handle_entity_resolve(
+            req_id,
+            &core,
+            records,
+            block_keys,
+            vectors,
+            source,
+            ids,
+            bucket_precision,
+            threshold,
+            writeback,
+            #[cfg(feature = "epistemic")]
+            as_claim,
+        )),
+        Method::MineCausalImpact {
+            series,
+            control,
+            intervention_index,
+            series_id,
+            writeback,
+            #[cfg(feature = "epistemic")]
+            as_claim,
+        } => Ok(handle_causal_impact(
+            req_id,
+            &core,
+            series,
+            control,
+            intervention_index,
+            series_id,
+            writeback,
+            #[cfg(feature = "epistemic")]
+            as_claim,
+        )),
+        Method::MineProcess {
+            traces,
+            process_id,
+            writeback,
+            #[cfg(feature = "epistemic")]
+            as_claim,
+        } => Ok(handle_process(
+            req_id,
+            &core,
+            traces,
+            process_id,
+            writeback,
+            #[cfg(feature = "epistemic")]
+            as_claim,
+        )),
+        Method::MineRootCause {
+            nodes,
+            scores,
+            edges,
+            symptom,
+            max_hops,
+            decay,
+            writeback,
+            #[cfg(feature = "epistemic")]
+            as_claim,
+        } => Ok(handle_root_cause(
+            req_id,
+            &core,
+            nodes,
+            scores,
+            edges,
+            symptom,
+            max_hops,
+            decay,
+            writeback,
+            #[cfg(feature = "epistemic")]
+            as_claim,
+        )),
+        Method::MineRiskPropagation {
+            nodes,
+            seed,
+            edges,
+            damping,
+            tolerance,
+            max_iterations,
+            writeback,
+            #[cfg(feature = "epistemic")]
+            as_claim,
+        } => Ok(handle_risk_propagation(
+            req_id,
+            &core,
+            nodes,
+            seed,
+            edges,
+            damping,
+            tolerance,
+            max_iterations,
+            writeback,
+            #[cfg(feature = "epistemic")]
+            as_claim,
+        )),
+        Method::MineOntologyGap {
+            label,
+            writeback,
+            #[cfg(feature = "epistemic")]
+            as_claim,
+        } => Ok(handle_ontology_gap(
+            req_id,
+            &core,
+            label,
+            writeback,
+            #[cfg(feature = "epistemic")]
+            as_claim,
+        )),
+        Method::MineRetrievalQuality {
+            traces,
+            k,
+            query_id,
+            writeback,
+            #[cfg(feature = "epistemic")]
+            as_claim,
+        } => Ok(handle_retrieval_quality(
+            req_id,
+            &core,
+            traces,
+            k,
+            query_id,
+            writeback,
+            #[cfg(feature = "epistemic")]
+            as_claim,
+        )),
+        Method::MineCommunity {
+            label,
+            algorithm,
+            resolution,
+            max_iterations,
+            seed,
+            weighted,
+            writeback,
+            #[cfg(feature = "epistemic")]
+            as_claim,
+        } => Ok(handle_community(
+            req_id,
+            &core,
+            label,
+            algorithm,
+            resolution,
+            max_iterations,
+            seed,
+            weighted,
             writeback,
             #[cfg(feature = "epistemic")]
             as_claim,
@@ -624,6 +792,198 @@ pub(crate) fn replay(core: &GraphCore, method: &Method) {
             #[cfg(feature = "epistemic")]
             if *as_claim {
                 materialize_subgraph_claims(core, &results, subgraph_provenance(label));
+            }
+        }
+        Method::MineEntityResolve {
+            records,
+            block_keys,
+            vectors,
+            source,
+            ids,
+            bucket_precision,
+            threshold,
+            writeback: true,
+            #[cfg(feature = "epistemic")]
+            as_claim,
+        } => {
+            if !records.is_empty() {
+                let keys = resolve_block_keys(block_keys, records.len());
+                let matches = entity_resolution::link_records(records, &keys, *threshold);
+                let resolved_ids = resolve_ids(ids, records.len());
+                materialize_entity_matches(core, &matches, &resolved_ids, "jaccard");
+                #[cfg(feature = "epistemic")]
+                if *as_claim {
+                    materialize_entity_match_claims(
+                        core,
+                        &matches,
+                        &resolved_ids,
+                        "records:explicit",
+                    );
+                }
+                return;
+            }
+            let (rows, resolved_ids) = if !vectors.is_empty() {
+                (vectors.clone(), resolve_ids(ids, vectors.len()))
+            } else {
+                match source {
+                    Some(spec) => gather_embeddings(core, spec),
+                    None => (Vec::new(), Vec::new()),
+                }
+            };
+            if rows.is_empty() {
+                return;
+            }
+            let matches = entity_resolution::resolve_entities(&rows, *bucket_precision, *threshold);
+            materialize_entity_matches(core, &matches, &resolved_ids, "cosine");
+            #[cfg(feature = "epistemic")]
+            if *as_claim {
+                materialize_entity_match_claims(
+                    core,
+                    &matches,
+                    &resolved_ids,
+                    &entity_provenance(source),
+                );
+            }
+        }
+        Method::MineCausalImpact {
+            series,
+            control,
+            intervention_index,
+            series_id,
+            writeback: true,
+            #[cfg(feature = "epistemic")]
+            as_claim,
+        } => {
+            if series.is_empty() {
+                return;
+            }
+            let effect = if control.is_empty() {
+                causal_impact::interrupted_time_series(series, *intervention_index)
+            } else {
+                causal_impact::diff_in_diff(series, control, *intervention_index)
+            };
+            materialize_causal_effect(core, &effect, series_id, series, control);
+            #[cfg(feature = "epistemic")]
+            if *as_claim {
+                materialize_causal_effect_claim(core, &effect, series_id, series, control);
+            }
+        }
+        Method::MineProcess {
+            traces,
+            process_id,
+            writeback: true,
+            #[cfg(feature = "epistemic")]
+            as_claim,
+        } => {
+            if traces.is_empty() {
+                return;
+            }
+            let (labels, model) = process_mining::alpha_lite_labeled(traces);
+            materialize_process_model(core, &model, &labels, process_id);
+            #[cfg(feature = "epistemic")]
+            if *as_claim {
+                materialize_process_model_claim(core, &model, &labels, process_id);
+            }
+        }
+        Method::MineRootCause {
+            nodes,
+            scores,
+            edges,
+            symptom,
+            max_hops,
+            decay,
+            writeback: true,
+            #[cfg(feature = "epistemic")]
+            as_claim,
+        } => {
+            let Some(out) = run_root_cause(nodes, scores, edges, symptom, *max_hops, *decay) else {
+                return;
+            };
+            materialize_root_cause(core, &out, nodes, symptom);
+            #[cfg(feature = "epistemic")]
+            if *as_claim {
+                materialize_root_cause_claim(core, &out, nodes, symptom);
+            }
+        }
+        Method::MineRiskPropagation {
+            nodes,
+            seed,
+            edges,
+            damping,
+            tolerance,
+            max_iterations,
+            writeback: true,
+            #[cfg(feature = "epistemic")]
+            as_claim,
+        } => {
+            if nodes.is_empty() {
+                return;
+            }
+            let out = run_risk_propagation(nodes, seed, edges, *damping, *tolerance, *max_iterations);
+            materialize_risk_scores(core, &out, nodes);
+            #[cfg(feature = "epistemic")]
+            if *as_claim {
+                materialize_risk_score_claims(core, &out, nodes);
+            }
+        }
+        Method::MineOntologyGap {
+            label,
+            writeback: true,
+            #[cfg(feature = "epistemic")]
+            as_claim,
+        } => {
+            let (classes, class_ids) = build_ontology_classes(core, label);
+            if classes.is_empty() {
+                return;
+            }
+            let gaps = ontology_gap::find_gaps(&classes);
+            materialize_ontology_gaps(core, &gaps, &class_ids);
+            #[cfg(feature = "epistemic")]
+            if *as_claim {
+                materialize_ontology_gap_claims(core, &gaps, &class_ids, label);
+            }
+        }
+        Method::MineRetrievalQuality {
+            traces,
+            k,
+            query_id,
+            writeback: true,
+            #[cfg(feature = "epistemic")]
+            as_claim,
+        } => {
+            if traces.is_empty() {
+                return;
+            }
+            let specs: Vec<retrieval_quality::RetrievalTrace> =
+                traces.iter().map(to_retrieval_trace).collect();
+            let report = retrieval_quality::evaluate(&specs, *k);
+            materialize_retrieval_quality(core, &report, query_id);
+            #[cfg(feature = "epistemic")]
+            if *as_claim {
+                materialize_retrieval_quality_claim(core, &report, query_id);
+            }
+        }
+        Method::MineCommunity {
+            label,
+            algorithm,
+            resolution,
+            max_iterations,
+            seed,
+            weighted,
+            writeback: true,
+            #[cfg(feature = "epistemic")]
+            as_claim,
+        } => {
+            let (graph, ids) = build_id_graph(core, label);
+            if graph.node_count() == 0 {
+                return;
+            }
+            let algo = to_community_algo(*algorithm);
+            let out = community::detect(&graph, algo, *resolution, *max_iterations, *seed, *weighted);
+            materialize_communities(core, &out, &ids);
+            #[cfg(feature = "epistemic")]
+            if *as_claim {
+                materialize_community_claims(core, &out, &ids, community_provenance(label));
             }
         }
         _ => {}
@@ -2295,6 +2655,1200 @@ fn subgraph_node_id(pattern: &subgraph::Pattern) -> String {
         hasher.update([0u8]);
     }
     format!("subgraph:{}", hex::encode(&hasher.finalize()[..12]))
+}
+
+// ═══════════════════ Residual insight/mining families (Codex Gap-5) ═══════════════════
+//
+// 8 more families rounding out the mining surface: entity resolution + record
+// linkage, causal impact, process mining, root-cause propagation, seeded risk
+// propagation, ontology-gap detection, retrieval quality, and a thin
+// community-detection wrapper. Each follows the SAME shape as the 9 families
+// above (explicit-or-derived input → compute → optional typed-node write-back
+// → optional `:Claim`/`:Evidence` epistemic write-back via `materialize_claim`).
+
+// ─────────────────────────── Entity resolution + record linkage ───────────────────────────
+
+#[allow(clippy::too_many_arguments)]
+fn handle_entity_resolve(
+    req_id: u64,
+    core: &GraphCore,
+    records: Vec<Vec<String>>,
+    block_keys: Vec<String>,
+    vectors: Vec<Vec<f64>>,
+    source: Option<VectorSource>,
+    ids: Vec<String>,
+    bucket_precision: i32,
+    threshold: f64,
+    writeback: bool,
+    #[cfg(feature = "epistemic")] as_claim: bool,
+) -> Response {
+    if !records.is_empty() {
+        let keys = resolve_block_keys(&block_keys, records.len());
+        let matches = entity_resolution::link_records(&records, &keys, threshold);
+        let resolved_ids = resolve_ids(&ids, records.len());
+        let written = if writeback {
+            materialize_entity_matches(core, &matches, &resolved_ids, "jaccard")
+        } else {
+            0
+        };
+        #[cfg(feature = "epistemic")]
+        if writeback && as_claim {
+            materialize_entity_match_claims(core, &matches, &resolved_ids, "records:explicit");
+        }
+        return entity_resolve_response(req_id, &matches, &resolved_ids, records.len(), written);
+    }
+    let (rows, resolved_ids) = if !vectors.is_empty() {
+        let n = vectors.len();
+        (vectors, resolve_ids(&ids, n))
+    } else {
+        match &source {
+            Some(spec) => gather_embeddings(core, spec),
+            None => (Vec::new(), Vec::new()),
+        }
+    };
+    if let Err(e) = validate_matrix(&rows) {
+        return Response::err(req_id, e);
+    }
+    let matches = entity_resolution::resolve_entities(&rows, bucket_precision, threshold);
+    let written = if writeback {
+        materialize_entity_matches(core, &matches, &resolved_ids, "cosine")
+    } else {
+        0
+    };
+    #[cfg(feature = "epistemic")]
+    if writeback && as_claim {
+        materialize_entity_match_claims(core, &matches, &resolved_ids, &entity_provenance(&source));
+    }
+    entity_resolve_response(req_id, &matches, &resolved_ids, rows.len(), written)
+}
+
+/// Resolve an id vector to exactly `n` entries: explicit ids win positionally;
+/// a missing/short entry falls back to its index (stringified).
+fn resolve_ids(ids: &[String], n: usize) -> Vec<String> {
+    (0..n)
+        .map(|i| ids.get(i).cloned().unwrap_or_else(|| i.to_string()))
+        .collect()
+}
+
+/// Resolve block keys to exactly `n` entries: a length mismatch (the caller
+/// omitted them) degrades to ONE global block (empty key for every record).
+fn resolve_block_keys(block_keys: &[String], n: usize) -> Vec<String> {
+    if block_keys.len() == n {
+        block_keys.to_vec()
+    } else {
+        vec![String::new(); n]
+    }
+}
+
+fn entity_resolve_response(
+    req_id: u64,
+    matches: &[entity_resolution::EntityMatch],
+    ids: &[String],
+    n_records: usize,
+    written: usize,
+) -> Response {
+    let rows: Vec<serde_json::Value> = matches
+        .iter()
+        .map(|m| {
+            let left = ids.get(m.left).cloned().unwrap_or_else(|| m.left.to_string());
+            let right = ids
+                .get(m.right)
+                .cloned()
+                .unwrap_or_else(|| m.right.to_string());
+            serde_json::json!({
+                "left": left,
+                "right": right,
+                "similarity": m.similarity,
+                "block_key": m.block_key,
+            })
+        })
+        .collect();
+    Response::ok(
+        req_id,
+        ResultPayload::Json(serde_json::json!({
+            "matches": rows,
+            "n_records": n_records,
+            "n_matches": matches.len(),
+            "written_back": written,
+        })),
+    )
+}
+
+/// Materialize each match as a typed `:EntityMatch` node (CONCEPT:EG-KG.mining.entity-resolution),
+/// id = a deterministic digest of the CANONICALIZED (order-independent) member
+/// pair. Linked to both members via `ENTITY_MATCH_MEMBER` edges when resident.
+fn materialize_entity_matches(
+    core: &GraphCore,
+    matches: &[entity_resolution::EntityMatch],
+    ids: &[String],
+    method: &str,
+) -> usize {
+    let mut written = 0usize;
+    for m in matches {
+        let left = ids.get(m.left).cloned().unwrap_or_else(|| m.left.to_string());
+        let right = ids
+            .get(m.right)
+            .cloned()
+            .unwrap_or_else(|| m.right.to_string());
+        let node_id = entity_match_node_id(&left, &right);
+        let props = serde_json::json!({
+            "type": "EntityMatch",
+            "left": left,
+            "right": right,
+            "similarity": m.similarity,
+            "block_key": m.block_key,
+            "method": method,
+        });
+        let Ok(blob) = rmp_serde::to_vec_named(&props) else {
+            continue;
+        };
+        core.add_node(node_id.clone(), blob);
+        for member in [&left, &right] {
+            if core.has_node(member) {
+                let edge = serde_json::json!({ "relation": "ENTITY_MATCH_MEMBER" });
+                if let Ok(eb) = rmp_serde::to_vec_named(&edge) {
+                    let _ = core.add_edge(node_id.clone(), member.clone(), eb);
+                }
+            }
+        }
+        written += 1;
+    }
+    written
+}
+
+fn entity_match_node_id(left: &str, right: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let (a, b) = if left <= right { (left, right) } else { (right, left) };
+    let mut hasher = Sha256::new();
+    hasher.update(a.as_bytes());
+    hasher.update([0u8]);
+    hasher.update(b.as_bytes());
+    format!("entity_match:{}", hex::encode(&hasher.finalize()[..12]))
+}
+
+#[cfg(feature = "epistemic")]
+fn materialize_entity_match_claims(
+    core: &GraphCore,
+    matches: &[entity_resolution::EntityMatch],
+    ids: &[String],
+    provenance: &str,
+) {
+    for m in matches {
+        let left = ids.get(m.left).cloned().unwrap_or_else(|| m.left.to_string());
+        let right = ids
+            .get(m.right)
+            .cloned()
+            .unwrap_or_else(|| m.right.to_string());
+        let node_id = entity_match_node_id(&left, &right);
+        materialize_claim(
+            core,
+            &node_id,
+            "entity_resolution",
+            m.similarity.clamp(0.0, 1.0),
+            provenance,
+        );
+    }
+}
+
+#[cfg(feature = "epistemic")]
+fn entity_provenance(source: &Option<VectorSource>) -> String {
+    match source {
+        Some(s) => format!("vectors:{}", s.node_label),
+        None => "vectors:explicit".to_string(),
+    }
+}
+
+// ─────────────────────────── Causal impact (ITS / DiD) ───────────────────────────
+
+fn handle_causal_impact(
+    req_id: u64,
+    core: &GraphCore,
+    series: Vec<f64>,
+    control: Vec<f64>,
+    intervention_index: usize,
+    series_id: String,
+    writeback: bool,
+    #[cfg(feature = "epistemic")] as_claim: bool,
+) -> Response {
+    if series.is_empty() {
+        return Response::err(req_id, "mining: causal_impact requires a non-empty `series`");
+    }
+    let effect = if control.is_empty() {
+        causal_impact::interrupted_time_series(&series, intervention_index)
+    } else {
+        causal_impact::diff_in_diff(&series, &control, intervention_index)
+    };
+    let written = if writeback {
+        materialize_causal_effect(core, &effect, &series_id, &series, &control)
+    } else {
+        0
+    };
+    #[cfg(feature = "epistemic")]
+    if writeback && as_claim {
+        materialize_causal_effect_claim(core, &effect, &series_id, &series, &control);
+    }
+    Response::ok(
+        req_id,
+        ResultPayload::Json(serde_json::json!({
+            "pre_mean": effect.pre_mean,
+            "post_mean": effect.post_mean,
+            "effect_size": effect.effect_size,
+            "relative_effect": effect.relative_effect,
+            "std_error": effect.std_error,
+            "confidence": effect.confidence,
+            "method": if control.is_empty() { "its" } else { "did" },
+            "written_back": written,
+        })),
+    )
+}
+
+/// Materialize the estimate as a typed `:CausalEffect` node (CONCEPT:EG-KG.mining.causal-impact),
+/// id = a deterministic digest of `method` + `series_id` (or the input series
+/// when empty, so identical explicit input reproduces the same id on WAL replay).
+/// Linked to a resident node named `series_id` via a `CAUSAL_EFFECT_OF` edge
+/// when one exists.
+fn materialize_causal_effect(
+    core: &GraphCore,
+    effect: &causal_impact::CausalEffect,
+    series_id: &str,
+    series: &[f64],
+    control: &[f64],
+) -> usize {
+    let method = if control.is_empty() { "its" } else { "did" };
+    let node_id = causal_effect_node_id(method, series_id, series, control);
+    let props = serde_json::json!({
+        "type": "CausalEffect",
+        "method": method,
+        "pre_mean": effect.pre_mean,
+        "post_mean": effect.post_mean,
+        "effect_size": effect.effect_size,
+        "relative_effect": effect.relative_effect,
+        "std_error": effect.std_error,
+        "confidence": effect.confidence,
+        "series_id": series_id,
+    });
+    let Ok(blob) = rmp_serde::to_vec_named(&props) else {
+        return 0;
+    };
+    core.add_node(node_id.clone(), blob);
+    if !series_id.is_empty() && core.has_node(series_id) {
+        let edge = serde_json::json!({ "relation": "CAUSAL_EFFECT_OF" });
+        if let Ok(eb) = rmp_serde::to_vec_named(&edge) {
+            let _ = core.add_edge(node_id, series_id.to_string(), eb);
+        }
+    }
+    1
+}
+
+fn causal_effect_node_id(method: &str, series_id: &str, series: &[f64], control: &[f64]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(method.as_bytes());
+    hasher.update([0u8]);
+    hasher.update(series_id.as_bytes());
+    hasher.update([0u8]);
+    for v in series {
+        hasher.update(v.to_le_bytes());
+    }
+    hasher.update([0u8]);
+    for v in control {
+        hasher.update(v.to_le_bytes());
+    }
+    format!("causal_effect:{}", hex::encode(&hasher.finalize()[..12]))
+}
+
+#[cfg(feature = "epistemic")]
+fn materialize_causal_effect_claim(
+    core: &GraphCore,
+    effect: &causal_impact::CausalEffect,
+    series_id: &str,
+    series: &[f64],
+    control: &[f64],
+) {
+    let method = if control.is_empty() { "its" } else { "did" };
+    let node_id = causal_effect_node_id(method, series_id, series, control);
+    let provenance = if series_id.is_empty() {
+        "series:values".to_string()
+    } else {
+        format!("series:{series_id}")
+    };
+    materialize_claim(
+        core,
+        &node_id,
+        "causal_impact",
+        effect.confidence.clamp(0.0, 1.0),
+        &provenance,
+    );
+}
+
+// ─────────────────────────── Process mining ───────────────────────────
+
+fn handle_process(
+    req_id: u64,
+    core: &GraphCore,
+    traces: Vec<Vec<String>>,
+    process_id: String,
+    writeback: bool,
+    #[cfg(feature = "epistemic")] as_claim: bool,
+) -> Response {
+    if traces.is_empty() {
+        return Response::err(req_id, "mining: process mining requires non-empty `traces`");
+    }
+    let (labels, model) = process_mining::alpha_lite_labeled(&traces);
+    let written = if writeback {
+        materialize_process_model(core, &model, &labels, &process_id)
+    } else {
+        0
+    };
+    #[cfg(feature = "epistemic")]
+    if writeback && as_claim {
+        materialize_process_model_claim(core, &model, &labels, &process_id);
+    }
+    let label_of = |i: process_mining::ActivityId| labels[i as usize].clone();
+    let dfg: Vec<serde_json::Value> = model
+        .dfg_edges
+        .iter()
+        .map(|&(a, b, c)| serde_json::json!({ "from": label_of(a), "to": label_of(b), "count": c }))
+        .collect();
+    let causal: Vec<serde_json::Value> = model
+        .causal
+        .iter()
+        .map(|&(a, b)| serde_json::json!({ "from": label_of(a), "to": label_of(b) }))
+        .collect();
+    let parallel: Vec<serde_json::Value> = model
+        .parallel
+        .iter()
+        .map(|&(a, b)| serde_json::json!({ "a": label_of(a), "b": label_of(b) }))
+        .collect();
+    Response::ok(
+        req_id,
+        ResultPayload::Json(serde_json::json!({
+            "dfg": dfg,
+            "causal": causal,
+            "parallel": parallel,
+            "start_activities": model.start_activities.iter().map(|&i| label_of(i)).collect::<Vec<_>>(),
+            "end_activities": model.end_activities.iter().map(|&i| label_of(i)).collect::<Vec<_>>(),
+            "n_traces": traces.len(),
+            "n_activities": model.n_activities,
+            "written_back": written,
+        })),
+    )
+}
+
+/// Materialize the footprint as a typed `:ProcessModel` node (CONCEPT:EG-KG.mining.process-mining),
+/// linked to every activity that IS a resident node via `PROCESS_MEMBER` edges.
+fn materialize_process_model(
+    core: &GraphCore,
+    model: &process_mining::ProcessModel,
+    labels: &[String],
+    process_id: &str,
+) -> usize {
+    let node_id = process_model_node_id(process_id, labels, model);
+    let causal: Vec<serde_json::Value> = model
+        .causal
+        .iter()
+        .map(|&(a, b)| serde_json::json!({ "from": labels[a as usize], "to": labels[b as usize] }))
+        .collect();
+    let parallel: Vec<serde_json::Value> = model
+        .parallel
+        .iter()
+        .map(|&(a, b)| serde_json::json!({ "a": labels[a as usize], "b": labels[b as usize] }))
+        .collect();
+    let props = serde_json::json!({
+        "type": "ProcessModel",
+        "activities": labels,
+        "causal": causal,
+        "parallel": parallel,
+        "start_activities": model.start_activities.iter().map(|&i| labels[i as usize].clone()).collect::<Vec<_>>(),
+        "end_activities": model.end_activities.iter().map(|&i| labels[i as usize].clone()).collect::<Vec<_>>(),
+        "process_id": process_id,
+    });
+    let Ok(blob) = rmp_serde::to_vec_named(&props) else {
+        return 0;
+    };
+    core.add_node(node_id.clone(), blob);
+    for label in labels {
+        if core.has_node(label) {
+            let edge = serde_json::json!({ "relation": "PROCESS_MEMBER" });
+            if let Ok(eb) = rmp_serde::to_vec_named(&edge) {
+                let _ = core.add_edge(node_id.clone(), label.clone(), eb);
+            }
+        }
+    }
+    1
+}
+
+fn process_model_node_id(
+    process_id: &str,
+    labels: &[String],
+    model: &process_mining::ProcessModel,
+) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(process_id.as_bytes());
+    hasher.update([0u8]);
+    hasher.update(labels.join("\u{1}").as_bytes());
+    hasher.update([0u8]);
+    for &(a, b, c) in &model.dfg_edges {
+        hasher.update(a.to_le_bytes());
+        hasher.update(b.to_le_bytes());
+        hasher.update((c as u64).to_le_bytes());
+    }
+    format!("process_model:{}", hex::encode(&hasher.finalize()[..12]))
+}
+
+/// Quality = FOOTPRINT COVERAGE: the fraction of all possible activity pairs
+/// (`n choose 2`) that the log actually observed directly-following (causal OR
+/// parallel) at least once — already `[0,1]`, `0.0` when fewer than 2 activities.
+#[cfg(feature = "epistemic")]
+fn materialize_process_model_claim(
+    core: &GraphCore,
+    model: &process_mining::ProcessModel,
+    labels: &[String],
+    process_id: &str,
+) {
+    let node_id = process_model_node_id(process_id, labels, model);
+    let n = model.n_activities;
+    let total_possible = if n >= 2 { (n * (n - 1) / 2) as f64 } else { 0.0 };
+    let observed = (model.causal.len() + model.parallel.len()) as f64;
+    let confidence = if total_possible > 0.0 {
+        (observed / total_possible).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    let provenance = if process_id.is_empty() {
+        "process:traces".to_string()
+    } else {
+        format!("process:{process_id}")
+    };
+    materialize_claim(core, &node_id, "process_mining", confidence, &provenance);
+}
+
+// ─────────────────────────── Root-cause propagation ───────────────────────────
+
+/// Index every distinct `edges` endpoint against `nodes` (positional ids),
+/// dropping any edge referencing an id NOT present in `nodes`.
+fn edge_indices(nodes: &[String], edges: &[(String, String, f64)]) -> Vec<(usize, usize, f64)> {
+    let index: std::collections::HashMap<&str, usize> = nodes
+        .iter()
+        .enumerate()
+        .map(|(i, n)| (n.as_str(), i))
+        .collect();
+    edges
+        .iter()
+        .filter_map(|(a, b, w)| Some((*index.get(a.as_str())?, *index.get(b.as_str())?, *w)))
+        .collect()
+}
+
+fn run_root_cause(
+    nodes: &[String],
+    scores: &[f64],
+    edges: &[(String, String, f64)],
+    symptom: &str,
+    max_hops: usize,
+    decay: f64,
+) -> Option<root_cause::RootCauseResult> {
+    let symptom_idx = nodes.iter().position(|n| n == symptom)?;
+    let idx_edges = edge_indices(nodes, edges);
+    Some(root_cause::find_root_cause(
+        nodes.len(),
+        &idx_edges,
+        scores,
+        symptom_idx,
+        max_hops,
+        decay,
+    ))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn handle_root_cause(
+    req_id: u64,
+    core: &GraphCore,
+    nodes: Vec<String>,
+    scores: Vec<f64>,
+    edges: Vec<(String, String, f64)>,
+    symptom: String,
+    max_hops: usize,
+    decay: f64,
+    writeback: bool,
+    #[cfg(feature = "epistemic")] as_claim: bool,
+) -> Response {
+    let Some(out) = run_root_cause(&nodes, &scores, &edges, &symptom, max_hops, decay) else {
+        return Response::err(
+            req_id,
+            "mining: root_cause requires `symptom` to be present in `nodes`",
+        );
+    };
+    let written = if writeback {
+        materialize_root_cause(core, &out, &nodes, &symptom)
+    } else {
+        0
+    };
+    #[cfg(feature = "epistemic")]
+    if writeback && as_claim {
+        materialize_root_cause_claim(core, &out, &nodes, &symptom);
+    }
+    let candidates: Vec<serde_json::Value> = out
+        .candidates
+        .iter()
+        .map(|c| {
+            serde_json::json!({
+                "node": nodes.get(c.node).cloned().unwrap_or_else(|| c.node.to_string()),
+                "score": c.score,
+                "hops": c.hops,
+            })
+        })
+        .collect();
+    let best = out
+        .best()
+        .map(|c| nodes.get(c.node).cloned().unwrap_or_else(|| c.node.to_string()));
+    Response::ok(
+        req_id,
+        ResultPayload::Json(serde_json::json!({
+            "symptom": symptom,
+            "candidates": candidates,
+            "best": best,
+            "written_back": written,
+        })),
+    )
+}
+
+/// Materialize the TOP candidate as a typed `:RootCause` node (CONCEPT:EG-KG.mining.root-cause),
+/// linked to the symptom (`ROOT_CAUSE_OF`) and the candidate itself
+/// (`ROOT_CAUSE_CANDIDATE`) when resident.
+fn materialize_root_cause(
+    core: &GraphCore,
+    out: &root_cause::RootCauseResult,
+    nodes: &[String],
+    symptom: &str,
+) -> usize {
+    let Some(best) = out.best() else {
+        return 0;
+    };
+    let cause_id = nodes
+        .get(best.node)
+        .cloned()
+        .unwrap_or_else(|| best.node.to_string());
+    let node_id = root_cause_node_id(symptom, &cause_id);
+    let props = serde_json::json!({
+        "type": "RootCause",
+        "symptom": symptom,
+        "cause": cause_id,
+        "score": best.score,
+        "hops": best.hops,
+    });
+    let Ok(blob) = rmp_serde::to_vec_named(&props) else {
+        return 0;
+    };
+    core.add_node(node_id.clone(), blob);
+    if core.has_node(symptom) {
+        let edge = serde_json::json!({ "relation": "ROOT_CAUSE_OF" });
+        if let Ok(eb) = rmp_serde::to_vec_named(&edge) {
+            let _ = core.add_edge(node_id.clone(), symptom.to_string(), eb);
+        }
+    }
+    if core.has_node(&cause_id) {
+        let edge = serde_json::json!({ "relation": "ROOT_CAUSE_CANDIDATE" });
+        if let Ok(eb) = rmp_serde::to_vec_named(&edge) {
+            let _ = core.add_edge(node_id, cause_id, eb);
+        }
+    }
+    1
+}
+
+fn root_cause_node_id(symptom: &str, cause: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(symptom.as_bytes());
+    hasher.update([0u8]);
+    hasher.update(cause.as_bytes());
+    format!("root_cause:{}", hex::encode(&hasher.finalize()[..12]))
+}
+
+/// Quality mirrors `anomaly`'s `score / (1 + score)` confidence mapping — the
+/// TOP candidate's OWN raw responsibility score, not normalized against the
+/// candidate list (which would be trivially `1.0` for the top candidate).
+#[cfg(feature = "epistemic")]
+fn materialize_root_cause_claim(
+    core: &GraphCore,
+    out: &root_cause::RootCauseResult,
+    nodes: &[String],
+    symptom: &str,
+) {
+    let Some(best) = out.best() else {
+        return;
+    };
+    let cause_id = nodes
+        .get(best.node)
+        .cloned()
+        .unwrap_or_else(|| best.node.to_string());
+    let node_id = root_cause_node_id(symptom, &cause_id);
+    let confidence = (best.score / (1.0 + best.score)).clamp(0.0, 1.0);
+    materialize_claim(
+        core,
+        &node_id,
+        "root_cause",
+        confidence,
+        &format!("symptom:{symptom}"),
+    );
+}
+
+// ─────────────────────────── Seeded risk propagation ───────────────────────────
+
+fn run_risk_propagation(
+    nodes: &[String],
+    seed: &[f64],
+    edges: &[(String, String, f64)],
+    damping: f64,
+    tolerance: f64,
+    max_iterations: usize,
+) -> risk_propagation::RiskScores {
+    let idx_edges = edge_indices(nodes, edges);
+    let config = risk_propagation::RiskConfig {
+        damping: if damping > 0.0 { damping } else { 0.85 },
+        tolerance: if tolerance > 0.0 { tolerance } else { 1e-7 },
+        max_iterations: max_iterations.max(1),
+    };
+    risk_propagation::propagate(nodes.len(), &idx_edges, seed, &config)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn handle_risk_propagation(
+    req_id: u64,
+    core: &GraphCore,
+    nodes: Vec<String>,
+    seed: Vec<f64>,
+    edges: Vec<(String, String, f64)>,
+    damping: f64,
+    tolerance: f64,
+    max_iterations: usize,
+    writeback: bool,
+    #[cfg(feature = "epistemic")] as_claim: bool,
+) -> Response {
+    if nodes.is_empty() {
+        return Response::err(req_id, "mining: risk_propagation requires non-empty `nodes`");
+    }
+    let out = run_risk_propagation(&nodes, &seed, &edges, damping, tolerance, max_iterations);
+    let written = if writeback {
+        materialize_risk_scores(core, &out, &nodes)
+    } else {
+        0
+    };
+    #[cfg(feature = "epistemic")]
+    if writeback && as_claim {
+        materialize_risk_score_claims(core, &out, &nodes);
+    }
+    let rows: Vec<serde_json::Value> = nodes
+        .iter()
+        .zip(&out.scores)
+        .map(|(id, &s)| serde_json::json!({ "node": id, "score": s }))
+        .collect();
+    Response::ok(
+        req_id,
+        ResultPayload::Json(serde_json::json!({
+            "scores": rows,
+            "iterations": out.iterations,
+            "converged": out.converged,
+            "written_back": written,
+        })),
+    )
+}
+
+/// Materialize every node with a NON-ZERO propagated score as a typed
+/// `:RiskScore` node (CONCEPT:EG-KG.mining.risk-propagation), linked via
+/// `RISK_SCORE_OF` when resident.
+fn materialize_risk_scores(core: &GraphCore, out: &risk_propagation::RiskScores, nodes: &[String]) -> usize {
+    let mut written = 0usize;
+    for (i, id) in nodes.iter().enumerate() {
+        let score = out.scores.get(i).copied().unwrap_or(0.0);
+        if score <= 0.0 {
+            continue;
+        }
+        let node_id = risk_score_node_id(id);
+        let props = serde_json::json!({ "type": "RiskScore", "of": id, "score": score });
+        let Ok(blob) = rmp_serde::to_vec_named(&props) else {
+            continue;
+        };
+        core.add_node(node_id.clone(), blob);
+        if core.has_node(id) {
+            let edge = serde_json::json!({ "relation": "RISK_SCORE_OF" });
+            if let Ok(eb) = rmp_serde::to_vec_named(&edge) {
+                let _ = core.add_edge(node_id, id.clone(), eb);
+            }
+        }
+        written += 1;
+    }
+    written
+}
+
+fn risk_score_node_id(of: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(b"risk_score");
+    hasher.update([0u8]);
+    hasher.update(of.as_bytes());
+    format!("risk_score:{}", hex::encode(&hasher.finalize()[..12]))
+}
+
+/// Quality = the node's OWN propagated share, already `[0,1]` (mass-conserving).
+#[cfg(feature = "epistemic")]
+fn materialize_risk_score_claims(core: &GraphCore, out: &risk_propagation::RiskScores, nodes: &[String]) {
+    for (i, id) in nodes.iter().enumerate() {
+        let score = out.scores.get(i).copied().unwrap_or(0.0);
+        if score <= 0.0 {
+            continue;
+        }
+        let node_id = risk_score_node_id(id);
+        materialize_claim(core, &node_id, "risk_propagation", score.clamp(0.0, 1.0), "risk:propagated");
+    }
+}
+
+// ─────────────────────────── Ontology-gap detection ───────────────────────────
+
+/// Project the resident graph's class nodes into [`ontology_gap::ClassNode`]s
+/// (CONCEPT:EG-KG.mining.ontology-gap, GRAPH-NATIVE). A node is a "class" when
+/// `label` names its exact type, or (when `label` is `None`) its
+/// `type`/`node_type` is `Class` or `OwlClass`. `HAS_PROPERTY` edges count
+/// declared properties; a `SUBCLASS_OF` edge names a declared parent (resolved
+/// when the target is ALSO in this class set); `edge_count` is the class
+/// node's total incident edge count anywhere in the graph.
+fn build_ontology_classes(
+    core: &GraphCore,
+    label: &Option<String>,
+) -> (Vec<ontology_gap::ClassNode>, Vec<String>) {
+    let all_nodes = core.get_nodes();
+    let mut ids: Vec<String> = Vec::new();
+    for (node_id, blob) in &all_nodes {
+        let lbl = node_type_label(blob).unwrap_or_default();
+        let is_class = match label {
+            Some(want) => &lbl == want,
+            None => lbl == "Class" || lbl == "OwlClass",
+        };
+        if is_class {
+            ids.push(node_id.clone());
+        }
+    }
+    if ids.is_empty() {
+        return (Vec::new(), Vec::new());
+    }
+    let class_set: std::collections::HashSet<String> = ids.iter().cloned().collect();
+    let mut property_count: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut subclass_of: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    let mut edge_count: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+
+    let all_edges = core.get_edges();
+    for (src, dst, blob) in &all_edges {
+        let rel = edge_relation_label(blob);
+        if class_set.contains(src) {
+            *edge_count.entry(src.clone()).or_insert(0) += 1;
+            if rel.eq_ignore_ascii_case("has_property") || rel.eq_ignore_ascii_case("hasproperty") {
+                *property_count.entry(src.clone()).or_insert(0) += 1;
+            }
+            if (rel.eq_ignore_ascii_case("subclass_of") || rel.eq_ignore_ascii_case("subclassof"))
+                && !subclass_of.contains_key(src)
+            {
+                subclass_of.insert(src.clone(), dst.clone());
+            }
+        }
+        if class_set.contains(dst) {
+            *edge_count.entry(dst.clone()).or_insert(0) += 1;
+        }
+    }
+
+    let classes: Vec<ontology_gap::ClassNode> = ids
+        .iter()
+        .map(|id| {
+            let declares_parent = subclass_of.contains_key(id);
+            let parent_resolves = subclass_of
+                .get(id)
+                .map(|p| class_set.contains(p))
+                .unwrap_or(false);
+            ontology_gap::ClassNode {
+                property_count: property_count.get(id).copied().unwrap_or(0),
+                declares_parent,
+                parent_resolves,
+                edge_count: edge_count.get(id).copied().unwrap_or(0),
+            }
+        })
+        .collect();
+    (classes, ids)
+}
+
+fn handle_ontology_gap(
+    req_id: u64,
+    core: &GraphCore,
+    label: Option<String>,
+    writeback: bool,
+    #[cfg(feature = "epistemic")] as_claim: bool,
+) -> Response {
+    let (classes, class_ids) = build_ontology_classes(core, &label);
+    let gaps = ontology_gap::find_gaps(&classes);
+    let written = if writeback {
+        materialize_ontology_gaps(core, &gaps, &class_ids)
+    } else {
+        0
+    };
+    #[cfg(feature = "epistemic")]
+    if writeback && as_claim {
+        materialize_ontology_gap_claims(core, &gaps, &class_ids, &label);
+    }
+    let rows: Vec<serde_json::Value> = gaps
+        .iter()
+        .map(|g| {
+            serde_json::json!({
+                "class": class_ids.get(g.class_index).cloned().unwrap_or_default(),
+                "kind": g.kind.name(),
+                "severity": g.kind.severity(),
+            })
+        })
+        .collect();
+    Response::ok(
+        req_id,
+        ResultPayload::Json(serde_json::json!({
+            "gaps": rows,
+            "n_classes": classes.len(),
+            "n_gaps": gaps.len(),
+            "written_back": written,
+        })),
+    )
+}
+
+/// Materialize each gap as a typed `:OntologyGap` node (CONCEPT:EG-KG.mining.ontology-gap),
+/// linked to its class via a `GAP_OF` edge.
+fn materialize_ontology_gaps(
+    core: &GraphCore,
+    gaps: &[ontology_gap::OntologyGap],
+    class_ids: &[String],
+) -> usize {
+    let mut written = 0usize;
+    for g in gaps {
+        let Some(class_id) = class_ids.get(g.class_index) else {
+            continue;
+        };
+        let node_id = ontology_gap_node_id(class_id, g.kind.name());
+        let props = serde_json::json!({
+            "type": "OntologyGap",
+            "class": class_id,
+            "kind": g.kind.name(),
+            "severity": g.kind.severity(),
+        });
+        let Ok(blob) = rmp_serde::to_vec_named(&props) else {
+            continue;
+        };
+        core.add_node(node_id.clone(), blob);
+        if core.has_node(class_id) {
+            let edge = serde_json::json!({ "relation": "GAP_OF" });
+            if let Ok(eb) = rmp_serde::to_vec_named(&edge) {
+                let _ = core.add_edge(node_id, class_id.clone(), eb);
+            }
+        }
+        written += 1;
+    }
+    written
+}
+
+fn ontology_gap_node_id(class_id: &str, kind: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(class_id.as_bytes());
+    hasher.update([0u8]);
+    hasher.update(kind.as_bytes());
+    format!("ontology_gap:{}", hex::encode(&hasher.finalize()[..12]))
+}
+
+/// Quality = the gap kind's fixed documented severity (see `ontology_gap` module docs).
+#[cfg(feature = "epistemic")]
+fn materialize_ontology_gap_claims(
+    core: &GraphCore,
+    gaps: &[ontology_gap::OntologyGap],
+    class_ids: &[String],
+    label: &Option<String>,
+) {
+    let provenance = match label {
+        Some(l) => format!("ontology:{l}"),
+        None => "ontology:*".to_string(),
+    };
+    for g in gaps {
+        let Some(class_id) = class_ids.get(g.class_index) else {
+            continue;
+        };
+        let node_id = ontology_gap_node_id(class_id, g.kind.name());
+        materialize_claim(core, &node_id, "ontology_gap", g.kind.severity(), &provenance);
+    }
+}
+
+// ─────────────────────────── Retrieval quality ───────────────────────────
+
+fn to_retrieval_trace(spec: &RetrievalTraceSpec) -> retrieval_quality::RetrievalTrace {
+    retrieval_quality::RetrievalTrace {
+        retrieved: spec.retrieved.clone(),
+        relevant: spec.relevant.clone(),
+    }
+}
+
+fn handle_retrieval_quality(
+    req_id: u64,
+    core: &GraphCore,
+    traces: Vec<RetrievalTraceSpec>,
+    k: usize,
+    query_id: String,
+    writeback: bool,
+    #[cfg(feature = "epistemic")] as_claim: bool,
+) -> Response {
+    if traces.is_empty() {
+        return Response::err(req_id, "mining: retrieval_quality requires non-empty `traces`");
+    }
+    let specs: Vec<retrieval_quality::RetrievalTrace> = traces.iter().map(to_retrieval_trace).collect();
+    let report = retrieval_quality::evaluate(&specs, k);
+    let written = if writeback {
+        materialize_retrieval_quality(core, &report, &query_id)
+    } else {
+        0
+    };
+    #[cfg(feature = "epistemic")]
+    if writeback && as_claim {
+        materialize_retrieval_quality_claim(core, &report, &query_id);
+    }
+    Response::ok(
+        req_id,
+        ResultPayload::Json(serde_json::json!({
+            "precision_at_k": report.precision_at_k,
+            "recall_at_k": report.recall_at_k,
+            "mrr": report.mrr,
+            "f1": report.f1,
+            "n_queries": report.n_queries,
+            "k": report.k,
+            "written_back": written,
+        })),
+    )
+}
+
+/// Materialize the aggregate report as a typed `:RetrievalQuality` node
+/// (CONCEPT:EG-KG.mining.retrieval-quality), linked to a resident node named
+/// `query_id` via `RETRIEVAL_QUALITY_OF` when one exists.
+fn materialize_retrieval_quality(
+    core: &GraphCore,
+    report: &retrieval_quality::RetrievalQuality,
+    query_id: &str,
+) -> usize {
+    let node_id = retrieval_quality_node_id(query_id, report);
+    let props = serde_json::json!({
+        "type": "RetrievalQuality",
+        "precision_at_k": report.precision_at_k,
+        "recall_at_k": report.recall_at_k,
+        "mrr": report.mrr,
+        "f1": report.f1,
+        "n_queries": report.n_queries,
+        "k": report.k,
+        "query_id": query_id,
+    });
+    let Ok(blob) = rmp_serde::to_vec_named(&props) else {
+        return 0;
+    };
+    core.add_node(node_id.clone(), blob);
+    if !query_id.is_empty() && core.has_node(query_id) {
+        let edge = serde_json::json!({ "relation": "RETRIEVAL_QUALITY_OF" });
+        if let Ok(eb) = rmp_serde::to_vec_named(&edge) {
+            let _ = core.add_edge(node_id, query_id.to_string(), eb);
+        }
+    }
+    1
+}
+
+fn retrieval_quality_node_id(query_id: &str, report: &retrieval_quality::RetrievalQuality) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(query_id.as_bytes());
+    hasher.update([0u8]);
+    hasher.update(report.n_queries.to_le_bytes());
+    hasher.update(report.k.to_le_bytes());
+    hasher.update(report.precision_at_k.to_le_bytes());
+    hasher.update(report.recall_at_k.to_le_bytes());
+    format!("retrieval_quality:{}", hex::encode(&hasher.finalize()[..12]))
+}
+
+/// Quality = the report's own F1 (harmonic mean of precision@k/recall@k), already `[0,1]`.
+#[cfg(feature = "epistemic")]
+fn materialize_retrieval_quality_claim(
+    core: &GraphCore,
+    report: &retrieval_quality::RetrievalQuality,
+    query_id: &str,
+) {
+    let node_id = retrieval_quality_node_id(query_id, report);
+    let provenance = if query_id.is_empty() {
+        "retrieval:traces".to_string()
+    } else {
+        format!("retrieval:{query_id}")
+    };
+    materialize_claim(
+        core,
+        &node_id,
+        "retrieval_quality",
+        report.f1.clamp(0.0, 1.0),
+        &provenance,
+    );
+}
+
+// ─────────────────────────── Community detection (wraps existing GDS) ───────────────────────────
+
+/// Project the resident graph (optionally restricted to one `label`) into a
+/// dense `AdjacencyGraph<usize>` for [`community::detect`], mirroring
+/// `build_host_graph`'s node/edge projection but over dense usize indices
+/// (what `eg_compute::graph_algos` operates on) instead of [`HostGraph`].
+fn build_id_graph(core: &GraphCore, label: &Option<String>) -> (AdjacencyGraph<usize>, Vec<String>) {
+    let all_nodes = core.get_nodes();
+    let mut ids: Vec<String> = Vec::new();
+    let mut index: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    for (node_id, blob) in &all_nodes {
+        let node_label = node_type_label(blob).unwrap_or_else(|| "_".to_string());
+        if let Some(want) = label {
+            if &node_label != want {
+                continue;
+            }
+        }
+        index.insert(node_id.clone(), ids.len());
+        ids.push(node_id.clone());
+    }
+    let all_edges = core.get_edges();
+    let mut adjacency: Vec<(usize, Vec<(usize, f64)>)> =
+        (0..ids.len()).map(|i| (i, Vec::new())).collect();
+    for (src, dst, _blob) in &all_edges {
+        let (Some(&si), Some(&di)) = (index.get(src), index.get(dst)) else {
+            continue;
+        };
+        adjacency[si].1.push((di, 1.0));
+    }
+    (AdjacencyGraph::from_adjacency(adjacency), ids)
+}
+
+fn to_community_algo(a: CommunityAlgorithm) -> community::Algorithm {
+    match a {
+        CommunityAlgorithm::Louvain => community::Algorithm::Louvain,
+        CommunityAlgorithm::LabelPropagation => community::Algorithm::LabelPropagation,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn handle_community(
+    req_id: u64,
+    core: &GraphCore,
+    label: Option<String>,
+    algorithm: CommunityAlgorithm,
+    resolution: f64,
+    max_iterations: usize,
+    seed: u64,
+    weighted: bool,
+    writeback: bool,
+    #[cfg(feature = "epistemic")] as_claim: bool,
+) -> Response {
+    let (graph, ids) = build_id_graph(core, &label);
+    let algo = to_community_algo(algorithm);
+    let out = community::detect(&graph, algo, resolution, max_iterations, seed, weighted);
+    let written = if writeback {
+        materialize_communities(core, &out, &ids)
+    } else {
+        0
+    };
+    #[cfg(feature = "epistemic")]
+    if writeback && as_claim {
+        materialize_community_claims(core, &out, &ids, community_provenance(&label));
+    }
+    let communities: Vec<serde_json::Value> = out
+        .communities
+        .iter()
+        .map(|c| {
+            serde_json::json!({
+                "members": c.members.iter().map(|&i| ids.get(i).cloned().unwrap_or_else(|| i.to_string())).collect::<Vec<_>>(),
+                "density": c.density,
+            })
+        })
+        .collect();
+    Response::ok(
+        req_id,
+        ResultPayload::Json(serde_json::json!({
+            "communities": communities,
+            "modularity": out.modularity,
+            "n_nodes": graph.node_count(),
+            "written_back": written,
+        })),
+    )
+}
+
+/// Materialize each MULTI-MEMBER community as a typed `:Community` node
+/// (CONCEPT:EG-KG.mining.community-writeback) — a singleton community carries
+/// no relational signal worth writing back — linked to its members via
+/// `COMMUNITY_MEMBER` edges when resident.
+fn materialize_communities(core: &GraphCore, out: &community::CommunityResult, ids: &[String]) -> usize {
+    let mut written = 0usize;
+    for c in &out.communities {
+        let member_ids: Vec<String> = c
+            .members
+            .iter()
+            .map(|&i| ids.get(i).cloned().unwrap_or_else(|| i.to_string()))
+            .collect();
+        if member_ids.len() < 2 {
+            continue;
+        }
+        let node_id = community_node_id(&member_ids);
+        let props = serde_json::json!({
+            "type": "Community",
+            "members": member_ids,
+            "density": c.density,
+        });
+        let Ok(blob) = rmp_serde::to_vec_named(&props) else {
+            continue;
+        };
+        core.add_node(node_id.clone(), blob);
+        for m in &member_ids {
+            if core.has_node(m) {
+                let edge = serde_json::json!({ "relation": "COMMUNITY_MEMBER" });
+                if let Ok(eb) = rmp_serde::to_vec_named(&edge) {
+                    let _ = core.add_edge(node_id.clone(), m.clone(), eb);
+                }
+            }
+        }
+        written += 1;
+    }
+    written
+}
+
+fn community_node_id(member_ids: &[String]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut sorted = member_ids.to_vec();
+    sorted.sort();
+    let mut hasher = Sha256::new();
+    hasher.update(sorted.join("\u{1}").as_bytes());
+    format!("community:{}", hex::encode(&hasher.finalize()[..12]))
+}
+
+/// Quality = the community's own internal-edge density, already `[0,1]`.
+#[cfg(feature = "epistemic")]
+fn materialize_community_claims(
+    core: &GraphCore,
+    out: &community::CommunityResult,
+    ids: &[String],
+    provenance: String,
+) {
+    for c in &out.communities {
+        let member_ids: Vec<String> = c
+            .members
+            .iter()
+            .map(|&i| ids.get(i).cloned().unwrap_or_else(|| i.to_string()))
+            .collect();
+        if member_ids.len() < 2 {
+            continue;
+        }
+        let node_id = community_node_id(&member_ids);
+        materialize_claim(core, &node_id, "community", c.density.clamp(0.0, 1.0), &provenance);
+    }
+}
+
+#[cfg(feature = "epistemic")]
+fn community_provenance(label: &Option<String>) -> String {
+    match label {
+        Some(l) => format!("graph:{l}"),
+        None => "graph:*".to_string(),
+    }
 }
 
 // ─────────────────────────── Row builders (shared) ───────────────────────────
@@ -4530,5 +6084,282 @@ mod tests {
         try_handle(35, Arc::clone(&core), m).expect("handled");
         #[cfg(feature = "epistemic")]
         assert_no_claims(&core);
+    }
+
+    // ═══════════════════ Residual insight/mining families — round-trip tests ═══════════════════
+
+    #[test]
+    fn entity_resolve_links_records_within_a_block_and_writes_back() {
+        let core = Arc::new(GraphCore::new());
+        let mk = |as_claim: bool| Method::MineEntityResolve {
+            records: vec![
+                vec!["john".into(), "smith".into(), "12345".into()],
+                vec!["jon".into(), "smith".into(), "12345".into()],
+                vec!["mary".into(), "jones".into(), "99999".into()],
+            ],
+            block_keys: vec!["b".into(), "b".into(), "c".into()],
+            vectors: Vec::new(),
+            source: None,
+            ids: vec!["r1".into(), "r2".into(), "r3".into()],
+            bucket_precision: 1,
+            threshold: 0.4,
+            writeback: true,
+            #[cfg(feature = "epistemic")]
+            as_claim,
+        };
+        let resp = try_handle(101, Arc::clone(&core), mk(false)).expect("handled");
+        let Some(ResultPayload::Json(v)) = resp.result else {
+            panic!("expected json");
+        };
+        assert_eq!(v["n_matches"], 1);
+        assert_eq!(v["written_back"], 1);
+        core.mark_dirty();
+        assert_eq!(core.get_nodes_by_label("EntityMatch", 0).len(), 1);
+        #[cfg(feature = "epistemic")]
+        {
+            assert_no_claims(&core);
+            let c1 = Arc::new(GraphCore::new());
+            try_handle(102, Arc::clone(&c1), mk(true)).expect("handled");
+            let (_, conf) = assert_claim_objects(&c1);
+            assert!(conf > 0.4);
+        }
+    }
+
+    #[test]
+    fn causal_impact_detects_a_level_shift_and_writes_back() {
+        let core = Arc::new(GraphCore::new());
+        let mk = |as_claim: bool| Method::MineCausalImpact {
+            series: vec![1.0, 1.1, 0.9, 1.0, 1.05, 5.0, 5.1, 4.9, 5.0, 5.05],
+            control: Vec::new(),
+            intervention_index: 5,
+            series_id: "s1".into(),
+            writeback: true,
+            #[cfg(feature = "epistemic")]
+            as_claim,
+        };
+        let resp = try_handle(103, Arc::clone(&core), mk(false)).expect("handled");
+        let Some(ResultPayload::Json(v)) = resp.result else {
+            panic!("expected json");
+        };
+        assert!((v["effect_size"].as_f64().unwrap() - 4.0).abs() < 1e-6);
+        assert_eq!(v["written_back"], 1);
+        core.mark_dirty();
+        assert_eq!(core.get_nodes_by_label("CausalEffect", 0).len(), 1);
+        #[cfg(feature = "epistemic")]
+        {
+            assert_no_claims(&core);
+            let c1 = Arc::new(GraphCore::new());
+            try_handle(104, Arc::clone(&c1), mk(true)).expect("handled");
+            let (_, conf) = assert_claim_objects(&c1);
+            assert!(conf > 0.9);
+        }
+    }
+
+    #[test]
+    fn process_mining_derives_a_footprint_and_writes_back() {
+        let core = Arc::new(GraphCore::new());
+        let mk = |as_claim: bool| Method::MineProcess {
+            traces: vec![
+                vec!["register".into(), "check".into(), "accept".into()],
+                vec!["register".into(), "check".into(), "accept".into()],
+            ],
+            process_id: "p1".into(),
+            writeback: true,
+            #[cfg(feature = "epistemic")]
+            as_claim,
+        };
+        let resp = try_handle(105, Arc::clone(&core), mk(false)).expect("handled");
+        let Some(ResultPayload::Json(v)) = resp.result else {
+            panic!("expected json");
+        };
+        assert_eq!(v["n_activities"], 3);
+        assert_eq!(v["written_back"], 1);
+        core.mark_dirty();
+        assert_eq!(core.get_nodes_by_label("ProcessModel", 0).len(), 1);
+        #[cfg(feature = "epistemic")]
+        {
+            assert_no_claims(&core);
+            let c1 = Arc::new(GraphCore::new());
+            try_handle(106, Arc::clone(&c1), mk(true)).expect("handled");
+            assert_claim_objects(&c1);
+        }
+    }
+
+    #[test]
+    fn root_cause_finds_the_upstream_node_and_writes_back() {
+        let core = Arc::new(GraphCore::new());
+        let mk = |as_claim: bool| Method::MineRootCause {
+            nodes: vec!["n0".into(), "n1".into(), "n2".into()],
+            scores: vec![5.0, 0.1, 0.2],
+            edges: vec![
+                ("n0".into(), "n1".into(), 1.0),
+                ("n1".into(), "n2".into(), 1.0),
+            ],
+            symptom: "n2".into(),
+            max_hops: 5,
+            decay: 0.9,
+            writeback: true,
+            #[cfg(feature = "epistemic")]
+            as_claim,
+        };
+        let resp = try_handle(107, Arc::clone(&core), mk(false)).expect("handled");
+        let Some(ResultPayload::Json(v)) = resp.result else {
+            panic!("expected json");
+        };
+        assert_eq!(v["best"], "n0");
+        assert_eq!(v["written_back"], 1);
+        core.mark_dirty();
+        assert_eq!(core.get_nodes_by_label("RootCause", 0).len(), 1);
+        #[cfg(feature = "epistemic")]
+        {
+            assert_no_claims(&core);
+            let c1 = Arc::new(GraphCore::new());
+            try_handle(108, Arc::clone(&c1), mk(true)).expect("handled");
+            assert_claim_objects(&c1);
+        }
+    }
+
+    #[test]
+    fn risk_propagation_flows_from_seed_and_writes_back() {
+        let core = Arc::new(GraphCore::new());
+        let mk = |as_claim: bool| Method::MineRiskPropagation {
+            nodes: vec!["n0".into(), "n1".into(), "n2".into()],
+            seed: vec![1.0, 0.0, 0.0],
+            edges: vec![
+                ("n0".into(), "n1".into(), 1.0),
+                ("n1".into(), "n2".into(), 1.0),
+            ],
+            damping: 0.85,
+            tolerance: 1e-7,
+            max_iterations: 2000,
+            writeback: true,
+            #[cfg(feature = "epistemic")]
+            as_claim,
+        };
+        let resp = try_handle(109, Arc::clone(&core), mk(false)).expect("handled");
+        let Some(ResultPayload::Json(v)) = resp.result else {
+            panic!("expected json");
+        };
+        assert!(v["written_back"].as_u64().unwrap() >= 2);
+        core.mark_dirty();
+        assert!(!core.get_nodes_by_label("RiskScore", 0).is_empty());
+        #[cfg(feature = "epistemic")]
+        {
+            assert_no_claims(&core);
+            let c1 = Arc::new(GraphCore::new());
+            try_handle(110, Arc::clone(&c1), mk(true)).expect("handled");
+            assert_claim_objects(&c1);
+        }
+    }
+
+    #[test]
+    fn ontology_gap_flags_a_disconnected_propertyless_class_and_writes_back() {
+        let core = Arc::new(GraphCore::new());
+        let build = |core: &GraphCore| {
+            core.add_node("ClassA".into(), node(serde_json::json!({"type": "Class"})));
+        };
+        let mk = |as_claim: bool| Method::MineOntologyGap {
+            label: None,
+            writeback: true,
+            #[cfg(feature = "epistemic")]
+            as_claim,
+        };
+        build(&core);
+        let resp = try_handle(111, Arc::clone(&core), mk(false)).expect("handled");
+        let Some(ResultPayload::Json(v)) = resp.result else {
+            panic!("expected json");
+        };
+        assert_eq!(v["n_gaps"], 2); // disconnected AND no_properties
+        assert_eq!(v["written_back"], 2);
+        core.mark_dirty();
+        assert_eq!(core.get_nodes_by_label("OntologyGap", 0).len(), 2);
+        #[cfg(feature = "epistemic")]
+        {
+            assert_no_claims(&core);
+            let c1 = Arc::new(GraphCore::new());
+            build(&c1);
+            try_handle(112, Arc::clone(&c1), mk(true)).expect("handled");
+            assert_claim_objects(&c1);
+        }
+    }
+
+    #[test]
+    fn retrieval_quality_scores_a_trace_and_writes_back() {
+        let core = Arc::new(GraphCore::new());
+        let mk = |as_claim: bool| Method::MineRetrievalQuality {
+            traces: vec![RetrievalTraceSpec {
+                retrieved: vec!["irrelevant".into(), "a".into()],
+                relevant: vec!["a".into()],
+            }],
+            k: 2,
+            query_id: "q1".into(),
+            writeback: true,
+            #[cfg(feature = "epistemic")]
+            as_claim,
+        };
+        let resp = try_handle(113, Arc::clone(&core), mk(false)).expect("handled");
+        let Some(ResultPayload::Json(v)) = resp.result else {
+            panic!("expected json");
+        };
+        assert!((v["mrr"].as_f64().unwrap() - 0.5).abs() < 1e-9);
+        assert_eq!(v["written_back"], 1);
+        core.mark_dirty();
+        assert_eq!(core.get_nodes_by_label("RetrievalQuality", 0).len(), 1);
+        #[cfg(feature = "epistemic")]
+        {
+            assert_no_claims(&core);
+            let c1 = Arc::new(GraphCore::new());
+            try_handle(114, Arc::clone(&c1), mk(true)).expect("handled");
+            assert_claim_objects(&c1);
+        }
+    }
+
+    #[test]
+    fn community_detects_two_triangles_and_writes_back() {
+        let core = Arc::new(GraphCore::new());
+        let build = |core: &GraphCore| {
+            for id in ["a0", "a1", "a2", "b0", "b1", "b2"] {
+                core.add_node(id.into(), node(serde_json::json!({"type": "Node"})));
+            }
+            let tri_edges = [
+                ("a0", "a1"),
+                ("a1", "a2"),
+                ("a2", "a0"),
+                ("b0", "b1"),
+                ("b1", "b2"),
+                ("b2", "b0"),
+            ];
+            for (s, t) in tri_edges {
+                let _ = core.add_edge(s.into(), t.into(), node(serde_json::json!({})));
+            }
+        };
+        let mk = |as_claim: bool| Method::MineCommunity {
+            label: None,
+            algorithm: CommunityAlgorithm::Louvain,
+            resolution: 1.0,
+            max_iterations: 100,
+            seed: 0,
+            weighted: true,
+            writeback: true,
+            #[cfg(feature = "epistemic")]
+            as_claim,
+        };
+        build(&core);
+        let resp = try_handle(115, Arc::clone(&core), mk(false)).expect("handled");
+        let Some(ResultPayload::Json(v)) = resp.result else {
+            panic!("expected json");
+        };
+        assert_eq!(v["written_back"], 2);
+        core.mark_dirty();
+        assert_eq!(core.get_nodes_by_label("Community", 0).len(), 2);
+        #[cfg(feature = "epistemic")]
+        {
+            assert_no_claims(&core);
+            let c1 = Arc::new(GraphCore::new());
+            build(&c1);
+            try_handle(116, Arc::clone(&c1), mk(true)).expect("handled");
+            let (_, conf) = assert_claim_objects(&c1);
+            assert!(conf > 0.5, "tight triangle community should have high density confidence");
+        }
     }
 }
