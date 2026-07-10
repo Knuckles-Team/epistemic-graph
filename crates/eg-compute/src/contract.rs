@@ -54,11 +54,7 @@ impl ModalityContract for MergeProposal {
     /// this clamps into `Provenance::confidence`'s documented `[0, 1]` range rather
     /// than assuming the score is already there.
     fn provenance(&self, _id: &str) -> Option<Provenance> {
-        let mut detail: Vec<String> = self
-            .members
-            .iter()
-            .map(|m| format!("member:{m}"))
-            .collect();
+        let mut detail: Vec<String> = self.members.iter().map(|m| format!("member:{m}")).collect();
         detail.push(format!("canonical:{}", self.canonical));
         Some(Provenance {
             source: self.kind.clone(),
@@ -96,7 +92,9 @@ mod overrides {
     #[test]
     fn kind_maps_to_source() {
         let p = MergeProposal::conformance_sample();
-        let prov = p.provenance("x").expect("a MergeProposal always has provenance");
+        let prov = p
+            .provenance("x")
+            .expect("a MergeProposal always has provenance");
         assert_eq!(prov.source, "same_as");
     }
 
@@ -220,7 +218,9 @@ mod symbol_evidence {
     #[test]
     fn maps_file_path_and_line_range_losslessly() {
         let sym = Symbol::conformance_sample();
-        let span = sym.evidence("ignored").expect("a parsed Symbol always has evidence");
+        let span = sym
+            .evidence("ignored")
+            .expect("a parsed Symbol always has evidence");
         assert_eq!(
             span,
             EvidenceSpan::CodeSymbol {

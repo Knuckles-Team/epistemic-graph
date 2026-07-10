@@ -74,9 +74,15 @@ impl ModalityContract for BeliefState {
         };
         let mut detail: Vec<String> = Vec::new();
         detail.extend(self.supporting.iter().map(|n| format!("supports:{n}")));
-        detail.extend(self.contradicting.iter().map(|n| format!("contradicts:{n}")));
+        detail.extend(
+            self.contradicting
+                .iter()
+                .map(|n| format!("contradicts:{n}")),
+        );
         detail.extend(self.attacking.iter().map(|n| format!("attacks:{n}")));
-        if !self.supporting.is_empty() && (!self.contradicting.is_empty() || !self.attacking.is_empty()) {
+        if !self.supporting.is_empty()
+            && (!self.contradicting.is_empty() || !self.attacking.is_empty())
+        {
             detail.push("rule:bayesian_update".to_string());
         }
         Some(Provenance {
@@ -145,14 +151,19 @@ mod overrides {
     #[test]
     fn corroborated_asserted_belief_maps_to_derived_support() {
         let b = BeliefState::conformance_sample();
-        let prov = b.provenance("x").expect("a belief with evidence has provenance");
+        let prov = b
+            .provenance("x")
+            .expect("a belief with evidence has provenance");
         assert_eq!(prov.source, format!("{:?}", JustRule::DerivedSupport));
         assert_eq!(prov.confidence, 0.82);
         assert!(prov.detail.iter().any(|d| d == "supports:evidence-1"));
         assert!(prov.detail.iter().any(|d| d == "supports:evidence-2"));
         assert_eq!(
             b.policy_labels("x"),
-            vec!["epistemic:corroborated".to_string(), "as_of:transaction".to_string()]
+            vec![
+                "epistemic:corroborated".to_string(),
+                "as_of:transaction".to_string()
+            ]
         );
     }
 
@@ -168,7 +179,10 @@ mod overrides {
         };
         let prov = b.provenance("x").unwrap();
         assert_eq!(prov.source, format!("{:?}", JustRule::DerivedContradiction));
-        assert_eq!(b.policy_labels("x"), vec!["epistemic:contested".to_string()]);
+        assert_eq!(
+            b.policy_labels("x"),
+            vec!["epistemic:contested".to_string()]
+        );
     }
 
     #[test]

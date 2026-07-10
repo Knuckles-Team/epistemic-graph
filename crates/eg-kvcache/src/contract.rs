@@ -13,9 +13,7 @@
 //! `contract` feature (see `src/compress.rs`), so the base Pi-lean build (no
 //! dependencies at all) is completely unaffected.
 
-use eg_modality::{
-    encode_staged, ConformanceTestable, ModalityContract, RowSetShape, StagedWrite,
-};
+use eg_modality::{encode_staged, ConformanceTestable, ModalityContract, RowSetShape, StagedWrite};
 
 use crate::compress::StoredBlock;
 

@@ -96,7 +96,12 @@ mod tests {
 
     /// A minimal, structurally valid WAV: RIFF/WAVE + a 16-byte PCM `fmt ` chunk + a
     /// `data` chunk of `num_samples` (per channel) silent frames.
-    fn wav_fixture(sample_rate: u32, channels: u16, bits_per_sample: u16, num_frames: u32) -> Vec<u8> {
+    fn wav_fixture(
+        sample_rate: u32,
+        channels: u16,
+        bits_per_sample: u16,
+        num_frames: u32,
+    ) -> Vec<u8> {
         let bytes_per_sample = (bits_per_sample / 8) as u32;
         let block_align = bytes_per_sample * channels as u32;
         let data_size = num_frames * block_align;

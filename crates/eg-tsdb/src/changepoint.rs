@@ -31,7 +31,12 @@ use crate::query::asof_join_backward;
 /// per shift rather than at every subsequent step). `drift` (>= 0) is the
 /// per-step slack allowed before accumulation starts — a small drift (e.g. half
 /// the smallest shift you care about) keeps ordinary noise from alarming.
-pub fn cusum_change_points(points: &[Point], target_mean: f64, drift: f64, threshold: f64) -> Vec<usize> {
+pub fn cusum_change_points(
+    points: &[Point],
+    target_mean: f64,
+    drift: f64,
+    threshold: f64,
+) -> Vec<usize> {
     let mut s_pos = 0.0f64;
     let mut s_neg = 0.0f64;
     let mut out = Vec::new();
@@ -226,7 +231,10 @@ mod tests {
         vals.extend(vec![10.0; 50]);
         let points = series(&vals);
         let hits = cusum_change_points(&points, 0.0, 1.0, 5.0);
-        assert!(!hits.is_empty(), "a 10-unit sustained shift must be flagged");
+        assert!(
+            !hits.is_empty(),
+            "a 10-unit sustained shift must be flagged"
+        );
         // The first flagged index should land near the true shift at 50.
         assert!(
             hits[0] >= 48 && hits[0] <= 56,
@@ -304,7 +312,8 @@ mod tests {
             (19_500_000_000i64, "deploy:v1.2.3".to_string()),
             (5_000_000_000i64, "deploy:v1.0.0".to_string()),
         ];
-        let joined = join_change_points_to_events(&points, &[change_idx], &events, Some(2_000_000_000));
+        let joined =
+            join_change_points_to_events(&points, &[change_idx], &events, Some(2_000_000_000));
         assert_eq!(joined.len(), 1);
         assert_eq!(joined[0].linked_node.as_deref(), Some("deploy:v1.2.3"));
     }

@@ -60,7 +60,11 @@ pub fn execute_dag(dag: &PlanDag, ctx: &PlanCtx) -> Result<RowSet, String> {
 /// locally or supplied by the override — so a distributed EXCHANGE's merge is the SAME
 /// `RowSet::intersect_keep_order` chain a single-node multi-branch dag already uses,
 /// reused rather than reimplemented.
-pub fn execute_dag_with<F>(dag: &PlanDag, ctx: &PlanCtx, mut override_node: F) -> Result<RowSet, String>
+pub fn execute_dag_with<F>(
+    dag: &PlanDag,
+    ctx: &PlanCtx,
+    mut override_node: F,
+) -> Result<RowSet, String>
 where
     F: FnMut(NodeId, &PlanNode, &RowSet) -> Result<Option<RowSet>, String>,
 {

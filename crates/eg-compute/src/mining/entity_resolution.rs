@@ -132,7 +132,13 @@ pub fn resolve_entities(
         .iter()
         .map(|v| {
             v.iter()
-                .map(|x| format!("{:.*}", bucket_precision.max(0) as usize, (x * scale).round() / scale))
+                .map(|x| {
+                    format!(
+                        "{:.*}",
+                        bucket_precision.max(0) as usize,
+                        (x * scale).round() / scale
+                    )
+                })
                 .collect::<Vec<_>>()
                 .join(",")
         })
@@ -153,7 +159,11 @@ mod tests {
             vec!["jon".into(), "smith".into(), "12345".into()], // near-dup, same block
             vec!["mary".into(), "jones".into(), "99999".into()], // unrelated, different block
         ];
-        let blocks = vec!["smith".to_string(), "smith".to_string(), "jones".to_string()];
+        let blocks = vec![
+            "smith".to_string(),
+            "smith".to_string(),
+            "jones".to_string(),
+        ];
         let matches = link_records(&records, &blocks, 0.4);
         assert_eq!(matches.len(), 1);
         assert_eq!((matches[0].left, matches[0].right), (0, 1));
@@ -168,7 +178,10 @@ mod tests {
         ];
         let blocks = vec!["block1".to_string(), "block2".to_string()];
         let matches = link_records(&records, &blocks, 0.1);
-        assert!(matches.is_empty(), "cross-block pairs must never be compared");
+        assert!(
+            matches.is_empty(),
+            "cross-block pairs must never be compared"
+        );
     }
 
     #[test]

@@ -117,13 +117,14 @@ impl ImageData {
     /// PNG nor JPEG — a caller that already knows the dimensions from elsewhere can
     /// still build one directly via [`ImageData::new`].
     pub fn from_bytes(bytes: &[u8], regions: Vec<ImageRegion>) -> Option<Self> {
-        let (format, width, height) = if let Some((w, h)) = crate::header::read_png_dimensions(bytes) {
-            (ImageFormat::Png, w, h)
-        } else if let Some((w, h)) = crate::header::read_jpeg_dimensions(bytes) {
-            (ImageFormat::Jpeg, w, h)
-        } else {
-            return None;
-        };
+        let (format, width, height) =
+            if let Some((w, h)) = crate::header::read_png_dimensions(bytes) {
+                (ImageFormat::Png, w, h)
+            } else if let Some((w, h)) = crate::header::read_jpeg_dimensions(bytes) {
+                (ImageFormat::Jpeg, w, h)
+            } else {
+                return None;
+            };
         Some(Self {
             width,
             height,
@@ -147,9 +148,8 @@ mod tests {
 
     #[test]
     fn serde_round_trips() {
-        let img = ImageData::new(10, 20, "hash1").with_regions(vec![ImageRegion::labeled(
-            "face", 1.0, 2.0, 3.0, 4.0,
-        )]);
+        let img = ImageData::new(10, 20, "hash1")
+            .with_regions(vec![ImageRegion::labeled("face", 1.0, 2.0, 3.0, 4.0)]);
         let json = serde_json::to_string(&img).unwrap();
         let back: ImageData = serde_json::from_str(&json).unwrap();
         assert_eq!(img, back);

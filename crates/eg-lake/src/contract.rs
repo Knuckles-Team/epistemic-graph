@@ -12,9 +12,7 @@
 //! embedded policy labels of its own; those are exactly the "nothing to report" cases
 //! the trait's module docs describe.
 
-use eg_modality::{
-    encode_staged, ConformanceTestable, ModalityContract, RowSetShape, StagedWrite,
-};
+use eg_modality::{encode_staged, ConformanceTestable, ModalityContract, RowSetShape, StagedWrite};
 
 use crate::schema::{CellValue, LakeBatch, LakeField, LakeSchema, LakeType};
 

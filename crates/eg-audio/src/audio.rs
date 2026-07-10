@@ -101,8 +101,11 @@ mod tests {
 
     #[test]
     fn serde_round_trips() {
-        let a = AudioData::new(16_000, 2000, "hash1")
-            .with_segments(vec![AudioSegment::labeled("speaker-1", 0, 1000)]);
+        let a = AudioData::new(16_000, 2000, "hash1").with_segments(vec![AudioSegment::labeled(
+            "speaker-1",
+            0,
+            1000,
+        )]);
         let json = serde_json::to_string(&a).unwrap();
         let back: AudioData = serde_json::from_str(&json).unwrap();
         assert_eq!(a, back);

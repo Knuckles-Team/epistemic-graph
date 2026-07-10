@@ -348,7 +348,8 @@ mod tests {
             .collect();
         let centroids_flat = flat(&centers);
         let data_flat = flat(&data);
-        let got = batch_assign_dispatch(&data_flat, data.len(), &centroids_flat, centers.len(), dim);
+        let got =
+            batch_assign_dispatch(&data_flat, data.len(), &centroids_flat, centers.len(), dim);
         for (i, v) in data.iter().enumerate() {
             let mut best = 0usize;
             let mut bestd = f32::MAX;
@@ -359,7 +360,10 @@ mod tests {
                     best = c;
                 }
             }
-            assert_eq!(got[i] as usize, best, "point {i} disagrees with brute force");
+            assert_eq!(
+                got[i] as usize, best,
+                "point {i} disagrees with brute force"
+            );
         }
     }
 

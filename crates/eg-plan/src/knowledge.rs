@@ -909,10 +909,7 @@ mod tests {
         let row = &ks.rows[0];
         let mut refs = row.source_refs.clone();
         refs.sort();
-        assert_eq!(
-            refs,
-            vec!["evidence1".to_string(), "evidence2".to_string()]
-        );
+        assert_eq!(refs, vec!["evidence1".to_string(), "evidence2".to_string()]);
         assert_eq!(
             row.policy_labels,
             vec!["epistemic:corroborated".to_string()]

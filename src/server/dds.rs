@@ -393,7 +393,10 @@ mod cyclone {
         }
 
         fn ops() -> Vec<u32> {
-            adr(TYPE_STR, std::mem::offset_of!(CycloneRos2String, data) as u32)
+            adr(
+                TYPE_STR,
+                std::mem::offset_of!(CycloneRos2String, data) as u32,
+            )
         }
 
         // The default `clone_out` does a raw `ptr::read` (a bitwise copy of the `char*`),
@@ -614,10 +617,7 @@ mod cyclone {
                 mangle_type_name(ROS_STRING_TYPE),
                 CYCLONE_ROS_STRING_TYPE_NAME,
             );
-            assert_eq!(
-                CycloneRos2String::type_name(),
-                CYCLONE_ROS_STRING_TYPE_NAME,
-            );
+            assert_eq!(CycloneRos2String::type_name(), CYCLONE_ROS_STRING_TYPE_NAME,);
         }
 
         /// EG-347 (S5): a REAL RTPS loopback over the CycloneDDS-C `rmw` stack — publish a

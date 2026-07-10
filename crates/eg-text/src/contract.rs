@@ -150,7 +150,7 @@ mod evidence_mapping {
 #[cfg(test)]
 mod layout_evidence_mapping {
     use super::*;
-    use crate::{extract_tables, citation_spans};
+    use crate::{citation_spans, extract_tables};
 
     #[test]
     fn table_span_converts_losslessly_to_table_cell_range() {

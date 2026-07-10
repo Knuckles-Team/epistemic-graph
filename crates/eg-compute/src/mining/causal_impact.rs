@@ -127,11 +127,7 @@ pub fn interrupted_time_series(series: &[f64], intervention_index: usize) -> Cau
 /// Difference-in-differences estimate: `treatment` and `control` are each split
 /// at the SAME `intervention_index`; the effect subtracts the control's own
 /// pre→post drift from the treatment's, isolating the treatment-specific effect.
-pub fn diff_in_diff(
-    treatment: &[f64],
-    control: &[f64],
-    intervention_index: usize,
-) -> CausalEffect {
+pub fn diff_in_diff(treatment: &[f64], control: &[f64], intervention_index: usize) -> CausalEffect {
     let t_idx = intervention_index.min(treatment.len());
     let c_idx = intervention_index.min(control.len());
     let (t_pre, t_post) = treatment.split_at(t_idx);
@@ -158,7 +154,11 @@ mod tests {
         assert!((out.pre_mean - 1.01).abs() < 1e-6);
         assert!((out.post_mean - 5.01).abs() < 1e-6);
         assert!((out.effect_size - 4.0).abs() < 1e-6);
-        assert!(out.confidence > 0.9, "confidence {} too low for a clear shift", out.confidence);
+        assert!(
+            out.confidence > 0.9,
+            "confidence {} too low for a clear shift",
+            out.confidence
+        );
     }
 
     #[test]

@@ -1662,8 +1662,8 @@ async fn calvin_ollp_epoch_routing_restart_agrees_across_nodes() {
     let (lm_w, mu_w, dk_w) = (lockmgr.clone(), multi.clone(), dir_key.clone());
     let writer = tokio::spawn(async move {
         let g = lm_w.granted(tw).await; // granted immediately (front of the queue)
-        // Wait until the OLLP txn's first attempt has registered behind us on `dir` (a
-        // lock-manager fact — its recon has already read the OLD `dir`).
+                                        // Wait until the OLLP txn's first attempt has registered behind us on `dir` (a
+                                        // lock-manager fact — its recon has already read the OLD `dir`).
         wait_until(Duration::from_secs(5), || async {
             lm_w.queue_depth(&dk_w) >= 2
         })
@@ -1723,7 +1723,10 @@ async fn calvin_ollp_epoch_routing_restart_agrees_across_nodes() {
         "the restart routed the txn into the NEXT epoch of the multi-node fan-in"
     );
     assert!(
-        acquired.rwset.reads.contains(&RecordKey::new(GRAPH_A, "k2")),
+        acquired
+            .rwset
+            .reads
+            .contains(&RecordKey::new(GRAPH_A, "k2")),
         "the restarted recon discovered the post-mutation target k2"
     );
 

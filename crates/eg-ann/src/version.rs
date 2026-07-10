@@ -147,7 +147,9 @@ mod tests {
         let v = EmbeddingVersion::new("m1", 2);
         store.tag_batch(&[1, 2, 3], &v);
         assert_eq!(store.len(), 3);
-        assert!([1u64, 2, 3].iter().all(|&id| store.version_of(id) == Some(&v)));
+        assert!([1u64, 2, 3]
+            .iter()
+            .all(|&id| store.version_of(id) == Some(&v)));
     }
 
     #[test]

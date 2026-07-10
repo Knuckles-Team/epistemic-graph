@@ -144,7 +144,12 @@ mod tests {
     #[test]
     fn dfg_counts_directly_follows_pairs() {
         let dfg = mine_dfg(&traces(), 5);
-        let get = |a, b| dfg.edges.iter().find(|&&(x, y, _)| x == a && y == b).map(|&(_, _, c)| c);
+        let get = |a, b| {
+            dfg.edges
+                .iter()
+                .find(|&&(x, y, _)| x == a && y == b)
+                .map(|&(_, _, c)| c)
+        };
         assert_eq!(get(0, 1), Some(3));
         assert_eq!(get(1, 2), Some(3));
         assert_eq!(get(2, 3), Some(2));
@@ -161,8 +166,14 @@ mod tests {
         assert!(model.causal.contains(&(2, 4)));
         // accept(3) and reject(4) never appear adjacent in any trace ⇒ choice
         // (neither direction in `follows`), so NOT in causal or parallel.
-        assert!(!model.causal.iter().any(|&(a, b)| (a, b) == (3, 4) || (a, b) == (4, 3)));
-        assert!(!model.parallel.iter().any(|&(a, b)| (a, b) == (3, 4) || (a, b) == (4, 3)));
+        assert!(!model
+            .causal
+            .iter()
+            .any(|&(a, b)| (a, b) == (3, 4) || (a, b) == (4, 3)));
+        assert!(!model
+            .parallel
+            .iter()
+            .any(|&(a, b)| (a, b) == (3, 4) || (a, b) == (4, 3)));
         assert_eq!(model.start_activities, vec![0]);
         assert_eq!(model.end_activities, vec![3, 4]);
     }
@@ -173,14 +184,25 @@ mod tests {
         let traces = vec![vec![0, 1, 2, 3], vec![0, 2, 1, 3]];
         let model = alpha_lite(&traces, 4);
         assert!(model.parallel.contains(&(1, 2)));
-        assert!(!model.causal.iter().any(|&(a, b)| (a, b) == (1, 2) || (a, b) == (2, 1)));
+        assert!(!model
+            .causal
+            .iter()
+            .any(|&(a, b)| (a, b) == (1, 2) || (a, b) == (2, 1)));
     }
 
     #[test]
     fn labeled_roundtrip_recovers_activity_names() {
         let traces = vec![
-            vec!["register".to_string(), "check".to_string(), "accept".to_string()],
-            vec!["register".to_string(), "check".to_string(), "accept".to_string()],
+            vec![
+                "register".to_string(),
+                "check".to_string(),
+                "accept".to_string(),
+            ],
+            vec![
+                "register".to_string(),
+                "check".to_string(),
+                "accept".to_string(),
+            ],
         ];
         let (labels, model) = alpha_lite_labeled(&traces);
         assert_eq!(labels.len(), 3);
