@@ -8,6 +8,41 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [2.16.0] - 2026-07-10 — Epistemic Substrate
+
+Turns the engine's `RowSet` multimodal center into an explicitly **epistemic** substrate
+(claims, evidence, belief, provenance, contradiction, confidence, validity, agent-action
+history as engine-native concepts), addressing + exceeding the external functional review.
+
+### Added — epistemic core & planner
+- **`eg-epistemic` crate** — engine-native Claim/Evidence/Source/BeliefState/Contradiction/
+  Support-Attack + cycle-guarded confidence propagation (reuses the `Beta` conjugate
+  `bayesian_update`), `JustificationGraph`, and (feature `epistemic-tms`) **paraconsistent
+  truth-maintenance + Dung argumentation** (grounded/preferred/stable extensions,
+  dependency-directed retraction).
+- **Belief/evidence UQL + wire ops** — `EVIDENCE FOR`/`CONTRADICTS`/`SUPPORTED BY`/
+  `BELIEF AS OF`/`VALID AS OF`/`SOURCE RELIABILITY`/`CONFIDENCE`/`EXPLAIN BELIEF`
+  (feature `epistemic`); `VALID AS OF` is a strict-superset alias of `AS OF`.
+- **`KnowledgeSet` (RowSet v2)** — additive typed frame carrying kind/projection/bitemporal/
+  confidence/**source/evidence/policy refs** with located multimodal `EvidenceSpan`s
+  (DocumentSpan/TableCellRange/ImageRegion/AudioSegment/VideoShot/CodeSymbol/TraceSpan);
+  bare `RowSet` unchanged.
+- **Planner v2 typed DAG** — `PlanDag`/`dag_exec` alongside the untouched linear path, proven
+  byte-identical by a **differential oracle**; DAG-aware optimizer (narrowed EG-405 guard),
+  multi-branch joins, `EXPLAIN PLAN/PROVENANCE/POLICY/BELIEF`, `stage_plan_writeback` ACID
+  seam, and a cluster-gated cross-shard **exchange operator** (X4).
+- **`eg-modality` Modality Contract** trait + conformance harness, retrofitted across the
+  crate fleet.
+- **Mining → epistemic objects** — every mined result (incl. new families:
+  entity-resolution, record-linkage, causal-impact, process-mining, root-cause,
+  risk-propagation, ontology-gap, retrieval-quality, community) materializes a candidate
+  Claim + Evidence + confidence + validation-state (opt-in `as_claim`).
+- **New modality engines** — `eg-image`/`eg-audio`/`eg-video` (pure-Rust header parse +
+  region/segment/shot evidence; heavy codecs gated); modality-depth analytics (vector drift/
+  versioning, TS change-point, code call-graph, text table/layout spans).
+- **GPU ANN-build offload** (`gpu-cuda`), **Calvin multi-node epoch routing** (`calvin`),
+  and materialize-belief + ICV SHACL/RLS enforcement.
+
 ### Added — CycloneDDS-C `rmw` ROS2 leg (S5, follow-on to EG-347/EG-349)
 - **`ros2-rmw` feature** — a THIRD `DdsTransport` impl (`CycloneDdsTransport`,
   `src/server/dds.rs`), alongside the WS bridge (`ros2-bridge`) and the pure-Rust
