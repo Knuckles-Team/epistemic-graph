@@ -72,6 +72,14 @@ pub mod leanrag;
 /// Plan is `query`-gated.
 pub mod uql;
 
+/// The typed DAG plan representation (CONCEPT:EG-KG.query.plan-dag, E5 phase 1): [`dag::PlanDag`]
+/// generalizes the linear [`Plan`] into a real graph of operators (a node's `inputs` name
+/// its dependency nodes), with a lossless conversion from every existing linear `Plan` (a
+/// degenerate chain). `Op` is unchanged; execution over a `PlanDag` lives in
+/// [`dag_exec`]. Sits beside `exec`/`knowledge` under the same `query` gate (a `PlanNode`
+/// carries an optional `knowledge::ProjectionSchema`).
+#[cfg(feature = "query")]
+pub mod dag;
 #[cfg(feature = "query")]
 pub mod exec;
 /// RowSet v2, additive (CONCEPT:EG-KG.query.knowledge-set): [`knowledge::KnowledgeSet`] is the
@@ -135,6 +143,12 @@ pub mod rowset;
 pub use exec::StagedSeries;
 #[cfg(feature = "query")]
 pub use exec::{execute, PlanCtx, PlanExt};
+
+/// The typed DAG plan surface (CONCEPT:EG-KG.query.plan-dag, E5): the node/edge shape plus
+/// its physical executor, so a caller building a genuine multi-branch plan names them
+/// through `eg_plan` directly (mirroring how `Op`/`Plan` are re-exported from `algebra`).
+#[cfg(feature = "query")]
+pub use dag::{NodeId, PlanDag, PlanNode};
 
 /// The RowSet v2 surface (CONCEPT:EG-KG.query.knowledge-set): the enriched, ready-to-consume
 /// row/set shape a caller builds from a finished `RowSet` + the `GraphView` it ran over.
