@@ -1287,11 +1287,8 @@ pub(crate) async fn try_handle(
                     .map_err(|e| e.to_string())
                 });
                 #[cfg(not(feature = "shacl"))]
-                let result = eg_rdf::update::execute_str(
-                    &query,
-                    &store,
-                    &eg_rdf::sparql::Projection::raw(),
-                );
+                let result =
+                    eg_rdf::update::execute_str(&query, &store, &eg_rdf::sparql::Projection::raw());
                 match result {
                     Ok(report) => match serde_json::to_value(&report) {
                         Ok(v) => Response::ok(req_id, ResultPayload::Json(v)),

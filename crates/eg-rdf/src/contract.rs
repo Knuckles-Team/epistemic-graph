@@ -76,7 +76,12 @@ impl ModalityContract for ProofNode {
     /// The crate's real reasoning-surface operations, listed exactly like
     /// `eg-tensor`/`eg-geo` list their real ops.
     fn analytics_ops(&self) -> Vec<&'static str> {
-        vec!["classify", "explain", "entails_subclass", "subclass_confidence"]
+        vec![
+            "classify",
+            "explain",
+            "entails_subclass",
+            "subclass_confidence",
+        ]
     }
 }
 
@@ -113,11 +118,16 @@ mod provenance_mapping {
     #[test]
     fn maps_rule_axioms_and_confidence_losslessly() {
         let node = ProofNode::conformance_sample();
-        let prov = node.provenance("x").expect("a derived ProofNode has provenance");
+        let prov = node
+            .provenance("x")
+            .expect("a derived ProofNode has provenance");
         assert_eq!(prov.source, "EL-exists-lhs");
         assert_eq!(prov.confidence, 0.9);
         assert!(prov.detail.iter().any(|d| d.contains("partOf")));
-        assert!(prov.detail.iter().any(|d| d.contains("Body") && d.contains("asserted")));
+        assert!(prov
+            .detail
+            .iter()
+            .any(|d| d.contains("Body") && d.contains("asserted")));
     }
 
     #[test]
@@ -130,7 +140,9 @@ mod provenance_mapping {
             confidence: 1.0,
             premises: Vec::new(),
         };
-        let prov = leaf.provenance("x").expect("even an asserted leaf reports provenance");
+        let prov = leaf
+            .provenance("x")
+            .expect("even an asserted leaf reports provenance");
         assert_eq!(prov.source, "asserted");
         assert_eq!(prov.confidence, 1.0);
         assert!(prov.detail.is_empty());

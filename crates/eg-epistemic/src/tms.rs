@@ -200,10 +200,7 @@ fn grounded_labels(bg: &BeliefGraph) -> BTreeMap<String, Label> {
             if labels[arg] != Label::Undecided {
                 continue;
             }
-            if atk
-                .iter()
-                .all(|a| labels.get(a) == Some(&Label::Out))
-            {
+            if atk.iter().all(|a| labels.get(a) == Some(&Label::Out)) {
                 labels.insert(arg.clone(), Label::In);
                 changed = true;
             } else if atk.iter().any(|a| labels.get(a) == Some(&Label::In)) {
@@ -238,9 +235,11 @@ fn conflict_free(attackers: &AttackerMap, set: &BTreeSet<String>) -> bool {
 /// member of `set`.
 fn is_defended(attackers: &AttackerMap, set: &BTreeSet<String>, arg: &str) -> bool {
     match attackers.get(arg) {
-        Some(atk) => atk
-            .iter()
-            .all(|attacker| attackers.get(attacker).is_some_and(|aa| aa.iter().any(|x| set.contains(x)))),
+        Some(atk) => atk.iter().all(|attacker| {
+            attackers
+                .get(attacker)
+                .is_some_and(|aa| aa.iter().any(|x| set.contains(x)))
+        }),
         None => true,
     }
 }
@@ -275,7 +274,15 @@ fn search_conflict_free(
     }
 
     // Exclude args[idx].
-    search_conflict_free(attackers, args, idx + 1, current.clone(), found, budget, capped);
+    search_conflict_free(
+        attackers,
+        args,
+        idx + 1,
+        current.clone(),
+        found,
+        budget,
+        capped,
+    );
     if *capped {
         return;
     }
@@ -315,7 +322,15 @@ fn bounded_conflict_free_sets(
     let mut found = Vec::new();
     let mut budget = MAX_SEARCH_NODES;
     let mut capped = false;
-    search_conflict_free(&attackers, &args, 0, BTreeSet::new(), &mut found, &mut budget, &mut capped);
+    search_conflict_free(
+        &attackers,
+        &args,
+        0,
+        BTreeSet::new(),
+        &mut found,
+        &mut budget,
+        &mut capped,
+    );
     if capped {
         tracing::warn!(
             caller,
@@ -419,11 +434,8 @@ fn remove_node(bg: &BeliefGraph, id: &str) -> BeliefGraph {
         if target == id {
             continue;
         }
-        let filtered: Vec<(String, EdgeKind)> = edges
-            .iter()
-            .filter(|(src, _)| src != id)
-            .cloned()
-            .collect();
+        let filtered: Vec<(String, EdgeKind)> =
+            edges.iter().filter(|(src, _)| src != id).cloned().collect();
         if !filtered.is_empty() {
             in_edges.insert(target.clone(), filtered);
         }
@@ -507,10 +519,7 @@ mod tests {
     fn grounded_chain_reinstatement() {
         let bg = BeliefGraph::from_parts(
             [("a", 0.5), ("b", 0.5), ("c", 0.5)],
-            [
-                ("a", "b", EdgeKind::Attacks),
-                ("b", "c", EdgeKind::Attacks),
-            ],
+            [("a", "b", EdgeKind::Attacks), ("b", "c", EdgeKind::Attacks)],
         );
         let grounded = grounded_extension(&bg);
         let expected: BTreeSet<String> = ["a", "c"].into_iter().map(String::from).collect();
@@ -526,10 +535,7 @@ mod tests {
     fn mutual_conflict_af() -> BeliefGraph {
         BeliefGraph::from_parts(
             [("a", 0.5), ("b", 0.5), ("c", 0.9)],
-            [
-                ("a", "b", EdgeKind::Attacks),
-                ("b", "a", EdgeKind::Attacks),
-            ],
+            [("a", "b", EdgeKind::Attacks), ("b", "a", EdgeKind::Attacks)],
         )
     }
 

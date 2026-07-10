@@ -58,7 +58,13 @@ impl ModalityContract for Event {
     /// beyond plain store/retrieve (mirrors `eg-tensor`/`eg-geo` listing their real
     /// ops here, not a placeholder list).
     fn analytics_ops(&self) -> Vec<&'static str> {
-        vec!["sequence", "within", "absence", "sliding_window", "tumbling_window"]
+        vec![
+            "sequence",
+            "within",
+            "absence",
+            "sliding_window",
+            "tumbling_window",
+        ]
     }
 }
 

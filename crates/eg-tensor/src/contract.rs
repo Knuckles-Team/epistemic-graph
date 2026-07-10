@@ -24,8 +24,12 @@ impl ModalityContract for Tensor {
         let score = match &self.data {
             Buffer::F32(v) => Some(v.iter().map(|x| x * x).sum::<f32>().sqrt()),
             Buffer::F64(v) => Some((v.iter().map(|x| x * x).sum::<f64>()).sqrt() as f32),
-            Buffer::I32(v) => Some((v.iter().map(|&x| (x as f64) * (x as f64)).sum::<f64>()).sqrt() as f32),
-            Buffer::I64(v) => Some((v.iter().map(|&x| (x as f64) * (x as f64)).sum::<f64>()).sqrt() as f32),
+            Buffer::I32(v) => {
+                Some((v.iter().map(|&x| (x as f64) * (x as f64)).sum::<f64>()).sqrt() as f32)
+            }
+            Buffer::I64(v) => {
+                Some((v.iter().map(|&x| (x as f64) * (x as f64)).sum::<f64>()).sqrt() as f32)
+            }
             Buffer::U8(_) => None,
         };
         RowSetShape {
@@ -81,7 +85,10 @@ mod extra_dtype_coverage {
         let t = Tensor::new(vec![3], Buffer::U8(vec![1, 2, 3])).unwrap();
         let row = t.to_rowset("bytes-1");
         assert_eq!(row.id, "bytes-1");
-        assert_eq!(row.score, None, "a U8 buffer is opaque bytes, not a numeric signal");
+        assert_eq!(
+            row.score, None,
+            "a U8 buffer is opaque bytes, not a numeric signal"
+        );
     }
 
     #[test]

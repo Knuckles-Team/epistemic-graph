@@ -124,7 +124,9 @@ mod provenance_mapping {
     #[test]
     fn constraint_component_maps_to_source() {
         let sample = ValidationResult::conformance_sample();
-        let prov = sample.provenance("x").expect("a ValidationResult always has provenance");
+        let prov = sample
+            .provenance("x")
+            .expect("a ValidationResult always has provenance");
         assert_eq!(
             prov.source,
             "<http://www.w3.org/ns/shacl#MinCountConstraintComponent>"

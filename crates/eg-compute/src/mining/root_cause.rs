@@ -118,7 +118,10 @@ pub fn find_root_cause(
             .unwrap_or(std::cmp::Ordering::Equal)
             .then(a.node.cmp(&b.node))
     });
-    RootCauseResult { symptom, candidates }
+    RootCauseResult {
+        symptom,
+        candidates,
+    }
 }
 
 #[cfg(test)]
@@ -132,7 +135,10 @@ mod tests {
         let scores = vec![5.0, 0.1, 0.2]; // symptom's own score irrelevant to search
         let out = find_root_cause(3, &edges, &scores, 2, 5, 0.9);
         let best = out.best().expect("a root cause is found");
-        assert_eq!(best.node, 0, "node 0's high anomaly score should win despite 2 hops");
+        assert_eq!(
+            best.node, 0,
+            "node 0's high anomaly score should win despite 2 hops"
+        );
     }
 
     #[test]

@@ -166,13 +166,18 @@ mod tests {
         // Each 3-clique community should have HIGH internal density (the one weak
         // bridge edge is the only thing pulling it below 1.0).
         for c in &out.communities {
-            assert!(c.density > 0.9, "density {} too low for a tight triangle", c.density);
+            assert!(
+                c.density > 0.9,
+                "density {} too low for a tight triangle",
+                c.density
+            );
         }
     }
 
     #[test]
     fn isolated_singleton_has_vacuous_full_density() {
-        let g: AdjacencyGraph<usize> = AdjacencyGraph::from_adjacency(vec![(0usize, Vec::<(usize, f64)>::new())]);
+        let g: AdjacencyGraph<usize> =
+            AdjacencyGraph::from_adjacency(vec![(0usize, Vec::<(usize, f64)>::new())]);
         let out = detect(&g, Algorithm::Louvain, 1.0, 10, 0, true);
         assert_eq!(out.communities.len(), 1);
         assert_eq!(out.communities[0].density, 1.0);

@@ -47,6 +47,6 @@ pub use propagate::{explain_belief, propagate_confidence};
 #[cfg(feature = "epistemic-tms")]
 pub use tms::{
     arguments, augmented_attackers, grounded_extension, is_credulously_accepted,
-    is_skeptically_accepted, preferred_extensions, retract, stable_extensions,
-    RetractionResult, MAX_PREFERRED_ARGUMENTS, MAX_SEARCH_NODES,
+    is_skeptically_accepted, preferred_extensions, retract, stable_extensions, RetractionResult,
+    MAX_PREFERRED_ARGUMENTS, MAX_SEARCH_NODES,
 };

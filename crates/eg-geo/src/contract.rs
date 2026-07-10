@@ -50,7 +50,14 @@ impl ModalityContract for Geometry {
     }
 
     fn analytics_ops(&self) -> Vec<&'static str> {
-        vec!["within", "dwithin", "distance", "intersects", "buffer", "convex_hull"]
+        vec![
+            "within",
+            "dwithin",
+            "distance",
+            "intersects",
+            "buffer",
+            "convex_hull",
+        ]
     }
 }
 

@@ -215,7 +215,8 @@ pub struct LayoutSpan {
 
 fn is_heading_line(line: &str) -> bool {
     let t = line.trim_start();
-    t.starts_with('#') || (t.len() > 3 && t == t.to_uppercase() && t.chars().any(char::is_alphabetic))
+    t.starts_with('#')
+        || (t.len() > 3 && t == t.to_uppercase() && t.chars().any(char::is_alphabetic))
 }
 
 fn is_list_item_line(line: &str) -> bool {
@@ -562,9 +563,7 @@ mod tests {
         assert!(spans
             .iter()
             .any(|s| s.kind == CitationKind::ParentheticalYear && s.text.contains("2020")));
-        assert!(!spans
-            .iter()
-            .any(|s| s.text.contains("this is not one")));
+        assert!(!spans.iter().any(|s| s.text.contains("this is not one")));
     }
 
     #[test]

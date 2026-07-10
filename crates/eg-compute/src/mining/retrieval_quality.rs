@@ -49,12 +49,20 @@ pub fn evaluate(traces: &[RetrievalTrace], k: usize) -> RetrievalQuality {
         if t.relevant.is_empty() {
             continue; // no ground truth, no signal
         }
-        let cutoff = if k == 0 { t.retrieved.len() } else { k.min(t.retrieved.len()) };
+        let cutoff = if k == 0 {
+            t.retrieved.len()
+        } else {
+            k.min(t.retrieved.len())
+        };
         let top: &[String] = &t.retrieved[..cutoff];
         let relevant_set: HashSet<&String> = t.relevant.iter().collect();
 
         let hits = top.iter().filter(|id| relevant_set.contains(id)).count();
-        let precision = if cutoff > 0 { hits as f64 / cutoff as f64 } else { 0.0 };
+        let precision = if cutoff > 0 {
+            hits as f64 / cutoff as f64
+        } else {
+            0.0
+        };
         let recall = hits as f64 / t.relevant.len() as f64;
         let rr = top
             .iter()
