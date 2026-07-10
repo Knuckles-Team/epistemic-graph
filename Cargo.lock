@@ -2351,6 +2351,7 @@ dependencies = [
 name = "eg-stream"
 version = "0.1.0"
 dependencies = [
+ "eg-modality",
  "serde",
  "serde_json",
  "tokio",
@@ -2385,6 +2386,7 @@ dependencies = [
  "datafusion",
  "eg-compute",
  "eg-core",
+ "eg-modality",
  "redb",
  "rmp-serde",
  "serde",
