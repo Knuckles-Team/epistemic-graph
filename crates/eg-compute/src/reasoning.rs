@@ -8,6 +8,28 @@
 // - Inverse properties (owl:inverseOf)
 //
 // All reasoning operates on GraphCore and produces inferred triples.
+//
+// GPU offload (S4 / CONCEPT:EG-KG.compute.gpu-distance-seam, EG-327) was evaluated for this
+// fixpoint and DEFERRED in favor of the ANN k-means/IVF batch-assign kernel
+// (`eg-ann::kmeans_gpu`). Rationale: unlike the distance/elementwise seam (one dense
+// numeric kernel batched over a flat f32/f64 buffer), this loop is a HETEROGENEOUS
+// five-rule Datalog program over string-keyed `HashMap`/`HashSet` structures
+// (`current_node_types`, `current_edge_types`), not a single sparse-matrix op:
+//   - Rules 1-2 (subclass/subproperty) join per-node/per-edge label sets against a
+//     small string-keyed ontology map.
+//   - Rules 3-4 (symmetric/inverse) look up the REVERSE edge's label set.
+//   - Rule 5 (transitive) is the one rule shaped like a GPU sparse-matrix step (boolean
+//     semiring adjacency closure), but its input edge set is not fixed — rules 1-4
+//     inject new typed edges/types into `pending_edges`/`pending_node_types` EVERY
+//     iteration, so the "adjacency matrix" a transitive-closure kernel would square is
+//     rebuilt each iteration by the OTHER four rules, which are not matrix-shaped.
+// Porting this to a GPU kernel would mean re-architecting the whole rule set into
+// integer-ID-remapped relational-algebra joins/unions (a semi-naive Datalog
+// evaluator), not reusing the existing NVRTC batch-distance/elementwise machinery —
+// a materially larger, differently-shaped effort than the ANN build target. If a
+// future increment revisits this, the natural GPU-shaped seam is Rule 5 alone, once
+// node/predicate IDs are interned to integers and the per-iteration edge delta from
+// rules 1-4 is applied as a small additional sparse update before each closure step.
 
 use std::collections::{HashMap, HashSet};
 
