@@ -64,7 +64,8 @@ impl DirectedGraph {
     }
 
     /// Every node `start` transitively reaches by following edges FORWARD
-    /// (excludes `start` itself; cycle-safe via a visited set).
+    /// (cycle-safe via a visited set; includes `start` itself only if a cycle
+    /// leads back to it through a non-trivial path).
     pub fn reachable_forward(&self, start: &str) -> HashSet<String> {
         bfs(&self.forward, start)
     }
@@ -93,7 +94,13 @@ fn bfs(adj: &HashMap<String, Vec<String>>, start: &str) -> HashSet<String> {
     while let Some(node) = queue.pop_front() {
         if let Some(next) = adj.get(&node) {
             for t in next {
-                if seen.insert(t.clone()) {
+                // A cycle back to `start` IS a real transitively-reached node (start
+                // calls something that eventually calls start again) — record it, but
+                // never re-enqueue `start` (it was already expanded once; re-queueing
+                // it would loop forever over the same cycle).
+                if t == start {
+                    out.insert(t.clone());
+                } else if seen.insert(t.clone()) {
                     out.insert(t.clone());
                     queue.push_back(t.clone());
                 }
