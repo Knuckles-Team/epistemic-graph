@@ -735,6 +735,25 @@ ros2-bridge = ["server", "streaming", "dep:tokio-tungstenite", "dep:futures"]
 # default/pi/node/full build links NO rustdds (asserted by `cargo tree`). The
 # CycloneDDS-C-backed `rmw` leg stays a documented, toolchain-gated future option.
 ros2-dds = ["server", "streaming", "dep:rustdds", "dep:futures"]
+# CycloneDDS-C-backed `rmw` ROS2 wire (CONCEPT:EG-347 follow-on, S5) — the SECOND native
+# leg of the ROS2 transport seam (`src/server/dds.rs`, `DdsTransport` trait), implementing
+# the SAME interface as `ros2-dds` (`NativeDdsTransport`/rustdds) so the CDC↔ROS2 path
+# targets EITHER pure-Rust RTPS or the real CycloneDDS-C `rmw` wire behind one choice.
+# Unlike `ros2-dds`, this leg links the ACTUAL `rmw_cyclonedds` C stack (via the
+# `cyclonedds` Rust crate — a safe wrapper over `cyclonedds-rust-sys`/`cyclonedds-src`,
+# the vendored CycloneDDS C sources), so it is REAL zero-config ros2 interop, not merely
+# wire-compatible: a live `ros2` daemon discovers/pubs/subs the topic with no bridge.
+# `cyclonedds-src` VENDORS the CycloneDDS C sources IN the crate tarball (no network
+# fetch at build time) and `cyclonedds-rust-sys`'s build.rs configures+builds it with
+# `cmake` (found via the CMake Rust crate machinery) and ships PREBUILT bindgen output
+# (`prebuilt_bindings.rs`), so the build needs a C toolchain (cc/cmake — the same
+# toolchain gate as `gpu-cuda`) but NOT libclang/bindgen at build time and NOT network
+# access beyond the initial crates.io fetch. Toolchain-gated + heavy (a vendored C DDS
+# stack) + robotics is NOT a Pi requirement, so this is kept OUT of `pi`/`default`/
+# `node`/`full` exactly like `ros2-dds` — folded ONLY into the opt-in `full-extras`
+# bundle. A default/pi/node/full build links NO cyclonedds/cyclonedds-rust-sys/
+# cyclonedds-src (asserted by `cargo tree`).
+ros2-rmw = ["server", "streaming", "dep:cyclonedds", "dep:futures"]
 # GPU-accelerated distance/tensor (CONCEPT:EG-326 seam / EG-327 CUDA). `gpu` opts the
 # eg-ann distance + eg-tensor elementwise kernels into the `DistanceBackend`/`TensorBackend`
 # dispatch seam (the pure-Rust CPU backend stays the compiled-in fallback). `gpu-cuda` adds
@@ -747,11 +766,12 @@ gpu = ["ann", "eg-core/ann-gpu", "tensor", "eg-plan/tensor-gpu"]
 gpu-cuda = ["gpu", "eg-core/ann-gpu-cuda", "eg-plan/tensor-gpu-cuda"]
 # Opt-in umbrella (CONCEPT:EG-371) = the ONE main build (`full`) PLUS the heavy extras that
 # require an external toolchain/GPU to actually RUN (but build clean everywhere via
-# dynamic-loading): the real CUDA backends + the rosbridge ROS2 bridge + native DDS/RTPS.
+# dynamic-loading, or a vendored cmake C build for `ros2-rmw`): the real CUDA backends +
+# the rosbridge ROS2 bridge + native DDS/RTPS (rustdds) + the CycloneDDS-C `rmw` leg.
 # This is a build LAYER on top of the main build for a GPU/robotics deployment — NOT folded
 # into `default`/`full` and NOT published as its own wheel. The default/main build links NO
-# cudarc/rustdds (asserted by `cargo tree`).
-full-extras = ["full", "gpu-cuda", "ros2-bridge", "ros2-dds"]
+# cudarc/rustdds/cyclonedds (asserted by `cargo tree`).
+full-extras = ["full", "gpu-cuda", "ros2-bridge", "ros2-dds", "ros2-rmw"]
 # Native OWL 2 reasoner (CONCEPT:KG-2.219): EL⁺ completion + RL property rules,
 # classification / consistency / incremental materialization + justifications. The
 # `OwlReason` Method surface. PURE-RUST — it parses OWL from the SAME oxttl as `rdf`,
@@ -849,14 +869,18 @@ all = ["full"]
 #                     cross-shard commit (`nonblocking`). This is HA / multi-node: it pulls
 #                     openraft, which the single-node main build deliberately does NOT.
 #   * `full-extras` — the main build PLUS the real CUDA (`gpu-cuda`) + ROS2 bridge/DDS
-#                     (`ros2-bridge`/`ros2-dds`) backends. They build clean everywhere via
-#                     dynamic-loading but need a GPU / robotics toolchain to actually RUN.
-#                     (`full-extras` is defined next to `gpu-cuda`/`ros2-dds` above.)
+#                     (`ros2-bridge`/`ros2-dds`/`ros2-rmw`) backends. `gpu-cuda`/
+#                     `ros2-bridge`/`ros2-dds` build clean everywhere via dynamic-loading
+#                     or pure-Rust; `ros2-rmw` builds clean everywhere too (the CycloneDDS
+#                     C sources are vendored + built via `cmake`, no network at build
+#                     time) but needs a GPU / robotics / C toolchain to actually RUN.
+#                     (`full-extras` is defined next to `gpu-cuda`/`ros2-dds`/`ros2-rmw`
+#                     above.)
 #
 # INVARIANTS (asserted by `cargo tree`): the main/default build links NO openraft
-# (cluster-only) and NO cudarc/rustdds (full-extras-only). It DOES link DataFusion now
-# (query is a main feature) — the old "no-DataFusion Pi contract" is retired; the build
-# targets Raspberry Pi 4+, not Pi 3.
+# (cluster-only) and NO cudarc/rustdds/cyclonedds (full-extras-only). It DOES link
+# DataFusion now (query is a main feature) — the old "no-DataFusion Pi contract" is
+# retired; the build targets Raspberry Pi 4+, not Pi 3.
 cluster = ["full", "raft", "compute-dist", "nonblocking", "matview"]
 
 [dependencies]
@@ -1018,6 +1042,23 @@ tokio-tungstenite = { version = "0.24", optional = true, default-features = fals
 # everywhere. OPTIONAL + referenced ONLY under `#[cfg(feature = "ros2-dds")]`, so a
 # default/pi/node/full build links none of it (asserted by `cargo tree`).
 rustdds = { version = "0.13", optional = true }
+# CycloneDDS-C-backed `rmw` stack for the S5 ROS2-rmw leg (feature `ros2-rmw`,
+# CONCEPT:EG-347 follow-on). `cyclonedds` (a safe Rust wrapper, mzet97/cyclonedds-rust)
+# pulls `cyclonedds-rust-sys` (FFI) → `cyclonedds-src` (the CycloneDDS C sources VENDORED
+# inside the crate tarball). `cyclonedds-rust-sys`'s build.rs configures+builds the
+# vendored source with `cmake` (static lib, BUILD_SHARED_LIBS=OFF, security/SSL/IDLC/
+# examples all OFF) and links prebuilt bindgen output shipped in the crate — NO libclang/
+# bindgen invocation and NO network fetch at build time (unlike the older `cyclonedds-
+# sys`/`cyclonedds-rs` crates, which `git clone` CycloneDDS from GitHub in build.rs and
+# do NOT reliably CI-build offline). `default-features = false` + `features = ["std"]`
+# only — the crate's own `default`/`async` features would additionally pull `tokio`,
+# which this leg does not need (its `DdsTransport` methods are `async fn` wrappers over
+# synchronous DDS calls, exactly like the `ros2-dds` `rustdds` leg). OPTIONAL + referenced
+# ONLY under `#[cfg(feature = "ros2-rmw")]`, so a default/pi/node/full build links NONE of
+# cyclonedds/cyclonedds-rust-sys/cyclonedds-src (asserted by `cargo tree`). Needs a C
+# toolchain (cc/cmake) to build and a CycloneDDS-compatible ROS2 rmw at runtime to
+# interop with a live `ros2` daemon — the toolchain gate this feature exists behind.
+cyclonedds = { version = "1.8.0", optional = true, default-features = false, features = ["std"] }
 # In-engine Raft consensus (feature `raft`, CONCEPT:KG-2.188 / KG-2.272). Bumped to
 # openraft 0.10 (the v2 split-storage API + NATIVE `trigger().transfer_leader()` for
 # graceful leader handoff — the M2 remainder). `serde` is required because the app
