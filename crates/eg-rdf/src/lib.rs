@@ -87,6 +87,14 @@ pub mod geosparql;
 #[cfg(feature = "owl")]
 pub mod owl;
 
+/// ModalityContract retrofit (CONCEPT:E4): `impl ModalityContract for
+/// owl::ProofNode` — the reference non-trivial `provenance()`, mapping
+/// `owl::Justification` (reconstructed as a `ProofNode`) losslessly. Behind the
+/// crate's own opt-in `contract` feature (default OFF, implying `owl` since
+/// `ProofNode` lives there). See `src/contract.rs` module docs.
+#[cfg(feature = "contract")]
+mod contract;
+
 /// EG-021 — user-defined custom rules + instance-level (ABox) OWL 2 RL / Datalog
 /// reasoning with `owl:sameAs` equality, run in one confidence-propagating
 /// forward-chaining fixpoint. The second Stardog-parity gap (custom rules) plus the
