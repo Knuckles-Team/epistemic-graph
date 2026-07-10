@@ -153,6 +153,23 @@ pub(crate) async fn try_handle(
             sparql,
             graph,
         } => Ok(stage_construct(state, req_id, &txn_id, graph.as_deref(), sparql).await),
+        #[cfg(feature = "query")]
+        Method::TxnPlanWriteback {
+            txn_id,
+            plan,
+            anchor_id,
+            relationship,
+            graph,
+        } => Ok(stage_plan_writeback(
+            state,
+            req_id,
+            &txn_id,
+            graph.as_deref(),
+            plan,
+            anchor_id,
+            relationship,
+        )
+        .await),
         Method::Commit { txn_id } => Ok(commit(state, req_id, caller, &txn_id).await),
         Method::Rollback { txn_id } => Ok(rollback(state, req_id, &txn_id).await),
         other => Err(other),
@@ -613,6 +630,68 @@ async fn stage_construct(
     Response::ok(req_id, ResultPayload::Bool(true))
 }
 
+/// Lower a planner writeback (CONCEPT:EG-KG.query.plan-dag, D7 — the planner-writeback
+/// ACID seam) to graph-native `AddEdge` methods: run `plan` READ-ONLY against `core`'s
+/// COMMITTED snapshot (the same "evaluate now, lower the result" shape
+/// [`construct_to_methods`] uses for SPARQL CONSTRUCT), then materialize each id in the
+/// result `RowSet` as an edge FROM `anchor_id` carrying `relationship` — e.g. a
+/// `Reason`/`Traverse`-inferred edge set. Shared by the RPC [`stage_plan_writeback`].
+#[cfg(feature = "query")]
+pub(crate) fn plan_writeback_to_methods(
+    core: &crate::graph::GraphCore,
+    plan: eg_plan::Plan,
+    anchor_id: &str,
+    relationship: &str,
+) -> Result<Vec<Method>, String> {
+    let view = core.analysis_snapshot();
+    let semantic = core.semantic_store.read().clone();
+    let ctx = eg_plan::PlanCtx::new(&view, &semantic);
+    let rs = eg_plan::execute(&plan, &ctx)?;
+    let props = rmp_serde::to_vec_named(&serde_json::json!({ "relationship": relationship }))
+        .map_err(|e| format!("plan writeback property encode: {e}"))?;
+    Ok(rs
+        .ids()
+        .into_iter()
+        .map(|target_id| Method::AddEdge {
+            source_id: anchor_id.to_string(),
+            target_id,
+            properties_msgpack: props.clone(),
+        })
+        .collect())
+}
+
+/// Stage a PLANNER WRITEBACK into the txn's cross-modal write-set (CONCEPT:EG-KG.query.plan-dag,
+/// D7). Mirrors [`stage_construct`]'s shape exactly: evaluate now against the committed
+/// snapshot, lower to `AddEdge` methods, stage via `GraphTxnState::stage_plan_writeback`
+/// so the materialized edges land in the SAME cross-modal `WriteTransaction` as the
+/// txn's other staged modalities. Acks `Bool(true)`.
+#[cfg(feature = "query")]
+async fn stage_plan_writeback(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+    txn_id: &str,
+    target_graph: Option<&str>,
+    plan: eg_plan::Plan,
+    anchor_id: String,
+    relationship: String,
+) -> Response {
+    let s = state.read().await;
+    let core = match resolve_txn_default_core(&s, req_id, txn_id, target_graph, "plan writeback") {
+        Ok(c) => c,
+        Err(resp) => return resp,
+    };
+    let methods = match plan_writeback_to_methods(&core, plan, &anchor_id, &relationship) {
+        Ok(m) => m,
+        Err(e) => return Response::err(req_id, format!("TxnPlanWriteback: {e}")),
+    };
+    if let Some(e) = s.open_txns.get(txn_id) {
+        e.value()
+            .lock()
+            .stage_plan_writeback(&core, methods, now_ms());
+    }
+    Response::ok(req_id, ResultPayload::Bool(true))
+}
+
 /// `Commit`: the OCC serialization point. Validate the read-set under the held
 /// topology write guard; on success apply the staged write-set atomically through
 /// ONE `GraphTxn`, drop the guard, then persist each staged method and mark dirty
@@ -897,14 +976,16 @@ pub(crate) async fn commit_cross_modal_txn(
 
     let fname = crate::persist::sanitize(&txn.graph);
     // Graph-topology methods for the durable + in-memory apply: the ordinary staged
-    // write-set PLUS the OWL-axiom and SPARQL-CONSTRUCT triples already lowered to
-    // AddNode/AddEdge at stage time (CONCEPT:EG-KG.txn.extended-cross-modal/362). Folding them here means they
+    // write-set PLUS the OWL-axiom, SPARQL-CONSTRUCT, and PLANNER-WRITEBACK (D7,
+    // CONCEPT:EG-KG.query.plan-dag) triples already lowered to AddNode/AddEdge at stage
+    // time (CONCEPT:EG-KG.txn.extended-cross-modal/362). Folding them here means they
     // ride the SAME `apply_method_rows` / `apply_staged` path as any other mutation, so
-    // the committed axioms/CONSTRUCT triples are durable + visible atomically with the
-    // txn's other modalities.
+    // the committed axioms/CONSTRUCT/plan-writeback triples are durable + visible
+    // atomically with the txn's other modalities.
     let mut methods: Vec<Method> = txn.write_set.clone();
     methods.extend(txn.axioms.iter().cloned());
     methods.extend(txn.constructs.iter().cloned());
+    methods.extend(txn.plan_writeback.iter().cloned());
     // Time-series measurement batches land into the graph's SERIES tables in the SAME
     // WriteTransaction (CONCEPT:EG-KG.backend.cross-modal-atomic-commit).
     let measurements: Vec<crate::MeasurementBatch> =

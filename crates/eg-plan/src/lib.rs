@@ -72,6 +72,20 @@ pub mod leanrag;
 /// Plan is `query`-gated.
 pub mod uql;
 
+/// The typed DAG plan representation (CONCEPT:EG-KG.query.plan-dag, E5 phase 1): [`dag::PlanDag`]
+/// generalizes the linear [`Plan`] into a real graph of operators (a node's `inputs` name
+/// its dependency nodes), with a lossless conversion from every existing linear `Plan` (a
+/// degenerate chain). `Op` is unchanged; execution over a `PlanDag` lives in
+/// [`dag_exec`]. Sits beside `exec`/`knowledge` under the same `query` gate (a `PlanNode`
+/// carries an optional `knowledge::ProjectionSchema`).
+#[cfg(feature = "query")]
+pub mod dag;
+/// Physical execution of a [`dag::PlanDag`] (CONCEPT:EG-KG.query.plan-dag-exec, E5 phase 2) —
+/// [`dag_exec::execute_dag`] runs ALONGSIDE the untouched [`exec::execute`]; for a
+/// degenerate linear-chain dag it is byte-identical to it (the differential oracle proves
+/// this over the whole fixture suite).
+#[cfg(feature = "query")]
+pub mod dag_exec;
 #[cfg(feature = "query")]
 pub mod exec;
 /// RowSet v2, additive (CONCEPT:EG-KG.query.knowledge-set): [`knowledge::KnowledgeSet`] is the
@@ -136,6 +150,14 @@ pub use exec::StagedSeries;
 #[cfg(feature = "query")]
 pub use exec::{execute, PlanCtx, PlanExt};
 
+/// The typed DAG plan surface (CONCEPT:EG-KG.query.plan-dag, E5): the node/edge shape plus
+/// its physical executor, so a caller building a genuine multi-branch plan names them
+/// through `eg_plan` directly (mirroring how `Op`/`Plan` are re-exported from `algebra`).
+#[cfg(feature = "query")]
+pub use dag::{NodeId, PlanDag, PlanNode};
+#[cfg(feature = "query")]
+pub use dag_exec::execute_dag;
+
 /// The RowSet v2 surface (CONCEPT:EG-KG.query.knowledge-set): the enriched, ready-to-consume
 /// row/set shape a caller builds from a finished `RowSet` + the `GraphView` it ran over.
 #[cfg(feature = "query")]
@@ -168,6 +190,12 @@ pub use runtime::{ParallelDriver, RuntimeConfig};
 /// read (`ModalityCardinality` + the O(1) `PlanStats` catalog).
 #[cfg(feature = "query")]
 pub use cost::{ModalityCardinality, PlanStats};
+/// The DAG-aware optimizer (CONCEPT:EG-KG.query.dag-optimizer, E5 phase 3) — [`optimizer::optimize_dag`]
+/// reorders ops within each maximal linear chain segment of a [`dag::PlanDag`] through the
+/// SAME rule engine `optimize` drives, never crossing a branch/fan-out boundary (the DAG
+/// generalization of the EG-405 adjacency guard).
+#[cfg(feature = "query")]
+pub use optimizer::optimize_dag;
 #[cfg(feature = "query")]
 pub use optimizer::{enabled as cost_opt_enabled, optimize, rule_names as cost_opt_rule_names};
 /// The adaptive re-optimization hook (CONCEPT:EG-KG.query.adaptive-reoptimization): re-cost and,
@@ -185,6 +213,13 @@ pub use optimizer::{reoptimize_remaining, ADAPTIVE_REOPT_THRESHOLD};
 /// model onto a `PlanCtx` via `with_embedder`.
 #[cfg(feature = "query")]
 pub use exec::{HashEmbedder, TextEmbedder};
+
+/// The full, un-flattened E1 justification tree behind `EXPLAIN BELIEF` (E5 phase 4,
+/// CONCEPT:EG-KG.epistemic.epistemic-substrate) — mirrors `Op::ExplainBelief`'s RowSet
+/// projection but returns the verbatim `eg_epistemic::JustificationGraph` a standalone
+/// `Method::ExplainBelief` wire-projects (mirroring `Method::OwlExplain`'s `ProofNodeWire`).
+#[cfg(feature = "epistemic")]
+pub use exec::explain_belief_tree;
 
 // The NL→query seam surface (CONCEPT:EG-KG.query.core-query-input/EG-080): the trait + the LLM-optional
 // `Option<&dyn NlPlanner>` entry point, and the concrete `UreqNlPlanner`.
