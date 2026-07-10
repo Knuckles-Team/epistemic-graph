@@ -165,7 +165,8 @@ the authoritative `CONCEPT:EG-*` definitions.
   `agent_utilities.numeric.xp` (AU-KG.backend.lmcache-native-connector); gated behind a `numeric` cargo feature (in the one main build); parity-proven
   `np.allclose` vs numpy incl. nan/inf/singular/empty edge cases (AU-KG.compute.numeric-kernel). **Done.**
 - **P2–P3 — migrate the 598 numpy sites** — swap the 32 light-op files then the 6 linalg files in agent-utilities from
-  numpy to the `xp` shim. 🗺
+  numpy to the `xp` shim. ✅ **Shipped** (agent-utilities 1.2.0/1.3.0, KG-2.313): 34 files migrated, zero numeric
+  regressions; numpy now survives only in the `[test]` extra as the `np.allclose` parity reference.
 - **P4 — Surface B engine operators** — DataFusion SQL UDFs/UDAFs over the kernel + kernel-backed batch vector ops.
   **In progress:** `cosine_sim`/`l2_normalize`/`zscore` scalar UDFs + `covariance` UDAF registered on the SQL surface
   (`SELECT zscore(price) FROM …`, `SELECT cosine_sim(a.emb, b.emb) …` run in-engine), plus the `BatchL2Normalize` engine
