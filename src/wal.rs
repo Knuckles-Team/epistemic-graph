@@ -106,6 +106,42 @@ pub fn is_durable_mutation(m: &Method) -> bool {
     ) {
         return true;
     }
+    // Residual insight/mining families (CONCEPT:EG-KG.mining.entity-resolution /
+    // causal-impact / process-mining / root-cause / risk-propagation /
+    // ontology-gap / retrieval-quality / community-writeback): durable only when
+    // `writeback` materializes their typed nodes; `apply` re-mines + re-writes
+    // deterministically, same contract as the mining family above.
+    #[cfg(feature = "mining")]
+    if matches!(
+        m,
+        Method::MineEntityResolve {
+            writeback: true,
+            ..
+        } | Method::MineCausalImpact {
+            writeback: true,
+            ..
+        } | Method::MineProcess {
+            writeback: true,
+            ..
+        } | Method::MineRootCause {
+            writeback: true,
+            ..
+        } | Method::MineRiskPropagation {
+            writeback: true,
+            ..
+        } | Method::MineOntologyGap {
+            writeback: true,
+            ..
+        } | Method::MineRetrievalQuality {
+            writeback: true,
+            ..
+        } | Method::MineCommunity {
+            writeback: true,
+            ..
+        }
+    ) {
+        return true;
+    }
     // Graph-learning write-back (CONCEPT:EG-KG.graphlearn.link-predictor): durable only
     // when `writeback` materializes `:EdgeFunction` / `:PredictedEdge` nodes. `apply`
     // re-derives + re-writes deterministically (seeded). A pure fit/predict is not logged.
@@ -708,7 +744,15 @@ pub fn apply(core: &GraphCore, m: &Method) {
         | Method::MineSequence { .. }
         | Method::MineForecast { .. }
         | Method::MineText { .. }
-        | Method::MineSubgraph { .. } => crate::server::handlers::mining::replay(core, m),
+        | Method::MineSubgraph { .. }
+        | Method::MineEntityResolve { .. }
+        | Method::MineCausalImpact { .. }
+        | Method::MineProcess { .. }
+        | Method::MineRootCause { .. }
+        | Method::MineRiskPropagation { .. }
+        | Method::MineOntologyGap { .. }
+        | Method::MineRetrievalQuality { .. }
+        | Method::MineCommunity { .. } => crate::server::handlers::mining::replay(core, m),
         // Graph-learning write-back (CONCEPT:EG-KG.graphlearn.link-predictor): re-run the
         // fit/predict + re-materialize the `:EdgeFunction` / `:PredictedEdge` nodes.
         // The node ids are a deterministic digest, so replay is idempotent.
