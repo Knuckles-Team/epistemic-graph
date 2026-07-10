@@ -402,6 +402,17 @@ mod cyclone {
         // override does a proper `DdsString::clone` (a `dds_string_dup`), so the returned
         // value owns an INDEPENDENT allocation and outlives the loan return, satisfying the
         // `DdsType::clone_out` safety contract (see its doc comment).
+        //
+        // SAFETY: `ptr` is a CycloneDDS-owned loaned sample of `Self` for the current topic
+        // descriptor (the `DdsType::clone_out` contract guarantees the loan is live for the
+        // duration of this borrow — the caller in `DataReader::take_next`/`read_impl` holds
+        // the loan until `dds_return_loan`, strictly after this returns). So `&*ptr` is a
+        // valid shared borrow of an initialized `CycloneRos2String`, and cloning its
+        // `DdsString` field (`dds_string_dup`) yields an owned copy with an independent C
+        // allocation that outlives the loan. This is the C-FFI exception the repo's
+        // `#![deny(unsafe_code)]` (src/lib.rs:6) allows only via a scoped `#[allow]` + note;
+        // it is gated to the `ros2-rmw` cyclonedds leg, not a blanket crate-level allow.
+        #[allow(unsafe_code)]
         unsafe fn clone_out(ptr: *const Self) -> Self {
             let loaned = unsafe { &*ptr };
             CycloneRos2String {
@@ -414,29 +425,42 @@ mod cyclone {
     type Reader = DataReader<CycloneRos2String>;
 
     /// CycloneDDS-C-backed [`DdsTransport`] (CONCEPT:EG-347 follow-on). Owns one DDS
-    /// `DomainParticipant` + a publisher/subscriber pair, and a per-(rmw-mangled)-topic
-    /// writer/reader map. Links the REAL CycloneDDS C stack (vendored + cmake-built —
-    /// see the `cyclonedds` dependency doc in `Cargo.toml`).
+    /// `DomainParticipant` + a publisher/subscriber pair, a per-ROS-topic cache of the
+    /// underlying DDS `Topic` entity id, and a per-topic writer/reader map. Links the REAL
+    /// CycloneDDS C stack (vendored + cmake-built — see the `cyclonedds` dependency doc in
+    /// `Cargo.toml`).
     ///
-    /// The DDS `Topic<T>` entity is intentionally NOT retained after a writer/reader is
-    /// created from it: the crate's `Topic<T>` wrapper holds an `Rc` (so keeping it would
-    /// make this struct `!Send`/`!Sync`, breaking the `DdsTransport: Send + Sync` bound),
-    /// and — as with any DDS DCPS entity tree — a topic's underlying C entity stays valid
-    /// for as long as its owning `DomainParticipant` is alive, independent of whether the
-    /// local Rust `Topic<T>` handle was dropped early. `advertise`/`subscribe` therefore
-    /// `std::mem::forget` the `Topic<T>` right after creating the writer/reader from it, so
-    /// the topic is torn down only transitively when `participant` drops (cascading
-    /// `dds_delete`), never explicitly early.
+    /// **One DDS `Topic` per name, shared by the writer and reader.** The writer (from
+    /// `advertise`) and the reader (from `subscribe`) for a given ROS topic are created from
+    /// the SAME underlying DDS `Topic` entity — created ONCE, on first use, by
+    /// [`Self::topic_entity`] and cached in [`Self::topics`]. Creating a SECOND DDS `Topic`
+    /// with the same mangled name on one participant makes this CycloneDDS build spin
+    /// indefinitely inside `dds_stream_minimum_xcdr_version` (observed under `ros2-rmw`), so
+    /// the cache guarantees `dds_create_topic` is called at most once per name — matching the
+    /// crate's own examples (turtlesim etc.), which share one `Topic` between writer/reader.
+    ///
+    /// The DDS `Topic<T>` wrapper is intentionally NOT retained after its entity id is
+    /// cached: the crate's `Topic<T>` holds an `Rc` (so keeping it would make this struct
+    /// `!Send`/`!Sync`, breaking the `DdsTransport: Send + Sync` bound), and — as with any
+    /// DDS DCPS entity tree — the topic's underlying C entity (the plain `dds_entity_t`
+    /// `i32` we cache) stays valid for as long as its owning `DomainParticipant` is alive,
+    /// independent of whether the local Rust `Topic<T>` handle was dropped early.
+    /// [`Self::topic_entity`] therefore `std::mem::forget`s the `Topic<T>` right after
+    /// reading its entity id, so the topic is torn down only transitively when `participant`
+    /// drops (cascading `dds_delete`), never explicitly early.
     ///
     /// `Qos` is likewise NOT retained as a field: it wraps a raw `*mut dds_qos_t` with no
-    /// `Send`/`Sync` impl in the crate (unlike `participant`/`publisher`/`subscriber`/
-    /// writers/readers, which are plain `dds_entity_t` — an `i32` — handles), so storing
-    /// one would make this struct `!Send`/`!Sync` too. [`Self::build_qos`] builds a fresh,
+    /// `Send`/`Sync` impl in the crate (unlike `participant`/`publisher`/`subscriber` +
+    /// the `dds_entity_t`/writer/reader handles, which are `Send`/`Sync`), so storing one
+    /// would make this struct `!Send`/`!Sync` too. [`Self::build_qos`] builds a fresh,
     /// cheap, short-lived `Qos` wherever one is needed instead.
     pub struct CycloneDdsTransport {
         participant: DomainParticipant,
         publisher: Publisher,
         subscriber: Subscriber,
+        /// ROS topic name → the shared underlying DDS `Topic` entity id (`dds_entity_t`,
+        /// an `i32`), created at most ONCE per name (see the struct doc).
+        topics: Mutex<HashMap<String, i32>>,
         writers: Mutex<HashMap<String, Writer>>,
         readers: Mutex<HashMap<String, Reader>>,
     }
@@ -466,6 +490,7 @@ mod cyclone {
                 participant,
                 publisher,
                 subscriber,
+                topics: Mutex::new(HashMap::new()),
                 writers: Mutex::new(HashMap::new()),
                 readers: Mutex::new(HashMap::new()),
             })
@@ -481,15 +506,29 @@ mod cyclone {
                 .unwrap_or(0)
         }
 
-        /// Create the underlying DDS [`Topic`] using the rmw-mangled name (the type is
-        /// fixed to the `std_msgs/String` descriptor above): the ROS name `name` is put on
-        /// the wire as [`mangle_topic_name`] (`rt/…`), matching what a live `ros2` daemon's
-        /// SPDP/SEDP discovery looks for.
-        fn topic(&self, name: &str) -> Result<Topic<CycloneRos2String>, String> {
+        /// Return the shared DDS `Topic` entity id for ROS topic `name`, creating it ONCE
+        /// (on first use) with the rmw-mangled name and caching it. The ROS name `name` is
+        /// put on the wire as [`mangle_topic_name`] (`rt/…`, the fixed `std_msgs/String`
+        /// descriptor), matching what a live `ros2` daemon's SPDP/SEDP discovery looks for.
+        /// Both the writer (`advertise`) and reader (`subscribe`) for a name share this one
+        /// entity — a SECOND `dds_create_topic` with the same name hangs this CycloneDDS
+        /// build (see the struct doc), which the cache prevents.
+        fn topic_entity(&self, name: &str) -> Result<i32, String> {
+            let mut topics = self.topics.lock().unwrap();
+            if let Some(entity) = topics.get(name) {
+                return Ok(*entity);
+            }
             let dds_name = mangle_topic_name(name);
             let qos = Self::build_qos()?;
-            Topic::with_qos(self.participant.entity(), &dds_name, Some(&qos))
-                .map_err(|e| format!("dds topic {name}: {e:?}"))
+            let topic: Topic<CycloneRos2String> =
+                Topic::with_qos(self.participant.entity(), &dds_name, Some(&qos))
+                    .map_err(|e| format!("dds topic {name}: {e:?}"))?;
+            let entity = topic.entity();
+            // See the struct doc: the topic's C entity outlives the wrapper via the
+            // participant; we keep only the entity id (a Send/Sync `i32`).
+            std::mem::forget(topic);
+            topics.insert(name.to_string(), entity);
+            Ok(entity)
         }
     }
 
@@ -499,12 +538,10 @@ mod cyclone {
             if self.writers.lock().unwrap().contains_key(topic) {
                 return Ok(());
             }
-            let t = self.topic(topic)?;
+            let topic_entity = self.topic_entity(topic)?;
             let qos = Self::build_qos()?;
-            let writer = DataWriter::with_qos(self.publisher.entity(), t.entity(), Some(&qos))
+            let writer = DataWriter::with_qos(self.publisher.entity(), topic_entity, Some(&qos))
                 .map_err(|e| format!("dds writer {topic}: {e:?}"))?;
-            // See the struct doc: the topic's C entity outlives `t` via the participant.
-            std::mem::forget(t);
             self.writers
                 .lock()
                 .unwrap()
@@ -535,11 +572,10 @@ mod cyclone {
             if self.readers.lock().unwrap().contains_key(topic) {
                 return Ok(());
             }
-            let t = self.topic(topic)?;
+            let topic_entity = self.topic_entity(topic)?;
             let qos = Self::build_qos()?;
-            let reader = DataReader::with_qos(self.subscriber.entity(), t.entity(), Some(&qos))
+            let reader = DataReader::with_qos(self.subscriber.entity(), topic_entity, Some(&qos))
                 .map_err(|e| format!("dds reader {topic}: {e:?}"))?;
-            std::mem::forget(t);
             self.readers
                 .lock()
                 .unwrap()
