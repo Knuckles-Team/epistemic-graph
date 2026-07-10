@@ -75,7 +75,7 @@ pub fn incremental_index_enabled() -> bool {
 /// it stays `None` and the hot path pays no per-op blob clone (the vector store keys off
 /// removals alone). For an ADD the blob is the full property map; for a CAS update it is
 /// the `updates` map (a field-scoped content index reads only its own field from it).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct NodeChange {
     pub id: String,
     pub properties_msgpack: Option<Vec<u8>>,

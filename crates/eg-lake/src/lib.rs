@@ -49,6 +49,11 @@ pub mod iceberg;
 pub mod schema;
 pub mod snapshot;
 
+// ModalityContract retrofit (CONCEPT:E4): `impl ModalityContract for LakeBatch`,
+// behind the crate's own opt-in `contract` feature (default OFF). See `src/contract.rs`.
+#[cfg(feature = "contract")]
+mod contract;
+
 #[cfg(feature = "lake")]
 pub mod parquet_io;
 
