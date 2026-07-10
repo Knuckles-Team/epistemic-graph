@@ -160,6 +160,11 @@ impl ConformanceTestable for Span {
 // where `SeriesMeta`'s invocation above already claims that name) so the two
 // batteries don't collide (CONCEPT:E4/X1).
 mod span_conformance {
+    // The macro's generated conformance battery is itself `#[cfg(test)]`-gated (it
+    // expands to nothing in a non-test build), so `Span` has no real consumer
+    // outside `cfg(test)` here — gate the import the same way to avoid an
+    // "unused import" warning under a plain `cargo build`/`clippy` (no `--tests`).
+    #[cfg(test)]
     use super::Span;
 
     eg_modality::modality_conformance_tests!(Span);
