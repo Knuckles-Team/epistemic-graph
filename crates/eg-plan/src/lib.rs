@@ -80,6 +80,12 @@ pub mod uql;
 /// carries an optional `knowledge::ProjectionSchema`).
 #[cfg(feature = "query")]
 pub mod dag;
+/// Physical execution of a [`dag::PlanDag`] (CONCEPT:EG-KG.query.plan-dag-exec, E5 phase 2) —
+/// [`dag_exec::execute_dag`] runs ALONGSIDE the untouched [`exec::execute`]; for a
+/// degenerate linear-chain dag it is byte-identical to it (the differential oracle proves
+/// this over the whole fixture suite).
+#[cfg(feature = "query")]
+pub mod dag_exec;
 #[cfg(feature = "query")]
 pub mod exec;
 /// RowSet v2, additive (CONCEPT:EG-KG.query.knowledge-set): [`knowledge::KnowledgeSet`] is the
@@ -149,6 +155,8 @@ pub use exec::{execute, PlanCtx, PlanExt};
 /// through `eg_plan` directly (mirroring how `Op`/`Plan` are re-exported from `algebra`).
 #[cfg(feature = "query")]
 pub use dag::{NodeId, PlanDag, PlanNode};
+#[cfg(feature = "query")]
+pub use dag_exec::execute_dag;
 
 /// The RowSet v2 surface (CONCEPT:EG-KG.query.knowledge-set): the enriched, ready-to-consume
 /// row/set shape a caller builds from a finished `RowSet` + the `GraphView` it ran over.
