@@ -77,10 +77,20 @@ spatial relationships (`on`/`in`/`near`/`supports`), and bounding volumes — th
 robotics / AR / urban-3D world models. Composes (read-only) with the [GIS](gis.md) geo types and the tensor
 store.
 
-!!! note "Deferred — memory → weights distillation (🗺)"
-    Distilling consolidated agent-memory (EG-KG.compute.hierarchical-summary-tier-eg/221) into **model weights** (a fine-tune / LoRA export),
-    beyond the shipped retrieval-time context assembly (EG-195), is designed but not started. See the
-    [forward roadmap](../roadmap.md).
+!!! success "Shipped — memory → weights distillation (CONCEPT:AU-KG.memory.memory-weights-distillation-export)"
+    Distilling consolidated agent-memory (EG-KG.compute.hierarchical-summary-tier-eg/221) into **model weights** (a fine-tune / LoRA
+    export), beyond the shipped retrieval-time context assembly (EG-195), is **shipped** — on the
+    agent-utilities side. `MemoryWeightsDistiller` (`agent_utilities.knowledge_graph.memory.weights_distillation`)
+    reads the consolidated/procedural memory tiers, renders a training-ready corpus (SFT
+    `{prompt, completion}`, DPO `{prompt, chosen, rejected}`, or — for EG-099 trajectory/reward
+    sequences — GRPO `{prompt, samples:[{completion, reward, advantage}]}`), and hands it off via
+    `graph_analyze action=distill_memory` (`distill_memory_to_weights`) to the **`train-model`**
+    workflow, which runs the actual LoRA/SFT/GRPO fine-tune in `agents/data-science-mcp`
+    (GPU-gated) and registers the resulting checkpoint back through the model-registry role-bind
+    deploy seam — optionally hot-loading it onto a live vLLM/SGLang server (`POST
+    /v1/load_lora_adapter`) so it is immediately servable with no manual restart. See
+    `agent-utilities`'s `docs/architecture/` for the AU-side design and the
+    [forward roadmap](../roadmap.md) for what's still open beyond this.
 
 ---
 *These primitives live in `eg-core` — durable, replicated engine state. The agent-utilities memory loop
