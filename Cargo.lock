@@ -2243,6 +2243,7 @@ dependencies = [
  "criterion",
  "eg-compute",
  "eg-core",
+ "eg-epistemic",
  "eg-geo",
  "eg-query",
  "eg-rdf",

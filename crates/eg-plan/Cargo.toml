@@ -141,6 +141,17 @@ probabilistic = [
     "dep:eg-compute",
     "eg-compute/reasoning",
 ]
+# Engine-native epistemic query surface (CONCEPT:EG-KG.epistemic.epistemic-substrate, E2): the
+# `Op::{EvidenceFor,Contradicts,SupportedBy,BeliefAsOf,SourceReliability,ConfidenceOp,
+# ExplainBelief}` ops — belief propagation + justification IN-PLAN, composing with the
+# graph/vector/relational legs in ONE plan. Pulls the eg-epistemic leaf crate (pure Rust:
+# eg-types + eg-core + eg-compute/reasoning — no heavy dep, no cycle: eg-epistemic does NOT
+# depend on eg-plan) and turns on the `epistemic` wire variants in eg-types (the SAME feature
+# name eg-types already uses for the E6 `as_claim` mining gate — this just adds MORE variants
+# under it). IMPLIES `query` (the ops live inside the `query`-gated `Op` enum, beside the
+# probabilistic/tensor/geo legs). OFF by default; the facade folds it in alongside `mining`
+# (mirroring the eg-kvcache/eg-lake tier-wiring convention) — never forced into `pi`.
+epistemic = ["query", "eg-types/epistemic", "dep:eg-epistemic"]
 # Natural-language → query planning seam (CONCEPT:EG-078) + the concrete standalone
 # `UreqNlPlanner` (CONCEPT:EG-080). The `NlPlanner` trait + `plan_and_execute*` helpers
 # only touch the existing `uql::parse` + `execute`, so this IMPLIES `query`. The concrete
@@ -198,6 +209,13 @@ eg-tensor = { path = "../eg-tensor", optional = true }
 # eg-compute depends only on eg-core/eg-types (no heavy dep, no eg-plan back-edge → no
 # cycle), so a default/Pi build links none of it.
 eg-compute = { path = "../eg-compute", optional = true }
+# The engine-native epistemic layer (claims/evidence/belief-state, confidence propagation,
+# justification) backing the `Op::{EvidenceFor,Contradicts,SupportedBy,BeliefAsOf,
+# SourceReliability,ConfidenceOp,ExplainBelief}` ops (feature `epistemic`, CONCEPT:EG-KG.epistemic.epistemic-substrate,
+# E2). Optional + only referenced under #[cfg(feature = "epistemic")]; depends only on
+# eg-types/eg-core/eg-compute (no eg-plan back-edge → no cycle), so a default/Pi build
+# links none of it.
+eg-epistemic = { path = "../eg-epistemic", optional = true }
 # The pure-Rust event-stream + CEP modality (bounded NFA over sliding/tumbling windows —
 # Sequence/Within/Absence + per-event attribute predicates) backing the `Cep` op (feature
 # `stream`, CONCEPT:EG-088). Optional + only referenced under #[cfg(feature = "stream")];
