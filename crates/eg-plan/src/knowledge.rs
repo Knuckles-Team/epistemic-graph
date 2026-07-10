@@ -36,17 +36,23 @@
 //! to decode each row's OWN stored node properties (the SAME `obj` already decoded
 //! for `kind`/`confidence`/the bitemporal window, above) as one of the modality
 //! value types that have a REAL `eg_modality::ModalityContract::evidence()` resolver
-//! — today: `eg_compute::ast::symbol::Symbol` (a row whose `kind == "Symbol"`) and
-//! `eg_tsdb::traces::Span` (`kind == "Span"`) — and, on a successful decode, calls
-//! `evidence()` and pushes the resulting LOCATED `eg_modality::EvidenceSpan` (e.g. a
-//! `CodeSymbol{file_path, symbol, start_line, end_line}` or a
-//! `TraceSpan{trace_id, span_id}`) into `evidence_refs`. A row whose `kind` matches
-//! neither (or whose properties don't structurally decode as that type) gets an
-//! empty `evidence_refs` — never a fabricated span. `provenance_frame` becomes
-//! `ProvenanceFrame::Resolved` whenever `epistemic` is on, exactly mirroring how
-//! `ExplainProvenanceResult::resolved` reports `cfg!(feature = "epistemic")` (see the
-//! facade's `explain_provenance`) — even though `source_refs` itself is a separate,
-//! not-yet-wired-here dimension of that same frame (see the module docs above).
+//! — today: `eg_compute::ast::symbol::Symbol` (a row whose `kind == "Symbol"`),
+//! `eg_tsdb::traces::Span` (`kind == "Span"`), and (CONCEPT:E4 follow-up)
+//! `eg_image::ImageData` (`kind == "Image"`), `eg_audio::AudioData`
+//! (`kind == "Audio"`), `eg_video::VideoData` (`kind == "Video"`) — and, on a
+//! successful decode, calls `evidence()` and pushes the resulting LOCATED
+//! `eg_modality::EvidenceSpan` (e.g. a `CodeSymbol{file_path, symbol, start_line,
+//! end_line}`, a `TraceSpan{trace_id, span_id}`, an `ImageRegion{image_id, x, y,
+//! width, height}`, an `AudioSegment{audio_id, start_ms, end_ms}`, or a
+//! `VideoShot{video_id, start_ms, end_ms}`) into `evidence_refs`. A row whose `kind`
+//! matches neither (or whose properties don't structurally decode as that type, or
+//! whose modality value has no region/segment/shot to report — e.g. an `ImageData`
+//! with an empty region index) gets an empty `evidence_refs` — never a fabricated
+//! span. `provenance_frame` becomes `ProvenanceFrame::Resolved` whenever `epistemic`
+//! is on, exactly mirroring how `ExplainProvenanceResult::resolved` reports
+//! `cfg!(feature = "epistemic")` (see the facade's `explain_provenance`) — even
+//! though `source_refs` itself is a separate, not-yet-wired-here dimension of that
+//! same frame (see the module docs above).
 //!
 //! `TextHit` (eg-text) and `ProofNode` (eg-rdf) are deliberately NOT in this decode
 //! list: a `TextHit`'s `{id, score}` shape is not a safe/distinguishing structural
@@ -129,6 +135,25 @@ fn resolve_evidence(
         "Span" => serde_json::from_value::<eg_tsdb::traces::Span>(value)
             .ok()
             .and_then(|span| span.evidence(row_id))
+            .into_iter()
+            .collect(),
+        // CONCEPT:E4 follow-up — image/audio/video evidence. Each decode ALSO calls
+        // the value's REAL `evidence()`, which itself yields `None` (not a fabricated
+        // span) when the modality value carries no region/segment/shot index — see
+        // `eg_image`/`eg_audio`/`eg_video`'s `contract.rs` docs.
+        "Image" => serde_json::from_value::<eg_image::ImageData>(value)
+            .ok()
+            .and_then(|img| img.evidence(row_id))
+            .into_iter()
+            .collect(),
+        "Audio" => serde_json::from_value::<eg_audio::AudioData>(value)
+            .ok()
+            .and_then(|audio| audio.evidence(row_id))
+            .into_iter()
+            .collect(),
+        "Video" => serde_json::from_value::<eg_video::VideoData>(value)
+            .ok()
+            .and_then(|video| video.evidence(row_id))
             .into_iter()
             .collect(),
         _ => Vec::new(),
@@ -653,6 +678,139 @@ mod tests {
             vec![EvidenceSpan::TraceSpan {
                 trace_id: "trace-42".to_string(),
                 span_id: "span-7".to_string(),
+            }]
+        );
+    }
+
+    /// CONCEPT:E4 follow-up — a row whose stored node properties decode losslessly as
+    /// an `eg_image::ImageData` (kind `"Image"`) gets a REAL, located
+    /// `EvidenceSpan::ImageRegion` from its first region — not just its node id.
+    #[cfg(feature = "epistemic")]
+    #[test]
+    fn epistemic_resolves_image_region_evidence() {
+        let core = GraphCore::new();
+        core.add_node(
+            "img1".into(),
+            blob(json!({
+                "node_type": "Image",
+                "width": 800,
+                "height": 600,
+                "blob_ref": "abc123",
+                "regions": [
+                    { "label": "face", "x": 10.0, "y": 20.0, "width": 100.0, "height": 80.0 }
+                ],
+            })),
+        );
+        let view = core.analysis_snapshot();
+        let rs = RowSet::from_ids(["img1".to_string()]);
+
+        let ks = KnowledgeSet::from_rowset(&rs, &view, &[]);
+
+        let row = &ks.rows[0];
+        assert_eq!(row.kind, "Image");
+        assert_eq!(
+            row.evidence_refs,
+            vec![EvidenceSpan::ImageRegion {
+                image_id: "img1".to_string(),
+                x: 10.0,
+                y: 20.0,
+                width: 100.0,
+                height: 80.0,
+            }]
+        );
+    }
+
+    /// CONCEPT:E4 follow-up — an `ImageData` row with NO region index decodes fine
+    /// but yields NO fabricated evidence (never a whole-image fallback span).
+    #[cfg(feature = "epistemic")]
+    #[test]
+    fn epistemic_image_with_no_regions_yields_no_fabricated_evidence() {
+        let core = GraphCore::new();
+        core.add_node(
+            "img2".into(),
+            blob(json!({
+                "node_type": "Image",
+                "width": 10,
+                "height": 10,
+                "blob_ref": "h",
+            })),
+        );
+        let view = core.analysis_snapshot();
+        let rs = RowSet::from_ids(["img2".to_string()]);
+
+        let ks = KnowledgeSet::from_rowset(&rs, &view, &[]);
+
+        assert_eq!(ks.rows[0].kind, "Image");
+        assert!(ks.rows[0].evidence_refs.is_empty());
+    }
+
+    /// CONCEPT:E4 follow-up — a row whose stored node properties decode losslessly as
+    /// an `eg_audio::AudioData` (kind `"Audio"`) gets a REAL, located
+    /// `EvidenceSpan::AudioSegment` from its first segment — not just its node id.
+    #[cfg(feature = "epistemic")]
+    #[test]
+    fn epistemic_resolves_audio_segment_evidence() {
+        let core = GraphCore::new();
+        core.add_node(
+            "audio1".into(),
+            blob(json!({
+                "node_type": "Audio",
+                "sample_rate": 44_100,
+                "duration_ms": 5000,
+                "blob_ref": "x",
+                "segments": [
+                    { "label": "speaker-1", "start_ms": 0, "end_ms": 2500 }
+                ],
+            })),
+        );
+        let view = core.analysis_snapshot();
+        let rs = RowSet::from_ids(["audio1".to_string()]);
+
+        let ks = KnowledgeSet::from_rowset(&rs, &view, &[]);
+
+        let row = &ks.rows[0];
+        assert_eq!(row.kind, "Audio");
+        assert_eq!(
+            row.evidence_refs,
+            vec![EvidenceSpan::AudioSegment {
+                audio_id: "audio1".to_string(),
+                start_ms: 0,
+                end_ms: 2500,
+            }]
+        );
+    }
+
+    /// CONCEPT:E4 follow-up — a row whose stored node properties decode losslessly as
+    /// an `eg_video::VideoData` (kind `"Video"`) gets a REAL, located
+    /// `EvidenceSpan::VideoShot` from its first shot — not just its node id.
+    #[cfg(feature = "epistemic")]
+    #[test]
+    fn epistemic_resolves_video_shot_evidence() {
+        let core = GraphCore::new();
+        core.add_node(
+            "video1".into(),
+            blob(json!({
+                "node_type": "Video",
+                "duration_ms": 9000,
+                "blob_ref": "y",
+                "shots": [
+                    { "label": "scene-1", "start_ms": 0, "end_ms": 4000 }
+                ],
+            })),
+        );
+        let view = core.analysis_snapshot();
+        let rs = RowSet::from_ids(["video1".to_string()]);
+
+        let ks = KnowledgeSet::from_rowset(&rs, &view, &[]);
+
+        let row = &ks.rows[0];
+        assert_eq!(row.kind, "Video");
+        assert_eq!(
+            row.evidence_refs,
+            vec![EvidenceSpan::VideoShot {
+                video_id: "video1".to_string(),
+                start_ms: 0,
+                end_ms: 4000,
             }]
         );
     }

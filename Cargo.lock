@@ -2108,6 +2108,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "eg-audio"
+version = "0.1.0"
+dependencies = [
+ "eg-modality",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "eg-compute"
 version = "0.27.0"
 dependencies = [
@@ -2205,6 +2214,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "eg-image"
+version = "0.1.0"
+dependencies = [
+ "eg-modality",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "eg-kvcache"
 version = "0.1.0"
 dependencies = [
@@ -2261,10 +2279,12 @@ name = "eg-plan"
 version = "0.33.0"
 dependencies = [
  "criterion",
+ "eg-audio",
  "eg-compute",
  "eg-core",
  "eg-epistemic",
  "eg-geo",
+ "eg-image",
  "eg-modality",
  "eg-query",
  "eg-rdf",
@@ -2273,6 +2293,7 @@ dependencies = [
  "eg-text",
  "eg-tsdb",
  "eg-types",
+ "eg-video",
  "eg-wasm",
  "hex",
  "hmac 0.12.1",
@@ -2417,6 +2438,15 @@ dependencies = [
  "serde_bytes",
  "serde_json",
  "strum 0.27.2",
+]
+
+[[package]]
+name = "eg-video"
+version = "0.1.0"
+dependencies = [
+ "eg-modality",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
