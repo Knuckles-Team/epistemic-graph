@@ -23,6 +23,8 @@
 mod adapter;
 mod model;
 mod propagate;
+#[cfg(feature = "epistemic-tms")]
+mod tms;
 
 pub use adapter::BeliefGraph;
 pub use model::{
@@ -30,3 +32,14 @@ pub use model::{
     ProofNode, TimeAxis,
 };
 pub use propagate::{explain_belief, propagate_confidence};
+
+// X2 — paraconsistent justification-based TMS + Dung-style abstract argumentation
+// semantics (grounded/preferred/stable extensions, bipolar "supported attack" closure,
+// dependency-directed retraction) over the same `BeliefGraph`. Opt-in and heavier than
+// the default confidence-propagation core above — see `tms` module docs.
+#[cfg(feature = "epistemic-tms")]
+pub use tms::{
+    arguments, augmented_attackers, grounded_extension, is_credulously_accepted,
+    is_skeptically_accepted, preferred_extensions, retract, stable_extensions,
+    RetractionResult, MAX_PREFERRED_ARGUMENTS, MAX_SEARCH_NODES,
+};
