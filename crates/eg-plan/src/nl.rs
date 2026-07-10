@@ -82,6 +82,36 @@ pub fn plan_and_execute_opt(
 
 // ── The concrete standalone planner (CONCEPT:EG-KG.query.fence-stripper, feature `nl-query`) ─────────────
 
+/// How client credentials are presented AT the OAuth2 token endpoint (RFC 6749 §2.3.1).
+#[cfg(feature = "nl-query")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum TokenAuthStyle {
+    /// `client_secret_post` — id/secret as form params in the POST body (default).
+    #[default]
+    Body,
+    /// `client_secret_basic` — id/secret via HTTP Basic; omitted from the body.
+    Basic,
+}
+
+/// OAuth2 ``client_credentials`` source for the NL LLM endpoint (CONCEPT:EG-KG.query.nl-oauth-token-exchange).
+/// When set on a [`UreqNlPlanner`], a short-lived bearer is EXCHANGED at ``token_url``
+/// (and cached until just before expiry) instead of relying on a static ``api_key`` — the
+/// engine-side parallel of agent-utilities' outbound OAuth2 client-credentials lifecycle.
+#[cfg(feature = "nl-query")]
+#[derive(Clone, Debug)]
+pub struct OAuth2ClientCredentials {
+    /// OIDC/OAuth2 token endpoint (e.g. Azure AD `/oauth2/v2.0/token`).
+    pub token_url: String,
+    /// Client id (the resolved literal; a config-layer env-ref is resolved before this).
+    pub client_id: String,
+    /// Client secret (resolved literal; never logged).
+    pub client_secret: String,
+    /// Optional space-separated scopes (Azure AD v2: `<resource>/.default`).
+    pub scope: Option<String>,
+    /// Whether the credentials go in the body or via HTTP Basic at the token endpoint.
+    pub auth_style: TokenAuthStyle,
+}
+
 /// A concrete [`NlPlanner`] (CONCEPT:EG-KG.query.fence-stripper) that asks an OpenAI-compatible
 /// `/chat/completions` endpoint to translate NL → a UQL query, over the SAME pure-Rust
 /// rustls HTTP client (`ureq`) the federation sources use. Kept OUT of the Pi tier.
@@ -105,6 +135,19 @@ pub struct UreqNlPlanner {
     max_response_bytes: u64,
     /// The system prompt that pins the model to emit ONE bare UQL query.
     system_prompt: String,
+    /// Static headers sent on EVERY request to the endpoint (e.g. a gateway
+    /// ``X-Client-Id`` client-id header). Independent of the auth mode.
+    headers: Vec<(String, String)>,
+    /// TLS: accept invalid/self-signed certs for THIS endpoint (danger — internal use).
+    tls_insecure: bool,
+    /// TLS: path to an additional PEM CA bundle trusted for THIS endpoint (added on top
+    /// of the standard webpki roots).
+    tls_ca_path: Option<String>,
+    /// Optional OAuth2 client-credentials token source. When set, a minted+cached bearer
+    /// is used instead of the static ``api_key`` (CONCEPT:EG-KG.query.nl-oauth-token-exchange).
+    oauth2: Option<OAuth2ClientCredentials>,
+    /// Cached minted bearer + its monotonic expiry instant (lazy token exchange).
+    token_cache: std::sync::Mutex<Option<(String, std::time::Instant)>>,
 }
 
 #[cfg(feature = "nl-query")]
@@ -130,7 +173,36 @@ UQL query ONLY — no explanation, no markdown code fences.";
             read_timeout: std::time::Duration::from_secs(30),
             max_response_bytes: 1024 * 1024,
             system_prompt: Self::DEFAULT_SYSTEM_PROMPT.to_string(),
+            headers: Vec::new(),
+            tls_insecure: false,
+            tls_ca_path: None,
+            oauth2: None,
+            token_cache: std::sync::Mutex::new(None),
         }
+    }
+
+    /// Set static headers sent on every request (e.g. a gateway client-id header) (fluent).
+    pub fn with_headers(mut self, headers: Vec<(String, String)>) -> Self {
+        self.headers = headers;
+        self
+    }
+
+    /// Per-endpoint TLS: accept invalid/self-signed certs (danger; internal endpoints) (fluent).
+    pub fn with_tls_insecure(mut self, insecure: bool) -> Self {
+        self.tls_insecure = insecure;
+        self
+    }
+
+    /// Per-endpoint TLS: trust an extra PEM CA bundle on top of the webpki roots (fluent).
+    pub fn with_tls_ca_path(mut self, ca_path: Option<String>) -> Self {
+        self.tls_ca_path = ca_path;
+        self
+    }
+
+    /// Mint the bearer via an OAuth2 client-credentials exchange instead of a static key (fluent).
+    pub fn with_oauth2(mut self, oauth2: Option<OAuth2ClientCredentials>) -> Self {
+        self.oauth2 = oauth2;
+        self
     }
 
     /// Override the connect/read timeouts (fluent).
@@ -155,6 +227,155 @@ UQL query ONLY — no explanation, no markdown code fences.";
         self.system_prompt = prompt;
         self
     }
+
+    /// Build the bounded, timeout-guarded `ureq` agent, applying per-endpoint TLS
+    /// (custom CA / insecure) when configured. With neither TLS override set the agent
+    /// uses ureq's default rustls + webpki-roots verification (byte-for-byte the prior
+    /// behaviour), so only an explicit opt-in changes TLS.
+    fn build_agent(&self) -> Result<ureq::Agent, String> {
+        let mut builder = ureq::AgentBuilder::new()
+            .timeout_connect(self.connect_timeout)
+            .timeout_read(self.read_timeout);
+        if self.tls_insecure || self.tls_ca_path.is_some() {
+            builder = builder.tls_config(std::sync::Arc::new(self.rustls_config()?));
+        }
+        Ok(builder.build())
+    }
+
+    /// Build a rustls `ClientConfig` for the per-endpoint TLS policy. Uses the SAME `ring`
+    /// crypto provider ureq already links (no aws-lc / no C toolchain — the Pi-tier
+    /// pure-Rust contract). `tls_insecure` installs a no-verify certificate verifier
+    /// (danger, internal endpoints only); otherwise the webpki roots plus any configured
+    /// PEM CA bundle are trusted.
+    fn rustls_config(&self) -> Result<rustls::ClientConfig, String> {
+        let provider = std::sync::Arc::new(rustls::crypto::ring::default_provider());
+        if self.tls_insecure {
+            return Ok(
+                rustls::ClientConfig::builder_with_provider(provider.clone())
+                    .with_safe_default_protocol_versions()
+                    .map_err(|e| format!("nl-query: rustls protocol versions: {e}"))?
+                    .dangerous()
+                    .with_custom_certificate_verifier(std::sync::Arc::new(NoCertVerification::new(
+                        provider,
+                    )))
+                    .with_no_client_auth(),
+            );
+        }
+        let mut roots = rustls::RootCertStore::empty();
+        roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+        if let Some(path) = &self.tls_ca_path {
+            let pem = std::fs::read(path)
+                .map_err(|e| format!("nl-query: read TLS CA bundle {path}: {e}"))?;
+            let mut reader = std::io::BufReader::new(&pem[..]);
+            for cert in rustls_pemfile::certs(&mut reader) {
+                let cert =
+                    cert.map_err(|e| format!("nl-query: parse TLS CA bundle {path}: {e}"))?;
+                roots
+                    .add(cert)
+                    .map_err(|e| format!("nl-query: add TLS CA from {path}: {e}"))?;
+            }
+        }
+        Ok(rustls::ClientConfig::builder_with_provider(provider)
+            .with_safe_default_protocol_versions()
+            .map_err(|e| format!("nl-query: rustls protocol versions: {e}"))?
+            .with_root_certificates(roots)
+            .with_no_client_auth())
+    }
+
+    /// Resolve the bearer to present to the LLM endpoint: a freshly-minted (cached) OAuth2
+    /// client-credentials token when `oauth2` is configured, else the static `api_key`
+    /// (empty ⇒ no `Authorization` header for a local keyless endpoint).
+    fn resolve_bearer(&self) -> Result<Option<String>, String> {
+        if let Some(oauth) = &self.oauth2 {
+            return self.mint_bearer(oauth).map(Some);
+        }
+        if self.api_key.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(self.api_key.clone()))
+        }
+    }
+
+    /// Return a cached OAuth2 bearer, exchanging client credentials at the token endpoint
+    /// when the cache is empty or within 60s of expiry. Presents the credentials via HTTP
+    /// Basic (`client_secret_basic`) or in the body (`client_secret_post`) per `auth_style`.
+    /// Never logs the token or secret.
+    fn mint_bearer(&self, oauth: &OAuth2ClientCredentials) -> Result<String, String> {
+        use std::io::Read;
+        {
+            let cached = self
+                .token_cache
+                .lock()
+                .map_err(|_| "nl-query: token cache lock poisoned".to_string())?;
+            if let Some((tok, expiry)) = cached.as_ref() {
+                if std::time::Instant::now() < *expiry {
+                    return Ok(tok.clone());
+                }
+            }
+        }
+
+        let agent = self.build_agent()?;
+        let mut req = agent
+            .post(&oauth.token_url)
+            .set("content-type", "application/x-www-form-urlencoded");
+        let mut form: Vec<(&str, &str)> = vec![("grant_type", "client_credentials")];
+        // Built outside the match so the `&str` pushed into `form` outlives the send.
+        let basic_header;
+        match oauth.auth_style {
+            TokenAuthStyle::Basic => {
+                use base64::Engine as _;
+                let raw = format!("{}:{}", oauth.client_id, oauth.client_secret);
+                basic_header = format!(
+                    "Basic {}",
+                    base64::engine::general_purpose::STANDARD.encode(raw)
+                );
+                req = req.set("authorization", &basic_header);
+            }
+            TokenAuthStyle::Body => {
+                form.push(("client_id", &oauth.client_id));
+                form.push(("client_secret", &oauth.client_secret));
+            }
+        }
+        if let Some(scope) = oauth.scope.as_deref() {
+            form.push(("scope", scope));
+        }
+
+        let resp = req.send_form(&form).map_err(|e| {
+            format!(
+                "nl-query: OAuth2 token POST {} failed: {e}",
+                oauth.token_url
+            )
+        })?;
+        // SAFETY: cap the token-endpoint response like the chat response (OOM guard).
+        let mut buf = String::new();
+        resp.into_reader()
+            .take(self.max_response_bytes)
+            .read_to_string(&mut buf)
+            .map_err(|e| format!("nl-query: read OAuth2 token response: {e}"))?;
+        let json: serde_json::Value = serde_json::from_str(&buf)
+            .map_err(|e| format!("nl-query: parse OAuth2 token JSON: {e}"))?;
+        let token = json
+            .get("access_token")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                format!(
+                    "nl-query: OAuth2 token response from {} had no access_token",
+                    oauth.token_url
+                )
+            })?
+            .to_string();
+        // Renew 60s before the real expiry; default 300s TTL when the IdP omits expires_in.
+        let ttl = json
+            .get("expires_in")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(300);
+        let lead = ttl.saturating_sub(60).max(1);
+        let expiry = std::time::Instant::now() + std::time::Duration::from_secs(lead);
+        if let Ok(mut cache) = self.token_cache.lock() {
+            *cache = Some((token.clone(), expiry));
+        }
+        Ok(token)
+    }
 }
 
 #[cfg(feature = "nl-query")]
@@ -162,11 +383,9 @@ impl NlPlanner for UreqNlPlanner {
     fn plan(&self, nl: &str, schema_hint: &str) -> Result<String, String> {
         use std::io::Read;
 
-        // Bounded, timeout-guarded agent (SAFETY: no hang on a slow endpoint).
-        let agent = ureq::AgentBuilder::new()
-            .timeout_connect(self.connect_timeout)
-            .timeout_read(self.read_timeout)
-            .build();
+        // Bounded, timeout-guarded agent with the per-endpoint TLS policy (SAFETY: no hang
+        // on a slow endpoint; verification unchanged unless explicitly overridden).
+        let agent = self.build_agent()?;
 
         let user = if schema_hint.trim().is_empty() {
             format!("Question: {nl}")
@@ -187,8 +406,13 @@ impl NlPlanner for UreqNlPlanner {
         let mut req = agent
             .post(&self.endpoint)
             .set("content-type", "application/json");
-        if !self.api_key.is_empty() {
-            req = req.set("authorization", &format!("Bearer {}", self.api_key));
+        // Static headers (e.g. a gateway client-id) — sent regardless of the auth mode.
+        for (name, value) in &self.headers {
+            req = req.set(name, value);
+        }
+        // Bearer: a minted+cached OAuth2 token when configured, else the static api_key.
+        if let Some(bearer) = self.resolve_bearer()? {
+            req = req.set("authorization", &format!("Bearer {bearer}"));
         }
         let resp = req
             .send_string(&body)
@@ -212,6 +436,73 @@ impl NlPlanner for UreqNlPlanner {
             return Err("nl-query: LLM produced an empty query".to_string());
         }
         Ok(query)
+    }
+}
+
+/// A rustls certificate verifier that accepts ANY server certificate (CONCEPT:EG-KG.query.nl-tls-insecure).
+///
+/// DANGER: used ONLY when a `UreqNlPlanner` is explicitly configured `tls_insecure` for a
+/// trusted internal endpoint (e.g. a self-signed vLLM on the LAN). It skips chain/hostname
+/// validation but still verifies the handshake signatures via the real `ring` provider
+/// algorithms, so the TLS session itself is well-formed. Never wired on the default path.
+#[cfg(feature = "nl-query")]
+#[derive(Debug)]
+struct NoCertVerification {
+    provider: std::sync::Arc<rustls::crypto::CryptoProvider>,
+}
+
+#[cfg(feature = "nl-query")]
+impl NoCertVerification {
+    fn new(provider: std::sync::Arc<rustls::crypto::CryptoProvider>) -> Self {
+        Self { provider }
+    }
+}
+
+#[cfg(feature = "nl-query")]
+impl rustls::client::danger::ServerCertVerifier for NoCertVerification {
+    fn verify_server_cert(
+        &self,
+        _end_entity: &rustls::pki_types::CertificateDer<'_>,
+        _intermediates: &[rustls::pki_types::CertificateDer<'_>],
+        _server_name: &rustls::pki_types::ServerName<'_>,
+        _ocsp_response: &[u8],
+        _now: rustls::pki_types::UnixTime,
+    ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
+        Ok(rustls::client::danger::ServerCertVerified::assertion())
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        message: &[u8],
+        cert: &rustls::pki_types::CertificateDer<'_>,
+        dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        rustls::crypto::verify_tls12_signature(
+            message,
+            cert,
+            dss,
+            &self.provider.signature_verification_algorithms,
+        )
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        cert: &rustls::pki_types::CertificateDer<'_>,
+        dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        rustls::crypto::verify_tls13_signature(
+            message,
+            cert,
+            dss,
+            &self.provider.signature_verification_algorithms,
+        )
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
+        self.provider
+            .signature_verification_algorithms
+            .supported_schemes()
     }
 }
 
@@ -315,5 +606,73 @@ mod tests {
             "MATCH (:Doc) |> LIMIT 1"
         );
         assert_eq!(strip_query("```\nMATCH (:Doc)\n```"), "MATCH (:Doc)");
+    }
+
+    fn planner() -> UreqNlPlanner {
+        UreqNlPlanner::new(
+            "http://vllm.local/v1/chat/completions".into(),
+            "qwen".into(),
+            String::new(),
+        )
+    }
+
+    /// The default OAuth2 token-endpoint auth style is body params (client_secret_post).
+    #[test]
+    fn token_auth_style_defaults_to_body() {
+        assert_eq!(TokenAuthStyle::default(), TokenAuthStyle::Body);
+    }
+
+    /// The fluent builders record static headers, per-endpoint TLS, and the oauth2 source.
+    #[test]
+    fn builders_set_auth_tls_and_headers() {
+        let p = planner()
+            .with_headers(vec![("X-Client-Id".into(), "svc-42".into())])
+            .with_tls_insecure(true)
+            .with_tls_ca_path(Some("/etc/ssl/internal-ca.pem".into()))
+            .with_oauth2(Some(OAuth2ClientCredentials {
+                token_url: "https://idp/token".into(),
+                client_id: "cid".into(),
+                client_secret: "sec".into(),
+                scope: Some("api://x/.default".into()),
+                auth_style: TokenAuthStyle::Basic,
+            }));
+        assert_eq!(
+            p.headers,
+            vec![("X-Client-Id".to_string(), "svc-42".to_string())]
+        );
+        assert!(p.tls_insecure);
+        assert_eq!(p.tls_ca_path.as_deref(), Some("/etc/ssl/internal-ca.pem"));
+        assert!(p.oauth2.is_some());
+    }
+
+    /// A static api_key is presented as the bearer; a keyless planner presents none.
+    #[test]
+    fn resolve_bearer_uses_static_api_key_or_none() {
+        let keyless = planner();
+        assert_eq!(keyless.resolve_bearer().unwrap(), None);
+
+        let keyed = UreqNlPlanner::new("http://x/v1".into(), "m".into(), "tok-123".into());
+        assert_eq!(keyed.resolve_bearer().unwrap(), Some("tok-123".to_string()));
+    }
+
+    /// The insecure TLS policy builds a rustls config (no-verify verifier) without error.
+    #[test]
+    fn tls_insecure_builds_client_config() {
+        let p = planner().with_tls_insecure(true);
+        assert!(p.rustls_config().is_ok());
+        assert!(p.build_agent().is_ok());
+    }
+
+    /// A non-existent CA bundle path fails loudly at config-build time (not a silent skip).
+    #[test]
+    fn tls_ca_missing_file_is_error() {
+        let p = planner().with_tls_ca_path(Some("/no/such/ca-bundle.pem".into()));
+        assert!(p.rustls_config().is_err());
+    }
+
+    /// With neither TLS override the agent still builds (default webpki verification path).
+    #[test]
+    fn default_tls_builds_agent() {
+        assert!(planner().build_agent().is_ok());
     }
 }
