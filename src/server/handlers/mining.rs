@@ -168,6 +168,8 @@ pub(crate) fn try_handle(
             #[cfg(feature = "query")]
             plan,
             writeback,
+            #[cfg(feature = "epistemic")]
+            as_claim,
         } => Ok(handle_classify_predict(
             req_id,
             &core,
@@ -177,6 +179,8 @@ pub(crate) fn try_handle(
             #[cfg(feature = "query")]
             plan,
             writeback,
+            #[cfg(feature = "epistemic")]
+            as_claim,
         )),
         Method::MineReduce {
             x,
@@ -193,6 +197,8 @@ pub(crate) fn try_handle(
             lr,
             seed,
             writeback,
+            #[cfg(feature = "epistemic")]
+            as_claim,
         } => Ok(handle_reduce(
             req_id,
             &core,
@@ -210,6 +216,8 @@ pub(crate) fn try_handle(
             lr,
             seed,
             writeback,
+            #[cfg(feature = "epistemic")]
+            as_claim,
         )),
         Method::MineSequence {
             sequences,
@@ -276,9 +284,13 @@ pub(crate) fn try_handle(
             seed,
             top_n,
             writeback,
+            #[cfg(feature = "epistemic")]
+            as_claim,
         } => Ok(handle_text(
             req_id, &core, docs, source, algorithm, k, alpha, beta, iterations, seed, top_n,
             writeback,
+            #[cfg(feature = "epistemic")]
+            as_claim,
         )),
         Method::MineSubgraph {
             label,
@@ -436,6 +448,8 @@ pub(crate) fn replay(core: &GraphCore, method: &Method) {
             #[cfg(feature = "query")]
             plan,
             writeback: true,
+            #[cfg(feature = "epistemic")]
+            as_claim,
         } => {
             let (rows, ids) = build_vectors(
                 core,
@@ -449,6 +463,10 @@ pub(crate) fn replay(core: &GraphCore, method: &Method) {
             }
             let out = classify::predict(model, &rows);
             materialize_classifications(core, &out, &ids);
+            #[cfg(feature = "epistemic")]
+            if *as_claim {
+                materialize_classification_claims(core, &out, &ids, classify_provenance(source));
+            }
         }
         Method::MineReduce {
             x,
@@ -465,6 +483,8 @@ pub(crate) fn replay(core: &GraphCore, method: &Method) {
             lr,
             seed,
             writeback: true,
+            #[cfg(feature = "epistemic")]
+            as_claim,
         } => {
             let (rows, ids) = build_vectors(
                 core,
@@ -488,6 +508,10 @@ pub(crate) fn replay(core: &GraphCore, method: &Method) {
             let lbls = (!labels.is_empty()).then_some(labels.as_slice());
             let out = reduce::reduce(&rows, lbls, algo, *n_components);
             materialize_embeddings(core, &out, &ids);
+            #[cfg(feature = "epistemic")]
+            if *as_claim {
+                materialize_reduce_claims(core, &rows, &out, &ids, *algorithm, source);
+            }
         }
         Method::MineSequence {
             sequences,
@@ -561,6 +585,8 @@ pub(crate) fn replay(core: &GraphCore, method: &Method) {
             seed,
             top_n,
             writeback: true,
+            #[cfg(feature = "epistemic")]
+            as_claim,
         } => {
             if matches!(algorithm, TextAlgorithm::Tfidf) {
                 return; // tfidf has no topics to write back
@@ -572,6 +598,10 @@ pub(crate) fn replay(core: &GraphCore, method: &Method) {
             let algo = to_text_algo(*algorithm, *k, *alpha, *beta, *iterations, *seed);
             let out = text::mine_labeled(&tokenized, algo, *top_n);
             materialize_topics(core, &out, &ids, text_algo_name(*algorithm));
+            #[cfg(feature = "epistemic")]
+            if *as_claim {
+                materialize_topic_claims(core, &out, text_algo_name(*algorithm));
+            }
         }
         Method::MineSubgraph {
             label,
@@ -1223,6 +1253,7 @@ fn handle_classify_fit(
 /// Handle `MineClassifyPredict` (CONCEPT:EG-KG.mining.naive-bayes): build rows, run the
 /// fitted model, return per-row `{id, label, proba}`, and optionally write
 /// `:Classification` nodes back for each prediction.
+#[allow(clippy::too_many_arguments)]
 fn handle_classify_predict(
     req_id: u64,
     core: &GraphCore,
@@ -1231,6 +1262,7 @@ fn handle_classify_predict(
     source: Option<VectorSource>,
     #[cfg(feature = "query")] plan: Option<crate::wire::Plan>,
     writeback: bool,
+    #[cfg(feature = "epistemic")] as_claim: bool,
 ) -> Response {
     let (rows, ids) = build_vectors(
         core,
@@ -1249,6 +1281,10 @@ fn handle_classify_predict(
     } else {
         0
     };
+    #[cfg(feature = "epistemic")]
+    if writeback && as_claim {
+        materialize_classification_claims(core, &out, &ids, classify_provenance(&source));
+    }
 
     let rows_json: Vec<serde_json::Value> = (0..rows.len())
         .map(|i| {
@@ -1378,6 +1414,7 @@ fn handle_reduce(
     lr: f64,
     seed: u64,
     writeback: bool,
+    #[cfg(feature = "epistemic")] as_claim: bool,
 ) -> Response {
     let (rows, ids) = build_vectors(
         core,
@@ -1412,6 +1449,10 @@ fn handle_reduce(
     } else {
         0
     };
+    #[cfg(feature = "epistemic")]
+    if writeback && as_claim {
+        materialize_reduce_claims(core, &rows, &out, &ids, algorithm, &source);
+    }
 
     let rows_json: Vec<serde_json::Value> = (0..out.coords.len())
         .map(|i| {
@@ -1844,6 +1885,7 @@ fn handle_text(
     seed: u64,
     top_n: usize,
     writeback: bool,
+    #[cfg(feature = "epistemic")] as_claim: bool,
 ) -> Response {
     let (tokenized, ids) = build_text_docs(core, &docs, &source);
     if tokenized.is_empty() {
@@ -1866,6 +1908,10 @@ fn handle_text(
     } else {
         0
     };
+    #[cfg(feature = "epistemic")]
+    if writeback && as_claim && !matches!(algorithm, TextAlgorithm::Tfidf) {
+        materialize_topic_claims(core, &out, text_algo_name(algorithm));
+    }
 
     let doc_terms_json: Vec<serde_json::Value> = out
         .doc_terms
@@ -2653,6 +2699,138 @@ fn subgraph_provenance(label: &Option<String>) -> String {
     }
 }
 
+// ── D3 — the 3 remaining mining families (E6 left these ungated) ──
+//
+// MineClassifyPredict → claims (principled: the prediction's OWN max class
+// probability, already [0,1] by construction — a probability-simplex row).
+// MineReduce → claims, `svd` ONLY (principled: the retained explained-variance
+// ratio; `lda`/`umap`/`tsne` have no such score — documented no-op, NOT fabricated).
+// MineText → claims, `lda`/`nmf` ONLY (principled: per-topic mean doc-membership
+// strength among its dominantly-assigned documents — both engines' `doc_topics`
+// are already [0,1] distributions summing to 1, see `eg_compute::mining::text`
+// module docs; `tfidf` has no topics — documented no-op, mirroring `writeback`).
+
+/// Each prediction → a claim. Quality = the row's OWN max class probability
+/// (`out.proba[i]`'s argmax) — already `[0,1]`, no normalization needed.
+#[cfg(feature = "epistemic")]
+fn materialize_classification_claims(
+    core: &GraphCore,
+    out: &classify::Classification,
+    ids: &[String],
+    provenance: String,
+) {
+    for i in 0..out.labels.len() {
+        let src = ids.get(i).cloned().unwrap_or_else(|| i.to_string());
+        let node_id = classification_node_id(&src);
+        let confidence = out.proba[i]
+            .iter()
+            .cloned()
+            .fold(0.0_f64, f64::max)
+            .clamp(0.0, 1.0);
+        materialize_claim(core, &node_id, "classification", confidence, &provenance);
+    }
+}
+
+#[cfg(feature = "epistemic")]
+fn classify_provenance(source: &Option<VectorSource>) -> String {
+    match source {
+        Some(s) => format!("vectors:{}", s.node_label),
+        None => "vectors:explicit".to_string(),
+    }
+}
+
+/// Reduced rows → claims, `svd` ONLY (mirroring `writeback`'s per-algorithm gate —
+/// this is a DOCUMENTED SKIP for `lda`/`umap`/`tsne`, not a fabricated score: LDA's
+/// discriminant eigenvalues aren't returned by `reduce::reduce`; UMAP/t-SNE are
+/// approximate neighborhood LAYOUTS with no reconstruction-error analogue). Quality =
+/// the retained EXPLAINED-VARIANCE RATIO `Σ singular_values² / Σ ‖row‖²` — the SAME
+/// Frobenius-energy ratio `eg_compute::mining::reduce`'s own
+/// `truncated_svd_reconstructs_low_rank` test validates against, so it is principled
+/// and requires no extra normalization beyond the final `[0,1]` clamp (guards the
+/// pathological case where retained energy rounds slightly above total due to
+/// floating-point error). The ratio is a property of the WHOLE projection, not any
+/// one row, so every materialized `:Embedding2D` row node gets a claim sharing this
+/// ONE reduction-level score (mirrors the "one score per materialized artifact"
+/// shape every other mining family's claim pass uses).
+#[cfg(feature = "epistemic")]
+fn materialize_reduce_claims(
+    core: &GraphCore,
+    rows: &[Vec<f64>],
+    out: &reduce::Reduction,
+    ids: &[String],
+    algorithm: ReduceAlgorithm,
+    source: &Option<VectorSource>,
+) {
+    if !matches!(algorithm, ReduceAlgorithm::Svd) || out.singular_values.is_empty() {
+        return; // no principled [0,1] score for lda/umap/tsne — documented skip
+    }
+    let total_energy: f64 = rows.iter().flatten().map(|&v| v * v).sum();
+    if total_energy <= 0.0 {
+        return; // degenerate (all-zero) input — no meaningful ratio to claim
+    }
+    let retained: f64 = out.singular_values.iter().map(|&s| s * s).sum();
+    let confidence = (retained / total_energy).clamp(0.0, 1.0);
+    let provenance = reduce_provenance(source);
+    for i in 0..out.coords.len() {
+        let src = ids.get(i).cloned().unwrap_or_else(|| i.to_string());
+        let node_id = embedding2d_node_id(&src);
+        materialize_claim(core, &node_id, "reduce", confidence, &provenance);
+    }
+}
+
+#[cfg(feature = "epistemic")]
+fn reduce_provenance(source: &Option<VectorSource>) -> String {
+    match source {
+        Some(s) => format!("vectors:{}", s.node_label),
+        None => "vectors:explicit".to_string(),
+    }
+}
+
+/// Each topic → a claim, `lda`/`nmf` ONLY (mirroring `writeback`'s tfidf no-op — a
+/// bag-of-weights table has no topics to claim about). Quality = the topic's mean
+/// doc-membership strength among the documents DOMINANTLY assigned to it
+/// (`mean(doc_topics[d][t])` over docs `d` whose argmax topic is `t`) — a topic-
+/// coherence proxy: both LDA's Dirichlet posterior and NMF's row-normalized `W` are
+/// already `[0,1]` distributions summing to 1 across topics (see
+/// `eg_compute::mining::text` module docs), so this is principled and needs no extra
+/// normalization. A topic nobody is dominantly assigned to (can happen for `nmf`,
+/// whose factors are not a hard partition) has no coherence signal — skipped rather
+/// than fabricated.
+#[cfg(feature = "epistemic")]
+fn materialize_topic_claims(core: &GraphCore, out: &text::LabeledTextResult, algo: &str) {
+    let dominant: Vec<usize> = out
+        .doc_topics
+        .iter()
+        .map(|dist| {
+            dist.iter()
+                .enumerate()
+                .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
+                .map(|(t, _)| t)
+                .unwrap_or(0)
+        })
+        .collect();
+
+    for (t, terms) in out.topics.iter().enumerate() {
+        let term_labels: Vec<&str> = terms.iter().map(|(term, _)| term.as_str()).collect();
+        let mut sum = 0.0_f64;
+        let mut n = 0usize;
+        for (i, dist) in out.doc_topics.iter().enumerate() {
+            if dominant.get(i) == Some(&t) {
+                if let Some(&w) = dist.get(t) {
+                    sum += w;
+                    n += 1;
+                }
+            }
+        }
+        if n == 0 {
+            continue; // no document dominantly assigned to this topic — no signal
+        }
+        let node_id = topic_node_id(algo, &term_labels);
+        let confidence = (sum / n as f64).clamp(0.0, 1.0);
+        materialize_claim(core, &node_id, "topic", confidence, &format!("text:{algo}"));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3071,6 +3249,8 @@ mod tests {
             #[cfg(feature = "query")]
             plan: None,
             writeback: false,
+            #[cfg(feature = "epistemic")]
+            as_claim: false,
         };
         let resp = try_handle(2, core, predict).expect("handled");
         let Some(ResultPayload::Json(v)) = resp.result else {
@@ -3114,6 +3294,8 @@ mod tests {
             #[cfg(feature = "query")]
             plan: None,
             writeback: true,
+            #[cfg(feature = "epistemic")]
+            as_claim: false,
         };
         let resp = try_handle(3, Arc::clone(&core), m).expect("handled");
         let Some(ResultPayload::Json(v)) = resp.result else {
@@ -3163,6 +3345,8 @@ mod tests {
             lr: 100.0,
             seed: 0,
             writeback: true,
+            #[cfg(feature = "epistemic")]
+            as_claim: false,
         };
         let resp = try_handle(4, Arc::clone(&core), m).expect("handled");
         let Some(ResultPayload::Json(v)) = resp.result else {
@@ -3196,6 +3380,8 @@ mod tests {
             lr: 100.0,
             seed: 0,
             writeback: false,
+            #[cfg(feature = "epistemic")]
+            as_claim: false,
         };
         let resp = try_handle(5, core, m).expect("handled");
         assert!(resp.result.is_none()); // an error response carries no result payload
@@ -3419,6 +3605,8 @@ mod tests {
             seed: 1,
             top_n: 10,
             writeback: true, // ignored for tfidf
+            #[cfg(feature = "epistemic")]
+            as_claim: false,
         };
         let resp = try_handle(23, Arc::clone(&core), m).expect("handled");
         let Some(ResultPayload::Json(v)) = resp.result else {
@@ -3471,6 +3659,8 @@ mod tests {
             seed: 42,
             top_n: 5,
             writeback: true,
+            #[cfg(feature = "epistemic")]
+            as_claim: false,
         };
         let resp = try_handle(25, Arc::clone(&core), m).expect("handled");
         let Some(ResultPayload::Json(v)) = resp.result else {
@@ -3518,6 +3708,8 @@ mod tests {
             seed: 7,
             top_n: 5,
             writeback: false,
+            #[cfg(feature = "epistemic")]
+            as_claim: false,
         };
         let resp = try_handle(27, core, m).expect("handled");
         let Some(ResultPayload::Json(v)) = resp.result else {
@@ -4106,5 +4298,237 @@ mod tests {
             core.get_nodes_by_label("Evidence", 0).len() >= 2,
             "distinct provenance must yield ≥2 Evidence nodes"
         );
+    }
+
+    // ── D3 — the 3 remaining mining families get `as_claim` too ──
+
+    #[test]
+    #[cfg(feature = "epistemic")]
+    fn classify_predict_as_claim_materializes_claim_and_evidence() {
+        let x = vec![
+            vec![0.0, 0.0],
+            vec![0.2, 0.1],
+            vec![9.0, 9.0],
+            vec![9.1, 8.8],
+        ];
+        let y = vec![0, 0, 1, 1];
+        let model = eg_compute::mining::classify::fit(
+            &x,
+            &y,
+            eg_compute::mining::classify::Algorithm::GaussianNb,
+        )
+        .unwrap();
+        let build = |core: &GraphCore| {
+            for (id, e) in [("p0", [0.1f32, 0.0]), ("p1", [9.0, 9.1])] {
+                core.add_node(id.into(), node(serde_json::json!({"type": "Sample"})));
+                core.semantic_store
+                    .write()
+                    .add_embedding(id.to_string(), e.to_vec());
+            }
+        };
+        let mk = |model: FittedClassifier, as_claim: bool| Method::MineClassifyPredict {
+            model,
+            x: Vec::new(),
+            source: Some(VectorSource {
+                node_label: "Sample".into(),
+                limit: 0,
+            }),
+            #[cfg(feature = "query")]
+            plan: None,
+            writeback: true,
+            as_claim,
+        };
+        let c0 = Arc::new(GraphCore::new());
+        build(&c0);
+        try_handle(28, Arc::clone(&c0), mk(model.clone(), false)).expect("handled");
+        assert_no_claims(&c0);
+        let c1 = Arc::new(GraphCore::new());
+        build(&c1);
+        try_handle(29, Arc::clone(&c1), mk(model, true)).expect("handled");
+        let (_, conf) = assert_claim_objects(&c1);
+        // GaussianNB on two well-separated Gaussians ⇒ near-certain max class proba.
+        assert!(
+            conf > 0.9,
+            "classification claim confidence {conf} unexpectedly low"
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "epistemic")]
+    fn reduce_svd_as_claim_materializes_claim_and_evidence() {
+        let build = |core: &GraphCore| {
+            let embs = [
+                ("d0", [1.0f32, 0.0, 0.0]),
+                ("d1", [0.0, 1.0, 0.0]),
+                ("d2", [1.0, 1.0, 0.0]),
+                ("d3", [2.0, 1.0, 0.0]),
+            ];
+            for (id, e) in embs {
+                core.add_node(id.into(), node(serde_json::json!({"type": "Vec"})));
+                core.semantic_store
+                    .write()
+                    .add_embedding(id.to_string(), e.to_vec());
+            }
+        };
+        let mk = |as_claim: bool| Method::MineReduce {
+            x: Vec::new(),
+            source: Some(VectorSource {
+                node_label: "Vec".into(),
+                limit: 0,
+            }),
+            #[cfg(feature = "query")]
+            plan: None,
+            labels: Vec::new(),
+            algorithm: ReduceAlgorithm::Svd,
+            n_components: 2,
+            n_neighbors: 15,
+            min_dist: 0.1,
+            perplexity: 30.0,
+            epochs: 300,
+            lr: 100.0,
+            seed: 0,
+            writeback: true,
+            as_claim,
+        };
+        let c0 = Arc::new(GraphCore::new());
+        build(&c0);
+        try_handle(30, Arc::clone(&c0), mk(false)).expect("handled");
+        assert_no_claims(&c0);
+        let c1 = Arc::new(GraphCore::new());
+        build(&c1);
+        try_handle(31, Arc::clone(&c1), mk(true)).expect("handled");
+        let (_, conf) = assert_claim_objects(&c1);
+        // These 4 vectors are rank-3 (embedded in R^3); keeping k=2 of 3 components
+        // must retain SOME but not necessarily ALL variance.
+        assert!(
+            conf > 0.0 && conf <= 1.0,
+            "reduce claim confidence {conf} out of (0,1]"
+        );
+        // Every materialized :Embedding2D row gets a claim sharing the SAME
+        // reduction-level explained-variance-ratio score.
+        c1.mark_dirty();
+        let claims = c1.get_nodes_by_label("Claim", 0);
+        assert_eq!(claims.len(), 4, "one claim per materialized row");
+        for (_, blob) in &claims {
+            let props: serde_json::Value = rmp_serde::from_slice(blob).unwrap();
+            assert!((props["confidence"].as_f64().unwrap() - conf).abs() < 1e-9);
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "epistemic")]
+    fn reduce_umap_as_claim_is_a_documented_noop() {
+        // UMAP has no principled [0,1] quality score (approximate neighborhood
+        // layout, no reconstruction-error analogue) — as_claim=true must be a no-op,
+        // never a fabricated confidence.
+        let core = Arc::new(GraphCore::new());
+        let m = Method::MineReduce {
+            x: vec![vec![0.0, 0.0], vec![1.0, 1.0], vec![2.0, 0.5], vec![0.5, 2.0]],
+            source: None,
+            #[cfg(feature = "query")]
+            plan: None,
+            labels: Vec::new(),
+            algorithm: ReduceAlgorithm::Umap,
+            n_components: 2,
+            n_neighbors: 2,
+            min_dist: 0.1,
+            perplexity: 30.0,
+            epochs: 50,
+            lr: 100.0,
+            seed: 0,
+            writeback: true,
+            as_claim: true,
+        };
+        try_handle(32, Arc::clone(&core), m).expect("handled");
+        assert_no_claims(&core);
+    }
+
+    #[test]
+    #[cfg(feature = "epistemic")]
+    fn text_lda_as_claim_materializes_claim_and_evidence() {
+        let pet_words = ["cat", "dog", "pet", "leash", "vet"];
+        let fin_words = ["stock", "market", "bond", "yield", "trader"];
+        let build = |core: &GraphCore| {
+            for i in 0..15 {
+                let n = 6 + (i % 4);
+                let pet_text: String = (0..n)
+                    .map(|j| pet_words[(i + j) % pet_words.len()])
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                let fin_text: String = (0..n)
+                    .map(|j| fin_words[(i + j) % fin_words.len()])
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                core.add_node(
+                    format!("doc_pet_{i}"),
+                    node(serde_json::json!({"type": "Doc", "body": pet_text})),
+                );
+                core.add_node(
+                    format!("doc_fin_{i}"),
+                    node(serde_json::json!({"type": "Doc", "body": fin_text})),
+                );
+            }
+        };
+        let mk = |as_claim: bool| Method::MineText {
+            docs: Vec::new(),
+            source: Some(TextSource {
+                node_label: "Doc".into(),
+                field: "body".into(),
+                limit: 0,
+            }),
+            algorithm: TextAlgorithm::Lda,
+            k: 2,
+            alpha: 0.1,
+            beta: 0.01,
+            iterations: 200,
+            seed: 42,
+            top_n: 5,
+            writeback: true,
+            as_claim,
+        };
+        let c0 = Arc::new(GraphCore::new());
+        build(&c0);
+        try_handle(33, Arc::clone(&c0), mk(false)).expect("handled");
+        assert_no_claims(&c0);
+        let c1 = Arc::new(GraphCore::new());
+        build(&c1);
+        try_handle(34, Arc::clone(&c1), mk(true)).expect("handled");
+        let (_, conf) = assert_claim_objects(&c1);
+        // Two well-separated topics ⇒ high mean dominant-doc membership.
+        assert!(
+            conf > 0.5,
+            "topic claim confidence {conf} unexpectedly low for well-separated topics"
+        );
+        c1.mark_dirty();
+        assert_eq!(
+            c1.get_nodes_by_label("Claim", 0).len(),
+            2,
+            "one claim per topic"
+        );
+    }
+
+    #[test]
+    fn text_tfidf_as_claim_is_a_documented_noop() {
+        // tfidf has no topics to claim about — as_claim=true must be a no-op, mirroring
+        // its own `writeback` no-op (never a fabricated confidence).
+        let core = Arc::new(GraphCore::new());
+        let docs = vec![words("the cat sat"), words("the dog ran")];
+        let m = Method::MineText {
+            docs,
+            source: None,
+            algorithm: TextAlgorithm::Tfidf,
+            k: 3,
+            alpha: 0.1,
+            beta: 0.01,
+            iterations: 200,
+            seed: 1,
+            top_n: 10,
+            writeback: true,
+            #[cfg(feature = "epistemic")]
+            as_claim: true,
+        };
+        try_handle(35, Arc::clone(&core), m).expect("handled");
+        #[cfg(feature = "epistemic")]
+        assert_no_claims(&core);
     }
 }
