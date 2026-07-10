@@ -61,10 +61,24 @@ pub struct TextHit {
 mod bm25;
 pub use bm25::{bm25_score, bm25_snippet, Bm25, Corpus};
 
+/// Table extraction + layout spans + citation/clause spans (CONCEPT:EG-KG.query
+/// depth: per-modality text/layout structure) — dep-free, ships in EVERY build
+/// (pure heuristic scanning, no tantivy needed). See `src/layout.rs`.
+mod layout;
+pub use layout::{
+    citation_spans, extract_tables, layout_spans, CitationKind, CitationSpan, ExtractedTable,
+    LayoutKind, LayoutSpan, TableSpan,
+};
+
 #[cfg(feature = "tantivy")]
 mod index;
 #[cfg(feature = "tantivy")]
 pub use index::TextIndex;
+
+/// `ModalityContract` retrofit for [`TextHit`] (CONCEPT:E4). Behind the crate's own
+/// opt-in `contract` feature (default OFF) — see `src/contract.rs`.
+#[cfg(feature = "contract")]
+mod contract;
 
 /// Reciprocal-Rank Fusion (RRF) of several ranked id lists into one — the modern
 /// hybrid-retrieval primitive, dep-free so it ships in EVERY build (a default build

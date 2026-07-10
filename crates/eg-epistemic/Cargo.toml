@@ -1,0 +1,50 @@
+[package]
+name = "eg-epistemic"
+version = "0.1.0"
+edition = "2021"
+authors = ["Audel Rouhi <knucklessg1@gmail.com>"]
+description = "Engine-native epistemic layer (claims, evidence, belief-state, contradiction, confidence propagation, justification) for the epistemic-graph engine"
+license = "MIT"
+
+[lib]
+name = "eg_epistemic"
+
+[dependencies]
+# Bottom of the DAG: the stored typed model + Distribution value.
+eg-types = { path = "../eg-types" }
+# The GraphView snapshot the propagation walk runs over (read-only, off-lock).
+eg-core = { path = "../eg-core" }
+# The conjugate Bayesian backend — `probabilistic::bayesian_update` IS the
+# ConfidenceModel numeric core (rides eg-compute's pure `reasoning` feature, no heavy dep).
+eg-compute = { path = "../eg-compute", features = ["reasoning"] }
+
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+rmp-serde = "1.3"
+
+# Only pulled in behind the `epistemic-tms` feature — logs when the preferred/stable
+# extension search hits its documented argument-count or branch-node cap (see
+# `src/tms.rs`). No-op without a subscriber installed, same pattern as eg-core/eg-compute.
+tracing = { version = "0.1", optional = true }
+# ModalityContract retrofit (CONCEPT:E4). Optional, only under `contract` (default
+# OFF) — a default build links none of it and `BeliefState` carries no new required
+# trait. See `src/contract.rs`.
+eg-modality = { path = "../eg-modality", optional = true }
+
+[dev-dependencies]
+tempfile = "3"
+
+[features]
+default = []
+# X2 — paraconsistent justification-based TMS + Dung-style abstract argumentation
+# semantics (grounded/preferred/stable extensions) over the bipolar support/attack
+# BeliefGraph, plus dependency-directed retraction. Opt-in and heavier (NP-hard-in-the-
+# worst-case preferred/stable search) than the default confidence-propagation core.
+epistemic-tms = ["dep:tracing"]
+# ModalityContract retrofit (CONCEPT:E4): `impl ModalityContract for BeliefState` +
+# the `modality_conformance_tests!` battery — the reference "does everything"
+# implementation (real provenance/policy_labels/analytics_ops overrides). OFF by
+# default, deliberately NOT folded into any tier aggregate (pi/node/full) — it is a
+# capability-discovery/testing seam, not a serving feature. `cargo test -p
+# eg-epistemic --features contract` runs the suite.
+contract = ["dep:eg-modality"]

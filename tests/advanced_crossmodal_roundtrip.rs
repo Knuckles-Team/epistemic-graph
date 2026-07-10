@@ -1247,6 +1247,246 @@ async fn streaming_cdc_matview_rebuild_eg395() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// D7 (CONCEPT:EG-KG.query.plan-dag) — the planner-writeback ACID seam: a `TxnPlanWriteback`
+// staged alongside an ordinary `TxnAddNode`, in ONE txn, commits atomically.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// `TxnPlanWriteback` materializes a plan's result `RowSet` as `AddEdge`s, staged in the
+/// SAME txn as an ordinary `TxnAddNode` (the edges' own anchor), and both land atomically
+/// on `Commit` — never the anchor node without its inferred edges or vice versa. Proves:
+/// (1) staging alone does not touch the committed graph; (2) after commit, the anchor node
+/// AND every inferred edge are visible together off-txn; (3) the plan itself ran against
+/// the COMMITTED snapshot (the two `Entity` nodes it scans were committed BEFORE the txn
+/// began, mirroring `TxnConstruct`'s "evaluated now" semantics).
+#[tokio::test]
+async fn plan_writeback_stages_and_commits_inferred_edges_atomically_d7() {
+    let state = state();
+
+    // Committed BEFORE the txn: the entities the writeback plan will scan.
+    ok(
+        &state,
+        1,
+        Method::AddNode {
+            node_id: "e1".into(),
+            properties_msgpack: pack(json!({ "type": "Entity" })),
+        },
+    )
+    .await;
+    ok(
+        &state,
+        2,
+        Method::AddNode {
+            node_id: "e2".into(),
+            properties_msgpack: pack(json!({ "type": "Entity" })),
+        },
+    )
+    .await;
+
+    // Before ANY txn: no hub, no inferred edges.
+    assert!(
+        off_txn_text(&state, 3, "MATCH (:Hub) |> LIMIT 5")
+            .await
+            .is_empty(),
+        "the hub must not exist before the txn"
+    );
+
+    let txn = begin(&state, 4, None).await;
+    // The anchor node ITSELF is staged in the SAME txn as the writeback.
+    ok(
+        &state,
+        5,
+        Method::TxnAddNode {
+            txn_id: txn.clone(),
+            node_id: "hub".into(),
+            properties_msgpack: pack(json!({ "type": "Hub" })),
+            graph: None,
+        },
+    )
+    .await;
+    ok(
+        &state,
+        6,
+        Method::TxnPlanWriteback {
+            txn_id: txn.clone(),
+            plan: eg_plan::Plan::new(vec![eg_plan::Op::Scan {
+                label: "Entity".into(),
+            }]),
+            anchor_id: "hub".into(),
+            relationship: "INFERRED_LINK".into(),
+            graph: None,
+        },
+    )
+    .await;
+
+    // Staging alone must not touch the committed graph — no hub, no edges yet.
+    assert!(
+        off_txn_text(&state, 7, "MATCH (:Hub) |> LIMIT 5")
+            .await
+            .is_empty(),
+        "staged-but-uncommitted writeback must be invisible off-txn"
+    );
+
+    let commit_resp = dispatch(&state, req(8, Method::Commit { txn_id: txn })).await;
+    assert!(
+        matches!(commit_resp.result, Some(ResultPayload::Bool(true))),
+        "the cross-modal commit (anchor node + writeback edges) must succeed: {:?}",
+        commit_resp.error
+    );
+
+    // After commit: the anchor node AND both inferred edges are visible TOGETHER —
+    // atomicity (never the node without its edges, per the module docs).
+    let mut reached = off_txn_text(
+        &state,
+        9,
+        "MATCH (:Hub) |> TRAVERSE -[:INFERRED_LINK]->{1,1} |> LIMIT 5",
+    )
+    .await;
+    reached.sort();
+    assert_eq!(
+        reached,
+        vec!["e1".to_string(), "e2".to_string()],
+        "the committed hub must reach both entities via the materialized INFERRED_LINK edges"
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EXPLAIN surfaces (CONCEPT:EG-KG.query.plan-dag, E5 phase 4).
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// `EXPLAIN PLAN` over a `[Scan, Rank, Filter{selective}]` plan surfaces the DAG-aware
+/// optimizer's rewrite: the `after` dag pushes the selective filter ahead of the vector
+/// `Rank` (the SAME decision `optimizer_never_reorders_across_a_branch_boundary`
+/// unit-tests in eg-plan), and the active rule set is non-empty.
+#[tokio::test]
+async fn explain_plan_surfaces_the_optimizer_rewrite() {
+    let state = state();
+    for k in 0..50u32 {
+        ok(
+            &state,
+            (k * 2 + 1) as u64,
+            Method::AddNode {
+                node_id: format!("d{k}"),
+                properties_msgpack: pack(json!({ "type": "Doc", "year": 2000 + k as i64 })),
+            },
+        )
+        .await;
+        // Every Doc carries an embedding so the vector `Rank` has real coverage (an
+        // uncovered candidate set would zero out `Rank`'s output, tripping the EG-405
+        // "both orders stay non-empty" guard and blocking the reorder entirely).
+        ok(
+            &state,
+            (k * 2 + 2) as u64,
+            Method::AddEmbedding {
+                node_id: format!("d{k}"),
+                embedding: vec![1.0, k as f32 * 0.01],
+            },
+        )
+        .await;
+    }
+    let plan = eg_plan::Plan::new(vec![
+        eg_plan::Op::Scan {
+            label: "Doc".into(),
+        },
+        eg_plan::Op::Rank {
+            query: vec![1.0, 0.0],
+        },
+        eg_plan::Op::Filter {
+            preds: vec![eg_plan::Pred::GtNum {
+                prop: "year".into(),
+                n: 2045.0,
+            }],
+        },
+    ]);
+    let resp = dispatch(&state, req(200, Method::ExplainPlan { plan })).await;
+    assert!(resp.error.is_none(), "ExplainPlan error: {:?}", resp.error);
+    let bytes = match &resp.result {
+        Some(ResultPayload::Raw(b)) => b.clone(),
+        other => panic!("expected Raw result, got {other:?}"),
+    };
+    let result: epistemic_graph::protocol::ExplainPlanResult =
+        rmp_serde::from_slice(&bytes).expect("ExplainPlanResult decodes");
+    assert_eq!(result.before.len(), 3, "before dag has all 3 ops");
+    assert_eq!(
+        result.after.len(),
+        3,
+        "after dag has all 3 ops (a permutation)"
+    );
+    assert!(
+        !result.applied_rules.is_empty(),
+        "the active optimizer rule set must be non-empty"
+    );
+    assert!(
+        result.after[1].op.contains("Filter"),
+        "the selective filter must be pushed ahead of Rank, got {:?}",
+        result.after
+    );
+}
+
+/// `EXPLAIN BELIEF` returns the FULL E1 justification tree (not the flattened
+/// `Op::ExplainBelief` RowSet projection) — a claim supported by one piece of evidence.
+#[cfg(feature = "epistemic")]
+#[tokio::test]
+async fn explain_belief_returns_full_justification_tree() {
+    let state = state();
+    ok(
+        &state,
+        1,
+        Method::AddNode {
+            node_id: "claim1".into(),
+            properties_msgpack: pack(json!({ "type": "Claim", "confidence": 0.5 })),
+        },
+    )
+    .await;
+    ok(
+        &state,
+        2,
+        Method::AddNode {
+            node_id: "evidence1".into(),
+            properties_msgpack: pack(json!({ "type": "Evidence", "confidence": 0.9 })),
+        },
+    )
+    .await;
+    ok(
+        &state,
+        3,
+        Method::AddEdge {
+            source_id: "evidence1".into(),
+            target_id: "claim1".into(),
+            properties_msgpack: pack(json!({ "relationship_type": "SUPPORTS" })),
+        },
+    )
+    .await;
+
+    let resp = dispatch(
+        &state,
+        req(
+            4,
+            Method::ExplainBelief {
+                node_id: "claim1".into(),
+            },
+        ),
+    )
+    .await;
+    assert!(
+        resp.error.is_none(),
+        "ExplainBelief error: {:?}",
+        resp.error
+    );
+    let bytes = match &resp.result {
+        Some(ResultPayload::Raw(b)) => b.clone(),
+        other => panic!("expected Raw result, got {other:?}"),
+    };
+    let result: epistemic_graph::protocol::ExplainBeliefResult =
+        rmp_serde::from_slice(&bytes).expect("ExplainBeliefResult decodes");
+    assert_eq!(result.root.claim, "claim1");
+    assert!(
+        result.root.premises.iter().any(|p| p.claim == "evidence1"),
+        "the justification tree must cite evidence1 as a premise, got {:?}",
+        result.root
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Genuinely-hard rows — kept `#[ignore]`d with a REFINED precise reason (north_star OPEN).
 // ─────────────────────────────────────────────────────────────────────────────
 

@@ -38,6 +38,14 @@ pub mod pipeline;
 pub mod query;
 pub mod time_op;
 
+// CONCEPT:EG-KG.temporal depth (per-modality) — CUSUM + PELT-lite change-point
+// detection over a stored series, plus a root-cause join correlating a change
+// point to a graph-linked deploy/incident event (reuses `query::asof_join_backward`
+// rather than a second nearest-neighbour implementation). Pure-Rust + no new deps
+// (prefix-sum DP + a control-chart accumulator), so it compiles in the lean / Pi
+// build exactly like `point`/`query`/`fusion` — always on, no feature gate.
+pub mod changepoint;
+
 // CONCEPT:EG-KG.query.multi-rate-sensor-stream — multi-rate sensor-stream alignment for multimodal fusion: resample N
 // different-rate sensor series onto ONE target grid with per-channel Nearest/Linear/
 // AsofHold interpolation (AsofHold reuses `query::asof_join_backward`). Pure-Rust (no
@@ -59,3 +67,10 @@ pub mod store;
 
 #[cfg(feature = "arrow-seg")]
 pub mod arrow_seg;
+
+// ModalityContract retrofit (CONCEPT:E4/X1): `impl ModalityContract for
+// store::SeriesMeta` AND `impl ModalityContract for traces::Span`, behind the
+// crate's own opt-in `contract` feature (default OFF, implying `redb-store` since
+// `SeriesMeta` lives there AND `traces` since `Span` lives there). See module docs.
+#[cfg(feature = "contract")]
+mod contract;

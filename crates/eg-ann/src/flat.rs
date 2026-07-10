@@ -88,7 +88,7 @@ impl Metric {
 /// tombstone byte per row supports exclude-on-delete without reshuffling. Search is
 /// an O(N·dim) scan — the exact ground truth, not a production ANN. Byte-accounted
 /// via [`FlatIndex::byte_size`] and serde-serializable for a no-recompute reload.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct FlatIndex {
     /// Embedding dimension.
     pub dim: usize,
