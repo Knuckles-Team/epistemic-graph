@@ -8,6 +8,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Added — CycloneDDS-C `rmw` ROS2 leg (S5, follow-on to EG-347/EG-349)
+- **`ros2-rmw` feature** — a THIRD `DdsTransport` impl (`CycloneDdsTransport`,
+  `src/server/dds.rs`), alongside the WS bridge (`ros2-bridge`) and the pure-Rust
+  `rustdds` leg (`ros2-dds`). Links the REAL `rmw_cyclonedds`/CycloneDDS-C stack via the
+  safe `cyclonedds` Rust crate (`cyclonedds` → `cyclonedds-rust-sys` → `cyclonedds-src`,
+  which vendors the CycloneDDS C sources IN the crate — no network fetch at build time;
+  `cmake`-built static lib + prebuilt bindgen output, no libclang needed). Genuine
+  zero-config live-`ros2` interop: a real `ros2` node discovers/pubs/subs with no bridge.
+- Reuses the SAME `mangle_topic_name`/`mangle_type_name` rmw mangling as the `ros2-dds`
+  leg (no forked shaping) and the SAME `std_msgs/String` CDC↔ROS2 payload convention. A
+  hand-written `DdsType` impl for the single-string sample type (no IDL compiler needed)
+  with a `clone_out` override to avoid a double-free across the DDS loan boundary.
+  Exercised by a real RTPS loopback pub/sub test over the CycloneDDS-C wire
+  (`eg347_cyclone_dds_loopback_pub_sub_roundtrip`), mirroring the `ros2-dds` leg's test.
+- Toolchain-gated (needs `cc`/`cmake`) + heavy — kept OUT of `pi`/`default`/`node`/`full`,
+  folded ONLY into the opt-in `full-extras` bundle alongside `ros2-dds`/`gpu-cuda`
+  (a `pi`/`full` build links no cyclonedds/cyclonedds-rust-sys/cyclonedds-src, asserted
+  by `cargo tree`).
+
 ## [2.11.0] - 2026-07-04
 
 > **Minor, additive.** Closes **handoff-1** in full — the cross-modal query engine gains a
