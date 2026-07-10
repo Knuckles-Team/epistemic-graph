@@ -2279,10 +2279,12 @@ name = "eg-plan"
 version = "0.33.0"
 dependencies = [
  "criterion",
+ "eg-audio",
  "eg-compute",
  "eg-core",
  "eg-epistemic",
  "eg-geo",
+ "eg-image",
  "eg-modality",
  "eg-query",
  "eg-rdf",
@@ -2291,6 +2293,7 @@ dependencies = [
  "eg-text",
  "eg-tsdb",
  "eg-types",
+ "eg-video",
  "eg-wasm",
  "hex",
  "hmac 0.12.1",
