@@ -1,7 +1,8 @@
-//! `ModalityContract` retrofit for [`SeriesMeta`] (CONCEPT:E4).
+//! `ModalityContract` retrofit for [`SeriesMeta`] and [`Span`] (CONCEPT:E4/X1).
 //!
-//! Behind the crate's own opt-in `contract` feature (default OFF, and implying
-//! `redb-store` since [`SeriesMeta`] lives in the `store` module gated on it) — see
+//! Behind the crate's own opt-in `contract` feature (default OFF, and implying both
+//! `redb-store` since [`SeriesMeta`] lives in the `store` module gated on it, AND
+//! `traces` since [`Span`] lives in the `traces` module gated on IT) — see
 //! `eg-modality`'s crate docs / README for the retrofit-order rationale (`eg-tsdb`/
 //! `eg-stream` are next after the `eg-tensor`/`eg-geo` pilots).
 //!
@@ -10,6 +11,12 @@
 //! has no id of its own; a series' points are appended UNDER a `SeriesMeta`'s id). It
 //! already derives `Clone + Debug + PartialEq + Serialize + Deserialize`, so it needs
 //! no new bounds to satisfy `ConformanceTestable`.
+//!
+//! [`Span`] is the X1 (multimodal-evidence) reference case for `evidence()`: a
+//! distributed-tracing span already carries its own real `trace_id`/`span_id` —
+//! exactly the identity `EvidenceSpan::TraceSpan` wants — so this maps it losslessly
+//! rather than leaving the default `None`. It already derives `PartialEq`, so it too
+//! needs no new bounds for `ConformanceTestable`.
 
 use eg_modality::{
     encode_staged, ConformanceTestable, EvidenceSpan, ModalityContract, Provenance, RowSetShape,
@@ -17,6 +24,7 @@ use eg_modality::{
 };
 
 use crate::store::SeriesMeta;
+use crate::traces::Span;
 
 impl ModalityContract for SeriesMeta {
     fn storage_kind(&self) -> &'static str {
@@ -87,3 +95,93 @@ impl ConformanceTestable for SeriesMeta {
 }
 
 eg_modality::modality_conformance_tests!(SeriesMeta);
+
+impl ModalityContract for Span {
+    fn storage_kind(&self) -> &'static str {
+        "trace"
+    }
+
+    /// A span is a SOURCE-shaped candidate (keyed by `span_id` within a trace), not
+    /// intrinsically ranked — unranked, exactly like `SeriesMeta`.
+    fn to_rowset(&self, id: &str) -> RowSetShape {
+        RowSetShape::unranked(id)
+    }
+
+    fn txn_stage(&self, id: &str) -> StagedWrite {
+        StagedWrite::put(id, encode_staged(self))
+    }
+
+    /// A span arrives via OTLP-JSON ingest into the in-memory `SpanStore` (see
+    /// `crate::traces` module docs), not the engine's own txn/write path — not (yet)
+    /// on the CDC/streaming surface, mirroring `SeriesMeta`'s real `Some` being the
+    /// exception rather than the rule for this crate's non-store values.
+    fn cdc_topic(&self) -> Option<&'static str> {
+        None
+    }
+
+    /// Series metadata (above) has no derivation history; a span doesn't either — an
+    /// observed span is asserted-by-observation, not derived. Default `None` is
+    /// correct as-is; no override needed.
+    fn provenance(&self, _id: &str) -> Option<Provenance> {
+        None
+    }
+
+    /// The X1 reference `evidence()`: a span's `trace_id`/`span_id` pair IS its own
+    /// located identity — "observed during this trace span" — mapping losslessly
+    /// onto `EvidenceSpan::TraceSpan`, ignoring the caller-supplied `id` (the span
+    /// already carries its own two-part identity, exact and self-sufficient).
+    fn evidence(&self, _id: &str) -> Option<EvidenceSpan> {
+        Some(EvidenceSpan::TraceSpan {
+            trace_id: self.trace_id.clone(),
+            span_id: self.span_id.clone(),
+        })
+    }
+}
+
+impl ConformanceTestable for Span {
+    fn conformance_sample() -> Self {
+        Span {
+            trace_id: "trace-1".to_string(),
+            span_id: "span-1".to_string(),
+            parent_span_id: String::new(),
+            service: "gateway".to_string(),
+            operation: "GET /".to_string(),
+            start_time: 1_700_000_000_000_000_000,
+            duration: 500_000,
+            status: "OK".to_string(),
+            attributes: Default::default(),
+            events: Vec::new(),
+        }
+    }
+}
+
+// `modality_conformance_tests!` expands to a FIXED `mod eg_modality_conformance`
+// name — nested here (rather than invoked a second time at this file's top level,
+// where `SeriesMeta`'s invocation above already claims that name) so the two
+// batteries don't collide (CONCEPT:E4/X1).
+mod span_conformance {
+    use super::Span;
+
+    eg_modality::modality_conformance_tests!(Span);
+}
+
+// A direct test of the `evidence()` mapping itself, beyond the generic
+// "never panics" conformance check — the load-bearing proof that a `Span`'s own
+// trace_id/span_id maps losslessly onto `EvidenceSpan::TraceSpan` (X1).
+#[cfg(test)]
+mod span_evidence {
+    use super::*;
+
+    #[test]
+    fn maps_trace_and_span_id_losslessly() {
+        let span = Span::conformance_sample();
+        let ev = span.evidence("ignored").expect("an observed Span always has evidence");
+        assert_eq!(
+            ev,
+            EvidenceSpan::TraceSpan {
+                trace_id: "trace-1".to_string(),
+                span_id: "span-1".to_string(),
+            }
+        );
+    }
+}

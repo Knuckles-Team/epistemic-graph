@@ -151,7 +151,29 @@ probabilistic = [
 # under it). IMPLIES `query` (the ops live inside the `query`-gated `Op` enum, beside the
 # probabilistic/tensor/geo legs). OFF by default; the facade folds it in alongside `mining`
 # (mirroring the eg-kvcache/eg-lake tier-wiring convention) — never forced into `pi`.
-epistemic = ["query", "eg-types/epistemic", "dep:eg-epistemic"]
+#
+# ALSO (X1, CONCEPT:E3/E4): wires `KnowledgeSet::from_rowset`'s per-row evidence
+# resolution — for a row whose stored node shape decodes as one of the modality
+# value types below, calls its REAL `ModalityContract::evidence()` to populate
+# `KnowledgeRow::evidence_refs` with a LOCATED `eg_modality::EvidenceSpan`, not just
+# node ids (see `src/knowledge.rs`). Turns on each modality crate's own `contract`
+# feature (never its heavier serving features — e.g. NOT `eg-text/tantivy`) so this
+# stays proportionate: `eg-compute/contract` (`ast::symbol::Symbol` -> `CodeSymbol`)
+# and `eg-tsdb/contract` (`traces::Span` -> `TraceSpan`, which pulls in `redb-store` +
+# `traces` since `eg-tsdb`'s own `contract` feature implies both). `eg-modality`
+# itself (the `EvidenceSpan` type + `ModalityContract` trait) is an UNCONDITIONAL dep
+# below (deps = eg-types only, per its own crate docs) so `KnowledgeRow`'s
+# `evidence_refs` field type is the SAME `Vec<EvidenceSpan>` with or without this
+# feature — only the VALUES differ (always empty when `epistemic` is off).
+epistemic = [
+    "query",
+    "eg-types/epistemic",
+    "dep:eg-epistemic",
+    "dep:eg-compute",
+    "eg-compute/contract",
+    "dep:eg-tsdb",
+    "eg-tsdb/contract",
+]
 # Natural-language → query planning seam (CONCEPT:EG-078) + the concrete standalone
 # `UreqNlPlanner` (CONCEPT:EG-080). The `NlPlanner` trait + `plan_and_execute*` helpers
 # only touch the existing `uql::parse` + `execute`, so this IMPLIES `query`. The concrete
@@ -177,6 +199,13 @@ par-runtime = ["query", "dep:rayon"]
 # DataFusion FILTER leg (eg-query, below) is gated behind eg-plan's own `query`.
 eg-types = { path = "../eg-types", features = ["query"] }
 eg-core = { path = "../eg-core" }
+# The `ModalityContract` trait + the `EvidenceSpan` shape (CONCEPT:E4/X1). Sits at
+# the SAME DAG level as `eg-types` (its own deps = `eg-types` only, per its crate
+# docs), so an UNCONDITIONAL dep here adds no new transitive weight and lets
+# `KnowledgeRow::evidence_refs` be `Vec<eg_modality::EvidenceSpan>` regardless of
+# feature — only the `epistemic` feature (below) populates it; a default/Pi build's
+# `evidence_refs` stays the empty `Vec` it always was.
+eg-modality = { path = "../eg-modality" }
 # The relational FILTER leg is real DataFusion via eg-query's schema-on-read
 # `nodes` provider — gated behind `query` so a default build links none of it.
 eg-query = { path = "../eg-query", optional = true }
