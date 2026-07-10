@@ -66,4 +66,15 @@ public API.
 - No wiring into `eg-plan`'s executor, the server dispatch, or the wire protocol.
   `ModalityContract` is a capability-discovery/testing seam a modality crate can
   adopt; nothing in the engine calls it yet.
-- No resolver for `EvidenceSpan` (X1) — only the shape is defined (`src/evidence.rs`).
+- `EvidenceSpan` (X1) resolvers: **landed** for the modalities that have a real
+  located representation — `eg-text::TextHit` (whole-document `DocumentSpan`;
+  `TextHit` itself does not track offsets, see `eg-text/src/contract.rs`),
+  `eg-compute::ast::symbol::Symbol` (`CodeSymbol`, exact file/line range),
+  `eg-tsdb::traces::Span` (`TraceSpan`, exact trace/span id) — plus `eg-rdf::ProofNode`
+  documenting WHY it stays `None` (a derived entailment has no artifact to locate INTO;
+  see `eg-rdf/src/contract.rs`). `eg-plan::KnowledgeSet::from_rowset` (behind its own
+  `epistemic` feature) now calls these to populate `KnowledgeRow::evidence_refs` for
+  rows whose stored node shape decodes as one of these types. Image/Audio/Video
+  (`EvidenceSpan::ImageRegion`/`AudioSegment`/`VideoShot`) have NO modality crate/value
+  type in this workspace yet — left un-implemented rather than fabricated; add the
+  resolver when a concrete image/audio/video modality value type lands.

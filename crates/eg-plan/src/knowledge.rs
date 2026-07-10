@@ -24,16 +24,77 @@
 //!    each `from_rowset` call. A per-view memo (mirroring `plan_stats_memo`) is a
 //!    follow-up if profiling shows repeated `from_rowset` calls over the same view
 //!    are hot.
-//!  * `source_refs` / `evidence_refs` / `policy_labels` resolution is gated behind a
-//!    (not-yet-added) `epistemic` feature; this tier always yields them empty so the
-//!    module compiles under plain `query`. See the `#[cfg(feature = "epistemic")]`
-//!    seam below.
+//!  * `source_refs` / `policy_labels` resolution stays a follow-up: `evidence_refs`
+//!    (X1, CONCEPT:E4) IS resolved now, under the `epistemic` feature (see
+//!    `resolve_evidence` below) — `source_refs` (`PROVENANCE_OF` edges) and
+//!    `policy_labels` are NOT yet, so this tier still always yields THOSE two empty.
+//!    A plain-`query` build (no `epistemic`) yields all three empty, unchanged.
+//!
+//! ## `evidence_refs` (X1, CONCEPT:E4) — located, not just node ids
+//!
+//! With the `epistemic` feature on, [`KnowledgeSet::from_rowset`] additionally tries
+//! to decode each row's OWN stored node properties (the SAME `obj` already decoded
+//! for `kind`/`confidence`/the bitemporal window, above) as one of the modality
+//! value types that have a REAL `eg_modality::ModalityContract::evidence()` resolver
+//! — today: `eg_compute::ast::symbol::Symbol` (a row whose `kind == "Symbol"`) and
+//! `eg_tsdb::traces::Span` (`kind == "Span"`) — and, on a successful decode, calls
+//! `evidence()` and pushes the resulting LOCATED `eg_modality::EvidenceSpan` (e.g. a
+//! `CodeSymbol{file_path, symbol, start_line, end_line}` or a
+//! `TraceSpan{trace_id, span_id}`) into `evidence_refs`. A row whose `kind` matches
+//! neither (or whose properties don't structurally decode as that type) gets an
+//! empty `evidence_refs` — never a fabricated span. `provenance_frame` becomes
+//! `ProvenanceFrame::Resolved` whenever `epistemic` is on, exactly mirroring how
+//! `ExplainProvenanceResult::resolved` reports `cfg!(feature = "epistemic")` (see the
+//! facade's `explain_provenance`) — even though `source_refs` itself is a separate,
+//! not-yet-wired-here dimension of that same frame (see the module docs above).
+//!
+//! `TextHit` (eg-text) and `ProofNode` (eg-rdf) are deliberately NOT in this decode
+//! list: a `TextHit`'s `{id, score}` shape is not a safe/distinguishing structural
+//! signature (almost any scored row would false-positive-match it), and a
+//! `ProofNode` is a query-time-derived value that is never itself a stored node
+//! (see `eg-rdf/src/contract.rs`'s `evidence()` doc for why it stays `None` anyway).
 
 use std::collections::HashSet;
 
 use eg_core::graph::GraphView;
+use eg_modality::EvidenceSpan;
 
 use crate::rowset::RowSet;
+
+/// Try to decode `obj` (a row's own stored node properties) as one of the modality
+/// value types that have a REAL `ModalityContract::evidence()` resolver, dispatched
+/// by `kind` (the SAME `node_type`/`type` string [`KnowledgeSet::from_rowset`]
+/// already derives) so an unrelated node shape can never accidentally structurally
+/// match. `kind` matching neither known modality — or a `kind` match whose
+/// properties don't ALSO decode as that modality's real Rust type (e.g. a legacy/
+/// partial shape) — yields an empty `Vec`, never a fabricated span. See the module
+/// docs above for why `TextHit`/`ProofNode` are not attempted here.
+#[cfg(feature = "epistemic")]
+fn resolve_evidence(
+    obj: &Option<serde_json::Map<String, serde_json::Value>>,
+    kind: &str,
+    row_id: &str,
+) -> Vec<EvidenceSpan> {
+    use eg_modality::ModalityContract;
+
+    let Some(o) = obj else {
+        return Vec::new();
+    };
+    let value = serde_json::Value::Object(o.clone());
+    match kind {
+        "Symbol" => serde_json::from_value::<eg_compute::ast::symbol::Symbol>(value)
+            .ok()
+            .and_then(|sym| sym.evidence(row_id))
+            .into_iter()
+            .collect(),
+        "Span" => serde_json::from_value::<eg_tsdb::traces::Span>(value)
+            .ok()
+            .and_then(|span| span.evidence(row_id))
+            .into_iter()
+            .collect(),
+        _ => Vec::new(),
+    }
+}
 
 /// A lazy handle onto a row's stored property blob — the node id plus whether a
 /// decodable payload was actually found for it. Deliberately does NOT carry the
@@ -67,7 +128,12 @@ pub enum ProvenanceFrame {
     /// are empty. The only mode this tier (plain `query`) produces.
     #[default]
     None,
-    /// The `epistemic` feature resolved provenance refs per row.
+    /// The `epistemic` feature resolved provenance refs per row. As of X1
+    /// (CONCEPT:E4) this covers `evidence_refs` (a row's decodable modality value's
+    /// located `EvidenceSpan`, see `resolve_evidence`); `source_refs`
+    /// (`PROVENANCE_OF` edges) is a separate, still-empty-here dimension — a caller
+    /// that needs those resolves them the same way `explain_provenance` does today
+    /// (re-running an `Op::EvidenceFor` one-op plan).
     Resolved,
 }
 
@@ -85,7 +151,8 @@ pub enum PolicyFrame {
 /// One enriched row of a [`KnowledgeSet`] — a `RowSet` `Row` (id + score) widened
 /// with the fields re-materialized from the `GraphView` snapshot: kind, a lazy
 /// payload handle, an optional column projection, the bitemporal window, belief
-/// confidence, and (v1: always empty) provenance/policy ref lists.
+/// confidence, and provenance/policy ref lists (`evidence_refs` is X1-resolved under
+/// `epistemic`, see the module docs; `source_refs`/`policy_labels` stay v1: always empty).
 #[derive(Clone, Debug, PartialEq)]
 pub struct KnowledgeRow {
     pub id: String,
@@ -104,7 +171,13 @@ pub struct KnowledgeRow {
     /// Belief confidence (`NodeData::confidence`, default `1.0` when absent/undecodable).
     pub confidence: f64,
     pub source_refs: Vec<String>,
-    pub evidence_refs: Vec<String>,
+    /// Located evidence for this row (X1, CONCEPT:E4) — e.g. a `CodeSymbol`'s exact
+    /// file/line range or a `TraceSpan`'s trace/span id — resolved via the row's own
+    /// modality `ModalityContract::evidence()` when `epistemic` is on and the row's
+    /// stored shape decodes as a known modality value type (see `resolve_evidence`).
+    /// Always `Vec::new()` without `epistemic` (byte-for-byte the v1 default), and
+    /// also empty (not fabricated) for a row whose kind/shape isn't a known modality.
+    pub evidence_refs: Vec<EvidenceSpan>,
     pub policy_labels: Vec<String>,
 }
 
@@ -182,6 +255,17 @@ impl KnowledgeSet {
                     has_payload: obj.is_some(),
                 });
 
+                // X1 (CONCEPT:E4): under `epistemic`, try to decode this row's OWN
+                // stored properties (`obj`, already fetched above) as a known
+                // modality value type and call its REAL `evidence()`. Off, or when
+                // `kind`/the shape doesn't match a known modality, this is the v1
+                // empty default — never fabricated. See `resolve_evidence` + the
+                // module docs for which modalities are covered and why.
+                #[cfg(feature = "epistemic")]
+                let evidence_refs = resolve_evidence(&obj, &kind, &row.id);
+                #[cfg(not(feature = "epistemic"))]
+                let evidence_refs: Vec<EvidenceSpan> = Vec::new();
+
                 KnowledgeRow {
                     id: row.id.clone(),
                     kind,
@@ -192,12 +276,12 @@ impl KnowledgeSet {
                     tx_time,
                     confidence,
                     // v1 (plain `query`): no epistemic resolution ran — always empty.
-                    // TODO(epistemic): under `#[cfg(feature = "epistemic")]`, resolve
-                    // per-row `PROVENANCE_OF`/`EVIDENCE_FOR` edges + policy-label
-                    // properties off this SAME `view` snapshot and set
-                    // `ProvenanceFrame::Resolved` / `PolicyFrame::Resolved` below.
+                    // `evidence_refs` above IS resolved under `epistemic` (X1).
+                    // TODO(epistemic): `source_refs` (`PROVENANCE_OF` edges) +
+                    // `policy_labels` are the remaining follow-up — resolve them off
+                    // this SAME `view` snapshot the same way.
                     source_refs: Vec::new(),
-                    evidence_refs: Vec::new(),
+                    evidence_refs,
                     policy_labels: Vec::new(),
                 }
             })
@@ -212,8 +296,15 @@ impl KnowledgeSet {
                 requested: cols.iter().map(|c| c.to_string()).collect(),
                 present,
             },
-            // v1 (plain `query`): no epistemic resolution ran for either frame.
-            provenance_frame: ProvenanceFrame::None,
+            // X1: `provenance_frame` reflects that `evidence_refs` WAS resolved when
+            // `epistemic` is on (mirrors `ExplainProvenanceResult::resolved` in the
+            // facade, which reports the same `cfg!(feature = "epistemic")`).
+            // `policy_frame` stays `None` — no policy-label resolution exists yet.
+            provenance_frame: if cfg!(feature = "epistemic") {
+                ProvenanceFrame::Resolved
+            } else {
+                ProvenanceFrame::None
+            },
             policy_frame: PolicyFrame::None,
         }
     }
@@ -294,7 +385,15 @@ mod tests {
 
         let ks = KnowledgeSet::from_rowset(&rs, &view, &[]);
 
-        assert_eq!(ks.provenance_frame, ProvenanceFrame::None);
+        // `provenance_frame` tracks whether `epistemic` resolution ran AT ALL (X1) —
+        // a `Doc` row itself still gets no `evidence_refs` either way (asserted
+        // below), since "Doc" is not a known modality kind.
+        let expected_frame = if cfg!(feature = "epistemic") {
+            ProvenanceFrame::Resolved
+        } else {
+            ProvenanceFrame::None
+        };
+        assert_eq!(ks.provenance_frame, expected_frame);
         assert_eq!(ks.policy_frame, PolicyFrame::None);
 
         let row = &ks.rows[0];
@@ -348,5 +447,108 @@ mod tests {
 
         assert_eq!(rs, before);
         assert_eq!(rs.ids(), vec!["d1", "d2"]);
+    }
+
+    /// X1 (CONCEPT:E4): a row whose stored node properties decode losslessly as an
+    /// `eg_compute::ast::symbol::Symbol` (kind `"Symbol"`) gets a REAL, located
+    /// `EvidenceSpan::CodeSymbol` — not just its node id.
+    #[cfg(feature = "epistemic")]
+    #[test]
+    fn epistemic_resolves_code_symbol_evidence() {
+        let core = GraphCore::new();
+        core.add_node(
+            "sym1".into(),
+            blob(json!({
+                "node_type": "Symbol",
+                "id": "sym:abc123",
+                "name": "handle_request",
+                "qualified_name": "crate::server::handle_request",
+                "symbol_type": "Function",
+                "file_path": "src/server.rs",
+                "line_start": 42,
+                "line_end": 88,
+                "column": 0,
+                "ast_hash": "deadbeef",
+                "dependencies": [],
+                "documentation": "",
+                "language": "rust",
+                "is_exported": true,
+                "annotations": [],
+                "byte_start": 900,
+                "byte_end": 1500,
+            })),
+        );
+        let view = core.analysis_snapshot();
+        let rs = RowSet::from_ids(["sym1".to_string()]);
+
+        let ks = KnowledgeSet::from_rowset(&rs, &view, &[]);
+
+        assert_eq!(ks.provenance_frame, ProvenanceFrame::Resolved);
+        let row = &ks.rows[0];
+        assert_eq!(row.kind, "Symbol");
+        assert_eq!(
+            row.evidence_refs,
+            vec![EvidenceSpan::CodeSymbol {
+                file_path: "src/server.rs".to_string(),
+                symbol: "handle_request".to_string(),
+                start_line: 42,
+                end_line: 88,
+            }]
+        );
+    }
+
+    /// X1 (CONCEPT:E4): a row whose stored node properties decode losslessly as an
+    /// `eg_tsdb::traces::Span` (kind `"Span"`) gets a REAL, located
+    /// `EvidenceSpan::TraceSpan` — not just its node id.
+    #[cfg(feature = "epistemic")]
+    #[test]
+    fn epistemic_resolves_trace_span_evidence() {
+        let core = GraphCore::new();
+        core.add_node(
+            "span1".into(),
+            blob(json!({
+                "node_type": "Span",
+                "trace_id": "trace-42",
+                "span_id": "span-7",
+                "parent_span_id": "",
+                "service": "gateway",
+                "operation": "GET /",
+                "start_time": 1_700_000_000_000_000_000i64,
+                "duration": 500_000,
+                "status": "OK",
+                "attributes": {},
+                "events": [],
+            })),
+        );
+        let view = core.analysis_snapshot();
+        let rs = RowSet::from_ids(["span1".to_string()]);
+
+        let ks = KnowledgeSet::from_rowset(&rs, &view, &[]);
+
+        let row = &ks.rows[0];
+        assert_eq!(row.kind, "Span");
+        assert_eq!(
+            row.evidence_refs,
+            vec![EvidenceSpan::TraceSpan {
+                trace_id: "trace-42".to_string(),
+                span_id: "span-7".to_string(),
+            }]
+        );
+    }
+
+    /// X1 (CONCEPT:E4): `provenance_frame` reports `Resolved` under `epistemic`, but
+    /// a "Doc" row (not a known modality kind/shape) still gets NO fabricated
+    /// evidence — empty stays empty, only now it means "genuinely nothing to
+    /// report" rather than "resolution didn't run".
+    #[cfg(feature = "epistemic")]
+    #[test]
+    fn epistemic_unknown_kind_yields_no_fabricated_evidence() {
+        let view = fixture();
+        let rs = RowSet::from_ids(["d1".to_string()]);
+
+        let ks = KnowledgeSet::from_rowset(&rs, &view, &[]);
+
+        assert_eq!(ks.provenance_frame, ProvenanceFrame::Resolved);
+        assert!(ks.rows[0].evidence_refs.is_empty());
     }
 }
