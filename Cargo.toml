@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/eg-types", "crates/eg-ann", "crates/eg-geo", "crates/eg-tensor", "crates/eg-stream", "crates/eg-core", "crates/eg-compute", "crates/eg-query", "crates/eg-plan", "crates/eg-tsdb", "crates/eg-text", "crates/eg-rdf", "crates/eg-shacl", "crates/eg-shex", "crates/eg-wasm", "crates/eg-graphql", "crates/eg-kvcache", "crates/eg-lake", "crates/eg-numeric", "crates/eg-epistemic"]
+members = ["crates/eg-types", "crates/eg-ann", "crates/eg-geo", "crates/eg-tensor", "crates/eg-stream", "crates/eg-core", "crates/eg-compute", "crates/eg-query", "crates/eg-plan", "crates/eg-tsdb", "crates/eg-text", "crates/eg-rdf", "crates/eg-shacl", "crates/eg-shex", "crates/eg-wasm", "crates/eg-graphql", "crates/eg-kvcache", "crates/eg-lake", "crates/eg-numeric", "crates/eg-epistemic", "crates/eg-modality"]
 # EG-185/186: fold eg-kvcache into node/full (the tiered + shared KV-cache leaf crate,
 # a sibling of eg-ann/eg-tensor). Added as a workspace member only; the tier aggregate
 # feature lists (node/full) and the path-dep + server-endpoint wiring are folded in by
@@ -11,6 +11,12 @@ members = ["crates/eg-types", "crates/eg-ann", "crates/eg-geo", "crates/eg-tenso
 # materialization tier onto the WAL) are folded in by the orchestrator / a follow-up,
 # NOT edited here (avoids a tier-line merge conflict). eg-lake is OUT of pi — its
 # heavy arrow/parquet deps live behind `lake`.
+# CONCEPT:E4 — eg-modality: the ModalityContract trait + conformance harness. A tiny
+# leaf crate BELOW eg-plan/eg-core in the DAG (deps = eg-types ONLY — see its own
+# Cargo.toml/lib.rs docs for why). Added as a workspace member; two PILOT retrofits
+# (eg-tensor, eg-geo) implement the trait behind their own opt-in `contract` feature
+# (default OFF) — NOT folded into any tier aggregate (pi/node/full) here or ever, since
+# it is a capability-discovery/testing seam, not a serving feature.
 
 [package]
 name = "epistemic-graph"
