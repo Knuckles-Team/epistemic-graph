@@ -2096,6 +2096,7 @@ version = "0.1.0"
 dependencies = [
  "bincode",
  "cudarc",
+ "eg-modality",
  "memmap2",
  "rand 0.8.6",
  "rand_chacha 0.3.1",
@@ -2112,6 +2113,7 @@ version = "0.27.0"
 dependencies = [
  "criterion",
  "eg-core",
+ "eg-modality",
  "eg-types",
  "hex",
  "nalgebra 0.32.6",
@@ -2149,6 +2151,7 @@ dependencies = [
  "aho-corasick",
  "dashmap",
  "eg-ann",
+ "eg-modality",
  "eg-types",
  "hex",
  "hnsw_rs",
@@ -2168,6 +2171,7 @@ version = "0.1.0"
 dependencies = [
  "eg-compute",
  "eg-core",
+ "eg-modality",
  "eg-types",
  "rmp-serde",
  "serde",
@@ -2204,8 +2208,10 @@ dependencies = [
 name = "eg-kvcache"
 version = "0.1.0"
 dependencies = [
+ "eg-modality",
  "lz4_flex 0.13.1",
  "redb",
+ "serde",
  "tempfile",
  "zstd",
 ]
@@ -2217,6 +2223,7 @@ dependencies = [
  "apache-avro",
  "arrow",
  "bytes",
+ "eg-modality",
  "parquet",
  "serde",
  "serde_json",
@@ -2236,6 +2243,7 @@ dependencies = [
 name = "eg-numeric"
 version = "0.1.0"
 dependencies = [
+ "eg-modality",
  "faer",
  "ndarray",
  "ndarray-stats",
@@ -2244,6 +2252,7 @@ dependencies = [
  "rand 0.8.6",
  "rand_chacha 0.3.1",
  "rand_distr",
+ "serde",
  "statrs",
 ]
 
@@ -2310,6 +2319,7 @@ version = "0.1.0"
 dependencies = [
  "eg-core",
  "eg-geo",
+ "eg-modality",
  "eg-shacl",
  "md-5 0.10.6",
  "oxjsonld",
@@ -2331,6 +2341,7 @@ dependencies = [
 name = "eg-shacl"
 version = "0.1.0"
 dependencies = [
+ "eg-modality",
  "eg-rdf",
  "regex",
  "serde",
@@ -2341,6 +2352,7 @@ dependencies = [
 name = "eg-shex"
 version = "0.1.0"
 dependencies = [
+ "eg-modality",
  "eg-rdf",
  "regex",
  "serde",
@@ -2351,6 +2363,7 @@ dependencies = [
 name = "eg-stream"
 version = "0.1.0"
 dependencies = [
+ "eg-modality",
  "serde",
  "serde_json",
  "tokio",
@@ -2371,6 +2384,7 @@ dependencies = [
 name = "eg-text"
 version = "0.33.0"
 dependencies = [
+ "eg-modality",
  "serde",
  "tantivy",
  "tempfile",
@@ -2385,6 +2399,7 @@ dependencies = [
  "datafusion",
  "eg-compute",
  "eg-core",
+ "eg-modality",
  "redb",
  "rmp-serde",
  "serde",
@@ -4422,6 +4437,7 @@ dependencies = [
  "portable-atomic",
  "portable-atomic-util",
  "rawpointer",
+ "serde",
 ]
 
 [[package]]

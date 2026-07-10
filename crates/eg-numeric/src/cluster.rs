@@ -17,6 +17,7 @@ use ndarray::{Array2, ArrayView2};
 /// The result of a [`kmeans`] fit: a hard label per input row plus the fitted centroids
 /// and the final inertia (within-cluster sum of squared distances).
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "contract", derive(serde::Serialize, serde::Deserialize))]
 pub struct KMeansResult {
     /// Cluster index (`0..k`) for each input row, in input order.
     pub labels: Vec<usize>,

@@ -66,6 +66,11 @@ mod index;
 #[cfg(feature = "tantivy")]
 pub use index::TextIndex;
 
+/// `ModalityContract` retrofit for [`TextHit`] (CONCEPT:E4). Behind the crate's own
+/// opt-in `contract` feature (default OFF) — see `src/contract.rs`.
+#[cfg(feature = "contract")]
+mod contract;
+
 /// Reciprocal-Rank Fusion (RRF) of several ranked id lists into one — the modern
 /// hybrid-retrieval primitive, dep-free so it ships in EVERY build (a default build
 /// can fuse two ranked lists even though it cannot itself build a text index).

@@ -26,6 +26,10 @@ rmp-serde = "1.3"
 # extension search hits its documented argument-count or branch-node cap (see
 # `src/tms.rs`). No-op without a subscriber installed, same pattern as eg-core/eg-compute.
 tracing = { version = "0.1", optional = true }
+# ModalityContract retrofit (CONCEPT:E4). Optional, only under `contract` (default
+# OFF) — a default build links none of it and `BeliefState` carries no new required
+# trait. See `src/contract.rs`.
+eg-modality = { path = "../eg-modality", optional = true }
 
 [dev-dependencies]
 tempfile = "3"
@@ -37,3 +41,10 @@ default = []
 # BeliefGraph, plus dependency-directed retraction. Opt-in and heavier (NP-hard-in-the-
 # worst-case preferred/stable search) than the default confidence-propagation core.
 epistemic-tms = ["dep:tracing"]
+# ModalityContract retrofit (CONCEPT:E4): `impl ModalityContract for BeliefState` +
+# the `modality_conformance_tests!` battery — the reference "does everything"
+# implementation (real provenance/policy_labels/analytics_ops overrides). OFF by
+# default, deliberately NOT folded into any tier aggregate (pi/node/full) — it is a
+# capability-discovery/testing seam, not a serving feature. `cargo test -p
+# eg-epistemic --features contract` runs the suite.
+contract = ["dep:eg-modality"]
