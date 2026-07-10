@@ -8,6 +8,60 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [2.16.0] - 2026-07-10 — Epistemic Substrate
+
+Turns the engine's `RowSet` multimodal center into an explicitly **epistemic** substrate
+(claims, evidence, belief, provenance, contradiction, confidence, validity, agent-action
+history as engine-native concepts), addressing + exceeding the external functional review.
+
+### Added — epistemic core & planner
+- **`eg-epistemic` crate** — engine-native Claim/Evidence/Source/BeliefState/Contradiction/
+  Support-Attack + cycle-guarded confidence propagation (reuses the `Beta` conjugate
+  `bayesian_update`), `JustificationGraph`, and (feature `epistemic-tms`) **paraconsistent
+  truth-maintenance + Dung argumentation** (grounded/preferred/stable extensions,
+  dependency-directed retraction).
+- **Belief/evidence UQL + wire ops** — `EVIDENCE FOR`/`CONTRADICTS`/`SUPPORTED BY`/
+  `BELIEF AS OF`/`VALID AS OF`/`SOURCE RELIABILITY`/`CONFIDENCE`/`EXPLAIN BELIEF`
+  (feature `epistemic`); `VALID AS OF` is a strict-superset alias of `AS OF`.
+- **`KnowledgeSet` (RowSet v2)** — additive typed frame carrying kind/projection/bitemporal/
+  confidence/**source/evidence/policy refs** with located multimodal `EvidenceSpan`s
+  (DocumentSpan/TableCellRange/ImageRegion/AudioSegment/VideoShot/CodeSymbol/TraceSpan);
+  bare `RowSet` unchanged.
+- **Planner v2 typed DAG** — `PlanDag`/`dag_exec` alongside the untouched linear path, proven
+  byte-identical by a **differential oracle**; DAG-aware optimizer (narrowed EG-405 guard),
+  multi-branch joins, `EXPLAIN PLAN/PROVENANCE/POLICY/BELIEF`, `stage_plan_writeback` ACID
+  seam, and a cluster-gated cross-shard **exchange operator** (X4).
+- **`eg-modality` Modality Contract** trait + conformance harness, retrofitted across the
+  crate fleet.
+- **Mining → epistemic objects** — every mined result (incl. new families:
+  entity-resolution, record-linkage, causal-impact, process-mining, root-cause,
+  risk-propagation, ontology-gap, retrieval-quality, community) materializes a candidate
+  Claim + Evidence + confidence + validation-state (opt-in `as_claim`).
+- **New modality engines** — `eg-image`/`eg-audio`/`eg-video` (pure-Rust header parse +
+  region/segment/shot evidence; heavy codecs gated); modality-depth analytics (vector drift/
+  versioning, TS change-point, code call-graph, text table/layout spans).
+- **GPU ANN-build offload** (`gpu-cuda`), **Calvin multi-node epoch routing** (`calvin`),
+  and materialize-belief + ICV SHACL/RLS enforcement.
+
+### Added — CycloneDDS-C `rmw` ROS2 leg (S5, follow-on to EG-347/EG-349)
+- **`ros2-rmw` feature** — a THIRD `DdsTransport` impl (`CycloneDdsTransport`,
+  `src/server/dds.rs`), alongside the WS bridge (`ros2-bridge`) and the pure-Rust
+  `rustdds` leg (`ros2-dds`). Links the REAL `rmw_cyclonedds`/CycloneDDS-C stack via the
+  safe `cyclonedds` Rust crate (`cyclonedds` → `cyclonedds-rust-sys` → `cyclonedds-src`,
+  which vendors the CycloneDDS C sources IN the crate — no network fetch at build time;
+  `cmake`-built static lib + prebuilt bindgen output, no libclang needed). Genuine
+  zero-config live-`ros2` interop: a real `ros2` node discovers/pubs/subs with no bridge.
+- Reuses the SAME `mangle_topic_name`/`mangle_type_name` rmw mangling as the `ros2-dds`
+  leg (no forked shaping) and the SAME `std_msgs/String` CDC↔ROS2 payload convention. A
+  hand-written `DdsType` impl for the single-string sample type (no IDL compiler needed)
+  with a `clone_out` override to avoid a double-free across the DDS loan boundary.
+  Exercised by a real RTPS loopback pub/sub test over the CycloneDDS-C wire
+  (`eg347_cyclone_dds_loopback_pub_sub_roundtrip`), mirroring the `ros2-dds` leg's test.
+- Toolchain-gated (needs `cc`/`cmake`) + heavy — kept OUT of `pi`/`default`/`node`/`full`,
+  folded ONLY into the opt-in `full-extras` bundle alongside `ros2-dds`/`gpu-cuda`
+  (a `pi`/`full` build links no cyclonedds/cyclonedds-rust-sys/cyclonedds-src, asserted
+  by `cargo tree`).
+
 ## [2.11.0] - 2026-07-04
 
 > **Minor, additive.** Closes **handoff-1** in full — the cross-modal query engine gains a

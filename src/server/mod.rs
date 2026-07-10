@@ -47,6 +47,12 @@ pub mod cold_tier_impl;
 mod compute;
 mod dispatch;
 pub(crate) mod handlers;
+// X5-enforce (CONCEPT:EG-KG.ontology.rdf-update-guard): wires the EXISTING eg-shacl ICV
+// commit guard onto the live RDF write path (AddTriples/RemoveTriples/ApplyMutation).
+// Pure-Rust (no new dep — `eg-shacl` + `std::sync::OnceLock`), gated `shacl`; a build
+// without it compiles none of it and every write path stays byte-identical.
+#[cfg(feature = "shacl")]
+pub(crate) mod icv_guard;
 pub mod persistence;
 // Wire-agnostic SQL execution core (CONCEPT:EG-KG.compute.subsystems-reference) — the multi-wire keystone. The
 // wire-NEUTRAL `classify → dispatch → exec` pipeline + per-connection session/txn
@@ -189,18 +195,19 @@ pub mod replica;
 // CDC events ↔ ROS2 topics by talking `rosbridge_suite` JSON-over-WebSocket to a
 // `rosbridge_server` — NO CycloneDDS/rmw/DDS C stack, just a pure-Rust tokio-tungstenite
 // client. Behind the `ros2-bridge` cargo feature; kept OUT of the Pi tier (a slim build
-// links no tokio-tungstenite). Also compiled behind `ros2-dds` (CONCEPT:EG-KG.ingest.dds-transport), which
-// reuses this module's PURE CDC↔ROS2 message mapping (`cdc_to_publish`/`publish_to_method`)
-// as the shared shaping for the native DDS leg — only the tungstenite driver
+// links no tokio-tungstenite). Also compiled behind `ros2-dds`/`ros2-rmw` (CONCEPT:EG-KG.ingest.dds-transport), which
+// reuse this module's PURE CDC↔ROS2 message mapping (`cdc_to_publish`/`publish_to_method`)
+// as the shared shaping for the native DDS legs — only the tungstenite driver
 // (`run_ros2_bridge`) is `ros2-bridge`-specific.
-#[cfg(any(feature = "ros2-bridge", feature = "ros2-dds"))]
+#[cfg(any(feature = "ros2-bridge", feature = "ros2-dds", feature = "ros2-rmw"))]
 pub mod ros2_bridge;
 // Native DDS/RTPS ROS2 transport seam (CONCEPT:EG-KG.ingest.dds-transport): the `DdsTransport` trait that
-// unifies the EG-325 rosbridge-WebSocket leg and a NATIVE DDS/RTPS leg behind ONE
-// interface, plus the pure-Rust `rustdds`-backed `NativeDdsTransport` impl (feature
-// `ros2-dds`). Kept OUT of pi/default/node/full — only the opt-in `full-extras` bundle
-// (a default/pi/full build links no rustdds).
-#[cfg(any(feature = "ros2-bridge", feature = "ros2-dds"))]
+// unifies the EG-325 rosbridge-WebSocket leg and TWO native DDS legs behind ONE
+// interface — the pure-Rust `rustdds`-backed `NativeDdsTransport` (feature `ros2-dds`)
+// and the CycloneDDS-C-backed `CycloneDdsTransport` (feature `ros2-rmw`, S5). Kept OUT of
+// pi/default/node/full — only the opt-in `full-extras` bundle (a default/pi/full build
+// links no rustdds/cyclonedds).
+#[cfg(any(feature = "ros2-bridge", feature = "ros2-dds", feature = "ros2-rmw"))]
 pub mod dds;
 // Real-time QoS / SLO-aware admission scheduler (CONCEPT:EG-KG.coordination.backpressure-busy-signal). An additive, opt-in
 // gate (enabled by `EPISTEMIC_GRAPH_QOS`) the transport runs BEFORE the baseline

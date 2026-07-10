@@ -110,6 +110,16 @@ pub struct PlanCtx<'a> {
     /// `last_access`/`valid_from` use); a per-node `half_life` blob field overrides the default.
     #[cfg(feature = "owl")]
     pub decay: Option<(u64, f64)>,
+    /// CONCEPT:EG-KG.epistemic.epistemic-substrate — the confidence-weighting
+    /// [`eg_epistemic::AuthorityPolicy`] the `Op::{ConfidenceOp,SourceReliability,BeliefAsOf,
+    /// ExplainBelief}` ops apply during propagation (source reliability multiplier / attack
+    /// discount / prior strength). `None` (the default) uses `AuthorityPolicy::default()`, so
+    /// a default ctx behaves exactly as an explicit default policy would. A tenant-specific
+    /// policy is never persisted on the graph — the facade threads one in per request via
+    /// [`Self::with_belief_policy`]. Gated behind `epistemic`, so a non-epistemic build's
+    /// `PlanCtx` is unchanged.
+    #[cfg(feature = "epistemic")]
+    pub belief_policy: Option<eg_epistemic::AuthorityPolicy>,
 }
 
 /// A server-side text→vector embedder (CONCEPT:EG-KG.compute.no-embedder-bound-op) — the seam that resolves a UQL
@@ -251,6 +261,8 @@ impl<'a> PlanCtx<'a> {
             embedder: None,
             #[cfg(feature = "owl")]
             decay: None,
+            #[cfg(feature = "epistemic")]
+            belief_policy: None,
         }
     }
 
@@ -281,6 +293,15 @@ impl<'a> PlanCtx<'a> {
     #[cfg(feature = "owl")]
     pub fn with_decay(mut self, now: u64, default_half_life: f64) -> Self {
         self.decay = Some((now, default_half_life));
+        self
+    }
+
+    /// Attach a tenant-specific [`eg_epistemic::AuthorityPolicy`] for the epistemic ops
+    /// (CONCEPT:EG-KG.epistemic.epistemic-substrate). Without this call they run under
+    /// `AuthorityPolicy::default()`, so a default ctx is byte-for-byte the old one.
+    #[cfg(feature = "epistemic")]
+    pub fn with_belief_policy(mut self, policy: eg_epistemic::AuthorityPolicy) -> Self {
+        self.belief_policy = Some(policy);
         self
     }
 
@@ -528,6 +549,39 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
         // without it has neither the variant nor this arm (the tensor/stream precedent).
         #[cfg(feature = "probabilistic")]
         Op::Probabilistic { query } => Ok(probabilistic_op(ctx.view, input, query)),
+
+        // SOURCE/FILTER (epistemic, CONCEPT:EG-KG.epistemic.epistemic-substrate, E2) — the
+        // evidence FOR/AGAINST a claim, or the claims a node itself supports. Gated behind
+        // `epistemic`; the variants only exist when eg-types/epistemic is on (pulled by
+        // eg-plan/epistemic), so a non-epistemic build has neither the variants nor these arms
+        // (the tensor/geo/probabilistic gating precedent).
+        #[cfg(feature = "epistemic")]
+        Op::EvidenceFor { claim_id } => Ok(evidence_for_op(ctx.view, input, claim_id)),
+        #[cfg(feature = "epistemic")]
+        Op::Contradicts { node_id } => Ok(contradicts_op(ctx.view, input, node_id)),
+        #[cfg(feature = "epistemic")]
+        Op::SupportedBy { node_id } => Ok(supported_by_op(ctx.view, input, node_id)),
+
+        // TIME+TRANSFORM (epistemic, CONCEPT:EG-KG.epistemic.epistemic-substrate, E2) —
+        // `BELIEF AS OF <ts>`: pin the transaction-time axis (reuses `as_of_filter`) then
+        // re-score the survivors by their propagated belief confidence at that instant.
+        #[cfg(feature = "epistemic")]
+        Op::BeliefAsOf { ts } => Ok(belief_as_of_op(ctx, input, *ts)),
+
+        // TRANSFORM (epistemic, CONCEPT:EG-KG.epistemic.epistemic-substrate, E2) — re-weight
+        // the current RowSet by one named source's propagated reliability.
+        #[cfg(feature = "epistemic")]
+        Op::SourceReliability { source_id } => Ok(source_reliability_op(ctx, input, source_id)),
+
+        // TRANSFORM (epistemic, CONCEPT:EG-KG.epistemic.epistemic-substrate, E2) — re-score
+        // EACH row by its OWN propagated belief confidence, ranked descending.
+        #[cfg(feature = "epistemic")]
+        Op::ConfidenceOp {} => Ok(confidence_op(ctx, input)),
+
+        // TRANSFORM (epistemic, CONCEPT:EG-KG.epistemic.epistemic-substrate, E2) —
+        // `EXPLAIN BELIEF <id>`: flatten the recursive justification tree to scored rows.
+        #[cfg(feature = "epistemic")]
+        Op::ExplainBelief { node_id } => Ok(explain_belief_op(ctx, input, node_id)),
 
         // TRANSFORM (stream, CONCEPT:EG-KG.query.pipelined-execution) — interpret the input RowSet as a
         // time-ordered event stream and run the eg-stream bounded NFA CEP engine over it,
@@ -1830,6 +1884,240 @@ fn eval_prob_query(
                 .map(|post| post.mean())
         }
         ProbQuery::Sample { seed } => Some(dist.sample(*seed)),
+    }
+}
+
+// ── the epistemic leg — belief/evidence over the support/contradiction/attack graph
+// (CONCEPT:EG-KG.epistemic.epistemic-substrate, E2) ────────────────────────────────
+
+/// The [`eg_epistemic::AuthorityPolicy`] an epistemic op runs under: the ctx-attached
+/// policy (`PlanCtx::with_belief_policy`) or `AuthorityPolicy::default()`.
+#[cfg(feature = "epistemic")]
+fn belief_policy(ctx: &PlanCtx) -> eg_epistemic::AuthorityPolicy {
+    ctx.belief_policy.unwrap_or_default()
+}
+
+/// Which direction an epistemic edge-lookup reads (CONCEPT:EG-KG.epistemic.epistemic-substrate):
+/// `Incoming` — edges pointing AT `id` (evidence bearing ON it, `EvidenceFor`/`Contradicts`);
+/// `Outgoing` — edges pointing FROM `id` (what `id` itself supports, `SupportedBy`).
+/// [`eg_epistemic::BeliefGraph`] only indexes incoming edges (the propagation walk only
+/// ever needs a node's OWN evidence), so the outgoing direction is a linear scan over
+/// every target's incoming list — cheap at plan scale (the belief substrate is a thin
+/// projection, not a full traversal index).
+#[cfg(feature = "epistemic")]
+enum EdgeDir {
+    Incoming,
+    Outgoing,
+}
+
+/// Collect the ids linked to `id` by an edge classified as one of `kinds`, in `dir`
+/// (CONCEPT:EG-KG.epistemic.epistemic-substrate). The shared lookup behind `EvidenceFor`/
+/// `Contradicts` (incoming) and `SupportedBy` (outgoing).
+#[cfg(feature = "epistemic")]
+fn linked_ids(
+    bg: &eg_epistemic::BeliefGraph,
+    id: &str,
+    kinds: &[eg_epistemic::EdgeKind],
+    dir: EdgeDir,
+) -> HashSet<String> {
+    match dir {
+        EdgeDir::Incoming => bg
+            .in_edges
+            .get(id)
+            .into_iter()
+            .flatten()
+            .filter(|(_, k)| kinds.contains(k))
+            .map(|(src, _)| src.clone())
+            .collect(),
+        EdgeDir::Outgoing => bg
+            .in_edges
+            .iter()
+            .flat_map(|(target, edges)| {
+                edges
+                    .iter()
+                    .filter(|(src, k)| src == id && kinds.contains(k))
+                    .map(move |_| target.clone())
+            })
+            .collect(),
+    }
+}
+
+/// SOURCE/FILTER shape shared by `EvidenceFor`/`Contradicts`/`SupportedBy`/`ExplainBelief`
+/// (CONCEPT:EG-KG.epistemic.epistemic-substrate): an empty `input` (leaf position) SEEDS the
+/// RowSet with `matches`; a non-empty `input` (mid-pipeline) narrows it to the rows that are
+/// ALSO in `matches`, preserving `input`'s order — the same seed-or-filter shape
+/// `as_of_filter` already uses.
+#[cfg(feature = "epistemic")]
+fn seed_or_filter(input: RowSet, matches: &HashSet<String>) -> RowSet {
+    if input.is_empty() {
+        return RowSet::from_ids(matches.iter().cloned());
+    }
+    let keep: HashSet<&str> = matches.iter().map(|s| s.as_str()).collect();
+    input.intersect_keep_order(&keep)
+}
+
+/// `EvidenceFor { claim_id }` — the nodes with an INCOMING `Supports` edge into
+/// `claim_id` (CONCEPT:EG-KG.epistemic.epistemic-substrate).
+#[cfg(feature = "epistemic")]
+fn evidence_for_op(view: &GraphView, input: RowSet, claim_id: &str) -> RowSet {
+    let bg = eg_epistemic::BeliefGraph::from_graph_view(view);
+    let matches = linked_ids(
+        &bg,
+        claim_id,
+        &[eg_epistemic::EdgeKind::Supports],
+        EdgeDir::Incoming,
+    );
+    seed_or_filter(input, &matches)
+}
+
+/// `Contradicts { node_id }` — the nodes with an INCOMING `Contradicts` OR `Attacks` edge
+/// into `node_id` (an attack is a stronger contradiction, so both count,
+/// CONCEPT:EG-KG.epistemic.epistemic-substrate).
+#[cfg(feature = "epistemic")]
+fn contradicts_op(view: &GraphView, input: RowSet, node_id: &str) -> RowSet {
+    let bg = eg_epistemic::BeliefGraph::from_graph_view(view);
+    let matches = linked_ids(
+        &bg,
+        node_id,
+        &[
+            eg_epistemic::EdgeKind::Contradicts,
+            eg_epistemic::EdgeKind::Attacks,
+        ],
+        EdgeDir::Incoming,
+    );
+    seed_or_filter(input, &matches)
+}
+
+/// `SupportedBy { node_id }` — the nodes reached by an OUTGOING `Supports` edge FROM
+/// `node_id` (the mirror direction of `EvidenceFor`, CONCEPT:EG-KG.epistemic.epistemic-substrate).
+#[cfg(feature = "epistemic")]
+fn supported_by_op(view: &GraphView, input: RowSet, node_id: &str) -> RowSet {
+    let bg = eg_epistemic::BeliefGraph::from_graph_view(view);
+    let matches = linked_ids(
+        &bg,
+        node_id,
+        &[eg_epistemic::EdgeKind::Supports],
+        EdgeDir::Outgoing,
+    );
+    seed_or_filter(input, &matches)
+}
+
+/// `BELIEF AS OF <ts>` (`Op::BeliefAsOf`) — pin the TRANSACTION-time axis (reuses
+/// [`as_of_filter`]) then RE-SCORE every surviving row by its propagated belief confidence
+/// at that instant (CONCEPT:EG-KG.epistemic.epistemic-substrate). The `BeliefGraph` is built
+/// once over the WHOLE snapshot (propagation may need to walk beyond the post-filter
+/// candidate set to reach a supporting/contradicting node not itself live at `ts`) and
+/// pinned via [`eg_epistemic::BeliefGraph::pinned_at`] for provenance.
+#[cfg(feature = "epistemic")]
+fn belief_as_of_op(ctx: &PlanCtx, input: RowSet, ts: f64) -> RowSet {
+    let filtered = as_of_filter(ctx.view, input, ts, TimeAxis::Transaction);
+    let bg = eg_epistemic::BeliefGraph::from_graph_view(ctx.view)
+        .pinned_at(eg_epistemic::TimeAxis::Transaction, ts.max(0.0) as u64);
+    let policy = belief_policy(ctx);
+    rescore_by_confidence(&bg, filtered, &policy)
+}
+
+/// `SourceReliability { source_id }` — re-weight every row currently in `input` by the
+/// propagated reliability of `source_id` (CONCEPT:EG-KG.epistemic.epistemic-substrate): a
+/// uniform scalar multiplier over existing scores (an unscored row is treated as `1.0`).
+#[cfg(feature = "epistemic")]
+fn source_reliability_op(ctx: &PlanCtx, input: RowSet, source_id: &str) -> RowSet {
+    let bg = eg_epistemic::BeliefGraph::from_graph_view(ctx.view);
+    let policy = belief_policy(ctx);
+    let r = eg_epistemic::propagate_confidence(&bg, source_id, &policy).confidence as f32;
+    let scored = input
+        .rows()
+        .iter()
+        .map(|row| (row.id.clone(), row.score.unwrap_or(1.0) * r));
+    RowSet::from_scored(scored)
+}
+
+/// `CONFIDENCE` (`Op::ConfidenceOp`) — re-score EACH row in `input` by its OWN propagated
+/// belief confidence, ranked descending (CONCEPT:EG-KG.epistemic.epistemic-substrate).
+#[cfg(feature = "epistemic")]
+fn confidence_op(ctx: &PlanCtx, input: RowSet) -> RowSet {
+    let bg = eg_epistemic::BeliefGraph::from_graph_view(ctx.view);
+    let policy = belief_policy(ctx);
+    rescore_by_confidence(&bg, input, &policy)
+}
+
+/// Re-score every row in `input` by its own propagated belief confidence, ranked
+/// descending — the shared scoring pass `BeliefAsOf` and `ConfidenceOp` both reduce to.
+#[cfg(feature = "epistemic")]
+fn rescore_by_confidence(
+    bg: &eg_epistemic::BeliefGraph,
+    input: RowSet,
+    policy: &eg_epistemic::AuthorityPolicy,
+) -> RowSet {
+    let mut scored: Vec<(String, f32)> = input
+        .rows()
+        .iter()
+        .map(|row| {
+            let c = eg_epistemic::propagate_confidence(bg, &row.id, policy).confidence;
+            (row.id.clone(), c as f32)
+        })
+        .collect();
+    scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    RowSet::from_scored(scored)
+}
+
+/// The FULL recursive [`eg_epistemic::JustificationGraph`] rooted at `node_id`
+/// (CONCEPT:EG-KG.epistemic.epistemic-substrate, E1) — the un-flattened tree
+/// `Op::ExplainBelief` (E2) projects down into the flat `RowSet` currency via
+/// [`flatten_proof`]. A standalone `Method::ExplainBelief` (E5 phase 4, mirroring
+/// `Method::OwlExplain`'s `ProofNodeWire`) wants the verbatim tree — rule names, premise
+/// structure, per-node confidence — which the plan-`Op` surface cannot carry (E2's
+/// documented scope boundary). Public so the facade handler can build the wire
+/// projection directly, reusing the SAME [`belief_policy`] resolution `explain_belief_op`
+/// uses.
+#[cfg(feature = "epistemic")]
+pub fn explain_belief_tree(ctx: &PlanCtx, node_id: &str) -> eg_epistemic::JustificationGraph {
+    let bg = eg_epistemic::BeliefGraph::from_graph_view(ctx.view);
+    let policy = belief_policy(ctx);
+    eg_epistemic::explain_belief(&bg, node_id, &policy)
+}
+
+/// `EXPLAIN BELIEF <node_id>` (`Op::ExplainBelief`) — build the recursive justification
+/// tree ([`eg_epistemic::explain_belief`]) rooted at `node_id`, flatten it pre-order
+/// (deduped) to `(claim_id, confidence)` pairs, and seed-or-filter the RowSet exactly like
+/// `EvidenceFor`/`Contradicts` (CONCEPT:EG-KG.epistemic.epistemic-substrate). The FULL nested
+/// tree (rule names, premise structure) does not fit the flat `RowSet` currency — this is
+/// the queryable, composes-in-plan projection of it; [`explain_belief_tree`] above returns
+/// the verbatim tree for the standalone `Method::ExplainBelief` wire surface.
+#[cfg(feature = "epistemic")]
+fn explain_belief_op(ctx: &PlanCtx, input: RowSet, node_id: &str) -> RowSet {
+    let bg = eg_epistemic::BeliefGraph::from_graph_view(ctx.view);
+    let policy = belief_policy(ctx);
+    let jg = eg_epistemic::explain_belief(&bg, node_id, &policy);
+    let mut flat: Vec<(String, f32)> = Vec::new();
+    let mut seen = HashSet::new();
+    flatten_proof(&jg.root, &mut flat, &mut seen);
+    if input.is_empty() {
+        return RowSet::from_scored(flat);
+    }
+    let scores: std::collections::HashMap<&str, f32> =
+        flat.iter().map(|(id, s)| (id.as_str(), *s)).collect();
+    let scored = input
+        .rows()
+        .iter()
+        .filter_map(|r| scores.get(r.id.as_str()).map(|s| (r.id.clone(), *s)));
+    RowSet::from_scored(scored)
+}
+
+/// Pre-order flatten of a [`eg_epistemic::ProofNode`] tree into `(claim_id, confidence)`
+/// pairs, deduped by first occurrence (CONCEPT:EG-KG.epistemic.epistemic-substrate) — the
+/// RowSet-currency projection of `ExplainBelief`'s justification tree.
+#[cfg(feature = "epistemic")]
+fn flatten_proof(
+    node: &eg_epistemic::ProofNode,
+    out: &mut Vec<(String, f32)>,
+    seen: &mut HashSet<String>,
+) {
+    if seen.insert(node.claim.clone()) {
+        out.push((node.claim.clone(), node.confidence as f32));
+    }
+    for premise in &node.premises {
+        flatten_proof(premise, out, seen);
     }
 }
 

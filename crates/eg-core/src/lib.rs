@@ -22,6 +22,11 @@ pub mod broker;
 #[cfg(feature = "cold-tier")]
 pub mod cold_tier;
 pub mod compute;
+/// ModalityContract retrofit (CONCEPT:E4): `impl ModalityContract for
+/// index::NodeChange` + the `modality_conformance_tests!` battery. Behind the
+/// crate's own opt-in `contract` feature (default OFF). See `src/contract.rs`.
+#[cfg(feature = "contract")]
+mod contract;
 pub mod decay;
 pub mod graph;
 pub mod index;

@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/eg-types", "crates/eg-ann", "crates/eg-geo", "crates/eg-tensor", "crates/eg-stream", "crates/eg-core", "crates/eg-compute", "crates/eg-query", "crates/eg-plan", "crates/eg-tsdb", "crates/eg-text", "crates/eg-rdf", "crates/eg-shacl", "crates/eg-shex", "crates/eg-wasm", "crates/eg-graphql", "crates/eg-kvcache", "crates/eg-lake", "crates/eg-numeric"]
+members = ["crates/eg-types", "crates/eg-ann", "crates/eg-geo", "crates/eg-tensor", "crates/eg-stream", "crates/eg-core", "crates/eg-compute", "crates/eg-query", "crates/eg-plan", "crates/eg-tsdb", "crates/eg-text", "crates/eg-rdf", "crates/eg-shacl", "crates/eg-shex", "crates/eg-wasm", "crates/eg-graphql", "crates/eg-kvcache", "crates/eg-lake", "crates/eg-numeric", "crates/eg-epistemic", "crates/eg-modality", "crates/eg-image", "crates/eg-audio", "crates/eg-video"]
 # EG-185/186: fold eg-kvcache into node/full (the tiered + shared KV-cache leaf crate,
 # a sibling of eg-ann/eg-tensor). Added as a workspace member only; the tier aggregate
 # feature lists (node/full) and the path-dep + server-endpoint wiring are folded in by
@@ -11,10 +11,26 @@ members = ["crates/eg-types", "crates/eg-ann", "crates/eg-geo", "crates/eg-tenso
 # materialization tier onto the WAL) are folded in by the orchestrator / a follow-up,
 # NOT edited here (avoids a tier-line merge conflict). eg-lake is OUT of pi — its
 # heavy arrow/parquet deps live behind `lake`.
+# CONCEPT:E4 — eg-modality: the ModalityContract trait + conformance harness. A tiny
+# leaf crate BELOW eg-plan/eg-core in the DAG (deps = eg-types ONLY — see its own
+# Cargo.toml/lib.rs docs for why). Added as a workspace member; two PILOT retrofits
+# (eg-tensor, eg-geo) implement the trait behind their own opt-in `contract` feature
+# (default OFF) — NOT folded into any tier aggregate (pi/node/full) here or ever, since
+# it is a capability-discovery/testing seam, not a serving feature.
+# CONCEPT:E4 follow-up — eg-image/eg-audio/eg-video: three new leaf modality crates
+# (image/audio/video, metadata+region/segment/shot-index level — NO heavy image/ffmpeg
+# C codec in the default build) giving `eg_modality::EvidenceSpan::{ImageRegion,
+# AudioSegment,VideoShot}` a real backing stored value + `ModalityContract` impl behind
+# each crate's own opt-in `contract` feature (default OFF), mirroring the eg-tensor/
+# eg-geo pilots. Added as workspace members ONLY; `eg-plan`'s `epistemic` feature wires
+# their `contract` feature + the `KnowledgeSet::from_rowset` dispatch (Image/Audio/
+# Video kinds) — NOT folded into any tier aggregate (pi/node/full) here or ever, since
+# this is the SAME capability-discovery/testing seam as eg-tensor/eg-geo's, not a
+# serving feature.
 
 [package]
 name = "epistemic-graph"
-version = "2.15.0"
+version = "2.16.0"
 edition = "2021"
 authors = ["Audel Rouhi <knucklessg1@gmail.com>"]
 description = "High-performance Rust graph compute engine for AI agents"
@@ -118,6 +134,35 @@ mining = ["eg-compute/mining", "eg-types/mining"]
 # handlers/graphlearn.rs dispatch arm. Implies datascience (shared Adam kernels).
 graphlearn = ["datascience", "eg-compute/graphlearn", "eg-types/graphlearn"]
 reasoning = ["eg-compute/reasoning"]
+# Engine-native epistemic layer (CONCEPT:EG-KG.epistemic.epistemic-substrate, E6+E2): the
+# eg-epistemic leaf crate (claims/evidence/belief-state + confidence propagation) over
+# the EXISTING NodeData/EdgeData fields (no new persistence). Pulls eg-epistemic (pure
+# Rust: eg-types + eg-core + eg-compute/reasoning — no heavy dep) + eg-types/epistemic
+# (the pure-serde `as_claim` wire gate, E6) + eg-plan/epistemic (E2: the
+# `Op::{EvidenceFor,Contradicts,SupportedBy,BeliefAsOf,SourceReliability,ConfidenceOp,
+# ExplainBelief}` UQL/plan surface + its `BELIEF AS OF`/`VALID AS OF`/… keywords — IMPLIES
+# `query` because those ops live inside the `query`-gated `Op` enum, beside `owl`/
+# `probabilistic`/`tensor`). Gates the ADDITIVE mining→epistemic-object write-back (E6): with
+# `mining` ALSO on, `MineAssociate`/`MineCluster`/`MineAnomaly`/`MineSequence`/`MineForecast`/
+# `MineSubgraph` accept `as_claim=true` and materialize a `:Claim` (+ `:Evidence`) per
+# finding, SUPPORTS-linked so `eg_epistemic` can propagate belief over them. Additive: with
+# `as_claim` unset the write-back is byte-identical, and a build without `query` simply lacks
+# the E2 plan ops (the E6 mining write-back is unaffected either way). Added as a feature
+# (NOT folded into the `full` tier line here — the orchestrator folds it into node/full at
+# merge time, mirroring the eg-kvcache/eg-lake tier-wiring convention, to avoid a tier-line
+# merge conflict); `--all-features` still enables it.
+epistemic = [
+    "query",
+    "dep:eg-epistemic",
+    "eg-types/epistemic",
+    "dep:eg-plan",
+    "eg-plan/epistemic",
+    # X1 (CONCEPT:E4): `dep:eg-modality` makes `eg_modality::EvidenceSpan` nameable in
+    # `explain_provenance`'s `evidence_span_wire` mapper (see that dep's own comment —
+    # `eg-plan/epistemic` above already links `eg-modality` transitively; this adds no
+    # new weight, only visibility).
+    "dep:eg-modality",
+]
 # CONCEPT:EG-321 — the Analytics-Program numeric kernel (eg-numeric: faer + ndarray,
 # BLAS/LAPACK-free). Links the PURE Rust kernel (rlib) for Surface B in-database
 # analytics — the Python-extension FFI layer is behind eg-numeric's OWN `python`
@@ -690,6 +735,25 @@ ros2-bridge = ["server", "streaming", "dep:tokio-tungstenite", "dep:futures"]
 # default/pi/node/full build links NO rustdds (asserted by `cargo tree`). The
 # CycloneDDS-C-backed `rmw` leg stays a documented, toolchain-gated future option.
 ros2-dds = ["server", "streaming", "dep:rustdds", "dep:futures"]
+# CycloneDDS-C-backed `rmw` ROS2 wire (CONCEPT:EG-347 follow-on, S5) — the SECOND native
+# leg of the ROS2 transport seam (`src/server/dds.rs`, `DdsTransport` trait), implementing
+# the SAME interface as `ros2-dds` (`NativeDdsTransport`/rustdds) so the CDC↔ROS2 path
+# targets EITHER pure-Rust RTPS or the real CycloneDDS-C `rmw` wire behind one choice.
+# Unlike `ros2-dds`, this leg links the ACTUAL `rmw_cyclonedds` C stack (via the
+# `cyclonedds` Rust crate — a safe wrapper over `cyclonedds-rust-sys`/`cyclonedds-src`,
+# the vendored CycloneDDS C sources), so it is REAL zero-config ros2 interop, not merely
+# wire-compatible: a live `ros2` daemon discovers/pubs/subs the topic with no bridge.
+# `cyclonedds-src` VENDORS the CycloneDDS C sources IN the crate tarball (no network
+# fetch at build time) and `cyclonedds-rust-sys`'s build.rs configures+builds it with
+# `cmake` (found via the CMake Rust crate machinery) and ships PREBUILT bindgen output
+# (`prebuilt_bindings.rs`), so the build needs a C toolchain (cc/cmake — the same
+# toolchain gate as `gpu-cuda`) but NOT libclang/bindgen at build time and NOT network
+# access beyond the initial crates.io fetch. Toolchain-gated + heavy (a vendored C DDS
+# stack) + robotics is NOT a Pi requirement, so this is kept OUT of `pi`/`default`/
+# `node`/`full` exactly like `ros2-dds` — folded ONLY into the opt-in `full-extras`
+# bundle. A default/pi/node/full build links NO cyclonedds/cyclonedds-rust-sys/
+# cyclonedds-src (asserted by `cargo tree`).
+ros2-rmw = ["server", "streaming", "dep:cyclonedds", "dep:futures"]
 # GPU-accelerated distance/tensor (CONCEPT:EG-326 seam / EG-327 CUDA). `gpu` opts the
 # eg-ann distance + eg-tensor elementwise kernels into the `DistanceBackend`/`TensorBackend`
 # dispatch seam (the pure-Rust CPU backend stays the compiled-in fallback). `gpu-cuda` adds
@@ -702,11 +766,12 @@ gpu = ["ann", "eg-core/ann-gpu", "tensor", "eg-plan/tensor-gpu"]
 gpu-cuda = ["gpu", "eg-core/ann-gpu-cuda", "eg-plan/tensor-gpu-cuda"]
 # Opt-in umbrella (CONCEPT:EG-371) = the ONE main build (`full`) PLUS the heavy extras that
 # require an external toolchain/GPU to actually RUN (but build clean everywhere via
-# dynamic-loading): the real CUDA backends + the rosbridge ROS2 bridge + native DDS/RTPS.
+# dynamic-loading, or a vendored cmake C build for `ros2-rmw`): the real CUDA backends +
+# the rosbridge ROS2 bridge + native DDS/RTPS (rustdds) + the CycloneDDS-C `rmw` leg.
 # This is a build LAYER on top of the main build for a GPU/robotics deployment — NOT folded
 # into `default`/`full` and NOT published as its own wheel. The default/main build links NO
-# cudarc/rustdds (asserted by `cargo tree`).
-full-extras = ["full", "gpu-cuda", "ros2-bridge", "ros2-dds"]
+# cudarc/rustdds/cyclonedds (asserted by `cargo tree`).
+full-extras = ["full", "gpu-cuda", "ros2-bridge", "ros2-dds", "ros2-rmw"]
 # Native OWL 2 reasoner (CONCEPT:KG-2.219): EL⁺ completion + RL property rules,
 # classification / consistency / incremental materialization + justifications. The
 # `OwlReason` Method surface. PURE-RUST — it parses OWL from the SAME oxttl as `rdf`,
@@ -774,8 +839,21 @@ compute = ["finance", "ast", "ast-extended", "datascience", "mining", "graphlear
 # a Pi requirement and the Pi build stays minimal — the RLS/audit core is itself
 # pure-Rust and Pi-safe, but is shipped only where `security` is selected).
 security = ["redb", "dep:chacha20poly1305", "eg-types/security", "eg-core/security"]
-full = ["compute", "server", "query", "cypher", "graphql", "eg-graphql/crossmodal-tsdb", "redb", "ann", "ann-redb", "tsdb", "blob", "kv", "text", "sparql", "sparql-http", "sparql-hash", "rdf-xml", "json-ld", "sparql-star", "sparql-service", "rdf-redb", "shacl", "owl", "owl-dl", "owl-plan", "obda", "streaming", "wasm-udf", "security", "federation", "federation-sql", "pgwire", "mysql-wire", "mssql-wire", "sqlite-wire", "bolt-wire", "redis-wire", "broker", "amqp-wire", "mqtt-wire", "stomp-wire", "geo", "tensor", "stream", "result-cache", "cold-tier", "cost", "cost-opt", "otel", "otel-export", "shex", "obs", "geosparql", "nl-query", "promql", "traces", "s3-api", "federation-search", "kvcache-server", "kvcache-compression", "numeric", "sqlite-file"]
+full = ["compute", "server", "query", "cypher", "graphql", "eg-graphql/crossmodal-tsdb", "redb", "ann", "ann-redb", "tsdb", "blob", "kv", "text", "sparql", "sparql-http", "sparql-hash", "rdf-xml", "json-ld", "sparql-star", "sparql-service", "rdf-redb", "shacl", "owl", "owl-dl", "owl-plan", "obda", "streaming", "wasm-udf", "security", "federation", "federation-sql", "pgwire", "mysql-wire", "mssql-wire", "sqlite-wire", "bolt-wire", "redis-wire", "broker", "amqp-wire", "mqtt-wire", "stomp-wire", "geo", "tensor", "stream", "result-cache", "cold-tier", "cost", "cost-opt", "otel", "otel-export", "shex", "obs", "geosparql", "nl-query", "promql", "traces", "s3-api", "federation-search", "kvcache-server", "kvcache-compression", "numeric", "sqlite-file", "epistemic"]
 all = ["full"]
+# D4 (CONCEPT:EG-KG.epistemic.epistemic-substrate): `epistemic` (the eg-epistemic
+# claims/evidence/belief-state layer, E6/E2/D3/D5) is folded into `full` above so a
+# default/full build carries it — it was left OUT of the tier line by the orchestrator
+# to avoid a merge conflict with concurrent waves (mirroring the eg-kvcache/eg-lake/
+# otel tier-wiring convention documented at those features' definitions), now closed.
+# The retired `pi`/`pi-max`/`node` deployment tiers (EG-371, just above) no longer
+# exist to fold it into separately — `full` (== `default`) is the one tier. `contract`
+# (eg-tensor/eg-geo's own opt-in `ModalityContract` retrofit feature, `eg-epistemic`'s
+# own `contract` submodule gate) stays OUT of every tier here, confirmed: it is a
+# capability-discovery/testing seam selected per-crate directly (`cargo test -p
+# eg-epistemic --features contract`), never part of the served product surface — `cargo
+# tree --features full | grep -i contract` links no `contract`-gated code.
+
 
 # ── Opt-in build layers ON TOP of the ONE main build (CONCEPT:EG-371) ──
 # The former `pi` / `pi-max` / `node` deployment tiers are GONE — they existed only to
@@ -791,14 +869,18 @@ all = ["full"]
 #                     cross-shard commit (`nonblocking`). This is HA / multi-node: it pulls
 #                     openraft, which the single-node main build deliberately does NOT.
 #   * `full-extras` — the main build PLUS the real CUDA (`gpu-cuda`) + ROS2 bridge/DDS
-#                     (`ros2-bridge`/`ros2-dds`) backends. They build clean everywhere via
-#                     dynamic-loading but need a GPU / robotics toolchain to actually RUN.
-#                     (`full-extras` is defined next to `gpu-cuda`/`ros2-dds` above.)
+#                     (`ros2-bridge`/`ros2-dds`/`ros2-rmw`) backends. `gpu-cuda`/
+#                     `ros2-bridge`/`ros2-dds` build clean everywhere via dynamic-loading
+#                     or pure-Rust; `ros2-rmw` builds clean everywhere too (the CycloneDDS
+#                     C sources are vendored + built via `cmake`, no network at build
+#                     time) but needs a GPU / robotics / C toolchain to actually RUN.
+#                     (`full-extras` is defined next to `gpu-cuda`/`ros2-dds`/`ros2-rmw`
+#                     above.)
 #
 # INVARIANTS (asserted by `cargo tree`): the main/default build links NO openraft
-# (cluster-only) and NO cudarc/rustdds (full-extras-only). It DOES link DataFusion now
-# (query is a main feature) — the old "no-DataFusion Pi contract" is retired; the build
-# targets Raspberry Pi 4+, not Pi 3.
+# (cluster-only) and NO cudarc/rustdds/cyclonedds (full-extras-only). It DOES link
+# DataFusion now (query is a main feature) — the old "no-DataFusion Pi contract" is
+# retired; the build targets Raspberry Pi 4+, not Pi 3.
 cluster = ["full", "raft", "compute-dist", "nonblocking", "matview"]
 
 [dependencies]
@@ -808,6 +890,12 @@ eg-core = { path = "crates/eg-core" }
 # the heavy finance/datascience/ast/reasoning code + deps are gated behind the
 # facade features that pass through to eg-compute's matching features.
 eg-compute = { path = "crates/eg-compute" }
+# Engine-native epistemic layer (feature `epistemic`, CONCEPT:EG-KG.epistemic.epistemic-substrate,
+# E6). Pure-Rust leaf (eg-types + eg-core + eg-compute/reasoning) — claims/evidence/
+# belief-state + confidence propagation over the EXISTING NodeData/EdgeData fields.
+# Referenced only under `#[cfg(feature = "epistemic")]` (the mining→claim write-back +
+# its tests), so a build without `epistemic` links no eg-epistemic.
+eg-epistemic = { path = "crates/eg-epistemic", optional = true }
 # CONCEPT:EG-321 — Analytics-Program numeric kernel (feature `numeric`, in `full`,
 # out of `pi`). Links only the PURE rlib (faer + ndarray, NO Python-extension FFI —
 # that layer is behind eg-numeric's OWN `python` feature, off here) for Surface B
@@ -820,6 +908,14 @@ eg-query = { path = "crates/eg-query", optional = true }
 # DataFusion FILTER leg is gated by eg-plan's own `query`; pulled only with the
 # facade `query`, so a default/Pi build links neither it nor DataFusion.
 eg-plan = { path = "crates/eg-plan", optional = true }
+# The `ModalityContract` trait + the `EvidenceSpan` shape (CONCEPT:E4/X1). Referenced
+# only under `#[cfg(feature = "epistemic")]` (`src/server/handlers/query.rs`'s
+# `evidence_span_wire`, mapping `eg_plan::KnowledgeRow::evidence_refs` onto the wire
+# `EvidenceSpanWire`), so a build without `epistemic` links none of it. `eg-plan`
+# already links it unconditionally (deps = eg-types only, per its own crate docs), so
+# this adds no NEW transitive dependency to the tree — only makes the type nameable
+# here too.
+eg-modality = { path = "crates/eg-modality", optional = true }
 # Optional live CEP standing-query engine (feature `stream`, CONCEPT:EG-088/EG-299). The
 # BATCH `Op::Cep` executor already pulls eg-stream transitively via `eg-plan/stream`; this
 # DIRECT edge (with eg-stream's own `stream` feature, the ONLY thing that pulls tokio in
@@ -946,6 +1042,23 @@ tokio-tungstenite = { version = "0.24", optional = true, default-features = fals
 # everywhere. OPTIONAL + referenced ONLY under `#[cfg(feature = "ros2-dds")]`, so a
 # default/pi/node/full build links none of it (asserted by `cargo tree`).
 rustdds = { version = "0.13", optional = true }
+# CycloneDDS-C-backed `rmw` stack for the S5 ROS2-rmw leg (feature `ros2-rmw`,
+# CONCEPT:EG-347 follow-on). `cyclonedds` (a safe Rust wrapper, mzet97/cyclonedds-rust)
+# pulls `cyclonedds-rust-sys` (FFI) → `cyclonedds-src` (the CycloneDDS C sources VENDORED
+# inside the crate tarball). `cyclonedds-rust-sys`'s build.rs configures+builds the
+# vendored source with `cmake` (static lib, BUILD_SHARED_LIBS=OFF, security/SSL/IDLC/
+# examples all OFF) and links prebuilt bindgen output shipped in the crate — NO libclang/
+# bindgen invocation and NO network fetch at build time (unlike the older `cyclonedds-
+# sys`/`cyclonedds-rs` crates, which `git clone` CycloneDDS from GitHub in build.rs and
+# do NOT reliably CI-build offline). `default-features = false` + `features = ["std"]`
+# only — the crate's own `default`/`async` features would additionally pull `tokio`,
+# which this leg does not need (its `DdsTransport` methods are `async fn` wrappers over
+# synchronous DDS calls, exactly like the `ros2-dds` `rustdds` leg). OPTIONAL + referenced
+# ONLY under `#[cfg(feature = "ros2-rmw")]`, so a default/pi/node/full build links NONE of
+# cyclonedds/cyclonedds-rust-sys/cyclonedds-src (asserted by `cargo tree`). Needs a C
+# toolchain (cc/cmake) to build and a CycloneDDS-compatible ROS2 rmw at runtime to
+# interop with a live `ros2` daemon — the toolchain gate this feature exists behind.
+cyclonedds = { version = "1.8.0", optional = true, default-features = false, features = ["std"] }
 # In-engine Raft consensus (feature `raft`, CONCEPT:KG-2.188 / KG-2.272). Bumped to
 # openraft 0.10 (the v2 split-storage API + NATIVE `trigger().transfer_leader()` for
 # graceful leader handoff — the M2 remainder). `serde` is required because the app

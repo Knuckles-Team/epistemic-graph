@@ -54,9 +54,17 @@ pub(crate) async fn try_handle(
         #[cfg(feature = "rdf")]
         Method::GetRdf => Ok(handle_get_rdf(state, req_id, graph_name, &core).await),
         #[cfg(feature = "rdf")]
-        Method::RemoveTriples { turtle, ntriples } => {
-            Ok(handle_remove_triples(req_id, &core, turtle, ntriples).await)
-        }
+        Method::RemoveTriples { turtle, ntriples } => Ok(handle_remove_triples(
+            #[cfg(feature = "shacl")]
+            state,
+            req_id,
+            #[cfg(feature = "shacl")]
+            graph_name,
+            &core,
+            turtle,
+            ntriples,
+        )
+        .await),
         #[cfg(feature = "rdf")]
         Method::DropNamedGraph => {
             Ok(handle_drop_named_graph(state, req_id, graph_name, &core).await)
@@ -181,6 +189,21 @@ pub(crate) async fn try_handle(
         Method::ShaclValidate { shapes, data_graph } => {
             Ok(handle_shacl_validate(state, req_id, graph_name, &core, shapes, data_graph).await)
         }
+        // X5-enforce (CONCEPT:EG-KG.ontology.rdf-update-guard): configure the write-time
+        // ICV guard `AddTriples`/`RemoveTriples`/`ApplyMutation` consult below. Gated
+        // `shacl`; a build without it drops this arm → the dispatch "not available"
+        // catch-all (the variant is unconditional in the enum, like `ShaclValidate`).
+        #[cfg(feature = "shacl")]
+        Method::IcvConfigure {
+            graph,
+            mode,
+            shapes,
+        } => Ok(
+            match crate::server::icv_guard::configure(graph.as_deref(), &mode, &shapes) {
+                Ok(()) => Response::ok(req_id, ResultPayload::Bool(true)),
+                Err(e) => Response::err(req_id, e),
+            },
+        ),
         // ShEx Core validation (CONCEPT:EG-KG.compute.concept-2). Read-only. Gated `shex`; a build without
         // it drops this arm → `other => Err(other)` → the dispatch not-available catch-all
         // (the variant is unconditional in the enum, like ShaclValidate/EG-132).
@@ -762,6 +785,22 @@ async fn handle_add_triples(
     #[cfg(not(feature = "rdf-redb"))]
     let _ = state;
 
+    // X5-enforce (CONCEPT:EG-KG.ontology.rdf-update-guard): reject (or warn, per the
+    // registered mode) BEFORE the write lands, reusing the eg-shacl ICV guard verbatim.
+    // A no-op when `shacl` isn't built or no policy is registered for this graph — the
+    // pre-X5 write path stays byte-identical until a caller configures one.
+    #[cfg(feature = "shacl")]
+    if let Err(rej) = crate::server::icv_guard::check_before_write(
+        core,
+        graph_name,
+        &triples,
+        &[],
+        #[cfg(feature = "rdf-redb")]
+        quads.as_deref(),
+    ) {
+        return Response::err(req_id, format!("AddTriples rejected: {rej}"));
+    }
+
     // Record the named-graph marker linking this RDF dataset to its registry graph.
     eg_rdf::mapping::register_named_graph(core, graph_name);
 
@@ -810,7 +849,9 @@ async fn handle_get_rdf(
 /// engine op (surgical: literal cells + the one matching typed edge). Returns the count.
 #[cfg(feature = "rdf")]
 async fn handle_remove_triples(
+    #[cfg(feature = "shacl")] state: &Arc<RwLock<ServerState>>,
     req_id: u64,
+    #[cfg(feature = "shacl")] graph_name: &str,
     core: &Arc<GraphCore>,
     turtle: String,
     ntriples: String,
@@ -819,6 +860,27 @@ async fn handle_remove_triples(
         Ok(t) => t,
         Err(e) => return Response::err(req_id, e),
     };
+
+    // X5-enforce (CONCEPT:EG-KG.ontology.rdf-update-guard): reject (or warn, per the
+    // registered mode) BEFORE the removal lands — see `handle_add_triples`.
+    #[cfg(feature = "shacl")]
+    {
+        #[cfg(feature = "rdf-redb")]
+        let quads = state.read().await.rdf_quads.clone();
+        #[cfg(not(feature = "rdf-redb"))]
+        let _ = state;
+        if let Err(rej) = crate::server::icv_guard::check_before_write(
+            core,
+            graph_name,
+            &[],
+            &triples,
+            #[cfg(feature = "rdf-redb")]
+            quads.as_deref(),
+        ) {
+            return Response::err(req_id, format!("RemoveTriples rejected: {rej}"));
+        }
+    }
+
     let removed = eg_rdf::update::remove_triples(core, &triples);
     Response::ok(req_id, ResultPayload::Count(removed as u64))
 }

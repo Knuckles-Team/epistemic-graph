@@ -41,6 +41,15 @@ promql = []
 # ingest + Jaeger/OpenObserve trace-search HTTP API over this behind its own `traces`
 # sub-feature (which implies `obs`).
 traces = []
+# ModalityContract retrofit (CONCEPT:E4): `impl ModalityContract for
+# store::SeriesMeta` AND `impl ModalityContract for traces::Span` (the X1 real
+# `evidence()` -> `EvidenceSpan::TraceSpan` resolver) + the
+# `modality_conformance_tests!` battery for each. OFF by default, deliberately NOT
+# folded into any tier aggregate (pi/node/full) — it is a capability-discovery/
+# testing seam, not a serving feature. Implies `redb-store` (since `SeriesMeta`
+# lives there) AND `traces` (since `Span` lives there). `cargo test -p eg-tsdb
+# --features contract` runs the suite.
+contract = ["dep:eg-modality", "redb-store", "traces"]
 
 [dependencies]
 # The ONE shared decay curve (CONCEPT:KG-2.211) lives in eg-core; the finance
@@ -58,6 +67,10 @@ async-trait = { version = "0.1", optional = true }
 
 serde = { version = "1.0", features = ["derive"] }
 rmp-serde = "1.3"
+# ModalityContract retrofit (CONCEPT:E4). Optional, only under `contract` (default
+# OFF) — a default/node/full build links none of it and `SeriesMeta` carries no new
+# required trait. See `src/contract.rs`.
+eg-modality = { path = "../eg-modality", optional = true }
 
 [dev-dependencies]
 tempfile = "3"

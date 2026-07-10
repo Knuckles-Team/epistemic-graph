@@ -7,3 +7,10 @@ pub mod symbol;
 
 #[cfg(feature = "ast")]
 pub mod parser;
+
+// CONCEPT:EG-KG.compute depth (per-modality): call-graph + module dependency-graph
+// + change-causality, built over `crate::parser::resolve::IndexResult`'s resolved
+// `calls`/`depends_on` edges. Gated behind `ast` (the SAME feature `parser::resolve`
+// itself needs) — pure adjacency + BFS, no new deps.
+#[cfg(feature = "ast")]
+pub mod graph;

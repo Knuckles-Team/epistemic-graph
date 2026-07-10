@@ -33,10 +33,19 @@ default = []
 # so it stays in the Pi-contract spirit. OUT of pi (eg-lake is not a pi member) — the
 # same `lake` gate the Parquet transcode already lives behind.
 lake = ["dep:arrow", "dep:parquet", "dep:bytes", "dep:apache-avro"]
+# ModalityContract retrofit (CONCEPT:E4): `impl ModalityContract for LakeBatch` +
+# the `modality_conformance_tests!` battery. OFF by default, deliberately NOT folded
+# into any tier aggregate (default/lake) — it is a capability-discovery/testing seam,
+# not a serving feature. `cargo test -p eg-lake --features contract` runs the suite.
+contract = ["dep:eg-modality"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+# ModalityContract retrofit (CONCEPT:E4). Optional, only under `contract` (default
+# OFF) — a default/lake build links none of it and `LakeBatch` carries no new
+# required trait. See `src/contract.rs`.
+eg-modality = { path = "../eg-modality", optional = true }
 
 # Same pins as the engine's `eg-tsdb` arrow-seg path so the Parquet we emit and the
 # Arrow schema we map to line up 1:1 with the rest of the tree. Optional + only

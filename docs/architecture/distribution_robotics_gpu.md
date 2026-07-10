@@ -125,9 +125,28 @@ flowchart LR
 
 The protocol framing (`RosbridgeOp`) + the CDC↔ROS2 mapping are pure and unit-tested; the
 WebSocket driver (`run_ros2_bridge`) wires them onto a live connection. Enabled by
-`EPISTEMIC_GRAPH_ROSBRIDGE_URL=ws://host:9090`. A native DDS/RTPS wire (CycloneDDS) is a documented
-optional leg — it needs the CycloneDDS C toolchain, so it is not folded into the workspace
-`--all-features` build.
+`EPISTEMIC_GRAPH_ROSBRIDGE_URL=ws://host:9090`.
+
+Two further legs sit behind the SAME `DdsTransport` trait (`src/server/dds.rs`), both
+`full-extras`-only (never in `default`/`full`):
+
+* **`ros2-dds`** — a native DDS/RTPS wire over the PURE-RUST `rustdds` crate
+  (mio/pnet/speedy/cdr-encoding). No CycloneDDS/rmw/C toolchain, so it CI-builds
+  everywhere; wire-compatible with the rmw name/type mangling (below) but not the
+  CycloneDDS-C stack itself.
+* **`ros2-rmw`** (S5) — the REAL `rmw_cyclonedds`/CycloneDDS-C stack via the safe
+  `cyclonedds` Rust crate. `cyclonedds-src` vendors the CycloneDDS C sources IN the crate
+  tarball (no network fetch at build time); `cyclonedds-rust-sys`'s build.rs configures +
+  builds it with `cmake` (static lib) and ships prebuilt bindgen output, so it needs a C
+  toolchain (`cc`/`cmake`) but not libclang at build time. This is genuine zero-config
+  live-`ros2` interop — a real `ros2` node discovers/pubs/subs with no bridge.
+
+Both legs apply the rmw name/type mangling convention (`mangle_topic_name`/
+`mangle_type_name` in `src/server/dds.rs`, CONCEPT:EG-KG.ingest.rmw-topic-prefix) so a
+topic published either way is discoverable by a live `ros2` daemon with zero config: the
+`rt/` topic prefix + the `<pkg>::<ns>::dds_::<Msg>_` type descriptor. Neither leg is
+folded into the workspace `--all-features` build (toolchain-gated, `full-extras` opt-in
+only).
 
 ---
 

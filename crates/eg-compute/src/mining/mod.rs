@@ -26,3 +26,19 @@ pub mod reduce;
 pub mod sequence;
 pub mod subgraph;
 pub mod text;
+
+// Residual insight/mining families (Codex Gap-5): entity resolution + record
+// linkage, causal impact (ITS/DiD), process mining (DFG + alpha-miner-lite),
+// root-cause propagation, seeded risk propagation, ontology-gap detection,
+// retrieval quality (precision/recall/MRR), and a thin community-detection
+// wrapper over the existing GDS Louvain/label-propagation kernels. Each writes
+// back a typed node + (with `epistemic` on) a `:Claim`/`:Evidence` epistemic
+// object via the SAME `as_claim` pattern the 9 families above established.
+pub mod causal_impact;
+pub mod community;
+pub mod entity_resolution;
+pub mod ontology_gap;
+pub mod process_mining;
+pub mod retrieval_quality;
+pub mod risk_propagation;
+pub mod root_cause;

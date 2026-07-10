@@ -1392,6 +1392,43 @@ dependencies = [
 ]
 
 [[package]]
+name = "cyclonedds"
+version = "1.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2bd9478eb193be7d1c24333c100ba1550bc1b6beb21de57deaa8da8977f02ba1"
+dependencies = [
+ "cyclonedds-derive",
+ "cyclonedds-rust-sys",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "cyclonedds-derive"
+version = "1.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "52a4c85ad6b69b1b535def663c2a8651ad2b0143328532ff966c88e369eec0a4"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.118",
+]
+
+[[package]]
+name = "cyclonedds-rust-sys"
+version = "1.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a563fd5e383986426f94d2d2c38e139f96688ddc65ff6e135878c27eda5a66ea"
+dependencies = [
+ "cyclonedds-src",
+]
+
+[[package]]
+name = "cyclonedds-src"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "34af79be84e7d13cd10d289d251ae6befbefa852102571ae84adca3e26c550e5"
+
+[[package]]
 name = "darling"
 version = "0.20.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2096,7 +2133,10 @@ version = "0.1.0"
 dependencies = [
  "bincode",
  "cudarc",
+ "eg-modality",
+ "eg-numeric",
  "memmap2",
+ "ndarray",
  "rand 0.8.6",
  "rand_chacha 0.3.1",
  "rayon",
@@ -2107,11 +2147,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "eg-audio"
+version = "0.1.0"
+dependencies = [
+ "eg-modality",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "eg-compute"
 version = "0.27.0"
 dependencies = [
  "criterion",
  "eg-core",
+ "eg-modality",
  "eg-types",
  "hex",
  "nalgebra 0.32.6",
@@ -2149,6 +2199,7 @@ dependencies = [
  "aho-corasick",
  "dashmap",
  "eg-ann",
+ "eg-modality",
  "eg-types",
  "hex",
  "hnsw_rs",
@@ -2163,9 +2214,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "eg-epistemic"
+version = "0.1.0"
+dependencies = [
+ "eg-compute",
+ "eg-core",
+ "eg-modality",
+ "eg-types",
+ "rmp-serde",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tracing",
+]
+
+[[package]]
 name = "eg-geo"
 version = "0.1.0"
 dependencies = [
+ "eg-modality",
  "serde",
  "serde_json",
 ]
@@ -2186,11 +2253,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "eg-image"
+version = "0.1.0"
+dependencies = [
+ "eg-modality",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "eg-kvcache"
 version = "0.1.0"
 dependencies = [
+ "eg-modality",
  "lz4_flex 0.13.1",
  "redb",
+ "serde",
  "tempfile",
  "zstd",
 ]
@@ -2202,6 +2280,7 @@ dependencies = [
  "apache-avro",
  "arrow",
  "bytes",
+ "eg-modality",
  "parquet",
  "serde",
  "serde_json",
@@ -2209,9 +2288,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "eg-modality"
+version = "0.1.0"
+dependencies = [
+ "eg-types",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "eg-numeric"
 version = "0.1.0"
 dependencies = [
+ "eg-modality",
  "faer",
  "ndarray",
  "ndarray-stats",
@@ -2220,6 +2309,7 @@ dependencies = [
  "rand 0.8.6",
  "rand_chacha 0.3.1",
  "rand_distr",
+ "serde",
  "statrs",
 ]
 
@@ -2228,9 +2318,13 @@ name = "eg-plan"
 version = "0.33.0"
 dependencies = [
  "criterion",
+ "eg-audio",
  "eg-compute",
  "eg-core",
+ "eg-epistemic",
  "eg-geo",
+ "eg-image",
+ "eg-modality",
  "eg-query",
  "eg-rdf",
  "eg-stream",
@@ -2238,6 +2332,7 @@ dependencies = [
  "eg-text",
  "eg-tsdb",
  "eg-types",
+ "eg-video",
  "eg-wasm",
  "hex",
  "hmac 0.12.1",
@@ -2285,6 +2380,7 @@ version = "0.1.0"
 dependencies = [
  "eg-core",
  "eg-geo",
+ "eg-modality",
  "eg-shacl",
  "md-5 0.10.6",
  "oxjsonld",
@@ -2306,6 +2402,7 @@ dependencies = [
 name = "eg-shacl"
 version = "0.1.0"
 dependencies = [
+ "eg-modality",
  "eg-rdf",
  "regex",
  "serde",
@@ -2316,6 +2413,7 @@ dependencies = [
 name = "eg-shex"
 version = "0.1.0"
 dependencies = [
+ "eg-modality",
  "eg-rdf",
  "regex",
  "serde",
@@ -2326,6 +2424,7 @@ dependencies = [
 name = "eg-stream"
 version = "0.1.0"
 dependencies = [
+ "eg-modality",
  "serde",
  "serde_json",
  "tokio",
@@ -2336,6 +2435,7 @@ name = "eg-tensor"
 version = "0.1.0"
 dependencies = [
  "cudarc",
+ "eg-modality",
  "eg-tsdb",
  "serde",
  "serde_json",
@@ -2345,6 +2445,7 @@ dependencies = [
 name = "eg-text"
 version = "0.33.0"
 dependencies = [
+ "eg-modality",
  "serde",
  "tantivy",
  "tempfile",
@@ -2359,6 +2460,7 @@ dependencies = [
  "datafusion",
  "eg-compute",
  "eg-core",
+ "eg-modality",
  "redb",
  "rmp-serde",
  "serde",
@@ -2375,6 +2477,15 @@ dependencies = [
  "serde_bytes",
  "serde_json",
  "strum 0.27.2",
+]
+
+[[package]]
+name = "eg-video"
+version = "0.1.0"
+dependencies = [
+ "eg-modality",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -2471,7 +2582,7 @@ dependencies = [
 
 [[package]]
 name = "epistemic-graph"
-version = "2.14.0"
+version = "2.15.0"
 dependencies = [
  "ahash 0.8.12",
  "anyhow",
@@ -2481,12 +2592,15 @@ dependencies = [
  "chacha20poly1305",
  "clap",
  "criterion",
+ "cyclonedds",
  "dashmap",
  "eg-ann",
  "eg-compute",
  "eg-core",
+ "eg-epistemic",
  "eg-graphql",
  "eg-kvcache",
+ "eg-modality",
  "eg-numeric",
  "eg-plan",
  "eg-query",
@@ -4395,6 +4509,7 @@ dependencies = [
  "portable-atomic",
  "portable-atomic-util",
  "rawpointer",
+ "serde",
 ]
 
 [[package]]

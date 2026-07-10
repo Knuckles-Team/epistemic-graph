@@ -1248,6 +1248,119 @@ impl CrossShardCoordinator {
             }
         }
     }
+
+    /// EG-349 (CONCEPT:EG-KG.txn.concept-3): the MULTI-NODE generalization of
+    /// [`acquire_ollp_with_restart`] — the gap that function's doc comment left open
+    /// ("routing a restarted txn into a specific epoch of the multi-node fan-in").
+    ///
+    /// [`acquire_ollp_with_restart`] re-sequences a stale OLLP txn by drawing a fresh
+    /// [`GlobalSeq`] from a single-node [`CalvinSequencer`] — one ordering domain. This
+    /// version instead routes EVERY attempt (the original try and every restart) into a
+    /// specific epoch of the multi-node [`epoch_fan_in`]:
+    ///
+    ///   1. **Route.** [`epoch_for_restart`] maps `(base_epoch, attempts)` to the target
+    ///      epoch — a PURE function (no clock, no randomness): the original attempt
+    ///      targets `base_epoch`, each restart advances exactly one epoch. Any node
+    ///      computing the same `(base_epoch, attempts)` derives the identical target
+    ///      epoch.
+    ///   2. **Register.** This node's local input for the txn is registered into that
+    ///      epoch via `fan_in.register_local` — the same [`NodeInput`] shape
+    ///      [`epoch_fan_in`] merges. (A real deployment gossips/replicates each node's
+    ///      per-epoch batch to every other node before the epoch closes; `fan_in` here is
+    ///      the post-exchange view, exactly as the `xshard_harness` populates it —
+    ///      wiring the actual cross-node transport is the same open follow-up the 2PC
+    ///      cross-node participant path above documents, not a correctness gap in the
+    ///      merge itself.)
+    ///   3. **Derive the lock-phase seq.** `fan_in.packed_seq_for` runs the SAME pure
+    ///      [`epoch_fan_in`] merge every node runs over the (post-exchange) per-epoch
+    ///      batch and packs `(epoch, position-in-epoch)` into one globally-comparable
+    ///      [`GlobalSeq`] ([`epoch_packed_seq`]) — lexicographic by epoch first, so a
+    ///      later-epoch attempt can never sort before an earlier-epoch one, matching
+    ///      [`EpochBatch`]'s documented cross-epoch order. Every node that has the same
+    ///      exchanged batch computes the IDENTICAL packed seq.
+    ///   4. **Lock + re-validate** exactly as [`acquire_ollp_with_restart`]: register the
+    ///      predicted set at the packed seq, await the ordered locks, re-check the recon
+    ///      under the held lock. Stale ⇒ release and restart into the NEXT epoch; valid
+    ///      ⇒ return the acquisition for the caller's lock-free deterministic-execution
+    ///      phase.
+    ///
+    /// Bounded by `max_restarts`, identically to the single-domain path.
+    ///
+    /// **Determinism (honest scope, mirrors [`acquire_ollp_with_restart`]'s note).** The
+    /// restart decision (stale vs. valid) is a pure function of committed,
+    /// Raft-replicated state observed under the epoch-packed-seq-ordered lock — every
+    /// replica replaying the identical exchanged per-epoch batches observes the same
+    /// committed value at lock-grant time, so every replica makes the SAME decision, the
+    /// SAME number of restarts, lands in the SAME target epoch at each attempt
+    /// ([`epoch_for_restart`] is pure), and therefore the SAME final packed seq — the
+    /// gap this closes. What remains open (documented, not weakened): the real
+    /// cross-node gossip/replication transport that populates `fan_in` with every peer's
+    /// batch before an epoch closes (this increment proves the merge + routing are
+    /// deterministic GIVEN that exchange; wiring the transport itself is the cross-host
+    /// soak follow-up).
+    #[cfg(any(feature = "calvin", test, feature = "harness"))]
+    #[allow(clippy::too_many_arguments)]
+    pub async fn acquire_ollp_with_restart_epoch<F>(
+        &self,
+        fan_in: &Arc<EpochFanInRegistry>,
+        node: NodeId,
+        base_epoch: u64,
+        txn_id: &str,
+        lockmgr: &Arc<OrderedLockManager>,
+        seeds: &[RecordKey],
+        derive: F,
+        max_restarts: u32,
+    ) -> Result<EpochOllpAcquired, String>
+    where
+        F: Fn(&BTreeMap<RecordKey, Option<Vec<u8>>>) -> RwSet,
+    {
+        let mut attempts: u32 = 0;
+        loop {
+            attempts += 1;
+
+            // 1. RECON — read the seeds and derive the predicted set (retain snapshot).
+            let mut observed: BTreeMap<RecordKey, Option<Vec<u8>>> = BTreeMap::new();
+            for k in seeds {
+                observed.insert(k.clone(), self.reconnoiter(k).await?);
+            }
+            let rwset = derive(&observed);
+
+            // 2. ROUTE — pure function of (base_epoch, attempts): the original try stays
+            //    in `base_epoch`, each restart moves one epoch forward.
+            let epoch = epoch_for_restart(base_epoch, attempts);
+
+            // 3. Register this node's local input for the target epoch, then derive the
+            //    globally-comparable packed seq from the deterministic fan-in merge.
+            fan_in.register_local(node, epoch, txn_id);
+            let seq = fan_in.packed_seq_for(epoch, txn_id).ok_or_else(|| {
+                format!("EG-349: txn {txn_id} missing from its own epoch {epoch} fan-in")
+            })?;
+
+            // 4. LOCK — register + await the ordered locks at the epoch-packed seq.
+            let guard = lockmgr.acquire(seq, &rwset).await;
+
+            // 5. RE-VALIDATE under the held locks — identical semantics to the
+            //    single-domain path, just at a cross-epoch-comparable seq.
+            if self.recon_still_valid(&observed).await? {
+                return Ok(EpochOllpAcquired {
+                    epoch,
+                    seq,
+                    rwset,
+                    attempts,
+                    guard,
+                });
+            }
+
+            // STALE — drop the wrongly-predicted locks and restart into the NEXT epoch.
+            guard.release();
+            if attempts > max_restarts {
+                return Err(format!(
+                    "EG-349: OLLP recon still stale after {attempts} attempt(s) across \
+                     epochs {base_epoch}..={epoch} (max_restarts={max_restarts}); aborting"
+                ));
+            }
+        }
+    }
 }
 
 /// The dedicated graph that holds Raft-replicated cross-shard commit decisions
@@ -1737,6 +1850,145 @@ pub fn epoch_fan_in(epoch: u64, per_node: &BTreeMap<NodeId, Vec<NodeInput>>) -> 
     EpochBatch { epoch, inputs }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// EG-349: routing a restarted OLLP txn into a specific epoch of the multi-node
+// fan-in (CONCEPT:EG-KG.txn.concept-3) — the gap `acquire_ollp_with_restart`'s doc
+// comment documented but left open.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// EG-349 (CONCEPT:EG-KG.txn.concept-3): the epoch a restarted OLLP txn is routed into,
+/// given the epoch its ORIGINAL attempt targeted and how many attempts (including the
+/// original) have run so far. A PURE function of `(base_epoch, attempts)` — no
+/// node-local clock, no randomness — so every node computing the same two inputs derives
+/// the identical target epoch.
+///
+/// Attempt 1 (the original try, before any restart) targets `base_epoch` itself — the
+/// txn does not consume a fresh epoch just to make its first attempt. Attempt 2 (the
+/// first restart) targets `base_epoch + 1`; attempt N targets `base_epoch + (N - 1)`.
+/// This generalizes [`acquire_ollp_with_restart`]'s single-domain rule ("a restart draws
+/// a NEW, strictly-higher `GlobalSeq`") from "a fresh position in one sequencer's total
+/// order" to "the next not-yet-closed epoch of the multi-node fan-in": a restarted
+/// attempt can never land in an epoch that has already closed (every prior epoch it
+/// passed through), which is what lets [`epoch_packed_seq`] give it a seq that always
+/// sorts after every txn already folded into an earlier epoch's merged batch.
+#[cfg(any(feature = "calvin", test, feature = "harness"))]
+pub fn epoch_for_restart(base_epoch: u64, attempts: u32) -> u64 {
+    base_epoch + u64::from(attempts.saturating_sub(1))
+}
+
+/// EG-349 (CONCEPT:EG-KG.txn.concept-3): combine an epoch number + a txn's 1-based
+/// position within that epoch's [`epoch_fan_in`]-merged batch into ONE
+/// globally-comparable [`GlobalSeq`]. [`EpochBatch`]'s own docs state the cross-epoch
+/// total order is lexicographic `(epoch, global_seq)`; packing `epoch` into the high 32
+/// bits and `position_in_epoch` into the low 32 bits makes plain numeric `Ord` on the
+/// packed `u64` equal to that lexicographic order — so the SAME [`OrderedLockManager`]
+/// (which only ever compares `GlobalSeq: Ord`) enforces cross-epoch ordering with no
+/// changes to the lock manager itself. Both halves are asserted to fit 32 bits — an
+/// honest, documented capacity bound (ample for any one epoch's batch size or the
+/// number of epochs a deployment runs before GC), not a silent wraparound.
+#[cfg(any(feature = "calvin", test, feature = "harness"))]
+pub fn epoch_packed_seq(epoch: u64, position_in_epoch: u64) -> GlobalSeq {
+    assert!(
+        epoch <= u64::from(u32::MAX),
+        "EG-349: epoch {epoch} exceeds the 32-bit packing capacity"
+    );
+    assert!(
+        position_in_epoch <= u64::from(u32::MAX),
+        "EG-349: epoch position {position_in_epoch} exceeds the 32-bit packing capacity"
+    );
+    GlobalSeq((epoch << 32) | position_in_epoch)
+}
+
+/// EG-349 (CONCEPT:EG-KG.txn.concept-3): the multi-node epoch exchange point an OLLP
+/// restart routes into. Holds, per epoch, every node's locally-sequenced [`NodeInput`]s
+/// — the exact shape [`epoch_fan_in`] merges.
+///
+/// **Honest scope.** A real deployment populates this via gossip/replication of each
+/// node's per-epoch batch before the epoch closes — that transport is the same open
+/// cross-node follow-up the 2PC section above documents (participants are local groups
+/// on the coordinator node today), not wired here. The `xshard_harness` populates it
+/// directly to simulate the post-exchange view in-process (the throwaway loopback
+/// multi-node rig): that is sufficient to prove the fan-in merge + the restart's epoch
+/// routing are deterministic GIVEN the exchange, which is the property every node's
+/// vote-free execution relies on. A real cross-host soak of the actual gossip transport
+/// is the remaining validation step.
+#[cfg(any(feature = "calvin", test, feature = "harness"))]
+#[derive(Debug, Default)]
+pub struct EpochFanInRegistry {
+    per_epoch: std::sync::Mutex<BTreeMap<u64, BTreeMap<NodeId, Vec<NodeInput>>>>,
+}
+
+#[cfg(any(feature = "calvin", test, feature = "harness"))]
+impl EpochFanInRegistry {
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self::default())
+    }
+
+    /// Register `txn_id` as THIS node's next locally-sequenced input for `epoch`: the
+    /// `local_seq` is this node's count of prior registrations in that epoch, plus one —
+    /// a per-`(node, epoch)` monotone counter, exactly the [`NodeInput::local_seq`]
+    /// contract [`epoch_fan_in`] expects. Lock-scoped so concurrent registrations on one
+    /// node for one epoch still get distinct, strictly increasing `local_seq`s.
+    pub fn register_local(&self, node: NodeId, epoch: u64, txn_id: impl Into<String>) -> NodeInput {
+        let mut map = self.per_epoch.lock().unwrap();
+        let inputs = map.entry(epoch).or_default().entry(node).or_default();
+        let local_seq = inputs.len() as u64 + 1;
+        let input = NodeInput::new(node, local_seq, txn_id);
+        inputs.push(input.clone());
+        input
+    }
+
+    /// Snapshot every node's registered batch for `epoch` (CONCEPT:EG-KG.txn.concept-3) —
+    /// what a node would hold locally once the cross-node exchange for that epoch has
+    /// completed. Exposed so a test (or a peer node) can independently re-derive the
+    /// fan-in from the identical exchanged data and confirm it agrees byte-for-byte.
+    pub fn snapshot(&self, epoch: u64) -> BTreeMap<NodeId, Vec<NodeInput>> {
+        self.per_epoch
+            .lock()
+            .unwrap()
+            .get(&epoch)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    /// Run the SAME pure [`epoch_fan_in`] merge every node runs over `epoch`'s snapshot.
+    /// Deterministic given the snapshot; the snapshot itself is exactly what every node's
+    /// local registry holds once gossip completes for that epoch.
+    pub fn fan_in(&self, epoch: u64) -> EpochBatch {
+        epoch_fan_in(epoch, &self.snapshot(epoch))
+    }
+
+    /// This txn's globally-comparable packed seq within `epoch`'s merged batch (CONCEPT:
+    /// EG-KG.txn.concept-3) — `None` if it was never registered into that epoch by any
+    /// node.
+    pub fn packed_seq_for(&self, epoch: u64, txn_id: &str) -> Option<GlobalSeq> {
+        let batch = self.fan_in(epoch);
+        batch
+            .inputs
+            .iter()
+            .position(|si| si.txn_id == txn_id)
+            .map(|pos| epoch_packed_seq(epoch, pos as u64 + 1))
+    }
+}
+
+/// EG-349 (CONCEPT:EG-KG.txn.concept-3): a successful OLLP acquisition after
+/// [`CrossShardCoordinator::acquire_ollp_with_restart_epoch`]'s multi-node epoch-routing
+/// restart loop. Carries the `epoch` the txn ultimately validated in (a restart advances
+/// this past every failed attempt's epoch), the epoch-packed [`GlobalSeq`] it validated
+/// at, its now-fresh predicted [`RwSet`], the held [`LockGuard`] the caller runs the
+/// deterministic-execution phase under, and `attempts` (total tries incl. the successful
+/// one — `attempts > 1` iff at least one restart, hence at least one epoch advance,
+/// happened).
+#[cfg(any(feature = "calvin", test, feature = "harness"))]
+#[derive(Debug)]
+pub struct EpochOllpAcquired {
+    pub epoch: u64,
+    pub seq: GlobalSeq,
+    pub rwset: RwSet,
+    pub attempts: u32,
+    pub guard: LockGuard,
+}
+
 #[cfg(test)]
 mod calvin_tests {
     //! Pure unit tests for the CONCEPT:EG-KG.txn.calvin-deterministic-ordering Calvin deterministic-ordering layer
@@ -1917,5 +2169,72 @@ mod calvin_tests {
         b.insert(1, vec![NodeInput::new(1, 1, "a1")]);
         b.insert(2, vec![NodeInput::new(2, 1, "b1")]);
         assert_eq!(epoch_fan_in(3, &a), epoch_fan_in(3, &b));
+    }
+
+    // ── EG-349: restarted-OLLP multi-node epoch routing (pure-logic proofs) ───────
+
+    /// EG-349: the original attempt stays in `base_epoch`; each restart advances exactly
+    /// one epoch — a pure function of `(base_epoch, attempts)`.
+    #[test]
+    fn eg349_epoch_for_restart_advances_one_epoch_per_attempt() {
+        assert_eq!(epoch_for_restart(5, 1), 5, "original attempt: no advance");
+        assert_eq!(epoch_for_restart(5, 2), 6, "first restart: +1 epoch");
+        assert_eq!(epoch_for_restart(5, 3), 7, "second restart: +2 epochs");
+        // Same inputs ⇒ same output on any node (no clock/random involved).
+        assert_eq!(epoch_for_restart(5, 2), epoch_for_restart(5, 2));
+    }
+
+    /// EG-349: the packed seq orders strictly by epoch first, regardless of the
+    /// in-epoch position — a later epoch NEVER sorts before an earlier one.
+    #[test]
+    fn eg349_epoch_packed_seq_orders_lexicographically_by_epoch_first() {
+        let late_epoch_first_position = epoch_packed_seq(6, 1);
+        let early_epoch_last_position = epoch_packed_seq(5, 1_000_000);
+        assert!(
+            late_epoch_first_position > early_epoch_last_position,
+            "epoch 6 position 1 must sort after epoch 5 position 1_000_000"
+        );
+        // Within the SAME epoch, position still orders normally.
+        assert!(epoch_packed_seq(5, 1) < epoch_packed_seq(5, 2));
+    }
+
+    /// EG-349: two independent registries fed the IDENTICAL exchanged per-epoch batch
+    /// (simulating two different nodes after gossip) derive the byte-identical merged
+    /// order and therefore the identical packed seq for every txn — the core "any node
+    /// agrees" property the restart routing relies on.
+    #[test]
+    fn eg349_two_registries_over_identical_exchanged_batch_agree() {
+        let reg_node_view_1 = EpochFanInRegistry::new();
+        let reg_node_view_2 = EpochFanInRegistry::new();
+        for reg in [&reg_node_view_1, &reg_node_view_2] {
+            reg.register_local(1, 9, "n1-a");
+            reg.register_local(2, 9, "n2-a");
+        }
+        assert_eq!(
+            reg_node_view_1.fan_in(9),
+            reg_node_view_2.fan_in(9),
+            "two nodes over the identical exchanged batch derive the same merge"
+        );
+        assert_eq!(
+            reg_node_view_1.packed_seq_for(9, "n2-a"),
+            reg_node_view_2.packed_seq_for(9, "n2-a"),
+            "and therefore agree on any one txn's packed seq"
+        );
+    }
+
+    /// EG-349: registering the SAME txn into successive epochs (simulating restart
+    /// attempts 1 then 2) yields a strictly increasing packed seq — a restarted attempt
+    /// can never sort before its own earlier (stale, released) attempt.
+    #[test]
+    fn eg349_restart_into_next_epoch_strictly_increases_packed_seq() {
+        let reg = EpochFanInRegistry::new();
+        reg.register_local(1, 5, "t-ollp"); // attempt 1 → base_epoch 5
+        let attempt1_seq = reg.packed_seq_for(5, "t-ollp").unwrap();
+        reg.register_local(1, 6, "t-ollp"); // attempt 2 (restart) → epoch 6
+        let attempt2_seq = reg.packed_seq_for(6, "t-ollp").unwrap();
+        assert!(
+            attempt2_seq > attempt1_seq,
+            "the restarted attempt's epoch-packed seq must sort strictly after the stale one"
+        );
     }
 }

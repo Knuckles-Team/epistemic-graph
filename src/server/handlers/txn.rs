@@ -153,6 +153,31 @@ pub(crate) async fn try_handle(
             sparql,
             graph,
         } => Ok(stage_construct(state, req_id, &txn_id, graph.as_deref(), sparql).await),
+        #[cfg(feature = "query")]
+        Method::TxnPlanWriteback {
+            txn_id,
+            plan,
+            anchor_id,
+            relationship,
+            graph,
+        } => Ok(stage_plan_writeback(
+            state,
+            req_id,
+            &txn_id,
+            graph.as_deref(),
+            plan,
+            anchor_id,
+            relationship,
+        )
+        .await),
+        #[cfg(feature = "epistemic")]
+        Method::TxnMaterializeBelief {
+            txn_id,
+            node_id,
+            graph,
+        } => Ok(
+            stage_materialize_belief(state, req_id, &txn_id, graph.as_deref(), node_id).await,
+        ),
         Method::Commit { txn_id } => Ok(commit(state, req_id, caller, &txn_id).await),
         Method::Rollback { txn_id } => Ok(rollback(state, req_id, &txn_id).await),
         other => Err(other),
@@ -613,6 +638,170 @@ async fn stage_construct(
     Response::ok(req_id, ResultPayload::Bool(true))
 }
 
+/// Lower a planner writeback (CONCEPT:EG-KG.query.plan-dag, D7 — the planner-writeback
+/// ACID seam) to graph-native `AddEdge` methods: run `plan` READ-ONLY against `core`'s
+/// COMMITTED snapshot (the same "evaluate now, lower the result" shape
+/// [`construct_to_methods`] uses for SPARQL CONSTRUCT), then materialize each id in the
+/// result `RowSet` as an edge FROM `anchor_id` carrying `relationship` — e.g. a
+/// `Reason`/`Traverse`-inferred edge set. Shared by the RPC [`stage_plan_writeback`].
+#[cfg(feature = "query")]
+pub(crate) fn plan_writeback_to_methods(
+    core: &crate::graph::GraphCore,
+    plan: eg_plan::Plan,
+    anchor_id: &str,
+    relationship: &str,
+) -> Result<Vec<Method>, String> {
+    let view = core.analysis_snapshot();
+    let semantic = core.semantic_store.read().clone();
+    let ctx = eg_plan::PlanCtx::new(&view, &semantic);
+    let rs = eg_plan::execute(&plan, &ctx)?;
+    let props = rmp_serde::to_vec_named(&serde_json::json!({ "relationship": relationship }))
+        .map_err(|e| format!("plan writeback property encode: {e}"))?;
+    Ok(rs
+        .ids()
+        .into_iter()
+        .map(|target_id| Method::AddEdge {
+            source_id: anchor_id.to_string(),
+            target_id,
+            properties_msgpack: props.clone(),
+        })
+        .collect())
+}
+
+/// Stage a PLANNER WRITEBACK into the txn's cross-modal write-set (CONCEPT:EG-KG.query.plan-dag,
+/// D7). Mirrors [`stage_construct`]'s shape exactly: evaluate now against the committed
+/// snapshot, lower to `AddEdge` methods, stage via `GraphTxnState::stage_plan_writeback`
+/// so the materialized edges land in the SAME cross-modal `WriteTransaction` as the
+/// txn's other staged modalities. Acks `Bool(true)`.
+#[cfg(feature = "query")]
+async fn stage_plan_writeback(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+    txn_id: &str,
+    target_graph: Option<&str>,
+    plan: eg_plan::Plan,
+    anchor_id: String,
+    relationship: String,
+) -> Response {
+    let s = state.read().await;
+    let core = match resolve_txn_default_core(&s, req_id, txn_id, target_graph, "plan writeback") {
+        Ok(c) => c,
+        Err(resp) => return resp,
+    };
+    let methods = match plan_writeback_to_methods(&core, plan, &anchor_id, &relationship) {
+        Ok(m) => m,
+        Err(e) => return Response::err(req_id, format!("TxnPlanWriteback: {e}")),
+    };
+    if let Some(e) = s.open_txns.get(txn_id) {
+        e.value()
+            .lock()
+            .stage_plan_writeback(&core, methods, now_ms());
+    }
+    Response::ok(req_id, ResultPayload::Bool(true))
+}
+
+/// Compute the propagated belief for `node_id` over `core`'s COMMITTED snapshot and
+/// lower it to ONE unconditional `CompareAndSetNodeFields` method that writes the
+/// derived `BeliefState.confidence` back onto that node's `NodeData.confidence`
+/// (CONCEPT:EG-KG.epistemic.epistemic-substrate, D5 — the "explicit, logged
+/// materialize belief" op the `eg_epistemic` crate docs call for: the derived belief
+/// is otherwise NEVER written back). `conditions_msgpack` is an EMPTY object
+/// (vacuously true — `compare_and_set_fields` still requires the node to exist, which
+/// is checked HERE so a missing node is rejected with a clear error at STAGE time
+/// rather than a silently no-op'd CAS at commit).
+///
+/// Replay/idempotency: the confidence value is computed ONCE, here, at stage time, and
+/// baked verbatim into `updates_msgpack` — exactly like `plan_writeback_to_methods`/
+/// `construct_to_methods` freeze their evaluated result before staging. A WAL replay or
+/// a duplicate commit of the SAME staged method therefore re-applies the SAME literal
+/// bytes (a true idempotent CAS), never re-derives a drifted value from the
+/// (by-then-already-updated) stored confidence — which is precisely the ratchet the
+/// crate docs warn a naive "always re-propagate from current state" design would risk.
+#[cfg(feature = "epistemic")]
+pub(crate) fn materialize_belief_to_methods(
+    core: &crate::graph::GraphCore,
+    node_id: &str,
+) -> Result<(Vec<Method>, f64), String> {
+    if !core.has_node(node_id) {
+        return Err(format!("node '{node_id}' not found"));
+    }
+    let view = core.analysis_snapshot();
+    let bg = eg_epistemic::BeliefGraph::from_graph_view(&view);
+    let policy = eg_epistemic::AuthorityPolicy::default();
+    let confidence = eg_epistemic::propagate_confidence(&bg, node_id, &policy)
+        .confidence
+        .clamp(0.0, 1.0);
+    let updates_msgpack = rmp_serde::to_vec_named(&serde_json::json!({ "confidence": confidence }))
+        .map_err(|e| format!("materialize belief encode: {e}"))?;
+    let conditions_msgpack =
+        rmp_serde::to_vec_named(&serde_json::Map::<String, serde_json::Value>::new())
+            .map_err(|e| format!("materialize belief encode: {e}"))?;
+    Ok((
+        vec![Method::CompareAndSetNodeFields {
+            node_id: node_id.to_string(),
+            conditions_msgpack,
+            updates_msgpack,
+        }],
+        confidence,
+    ))
+}
+
+/// Stage a MATERIALIZE-BELIEF op into the txn's cross-modal write-set (CONCEPT:
+/// EG-KG.epistemic.epistemic-substrate, D5). Mirrors [`stage_plan_writeback`]'s shape
+/// exactly: evaluate now against the committed snapshot, lower to a durable Method,
+/// stage via `GraphTxnState::stage_plan_writeback` so the write lands in the SAME
+/// cross-modal `WriteTransaction` as the txn's other staged modalities at commit —
+/// where it rides the ALREADY-audited `CompareAndSetNodeFields` path (the
+/// tamper-evident hash chain, CONCEPT:EG-KG.sharding.row-level-security, when
+/// `security` is built, PLUS the unconditional in-memory ledger every CAS appends to
+/// regardless) — never silent, no new audit mechanism. OPT-IN: nothing else stages
+/// this op; it only ever runs when a caller explicitly sends `TxnMaterializeBelief`.
+/// Returns the computed confidence in the ack payload (`{node_id, confidence}`) so the
+/// caller can observe the derived value before deciding to commit.
+#[cfg(feature = "epistemic")]
+async fn stage_materialize_belief(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+    txn_id: &str,
+    target_graph: Option<&str>,
+    node_id: String,
+) -> Response {
+    let s = state.read().await;
+    let entry = match s.open_txns.get(txn_id) {
+        Some(e) => e,
+        None => return Response::err(req_id, format!("unknown transaction '{}'", txn_id)),
+    };
+    let default_graph = entry.value().lock().graph.clone();
+    if let Some(g) = target_graph {
+        if g != default_graph {
+            return Response::err(
+                req_id,
+                "cross-modal materialize-belief must target the txn's default graph",
+            );
+        }
+    }
+    let core = match s.registry.get(&default_graph) {
+        Some(g) => g.core.clone(),
+        None => return Response::err(req_id, format!("Graph '{}' not found", default_graph)),
+    };
+    let (methods, confidence) = match materialize_belief_to_methods(&core, &node_id) {
+        Ok(m) => m,
+        Err(e) => return Response::err(req_id, format!("TxnMaterializeBelief: {e}")),
+    };
+    if let Some(e) = s.open_txns.get(txn_id) {
+        e.value()
+            .lock()
+            .stage_plan_writeback(&core, methods, now_ms());
+    }
+    Response::ok(
+        req_id,
+        ResultPayload::Json(serde_json::json!({
+            "node_id": node_id,
+            "confidence": confidence,
+        })),
+    )
+}
+
 /// `Commit`: the OCC serialization point. Validate the read-set under the held
 /// topology write guard; on success apply the staged write-set atomically through
 /// ONE `GraphTxn`, drop the guard, then persist each staged method and mark dirty
@@ -897,14 +1086,16 @@ pub(crate) async fn commit_cross_modal_txn(
 
     let fname = crate::persist::sanitize(&txn.graph);
     // Graph-topology methods for the durable + in-memory apply: the ordinary staged
-    // write-set PLUS the OWL-axiom and SPARQL-CONSTRUCT triples already lowered to
-    // AddNode/AddEdge at stage time (CONCEPT:EG-KG.txn.extended-cross-modal/362). Folding them here means they
+    // write-set PLUS the OWL-axiom, SPARQL-CONSTRUCT, and PLANNER-WRITEBACK (D7,
+    // CONCEPT:EG-KG.query.plan-dag) triples already lowered to AddNode/AddEdge at stage
+    // time (CONCEPT:EG-KG.txn.extended-cross-modal/362). Folding them here means they
     // ride the SAME `apply_method_rows` / `apply_staged` path as any other mutation, so
-    // the committed axioms/CONSTRUCT triples are durable + visible atomically with the
-    // txn's other modalities.
+    // the committed axioms/CONSTRUCT/plan-writeback triples are durable + visible
+    // atomically with the txn's other modalities.
     let mut methods: Vec<Method> = txn.write_set.clone();
     methods.extend(txn.axioms.iter().cloned());
     methods.extend(txn.constructs.iter().cloned());
+    methods.extend(txn.plan_writeback.iter().cloned());
     // Time-series measurement batches land into the graph's SERIES tables in the SAME
     // WriteTransaction (CONCEPT:EG-KG.backend.cross-modal-atomic-commit).
     let measurements: Vec<crate::MeasurementBatch> =
@@ -1196,5 +1387,138 @@ fn apply_staged(gtxn: &mut crate::graph::GraphTxn<'_>, method: &Method) {
         // Only durable mutations are ever staged (the protocol restricts Txn* to
         // this set); any other variant here is unreachable.
         _ => {}
+    }
+}
+
+#[cfg(all(test, feature = "epistemic"))]
+mod materialize_belief_tests {
+    use super::*;
+    use crate::graph::GraphCore;
+
+    fn node(props: serde_json::Value) -> Vec<u8> {
+        rmp_serde::to_vec_named(&props).unwrap()
+    }
+
+    fn apply_cas(core: &GraphCore, m: &Method) -> bool {
+        let Method::CompareAndSetNodeFields {
+            node_id,
+            conditions_msgpack,
+            updates_msgpack,
+        } = m
+        else {
+            panic!("expected a CompareAndSetNodeFields method, got {m:?}");
+        };
+        let conditions =
+            rmp_serde::from_slice::<serde_json::Map<String, serde_json::Value>>(
+                conditions_msgpack,
+            )
+            .unwrap();
+        let updates =
+            rmp_serde::from_slice::<serde_json::Map<String, serde_json::Value>>(updates_msgpack)
+                .unwrap();
+        core.compare_and_set_fields(node_id, &conditions, &updates)
+    }
+
+    fn stored_confidence(core: &GraphCore, node_id: &str) -> f64 {
+        let blob = core.get_node_properties(node_id).expect("node exists");
+        let v: serde_json::Value = rmp_serde::from_slice(&blob).unwrap();
+        v.get("confidence").and_then(|c| c.as_f64()).unwrap()
+    }
+
+    /// D5: a claim with a supporting evidence node propagates to a HIGHER belief than
+    /// its bare stored prior — and the lowered Method, once applied, writes that exact
+    /// derived value onto `NodeData.confidence` (materialize belief writes).
+    #[test]
+    fn materialize_belief_writes_the_propagated_confidence() {
+        let core = GraphCore::new();
+        core.add_node(
+            "claim".into(),
+            node(serde_json::json!({"type": "Claim", "confidence": 0.5})),
+        );
+        core.add_node(
+            "evidence".into(),
+            node(serde_json::json!({"type": "Evidence", "confidence": 0.9})),
+        );
+        let _ = core.add_edge(
+            "evidence".into(),
+            "claim".into(),
+            node(serde_json::json!({"relationship_type": "SUPPORTS"})),
+        );
+
+        let (methods, confidence) =
+            materialize_belief_to_methods(&core, "claim").expect("node exists");
+        assert_eq!(methods.len(), 1);
+        assert!(
+            confidence > 0.5,
+            "support should raise belief above the bare prior, got {confidence}"
+        );
+        assert!((0.0..=1.0).contains(&confidence));
+
+        assert!(apply_cas(&core, &methods[0]), "CAS must apply cleanly");
+        assert!(
+            (stored_confidence(&core, "claim") - confidence).abs() < 1e-12,
+            "the node's stored confidence must equal the derived belief exactly"
+        );
+    }
+
+    /// D5 idempotency: the LOWERED method carries a value FROZEN at stage time (not
+    /// re-derived at apply time), so replaying the identical method — exactly what a
+    /// WAL replay or a duplicate commit does — is a true no-op the second time: the
+    /// stored confidence stays byte-identical (never ratchets/drifts).
+    #[test]
+    fn materialize_belief_replay_is_idempotent() {
+        let core = GraphCore::new();
+        core.add_node(
+            "claim2".into(),
+            node(serde_json::json!({"type": "Claim", "confidence": 0.5})),
+        );
+        core.add_node(
+            "evidence2".into(),
+            node(serde_json::json!({"type": "Evidence", "confidence": 0.9})),
+        );
+        let _ = core.add_edge(
+            "evidence2".into(),
+            "claim2".into(),
+            node(serde_json::json!({"relationship_type": "SUPPORTS"})),
+        );
+
+        let (methods, confidence) =
+            materialize_belief_to_methods(&core, "claim2").expect("node exists");
+
+        assert!(apply_cas(&core, &methods[0]));
+        let first = stored_confidence(&core, "claim2");
+        assert!((first - confidence).abs() < 1e-12);
+
+        // Re-apply the SAME (already-computed) method — as WAL replay / a duplicate
+        // commit would — WITHOUT recomputing belief from the now-updated node.
+        assert!(apply_cas(&core, &methods[0]));
+        let second = stored_confidence(&core, "claim2");
+        assert_eq!(
+            first, second,
+            "replaying the identical lowered method must not drift the stored value"
+        );
+    }
+
+    /// D5 is audited: the write lands as an ordinary `CompareAndSetNodeFields` — the
+    /// SAME durable Method `audit::audit_line` already recognizes and chains (CONCEPT:
+    /// EG-KG.sharding.row-level-security) — never a bespoke, unaudited mutation.
+    #[test]
+    #[cfg(feature = "security")]
+    fn materialize_belief_rides_the_audited_cas_path() {
+        let core = GraphCore::new();
+        core.add_node("claim3".into(), node(serde_json::json!({"confidence": 0.5})));
+        let (methods, _confidence) =
+            materialize_belief_to_methods(&core, "claim3").expect("node exists");
+        let line = crate::audit::audit_line(&methods[0]);
+        assert_eq!(line.as_deref(), Some("CAS_NODE|claim3"));
+    }
+
+    /// D5 is opt-in: a node with no evidence at all keeps its bare stored prior
+    /// (`from_graph_view` treats a MISSING confidence as `1.0`, but here it IS set) —
+    /// proving materialize-belief never fabricates a belief where none was asserted.
+    #[test]
+    fn materialize_belief_missing_node_errors() {
+        let core = GraphCore::new();
+        assert!(materialize_belief_to_methods(&core, "nope").is_err());
     }
 }

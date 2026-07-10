@@ -51,6 +51,11 @@ pub mod tiered;
 pub mod value;
 pub mod version;
 
+// ModalityContract retrofit (CONCEPT:E4): `impl ModalityContract for StoredBlock`,
+// behind the crate's own opt-in `contract` feature (default OFF). See `src/contract.rs`.
+#[cfg(feature = "contract")]
+mod contract;
+
 pub use compress::{Codec, StoredBlock};
 pub use hash::content_hash;
 pub use shared::{BranchId, ForkStats, SharedKvBackend, SharedKvIndex, SharedStats, SnapshotId};
