@@ -1392,6 +1392,43 @@ dependencies = [
 ]
 
 [[package]]
+name = "cyclonedds"
+version = "1.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2bd9478eb193be7d1c24333c100ba1550bc1b6beb21de57deaa8da8977f02ba1"
+dependencies = [
+ "cyclonedds-derive",
+ "cyclonedds-rust-sys",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "cyclonedds-derive"
+version = "1.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "52a4c85ad6b69b1b535def663c2a8651ad2b0143328532ff966c88e369eec0a4"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.118",
+]
+
+[[package]]
+name = "cyclonedds-rust-sys"
+version = "1.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a563fd5e383986426f94d2d2c38e139f96688ddc65ff6e135878c27eda5a66ea"
+dependencies = [
+ "cyclonedds-src",
+]
+
+[[package]]
+name = "cyclonedds-src"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "34af79be84e7d13cd10d289d251ae6befbefa852102571ae84adca3e26c550e5"
+
+[[package]]
 name = "darling"
 version = "0.20.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2523,6 +2560,7 @@ dependencies = [
  "chacha20poly1305",
  "clap",
  "criterion",
+ "cyclonedds",
  "dashmap",
  "eg-ann",
  "eg-compute",
