@@ -24,6 +24,10 @@
 //! N-D arrays (images / sensor frames / genomics / ML features).
 
 mod blob;
+// ModalityContract PILOT retrofit (CONCEPT:E4): `impl ModalityContract for Tensor`,
+// behind the crate's own opt-in `contract` feature (default OFF). See module docs.
+#[cfg(feature = "contract")]
+mod contract;
 // GPU-accelerable tensor-op dispatch seam (CONCEPT:EG-KG.compute.gpu-distance-seam seam / EG-327 CUDA): the
 // elementwise kernel behind a `TensorBackend` trait with an always-compiled CPU fallback
 // and an optional real CUDA backend (feature `gpu-cuda`, out of pi).
