@@ -762,8 +762,8 @@ ros2-rmw = ["server", "streaming", "dep:cyclonedds", "dep:futures"]
 # to CPU. HEAVY + not a Pi requirement → kept OUT of pi/default/node/full; the orchestrator
 # folds them into an extras bundle. A default/pi build links NO cudarc (Pi contract, asserted
 # by `cargo tree --features pi`).
-gpu = ["ann", "eg-core/ann-gpu", "tensor", "eg-plan/tensor-gpu"]
-gpu-cuda = ["gpu", "eg-core/ann-gpu-cuda", "eg-plan/tensor-gpu-cuda"]
+gpu = ["ann", "eg-core/ann-gpu", "tensor", "eg-plan/tensor-gpu", "reasoning", "eg-compute/gpu"]
+gpu-cuda = ["gpu", "eg-core/ann-gpu-cuda", "eg-plan/tensor-gpu-cuda", "eg-compute/gpu-cuda"]
 # Opt-in umbrella (CONCEPT:EG-371) = the ONE main build (`full`) PLUS the heavy extras that
 # require an external toolchain/GPU to actually RUN (but build clean everywhere via
 # dynamic-loading, or a vendored cmake C build for `ros2-rmw`): the real CUDA backends +
