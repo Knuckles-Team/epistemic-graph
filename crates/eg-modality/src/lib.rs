@@ -57,3 +57,110 @@ pub use evidence::EvidenceSpan;
 pub use provenance::Provenance;
 pub use rowset::RowSetShape;
 pub use txn::{decode_staged, encode_staged, StagedWrite, WriteKind};
+
+// Dogfood the harness on a minimal in-crate type so `cargo test -p eg-modality`
+// exercises the trait + the whole `modality_conformance_tests!` battery directly
+// (the pilots — eg-tensor/eg-geo — additionally prove it on real modality values).
+// This also anchors the ONE modality (`SmokeValue`) that overrides EVERY method,
+// so the default-vs-overridden split is compiled + tested here, not only in a pilot.
+#[cfg(test)]
+mod harness_selftest {
+    use crate::{
+        ConformanceTestable, EvidenceSpan, ModalityContract, Provenance, RowSetShape, StagedWrite,
+    };
+    use serde::{Deserialize, Serialize};
+
+    /// A trivial modality value that overrides all 8 methods (4 core + 4 default) —
+    /// the "does everything" shape the retrofit plan expects `eg-epistemic` to take,
+    /// in miniature, purely to self-test the harness.
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+    struct SmokeValue {
+        label: String,
+        weight: f32,
+    }
+
+    impl ModalityContract for SmokeValue {
+        fn storage_kind(&self) -> &'static str {
+            "smoke"
+        }
+        fn to_rowset(&self, id: &str) -> RowSetShape {
+            RowSetShape::scored(id, self.weight)
+        }
+        fn txn_stage(&self, id: &str) -> StagedWrite {
+            StagedWrite::put(id, crate::encode_staged(self))
+        }
+        fn cdc_topic(&self) -> Option<&'static str> {
+            Some("smoke.cdc")
+        }
+        fn provenance(&self, _id: &str) -> Option<Provenance> {
+            Some(Provenance::asserted())
+        }
+        fn evidence(&self, _id: &str) -> Option<EvidenceSpan> {
+            Some(EvidenceSpan::DocumentSpan {
+                document_id: self.label.clone(),
+                start: 0,
+                end: 1,
+            })
+        }
+        fn policy_labels(&self, _id: &str) -> Vec<String> {
+            vec!["smoke:public".to_string()]
+        }
+        fn analytics_ops(&self) -> Vec<&'static str> {
+            vec!["identity"]
+        }
+    }
+
+    impl ConformanceTestable for SmokeValue {
+        fn conformance_sample() -> Self {
+            SmokeValue {
+                label: "sample".to_string(),
+                weight: 0.5,
+            }
+        }
+    }
+
+    // The generated battery (round-trip / rollback symmetry / provenance non-panic /
+    // cdc-topic-iff-declared / …) — run against the override-everything value.
+    crate::modality_conformance_tests!(SmokeValue);
+
+    #[test]
+    fn overrides_are_observed() {
+        let v = SmokeValue::conformance_sample();
+        assert_eq!(v.storage_kind(), "smoke");
+        assert_eq!(v.cdc_topic(), Some("smoke.cdc"));
+        assert!(v.provenance("x").is_some());
+        assert!(v.evidence("x").is_some());
+        assert_eq!(v.policy_labels("x"), vec!["smoke:public".to_string()]);
+        assert_eq!(v.analytics_ops(), vec!["identity"]);
+        assert_eq!(v.to_rowset("x").score, Some(0.5));
+    }
+
+    #[test]
+    fn default_methods_are_empty_when_not_overridden() {
+        // A second type that overrides ONLY the 4 core methods — proving the 4
+        // default-empty methods truly default without any boilerplate.
+        #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+        struct Bare;
+        impl ModalityContract for Bare {
+            fn storage_kind(&self) -> &'static str {
+                "bare"
+            }
+            fn to_rowset(&self, id: &str) -> RowSetShape {
+                RowSetShape::unranked(id)
+            }
+            fn txn_stage(&self, id: &str) -> StagedWrite {
+                StagedWrite::delete(id)
+            }
+            fn cdc_topic(&self) -> Option<&'static str> {
+                None
+            }
+        }
+        let b = Bare;
+        assert!(b.provenance("x").is_none());
+        assert!(b.evidence("x").is_none());
+        assert!(b.policy_labels("x").is_empty());
+        assert!(b.analytics_ops().is_empty());
+        // A Delete stages no payload.
+        assert_eq!(b.txn_stage("x").kind, crate::WriteKind::Delete);
+    }
+}
