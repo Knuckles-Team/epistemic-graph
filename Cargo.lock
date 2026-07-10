@@ -2108,6 +2108,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "eg-audio"
+version = "0.1.0"
+dependencies = [
+ "eg-modality",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "eg-compute"
 version = "0.27.0"
 dependencies = [
@@ -2202,6 +2211,15 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+]
+
+[[package]]
+name = "eg-image"
+version = "0.1.0"
+dependencies = [
+ "eg-modality",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -2417,6 +2435,15 @@ dependencies = [
  "serde_bytes",
  "serde_json",
  "strum 0.27.2",
+]
+
+[[package]]
+name = "eg-video"
+version = "0.1.0"
+dependencies = [
+ "eg-modality",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
