@@ -3965,6 +3965,62 @@ pub struct ExplainPlanResult {
     pub applied_rules: Vec<String>,
 }
 
+/// Wire mirror of `eg_modality::EvidenceSpan` (CONCEPT:E4/X1) — a DAG-safe DUP, not a
+/// re-export: `eg_types` sits BELOW `eg_modality` in the crate DAG (`eg-modality`
+/// depends on `eg-types`, never the reverse — see its own crate docs), so `eg_types`
+/// cannot depend on it, exactly the same reason `eg_modality::RowSetShape` is its own
+/// small dup of `eg_plan`'s real `RowSet` `Row` rather than a re-export. Every variant
+/// mirrors `eg_modality::evidence::EvidenceSpan` 1:1; the facade (which depends on
+/// BOTH `eg_plan` — hence transitively `eg_modality` — and `eg_types`) maps one to the
+/// other in `explain_provenance` (`src/server/handlers/query.rs`).
+#[cfg(feature = "query")]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum EvidenceSpanWire {
+    /// A character range `[start, end)` inside a text document.
+    DocumentSpan {
+        document_id: String,
+        start: usize,
+        end: usize,
+    },
+    /// A rectangular cell range inside a tabular source (inclusive bounds).
+    TableCellRange {
+        table_id: String,
+        row_start: usize,
+        row_end: usize,
+        col_start: usize,
+        col_end: usize,
+    },
+    /// A pixel-space rectangular region of an image.
+    ImageRegion {
+        image_id: String,
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+    },
+    /// A time range (milliseconds) inside an audio recording.
+    AudioSegment {
+        audio_id: String,
+        start_ms: u64,
+        end_ms: u64,
+    },
+    /// A shot boundary time range (milliseconds) inside a video.
+    VideoShot {
+        video_id: String,
+        start_ms: u64,
+        end_ms: u64,
+    },
+    /// A named symbol (function/class/etc.) inside a source file, by line range.
+    CodeSymbol {
+        file_path: String,
+        symbol: String,
+        start_line: u32,
+        end_line: u32,
+    },
+    /// A distributed-tracing span: "observed during this trace span" provenance.
+    TraceSpan { trace_id: String, span_id: String },
+}
+
 /// One result row's resolved provenance for `Method::ExplainProvenance`.
 #[cfg(feature = "query")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -3975,6 +4031,12 @@ pub struct ExplainProvenanceRowWire {
     /// Ids of nodes providing EVIDENCE FOR this row (the `Op::EvidenceFor` resolution).
     /// Always empty when provenance resolution did not run (see `ExplainProvenanceResult::resolved`).
     pub source_refs: Vec<String>,
+    /// Located evidence for this row (X1, CONCEPT:E4) — this row's own modality
+    /// `ModalityContract::evidence()`, when its stored shape decodes as a known
+    /// modality value type. Always empty when `epistemic` is off (see
+    /// `ExplainProvenanceResult::resolved`), and also empty (not fabricated) for a
+    /// row whose kind/shape isn't a known modality.
+    pub evidence_spans: Vec<EvidenceSpanWire>,
 }
 
 /// Materialized result of a `Method::ExplainProvenance` run. Returned via `ResultPayload::raw`.
@@ -3982,9 +4044,10 @@ pub struct ExplainProvenanceRowWire {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExplainProvenanceResult {
     pub rows: Vec<ExplainProvenanceRowWire>,
-    /// `true` iff the `epistemic` feature resolved real `source_refs`; `false` ⇒ every
-    /// row's `source_refs` is empty (no epistemic resolution ran — the `KnowledgeSet` v1
-    /// default, CONCEPT:EG-KG.query.knowledge-set).
+    /// `true` iff the `epistemic` feature resolved real `source_refs`/`evidence_spans`
+    /// (X1, CONCEPT:E4); `false` ⇒ every row's `source_refs`/`evidence_spans` are
+    /// empty (no epistemic resolution ran — the `KnowledgeSet` v1 default,
+    /// CONCEPT:EG-KG.query.knowledge-set).
     pub resolved: bool,
 }
 

@@ -29,12 +29,14 @@ mining = ["eg-types/mining"]
 # wire variants exist. No heavy dep (no torch) — folded into `full` via `compute`.
 graphlearn = ["datascience", "eg-types/graphlearn"]
 reasoning = []
-# ModalityContract retrofit (CONCEPT:E4): `impl ModalityContract for MergeProposal` +
-# the `modality_conformance_tests!` battery. OFF by default, deliberately NOT folded
-# into any tier aggregate — it is a capability-discovery/testing seam, not a serving
-# feature. `MergeProposal`/`resolve_candidates` live in the always-on `algorithms`
-# module, so `contract` needs no other feature implied. `cargo test -p eg-compute
-# --features contract` runs the suite.
+# ModalityContract retrofit (CONCEPT:E4): `impl ModalityContract for MergeProposal`
+# AND `impl ModalityContract for ast::symbol::Symbol` (the X1 real `evidence()` ->
+# `EvidenceSpan::CodeSymbol` resolver) + the `modality_conformance_tests!` battery for
+# each. OFF by default, deliberately NOT folded into any tier aggregate — it is a
+# capability-discovery/testing seam, not a serving feature. `MergeProposal`/
+# `resolve_candidates` live in the always-on `algorithms` module and `Symbol` lives in
+# the always-on `ast` module, so `contract` needs no other feature implied.
+# `cargo test -p eg-compute --features contract` runs the suite.
 contract = ["dep:eg-modality"]
 ast = [
     "dep:tree-sitter",

@@ -63,7 +63,12 @@ impl ModalityContract for ProofNode {
         })
     }
 
-    /// No located-evidence concept applies to a proof tree — default `None`.
+    /// X1 (multimodal-evidence): deliberately `None`, not a gap. A `ProofNode` is a
+    /// reconstructed OWL proof-tree node — its "location" IS its `provenance()`
+    /// (`rule`/`axioms`/`premises`, already mapped above), not a byte/line/pixel/time
+    /// range inside a source artifact. There is no artifact to point INTO here (the
+    /// entailment is derived, not observed at a location) — provenance-only is the
+    /// correct, real answer for this modality, not an unresolved TODO.
     fn evidence(&self, _id: &str) -> Option<EvidenceSpan> {
         None
     }

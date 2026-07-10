@@ -951,11 +951,94 @@ fn explain_plan(
     })
 }
 
+/// Map an `eg_modality::EvidenceSpan` (X1, CONCEPT:E4 — `eg_plan::KnowledgeRow`'s
+/// REAL, located per-row evidence) onto its wire mirror `EvidenceSpanWire`
+/// (`eg_types`, which cannot depend on `eg_modality` — see that type's own doc
+/// comment for the DAG reason). A 1:1 field-for-field copy, variant for variant.
+#[cfg(feature = "epistemic")]
+fn evidence_span_wire(span: &eg_modality::EvidenceSpan) -> crate::protocol::EvidenceSpanWire {
+    use crate::protocol::EvidenceSpanWire;
+    use eg_modality::EvidenceSpan;
+
+    match span {
+        EvidenceSpan::DocumentSpan {
+            document_id,
+            start,
+            end,
+        } => EvidenceSpanWire::DocumentSpan {
+            document_id: document_id.clone(),
+            start: *start,
+            end: *end,
+        },
+        EvidenceSpan::TableCellRange {
+            table_id,
+            row_start,
+            row_end,
+            col_start,
+            col_end,
+        } => EvidenceSpanWire::TableCellRange {
+            table_id: table_id.clone(),
+            row_start: *row_start,
+            row_end: *row_end,
+            col_start: *col_start,
+            col_end: *col_end,
+        },
+        EvidenceSpan::ImageRegion {
+            image_id,
+            x,
+            y,
+            width,
+            height,
+        } => EvidenceSpanWire::ImageRegion {
+            image_id: image_id.clone(),
+            x: *x,
+            y: *y,
+            width: *width,
+            height: *height,
+        },
+        EvidenceSpan::AudioSegment {
+            audio_id,
+            start_ms,
+            end_ms,
+        } => EvidenceSpanWire::AudioSegment {
+            audio_id: audio_id.clone(),
+            start_ms: *start_ms,
+            end_ms: *end_ms,
+        },
+        EvidenceSpan::VideoShot {
+            video_id,
+            start_ms,
+            end_ms,
+        } => EvidenceSpanWire::VideoShot {
+            video_id: video_id.clone(),
+            start_ms: *start_ms,
+            end_ms: *end_ms,
+        },
+        EvidenceSpan::CodeSymbol {
+            file_path,
+            symbol,
+            start_line,
+            end_line,
+        } => EvidenceSpanWire::CodeSymbol {
+            file_path: file_path.clone(),
+            symbol: symbol.clone(),
+            start_line: *start_line,
+            end_line: *end_line,
+        },
+        EvidenceSpan::TraceSpan { trace_id, span_id } => EvidenceSpanWire::TraceSpan {
+            trace_id: trace_id.clone(),
+            span_id: span_id.clone(),
+        },
+    }
+}
+
 /// `EXPLAIN PROVENANCE` — run `plan` and, for each result row, resolve its EVIDENCE-FOR
 /// provenance over the `KnowledgeSet` (E3) row shape (CONCEPT:EG-KG.query.knowledge-set),
-/// reusing the SAME belief-substrate resolution `Op::EvidenceFor` runs. With `epistemic`
-/// off, every row's `source_refs` is empty and `resolved` is `false` — the documented
-/// "no epistemic resolution ran" `KnowledgeSet` v1 default.
+/// reusing the SAME belief-substrate resolution `Op::EvidenceFor` runs, PLUS (X1,
+/// CONCEPT:E4) the row's own located `evidence_refs` `KnowledgeSet::from_rowset`
+/// already resolved. With `epistemic` off, every row's `source_refs`/`evidence_spans`
+/// are empty and `resolved` is `false` — the documented "no epistemic resolution ran"
+/// `KnowledgeSet` v1 default.
 #[cfg(feature = "query")]
 fn explain_provenance(
     plan: eg_plan::Plan,
@@ -982,10 +1065,14 @@ fn explain_provenance(
             let source_refs = eg_plan::execute(&evidence_plan, &ctx)
                 .map(|r| r.ids())
                 .unwrap_or_default();
+            // X1: the row's own located evidence, already resolved by
+            // `KnowledgeSet::from_rowset` — just map it onto the wire shape.
+            let evidence_spans = row.evidence_refs.iter().map(evidence_span_wire).collect();
             ExplainProvenanceRowWire {
                 id: row.id.clone(),
                 kind: row.kind.clone(),
                 source_refs,
+                evidence_spans,
             }
         })
         .collect();
@@ -997,6 +1084,7 @@ fn explain_provenance(
             id: row.id.clone(),
             kind: row.kind.clone(),
             source_refs: Vec::new(),
+            evidence_spans: Vec::new(),
         })
         .collect();
 
