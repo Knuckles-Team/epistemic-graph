@@ -2179,6 +2179,7 @@ dependencies = [
 name = "eg-geo"
 version = "0.1.0"
 dependencies = [
+ "eg-modality",
  "serde",
  "serde_json",
 ]
@@ -2219,6 +2220,15 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+]
+
+[[package]]
+name = "eg-modality"
+version = "0.1.0"
+dependencies = [
+ "eg-types",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -2350,6 +2360,7 @@ name = "eg-tensor"
 version = "0.1.0"
 dependencies = [
  "cudarc",
+ "eg-modality",
  "eg-tsdb",
  "serde",
  "serde_json",
