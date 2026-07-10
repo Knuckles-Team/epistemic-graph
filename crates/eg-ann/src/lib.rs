@@ -32,9 +32,17 @@ pub mod linalg;
 pub mod persist;
 pub mod recall;
 pub mod scatter;
+pub mod version;
 
 #[cfg(feature = "redb")]
 pub mod redb_store;
+
+/// Embedding-set drift detection (PSI over the norm / per-dimension value
+/// distributions, CONCEPT:EG-KG.sharding.semantic-embedding-store-backed depth). Behind the crate's own opt-in
+/// `drift` feature (default OFF) so a default/Pi build of `eg-ann` links no
+/// `eg-numeric` — see `src/drift.rs`.
+#[cfg(feature = "drift")]
+pub mod drift;
 
 /// ModalityContract retrofit (CONCEPT:E4): `impl ModalityContract for
 /// flat::FlatIndex` + the `modality_conformance_tests!` battery. Behind the
@@ -54,6 +62,7 @@ pub use recall::{
     RecallReport,
 };
 pub use scatter::{scatter_knn, ScatterKnn, ShardIndex};
+pub use version::{EmbeddingVersion, EmbeddingVersionStore};
 
 #[cfg(test)]
 mod tests {

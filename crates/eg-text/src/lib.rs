@@ -61,6 +61,15 @@ pub struct TextHit {
 mod bm25;
 pub use bm25::{bm25_score, bm25_snippet, Bm25, Corpus};
 
+/// Table extraction + layout spans + citation/clause spans (CONCEPT:EG-KG.query
+/// depth: per-modality text/layout structure) — dep-free, ships in EVERY build
+/// (pure heuristic scanning, no tantivy needed). See `src/layout.rs`.
+mod layout;
+pub use layout::{
+    citation_spans, extract_tables, layout_spans, CitationKind, CitationSpan, ExtractedTable,
+    LayoutKind, LayoutSpan, TableSpan,
+};
+
 #[cfg(feature = "tantivy")]
 mod index;
 #[cfg(feature = "tantivy")]
