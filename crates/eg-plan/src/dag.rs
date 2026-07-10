@@ -22,34 +22,43 @@
 //!    this phase only defines the shape + the lossless conversion, execution is
 //!    untouched (`exec::execute` keeps running the linear `Plan` exactly as before).
 //!
-//! ## X4 — distributed cross-shard exchange (SCOPED TODO, cluster-gated, NOT built here)
+//! ## X4 — distributed cross-shard exchange (LANDED, cluster-gated — see `src/raft/exchange.rs`)
 //!
-//! `PlanDag`'s multi-input node is deliberately the seam a **cross-shard EXCHANGE**
-//! operator would hang off (CONCEPT:EG-KG.query.dag-distributed-exchange): a
-//! multi-branch plan whose branches execute on DIFFERENT Raft groups, each producing a
-//! partial `RowSet`, merged at a native exchange node — the distributed generalization
-//! of `dag_exec`'s single-node `join_inputs`. This is **not implemented in this
-//! workstream** and is a clearly-scoped follow-up, on purpose:
+//! `PlanDag`'s multi-input node is the seam the **cross-shard EXCHANGE** operator hangs
+//! off (CONCEPT:EG-KG.query.dag-distributed-exchange): a multi-branch plan whose branches
+//! execute on DIFFERENT Raft groups, each producing a partial `RowSet`, merged at the
+//! join node — the distributed generalization of `dag_exec`'s single-node `join_inputs`.
+//! X4 lands this WITHOUT touching this dep-free `eg-plan` crate's types at all:
 //!
-//!  * It MUST be `raft`/`cluster`-feature-gated ONLY — a `default`/`full` build (which
-//!    is single-node by construction; `full` links no `raft`) must link NONE of it, so
-//!    the exchange operator + its shard-routing live behind `#[cfg(feature = "cluster")]`
-//!    beside the existing 2PC/federation/`GroupRouter` machinery (`src/raft/`), NOT in
-//!    this dep-free `eg-plan` crate.
-//!  * The concrete shape: a new cluster-gated exchange node kind that, given a branch's
-//!    `PlanNode` subtree and a target `GroupId` (via `raft::multi::GroupRouter`), ships
-//!    the sub-plan to that group (over the SAME length-prefixed-MessagePack transport
-//!    federation's `Op::ForeignScan` already uses), collects the partial `RowSet`, and
-//!    feeds it into a local `dag_exec` multi-branch join — reusing
-//!    `RowSet::intersect_keep_order` for the merge so the distributed result is identical
-//!    to the single-node one when all branches happen to route to one group.
+//!  * It is `raft`-feature-gated ONLY (`src/raft/mod.rs` is `#![cfg(feature = "raft")]`,
+//!    and the new `exchange` submodule additionally needs `query` for `PlanCtx`/
+//!    `dag_exec`) — a `default`/`full` build (single-node; `full` links no `raft`) links
+//!    NONE of it. The exchange operator + its shard-routing live in
+//!    `src/raft/exchange.rs`, beside the existing 2PC/federation/`GroupRouter`
+//!    machinery — NOT in this crate.
+//!  * The "operator" is NOT a new [`Op`]/[`PlanNode`] variant — it is an **exchange
+//!    marker kept OUTSIDE the dag** (`raft::exchange::ExchangeMap`, node id → `(graph,
+//!    GroupId)`), resolved via `raft::multi::GroupRouter::group_of`. A routed branch's
+//!    full ancestor subtree is extracted into a standalone `PlanDag` (renumbered via
+//!    [`PlanDag::topo_order`] — deterministic, ties broken ascending id) and shipped to
+//!    that group's node over a length-prefixed-MessagePack transport (the same framing
+//!    convention `federation`'s `Op::ForeignScan` / `src/raft/network.rs` use), which
+//!    runs it through the SAME [`crate::dag_exec::execute_dag`] remotely and returns the
+//!    partial `RowSet`.
+//!  * The merge is the UNMODIFIED local join: [`crate::dag_exec::execute_dag_with`] (the
+//!    generic per-node override hook this phase adds) lets the coordinator substitute a
+//!    remote-fetched `RowSet` for a branch root's output; `join_inputs`'s
+//!    `RowSet::intersect_keep_order` chain then runs exactly as it does for an
+//!    all-local dag, so a plan whose branches all happen to route to one group is
+//!    byte-identical to today's single-node execution.
 //!
-//! Landing X4 was descoped to keep phases 1–5 (the single-node typed DAG, its
-//! differential-oracle-proven executor, the DAG-aware optimizer, the EXPLAIN surfaces
-//! and the D7 planner-writeback ACID seam) a complete, mergeable E5. See the
-//! feat/eg-planner-dag report + docs/north_star.md for the tracked row.
+//! Phases 1–5 (the single-node typed DAG, its differential-oracle-proven executor, the
+//! DAG-aware optimizer, the EXPLAIN surfaces and the D7 planner-writeback ACID seam)
+//! stayed a complete, mergeable E5 with X4 descoped; see the feat/eg-planner-dag report
+//! + docs/north_star.md for the tracked row.
 
 use crate::algebra::{Op, Plan};
+use serde::{Deserialize, Serialize};
 
 /// A node's index into [`PlanDag::nodes`] — the DAG's edge currency (an edge from
 /// `PlanDag::nodes[a]` to `PlanDag::nodes[b]` is recorded as `a` appearing in
@@ -58,7 +67,12 @@ pub type NodeId = usize;
 
 /// One operator in a [`PlanDag`]: the SAME [`Op`] a linear [`Plan`] carries, plus the
 /// DAG structure (`inputs`) and the per-node metadata later phases hang off it.
-#[derive(Clone, Debug, PartialEq)]
+/// `Serialize`/`Deserialize` are derived so a [`PlanNode`] (and a whole [`PlanDag`])
+/// can be shipped over the wire VERBATIM — the shape the X4 cross-shard EXCHANGE
+/// operator needs to send an extracted branch subtree to a remote Raft group
+/// (`src/raft/exchange.rs`, CONCEPT:EG-KG.query.dag-distributed-exchange). This crate stays
+/// dep-free either way: `serde` is already a base dependency (`Op` derives it too).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct PlanNode {
     /// The operator this node runs — unchanged from the wire algebra.
     pub op: Op,
@@ -102,7 +116,7 @@ impl PlanNode {
 /// A typed DAG plan: an ordered list of [`PlanNode`]s whose `inputs` encode the
 /// dependency edges (CONCEPT:EG-KG.query.plan-dag). Node ids are stable indices into
 /// `nodes`, so an edge is just `NodeId < nodes.len()`.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct PlanDag {
     pub nodes: Vec<PlanNode>,
 }
