@@ -35,7 +35,35 @@ use crate::rowset::RowSet;
 /// vacuous plan, matching `Plan::new(vec![])` under `exec::execute`). `Err` on a
 /// malformed dag (a cycle, a dangling input reference, or no single sink) or when any
 /// node's `op` errors (propagated exactly like `exec::apply`).
+///
+/// The special case of [`execute_dag_with`] that never overrides a node.
 pub fn execute_dag(dag: &PlanDag, ctx: &PlanCtx) -> Result<RowSet, String> {
+    execute_dag_with(dag, ctx, |_id, _node, _joined_input| Ok(None))
+}
+
+/// [`execute_dag`], generalized with a per-node OVERRIDE hook (CONCEPT:EG-KG.query.dag-distributed-exchange,
+/// X4) — the seam the cluster-feature-gated cross-shard EXCHANGE operator
+/// (`src/raft/exchange.rs`, outside this dep-free crate) needs, added here rather than
+/// duplicated there.
+///
+/// For every node in [`PlanDag::topo_order`], `override_node(id, node, &joined_input)`
+/// runs FIRST:
+///  * `Ok(Some(rows))` supplies the node's OUTPUT directly and SKIPS the local
+///    `apply(&node.op, ..)` dispatch entirely — e.g. a branch root whose real work ran
+///    on a REMOTE Raft group; `rows` is whatever came back over the wire.
+///  * `Ok(None)` falls through to the normal local `apply(&node.op, joined_input, ctx)`
+///    — byte-for-byte what [`execute_dag`] always does.
+///  * `Err(e)` aborts the whole execution, exactly like an `apply` error.
+///
+/// Crucially, [`join_inputs`] (the multi-branch JOIN) runs IDENTICALLY either way: it
+/// only reads `outputs[..]` by node id, oblivious to whether a given entry was computed
+/// locally or supplied by the override — so a distributed EXCHANGE's merge is the SAME
+/// `RowSet::intersect_keep_order` chain a single-node multi-branch dag already uses,
+/// reused rather than reimplemented.
+pub fn execute_dag_with<F>(dag: &PlanDag, ctx: &PlanCtx, mut override_node: F) -> Result<RowSet, String>
+where
+    F: FnMut(NodeId, &PlanNode, &RowSet) -> Result<Option<RowSet>, String>,
+{
     if dag.is_empty() {
         return Ok(RowSet::new());
     }
@@ -46,7 +74,11 @@ pub fn execute_dag(dag: &PlanDag, ctx: &PlanCtx) -> Result<RowSet, String> {
     for id in order {
         let node = &dag.nodes[id];
         let input = join_inputs(node, &outputs)?;
-        outputs[id] = Some(apply(&node.op, input, ctx)?);
+        let out = match override_node(id, node, &input)? {
+            Some(rows) => rows,
+            None => apply(&node.op, input, ctx)?,
+        };
+        outputs[id] = Some(out);
     }
     outputs[sink]
         .take()
@@ -57,7 +89,7 @@ pub fn execute_dag(dag: &PlanDag, ctx: &PlanCtx) -> Result<RowSet, String> {
 /// (CONCEPT:EG-KG.query.dag-multi-branch-join): empty ⇒ a fresh seed (a source op),
 /// one ⇒ that parent's output verbatim, many ⇒ the id-intersection of every parent's
 /// output, preserving the FIRST parent's order.
-fn join_inputs(node: &PlanNode, outputs: &[Option<RowSet>]) -> Result<RowSet, String> {
+pub(crate) fn join_inputs(node: &PlanNode, outputs: &[Option<RowSet>]) -> Result<RowSet, String> {
     let parent = |id: NodeId| -> Result<&RowSet, String> {
         outputs[id]
             .as_ref()
@@ -143,6 +175,43 @@ mod tests {
         ]);
         let out = execute_dag(&dag, &ctx).unwrap();
         assert!(out.is_empty(), "Doc ∩ Tool must be empty");
+    }
+
+    /// [`execute_dag_with`]'s override hook: substituting a branch's output (as if it
+    /// had been fetched from a REMOTE Raft group, X4's shape) still lets the
+    /// UNMODIFIED `join_inputs` merge do the right thing — the join sees only
+    /// `outputs[..]`, not where they came from. Node 1 (`Tool`) is overridden to
+    /// return `{b}` instead of running its real `Scan` locally (which would yield
+    /// `{c}`), so joining it with node 0's real `Doc` scan (`{a,b}`) keeps `{b}` — the
+    /// value only reachable through the override, proving it actually took effect.
+    #[test]
+    fn execute_dag_with_override_feeds_the_same_join_inputs_merge() {
+        let (view, semantic) = fixture();
+        let ctx = PlanCtx::new(&view, &semantic);
+        let dag = PlanDag::new(vec![
+            PlanNode::new(
+                Op::Scan {
+                    label: "Doc".into(),
+                },
+                vec![],
+            ),
+            PlanNode::new(
+                Op::Scan {
+                    label: "Tool".into(),
+                },
+                vec![],
+            ),
+            PlanNode::new(Op::Limit { k: 10 }, vec![0, 1]),
+        ]);
+        let out = execute_dag_with(&dag, &ctx, |id, _node, _joined| {
+            if id == 1 {
+                Ok(Some(RowSet::from_ids(["b".to_string()])))
+            } else {
+                Ok(None)
+            }
+        })
+        .unwrap();
+        assert_eq!(out.ids(), vec!["b".to_string()]);
     }
 
     #[test]
