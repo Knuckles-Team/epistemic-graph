@@ -315,7 +315,7 @@ impl S3Store {
             .ok_or("NoSuchUpload")?;
         // Concatenate the parts in ascending part-number order (BTreeMap is ordered).
         let mut body = Vec::new();
-        for (_n, part) in up.parts.iter() {
+        for part in up.parts.values() {
             let bytes = self.blob.get_chunk(&part.digest)?.unwrap_or_default();
             body.extend_from_slice(&bytes);
         }
