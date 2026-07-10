@@ -70,8 +70,8 @@ fn blocked_pairs<F: Fn(usize, usize) -> f64>(
     sim: F,
 ) -> Vec<EntityMatch> {
     let mut blocks: HashMap<&str, Vec<usize>> = HashMap::new();
-    for i in 0..n {
-        blocks.entry(keys[i].as_str()).or_default().push(i);
+    for (i, key) in keys.iter().enumerate().take(n) {
+        blocks.entry(key.as_str()).or_default().push(i);
     }
     let mut block_order: Vec<&str> = blocks.keys().copied().collect();
     block_order.sort_unstable();
