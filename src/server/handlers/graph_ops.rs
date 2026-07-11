@@ -296,6 +296,17 @@ pub(crate) async fn try_handle_gateway(
     if !mutation::is_gateway_routed(&method) {
         return Err(method);
     }
+    // L11 batch 4: the query surface (`Sql`/`CypherQuery`/`GraphQl`) and the native
+    // RDF write surface (`AddTriples`/`RemoveTriples`/`DropNamedGraph`) ARE
+    // `GATEWAY_ROUTED`, but their execution is `async` and needs `state`/`rls` (and,
+    // for RDF, the optional `rdf-redb` quad store) that this graph-ops entry point
+    // does not carry — so they are routed via `commit_conditional_mutation_async` at
+    // their OWN dispatch sites in `dispatch.rs`. Hand them back here so they reach
+    // those sites; the `record_method`/`cdc_*` gating in `dispatch.rs` already keys
+    // off the SAME `is_gateway_routed`, so nothing double-applies.
+    if mutation::is_query_gateway_method(&method) || mutation::is_rdf_gateway_method(&method) {
+        return Err(method);
+    }
     let (isolation, graph_type, owner) = authz_ctx.expect(
         "dispatch_graph_op must capture a GatewayAuthzCtx for every mutation::is_gateway_routed method",
     );

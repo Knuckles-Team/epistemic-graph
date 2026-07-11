@@ -245,6 +245,22 @@ pub const GATEWAY_ROUTED: &[&str] = &[
     "MineOntologyGap",
     "MineRetrievalQuality",
     "MineCommunity",
+    // ── L11 rollout batch 4: RUNTIME-CONDITIONAL query surface — the parsed
+    // statement decides whether THIS call mutates. Routed via
+    // `commit_conditional_mutation_async` at the query dispatch site (they need
+    // `state`/`rls`), NOT the graph-ops `try_handle_gateway` entry point (which
+    // hands them back). `CypherQuery`/`Sql` are unconditional in the `Method`
+    // enum; `GraphQl` is behind `feature = "graphql"`. ──
+    "Sql",
+    "CypherQuery",
+    "GraphQl",
+    // ── L11 rollout batch 4: native RDF write surface (GraphRedb-durable,
+    // audited) — routed via `commit_conditional_mutation_async` at the rdf
+    // dispatch site because its durable write also touches the optional
+    // `rdf-redb` lossless quad store on `state`. Behind `feature = "rdf"`. ──
+    "AddTriples",
+    "RemoveTriples",
+    "DropNamedGraph",
 ];
 
 /// Extract a `Method` variant's name as a `&'static str`, covering exactly
@@ -367,6 +383,19 @@ pub fn method_variant_name(m: &Method) -> &'static str {
         Method::MineRetrievalQuality { .. } => "MineRetrievalQuality",
         #[cfg(feature = "mining")]
         Method::MineCommunity { .. } => "MineCommunity",
+        // L11 batch 4: runtime-conditional query surface (`Sql`/`CypherQuery`
+        // unconditional in the enum; `GraphQl` behind `graphql`).
+        Method::Sql { .. } => "Sql",
+        Method::CypherQuery { .. } => "CypherQuery",
+        #[cfg(feature = "graphql")]
+        Method::GraphQl { .. } => "GraphQl",
+        // L11 batch 4: native RDF write surface (behind `rdf`).
+        #[cfg(feature = "rdf")]
+        Method::AddTriples { .. } => "AddTriples",
+        #[cfg(feature = "rdf")]
+        Method::RemoveTriples { .. } => "RemoveTriples",
+        #[cfg(feature = "rdf")]
+        Method::DropNamedGraph => "DropNamedGraph",
         _ => "other",
     }
 }
@@ -558,6 +587,126 @@ async fn try_coalesce_apply(ctx: &MutationCtx<'_>, method: &Method) -> Option<Re
     })
 }
 
+/// Pre-apply state carried from [`commit_prepare`] to [`commit_finalize`], so the
+/// SAME steps-1-3 / steps-5-8 logic backs BOTH the sync-apply [`commit_mutation`]
+/// (graph-core/broker/memory ops) and the async-apply
+/// [`commit_conditional_mutation_async`] (the query + RDF surfaces, whose execution
+/// is `async` and needs `state`/`rls`) — one implementation, never two drifting
+/// copies of the durability/audit/CDC/idempotency contract.
+struct CommitPrep {
+    /// `Some` only for a policy-idempotent method — the replay-dedup cache key.
+    dedup_key: Option<String>,
+    /// CDC pre-image captured before apply (Skip when policy `emits_cdc == false`).
+    #[cfg(feature = "streaming")]
+    cdc_pre: crate::server::cdc::CdcPre,
+}
+
+/// Steps 1-3 of the commit gateway (CONCEPT:EG-P0-2): Write-authz, idempotency-replay
+/// short-circuit, and the pre-apply CDC image. Returns `Err(Response)` to short-
+/// circuit the whole call (an ACCESS_DENIED, or a cached idempotent replay — no re-
+/// apply), else `Ok(CommitPrep)` for the caller to run apply + [`commit_finalize`].
+fn commit_prepare(
+    ctx: &MutationCtx<'_>,
+    plan: &MutationPlan,
+    method: &Method,
+) -> Result<CommitPrep, Response> {
+    // 1. Authz -- the SAME isolation ACL check every other graph-scoped method
+    // goes through, driven by the plan's `mutates` flag. (A read-only invocation of
+    // a runtime-conditional method never reaches here — see
+    // `commit_conditional_mutation_async`'s `mutates_now == false` branch.)
+    if let Err(denied) = check_graph_access(
+        ctx.isolation,
+        ctx.caller,
+        ctx.graph_name,
+        ctx.graph_type,
+        ctx.owner,
+        AccessLevel::Write,
+    ) {
+        return Err(Response::err(ctx.req_id, denied));
+    }
+
+    // 2. Idempotency-replay dedup -- ONLY for methods policy marks idempotent. A
+    // byte-identical replay short-circuits BEFORE touching storage: no re-apply, no
+    // second WAL record, no second audit-chain entry, no duplicate CDC event.
+    let dedup_key = plan
+        .idempotent
+        .then(|| idempotency_key(ctx.graph_name, method));
+    if let Some(key) = &dedup_key {
+        if let Some(cached) = idempotency_store().get(key) {
+            return Err(cached);
+        }
+    }
+
+    // 3. CDC pre-image, captured BEFORE the mutation applies -- gated on the
+    // POLICY's `emits_cdc`.
+    #[cfg(feature = "streaming")]
+    let cdc_pre = if plan.emits_cdc {
+        crate::server::cdc::capture_before(ctx.core, method)
+    } else {
+        crate::server::cdc::CdcPre::Skip
+    };
+
+    Ok(CommitPrep {
+        dedup_key,
+        #[cfg(feature = "streaming")]
+        cdc_pre,
+    })
+}
+
+/// Steps 5-8 of the commit gateway: mark-dirty, durable commit (which for a redb
+/// backend also appends the tamper-evident audit-chain entry — see module docs),
+/// CDC emit, and idempotency-replay cache insert. `response` is the applied
+/// outcome; on an ERROR response NOTHING durable/audited/CDC-emitted/cached happens.
+async fn commit_finalize(
+    ctx: &MutationCtx<'_>,
+    plan: &MutationPlan,
+    method: &Method,
+    response: Response,
+    prep: CommitPrep,
+) -> Response {
+    if response.error.is_some() {
+        return response;
+    }
+
+    // 5. Mark the graph dirty (checkpoint scheduling). Idempotent flag set.
+    if plan.mutates {
+        ctx.core.mark_dirty();
+    }
+
+    // 6. Durable commit -- reuses the EXISTING `PersistenceBackend` plumbing.
+    if !matches!(plan.durability_domain, DurabilityDomain::None) {
+        if let Some(p) = ctx.persistence {
+            let fname = crate::persist::sanitize(ctx.graph_name);
+            if ctx.redb_authoritative {
+                if let Err(e) = p.record_durable(&fname, method).await {
+                    return Response::err(
+                        ctx.req_id,
+                        format!("durable commit failed (write not acknowledged): {e}"),
+                    );
+                }
+            } else {
+                p.record(&fname, method);
+            }
+        }
+    }
+
+    // 7. CDC emit -- AFTER the durable commit succeeded, mirroring the legacy
+    // shell's ordering.
+    #[cfg(feature = "streaming")]
+    if plan.emits_cdc {
+        if let Some(hub) = ctx.cdc {
+            crate::server::cdc::emit_for_method(hub, ctx.core, ctx.graph_name, method, prep.cdc_pre);
+        }
+    }
+
+    // 8. Cache the response for idempotent-replay dedup.
+    if let Some(key) = prep.dedup_key {
+        idempotency_store().insert(key, response.clone());
+    }
+
+    response
+}
+
 /// The single commit gateway (CONCEPT:EG-P0-2): authz, apply, durable commit,
 /// audit (delegated — see module docs), CDC, and idempotency-replay dedup, all in
 /// ONE call, driven entirely by `plan` (sourced from `eg_capabilities::policy`).
@@ -575,46 +724,9 @@ pub async fn commit_mutation<F>(
 where
     F: FnOnce(&GraphCore) -> Result<ResultPayload, String>,
 {
-    // 1. Authz -- the SAME isolation ACL check every other graph-scoped method
-    // goes through (`access::check_graph_access`), driven by the plan's `mutates`
-    // flag rather than a second write/read classifier.
-    let access = if plan.mutates {
-        AccessLevel::Write
-    } else {
-        AccessLevel::Read
-    };
-    if let Err(denied) = check_graph_access(
-        ctx.isolation,
-        ctx.caller,
-        ctx.graph_name,
-        ctx.graph_type,
-        ctx.owner,
-        access,
-    ) {
-        return Response::err(ctx.req_id, denied);
-    }
-
-    // 2. Idempotency-replay dedup -- ONLY for methods policy marks idempotent. A
-    // byte-identical replay (e.g. a client retry after a lost ack) short-circuits
-    // BEFORE touching storage: no re-apply, no second WAL record, no second
-    // audit-chain entry, no duplicate CDC event.
-    let dedup_key = plan
-        .idempotent
-        .then(|| idempotency_key(ctx.graph_name, method));
-    if let Some(key) = &dedup_key {
-        if let Some(cached) = idempotency_store().get(key) {
-            return cached;
-        }
-    }
-
-    // 3. CDC pre-image, captured BEFORE the mutation applies -- gated on the
-    // POLICY's `emits_cdc`, not the legacy shell's implicit `is_durable_mutation`
-    // check.
-    #[cfg(feature = "streaming")]
-    let cdc_pre = if plan.emits_cdc {
-        crate::server::cdc::capture_before(ctx.core, method)
-    } else {
-        crate::server::cdc::CdcPre::Skip
+    let prep = match commit_prepare(ctx, plan, method) {
+        Ok(p) => p,
+        Err(short_circuit) => return short_circuit,
     };
 
     // 4. Apply the actual eg-core mutation.
@@ -622,15 +734,9 @@ where
     // L18: a coalescable routed mutation (`AddNode`/`RemoveNode`/`AddEdge`/
     // `RemoveEdge`) is BATCHED onto this graph's single-writer coalescer queue when
     // one is configured + enabled — the SAME `writer_for` path the legacy
-    // `dispatch::try_coalesce_write` uses — so routing the hottest writes through
-    // the gateway no longer bypasses write-batching (the coalescer's `stats().ops()`
-    // counts them again, and N concurrent writers collapse to ⌈N/batch⌉ topology-
-    // lock acquisitions). It returns the SAME `Response` the `apply` closure would
-    // (every coalescable routed op's closure yields `String("ok")` / an AddEdge
-    // error). Anything else — a non-coalescable routed op (`CreateSummaryNode`/
-    // `Consolidate`/`Reinforce`), a disabled/absent coalescer — falls back to the
-    // inline `apply` closure, unchanged. Steps 5-8 (dirty/durable/audit/CDC) run
-    // per-op AFTER this returns, exactly as before, so ordering is intact.
+    // `dispatch::try_coalesce_write` uses. Anything else — a non-coalescable routed
+    // op, a disabled/absent coalescer — falls back to the inline `apply` closure,
+    // unchanged. Steps 5-8 run per-op AFTER, so ordering is intact.
     let response = match try_coalesce_apply(ctx, method).await {
         Some(resp) => resp,
         None => match apply(ctx.core) {
@@ -638,52 +744,8 @@ where
             Err(e) => Response::err(ctx.req_id, e),
         },
     };
-    if response.error.is_some() {
-        return response;
-    }
 
-    // 5. Mark the graph dirty (checkpoint scheduling). Safe to call unconditionally
-    // on a successful mutating op even when the eg-core primitive already marks
-    // itself dirty internally (`mark_dirty` is an idempotent flag set).
-    if plan.mutates {
-        ctx.core.mark_dirty();
-    }
-
-    // 6. Durable commit -- reuses the EXISTING `PersistenceBackend` plumbing (WAL /
-    // redb write-through). For a redb backend this is ALSO where the tamper-
-    // evident audit-chain entry is appended atomically with the data row (see the
-    // module docs for why that is delegated rather than reimplemented here).
-    if !matches!(plan.durability_domain, DurabilityDomain::None) {
-        if let Some(p) = ctx.persistence {
-            let fname = crate::persist::sanitize(ctx.graph_name);
-            if ctx.redb_authoritative {
-                if let Err(e) = p.record_durable(&fname, method).await {
-                    return Response::err(
-                        ctx.req_id,
-                        format!("durable commit failed (write not acknowledged): {e}"),
-                    );
-                }
-            } else {
-                p.record(&fname, method);
-            }
-        }
-    }
-
-    // 7. CDC emit -- AFTER the durable commit succeeded (or was skipped when no
-    // backend is configured), mirroring the legacy shell's ordering.
-    #[cfg(feature = "streaming")]
-    if plan.emits_cdc {
-        if let Some(hub) = ctx.cdc {
-            crate::server::cdc::emit_for_method(hub, ctx.core, ctx.graph_name, method, cdc_pre);
-        }
-    }
-
-    // 8. Cache the response for idempotent-replay dedup.
-    if let Some(key) = dedup_key {
-        idempotency_store().insert(key, response.clone());
-    }
-
-    response
+    commit_finalize(ctx, plan, method, response, prep).await
 }
 
 /// The gateway entry point for a RUNTIME-CONDITIONAL method (CONCEPT:EG-P0-2, L11
@@ -736,6 +798,89 @@ where
         Ok(payload) => Response::ok(ctx.req_id, payload),
         Err(e) => Response::err(ctx.req_id, e),
     }
+}
+
+/// The ASYNC-apply twin of [`commit_conditional_mutation`] (CONCEPT:EG-P0-2, L11):
+/// for a routed method whose EXECUTION is itself `async` and needs more than a bare
+/// `&GraphCore` — the query surface (`Sql`/`CypherQuery`/`GraphQl`, run on the
+/// blocking pool via `handlers::query::try_handle`, needing `state`/`caller`/`rls`)
+/// and the native RDF surface (`AddTriples`/`RemoveTriples`/`DropNamedGraph`, run
+/// via `handlers::rdf::try_handle`, whose durable write ALSO touches the optional
+/// `rdf-redb` lossless quad store on `state`). The `apply` closure captures whatever
+/// state it needs and returns the payload; the gateway wraps it with the IDENTICAL
+/// authz / durability / audit / CDC / idempotency contract as the sync path (via the
+/// shared [`commit_prepare`] / [`commit_finalize`]).
+///
+/// `mutates_now` is the resolved, per-call truth (never `policy()`'s conservative
+/// upper bound): the RDF ops pass `true` (they always mutate), while the query ops
+/// pass the SAME runtime parse `access::requires_write` already uses
+/// (`sql_is_write` / `cypher_is_write` / `graphql_is_mutation`) — so a `SELECT` /
+/// read-only Cypher / GraphQL `query` is a Read-authz passthrough with NO
+/// durability/audit/CDC, while a SQL write / Cypher `CREATE|SET|DELETE` / GraphQL
+/// `mutation` goes through the full Write-authz commit.
+pub async fn commit_conditional_mutation_async<F, Fut>(
+    ctx: &MutationCtx<'_>,
+    plan: &MutationPlan,
+    method: &Method,
+    mutates_now: bool,
+    apply: F,
+) -> Response
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = Result<ResultPayload, String>>,
+{
+    if !mutates_now {
+        // Read-only path: Read-ACL only, apply, and NOTHING durable/audited/
+        // CDC-emitted/cached — exactly what any non-mutating graph read does.
+        if let Err(denied) = check_graph_access(
+            ctx.isolation,
+            ctx.caller,
+            ctx.graph_name,
+            ctx.graph_type,
+            ctx.owner,
+            AccessLevel::Read,
+        ) {
+            return Response::err(ctx.req_id, denied);
+        }
+        return match apply().await {
+            Ok(payload) => Response::ok(ctx.req_id, payload),
+            Err(e) => Response::err(ctx.req_id, e),
+        };
+    }
+
+    // Mutating path: the SAME steps-1-3 / steps-5-8 contract as `commit_mutation`,
+    // with the async apply in between (no coalescer — the query/RDF surfaces are not
+    // coalescable single-op structural writes).
+    let prep = match commit_prepare(ctx, plan, method) {
+        Ok(p) => p,
+        Err(short_circuit) => return short_circuit,
+    };
+    let response = match apply().await {
+        Ok(payload) => Response::ok(ctx.req_id, payload),
+        Err(e) => Response::err(ctx.req_id, e),
+    };
+    commit_finalize(ctx, plan, method, response, prep).await
+}
+
+/// Is `m` one of the query-surface gateway methods routed via
+/// [`commit_conditional_mutation_async`] at the query dispatch site (they need
+/// `state`/`rls` the graph-ops `try_handle_gateway` entry point does not carry)?
+/// Part of [`GATEWAY_ROUTED`], but handed back by `try_handle_gateway` so it reaches
+/// its dedicated wrap in `dispatch.rs`.
+pub fn is_query_gateway_method(m: &Method) -> bool {
+    matches!(method_variant_name(m), "Sql" | "CypherQuery" | "GraphQl")
+}
+
+/// Is `m` one of the native-RDF gateway methods routed via
+/// [`commit_conditional_mutation_async`] at the rdf dispatch site (their durable
+/// write also touches the optional `rdf-redb` quad store on `state`)? Part of
+/// [`GATEWAY_ROUTED`]; handed back by `try_handle_gateway` for the same reason as
+/// [`is_query_gateway_method`].
+pub fn is_rdf_gateway_method(m: &Method) -> bool {
+    matches!(
+        method_variant_name(m),
+        "AddTriples" | "RemoveTriples" | "DropNamedGraph"
+    )
 }
 
 #[cfg(test)]
@@ -1824,51 +1969,24 @@ mod tests {
         ),
     ];
 
-    /// Genuinely graph-scoped + structurally routable, but NOT wired in this
-    /// rollout increment -- no architectural blocker, just not done yet. See the
-    /// module-level doc comment on [`JUSTIFIED_NA`] for why this is a SEPARATE,
-    /// honestly-labeled bucket rather than folded into it.
-    const OPEN_NOT_JUSTIFIED: &[(&str, &str)] = &[
-        (
-            "AddTriples",
-            "graph-scoped, GraphRedb-durable, audited (rdf.rs) -- not wired because it ALSO touches an \
-             optional second store (the lossless multi-valued-literal quad store, feature `rdf-redb`, on \
-             ServerState) outside GraphCore; routing it correctly needs `try_handle_gateway` to also receive \
-             `state` (to clone the quad-store handle before entering the `apply` closure) -- a signature \
-             extension not made this session. A real, closable gap.",
-        ),
-        (
-            "RemoveTriples",
-            "same shape + same reason as AddTriples (rdf.rs, optional rdf-redb quad-store side-channel)",
-        ),
-        (
-            "DropNamedGraph",
-            "same shape + same reason as AddTriples (rdf.rs, optional rdf-redb quad-store side-channel)",
-        ),
-        (
-            "Sql",
-            "RUNTIME-CONDITIONAL like Mine*/GraphLearn* (mutates only when the parsed SQL is a write), in \
-             query.rs (~3400 lines, 3 query engines). The runtime-conditional pattern is proven and ready \
-             (`mutation::commit_conditional_mutation`; see GraphLearnFit/MineAssociate) but wiring the \
-             parser-driven mutation decision for Sql/CypherQuery/GraphQl needs dedicated follow-up.",
-        ),
-        (
-            "CypherQuery",
-            "RUNTIME-CONDITIONAL like Sql above (query.rs) -- same reason, not attempted this session",
-        ),
-        (
-            "GraphQl",
-            "RUNTIME-CONDITIONAL like Sql above (query.rs) -- same reason, not attempted this session",
-        ),
-        (
-            "RunRules",
-            "policy() says mutates:true, but `handle_run_rules`'s current implementation (rdf.rs) appears \
-             READ-ONLY -- it runs `eg_rdf::rules::run_rule_reasoning_on_view` over an `analysis_snapshot()` \
-             and returns inferred triples with NO `core.add_node`/`add_edge` call found. This looks like a \
-             pre-existing ledger inaccuracy (or a writeback path this audit didn't find) and needs a human \
-             follow-up BEFORE routing it either way -- flagged, not guessed at.",
-        ),
-    ];
+    /// Genuinely graph-scoped + structurally routable, but NOT wired yet -- no
+    /// architectural blocker, just not done. As of the L11 batch-4 close-out this is
+    /// **EMPTY**: all 7 former entries were resolved --
+    ///   - `Sql`/`CypherQuery`/`GraphQl` are now routed via
+    ///     `commit_conditional_mutation_async` at the query dispatch site (the async
+    ///     twin built for exactly the `state`/`rls`-needing surfaces);
+    ///   - `AddTriples`/`RemoveTriples`/`DropNamedGraph` are routed the same way at
+    ///     the rdf dispatch site (its durable write threads `state` for the optional
+    ///     `rdf-redb` quad store);
+    ///   - `RunRules` was AUDITED to be genuinely read-only, so the fix was the
+    ///     policy (`eg_capabilities::policy(RunRules).mutates` : true -> false), not
+    ///     a route -- it left the mutating surface entirely.
+    ///
+    /// Kept as an explicit (empty) const, and asserted empty below, so "nothing is
+    /// silently deferred" stays a machine-checked invariant: any future mutating
+    /// method that is routable-but-unrouted must be listed here (a hard, visible
+    /// admission), never dropped into the untracked void.
+    const OPEN_NOT_JUSTIFIED: &[(&str, &str)] = &[];
 
     /// (d) Bypass guard, part 2: the migration surface is machine-visible. Every
     /// name in [`GATEWAY_ROUTED`] really exists in `eg_capabilities::ALL_METHODS`
@@ -1932,11 +2050,21 @@ mod tests {
             justified_na.len() + open.len(),
             "JUSTIFIED_NA + OPEN_NOT_JUSTIFIED must exactly partition the backlog (no overlap, no gaps)"
         );
+        // L11 close-out invariant: the OPEN (routable-but-unrouted) bucket is EMPTY.
+        // The entire backlog is now JUSTIFIED_NA -- every non-routed mutating method
+        // has a real architectural reason (a different commit protocol, a non-graph-
+        // scoped store, a cluster-wide op, a registry-lifecycle op, ...), none is a
+        // "just didn't get to it" deferral.
+        assert!(
+            open.is_empty(),
+            "OPEN_NOT_JUSTIFIED must be empty (L11 closed all routable methods); still open: {:?}",
+            open.keys().collect::<Vec<_>>()
+        );
 
         println!(
             "EG-P0-2/L11 gateway migration surface: {} routed / {} mutating total; \
              {} backlog = {} justified-N/A (documented architectural reasons) + \
-             {} open-not-justified (honest remainder, no blocker)",
+             {} open-not-justified (MUST be 0)",
             routed_set.len(),
             all_mutating.len(),
             not_yet_migrated.len(),
