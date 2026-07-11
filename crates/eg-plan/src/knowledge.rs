@@ -39,12 +39,14 @@
 //! — today: `eg_compute::ast::symbol::Symbol` (a row whose `kind == "Symbol"`),
 //! `eg_tsdb::traces::Span` (`kind == "Span"`), and (CONCEPT:E4 follow-up)
 //! `eg_image::ImageData` (`kind == "Image"`), `eg_audio::AudioData`
-//! (`kind == "Audio"`), `eg_video::VideoData` (`kind == "Video"`) — and, on a
+//! (`kind == "Audio"`), `eg_video::VideoData` (`kind == "Video"`), and (L20,
+//! CONCEPT:EG-P1-3) `eg_document::DocumentData` (`kind == "Document"`) — and, on a
 //! successful decode, calls `evidence()` and pushes the resulting LOCATED
 //! `eg_modality::EvidenceSpan` (e.g. a `CodeSymbol{file_path, symbol, start_line,
 //! end_line}`, a `TraceSpan{trace_id, span_id}`, an `ImageRegion{image_id, x, y,
 //! width, height}`, an `AudioSegment{audio_id, start_ms, end_ms}`, or a
-//! `VideoShot{video_id, start_ms, end_ms}`) into `evidence_refs`. A row whose `kind`
+//! `VideoShot{video_id, start_ms, end_ms}`, or a `DocumentSpan{document_id, start,
+//! end}`) into `evidence_refs`. A row whose `kind`
 //! matches neither (or whose properties don't structurally decode as that type, or
 //! whose modality value has no region/segment/shot to report — e.g. an `ImageData`
 //! with an empty region index) gets an empty `evidence_refs` — never a fabricated
@@ -155,6 +157,16 @@ fn resolve_evidence(
         "Video" => serde_json::from_value::<eg_video::VideoData>(value)
             .ok()
             .and_then(|video| video.evidence(row_id))
+            .into_iter()
+            .collect(),
+        // L20 (CONCEPT:EG-P1-3) — the document modality's own `DocumentSpan`
+        // evidence, mirroring the image/audio/video arms above. `evidence()` itself
+        // yields `None` (never a fabricated whole-document fallback span) when the
+        // document carries no page/block/span structure yet — see
+        // `eg_document`'s `contract.rs` docs.
+        "Document" => serde_json::from_value::<eg_document::DocumentData>(value)
+            .ok()
+            .and_then(|doc| doc.evidence(row_id))
             .into_iter()
             .collect(),
         _ => Vec::new(),
@@ -818,6 +830,78 @@ mod tests {
                 end_ms: 4000,
             }]
         );
+    }
+
+    /// L20 (CONCEPT:EG-P1-3) — a row whose stored node properties decode losslessly
+    /// as an `eg_document::DocumentData` (kind `"Document"`) gets a REAL, located
+    /// `EvidenceSpan::DocumentSpan` from its first page/block/span — not just its
+    /// node id. This is the gap the ledger flagged: `eg-document` shipped a real
+    /// `ModalityContract` impl (`src/contract.rs`) but `KnowledgeSet::from_rowset`
+    /// had no dispatch arm calling it; this test proves the arm now exists.
+    #[cfg(feature = "epistemic")]
+    #[test]
+    fn epistemic_resolves_document_span_evidence() {
+        let core = GraphCore::new();
+        core.add_node(
+            "doc1".into(),
+            blob(json!({
+                "node_type": "Document",
+                "blob_ref": "deadbeefcafefeed00000000000000000",
+                "language": "en",
+                "pages": [
+                    {
+                        "number": 1,
+                        "blocks": [
+                            {
+                                "kind": "Paragraph",
+                                "spans": [
+                                    { "start": 0, "end": 42, "label": "intro" }
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            })),
+        );
+        let view = core.analysis_snapshot();
+        let rs = RowSet::from_ids(["doc1".to_string()]);
+
+        let ks = KnowledgeSet::from_rowset(&rs, &view, &[]);
+
+        assert_eq!(ks.provenance_frame, ProvenanceFrame::Resolved);
+        let row = &ks.rows[0];
+        assert_eq!(row.kind, "Document");
+        assert_eq!(
+            row.evidence_refs,
+            vec![EvidenceSpan::DocumentSpan {
+                document_id: "doc1".to_string(),
+                start: 0,
+                end: 42,
+            }]
+        );
+    }
+
+    /// L20 (CONCEPT:EG-P1-3) — a `Document` row with NO page/block/span structure
+    /// decodes fine but yields NO fabricated evidence (never a whole-document
+    /// fallback span), mirroring the image-with-no-regions case above.
+    #[cfg(feature = "epistemic")]
+    #[test]
+    fn epistemic_document_with_no_structure_yields_no_fabricated_evidence() {
+        let core = GraphCore::new();
+        core.add_node(
+            "doc2".into(),
+            blob(json!({
+                "node_type": "Document",
+                "blob_ref": "h",
+            })),
+        );
+        let view = core.analysis_snapshot();
+        let rs = RowSet::from_ids(["doc2".to_string()]);
+
+        let ks = KnowledgeSet::from_rowset(&rs, &view, &[]);
+
+        assert_eq!(ks.rows[0].kind, "Document");
+        assert!(ks.rows[0].evidence_refs.is_empty());
     }
 
     /// X1 (CONCEPT:E4): `provenance_frame` reports `Resolved` under `epistemic`, but

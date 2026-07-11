@@ -27,6 +27,15 @@ pub mod stream;
 #[cfg(feature = "blob-s3")]
 pub mod s3;
 
+// A real, engine-backed `eg_alignment::EvidenceResolver` (L21, CONCEPT:EG-P1-3
+// follow-up): resolves a located `EvidenceSpan` through a `GraphView` snapshot's
+// own stored `blob_ref` property, then reads the actual bytes back out of THIS
+// module's `ChunkStore` — see `cas_resolver`'s module docs for why it lives here
+// rather than inside `eg-alignment` itself. Behind the `alignment` feature (implies
+// `blob`); a build without it compiles none of it.
+#[cfg(feature = "alignment")]
+pub mod cas_resolver;
+
 use dashmap::DashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
