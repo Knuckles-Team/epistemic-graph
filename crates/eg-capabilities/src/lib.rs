@@ -259,6 +259,13 @@ pub fn policy(m: &Method) -> MethodPolicy {
         // L53 (EPI-P3-5 UQL wiring): the acceptance-capstone + temporal-diff read ops.
         // Both read-only, no durability, no audit/CDC — same profile as `ExplainBelief`.
         Method::EpistemicStatus { .. } | Method::WhatChanged { .. } => MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "explain:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot },
+        // CONCEPT:EG-X1 + EPI-P3-3 (facade wiring): multimodal-citation resolution +
+        // calibrated causal reasoning + provenance-aware retrieval ranking. All three
+        // read-only, no durability, no audit/CDC — same profile as `ExplainBelief`
+        // above (`ExplainEvidence` walks a `BeliefGraph`; `CausalEstimate`/
+        // `RankByProvenance` are pure functions over request-carried inputs, needing
+        // no graph snapshot at all).
+        Method::ExplainEvidence { .. } | Method::CausalEstimate { .. } | Method::RankByProvenance { .. } => MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "explain:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot },
         Method::NlQuery { .. } => MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "query:nl", idempotent: false, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot },
         Method::RegisterForeignSource { .. } => MethodPolicy { mutates: true, durability_domain: DurabilityDomain::None, authz_action: "federation:admin", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Atomic },
         Method::RegisterUdf { .. } => MethodPolicy { mutates: true, durability_domain: DurabilityDomain::None, authz_action: "udf:admin", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Atomic },
@@ -589,6 +596,9 @@ pub const ALL_METHODS: &[(&str, MethodPolicy, &str)] = &[
         ("ExplainBelief", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "explain:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, ""),
         ("EpistemicStatus", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "explain:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "L53 (EPI-P3-5) acceptance capstone; handler additionally gated `epistemic-tms`"),
         ("WhatChanged", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "explain:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "L53 (EPI-P3-5) bitemporal diff; handler additionally gated `epistemic-tms`"),
+        ("ExplainEvidence", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "explain:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "CONCEPT:EG-X1 multimodal-citation resolver; handler additionally gated `evidence-graph`"),
+        ("CausalEstimate", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "explain:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "EPI-P3-3 do-calculus intervention over a request-carried SCM; handler additionally gated `epistemic-causal`"),
+        ("RankByProvenance", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "explain:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "EPI-P3-3 provenance-aware retrieval ranking; handler additionally gated `epistemic-causal`"),
         ("NlQuery", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "query:nl", idempotent: false, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, ""),
         ("RegisterForeignSource", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::None, authz_action: "federation:admin", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "NOT present in access.rs's write classifier at all; policy marks it mutates=true on semantic grounds (registers a foreign-source config) -- flagged as a possible access.rs coverage gap"),
         ("RegisterUdf", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::None, authz_action: "udf:admin", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "NOT present in access.rs's write classifier at all; policy marks it mutates=true on semantic grounds -- flagged as a possible access.rs coverage gap"),
@@ -752,7 +762,9 @@ mod smoke_tests {
         // always-in-the-enum `Method::PlacementRoute`.
         // L53 (EPI-P3-5): +2 (338 -> 340 base) for `Method::EpistemicStatus` /
         // `Method::WhatChanged`.
-        let expected = if cfg!(feature = "jobs") { 341 } else { 340 };
+        // CONCEPT:EG-X1 + EPI-P3-3 (facade wiring): +3 (340 -> 343 base) for
+        // `Method::ExplainEvidence`/`Method::CausalEstimate`/`Method::RankByProvenance`.
+        let expected = if cfg!(feature = "jobs") { 344 } else { 343 };
         assert_eq!(seen.len(), expected, "expected exactly {expected} Method variants");
     }
 
