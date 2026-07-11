@@ -2549,9 +2549,20 @@ mod tests {
             handles.push(tokio::spawn(async move {
                 let conditions_msgpack =
                     rmp_serde::to_vec_named(&serde_json::json!({"owner": null})).unwrap();
-                let updates_msgpack =
-                    rmp_serde::to_vec_named(&serde_json::json!({"owner": format!("w{i}")}))
-                        .unwrap();
+                // Distinct owner label prefix (not "w{i}") so this test's per-`i`
+                // CAS payloads never collide with another test's literal
+                // `CompareAndSetNodeFields` payload on the SAME `node_id`/graph name
+                // under `mutation`'s process-global idempotency-replay cache
+                // (CONCEPT:EG-P0-2) -- `CompareAndSetNodeFields` is policy-idempotent,
+                // so an identical (graph_name, method) tuple from a DIFFERENT test
+                // sharing this process would otherwise return THIS test's cached
+                // response instead of really executing (see
+                // `standalone_cas_still_works`, which used to collide with `w1`/`w2`
+                // here before this rename).
+                let updates_msgpack = rmp_serde::to_vec_named(
+                    &serde_json::json!({"owner": format!("coalescing-claimer-{i}")}),
+                )
+                .unwrap();
                 let m = Method::CompareAndSetNodeFields {
                     node_id: "task".into(),
                     conditions_msgpack,
