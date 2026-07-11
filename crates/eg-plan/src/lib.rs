@@ -269,6 +269,11 @@ pub use eg_text::{rrf_fuse, TextHit, TextIndex, RRF_K};
 // `eg_text::TextIndex`) to push a served `RankText`/`FuseRrf` leg down into it.
 #[cfg(feature = "text")]
 pub use exec::TextSource;
+// The `PlanCtx::with_spatial` search-surface trait (CONCEPT:EG-KG.storage.incremental-spatial, L37) — mirrors
+// `TextSource`: a facade implements this over its OWN maintained persistent spatial
+// index to push a served `Op::SpatialScan` down into it.
+#[cfg(feature = "geo")]
+pub use exec::SpatialSource;
 
 #[cfg(all(test, feature = "query"))]
 mod fixture;

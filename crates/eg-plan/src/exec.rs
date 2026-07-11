@@ -125,6 +125,19 @@ pub struct PlanCtx<'a> {
     /// `PlanCtx` is unchanged.
     #[cfg(feature = "epistemic")]
     pub belief_policy: Option<eg_epistemic::AuthorityPolicy>,
+    /// The persistent spatial-index search surface for `Op::SpatialScan` (CONCEPT:EG-KG.storage.incremental-spatial,
+    /// L37 — mirrors [`Self::text`]'s served-index-binding shape). `None` (the default)
+    /// makes `Op::SpatialScan` fall back to its prior v1 behavior: build an ephemeral
+    /// packed Hilbert R-tree from the queried snapshot on EVERY call (see
+    /// [`spatial_scan`]). `Some` pushes the bbox query DOWN into a facade adapter that
+    /// reaches a MAINTAINED index living behind a lock elsewhere (e.g. the server's
+    /// per-graph `GraphSpatialIndex`, kept incrementally up to date by the write
+    /// coalescer), so a served spatial scan does not rebuild the tree per query. A TRAIT
+    /// OBJECT (not a concrete type) for the SAME reason `text` is: the planner does not
+    /// care whether the bound index is snapshot-derived or server-maintained. Gated
+    /// behind `geo`, so a non-geo build's `PlanCtx` is unchanged.
+    #[cfg(feature = "geo")]
+    pub spatial: Option<&'a dyn SpatialSource>,
 }
 
 /// The lexical BM25 search surface [`PlanCtx::text`] binds (CONCEPT:EG-KG.query.served-text-index-binding) —
@@ -154,6 +167,21 @@ impl TextSource for eg_text::TextIndex {
     fn search(&self, query: &str, k: usize) -> Vec<eg_text::TextHit> {
         eg_text::TextIndex::search(self, query, k)
     }
+}
+
+/// The spatial bbox search surface [`PlanCtx::spatial`] binds (CONCEPT:EG-KG.storage.incremental-spatial, L37) —
+/// mirrors [`TextSource`]'s shape: abstracts OVER the concrete backing so `Op::SpatialScan`
+/// works identically whether the bound index is a facade adapter over the server's
+/// MAINTAINED per-graph `GraphSpatialIndex` (kept incrementally up to date by the write
+/// coalescer, never rebuilt per query) or — via `spatial_scan`'s OWN fallback when
+/// `PlanCtx::spatial` is `None` — an ephemeral snapshot-derived R-tree.
+#[cfg(feature = "geo")]
+pub trait SpatialSource: Send + Sync {
+    /// Every node id in `layer` (the conventional `type` property, matching
+    /// [`scan_label`]'s convention) whose maintained bounding box intersects `bbox`.
+    /// Empty when `layer` is unknown to this index (never an error — degrades exactly
+    /// like an absent index would).
+    fn query_bbox(&self, layer: &str, bbox: [f64; 4]) -> Vec<String>;
 }
 
 /// A server-side text→vector embedder (CONCEPT:EG-KG.compute.no-embedder-bound-op) — the seam that resolves a UQL
@@ -297,6 +325,8 @@ impl<'a> PlanCtx<'a> {
             decay: None,
             #[cfg(feature = "epistemic")]
             belief_policy: None,
+            #[cfg(feature = "geo")]
+            spatial: None,
         }
     }
 
@@ -315,6 +345,16 @@ impl<'a> PlanCtx<'a> {
     #[cfg(feature = "text")]
     pub fn with_text(mut self, text: &'a dyn TextSource) -> Self {
         self.text = Some(text);
+        self
+    }
+
+    /// Attach a persistent [`SpatialSource`] so `Op::SpatialScan` pushes its bbox query
+    /// down into a MAINTAINED index (CONCEPT:EG-KG.storage.incremental-spatial, L37) instead of
+    /// `spatial_scan`'s per-call ephemeral R-tree build. Without this call a `SpatialScan`
+    /// keeps that prior behavior, so a default ctx is byte-for-byte the old one.
+    #[cfg(feature = "geo")]
+    pub fn with_spatial(mut self, spatial: &'a dyn SpatialSource) -> Self {
+        self.spatial = Some(spatial);
         self
     }
 
@@ -468,58 +508,83 @@ pub trait Driver {
 /// `EPISTEMIC_GRAPH_COST_OPT` kill-switch ([`crate::optimizer::enabled`]) — a caller who
 /// disabled the plan-time cost optimizer gets its runtime-feedback half disabled too
 /// (`EPISTEMIC_GRAPH_COST_OPT=0` ⇒ the plain left fold, no per-op cardinality bookkeeping).
-/// [`crate::runtime::ParallelDriver`] (the opt-in `par-runtime` feature) does NOT yet run
-/// this loop — see its module docs / the rollout backlog: morsel-parallel execution splits
-/// an op's INPUT across workers, so "the actual cardinality after op i" is not a single
-/// scalar the same way it is here; wiring adaptive re-opt through that scheduler is
-/// follow-up work, not a correctness requirement (the parallel driver already reproduces the
-/// serial driver's RESULT byte-for-byte, just not this LATENCY optimization).
+/// [`crate::runtime::ParallelDriver`] (the opt-in `par-runtime` feature) runs this SAME loop
+/// too (CONCEPT:EG-KG.query.adaptive-reoptimization, L35 — both drivers now call
+/// [`run_with_adaptive_reopt`], differing only in how ONE op is applied: this driver's `step`
+/// is the plain serial [`apply`]; the parallel driver's morsel-splits a row-parallel op's
+/// input across the rayon pool first (`crate::runtime::exec_op`) and memory-accounts the
+/// result (`crate::runtime::spill_if_needed`) — see that module's docs for why "the actual
+/// cardinality after op i" is still a single scalar there (the loop iterates over WHOLE ops,
+/// never morsels, regardless of which driver runs them).
 pub struct SerialDriver;
 
 impl Driver for SerialDriver {
     fn run(&self, ops: &[Op], ctx: &PlanCtx) -> Result<RowSet, String> {
-        if !crate::optimizer::enabled() {
-            // The global cost-optimizer kill-switch also disables the runtime feedback
-            // loop below — byte-for-byte the pre-optimizer left fold.
-            let mut cur = RowSet::new();
-            for op in ops {
-                cur = apply(op, cur, ctx)?;
-            }
-            return Ok(cur);
-        }
-
-        use crate::cost::{Cardinality, ModalityCardinality, PlanStats};
-
-        let card = ModalityCardinality::new(PlanStats::collect(ctx));
-        let mut cur = RowSet::new();
-        let mut estimated_in = 0.0_f64;
-        // The not-yet-executed op list — `reoptimize_remaining` may replace its TAIL
-        // (everything after the op about to run) each iteration, so this can grow/shrink
-        // in content (never in a way that changes correctness — see the doc above) across
-        // the loop, unlike the plain `ops` slice.
-        let mut remaining: Vec<Op> = ops.to_vec();
-        let mut i = 0;
-        while i < remaining.len() {
-            let op = remaining[i].clone();
-            let estimated_out = card.rows_out(&op, estimated_in, ctx);
-            cur = apply(&op, cur, ctx)?;
-            let actual_out = cur.len() as f64;
-
-            if i + 1 < remaining.len() {
-                let tail = crate::optimizer::reoptimize_remaining(
-                    &remaining[i + 1..],
-                    estimated_out,
-                    actual_out,
-                    &card,
-                    ctx,
-                );
-                remaining.splice(i + 1.., tail);
-            }
-            estimated_in = actual_out;
-            i += 1;
-        }
-        Ok(cur)
+        run_with_adaptive_reopt(ops, ctx, apply)
     }
+}
+
+/// The adaptive-reoptimization runtime-feedback loop (CONCEPT:EG-KG.query.adaptive-reoptimization) —
+/// factored out of [`SerialDriver::run`] so [`crate::runtime::ParallelDriver`]'s physical
+/// driver (L35, `par-runtime`) runs the IDENTICAL policy instead of a re-implemented copy.
+/// `step` applies ONE op to the current [`RowSet`] — the only thing that differs between the
+/// two physical drivers (a plain serial [`apply`] here, vs the parallel driver's
+/// morsel-aware `exec_op` + spill accounting) — everything else (the divergence check, the
+/// `reoptimize_remaining` tail-splice, the kill-switch fallback) is shared verbatim, so the
+/// two drivers can never drift out of sync on WHEN/HOW re-optimization triggers.
+///
+/// Gated off the SAME `EPISTEMIC_GRAPH_COST_OPT` kill-switch ([`crate::optimizer::enabled`])
+/// as `plan_optimize`: disabled ⇒ a plain left fold over `step`, byte-for-byte the pre-
+/// optimizer behavior for BOTH drivers.
+pub(crate) fn run_with_adaptive_reopt<F>(
+    ops: &[Op],
+    ctx: &PlanCtx,
+    mut step: F,
+) -> Result<RowSet, String>
+where
+    F: FnMut(&Op, RowSet, &PlanCtx) -> Result<RowSet, String>,
+{
+    if !crate::optimizer::enabled() {
+        // The global cost-optimizer kill-switch also disables the runtime feedback
+        // loop below — byte-for-byte the pre-optimizer left fold.
+        let mut cur = RowSet::new();
+        for op in ops {
+            cur = step(op, cur, ctx)?;
+        }
+        return Ok(cur);
+    }
+
+    use crate::cost::{Cardinality, ModalityCardinality, PlanStats};
+
+    let card = ModalityCardinality::new(PlanStats::collect(ctx));
+    let mut cur = RowSet::new();
+    let mut estimated_in = 0.0_f64;
+    // The not-yet-executed op list — `reoptimize_remaining` may replace its TAIL
+    // (everything after the op about to run) each iteration, so this can grow/shrink
+    // in content (never in a way that changes correctness — see the doc above) across
+    // the loop, unlike the plain `ops` slice.
+    let mut remaining: Vec<Op> = ops.to_vec();
+    let mut i = 0;
+    while i < remaining.len() {
+        let op = remaining[i].clone();
+        let estimated_out = card.rows_out(&op, estimated_in, ctx);
+        cur = step(&op, cur, ctx)?;
+        let actual_out = cur.len() as f64;
+
+        if i + 1 < remaining.len() {
+            let tail = crate::optimizer::reoptimize_remaining(
+                &remaining[i + 1..],
+                estimated_out,
+                actual_out,
+                &card,
+                ctx,
+            );
+            remaining.splice(i + 1.., tail);
+        }
+        estimated_in = actual_out;
+        i += 1;
+    }
+    Ok(cur)
 }
 
 /// Ergonomic `plan.execute(&ctx)` over the foreign [`Plan`] wire DTO (the orphan
@@ -612,7 +677,7 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
         // eg-types/geo is on (pulled by eg-plan/geo), so a non-geo build has neither the
         // variant nor this arm (the ForeignScan gating precedent).
         #[cfg(feature = "geo")]
-        Op::SpatialScan { layer, bbox } => Ok(spatial_scan(ctx.view, layer, *bbox)),
+        Op::SpatialScan { layer, bbox } => Ok(spatial_scan(ctx, layer, *bbox)),
 
         // TRANSFORM (spatial CRS, CONCEPT:EG-KG.domains.coordinate-reference-system) — reproject each row's geometry into
         // `to_epsg`; TRANSFORM (constructive, CONCEPT:EG-KG.ontology.concept-9) — derive a geometry per row
@@ -1571,14 +1636,23 @@ fn row_json(view: &GraphView, id: &str) -> Option<serde_json::Value> {
 
 /// SOURCE (spatial): every node in `layer` (matched on the `type` property, exactly as
 /// [`scan_label`]) whose stored geometry's bounding box intersects `bbox`, found via
-/// eg-geo's packed Hilbert R-tree (CONCEPT:EG-KG.ontology.singles-concept). Each node's geometry is read as a
-/// WKT string from a conventional `geometry` (or `geom`) property — a dep-free view
-/// scan, mirroring how `scan_label`/`as_of_filter` decode the blob. The R-tree is built
-/// over the layer's geometries and queried once; the matching ids seed the RowSet.
-/// (A durable R-tree persisted beside the shard — per the concept row — is a follow-up;
-/// v1 builds the index over the live snapshot.)
+/// eg-geo's packed Hilbert R-tree (CONCEPT:EG-KG.ontology.singles-concept).
+///
+/// L37 (CONCEPT:EG-KG.storage.incremental-spatial) — when `ctx.spatial` is bound (a served
+/// query with a `ServerIndexFactory`-installed `GraphSpatialIndex`, via the
+/// `ServedSpatialIndex` adapter), the bbox query pushes straight down into that
+/// MAINTAINED persistent index — no per-call rebuild. Otherwise (`ctx.spatial` is
+/// `None` — a bare test harness, or a graph created before the factory was wired) this
+/// keeps the prior v1 behavior: each node's geometry is read as a WKT string from a
+/// conventional `geometry` (or `geom`) property — a dep-free view scan, mirroring how
+/// `scan_label`/`as_of_filter` decode the blob — and an EPHEMERAL R-tree is built over
+/// the layer's geometries and queried once, exactly as before this fix.
 #[cfg(feature = "geo")]
-fn spatial_scan(view: &GraphView, layer: &str, bbox: [f64; 4]) -> RowSet {
+fn spatial_scan(ctx: &PlanCtx, layer: &str, bbox: [f64; 4]) -> RowSet {
+    if let Some(src) = ctx.spatial {
+        return RowSet::from_ids(src.query_bbox(layer, bbox));
+    }
+    let view = ctx.view;
     let mut ids: Vec<String> = Vec::new();
     let mut boxes: Vec<(usize, eg_geo::Bbox)> = Vec::new();
     for (id, blob) in view.node_properties.iter() {
