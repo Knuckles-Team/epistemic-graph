@@ -28,9 +28,16 @@
 //!    writeback path produced the claim;
 //!  * `invalidation_deps` on the claim — the ids whose change/removal invalidates it
 //!    (the input-snapshot handle string + the evidence node id);
-//!  * a `calibration` slot (honestly `null` — no calibration signal is computed by
-//!    this crate; a caller with a real one can extend `commit_result_claim`'s
-//!    `confidence` parameter list, or patch the claim node directly).
+//!  * a `calibration` slot — `null` when the caller passes `None` (no calibration
+//!    signal computed for this result), or the caller-supplied [`CalibrationInput`]
+//!    otherwise (L52, CONCEPT:EG-KG.epistemic.epistemic-substrate wiring). This crate
+//!    deliberately does NOT depend on `eg-epistemic` (see the module doc above — that
+//!    crate has NO write path by design, and this crate's whole job is writing), so
+//!    `CalibrationInput` is a PLAIN, locally-defined data mirror of
+//!    `eg_epistemic::model::Calibration`'s shape (`interval`/`level`/`evidence_count`)
+//!    rather than a re-export of that type — a caller who computed a real
+//!    `eg_epistemic::Calibration` (e.g. from `propagate_confidence`'s `BeliefState`)
+//!    converts it into this crate's plain fields at the call site.
 //!
 //! `GENERATED_BY` is deliberately NOT one of `eg_epistemic::classify_relationship`'s
 //! whitelisted values, so it is automatically epistemically NEUTRAL — ignored by
@@ -88,6 +95,22 @@ pub fn activity_node_id(result_ref: &str) -> String {
     format!("jobactivity:{result_ref}")
 }
 
+/// A plain-data mirror of `eg_epistemic::model::Calibration`'s shape (L52): the
+/// central credible interval, its probability mass, and the evidence count that fed
+/// it. This crate deliberately does not depend on `eg-epistemic` (see module docs),
+/// so this is NOT that type — a caller holding a real `eg_epistemic::Calibration`
+/// converts it into this at the call site (`interval`/`level`/`evidence_count` line up
+/// field-for-field).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CalibrationInput {
+    /// Central credible interval `(lower, upper) ⊆ [0, 1]` at `level`.
+    pub interval: (f64, f64),
+    /// The probability mass the interval covers (e.g. `0.95`).
+    pub level: f64,
+    /// How many pieces of evidence (rules/observations/samples) fed this calibration.
+    pub evidence_count: usize,
+}
+
 /// Commit `job`'s result (`job.state` must be `Succeeded`) as a provenance'd claim
 /// into `core` (CONCEPT:INT-P2-1). Transactional (each write is a single
 /// `GraphCore::add_node`/`add_edge` call — atomic per the engine's own txn
@@ -98,10 +121,17 @@ pub fn activity_node_id(result_ref: &str) -> String {
 /// `confidence` is the caller-computed quality score for this result (e.g. mean
 /// `support * confidence` over mined association rules), clamped to `[0,1]` — the
 /// SAME "quality score seeds claim confidence" convention `mining.rs` uses.
+///
+/// `calibration` (L52) is `None` when the caller has no calibration signal for this
+/// result (the claim's `calibration` property lands an honest `null`, byte-identical
+/// to this function's behavior before this parameter existed); `Some(CalibrationInput)`
+/// carries it through onto the SAME `calibration` slot the universal writeback-lineage
+/// tuple already reserved.
 pub fn commit_result_claim(
     core: &GraphCore,
     job: &AnalyticsJob,
     confidence: f64,
+    calibration: Option<CalibrationInput>,
 ) -> Result<ClaimCommitOutcome, String> {
     let result_ref = match &job.state {
         crate::model::JobState::Succeeded { result_ref, .. } => result_ref.clone(),
@@ -149,8 +179,14 @@ pub fn commit_result_claim(
         "algo_env_version": job.algo.env_version,
         "result_ref": result_ref,
         // CONCEPT:EG-P3-1 — universal writeback-lineage tuple (the calibration/
-        // invalidation-deps legs beyond what INT-P2-1 already carried above).
-        "calibration": serde_json::Value::Null,
+        // invalidation-deps legs beyond what INT-P2-1 already carried above). L52:
+        // `calibration` is a real signal when the caller supplied one, an honest
+        // `null` otherwise (never fabricated).
+        "calibration": calibration.map(|c| serde_json::json!({
+            "interval": [c.interval.0, c.interval.1],
+            "level": c.level,
+            "evidence_count": c.evidence_count,
+        })).unwrap_or(serde_json::Value::Null),
         "invalidation_deps": [snapshot_handle.as_str(), evidence_id.as_str()],
     });
     let blob = rmp_serde::to_vec_named(&claim_props).map_err(|e| e.to_string())?;
@@ -273,7 +309,7 @@ mod tests {
         let core = GraphCore::new();
         let job = succeeded_job("job-0000000000000001", "g1", 5);
 
-        let outcome = commit_result_claim(&core, &job, 0.87).unwrap();
+        let outcome = commit_result_claim(&core, &job, 0.87, None).unwrap();
         let claim_id = match outcome {
             ClaimCommitOutcome::Committed { claim_id } => claim_id,
             other => panic!("expected Committed, got {other:?}"),
@@ -331,10 +367,10 @@ mod tests {
         let job_b = succeeded_job("job-0000000000000002", "g1", 5);
         assert_eq!(job_a.result_ref(), job_b.result_ref());
 
-        let first = commit_result_claim(&core, &job_a, 0.87).unwrap();
+        let first = commit_result_claim(&core, &job_a, 0.87, None).unwrap();
         assert!(matches!(first, ClaimCommitOutcome::Committed { .. }));
 
-        let second = commit_result_claim(&core, &job_b, 0.5).unwrap();
+        let second = commit_result_claim(&core, &job_b, 0.5, None).unwrap();
         assert!(matches!(second, ClaimCommitOutcome::AlreadyCommitted { .. }));
         assert_eq!(first.claim_id(), second.claim_id());
 
@@ -352,7 +388,7 @@ mod tests {
         assert_eq!(props["confidence"], 0.87);
 
         // Re-running commit AGAIN for job_a itself is also a no-op (same job, twice).
-        let third = commit_result_claim(&core, &job_a, 0.1).unwrap();
+        let third = commit_result_claim(&core, &job_a, 0.1, None).unwrap();
         assert!(matches!(third, ClaimCommitOutcome::AlreadyCommitted { .. }));
     }
 
@@ -361,6 +397,32 @@ mod tests {
         let core = GraphCore::new();
         let mut job = succeeded_job("job-0000000000000001", "g1", 5);
         job.state = JobState::Submitted;
-        assert!(commit_result_claim(&core, &job, 0.5).is_err());
+        assert!(commit_result_claim(&core, &job, 0.5, None).is_err());
+    }
+
+    // A completed job's claim carries a real calibration value when the caller
+    // supplies one (L52) — proving the writeback threads `CalibrationInput` through
+    // onto the SAME `calibration` slot that stayed an honest `null` above.
+    #[test]
+    fn commit_with_calibration_lands_a_real_calibration_value() {
+        let core = GraphCore::new();
+        let job = succeeded_job("job-0000000000000001", "g1", 5);
+        let calibration = CalibrationInput {
+            interval: (0.72, 0.94),
+            level: 0.95,
+            evidence_count: 12,
+        };
+
+        let outcome = commit_result_claim(&core, &job, 0.87, Some(calibration)).unwrap();
+        let claim_id = outcome.claim_id();
+        let props: serde_json::Value =
+            rmp_serde::from_slice(&core.get_node_properties(claim_id).unwrap()).unwrap();
+
+        assert!(!props["calibration"].is_null());
+        assert_eq!(props["calibration"]["level"], 0.95);
+        assert_eq!(props["calibration"]["evidence_count"], 12);
+        let interval = props["calibration"]["interval"].as_array().unwrap();
+        assert_eq!(interval[0].as_f64().unwrap(), 0.72);
+        assert_eq!(interval[1].as_f64().unwrap(), 0.94);
     }
 }
