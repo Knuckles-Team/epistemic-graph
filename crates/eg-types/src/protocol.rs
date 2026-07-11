@@ -58,13 +58,38 @@ fn default_min_confidence() -> f64 {
 // ── Request ─────────────────────────────────────────────────────────────
 
 /// Top-level request envelope sent by the Python client.
+///
+/// `auth_token` carries TWO envelope generations (CONCEPT:EG-KG.security.signed-request-envelope,
+/// EG-P0-5):
+///  * v0 (legacy) — a bare HMAC-SHA256 hex digest over the request id ONLY. This
+///    is the historical, unauthenticated-body scheme every existing client/test
+///    speaks; it remains the default.
+///  * v1 — a versioned, `eg1.`-prefixed signed envelope binding protocol
+///    version, audience, tenant, principal, graph, method name, a hash of the
+///    method's params (the "body"), a timestamp, a nonce, and an idempotency
+///    key, all under one HMAC, verified in constant time with a clock-skew
+///    window and a replay-nonce cache (`src/server/auth.rs` in the facade
+///    crate). The v1 envelope rides in this EXISTING field (rather than new
+///    `Request` struct fields) deliberately: `Request` is constructed via ~100
+///    Rust struct-literal call sites across several crates, and adding
+///    required fields there would ripple far outside the crypto-core
+///    workstream that introduced v1. Packing the versioned envelope into the
+///    token string is additive at the type level (an untouched `String`
+///    field) while still explicit and versioned at the value level (the fixed
+///    `eg1.` prefix unambiguously distinguishes it from a legacy plain hex
+///    digest, so a v0 request is never silently mis-handled as v1 or vice
+///    versa). `build_envelope_v1_bytes` below is the shared, canonical byte
+///    encoding both the signer and the verifier hash — it lives here (pure
+///    data, no crypto dep) so the two sides can never independently drift out
+///    of sync.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Request {
     /// Monotonically increasing request ID for correlation.
     pub id: u64,
     /// Target graph name (e.g., "agent:planner", "__commons__", "channel:p2p:a:b").
     pub graph: String,
-    /// HMAC-SHA256 hex digest for authentication.
+    /// HMAC-SHA256 hex digest for authentication (v0), or an `eg1.`-prefixed
+    /// signed envelope (v1) — see the struct doc above.
     pub auth_token: String,
     /// Caller identity for ACL enforcement (see `isolation.rs`). Optional and
     /// backward-compatible: older clients simply omit the field. When isolation
@@ -75,6 +100,65 @@ pub struct Request {
     /// The operation to perform.
     #[serde(flatten)]
     pub method: Method,
+}
+
+// ── Signed Request Envelope (v1) — canonical byte encoding ────────────────
+//
+// CONCEPT:EG-KG.security.signed-request-envelope (EG-P0-5). Pure data-shaping — NO crypto
+// dependency here (`eg-types` stays at the bottom of the crate DAG, Pi-tier
+// contract) — so the signer (`eg-plan`'s `RemoteEngineSource`) and the
+// verifier (the facade's `src/server/auth.rs`) both call this SAME function
+// rather than re-implementing the byte layout independently, which would risk
+// the two drifting out of sync (a verifier that hashes fields in a different
+// order than the signer would reject everything, or worse, silently accept
+// forged content that collides under a looser encoding).
+
+/// Canonical, unambiguous byte encoding for the v1 signed-request envelope.
+/// Length-prefixes every variable-length field (`u32` big-endian length +
+/// bytes) so no concatenation ambiguity lets an attacker shift bytes between
+/// adjacent fields to forge a signature over different logical content (e.g.
+/// `tenant="ab", principal="c"` must NOT hash identically to
+/// `tenant="a", principal="bc"`).
+///
+/// Binds: a fixed domain tag (so a v1 envelope MAC can never collide with a
+/// MAC computed for an unrelated purpose over similar bytes), the request
+/// `id`, `graph`, the method's tag name + a hash of its serialized params
+/// (`method_name`/`body_hash` — together these bind BOTH "what operation" and
+/// "what data"), `audience`/`tenant`/`principal` (multi-tenant/ABAC binding —
+/// enforcement of these is a later workstream; this only guarantees they
+/// cannot be forged once something DOES enforce them), `timestamp` + `nonce`
+/// (replay defense), and `idempotency_key` (so a client's idempotency key
+/// can't be stripped/substituted in flight).
+#[allow(clippy::too_many_arguments)]
+pub fn build_envelope_v1_bytes(
+    request_id: u64,
+    graph: &str,
+    method_name: &str,
+    body_hash: &str,
+    audience: &str,
+    tenant: &str,
+    principal: &str,
+    timestamp: u64,
+    nonce: &str,
+    idempotency_key: &str,
+) -> Vec<u8> {
+    fn put(buf: &mut Vec<u8>, s: &str) {
+        buf.extend_from_slice(&(s.len() as u32).to_be_bytes());
+        buf.extend_from_slice(s.as_bytes());
+    }
+    let mut buf = Vec::new();
+    put(&mut buf, "eg-envelope-v1");
+    buf.extend_from_slice(&request_id.to_be_bytes());
+    put(&mut buf, graph);
+    put(&mut buf, method_name);
+    put(&mut buf, body_hash);
+    put(&mut buf, audience);
+    put(&mut buf, tenant);
+    put(&mut buf, principal);
+    buf.extend_from_slice(&timestamp.to_be_bytes());
+    put(&mut buf, nonce);
+    put(&mut buf, idempotency_key);
+    buf
 }
 
 // ── Method ──────────────────────────────────────────────────────────────
@@ -3552,6 +3636,37 @@ pub enum Method {
         #[serde(default)]
         as_claim: bool,
     },
+}
+
+impl Method {
+    /// The wire tag name for this variant (e.g. `"Ping"`, `"AddNode"`) — the
+    /// adjacently-tagged `"method"` field serde already writes
+    /// (`#[serde(tag = "method", content = "params")]`). Used by the v1
+    /// signed-envelope path (CONCEPT:EG-KG.security.signed-request-envelope) to bind the
+    /// operation name into the signature without needing the `metrics`
+    /// feature's `strum::IntoStaticStr` derive, which isn't compiled into
+    /// every serving tier.
+    pub fn tag_name(&self) -> String {
+        serde_json::to_value(self)
+            .ok()
+            .and_then(|v| {
+                v.get("method")
+                    .and_then(|m| m.as_str().map(str::to_string))
+            })
+            .unwrap_or_default()
+    }
+
+    /// Deterministic byte encoding of this method (tag + params) for the v1
+    /// envelope's body-hash binding (CONCEPT:EG-KG.security.signed-request-envelope). Reuses
+    /// the SAME named-map MessagePack encoder the wire transport already uses
+    /// (`rmp_serde::to_vec_named`) so the bytes are stable across the process
+    /// (field order is the struct's declared order) without a bespoke
+    /// canonicalizer. Hashing this (rather than transmitting a client-supplied
+    /// hash) means the verifier NEVER trusts an attacker-stated body hash — it
+    /// always recomputes it from the actual `method` that rode the wire.
+    pub fn canonical_body_bytes(&self) -> Vec<u8> {
+        rmp_serde::to_vec_named(self).unwrap_or_default()
+    }
 }
 
 // ── Supporting Types ────────────────────────────────────────────────────
