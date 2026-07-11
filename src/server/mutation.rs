@@ -655,7 +655,8 @@ fn commit_prepare(
 
 /// Steps 5-8 of the commit gateway: mark-dirty, durable commit (which for a redb
 /// backend also appends the tamper-evident audit-chain entry — see module docs),
-/// CDC emit, and idempotency-replay cache insert. `response` is the applied
+/// CDC emit (+ the `epistemic-tms` truth-maintenance hook, step 7.5, riding the same
+/// ordering), and idempotency-replay cache insert. `response` is the applied
 /// outcome; on an ERROR response NOTHING durable/audited/CDC-emitted/cached happens.
 async fn commit_finalize(
     ctx: &MutationCtx<'_>,
@@ -697,6 +698,17 @@ async fn commit_finalize(
         if let Some(hub) = ctx.cdc {
             crate::server::cdc::emit_for_method(hub, ctx.core, ctx.graph_name, method, prep.cdc_pre);
         }
+    }
+
+    // 7.5. Truth-maintenance change-feed hook (CONCEPT:EG-KG.epistemic.truth-maintenance —
+    // EPI-P3-2's server-side wiring, `src/server/tms_hook.rs`): same "after the durable
+    // commit succeeded" ordering as CDC above. Independent of `streaming` -- this hook
+    // has no CDC dependency (see `eg_epistemic::recompute`'s module docs). No-op for any
+    // method `tms_hook::change_event_for_method` does not map (the overwhelming
+    // majority), so this costs one cheap match per gateway-routed commit.
+    #[cfg(feature = "epistemic-tms")]
+    {
+        crate::server::tms_hook::notify(method);
     }
 
     // 8. Cache the response for idempotent-replay dedup.

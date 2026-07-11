@@ -103,6 +103,8 @@ fn seeded_state(blob_dir: &std::path::Path) -> Arc<RwLock<ServerState>> {
         #[cfg(feature = "federation")]
         foreign_sources: Arc::new(DashMap::new()),
         dataset_handles: Arc::new(dataset_handle::DatasetHandleRegistry::new()),
+        #[cfg(feature = "lake")]
+        lake: std::sync::Arc::new(epistemic_graph::server::lake::LakeManager::new()),
     }))
 }
 
