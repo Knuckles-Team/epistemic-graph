@@ -82,6 +82,52 @@ impl AuthorityPolicy {
     }
 }
 
+/// One node's stored bitemporal window (CONCEPT:EG-KG.epistemic.bitemporal-reasoning,
+/// EPI-P3-5): mirrors `eg_types::NodeData`'s own `valid_from`/`valid_until`/`tx_from`/
+/// `tx_to` fields (KG-2.249/2.250) — **valid time** ("when it's true in the world") and
+/// **transaction time** ("when the engine recorded it") are independent axes, exactly
+/// the distinction [`TimeAxis`] already names for a single-axis `AS OF` pin. This
+/// struct is the two-axis PAIR, so a belief can be asked about on both simultaneously
+/// (`BeliefGraph::at_instant`) rather than one axis at a time.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BiTemporalRecord {
+    /// When this fact became true in the world (valid time, inclusive lower bound).
+    /// `None` mirrors the engine's own `live_at` convention (`eg-plan::exec::live_at`):
+    /// absent ⇒ treated as having always existed (lower bound `0`).
+    pub valid_from: Option<u64>,
+    /// When this fact stopped being true in the world (valid time, exclusive upper
+    /// bound). `None` ⇒ still valid / open-ended.
+    pub valid_until: Option<u64>,
+    /// When the engine recorded this fact (transaction time, inclusive lower bound).
+    pub tx_from: Option<u64>,
+    /// When the engine's record of this fact was superseded (transaction time,
+    /// exclusive upper bound). `None` ⇒ still the current record.
+    pub tx_to: Option<u64>,
+}
+
+impl BiTemporalRecord {
+    /// Whether this record is live on the VALID axis at `ts` — the exact semantics
+    /// `eg-plan::exec::live_at` uses for `Op::AsOf { axis: Valid }` (absent `from` ⇒ `0`,
+    /// absent `until` ⇒ unbounded), kept in lockstep so a belief queried here agrees
+    /// with the plan-level `AS OF` filter over the same stored fields.
+    pub fn live_at_valid(&self, ts: u64) -> bool {
+        self.valid_from.unwrap_or(0) <= ts && self.valid_until.is_none_or(|u| ts < u)
+    }
+
+    /// Whether this record is live on the TRANSACTION axis at `ts` — mirrors
+    /// [`Self::live_at_valid`] over `tx_from`/`tx_to`.
+    pub fn live_at_tx(&self, ts: u64) -> bool {
+        self.tx_from.unwrap_or(0) <= ts && self.tx_to.is_none_or(|u| ts < u)
+    }
+
+    /// Whether this record is live on **both** axes at once — a `None` component means
+    /// "don't filter that axis", so `live_at(Some(v), None)` degrades to a pure
+    /// valid-time check and `live_at(None, None)` is vacuously `true` (no pin at all).
+    pub fn live_at(&self, valid_ts: Option<u64>, tx_ts: Option<u64>) -> bool {
+        valid_ts.is_none_or(|t| self.live_at_valid(t)) && tx_ts.is_none_or(|t| self.live_at_tx(t))
+    }
+}
+
 /// A computed snapshot of what the engine believes about one node, given its evidence
 /// neighbourhood. Derived, never stored.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -100,6 +146,13 @@ pub struct BeliefState {
     /// The bitemporal instant this belief was pinned at, if the caller composed an
     /// `AS OF` before propagating; `None` for "as of now".
     pub as_of: Option<(TimeAxis, u64)>,
+    /// This claim's OWN stored bitemporal window (EPI-P3-5) — "when it's valid" +
+    /// "when it was recorded", read straight off `BeliefGraph::temporal`. Distinct from
+    /// `as_of` (which records a caller-composed `AS OF` PIN, i.e. the query instant);
+    /// this is the claim's own data. `None` when the underlying graph carried no
+    /// bitemporal metadata for this node (e.g. a hand-built test fixture).
+    #[serde(default)]
+    pub bitemporal: Option<BiTemporalRecord>,
 }
 
 /// The inference rule that produced a [`ProofNode`] — the epistemic analogue of an
@@ -132,4 +185,49 @@ pub struct ProofNode {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct JustificationGraph {
     pub root: ProofNode,
+}
+
+#[cfg(test)]
+mod bitemporal_record_tests {
+    use super::*;
+
+    #[test]
+    fn absent_bounds_default_to_always_live() {
+        let rec = BiTemporalRecord::default();
+        assert!(rec.live_at_valid(0));
+        assert!(rec.live_at_valid(u64::MAX));
+        assert!(rec.live_at_tx(0));
+        assert!(rec.live_at(Some(12345), Some(67890)));
+    }
+
+    #[test]
+    fn valid_window_excludes_before_from_and_at_or_after_until() {
+        let rec = BiTemporalRecord {
+            valid_from: Some(100),
+            valid_until: Some(200),
+            tx_from: None,
+            tx_to: None,
+        };
+        assert!(!rec.live_at_valid(99));
+        assert!(rec.live_at_valid(100));
+        assert!(rec.live_at_valid(199));
+        assert!(!rec.live_at_valid(200));
+    }
+
+    #[test]
+    fn live_at_none_axis_is_not_filtered() {
+        let rec = BiTemporalRecord {
+            valid_from: Some(100),
+            valid_until: Some(200),
+            tx_from: Some(1000),
+            tx_to: Some(2000),
+        };
+        // Only the valid axis is checked when tx_ts is None.
+        assert!(rec.live_at(Some(150), None));
+        // Only the tx axis is checked when valid_ts is None.
+        assert!(rec.live_at(None, Some(1500)));
+        // Both axes must hold when both are given.
+        assert!(!rec.live_at(Some(150), Some(2500)));
+        assert!(rec.live_at(Some(150), Some(1500)));
+    }
 }
