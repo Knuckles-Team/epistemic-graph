@@ -289,6 +289,7 @@ pub(crate) async fn try_handle_gateway(
     persistence: Option<&Arc<dyn PersistenceBackend>>,
     redb_authoritative: bool,
     #[cfg(feature = "streaming")] cdc: Option<&Arc<crate::server::cdc::CdcHub>>,
+    write_coalescer: Option<&Arc<crate::write_coalescer::WriteCoalescerRegistry>>,
     authz_ctx: Option<&GatewayAuthzCtx>,
     method: Method,
 ) -> Result<Response, Method> {
@@ -311,6 +312,7 @@ pub(crate) async fn try_handle_gateway(
         redb_authoritative,
         #[cfg(feature = "streaming")]
         cdc,
+        write_coalescer,
     };
     let resp = match &method {
         Method::AddNode {

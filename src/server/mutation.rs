@@ -27,12 +27,15 @@
 //! a DELIBERATE, documented increment (EG-P0-2), not a claim of full coverage — see
 //! `tests::gateway_routed_set_matches_mutating_policy_surface` for the machine-
 //! visible backlog of mutating methods NOT yet migrated. `src/server/dispatch.rs`
-//! wires `handlers::graph_ops::try_handle_gateway` in AHEAD of both the per-graph
-//! write-coalescer and the legacy WAL/CDC tail for exactly this set, so there is
-//! never a double-apply: a routed method never reaches the coalescer, the old
-//! direct-`eg-core`-call arms in `graph_ops::try_handle`, or the dispatch shell's
-//! own `record_method`/`cdc_pre`/`cdc_method` computation (all three are gated off
-//! [`is_gateway_routed`] there).
+//! wires `handlers::graph_ops::try_handle_gateway` in AHEAD of both the dispatch-
+//! shell write-coalescer branch (`try_coalesce_write`) and the legacy WAL/CDC tail
+//! for exactly this set, so there is never a double-apply: a routed method never
+//! reaches `dispatch::try_coalesce_write`, the old direct-`eg-core`-call arms in
+//! `graph_ops::try_handle`, or the dispatch shell's own `record_method`/`cdc_pre`/
+//! `cdc_method` computation (all three are gated off [`is_gateway_routed`] there).
+//! The coalescer BATCHING itself is not lost, though — the gateway re-enters the
+//! SAME per-graph writer from INSIDE `commit_mutation` (L18, see
+//! [`try_coalesce_apply`]), so a routed structural write still batches.
 //!
 //! ## What this gateway does NOT reimplement
 //!
@@ -49,12 +52,17 @@
 //! `tests::routed_mutation_produces_one_wal_record_one_audit_entry_and_one_cdc_event`,
 //! which uses a REAL `RedbBackend` and reads the audit chain back).
 //!
-//! Similarly, the per-graph write-coalescer's batching optimization is bypassed for
-//! the routed set (traded for gateway correctness in this increment) and the Raft
-//! consensus barrier / cross-region replica log are untouched (both already return
-//! from `dispatch_graph_op` before this gateway is reached, or are simply not yet
-//! wired into it) — see the module docs above and the workstream report for the
-//! full backlog.
+//! The per-graph write-coalescer's batching optimization is NO LONGER bypassed for
+//! the routed set (L18/EG-P0-6): [`commit_mutation`] step 4 routes a coalescable
+//! routed mutation (`AddNode`/`RemoveNode`/`AddEdge`/`RemoveEdge`) through the SAME
+//! `WriteCoalescerRegistry::writer_for` path the legacy `dispatch::try_coalesce_write`
+//! uses (see [`try_coalesce_apply`]), so the hot-path structural writes batch again
+//! (`stats().ops()` counts them) while WAL/audit/CDC ordering is preserved. The
+//! non-coalescable routed memory ops (`CreateSummaryNode`/`Consolidate`/`Reinforce`)
+//! keep the inline `apply`. The Raft consensus barrier / cross-region replica log are
+//! still untouched (both already return from `dispatch_graph_op` before this gateway
+//! is reached, or are simply not yet wired into it) — see the module docs above and
+//! the workstream report for the full backlog.
 
 use std::sync::Arc;
 
@@ -168,6 +176,15 @@ pub struct MutationCtx<'a> {
     pub redb_authoritative: bool,
     #[cfg(feature = "streaming")]
     pub cdc: Option<&'a Arc<crate::server::cdc::CdcHub>>,
+    /// Per-graph write-coalescer registry (CONCEPT:EG-KG.sharding.per-graph-write-coalescer, L18).
+    /// When present + enabled, a coalescable routed mutation
+    /// (`AddNode`/`RemoveNode`/`AddEdge`/`RemoveEdge`) has its in-memory apply
+    /// BATCHED onto this graph's single-writer queue instead of taking the topology
+    /// lock itself, exactly like the legacy `dispatch::try_coalesce_write` path — so
+    /// routing a hot-path write through the gateway no longer loses write-batching.
+    /// `None` (or a disabled/non-coalescable method) ⇒ the `apply` closure runs
+    /// inline, unchanged. See [`commit_mutation`] step 4.
+    pub write_coalescer: Option<&'a Arc<crate::write_coalescer::WriteCoalescerRegistry>>,
 }
 
 /// Bounded process-global idempotency-replay cache (CONCEPT:EG-P0-2). Keyed by a
@@ -240,6 +257,88 @@ fn idempotency_key(graph_name: &str, method: &Method) -> String {
     }
 }
 
+/// Try to apply a coalescable routed mutation THROUGH this graph's write-coalescer
+/// (CONCEPT:EG-KG.sharding.per-graph-write-coalescer, L18), returning `Some(Response)` when it was coalesced
+/// (the outcome mapped to the SAME `Response` the gateway's inline `apply` closure
+/// would produce) or `None` when it must fall back to the inline closure.
+///
+/// `None` is returned when ANY of: no coalescer is configured on `ctx`; the
+/// coalescer is disabled (`EPISTEMIC_GRAPH_WRITE_COALESCE=0`); or `method` is not
+/// one of the four coalescable structural writes (`AddNode`/`RemoveNode`/`AddEdge`/
+/// `RemoveEdge`) — the other routed methods (`CreateSummaryNode`/`Consolidate`/
+/// `Reinforce`) are multi-field memory ops the coalescer does not model, so they
+/// keep the inline closure. Mirrors `dispatch::try_coalesce_write` exactly (enqueue
+/// with a per-op linger `Instant`, fall back to `apply_one_inline` on a full/closed
+/// queue, await the writer's outcome), so a routed write batches identically to how
+/// the same method batched on the legacy path before EG-P0-2 routed it.
+async fn try_coalesce_apply(ctx: &MutationCtx<'_>, method: &Method) -> Option<Response> {
+    use crate::write_coalescer::{WriteOp, WriteOutcome};
+    use tokio::sync::oneshot;
+
+    let coalescer = ctx.write_coalescer?;
+    if !coalescer.enabled() {
+        return None;
+    }
+
+    let (reply, reply_rx) = oneshot::channel::<WriteOutcome>();
+    // Only the four coalescable structural writes map to a WriteOp; every other
+    // routed method (memory ops) returns None to keep the inline apply.
+    let op = match method {
+        Method::AddNode {
+            node_id,
+            properties_msgpack,
+        } => WriteOp::AddNode {
+            node_id: node_id.clone(),
+            properties_msgpack: properties_msgpack.clone(),
+            reply,
+        },
+        Method::RemoveNode { node_id } => WriteOp::RemoveNode {
+            node_id: node_id.clone(),
+            reply,
+        },
+        Method::AddEdge {
+            source_id,
+            target_id,
+            properties_msgpack,
+        } => WriteOp::AddEdge {
+            source_id: source_id.clone(),
+            target_id: target_id.clone(),
+            properties_msgpack: properties_msgpack.clone(),
+            reply,
+        },
+        Method::RemoveEdge {
+            source_id,
+            target_id,
+        } => WriteOp::RemoveEdge {
+            source_id: source_id.clone(),
+            target_id: target_id.clone(),
+            reply,
+        },
+        _ => return None,
+    };
+
+    let writer = coalescer.writer_for(ctx.graph_name, ctx.core)?;
+    // Enqueue; on a full/closed queue apply this single op inline under its own txn
+    // (same engine effect, just not batched) so a saturated writer never drops or
+    // stalls the write — identical to `dispatch::try_coalesce_write`.
+    if let Err(op) = writer.try_enqueue(op) {
+        writer.apply_one_inline(ctx.core, ctx.graph_name, op);
+    }
+
+    // Await the outcome and rebuild the exact Response the inline closure returns:
+    // every coalescable routed op's closure yields `String("ok")` on success (an
+    // AddEdge failure surfaces its error string).
+    let outcome = reply_rx.await.unwrap_or(WriteOutcome::WriterGone);
+    Some(match outcome {
+        WriteOutcome::Ok => Response::ok(ctx.req_id, ResultPayload::String("ok".to_string())),
+        WriteOutcome::Cas(b) => Response::ok(ctx.req_id, ResultPayload::Bool(b)),
+        WriteOutcome::Err(e) => Response::err(ctx.req_id, e),
+        WriteOutcome::WriterGone => {
+            Response::err(ctx.req_id, "write worker unavailable".to_string())
+        }
+    })
+}
+
 /// The single commit gateway (CONCEPT:EG-P0-2): authz, apply, durable commit,
 /// audit (delegated — see module docs), CDC, and idempotency-replay dedup, all in
 /// ONE call, driven entirely by `plan` (sourced from `eg_capabilities::policy`).
@@ -300,9 +399,25 @@ where
     };
 
     // 4. Apply the actual eg-core mutation.
-    let response = match apply(ctx.core) {
-        Ok(payload) => Response::ok(ctx.req_id, payload),
-        Err(e) => Response::err(ctx.req_id, e),
+    //
+    // L18: a coalescable routed mutation (`AddNode`/`RemoveNode`/`AddEdge`/
+    // `RemoveEdge`) is BATCHED onto this graph's single-writer coalescer queue when
+    // one is configured + enabled — the SAME `writer_for` path the legacy
+    // `dispatch::try_coalesce_write` uses — so routing the hottest writes through
+    // the gateway no longer bypasses write-batching (the coalescer's `stats().ops()`
+    // counts them again, and N concurrent writers collapse to ⌈N/batch⌉ topology-
+    // lock acquisitions). It returns the SAME `Response` the `apply` closure would
+    // (every coalescable routed op's closure yields `String("ok")` / an AddEdge
+    // error). Anything else — a non-coalescable routed op (`CreateSummaryNode`/
+    // `Consolidate`/`Reinforce`), a disabled/absent coalescer — falls back to the
+    // inline `apply` closure, unchanged. Steps 5-8 (dirty/durable/audit/CDC) run
+    // per-op AFTER this returns, exactly as before, so ordering is intact.
+    let response = match try_coalesce_apply(ctx, method).await {
+        Some(resp) => resp,
+        None => match apply(ctx.core) {
+            Ok(payload) => Response::ok(ctx.req_id, payload),
+            Err(e) => Response::err(ctx.req_id, e),
+        },
     };
     if response.error.is_some() {
         return response;
@@ -423,6 +538,7 @@ mod tests {
             // `record()` path would introduce.
             redb_authoritative: true,
             cdc: Some(&cdc_hub),
+            write_coalescer: None,
         };
 
         let (node_id, props) = match &method {
@@ -466,14 +582,17 @@ mod tests {
         assert_eq!(events.len(), 1, "expected exactly one CDC event, got {events:?}");
     }
 
-    /// (a2) A GATEWAY_ROUTED durable-but-NOT-audited/NOT-CDC mutation
-    /// (`Reinforce`) commits durably but leaves the audit chain and CDC feed
-    /// untouched -- proving the gateway's audit/CDC steps are genuinely
-    /// policy-gated, not unconditional.
+    /// (a2) A GATEWAY_ROUTED durable + audited BUT NON-CDC mutation (`Reinforce`)
+    /// commits durably, appends exactly ONE audit-chain entry, and leaves the CDC
+    /// feed UNTOUCHED. As of L3/EG-P0-6, `audit_line` is exhaustive over the full
+    /// durable-mutation surface, so `Reinforce` is now policy-`audited: true` (its
+    /// agent-memory write chains into the tamper-evident log); it stays
+    /// `emits_cdc: false`. This test now proves CDC -- NOT audit -- is the
+    /// policy-gated leg of the gateway: audit fires, CDC does not.
     #[cfg(feature = "redb")]
     #[tokio::test(flavor = "multi_thread")]
-    async fn durable_but_unaudited_mutation_skips_audit_and_cdc() {
-        let dir = temp_dir("reinforce-no-audit");
+    async fn audited_mutation_writes_audit_but_cdc_stays_policy_gated() {
+        let dir = temp_dir("reinforce-audit-no-cdc");
         let dir_s = dir.to_string_lossy().to_string();
         let backend = RedbBackend::open(dir_s, FsyncPolicy::Each, 64).expect("open redb backend");
         let persistence: Arc<dyn PersistenceBackend> = Arc::new(backend);
@@ -491,7 +610,7 @@ mod tests {
         };
         let plan = MutationPlan::for_method(&method);
         assert!(plan.mutates);
-        assert!(!plan.audited, "Reinforce is policy-NOT-audited");
+        assert!(plan.audited, "Reinforce is now policy-audited (L3/EG-P0-6)");
         assert!(!plan.emits_cdc, "Reinforce policy-does-NOT-emit-CDC");
         assert_eq!(plan.durability_domain, DurabilityDomain::GraphRedb);
 
@@ -504,8 +623,12 @@ mod tests {
             isolation: &isolation,
             core: &core,
             persistence: Some(&persistence),
-            redb_authoritative: false,
+            // Authoritative so `commit_mutation` AWAITS the durable group-commit
+            // (which appends the audit-chain entry) before returning, so the
+            // read-back below never races the off-reactor writer.
+            redb_authoritative: true,
             cdc: Some(&cdc_hub),
+            write_coalescer: None,
         };
         let resp = commit_mutation(&ctx, &plan, &method, |core| {
             core.reinforce("n1", 1_000, 1.0);
@@ -520,11 +643,15 @@ mod tests {
             .unwrap()
             .audit_verify_blocking(&fname)
             .expect("audit_verify_blocking");
-        assert_eq!(report.entries, 0, "Reinforce must not append an audit entry");
+        assert!(report.ok, "audit chain broke: {report:?}");
+        assert_eq!(
+            report.entries, 1,
+            "Reinforce is now audited -- exactly one audit-chain entry"
+        );
         assert_eq!(
             cdc_hub.read(graph_name, 0, 100).expect("cdc read").len(),
             0,
-            "Reinforce must not emit a CDC event"
+            "Reinforce must NOT emit a CDC event (CDC stays the policy-gated leg)"
         );
     }
 
@@ -566,6 +693,7 @@ mod tests {
             persistence: None,
             redb_authoritative: false,
             cdc: None,
+            write_coalescer: None,
         };
 
         let mut apply_ran = false;
@@ -610,6 +738,7 @@ mod tests {
             persistence: None,
             redb_authoritative: false,
             cdc: None,
+            write_coalescer: None,
         };
 
         let apply_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));

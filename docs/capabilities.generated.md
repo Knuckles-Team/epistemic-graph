@@ -21,44 +21,44 @@
 | `GetNodesByLabel` | false | None | `node:read` | true | false | false | Snapshot |  |
 | `GetNodeProperties` | false | None | `node:read` | true | false | false | Snapshot |  |
 | `CompareAndSetNodeFields` | true | GraphRedb | `node:write` | true | true | true | Atomic |  |
-| `ClaimNext` | true | GraphRedb | `node:write` | false | false | false | Atomic |  |
-| `DeclareExchange` | true | Outbox | `broker:admin` | true | false | false | Atomic |  |
-| `DeleteExchange` | true | Outbox | `broker:admin` | true | false | false | Atomic |  |
-| `BindQueue` | true | Outbox | `broker:admin` | true | false | false | Atomic |  |
-| `UnbindQueue` | true | Outbox | `broker:admin` | true | false | false | Atomic |  |
-| `Publish` | ~true | Outbox | `broker:publish` | false | false | false | Atomic | PublishIdempotent is the one exception (producer-id/seq dedup makes replays idempotent by construction) |
-| `DeclareQueue` | true | Outbox | `broker:admin` | true | false | false | Atomic |  |
-| `PublishEx` | ~true | Outbox | `broker:publish` | false | false | false | Atomic | PublishIdempotent is the one exception (producer-id/seq dedup makes replays idempotent by construction) |
-| `BrokerConsume` | true | Outbox | `broker:consume` | false | false | false | Atomic |  |
-| `BrokerAck` | true | Outbox | `broker:ack` | true | false | false | Atomic |  |
-| `BrokerReject` | true | Outbox | `broker:ack` | true | false | false | Atomic |  |
-| `SweepExpired` | true | Outbox | `broker:admin` | true | false | false | Atomic |  |
-| `StreamDeclare` | true | Outbox | `stream:admin` | true | false | false | Atomic |  |
-| `StreamPublish` | true | Outbox | `stream:write` | false | false | false | Atomic |  |
+| `ClaimNext` | true | GraphRedb | `node:write` | false | true | false | Atomic |  |
+| `DeclareExchange` | true | Outbox | `broker:admin` | true | true | false | Atomic |  |
+| `DeleteExchange` | true | Outbox | `broker:admin` | true | true | false | Atomic |  |
+| `BindQueue` | true | Outbox | `broker:admin` | true | true | false | Atomic |  |
+| `UnbindQueue` | true | Outbox | `broker:admin` | true | true | false | Atomic |  |
+| `Publish` | ~true | Outbox | `broker:publish` | false | true | false | Atomic | PublishIdempotent is the one exception (producer-id/seq dedup makes replays idempotent by construction) |
+| `DeclareQueue` | true | Outbox | `broker:admin` | true | true | false | Atomic |  |
+| `PublishEx` | ~true | Outbox | `broker:publish` | false | true | false | Atomic | PublishIdempotent is the one exception (producer-id/seq dedup makes replays idempotent by construction) |
+| `BrokerConsume` | true | Outbox | `broker:consume` | false | true | false | Atomic |  |
+| `BrokerAck` | true | Outbox | `broker:ack` | true | true | false | Atomic |  |
+| `BrokerReject` | true | Outbox | `broker:ack` | true | true | false | Atomic |  |
+| `SweepExpired` | true | Outbox | `broker:admin` | true | true | false | Atomic |  |
+| `StreamDeclare` | true | Outbox | `stream:admin` | true | true | false | Atomic |  |
+| `StreamPublish` | true | Outbox | `stream:write` | false | true | false | Atomic |  |
 | `StreamRead` | false | None | `stream:read` | true | false | false | Snapshot |  |
-| `StreamTrim` | true | Outbox | `stream:admin` | true | false | false | Atomic |  |
-| `StreamCommitOffset` | true | Outbox | `stream:admin` | true | false | false | Atomic |  |
+| `StreamTrim` | true | Outbox | `stream:admin` | true | true | false | Atomic |  |
+| `StreamCommitOffset` | true | Outbox | `stream:admin` | true | true | false | Atomic |  |
 | `StreamCommittedOffset` | false | None | `stream:read` | true | false | false | Snapshot |  |
-| `PublishConfirmed` | ~true | Outbox | `broker:publish` | false | false | false | Atomic | PublishIdempotent is the one exception (producer-id/seq dedup makes replays idempotent by construction) |
-| `PublishIdempotent` | ~true | Outbox | `broker:publish` | true | false | false | Atomic | PublishIdempotent is the one exception (producer-id/seq dedup makes replays idempotent by construction) |
-| `BrokerAckTag` | true | Outbox | `broker:ack` | true | false | false | Atomic |  |
-| `BrokerNackTag` | true | Outbox | `broker:ack` | true | false | false | Atomic |  |
-| `CreateSummaryNode` | true | GraphRedb | `memory:write` | false | false | false | Atomic |  |
-| `Consolidate` | true | GraphRedb | `memory:write` | false | false | false | Atomic |  |
-| `Reinforce` | true | GraphRedb | `memory:write` | false | false | false | Atomic |  |
-| `DecayNode` | true | GraphRedb | `memory:write` | false | false | false | Atomic |  |
-| `DecayMemories` | true | GraphRedb | `memory:write` | false | false | false | Atomic |  |
-| `EvictBelow` | true | GraphRedb | `memory:write` | false | false | false | Atomic |  |
-| `Maintain` | true | GraphRedb | `memory:write` | false | false | false | Atomic |  |
+| `PublishConfirmed` | ~true | Outbox | `broker:publish` | false | true | false | Atomic | PublishIdempotent is the one exception (producer-id/seq dedup makes replays idempotent by construction) |
+| `PublishIdempotent` | ~true | Outbox | `broker:publish` | true | true | false | Atomic | PublishIdempotent is the one exception (producer-id/seq dedup makes replays idempotent by construction) |
+| `BrokerAckTag` | true | Outbox | `broker:ack` | true | true | false | Atomic |  |
+| `BrokerNackTag` | true | Outbox | `broker:ack` | true | true | false | Atomic |  |
+| `CreateSummaryNode` | true | GraphRedb | `memory:write` | false | true | false | Atomic |  |
+| `Consolidate` | true | GraphRedb | `memory:write` | false | true | false | Atomic |  |
+| `Reinforce` | true | GraphRedb | `memory:write` | false | true | false | Atomic |  |
+| `DecayNode` | true | GraphRedb | `memory:write` | false | true | false | Atomic |  |
+| `DecayMemories` | true | GraphRedb | `memory:write` | false | true | false | Atomic |  |
+| `EvictBelow` | true | GraphRedb | `memory:write` | false | true | false | Atomic |  |
+| `Maintain` | true | GraphRedb | `memory:write` | false | true | false | Atomic |  |
 | `SummaryChildren` | false | None | `memory:read` | true | false | false | Snapshot |  |
 | `SummariesAtLevel` | false | None | `memory:read` | true | false | false | Snapshot |  |
-| `AddSceneObject` | true | GraphRedb | `scene:write` | false | false | false | Atomic |  |
-| `SetPose` | true | GraphRedb | `scene:write` | true | false | false | Atomic |  |
-| `Reparent` | true | GraphRedb | `scene:write` | true | false | false | Atomic |  |
+| `AddSceneObject` | true | GraphRedb | `scene:write` | false | true | false | Atomic |  |
+| `SetPose` | true | GraphRedb | `scene:write` | true | true | false | Atomic |  |
+| `Reparent` | true | GraphRedb | `scene:write` | true | true | false | Atomic |  |
 | `WorldTransform` | false | None | `scene:read` | true | false | false | Snapshot |  |
 | `SceneChildren` | false | None | `scene:read` | true | false | false | Snapshot |  |
-| `StartTrajectory` | true | GraphRedb | `memory:write` | false | false | false | Atomic |  |
-| `AppendStep` | true | GraphRedb | `memory:write` | false | false | false | Atomic |  |
+| `StartTrajectory` | true | GraphRedb | `memory:write` | false | true | false | Atomic |  |
+| `AppendStep` | true | GraphRedb | `memory:write` | false | true | false | Atomic |  |
 | `DiscountedReturn` | false | None | `memory:read` | true | false | false | Snapshot |  |
 | `BestTrajectory` | false | None | `memory:read` | true | false | false | Snapshot |  |
 | `GetNodePropertiesBatch` | false | None | `node:read` | true | false | false | Snapshot |  |
@@ -67,8 +67,8 @@
 | `NodeIds` | false | None | `node:read` | true | false | false | Snapshot |  |
 | `AddEdge` | true | GraphRedb | `edge:write` | false | true | true | Atomic |  |
 | `RemoveEdge` | true | GraphRedb | `edge:write` | true | true | true | Atomic |  |
-| `InvalidateEdge` | true | GraphRedb | `edge:write` | true | false | false | Atomic |  |
-| `SupersedeEdge` | true | GraphRedb | `edge:write` | true | false | false | Atomic |  |
+| `InvalidateEdge` | true | GraphRedb | `edge:write` | true | true | false | Atomic |  |
+| `SupersedeEdge` | true | GraphRedb | `edge:write` | true | true | false | Atomic |  |
 | `HasEdge` | false | None | `edge:read` | true | false | false | Snapshot |  |
 | `GetEdges` | false | None | `edge:read` | true | false | false | Snapshot |  |
 | `GetTriples` | false | None | `rdf:read` | true | false | false | Snapshot |  |
@@ -153,7 +153,7 @@
 | `ParseFiles` | false | None | `compute:parse` | true | false | false | None |  |
 | `IndexRepository` | false | None | `compute:parse` | true | false | false | None |  |
 | `ObserveScreen` | false | None | `compute:vision` | false | false | false | None |  |
-| `AddEmbedding` | ~true | None | `node:write` | false | false | false | Atomic | write per access.rs but absent from wal.rs durable set (EG-P0-3) |
+| `AddEmbedding` | true | GraphRedb | `node:write` | false | true | false | Atomic |  |
 | `SemanticSearch` | false | None | `compute:semantic` | true | false | false | Snapshot |  |
 | `Discover` | false | None | `compute:semantic` | true | false | false | Snapshot |  |
 | `MatchOntologyTerms` | false | None | `compute:semantic` | true | false | false | Snapshot |  |
@@ -306,10 +306,10 @@
 | `KvCas` | ~true | KvRedb | `kv:write` | false | false | false | Atomic | durable via its own kv.redb (redb::Durability::Immediate, commit-before-ack) -- self-routes before dispatch_graph_op and before wal.rs's per-graph WAL entirely; NOT a wal.rs gap, just a parallel durability domain |
 | `ImportSqliteFile` | ~true | None | `sqlite:import` | false | false | false | Atomic | NOT present in access.rs's write classifier at all -- flagged as a possible access.rs coverage gap |
 | `ExportSqliteFile` | false | None | `sqlite:export` | true | false | false | Snapshot |  |
-| `AddTriples` | true | GraphRedb | `rdf:write` | false | false | false | Atomic |  |
+| `AddTriples` | true | GraphRedb | `rdf:write` | false | true | false | Atomic |  |
 | `GetRdf` | false | None | `rdf:read` | true | false | false | Snapshot |  |
-| `RemoveTriples` | true | GraphRedb | `rdf:write` | true | false | false | Atomic |  |
-| `DropNamedGraph` | true | GraphRedb | `rdf:write` | true | false | false | Atomic |  |
+| `RemoveTriples` | true | GraphRedb | `rdf:write` | true | true | false | Atomic |  |
+| `DropNamedGraph` | true | GraphRedb | `rdf:write` | true | true | false | Atomic |  |
 | `Sparql` | false | None | `sparql:read` | true | false | false | Snapshot |  |
 | `SparqlVirtual` | false | None | `sparql:read` | true | false | false | Snapshot |  |
 | `OwlReason` | false | None | `owl:read` | true | false | false | Snapshot |  |
@@ -331,23 +331,23 @@
 | `CepSubscribe` | ~true | None | `cep:admin` | true | false | false | Atomic | NOT present in access.rs's write classifier at all -- flagged as a possible access.rs coverage gap |
 | `CepPoll` | false | None | `cep:read` | true | false | false | Snapshot |  |
 | `CepUnsubscribe` | ~true | None | `cep:admin` | true | false | false | Atomic | NOT present in access.rs's write classifier at all -- flagged as a possible access.rs coverage gap |
-| `MineAssociate` | ~true | GraphRedb | `mining:write` | false | false | false | Atomic | mutates is a conservative upper bound: the REAL access::requires_write(m) returns the runtime `writeback` field |
-| `MineCluster` | ~true | GraphRedb | `mining:write` | false | false | false | Atomic | mutates is a conservative upper bound: the REAL access::requires_write(m) returns the runtime `writeback` field |
-| `MineAnomaly` | ~true | GraphRedb | `mining:write` | false | false | false | Atomic | mutates is a conservative upper bound: the REAL access::requires_write(m) returns the runtime `writeback` field |
+| `MineAssociate` | ~true | GraphRedb | `mining:write` | false | true | false | Atomic | mutates is a conservative upper bound: the REAL access::requires_write(m) returns the runtime `writeback` field |
+| `MineCluster` | ~true | GraphRedb | `mining:write` | false | true | false | Atomic | mutates is a conservative upper bound: the REAL access::requires_write(m) returns the runtime `writeback` field |
+| `MineAnomaly` | ~true | GraphRedb | `mining:write` | false | true | false | Atomic | mutates is a conservative upper bound: the REAL access::requires_write(m) returns the runtime `writeback` field |
 | `MineClassifyFit` | false | None | `mining:read` | true | false | false | Snapshot | the one Mine* family member that is unconditionally read-only (produces a model blob, never writes back) |
-| `MineClassifyPredict` | ~true | GraphRedb | `mining:write` | false | false | false | Atomic | mutates is a conservative upper bound: the REAL access::requires_write(m) returns the runtime `writeback` field |
-| `MineReduce` | ~true | GraphRedb | `mining:write` | false | false | false | Atomic | mutates is a conservative upper bound: the REAL access::requires_write(m) returns the runtime `writeback` field |
-| `GraphLearnFit` | ~true | GraphRedb | `graphlearn:write` | false | false | false | Atomic | mutates is a conservative upper bound: the REAL access::requires_write(m) returns the runtime `writeback` field |
-| `GraphLearnPredict` | ~true | GraphRedb | `graphlearn:write` | false | false | false | Atomic | mutates is a conservative upper bound: the REAL access::requires_write(m) returns the runtime `writeback` field |
-| `MineSequence` | ~true | None | `mining:write` | false | false | false | Atomic | mutates is a conservative upper bound (writeback-conditional per access.rs); also write-but-absent-from-wal.rs's durable set (EG-P0-3) |
-| `MineForecast` | ~true | None | `mining:write` | false | false | false | Atomic | mutates is a conservative upper bound (writeback-conditional per access.rs); also write-but-absent-from-wal.rs's durable set (EG-P0-3) |
-| `MineText` | ~true | None | `mining:write` | false | false | false | Atomic | mutates is a conservative upper bound (writeback AND non-tfidf/non-motif algorithm-conditional per access.rs); also write-but-absent-from-wal.rs's durable set (EG-P0-3) |
-| `MineSubgraph` | ~true | None | `mining:write` | false | false | false | Atomic | mutates is a conservative upper bound (writeback AND non-tfidf/non-motif algorithm-conditional per access.rs); also write-but-absent-from-wal.rs's durable set (EG-P0-3) |
-| `MineEntityResolve` | ~true | GraphRedb | `mining:write` | false | false | false | Atomic | mutates is a conservative upper bound: the REAL access::requires_write(m) returns the runtime `writeback` field |
-| `MineCausalImpact` | ~true | GraphRedb | `mining:write` | false | false | false | Atomic | mutates is a conservative upper bound: the REAL access::requires_write(m) returns the runtime `writeback` field |
-| `MineProcess` | ~true | GraphRedb | `mining:write` | false | false | false | Atomic | mutates is a conservative upper bound: the REAL access::requires_write(m) returns the runtime `writeback` field |
-| `MineRootCause` | ~true | GraphRedb | `mining:write` | false | false | false | Atomic | mutates is a conservative upper bound: the REAL access::requires_write(m) returns the runtime `writeback` field |
-| `MineRiskPropagation` | ~true | GraphRedb | `mining:write` | false | false | false | Atomic | mutates is a conservative upper bound: the REAL access::requires_write(m) returns the runtime `writeback` field |
-| `MineOntologyGap` | ~true | GraphRedb | `mining:write` | false | false | false | Atomic | mutates is a conservative upper bound: the REAL access::requires_write(m) returns the runtime `writeback` field |
-| `MineRetrievalQuality` | ~true | GraphRedb | `mining:write` | false | false | false | Atomic | mutates is a conservative upper bound: the REAL access::requires_write(m) returns the runtime `writeback` field |
-| `MineCommunity` | ~true | GraphRedb | `mining:write` | false | false | false | Atomic | mutates is a conservative upper bound: the REAL access::requires_write(m) returns the runtime `writeback` field |
+| `MineClassifyPredict` | ~true | GraphRedb | `mining:write` | false | true | false | Atomic | mutates is a conservative upper bound: the REAL access::requires_write(m) returns the runtime `writeback` field |
+| `MineReduce` | ~true | GraphRedb | `mining:write` | false | true | false | Atomic | mutates is a conservative upper bound: the REAL access::requires_write(m) returns the runtime `writeback` field |
+| `GraphLearnFit` | ~true | GraphRedb | `graphlearn:write` | false | true | false | Atomic | mutates is a conservative upper bound: the REAL access::requires_write(m) returns the runtime `writeback` field |
+| `GraphLearnPredict` | ~true | GraphRedb | `graphlearn:write` | false | true | false | Atomic | mutates is a conservative upper bound: the REAL access::requires_write(m) returns the runtime `writeback` field |
+| `MineSequence` | ~true | GraphRedb | `mining:write` | false | true | false | Atomic | mutates is a conservative upper bound (writeback-conditional per access.rs); wal.rs::is_durable_mutation now covers the writeback=true case (EG-P0-3 fixed) |
+| `MineForecast` | ~true | GraphRedb | `mining:write` | false | true | false | Atomic | mutates is a conservative upper bound (writeback-conditional per access.rs); wal.rs::is_durable_mutation now covers the writeback=true case (EG-P0-3 fixed) |
+| `MineText` | ~true | GraphRedb | `mining:write` | false | true | false | Atomic | mutates is a conservative upper bound (writeback AND non-tfidf/non-motif algorithm-conditional per access.rs); wal.rs::is_durable_mutation now covers the lda/nmf writeback=true case (EG-P0-3 fixed) |
+| `MineSubgraph` | ~true | GraphRedb | `mining:write` | false | true | false | Atomic | mutates is a conservative upper bound (writeback AND non-tfidf/non-motif algorithm-conditional per access.rs); wal.rs::is_durable_mutation now covers the gspan writeback=true case (EG-P0-3 fixed) |
+| `MineEntityResolve` | ~true | GraphRedb | `mining:write` | false | true | false | Atomic | mutates is a conservative upper bound: the REAL access::requires_write(m) returns the runtime `writeback` field |
+| `MineCausalImpact` | ~true | GraphRedb | `mining:write` | false | true | false | Atomic | mutates is a conservative upper bound: the REAL access::requires_write(m) returns the runtime `writeback` field |
+| `MineProcess` | ~true | GraphRedb | `mining:write` | false | true | false | Atomic | mutates is a conservative upper bound: the REAL access::requires_write(m) returns the runtime `writeback` field |
+| `MineRootCause` | ~true | GraphRedb | `mining:write` | false | true | false | Atomic | mutates is a conservative upper bound: the REAL access::requires_write(m) returns the runtime `writeback` field |
+| `MineRiskPropagation` | ~true | GraphRedb | `mining:write` | false | true | false | Atomic | mutates is a conservative upper bound: the REAL access::requires_write(m) returns the runtime `writeback` field |
+| `MineOntologyGap` | ~true | GraphRedb | `mining:write` | false | true | false | Atomic | mutates is a conservative upper bound: the REAL access::requires_write(m) returns the runtime `writeback` field |
+| `MineRetrievalQuality` | ~true | GraphRedb | `mining:write` | false | true | false | Atomic | mutates is a conservative upper bound: the REAL access::requires_write(m) returns the runtime `writeback` field |
+| `MineCommunity` | ~true | GraphRedb | `mining:write` | false | true | false | Atomic | mutates is a conservative upper bound: the REAL access::requires_write(m) returns the runtime `writeback` field |
