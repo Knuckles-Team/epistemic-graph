@@ -48,3 +48,14 @@ epistemic-tms = ["dep:tracing"]
 # capability-discovery/testing seam, not a serving feature. `cargo test -p
 # eg-epistemic --features contract` runs the suite.
 contract = ["dep:eg-modality"]
+# EPI-P3-3 — calibrated probabilistic + causal reasoning: a linear structural
+# causal model (SCM) over named variables supporting genuine do-calculus
+# interventions (graph surgery — cut incoming edges, don't just condition),
+# Pearl-style point counterfactuals (abduction/action/prediction), and
+# calibrated Gaussian intervals (`src/causal.rs`); plus provenance-aware
+# retrieval ranking over the SAME `Calibration` signal (`src/ranking.rs`). Pure
+# Rust — only uses `eg_types::Distribution` (already an unconditional
+# dependency), so this feature adds NO new crate dependency; it is gated purely
+# to keep the always-on core lean and opt-in, same posture as
+# `epistemic-tms`/`contract`.
+epistemic-causal = []
