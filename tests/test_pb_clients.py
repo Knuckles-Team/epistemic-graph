@@ -256,6 +256,9 @@ def live_client():
         time.sleep(0.5)
     if client is None:
         pytest.skip("ephemeral engine not reachable (conftest startup window)")
+    # mypy doesn't treat pytest.skip() as NoReturn, so narrow explicitly: the skip
+    # above always exits before this point when client is None.
+    assert client is not None
     # A dedicated graph so broker/RBAC state never collides with other tests.
     try:
         client.tenants.create(_LIVE_GRAPH, "Agent")
