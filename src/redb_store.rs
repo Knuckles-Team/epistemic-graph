@@ -261,6 +261,12 @@ pub type BlobRefRow = (String, String);
 ///     encoding ([`eg_tsdb::store::append_batch_in_wtx`]), so the points land in the
 ///     SAME `graph.redb` commit as the node/vector/blob writes (not a separate
 ///     `series.redb`). `tsdb`-gated; a slim redb-only build errors on a non-empty batch.
+///     This `graph.redb` copy is the ATOMIC/authoritative one; the caller
+///     (`handlers::txn::commit_cross_modal_txn`) additionally replays the same batch
+///     into the SERVED `series.redb` right after this call returns `Ok`, so it's
+///     actually reachable through the public `Ts*`/`Op::TsScan` read path
+///     (CONCEPT:EG-KG.backend.ts-served-materialize, EG-P0-4) — see that function's doc comment for the exact
+///     guarantee and the one remaining non-atomic boundary.
 ///
 /// If ANY step errors, the `WriteTransaction` is DROPPED without `commit()` — redb
 /// discards every staged write, so NONE of the modalities land (a true rollback, no

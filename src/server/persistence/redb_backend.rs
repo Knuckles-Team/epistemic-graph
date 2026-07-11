@@ -1510,6 +1510,158 @@ impl PersistenceBackend for RedbBackend {
     }
 }
 
+// ── Time-series STARTUP RECONCILIATION (CONCEPT:EG-KG.backend.ts-startup-reconcile, L16) ──────────────
+// EG-P0-4 (see `handlers::txn::commit_cross_modal_txn`'s doc comment) replays a
+// cross-modal-committed measurement into the served `series.redb` immediately after the
+// `graph.redb` commit succeeds, but documents one residual: a process crash strictly
+// BETWEEN those two commits leaves the measurement durable + authoritative in
+// `graph.redb`'s SERIES tables yet not (or only partially) reflected in the served store.
+// The pass below closes that window: run ONCE at boot, after both stores are open and
+// before the server accepts traffic, so a prior crash's residual never lingers.
+#[cfg(feature = "tsdb")]
+pub struct TsReconcileReport {
+    /// Series whose graph.redb point count didn't already match the served store (the
+    /// only ones actually inspected point-by-point — a cheap meta compare skips every
+    /// already-converged series, which is the common case on every ordinary boot).
+    pub series_examined: usize,
+    /// Of those, how many actually needed a replay (a meta mismatch can, in principle,
+    /// self-resolve to "nothing missing" once the exact point sets are compared).
+    pub series_reconciled: usize,
+    /// Total individual points replayed into the served store across all series.
+    pub points_replayed: usize,
+}
+
+#[cfg(feature = "tsdb")]
+impl RedbBackend {
+    /// Startup reconciliation (CONCEPT:EG-KG.backend.ts-startup-reconcile, L16): scan every shard's
+    /// `graph.redb` SERIES tables — the atomic/authoritative copy a cross-modal commit
+    /// writes (EG-P0-4) — and replay into `tsdb_store` (the served `series.redb`) any
+    /// measurement durable there but not yet reflected in the served store.
+    ///
+    /// **Idempotent + duplicate-free.** For each series, a cheap `SeriesMeta.count`
+    /// comparison against the served store first: EQUAL counts skip the series with no
+    /// further I/O (the steady-state case on every boot after a clean shutdown — running
+    /// this twice in a row is therefore a true no-op, since the first run already brought
+    /// the counts into agreement). A mismatch triggers an EXACT multiset point-diff (not a
+    /// naive "skip the first N" positional diff, which would be WRONG if two batches that
+    /// share a time bucket land out of append order — see the point-diff comment below)
+    /// between the two stores' full point sets for that series, and only the points
+    /// present in `graph.redb` but absent from the served store are appended — so a
+    /// partially-replayed crash window is closed exactly, never duplicated.
+    ///
+    /// Read-only against `graph.redb`: uses the SAME shared `Weak<Database>` handle the
+    /// snapshot-read path (`read_node_blocking`) upgrades, so this never opens a SECOND
+    /// `Database` on the file (redb's exclusive per-process file lock would reject that) —
+    /// see `eg_tsdb::store::{list_series_in_rtx, meta_in_rtx, range_in_rtx}`, the read-only
+    /// counterparts of `append_batch_in_wtx` extracted for exactly this caller.
+    pub async fn reconcile_time_series(
+        &self,
+        tsdb_store: &eg_tsdb::store::SeriesStore,
+    ) -> Result<TsReconcileReport, String> {
+        let mut report = TsReconcileReport {
+            series_examined: 0,
+            series_reconciled: 0,
+            points_replayed: 0,
+        };
+        for shard in &self.shards {
+            // A shard whose writer thread already exited (shutdown mid-boot-sequence,
+            // never happens in the normal boot path but guarded like every other
+            // snapshot-read consumer of this handle) has nothing left to reconcile.
+            let Some(db) = shard.db.upgrade() else {
+                continue;
+            };
+            let rtx = db.begin_read().map_err(|e| e.to_string())?;
+            let series_ids =
+                eg_tsdb::store::list_series_in_rtx(&rtx).map_err(|e| e.to_string())?;
+            for series_id in series_ids {
+                let graph_meta = eg_tsdb::store::meta_in_rtx(&rtx, &series_id)
+                    .map_err(|e| e.to_string())?
+                    .expect("series id just came from this same SERIES_META scan");
+                let served_meta = tsdb_store.meta(&series_id).map_err(|e| e.to_string())?;
+                if served_meta.as_ref().map(|m| m.count) == Some(graph_meta.count) {
+                    continue; // already converged — skip with no further I/O.
+                }
+                report.series_examined += 1;
+                let graph_points = eg_tsdb::store::range_in_rtx(
+                    &rtx,
+                    &series_id,
+                    eg_tsdb::point::Ts::MIN,
+                    eg_tsdb::point::Ts::MAX,
+                )
+                .map_err(|e| e.to_string())?;
+                let served_points = tsdb_store
+                    .scan_all(&series_id)
+                    .map_err(|e| e.to_string())?;
+                let missing = missing_points(graph_points, served_points);
+                if missing.is_empty() {
+                    // The mismatched count can happen without a point actually being
+                    // absent — e.g. late/duplicate-ts siblings resolved differently on
+                    // each side would never occur here since both stores are fed the
+                    // identical append sequence, but this keeps the pass exact rather
+                    // than assuming the meta compare alone is sufficient.
+                    continue;
+                }
+                tsdb_store
+                    .append_batch(
+                        &series_id,
+                        graph_meta.n_fields,
+                        graph_meta.bucket_ns,
+                        &graph_meta.field_names,
+                        &missing,
+                    )
+                    .map_err(|e| e.to_string())?;
+                report.series_reconciled += 1;
+                report.points_replayed += missing.len();
+                tracing::warn!(
+                    "startup reconciliation: series '{series_id}' was durable in graph.redb \
+                     but {} point(s) had not reached the served time-series store (a crash \
+                     between the two EG-P0-4 commits) — replayed",
+                    missing.len()
+                );
+            }
+        }
+        Ok(report)
+    }
+}
+
+/// Exact multiset point-diff (CONCEPT:EG-KG.backend.ts-startup-reconcile): the points present in `authoritative`
+/// but not already accounted for in `served`, respecting multiplicity (two points sharing
+/// a timestamp are legitimate siblings, not duplicates of one another — see
+/// `eg_tsdb::store`'s `Chunk::insert` doc comment). A naive "skip the first `served.len()`
+/// points of a merged/sorted scan" is WRONG here: two measurement batches that touch the
+/// SAME time bucket can interleave within that bucket's sorted point list regardless of
+/// which batch replayed to the served store first, so the served store's points are not
+/// guaranteed to be a positional PREFIX of the authoritative scan — only a SUBSET of it.
+/// `f64` values are compared by exact bit pattern (`to_bits`): both stores hold the
+/// IDENTICAL byte-for-byte values the client originally sent (no arithmetic is ever
+/// performed on a stored point), so bitwise equality is the correct — and only
+/// semantically meaningful — comparison here.
+#[cfg(feature = "tsdb")]
+fn missing_points(
+    authoritative: Vec<eg_tsdb::point::Point>,
+    served: Vec<eg_tsdb::point::Point>,
+) -> Vec<eg_tsdb::point::Point> {
+    use std::collections::HashMap;
+
+    fn key(p: &eg_tsdb::point::Point) -> (i64, Vec<u64>) {
+        (p.ts, p.values.iter().map(|v| v.to_bits()).collect())
+    }
+
+    let mut served_counts: HashMap<(i64, Vec<u64>), usize> = HashMap::new();
+    for p in &served {
+        *served_counts.entry(key(p)).or_insert(0) += 1;
+    }
+    let mut missing = Vec::new();
+    for p in authoritative {
+        let k = key(&p);
+        match served_counts.get_mut(&k) {
+            Some(c) if *c > 0 => *c -= 1,
+            _ => missing.push(p),
+        }
+    }
+    missing
+}
+
 // ── Durable Raft log API (CONCEPT:EG-KG.storage.one-fsync-covers-raft) — inherent methods ────────────────
 // The Raft log lives in the SAME `graph.redb` Database, written by the SAME
 // off-reactor group-commit thread, keyed by `(group_id, index)` so one table
@@ -4379,6 +4531,313 @@ mod tests {
                 "series never landed durably"
             );
         }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// EG-P0-4 (CONCEPT:EG-KG.backend.ts-served-materialize) — the canonical time-series
+    /// read-path unification proof. A measurement committed through the cross-modal txn
+    /// path (staged alongside a plain node write in ONE txn — a measurement alone already
+    /// makes a txn cross-modal per `GraphTxnState::is_cross_modal`) is:
+    ///  1. durable in `graph.redb`'s SERIES tables (the pre-existing atomic barrier,
+    ///     unchanged — verified directly against that file, exactly like
+    ///     `five_modality_atomic_commit`);
+    ///  2. ALSO visible through the PUBLIC `Method::TsRange` read path immediately after
+    ///     `Commit` acks — the actual gap this workstream closes (before, a cross-modal
+    ///     measurement was durable yet permanently unreachable from `TsRange`/`TsScan`);
+    ///  3. STILL visible via `TsRange` after a full process restart (drop + reopen BOTH
+    ///     the redb backend AND the served time-series store from the same persist dir,
+    ///     on a brand-new `ServerState`) — proving the served-store materialization is
+    ///     itself a committed durable write, not an in-memory-only mirror that a restart
+    ///     would lose.
+    #[cfg(feature = "tsdb")]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn crossmodal_measurement_visible_via_public_tsrange_post_commit_and_restart() {
+        use crate::protocol::{Request, ResultPayload};
+        use crate::server::{compute_auth_token, dispatch};
+        use eg_tsdb::store::SeriesStore;
+
+        const SECRET: &str = "ts-unify-secret";
+        let dir = cm_dir("ts-unify");
+        let points = vec![
+            (1_000_000_000i64, vec![10.0]),
+            (2_000_000_000i64, vec![20.0]),
+            (3_000_000_000i64, vec![30.0]),
+        ];
+
+        let backend: Arc<dyn PersistenceBackend> =
+            Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 64).unwrap());
+        let series_store =
+            Arc::new(SeriesStore::open_in_dir(std::path::Path::new(&dir)).unwrap());
+        let state = new_state_auth(Some(dir.clone()), true);
+        {
+            let mut s = state.write().await;
+            s.auth_secret = SECRET.to_string();
+            let _ = s.registry.create_graph("media", GraphType::Global, None);
+            s.persistence = Some(backend.clone());
+            s.tsdb_store = Some(series_store.clone());
+        }
+
+        let req = |id: u64, method: Method| Request {
+            id,
+            graph: "__commons__".to_string(),
+            auth_token: compute_auth_token(SECRET, id),
+            agent_id: None,
+            method,
+        };
+
+        // Stage a node + a measurement in ONE cross-modal txn, then commit.
+        let begin = dispatch(
+            &state,
+            req(
+                1,
+                Method::BeginTxn {
+                    graph: Some("media".to_string()),
+                    isolation: None,
+                },
+            ),
+        )
+        .await;
+        let txn_id = match begin.result {
+            Some(ResultPayload::String(id)) => id,
+            other => panic!("BeginTxn id, got {other:?}"),
+        };
+        let r = dispatch(
+            &state,
+            req(
+                2,
+                Method::TxnAddNode {
+                    txn_id: txn_id.clone(),
+                    node_id: "m1".into(),
+                    properties_msgpack: props(serde_json::json!({"type": "Sensor"})),
+                    graph: None,
+                },
+            ),
+        )
+        .await;
+        assert!(r.error.is_none(), "stage node: {:?}", r.error);
+        let r = dispatch(
+            &state,
+            req(
+                3,
+                Method::TxnAddMeasurement {
+                    txn_id: txn_id.clone(),
+                    series: "sensor.ts-unify".to_string(),
+                    // Encoded inline (NOT the `sparql`-gated `meas_points` helper) so this
+                    // test only needs `tsdb`, matching the `#[cfg]` above.
+                    points: rmp_serde::to_vec(&points).unwrap(),
+                    graph: None,
+                },
+            ),
+        )
+        .await;
+        assert!(r.error.is_none(), "stage measurement: {:?}", r.error);
+
+        let commit = dispatch(&state, req(4, Method::Commit { txn_id })).await;
+        assert_eq!(as_bool(commit), Some(true), "cross-modal commit must succeed");
+
+        // (1) POST-COMMIT visibility through the PUBLIC TsRange read path (the served
+        // series.redb) — the actual gap this workstream closes. Checked FIRST, while
+        // `backend`/`series_store` are both still live (they're two independent redb
+        // files/handles, so no lock conflict).
+        let ts_range = || {
+            req(
+                5,
+                Method::TsRange {
+                    series_id: "sensor.ts-unify".to_string(),
+                    from: 0,
+                    to: i64::MAX,
+                },
+            )
+        };
+        let decode_ts = |r: Response| -> Vec<(i64, Vec<f64>)> {
+            assert!(r.error.is_none(), "TsRange error: {:?}", r.error);
+            match r.result {
+                Some(ResultPayload::Raw(bytes)) => rmp_serde::from_slice(&bytes).unwrap(),
+                other => panic!("expected Raw TsRange result, got {other:?}"),
+            }
+        };
+        let got = decode_ts(dispatch(&state, ts_range()).await);
+        assert_eq!(
+            got, points,
+            "measurement committed via the cross-modal txn path must be visible through \
+             the PUBLIC TsRange API immediately after Commit"
+        );
+
+        // (2) Durable in graph.redb too — the pre-existing atomic barrier, unchanged.
+        // redb holds an EXCLUSIVE per-process file lock, so `backend` (which owns the
+        // live `graph.redb` handle) must release it first — exactly the ordering
+        // `five_modality_atomic_commit` uses to open a second, direct handle on the
+        // same file.
+        backend.shutdown();
+        drop(backend);
+        {
+            let series_db =
+                SeriesStore::open(std::path::Path::new(&dir).join("graph.redb").as_path())
+                    .unwrap();
+            let meta = series_db
+                .meta("sensor.ts-unify")
+                .unwrap()
+                .expect("measurement durable in graph.redb");
+            assert_eq!(meta.count, 3, "all 3 points durable in graph.redb");
+        }
+
+        // (3) RESTART: drop + reopen BOTH stores from the SAME persist dir on a FRESH
+        // ServerState, then re-run the SAME public TsRange call.
+        drop(series_store);
+        drop(state);
+
+        let backend2: Arc<dyn PersistenceBackend> =
+            Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 64).unwrap());
+        let state2 = new_state_auth(Some(dir.clone()), true);
+        backend2.load_all(&state2).await.unwrap();
+        let series_store2 =
+            Arc::new(SeriesStore::open_in_dir(std::path::Path::new(&dir)).unwrap());
+        {
+            let mut s = state2.write().await;
+            s.auth_secret = SECRET.to_string();
+            s.persistence = Some(backend2.clone());
+            s.tsdb_store = Some(series_store2.clone());
+        }
+
+        let got2 = decode_ts(dispatch(&state2, ts_range()).await);
+        assert_eq!(
+            got2, points,
+            "measurement must STILL be visible through the PUBLIC TsRange API after a \
+             full restart (served store reopened from disk, not rebuilt from RAM)"
+        );
+
+        backend2.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// L16 startup reconciliation (CONCEPT:EG-KG.backend.ts-startup-reconcile) — the proof that closes the
+    /// EG-P0-4 residual. Simulates a crash STRICTLY BETWEEN the two commits by landing a
+    /// measurement batch in `graph.redb` via the LOW-LEVEL `commit_crossmodal` (the atomic
+    /// barrier alone) WITHOUT going through `handlers::txn::commit_cross_modal_txn` (which
+    /// is what performs the served-store replay) — so the served `series.redb` never sees
+    /// it, exactly the documented gap. Asserts:
+    ///  1. Before reconciliation, the measurement is invisible via the PUBLIC `TsRange`.
+    ///  2. `RedbBackend::reconcile_time_series` finds + replays it; `TsRange` now returns
+    ///     it.
+    ///  3. Running reconciliation a SECOND time is a true no-op (nothing reconciled) and
+    ///     does NOT duplicate the points — proving idempotency.
+    #[cfg(feature = "tsdb")]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn startup_reconciliation_closes_the_crash_window_gap() {
+        use crate::protocol::{Request, ResultPayload};
+        use crate::server::{compute_auth_token, dispatch};
+        use eg_tsdb::store::SeriesStore;
+
+        const SECRET: &str = "ts-reconcile-secret";
+        let dir = cm_dir("ts-reconcile");
+        let points: Vec<(i64, Vec<f64>)> = vec![
+            (1_000_000_000i64, vec![1.0]),
+            (2_000_000_000i64, vec![2.0]),
+            (3_000_000_000i64, vec![3.0]),
+        ];
+        const SERIES: &str = "sensor.ts-reconcile";
+        const BUCKET_NS: u64 = 3_600_000_000_000; // 1h — matches DEFAULT_MEASUREMENT_BUCKET_NS.
+
+        let backend: Arc<dyn PersistenceBackend> =
+            Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 64).unwrap());
+        let series_store = Arc::new(SeriesStore::open_in_dir(std::path::Path::new(&dir)).unwrap());
+        let state = new_state_auth(Some(dir.clone()), true);
+        {
+            let mut s = state.write().await;
+            s.auth_secret = SECRET.to_string();
+            let _ = s.registry.create_graph("media", GraphType::Global, None);
+            s.persistence = Some(backend.clone());
+            s.tsdb_store = Some(series_store.clone());
+        }
+
+        // ── Simulate the crash window: land the measurement ONLY in graph.redb, via the
+        // atomic barrier alone, bypassing the txn-handler replay step entirely. ──
+        let measurement: crate::MeasurementBatch = (
+            SERIES.to_string(),
+            1,
+            BUCKET_NS,
+            vec!["value".to_string()],
+            points.clone(),
+        );
+        backend
+            .commit_crossmodal("media", &[], &[], &[], std::slice::from_ref(&measurement))
+            .await
+            .expect("graph.redb-only commit must succeed");
+
+        let req = |id: u64, method: Method| Request {
+            id,
+            graph: "__commons__".to_string(),
+            auth_token: compute_auth_token(SECRET, id),
+            agent_id: None,
+            method,
+        };
+        let ts_range = |id: u64| {
+            req(
+                id,
+                Method::TsRange {
+                    series_id: SERIES.to_string(),
+                    from: 0,
+                    to: i64::MAX,
+                },
+            )
+        };
+        let decode_ts = |r: Response| -> Vec<(i64, Vec<f64>)> {
+            assert!(r.error.is_none(), "TsRange error: {:?}", r.error);
+            match r.result {
+                Some(ResultPayload::Raw(bytes)) => rmp_serde::from_slice(&bytes).unwrap(),
+                other => panic!("expected Raw TsRange result, got {other:?}"),
+            }
+        };
+
+        // (1) BEFORE reconciliation: invisible through the PUBLIC TsRange — the gap
+        // `commit_crossmodal` alone (without the txn-handler replay step) leaves open.
+        // (Durability in `graph.redb` itself is proven by the reconciliation call below
+        // finding + replaying exactly 3 points — a SECOND `Database` handle can't be
+        // opened directly on `graph.redb` here to double-check, since `backend` still
+        // holds redb's exclusive per-process file lock on it, same constraint the
+        // EG-P0-4 test works around by dropping its backend first.)
+        let before = decode_ts(dispatch(&state, ts_range(1)).await);
+        assert!(
+            before.is_empty(),
+            "before reconciliation, a measurement landed only via the atomic graph.redb \
+             commit (the simulated crash) must NOT yet be visible through TsRange"
+        );
+
+        // (2) Reconcile: the redb-backed reader is reached the SAME way production code
+        // does — downcast the trait object via `as_redb()`.
+        let redb = backend.as_redb().expect("redb backend");
+        let report = redb
+            .reconcile_time_series(&series_store)
+            .await
+            .expect("reconciliation must succeed");
+        assert_eq!(report.series_reconciled, 1, "exactly one series needed replay");
+        assert_eq!(report.points_replayed, 3, "all 3 points replayed");
+
+        let after = decode_ts(dispatch(&state, ts_range(2)).await);
+        assert_eq!(
+            after, points,
+            "after reconciliation, the measurement must be visible through the PUBLIC \
+             TsRange API — the crash-window gap is closed"
+        );
+
+        // (3) IDEMPOTENCY: reconciling again is a true no-op — nothing to replay, and
+        // TsRange returns the SAME points (no duplicates).
+        let report2 = redb
+            .reconcile_time_series(&series_store)
+            .await
+            .expect("second reconciliation must succeed");
+        assert_eq!(
+            report2.series_reconciled, 0,
+            "a converged series must not be re-reconciled"
+        );
+        assert_eq!(report2.points_replayed, 0);
+        let after2 = decode_ts(dispatch(&state, ts_range(3)).await);
+        assert_eq!(
+            after2, points,
+            "running reconciliation twice must not duplicate any point"
+        );
+
+        backend.shutdown();
         let _ = std::fs::remove_dir_all(&dir);
     }
 
