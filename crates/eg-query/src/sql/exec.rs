@@ -304,18 +304,17 @@ where
 }
 
 /// Execute `df` and collect its result via the streaming/spillable path
-/// ([`collect_streaming`]) with a fresh, never-cancelled [`CancellationToken`] and
-/// the default spill threshold ([`default_spill_rows`]) — the drop-in replacement
-/// for `df.collect()` every internal call site below now uses. For any query under
-/// the default spill threshold (the overwhelming common case) this is
-/// behaviorally identical to the eager path: same batches, same order, the same
-/// downstream `MAX_ROWS` truncation — only the ACCUMULATION becomes batch-at-a-time
-/// and boundedly resident instead of buffering the whole result up front. A caller
-/// that needs real cancellation or a tighter spill budget calls
-/// [`collect_streaming`] directly instead — see the module's rollout backlog on
-/// threading a per-request token from the wire protocol down to this layer.
+/// ([`collect_streaming`]), threading `cancel` through so a request-scoped
+/// cancellation (CONCEPT:EG-KG.query.streaming-spillable-collect, L36) actually stops the
+/// stream at its next batch boundary — the drop-in replacement for `df.collect()` every
+/// internal call site below now uses. For any query under the default spill threshold
+/// (the overwhelming common case) an uncancelled run is behaviorally identical to the
+/// eager path: same batches, same order, the same downstream `MAX_ROWS` truncation —
+/// only the ACCUMULATION becomes batch-at-a-time and boundedly resident instead of
+/// buffering the whole result up front.
 async fn collect_default(
     df: datafusion::dataframe::DataFrame,
+    cancel: &CancellationToken,
 ) -> Result<Vec<arrow::record_batch::RecordBatch>, String> {
     use futures_util::StreamExt;
     let stream = df
@@ -323,15 +322,32 @@ async fn collect_default(
         .await
         .map_err(|e| format!("execute_stream: {e}"))?;
     let stream = stream.map(|r| r.map_err(|e| format!("stream: {e}")));
-    let (batches, _outcome) =
-        collect_streaming(stream, &CancellationToken::new(), default_spill_rows()).await?;
+    let (batches, _outcome) = collect_streaming(stream, cancel, default_spill_rows()).await?;
     Ok(batches)
 }
 
 /// Run `sql` over `view` (read-only, single graph), with no cache: re-scans the
 /// `nodes`/`edges` tables every call. Synchronous — builds and drives its own
 /// current-thread runtime, safe to call inside `spawn_blocking`.
+///
+/// A fresh, never-cancelled [`CancellationToken`] — a caller that needs REAL
+/// cancellation (a request-scoped token a client cancel / timeout can trip, L36) calls
+/// [`exec_sql_cancellable`] instead; this fn is a thin backward-compatible wrapper over it
+/// so every existing call site is unaffected.
 pub fn exec_sql(view: &GraphView, sql: &str) -> Result<QueryResult, String> {
+    exec_sql_cancellable(view, sql, &CancellationToken::new())
+}
+
+/// As [`exec_sql`], but threads `cancel` all the way down to [`collect_streaming`]
+/// (CONCEPT:EG-KG.query.streaming-spillable-collect, L36) so a caller holding the OTHER end of
+/// `cancel` (e.g. the wire handler's request-scoped registry, tripped by an explicit
+/// client cancel or a per-request timeout) can stop this query mid-stream, at its next
+/// batch boundary.
+pub fn exec_sql_cancellable(
+    view: &GraphView,
+    sql: &str,
+    cancel: &CancellationToken,
+) -> Result<QueryResult, String> {
     let nodes = infer_nodes(view)?;
     let edges = infer_edges(view)?;
     run(
@@ -343,6 +359,7 @@ pub fn exec_sql(view: &GraphView, sql: &str) -> Result<QueryResult, String> {
         Vec::new(),
         Vec::new(),
         sql,
+        cancel,
     )
 }
 
@@ -390,7 +407,7 @@ pub fn exec_sql_over_tables(
         #[cfg(feature = "numeric")]
         register_numeric(&ctx);
         let df = ctx.sql(&sql).await.map_err(|e| format!("sql: {e}"))?;
-        let batches = collect_default(df).await?;
+        let batches = collect_default(df, &CancellationToken::new()).await?;
         batches_to_typed(&batches)
     })
 }
@@ -451,7 +468,19 @@ pub struct TypedQueryResult {
 /// Identical execution to [`exec_sql`] — same providers, UDFs, table functions,
 /// off-lock snapshot, and current-thread runtime — but it captures the Arrow
 /// result schema so the pgwire shim can describe columns with real type OIDs.
+///
+/// A fresh, never-cancelled [`CancellationToken`] — see [`exec_sql_typed_cancellable`] for a
+/// caller that needs REAL cancellation (L36).
 pub fn exec_sql_typed(view: &GraphView, sql: &str) -> Result<TypedQueryResult, String> {
+    exec_sql_typed_cancellable(view, sql, &CancellationToken::new())
+}
+
+/// As [`exec_sql_typed`], threading `cancel` down to [`collect_streaming`] (L36).
+pub fn exec_sql_typed_cancellable(
+    view: &GraphView,
+    sql: &str,
+    cancel: &CancellationToken,
+) -> Result<TypedQueryResult, String> {
     let nodes = infer_nodes(view)?;
     let edges = infer_edges(view)?;
     run_typed(
@@ -463,6 +492,7 @@ pub fn exec_sql_typed(view: &GraphView, sql: &str) -> Result<TypedQueryResult, S
         Vec::new(),
         Vec::new(),
         sql,
+        cancel,
     )
 }
 
@@ -471,10 +501,29 @@ pub fn exec_sql_typed(view: &GraphView, sql: &str) -> Result<TypedQueryResult, S
 /// DataFusion `TableProvider` alongside `nodes`/`edges`, so a SELECT can read a user
 /// table, JOIN it to the graph, or both in ONE plan. This is the read path the pgwire
 /// shim calls so `psql`/ORMs see user tables and the graph in the same database.
+///
+/// A fresh, never-cancelled [`CancellationToken`] — see
+/// [`exec_sql_typed_with_tables_cancellable`] for a caller that needs REAL cancellation
+/// (L36, e.g. the served `Method::Sql` wire handler, which threads a request-scoped token a
+/// client cancel / timeout can trip).
 pub fn exec_sql_typed_with_tables(
     view: &GraphView,
     store: &TableStore,
     sql: &str,
+) -> Result<TypedQueryResult, String> {
+    exec_sql_typed_with_tables_cancellable(view, store, sql, &CancellationToken::new())
+}
+
+/// As [`exec_sql_typed_with_tables`], threading `cancel` all the way down to
+/// [`collect_streaming`] (CONCEPT:EG-KG.query.streaming-spillable-collect, L36) — a caller
+/// holding the OTHER end of `cancel` can stop this query mid-stream, at its next batch
+/// boundary, instead of the fresh never-cancelled token every non-`_cancellable` entry point
+/// above builds internally.
+pub fn exec_sql_typed_with_tables_cancellable(
+    view: &GraphView,
+    store: &TableStore,
+    sql: &str,
+    cancel: &CancellationToken,
 ) -> Result<TypedQueryResult, String> {
     // CONCEPT:EG-KG.query.create-drop-function: the durable SQL stored functions, expanded into the query text
     // (scalar → scalar subquery; table → parameterized-view subquery) before planning.
@@ -484,8 +533,10 @@ pub fn exec_sql_typed_with_tables(
     // Its embedded SQL (expression eval, `SELECT … INTO`) runs back through THIS read path
     // — the interpreter is synchronous, so each recursive call builds its own runtime with
     // no nesting (we are not inside a reactor here; the handler calls us on `spawn_blocking`).
+    // The recursive call reuses the SAME `cancel` token, so a cancelled outer request also
+    // stops an in-flight plpgsql-embedded SELECT.
     if functions.iter().any(|f| f.is_plpgsql()) {
-        let run_sql = |q: &str| exec_sql_typed_with_tables(view, store, q);
+        let run_sql = |q: &str| exec_sql_typed_with_tables_cancellable(view, store, q, cancel);
         if let Some(res) = super::plpgsql::try_exec_call(sql, &functions, &run_sql)? {
             return Ok(res);
         }
@@ -499,7 +550,9 @@ pub fn exec_sql_typed_with_tables(
     // CONCEPT:EG-KG.query.real-ann-top-k/EG-313: the durable pgvector ANN index registrations, consulted to
     // push a matching `ORDER BY col <-> $1 LIMIT k` down to a real eg-ann index.
     let ann_indexes = store.list_ann_indexes()?;
-    run_typed(view, nodes, edges, user, views, functions, ann_indexes, sql)
+    run_typed(
+        view, nodes, edges, user, views, functions, ann_indexes, sql, cancel,
+    )
 }
 
 /// Run `sql` over `view` reusing `cache`'s `(nodes, edges)` tables when they are
@@ -522,6 +575,7 @@ pub fn exec_sql_cached(
         Vec::new(),
         Vec::new(),
         sql,
+        &CancellationToken::new(),
     )
 }
 
@@ -710,7 +764,9 @@ fn apply_ann_pushdown(
 
 /// Shared driver: register the two tables, the scalar/aggregate UDFs, and the
 /// graph table functions, then collect the query.
-// EG-313 adds `ann_indexes` (the 8th arg) beside the existing views/functions catalogs.
+// EG-313 adds `ann_indexes` (the 8th arg) beside the existing views/functions catalogs;
+// L36 adds `cancel` (the 9th) so the collect leg is REALLY cancellable, not just
+// spillable.
 #[allow(clippy::too_many_arguments)]
 fn run(
     view: &GraphView,
@@ -727,6 +783,7 @@ fn run(
     functions: Vec<StoredFunction>,
     ann_indexes: Vec<AnnIndexPlan>,
     sql: &str,
+    cancel: &CancellationToken,
 ) -> Result<QueryResult, String> {
     // The graph table functions run their kernel over an owned snapshot; clone the
     // topology+ids once (cheap relative to the algorithm) so they don't borrow `view`.
@@ -772,7 +829,7 @@ fn run(
         )
         .await?;
         let df = ctx.sql(&sql).await.map_err(|e| format!("sql: {e}"))?;
-        let batches = collect_default(df).await?;
+        let batches = collect_default(df, cancel).await?;
         batches_to_result(&batches)
     })
 }
@@ -815,7 +872,8 @@ async fn register_views(
 /// Same driver as [`run`] but returns a [`TypedQueryResult`] (column types from
 /// the Arrow schema + JSON cells). Shares the providers/UDFs/runtime verbatim so
 /// the pgwire read path is the SAME engine path as `Method::Sql`.
-// EG-313 adds `ann_indexes` (the 8th arg) beside the existing views/functions catalogs.
+// EG-313 adds `ann_indexes` (the 8th arg) beside the existing views/functions catalogs;
+// L36 adds `cancel` (the 9th) — see `run`'s doc.
 #[allow(clippy::too_many_arguments)]
 fn run_typed(
     view: &GraphView,
@@ -832,6 +890,7 @@ fn run_typed(
     functions: Vec<StoredFunction>,
     ann_indexes: Vec<AnnIndexPlan>,
     sql: &str,
+    cancel: &CancellationToken,
 ) -> Result<TypedQueryResult, String> {
     let snap = Arc::new(view.clone());
     let mut nodes = nodes;
@@ -865,7 +924,7 @@ fn run_typed(
         )
         .await?;
         let df = ctx.sql(&sql).await.map_err(|e| format!("sql: {e}"))?;
-        let batches = collect_default(df).await?;
+        let batches = collect_default(df, cancel).await?;
         batches_to_typed(&batches)
     })
 }
