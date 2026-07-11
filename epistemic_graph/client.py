@@ -3127,6 +3127,85 @@ class QueryClient:
         built with the ``epistemic`` feature (implies ``query``)."""
         return await self._client._send("ExplainBelief", {"node_id": node_id})
 
+    async def explain_evidence(self, node_id: str) -> dict[str, Any]:
+        """CONCEPT:EG-X1 — resolve ``node_id``'s cited multimodal evidence: walk the
+        SAME support/contradiction/attack topology :meth:`explain_belief` walks and
+        return every transitively-reachable node that carries a located evidence
+        locus (PDF page+box, audio/video interval, SQL row version, code range,
+        trace span, …) plus the ``AssetOccurrence``/``Blob`` identity chain it was
+        extracted from — "here is exactly where in the source this claim's evidence
+        came from." Returns ``{"citations": [{"evidence_id", "kind", "locus",
+        "occurrence_id", "blob_ref"}, ...]}`` — ``kind`` is one of ``"Supports"``/
+        ``"Contradicts"``/``"Attacks"``; ``locus`` is the externally-tagged
+        ``EvidenceSpan`` shape (e.g. ``{"PageBox": {"document_id", "page", "x", "y",
+        "width", "height"}}``) or ``None`` when that node carries no located
+        evidence. Read-only. Requires a server built with the ``evidence-graph``
+        feature (opt-in, not part of ``full``)."""
+        return await self._client._send("ExplainEvidence", {"node_id": node_id})
+
+    async def causal_estimate(
+        self,
+        variables: list[dict[str, Any]],
+        do_values: dict[str, float],
+    ) -> dict[str, Any]:
+        """EPI-P3-3 — a **do-calculus intervention** ``P(· | do(X₁=x₁, X₂=x₂, …))``
+        over a request-carried linear-Gaussian structural causal model: genuine
+        graph surgery (Pearl, *Causality* ch. 3) — the ``do`` variables' incoming
+        edges are CUT, not conditioned on, so no information flows backward through
+        them (this is what distinguishes it from a naive conditional/regression
+        estimate under confounding).
+
+        ``variables`` defines the DAG in topological (parents-before-children)
+        order, one dict per variable::
+
+            {"id": "z", "parents": [], "bias": 0.0, "noise_var": 1.0}
+            {"id": "x", "parents": [["z", 1.0]], "bias": 0.0, "noise_var": 0.25}
+            {"id": "y", "parents": [["z", 1.0], ["x", 0.5]], "bias": 0.0, "noise_var": 0.25}
+
+        ``parents`` is a list of ``[parent_id, weight]`` pairs, each of which MUST
+        already appear as an earlier entry in ``variables``. ``do_values`` fixes the
+        named variables to given values via graph surgery, e.g. ``{"x": 2.0}``.
+
+        Returns ``{"estimates": [[var_id, {"mean", "variance", "interval":
+        [lo, hi], "level"}], ...]}``, one calibrated estimate per variable in the
+        SAME order as ``variables``. A pure function over the request — no graph
+        node is read. Requires a server built with the ``epistemic-causal`` feature
+        (opt-in, not part of ``full``)."""
+        return await self._client._send(
+            "CausalEstimate", {"variables": variables, "do_values": do_values}
+        )
+
+    async def rank_by_provenance(
+        self,
+        candidates: list[dict[str, Any]],
+        weights: dict[str, float] | None = None,
+    ) -> dict[str, Any]:
+        """EPI-P3-3 — provenance-aware retrieval ranking: order request-carried
+        ``candidates`` by a weighted blend of similarity AND evidence quality/
+        provenance (source reliability, corroboration, calibration precision,
+        freshness) rather than similarity alone — a well-sourced, well-corroborated
+        result should not be outranked by a merely-more-similar, unsourced one.
+
+        Each candidate dict is::
+
+            {"id": "doc-1", "similarity": 0.7, "source_reliability": 0.95,
+             "freshness": 0.9,
+             "calibration": {"interval": [0.85, 0.95], "level": 0.95, "evidence_count": 5}}
+
+        ``calibration`` is optional (``None``/omitted for a candidate with no
+        evidence-graph backing — it then ranks on similarity/reliability/freshness
+        alone). ``weights`` is ``{"similarity": w1, "evidence_quality": w2}``,
+        defaulting to ``{0.5, 0.5}`` (equal-weighted) when omitted.
+
+        Returns ``{"ranked": [{"id", "score", "similarity", "evidence_quality"},
+        ...]}``, highest score first. A pure function over the request — no graph
+        node is read. Requires a server built with the ``epistemic-causal`` feature
+        (opt-in, not part of ``full``)."""
+        params: dict[str, Any] = {"candidates": candidates}
+        if weights is not None:
+            params["weights"] = weights
+        return await self._client._send("RankByProvenance", params)
+
     async def register_foreign_source(self, name: str, source: dict[str, Any]) -> str:
         """Register a named EXTERNAL source for query federation (CONCEPT:EG-KG.query.query-federation,
         Lane P), returning the registered name.

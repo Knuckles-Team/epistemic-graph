@@ -529,6 +529,64 @@ pub(crate) async fn try_handle(
             };
             Ok(resp)
         }
+        // X-1 (CONCEPT:EG-X1): the multimodal-evidence citation resolver. Gated
+        // `evidence-graph` at the handler; the wire `Method` variant itself is gated
+        // only `epistemic` (see its doc comment), so a build with `epistemic` but not
+        // `evidence-graph` falls through to the not-built catch-all.
+        #[cfg(feature = "evidence-graph")]
+        Method::ExplainEvidence { node_id } => {
+            let snap = core.analysis_snapshot();
+            let resp = match compute_off_lock(req_id, move || explain_evidence_wire(&node_id, &snap))
+                .await
+            {
+                Ok(result) => {
+                    let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
+                    Response::ok(req_id, ResultPayload::Raw(bytes))
+                }
+                Err(resp) => resp,
+            };
+            Ok(resp)
+        }
+        // EPI-P3-3: do-calculus intervention over a request-carried SCM. A pure
+        // function over `variables`/`do_values` — no graph snapshot needed. Gated
+        // `epistemic-causal` at the handler (same fallback convention as above).
+        #[cfg(feature = "epistemic-causal")]
+        Method::CausalEstimate {
+            variables,
+            do_values,
+        } => {
+            let resp = match compute_off_lock(req_id, move || {
+                causal_estimate_wire(&variables, &do_values)
+            })
+            .await
+            {
+                Ok(Ok(result)) => {
+                    let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
+                    Response::ok(req_id, ResultPayload::Raw(bytes))
+                }
+                Ok(Err(msg)) => Response::err(req_id, format!("CausalEstimate error: {msg}")),
+                Err(resp) => resp,
+            };
+            Ok(resp)
+        }
+        // EPI-P3-3: provenance-aware retrieval ranking. A pure function over
+        // request-carried inputs — no graph snapshot needed. Gated `epistemic-causal`
+        // at the handler (same fallback convention as above).
+        #[cfg(feature = "epistemic-causal")]
+        Method::RankByProvenance { candidates, weights } => {
+            let resp = match compute_off_lock(req_id, move || {
+                rank_by_provenance_wire(&candidates, weights)
+            })
+            .await
+            {
+                Ok(result) => {
+                    let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
+                    Response::ok(req_id, ResultPayload::Raw(bytes))
+                }
+                Err(resp) => resp,
+            };
+            Ok(resp)
+        }
         // ── In-transaction cross-modal read-your-own-writes (CONCEPT:EG-KG.query.txn-cross-modal-ryow) ──
         // Run the SAME unified cross-modal plan as `UnifiedQuery`, but over a
         // snapshot OVERLAID with the open txn's staged (uncommitted) write-set +
@@ -1622,6 +1680,117 @@ fn what_changed_wire(
                 evidence_added: c.evidence_added.clone(),
                 evidence_removed: c.evidence_removed.clone(),
                 reason: c.reason.clone(),
+            })
+            .collect(),
+    }
+}
+
+/// X-1 (CONCEPT:EG-X1) — wire-project an `eg_epistemic::EvidenceCitation`. `kind`
+/// renders the `EdgeKind` via `Debug` (the SAME flat-string convention
+/// `JustificationNodeWire::rule` uses for `JustRule`); `locus` reuses the
+/// `evidence_span_wire` mapper already defined above for `ExplainProvenance`.
+#[cfg(feature = "evidence-graph")]
+fn evidence_citation_wire(
+    c: &eg_epistemic::EvidenceCitation,
+) -> crate::protocol::EvidenceCitationWire {
+    crate::protocol::EvidenceCitationWire {
+        evidence_id: c.evidence_id.clone(),
+        kind: format!("{:?}", c.kind),
+        locus: c.locus.as_ref().map(evidence_span_wire),
+        occurrence_id: c.occurrence_id.clone(),
+        blob_ref: c.blob_ref.clone(),
+    }
+}
+
+/// `Method::ExplainEvidence` (CONCEPT:EG-X1) — build a `BeliefGraph` off `view` and
+/// resolve `node_id`'s cited multimodal evidence (`eg_epistemic::evidence_citations`).
+#[cfg(feature = "evidence-graph")]
+fn explain_evidence_wire(
+    node_id: &str,
+    view: &crate::graph::GraphView,
+) -> crate::protocol::ExplainEvidenceResult {
+    let bg = eg_epistemic::BeliefGraph::from_graph_view(view);
+    let citations = eg_epistemic::evidence_citations(&bg, node_id);
+    crate::protocol::ExplainEvidenceResult {
+        citations: citations.iter().map(evidence_citation_wire).collect(),
+    }
+}
+
+/// `Method::CausalEstimate` (EPI-P3-3) — build an `eg_epistemic::CausalGraph` from
+/// the request-carried `variables` (rejecting an out-of-topological-order parent as
+/// an explicit error, never a panic — mirrors `CausalGraph::add_variable`'s own
+/// contract), then run the do-calculus intervention `do_values` names
+/// (`CausalGraph::intervene`). Results are re-ordered to match the request's
+/// `variables` order (a `HashMap` iteration order is not itself meaningful).
+#[cfg(feature = "epistemic-causal")]
+fn causal_estimate_wire(
+    variables: &[crate::protocol::StructuralEquationWire],
+    do_values: &std::collections::BTreeMap<String, f64>,
+) -> Result<crate::protocol::CausalEstimateResult, String> {
+    let mut g = eg_epistemic::CausalGraph::new();
+    for v in variables {
+        let parents: Vec<(&str, f64)> = v.parents.iter().map(|(p, w)| (p.as_str(), *w)).collect();
+        g.add_variable(v.id.clone(), parents, v.bias, v.noise_var)?;
+    }
+    let do_: std::collections::HashMap<String, f64> =
+        do_values.iter().map(|(k, v)| (k.clone(), *v)).collect();
+    let estimates = g.intervene(&do_)?;
+
+    let ordered = variables
+        .iter()
+        .map(|v| {
+            let est = estimates.get(&v.id).copied().unwrap_or_else(|| {
+                unreachable!("intervene() returns an estimate for every declared variable")
+            });
+            (
+                v.id.clone(),
+                crate::protocol::CausalEstimateWire {
+                    mean: est.mean,
+                    variance: est.variance,
+                    interval: est.interval,
+                    level: est.level,
+                },
+            )
+        })
+        .collect();
+    Ok(crate::protocol::CausalEstimateResult { estimates: ordered })
+}
+
+/// `Method::RankByProvenance` (EPI-P3-3) — map the request-carried
+/// `RetrievalCandidateWire`s onto `eg_epistemic::RetrievalCandidate` and run
+/// `eg_epistemic::rank` under the request's `RankWeightsWire`.
+#[cfg(feature = "epistemic-causal")]
+fn rank_by_provenance_wire(
+    candidates: &[crate::protocol::RetrievalCandidateWire],
+    weights: crate::protocol::RankWeightsWire,
+) -> crate::protocol::RankByProvenanceResult {
+    let candidates: Vec<eg_epistemic::RetrievalCandidate> = candidates
+        .iter()
+        .map(|c| eg_epistemic::RetrievalCandidate {
+            id: c.id.clone(),
+            similarity: c.similarity,
+            source_reliability: c.source_reliability,
+            freshness: c.freshness,
+            calibration: c.calibration.map(|cal| eg_epistemic::Calibration {
+                interval: cal.interval,
+                level: cal.level,
+                evidence_count: cal.evidence_count,
+            }),
+        })
+        .collect();
+    let weights = eg_epistemic::RankWeights {
+        similarity: weights.similarity,
+        evidence_quality: weights.evidence_quality,
+    };
+    let ranked = eg_epistemic::rank(&candidates, weights);
+    crate::protocol::RankByProvenanceResult {
+        ranked: ranked
+            .into_iter()
+            .map(|r| crate::protocol::RankedResultWire {
+                id: r.id,
+                score: r.score,
+                similarity: r.similarity,
+                evidence_quality: r.evidence_quality,
             })
             .collect(),
     }

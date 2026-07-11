@@ -1783,6 +1783,286 @@ async fn epistemic_status_returns_every_facet_over_rpc() {
     assert_eq!(status.what_would_invalidate, None);
 }
 
+/// X-1 (CONCEPT:EG-X1) — `Method::ExplainEvidence`, over the served RPC surface: a
+/// small `SourceObject -> AssetOccurrence -> Blob -> Evidence -> Claim` identity
+/// chain, where the `:Evidence` node carries a located `PageBox` locus plus the
+/// `occurrence_id`/`blob_ref` identity it was extracted from. Asserts the citation's
+/// exact locus round-trips over the wire byte-for-byte.
+#[cfg(feature = "evidence-graph")]
+#[tokio::test]
+async fn explain_evidence_resolves_a_located_citation_over_rpc() {
+    use epistemic_graph::protocol::{EvidenceSpanWire, ExplainEvidenceResult};
+
+    let state = state();
+
+    // The identity chain a real multimodal ingestion pipeline would stamp — plain
+    // `type`-tagged nodes, per `eg_epistemic::evidence` module docs (not walked by
+    // `evidence_citations` itself, but the real-world provenance these ids name).
+    ok(
+        &state,
+        1,
+        Method::AddNode {
+            node_id: "src-doc-1".into(),
+            properties_msgpack: pack(json!({ "type": "SourceObject" })),
+        },
+    )
+    .await;
+    ok(
+        &state,
+        2,
+        Method::AddNode {
+            node_id: "occ-1".into(),
+            properties_msgpack: pack(json!({ "type": "AssetOccurrence" })),
+        },
+    )
+    .await;
+    ok(
+        &state,
+        3,
+        Method::AddNode {
+            node_id: "blob-1".into(),
+            properties_msgpack: pack(json!({ "type": "Blob" })),
+        },
+    )
+    .await;
+    ok(
+        &state,
+        4,
+        Method::AddNode {
+            node_id: "claim1".into(),
+            properties_msgpack: pack(json!({ "type": "Claim", "confidence": 0.5 })),
+        },
+    )
+    .await;
+    ok(
+        &state,
+        5,
+        Method::AddNode {
+            node_id: "evidence1".into(),
+            properties_msgpack: pack(json!({
+                "type": "Evidence",
+                "confidence": 0.9,
+                "evidence_span": {
+                    "PageBox": {
+                        "document_id": "src-doc-1",
+                        "page": 4,
+                        "x": 12.0, "y": 34.0, "width": 200.0, "height": 50.0
+                    }
+                },
+                "occurrence_id": "occ-1",
+                "blob_ref": "blob-1",
+            })),
+        },
+    )
+    .await;
+    ok(
+        &state,
+        6,
+        Method::AddEdge {
+            source_id: "evidence1".into(),
+            target_id: "claim1".into(),
+            properties_msgpack: pack(json!({ "relationship_type": "SUPPORTS" })),
+        },
+    )
+    .await;
+
+    let resp = dispatch(
+        &state,
+        req(
+            7,
+            Method::ExplainEvidence {
+                node_id: "claim1".into(),
+            },
+        ),
+    )
+    .await;
+    assert!(
+        resp.error.is_none(),
+        "ExplainEvidence error: {:?}",
+        resp.error
+    );
+    let bytes = match &resp.result {
+        Some(ResultPayload::Raw(b)) => b.clone(),
+        other => panic!("expected Raw result, got {other:?}"),
+    };
+    let result: ExplainEvidenceResult =
+        rmp_serde::from_slice(&bytes).expect("ExplainEvidenceResult decodes");
+
+    assert_eq!(
+        result.citations.len(),
+        1,
+        "exactly one located citation, got {:?}",
+        result.citations
+    );
+    let citation = &result.citations[0];
+    assert_eq!(citation.evidence_id, "evidence1");
+    assert_eq!(citation.kind, "Supports");
+    assert_eq!(
+        citation.locus,
+        Some(EvidenceSpanWire::PageBox {
+            document_id: "src-doc-1".into(),
+            page: 4,
+            x: 12.0,
+            y: 34.0,
+            width: 200.0,
+            height: 50.0,
+        }),
+        "the PageBox locus must round-trip over the wire byte-for-byte"
+    );
+    assert_eq!(citation.occurrence_id.as_deref(), Some("occ-1"));
+    assert_eq!(citation.blob_ref.as_deref(), Some("blob-1"));
+}
+
+/// EPI-P3-3 — `Method::CausalEstimate`, over the served RPC surface: the SAME
+/// confounded-graph fixture (`Z -> X`, `Z -> Y`, `X -> Y`) `eg_epistemic::causal`'s
+/// own unit tests use, proving `do(X)` genuinely differs from a naive conditional —
+/// the confounder's contribution is severed by graph surgery, not merely
+/// conditioned away.
+#[cfg(feature = "epistemic-causal")]
+#[tokio::test]
+async fn causal_estimate_do_calculus_matches_hand_derivation_over_rpc() {
+    use epistemic_graph::protocol::{CausalEstimateResult, StructuralEquationWire};
+    use std::collections::BTreeMap;
+
+    let state = state();
+
+    let variables = vec![
+        StructuralEquationWire {
+            id: "z".into(),
+            parents: vec![],
+            bias: 0.0,
+            noise_var: 1.0,
+        },
+        StructuralEquationWire {
+            id: "x".into(),
+            parents: vec![("z".into(), 1.0)],
+            bias: 0.0,
+            noise_var: 0.25,
+        },
+        StructuralEquationWire {
+            id: "y".into(),
+            parents: vec![("z".into(), 1.0), ("x".into(), 0.5)],
+            bias: 0.0,
+            noise_var: 0.25,
+        },
+    ];
+    let mut do_values = BTreeMap::new();
+    do_values.insert("x".to_string(), 2.0);
+
+    let resp = dispatch(
+        &state,
+        req(
+            1,
+            Method::CausalEstimate {
+                variables,
+                do_values,
+            },
+        ),
+    )
+    .await;
+    assert!(
+        resp.error.is_none(),
+        "CausalEstimate error: {:?}",
+        resp.error
+    );
+    let bytes = match &resp.result {
+        Some(ResultPayload::Raw(b)) => b.clone(),
+        other => panic!("expected Raw result, got {other:?}"),
+    };
+    let result: CausalEstimateResult =
+        rmp_serde::from_slice(&bytes).expect("CausalEstimateResult decodes");
+
+    let estimates: std::collections::HashMap<String, _> = result.estimates.into_iter().collect();
+    let x_est = &estimates["x"];
+    let y_est = &estimates["y"];
+    let z_est = &estimates["z"];
+
+    // do(X=2) pins X exactly (zero variance).
+    assert!((x_est.mean - 2.0).abs() < 1e-6);
+    assert_eq!(x_est.variance, 0.0);
+    // E[Y|do(X=2)] = w_xy * 2 = 1.0 exactly — the confounder Z's edge into X was cut,
+    // so Z's belief (and its contribution to Y) stays at the prior mean 0.
+    assert!(
+        (y_est.mean - 1.0).abs() < 1e-6,
+        "expected the TRUE structural effect 1.0, got {}",
+        y_est.mean
+    );
+    assert!(
+        z_est.mean.abs() < 1e-6,
+        "do(X) must leave the edge-cut confounder Z's belief untouched, got {}",
+        z_est.mean
+    );
+    // Every estimate carries a calibrated interval bracketing its mean.
+    for est in [x_est, y_est, z_est] {
+        assert!(est.interval.0 <= est.mean && est.mean <= est.interval.1);
+    }
+}
+
+/// EPI-P3-3 — `Method::RankByProvenance`, over the served RPC surface: a
+/// better-sourced, well-corroborated candidate must outrank a MERELY
+/// more-similar, unsourced one — the same "provenance beats raw similarity"
+/// fixture `eg_epistemic::ranking`'s own unit tests use.
+#[cfg(feature = "epistemic-causal")]
+#[tokio::test]
+async fn rank_by_provenance_favors_corroborated_evidence_over_raw_similarity_over_rpc() {
+    use epistemic_graph::protocol::{CalibrationWire, RankByProvenanceResult, RetrievalCandidateWire};
+
+    let state = state();
+
+    let candidates = vec![
+        RetrievalCandidateWire {
+            id: "well-sourced".into(),
+            similarity: 0.7,
+            source_reliability: 0.95,
+            freshness: 0.9,
+            calibration: Some(CalibrationWire {
+                interval: (0.85, 0.95),
+                level: 0.95,
+                evidence_count: 5,
+            }),
+        },
+        RetrievalCandidateWire {
+            id: "more-similar".into(),
+            similarity: 0.9,
+            source_reliability: 0.3,
+            freshness: 0.3,
+            calibration: None,
+        },
+    ];
+
+    let resp = dispatch(
+        &state,
+        req(
+            1,
+            Method::RankByProvenance {
+                candidates,
+                weights: Default::default(),
+            },
+        ),
+    )
+    .await;
+    assert!(
+        resp.error.is_none(),
+        "RankByProvenance error: {:?}",
+        resp.error
+    );
+    let bytes = match &resp.result {
+        Some(ResultPayload::Raw(b)) => b.clone(),
+        other => panic!("expected Raw result, got {other:?}"),
+    };
+    let result: RankByProvenanceResult =
+        rmp_serde::from_slice(&bytes).expect("RankByProvenanceResult decodes");
+
+    assert_eq!(result.ranked.len(), 2);
+    assert_eq!(
+        result.ranked[0].id, "well-sourced",
+        "the better-sourced/corroborated candidate should rank first despite lower \
+         similarity, got order {:?}",
+        result.ranked.iter().map(|r| &r.id).collect::<Vec<_>>()
+    );
+    assert!(result.ranked[0].score > result.ranked[1].score);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Genuinely-hard rows — kept `#[ignore]`d with a REFINED precise reason (north_star OPEN).
 // ─────────────────────────────────────────────────────────────────────────────
