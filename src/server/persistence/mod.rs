@@ -88,6 +88,19 @@ pub trait PersistenceBackend: Send + Sync {
     /// of graphs loaded. No-op (Ok(0)) when nothing is configured.
     async fn load_all(&self, state: &Arc<RwLock<ServerState>>) -> Result<usize, String>;
 
+    /// Populate the registry's CATALOG ONLY at boot (CONCEPT:EG-KG.sharding.lazy-graph-catalog, DIST-P2-3) —
+    /// every graph's identity (name/type), with NO node/edge data read. Each
+    /// graph's `GraphCore` then materializes lazily on first access (see
+    /// `server::persistence::cold_offload::lazy_open`) via
+    /// [`Self::read_graph_material_blocking`]. The default falls back to the eager
+    /// `load_all` — only the redb backend (the only one with a `graph_meta`-keyed
+    /// durable catalog cheaper than a full dump) overrides it. Selected by
+    /// `main.rs` only when `EPISTEMIC_GRAPH_LAZY_STARTUP` is set; the default boot
+    /// path is unaffected.
+    async fn load_catalog(&self, state: &Arc<RwLock<ServerState>>) -> Result<usize, String> {
+        self.load_all(state).await
+    }
+
     /// Persist the current registry state. Returns the number of graphs written.
     async fn checkpoint_all(&self, state: &Arc<RwLock<ServerState>>) -> Result<usize, String>;
 
@@ -177,6 +190,21 @@ pub trait PersistenceBackend: Send + Sync {
         _graph_fname: &str,
         _node_id: &str,
     ) -> Result<Option<Vec<u8>>, String> {
+        Ok(None)
+    }
+
+    /// SYNC durable-material fetch for a lazy first-open (CONCEPT:EG-KG.sharding.lazy-graph-catalog,
+    /// DIST-P2-3): the WHOLE graph's nodes/edges/semantic-store blob, replayed into
+    /// a freshly constructed `GraphCore` on catalog-only → resident promotion
+    /// (mirrors `read_node_blocking`'s sync read-through contract, but for a whole
+    /// graph rather than one node). Default `Ok(None)` — only the redb backend
+    /// (which alone has a durable per-graph dump cheaper than reconstructing from
+    /// scratch) overrides it; a backend with no lazy-materialize support just
+    /// gets an empty core on lazy-open (the rebuildable-cache model's contract).
+    fn read_graph_material_blocking(
+        &self,
+        _graph_fname: &str,
+    ) -> Result<Option<crate::registry::GraphMaterial>, String> {
         Ok(None)
     }
 
