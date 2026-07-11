@@ -62,9 +62,9 @@ use crate::redb_store::MatViewScanResult;
 use crate::redb_store::{
     apply_checkpoint, clear_xshard_decision, clear_xshard_prepare, commit_crossmodal, commit_ops,
     get_xshard_decision, purge_graph_rows, put_xshard_decision, put_xshard_prepare, read_all_dumps,
-    read_graph_dump, read_one_node, scan_xshard_prepares, write_graph_meta, GraphDump,
-    XshardPrepareScan, EDGES, GRAPH_META, LEDGER, NODES, RAFT_LOG, SEMANTIC, XSHARD_DECISION,
-    XSHARD_PREPARE,
+    read_all_graph_meta, read_graph_dump, read_one_node, scan_xshard_prepares, write_graph_meta,
+    GraphDump, XshardPrepareScan, EDGES, GRAPH_META, LEDGER, NODES, RAFT_LOG, SEMANTIC,
+    XSHARD_DECISION, XSHARD_PREPARE,
 };
 /// `(first, last)` present Raft log index for a group, or an error (CONCEPT:EG-KG.storage.one-fsync-covers-raft).
 type LogBoundsResult = Result<(Option<u64>, Option<u64>), String>;
@@ -1226,6 +1226,38 @@ impl RedbBackend {
         }
         Ok(count)
     }
+
+    /// Populate the registry's CATALOG from every shard's `graph_meta` table ONLY
+    /// (CONCEPT:EG-KG.sharding.lazy-graph-catalog, DIST-P2-3) — NO node/edge/ledger/semantic row is
+    /// read. Mirrors `load_into`'s parallel cross-shard fan-out (each shard's
+    /// cheap meta scan runs concurrently on the blocking pool) but with a vastly
+    /// smaller per-shard read: one small `{name, graph_type}` table instead of
+    /// four. `register_catalog_only` takes `&self` on the registry (a `DashMap`
+    /// under the hood), so this only needs a READ lock on `ServerState` — booting
+    /// with millions of persisted graphs costs one shared-lock scan, not a
+    /// per-graph write-lock round-trip.
+    async fn load_catalog_into(&self, state: &Arc<RwLock<ServerState>>) -> Result<usize, String> {
+        let mut tasks = Vec::with_capacity(self.shards.len());
+        for shard in &self.shards {
+            let db = shard
+                .db
+                .upgrade()
+                .ok_or_else(|| "redb writer thread is gone".to_string())?;
+            tasks.push(move || read_all_graph_meta(&db));
+        }
+        let rows: Vec<(String, String, GraphType)> = join_blocking_in_order(tasks)
+            .await?
+            .into_iter()
+            .flatten()
+            .collect();
+
+        let count = rows.len();
+        let s = state.read().await;
+        for (_fname, name, graph_type) in rows {
+            s.registry.register_catalog_only(&name, graph_type, None);
+        }
+        Ok(count)
+    }
 }
 
 /// Rebuild a live [`GraphCore`] from a durable [`GraphDump`] (CONCEPT:EG-KG.storage.100m-tenant —
@@ -1259,6 +1291,42 @@ impl PersistenceBackend for RedbBackend {
             self.shards.len()
         );
         Ok(n)
+    }
+
+    /// Populate the registry's CATALOG ONLY (CONCEPT:EG-KG.sharding.lazy-graph-catalog, DIST-P2-3) — every
+    /// graph's `{name, graph_type}` identity row, with NO node/edge/ledger/semantic
+    /// data read. Each graph's `GraphCore` then materializes lazily on first access
+    /// (`server::persistence::cold_offload::lazy_open`), via
+    /// `read_through::BackendGraphMaterializer` calling
+    /// [`Self::read_graph_material_blocking`] below. Opt-in: selected by `main.rs`
+    /// only when `EPISTEMIC_GRAPH_LAZY_STARTUP` is set; the default boot path still
+    /// calls `load_all` above, byte-for-byte unchanged.
+    async fn load_catalog(&self, state: &Arc<RwLock<ServerState>>) -> Result<usize, String> {
+        let n = self.load_catalog_into(state).await?;
+        tracing::info!(
+            "redb: catalog-loaded {} graph(s) from {} shard(s) — lazy startup, no node/edge \
+             data read (CONCEPT:EG-KG.sharding.lazy-graph-catalog)",
+            n,
+            self.shards.len()
+        );
+        Ok(n)
+    }
+
+    /// SYNC durable-material fetch for a lazy first-open (CONCEPT:EG-KG.sharding.lazy-graph-catalog,
+    /// DIST-P2-3) — reuses [`Self::read_graph_dump_blocking`], the SAME per-graph
+    /// rehydrate path `shard_migrate`/`backup` already use, so a lazily-opened
+    /// graph replays byte-identically to an eagerly-loaded one.
+    fn read_graph_material_blocking(
+        &self,
+        graph_fname: &str,
+    ) -> Result<Option<crate::registry::GraphMaterial>, String> {
+        Ok(self
+            .read_graph_dump_blocking(graph_fname)?
+            .map(|dump| crate::registry::GraphMaterial {
+                nodes: dump.nodes,
+                edges: dump.edges,
+                semantic: dump.semantic,
+            }))
     }
 
     async fn checkpoint_all(&self, state: &Arc<RwLock<ServerState>>) -> Result<usize, String> {
