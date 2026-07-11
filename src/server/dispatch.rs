@@ -650,6 +650,13 @@ async fn dispatch_inner(state: &Arc<RwLock<ServerState>>, req: Request) -> Respo
             .await
         }
 
+        // ── Durable analytics-job plane (CONCEPT:INT-P2-1, feature `jobs`) ──────────
+        // NOT graph-scoped (own `jobs.redb`, keyed by `job_id`) — self-routes here,
+        // BEFORE the per-graph `dispatch_graph_op` chain, exactly like `TsAppend`/
+        // `Kv*`/`CreateChannel` above. See `handlers/jobs.rs` module docs.
+        #[cfg(feature = "jobs")]
+        Method::AnalyticsJob { op } => handlers::jobs::handle(state, req.id, op).await,
+
         // ── Transactions (CONCEPT:EG-KG.txn.multi-op-occ-acid — multi-op OCC ACID) ──────
         // Stateful + self-routing: a Txn* op targets the graph the txn was opened
         // against (resolved from `open_txns`), NOT necessarily `req.graph`, and
