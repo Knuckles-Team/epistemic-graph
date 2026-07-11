@@ -48,3 +48,10 @@ epistemic-tms = ["dep:tracing"]
 # capability-discovery/testing seam, not a serving feature. `cargo test -p
 # eg-epistemic --features contract` runs the suite.
 contract = ["dep:eg-modality"]
+# EPI-P3-4 — policy-aware proof redaction + selective disclosure: reuses eg-core's
+# per-agent Row-Level Security (`isolation::row_visibility`/`can_see_row` — the SAME
+# check `filter_view` enforces on every other read path) to mask, rather than drop,
+# an evidence node inside an `explain_belief` proof tree the actor cannot see. Pulls
+# in `eg-core/security` (where `RowVisibility`/`can_see_row` live); OFF by default so
+# a plain build links neither. See `src/redact.rs`.
+epistemic-redaction = ["eg-core/security"]
