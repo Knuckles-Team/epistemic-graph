@@ -19,8 +19,9 @@
 //! needs no new bounds for `ConformanceTestable`.
 
 use eg_modality::{
-    encode_staged, ConformanceTestable, EvidenceSpan, ModalityContract, Provenance, RowSetShape,
-    StagedWrite,
+    decode_staged, encode_staged, ConformanceTestable, EvidenceSpan, IngestReport,
+    ModalityContract, ModalitySelfTest, Provenance, RowSetShape, StagedWrite, StorageStats,
+    TckPoint,
 };
 
 use crate::store::SeriesMeta;
@@ -79,6 +80,76 @@ impl ModalityContract for SeriesMeta {
             "decay_weighted_mean",
         ]
     }
+
+    // ── EG-P1-1 hooks — real, minimal implementations over SeriesMeta's
+    // serialization path and txn staging. ──
+
+    /// Batch ingest = parse a `SeriesMeta` back from its serialized form. Streaming
+    /// is N/A: series metadata is a scalar, not an append stream (the series POINTS
+    /// are appended; the metadata describes them, not the stream itself).
+    fn ingest_report(&self, id: &str) -> IngestReport {
+        let staged = self.txn_stage(id);
+        let batch = match decode_staged::<SeriesMeta>(&staged) {
+            Ok(rt) if rt == *self => ModalitySelfTest::Passed,
+            _ => ModalitySelfTest::Failed,
+        };
+        IngestReport {
+            batch,
+            streaming: ModalitySelfTest::NotApplicable(
+                "series metadata is a scalar container descriptor, not an append stream (points are appended under it)",
+            ),
+        }
+    }
+
+    /// Real storage stats from the serialized metadata: logical size from encoded
+    /// length; element count is the number of fields in the series. Series metadata
+    /// is not secondary-indexed (the points are, by time), so `has_secondary_index`
+    /// is `false`.
+    fn storage_stats(&self, _id: &str) -> Option<StorageStats> {
+        let logical_bytes = encode_staged(self).len() as u64;
+        Some(StorageStats {
+            logical_bytes,
+            element_count: self.count,
+            has_secondary_index: false,
+        })
+    }
+
+    /// N/A: SeriesMeta is metadata, not a durable codec. Durability is maintained
+    /// by the underlying store layer (SERIES_META table in redb or equivalent).
+    fn backup_selfcheck(&self, _id: &str) -> ModalitySelfTest {
+        ModalitySelfTest::NotApplicable(
+            "series metadata is a schema descriptor, not a durable value itself — durability is maintained by the SERIES_META store layer",
+        )
+    }
+
+    /// Simulated single-node crash-and-recover through the txn staging path.
+    /// Stage the metadata as an in-txn write; the staged payload IS the WAL record;
+    /// on "restart" replay-decode it and confirm the recovered metadata is intact.
+    fn recovery_selfcheck(&self, id: &str) -> ModalitySelfTest {
+        let staged: StagedWrite = self.txn_stage(id);
+        match decode_staged::<SeriesMeta>(&staged) {
+            Ok(recovered) if recovered == *self => ModalitySelfTest::Passed,
+            _ => ModalitySelfTest::Failed,
+        }
+    }
+
+    /// Series metadata has no CDC, policy, or provenance of its own: CDC is for the
+    /// actual points appended under this metadata; policy is at the graph-node layer;
+    /// provenance is either asserted or implicit in the ingest pipeline, not in the schema.
+    fn tck_not_applicable(&self, point: TckPoint) -> Option<&'static str> {
+        match point {
+            TckPoint::CdcDeleteRetentionGc => Some(
+                "CDC applies to series points, not metadata — the metadata container is immutable once created; point append/delete is CDC-observable separately",
+            ),
+            TckPoint::TenantRowRegionPolicy => Some(
+                "no modality-intrinsic policy surface — tenant/row/region policy is enforced at the graph-node/eg-core::isolation layer that owns the series",
+            ),
+            TckPoint::ProvenanceEvidenceLineage => Some(
+                "series metadata has no derivation history — it is either asserted at series creation or implicit in the ingest pipeline",
+            ),
+            _ => None,
+        }
+    }
 }
 
 impl ConformanceTestable for SeriesMeta {
@@ -135,6 +206,75 @@ impl ModalityContract for Span {
             trace_id: self.trace_id.clone(),
             span_id: self.span_id.clone(),
         })
+    }
+
+    // ── EG-P1-1 hooks — real, minimal implementations over Span's serialization
+    // and txn staging. Span is an observed distributed-trace record. ──
+
+    /// Batch ingest = parse a `Span` back from its serialized form. Streaming is N/A:
+    /// a single span is a whole unit, not an append stream (the trace as a whole may be
+    /// streamed in, but individual spans are atomic).
+    fn ingest_report(&self, id: &str) -> IngestReport {
+        let staged = self.txn_stage(id);
+        let batch = match decode_staged::<Span>(&staged) {
+            Ok(rt) if rt == *self => ModalitySelfTest::Passed,
+            _ => ModalitySelfTest::Failed,
+        };
+        IngestReport {
+            batch,
+            streaming: ModalitySelfTest::NotApplicable(
+                "a span is a whole observed unit; tracing streams are reconstructed from individual spans",
+            ),
+        }
+    }
+
+    /// Real storage stats from the serialized Span: logical size from encoded length;
+    /// element count is 1 (a single span is one unit). Spans are not secondary-indexed
+    /// (query is by trace_id/span_id), so `has_secondary_index` is `false`.
+    fn storage_stats(&self, _id: &str) -> Option<StorageStats> {
+        let logical_bytes = encode_staged(self).len() as u64;
+        Some(StorageStats {
+            logical_bytes,
+            element_count: 1,
+            has_secondary_index: false,
+        })
+    }
+
+    /// N/A: Span is an ingest-time observation, not a backed-up or migrated value.
+    /// Once written to the trace store, durability is maintained by that store layer.
+    fn backup_selfcheck(&self, _id: &str) -> ModalitySelfTest {
+        ModalitySelfTest::NotApplicable(
+            "a span is an observed distributed-trace record; backup/restore/migrate is a trace-store-layer concern, not a modality-value capability",
+        )
+    }
+
+    /// Simulated single-node crash-and-recover through the txn staging path.
+    /// Stage the span as an in-txn write; the staged payload IS the WAL record;
+    /// on "restart" replay-decode it and confirm the recovered span is intact.
+    fn recovery_selfcheck(&self, id: &str) -> ModalitySelfTest {
+        let staged: StagedWrite = self.txn_stage(id);
+        match decode_staged::<Span>(&staged) {
+            Ok(recovered) if recovered == *self => ModalitySelfTest::Passed,
+            _ => ModalitySelfTest::Failed,
+        }
+    }
+
+    /// Spans have no CDC, policy, or provenance of their own: CDC is implicit in
+    /// OTLP ingest; policy is at the graph-node layer; provenance is the trace
+    /// itself (already captured in trace_id/span_id/parent_span_id).
+    fn tck_not_applicable(&self, point: TckPoint) -> Option<&'static str> {
+        match point {
+            TckPoint::CdcDeleteRetentionGc => Some(
+                "CDC is implicit in OTLP ingest; span observation is append-only and immutable at the trace-store level",
+            ),
+            TckPoint::TenantRowRegionPolicy => Some(
+                "no modality-intrinsic policy surface — tenant/row/region policy is enforced at the graph-node/eg-core::isolation layer that owns the span",
+            ),
+            TckPoint::ProvenanceEvidenceLineage => Some(
+                "a span's own trace_id/span_id/parent_span_id IS the lineage (already captured in the span itself)",
+            ),
+            _ => None,
+        }
     }
 }
 

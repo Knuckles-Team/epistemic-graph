@@ -5,8 +5,9 @@
 //! `eg-tensor`/`eg-geo`'s pilot retrofits.
 
 use eg_modality::{
-    encode_staged, ConformanceTestable, EvidenceSpan, ModalityContract, Provenance, RowSetShape,
-    StagedWrite,
+    decode_staged, encode_staged, ConformanceTestable, EvidenceSpan, IngestReport,
+    ModalityContract, ModalitySelfTest, Provenance, RowSetShape, StagedWrite, StorageStats,
+    TckPoint,
 };
 
 use crate::image::{ImageData, ImageRegion};
@@ -56,6 +57,70 @@ impl ModalityContract for ImageData {
 
     fn analytics_ops(&self) -> Vec<&'static str> {
         vec!["dimensions", "region_index", "crop"]
+    }
+
+    // ── EG-P1-1 hooks — real, minimal implementations over ImageData's
+    // serialization and txn staging. ──
+
+    /// Batch ingest = parse an `ImageData` back from its serialized form. Streaming
+    /// is N/A: an image is a whole media value, not an append stream.
+    fn ingest_report(&self, id: &str) -> IngestReport {
+        let staged = self.txn_stage(id);
+        let batch = match decode_staged::<ImageData>(&staged) {
+            Ok(rt) if rt == *self => ModalitySelfTest::Passed,
+            _ => ModalitySelfTest::Failed,
+        };
+        IngestReport {
+            batch,
+            streaming: ModalitySelfTest::NotApplicable(
+                "an image is a whole media value, not an append stream",
+            ),
+        }
+    }
+
+    /// Real storage stats from the serialized ImageData: logical size from encoded
+    /// length; element count is the number of extracted regions. Images do NOT have
+    /// a secondary index, so `has_secondary_index` is `false`.
+    fn storage_stats(&self, _id: &str) -> Option<StorageStats> {
+        let logical_bytes = encode_staged(self).len() as u64;
+        Some(StorageStats {
+            logical_bytes,
+            element_count: self.regions.len() as u64,
+            has_secondary_index: false,
+        })
+    }
+
+    /// N/A: ImageData is an ingest-time artifact, not a durable persisted value.
+    /// Durability is maintained by the underlying media storage layer.
+    fn backup_selfcheck(&self, _id: &str) -> ModalitySelfTest {
+        ModalitySelfTest::NotApplicable(
+            "image data is an ingest-time artifact; backup/restore/migrate is a media-storage-layer concern, not a modality-value capability",
+        )
+    }
+
+    /// Simulated single-node crash-and-recover through the txn staging path.
+    /// Stage the image as an in-txn write; the staged payload IS the WAL record;
+    /// on "restart" replay-decode it and confirm the recovered image is intact.
+    fn recovery_selfcheck(&self, id: &str) -> ModalitySelfTest {
+        let staged: StagedWrite = self.txn_stage(id);
+        match decode_staged::<ImageData>(&staged) {
+            Ok(recovered) if recovered == *self => ModalitySelfTest::Passed,
+            _ => ModalitySelfTest::Failed,
+        }
+    }
+
+    /// Images have no CDC or policy of their own: CDC would require materializing
+    /// region detections; policy is at the graph-node layer.
+    fn tck_not_applicable(&self, point: TckPoint) -> Option<&'static str> {
+        match point {
+            TckPoint::CdcDeleteRetentionGc => Some(
+                "image metadata is immutable post-ingest; CDC would require materializing region detections as persistent edges",
+            ),
+            TckPoint::TenantRowRegionPolicy => Some(
+                "no modality-intrinsic policy surface — tenant/row/region policy is enforced at the graph-node/eg-core::isolation layer that owns the image",
+            ),
+            _ => None,
+        }
     }
 }
 

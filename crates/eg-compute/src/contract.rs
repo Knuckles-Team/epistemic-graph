@@ -16,8 +16,9 @@
 //! wants — so this maps it losslessly rather than leaving the default `None`.
 
 use eg_modality::{
-    encode_staged, ConformanceTestable, EvidenceSpan, ModalityContract, Provenance, RowSetShape,
-    StagedWrite,
+    decode_staged, encode_staged, ConformanceTestable, EvidenceSpan, IngestReport,
+    ModalityContract, ModalitySelfTest, Provenance, RowSetShape, StagedWrite, StorageStats,
+    TckPoint,
 };
 
 use crate::algorithms::MergeProposal;
@@ -66,6 +67,61 @@ impl ModalityContract for MergeProposal {
     /// The crate's real entity-resolution entry point that emits `MergeProposal`s.
     fn analytics_ops(&self) -> Vec<&'static str> {
         vec!["resolve_candidates"]
+    }
+
+    // ── EG-P1-1 hooks — real, minimal implementations. MergeProposal is a query result. ──
+
+    /// Batch ingest = parse a `MergeProposal` back from serialized form. Streaming N/A.
+    fn ingest_report(&self, id: &str) -> IngestReport {
+        let staged = self.txn_stage(id);
+        let batch = match decode_staged::<MergeProposal>(&staged) {
+            Ok(rt) if rt == *self => ModalitySelfTest::Passed,
+            _ => ModalitySelfTest::Failed,
+        };
+        IngestReport {
+            batch,
+            streaming: ModalitySelfTest::NotApplicable(
+                "a merge proposal is a query result, not an append stream",
+            ),
+        }
+    }
+
+    /// Real storage stats: serialized size; element count is number of members.
+    fn storage_stats(&self, _id: &str) -> Option<StorageStats> {
+        Some(StorageStats {
+            logical_bytes: encode_staged(self).len() as u64,
+            element_count: self.members.len() as u64,
+            has_secondary_index: false,
+        })
+    }
+
+    /// N/A: proposals are query results, not durable values.
+    fn backup_selfcheck(&self, _id: &str) -> ModalitySelfTest {
+        ModalitySelfTest::NotApplicable(
+            "a merge proposal is a query result; backup/restore/migrate is not a modality concern",
+        )
+    }
+
+    /// Simulated crash-and-recover through txn staging.
+    fn recovery_selfcheck(&self, id: &str) -> ModalitySelfTest {
+        let staged: StagedWrite = self.txn_stage(id);
+        match decode_staged::<MergeProposal>(&staged) {
+            Ok(recovered) if recovered == *self => ModalitySelfTest::Passed,
+            _ => ModalitySelfTest::Failed,
+        }
+    }
+
+    /// Proposals have no CDC or policy of their own.
+    fn tck_not_applicable(&self, point: TckPoint) -> Option<&'static str> {
+        match point {
+            TckPoint::CdcDeleteRetentionGc => Some(
+                "a proposal is a query result; CDC applies only to mutations, not recommendations",
+            ),
+            TckPoint::TenantRowRegionPolicy => Some(
+                "policy is at the graph-node layer, not per-proposal",
+            ),
+            _ => None,
+        }
     }
 }
 
