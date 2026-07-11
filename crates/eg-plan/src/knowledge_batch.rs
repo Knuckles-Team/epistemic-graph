@@ -28,7 +28,7 @@
 //! | `kind` | `Utf8` (non-null) | `KnowledgeRow::kind` |
 //! | `score_<name>` (one per [`KnowledgeBatch::score_names`]) | `Float32` | `KnowledgeRow::score` (name `"score"` from `from_knowledge_set`) or [`KnowledgeBatch::with_named_score`] |
 //! | `confidence` | `Float64` (non-null) | `KnowledgeRow::confidence` |
-//! | `evidence_kind` | `Utf8` | the FIRST `EvidenceSpan`'s variant tag (`"document_span"` / `"table_cell_range"` / `"image_region"` / `"page_box"` / `"audio_segment"` / `"video_shot"` / `"code_symbol"` / `"trace_span"`), or null when the row has none — a typed, filterable summary column covering every granularity `EvidenceSpan` models (text span, table cell, image pixel region, page-scoped visual box (CONCEPT:EG-X1), audio/video time interval or frame-range, code symbol, trace span) |
+//! | `evidence_kind` | `Utf8` | the FIRST `EvidenceSpan`'s variant tag (`"document_span"` / `"table_cell_range"` / `"image_region"` / `"page_box"` / `"audio_segment"` / `"video_shot"` / `"video_frame_range"` / `"metric_window"` / `"row_version"` / `"code_symbol"` / `"trace_span"`), or null when the row has none — a typed, filterable summary column covering every granularity `EvidenceSpan` models (text span, table cell, image pixel region, page-scoped visual box (CONCEPT:EG-X1), audio/video time interval or frame-range, metric time-window, versioned SQL row, code symbol, trace span) |
 //! | `evidence_refs_json` | `List<Utf8>` | every `EvidenceSpan` on the row, each one JSON-serialized (lossless — `EvidenceSpan` already derives `Serialize`/`Deserialize`); a real Arrow `List` column, not a single opaque blob |
 //! | `valid_from` / `valid_until` | `Int64` | `KnowledgeRow::valid_time` (u64 -> i64) |
 //! | `tx_from` / `tx_to` | `Int64` | `KnowledgeRow::tx_time` |
@@ -109,8 +109,8 @@
 use std::sync::Arc;
 
 use arrow::array::{
-    Array, ArrayRef, BooleanArray, Float32Array, Float64Array, Int64Array, ListArray,
-    ListBuilder, StringArray, StringBuilder,
+    Array, ArrayRef, BooleanArray, Float32Array, Float64Array, Int64Array, ListArray, ListBuilder,
+    StringArray, StringBuilder,
 };
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
@@ -132,6 +132,9 @@ fn evidence_kind_tag(span: &EvidenceSpan) -> &'static str {
         EvidenceSpan::PageBox { .. } => "page_box",
         EvidenceSpan::AudioSegment { .. } => "audio_segment",
         EvidenceSpan::VideoShot { .. } => "video_shot",
+        EvidenceSpan::VideoFrameRange { .. } => "video_frame_range",
+        EvidenceSpan::MetricWindow { .. } => "metric_window",
+        EvidenceSpan::RowVersion { .. } => "row_version",
         EvidenceSpan::CodeSymbol { .. } => "code_symbol",
         EvidenceSpan::TraceSpan { .. } => "trace_span",
     }
@@ -359,7 +362,11 @@ impl KnowledgeBatch {
                     .as_ref()
                     .filter(|p| p.has_payload)
                     .map(|p| p.node_id.clone()),
-                has_payload: r.payload_ref.as_ref().map(|p| p.has_payload).unwrap_or(false),
+                has_payload: r
+                    .payload_ref
+                    .as_ref()
+                    .map(|p| p.has_payload)
+                    .unwrap_or(false),
             })
             .collect();
 
@@ -827,10 +834,7 @@ mod tests {
         assert_eq!(sym_row.confidence, 0.82);
         assert_eq!(sym_row.valid_time, (Some(100), Some(200)));
         assert_eq!(sym_row.tx_time, (Some(10), None));
-        assert_eq!(
-            sym_row.scores,
-            vec![("score".to_string(), Some(0.9_f32))]
-        );
+        assert_eq!(sym_row.scores, vec![("score".to_string(), Some(0.9_f32))]);
         // `evidence_refs` is only resolved by `KnowledgeSet::from_rowset` under the
         // `epistemic` feature (see `knowledge.rs`'s module docs) — a plain
         // `knowledge-batch` build (epistemic off) faithfully carries the empty
@@ -862,7 +866,10 @@ mod tests {
         let kb = fixture_batch()
             .with_named_score("bm25", vec![Some(3.2), Some(1.1)])
             .expect("with_named_score");
-        assert_eq!(kb.score_names, vec!["score".to_string(), "bm25".to_string()]);
+        assert_eq!(
+            kb.score_names,
+            vec!["score".to_string(), "bm25".to_string()]
+        );
 
         let schema = kb.arrow_schema();
         assert_eq!(
@@ -968,10 +975,7 @@ mod tests {
             "counter1".into(),
             blob(json!({ "node_type": "Evidence", "confidence": 0.8 })),
         );
-        core.add_node(
-            "activity1".into(),
-            blob(json!({ "node_type": "Activity" })),
-        );
+        core.add_node("activity1".into(), blob(json!({ "node_type": "Activity" })));
         core.add_edge(
             "mid".into(),
             "claim1".into(),
@@ -1014,7 +1018,11 @@ mod tests {
         proof.sort();
         assert_eq!(
             proof,
-            vec!["counter1".to_string(), "evidence1".to_string(), "mid".to_string()]
+            vec![
+                "counter1".to_string(),
+                "evidence1".to_string(),
+                "mid".to_string()
+            ]
         );
     }
 
@@ -1109,7 +1117,10 @@ mod tests {
             chunk_count += 1;
         }
         assert_eq!(got, expected);
-        assert_eq!(chunk_count, 4, "23 rows at chunk_size 7 ⇒ 7,7,7,2 = 4 chunks");
+        assert_eq!(
+            chunk_count, 4,
+            "23 rows at chunk_size 7 ⇒ 7,7,7,2 = 4 chunks"
+        );
     }
 
     /// An empty batch is immediately exhausted — no chunk to yield, ever.
