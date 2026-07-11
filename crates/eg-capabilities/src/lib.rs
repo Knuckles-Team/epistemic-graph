@@ -256,6 +256,9 @@ pub fn policy(m: &Method) -> MethodPolicy {
         Method::UnifiedQuery { .. } | Method::UnifiedQueryText { .. } => MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "query:unified", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot },
         Method::ExplainPlan { .. } | Method::ExplainProvenance { .. } | Method::ExplainPolicy { .. } => MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "explain:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot },
         Method::ExplainBelief { .. } => MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "explain:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot },
+        // L53 (EPI-P3-5 UQL wiring): the acceptance-capstone + temporal-diff read ops.
+        // Both read-only, no durability, no audit/CDC — same profile as `ExplainBelief`.
+        Method::EpistemicStatus { .. } | Method::WhatChanged { .. } => MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "explain:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot },
         Method::NlQuery { .. } => MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "query:nl", idempotent: false, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot },
         Method::RegisterForeignSource { .. } => MethodPolicy { mutates: true, durability_domain: DurabilityDomain::None, authz_action: "federation:admin", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Atomic },
         Method::RegisterUdf { .. } => MethodPolicy { mutates: true, durability_domain: DurabilityDomain::None, authz_action: "udf:admin", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Atomic },
@@ -584,6 +587,8 @@ pub const ALL_METHODS: &[(&str, MethodPolicy, &str)] = &[
         ("ExplainProvenance", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "explain:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, ""),
         ("ExplainPolicy", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "explain:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, ""),
         ("ExplainBelief", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "explain:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, ""),
+        ("EpistemicStatus", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "explain:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "L53 (EPI-P3-5) acceptance capstone; handler additionally gated `epistemic-tms`"),
+        ("WhatChanged", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "explain:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "L53 (EPI-P3-5) bitemporal diff; handler additionally gated `epistemic-tms`"),
         ("NlQuery", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "query:nl", idempotent: false, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, ""),
         ("RegisterForeignSource", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::None, authz_action: "federation:admin", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "NOT present in access.rs's write classifier at all; policy marks it mutates=true on semantic grounds (registers a foreign-source config) -- flagged as a possible access.rs coverage gap"),
         ("RegisterUdf", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::None, authz_action: "udf:admin", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "NOT present in access.rs's write classifier at all; policy marks it mutates=true on semantic grounds -- flagged as a possible access.rs coverage gap"),
@@ -742,10 +747,12 @@ mod smoke_tests {
             // in `tests/consistency.rs`.
             let _ = table_policy;
         }
-        // CONCEPT:INT-P2-1: +1 (338/339) when `jobs` adds `Method::AnalyticsJob`.
+        // CONCEPT:INT-P2-1: +1 (340/341) when `jobs` adds `Method::AnalyticsJob`.
         // CONCEPT:EG-KG.sharding.placement-route-rpc (DIST-P2-4): +1 (338 base) for the
         // always-in-the-enum `Method::PlacementRoute`.
-        let expected = if cfg!(feature = "jobs") { 339 } else { 338 };
+        // L53 (EPI-P3-5): +2 (338 -> 340 base) for `Method::EpistemicStatus` /
+        // `Method::WhatChanged`.
+        let expected = if cfg!(feature = "jobs") { 341 } else { 340 };
         assert_eq!(seen.len(), expected, "expected exactly {expected} Method variants");
     }
 
