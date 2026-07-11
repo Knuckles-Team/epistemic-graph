@@ -25,6 +25,11 @@ mod model;
 mod propagate;
 #[cfg(feature = "epistemic-tms")]
 mod tms;
+// EPI-P3-4 — policy-aware proof redaction + selective disclosure over the
+// `explain_belief` proof tree, reusing `eg-core`'s per-agent RLS access check. Behind
+// its own feature (which pulls in `eg-core/security`) — see `src/redact.rs`.
+#[cfg(feature = "epistemic-redaction")]
+mod redact;
 // X-6 / EPI-P3-2 — the live dependency-driven recompute/truth-maintenance engine
 // built on top of the `tms` module above. Same feature gate: it depends directly
 // on `tms::retract`/`RetractionResult`.
@@ -64,3 +69,11 @@ pub use tms::{
 // straight into the same index. See `recompute` module docs.
 #[cfg(feature = "epistemic-tms")]
 pub use recompute::{ChangeEvent, Materialization, MaterializationStatus, TruthMaintenance};
+
+// EPI-P3-4 — policy-aware proof redaction + selective disclosure (see `src/redact.rs`
+// module docs for the three disclosure levels and how they reuse `eg-core::isolation`).
+#[cfg(feature = "epistemic-redaction")]
+pub use redact::{
+    explain_belief_redacted, DisclosureLevel, ExistenceSignal, RedactedJustificationGraph,
+    RedactedProofNode,
+};
