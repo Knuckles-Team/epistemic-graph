@@ -309,3 +309,86 @@ async fn served_reorder_hint_is_answer_preserving_noop() {
         "the legacy reorder hint no longer changes served results (optimizer supersedes it)"
     );
 }
+
+/// CONCEPT:EG-KG.query.served-text-index-binding / EG-P1-4 — a served `RankText` pushes down
+/// into the MAINTAINED persistent `GraphTextIndex` (via `ServedTextIndex`) when a
+/// `ServerIndexFactory` is installed, instead of rebuilding a throwaway snapshot-derived
+/// index per query.
+///
+/// Proven DIFFERENTIALLY rather than by inspection: the persistent index derives a node's
+/// indexable body from a FIXED canonical key list (`GraphTextIndex`'s `TEXT_KEYS` —
+/// text/content/body/description/summary/title/name, see `server::secondary_indexes`),
+/// while the snapshot-derived fallback (`build_text_index_from_view`) concatenates EVERY
+/// string leaf in a node's property blob regardless of key. So a node whose only textual
+/// field lives under a NON-canonical key matches the snapshot fallback but is INVISIBLE to
+/// the persistent index. A served `RankText` for that exact phrase returning hits ONLY for
+/// the canonical-keyed doc — never the non-canonical one — is possible ONLY if the served
+/// path is genuinely searching the persistent index; a silent fallback to the
+/// snapshot-derived index (the per-scan-rebuild bug this closes) would instead match BOTH.
+#[tokio::test]
+async fn served_ranktext_pushes_down_into_persistent_index_not_snapshot_fallback() {
+    let state = state();
+    // Install the SAME server-layer secondary-index factory `main.rs` wires at startup: an
+    // in-memory persistent `GraphTextIndex` per graph, maintained incrementally by the write
+    // coalescer (CONCEPT:EG-KG.storage.incremental-text) — no on-disk dir needed for this test.
+    state.write().await.registry.set_secondary_index_factory(
+        epistemic_graph::server::secondary_indexes::ServerIndexFactory::new()
+            .with_text_dir(None)
+            .into_arc(),
+    );
+
+    // `canonical` carries its body under the persistent index's own `text` key (matches
+    // BOTH the persistent index and a snapshot rebuild). `noncanonical` carries the exact
+    // SAME phrase under a key (`note`) the persistent index's fixed key list does not
+    // recognize — it matches ONLY a snapshot-derived rebuild.
+    for (id, key) in [("canonical", "text"), ("noncanonical", "note")] {
+        let r = dispatch(
+            &state,
+            req(
+                if id == "canonical" { 1 } else { 2 },
+                Method::AddNode {
+                    node_id: id.to_string(),
+                    properties_msgpack: blob(
+                        json!({ "type": "Doc", key: "kubernetes rollout crashloop" }),
+                    ),
+                },
+            ),
+        )
+        .await;
+        assert!(r.error.is_none(), "AddNode {id}: {:?}", r.error);
+    }
+
+    let plan = Plan::new(vec![
+        Op::Scan {
+            label: "Doc".into(),
+        },
+        Op::RankText {
+            query: "kubernetes rollout crashloop".into(),
+        },
+        Op::Limit { k: 5 },
+    ]);
+    let resp = dispatch(
+        &state,
+        req(
+            3,
+            Method::UnifiedQuery {
+                plan,
+                reorder_filter_selectivity: None,
+            },
+        ),
+    )
+    .await;
+    let rows = rows_of(&resp);
+    let ids: Vec<&str> = rows.iter().map(|(id, _)| id.as_str()).collect();
+    assert!(
+        ids.contains(&"canonical"),
+        "the canonical `text`-keyed doc must hit the persistent index: {ids:?}"
+    );
+    assert!(
+        !ids.contains(&"noncanonical"),
+        "a non-canonical-keyed doc hitting here would prove the served path silently fell \
+         back to the snapshot-derived index (which indexes EVERY string leaf) instead of the \
+         persistent one (which does not — a per-scan-rebuild regression this test guards \
+         against): {ids:?}"
+    );
+}

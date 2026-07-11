@@ -55,13 +55,25 @@
 //! sources (today it only returns the `Supports` sources as `source_refs`), and
 //! thread an `ExplainBelief`-derived proof chain through `KnowledgeRow`.
 //!
-//! ## Streaming cursor
+//! ## Streaming cursor (CONCEPT:EG-P1-4, closes the L23 stub)
 //!
-//! [`KnowledgeCursor`] is the STUB type Codex P1 asked for: a resumable position
-//! over a (potentially unbounded/live) sequence of `KnowledgeBatch`es. Wiring a
-//! real chunked/paginated `Op` executor that advances a `KnowledgeCursor`
-//! batch-by-batch is explicit follow-up work — this defines the shape only, so
-//! downstream callers (and later increments) have a stable type to build against.
+//! [`KnowledgeCursor`] started as a STUB — a resumable POSITION (offset/total/
+//! exhausted) with no way to actually advance. [`ChunkedKnowledgeCursor`] is the
+//! real driver: it owns a `KnowledgeBatch`'s rows and hands them out
+//! chunk-by-chunk via [`ChunkedKnowledgeCursor::next_chunk`], updating a
+//! [`KnowledgeCursor`] position as it goes — so a caller consuming a large result
+//! never has to hold the WHOLE thing as one `KnowledgeBatch` in flight; it pulls
+//! bounded slices instead, each one a fully-formed `KnowledgeBatch` sharing the
+//! source's Arrow schema (`score_names` is constant across every chunk).
+//!
+//! This is the CONSUMER-side half of streaming — turning an already-computed row
+//! sequence into a genuine chunk-at-a-time iterator with correct bookkeeping
+//! (proven by the equivalence test: concatenating every yielded chunk reconstructs
+//! the source exactly). A PRODUCER-side cursor — one that re-drives the underlying
+//! `Op` chain per chunk so a huge result is never even row-materialized in one
+//! place — needs a resumable [`crate::exec::Driver`], not a `KnowledgeBatch`-shape
+//! change; that is listed in the rollout backlog (EG-P1-4), out of this
+//! workstream's scope.
 
 use std::sync::Arc;
 
@@ -141,6 +153,97 @@ pub struct KnowledgeCursor {
     pub total: Option<usize>,
     /// Whether the underlying source is known to be exhausted (no further batches).
     pub exhausted: bool,
+}
+
+/// A REAL chunked/streaming cursor over a [`KnowledgeBatch`]'s rows (CONCEPT:EG-P1-4 — closes
+/// the L23 `KnowledgeCursor` stub). Owns the row sequence and hands it out
+/// CHUNK-BY-CHUNK via [`Self::next_chunk`], so a caller consuming a large result
+/// never has to hold the WHOLE thing as one `KnowledgeBatch` — it pulls bounded
+/// slices, exactly the shape a paginated wire response or a backpressured
+/// consumer needs. `score_names` stays constant across every yielded chunk (each
+/// one carries the SAME schema as the source batch), so a caller can convert
+/// every chunk to a `RecordBatch` via [`KnowledgeBatch::to_record_batch`] and they
+/// all share one Arrow schema.
+///
+/// Why "materialize once, then chunk" rather than a lazy database-style cursor
+/// that re-drives the underlying query per chunk: a `KnowledgeSet` is itself built
+/// from ONE snapshot-isolated plan run (`KnowledgeSet::from_rowset` over an
+/// off-lock `GraphView`) — there is no live, resumable executor state underneath
+/// it to re-drive per chunk (the engine's plan model today is "run once, get a
+/// RowSet", not a server-side open cursor). This type is the real, non-stub
+/// CONSUMER-side half of streaming: it turns an already-computed row sequence
+/// into a genuine chunk-at-a-time iterator with correct `exhausted`/`offset`/
+/// `total` bookkeeping — proven by the equivalence test: concatenating every
+/// yielded chunk reconstructs the source batch exactly. A follow-up PRODUCER-side
+/// cursor that re-drives the underlying `Op` chain per chunk (so a huge result is
+/// never even row-materialized in one place) needs a resumable
+/// [`crate::exec::Driver`], not a `KnowledgeBatch`-shape change — listed in the
+/// rollout backlog, out of this workstream's scope.
+#[derive(Clone, Debug)]
+pub struct ChunkedKnowledgeCursor {
+    rows: Vec<KnowledgeBatchRow>,
+    score_names: Vec<String>,
+    chunk_size: usize,
+    pos: KnowledgeCursor,
+}
+
+impl ChunkedKnowledgeCursor {
+    /// A chunked cursor over `batch`, yielding up to `chunk_size` rows per
+    /// [`Self::next_chunk`] call (clamped to at least 1, so a caller can never wedge
+    /// it with `chunk_size: 0`).
+    pub fn new(batch: KnowledgeBatch, chunk_size: usize) -> Self {
+        let total = batch.len();
+        Self {
+            rows: batch.rows,
+            score_names: batch.score_names,
+            chunk_size: chunk_size.max(1),
+            pos: KnowledgeCursor {
+                offset: 0,
+                total: Some(total),
+                exhausted: total == 0,
+            },
+        }
+    }
+
+    /// The cursor's current position/exhaustion snapshot.
+    pub fn position(&self) -> KnowledgeCursor {
+        self.pos
+    }
+
+    /// True iff every row has already been yielded (no more chunks to pull).
+    pub fn is_exhausted(&self) -> bool {
+        self.pos.exhausted
+    }
+
+    /// Total row count across every chunk this cursor will ever yield (fixed at
+    /// construction — the source `KnowledgeBatch` is already fully materialized).
+    pub fn total(&self) -> usize {
+        self.rows.len()
+    }
+
+    /// Pull the NEXT chunk (up to `chunk_size` rows) as its own `KnowledgeBatch`,
+    /// advancing `offset` and flipping `exhausted` once the source is drained.
+    /// Returns `None` — with [`Self::is_exhausted`] already `true` — once every row
+    /// has been yielded; a caller drains it with
+    /// `while let Some(chunk) = cursor.next_chunk() { … }`. Every yielded chunk is
+    /// non-empty (an already-`exhausted` cursor short-circuits to `None` rather
+    /// than yielding an empty tail).
+    pub fn next_chunk(&mut self) -> Option<KnowledgeBatch> {
+        if self.pos.exhausted {
+            return None;
+        }
+        let start = self.pos.offset;
+        let end = (start + self.chunk_size).min(self.rows.len());
+        let slice = self.rows[start..end].to_vec();
+        self.pos.offset = end;
+        if end >= self.rows.len() {
+            self.pos.exhausted = true;
+        }
+        Some(KnowledgeBatch {
+            rows: slice,
+            score_names: self.score_names.clone(),
+        })
+    }
 }
 
 /// The Arrow-columnar projection of a [`KnowledgeSet`] (CONCEPT:EG-P1-2). See the
@@ -226,14 +329,23 @@ impl KnowledgeBatch {
     }
 
     /// A cursor positioned at the end of THIS batch, as if it were the only/last
-    /// batch in the stream (`exhausted: true`) — see [`KnowledgeCursor`]'s docs and
-    /// the module docs' "Streaming cursor" section for why this is a stub.
+    /// batch in the stream (`exhausted: true`) — a bare position snapshot with no
+    /// way to advance; see [`Self::into_chunks`]/[`ChunkedKnowledgeCursor`] for the
+    /// REAL chunked driver (CONCEPT:EG-P1-4).
     pub fn cursor(&self) -> KnowledgeCursor {
         KnowledgeCursor {
             offset: self.len(),
             total: Some(self.len()),
             exhausted: true,
         }
+    }
+
+    /// Turn this batch into a [`ChunkedKnowledgeCursor`] yielding up to `chunk_size`
+    /// rows per [`ChunkedKnowledgeCursor::next_chunk`] call (CONCEPT:EG-P1-4, closes the L23
+    /// stub) — the real streaming consumer a caller drains instead of holding the
+    /// whole batch in flight at once.
+    pub fn into_chunks(self, chunk_size: usize) -> ChunkedKnowledgeCursor {
+        ChunkedKnowledgeCursor::new(self, chunk_size)
     }
 
     /// The Arrow [`Schema`] this batch converts to, given its current
@@ -776,5 +888,105 @@ mod tests {
         let rb = kb.to_record_batch().expect("to_record_batch");
         assert_eq!(rb.num_rows(), 0);
         assert_eq!(rb.num_columns(), kb.arrow_schema().fields().len());
+    }
+
+    // ── ChunkedKnowledgeCursor (CONCEPT:EG-P1-4, closes the L23 stub) ────────────────
+
+    /// A `KnowledgeBatch` of `n` rows (`n0`..`n{n-1}`), for exercising chunked streaming
+    /// over a "large" result — big enough that a small `chunk_size` yields several
+    /// chunks.
+    fn large_batch(n: usize) -> KnowledgeBatch {
+        let core = GraphCore::new();
+        let mut ids = Vec::with_capacity(n);
+        for i in 0..n {
+            let id = format!("n{i}");
+            core.add_node(id.clone(), blob(json!({"node_type": "Item"})));
+            ids.push(id);
+        }
+        let view = core.analysis_snapshot();
+        let rs = RowSet::from_ids(ids);
+        let ks = KnowledgeSet::from_rowset(&rs, &view, &[]);
+        assert_eq!(ks.len(), n);
+        KnowledgeBatch::from_knowledge_set(&ks)
+    }
+
+    /// A large result streams in MULTIPLE non-empty chunks, then exhausts: 25 rows at
+    /// chunk_size 10 yields chunks of 10, 10, 5, then `None` — the canonical shape the
+    /// task's test plan asked for.
+    #[test]
+    fn chunked_cursor_streams_multiple_nonempty_chunks_then_exhausts() {
+        let kb = large_batch(25);
+        let mut cursor = kb.into_chunks(10);
+
+        assert!(!cursor.is_exhausted());
+        let c1 = cursor.next_chunk().expect("chunk 1");
+        assert_eq!(c1.len(), 10);
+        assert!(!cursor.is_exhausted());
+
+        let c2 = cursor.next_chunk().expect("chunk 2");
+        assert_eq!(c2.len(), 10);
+        assert!(!cursor.is_exhausted());
+
+        let c3 = cursor.next_chunk().expect("chunk 3");
+        assert_eq!(c3.len(), 5);
+        assert!(cursor.is_exhausted());
+
+        assert!(
+            cursor.next_chunk().is_none(),
+            "an exhausted cursor yields no further chunks"
+        );
+        assert_eq!(cursor.position().offset, 25);
+        assert_eq!(cursor.position().total, Some(25));
+        assert!(cursor.position().exhausted);
+    }
+
+    /// EQUIVALENCE: concatenating every chunk a cursor yields reconstructs the exact
+    /// same row sequence (ids, in order) as the source batch — chunking never drops,
+    /// duplicates, or reorders a row.
+    #[test]
+    fn chunked_cursor_concatenation_equals_source_batch() {
+        let kb = large_batch(23);
+        let expected: Vec<String> = kb.rows.iter().map(|r| r.id.clone()).collect();
+        let score_names = kb.score_names.clone();
+
+        let mut cursor = kb.into_chunks(7);
+        let mut got: Vec<String> = Vec::new();
+        let mut chunk_count = 0;
+        while let Some(chunk) = cursor.next_chunk() {
+            assert!(!chunk.is_empty(), "next_chunk never yields an empty chunk");
+            assert_eq!(
+                chunk.score_names, score_names,
+                "every chunk shares the source's Arrow schema (score_names)"
+            );
+            got.extend(chunk.rows.into_iter().map(|r| r.id));
+            chunk_count += 1;
+        }
+        assert_eq!(got, expected);
+        assert_eq!(chunk_count, 4, "23 rows at chunk_size 7 ⇒ 7,7,7,2 = 4 chunks");
+    }
+
+    /// An empty batch is immediately exhausted — no chunk to yield, ever.
+    #[test]
+    fn chunked_cursor_over_empty_batch_is_immediately_exhausted() {
+        let kb = KnowledgeBatch::default();
+        let mut cursor = kb.into_chunks(10);
+        assert!(cursor.is_exhausted());
+        assert_eq!(cursor.total(), 0);
+        assert!(cursor.next_chunk().is_none());
+    }
+
+    /// `chunk_size: 0` is clamped to `1` rather than wedging the cursor (which would
+    /// never advance `offset` and loop forever).
+    #[test]
+    fn chunked_cursor_clamps_zero_chunk_size_to_one() {
+        let kb = large_batch(3);
+        let mut cursor = kb.into_chunks(0);
+        let mut n = 0;
+        while let Some(chunk) = cursor.next_chunk() {
+            assert_eq!(chunk.len(), 1, "clamped to chunk_size 1");
+            n += 1;
+            assert!(n <= 10, "cursor must terminate, not loop forever");
+        }
+        assert_eq!(n, 3);
     }
 }
