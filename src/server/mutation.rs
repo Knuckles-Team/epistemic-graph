@@ -1916,6 +1916,8 @@ mod tests {
         ("KvDelete", "namespaced KV surface (kv.rs, own kv.redb) -- not graph-scoped"),
         ("KvCas", "namespaced KV surface (kv.rs, own kv.redb) -- not graph-scoped"),
         ("TsAppend", "time-series store (handlers/timeseries.rs, own series.redb) -- not graph-scoped"),
+        #[cfg(feature = "jobs")]
+        ("AnalyticsJob", "durable analytics-job plane (handlers/jobs.rs, own jobs.redb, CONCEPT:INT-P2-1) -- not graph-scoped"),
         ("ImportSqliteFile", "file-scoped: moves rows through a process-global user-table store, like Blob*/Kv*"),
         // ── Process-global registries on ServerState: durability_domain::None,
         // no GraphCore/graph_name; dispatched directly in the top-level match. ──

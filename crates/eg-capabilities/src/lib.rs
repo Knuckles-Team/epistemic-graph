@@ -54,6 +54,9 @@ use eg_types::protocol::Method;
 ///     (EG-275..284) -- physically stored as graph nodes and WAL-logged alongside
 ///     `GraphRedb`, but called out separately because it is a semantically distinct
 ///     domain (queues/exchanges/streams, not node/edge content).
+///   - [`JobsRedb`](DurabilityDomain::JobsRedb): the durable analytics-job plane's own
+///     `jobs.redb` (CONCEPT:INT-P2-1), entirely separate from `graph.redb` (`eg-jobs`,
+///     wired by the facade's `src/server/handlers/jobs.rs`, feature `jobs`).
 ///   - [`None`](DurabilityDomain::None): no durability at all -- a crash loses the effect
 ///     (this includes ordinary reads, but ALSO includes several real mutations; see the
 ///     `EG-P0-3` divergence entries in the consistency test).
@@ -62,6 +65,7 @@ pub enum DurabilityDomain {
     GraphRedb,
     SeriesRedb,
     KvRedb,
+    JobsRedb,
     BlobRedb,
     Outbox,
     None,
@@ -232,6 +236,19 @@ pub fn policy(m: &Method) -> MethodPolicy {
         Method::FinanceKalmanFilter1d { .. } | Method::FinanceKalmanBeta { .. } | Method::FinanceKalmanVolatility { .. } | Method::FinanceAdfTest { .. } | Method::FinanceOuCalibrate { .. } | Method::FinanceOuOptimalThresholds { .. } | Method::FinanceMarkovTransitionMatrix { .. } | Method::FinanceOrderBookImbalance { .. } | Method::FinanceQueueImbalance { .. } | Method::FinanceRealizedVolTick { .. } | Method::FinanceSpreadReversion { .. } | Method::FinanceInformationRatio { .. } | Method::FinanceEffectiveIndependentN { .. } | Method::FinanceAlphaCombinationEngine { .. } | Method::FinanceBrierScore { .. } | Method::FinanceConvergenceGate { .. } | Method::FinanceEmpiricalKelly { .. } | Method::FinanceSabrImpliedVol { .. } | Method::FinanceSabrSmile { .. } | Method::FinanceSabrCalibrate { .. } => MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "compute:finance", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::None },
         Method::RegisterIdentity { .. } | Method::RbacAdmin { .. } => MethodPolicy { mutates: true, durability_domain: DurabilityDomain::None, authz_action: "security:admin", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Atomic },
         Method::ApplyMultisigMutation { .. } => MethodPolicy { mutates: true, durability_domain: DurabilityDomain::None, authz_action: "security:admin", idempotent: false, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Saga },
+        // CONCEPT:INT-P2-1 -- the durable analytics-job plane. `mutates: true` is the
+        // conservative upper bound (mirrors `RbacAdmin { op }` above): the real
+        // per-op answer is runtime-conditional on `JobOp` (`Status` is a pure read;
+        // `Submit`/`Cancel`/`Resume` mutate the job store). Own durability domain
+        // (`JobsRedb`, its own `jobs.redb`) -- NOT `GraphRedb`, so it is excluded from
+        // the `wal.rs` cross-check the same way `SeriesRedb`/`KvRedb`/`BlobRedb` are
+        // (see the consistency test). Not audited/CDC-emitted for the same reason
+        // `TsAppend`/`Kv*` aren't: it self-manages its own durability out of band of
+        // the graph tamper-evident chain, and self-routes before `dispatch_graph_op`
+        // (see `mutation.rs`'s `JUSTIFIED_NA` entry), so it never reaches
+        // `wal.rs::apply`/`audit.rs::audit_line` at all.
+        #[cfg(feature = "jobs")]
+        Method::AnalyticsJob { .. } => MethodPolicy { mutates: true, durability_domain: DurabilityDomain::JobsRedb, authz_action: "jobs:write", idempotent: false, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Atomic },
         Method::Sql { .. } => MethodPolicy { mutates: true, durability_domain: DurabilityDomain::None, authz_action: "query:sql", idempotent: false, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Atomic },
         Method::CypherQuery { .. } => MethodPolicy { mutates: true, durability_domain: DurabilityDomain::None, authz_action: "query:cypher", idempotent: false, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Atomic },
         Method::GraphQl { .. } => MethodPolicy { mutates: true, durability_domain: DurabilityDomain::None, authz_action: "query:graphql", idempotent: false, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Atomic },
@@ -554,6 +571,8 @@ pub const ALL_METHODS: &[(&str, MethodPolicy, &str)] = &[
         ("RegisterIdentity", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::None, authz_action: "security:admin", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "NOT present in access.rs's write classifier at all -- flagged as a possible access.rs coverage gap"),
         ("RbacAdmin", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::None, authz_action: "security:admin", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "NOT present in access.rs's write classifier at all -- flagged as a possible access.rs coverage gap"),
         ("ApplyMultisigMutation", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::None, authz_action: "security:admin", idempotent: false, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Saga }, "write per access.rs but absent from wal.rs durable set (EG-P0-3); multisig threshold-gated, multi-party"),
+        #[cfg(feature = "jobs")]
+        ("AnalyticsJob", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::JobsRedb, authz_action: "jobs:write", idempotent: false, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "own jobs.redb (CONCEPT:INT-P2-1); self-routes before dispatch_graph_op like TsAppend/Kv*, never reaches wal.rs/audit.rs"),
         ("Sql", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::None, authz_action: "query:sql", idempotent: false, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "mutates is a conservative upper bound: the REAL access::requires_write(m) depends on the parsed statement kind (eg_query::classify); write-but-absent-from-wal.rs's durable set too (EG-P0-3) -- SQL DML durability rides the user-table store's own persistence, not the graph WAL"),
         ("CypherQuery", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::None, authz_action: "query:cypher", idempotent: false, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "mutates is a conservative upper bound: the REAL access::requires_write(m) depends on a keyword scan of the query text (access::cypher_is_write); also write-but-absent-from-wal.rs's durable set (EG-P0-3)"),
         ("GraphQl", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::None, authz_action: "query:graphql", idempotent: false, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "mutates is a conservative upper bound: the REAL access::requires_write(m) depends on the parsed operation kind (query vs mutation); also write-but-absent-from-wal.rs's durable set (EG-P0-3)"),
@@ -721,7 +740,9 @@ mod smoke_tests {
             // in `tests/consistency.rs`.
             let _ = table_policy;
         }
-        assert_eq!(seen.len(), 337, "expected exactly 337 Method variants");
+        // CONCEPT:INT-P2-1: +1 (338) when `jobs` adds `Method::AnalyticsJob`.
+        let expected = if cfg!(feature = "jobs") { 338 } else { 337 };
+        assert_eq!(seen.len(), expected, "expected exactly {expected} Method variants");
     }
 
     #[test]

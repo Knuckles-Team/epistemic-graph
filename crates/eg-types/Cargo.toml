@@ -172,6 +172,15 @@ timeseries = ["query"]
 # (Pi-safe wire data, no dep). Mirrors `tensor`/`stream`.
 # FOLD: opt-in; deliberately NOT added to any facade tier aggregate (node/full/pi).
 probabilistic = ["query"]
+# CONCEPT:INT-P2-1 — the durable analytics-job plane: gates the `jobs` wire module
+# (`JobOp`/`SubmitJobSpec`/`JobKind`) + the `Method::AnalyticsJob` variant. PURE
+# serde — no dep (mirrors `acl`, which is unconditional; this is feature-gated only
+# because the Method variant itself is opt-in, unlike `RbacAdmin`). The actual
+# durable state machine + redb store + claim-commit live in `eg-jobs` (ABOVE this
+# crate in the DAG); the facade wires it behind its own opt-in `jobs` feature.
+# FOLD: opt-in; deliberately NOT added to any facade tier aggregate (node/full/pi) —
+# see the root `Cargo.toml`'s `eg-jobs` workspace-member comment.
+jobs = []
 
 [dependencies]
 serde = { version = "1.0", features = ["derive", "rc"] }
