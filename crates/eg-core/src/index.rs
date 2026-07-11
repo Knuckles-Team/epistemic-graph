@@ -214,6 +214,12 @@ pub enum IndexKind {
     /// (CONCEPT:EG-KG.storage.incremental-derived-owl). Differentially materialized by the
     /// reasoner on-demand; its `apply_delta` is a documented no-op (see the adapter).
     DerivedOwl,
+    /// Server-layer eg-geo maintained spatial index (CONCEPT:EG-KG.storage.incremental-spatial, L37):
+    /// a per-layer item set (`node_id -> bbox`) maintained incrementally by the committed
+    /// write batch, backing a lazily-(re)built packed Hilbert R-tree — the persistent
+    /// counterpart to `Op::SpatialScan`'s prior per-query ephemeral R-tree rebuild.
+    /// Content-derived; served through its own bbox-query surface, not equality lookup.
+    Spatial,
     // Future index kinds register here (CONCEPT:AU-KG.query.text-spatial-time text / spatial / time)
     // with their own `SecondaryIndex` impl — the manager core does not change.
 }
@@ -935,12 +941,13 @@ mod tests {
         for d in mgr.descriptors() {
             match d.kind {
                 IndexKind::Label | IndexKind::Property => assert!(d.serves_lookup),
-                // Non-lookup surfaces (kNN / lexical / range / on-demand reason).
+                // Non-lookup surfaces (kNN / lexical / range / on-demand reason / bbox).
                 IndexKind::Vector
                 | IndexKind::Ontology
                 | IndexKind::Text
                 | IndexKind::Temporal
-                | IndexKind::DerivedOwl => assert!(!d.serves_lookup),
+                | IndexKind::DerivedOwl
+                | IndexKind::Spatial => assert!(!d.serves_lookup),
             }
         }
     }

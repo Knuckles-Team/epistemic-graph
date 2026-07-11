@@ -431,6 +431,273 @@ impl SecondaryIndex for DerivedOwlIndex {
     }
 }
 
+// ── spatial (CONCEPT:EG-KG.storage.incremental-spatial, L37) ─────────────────────────
+
+/// The canonical spatial-geometry property key a maintained index derives its bboxes
+/// from. Deliberately narrower than eg-plan's ephemeral fallback (`geometry_from_value`,
+/// which also accepts the `geom` alias) — the SAME "fixed key list vs the fallback's
+/// wider one" asymmetry [`GraphTextIndex`]'s `TEXT_KEYS` has relative to the
+/// snapshot-derived text fallback, and for the identical reason: it makes the served
+/// pushdown differentially provable (see `served_spatial_scan_pushes_down_into_persistent_index_not_snapshot_fallback`
+/// in `tests/served_query_completeness.rs`) — a node whose geometry lives under `geom`
+/// matches the ephemeral fallback but is invisible to this maintained index.
+#[cfg(feature = "geo")]
+const SPATIAL_GEOMETRY_KEY: &str = "geometry";
+
+/// Decode `props`'s `type` (the spatial LAYER, matching eg-plan's `spatial_scan`
+/// convention) and its `geometry` WKT into a `(layer, bbox)` pair — `None` when either is
+/// absent/unparsable/has no bbox (e.g. an empty `GeometryCollection`).
+#[cfg(feature = "geo")]
+fn extract_layer(props: &serde_json::Map<String, serde_json::Value>) -> Option<String> {
+    props.get("type")?.as_str().map(str::to_string)
+}
+
+#[cfg(feature = "geo")]
+fn extract_bbox(props: &serde_json::Map<String, serde_json::Value>) -> Option<eg_geo::Bbox> {
+    let wkt = props.get(SPATIAL_GEOMETRY_KEY)?.as_str()?;
+    eg_geo::parse_wkt(wkt).ok()?.bbox()
+}
+
+/// One layer's cached packed Hilbert R-tree over `items` — invalidated (removed) by
+/// [`SpatialState`] whenever a write touches ANY member of that layer, rebuilt lazily on
+/// the NEXT query. `ids[i]` is the original item id backing the tree's positional index
+/// `i` (mirrors `eg_geo::RTree::build`'s own `(usize, Bbox)` id convention).
+#[cfg(feature = "geo")]
+struct LayerTree {
+    ids: Vec<String>,
+    tree: eg_geo::RTree,
+}
+
+/// The maintained item set + per-layer cached trees backing [`GraphSpatialIndex`]
+/// (CONCEPT:EG-KG.storage.incremental-spatial). `items` (`id -> (layer, bbox)`) is the SINGLE
+/// source of truth, updated incrementally off the committed batch; `built` caches each
+/// layer's packed Hilbert R-tree, invalidated (removed) whenever a write touches that
+/// layer's item set and rebuilt lazily on the layer's NEXT query — so `query` amortizes
+/// the (immutable, batch-built) R-tree's construction cost across every read between two
+/// writes, instead of eg-plan's `spatial_scan` v1 fallback, which rebuilds it on EVERY
+/// scan.
+#[cfg(feature = "geo")]
+#[derive(Default)]
+struct SpatialState {
+    items: std::collections::HashMap<String, (String, eg_geo::Bbox)>,
+    built: std::collections::HashMap<String, LayerTree>,
+}
+
+#[cfg(feature = "geo")]
+impl SpatialState {
+    /// Record/replace `id`'s `(layer, bbox)`. Invalidates the cached tree for the OLD
+    /// layer too (if `id` moved layers — an unusual but handled case), so neither the
+    /// old nor the new layer's next query sees a stale tree.
+    fn upsert(&mut self, id: &str, layer: String, bbox: eg_geo::Bbox) {
+        if let Some((old_layer, _)) = self.items.get(id) {
+            if *old_layer != layer {
+                self.built.remove(old_layer);
+            }
+        }
+        self.built.remove(&layer);
+        self.items.insert(id.to_string(), (layer, bbox));
+    }
+
+    fn remove(&mut self, id: &str) {
+        if let Some((layer, _)) = self.items.remove(id) {
+            self.built.remove(&layer);
+        }
+    }
+
+    /// (Re)build `layer`'s tree if its cache is dirty (absent), then query it. The
+    /// rebuild filters `items` down to `layer`'s members — O(live nodes) — same as a
+    /// `full_rebuild`, but paid at most ONCE per write batch that touched the layer,
+    /// never per query.
+    fn query(&mut self, layer: &str, bbox: [f64; 4]) -> Vec<String> {
+        if !self.built.contains_key(layer) {
+            let mut ids: Vec<String> = Vec::new();
+            let mut boxes: Vec<(usize, eg_geo::Bbox)> = Vec::new();
+            for (id, (l, b)) in self.items.iter() {
+                if l == layer {
+                    boxes.push((ids.len(), *b));
+                    ids.push(id.clone());
+                }
+            }
+            let tree = eg_geo::RTree::build(&boxes);
+            self.built.insert(layer.to_string(), LayerTree { ids, tree });
+        }
+        let lt = self
+            .built
+            .get(layer)
+            .expect("just built or already cached above");
+        lt.tree
+            .query_bbox(&eg_geo::Bbox::from_array(bbox))
+            .into_iter()
+            .map(|i| lt.ids[i].clone())
+            .collect()
+    }
+}
+
+/// Server-layer maintained spatial index over one graph's geometry-bearing nodes
+/// (CONCEPT:EG-KG.storage.incremental-spatial, L37) — the persistent counterpart to
+/// eg-plan's `spatial_scan` v1 ephemeral per-query R-tree build. Keyed by `layer` (the
+/// node's `type` property, exactly as `Op::SpatialScan`); each layer's item set is
+/// maintained incrementally off the committed write batch, and its packed Hilbert
+/// R-tree (immutable once built — `eg_geo::RTree` has no incremental insert/remove) is
+/// rebuilt lazily on the layer's next query after a write invalidated it, not on every
+/// query — see [`SpatialState`]'s docs.
+#[cfg(feature = "geo")]
+pub struct GraphSpatialIndex {
+    state: std::sync::Mutex<SpatialState>,
+}
+
+#[cfg(feature = "geo")]
+impl Default for GraphSpatialIndex {
+    fn default() -> Self {
+        Self {
+            state: std::sync::Mutex::new(SpatialState::default()),
+        }
+    }
+}
+
+#[cfg(feature = "geo")]
+impl GraphSpatialIndex {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// bbox query over `layer`'s maintained item set — the read surface a served
+    /// `Op::SpatialScan` pushdown (`ServedSpatialIndex`) consumes. Reflects the last
+    /// committed batch.
+    pub fn query_bbox(&self, layer: &str, bbox: [f64; 4]) -> Vec<String> {
+        self.state
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .query(layer, bbox)
+    }
+}
+
+#[cfg(feature = "geo")]
+impl SecondaryIndex for GraphSpatialIndex {
+    fn kind(&self) -> IndexKind {
+        IndexKind::Spatial
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn descriptor(&self) -> IndexDescriptor {
+        IndexDescriptor {
+            kind: IndexKind::Spatial,
+            columns: IndexColumns::NonColumnar,
+            serves_lookup: false,
+        }
+    }
+    fn covers(&self, _p: &Predicate) -> bool {
+        false
+    }
+    fn lookup(&self, _core: &GraphCore, _p: &Predicate) -> Option<Vec<String>> {
+        None
+    }
+    fn needs_content(&self) -> bool {
+        true
+    }
+
+    /// Incremental maintenance for a committed batch. Reads content from the captured
+    /// blobs only (never `core`). An ADD carries the FULL blob, so a node with no
+    /// `type`/`geometry` simply has neither key (no-op — nothing to index). An UPDATE
+    /// (CAS) carries only the touched fields: when it carries a NEW geometry but not
+    /// `type` (the common "move this object" write), the node's LAST KNOWN layer (from
+    /// `items`) is reused so the entry stays correctly bucketed without requiring every
+    /// geometry-only update to also restate `type`. An update that touches NEITHER key
+    /// is a no-op, leaving the prior entry (if any) untouched — mirroring the text
+    /// index's "no text field touched" no-op.
+    fn apply_delta(&self, _core: &GraphCore, change: &ChangeSet) -> Result<(), IndexError> {
+        let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        for id in &change.removed_nodes {
+            st.remove(id);
+        }
+        for nc in change.added_nodes.iter().chain(change.updated_nodes.iter()) {
+            let Some(props) = nc.properties_msgpack.as_deref().and_then(decode_props) else {
+                continue;
+            };
+            let Some(bbox) = extract_bbox(&props) else {
+                continue;
+            };
+            let layer = extract_layer(&props)
+                .or_else(|| st.items.get(&nc.id).map(|(l, _)| l.clone()));
+            if let Some(layer) = layer {
+                st.upsert(&nc.id, layer, bbox);
+            }
+        }
+        Ok(())
+    }
+
+    /// OUT-OF-LOCK rebuild: re-derive every live node's `(layer, bbox)` from `core`,
+    /// dropping any node that no longer carries both. Safe here — no topology lock held
+    /// on this path.
+    fn full_rebuild(&self, core: &GraphCore) -> Result<(), IndexError> {
+        let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        *st = SpatialState::default();
+        for id in core.node_ids() {
+            let Some(props) = core
+                .get_node_properties(&id)
+                .as_deref()
+                .and_then(decode_props)
+            else {
+                continue;
+            };
+            if let (Some(layer), Some(bbox)) = (extract_layer(&props), extract_bbox(&props)) {
+                st.upsert(&id, layer, bbox);
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Planner pushdown adapter (CONCEPT:EG-KG.storage.incremental-spatial, L37): lets a served
+/// `Op::SpatialScan` search the MAINTAINED per-graph [`GraphSpatialIndex`] directly
+/// instead of eg-plan's `spatial_scan`'s prior behavior of building a throwaway packed
+/// Hilbert R-tree from the queried snapshot on EVERY request. Cheap to construct per
+/// request — it only holds an `Arc<GraphCore>` clone — and each
+/// [`eg_plan::SpatialSource::query_bbox`] call re-resolves the registered index through
+/// the generic [`crate::index::IndexManager`] (a downcast via
+/// [`crate::index::SecondaryIndex::as_any`]) and queries it fresh under a brief internal
+/// lock, so it always reflects the LAST COMMITTED batch with no per-query rebuild.
+/// Mirrors [`ServedTextIndex`] exactly.
+#[cfg(feature = "geo")]
+pub struct ServedSpatialIndex {
+    core: std::sync::Arc<GraphCore>,
+}
+
+#[cfg(feature = "geo")]
+impl ServedSpatialIndex {
+    pub fn new(core: std::sync::Arc<GraphCore>) -> Self {
+        Self { core }
+    }
+
+    /// `true` iff this graph has a maintained persistent spatial index registered —
+    /// the caller (the query handler) uses this to choose between pushing an
+    /// `Op::SpatialScan` down into THIS adapter or leaving `PlanCtx::spatial` unbound
+    /// so `spatial_scan` runs its own ephemeral fallback (a graph created before the
+    /// factory installed, or a test harness with no `ServerIndexFactory` wired at all).
+    pub fn available(&self) -> bool {
+        self.core
+            .indexes()
+            .with_server_index(crate::index::IndexKind::Spatial, |_| ())
+            .is_some()
+    }
+}
+
+#[cfg(feature = "geo")]
+impl eg_plan::SpatialSource for ServedSpatialIndex {
+    fn query_bbox(&self, layer: &str, bbox: [f64; 4]) -> Vec<String> {
+        self.core
+            .indexes()
+            .with_server_index(crate::index::IndexKind::Spatial, |idx| {
+                idx.as_any()
+                    .downcast_ref::<GraphSpatialIndex>()
+                    .map(|gsi| gsi.query_bbox(layer, bbox))
+                    .unwrap_or_default()
+            })
+            .unwrap_or_default()
+    }
+}
+
 // ── the factory (registered per-graph by the registry) ───────────────────────────
 
 /// Builds the enabled server-layer secondary indexes for each graph and hands them to
@@ -530,6 +797,8 @@ impl SecondaryIndexFactory for ServerIndexFactory {
         }
         #[cfg(feature = "owl")]
         out.push(Box::new(DerivedOwlIndex));
+        #[cfg(feature = "geo")]
+        out.push(Box::new(GraphSpatialIndex::new()));
         out
     }
 }
