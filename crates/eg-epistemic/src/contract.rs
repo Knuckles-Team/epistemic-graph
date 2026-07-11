@@ -206,6 +206,7 @@ impl ConformanceTestable for BeliefState {
             contradicting: Vec::new(),
             attacking: Vec::new(),
             as_of: Some((TimeAxis::Transaction, 1_700_000_000)),
+            bitemporal: None,
         }
     }
 }
@@ -246,6 +247,7 @@ mod overrides {
             contradicting: vec!["evidence-3".to_string()],
             attacking: Vec::new(),
             as_of: None,
+            bitemporal: None,
         };
         let prov = b.provenance("x").unwrap();
         assert_eq!(prov.source, format!("{:?}", JustRule::DerivedContradiction));
@@ -264,6 +266,7 @@ mod overrides {
             contradicting: Vec::new(),
             attacking: Vec::new(),
             as_of: None,
+            bitemporal: None,
         };
         let prov = b.provenance("x").unwrap();
         assert_eq!(prov.source, format!("{:?}", JustRule::Asserted));
