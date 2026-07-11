@@ -191,7 +191,12 @@ natural-language → query (`NlQuery`) is a complete, LLM-optional seam.
 
 ### Security & isolation
 
-- **Mandatory auth** — every RPC carries `HMAC-SHA256(secret, request_id)`; pgwire adds SCRAM-SHA-256.
+- **Mandatory auth** — every RPC carries an auth token. The default remains v0
+  (`HMAC-SHA256(secret, request_id)`); an opt-in **v1 signed envelope** (EG-P0-5) additionally binds
+  method/graph/tenant/principal/body-hash/timestamp/nonce under one HMAC, constant-time verified —
+  off by default (`EPISTEMIC_GRAPH_REQUIRE_SIGNED=1` to require it; v0 keeps working unchanged until
+  then). Transport TLS/mTLS and OIDC principals are **not** part of this yet. pgwire separately adds
+  SCRAM-SHA-256. See [Service mode](docs/service_mode.md#authentication-protocol) for the full contract.
 - **Per-agent Row-Level Security** applied before any query surface touches the graph; the result cache
   keys on the caller's RLS context.
 - **Encryption-at-rest** (ChaCha20-Poly1305, pure-Rust) + a **hash-chained tamper-evident audit log**.

@@ -27,7 +27,10 @@ the full graph/vector/RDF/SQL API is Python-only. **No faked SDK.**
 
 - **Framing:** a 4-byte **big-endian** length prefix + a MessagePack request
   `{ id, graph, auth_token, method, params }`.
-- **Auth:** `auth_token = hex(HMAC_SHA256(auth_secret, str(id)))` (empty when no secret).
+- **Auth:** `auth_token = hex(HMAC_SHA256(auth_secret, str(id)))` (empty when no secret). This is the
+  legacy v0 envelope and is what every client here actually speaks today. The server also accepts an
+  opt-in v1 signed envelope (EG-P0-5) — see [Service mode](../service_mode.md#authentication-protocol)
+  — but no client driver signs v1 yet.
 - **Correlation:** each response carries the request `id`. The Python client demuxes
   out-of-order responses on one pipelined connection (EG-043); the thin JS client does the
   same by `id`; the thin Go client serializes one round-trip at a time (in-order).

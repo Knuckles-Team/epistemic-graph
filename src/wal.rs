@@ -84,6 +84,11 @@ pub fn is_durable_mutation(m: &Method) -> bool {
     // below re-mines + re-writes deterministically (explicit transactions reproduce
     // byte-identically; a graph-derived source re-derives from the graph, like the
     // broker/memory replay ops). A pure query (writeback=false) is not logged.
+    //
+    // `MineSequence`/`MineForecast` follow the SAME contract (`:SequentialPattern`/
+    // `:Forecast` nodes) and MUST mirror `access::requires_write`'s classification —
+    // they were previously missing here, so an acknowledged write was silently
+    // dropped on crash and their `mining::replay` arms were dead code (EG-P0-3).
     #[cfg(feature = "mining")]
     if matches!(
         m,
@@ -102,9 +107,39 @@ pub fn is_durable_mutation(m: &Method) -> bool {
         } | Method::MineReduce {
             writeback: true,
             ..
+        } | Method::MineSequence {
+            writeback: true,
+            ..
+        } | Method::MineForecast {
+            writeback: true,
+            ..
         }
     ) {
         return true;
+    }
+    // `MineText`: durable only for `lda`/`nmf` writeback (their `:Topic` nodes) —
+    // `tfidf` never mutates regardless of the flag, matching
+    // `access::requires_write`'s exact condition byte-for-byte (EG-P0-3).
+    #[cfg(feature = "mining")]
+    if let Method::MineText {
+        writeback,
+        algorithm,
+        ..
+    } = m
+    {
+        return *writeback && !matches!(algorithm, crate::protocol::TextAlgorithm::Tfidf);
+    }
+    // `MineSubgraph`: durable only for `gspan` writeback (its `:FrequentSubgraph`
+    // nodes) — `motif` never mutates regardless of the flag, matching
+    // `access::requires_write`'s exact condition byte-for-byte (EG-P0-3).
+    #[cfg(feature = "mining")]
+    if let Method::MineSubgraph {
+        writeback,
+        algorithm,
+        ..
+    } = m
+    {
+        return *writeback && !matches!(algorithm, crate::protocol::SubgraphAlgorithm::Motif);
     }
     // Residual insight/mining families (CONCEPT:EG-KG.mining.entity-resolution /
     // causal-impact / process-mining / root-cause / risk-propagation /
@@ -170,6 +205,12 @@ pub fn is_durable_mutation(m: &Method) -> bool {
             | Method::BatchUpdate { .. }
             | Method::ClaimNext { .. }
             | Method::ClearGraph
+            // Embedding write (CONCEPT:EG-KG.compute.semantic-search): mutates the
+            // per-graph `semantic_store` (HNSW index) — classified a write by
+            // `access::requires_write` but previously missing here (EG-P0-3), so an
+            // acknowledged embedding write was lost on crash. `apply` below re-runs
+            // the SAME deterministic upsert over the same pre-image.
+            | Method::AddEmbedding { .. }
             // Agent-memory / scene-graph / trajectory mutations (CONCEPT:EG-KG.memory.eg-batch-decay-caller):
             // each writes durable nodes/edges via an eg-core primitive whose
             // generated ids derive deterministically from sorted inputs / node-count
@@ -373,6 +414,13 @@ pub fn apply(core: &GraphCore, m: &Method) {
             let _ = crate::algorithms::batch_update(core, operations_msgpack);
         }
         Method::ClearGraph => core.clear(),
+        // Deterministic replay: the embedding upsert has no clock/randomness, so
+        // re-running it over the same pre-image reproduces the identical vector.
+        Method::AddEmbedding { node_id, embedding } => {
+            core.semantic_store
+                .write()
+                .add_embedding(node_id.clone(), embedding.clone());
+        }
         // `AddTriples` (feature `rdf`): deterministic replay = re-parse the SAME
         // source text and re-apply the property-graph projection. The multi-valued
         // literal extras live in their OWN durable `rdf_quads.redb` (independently
@@ -785,6 +833,22 @@ fn wal_pose(blob: &[u8]) -> Option<eg_core::scene::Pose> {
 /// Replay a WAL file into `core` (after the snapshot is loaded). Returns the
 /// number of ops applied. A torn trailing record (partial op from a crash mid
 /// append) ends replay cleanly rather than erroring.
+///
+/// EG-P0-3: on the LIVE dispatch path, `GraphCore::mark_dirty` is called "after
+/// any successful write op" (see its doc comment) — which also retires the lazy
+/// secondary indexes (label index, OCC version, result cache). Replay applies
+/// mutations directly via [`apply`], bypassing that dispatch shell entirely, so
+/// without an explicit call here those indexes are NEVER invalidated after a
+/// warm restart. Harmless for most methods (the index is empty pre-replay and
+/// gets built fresh on first read), but a graph-DERIVED write-back (e.g. a
+/// `MineSequence`/`MineText`/`MineSubgraph`/`MineAssociate` replay, which reads
+/// a node label to find its source rows and THEN writes new labeled nodes in
+/// the SAME `apply` call) can lazily build+cache the label index BEFORE its own
+/// write lands — permanently hiding the newly-replayed nodes from
+/// `get_nodes_by_label` until some unrelated write happens to invalidate it.
+/// One `mark_dirty()` after the whole replay (mirroring the checkpoint
+/// contract) closes that gap cheaply (O(1), no cache rebuild here — the next
+/// reader pays the one-time rebuild lazily, same as after any other write).
 pub fn replay(core: &GraphCore, path: &Path) -> usize {
     let mut buf = Vec::new();
     if File::open(path)
@@ -809,6 +873,9 @@ pub fn replay(core: &GraphCore, path: &Path) -> usize {
             Err(_) => break,
         }
         off += len;
+    }
+    if applied > 0 {
+        core.mark_dirty();
     }
     applied
 }
@@ -1044,6 +1111,142 @@ mod tests {
         assert_eq!(n, 1, "only the post-checkpoint op should remain");
         assert!(g.get_node_properties("after_checkpoint").is_some());
         assert!(g.get_node_properties("in_snapshot").is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// EG-P0-3 WAL round trip for `AddEmbedding`: log → drop the in-memory graph →
+    /// replay into a fresh one → the embedding must be visible. Before this
+    /// workstream `AddEmbedding` was classified a write by `access::requires_write`
+    /// but absent from `is_durable_mutation`, so this exact write was silently lost
+    /// on crash (never logged, so never replayed).
+    //
+    // TODO(EG-P0-3): full kill-9 matrix — no lightweight process-kill/restart
+    // harness exists in `tests/` to extend (the closest analog,
+    // `tests/test_redb_authoritative_crash.py`, drives the separate
+    // redb-authoritative durability path, not this per-graph WAL). This
+    // in-process log→replay round trip is the WAL-specific substitute; a real
+    // kill -9 + process-restart matrix across all durable `Method` variants is
+    // still open.
+    #[test]
+    fn wal_roundtrip_recovers_add_embedding() {
+        let dir = std::env::temp_dir().join(format!("eg-wal-embed-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = wal_path(dir.to_str().unwrap(), "g");
+        let embedding = vec![0.1_f32, 0.2, 0.3, 0.4];
+        assert!(is_durable_mutation(&Method::AddEmbedding {
+            node_id: "n1".into(),
+            embedding: embedding.clone(),
+        }));
+        {
+            let mut w = WalWriter::open(&path).unwrap();
+            w.append(&Method::AddNode {
+                node_id: "n1".into(),
+                properties_msgpack: props(serde_json::json!({"type": "Code"})),
+            })
+            .unwrap();
+            w.append(&Method::AddEmbedding {
+                node_id: "n1".into(),
+                embedding: embedding.clone(),
+            })
+            .unwrap();
+        }
+        // Fresh graph (simulates the in-memory state being dropped on crash) + replay.
+        let g = GraphCore::new();
+        let n = replay(&g, &path);
+        assert_eq!(n, 2);
+        assert_eq!(g.semantic_store.read().get_embedding("n1"), Some(embedding));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// EG-P0-3 WAL round trip for `MineSequence` (writeback=true): build a small
+    /// resident graph, log its construction + the mining writeback as WAL Methods,
+    /// then replay the WHOLE log into a fresh graph and confirm the mined
+    /// `:SequentialPattern` node is visible — proving the previously-missing
+    /// `is_durable_mutation` arm now actually reaches the (already-implemented but
+    /// dead) `mining::replay` dispatch arm in `apply` above.
+    #[cfg(feature = "mining")]
+    #[test]
+    fn wal_roundtrip_recovers_mine_sequence_writeback() {
+        use crate::protocol::{MineSeqAlgorithm, SequenceSource};
+
+        let dir = std::env::temp_dir().join(format!("eg-wal-mineseq-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = wal_path(dir.to_str().unwrap(), "g");
+
+        let node_props = |t: &str| props(serde_json::json!({"type": t}));
+        let mine_method = Method::MineSequence {
+            sequences: Vec::new(),
+            source: Some(SequenceSource {
+                node_label: "Session".into(),
+                direction: "out".into(),
+                item_field: None,
+                relation: None,
+                limit: 0,
+            }),
+            min_support: 0.5,
+            algorithm: MineSeqAlgorithm::Gsp,
+            writeback: true,
+            #[cfg(feature = "epistemic")]
+            as_claim: false,
+        };
+        assert!(
+            is_durable_mutation(&mine_method),
+            "EG-P0-3: MineSequence writeback=true must be durable"
+        );
+
+        {
+            let mut w = WalWriter::open(&path).unwrap();
+            for session in ["s1", "s2"] {
+                w.append(&Method::AddNode {
+                    node_id: session.into(),
+                    properties_msgpack: node_props("Session"),
+                })
+                .unwrap();
+            }
+            for ev in ["view", "add_cart", "checkout"] {
+                w.append(&Method::AddNode {
+                    node_id: ev.into(),
+                    properties_msgpack: node_props("Event"),
+                })
+                .unwrap();
+            }
+            for session in ["s1", "s2"] {
+                for ev in ["view", "add_cart", "checkout"] {
+                    w.append(&Method::AddEdge {
+                        source_id: session.into(),
+                        target_id: ev.into(),
+                        properties_msgpack: props(serde_json::json!({})),
+                    })
+                    .unwrap();
+                }
+            }
+            w.append(&mine_method).unwrap();
+        }
+
+        // Fresh graph (simulates the in-memory state being dropped on crash) + full
+        // replay: the base nodes/edges AND the mining writeback all come back from
+        // the WAL alone.
+        let g = GraphCore::new();
+        let n = replay(&g, &path);
+        assert_eq!(n, 12); // 2 sessions + 3 events + 6 edges + 1 mine op
+        let pattern_nodes = g.get_nodes_by_label("SequentialPattern", 0);
+        assert!(
+            !pattern_nodes.is_empty(),
+            "the mined :SequentialPattern nodes must be reproduced by WAL replay alone"
+        );
+        // The full 3-item pattern (present in both identical sessions, support=1.0)
+        // must be among them — the same check the live (non-WAL) reference test
+        // `sequence_graph_derived_source_and_writeback` makes.
+        let has_full_pattern = pattern_nodes.iter().any(|(_, blob)| {
+            let Ok(v) = rmp_serde::from_slice::<serde_json::Value>(blob) else {
+                return false;
+            };
+            v["items"] == serde_json::json!(["view", "add_cart", "checkout"])
+        });
+        assert!(
+            has_full_pattern,
+            "the full 3-item sequential pattern must be reproduced by WAL replay alone"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
