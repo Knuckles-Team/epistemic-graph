@@ -476,7 +476,9 @@ fn all_methods_table_has_the_expected_variant_count() {
     // always-in-the-enum `Method::PlacementRoute`.
     // L53 (EPI-P3-5): +2 (338 -> 340 base) for `Method::EpistemicStatus` /
     // `Method::WhatChanged`.
-    let expected = if cfg!(feature = "jobs") { 341 } else { 340 };
+    // CONCEPT:EG-X1 + EPI-P3-3 (facade wiring): +3 (340 -> 343 base) for
+    // `Method::ExplainEvidence`/`Method::CausalEstimate`/`Method::RankByProvenance`.
+    let expected = if cfg!(feature = "jobs") { 344 } else { 343 };
     assert_eq!(eg_capabilities::ALL_METHODS.len(), expected);
 }
 

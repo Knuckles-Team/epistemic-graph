@@ -298,6 +298,22 @@ logs + metrics + traces trilogy over the durable eg-tsdb series + eg-text index.
 | Uncertainty-distribution-valued properties (Gaussian/Beta/Categorical/empirical) | ✅ | `graph.rs` `Distribution` accessors + Bayesian update/sampling (CONCEPT:EG-KG.compute.uncertainty-values) |
 | Memory/scene/trajectory driven over the wire (additive `Method`s: CreateSummary/Consolidate/Maintain/SceneObject/Trajectory + dispatch + WAL replay) | ✅ | AU/MCP drive them remotely, no longer in-process only (CONCEPT:EG-KG.memory.eg-batch-decay-caller, exposing EG-087/099/220/221/222) |
 
+## Epistemic substrate (`eg-epistemic` — CONCEPT:EG-KG.epistemic.epistemic-substrate)
+
+Claims/Evidence/Sources are ordinary `type`-tagged nodes (no new persistence); Support/
+Contradict/Attack are ordinary edges. `epistemic` (implies `query`) wires the base surface;
+`epistemic-tms`/`epistemic-redaction`/`evidence-graph`/`epistemic-causal` are opt-in on top of
+it, each a feature in its own right — none folded into the `full` tier line.
+
+| Operation | Status | Feature | Evidence |
+|-----------|:------:|---------|----------|
+| Belief state + confidence propagation over support/contradiction/attack edges | ✅ | `epistemic` | `eg_epistemic::propagate_confidence`; `Method::ExplainBelief` returns the full justification tree |
+| Bitemporal acceptance query (`why`/`why_not`/`what_changed`/`what_would_invalidate`, `epistemic_status` capstone) | ✅ | `epistemic-tms` | `Method::EpistemicStatus`/`Method::WhatChanged` (EPI-P3-5, L53) |
+| Policy-aware proof redaction + selective disclosure (`Full`/`Skeleton`/`ExistenceOnly`) | ✅ | `epistemic-redaction` | `Method::ExplainBelief`'s `disclosure_level` (EPI-P3-4, L51) |
+| Multimodal-evidence citation resolver — resolve a claim's cited evidence to its located locus (PDF page+box, audio/video interval, SQL row version, code range, trace span, …) + `AssetOccurrence`/`Blob` identity chain | ✅ | `evidence-graph` | `Method::ExplainEvidence` (CONCEPT:EG-X1); facade-reachable, opt-in — not part of `full` |
+| Calibrated causal reasoning — do-calculus intervention over a request-carried linear-Gaussian SCM (graph surgery, not conditioning) | ✅ | `epistemic-causal` | `Method::CausalEstimate` (EPI-P3-3); observational query + Pearl point-counterfactuals are implemented crate-side (`eg_epistemic::causal`) but not yet wired as a separate `Method` |
+| Provenance-aware retrieval ranking — rank candidates by evidence quality/provenance (reliability, corroboration, calibration precision, freshness) in addition to similarity | ✅ | `epistemic-causal` | `Method::RankByProvenance` (EPI-P3-3) |
+
 ## New data modalities (`eg-core` + leaf crates)
 
 | Operation | Status | Evidence |
