@@ -1261,6 +1261,28 @@ pub(crate) fn read_all_dumps(
     Ok(dumps.into_values().collect())
 }
 
+/// Cheap CATALOG-ONLY scan: every graph's identity row `(fname, name, graph_type)`
+/// (CONCEPT:EG-KG.sharding.lazy-graph-catalog, DIST-P2-3) — NO node/edge/ledger/semantic table is
+/// touched. Booting with millions of persisted graphs costs one sequential scan of
+/// small `{name, graph_type}` rows, not `read_all_dumps`'s full per-graph
+/// rehydrate. Each returned graph materializes its `GraphCore` lazily on first
+/// access via the registry's `GraphMaterializer` seam (which reuses
+/// [`read_graph_dump`] to fetch the SAME durable rows this scan skipped).
+pub(crate) fn read_all_graph_meta(
+    db: &Database,
+) -> Result<Vec<(String, String, GraphType)>, String> {
+    let rtx = db.begin_read().map_err(|e| e.to_string())?;
+    let meta_table = rtx.open_table(GRAPH_META).map_err(|e| e.to_string())?;
+    let mut out = Vec::new();
+    for row in meta_table.iter().map_err(|e| e.to_string())? {
+        let (k, v) = row.map_err(|e| e.to_string())?;
+        let fname = k.value().to_string();
+        let (name, graph_type) = decode_meta(v.value());
+        out.push((fname, name, graph_type));
+    }
+    Ok(out)
+}
+
 pub(crate) fn encode_meta(name: &str, gtype: GraphType) -> Vec<u8> {
     rmp_serde::to_vec_named(&serde_json::json!({ "name": name, "graph_type": gtype }))
         .unwrap_or_default()
