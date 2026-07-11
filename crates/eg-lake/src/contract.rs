@@ -12,7 +12,10 @@
 //! embedded policy labels of its own; those are exactly the "nothing to report" cases
 //! the trait's module docs describe.
 
-use eg_modality::{encode_staged, ConformanceTestable, ModalityContract, RowSetShape, StagedWrite};
+use eg_modality::{
+    decode_staged, encode_staged, ConformanceTestable, IngestReport, ModalityContract,
+    ModalitySelfTest, RowSetShape, StagedWrite, StorageStats, TckPoint,
+};
 
 use crate::schema::{CellValue, LakeBatch, LakeField, LakeSchema, LakeType};
 
@@ -57,6 +60,55 @@ impl ModalityContract for LakeBatch {
             "build_delta_log",
             "build_iceberg",
         ]
+    }
+
+    // ── EG-P1-1 hooks — minimal TCK implementations. ──
+
+    /// Batch ingest = parse a `LakeBatch` back from serialized form. Streaming N/A.
+    fn ingest_report(&self, id: &str) -> IngestReport {
+        let staged = self.txn_stage(id);
+        let batch = match decode_staged::<LakeBatch>(&staged) {
+            Ok(rt) if rt == *self => ModalitySelfTest::Passed,
+            _ => ModalitySelfTest::Failed,
+        };
+        IngestReport {
+            batch,
+            streaming: ModalitySelfTest::NotApplicable("a table batch is not a stream"),
+        }
+    }
+
+    /// Real storage stats: serialized size; element count is row count.
+    fn storage_stats(&self, _id: &str) -> Option<StorageStats> {
+        Some(StorageStats {
+            logical_bytes: encode_staged(self).len() as u64,
+            element_count: self.num_rows() as u64,
+            has_secondary_index: false,
+        })
+    }
+
+    /// Simulated crash-and-recover through txn staging.
+    fn recovery_selfcheck(&self, id: &str) -> ModalitySelfTest {
+        let staged: StagedWrite = self.txn_stage(id);
+        match decode_staged::<LakeBatch>(&staged) {
+            Ok(recovered) if recovered == *self => ModalitySelfTest::Passed,
+            _ => ModalitySelfTest::Failed,
+        }
+    }
+
+    /// N/A: batch is a materialization unit, not durable itself.
+    fn backup_selfcheck(&self, _id: &str) -> ModalitySelfTest {
+        ModalitySelfTest::NotApplicable(
+            "a lake batch is a materialization unit; durability is Parquet/Delta/Iceberg's concern",
+        )
+    }
+
+    /// No CDC or policy.
+    fn tck_not_applicable(&self, point: TckPoint) -> Option<&'static str> {
+        match point {
+            TckPoint::CdcDeleteRetentionGc => Some("CDC is at the Delta/Iceberg commit level"),
+            TckPoint::TenantRowRegionPolicy => Some("policy at table layer, not per-batch"),
+            _ => None,
+        }
     }
 }
 

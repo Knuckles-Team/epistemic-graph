@@ -5,8 +5,9 @@
 //! `eg-tensor`/`eg-geo`/`eg-image`'s retrofits.
 
 use eg_modality::{
-    encode_staged, ConformanceTestable, EvidenceSpan, ModalityContract, Provenance, RowSetShape,
-    StagedWrite,
+    decode_staged, encode_staged, ConformanceTestable, EvidenceSpan, IngestReport,
+    ModalityContract, ModalitySelfTest, Provenance, RowSetShape, StagedWrite, StorageStats,
+    TckPoint,
 };
 
 use crate::audio::{AudioData, AudioSegment};
@@ -52,6 +53,68 @@ impl ModalityContract for AudioData {
 
     fn analytics_ops(&self) -> Vec<&'static str> {
         vec!["duration", "segment_index"]
+    }
+
+    // ── EG-P1-1 hooks — real, minimal implementations over AudioData's
+    // serialization and txn staging. ──
+
+    /// Batch ingest = parse an `AudioData` back from its serialized form. Streaming
+    /// is N/A: audio recording is a whole media value, not an append stream.
+    fn ingest_report(&self, id: &str) -> IngestReport {
+        let staged = self.txn_stage(id);
+        let batch = match decode_staged::<AudioData>(&staged) {
+            Ok(rt) if rt == *self => ModalitySelfTest::Passed,
+            _ => ModalitySelfTest::Failed,
+        };
+        IngestReport {
+            batch,
+            streaming: ModalitySelfTest::NotApplicable(
+                "an audio recording is a whole media value, not an append stream",
+            ),
+        }
+    }
+
+    /// Real storage stats: logical size from encoded length; element count is the
+    /// number of extracted audio segments. Audio does NOT have a secondary index,
+    /// so `has_secondary_index` is `false`.
+    fn storage_stats(&self, _id: &str) -> Option<StorageStats> {
+        let logical_bytes = encode_staged(self).len() as u64;
+        Some(StorageStats {
+            logical_bytes,
+            element_count: self.segments.len() as u64,
+            has_secondary_index: false,
+        })
+    }
+
+    /// N/A: AudioData is ingest-time artifact, not a durable value. Durability is
+    /// maintained by the media storage layer.
+    fn backup_selfcheck(&self, _id: &str) -> ModalitySelfTest {
+        ModalitySelfTest::NotApplicable(
+            "audio data is an ingest-time artifact; backup/restore/migrate is a media-storage-layer concern",
+        )
+    }
+
+    /// Simulated single-node crash-and-recover through txn staging path.
+    fn recovery_selfcheck(&self, id: &str) -> ModalitySelfTest {
+        let staged: StagedWrite = self.txn_stage(id);
+        match decode_staged::<AudioData>(&staged) {
+            Ok(recovered) if recovered == *self => ModalitySelfTest::Passed,
+            _ => ModalitySelfTest::Failed,
+        }
+    }
+
+    /// Audio has no CDC or policy of its own: CDC would require materializing
+    /// segment detections; policy is at the graph-node layer.
+    fn tck_not_applicable(&self, point: TckPoint) -> Option<&'static str> {
+        match point {
+            TckPoint::CdcDeleteRetentionGc => Some(
+                "audio metadata is immutable post-ingest; CDC would require materializing segment detections",
+            ),
+            TckPoint::TenantRowRegionPolicy => Some(
+                "no modality-intrinsic policy surface — policy is at graph-node/eg-core::isolation layer",
+            ),
+            _ => None,
+        }
     }
 }
 
