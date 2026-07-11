@@ -91,3 +91,13 @@ pub(crate) mod federation;
 // the module and the variants aren't in the enum (so the dispatch chain never routes them).
 #[cfg(feature = "sqlite-file")]
 pub(crate) mod sqlite_file;
+// Durable analytics-job plane (CONCEPT:INT-P2-1, feature `jobs`). The
+// `Method::AnalyticsJob { op }` surface (submit/status/cancel/resume) over
+// `eg-jobs`'s redb-backed `AnalyticsJob` state machine; a submitted job runs
+// asynchronously (spawned off the request) and its success commits a provenance'd
+// `:Claim`/`:Evidence` pair via `eg_jobs::claim::commit_result_claim`. NOT
+// graph-scoped (own `jobs.redb`, like `TsAppend`/`Kv*`) — self-routes in
+// `dispatch.rs` before the per-graph chain, so it needs `state` directly rather
+// than a resolved `GraphCore`.
+#[cfg(feature = "jobs")]
+pub(crate) mod jobs;
