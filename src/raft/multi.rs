@@ -38,10 +38,12 @@ use openraft::Config;
 use tokio::sync::RwLock;
 
 use super::network::{self, GroupRpcReply, RaftFrame, RaftFrameReply};
+use super::placement::{self, PlacementCatalog, RouteOutcome};
 use super::store::EgStore;
 use super::{
     AppCtx, EgRaft, GroupId, NodeId, RaftHandle, RaftRequest, RaftResponse, DEFAULT_GROUP,
 };
+use crate::protocol::Method;
 
 /// Routes a graph name to the Raft group that owns it (CONCEPT:EG-KG.sharding.raft-resharding +
 /// KG-2.266). One graph belongs to exactly one group. Resolution order:
@@ -69,7 +71,7 @@ pub struct GroupRouter {
 /// Stable, deterministic FNV-1a hash of a graph name → ring slot. Stable forever and
 /// identical on every node (NOT the randomized `RandomState`), so all nodes route a
 /// given tenant to the SAME group. Routing is recomputed live, never persisted.
-fn fnv1a(s: &str) -> u64 {
+pub(crate) fn fnv1a(s: &str) -> u64 {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for b in s.as_bytes() {
         h ^= *b as u64;
@@ -219,6 +221,14 @@ pub struct MultiRaft {
     ///
     /// [`rebalance_leaders`]: MultiRaft::rebalance_leaders
     last_transfer: Arc<DashMap<GroupId, Instant>>,
+    /// The ONE placement authority (CONCEPT:EG-KG.sharding.placement-catalog, DIST-P2-1): a durable,
+    /// Raft-replicated virtual-partition → group map that [`route_graph`] consults
+    /// BEFORE falling back to [`router`]'s hash ring. Always present (even with an
+    /// empty catalog it changes nothing — see [`route_graph`]).
+    ///
+    /// [`route_graph`]: MultiRaft::route_graph
+    /// [`router`]: MultiRaft::router
+    placement: Arc<PlacementCatalog>,
 }
 
 /// Minimum interval between two balancer-triggered leader transfers for the SAME group
@@ -259,6 +269,7 @@ impl MultiRaft {
             groups,
             router: Arc::new(GroupRouter::new()),
             backend,
+            placement: Arc::new(PlacementCatalog::new(ctx.state.clone())),
             ctx,
             pool: network::PeerPool::new(),
             listener_handle,
@@ -609,7 +620,119 @@ impl MultiRaft {
 
     /// The group that owns `graph_name`, ready to route a write through.
     pub async fn group_for_graph(&self, graph_name: &str) -> Option<Group> {
-        self.group(self.router.group_of(graph_name)).await
+        let (gid, _epoch) = self.route_graph(graph_name).await;
+        self.group(gid).await
+    }
+
+    /// The placement catalog (CONCEPT:EG-KG.sharding.placement-catalog, DIST-P2-1) — the ONE placement
+    /// authority. Exposed for admin/diagnostic queries (`route`, `redirect_if_stale`,
+    /// `all_entries`); mutations go through this manager's `placement_*` methods so
+    /// they commit through Raft.
+    pub fn placement(&self) -> Arc<PlacementCatalog> {
+        self.placement.clone()
+    }
+
+    /// Resolve `graph_name`'s group (CONCEPT:EG-KG.sharding.placement-catalog — the dispatch/routing seam):
+    /// the placement catalog FIRST (an explicit virtual-partition placement for the
+    /// graph's tenant), falling back to the existing per-graph override / tenant-range
+    /// ring / [`DEFAULT_GROUP`] [`GroupRouter`] when the catalog has no explicit
+    /// placement. An empty catalog therefore routes BYTE FOR BYTE like before this
+    /// feature — additive, no regression. Returns the routing epoch alongside the
+    /// group (`0` for a hash-ring fallback route, which has no catalog entry to be
+    /// stale against).
+    pub async fn route_graph(&self, graph_name: &str) -> (GroupId, u64) {
+        let (tenant, sub_key) = placement::split_tenant_key(graph_name);
+        match self.placement.route(tenant, sub_key).await {
+            RouteOutcome::Explicit(r) => (r.group, r.epoch),
+            RouteOutcome::Fallback => (self.router.group_of(graph_name), 0),
+        }
+    }
+
+    /// Commit a batch of placement-catalog mutations through the DEFAULT group's Raft
+    /// consensus (CONCEPT:EG-KG.sharding.placement-catalog — the replication seam). Ensures the default
+    /// group is running (idempotent) so the catalog is usable even on a fresh
+    /// single-group deployment that never called [`configure_group_ring`](Self::configure_group_ring).
+    async fn commit_placement(&self, methods: &[Method]) -> Result<(), String> {
+        self.ensure_group(DEFAULT_GROUP).await?;
+        let group = self
+            .group(DEFAULT_GROUP)
+            .await
+            .ok_or_else(|| "default group not running on this node".to_string())?;
+        for method in methods {
+            let req = RaftRequest {
+                graph_fname: crate::persist::sanitize(placement::PLACEMENT_GRAPH),
+                graph_name: placement::PLACEMENT_GRAPH.to_string(),
+                graph_type: crate::protocol::GraphType::Commons,
+                method: method.clone(),
+            };
+            group.client_write(req).await?;
+        }
+        Ok(())
+    }
+
+    /// Assign the WHOLE keyspace of `tenant` to `group` (CONCEPT:EG-KG.sharding.placement-catalog admin
+    /// API). Collapses any prior split. Returns the new routing epoch.
+    pub async fn placement_assign(&self, tenant: &str, group: GroupId) -> Result<u64, String> {
+        let plan = self.placement.plan_assign(tenant, group).await;
+        self.commit_placement(&plan.methods).await?;
+        Ok(plan.epoch)
+    }
+
+    /// Split `tenant`'s partition covering `at` into `[.., at) → group_a` and
+    /// `[at, ..] → group_b` (CONCEPT:EG-KG.sharding.placement-catalog admin API — one tenant spans two
+    /// groups). Returns the new routing epoch (shared by both halves).
+    pub async fn placement_split(
+        &self,
+        tenant: &str,
+        at: u64,
+        group_a: GroupId,
+        group_b: GroupId,
+    ) -> Result<u64, String> {
+        let plan = self.placement.plan_split(tenant, at, group_a, group_b).await?;
+        self.commit_placement(&plan.methods).await?;
+        Ok(plan.epoch)
+    }
+
+    /// Merge every one of `tenant`'s ranged partitions back onto `group` (CONCEPT:EG-KG.sharding.placement-catalog
+    /// admin API — the inverse of `placement_split`; also how independent small
+    /// tenants are made to share a group, by `placement_assign`ing each to it).
+    pub async fn placement_merge(&self, tenant: &str, group: GroupId) -> Result<u64, String> {
+        let plan = self.placement.plan_merge(tenant, group).await;
+        self.commit_placement(&plan.methods).await?;
+        Ok(plan.epoch)
+    }
+
+    /// Mark `(tenant, range)` mid-move to `target` (CONCEPT:EG-KG.sharding.placement-catalog admin API —
+    /// online-move step 1). `route` keeps answering with the source group until
+    /// [`placement_fence_cutover`](Self::placement_fence_cutover) commits. Prefer
+    /// [`super::reshard::TenantManager::move_partition`], which drives this + the
+    /// per-graph data move + the cutover as one state machine.
+    pub async fn placement_start_move(
+        &self,
+        tenant: &str,
+        range: (u64, u64),
+        target: GroupId,
+    ) -> Result<(), String> {
+        let plan = self.placement.plan_start_move(tenant, range, target).await?;
+        self.commit_placement(&plan.methods)
+            .await
+    }
+
+    /// Fence the cutover of `(tenant, range)` to `target` (CONCEPT:EG-KG.sharding.placement-catalog admin API
+    /// — online-move step 3): bumps the epoch and flips the authoritative group in one
+    /// commit. Returns the new epoch.
+    pub async fn placement_fence_cutover(
+        &self,
+        tenant: &str,
+        range: (u64, u64),
+        target: GroupId,
+    ) -> Result<u64, String> {
+        let plan = self
+            .placement
+            .plan_fence_cutover(tenant, range, target)
+            .await?;
+        self.commit_placement(&plan.methods).await?;
+        Ok(plan.epoch)
     }
 
     /// Close (shut down + drop) a group on this node — group lifecycle, the elastic
@@ -628,7 +751,7 @@ impl MultiRaft {
     /// A [`RaftHandle`] that routes a graph's writes through ITS group (the dispatch
     /// seam). Returns `None` if the graph's group isn't running on this node.
     pub async fn handle_for_graph(self: &Arc<Self>, graph_name: &str) -> Option<RaftHandle> {
-        let gid = self.router.group_of(graph_name);
+        let (gid, _epoch) = self.route_graph(graph_name).await;
         let raft = self.groups.read().await.get(&gid).cloned()?;
         Some(RaftHandle {
             raft,
