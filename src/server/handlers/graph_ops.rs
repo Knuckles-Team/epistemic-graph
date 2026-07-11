@@ -1397,7 +1397,8 @@ pub(crate) async fn try_handle_gateway(
             let writeback = *writeback;
             let method_owned = method.clone();
             let req_id = ctx.req_id;
-            mutation::commit_conditional_mutation(&ctx, &plan, &method, writeback, move |core| {
+            let core_arc = ctx.core;
+            mutation::commit_conditional_mutation(&ctx, &plan, &method, writeback, move |_core| {
                 let Method::MineCluster {
                     features,
                     source,
@@ -1419,7 +1420,7 @@ pub(crate) async fn try_handle_gateway(
                 };
                 let resp = super::mining::handle_cluster(
                     req_id,
-                    core,
+                    core_arc,
                     features,
                     source,
                     #[cfg(feature = "query")]
@@ -1447,7 +1448,8 @@ pub(crate) async fn try_handle_gateway(
             let writeback = *writeback;
             let method_owned = method.clone();
             let req_id = ctx.req_id;
-            mutation::commit_conditional_mutation(&ctx, &plan, &method, writeback, move |core| {
+            let core_arc = ctx.core;
+            mutation::commit_conditional_mutation(&ctx, &plan, &method, writeback, move |_core| {
                 let Method::MineAnomaly {
                     features,
                     values,
@@ -1472,7 +1474,7 @@ pub(crate) async fn try_handle_gateway(
                 };
                 let resp = super::mining::handle_anomaly(
                     req_id,
-                    core,
+                    core_arc,
                     features,
                     values,
                     source,
@@ -1503,7 +1505,8 @@ pub(crate) async fn try_handle_gateway(
             let writeback = *writeback;
             let method_owned = method.clone();
             let req_id = ctx.req_id;
-            mutation::commit_conditional_mutation(&ctx, &plan, &method, writeback, move |core| {
+            let core_arc = ctx.core;
+            mutation::commit_conditional_mutation(&ctx, &plan, &method, writeback, move |_core| {
                 let Method::MineClassifyPredict {
                     model,
                     x,
@@ -1519,7 +1522,7 @@ pub(crate) async fn try_handle_gateway(
                 };
                 let resp = super::mining::handle_classify_predict(
                     req_id,
-                    core,
+                    core_arc,
                     model,
                     x,
                     source,
@@ -1541,7 +1544,8 @@ pub(crate) async fn try_handle_gateway(
             let writeback = *writeback;
             let method_owned = method.clone();
             let req_id = ctx.req_id;
-            mutation::commit_conditional_mutation(&ctx, &plan, &method, writeback, move |core| {
+            let core_arc = ctx.core;
+            mutation::commit_conditional_mutation(&ctx, &plan, &method, writeback, move |_core| {
                 let Method::MineReduce {
                     x,
                     source,
@@ -1565,7 +1569,7 @@ pub(crate) async fn try_handle_gateway(
                 };
                 let resp = super::mining::handle_reduce(
                     req_id,
-                    core,
+                    core_arc,
                     x,
                     source,
                     #[cfg(feature = "query")]
