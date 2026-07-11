@@ -1163,6 +1163,21 @@ fn evidence_span_wire(span: &eg_modality::EvidenceSpan) -> crate::protocol::Evid
             width: *width,
             height: *height,
         },
+        EvidenceSpan::PageBox {
+            document_id,
+            page,
+            x,
+            y,
+            width,
+            height,
+        } => EvidenceSpanWire::PageBox {
+            document_id: document_id.clone(),
+            page: *page,
+            x: *x,
+            y: *y,
+            width: *width,
+            height: *height,
+        },
         EvidenceSpan::AudioSegment {
             audio_id,
             start_ms,

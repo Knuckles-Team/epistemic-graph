@@ -28,7 +28,7 @@
 //! | `kind` | `Utf8` (non-null) | `KnowledgeRow::kind` |
 //! | `score_<name>` (one per [`KnowledgeBatch::score_names`]) | `Float32` | `KnowledgeRow::score` (name `"score"` from `from_knowledge_set`) or [`KnowledgeBatch::with_named_score`] |
 //! | `confidence` | `Float64` (non-null) | `KnowledgeRow::confidence` |
-//! | `evidence_kind` | `Utf8` | the FIRST `EvidenceSpan`'s variant tag (`"document_span"` / `"table_cell_range"` / `"image_region"` / `"audio_segment"` / `"video_shot"` / `"code_symbol"` / `"trace_span"`), or null when the row has none — a typed, filterable summary column covering every granularity `EvidenceSpan` models (text span, table cell, image pixel region, audio/video time interval or frame-range, code symbol, trace span) |
+//! | `evidence_kind` | `Utf8` | the FIRST `EvidenceSpan`'s variant tag (`"document_span"` / `"table_cell_range"` / `"image_region"` / `"page_box"` / `"audio_segment"` / `"video_shot"` / `"code_symbol"` / `"trace_span"`), or null when the row has none — a typed, filterable summary column covering every granularity `EvidenceSpan` models (text span, table cell, image pixel region, page-scoped visual box (CONCEPT:EG-X1), audio/video time interval or frame-range, code symbol, trace span) |
 //! | `evidence_refs_json` | `List<Utf8>` | every `EvidenceSpan` on the row, each one JSON-serialized (lossless — `EvidenceSpan` already derives `Serialize`/`Deserialize`); a real Arrow `List` column, not a single opaque blob |
 //! | `valid_from` / `valid_until` | `Int64` | `KnowledgeRow::valid_time` (u64 -> i64) |
 //! | `tx_from` / `tx_to` | `Int64` | `KnowledgeRow::tx_time` |
@@ -120,7 +120,8 @@ use crate::knowledge::KnowledgeSet;
 
 /// The stable variant tag for one [`EvidenceSpan`] — the `evidence_kind` column's
 /// value. Covers every granularity the type models: `DocumentSpan` (text span),
-/// `TableCellRange` (tabular cell range), `ImageRegion` (pixel region),
+/// `TableCellRange` (tabular cell range), `ImageRegion` (pixel region), `PageBox`
+/// (CONCEPT:EG-X1 — a page-scoped visual box, e.g. "PDF page N box (x,y,w,h)"),
 /// `AudioSegment`/`VideoShot` (time interval / frame range), `CodeSymbol` (code
 /// symbol by line range), `TraceSpan` (distributed-trace span).
 fn evidence_kind_tag(span: &EvidenceSpan) -> &'static str {
@@ -128,6 +129,7 @@ fn evidence_kind_tag(span: &EvidenceSpan) -> &'static str {
         EvidenceSpan::DocumentSpan { .. } => "document_span",
         EvidenceSpan::TableCellRange { .. } => "table_cell_range",
         EvidenceSpan::ImageRegion { .. } => "image_region",
+        EvidenceSpan::PageBox { .. } => "page_box",
         EvidenceSpan::AudioSegment { .. } => "audio_segment",
         EvidenceSpan::VideoShot { .. } => "video_shot",
         EvidenceSpan::CodeSymbol { .. } => "code_symbol",
