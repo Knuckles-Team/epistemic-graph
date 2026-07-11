@@ -63,6 +63,19 @@ pub struct ReshardReport {
     pub nodes_transferred: usize,
 }
 
+/// The outcome of an online placement-catalog move (CONCEPT:EG-KG.sharding.placement-catalog, DIST-P2-1) —
+/// see [`TenantManager::move_partition`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlacementMoveReport {
+    pub tenant: String,
+    pub range: (u64, u64),
+    pub target: GroupId,
+    /// The routing epoch the catalog settled on after the fenced cutover.
+    pub epoch: u64,
+    /// One [`ReshardReport`] per graph the partition covered, in the order moved.
+    pub graphs: Vec<ReshardReport>,
+}
+
 /// Elastic-tenant operations on a live [`MultiRaft`] cluster (CONCEPT:EG-KG.storage.100m-tenant).
 /// Holds the manager + the shared durable backend; every op runs under the manager's
 /// per-tenant migration guard so a reshard and a hibernate of the same graph cannot
@@ -137,6 +150,59 @@ impl TenantManager {
             from_group,
             to_group,
             nodes_transferred,
+        })
+    }
+
+    /// Online-move the virtual partition `(tenant, range)` to `target`
+    /// (CONCEPT:EG-KG.sharding.placement-catalog, DIST-P2-1) — the full snapshot → CDC-catch-up →
+    /// fenced-cutover state machine, reusing [`Self::reshard_graph`] (already-proven
+    /// quiesce → durability-barrier → re-point → resume) as the per-graph data move:
+    ///
+    /// 1. **Mark [`Moving`](super::placement::PartitionState::Moving)** — `route` keeps
+    ///    answering with the SOURCE group; nothing is redirected yet.
+    /// 2. **Snapshot + catch-up** — `reshard_graph` each of `graphs` (every graph this
+    ///    partition currently covers) to `target`. Because every group shares ONE
+    ///    `graph.redb`/registry, the durability barrier IS the transfer — there is no
+    ///    separate bulk-copy phase to run.
+    /// 3. **Fenced cutover** — bump the epoch and flip the partition's authoritative
+    ///    group to `target` in one commit. From this instant a caller presenting the
+    ///    pre-cutover epoch gets redirected (`PlacementCatalog::redirect_if_stale`)
+    ///    rather than served against data that has moved.
+    ///
+    /// Preconditions: `(tenant, range)` must already have an explicit placement entry
+    /// (`assign`/`split` it first) and `target` must be running on this node (same
+    /// precondition `reshard_graph` enforces per graph). A failure partway through
+    /// step 2 leaves the partition `Moving` and every already-reshareded graph durably
+    /// on `target` — re-running `move_partition` with the SAME `graphs` list is safe
+    /// (`reshard_graph` is idempotent on an already-owned graph only insofar as it
+    /// errors "already owned"; callers recovering from a partial failure should pass
+    /// only the NOT-yet-moved remainder and then fence the cutover).
+    pub async fn move_partition(
+        &self,
+        tenant: &str,
+        range: (u64, u64),
+        graphs: &[String],
+        target: GroupId,
+    ) -> Result<PlacementMoveReport, String> {
+        self.multi
+            .placement_start_move(tenant, range, target)
+            .await?;
+
+        let mut per_graph = Vec::with_capacity(graphs.len());
+        for graph in graphs {
+            per_graph.push(self.reshard_graph(graph, target).await?);
+        }
+
+        let epoch = self
+            .multi
+            .placement_fence_cutover(tenant, range, target)
+            .await?;
+        Ok(PlacementMoveReport {
+            tenant: tenant.to_string(),
+            range,
+            target,
+            epoch,
+            graphs: per_graph,
         })
     }
 

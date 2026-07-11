@@ -84,6 +84,10 @@ pub mod exchange;
 pub mod multi;
 pub mod network;
 pub mod node;
+/// The placement catalog (CONCEPT:EG-KG.sharding.placement-catalog, DIST-P2-1) — the ONE durable,
+/// Raft-replicated virtual-partition → group authority [`multi::MultiRaft::route_graph`]
+/// consults before falling back to [`multi::GroupRouter`]'s hash ring.
+pub mod placement;
 /// Distributed graph compute — the Pregel/GAS cross-shard superstep engine
 /// (CONCEPT:EG-KG.storage.feature). Behind `compute-dist` (which implies `raft`): runs PageRank /
 /// connected-components / BFS across graphs spanning multiple Raft groups, plus the
@@ -114,6 +118,13 @@ mod xshard_harness;
 // rehydrates intact. Gated behind `harness` so a normal `raft` build links nothing.
 #[cfg(all(test, feature = "harness"))]
 mod reshard_harness;
+
+// The placement-catalog gauntlet (CONCEPT:EG-KG.sharding.placement-catalog, DIST-P2-1) — proves
+// assign→route, a stale-epoch redirect, persistence-across-restart, an online move
+// (snapshot→catch-up→fenced cutover) preserving data, and a tenant split spanning two
+// groups. Gated behind `harness` so a normal `raft` build links nothing.
+#[cfg(all(test, feature = "harness"))]
+mod placement_harness;
 
 /// In-process cross-shard 2PC **modality-spanning** coordinator-kill harness
 /// (CONCEPT:EG-KG.txn.crossshard-2pc-modality-harness) — the `--features cluster`
