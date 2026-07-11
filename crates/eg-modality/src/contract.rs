@@ -41,10 +41,24 @@
 //! Tensor/geo (the v1 pilots) do not need to override `provenance`/`evidence`/
 //! `policy_labels` at all — that is the point: no stub boilerplate on modalities
 //! that have nothing to say there.
+//!
+//! ## The EG-P1-1 hooks (five more default methods)
+//!
+//! To make the first-class TCK (`crate::tck`) COMPLETE — every one of its 12 points
+//! backed by a real trait method rather than a structural gap — four more
+//! default-"unsupported" hooks were added: `ingest_report` (TCK point 2),
+//! `storage_stats` (point 4), `backup_selfcheck` (point 10), `recovery_selfcheck`
+//! (point 11). A modality overrides the ones it can genuinely satisfy with a REAL
+//! self-check (see `eg-tensor`/`eg-geo`, which round-trip through their own durable
+//! codecs). A fifth hook, `tck_not_applicable`, lets a modality declare a point
+//! genuinely N/A (with a reason) — a distinct, honest status from "not implemented".
+//! All five default such that the ~17 existing implementers keep compiling untouched.
 
+use crate::capability::{IngestReport, ModalitySelfTest, StorageStats};
 use crate::evidence::EvidenceSpan;
 use crate::provenance::Provenance;
 use crate::rowset::RowSetShape;
+use crate::tck::TckPoint;
 use crate::txn::StagedWrite;
 
 /// The seam every `eg-*` modality value type can implement. See the module docs for
@@ -107,6 +121,55 @@ pub trait ModalityContract {
     fn analytics_ops(&self) -> Vec<&'static str> {
         Vec::new()
     }
+
+    // ── 4 EG-P1-1 hooks — one per previously-structural TCK gap. All DEFAULT to
+    // "unsupported", so none of the ~17 existing implementers break; a modality
+    // overrides the ones it can genuinely satisfy (see eg-tensor/eg-geo). See
+    // `crate::capability` for the DTOs and `crate::tck` for how each maps to a point.
+
+    /// TCK point (2) — ingest (+streaming where applicable). Override to run a REAL
+    /// ingest self-check (e.g. parse this value back from its durable wire form) and
+    /// report [`IngestReport`]. Default: neither batch nor streaming ingest wired.
+    fn ingest_report(&self, _id: &str) -> IngestReport {
+        IngestReport::unsupported()
+    }
+
+    /// TCK point (4) — storage + secondary-index + stats presence. Override to report
+    /// this value's real [`StorageStats`] (logical size, element count, whether it is
+    /// secondary-indexed). Default: `None` (no storage stats attestable at this
+    /// layer).
+    fn storage_stats(&self, _id: &str) -> Option<StorageStats> {
+        None
+    }
+
+    /// TCK point (10) — backup / restore / migrate / recover. Override to run a REAL
+    /// backup→restore round-trip through this modality's DURABLE persistence form
+    /// (the on-disk codec) and report whether the restored value equalled the
+    /// original. Default: unsupported.
+    fn backup_selfcheck(&self, _id: &str) -> ModalitySelfTest {
+        ModalitySelfTest::Unsupported
+    }
+
+    /// TCK point (11) — single-node failure / recovery. Override to SIMULATE a
+    /// crash-and-recover: stage this value as an in-txn write, serialize the staged
+    /// write (the WAL analog), then replay it back after "restart" and report whether
+    /// the recovered value equalled the original. Default: unsupported.
+    fn recovery_selfcheck(&self, _id: &str) -> ModalitySelfTest {
+        ModalitySelfTest::Unsupported
+    }
+
+    /// The honesty escape hatch (EG-P1-1): declare that a given [`TckPoint`] is
+    /// genuinely NOT APPLICABLE to this modality's nature — a distinct, honest status
+    /// from `NotImplemented` ("not yet") — returning a concrete reason. Default:
+    /// `None` (every point is auto-derived from the concrete hooks above). Override
+    /// ONLY for points that will NEVER apply to this modality, WITH a real reason
+    /// (e.g. a bare numeric tensor has no derivation-lineage or tenant-policy of its
+    /// own; those are enforced at the graph-node/`eg-core::isolation` layer that owns
+    /// it, never in the array bytes). A caller MUST NOT use this to paper over a point
+    /// it actually fails — the reason string is the accountability record.
+    fn tck_not_applicable(&self, _point: TckPoint) -> Option<&'static str> {
+        None
+    }
 }
 
 /// A `ModalityContract` implementer that can also produce a deterministic sample of
@@ -137,9 +200,13 @@ pub trait ConformanceTestable:
 
 /// Generates the E4 conformance test battery for a `ConformanceTestable` type:
 /// round-trip (`txn_stage` -> `decode_staged` -> equality), provenance-family
-/// non-panic, txn-stage/rollback symmetry, and cdc-topic-iff-declared (a declared
-/// topic must be non-empty). Invoke once per pilot, inside a `#[cfg(feature =
-/// "contract")]` module so the tests only build under that opt-in feature:
+/// non-panic, txn-stage/rollback symmetry, cdc-topic-iff-declared (a declared topic
+/// must be non-empty), a malformed-payload codec check, a well-formedness check on
+/// `analytics_ops()`, and — as of EG-P1-1 — registration into the mandatory modality
+/// registry ([`crate::register_modality`]) plus a full [`crate::TckReport`]
+/// generation via [`crate::tck_report`] (the first-class 12-point TCK; see the `tck`
+/// module docs). Invoke once per pilot, inside a `#[cfg(feature = "contract")]`
+/// module so the tests only build under that opt-in feature:
 ///
 /// ```ignore
 /// #[cfg(feature = "contract")]
@@ -236,6 +303,73 @@ macro_rules! modality_conformance_tests {
                         "a DECLARED cdc_topic must not be the empty string (use None instead)"
                     );
                 }
+            }
+
+            // ── EG-P1-1: first-class TCK additions ──────────────────────────────
+
+            /// TCK point (3): a corrupted `Put` payload must decode as `Err`, never
+            /// silently succeed (and `decode_staged` — `serde_json`-backed — never
+            /// panics on malformed input in the first place, only errors).
+            #[test]
+            fn malformed_payload_is_rejected_not_panicked() {
+                let sample = <$T as ConformanceTestable>::conformance_sample();
+                let id = <$T as ConformanceTestable>::conformance_id();
+                let staged = ModalityContract::txn_stage(&sample, id);
+                if staged.kind == $crate::WriteKind::Put {
+                    let mut corrupt = staged.clone();
+                    corrupt.payload = b"\xff\xfe not a valid payload for any codec".to_vec();
+                    let decoded: Result<$T, _> = $crate::decode_staged(&corrupt);
+                    assert!(
+                        decoded.is_err(),
+                        "a malformed Put payload must decode as Err, never silently succeed"
+                    );
+                }
+            }
+
+            /// TCK point (5): every declared `analytics_ops()` entry must be a
+            /// non-empty, well-formed name (empty list is a legitimate "no typed
+            /// query operators" default — an empty STRING entry would not be).
+            #[test]
+            fn typed_query_operators_are_well_formed() {
+                let sample = <$T as ConformanceTestable>::conformance_sample();
+                for op in ModalityContract::analytics_ops(&sample) {
+                    assert!(
+                        !op.is_empty(),
+                        "a declared analytics_ops() entry must not be the empty string"
+                    );
+                }
+            }
+
+            /// EG-P1-1: computing this modality's full 12-point `TckReport` must
+            /// cover EVERY point (never a subset), and registering it must make it
+            /// discoverable via `registered_modalities()` — the mandatory runtime
+            /// registry every `ModalityContract` implementer is now wired into via
+            /// this macro, with no per-pilot edits required.
+            #[test]
+            fn tck_report_is_generated_and_registered() {
+                let sample = <$T as ConformanceTestable>::conformance_sample();
+                let name = ModalityContract::storage_kind(&sample);
+                let report = $crate::tck_report::<$T>();
+                assert_eq!(
+                    report.modality, name,
+                    "tck_report() must report under the modality's OWN storage_kind()"
+                );
+                assert_eq!(
+                    report.results.len(),
+                    $crate::TckPoint::ALL.len(),
+                    "tck_report() must cover EVERY first-class TCK point, not a subset"
+                );
+                $crate::register_modality($crate::ModalityDescriptor {
+                    name,
+                    tck_report: $crate::tck_report::<$T>,
+                });
+                assert!(
+                    $crate::registered_modalities().iter().any(|d| d.name == name),
+                    "register_modality() must make this modality discoverable via registered_modalities()"
+                );
+                // Capture with `cargo test -p <crate> --features contract -- --nocapture`
+                // for the capability-parity view — see eg-modality/README.md.
+                println!("{}", report.render_table());
             }
         }
     };
