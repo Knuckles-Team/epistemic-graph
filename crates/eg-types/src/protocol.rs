@@ -1850,9 +1850,56 @@ pub enum Method {
     /// (a flat `RowSet` projection) documents as a follow-up, mirroring
     /// `Method::OwlExplain`'s `ProofNodeWire`. Returns an `ExplainBeliefResult` via
     /// `ResultPayload::raw`. Gated `epistemic` (which implies `query`).
+    ///
+    /// `disclosure_level` (EPI-P3-4, L51) is `None` by default — the DEFAULT PATH IS
+    /// UNCHANGED: the handler runs the classic un-redacted `explain_belief` and returns
+    /// `ExplainBeliefResult` exactly as before this field existed. When `Some(_)`, the
+    /// caller opts INTO the policy-aware, RLS-redacted proof
+    /// (`eg_epistemic::redact::explain_belief_redacted`, feature `epistemic-redaction`
+    /// on the facade, which pulls `eg-core/security`) — the handler then returns an
+    /// `ExplainBeliefRedactedResult` INSTEAD of `ExplainBeliefResult` in the SAME
+    /// `ResultPayload::raw` slot (the caller who set this field knows to decode the
+    /// other type). The requested level is a CAP, never a grant: a caller may ask for a
+    /// STRICTER view than their own RLS access earns (e.g. always request
+    /// `ExistenceOnly` for a privacy-conscious display) but can never loosen what
+    /// `explain_belief_redacted` computes from their actual access — see
+    /// `eg_epistemic::redact` module docs. If `epistemic-redaction` is OFF at build
+    /// time, a request naming `Some(_)` gets an explicit error response (never a silent
+    /// fall-back to the un-redacted tree — that would leak exactly what redaction
+    /// exists to hide).
     #[cfg(feature = "epistemic")]
     ExplainBelief {
         node_id: String,
+        #[serde(default)]
+        disclosure_level: Option<DisclosureLevelWire>,
+    },
+    /// The Phase-3 acceptance capstone (EPI-P3-5, L53): "what do we believe, why, on
+    /// exactly which evidence, under whose authority, at what time, with what
+    /// uncertainty, and what would invalidate it" — for `node_id`, in ONE typed call
+    /// (`eg_epistemic::epistemic_status`, feature `epistemic-tms`). Composes belief
+    /// (`is_believed`/confidence), the proof tree (`why`), the diagnostic (`why_not`,
+    /// populated iff not believed), the counterfactual (`what_evidence_would_change_this`),
+    /// and this claim's own bitemporal window — every sibling facet
+    /// `eg_epistemic::query` exposes for ONE claim, so those are not separately wired
+    /// as their own `Method`s (a caller wanting just one gets it off this result).
+    /// Returns an `EpistemicStatusResult` via `ResultPayload::raw`. Gated `epistemic`
+    /// at the wire level; the HANDLER additionally requires `epistemic-tms` — a build
+    /// with `epistemic` but not `epistemic-tms` falls to the graph_ops "not available
+    /// in this build" catch-all (same convention as every other feature-gated arm).
+    #[cfg(feature = "epistemic")]
+    EpistemicStatus {
+        node_id: String,
+    },
+    /// **what_changed**(tx_from, tx_to) (EPI-P3-5, L53): between two transaction times,
+    /// which beliefs changed and why (`eg_epistemic::what_changed`, feature
+    /// `epistemic-tms`) — the one acceptance-query facet that is NOT a sub-field of
+    /// `EpistemicStatus` (it is a whole-graph temporal DIFF, not a single claim's
+    /// status), so it gets its own `Method`. Returns a `WhatChangedResult` via
+    /// `ResultPayload::raw`. Same build-tier fallback convention as `EpistemicStatus`.
+    #[cfg(feature = "epistemic")]
+    WhatChanged {
+        tx_from: u64,
+        tx_to: u64,
     },
 
     // ── Natural-language query (CONCEPT:EG-KG.query.core-query-input/EG-080) ─────────────────────
@@ -4602,6 +4649,144 @@ pub struct JustificationNodeWire {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExplainBeliefResult {
     pub root: JustificationNodeWire,
+}
+
+/// Wire mirror of `eg_epistemic::redact::DisclosureLevel` (EPI-P3-4, L51) — the
+/// `Method::ExplainBelief::disclosure_level` request field AND the
+/// `ExplainBeliefRedactedResult::level` response field share this one type. Plain
+/// serde/enum, no `eg-epistemic` dependency needed here (`eg-types` sits BELOW
+/// `eg-epistemic` in the crate DAG).
+#[cfg(feature = "epistemic")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DisclosureLevelWire {
+    Full,
+    Skeleton,
+    ExistenceOnly,
+}
+
+/// Wire mirror of `eg_epistemic::redact::ExistenceSignal`.
+#[cfg(feature = "epistemic")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ExistenceSignalWire {
+    Supported,
+    Contradicted,
+    Uncertain,
+}
+
+/// Wire mirror of `eg_epistemic::redact::RedactedProofNode` — structurally parallel to
+/// [`JustificationNodeWire`], except `claim` is `None` (with `redaction_label` set)
+/// when the requesting actor's RLS access does not extend to that proof-tree node.
+#[cfg(feature = "epistemic")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RedactedJustificationNodeWire {
+    pub claim: Option<String>,
+    pub redaction_label: Option<String>,
+    pub rule: String,
+    pub confidence: f64,
+    pub premises: Vec<RedactedJustificationNodeWire>,
+}
+
+/// Result of a `Method::ExplainBelief` call that set `disclosure_level` (feature
+/// `epistemic-redaction`) — returned via `ResultPayload::raw` INSTEAD OF
+/// `ExplainBeliefResult` for that same call (the caller who set `disclosure_level`
+/// already knows to decode this type). Wire mirror of
+/// `eg_epistemic::redact::RedactedJustificationGraph`.
+#[cfg(feature = "epistemic")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExplainBeliefRedactedResult {
+    pub level: DisclosureLevelWire,
+    pub existence: ExistenceSignalWire,
+    /// `Some` at `Full`/`Skeleton`; `None` at `ExistenceOnly` (no structure rendered).
+    pub root: Option<RedactedJustificationNodeWire>,
+}
+
+/// Wire mirror of `eg_epistemic::AuthorityPolicy` — the confidence-weighting policy an
+/// `EpistemicStatus` was computed under ("under whose authority").
+#[cfg(feature = "epistemic")]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct AuthorityPolicyWire {
+    pub source_reliability: f64,
+    pub attack_multiplier: f64,
+    pub prior_strength: f64,
+}
+
+/// Wire mirror of `eg_epistemic::query::WhyNot` — flattens `WhyNotReason`'s per-variant
+/// payload (`Contradicted { blockers }` / `Undecided { competing }`) into two plain
+/// `Vec<String>` fields, each empty unless the matching reason tag applies (a pure-serde
+/// enum-with-data mirror would work too, but this keeps the wire shape flat like every
+/// other `*Wire` type here).
+#[cfg(feature = "epistemic")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WhyNotWire {
+    pub claim: String,
+    /// One of `"Unknown"`, `"InsufficientConfidence"`, `"Contradicted"`, `"Undecided"`.
+    pub reason: String,
+    /// Populated iff `reason == "Contradicted"`.
+    pub blockers: Vec<String>,
+    /// Populated iff `reason == "Undecided"`.
+    pub competing: Vec<String>,
+    pub confidence: f64,
+}
+
+/// Wire mirror of `eg_epistemic::query::MinimalFlipSet` — "what would invalidate it".
+#[cfg(feature = "epistemic")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MinimalFlipSetWire {
+    pub claim: String,
+    pub believed_now: bool,
+    pub evidence_ids: Vec<String>,
+    pub believed_after: bool,
+}
+
+/// Wire mirror of `eg_epistemic::query::EpistemicStatus` — the Phase-3 acceptance
+/// capstone (see `Method::EpistemicStatus` docs).
+#[cfg(feature = "epistemic")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EpistemicStatusWire {
+    pub claim: String,
+    pub believed: bool,
+    pub confidence: f64,
+    pub uncertainty: f64,
+    pub proof: JustificationNodeWire,
+    pub why_not: Option<WhyNotWire>,
+    pub evidence: Vec<String>,
+    pub contradicting: Vec<String>,
+    pub attacking: Vec<String>,
+    pub authority: AuthorityPolicyWire,
+    pub valid_time: Option<(Option<u64>, Option<u64>)>,
+    pub tx_time: Option<(Option<u64>, Option<u64>)>,
+    pub what_would_invalidate: Option<MinimalFlipSetWire>,
+}
+
+/// Materialized result of a `Method::EpistemicStatus` run. Returned via
+/// `ResultPayload::raw`.
+#[cfg(feature = "epistemic")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EpistemicStatusResult {
+    pub status: EpistemicStatusWire,
+}
+
+/// Wire mirror of `eg_epistemic::query::ChangedBelief` — one entry of a
+/// `Method::WhatChanged` result.
+#[cfg(feature = "epistemic")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChangedBeliefWire {
+    pub id: String,
+    pub believed_before: bool,
+    pub believed_after: bool,
+    pub confidence_before: f64,
+    pub confidence_after: f64,
+    pub evidence_added: Vec<String>,
+    pub evidence_removed: Vec<String>,
+    pub reason: String,
+}
+
+/// Materialized result of a `Method::WhatChanged` run. Returned via
+/// `ResultPayload::raw`.
+#[cfg(feature = "epistemic")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WhatChangedResult {
+    pub changed: Vec<ChangedBeliefWire>,
 }
 
 /// Graph type for multi-tenant registry.
