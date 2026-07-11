@@ -274,7 +274,6 @@ const ACCESS_RS_COVERAGE_GAP: &[(&str, &str, &str)] = &[
     ("RegisterUdf", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("Reshard", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("Restore", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
-    ("RunRules", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("SendMessage", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("Shutdown", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("StreamCommitOffset", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),

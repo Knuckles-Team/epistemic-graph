@@ -1283,22 +1283,94 @@ async fn dispatch_graph_op(
         // in, the cache key folds the caller's RLS context, the snapshot is RLS-filtered
         // to the caller) so a GraphQL read NEVER leaks across agents. Slim builds with
         // NONE of the three omit this line.
+        //
+        // Runtime-conditional query gateway (CONCEPT:EG-P0-2, L11): `Sql`/
+        // `CypherQuery`/`GraphQl` are `mutation::GATEWAY_ROUTED`, but their execution
+        // is `async` and needs `state`/`rls`, so they are routed HERE (not at the
+        // graph-ops `try_handle_gateway`, which hands them back). The SAME runtime
+        // parse `access::requires_write` uses decides whether THIS statement mutates:
+        // a SQL write / Cypher `CREATE|SET|DELETE` / GraphQL `mutation` → the full
+        // Write-authz commit; a `SELECT` / read-only Cypher / GraphQL `query` → a
+        // Read-authz passthrough with no durability/audit/CDC. Every OTHER query
+        // method (`UnifiedQuery`/`Explain*`/`Txn*Query`) is a pure read handled by
+        // the unchanged direct call in the `else` arm.
         #[cfg(any(feature = "query", feature = "cypher", feature = "graphql"))]
-        let method = match handlers::query::try_handle(
-            state,
-            req_id,
-            graph_name,
-            core.clone(),
-            method,
+        let method = if crate::server::mutation::is_query_gateway_method(&method) {
+            let mutates_now = requires_write(&method);
+            let plan = crate::server::mutation::MutationPlan::for_method(&method);
+            let (iso, gtype, owner) = gateway_authz_ctx
+                .as_ref()
+                .expect("is_gateway_routed query method must have a captured GatewayAuthzCtx");
+            let ctx = crate::server::mutation::MutationCtx {
+                req_id,
+                caller,
+                graph_name,
+                graph_type: *gtype,
+                owner: owner.as_deref(),
+                isolation: iso,
+                core: &core,
+                persistence: persistence.as_ref(),
+                redb_authoritative,
+                #[cfg(feature = "streaming")]
+                cdc: cdc.as_ref(),
+                write_coalescer: None,
+            };
+            let core_apply = core.clone();
+            let method_apply = method.clone();
             #[cfg(feature = "security")]
-            caller,
-            #[cfg(feature = "security")]
-            &rls,
-        )
-        .await
-        {
-            Ok(r) => break 'dispatch r,
-            Err(m) => m,
+            let rls_apply = rls.clone();
+            let resp = crate::server::mutation::commit_conditional_mutation_async(
+                &ctx,
+                &plan,
+                &method,
+                mutates_now,
+                move || async move {
+                    match handlers::query::try_handle(
+                        state,
+                        req_id,
+                        graph_name,
+                        core_apply,
+                        method_apply,
+                        #[cfg(feature = "security")]
+                        caller,
+                        #[cfg(feature = "security")]
+                        &rls_apply,
+                    )
+                    .await
+                    {
+                        Ok(r) => match r.error {
+                            Some(e) => Err(e),
+                            None => {
+                                Ok(r.result.unwrap_or(ResultPayload::Json(serde_json::Value::Null)))
+                            }
+                        },
+                        // Unreachable for a real routed query method (its name only
+                        // exists when the surface is compiled); kept total.
+                        Err(_) => {
+                            Err("query surface not available in this build".to_string())
+                        }
+                    }
+                },
+            )
+            .await;
+            break 'dispatch resp;
+        } else {
+            match handlers::query::try_handle(
+                state,
+                req_id,
+                graph_name,
+                core.clone(),
+                method,
+                #[cfg(feature = "security")]
+                caller,
+                #[cfg(feature = "security")]
+                &rls,
+            )
+            .await
+            {
+                Ok(r) => break 'dispatch r,
+                Err(m) => m,
+            }
         };
         // Native RDF/SPARQL surface (CONCEPT:EG-KG.ontology.kg-native-rdf-sparql/218, features `rdf`/`sparql`):
         // AddTriples (durable — the shell below records it like any write),
@@ -1306,22 +1378,88 @@ async fn dispatch_graph_op(
         // handler takes the graph core + name; AddTriples also reads the optional
         // lossless quad store off `state`. Gated on `rdf`; a method whose feature is
         // off falls through (Err) to the graph_ops not-available catch-all.
+        //
+        // Native-RDF write gateway (CONCEPT:EG-P0-2, L11): `AddTriples`/
+        // `RemoveTriples`/`DropNamedGraph` are `mutation::GATEWAY_ROUTED` (GraphRedb-
+        // durable, audited), routed HERE (not at `try_handle_gateway`) because their
+        // durable write ALSO touches the optional `rdf-redb` lossless quad store on
+        // `state`, which the graph-ops entry point does not carry. They always
+        // mutate (`mutates_now = true`), so `commit_conditional_mutation_async` runs
+        // the full Write-authz + WAL/redb-durable + audit-chain commit; the read-only
+        // RDF methods (`GetRdf`/`Sparql`/`ShaclValidate`/…) take the unchanged direct
+        // call in the `else` arm.
         #[cfg(feature = "rdf")]
-        let method = match handlers::rdf::try_handle(
-            state,
-            req_id,
-            graph_name,
-            core.clone(),
-            method,
+        let method = if crate::server::mutation::is_rdf_gateway_method(&method) {
+            let plan = crate::server::mutation::MutationPlan::for_method(&method);
+            let (iso, gtype, owner) = gateway_authz_ctx
+                .as_ref()
+                .expect("is_gateway_routed rdf method must have a captured GatewayAuthzCtx");
+            let ctx = crate::server::mutation::MutationCtx {
+                req_id,
+                caller,
+                graph_name,
+                graph_type: *gtype,
+                owner: owner.as_deref(),
+                isolation: iso,
+                core: &core,
+                persistence: persistence.as_ref(),
+                redb_authoritative,
+                #[cfg(feature = "streaming")]
+                cdc: cdc.as_ref(),
+                write_coalescer: None,
+            };
+            let core_apply = core.clone();
+            let method_apply = method.clone();
             #[cfg(feature = "security")]
-            caller,
-            #[cfg(feature = "security")]
-            &rls,
-        )
-        .await
-        {
-            Ok(r) => break 'dispatch r,
-            Err(m) => m,
+            let rls_apply = rls.clone();
+            let resp = crate::server::mutation::commit_conditional_mutation_async(
+                &ctx,
+                &plan,
+                &method,
+                true,
+                move || async move {
+                    match handlers::rdf::try_handle(
+                        state,
+                        req_id,
+                        graph_name,
+                        core_apply,
+                        method_apply,
+                        #[cfg(feature = "security")]
+                        caller,
+                        #[cfg(feature = "security")]
+                        &rls_apply,
+                    )
+                    .await
+                    {
+                        Ok(r) => match r.error {
+                            Some(e) => Err(e),
+                            None => {
+                                Ok(r.result.unwrap_or(ResultPayload::Json(serde_json::Value::Null)))
+                            }
+                        },
+                        Err(_) => Err("rdf surface not available in this build".to_string()),
+                    }
+                },
+            )
+            .await;
+            break 'dispatch resp;
+        } else {
+            match handlers::rdf::try_handle(
+                state,
+                req_id,
+                graph_name,
+                core.clone(),
+                method,
+                #[cfg(feature = "security")]
+                caller,
+                #[cfg(feature = "security")]
+                &rls,
+            )
+            .await
+            {
+                Ok(r) => break 'dispatch r,
+                Err(m) => m,
+            }
         };
         // WASM-sandboxed UDF surface (CONCEPT:EG-KG.query.rowset-execution, feature `wasm-udf`):
         // RegisterUdf compiles+caches, RunUdf runs sandboxed (fuel+memory+no host
