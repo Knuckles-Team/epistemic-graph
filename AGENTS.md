@@ -238,6 +238,63 @@ the coalescer under openraft's live heartbeat cadence + a cross-host soak. See
 
 ---
 
+## Phase 1-3 surfaces (2.20.0) — all additive, all opt-in
+
+The Epistemic OS Hardening program's Phases 1-3 landed on top of 2.19.0's trustworthy core.
+Every surface below is feature-gated; the default `full` build carries none of it beyond
+what's already listed under "Cargo Feature Flags". See `docs/capabilities.md`'s "Epistemic
+reasoning" / "Distributed placement & analytics jobs" / "Document & media modalities"
+sections for the full operation-by-operation detail; this is the short orientation.
+
+- **Epistemic reasoning (`eg-epistemic`, features `epistemic`/`epistemic-tms`/
+  `epistemic-redaction`).** Claim/Evidence/BeliefState + confidence propagation and the
+  `EVIDENCE FOR`/`BELIEF AS OF`/… UQL ops (`epistemic`, shipped 2.16.0); paraconsistent
+  truth-maintenance + Dung argumentation, now with a real server-side CDC hook
+  (`src/server/tms_hook.rs`) that auto-marks dependents `Stale` on a committed
+  `RemoveNode`/`RemoveEdge`/`CompareAndSetNodeFields`, plus the bitemporal
+  `Method::EpistemicStatus`/`Method::WhatChanged` capstone (`epistemic-tms`); policy-aware
+  proof redaction via `Method::ExplainBelief`'s `disclosure_level`, reusing the same
+  per-agent RLS check every read path enforces (`epistemic-redaction`). **Calibrated causal
+  reasoning** (`eg-epistemic::causal` — genuine Pearl do-calculus: `observe`/`intervene`/
+  `counterfactual`) exists and is tested, but its `epistemic-causal` feature is gated at the
+  `eg-epistemic` crate level only and is **not passed through the facade `Cargo.toml`** —
+  run it with `cargo test -p eg-epistemic --features epistemic-causal`; wiring it onto the
+  server/wire protocol is open follow-on work, not done yet.
+- **Multimodal evidence graph (X-1).** `eg_modality::EvidenceSpan` — 11 located-evidence
+  locus kinds (`DocumentSpan`/`TableCellRange`/`ImageRegion`/`PageBox`/`AudioSegment`/
+  `VideoShot`/`VideoFrameRange`/`MetricWindow`/`RowVersion`/`CodeSymbol`/`TraceSpan`) — is
+  reachable under the `epistemic` feature. Its citation resolver
+  (`eg-epistemic::evidence`) is gated by a crate-level-only `evidence-graph` feature (same
+  not-facade-exposed caveat as `epistemic-causal` above). The facade-reachable resolver for
+  the same span shape is the separate `alignment` feature's `CasEvidenceResolver`
+  (`src/server/blob/cas_resolver.rs`) — real for `DocumentSpan`/`TableCellRange` (returns an
+  actual UTF-8 excerpt off the blob CAS), a real CAS-digest reference for every other locus
+  kind (no in-tree image/audio/video/code codec to crop/slice with).
+- **Document & media crates (`eg-document`/`eg-image`/`eg-audio`/`eg-video`/
+  `eg-alignment`, EG-P1-3).** Exist, compile, are unit-tested, and implement
+  `ModalityContract` — but are **not folded into any serving tier** (pi/node/cluster/full)
+  yet. Treat these as foundations for future wiring, not as a currently operable capability.
+- **`eg-modality` mandatory registry + 12-point TCK (EG-P1-1).** Every `ModalityContract`
+  implementer self-registers via `modality_conformance_tests!`; `TckReport`/`tck_report`
+  scores each one against all 12 contract points. Retrofitted across 16 crates (see
+  `crates/eg-modality/src/lib.rs`'s module docs for the exact list), each behind its own
+  crate-level `contract` feature (default off — a conformance/testing seam, not serving).
+- **Distributed planes (Phase 2, `raft`/`cluster` unless noted).** `PlacementCatalog`
+  (`src/raft/placement.rs`) is the one epoch'd placement authority for online split/merge/
+  move; `EPISTEMIC_GRAPH_RAFT_GROUPS` stands up real multi-group production clusters with
+  cross-shard read fan-out (`src/raft/xread.rs`); lazy graph lifecycle
+  (`EPISTEMIC_GRAPH_LAZY_STARTUP`/`EPISTEMIC_GRAPH_MAX_RESIDENT_GRAPHS`) bounds hot-context
+  RAM; the durable analytics-job plane (`eg-jobs`, feature `jobs`, off by default) gives
+  `Method::AnalyticsJob` async submit/status/cancel/resume over an immutable
+  input-snapshot handle; lake materialization now emits real OpenLineage `RunEvent`s
+  (feature `lake`, optional push via `EPISTEMIC_GRAPH_OPENLINEAGE_URL`).
+- **Persistent index pushdown (EG-P1-4).** The served planner binds directly to the
+  maintained persistent BM25 text index and the live vector `SemanticStore` instead of
+  rebuilding/cloning a snapshot per query. **Spatial/R-tree index pushdown is NOT wired**
+  this pass (vector was the one index type completed) — don't assume it from this section.
+
+---
+
 ## Commands for AI Agents
 
 | Objective | Command |
@@ -530,6 +587,11 @@ grows. Each is tied to a mechanical CI gate (a rule without a gate is a comment)
 | `EPISTEMIC_GRAPH_ALLOW_INSECURE` | `1`/`true`: explicit opt-out allowing an empty auth secret (development only; prominent warning at startup) |
 | `EPISTEMIC_GRAPH_REQUIRE_SIGNED` (EG-P0-5) | `1`/`true`: require the v1 signed request envelope, rejecting legacy v0 tokens outright. **Default `false`** — v0 is accepted with a warning; existing v0 clients/tests keep working unchanged |
 | `EPISTEMIC_GRAPH_ENVELOPE_SKEW_SECS` (EG-P0-5) | Clock-skew window (seconds) for a v1 envelope's `timestamp`, also the replay-nonce cache retention horizon. Default `300` |
+| `EPISTEMIC_GRAPH_RLS_DEFAULT_DENY` (EG-P0-6, feature `security`) | `1`/`true`/`yes`/`on`: switch per-agent Row-Level Security from the permissive default (an unowned/undecodable/untagged-legacy row stays visible to all, unchanged from every pre-EG-P0-6 deployment) to the STRICT/default-deny posture (such a row is hidden unless explicitly `_visibility: "public"` or `_owner`-tagged). **Default `false` (permissive/back-compat)** — this is opt-in, not the shipped default; a fresh deployment must set it to get the stricter posture. See `eg_core::isolation::IsolationLayer::rls_default_deny` |
+| `EPISTEMIC_GRAPH_RAFT_GROUPS` (DIST-P2-2, `raft`/`cluster` feature) | Number of Raft groups this node stands up at boot. **Default `1`** (unset ⇒ byte-for-byte the pre-existing single-group path, only `DEFAULT_GROUP`). A value `>1` additionally stands up groups `1..groups` and spreads un-pinned graphs across the tenant-range ring; `PlacementCatalog` still takes priority over the ring for any graph with an explicit placement entry |
+| `EPISTEMIC_GRAPH_LAZY_STARTUP` (DIST-P2-3) | `1`/`true`: swap the eager `load_all` boot recovery for a catalog-only scan — every graph's identity is known at boot, but no node/edge data hydrates until the graph is actually accessed. **Default off** — the eager `load_all` boot path is unchanged |
+| `EPISTEMIC_GRAPH_MAX_RESIDENT_GRAPHS` (DIST-P2-3) | Caps how many graphs may be simultaneously RESIDENT (a real, hydrated `GraphCore`); the coldest resident graph (by last-access recency) is evicted via the existing durability-gated cold-offload hibernate path before a new one is admitted. **Default `0` = unbounded** (every accessed/created graph stays resident forever, byte-for-byte the pre-DIST-P2-3 behavior). `__commons__` is never evicted |
+| `EPISTEMIC_GRAPH_OPENLINEAGE_URL` (INT-P2-3, feature `lake`) | When set, every `LakeManager` materialize/compact/delete run pushes its OpenLineage `RunEvent` (job/run/input-dataset/output-dataset facets) to `<url>/api/v1/lineage` over HTTP. **Unset ⇒ silent no-op** — lineage export is best-effort and never blocks or fails a materialization run |
 | `GRAPH_SERVICE_SOCKET` | Path to the UDS socket |
 | `GRAPH_SERVICE_PERSIST_DIR` | Persist dir (alias `--persist-dir`). When set with a redb-bearing build, the engine is a durable source of truth; absent ⇒ in-memory only |
 | `EPISTEMIC_GRAPH_PERSIST_BACKEND` | `redb` (**default**, CONCEPT:AU-KG.backend.backend-modes) = durable authoritative store; `snapshot` = opt-in rebuildable-cache (snapshot RDB + WAL). A `redb` request in a build without the `redb` feature silently falls back to snapshot |

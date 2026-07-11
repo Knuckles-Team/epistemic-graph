@@ -170,7 +170,8 @@ natural-language → query (`NlQuery`) is a complete, LLM-optional seam.
 - **[Lakehouse LTAP interop](docs/architecture/lakehouse_ltap.md).** The engine's tables materialize as
   open **Parquet + Delta + Iceberg** (real Iceberg v2 **Avro** manifests, per-column stats for predicate
   pushdown) with an Iceberg-REST catalog + LSN as-of, so Databricks/Spark/Trino/DuckDB read them with
-  **zero ETL**.
+  **zero ETL**; every materialize/compact/delete run also emits a real **OpenLineage** `RunEvent`
+  (optional HTTP push), feature `lake`.
 - **[Distribution / Robotics / GPU tail](docs/architecture/distribution_robotics_gpu.md).** Cross-region
   async read-replicas, Calvin deterministic commit, ROS2 bridge (rosbridge-WS + pure-Rust RTPS), and a
   GPU distance/tensor dispatch seam with a real CUDA backend + CPU fallback.
@@ -183,11 +184,41 @@ natural-language → query (`NlQuery`) is a complete, LLM-optional seam.
 - **Cross-shard 2PC** (presumed-abort + parallel-commit + read-only-participant + non-blocking
   Raft-replicated decision), multi-Raft groups + online resharding, and an opt-in **Calvin**
   deterministic-ordering branch.
+- **One placement authority.** An epoch'd `PlacementCatalog` (`cluster`/`raft`) drives online
+  split/merge/move via a prepare-then-fenced-cutover sequence — a caller holding a stale epoch is
+  redirected, never served stale — and takes priority over the hash-ring router for any graph with an
+  explicit placement entry. Paired with real multi-group production startup
+  (`EPISTEMIC_GRAPH_RAFT_GROUPS`) and cross-shard read fan-out.
+- **Durable analytics-job plane** (`eg-jobs`, opt-in feature `jobs`) — `Method::AnalyticsJob` async
+  submit/status/cancel/resume over an immutable input-snapshot handle (a graph + pinned OCC version,
+  re-readable later via `AS OF`), with results committed through the same claim/evidence convention
+  the epistemic layer reads.
+- **Lazy graph lifecycle** (`EPISTEMIC_GRAPH_LAZY_STARTUP`/`EPISTEMIC_GRAPH_MAX_RESIDENT_GRAPHS`) —
+  catalog-only boot + a bounded resident-graph cache, both off/unbounded by default.
 - **Cross-modal ACID** across all modalities in one transaction.
 
 → [Engine scaling program](docs/architecture/scaling_program.md) ·
 [Multi-Raft status](docs/architecture/m2_raft_status.md) ·
 [Catalog-driven resharding](docs/architecture/m3_resharding.md)
+
+### Epistemic reasoning (opt-in — `eg-epistemic`)
+
+The `RowSet` result surface can carry engine-native **Claim/Evidence/BeliefState** with
+cycle-guarded confidence propagation and a `BELIEF AS OF`/`EVIDENCE FOR`/`CONTRADICTS` UQL
+family (feature `epistemic`); a **paraconsistent truth-maintenance engine** (Dung
+grounded/preferred/stable argumentation) that now auto-invalidates dependents on a committed
+write via a real server-side CDC hook, plus the bitemporal `epistemic_status`
+why/why-not/what-changed capstone (feature `epistemic-tms`); and **policy-aware proof
+redaction** — `ExplainBelief`'s `disclosure_level` masks (never silently drops) an evidence
+node the caller's row-level-security context can't see (feature `epistemic-redaction`). A
+**multimodal evidence graph** (`EvidenceSpan`, 11 located-evidence locus kinds spanning
+text/table/image/audio/video/metric/SQL-row/code/trace) is reachable under `epistemic`; its
+blob-CAS-backed citation resolver lives behind the separate opt-in `alignment` feature.
+**Calibrated causal reasoning** (a linear-Gaussian structural causal model with genuine Pearl
+do-calculus — `observe`/`intervene`/`counterfactual`) is implemented and tested inside
+`eg-epistemic`, but is not yet wired onto the server/wire protocol — an engine-native library
+capability today, not a servable operation. None of this is on by default; every feature above
+is additive on top of the `full` build. See [`docs/capabilities.md`](docs/capabilities.md#epistemic-reasoning-eg-epistemic--features-epistemicepistemic-tmsepistemic-redaction).
 
 ### Security & isolation
 
@@ -198,8 +229,15 @@ natural-language → query (`NlQuery`) is a complete, LLM-optional seam.
   then). Transport TLS/mTLS and OIDC principals are **not** part of this yet. pgwire separately adds
   SCRAM-SHA-256. See [Service mode](docs/service_mode.md#authentication-protocol) for the full contract.
 - **Per-agent Row-Level Security** applied before any query surface touches the graph; the result cache
-  keys on the caller's RLS context.
-- **Encryption-at-rest** (ChaCha20-Poly1305, pure-Rust) + a **hash-chained tamper-evident audit log**.
+  keys on the caller's RLS context. The default posture remains **permissive/back-compat** — an
+  unowned/undecodable/untagged-legacy row stays visible to all, unchanged from every pre-EG-P0-6
+  deployment. An opt-in **strict/default-deny posture** (EG-P0-6, `EPISTEMIC_GRAPH_RLS_DEFAULT_DENY=1`)
+  denies such a row unless it's explicitly `_visibility: "public"` or `_owner`-tagged — set it to get
+  the stricter posture; it is not the shipped default.
+- **Encryption-at-rest** (ChaCha20-Poly1305, pure-Rust) + a **hash-chained tamper-evident audit log**
+  covering every one of the ~80 gateway-routed mutating methods (the single `MutationPlan`/
+  `commit_mutation` gateway) plus a documented, machine-checked-empty triage of every other mutating
+  method (registry-lifecycle/cluster-admin/process-global/txn-self-routed — `EG-P0-2`).
 
 → [Service mode](docs/service_mode.md)
 | Interface | Operation | Status | Feature | Notes |
