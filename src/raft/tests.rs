@@ -105,6 +105,11 @@ fn peer_map(ports: &[u16]) -> BTreeMap<NodeId, BasicNode> {
 }
 
 fn cluster_cfg(node_id: NodeId, ports: &[u16]) -> RaftClusterConfig {
+    cluster_cfg_with_groups(node_id, ports, 1)
+}
+
+/// [`cluster_cfg`] with an explicit group count (DIST-P2-2 multi-group startup test).
+fn cluster_cfg_with_groups(node_id: NodeId, ports: &[u16], groups: u64) -> RaftClusterConfig {
     let peers = peer_map(ports);
     let bind_addr = peers.get(&node_id).unwrap().addr.clone();
     RaftClusterConfig {
@@ -112,6 +117,7 @@ fn cluster_cfg(node_id: NodeId, ports: &[u16]) -> RaftClusterConfig {
         peers: peers.clone(),
         bind_addr,
         is_bootstrap: peers.keys().next() == Some(&node_id),
+        groups,
     }
 }
 
@@ -302,6 +308,100 @@ where
         tokio::time::sleep(Duration::from_millis(150)).await;
     }
     Err(())
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// DIST-P2-2: multi-group PRODUCTION startup — `node::start` stands up N groups
+// from config (not just a test harness's manual `create_group` calls), and a
+// default (unconfigured) deploy stays single-group, byte-for-byte.
+// ─────────────────────────────────────────────────────────────────────────
+
+/// `cfg.groups > 1` (DIST-P2-2, `EPISTEMIC_GRAPH_RAFT_GROUPS`) makes PRODUCTION
+/// `node::start` stand up every group `0..groups` on this node and configure the
+/// tenant-range ring across all of them — the same [`super::multi::MultiRaft`]
+/// machinery the placement/xshard test harnesses already exercise, now reachable from
+/// the real boot path instead of only from a test's manual `create_group` calls.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn multi_group_startup_creates_n_groups_from_config() {
+    let dir = fresh_dir("multigroup-startup");
+    let state = make_state(&dir).await;
+    let ports = free_ports(1);
+    let cfg = cluster_cfg_with_groups(1, &ports, 4);
+
+    let started = node::start(cfg, state.clone())
+        .await
+        .expect("start raft node with 4 groups");
+
+    // The tenant-range ring now spans all 4 groups, and each is actually running.
+    assert_eq!(started.multi.router().group_ring(), vec![0, 1, 2, 3]);
+    for gid in 0..4u64 {
+        assert!(
+            started.multi.group(gid).await.is_some(),
+            "group {gid} must be running on this node after multi-group startup"
+        );
+    }
+
+    started.multi.stop_listener();
+    let _ = started.handle.raft.shutdown().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A graph with no explicit [`super::placement::PlacementCatalog`] entry hash-spreads
+/// across the configured ring (DIST-P2-2) — deterministically, so the SAME graph name
+/// always lands on the SAME group.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn graph_routes_to_its_ring_assigned_group_after_multi_group_startup() {
+    let dir = fresh_dir("multigroup-routing");
+    let state = make_state(&dir).await;
+    let ports = free_ports(1);
+    let cfg = cluster_cfg_with_groups(1, &ports, 3);
+
+    let started = node::start(cfg, state.clone())
+        .await
+        .expect("start raft node with 3 groups");
+
+    let (gid, epoch) = started.multi.route_graph("acme:ws1").await;
+    assert!((0..3).contains(&gid), "graph must route into the ring");
+    assert_eq!(epoch, 0, "a hash-ring route (no catalog entry) has epoch 0");
+    // Deterministic: routing the same graph again resolves to the SAME group.
+    let (gid_again, _) = started.multi.route_graph("acme:ws1").await;
+    assert_eq!(gid, gid_again);
+
+    started.multi.stop_listener();
+    let _ = started.handle.raft.shutdown().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The DEFAULT (unconfigured, `groups <= 1`) production boot is BYTE-FOR-BYTE the
+/// pre-existing single-group path: no extra group, an empty ring, every graph on
+/// [`super::DEFAULT_GROUP`] — the guardrail this whole feature must not regress.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn default_startup_stays_single_group_unchanged() {
+    let dir = fresh_dir("multigroup-default");
+    let state = make_state(&dir).await;
+    let ports = free_ports(1);
+    let cfg = cluster_cfg(1, &ports); // groups: 1 — the unconfigured default.
+
+    let started = node::start(cfg, state.clone())
+        .await
+        .expect("start raft node with the default (single-group) config");
+
+    assert!(
+        started.multi.router().group_ring().is_empty(),
+        "no ring configured by default"
+    );
+    assert!(started.multi.group(super::DEFAULT_GROUP).await.is_some());
+    assert!(
+        started.multi.group(1).await.is_none(),
+        "no extra group should exist without EPISTEMIC_GRAPH_RAFT_GROUPS"
+    );
+    let (gid, epoch) = started.multi.route_graph("any-tenant:ws1").await;
+    assert_eq!(gid, super::DEFAULT_GROUP, "every graph must still fall back to the default group");
+    assert_eq!(epoch, 0);
+
+    started.multi.stop_listener();
+    let _ = started.handle.raft.shutdown().await;
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 // ─────────────────────────────────────────────────────────────────────────

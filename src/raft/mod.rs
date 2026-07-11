@@ -96,6 +96,12 @@ pub mod placement;
 pub mod pregel;
 pub mod reshard;
 pub mod store;
+/// Cross-shard READ fan-out + merge (CONCEPT:EG-KG.sharding.placement-catalog, DIST-P2-2) — the
+/// read-side counterpart to [`cross_shard_txn`]'s write-side 2PC: gathers a query's
+/// graphs from each Raft group they route to (via [`multi::MultiRaft::route_graph`])
+/// and UNION-merges the rows. No durability/atomicity machinery — a read has nothing
+/// to make crash-safe.
+pub mod xread;
 
 /// Correctness + load harness (CONCEPT:AU-KG.ontology.emits-database-ontology-entities) — the standing proof-engine that
 /// gates every distributed/durability claim. Compiled under tests OR the explicit
@@ -125,6 +131,13 @@ mod reshard_harness;
 // groups. Gated behind `harness` so a normal `raft` build links nothing.
 #[cfg(all(test, feature = "harness"))]
 mod placement_harness;
+
+// The cross-shard READ gauntlet (CONCEPT:EG-KG.sharding.placement-catalog, DIST-P2-2) — proves a
+// read spanning two groups gathers + union-merges both, each leg routes via the
+// PlacementCatalog, a single-group read is not flagged cross-shard, and an unreachable
+// leg errors loudly. Gated behind `harness` so a normal `raft` build links nothing.
+#[cfg(all(test, feature = "harness"))]
+mod xread_harness;
 
 /// In-process cross-shard 2PC **modality-spanning** coordinator-kill harness
 /// (CONCEPT:EG-KG.txn.crossshard-2pc-modality-harness) — the `--features cluster`
