@@ -25,3 +25,21 @@ serde = { version = "1.0", features = ["derive"] }
 # test (`decode_staged`/`encode_staged`). Already linked workspace-wide (eg-types
 # itself depends on it), so this adds no new dependency to the tree.
 serde_json = "1.0"
+
+# EG-P1-1 fleet aggregator (`tests/fleet_tck.rs`): pull the pilot modality crates in
+# (each with its own `contract` feature on) so their TCK reports can be collected into
+# ONE cross-crate parity table within a single test process — the `registered_
+# modalities()` registry is process-scoped, so a whole-fleet view needs every modality
+# registered in the SAME process, which only something ABOVE the modality crates (like
+# this test harness) can arrange.
+#
+# This is a DEV-DEPENDENCY CYCLE: eg-tensor/eg-geo depend on eg-modality (optionally,
+# under their `contract` feature), and here eg-modality dev-depends back on them. Cargo
+# EXPLICITLY permits cycles through dev-dependencies (they are compiled only for
+# eg-modality's own tests, are not part of the normal build graph, and never propagate
+# to the ~17 crates that depend on eg-modality). `cargo build -p eg-modality` and every
+# downstream crate are entirely unaffected; only `cargo test -p eg-modality` pays the
+# cost of building the two pilots. See `tests/fleet_tck.rs` for the mechanism writeup.
+[dev-dependencies]
+eg-tensor = { path = "../eg-tensor", features = ["contract"] }
+eg-geo = { path = "../eg-geo", features = ["contract"] }

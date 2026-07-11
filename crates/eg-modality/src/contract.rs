@@ -41,10 +41,24 @@
 //! Tensor/geo (the v1 pilots) do not need to override `provenance`/`evidence`/
 //! `policy_labels` at all — that is the point: no stub boilerplate on modalities
 //! that have nothing to say there.
+//!
+//! ## The EG-P1-1 hooks (five more default methods)
+//!
+//! To make the first-class TCK (`crate::tck`) COMPLETE — every one of its 12 points
+//! backed by a real trait method rather than a structural gap — four more
+//! default-"unsupported" hooks were added: `ingest_report` (TCK point 2),
+//! `storage_stats` (point 4), `backup_selfcheck` (point 10), `recovery_selfcheck`
+//! (point 11). A modality overrides the ones it can genuinely satisfy with a REAL
+//! self-check (see `eg-tensor`/`eg-geo`, which round-trip through their own durable
+//! codecs). A fifth hook, `tck_not_applicable`, lets a modality declare a point
+//! genuinely N/A (with a reason) — a distinct, honest status from "not implemented".
+//! All five default such that the ~17 existing implementers keep compiling untouched.
 
+use crate::capability::{IngestReport, ModalitySelfTest, StorageStats};
 use crate::evidence::EvidenceSpan;
 use crate::provenance::Provenance;
 use crate::rowset::RowSetShape;
+use crate::tck::TckPoint;
 use crate::txn::StagedWrite;
 
 /// The seam every `eg-*` modality value type can implement. See the module docs for
@@ -106,6 +120,55 @@ pub trait ModalityContract {
     /// themselves; that stays `eg-plan`'s executor + the modality's own API.
     fn analytics_ops(&self) -> Vec<&'static str> {
         Vec::new()
+    }
+
+    // ── 4 EG-P1-1 hooks — one per previously-structural TCK gap. All DEFAULT to
+    // "unsupported", so none of the ~17 existing implementers break; a modality
+    // overrides the ones it can genuinely satisfy (see eg-tensor/eg-geo). See
+    // `crate::capability` for the DTOs and `crate::tck` for how each maps to a point.
+
+    /// TCK point (2) — ingest (+streaming where applicable). Override to run a REAL
+    /// ingest self-check (e.g. parse this value back from its durable wire form) and
+    /// report [`IngestReport`]. Default: neither batch nor streaming ingest wired.
+    fn ingest_report(&self, _id: &str) -> IngestReport {
+        IngestReport::unsupported()
+    }
+
+    /// TCK point (4) — storage + secondary-index + stats presence. Override to report
+    /// this value's real [`StorageStats`] (logical size, element count, whether it is
+    /// secondary-indexed). Default: `None` (no storage stats attestable at this
+    /// layer).
+    fn storage_stats(&self, _id: &str) -> Option<StorageStats> {
+        None
+    }
+
+    /// TCK point (10) — backup / restore / migrate / recover. Override to run a REAL
+    /// backup→restore round-trip through this modality's DURABLE persistence form
+    /// (the on-disk codec) and report whether the restored value equalled the
+    /// original. Default: unsupported.
+    fn backup_selfcheck(&self, _id: &str) -> ModalitySelfTest {
+        ModalitySelfTest::Unsupported
+    }
+
+    /// TCK point (11) — single-node failure / recovery. Override to SIMULATE a
+    /// crash-and-recover: stage this value as an in-txn write, serialize the staged
+    /// write (the WAL analog), then replay it back after "restart" and report whether
+    /// the recovered value equalled the original. Default: unsupported.
+    fn recovery_selfcheck(&self, _id: &str) -> ModalitySelfTest {
+        ModalitySelfTest::Unsupported
+    }
+
+    /// The honesty escape hatch (EG-P1-1): declare that a given [`TckPoint`] is
+    /// genuinely NOT APPLICABLE to this modality's nature — a distinct, honest status
+    /// from `NotImplemented` ("not yet") — returning a concrete reason. Default:
+    /// `None` (every point is auto-derived from the concrete hooks above). Override
+    /// ONLY for points that will NEVER apply to this modality, WITH a real reason
+    /// (e.g. a bare numeric tensor has no derivation-lineage or tenant-policy of its
+    /// own; those are enforced at the graph-node/`eg-core::isolation` layer that owns
+    /// it, never in the array bytes). A caller MUST NOT use this to paper over a point
+    /// it actually fails — the reason string is the accountability record.
+    fn tck_not_applicable(&self, _point: TckPoint) -> Option<&'static str> {
+        None
     }
 }
 

@@ -3,54 +3,63 @@
 //! `ModalityContract` from an opt-in conformance macro to a genuine, provable,
 //! first-class TCK).
 //!
-//! ## Why 12 points, and why most modalities will legitimately be `NotImplemented` on
-//! several of them
+//! ## Every point maps to a real `ModalityContract` hook
 //!
-//! The 12 points are the FULL first-class bar (schema/ids, ingest+streaming, codec,
-//! storage+index+stats, typed query, txn/saga, CDC+delete+retention+GC, tenant/row/
-//! region policy, provenance+evidence+lineage, backup/restore/migrate/recover,
-//! single-node failure, interop/workload smoke) — deliberately much broader than the
-//! 4 core + 4 default-empty methods `ModalityContract` v1 actually defines (see
-//! `contract.rs` module docs for why only 4 things generalized losslessly across
-//! tensor/tsdb/rdf). Several TCK points (ingest/streaming, storage/index/stats,
-//! backup/restore/migrate/recover, single-node failure) have **no corresponding
-//! method on the trait at all** — there is nothing for `tck_report` to observe, so it
-//! honestly reports `NotImplemented` with the reason "no hook exists yet", not a fake
-//! `Pass`. That is the entire point of this module: "first-class" must be PROVABLE
-//! per point, not assumed because a modality merely compiles against the trait.
+//! As of EG-P1-1 the TCK is COMPLETE: all 12 points are evaluated against a real trait
+//! method — there is no longer any point that is "structurally unmeasurable". The four
+//! points that once had no corresponding method (ingest/streaming, storage+index+stats,
+//! backup/restore/migrate/recover, single-node failure) now map to the four EG-P1-1
+//! hooks added to the trait: `ingest_report`, `storage_stats`, `backup_selfcheck`,
+//! `recovery_selfcheck` (each with a default returning "unsupported", so none of the
+//! existing implementers break — see `contract.rs`). "First-class" is therefore
+//! PROVABLE per point, not assumed because a modality merely compiles against the
+//! trait.
 //!
-//! Closing those gaps is future work (extending `ModalityContract` itself with more
-//! core methods, tracked as a follow-up to this workstream) — this module's job is
-//! only to make the CURRENT gap machine-visible, honestly, per modality.
+//! ## Three honest statuses, never a silent pass
 //!
-//! ## What IS decidable from the existing trait (feasible points, computed for real)
+//! Each point resolves to exactly one of:
+//! * **`Pass`** — a real check succeeded (a codec round-trip, a declared capability, a
+//!   hook self-test that observed success).
+//! * **`NotApplicable(reason)`** — the point genuinely does not apply to this
+//!   modality's nature, declared by the modality via
+//!   `ModalityContract::tck_not_applicable` WITH a concrete reason. Distinct from
+//!   "not yet"; counts toward first-class (it is not a gap). Example: lineage/policy/
+//!   CDC on a bare numeric tensor (enforced elsewhere or architecturally absent).
+//! * **`NotImplemented(reason)`** — a real hook exists but this modality has not wired
+//!   it (the default), OR a wired self-check FAILED (honest red). This is the only
+//!   status that counts as an outstanding gap.
+//!
+//! `is_first_class()` == no `NotImplemented` remains (all Pass or N/A).
+//!
+//! ## How each point is decided
 //!
 //! 1. **Schema/ids** — `storage_kind()` names itself and `to_rowset(id)` echoes the
 //!    SAME id it was given.
-//! 2. **Codec / unsupported-format** — a corrupted `Put` payload must `decode_staged`
+//! 2. **Ingest (+streaming)** — `ingest_report().batch` self-check `Passed`.
+//! 3. **Codec / unsupported-format** — a corrupted `Put` payload must `decode_staged`
 //!    as `Err`, never silently succeed (and never panic — `decode_staged` is
 //!    `serde_json`-backed, which itself never panics on malformed input, only errors).
+//! 4. **Storage + secondary-index + stats** — `storage_stats()` returns `Some`.
 //! 5. **Typed query operators** — `analytics_ops()` is non-empty (and well-formed).
 //! 6. **Txn participation** — `txn_stage`/`rollback` id-symmetry (every modality
 //!    answers this; it is a CORE, non-default method).
-//! 7. **CDC (the modeled half only)** — a genuinely declared, non-empty `cdc_topic()`.
-//!    Delete/tombstone/retention/GC are NOT modeled by the trait at all, so this
-//!    point is a coarse, honest proxy, not full coverage — documented at the call
-//!    site below.
-//! 8. **Tenant/row/region policy (the modeled half only)** — non-empty
-//!    `policy_labels()`. Empty is the LEGITIMATE default (policy usually lives one
-//!    layer up at `eg-core::isolation`), so `NotImplemented` here does not mean
-//!    "broken", it means "not attached at the modality-value layer".
+//! 7. **CDC (the modeled half)** — a genuinely declared, non-empty `cdc_topic()`.
+//!    Delete/tombstone/retention/GC are not separately modeled; a modality for which
+//!    change-capture is architecturally absent declares this point N/A.
+//! 8. **Tenant/row/region policy** — non-empty `policy_labels()`. Empty is the
+//!    legitimate default when policy lives one layer up (`eg-core::isolation`); such a
+//!    modality declares this point N/A rather than leaving a gap.
 //! 9. **Provenance + evidence + lineage** — either `provenance()` or `evidence()`
 //!    reports `Some`.
-//! 12. **Interop/workload smoke** — the base round-trip above (project to a row,
-//!     stage a write, decode it back, roll it back) not panicking IS a genuine
-//!     minimal cross-cutting smoke test.
-//!
-//! Points 2 (ingest/streaming), 4 (storage/index/stats), 10 (backup/restore/migrate/
-//! recover), and 11 (single-node failure) are always `NotImplemented` for v1 — no
-//! trait hook exists for `tck_report` to observe.
+//! 10. **Backup/restore/migrate/recover** — `backup_selfcheck()` self-check `Passed`
+//!     (a real round-trip through the modality's durable codec).
+//! 11. **Single-node failure/recovery** — `recovery_selfcheck()` self-check `Passed`
+//!     (a simulated crash-and-recover through the staged-write/WAL replay path).
+//! 12. **Interop/workload smoke** — the base round-trip above (project to a row, stage
+//!     a write, decode it back, roll it back) not panicking IS a genuine minimal
+//!     cross-cutting smoke test.
 
+use crate::capability::ModalitySelfTest;
 use crate::contract::{ConformanceTestable, ModalityContract};
 use crate::txn::{decode_staged, WriteKind};
 
@@ -100,6 +109,25 @@ impl TckPoint {
         TckPoint::InteropWorkloadSmoke,
     ];
 
+    /// A very short column header for the compact fleet parity table
+    /// (`render_fleet_table`).
+    pub fn short(&self) -> &'static str {
+        match self {
+            TckPoint::SchemaAndIds => "schema",
+            TckPoint::IngestStreaming => "ingest",
+            TckPoint::CodecUnsupportedFormat => "codec",
+            TckPoint::StorageIndexStats => "storage",
+            TckPoint::TypedQueryOperators => "query",
+            TckPoint::TxnOrSagaOutbox => "txn",
+            TckPoint::CdcDeleteRetentionGc => "cdc",
+            TckPoint::TenantRowRegionPolicy => "policy",
+            TckPoint::ProvenanceEvidenceLineage => "prov",
+            TckPoint::BackupRestoreMigrateRecover => "backup",
+            TckPoint::SingleNodeFailure => "recover",
+            TckPoint::InteropWorkloadSmoke => "smoke",
+        }
+    }
+
     /// A short, human-readable label for this point (used by `TckReport::render_table`).
     pub fn label(&self) -> &'static str {
         match self {
@@ -119,13 +147,17 @@ impl TckPoint {
     }
 }
 
-/// The honest outcome of evaluating one [`TckPoint`] for one modality: either it
-/// genuinely `Pass`es, or it is `NotImplemented` with a machine-readable (well,
-/// human-readable but non-empty and specific) reason. There is deliberately no
-/// silent-skip / default-pass variant — see module docs.
+/// The honest outcome of evaluating one [`TckPoint`] for one modality: it genuinely
+/// `Pass`es, it is `NotApplicable` to this modality's nature (with a reason — a
+/// distinct, honest status introduced in EG-P1-1), or it is `NotImplemented` (a real
+/// hook exists but this modality has not wired it — also with a reason). There is
+/// deliberately no silent-skip / default-pass variant — see module docs.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TckStatus {
     Pass,
+    /// The point genuinely does not apply to this modality (e.g. lineage/policy on a
+    /// bare numeric tensor). Counts toward "first-class" — it is not a gap.
+    NotApplicable(&'static str),
     NotImplemented(&'static str),
 }
 
@@ -134,10 +166,17 @@ impl TckStatus {
         matches!(self, TckStatus::Pass)
     }
 
-    /// A short machine-parseable tag (`"PASS"` / `"NOT_IMPLEMENTED"`).
+    /// `true` for `Pass` OR `NotApplicable` — i.e. this point is not an outstanding
+    /// GAP. `is_first_class` is the AND of this over all 12 points.
+    pub fn is_covered(&self) -> bool {
+        matches!(self, TckStatus::Pass | TckStatus::NotApplicable(_))
+    }
+
+    /// A short machine-parseable tag (`"PASS"` / `"N/A"` / `"NOT_IMPLEMENTED"`).
     pub fn tag(&self) -> &'static str {
         match self {
             TckStatus::Pass => "PASS",
+            TckStatus::NotApplicable(_) => "N/A",
             TckStatus::NotImplemented(_) => "NOT_IMPLEMENTED",
         }
     }
@@ -160,14 +199,52 @@ pub struct TckReport {
 }
 
 impl TckReport {
-    /// `true` iff every point `Pass`es — the honest, provable definition of
-    /// "first-class" this workstream introduces (not "compiles against the trait").
+    /// `true` iff every point is `Pass` OR `NotApplicable` (no `NotImplemented`
+    /// remains) — the honest, provable definition of "first-class" this workstream
+    /// introduces. A genuinely-N/A point (with a documented reason) is NOT a gap; an
+    /// unimplemented one is.
     pub fn is_first_class(&self) -> bool {
-        self.results.iter().all(|r| r.status.is_pass())
+        self.results.iter().all(|r| r.status.is_covered())
     }
 
     pub fn pass_count(&self) -> usize {
         self.results.iter().filter(|r| r.status.is_pass()).count()
+    }
+
+    /// Count of points marked genuinely `NotApplicable`.
+    pub fn na_count(&self) -> usize {
+        self.results
+            .iter()
+            .filter(|r| matches!(r.status, TckStatus::NotApplicable(_)))
+            .count()
+    }
+
+    /// Count of points covered (Pass + N/A) — the numerator of the "X/12 covered"
+    /// first-class score.
+    pub fn covered_count(&self) -> usize {
+        self.results
+            .iter()
+            .filter(|r| r.status.is_covered())
+            .count()
+    }
+
+    /// A one-line summary like `"7 PASS + 3 N/A = 10/12 covered [FIRST-CLASS]"` or
+    /// `"5 PASS + 0 N/A = 5/12 covered [4 gaps]"`.
+    pub fn summary(&self) -> String {
+        let gaps = self.results.len() - self.covered_count();
+        let tail = if self.is_first_class() {
+            "FIRST-CLASS".to_string()
+        } else {
+            format!("{gaps} gap(s)")
+        };
+        format!(
+            "{} PASS + {} N/A = {}/{} covered [{}]",
+            self.pass_count(),
+            self.na_count(),
+            self.covered_count(),
+            self.results.len(),
+            tail
+        )
     }
 
     /// Render a Markdown capability table for this one modality — the building block
@@ -175,14 +252,14 @@ impl TckReport {
     /// "Capability parity" section for the regeneration recipe).
     pub fn render_table(&self) -> String {
         let mut out = format!(
-            "### {} — {}/{} first-class\n\n| point | status | detail |\n|---|---|---|\n",
+            "### {} — {}\n\n| point | status | detail |\n|---|---|---|\n",
             self.modality,
-            self.pass_count(),
-            self.results.len()
+            self.summary(),
         );
         for r in &self.results {
             let detail = match &r.status {
                 TckStatus::Pass => "",
+                TckStatus::NotApplicable(reason) => reason,
                 TckStatus::NotImplemented(reason) => reason,
             };
             out.push_str(&format!(
@@ -196,46 +273,117 @@ impl TckReport {
     }
 }
 
+/// Collect several modality reports into ONE cross-crate parity table (one row per
+/// modality, one column per TCK point) — the fleet-wide first-class view. Driven by
+/// the fleet harness (see `tests/fleet_tck.rs`) that pulls the pilot crates in as
+/// dev-deps so all of their reports exist in a single process.
+pub fn render_fleet_table(reports: &[TckReport]) -> String {
+    let mut out = String::from("# Modality TCK — fleet capability parity\n\n");
+    out.push_str("| modality |");
+    for p in TckPoint::ALL {
+        out.push_str(&format!(" {} |", p.short()));
+    }
+    out.push_str(" first-class |\n|---|");
+    for _ in TckPoint::ALL {
+        out.push_str("---|");
+    }
+    out.push_str("---|\n");
+    for report in reports {
+        out.push_str(&format!("| `{}` |", report.modality));
+        for point in TckPoint::ALL {
+            let tag = report
+                .results
+                .iter()
+                .find(|r| r.point == point)
+                .map(|r| r.status.tag())
+                .unwrap_or("-");
+            out.push_str(&format!(" {tag} |"));
+        }
+        let mark = if report.is_first_class() {
+            format!("**{}/{}** ✓", report.covered_count(), report.results.len())
+        } else {
+            format!("{}/{}", report.covered_count(), report.results.len())
+        };
+        out.push_str(&format!(" {mark} |\n"));
+    }
+    out
+}
+
+/// Map a hook's [`ModalitySelfTest`] outcome onto a [`TckStatus`]: a `Passed`
+/// self-check is a real `Pass`; a `Failed` one is an HONEST `NotImplemented` (the hook
+/// is wired but its own round-trip broke — never hidden); `Unsupported` is
+/// `NotImplemented` with the caller's "no hook overridden" reason; a genuine
+/// `NotApplicable(reason)` carries straight through.
+fn selftest_status(t: ModalitySelfTest, unsupported_reason: &'static str) -> TckStatus {
+    match t {
+        ModalitySelfTest::Passed => TckStatus::Pass,
+        ModalitySelfTest::Failed => TckStatus::NotImplemented(
+            "hook self-check FAILED (its own round-trip did not recover the value)",
+        ),
+        ModalitySelfTest::Unsupported => TckStatus::NotImplemented(unsupported_reason),
+        ModalitySelfTest::NotApplicable(reason) => TckStatus::NotApplicable(reason),
+    }
+}
+
 /// Compute the full 12-point TCK capability report for any `ConformanceTestable`
-/// modality, using ONLY what `ModalityContract` + `ConformanceTestable` already
-/// expose. Invents no storage/ingest/backup surface a modality doesn't have — points
-/// the trait genuinely cannot answer are `NotImplemented` with an honest reason (see
-/// module docs), never silently defaulted to `Pass`.
+/// modality. As of EG-P1-1 every one of the 12 points maps to a REAL
+/// `ModalityContract` hook (the four formerly-structural gaps — ingest, storage/stats,
+/// backup, single-node recovery — now have `ingest_report`/`storage_stats`/
+/// `backup_selfcheck`/`recovery_selfcheck`). A modality that does not override a hook
+/// still reports `NotImplemented` for ITSELF, but no point is structurally
+/// unmeasurable. Before deriving each point, a modality's own
+/// [`ModalityContract::tck_not_applicable`] is consulted: a point it declares
+/// genuinely N/A (with a reason) becomes `NotApplicable`, not `NotImplemented`. No
+/// point is ever silently defaulted to `Pass`.
 pub fn tck_report<T: ConformanceTestable>() -> TckReport {
     let sample = T::conformance_sample();
     let id = T::conformance_id();
+    let kind = ModalityContract::storage_kind(&sample);
     let mut results = Vec::with_capacity(TckPoint::ALL.len());
 
-    // (1) Stable versioned schema/ids: the only "schema stability" signal the v1
-    // trait shape can attest to (it has no explicit version field) is that
-    // storage_kind() names itself and to_rowset(id) echoes the SAME id it was given.
-    let kind = ModalityContract::storage_kind(&sample);
-    let row = ModalityContract::to_rowset(&sample, id);
-    results.push(TckPointResult {
-        point: TckPoint::SchemaAndIds,
-        status: if !kind.is_empty() && row.id == id {
-            TckStatus::Pass
-        } else {
-            TckStatus::NotImplemented(
-                "storage_kind()/to_rowset(id) do not stably name and echo this modality",
-            )
-        },
-    });
+    // Scope the push-closure so its borrow of `results`/`sample` ends before we move
+    // `results` into the report. Consult the modality's N/A escape hatch first; fall
+    // back to the auto-derived status only where a point is not declared genuinely N/A.
+    {
+        let mut push = |point: TckPoint, auto: TckStatus| {
+            let status = match ModalityContract::tck_not_applicable(&sample, point) {
+                Some(reason) => TckStatus::NotApplicable(reason),
+                None => auto,
+            };
+            results.push(TckPointResult { point, status });
+        };
 
-    // (2) Ingest (+streaming): ModalityContract v1 has NO ingest/streaming method at
-    // all (see contract.rs's v1-scoping rationale) — always NotImplemented until a
-    // future trait increment adds one.
-    results.push(TckPointResult {
-        point: TckPoint::IngestStreaming,
-        status: TckStatus::NotImplemented(
-            "ModalityContract v1 has no ingest/streaming hook — out of scope until a future trait increment",
+        // (1) Stable versioned schema/ids: the only "schema stability" signal the
+        // trait shape can attest to (it has no explicit version field) is that
+        // storage_kind() names itself and to_rowset(id) echoes the SAME id.
+        let row = ModalityContract::to_rowset(&sample, id);
+        push(
+            TckPoint::SchemaAndIds,
+            if !kind.is_empty() && row.id == id {
+                TckStatus::Pass
+            } else {
+                TckStatus::NotImplemented(
+                    "storage_kind()/to_rowset(id) do not stably name and echo this modality",
+                )
+            },
+        );
+
+        // (2) Ingest (+streaming where applicable): EG-P1-1 hook `ingest_report`. Pass iff
+        // the modality's own batch-ingest self-check passed; streaming is reported
+        // separately and may legitimately be N/A for a whole-value modality.
+        let ingest = ModalityContract::ingest_report(&sample, id);
+        push(
+        TckPoint::IngestStreaming,
+        selftest_status(
+            ingest.batch,
+            "ingest_report() defaults to unsupported — modality has not wired a batch-ingest self-check",
         ),
-    });
+    );
 
-    // (3) Codec / unsupported-format behavior: genuinely testable today — a
-    // corrupted Put payload must decode as Err, never silently succeed.
-    let staged = ModalityContract::txn_stage(&sample, id);
-    let codec_status = match staged.kind {
+        // (3) Codec / unsupported-format behavior: a corrupted Put payload must decode as
+        // Err, never silently succeed.
+        let staged = ModalityContract::txn_stage(&sample, id);
+        let codec_status = match staged.kind {
         WriteKind::Put => {
             let mut corrupt = staged.clone();
             corrupt.payload = b"\xff\xfe not a valid payload for any codec".to_vec();
@@ -250,118 +398,115 @@ pub fn tck_report<T: ConformanceTestable>() -> TckReport {
             "conformance_sample() stages as Delete — no Put payload exists to exercise the codec against",
         ),
     };
-    results.push(TckPointResult {
-        point: TckPoint::CodecUnsupportedFormat,
-        status: codec_status,
-    });
+        push(TckPoint::CodecUnsupportedFormat, codec_status);
 
-    // (4) Storage + secondary-index + stats presence: not modeled by
-    // ModalityContract at all (no stats/index hook) — always NotImplemented.
-    results.push(TckPointResult {
-        point: TckPoint::StorageIndexStats,
-        status: TckStatus::NotImplemented(
-            "ModalityContract exposes no storage/secondary-index/stats hook — lives in the modality's own store, unobserved here",
-        ),
-    });
-
-    // (5) Typed query operators: Pass iff the modality declares at least one
-    // well-formed named analytics op (empty is the legitimate default for "nothing
-    // beyond plain store/retrieve" per contract.rs's module docs).
-    let ops = ModalityContract::analytics_ops(&sample);
-    results.push(TckPointResult {
-        point: TckPoint::TypedQueryOperators,
-        status: if !ops.is_empty() && ops.iter().all(|o| !o.is_empty()) {
-            TckStatus::Pass
-        } else {
-            TckStatus::NotImplemented(
-                "analytics_ops() is empty — no typed query operators declared",
-            )
-        },
-    });
-
-    // (6) Txn participation OR declared saga/outbox: txn_stage/rollback id-symmetry
-    // is a CORE (non-default) method every modality must answer — this always
-    // passes unless the impl is actually broken.
-    let rollback_ok = staged.rollback().as_deref() == Some(id);
-    results.push(TckPointResult {
-        point: TckPoint::TxnOrSagaOutbox,
-        status: if rollback_ok {
-            TckStatus::Pass
-        } else {
-            TckStatus::NotImplemented("txn_stage(id).rollback() did not echo the staged id")
-        },
-    });
-
-    // (7) CDC / delete / tombstone / retention / GC: the trait only models the CDC
-    // half (cdc_topic()); delete/tombstone semantics live in the txn engine
-    // (StagedWrite::Delete), retention/GC have no hook at all. Coarse, HONEST proxy:
-    // Pass only if a genuinely non-empty CDC topic is declared — a modality with no
-    // CDC topic certainly has no observable delete/retention/GC story either.
-    results.push(TckPointResult {
-        point: TckPoint::CdcDeleteRetentionGc,
-        status: match ModalityContract::cdc_topic(&sample) {
-            Some(topic) if !topic.is_empty() => TckStatus::Pass,
-            _ => TckStatus::NotImplemented(
-                "no cdc_topic() declared; delete/tombstone/retention/GC have no ModalityContract hook at all",
+        // (4) Storage + secondary-index + stats presence: EG-P1-1 hook `storage_stats`.
+        // Pass iff the modality can attest its own storage stats.
+        push(
+        TckPoint::StorageIndexStats,
+        match ModalityContract::storage_stats(&sample, id) {
+            Some(_) => TckStatus::Pass,
+            None => TckStatus::NotImplemented(
+                "storage_stats() is None — modality attests no storage/secondary-index/stats at this layer",
             ),
         },
-    });
+    );
 
-    // (8) Tenant/row/region policy: Pass iff the modality attaches its own policy
-    // labels. Empty is the LEGITIMATE default (policy usually lives one layer up, at
-    // eg-core::isolation) — NotImplemented here means "not attached at the modality
-    // layer", not "broken".
-    let labels = ModalityContract::policy_labels(&sample, id);
-    results.push(TckPointResult {
-        point: TckPoint::TenantRowRegionPolicy,
-        status: if !labels.is_empty() {
-            TckStatus::Pass
-        } else {
-            TckStatus::NotImplemented(
-                "policy_labels() is empty — no modality-level tenant/row/region policy attached (may still be enforced at eg-core::isolation)",
-            )
+        // (5) Typed query operators: Pass iff the modality declares at least one
+        // well-formed named analytics op.
+        let ops = ModalityContract::analytics_ops(&sample);
+        push(
+            TckPoint::TypedQueryOperators,
+            if !ops.is_empty() && ops.iter().all(|o| !o.is_empty()) {
+                TckStatus::Pass
+            } else {
+                TckStatus::NotImplemented(
+                    "analytics_ops() is empty — no typed query operators declared",
+                )
+            },
+        );
+
+        // (6) Txn participation OR declared saga/outbox: txn_stage/rollback id-symmetry is
+        // a CORE (non-default) method every modality must answer.
+        let rollback_ok = staged.rollback().as_deref() == Some(id);
+        push(
+            TckPoint::TxnOrSagaOutbox,
+            if rollback_ok {
+                TckStatus::Pass
+            } else {
+                TckStatus::NotImplemented("txn_stage(id).rollback() did not echo the staged id")
+            },
+        );
+
+        // (7) CDC / delete / tombstone / retention / GC: the trait models the CDC half
+        // (cdc_topic()); delete/tombstone live in the txn engine (StagedWrite::Delete).
+        // Pass only if a genuinely non-empty CDC topic is declared.
+        push(
+        TckPoint::CdcDeleteRetentionGc,
+        match ModalityContract::cdc_topic(&sample) {
+            Some(topic) if !topic.is_empty() => TckStatus::Pass,
+            _ => TckStatus::NotImplemented(
+                "no cdc_topic() declared; a modality that does not publish change events has no observable delete/retention/GC story here",
+            ),
         },
-    });
+    );
 
-    // (9) Provenance + evidence-location + lineage: Pass iff EITHER provenance() or
-    // evidence() reports something — either counts as "this modality can attest to
-    // where/how a value came from".
-    let has_prov = ModalityContract::provenance(&sample, id).is_some();
-    let has_evi = ModalityContract::evidence(&sample, id).is_some();
-    results.push(TckPointResult {
-        point: TckPoint::ProvenanceEvidenceLineage,
-        status: if has_prov || has_evi {
-            TckStatus::Pass
-        } else {
-            TckStatus::NotImplemented(
-                "both provenance() and evidence() are None — no lineage attached at this layer",
+        // (8) Tenant/row/region policy: Pass iff the modality attaches its own policy
+        // labels. Empty is the LEGITIMATE default (policy usually lives one layer up, at
+        // eg-core::isolation) — a modality for which that is ARCHITECTURALLY true should
+        // declare this point N/A via tck_not_applicable rather than leave it a gap.
+        let labels = ModalityContract::policy_labels(&sample, id);
+        push(
+            TckPoint::TenantRowRegionPolicy,
+            if !labels.is_empty() {
+                TckStatus::Pass
+            } else {
+                TckStatus::NotImplemented(
+                "policy_labels() is empty — no modality-level tenant/row/region policy attached",
             )
-        },
-    });
+            },
+        );
 
-    // (10) Backup / restore / migrate / recover: unmodeled by ModalityContract.
-    results.push(TckPointResult {
-        point: TckPoint::BackupRestoreMigrateRecover,
-        status: TckStatus::NotImplemented(
-            "ModalityContract has no backup/restore/migrate/recover hook — durability lifecycle lives in the engine's own WAL/snapshot machinery, unobserved here",
+        // (9) Provenance + evidence-location + lineage: Pass iff EITHER provenance() or
+        // evidence() reports something.
+        let has_prov = ModalityContract::provenance(&sample, id).is_some();
+        let has_evi = ModalityContract::evidence(&sample, id).is_some();
+        push(
+            TckPoint::ProvenanceEvidenceLineage,
+            if has_prov || has_evi {
+                TckStatus::Pass
+            } else {
+                TckStatus::NotImplemented(
+                    "both provenance() and evidence() are None — no lineage attached at this layer",
+                )
+            },
+        );
+
+        // (10) Backup / restore / migrate / recover: EG-P1-1 hook `backup_selfcheck` —
+        // a real round-trip through the modality's DURABLE codec.
+        push(
+        TckPoint::BackupRestoreMigrateRecover,
+        selftest_status(
+            ModalityContract::backup_selfcheck(&sample, id),
+            "backup_selfcheck() defaults to unsupported — modality has not wired a durable backup/restore round-trip",
         ),
-    });
+    );
 
-    // (11) Single-node failure: unmodeled by ModalityContract.
-    results.push(TckPointResult {
-        point: TckPoint::SingleNodeFailure,
-        status: TckStatus::NotImplemented(
-            "ModalityContract exposes no fault-injection/recovery hook to observe single-node failure behavior",
+        // (11) Single-node failure / recovery: EG-P1-1 hook `recovery_selfcheck` — a
+        // simulated crash-and-recover via the staged-write (WAL analog) replay path.
+        push(
+        TckPoint::SingleNodeFailure,
+        selftest_status(
+            ModalityContract::recovery_selfcheck(&sample, id),
+            "recovery_selfcheck() defaults to unsupported — modality has not wired a crash-recovery replay",
         ),
-    });
+    );
 
-    // (12) Interop / workload smoke: the base round-trip exercised above (project to
-    // a row, stage a write, decode it back, roll it back) completing without
-    // panicking IS a genuine minimal cross-cutting smoke test.
-    results.push(TckPointResult {
-        point: TckPoint::InteropWorkloadSmoke,
-        status: TckStatus::Pass,
-    });
+        // (12) Interop / workload smoke: the base round-trip exercised above (project
+        // to a row, stage a write, decode it back, roll it back) completing without
+        // panicking IS a genuine minimal cross-cutting smoke test.
+        push(TckPoint::InteropWorkloadSmoke, TckStatus::Pass);
+    }
 
     TckReport {
         modality: kind,
