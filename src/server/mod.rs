@@ -157,6 +157,14 @@ pub mod s3;
 #[cfg(feature = "sparql-http")]
 pub mod sparql_http;
 
+/// LTAP lakehouse materialization tier (CONCEPT:EG-317 engine-side seam, feature
+/// `lake`, INT-P2-3): converts real `eg_tsdb` series into `eg_lake::LakeBatch`es,
+/// materializes them to Parquet on the blob CAS with Delta/Iceberg logs + an
+/// Iceberg-REST catalog + OpenLineage run events. The `rest` submodule (feature
+/// `lake-rest`) serves the standards Iceberg-REST catalog surface over it.
+#[cfg(feature = "lake")]
+pub mod lake;
+
 /// PromQL + the Prometheus-compatible HTTP query API (CONCEPT:EG-KG.query.prometheus-http-query-api, feature
 /// `promql`): `/api/v1/query[_range]` + `/labels` served on the obs listener over the
 /// durable eg-tsdb series, backed by the pure-Rust `eg_tsdb::promql` engine.
