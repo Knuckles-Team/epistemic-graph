@@ -312,3 +312,159 @@ pub(crate) fn check_graph_access(
         ))
     }
 }
+
+/// EG-P0-3 (WAL durability closure): `requires_write` (this file) classifies a
+/// method as a mutation for the isolation-ACL check; `crate::wal::is_durable_mutation`
+/// classifies it as needing a WAL record so it survives a crash. The two MUST agree
+/// for every method that can actually mutate durable data — a method acknowledged as
+/// a write but never logged is silently lost on crash. This lives here (not in
+/// `tests/`) because `requires_write` is `pub(crate)`: an external integration-test
+/// crate cannot name it, so the invariant can only be asserted from inside the crate.
+///
+/// Covers the 5 methods audited under EG-P0-3 (all previously FAILED this
+/// assertion): `MineSequence`, `MineForecast`, the `MineText` non-tfidf variant, the
+/// `MineSubgraph` gspan variant, and `AddEmbedding`.
+#[cfg(test)]
+mod durability_closure_tests {
+    use super::*;
+    use crate::protocol::Method;
+    use crate::wal::is_durable_mutation;
+
+    /// The one assertion every case below exercises: whenever `requires_write`
+    /// says a method mutates (and therefore requires Write ACL + a write lock),
+    /// `is_durable_mutation` must ALSO say it belongs in the WAL. (The converse
+    /// need not hold — e.g. a durable method reached only via a self-routing
+    /// surface like KV is fine — so this is a one-directional implication, not
+    /// an equality.)
+    fn assert_write_implies_durable(m: &Method) {
+        assert!(
+            !requires_write(m) || is_durable_mutation(m),
+            "EG-P0-3: {m:?} is classified a write by `access::requires_write` but \
+             NOT durable by `wal::is_durable_mutation` — it would be acknowledged \
+             then silently lost on crash"
+        );
+    }
+
+    #[cfg(feature = "mining")]
+    #[test]
+    fn mine_sequence_writeback_is_durable() {
+        use crate::protocol::MineSeqAlgorithm;
+        let m = Method::MineSequence {
+            sequences: vec![vec!["a".into(), "b".into()]],
+            source: None,
+            min_support: 0.5,
+            algorithm: MineSeqAlgorithm::Prefixspan,
+            writeback: true,
+            #[cfg(feature = "epistemic")]
+            as_claim: false,
+        };
+        assert!(requires_write(&m), "writeback=true must classify as a write");
+        assert_write_implies_durable(&m);
+    }
+
+    #[cfg(feature = "mining")]
+    #[test]
+    fn mine_forecast_writeback_is_durable() {
+        use crate::protocol::ForecastAlgorithm;
+        let m = Method::MineForecast {
+            values: vec![1.0, 2.0, 3.0, 4.0, 5.0],
+            algorithm: ForecastAlgorithm::Arima,
+            horizon: 2,
+            p: 1,
+            d: 0,
+            q: 0,
+            period: 0,
+            alpha: 0.3,
+            beta: 0.1,
+            gamma: 0.1,
+            confidence: 0.95,
+            series_id: "s1".into(),
+            writeback: true,
+            #[cfg(feature = "epistemic")]
+            as_claim: false,
+        };
+        assert!(requires_write(&m), "writeback=true must classify as a write");
+        assert_write_implies_durable(&m);
+    }
+
+    /// `MineText` writeback only mutates for `lda`/`nmf` — the durable set must
+    /// mirror that EXACT condition, not just "writeback=true" (a `tfidf` write
+    /// would otherwise be logged for an op that never touches the graph).
+    #[cfg(feature = "mining")]
+    #[test]
+    fn mine_text_lda_writeback_is_durable_but_tfidf_is_not() {
+        use crate::protocol::TextAlgorithm;
+        let base = |algorithm: TextAlgorithm| Method::MineText {
+            docs: vec![vec!["a".into(), "b".into()]],
+            source: None,
+            algorithm,
+            k: 2,
+            alpha: 0.1,
+            beta: 0.01,
+            iterations: 10,
+            seed: 1,
+            top_n: 5,
+            writeback: true,
+            #[cfg(feature = "epistemic")]
+            as_claim: false,
+        };
+        let lda = base(TextAlgorithm::Lda);
+        assert!(requires_write(&lda), "lda writeback=true must classify as a write");
+        assert_write_implies_durable(&lda);
+
+        // tfidf never mutates regardless of `writeback` — both classifiers must
+        // agree it is NOT a write (never durable, never write-locked).
+        let tfidf = base(TextAlgorithm::Tfidf);
+        assert!(
+            !requires_write(&tfidf),
+            "tfidf must never classify as a write, even with writeback=true"
+        );
+        assert!(
+            !is_durable_mutation(&tfidf),
+            "tfidf must never be durable, even with writeback=true"
+        );
+    }
+
+    /// `MineSubgraph` writeback only mutates for `gspan` — mirrors the `MineText`
+    /// exact-condition contract above (`motif` is a pure census, never a write).
+    #[cfg(feature = "mining")]
+    #[test]
+    fn mine_subgraph_gspan_writeback_is_durable_but_motif_is_not() {
+        use crate::protocol::SubgraphAlgorithm;
+        let base = |algorithm: SubgraphAlgorithm| Method::MineSubgraph {
+            label: None,
+            min_support: 0.1,
+            max_edges: 2,
+            algorithm,
+            writeback: true,
+            #[cfg(feature = "epistemic")]
+            as_claim: false,
+        };
+        let gspan = base(SubgraphAlgorithm::Gspan);
+        assert!(
+            requires_write(&gspan),
+            "gspan writeback=true must classify as a write"
+        );
+        assert_write_implies_durable(&gspan);
+
+        let motif = base(SubgraphAlgorithm::Motif);
+        assert!(
+            !requires_write(&motif),
+            "motif must never classify as a write, even with writeback=true"
+        );
+        assert!(
+            !is_durable_mutation(&motif),
+            "motif must never be durable, even with writeback=true"
+        );
+    }
+
+    #[test]
+    fn add_embedding_is_durable() {
+        let m = Method::AddEmbedding {
+            node_id: "n1".into(),
+            embedding: vec![0.1, 0.2, 0.3],
+        };
+        assert!(requires_write(&m));
+        assert_write_implies_durable(&m);
+    }
+}
