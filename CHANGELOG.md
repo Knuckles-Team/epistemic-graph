@@ -89,6 +89,30 @@ exhaustive audit, and ledger-driven admin scoping. Staged locally (not yet pushe
   (`ApplyMutation`, the ledger ops, `Reconcile`, `RunDatalogReasoning`, etc.) — **not** addressed by
   this fix; see `docs/capabilities.md`'s "Known limitations".
 
+### Added — dependency-driven truth maintenance (X-6 / EPI-P3-2)
+- **`eg-epistemic::recompute` (feature `epistemic-tms`)** — a live recompute/truth-maintenance
+  engine layered on top of the shipped paraconsistent TMS + Dung argumentation (2.16.0): tracks
+  every derived materialization (an inferred edge/cluster/summary/classification/agent-fact) as
+  a `Materialization` with an explicit `depends_on` set (the invalidation-dependency edges) and
+  optional `generating_activity` (model/job/ontology version). `TruthMaintenance::on_change`
+  takes a `ChangeEvent` (`Deleted`/`Updated`/`PolicyChanged`/`ModelRetired`/`OntologyEvolved`),
+  walks the reverse dependency index to find every materialization transitively depending on the
+  changed id (or generator), and marks it `Stale` — never silently leaving stale truth behind.
+  `TruthMaintenance::recompute` re-derives a stale id against a (possibly new) dependency set,
+  landing `Fresh` or `Retracted` (never resting at `Stale`). `TruthMaintenance::retract_and_propagate`
+  wires the existing `tms::retract` dependency-directed retraction straight into the same index:
+  retracting a claim in the argumentation graph marks its dependents `Stale` one tracking level up.
+  `TruthMaintenance::dependents_of` answers "what depends on X"; `TruthMaintenance::stale` answers
+  "what's stale". Paraconsistency is preserved end-to-end — two materializations built from
+  directly contradicting claims coexist independently, and a retraction only propagates along real
+  dependency edges, never across an unrelated contradiction. Reuses the shipped TMS/`JustificationGraph`
+  verbatim (no reimplementation); no new persistence — an in-memory index, same feature gate.
+  Coordinates with the invalidation-dependency edges EPI-P3-1 adds onto the stored graph (not yet
+  landed in this repo): `register` currently takes explicit dependency ids and is meant to be
+  populated from those real `:DerivedFrom`/`:GeneratedBy` edges once they exist; a server-side CDC
+  hook mapping `CdcKind::RemoveNode`/`UpdateNode` onto `ChangeEvent::Deleted`/`Updated` is the
+  other open wiring point (`eg-epistemic` has no `streaming` dependency by design).
+
 ## [2.17.0] - 2026-07-10 — Semi-naive reasoning + GPU transitive-closure
 
 Re-architects the compiled semantic reasoner (`CONCEPT:EG-KG.compute.compiled-semantic-reasoner`)
