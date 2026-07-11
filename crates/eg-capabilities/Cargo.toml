@@ -37,6 +37,16 @@ name = "eg_capabilities"
 # `exec.rs` `Op::Probabilistic`) that a shipped `full` build never compiles. Omitting
 # them keeps this crate's Method coverage 1:1 (still 337 variants) while leaving the
 # engine's feature set byte-for-byte what it was pre-EG-P0-2.
+#
+# CONCEPT:INT-P2-1: `jobs` (the `Method::AnalyticsJob` durable-job-plane variant) is
+# ALSO deliberately omitted from the forced-on list above, for the SAME reason as
+# `timeseries`/`probabilistic` -- but this time it DOES gate a real `Method` variant,
+# so simply omitting it would leave `policy()` non-exhaustive whenever a build
+# elsewhere in the graph turns `eg-types/jobs` on. Instead this crate carries its OWN
+# mirrored `jobs` feature (below) that both turns on `eg-types/jobs` AND cfg-gates
+# `policy()`'s one `Method::AnalyticsJob` arm together, so the two can never drift
+# out of sync -- the root `epistemic-graph` package's `jobs` facade feature enables
+# BOTH `eg-types/jobs` and `eg-capabilities/jobs` in lockstep (see root Cargo.toml).
 [dependencies.eg-types]
 path = "../eg-types"
 features = [
@@ -46,3 +56,10 @@ features = [
     "wasm-udf", "compute-dist", "matview", "security", "federation",
     "geo", "tensor", "stream",
 ]
+
+[features]
+default = []
+# CONCEPT:INT-P2-1 -- see the module doc above. Mirrors `eg-types/jobs` 1:1: NEVER
+# enable one without the other (this feature enables `eg-types/jobs` itself, so a
+# caller only ever needs to request THIS one).
+jobs = ["eg-types/jobs"]
