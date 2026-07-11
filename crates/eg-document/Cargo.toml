@@ -1,0 +1,46 @@
+[package]
+name = "eg-document"
+version = "0.1.0"
+edition = "2021"
+authors = ["Audel Rouhi <knucklessg1@gmail.com>"]
+description = "Pure-Rust document modality for the epistemic-graph engine (CONCEPT:EG-P1-3) — a typed raw-bytes -> pages -> layout-blocks -> tables -> spans model with language/version/annotation fields and a chunk-lineage concept, a content-addressed blob ref, and a plugin seam (`DocumentDecoder`) for real extractors (PDF layout, OCR, …) with a trivial dependency-free plain-text decoder shipped by default. A `ModalityContract` impl producing a real EvidenceSpan::DocumentSpan. NO heavy PDF/OCR dependency in the default build (the Pi contract)."
+license = "MIT"
+
+[lib]
+name = "eg_document"
+
+# Pure-Rust, Pi-lean leaf crate — a sibling of eg-image/eg-audio/eg-video. The ONLY
+# unconditional dependency is serde (so `DocumentData` persists as a typed property in
+# the redb per-graph store). Deliberately NO PDF/HTML/OCR crate: `decoder::DocumentDecoder`
+# is a PLUGIN trait; the only shipped implementation (`PlainTextDecoder`) treats the
+# whole byte payload as one page/one paragraph/one span of UTF-8 text. A real layout/OCR
+# extractor is an explicitly out-of-scope, documented follow-up — a caller implements
+# `DocumentDecoder` in its own crate/service (in-process plugin or a remote extraction
+# job) and hands this crate the resulting typed `DocumentData`; this crate never needs
+# to depend on the heavy extractor to accept its output.
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+# ModalityContract retrofit (CONCEPT:EG-P1-3, mirroring eg-image/eg-audio/eg-video's
+# CONCEPT:E4 follow-up). Optional, only under `contract` (default OFF) — a default
+# build links none of it and `DocumentData` carries no new required trait. See
+# `src/contract.rs`.
+eg-modality = { path = "../eg-modality", optional = true }
+
+[features]
+default = []
+# ModalityContract retrofit (CONCEPT:EG-P1-3): `impl ModalityContract for
+# DocumentData` + the `modality_conformance_tests!` battery. OFF by default,
+# deliberately NOT folded into any tier aggregate (pi/node/full) — it is a
+# capability-discovery/testing seam, not a serving feature. `cargo test -p eg-document
+# --features contract` runs the suite.
+contract = ["dep:eg-modality"]
+# RESERVED seam for a real structured extractor (PDF layout/table/OCR decode to a full
+# `DocumentData`). NOT implemented in v1 — the only shipped decoder
+# (`decoder::PlainTextDecoder`) stays plain-text/metadata-level only (see crate docs).
+# Turning this on TODAY adds no dependency and changes no behavior; a future real
+# extractor would gate its heavy dep (e.g. `pdf`/`lopdf`/`tesseract`-bindings) behind
+# this SAME feature name so the default build never links it (the Pi contract).
+extract = []
+
+[dev-dependencies]
+serde_json = "1.0"
