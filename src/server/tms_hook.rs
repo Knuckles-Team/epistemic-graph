@@ -40,15 +40,19 @@
 //! GATEWAY_ROUTED majority of graph-core writes) and, for completeness, the legacy
 //! dispatch-shell tail (`crate::server::dispatch`) that the NOT-yet-gateway-routed
 //! remainder still uses. What it does NOT do:
-//!   * **Populate `register()`.** Nothing calls [`TruthMaintenance::register`] yet — the
-//!     index starts empty on every process, so `on_change` has nothing to stale until a
-//!     caller registers materializations (EPI-P3-1's storage-level `:DerivedFrom`/
-//!     `:GeneratedBy` edges are the intended future source — see the crate's own module
-//!     docs). Proving the HOOK fires (this module's test) does not require that; it
-//!     `register`s a materialization inline to observe the transition.
-//!   * **Surface staleness anywhere.** `on_change`'s returned id set is currently
-//!     dropped after logging — a real consumer (a recompute scheduler, a served
-//!     `TmsStale` query method, a metric) is a separate, larger workstream.
+//!   * **Populate `register()`.** [`register_materialization`] closes this — Seam 3
+//!     (X-6 across the storage boundary) wires it onto `Method::RegisterMaterialization`
+//!     (feature `epistemic`, handler additionally gated `epistemic-tms`), so a caller
+//!     (e.g. agent-utilities, right after writing a derived claim/summary/classification
+//!     node + its `:DerivedFrom`/`:GeneratedBy` provenance edges) registers it ONCE over
+//!     the wire — no engine-internal-only path anymore. The index still starts empty on
+//!     every process; only ids a caller actually registered (or this module's own
+//!     inline test registrations) are tracked.
+//!   * **Surface staleness anywhere BEYOND a per-id status read.** `on_change`'s returned
+//!     id set is still dropped after logging in [`notify`]; [`status_of`] (wired to
+//!     `Method::MaterializationStatus`) answers "is THIS id stale now", but a bulk
+//!     "what's everything stale" feed (a recompute scheduler, a metric) is a separate,
+//!     larger workstream.
 //!   * **A `ServerState`-held, per-process-restart-durable index.** The global index is
 //!     in-memory only and resets on restart, same posture as `eg-epistemic`'s existing
 //!     in-memory `TruthMaintenance` (no persistence layer exists for it yet anywhere in
@@ -111,6 +115,34 @@ pub fn notify(method: &Method) -> std::collections::BTreeSet<String> {
         Some(event) => lock_index().on_change(&event),
         None => Default::default(),
     }
+}
+
+/// Seam 3 (CONCEPT:EG-KG.epistemic.truth-maintenance, X-6 wire surface) — the
+/// server-side body of `Method::RegisterMaterialization`: read `derived_id`'s OWN
+/// already-stored provenance (`invalidation_deps` property + outgoing
+/// `:DerivedFrom`/`:GeneratedBy` edges) off `view` via
+/// [`eg_epistemic::register_from_provenance`] and register it on the SAME global
+/// index [`notify`] feeds — from this point on, a committed mutation touching any
+/// of its dependencies automatically stales/retracts it. Returns the freshly
+/// registered [`eg_epistemic::Materialization`] (always `Fresh` immediately after
+/// registering) so the caller can confirm exactly what dependency set was resolved.
+pub fn register_materialization(
+    view: &eg_core::graph::GraphView,
+    derived_id: &str,
+) -> eg_epistemic::Materialization {
+    let mut idx = lock_index();
+    eg_epistemic::register_from_provenance(&mut idx, view, derived_id);
+    idx.get(derived_id)
+        .cloned()
+        .expect("register_from_provenance always inserts derived_id")
+}
+
+/// Seam 3 — the server-side body of `Method::MaterializationStatus`: the current
+/// [`eg_epistemic::MaterializationStatus`] of `id` on the SAME global index
+/// [`register_materialization`]/[`notify`] read and write, or `None` if `id` was
+/// never registered.
+pub fn status_of(id: &str) -> Option<eg_epistemic::MaterializationStatus> {
+    lock_index().status_of(id)
 }
 
 /// Serializes this module's tests against the shared process-global index (tests in
