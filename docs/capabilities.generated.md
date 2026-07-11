@@ -260,6 +260,8 @@
 | `ExplainBelief` | false | None | `explain:read` | true | false | false | Snapshot |  |
 | `EpistemicStatus` | false | None | `explain:read` | true | false | false | Snapshot | L53 (EPI-P3-5) acceptance capstone; handler additionally gated `epistemic-tms` |
 | `WhatChanged` | false | None | `explain:read` | true | false | false | Snapshot | L53 (EPI-P3-5) bitemporal diff; handler additionally gated `epistemic-tms` |
+| `RegisterMaterialization` | false | None | `explain:read` | true | false | false | Snapshot | Seam 3 (X-6 wire surface): registers a TruthMaintenance materialization off its own stored provenance; side effect lands only in the ephemeral tms_hook index, never the durable graph; handler additionally gated `epistemic-tms` |
+| `MaterializationStatus` | false | None | `explain:read` | true | false | false | Snapshot | Seam 3: read-only status lookup on the same tms_hook index; handler additionally gated `epistemic-tms` |
 | `ExplainEvidence` | false | None | `explain:read` | true | false | false | Snapshot | CONCEPT:EG-X1 multimodal-citation resolver; handler additionally gated `evidence-graph` |
 | `CausalEstimate` | false | None | `explain:read` | true | false | false | Snapshot | EPI-P3-3 do-calculus intervention over a request-carried SCM; handler additionally gated `epistemic-causal` |
 | `RankByProvenance` | false | None | `explain:read` | true | false | false | Snapshot | EPI-P3-3 provenance-aware retrieval ranking; handler additionally gated `epistemic-causal` |
