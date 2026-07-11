@@ -256,6 +256,9 @@ async fn text_hybrid_read_never_torn_under_concurrent_write() {
         fn kind(&self) -> epistemic_graph::index::IndexKind {
             self.0.kind()
         }
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
         fn descriptor(&self) -> epistemic_graph::index::IndexDescriptor {
             self.0.descriptor()
         }

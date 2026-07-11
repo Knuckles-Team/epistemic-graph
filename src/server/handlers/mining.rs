@@ -4027,12 +4027,22 @@ fn gather_embeddings(core: &GraphCore, spec: &VectorSource) -> (Vec<Vec<f64>>, V
 #[cfg(feature = "query")]
 fn gather_plan_rows(core: &GraphCore, plan: &crate::wire::Plan) -> (Vec<Vec<f64>>, Vec<String>) {
     let snap = core.analysis_snapshot();
-    let semantic = core.semantic_store.read().clone();
+    // CONCEPT:EG-KG.query.served-vector-index-binding — push the vector leg into the LIVE
+    // persistent `SemanticStore` via a guard, reused for the embedding lookups below too,
+    // instead of a `.clone()` that (on the default HNSW backend) would have forced a full
+    // rebuild on its first search. No `ServedTextIndex` here: this fn only receives
+    // `&GraphCore` (not an `Arc`), so a `RankText`/`FuseRrf` leg in a mining-sourced plan
+    // still falls back to the snapshot-derived text index — listed in the rollout backlog
+    // (plumbing an `Arc<GraphCore>` through the mining dispatch call chain is a separate,
+    // lower-traffic follow-up).
+    let store = core.semantic_store.read();
     let rows = match crate::server::handlers::query::run_unified(
         plan.clone(),
         None,
         &snap,
-        &semantic,
+        &store,
+        #[cfg(feature = "text")]
+        None,
         #[cfg(feature = "tsdb")]
         None,
         #[cfg(feature = "tsdb")]
@@ -4041,7 +4051,6 @@ fn gather_plan_rows(core: &GraphCore, plan: &crate::wire::Plan) -> (Vec<Vec<f64>
         Ok(rows) => rows,
         Err(_) => return (Vec::new(), Vec::new()),
     };
-    let store = core.semantic_store.read();
     let mut feats: Vec<Vec<f64>> = Vec::with_capacity(rows.len());
     let mut ids: Vec<String> = Vec::with_capacity(rows.len());
     for (node_id, _score) in rows {
