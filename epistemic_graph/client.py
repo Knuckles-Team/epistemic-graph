@@ -975,6 +975,51 @@ class ReshardingClient:
         )
 
 
+class PlacementClient:
+    """CONCEPT:EG-KG.sharding.placement-route-rpc — DIST-P2-4 placement-catalog wire consumer namespace.
+
+    Exposes the engine's ``raft::placement::PlacementCatalog`` (DIST-P2-1's ONE
+    placement authority for virtual partitions — durable, versioned, spans-multiple-
+    groups routing with a fenced-cutover epoch) over the wire via ``Method::
+    PlacementRoute``. Until this namespace, the catalog was consumed only INSIDE the
+    engine (``MultiRaft::route_graph``); this is the seam an external caller (e.g.
+    ``agent_utilities``'s ``placement_catalog.py``) drives instead of guessing
+    placement independently via a static hash ring.
+    """
+
+    def __init__(self, client: EpistemicGraphClient) -> None:
+        self._client = client
+
+    async def route(
+        self, tenant: str, sub_key: str, client_epoch: int = 0
+    ) -> dict[str, Any]:
+        """Resolve ``(tenant, sub_key)``'s current placement.
+
+        ``client_epoch`` is the caller's last-known routing epoch for this
+        partition (``0`` if it never resolved one before) — it only affects the
+        returned ``redirect`` hint, it never rejects the request.
+
+        Returns ``{"explicit": False}`` when the catalog has no explicit placement
+        for this tenant — the SAME answer a non-clustered engine (no ``raft``
+        feature, or no live multi-group cluster on this node) gives, so a caller's
+        fallback-to-hash-ring path (e.g. AU's ``shard_topology``) triggers
+        identically in all three cases. Otherwise returns ``{"explicit": True,
+        "group": <int>, "epoch": <int>, "redirect": <bool>, "endpoint": None}``:
+        ``redirect`` is ``True`` when ``client_epoch`` is behind the entry's
+        current epoch (a fenced cutover moved it, or this is a first-ever lookup
+        presenting epoch 0) — treat ``group``/``epoch`` as the fresh answer to
+        reconnect/retry against. ``endpoint`` is always ``None`` on the wire today:
+        the catalog resolves a Raft group identity, not a client-facing network
+        address — mapping a group to a connectable endpoint is deployment
+        topology the CALLER owns (e.g. AU's ``GRAPH_SERVICE_ENDPOINTS``), a
+        documented follow-up, not something this RPC can authorities over.
+        """
+        return await self._client._send(
+            "PlacementRoute",
+            {"tenant": tenant, "sub_key": sub_key, "client_epoch": client_epoch},
+        )
+
+
 class ConsensusClient:
     """CONCEPT:AU-KG.research.research-pipeline-runner — Zero-Trust Consensus Namespace"""
 
@@ -4622,6 +4667,7 @@ class EpistemicGraphClient:
         self.channels = ChannelsClient(self)
         self.tenants = MultiTenantClient(self)
         self.resharding = ReshardingClient(self)
+        self.placement = PlacementClient(self)
         self.consensus = ConsensusClient(self)
         self.finance = FinanceClient(self)
         self.datascience = DataScienceClient(self)
@@ -5036,6 +5082,7 @@ class SyncEpistemicGraphClient:
         self.channels = self._SyncWrapper(self._client.channels, self._loop)
         self.tenants = self._SyncWrapper(self._client.tenants, self._loop)
         self.resharding = self._SyncWrapper(self._client.resharding, self._loop)
+        self.placement = self._SyncWrapper(self._client.placement, self._loop)
         self.consensus = self._SyncWrapper(self._client.consensus, self._loop)
         self.finance = self._SyncWrapper(self._client.finance, self._loop)
         self.datascience = self._SyncWrapper(self._client.datascience, self._loop)

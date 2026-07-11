@@ -23,14 +23,21 @@
 //!   but drops rows a predicate matches: real row-level DELETE via rewrite (Iceberg's
 //!   own copy-on-write delete strategy), not a stub.
 //! * [`LakeManager::evolve_add_column`] — additive-only schema evolution: a new
-//!   nullable column is added to the table's `LakeSchema` for FUTURE writes. Honest
-//!   limitation (documented, not silently dropped): historical Parquet files lack the
-//!   column (read back as absent, matching the engine's existing schema-on-read
-//!   tolerance for a mismatched cell), and the current single-schema-id
-//!   `metadata.json`/Avro-manifest writer does not yet track a PER-FILE schema id
-//!   across a rewrite — full Iceberg schema-evolution fidelity (and partition-spec
-//!   evolution, which eg-lake does not model at all — every spec is `[]`/unpartitioned)
-//!   are documented follow-ups.
+//!   nullable column is added to the table's `LakeSchema` for FUTURE writes, via
+//!   `eg_lake::LakeTable::evolve_add_column`. As of INT-P2-4 (CONCEPT:EG-KG.storage.iceberg-per-file-schema-id) each
+//!   committed snapshot's `metadata.json` records the Iceberg schema-id that was
+//!   ACTUALLY in effect when it (and every still-live data file) was written —
+//!   `schemas[]` carries the FULL schema-version history, `current-schema-id` tracks
+//!   the latest, and each live file's manifest-preview entry carries its OWN
+//!   schema-id (a live file that predates a later evolution keeps its older id even
+//!   after a rewrite lands newer files under the newer schema). Historical Parquet
+//!   files still lack the added column's bytes (read back as absent, matching the
+//!   engine's existing schema-on-read tolerance for a mismatched cell) — that part is
+//!   unchanged. Remaining documented follow-ups: the real Avro manifest still
+//!   declares ONE schema-id per manifest FILE (spec-correct, but a live manifest
+//!   spanning >1 schema generation doesn't yet split into per-generation manifests),
+//!   and partition-spec evolution (eg-lake does not model partitioning at all — every
+//!   spec is `[]`/unpartitioned).
 //!
 //! ## OpenLineage
 //! Every materialize/compact/delete run builds an OpenLineage `RunEvent` (job + run +
@@ -487,11 +494,14 @@ impl LakeManager {
         self.delete_where(store, namespace, table, |_row| true)
     }
 
-    /// Additive-only schema evolution (CONCEPT:EG-317, best-effort — see the module
-    /// docs' honest limitation note): append a new nullable column to the table's
-    /// current `LakeSchema` for FUTURE writes. Returns `Ok(true)` if the column was
-    /// added, `Ok(false)` if a column of that name already exists, `Err` if the table
-    /// is unknown.
+    /// Additive-only schema evolution (CONCEPT:EG-317): append a new nullable column
+    /// to the table's current `LakeSchema` for FUTURE writes, via
+    /// [`LakeTable::evolve_add_column`] — which also bumps the table's Iceberg
+    /// schema-id and records the new schema version, so a subsequent
+    /// [`LakeTable::iceberg`] render carries the FULL schema-evolution history
+    /// (CONCEPT:EG-KG.storage.iceberg-per-file-schema-id, INT-P2-4) instead of always schema-id 0. Returns
+    /// `Ok(true)` if the column was added, `Ok(false)` if a column of that name
+    /// already exists, `Err` if the table is unknown.
     pub fn evolve_add_column(
         &self,
         namespace: &str,
@@ -502,11 +512,7 @@ impl LakeManager {
         let entry = tables
             .get_mut(&(namespace.to_string(), table.to_string()))
             .ok_or_else(|| format!("no such table: {namespace}.{table}"))?;
-        if entry.table.schema.index_of(&field.name).is_some() {
-            return Ok(false);
-        }
-        entry.table.schema.fields.push(field);
-        Ok(true)
+        Ok(entry.table.evolve_add_column(field))
     }
 
     // ── Iceberg-REST catalog reads (delegated straight to `eg_lake::catalog`) ──────
