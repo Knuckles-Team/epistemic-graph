@@ -2325,6 +2325,7 @@ dependencies = [
 name = "eg-plan"
 version = "0.33.0"
 dependencies = [
+ "arrow",
  "base64",
  "criterion",
  "eg-audio",
