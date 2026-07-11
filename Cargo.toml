@@ -241,6 +241,30 @@ epistemic-redaction = ["epistemic", "security", "eg-epistemic/epistemic-redactio
 # `eg-epistemic` need). Same tier-wiring posture as `epistemic-redaction` above (NOT
 # folded into `full` here). `--all-features` still enables it.
 epistemic-tms = ["epistemic", "eg-epistemic/epistemic-tms"]
+# X-1 (CONCEPT:EG-X1) — the multimodal-evidence citation resolver wired onto the
+# facade as `Method::ExplainEvidence`: given a claim/evidence node id, walk the
+# SAME support/contradiction/attack `BeliefGraph` topology `ExplainBelief` walks
+# and return every transitively-cited node's located `EvidenceSpan` locus (PDF
+# page+box, audio/video interval, SQL row version, code range, trace span, …)
+# plus its `AssetOccurrence`/`Blob` identity chain — "here is exactly where in
+# the source this claim's evidence came from." Turns on `eg-epistemic`'s own
+# `evidence-graph` feature (no new dependency — it reuses the SAME optional
+# `eg-modality` dep `epistemic` already links for `EvidenceSpanWire`); implies
+# `epistemic` (the wire `Method` variant + facade `eg-epistemic` dep). Same
+# tier-wiring posture as `epistemic-redaction`/`epistemic-tms` above (a feature,
+# NOT folded into the `full` tier line); `--all-features` still enables it.
+evidence-graph = ["epistemic", "eg-epistemic/evidence-graph"]
+# EPI-P3-3 — calibrated causal reasoning + provenance-aware retrieval ranking
+# wired onto the facade as `Method::CausalEstimate` (do-calculus intervention
+# over a request-carried linear-Gaussian structural causal model) and
+# `Method::RankByProvenance` (rank request-carried retrieval candidates by
+# evidence quality/provenance, not similarity alone). Turns on `eg-epistemic`'s
+# own `epistemic-causal` feature (pure Rust, no new dependency — see that
+# crate's `Cargo.toml`); implies `epistemic` (the wire `Method` variants +
+# facade `eg-epistemic` dep). Same tier-wiring posture as `epistemic-redaction`/
+# `epistemic-tms`/`evidence-graph` above (a feature, NOT folded into the `full`
+# tier line); `--all-features` still enables it.
+epistemic-causal = ["epistemic", "eg-epistemic/epistemic-causal"]
 # CONCEPT:EG-321 — the Analytics-Program numeric kernel (eg-numeric: faer + ndarray,
 # BLAS/LAPACK-free). Links the PURE Rust kernel (rlib) for Surface B in-database
 # analytics — the Python-extension FFI layer is behind eg-numeric's OWN `python`

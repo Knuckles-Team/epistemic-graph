@@ -259,6 +259,9 @@
 | `ExplainBelief` | false | None | `explain:read` | true | false | false | Snapshot |  |
 | `EpistemicStatus` | false | None | `explain:read` | true | false | false | Snapshot | L53 (EPI-P3-5) acceptance capstone; handler additionally gated `epistemic-tms` |
 | `WhatChanged` | false | None | `explain:read` | true | false | false | Snapshot | L53 (EPI-P3-5) bitemporal diff; handler additionally gated `epistemic-tms` |
+| `ExplainEvidence` | false | None | `explain:read` | true | false | false | Snapshot | CONCEPT:EG-X1 multimodal-citation resolver; handler additionally gated `evidence-graph` |
+| `CausalEstimate` | false | None | `explain:read` | true | false | false | Snapshot | EPI-P3-3 do-calculus intervention over a request-carried SCM; handler additionally gated `epistemic-causal` |
+| `RankByProvenance` | false | None | `explain:read` | true | false | false | Snapshot | EPI-P3-3 provenance-aware retrieval ranking; handler additionally gated `epistemic-causal` |
 | `NlQuery` | false | None | `query:nl` | false | false | false | Snapshot |  |
 | `RegisterForeignSource` | ~true | None | `federation:admin` | true | false | false | Atomic | NOT present in access.rs's write classifier at all; policy marks it mutates=true on semantic grounds (registers a foreign-source config) -- flagged as a possible access.rs coverage gap |
 | `RegisterUdf` | ~true | None | `udf:admin` | true | false | false | Atomic | NOT present in access.rs's write classifier at all; policy marks it mutates=true on semantic grounds -- flagged as a possible access.rs coverage gap |
