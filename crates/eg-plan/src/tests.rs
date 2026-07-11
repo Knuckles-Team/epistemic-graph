@@ -205,10 +205,7 @@ fn adaptive_reopt_auto_wires_into_ordinary_execution() {
     core.add_node("hub".into(), blob(json!({"type": "Hub"})));
     for i in 0..500 {
         let id = format!("r{i}");
-        core.add_node(
-            id.clone(),
-            blob(json!({"type": "Reached", "keep": "yes"})),
-        );
+        core.add_node(id.clone(), blob(json!({"type": "Reached", "keep": "yes"})));
         core.add_edge("hub".into(), id, blob(json!({"relationship": "LINK"})))
             .unwrap();
     }
@@ -241,7 +238,9 @@ fn adaptive_reopt_auto_wires_into_ordinary_execution() {
     );
 
     let plan_ops = vec![
-        Op::Scan { label: "Hub".into() },
+        Op::Scan {
+            label: "Hub".into(),
+        },
         traverse.clone(),
         Op::Filter {
             preds: vec![Pred::Eq {
@@ -260,7 +259,8 @@ fn adaptive_reopt_auto_wires_into_ordinary_execution() {
     // `reoptimize_remaining` (the exact primitive `SerialDriver::run` now calls after
     // EVERY op) does NOT take its below-threshold no-op path for this step.
     let actual_traverse_out = 500.0_f64;
-    let rel_err = (actual_traverse_out - estimated_traverse_out).abs() / estimated_traverse_out.max(1.0);
+    let rel_err =
+        (actual_traverse_out - estimated_traverse_out).abs() / estimated_traverse_out.max(1.0);
     assert!(
         rel_err > ADAPTIVE_REOPT_THRESHOLD,
         "fixture must exceed the adaptive-reopt divergence threshold: rel_err={rel_err}"
@@ -271,7 +271,13 @@ fn adaptive_reopt_auto_wires_into_ordinary_execution() {
     // generically here so the auto-wired driver below is provably not corrupting the
     // op list regardless of which permutation the cost model prefers at this scale.
     let remaining = vec![plan_ops[2].clone(), plan_ops[3].clone()];
-    let recost = optimizer::reoptimize_remaining(&remaining, estimated_traverse_out, actual_traverse_out, &card, &ctx);
+    let recost = optimizer::reoptimize_remaining(
+        &remaining,
+        estimated_traverse_out,
+        actual_traverse_out,
+        &card,
+        &ctx,
+    );
     let mut recost_kinds: Vec<&str> = recost
         .iter()
         .map(|o| match o {

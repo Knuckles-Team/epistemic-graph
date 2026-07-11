@@ -1196,6 +1196,33 @@ fn evidence_span_wire(span: &eg_modality::EvidenceSpan) -> crate::protocol::Evid
             start_ms: *start_ms,
             end_ms: *end_ms,
         },
+        EvidenceSpan::VideoFrameRange {
+            video_id,
+            start_frame,
+            end_frame,
+        } => EvidenceSpanWire::VideoFrameRange {
+            video_id: video_id.clone(),
+            start_frame: *start_frame,
+            end_frame: *end_frame,
+        },
+        EvidenceSpan::MetricWindow {
+            metric,
+            start_ms,
+            end_ms,
+        } => EvidenceSpanWire::MetricWindow {
+            metric: metric.clone(),
+            start_ms: *start_ms,
+            end_ms: *end_ms,
+        },
+        EvidenceSpan::RowVersion {
+            table,
+            row_id,
+            version,
+        } => EvidenceSpanWire::RowVersion {
+            table: table.clone(),
+            row_id: row_id.clone(),
+            version: *version,
+        },
         EvidenceSpan::CodeSymbol {
             file_path,
             symbol,
