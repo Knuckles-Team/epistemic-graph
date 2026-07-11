@@ -213,6 +213,22 @@ nl-query = [
 # fan-out) and `EPISTEMIC_GRAPH_EXEC_SPILL_MB` (per-intermediate spill budget). NEVER folded
 # into `pi`.
 par-runtime = ["query", "dep:rayon"]
+# Arrow-columnar `KnowledgeBatch` (CONCEPT:EG-P1-2, Codex P1 feedback): a
+# RecordBatch-backed columnar projection of `KnowledgeSet` — entity/artifact id,
+# N named `Float32` score columns, calibrated confidence, typed evidence-ref
+# columns (a `evidence_kind` tag + a real Arrow `List<Utf8>` of per-span JSON,
+# covering every `EvidenceSpan` granularity: text span, table cell, image pixel
+# region, audio/video interval/frame, code symbol, trace span), bitemporal
+# valid/tx-time columns, provenance (`source_refs`)/policy-label `List<Utf8>`
+# columns (plus reserved transformation/proof/alternative/contradiction id list
+# columns for a documented follow-up), lazy blob-handle columns (a node id, never
+# raw bytes), and a `KnowledgeCursor` streaming-cursor stub type. IMPLIES `query`
+# (it builds FROM `KnowledgeSet`, itself `query`-gated). Pulls `arrow`, pinned to
+# the SAME version (`53`) eg-lake's `lake` feature already carries, so this shares
+# the lockfile footprint rather than adding a second Arrow version. OFF by
+# default; a default/Pi build links NO Arrow at all (verify with
+# `cargo tree -p eg-plan`) — the small-footprint contract stays intact.
+knowledge-batch = ["query", "dep:arrow"]
 
 [dependencies]
 # The plan AST (Op/Pred/Plan) is the wire DTO, defined in eg-types behind its
@@ -353,6 +369,12 @@ petgraph = { version = "0.6.4", features = ["serde-1"] }
 # #[cfg(feature = "par-runtime")]; pure-Rust (no C dep), same pin as eg-ann/eg-compute. A
 # default/Pi build links no rayon.
 rayon = { version = "1.10", optional = true }
+# Arrow columnar backing for `KnowledgeBatch` (feature `knowledge-batch`,
+# CONCEPT:EG-P1-2). Same pin as eg-lake's `lake` feature (arrow 53) so this does
+# not introduce a second Arrow version into the workspace lock. Optional + only
+# referenced under #[cfg(feature = "knowledge-batch")]; a default/Pi build links
+# none of it.
+arrow = { version = "53", optional = true }
 
 [dev-dependencies]
 # The oracle/algebra tests build a fixture GraphCore + SemanticStore and run the
