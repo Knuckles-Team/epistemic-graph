@@ -6,7 +6,9 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::info;
 
-use super::access::{check_graph_access, requires_write};
+use super::access::{
+    check_graph_access, is_admin_authz_action, require_admin_capability, requires_write,
+};
 use super::auth::verify_request;
 // Only the ast-gated ParseFiles handler offloads to the blocking pool here; the
 // graph-op off-lock sites live in handlers/graph_ops.rs.
@@ -56,6 +58,28 @@ async fn dispatch_inner(state: &Arc<RwLock<ServerState>>, req: Request) -> Respo
         if let Err(msg) = verify_request(&s.auth_secret, &req) {
             crate::metrics::auth_failure();
             return Response::err(req.id, msg);
+        }
+    }
+
+    // ── Admin-scope enforcement (CONCEPT:EG-KG.compute.feature, EG-P0-6) ────────────────────
+    // Gates EVERY method whose `eg_capabilities::policy` declares a system-wide
+    // admin `authz_action` (RegisterIdentity/RbacAdmin/ApplyMultisigMutation, the
+    // M3 reshard/rebalance/catalog family, Backup/Restore) behind
+    // `IsolationLayer::has_admin_capability` -- driven off the ledger's
+    // `authz_action` string (`access::is_admin_authz_action`), NEVER a second
+    // hardcoded method-name list here. Checked ONCE, before the method match, so
+    // every current AND future admin-tier method is covered without a dispatch.rs
+    // edit. Runs only when the `server` feature (which pulls in `eg-capabilities`)
+    // is active -- always true for this binary.
+    {
+        let action = eg_capabilities::policy(&req.method).authz_action;
+        if is_admin_authz_action(action) {
+            let s = state.read().await;
+            let result = require_admin_capability(&s.isolation, req.agent_id.as_deref(), action);
+            drop(s);
+            if let Err(msg) = result {
+                return Response::err(req.id, msg);
+            }
         }
     }
 
@@ -1192,6 +1216,7 @@ async fn dispatch_graph_op(
             redb_authoritative,
             #[cfg(feature = "streaming")]
             cdc.as_ref(),
+            Some(&write_coalescer),
             gateway_authz_ctx.as_ref(),
             method,
         )
@@ -1825,6 +1850,226 @@ mod eg318_dispatch_tests {
             Some(ResultPayload::Float(f)) => assert!((f - 4.0).abs() < 1e-9, "return = {f}"),
             other => panic!("DiscountedReturn: {:?} / {:?}", other, dr.error),
         }
+    }
+}
+
+// ── Admin-scope enforcement dispatch round-trip (CONCEPT:EG-KG.compute.feature, EG-P0-6) ──────
+//
+// Drives `Method::RegisterIdentity` and `Method::RbacAdmin` through the SAME
+// `dispatch` entrypoint a wire request hits, proving the admin-scope gate added at
+// the top of `dispatch_inner` actually rejects a caller without admin capability
+// and allows one that has it — both the `System`-role bypass and an explicit RBAC
+// `Admin` grant. Runs on a bare `--features server,security` build.
+#[cfg(all(test, feature = "security"))]
+mod admin_scope_tests {
+    use super::*;
+    use crate::acl::{Grant, GrantEffect, RbacAction, RbacAdminOp, ResourceSelector, Role};
+    use crate::channels::ChannelManager;
+    use crate::isolation::{AgentRole, IsolationLayer};
+    use crate::protocol::{Method, Request};
+    use crate::registry::GraphRegistry;
+    use crate::server::auth::compute_auth_token;
+    use dashmap::DashMap;
+    use std::sync::Arc;
+    use tokio::sync::Semaphore;
+
+    const SECRET: &str = "admin-scope-test-secret";
+
+    fn state_min() -> Arc<RwLock<ServerState>> {
+        Arc::new(RwLock::new(ServerState {
+            #[cfg(feature = "redb")]
+            cold_tracker: std::sync::Arc::new(
+                crate::server::persistence::cold_offload::ColdTenantTracker::new(),
+            ),
+            registry: GraphRegistry::new(),
+            isolation: IsolationLayer::new(),
+            channels: ChannelManager::new(),
+            auth_secret: SECRET.to_string(),
+            persist_dir: None,
+            persistence: None,
+            redb_authoritative: false,
+            max_in_flight: Arc::new(Semaphore::new(16)),
+            read_admission: Arc::new(Semaphore::new(16)),
+            per_graph_inflight: Arc::new(DashMap::new()),
+            per_graph_inflight_limit: 8,
+            write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::from_env()),
+            open_txns: Arc::new(DashMap::new()),
+            txn_id_gen: Arc::new(crate::server::txn::TxnIdGen::default()),
+            txn_ttl_secs: 300,
+            txn_max_per_graph: 256,
+            txn_max_per_agent: 256,
+            #[cfg(feature = "blob")]
+            blob: None,
+            #[cfg(feature = "blob")]
+            blob_cursor_ttl_secs: 300,
+            #[cfg(feature = "raft")]
+            raft: None,
+            #[cfg(feature = "raft")]
+            multi_raft: None,
+            #[cfg(feature = "tsdb")]
+            tsdb_store: None,
+            #[cfg(feature = "rdf-redb")]
+            rdf_quads: None,
+            #[cfg(feature = "streaming")]
+            cdc: Some(std::sync::Arc::new(crate::server::cdc::CdcHub::new())),
+            #[cfg(feature = "wasm-udf")]
+            udf_registry: std::sync::Arc::new(eg_wasm::UdfRegistry::new()),
+            #[cfg(feature = "compute-dist")]
+            matviews: std::sync::Arc::new(parking_lot::Mutex::new(
+                crate::raft::pregel::MatViewStore::new(),
+            )),
+            #[cfg(feature = "federation")]
+            foreign_sources: std::sync::Arc::new(dashmap::DashMap::new()),
+            #[cfg(feature = "kv")]
+            kv: None,
+        }))
+    }
+
+    fn req_as(id: u64, agent_id: Option<&str>, method: Method) -> Request {
+        Request {
+            id,
+            graph: "__commons__".into(),
+            auth_token: compute_auth_token(SECRET, id),
+            agent_id: agent_id.map(str::to_string),
+            method,
+        }
+    }
+
+    async fn register_identity(
+        state: &Arc<RwLock<ServerState>>,
+        id: u64,
+        caller: Option<&str>,
+        agent_id: &str,
+        role: AgentRole,
+    ) -> Response {
+        dispatch(
+            state,
+            req_as(
+                id,
+                caller,
+                Method::RegisterIdentity {
+                    agent_id: agent_id.into(),
+                    role,
+                    teams: vec![],
+                    signature: String::new(),
+                    roles: vec![],
+                },
+            ),
+        )
+        .await
+    }
+
+    /// The FIRST registration ever (no identities exist yet, `has_rules() == false`)
+    /// is exempt — the back-compat bootstrap escape hatch every other case here
+    /// builds on.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn first_registration_bootstraps_without_admin_capability() {
+        let state = state_min();
+        let r = register_identity(&state, 1, None, "root", AgentRole::System).await;
+        assert!(r.error.is_none(), "bootstrap RegisterIdentity failed: {:?}", r.error);
+    }
+
+    /// Once ANY identity exists, a plain `Agent`-role caller with NO admin
+    /// capability is REJECTED trying to register another identity — the core
+    /// EG-P0-6 guarantee (an admin method without the capability is rejected).
+    #[tokio::test(flavor = "multi_thread")]
+    async fn admin_method_rejected_without_capability() {
+        let state = state_min();
+        // Bootstrap root (System), then register a plain, non-privileged "alice".
+        let r = register_identity(&state, 1, None, "root", AgentRole::System).await;
+        assert!(r.error.is_none());
+        let r = register_identity(&state, 2, Some("root"), "alice", AgentRole::Agent).await;
+        assert!(r.error.is_none());
+
+        // alice (no roles, no grants, not System) tries to register "bob".
+        let r = register_identity(&state, 3, Some("alice"), "bob", AgentRole::Agent).await;
+        assert!(r.error.is_some(), "expected ACCESS_DENIED, got {:?}", r);
+        let msg = r.error.unwrap();
+        assert!(
+            msg.contains("ACCESS_DENIED") && msg.contains("admin capability"),
+            "unexpected denial message: {msg}"
+        );
+    }
+
+    /// A `System`-role caller (root) always holds admin capability — WITH the
+    /// capability, the same admin method is allowed.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn admin_method_allowed_for_system_role() {
+        let state = state_min();
+        let r = register_identity(&state, 1, None, "root", AgentRole::System).await;
+        assert!(r.error.is_none());
+        let r = register_identity(&state, 2, Some("root"), "bob", AgentRole::Agent).await;
+        assert!(r.error.is_none(), "root (System) must be allowed: {:?}", r.error);
+    }
+
+    /// A non-System agent with an EXPLICIT RBAC `Admin` grant (over
+    /// `ResourceSelector::All`) also holds admin capability — proving the gate
+    /// really reads the RBAC evaluator, not just a `System`-role special case.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn admin_method_allowed_with_explicit_rbac_admin_grant() {
+        let state = state_min();
+        let r = register_identity(&state, 1, None, "root", AgentRole::System).await;
+        assert!(r.error.is_none());
+
+        // Give "auditor-admin" the RBAC role "sysadmin" via RbacAdmin (itself an
+        // admin action -- root, System, is allowed to call it).
+        let add_role = dispatch(
+            &state,
+            req_as(
+                2,
+                Some("root"),
+                Method::RbacAdmin {
+                    op: RbacAdminOp::AddRole(Role::new("sysadmin")),
+                },
+            ),
+        )
+        .await;
+        assert!(add_role.error.is_none(), "AddRole: {:?}", add_role.error);
+
+        let add_grant = dispatch(
+            &state,
+            req_as(
+                3,
+                Some("root"),
+                Method::RbacAdmin {
+                    op: RbacAdminOp::AddGrant(Grant {
+                        role: "sysadmin".into(),
+                        resource: ResourceSelector::All,
+                        action: RbacAction::Admin,
+                        effect: GrantEffect::Allow,
+                    }),
+                },
+            ),
+        )
+        .await;
+        assert!(add_grant.error.is_none(), "AddGrant: {:?}", add_grant.error);
+
+        // Register "priv" holding the "sysadmin" role.
+        let r = dispatch(
+            &state,
+            req_as(
+                4,
+                Some("root"),
+                Method::RegisterIdentity {
+                    agent_id: "priv".into(),
+                    role: AgentRole::Agent,
+                    teams: vec![],
+                    signature: String::new(),
+                    roles: vec!["sysadmin".into()],
+                },
+            ),
+        )
+        .await;
+        assert!(r.error.is_none(), "register priv: {:?}", r.error);
+
+        // "priv" (Agent role, but RBAC-granted Admin) now registers "carol" — must
+        // be ALLOWED even though priv is not System.
+        let r = register_identity(&state, 5, Some("priv"), "carol", AgentRole::Agent).await;
+        assert!(
+            r.error.is_none(),
+            "an agent with an explicit RBAC Admin grant must be allowed: {:?}",
+            r.error
+        );
     }
 }
 

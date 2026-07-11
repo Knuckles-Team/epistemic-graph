@@ -634,11 +634,36 @@ async fn rls_per_agent_fused_reason_rank_overlay_eg391() {
     .await;
 
     // ── register the two agent identities → RLS enforcing mode. ──
+    //
+    // EG-P0-6: `RegisterIdentity` now requires admin capability once ANY identity
+    // exists (`System` role, or an explicit RBAC `Admin` grant) — only the VERY
+    // FIRST registration (while `has_rules()` is still false) is exempt, as the
+    // bootstrap escape hatch. So bootstrap a `System`-role `"root"` identity first
+    // (anonymous caller, allowed because no rules exist yet), then have `root`
+    // register `agent_a`/`agent_b` as plain `Agent`-role identities for the RLS
+    // peer-isolation fixture below.
+    let r = dispatch(
+        &state,
+        req(
+            999_000,
+            Method::RegisterIdentity {
+                agent_id: "root".into(),
+                role: AgentRole::System,
+                teams: vec![],
+                signature: String::new(),
+                roles: vec![],
+            },
+        ),
+    )
+    .await;
+    assert!(r.error.is_none(), "root bootstrap failed: {:?}", r.error);
+
     for (i, agent) in [(5u64, "agent_a"), (6, "agent_b")] {
         let r = dispatch(
             &state,
-            req(
+            req_as(
                 i,
+                "root",
                 Method::RegisterIdentity {
                     agent_id: agent.into(),
                     role: AgentRole::Agent,
