@@ -93,6 +93,8 @@ async fn make_state_with_backend(
         dataset_handles: std::sync::Arc::new(
             crate::server::dataset_handle::DatasetHandleRegistry::new(),
         ),
+        #[cfg(feature = "lake")]
+        lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
     }))
 }
 
