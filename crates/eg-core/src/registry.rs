@@ -97,7 +97,7 @@ pub trait GraphMaterializer: Send + Sync {
     /// durable for this graph).
     ///
     /// The default implementation pages over an in-memory `materialize()` call —
-    /// correct for ANY implementor (it still bounds how much is replayed into the
+    /// correct for ANY implementer (it still bounds how much is replayed into the
     /// `GraphCore` per call, which is the working-subset property `open_lazy_paged`
     /// needs), but it does not avoid materialize()'s own full-fetch cost at the
     /// SOURCE (e.g. a redb backend still reads every row up front). A backend that
