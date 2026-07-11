@@ -45,7 +45,10 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition, WriteTransaction};
+use redb::{
+    Database, ReadTransaction, ReadableDatabase, ReadableTable, TableDefinition, TableError,
+    WriteTransaction,
+};
 
 pub use crate::point::{Point, Ts, TsError};
 
@@ -217,53 +220,15 @@ impl SeriesStore {
     /// Fetch a series' metadata (`None` if the series doesn't exist).
     pub fn meta(&self, series_id: &str) -> Result<Option<SeriesMeta>> {
         let rtx = self.db.begin_read().map_err(redb_err)?;
-        let tab = rtx.open_table(SERIES_META).map_err(redb_err)?;
-        match tab.get(series_id).map_err(redb_err)? {
-            Some(g) => Ok(Some(rmp_serde::from_slice(g.value()).map_err(codec_err)?)),
-            None => Ok(None),
-        }
+        meta_in_rtx(&rtx, series_id)
     }
 
     /// Scan `[from, to)` of a series in ts order — the time-range read primitive.
     /// Implemented as a redb RANGE over the covering bucket keys, decoding each
     /// chunk and trimming to the exact window. Empty for an unknown series.
     pub fn range(&self, series_id: &str, from: Ts, to: Ts) -> Result<Vec<Point>> {
-        let meta = match self.meta(series_id)? {
-            Some(m) => m,
-            None => return Ok(vec![]),
-        };
-        if meta.count == 0 {
-            return Ok(vec![]);
-        }
-        // Clamp to the series' real bucket span. Bucket keys are u64; a caller's open
-        // bound (Ts::MIN / Ts::MAX) must NOT be cast through u64 (two's-complement
-        // wrap), so bound by the stored min/max instead. Real epoch-ns timestamps are
-        // non-negative; this is what makes an unbounded `scan_all` correct.
-        let scan_from = from.max(meta.min_ts);
-        if scan_from > meta.max_ts {
-            return Ok(vec![]);
-        }
-        let from_bucket = Self::bucket_of(scan_from, meta.bucket_ns);
-        let to_bucket = Self::bucket_of(meta.max_ts, meta.bucket_ns);
         let rtx = self.db.begin_read().map_err(redb_err)?;
-        let chunks = rtx.open_table(SERIES_CHUNKS).map_err(redb_err)?;
-        let mut out = Vec::new();
-        let lo = (series_id, from_bucket);
-        let hi = (series_id, to_bucket); // covering buckets; exact ts filtered below
-        for item in chunks.range(lo..=hi).map_err(redb_err)? {
-            let (_k, v) = item.map_err(redb_err)?;
-            let chunk = Chunk::decode(v.value())?;
-            let nf = chunk.n_fields;
-            for (i, &t) in chunk.ts.iter().enumerate() {
-                if t >= from && t < to {
-                    out.push(Point {
-                        ts: t,
-                        values: chunk.vals[i * nf..(i + 1) * nf].to_vec(),
-                    });
-                }
-            }
-        }
-        Ok(out)
+        range_in_rtx(&rtx, series_id, from, to)
     }
 
     /// Full series scan (every point, ts order).
@@ -277,13 +242,7 @@ impl SeriesStore {
     /// labels INTO the id and enumerates them here.
     pub fn list_series(&self) -> Result<Vec<String>> {
         let rtx = self.db.begin_read().map_err(redb_err)?;
-        let tab = rtx.open_table(SERIES_META).map_err(redb_err)?;
-        let mut out = Vec::new();
-        for item in tab.iter().map_err(redb_err)? {
-            let (k, _v) = item.map_err(redb_err)?;
-            out.push(k.value().to_string());
-        }
-        Ok(out)
+        list_series_in_rtx(&rtx)
     }
 
     /// Retention: drop every point of `series_id` older than `cutoff`. Returns the
@@ -499,6 +458,90 @@ pub fn append_batch_in_wtx(
         .insert(series_id, mblob.as_slice())
         .map_err(redb_err)?;
     Ok(())
+}
+
+/// List every series id present, reading from an ALREADY-OPEN [`ReadTransaction`] the
+/// caller owns (CONCEPT:EG-KG.backend.ts-startup-reconcile). Byte-for-byte the same walk as
+/// [`SeriesStore::list_series`] (which now delegates here), extracted so a caller holding
+/// a foreign `Database` handle — e.g. the facade's `graph.redb` shard, whose SERIES tables
+/// share this EXACT schema (see the module doc) — can scan it directly without opening a
+/// SECOND `Database` on that file (redb's exclusive per-process file lock would reject
+/// it). A table that was never created (a `graph.redb` shard that has never durably
+/// committed a measurement) is reported as EMPTY rather than an error — the natural "no
+/// series here" reading for a store whose schema simply hasn't been materialized yet.
+pub fn list_series_in_rtx(rtx: &ReadTransaction) -> Result<Vec<String>> {
+    let tab = match rtx.open_table(SERIES_META) {
+        Ok(t) => t,
+        Err(TableError::TableDoesNotExist(_)) => return Ok(Vec::new()),
+        Err(e) => return Err(redb_err(e)),
+    };
+    let mut out = Vec::new();
+    for item in tab.iter().map_err(redb_err)? {
+        let (k, _v) = item.map_err(redb_err)?;
+        out.push(k.value().to_string());
+    }
+    Ok(out)
+}
+
+/// Fetch a series' metadata from an ALREADY-OPEN [`ReadTransaction`] (CONCEPT:EG-KG.backend.ts-startup-reconcile).
+/// Same "missing table ⇒ `None`, missing series ⇒ `None`" contract as
+/// [`SeriesStore::meta`] (which now delegates here) — see [`list_series_in_rtx`] for why a
+/// caller wants this over the store's own `begin_read()`.
+pub fn meta_in_rtx(rtx: &ReadTransaction, series_id: &str) -> Result<Option<SeriesMeta>> {
+    let tab = match rtx.open_table(SERIES_META) {
+        Ok(t) => t,
+        Err(TableError::TableDoesNotExist(_)) => return Ok(None),
+        Err(e) => return Err(redb_err(e)),
+    };
+    match tab.get(series_id).map_err(redb_err)? {
+        Some(g) => Ok(Some(rmp_serde::from_slice(g.value()).map_err(codec_err)?)),
+        None => Ok(None),
+    }
+}
+
+/// Scan `[from, to)` of a series in ts order from an ALREADY-OPEN [`ReadTransaction`]
+/// (CONCEPT:EG-KG.backend.ts-startup-reconcile). Byte-for-byte the same bucket-range walk as
+/// [`SeriesStore::range`] (which now delegates here for its own `db`); see
+/// [`list_series_in_rtx`] for why a caller wants the shared-transaction form. Empty for an
+/// unknown series OR a `SERIES_CHUNKS` table that was never created.
+pub fn range_in_rtx(rtx: &ReadTransaction, series_id: &str, from: Ts, to: Ts) -> Result<Vec<Point>> {
+    let meta = match meta_in_rtx(rtx, series_id)? {
+        Some(m) => m,
+        None => return Ok(vec![]),
+    };
+    if meta.count == 0 {
+        return Ok(vec![]);
+    }
+    // Clamp to the series' real bucket span — see `SeriesStore::range`'s doc comment
+    // for why the caller's open bound must not be cast through u64 directly.
+    let scan_from = from.max(meta.min_ts);
+    if scan_from > meta.max_ts {
+        return Ok(vec![]);
+    }
+    let from_bucket = SeriesStore::bucket_of(scan_from, meta.bucket_ns);
+    let to_bucket = SeriesStore::bucket_of(meta.max_ts, meta.bucket_ns);
+    let chunks = match rtx.open_table(SERIES_CHUNKS) {
+        Ok(t) => t,
+        Err(TableError::TableDoesNotExist(_)) => return Ok(vec![]),
+        Err(e) => return Err(redb_err(e)),
+    };
+    let mut out = Vec::new();
+    let lo = (series_id, from_bucket);
+    let hi = (series_id, to_bucket); // covering buckets; exact ts filtered below
+    for item in chunks.range(lo..=hi).map_err(redb_err)? {
+        let (_k, v) = item.map_err(redb_err)?;
+        let chunk = Chunk::decode(v.value())?;
+        let nf = chunk.n_fields;
+        for (i, &t) in chunk.ts.iter().enumerate() {
+            if t >= from && t < to {
+                out.push(Point {
+                    ts: t,
+                    values: chunk.vals[i * nf..(i + 1) * nf].to_vec(),
+                });
+            }
+        }
+    }
+    Ok(out)
 }
 
 #[cfg(test)]
