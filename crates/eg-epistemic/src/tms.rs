@@ -441,10 +441,19 @@ fn remove_node(bg: &BeliefGraph, id: &str) -> BeliefGraph {
         }
     }
 
+    #[cfg(feature = "epistemic-redaction")]
+    let node_visibility = {
+        let mut v = bg.node_visibility.clone();
+        v.remove(id);
+        v
+    };
+
     BeliefGraph {
         priors,
         in_edges,
         as_of: bg.as_of,
+        #[cfg(feature = "epistemic-redaction")]
+        node_visibility,
     }
 }
 
