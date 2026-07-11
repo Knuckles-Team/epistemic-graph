@@ -2607,6 +2607,7 @@ dependencies = [
  "cyclonedds",
  "dashmap",
  "eg-ann",
+ "eg-capabilities",
  "eg-compute",
  "eg-core",
  "eg-epistemic",
