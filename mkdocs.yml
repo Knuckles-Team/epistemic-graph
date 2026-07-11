@@ -144,5 +144,6 @@ nav:
       - Rust Compute Guide: rust_compute_guide.md
   - Performance:
       - Transport Benchmarks: benchmarks.md
+      - Soak / Chaos Benchmarks: benchmarks-soak.md
   - Reference:
       - Concept Registry: concepts.md
