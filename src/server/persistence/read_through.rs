@@ -76,3 +76,38 @@ impl ReadThroughFactory for BackendReadThroughFactory {
         })
     }
 }
+
+/// A [`eg_core::registry::GraphMaterializer`] over a [`PersistenceBackend`]
+/// (CONCEPT:EG-KG.sharding.lazy-graph-catalog, DIST-P2-3): fetches ONE graph's durable material
+/// (nodes/edges/semantic store) on lazy first-open by calling
+/// [`PersistenceBackend::read_graph_material_blocking`]. Installed once at
+/// startup, only under redb-authoritative mode with `EPISTEMIC_GRAPH_LAZY_STARTUP`
+/// set, mirroring [`BackendReadThroughFactory`] above. A backend whose
+/// `read_graph_material_blocking` is the trait default (`Ok(None)`) just yields an
+/// empty core on lazy-open — never an error.
+pub struct BackendGraphMaterializer {
+    backend: Arc<dyn PersistenceBackend>,
+}
+
+impl BackendGraphMaterializer {
+    pub fn new(backend: Arc<dyn PersistenceBackend>) -> Self {
+        Self { backend }
+    }
+}
+
+impl eg_core::registry::GraphMaterializer for BackendGraphMaterializer {
+    fn materialize(&self, graph_name: &str) -> Option<eg_core::registry::GraphMaterial> {
+        let fname = sanitize(graph_name);
+        match self.backend.read_graph_material_blocking(&fname) {
+            Ok(material) => material,
+            Err(e) => {
+                tracing::warn!(
+                    "lazy-open materialize failed for graph '{}': {}",
+                    graph_name,
+                    e
+                );
+                None
+            }
+        }
+    }
+}
