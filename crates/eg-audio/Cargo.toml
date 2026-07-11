@@ -37,6 +37,13 @@ contract = ["dep:eg-modality"]
 # decoder would gate its heavy dep behind this SAME feature name so the default build
 # never links it (the Pi contract).
 codec = []
+# OPT-IN runtime seam (CONCEPT:EG-P1-3): `src/runtime.rs`'s codec/waveform-window/
+# spectrogram/VAD/diarization/transcript-alignment TRAITS + typed artifacts.
+# Default OFF, no new dependency AT ALL (a trait-definition layer, not an
+# implementation — a real codec/VAD/diarization/ASR-alignment model plugs in by
+# implementing the trait in its own crate/service). Turning this on today adds
+# zero dependency and changes no behavior of `AudioData` itself.
+runtime = []
 
 [dev-dependencies]
 serde_json = "1.0"

@@ -31,6 +31,14 @@
 //! `eg_modality::EvidenceSpan::ImageRegion` from the first stored region (or `None`
 //! when the image carries no region index yet — never fabricated). See
 //! `src/contract.rs`.
+//!
+//! ## `runtime` (CONCEPT:EG-P1-3, OPT-IN, default OFF)
+//!
+//! `src/runtime.rs`, behind the crate's own `runtime` feature: decode/color/EXIF/
+//! pyramid/thumbnail/mask TRAITS + typed artifacts, plus an image-embedding hook —
+//! a trait-definition layer only, adding NO new dependency even when the feature
+//! is on (a real decoder/embedding model is a separate plugin crate/service). See
+//! `src/runtime.rs` module docs.
 
 mod header;
 mod image;
@@ -40,5 +48,35 @@ mod image;
 #[cfg(feature = "contract")]
 mod contract;
 
+// OPT-IN runtime seam (CONCEPT:EG-P1-3): decode/color/EXIF/pyramid/thumbnail/mask/
+// embedding traits + typed artifacts, behind the crate's own `runtime` feature
+// (default OFF, no new dependency).
+#[cfg(feature = "runtime")]
+pub mod runtime;
+
 pub use header::{content_hash, read_jpeg_dimensions, read_png_dimensions};
 pub use image::{ImageData, ImageFormat, ImageRegion};
+
+// CONCEPT:EG-P1-3 — the small-footprint default is sacred: neither `codec` nor
+// `runtime` (this crate's two OPT-IN seams for a real pixel codec / a real
+// decode-and-embedding runtime) is ever implied by `default`, so a plain
+// `cargo build -p eg-image` links no heavy image dependency. This is a compile-
+// time fact (`default = []` in Cargo.toml has no entry naming either feature), but
+// asserting it here as a runtime test gives the guarantee a visible, executable
+// regression check: if a future edit ever folds `codec`/`runtime` into `default`,
+// this test starts failing under a plain `cargo test -p eg-image` (no
+// `--features`).
+#[cfg(all(test, not(any(feature = "codec", feature = "runtime"))))]
+mod default_build_guardrail {
+    #[test]
+    fn default_build_has_neither_codec_nor_runtime_on() {
+        assert!(
+            !cfg!(feature = "codec"),
+            "the `codec` feature must stay opt-in, never part of `default`"
+        );
+        assert!(
+            !cfg!(feature = "runtime"),
+            "the `runtime` feature must stay opt-in, never part of `default`"
+        );
+    }
+}
