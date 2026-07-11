@@ -189,9 +189,15 @@ impl ForeignSource for RemoteEngineSource<'_> {
 }
 
 impl RemoteEngineSource<'_> {
-    /// HMAC-SHA256 hex token over the request id — the SAME scheme `src/server/auth.rs`
-    /// (`compute_auth_token`) verifies. An empty secret yields an empty token (the
-    /// remote then runs `--allow-insecure`).
+    /// HMAC-SHA256 hex token over the request id — the SAME v0 (legacy) scheme
+    /// `src/server/auth.rs` (`compute_auth_token`) verifies. An empty secret
+    /// yields an empty token (the remote then runs `--allow-insecure`). This
+    /// remains the token `fetch_uql`/`fetch_cypher` actually send — secure
+    /// mode (v1) is opt-in server-side and off by default, and `ForeignSourceSpec`
+    /// carries no tenant/principal/audience/idempotency fields yet, so wiring v1
+    /// into the live remote-federation path is a follow-up once those are
+    /// plumbed through; see [`Self::auth_token_v1`] for the mirrored v1 signer
+    /// this engine's remote peer already knows how to verify.
     fn auth_token(&self, request_id: u64) -> String {
         use hmac::{Hmac, Mac};
         use sha2::Sha256;
@@ -203,6 +209,68 @@ impl RemoteEngineSource<'_> {
         };
         mac.update(request_id.to_string().as_bytes());
         hex::encode(mac.finalize().into_bytes())
+    }
+
+    /// v1 signed-envelope token (CONCEPT:EG-KG.security.signed-request-envelope, EG-P0-5) — the
+    /// reference Rust SIGNER for the versioned envelope `src/server/auth.rs`'s
+    /// `verify_envelope_v1` verifies on the remote. Mirrors
+    /// `compute_envelope_token` in that module line-for-line: this crate sits
+    /// BELOW the facade crate in the dependency DAG, so it cannot call that
+    /// function directly, but both sides share the SAME canonical byte layout
+    /// (`eg_types::protocol::build_envelope_v1_bytes` + `Method::tag_name`/
+    /// `canonical_body_bytes`), so a token this produces verifies on any peer
+    /// running that verifier. `request` is the `Request` this token will be
+    /// attached to — its `id`/`graph`/`method` are hashed in, so the caller
+    /// MUST sign AFTER the request is otherwise fully built. Not currently
+    /// called by `fetch_uql`/`fetch_cypher` (see `auth_token`'s doc); exposed
+    /// so callers that DO want v1 (once wired through `ForeignSourceSpec`, or
+    /// from a future test/tool) have a correct signer to reach for.
+    #[allow(dead_code)]
+    #[allow(clippy::too_many_arguments)]
+    fn auth_token_v1(
+        &self,
+        request: &eg_types::protocol::Request,
+        audience: &str,
+        tenant: &str,
+        principal: &str,
+        timestamp: u64,
+        nonce: &str,
+        idempotency_key: &str,
+    ) -> String {
+        use hmac::{Hmac, Mac};
+        use sha2::{Digest, Sha256};
+        if self.secret.is_empty() {
+            return String::new();
+        }
+        let method_name = request.method.tag_name();
+        let body_hash = hex::encode(Sha256::digest(request.method.canonical_body_bytes()));
+        let bytes = eg_types::protocol::build_envelope_v1_bytes(
+            request.id,
+            &request.graph,
+            &method_name,
+            &body_hash,
+            audience,
+            tenant,
+            principal,
+            timestamp,
+            nonce,
+            idempotency_key,
+        );
+        let Ok(mut mac) = Hmac::<Sha256>::new_from_slice(self.secret.as_bytes()) else {
+            return String::new();
+        };
+        mac.update(&bytes);
+        let envelope = serde_json::json!({
+            "audience": audience,
+            "tenant": tenant,
+            "principal": principal,
+            "timestamp": timestamp,
+            "nonce": nonce,
+            "idempotency_key": idempotency_key,
+            "mac": hex::encode(mac.finalize().into_bytes()),
+        });
+        let json = serde_json::to_vec(&envelope).unwrap_or_default();
+        format!("eg1.{}", hex::encode(json))
     }
 
     /// One framed round-trip to the remote: connect TCP, write `[u32 len][msgpack
@@ -763,5 +831,117 @@ mod symmetric_scan_oracle {
         );
         // And the composition actually did something (guards a vacuous pass).
         assert!(!internal.ids().is_empty(), "downstream produced rows");
+    }
+}
+
+#[cfg(test)]
+mod envelope_signer_tests {
+    //! CONCEPT:EG-KG.security.signed-request-envelope (EG-P0-5) — proves `auth_token_v1` produces a
+    //! versioned, tamper-sensitive token over the SAME canonical byte layout
+    //! (`eg_types::protocol::build_envelope_v1_bytes`) the facade crate's
+    //! `src/server/auth.rs` verifier consumes. This crate cannot call that
+    //! private verifier directly (it sits BELOW the facade in the dependency
+    //! DAG), so these tests pin the SIGNER's contract: deterministic, and
+    //! sensitive to every bound field.
+    use super::RemoteEngineSource;
+    use eg_types::protocol::{Method, Request};
+
+    fn source(secret: &'static str) -> RemoteEngineSource<'static> {
+        RemoteEngineSource {
+            endpoint: "127.0.0.1:0",
+            graph: "g",
+            secret,
+            uql: "",
+            cypher: "",
+            id_field: "id",
+        }
+    }
+
+    fn request(id: u64, graph: &str) -> Request {
+        Request {
+            id,
+            graph: graph.to_string(),
+            auth_token: String::new(),
+            agent_id: None,
+            method: Method::Ping,
+        }
+    }
+
+    #[test]
+    fn produces_a_versioned_prefixed_token() {
+        let src = source("federation-test-secret");
+        let req = request(1, "g");
+        let token = src.auth_token_v1(
+            &req,
+            "aud",
+            "tenant-a",
+            "principal-a",
+            1_700_000_000,
+            "nonce-1",
+            "idem-1",
+        );
+        assert!(token.starts_with("eg1."));
+        assert!(token.len() > "eg1.".len());
+    }
+
+    #[test]
+    fn empty_secret_yields_empty_token() {
+        let src = source("");
+        let req = request(1, "g");
+        let token = src.auth_token_v1(&req, "aud", "tenant-a", "principal-a", 1, "nonce", "idem");
+        assert!(token.is_empty());
+    }
+
+    #[test]
+    fn graph_binding_changes_the_token() {
+        let src = source("federation-test-secret");
+        let token_a = src.auth_token_v1(
+            &request(1, "g"),
+            "aud",
+            "tenant-a",
+            "principal-a",
+            1,
+            "nonce",
+            "idem",
+        );
+        let token_b = src.auth_token_v1(
+            &request(1, "other-graph"),
+            "aud",
+            "tenant-a",
+            "principal-a",
+            1,
+            "nonce",
+            "idem",
+        );
+        assert_ne!(
+            token_a, token_b,
+            "signing over a different graph must yield a different token"
+        );
+    }
+
+    #[test]
+    fn tenant_binding_changes_the_token() {
+        let src = source("federation-test-secret");
+        let req = request(1, "g");
+        let t1 = src.auth_token_v1(&req, "aud", "tenant-a", "principal-a", 1, "nonce", "idem");
+        let t2 = src.auth_token_v1(&req, "aud", "tenant-b", "principal-a", 1, "nonce", "idem");
+        assert_ne!(
+            t1, t2,
+            "signing over a different tenant must yield a different token"
+        );
+    }
+
+    #[test]
+    fn method_body_binding_changes_the_token() {
+        let src = source("federation-test-secret");
+        let mut req = request(1, "g");
+        req.method = Method::Ping;
+        let t1 = src.auth_token_v1(&req, "aud", "tenant-a", "principal-a", 1, "nonce", "idem");
+        req.method = Method::Health;
+        let t2 = src.auth_token_v1(&req, "aud", "tenant-a", "principal-a", 1, "nonce", "idem");
+        assert_ne!(
+            t1, t2,
+            "signing over a different method must yield a different token"
+        );
     }
 }
