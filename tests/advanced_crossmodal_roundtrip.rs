@@ -1492,6 +1492,7 @@ async fn explain_belief_returns_full_justification_tree() {
             4,
             Method::ExplainBelief {
                 node_id: "claim1".into(),
+                disclosure_level: None,
             },
         ),
     )
@@ -1513,6 +1514,271 @@ async fn explain_belief_returns_full_justification_tree() {
         "the justification tree must cite evidence1 as a premise, got {:?}",
         result.root
     );
+}
+
+/// L51 (EPI-P3-4 wiring) — `Method::ExplainBelief` with `disclosure_level` SET routes
+/// through the redaction-aware path end-to-end: a `stranger` actor with no visibility
+/// into a private evidence node gets a `Skeleton` proof (evidence content masked, proof
+/// SHAPE preserved) via the served RPC surface, not just the crate-internal unit tests.
+/// Fixture mirrors `eg_epistemic::redact`'s own: `claim <- evidence(public) <-
+/// secret(private, owned by agent_a)`.
+#[cfg(feature = "epistemic-redaction")]
+#[tokio::test]
+async fn explain_belief_disclosure_level_returns_redacted_skeleton_over_rpc() {
+    use epistemic_graph::isolation::AgentRole;
+    use epistemic_graph::protocol::{DisclosureLevelWire, ExplainBeliefRedactedResult};
+
+    let state = state();
+
+    // Seed the claim/evidence/secret topology BEFORE any identity is registered
+    // (has_rules()==false ⇒ the writes bypass the ACL, same bootstrap convention
+    // `rls_per_agent_fused_reason_rank_overlay_eg391` uses).
+    ok(
+        &state,
+        1,
+        Method::AddNode {
+            node_id: "claim1".into(),
+            properties_msgpack: pack(json!({ "type": "Claim", "confidence": 0.5 })),
+        },
+    )
+    .await;
+    ok(
+        &state,
+        2,
+        Method::AddNode {
+            node_id: "evidence1".into(),
+            properties_msgpack: pack(json!({ "type": "Evidence", "confidence": 0.9 })),
+        },
+    )
+    .await;
+    ok(
+        &state,
+        3,
+        Method::AddNode {
+            node_id: "secret1".into(),
+            properties_msgpack: pack(json!({
+                "type": "Evidence",
+                "confidence": 0.95,
+                "_owner": "agent_a",
+                "_visibility": "private",
+            })),
+        },
+    )
+    .await;
+    ok(
+        &state,
+        4,
+        Method::AddEdge {
+            source_id: "evidence1".into(),
+            target_id: "claim1".into(),
+            properties_msgpack: pack(json!({ "relationship_type": "SUPPORTS" })),
+        },
+    )
+    .await;
+    ok(
+        &state,
+        5,
+        Method::AddEdge {
+            source_id: "secret1".into(),
+            target_id: "evidence1".into(),
+            properties_msgpack: pack(json!({ "relationship_type": "SUPPORTS" })),
+        },
+    )
+    .await;
+
+    // Bootstrap root (System, exempt while has_rules()==false) then register agent_a +
+    // stranger — same two-step convention EG-391 uses.
+    let r = dispatch(
+        &state,
+        req(
+            100,
+            Method::RegisterIdentity {
+                agent_id: "root".into(),
+                role: AgentRole::System,
+                teams: vec![],
+                signature: String::new(),
+                roles: vec![],
+            },
+        ),
+    )
+    .await;
+    assert!(r.error.is_none(), "root bootstrap failed: {:?}", r.error);
+    for (i, agent) in [(101u64, "agent_a"), (102, "stranger")] {
+        let r = dispatch(
+            &state,
+            req_as(
+                i,
+                "root",
+                Method::RegisterIdentity {
+                    agent_id: agent.into(),
+                    role: AgentRole::Agent,
+                    teams: vec![],
+                    signature: String::new(),
+                    roles: vec![],
+                },
+            ),
+        )
+        .await;
+        assert!(r.error.is_none(), "RegisterIdentity {agent} failed: {:?}", r.error);
+    }
+
+    // `stranger` requests `Full` (asking for MORE than it earns) — the cap can only
+    // narrow, never grant, so it must land at the actor's OWN earned `Skeleton`.
+    let resp = dispatch(
+        &state,
+        req_as(
+            200,
+            "stranger",
+            Method::ExplainBelief {
+                node_id: "claim1".into(),
+                disclosure_level: Some(DisclosureLevelWire::Full),
+            },
+        ),
+    )
+    .await;
+    assert!(resp.error.is_none(), "ExplainBelief error: {:?}", resp.error);
+    let bytes = match &resp.result {
+        Some(ResultPayload::Raw(b)) => b.clone(),
+        other => panic!("expected Raw result, got {other:?}"),
+    };
+    let result: ExplainBeliefRedactedResult =
+        rmp_serde::from_slice(&bytes).expect("ExplainBeliefRedactedResult decodes");
+
+    assert_eq!(result.level, DisclosureLevelWire::Skeleton);
+    let root = result.root.expect("claim1 itself is public, must render a root");
+    assert_eq!(root.claim.as_deref(), Some("claim1"));
+    // Shape preserved: exactly one premise (evidence1), itself with exactly one
+    // premise (the redacted secret1) — the argument's structure survives redaction.
+    assert_eq!(root.premises.len(), 1);
+    let evidence_node = &root.premises[0];
+    assert_eq!(evidence_node.claim.as_deref(), Some("evidence1"));
+    assert_eq!(evidence_node.premises.len(), 1);
+    let secret_node = &evidence_node.premises[0];
+    assert!(
+        secret_node.claim.is_none(),
+        "secret1's content must be masked from stranger"
+    );
+    assert!(secret_node.redaction_label.is_some());
+    assert!(!secret_node
+        .redaction_label
+        .as_ref()
+        .unwrap()
+        .contains("secret1"));
+
+    // `agent_a` (the owner) earns `Full` — the SAME cap request now yields no redaction.
+    let resp_owner = dispatch(
+        &state,
+        req_as(
+            201,
+            "agent_a",
+            Method::ExplainBelief {
+                node_id: "claim1".into(),
+                disclosure_level: Some(DisclosureLevelWire::Full),
+            },
+        ),
+    )
+    .await;
+    let bytes = match &resp_owner.result {
+        Some(ResultPayload::Raw(b)) => b.clone(),
+        other => panic!("expected Raw result, got {other:?}"),
+    };
+    let result_owner: ExplainBeliefRedactedResult =
+        rmp_serde::from_slice(&bytes).expect("ExplainBeliefRedactedResult decodes");
+    assert_eq!(result_owner.level, DisclosureLevelWire::Full);
+    assert!(!result_owner
+        .root
+        .as_ref()
+        .unwrap()
+        .premises
+        .iter()
+        .flat_map(|p| p.premises.iter())
+        .any(|n| n.claim.is_none()));
+}
+
+/// L53 (EPI-P3-5 wiring) — `Method::EpistemicStatus`, the acceptance capstone, callable
+/// end-to-end through the served RPC surface: belief + evidence + authority + time +
+/// uncertainty + invalidation-deps all come back for one claim in ONE typed call.
+#[cfg(feature = "epistemic-tms")]
+#[tokio::test]
+async fn epistemic_status_returns_every_facet_over_rpc() {
+    use epistemic_graph::protocol::EpistemicStatusResult;
+
+    let state = state();
+    ok(
+        &state,
+        1,
+        Method::AddNode {
+            node_id: "claim1".into(),
+            properties_msgpack: pack(json!({
+                "type": "Claim",
+                "confidence": 0.9,
+                "valid_from": 10u64,
+                "tx_from": 20u64,
+            })),
+        },
+    )
+    .await;
+    ok(
+        &state,
+        2,
+        Method::AddNode {
+            node_id: "evidence1".into(),
+            properties_msgpack: pack(json!({ "type": "Evidence", "confidence": 0.9 })),
+        },
+    )
+    .await;
+    ok(
+        &state,
+        3,
+        Method::AddEdge {
+            source_id: "evidence1".into(),
+            target_id: "claim1".into(),
+            properties_msgpack: pack(json!({ "relationship_type": "SUPPORTS" })),
+        },
+    )
+    .await;
+
+    let resp = dispatch(
+        &state,
+        req(
+            4,
+            Method::EpistemicStatus {
+                node_id: "claim1".into(),
+            },
+        ),
+    )
+    .await;
+    assert!(
+        resp.error.is_none(),
+        "EpistemicStatus error: {:?}",
+        resp.error
+    );
+    let bytes = match &resp.result {
+        Some(ResultPayload::Raw(b)) => b.clone(),
+        other => panic!("expected Raw result, got {other:?}"),
+    };
+    let result: EpistemicStatusResult =
+        rmp_serde::from_slice(&bytes).expect("EpistemicStatusResult decodes");
+    let status = result.status;
+
+    // belief + evidence
+    assert!(status.believed);
+    assert!(status.confidence > 0.5);
+    assert_eq!(status.evidence, vec!["evidence1".to_string()]);
+    assert_eq!(status.why_not, None);
+    // authority
+    assert_eq!(status.authority.source_reliability, 1.0);
+    assert_eq!(status.authority.attack_multiplier, 1.5);
+    assert_eq!(status.authority.prior_strength, 2.0);
+    // time
+    assert_eq!(status.valid_time, Some((Some(10), None)));
+    assert_eq!(status.tx_time, Some((Some(20), None)));
+    // uncertainty + proof shape ("why")
+    assert!(status.uncertainty >= 0.0);
+    assert_eq!(status.proof.claim, "claim1");
+    assert!(status.proof.premises.iter().any(|p| p.claim == "evidence1"));
+    // invalidation deps: unattacked evidence ⇒ no counterfactual flip within the bound.
+    assert_eq!(status.what_would_invalidate, None);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

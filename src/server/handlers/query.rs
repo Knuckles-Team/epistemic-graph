@@ -429,10 +429,97 @@ pub(crate) async fn try_handle(
             };
             Ok(resp)
         }
-        #[cfg(feature = "epistemic")]
-        Method::ExplainBelief { node_id } => {
+        // L51: redaction-aware arm. Handles BOTH `disclosure_level: None` (byte-for-
+        // byte the classic path below) AND `Some(_)` (routes through
+        // `eg_epistemic::redact::explain_belief_redacted_capped` under the caller's
+        // own RLS actor). Mutually exclusive with the arm below via `cfg` — exactly
+        // one of the two is ever compiled for a given `Method::ExplainBelief` pattern.
+        #[cfg(feature = "epistemic-redaction")]
+        Method::ExplainBelief {
+            node_id,
+            disclosure_level,
+        } => {
+            let snap = core.analysis_snapshot();
+            let caller_id = caller.unwrap_or("").to_string();
+            let rls = rls.clone();
+            let resp = match disclosure_level {
+                None => {
+                    match compute_off_lock(req_id, move || explain_belief(&node_id, &snap)).await {
+                        Ok(result) => {
+                            let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
+                            Response::ok(req_id, ResultPayload::Raw(bytes))
+                        }
+                        Err(resp) => resp,
+                    }
+                }
+                Some(cap) => {
+                    match compute_off_lock(req_id, move || {
+                        explain_belief_redacted_wire(&node_id, &snap, cap, &rls, &caller_id)
+                    })
+                    .await
+                    {
+                        Ok(result) => {
+                            let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
+                            Response::ok(req_id, ResultPayload::Raw(bytes))
+                        }
+                        Err(resp) => resp,
+                    }
+                }
+            };
+            Ok(resp)
+        }
+        // Classic-only arm: compiled when `epistemic` is on but `epistemic-redaction`
+        // is off. `disclosure_level: Some(_)` gets an explicit error — never a silent
+        // fall-back to the un-redacted tree, which would leak exactly what redaction
+        // exists to hide.
+        #[cfg(all(feature = "epistemic", not(feature = "epistemic-redaction")))]
+        Method::ExplainBelief {
+            node_id,
+            disclosure_level,
+        } => {
+            if disclosure_level.is_some() {
+                return Ok(Response::err(
+                    req_id,
+                    "ExplainBelief.disclosure_level requires the epistemic-redaction \
+                     feature, not enabled in this build"
+                        .to_string(),
+                ));
+            }
             let snap = core.analysis_snapshot();
             let resp = match compute_off_lock(req_id, move || explain_belief(&node_id, &snap)).await
+            {
+                Ok(result) => {
+                    let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
+                    Response::ok(req_id, ResultPayload::Raw(bytes))
+                }
+                Err(resp) => resp,
+            };
+            Ok(resp)
+        }
+        // L53 (EPI-P3-5): the acceptance capstone.
+        #[cfg(feature = "epistemic-tms")]
+        Method::EpistemicStatus { node_id } => {
+            let snap = core.analysis_snapshot();
+            let resp = match compute_off_lock(req_id, move || epistemic_status_wire(&node_id, &snap))
+                .await
+            {
+                Ok(result) => {
+                    let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
+                    Response::ok(req_id, ResultPayload::Raw(bytes))
+                }
+                Err(resp) => resp,
+            };
+            Ok(resp)
+        }
+        // L53 (EPI-P3-5): the one facet not subsumed by `EpistemicStatus` — a
+        // whole-graph bitemporal diff between two transaction times.
+        #[cfg(feature = "epistemic-tms")]
+        Method::WhatChanged { tx_from, tx_to } => {
+            let snap = core.analysis_snapshot();
+            let resp = match compute_off_lock(req_id, move || {
+                what_changed_wire(&snap, tx_from, tx_to)
+            })
+            .await
             {
                 Ok(result) => {
                     let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
@@ -1298,6 +1385,19 @@ fn explain_policy(
     })
 }
 
+/// Wire-project one [`eg_epistemic::ProofNode`] (recursively) — shared by the classic
+/// `explain_belief` below AND the L53 `epistemic_status_wire` capstone, so both surfaces
+/// render a proof tree identically.
+#[cfg(feature = "epistemic")]
+fn proof_node_wire(node: &eg_epistemic::ProofNode) -> crate::protocol::JustificationNodeWire {
+    crate::protocol::JustificationNodeWire {
+        claim: node.claim.clone(),
+        rule: format!("{:?}", node.rule),
+        confidence: node.confidence,
+        premises: node.premises.iter().map(proof_node_wire).collect(),
+    }
+}
+
 /// `EXPLAIN BELIEF <node_id>` — the FULL, un-flattened E1 justification tree
 /// (`eg_epistemic::JustificationGraph`, via `eg_plan::explain_belief_tree`), wire-projected
 /// recursively (mirroring `Method::OwlExplain`'s `ProofNodeWire`).
@@ -1306,25 +1406,182 @@ fn explain_belief(
     node_id: &str,
     view: &crate::graph::GraphView,
 ) -> crate::protocol::ExplainBeliefResult {
-    use crate::protocol::{ExplainBeliefResult, JustificationNodeWire};
-
-    fn to_wire(node: &eg_epistemic::ProofNode) -> JustificationNodeWire {
-        JustificationNodeWire {
-            claim: node.claim.clone(),
-            rule: format!("{:?}", node.rule),
-            confidence: node.confidence,
-            premises: node.premises.iter().map(to_wire).collect(),
-        }
-    }
-
     // A minimal semantic store: `explain_belief_tree` only reads `ctx.view` +
     // `ctx.belief_policy` (default, unbound on this path — no facade caller binds a
     // tenant-specific policy today, matching every other served epistemic op).
     let semantic = eg_core::compute::semantic::SemanticStore::new();
     let ctx = eg_plan::PlanCtx::new(view, &semantic);
     let tree = eg_plan::explain_belief_tree(&ctx, node_id);
-    ExplainBeliefResult {
-        root: to_wire(&tree.root),
+    crate::protocol::ExplainBeliefResult {
+        root: proof_node_wire(&tree.root),
+    }
+}
+
+/// L51 — the redaction-aware sibling of [`explain_belief`]: builds a [`BeliefGraph`]
+/// straight off `view` (populating `node_visibility` from the SAME per-node RLS blob
+/// `filter_view` reads elsewhere, since `epistemic-redaction` turns that decode on in
+/// `BeliefGraph::from_graph_view`) and routes through
+/// `eg_epistemic::explain_belief_redacted_capped` under `actor_id`. `cap` is the
+/// wire-requested `DisclosureLevelWire`, converted 1:1 to `eg_epistemic::DisclosureLevel`
+/// (never a grant — see that fn's doc comment).
+#[cfg(feature = "epistemic-redaction")]
+fn explain_belief_redacted_wire(
+    node_id: &str,
+    view: &crate::graph::GraphView,
+    cap: crate::protocol::DisclosureLevelWire,
+    isolation: &crate::isolation::IsolationLayer,
+    actor_id: &str,
+) -> crate::protocol::ExplainBeliefRedactedResult {
+    use crate::protocol::{
+        DisclosureLevelWire, ExistenceSignalWire, ExplainBeliefRedactedResult,
+        RedactedJustificationNodeWire,
+    };
+
+    fn redacted_node_wire(
+        node: &eg_epistemic::RedactedProofNode,
+    ) -> RedactedJustificationNodeWire {
+        RedactedJustificationNodeWire {
+            claim: node.claim.clone(),
+            redaction_label: node.redaction_label.clone(),
+            rule: format!("{:?}", node.rule),
+            confidence: node.confidence,
+            premises: node.premises.iter().map(redacted_node_wire).collect(),
+        }
+    }
+
+    let cap = match cap {
+        DisclosureLevelWire::Full => eg_epistemic::DisclosureLevel::Full,
+        DisclosureLevelWire::Skeleton => eg_epistemic::DisclosureLevel::Skeleton,
+        DisclosureLevelWire::ExistenceOnly => eg_epistemic::DisclosureLevel::ExistenceOnly,
+    };
+
+    let bg = eg_epistemic::BeliefGraph::from_graph_view(view);
+    let policy = eg_epistemic::AuthorityPolicy::default();
+    let redacted = eg_epistemic::explain_belief_redacted_capped(
+        &bg,
+        node_id,
+        &policy,
+        isolation,
+        actor_id,
+        Some(cap),
+    );
+
+    let level = match redacted.level {
+        eg_epistemic::DisclosureLevel::Full => DisclosureLevelWire::Full,
+        eg_epistemic::DisclosureLevel::Skeleton => DisclosureLevelWire::Skeleton,
+        eg_epistemic::DisclosureLevel::ExistenceOnly => DisclosureLevelWire::ExistenceOnly,
+    };
+    let existence = match redacted.existence {
+        eg_epistemic::ExistenceSignal::Supported => ExistenceSignalWire::Supported,
+        eg_epistemic::ExistenceSignal::Contradicted => ExistenceSignalWire::Contradicted,
+        eg_epistemic::ExistenceSignal::Uncertain => ExistenceSignalWire::Uncertain,
+    };
+    ExplainBeliefRedactedResult {
+        level,
+        existence,
+        root: redacted.root.as_ref().map(redacted_node_wire),
+    }
+}
+
+/// L53 — wire-project an `eg_epistemic::query::WhyNot` (see `WhyNotWire` docs).
+#[cfg(feature = "epistemic-tms")]
+fn why_not_wire(wn: &eg_epistemic::WhyNot) -> crate::protocol::WhyNotWire {
+    use crate::protocol::WhyNotWire;
+    let (reason, blockers, competing) = match &wn.reason {
+        eg_epistemic::WhyNotReason::Unknown => ("Unknown", Vec::new(), Vec::new()),
+        eg_epistemic::WhyNotReason::InsufficientConfidence => {
+            ("InsufficientConfidence", Vec::new(), Vec::new())
+        }
+        eg_epistemic::WhyNotReason::Contradicted { blockers } => {
+            ("Contradicted", blockers.clone(), Vec::new())
+        }
+        eg_epistemic::WhyNotReason::Undecided { competing } => {
+            ("Undecided", Vec::new(), competing.clone())
+        }
+    };
+    WhyNotWire {
+        claim: wn.claim.clone(),
+        reason: reason.to_string(),
+        blockers,
+        competing,
+        confidence: wn.confidence,
+    }
+}
+
+/// L53 — wire-project an `eg_epistemic::MinimalFlipSet` ("what would invalidate it").
+#[cfg(feature = "epistemic-tms")]
+fn minimal_flip_set_wire(f: &eg_epistemic::MinimalFlipSet) -> crate::protocol::MinimalFlipSetWire {
+    crate::protocol::MinimalFlipSetWire {
+        claim: f.claim.clone(),
+        believed_now: f.believed_now,
+        evidence_ids: f.evidence_ids.iter().cloned().collect(),
+        believed_after: f.believed_after,
+    }
+}
+
+/// `Method::EpistemicStatus` (EPI-P3-5, L53) — the Phase-3 acceptance capstone: build a
+/// [`BeliefGraph`] off `view` and run `eg_epistemic::epistemic_status` under the
+/// default `AuthorityPolicy` (no facade caller binds a tenant-specific policy today,
+/// matching `explain_belief`'s own posture), wire-projecting every facet.
+#[cfg(feature = "epistemic-tms")]
+fn epistemic_status_wire(
+    node_id: &str,
+    view: &crate::graph::GraphView,
+) -> crate::protocol::EpistemicStatusResult {
+    use crate::protocol::{AuthorityPolicyWire, EpistemicStatusResult, EpistemicStatusWire};
+
+    let bg = eg_epistemic::BeliefGraph::from_graph_view(view);
+    let policy = eg_epistemic::AuthorityPolicy::default();
+    let status = eg_epistemic::epistemic_status(&bg, node_id, &policy);
+
+    EpistemicStatusResult {
+        status: EpistemicStatusWire {
+            claim: status.claim,
+            believed: status.believed,
+            confidence: status.confidence,
+            uncertainty: status.uncertainty,
+            proof: proof_node_wire(&status.proof.root),
+            why_not: status.why_not.as_ref().map(why_not_wire),
+            evidence: status.evidence,
+            contradicting: status.contradicting,
+            attacking: status.attacking,
+            authority: AuthorityPolicyWire {
+                source_reliability: status.authority.source_reliability,
+                attack_multiplier: status.authority.attack_multiplier,
+                prior_strength: status.authority.prior_strength,
+            },
+            valid_time: status.valid_time,
+            tx_time: status.tx_time,
+            what_would_invalidate: status.what_would_invalidate.as_ref().map(minimal_flip_set_wire),
+        },
+    }
+}
+
+/// `Method::WhatChanged` (EPI-P3-5, L53) — between two transaction times, which beliefs
+/// changed and why, over the WHOLE graph (`eg_epistemic::what_changed`).
+#[cfg(feature = "epistemic-tms")]
+fn what_changed_wire(
+    view: &crate::graph::GraphView,
+    tx_from: u64,
+    tx_to: u64,
+) -> crate::protocol::WhatChangedResult {
+    let bg = eg_epistemic::BeliefGraph::from_graph_view(view);
+    let policy = eg_epistemic::AuthorityPolicy::default();
+    let changed = eg_epistemic::what_changed(&bg, tx_from, tx_to, &policy);
+    crate::protocol::WhatChangedResult {
+        changed: changed
+            .iter()
+            .map(|c| crate::protocol::ChangedBeliefWire {
+                id: c.id.clone(),
+                believed_before: c.believed_before,
+                believed_after: c.believed_after,
+                confidence_before: c.confidence_before,
+                confidence_after: c.confidence_after,
+                evidence_added: c.evidence_added.clone(),
+                evidence_removed: c.evidence_removed.clone(),
+                reason: c.reason.clone(),
+            })
+            .collect(),
     }
 }
 

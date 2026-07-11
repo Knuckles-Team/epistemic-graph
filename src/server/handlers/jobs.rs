@@ -331,10 +331,29 @@ fn spawn_mine_associate(
         } else {
             rules.iter().map(|r| r.support * r.confidence).sum::<f64>() / rules.len() as f64
         };
+        // L52 — a real calibration signal from the SAME per-rule quality scores that
+        // seeded `confidence` above: the empirical min/max of `support * confidence`
+        // over the mined rules stands in for a credible interval (there is no
+        // Bayesian posterior at this layer to draw one from — this crate does not
+        // depend on `eg-epistemic`, see `claim.rs` module docs), `rules.len()` is the
+        // evidence count. `None` for an empty result (no rules ⇒ no signal to
+        // calibrate, an honest absence rather than a fabricated interval).
+        let calibration = if rules.is_empty() {
+            None
+        } else {
+            let scores: Vec<f64> = rules.iter().map(|r| r.support * r.confidence).collect();
+            let lo = scores.iter().cloned().fold(f64::INFINITY, f64::min);
+            let hi = scores.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+            Some(eg_jobs::CalibrationInput {
+                interval: (lo, hi),
+                level: 0.95,
+                evidence_count: rules.len(),
+            })
+        };
         // A commit failure here (e.g. a transient graph-write error) leaves the job
         // durably `Succeeded` with its `result_ref` intact; the caller can retry the
         // commit later (it is idempotent) without re-running the computation.
-        let _ = eg_jobs::commit_result_claim(&core, &job, confidence);
+        let _ = eg_jobs::commit_result_claim(&core, &job, confidence, calibration);
     });
 }
 

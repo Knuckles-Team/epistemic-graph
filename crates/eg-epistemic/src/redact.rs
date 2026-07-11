@@ -75,6 +75,20 @@ pub enum DisclosureLevel {
     ExistenceOnly,
 }
 
+impl DisclosureLevel {
+    /// Total ordering by how much is HIDDEN: `Full` (0) < `Skeleton` (1) <
+    /// `ExistenceOnly` (2). Used only by [`explain_belief_redacted_capped`] to compare
+    /// a caller-requested cap against the actor's earned level — never to grant more
+    /// than the actor earns, only to let a caller ask for a STRICTER view.
+    fn strictness(self) -> u8 {
+        match self {
+            DisclosureLevel::Full => 0,
+            DisclosureLevel::Skeleton => 1,
+            DisclosureLevel::ExistenceOnly => 2,
+        }
+    }
+}
+
 /// The coarse "is this claim believed at all" signal surfaced at every disclosure
 /// level (including [`DisclosureLevel::ExistenceOnly`], where it is the ONLY thing
 /// surfaced). Deliberately not the raw float confidence — a float is itself
@@ -265,6 +279,55 @@ pub fn explain_belief_redacted(
     }
 }
 
+/// [`explain_belief_redacted`] plus an OPTIONAL caller-requested `cap` (L51, the
+/// `Method::ExplainBelief::disclosure_level` wiring): a caller may ask for a STRICTER
+/// view than their own RLS access earns (e.g. a privacy-conscious display always
+/// wants `ExistenceOnly`, even for an actor who could see the full proof), but can
+/// NEVER loosen what `explain_belief_redacted` computes from their actual access —
+/// `cap` only ever narrows, matching [`DisclosureLevel::strictness`]'s ordering.
+///
+/// `cap: None` (or a `cap` no stricter than the earned level) is a byte-for-byte
+/// passthrough of [`explain_belief_redacted`]'s result — this is what keeps the
+/// default (`disclosure_level: None` on the wire) path unchanged.
+///
+/// A requested `ExistenceOnly` cap always downgrades cleanly (no structure to hide
+/// beyond dropping the tree entirely, exactly like a genuinely-invisible root). A
+/// requested `Skeleton` cap over an earned `Full` result is a LABEL-only downgrade:
+/// since the actor's own access hid nothing, there is nothing further to redact in
+/// place — the caller learns the tree is labeled `Skeleton` (so it does not read the
+/// absence of redaction as a promise of `Full` access) but sees the same content.
+pub fn explain_belief_redacted_capped(
+    bg: &BeliefGraph,
+    seed: &str,
+    policy: &AuthorityPolicy,
+    isolation: &IsolationLayer,
+    actor_id: &str,
+    cap: Option<DisclosureLevel>,
+) -> RedactedJustificationGraph {
+    let earned = explain_belief_redacted(bg, seed, policy, isolation, actor_id);
+    let Some(cap) = cap else {
+        return earned;
+    };
+    if cap.strictness() <= earned.level.strictness() {
+        // No stricter than what the actor already earned — nothing to narrow.
+        return earned;
+    }
+    match cap {
+        DisclosureLevel::ExistenceOnly => RedactedJustificationGraph {
+            level: DisclosureLevel::ExistenceOnly,
+            existence: earned.existence,
+            root: None,
+        },
+        // Only reachable when `earned.level == Full` (see the strictness guard
+        // above) — relabel only, see this fn's doc comment.
+        DisclosureLevel::Skeleton => RedactedJustificationGraph {
+            level: DisclosureLevel::Skeleton,
+            ..earned
+        },
+        DisclosureLevel::Full => earned, // unreachable: Full is never stricter than anything
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -443,6 +506,87 @@ mod tests {
         let j = explain_belief_redacted(&bg, "claim", &AuthorityPolicy::default(), &layer, "root");
         assert_eq!(j.level, DisclosureLevel::Full);
         assert!(!j.has_redactions());
+    }
+
+    // --- explain_belief_redacted_capped (L51: the ExplainBelief wire cap) -------------
+
+    #[test]
+    fn cap_none_is_a_passthrough() {
+        let bg = bg_with_secret_leaf();
+        let layer = layer_with(&[("owner", AgentRole::Agent), ("stranger", AgentRole::Agent)]);
+        let earned = explain_belief_redacted(&bg, "claim", &AuthorityPolicy::default(), &layer, "stranger");
+        let capped = explain_belief_redacted_capped(
+            &bg,
+            "claim",
+            &AuthorityPolicy::default(),
+            &layer,
+            "stranger",
+            None,
+        );
+        assert_eq!(earned, capped);
+    }
+
+    #[test]
+    fn cap_cannot_loosen_a_stricter_earned_level() {
+        // `stranger` earns Skeleton (see `stranger_gets_skeleton_...` above); asking for
+        // a LOOSER cap (`Full`) must NOT grant more than RLS actually earned.
+        let bg = bg_with_secret_leaf();
+        let layer = layer_with(&[("owner", AgentRole::Agent), ("stranger", AgentRole::Agent)]);
+        let capped = explain_belief_redacted_capped(
+            &bg,
+            "claim",
+            &AuthorityPolicy::default(),
+            &layer,
+            "stranger",
+            Some(DisclosureLevel::Full),
+        );
+        assert_eq!(capped.level, DisclosureLevel::Skeleton);
+        assert!(capped.has_redactions());
+    }
+
+    #[test]
+    fn cap_can_request_a_stricter_existence_only_view_over_a_full_actor() {
+        // `owner` earns Full (sees everything) but requests ExistenceOnly for a
+        // privacy-conscious display — the cap narrows even a fully-earned view.
+        let bg = bg_with_secret_leaf();
+        let layer = layer_with(&[("owner", AgentRole::Agent), ("stranger", AgentRole::Agent)]);
+        let capped = explain_belief_redacted_capped(
+            &bg,
+            "claim",
+            &AuthorityPolicy::default(),
+            &layer,
+            "owner",
+            Some(DisclosureLevel::ExistenceOnly),
+        );
+        assert_eq!(capped.level, DisclosureLevel::ExistenceOnly);
+        assert!(capped.root.is_none());
+        // The coarse existence signal is still surfaced even at the capped level.
+        assert_eq!(capped.existence, ExistenceSignal::Supported);
+    }
+
+    #[test]
+    fn cap_skeleton_over_a_full_earned_result_relabels_without_hiding_more() {
+        // No secret leaf here: `stranger` earns Full over an all-public graph, but
+        // requests Skeleton — nothing further to redact, so content is unchanged, only
+        // the label narrows (documented behavior, see fn doc comment).
+        let bg = BeliefGraph::from_parts(
+            [("claim", 0.9), ("evidence", 0.9)],
+            [("evidence", "claim", EdgeKind::Supports)],
+        )
+        .with_visibility([("claim", public()), ("evidence", public())]);
+        let layer = layer_with(&[("stranger", AgentRole::Agent)]);
+        let capped = explain_belief_redacted_capped(
+            &bg,
+            "claim",
+            &AuthorityPolicy::default(),
+            &layer,
+            "stranger",
+            Some(DisclosureLevel::Skeleton),
+        );
+        assert_eq!(capped.level, DisclosureLevel::Skeleton);
+        let root = capped.root.unwrap();
+        assert_eq!(root.claim.as_deref(), Some("claim"));
+        assert!(!root.is_redacted());
     }
 
     #[test]
