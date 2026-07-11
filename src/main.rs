@@ -90,6 +90,15 @@ struct Args {
     #[arg(long, env = "EPISTEMIC_GRAPH_OBS_ADDR")]
     obs_addr: Option<String>,
 
+    /// Iceberg-REST catalog HTTP listener address (e.g. 127.0.0.1:8181), feature
+    /// `lake-rest` (INT-P2-3, `iceberg.apache.org/rest-catalog-spec`). Disabled when
+    /// unset. Serves list/load (+ a compaction-bridged commit) over the tables the
+    /// `lake` materialization tier writes, so a standard Iceberg REST client (PyIceberg/
+    /// Spark/Trino) can list + load them. Separate from the RPC transports and the
+    /// `/sparql`/`/obs` surfaces.
+    #[arg(long, env = "EPISTEMIC_GRAPH_ICEBERG_ADDR")]
+    iceberg_addr: Option<String>,
+
     /// Super-cluster federated-search HTTP listener address (e.g. 127.0.0.1:7900),
     /// feature `federation-search` (CONCEPT:EG-KG.ontology.federation-client). Disabled when unset. Serves a
     /// `/federated` POST (`{query, lang}`) that fans the read query across the peers in
@@ -719,6 +728,12 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         dataset_handles: std::sync::Arc::new(
             epistemic_graph::server::dataset_handle::DatasetHandleRegistry::new(),
         ),
+        // LTAP lakehouse materialization manager (CONCEPT:EG-317 engine-side seam,
+        // INT-P2-3). Process-global + always constructed (empty) on a `lake` build —
+        // the periodic drain sweep and the `lake-rest` Iceberg-REST listener below
+        // both share this ONE handle.
+        #[cfg(feature = "lake")]
+        lake: std::sync::Arc::new(epistemic_graph::server::lake::LakeManager::new()),
     }));
 
     // ── Prometheus metrics endpoint (CONCEPT:EG-KG.txn.per-graph-write-isolation) ────────────────────
@@ -891,6 +906,113 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(not(feature = "obs"))]
     if obs_addr.is_some() {
         tracing::warn!("--obs-addr ignored: binary built without the `obs` feature");
+    }
+
+    // ── Iceberg-REST catalog (CONCEPT:EG-317, INT-P2-3) ────────────────────────────
+    // Opt-in AND feature-gated: the listener starts ONLY when built `--features
+    // lake-rest` AND --iceberg-addr / EPISTEMIC_GRAPH_ICEBERG_ADDR is set. With the
+    // feature off, or unset, this is a no-op. Serves the standards Iceberg-REST
+    // catalog surface (config/namespaces/tables/load-table/commit-table) over the
+    // tables the `lake` materialization tier writes. Deploy-configurable (EG-022): a
+    // bare enable token binds the safe localhost default `127.0.0.1:8181`.
+    let iceberg_addr = resolve_listener_addr(args.iceberg_addr.as_deref(), "127.0.0.1:8181");
+    #[cfg(feature = "lake-rest")]
+    if let Some(ref iceberg_addr) = iceberg_addr {
+        // `lake-rest` implies `lake` implies `blob`, so the CAS is always configured
+        // (`Some`) in any build reaching this arm — `blob` is never independently off.
+        let (lake_handle, blob_store) = {
+            let s = state.read().await;
+            (s.lake.clone(), s.blob.as_ref().map(|b| b.store.clone()))
+        };
+        match blob_store {
+            Some(store) => {
+                let listener = tokio::net::TcpListener::bind(iceberg_addr).await?;
+                info!(
+                    "Iceberg-REST: serving the standards catalog surface on http://{}/v1/config",
+                    iceberg_addr
+                );
+                tokio::spawn(async move {
+                    epistemic_graph::server::lake::rest::serve(listener, lake_handle, store).await;
+                });
+            }
+            None => tracing::error!(
+                "--iceberg-addr {}: no blob CAS available (the `lake`/`blob` features need a persist dir)",
+                iceberg_addr
+            ),
+        }
+    }
+    #[cfg(not(feature = "lake-rest"))]
+    if iceberg_addr.is_some() {
+        tracing::warn!("--iceberg-addr ignored: binary built without the `lake-rest` feature");
+    }
+
+    // ── WAL/series → lakehouse materialization sweep (CONCEPT:EG-317, INT-P2-3) ────
+    // Opt-in AND feature-gated: only runs when built `--features lake` AND a positive
+    // interval is configured via EPISTEMIC_GRAPH_LAKE_MATERIALIZE_INTERVAL_SECS
+    // (0/unset ⇒ disabled — the standing sweep never starts; a caller can still drive
+    // `LakeManager` directly). Each tick lists every tsdb series and incrementally
+    // drains any new points into its lake table (the WAL-drain engine-side seam
+    // `eg-lake`'s own docs describe as a documented follow-up this closes). Runs on
+    // the blocking pool (redb + Parquet encode + the optional OpenLineage HTTP push
+    // are all synchronous work).
+    #[cfg(feature = "lake")]
+    {
+        let interval_secs: u64 = std::env::var(
+            epistemic_graph::server::lake::LAKE_MATERIALIZE_INTERVAL_ENV,
+        )
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
+        if interval_secs > 0 {
+            let sweep_state = state.clone();
+            tokio::spawn(async move {
+                let mut ticker = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
+                ticker.tick().await; // consume the immediate first tick
+                loop {
+                    ticker.tick().await;
+                    // `lake` implies `blob` + `tsdb`, so both are always configured
+                    // (`Some`) here — neither is ever independently off in this build.
+                    let (lake_handle, tsdb, store) = {
+                        let s = sweep_state.read().await;
+                        (s.lake.clone(), s.tsdb_store.clone(), s.blob.as_ref().map(|b| b.store.clone()))
+                    };
+                    let (Some(tsdb), Some(store)) = (tsdb, store) else {
+                        tracing::warn!("Lake materialize sweep: no tsdb/blob store configured, skipping tick");
+                        continue;
+                    };
+                    let outcome = tokio::task::spawn_blocking(move || {
+                        let mut drained = 0usize;
+                        let mut errors = 0usize;
+                        match tsdb.list_series() {
+                            Ok(series) => {
+                                for series_id in series {
+                                    match lake_handle.drain_series(store.as_ref(), &tsdb, &series_id) {
+                                        Ok(Some(_)) => drained += 1,
+                                        Ok(None) => {}
+                                        Err(e) => {
+                                            errors += 1;
+                                            tracing::warn!(
+                                                "Lake materialize sweep: series {series_id} failed: {e}"
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                            Err(e) => tracing::warn!("Lake materialize sweep: list_series failed: {e}"),
+                        }
+                        (drained, errors)
+                    })
+                    .await;
+                    if let Ok((drained, errors)) = outcome {
+                        if drained > 0 || errors > 0 {
+                            tracing::info!(
+                                "Lake materialize sweep: {drained} series drained, {errors} errors"
+                            );
+                        }
+                    }
+                }
+            });
+        }
     }
 
     // ── Postgres wire-protocol shim (CONCEPT:AU-KG.query.raw-python) ───────────────────
