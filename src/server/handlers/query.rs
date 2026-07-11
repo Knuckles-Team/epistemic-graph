@@ -558,6 +558,32 @@ pub(crate) async fn try_handle(
             };
             Ok(resp)
         }
+        // Seam 3 (CONCEPT:EG-KG.epistemic.truth-maintenance, X-6 wire surface): register
+        // `derived_id` as a live TruthMaintenance materialization off its OWN stored
+        // provenance. Needs the graph snapshot (to read `invalidation_deps` +
+        // `:DerivedFrom`/`:GeneratedBy` edges) but not `compute_off_lock` — the read +
+        // registration is a cheap map/index walk, not an algorithm worth off-loading.
+        #[cfg(feature = "epistemic-tms")]
+        Method::RegisterMaterialization { derived_id } => {
+            let snap = core.analysis_snapshot();
+            let m = crate::server::tms_hook::register_materialization(&snap, &derived_id);
+            let result = crate::protocol::RegisterMaterializationResult {
+                id: m.id,
+                depends_on: m.depends_on.into_iter().collect(),
+                generating_activity: m.generating_activity,
+            };
+            let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
+            Ok(Response::ok(req_id, ResultPayload::Raw(bytes)))
+        }
+        // Seam 3 — read-only status lookup on the SAME global index
+        // `RegisterMaterialization`/the `tms_hook` CDC hook feed.
+        #[cfg(feature = "epistemic-tms")]
+        Method::MaterializationStatus { id } => {
+            let status = crate::server::tms_hook::status_of(&id).map(|s| format!("{s:?}"));
+            let result = crate::protocol::MaterializationStatusResult { status };
+            let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
+            Ok(Response::ok(req_id, ResultPayload::Raw(bytes)))
+        }
         // X-1 (CONCEPT:EG-X1): the multimodal-evidence citation resolver. Gated
         // `evidence-graph` at the handler; the wire `Method` variant itself is gated
         // only `epistemic` (see its doc comment), so a build with `epistemic` but not

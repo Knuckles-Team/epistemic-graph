@@ -1697,6 +1697,127 @@ async fn explain_belief_disclosure_level_returns_redacted_skeleton_over_rpc() {
         .any(|n| n.claim.is_none()));
 }
 
+/// Seam 3 (CONCEPT:EG-KG.epistemic.truth-maintenance, X-6 across the storage boundary) —
+/// `Method::RegisterMaterialization` + `Method::MaterializationStatus` prove the FULL
+/// invalidation loop end-to-end over the served RPC surface, through the REAL
+/// `dispatch()` commit path (not a direct `tms_hook::notify` call): a base fact plus a
+/// derived node linked `derived --DERIVED_FROM--> base` register as a live
+/// `TruthMaintenance` materialization off their own stored provenance; a normal
+/// committed `RemoveNode` on the base fact — riding the SAME commit path CDC/audit
+/// use (`mutation::commit_finalize` step 7.5 / the dispatch-shell legacy-tail
+/// counterpart, `src/server/tms_hook.rs`) — then flips the derived materialization's
+/// served status from `"Fresh"` to `"Stale"` with ZERO additional wiring: a caller
+/// (e.g. agent-utilities) that registers once right after writing a derived artifact
+/// gets automatic invalidation on every subsequent base change from then on.
+#[cfg(feature = "epistemic-tms")]
+#[tokio::test]
+async fn register_materialization_over_rpc_then_base_change_stales_it() {
+    use epistemic_graph::protocol::{MaterializationStatusResult, RegisterMaterializationResult};
+
+    async fn materialization_status(
+        state: &Arc<RwLock<ServerState>>,
+        id: u64,
+        node_id: &str,
+    ) -> Option<String> {
+        let resp = dispatch(
+            state,
+            req(
+                id,
+                Method::MaterializationStatus {
+                    id: node_id.to_string(),
+                },
+            ),
+        )
+        .await;
+        assert!(
+            resp.error.is_none(),
+            "MaterializationStatus error: {:?}",
+            resp.error
+        );
+        let bytes = match &resp.result {
+            Some(ResultPayload::Raw(b)) => b.clone(),
+            other => panic!("expected Raw result, got {other:?}"),
+        };
+        let result: MaterializationStatusResult =
+            rmp_serde::from_slice(&bytes).expect("MaterializationStatusResult decodes");
+        result.status
+    }
+
+    let state = state();
+    ok(
+        &state,
+        1,
+        Method::AddNode {
+            node_id: "seam3_base_fact".into(),
+            properties_msgpack: pack(json!({ "type": "Claim", "confidence": 0.9 })),
+        },
+    )
+    .await;
+    ok(
+        &state,
+        2,
+        Method::AddNode {
+            node_id: "seam3_derived_claim".into(),
+            properties_msgpack: pack(json!({ "type": "Claim", "confidence": 0.8 })),
+        },
+    )
+    .await;
+    ok(
+        &state,
+        3,
+        Method::AddEdge {
+            source_id: "seam3_derived_claim".into(),
+            target_id: "seam3_base_fact".into(),
+            properties_msgpack: pack(json!({ "relationship_type": "DERIVED_FROM" })),
+        },
+    )
+    .await;
+
+    // Register the derived node's materialization straight off its stored provenance.
+    let resp = dispatch(
+        &state,
+        req(
+            4,
+            Method::RegisterMaterialization {
+                derived_id: "seam3_derived_claim".into(),
+            },
+        ),
+    )
+    .await;
+    assert!(
+        resp.error.is_none(),
+        "RegisterMaterialization error: {:?}",
+        resp.error
+    );
+    let bytes = match &resp.result {
+        Some(ResultPayload::Raw(b)) => b.clone(),
+        other => panic!("expected Raw result, got {other:?}"),
+    };
+    let registered: RegisterMaterializationResult =
+        rmp_serde::from_slice(&bytes).expect("RegisterMaterializationResult decodes");
+    assert_eq!(registered.id, "seam3_derived_claim");
+    assert_eq!(registered.depends_on, vec!["seam3_base_fact".to_string()]);
+    assert_eq!(registered.generating_activity, None);
+
+    // Immediately after registering, the materialization is Fresh.
+    let status_before = materialization_status(&state, 5, "seam3_derived_claim").await;
+    assert_eq!(status_before, Some("Fresh".to_string()));
+
+    // A REAL committed mutation on the base fact -- through the normal write path,
+    // not a direct `tms_hook` call -- must flip the derived materialization Stale.
+    ok(
+        &state,
+        6,
+        Method::RemoveNode {
+            node_id: "seam3_base_fact".into(),
+        },
+    )
+    .await;
+
+    let status_after = materialization_status(&state, 7, "seam3_derived_claim").await;
+    assert_eq!(status_after, Some("Stale".to_string()));
+}
+
 /// L53 (EPI-P3-5 wiring) — `Method::EpistemicStatus`, the acceptance capstone, callable
 /// end-to-end through the served RPC surface: belief + evidence + authority + time +
 /// uncertainty + invalidation-deps all come back for one claim in ONE typed call.
