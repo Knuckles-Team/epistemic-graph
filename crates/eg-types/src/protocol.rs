@@ -4743,7 +4743,7 @@ pub struct AuthorityPolicyWire {
 /// enum-with-data mirror would work too, but this keeps the wire shape flat like every
 /// other `*Wire` type here).
 #[cfg(feature = "epistemic")]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WhyNotWire {
     pub claim: String,
     /// One of `"Unknown"`, `"InsufficientConfidence"`, `"Contradicted"`, `"Undecided"`.
@@ -4757,7 +4757,7 @@ pub struct WhyNotWire {
 
 /// Wire mirror of `eg_epistemic::query::MinimalFlipSet` — "what would invalidate it".
 #[cfg(feature = "epistemic")]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MinimalFlipSetWire {
     pub claim: String,
     pub believed_now: bool,
