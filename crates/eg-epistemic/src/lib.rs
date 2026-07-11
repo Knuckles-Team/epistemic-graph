@@ -59,6 +59,14 @@ mod query;
 // crate's own opt-in `contract` feature (default OFF). See module docs.
 #[cfg(feature = "contract")]
 mod contract;
+// X-1 (CONCEPT:EG-X1) — the multimodal evidence-graph spine + citation resolver:
+// lets an `:Evidence` node carry a located `eg_modality::EvidenceSpan` locus (plus
+// its `AssetOccurrence`/`Blob` identity chain) and resolves a claim's evidence
+// neighbourhood into a citation list. Behind its own opt-in `evidence-graph`
+// feature (default OFF, reuses the SAME optional `eg-modality` dep `contract`
+// already pulls — no new dependency). See `src/evidence.rs` module docs.
+#[cfg(feature = "evidence-graph")]
+mod evidence;
 
 pub use adapter::BeliefGraph;
 pub use model::{
@@ -115,4 +123,12 @@ pub use query::{
     epistemic_status, is_believed, what_changed, what_evidence_would_change_this, why, why_not,
     ChangedBelief, EpistemicStatus, MinimalFlipSet, WhyNot, WhyNotReason, BELIEF_THRESHOLD,
     MAX_FLIP_CANDIDATES,
+};
+
+// X-1 (CONCEPT:EG-X1) — the multimodal evidence-graph spine + citation resolver,
+// see `evidence` module docs.
+#[cfg(feature = "evidence-graph")]
+pub use evidence::{
+    evidence_citations, justification_citations, resolve_locus, EvidenceCitation,
+    EvidenceLocusRecord, NODE_TYPE_ASSET_OCCURRENCE, NODE_TYPE_BLOB, NODE_TYPE_SOURCE_OBJECT,
 };

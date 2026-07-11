@@ -467,6 +467,13 @@ pub(crate) fn remove_nodes<'a>(
     let mut temporal = bg.temporal.clone();
     temporal.retain(|k, _| !removed.contains(k.as_str()));
 
+    #[cfg(feature = "evidence-graph")]
+    let evidence_loci = {
+        let mut v = bg.evidence_loci.clone();
+        v.retain(|k, _| !removed.contains(k.as_str()));
+        v
+    };
+
     BeliefGraph {
         priors,
         in_edges,
@@ -475,6 +482,8 @@ pub(crate) fn remove_nodes<'a>(
         node_visibility,
         temporal,
         bitemporal_pin: bg.bitemporal_pin,
+        #[cfg(feature = "evidence-graph")]
+        evidence_loci,
     }
 }
 

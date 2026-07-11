@@ -46,6 +46,14 @@ pub struct BeliefGraph {
     /// The `(valid_ts, tx_ts)` instant [`Self::at_instant`] narrowed this projection to,
     /// if any; `None` = unnarrowed (as of now on both axes).
     pub bitemporal_pin: Option<(Option<u64>, Option<u64>)>,
+    /// node id → its located multimodal evidence locus, CONCEPT:EG-X1 (`crate::evidence`).
+    /// Decoded from the SAME per-node property blob as `priors`/`temporal` above
+    /// (`evidence_span`/`occurrence_id`/`blob_ref`); a node absent from this map, or
+    /// present with all three fields `None`, carried none of them — the common case
+    /// for most `:Claim`/`:Evidence` nodes today. Behind `evidence-graph` so a plain
+    /// build carries no extra dependency or per-node decode cost.
+    #[cfg(feature = "evidence-graph")]
+    pub evidence_loci: HashMap<String, crate::evidence::EvidenceLocusRecord>,
 }
 
 impl BeliefGraph {
@@ -55,6 +63,8 @@ impl BeliefGraph {
     pub fn from_graph_view(view: &GraphView) -> Self {
         let mut priors = HashMap::with_capacity(view.node_properties.len());
         let mut temporal = HashMap::with_capacity(view.node_properties.len());
+        #[cfg(feature = "evidence-graph")]
+        let mut evidence_loci = HashMap::with_capacity(view.node_properties.len());
         for (id, blob) in &view.node_properties {
             let parsed = rmp_serde::from_slice::<serde_json::Value>(blob).ok();
             let confidence = parsed
@@ -76,6 +86,18 @@ impl BeliefGraph {
                 if rec != BiTemporalRecord::default() {
                     temporal.insert(id.clone(), rec);
                 }
+            }
+
+            // Same blob, same decode pass, CONCEPT:EG-X1 — the located evidence locus
+            // (`evidence_span`) plus the `AssetOccurrence`/`Blob` identity chain it was
+            // extracted from (`occurrence_id`/`blob_ref`). A node carrying none of the
+            // three yields an all-`None` record (never fabricated) but is still
+            // inserted, so `evidence_loci.contains_key` mirrors `priors`'s "every node
+            // in the view has an entry" convention.
+            #[cfg(feature = "evidence-graph")]
+            {
+                let record = crate::evidence::EvidenceLocusRecord::decode(parsed.as_ref());
+                evidence_loci.insert(id.clone(), record);
             }
         }
 
@@ -114,6 +136,8 @@ impl BeliefGraph {
             node_visibility,
             temporal,
             bitemporal_pin: None,
+            #[cfg(feature = "evidence-graph")]
+            evidence_loci,
         }
     }
 
@@ -150,6 +174,8 @@ impl BeliefGraph {
             node_visibility: HashMap::new(),
             temporal: HashMap::new(),
             bitemporal_pin: None,
+            #[cfg(feature = "evidence-graph")]
+            evidence_loci: HashMap::new(),
         }
     }
 
@@ -158,6 +184,21 @@ impl BeliefGraph {
     /// [`Self::at_instant`] without a `GraphView`.
     pub fn with_temporal(mut self, id: &str, record: BiTemporalRecord) -> Self {
         self.temporal.insert(id.to_string(), record);
+        self
+    }
+
+    /// Test/utility: attach an explicit [`crate::evidence::EvidenceLocusRecord`] to
+    /// `id` — the fixture-side mirror of [`Self::from_graph_view`]'s
+    /// `evidence_span`/`occurrence_id`/`blob_ref` blob decode (CONCEPT:EG-X1), for
+    /// exercising `crate::evidence::evidence_citations`/`resolve_locus` without a
+    /// `GraphView`.
+    #[cfg(feature = "evidence-graph")]
+    pub fn with_evidence_locus(
+        mut self,
+        id: &str,
+        record: crate::evidence::EvidenceLocusRecord,
+    ) -> Self {
+        self.evidence_loci.insert(id.to_string(), record);
         self
     }
 
@@ -212,6 +253,11 @@ impl BeliefGraph {
             node_visibility: self.node_visibility.clone(),
             temporal,
             bitemporal_pin: Some((valid_ts, tx_ts)),
+            // Evidence loci are not bitemporal-scoped data (unlike priors/temporal),
+            // so `at_instant` carries them through unfiltered — mirrors
+            // `node_visibility`'s own unfiltered clone above.
+            #[cfg(feature = "evidence-graph")]
+            evidence_loci: self.evidence_loci.clone(),
         }
     }
 
