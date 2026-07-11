@@ -284,6 +284,23 @@ async fn dispatch_inner(state: &Arc<RwLock<ServerState>>, req: Request) -> Respo
             graph_type,
         } => {
             let mut s = state.write().await;
+            // Bounded hot-context cache admission (CONCEPT:EG-KG.sharding.lazy-graph-catalog, DIST-P2-3): a
+            // new graph is about to be resident, so make room for it FIRST — evict
+            // the coldest resident graph if the cap is already reached. `cap == 0`
+            // (unset, the default) is a no-op, so a small deployment is unaffected.
+            #[cfg(feature = "redb")]
+            {
+                let cap = crate::server::persistence::cold_offload::max_resident_graphs();
+                if cap > 0 {
+                    let tracker = s.cold_tracker.clone();
+                    crate::server::persistence::cold_offload::admit_capacity(
+                        &mut s,
+                        &tracker,
+                        &graph_name,
+                        cap,
+                    ); // `s`: &mut ServerState via RwLockWriteGuard's DerefMut
+                }
+            }
             // The creator (when identified) becomes the graph owner, which is
             // what peer-deny / manager-access checks resolve against.
             match s
@@ -1008,7 +1025,23 @@ async fn dispatch_graph_op(
     caller: Option<&str>,
     method: Method,
 ) -> Response {
+    #[cfg(feature = "redb")]
+    let mut s = state.read().await;
+    #[cfg(not(feature = "redb"))]
     let s = state.read().await;
+    // Cold-path lazy open (CONCEPT:EG-KG.sharding.lazy-graph-catalog, DIST-P2-3): the common case
+    // (already resident) never pays for this — only a registry MISS escalates to a
+    // write lock. The graph may be catalog-known but not yet materialized (a
+    // lazy-startup boot scan, or a graph the bounded hot-context cache evicted
+    // back to catalog-only); `lazy_open` is a no-op for a genuinely unknown name,
+    // so the "not found" error below is unchanged for that case.
+    #[cfg(feature = "redb")]
+    if s.registry.get(graph_name).is_none() {
+        drop(s);
+        let cap = crate::server::persistence::cold_offload::max_resident_graphs();
+        crate::server::persistence::cold_offload::lazy_open(state, graph_name, cap).await;
+        s = state.read().await;
+    }
     let entry = match s.registry.get(graph_name) {
         Some(e) => e,
         None => return Response::err(req_id, format!("Graph '{}' not found", graph_name)),
