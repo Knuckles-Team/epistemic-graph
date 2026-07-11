@@ -58,8 +58,12 @@ pub fn artifact_id(span: &EvidenceSpan) -> &str {
         EvidenceSpan::DocumentSpan { document_id, .. } => document_id,
         EvidenceSpan::TableCellRange { table_id, .. } => table_id,
         EvidenceSpan::ImageRegion { image_id, .. } => image_id,
+        EvidenceSpan::PageBox { document_id, .. } => document_id,
         EvidenceSpan::AudioSegment { audio_id, .. } => audio_id,
         EvidenceSpan::VideoShot { video_id, .. } => video_id,
+        EvidenceSpan::VideoFrameRange { video_id, .. } => video_id,
+        EvidenceSpan::MetricWindow { metric, .. } => metric,
+        EvidenceSpan::RowVersion { table, .. } => table,
         EvidenceSpan::CodeSymbol { file_path, .. } => file_path,
         EvidenceSpan::TraceSpan { trace_id, .. } => trace_id,
     }
@@ -174,6 +178,44 @@ mod tests {
         assert!(matches!(
             resolved,
             Some(ResolvedArtifact::Blob { ref blob_ref, .. }) if blob_ref == "blobref123"
+        ));
+    }
+
+    /// CONCEPT:EG-X1 — `artifact_id` projects `PageBox`'s `document_id`, the SAME
+    /// field `DocumentSpan` projects (both locate content within a document).
+    #[test]
+    fn artifact_id_projects_page_box_document_id() {
+        assert_eq!(
+            artifact_id(&EvidenceSpan::PageBox {
+                document_id: "doc-pdf-1".to_string(),
+                page: 3,
+                x: 10.0,
+                y: 20.0,
+                width: 100.0,
+                height: 40.0,
+            }),
+            "doc-pdf-1"
+        );
+    }
+
+    /// CONCEPT:EG-X1 — a registered `PageBox` artifact resolves through the SAME
+    /// `InMemoryResolver` text/blob registry every other `EvidenceSpan` variant
+    /// does (it keys purely off `artifact_id`, not the variant).
+    #[test]
+    fn in_memory_resolver_resolves_a_registered_page_box_artifact() {
+        let resolver = InMemoryResolver::new().with_blob("doc-pdf-1", "blobref-pdf");
+        let span = EvidenceSpan::PageBox {
+            document_id: "doc-pdf-1".to_string(),
+            page: 3,
+            x: 10.0,
+            y: 20.0,
+            width: 100.0,
+            height: 40.0,
+        };
+        let resolved = resolver.resolve(&span);
+        assert!(matches!(
+            resolved,
+            Some(ResolvedArtifact::Blob { ref blob_ref, .. }) if blob_ref == "blobref-pdf"
         ));
     }
 

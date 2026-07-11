@@ -1077,7 +1077,9 @@ pub enum Method {
     /// `ResultPayload::Bool(true)` iff a live cancellable request was found and cancelled,
     /// `false` when the request already finished, was never cancellable, or never existed —
     /// never an error (cancelling a request that already completed is a harmless no-op).
-    CancelRequest { target_req_id: u64 },
+    CancelRequest {
+        target_req_id: u64,
+    },
 
     // ── Cost / Efficiency (CONCEPT:EG-KG.compute.lane-v, Lane V) ──────────────────
     /// Return a structured resource snapshot for autoscaling: per-graph + per-tenant
@@ -3743,10 +3745,7 @@ impl Method {
     pub fn tag_name(&self) -> String {
         serde_json::to_value(self)
             .ok()
-            .and_then(|v| {
-                v.get("method")
-                    .and_then(|m| m.as_str().map(str::to_string))
-            })
+            .and_then(|v| v.get("method").and_then(|m| m.as_str().map(str::to_string)))
             .unwrap_or_default()
     }
 
@@ -4566,6 +4565,16 @@ pub enum EvidenceSpanWire {
         width: f64,
         height: f64,
     },
+    /// A rectangular box on one page of a paged document (CONCEPT:EG-X1) — e.g.
+    /// "PDF page N, box (x,y,w,h)". Distinct from `DocumentSpan`'s character range.
+    PageBox {
+        document_id: String,
+        page: u32,
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+    },
     /// A time range (milliseconds) inside an audio recording.
     AudioSegment {
         audio_id: String,
@@ -4577,6 +4586,24 @@ pub enum EvidenceSpanWire {
         video_id: String,
         start_ms: u64,
         end_ms: u64,
+    },
+    /// A frame-index range (inclusive) inside a video.
+    VideoFrameRange {
+        video_id: String,
+        start_frame: u64,
+        end_frame: u64,
+    },
+    /// A time window (milliseconds) on a named metric series.
+    MetricWindow {
+        metric: String,
+        start_ms: u64,
+        end_ms: u64,
+    },
+    /// A versioned row in a relational/SQL source.
+    RowVersion {
+        table: String,
+        row_id: String,
+        version: u64,
     },
     /// A named symbol (function/class/etc.) inside a source file, by line range.
     CodeSymbol {
