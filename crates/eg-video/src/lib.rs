@@ -33,6 +33,14 @@
 //! REAL, located `eg_modality::EvidenceSpan::VideoShot` from the first stored shot (or
 //! `None` when the video carries no shot index yet — never fabricated). See
 //! `src/contract.rs`.
+//!
+//! ## `runtime` (CONCEPT:EG-P1-3, OPT-IN, default OFF)
+//!
+//! `src/runtime.rs`, behind the crate's own `runtime` feature: container/track/
+//! keyframe/shot/scene/caption/temporal-embedding TRAITS + typed artifacts — a
+//! trait-definition layer only, adding NO new dependency even when the feature is
+//! on (a real demuxer/detector/model is a separate plugin crate/service). See
+//! `src/runtime.rs` module docs.
 
 mod header;
 mod video;
@@ -42,5 +50,30 @@ mod video;
 #[cfg(feature = "contract")]
 mod contract;
 
+// OPT-IN runtime seam (CONCEPT:EG-P1-3): container/track/keyframe/shot/scene/
+// caption/temporal-embedding traits + typed artifacts, behind the crate's own
+// `runtime` feature (default OFF, no new dependency).
+#[cfg(feature = "runtime")]
+pub mod runtime;
+
 pub use header::{content_hash, read_mp4_duration_ms};
 pub use video::{VideoData, VideoShot};
+
+// CONCEPT:EG-P1-3 — the small-footprint default is sacred: neither `codec` nor
+// `runtime` is ever implied by `default`, so a plain `cargo build -p eg-video`
+// links no heavy video/ffmpeg dependency. Asserted here as an executable
+// regression check (see `eg-image`'s identical guardrail for the full rationale).
+#[cfg(all(test, not(any(feature = "codec", feature = "runtime"))))]
+mod default_build_guardrail {
+    #[test]
+    fn default_build_has_neither_codec_nor_runtime_on() {
+        assert!(
+            !cfg!(feature = "codec"),
+            "the `codec` feature must stay opt-in, never part of `default`"
+        );
+        assert!(
+            !cfg!(feature = "runtime"),
+            "the `runtime` feature must stay opt-in, never part of `default`"
+        );
+    }
+}

@@ -1,0 +1,41 @@
+[package]
+name = "eg-alignment"
+version = "0.1.0"
+edition = "2021"
+authors = ["Audel Rouhi <knucklessg1@gmail.com>"]
+description = "The shared alignment graph (CONCEPT:EG-P1-3) — a typed structure connecting document spans, image regions, audio intervals, video frames/shots, extracted entities, claims, and source blobs, plus an EvidenceResolver seam that resolves an eg_modality::EvidenceSpan to its located artifact. Pure-Rust, dependency-light (eg-modality + serde only) in the default build."
+license = "MIT"
+
+[lib]
+name = "eg_alignment"
+
+# A leaf crate one step ABOVE eg-modality (depends on it for `EvidenceSpan`, the
+# located-evidence shape every alignment node wraps), but deliberately NOT dependent
+# on any of the concrete artifact crates (eg-document/eg-image/eg-audio/eg-video) in
+# its default build — the graph shape + resolver TRAIT only need the wire shape
+# (`EvidenceSpan`), never the concrete modality value types. The one place this
+# crate DOES exercise a real cross-modal alignment (a doc span -> an image region ->
+# a claim, resolved end-to-end) is its `tests/integration.rs`, which pulls the
+# concrete modality crates as DEV-dependencies only (see below) — this affects
+# nothing a consumer of the published `eg-alignment` library links.
+[dependencies]
+eg-modality = { path = "../eg-modality" }
+serde = { version = "1.0", features = ["derive"] }
+
+[features]
+default = []
+
+[dev-dependencies]
+serde_json = "1.0"
+# DEV-only: the one-trivial-end-to-end-path-per-modality integration test builds a
+# real DocumentData/ImageData/AudioData/VideoData via each crate's own decoder/
+# constructor and their `contract`-feature ModalityContract::evidence() resolver,
+# then aligns the results. None of these are part of `eg-alignment`'s own published
+# dependency graph (dev-dependencies never propagate to a crate's consumers), and
+# none of them add a heavy codec/OCR dependency even under these features (see each
+# crate's own Cargo.toml docs) — the workspace-level "default build has no heavy
+# codec deps" guarantee is unaffected.
+eg-document = { path = "../eg-document", features = ["contract"] }
+eg-image = { path = "../eg-image", features = ["contract"] }
+eg-audio = { path = "../eg-audio", features = ["contract"] }
+eg-video = { path = "../eg-video", features = ["contract"] }

@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/eg-types", "crates/eg-ann", "crates/eg-geo", "crates/eg-tensor", "crates/eg-stream", "crates/eg-core", "crates/eg-compute", "crates/eg-query", "crates/eg-plan", "crates/eg-tsdb", "crates/eg-text", "crates/eg-rdf", "crates/eg-shacl", "crates/eg-shex", "crates/eg-wasm", "crates/eg-graphql", "crates/eg-kvcache", "crates/eg-lake", "crates/eg-numeric", "crates/eg-epistemic", "crates/eg-modality", "crates/eg-image", "crates/eg-audio", "crates/eg-video", "crates/eg-capabilities"]
+members = ["crates/eg-types", "crates/eg-ann", "crates/eg-geo", "crates/eg-tensor", "crates/eg-stream", "crates/eg-core", "crates/eg-compute", "crates/eg-query", "crates/eg-plan", "crates/eg-tsdb", "crates/eg-text", "crates/eg-rdf", "crates/eg-shacl", "crates/eg-shex", "crates/eg-wasm", "crates/eg-graphql", "crates/eg-kvcache", "crates/eg-lake", "crates/eg-numeric", "crates/eg-epistemic", "crates/eg-modality", "crates/eg-image", "crates/eg-audio", "crates/eg-video", "crates/eg-document", "crates/eg-alignment", "crates/eg-capabilities"]
 # CONCEPT:EG-P0-1 -- eg-capabilities: the machine-checked MethodPolicy capability-ledger
 # crate (exhaustive, no-wildcard `policy()` over eg-types::protocol::Method, generated
 # docs/capabilities.generated.md, a consistency test cross-checking access.rs/wal.rs/
@@ -42,6 +42,35 @@ members = ["crates/eg-types", "crates/eg-ann", "crates/eg-geo", "crates/eg-tenso
 # Video kinds) — NOT folded into any tier aggregate (pi/node/full) here or ever, since
 # this is the SAME capability-discovery/testing seam as eg-tensor/eg-geo's, not a
 # serving feature.
+# CONCEPT:EG-P1-3 -- first-class document + media runtime modalities. Two new leaf
+# crates, ADDED AS WORKSPACE MEMBERS ONLY (neither is folded into any tier aggregate
+# pi/node/full here or ever -- same capability-discovery/testing-seam status as the
+# CONCEPT:E4 crates above):
+#   * eg-document -- a typed raw-bytes -> pages -> layout-blocks -> tables -> spans
+#     document model (language/version/annotations/chunk-lineage), a
+#     `DocumentDecoder` plugin trait (real PDF/OCR/HTML extraction stays a plugin;
+#     the only shipped decoder is a trivial dependency-free plain-text wrapper), and
+#     a `ModalityContract` impl behind its own opt-in `contract` feature (default
+#     OFF), mirroring eg-image/eg-audio/eg-video's CONCEPT:E4-follow-up pattern.
+#   * eg-alignment -- the shared alignment graph (CONCEPT:EG-P1-3): a typed
+#     structure connecting document spans <-> image regions <-> audio intervals <->
+#     video frames/shots <-> extracted entities <-> claims <-> source blobs (nodes
+#     wrap `eg_modality::EvidenceSpan` plus bare entity/claim/blob ids; edges are a
+#     typed `AlignmentRelation`), plus an `EvidenceResolver` seam that resolves an
+#     `EvidenceSpan` to its located artifact. Depends on `eg-modality` ONLY in its
+#     default build (no heavy artifact-crate dependency); its integration test pulls
+#     eg-document/eg-image/eg-audio/eg-video as DEV-dependencies only (does not
+#     affect what a consumer of the published `eg-alignment` library links).
+# Per-crate runtime OPT-IN modules for image/audio/video (decode/color/EXIF/
+# pyramids/thumbnails/masks + image-embedding hook; codec/waveform-window/
+# spectrogram/VAD/diarization/transcript-alignment hooks; container/track/
+# keyframes/shots/scenes/captions/temporal-embedding hooks) are feature-gated
+# MODULES inside the EXISTING eg-image/eg-audio/eg-video crates (their own new
+# `runtime` feature, default OFF, no new dependency at all -- these are TRAIT +
+# typed-data seams only; a real codec/model plugin implements the trait in its own
+# crate/service) rather than three more new crates -- chosen to avoid tripling the
+# workspace member count for what is, in v1, a pure trait-definition layer with zero
+# runtime logic of its own; see each crate's `src/runtime.rs` module docs.
 
 [package]
 name = "epistemic-graph"
