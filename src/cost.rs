@@ -708,6 +708,10 @@ mod tests {
                 foreign_sources: Arc::new(dashmap::DashMap::new()),
                 #[cfg(feature = "kv")]
                 kv: None,
+                #[cfg(feature = "dataset-handle")]
+                dataset_handles: Arc::new(
+                    crate::server::dataset_handle::DatasetHandleRegistry::new(),
+                ),
             }));
             // Wire the durable read-through exactly like main.rs under authoritative mode.
             {

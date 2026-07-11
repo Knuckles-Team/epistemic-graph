@@ -106,6 +106,10 @@ fn state() -> Arc<RwLock<ServerState>> {
         foreign_sources: Arc::new(DashMap::new()),
         #[cfg(feature = "kv")]
         kv: None,
+        #[cfg(feature = "dataset-handle")]
+        dataset_handles: std::sync::Arc::new(
+            epistemic_graph::server::dataset_handle::DatasetHandleRegistry::new(),
+        ),
     }))
 }
 

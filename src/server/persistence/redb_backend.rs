@@ -2706,6 +2706,10 @@ mod tests {
             foreign_sources: std::sync::Arc::new(dashmap::DashMap::new()),
             #[cfg(feature = "kv")]
             kv: None,
+            #[cfg(feature = "dataset-handle")]
+            dataset_handles: std::sync::Arc::new(
+                crate::server::dataset_handle::DatasetHandleRegistry::new(),
+            ),
         }))
     }
 

@@ -157,6 +157,16 @@ pub mod s3;
 #[cfg(feature = "sparql-http")]
 pub mod sparql_http;
 
+/// Arrow dataset-handle export + signed result writeback (CONCEPT:INT-P2-2, feature
+/// `dataset-handle`): `POST /dataset/export` materializes a query over a graph
+/// snapshot into an immutable, id-addressed Arrow dataset handle; `GET /dataset/<id>`
+/// streams it back as Arrow IPC; `POST /dataset/<id>/result` lets an external
+/// heavy-compute job (data-science-mcp, a training loop) write a signed result
+/// artifact back transactionally. See the module's own docs for why this is
+/// Arrow-IPC-over-HTTP rather than a real Arrow Flight (gRPC) server.
+#[cfg(feature = "dataset-handle")]
+pub mod dataset_handle;
+
 /// PromQL + the Prometheus-compatible HTTP query API (CONCEPT:EG-KG.query.prometheus-http-query-api, feature
 /// `promql`): `/api/v1/query[_range]` + `/labels` served on the obs listener over the
 /// durable eg-tsdb series, backed by the pure-Rust `eg_tsdb::promql` engine.
@@ -335,6 +345,10 @@ mod tests {
             foreign_sources: std::sync::Arc::new(dashmap::DashMap::new()),
             #[cfg(feature = "kv")]
             kv: None,
+            #[cfg(feature = "dataset-handle")]
+            dataset_handles: std::sync::Arc::new(
+                crate::server::dataset_handle::DatasetHandleRegistry::new(),
+            ),
         }))
     }
 
