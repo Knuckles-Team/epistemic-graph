@@ -984,6 +984,30 @@ pub enum Method {
         max_moves: Option<usize>,
     },
 
+    // ── Placement-catalog wire consumption (CONCEPT:EG-KG.sharding.placement-route-rpc, DIST-P2-4) ──
+    // The DIST-P2-1 `PlacementCatalog` (`src/raft/placement.rs`) was, until now, an
+    // authority consumed only INSIDE the engine (`MultiRaft::route_graph`). This
+    // variant exposes it over the wire so an EXTERNAL caller (e.g. `agent-utilities`'s
+    // `placement_catalog.py`, `epistemic_graph.client`'s `placement` namespace) can ask
+    // "who owns (tenant, sub_key) right now" without independently guessing via its
+    // own hash ring. PURE serde (String/String/u64) — no heavy dep — so, like the M3
+    // catalog methods above, this variant is always in the enum; a build without the
+    // `raft` feature (or a raft build with no live `MultiRaft` cluster) answers a
+    // well-formed "no explicit placement" JSON rather than an error, so a caller's
+    // fallback-to-hash-ring path triggers identically either way.
+    /// Resolve `(tenant, sub_key)`'s current placement (CONCEPT:EG-KG.sharding.placement-route-rpc). `client_epoch`
+    /// is the caller's last-known routing epoch for this partition (`0` if never
+    /// resolved) — used only to compute the `redirect` hint in the response, never to
+    /// reject the request. Returns JSON: `{"explicit": false}` (no catalog entry — fall
+    /// back to the hash ring) or `{"explicit": true, "group": <GroupId>, "epoch": <u64>,
+    /// "redirect": <bool>, "endpoint": null}`. `redirect` is `true` when `client_epoch`
+    /// is behind the entry's current epoch (mirrors `PlacementCatalog::redirect_if_stale`).
+    PlacementRoute {
+        tenant: String,
+        sub_key: String,
+        client_epoch: u64,
+    },
+
     // ── Online backup / restore + PITR (CONCEPT:EG-KG.sharding.reshard-on-restore) ──────────────
     // The wire surface for the DR ops the durable store now supports: an ONLINE
     // consistent backup (per-shard begin_read() MVCC snapshot, EG-027, streamed

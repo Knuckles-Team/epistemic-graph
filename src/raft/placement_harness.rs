@@ -372,7 +372,7 @@ async fn online_move_preserves_data_and_lands_new_epoch() {
 
     // ── ONLINE MOVE A→B (snapshot → catch-up → fenced cutover) ──
     let report = tenants
-        .move_partition(TENANT, range, &[graph.clone()], GROUP_B)
+        .move_partition(TENANT, range, std::slice::from_ref(&graph), GROUP_B)
         .await
         .expect("move_partition A→B");
     assert!(report.epoch > epoch0, "cutover strictly bumps the epoch");
@@ -461,6 +461,119 @@ async fn split_lets_one_tenant_span_two_groups() {
             RouteOutcome::Fallback => panic!("merged tenant must still have an explicit route"),
         }
     }
+
+    multi.stop_listener();
+    backend.shutdown();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// 6. The wire `Method::PlacementRoute` RPC (CONCEPT:EG-KG.sharding.placement-route-rpc, DIST-P2-4)
+//    resolves through the REAL served dispatch path — not just the in-process
+//    `PlacementCatalog` API the tests above exercise directly. This is the
+//    external-caller seam `epistemic_graph.client`'s `placement.route(...)` (and
+//    AU's `placement_catalog.py`) drives.
+// ─────────────────────────────────────────────────────────────────────────
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn wire_placement_route_resolves_through_dispatch() {
+    use crate::protocol::{Request, ResultPayload};
+    use crate::server::{compute_auth_token, dispatch};
+
+    const SECRET: &str = "placement-test";
+
+    let dir = fresh_dir("wire-route");
+    let backend: Arc<dyn PersistenceBackend> =
+        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+    let (multi, state) = bring_up(&dir, backend.clone()).await;
+    // `bring_up`'s `ServerState` never back-references the `MultiRaft` it's shared
+    // with (the other tests in this file only ever call `multi.*` directly, never
+    // through the served `dispatch` seam) -- but the REAL served
+    // `Method::PlacementRoute` handler (`handlers/placement.rs`) resolves the
+    // catalog off `state.multi_raft`, exactly like the DIST-P2-2 cross-shard 2PC
+    // path (`handlers/txn.rs`) does. Wire it here (mirrors `xshard_harness.rs`'s
+    // `wire_state` helper) so this test exercises the SAME lookup a real server
+    // does.
+    state.write().await.multi_raft = Some(multi.clone());
+
+    let req = |id: u64, method: Method| Request {
+        id,
+        graph: "__commons__".to_string(),
+        auth_token: compute_auth_token(SECRET, id),
+        agent_id: None,
+        method,
+    };
+    let route_json = |resp: crate::protocol::Response| -> serde_json::Value {
+        assert!(resp.error.is_none(), "dispatch error: {:?}", resp.error);
+        match resp.result {
+            Some(ResultPayload::Json(v)) => v,
+            other => panic!("expected a Json result, got {other:?}"),
+        }
+    };
+
+    // Before any assignment: no explicit placement -- the wire answer is the
+    // well-formed "fall back to the hash ring" JSON, never an error.
+    let val = route_json(
+        dispatch(
+            &state,
+            req(
+                1,
+                Method::PlacementRoute {
+                    tenant: TENANT.to_string(),
+                    sub_key: "ws1".to_string(),
+                    client_epoch: 0,
+                },
+            ),
+        )
+        .await,
+    );
+    assert_eq!(val["explicit"], serde_json::json!(false));
+
+    // After an assignment, the SAME wire RPC resolves the new group/epoch; a caller
+    // presenting client_epoch=0 (never resolved before) is flagged for redirect.
+    let epoch1 = multi
+        .placement_assign(TENANT, GROUP_B)
+        .await
+        .expect("assign");
+    let val = route_json(
+        dispatch(
+            &state,
+            req(
+                2,
+                Method::PlacementRoute {
+                    tenant: TENANT.to_string(),
+                    sub_key: "ws1".to_string(),
+                    client_epoch: 0,
+                },
+            ),
+        )
+        .await,
+    );
+    assert_eq!(val["explicit"], serde_json::json!(true));
+    assert_eq!(val["group"], serde_json::json!(GROUP_B));
+    assert_eq!(val["epoch"], serde_json::json!(epoch1));
+    assert_eq!(val["redirect"], serde_json::json!(true));
+    assert!(
+        val["endpoint"].is_null(),
+        "endpoint is deliberately null on the wire (see handlers/placement.rs)"
+    );
+
+    // A caller presenting the CURRENT epoch is not flagged for redirect.
+    let val = route_json(
+        dispatch(
+            &state,
+            req(
+                3,
+                Method::PlacementRoute {
+                    tenant: TENANT.to_string(),
+                    sub_key: "ws1".to_string(),
+                    client_epoch: epoch1,
+                },
+            ),
+        )
+        .await,
+    );
+    assert_eq!(val["redirect"], serde_json::json!(false));
 
     multi.stop_listener();
     backend.shutdown();

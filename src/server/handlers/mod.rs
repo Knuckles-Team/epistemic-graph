@@ -101,3 +101,9 @@ pub(crate) mod sqlite_file;
 // than a resolved `GraphCore`.
 #[cfg(feature = "jobs")]
 pub(crate) mod jobs;
+// Placement-catalog wire RPC (CONCEPT:EG-KG.sharding.placement-route-rpc, DIST-P2-4): exposes the
+// DIST-P2-1 `PlacementCatalog` (raft/placement.rs) over `Method::PlacementRoute`. Always
+// declared (like `admin`); the real answer is `raft`-gated (the only build where
+// `MultiRaft`/the catalog exist), and a non-raft build (or a raft build with no live
+// cluster) answers a well-formed "no explicit placement" JSON rather than an error.
+pub(crate) mod placement;

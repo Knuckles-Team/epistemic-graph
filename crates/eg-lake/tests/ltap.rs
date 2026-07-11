@@ -175,6 +175,76 @@ fn eg_317_iceberg_metadata_written_and_parseable() {
     assert_eq!(man["entries"].as_array().unwrap().len(), 1);
 }
 
+/// CONCEPT:EG-KG.storage.iceberg-per-file-schema-id (INT-P2-4) — each committed snapshot's `metadata.json` records the
+/// schema-id ACTUALLY in effect when it was written, across an additive schema
+/// evolution: `schemas[]` accumulates every version, `current-schema-id` tracks the
+/// latest, and a data file recorded BEFORE the evolution keeps its OLDER schema-id
+/// on its manifest-preview entry even after the table's current schema moves on —
+/// the per-file schema-id tracking across a rewrite the module docs used to flag as
+/// an honest gap.
+#[test]
+fn int_p2_4_iceberg_schema_id_tracked_per_file_across_evolution() {
+    let mut table = LakeTable::new("market", "quotes", sample_schema(), "s3://lake/quotes");
+    assert_eq!(table.schema_id(), 0, "starts at schema-id 0");
+
+    // A file written under the ORIGINAL (5-column) schema.
+    table.record_file("data/part-0.parquet", 512, 3, Lsn(10));
+
+    // Evolve: add a nullable column. Bumps the schema-id for FUTURE writes.
+    let added = table.evolve_add_column(LakeField::new("venue", LakeType::String));
+    assert!(added, "a genuinely new column must be added");
+    assert_eq!(table.schema_id(), 1, "evolution bumps the current schema-id");
+    assert_eq!(
+        table.schema_versions().len(),
+        2,
+        "both the original and evolved schema versions are retained"
+    );
+
+    // A SECOND file, written AFTER the evolution, under the NEW (6-column) schema.
+    table.record_file("data/part-1.parquet", 640, 4, Lsn(20));
+
+    // Adding the SAME column name again is a no-op (already exists) — no second bump.
+    assert!(!table.evolve_add_column(LakeField::new("venue", LakeType::String)));
+    assert_eq!(table.schema_id(), 1, "re-adding an existing column doesn't bump again");
+
+    let ib = table.iceberg(1_700_000_000_000);
+    let meta = iceberg::parse_metadata(&ib.metadata_json).expect("parse metadata");
+
+    // `schemas[]` carries BOTH versions, each correctly tagged with its OWN id.
+    let schemas = meta["schemas"].as_array().unwrap();
+    assert_eq!(schemas.len(), 2, "both schema versions appear in the history");
+    assert_eq!(schemas[0]["schema-id"], 0);
+    assert_eq!(schemas[0]["fields"].as_array().unwrap().len(), 5);
+    assert_eq!(schemas[1]["schema-id"], 1);
+    assert_eq!(schemas[1]["fields"].as_array().unwrap().len(), 6);
+    assert_eq!(meta["current-schema-id"], 1, "current-schema-id tracks the LATEST version");
+    // The current commit's own snapshot is written under the CURRENT schema.
+    assert_eq!(meta["snapshots"][0]["schema-id"], 1);
+
+    // The manifest-preview entries: the file recorded BEFORE the evolution keeps its
+    // OLDER schema-id; the one recorded AFTER carries the newer one. Order matches
+    // `live_files()` (insertion order for two never-tombstoned files).
+    let man: serde_json::Value = serde_json::from_str(&ib.manifest_json).unwrap();
+    let entries = man["entries"].as_array().unwrap();
+    assert_eq!(entries.len(), 2);
+    let by_path = |p: &str| {
+        entries
+            .iter()
+            .find(|e| e["data_file"]["file_path"].as_str().unwrap().ends_with(p))
+            .unwrap_or_else(|| panic!("no manifest entry for {p}"))
+    };
+    assert_eq!(
+        by_path("part-0.parquet")["data_file"]["schema-id"],
+        0,
+        "the pre-evolution file keeps its OLDER schema-id, not the table's current one"
+    );
+    assert_eq!(
+        by_path("part-1.parquet")["data_file"]["schema-id"],
+        1,
+        "the post-evolution file carries the newer schema-id"
+    );
+}
+
 /// CONCEPT:EG-KG.storage.eg-iceberg-avro-manifest/EG-334 — the Iceberg **Avro** manifest + manifest-list are written as
 /// real Avro containers, parse back, reference each other, and the manifest entries
 /// match the live data files. Also asserts the `metadata.json` snapshot's `manifest-list`
