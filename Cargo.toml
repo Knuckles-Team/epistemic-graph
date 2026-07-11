@@ -265,6 +265,25 @@ kv = ["server", "redb", "eg-types/kv"]
 # only an explicit `--features blob-s3` build links the `object_store` SDK — the
 # Pi/default/full build links no AWS/object-store crate (asserted by cargo tree).
 blob-s3 = ["blob", "dep:object_store"]
+# L21 (CONCEPT:EG-P1-3 follow-up) — a REAL `eg_alignment::EvidenceResolver` backed by
+# the engine's own blob CAS: `src/server/blob/cas_resolver.rs`'s `CasEvidenceResolver`
+# looks a span's artifact id up in a `GraphView` snapshot's stored `blob_ref` property,
+# then reads the actual bytes back off the SAME content-addressed `ChunkStore` the
+# `blob` feature already wires (`stream_blob_get`) — a `DocumentSpan`/`TableCellRange`
+# resolves to a REAL text excerpt (UTF-8 sliced at the span's byte range); every other
+# span kind (image/audio/video/code/trace — no in-tree codec to crop/slice with) yields
+# a `ResolvedArtifact::Blob` naming the real CAS digest, never a fabricated excerpt.
+# `eg-alignment` cannot reach the blob CAS itself by design (a leaf crate BELOW the
+# server, deps = eg-modality ONLY — see its own crate docs on why it ships only the
+# dependency-free `InMemoryResolver`), so the resolver lives HERE instead: the one
+# place that already links both `eg-alignment` (for the `EvidenceResolver` trait) and
+# the blob CAS (`blob`, for `ChunkStore`). Pulls `blob` + `dep:eg-alignment` +
+# `dep:eg-modality` (the `EvidenceSpan` type, already nameable under `epistemic` — this
+# makes it nameable standalone too, with no new dependency CLASS). OFF by default and
+# deliberately NOT folded into any tier aggregate (pi/node/cluster/full) — the SAME
+# capability-discovery/testing-seam status as `eg-document`/`eg-alignment` themselves
+# (see the workspace `[workspace]` comment above), not a serving feature.
+alignment = ["blob", "dep:eg-alignment", "dep:eg-modality"]
 # Read-only SQL query surface (CONCEPT:KG-2.178). Pulls eg-query + DataFusion/Arrow
 # — heavy, so it is OFF by default and folded only into full/all (never the slim
 # Raspberry-Pi build). A default build links no DataFusion.
@@ -964,6 +983,14 @@ eg-plan = { path = "crates/eg-plan", optional = true }
 # this adds no NEW transitive dependency to the tree — only makes the type nameable
 # here too.
 eg-modality = { path = "crates/eg-modality", optional = true }
+# The shared alignment graph + `EvidenceResolver` trait (feature `alignment`, L21,
+# CONCEPT:EG-P1-3 follow-up). `src/server/blob/cas_resolver.rs` implements that trait
+# with a real CAS-backed resolver — see the `alignment` feature's own comment above
+# for why the resolver lives HERE rather than in `eg-alignment` itself. Referenced
+# only under `#[cfg(feature = "alignment")]`; `eg-alignment`'s own default build
+# depends on `eg-modality` ONLY (no heavy artifact crate), so this adds no new
+# dependency CLASS to the tree.
+eg-alignment = { path = "crates/eg-alignment", optional = true }
 # CONCEPT:EG-P0-2 -- the machine-checked MethodPolicy capability ledger (feature
 # `server`, via the `dep:eg-capabilities` requirement folded into that feature below).
 # `src/server/mutation.rs`'s `MutationPlan::for_method` calls `eg_capabilities::policy`
