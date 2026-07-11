@@ -1903,6 +1903,57 @@ pub enum Method {
         tx_from: u64,
         tx_to: u64,
     },
+    /// X-1 (CONCEPT:EG-X1) — resolve `node_id`'s cited multimodal evidence: build a
+    /// `BeliefGraph` off the caller's `GraphView` and walk the SAME support/
+    /// contradiction/attack topology `ExplainBelief` walks, returning every
+    /// transitively-reachable node that carries a located `EvidenceSpan` locus (PDF
+    /// page+box, audio/video interval, SQL row version, code range, trace span, …)
+    /// plus the `AssetOccurrence`/`Blob` identity chain it was extracted from
+    /// (`eg_epistemic::evidence_citations`, feature `evidence-graph`) — "here is
+    /// exactly where in the source this claim's evidence came from." Returns an
+    /// `ExplainEvidenceResult` via `ResultPayload::raw`. Gated `epistemic` at the wire
+    /// level (implies `query`); the HANDLER additionally requires `evidence-graph` —
+    /// a build with `epistemic` but not `evidence-graph` falls to the graph_ops "not
+    /// available in this build" catch-all (same convention as `EpistemicStatus`/
+    /// `epistemic-tms`).
+    #[cfg(feature = "epistemic")]
+    ExplainEvidence {
+        node_id: String,
+    },
+    /// EPI-P3-3 — a **do-calculus intervention** `P(· | do(X₁=x₁, X₂=x₂, …))` over a
+    /// request-carried linear-Gaussian structural causal model: `variables` defines
+    /// the DAG's `StructuralEquation`s in topological (parents-before-children) order
+    /// — the SAME invariant `eg_epistemic::CausalGraph::add_variable` enforces at
+    /// construction — and `do_values` fixes the named variables via graph surgery
+    /// (`eg_epistemic::CausalGraph::intervene`, feature `epistemic-causal`). Returns a
+    /// calibrated `CausalEstimateResult` (mean/variance/credible-interval per
+    /// variable, in `variables` order) via `ResultPayload::raw`. A pure function over
+    /// request-carried inputs — no graph snapshot is read. Gated `epistemic` at the
+    /// wire level; the HANDLER additionally requires `epistemic-causal` — same
+    /// build-tier fallback convention as `ExplainEvidence`.
+    ///
+    /// The crate ALSO exposes the *observational* query (`CausalGraph::observe`) and
+    /// Pearl point-counterfactuals (`CausalGraph::counterfactual`); this increment
+    /// wires only the interventional `do`-query — the headline do-calculus capability
+    /// — to keep the request DTO minimal. See `eg_epistemic::causal` module docs.
+    #[cfg(feature = "epistemic")]
+    CausalEstimate {
+        variables: Vec<StructuralEquationWire>,
+        do_values: std::collections::BTreeMap<String, f64>,
+    },
+    /// EPI-P3-3 — provenance-aware retrieval ranking: order request-carried
+    /// `candidates` by a weighted blend of similarity AND evidence quality/
+    /// provenance (source reliability, corroboration, calibration precision,
+    /// freshness) rather than similarity alone (`eg_epistemic::rank`, feature
+    /// `epistemic-causal`). A pure function over request-carried inputs — no graph
+    /// snapshot is read. Returns a `RankByProvenanceResult` via `ResultPayload::raw`.
+    /// Same build-tier fallback convention as `ExplainEvidence`/`CausalEstimate`.
+    #[cfg(feature = "epistemic")]
+    RankByProvenance {
+        candidates: Vec<RetrievalCandidateWire>,
+        #[serde(default)]
+        weights: RankWeightsWire,
+    },
 
     // ── Natural-language query (CONCEPT:EG-KG.query.core-query-input/EG-080) ─────────────────────
     /// Natural-language → executable query → rows. `text` is the NL request, `graph`
@@ -4814,6 +4865,143 @@ pub struct ChangedBeliefWire {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WhatChangedResult {
     pub changed: Vec<ChangedBeliefWire>,
+}
+
+// ── X-1 multimodal-evidence citation wiring (CONCEPT:EG-X1, facade feature
+// `evidence-graph`) ─────────────────────────────────────────────────────────────
+
+/// Wire mirror of `eg_epistemic::EvidenceCitation` — one node bearing on a claim
+/// (support/contradiction/attack), together with its located locus and identity
+/// chain, when present. `kind` is the `Debug`-rendered `eg_epistemic::EdgeKind`
+/// (`"Supports"`/`"Contradicts"`/`"Attacks"`), the SAME flat-string convention
+/// `JustificationNodeWire::rule` uses for its `JustRule`. `locus` reuses
+/// [`EvidenceSpanWire`] (the SAME wire mirror `ExplainProvenanceRowWire` carries —
+/// `epistemic` implies `query`, so it is always nameable here).
+#[cfg(feature = "epistemic")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EvidenceCitationWire {
+    pub evidence_id: String,
+    /// One of `"Supports"`, `"Contradicts"`, `"Attacks"`.
+    pub kind: String,
+    pub locus: Option<EvidenceSpanWire>,
+    pub occurrence_id: Option<String>,
+    pub blob_ref: Option<String>,
+}
+
+/// Materialized result of a `Method::ExplainEvidence` run. Returned via
+/// `ResultPayload::raw`.
+#[cfg(feature = "epistemic")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExplainEvidenceResult {
+    pub citations: Vec<EvidenceCitationWire>,
+}
+
+// ── EPI-P3-3 causal reasoning + provenance ranking wiring (facade feature
+// `epistemic-causal`) ───────────────────────────────────────────────────────────
+
+/// Wire mirror of `eg_epistemic::StructuralEquation` (EPI-P3-3), keyed by the
+/// variable `id` it defines — one entry of `Method::CausalEstimate::variables`.
+/// `parents` MUST name only ids that appear EARLIER in that same list (parents
+/// before children), mirroring `eg_epistemic::CausalGraph::add_variable`'s own
+/// topological-order invariant; the handler surfaces a violation as an explicit
+/// error, never a panic.
+#[cfg(feature = "epistemic")]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StructuralEquationWire {
+    pub id: String,
+    /// `(parent id, weight)` pairs.
+    pub parents: Vec<(String, f64)>,
+    pub bias: f64,
+    /// Variance of this variable's own exogenous noise term (`0.0` = deterministic
+    /// given its parents).
+    pub noise_var: f64,
+}
+
+/// Wire mirror of `eg_epistemic::CausalEstimate` (EPI-P3-3) — a calibrated mean/
+/// variance/credible-interval result of one causal query for one variable.
+#[cfg(feature = "epistemic")]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct CausalEstimateWire {
+    pub mean: f64,
+    pub variance: f64,
+    pub interval: (f64, f64),
+    pub level: f64,
+}
+
+/// Materialized result of a `Method::CausalEstimate` run: one estimate per
+/// variable, in the SAME order as the request's `variables` list. Returned via
+/// `ResultPayload::raw`.
+#[cfg(feature = "epistemic")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CausalEstimateResult {
+    pub estimates: Vec<(String, CausalEstimateWire)>,
+}
+
+/// Wire mirror of `eg_epistemic::Calibration` (EPI-P3-3) — the calibrated interval
+/// backing a `RetrievalCandidateWire`'s evidence-quality score, when the candidate
+/// has one.
+#[cfg(feature = "epistemic")]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct CalibrationWire {
+    pub interval: (f64, f64),
+    pub level: f64,
+    pub evidence_count: usize,
+}
+
+/// Wire mirror of `eg_epistemic::RetrievalCandidate` (EPI-P3-3) — one candidate in
+/// a `Method::RankByProvenance` request, before ranking.
+#[cfg(feature = "epistemic")]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RetrievalCandidateWire {
+    pub id: String,
+    pub similarity: f64,
+    pub source_reliability: f64,
+    pub freshness: f64,
+    /// `None` for a candidate with no evidence-graph backing (ranks on
+    /// similarity/reliability/freshness alone — an honest "unknown", never a
+    /// fabricated middling score).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub calibration: Option<CalibrationWire>,
+}
+
+/// Wire mirror of `eg_epistemic::RankWeights` (EPI-P3-3) — weights combining
+/// similarity with the evidence-quality/provenance signal for `RankByProvenance`.
+/// Defaults to `{ similarity: 0.5, evidence_quality: 0.5 }`, the SAME
+/// equal-weighting default `eg_epistemic::RankWeights::default()` uses.
+#[cfg(feature = "epistemic")]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct RankWeightsWire {
+    pub similarity: f64,
+    pub evidence_quality: f64,
+}
+
+#[cfg(feature = "epistemic")]
+impl Default for RankWeightsWire {
+    fn default() -> Self {
+        RankWeightsWire {
+            similarity: 0.5,
+            evidence_quality: 0.5,
+        }
+    }
+}
+
+/// Wire mirror of `eg_epistemic::RankedResult` (EPI-P3-3) — one ranked candidate:
+/// the final blended score plus its components, kept separate for explainability.
+#[cfg(feature = "epistemic")]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RankedResultWire {
+    pub id: String,
+    pub score: f64,
+    pub similarity: f64,
+    pub evidence_quality: f64,
+}
+
+/// Materialized result of a `Method::RankByProvenance` run, highest score first.
+/// Returned via `ResultPayload::raw`.
+#[cfg(feature = "epistemic")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RankByProvenanceResult {
+    pub ranked: Vec<RankedResultWire>,
 }
 
 /// Graph type for multi-tenant registry.

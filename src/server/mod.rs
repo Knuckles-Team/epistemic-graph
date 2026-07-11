@@ -1424,6 +1424,64 @@ mod tests {
         );
     }
 
+    /// Feature-gating contract for X-1 (CONCEPT:EG-X1): `Method::ExplainEvidence`
+    /// exists in the wire enum whenever `epistemic` is on (see its doc comment), but
+    /// its handler arm additionally requires `evidence-graph` — a build with
+    /// `epistemic` on and `evidence-graph` off must hit the "not available in this
+    /// server build" catch-all, never a panic or mis-route (mirrors
+    /// `test_gated_out_method_returns_not_built` above).
+    #[cfg(all(feature = "epistemic", not(feature = "evidence-graph")))]
+    #[tokio::test]
+    async fn explain_evidence_gated_out_returns_not_built() {
+        let state = multi_tenant_state().await;
+        let method = Method::ExplainEvidence {
+            node_id: "claim1".into(),
+        };
+        let resp = dispatch(&state, request(1, "agent:worker1", Some("worker1"), method)).await;
+        let err = resp.error.as_deref().unwrap_or("");
+        assert!(
+            err.contains("not available in this server build"),
+            "expected the not-built catch-all, got: ok={:?} err={:?}",
+            resp.result,
+            resp.error
+        );
+    }
+
+    /// Same feature-gating contract for EPI-P3-3: `Method::CausalEstimate`/
+    /// `Method::RankByProvenance` exist whenever `epistemic` is on, but their
+    /// handler arms additionally require `epistemic-causal`.
+    #[cfg(all(feature = "epistemic", not(feature = "epistemic-causal")))]
+    #[tokio::test]
+    async fn causal_estimate_and_rank_by_provenance_gated_out_return_not_built() {
+        let state = multi_tenant_state().await;
+
+        let method = Method::CausalEstimate {
+            variables: vec![],
+            do_values: std::collections::BTreeMap::new(),
+        };
+        let resp = dispatch(&state, request(1, "agent:worker1", Some("worker1"), method)).await;
+        let err = resp.error.as_deref().unwrap_or("");
+        assert!(
+            err.contains("not available in this server build"),
+            "CausalEstimate: expected the not-built catch-all, got: ok={:?} err={:?}",
+            resp.result,
+            resp.error
+        );
+
+        let method = Method::RankByProvenance {
+            candidates: vec![],
+            weights: Default::default(),
+        };
+        let resp = dispatch(&state, request(2, "agent:worker1", Some("worker1"), method)).await;
+        let err = resp.error.as_deref().unwrap_or("");
+        assert!(
+            err.contains("not available in this server build"),
+            "RankByProvenance: expected the not-built catch-all, got: ok={:?} err={:?}",
+            resp.result,
+            resp.error
+        );
+    }
+
     #[tokio::test]
     async fn incremental_checkpoint_skips_clean_graphs() {
         // Phase C-C: checkpoint_all rewrites only graphs dirtied since the last
