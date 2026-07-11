@@ -103,6 +103,9 @@ impl SecondaryIndex for GraphTextIndex {
     fn kind(&self) -> IndexKind {
         IndexKind::Text
     }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
     fn descriptor(&self) -> IndexDescriptor {
         IndexDescriptor {
             kind: IndexKind::Text,
@@ -176,6 +179,56 @@ impl SecondaryIndex for GraphTextIndex {
         }
         ix.commit()
             .map_err(|e| IndexError::Failed(format!("text rebuild commit: {e}")))
+    }
+}
+
+/// Planner pushdown adapter (CONCEPT:EG-KG.query.served-text-index-binding, EG-P1-4): lets a served
+/// `RankText`/`FuseRrf` leg search the MAINTAINED per-graph [`GraphTextIndex`] directly
+/// instead of `eg-plan`'s prior behavior of building a throwaway BM25 index from the
+/// queried snapshot on EVERY request. Cheap to construct per request — it only holds an
+/// `Arc<GraphCore>` clone — and each [`eg_plan::TextSource::search`] call re-resolves the
+/// registered index through the generic [`crate::index::IndexManager`] (a downcast via
+/// [`crate::index::SecondaryIndex::as_any`]) and searches it fresh under a brief internal
+/// lock, so it always reflects the LAST COMMITTED batch with no per-query rebuild. `eg-core`
+/// cannot expose this directly (the concrete `GraphTextIndex` type lives ABOVE it in the
+/// crate DAG — see this module's top docs), so the adapter lives here, at the server layer,
+/// where both `eg-core`'s generic registry AND the concrete text index are in scope.
+#[cfg(feature = "text")]
+pub struct ServedTextIndex {
+    core: std::sync::Arc<GraphCore>,
+}
+
+#[cfg(feature = "text")]
+impl ServedTextIndex {
+    pub fn new(core: std::sync::Arc<GraphCore>) -> Self {
+        Self { core }
+    }
+
+    /// `true` iff this graph has a maintained persistent text index registered — the
+    /// caller (the query handler) uses this to choose between pushing a `RankText`/
+    /// `FuseRrf` leg down into THIS adapter or falling back to a snapshot-derived index
+    /// (a graph created before the factory installed, or a test harness with no
+    /// `ServerIndexFactory` wired at all).
+    pub fn available(&self) -> bool {
+        self.core
+            .indexes()
+            .with_server_index(crate::index::IndexKind::Text, |_| ())
+            .is_some()
+    }
+}
+
+#[cfg(feature = "text")]
+impl eg_plan::TextSource for ServedTextIndex {
+    fn search(&self, query: &str, k: usize) -> Vec<eg_text::TextHit> {
+        self.core
+            .indexes()
+            .with_server_index(crate::index::IndexKind::Text, |idx| {
+                idx.as_any()
+                    .downcast_ref::<GraphTextIndex>()
+                    .map(|gti| gti.search(query, k))
+                    .unwrap_or_default()
+            })
+            .unwrap_or_default()
     }
 }
 
@@ -258,6 +311,9 @@ impl GraphTemporalIndex {
 impl SecondaryIndex for GraphTemporalIndex {
     fn kind(&self) -> IndexKind {
         IndexKind::Temporal
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
     }
     fn descriptor(&self) -> IndexDescriptor {
         IndexDescriptor {
@@ -343,6 +399,9 @@ pub struct DerivedOwlIndex;
 impl SecondaryIndex for DerivedOwlIndex {
     fn kind(&self) -> IndexKind {
         IndexKind::DerivedOwl
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
     }
     fn descriptor(&self) -> IndexDescriptor {
         IndexDescriptor {
