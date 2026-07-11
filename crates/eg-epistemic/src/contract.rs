@@ -207,6 +207,7 @@ impl ConformanceTestable for BeliefState {
             attacking: Vec::new(),
             as_of: Some((TimeAxis::Transaction, 1_700_000_000)),
             calibration: None,
+            bitemporal: None,
         }
     }
 }
@@ -248,6 +249,7 @@ mod overrides {
             attacking: Vec::new(),
             as_of: None,
             calibration: None,
+            bitemporal: None,
         };
         let prov = b.provenance("x").unwrap();
         assert_eq!(prov.source, format!("{:?}", JustRule::DerivedContradiction));
@@ -267,6 +269,7 @@ mod overrides {
             attacking: Vec::new(),
             as_of: None,
             calibration: None,
+            bitemporal: None,
         };
         let prov = b.provenance("x").unwrap();
         assert_eq!(prov.source, format!("{:?}", JustRule::Asserted));
