@@ -100,6 +100,32 @@ pub struct BeliefState {
     /// The bitemporal instant this belief was pinned at, if the caller composed an
     /// `AS OF` before propagating; `None` for "as of now".
     pub as_of: Option<(TimeAxis, u64)>,
+    /// A calibrated uncertainty interval around [`Self::confidence`] (EPI-P3-3) —
+    /// `Some` whenever the posterior is a REAL Bayesian update (the node has at
+    /// least one supporting/contradicting/attacking edge, so `confidence` is a
+    /// Beta posterior mean, not a bare prior copy); `None` when there is no
+    /// evidence to calibrate (an honest absence, not a placeholder null — the
+    /// SAME "no fabricated signal" posture the `EG-P3-1` writeback-lineage
+    /// `calibration: null` slot documents for a claim with no computed signal).
+    pub calibration: Option<Calibration>,
+}
+
+/// A calibrated interval around a propagated belief (EPI-P3-3): the credible
+/// interval of the SAME conjugate `Beta` posterior
+/// [`crate::propagate::propagate_confidence`] derives its point `confidence`
+/// from — i.e. this is not a second, invented uncertainty model, it is the
+/// interval half of the exact distribution whose mean is already reported.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Calibration {
+    /// Central credible interval `(lower, upper) ⊆ [0, 1]` at [`Self::level`].
+    pub interval: (f64, f64),
+    /// The probability mass the interval covers (e.g. `0.95`).
+    pub level: f64,
+    /// How many supporting/contradicting/attacking edges fed the posterior —
+    /// the "source count" signal a reliability-weighted score would scale by
+    /// (more corroborating/refuting edges ⇒ a narrower, better-calibrated
+    /// interval, all else equal).
+    pub evidence_count: usize,
 }
 
 /// The inference rule that produced a [`ProofNode`] — the epistemic analogue of an
