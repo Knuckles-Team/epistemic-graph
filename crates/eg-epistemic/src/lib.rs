@@ -25,6 +25,18 @@ mod model;
 mod propagate;
 #[cfg(feature = "epistemic-tms")]
 mod tms;
+// EPI-P3-3 — calibrated probabilistic + causal reasoning: a linear-Gaussian SCM
+// supporting genuine do-calculus interventions, Pearl-style point counterfactuals,
+// and calibrated intervals. Independent of `epistemic-tms`/`contract` — its own
+// opt-in feature (no new dependency, see `src/causal.rs` + the crate `Cargo.toml`).
+#[cfg(feature = "epistemic-causal")]
+mod causal;
+// EPI-P3-3 — provenance-aware retrieval ranking: orders retrieval candidates by
+// evidence quality/provenance (reusing `model::Calibration`) in addition to
+// similarity. Same feature gate as `causal` (no new dependency either — see
+// `src/ranking.rs`).
+#[cfg(feature = "epistemic-causal")]
+mod ranking;
 // X-6 / EPI-P3-2 — the live dependency-driven recompute/truth-maintenance engine
 // built on top of the `tms` module above. Same feature gate: it depends directly
 // on `tms::retract`/`RetractionResult`.
@@ -40,10 +52,17 @@ mod contract;
 
 pub use adapter::BeliefGraph;
 pub use model::{
-    classify_relationship, AuthorityPolicy, BeliefState, EdgeKind, JustRule, JustificationGraph,
-    ProofNode, TimeAxis,
+    classify_relationship, AuthorityPolicy, BeliefState, Calibration, EdgeKind, JustRule,
+    JustificationGraph, ProofNode, TimeAxis,
 };
 pub use propagate::{explain_belief, propagate_confidence};
+
+// EPI-P3-3 — causal reasoning primitives, see `causal` module docs.
+#[cfg(feature = "epistemic-causal")]
+pub use causal::{CausalEstimate, CausalGraph, StructuralEquation};
+// EPI-P3-3 — provenance-aware retrieval ranking, see `ranking` module docs.
+#[cfg(feature = "epistemic-causal")]
+pub use ranking::{evidence_quality, rank, RankWeights, RankedResult, RetrievalCandidate};
 
 // X2 — paraconsistent justification-based TMS + Dung-style abstract argumentation
 // semantics (grounded/preferred/stable extensions, bipolar "supported attack" closure,
