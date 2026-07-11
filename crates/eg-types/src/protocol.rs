@@ -1836,6 +1836,21 @@ pub enum Method {
     ExplainProvenance {
         plan: crate::wire::Plan,
     },
+    /// `EXPLAIN PROVENANCE BY IDS` (CONCEPT:EG-KB-CURRENCY) — the ID-seeded sibling of
+    /// `ExplainProvenance`: skip the `Plan`/`Op` algebra entirely and resolve the SAME
+    /// per-row epistemic columns (`ExplainProvenanceRowWire`) directly for `ids` — the
+    /// shape a caller that already has a set of node ids from ANY other read path
+    /// (a Cypher `MATCH`, a SQL `SELECT`, a prior `UnifiedQuery`) needs to "currency-
+    /// upgrade" a plain id list into calibrated, cited, time-versioned rows without
+    /// hand-building an `Op` plan first. `ids` is deduplicated, first-occurrence order
+    /// preserved (mirrors `RowSet::from_ids`); an id absent from the graph is silently
+    /// skipped (never fabricated). Returns an `ExplainProvenanceResult` via
+    /// `ResultPayload::raw`, byte-identical in shape to `ExplainProvenance`'s. Gated
+    /// `query` (same as `ExplainProvenance`).
+    #[cfg(feature = "query")]
+    ExplainProvenanceByIds {
+        ids: Vec<String>,
+    },
     /// `EXPLAIN POLICY` — run `plan` against BOTH the caller's RLS-filtered snapshot and
     /// the UNFILTERED snapshot (reusing the SAME `eg_core::isolation::IsolationLayer`
     /// `filter_view` every read path already applies), reporting which result rows the
@@ -4668,15 +4683,40 @@ pub enum EvidenceSpanWire {
 }
 
 /// One result row's resolved provenance for `Method::ExplainProvenance`.
+///
+/// CONCEPT:EG-KB-CURRENCY — widened beyond id/kind/source_refs/evidence_spans to carry
+/// the SAME per-row epistemic columns [`crate::wire::KnowledgeRow`]/`eg_plan::KnowledgeSet`
+/// already resolves (score, confidence, the bitemporal valid/tx window, policy labels) —
+/// straight field copies off the `KnowledgeSet` row this handler already builds, not a new
+/// computation. This is the ONE wire surface a caller (e.g. the agent-utilities Python
+/// facade) uses to get calibrated, cited, time-versioned rows instead of the flat
+/// id/score-only shape `Method::UnifiedQuery`/`UnifiedQueryText` return.
 #[cfg(feature = "query")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExplainProvenanceRowWire {
     pub id: String,
     /// The row's `KnowledgeSet` (E3) `kind` (`node_type`/`type`, or empty when absent).
     pub kind: String,
+    /// The row's plan-assigned score (`RowSet::Row::score`), `None` for an unranked
+    /// result (a plain `Scan`/`Filter`/`Traverse` with no `Rank` stage).
+    pub score: Option<f32>,
+    /// Belief confidence (`KnowledgeRow::confidence`, default `1.0` when the node's
+    /// property blob carries no `confidence` field or didn't decode) — populated
+    /// regardless of the `epistemic` feature.
+    pub confidence: f64,
+    /// `(valid_from, valid_until)` — the fact's validity window in the world
+    /// (`KnowledgeRow::valid_time`). Populated regardless of `epistemic`.
+    pub valid_time: (Option<u64>, Option<u64>),
+    /// `(tx_from, tx_to)` — when the engine began/stopped believing this fact
+    /// (`KnowledgeRow::tx_time`). Populated regardless of `epistemic`.
+    pub tx_time: (Option<u64>, Option<u64>),
     /// Ids of nodes providing EVIDENCE FOR this row (the `Op::EvidenceFor` resolution).
     /// Always empty when provenance resolution did not run (see `ExplainProvenanceResult::resolved`).
     pub source_refs: Vec<String>,
+    /// `"epistemic:contested"` / `"epistemic:corroborated"` / `"epistemic:asserted"`
+    /// (`KnowledgeRow::policy_labels`) — always empty when `epistemic` is off, and also
+    /// empty (not fabricated) for a row with no classified incoming evidence edge.
+    pub policy_labels: Vec<String>,
     /// Located evidence for this row (X1, CONCEPT:E4) — this row's own modality
     /// `ModalityContract::evidence()`, when its stored shape decodes as a known
     /// modality value type. Always empty when `epistemic` is off (see
