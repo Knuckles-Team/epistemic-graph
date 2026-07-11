@@ -15,7 +15,7 @@ use eg_types::Distribution;
 
 use crate::adapter::BeliefGraph;
 use crate::model::{
-    AuthorityPolicy, BeliefState, EdgeKind, JustRule, JustificationGraph, ProofNode,
+    AuthorityPolicy, BeliefState, Calibration, EdgeKind, JustRule, JustificationGraph, ProofNode,
 };
 
 /// Default belief for a node with no stored confidence — maximal ignorance.
@@ -24,6 +24,10 @@ const DEFAULT_PRIOR: f64 = 0.5;
 /// cyclic evidence graph (the belief number itself is exact; only the rendered tree is
 /// depth-bounded).
 const MAX_EXPLAIN_DEPTH: usize = 32;
+/// Default credible-mass for [`Calibration::level`] (EPI-P3-3) — the conventional
+/// 95% central credible interval, consistent with the `Distribution::credible_interval`
+/// doc-tested default elsewhere in the engine.
+const DEFAULT_CALIBRATION_LEVEL: f64 = 0.95;
 
 fn prior_of(bg: &BeliefGraph, id: &str) -> f64 {
     bg.priors.get(id).copied().unwrap_or(DEFAULT_PRIOR)
@@ -45,6 +49,18 @@ pub fn propagate_confidence(bg: &BeliefGraph, seed: &str, policy: &AuthorityPoli
             }
         }
     }
+    // EPI-P3-3 calibration: re-derive the SAME top-level Beta posterior `belief_of`
+    // folded into `confidence` (reusing the now-memoized point beliefs of every
+    // premise, so this is one cheap O(in-edges) pass, not a re-walk of the graph),
+    // and report its credible interval. `None` when there was no evidence to
+    // update on — `confidence` is then exactly the stored prior, nothing to
+    // calibrate beyond it.
+    let calibration =
+        top_level_posterior(bg, seed, policy, &memo).map(|(dist, evidence_count)| Calibration {
+            interval: dist.credible_interval(DEFAULT_CALIBRATION_LEVEL),
+            level: DEFAULT_CALIBRATION_LEVEL,
+            evidence_count,
+        });
     BeliefState {
         node_id: seed.to_string(),
         confidence,
@@ -52,7 +68,56 @@ pub fn propagate_confidence(bg: &BeliefGraph, seed: &str, policy: &AuthorityPoli
         contradicting,
         attacking,
         as_of: bg.as_of,
+        calibration,
     }
+}
+
+/// Recompute `id`'s Beta posterior distribution (not just its `.mean()`) from
+/// its ALREADY-memoized premise beliefs — the exact same combination step
+/// `belief_of` performs, just returning the full [`Distribution`] instead of
+/// collapsing it to a point. Returns `None` when `id` has no in-edges or none
+/// of them carry effective mass (mirrors `belief_of`'s "no evidence ⇒ prior"
+/// branch exactly, so `Some`/`None` here matches whether `belief_of` actually
+/// ran the conjugate update for `id`).
+fn top_level_posterior(
+    bg: &BeliefGraph,
+    id: &str,
+    policy: &AuthorityPolicy,
+    point_beliefs: &HashMap<String, f64>,
+) -> Option<(Distribution, usize)> {
+    let edges = bg.in_edges.get(id)?;
+    if edges.is_empty() {
+        return None;
+    }
+    let mut successes = 0.0_f64;
+    let mut failures = 0.0_f64;
+    for (src, kind) in edges {
+        let source_belief = point_beliefs
+            .get(src)
+            .copied()
+            .unwrap_or_else(|| prior_of(bg, src));
+        let mass = policy.edge_mass(*kind, source_belief);
+        match kind {
+            EdgeKind::Supports => successes += mass,
+            EdgeKind::Contradicts | EdgeKind::Attacks => failures += mass,
+        }
+    }
+    if successes == 0.0 && failures == 0.0 {
+        return None;
+    }
+    let base = prior_of(bg, id);
+    let k = policy.prior_strength.max(0.0);
+    let prior = Distribution::Beta {
+        alpha: 1.0 + base * k,
+        beta: 1.0 + (1.0 - base) * k,
+    };
+    let evidence = Evidence::Bernoulli {
+        successes,
+        failures,
+    };
+    bayesian_update(&prior, &evidence)
+        .ok()
+        .map(|posterior| (posterior, edges.len()))
 }
 
 fn belief_of(
@@ -256,6 +321,72 @@ mod tests {
         let bg = BeliefGraph::from_parts([("solo", 0.73)], Vec::<(&str, &str, EdgeKind)>::new());
         let bs = propagate_confidence(&bg, "solo", &AuthorityPolicy::default());
         assert!((bs.confidence - 0.73).abs() < 1e-9);
+    }
+
+    // A belief with real evidence carries a calibrated credible interval whose
+    // mean matches the reported point confidence, and it narrows toward the
+    // stored prior (unlike a fabricated fixed-width band).
+    #[test]
+    fn belief_with_evidence_carries_calibrated_interval() {
+        let bg = BeliefGraph::from_parts(
+            [("claim", 0.5), ("evidence", 0.9)],
+            [("evidence", "claim", EdgeKind::Supports)],
+        );
+        let bs = propagate_confidence(&bg, "claim", &AuthorityPolicy::default());
+        let cal = bs
+            .calibration
+            .expect("evidence ⇒ a real calibration signal");
+        assert_eq!(cal.evidence_count, 1);
+        assert!((cal.level - DEFAULT_CALIBRATION_LEVEL).abs() < 1e-9);
+        let (lo, hi) = cal.interval;
+        assert!(
+            (0.0..=1.0).contains(&lo) && (0.0..=1.0).contains(&hi) && lo < hi,
+            "interval ({lo}, {hi}) must be a valid sub-interval of [0,1]"
+        );
+        // The interval must bracket the point confidence it was derived from.
+        assert!(
+            lo <= bs.confidence && bs.confidence <= hi,
+            "interval ({lo}, {hi}) must bracket confidence {}",
+            bs.confidence
+        );
+    }
+
+    // No evidence ⇒ no calibration signal (an honest `None`, not a fabricated
+    // zero-width interval around the bare prior).
+    #[test]
+    fn belief_with_no_evidence_has_no_calibration() {
+        let bg = BeliefGraph::from_parts([("solo", 0.73)], Vec::<(&str, &str, EdgeKind)>::new());
+        let bs = propagate_confidence(&bg, "solo", &AuthorityPolicy::default());
+        assert!(bs.calibration.is_none());
+    }
+
+    // More corroborating evidence tightens the calibrated interval — the
+    // reliability/evidence-count signal the calibration slot documents.
+    #[test]
+    fn more_evidence_narrows_the_calibrated_interval() {
+        let one = BeliefGraph::from_parts(
+            [("claim", 0.5), ("e1", 0.9)],
+            [("e1", "claim", EdgeKind::Supports)],
+        );
+        let three = BeliefGraph::from_parts(
+            [("claim", 0.5), ("e1", 0.9), ("e2", 0.9), ("e3", 0.9)],
+            [
+                ("e1", "claim", EdgeKind::Supports),
+                ("e2", "claim", EdgeKind::Supports),
+                ("e3", "claim", EdgeKind::Supports),
+            ],
+        );
+        let p = AuthorityPolicy::default();
+        let bs_one = propagate_confidence(&one, "claim", &p);
+        let bs_three = propagate_confidence(&three, "claim", &p);
+        let width_one =
+            bs_one.calibration.unwrap().interval.1 - bs_one.calibration.unwrap().interval.0;
+        let width_three =
+            bs_three.calibration.unwrap().interval.1 - bs_three.calibration.unwrap().interval.0;
+        assert!(
+            width_three < width_one,
+            "3 corroborating sources ({width_three}) should calibrate tighter than 1 ({width_one})"
+        );
     }
 
     // EXPLAIN BELIEF renders a tree whose root confidence matches propagation.
