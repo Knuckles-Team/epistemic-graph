@@ -1,0 +1,33 @@
+[package]
+name = "eg-capabilities"
+version = "0.1.0"
+edition = "2021"
+authors = ["Audel Rouhi <knucklessg1@gmail.com>"]
+description = "Machine-checked MethodPolicy capability ledger for the epistemic-graph wire protocol (CONCEPT:EG-P0-1)"
+license = "MIT"
+
+[lib]
+name = "eg_capabilities"
+
+# A leaf crate BELOW eg-core/eg-plan in the DAG (deps = eg-types ONLY, mirroring the
+# eg-modality precedent) so it can be built + tested in isolation without pulling in
+# the server, redb, raft, or any compute domain. It is NOT added as a normal
+# dependency of the root `epistemic-graph` package (see the root Cargo.toml comment
+# by its `members` list) -- default builds link none of it.
+#
+# Every one of eg-types' optional features is enabled unconditionally below. That is
+# deliberate, not an oversight: `policy()` is an EXHAUSTIVE match over `Method` with
+# NO wildcard arm (the whole point of this crate -- see `lib.rs`), so it must see
+# every variant that can ever exist, regardless of which serving tier a given build
+# of the main engine happens to compile. All of these features are PURE serde /
+# enum-variant gates on eg-types' side (no heavy transitive dependency), so turning
+# them all on here does not pull in redb/tokio/raft/rayon/etc.
+[dependencies.eg-types]
+path = "../eg-types"
+features = [
+    "metrics", "finance", "datascience", "mining", "graphlearn", "epistemic",
+    "query", "graphql", "broker", "text", "blob", "kv", "sqlite-file",
+    "streaming", "cost", "rdf", "sparql", "owl", "owl-plan", "obda",
+    "wasm-udf", "compute-dist", "matview", "security", "federation",
+    "geo", "tensor", "stream", "timeseries", "probabilistic",
+]
