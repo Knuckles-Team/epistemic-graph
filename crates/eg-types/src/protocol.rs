@@ -1045,6 +1045,15 @@ pub enum Method {
     Health,
     Shutdown,
     Checkpoint,
+    /// Cooperatively cancel an IN-FLIGHT request by its `target_req_id` (CONCEPT:EG-KG.query.streaming-spillable-collect,
+    /// L36) — trips the `CancellationToken` the request-scoped registry (`server::request_cancel`)
+    /// registered for it, if one is still live. A REAL `Method::Sql` read currently threads a
+    /// registered token down to `collect_streaming`, which observes it at the next batch
+    /// boundary and stops the stream short (chunk-granular, never mid-batch). Returns
+    /// `ResultPayload::Bool(true)` iff a live cancellable request was found and cancelled,
+    /// `false` when the request already finished, was never cancellable, or never existed —
+    /// never an error (cancelling a request that already completed is a harmless no-op).
+    CancelRequest { target_req_id: u64 },
 
     // ── Cost / Efficiency (CONCEPT:EG-KG.compute.lane-v, Lane V) ──────────────────
     /// Return a structured resource snapshot for autoscaling: per-graph + per-tenant

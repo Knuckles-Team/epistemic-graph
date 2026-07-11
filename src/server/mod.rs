@@ -222,8 +222,16 @@ pub mod qos;
 // Server-layer secondary indexes (text/temporal/derived-OWL) wired into the per-graph
 // IndexManager seam so a committed write batch maintains them incrementally
 // (CONCEPT:EG-KG.storage.incremental-text / .incremental-temporal / .incremental-derived-owl).
-#[cfg(any(feature = "text", feature = "tsdb", feature = "owl"))]
+#[cfg(any(feature = "text", feature = "tsdb", feature = "owl", feature = "geo"))]
 pub mod secondary_indexes;
+// Request-scoped cancellation registry (CONCEPT:EG-KG.query.streaming-spillable-collect, L36): threads
+// a REAL `CancellationToken` from a served `Method::Sql` down to the SQL streaming
+// collect path, tripped by an explicit `Method::CancelRequest` or a per-request
+// timeout, instead of the always-fresh never-cancelled token the collect path built
+// internally before this. Needs `eg_query::CancellationToken`, gated behind `query`
+// (which implies `eg-query/sql`).
+#[cfg(feature = "query")]
+pub mod request_cancel;
 mod state;
 mod transport;
 // Server-staged OCC ACID transactions (CONCEPT:EG-KG.txn.multi-op-occ-acid). `txn` holds the staged
