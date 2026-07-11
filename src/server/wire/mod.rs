@@ -2346,6 +2346,9 @@ impl WireSession {
             #[cfg(feature = "text")]
             let served_text =
                 crate::server::secondary_indexes::ServedTextIndex::new(core_for_ctx.clone());
+            #[cfg(feature = "geo")]
+            let served_spatial =
+                crate::server::secondary_indexes::ServedSpatialIndex::new(core_for_ctx.clone());
             if vectors.is_empty() {
                 let semantic_guard = core_for_ctx.semantic_store.read();
                 crate::server::handlers::query::run_unified(
@@ -2353,8 +2356,14 @@ impl WireSession {
                     None,
                     &view,
                     &semantic_guard,
-                    #[cfg(feature = "text")]
-                    Some(&served_text),
+                    crate::server::handlers::query::ServedIndexes {
+                        #[cfg(feature = "text")]
+                        text: Some(&served_text),
+                        #[cfg(feature = "geo")]
+                        spatial: Some(&served_spatial),
+                        #[cfg(not(any(feature = "text", feature = "geo")))]
+                        _marker: std::marker::PhantomData,
+                    },
                     #[cfg(feature = "tsdb")]
                     tsdb.as_deref(),
                     #[cfg(feature = "tsdb")]
@@ -2368,8 +2377,14 @@ impl WireSession {
                     None,
                     &view,
                     &semantic,
-                    #[cfg(feature = "text")]
-                    Some(&served_text),
+                    crate::server::handlers::query::ServedIndexes {
+                        #[cfg(feature = "text")]
+                        text: Some(&served_text),
+                        #[cfg(feature = "geo")]
+                        spatial: Some(&served_spatial),
+                        #[cfg(not(any(feature = "text", feature = "geo")))]
+                        _marker: std::marker::PhantomData,
+                    },
                     #[cfg(feature = "tsdb")]
                     tsdb.as_deref(),
                     #[cfg(feature = "tsdb")]
