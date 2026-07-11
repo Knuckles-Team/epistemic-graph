@@ -97,6 +97,16 @@ pub mod exec;
 /// `GraphView::node_row_object`'s decode.
 #[cfg(feature = "query")]
 pub mod knowledge;
+/// The Arrow-columnar `KnowledgeBatch` (CONCEPT:EG-P1-2, Codex P1 feedback) — a
+/// RecordBatch-backed columnar projection of `KnowledgeSet`: entity/artifact id,
+/// N named score columns, calibrated confidence, typed evidence-ref columns,
+/// bitemporal valid/tx-time, provenance/policy-label list columns, lazy
+/// blob-handle columns and a streaming-cursor stub. Behind its OWN
+/// `knowledge-batch` feature (implies `query`) so a default/Pi build links no
+/// Arrow at all — see the module's own docs for the full column layout and the
+/// known-lossy/reserved fields.
+#[cfg(feature = "knowledge-batch")]
+pub mod knowledge_batch;
 /// The physical EXECUTION runtime (CONCEPT:EG-KG.query.parallel-runtime) — Lane B. The
 /// `execute_ops` driver-dispatch `execute` routes through + the rayon-morsel, memory-accounted,
 /// spilling `ParallelDriver` (feature `par-runtime`). Gated on `query` (it schedules the
@@ -164,6 +174,11 @@ pub use dag_exec::{execute_dag, execute_dag_with};
 pub use knowledge::{
     KnowledgeRow, KnowledgeSet, PayloadRef, PolicyFrame, ProjectionSchema, ProvenanceFrame,
 };
+
+/// The Arrow-columnar `KnowledgeBatch` surface (CONCEPT:EG-P1-2): the RecordBatch-
+/// backed columnar projection of a `KnowledgeSet`, plus its row/cursor types.
+#[cfg(feature = "knowledge-batch")]
+pub use knowledge_batch::{KnowledgeBatch, KnowledgeBatchRow, KnowledgeCursor};
 
 /// The Lane-0 foundation seams the follow-on lanes hang off (append-only): the logical-plan
 /// optimization hook `plan_optimize` (CONCEPT:EG-KG.query.plan-optimize-seam — Lane A's cost
