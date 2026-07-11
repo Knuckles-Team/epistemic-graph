@@ -89,6 +89,7 @@ nav:
   # advanced analytics -> how it distributes/scales -> how you run it -> reference.
   - Home: index.md
   - Capabilities & Parity Matrix: capabilities.md
+  - Epistemic OS Hardening (2.20.0): architecture/epistemic-os-hardening.md
   - Technical Overview: overview.md
   - Foundations:
       - "North Star: Seamless": north_star.md
