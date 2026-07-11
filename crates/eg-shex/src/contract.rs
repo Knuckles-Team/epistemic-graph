@@ -11,8 +11,9 @@
 //! accordingly (see the method doc comment below for the full mapping).
 
 use eg_modality::{
-    encode_staged, ConformanceTestable, EvidenceSpan, ModalityContract, Provenance, RowSetShape,
-    StagedWrite,
+    decode_staged, encode_staged, ConformanceTestable, EvidenceSpan, IngestReport,
+    ModalityContract, ModalitySelfTest, Provenance, RowSetShape, StagedWrite, StorageStats,
+    TckPoint,
 };
 
 use crate::report::NodeResult;
@@ -72,6 +73,53 @@ impl ModalityContract for NodeResult {
     /// `NodeResult`-bearing report (`crate::validate::{validate, validate_shexj}`).
     fn analytics_ops(&self) -> Vec<&'static str> {
         vec!["validate", "validate_shexj"]
+    }
+
+    // ── EG-P1-1 hooks — minimal TCK implementations. ──
+
+    /// Batch ingest = parse a `NodeResult` back from serialized form. Streaming N/A.
+    fn ingest_report(&self, id: &str) -> IngestReport {
+        let staged = self.txn_stage(id);
+        let batch = match decode_staged::<NodeResult>(&staged) {
+            Ok(rt) if rt == *self => ModalitySelfTest::Passed,
+            _ => ModalitySelfTest::Failed,
+        };
+        IngestReport {
+            batch,
+            streaming: ModalitySelfTest::NotApplicable("validation result is not a stream"),
+        }
+    }
+
+    /// Real storage stats.
+    fn storage_stats(&self, _id: &str) -> Option<StorageStats> {
+        Some(StorageStats {
+            logical_bytes: encode_staged(self).len() as u64,
+            element_count: 1,
+            has_secondary_index: false,
+        })
+    }
+
+    /// N/A: query output, not durable.
+    fn backup_selfcheck(&self, _id: &str) -> ModalitySelfTest {
+        ModalitySelfTest::NotApplicable("validation result is a query output, not a durable value")
+    }
+
+    /// Simulated crash-and-recover.
+    fn recovery_selfcheck(&self, id: &str) -> ModalitySelfTest {
+        let staged: StagedWrite = self.txn_stage(id);
+        match decode_staged::<NodeResult>(&staged) {
+            Ok(recovered) if recovered == *self => ModalitySelfTest::Passed,
+            _ => ModalitySelfTest::Failed,
+        }
+    }
+
+    /// No CDC or policy of its own.
+    fn tck_not_applicable(&self, point: TckPoint) -> Option<&'static str> {
+        match point {
+            TckPoint::CdcDeleteRetentionGc => Some("validation result is ephemeral output"),
+            TckPoint::TenantRowRegionPolicy => Some("policy at graph-node layer"),
+            _ => None,
+        }
     }
 }
 

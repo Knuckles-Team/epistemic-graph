@@ -26,8 +26,9 @@
 //! meaningful for it"), not a gap in this retrofit.
 
 use eg_modality::{
-    encode_staged, ConformanceTestable, EvidenceSpan, ModalityContract, Provenance, RowSetShape,
-    StagedWrite,
+    decode_staged, encode_staged, ConformanceTestable, EvidenceSpan, IngestReport,
+    ModalityContract, ModalitySelfTest, Provenance, RowSetShape, StagedWrite, StorageStats,
+    TckPoint,
 };
 
 use crate::model::{JustRule, TimeAxis};
@@ -124,6 +125,75 @@ impl ModalityContract for BeliefState {
     /// lists its actual ops.
     fn analytics_ops(&self) -> Vec<&'static str> {
         vec!["propagate_confidence", "explain_belief"]
+    }
+
+    // ── EG-P1-1 hooks — real implementations over BeliefState's serialization and
+    // txn staging. BeliefState is a computed view, not a persisted store value. ──
+
+    /// Batch ingest = parse a `BeliefState` back from its serialized form. Streaming
+    /// is N/A: a belief is a scalar computed value, not an append stream.
+    fn ingest_report(&self, id: &str) -> IngestReport {
+        let staged = self.txn_stage(id);
+        let batch = match decode_staged::<BeliefState>(&staged) {
+            Ok(rt) if rt == *self => ModalitySelfTest::Passed,
+            _ => ModalitySelfTest::Failed,
+        };
+        IngestReport {
+            batch,
+            streaming: ModalitySelfTest::NotApplicable(
+                "a belief state is a scalar computed value, not an append stream",
+            ),
+        }
+    }
+
+    /// Real storage stats from the serialized BeliefState: logical size from encoded
+    /// length; a belief is a single unit so element count is 1. Belief states are not
+    /// secondary-indexed, so `has_secondary_index` is `false`.
+    fn storage_stats(&self, _id: &str) -> Option<StorageStats> {
+        let logical_bytes = encode_staged(self).len() as u64;
+        Some(StorageStats {
+            logical_bytes,
+            element_count: 1,
+            has_secondary_index: false,
+        })
+    }
+
+    /// N/A: BeliefState is a computed view per the crate module docs ("no new
+    /// persistence... nothing here is a new stored struct"). There is no backup codec —
+    /// durability is a concern of the engine's own persistence layer, not the belief value itself.
+    fn backup_selfcheck(&self, _id: &str) -> ModalitySelfTest {
+        ModalitySelfTest::NotApplicable(
+            "a belief state is a computed view, not a persisted store value — durability is maintained by the engine's propagation layer",
+        )
+    }
+
+    /// Simulated single-node crash-and-recover through the txn staging path.
+    /// Stage the belief as an in-txn write; the staged payload IS the WAL record;
+    /// on "restart" replay-decode it and confirm the recovered belief is intact.
+    fn recovery_selfcheck(&self, id: &str) -> ModalitySelfTest {
+        let staged: StagedWrite = self.txn_stage(id);
+        match decode_staged::<BeliefState>(&staged) {
+            Ok(recovered) if recovered == *self => ModalitySelfTest::Passed,
+            _ => ModalitySelfTest::Failed,
+        }
+    }
+
+    /// Belief states are computed views with no CDC, policy, or independent provenance:
+    /// CDC would require a materialized belief store (a separate step); policy is at
+    /// the graph-node layer; provenance is computed live from evidence, not stored.
+    fn tck_not_applicable(&self, point: TckPoint) -> Option<&'static str> {
+        match point {
+            TckPoint::CdcDeleteRetentionGc => Some(
+                "belief states are computed views, not persisted values — CDC would require explicit materialization of beliefs as a separate store operation",
+            ),
+            TckPoint::TenantRowRegionPolicy => Some(
+                "no modality-intrinsic policy surface — tenant/row/region policy is enforced at the graph-node/eg-core::isolation layer that owns the belief",
+            ),
+            TckPoint::ProvenanceEvidenceLineage => Some(
+                "provenance is computed live from evidence; a belief state itself has no independent derivation history to store",
+            ),
+            _ => None,
+        }
     }
 }
 

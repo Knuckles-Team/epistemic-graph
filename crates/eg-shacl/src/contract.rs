@@ -12,8 +12,9 @@
 //! full field-by-field mapping).
 
 use eg_modality::{
-    encode_staged, ConformanceTestable, EvidenceSpan, ModalityContract, Provenance, RowSetShape,
-    StagedWrite,
+    decode_staged, encode_staged, ConformanceTestable, EvidenceSpan, IngestReport,
+    ModalityContract, ModalitySelfTest, Provenance, RowSetShape, StagedWrite, StorageStats,
+    TckPoint,
 };
 
 use crate::report::{Severity, ValidationResult};
@@ -93,6 +94,61 @@ impl ModalityContract for ValidationResult {
     /// `ValidationResult`-bearing report (`crate::validate::{validate, validate_turtle}`).
     fn analytics_ops(&self) -> Vec<&'static str> {
         vec!["validate", "validate_turtle"]
+    }
+
+    // ── EG-P1-1 hooks — real, minimal implementations. ValidationResult is a validation output. ──
+
+    /// Batch ingest = parse a `ValidationResult` back from serialized form. Streaming N/A.
+    fn ingest_report(&self, id: &str) -> IngestReport {
+        let staged = self.txn_stage(id);
+        let batch = match decode_staged::<ValidationResult>(&staged) {
+            Ok(rt) if rt == *self => ModalitySelfTest::Passed,
+            _ => ModalitySelfTest::Failed,
+        };
+        IngestReport {
+            batch,
+            streaming: ModalitySelfTest::NotApplicable(
+                "a validation result is a structural fact, not an append stream",
+            ),
+        }
+    }
+
+    /// Real storage stats: serialized size; element count is 1 (single result).
+    fn storage_stats(&self, _id: &str) -> Option<StorageStats> {
+        Some(StorageStats {
+            logical_bytes: encode_staged(self).len() as u64,
+            element_count: 1,
+            has_secondary_index: false,
+        })
+    }
+
+    /// N/A: results are validation outputs, not durable values.
+    fn backup_selfcheck(&self, _id: &str) -> ModalitySelfTest {
+        ModalitySelfTest::NotApplicable(
+            "a validation result is a query output; backup/restore/migrate is not a modality concern",
+        )
+    }
+
+    /// Simulated crash-and-recover through txn staging.
+    fn recovery_selfcheck(&self, id: &str) -> ModalitySelfTest {
+        let staged: StagedWrite = self.txn_stage(id);
+        match decode_staged::<ValidationResult>(&staged) {
+            Ok(recovered) if recovered == *self => ModalitySelfTest::Passed,
+            _ => ModalitySelfTest::Failed,
+        }
+    }
+
+    /// Validation results have no CDC or policy of their own.
+    fn tck_not_applicable(&self, point: TckPoint) -> Option<&'static str> {
+        match point {
+            TckPoint::CdcDeleteRetentionGc => Some(
+                "a validation result is a query output; CDC is not applicable to ephemeral results",
+            ),
+            TckPoint::TenantRowRegionPolicy => Some(
+                "policy is at the graph-node layer, not per-validation-result",
+            ),
+            _ => None,
+        }
     }
 }
 
