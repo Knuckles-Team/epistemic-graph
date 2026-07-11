@@ -165,11 +165,13 @@ probabilistic = [
 # (`ImageData`/`AudioData`/`VideoData` -> `ImageRegion`/`AudioSegment`/`VideoShot`,
 # metadata/region-segment-shot-level leaf crates with NO heavy codec dependency, so
 # turning them on adds no new dependency CLASS beyond what `contract` already pulls
-# for tensor/geo). `eg-modality` itself (the `EvidenceSpan` type + `ModalityContract`
-# trait) is an UNCONDITIONAL dep below (deps = eg-types only, per its own crate docs)
-# so `KnowledgeRow`'s `evidence_refs` field type is the SAME `Vec<EvidenceSpan>` with
-# or without this feature — only the VALUES differ (always empty when `epistemic` is
-# off).
+# for tensor/geo), and (L20, CONCEPT:EG-P1-3) `eg-document/contract`
+# (`DocumentData` -> `DocumentSpan`, the typed pages/blocks/spans document modality —
+# same only-serde, no-heavy-PDF/OCR-dependency shape as its siblings). `eg-modality`
+# itself (the `EvidenceSpan` type + `ModalityContract` trait) is an UNCONDITIONAL dep
+# below (deps = eg-types only, per its own crate docs) so `KnowledgeRow`'s
+# `evidence_refs` field type is the SAME `Vec<EvidenceSpan>` with or without this
+# feature — only the VALUES differ (always empty when `epistemic` is off).
 epistemic = [
     "query",
     "eg-types/epistemic",
@@ -184,6 +186,8 @@ epistemic = [
     "eg-audio/contract",
     "dep:eg-video",
     "eg-video/contract",
+    "dep:eg-document",
+    "eg-document/contract",
 ]
 # Natural-language → query planning seam (CONCEPT:EG-078) + the concrete standalone
 # `UreqNlPlanner` (CONCEPT:EG-080). The `NlPlanner` trait + `plan_and_execute*` helpers
@@ -315,6 +319,13 @@ eg-audio = { path = "../eg-audio", optional = true }
 # #[cfg(feature = "epistemic")] (via eg-video's own `contract` feature); only-serde
 # leaf crate (NO heavy video/ffmpeg codec dep), so a default/Pi build links none of it.
 eg-video = { path = "../eg-video", optional = true }
+# The metadata/document-span-level document modality (`DocumentData` -> a real,
+# located `EvidenceSpan::DocumentSpan`) backing the `epistemic` feature's
+# `KnowledgeSet` evidence dispatch (L20, CONCEPT:EG-P1-3). Optional + only
+# referenced under #[cfg(feature = "epistemic")] (via eg-document's own `contract`
+# feature, turned on above); only-serde leaf crate (NO heavy PDF/OCR dependency), so
+# a default/Pi build links none of it.
+eg-document = { path = "../eg-document", optional = true }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 rmp-serde = "1.3"
