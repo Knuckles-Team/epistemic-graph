@@ -169,16 +169,30 @@ pub(crate) async fn try_handle(
                 #[cfg(feature = "security")]
                 rls,
             );
-            let semantic = core.semantic_store.read().clone();
+            // CONCEPT:EG-KG.query.served-vector-index-binding / served-text-index-binding — push the
+            // vector kNN AND lexical legs down into the LIVE persistent indexes instead
+            // of cloning/rebuilding them per request: `core` (an `Arc`, cheap to clone)
+            // is moved into the off-lock closure so the `SemanticStore` read guard is
+            // taken THERE, on the blocking pool, never here on the async task — see
+            // `run_unified`'s new `served_text` param doc for why this replaces the old
+            // `core.semantic_store.read().clone()` (which forced a full HNSW rebuild on
+            // the clone's first search under the default backend).
+            let core_for_ctx = core.clone();
             // RECONCILE (CONCEPT:EG-KG.query.native-time-series): committed tsdb store for `Op::TsScan` fusion.
             #[cfg(feature = "tsdb")]
             let tsdb = state.read().await.tsdb_store.clone();
             let resp = match compute_off_lock(req_id, move || {
+                #[cfg(feature = "text")]
+                let served_text =
+                    crate::server::secondary_indexes::ServedTextIndex::new(core_for_ctx.clone());
+                let semantic_guard = core_for_ctx.semantic_store.read();
                 run_unified(
                     plan,
                     reorder_filter_selectivity,
                     &snap,
-                    &semantic,
+                    &semantic_guard,
+                    #[cfg(feature = "text")]
+                    Some(&served_text),
                     #[cfg(feature = "tsdb")]
                     tsdb.as_deref(),
                     // Off-txn: no staged-series overlay (CONCEPT:EG-KG.query.txn-tsdb-read-your).
@@ -244,16 +258,25 @@ pub(crate) async fn try_handle(
                 #[cfg(feature = "security")]
                 rls,
             );
-            let semantic = core.semantic_store.read().clone();
+            // See the `UnifiedQuery` arm above: push the vector + lexical legs down
+            // into the live persistent indexes via a guard taken INSIDE the off-lock
+            // closure, instead of pre-cloning the whole `SemanticStore` here.
+            let core_for_ctx = core.clone();
             // RECONCILE (CONCEPT:EG-KG.query.native-time-series): committed tsdb store for `Op::TsScan` fusion.
             #[cfg(feature = "tsdb")]
             let tsdb = state.read().await.tsdb_store.clone();
             let resp = match compute_off_lock(req_id, move || {
+                #[cfg(feature = "text")]
+                let served_text =
+                    crate::server::secondary_indexes::ServedTextIndex::new(core_for_ctx.clone());
+                let semantic_guard = core_for_ctx.semantic_store.read();
                 run_unified(
                     plan,
                     reorder_filter_selectivity,
                     &snap,
-                    &semantic,
+                    &semantic_guard,
+                    #[cfg(feature = "text")]
+                    Some(&served_text),
                     #[cfg(feature = "tsdb")]
                     tsdb.as_deref(),
                     // Off-txn: no staged-series overlay (CONCEPT:EG-KG.query.txn-tsdb-read-your).
@@ -456,16 +479,24 @@ pub(crate) async fn try_handle(
             let mut snap = core.analysis_snapshot();
             #[cfg(feature = "security")]
             rls.filter_view(caller.unwrap_or(""), &mut snap);
-            let semantic = core.semantic_store.read().clone();
+            // See the `UnifiedQuery` arm: push vector + lexical legs into the live
+            // persistent indexes via a guard taken INSIDE the off-lock closure.
+            let core_for_ctx = core.clone();
             // RECONCILE (CONCEPT:EG-KG.query.native-time-series): committed tsdb store for `Op::TsScan` fusion.
             #[cfg(feature = "tsdb")]
             let tsdb = state.read().await.tsdb_store.clone();
             let resp = match compute_off_lock(req_id, move || {
+                #[cfg(feature = "text")]
+                let served_text =
+                    crate::server::secondary_indexes::ServedTextIndex::new(core_for_ctx.clone());
+                let semantic_guard = core_for_ctx.semantic_store.read();
                 run_unified(
                     plan,
                     None,
                     &snap,
-                    &semantic,
+                    &semantic_guard,
+                    #[cfg(feature = "text")]
+                    Some(&served_text),
                     #[cfg(feature = "tsdb")]
                     tsdb.as_deref(),
                     // Off-txn: no staged-series overlay (CONCEPT:EG-KG.query.txn-tsdb-read-your).
@@ -800,7 +831,8 @@ fn build_text_index_from_view(view: &crate::graph::GraphView) -> Option<eg_text:
 /// Execute a unified cross-modal plan (CONCEPT:AU-KG.compute.vector/209) over one off-lock
 /// snapshot and return the result rows as `[id, score|nil]`. The plan is routed through the
 /// full cost optimizer by `eg_plan::execute` (CONCEPT:EG-KG.query.served-plan-optimize-routing); a
-/// lexical `Op::RankText`/`Op::FuseRrf` leg is served over a snapshot-derived BM25 index
+/// lexical `Op::RankText`/`Op::FuseRrf` leg is served over the MAINTAINED persistent BM25
+/// index when one is registered, falling back to a snapshot-derived index otherwise
 /// (CONCEPT:EG-KG.query.served-text-index-binding). Synchronous — runs on the blocking pool via
 /// `compute_off_lock`, like the SQL/Cypher legs.
 #[cfg(feature = "query")]
@@ -809,6 +841,13 @@ pub(crate) fn run_unified(
     reorder_filter_selectivity: Option<f64>,
     view: &crate::graph::GraphView,
     semantic: &eg_core::compute::semantic::SemanticStore,
+    // CONCEPT:EG-KG.query.served-text-index-binding — the planner-pushdown adapter reaching the graph's
+    // MAINTAINED persistent BM25 index (see `ServedTextIndex`'s docs). `Some` and
+    // `.available()` ⇒ a `RankText`/`FuseRrf` leg searches the persistent index
+    // directly, NO per-query rebuild; otherwise this fn falls back to the prior
+    // snapshot-derived index (a graph with no `ServerIndexFactory` installed, e.g. a
+    // test harness, or a graph created before the factory was wired).
+    #[cfg(feature = "text")] served_text: Option<&crate::server::secondary_indexes::ServedTextIndex>,
     // RECONCILE (Lane C tsdb-in-plan, CONCEPT:EG-KG.query.native-time-series): the committed native tsdb
     // `SeriesStore` backing `Op::TsScan`, threaded in so a UQL plan fuses its
     // time-series leg with the graph/vector/relational legs. `None` ⇒ a `TsScan`
@@ -839,24 +878,40 @@ pub(crate) fn run_unified(
     let _ = reorder_filter_selectivity;
     let ops = plan.ops;
 
-    // CONCEPT:EG-KG.query.served-text-index-binding — bind a live BM25 `TextIndex` into the served
-    // `PlanCtx` so a served `UnifiedQuery`/`UnifiedQueryText` whose plan carries `Op::RankText`
-    // or an `Op::FuseRrf` text branch gets REAL lexical scores (it previously degraded to ZERO
-    // lexical hits — the EG-KG.query.served-text-index-unbound-finding seam gap). The index is
-    // derived from the SAME off-lock snapshot the rest of the plan reads (`view`), so the lexical
-    // leg is snapshot-consistent with the vector/graph/temporal legs of the fused query — the
-    // BM25 result over a document set is deterministic, so this yields byte-identical lexical
-    // ranking to a persistent index over the same documents. Built ONLY when the plan actually
-    // references a text op, so a non-text served query pays nothing. (A persistent index-on-write
-    // in `ServerState` beside `graph.redb` is a pure performance follow-up — it does not change
-    // the answer, only avoids the per-query build.)
+    // CONCEPT:EG-KG.query.served-text-index-binding — bind a live BM25 lexical search surface into the
+    // served `PlanCtx` so a served `UnifiedQuery`/`UnifiedQueryText` whose plan carries
+    // `Op::RankText` or an `Op::FuseRrf` text branch gets REAL lexical scores (it
+    // previously always rebuilt a throwaway index from the queried snapshot on EVERY
+    // request — the EG-P1-4 Codex gap). Preference order:
+    //   1. the MAINTAINED persistent per-graph `GraphTextIndex`, via `served_text`, when
+    //      one is registered — no per-query rebuild, and it reflects every committed
+    //      write incrementally (CONCEPT:EG-KG.storage.incremental-text);
+    //   2. a snapshot-derived `eg_text::TextIndex` built from `view` (the PRIOR
+    //      behavior), for a graph with no `ServerIndexFactory` installed (a bare test
+    //      harness, or a graph that predates the factory).
+    // Built/bound ONLY when the plan actually references a text op, so a non-text
+    // served query pays nothing either way.
     let ctx = PlanCtx::new(view, semantic);
     #[cfg(feature = "text")]
-    let served_text_index = plan_needs_text(&ops).then(|| build_text_index_from_view(view));
+    let need_text = plan_needs_text(&ops);
     #[cfg(feature = "text")]
-    let ctx = match served_text_index.as_ref().and_then(|r| r.as_ref()) {
-        Some(index) => ctx.with_text(index),
-        None => ctx,
+    let persistent_text = served_text.filter(|st| st.available());
+    #[cfg(feature = "text")]
+    let snapshot_text_index: Option<eg_text::TextIndex> =
+        if need_text && persistent_text.is_none() {
+            build_text_index_from_view(view)
+        } else {
+            None
+        };
+    #[cfg(feature = "text")]
+    let ctx = if !need_text {
+        ctx
+    } else if let Some(served) = persistent_text {
+        ctx.with_text(served)
+    } else if let Some(index) = snapshot_text_index.as_ref() {
+        ctx.with_text(index)
+    } else {
+        ctx
     };
     // CONCEPT:EG-KG.query.bind-server-side-text — bind the server-side text→vector embedder so a UQL `RANK BY ~ "text"`
     // (`Op::RankEmbed`) resolves its query vector at exec time (the NL→vector seam,
@@ -1182,7 +1237,11 @@ async fn run_unified_overlaid(
     // Resolve the txn's target core + snapshot its staged write-set/embeddings while
     // holding only the cheap state read + per-txn lock; everything moved into the
     // off-lock closure is OWNED, so no lock is held across the compute.
-    let (mut view, write_set, committed_semantic, vectors) = {
+    // `core` itself (an `Arc`) is threaded OUT of this block too — CONCEPT:EG-KG.query.served-vector-index-binding
+    // / served-text-index-binding: the committed `SemanticStore`/text index are pushed
+    // down via a guard taken INSIDE the off-lock closure below (not cloned here), so
+    // `committed_semantic` is no longer materialized eagerly — see the closure.
+    let (mut view, write_set, vectors, core) = {
         let s = state.read().await;
         let entry = match s.open_txns.get(txn_id) {
             Some(e) => e,
@@ -1197,19 +1256,13 @@ async fn run_unified_overlaid(
                 return Response::err(req_id, format!("Graph '{}' not found", guard.graph));
             }
         };
-        // Committed base snapshot (O(V+E) structural copy) + committed embedding store,
-        // taken at ONE point in time so the cross-modal read is snapshot-isolated.
+        // Committed base snapshot (O(V+E) structural copy), taken at ONE point in time
+        // so the cross-modal read is snapshot-isolated.
         #[cfg_attr(not(feature = "security"), allow(unused_mut))]
         let mut view = core.analysis_snapshot();
         #[cfg(feature = "security")]
         rls.filter_view(caller.unwrap_or(""), &mut view);
-        let committed_semantic = core.semantic_store.read().clone();
-        (
-            view,
-            guard.write_set.clone(),
-            committed_semantic,
-            guard.vectors.clone(),
-        )
+        (view, guard.write_set.clone(), guard.vectors.clone(), core)
         // `guard` + `s` drop here — no lock held across the compute below.
     };
     // RECONCILE (CONCEPT:EG-KG.query.native-time-series): the committed tsdb `SeriesStore` for `Op::TsScan`
@@ -1245,18 +1298,45 @@ async fn run_unified_overlaid(
     // unchanged.
     #[cfg(feature = "security")]
     rls.filter_view(caller.unwrap_or(""), &mut view);
-    let semantic = eg_core::compute::semantic::semantic_overlay(committed_semantic, &vectors);
     match compute_off_lock(req_id, move || {
-        run_unified(
-            plan,
-            reorder_filter_selectivity,
-            &view,
-            &semantic,
-            #[cfg(feature = "tsdb")]
-            tsdb.as_deref(),
-            #[cfg(feature = "tsdb")]
-            Some(&staged_series),
-        )
+        #[cfg(feature = "text")]
+        let served_text = crate::server::secondary_indexes::ServedTextIndex::new(core.clone());
+        // Fast path (CONCEPT:EG-KG.query.served-vector-index-binding): no staged embeddings this txn ⇒
+        // search the COMMITTED store directly through a guard — no clone, no forced
+        // HNSW rebuild. Only when the txn actually staged embeddings do we need a
+        // MUTATED overlay copy for read-your-own-writes (`semantic_overlay` always
+        // clones its input, so it is worth paying only when there is something to
+        // overlay).
+        if vectors.is_empty() {
+            let semantic_guard = core.semantic_store.read();
+            run_unified(
+                plan,
+                reorder_filter_selectivity,
+                &view,
+                &semantic_guard,
+                #[cfg(feature = "text")]
+                Some(&served_text),
+                #[cfg(feature = "tsdb")]
+                tsdb.as_deref(),
+                #[cfg(feature = "tsdb")]
+                Some(&staged_series),
+            )
+        } else {
+            let committed = core.semantic_store.read().clone();
+            let semantic = eg_core::compute::semantic::semantic_overlay(committed, &vectors);
+            run_unified(
+                plan,
+                reorder_filter_selectivity,
+                &view,
+                &semantic,
+                #[cfg(feature = "text")]
+                Some(&served_text),
+                #[cfg(feature = "tsdb")]
+                tsdb.as_deref(),
+                #[cfg(feature = "tsdb")]
+                Some(&staged_series),
+            )
+        }
     })
     .await
     {

@@ -82,8 +82,9 @@ pub use classify::{
     StatementKind, TableWhereEq, UpdateNodes, UpdateNodesJoin, UpdateTable, WhereEq,
 };
 pub use exec::{
-    exec_sql, exec_sql_cached, exec_sql_over_tables, exec_sql_typed, exec_sql_typed_with_tables,
-    PgColType, QueryResult, TypedColumn, TypedQueryResult,
+    default_spill_rows, exec_sql, exec_sql_cached, exec_sql_over_tables, exec_sql_typed,
+    exec_sql_typed_with_tables, CancellationToken, PgColType, QueryResult, StreamOutcome,
+    TypedColumn, TypedQueryResult,
 };
 // CONCEPT:EG-KG.query.postgres-family-extension-plan/116/117/119 — Postgres-family extension parity plans + planners.
 pub use pgfamily::{

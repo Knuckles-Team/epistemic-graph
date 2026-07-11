@@ -266,7 +266,13 @@ pub const LABEL_COLUMN: &str = "__label__";
 
 /// One secondary index behind the manager. Implementers keep their own cache
 /// (lazy-built, `version()`/`mark_dirty`-invalidated) — the manager only routes.
-pub trait SecondaryIndex: Send + Sync {
+/// `'static` (every impl in this codebase already is — owned server-lifetime
+/// state, never a borrowed index) so [`Self::as_any`] can downcast a trait object
+/// back to its concrete type (CONCEPT:EG-KG.query.served-text-index-binding — the planner
+/// pushdown seam uses this to recover the server's concrete `GraphTextIndex`/
+/// vector index from behind the generic registry instead of rebuilding a
+/// throwaway snapshot index per query).
+pub trait SecondaryIndex: Send + Sync + 'static {
     /// This index's kind.
     fn kind(&self) -> IndexKind;
 
@@ -331,6 +337,21 @@ pub trait SecondaryIndex: Send + Sync {
         let _ = core;
         Ok(())
     }
+
+    /// Downcast hook (CONCEPT:EG-KG.query.served-text-index-binding): recover the CONCRETE type behind this
+    /// trait object. A REQUIRED method (not a default) — the `&Self -> &dyn Any`
+    /// unsizing coercion needs `Self: Sized` at the impl site, which a default
+    /// body typechecked generically over the trait's abstract `Self` cannot
+    /// assume (that would exclude the method from the vtable, making it
+    /// uncallable through `&dyn SecondaryIndex` — exactly the shape a caller
+    /// needs). Every impl's body is the same one-liner: `fn as_any(&self) -> &dyn
+    /// std::any::Any { self }`. A caller holding `&dyn SecondaryIndex` (e.g. via
+    /// [`IndexManager::with_server_index`]) calls
+    /// `.as_any().downcast_ref::<ConcreteType>()` to recover it — the seam a
+    /// planner pushdown uses to reach the server-layer `GraphTextIndex` (or a
+    /// future spatial/vector server index) directly, instead of rebuilding an
+    /// equivalent index from a snapshot on every query.
+    fn as_any(&self) -> &dyn std::any::Any;
 }
 
 /// The label index descriptor (CONCEPT:EG-KG.compute.consult-lazy). Holds no state — it routes to
@@ -341,6 +362,10 @@ pub struct LabelIndex;
 impl SecondaryIndex for LabelIndex {
     fn kind(&self) -> IndexKind {
         IndexKind::Label
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
     }
 
     fn descriptor(&self) -> IndexDescriptor {
@@ -381,6 +406,10 @@ impl SecondaryIndex for PropertyEqIndex {
         IndexKind::Property
     }
 
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
     fn descriptor(&self) -> IndexDescriptor {
         IndexDescriptor {
             kind: IndexKind::Property,
@@ -415,6 +444,10 @@ impl SecondaryIndex for OntologyIndexDescriptor {
         IndexKind::Ontology
     }
 
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
     fn descriptor(&self) -> IndexDescriptor {
         IndexDescriptor {
             kind: IndexKind::Ontology,
@@ -443,6 +476,10 @@ pub struct VectorIndexDescriptor;
 impl SecondaryIndex for VectorIndexDescriptor {
     fn kind(&self) -> IndexKind {
         IndexKind::Vector
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
     }
 
     fn descriptor(&self) -> IndexDescriptor {
@@ -621,6 +658,27 @@ impl IndexManager {
     #[inline]
     pub fn wants_change_content(&self) -> bool {
         self.content_capture.load(Ordering::Relaxed)
+    }
+
+    /// Look up a registered SERVER-LAYER index (text/temporal/derived-OWL,
+    /// CONCEPT:EG-KG.query.served-text-index-binding) by `kind` and run `f` against it WHILE holding the
+    /// read lock, returning `f`'s result. This is the planner-pushdown seam: a
+    /// caller ABOVE `eg-core` (which cannot name the concrete server-side index
+    /// types — they live above it in the crate DAG) recovers one via
+    /// `idx.as_any().downcast_ref::<ConcreteType>()` inside `f`, searches/reads it
+    /// directly, and returns an OWNED result — so no reference to the index (or
+    /// the lock guard) ever escapes this call, keeping the seam lifetime-simple.
+    /// `None` when no server-layer index of `kind` is registered on this graph
+    /// (the caller falls back to its own snapshot-derived equivalent).
+    pub fn with_server_index<F, R>(&self, kind: IndexKind, f: F) -> Option<R>
+    where
+        F: FnOnce(&dyn SecondaryIndex) -> R,
+    {
+        self.server_indexes
+            .read()
+            .iter()
+            .find(|idx| idx.kind() == kind)
+            .map(|idx| f(idx.as_ref()))
     }
 
     /// The pushdown registry's core question: the first registered index that
@@ -967,6 +1025,9 @@ mod tests {
         fn kind(&self) -> IndexKind {
             IndexKind::Text
         }
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
         fn descriptor(&self) -> IndexDescriptor {
             IndexDescriptor {
                 kind: IndexKind::Text,
@@ -1014,6 +1075,9 @@ mod tests {
         impl SecondaryIndex for Shared {
             fn kind(&self) -> IndexKind {
                 self.0.kind()
+            }
+            fn as_any(&self) -> &dyn std::any::Any {
+                self
             }
             fn descriptor(&self) -> IndexDescriptor {
                 self.0.descriptor()
@@ -1131,5 +1195,82 @@ mod tests {
             inc, baseline,
             "incremental delete result set must equal a full rebuild baseline"
         );
+    }
+
+    // ── `with_server_index` downcast seam (CONCEPT:EG-KG.query.served-text-index-binding) ────────────
+
+    /// A tiny concrete server-layer index the downcast test recovers by type.
+    #[derive(Default)]
+    struct ProbeIndex {
+        tag: std::sync::Mutex<String>,
+    }
+    impl SecondaryIndex for ProbeIndex {
+        fn kind(&self) -> IndexKind {
+            IndexKind::Text
+        }
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
+        fn descriptor(&self) -> IndexDescriptor {
+            IndexDescriptor {
+                kind: IndexKind::Text,
+                columns: IndexColumns::NonColumnar,
+                serves_lookup: false,
+            }
+        }
+        fn covers(&self, _p: &Predicate) -> bool {
+            false
+        }
+        fn lookup(&self, _c: &GraphCore, _p: &Predicate) -> Option<Vec<String>> {
+            None
+        }
+    }
+
+    /// `with_server_index` finds a registered server-layer index by [`IndexKind`] and
+    /// hands it to the closure as `&dyn SecondaryIndex`, which downcasts it back to its
+    /// CONCRETE type via `as_any` — the exact seam the planner pushdown uses to reach a
+    /// server-layer text/vector/spatial index instead of rebuilding an equivalent one
+    /// from a snapshot per query.
+    #[test]
+    fn with_server_index_finds_and_downcasts_a_registered_index() {
+        let g = GraphCore::new();
+        g.register_index(Box::new(ProbeIndex {
+            tag: std::sync::Mutex::new("hello".to_string()),
+        }));
+
+        let seen = g.indexes().with_server_index(IndexKind::Text, |idx| {
+            idx.as_any()
+                .downcast_ref::<ProbeIndex>()
+                .map(|p| p.tag.lock().unwrap().clone())
+        });
+        assert_eq!(
+            seen,
+            Some(Some("hello".to_string())),
+            "with_server_index must find the registered Text index and downcast it back \
+             to ProbeIndex"
+        );
+    }
+
+    /// No registered server index of that kind ⇒ `None` (the caller falls back to its
+    /// own snapshot-derived equivalent).
+    #[test]
+    fn with_server_index_is_none_when_nothing_registered() {
+        let g = GraphCore::new();
+        let seen = g
+            .indexes()
+            .with_server_index(IndexKind::Text, |_idx| "unreachable");
+        assert!(seen.is_none());
+    }
+
+    /// A registered index of the WRONG kind is never matched — `with_server_index` is
+    /// keyed by `kind()`, not just "any server index".
+    #[test]
+    fn with_server_index_does_not_match_the_wrong_kind() {
+        let g = GraphCore::new();
+        g.register_index(Box::new(ProbeIndex::default())); // kind() == Text
+        let seen = g
+            .indexes()
+            .with_server_index(IndexKind::Temporal, |_idx| "unreachable");
+        assert!(seen.is_none(), "Temporal lookup must not match a Text index");
     }
 }
