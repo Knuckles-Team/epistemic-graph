@@ -1694,6 +1694,20 @@ pub enum Method {
         query: String,
     },
 
+    /// The durable analytics-job plane (CONCEPT:INT-P2-1): async submit/status/
+    /// cancel/resume over a redb-backed `AnalyticsJob` state machine (`eg-jobs`),
+    /// whose eventual success commits a provenance'd `:Claim`/`:Evidence` pair (the
+    /// SAME typed-node convention `eg-epistemic` reads). ONE variant wrapping an
+    /// internal op enum — mirrors `RbacAdmin { op }` above — so the whole
+    /// submit/status/cancel/resume surface costs exactly one `Method` arm rather
+    /// than four. Gated `jobs`; the handler (`src/server/handlers/jobs.rs`)
+    /// self-routes in `dispatch.rs` before the per-graph chain (jobs are keyed by
+    /// `job_id` in their own `jobs.redb`, not a graph — like `TsAppend`/`Kv*`).
+    #[cfg(feature = "jobs")]
+    AnalyticsJob {
+        op: crate::jobs::JobOp,
+    },
+
     // ── Query (SQL + Cypher) ──────────────────────────────────────────
     // Read-only relational query surface (CONCEPT:EG-KG.query.read-only-sql-query). `SELECT … FROM
     // nodes …` over ONE graph via DataFusion, gated behind the facade `query`

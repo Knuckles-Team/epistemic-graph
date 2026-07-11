@@ -1,5 +1,16 @@
 [workspace]
-members = ["crates/eg-types", "crates/eg-ann", "crates/eg-geo", "crates/eg-tensor", "crates/eg-stream", "crates/eg-core", "crates/eg-compute", "crates/eg-query", "crates/eg-plan", "crates/eg-tsdb", "crates/eg-text", "crates/eg-rdf", "crates/eg-shacl", "crates/eg-shex", "crates/eg-wasm", "crates/eg-graphql", "crates/eg-kvcache", "crates/eg-lake", "crates/eg-numeric", "crates/eg-epistemic", "crates/eg-modality", "crates/eg-image", "crates/eg-audio", "crates/eg-video", "crates/eg-document", "crates/eg-alignment", "crates/eg-capabilities"]
+members = ["crates/eg-types", "crates/eg-ann", "crates/eg-geo", "crates/eg-tensor", "crates/eg-stream", "crates/eg-core", "crates/eg-compute", "crates/eg-query", "crates/eg-plan", "crates/eg-tsdb", "crates/eg-text", "crates/eg-rdf", "crates/eg-shacl", "crates/eg-shex", "crates/eg-wasm", "crates/eg-graphql", "crates/eg-kvcache", "crates/eg-lake", "crates/eg-numeric", "crates/eg-epistemic", "crates/eg-modality", "crates/eg-image", "crates/eg-audio", "crates/eg-video", "crates/eg-document", "crates/eg-alignment", "crates/eg-capabilities", "crates/eg-jobs"]
+# CONCEPT:INT-P2-1 -- eg-jobs: the durable analytics-job plane (async submit/status/
+# progress/cancel/resume over a redb-backed `AnalyticsJob` state machine, committing
+# results as provenance'd epistemic claims via `eg-core::GraphCore` +  the SAME
+# typed-node convention `eg-epistemic` reads). A leaf crate ALONG the DAG (deps =
+# eg-types + eg-core), added as a workspace member ONLY -- mirroring the eg-document/
+# eg-alignment/eg-image/eg-audio/eg-video precedent above: NOT folded into any tier
+# aggregate (`full`/default) here or ever, since the root package's default build
+# already IS the full build (CONCEPT:EG-371) and this is a fresh, still-narrow
+# surface. The root `epistemic-graph` package depends on it OPTIONALLY behind its own
+# opt-in `jobs` feature (see the `[dependencies]`/`[features]` sections below), which
+# wires ONE new `Method::AnalyticsJob` variant + `src/server/handlers/jobs.rs`.
 # CONCEPT:EG-P0-1 -- eg-capabilities: the machine-checked MethodPolicy capability-ledger
 # crate (exhaustive, no-wildcard `policy()` over eg-types::protocol::Method, generated
 # docs/capabilities.generated.md, a consistency test cross-checking access.rs/wal.rs/
@@ -284,6 +295,22 @@ blob-s3 = ["blob", "dep:object_store"]
 # capability-discovery/testing-seam status as `eg-document`/`eg-alignment` themselves
 # (see the workspace `[workspace]` comment above), not a serving feature.
 alignment = ["blob", "dep:eg-alignment", "dep:eg-modality"]
+# CONCEPT:INT-P2-1 — the durable analytics-job plane: `Method::AnalyticsJob` (async
+# submit/status/cancel/resume over a redb-backed `AnalyticsJob` state machine) +
+# `src/server/handlers/jobs.rs`. Pulls `server` (Tokio dispatch) + `mining` (the
+# reference job kind reuses `eg_compute::mining::association`) + `epistemic` (the
+# result-commit path writes the SAME `:Claim`/`:Evidence` convention `eg-epistemic`
+# reads) + `dep:eg-jobs` (the durable store + state machine) + the matching
+# `eg-types/jobs` and `eg-capabilities/jobs` wire/policy features (kept in LOCKSTEP —
+# see both crates' own docs on why `eg-types/jobs` can never be forced on
+# unconditionally by `eg-capabilities`). OFF by default and deliberately NOT folded
+# into any tier aggregate (`full`, the default build per CONCEPT:EG-371) — mirrors
+# `alignment`/`eg-document`/`eg-image` above: a fresh, still-narrow capability-
+# discovery surface, not yet a serving-tier feature.
+jobs = [
+    "server", "mining", "epistemic",
+    "dep:eg-jobs", "eg-types/jobs", "eg-capabilities/jobs",
+]
 # Read-only SQL query surface (CONCEPT:KG-2.178). Pulls eg-query + DataFusion/Arrow
 # — heavy, so it is OFF by default and folded only into full/all (never the slim
 # Raspberry-Pi build). A default build links no DataFusion.
@@ -1002,6 +1029,12 @@ eg-alignment = { path = "crates/eg-alignment", optional = true }
 # gates (no heavy transitive dependency), so this is safe even though it forces them
 # on unconditionally in any `server` build.
 eg-capabilities = { path = "crates/eg-capabilities", optional = true }
+# CONCEPT:INT-P2-1 -- the durable analytics-job plane (feature `jobs`): the
+# `AnalyticsJob` state machine + its own `jobs.redb` store + the result->claim
+# commit helper (`eg_jobs::claim::commit_result_claim`), consumed by
+# `src/server/handlers/jobs.rs`. See the workspace `[workspace]` comment above for
+# why it is a workspace member without being folded into any tier aggregate.
+eg-jobs = { path = "crates/eg-jobs", optional = true }
 # Optional live CEP standing-query engine (feature `stream`, CONCEPT:EG-088/EG-299). The
 # BATCH `Op::Cep` executor already pulls eg-stream transitively via `eg-plan/stream`; this
 # DIRECT edge (with eg-stream's own `stream` feature, the ONLY thing that pulls tokio in
