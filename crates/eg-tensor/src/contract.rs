@@ -5,8 +5,9 @@
 //! are the v1 pilots; everything else is future work).
 
 use eg_modality::{
-    encode_staged, ConformanceTestable, EvidenceSpan, ModalityContract, Provenance, RowSetShape,
-    StagedWrite,
+    decode_staged, encode_staged, ConformanceTestable, EvidenceSpan, IngestReport,
+    ModalityContract, ModalitySelfTest, Provenance, RowSetShape, StagedWrite, StorageStats,
+    TckPoint,
 };
 
 use crate::tensor::{Buffer, Tensor};
@@ -63,6 +64,91 @@ impl ModalityContract for Tensor {
 
     fn analytics_ops(&self) -> Vec<&'static str> {
         vec!["slice", "reduce", "elementwise", "reshape"]
+    }
+
+    // ── EG-P1-1 hooks — real, minimal implementations over the tensor's OWN durable
+    // byte-blob codec (`to_blob`/`from_blob`, the content-addressed CAS persistence
+    // form) and the txn staging path. These take tensor from 5/12 to 12/12 (9 PASS +
+    // the 3 N/A declared in `tck_not_applicable`). ──
+
+    /// Batch ingest = parse a `Tensor` back from its compact durable byte-blob (the
+    /// exact form the content-addressed CAS stores). Streaming is genuinely N/A: a
+    /// dense N-D array is a whole value, not an append stream (a future
+    /// `Op::TensorScan`-fed materialized view would be a DIFFERENT, streaming shape).
+    fn ingest_report(&self, _id: &str) -> IngestReport {
+        let blob = self.to_blob();
+        let batch = match Tensor::from_blob(&blob) {
+            Ok(rt) if &rt == self => ModalitySelfTest::Passed,
+            _ => ModalitySelfTest::Failed,
+        };
+        IngestReport {
+            batch,
+            streaming: ModalitySelfTest::NotApplicable(
+                "a dense N-D tensor is a whole value, not an append stream",
+            ),
+        }
+    }
+
+    /// Real storage stats from the value itself: element count from the buffer,
+    /// logical size from the durable blob length. A dense tensor is NOT secondary-
+    /// indexed (it is stored/retrieved by content-hash id), so `has_secondary_index`
+    /// is honestly `false` — the point still passes on stats presence.
+    fn storage_stats(&self, _id: &str) -> Option<StorageStats> {
+        Some(StorageStats {
+            logical_bytes: self.to_blob().len() as u64,
+            element_count: self.data.len() as u64,
+            has_secondary_index: false,
+        })
+    }
+
+    /// Backup→restore round-trip through the DURABLE blob codec (the on-disk form),
+    /// then confirm the restored tensor equals the original. "Migrate" is the identity
+    /// at schema v1; "recover" is the same restore path.
+    fn backup_selfcheck(&self, _id: &str) -> ModalitySelfTest {
+        let backup = self.to_blob();
+        match Tensor::from_blob(&backup) {
+            Ok(restored) if &restored == self => ModalitySelfTest::Passed,
+            _ => ModalitySelfTest::Failed,
+        }
+    }
+
+    /// Simulated single-node crash-and-recover through the txn staging path (a
+    /// DIFFERENT codec from `backup_selfcheck`'s compact blob — this exercises the
+    /// serde-encoded WAL payload). Stage the tensor as an in-txn write; the staged
+    /// payload IS the durable WAL record; on "restart" replay-decode it and confirm
+    /// the recovered tensor is intact.
+    fn recovery_selfcheck(&self, id: &str) -> ModalitySelfTest {
+        let staged: StagedWrite = self.txn_stage(id);
+        match decode_staged::<Tensor>(&staged) {
+            Ok(recovered) if &recovered == self => ModalitySelfTest::Passed,
+            _ => ModalitySelfTest::Failed,
+        }
+    }
+
+    /// The three points a bare numeric N-D array genuinely does NOT own (a distinct,
+    /// honest status from "not implemented yet"), each with a concrete reason:
+    /// * CDC/delete/GC — a tensor lives in the immutable content-addressed blob CAS;
+    ///   an immutable, content-hashed value has no in-place mutation to capture, and
+    ///   GC is unreferenced-blob collection at the STORE layer, not a per-value trait.
+    /// * tenant/row/region policy — enforced at the graph-node/`eg-core::isolation`
+    ///   layer that OWNS the tensor, never embedded in the array bytes themselves.
+    /// * provenance/evidence/lineage — a bare array has no derivation history and is
+    ///   not extracted from any located artifact; lineage, where it exists, is
+    ///   recorded by the producing plan operator, not the value (matches the existing
+    ///   `provenance()`/`evidence()` returning `None`).
+    fn tck_not_applicable(&self, point: TckPoint) -> Option<&'static str> {
+        match point {
+            TckPoint::CdcDeleteRetentionGc => Some(
+                "content-addressed immutable CAS value — no in-place mutation to capture; delete/GC is a store-layer refcount concern, not a modality-value capability",
+            ),
+            TckPoint::TenantRowRegionPolicy => Some(
+                "no modality-intrinsic policy surface — tenant/row/region policy is enforced at the graph-node/eg-core::isolation layer that owns the tensor",
+            ),
+            TckPoint::ProvenanceEvidenceLineage => Some(
+                "a bare numeric N-D array has no derivation history and no located-evidence artifact; lineage, where it exists, is recorded by the producing plan operator",
+            ),
+            _ => None,
+        }
     }
 }
 
