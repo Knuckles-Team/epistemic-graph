@@ -607,7 +607,7 @@ async def run_steady_state(
 
 async def phase_restart_recovery(
     binary: Path, handle: ServerHandle, conns: list[Any], probe_graph: str, probe_node: str
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], ServerHandle, list[Any]]:
     # Confirm the probe node is really there pre-restart.
     pre = await get_node_properties(conns[0], probe_graph, probe_node)
     await close_pool(conns)
