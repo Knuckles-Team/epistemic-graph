@@ -130,6 +130,7 @@
 | `CatalogList` | false | None | `admin:cluster-read` | true | false | false | Snapshot |  |
 | `RebalancePlan` | false | None | `admin:cluster-read` | true | false | false | Snapshot |  |
 | `RebalanceExecute` | ~true | None | `admin:cluster` | false | false | false | Saga | NOT present in access.rs's write classifier at all -- governed elsewhere |
+| `PlacementRoute` | false | None | `admin:cluster-read` | true | false | false | Snapshot | DIST-P2-4: always in the enum (pure serde); the real answer needs `raft` + a live MultiRaft cluster, else a well-formed {"explicit": false} JSON (not an error) -- see handlers/placement.rs |
 | `Backup` | false | None | `admin:backup` | true | false | false | Snapshot | reads a consistent snapshot out to a bundle; does not mutate the live graph |
 | `Restore` | ~true | None | `admin:backup` | false | false | false | Saga | NOT present in access.rs's write classifier at all (server-admin action) -- governed elsewhere |
 | `CreateChannel` | ~true | None | `channel:admin` | true | false | false | Atomic | NOT present in access.rs's write classifier at all -- flagged as a possible access.rs coverage gap |
