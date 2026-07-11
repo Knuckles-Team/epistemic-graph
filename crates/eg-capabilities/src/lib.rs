@@ -259,6 +259,13 @@ pub fn policy(m: &Method) -> MethodPolicy {
         // L53 (EPI-P3-5 UQL wiring): the acceptance-capstone + temporal-diff read ops.
         // Both read-only, no durability, no audit/CDC — same profile as `ExplainBelief`.
         Method::EpistemicStatus { .. } | Method::WhatChanged { .. } => MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "explain:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot },
+        // Seam 3 (CONCEPT:EG-KG.epistemic.truth-maintenance, X-6 wire surface): register/query
+        // a TruthMaintenance materialization. Neither touches the durable graph (the side
+        // effect lands only in the ephemeral process-global TMS index `tms_hook.rs` owns,
+        // same posture as the CDC hook itself) -- read-only profile, same as `EpistemicStatus`
+        // above. `RegisterMaterialization` is idempotent: re-registering the same id replaces
+        // its dependency set with the SAME freshly-resolved provenance read.
+        Method::RegisterMaterialization { .. } | Method::MaterializationStatus { .. } => MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "explain:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot },
         // CONCEPT:EG-X1 + EPI-P3-3 (facade wiring): multimodal-citation resolution +
         // calibrated causal reasoning + provenance-aware retrieval ranking. All three
         // read-only, no durability, no audit/CDC — same profile as `ExplainBelief`
@@ -597,6 +604,8 @@ pub const ALL_METHODS: &[(&str, MethodPolicy, &str)] = &[
         ("ExplainBelief", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "explain:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, ""),
         ("EpistemicStatus", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "explain:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "L53 (EPI-P3-5) acceptance capstone; handler additionally gated `epistemic-tms`"),
         ("WhatChanged", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "explain:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "L53 (EPI-P3-5) bitemporal diff; handler additionally gated `epistemic-tms`"),
+        ("RegisterMaterialization", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "explain:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "Seam 3 (X-6 wire surface): registers a TruthMaintenance materialization off its own stored provenance; side effect lands only in the ephemeral tms_hook index, never the durable graph; handler additionally gated `epistemic-tms`"),
+        ("MaterializationStatus", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "explain:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "Seam 3: read-only status lookup on the same tms_hook index; handler additionally gated `epistemic-tms`"),
         ("ExplainEvidence", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "explain:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "CONCEPT:EG-X1 multimodal-citation resolver; handler additionally gated `evidence-graph`"),
         ("CausalEstimate", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "explain:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "EPI-P3-3 do-calculus intervention over a request-carried SCM; handler additionally gated `epistemic-causal`"),
         ("RankByProvenance", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "explain:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "EPI-P3-3 provenance-aware retrieval ranking; handler additionally gated `epistemic-causal`"),
@@ -766,7 +775,9 @@ mod smoke_tests {
         // CONCEPT:EG-X1 + EPI-P3-3 (facade wiring): +3 (340 -> 343 base) for
         // `Method::ExplainEvidence`/`Method::CausalEstimate`/`Method::RankByProvenance`.
         // CONCEPT:EG-KB-CURRENCY: +1 (343 -> 344 base) for `Method::ExplainProvenanceByIds`.
-        let expected = if cfg!(feature = "jobs") { 345 } else { 344 };
+        // Seam 3 (X-6 wire surface): +2 (344 -> 346 base) for
+        // `Method::RegisterMaterialization` / `Method::MaterializationStatus`.
+        let expected = if cfg!(feature = "jobs") { 347 } else { 346 };
         assert_eq!(seen.len(), expected, "expected exactly {expected} Method variants");
     }
 

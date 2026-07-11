@@ -3185,6 +3185,34 @@ class QueryClient:
             "WhatChanged", {"tx_from": tx_from, "tx_to": tx_to}
         )
 
+    async def register_materialization(self, derived_id: str) -> dict[str, Any]:
+        """Seam 3 (CONCEPT:EG-KG.epistemic.truth-maintenance, X-6 across the storage
+        boundary) — register ``derived_id`` as a live TruthMaintenance materialization
+        straight off its OWN already-stored provenance: the engine reads its
+        ``invalidation_deps`` property plus any outgoing ``:DerivedFrom``/
+        ``:GeneratedBy`` edge into a dependency set (``eg_epistemic::register_from_provenance``)
+        and tracks it on the SAME process-global index the server's commit path feeds.
+        Call this ONCE, right after writing a derived node (a mined claim, a computed
+        capability index entry, ...) plus its provenance edges — from then on, any
+        committed change to a dependency automatically marks this materialization
+        stale, no polling required. Returns a ``RegisterMaterializationResult``
+        (``{"id", "depends_on", "generating_activity"}`` — the dependency set the
+        engine actually resolved, not caller-supplied, so this doubles as a
+        provenance-wiring sanity check). Requires a server built with the
+        ``epistemic-tms`` feature (opt-in, not part of ``full``)."""
+        return await self._client._send(
+            "RegisterMaterialization", {"derived_id": derived_id}
+        )
+
+    async def materialization_status(self, id: str) -> dict[str, Any]:
+        """Seam 3 — the current status (``"Fresh"``/``"Stale"``/``"Retracted"``, or
+        ``None`` if never registered) of a materialization tracked on the SAME index
+        :meth:`register_materialization` writes to. Read-only — does not itself
+        recompute anything. Returns a ``MaterializationStatusResult``
+        (``{"status"}``). Requires a server built with the ``epistemic-tms`` feature
+        (opt-in, not part of ``full``)."""
+        return await self._client._send("MaterializationStatus", {"id": id})
+
     async def causal_estimate(
         self,
         variables: list[dict[str, Any]],
