@@ -24,6 +24,16 @@ pub struct BeliefGraph {
     /// The bitemporal instant this projection was pinned at (set when the caller
     /// composed an `AS OF` filter before building it); `None` = as of now.
     pub as_of: Option<(TimeAxis, u64)>,
+    /// node id → its RLS [`RowVisibility`](eg_core::isolation::RowVisibility)
+    /// (CONCEPT:EG-KG.sharding.row-level-security), decoded from the SAME property blob
+    /// `filter_view` reads on every other read path. Consulted ONLY by
+    /// [`crate::redact::explain_belief_redacted`] (EPI-P3-4) to decide, per proof-tree
+    /// node, whether the requesting actor may see that node's identity. A node absent
+    /// from this map (no property blob at all) is treated as unowned/visible — the
+    /// same default `filter_view` applies. Behind `epistemic-redaction` so a plain
+    /// build carries no extra dependency or per-node decode cost.
+    #[cfg(feature = "epistemic-redaction")]
+    pub node_visibility: HashMap<String, eg_core::isolation::RowVisibility>,
 }
 
 impl BeliefGraph {
@@ -60,10 +70,19 @@ impl BeliefGraph {
             }
         }
 
+        #[cfg(feature = "epistemic-redaction")]
+        let node_visibility = view
+            .node_properties
+            .iter()
+            .map(|(id, blob)| (id.clone(), eg_core::isolation::row_visibility(blob)))
+            .collect();
+
         BeliefGraph {
             priors,
             in_edges,
             as_of: None,
+            #[cfg(feature = "epistemic-redaction")]
+            node_visibility,
         }
     }
 
@@ -96,6 +115,23 @@ impl BeliefGraph {
             priors,
             in_edges,
             as_of: None,
+            #[cfg(feature = "epistemic-redaction")]
+            node_visibility: HashMap::new(),
         }
+    }
+
+    /// Attach explicit per-node [`RowVisibility`](eg_core::isolation::RowVisibility)
+    /// (EPI-P3-4 test/utility constructor — a real caller builds this from a
+    /// `GraphView` via [`Self::from_graph_view`]). Any id not given here defaults to
+    /// unowned/visible, exactly like a node with no property blob at all.
+    #[cfg(feature = "epistemic-redaction")]
+    pub fn with_visibility<'a, V>(mut self, visibility: V) -> Self
+    where
+        V: IntoIterator<Item = (&'a str, eg_core::isolation::RowVisibility)>,
+    {
+        for (id, vis) in visibility {
+            self.node_visibility.insert(id.to_string(), vis);
+        }
+        self
     }
 }
