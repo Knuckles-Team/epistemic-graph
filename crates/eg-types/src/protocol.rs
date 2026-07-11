@@ -4519,6 +4519,16 @@ pub enum EvidenceSpanWire {
         width: f64,
         height: f64,
     },
+    /// A rectangular box on one page of a paged document (CONCEPT:EG-X1) — e.g.
+    /// "PDF page N, box (x,y,w,h)". Distinct from `DocumentSpan`'s character range.
+    PageBox {
+        document_id: String,
+        page: u32,
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+    },
     /// A time range (milliseconds) inside an audio recording.
     AudioSegment {
         audio_id: String,
