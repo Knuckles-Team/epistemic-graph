@@ -19,6 +19,16 @@ Later phases add sequential patterns, forecasting, and frequent-subgraph mining
 onto this *same* surface — so every later phase is "add an algorithm", not "add a
 surface".
 
+> **Durability (EG-P0-3).** Every `writeback=true` mining action documented below as a
+> "**WAL-durable** graph write" — `classify_predict`, `reduce`, `sequence`, `forecast`, `text`
+> (`lda`/`nmf`), `subgraph` (`gspan`) — is logged to the per-graph WAL and replayed on restart.
+> `sequence`/`forecast`/`text`/`subgraph` (plus the unrelated node-embedding write, `AddEmbedding`)
+> were **not actually durable before EG-P0-3 closed the gap**: they were already classified as
+> mutations for ACL purposes, but an acknowledged write could be silently lost on crash, and their
+> replay arms were dead code. `classify_predict`/`reduce` were already durable before this fix.
+> Several other engine methods still have this exact class of gap open — see
+> [capabilities.md's Known limitations](capabilities.md#known-limitations-in-progress-eg-p0-2p0-4p0-6).
+
 ## The one surface, five layers
 
 | Layer | Where |

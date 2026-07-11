@@ -18,7 +18,8 @@ and OWL reasoning into a single high-performance binary.
 **Transport (important — this changed):** the engine is exposed to Python
 **out-of-process** via a long-running Tokio service speaking **length-prefixed
 MessagePack over Unix Domain Sockets (default) or TCP**, authenticated with
-**HMAC-SHA256**. There is **NO PyO3 / in-process extension** — that coupling was
+**HMAC-SHA256** (the default v0 envelope; an opt-in v1 signed envelope also exists per EG-P0-5 — see
+`docs/service_mode.md#authentication-protocol`). There is **NO PyO3 / in-process extension** — that coupling was
 removed to stay GIL-free and horizontally scalable. The shipped wheel contains
 the `epistemic-graph-server` binary plus a pure-Python client; `maturin` is
 configured `bindings = "bin"`. This is enforced by `scripts/check_no_pyo3.sh`
@@ -527,6 +528,8 @@ grows. Each is tied to a mechanical CI gate (a rule without a gate is a comment)
 |----------|-------------|
 | `GRAPH_SERVICE_AUTH_SECRET` | HMAC-SHA256 secret for the Tokio service (alias: `EPISTEMIC_GRAPH_SECRET` via `run_shards.sh`). **Required** — the server refuses to start with an empty secret |
 | `EPISTEMIC_GRAPH_ALLOW_INSECURE` | `1`/`true`: explicit opt-out allowing an empty auth secret (development only; prominent warning at startup) |
+| `EPISTEMIC_GRAPH_REQUIRE_SIGNED` (EG-P0-5) | `1`/`true`: require the v1 signed request envelope, rejecting legacy v0 tokens outright. **Default `false`** — v0 is accepted with a warning; existing v0 clients/tests keep working unchanged |
+| `EPISTEMIC_GRAPH_ENVELOPE_SKEW_SECS` (EG-P0-5) | Clock-skew window (seconds) for a v1 envelope's `timestamp`, also the replay-nonce cache retention horizon. Default `300` |
 | `GRAPH_SERVICE_SOCKET` | Path to the UDS socket |
 | `GRAPH_SERVICE_PERSIST_DIR` | Persist dir (alias `--persist-dir`). When set with a redb-bearing build, the engine is a durable source of truth; absent ⇒ in-memory only |
 | `EPISTEMIC_GRAPH_PERSIST_BACKEND` | `redb` (**default**, CONCEPT:AU-KG.backend.backend-modes) = durable authoritative store; `snapshot` = opt-in rebuildable-cache (snapshot RDB + WAL). A `redb` request in a build without the `redb` feature silently falls back to snapshot |

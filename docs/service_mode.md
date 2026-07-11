@@ -199,10 +199,17 @@ cross-store window and is fully atomic.
 
 ## Authentication Protocol
 
+Two envelope generations coexist on the wire (`src/server/auth.rs`,
+CONCEPT:EG-KG.security.signed-request-envelope, EG-P0-5): a legacy v0 token, which remains the
+**default**, and an opt-in v1 signed envelope.
+
+### v0 (legacy, still the default)
+
 1. Client and server share a secret (`--auth-secret` / `GRAPH_SERVICE_AUTH_SECRET`)
 2. For each request, client computes: `HMAC-SHA256(secret, str(request_id))`
 3. Token is sent as `auth_token` field in the request
-4. Server recomputes and compares; rejects on mismatch (`"Authentication failed"`)
+4. Server recomputes and compares in constant time (`Mac::verify_slice`, never `==`); rejects on
+   mismatch (`"Authentication failed"`)
 5. **A secret is mandatory.** With an empty secret the server **refuses to
    start** (exit code 2). To intentionally run unauthenticated — development
    only — pass `--allow-insecure` or set `EPISTEMIC_GRAPH_ALLOW_INSECURE=1`;
@@ -211,6 +218,34 @@ cross-store window and is fully atomic.
    insecure opt-out with a non-loopback `--tcp-addr`. Note the TCP transport
    is also unencrypted (no TLS) — for cross-host deployments put it behind a
    TLS-terminating or WireGuard/SSH tunnel.
+
+v0 binds only the request id — no timestamp, no nonce, and no binding to the method, graph, tenant,
+principal, or request body.
+
+### v1 (signed envelope, EG-P0-5 — opt-in, off by default)
+
+A versioned envelope, carried in the same `auth_token` wire field (prefixed `eg1.` so a v1 token can
+never be mistaken for, or silently mishandled as, a v0 hex digest), binding under ONE HMAC-SHA256:
+envelope-version + audience + tenant + principal + graph + method name + a hash of the method's
+params (the request body) + timestamp + nonce + idempotency key.
+
+- Verified in **constant time** (`Mac::verify_slice`), with a configurable clock-skew window
+  (`EPISTEMIC_GRAPH_ENVELOPE_SKEW_SECS`, default 300s, which doubles as the replay-cache retention
+  horizon) and a bounded replay-nonce cache — a nonce cannot be reused within the skew window.
+- **Backward compatible and default-off.** A v0 token is still **accepted with a warning** unless the
+  server is started with `EPISTEMIC_GRAPH_REQUIRE_SIGNED=1` (or `true`), in which case any v0 request
+  is **rejected** outright. Nothing about the v0 behavior above changes unless this flag is set.
+- The v1 signer exists server-side and in `eg-plan`'s federation source
+  (`RemoteEngineSource::auth_token_v1`, sharing byte-for-byte the same canonical layout as the
+  verifier so the two can't independently drift). **It is not yet the path any real client takes** —
+  the Python/JS/Go client drivers (see [Client drivers](interfaces/clients.md)) still only speak v0,
+  and the federation fetch path does not yet call the v1 signer (tracked as a follow-up, not part of
+  this workstream).
+- **Out of scope for EG-P0-5, still future work:** transport-level TLS/mTLS (the UDS/TCP transport
+  itself remains unencrypted regardless of v0/v1 — see the TLS/tunnel note under v0 above) and
+  OIDC-derived principals. This workstream is the crypto core of the request-signing trust boundary
+  only, not a full enterprise auth stack — describe it as exactly that, not as an established
+  enterprise trust boundary.
 
 ## Multi-Graph Management
 

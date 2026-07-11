@@ -10,6 +10,22 @@ is verified against the source, not against intent. Legend:
 The **Feature** column is the Cargo feature that gates the surface; the
 [tiers page](architecture/tiers.md) shows which prebuilt binary carries it.
 
+> **Machine-checked ledger available (EG-P0-1).** [`docs/capabilities.generated.md`](capabilities.generated.md)
+> is generated from an exhaustive, compiler-enforced `MethodPolicy` match over every wire-protocol
+> `Method` variant (`crates/eg-capabilities`, regenerate via `cargo run -p eg-capabilities --bin
+> gen_ledger`) and is now the **authoritative** machine-checked source for per-method
+> mutates/durability-domain/authz-action/idempotent/audited/emits-CDC/txn-participation facts. This
+> page is **not yet reconciled** against it — it predates the ledger and answers a coarser question
+> (which query SURFACE supports which OPERATION) rather than per-`Method` durability/security
+> semantics, so the two are not redundant, but where they overlap and disagree on a durability or
+> security claim, **the generated ledger wins**. Its own consistency test currently reports 106 open
+> divergences (22 runtime-conditional, 23 WAL-durability gaps, 61 access.rs coverage gaps) — see
+> [Known limitations](#known-limitations-in-progress-eg-p0-2p0-4p0-6) below, and note that of the 23
+> WAL gaps the ledger counts, **5 were already closed by EG-P0-3** (`AddEmbedding`, `MineSequence`,
+> `MineForecast`, `MineText` for `lda`/`nmf`, `MineSubgraph` for `gspan` — see [mining.md](mining.md))
+> but the generated ledger has not yet been regenerated to drop them from its count, so its per-method
+> Note column is stale for those five specifically until the next regeneration.
+
 ## SQL (`eg-query/sql` + pgwire)
 
 | Operation | Status | Feature | Evidence |
@@ -375,3 +391,39 @@ The Analytics-Program kernel: one BLAS/LAPACK-free Rust kernel, two surfaces
 | Federation (remote/HTTP/external SQL) | ✅ | `federation`(`-sql`), in the main build; activates when a foreign source is registered |
 
 See the [parity roadmap](roadmap.md) for the order in which the 🔶 / 🗺 items are being closed.
+
+## Known limitations (in progress: EG-P0-2/P0-4/P0-6)
+
+The EG-P0-1 capability ledger (`docs/capabilities.generated.md`) and its consistency test
+(`crates/eg-capabilities/tests/consistency.rs`) are the authoritative source for exactly what is and
+isn't closed at the per-`Method` level; this section restates the open items here too so this
+hand-maintained page doesn't silently read as more complete than it is:
+
+- **WAL-durability gaps.** EG-P0-3 closed 5 of the 23 write-classified-but-not-WAL-logged methods the
+  ledger flags (`AddEmbedding`, `MineSequence`, `MineForecast`, `MineText` for `lda`/`nmf`,
+  `MineSubgraph` for `gspan` — see [mining.md](mining.md)). **18 remain open** per the ledger today
+  (e.g. `ApplyMutation`, `ApplyLedger`/`ClearLedger`, `Reconcile`, `RunDatalogReasoning`,
+  `CompactNodesByType`, and the write-conditional `Sql`/`CypherQuery`/`GraphQl` paths) — a crash
+  between checkpoints can still silently lose those. **Not solved by Wave 1**; do not read the
+  matrix above as implying otherwise.
+- **Runtime-conditional classification (EG-P0-2).** 22 methods (the `Mine*`/`GraphLearn*` family plus
+  `Sql`/`CypherQuery`/`GraphQl`) only know whether they mutate/durably-log at **request time** (a
+  `writeback` flag, or a parsed query) — the ledger's static `mutates: true` for these is a
+  conservative upper bound, not an equality. Open.
+- **Access-classifier coverage gaps.** 61 methods (channel/trigger/continuous-query/catalog/identity/
+  RBAC/matview/foreign-source/UDF-registration/blob/`Txn*` ops) are absent from `access.rs`'s write
+  classifier entirely. Some are legitimately governed by a different mechanism already (the `Txn*`
+  family self-routes and is gated once at `BeginTxn`; KV/blob/series ops are namespace-scoped and
+  self-route too); the rest are a genuinely open, unassigned triage item. Open, unassigned.
+- **Time-series is a separate durability domain.** Time-series writes persist to their own
+  `series.redb` (`DurabilityDomain::SeriesRedb`), entirely separate from the graph WAL/`graph.redb`
+  this page and the ledger otherwise describe — the graph-durability discussion above does not cover
+  the time-series write path.
+- **No single enforcement gateway yet.** The ledger today is a **one-way audit** (does the
+  declarative policy table agree with the existing imperative classifiers?), not yet the thing the
+  handlers consult at request time — `access.rs`/`wal.rs`/`audit.rs`/`cdc.rs` each still carry their
+  own separate logic. Unifying them behind one `policy()`-driven `MutationPlan` gateway is
+  EG-P0-2/EG-P0-6 and has not started.
+
+None of the above is new as of this note — it restates what EG-P0-1 already shipped documenting, so
+that it's visible from this page and not only from the generated file.
