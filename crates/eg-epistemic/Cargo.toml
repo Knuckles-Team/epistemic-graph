@@ -66,3 +66,18 @@ epistemic-causal = []
 # in `eg-core/security` (where `RowVisibility`/`can_see_row` live); OFF by default so
 # a plain build links neither. See `src/redact.rs`.
 epistemic-redaction = ["eg-core/security"]
+# X-1 (CONCEPT:EG-X1) — the multimodal evidence-graph spine + citation resolver:
+# lets an `:Evidence` node (the SAME typed-node-by-convention `:Claim`/`:Evidence`
+# shape this crate's own module docs describe) carry an OPTIONAL located
+# `eg_modality::EvidenceSpan` locus (`evidence_span` property) plus the
+# `AssetOccurrence`/`Blob` identity it was extracted from (`occurrence_id`/
+# `blob_ref` properties) — decoded off the SAME per-node msgpack blob
+# `BeliefGraph::from_graph_view` already reads `confidence`/bitemporal from (one
+# decode pass, no second graph walk). `evidence_citations`/`resolve_locus`/
+# `justification_citations` (`src/evidence.rs`) turn that into the citation list
+# an answer quoting a claim can present: "here is exactly where in the source this
+# evidence came from." Reuses `eg-modality` — the SAME optional dependency
+# `contract` already pulls (no new dependency CLASS at all). OFF by default and
+# deliberately NOT folded into any tier aggregate — the same capability-discovery/
+# testing-seam status as `contract`/`epistemic-causal` above.
+evidence-graph = ["dep:eg-modality"]
