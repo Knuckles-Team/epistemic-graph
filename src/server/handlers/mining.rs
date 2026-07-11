@@ -4322,21 +4322,55 @@ fn validate_matrix(rows: &[Vec<f64>]) -> Result<(), String> {
 //     + `BeliefGraph::from_graph_view` read — so the belief layer propagates confidence
 //     over the finding. (The structural mining edges use the `relation` key instead, so
 //     they stay epistemically neutral and never pollute belief.)
+//   * one `:Activity` node (CONCEPT:EG-P3-1, the universal writeback-lineage tuple) +
+//     one `claim --GENERATED_BY--> activity` edge — the generating transformation: the
+//     mining family/algorithm, this crate's own build version, a runtime/feature-set
+//     env fingerprint, and the graph's OCC version at commit time. `GENERATED_BY`, like
+//     `relation`, is NOT one of `classify_relationship`'s whitelisted values, so it is
+//     automatically epistemically neutral (ignored by `BeliefGraph`) — never pollutes
+//     belief propagation. `eg-plan`'s `KnowledgeSet::from_rowset` resolves it into
+//     `KnowledgeRow::transformation_ids` (see that crate's `knowledge.rs` docs).
 //
 // Ids are deterministic: the claim id folds in the mined node id (re-mining the same
 // finding re-points at the SAME claim — idempotent WAL replay); the evidence id ALSO
 // folds in the provenance, so a DISTINCT provenance corroborates the SAME claim with an
 // ADDITIONAL supporter (the E1↔E6 corroboration path — two mining runs raise the belief
-// above one). With `as_claim` unset the whole path is skipped, so behavior is
-// byte-identical to the pre-E6 write-back.
+// above one); the activity id folds in `(family, provenance)` too, so repeated runs over
+// the SAME provenance converge on the SAME Activity (idempotent, mirrors the evidence id).
+// With `as_claim` unset the whole path is skipped, so behavior is byte-identical to the
+// pre-E6 write-back.
 
 /// `validation_state` metadata seeded on every fresh `:Claim`/`:Evidence` (E6). The
 /// claim is asserted from a mined finding, not yet validated by a downstream check.
 #[cfg(feature = "epistemic")]
 const CLAIM_VALIDATION_STATE: &str = "unvalidated";
 
-/// Materialize the epistemic triad (`:Claim` + `:Evidence` + two `SUPPORTS` edges) for
-/// ONE mined finding whose typed node (`mined_node_id`) was just written back.
+/// This crate's own build version — the `algo_code_version` leg of the universal
+/// writeback-lineage tuple (CONCEPT:EG-P3-1), mirroring `eg_jobs::AlgoVersion::code_version`'s
+/// own doc ("the engine build that ran it, e.g. `CARGO_PKG_VERSION`").
+#[cfg(feature = "epistemic")]
+const ALGO_CODE_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// The runtime/feature-set fingerprint the algorithm ran under (CONCEPT:EG-P3-1) — the
+/// `algo_env_version` leg, mirroring `eg_jobs::AlgoVersion::env_version`'s own doc. Kept
+/// simple/deterministic-per-build: target OS + architecture.
+#[cfg(feature = "epistemic")]
+fn algo_env_version() -> String {
+    format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH)
+}
+
+/// Materialize the epistemic quartet (`:Claim` + `:Evidence` + `:Activity` + their
+/// `SUPPORTS`/`GENERATED_BY` edges) for ONE mined finding whose typed node
+/// (`mined_node_id`) was just written back. Beyond the claim/evidence pair (E6), this now
+/// ALSO stamps the universal writeback-lineage tuple (CONCEPT:EG-P3-1): an input-snapshot
+/// handle (the core's OCC `version()` at commit time), algo family/code/env version,
+/// a `calibration` slot (honestly `null` — no calibration signal is computed by the
+/// generic mining path today; a future family-specific caller can populate it),
+/// and `invalidation_deps` — the ids whose change/removal invalidates this claim (the
+/// mined finding + its evidence node; this is also exactly the `SUPPORTS` topology
+/// `eg_epistemic::propagate_confidence` already walks, so a change to either
+/// automatically reflows through the claim's belief — this property just makes that
+/// dependency set an explicit, directly-queryable list).
 #[cfg(feature = "epistemic")]
 fn materialize_claim(
     core: &GraphCore,
@@ -4347,12 +4381,22 @@ fn materialize_claim(
 ) {
     let confidence = confidence.clamp(0.0, 1.0);
     let claim_id = claim_node_id(family, mined_node_id);
+    let evidence_id = evidence_node_id(family, mined_node_id, provenance);
+    let activity_id = activity_node_id(family, provenance);
     let claim_props = serde_json::json!({
         "type": "Claim",
         "family": family,
         "about": mined_node_id,
         "confidence": confidence,
         "validation_state": CLAIM_VALIDATION_STATE,
+        // CONCEPT:EG-P3-1 — universal writeback-lineage tuple.
+        "input_snapshot_version": core.version(),
+        "algo_family": family,
+        "algo_provenance": provenance,
+        "algo_code_version": ALGO_CODE_VERSION,
+        "algo_env_version": algo_env_version(),
+        "calibration": serde_json::Value::Null,
+        "invalidation_deps": [mined_node_id, evidence_id.as_str()],
     });
     if let Ok(blob) = rmp_serde::to_vec_named(&claim_props) {
         core.add_node(claim_id.clone(), blob);
@@ -4360,7 +4404,6 @@ fn materialize_claim(
     // The mined finding itself is evidence FOR the claim.
     supports_edge(core, mined_node_id, &claim_id);
     // A provenance-anchored Evidence node (distinct provenance ⇒ corroboration).
-    let evidence_id = evidence_node_id(family, mined_node_id, provenance);
     let ev_props = serde_json::json!({
         "type": "Evidence",
         "family": family,
@@ -4373,6 +4416,23 @@ fn materialize_claim(
         core.add_node(evidence_id.clone(), blob);
     }
     supports_edge(core, &evidence_id, &claim_id);
+
+    // CONCEPT:EG-P3-1 — the generating Activity (the mining run itself). One per
+    // `(family, provenance)` (idempotent, mirrors `evidence_node_id`'s dedup-by-
+    // provenance): re-running the same family+provenance converges on the SAME
+    // Activity rather than accumulating a fresh one per call.
+    let activity_props = serde_json::json!({
+        "type": "Activity",
+        "family": family,
+        "provenance": provenance,
+        "algo_code_version": ALGO_CODE_VERSION,
+        "algo_env_version": algo_env_version(),
+        "input_snapshot_version": core.version(),
+    });
+    if let Ok(blob) = rmp_serde::to_vec_named(&activity_props) {
+        core.add_node(activity_id.clone(), blob);
+    }
+    generated_by_edge(core, &claim_id, &activity_id);
 }
 
 /// Write one epistemic `source --SUPPORTS--> target` edge using the `relationship_type`
@@ -4381,6 +4441,19 @@ fn materialize_claim(
 #[cfg(feature = "epistemic")]
 fn supports_edge(core: &GraphCore, source: &str, target: &str) {
     let edge = serde_json::json!({ "relationship_type": "SUPPORTS" });
+    if let Ok(eb) = rmp_serde::to_vec_named(&edge) {
+        let _ = core.add_edge(source.to_string(), target.to_string(), eb);
+    }
+}
+
+/// Write one `claim --GENERATED_BY--> activity` edge (CONCEPT:EG-P3-1) — deliberately
+/// NOT one of `classify_relationship`'s whitelisted values, so `BeliefGraph` ignores it
+/// (epistemically neutral, exactly like the mining handlers' `relation`-keyed structural
+/// edges). `eg-plan`'s `KnowledgeSet::from_rowset` resolves it into
+/// `KnowledgeRow::transformation_ids`.
+#[cfg(feature = "epistemic")]
+fn generated_by_edge(core: &GraphCore, source: &str, target: &str) {
+    let edge = serde_json::json!({ "relationship_type": "GENERATED_BY" });
     if let Ok(eb) = rmp_serde::to_vec_named(&edge) {
         let _ = core.add_edge(source.to_string(), target.to_string(), eb);
     }
@@ -4414,6 +4487,21 @@ fn evidence_node_id(family: &str, mined_node_id: &str, provenance: &str) -> Stri
     h.update([0u8]);
     h.update(provenance.as_bytes());
     format!("evidence:{}", hex::encode(&h.finalize()[..12]))
+}
+
+/// Deterministic `:Activity` node id (CONCEPT:EG-P3-1) — folds in `(family, provenance)`,
+/// so repeated runs over the SAME provenance converge on the SAME generating Activity
+/// (idempotent, mirrors `evidence_node_id`'s dedup-by-provenance).
+#[cfg(feature = "epistemic")]
+fn activity_node_id(family: &str, provenance: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    h.update(b"activity");
+    h.update([0u8]);
+    h.update(family.as_bytes());
+    h.update([0u8]);
+    h.update(provenance.as_bytes());
+    format!("activity:{}", hex::encode(&h.finalize()[..12]))
 }
 
 // ── Per-family claim passes (mirror each `materialize_*` node/id + quality score) ──
@@ -5768,10 +5856,14 @@ mod tests {
         );
     }
 
-    /// Assert `as_claim=true` materialized `:Claim` (+ `:Evidence`) objects, each with
-    /// `validation_state="unvalidated"`, a confidence in `[0,1]`, and a `SUPPORTS`
-    /// in-edge the `eg_epistemic` belief layer recognizes + propagates over. Returns
-    /// `(first claim id, its stored confidence)` for the caller's family-specific check.
+    /// Assert `as_claim=true` materialized `:Claim` (+ `:Evidence` + `:Activity`)
+    /// objects: the claim has `validation_state="unvalidated"`, a confidence in
+    /// `[0,1]`, a `SUPPORTS` in-edge the `eg_epistemic` belief layer recognizes +
+    /// propagates over, AND the CONCEPT:EG-P3-1 universal writeback-lineage tuple
+    /// (input-snapshot version, algo family/code/env version, an honest `null`
+    /// calibration slot, `invalidation_deps`, and a `GENERATED_BY` edge to an
+    /// `:Activity` node). Returns `(first claim id, its stored confidence)` for the
+    /// caller's family-specific check.
     #[cfg(feature = "epistemic")]
     fn assert_claim_objects(core: &GraphCore) -> (String, f64) {
         core.mark_dirty();
@@ -5784,6 +5876,10 @@ mod tests {
             !core.get_nodes_by_label("Evidence", 0).is_empty(),
             "as_claim=true must materialize Evidence nodes"
         );
+        assert!(
+            !core.get_nodes_by_label("Activity", 0).is_empty(),
+            "as_claim=true must materialize an Activity node (CONCEPT:EG-P3-1)"
+        );
         let (claim_id, blob) = &claims[0];
         let props: serde_json::Value = rmp_serde::from_slice(blob).unwrap();
         assert_eq!(props["type"], "Claim");
@@ -5793,7 +5889,22 @@ mod tests {
             (0.0..=1.0).contains(&conf),
             "claim confidence {conf} out of [0,1]"
         );
-        // The DERIVED/SUPPORTS edge is understood verbatim by the epistemic layer.
+        // CONCEPT:EG-P3-1 — the universal writeback-lineage tuple.
+        assert!(props["input_snapshot_version"].as_u64().is_some());
+        assert!(props["algo_family"].as_str().is_some());
+        assert!(props["algo_code_version"].as_str().is_some());
+        assert!(props["algo_env_version"].as_str().is_some());
+        assert!(
+            props["calibration"].is_null(),
+            "calibration is honestly null — no signal computed by the generic path"
+        );
+        let deps = props["invalidation_deps"]
+            .as_array()
+            .expect("invalidation_deps must be an array");
+        assert!(!deps.is_empty(), "invalidation_deps must be non-empty");
+
+        // The DERIVED/SUPPORTS edge is understood verbatim by the epistemic layer;
+        // the DERIVED/GENERATED_BY edge is NOT (it stays epistemically neutral).
         let view = core.analysis_snapshot();
         let bg = eg_epistemic::BeliefGraph::from_graph_view(&view);
         let ins = bg
@@ -5805,12 +5916,36 @@ mod tests {
                 .any(|(_, k)| matches!(k, eg_epistemic::EdgeKind::Supports)),
             "claim must carry a SUPPORTS in-edge"
         );
+        assert!(
+            ins.iter().all(|(_, k)| !matches!(k, eg_epistemic::EdgeKind::Contradicts | eg_epistemic::EdgeKind::Attacks)),
+            "as_claim writeback must never self-contradict"
+        );
         let bs = eg_epistemic::propagate_confidence(
             &bg,
             claim_id,
             &eg_epistemic::AuthorityPolicy::default(),
         );
         assert!((0.0..=1.0).contains(&bs.confidence));
+
+        // The claim's own outgoing GENERATED_BY edge resolves to a resident Activity.
+        let successors = core.get_successors(claim_id).unwrap_or_default();
+        let activity_id = successors
+            .into_iter()
+            .find(|nbr| {
+                core.get_edge_properties(claim_id, nbr).iter().any(|blob| {
+                    rmp_serde::from_slice::<serde_json::Value>(blob)
+                        .ok()
+                        .and_then(|v| v.get("relationship_type").and_then(|r| r.as_str()).map(str::to_string))
+                        .as_deref()
+                        == Some("GENERATED_BY")
+                })
+            })
+            .expect("claim must carry an outgoing GENERATED_BY edge");
+        assert!(core.has_node(&activity_id));
+        let activity_blob = core.get_node_properties(&activity_id).unwrap();
+        let activity_props: serde_json::Value = rmp_serde::from_slice(&activity_blob).unwrap();
+        assert_eq!(activity_props["type"], "Activity");
+
         (claim_id.clone(), conf)
     }
 
