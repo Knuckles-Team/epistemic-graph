@@ -441,6 +441,22 @@ async fn dispatch_inner(state: &Arc<RwLock<ServerState>>, req: Request) -> Respo
             }
         }
 
+        // ── Placement-catalog wire RPC (CONCEPT:EG-KG.sharding.placement-route-rpc, DIST-P2-4) ──
+        // Self-routing, NOT graph-scoped (the catalog is cluster-wide, like the M3 admin
+        // block above) — exposes the DIST-P2-1 `PlacementCatalog` over the wire so an
+        // external caller (`epistemic_graph.client`'s `placement` namespace, AU's
+        // `placement_catalog.py`) can consume it instead of guessing independently. A
+        // non-raft build (or a raft build with no live `MultiRaft` cluster) answers a
+        // well-formed "no explicit placement" JSON, never an error — see
+        // `handlers/placement.rs`'s module docs.
+        Method::PlacementRoute { .. } => {
+            match handlers::placement::try_handle(state, req.id, req.method).await {
+                Ok(resp) => resp,
+                // Unreachable: the only variant matched above is a placement method.
+                Err(_) => Response::err(req.id, "placement dispatch routing error"),
+            }
+        }
+
         // ── Channel operations ───────────────────────────────────────
         Method::CreateChannel {
             channel_id,

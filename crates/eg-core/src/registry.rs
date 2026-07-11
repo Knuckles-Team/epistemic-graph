@@ -86,6 +86,106 @@ pub trait GraphMaterializer: Send + Sync {
     /// Fetch `graph_name`'s durable material. `None` ⇒ nothing durable (a
     /// genuinely fresh graph, or a backend with no lazy-materialize support).
     fn materialize(&self, graph_name: &str) -> Option<GraphMaterial>;
+
+    /// Fetch ONE bounded page of `graph_name`'s durable material (CONCEPT:EG-KG.sharding.paged-lazy-open,
+    /// DIST-P2-5) — the working-subset counterpart of [`materialize`](Self::materialize)
+    /// consumed by [`GraphRegistry::open_lazy_paged`]/[`GraphRegistry::page_in`].
+    /// `cursor` resumes from a prior page (`None` starts from the beginning);
+    /// `page_size` bounds the combined node+edge count returned (never exactly
+    /// zero — a `0` is treated as `1` so a page always makes progress). Returns
+    /// `None` exactly when [`materialize`](Self::materialize) would (nothing
+    /// durable for this graph).
+    ///
+    /// The default implementation pages over an in-memory `materialize()` call —
+    /// correct for ANY implementor (it still bounds how much is replayed into the
+    /// `GraphCore` per call, which is the working-subset property `open_lazy_paged`
+    /// needs), but it does not avoid materialize()'s own full-fetch cost at the
+    /// SOURCE (e.g. a redb backend still reads every row up front). A backend that
+    /// wants a genuinely bounded, streaming page straight off its durable store
+    /// (no full in-memory fetch first) overrides this directly — a documented,
+    /// justified follow-up beyond this seam's minimum bar.
+    fn materialize_page(
+        &self,
+        graph_name: &str,
+        cursor: Option<MaterializeCursor>,
+        page_size: usize,
+    ) -> Option<MaterialPage> {
+        let material = self.materialize(graph_name)?;
+        let page_size = page_size.max(1);
+        let node_offset = cursor.map(|c| c.node_offset).unwrap_or(0).min(material.nodes.len());
+        let edge_offset = cursor.map(|c| c.edge_offset).unwrap_or(0).min(material.edges.len());
+
+        let node_end = (node_offset + page_size).min(material.nodes.len());
+        let nodes = material.nodes[node_offset..node_end].to_vec();
+        let nodes_exhausted = node_end >= material.nodes.len();
+
+        // Spend the page's REMAINING budget on edges only once every node has
+        // already been paged in — mirrors `open_lazy`'s eager ordering (nodes
+        // fully replayed before edges are added), so a partially-opened graph
+        // never has a dangling edge referencing a not-yet-added node.
+        let edge_budget = page_size.saturating_sub(nodes.len());
+        let (edges, edge_end) = if nodes_exhausted && edge_budget > 0 {
+            let edge_end = (edge_offset + edge_budget).min(material.edges.len());
+            (material.edges[edge_offset..edge_end].to_vec(), edge_end)
+        } else {
+            (Vec::new(), edge_offset)
+        };
+        let edges_exhausted = nodes_exhausted && edge_end >= material.edges.len();
+
+        Some(MaterialPage {
+            nodes,
+            edges,
+            // The semantic store is a single opaque blob (not a paginated
+            // collection) -- attach it only to the FIRST page so it lands exactly
+            // once across the whole paged sequence.
+            semantic: if node_offset == 0 {
+                material.semantic
+            } else {
+                Vec::new()
+            },
+            next_cursor: if nodes_exhausted && edges_exhausted {
+                None
+            } else {
+                Some(MaterializeCursor {
+                    node_offset: node_end,
+                    edge_offset: edge_end,
+                })
+            },
+        })
+    }
+}
+
+/// Resume point into a [`GraphMaterializer`]'s durable material for paged lazy
+/// open (CONCEPT:EG-KG.sharding.paged-lazy-open, DIST-P2-5). Opaque to the caller beyond
+/// threading it back into [`GraphMaterializer::materialize_page`]/
+/// [`GraphRegistry::page_in`] — the offsets are positions into the materializer's
+/// own node/edge ordering for ONE open, not a durable cursor (a restart starts
+/// over from `node_offset: 0, edge_offset: 0`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct MaterializeCursor {
+    pub node_offset: usize,
+    pub edge_offset: usize,
+}
+
+/// One bounded page of a graph's durable material (CONCEPT:EG-KG.sharding.paged-lazy-open, DIST-P2-5) —
+/// the paged counterpart of [`GraphMaterial`]. `next_cursor` is `Some` while more
+/// material remains to be paged in via [`GraphRegistry::page_in`], `None` once
+/// this was the last page.
+#[derive(Debug, Clone, Default)]
+pub struct MaterialPage {
+    pub nodes: Vec<(String, Vec<u8>)>,
+    pub edges: Vec<(String, String, Vec<u8>)>,
+    pub semantic: Vec<u8>,
+    pub next_cursor: Option<MaterializeCursor>,
+}
+
+/// Outcome of [`GraphRegistry::open_lazy_paged`]: whether the graph ended up
+/// resident, and — when there is more durable material than fit in the first
+/// page — the [`MaterializeCursor`] to resume with via [`GraphRegistry::page_in`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct PagedOpenOutcome {
+    pub resident: bool,
+    pub cursor: Option<MaterializeCursor>,
 }
 
 /// Multi-tenant graph registry.
@@ -319,6 +419,82 @@ impl GraphRegistry {
         true
     }
 
+    /// Lazily materialize a catalog-known graph's resident `GraphCore` from a
+    /// SINGLE bounded page of its durable material (CONCEPT:EG-KG.sharding.paged-lazy-open, DIST-P2-5)
+    /// rather than the whole topology [`open_lazy`](Self::open_lazy) replays in
+    /// one shot — the working-subset seam for a graph whose FULL rehydrate is too
+    /// costly to do inline on the request that triggered the open. The graph
+    /// becomes resident (queryable) immediately with just this page's nodes/
+    /// edges; the caller pages in the rest via [`page_in`](Self::page_in) (e.g.
+    /// spawned as a background task) using the returned cursor. Already-resident
+    /// / genuinely-unknown behave exactly like `open_lazy` (`resident: true`/
+    /// `false`, `cursor: None`) — this is a strict superset, never a regression.
+    pub fn open_lazy_paged(&mut self, name: &str, page_size: usize) -> PagedOpenOutcome {
+        if self.graphs.contains_key(name) {
+            return PagedOpenOutcome {
+                resident: true,
+                cursor: None,
+            };
+        }
+        let rec = match self.catalog.get(name) {
+            Some(r) => r.clone(),
+            None => {
+                return PagedOpenOutcome {
+                    resident: false,
+                    cursor: None,
+                }
+            }
+        };
+        let core = Arc::new(GraphCore::new());
+        let mut cursor = None;
+        if let Some(materializer) = &self.materializer {
+            if let Some(page) = materializer.materialize_page(name, None, page_size) {
+                apply_material_page(&core, &page);
+                cursor = page.next_cursor;
+            }
+        }
+        if let Some(factory) = &self.read_through_factory {
+            core.set_read_through(factory.for_graph(name));
+        }
+        if let Some(factory) = &self.secondary_index_factory {
+            for idx in factory.for_graph(name) {
+                core.register_index(idx);
+            }
+        }
+        self.graphs.insert(
+            name.to_string(),
+            GraphEntry {
+                name: name.to_string(),
+                graph_type: rec.graph_type,
+                core,
+                owner: rec.owner,
+            },
+        );
+        PagedOpenOutcome {
+            resident: true,
+            cursor,
+        }
+    }
+
+    /// Page in the NEXT bounded batch of an already-resident graph's durable
+    /// material (CONCEPT:EG-KG.sharding.paged-lazy-open, DIST-P2-5), continuing from `cursor` (as
+    /// returned by [`open_lazy_paged`](Self::open_lazy_paged) or a prior
+    /// `page_in` call). Returns the next cursor (`Some`) while more material
+    /// remains, `None` once exhausted — or when `name` isn't resident, or no
+    /// materializer is installed (nothing to page in either way).
+    pub fn page_in(
+        &mut self,
+        name: &str,
+        cursor: MaterializeCursor,
+        page_size: usize,
+    ) -> Option<MaterializeCursor> {
+        let entry = self.graphs.get(name)?;
+        let materializer = self.materializer.as_ref()?;
+        let page = materializer.materialize_page(name, Some(cursor), page_size)?;
+        apply_material_page(&entry.core, &page);
+        page.next_cursor
+    }
+
     /// Evict a resident graph back to catalog-only (CONCEPT:EG-KG.sharding.lazy-graph-catalog —
     /// bounded hot-context cache). REMOVES the whole `GraphEntry`/`GraphCore` from
     /// the resident map — not merely hibernating its content like
@@ -409,6 +585,27 @@ impl GraphRegistry {
     /// so it correctly has no entry here.
     pub fn all_entries(&self) -> Vec<&GraphEntry> {
         self.graphs.values().collect()
+    }
+}
+
+/// Replay one [`MaterialPage`] into `core` via the SAME `add_node`/`add_edge`/
+/// semantic-store calls [`GraphRegistry::open_lazy`]'s full-material path uses
+/// (CONCEPT:EG-KG.sharding.paged-lazy-open, DIST-P2-5) — shared by
+/// [`GraphRegistry::open_lazy_paged`] and [`GraphRegistry::page_in`] so a paged
+/// open is byte-identical, one page at a time, to the eager/full-material one.
+fn apply_material_page(core: &Arc<GraphCore>, page: &MaterialPage) {
+    for (node_id, props) in &page.nodes {
+        core.add_node(node_id.clone(), props.clone());
+    }
+    for (src, tgt, props) in &page.edges {
+        let _ = core.add_edge(src.clone(), tgt.clone(), props.clone());
+    }
+    if !page.semantic.is_empty() {
+        if let Ok(store) =
+            rmp_serde::from_slice::<crate::compute::semantic::SemanticStore>(&page.semantic)
+        {
+            *core.semantic_store.write() = store;
+        }
     }
 }
 
@@ -523,6 +720,83 @@ mod tests {
 
         // A genuinely unknown name never opens.
         assert!(!reg.open_lazy("no-such-graph"));
+    }
+
+    /// `open_lazy_paged` (CONCEPT:EG-KG.sharding.paged-lazy-open, DIST-P2-5) materializes a graph
+    /// from a BOUNDED working subset — not the whole topology `open_lazy` replays
+    /// in one shot — and `page_in` pages in the rest. The graph is resident
+    /// (queryable) after the FIRST page already, with only that page's nodes
+    /// visible; by the time every page has been paged in, the result is
+    /// byte-identical to an eager `open_lazy` of the same durable material.
+    #[test]
+    fn open_lazy_paged_materializes_a_bounded_working_set_then_pages_in_the_rest() {
+        let mut reg = GraphRegistry::new();
+        let name = "tenant:paged";
+        reg.register_catalog_only(name, GraphType::Agent, None);
+
+        // 10 nodes + 4 edges of durable material behind the catalog-only entry.
+        let nodes: Vec<(String, Vec<u8>)> = (0..10)
+            .map(|i| (format!("n{i}"), props(serde_json::json!({"i": i}))))
+            .collect();
+        let edges: Vec<(String, String, Vec<u8>)> = (0..4)
+            .map(|i| (format!("n{i}"), format!("n{}", i + 1), props(serde_json::json!({"e": i}))))
+            .collect();
+        let mut material = std::collections::HashMap::new();
+        material.insert(
+            name.to_string(),
+            GraphMaterial {
+                nodes: nodes.clone(),
+                edges: edges.clone(),
+                semantic: Vec::new(),
+            },
+        );
+        reg.set_materializer(Arc::new(FakeMaterializer { material }));
+
+        // First page: only 3 nodes worth of budget. The graph is ALREADY resident
+        // (queryable) with just that bounded working set — not all 10 nodes.
+        let outcome = reg.open_lazy_paged(name, 3);
+        assert!(outcome.resident, "resident after the very first page");
+        assert!(reg.is_resident(name));
+        assert_eq!(
+            reg.get(name).unwrap().core.node_count(),
+            3,
+            "only the FIRST page's nodes are present — a bounded working set, not the whole topology"
+        );
+        let mut cursor = outcome.cursor.expect("more material remains after page 1");
+
+        // Page in the rest, 3 units at a time, until exhausted.
+        let mut pages_paged_in = 0;
+        loop {
+            match reg.page_in(name, cursor, 3) {
+                Some(next) => {
+                    cursor = next;
+                    pages_paged_in += 1;
+                    assert!(pages_paged_in < 20, "must terminate — cursor isn't advancing");
+                }
+                None => break,
+            }
+        }
+
+        // Once every page has landed, the paged-open result is byte-identical to
+        // the eager `open_lazy` of the SAME material (10 nodes, 4 edges).
+        let core = reg.get(name).unwrap().core.clone();
+        assert_eq!(core.node_count(), 10, "all nodes present after paging in the rest");
+        for (node_id, expected_props) in &nodes {
+            assert_eq!(core.get_node_properties(node_id), Some(expected_props.clone()));
+        }
+        for (src, tgt, _) in &edges {
+            assert!(core.has_edge(src, tgt), "edge {src}->{tgt} must be present after full paging");
+        }
+
+        // A genuinely unknown name never opens, exactly like `open_lazy`.
+        let unknown = reg.open_lazy_paged("no-such-graph", 3);
+        assert!(!unknown.resident);
+        assert!(unknown.cursor.is_none());
+
+        // Already-resident is a no-op that reports done (no cursor) immediately.
+        let already = reg.open_lazy_paged(name, 3);
+        assert!(already.resident);
+        assert!(already.cursor.is_none());
     }
 
     /// An evicted graph's catalog row survives, and a subsequent access

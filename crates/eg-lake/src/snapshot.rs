@@ -88,6 +88,16 @@ pub struct FileEntry {
     /// tier gathered them. Defaulted so older serialized logs deserialize unchanged.
     #[serde(default)]
     pub column_stats: Option<Vec<ColumnStat>>,
+    /// The Iceberg schema-id that was CURRENT on the table when this file was
+    /// written (CONCEPT:EG-KG.storage.iceberg-per-file-schema-id, INT-P2-4) — the per-file schema-id tracking
+    /// across a rewrite: an additive [`crate::LakeTable::evolve_add_column`] bumps
+    /// the table's current schema-id for FUTURE files, while an already-live file
+    /// keeps recording the (older) id it was actually written under, so a rewrite/
+    /// compaction that lands new files under the current schema doesn't silently
+    /// relabel history. Defaulted to `0` so older serialized logs (pre-INT-P2-4,
+    /// always schema-id 0) deserialize unchanged.
+    #[serde(default)]
+    pub schema_id: i32,
 }
 
 impl FileEntry {
@@ -118,23 +128,32 @@ impl SnapshotLog {
         self.current
     }
 
-    /// Record a newly-materialized Parquet file committed at `lsn`, advancing the
-    /// current LSN (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns). Panics-free: a non-monotonic `lsn` is clamped so
-    /// `current` never regresses.
-    pub fn add_file(&mut self, path: impl Into<String>, size_bytes: u64, num_rows: u64, lsn: Lsn) {
-        self.add_file_with_stats(path, size_bytes, num_rows, lsn, None);
+    /// Record a newly-materialized Parquet file committed at `lsn` under `schema_id`
+    /// (CONCEPT:EG-KG.storage.iceberg-per-file-schema-id), advancing the current LSN (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns).
+    /// Panics-free: a non-monotonic `lsn` is clamped so `current` never regresses.
+    pub fn add_file(
+        &mut self,
+        path: impl Into<String>,
+        size_bytes: u64,
+        num_rows: u64,
+        lsn: Lsn,
+        schema_id: i32,
+    ) {
+        self.add_file_with_stats(path, size_bytes, num_rows, lsn, schema_id, None);
     }
 
     /// Record a newly-materialized Parquet file plus its per-column statistics
     /// (CONCEPT:EG-KG.storage.iceberg-avro-manifest-carries). Identical to [`Self::add_file`] but pins the `column_stats` the
     /// `lake` materialize tier gathered so the Iceberg manifest writer can emit
     /// predicate-pushdown bounds. `None` stats are equivalent to `add_file`.
+    #[allow(clippy::too_many_arguments)]
     pub fn add_file_with_stats(
         &mut self,
         path: impl Into<String>,
         size_bytes: u64,
         num_rows: u64,
         lsn: Lsn,
+        schema_id: i32,
         column_stats: Option<Vec<ColumnStat>>,
     ) {
         self.files.push(FileEntry {
@@ -144,6 +163,7 @@ impl SnapshotLog {
             added_at: lsn,
             removed_at: None,
             column_stats,
+            schema_id,
         });
         if lsn > self.current {
             self.current = lsn;
