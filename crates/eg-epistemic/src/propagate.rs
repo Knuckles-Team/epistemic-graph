@@ -69,6 +69,52 @@ pub fn propagate_confidence(bg: &BeliefGraph, seed: &str, policy: &AuthorityPoli
         attacking,
         as_of: bg.as_of,
         calibration,
+        bitemporal: bg.temporal.get(seed).copied(),
+    }
+}
+
+/// The full posterior [`Distribution`] behind [`propagate_confidence`]'s scalar
+/// `confidence` (EPI-P3-5) — same conjugate Beta-Bernoulli update, same recursion over
+/// premises (memoized identically to [`belief_of`], so the mean matches
+/// `propagate_confidence` exactly), but returned whole rather than collapsed to its
+/// mean. This is what lets a caller quote an actual **uncertainty** (e.g.
+/// `Distribution::variance()`) alongside the point confidence — the "with what
+/// uncertainty" facet of the Phase-3 epistemic-status query
+/// ([`crate::query::epistemic_status`]).
+pub fn belief_distribution(bg: &BeliefGraph, seed: &str, policy: &AuthorityPolicy) -> Distribution {
+    let mut memo: HashMap<String, f64> = HashMap::new();
+    let mut visiting: HashSet<String> = HashSet::new();
+    // Prime child means via the exact same recursion `belief_of` uses, so the successes/
+    // failures mass computed below matches what produced `propagate_confidence`'s number.
+    let base = prior_of(bg, seed);
+    let k = policy.prior_strength.max(0.0);
+    let prior_dist = Distribution::Beta {
+        alpha: 1.0 + base * k,
+        beta: 1.0 + (1.0 - base) * k,
+    };
+    match bg.in_edges.get(seed) {
+        Some(edges) if !edges.is_empty() => {
+            let mut successes = 0.0_f64;
+            let mut failures = 0.0_f64;
+            for (src, kind) in edges {
+                let source_belief = belief_of(bg, src, policy, &mut memo, &mut visiting);
+                let mass = policy.edge_mass(*kind, source_belief);
+                match kind {
+                    EdgeKind::Supports => successes += mass,
+                    EdgeKind::Contradicts | EdgeKind::Attacks => failures += mass,
+                }
+            }
+            if successes == 0.0 && failures == 0.0 {
+                prior_dist
+            } else {
+                let evidence = Evidence::Bernoulli {
+                    successes,
+                    failures,
+                };
+                bayesian_update(&prior_dist, &evidence).unwrap_or(prior_dist)
+            }
+        }
+        _ => prior_dist,
     }
 }
 
