@@ -1918,6 +1918,36 @@ pub enum Method {
         tx_from: u64,
         tx_to: u64,
     },
+    /// Seam 3 (CONCEPT:EG-KG.epistemic.truth-maintenance, X-6 wire surface) — register
+    /// `derived_id` as a live [`eg_epistemic::recompute::TruthMaintenance`]
+    /// materialization straight from its OWN already-stored provenance:
+    /// `eg_epistemic::register_from_provenance` reads the node's `invalidation_deps`
+    /// property plus any outgoing `:DerivedFrom`/`:GeneratedBy` edge into a
+    /// `depends_on` set, then registers it on the SAME process-global index
+    /// `src/server/tms_hook.rs`'s CDC hook feeds. A caller (e.g. agent-utilities,
+    /// writing a derived claim/summary/classification) calls this ONCE right after
+    /// writing the derived node + its provenance edges — from then on, any committed
+    /// `RemoveNode`/`RemoveEdge`/`CompareAndSetNodeFields` touching a dependency
+    /// automatically marks this materialization `Stale`/`Retracted` (no polling, no
+    /// re-registration needed until the caller recomputes it). Returns a
+    /// `RegisterMaterializationResult` via `ResultPayload::raw`. Gated `epistemic` at
+    /// the wire level; the HANDLER additionally requires `epistemic-tms` — a build
+    /// with `epistemic` but not `epistemic-tms` falls to the graph_ops "not available
+    /// in this build" catch-all (same convention as `EpistemicStatus`/`WhatChanged`).
+    #[cfg(feature = "epistemic")]
+    RegisterMaterialization {
+        derived_id: String,
+    },
+    /// Seam 3 — query the CURRENT status (`"Fresh"`/`"Stale"`/`"Retracted"`, or
+    /// absent if never registered) of a materialization tracked on the SAME
+    /// process-global `TruthMaintenance` index [`Method::RegisterMaterialization`]
+    /// writes to. Read-only — does not itself recompute anything. Returns a
+    /// `MaterializationStatusResult` via `ResultPayload::raw`. Same build-tier
+    /// fallback convention as `RegisterMaterialization`.
+    #[cfg(feature = "epistemic")]
+    MaterializationStatus {
+        id: String,
+    },
     /// X-1 (CONCEPT:EG-X1) — resolve `node_id`'s cited multimodal evidence: build a
     /// `BeliefGraph` off the caller's `GraphView` and walk the SAME support/
     /// contradiction/attack topology `ExplainBelief` walks, returning every
@@ -4905,6 +4935,29 @@ pub struct ChangedBeliefWire {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WhatChangedResult {
     pub changed: Vec<ChangedBeliefWire>,
+}
+
+/// Materialized result of a `Method::RegisterMaterialization` run (Seam 3). `id`
+/// echoes the registered `derived_id`; `depends_on` and `generating_activity` are
+/// the dependency set `eg_epistemic::register_from_provenance` actually resolved
+/// off the node's stored provenance (never caller-supplied) — a caller reads this
+/// back to confirm what got tracked. Returned via `ResultPayload::raw`.
+#[cfg(feature = "epistemic")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RegisterMaterializationResult {
+    pub id: String,
+    pub depends_on: Vec<String>,
+    pub generating_activity: Option<String>,
+}
+
+/// Materialized result of a `Method::MaterializationStatus` run (Seam 3). `status`
+/// is one of `"Fresh"`/`"Stale"`/`"Retracted"`, or `None` when `id` was never
+/// registered (or a build without `epistemic-tms` never populates the index).
+/// Returned via `ResultPayload::raw`.
+#[cfg(feature = "epistemic")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MaterializationStatusResult {
+    pub status: Option<String>,
 }
 
 // ── X-1 multimodal-evidence citation wiring (CONCEPT:EG-X1, facade feature
