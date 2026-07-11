@@ -478,7 +478,8 @@ fn all_methods_table_has_the_expected_variant_count() {
     // `Method::WhatChanged`.
     // CONCEPT:EG-X1 + EPI-P3-3 (facade wiring): +3 (340 -> 343 base) for
     // `Method::ExplainEvidence`/`Method::CausalEstimate`/`Method::RankByProvenance`.
-    let expected = if cfg!(feature = "jobs") { 344 } else { 343 };
+    // CONCEPT:EG-KB-CURRENCY: +1 (343 -> 344 base) for `Method::ExplainProvenanceByIds`.
+    let expected = if cfg!(feature = "jobs") { 345 } else { 344 };
     assert_eq!(eg_capabilities::ALL_METHODS.len(), expected);
 }
 
