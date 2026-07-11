@@ -106,6 +106,17 @@ async fn dispatch_inner(state: &Arc<RwLock<ServerState>>, req: Request) -> Respo
             )
         }
 
+        // L36: cooperative cancellation of an in-flight request by its `req_id` (CONCEPT:EG-KG.query.streaming-spillable-collect).
+        // Service-level (no graph resolution needed — the registry is keyed by req_id,
+        // process-wide) so it works regardless of which graph the target request is
+        // running against. `false` covers every "nothing to cancel" case uniformly
+        // (already finished / never cancellable / unknown id) — never an error.
+        #[cfg(feature = "query")]
+        Method::CancelRequest { target_req_id } => Response::ok(
+            req.id,
+            ResultPayload::Bool(super::request_cancel::cancel(target_req_id)),
+        ),
+
         Method::ParseFile { file_path, source } => {
             #[cfg(feature = "ast")]
             match crate::parser::tree_sitter::parse_file(&file_path, &source) {

@@ -542,7 +542,7 @@ pub(crate) fn replay(core: &GraphCore, method: &Method) {
             #[cfg(feature = "epistemic")]
             as_claim,
         } => {
-            let (rows, ids) = build_vectors(
+            let (rows, ids) = build_vectors_replay(
                 core,
                 features,
                 source,
@@ -585,7 +585,7 @@ pub(crate) fn replay(core: &GraphCore, method: &Method) {
             #[cfg(feature = "epistemic")]
             as_claim,
         } => {
-            let (rows, ids) = build_anomaly_rows(
+            let (rows, ids) = build_anomaly_rows_replay(
                 core,
                 features,
                 values,
@@ -629,7 +629,7 @@ pub(crate) fn replay(core: &GraphCore, method: &Method) {
             #[cfg(feature = "epistemic")]
             as_claim,
         } => {
-            let (rows, ids) = build_vectors(
+            let (rows, ids) = build_vectors_replay(
                 core,
                 x,
                 source,
@@ -664,7 +664,7 @@ pub(crate) fn replay(core: &GraphCore, method: &Method) {
             #[cfg(feature = "epistemic")]
             as_claim,
         } => {
-            let (rows, ids) = build_vectors(
+            let (rows, ids) = build_vectors_replay(
                 core,
                 x,
                 source,
@@ -1242,7 +1242,7 @@ fn to_algo(a: MineAlgorithm) -> Algorithm {
 #[allow(clippy::too_many_arguments)]
 fn handle_cluster(
     req_id: u64,
-    core: &GraphCore,
+    core: &Arc<GraphCore>,
     features: Vec<Vec<f64>>,
     source: Option<VectorSource>,
     #[cfg(feature = "query")] plan: Option<crate::wire::Plan>,
@@ -1422,7 +1422,7 @@ fn cluster_node_id(algo: &str, member_ids: &[String]) -> String {
 #[allow(clippy::too_many_arguments)]
 fn handle_anomaly(
     req_id: u64,
-    core: &GraphCore,
+    core: &Arc<GraphCore>,
     features: Vec<Vec<f64>>,
     values: Vec<f64>,
     source: Option<VectorSource>,
@@ -1584,7 +1584,7 @@ fn anomaly_node_id(algo: &str, source: &str) -> String {
 #[allow(clippy::too_many_arguments)]
 fn handle_classify_fit(
     req_id: u64,
-    core: &GraphCore,
+    core: &Arc<GraphCore>,
     x: Vec<Vec<f64>>,
     source: Option<VectorSource>,
     #[cfg(feature = "query")] plan: Option<crate::wire::Plan>,
@@ -1628,7 +1628,7 @@ fn handle_classify_fit(
 #[allow(clippy::too_many_arguments)]
 fn handle_classify_predict(
     req_id: u64,
-    core: &GraphCore,
+    core: &Arc<GraphCore>,
     model: FittedClassifier,
     x: Vec<Vec<f64>>,
     source: Option<VectorSource>,
@@ -1772,7 +1772,7 @@ fn classification_node_id(source: &str) -> String {
 #[allow(clippy::too_many_arguments)]
 fn handle_reduce(
     req_id: u64,
-    core: &GraphCore,
+    core: &Arc<GraphCore>,
     x: Vec<Vec<f64>>,
     source: Option<VectorSource>,
     #[cfg(feature = "query")] plan: Option<crate::wire::Plan>,
@@ -3945,7 +3945,7 @@ fn community_provenance(label: &Option<String>) -> String {
 /// node-label embedding scan (the cross-modal hook). Returns the rows AND a
 /// parallel `ids` vec (node ids for the embedding/plan path, empty for explicit).
 fn build_vectors(
-    core: &GraphCore,
+    core: &Arc<GraphCore>,
     features: &[Vec<f64>],
     source: &Option<VectorSource>,
     #[cfg(feature = "query")] plan: &Option<crate::wire::Plan>,
@@ -3967,7 +3967,7 @@ fn build_vectors(
 /// (each scalar → a one-element row — the tsdb RCA path), then a fused upstream
 /// `plan`, then node embeddings.
 fn build_anomaly_rows(
-    core: &GraphCore,
+    core: &Arc<GraphCore>,
     features: &[Vec<f64>],
     values: &[f64],
     source: &Option<VectorSource>,
@@ -3982,6 +3982,59 @@ fn build_anomaly_rows(
     #[cfg(feature = "query")]
     if let Some(p) = plan {
         return gather_plan_rows(core, p);
+    }
+    match source {
+        Some(spec) => gather_embeddings(core, spec),
+        None => (Vec::new(), Vec::new()),
+    }
+}
+
+/// WAL-replay counterpart of [`build_vectors`] (CONCEPT:EG-KG.mining.frequent-itemset-mining, L34). `replay`
+/// (crash recovery) runs off a bare `&GraphCore` — no live `Arc` in hand, unlike the served
+/// `Mine*` handlers `try_handle` dispatches with one — so it cannot construct a
+/// `ServedTextIndex` for a plan-sourced `RankText`/`FuseRrf` leg; that pushdown is a served-
+/// path optimization (L34 mirrors EG-P1-4's `run_unified` served call sites), not a crash-
+/// recovery requirement, and re-deriving `wal.rs`'s `apply`/`replay` call chain to carry an
+/// `Arc<GraphCore>` instead would be an unrelated, much larger refactor. This keeps the
+/// pre-L34 snapshot-derived text-index behavior for replay's plan leg (a documented, narrow
+/// scope cut); its explicit-features and embedding-label-scan legs are identical either way.
+fn build_vectors_replay(
+    core: &GraphCore,
+    features: &[Vec<f64>],
+    source: &Option<VectorSource>,
+    #[cfg(feature = "query")] plan: &Option<crate::wire::Plan>,
+) -> (Vec<Vec<f64>>, Vec<String>) {
+    if !features.is_empty() {
+        return (features.to_vec(), Vec::new());
+    }
+    #[cfg(feature = "query")]
+    if let Some(p) = plan {
+        return gather_plan_rows_snapshot(core, p);
+    }
+    match source {
+        Some(spec) => gather_embeddings(core, spec),
+        None => (Vec::new(), Vec::new()),
+    }
+}
+
+/// WAL-replay counterpart of [`build_anomaly_rows`] — see [`build_vectors_replay`]'s docs
+/// for why replay keeps the snapshot-derived (non-`Arc`) plan leg.
+fn build_anomaly_rows_replay(
+    core: &GraphCore,
+    features: &[Vec<f64>],
+    values: &[f64],
+    source: &Option<VectorSource>,
+    #[cfg(feature = "query")] plan: &Option<crate::wire::Plan>,
+) -> (Vec<Vec<f64>>, Vec<String>) {
+    if !features.is_empty() {
+        return (features.to_vec(), Vec::new());
+    }
+    if !values.is_empty() {
+        return (values.iter().map(|&v| vec![v]).collect(), Vec::new());
+    }
+    #[cfg(feature = "query")]
+    if let Some(p) = plan {
+        return gather_plan_rows_snapshot(core, p);
     }
     match source {
         Some(spec) => gather_embeddings(core, spec),
@@ -4025,24 +4078,76 @@ fn gather_embeddings(core: &GraphCore, spec: &VectorSource) -> (Vec<Vec<f64>>, V
 /// exactly like an unbound embedder degrades `RankEmbed`, rather than erroring.
 /// Wiring the live tsdb store into the mining dispatch path is a follow-up.
 #[cfg(feature = "query")]
-fn gather_plan_rows(core: &GraphCore, plan: &crate::wire::Plan) -> (Vec<Vec<f64>>, Vec<String>) {
+fn gather_plan_rows(
+    core: &Arc<GraphCore>,
+    plan: &crate::wire::Plan,
+) -> (Vec<Vec<f64>>, Vec<String>) {
     let snap = core.analysis_snapshot();
-    // CONCEPT:EG-KG.query.served-vector-index-binding — push the vector leg into the LIVE
-    // persistent `SemanticStore` via a guard, reused for the embedding lookups below too,
-    // instead of a `.clone()` that (on the default HNSW backend) would have forced a full
-    // rebuild on its first search. No `ServedTextIndex` here: this fn only receives
-    // `&GraphCore` (not an `Arc`), so a `RankText`/`FuseRrf` leg in a mining-sourced plan
-    // still falls back to the snapshot-derived text index — listed in the rollout backlog
-    // (plumbing an `Arc<GraphCore>` through the mining dispatch call chain is a separate,
-    // lower-traffic follow-up).
+    // CONCEPT:EG-KG.query.served-vector-index-binding / served-text-index-binding — push the
+    // vector leg into the LIVE persistent `SemanticStore` via a guard, reused for the embedding
+    // lookups below too, instead of a `.clone()` that (on the default HNSW backend) would have
+    // forced a full rebuild on its first search. L34: `gather_plan_rows` now takes an
+    // `Arc<GraphCore>` (mirroring EG-P1-4's served `run_unified` call sites), so a `RankText`/
+    // `FuseRrf` leg in a mining-sourced plan ALSO pushes down into the graph's MAINTAINED
+    // persistent `GraphTextIndex` via `ServedTextIndex`, instead of falling back to a
+    // snapshot-derived index rebuilt from `snap` on every mining request.
+    #[cfg(feature = "text")]
+    let served_text = crate::server::secondary_indexes::ServedTextIndex::new(core.clone());
+    // L37: an `Arc<GraphCore>` in hand ⇒ a `SpatialScan` leg in a mining-sourced plan ALSO
+    // pushes down into the graph's MAINTAINED persistent spatial index, same as the text leg.
+    #[cfg(feature = "geo")]
+    let served_spatial = crate::server::secondary_indexes::ServedSpatialIndex::new(core.clone());
     let store = core.semantic_store.read();
     let rows = match crate::server::handlers::query::run_unified(
         plan.clone(),
         None,
         &snap,
         &store,
-        #[cfg(feature = "text")]
+        crate::server::handlers::query::ServedIndexes {
+            #[cfg(feature = "text")]
+            text: Some(&served_text),
+            #[cfg(feature = "geo")]
+            spatial: Some(&served_spatial),
+            #[cfg(not(any(feature = "text", feature = "geo")))]
+            _marker: std::marker::PhantomData,
+        },
+        #[cfg(feature = "tsdb")]
         None,
+        #[cfg(feature = "tsdb")]
+        None,
+    ) {
+        Ok(rows) => rows,
+        Err(_) => return (Vec::new(), Vec::new()),
+    };
+    let mut feats: Vec<Vec<f64>> = Vec::with_capacity(rows.len());
+    let mut ids: Vec<String> = Vec::with_capacity(rows.len());
+    for (node_id, _score) in rows {
+        if let Some(vec) = store.get_embedding(&node_id) {
+            feats.push(vec.into_iter().map(|f| f as f64).collect());
+            ids.push(node_id);
+        }
+    }
+    (feats, ids)
+}
+
+/// WAL-replay counterpart of [`gather_plan_rows`] — the pre-L34 behavior, kept for
+/// [`build_vectors_replay`]/[`build_anomaly_rows_replay`] (see their docs): no `Arc` in
+/// hand, so no `ServedTextIndex` — a `RankText`/`FuseRrf` leg in a replay-sourced plan falls
+/// back to the snapshot-derived text index built fresh from `snap`, exactly as every
+/// mining plan leg behaved before the served-path pushdown.
+#[cfg(feature = "query")]
+fn gather_plan_rows_snapshot(
+    core: &GraphCore,
+    plan: &crate::wire::Plan,
+) -> (Vec<Vec<f64>>, Vec<String>) {
+    let snap = core.analysis_snapshot();
+    let store = core.semantic_store.read();
+    let rows = match crate::server::handlers::query::run_unified(
+        plan.clone(),
+        None,
+        &snap,
+        &store,
+        crate::server::handlers::query::ServedIndexes::default(),
         #[cfg(feature = "tsdb")]
         None,
         #[cfg(feature = "tsdb")]
