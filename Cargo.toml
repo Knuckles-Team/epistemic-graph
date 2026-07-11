@@ -4,11 +4,17 @@ members = ["crates/eg-types", "crates/eg-ann", "crates/eg-geo", "crates/eg-tenso
 # crate (exhaustive, no-wildcard `policy()` over eg-types::protocol::Method, generated
 # docs/capabilities.generated.md, a consistency test cross-checking access.rs/wal.rs/
 # audit.rs/cdc.rs). A leaf crate (deps = eg-types ONLY, all its optional features on --
-# see eg-capabilities/Cargo.toml). Added as a workspace member ONLY; it is NOT a
-# dependency (normal OR dev) of the root `epistemic-graph` package, so a default build
-# links none of it and building/testing it never pulls in the rest of the engine. Build/
-# test it targeted: `cargo build -p eg-capabilities` / `cargo test -p eg-capabilities` /
+# see eg-capabilities/Cargo.toml). Build/test it targeted:
+# `cargo build -p eg-capabilities` / `cargo test -p eg-capabilities` /
 # `cargo clippy -p eg-capabilities -- -D warnings`.
+# CONCEPT:EG-P0-2 -- as of the mutation-gateway workstream, eg-capabilities IS also an
+# optional dependency of the root `epistemic-graph` package (see `[dependencies]` +
+# the `server` feature below): `src/server/mutation.rs`'s `MutationPlan` calls
+# `eg_capabilities::policy(&method)` as its ONE source of per-method authz/durability/
+# audit/CDC/idempotency truth, so the server binary linking it is the point (no
+# default/non-`server` build links it; there is no live `pi`/slim-tier gate this trips
+# -- eg-types' optional features eg-capabilities forces on are all pure serde/enum-
+# variant gates, confirmed to add no heavy transitive dependency).
 # EG-185/186: fold eg-kvcache into node/full (the tiered + shared KV-cache leaf crate,
 # a sibling of eg-ann/eg-tensor). Added as a workspace member only; the tier aggregate
 # feature lists (node/full) and the path-dep + server-endpoint wiring are folded in by
@@ -197,7 +203,11 @@ numeric = ["dep:eg-numeric", "eg-query?/numeric"]
 ann = ["eg-core/ann"]
 # Persist the ANN codes into the redb durable tier too (needs `redb`).
 ann-redb = ["ann", "redb", "eg-core/ann-redb"]
-server = ["dep:tokio", "dep:clap", "dep:tracing-subscriber", "dep:async-trait"]
+# CONCEPT:EG-P0-2 -- `dep:eg-capabilities` folded in here (not a standalone feature):
+# the mutation gateway (`src/server/mutation.rs`) is server-only, so the binary
+# linking the MethodPolicy ledger is exactly the `server` build, matching every other
+# server-only dependency in this list.
+server = ["dep:tokio", "dep:clap", "dep:tracing-subscriber", "dep:async-trait", "dep:eg-capabilities"]
 # Durable redb store (CONCEPT:KG-2.177 / KG-2.195). Pulls the redb crate + the
 # PURE durable-row machinery (`redb_store` — table layout, Method→rows apply,
 # checkpoint/load, group-commit) which is server-INDEPENDENT (no Tokio). The
@@ -925,6 +935,17 @@ eg-plan = { path = "crates/eg-plan", optional = true }
 # this adds no NEW transitive dependency to the tree — only makes the type nameable
 # here too.
 eg-modality = { path = "crates/eg-modality", optional = true }
+# CONCEPT:EG-P0-2 -- the machine-checked MethodPolicy capability ledger (feature
+# `server`, via the `dep:eg-capabilities` requirement folded into that feature below).
+# `src/server/mutation.rs`'s `MutationPlan::for_method` calls `eg_capabilities::policy`
+# as its ONE source of per-method authz-action/durability-domain/idempotent/audited/
+# emits-cdc truth for the gateway-routed mutation set -- see that module's docs. Its
+# OWN Cargo.toml turns on ALL of eg-types' optional features so `policy()`'s
+# exhaustive match sees every `Method` variant regardless of which of THIS crate's
+# features are on; those eg-types features are confirmed pure serde/enum-variant
+# gates (no heavy transitive dependency), so this is safe even though it forces them
+# on unconditionally in any `server` build.
+eg-capabilities = { path = "crates/eg-capabilities", optional = true }
 # Optional live CEP standing-query engine (feature `stream`, CONCEPT:EG-088/EG-299). The
 # BATCH `Op::Cep` executor already pulls eg-stream transitively via `eg-plan/stream`; this
 # DIRECT edge (with eg-stream's own `stream` feature, the ONLY thing that pulls tokio in
