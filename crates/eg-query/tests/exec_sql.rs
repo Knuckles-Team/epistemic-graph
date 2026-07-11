@@ -178,3 +178,70 @@ fn catalog_functions_resolve() {
     let d = run("SELECT current_database()");
     assert_eq!(rows_as_values(&d)[0][0], json!("epistemic-graph"));
 }
+
+// ── L36: a caller-supplied `CancellationToken` REALLY reaches the streaming collect ──
+// (CONCEPT:EG-KG.query.streaming-spillable-collect). Before this fix `exec_sql`/`exec_sql_typed`
+// always built a FRESH, never-cancelled token internally — a caller's own token had NO
+// effect on the query, however it was cancelled. `exec_sql_cancellable` is the fix: the
+// SAME token the caller holds is the one `collect_streaming` checks.
+
+/// A token cancelled BEFORE the call stops `collect_streaming` before it processes even
+/// the first batch (checked at the very top of its loop, ahead of `next?`) — so a
+/// pre-cancelled run returns ZERO rows, while the identical query with a fresh token
+/// returns the real series. If the token were NOT actually threaded through (the pre-L36
+/// bug — an internal fresh token used regardless of the caller's), both runs would
+/// return the SAME non-empty result; the divergence below is the proof the plumbing
+/// works.
+#[test]
+fn exec_sql_cancellable_pre_cancelled_token_returns_no_rows() {
+    let view = sample_view();
+    let sql = "SELECT value FROM generate_series(1, 1000) ORDER BY value";
+
+    let fresh = eg_query::CancellationToken::new();
+    let normal = eg_query::exec_sql_cancellable(&view, sql, &fresh)
+        .expect("an uncancelled run must execute normally");
+    assert_eq!(
+        normal.rows.len(),
+        1000,
+        "sanity: the uncancelled run returns the full series"
+    );
+
+    let cancelled = eg_query::CancellationToken::new();
+    cancelled.cancel();
+    assert!(cancelled.is_cancelled());
+    let stopped = eg_query::exec_sql_cancellable(&view, sql, &cancelled)
+        .expect("cancellation degrades to fewer rows, never an error");
+    assert_eq!(
+        stopped.rows.len(),
+        0,
+        "a token cancelled before the call must stop the stream before any row is collected"
+    );
+}
+
+/// The typed (`exec_sql_typed_cancellable`) and tables-aware
+/// (`exec_sql_typed_with_tables_cancellable`) cancellable entry points thread the SAME
+/// token all the way to `collect_streaming` too — not just the plain `exec_sql` path.
+#[test]
+fn typed_and_tables_aware_cancellable_entry_points_honor_a_pre_cancelled_token() {
+    use eg_query::TableStore;
+
+    let view = sample_view();
+    let sql = "SELECT value FROM generate_series(1, 1000) ORDER BY value";
+
+    let cancelled = eg_query::CancellationToken::new();
+    cancelled.cancel();
+
+    let typed = eg_query::exec_sql_typed_cancellable(&view, sql, &cancelled)
+        .expect("cancellation degrades to fewer rows, never an error");
+    assert_eq!(typed.rows.len(), 0, "exec_sql_typed_cancellable must honor cancellation");
+
+    let (store, _tmp_path) = TableStore::open_temp().expect("temp table store");
+    let with_tables =
+        eg_query::exec_sql_typed_with_tables_cancellable(&view, &store, sql, &cancelled)
+            .expect("cancellation degrades to fewer rows, never an error");
+    assert_eq!(
+        with_tables.rows.len(),
+        0,
+        "exec_sql_typed_with_tables_cancellable must honor cancellation"
+    );
+}
