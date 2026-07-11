@@ -67,12 +67,13 @@ const ACCESS_RS_MUTATES_EXPLICIT_FALSE: &[&str] = &[
 /// node/edge/memory/scene/trajectory primitives + RDF triples + the writeback-true Mine*/
 /// GraphLearn* variants that DO make the durable list).
 const WAL_RS_DURABLE_GRAPHREDB: &[&str] = &[
-    "AddEdge", "AddNode", "AddSceneObject", "AddTriples", "AppendStep", "BatchUpdate",
+    "AddEdge", "AddEmbedding", "AddNode", "AddSceneObject", "AddTriples", "AppendStep", "BatchUpdate",
     "ClaimNext", "ClearGraph", "CompareAndSetNodeFields", "Consolidate", "CreateSummaryNode", "DecayMemories",
     "DecayNode", "DropNamedGraph", "EvictBelow", "GraphLearnFit", "GraphLearnPredict", "InvalidateEdge",
     "Maintain", "MineAnomaly", "MineAssociate", "MineCausalImpact", "MineClassifyPredict", "MineCluster",
-    "MineCommunity", "MineEntityResolve", "MineOntologyGap", "MineProcess", "MineReduce", "MineRetrievalQuality",
-    "MineRiskPropagation", "MineRootCause", "Reinforce", "RemoveEdge", "RemoveNode", "RemoveTriples",
+    "MineCommunity", "MineEntityResolve", "MineForecast", "MineOntologyGap", "MineProcess", "MineReduce",
+    "MineRetrievalQuality", "MineRiskPropagation", "MineRootCause", "MineSequence", "MineSubgraph", "MineText",
+    "Reinforce", "RemoveEdge", "RemoveNode", "RemoveTriples",
     "Reparent", "SetPose", "StartTrajectory", "SupersedeEdge",
 ];
 
@@ -86,9 +87,24 @@ const WAL_RS_DURABLE_OUTBOX: &[&str] = &[
 
 /// Mirrors `src/audit.rs::audit_line`'s explicit match (everything else falls to its
 /// `_ => return None` catch-all, i.e. NOT chained into the tamper-evident hash log).
+///
+/// L3/EG-P0-6: originally just the 2 (later 7, after EG-P0-2) node/edge CRUD
+/// primitives -- `audit_line` is now EXHAUSTIVE over every `GraphRedb`- and
+/// `Outbox`-domain durable mutation (every durable mutation actually reaches
+/// `redb_store::append_audit_entry` via `record`/`record_durable` ->
+/// `commit_ops`/`commit_crossmodal`, gateway-routed or not), so this mirror grows
+/// to match: 64 audited methods total.
 const AUDIT_RS_AUDITED: &[&str] = &[
-    "AddEdge", "AddNode", "BatchUpdate", "ClearGraph", "CompareAndSetNodeFields", "RemoveEdge",
-    "RemoveNode",
+    "AddEdge", "AddEmbedding", "AddNode", "AddSceneObject", "AddTriples", "AppendStep", "BatchUpdate",
+    "BindQueue", "BrokerAck", "BrokerAckTag", "BrokerConsume", "BrokerNackTag", "BrokerReject", "ClaimNext",
+    "ClearGraph", "CompareAndSetNodeFields", "Consolidate", "CreateSummaryNode", "DecayMemories", "DecayNode",
+    "DeclareExchange", "DeclareQueue", "DeleteExchange", "DropNamedGraph", "EvictBelow", "GraphLearnFit",
+    "GraphLearnPredict", "InvalidateEdge", "Maintain", "MineAnomaly", "MineAssociate", "MineCausalImpact",
+    "MineClassifyPredict", "MineCluster", "MineCommunity", "MineEntityResolve", "MineForecast", "MineOntologyGap",
+    "MineProcess", "MineReduce", "MineRetrievalQuality", "MineRiskPropagation", "MineRootCause", "MineSequence",
+    "MineSubgraph", "MineText", "Publish", "PublishConfirmed", "PublishEx", "PublishIdempotent", "Reinforce",
+    "RemoveEdge", "RemoveNode", "RemoveTriples", "Reparent", "SetPose", "StartTrajectory", "StreamCommitOffset",
+    "StreamDeclare", "StreamPublish", "StreamTrim", "SupersedeEdge", "SweepExpired", "UnbindQueue",
 ];
 
 /// Mirrors `src/server/cdc.rs::emit_for_method`'s explicit match (everything else falls to
@@ -140,8 +156,16 @@ const RUNTIME_CONDITIONAL: &[(&str, &str, &str)] = &[
 /// recomputable maintenance ops); others (`ApplyMutation`, `ApplyMultisigMutation`,
 /// `Reconcile`, the Ledger ops) look like real gaps. This is exactly the class of finding
 /// the task brief names EG-P0-3 for.
+///
+/// L14 (EG-P0-6): this table originally listed 23 entries, including `AddEmbedding`,
+/// `MineForecast`, `MineSequence`, `MineSubgraph`, and `MineText` -- but EG-P0-3
+/// (which landed AFTER the EG-P0-1 divergence report this table transcribes) already
+/// fixed `wal.rs::is_durable_mutation` to cover all five (see
+/// `src/server/access.rs::durability_closure_tests` in the main crate, which asserts
+/// exactly this). The ledger + this snapshot were stale, still counting them as open
+/// gaps; both are now corrected (23 -> 18) to match the real, already-fixed
+/// classifier -- see `WAL_RS_DURABLE_GRAPHREDB` above, which now includes all five.
 const WAL_DURABILITY_GAP: &[(&str, &str, &str)] = &[
-    ("AddEmbedding", "EG-P0-3", "write per access.rs but absent from wal.rs::is_durable_mutation -- a crash loses this mutation"),
     ("ApplyLedger", "EG-P0-3", "write per access.rs but absent from wal.rs::is_durable_mutation -- a crash loses this mutation"),
     ("ApplyMultisigMutation", "EG-P0-3", "write per access.rs but absent from wal.rs::is_durable_mutation -- a crash loses this mutation"),
     ("ApplyMutation", "EG-P0-3", "write per access.rs but absent from wal.rs::is_durable_mutation -- a crash loses this mutation"),
@@ -159,10 +183,6 @@ const WAL_DURABILITY_GAP: &[(&str, &str, &str)] = &[
     ("TouchNodes", "EG-P0-3", "write per access.rs but absent from wal.rs::is_durable_mutation -- a crash loses this mutation"),
     ("CypherQuery", "EG-P0-3", "write-conditional per access.rs (when the condition holds) but absent from wal.rs::is_durable_mutation"),
     ("GraphQl", "EG-P0-3", "write-conditional per access.rs (when the condition holds) but absent from wal.rs::is_durable_mutation"),
-    ("MineForecast", "EG-P0-3", "write-conditional per access.rs (when the condition holds) but absent from wal.rs::is_durable_mutation"),
-    ("MineSequence", "EG-P0-3", "write-conditional per access.rs (when the condition holds) but absent from wal.rs::is_durable_mutation"),
-    ("MineSubgraph", "EG-P0-3", "write-conditional per access.rs (when the condition holds) but absent from wal.rs::is_durable_mutation"),
-    ("MineText", "EG-P0-3", "write-conditional per access.rs (when the condition holds) but absent from wal.rs::is_durable_mutation"),
     ("Sql", "EG-P0-3", "write-conditional per access.rs (when the condition holds) but absent from wal.rs::is_durable_mutation"),
 ];
 

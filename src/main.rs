@@ -625,7 +625,34 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             epistemic_graph::server::persistence::cold_offload::ColdTenantTracker::new(),
         ),
         registry: GraphRegistry::new(),
-        isolation: IsolationLayer::new(),
+        isolation: {
+            // RLS default-deny / strict-isolation posture (CONCEPT:EG-KG.sharding.row-level-security, EG-P0-6).
+            // OFF (permissive, back-compat) unless explicitly enabled: an unowned/
+            // undecodable/untagged-legacy row stays visible to all, unchanged from
+            // every pre-EG-P0-6 deployment. Set to enable the SECURE/target posture
+            // -- see `eg_core::isolation::IsolationLayer`'s `rls_default_deny` field
+            // docs for the exact semantics and the migration implication (legacy
+            // unowned rows become invisible until backfilled with an `_owner` or an
+            // explicit `_visibility: "public"` tag).
+            #[cfg(feature = "security")]
+            {
+                let strict = std::env::var("EPISTEMIC_GRAPH_RLS_DEFAULT_DENY")
+                    .map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+                    .unwrap_or(false);
+                if strict {
+                    info!(
+                        "RLS default-deny (strict isolation) ENABLED via EPISTEMIC_GRAPH_RLS_DEFAULT_DENY: \
+                         unowned/undecodable/untagged-legacy rows are now hidden unless explicitly \
+                         `_visibility: public` or `_owner`-granted (CONCEPT:EG-KG.sharding.row-level-security, EG-P0-6)"
+                    );
+                }
+                IsolationLayer::new().with_rls_default_deny(strict)
+            }
+            #[cfg(not(feature = "security"))]
+            {
+                IsolationLayer::new()
+            }
+        },
         channels: ChannelManager::new(),
         auth_secret: args.auth_secret,
         persist_dir: args.persist_dir,
