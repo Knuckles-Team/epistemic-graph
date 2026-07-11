@@ -37,6 +37,13 @@ contract = ["dep:eg-modality"]
 # decoder would gate its heavy dep behind this SAME feature name so the default build
 # never links it (the Pi contract).
 codec = []
+# OPT-IN runtime seam (CONCEPT:EG-P1-3): `src/runtime.rs`'s container/track/
+# keyframe/shot/scene/caption/temporal-embedding TRAITS + typed artifacts. Default
+# OFF, no new dependency AT ALL (a trait-definition layer, not an implementation —
+# a real container demuxer/shot-detector/captioner/embedding model plugs in by
+# implementing the trait in its own crate/service). Turning this on today adds
+# zero dependency and changes no behavior of `VideoData` itself.
+runtime = []
 
 [dev-dependencies]
 serde_json = "1.0"
