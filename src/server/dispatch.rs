@@ -1233,6 +1233,22 @@ async fn dispatch_graph_op(
         _ => None,
     };
 
+    // Truth-maintenance change-feed hook (CONCEPT:EG-KG.epistemic.truth-maintenance —
+    // EPI-P3-2's server-side wiring, `src/server/tms_hook.rs`): same
+    // is_durable_mutation + not-gateway-routed gate as `record_method`/`cdc_method`
+    // above (the GATEWAY_ROUTED majority is already covered by the equivalent hook in
+    // `mutation::commit_finalize`; this is the legacy-tail counterpart for whatever
+    // durable mutation ISN'T routed there yet). `method` is about to be consumed by
+    // the dispatch block below, so clone its identity now, same as `record_method`.
+    #[cfg(feature = "epistemic-tms")]
+    let tms_method = if crate::wal::is_durable_mutation(&method)
+        && !crate::server::mutation::is_gateway_routed(&method)
+    {
+        Some(method.clone())
+    } else {
+        None
+    };
+
     crate::metrics::graph_op(graph_name);
 
     // CDC pre-image (CONCEPT:EG-KG.query.streaming-cdc-subscriptions): for a durable single-row mutation, capture the
@@ -1639,6 +1655,17 @@ async fn dispatch_graph_op(
             crate::server::cdc::emit_for_method(&hub, &core, graph_name, &m, cdc_pre);
         }
     }
+
+    // Feed the truth-maintenance index (CONCEPT:EG-KG.epistemic.truth-maintenance) AFTER
+    // the write committed — the legacy-tail counterpart of the equivalent hook in
+    // `mutation::commit_finalize` (step 7.5); see `tms_method`'s binding comment above
+    // for why this only ever fires for a durable mutation NOT already gateway-routed.
+    #[cfg(feature = "epistemic-tms")]
+    if let Some(m) = tms_method {
+        if response.error.is_none() {
+            crate::server::tms_hook::notify(&m);
+        }
+    }
     response
 }
 
@@ -1826,6 +1853,8 @@ mod eg318_dispatch_tests {
             dataset_handles: std::sync::Arc::new(
                 crate::server::dataset_handle::DatasetHandleRegistry::new(),
             ),
+            #[cfg(feature = "lake")]
+            lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
         }))
     }
 
@@ -2135,6 +2164,8 @@ mod admin_scope_tests {
             dataset_handles: std::sync::Arc::new(
                 crate::server::dataset_handle::DatasetHandleRegistry::new(),
             ),
+            #[cfg(feature = "lake")]
+            lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
         }))
     }
 
@@ -2356,6 +2387,8 @@ mod blob_dispatch_tests {
             dataset_handles: std::sync::Arc::new(
                 crate::server::dataset_handle::DatasetHandleRegistry::new(),
             ),
+            #[cfg(feature = "lake")]
+            lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
         }))
     }
 

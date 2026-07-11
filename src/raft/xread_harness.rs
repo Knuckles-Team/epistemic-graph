@@ -92,6 +92,8 @@ async fn make_state(dir: &str, backend: Arc<dyn PersistenceBackend>) -> Arc<RwLo
         dataset_handles: std::sync::Arc::new(
             crate::server::dataset_handle::DatasetHandleRegistry::new(),
         ),
+        #[cfg(feature = "lake")]
+        lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
     }))
 }
 

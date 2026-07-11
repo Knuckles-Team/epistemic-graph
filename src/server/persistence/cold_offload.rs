@@ -331,6 +331,8 @@ mod admission_tests {
             foreign_sources: Arc::new(dashmap::DashMap::new()),
             #[cfg(feature = "kv")]
             kv: None,
+            #[cfg(feature = "lake")]
+            lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
         }));
         // Wire the read-through + lazy-open materializer exactly like main.rs does
         // under authoritative mode.
@@ -564,6 +566,8 @@ mod admission_tests {
             foreign_sources: Arc::new(dashmap::DashMap::new()),
             #[cfg(feature = "kv")]
             kv: None,
+            #[cfg(feature = "lake")]
+            lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
         }));
         {
             let mut s = state2.write().await;

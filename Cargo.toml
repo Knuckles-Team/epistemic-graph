@@ -218,6 +218,15 @@ epistemic = [
     # new weight, only visibility).
     "dep:eg-modality",
 ]
+# CONCEPT:EG-KG.epistemic.truth-maintenance — EPI-P3-2's server-side change-feed hook
+# (`src/server/tms_hook.rs`): feeds a committed base-fact `RemoveNode`/`RemoveEdge`/
+# `CompareAndSetNodeFields` from the write path (`mutation::commit_finalize`'s CDC-emit
+# step + the legacy dispatch-shell tail) into eg-epistemic's `TruthMaintenance` index
+# (`ChangeEvent`/`on_change`). Deliberately LEANER than — and independent of — the
+# `epistemic` feature above: it pulls ONLY `eg-epistemic` + its own `epistemic-tms`
+# (X2 paraconsistent-TMS) feature, none of `query`/`eg-plan`/`eg-modality` (this is a
+# narrow write-path hook, not the UQL belief-surface). `--all-features` still enables it.
+epistemic-tms = ["dep:eg-epistemic", "eg-epistemic/epistemic-tms"]
 # CONCEPT:EG-321 — the Analytics-Program numeric kernel (eg-numeric: faer + ndarray,
 # BLAS/LAPACK-free). Links the PURE Rust kernel (rlib) for Surface B in-database
 # analytics — the Python-extension FFI layer is behind eg-numeric's OWN `python`
