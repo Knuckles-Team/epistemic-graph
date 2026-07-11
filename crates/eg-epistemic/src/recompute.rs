@@ -71,6 +71,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
+use eg_core::graph::GraphView;
 use serde::{Deserialize, Serialize};
 
 use crate::adapter::BeliefGraph;
@@ -401,6 +402,82 @@ impl TruthMaintenance {
     }
 }
 
+/// L45 (EPI-P3-1 wiring): register `derived_id`'s [`TruthMaintenance`] materialization
+/// straight from its OWN already-stored provenance, instead of a caller hand-building a
+/// `depends_on` set. Reads TWO real, already-written provenance channels off
+/// `derived_id`'s node/edges in `view` (the SAME blobs [`BeliefGraph::from_graph_view`]
+/// decodes elsewhere in this crate — no new persistence, mirrors the crate's own "read
+/// the existing convention" posture):
+///
+///   * the node's own `invalidation_deps` property — EG-P3-1's universal
+///     writeback-lineage tuple (see `eg-jobs::claim::commit_result_claim` /
+///     `src/server/handlers/mining.rs::materialize_claim`, the two writers of this
+///     convention): the ids whose change/removal invalidates this node, already
+///     EXACTLY the `depends_on` set [`TruthMaintenance::register`] wants;
+///   * any OUTGOING edge classified `:DerivedFrom` or `:GeneratedBy`
+///     (`relationship_type` `DERIVED_FROM`/`GENERATED_BY`, case-insensitive, mirroring
+///     [`crate::model::classify_relationship`]'s own convention) — each target is
+///     folded into `depends_on` too (a `:DerivedFrom` target is itself an invalidation
+///     dependency), and the FIRST `:GeneratedBy` target additionally becomes
+///     `generating_activity` (the model/job/ontology version `ChangeEvent::ModelRetired`/
+///     `ChangeEvent::OntologyEvolved` key on) — the real writers today emit
+///     `claim --GENERATED_BY--> activity`, so this is the live edge shape, not a
+///     speculative one; `DERIVED_FROM` is recognized for forward-compatibility with a
+///     future writer that emits it directly as an edge rather than folding its targets
+///     into `invalidation_deps`.
+///
+/// A node with NEITHER channel registers with an EMPTY `depends_on` (nothing tracked
+/// invalidates it) — a legitimate answer, not an error. Both `:GeneratedBy` targets and
+/// `invalidation_deps` entries are deliberately treated as opaque ids (this function
+/// does not care whether they resolve to another tracked `Materialization`,
+/// [`TruthMaintenance::dependents_of`] only needs the id to key the reverse index).
+pub fn register_from_provenance(tm: &mut TruthMaintenance, view: &GraphView, derived_id: &str) {
+    let mut depends_on: BTreeSet<String> = BTreeSet::new();
+    let mut generating_activity: Option<String> = None;
+
+    // Channel 1: the node's own `invalidation_deps` property (EG-P3-1).
+    if let Some(blob) = view.node_properties.get(derived_id) {
+        if let Ok(v) = rmp_serde::from_slice::<serde_json::Value>(blob) {
+            if let Some(arr) = v.get("invalidation_deps").and_then(|x| x.as_array()) {
+                for item in arr {
+                    if let Some(s) = item.as_str() {
+                        depends_on.insert(s.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    // Channel 2: outgoing `:DerivedFrom` / `:GeneratedBy` edges.
+    for ((source, target), blobs) in &view.edge_properties {
+        if source != derived_id {
+            continue;
+        }
+        for blob in blobs {
+            let Some(rel) = rmp_serde::from_slice::<serde_json::Value>(blob)
+                .ok()
+                .and_then(|v| v.get("relationship_type").and_then(|r| r.as_str()).map(str::to_ascii_uppercase))
+            else {
+                continue;
+            };
+            match rel.as_str() {
+                "DERIVED_FROM" => {
+                    depends_on.insert(target.clone());
+                }
+                "GENERATED_BY" => {
+                    depends_on.insert(target.clone());
+                    if generating_activity.is_none() {
+                        generating_activity = Some(target.clone());
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    tm.register(derived_id, depends_on, generating_activity);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -615,5 +692,124 @@ mod tests {
         for ext in tms::preferred_extensions(&bg) {
             assert!(!(ext.contains("p") && ext.contains("not_p")));
         }
+    }
+
+    // --- register_from_provenance (L45: EPI-P3-1 wiring) --------------------------
+
+    fn node_blob(props: serde_json::Value) -> Vec<u8> {
+        rmp_serde::to_vec_named(&props).unwrap()
+    }
+
+    fn edge_blob(relationship_type: &str) -> Vec<u8> {
+        rmp_serde::to_vec_named(&serde_json::json!({ "relationship_type": relationship_type }))
+            .unwrap()
+    }
+
+    // A base node + a derived node linked `derived --DERIVED_FROM--> base`:
+    // `register_from_provenance` must read that edge into `depends_on`, and a
+    // subsequent base change must invalidate (stale) the derived materialization.
+    #[test]
+    fn register_from_provenance_reads_derived_from_edge_and_invalidates_on_base_change() {
+        let core = eg_core::graph::GraphCore::new();
+        core.add_node("base".to_string(), node_blob(serde_json::json!({ "type": "Claim" })));
+        core.add_node(
+            "derived".to_string(),
+            node_blob(serde_json::json!({ "type": "Claim" })),
+        );
+        core.add_edge(
+            "derived".to_string(),
+            "base".to_string(),
+            edge_blob("DERIVED_FROM"),
+        )
+        .unwrap();
+
+        let view = core.analysis_snapshot();
+        let mut tm = TruthMaintenance::new();
+        register_from_provenance(&mut tm, &view, "derived");
+
+        assert_eq!(tm.status_of("derived"), Some(MaterializationStatus::Fresh));
+        assert_eq!(
+            tm.get("derived").unwrap().depends_on,
+            ["base".to_string()].into_iter().collect::<BTreeSet<_>>()
+        );
+
+        // Simulate the base fact changing: `derived` must go Stale — proving the
+        // registered dependency actually drives truth maintenance, not just recorded
+        // for show.
+        let changed = tm.on_change(&ChangeEvent::Updated("base".to_string()));
+        assert!(changed.contains("derived"));
+        assert_eq!(tm.status_of("derived"), Some(MaterializationStatus::Stale));
+    }
+
+    // A claim carrying the REAL `invalidation_deps` property (EG-P3-1's universal
+    // writeback-lineage tuple, as `eg-jobs::claim::commit_result_claim` and
+    // `mining.rs::materialize_claim` actually write it) plus a real
+    // `claim --GENERATED_BY--> activity` edge: both channels must be folded into
+    // `depends_on`, and the activity id must become `generating_activity` so a
+    // `ChangeEvent::ModelRetired` on it invalidates the claim too.
+    #[test]
+    fn register_from_provenance_reads_invalidation_deps_and_generated_by_edge() {
+        let core = eg_core::graph::GraphCore::new();
+        core.add_node(
+            "jobclaim:x".to_string(),
+            node_blob(serde_json::json!({
+                "type": "Claim",
+                "invalidation_deps": ["snapshot:g1@5", "jobevidence:x:job-1"],
+            })),
+        );
+        core.add_node(
+            "jobactivity:x".to_string(),
+            node_blob(serde_json::json!({ "type": "Activity" })),
+        );
+        core.add_edge(
+            "jobclaim:x".to_string(),
+            "jobactivity:x".to_string(),
+            edge_blob("GENERATED_BY"),
+        )
+        .unwrap();
+
+        let view = core.analysis_snapshot();
+        let mut tm = TruthMaintenance::new();
+        register_from_provenance(&mut tm, &view, "jobclaim:x");
+
+        let m = tm.get("jobclaim:x").unwrap();
+        assert_eq!(
+            m.depends_on,
+            [
+                "snapshot:g1@5".to_string(),
+                "jobevidence:x:job-1".to_string(),
+                "jobactivity:x".to_string(),
+            ]
+            .into_iter()
+            .collect::<BTreeSet<_>>()
+        );
+        assert_eq!(m.generating_activity, Some("jobactivity:x".to_string()));
+
+        // Retiring the generating activity invalidates the claim even though none of
+        // its graph inputs changed.
+        let changed = tm.on_change(&ChangeEvent::ModelRetired("jobactivity:x".to_string()));
+        assert!(changed.contains("jobclaim:x"));
+        assert_eq!(
+            tm.status_of("jobclaim:x"),
+            Some(MaterializationStatus::Stale)
+        );
+    }
+
+    // A node with neither an `invalidation_deps` property nor a recognized outgoing
+    // edge registers with an EMPTY `depends_on` — a legitimate answer, not an error.
+    #[test]
+    fn register_from_provenance_with_no_provenance_registers_empty_deps() {
+        let core = eg_core::graph::GraphCore::new();
+        core.add_node(
+            "solo".to_string(),
+            node_blob(serde_json::json!({ "type": "Claim" })),
+        );
+        let view = core.analysis_snapshot();
+        let mut tm = TruthMaintenance::new();
+        register_from_provenance(&mut tm, &view, "solo");
+
+        assert_eq!(tm.status_of("solo"), Some(MaterializationStatus::Fresh));
+        assert!(tm.get("solo").unwrap().depends_on.is_empty());
+        assert_eq!(tm.get("solo").unwrap().generating_activity, None);
     }
 }
