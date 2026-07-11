@@ -627,11 +627,9 @@ impl KnowledgeSet {
                 // `KnowledgeBatch` reserved columns, now resolved per row — see the
                 // module docs and `AuxEdgeIndex`/`resolve_proof_ids`.
                 #[cfg(feature = "epistemic")]
-                let contradiction_ids =
-                    AuxEdgeIndex::get(&aux_edges.contradiction_ids, &row.id);
+                let contradiction_ids = AuxEdgeIndex::get(&aux_edges.contradiction_ids, &row.id);
                 #[cfg(feature = "epistemic")]
-                let transformation_ids =
-                    AuxEdgeIndex::get(&aux_edges.transformation_ids, &row.id);
+                let transformation_ids = AuxEdgeIndex::get(&aux_edges.transformation_ids, &row.id);
                 #[cfg(feature = "epistemic")]
                 let alternative_ids = AuxEdgeIndex::get(&aux_edges.alternative_ids, &row.id);
                 #[cfg(feature = "epistemic")]
@@ -1370,10 +1368,7 @@ mod tests {
 
         let ks = KnowledgeSet::from_rowset(&rs, &view, &[]);
 
-        assert_eq!(
-            ks.rows[0].transformation_ids,
-            vec!["activity1".to_string()]
-        );
+        assert_eq!(ks.rows[0].transformation_ids, vec!["activity1".to_string()]);
         // The Activity itself carries NO `transformation_ids` back-reference (the
         // relation is not symmetric).
         let rs2 = RowSet::from_ids(["activity1".to_string()]);
@@ -1392,10 +1387,7 @@ mod tests {
             "claim1".into(),
             blob(json!({ "node_type": "Claim", "confidence": 0.7 })),
         );
-        core.add_node(
-            "activity1".into(),
-            blob(json!({ "node_type": "Activity" })),
-        );
+        core.add_node("activity1".into(), blob(json!({ "node_type": "Activity" })));
         core.add_edge(
             "claim1".into(),
             "activity1".into(),

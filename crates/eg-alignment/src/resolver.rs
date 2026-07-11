@@ -61,6 +61,9 @@ pub fn artifact_id(span: &EvidenceSpan) -> &str {
         EvidenceSpan::PageBox { document_id, .. } => document_id,
         EvidenceSpan::AudioSegment { audio_id, .. } => audio_id,
         EvidenceSpan::VideoShot { video_id, .. } => video_id,
+        EvidenceSpan::VideoFrameRange { video_id, .. } => video_id,
+        EvidenceSpan::MetricWindow { metric, .. } => metric,
+        EvidenceSpan::RowVersion { table, .. } => table,
         EvidenceSpan::CodeSymbol { file_path, .. } => file_path,
         EvidenceSpan::TraceSpan { trace_id, .. } => trace_id,
     }
