@@ -734,6 +734,44 @@ redis-wire = ["kv", "server"]
 # orchestrator folds it at merge time.
 # EG-176: fold s3-api into node/full
 s3-api = ["blob", "kv", "server"]
+# LTAP lakehouse materialization (INT-P2-3, CONCEPT:EG-317 engine-side seam): wires the
+# `eg-lake` leaf crate onto the engine's OWN durable data. `src/server/lake::LakeManager`
+# converts real `eg_tsdb::store::SeriesStore` series (the WAL-backed table/series data
+# source) into `eg_lake::LakeBatch`es, materializes them to real Parquet (via eg-lake's
+# OWN `lake` sub-feature — arrow/apache-avro), stores the bytes in the SAME
+# content-addressed blob CAS `obs`'s Parquet log segments already write through
+# (`crate::server::blob::store::ChunkStore` — CONCEPT:EG-KG.retrieval.observability-search), and renders/persists a
+# Delta `_delta_log` + a real Iceberg `metadata.json` + real Iceberg Avro manifests
+# describing the live file set, registering each table into an in-process Iceberg-REST
+# catalog. Supports append, compaction (rewrite-all-live-files-into-one) and row-level
+# delete-via-rewrite (both reuse the SAME read-back + re-materialize path), plus
+# best-effort additive-only schema evolution (new nullable columns on FUTURE writes;
+# historical Parquet files are read with the columns absent, per the engine's existing
+# schema-on-read tolerance — full per-snapshot Iceberg schema-id tracking across a
+# rewrite is a documented follow-up, as is Iceberg partition-spec evolution). Every
+# materialize/compact/delete run also builds + keeps (bounded ring, `lake-rest`-servable)
+# an OpenLineage `RunEvent` (job/run/input-dataset/output-dataset + `schema` /
+# `dataSource` / `outputStatistics` / `lifecycleStateChange` facets), optionally pushed
+# to `EPISTEMIC_GRAPH_OPENLINEAGE_URL` over the SAME pure-Rust `ureq` client
+# `sparql-service`/`federation-search` already link (no new HTTP dep). Needs `server`
+# (the manager + the periodic drain sweep live on `ServerState`) + `blob` (the CAS) +
+# `tsdb` (the series source). HEAVY-ish (arrow/parquet/apache-avro + optionally ureq),
+# so it is OFF by default/pi and NOT folded into node/full — an explicit opt-in layer,
+# like `obs`/`s3-api`.
+lake = ["server", "blob", "tsdb", "dep:eg-lake", "eg-lake/lake", "dep:ureq"]
+# Iceberg-REST catalog HTTP surface (INT-P2-3, `iceberg.apache.org/rest-catalog-spec`)
+# over the `lake` materialization tier: a hand-rolled, DEPENDENCY-FREE HTTP/1.1
+# listener (the SAME idiom as `--metrics-addr`/`--sparql-addr`/`--obs-addr`/`--s3-addr`
+# — NO axum/hyper) serving `GET /v1/config`, `GET /v1/namespaces`,
+# `GET /v1/namespaces/{ns}/tables` (ListTables), `GET .../tables/{table}` (LoadTable,
+# inline `metadata` so a client needs no second fetch) and `POST .../tables/{table}`
+# (CommitTable — accepted per the spec's request/response envelope; triggers the
+# engine's own compaction pass rather than ingesting externally-authored manifests, a
+# documented scope note), so a standard Iceberg REST client (PyIceberg/Spark/Trino) can
+# list + load the engine's materialized tables. The listener only starts when ALSO
+# configured via --iceberg-addr / EPISTEMIC_GRAPH_ICEBERG_ADDR. OUT of default/pi/node/
+# full — an explicit opt-in layer atop `lake` (mirrors `sparql-http` atop `sparql`).
+lake-rest = ["lake"]
 # Remote KV-cache HTTP surface (CONCEPT:EG-187) — exposes the `eg-kvcache` shared,
 # content-addressed backend (EG-186) over HTTP so parallel vLLM/LMCache instances SHARE
 # KV blocks by token-hash (GET/PUT/HEAD /kv/<hash> + /kv/stats, bearer-token guard). A
@@ -1077,6 +1115,16 @@ eg-stream = { path = "crates/eg-stream", optional = true }
 # 211); pulls redb only (native primitives), and DataFusion only when `query` is ALSO
 # on (its `arrow-seg` feature, enabled transitively by the facade `query` feature).
 eg-tsdb = { path = "crates/eg-tsdb", optional = true }
+# LTAP lakehouse-interop leaf crate (feature `lake`, CONCEPT:EG-317 / INT-P2-3): Parquet
+# materialization + Delta/Iceberg transaction logs + LSN as-of snapshots + the
+# Iceberg-REST catalog contents. Pulled ONLY behind `lake` (with its OWN `lake`
+# sub-feature, which pins the SAME arrow 53 / parquet 53 already in the tree via
+# `query`/`obs` — no new dependency CLASS), so a default/pi build links none of it. The
+# engine-side seam (`src/server/lake/`) converts real `eg_tsdb::store::SeriesStore`
+# series into `eg_lake::LakeBatch`es and drives the materialize/compact/delete +
+# catalog-registration + OpenLineage-event calls this crate does not (and, per its own
+# docs, deliberately should not) own.
+eg-lake = { path = "crates/eg-lake", optional = true }
 # Optional embedded BM25 full-text index (feature `obs`, CONCEPT:EG-160). Reused
 # DIRECTLY for the per-stream log text index. Pulled (with its `tantivy` backend) only
 # under `obs`; a default/pi build links neither eg-text-directly nor Tantivy. NOTE:
