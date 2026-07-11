@@ -2411,12 +2411,43 @@ mod rls_aware_cache_no_cross_agent_leak {
         }
     }
 
+    /// Bootstrap a `System`-role `"root"` identity via ONE dispatch call while the
+    /// layer has no rules yet (EG-P0-6: `RegisterIdentity` now requires admin
+    /// capability once ANY identity exists — the very first registration is the
+    /// documented back-compat exemption that makes bootstrap possible at all).
+    /// `System` role always holds admin capability, so `root` can register every
+    /// OTHER test identity below. Idempotent (`register_agent` is an upsert), so
+    /// calling it more than once across these tests is harmless.
+    async fn ensure_root(state: &Arc<RwLock<ServerState>>) {
+        let r = dispatch(
+            state,
+            req_as(
+                999_000,
+                "root",
+                Method::RegisterIdentity {
+                    agent_id: "root".into(),
+                    role: AgentRole::System,
+                    teams: vec![],
+                    signature: String::new(),
+                    roles: vec![],
+                },
+            ),
+        )
+        .await;
+        assert!(r.error.is_none(), "root bootstrap failed: {:?}", r.error);
+    }
+
+    /// Register `agent` (a plain `Agent`-role identity, for RLS peer-isolation
+    /// testing) via the already-admin `"root"` caller — NOT via self-registration,
+    /// since EG-P0-6 gates `RegisterIdentity` behind admin capability once `root`
+    /// exists.
     async fn register(state: &Arc<RwLock<ServerState>>, id: u64, agent: &str) {
+        ensure_root(state).await;
         let r = dispatch(
             state,
             req_as(
                 id,
-                agent,
+                "root",
                 Method::RegisterIdentity {
                     agent_id: agent.into(),
                     role: AgentRole::Agent,
