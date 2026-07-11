@@ -6,9 +6,46 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
-## [Unreleased] — EG-P0 Wave 1: capability ledger, WAL durability closure, signed request envelope
+## [2.19.0] - 2026-07-11 — Trustworthy Core (Phase 0)
 
-### Added
+Assimilates the Codex 5.6 audit's P0 findings: acknowledged-write durability, one commit path,
+canonical time-series visibility, an enterprise request envelope, default-deny row security,
+exhaustive audit, and ledger-driven admin scoping. Staged locally (not yet pushed).
+
+### Added (Phase-0 Wave 2)
+- **`MutationPlan` + single commit gateway (EG-P0-2)** — new `src/server/mutation.rs`.
+  `MutationPlan::for_method` is populated straight from `eg_capabilities::policy` (a test asserts the
+  plan never diverges from the ledger), and `commit_mutation` is the one place where authz → idempotency
+  dedup → CDC pre-image → `eg-core` apply → `mark_dirty` → WAL/redb durable commit → CDC emit happen
+  together, declared by policy. Coalescable routed writes (`AddNode`/`RemoveNode`/`AddEdge`/`RemoveEdge`)
+  flow through the per-graph write-coalescer so hot-path batching is preserved. 7 methods routed (their
+  old direct `eg-core` arms are now `unreachable!()` bypass guards); the remaining 131 mutating methods
+  are enumerated machine-visibly by the bypass-guard test as the rollout backlog.
+- **Default-deny RLS + ledger-driven admin scopes + exhaustive audit (EG-P0-6).**
+  `crates/eg-core/src/isolation.rs` gains an `rls_default_deny` posture (flag
+  `EPISTEMIC_GRAPH_RLS_DEFAULT_DENY`, default off): under strict mode an unowned/undecodable row is
+  DENIED unless it carries explicit `_visibility: "public"` (migration note: legacy untagged rows
+  become invisible until backfilled). Admin methods (identity/RBAC/reshard/consensus/backup-restore
+  and any future admin-tier method) are gated once in `dispatch_inner` off
+  `eg_capabilities::policy(m).authz_action` — no parallel table. `src/audit.rs::audit_line` extended
+  from ~7 CRUD arms to the full 64-method durable surface, so every acknowledged mutation emits an
+  immutable audit entry.
+
+### Fixed (Phase-0 Wave 2)
+- **Time-series unification (EG-P0-4).** Cross-modal-committed measurements (written into `graph.redb`
+  SERIES tables) are now materialized into the served `SeriesStore` so they are visible through the
+  public `TsRange`/`TsScan`/UQL read path immediately after commit **and after a full restart**
+  (previously durable-but-unreachable). A narrow crash window between the two redb commits is documented
+  (no reconciliation pass yet).
+- **L10 privilege gap (EG-P0-6).** Eight mutating broker/stream ops (`StreamDeclare`/`StreamPublish`/
+  `StreamTrim`/`StreamCommitOffset`/`PublishConfirmed`/`PublishIdempotent`/`BrokerAckTag`/`BrokerNackTag`)
+  were classified as Read in `access::requires_write` while durable-logging in `wal.rs` — a caller with
+  only READ access could invoke them. Now correctly require write access.
+- **Capability ledger reconciliation (EG-P0-6).** Regenerated `docs/capabilities.generated.md` and the
+  `eg-capabilities` divergence snapshot so the five EG-P0-3-fixed methods are no longer counted as open
+  WAL gaps (23 → 18).
+
+### Added (Phase-0 Wave 1)
 - **`crates/eg-capabilities` (EG-P0-1)** — a new leaf crate (dependency: `eg-types` only) declaring an
   exhaustive, compiler-enforced `MethodPolicy` (mutates / `DurabilityDomain` /
   authz action / idempotent / audited / emits-CDC / txn-participation) for every one of the 337
