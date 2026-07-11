@@ -747,6 +747,12 @@ pub fn gen_ledger() -> String {
             note = note,
         ));
     }
+    // Strip per-line trailing whitespace (the header blockquote hard-wraps with a
+    // trailing space on each continuation line) so the generated ledger matches the
+    // `trailing-whitespace` pre-commit hook — otherwise the hook and the
+    // `generated_ledger_is_not_stale` test fight over the same file forever.
+    let mut out: String = out.lines().map(str::trim_end).collect::<Vec<_>>().join("\n");
+    out.push('\n');
     out
 }
 
