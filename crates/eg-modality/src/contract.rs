@@ -137,9 +137,13 @@ pub trait ConformanceTestable:
 
 /// Generates the E4 conformance test battery for a `ConformanceTestable` type:
 /// round-trip (`txn_stage` -> `decode_staged` -> equality), provenance-family
-/// non-panic, txn-stage/rollback symmetry, and cdc-topic-iff-declared (a declared
-/// topic must be non-empty). Invoke once per pilot, inside a `#[cfg(feature =
-/// "contract")]` module so the tests only build under that opt-in feature:
+/// non-panic, txn-stage/rollback symmetry, cdc-topic-iff-declared (a declared topic
+/// must be non-empty), a malformed-payload codec check, a well-formedness check on
+/// `analytics_ops()`, and — as of EG-P1-1 — registration into the mandatory modality
+/// registry ([`crate::register_modality`]) plus a full [`crate::TckReport`]
+/// generation via [`crate::tck_report`] (the first-class 12-point TCK; see the `tck`
+/// module docs). Invoke once per pilot, inside a `#[cfg(feature = "contract")]`
+/// module so the tests only build under that opt-in feature:
 ///
 /// ```ignore
 /// #[cfg(feature = "contract")]
@@ -236,6 +240,73 @@ macro_rules! modality_conformance_tests {
                         "a DECLARED cdc_topic must not be the empty string (use None instead)"
                     );
                 }
+            }
+
+            // ── EG-P1-1: first-class TCK additions ──────────────────────────────
+
+            /// TCK point (3): a corrupted `Put` payload must decode as `Err`, never
+            /// silently succeed (and `decode_staged` — `serde_json`-backed — never
+            /// panics on malformed input in the first place, only errors).
+            #[test]
+            fn malformed_payload_is_rejected_not_panicked() {
+                let sample = <$T as ConformanceTestable>::conformance_sample();
+                let id = <$T as ConformanceTestable>::conformance_id();
+                let staged = ModalityContract::txn_stage(&sample, id);
+                if staged.kind == $crate::WriteKind::Put {
+                    let mut corrupt = staged.clone();
+                    corrupt.payload = b"\xff\xfe not a valid payload for any codec".to_vec();
+                    let decoded: Result<$T, _> = $crate::decode_staged(&corrupt);
+                    assert!(
+                        decoded.is_err(),
+                        "a malformed Put payload must decode as Err, never silently succeed"
+                    );
+                }
+            }
+
+            /// TCK point (5): every declared `analytics_ops()` entry must be a
+            /// non-empty, well-formed name (empty list is a legitimate "no typed
+            /// query operators" default — an empty STRING entry would not be).
+            #[test]
+            fn typed_query_operators_are_well_formed() {
+                let sample = <$T as ConformanceTestable>::conformance_sample();
+                for op in ModalityContract::analytics_ops(&sample) {
+                    assert!(
+                        !op.is_empty(),
+                        "a declared analytics_ops() entry must not be the empty string"
+                    );
+                }
+            }
+
+            /// EG-P1-1: computing this modality's full 12-point `TckReport` must
+            /// cover EVERY point (never a subset), and registering it must make it
+            /// discoverable via `registered_modalities()` — the mandatory runtime
+            /// registry every `ModalityContract` implementer is now wired into via
+            /// this macro, with no per-pilot edits required.
+            #[test]
+            fn tck_report_is_generated_and_registered() {
+                let sample = <$T as ConformanceTestable>::conformance_sample();
+                let name = ModalityContract::storage_kind(&sample);
+                let report = $crate::tck_report::<$T>();
+                assert_eq!(
+                    report.modality, name,
+                    "tck_report() must report under the modality's OWN storage_kind()"
+                );
+                assert_eq!(
+                    report.results.len(),
+                    $crate::TckPoint::ALL.len(),
+                    "tck_report() must cover EVERY first-class TCK point, not a subset"
+                );
+                $crate::register_modality($crate::ModalityDescriptor {
+                    name,
+                    tck_report: $crate::tck_report::<$T>,
+                });
+                assert!(
+                    $crate::registered_modalities().iter().any(|d| d.name == name),
+                    "register_modality() must make this modality discoverable via registered_modalities()"
+                );
+                // Capture with `cargo test -p <crate> --features contract -- --nocapture`
+                // for the capability-parity view — see eg-modality/README.md.
+                println!("{}", report.render_table());
             }
         }
     };

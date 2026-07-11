@@ -25,37 +25,50 @@
 //! * [`ConformanceTestable`] + [`modality_conformance_tests!`] — the conformance
 //!   harness: implement the trait once per pilot, invoke the macro once, get the
 //!   full test battery (round-trip / provenance non-panic / txn-stage-rollback
-//!   symmetry / cdc-topic-iff-declared) for free.
+//!   symmetry / cdc-topic-iff-declared / …) for free.
+//! * The modality registry (module `registry`) — [`register_modality`] /
+//!   [`registered_modalities`]: the mandatory runtime inventory of every modality
+//!   that has registered itself. `modality_conformance_tests!` now calls
+//!   `register_modality` as part of ITS generated battery, so every existing and
+//!   future `ModalityContract` implementer is wired in for free (EG-P1-1). See
+//!   `registry.rs` module docs for the `linkme`/`inventory`-vs-explicit-call design
+//!   decision.
+//! * [`TckReport`]/[`TckPoint`]/[`TckStatus`] + [`tck_report`] (module `tck`) — the
+//!   first-class 12-point Test Compatibility Kit (EG-P1-1, Codex P1): a
+//!   machine-readable, per-point `Pass`/`NotImplemented` capability report for any
+//!   `ConformanceTestable` modality, computed honestly from what the trait actually
+//!   exposes — no fake green. See `tck.rs` module docs for the full point list and
+//!   which are decidable from the v1 trait shape today.
 //!
-//! ## Retrofit status (v1: pilot only, NOT all 19 crates)
+//! ## Retrofit status
 //!
-//! Implemented (behind each crate's own opt-in `contract` feature, default OFF):
-//! `eg-tensor::Tensor`, `eg-geo::Geometry`.
-//!
-//! **Documented retrofit order for the rest** (see this crate's `README.md` for the
-//! full rationale per step): `eg-tsdb`/`eg-stream` next (both already have a
-//! staging-shaped concept — `StagedSeries`/the CEP window — that maps directly onto
-//! `txn_stage`) -> `eg-rdf` (the reference non-trivial `provenance()`, mapping
-//! `owl::Justification`) -> `eg-epistemic` (the reference "does everything"
-//! implementation once the shape has proven itself on 4 real modalities) -> the
-//! remaining leaf/mid-tier crates (`eg-ann`, `eg-text`, `eg-shacl`, `eg-shex`,
-//! `eg-lake`, `eg-kvcache`, …), lowest-friction (pure-serde leaves) first.
-//!
-//! This crate itself does NOT retrofit anything — it only defines the seam. Adding
-//! it to a crate's `Cargo.toml`/feature list and implementing the trait is each
-//! pilot's own, separate, additive change (see `eg-tensor`/`eg-geo`'s `contract`
-//! feature for the pattern to repeat).
+//! `ModalityContract` (behind each crate's own opt-in `contract` feature, default
+//! OFF) is implemented across most of the modality-shaped leaf crates already:
+//! `eg-tensor::Tensor`, `eg-geo::Geometry`, `eg-tsdb`, `eg-stream`, `eg-rdf`,
+//! `eg-epistemic`, `eg-ann`, `eg-text`, `eg-shacl`, `eg-shex`, `eg-lake`,
+//! `eg-kvcache`, `eg-numeric`, `eg-image`, `eg-audio`, `eg-video`, `eg-compute`,
+//! `eg-core`. See this crate's `README.md` for the full per-crate rationale and any
+//! remaining gaps. This crate itself does NOT retrofit anything — it only defines
+//! the seam (plus, as of EG-P1-1, the registry + TCK every retrofit is now
+//! automatically evaluated against). Adding `eg-modality` to a crate's
+//! `Cargo.toml`/feature list and implementing the trait is each pilot's own,
+//! separate, additive change (see `eg-tensor`/`eg-geo`'s `contract` feature for the
+//! pattern to repeat).
 
 mod contract;
 mod evidence;
 mod provenance;
+mod registry;
 mod rowset;
+mod tck;
 mod txn;
 
 pub use contract::{ConformanceTestable, ModalityContract};
 pub use evidence::EvidenceSpan;
 pub use provenance::Provenance;
+pub use registry::{register_modality, registered_modalities, ModalityDescriptor};
 pub use rowset::RowSetShape;
+pub use tck::{tck_report, TckPoint, TckPointResult, TckReport, TckStatus};
 pub use txn::{decode_staged, encode_staged, StagedWrite, WriteKind};
 
 // Dogfood the harness on a minimal in-crate type so `cargo test -p eg-modality`
