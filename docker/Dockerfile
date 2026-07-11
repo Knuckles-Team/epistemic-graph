@@ -48,7 +48,7 @@ LABEL org.opencontainers.image.title="epistemic-graph" \
 # NOT round-trip through PyPI, so it can build the moment the wheels are built (no
 # dependency on publish-pypi). EG_INSTALL_SPEC is only the FALLBACK (a plain `docker
 # build` with no wheels present pulls the published package from PyPI).
-ARG EG_VERSION=2.20.0
+ARG EG_VERSION=2.21.0
 ARG EG_INSTALL_SPEC="epistemic-graph>=${EG_VERSION}"
 # Directory (relative to the build context) holding CI-built wheels. CI downloads the
 # `wheel-linux-x86_64` + `wheel-linux-aarch64` main-build artifacts here; the install
