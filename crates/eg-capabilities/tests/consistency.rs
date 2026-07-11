@@ -233,6 +233,8 @@ const WAL_DURABILITY_GAP: &[(&str, &str, &str)] = &[
 /// workstream surfaces but does not resolve (no assigned workstream number exists yet for
 /// this bucket -- recommend triaging it as a new EG-P0-x).
 const ACCESS_RS_COVERAGE_GAP: &[(&str, &str, &str)] = &[
+    #[cfg(feature = "jobs")]
+    ("AnalyticsJob", "UNASSIGNED", "self-routes before dispatch_graph_op (own jobs.redb, CONCEPT:INT-P2-1), mirrors RbacAdmin's access.rs coverage gap"),
     ("BlobBegin", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("BlobChunkPut", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("BlobCommit", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
@@ -361,14 +363,17 @@ fn mutates_matches_access_rs_for_every_governed_variant() {
 #[test]
 fn durability_domain_matches_wal_rs_for_the_graph_wal() {
     // wal.rs::is_durable_mutation only knows about the per-graph WAL. `KvRedb`/`BlobRedb`/
-    // `SeriesRedb` are real, but they are DIFFERENT durability domains living in their own
-    // redb files (kv.redb / blob.redb / series.redb) that wal.rs never touches, so those
-    // domains are excluded from this specific cross-check (they are not a wal.rs divergence
-    // at all -- see the module doc on `DurabilityDomain`).
+    // `SeriesRedb`/`JobsRedb` are real, but they are DIFFERENT durability domains living in
+    // their own redb files (kv.redb / blob.redb / series.redb / jobs.redb) that wal.rs never
+    // touches, so those domains are excluded from this specific cross-check (they are not a
+    // wal.rs divergence at all -- see the module doc on `DurabilityDomain`).
     let mut failures = Vec::new();
     for (name, p, _note) in eg_capabilities::ALL_METHODS {
         match p.durability_domain {
-            DurabilityDomain::KvRedb | DurabilityDomain::BlobRedb | DurabilityDomain::SeriesRedb => continue,
+            DurabilityDomain::KvRedb
+            | DurabilityDomain::BlobRedb
+            | DurabilityDomain::SeriesRedb
+            | DurabilityDomain::JobsRedb => continue,
             DurabilityDomain::GraphRedb => {
                 if !WAL_RS_DURABLE_GRAPHREDB.contains(name) {
                     failures.push(format!("{name}: policy says GraphRedb-durable, wal.rs::is_durable_mutation disagrees"));
@@ -466,7 +471,9 @@ fn generated_ledger_is_not_stale() {
 /// is caught here too (in addition to the exhaustive-match compile error in `lib.rs`).
 #[test]
 fn all_methods_table_has_the_expected_variant_count() {
-    assert_eq!(eg_capabilities::ALL_METHODS.len(), 337);
+    // CONCEPT:INT-P2-1: +1 (338) when `jobs` adds `Method::AnalyticsJob`.
+    let expected = if cfg!(feature = "jobs") { 338 } else { 337 };
+    assert_eq!(eg_capabilities::ALL_METHODS.len(), expected);
 }
 
 // Silence "unused" for the `Method` import: it documents which wire-protocol type this

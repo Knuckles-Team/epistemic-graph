@@ -2292,6 +2292,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "eg-jobs"
+version = "0.1.0"
+dependencies = [
+ "eg-core",
+ "eg-types",
+ "hex",
+ "redb",
+ "rmp-serde",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+]
+
+[[package]]
 name = "eg-kvcache"
 version = "0.1.0"
 dependencies = [
@@ -2641,6 +2656,7 @@ dependencies = [
  "eg-epistemic",
  "eg-geo",
  "eg-graphql",
+ "eg-jobs",
  "eg-kvcache",
  "eg-modality",
  "eg-numeric",
