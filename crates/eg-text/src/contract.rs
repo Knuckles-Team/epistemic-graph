@@ -13,7 +13,8 @@
 //! character range.
 
 use eg_modality::{
-    encode_staged, ConformanceTestable, EvidenceSpan, ModalityContract, RowSetShape, StagedWrite,
+    decode_staged, encode_staged, ConformanceTestable, EvidenceSpan, IngestReport,
+    ModalityContract, ModalitySelfTest, RowSetShape, StagedWrite, StorageStats, TckPoint,
 };
 
 use crate::{CitationSpan, TableSpan, TextHit};
@@ -103,6 +104,76 @@ impl ModalityContract for TextHit {
             start: 0,
             end: usize::MAX,
         })
+    }
+
+    // ── EG-P1-1 hooks — real, minimal implementations over TextHit's serialization
+    // and txn staging. TextHit is a query-time result, not a durable store value. ──
+
+    /// Batch ingest = parse a `TextHit` back from its serialized form. Streaming
+    /// is genuinely N/A: a BM25 hit is a scalar query result, not an append stream.
+    fn ingest_report(&self, id: &str) -> IngestReport {
+        let staged = self.txn_stage(id);
+        let batch = match decode_staged::<TextHit>(&staged) {
+            Ok(rt) if rt == *self => ModalitySelfTest::Passed,
+            _ => ModalitySelfTest::Failed,
+        };
+        IngestReport {
+            batch,
+            streaming: ModalitySelfTest::NotApplicable(
+                "a BM25 hit is a scalar query result, not an append stream",
+            ),
+        }
+    }
+
+    /// Real storage stats from the serialized TextHit: logical size from encoded
+    /// length; a TextHit is a single unit so element count is 1. Text search results
+    /// do NOT have a secondary index (the index is maintained separately by the
+    /// Tantivy backend), so `has_secondary_index` is `false`.
+    fn storage_stats(&self, _id: &str) -> Option<StorageStats> {
+        let logical_bytes = encode_staged(self).len() as u64;
+        Some(StorageStats {
+            logical_bytes,
+            element_count: 1,
+            has_secondary_index: false,
+        })
+    }
+
+    /// N/A: TextHit is a query-time result, not a durable store value. There is no
+    /// backup codec — durability is a concern of the underlying Tantivy index, not
+    /// the result value itself.
+    fn backup_selfcheck(&self, _id: &str) -> ModalitySelfTest {
+        ModalitySelfTest::NotApplicable(
+            "a BM25 hit is a query-time result, not a durable store value — durability is maintained by the Tantivy index backend",
+        )
+    }
+
+    /// Simulated single-node crash-and-recover through the txn staging path.
+    /// Stage the hit as an in-txn write; the staged payload IS the WAL record;
+    /// on "restart" replay-decode it and confirm the recovered hit is intact.
+    fn recovery_selfcheck(&self, id: &str) -> ModalitySelfTest {
+        let staged: StagedWrite = self.txn_stage(id);
+        match decode_staged::<TextHit>(&staged) {
+            Ok(recovered) if recovered == *self => ModalitySelfTest::Passed,
+            _ => ModalitySelfTest::Failed,
+        }
+    }
+
+    /// A BM25 hit has no CDC, policy, or provenance of its own (parallel to query
+    /// results from any search backend): CDC is the index's concern; policy is at
+    /// the graph-node layer; provenance/evidence are per-document, not per-hit.
+    fn tck_not_applicable(&self, point: TckPoint) -> Option<&'static str> {
+        match point {
+            TckPoint::CdcDeleteRetentionGc => Some(
+                "a BM25 hit is a query-time result, not a stored value — change-capture/delete/GC is maintained by the Tantivy index backend",
+            ),
+            TckPoint::TenantRowRegionPolicy => Some(
+                "no modality-intrinsic policy surface — tenant/row/region policy is enforced at the graph-node/eg-core::isolation layer that owns the result",
+            ),
+            TckPoint::ProvenanceEvidenceLineage => Some(
+                "a BM25 hit has no derivation history; provenance/evidence are document-level concerns, not per-hit properties",
+            ),
+            _ => None,
+        }
     }
 }
 
