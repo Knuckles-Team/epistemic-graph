@@ -995,6 +995,19 @@ async fn dispatch_graph_op(
         return Response::err(req_id, denied);
     }
 
+    // Mutation-gateway authz context (CONCEPT:EG-P0-2): for a `mutation::
+    // GATEWAY_ROUTED` method, `commit_mutation` re-derives its OWN authz decision
+    // from `(isolation, graph_type, owner)` rather than trusting the check just
+    // above — captured here, before `s`/`entry` drop below, ONLY for the routed
+    // set (an `IsolationLayer` clone is not free, so this is skipped entirely for
+    // the other ~330 methods).
+    let gateway_authz_ctx: Option<crate::server::mutation::GatewayAuthzCtx> =
+        if crate::server::mutation::is_gateway_routed(&method) {
+            Some((s.isolation.clone(), entry.graph_type, entry.owner.clone()))
+        } else {
+            None
+        };
+
     let core = entry.core.clone();
     // Persistence (CONCEPT:EG-KG.storage.kg-kg): clone the durable backend handle under the
     // registry lock so a durable mutation can record itself after it applies, with
@@ -1115,8 +1128,17 @@ async fn dispatch_graph_op(
         }
     }
 
+    // CONCEPT:EG-P0-2: a `mutation::GATEWAY_ROUTED` method is about to be routed
+    // (below, ahead of the write-coalescer) to `try_handle_gateway` →
+    // `commit_mutation`, which performs its OWN WAL/redb `record`/`record_durable`
+    // + CDC emit driven by its `MutationPlan`. Gating these off `is_gateway_routed`
+    // here is what makes that a SINGLE commit rather than a double one — without
+    // this, the legacy tail below would ALSO record/emit the same method a second
+    // time. Every other method's behavior is byte-for-byte unchanged.
     let record_method = match (&persistence, crate::wal::is_durable_mutation(&method)) {
-        (Some(_), true) => Some(method.clone()),
+        (Some(_), true) if !crate::server::mutation::is_gateway_routed(&method) => {
+            Some(method.clone())
+        }
         _ => None,
     };
 
@@ -1126,22 +1148,58 @@ async fn dispatch_graph_op(
     // affected node/edge's CURRENT property blob BEFORE the write applies, so the
     // emitted change carries an accurate `before`. Reads the core directly, so it is
     // correct for both the inline and the coalescer apply paths. No-op (Skip) for a
-    // non-streaming build or a multi-row method (BatchUpdate/ClearGraph).
+    // non-streaming build, a multi-row method (BatchUpdate/ClearGraph), OR a
+    // gateway-routed method (CONCEPT:EG-P0-2 — `commit_mutation` captures its own
+    // pre-image; see the `record_method` comment above for why this is gated the
+    // same way).
     #[cfg(feature = "streaming")]
     let cdc_pre = match (&cdc, crate::wal::is_durable_mutation(&method)) {
-        (Some(_), true) => crate::server::cdc::capture_before(&core, &method),
+        (Some(_), true) if !crate::server::mutation::is_gateway_routed(&method) => {
+            crate::server::cdc::capture_before(&core, &method)
+        }
         _ => crate::server::cdc::CdcPre::Skip,
     };
     // The method is consumed by the dispatch block below; keep its identity for the
     // post-emit (the emit only needs the variant + ids, all cloned by capture_before).
     #[cfg(feature = "streaming")]
-    let cdc_method = if cdc.is_some() && crate::wal::is_durable_mutation(&method) {
+    let cdc_method = if cdc.is_some()
+        && crate::wal::is_durable_mutation(&method)
+        && !crate::server::mutation::is_gateway_routed(&method)
+    {
         Some(method.clone())
     } else {
         None
     };
 
     let response = 'dispatch: {
+        // Mutation-gateway routing (CONCEPT:EG-P0-2): the primary CRUD + agent-
+        // memory writes (`mutation::GATEWAY_ROUTED`) are routed through the
+        // single `commit_mutation` gateway — policy-driven authz + WAL/redb
+        // durability + audit + CDC in ONE call — BEFORE the write-coalescer
+        // below, so a routed method never reaches it (superseding its batching
+        // optimization for this set, a deliberate trade-off for this increment;
+        // see `src/server/mutation.rs`'s module docs) and never reaches the
+        // terminal `graph_ops::try_handle`'s (now-unreachable) direct-mutate
+        // arms either. `record_method`/`cdc_pre`/`cdc_method` above are already
+        // gated off the same `is_gateway_routed` check, so nothing double-
+        // applies. A non-routed method is hidden back unchanged.
+        let method = match handlers::graph_ops::try_handle_gateway(
+            req_id,
+            caller,
+            graph_name,
+            &core,
+            persistence.as_ref(),
+            redb_authoritative,
+            #[cfg(feature = "streaming")]
+            cdc.as_ref(),
+            gateway_authz_ctx.as_ref(),
+            method,
+        )
+        .await
+        {
+            Ok(r) => break 'dispatch r,
+            Err(m) => m,
+        };
         // Per-graph write coalescer (CONCEPT:EG-KG.sharding.per-graph-write-coalescer): the five high-frequency
         // single-op writes are batched onto this graph's writer so M concurrent
         // writers cost ⌈M/batch⌉ topology-lock acquisitions instead of M. The shell
