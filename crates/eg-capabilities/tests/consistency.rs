@@ -11,17 +11,51 @@
 //! built and tested in isolation. `access::requires_write` is `pub(crate)` inside a private
 //! `server::access` submodule of the root `epistemic-graph` binary crate, and pulling that
 //! whole crate in as a dependency here (even a dev-dependency) would defeat the entire point
-//! of keeping this crate a fast, targeted, leaf build. So instead of a live function call,
-//! the constants below are a literal, hand-transcribed snapshot of those four functions'
-//! match arms, each cited by file + function name. If `access.rs`/`wal.rs`/`audit.rs`/
-//! `cdc.rs` change without updating this file, this test will start passing against a STALE
-//! mirror instead of the real thing -- it will not catch that drift by itself.
+//! of keeping this crate a fast, targeted, leaf build -- and would in fact be CIRCULAR
+//! (`epistemic-graph` depends on `eg-capabilities`, not the other way around), so a live call
+//! from *this* crate's own test binary is not just undesirable but architecturally
+//! impossible without inverting that dependency. So instead of a live function call, the
+//! constants below are a literal, hand-transcribed snapshot of those four functions' match
+//! arms, each cited by file + function name. If `access.rs`/`wal.rs`/`audit.rs`/`cdc.rs`
+//! change without updating this file, this test will start passing against a STALE mirror
+//! instead of the real thing -- it will not catch that drift by itself.
 //!
-//! Closing that gap for real (making the mirror unnecessary) is exactly what EG-P0-2/EG-P0-6
-//! are for: once the handlers CONSUME `policy()` instead of their own separate classifiers,
-//! there is only one implementation and nothing left to mirror. That refactor is explicitly
-//! out of scope for EG-P0-1 (this workstream) per the task brief -- this test's job today is
-//! only to prove the two descriptions agree RIGHT NOW, and to print every place they don't.
+//! ## L11 update: where the LIVE half of this now actually lives
+//!
+//! EG-P0-2's `src/server/mutation.rs` (`MutationPlan`/`commit_mutation`/
+//! `commit_conditional_mutation`) is the "handlers CONSUME `policy()`" refactor this doc used
+//! to describe as future work for EG-P0-2/EG-P0-6 -- as of the L11 rollout it covers 74
+//! methods (`mutation::GATEWAY_ROUTED`), spanning plain graph-core CRUD, the message-broker/
+//! stream family, AND both runtime-conditional families (`GraphLearnFit`/`GraphLearnPredict`,
+//! every writeback-capable `Mine*`). Because that refactor lives in `epistemic-graph` (which
+//! CAN depend on this crate), the genuinely LIVE cross-check for the ROUTED set lives there
+//! too, in `src/server/mutation.rs`'s own `#[cfg(test)]` module -- NOT here:
+//!   - `routed_mutation_produces_one_wal_record_one_audit_entry_and_one_cdc_event` /
+//!     `audited_mutation_writes_audit_but_cdc_stays_policy_gated` /
+//!     `broker_family_routed_mutation_is_audited_with_no_cdc` /
+//!     `none_durability_routed_mutation_applies_but_is_not_persisted` drive a routed method
+//!     through the REAL `commit_mutation` against a REAL `RedbBackend` and read the actual
+//!     WAL/redb row + audit chain + CDC feed back, asserting they match `policy(method)` --
+//!     not a second hand-transcribed table.
+//!   - `mining_family_writeback_gates_durability_and_authz` does the same for the RUNTIME-
+//!     CONDITIONAL half specifically: it drives the SAME method (`MineAssociate`) through
+//!     `commit_conditional_mutation` with `writeback` true AND false and asserts the durable/
+//!     audit effect appears ONLY on the `true` call -- the live version of what
+//!     `RUNTIME_CONDITIONAL` below can only describe statically.
+//!   - `routed_methods_plan_is_never_hardcoded_relative_to_policy` asserts, for a
+//!     representative `Method` sample from every routed family, that `MutationPlan::
+//!     for_method(m) == eg_capabilities::policy(m)` field-by-field -- a live equality, not a
+//!     transcription.
+//!   - `gateway_routed_set_matches_mutating_policy_surface` partitions every OTHER mutating
+//!     method into a documented `JUSTIFIED_NA` (real architectural reason: a different commit
+//!     protocol, a non-graph-scoped store, a cross-shard op, ...) or `OPEN_NOT_JUSTIFIED`
+//!     (honest remainder, no blocker) bucket -- an undocumented name is a hard test failure.
+//!
+//! So for the 74 routed methods, THIS file's snapshot mirror is no longer the only
+//! consistency check in the codebase (arguably no longer the interesting one) -- it still
+//! runs and still catches a drift in `access.rs`/`wal.rs`/`audit.rs`/`cdc.rs` for the OTHER
+//! ~264 methods those four functions still solely govern, which is exactly the scope this
+//! crate's leaf-build constraint permits it to check on its own.
 
 use eg_capabilities::DurabilityDomain;
 use eg_types::protocol::Method;
@@ -240,7 +274,6 @@ const ACCESS_RS_COVERAGE_GAP: &[(&str, &str, &str)] = &[
     ("RegisterUdf", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("Reshard", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("Restore", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
-    ("RunRules", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("SendMessage", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("Shutdown", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("StreamCommitOffset", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
