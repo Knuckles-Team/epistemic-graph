@@ -28,6 +28,17 @@ pub struct RaftClusterConfig {
     /// lowest-id node does, and only when its raft store is empty). Computed, not
     /// configured.
     pub is_bootstrap: bool,
+    /// Number of Raft groups THIS node stands up at boot (DIST-P2-2, CONCEPT:EG-KG.sharding.placement-catalog).
+    /// `1` — the default when `EPISTEMIC_GRAPH_RAFT_GROUPS` is unset/absent — keeps
+    /// production startup creating ONLY [`super::DEFAULT_GROUP`], byte-for-byte the
+    /// pre-existing single-group behavior (`node::start` calling
+    /// [`super::multi::MultiRaft::configure_group_ring`] with `groups <= 1` is a
+    /// documented no-op). A value `> 1` additionally stands up groups `1..groups` on
+    /// this node and spreads un-pinned graphs across the full `0..groups` set via the
+    /// tenant-range ring — the [`super::placement::PlacementCatalog`] still takes
+    /// priority over the ring for any graph with an explicit placement entry (see
+    /// [`super::multi::MultiRaft::route_graph`]).
+    pub groups: u64,
 }
 
 impl RaftClusterConfig {
@@ -75,11 +86,14 @@ impl RaftClusterConfig {
         // env). Whether it ACTUALLY initializes is also gated on an empty store at
         // boot, decided in `node::start`.
         let is_bootstrap = peers.keys().next() == Some(&node_id);
+        // DIST-P2-2: optional multi-group production startup.
+        let groups = parse_groups(std::env::var("EPISTEMIC_GRAPH_RAFT_GROUPS").ok())?;
         Ok(Some(Self {
             node_id,
             peers,
             bind_addr,
             is_bootstrap,
+            groups,
         }))
     }
 }
@@ -109,6 +123,22 @@ fn parse_peers(raw: &str) -> Result<PeerMap, String> {
     Ok(peers)
 }
 
+/// Parse `EPISTEMIC_GRAPH_RAFT_GROUPS` (DIST-P2-2): `None`/empty/`"0"` all collapse to
+/// `1` (single-group, unchanged default) rather than erroring — an operator who never
+/// heard of this knob gets EXACTLY today's behavior. A non-empty, non-integer value is
+/// a loud misconfig (same posture as `parse_peers`). Pure (no env access) so it is unit
+/// tested directly without the process-global env-var races a `from_env` test would need.
+fn parse_groups(raw: Option<String>) -> Result<u64, String> {
+    match raw {
+        Some(v) if !v.trim().is_empty() => v
+            .trim()
+            .parse::<u64>()
+            .map_err(|_| format!("EPISTEMIC_GRAPH_RAFT_GROUPS='{v}' is not an integer"))
+            .map(|n| n.max(1)),
+        _ => Ok(1),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -125,5 +155,20 @@ mod tests {
         assert!(parse_peers("oops").is_err());
         assert!(parse_peers("1@a:1,1@b:2").is_err());
         assert!(parse_peers("").is_err());
+    }
+
+    #[test]
+    fn parse_groups_defaults_to_one_when_absent_or_empty_or_zero() {
+        assert_eq!(parse_groups(None).unwrap(), 1);
+        assert_eq!(parse_groups(Some("".into())).unwrap(), 1);
+        assert_eq!(parse_groups(Some("  ".into())).unwrap(), 1);
+        assert_eq!(parse_groups(Some("0".into())).unwrap(), 1);
+    }
+
+    #[test]
+    fn parse_groups_accepts_n_and_rejects_garbage() {
+        assert_eq!(parse_groups(Some("4".into())).unwrap(), 4);
+        assert_eq!(parse_groups(Some(" 7 ".into())).unwrap(), 7);
+        assert!(parse_groups(Some("nope".into())).is_err());
     }
 }
