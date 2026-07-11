@@ -37,6 +37,13 @@ exhaustive audit, and ledger-driven admin scoping. Staged locally (not yet pushe
   public `TsRange`/`TsScan`/UQL read path immediately after commit **and after a full restart**
   (previously durable-but-unreachable). A narrow crash window between the two redb commits is documented
   (no reconciliation pass yet).
+- **Time-series startup reconciliation (L16, CONCEPT:EG-KG.backend.ts-startup-reconcile).** Closes the EG-P0-4 crash
+  window above: `RedbBackend::reconcile_time_series` runs once at boot (after both stores are open,
+  before the server accepts traffic), scans every shard's `graph.redb` SERIES tables, and replays into
+  the served `series.redb` any series whose durable point count hasn't yet converged. An exact multiset
+  point-diff (not a positional "skip the first N" heuristic, which is unsafe when interleaved batches
+  share a time bucket) makes the pass idempotent and duplicate-free — a converged series is skipped with
+  no I/O, so running it twice in a row is a true no-op.
 - **L10 privilege gap (EG-P0-6).** Eight mutating broker/stream ops (`StreamDeclare`/`StreamPublish`/
   `StreamTrim`/`StreamCommitOffset`/`PublishConfirmed`/`PublishIdempotent`/`BrokerAckTag`/`BrokerNackTag`)
   were classified as Read in `access::requires_write` while durable-logging in `wal.rs` — a caller with
