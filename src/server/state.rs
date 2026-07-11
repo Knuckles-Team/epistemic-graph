@@ -234,4 +234,14 @@ pub struct ServerState {
     /// catch-all.
     #[cfg(feature = "kv")]
     pub kv: Option<Arc<crate::server::kv::KvStore>>,
+    /// Arrow dataset-handle registry (CONCEPT:INT-P2-2, feature `dataset-handle`): bounded,
+    /// in-memory, immutable materialized query results addressable by a stable id — the
+    /// engine side of the "engine snapshot → Arrow → external job → signed result
+    /// artifact → transactional writeback" seam for external heavy compute
+    /// (data-science-mcp / a training loop pulling typed Arrow in bulk instead of
+    /// marshalling rows through Python/JSON). Always present (empty) with the feature
+    /// on — handles are process-global, not per-graph. See
+    /// `src/server/dataset_handle.rs`'s module docs.
+    #[cfg(feature = "dataset-handle")]
+    pub dataset_handles: Arc<crate::server::dataset_handle::DatasetHandleRegistry>,
 }

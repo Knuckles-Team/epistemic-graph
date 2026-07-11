@@ -92,6 +92,10 @@ fn seeded_state() -> Arc<RwLock<ServerState>> {
         )),
         #[cfg(feature = "federation")]
         foreign_sources: Arc::new(DashMap::new()),
+        #[cfg(feature = "dataset-handle")]
+        dataset_handles: Arc::new(
+            epistemic_graph::server::dataset_handle::DatasetHandleRegistry::new(),
+        ),
     }))
 }
 
