@@ -1133,6 +1133,15 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     // the configured interval. Both no-op when no persist dir is configured.
     // Boot-time recovery + periodic checkpoint route through the chosen backend
     // (CONCEPT:EG-KG.storage.kg-kg). Both no-op when no persist dir is configured.
+    // Lazy-graph-lifecycle startup opt-in (CONCEPT:EG-KG.sharding.lazy-graph-catalog, DIST-P2-3):
+    // `EPISTEMIC_GRAPH_LAZY_STARTUP=1` swaps the eager `load_all` boot recovery for
+    // a catalog-only scan (`load_catalog`) — every graph's identity is known, but
+    // NO node/edge data hydrates until a graph is actually accessed. OFF by
+    // default: an unset/false value keeps the boot path byte-for-byte the eager
+    // `load_all` it always was, so a small deployment is unaffected.
+    let lazy_startup = std::env::var("EPISTEMIC_GRAPH_LAZY_STARTUP")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
     let persistence_for_load = { state.read().await.persistence.clone() };
     if let Some(p) = &persistence_for_load {
         // One-time legacy → redb migration (CONCEPT:EG-KG.backend.authoritative-dispatch). When authoritative and
@@ -1143,7 +1152,12 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         // read-old→write-new). The old files are LEFT in place as a backstop.
         let authoritative = { state.read().await.redb_authoritative };
         if authoritative {
-            match p.load_all(&state).await {
+            let load_result = if lazy_startup {
+                p.load_catalog(&state).await
+            } else {
+                p.load_all(&state).await
+            };
+            match load_result {
                 Ok(0) => {
                     // Bind `dir` to an OWNED String and DROP the read guard before the
                     // migration body. A `state.read().await` temporary in the `if let`
@@ -1196,6 +1210,12 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                         }
                     }
                 }
+                Ok(n) if lazy_startup => {
+                    info!(
+                        "redb authoritative: cataloged {n} graph(s) from redb (lazy startup — \
+                         CONCEPT:EG-KG.sharding.lazy-graph-catalog, no node/edge data hydrated yet)"
+                    )
+                }
                 Ok(n) => info!("redb authoritative: loaded {n} graph(s) from redb"),
                 Err(e) => tracing::warn!("redb load failed (continuing fresh): {e}"),
             }
@@ -1225,6 +1245,27 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 "redb authoritative: read-through-on-RAM-miss installed (CONCEPT:EG-KG.storage.read-through-seam-exercised) — \
                  per-graph node cap now EVICTS durable nodes (memory bounded, no data loss)"
             );
+
+            // Install the lazy-open durable-material factory (CONCEPT:EG-KG.sharding.lazy-graph-catalog,
+            // DIST-P2-3) — mirrors the read-through wiring just above. Whenever a
+            // catalog-only graph (one `load_catalog` registered but never hydrated,
+            // or one the bounded hot-context cache evicted back to catalog-only)
+            // is next accessed, `server::persistence::cold_offload::lazy_open`
+            // reconstructs its `GraphCore` through this seam — the SAME durable
+            // rows `read_through`/`load_all` already know how to read.
+            let materializer = std::sync::Arc::new(
+                epistemic_graph::server::persistence::read_through::BackendGraphMaterializer::new(
+                    p.clone(),
+                ),
+            );
+            state.write().await.registry.set_materializer(materializer);
+            if lazy_startup {
+                info!(
+                    "lazy-startup: catalog-only boot — graphs materialize on first access \
+                     (CONCEPT:EG-KG.sharding.lazy-graph-catalog); bound residency with \
+                     EPISTEMIC_GRAPH_MAX_RESIDENT_GRAPHS"
+                );
+            }
         }
 
         // ── Time-series STARTUP RECONCILIATION (CONCEPT:EG-KG.backend.ts-startup-reconcile, L16) ──
