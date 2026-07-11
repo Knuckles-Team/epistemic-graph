@@ -15,7 +15,7 @@ name = "eg_query"
 default = []
 # `eg-types/query` surfaces the `Pred`/`JsonPathOp` wire enums the SQL classifier lowers
 # the Postgres/Mongo JSON operators onto (CONCEPT:EG-084) — additive, always on with `sql`.
-sql = ["dep:datafusion", "dep:arrow", "dep:arrow-schema", "dep:tokio", "dep:petgraph", "dep:tracing", "dep:async-trait", "dep:redb", "dep:eg-text", "dep:eg-ann", "eg-types/query"]
+sql = ["dep:datafusion", "dep:arrow", "dep:arrow-schema", "dep:tokio", "dep:petgraph", "dep:tracing", "dep:async-trait", "dep:redb", "dep:eg-text", "dep:eg-ann", "dep:futures-util", "eg-types/query"]
 # Dep-free Cypher subset (CONCEPT:KG-2.179): a hand-written parser compiled to the
 # engine's own primitives (label index, VF2, BFS). Pulls only `petgraph` for the
 # variable-length-path BFS — already in the tree via eg-core, NOT a new heavy dep —
@@ -101,6 +101,15 @@ tracing = { version = "0.1", optional = true }
 # pushdown). DataFusion's `TableProvider` trait is itself `#[async_trait]`; pulled
 # only under `sql`, so it stays out of the lean Pi build.
 async-trait = { version = "0.1", optional = true }
+# CONCEPT:EG-KG.query.streaming-spillable-collect (EG-P1-4) — `StreamExt::next()` to drive
+# DataFusion's `SendableRecordBatchStream` batch-at-a-time instead of `DataFrame::collect()`'s
+# eager whole-result buffering. Already resolved transitively (DataFusion itself depends on
+# it) at the SAME version, so this adds NO new crate to the tree — only a direct `use` path
+# for the trait. `default-features = false` + `std` only: no need for `futures-util`'s
+# executor/io/sink/alloc extras just to call `.next()` on an already-Send stream.
+futures-util = { version = "0.3", optional = true, default-features = false, features = [
+    "std",
+] }
 
 [dev-dependencies]
 # The spike's OUTER reactor mimics the server's multi-thread runtime; the inner

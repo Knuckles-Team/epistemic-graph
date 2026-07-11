@@ -34,12 +34,17 @@ use eg_types::wire::TimeAxis;
 pub struct PlanCtx<'a> {
     pub view: &'a GraphView,
     pub semantic: &'a SemanticStore,
-    /// The lexical BM25 index for the `RankText` / `FuseRrf` ops (CONCEPT:AU-KG.query.text-spatial-time).
-    /// `None` when no text index is configured — a `RankText` then yields no hits
-    /// (the plan degrades, never errs), exactly as an absent embedding does for
-    /// `Rank`. Gated behind `text`, so a non-text build's `PlanCtx` is unchanged.
+    /// The lexical BM25 search surface for the `RankText` / `FuseRrf` ops
+    /// (CONCEPT:AU-KG.query.text-spatial-time / CONCEPT:EG-KG.query.served-text-index-binding). `None` when no text
+    /// index is configured — a `RankText` then yields no hits (the plan degrades,
+    /// never errs), exactly as an absent embedding does for `Rank`. A TRAIT OBJECT
+    /// (not a concrete `eg_text::TextIndex`) so a facade can bind EITHER a
+    /// snapshot-derived index built straight from the queried `GraphView` OR an
+    /// adapter that reaches the server's MAINTAINED persistent index behind a lock
+    /// (see [`TextSource`]'s docs) — the planner does not care which. Gated behind
+    /// `text`, so a non-text build's `PlanCtx` is unchanged.
     #[cfg(feature = "text")]
-    pub text: Option<&'a eg_text::TextIndex>,
+    pub text: Option<&'a dyn TextSource>,
     /// The WASM UDF registry for the `Udf { id }` op (CONCEPT:EG-KG.query.rowset-execution). `None` when no
     /// registry is attached — a `Udf` op then errs (a UDF must be registered to run).
     /// Gated behind `wasm-udf`, so a non-wasm build's `PlanCtx` is unchanged.
@@ -120,6 +125,35 @@ pub struct PlanCtx<'a> {
     /// `PlanCtx` is unchanged.
     #[cfg(feature = "epistemic")]
     pub belief_policy: Option<eg_epistemic::AuthorityPolicy>,
+}
+
+/// The lexical BM25 search surface [`PlanCtx::text`] binds (CONCEPT:EG-KG.query.served-text-index-binding) —
+/// abstracts OVER a concrete `eg_text::TextIndex` so the executor's `RankText`/`FuseRrf`
+/// legs work identically whether the bound index is:
+///   * a plain `eg_text::TextIndex` (an ephemeral snapshot-derived index, or an
+///     in-process test fixture) — searched directly, `&self`, no locking needed; or
+///   * a facade adapter that reaches a MAINTAINED, persistent index living behind a
+///     lock/`Arc` elsewhere (e.g. the server's per-graph `GraphTextIndex`, which is
+///     kept incrementally up to date by the write-coalescer) — the adapter takes
+///     its own lock internally, per call, and returns owned hits.
+///
+/// This is what lets a served query push the lexical leg DOWN into the already-
+/// maintained index instead of paying a snapshot-rebuild on every request — the
+/// same shape [`crate::knowledge_batch`]'s Arrow projection and the vector `Rank`
+/// leg's `SemanticStore` guard-borrow use elsewhere in this workstream (bind the
+/// LIVE structure, don't clone/rebuild it per query).
+#[cfg(feature = "text")]
+pub trait TextSource: Send + Sync {
+    /// BM25 top-`k` for `query` — same contract as `eg_text::TextIndex::search`:
+    /// `(id, bm25_score)` descending, empty on an empty/unparsable query.
+    fn search(&self, query: &str, k: usize) -> Vec<eg_text::TextHit>;
+}
+
+#[cfg(feature = "text")]
+impl TextSource for eg_text::TextIndex {
+    fn search(&self, query: &str, k: usize) -> Vec<eg_text::TextHit> {
+        eg_text::TextIndex::search(self, query, k)
+    }
 }
 
 /// A server-side text→vector embedder (CONCEPT:EG-KG.compute.no-embedder-bound-op) — the seam that resolves a UQL
@@ -275,9 +309,11 @@ impl<'a> PlanCtx<'a> {
         self
     }
 
-    /// Attach a lexical BM25 index so `RankText` / `FuseRrf` ops can run.
+    /// Attach a lexical BM25 [`TextSource`] so `RankText` / `FuseRrf` ops can run —
+    /// either a plain `eg_text::TextIndex` or a facade adapter over a maintained
+    /// persistent index (CONCEPT:EG-KG.query.served-text-index-binding).
     #[cfg(feature = "text")]
-    pub fn with_text(mut self, text: &'a eg_text::TextIndex) -> Self {
+    pub fn with_text(mut self, text: &'a dyn TextSource) -> Self {
         self.text = Some(text);
         self
     }
@@ -412,16 +448,75 @@ pub trait Driver {
 }
 
 /// The serial driver (CONCEPT:EG-KG.query.exec-driver-seam) — reproduces today's execution
-/// EXACTLY: a left fold that seeds an empty [`RowSet`] and applies each op in order via
-/// [`apply`]. This is the behavior [`execute`] had inline before the seam was carved, so
-/// the oracle + snapshot suites are unchanged.
+/// EXACTLY when the runtime feedback loop finds nothing to correct: a left fold that seeds
+/// an empty [`RowSet`] and applies each op in order via [`apply`].
+///
+/// **Adaptive re-optimization is auto-wired here (CONCEPT:EG-KG.query.adaptive-reoptimization), not
+/// opt-in.** After EVERY op the driver compares the RowSet's ACTUAL output length against
+/// the plan-time [`crate::cost::ModalityCardinality`] estimate for that op, and — when they
+/// diverge by more than [`crate::optimizer::ADAPTIVE_REOPT_THRESHOLD`] — hands the
+/// not-yet-executed tail to [`crate::optimizer::reoptimize_remaining`], which re-costs (and,
+/// if beneficial, re-orders) it from the CORRECTED actual cardinality before it runs. Below
+/// the threshold `reoptimize_remaining` is a no-op clone, so ordinary execution (the common
+/// case — plan-time estimates are usually close enough) is byte-for-byte the prior left
+/// fold; the differential oracle (`tests/differential_oracle.rs`) covers this driver, so the
+/// existing answer-preserving proof applies to the auto-wired path too (`reoptimize_remaining`
+/// reuses the SAME `best_permutation`/EG-405-safe machinery `optimize()` already used at
+/// plan time — see that fn's docs).
+///
+/// Gating: like `plan_optimize` itself, this is active by default and driven off the SAME
+/// `EPISTEMIC_GRAPH_COST_OPT` kill-switch ([`crate::optimizer::enabled`]) — a caller who
+/// disabled the plan-time cost optimizer gets its runtime-feedback half disabled too
+/// (`EPISTEMIC_GRAPH_COST_OPT=0` ⇒ the plain left fold, no per-op cardinality bookkeeping).
+/// [`crate::runtime::ParallelDriver`] (the opt-in `par-runtime` feature) does NOT yet run
+/// this loop — see its module docs / the rollout backlog: morsel-parallel execution splits
+/// an op's INPUT across workers, so "the actual cardinality after op i" is not a single
+/// scalar the same way it is here; wiring adaptive re-opt through that scheduler is
+/// follow-up work, not a correctness requirement (the parallel driver already reproduces the
+/// serial driver's RESULT byte-for-byte, just not this LATENCY optimization).
 pub struct SerialDriver;
 
 impl Driver for SerialDriver {
     fn run(&self, ops: &[Op], ctx: &PlanCtx) -> Result<RowSet, String> {
+        if !crate::optimizer::enabled() {
+            // The global cost-optimizer kill-switch also disables the runtime feedback
+            // loop below — byte-for-byte the pre-optimizer left fold.
+            let mut cur = RowSet::new();
+            for op in ops {
+                cur = apply(op, cur, ctx)?;
+            }
+            return Ok(cur);
+        }
+
+        use crate::cost::{Cardinality, ModalityCardinality, PlanStats};
+
+        let card = ModalityCardinality::new(PlanStats::collect(ctx));
         let mut cur = RowSet::new();
-        for op in ops {
-            cur = apply(op, cur, ctx)?;
+        let mut estimated_in = 0.0_f64;
+        // The not-yet-executed op list — `reoptimize_remaining` may replace its TAIL
+        // (everything after the op about to run) each iteration, so this can grow/shrink
+        // in content (never in a way that changes correctness — see the doc above) across
+        // the loop, unlike the plain `ops` slice.
+        let mut remaining: Vec<Op> = ops.to_vec();
+        let mut i = 0;
+        while i < remaining.len() {
+            let op = remaining[i].clone();
+            let estimated_out = card.rows_out(&op, estimated_in, ctx);
+            cur = apply(&op, cur, ctx)?;
+            let actual_out = cur.len() as f64;
+
+            if i + 1 < remaining.len() {
+                let tail = crate::optimizer::reoptimize_remaining(
+                    &remaining[i + 1..],
+                    estimated_out,
+                    actual_out,
+                    &card,
+                    ctx,
+                );
+                remaining.splice(i + 1.., tail);
+            }
+            estimated_in = actual_out;
+            i += 1;
         }
         Ok(cur)
     }
