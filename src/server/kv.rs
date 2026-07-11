@@ -539,6 +539,8 @@ mod dispatch_tests {
             dataset_handles: Arc::new(
                 crate::server::dataset_handle::DatasetHandleRegistry::new(),
             ),
+            #[cfg(feature = "lake")]
+            lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
         }))
     }
 

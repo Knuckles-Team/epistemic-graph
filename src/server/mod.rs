@@ -51,6 +51,15 @@ pub(crate) mod handlers;
 // `eg-capabilities`' MethodPolicy to drive authz + durable-commit + audit + CDC for
 // the GATEWAY_ROUTED mutation set from ONE call site. See its module docs for scope.
 pub(crate) mod mutation;
+// Truth-maintenance change-feed hook (CONCEPT:EG-KG.epistemic.truth-maintenance — EPI-P3-2's
+// server-side wiring, `eg-epistemic::recompute`'s module-doc "Follow-up: wiring a live
+// CDC hook"): maps a committed base-fact delete/update `Method` onto a
+// `eg_epistemic::ChangeEvent` and feeds it to a process-global `TruthMaintenance`
+// index, mirroring the CDC-emit call sites in `mutation::commit_finalize` (step 7) and
+// this module's own dispatch tail. Behind `epistemic-tms`; a build without it compiles
+// none of this and pays nothing on the write path.
+#[cfg(feature = "epistemic-tms")]
+pub mod tms_hook;
 // X5-enforce (CONCEPT:EG-KG.ontology.rdf-update-guard): wires the EXISTING eg-shacl ICV
 // commit guard onto the live RDF write path (AddTriples/RemoveTriples/ApplyMutation).
 // Pure-Rust (no new dep — `eg-shacl` + `std::sync::OnceLock`), gated `shacl`; a build
@@ -356,6 +365,8 @@ mod tests {
             dataset_handles: std::sync::Arc::new(
                 crate::server::dataset_handle::DatasetHandleRegistry::new(),
             ),
+            #[cfg(feature = "lake")]
+            lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
         }))
     }
 
@@ -1465,6 +1476,8 @@ mod tests {
             foreign_sources: std::sync::Arc::new(dashmap::DashMap::new()),
             #[cfg(feature = "kv")]
             kv: None,
+            #[cfg(feature = "lake")]
+            lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
         }));
 
         // __commons__ starts dirty → the first checkpoint writes exactly it.
@@ -1559,6 +1572,8 @@ mod tests {
             foreign_sources: std::sync::Arc::new(dashmap::DashMap::new()),
             #[cfg(feature = "kv")]
             kv: None,
+            #[cfg(feature = "lake")]
+            lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
         }));
 
         assert_ok(&dispatch(&state, request(1, "__commons__", None, add_node("x"))).await);
@@ -1659,6 +1674,8 @@ mod tests {
             foreign_sources: std::sync::Arc::new(dashmap::DashMap::new()),
             #[cfg(feature = "kv")]
             kv: None,
+            #[cfg(feature = "lake")]
+            lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
         }));
 
         crate::persist::load_all(&state, None).await.unwrap();
@@ -1861,6 +1878,8 @@ mod tests {
             foreign_sources: std::sync::Arc::new(dashmap::DashMap::new()),
             #[cfg(feature = "kv")]
             kv: None,
+            #[cfg(feature = "lake")]
+            lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
         }));
 
         // Pre-seed g_hot's per-graph semaphore and hold its only permit, simulating

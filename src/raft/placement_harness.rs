@@ -86,6 +86,8 @@ async fn make_state(dir: &str, backend: Arc<dyn PersistenceBackend>) -> Arc<RwLo
         foreign_sources: std::sync::Arc::new(dashmap::DashMap::new()),
         #[cfg(feature = "kv")]
         kv: None,
+        #[cfg(feature = "lake")]
+        lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
     }))
 }
 

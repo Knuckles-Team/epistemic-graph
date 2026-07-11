@@ -139,6 +139,8 @@ fn state() -> Arc<RwLock<ServerState>> {
         dataset_handles: std::sync::Arc::new(
             epistemic_graph::server::dataset_handle::DatasetHandleRegistry::new(),
         ),
+        #[cfg(feature = "lake")]
+        lake: std::sync::Arc::new(epistemic_graph::server::lake::LakeManager::new()),
     }))
 }
 
