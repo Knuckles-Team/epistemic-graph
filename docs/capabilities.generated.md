@@ -315,7 +315,7 @@
 | `OwlReason` | false | None | `owl:read` | true | false | false | Snapshot |  |
 | `OwlReasonDistributed` | false | None | `owl:read` | true | false | false | Snapshot |  |
 | `OwlExplain` | false | None | `owl:read` | true | false | false | Snapshot |  |
-| `RunRules` | ~true | None | `reasoning:write` | false | false | false | Atomic | NOT present in access.rs's write classifier at all despite being the sibling of RunDatalogReasoning (which IS); policy marks it mutates=true on semantic grounds -- flagged as a possible access.rs coverage gap, not yet confirmed against the handler |
+| `RunRules` | false | None | `reasoning:read` | true | false | false | Snapshot | READ-ONLY (EG-P0-2/L11 handler audit): handle_run_rules reasons over an off-lock analysis_snapshot and returns inferred triples, no writeback -- unlike its sibling RunDatalogReasoning which materialises in-place. Corrected from a prior mutates=true semantic guess; now agrees with access.rs (never a write there) |
 | `ShaclValidate` | false | None | `validation:read` | true | false | false | Snapshot |  |
 | `IcvConfigure` | ~true | None | `security:admin` | true | false | false | Atomic | write per access.rs but absent from wal.rs durable set (EG-P0-3); a build without `security` drops audit entirely |
 | `ShexValidate` | false | None | `validation:read` | true | false | false | Snapshot |  |
