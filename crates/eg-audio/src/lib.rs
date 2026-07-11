@@ -29,6 +29,14 @@
 //! `eg_modality::EvidenceSpan::AudioSegment` from the first stored segment (or `None`
 //! when the recording carries no segment index yet — never fabricated). See
 //! `src/contract.rs`.
+//!
+//! ## `runtime` (CONCEPT:EG-P1-3, OPT-IN, default OFF)
+//!
+//! `src/runtime.rs`, behind the crate's own `runtime` feature: codec/waveform-
+//! window/spectrogram/VAD/diarization/transcript-alignment TRAITS + typed
+//! artifacts — a trait-definition layer only, adding NO new dependency even when
+//! the feature is on (a real codec/model is a separate plugin crate/service). See
+//! `src/runtime.rs` module docs.
 
 mod audio;
 mod header;
@@ -38,5 +46,30 @@ mod header;
 #[cfg(feature = "contract")]
 mod contract;
 
+// OPT-IN runtime seam (CONCEPT:EG-P1-3): codec/waveform-window/spectrogram/VAD/
+// diarization/transcript-alignment traits + typed artifacts, behind the crate's
+// own `runtime` feature (default OFF, no new dependency).
+#[cfg(feature = "runtime")]
+pub mod runtime;
+
 pub use audio::{AudioData, AudioSegment};
 pub use header::{content_hash, read_wav_header, WavInfo};
+
+// CONCEPT:EG-P1-3 — the small-footprint default is sacred: neither `codec` nor
+// `runtime` is ever implied by `default`, so a plain `cargo build -p eg-audio`
+// links no heavy audio dependency. Asserted here as an executable regression
+// check (see `eg-image`'s identical guardrail for the full rationale).
+#[cfg(all(test, not(any(feature = "codec", feature = "runtime"))))]
+mod default_build_guardrail {
+    #[test]
+    fn default_build_has_neither_codec_nor_runtime_on() {
+        assert!(
+            !cfg!(feature = "codec"),
+            "the `codec` feature must stay opt-in, never part of `default`"
+        );
+        assert!(
+            !cfg!(feature = "runtime"),
+            "the `runtime` feature must stay opt-in, never part of `default`"
+        );
+    }
+}
