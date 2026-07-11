@@ -935,10 +935,13 @@ async fn commit(
 /// `Bool(false)` (true rollback); on durable failure returns an ERROR.
 ///
 /// The graph modalities (nodes/edges/axioms/CONSTRUCT/vectors/blob-refs) are mirrored
-/// into the in-memory model after the durable commit. Measurements are DURABLE-ONLY in
-/// this lane (they live in `graph.redb`'s SERIES tables, exposed readably on
-/// `GraphTxnState.measurements`); wiring them into the served/query read path is the
-/// Lane A overlay + Lane C `TsScan` reconcile step.
+/// into the in-memory model after the durable commit. Measurements land durably in
+/// `graph.redb`'s SERIES tables (atomic with the rest, per the barrier above) AND are
+/// then replayed into the SERVED `series.redb` (`state.tsdb_store`) so `TsRange`/
+/// `TsAsofJoin`/`TsWindow`/`TsGapFill` and UQL `Op::TsScan` — which only ever read the
+/// served store — actually see them post-commit (CONCEPT:EG-KG.backend.ts-served-materialize, EG-P0-4). See the
+/// materialization step in [`commit_cross_modal_txn`] for the exact guarantee and the
+/// remaining non-atomic boundary (a crash strictly between the two commits).
 async fn commit_cross_modal(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
@@ -1149,6 +1152,62 @@ pub(crate) async fn commit_cross_modal_txn(
         let mut store = core.semantic_store.write();
         for (node_id, embedding) in &txn.vectors {
             store.add_embedding(node_id.clone(), embedding.clone());
+        }
+    }
+    // ── Time-series SERVED read-path materialization (CONCEPT:EG-KG.backend.ts-served-materialize, EG-P0-4) ──
+    // The atomic barrier above already landed `measurements` durably in `graph.redb`'s
+    // SERIES tables (atomic WITH the graph/vector/blob write — see `commit_crossmodal`'s
+    // doc comment in `redb_store.rs`). But redb holds an EXCLUSIVE per-process file
+    // lock, so `graph.redb` and the SERVED `series.redb` (`state.tsdb_store` — what
+    // `TsRange`/`TsAsofJoin`/`TsWindow`/`TsGapFill` and UQL `Op::TsScan` actually read,
+    // see `handlers::timeseries` + `eg_plan::exec::tsdb_scan_op`) are two DIFFERENT
+    // `Database` handles that can never share one `WriteTransaction` — true one-commit
+    // atomicity across both files isn't achievable without a real 2PC or merging them
+    // into one file/writer (a larger follow-up, not this increment).
+    //
+    // We only ever reach this line once the graph.redb commit above has SUCCEEDED (an
+    // OCC conflict or a durable-commit error both `return` earlier), so this is not
+    // reached for a txn that didn't truly land. Given that, this is the CANONICAL path
+    // chosen for this workstream: replay the SAME already-durable batch into the served
+    // store as a second, immediate durable write, via the existing
+    // `SeriesStore::append_batch` (unmodified) — reusing the write path verbatim rather
+    // than teaching the read side to fan out across every durable shard for an opaque,
+    // graph-less `series_id`.
+    //
+    // Guarantee this gives: a cross-modal-committed measurement is visible through the
+    // PUBLIC `Ts*`/`Op::TsScan` read path immediately after `Commit` acks, AND — because
+    // `SeriesStore::append_batch` is itself a committed redb `WriteTransaction` on
+    // `series.redb` — still visible after a full process restart (the served store is
+    // reopened from disk, not rebuilt from RAM).
+    //
+    // Remaining non-atomic boundary (documented, not hidden): a process crash strictly
+    // BETWEEN the two commits leaves the measurement durable in `graph.redb` (the
+    // authoritative, atomic copy — recoverable) but NOT YET reflected in `series.redb`;
+    // there is no automated reconciliation pass for that narrow window yet. This trades
+    // a permanent, unconditional invisibility (the prior state of the gap) for a
+    // crash-window-only staleness, which is the correctness improvement this
+    // workstream delivers.
+    #[cfg(feature = "tsdb")]
+    if !measurements.is_empty() {
+        if let Some(store) = state.read().await.tsdb_store.clone() {
+            for (series, n_fields, bucket_ns, field_names, points) in &measurements {
+                let pts: Vec<eg_tsdb::point::Point> = points
+                    .iter()
+                    .map(|(ts, values)| eg_tsdb::point::Point {
+                        ts: *ts,
+                        values: values.clone(),
+                    })
+                    .collect();
+                if let Err(e) =
+                    store.append_batch(series, *n_fields, *bucket_ns, field_names, &pts)
+                {
+                    tracing::error!(
+                        "cross-modal measurement for series '{series}' is durable in \
+                         graph.redb but failed to materialize into the served \
+                         time-series store: {e}"
+                    );
+                }
+            }
         }
     }
     core.mark_dirty();

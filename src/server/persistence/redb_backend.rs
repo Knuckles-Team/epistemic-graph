@@ -4382,6 +4382,182 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// EG-P0-4 (CONCEPT:EG-KG.backend.ts-served-materialize) — the canonical time-series
+    /// read-path unification proof. A measurement committed through the cross-modal txn
+    /// path (staged alongside a plain node write in ONE txn — a measurement alone already
+    /// makes a txn cross-modal per `GraphTxnState::is_cross_modal`) is:
+    ///  1. durable in `graph.redb`'s SERIES tables (the pre-existing atomic barrier,
+    ///     unchanged — verified directly against that file, exactly like
+    ///     `five_modality_atomic_commit`);
+    ///  2. ALSO visible through the PUBLIC `Method::TsRange` read path immediately after
+    ///     `Commit` acks — the actual gap this workstream closes (before, a cross-modal
+    ///     measurement was durable yet permanently unreachable from `TsRange`/`TsScan`);
+    ///  3. STILL visible via `TsRange` after a full process restart (drop + reopen BOTH
+    ///     the redb backend AND the served time-series store from the same persist dir,
+    ///     on a brand-new `ServerState`) — proving the served-store materialization is
+    ///     itself a committed durable write, not an in-memory-only mirror that a restart
+    ///     would lose.
+    #[cfg(feature = "tsdb")]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn crossmodal_measurement_visible_via_public_tsrange_post_commit_and_restart() {
+        use crate::protocol::{Request, ResultPayload};
+        use crate::server::{compute_auth_token, dispatch};
+        use eg_tsdb::store::SeriesStore;
+
+        const SECRET: &str = "ts-unify-secret";
+        let dir = cm_dir("ts-unify");
+        let points = vec![
+            (1_000_000_000i64, vec![10.0]),
+            (2_000_000_000i64, vec![20.0]),
+            (3_000_000_000i64, vec![30.0]),
+        ];
+
+        let backend: Arc<dyn PersistenceBackend> =
+            Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 64).unwrap());
+        let series_store =
+            Arc::new(SeriesStore::open_in_dir(std::path::Path::new(&dir)).unwrap());
+        let state = new_state_auth(Some(dir.clone()), true);
+        {
+            let mut s = state.write().await;
+            s.auth_secret = SECRET.to_string();
+            let _ = s.registry.create_graph("media", GraphType::Global, None);
+            s.persistence = Some(backend.clone());
+            s.tsdb_store = Some(series_store.clone());
+        }
+
+        let req = |id: u64, method: Method| Request {
+            id,
+            graph: "__commons__".to_string(),
+            auth_token: compute_auth_token(SECRET, id),
+            agent_id: None,
+            method,
+        };
+
+        // Stage a node + a measurement in ONE cross-modal txn, then commit.
+        let begin = dispatch(
+            &state,
+            req(
+                1,
+                Method::BeginTxn {
+                    graph: Some("media".to_string()),
+                    isolation: None,
+                },
+            ),
+        )
+        .await;
+        let txn_id = match begin.result {
+            Some(ResultPayload::String(id)) => id,
+            other => panic!("BeginTxn id, got {other:?}"),
+        };
+        let r = dispatch(
+            &state,
+            req(
+                2,
+                Method::TxnAddNode {
+                    txn_id: txn_id.clone(),
+                    node_id: "m1".into(),
+                    properties_msgpack: props(serde_json::json!({"type": "Sensor"})),
+                    graph: None,
+                },
+            ),
+        )
+        .await;
+        assert!(r.error.is_none(), "stage node: {:?}", r.error);
+        let r = dispatch(
+            &state,
+            req(
+                3,
+                Method::TxnAddMeasurement {
+                    txn_id: txn_id.clone(),
+                    series: "sensor.ts-unify".to_string(),
+                    // Encoded inline (NOT the `sparql`-gated `meas_points` helper) so this
+                    // test only needs `tsdb`, matching the `#[cfg]` above.
+                    points: rmp_serde::to_vec(&points).unwrap(),
+                    graph: None,
+                },
+            ),
+        )
+        .await;
+        assert!(r.error.is_none(), "stage measurement: {:?}", r.error);
+
+        let commit = dispatch(&state, req(4, Method::Commit { txn_id })).await;
+        assert_eq!(as_bool(commit), Some(true), "cross-modal commit must succeed");
+
+        // (1) POST-COMMIT visibility through the PUBLIC TsRange read path (the served
+        // series.redb) — the actual gap this workstream closes. Checked FIRST, while
+        // `backend`/`series_store` are both still live (they're two independent redb
+        // files/handles, so no lock conflict).
+        let ts_range = || {
+            req(
+                5,
+                Method::TsRange {
+                    series_id: "sensor.ts-unify".to_string(),
+                    from: 0,
+                    to: i64::MAX,
+                },
+            )
+        };
+        let decode_ts = |r: Response| -> Vec<(i64, Vec<f64>)> {
+            assert!(r.error.is_none(), "TsRange error: {:?}", r.error);
+            match r.result {
+                Some(ResultPayload::Raw(bytes)) => rmp_serde::from_slice(&bytes).unwrap(),
+                other => panic!("expected Raw TsRange result, got {other:?}"),
+            }
+        };
+        let got = decode_ts(dispatch(&state, ts_range()).await);
+        assert_eq!(
+            got, points,
+            "measurement committed via the cross-modal txn path must be visible through \
+             the PUBLIC TsRange API immediately after Commit"
+        );
+
+        // (2) Durable in graph.redb too — the pre-existing atomic barrier, unchanged.
+        // redb holds an EXCLUSIVE per-process file lock, so `backend` (which owns the
+        // live `graph.redb` handle) must release it first — exactly the ordering
+        // `five_modality_atomic_commit` uses to open a second, direct handle on the
+        // same file.
+        backend.shutdown();
+        drop(backend);
+        {
+            let series_db =
+                SeriesStore::open(std::path::Path::new(&dir).join("graph.redb").as_path())
+                    .unwrap();
+            let meta = series_db
+                .meta("sensor.ts-unify")
+                .unwrap()
+                .expect("measurement durable in graph.redb");
+            assert_eq!(meta.count, 3, "all 3 points durable in graph.redb");
+        }
+
+        // (3) RESTART: drop + reopen BOTH stores from the SAME persist dir on a FRESH
+        // ServerState, then re-run the SAME public TsRange call.
+        drop(series_store);
+        drop(state);
+
+        let backend2: Arc<dyn PersistenceBackend> =
+            Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 64).unwrap());
+        let state2 = new_state_auth(Some(dir.clone()), true);
+        backend2.load_all(&state2).await.unwrap();
+        let series_store2 =
+            Arc::new(SeriesStore::open_in_dir(std::path::Path::new(&dir)).unwrap());
+        {
+            let mut s = state2.write().await;
+            s.auth_secret = SECRET.to_string();
+            s.persistence = Some(backend2.clone());
+            s.tsdb_store = Some(series_store2.clone());
+        }
+
+        let got2 = decode_ts(dispatch(&state2, ts_range()).await);
+        assert_eq!(
+            got2, points,
+            "measurement must STILL be visible through the PUBLIC TsRange API after a \
+             full restart (served store reopened from disk, not rebuilt from RAM)"
+        );
+
+        backend2.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// AuditVerify dispatch round-trip (CONCEPT:EG-KG.sharding.row-level-security): durable writes build a
     /// hash-chained audit log; `Method::AuditVerify` over the served dispatch returns
     /// `ok=true`; tampering an entry makes the served verify report the break.
