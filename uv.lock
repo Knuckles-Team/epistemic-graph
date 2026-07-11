@@ -184,6 +184,12 @@ all = [
     { name = "pytest-timeout" },
     { name = "pytest-xdist" },
 ]
+full = [
+    { name = "httpx" },
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "pyoxigraph" },
+]
 lmcache = [
     { name = "httpx" },
 ]
@@ -208,6 +214,7 @@ test = [
 
 [package.metadata]
 requires-dist = [
+    { name = "epistemic-graph", extras = ["owl", "lmcache", "numeric"], marker = "extra == 'full'" },
     { name = "epistemic-graph", extras = ["test", "owl", "quant", "finance", "ast", "datascience", "reasoning", "server", "full", "lmcache", "numeric"], marker = "extra == 'all'" },
     { name = "httpx", marker = "extra == 'lmcache'", specifier = ">=0.24.0" },
     { name = "msgpack", specifier = ">=1.0.0" },
