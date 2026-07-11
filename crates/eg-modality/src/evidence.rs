@@ -48,6 +48,21 @@ pub enum EvidenceSpan {
         width: f64,
         height: f64,
     },
+    /// A rectangular box on ONE page of a paged document (CONCEPT:EG-X1) — e.g.
+    /// "PDF page N, box (x,y,w,h)". Distinct from [`Self::DocumentSpan`]: that
+    /// variant locates a CHARACTER range irrespective of page/layout; this one
+    /// locates a VISUAL region on a specific page (the citation shape a
+    /// PDF/scanned-document viewer needs to highlight exactly where a claim's
+    /// evidence sits), independent of whether the underlying text was even
+    /// successfully extracted at that spot.
+    PageBox {
+        document_id: String,
+        page: u32,
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+    },
     /// A time range (milliseconds) inside an audio recording.
     AudioSegment {
         audio_id: String,

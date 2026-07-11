@@ -23,7 +23,7 @@ const DEFAULT_PRIOR: f64 = 0.5;
 /// Depth cap for the justification tree, so `EXPLAIN BELIEF` terminates on a deep or
 /// cyclic evidence graph (the belief number itself is exact; only the rendered tree is
 /// depth-bounded).
-const MAX_EXPLAIN_DEPTH: usize = 32;
+pub(crate) const MAX_EXPLAIN_DEPTH: usize = 32;
 /// Default credible-mass for [`Calibration::level`] (EPI-P3-3) — the conventional
 /// 95% central credible interval, consistent with the `Distribution::credible_interval`
 /// doc-tested default elsewhere in the engine.
