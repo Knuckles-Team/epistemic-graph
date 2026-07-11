@@ -52,10 +52,11 @@ pub fn manifest_file_path(location: &str, snapshot_id: i64) -> String {
     format!("{location}/metadata/snap-{snapshot_id}-m0.avro")
 }
 
-/// The Iceberg typed schema for a [`LakeSchema`] with 1-based field ids
-/// (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns). `pub(crate)` so the Avro manifest writer embeds the identical
-/// schema JSON in the manifest file's metadata (CONCEPT:EG-KG.storage.eg-iceberg-avro-manifest).
-pub(crate) fn iceberg_schema(schema: &LakeSchema) -> Value {
+/// The Iceberg typed schema for a [`LakeSchema`] with 1-based field ids and the given
+/// `schema-id` (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns, CONCEPT:EG-KG.storage.iceberg-per-file-schema-id). `pub(crate)` so the Avro
+/// manifest writer embeds the identical schema JSON in the manifest file's metadata
+/// (CONCEPT:EG-KG.storage.eg-iceberg-avro-manifest).
+pub(crate) fn iceberg_schema(schema: &LakeSchema, schema_id: i32) -> Value {
     let fields: Vec<Value> = schema
         .fields
         .iter()
@@ -69,18 +70,28 @@ pub(crate) fn iceberg_schema(schema: &LakeSchema) -> Value {
             })
         })
         .collect();
-    json!({ "type": "struct", "schema-id": 0, "fields": fields })
+    json!({ "type": "struct", "schema-id": schema_id, "fields": fields })
 }
 
 /// Build the Iceberg `metadata.json` (real) + a manifest JSON stub for the file set
 /// live as of the snapshot's current LSN (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns).
+///
+/// `schema_versions` is EVERY schema version the table has ever used, oldest first
+/// (CONCEPT:EG-KG.storage.iceberg-per-file-schema-id, INT-P2-4) — rendered into `schemas[]` in full, so an external
+/// reader sees the whole schema-evolution history, not just today's shape.
+/// `current_schema_id` is the id in effect for NEW writes (`schema_versions`'s last
+/// entry); each LIVE data-file's manifest-preview entry carries the schema-id it was
+/// ACTUALLY written under ([`crate::snapshot::FileEntry::schema_id`]) rather than
+/// always the current one, so a rewrite that lands new files under a newer schema
+/// never relabels the older, still-live files' history.
 ///
 /// `table_uuid` is the stable Iceberg table id; `location` is the table root on the
 /// object store (the Parquet files + `metadata/` live under it); `timestamp_ms` stamps
 /// the snapshot deterministically. The Iceberg snapshot id is derived from the engine
 /// LSN so the two version lines stay correlated.
 pub fn build_iceberg(
-    schema: &LakeSchema,
+    schema_versions: &[(i32, LakeSchema)],
+    current_schema_id: i32,
     snapshot: &SnapshotLog,
     table_uuid: &str,
     location: &str,
@@ -88,7 +99,12 @@ pub fn build_iceberg(
 ) -> IcebergTable {
     let lsn: Lsn = snapshot.current_lsn();
     let snapshot_id: i64 = lsn.value() as i64;
-    let last_column_id = schema.len() as i64;
+    let current_schema = schema_versions
+        .iter()
+        .find(|(id, _)| *id == current_schema_id)
+        .map(|(_, s)| s)
+        .or_else(|| schema_versions.last().map(|(_, s)| s));
+    let last_column_id = current_schema.map(|s| s.len() as i64).unwrap_or(0);
 
     let manifest_list = manifest_list_path(location, snapshot_id);
     let metadata_location = format!("{location}/metadata/v{snapshot_id}.metadata.json");
@@ -111,6 +127,10 @@ pub fn build_iceberg(
                     "record_count": f.num_rows,
                     "file_size_in_bytes": f.size_bytes,
                     "partition": {},
+                    // The schema-id THIS file was actually written under (CONCEPT:EG-KG.storage.iceberg-per-file-schema-id)
+                    // -- may be OLDER than `current_schema_id` for a live file that
+                    // predates a later evolve_add_column and hasn't been rewritten yet.
+                    "schema-id": f.schema_id,
                 }
             })
         })
@@ -120,7 +140,7 @@ pub fn build_iceberg(
         "_note": "JSON preview; the real Avro manifest is written by iceberg_avro (CONCEPT:EG-KG.storage.eg-iceberg-avro-manifest)",
         "manifest_list": manifest_list,
         "manifest_file": manifest_file_path(location, snapshot_id),
-        "schema-id": 0,
+        "schema-id": current_schema_id,
         "snapshot-id": snapshot_id,
         "entries": data_files,
     })
@@ -137,8 +157,18 @@ pub fn build_iceberg(
             "epistemic-graph-lsn": lsn.value().to_string(),
         },
         "manifest-list": manifest_list,
-        "schema-id": 0,
+        // The schema-id in effect for THIS commit (CONCEPT:EG-KG.storage.iceberg-per-file-schema-id) -- new commits
+        // always write under the CURRENT schema; older, not-yet-rewritten live files
+        // keep their own (possibly older) schema-id on their manifest entry above.
+        "schema-id": current_schema_id,
     });
+
+    // Full schema-evolution history (CONCEPT:EG-KG.storage.iceberg-per-file-schema-id) -- every version this table has
+    // ever used, each correctly tagged with ITS OWN schema-id (not always 0).
+    let schemas: Vec<Value> = schema_versions
+        .iter()
+        .map(|(id, s)| iceberg_schema(s, *id))
+        .collect();
 
     let metadata = json!({
         "format-version": 2,
@@ -147,8 +177,8 @@ pub fn build_iceberg(
         "last-sequence-number": snapshot_id,
         "last-updated-ms": timestamp_ms,
         "last-column-id": last_column_id,
-        "current-schema-id": 0,
-        "schemas": [iceberg_schema(schema)],
+        "current-schema-id": current_schema_id,
+        "schemas": schemas,
         "default-spec-id": 0,
         "partition-specs": [ { "spec-id": 0, "fields": [] } ],
         "last-partition-id": 999,

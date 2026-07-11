@@ -471,8 +471,10 @@ fn generated_ledger_is_not_stale() {
 /// is caught here too (in addition to the exhaustive-match compile error in `lib.rs`).
 #[test]
 fn all_methods_table_has_the_expected_variant_count() {
-    // CONCEPT:INT-P2-1: +1 (338) when `jobs` adds `Method::AnalyticsJob`.
-    let expected = if cfg!(feature = "jobs") { 338 } else { 337 };
+    // CONCEPT:INT-P2-1: +1 (338/339) when `jobs` adds `Method::AnalyticsJob`.
+    // CONCEPT:EG-KG.sharding.placement-route-rpc (DIST-P2-4): +1 (338 base) for the
+    // always-in-the-enum `Method::PlacementRoute`.
+    let expected = if cfg!(feature = "jobs") { 339 } else { 338 };
     assert_eq!(eg_capabilities::ALL_METHODS.len(), expected);
 }
 

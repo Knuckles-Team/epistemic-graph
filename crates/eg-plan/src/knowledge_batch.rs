@@ -78,6 +78,33 @@
 //! place — needs a resumable [`crate::exec::Driver`], not a `KnowledgeBatch`-shape
 //! change; that is listed in the rollout backlog (EG-P1-4), out of this
 //! workstream's scope.
+//!
+//! ## Chunk-driven Arrow IPC encoding (CONCEPT:EG-P1-5, INT-P2-5)
+//!
+//! [`ChunkedKnowledgeCursor::to_arrow_ipc_stream`] closes the OTHER honest gap the
+//! INT-P2-2 dataset-handle Arrow export shares with this module: both convert a
+//! whole already-computed result to Arrow in ONE pass — `KnowledgeBatch::
+//! to_record_batch` builds ONE `RecordBatch` from every row at once, and
+//! `dataset_handle.rs` holds the FULL `Vec<RecordBatch>` in memory for the
+//! lifetime of the handle. `to_arrow_ipc_stream` re-drives THIS cursor's existing
+//! `next_chunk` loop while writing straight into an `arrow::ipc::writer::
+//! StreamWriter`, so only one chunk's rows and one chunk's `RecordBatch` are ever
+//! alive at once during ENCODING — a real, resumable, chunk-at-a-time PRODUCER for
+//! the Arrow wire format, built entirely from the EG-P1-4 primitive above. It does
+//! NOT re-drive the underlying plan `Op` chain per chunk (the `KnowledgeSet` this
+//! cursor was built from is still one materialize-once `RowSet`/`KnowledgeSet`
+//! pass) — that deeper producer-side cursor still needs a resumable
+//! [`crate::exec::Driver`] and remains the documented follow-up above; this closes
+//! the ENCODING half with what already exists.
+//!
+//! Honest scope note: `dataset_handle.rs`'s OWN `Vec<RecordBatch>` export (built
+//! straight from `eg_query::exec_sql_arrow`, not from a `KnowledgeSet`) is
+//! untouched by this — it is a genuinely separate data path with no `KnowledgeSet`
+//! in it to cursor over. `to_arrow_ipc_stream` is the real, tested producer-side
+//! chunked encoder for the `KnowledgeBatch`/`KnowledgeSet` shape this module owns;
+//! wiring an analogous chunked encoder onto `dataset_handle.rs`'s SQL-sourced
+//! batches (or onto `KnowledgeSet`-backed exports once a caller exists) is a
+//! follow-up wiring step, not a `KnowledgeBatch`-shape change.
 
 use std::sync::Arc;
 
@@ -254,6 +281,39 @@ impl ChunkedKnowledgeCursor {
             rows: slice,
             score_names: self.score_names.clone(),
         })
+    }
+
+    /// Encode the cursor's remaining rows as a real Arrow IPC **stream**
+    /// (CONCEPT:EG-P1-5, INT-P2-5) — the producer-side chunk-at-a-time Arrow encoder.
+    /// Writes ONE `RecordBatch` per [`Self::next_chunk`] straight into an
+    /// `arrow::ipc::writer::StreamWriter` rather than converting the whole result to
+    /// ONE `RecordBatch` first, so only one chunk's rows/`RecordBatch` are ever
+    /// alive at once — see the module docs' "Chunk-driven Arrow IPC encoding"
+    /// section for what this does and does not close.
+    ///
+    /// Consumes `self` (single-use once drained). Every chunk shares the SAME
+    /// Arrow schema (`score_names` is fixed at construction), so the stream's one
+    /// schema message covers every batch message that follows — any Arrow IPC
+    /// reader (`arrow::ipc::reader::StreamReader`, `pyarrow.ipc.open_stream`)
+    /// reads it back as the ordinary multi-batch stream it is. A zero-row source
+    /// still yields a valid (schema-only, zero-batch) stream.
+    pub fn to_arrow_ipc_stream(mut self) -> Result<Vec<u8>, String> {
+        let schema = Arc::new(arrow_schema(&self.score_names));
+        let mut buf: Vec<u8> = Vec::new();
+        {
+            let mut writer = arrow::ipc::writer::StreamWriter::try_new(&mut buf, &schema)
+                .map_err(|e| format!("arrow ipc stream writer: {e}"))?;
+            while let Some(chunk) = self.next_chunk() {
+                let batch = chunk.to_record_batch()?;
+                writer
+                    .write(&batch)
+                    .map_err(|e| format!("arrow ipc write: {e}"))?;
+            }
+            writer
+                .finish()
+                .map_err(|e| format!("arrow ipc finish: {e}"))?;
+        }
+        Ok(buf)
     }
 }
 
@@ -1073,5 +1133,74 @@ mod tests {
             assert!(n <= 10, "cursor must terminate, not loop forever");
         }
         assert_eq!(n, 3);
+    }
+
+    // ── Chunk-driven Arrow IPC encoding (CONCEPT:EG-P1-5, INT-P2-5) ──────────────────
+
+    /// Reads an Arrow IPC stream's bytes back into its `RecordBatch`es (test helper —
+    /// mirrors any real Arrow IPC consumer, e.g. `pyarrow.ipc.open_stream`).
+    fn read_ipc_stream(bytes: &[u8]) -> Vec<RecordBatch> {
+        let reader =
+            arrow::ipc::reader::StreamReader::try_new(bytes, None).expect("valid arrow ipc stream");
+        reader.map(|b| b.expect("valid record batch")).collect()
+    }
+
+    /// `to_arrow_ipc_stream` writes MULTIPLE `RecordBatch` messages (one per chunk) —
+    /// not one big materialized batch — and reading them all back reconstructs the
+    /// exact same row sequence (ids, in order) the source `KnowledgeBatch` had. Proves
+    /// the producer-side chunked Arrow encoder is real: bounded per-chunk memory
+    /// during ENCODING, byte-for-byte equivalent to the whole batch once reassembled.
+    #[test]
+    fn arrow_ipc_stream_is_chunked_and_reassembles_to_the_source_batch() {
+        let kb = large_batch(23);
+        let expected: Vec<String> = kb.rows.iter().map(|r| r.id.clone()).collect();
+        let cursor = kb.into_chunks(7);
+
+        let bytes = cursor
+            .to_arrow_ipc_stream()
+            .expect("encode arrow ipc stream");
+        let batches = read_ipc_stream(&bytes);
+
+        // 23 rows at chunk_size 7 ⇒ 7,7,7,2 = 4 separate RecordBatch messages, proving
+        // this is genuinely chunk-at-a-time, not one big RecordBatch reassembled after
+        // the fact.
+        assert_eq!(batches.len(), 4, "one RecordBatch message per chunk");
+        assert_eq!(
+            batches.iter().map(|b| b.num_rows()).collect::<Vec<_>>(),
+            vec![7, 7, 7, 2]
+        );
+
+        // Concatenating every batch's `id` column reconstructs the source row order
+        // exactly (the SAME equivalence `chunked_cursor_concatenation_equals_source_batch`
+        // proves at the `KnowledgeBatch` level, now proven at the ENCODED ARROW level).
+        let mut got: Vec<String> = Vec::new();
+        for batch in &batches {
+            let id_col = batch
+                .column_by_name("id")
+                .expect("id column")
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .expect("id column is Utf8");
+            for i in 0..batch.num_rows() {
+                got.push(id_col.value(i).to_string());
+            }
+        }
+        assert_eq!(got, expected);
+    }
+
+    /// A zero-row source still encodes to a VALID Arrow IPC stream (schema message,
+    /// zero batch messages) — an empty result is not an error.
+    #[test]
+    fn arrow_ipc_stream_over_empty_batch_is_valid_and_empty() {
+        let kb = KnowledgeBatch::default();
+        let cursor = kb.into_chunks(10);
+        let bytes = cursor
+            .to_arrow_ipc_stream()
+            .expect("encode empty arrow ipc stream");
+        let batches = read_ipc_stream(&bytes);
+        assert!(
+            batches.is_empty(),
+            "no data -> no batch messages, but a VALID stream"
+        );
     }
 }

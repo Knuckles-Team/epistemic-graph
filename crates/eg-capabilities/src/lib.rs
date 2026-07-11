@@ -205,6 +205,7 @@ pub fn policy(m: &Method) -> MethodPolicy {
         Method::CatalogAssign { .. } | Method::CatalogReassign { .. } | Method::CatalogRemove { .. } => MethodPolicy { mutates: true, durability_domain: DurabilityDomain::None, authz_action: "admin:cluster", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Saga },
         Method::CatalogList | Method::RebalancePlan { .. } => MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "admin:cluster-read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot },
         Method::RebalanceExecute { .. } => MethodPolicy { mutates: true, durability_domain: DurabilityDomain::None, authz_action: "admin:cluster", idempotent: false, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Saga },
+        Method::PlacementRoute { .. } => MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "admin:cluster-read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot },
         Method::Backup { .. } => MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "admin:backup", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot },
         Method::Restore { .. } => MethodPolicy { mutates: true, durability_domain: DurabilityDomain::None, authz_action: "admin:backup", idempotent: false, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Saga },
         Method::CreateChannel { .. } | Method::JoinChannel { .. } | Method::LeaveChannel { .. } | Method::CloseChannel { .. } => MethodPolicy { mutates: true, durability_domain: DurabilityDomain::None, authz_action: "channel:admin", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Atomic },
@@ -454,6 +455,7 @@ pub const ALL_METHODS: &[(&str, MethodPolicy, &str)] = &[
         ("CatalogList", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "admin:cluster-read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, ""),
         ("RebalancePlan", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "admin:cluster-read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, ""),
         ("RebalanceExecute", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::None, authz_action: "admin:cluster", idempotent: false, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Saga }, "NOT present in access.rs's write classifier at all -- governed elsewhere"),
+        ("PlacementRoute", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "admin:cluster-read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "DIST-P2-4: always in the enum (pure serde); the real answer needs `raft` + a live MultiRaft cluster, else a well-formed {\"explicit\": false} JSON (not an error) -- see handlers/placement.rs"),
         ("Backup", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "admin:backup", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "reads a consistent snapshot out to a bundle; does not mutate the live graph"),
         ("Restore", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::None, authz_action: "admin:backup", idempotent: false, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Saga }, "NOT present in access.rs's write classifier at all (server-admin action) -- governed elsewhere"),
         ("CreateChannel", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::None, authz_action: "channel:admin", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "NOT present in access.rs's write classifier at all -- flagged as a possible access.rs coverage gap"),
@@ -740,8 +742,10 @@ mod smoke_tests {
             // in `tests/consistency.rs`.
             let _ = table_policy;
         }
-        // CONCEPT:INT-P2-1: +1 (338) when `jobs` adds `Method::AnalyticsJob`.
-        let expected = if cfg!(feature = "jobs") { 338 } else { 337 };
+        // CONCEPT:INT-P2-1: +1 (338/339) when `jobs` adds `Method::AnalyticsJob`.
+        // CONCEPT:EG-KG.sharding.placement-route-rpc (DIST-P2-4): +1 (338 base) for the
+        // always-in-the-enum `Method::PlacementRoute`.
+        let expected = if cfg!(feature = "jobs") { 339 } else { 338 };
         assert_eq!(seen.len(), expected, "expected exactly {expected} Method variants");
     }
 
