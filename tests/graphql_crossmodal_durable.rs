@@ -91,6 +91,8 @@ fn state_with(backend: Arc<dyn PersistenceBackend>, dir: String) -> Arc<RwLock<S
         dataset_handles: std::sync::Arc::new(
             epistemic_graph::server::dataset_handle::DatasetHandleRegistry::new(),
         ),
+        #[cfg(feature = "lake")]
+        lake: std::sync::Arc::new(epistemic_graph::server::lake::LakeManager::new()),
     }))
 }
 

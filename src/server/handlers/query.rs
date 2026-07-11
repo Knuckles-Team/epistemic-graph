@@ -2353,6 +2353,8 @@ mod result_cache_dispatch_tests {
             kv: None,
             #[cfg(feature = "dataset-handle")]
             dataset_handles: Arc::new(crate::server::dataset_handle::DatasetHandleRegistry::new()),
+            #[cfg(feature = "lake")]
+            lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
         }))
     }
 
@@ -2601,6 +2603,8 @@ mod rls_aware_cache_no_cross_agent_leak {
             kv: None,
             #[cfg(feature = "dataset-handle")]
             dataset_handles: Arc::new(crate::server::dataset_handle::DatasetHandleRegistry::new()),
+            #[cfg(feature = "lake")]
+            lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
         }))
     }
 
@@ -2982,6 +2986,8 @@ mod dispatch_write_tests {
             kv: None,
             #[cfg(feature = "dataset-handle")]
             dataset_handles: Arc::new(crate::server::dataset_handle::DatasetHandleRegistry::new()),
+            #[cfg(feature = "lake")]
+            lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
         }))
     }
 
@@ -3273,6 +3279,8 @@ mod txn_ryow_dispatch_tests {
             kv: None,
             #[cfg(feature = "dataset-handle")]
             dataset_handles: Arc::new(crate::server::dataset_handle::DatasetHandleRegistry::new()),
+            #[cfg(feature = "lake")]
+            lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
         }))
     }
 
