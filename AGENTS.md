@@ -255,18 +255,19 @@ sections for the full operation-by-operation detail; this is the short orientati
   `Method::EpistemicStatus`/`Method::WhatChanged` capstone (`epistemic-tms`); policy-aware
   proof redaction via `Method::ExplainBelief`'s `disclosure_level`, reusing the same
   per-agent RLS check every read path enforces (`epistemic-redaction`). **Calibrated causal
-  reasoning** (`eg-epistemic::causal` — genuine Pearl do-calculus: `observe`/`intervene`/
-  `counterfactual`) exists and is tested, but its `epistemic-causal` feature is gated at the
-  `eg-epistemic` crate level only and is **not passed through the facade `Cargo.toml`** —
-  run it with `cargo test -p eg-epistemic --features epistemic-causal`; wiring it onto the
-  server/wire protocol is open follow-on work, not done yet.
+  reasoning** (`eg-epistemic::{causal,ranking}` — genuine Pearl do-calculus: `observe`/
+  `intervene`/`counterfactual`, plus provenance-aware retrieval ranking) is facade-reachable
+  under the opt-in `epistemic-causal` feature via `Method::CausalEstimate` (the do-`intervene`
+  op) and `Method::RankByProvenance`; the crate's `observe`/`counterfactual` variants stay
+  crate-internal (documented follow-on). Opt-in, not folded into `full`.
 - **Multimodal evidence graph (X-1).** `eg_modality::EvidenceSpan` — 11 located-evidence
   locus kinds (`DocumentSpan`/`TableCellRange`/`ImageRegion`/`PageBox`/`AudioSegment`/
   `VideoShot`/`VideoFrameRange`/`MetricWindow`/`RowVersion`/`CodeSymbol`/`TraceSpan`) — is
   reachable under the `epistemic` feature. Its citation resolver
-  (`eg-epistemic::evidence`) is gated by a crate-level-only `evidence-graph` feature (same
-  not-facade-exposed caveat as `epistemic-causal` above). The facade-reachable resolver for
-  the same span shape is the separate `alignment` feature's `CasEvidenceResolver`
+  (`eg-epistemic::evidence`) is facade-reachable under the opt-in `evidence-graph` feature via
+  `Method::ExplainEvidence` (resolves a Claim's evidence to its exact located `EvidenceSpan`
+  loci). A parallel resolver for the same span shape is the separate `alignment` feature's
+  `CasEvidenceResolver`
   (`src/server/blob/cas_resolver.rs`) — real for `DocumentSpan`/`TableCellRange` (returns an
   actual UTF-8 excerpt off the blob CAS), a real CAS-digest reference for every other locus
   kind (no in-tree image/audio/video/code codec to crop/slice with).
