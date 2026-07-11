@@ -592,7 +592,13 @@ fn bfs_reachable(
 }
 
 /// Does the stored edge `(from→to)` carry relationship `rel`? Reads the edge's
-/// property blobs (`relationship` or `type` field). `None` ⇒ any relationship.
+/// property blobs under any of the three keys a writer may have used for the
+/// relationship name — `relationship` (this engine's own CREATE convention, see
+/// [`create_pattern`]), `type`, or `rel_type` (the key the agent-utilities
+/// `epistemic_graph` backend stamps every edge with). Reading all three is what
+/// makes a typed pattern `-[:REL]->` match edges written by that backend instead
+/// of silently matching zero (the pre-fix mismatch that forced every relationship
+/// traversal onto client-side interpreters). `None` ⇒ any relationship.
 fn rel_matches(view: &GraphView, from: &str, to: &str, rel: Option<&str>) -> bool {
     let Some(rel) = rel else { return true };
     let Some(props_list) = view
@@ -606,6 +612,7 @@ fn rel_matches(view: &GraphView, from: &str, to: &str, rel: Option<&str>) -> boo
             let stored = m
                 .get("relationship")
                 .or_else(|| m.get("type"))
+                .or_else(|| m.get("rel_type"))
                 .and_then(|v| v.as_str());
             if stored == Some(rel) {
                 return true;
@@ -1686,6 +1693,83 @@ mod tests {
         );
         let vf2 = vf2_match_views(&v, &pat);
         assert_eq!(vf2.len(), 2);
+    }
+
+    /// Regression: a typed pattern `-[:REL]->` must match edges whose relationship
+    /// name is stored under the `rel_type` property key — the convention the
+    /// agent-utilities `epistemic_graph` backend stamps every edge with. Before the
+    /// `rel_matches` fix, native Cypher read only `relationship`/`type`, so a typed
+    /// traversal over those edges silently matched zero (the root cause behind the
+    /// delegation router's `(:Server)-[:PROVIDES]->(:CallableResource)` discovery
+    /// query returning `[]` despite the edges existing). Mirrors that exact shape,
+    /// including the grouped `count()` aggregate + `ORDER BY`/`LIMIT`.
+    fn rel_type_fixture() -> GraphView {
+        let core = GraphCore::new();
+        core.add_node(
+            "srv:a".into(),
+            pbytes(serde_json::json!({"type":"Server","name":"a-mcp"})),
+        );
+        core.add_node(
+            "srv:b".into(),
+            pbytes(serde_json::json!({"type":"Server","name":"b-mcp"})),
+        );
+        for r in ["res:a1", "res:a2", "res:b1"] {
+            core.add_node(
+                r.into(),
+                pbytes(serde_json::json!({"type":"CallableResource","name":r})),
+            );
+        }
+        // Edges carry the relationship name ONLY under `rel_type` (AU convention).
+        for (s, t) in [
+            ("srv:a", "res:a1"),
+            ("srv:a", "res:a2"),
+            ("srv:b", "res:b1"),
+        ] {
+            core.add_edge(
+                s.into(),
+                t.into(),
+                pbytes(serde_json::json!({"rel_type":"PROVIDES"})),
+            )
+            .unwrap();
+        }
+        core.analysis_snapshot()
+    }
+
+    #[test]
+    fn typed_traversal_matches_rel_type_keyed_edges() {
+        let v = rel_type_fixture();
+        // Typed directed traversal must find all three PROVIDES edges.
+        let qr = exec_cypher(
+            &v,
+            "MATCH (s:Server)-[:PROVIDES]->(r:CallableResource) RETURN s, r",
+        )
+        .unwrap();
+        assert_eq!(
+            qr.rows.len(),
+            3,
+            "expected 3 PROVIDES edges, got {}",
+            qr.rows.len()
+        );
+    }
+
+    #[test]
+    fn grouped_count_over_rel_type_traversal() {
+        let v = rel_type_fixture();
+        // The delegation router's discovery shape: per-server tool counts.
+        let qr = exec_cypher(
+            &v,
+            "MATCH (s:Server)-[:PROVIDES]->(r:CallableResource) \
+             RETURN s.name AS server, count(r) AS tools ORDER BY tools DESC",
+        )
+        .unwrap();
+        assert_eq!(qr.rows.len(), 2, "expected one row per server");
+        // Highest-count server first (a-mcp: 2, b-mcp: 1).
+        let top = cells_of(&qr, 0);
+        assert_eq!(top[0].as_str(), Some("a-mcp"));
+        assert_eq!(top[1].as_i64(), Some(2));
+        let second = cells_of(&qr, 1);
+        assert_eq!(second[0].as_str(), Some("b-mcp"));
+        assert_eq!(second[1].as_i64(), Some(1));
     }
 
     #[test]
