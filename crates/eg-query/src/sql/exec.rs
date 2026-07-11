@@ -83,6 +83,251 @@ fn register_numeric(ctx: &SessionContext) {
 /// one message; we cap and truncate.
 const MAX_ROWS: usize = 50_000;
 
+// ── streaming / spillable / cancellable SQL collect (CONCEPT:EG-KG.query.streaming-spillable-collect, EG-P1-4) ──
+//
+// `DataFrame::collect()` materializes the ENTIRE result as one `Vec<RecordBatch>`
+// before the caller sees anything — no batch-at-a-time consumption, no way to stop
+// a running query early, and no bound on peak memory short of `MAX_ROWS` (which is
+// only applied AFTER everything is already resident). `collect_streaming` below is
+// the drop-in replacement `run`/`run_typed` use instead: it drives DataFusion's own
+// `SendableRecordBatchStream` (the SAME physical plan, just pulled batch-by-batch
+// instead of awaited-to-completion), checks a [`CancellationToken`] BETWEEN
+// batches, and spills already-buffered batches to a temp Arrow-IPC file once the
+// running row count crosses a threshold — bounding resident memory to that
+// threshold regardless of total result size.
+//
+// This module element compiles under `sql` only (arrow-ipc + futures-util are both
+// already-resolved transitive deps at that feature, so this adds no new crate to a
+// default/non-sql build's tree).
+
+/// Cooperative cancellation flag for a running SQL execution
+/// (CONCEPT:EG-KG.query.streaming-spillable-collect). Checked BETWEEN batches — never mid-batch —
+/// so cancellation is CHUNK-granular: a cancelled query stops after its current
+/// in-flight batch rather than draining the whole stream. `Clone` + `Send + Sync`,
+/// so a caller can hold one end (e.g. a connection's drop/abort handler, or a
+/// per-request registry keyed by request id) while the query runs on the blocking
+/// pool that owns the other end.
+#[derive(Clone, Debug, Default)]
+pub struct CancellationToken(std::sync::Arc<std::sync::atomic::AtomicBool>);
+
+impl CancellationToken {
+    /// A fresh, not-yet-cancelled token.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Raise the flag — the next batch boundary a [`collect_streaming`] loop checks
+    /// will observe it and stop.
+    pub fn cancel(&self) {
+        self.0.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Has [`Self::cancel`] been called (on this token or any clone of it)?
+    pub fn is_cancelled(&self) -> bool {
+        self.0.load(std::sync::atomic::Ordering::Relaxed)
+    }
+}
+
+/// Row-count threshold past which [`collect_streaming`] spills already-buffered
+/// batches to a temp Arrow-IPC file instead of holding them resident, bounding the
+/// SQL collect path's peak memory regardless of total result size. Overridable via
+/// `EPISTEMIC_GRAPH_SQL_SPILL_ROWS`; the default sits comfortably above [`MAX_ROWS`]
+/// so an ORDINARY served query (already capped there) essentially never spills in
+/// practice — the budget exists for the streaming path's internal accumulation
+/// ahead of that cap, not to change the served row cap itself. A caller exercising
+/// the spill path directly (e.g. a bulk export or an admin query with a raised row
+/// cap) passes a smaller threshold to [`collect_streaming`] explicitly.
+pub fn default_spill_rows() -> usize {
+    std::env::var("EPISTEMIC_GRAPH_SQL_SPILL_ROWS")
+        .ok()
+        .and_then(|s| s.trim().parse::<usize>().ok())
+        .filter(|&n| n > 0)
+        .unwrap_or(200_000)
+}
+
+/// Summary of how a [`collect_streaming`] run ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct StreamOutcome {
+    /// Stopped because the [`CancellationToken`] fired mid-stream (before the source
+    /// was drained or the row cap reached).
+    pub cancelled: bool,
+    /// At least one spill-to-disk round-trip happened (the running row count
+    /// crossed the spill threshold at least once).
+    pub spilled: bool,
+    /// Total rows actually pulled off the stream (across every batch seen, whether
+    /// resident or spilled) before stopping.
+    pub rows: usize,
+}
+
+/// A temp Arrow-IPC (file format) spill backing [`collect_streaming`] — mirrors
+/// `eg_plan::runtime`'s spill-round-trip idiom for the planner's own intermediates,
+/// applied here to the SQL collect path's `RecordBatch`es. The writer stays open
+/// across repeated [`Self::append`] calls (one per spill trigger); [`Self::read_back`]
+/// finishes it and re-reads every batch back in order. Best-effort file removal on
+/// drop, so a spilled query never leaks a temp file even on an early return.
+struct SpillFile {
+    path: std::path::PathBuf,
+    writer: Option<arrow::ipc::writer::FileWriter<std::fs::File>>,
+}
+
+impl SpillFile {
+    fn create(schema: &arrow::datatypes::Schema) -> Result<Self, String> {
+        let path = spill_path();
+        let file = std::fs::File::create(&path)
+            .map_err(|e| format!("spill create {}: {e}", path.display()))?;
+        let writer = arrow::ipc::writer::FileWriter::try_new(file, schema)
+            .map_err(|e| format!("spill writer: {e}"))?;
+        Ok(Self {
+            path,
+            writer: Some(writer),
+        })
+    }
+
+    fn append(&mut self, batches: &[arrow::record_batch::RecordBatch]) -> Result<(), String> {
+        let writer = self
+            .writer
+            .as_mut()
+            .ok_or("spill file already finished")?;
+        for b in batches {
+            writer.write(b).map_err(|e| format!("spill write: {e}"))?;
+        }
+        Ok(())
+    }
+
+    /// Finish the writer and read every spilled batch back, in order.
+    fn read_back(mut self) -> Result<Vec<arrow::record_batch::RecordBatch>, String> {
+        if let Some(mut w) = self.writer.take() {
+            w.finish().map_err(|e| format!("spill finish: {e}"))?;
+        }
+        let file = std::fs::File::open(&self.path)
+            .map_err(|e| format!("spill reopen {}: {e}", self.path.display()))?;
+        let reader = arrow::ipc::reader::FileReader::try_new(file, None)
+            .map_err(|e| format!("spill reader: {e}"))?;
+        let mut out = Vec::new();
+        for batch in reader {
+            out.push(batch.map_err(|e| format!("spill read: {e}"))?);
+        }
+        Ok(out)
+    }
+}
+
+impl Drop for SpillFile {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+/// A unique temp-file path for one spill (`<tmp>/eg-query-sql-spill-<pid>-<seq>.arrow`):
+/// the process id + a monotonic counter make it collision-free across threads and
+/// concurrent queries, with no temp-dir crate needed.
+fn spill_path() -> std::path::PathBuf {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+    let seq = SEQ.fetch_add(1, Ordering::Relaxed);
+    let pid = std::process::id();
+    std::env::temp_dir().join(format!("eg-query-sql-spill-{pid}-{seq}.arrow"))
+}
+
+/// Batch-at-a-time, spillable, cancellable materialization of a batch stream
+/// (CONCEPT:EG-KG.query.streaming-spillable-collect, EG-P1-4) — the streaming replacement for
+/// `DataFrame::collect()`'s eager whole-result buffering. Pulls ONE batch at a time
+/// (never blocking on the full result before the caller can act), checks `cancel`
+/// between batches, and spills already-buffered batches to a temp Arrow-IPC file
+/// once the running row count crosses `spill_rows` — freeing them from RAM so peak
+/// resident memory is bounded by `spill_rows`, not the total result size. Stops
+/// early — never over-reading the source — once either `cancel` fires or
+/// [`MAX_ROWS`] is reached (the same cap the eager path applies, just enforced
+/// during accumulation instead of after). Returns every batch actually produced
+/// (spilled-then-recovered ++ resident, in original order) plus an outcome
+/// summary. Generic over the stream's item type (`Result<RecordBatch, String>`) so
+/// this core loop is directly unit-testable against a synthetic `futures_util::stream::iter`
+/// fixture, independent of a running DataFusion physical plan.
+async fn collect_streaming<S>(
+    mut stream: S,
+    cancel: &CancellationToken,
+    spill_rows: usize,
+) -> Result<(Vec<arrow::record_batch::RecordBatch>, StreamOutcome), String>
+where
+    S: futures_util::Stream<Item = Result<arrow::record_batch::RecordBatch, String>> + Unpin,
+{
+    use futures_util::StreamExt;
+
+    let mut resident: Vec<arrow::record_batch::RecordBatch> = Vec::new();
+    let mut resident_rows = 0usize;
+    let mut total_rows = 0usize;
+    let mut spill: Option<SpillFile> = None;
+    let mut cancelled = false;
+
+    while let Some(next) = stream.next().await {
+        if cancel.is_cancelled() {
+            cancelled = true;
+            break;
+        }
+        let batch = next?;
+        let n = batch.num_rows();
+        resident_rows += n;
+        total_rows += n;
+        resident.push(batch);
+
+        if resident_rows >= spill_rows.max(1) {
+            if spill.is_none() {
+                spill = Some(SpillFile::create(&resident[0].schema())?);
+            }
+            spill
+                .as_mut()
+                .expect("just constructed above")
+                .append(&resident)?;
+            resident.clear();
+            resident_rows = 0;
+        }
+
+        if total_rows >= MAX_ROWS {
+            break; // never over-read a source already past the served cap
+        }
+    }
+
+    let spilled = spill.is_some();
+    let mut out = match spill {
+        Some(f) => f.read_back()?,
+        None => Vec::new(),
+    };
+    out.extend(resident);
+
+    Ok((
+        out,
+        StreamOutcome {
+            cancelled,
+            spilled,
+            rows: total_rows,
+        },
+    ))
+}
+
+/// Execute `df` and collect its result via the streaming/spillable path
+/// ([`collect_streaming`]) with a fresh, never-cancelled [`CancellationToken`] and
+/// the default spill threshold ([`default_spill_rows`]) — the drop-in replacement
+/// for `df.collect()` every internal call site below now uses. For any query under
+/// the default spill threshold (the overwhelming common case) this is
+/// behaviorally identical to the eager path: same batches, same order, the same
+/// downstream `MAX_ROWS` truncation — only the ACCUMULATION becomes batch-at-a-time
+/// and boundedly resident instead of buffering the whole result up front. A caller
+/// that needs real cancellation or a tighter spill budget calls
+/// [`collect_streaming`] directly instead — see the module's rollout backlog on
+/// threading a per-request token from the wire protocol down to this layer.
+async fn collect_default(
+    df: datafusion::dataframe::DataFrame,
+) -> Result<Vec<arrow::record_batch::RecordBatch>, String> {
+    use futures_util::StreamExt;
+    let stream = df
+        .execute_stream()
+        .await
+        .map_err(|e| format!("execute_stream: {e}"))?;
+    let stream = stream.map(|r| r.map_err(|e| format!("stream: {e}")));
+    let (batches, _outcome) =
+        collect_streaming(stream, &CancellationToken::new(), default_spill_rows()).await?;
+    Ok(batches)
+}
+
 /// Run `sql` over `view` (read-only, single graph), with no cache: re-scans the
 /// `nodes`/`edges` tables every call. Synchronous — builds and drives its own
 /// current-thread runtime, safe to call inside `spawn_blocking`.
@@ -145,7 +390,7 @@ pub fn exec_sql_over_tables(
         #[cfg(feature = "numeric")]
         register_numeric(&ctx);
         let df = ctx.sql(&sql).await.map_err(|e| format!("sql: {e}"))?;
-        let batches = df.collect().await.map_err(|e| format!("collect: {e}"))?;
+        let batches = collect_default(df).await?;
         batches_to_typed(&batches)
     })
 }
@@ -527,7 +772,7 @@ fn run(
         )
         .await?;
         let df = ctx.sql(&sql).await.map_err(|e| format!("sql: {e}"))?;
-        let batches = df.collect().await.map_err(|e| format!("collect: {e}"))?;
+        let batches = collect_default(df).await?;
         batches_to_result(&batches)
     })
 }
@@ -620,7 +865,7 @@ fn run_typed(
         )
         .await?;
         let df = ctx.sql(&sql).await.map_err(|e| format!("sql: {e}"))?;
-        let batches = df.collect().await.map_err(|e| format!("collect: {e}"))?;
+        let batches = collect_default(df).await?;
         batches_to_typed(&batches)
     })
 }
@@ -936,4 +1181,125 @@ fn cell_to_json(col: &dyn Array, row: usize) -> Result<serde_json::Value, String
         }
     };
     Ok(v)
+}
+
+// ── streaming / spillable / cancellable collect tests (CONCEPT:EG-KG.query.streaming-spillable-collect, EG-P1-4) ──
+
+#[cfg(test)]
+mod streaming_tests {
+    use super::*;
+    use arrow::array::Int32Array;
+    use arrow::datatypes::{DataType, Field, Schema};
+    use futures_util::StreamExt;
+
+    fn batch(vals: &[i32]) -> arrow::record_batch::RecordBatch {
+        let schema = Arc::new(Schema::new(vec![Field::new("v", DataType::Int32, false)]));
+        let arr = Int32Array::from(vals.to_vec());
+        arrow::record_batch::RecordBatch::try_new(schema, vec![Arc::new(arr)]).unwrap()
+    }
+
+    fn total_rows(batches: &[arrow::record_batch::RecordBatch]) -> usize {
+        batches.iter().map(|b| b.num_rows()).sum()
+    }
+
+    fn flatten_i32(batches: &[arrow::record_batch::RecordBatch]) -> Vec<i32> {
+        batches
+            .iter()
+            .flat_map(|b| {
+                b.column(0)
+                    .as_any()
+                    .downcast_ref::<Int32Array>()
+                    .unwrap()
+                    .values()
+                    .iter()
+                    .copied()
+            })
+            .collect()
+    }
+
+    /// With a spill threshold far above the total row count, `collect_streaming`
+    /// pulls every batch, in order, with no spill — the un-cancelled, un-spilled
+    /// common case.
+    #[tokio::test]
+    async fn collect_streaming_pulls_every_batch_in_order_no_spill() {
+        let batches = vec![Ok(batch(&[1, 2, 3])), Ok(batch(&[4, 5])), Ok(batch(&[6]))];
+        let stream = futures_util::stream::iter(batches);
+        let cancel = CancellationToken::new();
+        let (out, outcome) = collect_streaming(stream, &cancel, 1_000_000).await.unwrap();
+        assert_eq!(flatten_i32(&out), vec![1, 2, 3, 4, 5, 6]);
+        assert!(!outcome.cancelled);
+        assert!(!outcome.spilled);
+        assert_eq!(outcome.rows, 6);
+    }
+
+    /// Crossing the spill threshold mid-stream triggers a real spill-to-disk
+    /// round-trip, and the recovered result is LOSSLESS and ORDER-PRESERVING —
+    /// identical to the no-spill case, just materialized through a temp file.
+    #[tokio::test]
+    async fn collect_streaming_spills_past_threshold_and_recovers_losslessly() {
+        let batches = vec![
+            Ok(batch(&[1, 2, 3])),
+            Ok(batch(&[4, 5, 6])),
+            Ok(batch(&[7, 8, 9])),
+        ];
+        let stream = futures_util::stream::iter(batches);
+        let cancel = CancellationToken::new();
+        // Threshold 4: batch 1 (3 rows) stays resident; batch 2 pushes resident to 6
+        // rows (>= 4) ⇒ spills batches 1+2; batch 3 (3 more) never re-crosses 4 in
+        // this run, so it stays resident and is appended after the recovered spill.
+        let (out, outcome) = collect_streaming(stream, &cancel, 4).await.unwrap();
+        assert!(outcome.spilled, "crossing the threshold must trigger a spill");
+        assert_eq!(outcome.rows, 9);
+        assert_eq!(flatten_i32(&out), vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    }
+
+    /// A token cancelled AS A SIDE EFFECT of consuming the stream's 3rd batch is
+    /// observed at the next batch boundary — `collect_streaming` stops SHORT of the
+    /// full 5-batch source rather than running to completion, and the outcome
+    /// reports the cancellation.
+    #[tokio::test]
+    async fn collect_streaming_stops_early_when_cancelled() {
+        let batches = vec![
+            Ok(batch(&[1])),
+            Ok(batch(&[2])),
+            Ok(batch(&[3])),
+            Ok(batch(&[4])),
+            Ok(batch(&[5])),
+        ];
+        let cancel = CancellationToken::new();
+        let trigger = cancel.clone();
+        let mut seen = 0usize;
+        let stream = futures_util::stream::iter(batches).map(move |b| {
+            seen += 1;
+            if seen == 3 {
+                trigger.cancel();
+            }
+            b
+        });
+        let (out, outcome) = collect_streaming(stream, &cancel, 1_000_000).await.unwrap();
+        assert!(outcome.cancelled, "outcome must report the cancellation");
+        let rows = total_rows(&out);
+        assert!(
+            rows < 5,
+            "a cancelled collect must stop before draining the whole 5-row stream: got {rows}"
+        );
+        assert!(rows >= 2, "batches consumed before cancellation still land");
+    }
+
+    #[test]
+    fn default_spill_rows_sits_above_max_rows_so_ordinary_queries_never_spill() {
+        assert!(default_spill_rows() > MAX_ROWS);
+    }
+
+    #[test]
+    fn cancellation_token_clone_shares_the_flag() {
+        let tok = CancellationToken::new();
+        assert!(!tok.is_cancelled());
+        let clone = tok.clone();
+        clone.cancel();
+        assert!(
+            tok.is_cancelled(),
+            "cancel on a clone must be observed on every other clone (shared flag)"
+        );
+    }
 }

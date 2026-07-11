@@ -2313,7 +2313,6 @@ impl WireSession {
         let plan = eg_plan::uql::parse(text).map_err(|e| user_err(e.render(text)))?;
         let core = self.graph_core(graph).await?;
         let mut view = core.analysis_snapshot();
-        let committed_semantic = core.semantic_store.read().clone();
         let (overlay_methods, vectors) = if in_txn {
             let mut methods = Self::node_ops_to_methods(&self.graph_txn.lock().ops)?;
             let xmodal = self.xmodal.lock();
@@ -2335,20 +2334,48 @@ impl WireSession {
             staged
         };
         crate::server::handlers::query::overlay_write_set(&mut view, &overlay_methods);
-        let semantic = eg_core::compute::semantic::semantic_overlay(committed_semantic, &vectors);
         #[cfg(feature = "tsdb")]
         let tsdb = self.state.read().await.tsdb_store.clone();
+        // CONCEPT:EG-KG.query.served-vector-index-binding / served-text-index-binding — push the
+        // vector + lexical legs into the LIVE persistent indexes via a guard/adapter built
+        // INSIDE the off-lock closure, instead of pre-cloning the whole `SemanticStore` here
+        // (see `handlers::query`'s `UnifiedQuery` arm for the full rationale). The
+        // `semantic_overlay` clone is paid ONLY when the txn actually staged embeddings.
+        let core_for_ctx = core.clone();
         let rows = tokio::task::spawn_blocking(move || {
-            crate::server::handlers::query::run_unified(
-                plan,
-                None,
-                &view,
-                &semantic,
-                #[cfg(feature = "tsdb")]
-                tsdb.as_deref(),
-                #[cfg(feature = "tsdb")]
-                Some(&staged_series),
-            )
+            #[cfg(feature = "text")]
+            let served_text =
+                crate::server::secondary_indexes::ServedTextIndex::new(core_for_ctx.clone());
+            if vectors.is_empty() {
+                let semantic_guard = core_for_ctx.semantic_store.read();
+                crate::server::handlers::query::run_unified(
+                    plan,
+                    None,
+                    &view,
+                    &semantic_guard,
+                    #[cfg(feature = "text")]
+                    Some(&served_text),
+                    #[cfg(feature = "tsdb")]
+                    tsdb.as_deref(),
+                    #[cfg(feature = "tsdb")]
+                    Some(&staged_series),
+                )
+            } else {
+                let committed = core_for_ctx.semantic_store.read().clone();
+                let semantic = eg_core::compute::semantic::semantic_overlay(committed, &vectors);
+                crate::server::handlers::query::run_unified(
+                    plan,
+                    None,
+                    &view,
+                    &semantic,
+                    #[cfg(feature = "text")]
+                    Some(&served_text),
+                    #[cfg(feature = "tsdb")]
+                    tsdb.as_deref(),
+                    #[cfg(feature = "tsdb")]
+                    Some(&staged_series),
+                )
+            }
         })
         .await
         .map_err(|e| user_err(format!("UQL task failed: {e}")))?

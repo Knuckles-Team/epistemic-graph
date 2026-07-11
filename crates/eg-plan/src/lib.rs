@@ -178,7 +178,9 @@ pub use knowledge::{
 /// The Arrow-columnar `KnowledgeBatch` surface (CONCEPT:EG-P1-2): the RecordBatch-
 /// backed columnar projection of a `KnowledgeSet`, plus its row/cursor types.
 #[cfg(feature = "knowledge-batch")]
-pub use knowledge_batch::{KnowledgeBatch, KnowledgeBatchRow, KnowledgeCursor};
+pub use knowledge_batch::{
+    ChunkedKnowledgeCursor, KnowledgeBatch, KnowledgeBatchRow, KnowledgeCursor,
+};
 
 /// The Lane-0 foundation seams the follow-on lanes hang off (append-only): the logical-plan
 /// optimization hook `plan_optimize` (CONCEPT:EG-KG.query.plan-optimize-seam — Lane A's cost
@@ -262,6 +264,11 @@ pub use federation::{
 // names them through eg-plan: the BM25 index, the hit row, and the RRF helper.
 #[cfg(feature = "text")]
 pub use eg_text::{rrf_fuse, TextHit, TextIndex, RRF_K};
+// The `PlanCtx::with_text` search-surface trait (CONCEPT:EG-KG.query.served-text-index-binding) — a facade
+// implements this over its OWN maintained persistent index (rather than a plain
+// `eg_text::TextIndex`) to push a served `RankText`/`FuseRrf` leg down into it.
+#[cfg(feature = "text")]
+pub use exec::TextSource;
 
 #[cfg(all(test, feature = "query"))]
 mod fixture;
