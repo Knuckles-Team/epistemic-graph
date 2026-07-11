@@ -142,6 +142,7 @@ fn cluster_cfg(node_id: NodeId, ports: &[u16]) -> RaftClusterConfig {
         peers: peers.clone(),
         bind_addr,
         is_bootstrap: peers.keys().next() == Some(&node_id),
+        groups: 1,
     }
 }
 

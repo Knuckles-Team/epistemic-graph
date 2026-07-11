@@ -2,10 +2,31 @@
 //! manager (shared listener + group map), open the DEFAULT group for this cluster
 //! member, and return a [`RaftHandle`] the dispatch path routes writes through.
 //!
-//! Single-group today: the cluster runs ONE group ([`DEFAULT_GROUP`]) so behavior
-//! matches the pre-multi single-group path — but it now runs over the production
-//! multi-group machinery (one shared listener, durable redb log keyed by group id),
-//! so adding more groups later is a routing change, not a rewrite.
+//! Single-group by default: with `cfg.groups <= 1` (no `EPISTEMIC_GRAPH_RAFT_GROUPS`,
+//! DIST-P2-2) the cluster runs ONE group ([`DEFAULT_GROUP`]) so behavior matches the
+//! pre-multi single-group path — but it now runs over the production multi-group
+//! machinery (one shared listener, durable redb log keyed by group id).
+//!
+//! ## Multi-group production startup (DIST-P2-2, CONCEPT:EG-KG.sharding.placement-catalog)
+//!
+//! With `cfg.groups > 1`, `start` additionally stands up groups `1..groups` on this
+//! node and spreads un-pinned graphs across the FULL `0..groups` set via the
+//! tenant-range ring — [`MultiRaft::configure_group_ring`] (DIST-P2-1's pre-existing
+//! multi-group machinery, previously only exercised by tests, now invoked from
+//! PRODUCTION startup). The [`super::placement::PlacementCatalog`] still takes
+//! priority over the ring for any graph with an explicit placement entry (assigned via
+//! the `placement_*` admin API), so an operator who wants EXPLICIT tenant→group control
+//! rather than hash-spread sets `groups` to size the pool and then calls
+//! `placement_assign`/`placement_split` to pin tenants — the ring only ever catches the
+//! un-pinned remainder.
+//!
+//! Every extra group bootstraps as a single-member (this-node-only) group — the SAME
+//! scope [`MultiRaft::configure_group_ring`] and the placement/xshard test harnesses
+//! already use. Making a non-default group span the FULL multi-node peer set (so it
+//! survives this node's loss) still needs the R3 `join_group`/`add_group_member` join
+//! flow (CONCEPT:EG-KG.storage.kg-kg-2) run against it after boot — a documented follow-up,
+//! not a regression this change introduces (a single-node multi-group deployment, the
+//! common case this knob targets, is fully HA-equivalent to today's single-group path).
 
 use std::sync::Arc;
 
@@ -45,17 +66,27 @@ pub async fn start(
         .create_group(DEFAULT_GROUP, cfg.peers.clone(), cfg.is_bootstrap)
         .await?;
 
+    // DIST-P2-2: multi-group production startup. `cfg.groups <= 1` (the default —
+    // `EPISTEMIC_GRAPH_RAFT_GROUPS` unset) makes this call a documented no-op (see
+    // `MultiRaft::configure_group_ring`): the ring stays empty and every graph falls
+    // back to `DEFAULT_GROUP`, so a single-group deployment is BYTE-FOR-BYTE unchanged.
+    // `cfg.groups > 1` stands up the additional groups and sets the ring, so the
+    // router (consulted only when the PlacementCatalog has no explicit entry for a
+    // graph's tenant) spreads un-pinned graphs across all of them.
+    multi.configure_group_ring(cfg.groups).await?;
+
     let handle = multi
         .handle_for_graph("__commons__")
         .await
         .ok_or_else(|| "default group not running after create".to_string())?;
 
     tracing::info!(
-        "Raft node {} started ({} peers, bootstrap={}, group {})",
+        "Raft node {} started ({} peers, bootstrap={}, group {}, {} group(s) total)",
         cfg.node_id,
         cfg.peers.len(),
         cfg.is_bootstrap,
         DEFAULT_GROUP,
+        cfg.groups.max(1),
     );
 
     Ok(StartedNode { handle, multi })
