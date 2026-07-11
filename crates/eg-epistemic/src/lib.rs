@@ -92,14 +92,17 @@ pub use tms::{
 // resting at `Stale`, and wire the TMS's own dependency-directed retraction
 // straight into the same index. See `recompute` module docs.
 #[cfg(feature = "epistemic-tms")]
-pub use recompute::{ChangeEvent, Materialization, MaterializationStatus, TruthMaintenance};
+pub use recompute::{
+    register_from_provenance, ChangeEvent, Materialization, MaterializationStatus,
+    TruthMaintenance,
+};
 
 // EPI-P3-4 — policy-aware proof redaction + selective disclosure (see `src/redact.rs`
 // module docs for the three disclosure levels and how they reuse `eg-core::isolation`).
 #[cfg(feature = "epistemic-redaction")]
 pub use redact::{
-    explain_belief_redacted, DisclosureLevel, ExistenceSignal, RedactedJustificationGraph,
-    RedactedProofNode,
+    explain_belief_redacted, explain_belief_redacted_capped, DisclosureLevel, ExistenceSignal,
+    RedactedJustificationGraph, RedactedProofNode,
 };
 
 // EPI-P3-5 — bitemporal reasoning + the why/why-not/what-changed/what-would-invalidate

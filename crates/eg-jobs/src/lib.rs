@@ -53,7 +53,7 @@ pub mod claim;
 pub mod model;
 pub mod store;
 
-pub use claim::{commit_result_claim, ClaimCommitOutcome};
+pub use claim::{commit_result_claim, CalibrationInput, ClaimCommitOutcome};
 pub use model::{
     compute_result_ref, digest_params, AlgoVersion, AnalyticsJob, Checkpoint, InputSnapshotHandle,
     JobId, JobPolicy, JobState, RetryPolicy,
