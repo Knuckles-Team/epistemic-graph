@@ -48,6 +48,21 @@ pub enum EvidenceSpan {
         width: f64,
         height: f64,
     },
+    /// A rectangular box on ONE page of a paged document (CONCEPT:EG-X1) — e.g.
+    /// "PDF page N, box (x,y,w,h)". Distinct from [`Self::DocumentSpan`]: that
+    /// variant locates a CHARACTER range irrespective of page/layout; this one
+    /// locates a VISUAL region on a specific page (the citation shape a
+    /// PDF/scanned-document viewer needs to highlight exactly where a claim's
+    /// evidence sits), independent of whether the underlying text was even
+    /// successfully extracted at that spot.
+    PageBox {
+        document_id: String,
+        page: u32,
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+    },
     /// A time range (milliseconds) inside an audio recording.
     AudioSegment {
         audio_id: String,
@@ -59,6 +74,31 @@ pub enum EvidenceSpan {
         video_id: String,
         start_ms: u64,
         end_ms: u64,
+    },
+    /// A frame-index range `[start_frame, end_frame]` (inclusive) inside a video —
+    /// distinct from [`Self::VideoShot`]'s time range: this cites exact decoded
+    /// frames (the shape a frame-accurate player/annotator needs) rather than a
+    /// wall-clock millisecond interval.
+    VideoFrameRange {
+        video_id: String,
+        start_frame: u64,
+        end_frame: u64,
+    },
+    /// A time window `[start_ms, end_ms]` on a named metric series — evidence whose
+    /// provenance is "observed over this window of metric M" (e.g. an anomaly's
+    /// supporting metric window), mirroring `eg-tsdb`'s series/range model.
+    MetricWindow {
+        metric: String,
+        start_ms: u64,
+        end_ms: u64,
+    },
+    /// A specific VERSION of a row in a relational/SQL source — the row identity plus
+    /// the transaction/version stamp it was read at, so a claim cites the exact row
+    /// state it was derived from even after the row is later updated.
+    RowVersion {
+        table: String,
+        row_id: String,
+        version: u64,
     },
     /// A named symbol (function/class/etc.) inside a source file, by line range.
     CodeSymbol {
