@@ -39,21 +39,25 @@
 //! | `blob_handle` | `Utf8` | `KnowledgeRow::payload_ref.node_id` when `has_payload`, else null — a LAZY handle (the node id, re-resolvable via `GraphView::node_row_object`), never the payload bytes |
 //! | `has_payload` | `Boolean` (non-null) | `KnowledgeRow::payload_ref.has_payload` |
 //!
-//! ## Known-lossy / reserved fields (honest scope, not fabricated)
+//! ## Transformation/proof/alternative/contradiction columns (L22/CONCEPT:EG-P3-1)
 //!
-//! `KnowledgeRow` (as of this workstream) does not yet carry transformation
-//! lineage, or per-row proof-chain / alternative-hypothesis / contradiction NODE
-//! ids (only the aggregate `policy_labels` classification — e.g.
-//! `"epistemic:contested"` — is available, not the ids of the contradicting
-//! nodes). Rather than fabricate values, [`KnowledgeBatchRow::transformation_ids`],
-//! `proof_ids`, `alternative_ids` and `contradiction_ids` are ALWAYS empty when
-//! built via [`KnowledgeBatch::from_knowledge_set`], but the Arrow schema already
-//! carries the four `List<Utf8>` columns so a caller (or a follow-up
-//! `KnowledgeSet`/`BeliefGraph` enrichment) can populate them without a breaking
-//! schema change. The follow-up: extend `resolve_provenance_and_policy` in
-//! `knowledge.rs` to also return the classified `Contradicts`/`Attacks` edge
-//! sources (today it only returns the `Supports` sources as `source_refs`), and
-//! thread an `ExplainBelief`-derived proof chain through `KnowledgeRow`.
+//! `KnowledgeRow` now carries per-row transformation lineage, proof-chain,
+//! alternative-hypothesis, and contradiction NODE ids (see `knowledge.rs`'s module
+//! docs — `AuxEdgeIndex` + `resolve_proof_ids`) alongside the aggregate
+//! `policy_labels` classification (e.g. `"epistemic:contested"`).
+//! [`KnowledgeBatchRow::transformation_ids`], `proof_ids`, `alternative_ids` and
+//! `contradiction_ids` are copied straight off the corresponding `KnowledgeRow`
+//! fields in [`KnowledgeBatch::from_knowledge_set`] — populated under `epistemic`
+//! whenever the underlying graph carries the relevant edges (a `GENERATED_BY`
+//! outgoing edge, a transitive support/contradiction chain, an `ALTERNATIVE_TO`
+//! edge, or a `Contradicts`/`Attacks` edge on EITHER endpoint respectively), still
+//! `Vec::new()` — never fabricated — for a row with none, and unconditionally empty
+//! without the `epistemic` feature (the feature gate, not the data, decides). See
+//! `knowledge.rs`'s module docs for the full derivation and the `GENERATED_BY`/
+//! `ALTERNATIVE_TO` edge conventions (written by
+//! `src/server/handlers/mining.rs`'s `materialize_claim` and
+//! `eg-jobs::claim::commit_result_claim` for `GENERATED_BY`; `ALTERNATIVE_TO` has no
+//! writeback producer yet — an honest, documented follow-up).
 //!
 //! ## Streaming cursor (CONCEPT:EG-P1-4, closes the L23 stub)
 //!
@@ -107,8 +111,8 @@ fn evidence_kind_tag(span: &EvidenceSpan) -> &'static str {
 /// One row of a [`KnowledgeBatch`] prior to Arrow columnar layout — the same
 /// fields [`crate::knowledge::KnowledgeRow`] carries, widened with a name-keyed
 /// score list (so more than one named score can ride the same row, CONCEPT:EG-P1-2)
-/// and a lazy blob handle. See the module docs for the reserved
-/// transformation/proof/alternative/contradiction id lists.
+/// and a lazy blob handle. See the module docs for the
+/// transformation/proof/alternative/contradiction id lists (L22/CONCEPT:EG-P3-1).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct KnowledgeBatchRow {
     pub id: String,
@@ -125,13 +129,20 @@ pub struct KnowledgeBatchRow {
     pub tx_time: (Option<u64>, Option<u64>),
     pub source_refs: Vec<String>,
     pub policy_labels: Vec<String>,
-    /// Reserved — always empty from `from_knowledge_set` today (see module docs).
+    /// This row's own generating Activity id(s) (L22/CONCEPT:EG-P3-1) — copied from
+    /// `KnowledgeRow::transformation_ids`; empty when the row has no outgoing
+    /// `GENERATED_BY` edge, or unconditionally under a plain (non-`epistemic`) build.
     pub transformation_ids: Vec<String>,
-    /// Reserved — always empty from `from_knowledge_set` today (see module docs).
+    /// The transitive justification/premise chain underneath this row's belief
+    /// (L22/CONCEPT:EG-P3-1) — copied from `KnowledgeRow::proof_ids`.
     pub proof_ids: Vec<String>,
-    /// Reserved — always empty from `from_knowledge_set` today (see module docs).
+    /// Mutually-exclusive alternative-claim counterpart ids (L22/CONCEPT:EG-P3-1) —
+    /// copied from `KnowledgeRow::alternative_ids`. No current writeback path emits
+    /// `ALTERNATIVE_TO` edges (documented follow-up); the column is wired and tested
+    /// on the read side regardless.
     pub alternative_ids: Vec<String>,
-    /// Reserved — always empty from `from_knowledge_set` today (see module docs).
+    /// Ids of nodes this row contradicts/attacks or is contradicted/attacked BY
+    /// (L22/CONCEPT:EG-P3-1, SYMMETRIC) — copied from `KnowledgeRow::contradiction_ids`.
     pub contradiction_ids: Vec<String>,
     /// A lazy handle onto the row's stored payload (its node id, NOT the decoded
     /// bytes) — re-resolvable via `GraphView::node_row_object`. `None` when the row
@@ -277,10 +288,10 @@ impl KnowledgeBatch {
                 tx_time: r.tx_time,
                 source_refs: r.source_refs.clone(),
                 policy_labels: r.policy_labels.clone(),
-                transformation_ids: Vec::new(),
-                proof_ids: Vec::new(),
-                alternative_ids: Vec::new(),
-                contradiction_ids: Vec::new(),
+                transformation_ids: r.transformation_ids.clone(),
+                proof_ids: r.proof_ids.clone(),
+                alternative_ids: r.alternative_ids.clone(),
+                contradiction_ids: r.contradiction_ids.clone(),
                 blob_handle: r
                     .payload_ref
                     .as_ref()
@@ -869,6 +880,80 @@ mod tests {
             assert!(row.alternative_ids.is_empty());
             assert!(row.contradiction_ids.is_empty());
         }
+    }
+
+    /// L22/CONCEPT:EG-P3-1: a claim with a `GENERATED_BY` edge (transformation), a
+    /// transitive support chain (proof), and a `CONTRADICTS` edge (contradiction) —
+    /// all four previously-reserved columns populate AND round-trip losslessly
+    /// through `to_record_batch`/`from_record_batch`.
+    #[cfg(feature = "epistemic")]
+    #[test]
+    fn transformation_proof_contradiction_columns_populate_and_round_trip() {
+        let core = GraphCore::new();
+        core.add_node(
+            "claim1".into(),
+            blob(json!({ "node_type": "Claim", "confidence": 0.6 })),
+        );
+        core.add_node(
+            "mid".into(),
+            blob(json!({ "node_type": "Claim", "confidence": 0.7 })),
+        );
+        core.add_node(
+            "evidence1".into(),
+            blob(json!({ "node_type": "Evidence", "confidence": 0.9 })),
+        );
+        core.add_node(
+            "counter1".into(),
+            blob(json!({ "node_type": "Evidence", "confidence": 0.8 })),
+        );
+        core.add_node(
+            "activity1".into(),
+            blob(json!({ "node_type": "Activity" })),
+        );
+        core.add_edge(
+            "mid".into(),
+            "claim1".into(),
+            blob(json!({ "relationship_type": "SUPPORTS" })),
+        )
+        .unwrap();
+        core.add_edge(
+            "evidence1".into(),
+            "mid".into(),
+            blob(json!({ "relationship_type": "SUPPORTS" })),
+        )
+        .unwrap();
+        core.add_edge(
+            "counter1".into(),
+            "claim1".into(),
+            blob(json!({ "relationship_type": "CONTRADICTS" })),
+        )
+        .unwrap();
+        core.add_edge(
+            "claim1".into(),
+            "activity1".into(),
+            blob(json!({ "relationship_type": "GENERATED_BY" })),
+        )
+        .unwrap();
+        let view = core.analysis_snapshot();
+        let rs = RowSet::from_ids(["claim1".to_string()]);
+        let ks = KnowledgeSet::from_rowset(&rs, &view, &[]);
+
+        let kb = KnowledgeBatch::from_knowledge_set(&ks);
+        let rb = kb.to_record_batch().expect("to_record_batch");
+        let back = KnowledgeBatch::from_record_batch(&rb).expect("from_record_batch");
+
+        let row = &back.rows[0];
+        assert_eq!(row.transformation_ids, vec!["activity1".to_string()]);
+        assert_eq!(row.contradiction_ids, vec!["counter1".to_string()]);
+        // `proof_ids` is the FULL justification tree — every premise regardless of
+        // polarity, so it includes `counter1` (a `DerivedContradiction` premise) too,
+        // not just the supporting chain.
+        let mut proof = row.proof_ids.clone();
+        proof.sort();
+        assert_eq!(
+            proof,
+            vec!["counter1".to_string(), "evidence1".to_string(), "mid".to_string()]
+        );
     }
 
     #[test]
