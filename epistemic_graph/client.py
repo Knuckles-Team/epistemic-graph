@@ -2813,7 +2813,11 @@ class GraphLearnClient:
             "seed": seed,
             "alpha": alpha,
         }
-        source: dict[str, Any] = {"node_label": node_label, "direction": direction, "limit": limit}
+        source: dict[str, Any] = {
+            "node_label": node_label,
+            "direction": direction,
+            "limit": limit,
+        }
         if relation is not None:
             source["relation"] = relation
         return await self._client._send(
@@ -2841,7 +2845,11 @@ class GraphLearnClient:
         each scored pair is materialized as a typed ``:PredictedEdge`` node linked to its
         endpoints. Returns ``{predicted: [{src, dst, score}], n_predicted, model, ...}``.
         """
-        source: dict[str, Any] = {"node_label": node_label, "direction": direction, "limit": limit}
+        source: dict[str, Any] = {
+            "node_label": node_label,
+            "direction": direction,
+            "limit": limit,
+        }
         if relation is not None:
             source["relation"] = relation
         params: dict[str, Any] = {
@@ -3142,6 +3150,27 @@ class QueryClient:
         evidence. Read-only. Requires a server built with the ``evidence-graph``
         feature (opt-in, not part of ``full``)."""
         return await self._client._send("ExplainEvidence", {"node_id": node_id})
+
+    async def epistemic_status(self, node_id: str) -> dict[str, Any]:
+        """CONCEPT:EPI-P3-5 — the acceptance-query capstone: for ``node_id`` return
+        "what do we believe, why, on exactly which evidence, under whose authority,
+        at what time, with what uncertainty, and what would invalidate it" in one
+        typed call (``eg_epistemic::epistemic_status``). Returns an
+        ``EpistemicStatusResult`` (belief + evidence + authority + valid/tx time +
+        uncertainty + proof + minimal-flip invalidation set). Read-only. Requires a
+        server built with the ``epistemic-tms`` feature (opt-in, not part of
+        ``full``)."""
+        return await self._client._send("EpistemicStatus", {"node_id": node_id})
+
+    async def what_changed(self, tx_from: int, tx_to: int) -> dict[str, Any]:
+        """CONCEPT:EPI-P3-5 — between two transaction times, which beliefs changed and
+        why (``eg_epistemic::what_changed``) — a whole-graph temporal DIFF, distinct
+        from :meth:`epistemic_status`'s single-claim view. Returns a
+        ``WhatChangedResult``. Read-only. Requires a server built with the
+        ``epistemic-tms`` feature (opt-in, not part of ``full``)."""
+        return await self._client._send(
+            "WhatChanged", {"tx_from": tx_from, "tx_to": tx_to}
+        )
 
     async def causal_estimate(
         self,
