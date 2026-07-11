@@ -115,6 +115,8 @@ async fn make_state(dir: &str) -> Result<Arc<RwLock<ServerState>>, String> {
         dataset_handles: std::sync::Arc::new(
             crate::server::dataset_handle::DatasetHandleRegistry::new(),
         ),
+        #[cfg(feature = "lake")]
+        lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
     }));
     // M2 rehydration: load the durable graph data from redb into the registry before
     // Raft starts (the real boot path's `load_all`). A fresh dir loads 0; a restarted
