@@ -25,6 +25,11 @@ mod model;
 mod propagate;
 #[cfg(feature = "epistemic-tms")]
 mod tms;
+// X-6 / EPI-P3-2 — the live dependency-driven recompute/truth-maintenance engine
+// built on top of the `tms` module above. Same feature gate: it depends directly
+// on `tms::retract`/`RetractionResult`.
+#[cfg(feature = "epistemic-tms")]
+mod recompute;
 
 // ModalityContract retrofit (CONCEPT:E4): `impl ModalityContract for
 // BeliefState` — the reference "does everything" implementation (overrides
@@ -50,3 +55,12 @@ pub use tms::{
     is_skeptically_accepted, preferred_extensions, retract, stable_extensions, RetractionResult,
     MAX_PREFERRED_ARGUMENTS, MAX_SEARCH_NODES,
 };
+
+// X-6 / EPI-P3-2 — dependency-driven truth maintenance: track derived
+// materializations + their dependency set, invalidate/retract them on a change
+// event (base fact deleted/updated, permission/policy change, model/ontology
+// retirement) found via the reverse dependency index, recompute without ever
+// resting at `Stale`, and wire the TMS's own dependency-directed retraction
+// straight into the same index. See `recompute` module docs.
+#[cfg(feature = "epistemic-tms")]
+pub use recompute::{ChangeEvent, Materialization, MaterializationStatus, TruthMaintenance};
