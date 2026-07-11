@@ -103,8 +103,27 @@ pub(crate) async fn try_handle(
                     let mut snap = core.analysis_snapshot();
                     #[cfg(feature = "security")]
                     rls.filter_view(caller.unwrap_or(""), &mut snap);
+                    // L36 (CONCEPT:EG-KG.query.streaming-spillable-collect) — a REAL, request-scoped
+                    // `CancellationToken`: registered under THIS request's `req_id` for the
+                    // duration of the call so an explicit client `Method::CancelRequest` or a
+                    // server-side per-request deadline (`EPISTEMIC_GRAPH_SQL_REQUEST_TIMEOUT_MS`,
+                    // via `spawn_timeout`) can trip it — observed by `collect_streaming` at its
+                    // NEXT batch boundary, stopping the stream short instead of the always-fresh,
+                    // never-cancelled token this handler built internally before this fix. The
+                    // guard removes the registry entry when this arm returns (success, error, or
+                    // panic-unwind), so a completed request is never left cancellable.
+                    let cancel = eg_query::CancellationToken::new();
+                    let _cancel_guard =
+                        crate::server::request_cancel::register(req_id, cancel.clone());
+                    let timeout_task = crate::server::request_cancel::spawn_timeout(cancel.clone());
+                    let cancel_for_task = cancel.clone();
                     let resp = match compute_off_lock(req_id, move || {
-                        eg_query::exec_sql_typed_with_tables(&snap, &store, &query)
+                        eg_query::exec_sql_typed_with_tables_cancellable(
+                            &snap,
+                            &store,
+                            &query,
+                            &cancel_for_task,
+                        )
                     })
                     .await
                     {
@@ -123,6 +142,9 @@ pub(crate) async fn try_handle(
                         Ok(Err(msg)) => Response::err(req_id, format!("SQL error: {msg}")),
                         Err(resp) => resp,
                     };
+                    if let Some(t) = timeout_task {
+                        t.abort();
+                    }
                     Ok(resp)
                 }
             }
@@ -185,14 +207,23 @@ pub(crate) async fn try_handle(
                 #[cfg(feature = "text")]
                 let served_text =
                     crate::server::secondary_indexes::ServedTextIndex::new(core_for_ctx.clone());
+                #[cfg(feature = "geo")]
+                let served_spatial =
+                    crate::server::secondary_indexes::ServedSpatialIndex::new(core_for_ctx.clone());
                 let semantic_guard = core_for_ctx.semantic_store.read();
                 run_unified(
                     plan,
                     reorder_filter_selectivity,
                     &snap,
                     &semantic_guard,
-                    #[cfg(feature = "text")]
-                    Some(&served_text),
+                    ServedIndexes {
+                        #[cfg(feature = "text")]
+                        text: Some(&served_text),
+                        #[cfg(feature = "geo")]
+                        spatial: Some(&served_spatial),
+                        #[cfg(not(any(feature = "text", feature = "geo")))]
+                        _marker: std::marker::PhantomData,
+                    },
                     #[cfg(feature = "tsdb")]
                     tsdb.as_deref(),
                     // Off-txn: no staged-series overlay (CONCEPT:EG-KG.query.txn-tsdb-read-your).
@@ -269,14 +300,23 @@ pub(crate) async fn try_handle(
                 #[cfg(feature = "text")]
                 let served_text =
                     crate::server::secondary_indexes::ServedTextIndex::new(core_for_ctx.clone());
+                #[cfg(feature = "geo")]
+                let served_spatial =
+                    crate::server::secondary_indexes::ServedSpatialIndex::new(core_for_ctx.clone());
                 let semantic_guard = core_for_ctx.semantic_store.read();
                 run_unified(
                     plan,
                     reorder_filter_selectivity,
                     &snap,
                     &semantic_guard,
-                    #[cfg(feature = "text")]
-                    Some(&served_text),
+                    ServedIndexes {
+                        #[cfg(feature = "text")]
+                        text: Some(&served_text),
+                        #[cfg(feature = "geo")]
+                        spatial: Some(&served_spatial),
+                        #[cfg(not(any(feature = "text", feature = "geo")))]
+                        _marker: std::marker::PhantomData,
+                    },
                     #[cfg(feature = "tsdb")]
                     tsdb.as_deref(),
                     // Off-txn: no staged-series overlay (CONCEPT:EG-KG.query.txn-tsdb-read-your).
@@ -307,9 +347,18 @@ pub(crate) async fn try_handle(
                 #[cfg(feature = "security")]
                 rls,
             );
-            let semantic = core.semantic_store.read().clone();
-            let resp = match compute_off_lock(req_id, move || explain_plan(plan, &snap, &semantic))
-                .await
+            // L34: reuse the served `UnifiedQuery` idiom instead of a per-request
+            // `SemanticStore` clone — move the cheap `Arc<GraphCore>` clone into the
+            // off-lock closure and take the read guard THERE, on the blocking pool. This
+            // diagnostic surface is low-traffic, but the fix costs nothing (same clone
+            // count: an `Arc` clone instead of a whole-store clone) so there is no reason
+            // to keep the heavier path.
+            let core_for_ctx = core.clone();
+            let resp = match compute_off_lock(req_id, move || {
+                let semantic = core_for_ctx.semantic_store.read();
+                explain_plan(plan, &snap, &semantic)
+            })
+            .await
             {
                 Ok(Ok(result)) => {
                     let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
@@ -329,20 +378,23 @@ pub(crate) async fn try_handle(
                 #[cfg(feature = "security")]
                 rls,
             );
-            let semantic = core.semantic_store.read().clone();
-            let resp =
-                match compute_off_lock(req_id, move || explain_provenance(plan, &snap, &semantic))
-                    .await
-                {
-                    Ok(Ok(result)) => {
-                        let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-                        Response::ok(req_id, ResultPayload::Raw(bytes))
-                    }
-                    Ok(Err(msg)) => {
-                        Response::err(req_id, format!("ExplainProvenance error: {msg}"))
-                    }
-                    Err(resp) => resp,
-                };
+            // L34: see `ExplainPlan` above — clone the cheap `Arc<GraphCore>` into the
+            // closure and take the `SemanticStore` read guard inside it, instead of
+            // cloning the whole store per request.
+            let core_for_ctx = core.clone();
+            let resp = match compute_off_lock(req_id, move || {
+                let semantic = core_for_ctx.semantic_store.read();
+                explain_provenance(plan, &snap, &semantic)
+            })
+            .await
+            {
+                Ok(Ok(result)) => {
+                    let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
+                    Response::ok(req_id, ResultPayload::Raw(bytes))
+                }
+                Ok(Err(msg)) => Response::err(req_id, format!("ExplainProvenance error: {msg}")),
+                Err(resp) => resp,
+            };
             Ok(resp)
         }
         #[cfg(feature = "query")]
@@ -358,8 +410,12 @@ pub(crate) async fn try_handle(
                 #[cfg(feature = "security")]
                 rls,
             );
-            let semantic = core.semantic_store.read().clone();
+            // L34: see `ExplainPlan` above — clone the cheap `Arc<GraphCore>` into the
+            // closure and take the `SemanticStore` read guard inside it, instead of
+            // cloning the whole store per request.
+            let core_for_ctx = core.clone();
             let resp = match compute_off_lock(req_id, move || {
+                let semantic = core_for_ctx.semantic_store.read();
                 explain_policy(plan, &full, &filtered, &semantic)
             })
             .await
@@ -489,14 +545,23 @@ pub(crate) async fn try_handle(
                 #[cfg(feature = "text")]
                 let served_text =
                     crate::server::secondary_indexes::ServedTextIndex::new(core_for_ctx.clone());
+                #[cfg(feature = "geo")]
+                let served_spatial =
+                    crate::server::secondary_indexes::ServedSpatialIndex::new(core_for_ctx.clone());
                 let semantic_guard = core_for_ctx.semantic_store.read();
                 run_unified(
                     plan,
                     None,
                     &snap,
                     &semantic_guard,
-                    #[cfg(feature = "text")]
-                    Some(&served_text),
+                    ServedIndexes {
+                        #[cfg(feature = "text")]
+                        text: Some(&served_text),
+                        #[cfg(feature = "geo")]
+                        spatial: Some(&served_spatial),
+                        #[cfg(not(any(feature = "text", feature = "geo")))]
+                        _marker: std::marker::PhantomData,
+                    },
                     #[cfg(feature = "tsdb")]
                     tsdb.as_deref(),
                     // Off-txn: no staged-series overlay (CONCEPT:EG-KG.query.txn-tsdb-read-your).
@@ -789,6 +854,19 @@ fn plan_needs_text(ops: &[eg_plan::Op]) -> bool {
     })
 }
 
+/// Does `ops` reference `Op::SpatialScan` — at the top level or nested inside an
+/// `Op::FuseRrf` branch (CONCEPT:EG-KG.storage.incremental-spatial, L37, mirroring `plan_needs_text`)?
+/// Drives whether `run_unified` binds the served spatial index at all, so a non-spatial
+/// plan pays nothing.
+#[cfg(all(feature = "query", feature = "geo"))]
+fn plan_needs_spatial(ops: &[eg_plan::Op]) -> bool {
+    ops.iter().any(|op| match op {
+        eg_plan::Op::SpatialScan { .. } => true,
+        eg_plan::Op::FuseRrf { branches, .. } => branches.iter().any(|b| plan_needs_spatial(b)),
+        _ => false,
+    })
+}
+
 /// Build a BM25 [`eg_text::TextIndex`] from a graph snapshot's node blobs
 /// (CONCEPT:EG-KG.query.served-text-index-binding) — the served lexical index for `Op::RankText` /
 /// `Op::FuseRrf`. Each node's indexable text is the concatenation of every STRING leaf in its
@@ -828,6 +906,28 @@ fn build_text_index_from_view(view: &crate::graph::GraphView) -> Option<eg_text:
     Some(index)
 }
 
+/// Bundles the served-adapter modality indexes `run_unified` pushes a plan's legs down
+/// into (CONCEPT:EG-KG.query.served-text-index-binding / CONCEPT:EG-KG.storage.incremental-spatial) — ONE parameter
+/// rather than one per modality, so `run_unified`'s argument count stays sane as more
+/// served-index modalities are added over time (L37 added spatial beside text; a future
+/// modality adds a field here, not a new top-level parameter). Each field is `Some` and
+/// `.available()` ⇒ the matching op searches the MAINTAINED persistent index directly, NO
+/// per-query rebuild; otherwise `run_unified` falls back to the prior behavior (a
+/// snapshot-derived index for text, an unbound `PlanCtx::spatial` — ephemeral R-tree — for
+/// spatial), exactly as if this bundle were never passed.
+#[cfg(feature = "query")]
+#[derive(Default)]
+pub(crate) struct ServedIndexes<'a> {
+    #[cfg(feature = "text")]
+    pub text: Option<&'a crate::server::secondary_indexes::ServedTextIndex>,
+    #[cfg(feature = "geo")]
+    pub spatial: Option<&'a crate::server::secondary_indexes::ServedSpatialIndex>,
+    // Keeps `'a` used even when neither `text` nor `geo` is built, so `ServedIndexes<'_>`
+    // stays a valid (zero-field-active) type in every feature combination.
+    #[cfg(not(any(feature = "text", feature = "geo")))]
+    _marker: std::marker::PhantomData<&'a ()>,
+}
+
 /// Execute a unified cross-modal plan (CONCEPT:AU-KG.compute.vector/209) over one off-lock
 /// snapshot and return the result rows as `[id, score|nil]`. The plan is routed through the
 /// full cost optimizer by `eg_plan::execute` (CONCEPT:EG-KG.query.served-plan-optimize-routing); a
@@ -841,13 +941,7 @@ pub(crate) fn run_unified(
     reorder_filter_selectivity: Option<f64>,
     view: &crate::graph::GraphView,
     semantic: &eg_core::compute::semantic::SemanticStore,
-    // CONCEPT:EG-KG.query.served-text-index-binding — the planner-pushdown adapter reaching the graph's
-    // MAINTAINED persistent BM25 index (see `ServedTextIndex`'s docs). `Some` and
-    // `.available()` ⇒ a `RankText`/`FuseRrf` leg searches the persistent index
-    // directly, NO per-query rebuild; otherwise this fn falls back to the prior
-    // snapshot-derived index (a graph with no `ServerIndexFactory` installed, e.g. a
-    // test harness, or a graph created before the factory was wired).
-    #[cfg(feature = "text")] served_text: Option<&crate::server::secondary_indexes::ServedTextIndex>,
+    served: ServedIndexes<'_>,
     // RECONCILE (Lane C tsdb-in-plan, CONCEPT:EG-KG.query.native-time-series): the committed native tsdb
     // `SeriesStore` backing `Op::TsScan`, threaded in so a UQL plan fuses its
     // time-series leg with the graph/vector/relational legs. `None` ⇒ a `TsScan`
@@ -858,6 +952,10 @@ pub(crate) fn run_unified(
     // an in-txn UQL reads its own measurements. `None` off-txn ⇒ committed series only.
     #[cfg(feature = "tsdb")] staged_series: Option<&eg_plan::StagedSeries>,
 ) -> Result<Vec<(String, Option<f32>)>, String> {
+    #[cfg(feature = "text")]
+    let served_text = served.text;
+    #[cfg(feature = "geo")]
+    let served_spatial = served.spatial;
     use eg_plan::PlanCtx;
 
     // CONCEPT:EG-KG.query.served-plan-optimize-routing — No-Legacy migration (handoff-1). The
@@ -910,6 +1008,20 @@ pub(crate) fn run_unified(
         ctx.with_text(served)
     } else if let Some(index) = snapshot_text_index.as_ref() {
         ctx.with_text(index)
+    } else {
+        ctx
+    };
+    // CONCEPT:EG-KG.storage.incremental-spatial, L37 — bind a persistent spatial index into the served `PlanCtx` so a
+    // served `Op::SpatialScan` gets pushed into the MAINTAINED per-graph
+    // `GraphSpatialIndex` instead of rebuilding a throwaway packed Hilbert R-tree on
+    // EVERY request. `None` (no factory installed, or the plan has no spatial op) keeps
+    // `spatial_scan`'s prior ephemeral-build fallback — byte-for-byte the old behavior.
+    #[cfg(feature = "geo")]
+    let ctx = if plan_needs_spatial(&ops) {
+        match served_spatial.filter(|s| s.available()) {
+            Some(served) => ctx.with_spatial(served),
+            None => ctx,
+        }
     } else {
         ctx
     };
@@ -1301,6 +1413,9 @@ async fn run_unified_overlaid(
     match compute_off_lock(req_id, move || {
         #[cfg(feature = "text")]
         let served_text = crate::server::secondary_indexes::ServedTextIndex::new(core.clone());
+        #[cfg(feature = "geo")]
+        let served_spatial =
+            crate::server::secondary_indexes::ServedSpatialIndex::new(core.clone());
         // Fast path (CONCEPT:EG-KG.query.served-vector-index-binding): no staged embeddings this txn ⇒
         // search the COMMITTED store directly through a guard — no clone, no forced
         // HNSW rebuild. Only when the txn actually staged embeddings do we need a
@@ -1314,8 +1429,14 @@ async fn run_unified_overlaid(
                 reorder_filter_selectivity,
                 &view,
                 &semantic_guard,
-                #[cfg(feature = "text")]
-                Some(&served_text),
+                ServedIndexes {
+                    #[cfg(feature = "text")]
+                    text: Some(&served_text),
+                    #[cfg(feature = "geo")]
+                    spatial: Some(&served_spatial),
+                    #[cfg(not(any(feature = "text", feature = "geo")))]
+                    _marker: std::marker::PhantomData,
+                },
                 #[cfg(feature = "tsdb")]
                 tsdb.as_deref(),
                 #[cfg(feature = "tsdb")]
@@ -1329,8 +1450,14 @@ async fn run_unified_overlaid(
                 reorder_filter_selectivity,
                 &view,
                 &semantic,
-                #[cfg(feature = "text")]
-                Some(&served_text),
+                ServedIndexes {
+                    #[cfg(feature = "text")]
+                    text: Some(&served_text),
+                    #[cfg(feature = "geo")]
+                    spatial: Some(&served_spatial),
+                    #[cfg(not(any(feature = "text", feature = "geo")))]
+                    _marker: std::marker::PhantomData,
+                },
                 #[cfg(feature = "tsdb")]
                 tsdb.as_deref(),
                 #[cfg(feature = "tsdb")]

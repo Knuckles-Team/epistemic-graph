@@ -2639,6 +2639,7 @@ dependencies = [
  "eg-compute",
  "eg-core",
  "eg-epistemic",
+ "eg-geo",
  "eg-graphql",
  "eg-kvcache",
  "eg-modality",
