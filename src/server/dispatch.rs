@@ -7,7 +7,7 @@ use tokio::sync::RwLock;
 use tracing::info;
 
 use super::access::{check_graph_access, requires_write};
-use super::auth::verify_auth;
+use super::auth::verify_request;
 // Only the ast-gated ParseFiles handler offloads to the blocking pool here; the
 // graph-op off-lock sites live in handlers/graph_ops.rs.
 #[cfg(feature = "ast")]
@@ -46,12 +46,16 @@ pub async fn dispatch(state: &Arc<RwLock<ServerState>>, req: Request) -> Respons
 }
 
 async fn dispatch_inner(state: &Arc<RwLock<ServerState>>, req: Request) -> Response {
-    // Auth check.
+    // Auth check (CONCEPT:EG-KG.security.signed-request-envelope, EG-P0-5): routes v0 (legacy,
+    // HMAC-over-id) vs v1 (signed envelope — audience/tenant/principal/graph/
+    // method/body-hash/timestamp/nonce/idempotency-key, constant-time verified
+    // with a replay-nonce cache) and applies the `require_signed` policy to a
+    // v0 request. See `server::auth` module docs.
     {
         let s = state.read().await;
-        if !verify_auth(&s.auth_secret, req.id, &req.auth_token) {
+        if let Err(msg) = verify_request(&s.auth_secret, &req) {
             crate::metrics::auth_failure();
-            return Response::err(req.id, "Authentication failed");
+            return Response::err(req.id, msg);
         }
     }
 
