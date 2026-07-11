@@ -26,10 +26,43 @@ use crate::protocol::{GraphLearnParams, GraphSource, Method, Response, ResultPay
 /// Handle a `GraphLearn*` method. `Err(method)` hands a non-graphlearn method back to
 /// the dispatcher (routing fall-through). (CONCEPT:EG-KG.query.dispatch-convention.)
 pub(crate) fn try_handle(
-    req_id: u64,
-    core: Arc<GraphCore>,
+    // Both params are now unused: every `GraphLearn*` variant is `mutation::
+    // GATEWAY_ROUTED` (runtime-conditional), so `dispatch_graph_op` always routes
+    // through `graph_ops::try_handle_gateway` before this fallback is ever called
+    // (the `unreachable!()` arms below are the structural proof). Kept for a
+    // stable call signature (mirrors every other domain handler's convention).
+    _req_id: u64,
+    _core: Arc<GraphCore>,
     method: Method,
 ) -> Result<Response, Method> {
+    match method {
+        // GraphLearnFit/GraphLearnPredict (CONCEPT:EG-P0-2 bypass guard, L11):
+        // GATEWAY_ROUTED (runtime-conditional on `writeback`) — `dispatch_graph_op`
+        // routes both through `graph_ops::try_handle_gateway` BEFORE this handler is
+        // ever reached (see `mutation::commit_conditional_mutation`), so this arm is
+        // structurally unreachable here now, not merely undocumented.
+        Method::GraphLearnFit { .. } => unreachable!(
+            "GraphLearnFit is mutation::GATEWAY_ROUTED; dispatch_graph_op must route \
+             it through try_handle_gateway before it ever reaches this fallback handler"
+        ),
+        Method::GraphLearnPredict { .. } => unreachable!(
+            "GraphLearnPredict is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
+             route it through try_handle_gateway before it ever reaches this fallback handler"
+        ),
+        other => Err(other),
+    }
+}
+
+/// Test-only dispatch shim (CONCEPT:EG-P0-2 bypass guard, L11): this module's
+/// white-box unit tests exercise `handle_fit`/`handle_predict` directly against a
+/// `Method` value WITHOUT going through `dispatch_graph_op`/`graph_ops::
+/// try_handle_gateway`/`commit_conditional_mutation`, so they never see the real
+/// gateway routing that makes `try_handle`'s own arms above correctly
+/// unreachable. Calls the EXACT SAME `pub(crate) handle_*` functions the gateway
+/// match arm in `graph_ops::try_handle_gateway` calls -- one implementation, never
+/// a second copy that could drift.
+#[cfg(test)]
+fn dispatch_for_test(req_id: u64, core: Arc<GraphCore>, method: Method) -> Result<Response, Method> {
     match method {
         Method::GraphLearnFit {
             source,
@@ -91,7 +124,13 @@ pub(crate) fn replay(core: &GraphCore, method: &Method) {
 
 // ─────────────────────────── Fit ───────────────────────────
 
-fn handle_fit(
+// `pub(crate)` (not module-private): `graph_ops::try_handle_gateway` calls these
+// directly for the RUNTIME-conditional gateway routing of `GraphLearnFit`/
+// `GraphLearnPredict` (CONCEPT:EG-P0-2, L11) — the `writeback` field decides, per
+// call, whether THIS invocation mutates, so the gateway match arm calls the SAME
+// handler either way and only drives the durable/audit/CDC side through
+// `commit_mutation` when `writeback` is true (see `mutation::commit_conditional_mutation`).
+pub(crate) fn handle_fit(
     req_id: u64,
     core: &GraphCore,
     source: GraphSource,
@@ -207,7 +246,7 @@ fn edge_function_rows(model: &KanLinkModel) -> Vec<serde_json::Value> {
 // ─────────────────────────── Predict ───────────────────────────
 
 #[allow(clippy::too_many_arguments)]
-fn handle_predict(
+pub(crate) fn handle_predict(
     req_id: u64,
     core: &GraphCore,
     model_json: serde_json::Value,
@@ -510,7 +549,7 @@ mod tests {
     fn non_graphlearn_method_falls_through() {
         let core = Arc::new(GraphCore::new());
         let m = Method::NodeCount;
-        assert!(matches!(try_handle(1, core, m), Err(Method::NodeCount)));
+        assert!(matches!(dispatch_for_test(1, core, m), Err(Method::NodeCount)));
     }
 
     #[test]
@@ -527,7 +566,7 @@ mod tests {
             params: GraphLearnParams::default(),
             writeback: true,
         };
-        let resp = try_handle(1, Arc::clone(&core), m).expect("handled");
+        let resp = dispatch_for_test(1, Arc::clone(&core), m).expect("handled");
         let Some(ResultPayload::Json(v)) = resp.result else {
             panic!("expected json");
         };
@@ -561,7 +600,7 @@ mod tests {
             params: GraphLearnParams::default(),
             writeback: false,
         };
-        let resp = try_handle(1, Arc::clone(&core), fit).expect("handled");
+        let resp = dispatch_for_test(1, Arc::clone(&core), fit).expect("handled");
         let Some(ResultPayload::Json(v)) = resp.result else {
             panic!("expected json");
         };
@@ -574,7 +613,7 @@ mod tests {
             top_k: 5,
             writeback: true,
         };
-        let resp = try_handle(2, Arc::clone(&core), predict).expect("handled");
+        let resp = dispatch_for_test(2, Arc::clone(&core), predict).expect("handled");
         let Some(ResultPayload::Json(v)) = resp.result else {
             panic!("expected json");
         };

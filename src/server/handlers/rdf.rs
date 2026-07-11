@@ -189,20 +189,14 @@ pub(crate) async fn try_handle(
         Method::ShaclValidate { shapes, data_graph } => {
             Ok(handle_shacl_validate(state, req_id, graph_name, &core, shapes, data_graph).await)
         }
-        // X5-enforce (CONCEPT:EG-KG.ontology.rdf-update-guard): configure the write-time
-        // ICV guard `AddTriples`/`RemoveTriples`/`ApplyMutation` consult below. Gated
-        // `shacl`; a build without it drops this arm → the dispatch "not available"
-        // catch-all (the variant is unconditional in the enum, like `ShaclValidate`).
+        // IcvConfigure (CONCEPT:EG-P0-2 bypass guard, L11): GATEWAY_ROUTED —
+        // `dispatch_graph_op` routes it through `graph_ops::try_handle_gateway`
+        // BEFORE this handler is ever reached, so this arm is structurally
+        // unreachable here now, not merely undocumented.
         #[cfg(feature = "shacl")]
-        Method::IcvConfigure {
-            graph,
-            mode,
-            shapes,
-        } => Ok(
-            match crate::server::icv_guard::configure(graph.as_deref(), &mode, &shapes) {
-                Ok(()) => Response::ok(req_id, ResultPayload::Bool(true)),
-                Err(e) => Response::err(req_id, e),
-            },
+        Method::IcvConfigure { .. } => unreachable!(
+            "IcvConfigure is mutation::GATEWAY_ROUTED; dispatch_graph_op must route \
+             it through try_handle_gateway before it ever reaches this fallback handler"
         ),
         // ShEx Core validation (CONCEPT:EG-KG.compute.concept-2). Read-only. Gated `shex`; a build without
         // it drops this arm → `other => Err(other)` → the dispatch not-available catch-all

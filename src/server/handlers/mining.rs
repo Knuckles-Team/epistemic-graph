@@ -49,6 +49,128 @@ pub(crate) fn try_handle(
     method: Method,
 ) -> Result<Response, Method> {
     match method {
+        // Every writeback-capable Mine* method (CONCEPT:EG-P0-2 bypass guard,
+        // L11) is now `mutation::GATEWAY_ROUTED` (runtime-conditional on
+        // `writeback`) — `dispatch_graph_op` routes it through
+        // `graph_ops::try_handle_gateway` BEFORE this handler is ever reached
+        // (see `mutation::commit_conditional_mutation`), so these arms are
+        // structurally unreachable here now, not merely undocumented.
+        // `MineClassifyFit` is the ONE exception: it never writes back
+        // (policy explicit-false), so it stays an ordinary read below.
+        Method::MineAssociate { .. } => unreachable!(
+            "MineAssociate is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
+             route it through try_handle_gateway before it ever reaches this fallback handler"
+        ),
+        Method::MineCluster { .. } => unreachable!(
+            "MineCluster is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
+             route it through try_handle_gateway before it ever reaches this fallback handler"
+        ),
+        Method::MineAnomaly { .. } => unreachable!(
+            "MineAnomaly is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
+             route it through try_handle_gateway before it ever reaches this fallback handler"
+        ),
+        Method::MineClassifyFit {
+            x,
+            source,
+            #[cfg(feature = "query")]
+            plan,
+            y,
+            algorithm,
+            k,
+            alpha,
+            lr,
+            epochs,
+            l2,
+            c,
+        } => Ok(handle_classify_fit(
+            req_id,
+            &core,
+            x,
+            source,
+            #[cfg(feature = "query")]
+            plan,
+            y,
+            algorithm,
+            k,
+            alpha,
+            lr,
+            epochs,
+            l2,
+            c,
+        )),
+        Method::MineClassifyPredict { .. } => unreachable!(
+            "MineClassifyPredict is mutation::GATEWAY_ROUTED; dispatch_graph_op \
+             must route it through try_handle_gateway before it ever reaches this fallback handler"
+        ),
+        Method::MineReduce { .. } => unreachable!(
+            "MineReduce is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
+             route it through try_handle_gateway before it ever reaches this fallback handler"
+        ),
+        Method::MineSequence { .. } => unreachable!(
+            "MineSequence is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
+             route it through try_handle_gateway before it ever reaches this fallback handler"
+        ),
+        Method::MineForecast { .. } => unreachable!(
+            "MineForecast is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
+             route it through try_handle_gateway before it ever reaches this fallback handler"
+        ),
+        Method::MineText { .. } => unreachable!(
+            "MineText is mutation::GATEWAY_ROUTED; dispatch_graph_op must route \
+             it through try_handle_gateway before it ever reaches this fallback handler"
+        ),
+        Method::MineSubgraph { .. } => unreachable!(
+            "MineSubgraph is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
+             route it through try_handle_gateway before it ever reaches this fallback handler"
+        ),
+        Method::MineEntityResolve { .. } => unreachable!(
+            "MineEntityResolve is mutation::GATEWAY_ROUTED; dispatch_graph_op \
+             must route it through try_handle_gateway before it ever reaches this fallback handler"
+        ),
+        Method::MineCausalImpact { .. } => unreachable!(
+            "MineCausalImpact is mutation::GATEWAY_ROUTED; dispatch_graph_op \
+             must route it through try_handle_gateway before it ever reaches this fallback handler"
+        ),
+        Method::MineProcess { .. } => unreachable!(
+            "MineProcess is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
+             route it through try_handle_gateway before it ever reaches this fallback handler"
+        ),
+        Method::MineRootCause { .. } => unreachable!(
+            "MineRootCause is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
+             route it through try_handle_gateway before it ever reaches this fallback handler"
+        ),
+        Method::MineRiskPropagation { .. } => unreachable!(
+            "MineRiskPropagation is mutation::GATEWAY_ROUTED; dispatch_graph_op \
+             must route it through try_handle_gateway before it ever reaches this fallback handler"
+        ),
+        Method::MineOntologyGap { .. } => unreachable!(
+            "MineOntologyGap is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
+             route it through try_handle_gateway before it ever reaches this fallback handler"
+        ),
+        Method::MineRetrievalQuality { .. } => unreachable!(
+            "MineRetrievalQuality is mutation::GATEWAY_ROUTED; dispatch_graph_op \
+             must route it through try_handle_gateway before it ever reaches this fallback handler"
+        ),
+        Method::MineCommunity { .. } => unreachable!(
+            "MineCommunity is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
+             route it through try_handle_gateway before it ever reaches this fallback handler"
+        ),
+        other => Err(other),
+    }
+}
+
+/// Test-only dispatch shim (CONCEPT:EG-P0-2 bypass guard, L11): this module's
+/// white-box unit tests exercise `handle_*` business logic directly against a
+/// `Method` value WITHOUT going through `dispatch_graph_op`/`graph_ops::
+/// try_handle_gateway`/`commit_conditional_mutation` at all, so they never see
+/// the real gateway routing that makes `try_handle`'s own arms above correctly
+/// unreachable. This is the SAME routing table `try_handle` had before L11 routed
+/// these methods through the gateway, kept ONLY as a test entry point — it calls
+/// the EXACT SAME `pub(crate) handle_*` functions the gateway match arm in
+/// `graph_ops::try_handle_gateway` calls, so there is still only ONE
+/// implementation, never a second copy that could drift.
+#[cfg(test)]
+fn dispatch_for_test(req_id: u64, core: Arc<GraphCore>, method: Method) -> Result<Response, Method> {
+    match method {
         Method::MineAssociate {
             transactions,
             source,
@@ -1003,7 +1125,7 @@ pub(crate) fn replay(core: &GraphCore, method: &Method) {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn handle_associate(
+pub(crate) fn handle_associate(
     req_id: u64,
     core: &GraphCore,
     transactions: Vec<Vec<String>>,
@@ -1240,7 +1362,7 @@ fn to_algo(a: MineAlgorithm) -> Algorithm {
 /// rows (explicit or node embeddings), run the chosen clustering engine, return
 /// `{clusters, labels, ...}`, and optionally write `:Cluster` nodes back.
 #[allow(clippy::too_many_arguments)]
-fn handle_cluster(
+pub(crate) fn handle_cluster(
     req_id: u64,
     core: &Arc<GraphCore>,
     features: Vec<Vec<f64>>,
@@ -1420,7 +1542,7 @@ fn cluster_node_id(algo: &str, member_ids: &[String]) -> String {
 /// return per-row `{id, anomaly_score, is_anomaly}`, and optionally write `:Anomaly`
 /// nodes back for the flagged rows.
 #[allow(clippy::too_many_arguments)]
-fn handle_anomaly(
+pub(crate) fn handle_anomaly(
     req_id: u64,
     core: &Arc<GraphCore>,
     features: Vec<Vec<f64>>,
@@ -1626,7 +1748,7 @@ fn handle_classify_fit(
 /// fitted model, return per-row `{id, label, proba}`, and optionally write
 /// `:Classification` nodes back for each prediction.
 #[allow(clippy::too_many_arguments)]
-fn handle_classify_predict(
+pub(crate) fn handle_classify_predict(
     req_id: u64,
     core: &Arc<GraphCore>,
     model: FittedClassifier,
@@ -1770,7 +1892,7 @@ fn classification_node_id(source: &str) -> String {
 /// node embeddings — reduce node vectors for the graphviz), run the chosen reduction,
 /// return per-row `{id, coords}`, and optionally write `:Embedding2D` nodes back.
 #[allow(clippy::too_many_arguments)]
-fn handle_reduce(
+pub(crate) fn handle_reduce(
     req_id: u64,
     core: &Arc<GraphCore>,
     x: Vec<Vec<f64>>,
@@ -1931,7 +2053,7 @@ fn embedding2d_node_id(source: &str) -> String {
 /// (PrefixSpan/GSP — both agree), return `{patterns, ...}`, and optionally write
 /// `:SequentialPattern` nodes back.
 #[allow(clippy::too_many_arguments)]
-fn handle_sequence(
+pub(crate) fn handle_sequence(
     req_id: u64,
     core: &GraphCore,
     sequences: Vec<Vec<String>>,
@@ -2088,7 +2210,7 @@ fn pattern_node_id(items: &[String]) -> String {
 /// via ARIMA/Holt-Winters/STL, return `{forecast, lower, upper, ...}`, and
 /// optionally write a `:Forecast` node back.
 #[allow(clippy::too_many_arguments)]
-fn handle_forecast(
+pub(crate) fn handle_forecast(
     req_id: u64,
     core: &GraphCore,
     values: Vec<f64>,
@@ -2244,7 +2366,7 @@ fn forecast_node_id(algo: &str, series_id: &str, values: &[f64]) -> String {
 /// `{doc_terms}` (tfidf) or `{topics, doc_topics}` (lda/nmf), and optionally
 /// write `:Topic` nodes back (lda/nmf only).
 #[allow(clippy::too_many_arguments)]
-fn handle_text(
+pub(crate) fn handle_text(
     req_id: u64,
     core: &GraphCore,
     docs: Vec<Vec<String>>,
@@ -2466,7 +2588,7 @@ fn topic_node_id(algo: &str, terms: &[&str]) -> String {
 /// frequent-subgraph mining or a motif census, and optionally write
 /// `:FrequentSubgraph` nodes back (`gspan` only).
 #[allow(clippy::too_many_arguments)]
-fn handle_subgraph(
+pub(crate) fn handle_subgraph(
     req_id: u64,
     core: &GraphCore,
     label: Option<String>,
@@ -2681,7 +2803,7 @@ fn subgraph_node_id(pattern: &subgraph::Pattern) -> String {
 // ─────────────────────────── Entity resolution + record linkage ───────────────────────────
 
 #[allow(clippy::too_many_arguments)]
-fn handle_entity_resolve(
+pub(crate) fn handle_entity_resolve(
     req_id: u64,
     core: &GraphCore,
     records: Vec<Vec<String>>,
@@ -2886,7 +3008,7 @@ fn entity_provenance(source: &Option<VectorSource>) -> String {
 // ─────────────────────────── Causal impact (ITS / DiD) ───────────────────────────
 
 #[allow(clippy::too_many_arguments)]
-fn handle_causal_impact(
+pub(crate) fn handle_causal_impact(
     req_id: u64,
     core: &GraphCore,
     series: Vec<f64>,
@@ -3013,7 +3135,7 @@ fn materialize_causal_effect_claim(
 // ─────────────────────────── Process mining ───────────────────────────
 
 #[allow(clippy::too_many_arguments)]
-fn handle_process(
+pub(crate) fn handle_process(
     req_id: u64,
     core: &GraphCore,
     traces: Vec<Vec<String>>,
@@ -3195,7 +3317,7 @@ fn run_root_cause(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn handle_root_cause(
+pub(crate) fn handle_root_cause(
     req_id: u64,
     core: &GraphCore,
     nodes: Vec<String>,
@@ -3350,7 +3472,7 @@ fn run_risk_propagation(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn handle_risk_propagation(
+pub(crate) fn handle_risk_propagation(
     req_id: u64,
     core: &GraphCore,
     nodes: Vec<String>,
@@ -3531,7 +3653,7 @@ fn build_ontology_classes(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn handle_ontology_gap(
+pub(crate) fn handle_ontology_gap(
     req_id: u64,
     core: &GraphCore,
     label: Option<String>,
@@ -3650,7 +3772,7 @@ fn to_retrieval_trace(spec: &RetrievalTraceSpec) -> retrieval_quality::Retrieval
 }
 
 #[allow(clippy::too_many_arguments)]
-fn handle_retrieval_quality(
+pub(crate) fn handle_retrieval_quality(
     req_id: u64,
     core: &GraphCore,
     traces: Vec<RetrievalTraceSpec>,
@@ -3806,7 +3928,7 @@ fn to_community_algo(a: CommunityAlgorithm) -> community::Algorithm {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn handle_community(
+pub(crate) fn handle_community(
     req_id: u64,
     core: &GraphCore,
     label: Option<String>,
@@ -4600,7 +4722,7 @@ mod tests {
     fn non_mining_method_falls_through() {
         let core = Arc::new(GraphCore::new());
         let m = Method::NodeCount;
-        assert!(matches!(try_handle(1, core, m), Err(Method::NodeCount)));
+        assert!(matches!(dispatch_for_test(1, core, m), Err(Method::NodeCount)));
     }
 
     #[test]
@@ -4623,7 +4745,7 @@ mod tests {
             #[cfg(feature = "epistemic")]
             as_claim: false,
         };
-        let resp = try_handle(7, core, m).expect("handled");
+        let resp = dispatch_for_test(7, core, m).expect("handled");
         let Some(ResultPayload::Json(v)) = resp.result else {
             panic!("expected json payload");
         };
@@ -4662,7 +4784,7 @@ mod tests {
             #[cfg(feature = "epistemic")]
             as_claim: false,
         };
-        let resp = try_handle(9, Arc::clone(&core), m).expect("handled");
+        let resp = dispatch_for_test(9, Arc::clone(&core), m).expect("handled");
         let Some(ResultPayload::Json(v)) = resp.result else {
             panic!("expected json payload");
         };
@@ -4704,7 +4826,7 @@ mod tests {
             #[cfg(feature = "epistemic")]
             as_claim: false,
         };
-        let resp = try_handle(1, core, m).expect("handled");
+        let resp = dispatch_for_test(1, core, m).expect("handled");
         let Some(ResultPayload::Json(v)) = resp.result else {
             panic!("expected json");
         };
@@ -4750,7 +4872,7 @@ mod tests {
             #[cfg(feature = "epistemic")]
             as_claim: false,
         };
-        let resp = try_handle(2, Arc::clone(&core), m).expect("handled");
+        let resp = dispatch_for_test(2, Arc::clone(&core), m).expect("handled");
         let Some(ResultPayload::Json(v)) = resp.result else {
             panic!("expected json");
         };
@@ -4818,7 +4940,7 @@ mod tests {
             #[cfg(feature = "epistemic")]
             as_claim: false,
         };
-        let resp = try_handle(42, Arc::clone(&core), m).expect("handled");
+        let resp = dispatch_for_test(42, Arc::clone(&core), m).expect("handled");
         let Some(ResultPayload::Json(v)) = resp.result else {
             panic!("expected json");
         };
@@ -4866,7 +4988,7 @@ mod tests {
             #[cfg(feature = "epistemic")]
             as_claim: false,
         };
-        let resp = try_handle(43, core, m).expect("handled");
+        let resp = dispatch_for_test(43, core, m).expect("handled");
         let Some(ResultPayload::Json(v)) = resp.result else {
             panic!("expected json");
         };
@@ -4898,7 +5020,7 @@ mod tests {
             #[cfg(feature = "epistemic")]
             as_claim: false,
         };
-        let resp = try_handle(3, core, m).expect("handled");
+        let resp = dispatch_for_test(3, core, m).expect("handled");
         let Some(ResultPayload::Json(v)) = resp.result else {
             panic!("expected json");
         };
@@ -4948,7 +5070,7 @@ mod tests {
             #[cfg(feature = "epistemic")]
             as_claim: false,
         };
-        let resp = try_handle(4, Arc::clone(&core), m).expect("handled");
+        let resp = dispatch_for_test(4, Arc::clone(&core), m).expect("handled");
         let Some(ResultPayload::Json(v)) = resp.result else {
             panic!("expected json");
         };
@@ -4990,7 +5112,7 @@ mod tests {
             l2: 0.0,
             c: 1.0,
         };
-        let resp = try_handle(1, Arc::clone(&core), fit).expect("handled");
+        let resp = dispatch_for_test(1, Arc::clone(&core), fit).expect("handled");
         let Some(ResultPayload::Json(v)) = resp.result else {
             panic!("expected json");
         };
@@ -5007,7 +5129,7 @@ mod tests {
             #[cfg(feature = "epistemic")]
             as_claim: false,
         };
-        let resp = try_handle(2, core, predict).expect("handled");
+        let resp = dispatch_for_test(2, core, predict).expect("handled");
         let Some(ResultPayload::Json(v)) = resp.result else {
             panic!("expected json");
         };
@@ -5052,7 +5174,7 @@ mod tests {
             #[cfg(feature = "epistemic")]
             as_claim: false,
         };
-        let resp = try_handle(3, Arc::clone(&core), m).expect("handled");
+        let resp = dispatch_for_test(3, Arc::clone(&core), m).expect("handled");
         let Some(ResultPayload::Json(v)) = resp.result else {
             panic!("expected json");
         };
@@ -5103,7 +5225,7 @@ mod tests {
             #[cfg(feature = "epistemic")]
             as_claim: false,
         };
-        let resp = try_handle(4, Arc::clone(&core), m).expect("handled");
+        let resp = dispatch_for_test(4, Arc::clone(&core), m).expect("handled");
         let Some(ResultPayload::Json(v)) = resp.result else {
             panic!("expected json");
         };
@@ -5138,7 +5260,7 @@ mod tests {
             #[cfg(feature = "epistemic")]
             as_claim: false,
         };
-        let resp = try_handle(5, core, m).expect("handled");
+        let resp = dispatch_for_test(5, core, m).expect("handled");
         assert!(resp.result.is_none()); // an error response carries no result payload
     }
 
@@ -5172,7 +5294,7 @@ mod tests {
             #[cfg(feature = "epistemic")]
             as_claim: false,
         };
-        let resp = try_handle(11, core, m).expect("handled");
+        let resp = dispatch_for_test(11, core, m).expect("handled");
         let Some(ResultPayload::Json(v)) = resp.result else {
             panic!("expected json payload");
         };
@@ -5215,7 +5337,7 @@ mod tests {
             #[cfg(feature = "epistemic")]
             as_claim: false,
         };
-        let resp = try_handle(13, Arc::clone(&core), m).expect("handled");
+        let resp = dispatch_for_test(13, Arc::clone(&core), m).expect("handled");
         let Some(ResultPayload::Json(v)) = resp.result else {
             panic!("expected json payload");
         };
@@ -5253,7 +5375,7 @@ mod tests {
             #[cfg(feature = "epistemic")]
             as_claim: false,
         };
-        let resp = try_handle(17, Arc::clone(&core), m).expect("handled");
+        let resp = dispatch_for_test(17, Arc::clone(&core), m).expect("handled");
         let Some(ResultPayload::Json(v)) = resp.result else {
             panic!("expected json payload");
         };
@@ -5296,7 +5418,7 @@ mod tests {
             #[cfg(feature = "epistemic")]
             as_claim: false,
         };
-        let resp = try_handle(19, core, m).expect("handled");
+        let resp = dispatch_for_test(19, core, m).expect("handled");
         assert!(resp.result.is_none());
     }
 
@@ -5325,7 +5447,7 @@ mod tests {
             #[cfg(feature = "epistemic")]
             as_claim: false,
         };
-        let resp = try_handle(21, core, m).expect("handled");
+        let resp = dispatch_for_test(21, core, m).expect("handled");
         let Some(ResultPayload::Json(v)) = resp.result else {
             panic!("expected json payload");
         };
@@ -5363,7 +5485,7 @@ mod tests {
             #[cfg(feature = "epistemic")]
             as_claim: false,
         };
-        let resp = try_handle(23, Arc::clone(&core), m).expect("handled");
+        let resp = dispatch_for_test(23, Arc::clone(&core), m).expect("handled");
         let Some(ResultPayload::Json(v)) = resp.result else {
             panic!("expected json payload");
         };
@@ -5417,7 +5539,7 @@ mod tests {
             #[cfg(feature = "epistemic")]
             as_claim: false,
         };
-        let resp = try_handle(25, Arc::clone(&core), m).expect("handled");
+        let resp = dispatch_for_test(25, Arc::clone(&core), m).expect("handled");
         let Some(ResultPayload::Json(v)) = resp.result else {
             panic!("expected json payload");
         };
@@ -5466,7 +5588,7 @@ mod tests {
             #[cfg(feature = "epistemic")]
             as_claim: false,
         };
-        let resp = try_handle(27, core, m).expect("handled");
+        let resp = dispatch_for_test(27, core, m).expect("handled");
         let Some(ResultPayload::Json(v)) = resp.result else {
             panic!("expected json payload");
         };
@@ -5514,7 +5636,7 @@ mod tests {
             #[cfg(feature = "epistemic")]
             as_claim: false,
         };
-        let resp = try_handle(29, Arc::clone(&core), m).expect("handled");
+        let resp = dispatch_for_test(29, Arc::clone(&core), m).expect("handled");
         let Some(ResultPayload::Json(v)) = resp.result else {
             panic!("expected json payload");
         };
@@ -5582,7 +5704,7 @@ mod tests {
             #[cfg(feature = "epistemic")]
             as_claim: false,
         };
-        let resp = try_handle(31, Arc::clone(&core), m).expect("handled");
+        let resp = dispatch_for_test(31, Arc::clone(&core), m).expect("handled");
         let Some(ResultPayload::Json(v)) = resp.result else {
             panic!("expected json payload");
         };
@@ -5619,7 +5741,7 @@ mod tests {
             #[cfg(feature = "epistemic")]
             as_claim: false,
         };
-        let resp = try_handle(33, core, m).expect("handled");
+        let resp = dispatch_for_test(33, core, m).expect("handled");
         let Some(ResultPayload::Json(v)) = resp.result else {
             panic!("expected json payload");
         };
@@ -5725,12 +5847,12 @@ mod tests {
         // as_claim=false ⇒ unchanged (only the mined :AssociationRule nodes).
         let c0 = Arc::new(GraphCore::new());
         build(&c0);
-        try_handle(1, Arc::clone(&c0), mk(false)).expect("handled");
+        dispatch_for_test(1, Arc::clone(&c0), mk(false)).expect("handled");
         assert_no_claims(&c0);
         // as_claim=true ⇒ Claim + Evidence, milk⇒bread has support=confidence=1 ⇒ conf=1.
         let c1 = Arc::new(GraphCore::new());
         build(&c1);
-        try_handle(2, Arc::clone(&c1), mk(true)).expect("handled");
+        dispatch_for_test(2, Arc::clone(&c1), mk(true)).expect("handled");
         let (_, conf) = assert_claim_objects(&c1);
         assert!(
             (conf - 1.0).abs() < 1e-9,
@@ -5777,11 +5899,11 @@ mod tests {
         };
         let c0 = Arc::new(GraphCore::new());
         build(&c0);
-        try_handle(3, Arc::clone(&c0), mk(false)).expect("handled");
+        dispatch_for_test(3, Arc::clone(&c0), mk(false)).expect("handled");
         assert_no_claims(&c0);
         let c1 = Arc::new(GraphCore::new());
         build(&c1);
-        try_handle(4, Arc::clone(&c1), mk(true)).expect("handled");
+        dispatch_for_test(4, Arc::clone(&c1), mk(true)).expect("handled");
         let (_, conf) = assert_claim_objects(&c1);
         // Two tight clusters ⇒ compactness score small ⇒ conf = 1/(1+score) close to 1.
         assert!(
@@ -5832,11 +5954,11 @@ mod tests {
         };
         let c0 = Arc::new(GraphCore::new());
         build(&c0);
-        try_handle(5, Arc::clone(&c0), mk(false)).expect("handled");
+        dispatch_for_test(5, Arc::clone(&c0), mk(false)).expect("handled");
         assert_no_claims(&c0);
         let c1 = Arc::new(GraphCore::new());
         build(&c1);
-        try_handle(6, Arc::clone(&c1), mk(true)).expect("handled");
+        dispatch_for_test(6, Arc::clone(&c1), mk(true)).expect("handled");
         let (_, conf) = assert_claim_objects(&c1);
         // Anomaly confidence = score/(1+score) ∈ (0,1).
         assert!(
@@ -5876,11 +5998,11 @@ mod tests {
         };
         let c0 = Arc::new(GraphCore::new());
         build(&c0);
-        try_handle(7, Arc::clone(&c0), mk(false)).expect("handled");
+        dispatch_for_test(7, Arc::clone(&c0), mk(false)).expect("handled");
         assert_no_claims(&c0);
         let c1 = Arc::new(GraphCore::new());
         build(&c1);
-        try_handle(8, Arc::clone(&c1), mk(true)).expect("handled");
+        dispatch_for_test(8, Arc::clone(&c1), mk(true)).expect("handled");
         let (_, conf) = assert_claim_objects(&c1);
         // Both sessions share every subsequence ⇒ support=1 ⇒ conf=1.
         assert!(
@@ -5914,14 +6036,14 @@ mod tests {
             "metric1".into(),
             node(serde_json::json!({"type": "Series"})),
         );
-        try_handle(9, Arc::clone(&c0), mk(false)).expect("handled");
+        dispatch_for_test(9, Arc::clone(&c0), mk(false)).expect("handled");
         assert_no_claims(&c0);
         let c1 = Arc::new(GraphCore::new());
         c1.add_node(
             "metric1".into(),
             node(serde_json::json!({"type": "Series"})),
         );
-        try_handle(10, Arc::clone(&c1), mk(true)).expect("handled");
+        dispatch_for_test(10, Arc::clone(&c1), mk(true)).expect("handled");
         let (_, conf) = assert_claim_objects(&c1);
         // Forecast claim confidence = the band level.
         assert!(
@@ -5967,11 +6089,11 @@ mod tests {
         };
         let c0 = Arc::new(GraphCore::new());
         build(&c0);
-        try_handle(11, Arc::clone(&c0), mk(false)).expect("handled");
+        dispatch_for_test(11, Arc::clone(&c0), mk(false)).expect("handled");
         assert_no_claims(&c0);
         let c1 = Arc::new(GraphCore::new());
         build(&c1);
-        try_handle(12, Arc::clone(&c1), mk(true)).expect("handled");
+        dispatch_for_test(12, Arc::clone(&c1), mk(true)).expect("handled");
         assert_claim_objects(&c1);
         // The planted concept→capability pattern has support 4/5 = 0.8 ⇒ some claim
         // must carry that confidence.
@@ -6032,14 +6154,14 @@ mod tests {
         let policy = AuthorityPolicy::default();
 
         // Run 1 (provenance CartA) ⇒ the claim has ONE provenance evidence.
-        try_handle(1, Arc::clone(&core), mk("CartA")).expect("handled");
+        dispatch_for_test(1, Arc::clone(&core), mk("CartA")).expect("handled");
         core.mark_dirty();
         let claim_id = core.get_nodes_by_label("Claim", 0)[0].0.clone();
         let bg1 = BeliefGraph::from_graph_view(&core.analysis_snapshot());
         let belief_one = propagate_confidence(&bg1, &claim_id, &policy).confidence;
 
         // Run 2 (DISTINCT provenance CartB, same rule ⇒ same claim) ⇒ a SECOND evidence.
-        try_handle(2, Arc::clone(&core), mk("CartB")).expect("handled");
+        dispatch_for_test(2, Arc::clone(&core), mk("CartB")).expect("handled");
         core.mark_dirty();
         let bg2 = BeliefGraph::from_graph_view(&core.analysis_snapshot());
         let belief_two = propagate_confidence(&bg2, &claim_id, &policy).confidence;
@@ -6095,11 +6217,11 @@ mod tests {
         };
         let c0 = Arc::new(GraphCore::new());
         build(&c0);
-        try_handle(28, Arc::clone(&c0), mk(model.clone(), false)).expect("handled");
+        dispatch_for_test(28, Arc::clone(&c0), mk(model.clone(), false)).expect("handled");
         assert_no_claims(&c0);
         let c1 = Arc::new(GraphCore::new());
         build(&c1);
-        try_handle(29, Arc::clone(&c1), mk(model, true)).expect("handled");
+        dispatch_for_test(29, Arc::clone(&c1), mk(model, true)).expect("handled");
         let (_, conf) = assert_claim_objects(&c1);
         // GaussianNB on two well-separated Gaussians ⇒ near-certain max class proba.
         assert!(
@@ -6147,11 +6269,11 @@ mod tests {
         };
         let c0 = Arc::new(GraphCore::new());
         build(&c0);
-        try_handle(30, Arc::clone(&c0), mk(false)).expect("handled");
+        dispatch_for_test(30, Arc::clone(&c0), mk(false)).expect("handled");
         assert_no_claims(&c0);
         let c1 = Arc::new(GraphCore::new());
         build(&c1);
-        try_handle(31, Arc::clone(&c1), mk(true)).expect("handled");
+        dispatch_for_test(31, Arc::clone(&c1), mk(true)).expect("handled");
         let (_, conf) = assert_claim_objects(&c1);
         // These 4 vectors are rank-3 (embedded in R^3); keeping k=2 of 3 components
         // must retain SOME but not necessarily ALL variance.
@@ -6199,7 +6321,7 @@ mod tests {
             writeback: true,
             as_claim: true,
         };
-        try_handle(32, Arc::clone(&core), m).expect("handled");
+        dispatch_for_test(32, Arc::clone(&core), m).expect("handled");
         assert_no_claims(&core);
     }
 
@@ -6248,11 +6370,11 @@ mod tests {
         };
         let c0 = Arc::new(GraphCore::new());
         build(&c0);
-        try_handle(33, Arc::clone(&c0), mk(false)).expect("handled");
+        dispatch_for_test(33, Arc::clone(&c0), mk(false)).expect("handled");
         assert_no_claims(&c0);
         let c1 = Arc::new(GraphCore::new());
         build(&c1);
-        try_handle(34, Arc::clone(&c1), mk(true)).expect("handled");
+        dispatch_for_test(34, Arc::clone(&c1), mk(true)).expect("handled");
         let (_, conf) = assert_claim_objects(&c1);
         // Two well-separated topics ⇒ high mean dominant-doc membership.
         assert!(
@@ -6287,7 +6409,7 @@ mod tests {
             #[cfg(feature = "epistemic")]
             as_claim: true,
         };
-        try_handle(35, Arc::clone(&core), m).expect("handled");
+        dispatch_for_test(35, Arc::clone(&core), m).expect("handled");
         #[cfg(feature = "epistemic")]
         assert_no_claims(&core);
     }
@@ -6313,7 +6435,7 @@ mod tests {
             #[cfg(feature = "epistemic")]
             as_claim,
         };
-        let resp = try_handle(101, Arc::clone(&core), mk(false)).expect("handled");
+        let resp = dispatch_for_test(101, Arc::clone(&core), mk(false)).expect("handled");
         let Some(ResultPayload::Json(v)) = resp.result else {
             panic!("expected json");
         };
@@ -6325,7 +6447,7 @@ mod tests {
         {
             assert_no_claims(&core);
             let c1 = Arc::new(GraphCore::new());
-            try_handle(102, Arc::clone(&c1), mk(true)).expect("handled");
+            dispatch_for_test(102, Arc::clone(&c1), mk(true)).expect("handled");
             let (_, conf) = assert_claim_objects(&c1);
             assert!(conf > 0.4);
         }
@@ -6343,7 +6465,7 @@ mod tests {
             #[cfg(feature = "epistemic")]
             as_claim,
         };
-        let resp = try_handle(103, Arc::clone(&core), mk(false)).expect("handled");
+        let resp = dispatch_for_test(103, Arc::clone(&core), mk(false)).expect("handled");
         let Some(ResultPayload::Json(v)) = resp.result else {
             panic!("expected json");
         };
@@ -6355,7 +6477,7 @@ mod tests {
         {
             assert_no_claims(&core);
             let c1 = Arc::new(GraphCore::new());
-            try_handle(104, Arc::clone(&c1), mk(true)).expect("handled");
+            dispatch_for_test(104, Arc::clone(&c1), mk(true)).expect("handled");
             let (_, conf) = assert_claim_objects(&c1);
             assert!(conf > 0.9);
         }
@@ -6374,7 +6496,7 @@ mod tests {
             #[cfg(feature = "epistemic")]
             as_claim,
         };
-        let resp = try_handle(105, Arc::clone(&core), mk(false)).expect("handled");
+        let resp = dispatch_for_test(105, Arc::clone(&core), mk(false)).expect("handled");
         let Some(ResultPayload::Json(v)) = resp.result else {
             panic!("expected json");
         };
@@ -6386,7 +6508,7 @@ mod tests {
         {
             assert_no_claims(&core);
             let c1 = Arc::new(GraphCore::new());
-            try_handle(106, Arc::clone(&c1), mk(true)).expect("handled");
+            dispatch_for_test(106, Arc::clone(&c1), mk(true)).expect("handled");
             assert_claim_objects(&c1);
         }
     }
@@ -6408,7 +6530,7 @@ mod tests {
             #[cfg(feature = "epistemic")]
             as_claim,
         };
-        let resp = try_handle(107, Arc::clone(&core), mk(false)).expect("handled");
+        let resp = dispatch_for_test(107, Arc::clone(&core), mk(false)).expect("handled");
         let Some(ResultPayload::Json(v)) = resp.result else {
             panic!("expected json");
         };
@@ -6420,7 +6542,7 @@ mod tests {
         {
             assert_no_claims(&core);
             let c1 = Arc::new(GraphCore::new());
-            try_handle(108, Arc::clone(&c1), mk(true)).expect("handled");
+            dispatch_for_test(108, Arc::clone(&c1), mk(true)).expect("handled");
             assert_claim_objects(&c1);
         }
     }
@@ -6442,7 +6564,7 @@ mod tests {
             #[cfg(feature = "epistemic")]
             as_claim,
         };
-        let resp = try_handle(109, Arc::clone(&core), mk(false)).expect("handled");
+        let resp = dispatch_for_test(109, Arc::clone(&core), mk(false)).expect("handled");
         let Some(ResultPayload::Json(v)) = resp.result else {
             panic!("expected json");
         };
@@ -6453,7 +6575,7 @@ mod tests {
         {
             assert_no_claims(&core);
             let c1 = Arc::new(GraphCore::new());
-            try_handle(110, Arc::clone(&c1), mk(true)).expect("handled");
+            dispatch_for_test(110, Arc::clone(&c1), mk(true)).expect("handled");
             assert_claim_objects(&c1);
         }
     }
@@ -6471,7 +6593,7 @@ mod tests {
             as_claim,
         };
         build(&core);
-        let resp = try_handle(111, Arc::clone(&core), mk(false)).expect("handled");
+        let resp = dispatch_for_test(111, Arc::clone(&core), mk(false)).expect("handled");
         let Some(ResultPayload::Json(v)) = resp.result else {
             panic!("expected json");
         };
@@ -6484,7 +6606,7 @@ mod tests {
             assert_no_claims(&core);
             let c1 = Arc::new(GraphCore::new());
             build(&c1);
-            try_handle(112, Arc::clone(&c1), mk(true)).expect("handled");
+            dispatch_for_test(112, Arc::clone(&c1), mk(true)).expect("handled");
             assert_claim_objects(&c1);
         }
     }
@@ -6503,7 +6625,7 @@ mod tests {
             #[cfg(feature = "epistemic")]
             as_claim,
         };
-        let resp = try_handle(113, Arc::clone(&core), mk(false)).expect("handled");
+        let resp = dispatch_for_test(113, Arc::clone(&core), mk(false)).expect("handled");
         let Some(ResultPayload::Json(v)) = resp.result else {
             panic!("expected json");
         };
@@ -6515,7 +6637,7 @@ mod tests {
         {
             assert_no_claims(&core);
             let c1 = Arc::new(GraphCore::new());
-            try_handle(114, Arc::clone(&c1), mk(true)).expect("handled");
+            dispatch_for_test(114, Arc::clone(&c1), mk(true)).expect("handled");
             assert_claim_objects(&c1);
         }
     }
@@ -6551,7 +6673,7 @@ mod tests {
             as_claim,
         };
         build(&core);
-        let resp = try_handle(115, Arc::clone(&core), mk(false)).expect("handled");
+        let resp = dispatch_for_test(115, Arc::clone(&core), mk(false)).expect("handled");
         let Some(ResultPayload::Json(v)) = resp.result else {
             panic!("expected json");
         };
@@ -6563,7 +6685,7 @@ mod tests {
             assert_no_claims(&core);
             let c1 = Arc::new(GraphCore::new());
             build(&c1);
-            try_handle(116, Arc::clone(&c1), mk(true)).expect("handled");
+            dispatch_for_test(116, Arc::clone(&c1), mk(true)).expect("handled");
             let (_, conf) = assert_claim_objects(&c1);
             assert!(
                 conf > 0.5,
