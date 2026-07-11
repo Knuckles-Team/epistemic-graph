@@ -23,12 +23,23 @@ pub enum AccessLevel {
 #[cfg(feature = "security")]
 #[derive(Debug, Clone, Default)]
 pub struct RowVisibility {
-    /// Owning agent_id (`_owner`); `None` ⇒ unowned ⇒ visible to all.
+    /// Owning agent_id (`_owner`); `None` ⇒ unowned. Under the PERMISSIVE (default)
+    /// posture this is visible to all; under the STRICT default-deny posture
+    /// (CONCEPT:EG-KG.sharding.row-level-security, EG-P0-6) it is visible to all only when [`Self::tagged`]
+    /// AND [`Self::public`] — see [`IsolationLayer::can_see_row`].
     pub owner: Option<String>,
     /// `true` when `_visibility` is absent OR `"public"`; `false` for `"private"`.
     pub public: bool,
     /// Agent_ids explicitly granted read (`_grants`, comma-separated).
     pub grants: Vec<String>,
+    /// Whether this row carried ANY explicit RLS metadata at all — i.e. the decoded
+    /// property blob contained at least one of `_owner` / `_visibility` / `_grants`.
+    /// `false` for an undecodable blob OR a blob that decoded fine but declares none
+    /// of the three keys (a genuinely untagged/legacy row). Consulted ONLY by the
+    /// STRICT default-deny posture (EG-P0-6): the permissive (default, back-compat)
+    /// posture never reads this field, so existing behavior is byte-for-byte
+    /// unchanged when the flag is off.
+    pub tagged: bool,
 }
 
 /// Reserved RLS property keys.
@@ -39,10 +50,17 @@ pub const RLS_VISIBILITY_KEY: &str = "_visibility";
 #[cfg(feature = "security")]
 pub const RLS_GRANTS_KEY: &str = "_grants";
 
-/// Parse a node's msgpack property blob into its [`RowVisibility`]. A blob that
-/// can't be decoded as a string-keyed map (or lacks the keys) is treated as an
-/// unowned PUBLIC row — RLS only ever HIDES rows that explicitly mark themselves
-/// owned+private, so undecodable/legacy data is never accidentally hidden.
+/// Parse a node's msgpack property blob into its [`RowVisibility`].
+///
+/// Under the PERMISSIVE (default, back-compat) posture, a blob that can't be
+/// decoded as a string-keyed map (or that decodes but declares none of the RLS
+/// keys) is treated as an unowned PUBLIC row: RLS only ever HIDES rows that
+/// explicitly mark themselves owned+private, so undecodable/legacy data is never
+/// accidentally hidden. The returned [`RowVisibility::tagged`] flag records whether
+/// the row actually carried explicit RLS metadata; [`IsolationLayer::can_see_row`]
+/// consults it ONLY under the STRICT default-deny posture (EG-P0-6), where an
+/// untagged/undecodable row is denied instead of defaulted open — see that
+/// function's docs for the migration implication.
 #[cfg(feature = "security")]
 pub fn row_visibility(blob: &[u8]) -> RowVisibility {
     use serde_json::Value;
@@ -70,10 +88,14 @@ pub fn row_visibility(blob: &[u8]) -> RowVisibility {
                 .collect()
         })
         .unwrap_or_default();
+    let tagged = map.contains_key(RLS_OWNER_KEY)
+        || map.contains_key(RLS_VISIBILITY_KEY)
+        || map.contains_key(RLS_GRANTS_KEY);
     RowVisibility {
         owner,
         public,
         grants,
+        tagged,
     }
 }
 
@@ -84,6 +106,7 @@ impl RowVisibility {
             owner: None,
             public: true,
             grants: Vec::new(),
+            tagged: false,
         }
     }
 }
@@ -109,6 +132,26 @@ pub struct IsolationLayer {
     /// every RBAC/identity mutation. `Arc` keeps [`IsolationLayer`] `Clone`.
     #[cfg(feature = "security")]
     persist: Option<std::sync::Arc<crate::rbac_persist::RbacStore>>,
+    /// RLS default-deny / strict-isolation posture (CONCEPT:EG-KG.sharding.row-level-security, EG-P0-6).
+    /// `false` (the default, matching every pre-EG-P0-6 behavior byte-for-byte) is
+    /// the PERMISSIVE/dev-back-compat posture: an unowned, undecodable, or
+    /// untagged-legacy row is visible to all, exactly as before. `true` is the
+    /// SECURE/target posture: such a row is DENIED unless it explicitly declares
+    /// `_visibility: "public"` (or an `_owner` a rule already grants). See
+    /// [`Self::can_see_row`] for the exact decision and
+    /// [`Self::set_rls_default_deny`] / [`Self::with_rls_default_deny`] for how to
+    /// enable it.
+    ///
+    /// **Migration implication:** flipping this to `true` in a deployment that has
+    /// legacy rows written before RLS tagging existed makes those rows INVISIBLE to
+    /// every non-System agent until they are explicitly re-tagged with an `_owner`
+    /// or `_visibility: "public"` property. Recommended rollout: run a backfill that
+    /// tags existing rows (owner from provenance, or an explicit `_visibility:
+    /// "public"` for genuinely shared data) BEFORE enabling strict mode in
+    /// production, or accept that untagged legacy data becomes temporarily
+    /// unreadable until backfilled.
+    #[cfg(feature = "security")]
+    rls_default_deny: bool,
 }
 
 impl Default for IsolationLayer {
@@ -125,7 +168,32 @@ impl IsolationLayer {
             rbac: crate::rbac::RbacPolicy::new(),
             #[cfg(feature = "security")]
             persist: None,
+            #[cfg(feature = "security")]
+            rls_default_deny: false,
         }
+    }
+
+    /// Enable/disable the RLS default-deny (strict-isolation) posture in place. See
+    /// the `rls_default_deny` field docs for the exact semantics + migration
+    /// implication. Server startup wires this from the `EPISTEMIC_GRAPH_RLS_DEFAULT_DENY`
+    /// env var; tests/callers may also flip it directly.
+    #[cfg(feature = "security")]
+    pub fn set_rls_default_deny(&mut self, deny: bool) {
+        self.rls_default_deny = deny;
+    }
+
+    /// Builder-style variant of [`Self::set_rls_default_deny`] for chaining at
+    /// construction time (e.g. `IsolationLayer::new().with_rls_default_deny(true)`).
+    #[cfg(feature = "security")]
+    pub fn with_rls_default_deny(mut self, deny: bool) -> Self {
+        self.rls_default_deny = deny;
+        self
+    }
+
+    /// Whether the strict RLS default-deny posture is active.
+    #[cfg(feature = "security")]
+    pub fn rls_default_deny(&self) -> bool {
+        self.rls_default_deny
     }
 
     /// Open an [`IsolationLayer`] backed by a durable redb store at `dir`
@@ -146,6 +214,7 @@ impl IsolationLayer {
             agents,
             rbac,
             persist: Some(std::sync::Arc::new(store)),
+            rls_default_deny: false,
         })
     }
 
@@ -340,10 +409,21 @@ impl IsolationLayer {
     /// * `_visibility` — `"public"` (default when absent) or `"private"`.
     /// * `_grants`     — optional comma-separated agent_ids explicitly granted read.
     ///
-    /// Decision: an agent may see a row when ANY holds —
-    /// 1. it is unowned (no `_owner`), 2. it is public, 3. the agent IS the owner,
-    /// 4. the agent is explicitly granted, 5. the agent is a manager of the owner,
-    /// 6. the agent is a `System` role. Otherwise the row is hidden.
+    /// Decision (PERMISSIVE / default posture, `rls_default_deny == false` — matches
+    /// every pre-EG-P0-6 behavior byte-for-byte): an agent may see a row when ANY
+    /// holds — 1. it is unowned (no `_owner`), 2. it is public, 3. the agent IS the
+    /// owner, 4. the agent is explicitly granted, 5. the agent is a manager of the
+    /// owner, 6. the agent is a `System` role. Otherwise the row is hidden.
+    ///
+    /// Decision (STRICT / default-deny posture, `rls_default_deny == true`,
+    /// CONCEPT:EG-KG.sharding.row-level-security, EG-P0-6): identical EXCEPT case 1 — an unowned row is visible
+    /// only when it also explicitly carries `_visibility: "public"` metadata
+    /// ([`RowVisibility::tagged`] `&&` [`RowVisibility::public`]); an unowned row
+    /// that is undecodable OR declares no RLS metadata at all is now DENIED instead
+    /// of defaulted open. **Migration implication:** this hides legacy/untagged rows
+    /// written before RLS existed — see the `rls_default_deny` field docs for the
+    /// recommended backfill-before-enable rollout. Owner/grant/manager/System rules
+    /// (cases 2-6) are completely unaffected by this flag.
     #[cfg(feature = "security")]
     pub fn can_see_row(&self, agent_id: &str, vis: &RowVisibility) -> bool {
         // System role sees everything.
@@ -353,8 +433,16 @@ impl IsolationLayer {
             }
         }
         let owner = match &vis.owner {
-            // Unowned row — visible to all (legacy/shared data).
-            None => return true,
+            None => {
+                if self.rls_default_deny {
+                    // Strict posture: only an EXPLICIT public tag opens an unowned
+                    // row; an undecodable/untagged legacy row is denied.
+                    return vis.tagged && vis.public;
+                }
+                // Permissive (default) posture: unowned — visible to all
+                // (legacy/shared data), unchanged from pre-EG-P0-6 behavior.
+                return true;
+            }
             Some(o) => o.as_str(),
         };
         if vis.public {
@@ -416,6 +504,41 @@ impl IsolationLayer {
         // Drop any edge touching a hidden endpoint (do not leak its existence).
         view.edge_properties
             .retain(|(s, t), _| !hidden.contains(s) && !hidden.contains(t));
+    }
+
+    /// Does `agent_id` hold ADMIN capability (CONCEPT:EG-KG.compute.feature, EG-P0-6)?
+    ///
+    /// Used to gate the system-wide administrative methods (`RegisterIdentity`,
+    /// `RbacAdmin`, `ApplyMultisigMutation`, the M3 reshard/rebalance/catalog
+    /// family, backup/restore) — see `server::access::require_admin_capability`,
+    /// which drives WHICH methods this applies to from `eg_capabilities::policy`'s
+    /// `authz_action` rather than a second hardcoded list.
+    ///
+    /// `System` role always qualifies. Otherwise, under the `security` feature, an
+    /// explicit RBAC grant of `RbacAction::Admin` for one of the agent's roles
+    /// (typically scoped `ResourceSelector::All`, since admin actions are not
+    /// graph-scoped) — evaluated against a fixed, non-graph resource context so a
+    /// grant written for a specific graph never accidentally satisfies a global
+    /// admin check. Without `security` compiled in there is no RBAC evaluator to
+    /// consult, so only `System` qualifies.
+    pub fn has_admin_capability(&self, agent_id: &str) -> bool {
+        if let Some(identity) = self.agents.get(agent_id) {
+            if identity.role == AgentRole::System {
+                return true;
+            }
+        }
+        #[cfg(feature = "security")]
+        {
+            if let Some(identity) = self.agents.get(agent_id) {
+                let ctx = crate::acl::ResourceContext::graph("__admin__");
+                return matches!(
+                    self.rbac
+                        .evaluate(&identity.roles, &ctx, crate::acl::RbacAction::Admin),
+                    Some(crate::acl::GrantEffect::Allow)
+                );
+            }
+        }
+        false
     }
 
     /// Get all agent IDs that a given agent can access.
@@ -682,6 +805,114 @@ mod tests {
             let before = v.node_properties.len();
             layer.filter_view("anyone", &mut v);
             assert_eq!(v.node_properties.len(), before);
+        }
+
+        // ── RLS default-deny / strict-isolation posture (CONCEPT:EG-KG.sharding.row-level-security, EG-P0-6) ──
+        mod default_deny {
+            use super::*;
+
+            #[test]
+            fn permissive_default_still_shows_legacy_unowned_row() {
+                // `rls_default_deny` defaults to false: byte-for-byte pre-EG-P0-6
+                // behavior — a genuinely untagged legacy row stays visible to all.
+                let layer = setup();
+                assert!(!layer.rls_default_deny());
+                let mut v = view();
+                layer.filter_view("worker1", &mut v);
+                assert!(v.node_properties.contains_key("legacy_unowned"));
+            }
+
+            #[test]
+            fn strict_mode_hides_legacy_unowned_row() {
+                // Flipping the flag hides the SAME untagged row — the migration
+                // implication: legacy data with no RLS tag becomes invisible.
+                let mut layer = setup();
+                layer.set_rls_default_deny(true);
+                let mut v = view();
+                layer.filter_view("worker1", &mut v);
+                assert!(
+                    !v.node_properties.contains_key("legacy_unowned"),
+                    "strict mode must deny an untagged/legacy row by default"
+                );
+            }
+
+            #[test]
+            fn strict_mode_hides_undecodable_blob() {
+                let mut layer = setup();
+                layer.set_rls_default_deny(true);
+                let mut v = GraphView::default();
+                let idx = v.graph.add_node("garbage".to_string());
+                v.node_map.insert("garbage".to_string(), idx);
+                v.node_properties
+                    .insert("garbage".to_string(), std::sync::Arc::new(vec![0xFF, 0x00, 0x01]));
+                layer.filter_view("worker1", &mut v);
+                assert!(
+                    !v.node_properties.contains_key("garbage"),
+                    "strict mode must deny an undecodable blob, not default it open"
+                );
+            }
+
+            #[test]
+            fn strict_mode_still_shows_explicitly_public_unowned_row() {
+                // An unowned row that EXPLICITLY opts into `_visibility: public` is
+                // still visible under strict mode — only the untagged default flips.
+                let mut layer = setup();
+                layer.set_rls_default_deny(true);
+                let mut v = GraphView::default();
+                let idx = v.graph.add_node("shared".to_string());
+                v.node_map.insert("shared".to_string(), idx);
+                v.node_properties.insert(
+                    "shared".to_string(),
+                    props(&[("_visibility", "public")]),
+                );
+                layer.filter_view("worker1", &mut v);
+                assert!(
+                    v.node_properties.contains_key("shared"),
+                    "an explicitly public unowned row must stay visible under strict mode"
+                );
+            }
+
+            #[test]
+            fn strict_mode_owner_and_grant_rules_unaffected() {
+                // Owner/grant/manager rules are completely orthogonal to the flag:
+                // owner_b_sees_own_private_node / manager_sees_subordinate_private_node
+                // / explicit_grant_is_honored all still hold under strict mode.
+                let mut layer = setup();
+                layer.set_rls_default_deny(true);
+                let mut vb = view();
+                layer.filter_view("worker2", &mut vb);
+                assert!(vb.node_properties.contains_key("b_private"));
+                assert!(vb.node_properties.contains_key("shared_public"));
+
+                let mut vm = view();
+                layer.filter_view("manager", &mut vm);
+                assert!(vm.node_properties.contains_key("b_private"));
+            }
+
+            #[test]
+            fn can_see_row_direct_strict_vs_permissive() {
+                let mut layer = setup();
+                let untagged = RowVisibility {
+                    owner: None,
+                    public: true,
+                    grants: Vec::new(),
+                    tagged: false,
+                };
+                assert!(layer.can_see_row("worker1", &untagged), "permissive default allows untagged");
+                layer.set_rls_default_deny(true);
+                assert!(
+                    !layer.can_see_row("worker1", &untagged),
+                    "strict mode denies untagged even though `public` defaulted true"
+                );
+
+                let explicit_public = RowVisibility {
+                    owner: None,
+                    public: true,
+                    grants: Vec::new(),
+                    tagged: true,
+                };
+                assert!(layer.can_see_row("worker1", &explicit_public), "strict mode allows explicitly-tagged public");
+            }
         }
     }
 

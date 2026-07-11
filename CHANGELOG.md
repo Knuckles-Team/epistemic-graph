@@ -6,7 +6,44 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
-## [Unreleased]
+## [Unreleased] — EG-P0 Wave 1: capability ledger, WAL durability closure, signed request envelope
+
+### Added
+- **`crates/eg-capabilities` (EG-P0-1)** — a new leaf crate (dependency: `eg-types` only) declaring an
+  exhaustive, compiler-enforced `MethodPolicy` (mutates / `DurabilityDomain` /
+  authz action / idempotent / audited / emits-CDC / txn-participation) for every one of the 337
+  `Method` wire-protocol variants — adding a new variant without declaring its policy is now a
+  compile error. Generates the machine-authoritative `docs/capabilities.generated.md` ledger
+  (`cargo run -p eg-capabilities --bin gen_ledger`) plus a consistency test cross-checking the policy
+  table against `access.rs`/`wal.rs`/`audit.rs`/`cdc.rs`, currently reporting 106 documented
+  `KNOWN_DIVERGENCE` findings (22 runtime-conditional, 23 WAL-durability gaps, 61 access.rs coverage
+  gaps — see `docs/capabilities.md`'s new "Known limitations" section). Workspace member only, not
+  linked by default builds; handlers are not yet refactored to consume this table (EG-P0-2/EG-P0-6).
+- **Versioned signed request envelope (EG-P0-5)** — a v1 envelope (`src/server/auth.rs`,
+  `crates/eg-types/src/protocol.rs`) binding envelope-version + audience + tenant + principal + graph
+  + method + a hash of the request body + timestamp + nonce + idempotency-key under one
+  HMAC-SHA256, verified in constant time (`Mac::verify_slice`) with a clock-skew window
+  (`EPISTEMIC_GRAPH_ENVELOPE_SKEW_SECS`) and a bounded replay-nonce cache. Rides the existing
+  `auth_token` field (`eg1.`-prefixed) so no wire-struct change was needed at ~100 `Request`
+  construction sites. **Backward compatible and default-off**: legacy v0 tokens are still accepted
+  with a warning unless `EPISTEMIC_GRAPH_REQUIRE_SIGNED=1` is set, in which case v0 is rejected. A
+  matching `eg-plan` federation signer (`RemoteEngineSource::auth_token_v1`) exists but is not yet
+  wired into the federation fetch path, and no client driver signs v1 yet (still v0-only). Transport
+  TLS/mTLS and OIDC-derived principals remain out of scope / future work.
+
+### Fixed
+- **WAL durability closure (EG-P0-3)** — `access::requires_write` classified `MineSequence` /
+  `MineForecast` / `MineText` (non-`tfidf` writeback) / `MineSubgraph` (`gspan` writeback) /
+  `AddEmbedding` as mutations (Write ACL + implied durability), but `wal::is_durable_mutation` never
+  returned `true` for them: an acknowledged write could be silently lost on crash, and the
+  `MineSequence`/`MineForecast`/`MineText`/`MineSubgraph` replay arms in `apply()` were dead code.
+  Closed by adding all five to the durable-mutation set (mirroring `access.rs`'s exact conditions) and
+  adding the missing `AddEmbedding` replay arm. Also fixes a related post-restart bug: `replay()` now
+  calls `core.mark_dirty()` after a non-empty replay so the lazy label-index cache doesn't hide
+  nodes written by a graph-derived mining replay from `get_nodes_by_label` until an unrelated write.
+  18 other write-classified-but-not-WAL-logged methods remain open per the new capability ledger
+  (`ApplyMutation`, the ledger ops, `Reconcile`, `RunDatalogReasoning`, etc.) — **not** addressed by
+  this fix; see `docs/capabilities.md`'s "Known limitations".
 
 ## [2.17.0] - 2026-07-10 — Semi-naive reasoning + GPU transitive-closure
 

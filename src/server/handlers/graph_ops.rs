@@ -10,6 +10,8 @@ use tokio::sync::RwLock;
 
 use super::super::access::check_graph_access;
 use super::super::compute::{compute_off_lock, weight_semantic_results};
+use super::super::mutation::{self, GatewayAuthzCtx, MutationCtx, MutationPlan};
+use super::super::persistence::PersistenceBackend;
 use super::super::state::{max_response_nodes, ServerState, MAX_BATCH_IDS};
 use crate::graph::GraphCore;
 use crate::isolation::AccessLevel;
@@ -270,6 +272,142 @@ fn decode_pose(blob: &[u8]) -> Option<eg_core::scene::Pose> {
     eg_core::scene::Pose::from_json(&val)
 }
 
+/// Route a [`mutation::GATEWAY_ROUTED`] method through the single commit gateway
+/// (CONCEPT:EG-P0-2). Called from `dispatch_graph_op` AHEAD of both the write-
+/// coalescer and the legacy per-method arms below, so a routed method NEVER falls
+/// through to `g.add_node(...)` etc. directly — the only path left for it is this
+/// one, which builds a [`MutationPlan`] straight from `eg_capabilities::policy` and
+/// calls [`mutation::commit_mutation`]. A method NOT in the routed set is handed
+/// straight back (`Err(method)`), unchanged, exactly like every other domain
+/// router in `dispatch.rs`'s routing chain.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn try_handle_gateway(
+    req_id: u64,
+    caller: Option<&str>,
+    graph_name: &str,
+    core: &Arc<GraphCore>,
+    persistence: Option<&Arc<dyn PersistenceBackend>>,
+    redb_authoritative: bool,
+    #[cfg(feature = "streaming")] cdc: Option<&Arc<crate::server::cdc::CdcHub>>,
+    write_coalescer: Option<&Arc<crate::write_coalescer::WriteCoalescerRegistry>>,
+    authz_ctx: Option<&GatewayAuthzCtx>,
+    method: Method,
+) -> Result<Response, Method> {
+    if !mutation::is_gateway_routed(&method) {
+        return Err(method);
+    }
+    let (isolation, graph_type, owner) = authz_ctx.expect(
+        "dispatch_graph_op must capture a GatewayAuthzCtx for every mutation::is_gateway_routed method",
+    );
+    let plan = MutationPlan::for_method(&method);
+    let ctx = MutationCtx {
+        req_id,
+        caller,
+        graph_name,
+        graph_type: *graph_type,
+        owner: owner.as_deref(),
+        isolation,
+        core,
+        persistence,
+        redb_authoritative,
+        #[cfg(feature = "streaming")]
+        cdc,
+        write_coalescer,
+    };
+    let resp = match &method {
+        Method::AddNode {
+            node_id,
+            properties_msgpack,
+        } => {
+            let (node_id, properties_msgpack) = (node_id.clone(), properties_msgpack.clone());
+            mutation::commit_mutation(&ctx, &plan, &method, move |core| {
+                core.add_node(node_id, properties_msgpack);
+                Ok(ResultPayload::String("ok".to_string()))
+            })
+            .await
+        }
+        Method::RemoveNode { node_id } => {
+            let node_id = node_id.clone();
+            mutation::commit_mutation(&ctx, &plan, &method, move |core| {
+                core.remove_node(node_id);
+                Ok(ResultPayload::String("ok".to_string()))
+            })
+            .await
+        }
+        Method::AddEdge {
+            source_id,
+            target_id,
+            properties_msgpack,
+        } => {
+            let (source_id, target_id, properties_msgpack) = (
+                source_id.clone(),
+                target_id.clone(),
+                properties_msgpack.clone(),
+            );
+            mutation::commit_mutation(&ctx, &plan, &method, move |core| {
+                core.add_edge(source_id, target_id, properties_msgpack)
+                    .map(|()| ResultPayload::String("ok".to_string()))
+                    .map_err(|e| e.to_string())
+            })
+            .await
+        }
+        Method::RemoveEdge {
+            source_id,
+            target_id,
+        } => {
+            let (source_id, target_id) = (source_id.clone(), target_id.clone());
+            mutation::commit_mutation(&ctx, &plan, &method, move |core| {
+                core.remove_edge(source_id, target_id);
+                Ok(ResultPayload::String("ok".to_string()))
+            })
+            .await
+        }
+        Method::CreateSummaryNode {
+            level,
+            child_ids,
+            props_msgpack,
+        } => {
+            let (level, child_ids, props_msgpack) =
+                (*level, child_ids.clone(), props_msgpack.clone());
+            mutation::commit_mutation(&ctx, &plan, &method, move |core| {
+                let props = decode_json_object(&props_msgpack);
+                let id = core.create_summary_node(level, &child_ids, props);
+                Ok(ResultPayload::String(id))
+            })
+            .await
+        }
+        Method::Consolidate {
+            episodic_ids,
+            semantic_props_msgpack,
+        } => {
+            let (episodic_ids, semantic_props_msgpack) =
+                (episodic_ids.clone(), semantic_props_msgpack.clone());
+            mutation::commit_mutation(&ctx, &plan, &method, move |core| {
+                let props = decode_json_object(&semantic_props_msgpack);
+                let id = core.consolidate(&episodic_ids, props);
+                Ok(ResultPayload::String(id))
+            })
+            .await
+        }
+        Method::Reinforce {
+            node_id,
+            now_ms,
+            weight,
+        } => {
+            let (node_id, now_ms, weight) = (node_id.clone(), *now_ms, *weight);
+            mutation::commit_mutation(&ctx, &plan, &method, move |core| {
+                let existed = core.reinforce(&node_id, now_ms, weight);
+                Ok(ResultPayload::Bool(existed))
+            })
+            .await
+        }
+        _ => unreachable!(
+            "mutation::is_gateway_routed guarantees method is one of the routed variants"
+        ),
+    };
+    Ok(resp)
+}
+
 /// Dispatch a graph-targeted method. This is the terminal handler in the routing
 /// chain (it owns the catch-all), so it returns a `Response` directly.
 pub(crate) async fn try_handle(
@@ -280,19 +418,25 @@ pub(crate) async fn try_handle(
     method: Method,
 ) -> Response {
     match method {
-        Method::AddNode {
-            node_id,
-            properties_msgpack,
-        } => {
-            let g = &*core;
-            g.add_node(node_id, properties_msgpack);
-            Response::ok(req_id, ResultPayload::String("ok".to_string()))
-        }
-        Method::RemoveNode { node_id } => {
-            let g = &*core;
-            g.remove_node(node_id);
-            Response::ok(req_id, ResultPayload::String("ok".to_string()))
-        }
+        // AddNode/RemoveNode (CONCEPT:EG-P0-2 bypass guard): these — along with
+        // AddEdge/RemoveEdge/CreateSummaryNode/Consolidate/Reinforce below — are
+        // GATEWAY_ROUTED. `dispatch_graph_op` calls `try_handle_gateway` BEFORE
+        // this terminal handler, so a routed method is intercepted and returns
+        // through `commit_mutation` long before reaching this `match` — this
+        // arm is structurally unreachable, not merely undocumented. Kept as an
+        // explicit `unreachable!()` (rather than deleting the arm and falling
+        // into the wildcard read-only-methods-only assumption below) so a
+        // regression in the dispatch-side routing — e.g. someone re-adding a
+        // direct call path that skips `try_handle_gateway` — fails LOUDLY here
+        // instead of silently re-mutating `eg-core` outside the gateway.
+        Method::AddNode { .. } => unreachable!(
+            "AddNode is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+             through try_handle_gateway before it ever reaches this terminal handler"
+        ),
+        Method::RemoveNode { .. } => unreachable!(
+            "RemoveNode is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+             through try_handle_gateway before it ever reaches this terminal handler"
+        ),
         Method::HasNode { node_id } => {
             let g = &*core;
             Response::ok(req_id, ResultPayload::Bool(g.has_node(&node_id)))
@@ -646,31 +790,21 @@ pub(crate) async fn try_handle(
         // re-runs the SAME primitive over the same pre-image, and every generated id
         // derives deterministically from sorted inputs / node-count / step ordinals,
         // so a replayed WAL record reproduces byte-identical state. Reads are pure.
-        Method::CreateSummaryNode {
-            level,
-            child_ids,
-            props_msgpack,
-        } => {
-            let props = decode_json_object(&props_msgpack);
-            let id = core.create_summary_node(level, &child_ids, props);
-            Response::ok(req_id, ResultPayload::String(id))
-        }
-        Method::Consolidate {
-            episodic_ids,
-            semantic_props_msgpack,
-        } => {
-            let props = decode_json_object(&semantic_props_msgpack);
-            let id = core.consolidate(&episodic_ids, props);
-            Response::ok(req_id, ResultPayload::String(id))
-        }
-        Method::Reinforce {
-            node_id,
-            now_ms,
-            weight,
-        } => {
-            let existed = core.reinforce(&node_id, now_ms, weight);
-            Response::ok(req_id, ResultPayload::Bool(existed))
-        }
+        // CreateSummaryNode/Consolidate/Reinforce (CONCEPT:EG-P0-2 bypass guard):
+        // GATEWAY_ROUTED — see the AddNode/RemoveNode comment above for why these
+        // are structurally unreachable here, not merely undocumented.
+        Method::CreateSummaryNode { .. } => unreachable!(
+            "CreateSummaryNode is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
+             route it through try_handle_gateway before it ever reaches this terminal handler"
+        ),
+        Method::Consolidate { .. } => unreachable!(
+            "Consolidate is mutation::GATEWAY_ROUTED; dispatch_graph_op must route \
+             it through try_handle_gateway before it ever reaches this terminal handler"
+        ),
+        Method::Reinforce { .. } => unreachable!(
+            "Reinforce is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+             through try_handle_gateway before it ever reaches this terminal handler"
+        ),
         Method::DecayNode {
             node_id,
             now_ms,
@@ -933,25 +1067,17 @@ pub(crate) async fn try_handle(
                 )
             }
         }
-        Method::AddEdge {
-            source_id,
-            target_id,
-            properties_msgpack,
-        } => {
-            let g = &*core;
-            match g.add_edge(source_id, target_id, properties_msgpack) {
-                Ok(()) => Response::ok(req_id, ResultPayload::String("ok".to_string())),
-                Err(e) => Response::err(req_id, e.to_string()),
-            }
-        }
-        Method::RemoveEdge {
-            source_id,
-            target_id,
-        } => {
-            let g = &*core;
-            g.remove_edge(source_id, target_id);
-            Response::ok(req_id, ResultPayload::String("ok".to_string()))
-        }
+        // AddEdge/RemoveEdge (CONCEPT:EG-P0-2 bypass guard): GATEWAY_ROUTED — see
+        // the AddNode/RemoveNode comment above for why these are structurally
+        // unreachable here, not merely undocumented.
+        Method::AddEdge { .. } => unreachable!(
+            "AddEdge is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+             through try_handle_gateway before it ever reaches this terminal handler"
+        ),
+        Method::RemoveEdge { .. } => unreachable!(
+            "RemoveEdge is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+             through try_handle_gateway before it ever reaches this terminal handler"
+        ),
         Method::InvalidateEdge {
             source_id,
             target_id,

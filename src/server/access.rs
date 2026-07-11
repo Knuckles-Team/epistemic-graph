@@ -31,6 +31,15 @@ pub(crate) fn requires_write(method: &Method) -> bool {
     // control graph's exchange/binding/message nodes, so they classify as writes (Write
     // access + WAL record). Consume/ack ride `ClaimNext`/`CompareAndSetNodeFields`,
     // already classified below.
+    //
+    // L10 (EG-P0-6 security finding): the stream + tag-addressed publisher-confirm/
+    // consumer-ack family (`StreamDeclare`/`StreamPublish`/`StreamTrim`/
+    // `StreamCommitOffset`/`PublishConfirmed`/`BrokerAckTag`/`BrokerNackTag`/
+    // `PublishIdempotent`) mutates the SAME Outbox control-graph state as the ops
+    // above — `wal.rs::is_durable_mutation` already durable-logs all eight — but was
+    // previously MISSING from this classifier, so a caller holding only Read access
+    // to a graph could invoke them. Added here to close that gap: the ACL
+    // classification now matches the durability classification exactly.
     #[cfg(feature = "broker")]
     if matches!(
         method,
@@ -47,6 +56,16 @@ pub(crate) fn requires_write(method: &Method) -> bool {
             | Method::BrokerAck { .. }
             | Method::BrokerReject { .. }
             | Method::SweepExpired { .. }
+            // L10: streams (CONCEPT:EG-KG.compute.replayable-append-log).
+            | Method::StreamDeclare { .. }
+            | Method::StreamPublish { .. }
+            | Method::StreamTrim { .. }
+            | Method::StreamCommitOffset { .. }
+            // L10: publisher-confirm / tag-addressed consumer ack/nack (CONCEPT:EG-KG.compute.publisher-confirms-consumer-qos).
+            | Method::PublishConfirmed { .. }
+            | Method::PublishIdempotent { .. }
+            | Method::BrokerAckTag { .. }
+            | Method::BrokerNackTag { .. }
     ) {
         return true;
     }
@@ -310,5 +329,358 @@ pub(crate) fn check_graph_access(
             access,
             graph_name
         ))
+    }
+}
+
+/// L10 (EG-P0-6 security finding): every broker/stream mutating op that
+/// `wal.rs::is_durable_mutation` already durable-logs must ALSO be classified a
+/// write by `requires_write`, so a Read-only caller can never invoke it. Each case
+/// below previously FAILED this assertion (classified `Read`, letting a Read-access
+/// caller mutate the control graph); this test locks in the fix.
+#[cfg(feature = "broker")]
+#[cfg(test)]
+mod l10_broker_stream_write_tests {
+    use super::*;
+    use crate::protocol::Method;
+
+    #[test]
+    fn stream_declare_requires_write() {
+        assert!(requires_write(&Method::StreamDeclare {
+            stream: "s1".into(),
+            max_messages: None,
+            max_age_ms: None,
+        }));
+    }
+
+    #[test]
+    fn stream_publish_requires_write() {
+        assert!(requires_write(&Method::StreamPublish {
+            stream: "s1".into(),
+            payload: vec![1, 2, 3],
+            now_ms: 0,
+        }));
+    }
+
+    #[test]
+    fn stream_trim_requires_write() {
+        assert!(requires_write(&Method::StreamTrim {
+            stream: "s1".into(),
+            now_ms: 0,
+        }));
+    }
+
+    #[test]
+    fn stream_commit_offset_requires_write() {
+        assert!(requires_write(&Method::StreamCommitOffset {
+            stream: "s1".into(),
+            group: "g1".into(),
+            offset: 0,
+        }));
+    }
+
+    #[test]
+    fn publish_confirmed_requires_write() {
+        assert!(requires_write(&Method::PublishConfirmed {
+            exchange: "ex".into(),
+            routing_key: "rk".into(),
+            payload: vec![],
+            priority: 0,
+            delay_ms: None,
+            ttl_ms: None,
+            now_ms: None,
+        }));
+    }
+
+    #[test]
+    fn publish_idempotent_requires_write() {
+        assert!(requires_write(&Method::PublishIdempotent {
+            exchange: "ex".into(),
+            routing_key: "rk".into(),
+            payload: vec![],
+            producer_id: None,
+            seq: 0,
+            priority: 0,
+            delay_ms: None,
+            ttl_ms: None,
+            now_ms: None,
+        }));
+    }
+
+    #[test]
+    fn broker_ack_tag_requires_write() {
+        assert!(requires_write(&Method::BrokerAckTag { delivery_tag: 1 }));
+    }
+
+    #[test]
+    fn broker_nack_tag_requires_write() {
+        assert!(requires_write(&Method::BrokerNackTag {
+            delivery_tag: 1,
+            requeue: true,
+            now_ms: 0,
+        }));
+    }
+
+    /// Cross-check with the durability classifier: every one of these 8 ops is
+    /// ALSO durable, so the ACL-write and WAL-durable classifications agree exactly
+    /// (mirrors `durability_closure_tests::assert_write_implies_durable` below).
+    #[test]
+    fn all_eight_are_also_durable() {
+        use crate::wal::is_durable_mutation;
+        let methods = vec![
+            Method::StreamDeclare {
+                stream: "s1".into(),
+                max_messages: None,
+                max_age_ms: None,
+            },
+            Method::StreamPublish {
+                stream: "s1".into(),
+                payload: vec![],
+                now_ms: 0,
+            },
+            Method::StreamTrim {
+                stream: "s1".into(),
+                now_ms: 0,
+            },
+            Method::StreamCommitOffset {
+                stream: "s1".into(),
+                group: "g1".into(),
+                offset: 0,
+            },
+            Method::PublishConfirmed {
+                exchange: "ex".into(),
+                routing_key: "rk".into(),
+                payload: vec![],
+                priority: 0,
+                delay_ms: None,
+                ttl_ms: None,
+                now_ms: None,
+            },
+            Method::PublishIdempotent {
+                exchange: "ex".into(),
+                routing_key: "rk".into(),
+                payload: vec![],
+                producer_id: None,
+                seq: 0,
+                priority: 0,
+                delay_ms: None,
+                ttl_ms: None,
+                now_ms: None,
+            },
+            Method::BrokerAckTag { delivery_tag: 1 },
+            Method::BrokerNackTag {
+                delivery_tag: 1,
+                requeue: true,
+                now_ms: 0,
+            },
+        ];
+        for m in &methods {
+            assert!(requires_write(m), "{m:?} must require write");
+            assert!(is_durable_mutation(m), "{m:?} must be durable");
+        }
+    }
+}
+
+/// Admin-scope enforcement (CONCEPT:EG-KG.compute.feature, EG-P0-6): is `action` (an
+/// `eg_capabilities::MethodPolicy::authz_action` string) one of the system-wide
+/// administrative actions that requires the caller to hold admin capability, rather
+/// than the ordinary per-graph Read/Write ACL? Driven ENTIRELY off the ledger's
+/// `authz_action` string — never a parallel hand-maintained method-name list — so a
+/// future `Method` variant that declares one of these action strings in
+/// `eg_capabilities::policy` is gated automatically, with no dispatch.rs edit.
+///
+/// Today this covers exactly the methods the EG-P0-1 divergence report flagged as
+/// the "Zero-Trust Consensus" + M3 cluster-admin + DR family: `RegisterIdentity` /
+/// `RbacAdmin` / `ApplyMultisigMutation` (`"security:admin"`), `Reshard` /
+/// `CatalogAssign` / `CatalogReassign` / `CatalogRemove` (`"admin:cluster"`),
+/// `RebalanceExecute` (`"admin:cluster"`), `CatalogList` / `RebalancePlan`
+/// (`"admin:cluster-read"`), and `Backup` / `Restore` (`"admin:backup"`) — the exact
+/// set `src/server/dispatch.rs`'s M3-admin arm + Zero-Trust-Consensus arms route.
+pub(crate) fn is_admin_authz_action(action: &str) -> bool {
+    action == "security:admin" || action.starts_with("admin:")
+}
+
+/// Enforce admin-scope for a method whose `authz_action` [`is_admin_authz_action`].
+///
+/// Back-compat invariant mirrors [`check_graph_access`]: while no identities are
+/// registered the layer has no rules at all (single-tenant/dev deployments are
+/// unchanged — this is the SAME escape hatch `check_graph_access` uses). Once
+/// identities exist, the caller must hold admin capability
+/// ([`IsolationLayer::has_admin_capability`] — `System` role, or an explicit RBAC
+/// `Admin` grant) — there is no coarse-ACL fallback for admin actions the way graph
+/// Read/Write has one, so an agent with no admin grant is DENIED, not defaulted
+/// open.
+pub(crate) fn require_admin_capability(
+    isolation: &IsolationLayer,
+    caller: Option<&str>,
+    action: &'static str,
+) -> Result<(), String> {
+    if !isolation.has_rules() {
+        return Ok(());
+    }
+    let agent = caller.unwrap_or("");
+    if isolation.has_admin_capability(agent) {
+        Ok(())
+    } else {
+        crate::metrics::access_denied();
+        Err(format!(
+            "ACCESS_DENIED: agent '{}' lacks admin capability required for '{action}'",
+            if agent.is_empty() { "<anonymous>" } else { agent },
+        ))
+    }
+}
+
+/// EG-P0-3 (WAL durability closure): `requires_write` (this file) classifies a
+/// method as a mutation for the isolation-ACL check; `crate::wal::is_durable_mutation`
+/// classifies it as needing a WAL record so it survives a crash. The two MUST agree
+/// for every method that can actually mutate durable data — a method acknowledged as
+/// a write but never logged is silently lost on crash. This lives here (not in
+/// `tests/`) because `requires_write` is `pub(crate)`: an external integration-test
+/// crate cannot name it, so the invariant can only be asserted from inside the crate.
+///
+/// Covers the 5 methods audited under EG-P0-3 (all previously FAILED this
+/// assertion): `MineSequence`, `MineForecast`, the `MineText` non-tfidf variant, the
+/// `MineSubgraph` gspan variant, and `AddEmbedding`.
+#[cfg(test)]
+mod durability_closure_tests {
+    use super::*;
+    use crate::protocol::Method;
+    use crate::wal::is_durable_mutation;
+
+    /// The one assertion every case below exercises: whenever `requires_write`
+    /// says a method mutates (and therefore requires Write ACL + a write lock),
+    /// `is_durable_mutation` must ALSO say it belongs in the WAL. (The converse
+    /// need not hold — e.g. a durable method reached only via a self-routing
+    /// surface like KV is fine — so this is a one-directional implication, not
+    /// an equality.)
+    fn assert_write_implies_durable(m: &Method) {
+        assert!(
+            !requires_write(m) || is_durable_mutation(m),
+            "EG-P0-3: {m:?} is classified a write by `access::requires_write` but \
+             NOT durable by `wal::is_durable_mutation` — it would be acknowledged \
+             then silently lost on crash"
+        );
+    }
+
+    #[cfg(feature = "mining")]
+    #[test]
+    fn mine_sequence_writeback_is_durable() {
+        use crate::protocol::MineSeqAlgorithm;
+        let m = Method::MineSequence {
+            sequences: vec![vec!["a".into(), "b".into()]],
+            source: None,
+            min_support: 0.5,
+            algorithm: MineSeqAlgorithm::Prefixspan,
+            writeback: true,
+            #[cfg(feature = "epistemic")]
+            as_claim: false,
+        };
+        assert!(requires_write(&m), "writeback=true must classify as a write");
+        assert_write_implies_durable(&m);
+    }
+
+    #[cfg(feature = "mining")]
+    #[test]
+    fn mine_forecast_writeback_is_durable() {
+        use crate::protocol::ForecastAlgorithm;
+        let m = Method::MineForecast {
+            values: vec![1.0, 2.0, 3.0, 4.0, 5.0],
+            algorithm: ForecastAlgorithm::Arima,
+            horizon: 2,
+            p: 1,
+            d: 0,
+            q: 0,
+            period: 0,
+            alpha: 0.3,
+            beta: 0.1,
+            gamma: 0.1,
+            confidence: 0.95,
+            series_id: "s1".into(),
+            writeback: true,
+            #[cfg(feature = "epistemic")]
+            as_claim: false,
+        };
+        assert!(requires_write(&m), "writeback=true must classify as a write");
+        assert_write_implies_durable(&m);
+    }
+
+    /// `MineText` writeback only mutates for `lda`/`nmf` — the durable set must
+    /// mirror that EXACT condition, not just "writeback=true" (a `tfidf` write
+    /// would otherwise be logged for an op that never touches the graph).
+    #[cfg(feature = "mining")]
+    #[test]
+    fn mine_text_lda_writeback_is_durable_but_tfidf_is_not() {
+        use crate::protocol::TextAlgorithm;
+        let base = |algorithm: TextAlgorithm| Method::MineText {
+            docs: vec![vec!["a".into(), "b".into()]],
+            source: None,
+            algorithm,
+            k: 2,
+            alpha: 0.1,
+            beta: 0.01,
+            iterations: 10,
+            seed: 1,
+            top_n: 5,
+            writeback: true,
+            #[cfg(feature = "epistemic")]
+            as_claim: false,
+        };
+        let lda = base(TextAlgorithm::Lda);
+        assert!(requires_write(&lda), "lda writeback=true must classify as a write");
+        assert_write_implies_durable(&lda);
+
+        // tfidf never mutates regardless of `writeback` — both classifiers must
+        // agree it is NOT a write (never durable, never write-locked).
+        let tfidf = base(TextAlgorithm::Tfidf);
+        assert!(
+            !requires_write(&tfidf),
+            "tfidf must never classify as a write, even with writeback=true"
+        );
+        assert!(
+            !is_durable_mutation(&tfidf),
+            "tfidf must never be durable, even with writeback=true"
+        );
+    }
+
+    /// `MineSubgraph` writeback only mutates for `gspan` — mirrors the `MineText`
+    /// exact-condition contract above (`motif` is a pure census, never a write).
+    #[cfg(feature = "mining")]
+    #[test]
+    fn mine_subgraph_gspan_writeback_is_durable_but_motif_is_not() {
+        use crate::protocol::SubgraphAlgorithm;
+        let base = |algorithm: SubgraphAlgorithm| Method::MineSubgraph {
+            label: None,
+            min_support: 0.1,
+            max_edges: 2,
+            algorithm,
+            writeback: true,
+            #[cfg(feature = "epistemic")]
+            as_claim: false,
+        };
+        let gspan = base(SubgraphAlgorithm::Gspan);
+        assert!(
+            requires_write(&gspan),
+            "gspan writeback=true must classify as a write"
+        );
+        assert_write_implies_durable(&gspan);
+
+        let motif = base(SubgraphAlgorithm::Motif);
+        assert!(
+            !requires_write(&motif),
+            "motif must never classify as a write, even with writeback=true"
+        );
+        assert!(
+            !is_durable_mutation(&motif),
+            "motif must never be durable, even with writeback=true"
+        );
+    }
+
+    #[test]
+    fn add_embedding_is_durable() {
+        let m = Method::AddEmbedding {
+            node_id: "n1".into(),
+            embedding: vec![0.1, 0.2, 0.3],
+        };
+        assert!(requires_write(&m));
+        assert_write_implies_durable(&m);
     }
 }

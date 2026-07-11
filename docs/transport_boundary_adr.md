@@ -64,3 +64,14 @@ human-in-the-loop gating remain **not** engine features — they live in the
 agent-utilities orchestration layer (request/grant-approval, risk-veto, blast-radius).
 See [the master-of-all engine](architecture/engine.md) for the durable + reasoning
 architecture.
+
+## Auth reality (update, EG-P0-5)
+
+The HMAC auth this ADR names above as the hardening focus now has a second, opt-in generation
+alongside the original: a v1 signed envelope (`src/server/auth.rs`) that additionally binds
+method/graph/tenant/principal/body-hash/timestamp/nonce under the same HMAC-SHA256 family,
+verified in constant time. It is **off by default** (`EPISTEMIC_GRAPH_REQUIRE_SIGNED=1` to require
+it) and does not change this ADR's core decision or close its transport-security gap — the UDS/TCP
+transport itself is still unencrypted; TLS/mTLS and OIDC principal binding remain future work, not
+part of this workstream. See [Service mode](service_mode.md#authentication-protocol) for the full
+v0/v1 contract.
