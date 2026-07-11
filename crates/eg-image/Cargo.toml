@@ -35,6 +35,14 @@ contract = ["dep:eg-modality"]
 # decoder would gate its heavy dep (e.g. `png`/`zune-jpeg`) behind this SAME feature
 # name so the default build never links it (the Pi contract).
 codec = []
+# OPT-IN runtime seam (CONCEPT:EG-P1-3): `src/runtime.rs`'s decode/color/EXIF/
+# pyramid/thumbnail/mask/image-embedding TRAITS + typed artifacts. Default OFF, no
+# new dependency AT ALL (this is a trait-definition layer, not an implementation —
+# a real decoder/embedding model plugs in by implementing the trait in its own
+# crate/service). Turning this on today adds zero dependency and changes no
+# behavior of `ImageData` itself; it only unlocks the trait module for a plugin to
+# target.
+runtime = []
 
 [dev-dependencies]
 serde_json = "1.0"
