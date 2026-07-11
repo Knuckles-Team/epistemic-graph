@@ -47,6 +47,10 @@ pub mod cold_tier_impl;
 mod compute;
 mod dispatch;
 pub(crate) mod handlers;
+// MutationPlan + the single commit gateway (CONCEPT:EG-P0-2): consumes
+// `eg-capabilities`' MethodPolicy to drive authz + durable-commit + audit + CDC for
+// the GATEWAY_ROUTED mutation set from ONE call site. See its module docs for scope.
+pub(crate) mod mutation;
 // X5-enforce (CONCEPT:EG-KG.ontology.rdf-update-guard): wires the EXISTING eg-shacl ICV
 // commit guard onto the live RDF write path (AddTriples/RemoveTriples/ApplyMutation).
 // Pure-Rust (no new dep — `eg-shacl` + `std::sync::OnceLock`), gated `shacl`; a build
