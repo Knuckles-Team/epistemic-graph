@@ -99,6 +99,16 @@ struct Args {
     #[arg(long, env = "EPISTEMIC_GRAPH_FEDERATED_ADDR")]
     federated_addr: Option<String>,
 
+    /// Arrow dataset-handle HTTP listener address (e.g. 127.0.0.1:7901), feature
+    /// `dataset-handle` (CONCEPT:INT-P2-2). Disabled when unset. `POST /dataset/export`
+    /// materializes a query over a graph snapshot into an immutable Arrow dataset
+    /// handle; `GET /dataset/<id>` streams it back as Arrow IPC
+    /// (`application/vnd.apache.arrow.stream`); `POST /dataset/<id>/result` accepts a
+    /// signed result artifact from an external heavy-compute job and commits it
+    /// transactionally. Separate from the RPC transports and every other HTTP surface.
+    #[arg(long, env = "EPISTEMIC_GRAPH_DATASET_ADDR")]
+    dataset_addr: Option<String>,
+
     /// Self-terminate after N seconds with ZERO active connections (reference-
     /// counted idle shutdown). 0 or absent ⇒ NEVER self-terminate on idle: the
     /// engine is long-living/persistent and runs forever like a normal server.
@@ -705,6 +715,10 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         foreign_sources: std::sync::Arc::new(dashmap::DashMap::new()),
         #[cfg(feature = "kv")]
         kv,
+        #[cfg(feature = "dataset-handle")]
+        dataset_handles: std::sync::Arc::new(
+            epistemic_graph::server::dataset_handle::DatasetHandleRegistry::new(),
+        ),
     }));
 
     // ── Prometheus metrics endpoint (CONCEPT:EG-KG.txn.per-graph-write-isolation) ────────────────────
@@ -783,6 +797,33 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         tracing::warn!(
             "--federated-addr ignored: binary built without the `federation-search` feature"
         );
+    }
+
+    // ── Arrow dataset-handle export + signed result writeback (CONCEPT:INT-P2-2) ────────────────
+    // Opt-in AND feature-gated: the listener starts ONLY when built `--features
+    // dataset-handle` AND --dataset-addr / EPISTEMIC_GRAPH_DATASET_ADDR is set. With the
+    // feature off, or unset, this is a no-op. `POST /dataset/export` materializes a query
+    // over a graph snapshot into an immutable Arrow dataset handle; `GET /dataset/<id>`
+    // streams it back as Arrow IPC; `POST /dataset/<id>/result` accepts a signed result
+    // artifact from an external heavy-compute job (data-science-mcp, a training loop) and
+    // commits it transactionally. Deploy-configurable (EG-022): a bare enable token binds
+    // the safe localhost default `127.0.0.1:7901`.
+    let dataset_addr = resolve_listener_addr(args.dataset_addr.as_deref(), "127.0.0.1:7901");
+    #[cfg(feature = "dataset-handle")]
+    if let Some(ref dataset_addr) = dataset_addr {
+        let listener = tokio::net::TcpListener::bind(dataset_addr).await?;
+        info!(
+            "Dataset handle: serving Arrow export + result writeback on http://{}/dataset",
+            dataset_addr
+        );
+        let ds_state = state.clone();
+        tokio::spawn(async move {
+            epistemic_graph::server::dataset_handle::serve(listener, ds_state).await;
+        });
+    }
+    #[cfg(not(feature = "dataset-handle"))]
+    if dataset_addr.is_some() {
+        tracing::warn!("--dataset-addr ignored: binary built without the `dataset-handle` feature");
     }
 
     // ── GraphQL subscription SSE carrier (CONCEPT:EG-KG.compute.cdc-event-emit) ────────────────
