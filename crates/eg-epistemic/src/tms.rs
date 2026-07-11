@@ -426,16 +426,33 @@ pub struct RetractionResult {
 
 /// A copy of `bg` with `id` (and every edge to/from it) removed.
 fn remove_node(bg: &BeliefGraph, id: &str) -> BeliefGraph {
+    remove_nodes(bg, std::iter::once(id))
+}
+
+/// A copy of `bg` with every id in `ids` (and every edge to/from any of them) removed —
+/// the multi-node generalization [`remove_node`] delegates to, and the primitive
+/// [`crate::query::what_evidence_would_change_this`] (EPI-P3-5) uses to test whether
+/// retracting a WHOLE candidate evidence set (not just one node at a time) flips a
+/// claim's grounded acceptance.
+pub(crate) fn remove_nodes<'a>(
+    bg: &BeliefGraph,
+    ids: impl IntoIterator<Item = &'a str>,
+) -> BeliefGraph {
+    let removed: HashSet<&str> = ids.into_iter().collect();
+
     let mut priors = bg.priors.clone();
-    priors.remove(id);
+    priors.retain(|k, _| !removed.contains(k.as_str()));
 
     let mut in_edges: HashMap<String, Vec<(String, EdgeKind)>> = HashMap::new();
     for (target, edges) in &bg.in_edges {
-        if target == id {
+        if removed.contains(target.as_str()) {
             continue;
         }
-        let filtered: Vec<(String, EdgeKind)> =
-            edges.iter().filter(|(src, _)| src != id).cloned().collect();
+        let filtered: Vec<(String, EdgeKind)> = edges
+            .iter()
+            .filter(|(src, _)| !removed.contains(src.as_str()))
+            .cloned()
+            .collect();
         if !filtered.is_empty() {
             in_edges.insert(target.clone(), filtered);
         }
@@ -444,9 +461,11 @@ fn remove_node(bg: &BeliefGraph, id: &str) -> BeliefGraph {
     #[cfg(feature = "epistemic-redaction")]
     let node_visibility = {
         let mut v = bg.node_visibility.clone();
-        v.remove(id);
+        v.retain(|k, _| !removed.contains(k.as_str()));
         v
     };
+    let mut temporal = bg.temporal.clone();
+    temporal.retain(|k, _| !removed.contains(k.as_str()));
 
     BeliefGraph {
         priors,
@@ -454,6 +473,8 @@ fn remove_node(bg: &BeliefGraph, id: &str) -> BeliefGraph {
         as_of: bg.as_of,
         #[cfg(feature = "epistemic-redaction")]
         node_visibility,
+        temporal,
+        bitemporal_pin: bg.bitemporal_pin,
     }
 }
 
