@@ -16,6 +16,26 @@
 //! lineage on the claim (`job_id`, the `InputSnapshotHandle`, and the complete
 //! `AlgoVersion`) — a "versioned derived claim" a caller can trace back to exactly
 //! which job, over which graph version, running which algorithm build, produced it.
+//!
+//! CONCEPT:EG-P3-1 (universal writeback lineage) additionally materializes:
+//!
+//!  * a `:Activity` node holding the job's FULL `AlgoVersion` + `InputSnapshotHandle`
+//!    (the complete algo/model/code/env-version + params-digest + input-snapshot
+//!    lineage), linked from the claim via `claim --GENERATED_BY--> activity` — the
+//!    SAME PROV-style convention `src/server/handlers/mining.rs`'s `materialize_claim`
+//!    writes for the synchronous path, so `eg-plan`'s `KnowledgeSet::from_rowset`
+//!    resolves it into `KnowledgeRow::transformation_ids` regardless of which
+//!    writeback path produced the claim;
+//!  * `invalidation_deps` on the claim — the ids whose change/removal invalidates it
+//!    (the input-snapshot handle string + the evidence node id);
+//!  * a `calibration` slot (honestly `null` — no calibration signal is computed by
+//!    this crate; a caller with a real one can extend `commit_result_claim`'s
+//!    `confidence` parameter list, or patch the claim node directly).
+//!
+//! `GENERATED_BY` is deliberately NOT one of `eg_epistemic::classify_relationship`'s
+//! whitelisted values, so it is automatically epistemically NEUTRAL — ignored by
+//! `BeliefGraph`/`propagate_confidence`, exactly like the `SUPPORTS` edges above are
+//! deliberately IN that whitelist.
 
 use eg_core::graph::GraphCore;
 
@@ -60,6 +80,14 @@ pub fn evidence_node_id(result_ref: &str, job_id: &str) -> String {
     format!("jobevidence:{result_ref}:{job_id}")
 }
 
+/// Deterministic `:Activity` node id (CONCEPT:EG-P3-1) — one Activity per
+/// `result_ref` (the SAME deterministic-lineage hash the claim id folds in), so a
+/// re-commit (same job retried, or a different job with identical lineage) converges
+/// on the SAME Activity rather than accumulating a fresh one per call.
+pub fn activity_node_id(result_ref: &str) -> String {
+    format!("jobactivity:{result_ref}")
+}
+
 /// Commit `job`'s result (`job.state` must be `Succeeded`) as a provenance'd claim
 /// into `core` (CONCEPT:INT-P2-1). Transactional (each write is a single
 /// `GraphCore::add_node`/`add_edge` call — atomic per the engine's own txn
@@ -96,6 +124,14 @@ pub fn commit_result_claim(
     }
 
     let confidence = confidence.clamp(0.0, 1.0);
+    let evidence_id = evidence_node_id(&result_ref, &job.job_id);
+    let activity_id = activity_node_id(&result_ref);
+    // CONCEPT:EG-P3-1 — the ids whose change/removal invalidates this claim: the
+    // input-snapshot handle it was computed over, and its own evidence node.
+    let snapshot_handle = format!(
+        "snapshot:{}@{}",
+        job.input_snapshot.graph, job.input_snapshot.version
+    );
     let claim_props = serde_json::json!({
         "type": "Claim",
         "family": job.algo.family,
@@ -112,11 +148,14 @@ pub fn commit_result_claim(
         "algo_code_version": job.algo.code_version,
         "algo_env_version": job.algo.env_version,
         "result_ref": result_ref,
+        // CONCEPT:EG-P3-1 — universal writeback-lineage tuple (the calibration/
+        // invalidation-deps legs beyond what INT-P2-1 already carried above).
+        "calibration": serde_json::Value::Null,
+        "invalidation_deps": [snapshot_handle.as_str(), evidence_id.as_str()],
     });
     let blob = rmp_serde::to_vec_named(&claim_props).map_err(|e| e.to_string())?;
     core.add_node(claim_id.clone(), blob);
 
-    let evidence_id = evidence_node_id(&result_ref, &job.job_id);
     let ev_props = serde_json::json!({
         "type": "Evidence",
         "family": job.algo.family,
@@ -141,6 +180,30 @@ pub fn commit_result_claim(
         supports_edge(core, &evidence_id, &claim_id)?;
     }
 
+    // CONCEPT:EG-P3-1 — the generating Activity: the job's FULL `AlgoVersion` +
+    // `InputSnapshotHandle`, linked `claim --GENERATED_BY--> activity` (the SAME
+    // convention `mining.rs`'s synchronous writeback uses, so `eg-plan`'s
+    // `KnowledgeSet::from_rowset` resolves `KnowledgeRow::transformation_ids`
+    // identically regardless of which writeback path produced the claim).
+    if !core.has_node(&activity_id) {
+        let activity_props = serde_json::json!({
+            "type": "Activity",
+            "job_id": job.job_id,
+            "input_snapshot_graph": job.input_snapshot.graph,
+            "input_snapshot_version": job.input_snapshot.version,
+            "algo_family": job.algo.family,
+            "algo_algorithm": job.algo.algorithm,
+            "algo_params_digest": job.algo.params_digest,
+            "algo_code_version": job.algo.code_version,
+            "algo_env_version": job.algo.env_version,
+        });
+        let ab = rmp_serde::to_vec_named(&activity_props).map_err(|e| e.to_string())?;
+        core.add_node(activity_id.clone(), ab);
+    }
+    if !core.has_edge(&claim_id, &activity_id) {
+        generated_by_edge(core, &claim_id, &activity_id)?;
+    }
+
     Ok(ClaimCommitOutcome::Committed { claim_id })
 }
 
@@ -149,6 +212,15 @@ pub fn commit_result_claim(
 /// `mining.rs::supports_edge`).
 fn supports_edge(core: &GraphCore, source: &str, target: &str) -> Result<(), String> {
     let edge = serde_json::json!({ "relationship_type": "SUPPORTS" });
+    let blob = rmp_serde::to_vec_named(&edge).map_err(|e| e.to_string())?;
+    core.add_edge(source.to_string(), target.to_string(), blob)
+}
+
+/// Write one `claim --GENERATED_BY--> activity` edge (CONCEPT:EG-P3-1) — mirrors
+/// `mining.rs::generated_by_edge`; deliberately NOT one of `classify_relationship`'s
+/// whitelisted values, so `BeliefGraph` ignores it (epistemically neutral).
+fn generated_by_edge(core: &GraphCore, source: &str, target: &str) -> Result<(), String> {
+    let edge = serde_json::json!({ "relationship_type": "GENERATED_BY" });
     let blob = rmp_serde::to_vec_named(&edge).map_err(|e| e.to_string())?;
     core.add_edge(source.to_string(), target.to_string(), blob)
 }
@@ -223,6 +295,32 @@ mod tests {
         let evidence_id = evidence_node_id(&job.result_ref(), &job.job_id);
         assert!(core.has_node(&evidence_id));
         assert!(core.has_edge(&evidence_id, &claim_id));
+
+        // CONCEPT:EG-P3-1 — the universal writeback-lineage tuple: `calibration` is
+        // an honest `null` (no signal computed here), `invalidation_deps` names the
+        // input-snapshot handle + this claim's own evidence node, and a
+        // `claim --GENERATED_BY--> activity` edge points at an Activity node
+        // carrying the FULL `AlgoVersion` + `InputSnapshotHandle`.
+        assert!(props["calibration"].is_null());
+        let deps = props["invalidation_deps"].as_array().unwrap();
+        assert_eq!(deps.len(), 2);
+        assert_eq!(deps[0], "snapshot:g1@5");
+        assert_eq!(deps[1], evidence_id);
+
+        let activity_id = activity_node_id(&job.result_ref());
+        assert!(core.has_node(&activity_id));
+        assert!(core.has_edge(&claim_id, &activity_id));
+        let activity_blob = core.get_node_properties(&activity_id).unwrap();
+        let activity_props: serde_json::Value = rmp_serde::from_slice(&activity_blob).unwrap();
+        assert_eq!(activity_props["type"], "Activity");
+        assert_eq!(activity_props["job_id"], "job-0000000000000001");
+        assert_eq!(activity_props["input_snapshot_graph"], "g1");
+        assert_eq!(activity_props["input_snapshot_version"], 5);
+        assert_eq!(activity_props["algo_family"], "mining.association");
+        assert_eq!(activity_props["algo_algorithm"], "fpgrowth");
+        assert_eq!(activity_props["algo_params_digest"], "deadbeef");
+        assert_eq!(activity_props["algo_code_version"], "test");
+        assert_eq!(activity_props["algo_env_version"], "test");
     }
 
     #[test]
