@@ -165,16 +165,7 @@ pub struct EnvelopeParams<'a> {
 /// ([`compute_envelope_token`]) and the verifier ([`verify_envelope_v1`]) so
 /// signing and verifying can never diverge on the MAC construction — only the
 /// final step (`finalize()` to sign vs. `verify_slice()` to check) differs.
-fn envelope_mac(
-    secret: &str,
-    req: &Request,
-    audience: &str,
-    tenant: &str,
-    principal: &str,
-    timestamp: u64,
-    nonce: &str,
-    idempotency_key: &str,
-) -> Option<HmacSha256> {
+fn envelope_mac(secret: &str, req: &Request, params: &EnvelopeParams) -> Option<HmacSha256> {
     let method_name = req.method.tag_name();
     let body_hash = hex::encode(Sha256::digest(req.method.canonical_body_bytes()));
     let bytes = build_envelope_v1_bytes(
@@ -182,12 +173,12 @@ fn envelope_mac(
         &req.graph,
         &method_name,
         &body_hash,
-        audience,
-        tenant,
-        principal,
-        timestamp,
-        nonce,
-        idempotency_key,
+        params.audience,
+        params.tenant,
+        params.principal,
+        params.timestamp,
+        params.nonce,
+        params.idempotency_key,
     );
     let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).ok()?;
     mac.update(&bytes);
@@ -200,16 +191,7 @@ fn envelope_mac(
 /// (it cannot call this fn directly: `eg-plan` sits BELOW this facade crate in
 /// the dependency DAG).
 pub fn compute_envelope_token(secret: &str, req: &Request, params: &EnvelopeParams) -> String {
-    let Some(mac) = envelope_mac(
-        secret,
-        req,
-        params.audience,
-        params.tenant,
-        params.principal,
-        params.timestamp,
-        params.nonce,
-        params.idempotency_key,
-    ) else {
+    let Some(mac) = envelope_mac(secret, req, params) else {
         return String::new();
     };
     let envelope = EnvelopeV1 {
@@ -257,12 +239,14 @@ pub(crate) fn verify_envelope_v1(secret: &str, req: &Request) -> EnvelopeVerdict
     let Some(mac) = envelope_mac(
         secret,
         req,
-        &envelope.audience,
-        &envelope.tenant,
-        &envelope.principal,
-        envelope.timestamp,
-        &envelope.nonce,
-        &envelope.idempotency_key,
+        &EnvelopeParams {
+            audience: &envelope.audience,
+            tenant: &envelope.tenant,
+            principal: &envelope.principal,
+            timestamp: envelope.timestamp,
+            nonce: &envelope.nonce,
+            idempotency_key: &envelope.idempotency_key,
+        },
     ) else {
         return EnvelopeVerdict::BadSignature;
     };
@@ -553,34 +537,22 @@ mod tests {
         // byte-by-byte `==` is most likely to reach last, proving the whole
         // tag is checked, not a truncated prefix.
         *mac_bytes.last_mut().unwrap() ^= 0x01;
-        let mac = envelope_mac(
-            SECRET,
-            &req,
-            &envelope.audience,
-            &envelope.tenant,
-            &envelope.principal,
-            envelope.timestamp,
-            &envelope.nonce,
-            &envelope.idempotency_key,
-        )
-        .unwrap();
+        let mac_params = EnvelopeParams {
+            audience: &envelope.audience,
+            tenant: &envelope.tenant,
+            principal: &envelope.principal,
+            timestamp: envelope.timestamp,
+            nonce: &envelope.nonce,
+            idempotency_key: &envelope.idempotency_key,
+        };
+        let mac = envelope_mac(SECRET, &req, &mac_params).unwrap();
         assert!(
             mac.verify_slice(&mac_bytes).is_err(),
             "Mac::verify_slice must reject a tampered tag"
         );
 
         // And the wrong-length case (verify_slice's other rejection path).
-        let mac2 = envelope_mac(
-            SECRET,
-            &req,
-            &envelope.audience,
-            &envelope.tenant,
-            &envelope.principal,
-            envelope.timestamp,
-            &envelope.nonce,
-            &envelope.idempotency_key,
-        )
-        .unwrap();
+        let mac2 = envelope_mac(SECRET, &req, &mac_params).unwrap();
         assert!(mac2.verify_slice(&mac_bytes[..mac_bytes.len() - 1]).is_err());
     }
 
