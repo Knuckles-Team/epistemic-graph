@@ -535,6 +535,10 @@ mod dispatch_tests {
             foreign_sources: Arc::new(DashMap::new()),
             #[cfg(feature = "kv")]
             kv: Some(kv),
+            #[cfg(feature = "dataset-handle")]
+            dataset_handles: Arc::new(
+                crate::server::dataset_handle::DatasetHandleRegistry::new(),
+            ),
         }))
     }
 
