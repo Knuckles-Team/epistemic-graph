@@ -5,8 +5,9 @@
 //! `eg-tensor`/`eg-geo`/`eg-image`/`eg-audio`'s retrofits.
 
 use eg_modality::{
-    encode_staged, ConformanceTestable, EvidenceSpan, ModalityContract, Provenance, RowSetShape,
-    StagedWrite,
+    decode_staged, encode_staged, ConformanceTestable, EvidenceSpan, IngestReport,
+    ModalityContract, ModalitySelfTest, Provenance, RowSetShape, StagedWrite, StorageStats,
+    TckPoint,
 };
 
 use crate::video::{VideoData, VideoShot};
@@ -51,6 +52,68 @@ impl ModalityContract for VideoData {
 
     fn analytics_ops(&self) -> Vec<&'static str> {
         vec!["duration", "shot_index"]
+    }
+
+    // ── EG-P1-1 hooks — real, minimal implementations over VideoData's
+    // serialization and txn staging. ──
+
+    /// Batch ingest = parse a `VideoData` back from its serialized form. Streaming
+    /// is N/A: a video recording is a whole media value, not an append stream.
+    fn ingest_report(&self, id: &str) -> IngestReport {
+        let staged = self.txn_stage(id);
+        let batch = match decode_staged::<VideoData>(&staged) {
+            Ok(rt) if rt == *self => ModalitySelfTest::Passed,
+            _ => ModalitySelfTest::Failed,
+        };
+        IngestReport {
+            batch,
+            streaming: ModalitySelfTest::NotApplicable(
+                "a video recording is a whole media value, not an append stream",
+            ),
+        }
+    }
+
+    /// Real storage stats: logical size from encoded length; element count is the
+    /// number of extracted video shots. Video does NOT have a secondary index, so
+    /// `has_secondary_index` is `false`.
+    fn storage_stats(&self, _id: &str) -> Option<StorageStats> {
+        let logical_bytes = encode_staged(self).len() as u64;
+        Some(StorageStats {
+            logical_bytes,
+            element_count: self.shots.len() as u64,
+            has_secondary_index: false,
+        })
+    }
+
+    /// N/A: VideoData is ingest-time artifact, not a durable value. Durability is
+    /// maintained by the media storage layer.
+    fn backup_selfcheck(&self, _id: &str) -> ModalitySelfTest {
+        ModalitySelfTest::NotApplicable(
+            "video data is an ingest-time artifact; backup/restore/migrate is a media-storage-layer concern",
+        )
+    }
+
+    /// Simulated single-node crash-and-recover through txn staging path.
+    fn recovery_selfcheck(&self, id: &str) -> ModalitySelfTest {
+        let staged: StagedWrite = self.txn_stage(id);
+        match decode_staged::<VideoData>(&staged) {
+            Ok(recovered) if recovered == *self => ModalitySelfTest::Passed,
+            _ => ModalitySelfTest::Failed,
+        }
+    }
+
+    /// Video has no CDC or policy of its own: CDC would require materializing
+    /// shot detections; policy is at the graph-node layer.
+    fn tck_not_applicable(&self, point: TckPoint) -> Option<&'static str> {
+        match point {
+            TckPoint::CdcDeleteRetentionGc => Some(
+                "video metadata is immutable post-ingest; CDC would require materializing shot detections",
+            ),
+            TckPoint::TenantRowRegionPolicy => Some(
+                "no modality-intrinsic policy surface — policy is at graph-node/eg-core::isolation layer",
+            ),
+            _ => None,
+        }
     }
 }
 

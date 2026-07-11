@@ -13,7 +13,10 @@
 //! `contract` feature (see `src/compress.rs`), so the base Pi-lean build (no
 //! dependencies at all) is completely unaffected.
 
-use eg_modality::{encode_staged, ConformanceTestable, ModalityContract, RowSetShape, StagedWrite};
+use eg_modality::{
+    decode_staged, encode_staged, ConformanceTestable, IngestReport, ModalityContract,
+    ModalitySelfTest, RowSetShape, StagedWrite, StorageStats, TckPoint,
+};
 
 use crate::compress::StoredBlock;
 
@@ -37,6 +40,55 @@ impl ModalityContract for StoredBlock {
     /// consumer would subscribe to).
     fn cdc_topic(&self) -> Option<&'static str> {
         None
+    }
+
+    // ── EG-P1-1 hooks — minimal TCK implementations. ──
+
+    /// Batch ingest = round-trip through serialization.
+    fn ingest_report(&self, id: &str) -> IngestReport {
+        let staged = self.txn_stage(id);
+        let batch = match decode_staged::<StoredBlock>(&staged) {
+            Ok(rt) if rt == *self => ModalitySelfTest::Passed,
+            _ => ModalitySelfTest::Failed,
+        };
+        IngestReport {
+            batch,
+            streaming: ModalitySelfTest::NotApplicable("a cached block is not a stream"),
+        }
+    }
+
+    /// Real storage stats: serialized size; element count is 1 (a single block).
+    fn storage_stats(&self, _id: &str) -> Option<StorageStats> {
+        Some(StorageStats {
+            logical_bytes: encode_staged(self).len() as u64,
+            element_count: 1,
+            has_secondary_index: false,
+        })
+    }
+
+    /// Simulated crash-and-recover.
+    fn recovery_selfcheck(&self, id: &str) -> ModalitySelfTest {
+        let staged: StagedWrite = self.txn_stage(id);
+        match decode_staged::<StoredBlock>(&staged) {
+            Ok(recovered) if recovered == *self => ModalitySelfTest::Passed,
+            _ => ModalitySelfTest::Failed,
+        }
+    }
+
+    /// N/A: cache block durability is tiering-layer concern.
+    fn backup_selfcheck(&self, _id: &str) -> ModalitySelfTest {
+        ModalitySelfTest::NotApplicable(
+            "a cached block is ephemeral; durability is maintained by the tiering layer",
+        )
+    }
+
+    /// No CDC or policy.
+    fn tck_not_applicable(&self, point: TckPoint) -> Option<&'static str> {
+        match point {
+            TckPoint::CdcDeleteRetentionGc => Some("cache blocks are ephemeral tiers"),
+            TckPoint::TenantRowRegionPolicy => Some("policy at table layer"),
+            _ => None,
+        }
     }
 }
 
