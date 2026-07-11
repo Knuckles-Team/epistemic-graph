@@ -244,4 +244,14 @@ pub struct ServerState {
     /// `src/server/dataset_handle.rs`'s module docs.
     #[cfg(feature = "dataset-handle")]
     pub dataset_handles: Arc<crate::server::dataset_handle::DatasetHandleRegistry>,
+    /// LTAP lakehouse materialization manager (CONCEPT:EG-317 engine-side seam, feature
+    /// `lake`, INT-P2-3). Owns the in-process Iceberg-REST catalog + every table's
+    /// [`eg_lake::LakeTable`] (schema + durable LSN snapshot), the blob-CAS path index
+    /// for the Parquet/Delta/Iceberg bytes it writes, and the bounded OpenLineage event
+    /// ring. Always present (empty) on a `lake` build — process-global, like
+    /// `udf_registry`/`foreign_sources` (a lake table is not per-graph). The periodic
+    /// drain sweep (`EPISTEMIC_GRAPH_LAKE_MATERIALIZE_INTERVAL_SECS`) and the
+    /// `lake-rest` Iceberg-REST listener both share this ONE handle.
+    #[cfg(feature = "lake")]
+    pub lake: Arc<crate::server::lake::LakeManager>,
 }

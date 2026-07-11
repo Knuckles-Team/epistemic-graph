@@ -166,6 +166,13 @@ pub mod sparql_http;
 /// Arrow-IPC-over-HTTP rather than a real Arrow Flight (gRPC) server.
 #[cfg(feature = "dataset-handle")]
 pub mod dataset_handle;
+/// LTAP lakehouse materialization tier (CONCEPT:EG-317 engine-side seam, feature
+/// `lake`, INT-P2-3): converts real `eg_tsdb` series into `eg_lake::LakeBatch`es,
+/// materializes them to Parquet on the blob CAS with Delta/Iceberg logs + an
+/// Iceberg-REST catalog + OpenLineage run events. The `rest` submodule (feature
+/// `lake-rest`) serves the standards Iceberg-REST catalog surface over it.
+#[cfg(feature = "lake")]
+pub mod lake;
 
 /// PromQL + the Prometheus-compatible HTTP query API (CONCEPT:EG-KG.query.prometheus-http-query-api, feature
 /// `promql`): `/api/v1/query[_range]` + `/labels` served on the obs listener over the
