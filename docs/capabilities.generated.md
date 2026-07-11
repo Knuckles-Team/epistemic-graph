@@ -1,15 +1,15 @@
 # Epistemic Graph -- Generated Capability Ledger
 
-> **This file is GENERATED and is the AUTHORITATIVE machine-checked capability 
-> truth (CONCEPT:EG-P0-1)** -- regenerate with `cargo run -p eg-capabilities --bin 
-> gen_ledger`. It is derived from the exhaustive, no-wildcard `policy()` match in 
-> `crates/eg-capabilities/src/lib.rs`, which the compiler forces to stay in sync with 
-> every `Method` variant. The hand-maintained `docs/capabilities.md` predates this 
-> table and is NOT authoritative; it has not yet been reconciled/retired (out of 
+> **This file is GENERATED and is the AUTHORITATIVE machine-checked capability
+> truth (CONCEPT:EG-P0-1)** -- regenerate with `cargo run -p eg-capabilities --bin
+> gen_ledger`. It is derived from the exhaustive, no-wildcard `policy()` match in
+> `crates/eg-capabilities/src/lib.rs`, which the compiler forces to stay in sync with
+> every `Method` variant. The hand-maintained `docs/capabilities.md` predates this
+> table and is NOT authoritative; it has not yet been reconciled/retired (out of
 > scope for this workstream).
 
-> `mutates` marked `~true` means the value is a conservative UPPER BOUND: the real 
-> runtime answer is conditional (a `writeback` flag, or a parsed query) -- see the 
+> `mutates` marked `~true` means the value is a conservative UPPER BOUND: the real
+> runtime answer is conditional (a `writeback` flag, or a parsed query) -- see the
 > `note` column and the consistency test's `RUNTIME_CONDITIONAL` table.
 
 | Method | Mutates | Durability | Authz action | Idempotent | Audited | Emits CDC | Txn participation | Note |
