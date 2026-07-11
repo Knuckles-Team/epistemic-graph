@@ -2299,6 +2299,8 @@ dependencies = [
 name = "eg-modality"
 version = "0.1.0"
 dependencies = [
+ "eg-geo",
+ "eg-tensor",
  "eg-types",
  "serde",
  "serde_json",
