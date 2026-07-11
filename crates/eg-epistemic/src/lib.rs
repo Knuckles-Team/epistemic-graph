@@ -30,6 +30,11 @@ mod tms;
 // on `tms::retract`/`RetractionResult`.
 #[cfg(feature = "epistemic-tms")]
 mod recompute;
+// EPI-P3-5 — the bitemporal reasoning + why/why-not/what-changed/what-would-invalidate
+// query surface: the Phase-3 acceptance query. Composes `propagate`/`tms`/`recompute`;
+// depends on `tms::grounded_extension`/`remove_nodes`, same feature gate as those.
+#[cfg(feature = "epistemic-tms")]
+mod query;
 
 // ModalityContract retrofit (CONCEPT:E4): `impl ModalityContract for
 // BeliefState` — the reference "does everything" implementation (overrides
@@ -40,10 +45,10 @@ mod contract;
 
 pub use adapter::BeliefGraph;
 pub use model::{
-    classify_relationship, AuthorityPolicy, BeliefState, EdgeKind, JustRule, JustificationGraph,
-    ProofNode, TimeAxis,
+    classify_relationship, AuthorityPolicy, BeliefState, BiTemporalRecord, EdgeKind, JustRule,
+    JustificationGraph, ProofNode, TimeAxis,
 };
-pub use propagate::{explain_belief, propagate_confidence};
+pub use propagate::{belief_distribution, explain_belief, propagate_confidence};
 
 // X2 — paraconsistent justification-based TMS + Dung-style abstract argumentation
 // semantics (grounded/preferred/stable extensions, bipolar "supported attack" closure,
@@ -64,3 +69,15 @@ pub use tms::{
 // straight into the same index. See `recompute` module docs.
 #[cfg(feature = "epistemic-tms")]
 pub use recompute::{ChangeEvent, Materialization, MaterializationStatus, TruthMaintenance};
+
+// EPI-P3-5 — bitemporal reasoning + the why/why-not/what-changed/what-would-invalidate
+// query family, culminating in `epistemic_status`: the Phase-3 acceptance query "what
+// do we believe, why, on exactly which evidence, under whose authority, at what time,
+// with what uncertainty, and what would invalidate it", answerable in ONE typed call.
+// See `query` module docs.
+#[cfg(feature = "epistemic-tms")]
+pub use query::{
+    epistemic_status, is_believed, what_changed, what_evidence_would_change_this, why, why_not,
+    ChangedBelief, EpistemicStatus, MinimalFlipSet, WhyNot, WhyNotReason, BELIEF_THRESHOLD,
+    MAX_FLIP_CANDIDATES,
+};
