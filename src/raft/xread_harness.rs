@@ -150,8 +150,13 @@ async fn bring_up(
         .create_group(GROUP_B, peers.clone(), true)
         .await
         .unwrap();
+    // DEFAULT_GROUP (0) backs the placement catalog itself — the `placement_*` admin
+    // API commits through it (see `MultiRaft::commit_placement`), so a test that
+    // splits/assigns must bring it up + elect its leader too (the same setup
+    // `placement_harness::bring_up` uses).
+    multi.ensure_group(super::DEFAULT_GROUP).await.unwrap();
 
-    for gid in [GROUP_A, GROUP_B] {
+    for gid in [GROUP_A, GROUP_B, super::DEFAULT_GROUP] {
         let g = multi.group(gid).await.expect("group exists");
         wait_until(Duration::from_secs(15), || {
             let g = g.clone();
