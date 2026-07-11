@@ -11,8 +11,9 @@
 //! `sub ⊑ sup`) -> `detail`, `confidence -> confidence`.
 
 use eg_modality::{
-    encode_staged, ConformanceTestable, EvidenceSpan, ModalityContract, Provenance, RowSetShape,
-    StagedWrite,
+    decode_staged, encode_staged, ConformanceTestable, EvidenceSpan, IngestReport,
+    ModalityContract, ModalitySelfTest, Provenance, RowSetShape, StagedWrite, StorageStats,
+    TckPoint,
 };
 
 use crate::owl::ProofNode;
@@ -82,6 +83,76 @@ impl ModalityContract for ProofNode {
             "entails_subclass",
             "subclass_confidence",
         ]
+    }
+
+    // ── EG-P1-1 hooks — real, minimal implementations over ProofNode's
+    // serialization and txn staging. ProofNode is a reconstructed OWL proof tree. ──
+
+    /// Batch ingest = parse a `ProofNode` back from its serialized form. Streaming
+    /// is N/A: an OWL proof tree is a whole derivation structure, not an append stream.
+    fn ingest_report(&self, id: &str) -> IngestReport {
+        let staged = self.txn_stage(id);
+        let batch = match decode_staged::<ProofNode>(&staged) {
+            Ok(rt) if rt == *self => ModalitySelfTest::Passed,
+            _ => ModalitySelfTest::Failed,
+        };
+        IngestReport {
+            batch,
+            streaming: ModalitySelfTest::NotApplicable(
+                "an OWL proof tree is a whole derivation structure, not an append stream",
+            ),
+        }
+    }
+
+    /// Real storage stats from the serialized ProofNode: logical size from encoded
+    /// length; element count is the number of direct premises in this proof node. OWL
+    /// proof trees do NOT have a secondary index (they are reconstructed on-demand), so
+    /// `has_secondary_index` is `false`.
+    fn storage_stats(&self, _id: &str) -> Option<StorageStats> {
+        let logical_bytes = encode_staged(self).len() as u64;
+        let element_count = self.premises.len() as u64;
+        Some(StorageStats {
+            logical_bytes,
+            element_count,
+            has_secondary_index: false,
+        })
+    }
+
+    /// Backup→restore round-trip through serialization, confirming the restored
+    /// proof node equals the original.
+    fn backup_selfcheck(&self, _id: &str) -> ModalitySelfTest {
+        let backup_payload = encode_staged(self);
+        // For backup, we use serde directly (not StagedWrite)
+        match serde_json::from_slice::<ProofNode>(&backup_payload) {
+            Ok(restored) if restored == *self => ModalitySelfTest::Passed,
+            _ => ModalitySelfTest::Failed,
+        }
+    }
+
+    /// Simulated single-node crash-and-recover through the txn staging path.
+    /// Stage the proof node as an in-txn write; the staged payload IS the WAL record;
+    /// on "restart" replay-decode it and confirm the recovered proof is intact.
+    fn recovery_selfcheck(&self, id: &str) -> ModalitySelfTest {
+        let staged: StagedWrite = self.txn_stage(id);
+        match decode_staged::<ProofNode>(&staged) {
+            Ok(recovered) if recovered == *self => ModalitySelfTest::Passed,
+            _ => ModalitySelfTest::Failed,
+        }
+    }
+
+    /// OWL proof trees have no CDC or policy of their own (parallel to other
+    /// reasoning/inference structures): CDC would require materializing derived
+    /// facts as permanent triples; policy is at the graph-node layer.
+    fn tck_not_applicable(&self, point: TckPoint) -> Option<&'static str> {
+        match point {
+            TckPoint::CdcDeleteRetentionGc => Some(
+                "an OWL proof tree is a reconstructed inference artifact, not a persisted triple — CDC would require materializing derived facts as permanent triples",
+            ),
+            TckPoint::TenantRowRegionPolicy => Some(
+                "no modality-intrinsic policy surface — tenant/row/region policy is enforced at the graph-node/eg-core::isolation layer that owns the proof",
+            ),
+            _ => None,
+        }
     }
 }
 
