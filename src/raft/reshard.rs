@@ -107,7 +107,14 @@ impl TenantManager {
         let _guard = self.multi.tenant_lock(graph_name).await;
 
         let router = self.multi.router();
-        let from_group = router.group_of(graph_name);
+        // Resolve the CURRENT owner the same way the dispatch/routing seam does: the
+        // placement catalog first (an explicit virtual-partition placement for the
+        // graph's tenant), falling back to the bare hash-ring `GroupRouter` only when
+        // no catalog entry exists. Reading `router.group_of` directly here would miss
+        // a catalog-only tenant (it always answers `DEFAULT_GROUP` for a graph the
+        // router itself was never told to `assign`), so `move_partition` would report
+        // the wrong `from_group` and never move the graph's actual owning group's data.
+        let (from_group, _from_epoch) = self.multi.route_graph(graph_name).await;
         if from_group == to_group {
             return Err(format!(
                 "graph '{graph_name}' is already owned by group {to_group}"
