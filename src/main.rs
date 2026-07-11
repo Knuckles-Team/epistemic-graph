@@ -1226,6 +1226,33 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                  per-graph node cap now EVICTS durable nodes (memory bounded, no data loss)"
             );
         }
+
+        // ── Time-series STARTUP RECONCILIATION (CONCEPT:EG-KG.backend.ts-startup-reconcile, L16) ──
+        // EG-P0-4 replays a cross-modal-committed measurement into the served
+        // `series.redb` right after the `graph.redb` commit succeeds, but a crash
+        // strictly BETWEEN those two commits can leave graph.redb ahead of the served
+        // store (documented residual). Run this ONCE here — after the redb backend has
+        // (re)loaded and before the server accepts traffic — so any such residual from a
+        // prior crash never lingers. No-op when either the backend isn't redb or no
+        // tsdb store is configured; idempotent + a true no-op on a clean-shutdown boot
+        // (see `RedbBackend::reconcile_time_series`'s doc comment for the guarantee).
+        #[cfg(all(feature = "redb", feature = "tsdb"))]
+        if let Some(redb) = p.as_redb() {
+            if let Some(series) = state.read().await.tsdb_store.clone() {
+                match redb.reconcile_time_series(&series).await {
+                    Ok(report) if report.series_reconciled > 0 => info!(
+                        "time-series startup reconciliation (CONCEPT:EG-KG.backend.ts-startup-reconcile): {} \
+                         series / {} point(s) replayed into the served store (recovered \
+                         from a crash between the two EG-P0-4 commits)",
+                        report.series_reconciled, report.points_replayed
+                    ),
+                    Ok(_) => {}
+                    Err(e) => {
+                        tracing::warn!("time-series startup reconciliation failed: {e}")
+                    }
+                }
+            }
+        }
     }
     // CONCEPT:EG-KG.storage.incremental-text / .incremental-temporal / .incremental-derived-owl —
     // install the server-layer secondary-index factory so a committed write batch
