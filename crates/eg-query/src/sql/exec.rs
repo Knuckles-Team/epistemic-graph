@@ -834,6 +834,104 @@ fn run(
     })
 }
 
+/// Run `sql` over `view` and return the result as real Arrow batches — no per-row
+/// JSON/MessagePack decode (CONCEPT:INT-P2-2, the Arrow dataset-handle seam for
+/// external heavy compute: engine snapshot/dataset handle → Arrow → external job →
+/// signed result artifact → transactional writeback). Shares the EXACT same
+/// providers/UDFs/table-functions/off-lock-snapshot/current-thread-runtime plumbing as
+/// [`exec_sql_typed`] — the only difference is the caller gets back the
+/// [`RecordBatch`](arrow::record_batch::RecordBatch)es DataFusion already produced
+/// (plus their shared [`SchemaRef`]) instead of a per-cell JSON decode. This is what an
+/// external heavy-compute job (data-science-mcp, a training loop) pulls typed and in
+/// bulk instead of marshalling rows through Python/JSON.
+///
+/// A fresh, never-cancelled [`CancellationToken`] — see [`exec_sql_arrow_cancellable`]
+/// for a caller that needs REAL cancellation (L36).
+pub fn exec_sql_arrow(
+    view: &GraphView,
+    sql: &str,
+) -> Result<(SchemaRef, Vec<arrow::record_batch::RecordBatch>), String> {
+    exec_sql_arrow_cancellable(view, sql, &CancellationToken::new())
+}
+
+/// As [`exec_sql_arrow`], threading `cancel` down to [`collect_streaming`] (L36).
+pub fn exec_sql_arrow_cancellable(
+    view: &GraphView,
+    sql: &str,
+    cancel: &CancellationToken,
+) -> Result<(SchemaRef, Vec<arrow::record_batch::RecordBatch>), String> {
+    let nodes = infer_nodes(view)?;
+    let edges = infer_edges(view)?;
+    run_arrow(
+        view,
+        nodes,
+        edges,
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        sql,
+        cancel,
+    )
+}
+
+/// Shared driver identical to [`run`]/[`run_typed`] up through the DataFusion collect,
+/// but returns the RAW `RecordBatch`es (plus their shared schema) instead of decoding
+/// them into rows — see [`exec_sql_arrow`] above.
+#[allow(clippy::too_many_arguments)]
+fn run_arrow(
+    view: &GraphView,
+    nodes: (
+        arrow::datatypes::SchemaRef,
+        arrow::record_batch::RecordBatch,
+    ),
+    edges: (
+        arrow::datatypes::SchemaRef,
+        arrow::record_batch::RecordBatch,
+    ),
+    user_tables: Vec<UserTable>,
+    views: Vec<(String, String)>,
+    functions: Vec<StoredFunction>,
+    ann_indexes: Vec<AnnIndexPlan>,
+    sql: &str,
+    cancel: &CancellationToken,
+) -> Result<(SchemaRef, Vec<arrow::record_batch::RecordBatch>), String> {
+    let snap = Arc::new(view.clone());
+    let mut nodes = nodes;
+    let mut user_tables = user_tables;
+
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| format!("runtime build: {e}"))?;
+
+    let sql = super::catalog::strip_pg_catalog_fn_qualifier(sql);
+    let sql = super::funcs::expand_functions(&sql, &functions)?;
+    apply_ann_pushdown(&sql, &ann_indexes, &mut nodes, &mut user_tables);
+    let sql = super::classify::desugar_vector_ops(&sql);
+    rt.block_on(async move {
+        let built = build_ctx(snap, nodes, edges, user_tables)?;
+        let ctx = built.ctx;
+        register_views(&ctx, &views, &functions).await?;
+        register_system_catalogs(
+            &ctx,
+            &built.nodes_schema,
+            &built.edges_schema,
+            &built.user_relations,
+            &views,
+            &functions,
+        )
+        .await?;
+        let df = ctx.sql(&sql).await.map_err(|e| format!("sql: {e}"))?;
+        let batches = collect_default(df, cancel).await?;
+        let schema = batches
+            .first()
+            .map(|b| b.schema())
+            .unwrap_or_else(|| Arc::new(arrow::datatypes::Schema::empty()));
+        Ok((schema, batches))
+    })
+}
+
 /// Register each durable view as a DataFusion logical view (CONCEPT:EG-KG.query.durable-views): plan its
 /// stored SELECT against the already-registered `nodes`/`edges`/user tables, then
 /// register the resulting `ViewTable` under the view's name so a query that references

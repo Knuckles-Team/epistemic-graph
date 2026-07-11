@@ -2351,6 +2351,8 @@ mod result_cache_dispatch_tests {
             foreign_sources: Arc::new(DashMap::new()),
             #[cfg(feature = "kv")]
             kv: None,
+            #[cfg(feature = "dataset-handle")]
+            dataset_handles: Arc::new(crate::server::dataset_handle::DatasetHandleRegistry::new()),
         }))
     }
 
@@ -2597,6 +2599,8 @@ mod rls_aware_cache_no_cross_agent_leak {
             foreign_sources: Arc::new(DashMap::new()),
             #[cfg(feature = "kv")]
             kv: None,
+            #[cfg(feature = "dataset-handle")]
+            dataset_handles: Arc::new(crate::server::dataset_handle::DatasetHandleRegistry::new()),
         }))
     }
 
@@ -2976,6 +2980,8 @@ mod dispatch_write_tests {
             foreign_sources: Arc::new(DashMap::new()),
             #[cfg(feature = "kv")]
             kv: None,
+            #[cfg(feature = "dataset-handle")]
+            dataset_handles: Arc::new(crate::server::dataset_handle::DatasetHandleRegistry::new()),
         }))
     }
 
@@ -3265,6 +3271,8 @@ mod txn_ryow_dispatch_tests {
             foreign_sources: Arc::new(DashMap::new()),
             #[cfg(feature = "kv")]
             kv: None,
+            #[cfg(feature = "dataset-handle")]
+            dataset_handles: Arc::new(crate::server::dataset_handle::DatasetHandleRegistry::new()),
         }))
     }
 

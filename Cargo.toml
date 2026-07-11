@@ -808,6 +808,37 @@ sparql-service = ["sparql-http", "federation", "dep:ureq"]
 # SAME allowlist/internal-range guard as EG-052. HEAVY-ish (rustls/ring) → kept OUT of
 # `pi`; folded into node/full by the orchestrator (NOT edited into the tier lists here).
 federation-search = ["server", "dep:ureq"]
+# Arrow dataset-handle export + signed result writeback (CONCEPT:INT-P2-2 — the Arrow
+# Flight / dataset-handle seam for external heavy compute). Codex's ask: heavy model
+# training should stay OUTSIDE the engine (data-science-mcp / an accelerator), and the
+# scalable seam is `engine snapshot/dataset handle → Arrow → external job → signed
+# result artifact → transactional writeback` — never marshalling millions of rows
+# through Python/JSON. `POST /dataset/export {graph, sql}` materializes a query over a
+# graph snapshot ONCE into an IMMUTABLE, id-addressed dataset handle (real Arrow
+# `RecordBatch`es, via `eg_query::exec_sql_arrow`); `GET /dataset/<id>` streams it back
+# as Arrow IPC (`application/vnd.apache.arrow.stream` — schema + batches, typed columns
+# out, not JSON rows); `POST /dataset/<id>/result` lets the external job write its
+# result back as a content-addressed, HMAC-signed artifact that lands in the blob CAS
+# and commits a queryable `:DatasetResult` node in ONE transaction (the engine owns the
+# job/snapshot/output registration, not the caller).
+#
+# A REAL Arrow Flight (gRPC) server was considered — `arrow-flight` — and rejected: it
+# pulls tonic/prost/h2/hyper/tower, a heavy async-gRPC stack this codebase deliberately
+# avoids for every other auxiliary listener (`--metrics-addr`/`--obs-addr`/
+# `--sparql-addr` all hand-roll HTTP instead of axum/hyper/tonic, the Pi-contract
+# idiom). So this follows the SAME dep-free hand-rolled-HTTP idiom instead — wire
+# format is plain Arrow IPC streaming, readable by ANY Arrow IPC consumer
+# (`pyarrow.ipc.open_stream`, polars, DataFusion) with no Flight client needed.
+#
+# IMPLIES `query` (runs a SQL query to build the batches), `server` (its own Tokio HTTP
+# listener, `--dataset-addr` / `EPISTEMIC_GRAPH_DATASET_ADDR`), and `blob` (the result
+# writeback's content-addressed store). Pulls `dep:arrow` directly — the SAME `53` pin
+# `obs`/eg-query/eg-plan's `knowledge-batch` already carry, so this is NOT a second
+# Arrow version in the lock (verify with `cargo tree --features dataset-handle`).
+# OFF by default; deliberately NOT folded into `full` (mirrors `knowledge-batch`'s own
+# opt-in status) — a default/full build links no extra Arrow IPC surface beyond what
+# `query` already pulls transitively.
+dataset-handle = ["query", "server", "blob", "dep:arrow"]
 # ROS2 bridge over the rosbridge-WebSocket JSON protocol (CONCEPT:EG-325). Bridges engine
 # CDC events ↔ ROS2 topics by talking the standard `rosbridge_suite` JSON-over-WebSocket
 # protocol (advertise/subscribe/publish/unsubscribe) to a `rosbridge_server` — so NO
