@@ -13,18 +13,19 @@ The **Feature** column is the Cargo feature that gates the surface; the
 > **Machine-checked ledger available (EG-P0-1).** [`docs/capabilities.generated.md`](capabilities.generated.md)
 > is generated from an exhaustive, compiler-enforced `MethodPolicy` match over every wire-protocol
 > `Method` variant (`crates/eg-capabilities`, regenerate via `cargo run -p eg-capabilities --bin
-> gen_ledger`) and is now the **authoritative** machine-checked source for per-method
+> gen_ledger`) and is the **authoritative** machine-checked source for per-method
 > mutates/durability-domain/authz-action/idempotent/audited/emits-CDC/txn-participation facts. This
-> page is **not yet reconciled** against it — it predates the ledger and answers a coarser question
-> (which query SURFACE supports which OPERATION) rather than per-`Method` durability/security
+> page is **still not fully reconciled** against it — it predates the ledger and answers a coarser
+> question (which query SURFACE supports which OPERATION) rather than per-`Method` durability/security
 > semantics, so the two are not redundant, but where they overlap and disagree on a durability or
-> security claim, **the generated ledger wins**. Its own consistency test currently reports 106 open
-> divergences (22 runtime-conditional, 23 WAL-durability gaps, 61 access.rs coverage gaps) — see
-> [Known limitations](#known-limitations-in-progress-eg-p0-2p0-4p0-6) below, and note that of the 23
-> WAL gaps the ledger counts, **5 were already closed by EG-P0-3** (`AddEmbedding`, `MineSequence`,
-> `MineForecast`, `MineText` for `lda`/`nmf`, `MineSubgraph` for `gspan` — see [mining.md](mining.md))
-> but the generated ledger has not yet been regenerated to drop them from its count, so its per-method
-> Note column is stale for those five specifically until the next regeneration.
+> security claim, **the generated ledger wins**. As of the EG-P0-2 mutation-gateway rollout closeout
+> (2.20.0), the ledger's per-method notes report **9 WAL-durability gaps** (down from 18/23 as EG-P0-3
+> and the RunRules policy correction closed the rest) and ~30 `access.rs`-coverage-gap flags — most of
+> which are now independently triaged as `JUSTIFIED_NA` (a real architectural reason: registry-
+> lifecycle, cross-shard/cluster admin, process-global registry, OCC txn self-routing) by the SEPARATE,
+> live `src/server/mutation.rs::OPEN_NOT_JUSTIFIED` check (machine-asserted empty), which the ledger
+> itself doesn't yet cross-reference — see [Known limitations](#known-limitations-in-progress-eg-p0-2p0-4p0-6)
+> below for the current, reconciled picture.
 
 ## SQL (`eg-query/sql` + pgwire)
 
@@ -307,6 +308,19 @@ logs + metrics + traces trilogy over the durable eg-tsdb series + eg-text index.
 | Scene-graph / 3D world model: `:SceneObject` pose + transform hierarchy + spatial relations + bounding volumes | ✅ | robotics/AR/urban-3D substrate (CONCEPT:EG-KG.compute.scene-graph-primitives) |
 | Event-stream + CEP: windowed high-velocity ingest + `Op::Cep` bounded-NFA (sequence/within/absence) over sliding/tumbling windows | ✅ | `eg-stream`, feature `stream` (CONCEPT:EG-KG.query.pipelined-execution) |
 
+### Document & media modalities (`eg-document` / `eg-image` / `eg-audio` / `eg-video` / `eg-alignment` — EG-P1-3)
+
+Four new leaf crates: a typed document → pages → layout-blocks → tables → spans model, image/audio/video
+header-parse + region/segment/shot evidence types, and a shared `EvidenceResolver` alignment seam. Each
+implements `ModalityContract` and is unit-tested (registered in the EG-P1-1 TCK), but **none of the four
+is folded into a serving tier (pi/node/cluster/full) yet** — a capability-discovery/testing seam, not
+something a deployed server exposes today, distinct from every ✅ row elsewhere on this page.
+
+| Operation | Status | Feature | Evidence |
+|-----------|:------:|---------|----------|
+| Document/image/audio/video typed data models + `ModalityContract` impls | 🔶 | crate-local `contract` (each, default off) | crates exist, compile, unit-tested; not wired to any `Method`/dispatch path |
+| `CasEvidenceResolver` — resolves a `DocumentSpan`/`TableCellRange` locus to a real UTF-8 excerpt off the blob CAS; every other locus kind (image/audio/video/code/trace) to a real CAS-digest reference | 🔶 | `alignment` (off by default, not folded into any tier) | `src/server/blob/cas_resolver.rs`; the one facade-reachable evidence resolver (contrast the crate-internal `eg-epistemic` `evidence-graph` resolver below, which is not facade-exposed) |
+
 ## Robotics (`eg-core` + `eg-tensor` + `eg-tsdb`)
 
 | Operation | Status | Evidence |
@@ -350,6 +364,34 @@ Databricks-LTAP-interoperable: external lakehouse engines read the engine's own 
 | Iceberg-REST catalog + Iceberg snapshot metadata (Trino / Spark catalog resolution) | ✅ | CONCEPT:EG-KG.storage.lsn-as-snapshot-returns |
 | Real Iceberg v2 **Avro** manifest + manifest-list writer (Spark/Trino/DuckDB read the tables) | ✅ | CONCEPT:EG-KG.storage.eg-iceberg-avro-manifest/EG-KG.storage.iceberg-manifest-list; `crates/eg-lake/src/iceberg_avro.rs`, `lake` feature (pure-Rust `apache-avro`); per-column stats (`value_counts`/`null_value_counts`/`lower_bounds`/`upper_bounds` by field-id) for predicate pushdown / file skipping (EG-KG.storage.iceberg-avro-manifest-carries); partition `field_summary` null by design (unpartitioned spec) |
 | LSN-style as-of / time-travel snapshots (reusing versioned snapshots + `Op::AsOf`) | ✅ | a lake snapshot pins an exact engine LSN (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns) |
+| OpenLineage `RunEvent` emission (job/run/input-dataset/output-dataset + schema/datasource/output-statistics facets + an engine-specific LSN/Iceberg-snapshot custom facet) on every materialize/compact/delete run; optional HTTP push | ✅ | CONCEPT:EG-317/INT-P2-3; `src/server/lake/lineage.rs`; push target `EPISTEMIC_GRAPH_OPENLINEAGE_URL`, unset ⇒ silent no-op (never blocks/fails the run) |
+
+## Distributed placement & analytics jobs (Phase 2 — `cluster`/`raft` + opt-in `jobs`)
+
+| Operation | Status | Feature | Evidence |
+|-----------|:------:|---------|----------|
+| `PlacementCatalog` — epoch'd placement authority (online split/merge/move via prepare-then-fenced-cutover; a stale-epoch caller is redirected, never served stale) | ✅ | `raft`/`cluster` | `src/raft/placement.rs` (CONCEPT:DIST-P2-1/EG-KG.sharding.placement-catalog); takes priority over the hash-ring router for any graph with an explicit placement entry |
+| Multi-group production startup (`EPISTEMIC_GRAPH_RAFT_GROUPS`, default 1 ⇒ unchanged single-group path) + cross-shard read fan-out merging results across every group a query's graphs resolve to | ✅ | `raft`/`cluster` | `src/raft/xread.rs`/`node.rs` (CONCEPT:DIST-P2-2); proven by a live harness (`xread_harness.rs`/`xshard_harness.rs`/`placement_harness.rs`) |
+| Lazy graph lifecycle: catalog-only boot scan (`EPISTEMIC_GRAPH_LAZY_STARTUP`) + a bounded resident-graph cache (`EPISTEMIC_GRAPH_MAX_RESIDENT_GRAPHS`, default 0 = unbounded) evicting the coldest graph via the existing cold-offload hibernate path | ✅ | `redb` (opt-in via env, default off/unbounded) | `src/server/persistence/{read_through,cold_offload}.rs` (CONCEPT:DIST-P2-3/EG-KG.sharding.lazy-graph-catalog) |
+| Durable analytics-job plane: `Method::AnalyticsJob` async submit/status/cancel/resume over a redb-backed state machine, with an immutable input-snapshot handle (graph + pinned OCC version) and a `:Claim`/`:Evidence` result-commit path | ✅ | `jobs` (off by default, not folded into any tier) | `eg-jobs`, `src/server/handlers/jobs.rs` (CONCEPT:INT-P2-1) |
+| Arrow dataset-handle seam for external heavy compute (hand off a `KnowledgeBatch` via Arrow IPC without row-by-row wire re-serialization) | ✅ | `jobs`/`knowledge-batch` | CONCEPT:INT-P2-2 |
+
+## Epistemic reasoning (`eg-epistemic` — features `epistemic`/`epistemic-tms`/`epistemic-redaction`; see also 2.16.0's epistemic substrate)
+
+All rows below are opt-in cargo features layered on top of the default `full` build; none is on by
+default. A `full`/`pi` build without these features links no `eg-epistemic` behavior beyond the base
+crate.
+
+| Operation | Status | Feature | Evidence |
+|-----------|:------:|---------|----------|
+| Claim/Evidence/Source/BeliefState + cycle-guarded confidence propagation (Bayesian conjugate update), `EVIDENCE FOR`/`CONTRADICTS`/`SUPPORTED BY`/`BELIEF AS OF`/`SOURCE RELIABILITY`/`CONFIDENCE` UQL ops | ✅ | `epistemic` | 2.16.0 epistemic substrate; `eg-epistemic`, `eg-plan/epistemic` |
+| Paraconsistent truth-maintenance + Dung argumentation (grounded/preferred/stable extensions, dependency-directed retraction) | ✅ | `epistemic-tms` | 2.16.0; `eg-epistemic::tms` |
+| Live truth-maintenance recompute + server-side CDC hook: a committed `RemoveNode`/`RemoveEdge`/`CompareAndSetNodeFields` automatically marks every transitively-dependent materialization `Stale`; `recompute` re-derives it to `Fresh`/`Retracted` | ✅ | `epistemic-tms` | CONCEPT:X-6/EPI-P3-2; `eg-epistemic::recompute`, `src/server/tms_hook.rs`. **Deliberately narrow**: `AddNode` is not mapped (no pre-image capture in this seam); `PolicyChanged`/`ModelRetired`/`OntologyEvolved` aren't on any wire `Method` yet — both open follow-ups |
+| Bitemporal why/why-not/what-changed + the `epistemic_status` capstone (`Method::EpistemicStatus`/`Method::WhatChanged`) | ✅ | `epistemic-tms` | CONCEPT:EPI-P3-5 |
+| Policy-aware proof redaction: `Method::ExplainBelief`'s `disclosure_level` masks (never silently drops) an evidence node the caller's RLS context can't see, reusing the same `RowVisibility`/`can_see_row` check every other read path enforces | ✅ | `epistemic-redaction` | CONCEPT:EPI-P3-4; `eg-epistemic::redact`, `src/server/handlers/query.rs`. Requesting `disclosure_level` without the feature is an explicit error, never silently ignored |
+| Calibrated causal reasoning — linear-Gaussian SCM with genuine Pearl do-calculus (`observe`/`intervene`/`counterfactual`, each returning a calibrated credible interval) | 🔶 | `eg-epistemic`'s own `epistemic-causal` (crate-level only) | CONCEPT:EPI-P3-3; `eg-epistemic::causal`. **Not passed through the facade `Cargo.toml`** — exercised via `cargo test -p eg-epistemic --features epistemic-causal`, not reachable from any server build or wire `Method` yet |
+| Multimodal evidence-graph spine: `EvidenceSpan` — 11 located-evidence locus kinds (`DocumentSpan`/`TableCellRange`/`ImageRegion`/`PageBox`/`AudioSegment`/`VideoShot`/`VideoFrameRange`/`MetricWindow`/`RowVersion`/`CodeSymbol`/`TraceSpan`) | ✅ | `epistemic` (type reachable via `dep:eg-modality`) | CONCEPT:EG-X1; `eg-modality::evidence` |
+| Evidence citation resolver (`evidence_citations`/`resolve_locus`/`justification_citations`) | 🔶 | `eg-epistemic`'s own `evidence-graph` (crate-level only) | CONCEPT:EG-X1. **Not passed through the facade `Cargo.toml`** either — the facade-reachable resolver for the same `EvidenceSpan` shape is the `alignment` feature's `CasEvidenceResolver` (see "Document & media modalities" above), a parallel, blob-CAS-backed implementation |
 
 ## Request scheduling & QoS
 
@@ -393,38 +435,54 @@ The Analytics-Program kernel: one BLAS/LAPACK-free Rust kernel, two surfaces
 
 See the [parity roadmap](roadmap.md) for the order in which the 🔶 / 🗺 items are being closed.
 
-## Known limitations (in progress: EG-P0-2/P0-4/P0-6)
+## Known limitations (updated for the 2.20.0 EG-P0-2 gateway closeout)
 
 The EG-P0-1 capability ledger (`docs/capabilities.generated.md`) and its consistency test
 (`crates/eg-capabilities/tests/consistency.rs`) are the authoritative source for exactly what is and
 isn't closed at the per-`Method` level; this section restates the open items here too so this
 hand-maintained page doesn't silently read as more complete than it is:
 
-- **WAL-durability gaps.** EG-P0-3 closed 5 of the 23 write-classified-but-not-WAL-logged methods the
-  ledger flags (`AddEmbedding`, `MineSequence`, `MineForecast`, `MineText` for `lda`/`nmf`,
-  `MineSubgraph` for `gspan` — see [mining.md](mining.md)). **18 remain open** per the ledger today
-  (e.g. `ApplyMutation`, `ApplyLedger`/`ClearLedger`, `Reconcile`, `RunDatalogReasoning`,
-  `CompactNodesByType`, and the write-conditional `Sql`/`CypherQuery`/`GraphQl` paths) — a crash
-  between checkpoints can still silently lose those. **Not solved by Wave 1**; do not read the
-  matrix above as implying otherwise.
+- **Single commit gateway — CLOSED (EG-P0-2, 2.20.0).** Every mutating `Method` now either routes
+  through the one `MutationPlan`/`commit_mutation` gateway (`src/server/mutation.rs::GATEWAY_ROUTED`,
+  ~80 methods: plain graph-core CRUD, the broker/stream family, the runtime-conditional
+  `Mine*`/`GraphLearn*` family, and — as of the L11 batch-4 close-out — `Sql`/`CypherQuery`/`GraphQl`
+  and the RDF write methods) or is triaged into a documented `JUSTIFIED_NA` bucket (registry-lifecycle
+  op, cross-shard/cluster admin action, process-global registry, OCC txn self-routing, a separate
+  durability domain). `OPEN_NOT_JUSTIFIED` — the "routable but not yet wired, no excuse" bucket — is a
+  machine-checked-empty const today (`gateway_routed_set_matches_mutating_policy_surface`). This is
+  a LIVE, separate check from the ledger below; the ledger's own per-method notes (e.g. "NOT present
+  in access.rs's write classifier") predate this triage and haven't been updated to point at it, so
+  reading the ledger alone still looks like more open work remains here than actually does.
+- **WAL-durability gaps — down to 9 (was 18).** EG-P0-3 (2.19.0) closed 5 of the original 23
+  write-classified-but-not-WAL-logged methods (`AddEmbedding`, `MineSequence`, `MineForecast`,
+  `MineText` for `lda`/`nmf`, `MineSubgraph` for `gspan` — see [mining.md](mining.md)); the RunRules
+  policy correction (below) removed one more from the mutating surface entirely. **9 remain open**
+  per the ledger today: `FromMsgpack`, `ClearLedger`, `ApplyLedger`, `CompactNodesByType`,
+  `RunDatalogReasoning`, `Reconcile`, `ApplyMutation`, `ApplyMultisigMutation`, `IcvConfigure` — each
+  is individually documented as recomputable, bulk-restore-only, or a CRDT merge (not a silent
+  data-loss risk in the way an ordinary write would be), but a crash between checkpoints can still
+  lose the *incremental* record for these specifically. Not fully solved yet.
+- **`RunRules` policy corrected, not routed.** A prior conservative `mutates: true` guess was wrong —
+  `handle_run_rules` reasons over an off-lock snapshot and returns inferred triples with no
+  writeback (unlike its sibling `RunDatalogReasoning`, which does materialize in-place). The ledger
+  now agrees with `access.rs` (never a write there); the fix was correcting the policy, not adding a
+  route.
 - **Runtime-conditional classification (EG-P0-2).** 22 methods (the `Mine*`/`GraphLearn*` family plus
   `Sql`/`CypherQuery`/`GraphQl`) only know whether they mutate/durably-log at **request time** (a
   `writeback` flag, or a parsed query) — the ledger's static `mutates: true` for these is a
-  conservative upper bound, not an equality. Open.
-- **Access-classifier coverage gaps.** 61 methods (channel/trigger/continuous-query/catalog/identity/
-  RBAC/matview/foreign-source/UDF-registration/blob/`Txn*` ops) are absent from `access.rs`'s write
-  classifier entirely. Some are legitimately governed by a different mechanism already (the `Txn*`
-  family self-routes and is gated once at `BeginTxn`; KV/blob/series ops are namespace-scoped and
-  self-route too); the rest are a genuinely open, unassigned triage item. Open, unassigned.
+  conservative upper bound, not an equality. This is now exercised live (not just documented) by
+  `mutation::tests::mining_family_writeback_gates_durability_and_authz`.
+- **Access-classifier coverage gaps.** The ledger flags ~30 methods as absent from `access.rs`'s write
+  classifier entirely. Most now have a documented `JUSTIFIED_NA` reason via the gateway triage above
+  (the `Txn*` family self-routes and is gated once at `BeginTxn`; KV/blob/series ops are
+  namespace-scoped and self-route; channel/RBAC/foreign-source/UDF/matview/cluster-admin ops are
+  process-global or cluster-wide registries governed elsewhere) — this is a real narrowing from the
+  prior "genuinely open, unassigned" framing, though the ledger's own per-method notes haven't been
+  regenerated to say so explicitly.
 - **Time-series is a separate durability domain.** Time-series writes persist to their own
   `series.redb` (`DurabilityDomain::SeriesRedb`), entirely separate from the graph WAL/`graph.redb`
   this page and the ledger otherwise describe — the graph-durability discussion above does not cover
-  the time-series write path.
-- **No single enforcement gateway yet.** The ledger today is a **one-way audit** (does the
-  declarative policy table agree with the existing imperative classifiers?), not yet the thing the
-  handlers consult at request time — `access.rs`/`wal.rs`/`audit.rs`/`cdc.rs` each still carry their
-  own separate logic. Unifying them behind one `policy()`-driven `MutationPlan` gateway is
-  EG-P0-2/EG-P0-6 and has not started.
+  the time-series write path. Unchanged since 2.19.0.
 
-None of the above is new as of this note — it restates what EG-P0-1 already shipped documenting, so
-that it's visible from this page and not only from the generated file.
+None of the above is new work beyond what EG-P0-1/P0-2/P0-3 already shipped — it restates the current,
+reconciled state so it's visible from this hand-maintained page and not only from the generated file.
