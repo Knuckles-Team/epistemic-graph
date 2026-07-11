@@ -255,6 +255,7 @@
 | `UnifiedQueryText` | false | None | `query:unified` | true | false | false | Snapshot |  |
 | `ExplainPlan` | false | None | `explain:read` | true | false | false | Snapshot |  |
 | `ExplainProvenance` | false | None | `explain:read` | true | false | false | Snapshot |  |
+| `ExplainProvenanceByIds` | false | None | `explain:read` | true | false | false | Snapshot | CONCEPT:EG-KB-CURRENCY — ID-seeded sibling of ExplainProvenance, same policy profile |
 | `ExplainPolicy` | false | None | `explain:read` | true | false | false | Snapshot |  |
 | `ExplainBelief` | false | None | `explain:read` | true | false | false | Snapshot |  |
 | `EpistemicStatus` | false | None | `explain:read` | true | false | false | Snapshot | L53 (EPI-P3-5) acceptance capstone; handler additionally gated `epistemic-tms` |

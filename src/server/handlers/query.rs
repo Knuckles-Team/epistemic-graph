@@ -397,6 +397,35 @@ pub(crate) async fn try_handle(
             };
             Ok(resp)
         }
+        // CONCEPT:EG-KB-CURRENCY — ID-seeded sibling of `ExplainProvenance`: same
+        // per-row epistemic wire shape, no `Op` plan needed.
+        #[cfg(feature = "query")]
+        Method::ExplainProvenanceByIds { ids } => {
+            let snap = explain_snapshot(
+                &core,
+                #[cfg(feature = "security")]
+                caller,
+                #[cfg(feature = "security")]
+                rls,
+            );
+            let core_for_ctx = core.clone();
+            let resp = match compute_off_lock(req_id, move || {
+                let semantic = core_for_ctx.semantic_store.read();
+                explain_provenance_by_ids(ids, &snap, &semantic)
+            })
+            .await
+            {
+                Ok(Ok(result)) => {
+                    let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
+                    Response::ok(req_id, ResultPayload::Raw(bytes))
+                }
+                Ok(Err(msg)) => {
+                    Response::err(req_id, format!("ExplainProvenanceByIds error: {msg}"))
+                }
+                Err(resp) => resp,
+            };
+            Ok(resp)
+        }
         #[cfg(feature = "query")]
         Method::ExplainPolicy { plan } => {
             // BOTH the unfiltered snapshot and the caller's RLS-filtered one, so the
@@ -1399,12 +1428,48 @@ fn explain_provenance(
     view: &crate::graph::GraphView,
     semantic: &eg_core::compute::semantic::SemanticStore,
 ) -> Result<crate::protocol::ExplainProvenanceResult, String> {
-    use crate::protocol::{ExplainProvenanceResult, ExplainProvenanceRowWire};
     use eg_plan::PlanCtx;
 
     let ctx = PlanCtx::new(view, semantic);
     let rs = eg_plan::execute(&plan, &ctx)?;
     let ks = eg_plan::KnowledgeSet::from_rowset(&rs, view, &[]);
+    Ok(explain_provenance_result(&ks, &ctx))
+}
+
+/// `EXPLAIN PROVENANCE BY IDS` (CONCEPT:EG-KB-CURRENCY) — the ID-seeded sibling of
+/// [`explain_provenance`]: builds the `KnowledgeSet` straight from an explicit id list
+/// (`RowSet::from_ids`, deduplicated/first-occurrence, unranked — no `Op` plan/executor
+/// involved) instead of running a `Plan`, then resolves the IDENTICAL per-row epistemic
+/// columns via [`explain_provenance_result`]. The seam a caller with ids from ANY other
+/// read path (Cypher, SQL, a prior `UnifiedQuery`) uses to fetch calibrated/cited/
+/// time-versioned rows for exactly those ids.
+#[cfg(feature = "query")]
+fn explain_provenance_by_ids(
+    ids: Vec<String>,
+    view: &crate::graph::GraphView,
+    semantic: &eg_core::compute::semantic::SemanticStore,
+) -> Result<crate::protocol::ExplainProvenanceResult, String> {
+    use eg_plan::PlanCtx;
+
+    let ctx = PlanCtx::new(view, semantic);
+    let rs = eg_plan::RowSet::from_ids(ids);
+    let ks = eg_plan::KnowledgeSet::from_rowset(&rs, view, &[]);
+    Ok(explain_provenance_result(&ks, &ctx))
+}
+
+/// Shared row-resolution core of [`explain_provenance`]/[`explain_provenance_by_ids`]
+/// (CONCEPT:EG-KB-CURRENCY): map an already-built `KnowledgeSet`'s rows onto the wire
+/// shape, widened beyond id/kind/source_refs/evidence_spans to also carry `score`/
+/// `confidence`/`valid_time`/`tx_time`/`policy_labels` — straight field copies off each
+/// `KnowledgeRow` (populated by `KnowledgeSet::from_rowset` regardless of `epistemic`
+/// for score/confidence/valid_time/tx_time; `epistemic`-gated for
+/// source_refs/policy_labels/evidence_spans exactly as before this widening).
+#[cfg(feature = "query")]
+fn explain_provenance_result(
+    ks: &eg_plan::KnowledgeSet,
+    ctx: &eg_plan::PlanCtx<'_>,
+) -> crate::protocol::ExplainProvenanceResult {
+    use crate::protocol::{ExplainProvenanceResult, ExplainProvenanceRowWire};
 
     #[cfg(feature = "epistemic")]
     let rows: Vec<ExplainProvenanceRowWire> = ks
@@ -1416,7 +1481,7 @@ fn explain_provenance(
             let evidence_plan = eg_plan::Plan::new(vec![eg_plan::Op::EvidenceFor {
                 claim_id: row.id.clone(),
             }]);
-            let source_refs = eg_plan::execute(&evidence_plan, &ctx)
+            let source_refs = eg_plan::execute(&evidence_plan, ctx)
                 .map(|r| r.ids())
                 .unwrap_or_default();
             // X1: the row's own located evidence, already resolved by
@@ -1425,7 +1490,12 @@ fn explain_provenance(
             ExplainProvenanceRowWire {
                 id: row.id.clone(),
                 kind: row.kind.clone(),
+                score: row.score,
+                confidence: row.confidence,
+                valid_time: row.valid_time,
+                tx_time: row.tx_time,
                 source_refs,
+                policy_labels: row.policy_labels.clone(),
                 evidence_spans,
             }
         })
@@ -1437,15 +1507,20 @@ fn explain_provenance(
         .map(|row| ExplainProvenanceRowWire {
             id: row.id.clone(),
             kind: row.kind.clone(),
+            score: row.score,
+            confidence: row.confidence,
+            valid_time: row.valid_time,
+            tx_time: row.tx_time,
             source_refs: Vec::new(),
+            policy_labels: Vec::new(),
             evidence_spans: Vec::new(),
         })
         .collect();
 
-    Ok(ExplainProvenanceResult {
+    ExplainProvenanceResult {
         rows,
         resolved: cfg!(feature = "epistemic"),
-    })
+    }
 }
 
 /// `EXPLAIN POLICY` — run `plan` against BOTH the unfiltered snapshot and the caller's

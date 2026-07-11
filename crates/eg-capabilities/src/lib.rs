@@ -254,7 +254,7 @@ pub fn policy(m: &Method) -> MethodPolicy {
         Method::CypherQuery { .. } => MethodPolicy { mutates: true, durability_domain: DurabilityDomain::None, authz_action: "query:cypher", idempotent: false, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Atomic },
         Method::GraphQl { .. } => MethodPolicy { mutates: true, durability_domain: DurabilityDomain::None, authz_action: "query:graphql", idempotent: false, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Atomic },
         Method::UnifiedQuery { .. } | Method::UnifiedQueryText { .. } => MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "query:unified", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot },
-        Method::ExplainPlan { .. } | Method::ExplainProvenance { .. } | Method::ExplainPolicy { .. } => MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "explain:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot },
+        Method::ExplainPlan { .. } | Method::ExplainProvenance { .. } | Method::ExplainProvenanceByIds { .. } | Method::ExplainPolicy { .. } => MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "explain:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot },
         Method::ExplainBelief { .. } => MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "explain:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot },
         // L53 (EPI-P3-5 UQL wiring): the acceptance-capstone + temporal-diff read ops.
         // Both read-only, no durability, no audit/CDC — same profile as `ExplainBelief`.
@@ -592,6 +592,7 @@ pub const ALL_METHODS: &[(&str, MethodPolicy, &str)] = &[
         ("UnifiedQueryText", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "query:unified", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, ""),
         ("ExplainPlan", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "explain:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, ""),
         ("ExplainProvenance", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "explain:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, ""),
+        ("ExplainProvenanceByIds", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "explain:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "CONCEPT:EG-KB-CURRENCY — ID-seeded sibling of ExplainProvenance, same policy profile"),
         ("ExplainPolicy", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "explain:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, ""),
         ("ExplainBelief", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "explain:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, ""),
         ("EpistemicStatus", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "explain:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "L53 (EPI-P3-5) acceptance capstone; handler additionally gated `epistemic-tms`"),
@@ -764,7 +765,8 @@ mod smoke_tests {
         // `Method::WhatChanged`.
         // CONCEPT:EG-X1 + EPI-P3-3 (facade wiring): +3 (340 -> 343 base) for
         // `Method::ExplainEvidence`/`Method::CausalEstimate`/`Method::RankByProvenance`.
-        let expected = if cfg!(feature = "jobs") { 344 } else { 343 };
+        // CONCEPT:EG-KB-CURRENCY: +1 (343 -> 344 base) for `Method::ExplainProvenanceByIds`.
+        let expected = if cfg!(feature = "jobs") { 345 } else { 344 };
         assert_eq!(seen.len(), expected, "expected exactly {expected} Method variants");
     }
 

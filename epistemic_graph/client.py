@@ -3111,11 +3111,24 @@ class QueryClient:
     async def explain_provenance(self, plan: list[dict[str, Any]]) -> dict[str, Any]:
         """``EXPLAIN PROVENANCE`` — run ``plan`` (the SAME plan :meth:`unified` takes)
         and, for each result row, resolve its EVIDENCE-FOR provenance over the row's
-        ``KnowledgeSet`` (E3) shape. Returns ``{"rows": [{"id", "kind", "source_refs",
+        ``KnowledgeSet`` (E3) shape. Returns ``{"rows": [{"id", "kind", "score",
+        "confidence", "valid_time", "tx_time", "source_refs", "policy_labels",
         "evidence_spans"}, ...], "resolved": bool}`` — ``resolved`` is ``False`` (every
-        row's provenance empty) when the server was built without the ``epistemic``
-        feature. Requires a ``query`` server."""
+        row's ``source_refs``/``policy_labels``/``evidence_spans`` empty) when the
+        server was built without the ``epistemic`` feature; ``score``/``confidence``/
+        ``valid_time``/``tx_time`` are populated regardless (CONCEPT:EG-KB-CURRENCY).
+        Requires a ``query`` server."""
         return await self._client._send("ExplainProvenance", {"plan": {"ops": plan}})
+
+    async def explain_provenance_by_ids(self, ids: list[str]) -> dict[str, Any]:
+        """``EXPLAIN PROVENANCE BY IDS`` (CONCEPT:EG-KB-CURRENCY) — the ID-seeded sibling
+        of :meth:`explain_provenance`: resolve the SAME per-row epistemic columns
+        directly for ``ids``, with no ``Op`` plan needed. This is the seam a caller
+        with ids from ANY other read path (a Cypher ``MATCH``, a SQL ``SELECT``, a
+        prior :meth:`unified`) uses to "currency-upgrade" a plain id list into
+        calibrated, cited, time-versioned rows. Returns the IDENTICAL shape
+        :meth:`explain_provenance` does. Requires a ``query`` server."""
+        return await self._client._send("ExplainProvenanceByIds", {"ids": ids})
 
     async def explain_policy(self, plan: list[dict[str, Any]]) -> dict[str, Any]:
         """``EXPLAIN POLICY`` (CONCEPT:EG-KG.sharding.row-level-security) — run ``plan``
