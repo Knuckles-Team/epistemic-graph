@@ -2156,6 +2156,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "eg-capabilities"
+version = "0.1.0"
+dependencies = [
+ "eg-types",
+]
+
+[[package]]
 name = "eg-compute"
 version = "0.27.0"
 dependencies = [
