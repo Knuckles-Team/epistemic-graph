@@ -223,10 +223,11 @@ epistemic = [
 # `eg-epistemic`'s own `epistemic-redaction` feature (which pulls `eg-core/security`
 # for the SAME `IsolationLayer`/`RowVisibility` every other RLS-aware read path
 # already links) and requires `epistemic` + `security` so the handler's
-# `caller`/`rls` context is always present alongside it. Added as a feature (NOT
-# folded into the `full` tier line here, mirroring the `epistemic` feature's own
-# tier-wiring convention above — avoids a tier-line merge conflict); `--all-features`
-# still enables it.
+# `caller`/`rls` context is always present alongside it. WS-1b: folded into the `full`
+# tier line (see the WS-1b note above `full`'s definition) — LIGHT (no new dep, no
+# expensive recompute, reuses the always-linked RLS check), unlike the HEAVY
+# `epistemic-tms`/`epistemic-causal` siblings below which stay opt-in.
+# `--all-features` still enables it (redundantly, once `full` already does).
 epistemic-redaction = ["epistemic", "security", "eg-epistemic/epistemic-redaction"]
 # L53 + L46 — the bitemporal/paraconsistent-TMS query family
 # (`why`/`why_not`/`what_changed`/`what_evidence_would_change_this`/`is_believed`/the
@@ -238,8 +239,11 @@ epistemic-redaction = ["epistemic", "security", "eg-epistemic/epistemic-redactio
 # eg-epistemic's `TruthMaintenance` index (`ChangeEvent`/`on_change`). Turns on
 # `eg-epistemic`'s own `epistemic-tms` feature; implies `epistemic` (the wire `Method`
 # variants + facade `eg-epistemic` dep, which also satisfies the write-path hook's bare
-# `eg-epistemic` need). Same tier-wiring posture as `epistemic-redaction` above (NOT
-# folded into `full` here). `--all-features` still enables it.
+# `eg-epistemic` need). HEAVY (paraconsistent Dung argumentation grounded/preferred/
+# stable extension search is NP-hard in the worst case) — deliberately kept OUT of
+# `full` (see the WS-1b note above `full`'s definition; unlike its LIGHT
+# `epistemic-redaction`/`evidence-graph` siblings, which WS-1b folded in). Reachable via
+# an explicit `--features epistemic-tms` build, or `--all-features`.
 epistemic-tms = ["epistemic", "eg-epistemic/epistemic-tms"]
 # X-1 (CONCEPT:EG-X1) — the multimodal-evidence citation resolver wired onto the
 # facade as `Method::ExplainEvidence`: given a claim/evidence node id, walk the
@@ -250,9 +254,10 @@ epistemic-tms = ["epistemic", "eg-epistemic/epistemic-tms"]
 # the source this claim's evidence came from." Turns on `eg-epistemic`'s own
 # `evidence-graph` feature (no new dependency — it reuses the SAME optional
 # `eg-modality` dep `epistemic` already links for `EvidenceSpanWire`); implies
-# `epistemic` (the wire `Method` variant + facade `eg-epistemic` dep). Same
-# tier-wiring posture as `epistemic-redaction`/`epistemic-tms` above (a feature,
-# NOT folded into the `full` tier line); `--all-features` still enables it.
+# `epistemic` (the wire `Method` variant + facade `eg-epistemic` dep). WS-1b: folded
+# into the `full` tier line (see the WS-1b note above `full`'s definition) — LIGHT,
+# same posture as `epistemic-redaction` above. `--all-features` still enables it
+# (redundantly, once `full` already does).
 evidence-graph = ["epistemic", "eg-epistemic/evidence-graph"]
 # EPI-P3-3 — calibrated causal reasoning + provenance-aware retrieval ranking
 # wired onto the facade as `Method::CausalEstimate` (do-calculus intervention
@@ -261,9 +266,10 @@ evidence-graph = ["epistemic", "eg-epistemic/evidence-graph"]
 # evidence quality/provenance, not similarity alone). Turns on `eg-epistemic`'s
 # own `epistemic-causal` feature (pure Rust, no new dependency — see that
 # crate's `Cargo.toml`); implies `epistemic` (the wire `Method` variants +
-# facade `eg-epistemic` dep). Same tier-wiring posture as `epistemic-redaction`/
-# `epistemic-tms`/`evidence-graph` above (a feature, NOT folded into the `full`
-# tier line); `--all-features` still enables it.
+# facade `eg-epistemic` dep). HEAVY (genuine Pearl do-calculus intervention/
+# counterfactual computation) — deliberately kept OUT of `full`, same posture as
+# `epistemic-tms` above (see the WS-1b note above `full`'s definition). Reachable via
+# an explicit `--features epistemic-causal` build, or `--all-features`.
 epistemic-causal = ["epistemic", "eg-epistemic/epistemic-causal"]
 # CONCEPT:EG-321 — the Analytics-Program numeric kernel (eg-numeric: faer + ndarray,
 # BLAS/LAPACK-free). Links the PURE Rust kernel (rlib) for Surface B in-database
@@ -1049,7 +1055,7 @@ compute = ["finance", "ast", "ast-extended", "datascience", "mining", "graphlear
 # a Pi requirement and the Pi build stays minimal — the RLS/audit core is itself
 # pure-Rust and Pi-safe, but is shipped only where `security` is selected).
 security = ["redb", "dep:chacha20poly1305", "eg-types/security", "eg-core/security"]
-full = ["compute", "server", "query", "cypher", "graphql", "eg-graphql/crossmodal-tsdb", "redb", "ann", "ann-redb", "tsdb", "blob", "kv", "text", "sparql", "sparql-http", "sparql-hash", "rdf-xml", "json-ld", "sparql-star", "sparql-service", "rdf-redb", "shacl", "owl", "owl-dl", "owl-plan", "obda", "streaming", "wasm-udf", "security", "federation", "federation-sql", "pgwire", "mysql-wire", "mssql-wire", "sqlite-wire", "bolt-wire", "redis-wire", "broker", "amqp-wire", "mqtt-wire", "stomp-wire", "geo", "tensor", "stream", "result-cache", "cold-tier", "cost", "cost-opt", "otel", "otel-export", "shex", "obs", "geosparql", "nl-query", "promql", "traces", "s3-api", "federation-search", "kvcache-server", "kvcache-compression", "numeric", "sqlite-file", "epistemic"]
+full = ["compute", "server", "query", "cypher", "graphql", "eg-graphql/crossmodal-tsdb", "redb", "ann", "ann-redb", "tsdb", "blob", "kv", "text", "sparql", "sparql-http", "sparql-hash", "rdf-xml", "json-ld", "sparql-star", "sparql-service", "rdf-redb", "shacl", "owl", "owl-dl", "owl-plan", "obda", "streaming", "wasm-udf", "security", "federation", "federation-sql", "pgwire", "mysql-wire", "mssql-wire", "sqlite-wire", "bolt-wire", "redis-wire", "broker", "amqp-wire", "mqtt-wire", "stomp-wire", "geo", "tensor", "stream", "result-cache", "cold-tier", "cost", "cost-opt", "otel", "otel-export", "shex", "obs", "geosparql", "nl-query", "promql", "traces", "s3-api", "federation-search", "kvcache-server", "kvcache-compression", "numeric", "sqlite-file", "epistemic", "epistemic-redaction", "evidence-graph"]
 all = ["full"]
 # D4 (CONCEPT:EG-KG.epistemic.epistemic-substrate): `epistemic` (the eg-epistemic
 # claims/evidence/belief-state layer, E6/E2/D3/D5) is folded into `full` above so a
@@ -1063,6 +1069,19 @@ all = ["full"]
 # capability-discovery/testing seam selected per-crate directly (`cargo test -p
 # eg-epistemic --features contract`), never part of the served product surface — `cargo
 # tree --features full | grep -i contract` links no `contract`-gated code.
+#
+# WS-1b (2026-07-12): `epistemic-redaction` (policy-aware proof redaction / selective
+# disclosure, reusing the SAME `IsolationLayer`/`RowVisibility` check every other RLS
+# read path already enforces — no new enforcement point) and `evidence-graph` (the
+# multimodal evidence citation resolver, `Method::ExplainEvidence`) are LIGHT: neither
+# pulls a new heavy dependency (both ride deps `epistemic`/`security` already link) nor
+# runs any expensive recompute — so both are folded into `full` above, closing the
+# "built but opt-in" gap for these two surfaces. `epistemic-tms` (paraconsistent
+# truth-maintenance + Dung argumentation, NP-hard-in-the-worst-case preferred/stable
+# extension search) and `epistemic-causal` (genuine Pearl do-calculus) are the HEAVY
+# epistemic features — deliberately NOT folded in here; they stay reachable only via an
+# explicit `--features epistemic-tms` / `--features epistemic-causal` build so a default
+# `full` build never pays for or runs their recompute paths.
 
 
 # ── Opt-in build layers ON TOP of the ONE main build (CONCEPT:EG-371) ──
