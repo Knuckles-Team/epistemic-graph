@@ -426,6 +426,18 @@ fn walk_hops(
                 if let Some(v) = &node.var {
                     nb.insert(v.clone(), t.clone());
                 }
+                // Bind a named edge variable (`-[r]->`) on the READ path too — not just
+                // write's DELETE-only enrichment — so `RETURN type(r)` (CONCEPT:EG-KG.query.rel-type-projection)
+                // can resolve it. Only meaningful for a single fixed hop (var-length/group
+                // hops match a whole reachable SET, not one edge).
+                if let (Some(evar), None, None) = (&edge.var, edge.var_len, &edge.group) {
+                    let (src, tgt) = match edge.direction {
+                        Direction::Right => (cur.clone(), t.clone()),
+                        Direction::Left => (t.clone(), cur.clone()),
+                        Direction::Both => resolve_undirected_endpoints(view, cur, &t),
+                    };
+                    nb.insert(edge_key(evar), format!("{src}\u{0}{tgt}"));
+                }
                 next.push((nb, t));
             }
         }
@@ -659,6 +671,28 @@ fn rel_matches(view: &GraphView, from: &str, to: &str, rel: Option<&str>) -> boo
         }
     }
     false
+}
+
+/// The stored edge `(from→to)`'s relationship type — the value `type(r)`
+/// (CONCEPT:EG-KG.query.rel-type-projection) projects, and the SAME `relationship`/`type`/`rel_type`
+/// key precedence [`rel_matches`] reads, so `type(r)` is never null for an edge a
+/// typed pattern could have matched. `None` if the edge carries no relationship
+/// name under any of the three keys.
+fn edge_rel_type(view: &GraphView, from: &str, to: &str) -> Option<String> {
+    let props_list = view.edge_properties.get(&(from.to_string(), to.to_string()))?;
+    for blob in props_list {
+        if let Ok(Value::Object(m)) = rmp_serde::from_slice::<Value>(blob) {
+            let stored = m
+                .get("relationship")
+                .or_else(|| m.get("type"))
+                .or_else(|| m.get("rel_type"))
+                .and_then(|v| v.as_str());
+            if let Some(s) = stored {
+                return Some(s.to_string());
+            }
+        }
+    }
+    None
 }
 
 // ── path / WITH plumbing (CONCEPT:EG-KG.query.eg-extend-read-side / EG-063) ───────────────────────────
@@ -939,6 +973,12 @@ fn eval_scalar(view: &GraphView, binding: &Binding, expr: &Expr) -> Value {
         Expr::Prop(v, p) => binding
             .get(v)
             .and_then(|id| node_prop(view, id, p))
+            .unwrap_or(Value::Null),
+        Expr::RelType(v) => binding
+            .get(&edge_key(v))
+            .and_then(|edge| edge.split_once('\u{0}'))
+            .and_then(|(from, to)| edge_rel_type(view, from, to))
+            .map(Value::String)
             .unwrap_or(Value::Null),
         // Aggregates never reach here (the agg path owns them).
         Expr::CountStar | Expr::Aggregate(..) => Value::Null,
@@ -1825,6 +1865,34 @@ mod tests {
         let second = cells_of(&qr, 1);
         assert_eq!(second[0].as_str(), Some("b-mcp"));
         assert_eq!(second[1].as_i64(), Some(1));
+    }
+
+    /// Regression F3(a): `RETURN type(r)` over a bound edge variable must project
+    /// the edge's relationship name (rel_type-keyed, AU convention) instead of
+    /// `null` — the previous behavior when the edge variable was bound (write path
+    /// only) but no `type(...)` accessor existed to read it back on a plain read
+    /// query. Also proves the READ path now binds the edge variable at all
+    /// (previously only the write/DELETE path did).
+    #[test]
+    fn type_function_projects_rel_type_keyed_edge() {
+        let v = rel_type_fixture();
+        let qr = exec_cypher(
+            &v,
+            "MATCH (s:Server {name:'a-mcp'})-[r]->(res:CallableResource) \
+             RETURN type(r), res.name ORDER BY res.name",
+        )
+        .unwrap();
+        assert_eq!(qr.rows.len(), 2, "expected both of a-mcp's outbound edges");
+        for i in 0..2 {
+            let row = cells_of(&qr, i);
+            assert_eq!(
+                row[0].as_str(),
+                Some("PROVIDES"),
+                "type(r) must project the rel_type-keyed relationship name, not null"
+            );
+        }
+        assert_eq!(cells_of(&qr, 0)[1].as_str(), Some("res:a1"));
+        assert_eq!(cells_of(&qr, 1)[1].as_str(), Some("res:a2"));
     }
 
     #[test]

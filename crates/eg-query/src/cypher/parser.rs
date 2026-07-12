@@ -711,7 +711,8 @@ impl Parser {
         Ok(ReturnItem { expr, alias })
     }
 
-    /// A projection expression: an aggregate (`count(*)`, `sum(a.p)`, …) or a bare
+    /// A projection expression: an aggregate (`count(*)`, `sum(a.p)`, …), the
+    /// `type(r)` relationship-type accessor (CONCEPT:EG-KG.query.rel-type-projection), or a bare
     /// `var` / `var.prop` (CONCEPT:EG-KG.query.eg-extend-read-side).
     fn parse_proj_expr(&mut self) -> Result<Expr, String> {
         // Aggregate: an agg-func ident immediately followed by `(`.
@@ -729,6 +730,14 @@ impl Parser {
                     let arg = self.parse_agg_arg()?;
                     self.expect(&Tok::RParen)?;
                     return Ok(Expr::Aggregate(func, arg));
+                }
+                // `type(r)` — the relationship-type accessor over an edge variable.
+                if name.eq_ignore_ascii_case("type") {
+                    self.next(); // `type`
+                    self.expect(&Tok::LParen)?;
+                    let var = self.ident()?;
+                    self.expect(&Tok::RParen)?;
+                    return Ok(Expr::RelType(var));
                 }
             }
         }

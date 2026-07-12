@@ -197,6 +197,12 @@ pub enum Method {
     /// `GetNodes` (which materializes the WHOLE graph), this bounds the wire
     /// payload to `limit`, so a `MATCH (n:Label) … LIMIT k` no longer pulls every
     /// node's properties off the engine. (CONCEPT:EG-KG.txn.per-graph-write-isolation)
+    ///
+    /// An empty `label` (CONCEPT:EG-KG.query.unlabeled-scan-limit-pushdown) means "no label filter" — a bounded scan
+    /// of the whole node store, still honouring `limit`. Use this for an
+    /// unlabeled `MATCH (n) … LIMIT k`: it stays bounded instead of falling back
+    /// to `GetNodes`, which trips the `RESULT_TOO_LARGE` overload guard even when
+    /// the caller only wanted `k` rows.
     GetNodesByLabel {
         label: String,
         limit: usize,

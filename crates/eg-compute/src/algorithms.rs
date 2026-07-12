@@ -303,58 +303,61 @@ pub fn betweenness_centrality(core: &GraphView) -> Vec<(String, f64)> {
         .collect()
 }
 
-/// PageRank via power iteration method.
+/// PageRank via power iteration (CONCEPT:EG-KG.compute.pagerank-sparse-csr).
+///
+/// Delegates to the sparse, CSR-adjacency-list, memory-bounded implementation in
+/// [`crate::graph_algos::pagerank`] (the same engine `CALL gds.pageRank` in
+/// Cypher already uses) instead of maintaining a second, independently-written
+/// implementation directly over the live petgraph structure.
+///
+/// **Why this changed.** The prior version allocated a fresh
+/// `HashMap<NodeIndex, f64>` of size `n` on EVERY iteration (`new_scores`) and
+/// resolved each node's in/out edges via per-node `edges_directed` lookups. On a
+/// large graph (~139k nodes) that per-iteration HashMap churn — hashing +
+/// rehashing + heap allocation, repeated `iterations` times, never reused — OOM-
+/// killed the engine on an unbounded whole-graph PageRank call. The sparse path
+/// here builds ONE flat CSR-style adjacency (`Vec<Vec<(usize, f64)>>`, via
+/// [`crate::graph_algos::graph::AdjacencyGraph`]) once, up front, and reuses TWO
+/// `Vec<f64>` score buffers across every iteration (swapped, never reallocated) —
+/// `O(V+E)` working memory, bounded regardless of `iterations`, with no per-
+/// iteration allocation at all. It also converges early once the L1 tolerance is
+/// reached, rather than always spending the full iteration budget.
+///
+/// **Correctness parity, one intentional improvement.** The computation itself —
+/// distributing each node's rank across its out-edges, weighted by damping, plus
+/// a uniform teleport term — is the SAME power iteration the prior
+/// implementation ran (pull-from-incoming vs. push-to-outgoing are the same
+/// arithmetic, just iterated from opposite ends: see
+/// `pagerank_matches_prior_dense_implementation_on_a_small_graph` for the
+/// differential proof on a small graph with no dangling nodes). Every node
+/// (including one with zero edges) is still scored: `node_indices()` seeds the
+/// adjacency with an explicit empty out-list rather than only registering nodes
+/// that appear in an edge. Unlike the prior version, a dangling node (no
+/// out-edges) now redistributes its rank uniformly instead of leaking it, so
+/// total rank mass is properly conserved at 1.0 — the prior implementation did
+/// not conserve mass on a graph with dangling nodes, which is a correctness
+/// improvement, not a behavior this delegation is obligated to reproduce.
 pub fn pagerank(core: &GraphView, damping: f64, iterations: usize) -> Vec<(String, f64)> {
-    let nodes: Vec<NodeIndex> = core.graph.node_indices().collect();
-    let n = nodes.len();
-    if n == 0 {
-        return Vec::new();
-    }
-
-    let initial = 1.0 / n as f64;
-    let mut scores: HashMap<NodeIndex, f64> = HashMap::new();
-    for &node in &nodes {
-        scores.insert(node, initial);
-    }
-
-    // Pre-compute out-degree for each node
-    let mut out_degree: HashMap<NodeIndex, usize> = HashMap::new();
-    for &node in &nodes {
-        out_degree.insert(
-            node,
-            core.graph
-                .edges_directed(node, petgraph::Direction::Outgoing)
-                .count(),
-        );
-    }
-
-    for _ in 0..iterations {
-        let mut new_scores: HashMap<NodeIndex, f64> = HashMap::new();
-        let teleport = (1.0 - damping) / n as f64;
-
-        for &node in &nodes {
-            let mut rank_sum = 0.0;
-            // Sum contributions from all predecessors
-            for edge in core
+    let adjacency: Vec<(String, Vec<(String, f64)>)> = core
+        .graph
+        .node_indices()
+        .map(|idx| {
+            let id = core.graph[idx].clone();
+            let out_neighbors: Vec<(String, f64)> = core
                 .graph
-                .edges_directed(node, petgraph::Direction::Incoming)
-            {
-                let src = edge.source();
-                let src_out = *out_degree.get(&src).unwrap_or(&1);
-                if src_out > 0 {
-                    rank_sum += scores[&src] / src_out as f64;
-                }
-            }
-            new_scores.insert(node, teleport + damping * rank_sum);
-        }
-
-        scores = new_scores;
-    }
-
-    scores
-        .into_iter()
-        .map(|(idx, score)| (core.graph[idx].clone(), score))
-        .collect()
+                .edges_directed(idx, petgraph::Direction::Outgoing)
+                .map(|e| (core.graph[e.target()].clone(), 1.0))
+                .collect();
+            (id, out_neighbors)
+        })
+        .collect();
+    let adj = crate::graph_algos::graph::AdjacencyGraph::from_adjacency(adjacency);
+    let config = crate::graph_algos::pagerank::PageRankConfig {
+        damping,
+        tolerance: 1e-10,
+        max_iterations: iterations.max(1),
+    };
+    crate::graph_algos::pagerank::pagerank(&adj, &config).scores
 }
 
 // ── Component / Community Algorithms ─────────────────────────────────────
@@ -1808,5 +1811,158 @@ mod resolve_candidates_tests {
         g.add_node("only".into(), pe(&[1.0, 0.0], "Concept"));
         let snap = g.analysis_snapshot();
         assert!(resolve_candidates(&snap, 0.8, 0.95, None).is_empty());
+    }
+}
+
+/// Engine follow-up B (CONCEPT:EG-KG.compute.pagerank-sparse-csr): proves the new sparse-CSR
+/// `pagerank` (delegating to `graph_algos::pagerank`) is numerically equivalent
+/// to the PRIOR dense, per-iteration-`HashMap` implementation it replaced — not
+/// just "produces *a* score", but the same score, to floating-point tolerance.
+#[cfg(test)]
+mod pagerank_tests {
+    use super::*;
+    use crate::graph::GraphCore;
+
+    fn p() -> Vec<u8> {
+        rmp_serde::to_vec_named(&serde_json::json!({"type": "Doc"})).unwrap()
+    }
+
+    fn build(nodes: &[&str], edges: &[(&str, &str)]) -> GraphView {
+        let g = GraphCore::new();
+        for n in nodes {
+            g.add_node((*n).to_string(), p());
+        }
+        for (s, t) in edges {
+            g.add_edge((*s).to_string(), (*t).to_string(), p()).unwrap();
+        }
+        g.topology_snapshot()
+    }
+
+    /// The EXACT prior implementation (verbatim, kept ONLY here as the oracle for
+    /// this differential test) — HashMap-per-iteration, pull-from-incoming-edges.
+    /// Always runs the full `iterations` count (no early-convergence exit), which
+    /// is why the real `pagerank` under test is driven with a tolerance tight
+    /// enough (`1e-10`) that it won't converge early either, over the fixed
+    /// iteration count used below — an apples-to-apples comparison.
+    fn dense_pagerank_oracle(core: &GraphView, damping: f64, iterations: usize) -> Vec<(String, f64)> {
+        use petgraph::stable_graph::NodeIndex;
+        let nodes: Vec<NodeIndex> = core.graph.node_indices().collect();
+        let n = nodes.len();
+        if n == 0 {
+            return Vec::new();
+        }
+        let initial = 1.0 / n as f64;
+        let mut scores: HashMap<NodeIndex, f64> = HashMap::new();
+        for &node in &nodes {
+            scores.insert(node, initial);
+        }
+        let mut out_degree: HashMap<NodeIndex, usize> = HashMap::new();
+        for &node in &nodes {
+            out_degree.insert(
+                node,
+                core.graph
+                    .edges_directed(node, petgraph::Direction::Outgoing)
+                    .count(),
+            );
+        }
+        for _ in 0..iterations {
+            let mut new_scores: HashMap<NodeIndex, f64> = HashMap::new();
+            let teleport = (1.0 - damping) / n as f64;
+            for &node in &nodes {
+                let mut rank_sum = 0.0;
+                for edge in core
+                    .graph
+                    .edges_directed(node, petgraph::Direction::Incoming)
+                {
+                    let src = edge.source();
+                    let src_out = *out_degree.get(&src).unwrap_or(&1);
+                    if src_out > 0 {
+                        rank_sum += scores[&src] / src_out as f64;
+                    }
+                }
+                new_scores.insert(node, teleport + damping * rank_sum);
+            }
+            scores = new_scores;
+        }
+        scores
+            .into_iter()
+            .map(|(idx, score)| (core.graph[idx].clone(), score))
+            .collect()
+    }
+
+    /// A small graph with NO dangling nodes (every node has ≥1 out-edge — a
+    /// directed cycle plus a chord) so the two implementations' only difference
+    /// (dangling-mass redistribution) never triggers: this isolates the proof to
+    /// "same core power-iteration arithmetic, same answer".
+    fn no_dangling_fixture() -> GraphView {
+        build(
+            &["a", "b", "c", "d"],
+            &[("a", "b"), ("b", "c"), ("c", "d"), ("d", "a"), ("a", "c")],
+        )
+    }
+
+    #[test]
+    fn pagerank_matches_prior_dense_implementation_on_a_small_graph() {
+        let g = no_dangling_fixture();
+        let iterations = 50;
+        let damping = 0.85;
+
+        let oracle = dense_pagerank_oracle(&g, damping, iterations);
+        let sparse = pagerank(&g, damping, iterations);
+
+        let oracle_map: HashMap<&str, f64> =
+            oracle.iter().map(|(k, v)| (k.as_str(), *v)).collect();
+        let sparse_map: HashMap<&str, f64> =
+            sparse.iter().map(|(k, v)| (k.as_str(), *v)).collect();
+
+        assert_eq!(
+            oracle_map.len(),
+            sparse_map.len(),
+            "same node set scored"
+        );
+        for (id, oracle_score) in &oracle_map {
+            let sparse_score = sparse_map
+                .get(id)
+                .unwrap_or_else(|| panic!("sparse pagerank missing node {id}"));
+            assert!(
+                (oracle_score - sparse_score).abs() < 1e-6,
+                "node {id}: oracle={oracle_score} sparse={sparse_score} — must match \
+                 the prior dense implementation to floating-point tolerance"
+            );
+        }
+    }
+
+    /// A node with zero edges (neither source nor target of any edge) must still
+    /// be scored — the sparse rewrite must not silently drop isolated nodes just
+    /// because they never appear in an edge list.
+    #[test]
+    fn pagerank_scores_isolated_nodes() {
+        let g = build(&["a", "b", "isolated"], &[("a", "b")]);
+        let scores = pagerank(&g, 0.85, 20);
+        assert_eq!(scores.len(), 3, "isolated node must still be scored");
+        let map: HashMap<&str, f64> = scores.iter().map(|(k, v)| (k.as_str(), *v)).collect();
+        assert!(map.contains_key("isolated"));
+        assert!(map["isolated"] > 0.0, "isolated node still gets teleport mass");
+    }
+
+    /// Mass conservation on a graph WITH a dangling node (b has no out-edges) —
+    /// the one place the sparse implementation is intentionally MORE correct than
+    /// the prior dense one (which leaked dangling mass instead of redistributing
+    /// it). Total rank must still sum to ~1.0.
+    #[test]
+    fn pagerank_conserves_mass_with_a_dangling_node() {
+        let g = build(&["a", "b"], &[("a", "b")]); // b is dangling (no out-edges)
+        let scores = pagerank(&g, 0.85, 50);
+        let total: f64 = scores.iter().map(|(_, v)| v).sum();
+        assert!(
+            (total - 1.0).abs() < 1e-6,
+            "rank mass must be conserved at 1.0, got {total}"
+        );
+    }
+
+    #[test]
+    fn pagerank_empty_graph_returns_empty() {
+        let g = GraphCore::new().topology_snapshot();
+        assert!(pagerank(&g, 0.85, 20).is_empty());
     }
 }

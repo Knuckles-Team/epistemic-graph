@@ -390,6 +390,134 @@ fn udf_op_without_registry_errs() {
     assert!(err.contains("registry"), "got: {err}");
 }
 
+/// F3(b) regression (CONCEPT:EG-KG.query.rel-type-projection): UQL `TRAVERSE -[:REL]->{m,n}`
+/// (`Op::Traverse`) must reach neighbors whose relationship name is stored under
+/// `rel_type` — the key the agent-utilities `epistemic_graph` backend stamps every
+/// edge with — not just this engine's own `relationship`/`type` CREATE convention.
+/// Before the fix, `eg-plan`'s `rel_matches` (unlike eg-query/cypher's) never read
+/// `rel_type`, so a typed directed traversal over AU-ingested edges silently
+/// returned `[]` even though the edge existed and eg-query/cypher's `<-[r]-`/
+/// `-[r]->` could already see it.
+#[cfg(test)]
+mod rel_type_traverse_tests {
+    use crate::algebra::{Op, Plan};
+    use crate::exec::{PlanCtx, PlanExt};
+    use eg_core::compute::semantic::SemanticStore;
+    use eg_core::graph::GraphCore;
+    use serde_json::json;
+
+    fn blob(v: serde_json::Value) -> Vec<u8> {
+        rmp_serde::to_vec_named(&v).unwrap()
+    }
+
+    #[test]
+    fn traverse_matches_rel_type_keyed_edge() {
+        let core = GraphCore::new();
+        core.add_node("concept:src".into(), blob(json!({"type":"Concept"})));
+        core.add_node("concept:nbr".into(), blob(json!({"type":"Concept"})));
+        // Edge carries the relationship name ONLY under `rel_type` (AU convention),
+        // stored src -> nbr (the direction a forward TRAVERSE from the source expects).
+        core.add_edge(
+            "concept:src".into(),
+            "concept:nbr".into(),
+            blob(json!({"rel_type":"RELATED_TO"})),
+        )
+        .unwrap();
+        let view = core.analysis_snapshot();
+        let sem = SemanticStore::new();
+        let ctx = PlanCtx::new(&view, &sem);
+
+        // Scan seeds both Concept nodes; TRAVERSE from `src` must reach `nbr` via the
+        // rel_type-keyed edge (from `nbr` there is no outgoing edge, so it contributes
+        // nothing) — before the fix this silently returned `[]`.
+        let out = Plan::new(vec![
+            Op::Scan {
+                label: "Concept".into(),
+            },
+            Op::Traverse {
+                rel: "RELATED_TO".into(),
+                min: 1,
+                max: 2,
+            },
+        ])
+        .execute(&ctx)
+        .unwrap();
+
+        assert_eq!(
+            out.ids(),
+            vec!["concept:nbr".to_string()],
+            "TRAVERSE must reach the rel_type-keyed neighbor, not return []"
+        );
+    }
+}
+
+/// F4 regression (CONCEPT:EG-KG.compute.rank-dim-mismatch-guard): an inline `RANK BY ~[…]` query
+/// vector whose dimension doesn't match the store's embedding dimension must be a
+/// clean typed error, not a silently empty (or, pre-fix, silently WRONG — `dot_product`
+/// zips to the shorter slice) result.
+#[cfg(test)]
+mod rank_dim_mismatch_tests {
+    use crate::algebra::{Op, Plan};
+    use crate::exec::{PlanCtx, PlanExt};
+    use eg_core::compute::semantic::SemanticStore;
+    use eg_core::graph::GraphCore;
+    use serde_json::json;
+
+    fn blob(v: serde_json::Value) -> Vec<u8> {
+        rmp_serde::to_vec_named(&v).unwrap()
+    }
+
+    #[test]
+    fn rank_with_mismatched_query_dim_is_typed_error() {
+        let core = GraphCore::new();
+        core.add_node("d1".into(), blob(json!({"type":"Doc"})));
+        let view = core.analysis_snapshot();
+        let mut semantic = SemanticStore::new();
+        // Stored embeddings are 8-dim.
+        semantic.add_embedding("d1".into(), vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8]);
+        let ctx = PlanCtx::new(&view, &semantic);
+
+        // The query vector is 4-dim — a real dimension mismatch.
+        let plan = Plan::new(vec![
+            Op::Scan {
+                label: "Doc".into(),
+            },
+            Op::Rank {
+                query: vec![1.0, 0.0, 0.0, 0.0],
+            },
+        ]);
+        let err = plan
+            .execute(&ctx)
+            .expect_err("a query-vector/store dimension mismatch must be a typed error");
+        assert!(
+            err.contains("dimension mismatch") && err.contains('8') && err.contains('4'),
+            "error must name both dimensions, got: {err}"
+        );
+    }
+
+    /// The matching-dimension case is unaffected: RANK still returns the ranked row.
+    #[test]
+    fn rank_with_matching_query_dim_still_ranks() {
+        let core = GraphCore::new();
+        core.add_node("d1".into(), blob(json!({"type":"Doc"})));
+        let view = core.analysis_snapshot();
+        let mut semantic = SemanticStore::new();
+        semantic.add_embedding("d1".into(), vec![1.0, 0.0, 0.0, 0.0]);
+        let ctx = PlanCtx::new(&view, &semantic);
+
+        let plan = Plan::new(vec![
+            Op::Scan {
+                label: "Doc".into(),
+            },
+            Op::Rank {
+                query: vec![1.0, 0.0, 0.0, 0.0],
+            },
+        ]);
+        let out = plan.execute(&ctx).unwrap();
+        assert_eq!(out.ids(), vec!["d1".to_string()]);
+    }
+}
+
 /// Bi-temporal `AS OF` execution proofs (CONCEPT:AU-KG.compute.kg-2). The planner now filters
 /// the RowSet by validity/transaction windows instead of passing rows through.
 #[cfg(test)]
