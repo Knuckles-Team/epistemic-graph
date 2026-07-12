@@ -36,6 +36,40 @@ build affected.
   level (same build-tier fallback convention as `EpistemicStatus`/`WhatChanged`). Client method
   `QueryClient.resolve_conflict(node_ids, semantics=...)`.
 
+### Changed (WS-1b — 2026-07-12)
+- **`epistemic-redaction` and `evidence-graph` folded into the default `full` build.**
+  Neither pulls a new heavy dependency nor runs expensive recompute (both ride
+  `epistemic`/`security`, already in `full`), so a standard build now serves
+  `Method::ExplainBelief`'s `disclosure_level` (policy-aware proof redaction) and
+  `Method::ExplainEvidence` (multimodal evidence citation resolver) with no extra build
+  flags. `epistemic-tms` (paraconsistent TMS + Dung argumentation — NP-hard-in-the-worst-
+  case extension search) and `epistemic-causal` (genuine Pearl do-calculus) remain
+  deliberately opt-in/HEAVY, reachable via `--features epistemic-tms` /
+  `--features epistemic-causal`.
+- **RLS default-deny flipped to secure-by-default (EG-P0-6).** `EPISTEMIC_GRAPH_RLS_DEFAULT_DENY`
+  now defaults to the STRICT posture when unset — a fresh/greenfield deployment denies an
+  unowned/undecodable/untagged-legacy row unless it explicitly carries `_visibility: "public"`
+  or an `_owner` a rule already grants. Explicitly opt back into the permissive/back-compat
+  posture with `EPISTEMIC_GRAPH_RLS_DEFAULT_DENY=0` (`false`/`no`/`off` also accepted). Per this
+  repo's no-back-compat policy this is a hard default flip, not an additive opt-in — an
+  existing deployment upgrading past this change should either set the opt-out or backfill
+  legacy rows before upgrading. The env resolution logic moved into a pure, unit-tested
+  function (`eg_core::isolation::resolve_rls_default_deny`) instead of living inline in
+  `src/main.rs`.
+- **EG-side OTEL epistemic span attributes.** No span previously wrapped the epistemic query
+  handlers, so `src/server/handlers/query.rs`'s `explain_belief`/`explain_belief_redacted_wire`/
+  `epistemic_status_wire`/`explain_evidence_wire` each now open a
+  `tracing::debug_span!("epistemic.<op>", ...)` (the exact same `debug_span!(...).entered()`
+  idiom `write_coalescer.apply_batch`/`ann_index_build` already use) carrying
+  `epistemic.confidence`, `epistemic.status`, `epistemic.contradiction_count`, and
+  `epistemic.policy_labels` — sourced from the already-computed proof tree/`EpistemicStatus`/
+  redaction result (a new `eg_epistemic::classify_policy_labels` free function, extracted from
+  `contract.rs`'s existing `policy_labels()` logic, derives the label; no new epistemic
+  computation). Additive only: a build without `otel`, or a process with no
+  `EPISTEMIC_GRAPH_OTLP_ENDPOINT` configured, is unaffected — these are ordinary `tracing`
+  spans exported by the SAME OTLP layer `otel.rs` installs, matching the existing
+  `tracing::` idiom exactly).
+
 ---
 
 ## [2.20.0] - 2026-07-11 — Universal Modality, Distributed Planes & Epistemic Differentiation

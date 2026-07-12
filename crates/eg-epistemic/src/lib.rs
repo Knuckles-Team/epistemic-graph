@@ -70,8 +70,8 @@ mod evidence;
 
 pub use adapter::BeliefGraph;
 pub use model::{
-    classify_relationship, AuthorityPolicy, BeliefState, BiTemporalRecord, Calibration, EdgeKind,
-    JustRule, JustificationGraph, ProofNode, TimeAxis,
+    classify_policy_labels, classify_relationship, AuthorityPolicy, BeliefState, BiTemporalRecord,
+    Calibration, EdgeKind, JustRule, JustificationGraph, ProofNode, TimeAxis,
 };
 pub use propagate::{belief_distribution, explain_belief, propagate_confidence};
 

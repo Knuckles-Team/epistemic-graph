@@ -302,19 +302,21 @@ logs + metrics + traces trilogy over the durable eg-tsdb series + eg-text index.
 ## Epistemic substrate (`eg-epistemic` — CONCEPT:EG-KG.epistemic.epistemic-substrate)
 
 Claims/Evidence/Sources are ordinary `type`-tagged nodes (no new persistence); Support/
-Contradict/Attack are ordinary edges. `epistemic` (implies `query`) wires the base surface;
-`epistemic-tms`/`epistemic-redaction`/`evidence-graph`/`epistemic-causal` are opt-in on top of
-it, each a feature in its own right — none folded into the `full` tier line.
+Contradict/Attack are ordinary edges. `epistemic` (implies `query`) wires the base surface.
+WS-1b (2026-07-12) folded the LIGHT `epistemic-redaction`/`evidence-graph` features into the
+`full` tier line (no new dependency, no expensive recompute — see `Cargo.toml`'s WS-1b note
+above the `full` definition); the HEAVY `epistemic-tms`/`epistemic-causal` features remain
+opt-in on top of `full`, each reachable via its own explicit `--features` build.
 
 | Operation | Status | Feature | Evidence |
 |-----------|:------:|---------|----------|
-| Belief state + confidence propagation over support/contradiction/attack edges | ✅ | `epistemic` | `eg_epistemic::propagate_confidence`; `Method::ExplainBelief` returns the full justification tree |
-| Bitemporal acceptance query (`why`/`why_not`/`what_changed`/`what_would_invalidate`, `epistemic_status` capstone) | ✅ | `epistemic-tms` | `Method::EpistemicStatus`/`Method::WhatChanged` (EPI-P3-5, L53) |
-| Policy-aware proof redaction + selective disclosure (`Full`/`Skeleton`/`ExistenceOnly`) | ✅ | `epistemic-redaction` | `Method::ExplainBelief`'s `disclosure_level` (EPI-P3-4, L51) |
-| Multimodal-evidence citation resolver — resolve a claim's cited evidence to its located locus (PDF page+box, audio/video interval, SQL row version, code range, trace span, …) + `AssetOccurrence`/`Blob` identity chain | ✅ | `evidence-graph` | `Method::ExplainEvidence` (CONCEPT:EG-X1); facade-reachable, opt-in — not part of `full` |
-| Calibrated causal reasoning — do-calculus intervention (graph surgery) OR observational conditioning over a request-carried linear-Gaussian SCM | ✅ | `epistemic-causal` | `Method::CausalEstimate`'s `mode` (EPI-P3-3/P3-6: `Intervene`/`Observe`, `#[serde(default)]` `Intervene` — byte-for-byte the pre-`mode` behavior) |
-| Pearl point-counterfactual — "what would Y have been had X been x', given unit U actually happened" (abduction/action/prediction over a fully-observed unit) | ✅ | `epistemic-causal` | `Method::CausalCounterfactual` (EPI-P3-6) |
-| Provenance-aware retrieval ranking — rank candidates by evidence quality/provenance (reliability, corroboration, calibration precision, freshness) in addition to similarity | ✅ | `epistemic-causal` | `Method::RankByProvenance` (EPI-P3-3) |
+| Belief state + confidence propagation over support/contradiction/attack edges | ✅ | `epistemic` (in `full`) | `eg_epistemic::propagate_confidence`; `Method::ExplainBelief` returns the full justification tree |
+| Bitemporal acceptance query (`why`/`why_not`/`what_changed`/`what_would_invalidate`, `epistemic_status` capstone) | ✅ | `epistemic-tms` (opt-in, HEAVY — not in `full`) | `Method::EpistemicStatus`/`Method::WhatChanged` (EPI-P3-5, L53) |
+| Policy-aware proof redaction + selective disclosure (`Full`/`Skeleton`/`ExistenceOnly`) | ✅ | `epistemic-redaction` (in `full`) | `Method::ExplainBelief`'s `disclosure_level` (EPI-P3-4, L51) |
+| Multimodal-evidence citation resolver — resolve a claim's cited evidence to its located locus (PDF page+box, audio/video interval, SQL row version, code range, trace span, …) + `AssetOccurrence`/`Blob` identity chain | ✅ | `evidence-graph` (in `full`) | `Method::ExplainEvidence` (CONCEPT:EG-X1); facade-reachable, part of `full` since WS-1b |
+| Calibrated causal reasoning — do-calculus intervention (graph surgery) OR observational conditioning over a request-carried linear-Gaussian SCM | ✅ | `epistemic-causal` (opt-in, HEAVY — not in `full`) | `Method::CausalEstimate`'s `mode` (EPI-P3-3/P3-6: `Intervene`/`Observe`, `#[serde(default)]` `Intervene` — byte-for-byte the pre-`mode` behavior) |
+| Pearl point-counterfactual — "what would Y have been had X been x', given unit U actually happened" (abduction/action/prediction over a fully-observed unit) | ✅ | `epistemic-causal` (opt-in, HEAVY — not in `full`) | `Method::CausalCounterfactual` (EPI-P3-6) |
+| Provenance-aware retrieval ranking — rank candidates by evidence quality/provenance (reliability, corroboration, calibration precision, freshness) in addition to similarity | ✅ | `epistemic-causal` (opt-in, HEAVY — not in `full`) | `Method::RankByProvenance` (EPI-P3-3) |
 
 ## New data modalities (`eg-core` + leaf crates)
 
@@ -395,20 +397,21 @@ Databricks-LTAP-interoperable: external lakehouse engines read the engine's own 
 
 ## Epistemic reasoning (`eg-epistemic` — features `epistemic`/`epistemic-tms`/`epistemic-redaction`; see also 2.16.0's epistemic substrate)
 
-All rows below are opt-in cargo features layered on top of the default `full` build; none is on by
-default. A `full`/`pi` build without these features links no `eg-epistemic` behavior beyond the base
-crate.
+`epistemic`/`epistemic-redaction`/`evidence-graph` are part of the default `full` build since
+WS-1b (2026-07-12). `epistemic-tms`/`epistemic-causal` remain opt-in cargo features layered on
+top of `full` (HEAVY: NP-hard-in-the-worst-case Dung argumentation search / genuine do-calculus
+computation) — a `full` build without them links no `epistemic-tms`/`epistemic-causal` behavior.
 
 | Operation | Status | Feature | Evidence |
 |-----------|:------:|---------|----------|
-| Claim/Evidence/Source/BeliefState + cycle-guarded confidence propagation (Bayesian conjugate update), `EVIDENCE FOR`/`CONTRADICTS`/`SUPPORTED BY`/`BELIEF AS OF`/`SOURCE RELIABILITY`/`CONFIDENCE` UQL ops | ✅ | `epistemic` | 2.16.0 epistemic substrate; `eg-epistemic`, `eg-plan/epistemic` |
-| Paraconsistent truth-maintenance + Dung argumentation (grounded/preferred/stable extensions, dependency-directed retraction) | ✅ | `epistemic-tms` | 2.16.0; `eg-epistemic::tms`. Standalone, multi-claim conflict resolution facade-reachable via `Method::ResolveConflict` (EPI-P3-7, gap-fill — previously reachable only COMPOSED inside `Method::EpistemicStatus`), Python-client-bound via `client.query.resolve_conflict(node_ids, semantics=...)` |
-| Live truth-maintenance recompute + server-side CDC hook: a committed `RemoveNode`/`RemoveEdge`/`CompareAndSetNodeFields` automatically marks every transitively-dependent materialization `Stale`; `recompute` re-derives it to `Fresh`/`Retracted` | ✅ | `epistemic-tms` | CONCEPT:X-6/EPI-P3-2; `eg-epistemic::recompute`, `src/server/tms_hook.rs`. **Deliberately narrow**: `AddNode` is not mapped (no pre-image capture in this seam); `PolicyChanged`/`ModelRetired`/`OntologyEvolved` aren't on any wire `Method` yet — both open follow-ups |
-| Bitemporal why/why-not/what-changed + the `epistemic_status` capstone (`Method::EpistemicStatus`/`Method::WhatChanged`) | ✅ | `epistemic-tms` | CONCEPT:EPI-P3-5 |
-| Policy-aware proof redaction: `Method::ExplainBelief`'s `disclosure_level` masks (never silently drops) an evidence node the caller's RLS context can't see, reusing the same `RowVisibility`/`can_see_row` check every other read path enforces | ✅ | `epistemic-redaction` | CONCEPT:EPI-P3-4; `eg-epistemic::redact`, `src/server/handlers/query.rs`. Requesting `disclosure_level` without the feature is an explicit error, never silently ignored; facade-reachable via `client.query.explain_belief(node_id, disclosure_level=...)` |
+| Claim/Evidence/Source/BeliefState + cycle-guarded confidence propagation (Bayesian conjugate update), `EVIDENCE FOR`/`CONTRADICTS`/`SUPPORTED BY`/`BELIEF AS OF`/`SOURCE RELIABILITY`/`CONFIDENCE` UQL ops | ✅ | `epistemic` (in `full`) | 2.16.0 epistemic substrate; `eg-epistemic`, `eg-plan/epistemic` |
+| Paraconsistent truth-maintenance + Dung argumentation (grounded/preferred/stable extensions, dependency-directed retraction) | ✅ | `epistemic-tms` (opt-in, HEAVY — not in `full`) | 2.16.0; `eg-epistemic::tms`. Standalone, multi-claim conflict resolution facade-reachable via `Method::ResolveConflict` (EPI-P3-7, gap-fill — previously reachable only COMPOSED inside `Method::EpistemicStatus`), Python-client-bound via `client.query.resolve_conflict(node_ids, semantics=...)` |
+| Live truth-maintenance recompute + server-side CDC hook: a committed `RemoveNode`/`RemoveEdge`/`CompareAndSetNodeFields` automatically marks every transitively-dependent materialization `Stale`; `recompute` re-derives it to `Fresh`/`Retracted` | ✅ | `epistemic-tms` (opt-in, HEAVY — not in `full`) | CONCEPT:X-6/EPI-P3-2; `eg-epistemic::recompute`, `src/server/tms_hook.rs`. **Deliberately narrow**: `AddNode` is not mapped (no pre-image capture in this seam); `PolicyChanged`/`ModelRetired`/`OntologyEvolved` aren't on any wire `Method` yet — both open follow-ups |
+| Bitemporal why/why-not/what-changed + the `epistemic_status` capstone (`Method::EpistemicStatus`/`Method::WhatChanged`) | ✅ | `epistemic-tms` (opt-in, HEAVY — not in `full`) | CONCEPT:EPI-P3-5 |
+| Policy-aware proof redaction: `Method::ExplainBelief`'s `disclosure_level` masks (never silently drops) an evidence node the caller's RLS context can't see, reusing the same `RowVisibility`/`can_see_row` check every other read path enforces | ✅ | `epistemic-redaction` (in `full`) | CONCEPT:EPI-P3-4; `eg-epistemic::redact`, `src/server/handlers/query.rs`. Requesting `disclosure_level` without the feature is an explicit error, never silently ignored; facade-reachable via `client.query.explain_belief(node_id, disclosure_level=...)` |
 | Calibrated causal reasoning — linear-Gaussian SCM with genuine Pearl do-calculus (`observe`/`intervene`/`counterfactual`, each returning a calibrated credible interval or, for `counterfactual`, a deterministic point value) + provenance-aware retrieval ranking | ✅ | facade `epistemic-causal` (opt-in, not in `full`) | CONCEPT:EPI-P3-3/P3-6; `eg-epistemic::{causal,ranking}`. Facade-reachable via `Method::CausalEstimate`'s `mode` (`Intervene` do-calculus, the `#[serde(default)]`; or `Observe` conditioning), `Method::CausalCounterfactual` (Pearl point-counterfactual), and `Method::RankByProvenance` — all three now Python-client-bound (`client.query.causal_estimate(..., mode=...)`/`causal_counterfactual`/`rank_by_provenance`) |
 | Multimodal evidence-graph spine: `EvidenceSpan` — 11 located-evidence locus kinds (`DocumentSpan`/`TableCellRange`/`ImageRegion`/`PageBox`/`AudioSegment`/`VideoShot`/`VideoFrameRange`/`MetricWindow`/`RowVersion`/`CodeSymbol`/`TraceSpan`) | ✅ | `epistemic` (type reachable via `dep:eg-modality`) | CONCEPT:EG-X1; `eg-modality::evidence` |
-| Evidence citation resolver (`evidence_citations`/`resolve_locus`/`justification_citations`) | ✅ | facade `evidence-graph` (opt-in, not in `full`) | CONCEPT:EG-X1. Facade-reachable via `Method::ExplainEvidence` (resolves a Claim's evidence to its exact located `EvidenceSpan` loci). A parallel blob-CAS-backed resolver for the same `EvidenceSpan` shape is the `alignment` feature's `CasEvidenceResolver` (see "Document & media modalities" above) |
+| Evidence citation resolver (`evidence_citations`/`resolve_locus`/`justification_citations`) | ✅ | facade `evidence-graph` (in `full` since WS-1b) | CONCEPT:EG-X1. Facade-reachable via `Method::ExplainEvidence` (resolves a Claim's evidence to its exact located `EvidenceSpan` loci). A parallel blob-CAS-backed resolver for the same `EvidenceSpan` shape is the `alignment` feature's `CasEvidenceResolver` (see "Document & media modalities" above) |
 
 ## Request scheduling & QoS
 

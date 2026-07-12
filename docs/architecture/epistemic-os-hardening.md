@@ -210,26 +210,32 @@ classifiers agreeing with each other by convention.
 - **Default-on or opt-in:** **opt-in** — a fresh deployment is byte-for-byte unchanged
   from every pre-EG-P0-5 deployment until `EPISTEMIC_GRAPH_REQUIRE_SIGNED=1` is set.
 
-### Default-deny-capable RLS (`crates/eg-core/src/isolation.rs`)
+### Default-deny RLS (`crates/eg-core/src/isolation.rs`) — WS-1b (2026-07-12): flipped secure-by-default
 
 - **What it is:** `IsolationLayer` carries a `rls_default_deny: bool` field
-  (`crates/eg-core/src/isolation.rs:154`), defaulting to **`false`**
-  (`crates/eg-core/src/isolation.rs:172`) — the **permissive** posture: an unowned,
-  undecodable, or untagged-legacy row stays visible to all agents (byte-for-byte
-  pre-EG-P0-6 behavior). Setting it `true` (`set_rls_default_deny`/
-  `with_rls_default_deny`) switches `can_see_row` (`isolation.rs:428`) to the **strict**
-  posture: such a row is denied unless explicitly `_visibility: "public"` or
+  (`crates/eg-core/src/isolation.rs`). The struct-level builder default
+  (`IsolationLayer::new()`) stays `false` (the **permissive** posture: an unowned,
+  undecodable, or untagged-legacy row stays visible to all agents) — that is the bare
+  library default for a caller (tests/harnesses/the embedded in-process API) that
+  constructs an `IsolationLayer` directly with no env resolution of its own. Setting it
+  `true` (`set_rls_default_deny`/`with_rls_default_deny`) switches `can_see_row` to the
+  **strict** posture: such a row is denied unless explicitly `_visibility: "public"` or
   `_owner`-tagged.
-- **Exact env var:** `EPISTEMIC_GRAPH_RLS_DEFAULT_DENY`, read once at server startup
-  (`src/main.rs:658`) and wired into the `IsolationLayer` the server constructs.
-- **Default-on or opt-in:** **opt-in, default `false` — permissive.** This directly
-  contradicts a plausible reading of the program's stated goal ("default-deny RLS"); the
-  shipped reality is *default-deny-CAPABLE*, not default-deny. Operators who want the
-  stricter posture must explicitly set the flag. This is restated three times in this
-  program's own artifacts (CHANGELOG 2.20.0's "Security-relevant defaults" section,
-  `docs/capabilities.md`'s known-limitations section, and the program tracker's X-1
-  closeout note correcting an earlier draft) — worth over-stating here too, since it is
-  exactly the kind of claim a static audit should not have to re-derive.
+- **Exact env var:** `EPISTEMIC_GRAPH_RLS_DEFAULT_DENY`, resolved once at server startup
+  (`src/main.rs`) via the pure, unit-tested `eg_core::isolation::resolve_rls_default_deny`
+  and wired into the `IsolationLayer` the server constructs.
+- **Default-on or opt-in:** **default-on (strict) as of WS-1b, opt-out available.** The
+  env var's own default flipped from permissive to strict: an unset
+  `EPISTEMIC_GRAPH_RLS_DEFAULT_DENY` now resolves to `true` (secure-by-default) for a
+  fresh/greenfield deployment, per this repo's no-back-compat policy (there is no
+  external caller pinned to the old posture). A deployment that still wants the
+  permissive/back-compat posture opts out explicitly with
+  `EPISTEMIC_GRAPH_RLS_DEFAULT_DENY=0` (`false`/`no`/`off` also accepted,
+  case-insensitive); any other value — including a typo — resolves to strict (fails
+  closed). **Migration note for an existing deployment upgrading past this change:**
+  legacy unowned/untagged rows become invisible to non-`System` agents until backfilled
+  with an `_owner` or an explicit `_visibility: "public"` tag, or until the deployment
+  sets the env var to `0` to keep the old permissive posture.
 
 ### Exhaustive audit + admin scopes (EG-P0-6)
 
@@ -500,8 +506,14 @@ Support/Contradict/Attack are ordinary edges; the base `epistemic` feature
 "eg-plan/epistemic", "dep:eg-modality"]`, Cargo.toml) **is folded into `full`** (verified:
 `full = [… , "epistemic"]` is the last entry in the `full` feature list) — so a standard
 build always links the base epistemic substrate. Every deeper Phase-3 feature below
-(`epistemic-tms`, `epistemic-redaction`, `epistemic-causal`, `evidence-graph`) is
-layered ON TOP as its own opt-in feature and is **NOT** folded into `full`.
+(`epistemic-tms`, `epistemic-redaction`, `epistemic-causal`, `evidence-graph`) was
+originally layered ON TOP as its own opt-in feature, NOT folded into `full`. **WS-1b
+(2026-07-12) folded the LIGHT ones — `epistemic-redaction` and `evidence-graph` — into
+`full`** (neither pulls a new heavy dependency nor runs expensive recompute; see the
+WS-1b note in `Cargo.toml` above the `full` definition). `epistemic-tms` and
+`epistemic-causal` remain deliberately opt-in (HEAVY: NP-hard-in-the-worst-case Dung
+argumentation search / genuine Pearl do-calculus computation) — a default `full` build
+must never pay for or run their recompute paths.
 
 ### Claim/Evidence/Source/BeliefState + confidence propagation
 
@@ -624,8 +636,9 @@ layered ON TOP as its own opt-in feature and is **NOT** folded into `full`.
     ignoring the parameter and returning an unredacted tree — the one behavior that
     would actually be dangerous.
 - **Default-on or opt-in:** `epistemic-redaction = ["epistemic", "security",
-  "eg-epistemic/epistemic-redaction"]` — opt-in, requires `security` too (for the shared
-  `IsolationLayer`); not in `full`.
+  "eg-epistemic/epistemic-redaction"]` — requires `security` too (for the shared
+  `IsolationLayer`); **in `full` since WS-1b** (2026-07-12; both `security` and
+  `epistemic` are already in `full`, so this was a zero-new-dependency fold-in).
 
 ### The bitemporal `epistemic_status` capstone (`query.rs`, EPI-P3-5)
 
@@ -670,8 +683,9 @@ layered ON TOP as its own opt-in feature and is **NOT** folded into `full`.
     `epistemic` feature (already in `full`).
   - The **handler arm** that actually answers it is gated `#[cfg(feature =
     "evidence-graph")]` (`evidence-graph = ["epistemic", "eg-epistemic/evidence-graph"]`
-    — opt-in, **not in `full`**); without it the method falls through to the
-    not-built catch-all.
+    — **in `full` since WS-1b**, 2026-07-12); a build that explicitly disables it
+    (`--no-default-features` without re-adding it) falls through to the not-built
+    catch-all.
   - This is a **separate** resolver from `alignment`'s `CasEvidenceResolver` (Phase 1,
     above) — same `EvidenceSpan` shape, two different implementations, reachable via two
     different opt-in features (`evidence-graph` vs `alignment`). Neither this program nor
@@ -701,10 +715,10 @@ program introduced or wired; consult that page for the pre-existing tier map.
 | Feature | In `full`? | What it turns on | Depends on / implies |
 |---|:---:|---|---|
 | `epistemic` | **yes** | Claim/Evidence/Source/BeliefState, confidence propagation, base `ExplainBelief` | `query`, `dep:eg-epistemic`, `dep:eg-modality` |
-| `epistemic-tms` | no | Paraconsistent TMS + Dung argumentation, live CDC hook (`tms_hook.rs`), `EpistemicStatus`/`WhatChanged` | `epistemic`, `eg-epistemic/epistemic-tms` |
-| `epistemic-redaction` | no | `ExplainBelief`'s `disclosure_level` (policy-aware proof redaction) | `epistemic`, `security`, `eg-epistemic/epistemic-redaction` |
-| `epistemic-causal` | no | `CausalEstimate` (do-intervene only), `RankByProvenance` | `epistemic`, `eg-epistemic/epistemic-causal` |
-| `evidence-graph` | no | `ExplainEvidence` citation resolver (crate-internal, `eg-epistemic`-side) | `epistemic`, `eg-epistemic/evidence-graph` |
+| `epistemic-tms` | no (HEAVY, opt-in) | Paraconsistent TMS + Dung argumentation, live CDC hook (`tms_hook.rs`), `EpistemicStatus`/`WhatChanged` | `epistemic`, `eg-epistemic/epistemic-tms` |
+| `epistemic-redaction` | **yes** (WS-1b) | `ExplainBelief`'s `disclosure_level` (policy-aware proof redaction) | `epistemic`, `security`, `eg-epistemic/epistemic-redaction` |
+| `epistemic-causal` | no (HEAVY, opt-in) | `CausalEstimate` (do-intervene only), `RankByProvenance` | `epistemic`, `eg-epistemic/epistemic-causal` |
+| `evidence-graph` | **yes** (WS-1b) | `ExplainEvidence` citation resolver (crate-internal, `eg-epistemic`-side) | `epistemic`, `eg-epistemic/evidence-graph` |
 | `alignment` | no | `CasEvidenceResolver` (blob-CAS-backed, facade-reachable) | `blob`, `dep:eg-alignment`, `dep:eg-modality` |
 | `knowledge-batch` | no | Arrow-backed `KnowledgeBatch` `RowSet` projection (`eg-plan`) | `query`, `dep:arrow` |
 | `contract` (per-crate) | no | `ModalityContract` conformance-test battery (19 crates each have their own) | `dep:eg-modality` (+ crate-specific extras, e.g. eg-rdf also needs `owl`/`sparql`) |

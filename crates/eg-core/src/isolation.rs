@@ -117,6 +117,29 @@ impl RowVisibility {
 /// every call site reference `crate::isolation::AgentRole` unchanged.
 pub use crate::acl::{AgentIdentity, AgentRole};
 
+/// Resolve the RLS default-deny posture from the raw
+/// `EPISTEMIC_GRAPH_RLS_DEFAULT_DENY` env value (CONCEPT:EG-KG.sharding.row-level-security,
+/// EG-P0-6). **Default (the env var unset) is `true` (STRICT/secure-by-default)** for a
+/// fresh/greenfield deployment — flipped from the pre-WS-1b permissive default per this
+/// repo's no-back-compat policy (`AGENTS.md` "No Legacy"): there is no external caller
+/// pinned to the old posture, so the secure posture ships as the default rather than as
+/// an opt-in. A deployment that still wants the permissive/back-compat posture opts out
+/// explicitly with `0`/`false`/`no`/`off` (case-insensitive, whitespace-trimmed); any
+/// other value (including an unrecognized one) resolves to the strict posture, so a typo
+/// fails closed rather than silently falling back to permissive. Server startup
+/// (`src/main.rs`) calls this with `std::env::var("EPISTEMIC_GRAPH_RLS_DEFAULT_DENY").ok()`;
+/// pulled out as a pure function so the resolution itself is unit-testable without a
+/// process-wide env var.
+pub fn resolve_rls_default_deny(raw: Option<&str>) -> bool {
+    match raw {
+        Some(v) => !matches!(
+            v.trim().to_ascii_lowercase().as_str(),
+            "0" | "false" | "no" | "off"
+        ),
+        None => true,
+    }
+}
+
 /// Isolation policy engine.
 #[derive(Clone)]
 pub struct IsolationLayer {
@@ -133,14 +156,21 @@ pub struct IsolationLayer {
     #[cfg(feature = "security")]
     persist: Option<std::sync::Arc<crate::rbac_persist::RbacStore>>,
     /// RLS default-deny / strict-isolation posture (CONCEPT:EG-KG.sharding.row-level-security, EG-P0-6).
-    /// `false` (the default, matching every pre-EG-P0-6 behavior byte-for-byte) is
-    /// the PERMISSIVE/dev-back-compat posture: an unowned, undecodable, or
-    /// untagged-legacy row is visible to all, exactly as before. `true` is the
-    /// SECURE/target posture: such a row is DENIED unless it explicitly declares
-    /// `_visibility: "public"` (or an `_owner` a rule already grants). See
-    /// [`Self::can_see_row`] for the exact decision and
-    /// [`Self::set_rls_default_deny`] / [`Self::with_rls_default_deny`] for how to
-    /// enable it.
+    /// `false` is the PERMISSIVE/back-compat posture: an unowned, undecodable, or
+    /// untagged-legacy row is visible to all. `true` is the SECURE/target posture:
+    /// such a row is DENIED unless it explicitly declares `_visibility: "public"`
+    /// (or an `_owner` a rule already grants). See [`Self::can_see_row`] for the
+    /// exact decision and [`Self::set_rls_default_deny`] / [`Self::with_rls_default_deny`]
+    /// for how to set it.
+    ///
+    /// **Struct-level default (`IsolationLayer::new()`) stays `false`** — this is the
+    /// bare-library builder default for callers (tests/harnesses/the embedded
+    /// in-process API) who construct an `IsolationLayer` directly with no config
+    /// resolution of their own. **The server's fresh-deploy default is `true`**
+    /// (secure-by-default): `src/main.rs` resolves the actual posture via
+    /// [`resolve_rls_default_deny`] over `EPISTEMIC_GRAPH_RLS_DEFAULT_DENY` and calls
+    /// [`Self::with_rls_default_deny`] with the result — so a deployed server is
+    /// strict unless it explicitly opts out.
     ///
     /// **Migration implication:** flipping this to `true` in a deployment that has
     /// legacy rows written before RLS tagging existed makes those rows INVISIBLE to
@@ -918,6 +948,40 @@ mod tests {
                     layer.can_see_row("worker1", &explicit_public),
                     "strict mode allows explicitly-tagged public"
                 );
+            }
+        }
+
+        // ── EPISTEMIC_GRAPH_RLS_DEFAULT_DENY env resolution (secure-by-default, WS-1b) ──
+        mod env_resolution {
+            use super::super::resolve_rls_default_deny;
+
+            #[test]
+            fn unset_env_resolves_strict_secure_by_default() {
+                assert!(
+                    resolve_rls_default_deny(None),
+                    "a fresh/greenfield deployment (no env var set) must default to \
+                     the STRICT/secure-by-default RLS posture"
+                );
+            }
+
+            #[test]
+            fn explicit_opt_out_values_resolve_permissive() {
+                for v in ["0", "false", "False", "FALSE", "no", "off", "  false  "] {
+                    assert!(
+                        !resolve_rls_default_deny(Some(v)),
+                        "{v:?} must resolve to the permissive opt-out posture"
+                    );
+                }
+            }
+
+            #[test]
+            fn truthy_and_unrecognized_values_resolve_strict() {
+                for v in ["1", "true", "TRUE", "yes", "on", "garbage", ""] {
+                    assert!(
+                        resolve_rls_default_deny(Some(v)),
+                        "{v:?} must resolve to the strict posture (fail-closed on typos)"
+                    );
+                }
             }
         }
     }
