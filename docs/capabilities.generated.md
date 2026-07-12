@@ -262,8 +262,10 @@
 | `WhatChanged` | false | None | `explain:read` | true | false | false | Snapshot | L53 (EPI-P3-5) bitemporal diff; handler additionally gated `epistemic-tms` |
 | `RegisterMaterialization` | false | None | `explain:read` | true | false | false | Snapshot | Seam 3 (X-6 wire surface): registers a TruthMaintenance materialization off its own stored provenance; side effect lands only in the ephemeral tms_hook index, never the durable graph; handler additionally gated `epistemic-tms` |
 | `MaterializationStatus` | false | None | `explain:read` | true | false | false | Snapshot | Seam 3: read-only status lookup on the same tms_hook index; handler additionally gated `epistemic-tms` |
+| `ResolveConflict` | false | None | `explain:read` | true | false | false | Snapshot | EPI-P3-7 (gap-fill) standalone Dung argumentation (grounded/preferred/stable) conflict resolution over a BeliefGraph snapshot; handler additionally gated `epistemic-tms` |
 | `ExplainEvidence` | false | None | `explain:read` | true | false | false | Snapshot | CONCEPT:EG-X1 multimodal-citation resolver; handler additionally gated `evidence-graph` |
-| `CausalEstimate` | false | None | `explain:read` | true | false | false | Snapshot | EPI-P3-3 do-calculus intervention over a request-carried SCM; handler additionally gated `epistemic-causal` |
+| `CausalEstimate` | false | None | `explain:read` | true | false | false | Snapshot | EPI-P3-3/P3-6 do-calculus intervention OR observational conditioning (selected by `mode`) over a request-carried SCM; handler additionally gated `epistemic-causal` |
+| `CausalCounterfactual` | false | None | `explain:read` | true | false | false | Snapshot | EPI-P3-6 Pearl point-counterfactual over a request-carried SCM + a fully-observed unit; handler additionally gated `epistemic-causal` |
 | `RankByProvenance` | false | None | `explain:read` | true | false | false | Snapshot | EPI-P3-3 provenance-aware retrieval ranking; handler additionally gated `epistemic-causal` |
 | `NlQuery` | false | None | `query:nl` | false | false | false | Snapshot |  |
 | `RegisterForeignSource` | ~true | None | `federation:admin` | true | false | false | Atomic | NOT present in access.rs's write classifier at all; policy marks it mutates=true on semantic grounds (registers a foreign-source config) -- flagged as a possible access.rs coverage gap |

@@ -1447,9 +1447,33 @@ mod tests {
         );
     }
 
-    /// Same feature-gating contract for EPI-P3-3: `Method::CausalEstimate`/
-    /// `Method::RankByProvenance` exist whenever `epistemic` is on, but their
-    /// handler arms additionally require `epistemic-causal`.
+    /// Feature-gating contract for EPI-P3-7 (gap-fill): `Method::ResolveConflict`
+    /// exists in the wire enum whenever `epistemic` is on, but its handler arm
+    /// additionally requires `epistemic-tms` — a build with `epistemic` on and
+    /// `epistemic-tms` off must hit the "not available in this server build"
+    /// catch-all, never a panic or mis-route (mirrors `explain_evidence_gated_out_returns_not_built`).
+    #[cfg(all(feature = "epistemic", not(feature = "epistemic-tms")))]
+    #[tokio::test]
+    async fn resolve_conflict_gated_out_returns_not_built() {
+        let state = multi_tenant_state().await;
+        let method = Method::ResolveConflict {
+            node_ids: vec!["claim1".into()],
+            semantics: "grounded".into(),
+        };
+        let resp = dispatch(&state, request(1, "agent:worker1", Some("worker1"), method)).await;
+        let err = resp.error.as_deref().unwrap_or("");
+        assert!(
+            err.contains("not available in this server build"),
+            "expected the not-built catch-all, got: ok={:?} err={:?}",
+            resp.result,
+            resp.error
+        );
+    }
+
+    /// Same feature-gating contract for EPI-P3-3/P3-6: `Method::CausalEstimate`/
+    /// `Method::CausalCounterfactual`/`Method::RankByProvenance` exist whenever
+    /// `epistemic` is on, but their handler arms additionally require
+    /// `epistemic-causal`.
     #[cfg(all(feature = "epistemic", not(feature = "epistemic-causal")))]
     #[tokio::test]
     async fn causal_estimate_and_rank_by_provenance_gated_out_return_not_built() {
@@ -1458,6 +1482,7 @@ mod tests {
         let method = Method::CausalEstimate {
             variables: vec![],
             do_values: std::collections::BTreeMap::new(),
+            mode: Default::default(),
         };
         let resp = dispatch(&state, request(1, "agent:worker1", Some("worker1"), method)).await;
         let err = resp.error.as_deref().unwrap_or("");
@@ -1468,11 +1493,25 @@ mod tests {
             resp.error
         );
 
+        let method = Method::CausalCounterfactual {
+            variables: vec![],
+            actual: std::collections::BTreeMap::new(),
+            do_values: std::collections::BTreeMap::new(),
+        };
+        let resp = dispatch(&state, request(2, "agent:worker1", Some("worker1"), method)).await;
+        let err = resp.error.as_deref().unwrap_or("");
+        assert!(
+            err.contains("not available in this server build"),
+            "CausalCounterfactual: expected the not-built catch-all, got: ok={:?} err={:?}",
+            resp.result,
+            resp.error
+        );
+
         let method = Method::RankByProvenance {
             candidates: vec![],
             weights: Default::default(),
         };
-        let resp = dispatch(&state, request(2, "agent:worker1", Some("worker1"), method)).await;
+        let resp = dispatch(&state, request(3, "agent:worker1", Some("worker1"), method)).await;
         let err = resp.error.as_deref().unwrap_or("");
         assert!(
             err.contains("not available in this server build"),

@@ -3139,14 +3139,39 @@ class QueryClient:
         connection). Requires a ``query`` server."""
         return await self._client._send("ExplainPolicy", {"plan": {"ops": plan}})
 
-    async def explain_belief(self, node_id: str) -> dict[str, Any]:
-        """``EXPLAIN BELIEF <node_id>`` — the full, un-flattened justification tree
-        (``eg_epistemic::JustificationGraph``) rooted at ``node_id``. Returns
-        ``{"root": {"claim", "rule", "confidence", "premises": [<same shape>, ...]}}``
-        — ``rule`` is one of ``"Asserted"``/``"DerivedSupport"``/
-        ``"DerivedContradiction"``/``"BayesianUpdate"``. Read-only. Requires a server
-        built with the ``epistemic`` feature (implies ``query``)."""
-        return await self._client._send("ExplainBelief", {"node_id": node_id})
+    async def explain_belief(
+        self, node_id: str, disclosure_level: str | None = None
+    ) -> dict[str, Any]:
+        """``EXPLAIN BELIEF <node_id>`` — the justification tree
+        (``eg_epistemic::JustificationGraph``) rooted at ``node_id``.
+
+        With ``disclosure_level=None`` (the default — byte-for-byte the classic
+        path), returns the FULL un-flattened tree: ``{"root": {"claim", "rule",
+        "confidence", "premises": [<same shape>, ...]}}`` — ``rule`` is one of
+        ``"Asserted"``/``"DerivedSupport"``/``"DerivedContradiction"``/
+        ``"BayesianUpdate"``.
+
+        ``disclosure_level`` (EPI-P3-4, L51) opts INTO a policy-aware, RLS-redacted
+        proof instead — one of ``"Full"``/``"Skeleton"``/``"ExistenceOnly"`` (least to
+        most redacted). It is a CAP, never a grant: it can only make the response MORE
+        redacted than the caller's own RLS access would already produce, never less
+        (e.g. always request ``"ExistenceOnly"`` for a privacy-conscious display
+        regardless of who is asking). When set, the response shape changes to
+        ``{"level", "existence", "root"}`` — ``existence`` is one of
+        ``"Supported"``/``"Contradicted"``/``"Uncertain"``, and ``root`` is the
+        (possibly redacted — ``claim: None`` + a ``redaction_label`` for a hidden
+        node) tree, or ``None`` entirely at ``"ExistenceOnly"``. Requires a server
+        built with the ``epistemic-redaction`` feature (opt-in, not part of ``full``);
+        a build with ``epistemic`` but not ``epistemic-redaction`` raises on a
+        non-``None`` ``disclosure_level`` rather than silently returning the
+        un-redacted tree.
+
+        Read-only. Requires a server built with the ``epistemic`` feature (implies
+        ``query``)."""
+        params: dict[str, Any] = {"node_id": node_id}
+        if disclosure_level is not None:
+            params["disclosure_level"] = disclosure_level
+        return await self._client._send("ExplainBelief", params)
 
     async def explain_evidence(self, node_id: str) -> dict[str, Any]:
         """CONCEPT:EG-X1 — resolve ``node_id``'s cited multimodal evidence: walk the
@@ -3213,17 +3238,67 @@ class QueryClient:
         (opt-in, not part of ``full``)."""
         return await self._client._send("MaterializationStatus", {"id": id})
 
+    async def resolve_conflict(
+        self, node_ids: list[str], semantics: str = "grounded"
+    ) -> dict[str, Any]:
+        """EPI-P3-7 (gap-fill) — standalone Dung abstract-argumentation conflict
+        resolution: for each id in ``node_ids``, is it justified (survives), defeated,
+        or stuck UNDECIDED (an unresolved/paraconsistent conflict), given the
+        support/contradiction/attack topology around it? This is the SAME
+        grounded/preferred/stable extension machinery :meth:`epistemic_status` already
+        composes internally for one claim's acceptance — reachable here directly,
+        across multiple claims, with the semantics you choose.
+
+        ``semantics`` is one of:
+
+        * ``"grounded"`` (default) — the unique, always-defined SKEPTICAL extension.
+          A claim ``survives`` iff every one of its attackers is itself defeated;
+          ``defeated`` iff attacked by a surviving claim; otherwise ``undecided``
+          (e.g. two claims that directly contradict each other with no other
+          evidence — the textbook non-explosive paraconsistent case: neither is
+          accepted NOR rejected).
+        * ``"preferred"`` / ``"stable"`` — CREDULOUS: potentially several admissible
+          "sides" (extensions) resolving the same conflict differently. A claim
+          ``survives`` iff it is accepted in EVERY computed extension (unanimous);
+          ``defeated`` iff accepted in NONE; otherwise ``undecided`` (accepted under
+          only some resolutions — contested). ``"stable"`` may legitimately compute
+          NO extension at all (e.g. an odd attack cycle) — every requested id then
+          reports ``undecided`` rather than a fabricated verdict.
+
+        Returns ``{"semantics", "surviving": [id, ...], "defeated": [id, ...],
+        "undecided": [id, ...], "extension_sets": [[id, ...], ...]}`` — every id in
+        ``node_ids`` appears in exactly one of the first three lists;
+        ``extension_sets`` is the raw extension(s) (over the WHOLE graph, not just
+        ``node_ids``) the verdict was computed from: exactly one for ``"grounded"``,
+        zero-or-more for ``"preferred"``/``"stable"``. Read-only — no graph node is
+        written. Requires a server built with the ``epistemic-tms`` feature (opt-in,
+        not part of ``full``)."""
+        return await self._client._send(
+            "ResolveConflict", {"node_ids": node_ids, "semantics": semantics}
+        )
+
     async def causal_estimate(
         self,
         variables: list[dict[str, Any]],
         do_values: dict[str, float],
+        mode: str | None = None,
     ) -> dict[str, Any]:
-        """EPI-P3-3 — a **do-calculus intervention** ``P(· | do(X₁=x₁, X₂=x₂, …))``
-        over a request-carried linear-Gaussian structural causal model: genuine
-        graph surgery (Pearl, *Causality* ch. 3) — the ``do`` variables' incoming
-        edges are CUT, not conditioned on, so no information flows backward through
-        them (this is what distinguishes it from a naive conditional/regression
-        estimate under confounding).
+        """EPI-P3-3/P3-6 — a calibrated query over a request-carried linear-Gaussian
+        structural causal model. ``mode`` selects which of the crate's two
+        non-counterfactual queries ``do_values`` feeds:
+
+        * ``None``/``"Intervene"`` (the default — byte-for-byte the pre-``mode``
+          behavior) — a **do-calculus intervention** ``P(· | do(X₁=x₁, X₂=x₂, …))``:
+          genuine graph surgery (Pearl, *Causality* ch. 3) — the named variables'
+          incoming edges are CUT, not conditioned on, so no information flows
+          backward through them (this is what distinguishes it from a naive
+          conditional/regression estimate under confounding).
+        * ``"Observe"`` — the **observational** query ``P(· | X₁=x₁, X₂=x₂, …)``:
+          ordinary multivariate-Gaussian conditioning on the UNMUTILATED joint.
+          Unlike ``"Intervene"``, evidence propagates BACKWARD to ancestors too
+          (e.g. a confounder) — exactly what distinguishes "seeing X=x" from
+          "doing X=x", and why the two modes can (and under confounding, will)
+          disagree on the very same ``do_values``/evidence input.
 
         ``variables`` defines the DAG in topological (parents-before-children)
         order, one dict per variable::
@@ -3234,15 +3309,51 @@ class QueryClient:
 
         ``parents`` is a list of ``[parent_id, weight]`` pairs, each of which MUST
         already appear as an earlier entry in ``variables``. ``do_values`` fixes the
-        named variables to given values via graph surgery, e.g. ``{"x": 2.0}``.
+        named variables (``"Intervene"``) or supplies their evidence
+        (``"Observe"``), e.g. ``{"x": 2.0}``.
 
         Returns ``{"estimates": [[var_id, {"mean", "variance", "interval":
         [lo, hi], "level"}], ...]}``, one calibrated estimate per variable in the
         SAME order as ``variables``. A pure function over the request — no graph
         node is read. Requires a server built with the ``epistemic-causal`` feature
         (opt-in, not part of ``full``)."""
+        params: dict[str, Any] = {"variables": variables, "do_values": do_values}
+        if mode is not None:
+            params["mode"] = mode
+        return await self._client._send("CausalEstimate", params)
+
+    async def causal_counterfactual(
+        self,
+        variables: list[dict[str, Any]],
+        actual: dict[str, float],
+        do_values: dict[str, float],
+    ) -> dict[str, Any]:
+        """EPI-P3-6 — Pearl's point-**counterfactual** recipe (*Causality* ch. 7)
+        over the SAME linear-Gaussian SCM shape :meth:`causal_estimate` takes:
+        "given that unit ``actual`` (a FULLY-observed assignment of every variable
+        in ``variables``) really happened, what would its variables have been had
+        ``do_values`` held instead?" — abduction (infer each variable's realized
+        exogenous noise from ``actual``), action (apply ``do_values`` via the same
+        graph surgery :meth:`causal_estimate`'s ``"Intervene"`` mode uses), then
+        prediction (replay forward with the SAME inferred noise).
+
+        DETERMINISTIC given ``actual`` — not a calibrated distribution like
+        :meth:`causal_estimate` — so a variable NOT downstream of any ``do_values``
+        name reproduces its ``actual`` value exactly, while a downstream variable
+        gets its counterfactual value.
+
+        ``variables``/``do_values`` are the same shapes :meth:`causal_estimate`
+        takes; ``actual`` is a fully-observed unit — every variable named in
+        ``variables`` MUST have an entry (an engine error otherwise, since the
+        recipe needs to abduce every variable's noise).
+
+        Returns ``{"values": [[var_id, point_value], ...]}``, in the SAME order as
+        ``variables``. A pure function over the request — no graph node is read.
+        Requires a server built with the ``epistemic-causal`` feature (opt-in, not
+        part of ``full``)."""
         return await self._client._send(
-            "CausalEstimate", {"variables": variables, "do_values": do_values}
+            "CausalCounterfactual",
+            {"variables": variables, "actual": actual, "do_values": do_values},
         )
 
     async def rank_by_provenance(
@@ -4706,6 +4817,121 @@ class RbacClient:
         return await self._client._send("RbacAdmin", {"op": "List"})
 
 
+class JobsClient:
+    """CONCEPT:INT-P2-1 — the durable analytics-job plane: async submit/status/
+    cancel/resume over a redb-backed ``AnalyticsJob`` state machine (``eg-jobs``),
+    reached over ONE ``Method::AnalyticsJob { op }`` wrapping an internal ``JobOp``
+    (mirrors :class:`RbacClient`'s ``RbacAdmin { op }`` shape). Jobs are NOT
+    graph-scoped (keyed by their own ``job_id`` in ``jobs.redb``), so a submitted job
+    outlives this connection and can be polled/resumed from any client pointed at the
+    same engine.
+
+    A job runs ASYNCHRONOUSLY off the request: :meth:`submit` returns as soon as the
+    job is durably recorded ``Submitted`` (not once it finishes) — poll :meth:`status`
+    for progress/results. On success the engine ALSO commits the result as a
+    provenance'd ``:Claim``/``:Evidence`` pair in the target graph (the same
+    ``eg-epistemic`` convention every other belief/evidence write uses), so a
+    finished job's output is queryable through the ordinary graph/belief surface too,
+    not just :meth:`status`.
+
+    V1 ships one reference job kind, association-rule mining over explicit
+    transactions (the SAME kernel :class:`MiningClient`'s synchronous
+    ``mine_association`` writeback calls)::
+
+        job = await client.jobs.submit(
+            "agent:planner",
+            {"MineAssociate": {"transactions": [["a", "b"], ["a", "c"]]}},
+        )
+        status = await client.jobs.status(job["job_id"])
+        await client.jobs.cancel(job["job_id"])   # if still running
+        await client.jobs.resume(job["job_id"])   # after a crash-orphaned run
+
+    Every method returns the durable ``AnalyticsJob`` record as a dict (``job_id``,
+    ``input_snapshot``, ``algo``, ``policy``, ``cancel_requested``, ``state``, …).
+    ``state`` mirrors the Rust ``JobState`` enum's own externally-tagged shape:
+    the bare string ``"Submitted"`` for that one unit variant, or
+    ``{"Running": {"checkpoint": ...}}`` / ``{"Succeeded": {"result_ref", "checkpoint"}}``
+    / ``{"Failed": {"reason", "checkpoint"}}`` / ``{"Cancelled": {"checkpoint"}}`` for
+    the rest — check ``isinstance(state, str)`` first, else take the dict's one key
+    as the state name. Requires a server built with the ``jobs`` feature (opt-in,
+    NOT part of ``full`` — see ``Cargo.toml``'s ``jobs`` feature doc); a build
+    without it returns the "not available in this build" error.
+    """
+
+    def __init__(self, client: EpistemicGraphClient) -> None:
+        self._client = client
+
+    async def submit(
+        self,
+        graph: str,
+        kind: dict[str, Any],
+        *,
+        tenant: str = "",
+        actor: str = "",
+        purpose: str = "",
+        priority: int = 0,
+        deadline_unix_ms: int | None = None,
+        quota_cpu_ms: int | None = None,
+        max_attempts: int = 1,
+        backoff_ms: int = 0,
+    ) -> dict[str, Any]:
+        """Submit a new job against ``graph`` (both the tenancy anchor for the
+        eventual result claim AND the input-snapshot handle's graph — the engine
+        stamps in the graph's live version at submit time; it is never
+        client-supplied). ``kind`` is the externally-tagged ``JobKind`` payload,
+        e.g. ``{"MineAssociate": {"transactions": [...], "min_support": 0.1,
+        "min_confidence": 0.5, "algorithm": "fpgrowth"}}``. Returns the freshly
+        durable ``Submitted`` job record (including its server-issued ``job_id``),
+        not the eventual result — the job itself keeps running after this returns."""
+        spec: dict[str, Any] = {
+            "graph": graph,
+            "tenant": tenant,
+            "actor": actor,
+            "purpose": purpose,
+            "priority": priority,
+            "deadline_unix_ms": deadline_unix_ms,
+            "quota_cpu_ms": quota_cpu_ms,
+            "max_attempts": max_attempts,
+            "backoff_ms": backoff_ms,
+            "kind": kind,
+        }
+        return await self._client._send("AnalyticsJob", {"op": {"Submit": spec}})
+
+    async def status(self, job_id: str) -> dict[str, Any]:
+        """Fetch ``job_id``'s current durable state, including its checkpoint/
+        progress. Read-only."""
+        return await self._client._send(
+            "AnalyticsJob", {"op": {"Status": {"job_id": job_id}}}
+        )
+
+    async def cancel(self, job_id: str) -> dict[str, Any]:
+        """Cooperatively cancel ``job_id`` — immediate (transitions straight to
+        ``Cancelled``) if it is still ``Submitted``; otherwise sets
+        ``cancel_requested`` and the running executor observes it at its next
+        checkpoint and stops. Raises ``RuntimeError`` if ``job_id`` is already in a
+        TERMINAL state (``Succeeded``/``Failed``/``Cancelled``) — cancelling a
+        finished job is an explicit invalid-transition error, not a silent no-op (an
+        already-finished job's result is not retroactively discarded). Distinct from
+        :meth:`EpistemicGraphClient.cancel_request`, which cancels an in-flight RPC on
+        this connection (and IS a harmless no-op if that request already finished),
+        not a durable job."""
+        return await self._client._send(
+            "AnalyticsJob", {"op": {"Cancel": {"job_id": job_id}}}
+        )
+
+    async def resume(self, job_id: str) -> dict[str, Any]:
+        """Resume ``job_id`` from its last checkpoint — either a ``Failed`` job with
+        retries remaining, or a ``Running`` job orphaned by a crashed/restarted
+        engine process (same checkpoint, cleared cancel flag). Raises
+        ``RuntimeError`` for any other state — a ``Cancelled`` job is a deliberate
+        terminal stop (resubmit instead), a ``Succeeded`` job is already done (fetch
+        its ``result_ref`` instead), and a ``Failed`` job with no retries remaining
+        cannot be resumed either."""
+        return await self._client._send(
+            "AnalyticsJob", {"op": {"Resume": {"job_id": job_id}}}
+        )
+
+
 class AdminClient:
     """CONCEPT:EG-KG.ingest.broker-streams-namespaces — Ops / maintenance namespace: online backup + restore (EG-090).
 
@@ -4833,6 +5059,7 @@ class EpistemicGraphClient:
         self.broker = BrokerClient(self)
         self.rbac = RbacClient(self)
         self.admin = AdminClient(self)
+        self.jobs = JobsClient(self)
 
     @staticmethod
     async def _open_streams(
@@ -5156,6 +5383,22 @@ class EpistemicGraphClient:
     async def health(self) -> dict[str, Any]:
         return await self._send("Health")
 
+    async def cancel_request(self, target_req_id: int) -> bool:
+        """Cooperatively cancel an IN-FLIGHT request by its ``target_req_id`` (L36) —
+        e.g. a long-running :meth:`QueryClient.sql`/:meth:`~JobsClient.status` call
+        still in flight on this SAME connection. Trips the target's
+        ``CancellationToken`` if one is still registered; a streaming SQL read
+        observes it at the next batch boundary and stops short.
+
+        Returns ``True`` iff a live cancellable request was found and cancelled,
+        ``False`` when it already finished, was never cancellable, or never
+        existed — never an error (cancelling an already-completed request is a
+        harmless no-op). Unconditional — no feature gate. Distinct from
+        :meth:`JobsClient.cancel`, which cancels a DURABLE ``AnalyticsJob`` (a
+        server-orchestrated background job, not an in-flight RPC on this
+        connection)."""
+        return await self._send("CancelRequest", {"target_req_id": target_req_id})
+
     async def resource_stats(self) -> dict[str, Any]:
         """Return the per-tenant / per-graph resource snapshot (CONCEPT:EG-KG.compute.lane-v).
 
@@ -5247,6 +5490,7 @@ class SyncEpistemicGraphClient:
         self.broker = self._SyncWrapper(self._client.broker, self._loop)
         self.rbac = self._SyncWrapper(self._client.rbac, self._loop)
         self.admin = self._SyncWrapper(self._client.admin, self._loop)
+        self.jobs = self._SyncWrapper(self._client.jobs, self._loop)
 
     def clear(self) -> None:
         """Synchronously clear the graph (used primarily by the test suite teardown)."""
