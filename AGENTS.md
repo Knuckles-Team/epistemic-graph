@@ -252,14 +252,21 @@ sections for the full operation-by-operation detail; this is the short orientati
   truth-maintenance + Dung argumentation, now with a real server-side CDC hook
   (`src/server/tms_hook.rs`) that auto-marks dependents `Stale` on a committed
   `RemoveNode`/`RemoveEdge`/`CompareAndSetNodeFields`, plus the bitemporal
-  `Method::EpistemicStatus`/`Method::WhatChanged` capstone (`epistemic-tms`); policy-aware
-  proof redaction via `Method::ExplainBelief`'s `disclosure_level`, reusing the same
-  per-agent RLS check every read path enforces (`epistemic-redaction`). **Calibrated causal
+  `Method::EpistemicStatus`/`Method::WhatChanged` capstone (`epistemic-tms`); the
+  grounded/preferred/stable argumentation semantics themselves are ALSO reachable
+  standalone (not just composed inside `EpistemicStatus`) via `Method::ResolveConflict`
+  (EPI-P3-7, gap-fill — `client.query.resolve_conflict(node_ids, semantics=...)`);
+  policy-aware proof redaction via `Method::ExplainBelief`'s `disclosure_level`, reusing the same
+  per-agent RLS check every read path enforces (`epistemic-redaction`; Python-client-bound via
+  `client.query.explain_belief(node_id, disclosure_level=...)`). **Calibrated causal
   reasoning** (`eg-epistemic::{causal,ranking}` — genuine Pearl do-calculus: `observe`/
   `intervene`/`counterfactual`, plus provenance-aware retrieval ranking) is facade-reachable
-  under the opt-in `epistemic-causal` feature via `Method::CausalEstimate` (the do-`intervene`
-  op) and `Method::RankByProvenance`; the crate's `observe`/`counterfactual` variants stay
-  crate-internal (documented follow-on). Opt-in, not folded into `full`.
+  under the opt-in `epistemic-causal` feature via `Method::CausalEstimate`'s `mode`
+  (EPI-P3-6 — `Intervene`, the `#[serde(default)]`, or `Observe`), `Method::CausalCounterfactual`
+  (Pearl's point-counterfactual, a deterministic point value per variable rather than a
+  calibrated distribution), and `Method::RankByProvenance` — all three Python-client-bound
+  (`client.query.causal_estimate(..., mode=...)`/`causal_counterfactual`/`rank_by_provenance`).
+  Opt-in, not folded into `full`.
 - **Multimodal evidence graph (X-1).** `eg_modality::EvidenceSpan` — 11 located-evidence
   locus kinds (`DocumentSpan`/`TableCellRange`/`ImageRegion`/`PageBox`/`AudioSegment`/
   `VideoShot`/`VideoFrameRange`/`MetricWindow`/`RowVersion`/`CodeSymbol`/`TraceSpan`) — is
@@ -287,8 +294,10 @@ sections for the full operation-by-operation detail; this is the short orientati
   (`EPISTEMIC_GRAPH_LAZY_STARTUP`/`EPISTEMIC_GRAPH_MAX_RESIDENT_GRAPHS`) bounds hot-context
   RAM; the durable analytics-job plane (`eg-jobs`, feature `jobs`, off by default) gives
   `Method::AnalyticsJob` async submit/status/cancel/resume over an immutable
-  input-snapshot handle; lake materialization now emits real OpenLineage `RunEvent`s
-  (feature `lake`, optional push via `EPISTEMIC_GRAPH_OPENLINEAGE_URL`).
+  input-snapshot handle, Python-client-bound via `client.jobs.{submit,status,cancel,resume}`
+  (+ the general `client.cancel_request` for `Method::CancelRequest`); lake materialization
+  now emits real OpenLineage `RunEvent`s (feature `lake`, optional push via
+  `EPISTEMIC_GRAPH_OPENLINEAGE_URL`).
 - **Persistent index pushdown (EG-P1-4).** The served planner binds directly to the
   maintained persistent BM25 text index and the live vector `SemanticStore` instead of
   rebuilding/cloning a snapshot per query. **Spatial/R-tree index pushdown is NOT wired**
@@ -337,7 +346,9 @@ sc = SyncEpistemicGraphClient.connect(...)
 
 Sub-clients on the connection: `.nodes`, `.edges`, `.graph` (algorithms),
 `.analytics`, `.finance`, `.datascience`, `.lifecycle`, `.ledger`, `.channels`,
-`.tenants`, `.consensus`. **Connection pooling + shard routing** live in
+`.tenants`, `.consensus`, `.query` (UQL/SQL/epistemic explain surfaces), `.jobs`
+(the durable analytics-job plane, feature `jobs`), `.rbac`, `.admin`, `.broker`.
+**Connection pooling + shard routing** live in
 `epistemic_graph/pool.py` (`ConnectionPool`, `ShardRouter` using rendezvous/HRW
 hashing over `GRAPH_SERVICE_ENDPOINTS`). `epistemic_graph/quant.py` provides
 pure-Python rolling-stats/order-matching helpers (no compiled extension).

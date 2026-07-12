@@ -103,10 +103,9 @@ DiscountedReturn
 CepSubscribe
 CepUnsubscribe
 CepPoll
-# Durable analytics job plane (INT-P2-1, `jobs` feature): submit/status/cancel/resume over
-# a redb-backed AnalyticsJob state machine driven by the `eg-jobs` manager, and the generic
-# in-flight CancelRequest — server-orchestrated lifecycle ops, not the thin nodes/edges/graph
-# client (same posture as DistributedCompute/matview above). Bind here until a Python
-# job-plane sub-client is added.
-AnalyticsJob
-CancelRequest
+
+# Durable analytics job plane (INT-P2-1, `jobs` feature) — submit/status/cancel/resume
+# over a redb-backed AnalyticsJob state machine, and the generic in-flight CancelRequest —
+# are now BOUND (gap-fill program): client.jobs.{submit,status,cancel,resume}
+# (Method::AnalyticsJob) and client.cancel_request (Method::CancelRequest). No longer
+# listed here — they now have a Python sender.
