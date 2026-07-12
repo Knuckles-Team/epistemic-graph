@@ -584,6 +584,30 @@ pub(crate) async fn try_handle(
             let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
             Ok(Response::ok(req_id, ResultPayload::Raw(bytes)))
         }
+        // EPI-P3-7 (gap-fill): standalone Dung argumentation conflict resolution. A
+        // pure classification over a `BeliefGraph` snapshot — no writes. Gated
+        // `epistemic-tms` at the handler (same fallback convention as
+        // `EpistemicStatus`/`WhatChanged`).
+        #[cfg(feature = "epistemic-tms")]
+        Method::ResolveConflict {
+            node_ids,
+            semantics,
+        } => {
+            let snap = core.analysis_snapshot();
+            let resp = match compute_off_lock(req_id, move || {
+                resolve_conflict_wire(&node_ids, &semantics, &snap)
+            })
+            .await
+            {
+                Ok(Ok(result)) => {
+                    let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
+                    Response::ok(req_id, ResultPayload::Raw(bytes))
+                }
+                Ok(Err(msg)) => Response::err(req_id, format!("ResolveConflict error: {msg}")),
+                Err(resp) => resp,
+            };
+            Ok(resp)
+        }
         // X-1 (CONCEPT:EG-X1): the multimodal-evidence citation resolver. Gated
         // `evidence-graph` at the handler; the wire `Method` variant itself is gated
         // only `epistemic` (see its doc comment), so a build with `epistemic` but not
@@ -602,16 +626,18 @@ pub(crate) async fn try_handle(
             };
             Ok(resp)
         }
-        // EPI-P3-3: do-calculus intervention over a request-carried SCM. A pure
-        // function over `variables`/`do_values` — no graph snapshot needed. Gated
+        // EPI-P3-3/P3-6: do-calculus intervention OR observational conditioning
+        // (selected by `mode`) over a request-carried SCM. A pure function over
+        // `variables`/`do_values`/`mode` — no graph snapshot needed. Gated
         // `epistemic-causal` at the handler (same fallback convention as above).
         #[cfg(feature = "epistemic-causal")]
         Method::CausalEstimate {
             variables,
             do_values,
+            mode,
         } => {
             let resp = match compute_off_lock(req_id, move || {
-                causal_estimate_wire(&variables, &do_values)
+                causal_estimate_wire(&variables, &do_values, mode)
             })
             .await
             {
@@ -620,6 +646,32 @@ pub(crate) async fn try_handle(
                     Response::ok(req_id, ResultPayload::Raw(bytes))
                 }
                 Ok(Err(msg)) => Response::err(req_id, format!("CausalEstimate error: {msg}")),
+                Err(resp) => resp,
+            };
+            Ok(resp)
+        }
+        // EPI-P3-6: Pearl's point-counterfactual recipe over a request-carried SCM +
+        // a fully-observed `actual` unit. A pure function over request-carried
+        // inputs — no graph snapshot needed. Gated `epistemic-causal` at the
+        // handler (same fallback convention as `CausalEstimate`).
+        #[cfg(feature = "epistemic-causal")]
+        Method::CausalCounterfactual {
+            variables,
+            actual,
+            do_values,
+        } => {
+            let resp = match compute_off_lock(req_id, move || {
+                causal_counterfactual_wire(&variables, &actual, &do_values)
+            })
+            .await
+            {
+                Ok(Ok(result)) => {
+                    let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
+                    Response::ok(req_id, ResultPayload::Raw(bytes))
+                }
+                Ok(Err(msg)) => {
+                    Response::err(req_id, format!("CausalCounterfactual error: {msg}"))
+                }
                 Err(resp) => resp,
             };
             Ok(resp)
@@ -1758,6 +1810,105 @@ fn epistemic_status_wire(
     }
 }
 
+/// `Method::ResolveConflict` (EPI-P3-7, gap-fill) — build a `BeliefGraph` off `view`
+/// and run the Dung argumentation semantics `semantics` names
+/// (`eg_epistemic::tms::{grounded_extension,preferred_extensions,stable_extensions}`
+/// — reused as-is, never reimplemented), then partition `node_ids` into
+/// surviving/defeated/undecided against the computed extension(s):
+///
+/// * `"grounded"`: the unique extension only ever gives the IN (accepted) set
+///   directly (`grounded_extension`), so OUT vs UNDECIDED is recovered from the
+///   SAME public API rather than needing the crate's private 3-way labelling: an id
+///   NOT in the extension is `defeated` (OUT) iff at least one of its augmented
+///   (bipolar-closed) attackers IS in the extension (`augmented_attackers`) —
+///   otherwise it is `undecided` (caught in an unresolved/paraconsistent conflict,
+///   e.g. an odd attack cycle, matching `eg_epistemic::tms`'s own module docs).
+/// * `"preferred"`/`"stable"`: potentially several credulous extensions. An id in
+///   EVERY extension `survives` (unanimous across every admissible "side"); an id in
+///   NONE is `defeated` (never credulously acceptable); anything in SOME but not all
+///   is `undecided` (contested). When `semantics` legitimately yields NO extension
+///   at all (a real `stable` result over e.g. an odd cycle, or the crate's own
+///   NP-hardness argument-count/search-budget caps firing — see `tms` module docs),
+///   every requested id is reported `undecided` rather than fabricating a verdict.
+///
+/// An id in `node_ids` that names no argument anywhere in the graph degrades to
+/// `undecided` (never fabricated as surviving/defeated) — the same "no signal ⇒ safe
+/// default" convention every other epistemic op follows.
+#[cfg(feature = "epistemic-tms")]
+fn resolve_conflict_wire(
+    node_ids: &[String],
+    semantics: &str,
+    view: &crate::graph::GraphView,
+) -> Result<crate::protocol::ResolveConflictResult, String> {
+    let bg = eg_epistemic::BeliefGraph::from_graph_view(view);
+
+    let (extension_sets, surviving, defeated, undecided): (
+        Vec<std::collections::BTreeSet<String>>,
+        Vec<String>,
+        Vec<String>,
+        Vec<String>,
+    ) = match semantics {
+        "grounded" => {
+            let grounded = eg_epistemic::grounded_extension(&bg);
+            let mut surviving = Vec::new();
+            let mut defeated = Vec::new();
+            let mut undecided = Vec::new();
+            for id in node_ids {
+                if grounded.contains(id) {
+                    surviving.push(id.clone());
+                } else if eg_epistemic::augmented_attackers(&bg, id)
+                    .iter()
+                    .any(|a| grounded.contains(a))
+                {
+                    defeated.push(id.clone());
+                } else {
+                    undecided.push(id.clone());
+                }
+            }
+            (vec![grounded], surviving, defeated, undecided)
+        }
+        "preferred" | "stable" => {
+            let extensions = if semantics == "preferred" {
+                eg_epistemic::preferred_extensions(&bg)
+            } else {
+                eg_epistemic::stable_extensions(&bg)
+            };
+            let mut surviving = Vec::new();
+            let mut defeated = Vec::new();
+            let mut undecided = Vec::new();
+            for id in node_ids {
+                if extensions.is_empty() {
+                    undecided.push(id.clone());
+                } else if extensions.iter().all(|e| e.contains(id)) {
+                    surviving.push(id.clone());
+                } else if extensions.iter().all(|e| !e.contains(id)) {
+                    defeated.push(id.clone());
+                } else {
+                    undecided.push(id.clone());
+                }
+            }
+            (extensions, surviving, defeated, undecided)
+        }
+        other => {
+            return Err(format!(
+                "ResolveConflict: unknown semantics '{other}' (expected \
+                 grounded|preferred|stable)"
+            ))
+        }
+    };
+
+    Ok(crate::protocol::ResolveConflictResult {
+        semantics: semantics.to_string(),
+        surviving,
+        defeated,
+        undecided,
+        extension_sets: extension_sets
+            .into_iter()
+            .map(|e| e.into_iter().collect())
+            .collect(),
+    })
+}
+
 /// `Method::WhatChanged` (EPI-P3-5, L53) — between two transaction times, which beliefs
 /// changed and why, over the WHOLE graph (`eg_epistemic::what_changed`).
 #[cfg(feature = "epistemic-tms")]
@@ -1817,31 +1968,40 @@ fn explain_evidence_wire(
     }
 }
 
-/// `Method::CausalEstimate` (EPI-P3-3) — build an `eg_epistemic::CausalGraph` from
-/// the request-carried `variables` (rejecting an out-of-topological-order parent as
-/// an explicit error, never a panic — mirrors `CausalGraph::add_variable`'s own
-/// contract), then run the do-calculus intervention `do_values` names
-/// (`CausalGraph::intervene`). Results are re-ordered to match the request's
-/// `variables` order (a `HashMap` iteration order is not itself meaningful).
+/// `Method::CausalEstimate` (EPI-P3-3/P3-6) — build an `eg_epistemic::CausalGraph`
+/// from the request-carried `variables` (rejecting an out-of-topological-order
+/// parent as an explicit error, never a panic — mirrors
+/// `CausalGraph::add_variable`'s own contract), then run whichever of the crate's
+/// two non-counterfactual queries `mode` selects over `do_values`: the do-calculus
+/// intervention (`CausalGraph::intervene`, `mode: Intervene` — the default) or the
+/// observational conditioning query (`CausalGraph::observe`, `mode: Observe`).
+/// Results are re-ordered to match the request's `variables` order (a `HashMap`
+/// iteration order is not itself meaningful).
 #[cfg(feature = "epistemic-causal")]
 fn causal_estimate_wire(
     variables: &[crate::protocol::StructuralEquationWire],
     do_values: &std::collections::BTreeMap<String, f64>,
+    mode: crate::protocol::CausalQueryModeWire,
 ) -> Result<crate::protocol::CausalEstimateResult, String> {
     let mut g = eg_epistemic::CausalGraph::new();
     for v in variables {
         let parents: Vec<(&str, f64)> = v.parents.iter().map(|(p, w)| (p.as_str(), *w)).collect();
         g.add_variable(v.id.clone(), parents, v.bias, v.noise_var)?;
     }
-    let do_: std::collections::HashMap<String, f64> =
+    let values: std::collections::HashMap<String, f64> =
         do_values.iter().map(|(k, v)| (k.clone(), *v)).collect();
-    let estimates = g.intervene(&do_)?;
+    let estimates = match mode {
+        crate::protocol::CausalQueryModeWire::Intervene => g.intervene(&values)?,
+        crate::protocol::CausalQueryModeWire::Observe => g.observe(&values)?,
+    };
 
     let ordered = variables
         .iter()
         .map(|v| {
             let est = estimates.get(&v.id).copied().unwrap_or_else(|| {
-                unreachable!("intervene() returns an estimate for every declared variable")
+                unreachable!(
+                    "intervene()/observe() return an estimate for every declared variable"
+                )
             });
             (
                 v.id.clone(),
@@ -1855,6 +2015,40 @@ fn causal_estimate_wire(
         })
         .collect();
     Ok(crate::protocol::CausalEstimateResult { estimates: ordered })
+}
+
+/// `Method::CausalCounterfactual` (EPI-P3-6) — build an `eg_epistemic::CausalGraph`
+/// exactly as `causal_estimate_wire` does, then run Pearl's point-counterfactual
+/// recipe (`CausalGraph::counterfactual`) over the request's fully-observed
+/// `actual` unit and `do_values` intervention. Results (one point value per
+/// variable) are re-ordered to match the request's `variables` order.
+#[cfg(feature = "epistemic-causal")]
+fn causal_counterfactual_wire(
+    variables: &[crate::protocol::StructuralEquationWire],
+    actual: &std::collections::BTreeMap<String, f64>,
+    do_values: &std::collections::BTreeMap<String, f64>,
+) -> Result<crate::protocol::CausalCounterfactualResult, String> {
+    let mut g = eg_epistemic::CausalGraph::new();
+    for v in variables {
+        let parents: Vec<(&str, f64)> = v.parents.iter().map(|(p, w)| (p.as_str(), *w)).collect();
+        g.add_variable(v.id.clone(), parents, v.bias, v.noise_var)?;
+    }
+    let actual: std::collections::HashMap<String, f64> =
+        actual.iter().map(|(k, v)| (k.clone(), *v)).collect();
+    let do_: std::collections::HashMap<String, f64> =
+        do_values.iter().map(|(k, v)| (k.clone(), *v)).collect();
+    let cf = g.counterfactual(&actual, &do_)?;
+
+    let ordered = variables
+        .iter()
+        .map(|v| {
+            let val = cf.get(&v.id).copied().unwrap_or_else(|| {
+                unreachable!("counterfactual() returns a value for every declared variable")
+            });
+            (v.id.clone(), val)
+        })
+        .collect();
+    Ok(crate::protocol::CausalCounterfactualResult { values: ordered })
 }
 
 /// `Method::RankByProvenance` (EPI-P3-3) — map the request-carried

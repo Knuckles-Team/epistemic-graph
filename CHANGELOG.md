@@ -6,6 +6,38 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [Unreleased] — Ecosystem-utilization gap-fill (Python client wire-first gaps)
+
+Closes wire-first gaps the synergy-skills audit found: real, server-tested engine
+capabilities with no Python-client caller. All additive; no default/small-footprint
+build affected.
+
+### Added
+- **`ExplainBelief.disclosure_level` reachable from the client.** `QueryClient.explain_belief`
+  gains a `disclosure_level` param (`"Full"`/`"Skeleton"`/`"ExistenceOnly"`) — the wire field
+  and server handler already existed (EPI-P3-4/L51); only the client had no way to set it.
+- **The durable analytics-job plane reachable from the client.** New `JobsClient` sub-client
+  (`client.jobs.submit/status/cancel/resume`, feature `jobs`) plus the general
+  `client.cancel_request` (`Method::CancelRequest`) — both were server-implemented but had no
+  Python sender, baselined in `tests/protocol_unbound_baseline.txt`.
+- **Causal `observe`/`counterfactual` wired end to end (EPI-P3-6).** `Method::CausalEstimate`
+  gains a `mode` field (`Intervene`/`Observe`, `#[serde(default)]` `Intervene` — byte-for-byte
+  the pre-`mode` behavior) reaching `eg_epistemic::CausalGraph::observe`; a new
+  `Method::CausalCounterfactual` reaches `CausalGraph::counterfactual` (Pearl's point-
+  counterfactual recipe). Both gated `epistemic-causal` at the handler, `epistemic` at the wire
+  level (same build-tier fallback convention as `CausalEstimate`'s existing do-intervention).
+  Client methods `QueryClient.causal_estimate(..., mode=...)` / `causal_counterfactual`.
+- **Standalone Dung argumentation conflict resolution (EPI-P3-7).** New
+  `Method::ResolveConflict { node_ids, semantics }` (`"grounded"`|`"preferred"`|`"stable"`)
+  reuses `eg_epistemic::tms::{grounded_extension,preferred_extensions,stable_extensions}` —
+  previously reachable only COMPOSED inside `Method::EpistemicStatus` — to report, for each
+  requested id, whether it survives/is defeated/stays undecided under the chosen semantics,
+  plus the raw extension set(s). Gated `epistemic-tms` at the handler, `epistemic` at the wire
+  level (same build-tier fallback convention as `EpistemicStatus`/`WhatChanged`). Client method
+  `QueryClient.resolve_conflict(node_ids, semantics=...)`.
+
+---
+
 ## [2.20.0] - 2026-07-11 — Universal Modality, Distributed Planes & Epistemic Differentiation
 
 Closes out the Epistemic OS Hardening program's Phases 1-3 plus two "exceed" tracks on top
