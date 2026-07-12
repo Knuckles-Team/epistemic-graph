@@ -48,6 +48,35 @@ python3 scripts/soak_scale.py --residents 1500 --nodes-per-resident 6 --duration
 | Run | 2026-07-11T19:47–19:49Z · 1,501 residents · 8 tenants · 6 nodes/resident · 9,006 nodes · 20 s steady-state |
 | Script | `scripts/soak_scale.py` (new) |
 
+## R820 hardening run (uncontended, 300k nodes) — 2026-07-11
+
+Re-run of the same harness on a **dedicated, uncontended host** (R820: 64-core / 247 GiB,
+load ~4, deliberately NOT the RW710 graph-os host) at **33× the node count** of the local run,
+via a self-contained bundle (release binary + `soak_scale.py` + pure-Python client + msgpack,
+since R820 is airgapped from PyPI). This is the honest, larger-scale, quiet-box data point.
+
+| | |
+|---|---|
+| Host | **R820, 64-core x86-64, 247 GiB, load ~4** (uncontended, isolated from the graph-os host) |
+| Run | **50,000 residents · 8 tenants · 6 nodes/resident · 300,048 nodes** · 30 s steady-state |
+| Population | **3,432 ops/s** (87.4 s), RSS **7.5 GiB** after populating 300k nodes |
+
+| Phase | Result (measured) |
+|---|---|
+| **A steady-state** | query p50 **0.57 ms** / p99 7.1 ms (n=**21,164**); write p50 18.8 ms / p99 62.3 ms (n=8,946) — sub-ms reads at 300k nodes with a large, robust sample |
+| **B restart/cold** | acked write **survived** the kill; first successful op **2.1 s** after relaunch (warming 300k nodes) — a latency event, not data loss |
+| **C hot-tenant** | noisy-neighbor partial isolation held (same shape as the local run) |
+| **D backpressure** | burst 2,000 → **1,908 shed as BUSY**, 92 succeeded, **0 crashes**, post-burst recovery **50/50** |
+| **E eviction** | evicted node read-through **0.61 ms**, **no data loss** |
+
+**Scaling finding:** at **150,000 residents (900k nodes)** the run exceeded the 600 s bound during
+the population-bound phase (population is single-writer-funnel-limited — the north-star M1 concern);
+that is a real, expected single-box ceiling, not a failure. Larger-than-single-box populations need
+the 4-node cluster's multi-group parallel write path (see the cluster-only section below).
+
+**Read this run as the primary scale data point** (quiet box, 300k nodes, robust samples); the
+contended local run below is the same harness under CPU contention (latencies there are an upper bound).
+
 ## Phase A — population build + steady-state mixed workload
 
 **Population:** 9,006 nodes written in **4.54 s = 1,986 ops/s**; RSS after populate **716 MiB**.
