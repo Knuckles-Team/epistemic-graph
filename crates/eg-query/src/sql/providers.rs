@@ -81,6 +81,15 @@ impl Inferred {
     }
 }
 
+/// The fixed column names `infer_nodes` always emits (`id` at the front, `props` at
+/// the back) — reserved so a same-named node PROPERTY never produces a second Arrow
+/// `Field` with the same name (DataFusion rejects a schema with a duplicate
+/// qualified field name, e.g. `nodes.id`, on every query over the table, not just
+/// ones that reference the column).
+fn is_reserved_column(name: &str) -> bool {
+    name == "id" || name == "props"
+}
+
 /// A decoded node: its id plus the raw blob and the decoded JSON object (or `None`
 /// if the blob didn't decode to an object — it still appears as an id+props row).
 struct DecodedNode<'a> {
@@ -122,9 +131,22 @@ pub(crate) fn infer_nodes(view: &GraphView) -> Result<(SchemaRef, RecordBatch), 
     }
 
     // Schema: id (Utf8, non-null), inferred columns (all nullable), props (Binary).
+    // `id` and `props` are RESERVED column names owned by the fixed columns above/
+    // below this loop — if a node's own JSON properties happen to carry a key
+    // literally named "id" or "props" (common: many ingested nodes stash their own
+    // id as a property), skip it here rather than emitting a second `Field` with the
+    // same name. DataFusion's schema validation rejects a duplicate qualified field
+    // name (`nodes.id`) on ANY query over the table, even `SELECT COUNT(*)` — so an
+    // unfiltered duplicate silently broke every NL/SQL query once a single node
+    // anywhere in the graph carried an `id`/`props` property. The reserved fixed
+    // column always wins; the duplicate property value is still reachable via the
+    // `props` escape-hatch blob.
     let mut fields: Vec<Field> = Vec::with_capacity(inferred.len() + 2);
     fields.push(Field::new("id", DataType::Utf8, false));
     for (name, kind) in inferred.iter() {
+        if is_reserved_column(name) {
+            continue;
+        }
         fields.push(Field::new(name, kind.arrow_type(), true));
     }
     fields.push(Field::new("props", DataType::Binary, false));
@@ -149,8 +171,14 @@ fn build_batch(
     }
     columns.push(Arc::new(id_b.finish()));
 
-    // inferred property columns.
+    // inferred property columns. Mirrors the field-list skip above: a property
+    // literally named `id`/`props` does not get its own column (the reserved fixed
+    // column already occupies that name), keeping the batch's column count aligned
+    // 1:1 with the schema built above.
     for (name, kind) in inferred.iter() {
+        if is_reserved_column(name) {
+            continue;
+        }
         let col: ArrayRef = match kind {
             Inferred::Bool => {
                 let mut b = BooleanBuilder::new();
@@ -811,5 +839,73 @@ mod provider_tests {
             "cap=1 must refuse a second column"
         );
         std::env::remove_var("EPISTEMIC_GRAPH_MAX_INDEXED_PROPERTIES");
+    }
+
+    /// Regression: a node whose OWN JSON properties carry a key literally named
+    /// `id` (or `props`) must NOT produce a second Arrow `Field` of the same name —
+    /// `infer_nodes`'s schema must stay unique, and the batch's column count must
+    /// stay 1:1 aligned with it. Before the `is_reserved_column` guard, this
+    /// scenario made `Schema::new` emit two `id` fields, which DataFusion rejects
+    /// with "Schema contains duplicate qualified field name nodes.id" on EVERY
+    /// query over the table (even `SELECT COUNT(*)`, which touches no columns).
+    #[test]
+    fn duplicate_reserved_property_does_not_duplicate_schema_field() {
+        let core = GraphCore::new();
+        core.add_node(
+            "a".into(),
+            rmp_serde::to_vec_named(&json!({"id": "a", "label": "Server"})).unwrap(),
+        );
+        core.add_node(
+            "b".into(),
+            rmp_serde::to_vec_named(&json!({"id": "b", "label": "Server", "props": "x"})).unwrap(),
+        );
+        let snap = core.analysis_snapshot();
+        let (schema, batch) = infer_nodes(&snap).unwrap();
+
+        // Exactly one `id` field and one `props` field.
+        let id_count = schema.fields().iter().filter(|f| f.name() == "id").count();
+        let props_count = schema
+            .fields()
+            .iter()
+            .filter(|f| f.name() == "props")
+            .count();
+        assert_eq!(id_count, 1, "schema must carry exactly one `id` field");
+        assert_eq!(
+            props_count, 1,
+            "schema must carry exactly one `props` field"
+        );
+        // Batch column count matches schema field count (build_batch stayed in sync).
+        assert_eq!(batch.num_columns(), schema.fields().len());
+        // `label` (a non-reserved property) still made it into the schema.
+        assert!(schema.field_with_name("label").is_ok());
+    }
+
+    /// End-to-end: the exact failure mode from the bug report. Register a graph
+    /// with a node carrying an `id` property (colliding with the reserved column)
+    /// and run real SQL through `exec_sql` — both `SELECT COUNT(*)` and
+    /// `SELECT id FROM nodes LIMIT 1` must succeed with no "duplicate qualified
+    /// field name" schema error.
+    #[test]
+    fn count_and_select_id_succeed_with_colliding_id_property() {
+        use crate::sql::exec::exec_sql;
+
+        let core = GraphCore::new();
+        core.add_node(
+            "srv-1".into(),
+            rmp_serde::to_vec_named(&json!({"id": "srv-1", "label": "Server"})).unwrap(),
+        );
+        core.add_node(
+            "srv-2".into(),
+            rmp_serde::to_vec_named(&json!({"id": "srv-2", "label": "Server"})).unwrap(),
+        );
+        let snap = core.analysis_snapshot();
+
+        let count = exec_sql(&snap, "SELECT COUNT(*) FROM nodes WHERE label='Server'")
+            .expect("COUNT(*) query must not fail with a duplicate-field schema error");
+        assert_eq!(count.rows.len(), 1);
+
+        let sel = exec_sql(&snap, "SELECT id FROM nodes LIMIT 1")
+            .expect("SELECT id query must not fail with a duplicate-field schema error");
+        assert_eq!(sel.rows.len(), 1);
     }
 }
