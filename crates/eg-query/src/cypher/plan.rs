@@ -274,6 +274,11 @@ pub enum Expr {
     CountStar,
     /// An aggregation over a variable or `var.prop` (CONCEPT:EG-KG.query.eg-extend-read-side).
     Aggregate(AggFunc, AggArg),
+    /// `type(r)` — the relationship-type accessor over a bound edge variable
+    /// (CONCEPT:EG-KG.query.rel-type-projection). Reads the SAME `relationship`/`type`/`rel_type`
+    /// property keys `rel_matches` matches on, so `type(r)` is never null for an
+    /// edge a typed `-[:REL]->` pattern could have matched.
+    RelType(String),
 }
 
 impl Expr {
@@ -284,6 +289,7 @@ impl Expr {
             Expr::Prop(v, p) => format!("{v}.{p}"),
             Expr::CountStar => "count(*)".to_string(),
             Expr::Aggregate(f, a) => format!("{}({})", f.name(), a.text()),
+            Expr::RelType(v) => format!("type({v})"),
         }
     }
 }
