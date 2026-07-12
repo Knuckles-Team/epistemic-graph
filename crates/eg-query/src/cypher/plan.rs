@@ -176,6 +176,10 @@ pub enum Direction {
     Right,
     /// `<-[..]-`
     Left,
+    /// `-[..]-` — undirected: matches an edge in EITHER direction between the two
+    /// endpoints. Read-only (MATCH); `CREATE`/`MERGE` reject it since an undirected
+    /// hop names no concrete direction to realize (CONCEPT:EG-KG.query.undirected-relationship-pattern).
+    Both,
 }
 
 /// `a.prop <op> <literal>`.
