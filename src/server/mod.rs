@@ -1528,6 +1528,10 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("eg-cc-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let state = Arc::new(RwLock::new(ServerState {
+            #[cfg(feature = "dataset-handle")]
+            dataset_handles: std::sync::Arc::new(
+                crate::server::dataset_handle::DatasetHandleRegistry::new(),
+            ),
             #[cfg(feature = "redb")]
             cold_tracker: std::sync::Arc::new(
                 crate::server::persistence::cold_offload::ColdTenantTracker::new(),
@@ -1624,6 +1628,10 @@ mod tests {
             crate::server::persistence::snapshot_wal::SnapshotWalBackend::new(Some(svc.clone())),
         );
         let state = Arc::new(RwLock::new(ServerState {
+            #[cfg(feature = "dataset-handle")]
+            dataset_handles: std::sync::Arc::new(
+                crate::server::dataset_handle::DatasetHandleRegistry::new(),
+            ),
             #[cfg(feature = "redb")]
             cold_tracker: std::sync::Arc::new(
                 crate::server::persistence::cold_offload::ColdTenantTracker::new(),
@@ -1726,6 +1734,10 @@ mod tests {
         .unwrap();
 
         let state = Arc::new(RwLock::new(ServerState {
+            #[cfg(feature = "dataset-handle")]
+            dataset_handles: std::sync::Arc::new(
+                crate::server::dataset_handle::DatasetHandleRegistry::new(),
+            ),
             #[cfg(feature = "redb")]
             cold_tracker: std::sync::Arc::new(
                 crate::server::persistence::cold_offload::ColdTenantTracker::new(),
@@ -1930,6 +1942,10 @@ mod tests {
         }
 
         let state = Arc::new(RwLock::new(ServerState {
+            #[cfg(feature = "dataset-handle")]
+            dataset_handles: std::sync::Arc::new(
+                crate::server::dataset_handle::DatasetHandleRegistry::new(),
+            ),
             #[cfg(feature = "redb")]
             cold_tracker: std::sync::Arc::new(
                 crate::server::persistence::cold_offload::ColdTenantTracker::new(),

@@ -294,6 +294,10 @@ mod admission_tests {
         let backend: Arc<dyn PersistenceBackend> =
             Arc::new(RedbBackend::open(dir_s.to_string(), FsyncPolicy::Each, 64).expect("open"));
         let state = Arc::new(RwLock::new(ServerState {
+            #[cfg(feature = "dataset-handle")]
+            dataset_handles: std::sync::Arc::new(
+                crate::server::dataset_handle::DatasetHandleRegistry::new(),
+            ),
             cold_tracker: Arc::new(ColdTenantTracker::new()),
             registry: GraphRegistry::new(),
             isolation: IsolationLayer::new(),
@@ -529,6 +533,10 @@ mod admission_tests {
         let backend2: Arc<dyn PersistenceBackend> =
             Arc::new(RedbBackend::open(dir_s.clone(), FsyncPolicy::Each, 64).expect("reopen"));
         let state2 = Arc::new(RwLock::new(ServerState {
+            #[cfg(feature = "dataset-handle")]
+            dataset_handles: std::sync::Arc::new(
+                crate::server::dataset_handle::DatasetHandleRegistry::new(),
+            ),
             cold_tracker: Arc::new(ColdTenantTracker::new()),
             registry: GraphRegistry::new(),
             isolation: IsolationLayer::new(),
