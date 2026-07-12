@@ -983,6 +983,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 ticker.tick().await; // consume the immediate first tick
                 loop {
                     ticker.tick().await;
+                    let __loop_tick_started = std::time::Instant::now();
                     // `lake` implies `blob` + `tsdb`, so both are always configured
                     // (`Some`) here — neither is ever independently off in this build.
                     let (lake_handle, tsdb, store) = {
@@ -1029,6 +1030,10 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                             );
                         }
                     }
+                    epistemic_graph::metrics::loop_tick(
+                        "lake_materialize",
+                        __loop_tick_started.elapsed().as_secs_f64(),
+                    );
                 }
             });
         }
@@ -1604,9 +1609,14 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 ticker.tick().await; // consume the immediate first tick
                 loop {
                     ticker.tick().await;
+                    let __loop_tick_started = std::time::Instant::now();
                     if let Err(e) = backend.checkpoint_all(&cp_state).await {
                         tracing::warn!("Auto-checkpoint failed: {}", e);
                     }
+                    epistemic_graph::metrics::loop_tick(
+                        "checkpoint",
+                        __loop_tick_started.elapsed().as_secs_f64(),
+                    );
                 }
             });
         }
@@ -1625,6 +1635,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             ticker.tick().await; // consume the immediate first tick
             loop {
                 ticker.tick().await;
+                let __loop_tick_started = std::time::Instant::now();
                 let stats =
                     epistemic_graph::persist::decay_all(&dk_state, half_life, floor, prune).await;
                 tracing::info!(
@@ -1633,6 +1644,10 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                     stats.edges_decayed,
                     stats.nodes_pruned,
                     stats.edges_pruned
+                );
+                epistemic_graph::metrics::loop_tick(
+                    "decay_sweep",
+                    __loop_tick_started.elapsed().as_secs_f64(),
                 );
             }
         });
@@ -1674,12 +1689,17 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             ticker.tick().await; // consume the immediate first tick
             loop {
                 ticker.tick().await;
+                let __loop_tick_started = std::time::Instant::now();
                 let evicted =
                     epistemic_graph::persist::evict_oversized_all(&cap_state, max_nodes_per_graph)
                         .await;
                 if evicted > 0 {
                     tracing::info!("Memory cap: evicted {} LRU node(s) over cap", evicted);
                 }
+                epistemic_graph::metrics::loop_tick(
+                    "memcap_sweep",
+                    __loop_tick_started.elapsed().as_secs_f64(),
+                );
             }
         });
     }
@@ -1712,6 +1732,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 ticker.tick().await; // consume the immediate first tick
                 loop {
                     ticker.tick().await;
+                    let __loop_tick_started = std::time::Instant::now();
                     let (evicted, hibernated) =
                         epistemic_graph::cost::enforce_memory_budgets(&budget_state, cost_config)
                             .await;
@@ -1723,6 +1744,10 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                             hibernated
                         );
                     }
+                    epistemic_graph::metrics::loop_tick(
+                        "budget_enforcer",
+                        __loop_tick_started.elapsed().as_secs_f64(),
+                    );
                 }
             });
         }
@@ -1756,6 +1781,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 ticker.tick().await; // consume the immediate first tick
                 loop {
                     ticker.tick().await;
+                    let __loop_tick_started = std::time::Instant::now();
                     let n =
                         epistemic_graph::server::persistence::cold_offload::offload_cold_tenants(
                             &cold_state,
@@ -1766,6 +1792,10 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                     if n > 0 {
                         tracing::info!("Cold-tenant offload: hibernated {} idle graph(s)", n);
                     }
+                    epistemic_graph::metrics::loop_tick(
+                        "cold_offload",
+                        __loop_tick_started.elapsed().as_secs_f64(),
+                    );
                 }
             });
         }
@@ -1785,6 +1815,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             ticker.tick().await; // consume the immediate first tick
             loop {
                 ticker.tick().await;
+                let __loop_tick_started = std::time::Instant::now();
                 let now = epistemic_graph::server::txn::now_ms();
                 let reclaimed =
                     epistemic_graph::server::txn::sweep_expired_txns(&sweep_state, ttl, now);
@@ -1794,6 +1825,10 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                         reclaimed
                     );
                 }
+                epistemic_graph::metrics::loop_tick(
+                    "txn_ttl_sweep",
+                    __loop_tick_started.elapsed().as_secs_f64(),
+                );
             }
         });
     }

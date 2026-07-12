@@ -249,6 +249,31 @@ mod imp {
             "Queries whose end-to-end execution met/exceeded EPISTEMIC_GRAPH_SLOW_QUERY_MS \
              (CONCEPT:EG-OS.observability.slow-query-descriptor). Zero unless the slow-query threshold is configured",
         );
+        // ── Background interval-loop observability (daemon-consolidation design, Phase 2) ──
+        // The engine's own hardcoded `tokio::time::interval` sweeps (lake materialize,
+        // checkpoint, decay, memory-cap, memory-budget, cold-tenant offload, txn-TTL) each
+        // funnel their tick through ONE call (`loop_tick`) so they show up on the SAME
+        // telemetry plane as everything else, without touching any loop's cadence or logic.
+        // The `loop` label is a fixed, small set of hardcoded names (bounded cardinality —
+        // no `graph_label`-style overflow guard needed).
+        static ref LOOP_TICKS_TOTAL: IntCounterVec = counter_vec(
+            "epistemic_graph_background_loop_ticks_total",
+            "Ticks completed by an engine-native background interval loop, by loop name \
+             (CONCEPT:EG-OS.observability.background-loop-telemetry)",
+            &["loop"],
+        );
+        static ref LOOP_TICK_DURATION: HistogramVec = histogram_vec(
+            "epistemic_graph_background_loop_tick_duration_seconds",
+            "Wall-clock duration of one background interval-loop tick's own work \
+             (excludes the sleep between ticks), by loop name",
+            &["loop"],
+            vec![0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 15.0, 60.0, 300.0],
+        );
+        static ref LOOP_LAST_RUN: IntGaugeVec = gauge_vec(
+            "epistemic_graph_background_loop_last_run_timestamp_seconds",
+            "Unix timestamp of the last completed tick, by loop name",
+            &["loop"],
+        );
     }
 
     /// Map a graph name onto the bounded label space.
@@ -384,6 +409,21 @@ mod imp {
             .observe(seconds);
     }
 
+    /// Record one completed tick of an engine-native background interval loop
+    /// (daemon-consolidation design, Phase 2): `name` is a fixed loop identifier
+    /// (e.g. `"cold_offload"`), `seconds` is the tick's own work duration (the sweep
+    /// body only, not the sleep between ticks). Pure observability — call this AFTER
+    /// a tick's existing logic runs, with zero change to what that logic does.
+    pub fn loop_tick(name: &str, seconds: f64) {
+        LOOP_TICKS_TOTAL.with_label_values(&[name]).inc();
+        LOOP_TICK_DURATION.with_label_values(&[name]).observe(seconds);
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        LOOP_LAST_RUN.with_label_values(&[name]).set(now as i64);
+    }
+
     /// Render the full registry in Prometheus text exposition format.
     pub fn render() -> String {
         let encoder = TextEncoder::new();
@@ -422,6 +462,7 @@ mod imp {
     pub fn write_batch_committed(_graph: &str, _ops: usize) {}
     pub fn observe_write_lock_wait(_graph: &str, _seconds: f64) {}
     pub fn observe_write_lock_hold(_graph: &str, _seconds: f64) {}
+    pub fn loop_tick(_name: &str, _seconds: f64) {}
     pub fn render() -> String {
         String::new()
     }
