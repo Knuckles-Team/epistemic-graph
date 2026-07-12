@@ -266,13 +266,18 @@ pub fn policy(m: &Method) -> MethodPolicy {
         // above. `RegisterMaterialization` is idempotent: re-registering the same id replaces
         // its dependency set with the SAME freshly-resolved provenance read.
         Method::RegisterMaterialization { .. } | Method::MaterializationStatus { .. } => MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "explain:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot },
-        // CONCEPT:EG-X1 + EPI-P3-3 (facade wiring): multimodal-citation resolution +
-        // calibrated causal reasoning + provenance-aware retrieval ranking. All three
-        // read-only, no durability, no audit/CDC — same profile as `ExplainBelief`
-        // above (`ExplainEvidence` walks a `BeliefGraph`; `CausalEstimate`/
-        // `RankByProvenance` are pure functions over request-carried inputs, needing
-        // no graph snapshot at all).
-        Method::ExplainEvidence { .. } | Method::CausalEstimate { .. } | Method::RankByProvenance { .. } => MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "explain:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot },
+        // EPI-P3-7 (gap-fill): standalone Dung argumentation conflict resolution. Builds a
+        // `BeliefGraph` off the caller's read-only `GraphView` snapshot and runs
+        // grounded/preferred/stable extension computation -- read-only, no durability, no
+        // audit/CDC, same profile as `EpistemicStatus`/`ExplainBelief` above.
+        Method::ResolveConflict { .. } => MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "explain:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot },
+        // CONCEPT:EG-X1 + EPI-P3-3/P3-6 (facade wiring): multimodal-citation resolution +
+        // calibrated causal reasoning (intervention/observation/counterfactual) +
+        // provenance-aware retrieval ranking. All four read-only, no durability, no
+        // audit/CDC — same profile as `ExplainBelief` above (`ExplainEvidence` walks a
+        // `BeliefGraph`; `CausalEstimate`/`CausalCounterfactual`/`RankByProvenance` are
+        // pure functions over request-carried inputs, needing no graph snapshot at all).
+        Method::ExplainEvidence { .. } | Method::CausalEstimate { .. } | Method::CausalCounterfactual { .. } | Method::RankByProvenance { .. } => MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "explain:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot },
         Method::NlQuery { .. } => MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "query:nl", idempotent: false, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot },
         Method::RegisterForeignSource { .. } => MethodPolicy { mutates: true, durability_domain: DurabilityDomain::None, authz_action: "federation:admin", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Atomic },
         Method::RegisterUdf { .. } => MethodPolicy { mutates: true, durability_domain: DurabilityDomain::None, authz_action: "udf:admin", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Atomic },
@@ -606,8 +611,10 @@ pub const ALL_METHODS: &[(&str, MethodPolicy, &str)] = &[
         ("WhatChanged", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "explain:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "L53 (EPI-P3-5) bitemporal diff; handler additionally gated `epistemic-tms`"),
         ("RegisterMaterialization", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "explain:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "Seam 3 (X-6 wire surface): registers a TruthMaintenance materialization off its own stored provenance; side effect lands only in the ephemeral tms_hook index, never the durable graph; handler additionally gated `epistemic-tms`"),
         ("MaterializationStatus", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "explain:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "Seam 3: read-only status lookup on the same tms_hook index; handler additionally gated `epistemic-tms`"),
+        ("ResolveConflict", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "explain:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "EPI-P3-7 (gap-fill) standalone Dung argumentation (grounded/preferred/stable) conflict resolution over a BeliefGraph snapshot; handler additionally gated `epistemic-tms`"),
         ("ExplainEvidence", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "explain:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "CONCEPT:EG-X1 multimodal-citation resolver; handler additionally gated `evidence-graph`"),
-        ("CausalEstimate", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "explain:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "EPI-P3-3 do-calculus intervention over a request-carried SCM; handler additionally gated `epistemic-causal`"),
+        ("CausalEstimate", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "explain:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "EPI-P3-3/P3-6 do-calculus intervention OR observational conditioning (selected by `mode`) over a request-carried SCM; handler additionally gated `epistemic-causal`"),
+        ("CausalCounterfactual", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "explain:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "EPI-P3-6 Pearl point-counterfactual over a request-carried SCM + a fully-observed unit; handler additionally gated `epistemic-causal`"),
         ("RankByProvenance", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "explain:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "EPI-P3-3 provenance-aware retrieval ranking; handler additionally gated `epistemic-causal`"),
         ("NlQuery", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "query:nl", idempotent: false, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, ""),
         ("RegisterForeignSource", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::None, authz_action: "federation:admin", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "NOT present in access.rs's write classifier at all; policy marks it mutates=true on semantic grounds (registers a foreign-source config) -- flagged as a possible access.rs coverage gap"),
@@ -783,7 +790,9 @@ mod smoke_tests {
         // CONCEPT:EG-KB-CURRENCY: +1 (343 -> 344 base) for `Method::ExplainProvenanceByIds`.
         // Seam 3 (X-6 wire surface): +2 (344 -> 346 base) for
         // `Method::RegisterMaterialization` / `Method::MaterializationStatus`.
-        let expected = if cfg!(feature = "jobs") { 347 } else { 346 };
+        // EPI-P3-6 (gap-fill): +1 (346 -> 347 base) for `Method::CausalCounterfactual`.
+        // EPI-P3-7 (gap-fill): +1 (347 -> 348 base) for `Method::ResolveConflict`.
+        let expected = if cfg!(feature = "jobs") { 349 } else { 348 };
         assert_eq!(seen.len(), expected, "expected exactly {expected} Method variants");
     }
 

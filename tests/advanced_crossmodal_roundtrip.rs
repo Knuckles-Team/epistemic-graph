@@ -2077,6 +2077,7 @@ async fn causal_estimate_do_calculus_matches_hand_derivation_over_rpc() {
             Method::CausalEstimate {
                 variables,
                 do_values,
+                mode: Default::default(),
             },
         ),
     )
@@ -2182,6 +2183,143 @@ async fn rank_by_provenance_favors_corroborated_evidence_over_raw_similarity_ove
         result.ranked.iter().map(|r| &r.id).collect::<Vec<_>>()
     );
     assert!(result.ranked[0].score > result.ranked[1].score);
+}
+
+/// EPI-P3-7 (gap-fill) — `Method::ResolveConflict`, over the served RPC surface: the
+/// SAME textbook mutual-conflict AF `eg_epistemic::tms`'s own unit tests use — `a` and
+/// `b` directly ATTACK each other (symmetric conflict, no other evidence either way),
+/// `c` is unattacked/unattacking. Proves the standalone op matches the crate's own
+/// grounded/preferred/stable semantics: grounded leaves the conflict pair UNDECIDED
+/// (paraconsistent, no explosion) while `c` survives; preferred/stable resolve the
+/// conflict credulously (both `a` and `b` are "undecided" — each accepted under only
+/// one of the two extensions — while `c` survives every extension).
+#[cfg(feature = "epistemic-tms")]
+#[tokio::test]
+async fn resolve_conflict_matches_tms_crate_semantics_over_rpc() {
+    use epistemic_graph::protocol::ResolveConflictResult;
+
+    let state = state();
+    let mut setup_id = 0u64;
+    for (id, confidence) in [("a", 0.5), ("b", 0.5), ("c", 0.9)] {
+        setup_id += 1;
+        ok(
+            &state,
+            setup_id,
+            Method::AddNode {
+                node_id: id.into(),
+                properties_msgpack: pack(json!({ "type": "Claim", "confidence": confidence })),
+            },
+        )
+        .await;
+    }
+    setup_id += 1;
+    ok(
+        &state,
+        setup_id,
+        Method::AddEdge {
+            source_id: "a".into(),
+            target_id: "b".into(),
+            properties_msgpack: pack(json!({ "relationship_type": "ATTACKS" })),
+        },
+    )
+    .await;
+    setup_id += 1;
+    ok(
+        &state,
+        setup_id,
+        Method::AddEdge {
+            source_id: "b".into(),
+            target_id: "a".into(),
+            properties_msgpack: pack(json!({ "relationship_type": "ATTACKS" })),
+        },
+    )
+    .await;
+
+    let node_ids = vec!["a".to_string(), "b".to_string(), "c".to_string()];
+
+    // ── grounded: c survives; a/b are BOTH undecided (paraconsistent, no explosion) ──
+    let resp = dispatch(
+        &state,
+        req(
+            1,
+            Method::ResolveConflict {
+                node_ids: node_ids.clone(),
+                semantics: "grounded".into(),
+            },
+        ),
+    )
+    .await;
+    assert!(resp.error.is_none(), "ResolveConflict error: {:?}", resp.error);
+    let bytes = match &resp.result {
+        Some(ResultPayload::Raw(b)) => b.clone(),
+        other => panic!("expected Raw result, got {other:?}"),
+    };
+    let grounded: ResolveConflictResult =
+        rmp_serde::from_slice(&bytes).expect("ResolveConflictResult decodes");
+    assert_eq!(grounded.semantics, "grounded");
+    assert_eq!(grounded.surviving, vec!["c".to_string()]);
+    assert_eq!(
+        {
+            let mut u = grounded.undecided.clone();
+            u.sort();
+            u
+        },
+        vec!["a".to_string(), "b".to_string()]
+    );
+    assert!(grounded.defeated.is_empty());
+    assert_eq!(grounded.extension_sets.len(), 1);
+    assert_eq!(grounded.extension_sets[0], vec!["c".to_string()]);
+
+    // ── preferred: two credulous extensions {a,c} and {b,c} — c survives every
+    // extension, a and b are each accepted in only ONE (undecided, contested) ──
+    let resp = dispatch(
+        &state,
+        req(
+            2,
+            Method::ResolveConflict {
+                node_ids: node_ids.clone(),
+                semantics: "preferred".into(),
+            },
+        ),
+    )
+    .await;
+    assert!(resp.error.is_none(), "ResolveConflict error: {:?}", resp.error);
+    let bytes = match &resp.result {
+        Some(ResultPayload::Raw(b)) => b.clone(),
+        other => panic!("expected Raw result, got {other:?}"),
+    };
+    let preferred: ResolveConflictResult =
+        rmp_serde::from_slice(&bytes).expect("ResolveConflictResult decodes");
+    assert_eq!(preferred.surviving, vec!["c".to_string()]);
+    assert_eq!(
+        {
+            let mut u = preferred.undecided.clone();
+            u.sort();
+            u
+        },
+        vec!["a".to_string(), "b".to_string()]
+    );
+    assert!(preferred.defeated.is_empty());
+    assert_eq!(
+        preferred.extension_sets.len(),
+        2,
+        "expected the two maximal admissible sets {{a,c}} and {{b,c}}, got {:?}",
+        preferred.extension_sets
+    );
+
+    // ── an unknown semantics string is a clear engine error, never a panic/mis-route ──
+    let resp = dispatch(
+        &state,
+        req(
+            3,
+            Method::ResolveConflict {
+                node_ids: node_ids.clone(),
+                semantics: "bogus".into(),
+            },
+        ),
+    )
+    .await;
+    assert!(resp.error.is_some(), "expected an explicit error for an unknown semantics");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

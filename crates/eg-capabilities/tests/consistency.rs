@@ -481,7 +481,9 @@ fn all_methods_table_has_the_expected_variant_count() {
     // CONCEPT:EG-KB-CURRENCY: +1 (343 -> 344 base) for `Method::ExplainProvenanceByIds`.
     // Seam 3 (X-6 wire surface): +2 (344 -> 346 base) for
     // `Method::RegisterMaterialization` / `Method::MaterializationStatus`.
-    let expected = if cfg!(feature = "jobs") { 347 } else { 346 };
+    // EPI-P3-6 (gap-fill): +1 (346 -> 347 base) for `Method::CausalCounterfactual`.
+    // EPI-P3-7 (gap-fill): +1 (347 -> 348 base) for `Method::ResolveConflict`.
+    let expected = if cfg!(feature = "jobs") { 349 } else { 348 };
     assert_eq!(eg_capabilities::ALL_METHODS.len(), expected);
 }
 
