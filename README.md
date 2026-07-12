@@ -229,11 +229,10 @@ is additive on top of the `full` build. See [`docs/capabilities.md`](docs/capabi
   then). Transport TLS/mTLS and OIDC principals are **not** part of this yet. pgwire separately adds
   SCRAM-SHA-256. See [Service mode](docs/service_mode.md#authentication-protocol) for the full contract.
 - **Per-agent Row-Level Security** applied before any query surface touches the graph; the result cache
-  keys on the caller's RLS context. The default posture remains **permissive/back-compat** — an
-  unowned/undecodable/untagged-legacy row stays visible to all, unchanged from every pre-EG-P0-6
-  deployment. An opt-in **strict/default-deny posture** (EG-P0-6, `EPISTEMIC_GRAPH_RLS_DEFAULT_DENY=1`)
-  denies such a row unless it's explicitly `_visibility: "public"` or `_owner`-tagged — set it to get
-  the stricter posture; it is not the shipped default.
+  keys on the caller's RLS context. The default posture is **strict/default-deny** (EG-P0-6, secure by
+  default as of WS-1b) — an unowned/undecodable/untagged-legacy row is DENIED unless it's
+  explicitly `_visibility: "public"` or `_owner`-tagged. Opt back into the permissive/back-compat
+  posture (such a row stays visible to all) with `EPISTEMIC_GRAPH_RLS_DEFAULT_DENY=0`.
 - **Encryption-at-rest** (ChaCha20-Poly1305, pure-Rust) + a **hash-chained tamper-evident audit log**
   covering every one of the ~80 gateway-routed mutating methods (the single `MutationPlan`/
   `commit_mutation` gateway) plus a documented, machine-checked-empty triage of every other mutating

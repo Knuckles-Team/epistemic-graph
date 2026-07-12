@@ -646,28 +646,36 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         registry: GraphRegistry::new(),
         isolation: {
             // RLS default-deny / strict-isolation posture (CONCEPT:EG-KG.sharding.row-level-security, EG-P0-6).
-            // OFF (permissive, back-compat) unless explicitly enabled: an unowned/
-            // undecodable/untagged-legacy row stays visible to all, unchanged from
-            // every pre-EG-P0-6 deployment. Set to enable the SECURE/target posture
-            // -- see `eg_core::isolation::IsolationLayer`'s `rls_default_deny` field
-            // docs for the exact semantics and the migration implication (legacy
-            // unowned rows become invisible until backfilled with an `_owner` or an
-            // explicit `_visibility: "public"` tag).
+            // STRICT (secure-by-default) unless explicitly opted out: a fresh/
+            // greenfield deployment hides an unowned/undecodable/untagged-legacy row
+            // unless it explicitly carries `_visibility: "public"` or an `_owner` a
+            // rule already grants. Opt back into the permissive/back-compat posture
+            // with `EPISTEMIC_GRAPH_RLS_DEFAULT_DENY=0|false|no|off` -- see
+            // `eg_core::isolation::resolve_rls_default_deny` for the exact parse
+            // rules and `IsolationLayer`'s `rls_default_deny` field docs for the
+            // semantics and migration implication (legacy unowned rows become
+            // invisible until backfilled with an `_owner` or an explicit
+            // `_visibility: "public"` tag).
             #[cfg(feature = "security")]
             {
-                let strict = std::env::var("EPISTEMIC_GRAPH_RLS_DEFAULT_DENY")
-                    .map(|v| {
-                        matches!(
-                            v.trim().to_ascii_lowercase().as_str(),
-                            "1" | "true" | "yes" | "on"
-                        )
-                    })
-                    .unwrap_or(false);
+                let strict = epistemic_graph::isolation::resolve_rls_default_deny(
+                    std::env::var("EPISTEMIC_GRAPH_RLS_DEFAULT_DENY")
+                        .ok()
+                        .as_deref(),
+                );
                 if strict {
                     info!(
-                        "RLS default-deny (strict isolation) ENABLED via EPISTEMIC_GRAPH_RLS_DEFAULT_DENY: \
-                         unowned/undecodable/untagged-legacy rows are now hidden unless explicitly \
-                         `_visibility: public` or `_owner`-granted (CONCEPT:EG-KG.sharding.row-level-security, EG-P0-6)"
+                        "RLS default-deny (strict isolation) ACTIVE (secure-by-default; \
+                         set EPISTEMIC_GRAPH_RLS_DEFAULT_DENY=0 to opt back into the permissive \
+                         posture): unowned/undecodable/untagged-legacy rows are hidden unless \
+                         explicitly `_visibility: public` or `_owner`-granted \
+                         (CONCEPT:EG-KG.sharding.row-level-security, EG-P0-6)"
+                    );
+                } else {
+                    info!(
+                        "RLS default-deny DISABLED via EPISTEMIC_GRAPH_RLS_DEFAULT_DENY: running the \
+                         permissive/back-compat posture -- an unowned/undecodable/untagged-legacy row \
+                         stays visible to all (CONCEPT:EG-KG.sharding.row-level-security, EG-P0-6)"
                     );
                 }
                 IsolationLayer::new().with_rls_default_deny(strict)
