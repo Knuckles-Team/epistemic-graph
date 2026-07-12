@@ -1546,6 +1546,9 @@ mod tests {
         let view = core.analysis_snapshot();
         let rs = RowSet::from_ids(["claim1".to_string()]);
 
+        // `ks` is only asserted-on in the non-epistemic branch below; with the
+        // `epistemic` feature that block is cfg'd out, leaving it unused.
+        #[cfg_attr(feature = "epistemic", allow(unused_variables))]
         let ks = KnowledgeSet::from_rowset(&rs, &view, &[]);
         #[cfg(not(feature = "epistemic"))]
         {
