@@ -251,10 +251,7 @@ mod tests {
     fn node_without_blob_ref_returns_none() {
         let cas = store();
         let core = GraphCore::new();
-        core.add_node(
-            "doc1".into(),
-            blob(json!({ "node_type": "Document" })),
-        );
+        core.add_node("doc1".into(), blob(json!({ "node_type": "Document" })));
         let view = core.analysis_snapshot();
 
         let resolver = CasEvidenceResolver::new(&view, cas);

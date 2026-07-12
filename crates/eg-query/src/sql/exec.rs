@@ -184,10 +184,7 @@ impl SpillFile {
     }
 
     fn append(&mut self, batches: &[arrow::record_batch::RecordBatch]) -> Result<(), String> {
-        let writer = self
-            .writer
-            .as_mut()
-            .ok_or("spill file already finished")?;
+        let writer = self.writer.as_mut().ok_or("spill file already finished")?;
         for b in batches {
             writer.write(b).map_err(|e| format!("spill write: {e}"))?;
         }
@@ -551,7 +548,15 @@ pub fn exec_sql_typed_with_tables_cancellable(
     // push a matching `ORDER BY col <-> $1 LIMIT k` down to a real eg-ann index.
     let ann_indexes = store.list_ann_indexes()?;
     run_typed(
-        view, nodes, edges, user, views, functions, ann_indexes, sql, cancel,
+        view,
+        nodes,
+        edges,
+        user,
+        views,
+        functions,
+        ann_indexes,
+        sql,
+        cancel,
     )
 }
 
@@ -1405,7 +1410,10 @@ mod streaming_tests {
         // rows (>= 4) ⇒ spills batches 1+2; batch 3 (3 more) never re-crosses 4 in
         // this run, so it stays resident and is appended after the recovered spill.
         let (out, outcome) = collect_streaming(stream, &cancel, 4).await.unwrap();
-        assert!(outcome.spilled, "crossing the threshold must trigger a spill");
+        assert!(
+            outcome.spilled,
+            "crossing the threshold must trigger a spill"
+        );
         assert_eq!(outcome.rows, 9);
         assert_eq!(flatten_i32(&out), vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
     }

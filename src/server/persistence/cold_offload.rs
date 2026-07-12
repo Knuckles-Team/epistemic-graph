@@ -209,7 +209,12 @@ pub fn max_resident_graphs() -> usize {
 /// read from the environment here) so it composes cleanly with a caller that
 /// already resolved it once, and so tests can exercise a tight cap deterministically
 /// without mutating global process env state.
-pub fn admit_capacity(s: &mut ServerState, tracker: &ColdTenantTracker, incoming: &str, cap: usize) {
+pub fn admit_capacity(
+    s: &mut ServerState,
+    tracker: &ColdTenantTracker,
+    incoming: &str,
+    cap: usize,
+) {
     if cap == 0 {
         return;
     }
@@ -586,7 +591,11 @@ mod admission_tests {
         );
         for i in 0..8 {
             assert!(state2.read().await.registry.exists(&format!("boot:{i}")));
-            assert!(!state2.read().await.registry.is_resident(&format!("boot:{i}")));
+            assert!(!state2
+                .read()
+                .await
+                .registry
+                .is_resident(&format!("boot:{i}")));
         }
 
         // Touch ONE — it lazily hydrates with its data intact; the rest stay cold.

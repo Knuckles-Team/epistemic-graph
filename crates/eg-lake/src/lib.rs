@@ -165,7 +165,8 @@ impl LakeTable {
         }
         self.schema.fields.push(field);
         self.schema_id += 1;
-        self.schema_versions.push((self.schema_id, self.schema.clone()));
+        self.schema_versions
+            .push((self.schema_id, self.schema.clone()));
         true
     }
 

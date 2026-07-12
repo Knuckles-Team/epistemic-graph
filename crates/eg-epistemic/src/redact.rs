@@ -514,7 +514,13 @@ mod tests {
     fn cap_none_is_a_passthrough() {
         let bg = bg_with_secret_leaf();
         let layer = layer_with(&[("owner", AgentRole::Agent), ("stranger", AgentRole::Agent)]);
-        let earned = explain_belief_redacted(&bg, "claim", &AuthorityPolicy::default(), &layer, "stranger");
+        let earned = explain_belief_redacted(
+            &bg,
+            "claim",
+            &AuthorityPolicy::default(),
+            &layer,
+            "stranger",
+        );
         let capped = explain_belief_redacted_capped(
             &bg,
             "claim",

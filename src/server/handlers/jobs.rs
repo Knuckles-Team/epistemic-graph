@@ -99,11 +99,7 @@ fn parse_algorithm(name: &str) -> Result<Algorithm, String> {
 /// Handle `Method::AnalyticsJob { op }` (CONCEPT:INT-P2-1). Self-contained: resolves
 /// its own `JobStore` + (for `Submit`/`Resume`) the target `GraphCore` off `state`,
 /// so the dispatch shell can call this directly with no per-graph routing.
-pub(crate) async fn handle(
-    state: &Arc<RwLock<ServerState>>,
-    req_id: u64,
-    op: JobOp,
-) -> Response {
+pub(crate) async fn handle(state: &Arc<RwLock<ServerState>>, req_id: u64, op: JobOp) -> Response {
     let persist_dir = state.read().await.persist_dir.clone();
     let store = job_store(&persist_dir);
 
@@ -129,7 +125,12 @@ fn job_response(req_id: u64, job: &eg_jobs::AnalyticsJob) -> Response {
 }
 
 async fn resolve_core(state: &Arc<RwLock<ServerState>>, graph: &str) -> Option<Arc<GraphCore>> {
-    state.read().await.registry.get(graph).map(|e| e.core.clone())
+    state
+        .read()
+        .await
+        .registry
+        .get(graph)
+        .map(|e| e.core.clone())
 }
 
 async fn handle_submit(
@@ -282,10 +283,7 @@ fn spawn_mine_associate(
         // The checkpoint's `state_blob` preserves the ORIGINAL request so a later
         // `resume` (after an orphaning crash) can re-derive it — see `handle_resume`.
         let kind_blob = rmp_serde::to_vec_named(&kind).ok();
-        if store
-            .checkpoint(&job_id, 0.1, "mining", kind_blob)
-            .is_err()
-        {
+        if store.checkpoint(&job_id, 0.1, "mining", kind_blob).is_err() {
             return;
         }
 
