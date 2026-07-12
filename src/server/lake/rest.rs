@@ -359,6 +359,6 @@ mod tests {
         assert!(status.contains("200"), "got: {status}");
         let v: serde_json::Value =
             serde_json::from_str(&body).expect("valid JSON LoadTableResponse");
-        assert_eq!(v["metadata"]["current-snapshot-id"].is_number(), true);
+        assert!(v["metadata"]["current-snapshot-id"].is_number());
     }
 }
