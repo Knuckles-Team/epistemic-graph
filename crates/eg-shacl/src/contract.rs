@@ -144,9 +144,9 @@ impl ModalityContract for ValidationResult {
             TckPoint::CdcDeleteRetentionGc => Some(
                 "a validation result is a query output; CDC is not applicable to ephemeral results",
             ),
-            TckPoint::TenantRowRegionPolicy => Some(
-                "policy is at the graph-node layer, not per-validation-result",
-            ),
+            TckPoint::TenantRowRegionPolicy => {
+                Some("policy is at the graph-node layer, not per-validation-result")
+            }
             _ => None,
         }
     }

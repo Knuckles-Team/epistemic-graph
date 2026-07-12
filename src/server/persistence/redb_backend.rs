@@ -1639,8 +1639,7 @@ impl RedbBackend {
                 continue;
             };
             let rtx = db.begin_read().map_err(|e| e.to_string())?;
-            let series_ids =
-                eg_tsdb::store::list_series_in_rtx(&rtx).map_err(|e| e.to_string())?;
+            let series_ids = eg_tsdb::store::list_series_in_rtx(&rtx).map_err(|e| e.to_string())?;
             for series_id in series_ids {
                 let graph_meta = eg_tsdb::store::meta_in_rtx(&rtx, &series_id)
                     .map_err(|e| e.to_string())?
@@ -1657,9 +1656,7 @@ impl RedbBackend {
                     eg_tsdb::point::Ts::MAX,
                 )
                 .map_err(|e| e.to_string())?;
-                let served_points = tsdb_store
-                    .scan_all(&series_id)
-                    .map_err(|e| e.to_string())?;
+                let served_points = tsdb_store.scan_all(&series_id).map_err(|e| e.to_string())?;
                 let missing = missing_points(graph_points, served_points);
                 if missing.is_empty() {
                     // The mismatched count can happen without a point actually being
@@ -4640,8 +4637,7 @@ mod tests {
 
         let backend: Arc<dyn PersistenceBackend> =
             Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 64).unwrap());
-        let series_store =
-            Arc::new(SeriesStore::open_in_dir(std::path::Path::new(&dir)).unwrap());
+        let series_store = Arc::new(SeriesStore::open_in_dir(std::path::Path::new(&dir)).unwrap());
         let state = new_state_auth(Some(dir.clone()), true);
         {
             let mut s = state.write().await;
@@ -4707,7 +4703,11 @@ mod tests {
         assert!(r.error.is_none(), "stage measurement: {:?}", r.error);
 
         let commit = dispatch(&state, req(4, Method::Commit { txn_id })).await;
-        assert_eq!(as_bool(commit), Some(true), "cross-modal commit must succeed");
+        assert_eq!(
+            as_bool(commit),
+            Some(true),
+            "cross-modal commit must succeed"
+        );
 
         // (1) POST-COMMIT visibility through the PUBLIC TsRange read path (the served
         // series.redb) — the actual gap this workstream closes. Checked FIRST, while
@@ -4746,8 +4746,7 @@ mod tests {
         drop(backend);
         {
             let series_db =
-                SeriesStore::open(std::path::Path::new(&dir).join("graph.redb").as_path())
-                    .unwrap();
+                SeriesStore::open(std::path::Path::new(&dir).join("graph.redb").as_path()).unwrap();
             let meta = series_db
                 .meta("sensor.ts-unify")
                 .unwrap()
@@ -4764,8 +4763,7 @@ mod tests {
             Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 64).unwrap());
         let state2 = new_state_auth(Some(dir.clone()), true);
         backend2.load_all(&state2).await.unwrap();
-        let series_store2 =
-            Arc::new(SeriesStore::open_in_dir(std::path::Path::new(&dir)).unwrap());
+        let series_store2 = Arc::new(SeriesStore::open_in_dir(std::path::Path::new(&dir)).unwrap());
         {
             let mut s = state2.write().await;
             s.auth_secret = SECRET.to_string();
@@ -4884,7 +4882,10 @@ mod tests {
             .reconcile_time_series(&series_store)
             .await
             .expect("reconciliation must succeed");
-        assert_eq!(report.series_reconciled, 1, "exactly one series needed replay");
+        assert_eq!(
+            report.series_reconciled, 1,
+            "exactly one series needed replay"
+        );
         assert_eq!(report.points_replayed, 3, "all 3 points replayed");
 
         let after = decode_ts(dispatch(&state, ts_range(2)).await);

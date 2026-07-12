@@ -180,7 +180,12 @@ impl DatasetHandleRegistry {
     /// ([`eg_query::exec_sql_arrow`]), so the result is real typed Arrow — never JSON
     /// rows. Returns the handle metadata; the batches themselves are pulled separately
     /// via [`Self::get`] (streamed as Arrow IPC by the HTTP handler).
-    pub fn export(&self, core: &Arc<GraphCore>, graph: &str, sql: &str) -> Result<DatasetHandleMeta, String> {
+    pub fn export(
+        &self,
+        core: &Arc<GraphCore>,
+        graph: &str,
+        sql: &str,
+    ) -> Result<DatasetHandleMeta, String> {
         let (snap, version) = core.analysis_snapshot_versioned();
         let (schema, batches) = eg_query::exec_sql_arrow(&snap, sql)?;
         let row_count = batches.iter().map(|b| b.num_rows()).sum();
@@ -432,7 +437,10 @@ async fn handle_export(
     }
 }
 
-async fn handle_pull(state: &Arc<RwLock<ServerState>>, id: &str) -> (&'static str, String, Vec<u8>) {
+async fn handle_pull(
+    state: &Arc<RwLock<ServerState>>,
+    id: &str,
+) -> (&'static str, String, Vec<u8>) {
     let registry = state.read().await.dataset_handles.clone();
     let Some(entry) = registry.get(id) else {
         return (
@@ -542,25 +550,26 @@ async fn handle_result(
     let signature = signature.clone();
     let id_owned = id.to_string();
     let body_owned = body.to_vec();
-    let committed = tokio::task::spawn_blocking(move || -> Result<(String, String, u64), String> {
-        let (blob_digest, _was_new) = store.put_chunk(&body_owned)?;
-        store.incref(&blob_digest)?;
-        let committed_at = now_unix();
-        let node_id = format!("dataset-result:{id_owned}:{job_id}");
-        let blob = rmp_serde::to_vec_named(&serde_json::json!({
-            "node_type": "DatasetResult",
-            "dataset_handle_id": id_owned,
-            "job_id": job_id,
-            "blob_digest": blob_digest,
-            "signature": signature,
-            "committed_at": committed_at,
-        }))
-        .map_err(|e| format!("encode result node: {e}"))?;
-        core.add_node(node_id.clone(), blob);
-        core.mark_dirty();
-        Ok((node_id, blob_digest, committed_at))
-    })
-    .await;
+    let committed =
+        tokio::task::spawn_blocking(move || -> Result<(String, String, u64), String> {
+            let (blob_digest, _was_new) = store.put_chunk(&body_owned)?;
+            store.incref(&blob_digest)?;
+            let committed_at = now_unix();
+            let node_id = format!("dataset-result:{id_owned}:{job_id}");
+            let blob = rmp_serde::to_vec_named(&serde_json::json!({
+                "node_type": "DatasetResult",
+                "dataset_handle_id": id_owned,
+                "job_id": job_id,
+                "blob_digest": blob_digest,
+                "signature": signature,
+                "committed_at": committed_at,
+            }))
+            .map_err(|e| format!("encode result node: {e}"))?;
+            core.add_node(node_id.clone(), blob);
+            core.mark_dirty();
+            Ok((node_id, blob_digest, committed_at))
+        })
+        .await;
 
     match committed {
         Ok(Ok((node_id, blob_digest, committed_at))) => (
@@ -675,11 +684,17 @@ mod tests {
         mac.update(format!("dataset-result:ds-1:job-1:{digest}").as_bytes());
         let sig = hex::encode(mac.finalize().into_bytes());
 
-        assert!(verify_result_signature(secret, "ds-1", "job-1", &digest, &sig));
+        assert!(verify_result_signature(
+            secret, "ds-1", "job-1", &digest, &sig
+        ));
         // Wrong dataset id, wrong job id, wrong digest, and a wrong secret must each
         // independently fail — the signature is bound to ALL of them, not just one.
-        assert!(!verify_result_signature(secret, "ds-2", "job-1", &digest, &sig));
-        assert!(!verify_result_signature(secret, "ds-1", "job-2", &digest, &sig));
+        assert!(!verify_result_signature(
+            secret, "ds-2", "job-1", &digest, &sig
+        ));
+        assert!(!verify_result_signature(
+            secret, "ds-1", "job-2", &digest, &sig
+        ));
         assert!(!verify_result_signature(
             secret,
             "ds-1",
@@ -687,6 +702,12 @@ mod tests {
             &hex_digest(b"other bytes"),
             &sig
         ));
-        assert!(!verify_result_signature("wrong-secret", "ds-1", "job-1", &digest, &sig));
+        assert!(!verify_result_signature(
+            "wrong-secret",
+            "ds-1",
+            "job-1",
+            &digest,
+            &sig
+        ));
     }
 }

@@ -398,7 +398,11 @@ async fn default_startup_stays_single_group_unchanged() {
         "no extra group should exist without EPISTEMIC_GRAPH_RAFT_GROUPS"
     );
     let (gid, epoch) = started.multi.route_graph("any-tenant:ws1").await;
-    assert_eq!(gid, super::DEFAULT_GROUP, "every graph must still fall back to the default group");
+    assert_eq!(
+        gid,
+        super::DEFAULT_GROUP,
+        "every graph must still fall back to the default group"
+    );
     assert_eq!(epoch, 0);
 
     started.multi.stop_listener();

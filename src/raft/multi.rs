@@ -688,7 +688,10 @@ impl MultiRaft {
         group_a: GroupId,
         group_b: GroupId,
     ) -> Result<u64, String> {
-        let plan = self.placement.plan_split(tenant, at, group_a, group_b).await?;
+        let plan = self
+            .placement
+            .plan_split(tenant, at, group_a, group_b)
+            .await?;
         self.commit_placement(&plan.methods).await?;
         Ok(plan.epoch)
     }
@@ -713,9 +716,11 @@ impl MultiRaft {
         range: (u64, u64),
         target: GroupId,
     ) -> Result<(), String> {
-        let plan = self.placement.plan_start_move(tenant, range, target).await?;
-        self.commit_placement(&plan.methods)
-            .await
+        let plan = self
+            .placement
+            .plan_start_move(tenant, range, target)
+            .await?;
+        self.commit_placement(&plan.methods).await
     }
 
     /// Fence the cutover of `(tenant, range)` to `target` (CONCEPT:EG-KG.sharding.placement-catalog admin API

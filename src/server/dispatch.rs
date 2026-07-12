@@ -1423,15 +1423,13 @@ async fn dispatch_graph_op(
                     {
                         Ok(r) => match r.error {
                             Some(e) => Err(e),
-                            None => {
-                                Ok(r.result.unwrap_or(ResultPayload::Json(serde_json::Value::Null)))
-                            }
+                            None => Ok(r
+                                .result
+                                .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
                         },
                         // Unreachable for a real routed query method (its name only
                         // exists when the surface is compiled); kept total.
-                        Err(_) => {
-                            Err("query surface not available in this build".to_string())
-                        }
+                        Err(_) => Err("query surface not available in this build".to_string()),
                     }
                 },
             )
@@ -1516,9 +1514,9 @@ async fn dispatch_graph_op(
                     {
                         Ok(r) => match r.error {
                             Some(e) => Err(e),
-                            None => {
-                                Ok(r.result.unwrap_or(ResultPayload::Json(serde_json::Value::Null)))
-                            }
+                            None => Ok(r
+                                .result
+                                .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
                         },
                         Err(_) => Err("rdf surface not available in this build".to_string()),
                     }
@@ -2210,7 +2208,11 @@ mod admin_scope_tests {
     async fn first_registration_bootstraps_without_admin_capability() {
         let state = state_min();
         let r = register_identity(&state, 1, None, "root", AgentRole::System).await;
-        assert!(r.error.is_none(), "bootstrap RegisterIdentity failed: {:?}", r.error);
+        assert!(
+            r.error.is_none(),
+            "bootstrap RegisterIdentity failed: {:?}",
+            r.error
+        );
     }
 
     /// Once ANY identity exists, a plain `Agent`-role caller with NO admin
@@ -2243,7 +2245,11 @@ mod admin_scope_tests {
         let r = register_identity(&state, 1, None, "root", AgentRole::System).await;
         assert!(r.error.is_none());
         let r = register_identity(&state, 2, Some("root"), "bob", AgentRole::Agent).await;
-        assert!(r.error.is_none(), "root (System) must be allowed: {:?}", r.error);
+        assert!(
+            r.error.is_none(),
+            "root (System) must be allowed: {:?}",
+            r.error
+        );
     }
 
     /// A non-System agent with an EXPLICIT RBAC `Admin` grant (over

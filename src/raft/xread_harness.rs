@@ -217,7 +217,11 @@ async fn read_cross_shard_merges_rows_from_two_groups() {
 
     let mut ids: Vec<&str> = result.merged.iter().map(|(id, _)| id.as_str()).collect();
     ids.sort();
-    assert_eq!(ids, vec!["a1", "a2", "b1"], "merge must union both groups' rows");
+    assert_eq!(
+        ids,
+        vec!["a1", "a2", "b1"],
+        "merge must union both groups' rows"
+    );
 }
 
 /// A read whose graphs ALL resolve to the same group is NOT cross-shard — the
@@ -270,7 +274,10 @@ async fn read_cross_shard_routes_each_leg_via_the_placement_catalog() {
         (ws_y, h_y, ws_x, h_x)
     };
     let at = lo_hash + 1;
-    assert!(at <= hi_hash, "chosen split point must separate the two keys");
+    assert!(
+        at <= hi_hash,
+        "chosen split point must separate the two keys"
+    );
 
     multi
         .placement_split(TENANT, at, GROUP_A, GROUP_B)
@@ -289,10 +296,19 @@ async fn read_cross_shard_routes_each_leg_via_the_placement_catalog() {
         .expect("cross-shard read via placement catalog");
 
     assert_eq!(result.legs[0].graph_name, graph_lo);
-    assert_eq!(result.legs[0].group, GROUP_A, "the lower sub-range must route via the catalog");
+    assert_eq!(
+        result.legs[0].group, GROUP_A,
+        "the lower sub-range must route via the catalog"
+    );
     assert_eq!(result.legs[1].graph_name, graph_hi);
-    assert_eq!(result.legs[1].group, GROUP_B, "the upper sub-range must route via the catalog");
-    assert!(result.legs[0].epoch > 0, "a catalog route carries a real epoch");
+    assert_eq!(
+        result.legs[1].group, GROUP_B,
+        "the upper sub-range must route via the catalog"
+    );
+    assert!(
+        result.legs[0].epoch > 0,
+        "a catalog route carries a real epoch"
+    );
     assert_eq!(result.legs[0].epoch, result.legs[1].epoch);
 
     let mut ids: Vec<&str> = result.merged.iter().map(|(id, _)| id.as_str()).collect();

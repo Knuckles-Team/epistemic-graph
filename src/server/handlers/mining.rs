@@ -169,7 +169,11 @@ pub(crate) fn try_handle(
 /// `graph_ops::try_handle_gateway` calls, so there is still only ONE
 /// implementation, never a second copy that could drift.
 #[cfg(test)]
-fn dispatch_for_test(req_id: u64, core: Arc<GraphCore>, method: Method) -> Result<Response, Method> {
+fn dispatch_for_test(
+    req_id: u64,
+    core: Arc<GraphCore>,
+    method: Method,
+) -> Result<Response, Method> {
     match method {
         Method::MineAssociate {
             transactions,
@@ -4810,7 +4814,10 @@ mod tests {
     fn non_mining_method_falls_through() {
         let core = Arc::new(GraphCore::new());
         let m = Method::NodeCount;
-        assert!(matches!(dispatch_for_test(1, core, m), Err(Method::NodeCount)));
+        assert!(matches!(
+            dispatch_for_test(1, core, m),
+            Err(Method::NodeCount)
+        ));
     }
 
     #[test]
@@ -5917,7 +5924,10 @@ mod tests {
             "claim must carry a SUPPORTS in-edge"
         );
         assert!(
-            ins.iter().all(|(_, k)| !matches!(k, eg_epistemic::EdgeKind::Contradicts | eg_epistemic::EdgeKind::Attacks)),
+            ins.iter().all(|(_, k)| !matches!(
+                k,
+                eg_epistemic::EdgeKind::Contradicts | eg_epistemic::EdgeKind::Attacks
+            )),
             "as_claim writeback must never self-contradict"
         );
         let bs = eg_epistemic::propagate_confidence(
@@ -5935,7 +5945,11 @@ mod tests {
                 core.get_edge_properties(claim_id, nbr).iter().any(|blob| {
                     rmp_serde::from_slice::<serde_json::Value>(blob)
                         .ok()
-                        .and_then(|v| v.get("relationship_type").and_then(|r| r.as_str()).map(str::to_string))
+                        .and_then(|v| {
+                            v.get("relationship_type")
+                                .and_then(|r| r.as_str())
+                                .map(str::to_string)
+                        })
                         .as_deref()
                         == Some("GENERATED_BY")
                 })
