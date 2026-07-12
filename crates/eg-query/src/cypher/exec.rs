@@ -511,34 +511,52 @@ fn expand_group_once(
         .collect()
 }
 
+/// The petgraph traversal direction(s) `direction` resolves to: one for
+/// `Right`/`Left`, BOTH for `Both` (undirected — CONCEPT:EG-KG.query.undirected-relationship-pattern
+/// — an undirected hop matches an edge stored in either direction between the two
+/// endpoints, so the scan unions the outgoing and incoming edge sets).
+fn petgraph_directions(direction: Direction) -> &'static [petgraph::Direction] {
+    use petgraph::Direction as PgDir;
+    match direction {
+        Direction::Right => &[PgDir::Outgoing],
+        Direction::Left => &[PgDir::Incoming],
+        Direction::Both => &[PgDir::Outgoing, PgDir::Incoming],
+    }
+}
+
 /// Relationship-typed neighbours of `cur` in `edge.direction` (a single fixed hop).
 fn neighbors(view: &GraphView, cur: &str, edge: &EdgePat) -> Vec<String> {
     let Some(&idx) = view.node_map.get(cur) else {
         return Vec::new();
     };
-    let dir = match edge.direction {
-        Direction::Right => petgraph::Direction::Outgoing,
-        Direction::Left => petgraph::Direction::Incoming,
-    };
     let mut out = Vec::new();
-    for e in view.graph.edges_directed(idx, dir) {
-        let from_id = &view.graph[e.source()];
-        let to_id = &view.graph[e.target()];
-        if !rel_matches(view, from_id, to_id, edge.rel_type.as_deref()) {
-            continue;
+    let mut seen: HashSet<petgraph::stable_graph::NodeIndex> = HashSet::new();
+    for &dir in petgraph_directions(edge.direction) {
+        for e in view.graph.edges_directed(idx, dir) {
+            let from_id = &view.graph[e.source()];
+            let to_id = &view.graph[e.target()];
+            if !rel_matches(view, from_id, to_id, edge.rel_type.as_deref()) {
+                continue;
+            }
+            let nbr = match dir {
+                petgraph::Direction::Outgoing => e.target(),
+                petgraph::Direction::Incoming => e.source(),
+            };
+            // `Both` scans outgoing then incoming — dedup so a pair connected by
+            // edges in both directions (or a self-loop) doesn't yield the same
+            // neighbour twice for one undirected hop.
+            if seen.insert(nbr) {
+                out.push(view.graph[nbr].clone());
+            }
         }
-        let nbr = match edge.direction {
-            Direction::Right => e.target(),
-            Direction::Left => e.source(),
-        };
-        out.push(view.graph[nbr].clone());
     }
     out
 }
 
 /// BFS from `src` over REL-typed edges in `edge.direction`, returning every node
 /// id reached at a hop-depth within `[min,max]` (depth ≥ 1). Each target appears
-/// once (the shallowest depth that reaches it).
+/// once (the shallowest depth that reaches it). `edge.direction == Both` walks
+/// edges in either direction at every hop (CONCEPT:EG-KG.query.undirected-relationship-pattern).
 fn bfs_reachable(
     view: &GraphView,
     src: &str,
@@ -554,31 +572,36 @@ fn bfs_reachable(
     let mut frontier: Vec<petgraph::stable_graph::NodeIndex> = vec![src_idx];
     let mut visited: HashSet<petgraph::stable_graph::NodeIndex> = HashSet::new();
     visited.insert(src_idx);
+    let dirs = petgraph_directions(edge.direction);
 
     for depth in 1..=max {
         let mut next: Vec<petgraph::stable_graph::NodeIndex> = Vec::new();
         for &node in &frontier {
-            let dir = match edge.direction {
-                Direction::Right => petgraph::Direction::Outgoing,
-                Direction::Left => petgraph::Direction::Incoming,
-            };
-            for e in view.graph.edges_directed(node, dir) {
-                let nbr = match edge.direction {
-                    Direction::Right => e.target(),
-                    Direction::Left => e.source(),
-                };
-                let from_id = &view.graph[e.source()];
-                let to_id = &view.graph[e.target()];
-                if !rel_matches(view, from_id, to_id, edge.rel_type.as_deref()) {
-                    continue;
-                }
-                if visited.insert(nbr) {
-                    next.push(nbr);
-                }
-                if depth >= min {
-                    let nbr_id = view.graph[nbr].clone();
-                    if reached.insert(nbr_id.clone()) {
-                        out.push(nbr_id);
+            for &dir in dirs {
+                for e in view.graph.edges_directed(node, dir) {
+                    let nbr = match dir {
+                        petgraph::Direction::Outgoing => e.target(),
+                        petgraph::Direction::Incoming => e.source(),
+                    };
+                    let from_id = &view.graph[e.source()];
+                    let to_id = &view.graph[e.target()];
+                    if !rel_matches(view, from_id, to_id, edge.rel_type.as_deref()) {
+                        continue;
+                    }
+                    if visited.insert(nbr) {
+                        next.push(nbr);
+                    }
+                    // Exclude the START node itself from `reached`: a directed
+                    // acyclic hop essentially never revisits `src`, but an
+                    // undirected hop (CONCEPT:EG-KG.query.undirected-relationship-pattern) trivially
+                    // does at depth 2 (src -> nbr -> src, walking the SAME edge
+                    // back) — without this guard the source would incorrectly
+                    // appear as one of its own var-length results.
+                    if depth >= min && nbr != src_idx {
+                        let nbr_id = view.graph[nbr].clone();
+                        if reached.insert(nbr_id.clone()) {
+                            out.push(nbr_id);
+                        }
                     }
                 }
             }
@@ -589,6 +612,22 @@ fn bfs_reachable(
         frontier = next;
     }
     out
+}
+
+/// Resolve which of `(a→b)` / `(b→a)` is the REAL stored edge direction for a
+/// named-variable edge bound through an undirected `-[r]-` hop
+/// (CONCEPT:EG-KG.query.undirected-relationship-pattern) — the MATCH that produced the binding only
+/// proved SOME edge connects `a` and `b`, not which way. Prefers `(a, b)` when that
+/// direction actually exists in the topology; falls back to `(b, a)` (the only other
+/// possibility, since the MATCH could not have bound them otherwise). Used so a
+/// downstream `DELETE r` targets the edge that is really there.
+fn resolve_undirected_endpoints(view: &GraphView, a: &str, b: &str) -> (String, String) {
+    if let (Some(&a_idx), Some(&b_idx)) = (view.node_map.get(a), view.node_map.get(b)) {
+        if view.graph.find_edge(a_idx, b_idx).is_some() {
+            return (a.to_string(), b.to_string());
+        }
+    }
+    (b.to_string(), a.to_string())
 }
 
 /// Does the stored edge `(from→to)` carry relationship `rel`? Reads the edge's
@@ -1200,6 +1239,13 @@ fn exec_write(core: &GraphCore, w: &WriteQuery, params: &Params) -> Result<Query
                         let (src, tgt) = match edge.direction {
                             Direction::Right => (a, b),
                             Direction::Left => (b, a),
+                            // Undirected: the MATCH that produced this binding only
+                            // proved AN edge exists between `a` and `b` in either
+                            // direction (CONCEPT:EG-KG.query.undirected-relationship-pattern) —
+                            // resolve which one actually exists so a downstream
+                            // `DELETE r`/edge-var reference points at the real
+                            // stored edge, not an endpoint order that may not exist.
+                            Direction::Both => resolve_undirected_endpoints(&snap, &a, &b),
                         };
                         binding.insert(edge_key(evar), format!("{src}\u{0}{tgt}"));
                     }
@@ -1274,10 +1320,19 @@ fn apply_create(
                 "CREATE does not support quantified path pattern groups `((...)){m,n}`".into(),
             );
         }
+        // Undirected `-[...]-` (CONCEPT:EG-KG.query.undirected-relationship-pattern) is a MATCH-only
+        // shape: it names no concrete direction to store the edge in, so — like the
+        // quantified-group case above — CREATE rejects it rather than guessing.
+        if edge.direction == Direction::Both {
+            return Err(
+                "CREATE requires a directed relationship (`->` or `<-`); `-[...]-` (undirected) has no direction to create".into(),
+            );
+        }
         let next_id = realize_node(core, binding, node, params, mutated)?;
         let (src, tgt) = match edge.direction {
             Direction::Right => (prev_id.clone(), next_id.clone()),
             Direction::Left => (next_id.clone(), prev_id.clone()),
+            Direction::Both => unreachable!("rejected above"),
         };
         let mut props = props_to_map(edge.props.as_deref(), binding, params)?;
         if let Some(rel) = &edge.rel_type {
@@ -1788,6 +1843,78 @@ mod tests {
         )
         .unwrap();
         assert_eq!(ids(&qr1, 0), vec!["bob"]);
+    }
+
+    /// CONCEPT:EG-KG.query.undirected-relationship-pattern regression: the exact failing shape from
+    /// the bug report, `(n {id:$id})-[*1..2]-(m)` — untyped, undirected, bounded
+    /// var-length. Previously a raw "expected ArrowRight, found Some(Dash)" parse
+    /// error; now runs a bounded BFS that walks edges in EITHER direction. Anchored
+    /// at `bob` (mid-chain alice->bob->carol): within 1..2 undirected hops bob
+    /// reaches alice (1 hop, incoming) and carol (1 hop, outgoing) — both directions
+    /// are actually exercised, not just the outgoing one `Direction::Right` already
+    /// covered.
+    #[test]
+    fn undirected_variable_length_path_walks_both_directions() {
+        // A local fixture whose nodes carry their own id as a property (the `{id:
+        // $id}` anchor shape from the bug report needs a real `id` property to
+        // match against — the shared `fixture()` above doesn't set one).
+        let core = GraphCore::new();
+        for id in ["alice", "bob", "carol"] {
+            core.add_node(
+                id.into(),
+                pbytes(serde_json::json!({"type":"Person","id":id})),
+            );
+        }
+        core.add_edge(
+            "alice".into(),
+            "bob".into(),
+            pbytes(serde_json::json!({"relationship":"KNOWS"})),
+        )
+        .unwrap();
+        core.add_edge(
+            "bob".into(),
+            "carol".into(),
+            pbytes(serde_json::json!({"relationship":"KNOWS"})),
+        )
+        .unwrap();
+        let v = core.analysis_snapshot();
+
+        let mut params = Params::new();
+        params.insert("id".to_string(), Value::String("bob".to_string()));
+        let qr = exec_cypher_params(&v, "MATCH (n {id:$id})-[*1..2]-(m) RETURN m", &params)
+            .expect("undirected var-length MATCH must execute, not error");
+        assert_eq!(ids(&qr, 0), vec!["alice", "carol"]);
+    }
+
+    /// A plain (non-var-length) undirected relationship also walks either direction
+    /// — `bob` reaches `alice` only via the INCOMING alice->bob edge.
+    #[test]
+    fn undirected_fixed_hop_matches_incoming_edge() {
+        let v = fixture();
+        let qr = exec_cypher(
+            &v,
+            "MATCH (a:Person)-[:KNOWS]-(b:Person) WHERE a.name = 'Bob' RETURN b",
+        )
+        .unwrap();
+        assert_eq!(ids(&qr, 0), vec!["alice", "carol"]);
+    }
+
+    /// `CREATE` has no defined direction for `-[...]-` (undirected) and must reject
+    /// it with a clear typed error rather than guessing a direction
+    /// (CONCEPT:EG-KG.query.undirected-relationship-pattern), mirroring the existing quantified-group
+    /// CREATE rejection.
+    #[test]
+    fn create_rejects_undirected_relationship() {
+        let core = GraphCore::new();
+        let err = exec_cypher_write(
+            &core,
+            "CREATE (a:Person {name:'X'})-[:KNOWS]-(b:Person {name:'Y'})",
+        )
+        .unwrap_err();
+        assert!(
+            err.contains("undirected") || err.contains("directed"),
+            "{err}"
+        );
     }
 
     // ── CONCEPT:EG-KG.query.quantified-path-pattern — Cypher 25 QPP execution ───────────────────────
