@@ -779,18 +779,13 @@ mod tests {
 
         // Page in the rest, 3 units at a time, until exhausted.
         let mut pages_paged_in = 0;
-        loop {
-            match reg.page_in(name, cursor, 3) {
-                Some(next) => {
-                    cursor = next;
-                    pages_paged_in += 1;
-                    assert!(
-                        pages_paged_in < 20,
-                        "must terminate — cursor isn't advancing"
-                    );
-                }
-                None => break,
-            }
+        while let Some(next) = reg.page_in(name, cursor, 3) {
+            cursor = next;
+            pages_paged_in += 1;
+            assert!(
+                pages_paged_in < 20,
+                "must terminate — cursor isn't advancing"
+            );
         }
 
         // Once every page has landed, the paged-open result is byte-identical to
