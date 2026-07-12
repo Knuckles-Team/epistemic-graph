@@ -184,7 +184,12 @@ impl LakeManager {
     /// Store bytes in the blob CAS (chunked through [`DEFAULT_CHUNK_SIZE`], exactly the
     /// pattern `crate::server::obs::segment::store_segment_bytes` uses for Parquet log
     /// segments) and index them by their virtual path.
-    fn put_path_bytes(&self, store: &dyn ChunkStore, path: &str, bytes: &[u8]) -> Result<(), String> {
+    fn put_path_bytes(
+        &self,
+        store: &dyn ChunkStore,
+        path: &str,
+        bytes: &[u8],
+    ) -> Result<(), String> {
         let mut chunks = Vec::new();
         let mut chunk_lens = Vec::new();
         for part in bytes.chunks(DEFAULT_CHUNK_SIZE) {
@@ -320,7 +325,11 @@ impl LakeManager {
         // Delta `_delta_log` (pure JSON — table-relative paths need the location prefix
         // added here; the Iceberg/Avro artifacts below already carry it internally).
         for f in entry.table.delta_log(ts_ms as i64) {
-            self.put_path_bytes(store, &format!("{location}/{}", f.path), f.content.as_bytes())?;
+            self.put_path_bytes(
+                store,
+                &format!("{location}/{}", f.path),
+                f.content.as_bytes(),
+            )?;
         }
 
         // Iceberg metadata.json + the real Avro manifest / manifest-list.
@@ -380,7 +389,9 @@ impl LakeManager {
     ) -> Result<Option<MaterializeReport>, String> {
         let cursor = self.drain_cursor.lock().get(series_id).copied();
         let from = cursor.map(|c| c.saturating_add(1)).unwrap_or(i64::MIN);
-        let points = tsdb.range(series_id, from, i64::MAX).map_err(|e| e.to_string())?;
+        let points = tsdb
+            .range(series_id, from, i64::MAX)
+            .map_err(|e| e.to_string())?;
         if points.is_empty() {
             return Ok(None);
         }
@@ -399,7 +410,9 @@ impl LakeManager {
             LakeOp::Append,
             Some(("epistemic-graph.tsdb", series_id)),
         )?;
-        self.drain_cursor.lock().insert(series_id.to_string(), max_ts);
+        self.drain_cursor
+            .lock()
+            .insert(series_id.to_string(), max_ts);
         Ok(Some(report))
     }
 
@@ -468,7 +481,11 @@ impl LakeManager {
         // materialize_batch allocates its OWN lsn for the new file; that is fine (it is
         // strictly greater, so the file is recorded live from that point on) — the
         // tombstone above already advanced `current` to at least this rewrite's lsn.
-        let op = if had_rows { LakeOp::Overwrite } else { LakeOp::Truncate };
+        let op = if had_rows {
+            LakeOp::Overwrite
+        } else {
+            LakeOp::Truncate
+        };
         self.materialize_batch(
             store,
             namespace,
@@ -608,14 +625,8 @@ mod tests {
     }
 
     fn append(tsdb: &SeriesStore, series_id: &str, pts: &[Point]) {
-        tsdb.append_batch(
-            series_id,
-            1,
-            TEST_BUCKET_NS,
-            &["v".to_string()],
-            pts,
-        )
-        .unwrap();
+        tsdb.append_batch(series_id, 1, TEST_BUCKET_NS, &["v".to_string()], pts)
+            .unwrap();
     }
 
     #[test]
@@ -637,7 +648,10 @@ mod tests {
         assert_eq!(r1.namespace, DEFAULT_NAMESPACE);
 
         // No new points yet: nothing to drain.
-        assert!(mgr.drain_series(&s, &tsdb, "temp.sensor1").unwrap().is_none());
+        assert!(mgr
+            .drain_series(&s, &tsdb, "temp.sensor1")
+            .unwrap()
+            .is_none());
 
         // New points land; only the delta is materialized (a SECOND file, not a
         // rescan of all 6).
@@ -689,8 +703,7 @@ mod tests {
 
         let loaded_after = mgr.load_table(DEFAULT_NAMESPACE, &table).unwrap();
         assert_eq!(
-            loaded_after["metadata"]["snapshots"][0]["summary"]["total-data-files"],
-            "1",
+            loaded_after["metadata"]["snapshots"][0]["summary"]["total-data-files"], "1",
             "compaction merges to ONE live file"
         );
     }
@@ -709,9 +722,12 @@ mod tests {
 
         // Delete rows whose value column (index 1) is < 3.0 (ts=0,1 → values 0.0,1.5).
         let report = mgr
-            .delete_where(&s, DEFAULT_NAMESPACE, &table, |row| {
-                !matches!(row[1], CellValue::Double(v) if v < 3.0)
-            })
+            .delete_where(
+                &s,
+                DEFAULT_NAMESPACE,
+                &table,
+                |row| !matches!(row[1], CellValue::Double(v) if v < 3.0),
+            )
             .unwrap()
             .expect("delete produced a rewrite");
         assert_eq!(report.op, LakeOp::Overwrite);
@@ -755,7 +771,11 @@ mod tests {
             .unwrap());
         // Unknown table errs.
         assert!(mgr
-            .evolve_add_column(DEFAULT_NAMESPACE, "nope", LakeField::new("x", LakeType::Long))
+            .evolve_add_column(
+                DEFAULT_NAMESPACE,
+                "nope",
+                LakeField::new("x", LakeType::Long)
+            )
             .is_err());
 
         let loaded = mgr.load_table(DEFAULT_NAMESPACE, &table).unwrap();
@@ -772,7 +792,11 @@ mod tests {
             .as_array()
             .unwrap()
             .len();
-        assert_eq!(fields_after, fields_before + 1, "compaction re-renders metadata.json under the widened schema");
+        assert_eq!(
+            fields_after,
+            fields_before + 1,
+            "compaction re-renders metadata.json under the widened schema"
+        );
     }
 
     #[test]
@@ -792,10 +816,7 @@ mod tests {
         assert_eq!(ev["eventType"], "COMPLETE");
         assert!(ev["run"]["runId"].is_string());
         assert_eq!(ev["job"]["namespace"], "epistemic-graph.lake");
-        assert!(ev["job"]["name"]
-            .as_str()
-            .unwrap()
-            .contains("materialize"));
+        assert!(ev["job"]["name"].as_str().unwrap().contains("materialize"));
         assert_eq!(ev["inputs"][0]["namespace"], "epistemic-graph.tsdb");
         assert_eq!(ev["inputs"][0]["name"], "s4");
         let out = &ev["outputs"][0];
@@ -803,7 +824,10 @@ mod tests {
         assert!(out["facets"]["schema"]["fields"].as_array().unwrap().len() >= 2);
         assert_eq!(out["facets"]["dataSource"]["uri"], "lake://engine/s4");
         assert_eq!(out["facets"]["outputStatistics"]["rowCount"], 2);
-        assert_eq!(out["facets"]["lifecycleStateChange"]["lifecycleStateChange"], "CREATE");
+        assert_eq!(
+            out["facets"]["lifecycleStateChange"]["lifecycleStateChange"],
+            "CREATE"
+        );
         assert_eq!(out["facets"]["epistemicGraphLake"]["op"], "CREATE");
     }
 }

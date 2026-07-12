@@ -603,7 +603,9 @@ pub(crate) async fn try_handle_gateway(
         Method::AddEmbedding { node_id, embedding } => {
             let (node_id, embedding) = (node_id.clone(), embedding.clone());
             mutation::commit_mutation(&ctx, &plan, &method, move |core| {
-                core.semantic_store.write().add_embedding(node_id, embedding);
+                core.semantic_store
+                    .write()
+                    .add_embedding(node_id, embedding);
                 Ok(ResultPayload::String("ok".to_string()))
             })
             .await
@@ -861,8 +863,10 @@ pub(crate) async fn try_handle_gateway(
                     ));
                 }
                 if !property_chains.is_empty() {
-                    all_inferred
-                        .extend(crate::reasoning::infer_property_chains(core, property_chains));
+                    all_inferred.extend(crate::reasoning::infer_property_chains(
+                        core,
+                        property_chains,
+                    ));
                 }
                 Ok(ResultPayload::Json(serde_json::json!({
                     "inferred_count": all_inferred.len(),
@@ -927,7 +931,9 @@ pub(crate) async fn try_handle_gateway(
             let (node_type, threshold) = (node_type.clone(), *threshold);
             mutation::commit_mutation(&ctx, &plan, &method, move |core| {
                 let removed = core.compact_nodes_by_type(&node_type, threshold);
-                Ok(ResultPayload::Json(serde_json::json!({ "removed_nodes": removed })))
+                Ok(ResultPayload::Json(
+                    serde_json::json!({ "removed_nodes": removed }),
+                ))
             })
             .await
         }
@@ -1137,8 +1143,7 @@ pub(crate) async fn try_handle_gateway(
             max_messages,
             max_age_ms,
         } => {
-            let (stream, max_messages, max_age_ms) =
-                (stream.clone(), *max_messages, *max_age_ms);
+            let (stream, max_messages, max_age_ms) = (stream.clone(), *max_messages, *max_age_ms);
             mutation::commit_mutation(&ctx, &plan, &method, move |core| {
                 let retention = crate::broker::StreamRetention {
                     max_messages,
@@ -1307,7 +1312,9 @@ pub(crate) async fn try_handle_gateway(
                 let resp = super::graphlearn::handle_fit(req_id, core, source, params, writeback);
                 match resp.error {
                     Some(e) => Err(e),
-                    None => Ok(resp.result.unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
+                    None => Ok(resp
+                        .result
+                        .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
                 }
             })
             .await
@@ -1340,7 +1347,9 @@ pub(crate) async fn try_handle_gateway(
                 );
                 match resp.error {
                     Some(e) => Err(e),
-                    None => Ok(resp.result.unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
+                    None => Ok(resp
+                        .result
+                        .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
                 }
             })
             .await
@@ -1387,7 +1396,9 @@ pub(crate) async fn try_handle_gateway(
                 );
                 match resp.error {
                     Some(e) => Err(e),
-                    None => Ok(resp.result.unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
+                    None => Ok(resp
+                        .result
+                        .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
                 }
             })
             .await
@@ -1438,7 +1449,9 @@ pub(crate) async fn try_handle_gateway(
                 );
                 match resp.error {
                     Some(e) => Err(e),
-                    None => Ok(resp.result.unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
+                    None => Ok(resp
+                        .result
+                        .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
                 }
             })
             .await
@@ -1495,7 +1508,9 @@ pub(crate) async fn try_handle_gateway(
                 );
                 match resp.error {
                     Some(e) => Err(e),
-                    None => Ok(resp.result.unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
+                    None => Ok(resp
+                        .result
+                        .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
                 }
             })
             .await
@@ -1534,7 +1549,9 @@ pub(crate) async fn try_handle_gateway(
                 );
                 match resp.error {
                     Some(e) => Err(e),
-                    None => Ok(resp.result.unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
+                    None => Ok(resp
+                        .result
+                        .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
                 }
             })
             .await
@@ -1589,7 +1606,9 @@ pub(crate) async fn try_handle_gateway(
                 );
                 match resp.error {
                     Some(e) => Err(e),
-                    None => Ok(resp.result.unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
+                    None => Ok(resp
+                        .result
+                        .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
                 }
             })
             .await
@@ -1625,7 +1644,9 @@ pub(crate) async fn try_handle_gateway(
                 );
                 match resp.error {
                     Some(e) => Err(e),
-                    None => Ok(resp.result.unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
+                    None => Ok(resp
+                        .result
+                        .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
                 }
             })
             .await
@@ -1677,7 +1698,9 @@ pub(crate) async fn try_handle_gateway(
                 );
                 match resp.error {
                     Some(e) => Err(e),
-                    None => Ok(resp.result.unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
+                    None => Ok(resp
+                        .result
+                        .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
                 }
             })
             .await
@@ -1723,7 +1746,9 @@ pub(crate) async fn try_handle_gateway(
                 );
                 match resp.error {
                     Some(e) => Err(e),
-                    None => Ok(resp.result.unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
+                    None => Ok(resp
+                        .result
+                        .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
                 }
             })
             .await
@@ -1759,7 +1784,9 @@ pub(crate) async fn try_handle_gateway(
                 );
                 match resp.error {
                     Some(e) => Err(e),
-                    None => Ok(resp.result.unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
+                    None => Ok(resp
+                        .result
+                        .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
                 }
             })
             .await
@@ -1801,7 +1828,9 @@ pub(crate) async fn try_handle_gateway(
                 );
                 match resp.error {
                     Some(e) => Err(e),
-                    None => Ok(resp.result.unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
+                    None => Ok(resp
+                        .result
+                        .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
                 }
             })
             .await
@@ -1837,7 +1866,9 @@ pub(crate) async fn try_handle_gateway(
                 );
                 match resp.error {
                     Some(e) => Err(e),
-                    None => Ok(resp.result.unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
+                    None => Ok(resp
+                        .result
+                        .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
                 }
             })
             .await
@@ -1869,7 +1900,9 @@ pub(crate) async fn try_handle_gateway(
                 );
                 match resp.error {
                     Some(e) => Err(e),
-                    None => Ok(resp.result.unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
+                    None => Ok(resp
+                        .result
+                        .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
                 }
             })
             .await
@@ -1909,7 +1942,9 @@ pub(crate) async fn try_handle_gateway(
                 );
                 match resp.error {
                     Some(e) => Err(e),
-                    None => Ok(resp.result.unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
+                    None => Ok(resp
+                        .result
+                        .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
                 }
             })
             .await
@@ -1949,7 +1984,9 @@ pub(crate) async fn try_handle_gateway(
                 );
                 match resp.error {
                     Some(e) => Err(e),
-                    None => Ok(resp.result.unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
+                    None => Ok(resp
+                        .result
+                        .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
                 }
             })
             .await
@@ -1979,7 +2016,9 @@ pub(crate) async fn try_handle_gateway(
                 );
                 match resp.error {
                     Some(e) => Err(e),
-                    None => Ok(resp.result.unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
+                    None => Ok(resp
+                        .result
+                        .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
                 }
             })
             .await
@@ -2013,7 +2052,9 @@ pub(crate) async fn try_handle_gateway(
                 );
                 match resp.error {
                     Some(e) => Err(e),
-                    None => Ok(resp.result.unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
+                    None => Ok(resp
+                        .result
+                        .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
                 }
             })
             .await
@@ -2053,7 +2094,9 @@ pub(crate) async fn try_handle_gateway(
                 );
                 match resp.error {
                     Some(e) => Err(e),
-                    None => Ok(resp.result.unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
+                    None => Ok(resp
+                        .result
+                        .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
                 }
             })
             .await

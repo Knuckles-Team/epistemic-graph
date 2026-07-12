@@ -519,7 +519,8 @@ impl SpatialState {
                 }
             }
             let tree = eg_geo::RTree::build(&boxes);
-            self.built.insert(layer.to_string(), LayerTree { ids, tree });
+            self.built
+                .insert(layer.to_string(), LayerTree { ids, tree });
         }
         let lt = self
             .built
@@ -618,8 +619,8 @@ impl SecondaryIndex for GraphSpatialIndex {
             let Some(bbox) = extract_bbox(&props) else {
                 continue;
             };
-            let layer = extract_layer(&props)
-                .or_else(|| st.items.get(&nc.id).map(|(l, _)| l.clone()));
+            let layer =
+                extract_layer(&props).or_else(|| st.items.get(&nc.id).map(|(l, _)| l.clone()));
             if let Some(layer) = layer {
                 st.upsert(&nc.id, layer, bbox);
             }

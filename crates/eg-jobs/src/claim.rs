@@ -371,7 +371,10 @@ mod tests {
         assert!(matches!(first, ClaimCommitOutcome::Committed { .. }));
 
         let second = commit_result_claim(&core, &job_b, 0.5, None).unwrap();
-        assert!(matches!(second, ClaimCommitOutcome::AlreadyCommitted { .. }));
+        assert!(matches!(
+            second,
+            ClaimCommitOutcome::AlreadyCommitted { .. }
+        ));
         assert_eq!(first.claim_id(), second.claim_id());
 
         // Exactly ONE claim node — the second commit never touched the graph.

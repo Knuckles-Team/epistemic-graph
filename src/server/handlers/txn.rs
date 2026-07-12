@@ -1198,8 +1198,7 @@ pub(crate) async fn commit_cross_modal_txn(
                         values: values.clone(),
                     })
                     .collect();
-                if let Err(e) =
-                    store.append_batch(series, *n_fields, *bucket_ns, field_names, &pts)
+                if let Err(e) = store.append_batch(series, *n_fields, *bucket_ns, field_names, &pts)
                 {
                     tracing::error!(
                         "cross-modal measurement for series '{series}' is durable in \

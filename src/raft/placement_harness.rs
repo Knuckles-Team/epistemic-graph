@@ -162,11 +162,7 @@ async fn bring_up(
 }
 
 /// Write `node_id` into `graph` through whichever group currently owns it.
-async fn write_via_owner(
-    multi: &Arc<MultiRaft>,
-    graph: &str,
-    node_id: &str,
-) -> Result<(), String> {
+async fn write_via_owner(multi: &Arc<MultiRaft>, graph: &str, node_id: &str) -> Result<(), String> {
     let group = multi
         .group_for_graph(graph)
         .await
@@ -214,10 +210,7 @@ async fn assign_then_route_returns_new_group_and_epoch() {
     // Before any assignment: no explicit placement, so route_graph falls back to
     // the (default single-group) hash ring — additive, no regression.
     let placement = multi.placement();
-    assert_eq!(
-        placement.route(TENANT, "ws1").await,
-        RouteOutcome::Fallback
-    );
+    assert_eq!(placement.route(TENANT, "ws1").await, RouteOutcome::Fallback);
 
     let epoch1 = multi
         .placement_assign(TENANT, GROUP_B)
@@ -273,9 +266,7 @@ async fn stale_epoch_request_gets_redirected() {
         .expect("assign");
     // A client that observed epoch1 is CURRENT — no redirect.
     assert_eq!(
-        placement
-            .redirect_if_stale(TENANT, "ws1", epoch1)
-            .await,
+        placement.redirect_if_stale(TENANT, "ws1", epoch1).await,
         None,
         "a caller on the current epoch is not redirected"
     );
@@ -396,7 +387,9 @@ async fn online_move_preserves_data_and_lands_new_epoch() {
     assert_eq!(multi.route_graph(&graph).await, (GROUP_B, report.epoch));
 
     // (c) A post-move write lands (served correctly through the new owner).
-    write_via_owner(&multi, &graph, "post0").await.expect("write via B");
+    write_via_owner(&multi, &graph, "post0")
+        .await
+        .expect("write via B");
     assert!(has_node(&state, &graph, "post0").await);
     assert_eq!(node_count(&state, &graph).await, 7);
 
@@ -430,7 +423,10 @@ async fn split_lets_one_tenant_span_two_groups() {
         (sub_hi, h_hi, sub_lo, h_lo)
     };
     let at = lo_hash + 1;
-    assert!(at <= hi_hash, "chosen split point must separate the two keys");
+    assert!(
+        at <= hi_hash,
+        "chosen split point must separate the two keys"
+    );
 
     let epoch = multi
         .placement_split(TENANT, at, GROUP_A, GROUP_B)
@@ -452,10 +448,7 @@ async fn split_lets_one_tenant_span_two_groups() {
     }
 
     // Merging collapses the tenant back onto one group.
-    let merge_epoch = multi
-        .placement_merge(TENANT, GROUP_A)
-        .await
-        .expect("merge");
+    let merge_epoch = multi.placement_merge(TENANT, GROUP_A).await.expect("merge");
     assert!(merge_epoch > epoch);
     for key in [lo_key, hi_key] {
         match placement.route(TENANT, key).await {

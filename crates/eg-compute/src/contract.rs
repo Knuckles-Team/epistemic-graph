@@ -117,9 +117,9 @@ impl ModalityContract for MergeProposal {
             TckPoint::CdcDeleteRetentionGc => Some(
                 "a proposal is a query result; CDC applies only to mutations, not recommendations",
             ),
-            TckPoint::TenantRowRegionPolicy => Some(
-                "policy is at the graph-node layer, not per-proposal",
-            ),
+            TckPoint::TenantRowRegionPolicy => {
+                Some("policy is at the graph-node layer, not per-proposal")
+            }
             _ => None,
         }
     }

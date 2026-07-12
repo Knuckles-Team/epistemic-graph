@@ -450,7 +450,10 @@ mod tests {
         let params = base_params("nonce-b");
         let mut req = signed(1, "g", &params);
         req.graph = "other-graph".to_string();
-        assert_eq!(verify_envelope_v1(SECRET, &req), EnvelopeVerdict::BadSignature);
+        assert_eq!(
+            verify_envelope_v1(SECRET, &req),
+            EnvelopeVerdict::BadSignature
+        );
     }
 
     #[test]
@@ -458,7 +461,10 @@ mod tests {
         let params = base_params("nonce-c");
         let mut req = signed(1, "g", &params);
         req.method = Method::Health;
-        assert_eq!(verify_envelope_v1(SECRET, &req), EnvelopeVerdict::BadSignature);
+        assert_eq!(
+            verify_envelope_v1(SECRET, &req),
+            EnvelopeVerdict::BadSignature
+        );
     }
 
     #[test]
@@ -490,7 +496,10 @@ mod tests {
         envelope.tenant = "tenant-b".to_string();
         let forged_json = serde_json::to_vec(&envelope).unwrap();
         req.auth_token = format!("{ENVELOPE_V1_PREFIX}{}", hex::encode(forged_json));
-        assert_eq!(verify_envelope_v1(SECRET, &req), EnvelopeVerdict::BadSignature);
+        assert_eq!(
+            verify_envelope_v1(SECRET, &req),
+            EnvelopeVerdict::BadSignature
+        );
     }
 
     #[test]
@@ -553,14 +562,19 @@ mod tests {
 
         // And the wrong-length case (verify_slice's other rejection path).
         let mac2 = envelope_mac(SECRET, &req, &mac_params).unwrap();
-        assert!(mac2.verify_slice(&mac_bytes[..mac_bytes.len() - 1]).is_err());
+        assert!(mac2
+            .verify_slice(&mac_bytes[..mac_bytes.len() - 1])
+            .is_err());
     }
 
     #[test]
     fn v1_garbage_envelope_rejected_not_panicking() {
         let mut req = ping_request(1, "g", String::new());
         req.auth_token = format!("{ENVELOPE_V1_PREFIX}not-valid-hex-json");
-        assert_eq!(verify_envelope_v1(SECRET, &req), EnvelopeVerdict::BadSignature);
+        assert_eq!(
+            verify_envelope_v1(SECRET, &req),
+            EnvelopeVerdict::BadSignature
+        );
         assert!(verify_request(SECRET, &req).is_err());
     }
 }

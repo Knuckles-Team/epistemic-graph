@@ -193,7 +193,11 @@ fn int_p2_4_iceberg_schema_id_tracked_per_file_across_evolution() {
     // Evolve: add a nullable column. Bumps the schema-id for FUTURE writes.
     let added = table.evolve_add_column(LakeField::new("venue", LakeType::String));
     assert!(added, "a genuinely new column must be added");
-    assert_eq!(table.schema_id(), 1, "evolution bumps the current schema-id");
+    assert_eq!(
+        table.schema_id(),
+        1,
+        "evolution bumps the current schema-id"
+    );
     assert_eq!(
         table.schema_versions().len(),
         2,
@@ -205,19 +209,30 @@ fn int_p2_4_iceberg_schema_id_tracked_per_file_across_evolution() {
 
     // Adding the SAME column name again is a no-op (already exists) — no second bump.
     assert!(!table.evolve_add_column(LakeField::new("venue", LakeType::String)));
-    assert_eq!(table.schema_id(), 1, "re-adding an existing column doesn't bump again");
+    assert_eq!(
+        table.schema_id(),
+        1,
+        "re-adding an existing column doesn't bump again"
+    );
 
     let ib = table.iceberg(1_700_000_000_000);
     let meta = iceberg::parse_metadata(&ib.metadata_json).expect("parse metadata");
 
     // `schemas[]` carries BOTH versions, each correctly tagged with its OWN id.
     let schemas = meta["schemas"].as_array().unwrap();
-    assert_eq!(schemas.len(), 2, "both schema versions appear in the history");
+    assert_eq!(
+        schemas.len(),
+        2,
+        "both schema versions appear in the history"
+    );
     assert_eq!(schemas[0]["schema-id"], 0);
     assert_eq!(schemas[0]["fields"].as_array().unwrap().len(), 5);
     assert_eq!(schemas[1]["schema-id"], 1);
     assert_eq!(schemas[1]["fields"].as_array().unwrap().len(), 6);
-    assert_eq!(meta["current-schema-id"], 1, "current-schema-id tracks the LATEST version");
+    assert_eq!(
+        meta["current-schema-id"], 1,
+        "current-schema-id tracks the LATEST version"
+    );
     // The current commit's own snapshot is written under the CURRENT schema.
     assert_eq!(meta["snapshots"][0]["schema-id"], 1);
 

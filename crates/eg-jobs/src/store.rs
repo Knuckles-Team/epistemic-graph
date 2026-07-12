@@ -53,7 +53,10 @@ impl std::fmt::Display for JobError {
                 job_id,
                 state,
                 reason,
-            } => write!(f, "invalid transition on job {job_id} in state {state}: {reason}"),
+            } => write!(
+                f,
+                "invalid transition on job {job_id} in state {state}: {reason}"
+            ),
         }
     }
 }
@@ -157,7 +160,9 @@ impl JobStore {
         let wtx = self.db.begin_write().map_err(redb_err)?;
         {
             let mut table = wtx.open_table(JOBS).map_err(redb_err)?;
-            table.insert(job.job_id.as_str(), blob.as_slice()).map_err(redb_err)?;
+            table
+                .insert(job.job_id.as_str(), blob.as_slice())
+                .map_err(redb_err)?;
         }
         wtx.commit().map_err(redb_err)?;
         Ok(())
@@ -422,7 +427,8 @@ impl JobStore {
                 return Err(JobError::InvalidTransition {
                     job_id: job_id.to_string(),
                     state: other.label(),
-                    reason: "resume requires Failed (with retries remaining) or an orphaned Running job",
+                    reason:
+                        "resume requires Failed (with retries remaining) or an orphaned Running job",
                 });
             }
         }
@@ -443,7 +449,10 @@ impl JobStore {
         let wtx = self.db.begin_write().map_err(redb_err)?;
         let first = {
             let mut table = wtx.open_table(COMMITTED_RESULTS).map_err(redb_err)?;
-            let existing = table.get(result_ref).map_err(redb_err)?.map(|v| v.value().to_string());
+            let existing = table
+                .get(result_ref)
+                .map_err(redb_err)?
+                .map(|v| v.value().to_string());
             match existing {
                 Some(_) => false,
                 None => {
@@ -460,7 +469,10 @@ impl JobStore {
     pub fn result_committed_by(&self, result_ref: &str) -> Result<Option<JobId>> {
         let rtx = self.db.begin_read().map_err(redb_err)?;
         let table = rtx.open_table(COMMITTED_RESULTS).map_err(redb_err)?;
-        Ok(table.get(result_ref).map_err(redb_err)?.map(|v| v.value().to_string()))
+        Ok(table
+            .get(result_ref)
+            .map_err(redb_err)?
+            .map(|v| v.value().to_string()))
     }
 }
 
@@ -557,9 +569,7 @@ mod tests {
         let store = JobStore::open_in_dir(dir.path()).unwrap();
         let job = store.submit(spec("g1", 1)).unwrap();
         store.start_running(&job.job_id).unwrap();
-        store
-            .checkpoint(&job.job_id, 0.3, "chunk-1", None)
-            .unwrap();
+        store.checkpoint(&job.job_id, 0.3, "chunk-1", None).unwrap();
 
         let job = store.request_cancel(&job.job_id).unwrap();
         assert!(job.cancel_requested);
@@ -638,9 +648,7 @@ mod tests {
         let store = JobStore::open_in_dir(dir.path()).unwrap();
         let job = store.submit(spec("g1", 1)).unwrap();
         store.start_running(&job.job_id).unwrap();
-        store
-            .checkpoint(&job.job_id, 0.2, "chunk-1", None)
-            .unwrap();
+        store.checkpoint(&job.job_id, 0.2, "chunk-1", None).unwrap();
         let job = store.fail(&job.job_id, "transient error").unwrap();
         assert_eq!(job.retry.attempts_made, 1);
 
@@ -724,7 +732,10 @@ mod tests {
         assert_eq!(job.state, JobState::Submitted);
 
         let next = store.submit(spec("g1", 1)).unwrap();
-        assert_ne!(next.job_id, job_id, "id sequence must not be reused after restart");
+        assert_ne!(
+            next.job_id, job_id,
+            "id sequence must not be reused after restart"
+        );
     }
 
     #[test]

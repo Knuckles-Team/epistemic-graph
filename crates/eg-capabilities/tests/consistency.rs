@@ -67,15 +67,60 @@ use eg_types::protocol::Method;
 /// final unconditional `matches!(...)` tail). For every one of these, `requires_write`
 /// returns `true` no matter what the request's fields are.
 const ACCESS_RS_MUTATES_UNCONDITIONAL: &[&str] = &[
-    "AddEdge", "AddEmbedding", "AddNode", "AddSceneObject", "AddTriples", "AppendStep",
-    "ApplyLedger", "ApplyMultisigMutation", "ApplyMutation", "BatchUpdate", "BindQueue", "BrokerAck",
-    "BrokerConsume", "BrokerReject", "ClaimNext", "ClearGraph", "ClearLedger", "CompactNodesByType",
-    "CompareAndSetNodeFields", "Consolidate", "CreateSummaryNode", "DecayMemories", "DecayNode", "DecaySweep",
-    "DeclareExchange", "DeclareQueue", "DeleteExchange", "DeleteGraph", "DropNamedGraph", "EvictBelow",
-    "EvictLRU", "FromMsgpack", "IcvConfigure", "InvalidateEdge", "KvCas", "KvDelete",
-    "KvPut", "Maintain", "ParseRepository", "PruneByLifecycle", "Publish", "PublishEx",
-    "Reconcile", "Reinforce", "RemoveEdge", "RemoveNode", "RemoveTriples", "Reparent",
-    "RunDatalogReasoning", "SetPose", "StartTrajectory", "SupersedeEdge", "SweepExpired", "TouchNodes",
+    "AddEdge",
+    "AddEmbedding",
+    "AddNode",
+    "AddSceneObject",
+    "AddTriples",
+    "AppendStep",
+    "ApplyLedger",
+    "ApplyMultisigMutation",
+    "ApplyMutation",
+    "BatchUpdate",
+    "BindQueue",
+    "BrokerAck",
+    "BrokerConsume",
+    "BrokerReject",
+    "ClaimNext",
+    "ClearGraph",
+    "ClearLedger",
+    "CompactNodesByType",
+    "CompareAndSetNodeFields",
+    "Consolidate",
+    "CreateSummaryNode",
+    "DecayMemories",
+    "DecayNode",
+    "DecaySweep",
+    "DeclareExchange",
+    "DeclareQueue",
+    "DeleteExchange",
+    "DeleteGraph",
+    "DropNamedGraph",
+    "EvictBelow",
+    "EvictLRU",
+    "FromMsgpack",
+    "IcvConfigure",
+    "InvalidateEdge",
+    "KvCas",
+    "KvDelete",
+    "KvPut",
+    "Maintain",
+    "ParseRepository",
+    "PruneByLifecycle",
+    "Publish",
+    "PublishEx",
+    "Reconcile",
+    "Reinforce",
+    "RemoveEdge",
+    "RemoveNode",
+    "RemoveTriples",
+    "Reparent",
+    "RunDatalogReasoning",
+    "SetPose",
+    "StartTrajectory",
+    "SupersedeEdge",
+    "SweepExpired",
+    "TouchNodes",
     "UnbindQueue",
 ];
 
@@ -85,37 +130,105 @@ const ACCESS_RS_MUTATES_UNCONDITIONAL: &[&str] = &[
 /// `policy()`'s `mutates: true` for these is a conservative UPPER BOUND, not an equality --
 /// the real answer depends on data the static table cannot see.
 const ACCESS_RS_MUTATES_CONDITIONAL: &[&str] = &[
-    "CypherQuery", "GraphLearnFit", "GraphLearnPredict", "GraphQl", "MineAnomaly", "MineAssociate",
-    "MineCausalImpact", "MineClassifyPredict", "MineCluster", "MineCommunity", "MineEntityResolve", "MineForecast",
-    "MineOntologyGap", "MineProcess", "MineReduce", "MineRetrievalQuality", "MineRiskPropagation", "MineRootCause",
-    "MineSequence", "MineSubgraph", "MineText", "Sql",
+    "CypherQuery",
+    "GraphLearnFit",
+    "GraphLearnPredict",
+    "GraphQl",
+    "MineAnomaly",
+    "MineAssociate",
+    "MineCausalImpact",
+    "MineClassifyPredict",
+    "MineCluster",
+    "MineCommunity",
+    "MineEntityResolve",
+    "MineForecast",
+    "MineOntologyGap",
+    "MineProcess",
+    "MineReduce",
+    "MineRetrievalQuality",
+    "MineRiskPropagation",
+    "MineRootCause",
+    "MineSequence",
+    "MineSubgraph",
+    "MineText",
+    "Sql",
 ];
 
 /// Mirrors `access.rs`'s ONE explicit-false special case: `MineClassifyFit` always returns
 /// `false` from `requires_write` regardless of any field (it never writes back).
-const ACCESS_RS_MUTATES_EXPLICIT_FALSE: &[&str] = &[
-    "MineClassifyFit",
-];
+const ACCESS_RS_MUTATES_EXPLICIT_FALSE: &[&str] = &["MineClassifyFit"];
 
 /// Mirrors `src/wal.rs::is_durable_mutation`'s GraphRedb-domain true set (the plain
 /// node/edge/memory/scene/trajectory primitives + RDF triples + the writeback-true Mine*/
 /// GraphLearn* variants that DO make the durable list).
 const WAL_RS_DURABLE_GRAPHREDB: &[&str] = &[
-    "AddEdge", "AddEmbedding", "AddNode", "AddSceneObject", "AddTriples", "AppendStep", "BatchUpdate",
-    "ClaimNext", "ClearGraph", "CompareAndSetNodeFields", "Consolidate", "CreateSummaryNode", "DecayMemories",
-    "DecayNode", "DropNamedGraph", "EvictBelow", "GraphLearnFit", "GraphLearnPredict", "InvalidateEdge",
-    "Maintain", "MineAnomaly", "MineAssociate", "MineCausalImpact", "MineClassifyPredict", "MineCluster",
-    "MineCommunity", "MineEntityResolve", "MineForecast", "MineOntologyGap", "MineProcess", "MineReduce",
-    "MineRetrievalQuality", "MineRiskPropagation", "MineRootCause", "MineSequence", "MineSubgraph", "MineText",
-    "Reinforce", "RemoveEdge", "RemoveNode", "RemoveTriples",
-    "Reparent", "SetPose", "StartTrajectory", "SupersedeEdge",
+    "AddEdge",
+    "AddEmbedding",
+    "AddNode",
+    "AddSceneObject",
+    "AddTriples",
+    "AppendStep",
+    "BatchUpdate",
+    "ClaimNext",
+    "ClearGraph",
+    "CompareAndSetNodeFields",
+    "Consolidate",
+    "CreateSummaryNode",
+    "DecayMemories",
+    "DecayNode",
+    "DropNamedGraph",
+    "EvictBelow",
+    "GraphLearnFit",
+    "GraphLearnPredict",
+    "InvalidateEdge",
+    "Maintain",
+    "MineAnomaly",
+    "MineAssociate",
+    "MineCausalImpact",
+    "MineClassifyPredict",
+    "MineCluster",
+    "MineCommunity",
+    "MineEntityResolve",
+    "MineForecast",
+    "MineOntologyGap",
+    "MineProcess",
+    "MineReduce",
+    "MineRetrievalQuality",
+    "MineRiskPropagation",
+    "MineRootCause",
+    "MineSequence",
+    "MineSubgraph",
+    "MineText",
+    "Reinforce",
+    "RemoveEdge",
+    "RemoveNode",
+    "RemoveTriples",
+    "Reparent",
+    "SetPose",
+    "StartTrajectory",
+    "SupersedeEdge",
 ];
 
 /// Mirrors `src/wal.rs::is_durable_mutation`'s message-broker/stream true set.
 const WAL_RS_DURABLE_OUTBOX: &[&str] = &[
-    "BindQueue", "BrokerAck", "BrokerAckTag", "BrokerConsume", "BrokerNackTag", "BrokerReject",
-    "DeclareExchange", "DeclareQueue", "DeleteExchange", "Publish", "PublishConfirmed", "PublishEx",
-    "PublishIdempotent", "StreamCommitOffset", "StreamDeclare", "StreamPublish", "StreamTrim", "SweepExpired",
+    "BindQueue",
+    "BrokerAck",
+    "BrokerAckTag",
+    "BrokerConsume",
+    "BrokerNackTag",
+    "BrokerReject",
+    "DeclareExchange",
+    "DeclareQueue",
+    "DeleteExchange",
+    "Publish",
+    "PublishConfirmed",
+    "PublishEx",
+    "PublishIdempotent",
+    "StreamCommitOffset",
+    "StreamDeclare",
+    "StreamPublish",
+    "StreamTrim",
+    "SweepExpired",
     "UnbindQueue",
 ];
 
@@ -129,22 +242,81 @@ const WAL_RS_DURABLE_OUTBOX: &[&str] = &[
 /// `commit_ops`/`commit_crossmodal`, gateway-routed or not), so this mirror grows
 /// to match: 64 audited methods total.
 const AUDIT_RS_AUDITED: &[&str] = &[
-    "AddEdge", "AddEmbedding", "AddNode", "AddSceneObject", "AddTriples", "AppendStep", "BatchUpdate",
-    "BindQueue", "BrokerAck", "BrokerAckTag", "BrokerConsume", "BrokerNackTag", "BrokerReject", "ClaimNext",
-    "ClearGraph", "CompareAndSetNodeFields", "Consolidate", "CreateSummaryNode", "DecayMemories", "DecayNode",
-    "DeclareExchange", "DeclareQueue", "DeleteExchange", "DropNamedGraph", "EvictBelow", "GraphLearnFit",
-    "GraphLearnPredict", "InvalidateEdge", "Maintain", "MineAnomaly", "MineAssociate", "MineCausalImpact",
-    "MineClassifyPredict", "MineCluster", "MineCommunity", "MineEntityResolve", "MineForecast", "MineOntologyGap",
-    "MineProcess", "MineReduce", "MineRetrievalQuality", "MineRiskPropagation", "MineRootCause", "MineSequence",
-    "MineSubgraph", "MineText", "Publish", "PublishConfirmed", "PublishEx", "PublishIdempotent", "Reinforce",
-    "RemoveEdge", "RemoveNode", "RemoveTriples", "Reparent", "SetPose", "StartTrajectory", "StreamCommitOffset",
-    "StreamDeclare", "StreamPublish", "StreamTrim", "SupersedeEdge", "SweepExpired", "UnbindQueue",
+    "AddEdge",
+    "AddEmbedding",
+    "AddNode",
+    "AddSceneObject",
+    "AddTriples",
+    "AppendStep",
+    "BatchUpdate",
+    "BindQueue",
+    "BrokerAck",
+    "BrokerAckTag",
+    "BrokerConsume",
+    "BrokerNackTag",
+    "BrokerReject",
+    "ClaimNext",
+    "ClearGraph",
+    "CompareAndSetNodeFields",
+    "Consolidate",
+    "CreateSummaryNode",
+    "DecayMemories",
+    "DecayNode",
+    "DeclareExchange",
+    "DeclareQueue",
+    "DeleteExchange",
+    "DropNamedGraph",
+    "EvictBelow",
+    "GraphLearnFit",
+    "GraphLearnPredict",
+    "InvalidateEdge",
+    "Maintain",
+    "MineAnomaly",
+    "MineAssociate",
+    "MineCausalImpact",
+    "MineClassifyPredict",
+    "MineCluster",
+    "MineCommunity",
+    "MineEntityResolve",
+    "MineForecast",
+    "MineOntologyGap",
+    "MineProcess",
+    "MineReduce",
+    "MineRetrievalQuality",
+    "MineRiskPropagation",
+    "MineRootCause",
+    "MineSequence",
+    "MineSubgraph",
+    "MineText",
+    "Publish",
+    "PublishConfirmed",
+    "PublishEx",
+    "PublishIdempotent",
+    "Reinforce",
+    "RemoveEdge",
+    "RemoveNode",
+    "RemoveTriples",
+    "Reparent",
+    "SetPose",
+    "StartTrajectory",
+    "StreamCommitOffset",
+    "StreamDeclare",
+    "StreamPublish",
+    "StreamTrim",
+    "SupersedeEdge",
+    "SweepExpired",
+    "UnbindQueue",
 ];
 
 /// Mirrors `src/server/cdc.rs::emit_for_method`'s explicit match (everything else falls to
 /// its `_ => {}` catch-all, i.e. emits NO Change-Data-Capture event).
 const CDC_RS_EMITS_CDC: &[&str] = &[
-    "AddEdge", "AddNode", "ClearGraph", "CompareAndSetNodeFields", "RemoveEdge", "RemoveNode",
+    "AddEdge",
+    "AddNode",
+    "ClearGraph",
+    "CompareAndSetNodeFields",
+    "RemoveEdge",
+    "RemoveNode",
 ];
 
 // ── KNOWN_DIVERGENCE ────────────────────────────────────────────────────────────────
@@ -159,28 +331,116 @@ const CDC_RS_EMITS_CDC: &[&str] = &[
 /// real means making the handlers consult a PER-INVOCATION policy (EG-P0-2/EG-P0-6), not a
 /// per-variant one.
 const RUNTIME_CONDITIONAL: &[(&str, &str, &str)] = &[
-    ("CypherQuery", "EG-P0-2", "mutates is conservative; real answer is the `writeback` field / parsed query at runtime"),
-    ("GraphLearnFit", "EG-P0-2", "mutates is conservative; real answer is the `writeback` field / parsed query at runtime"),
-    ("GraphLearnPredict", "EG-P0-2", "mutates is conservative; real answer is the `writeback` field / parsed query at runtime"),
-    ("GraphQl", "EG-P0-2", "mutates is conservative; real answer is the `writeback` field / parsed query at runtime"),
-    ("MineAnomaly", "EG-P0-2", "mutates is conservative; real answer is the `writeback` field / parsed query at runtime"),
-    ("MineAssociate", "EG-P0-2", "mutates is conservative; real answer is the `writeback` field / parsed query at runtime"),
-    ("MineCausalImpact", "EG-P0-2", "mutates is conservative; real answer is the `writeback` field / parsed query at runtime"),
-    ("MineClassifyPredict", "EG-P0-2", "mutates is conservative; real answer is the `writeback` field / parsed query at runtime"),
-    ("MineCluster", "EG-P0-2", "mutates is conservative; real answer is the `writeback` field / parsed query at runtime"),
-    ("MineCommunity", "EG-P0-2", "mutates is conservative; real answer is the `writeback` field / parsed query at runtime"),
-    ("MineEntityResolve", "EG-P0-2", "mutates is conservative; real answer is the `writeback` field / parsed query at runtime"),
-    ("MineForecast", "EG-P0-2", "mutates is conservative; real answer is the `writeback` field / parsed query at runtime"),
-    ("MineOntologyGap", "EG-P0-2", "mutates is conservative; real answer is the `writeback` field / parsed query at runtime"),
-    ("MineProcess", "EG-P0-2", "mutates is conservative; real answer is the `writeback` field / parsed query at runtime"),
-    ("MineReduce", "EG-P0-2", "mutates is conservative; real answer is the `writeback` field / parsed query at runtime"),
-    ("MineRetrievalQuality", "EG-P0-2", "mutates is conservative; real answer is the `writeback` field / parsed query at runtime"),
-    ("MineRiskPropagation", "EG-P0-2", "mutates is conservative; real answer is the `writeback` field / parsed query at runtime"),
-    ("MineRootCause", "EG-P0-2", "mutates is conservative; real answer is the `writeback` field / parsed query at runtime"),
-    ("MineSequence", "EG-P0-2", "mutates is conservative; real answer is the `writeback` field / parsed query at runtime"),
-    ("MineSubgraph", "EG-P0-2", "mutates is conservative; real answer is the `writeback` field / parsed query at runtime"),
-    ("MineText", "EG-P0-2", "mutates is conservative; real answer is the `writeback` field / parsed query at runtime"),
-    ("Sql", "EG-P0-2", "mutates is conservative; real answer is the `writeback` field / parsed query at runtime"),
+    (
+        "CypherQuery",
+        "EG-P0-2",
+        "mutates is conservative; real answer is the `writeback` field / parsed query at runtime",
+    ),
+    (
+        "GraphLearnFit",
+        "EG-P0-2",
+        "mutates is conservative; real answer is the `writeback` field / parsed query at runtime",
+    ),
+    (
+        "GraphLearnPredict",
+        "EG-P0-2",
+        "mutates is conservative; real answer is the `writeback` field / parsed query at runtime",
+    ),
+    (
+        "GraphQl",
+        "EG-P0-2",
+        "mutates is conservative; real answer is the `writeback` field / parsed query at runtime",
+    ),
+    (
+        "MineAnomaly",
+        "EG-P0-2",
+        "mutates is conservative; real answer is the `writeback` field / parsed query at runtime",
+    ),
+    (
+        "MineAssociate",
+        "EG-P0-2",
+        "mutates is conservative; real answer is the `writeback` field / parsed query at runtime",
+    ),
+    (
+        "MineCausalImpact",
+        "EG-P0-2",
+        "mutates is conservative; real answer is the `writeback` field / parsed query at runtime",
+    ),
+    (
+        "MineClassifyPredict",
+        "EG-P0-2",
+        "mutates is conservative; real answer is the `writeback` field / parsed query at runtime",
+    ),
+    (
+        "MineCluster",
+        "EG-P0-2",
+        "mutates is conservative; real answer is the `writeback` field / parsed query at runtime",
+    ),
+    (
+        "MineCommunity",
+        "EG-P0-2",
+        "mutates is conservative; real answer is the `writeback` field / parsed query at runtime",
+    ),
+    (
+        "MineEntityResolve",
+        "EG-P0-2",
+        "mutates is conservative; real answer is the `writeback` field / parsed query at runtime",
+    ),
+    (
+        "MineForecast",
+        "EG-P0-2",
+        "mutates is conservative; real answer is the `writeback` field / parsed query at runtime",
+    ),
+    (
+        "MineOntologyGap",
+        "EG-P0-2",
+        "mutates is conservative; real answer is the `writeback` field / parsed query at runtime",
+    ),
+    (
+        "MineProcess",
+        "EG-P0-2",
+        "mutates is conservative; real answer is the `writeback` field / parsed query at runtime",
+    ),
+    (
+        "MineReduce",
+        "EG-P0-2",
+        "mutates is conservative; real answer is the `writeback` field / parsed query at runtime",
+    ),
+    (
+        "MineRetrievalQuality",
+        "EG-P0-2",
+        "mutates is conservative; real answer is the `writeback` field / parsed query at runtime",
+    ),
+    (
+        "MineRiskPropagation",
+        "EG-P0-2",
+        "mutates is conservative; real answer is the `writeback` field / parsed query at runtime",
+    ),
+    (
+        "MineRootCause",
+        "EG-P0-2",
+        "mutates is conservative; real answer is the `writeback` field / parsed query at runtime",
+    ),
+    (
+        "MineSequence",
+        "EG-P0-2",
+        "mutates is conservative; real answer is the `writeback` field / parsed query at runtime",
+    ),
+    (
+        "MineSubgraph",
+        "EG-P0-2",
+        "mutates is conservative; real answer is the `writeback` field / parsed query at runtime",
+    ),
+    (
+        "MineText",
+        "EG-P0-2",
+        "mutates is conservative; real answer is the `writeback` field / parsed query at runtime",
+    ),
+    (
+        "Sql",
+        "EG-P0-2",
+        "mutates is conservative; real answer is the `writeback` field / parsed query at runtime",
+    ),
 ];
 
 /// Category 2: `policy(m).mutates == true` per `access.rs` (unconditionally, or as the
@@ -310,7 +570,8 @@ fn all_known_divergence_names() -> std::collections::HashSet<&'static str> {
 
 #[test]
 fn mutates_matches_access_rs_for_every_governed_variant() {
-    let conditional: std::collections::HashSet<&str> = ACCESS_RS_MUTATES_CONDITIONAL.iter().copied().collect();
+    let conditional: std::collections::HashSet<&str> =
+        ACCESS_RS_MUTATES_CONDITIONAL.iter().copied().collect();
     let mut failures = Vec::new();
     for (name, p, _note) in eg_capabilities::ALL_METHODS {
         if conditional.contains(name) {
@@ -381,7 +642,9 @@ fn durability_domain_matches_wal_rs_for_the_graph_wal() {
             }
             DurabilityDomain::Outbox => {
                 if !WAL_RS_DURABLE_OUTBOX.contains(name) {
-                    failures.push(format!("{name}: policy says Outbox-durable, wal.rs::is_durable_mutation disagrees"));
+                    failures.push(format!(
+                        "{name}: policy says Outbox-durable, wal.rs::is_durable_mutation disagrees"
+                    ));
                 }
             }
             DurabilityDomain::None => {
@@ -400,7 +663,10 @@ fn audited_matches_audit_rs_exactly() {
     for (name, p, _note) in eg_capabilities::ALL_METHODS {
         let expected = AUDIT_RS_AUDITED.contains(name);
         if p.audited != expected {
-            failures.push(format!("{name}: policy().audited = {}, audit::audit_line(m).is_some() = {expected}", p.audited));
+            failures.push(format!(
+                "{name}: policy().audited = {}, audit::audit_line(m).is_some() = {expected}",
+                p.audited
+            ));
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
@@ -412,7 +678,10 @@ fn emits_cdc_matches_cdc_rs_exactly() {
     for (name, p, _note) in eg_capabilities::ALL_METHODS {
         let expected = CDC_RS_EMITS_CDC.contains(name);
         if p.emits_cdc != expected {
-            failures.push(format!("{name}: policy().emits_cdc = {}, cdc::emit_for_method match = {expected}", p.emits_cdc));
+            failures.push(format!(
+                "{name}: policy().emits_cdc = {}, cdc::emit_for_method match = {expected}",
+                p.emits_cdc
+            ));
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
@@ -424,15 +693,24 @@ fn emits_cdc_matches_cdc_rs_exactly() {
 #[test]
 fn print_known_divergence_report() {
     eprintln!("\n=== EG-P0-1 capability ledger: KNOWN_DIVERGENCE report ===\n");
-    eprintln!("-- Category 1: RUNTIME_CONDITIONAL ({} variants; workstream EG-P0-2) --", RUNTIME_CONDITIONAL.len());
+    eprintln!(
+        "-- Category 1: RUNTIME_CONDITIONAL ({} variants; workstream EG-P0-2) --",
+        RUNTIME_CONDITIONAL.len()
+    );
     for (name, ws, reason) in RUNTIME_CONDITIONAL {
         eprintln!("  {name:<24} [{ws}] {reason}");
     }
-    eprintln!("\n-- Category 2: WAL_DURABILITY_GAP ({} variants; workstream EG-P0-3) --", WAL_DURABILITY_GAP.len());
+    eprintln!(
+        "\n-- Category 2: WAL_DURABILITY_GAP ({} variants; workstream EG-P0-3) --",
+        WAL_DURABILITY_GAP.len()
+    );
     for (name, ws, reason) in WAL_DURABILITY_GAP {
         eprintln!("  {name:<24} [{ws}] {reason}");
     }
-    eprintln!("\n-- Category 3: ACCESS_RS_COVERAGE_GAP ({} variants; workstream UNASSIGNED) --", ACCESS_RS_COVERAGE_GAP.len());
+    eprintln!(
+        "\n-- Category 3: ACCESS_RS_COVERAGE_GAP ({} variants; workstream UNASSIGNED) --",
+        ACCESS_RS_COVERAGE_GAP.len()
+    );
     for (name, ws, reason) in ACCESS_RS_COVERAGE_GAP {
         eprintln!("  {name:<24} [{ws}] {reason}");
     }

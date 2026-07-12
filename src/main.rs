@@ -656,7 +656,12 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             #[cfg(feature = "security")]
             {
                 let strict = std::env::var("EPISTEMIC_GRAPH_RLS_DEFAULT_DENY")
-                    .map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+                    .map(|v| {
+                        matches!(
+                            v.trim().to_ascii_lowercase().as_str(),
+                            "1" | "true" | "yes" | "on"
+                        )
+                    })
                     .unwrap_or(false);
                 if strict {
                     info!(
@@ -957,16 +962,16 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     // are all synchronous work).
     #[cfg(feature = "lake")]
     {
-        let interval_secs: u64 = std::env::var(
-            epistemic_graph::server::lake::LAKE_MATERIALIZE_INTERVAL_ENV,
-        )
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(0);
+        let interval_secs: u64 =
+            std::env::var(epistemic_graph::server::lake::LAKE_MATERIALIZE_INTERVAL_ENV)
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(0);
         if interval_secs > 0 {
             let sweep_state = state.clone();
             tokio::spawn(async move {
-                let mut ticker = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
+                let mut ticker =
+                    tokio::time::interval(std::time::Duration::from_secs(interval_secs));
                 ticker.tick().await; // consume the immediate first tick
                 loop {
                     ticker.tick().await;
@@ -974,10 +979,16 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                     // (`Some`) here — neither is ever independently off in this build.
                     let (lake_handle, tsdb, store) = {
                         let s = sweep_state.read().await;
-                        (s.lake.clone(), s.tsdb_store.clone(), s.blob.as_ref().map(|b| b.store.clone()))
+                        (
+                            s.lake.clone(),
+                            s.tsdb_store.clone(),
+                            s.blob.as_ref().map(|b| b.store.clone()),
+                        )
                     };
                     let (Some(tsdb), Some(store)) = (tsdb, store) else {
-                        tracing::warn!("Lake materialize sweep: no tsdb/blob store configured, skipping tick");
+                        tracing::warn!(
+                            "Lake materialize sweep: no tsdb/blob store configured, skipping tick"
+                        );
                         continue;
                     };
                     let outcome = tokio::task::spawn_blocking(move || {

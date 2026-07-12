@@ -47,7 +47,11 @@ fn seeded_state(blob_dir: &std::path::Path) -> Arc<RwLock<ServerState>> {
     let registry = GraphRegistry::new();
     {
         let core = registry.get("__commons__").unwrap().core.clone();
-        for (id, name, score) in [("a1", "alice", 10i64), ("a2", "bob", 50), ("a3", "carol", 90)] {
+        for (id, name, score) in [
+            ("a1", "alice", 10i64),
+            ("a2", "bob", 50),
+            ("a3", "carol", 90),
+        ] {
             let blob = rmp_serde::to_vec_named(
                 &serde_json::json!({"kind": "Agent", "name": name, "score": score}),
             )
@@ -195,17 +199,13 @@ fn sign(dataset_id: &str, job_id: &str, digest: &str) -> String {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn export_pull_arrow_and_signed_writeback_round_trip() {
-    let dir = std::env::temp_dir().join(format!(
-        "eg-dataset-handle-e2e-{}",
-        std::process::id()
-    ));
+    let dir = std::env::temp_dir().join(format!("eg-dataset-handle-e2e-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     let state = seeded_state(&dir);
     let addr = spawn_listener(state.clone()).await;
 
     // ── 1. export a dataset handle for a query ──────────────────────────────
-    let export_body =
-        serde_json::json!({"graph": "__commons__", "sql": "SELECT id, name, score FROM nodes ORDER BY id"});
+    let export_body = serde_json::json!({"graph": "__commons__", "sql": "SELECT id, name, score FROM nodes ORDER BY id"});
     let resp = http_request(
         &addr,
         "POST",
@@ -214,12 +214,23 @@ async fn export_pull_arrow_and_signed_writeback_round_trip() {
         export_body.to_string().as_bytes(),
     )
     .await;
-    assert_eq!(resp.status, 200, "export failed: {:?}", String::from_utf8_lossy(&resp.body));
+    assert_eq!(
+        resp.status,
+        200,
+        "export failed: {:?}",
+        String::from_utf8_lossy(&resp.body)
+    );
     let meta: DatasetHandleMeta = serde_json::from_slice(&resp.body).expect("parse meta");
     assert_eq!(meta.row_count, 3);
     assert_eq!(meta.graph, "__commons__");
-    assert!(meta.schema.iter().any(|f| f.name == "score" && f.data_type.contains("Int64")));
-    assert!(meta.schema.iter().any(|f| f.name == "name" && f.data_type.contains("Utf8")));
+    assert!(meta
+        .schema
+        .iter()
+        .any(|f| f.name == "score" && f.data_type.contains("Int64")));
+    assert!(meta
+        .schema
+        .iter()
+        .any(|f| f.name == "name" && f.data_type.contains("Utf8")));
 
     // ── 2. pull it as real Arrow record batches — NOT per-row JSON ──────────
     let resp = http_request(&addr, "GET", &format!("/dataset/{}", meta.id), &[], &[]).await;

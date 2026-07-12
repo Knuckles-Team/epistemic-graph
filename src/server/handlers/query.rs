@@ -529,8 +529,10 @@ pub(crate) async fn try_handle(
         #[cfg(feature = "epistemic-tms")]
         Method::EpistemicStatus { node_id } => {
             let snap = core.analysis_snapshot();
-            let resp = match compute_off_lock(req_id, move || epistemic_status_wire(&node_id, &snap))
-                .await
+            let resp = match compute_off_lock(req_id, move || {
+                epistemic_status_wire(&node_id, &snap)
+            })
+            .await
             {
                 Ok(result) => {
                     let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
@@ -545,17 +547,16 @@ pub(crate) async fn try_handle(
         #[cfg(feature = "epistemic-tms")]
         Method::WhatChanged { tx_from, tx_to } => {
             let snap = core.analysis_snapshot();
-            let resp = match compute_off_lock(req_id, move || {
-                what_changed_wire(&snap, tx_from, tx_to)
-            })
-            .await
-            {
-                Ok(result) => {
-                    let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-                    Response::ok(req_id, ResultPayload::Raw(bytes))
-                }
-                Err(resp) => resp,
-            };
+            let resp =
+                match compute_off_lock(req_id, move || what_changed_wire(&snap, tx_from, tx_to))
+                    .await
+                {
+                    Ok(result) => {
+                        let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
+                        Response::ok(req_id, ResultPayload::Raw(bytes))
+                    }
+                    Err(resp) => resp,
+                };
             Ok(resp)
         }
         // Seam 3 (CONCEPT:EG-KG.epistemic.truth-maintenance, X-6 wire surface): register
@@ -615,8 +616,10 @@ pub(crate) async fn try_handle(
         #[cfg(feature = "evidence-graph")]
         Method::ExplainEvidence { node_id } => {
             let snap = core.analysis_snapshot();
-            let resp = match compute_off_lock(req_id, move || explain_evidence_wire(&node_id, &snap))
-                .await
+            let resp = match compute_off_lock(req_id, move || {
+                explain_evidence_wire(&node_id, &snap)
+            })
+            .await
             {
                 Ok(result) => {
                     let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
@@ -669,9 +672,7 @@ pub(crate) async fn try_handle(
                     let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
                     Response::ok(req_id, ResultPayload::Raw(bytes))
                 }
-                Ok(Err(msg)) => {
-                    Response::err(req_id, format!("CausalCounterfactual error: {msg}"))
-                }
+                Ok(Err(msg)) => Response::err(req_id, format!("CausalCounterfactual error: {msg}")),
                 Err(resp) => resp,
             };
             Ok(resp)
@@ -680,7 +681,10 @@ pub(crate) async fn try_handle(
         // request-carried inputs — no graph snapshot needed. Gated `epistemic-causal`
         // at the handler (same fallback convention as above).
         #[cfg(feature = "epistemic-causal")]
-        Method::RankByProvenance { candidates, weights } => {
+        Method::RankByProvenance {
+            candidates,
+            weights,
+        } => {
             let resp = match compute_off_lock(req_id, move || {
                 rank_by_provenance_wire(&candidates, weights)
             })
@@ -1247,12 +1251,12 @@ pub(crate) fn run_unified(
     #[cfg(feature = "text")]
     let persistent_text = served_text.filter(|st| st.available());
     #[cfg(feature = "text")]
-    let snapshot_text_index: Option<eg_text::TextIndex> =
-        if need_text && persistent_text.is_none() {
-            build_text_index_from_view(view)
-        } else {
-            None
-        };
+    let snapshot_text_index: Option<eg_text::TextIndex> = if need_text && persistent_text.is_none()
+    {
+        build_text_index_from_view(view)
+    } else {
+        None
+    };
     #[cfg(feature = "text")]
     let ctx = if !need_text {
         ctx
@@ -1690,9 +1694,7 @@ fn explain_belief_redacted_wire(
         RedactedJustificationNodeWire,
     };
 
-    fn redacted_node_wire(
-        node: &eg_epistemic::RedactedProofNode,
-    ) -> RedactedJustificationNodeWire {
+    fn redacted_node_wire(node: &eg_epistemic::RedactedProofNode) -> RedactedJustificationNodeWire {
         RedactedJustificationNodeWire {
             claim: node.claim.clone(),
             redaction_label: node.redaction_label.clone(),
@@ -1805,7 +1807,10 @@ fn epistemic_status_wire(
             },
             valid_time: status.valid_time,
             tx_time: status.tx_time,
-            what_would_invalidate: status.what_would_invalidate.as_ref().map(minimal_flip_set_wire),
+            what_would_invalidate: status
+                .what_would_invalidate
+                .as_ref()
+                .map(minimal_flip_set_wire),
         },
     }
 }
@@ -1999,9 +2004,7 @@ fn causal_estimate_wire(
         .iter()
         .map(|v| {
             let est = estimates.get(&v.id).copied().unwrap_or_else(|| {
-                unreachable!(
-                    "intervene()/observe() return an estimate for every declared variable"
-                )
+                unreachable!("intervene()/observe() return an estimate for every declared variable")
             });
             (
                 v.id.clone(),

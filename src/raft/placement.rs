@@ -470,7 +470,6 @@ impl PlacementCatalog {
             epoch,
         })
     }
-
 }
 
 #[cfg(test)]

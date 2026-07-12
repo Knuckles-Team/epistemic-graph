@@ -150,11 +150,17 @@ fn handle(lake: &LakeManager, store: &dyn ChunkStore, req: &HttpRequest) -> (&'s
         .collect();
 
     match (req.method.as_str(), segs.as_slice()) {
-        ("GET", ["v1", "config"]) => ("200 OK", json!({ "defaults": {}, "overrides": {} }).to_string()),
+        ("GET", ["v1", "config"]) => (
+            "200 OK",
+            json!({ "defaults": {}, "overrides": {} }).to_string(),
+        ),
         ("GET", ["v1", "namespaces"]) => ("200 OK", lake.list_namespaces().to_string()),
         ("GET", ["v1", "namespaces", ns]) => {
             if lake.namespace_exists(ns) {
-                ("200 OK", json!({ "namespace": [ns], "properties": {} }).to_string())
+                (
+                    "200 OK",
+                    json!({ "namespace": [ns], "properties": {} }).to_string(),
+                )
             } else {
                 ("404 Not Found", not_found("namespace"))
             }
@@ -171,10 +177,15 @@ fn handle(lake: &LakeManager, store: &dyn ChunkStore, req: &HttpRequest) -> (&'s
                 ("404 Not Found", String::new())
             }
         }
-        ("POST", ["v1", "namespaces", ns, "tables", table]) => match lake.commit_table(store, ns, table) {
-            Ok(v) => ("200 OK", v.to_string()),
-            Err(e) => ("400 Bad Request", err_body(&e, "CommitFailedException", 400)),
-        },
+        ("POST", ["v1", "namespaces", ns, "tables", table]) => {
+            match lake.commit_table(store, ns, table) {
+                Ok(v) => ("200 OK", v.to_string()),
+                Err(e) => (
+                    "400 Bad Request",
+                    err_body(&e, "CommitFailedException", 400),
+                ),
+            }
+        }
         _ => ("404 Not Found", not_found("route")),
     }
 }
@@ -250,10 +261,19 @@ mod tests {
         );
         assert_eq!(status, "200 OK");
         let v: serde_json::Value = serde_json::from_str(&body).unwrap();
-        assert!(v["metadata-location"].as_str().unwrap().ends_with(".metadata.json"));
+        assert!(v["metadata-location"]
+            .as_str()
+            .unwrap()
+            .ends_with(".metadata.json"));
         // Inline metadata: a client needs NO second fetch to open the table.
         assert_eq!(v["metadata"]["format-version"], 2);
-        assert_eq!(v["metadata"]["schemas"][0]["fields"].as_array().unwrap().len(), 2);
+        assert_eq!(
+            v["metadata"]["schemas"][0]["fields"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
         assert!(v["config"].is_object());
 
         let (status, _) = handle(
@@ -286,7 +306,10 @@ mod tests {
         );
         assert_eq!(status, "200 OK");
         let v: serde_json::Value = serde_json::from_str(&body).unwrap();
-        assert_eq!(v["metadata"]["snapshots"][0]["summary"]["total-data-files"], "1");
+        assert_eq!(
+            v["metadata"]["snapshots"][0]["summary"]["total-data-files"],
+            "1"
+        );
 
         let (status, _) = handle(
             &mgr,
@@ -334,7 +357,8 @@ mod tests {
 
         let (status, body) = get(addr, "/v1/namespaces/engine/tables/rest_series1").await;
         assert!(status.contains("200"), "got: {status}");
-        let v: serde_json::Value = serde_json::from_str(&body).expect("valid JSON LoadTableResponse");
+        let v: serde_json::Value =
+            serde_json::from_str(&body).expect("valid JSON LoadTableResponse");
         assert_eq!(v["metadata"]["current-snapshot-id"].is_number(), true);
     }
 }
