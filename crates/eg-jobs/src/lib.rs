@@ -38,9 +38,20 @@
 //!   `JobState`).
 //! * [`store`] — [`store::JobStore`], the durable redb-backed state machine: guarded
 //!   `submit`/`start_running`/`checkpoint`/`succeed`/`fail`/`request_cancel`/
-//!   `mark_cancelled`/`resume`, plus the `mark_result_committed` idempotency ledger.
+//!   `mark_cancelled`/`resume`, plus the `mark_result_committed` idempotency ledger
+//!   AND (daemon-consolidation design Phase 3) the generalized
+//!   `claim_idempotency`/`idempotency_claimed_by` ledger + the `JobIntent` registry
+//!   (`register_intent`/`get_intent`/`list_intents`/`due_intents`/
+//!   `record_intent_tick`).
 //! * [`claim`] — [`claim::commit_result_claim`], turning a `Succeeded` job into a
 //!   provenance'd `:Claim`/`:Evidence` pair in a live `GraphCore`.
+//! * [`intent`] — [`intent::JobIntent`] + [`intent::Trigger`] (CONCEPT:INT-P2-1,
+//!   daemon-consolidation design Phase 3, `reports/daemon-consolidation-design.md`):
+//!   a job DECLARED with a schedule (cron/interval/manual) rather than driven by an
+//!   external caller, additive to `AnalyticsJob` and persisted in the SAME
+//!   `jobs.redb`. [`intent::cold_offload_intent`] is the proof-of-concept: it
+//!   expresses the engine's own off-by-default cold-tenant idle-offload sweep as a
+//!   `JobIntent` WITHOUT changing what actually drives that sweep today.
 //!
 //! The facade wires this crate's `submit`/`get`/`request_cancel`/`resume` behind
 //! ONE protocol surface (`Method::AnalyticsJob { op: JobOp }`,
@@ -50,10 +61,12 @@
 //! families as job kinds; an AU-side feature/model/experiment registry).
 
 pub mod claim;
+pub mod intent;
 pub mod model;
 pub mod store;
 
 pub use claim::{commit_result_claim, CalibrationInput, ClaimCommitOutcome};
+pub use intent::{cold_offload_intent, JobIntent, Trigger};
 pub use model::{
     compute_result_ref, digest_params, AlgoVersion, AnalyticsJob, Checkpoint, InputSnapshotHandle,
     JobId, JobPolicy, JobState, RetryPolicy,
