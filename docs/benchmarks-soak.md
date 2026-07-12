@@ -160,6 +160,28 @@ redb on a RAM miss, never lost.
 | Noisy-neighbor partial isolation | ✅ (4× gap) |
 | Strict per-tier latency SLOs under noisy neighbor | ⚠️ not met on this contended single box (cluster/quiet-box target) |
 
+## Cluster chaos — bounded real run (2026-07-12, r710)
+
+A `--features cluster` (openraft) build was deployed as a **bounded 3-node loopback raft
+cluster on r710** (a headroom host, load ~2 — deliberately NOT the overloaded rw710 graph-os
+host or r510), and the core node-loss chaos case was exercised, then torn down. **Measured
+(real, not modeled):**
+
+| Property | Result |
+|---|---|
+| Multi-node replication | ✅ a write to the cluster replicated to a peer node (`probe1` readable on node 3) |
+| **Data survives a node kill** | ✅ after `kill -9` of node 1, `probe1` was still served by the surviving peer — durable, no loss |
+| **Raft safety under lost quorum** | ✅ with only 1 of 3 nodes reachable, the cluster **correctly refused** new writes (no split-brain, no phantom commit) — the intended openraft safety guarantee |
+
+**Honest caveat / harness finding:** clean 3-node *formation* was flaky in this bounded loopback
+run — a node intermittently failed to bind its raft port (`Address already in use`) because of
+test-harness port reuse across back-to-back runs, leaving a 2-node cluster. This is a **harness
+limitation, not an engine defect** (confirmed from the node's own stderr); the engine's
+replication/durability/safety behaviour was correct in every run. A fully-stable multi-**host**
+chaos matrix (leader failover across separate hosts, zone loss, cross-host rebalance) remains the
+deeper follow-up below — it needs dedicated hosts with non-conflicting ports and, ideally, the
+cluster running under a supervisor rather than a bare loopback script.
+
 ## NOT run here — needs the 4-node cluster
 
 The following SCALE-P2-1 chaos cases are real, defined scenarios that **require
