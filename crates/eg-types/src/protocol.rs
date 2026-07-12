@@ -55,6 +55,15 @@ fn default_min_confidence() -> f64 {
     0.5
 }
 
+/// serde default for `Method::ResolveConflict::semantics` (EPI-P3-7) — the unique,
+/// always-defined skeptical (grounded) Dung extension, matching every other
+/// epistemic op's "narrowest, always-answerable default" convention (mirrors
+/// `is_skeptically_accepted`'s own choice of grounded over preferred/stable).
+#[cfg(feature = "epistemic")]
+fn default_argumentation_semantics() -> String {
+    "grounded".to_string()
+}
+
 // ── Request ─────────────────────────────────────────────────────────────
 
 /// Top-level request envelope sent by the Python client.
@@ -1948,6 +1957,26 @@ pub enum Method {
     MaterializationStatus {
         id: String,
     },
+    /// EPI-P3-7 (gap-fill) — standalone paraconsistent conflict resolution: run Dung
+    /// abstract-argumentation semantics (`eg_epistemic::tms`, feature `epistemic-tms`)
+    /// over a `BeliefGraph` built from the caller's `GraphView`, and report — for each
+    /// of `node_ids` — whether it SURVIVES, is DEFEATED, or stays UNDECIDED under
+    /// `semantics` (`"grounded"` (default) | `"preferred"` | `"stable"`). This is the
+    /// SAME grounded/preferred/stable extension machinery `Method::EpistemicStatus`
+    /// already composes internally (via `is_skeptically_accepted`) for a single claim's
+    /// acceptance — reachable here as a standalone, multi-claim, semantics-selectable
+    /// op instead of only inside that capstone. Returns a `ResolveConflictResult`
+    /// (surviving/defeated/undecided id lists + the raw extension set(s) the verdict
+    /// was computed from) via `ResultPayload::raw`. Gated `epistemic` at the wire
+    /// level; the HANDLER additionally requires `epistemic-tms` — a build with
+    /// `epistemic` but not `epistemic-tms` falls to the graph_ops "not available in
+    /// this build" catch-all (same convention as `EpistemicStatus`/`WhatChanged`).
+    #[cfg(feature = "epistemic")]
+    ResolveConflict {
+        node_ids: Vec<String>,
+        #[serde(default = "default_argumentation_semantics")]
+        semantics: String,
+    },
     /// X-1 (CONCEPT:EG-X1) — resolve `node_id`'s cited multimodal evidence: build a
     /// `BeliefGraph` off the caller's `GraphView` and walk the SAME support/
     /// contradiction/attack topology `ExplainBelief` walks, returning every
@@ -1965,25 +1994,61 @@ pub enum Method {
     ExplainEvidence {
         node_id: String,
     },
-    /// EPI-P3-3 — a **do-calculus intervention** `P(· | do(X₁=x₁, X₂=x₂, …))` over a
-    /// request-carried linear-Gaussian structural causal model: `variables` defines
-    /// the DAG's `StructuralEquation`s in topological (parents-before-children) order
-    /// — the SAME invariant `eg_epistemic::CausalGraph::add_variable` enforces at
-    /// construction — and `do_values` fixes the named variables via graph surgery
-    /// (`eg_epistemic::CausalGraph::intervene`, feature `epistemic-causal`). Returns a
-    /// calibrated `CausalEstimateResult` (mean/variance/credible-interval per
-    /// variable, in `variables` order) via `ResultPayload::raw`. A pure function over
-    /// request-carried inputs — no graph snapshot is read. Gated `epistemic` at the
-    /// wire level; the HANDLER additionally requires `epistemic-causal` — same
-    /// build-tier fallback convention as `ExplainEvidence`.
+    /// EPI-P3-3 — a request-carried linear-Gaussian structural causal model query:
+    /// `variables` defines the DAG's `StructuralEquation`s in topological
+    /// (parents-before-children) order — the SAME invariant
+    /// `eg_epistemic::CausalGraph::add_variable` enforces at construction. `mode`
+    /// (EPI-P3-6) selects which of `eg_epistemic::CausalGraph`'s two
+    /// non-counterfactual queries `do_values` feeds:
     ///
-    /// The crate ALSO exposes the *observational* query (`CausalGraph::observe`) and
-    /// Pearl point-counterfactuals (`CausalGraph::counterfactual`); this increment
-    /// wires only the interventional `do`-query — the headline do-calculus capability
-    /// — to keep the request DTO minimal. See `eg_epistemic::causal` module docs.
+    /// * `CausalQueryModeWire::Intervene` (the `#[serde(default)]` — every
+    ///   pre-existing caller that omits `mode` gets BYTE-FOR-BYTE the old
+    ///   behavior) — a **do-calculus intervention** `P(· | do(X₁=x₁, X₂=x₂, …))`:
+    ///   `do_values` fixes the named variables via graph surgery
+    ///   (`CausalGraph::intervene`) — incoming edges are CUT, not conditioned on.
+    /// * `CausalQueryModeWire::Observe` — the **observational** query
+    ///   `P(· | X₁=x₁, X₂=x₂, …)`: ordinary multivariate-Gaussian conditioning on
+    ///   the UNMUTILATED joint (`CausalGraph::observe`). Unlike `Intervene`,
+    ///   evidence propagates BACKWARD to ancestors too (e.g. a confounder) — the
+    ///   mechanism a naive "condition on the evidence" read of a causal question
+    ///   gets wrong, and exactly what distinguishes "seeing X=x" from "doing X=x".
+    ///
+    /// Either way, returns a calibrated `CausalEstimateResult` (mean/variance/
+    /// credible-interval per variable, in `variables` order) via
+    /// `ResultPayload::raw`. A pure function over request-carried inputs — no graph
+    /// snapshot is read. Gated `epistemic` at the wire level; the HANDLER
+    /// additionally requires `epistemic-causal` — same build-tier fallback
+    /// convention as `ExplainEvidence`.
+    ///
+    /// The crate's Pearl point-counterfactual (`CausalGraph::counterfactual`) is a
+    /// distinct, DETERMINISTIC (not distributional) query with its own request
+    /// shape — see `CausalCounterfactual` below, not this variant.
     #[cfg(feature = "epistemic")]
     CausalEstimate {
         variables: Vec<StructuralEquationWire>,
+        do_values: std::collections::BTreeMap<String, f64>,
+        #[serde(default)]
+        mode: CausalQueryModeWire,
+    },
+    /// EPI-P3-6 — Pearl's point-**counterfactual** recipe
+    /// (`eg_epistemic::CausalGraph::counterfactual`, feature `epistemic-causal`):
+    /// "given that unit `actual` (a FULLY-observed assignment of every variable in
+    /// `variables`) really happened, what would its variables have been had
+    /// `do_values` held instead?" — the three-step abduction/action/prediction
+    /// recipe (Pearl, *Causality*, ch. 7), replaying the SAME inferred exogenous
+    /// noise forward through the (surgered) structural equations.
+    ///
+    /// DETERMINISTIC given `actual` — not a calibrated distribution like
+    /// `CausalEstimate` — so it returns a `CausalCounterfactualResult` (one POINT
+    /// value per variable, in `variables` order) via `ResultPayload::raw` instead
+    /// of a `CausalEstimateResult`. A pure function over request-carried inputs —
+    /// no graph snapshot is read. Gated `epistemic` at the wire level; the HANDLER
+    /// additionally requires `epistemic-causal` — same build-tier fallback
+    /// convention as `CausalEstimate`.
+    #[cfg(feature = "epistemic")]
+    CausalCounterfactual {
+        variables: Vec<StructuralEquationWire>,
+        actual: std::collections::BTreeMap<String, f64>,
         do_values: std::collections::BTreeMap<String, f64>,
     },
     /// EPI-P3-3 — provenance-aware retrieval ranking: order request-carried
@@ -4960,6 +5025,33 @@ pub struct MaterializationStatusResult {
     pub status: Option<String>,
 }
 
+/// Materialized result of a `Method::ResolveConflict` run (EPI-P3-7). `semantics`
+/// echoes the request. Every id in the request's `node_ids` appears in EXACTLY ONE
+/// of `surviving`/`defeated`/`undecided`:
+///
+/// * `grounded`: `surviving` = the unique grounded extension's members (IN);
+///   `defeated` = attacked by an IN argument (OUT); `undecided` = neither (caught in
+///   an unresolved/paraconsistent conflict, e.g. an odd attack cycle).
+/// * `preferred`/`stable`: `surviving` = in EVERY computed extension (unanimous
+///   across every admissible "side"); `defeated` = in NO extension (never
+///   credulously acceptable); `undecided` = in SOME but not all (contested), or
+///   every requested id when NO extension exists at all (a legitimate `stable`
+///   result, or the crate's own NP-hardness cap firing on a large graph — see
+///   `eg_epistemic::tms` module docs; never a fabricated verdict either way).
+///
+/// `extension_sets` is the raw extension(s) the verdict was computed from, over the
+/// WHOLE graph (not filtered to `node_ids`): exactly one entry for `grounded`,
+/// zero-or-more for `preferred`/`stable`. Returned via `ResultPayload::raw`.
+#[cfg(feature = "epistemic")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResolveConflictResult {
+    pub semantics: String,
+    pub surviving: Vec<String>,
+    pub defeated: Vec<String>,
+    pub undecided: Vec<String>,
+    pub extension_sets: Vec<Vec<String>>,
+}
+
 // ── X-1 multimodal-evidence citation wiring (CONCEPT:EG-X1, facade feature
 // `evidence-graph`) ─────────────────────────────────────────────────────────────
 
@@ -5028,6 +5120,30 @@ pub struct CausalEstimateWire {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CausalEstimateResult {
     pub estimates: Vec<(String, CausalEstimateWire)>,
+}
+
+/// Which of `eg_epistemic::CausalGraph`'s two non-counterfactual queries
+/// `Method::CausalEstimate::do_values` feeds (EPI-P3-6). `Intervene` is the
+/// `#[default]` — matches the wire field's own `#[serde(default)]`, so a request
+/// that omits `mode` entirely (every pre-existing caller) decodes to `Intervene`
+/// and gets BYTE-FOR-BYTE the query this variant answered before `mode` existed.
+#[cfg(feature = "epistemic")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum CausalQueryModeWire {
+    #[default]
+    Intervene,
+    Observe,
+}
+
+/// Materialized result of a `Method::CausalCounterfactual` run (EPI-P3-6): one
+/// POINT value per variable — not a calibrated distribution, since Pearl's
+/// point-counterfactual is deterministic given the abduced exogenous noise — in
+/// the SAME order as the request's `variables` list. Returned via
+/// `ResultPayload::raw`.
+#[cfg(feature = "epistemic")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CausalCounterfactualResult {
+    pub values: Vec<(String, f64)>,
 }
 
 /// Wire mirror of `eg_epistemic::Calibration` (EPI-P3-3) — the calibrated interval
