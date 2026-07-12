@@ -451,11 +451,14 @@ impl Parser {
         }
     }
 
-    /// Edge forms: `-[:REL]->`, `-[:REL*1..3]->`, `<-[:REL]-`. Direction is set by
-    /// whether the leading token is `-` (right) or `<-` (left), and the trailing
-    /// token closes it (`->` for right, `-` for left).
+    /// Edge forms: `-[:REL]->` (right), `<-[:REL]-` (left), `-[:REL]-` (undirected —
+    /// CONCEPT:EG-KG.query.undirected-relationship-pattern), each optionally carrying a
+    /// `*min..max` var-length quantifier (`-[:REL*1..3]->`, `-[*1..2]-`). Direction is
+    /// set by the LEADING token (`-` opens right-or-undirected, `<-` opens left); a
+    /// leading `-` is disambiguated by the CLOSING token — `->` confirms `Right`, a
+    /// bare `-` (no arrowhead) means `Both` (undirected, matches either direction).
     fn parse_edge(&mut self) -> Result<EdgePat, String> {
-        let direction = match self.next() {
+        let mut direction = match self.next() {
             Some(Tok::Dash) => Direction::Right,
             Some(Tok::ArrowLeft) => Direction::Left,
             other => return Err(format!("expected edge start, found {other:?}")),
@@ -483,10 +486,20 @@ impl Parser {
             None
         };
         self.expect(&Tok::RBracket)?;
-        // closing arrow
+        // closing arrow: `<-[...]-` always closes on Dash (Left, unambiguous). A
+        // pattern that OPENED on Dash closes either on `->` (confirms Right) or a
+        // bare `-` (no arrowhead ⇒ undirected, Both).
         match direction {
-            Direction::Right => self.expect(&Tok::ArrowRight)?,
+            Direction::Right => {
+                if matches!(self.peek(), Some(Tok::ArrowRight)) {
+                    self.next();
+                } else {
+                    self.expect(&Tok::Dash)?;
+                    direction = Direction::Both;
+                }
+            }
             Direction::Left => self.expect(&Tok::Dash)?,
+            Direction::Both => unreachable!("Both is never the opening direction"),
         }
         Ok(EdgePat {
             rel_type,
@@ -1354,6 +1367,29 @@ mod tests {
         let q = parse("MATCH (a:Person)-[:KNOWS*1..3]->(b:Person) RETURN b").unwrap();
         let (pat, _) = first_match(&q);
         assert_eq!(pat.hops[0].0.var_len, Some((1, 3)));
+    }
+
+    /// CONCEPT:EG-KG.query.undirected-relationship-pattern regression: `-[...]-` (no arrowhead on
+    /// either side) is undirected, matching an edge in either direction — previously
+    /// rejected with a raw "expected ArrowRight, found Some(Dash)" parse error
+    /// because the parser only recognized `->` (right) and `<-...-` (left).
+    #[test]
+    fn parses_undirected_relationship() {
+        let q = parse("MATCH (a:Person)-[:KNOWS]-(b:Person) RETURN b").unwrap();
+        let (pat, _) = first_match(&q);
+        assert_eq!(pat.hops[0].0.direction, Direction::Both);
+        assert_eq!(pat.hops[0].0.rel_type.as_deref(), Some("KNOWS"));
+    }
+
+    /// The exact failing shape from the bug report: an untyped, undirected,
+    /// bounded var-length hop `[*1..2]` off a property-anchored start node.
+    #[test]
+    fn parses_undirected_variable_length_path() {
+        let q = parse("MATCH (n {id:$id})-[*1..2]-(m) RETURN m").unwrap();
+        let (pat, _) = first_match(&q);
+        assert_eq!(pat.hops[0].0.direction, Direction::Both);
+        assert_eq!(pat.hops[0].0.var_len, Some((1, 2)));
+        assert_eq!(pat.hops[0].0.rel_type, None);
     }
 
     // ── CONCEPT:EG-KG.query.quantified-path-pattern — Cypher 25 QPP parsing ─────────────────────────
