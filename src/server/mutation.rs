@@ -1213,6 +1213,7 @@ mod tests {
             core: &core,
             persistence: Some(&persistence),
             redb_authoritative: true,
+            #[cfg(feature = "streaming")]
             cdc: None,
             write_coalescer: None,
         };
@@ -1299,6 +1300,7 @@ mod tests {
             core: &core,
             persistence: Some(&persistence),
             redb_authoritative: true,
+            #[cfg(feature = "streaming")]
             cdc: None,
             write_coalescer: None,
         };
@@ -1363,6 +1365,7 @@ mod tests {
             core: &core,
             persistence: Some(&persistence),
             redb_authoritative: true,
+            #[cfg(feature = "streaming")]
             cdc: None,
             write_coalescer: None,
         };
@@ -1440,6 +1443,7 @@ mod tests {
             core: &core,
             persistence: None,
             redb_authoritative: false,
+            #[cfg(feature = "streaming")]
             cdc: None,
             write_coalescer: None,
         };
@@ -1489,6 +1493,7 @@ mod tests {
             core: &core,
             persistence: None,
             redb_authoritative: false,
+            #[cfg(feature = "streaming")]
             cdc: None,
             write_coalescer: None,
         };
