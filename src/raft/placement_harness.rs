@@ -42,6 +42,10 @@ const TENANT: &str = "acme";
 
 async fn make_state(dir: &str, backend: Arc<dyn PersistenceBackend>) -> Arc<RwLock<ServerState>> {
     Arc::new(RwLock::new(ServerState {
+        #[cfg(feature = "dataset-handle")]
+        dataset_handles: std::sync::Arc::new(
+            crate::server::dataset_handle::DatasetHandleRegistry::new(),
+        ),
         #[cfg(feature = "redb")]
         cold_tracker: std::sync::Arc::new(
             crate::server::persistence::cold_offload::ColdTenantTracker::new(),
