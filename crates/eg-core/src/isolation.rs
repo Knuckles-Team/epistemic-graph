@@ -843,8 +843,10 @@ mod tests {
                 let mut v = GraphView::default();
                 let idx = v.graph.add_node("garbage".to_string());
                 v.node_map.insert("garbage".to_string(), idx);
-                v.node_properties
-                    .insert("garbage".to_string(), std::sync::Arc::new(vec![0xFF, 0x00, 0x01]));
+                v.node_properties.insert(
+                    "garbage".to_string(),
+                    std::sync::Arc::new(vec![0xFF, 0x00, 0x01]),
+                );
                 layer.filter_view("worker1", &mut v);
                 assert!(
                     !v.node_properties.contains_key("garbage"),
@@ -861,10 +863,8 @@ mod tests {
                 let mut v = GraphView::default();
                 let idx = v.graph.add_node("shared".to_string());
                 v.node_map.insert("shared".to_string(), idx);
-                v.node_properties.insert(
-                    "shared".to_string(),
-                    props(&[("_visibility", "public")]),
-                );
+                v.node_properties
+                    .insert("shared".to_string(), props(&[("_visibility", "public")]));
                 layer.filter_view("worker1", &mut v);
                 assert!(
                     v.node_properties.contains_key("shared"),
@@ -898,7 +898,10 @@ mod tests {
                     grants: Vec::new(),
                     tagged: false,
                 };
-                assert!(layer.can_see_row("worker1", &untagged), "permissive default allows untagged");
+                assert!(
+                    layer.can_see_row("worker1", &untagged),
+                    "permissive default allows untagged"
+                );
                 layer.set_rls_default_deny(true);
                 assert!(
                     !layer.can_see_row("worker1", &untagged),
@@ -911,7 +914,10 @@ mod tests {
                     grants: Vec::new(),
                     tagged: true,
                 };
-                assert!(layer.can_see_row("worker1", &explicit_public), "strict mode allows explicitly-tagged public");
+                assert!(
+                    layer.can_see_row("worker1", &explicit_public),
+                    "strict mode allows explicitly-tagged public"
+                );
             }
         }
     }

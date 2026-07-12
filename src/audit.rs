@@ -217,9 +217,7 @@ pub fn audit_line(method: &Method) -> Option<String> {
         #[cfg(feature = "broker")]
         Method::BrokerAck { queue, node_id } => format!("BROKER_ACK|{queue}|{node_id}"),
         #[cfg(feature = "broker")]
-        Method::BrokerReject {
-            queue, node_id, ..
-        } => format!("BROKER_REJECT|{queue}|{node_id}"),
+        Method::BrokerReject { queue, node_id, .. } => format!("BROKER_REJECT|{queue}|{node_id}"),
         #[cfg(feature = "broker")]
         Method::SweepExpired { .. } => "SWEEP_EXPIRED".to_string(),
         #[cfg(feature = "broker")]

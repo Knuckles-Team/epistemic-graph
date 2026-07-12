@@ -504,7 +504,12 @@ pub fn meta_in_rtx(rtx: &ReadTransaction, series_id: &str) -> Result<Option<Seri
 /// [`SeriesStore::range`] (which now delegates here for its own `db`); see
 /// [`list_series_in_rtx`] for why a caller wants the shared-transaction form. Empty for an
 /// unknown series OR a `SERIES_CHUNKS` table that was never created.
-pub fn range_in_rtx(rtx: &ReadTransaction, series_id: &str, from: Ts, to: Ts) -> Result<Vec<Point>> {
+pub fn range_in_rtx(
+    rtx: &ReadTransaction,
+    series_id: &str,
+    from: Ts,
+    to: Ts,
+) -> Result<Vec<Point>> {
     let meta = match meta_in_rtx(rtx, series_id)? {
         Some(m) => m,
         None => return Ok(vec![]),

@@ -293,9 +293,7 @@ mod tests {
             #[cfg(feature = "federation")]
             foreign_sources: Arc::new(DashMap::new()),
             #[cfg(feature = "dataset-handle")]
-            dataset_handles: Arc::new(
-                crate::server::dataset_handle::DatasetHandleRegistry::new(),
-            ),
+            dataset_handles: Arc::new(crate::server::dataset_handle::DatasetHandleRegistry::new()),
             #[cfg(feature = "lake")]
             lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
         }))

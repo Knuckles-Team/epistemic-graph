@@ -524,7 +524,11 @@ pub(crate) fn require_admin_capability(
         crate::metrics::access_denied();
         Err(format!(
             "ACCESS_DENIED: agent '{}' lacks admin capability required for '{action}'",
-            if agent.is_empty() { "<anonymous>" } else { agent },
+            if agent.is_empty() {
+                "<anonymous>"
+            } else {
+                agent
+            },
         ))
     }
 }
@@ -574,7 +578,10 @@ mod durability_closure_tests {
             #[cfg(feature = "epistemic")]
             as_claim: false,
         };
-        assert!(requires_write(&m), "writeback=true must classify as a write");
+        assert!(
+            requires_write(&m),
+            "writeback=true must classify as a write"
+        );
         assert_write_implies_durable(&m);
     }
 
@@ -599,7 +606,10 @@ mod durability_closure_tests {
             #[cfg(feature = "epistemic")]
             as_claim: false,
         };
-        assert!(requires_write(&m), "writeback=true must classify as a write");
+        assert!(
+            requires_write(&m),
+            "writeback=true must classify as a write"
+        );
         assert_write_implies_durable(&m);
     }
 
@@ -625,7 +635,10 @@ mod durability_closure_tests {
             as_claim: false,
         };
         let lda = base(TextAlgorithm::Lda);
-        assert!(requires_write(&lda), "lda writeback=true must classify as a write");
+        assert!(
+            requires_write(&lda),
+            "lda writeback=true must classify as a write"
+        );
         assert_write_implies_durable(&lda);
 
         // tfidf never mutates regardless of `writeback` — both classifiers must

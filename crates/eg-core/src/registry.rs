@@ -112,8 +112,14 @@ pub trait GraphMaterializer: Send + Sync {
     ) -> Option<MaterialPage> {
         let material = self.materialize(graph_name)?;
         let page_size = page_size.max(1);
-        let node_offset = cursor.map(|c| c.node_offset).unwrap_or(0).min(material.nodes.len());
-        let edge_offset = cursor.map(|c| c.edge_offset).unwrap_or(0).min(material.edges.len());
+        let node_offset = cursor
+            .map(|c| c.node_offset)
+            .unwrap_or(0)
+            .min(material.nodes.len());
+        let edge_offset = cursor
+            .map(|c| c.edge_offset)
+            .unwrap_or(0)
+            .min(material.edges.len());
 
         let node_end = (node_offset + page_size).min(material.nodes.len());
         let nodes = material.nodes[node_offset..node_end].to_vec();
@@ -391,9 +397,10 @@ impl GraphRegistry {
                     let _ = core.add_edge(src, tgt, props);
                 }
                 if !material.semantic.is_empty() {
-                    if let Ok(store) = rmp_serde::from_slice::<crate::compute::semantic::SemanticStore>(
-                        &material.semantic,
-                    ) {
+                    if let Ok(store) = rmp_serde::from_slice::<
+                        crate::compute::semantic::SemanticStore,
+                    >(&material.semantic)
+                    {
                         *core.semantic_store.write() = store;
                     }
                 }
@@ -739,7 +746,13 @@ mod tests {
             .map(|i| (format!("n{i}"), props(serde_json::json!({"i": i}))))
             .collect();
         let edges: Vec<(String, String, Vec<u8>)> = (0..4)
-            .map(|i| (format!("n{i}"), format!("n{}", i + 1), props(serde_json::json!({"e": i}))))
+            .map(|i| {
+                (
+                    format!("n{i}"),
+                    format!("n{}", i + 1),
+                    props(serde_json::json!({"e": i})),
+                )
+            })
             .collect();
         let mut material = std::collections::HashMap::new();
         material.insert(
@@ -771,7 +784,10 @@ mod tests {
                 Some(next) => {
                     cursor = next;
                     pages_paged_in += 1;
-                    assert!(pages_paged_in < 20, "must terminate — cursor isn't advancing");
+                    assert!(
+                        pages_paged_in < 20,
+                        "must terminate — cursor isn't advancing"
+                    );
                 }
                 None => break,
             }
@@ -780,12 +796,22 @@ mod tests {
         // Once every page has landed, the paged-open result is byte-identical to
         // the eager `open_lazy` of the SAME material (10 nodes, 4 edges).
         let core = reg.get(name).unwrap().core.clone();
-        assert_eq!(core.node_count(), 10, "all nodes present after paging in the rest");
+        assert_eq!(
+            core.node_count(),
+            10,
+            "all nodes present after paging in the rest"
+        );
         for (node_id, expected_props) in &nodes {
-            assert_eq!(core.get_node_properties(node_id), Some(expected_props.clone()));
+            assert_eq!(
+                core.get_node_properties(node_id),
+                Some(expected_props.clone())
+            );
         }
         for (src, tgt, _) in &edges {
-            assert!(core.has_edge(src, tgt), "edge {src}->{tgt} must be present after full paging");
+            assert!(
+                core.has_edge(src, tgt),
+                "edge {src}->{tgt} must be present after full paging"
+            );
         }
 
         // A genuinely unknown name never opens, exactly like `open_lazy`.
@@ -806,10 +832,10 @@ mod tests {
     fn evicted_graph_reopens_with_data_intact() {
         let mut reg = GraphRegistry::new();
         reg.create_graph("agent:a", GraphType::Agent, None).unwrap();
-        reg.get("agent:a").unwrap().core.add_node(
-            "x".into(),
-            props(serde_json::json!({"payload": "hello"})),
-        );
+        reg.get("agent:a")
+            .unwrap()
+            .core
+            .add_node("x".into(), props(serde_json::json!({"payload": "hello"})));
         assert_eq!(reg.get("agent:a").unwrap().core.node_count(), 1);
 
         // Wire a materializer that serves the SAME data back (standing in for the
@@ -819,7 +845,10 @@ mod tests {
         material.insert(
             "agent:a".to_string(),
             GraphMaterial {
-                nodes: vec![("x".to_string(), props(serde_json::json!({"payload": "hello"})))],
+                nodes: vec![(
+                    "x".to_string(),
+                    props(serde_json::json!({"payload": "hello"})),
+                )],
                 edges: Vec::new(),
                 semantic: Vec::new(),
             },

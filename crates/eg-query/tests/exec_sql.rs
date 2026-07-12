@@ -233,7 +233,11 @@ fn typed_and_tables_aware_cancellable_entry_points_honor_a_pre_cancelled_token()
 
     let typed = eg_query::exec_sql_typed_cancellable(&view, sql, &cancelled)
         .expect("cancellation degrades to fewer rows, never an error");
-    assert_eq!(typed.rows.len(), 0, "exec_sql_typed_cancellable must honor cancellation");
+    assert_eq!(
+        typed.rows.len(),
+        0,
+        "exec_sql_typed_cancellable must honor cancellation"
+    );
 
     let (store, _tmp_path) = TableStore::open_temp().expect("temp table store");
     let with_tables =

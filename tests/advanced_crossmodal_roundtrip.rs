@@ -1621,7 +1621,11 @@ async fn explain_belief_disclosure_level_returns_redacted_skeleton_over_rpc() {
             ),
         )
         .await;
-        assert!(r.error.is_none(), "RegisterIdentity {agent} failed: {:?}", r.error);
+        assert!(
+            r.error.is_none(),
+            "RegisterIdentity {agent} failed: {:?}",
+            r.error
+        );
     }
 
     // `stranger` requests `Full` (asking for MORE than it earns) — the cap can only
@@ -1638,7 +1642,11 @@ async fn explain_belief_disclosure_level_returns_redacted_skeleton_over_rpc() {
         ),
     )
     .await;
-    assert!(resp.error.is_none(), "ExplainBelief error: {:?}", resp.error);
+    assert!(
+        resp.error.is_none(),
+        "ExplainBelief error: {:?}",
+        resp.error
+    );
     let bytes = match &resp.result {
         Some(ResultPayload::Raw(b)) => b.clone(),
         other => panic!("expected Raw result, got {other:?}"),
@@ -1647,7 +1655,9 @@ async fn explain_belief_disclosure_level_returns_redacted_skeleton_over_rpc() {
         rmp_serde::from_slice(&bytes).expect("ExplainBeliefRedactedResult decodes");
 
     assert_eq!(result.level, DisclosureLevelWire::Skeleton);
-    let root = result.root.expect("claim1 itself is public, must render a root");
+    let root = result
+        .root
+        .expect("claim1 itself is public, must render a root");
     assert_eq!(root.claim.as_deref(), Some("claim1"));
     // Shape preserved: exactly one premise (evidence1), itself with exactly one
     // premise (the redacted secret1) — the argument's structure survives redaction.
@@ -2127,7 +2137,9 @@ async fn causal_estimate_do_calculus_matches_hand_derivation_over_rpc() {
 #[cfg(feature = "epistemic-causal")]
 #[tokio::test]
 async fn rank_by_provenance_favors_corroborated_evidence_over_raw_similarity_over_rpc() {
-    use epistemic_graph::protocol::{CalibrationWire, RankByProvenanceResult, RetrievalCandidateWire};
+    use epistemic_graph::protocol::{
+        CalibrationWire, RankByProvenanceResult, RetrievalCandidateWire,
+    };
 
     let state = state();
 
@@ -2177,7 +2189,8 @@ async fn rank_by_provenance_favors_corroborated_evidence_over_raw_similarity_ove
 
     assert_eq!(result.ranked.len(), 2);
     assert_eq!(
-        result.ranked[0].id, "well-sourced",
+        result.ranked[0].id,
+        "well-sourced",
         "the better-sourced/corroborated candidate should rank first despite lower \
          similarity, got order {:?}",
         result.ranked.iter().map(|r| &r.id).collect::<Vec<_>>()
@@ -2249,7 +2262,11 @@ async fn resolve_conflict_matches_tms_crate_semantics_over_rpc() {
         ),
     )
     .await;
-    assert!(resp.error.is_none(), "ResolveConflict error: {:?}", resp.error);
+    assert!(
+        resp.error.is_none(),
+        "ResolveConflict error: {:?}",
+        resp.error
+    );
     let bytes = match &resp.result {
         Some(ResultPayload::Raw(b)) => b.clone(),
         other => panic!("expected Raw result, got {other:?}"),
@@ -2283,7 +2300,11 @@ async fn resolve_conflict_matches_tms_crate_semantics_over_rpc() {
         ),
     )
     .await;
-    assert!(resp.error.is_none(), "ResolveConflict error: {:?}", resp.error);
+    assert!(
+        resp.error.is_none(),
+        "ResolveConflict error: {:?}",
+        resp.error
+    );
     let bytes = match &resp.result {
         Some(ResultPayload::Raw(b)) => b.clone(),
         other => panic!("expected Raw result, got {other:?}"),
@@ -2319,7 +2340,10 @@ async fn resolve_conflict_matches_tms_crate_semantics_over_rpc() {
         ),
     )
     .await;
-    assert!(resp.error.is_some(), "expected an explicit error for an unknown semantics");
+    assert!(
+        resp.error.is_some(),
+        "expected an explicit error for an unknown semantics"
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

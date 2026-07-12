@@ -62,7 +62,11 @@ pub(crate) fn try_handle(
 /// match arm in `graph_ops::try_handle_gateway` calls -- one implementation, never
 /// a second copy that could drift.
 #[cfg(test)]
-fn dispatch_for_test(req_id: u64, core: Arc<GraphCore>, method: Method) -> Result<Response, Method> {
+fn dispatch_for_test(
+    req_id: u64,
+    core: Arc<GraphCore>,
+    method: Method,
+) -> Result<Response, Method> {
     match method {
         Method::GraphLearnFit {
             source,
@@ -549,7 +553,10 @@ mod tests {
     fn non_graphlearn_method_falls_through() {
         let core = Arc::new(GraphCore::new());
         let m = Method::NodeCount;
-        assert!(matches!(dispatch_for_test(1, core, m), Err(Method::NodeCount)));
+        assert!(matches!(
+            dispatch_for_test(1, core, m),
+            Err(Method::NodeCount)
+        ));
     }
 
     #[test]

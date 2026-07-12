@@ -145,7 +145,10 @@ mod tests {
         let _gb = register(9102, tok_b.clone());
         assert!(cancel(9101));
         assert!(tok_a.is_cancelled());
-        assert!(!tok_b.is_cancelled(), "cancelling 9101 must not touch 9102's token");
+        assert!(
+            !tok_b.is_cancelled(),
+            "cancelling 9101 must not touch 9102's token"
+        );
     }
 
     /// `EPISTEMIC_GRAPH_SQL_REQUEST_TIMEOUT_MS` is process-global; serialize the two

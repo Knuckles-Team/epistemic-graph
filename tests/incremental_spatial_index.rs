@@ -107,7 +107,9 @@ fn spatial_incremental_equals_rebuild() {
     // before the move), proving the geometry-only CAS update actually re-indexed D
     // under its REUSED "City" layer rather than silently no-op'ing.
     let near_origin = [0.0, 0.0, 1.0, 1.0];
-    assert!(incr.query_bbox("City", near_origin).contains(&"D".to_string()));
+    assert!(incr
+        .query_bbox("City", near_origin)
+        .contains(&"D".to_string()));
     assert!(baseline
         .query_bbox("City", near_origin)
         .contains(&"D".to_string()));
@@ -150,7 +152,8 @@ fn spatial_update_touching_neither_key_is_a_noop() {
     let ix = GraphSpatialIndex::new();
     core.register_index(Box::new(GraphSpatialIndex::new()));
 
-    let blob = props(serde_json::json!({ "type": "City", "geometry": point(1.0, 1.0), "pop": 100 }));
+    let blob =
+        props(serde_json::json!({ "type": "City", "geometry": point(1.0, 1.0), "pop": 100 }));
     core.add_node("A".into(), blob.clone());
     let mut cs = ChangeSet::new();
     cs.added_nodes

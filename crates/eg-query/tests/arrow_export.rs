@@ -18,7 +18,11 @@ use serde_json::json;
 /// property, for exercising the Arrow schema/typed-value round trip.
 fn graph_with_agents() -> GraphCore {
     let core = GraphCore::new();
-    for (id, name, score) in [("a1", "alice", 10i64), ("a2", "bob", 50), ("a3", "carol", 90)] {
+    for (id, name, score) in [
+        ("a1", "alice", 10i64),
+        ("a2", "bob", 50),
+        ("a3", "carol", 90),
+    ] {
         core.add_node(
             id.into(),
             rmp_serde::to_vec_named(&json!({"kind": "Agent", "name": name, "score": score}))
@@ -38,7 +42,10 @@ fn exec_sql_arrow_returns_typed_record_batches_not_json_rows() {
 
     // The schema is a REAL Arrow schema with typed columns — not a stringly-typed
     // JSON shape.
-    assert_eq!(schema.field_with_name("id").unwrap().data_type(), &DataType::Utf8);
+    assert_eq!(
+        schema.field_with_name("id").unwrap().data_type(),
+        &DataType::Utf8
+    );
     assert_eq!(
         schema.field_with_name("name").unwrap().data_type(),
         &DataType::Utf8

@@ -1278,6 +1278,9 @@ mod tests {
         let seen = g
             .indexes()
             .with_server_index(IndexKind::Temporal, |_idx| "unreachable");
-        assert!(seen.is_none(), "Temporal lookup must not match a Text index");
+        assert!(
+            seen.is_none(),
+            "Temporal lookup must not match a Text index"
+        );
     }
 }

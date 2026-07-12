@@ -696,7 +696,13 @@ async fn commit_finalize(
     #[cfg(feature = "streaming")]
     if plan.emits_cdc {
         if let Some(hub) = ctx.cdc {
-            crate::server::cdc::emit_for_method(hub, ctx.core, ctx.graph_name, method, prep.cdc_pre);
+            crate::server::cdc::emit_for_method(
+                hub,
+                ctx.core,
+                ctx.graph_name,
+                method,
+                prep.cdc_pre,
+            );
         }
     }
 
@@ -941,8 +947,7 @@ mod tests {
 
         let method = Method::AddNode {
             node_id: "n1".to_string(),
-            properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"v": 1}))
-                .unwrap(),
+            properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"v": 1})).unwrap(),
         };
         let plan = MutationPlan::for_method(&method);
         assert!(plan.mutates, "AddNode must be classified as a mutation");
@@ -981,7 +986,11 @@ mod tests {
             Ok(ResultPayload::String("ok".to_string()))
         })
         .await;
-        assert!(resp.error.is_none(), "commit_mutation failed: {:?}", resp.error);
+        assert!(
+            resp.error.is_none(),
+            "commit_mutation failed: {:?}",
+            resp.error
+        );
 
         // WAL/redb: the write actually landed durably.
         let fname = crate::persist::sanitize(graph_name);
@@ -991,7 +1000,10 @@ mod tests {
             .read_node(&fname, "n1")
             .await
             .expect("read back the durably-committed node");
-        assert!(read_back.is_some(), "AddNode did not durably commit via the gateway");
+        assert!(
+            read_back.is_some(),
+            "AddNode did not durably commit via the gateway"
+        );
 
         // Audit: the tamper-evident chain grew by exactly one entry for this graph.
         let report = persistence
@@ -1007,7 +1019,11 @@ mod tests {
 
         // CDC: one AddNode event was emitted into the hub's feed for this graph.
         let events = cdc_hub.read(graph_name, 0, 100).expect("cdc read");
-        assert_eq!(events.len(), 1, "expected exactly one CDC event, got {events:?}");
+        assert_eq!(
+            events.len(),
+            1,
+            "expected exactly one CDC event, got {events:?}"
+        );
     }
 
     /// (a2) A GATEWAY_ROUTED durable + audited BUT NON-CDC mutation (`Reinforce`)
@@ -1135,7 +1151,11 @@ mod tests {
                 .map(|()| ResultPayload::String("ok".to_string()))
         })
         .await;
-        assert!(resp.error.is_none(), "commit_mutation failed: {:?}", resp.error);
+        assert!(
+            resp.error.is_none(),
+            "commit_mutation failed: {:?}",
+            resp.error
+        );
 
         let fname = crate::persist::sanitize(graph_name);
         let report = persistence
@@ -1203,7 +1223,11 @@ mod tests {
             Ok(ResultPayload::Count(touched as u64))
         })
         .await;
-        assert!(resp.error.is_none(), "commit_mutation failed: {:?}", resp.error);
+        assert!(
+            resp.error.is_none(),
+            "commit_mutation failed: {:?}",
+            resp.error
+        );
 
         let fname = crate::persist::sanitize(graph_name);
         let report = persistence
@@ -1297,7 +1321,11 @@ mod tests {
             }
         })
         .await;
-        assert!(resp.error.is_none(), "read-only call failed: {:?}", resp.error);
+        assert!(
+            resp.error.is_none(),
+            "read-only call failed: {:?}",
+            resp.error
+        );
 
         let fname = crate::persist::sanitize(graph_name);
         let report = persistence
@@ -1357,7 +1385,11 @@ mod tests {
             }
         })
         .await;
-        assert!(resp.error.is_none(), "writeback call failed: {:?}", resp.error);
+        assert!(
+            resp.error.is_none(),
+            "writeback call failed: {:?}",
+            resp.error
+        );
 
         let report = persistence
             .as_redb()
@@ -1420,7 +1452,11 @@ mod tests {
         })
         .await;
 
-        assert!(resp.error.is_some(), "expected ACCESS_DENIED, got {:?}", resp);
+        assert!(
+            resp.error.is_some(),
+            "expected ACCESS_DENIED, got {:?}",
+            resp
+        );
         assert!(resp.error.unwrap().contains("ACCESS_DENIED"));
         assert!(!apply_ran, "apply must never run for a denied caller");
         assert!(!core.has_node("n1"), "the graph must be untouched");
@@ -2027,10 +2063,8 @@ mod tests {
         }
 
         let routed_set: BTreeSet<&'static str> = GATEWAY_ROUTED.iter().copied().collect();
-        let not_yet_migrated: Vec<&'static str> = all_mutating
-            .difference(&routed_set)
-            .copied()
-            .collect();
+        let not_yet_migrated: Vec<&'static str> =
+            all_mutating.difference(&routed_set).copied().collect();
 
         let justified_na: std::collections::HashMap<&'static str, &'static str> =
             JUSTIFIED_NA.iter().copied().collect();

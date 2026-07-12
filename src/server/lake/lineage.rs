@@ -288,7 +288,16 @@ mod tests {
     fn append_op_omits_lifecycle_facet() {
         let schema = LakeSchema::new(vec![LakeField::required("ts", LakeType::Timestamp)]);
         let ev = build_run_event(
-            "engine", "s", LakeOp::Append, &schema, 1, 8, "lake://engine/s", 2, 2, None,
+            "engine",
+            "s",
+            LakeOp::Append,
+            &schema,
+            1,
+            8,
+            "lake://engine/s",
+            2,
+            2,
+            None,
         );
         assert!(ev["outputs"][0]["facets"]["lifecycleStateChange"].is_null());
         assert!(ev["inputs"].as_array().unwrap().is_empty());

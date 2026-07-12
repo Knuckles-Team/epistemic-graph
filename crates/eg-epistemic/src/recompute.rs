@@ -456,7 +456,11 @@ pub fn register_from_provenance(tm: &mut TruthMaintenance, view: &GraphView, der
         for blob in blobs {
             let Some(rel) = rmp_serde::from_slice::<serde_json::Value>(blob)
                 .ok()
-                .and_then(|v| v.get("relationship_type").and_then(|r| r.as_str()).map(str::to_ascii_uppercase))
+                .and_then(|v| {
+                    v.get("relationship_type")
+                        .and_then(|r| r.as_str())
+                        .map(str::to_ascii_uppercase)
+                })
             else {
                 continue;
             };
@@ -711,7 +715,10 @@ mod tests {
     #[test]
     fn register_from_provenance_reads_derived_from_edge_and_invalidates_on_base_change() {
         let core = eg_core::graph::GraphCore::new();
-        core.add_node("base".to_string(), node_blob(serde_json::json!({ "type": "Claim" })));
+        core.add_node(
+            "base".to_string(),
+            node_blob(serde_json::json!({ "type": "Claim" })),
+        );
         core.add_node(
             "derived".to_string(),
             node_blob(serde_json::json!({ "type": "Claim" })),
