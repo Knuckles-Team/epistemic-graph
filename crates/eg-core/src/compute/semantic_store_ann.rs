@@ -424,6 +424,16 @@ impl SemanticStore {
         self.brute_force_search_filtered(query_embedding, n_results, allow)
     }
 
+    /// The store's embedding dimensionality — `0` until the first vector is
+    /// inserted (CONCEPT:EG-KG.compute.rank-dim-mismatch-guard). Lets a caller reject a
+    /// query vector of the wrong width with a clear error instead of silently
+    /// scoring against a truncated/misaligned dot product (`dot_product` zips to
+    /// the shorter of the two slices, so a mismatched-length query does not panic —
+    /// it silently computes over the WRONG dimensions).
+    pub fn dim(&self) -> usize {
+        self.arena.dim
+    }
+
     /// True once a fresh ANN index is resident (the "semantic index ready" signal).
     pub fn is_ready(&self) -> bool {
         self.state.load(Ordering::Acquire) == STATE_READY

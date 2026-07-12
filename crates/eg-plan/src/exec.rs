@@ -608,7 +608,7 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
 
         Op::Traverse { rel, min, max } => Ok(traverse_op(ctx, rel, *min, *max, input)),
 
-        Op::Rank { query } => Ok(rank_op(ctx, query, input)),
+        Op::Rank { query } => rank_op(ctx, query, input),
 
         Op::RankEmbed { text } => rank_embed_op(ctx, text, input),
 
@@ -800,13 +800,37 @@ fn traverse_op(ctx: &PlanCtx, rel: &str, min: usize, max: usize, input: RowSet) 
 /// set the allowlist rejects everything (a source `Rank` yields no rows, exactly as the
 /// prior over-fetch-then-intersect did). The behavior-identical extraction of the `Op::Rank`
 /// arm (Lane 0 de-conflict) so [`apply`] is a thin dispatch table.
-fn rank_op(ctx: &PlanCtx, query: &[f32], input: RowSet) -> RowSet {
+///
+/// F4 (CONCEPT:EG-KG.compute.rank-dim-mismatch-guard): an inline query vector whose dimension
+/// doesn't match the store's embedding dimension is rejected with a typed error
+/// BEFORE it reaches the ANN/brute-force scan — but only when there is an actual
+/// candidate to rank against (an empty candidate set still yields an empty `RowSet`,
+/// unchanged, exactly like a source `Rank`'s existing empty-allowlist behavior — a
+/// dimension check against a query nobody will run isn't a real error). Without this
+/// guard a live mismatch was silent — `dot_product` zips to the shorter slice, so a
+/// wrong-width query either scored against truncated/misaligned dimensions or came
+/// back as an empty `RowSet` indistinguishable from "no matches" — never surfacing
+/// that the query itself was malformed.
+fn rank_op(ctx: &PlanCtx, query: &[f32], input: RowSet) -> Result<RowSet, String> {
     let candidates = input.id_set();
+    if candidates.is_empty() {
+        return Ok(RowSet::new());
+    }
+    let store_dim = ctx.semantic.dim();
+    if store_dim != 0 && query.len() != store_dim {
+        return Err(format!(
+            "RANK BY ~{:?}: query vector dimension mismatch — expected {} (the store's \
+             embedding dimension), got {}",
+            query,
+            store_dim,
+            query.len()
+        ));
+    }
     let k = candidates.len().max(1);
     let scored = ctx
         .semantic
         .semantic_search_filtered(query, k, |id| candidates.contains(id));
-    RowSet::from_scored(scored)
+    Ok(RowSet::from_scored(scored))
 }
 
 /// RANK (vector-from-text, CONCEPT:EG-KG.compute.no-embedder-bound-op) — the UQL `RANK BY ~ "text"`
@@ -2510,9 +2534,20 @@ fn sql_filter_ids(
 ///
 /// IMPORTANT (a real data-model detail): the petgraph edge *weight* is the synthetic
 /// `"{src}:{tgt}"` string (`GraphCore::add_edge`), NOT the relationship type — the
-/// relationship lives in the edge's property blob (`relationship`/`type` field),
-/// exactly as eg-query/cypher's `rel_matches` reads it. So the BFS matches on the
-/// blob, not the weight.
+/// relationship lives in the edge's property blob (`relationship`/`type`/`rel_type`
+/// field — CONCEPT:EG-KG.query.rel-type-projection), exactly as eg-query/cypher's `rel_matches` reads
+/// it. So the BFS matches on the blob, not the weight.
+///
+/// Direction is always OUTGOING — UQL's `TRAVERSE -[:REL]->{m,n}` has no `<-`/undirected
+/// form (unlike Cypher's `-[..]->`/`<-[..]-`/`-[..]-`), so a typed traversal only
+/// reaches neighbors the seed has an OUTGOING `rel`-typed edge to. If a seed's only
+/// `rel`-typed edge to a neighbor is stored in the REVERSE direction (neighbor→seed —
+/// an ingest-side convention question, not an engine bug: eg-query/cypher's `<-[r]-`
+/// already reaches such an edge, so the topology is queryable, just not via this
+/// one-directional TRAVERSE), this returns `[]` for that neighbor. Widening TRAVERSE
+/// to accept a direction/undirected form is a language change, not a matcher bug —
+/// out of scope here; see the AU ingest writer for whether edge direction should be
+/// normalized at write time instead.
 pub(crate) fn bfs_reached(
     view: &GraphView,
     seeds: &[String],
@@ -2562,7 +2597,14 @@ pub(crate) fn bfs_reached(
 }
 
 /// Does the stored edge `(from→to)` carry relationship `rel`? Reads the edge's
-/// property blobs (`relationship` or `type` field) — mirrors eg-query/cypher.
+/// property blobs under any of the three keys a writer may have used for the
+/// relationship name — `relationship` (this engine's own CREATE convention),
+/// `type`, or **`rel_type`** (the key the agent-utilities `epistemic_graph`
+/// backend stamps every edge with — CONCEPT:EG-KG.query.rel-type-projection). Before this fix,
+/// UQL `TRAVERSE -[:REL]->{m,n}` read only `relationship`/`type`, so it silently
+/// returned `[]` over AU-ingested edges even though eg-query/cypher's own
+/// `rel_matches` already read `rel_type` — this brings the two matchers back in
+/// sync (see `crates/eg-query/src/cypher/exec.rs::rel_matches`).
 fn rel_matches(view: &GraphView, from: &str, to: &str, rel: &str) -> bool {
     let Some(blobs) = view
         .edge_properties
@@ -2574,7 +2616,10 @@ fn rel_matches(view: &GraphView, from: &str, to: &str, rel: &str) -> bool {
         rmp_serde::from_slice::<serde_json::Value>(b.as_slice())
             .ok()
             .map(|v| {
-                let r = v.get("relationship").or_else(|| v.get("type"));
+                let r = v
+                    .get("relationship")
+                    .or_else(|| v.get("type"))
+                    .or_else(|| v.get("rel_type"));
                 r.and_then(|x| x.as_str()) == Some(rel)
             })
             .unwrap_or(false)

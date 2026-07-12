@@ -361,6 +361,15 @@ impl SemanticStore {
         self.embeddings.is_empty()
     }
 
+    /// The store's embedding dimensionality — `0` until the first vector is
+    /// inserted (CONCEPT:EG-KG.compute.rank-dim-mismatch-guard). Lets a caller reject a query vector
+    /// of the wrong width with a clear error before it ever reaches a search.
+    /// Cheap: an arbitrary stored vector's length (embeddings are never mixed-width
+    /// in practice — `add_embedding` drops the index on dimension drift).
+    pub fn dim(&self) -> usize {
+        self.embeddings.values().next().map(Vec::len).unwrap_or(0)
+    }
+
     /// Approximate resident bytes held by the embedding vectors (CONCEPT:EG-KG.compute.lane-v):
     /// the sum of every stored vector's `len × 4` (f32). Used by the per-tenant
     /// memory-budget estimate; the HNSW index built on top is rebuildable and not
