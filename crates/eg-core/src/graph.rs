@@ -2372,7 +2372,16 @@ impl GraphCore {
     /// matches `label`; `limit == 0` means no cap. Scans in-engine (cheap,
     /// in-memory) but bounds the returned payload, so a `MATCH (n:Label) … LIMIT k`
     /// caller no longer materializes every node's properties over the wire.
+    ///
+    /// An EMPTY `label` (CONCEPT:EG-KG.query.unlabeled-scan-limit-pushdown) means "no label filter" — a bounded scan of
+    /// the WHOLE node store, still honouring `limit`. This gives an unlabeled
+    /// `MATCH (n) … LIMIT k` a genuinely bounded RPC to call instead of falling
+    /// back to the unbounded `GetNodes` dump (which trips the `RESULT_TOO_LARGE`
+    /// overload guard on a large graph even when the caller only wanted `k` rows).
     pub fn get_nodes_by_label(&self, label: &str, limit: usize) -> Vec<(String, Vec<u8>)> {
+        if label.is_empty() {
+            return self.collect_unlabeled(limit);
+        }
         // CONCEPT:EG-KG.compute.consult-lazy — consult the lazy `label → ids` index so a label
         // lookup is an O(1) map hit instead of a full DashMap scan that
         // deserializes every node. The cached map is invalidated by `mark_dirty()`
@@ -2387,6 +2396,21 @@ impl GraphCore {
         let built = self.build_label_index();
         let out = Self::collect_by_label(&built, &self.node_properties, label, limit);
         *self.label_index.write() = Some(built);
+        out
+    }
+
+    /// The unlabeled-scan leg of [`Self::get_nodes_by_label`] (CONCEPT:EG-KG.query.unlabeled-scan-limit-pushdown):
+    /// every node, honouring `limit` (`0` = uncapped). Stops iterating as soon as
+    /// `limit` rows are collected — unlike [`Self::get_nodes`], a small `limit`
+    /// never materializes the whole DashMap.
+    fn collect_unlabeled(&self, limit: usize) -> Vec<(String, Vec<u8>)> {
+        let mut out: Vec<(String, Vec<u8>)> = Vec::new();
+        for e in self.node_properties.iter() {
+            if limit != 0 && out.len() >= limit {
+                break;
+            }
+            out.push((e.key().clone(), (**e.value()).clone()));
+        }
         out
     }
 
@@ -5715,6 +5739,34 @@ mod tests {
         assert_eq!(tools.len(), 1);
         assert_eq!(tools[0].0, "nt1");
         assert!(g.get_nodes_by_label("Nonexistent", 0).is_empty());
+    }
+
+    /// Engine follow-up A (CONCEPT:EG-KG.query.unlabeled-scan-limit-pushdown): an EMPTY label means "no label
+    /// filter" — a bounded scan across every node regardless of type, still
+    /// honouring `limit`. This is the lever an unlabeled `MATCH (n) … LIMIT k`
+    /// pushes its LIMIT into instead of falling back to the unbounded `GetNodes`
+    /// dump (which trips the `RESULT_TOO_LARGE` overload guard on a large graph
+    /// even when the caller only asked for a handful of rows).
+    #[test]
+    fn get_nodes_by_label_empty_label_is_unlabeled_bounded_scan() {
+        let g = GraphCore::new();
+        g.add_node(
+            "a1".to_string(),
+            props(serde_json::json!({"type": "Agent", "name": "A"})),
+        );
+        g.add_node(
+            "a2".to_string(),
+            props(serde_json::json!({"type": "Agent", "name": "B"})),
+        );
+        g.add_node("c1".to_string(), props(serde_json::json!({"type": "Code"})));
+
+        // No cap: every node, regardless of label.
+        assert_eq!(g.get_nodes_by_label("", 0).len(), 3);
+        // A present limit bounds the unlabeled scan too — the pushdown target.
+        assert_eq!(g.get_nodes_by_label("", 1).len(), 1);
+        assert_eq!(g.get_nodes_by_label("", 2).len(), 2);
+        // A limit at/above the node count returns everything, not an error.
+        assert_eq!(g.get_nodes_by_label("", 100).len(), 3);
     }
 
     fn capability_graph() -> GraphCore {
