@@ -4,13 +4,24 @@
 //! with the graph registry's own file), independent of the graph write-coalescer
 //! (jobs are keyed by `job_id`, not a graph).
 //!
-//! [`JobStore`] owns BOTH tables:
+//! [`JobStore`] owns FOUR tables:
 //!   * `JOBS`             — `job_id -> msgpack(AnalyticsJob)`, the durable record.
 //!   * `COMMITTED_RESULTS` — `result_ref -> job_id` (the FIRST job that committed
 //!     it), a store-level idempotency ledger independent of any live graph — see
 //!     [`JobStore::mark_result_committed`]. The `claim.rs` writeback additionally
 //!     guards on `GraphCore::has_node` for the claim id itself, so idempotency holds
 //!     even if a caller wires a DIFFERENT graph/claim path on top of this store.
+//!   * `JOB_INTENTS` — `name -> msgpack(`[`crate::intent::JobIntent`]`)`, the
+//!     declarative trigger registry (CONCEPT:INT-P2-1, daemon-consolidation design
+//!     Phase 3): a job DECLARED with a schedule, evaluated by
+//!     [`JobStore::due_intents`] / [`JobStore::record_intent_tick`] rather than
+//!     driven by an external caller deciding due-ness itself.
+//!   * `IDEMPOTENCY_LEDGER` — `key -> owner` (first-wins), the GENERALIZED sibling of
+//!     `COMMITTED_RESULTS`: `COMMITTED_RESULTS` dedupes one specific thing (a
+//!     completed analytics RESULT, keyed by `result_ref`); `IDEMPOTENCY_LEDGER`
+//!     dedupes ANY caller-supplied key (e.g. a `JobIntent` tick window), so a job
+//!     kind beyond analytics-compute gets first-wins single-flight for free — see
+//!     [`JobStore::claim_idempotency`].
 //!
 //! Every transition is a guarded state-machine edge (CONCEPT:INT-P2-1): an invalid
 //! edge (e.g. checkpointing a `Cancelled` job) is a hard `Err`, never a silent
@@ -22,11 +33,15 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 
+use crate::intent::JobIntent;
 use crate::model::{AnalyticsJob, Checkpoint, JobId, JobPolicy, JobState};
 
 const JOBS: TableDefinition<'static, &str, &[u8]> = TableDefinition::new("analytics_jobs");
 const COMMITTED_RESULTS: TableDefinition<'static, &str, &str> =
     TableDefinition::new("analytics_job_committed_results");
+const JOB_INTENTS: TableDefinition<'static, &str, &[u8]> = TableDefinition::new("job_intents");
+const IDEMPOTENCY_LEDGER: TableDefinition<'static, &str, &str> =
+    TableDefinition::new("job_idempotency_ledger");
 
 /// Job-store error type. Deliberately small and string-carrying (mirrors `eg-tsdb`'s
 /// `TsError`) rather than a rich enum — callers surface these as plain protocol
@@ -105,6 +120,8 @@ impl JobStore {
             let wtx = db.begin_write().map_err(redb_err)?;
             wtx.open_table(JOBS).map_err(redb_err)?;
             wtx.open_table(COMMITTED_RESULTS).map_err(redb_err)?;
+            wtx.open_table(JOB_INTENTS).map_err(redb_err)?;
+            wtx.open_table(IDEMPOTENCY_LEDGER).map_err(redb_err)?;
             wtx.commit().map_err(redb_err)?;
         }
         let next_id = AtomicU64::new(Self::max_existing_seq(&db)?);
@@ -474,6 +491,146 @@ impl JobStore {
             .map_err(redb_err)?
             .map(|v| v.value().to_string()))
     }
+
+    // ── Generalized idempotency ledger (CONCEPT:INT-P2-1, Phase 3) ──────────────
+    // The sibling of `mark_result_committed`/`result_committed_by`, generalized
+    // beyond `result_ref -> job_id` to ANY caller-supplied `(key, owner)` pair — the
+    // primitive `JobIntent` tick-dedup (and any future non-analytics job kind) reuses
+    // instead of re-inventing first-wins claiming.
+
+    /// Atomically claim `key` for `owner`. Returns `true` the FIRST time a given key
+    /// is claimed by ANYONE (the caller should proceed); `false` if it was already
+    /// claimed (by this owner or another) — the caller's action is then a no-op. This
+    /// is the exact same first-wins shape as [`Self::mark_result_committed`], just
+    /// over an independent table so a `JobIntent` tick window doesn't collide with an
+    /// analytics `result_ref` namespace.
+    pub fn claim_idempotency(&self, key: &str, owner: &str) -> Result<bool> {
+        let wtx = self.db.begin_write().map_err(redb_err)?;
+        let first = {
+            let mut table = wtx.open_table(IDEMPOTENCY_LEDGER).map_err(redb_err)?;
+            let existing = table
+                .get(key)
+                .map_err(redb_err)?
+                .map(|v| v.value().to_string());
+            match existing {
+                Some(_) => false,
+                None => {
+                    table.insert(key, owner).map_err(redb_err)?;
+                    true
+                }
+            }
+        };
+        wtx.commit().map_err(redb_err)?;
+        Ok(first)
+    }
+
+    /// Which owner (if any) first claimed `key`.
+    pub fn idempotency_claimed_by(&self, key: &str) -> Result<Option<String>> {
+        let rtx = self.db.begin_read().map_err(redb_err)?;
+        let table = rtx.open_table(IDEMPOTENCY_LEDGER).map_err(redb_err)?;
+        Ok(table
+            .get(key)
+            .map_err(redb_err)?
+            .map(|v| v.value().to_string()))
+    }
+
+    // ── `JobIntent` registry (CONCEPT:INT-P2-1, daemon-consolidation design Phase 3) ──
+    // A declarative trigger registry additive to the `AnalyticsJob` state machine
+    // above: a job DECLARED with a schedule (cron/interval/manual) rather than driven
+    // by an external caller. Lives in the SAME `jobs.redb` (a second `Database::open`
+    // on the same file would hit redb's exclusive per-process file lock).
+
+    fn get_intent_raw(&self, name: &str) -> Result<JobIntent> {
+        let rtx = self.db.begin_read().map_err(redb_err)?;
+        let table = rtx.open_table(JOB_INTENTS).map_err(redb_err)?;
+        let blob = table
+            .get(name)
+            .map_err(redb_err)?
+            .ok_or_else(|| JobError::NotFound(name.to_string()))?;
+        rmp_serde::from_slice(blob.value()).map_err(codec_err)
+    }
+
+    fn put_intent_raw(&self, intent: &JobIntent) -> Result<()> {
+        let blob = rmp_serde::to_vec_named(intent).map_err(codec_err)?;
+        let wtx = self.db.begin_write().map_err(redb_err)?;
+        {
+            let mut table = wtx.open_table(JOB_INTENTS).map_err(redb_err)?;
+            table
+                .insert(intent.name.as_str(), blob.as_slice())
+                .map_err(redb_err)?;
+        }
+        wtx.commit().map_err(redb_err)?;
+        Ok(())
+    }
+
+    /// Register (or re-register) a [`JobIntent`] by `name` (upsert). Re-registering
+    /// an EXISTING name preserves its durable `last_run_ms`/`created_at_ms` history
+    /// (only `trigger`/`policy`/`enabled` are overwritten) — the same
+    /// "dual-write is idempotent" property AU's own schedule registration relies on,
+    /// so a restart that re-declares its intents never resets their due-ness clock.
+    pub fn register_intent(&self, mut intent: JobIntent) -> Result<JobIntent> {
+        if let Ok(existing) = self.get_intent_raw(&intent.name) {
+            intent.last_run_ms = existing.last_run_ms;
+            intent.created_at_ms = existing.created_at_ms;
+        }
+        intent.updated_at_ms = now_ms();
+        self.put_intent_raw(&intent)?;
+        Ok(intent)
+    }
+
+    /// Fetch a registered intent's current durable record.
+    pub fn get_intent(&self, name: &str) -> Result<JobIntent> {
+        self.get_intent_raw(name)
+    }
+
+    /// List every registered intent (diagnostic/admin use, and the basis for
+    /// [`Self::due_intents`]).
+    pub fn list_intents(&self) -> Result<Vec<JobIntent>> {
+        let rtx = self.db.begin_read().map_err(redb_err)?;
+        let table = rtx.open_table(JOB_INTENTS).map_err(redb_err)?;
+        let mut out = Vec::new();
+        for entry in table.iter().map_err(redb_err)? {
+            let (_, v) = entry.map_err(redb_err)?;
+            out.push(rmp_serde::from_slice(v.value()).map_err(codec_err)?);
+        }
+        Ok(out)
+    }
+
+    /// Every registered, enabled intent whose trigger reports due as of `now_ms`
+    /// (CONCEPT:INT-P2-1) — the due-evaluator half of the design doc's ONE
+    /// job-intent registry (§B.1). Pure read: does NOT record a tick or mutate
+    /// `last_run_ms` (call [`Self::record_intent_tick`] to actually claim + advance
+    /// one).
+    pub fn due_intents(&self, now_ms: i64) -> Result<Vec<JobIntent>> {
+        Ok(self
+            .list_intents()?
+            .into_iter()
+            .filter(|i| i.is_due(now_ms))
+            .collect())
+    }
+
+    /// Claim ONE tick of `name`'s trigger window at `now_ms` and advance
+    /// `last_run_ms` (CONCEPT:INT-P2-1 dedup/single-flight): computes the trigger's
+    /// deterministic [`crate::intent::Trigger::tick_id`] for this window and claims
+    /// it via [`Self::claim_idempotency`]. Returns `Ok(true)` the FIRST time this
+    /// window is claimed — the caller should now actually run the job/sweep;
+    /// `Ok(false)` if this window was already claimed (by this evaluator or a
+    /// concurrent one) — a no-op, the coalesce guarantee AU's `collapse_stale_ticks`
+    /// provides one layer up. Does NOT check `is_due`/`enabled` itself — callers
+    /// drive `record_intent_tick` from `due_intents`'s output (or explicitly, for a
+    /// `Manual` trigger), keeping "is this due" and "claim this window" separable.
+    pub fn record_intent_tick(&self, name: &str, now_ms: i64) -> Result<bool> {
+        let intent = self.get_intent_raw(name)?;
+        let tick_id = intent.trigger.tick_id(name, now_ms);
+        let claimed = self.claim_idempotency(&tick_id, name)?;
+        if claimed {
+            let mut intent = intent;
+            intent.last_run_ms = Some(now_ms);
+            intent.updated_at_ms = now_ms;
+            self.put_intent_raw(&intent)?;
+        }
+        Ok(claimed)
+    }
 }
 
 #[cfg(test)]
@@ -744,5 +901,156 @@ mod tests {
         let store = JobStore::open_in_dir(dir.path()).unwrap();
         let job_id = "job-0000000000000000";
         assert!(matches!(store.get(job_id), Err(JobError::NotFound(_))));
+    }
+
+    // ── Generalized idempotency ledger ───────────────────────────────────────
+
+    #[test]
+    fn claim_idempotency_is_first_wins() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = JobStore::open_in_dir(dir.path()).unwrap();
+        assert!(store.claim_idempotency("tick:a", "owner-1").unwrap());
+        // A second, even different, owner does not steal an already-claimed key.
+        assert!(!store.claim_idempotency("tick:a", "owner-2").unwrap());
+        assert_eq!(
+            store.idempotency_claimed_by("tick:a").unwrap(),
+            Some("owner-1".to_string())
+        );
+        // An independent key is unaffected.
+        assert!(store.claim_idempotency("tick:b", "owner-2").unwrap());
+    }
+
+    // ── `JobIntent` registry (daemon-consolidation design Phase 3) ──────────────
+
+    fn intent_policy() -> JobPolicy {
+        JobPolicy {
+            tenant: "acme".into(),
+            actor: "agent:planner".into(),
+            purpose: "test".into(),
+            priority: 0,
+            quota_cpu_ms: None,
+            deadline_unix_ms: None,
+        }
+    }
+
+    #[test]
+    fn register_and_fetch_intent_round_trips() {
+        use crate::intent::{JobIntent, Trigger};
+        let dir = tempfile::tempdir().unwrap();
+        let store = JobStore::open_in_dir(dir.path()).unwrap();
+        let intent = JobIntent::new(
+            "nightly-sweep",
+            Trigger::Interval { secs: 3600 },
+            intent_policy(),
+        );
+        let registered = store.register_intent(intent.clone()).unwrap();
+        assert_eq!(registered.name, "nightly-sweep");
+        let fetched = store.get_intent("nightly-sweep").unwrap();
+        assert_eq!(fetched.trigger, Trigger::Interval { secs: 3600 });
+        assert_eq!(fetched.last_run_ms, None);
+    }
+
+    #[test]
+    fn re_registering_an_intent_preserves_last_run_history() {
+        use crate::intent::{JobIntent, Trigger};
+        let dir = tempfile::tempdir().unwrap();
+        let store = JobStore::open_in_dir(dir.path()).unwrap();
+        store
+            .register_intent(JobIntent::new(
+                "x",
+                Trigger::Interval { secs: 10 },
+                intent_policy(),
+            ))
+            .unwrap();
+        assert!(store.record_intent_tick("x", 1_000).unwrap());
+        assert_eq!(store.get_intent("x").unwrap().last_run_ms, Some(1_000));
+
+        // Re-declaring the SAME intent (e.g. on restart) must not reset the clock.
+        store
+            .register_intent(JobIntent::new(
+                "x",
+                Trigger::Interval { secs: 10 },
+                intent_policy(),
+            ))
+            .unwrap();
+        assert_eq!(store.get_intent("x").unwrap().last_run_ms, Some(1_000));
+    }
+
+    #[test]
+    fn due_intents_only_returns_enabled_due_ones() {
+        use crate::intent::{JobIntent, Trigger};
+        let dir = tempfile::tempdir().unwrap();
+        let store = JobStore::open_in_dir(dir.path()).unwrap();
+        store
+            .register_intent(JobIntent::new(
+                "never-run-yet",
+                Trigger::Interval { secs: 60 },
+                intent_policy(),
+            ))
+            .unwrap();
+        let mut disabled = JobIntent::new(
+            "disabled-one",
+            Trigger::Interval { secs: 1 },
+            intent_policy(),
+        );
+        disabled.enabled = false;
+        store.register_intent(disabled).unwrap();
+
+        let due = store.due_intents(10_000).unwrap();
+        assert_eq!(due.len(), 1);
+        assert_eq!(due[0].name, "never-run-yet");
+    }
+
+    #[test]
+    fn record_intent_tick_is_single_flight_within_a_window() {
+        use crate::intent::{JobIntent, Trigger};
+        let dir = tempfile::tempdir().unwrap();
+        let store = JobStore::open_in_dir(dir.path()).unwrap();
+        store
+            .register_intent(JobIntent::new(
+                "sweep",
+                Trigger::Interval { secs: 60 },
+                intent_policy(),
+            ))
+            .unwrap();
+
+        // First evaluator in this 60s window wins...
+        assert!(store.record_intent_tick("sweep", 1_000).unwrap());
+        // ...a second evaluator re-checking the SAME window is a no-op (coalesce).
+        assert!(!store.record_intent_tick("sweep", 30_000).unwrap());
+        // A later window claims cleanly again.
+        assert!(store.record_intent_tick("sweep", 61_000).unwrap());
+    }
+
+    #[test]
+    fn cold_offload_proof_of_concept_registers_disabled_and_can_be_ticked() {
+        use crate::intent::cold_offload_intent;
+        let dir = tempfile::tempdir().unwrap();
+        let store = JobStore::open_in_dir(dir.path()).unwrap();
+
+        // The proof-of-concept constructor mirrors the live sweep's exact cadence
+        // knob (EPISTEMIC_GRAPH_COLD_OFFLOAD_SECS) but registers DISABLED, so simply
+        // declaring the intent is never itself a behavior change.
+        let intent = cold_offload_intent(3600);
+        let registered = store.register_intent(intent).unwrap();
+        assert!(!registered.enabled);
+        assert!(store.due_intents(0).unwrap().is_empty());
+
+        // An operator/orchestrator opting in flips `enabled` and re-registers —
+        // still additive, still gated by the SAME single knob the live sweep reads.
+        let mut enabled = store.get_intent("cold_offload").unwrap();
+        enabled.enabled = true;
+        store.register_intent(enabled).unwrap();
+
+        // Now due immediately (never run) — proving the engine CAN self-schedule
+        // this durable job kind end-to-end: due-eval -> single-flight claim.
+        let due = store.due_intents(0).unwrap();
+        assert_eq!(due.len(), 1);
+        assert_eq!(due[0].name, "cold_offload");
+        assert!(store.record_intent_tick("cold_offload", 0).unwrap());
+        // Immediately re-checking is due-false (interval not elapsed) and, even if
+        // forced, would collapse to the same tick window as a no-op.
+        assert!(store.due_intents(1_000).unwrap().is_empty());
+        assert!(!store.record_intent_tick("cold_offload", 1_000).unwrap());
     }
 }
