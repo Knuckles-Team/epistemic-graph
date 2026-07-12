@@ -103,14 +103,11 @@ impl ModalityContract for BeliefState {
     /// Real, non-stub policy labels derived from this belief's own evidence-kind
     /// counts + bitemporal pin — not a placeholder tag list.
     fn policy_labels(&self, _id: &str) -> Vec<String> {
-        let mut labels = Vec::new();
-        if !self.attacking.is_empty() || !self.contradicting.is_empty() {
-            labels.push("epistemic:contested".to_string());
-        } else if self.supporting.len() > 1 {
-            labels.push("epistemic:corroborated".to_string());
-        } else {
-            labels.push("epistemic:asserted".to_string());
-        }
+        let mut labels = crate::model::classify_policy_labels(
+            self.supporting.len(),
+            self.contradicting.len(),
+            self.attacking.len(),
+        );
         if let Some((axis, _ts)) = self.as_of {
             let axis_name = match axis {
                 TimeAxis::Valid => "valid",

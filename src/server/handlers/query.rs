@@ -1642,6 +1642,27 @@ fn explain_policy(
     })
 }
 
+/// Count `DerivedSupport`/`DerivedContradiction` nodes in an already-computed proof
+/// tree (CONCEPT:EG-OS.observability.slow-query-descriptor — OTEL epistemic span
+/// attributes, WS-1b): `(supporting, contradicting)`. A cheap walk over data
+/// `explain_belief_tree`/`epistemic_status` already built above — not a new epistemic
+/// computation — feeding `eg_epistemic::classify_policy_labels` for the
+/// `epistemic.policy_labels` span attribute.
+#[cfg(feature = "epistemic")]
+fn count_tree_rules(node: &eg_epistemic::ProofNode) -> (usize, usize) {
+    let (mut supporting, mut contradicting) = match node.rule {
+        eg_epistemic::JustRule::DerivedSupport => (1, 0),
+        eg_epistemic::JustRule::DerivedContradiction => (0, 1),
+        eg_epistemic::JustRule::Asserted | eg_epistemic::JustRule::BayesianUpdate => (0, 0),
+    };
+    for p in &node.premises {
+        let (s, c) = count_tree_rules(p);
+        supporting += s;
+        contradicting += c;
+    }
+    (supporting, contradicting)
+}
+
 /// Wire-project one [`eg_epistemic::ProofNode`] (recursively) — shared by the classic
 /// `explain_belief` below AND the L53 `epistemic_status_wire` capstone, so both surfaces
 /// render a proof tree identically.
@@ -1669,9 +1690,48 @@ fn explain_belief(
     let semantic = eg_core::compute::semantic::SemanticStore::new();
     let ctx = eg_plan::PlanCtx::new(view, &semantic);
     let tree = eg_plan::explain_belief_tree(&ctx, node_id);
+
+    // CONCEPT:EG-OS.observability.slow-query-descriptor — OTEL epistemic span attributes (WS-1b).
+    // Mirrors the `write_coalescer.apply_batch`/`ann_index_build` span idiom (a plain
+    // `tracing::debug_span!(...).entered()` guard over a sync block): additive-only,
+    // exported by the SAME `tracing-opentelemetry` layer `otel.rs` installs when built
+    // `--features otel` with `EPISTEMIC_GRAPH_OTLP_ENDPOINT` set, a complete no-op
+    // otherwise. Every value is read off `tree`, already computed above — no new
+    // epistemic computation.
+    let (supporting, contradicting) = count_tree_rules(&tree.root);
+    let policy_labels =
+        eg_epistemic::classify_policy_labels(supporting, contradicting, 0).join(",");
+    let _span = tracing::debug_span!(
+        "epistemic.explain_belief",
+        epistemic.confidence = tree.root.confidence,
+        epistemic.status = tracing::field::debug(tree.root.rule),
+        epistemic.contradiction_count = contradicting,
+        epistemic.policy_labels = %policy_labels,
+    )
+    .entered();
+
     crate::protocol::ExplainBeliefResult {
         root: proof_node_wire(&tree.root),
     }
+}
+
+/// Redacted-tree sibling of [`count_tree_rules`] — same walk, over
+/// `eg_epistemic::RedactedProofNode` instead of `ProofNode` (a redaction preserves
+/// `rule`/`confidence`/`premises` per that type's own doc comment, so the walk is
+/// identical; the two types just aren't unified by a shared trait).
+#[cfg(feature = "epistemic-redaction")]
+fn count_redacted_tree_rules(node: &eg_epistemic::RedactedProofNode) -> (usize, usize) {
+    let (mut supporting, mut contradicting) = match node.rule {
+        eg_epistemic::JustRule::DerivedSupport => (1, 0),
+        eg_epistemic::JustRule::DerivedContradiction => (0, 1),
+        eg_epistemic::JustRule::Asserted | eg_epistemic::JustRule::BayesianUpdate => (0, 0),
+    };
+    for p in &node.premises {
+        let (s, c) = count_redacted_tree_rules(p);
+        supporting += s;
+        contradicting += c;
+    }
+    (supporting, contradicting)
 }
 
 /// L51 — the redaction-aware sibling of [`explain_belief`]: builds a [`BeliefGraph`]
@@ -1731,6 +1791,41 @@ fn explain_belief_redacted_wire(
         eg_epistemic::ExistenceSignal::Contradicted => ExistenceSignalWire::Contradicted,
         eg_epistemic::ExistenceSignal::Uncertain => ExistenceSignalWire::Uncertain,
     };
+
+    // CONCEPT:EG-OS.observability.slow-query-descriptor — OTEL epistemic span attributes (WS-1b),
+    // same idiom as `explain_belief` above. `redacted.existence` (Supported/Contradicted/
+    // Uncertain) is exactly the "status" concept for a redaction-capped read — the
+    // caller's RLS actor may not see enough of the tree to justify a finer label.
+    // `root` is `None` at `ExistenceOnly` (no structure rendered at all, by design), so
+    // confidence/contradiction_count/policy_labels are only recorded when a tree is
+    // actually present — never fabricated.
+    let (confidence, contradicting, policy_labels) = match &redacted.root {
+        Some(root) => {
+            let (supporting, contradicting) = count_redacted_tree_rules(root);
+            (
+                Some(root.confidence),
+                contradicting,
+                eg_epistemic::classify_policy_labels(supporting, contradicting, 0).join(","),
+            )
+        }
+        None => (None, 0, String::new()),
+    };
+    let _span = tracing::debug_span!(
+        "epistemic.explain_belief_redacted",
+        epistemic.confidence = tracing::field::Empty,
+        epistemic.status = tracing::field::debug(existence),
+        epistemic.contradiction_count = contradicting,
+        epistemic.policy_labels = %policy_labels,
+    )
+    .entered();
+    // `confidence` is `Option<f64>` (unavailable at `ExistenceOnly`, see above) —
+    // `tracing::field::Value` has no blanket `Option` impl, so record it after span
+    // creation only when present, leaving the field `Empty` otherwise (never a
+    // fabricated `0.0`).
+    if let Some(c) = confidence {
+        tracing::Span::current().record("epistemic.confidence", c);
+    }
+
     ExplainBeliefRedactedResult {
         level,
         existence,
@@ -1788,6 +1883,27 @@ fn epistemic_status_wire(
     let bg = eg_epistemic::BeliefGraph::from_graph_view(view);
     let policy = eg_epistemic::AuthorityPolicy::default();
     let status = eg_epistemic::epistemic_status(&bg, node_id, &policy);
+
+    // CONCEPT:EG-OS.observability.slow-query-descriptor — OTEL epistemic span attributes (WS-1b),
+    // same idiom as `explain_belief`/`explain_belief_redacted_wire` above. `EpistemicStatus`
+    // is the richest already-computed source of the four (`believed`/`confidence`/
+    // `contradicting`/`evidence`/`attacking` are all fields `eg_epistemic::epistemic_status`
+    // already populated above) — no new epistemic computation, just reading them before
+    // they're moved into the wire struct below.
+    let policy_labels = eg_epistemic::classify_policy_labels(
+        status.evidence.len(),
+        status.contradicting.len(),
+        status.attacking.len(),
+    )
+    .join(",");
+    let _span = tracing::debug_span!(
+        "epistemic.epistemic_status",
+        epistemic.confidence = status.confidence,
+        epistemic.status = if status.believed { "believed" } else { "not_believed" },
+        epistemic.contradiction_count = status.contradicting.len(),
+        epistemic.policy_labels = %policy_labels,
+    )
+    .entered();
 
     EpistemicStatusResult {
         status: EpistemicStatusWire {
@@ -1968,6 +2084,37 @@ fn explain_evidence_wire(
 ) -> crate::protocol::ExplainEvidenceResult {
     let bg = eg_epistemic::BeliefGraph::from_graph_view(view);
     let citations = eg_epistemic::evidence_citations(&bg, node_id);
+
+    // CONCEPT:EG-OS.observability.slow-query-descriptor — OTEL epistemic span attributes (WS-1b),
+    // same idiom as the other epistemic handlers above. `ExplainEvidence` runs no belief
+    // propagation (no posterior confidence is computed here), so `epistemic.status` is a
+    // fixed descriptor rather than a believed/contested verdict; `contradiction_count`/
+    // `policy_labels` come from a cheap local classification of `bg.in_edges` (already
+    // loaded by `from_graph_view` above) by `EdgeKind` — not a new propagation pass.
+    let ins = bg.in_edges.get(node_id).map(Vec::as_slice).unwrap_or(&[]);
+    let supporting = ins
+        .iter()
+        .filter(|(_, k)| *k == eg_epistemic::EdgeKind::Supports)
+        .count();
+    let contradicting = ins
+        .iter()
+        .filter(|(_, k)| {
+            matches!(
+                k,
+                eg_epistemic::EdgeKind::Contradicts | eg_epistemic::EdgeKind::Attacks
+            )
+        })
+        .count();
+    let policy_labels =
+        eg_epistemic::classify_policy_labels(supporting, contradicting, 0).join(",");
+    let _span = tracing::debug_span!(
+        "epistemic.explain_evidence",
+        epistemic.status = "cited",
+        epistemic.contradiction_count = contradicting,
+        epistemic.policy_labels = %policy_labels,
+    )
+    .entered();
+
     crate::protocol::ExplainEvidenceResult {
         citations: citations.iter().map(evidence_citation_wire).collect(),
     }

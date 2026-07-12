@@ -33,6 +33,31 @@ pub fn classify_relationship(relationship_type: &str) -> Option<EdgeKind> {
     }
 }
 
+/// Derive the `"epistemic:contested"`/`"epistemic:corroborated"`/`"epistemic:asserted"`
+/// classification from a belief's own evidence-kind counts — the SAME rule
+/// `contract.rs`'s `ModalityContract::policy_labels` uses for [`BeliefState`], extracted
+/// here as a plain, unconditional function (no `contract` feature needed) so any caller
+/// that already has these counts (an [`BeliefState`], an `eg_epistemic::query::EpistemicStatus`,
+/// or a wire-projected result) can derive the same label without re-running belief
+/// propagation. `contradicting`/`attacking` counts take priority (any contradiction or
+/// attack makes a claim "contested" regardless of how much support it also has);
+/// `supporting > 1` is "corroborated" (more than one independent supporter); otherwise
+/// "asserted" (a bare, uncorroborated claim).
+pub fn classify_policy_labels(
+    supporting: usize,
+    contradicting: usize,
+    attacking: usize,
+) -> Vec<String> {
+    let label = if contradicting > 0 || attacking > 0 {
+        "epistemic:contested"
+    } else if supporting > 1 {
+        "epistemic:corroborated"
+    } else {
+        "epistemic:asserted"
+    };
+    vec![label.to_string()]
+}
+
 /// Which time axis a [`BeliefState`] was pinned at — reuses the engine's bitemporal
 /// distinction: `Valid` = "when it was true in the world", `Transaction` = "when the
 /// engine believed it". A `BELIEF AS OF` query pins `Transaction`; `VALID AS OF` pins
