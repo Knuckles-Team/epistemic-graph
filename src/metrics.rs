@@ -274,6 +274,23 @@ mod imp {
             "Unix timestamp of the last completed tick, by loop name",
             &["loop"],
         );
+        // CONCEPT:EG-KG.epistemic.truth-maintenance — the "give staleness a consumer"
+        // SURPASS gap-closure: a live gauge (the CURRENT stale count, refreshed after
+        // every mutation to the process-global TMS index — see `src/server/tms_hook.rs`)
+        // plus a cumulative counter (how many staling EVENTS have fired, distinct from
+        // the gauge because a materialization can go stale, get recomputed back to
+        // fresh, and go stale again — the counter never decreases, the gauge does).
+        static ref EPISTEMIC_MATERIALIZATIONS_STALE: IntGauge = gauge(
+            "epistemic_graph_epistemic_materializations_stale",
+            "Current count of TruthMaintenance materializations in the Stale status \
+             (CONCEPT:EG-KG.epistemic.truth-maintenance)",
+        );
+        static ref EPISTEMIC_MATERIALIZATIONS_STALED_TOTAL: IntCounter = counter(
+            "epistemic_graph_epistemic_materializations_staled_total",
+            "Cumulative count of materialization-id staling events fed through the \
+             TruthMaintenance index's on_change (a ChangeEvent may stale several ids \
+             at once; each staled id counts once per event)",
+        );
     }
 
     /// Map a graph name onto the bounded label space.
@@ -424,6 +441,17 @@ mod imp {
         LOOP_LAST_RUN.with_label_values(&[name]).set(now as i64);
     }
 
+    /// Set the `epistemic_graph_epistemic_materializations_stale` gauge to the
+    /// TruthMaintenance index's CURRENT stale count (CONCEPT:EG-KG.epistemic.truth-maintenance).
+    pub fn set_epistemic_materializations_stale(n: i64) {
+        EPISTEMIC_MATERIALIZATIONS_STALE.set(n);
+    }
+
+    /// Record `n` materialization ids staled by one `TruthMaintenance::on_change` call.
+    pub fn epistemic_materializations_staled(n: u64) {
+        EPISTEMIC_MATERIALIZATIONS_STALED_TOTAL.inc_by(n);
+    }
+
     /// Render the full registry in Prometheus text exposition format.
     pub fn render() -> String {
         let encoder = TextEncoder::new();
@@ -463,6 +491,8 @@ mod imp {
     pub fn observe_write_lock_wait(_graph: &str, _seconds: f64) {}
     pub fn observe_write_lock_hold(_graph: &str, _seconds: f64) {}
     pub fn loop_tick(_name: &str, _seconds: f64) {}
+    pub fn set_epistemic_materializations_stale(_n: i64) {}
+    pub fn epistemic_materializations_staled(_n: u64) {}
     pub fn render() -> String {
         String::new()
     }

@@ -585,6 +585,16 @@ pub(crate) async fn try_handle(
             let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
             Ok(Response::ok(req_id, ResultPayload::Raw(bytes)))
         }
+        // Seam 3 follow-up (SURPASS gap-closure: "give staleness a consumer") — the
+        // bulk "what's stale" read on the SAME global index. Cheap (one BTreeMap
+        // filter over the in-memory index), no `compute_off_lock` needed.
+        #[cfg(feature = "epistemic-tms")]
+        Method::StaleMaterializations => {
+            let ids = crate::server::tms_hook::stale_ids().into_iter().collect();
+            let result = crate::protocol::StaleMaterializationsResult { ids };
+            let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
+            Ok(Response::ok(req_id, ResultPayload::Raw(bytes)))
+        }
         // EPI-P3-7 (gap-fill): standalone Dung argumentation conflict resolution. A
         // pure classification over a `BeliefGraph` snapshot — no writes. Gated
         // `epistemic-tms` at the handler (same fallback convention as
@@ -612,8 +622,30 @@ pub(crate) async fn try_handle(
         // X-1 (CONCEPT:EG-X1): the multimodal-evidence citation resolver. Gated
         // `evidence-graph` at the handler; the wire `Method` variant itself is gated
         // only `epistemic` (see its doc comment), so a build with `epistemic` but not
-        // `evidence-graph` falls through to the not-built catch-all.
-        #[cfg(feature = "evidence-graph")]
+        // `evidence-graph` falls through to the not-built catch-all. SURPASS
+        // gap-closure ("unify the two evidence resolvers"): with `alignment` ALSO
+        // compiled in, resolve the configured blob store (if any) BEFORE entering
+        // the off-lock closure (needs `state.read().await`, not available inside a
+        // `spawn_blocking` closure) and thread it through so citations carry REAL
+        // resolved content, not just locus metadata.
+        #[cfg(all(feature = "evidence-graph", feature = "alignment"))]
+        Method::ExplainEvidence { node_id } => {
+            let snap = core.analysis_snapshot();
+            let blob_store = state.read().await.blob.as_ref().map(|b| b.store.clone());
+            let resp = match compute_off_lock(req_id, move || {
+                explain_evidence_wire(&node_id, &snap, blob_store)
+            })
+            .await
+            {
+                Ok(result) => {
+                    let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
+                    Response::ok(req_id, ResultPayload::Raw(bytes))
+                }
+                Err(resp) => resp,
+            };
+            Ok(resp)
+        }
+        #[cfg(all(feature = "evidence-graph", not(feature = "alignment")))]
         Method::ExplainEvidence { node_id } => {
             let snap = core.analysis_snapshot();
             let resp = match compute_off_lock(req_id, move || {
@@ -1579,6 +1611,8 @@ fn explain_provenance_result(
                 source_refs,
                 policy_labels: row.policy_labels.clone(),
                 evidence_spans,
+                contradiction_ids: row.contradiction_ids.clone(),
+                proof_ids: row.proof_ids.clone(),
             }
         })
         .collect();
@@ -1596,6 +1630,8 @@ fn explain_provenance_result(
             source_refs: Vec::new(),
             policy_labels: Vec::new(),
             evidence_spans: Vec::new(),
+            contradiction_ids: Vec::new(),
+            proof_ids: Vec::new(),
         })
         .collect();
 
@@ -2058,11 +2094,71 @@ fn what_changed_wire(
     }
 }
 
+/// SURPASS gap-closure ("unify the two evidence resolvers"): map an
+/// `eg_alignment::ResolvedArtifact` onto its wire twin.
+#[cfg(all(feature = "evidence-graph", feature = "alignment"))]
+fn resolved_artifact_wire(
+    r: eg_alignment::ResolvedArtifact,
+) -> crate::protocol::ResolvedArtifactWire {
+    match r {
+        eg_alignment::ResolvedArtifact::Text {
+            artifact_id,
+            excerpt,
+        } => crate::protocol::ResolvedArtifactWire {
+            kind: "text".to_string(),
+            artifact_id,
+            excerpt: Some(excerpt),
+            blob_ref: None,
+            note: None,
+        },
+        eg_alignment::ResolvedArtifact::Blob {
+            artifact_id,
+            blob_ref,
+            note,
+        } => crate::protocol::ResolvedArtifactWire {
+            kind: "blob".to_string(),
+            artifact_id,
+            excerpt: None,
+            blob_ref: Some(blob_ref),
+            note: Some(note),
+        },
+    }
+}
+
 /// X-1 (CONCEPT:EG-X1) — wire-project an `eg_epistemic::EvidenceCitation`. `kind`
 /// renders the `EdgeKind` via `Debug` (the SAME flat-string convention
 /// `JustificationNodeWire::rule` uses for `JustRule`); `locus` reuses the
 /// `evidence_span_wire` mapper already defined above for `ExplainProvenance`.
-#[cfg(feature = "evidence-graph")]
+/// SURPASS gap-closure ("unify the two evidence resolvers"): when `resolver` is
+/// `Some` (the `alignment` feature is compiled in AND a blob store is configured —
+/// see `explain_evidence_wire`), the citation's `locus` is ALSO resolved through it
+/// (`eg_alignment::EvidenceResolver::resolve`), attaching the REAL excerpt/blob
+/// digest as `resolved` instead of leaving the caller with locus metadata alone.
+#[cfg(all(feature = "evidence-graph", feature = "alignment"))]
+fn evidence_citation_wire(
+    c: &eg_epistemic::EvidenceCitation,
+    resolver: Option<&crate::server::blob::cas_resolver::CasEvidenceResolver<'_>>,
+) -> crate::protocol::EvidenceCitationWire {
+    let resolved = c
+        .locus
+        .as_ref()
+        .and_then(|span| resolver.and_then(|r| eg_alignment::EvidenceResolver::resolve(r, span)))
+        .map(resolved_artifact_wire);
+    crate::protocol::EvidenceCitationWire {
+        evidence_id: c.evidence_id.clone(),
+        kind: format!("{:?}", c.kind),
+        locus: c.locus.as_ref().map(evidence_span_wire),
+        occurrence_id: c.occurrence_id.clone(),
+        blob_ref: c.blob_ref.clone(),
+        resolved,
+    }
+}
+
+/// The `alignment`-less counterpart of the dual-gated `evidence_citation_wire`
+/// above: `resolved` is always `None` (no `CasEvidenceResolver` exists to call in
+/// this build) — same wire shape, honest absence rather than a fabricated
+/// resolution.
+#[cfg(all(feature = "evidence-graph", not(feature = "alignment")))]
 fn evidence_citation_wire(
     c: &eg_epistemic::EvidenceCitation,
 ) -> crate::protocol::EvidenceCitationWire {
@@ -2072,15 +2168,20 @@ fn evidence_citation_wire(
         locus: c.locus.as_ref().map(evidence_span_wire),
         occurrence_id: c.occurrence_id.clone(),
         blob_ref: c.blob_ref.clone(),
+        resolved: None,
     }
 }
 
 /// `Method::ExplainEvidence` (CONCEPT:EG-X1) — build a `BeliefGraph` off `view` and
 /// resolve `node_id`'s cited multimodal evidence (`eg_epistemic::evidence_citations`).
-#[cfg(feature = "evidence-graph")]
+/// SURPASS gap-closure ("unify the two evidence resolvers"): `blob_store`, when
+/// `Some`, backs a `CasEvidenceResolver` over the SAME `view` snapshot so every
+/// citation ALSO carries its resolved content — see `evidence_citation_wire`.
+#[cfg(all(feature = "evidence-graph", feature = "alignment"))]
 fn explain_evidence_wire(
     node_id: &str,
     view: &crate::graph::GraphView,
+    blob_store: Option<std::sync::Arc<dyn crate::server::blob::ChunkStore>>,
 ) -> crate::protocol::ExplainEvidenceResult {
     let bg = eg_epistemic::BeliefGraph::from_graph_view(view);
     let citations = eg_epistemic::evidence_citations(&bg, node_id);
@@ -2091,6 +2192,53 @@ fn explain_evidence_wire(
     // fixed descriptor rather than a believed/contested verdict; `contradiction_count`/
     // `policy_labels` come from a cheap local classification of `bg.in_edges` (already
     // loaded by `from_graph_view` above) by `EdgeKind` — not a new propagation pass.
+    let ins = bg.in_edges.get(node_id).map(Vec::as_slice).unwrap_or(&[]);
+    let supporting = ins
+        .iter()
+        .filter(|(_, k)| *k == eg_epistemic::EdgeKind::Supports)
+        .count();
+    let contradicting = ins
+        .iter()
+        .filter(|(_, k)| {
+            matches!(
+                k,
+                eg_epistemic::EdgeKind::Contradicts | eg_epistemic::EdgeKind::Attacks
+            )
+        })
+        .count();
+    let policy_labels =
+        eg_epistemic::classify_policy_labels(supporting, contradicting, 0).join(",");
+    let _span = tracing::debug_span!(
+        "epistemic.explain_evidence",
+        epistemic.status = "cited",
+        epistemic.contradiction_count = contradicting,
+        epistemic.policy_labels = %policy_labels,
+    )
+    .entered();
+
+    let resolver = blob_store
+        .map(|store| crate::server::blob::cas_resolver::CasEvidenceResolver::new(view, store));
+
+    crate::protocol::ExplainEvidenceResult {
+        citations: citations
+            .iter()
+            .map(|c| evidence_citation_wire(c, resolver.as_ref()))
+            .collect(),
+    }
+}
+
+/// The `alignment`-less counterpart of the dual-gated `explain_evidence_wire`
+/// above: byte-for-byte the pre-existing behavior (locus metadata only, no
+/// resolved content — there is no `CasEvidenceResolver` to build without the
+/// `alignment` feature).
+#[cfg(all(feature = "evidence-graph", not(feature = "alignment")))]
+fn explain_evidence_wire(
+    node_id: &str,
+    view: &crate::graph::GraphView,
+) -> crate::protocol::ExplainEvidenceResult {
+    let bg = eg_epistemic::BeliefGraph::from_graph_view(view);
+    let citations = eg_epistemic::evidence_citations(&bg, node_id);
+
     let ins = bg.in_edges.get(node_id).map(Vec::as_slice).unwrap_or(&[]);
     let supporting = ins
         .iter()
@@ -4440,5 +4588,159 @@ mod txn_ryow_dispatch_tests {
             vec!["cn".to_string()],
             "committed node must be visible off-txn after commit"
         );
+    }
+}
+
+// ── SURPASS gap-closure: "unify the two evidence resolvers" ──────────────────────
+// `explain_evidence_wire`'s `alignment`-gated variant must ACTUALLY call
+// `CasEvidenceResolver` and attach the resolved content to each citation — before
+// this, `CasEvidenceResolver` had zero served-RPC call sites (only its own unit
+// tests in `src/server/blob/cas_resolver.rs` exercised it). These tests drive
+// `explain_evidence_wire` directly (the same function `Method::ExplainEvidence`'s
+// handler arm calls), over a real `RedbChunkStore`, so a regression that silently
+// drops `resolved` back to always-`None` fails here, not just in the resolver's own
+// isolated unit tests.
+#[cfg(all(test, feature = "evidence-graph", feature = "alignment"))]
+mod evidence_resolver_wiring_tests {
+    use super::explain_evidence_wire;
+    use crate::graph::GraphCore;
+    use crate::server::blob::stream::stream_blob_put;
+    use crate::server::blob::{ChunkStore, RedbChunkStore};
+    use serde_json::json;
+    use std::sync::Arc;
+
+    fn node_blob(v: serde_json::Value) -> Vec<u8> {
+        rmp_serde::to_vec_named(&v).unwrap()
+    }
+
+    fn edge_blob(relationship_type: &str) -> Vec<u8> {
+        rmp_serde::to_vec_named(&json!({ "relationship_type": relationship_type })).unwrap()
+    }
+
+    /// A `DocumentSpan` citation resolves to the REAL text excerpt read back out of
+    /// the blob CAS -- `explain_evidence_wire` must thread the configured blob store
+    /// all the way through to `EvidenceCitationWire::resolved`, not just return the
+    /// locus metadata `evidence_citation_wire`'s `alignment`-less twin would.
+    #[tokio::test]
+    async fn explain_evidence_wire_attaches_a_real_resolved_excerpt() {
+        let cas: Arc<dyn ChunkStore> = Arc::new(RedbChunkStore::open_temp().unwrap());
+        let committed = stream_blob_put(cas.as_ref(), "hello world".as_bytes(), 0).unwrap();
+
+        let core = GraphCore::new();
+        // The artifact node `explain_evidence_wire`'s locus (`document_id: "doc1"`)
+        // resolves through -- a DIFFERENT node than the `:Evidence` node itself,
+        // mirroring `CasEvidenceResolver`'s own unit tests and the real
+        // `SourceObject -> Blob` identity-chain convention.
+        core.add_node(
+            "doc1".into(),
+            node_blob(json!({ "node_type": "Document", "blob_ref": committed.digest })),
+        );
+        core.add_node(
+            "claim1".into(),
+            node_blob(json!({ "type": "Claim", "confidence": 0.5 })),
+        );
+        core.add_node(
+            "evidence1".into(),
+            node_blob(json!({
+                "type": "Evidence",
+                "confidence": 0.9,
+                "evidence_span": {
+                    "DocumentSpan": { "document_id": "doc1", "start": 0, "end": 5 }
+                },
+            })),
+        );
+        core.add_edge("evidence1".into(), "claim1".into(), edge_blob("SUPPORTS"))
+            .unwrap();
+
+        let view = core.analysis_snapshot();
+        let result = explain_evidence_wire("claim1", &view, Some(cas));
+
+        assert_eq!(result.citations.len(), 1);
+        let citation = &result.citations[0];
+        assert_eq!(citation.evidence_id, "evidence1");
+        let resolved = citation
+            .resolved
+            .as_ref()
+            .expect("DocumentSpan citation must resolve through the configured blob store");
+        assert_eq!(resolved.kind, "text");
+        assert_eq!(resolved.artifact_id, "doc1");
+        assert_eq!(resolved.excerpt.as_deref(), Some("hello"));
+    }
+
+    /// No blob store configured (`None`, e.g. an in-memory/no-persist-dir deployment)
+    /// -- `resolved` stays `None` on every citation, exactly the pre-existing
+    /// locus-only behavior. Never an error, never a fabricated resolution.
+    #[tokio::test]
+    async fn explain_evidence_wire_leaves_resolved_none_without_a_blob_store() {
+        let core = GraphCore::new();
+        core.add_node(
+            "claim1".into(),
+            node_blob(json!({ "type": "Claim", "confidence": 0.5 })),
+        );
+        core.add_node(
+            "evidence1".into(),
+            node_blob(json!({
+                "type": "Evidence",
+                "confidence": 0.9,
+                "evidence_span": {
+                    "DocumentSpan": { "document_id": "doc1", "start": 0, "end": 5 }
+                },
+            })),
+        );
+        core.add_edge("evidence1".into(), "claim1".into(), edge_blob("SUPPORTS"))
+            .unwrap();
+
+        let view = core.analysis_snapshot();
+        let result = explain_evidence_wire("claim1", &view, None);
+
+        assert_eq!(result.citations.len(), 1);
+        assert_eq!(result.citations[0].resolved, None);
+    }
+
+    /// A `CodeSymbol` citation resolves to the REAL line-range excerpt -- proving
+    /// the wiring covers the newly-added `CodeSymbol` codec path too, not just
+    /// `DocumentSpan`.
+    #[tokio::test]
+    async fn explain_evidence_wire_attaches_a_real_code_symbol_excerpt() {
+        let cas: Arc<dyn ChunkStore> = Arc::new(RedbChunkStore::open_temp().unwrap());
+        let source = "fn a() {}\nfn b() {\n    1 + 1\n}\n";
+        let committed = stream_blob_put(cas.as_ref(), source.as_bytes(), 0).unwrap();
+
+        let core = GraphCore::new();
+        core.add_node(
+            "file1".into(),
+            node_blob(json!({ "node_type": "Code", "blob_ref": committed.digest })),
+        );
+        core.add_node(
+            "claim1".into(),
+            node_blob(json!({ "type": "Claim", "confidence": 0.5 })),
+        );
+        core.add_node(
+            "evidence1".into(),
+            node_blob(json!({
+                "type": "Evidence",
+                "confidence": 0.9,
+                "evidence_span": {
+                    "CodeSymbol": {
+                        "file_path": "file1",
+                        "symbol": "b",
+                        "start_line": 1,
+                        "end_line": 4
+                    }
+                },
+            })),
+        );
+        core.add_edge("evidence1".into(), "claim1".into(), edge_blob("SUPPORTS"))
+            .unwrap();
+
+        let view = core.analysis_snapshot();
+        let result = explain_evidence_wire("claim1", &view, Some(cas));
+
+        let resolved = result.citations[0]
+            .resolved
+            .as_ref()
+            .expect("CodeSymbol citation must resolve");
+        assert_eq!(resolved.kind, "text");
+        assert_eq!(resolved.excerpt.as_deref(), Some("fn b() {\n    1 + 1\n}"));
     }
 }
