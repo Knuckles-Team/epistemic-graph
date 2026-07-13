@@ -32,7 +32,11 @@ use eg_compute::graph::GraphView;
 /// already used elsewhere in the engine (CONCEPT:EG-KG.compute.sparse-pagerank), so
 /// graph-guided paging reuses the SAME centrality signal the rest of the engine reasons
 /// with rather than a second bespoke implementation.
-pub fn pagerank_importance(core: &GraphView, damping: f64, iterations: usize) -> Vec<(String, f64)> {
+pub fn pagerank_importance(
+    core: &GraphView,
+    damping: f64,
+    iterations: usize,
+) -> Vec<(String, f64)> {
     algorithms::pagerank(core, damping, iterations)
 }
 
@@ -62,7 +66,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tiered::{TieredCache, Tier};
+    use crate::tiered::{Tier, TieredCache};
     use crate::value::Block;
     use eg_compute::graph::GraphCore;
 
@@ -85,7 +89,12 @@ mod tests {
 
     fn page(len: usize, seed: u8) -> Block {
         (0..len)
-            .map(|i| (i as u8).wrapping_mul(31).wrapping_add(seed).wrapping_add(1))
+            .map(|i| {
+                (i as u8)
+                    .wrapping_mul(31)
+                    .wrapping_add(seed)
+                    .wrapping_add(1)
+            })
             .collect()
     }
 
@@ -140,7 +149,10 @@ mod tests {
         let scores = degree_centrality_importance(&g);
         let hub = scores.iter().find(|(id, _)| id == "hub").unwrap().1;
         let leaf = scores.iter().find(|(id, _)| id == "leaf0").unwrap().1;
-        assert!(hub > leaf, "hub degree centrality {hub} must exceed leaf {leaf}");
+        assert!(
+            hub > leaf,
+            "hub degree centrality {hub} must exceed leaf {leaf}"
+        );
     }
 
     /// CONCEPT:EG-KG.memory.graph-guided-paging — `importance_scores_for` maps node-id scores through

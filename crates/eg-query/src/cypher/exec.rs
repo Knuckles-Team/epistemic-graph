@@ -679,7 +679,9 @@ fn rel_matches(view: &GraphView, from: &str, to: &str, rel: Option<&str>) -> boo
 /// typed pattern could have matched. `None` if the edge carries no relationship
 /// name under any of the three keys.
 fn edge_rel_type(view: &GraphView, from: &str, to: &str) -> Option<String> {
-    let props_list = view.edge_properties.get(&(from.to_string(), to.to_string()))?;
+    let props_list = view
+        .edge_properties
+        .get(&(from.to_string(), to.to_string()))?;
     for blob in props_list {
         if let Ok(Value::Object(m)) = rmp_serde::from_slice::<Value>(blob) {
             let stored = m

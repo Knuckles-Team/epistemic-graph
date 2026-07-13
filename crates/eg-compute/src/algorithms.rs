@@ -1844,7 +1844,11 @@ mod pagerank_tests {
     /// is why the real `pagerank` under test is driven with a tolerance tight
     /// enough (`1e-10`) that it won't converge early either, over the fixed
     /// iteration count used below — an apples-to-apples comparison.
-    fn dense_pagerank_oracle(core: &GraphView, damping: f64, iterations: usize) -> Vec<(String, f64)> {
+    fn dense_pagerank_oracle(
+        core: &GraphView,
+        damping: f64,
+        iterations: usize,
+    ) -> Vec<(String, f64)> {
         use petgraph::stable_graph::NodeIndex;
         let nodes: Vec<NodeIndex> = core.graph.node_indices().collect();
         let n = nodes.len();
@@ -1910,16 +1914,10 @@ mod pagerank_tests {
         let oracle = dense_pagerank_oracle(&g, damping, iterations);
         let sparse = pagerank(&g, damping, iterations);
 
-        let oracle_map: HashMap<&str, f64> =
-            oracle.iter().map(|(k, v)| (k.as_str(), *v)).collect();
-        let sparse_map: HashMap<&str, f64> =
-            sparse.iter().map(|(k, v)| (k.as_str(), *v)).collect();
+        let oracle_map: HashMap<&str, f64> = oracle.iter().map(|(k, v)| (k.as_str(), *v)).collect();
+        let sparse_map: HashMap<&str, f64> = sparse.iter().map(|(k, v)| (k.as_str(), *v)).collect();
 
-        assert_eq!(
-            oracle_map.len(),
-            sparse_map.len(),
-            "same node set scored"
-        );
+        assert_eq!(oracle_map.len(), sparse_map.len(), "same node set scored");
         for (id, oracle_score) in &oracle_map {
             let sparse_score = sparse_map
                 .get(id)
@@ -1942,7 +1940,10 @@ mod pagerank_tests {
         assert_eq!(scores.len(), 3, "isolated node must still be scored");
         let map: HashMap<&str, f64> = scores.iter().map(|(k, v)| (k.as_str(), *v)).collect();
         assert!(map.contains_key("isolated"));
-        assert!(map["isolated"] > 0.0, "isolated node still gets teleport mass");
+        assert!(
+            map["isolated"] > 0.0,
+            "isolated node still gets teleport mass"
+        );
     }
 
     /// Mass conservation on a graph WITH a dangling node (b has no out-edges) —
