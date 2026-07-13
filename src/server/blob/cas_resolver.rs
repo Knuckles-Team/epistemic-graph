@@ -25,12 +25,28 @@
 //! just with replacement characters rather than an error) and sliced at the span's
 //! CHARACTER range, clamped to the decoded length so an out-of-range span never
 //! panics (it resolves whatever the blob actually contains — never fabricated
-//! content beyond that). Every other span kind (`TableCellRange`/`ImageRegion`/
-//! `AudioSegment`/`VideoShot`/`CodeSymbol`/`TraceSpan`) needs a real codec/crop/
-//! table-model to produce anything more specific than the raw bytes — explicitly
-//! out of scope here, exactly as `eg-alignment`'s own module docs describe for a
-//! "real resolver" follow-up — so it resolves to `ResolvedArtifact::Blob` naming
-//! the real CAS digest, never a fabricated excerpt.
+//! content beyond that). A [`EvidenceSpan::CodeSymbol`] gets the SAME treatment,
+//! sliced by LINE range instead (SURPASS gap-closure: "real crop/slice codecs" —
+//! source code is UTF-8 text too, so no new codec is needed, unlike the
+//! image/audio/video kinds below). Every other span kind (`TableCellRange`/
+//! `ImageRegion`/`AudioSegment`/`VideoShot`/`VideoFrameRange`/`MetricWindow`/
+//! `RowVersion`/`TraceSpan`) needs a real codec/crop/table-model to produce
+//! anything more specific than the raw bytes — explicitly out of scope here,
+//! exactly as `eg-alignment`'s own module docs describe for a "real resolver"
+//! follow-up (image/audio/video pixel/sample decoding is a heavy external
+//! dependency this workspace deliberately keeps out of the default build; a
+//! structured table-cell excerpt needs a table-model parser not yet in-tree) — so
+//! these resolve to `ResolvedArtifact::Blob` naming the real CAS digest, never a
+//! fabricated excerpt.
+//!
+//! SURPASS gap-closure ("unify the two evidence resolvers"): before this, this
+//! resolver had ZERO served-RPC call sites — only its own unit tests exercised it,
+//! while `Method::ExplainEvidence` (`src/server/handlers/query.rs`) returned only
+//! `eg_epistemic::evidence_citations`' locus METADATA (no resolved content). That
+//! handler now builds a `CasEvidenceResolver` over the SAME `GraphView` snapshot
+//! and calls THIS resolver for each citation's locus, attaching the result as
+//! `EvidenceCitationWire::resolved` — one resolution path reachable from the wire,
+//! not two disconnected ones.
 //!
 //! `None` (never a fabricated result) whenever the artifact id has no node on the
 //! snapshot, that node carries no `blob_ref` string property, or the digest is not
@@ -100,10 +116,38 @@ impl EvidenceResolver for CasEvidenceResolver<'_> {
                     excerpt,
                 })
             }
-            // TableCellRange/ImageRegion/AudioSegment/VideoShot/CodeSymbol/TraceSpan
-            // — no in-tree table-model/codec to crop/slice a real excerpt with (see
-            // the module docs), so this reports the REAL CAS digest, not a
-            // fabricated excerpt of it.
+            // SURPASS gap-closure ("real crop/slice codecs"): a `CodeSymbol` locus
+            // is UTF-8 source text, exactly like `DocumentSpan` above -- just sliced
+            // by LINE range instead of CHARACTER range. No new codec/dependency
+            // needed (unlike image/audio/video, which genuinely need pixel/sample
+            // decoding this workspace deliberately keeps out of the default build —
+            // see the module docs), so this closes one more locus kind to a REAL
+            // excerpt rather than leaving it as a bare blob reference.
+            // `start_line`/`end_line` are 0-based, INCLUSIVE-exclusive (matching
+            // `DocumentSpan`'s `start`/`end` character-offset convention), clamped
+            // to the real line count so an out-of-range span resolves whatever the
+            // file actually contains, never panics or fabricates content.
+            EvidenceSpan::CodeSymbol {
+                start_line,
+                end_line,
+                ..
+            } => {
+                let bytes = self.fetch_bytes(&blob_ref)?;
+                let text = String::from_utf8_lossy(&bytes);
+                let lines: Vec<&str> = text.lines().collect();
+                let line_count = lines.len();
+                let s = (*start_line as usize).min(line_count);
+                let e = (*end_line as usize).max(s).min(line_count);
+                let excerpt = lines[s..e].join("\n");
+                Some(ResolvedArtifact::Text {
+                    artifact_id: id,
+                    excerpt,
+                })
+            }
+            // TableCellRange/ImageRegion/AudioSegment/VideoShot/VideoFrameRange/
+            // MetricWindow/RowVersion/TraceSpan — no in-tree table-model/codec to
+            // crop/slice a real excerpt with (see the module docs), so this reports
+            // the REAL CAS digest, not a fabricated excerpt of it.
             _ => Some(ResolvedArtifact::Blob {
                 artifact_id: id,
                 blob_ref,
@@ -188,6 +232,71 @@ mod tests {
             Some(ResolvedArtifact::Text {
                 artifact_id: "doc1".to_string(),
                 excerpt: "hi".to_string(),
+            })
+        );
+    }
+
+    /// SURPASS gap-closure ("real crop/slice codecs"): a `CodeSymbol` locus
+    /// resolves to the REAL line-range excerpt read back out of the blob CAS —
+    /// source text is UTF-8, exactly like `DocumentSpan`, just sliced by line
+    /// instead of character.
+    #[test]
+    fn resolves_code_symbol_to_a_real_line_range_excerpt() {
+        let cas = store();
+        let source = "fn a() {}\nfn b() {\n    1 + 1\n}\nfn c() {}";
+        let committed = stream_blob_put(cas.as_ref(), source.as_bytes(), 0).unwrap();
+
+        let core = GraphCore::new();
+        core.add_node(
+            "file1".into(),
+            blob(json!({ "node_type": "Code", "blob_ref": committed.digest })),
+        );
+        let view = core.analysis_snapshot();
+
+        let resolver = CasEvidenceResolver::new(&view, cas.clone());
+        let span = EvidenceSpan::CodeSymbol {
+            file_path: "file1".to_string(),
+            symbol: "b".to_string(),
+            start_line: 1,
+            end_line: 4,
+        };
+
+        assert_eq!(
+            resolver.resolve(&span),
+            Some(ResolvedArtifact::Text {
+                artifact_id: "file1".to_string(),
+                excerpt: "fn b() {\n    1 + 1\n}".to_string(),
+            })
+        );
+    }
+
+    /// A `CodeSymbol` range past the file's real line count clamps to the real
+    /// content, never fabricated.
+    #[test]
+    fn code_symbol_out_of_range_clamps_to_the_real_content() {
+        let cas = store();
+        let committed = stream_blob_put(cas.as_ref(), "line0\nline1".as_bytes(), 0).unwrap();
+
+        let core = GraphCore::new();
+        core.add_node(
+            "file1".into(),
+            blob(json!({ "node_type": "Code", "blob_ref": committed.digest })),
+        );
+        let view = core.analysis_snapshot();
+
+        let resolver = CasEvidenceResolver::new(&view, cas.clone());
+        let span = EvidenceSpan::CodeSymbol {
+            file_path: "file1".to_string(),
+            symbol: "whole_file".to_string(),
+            start_line: 0,
+            end_line: 999,
+        };
+
+        assert_eq!(
+            resolver.resolve(&span),
+            Some(ResolvedArtifact::Text {
+                artifact_id: "file1".to_string(),
+                excerpt: "line0\nline1".to_string(),
             })
         );
     }

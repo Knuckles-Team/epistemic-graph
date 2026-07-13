@@ -351,7 +351,20 @@ fn spawn_mine_associate(
         // A commit failure here (e.g. a transient graph-write error) leaves the job
         // durably `Succeeded` with its `result_ref` intact; the caller can retry the
         // commit later (it is idempotent) without re-running the computation.
-        let _ = eg_jobs::commit_result_claim(&core, &job, confidence, calibration);
+        let outcome = eg_jobs::commit_result_claim(&core, &job, confidence, calibration);
+        // SURPASS gap-closure (CONCEPT:EG-KG.epistemic.truth-maintenance): same reason
+        // as `mining.rs::materialize_claim`'s auto-register call -- `commit_result_claim`
+        // writes its `:Claim`/`:Evidence`/`:Activity` quartet DIRECTLY against `core`
+        // (`eg-jobs` deliberately does not depend on `eg-epistemic`, see `claim.rs`'s
+        // module docs), bypassing the wire-dispatch commit gateway `tms_hook` normally
+        // rides. Register the committed claim here, in the one caller that CAN see both
+        // `eg-jobs` (for the outcome) and `eg-epistemic` (for the TMS index) -- an
+        // `AlreadyCommitted` outcome (idempotent replay) re-registers too, which is a
+        // harmless no-op re-derivation of the SAME already-tracked provenance.
+        #[cfg(feature = "epistemic-tms")]
+        if let Ok(outcome) = &outcome {
+            crate::server::tms_hook::maybe_register_from_write(&core, outcome.claim_id());
+        }
     });
 }
 

@@ -101,7 +101,8 @@ pub use tms::{
 // straight into the same index. See `recompute` module docs.
 #[cfg(feature = "epistemic-tms")]
 pub use recompute::{
-    register_from_provenance, ChangeEvent, Materialization, MaterializationStatus, TruthMaintenance,
+    register_from_provenance, resolve_provenance, ChangeEvent, Materialization,
+    MaterializationStatus, TruthMaintenance,
 };
 
 // EPI-P3-4 — policy-aware proof redaction + selective disclosure (see `src/redact.rs`
