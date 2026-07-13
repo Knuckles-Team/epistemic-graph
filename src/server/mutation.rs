@@ -715,6 +715,12 @@ async fn commit_finalize(
     #[cfg(feature = "epistemic-tms")]
     {
         crate::server::tms_hook::notify(method);
+        // Auto-register (SURPASS gap-closure): a write that just introduced or updated
+        // a node's `invalidation_deps` property or a `:DerivedFrom`/`:GeneratedBy` edge
+        // self-registers as a live materialization, no explicit
+        // `Method::RegisterMaterialization` call required. See `tms_hook`'s doc comment
+        // for why this is cheap (targeted live reads, not a whole-graph snapshot).
+        crate::server::tms_hook::auto_register_from_write(ctx.core, method);
     }
 
     // 8. Cache the response for idempotent-replay dedup.
