@@ -3238,6 +3238,17 @@ class QueryClient:
         (opt-in, not part of ``full``)."""
         return await self._client._send("MaterializationStatus", {"id": id})
 
+    async def stale_materializations(self) -> dict[str, Any]:
+        """Seam 3 follow-up (SURPASS gap-closure: "give staleness a consumer") --
+        every materialization id CURRENTLY ``Stale`` on the SAME process-global index
+        :meth:`register_materialization`/:meth:`materialization_status` read and
+        write. The bulk counterpart of :meth:`materialization_status`: a caller (a
+        recompute scheduler, an operator dashboard) discovers "what needs
+        re-answering" without already knowing which ids to poll one at a time.
+        Read-only. Returns a ``StaleMaterializationsResult`` (``{"ids"}``). Requires a
+        server built with the ``epistemic-tms`` feature."""
+        return await self._client._send("StaleMaterializations", {})
+
     async def resolve_conflict(
         self, node_ids: list[str], semantics: str = "grounded"
     ) -> dict[str, Any]:
