@@ -761,7 +761,9 @@ fn all_methods_table_has_the_expected_variant_count() {
     // `Method::RegisterMaterialization` / `Method::MaterializationStatus`.
     // EPI-P3-6 (gap-fill): +1 (346 -> 347 base) for `Method::CausalCounterfactual`.
     // EPI-P3-7 (gap-fill): +1 (347 -> 348 base) for `Method::ResolveConflict`.
-    let expected = if cfg!(feature = "jobs") { 349 } else { 348 };
+    // SURPASS gap-closure ("give staleness a consumer"): +1 (348 -> 349 base) for
+    // `Method::StaleMaterializations`.
+    let expected = if cfg!(feature = "jobs") { 350 } else { 349 };
     assert_eq!(eg_capabilities::ALL_METHODS.len(), expected);
 }
 

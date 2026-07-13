@@ -4437,6 +4437,18 @@ fn materialize_claim(
         core.add_node(activity_id.clone(), blob);
     }
     generated_by_edge(core, &claim_id, &activity_id);
+
+    // SURPASS gap-closure (CONCEPT:EG-KG.epistemic.truth-maintenance, "auto-register
+    // materializations on write"): this whole quartet is written DIRECTLY against
+    // `core` (bypassing the `Method::AddNode`/`AddEdge` wire dispatch entirely -- an
+    // in-process mining/job handler, not an RPC caller), so `tms_hook`'s
+    // `auto_register_from_write` (wired onto the commit-gateway path) never sees it.
+    // Auto-register the claim HERE instead, right after its `invalidation_deps` +
+    // `:GENERATED_BY` edge are both in place, so every synchronously mined finding is
+    // a live TruthMaintenance materialization the moment it's written -- no caller
+    // has to remember to call `Method::RegisterMaterialization` by hand.
+    #[cfg(feature = "epistemic-tms")]
+    crate::server::tms_hook::maybe_register_from_write(core, &claim_id);
 }
 
 /// Write one epistemic `source --SUPPORTS--> target` edge using the `relationship_type`

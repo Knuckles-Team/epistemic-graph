@@ -1662,6 +1662,9 @@ async fn dispatch_graph_op(
     if let Some(m) = tms_method {
         if response.error.is_none() {
             crate::server::tms_hook::notify(&m);
+            // Auto-register (SURPASS gap-closure) -- the legacy-tail counterpart of the
+            // equivalent call in `mutation::commit_finalize`; see that call site's comment.
+            crate::server::tms_hook::auto_register_from_write(&core, &m);
         }
     }
     response
