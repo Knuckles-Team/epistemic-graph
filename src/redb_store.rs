@@ -1196,6 +1196,144 @@ pub(crate) fn read_graph_dump(
     }))
 }
 
+/// One bounded, SOURCE-level page of ONE graph's durable rows (CONCEPT:EG-KG.memory.graph-guided-paging,
+/// CONCEPT:EG-KG.sharding.paged-lazy-open, L38 "paged adjacency"). The paged sibling of
+/// [`read_graph_dump`]: instead of collecting the WHOLE graph's node/edge rows into one
+/// `Vec` before returning (the thing that makes a lazy first-open of a 10M+-node/token
+/// graph spike RAM), this walks the SAME per-graph range scan but stops after `page_size`
+/// combined rows and reports whether more remain — so the caller (`RedbBackend`'s
+/// `GraphMaterializer::materialize_page` override) never holds more than one page's worth
+/// of rows in memory at a time, at the SOURCE, not just when replaying into `GraphCore`.
+pub(crate) struct GraphDumpPage {
+    pub nodes: Vec<(String, Vec<u8>)>,
+    pub edges: Vec<(String, String, Vec<u8>)>,
+    /// Only populated on the first page (`node_offset == 0`) — mirrors
+    /// [`eg_core::registry::GraphMaterializer::materialize_page`]'s single-blob
+    /// convention so a paged replay attaches the semantic store exactly once.
+    pub semantic: Vec<u8>,
+    pub nodes_exhausted: bool,
+    pub edges_exhausted: bool,
+}
+
+pub(crate) fn read_graph_dump_page(
+    db: &Database,
+    graph: &str,
+    crypto: DurableCrypto<'_>,
+    node_offset: usize,
+    edge_offset: usize,
+    page_size: usize,
+) -> Result<Option<GraphDumpPage>, String> {
+    let page_size = page_size.max(1);
+    let rtx = db.begin_read().map_err(|e| e.to_string())?;
+    let meta_table = rtx.open_table(GRAPH_META).map_err(|e| e.to_string())?;
+    if meta_table.get(graph).map_err(|e| e.to_string())?.is_none() {
+        return Ok(None);
+    }
+    let nodes_table = rtx.open_table(NODES).map_err(|e| e.to_string())?;
+    let edges_table = rtx.open_table(EDGES).map_err(|e| e.to_string())?;
+
+    // Nodes: skip `node_offset` rows already paged in by a prior call, then take at
+    // most `page_size` more — the memory-bounded step (never the graph's full node
+    // set, unlike `read_graph_dump`). One extra `.next()` after filling the page
+    // (NOT collected) tells us whether more nodes remain, without reading their value.
+    let mut nodes = Vec::with_capacity(page_size.min(1024));
+    let mut nodes_exhausted;
+    {
+        let mut iter = nodes_table
+            .range((graph, "")..)
+            .map_err(|e| e.to_string())?
+            .skip(node_offset);
+        nodes_exhausted = true;
+        for _ in 0..page_size {
+            match iter.next() {
+                Some(row) => {
+                    let (k, v) = row.map_err(|e| e.to_string())?;
+                    let (g, id) = k.value();
+                    if g != graph {
+                        break; // ran off the end of this graph's key range
+                    }
+                    nodes.push((id.to_string(), crypto.unseal(v.value())?));
+                    nodes_exhausted = false; // provisional; corrected by the peek below
+                }
+                None => break,
+            }
+        }
+        if !nodes_exhausted {
+            nodes_exhausted = match iter.next() {
+                Some(row) => {
+                    let (k, _v) = row.map_err(|e| e.to_string())?;
+                    k.value().0 != graph
+                }
+                None => true,
+            };
+        }
+    }
+
+    // Edges: only once every node has been paged in (mirrors `apply_material_page`'s
+    // nodes-before-edges ordering, so a partially-opened graph never has an edge
+    // dangling on a not-yet-added node), spend the page's remaining budget on edges.
+    // `nodes_exhausted` (computed above, including the one-row peek) is exactly "no
+    // more node rows remain for this graph", the same nodes-first gate
+    // `apply_material_page` uses. `edges_done_this_call` tracks whether the EDGE
+    // range itself is drained (only meaningful once nodes are exhausted); the
+    // final `edges_exhausted` returned always ANDs it with `nodes_exhausted` below,
+    // so a page that is still working through nodes never falsely reports edges done.
+    let edge_budget = page_size.saturating_sub(nodes.len());
+    let mut edges = Vec::new();
+    let mut edges_done_this_call = false;
+    if nodes_exhausted && edge_budget > 0 {
+        let mut iter = edges_table
+            .range((graph, "", "", 0u32)..)
+            .map_err(|e| e.to_string())?
+            .skip(edge_offset);
+        edges_done_this_call = true;
+        for _ in 0..edge_budget {
+            match iter.next() {
+                Some(row) => {
+                    let (k, v) = row.map_err(|e| e.to_string())?;
+                    let (g, s, t, _) = k.value();
+                    if g != graph {
+                        break;
+                    }
+                    edges.push((s.to_string(), t.to_string(), crypto.unseal(v.value())?));
+                    edges_done_this_call = false;
+                }
+                None => break,
+            }
+        }
+        if !edges_done_this_call {
+            edges_done_this_call = match iter.next() {
+                Some(row) => {
+                    let (k, _v) = row.map_err(|e| e.to_string())?;
+                    k.value().0 != graph
+                }
+                None => true,
+            };
+        }
+    }
+    let edges_exhausted = nodes_exhausted && edges_done_this_call;
+
+    let semantic = if node_offset == 0 {
+        let semantic_table = rtx.open_table(SEMANTIC).map_err(|e| e.to_string())?;
+        semantic_table
+            .get(graph)
+            .map_err(|e| e.to_string())?
+            .map(|v| crypto.unseal(v.value()))
+            .transpose()?
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+
+    Ok(Some(GraphDumpPage {
+        nodes,
+        edges,
+        semantic,
+        nodes_exhausted,
+        edges_exhausted,
+    }))
+}
+
 /// Read the entire store into owned per-graph dumps. Each graph's rows are
 /// collected by iterating the whole table once and bucketing by the graph prefix.
 pub(crate) fn read_all_dumps(

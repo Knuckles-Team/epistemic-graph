@@ -208,6 +208,39 @@ pub trait PersistenceBackend: Send + Sync {
         Ok(None)
     }
 
+    /// SYNC bounded-PAGE durable-material fetch for a paged lazy first-open
+    /// (CONCEPT:EG-KG.sharding.paged-lazy-open, L38 "paged adjacency") — the working-subset
+    /// counterpart of [`Self::read_graph_material_blocking`] backing
+    /// `eg_core::registry::GraphRegistry::open_lazy_paged`/`page_in`, mirroring
+    /// `eg_core::registry::GraphMaterializer::materialize_page`'s own default/
+    /// override split one layer up. The default here falls back to ONE full
+    /// [`Self::read_graph_material_blocking`] fetch and then slices it in memory —
+    /// correct for ANY backend, but it does not avoid the full-fetch cost AT THE
+    /// SOURCE (documented in `eg_core::registry::GraphMaterializer::materialize_page`'s
+    /// own doc comment). Only [`redb_backend::RedbBackend`] overrides this with a
+    /// genuinely bounded scan straight off its durable store (never collecting the
+    /// whole graph into memory first) — the concrete fix for the L38 ledger item.
+    fn read_graph_material_page_blocking(
+        &self,
+        graph_fname: &str,
+        cursor: Option<crate::registry::MaterializeCursor>,
+        page_size: usize,
+    ) -> Result<Option<crate::registry::MaterialPage>, String> {
+        // Reuse eg-core's OWN `materialize_page` default slicing algorithm (rather
+        // than duplicating its offset arithmetic here) by wrapping the one full
+        // fetch in a throwaway `GraphMaterializer` that just returns it. The trait
+        // must be IN SCOPE for its default `materialize_page` method to be callable.
+        use crate::registry::GraphMaterializer as _;
+        struct Once(Option<crate::registry::GraphMaterial>);
+        impl crate::registry::GraphMaterializer for Once {
+            fn materialize(&self, _graph_name: &str) -> Option<crate::registry::GraphMaterial> {
+                self.0.clone()
+            }
+        }
+        let material = self.read_graph_material_blocking(graph_fname)?;
+        Ok(Once(material).materialize_page(graph_fname, cursor, page_size))
+    }
+
     /// **Cross-modal ACID commit (CONCEPT:EG-KG.txn.reader-never-sees-node + EG-360).** Land a graph + vector +
     /// blob-ref + measurement + property write-set for ONE graph atomically. The redb
     /// backend overrides this to commit ALL modalities in ONE `WriteTransaction`
