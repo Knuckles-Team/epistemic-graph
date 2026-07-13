@@ -56,6 +56,14 @@ pub mod version;
 #[cfg(feature = "contract")]
 mod contract;
 
+// Graph-guided paging adapter (CONCEPT:EG-KG.memory.graph-guided-paging): computes
+// PageRank/centrality importance scores over an `eg-compute::GraphView` and shapes them
+// for `TieredCache::apply_importance_scores`. Behind the crate's own opt-in `graph`
+// feature (default OFF, pulls `eg-compute`) — the core `TieredCache::set_importance`
+// mechanism itself stays dependency-free either way. See `src/graph_importance.rs`.
+#[cfg(feature = "graph")]
+pub mod graph_importance;
+
 pub use compress::{Codec, StoredBlock};
 pub use hash::content_hash;
 pub use shared::{BranchId, ForkStats, SharedKvBackend, SharedKvIndex, SharedStats, SnapshotId};
