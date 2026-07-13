@@ -863,9 +863,21 @@ mod tests {
             assert!(c.get(&1).is_some());
         }
         c.put(3, page(40, 3)); // forces one demotion
-        assert_eq!(c.tier_of(&1), Some(Tier::Hot), "hot, frequently-used stays HOT");
-        assert_eq!(c.tier_of(&2), Some(Tier::Warm), "lowest-score demoted, as before");
-        assert_eq!(c.importance_of(&1), 0.0, "no importance stamped ⇒ reads as 0.0");
+        assert_eq!(
+            c.tier_of(&1),
+            Some(Tier::Hot),
+            "hot, frequently-used stays HOT"
+        );
+        assert_eq!(
+            c.tier_of(&2),
+            Some(Tier::Warm),
+            "lowest-score demoted, as before"
+        );
+        assert_eq!(
+            c.importance_of(&1),
+            0.0,
+            "no importance stamped ⇒ reads as 0.0"
+        );
     }
 
     /// CONCEPT:EG-KG.memory.graph-guided-paging — a HIGH graph-topology importance protects an
@@ -937,7 +949,11 @@ mod tests {
         c.put(1, page(40, 1));
         c.set_importance(&1, 5.0);
         assert!(c.evict(&1));
-        assert_eq!(c.importance_of(&1), 0.0, "importance stamp cleared with the key");
+        assert_eq!(
+            c.importance_of(&1),
+            0.0,
+            "importance stamp cleared with the key"
+        );
     }
 
     /// CONCEPT:EG-KG.memory.byte-bounded-tiers — `evict` forcibly removes a block from all tiers (and unpins it).

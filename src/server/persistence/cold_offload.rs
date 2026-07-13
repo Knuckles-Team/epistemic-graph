@@ -636,8 +636,7 @@ mod admission_tests {
         let mut s = state.write().await;
         let outcome = s.registry.open_lazy_paged("paged:manual", page_size);
         assert!(outcome.resident, "paged open reports resident immediately");
-        let node_count_after_first_page =
-            s.registry.get("paged:manual").unwrap().core.node_count();
+        let node_count_after_first_page = s.registry.get("paged:manual").unwrap().core.node_count();
         assert!(
             node_count_after_first_page < total_nodes as usize,
             "the FIRST page must NOT fully rehydrate the graph (got {node_count_after_first_page} \
