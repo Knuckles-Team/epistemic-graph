@@ -426,18 +426,40 @@ classifiers agreeing with each other by convention.
   evicting the coldest by last-access recency through the *same* durability-gated
   cold-offload hibernate path R6 already used. `__commons__` is never evicted
   (`src/server/persistence/cold_offload.rs:133,161,222`).
-- **Honest limitation — verified directly in code, and NOT marked closed in the
-  program's own ledger (unlike its neighbors L37/L39/L40-L44):** "lazy" here means
-  *when* a graph's data loads (deferred past boot to first access), not partial/paged
-  loading. `BackendGraphMaterializer::materialize` calls
-  `read_graph_material_blocking`, which returns the **whole** graph's material in one
-  shot — first access to a lazily-opened graph still **fully rehydrates** it into
-  memory. A `GraphMaterializer` seam exists for a future paged-adjacency implementation,
-  but it is not built; this is tracked as open ledger item L38 ("paged adjacency"),
-  which — unlike L37/L39/L40 through L44 in the same Phase-2 follow-up batch — is never
-  marked `✅ CLOSED` anywhere in the program tracker.
-- **Default-on or opt-in:** both env vars default to the pre-existing eager/unbounded
-  behavior; a small deployment is unaffected unless it opts in.
+- **L38 "paged adjacency" — ✅ CLOSED (surpass-6mo WS-3, 2026-07-13).** Was: "lazy"
+  meant *when* a graph's data loads (deferred past boot to first access), not
+  partial/paged loading — `BackendGraphMaterializer::materialize` called
+  `read_graph_material_blocking`, which returned the **whole** graph's material in
+  one shot, so first access to a lazily-opened graph still fully rehydrated it into
+  memory. Now: `eg_core::registry::GraphMaterializer::materialize_page` (a seam that
+  already existed, unit-tested in isolation, but was never called by the facade/
+  server) is wired end to end:
+  - **`EPISTEMIC_GRAPH_LAZY_OPEN_PAGE_SIZE`** (`src/server/persistence/cold_offload.rs::lazy_open_page_size`)
+    — a positive value switches `cold_offload::lazy_open` from `GraphRegistry::open_lazy`
+    (full rehydrate) to `GraphRegistry::open_lazy_paged`: the graph is resident/
+    queryable after just ONE bounded page, with the rest paged in by a spawned
+    background task (`page_in_remaining`) — a not-yet-paged node still resolves via
+    the pre-existing per-node read-through in the interim.
+  - **`RedbBackend::read_graph_material_page_blocking`** (`src/server/persistence/redb_backend.rs`)
+    overrides the trait's default (full-fetch-then-slice) with a genuinely
+    SOURCE-bounded scan — `redb_store::read_graph_dump_page` skips/takes a bounded
+    window of the per-graph `nodes`/`edges` table range directly, never collecting
+    the whole graph's rows into memory first. `BackendGraphMaterializer::materialize_page`
+    (`src/server/persistence/read_through.rs`) routes to it.
+  - Tests: `cold_offload::admission_tests::open_lazy_paged_materializes_one_page_then_page_in_completes_deterministically`
+    (proves the first page is STRICTLY SMALLER than the full graph — the literal
+    "no full rehydrate" assertion — then drives `page_in` to completion) +
+    `paged_lazy_open_wiring_is_resident_immediately_then_completes_in_background`
+    (the `lazy_open`/background-task wiring, over a real redb backend).
+  - **Known residual (documented, not load-bearing):** a graph deleted and
+    recreated under the identical name WHILE a background page-in is still in
+    flight could replay a stale-cursor page against the new incarnation — closing
+    that fully needs a generation/epoch stamp on `GraphEntry`, tracked as a
+    follow-up, not part of L38 itself.
+- **Default-on or opt-in:** all three env vars (`EPISTEMIC_GRAPH_LAZY_STARTUP`,
+  `EPISTEMIC_GRAPH_MAX_RESIDENT_GRAPHS`, `EPISTEMIC_GRAPH_LAZY_OPEN_PAGE_SIZE`)
+  default to the pre-existing eager/unbounded/full-rehydrate behavior; a small
+  deployment is unaffected unless it opts in.
 
 ### Durable analytics-job plane (`eg-jobs`, INT-P2-1)
 

@@ -166,6 +166,19 @@ pub(crate) enum Cmd {
         graph: String,
         reply: std::sync::mpsc::Sender<Result<Option<GraphDump>, String>>,
     },
+    /// Read ONE BOUNDED page of one graph's durable rows (CONCEPT:EG-KG.sharding.paged-lazy-open, L38
+    /// "paged adjacency") — the memory-bounded sibling of `ReadGraphDump` a paged
+    /// lazy-open/page-in call uses so a 10M+-node graph never has its full node/edge
+    /// set collected into one `Vec` at the SOURCE. Goes through the owner thread
+    /// (exclusive file lock) and flushes pending writes first, same as
+    /// `ReadGraphDump`.
+    ReadGraphDumpPage {
+        graph: String,
+        node_offset: usize,
+        edge_offset: usize,
+        page_size: usize,
+        reply: std::sync::mpsc::Sender<Result<Option<crate::redb_store::GraphDumpPage>, String>>,
+    },
     /// Export ONE graph's rows VERBATIM for an online shard move (CONCEPT:EG-KG.backend.catalog-shard-resolve). Runs
     /// on the SOURCE shard's writer: flush pending first (so the snapshot is complete),
     /// then scan the raw value blobs (encryption + audit chain untouched).
@@ -1148,6 +1161,31 @@ impl RedbBackend {
             .map_err(|_| "redb writer dropped read_graph_dump reply".to_string())?
     }
 
+    /// Read ONE bounded page of one graph's durable rows (CONCEPT:EG-KG.sharding.paged-lazy-open, L38 "paged
+    /// adjacency") — the memory-bounded sibling of [`Self::read_graph_dump_blocking`]
+    /// backing [`PersistenceBackend::read_graph_material_page_blocking`] below.
+    pub(crate) fn read_graph_dump_page_blocking(
+        &self,
+        graph_fname: &str,
+        node_offset: usize,
+        edge_offset: usize,
+        page_size: usize,
+    ) -> Result<Option<crate::redb_store::GraphDumpPage>, String> {
+        let (reply, rx) = std::sync::mpsc::channel();
+        self.shard_for(graph_fname)
+            .tx
+            .send(Cmd::ReadGraphDumpPage {
+                graph: graph_fname.to_string(),
+                node_offset,
+                edge_offset,
+                page_size,
+                reply,
+            })
+            .map_err(|_| "redb writer thread is gone".to_string())?;
+        rx.recv()
+            .map_err(|_| "redb writer dropped read_graph_dump_page reply".to_string())?
+    }
+
     /// Reconstruct every graph from the redb store into the registry. The actual
     /// DB read runs on the owner thread (via the `Load` command) because redb holds
     /// an exclusive per-process file lock; this rebuilds each `GraphCore` from the
@@ -1326,6 +1364,45 @@ impl PersistenceBackend for RedbBackend {
                 nodes: dump.nodes,
                 edges: dump.edges,
                 semantic: dump.semantic,
+            }))
+    }
+
+    /// SYNC bounded-page durable-material fetch (CONCEPT:EG-KG.sharding.paged-lazy-open, L38 "paged
+    /// adjacency") — reuses [`Self::read_graph_dump_page_blocking`], a genuinely
+    /// SOURCE-bounded scan (never collects the whole graph's rows into memory first,
+    /// unlike the [`Self::read_graph_material_blocking`] override above / the
+    /// default trait fallback), closing the honest limitation
+    /// `docs/architecture/epistemic-os-hardening.md` names as open ledger item L38:
+    /// "first access to a lazily-opened graph still fully rehydrates it".
+    fn read_graph_material_page_blocking(
+        &self,
+        graph_fname: &str,
+        cursor: Option<crate::registry::MaterializeCursor>,
+        page_size: usize,
+    ) -> Result<Option<crate::registry::MaterialPage>, String> {
+        let node_offset = cursor.map(|c| c.node_offset).unwrap_or(0);
+        let edge_offset = cursor.map(|c| c.edge_offset).unwrap_or(0);
+        Ok(self
+            .read_graph_dump_page_blocking(graph_fname, node_offset, edge_offset, page_size)?
+            .map(|page| {
+                let next_cursor = if page.nodes_exhausted && page.edges_exhausted {
+                    None
+                } else {
+                    Some(crate::registry::MaterializeCursor {
+                        node_offset: node_offset + page.nodes.len(),
+                        edge_offset: if page.nodes_exhausted {
+                            edge_offset + page.edges.len()
+                        } else {
+                            edge_offset
+                        },
+                    })
+                };
+                crate::registry::MaterialPage {
+                    nodes: page.nodes,
+                    edges: page.edges,
+                    semantic: page.semantic,
+                    next_cursor,
+                }
             }))
     }
 
@@ -2334,6 +2411,26 @@ fn handle_cmd(
             // then range-scan ONE graph's rows (CONCEPT:EG-KG.storage.100m-tenant).
             commit_and_notify(db, pending, Durability::Immediate, crypto);
             let _ = reply.send(read_graph_dump(db, &graph, crypto));
+            false
+        }
+        Cmd::ReadGraphDumpPage {
+            graph,
+            node_offset,
+            edge_offset,
+            page_size,
+            reply,
+        } => {
+            // Flush pending first (same consistency contract as ReadGraphDump), then
+            // fetch ONE bounded page straight off the durable store (CONCEPT:EG-KG.sharding.paged-lazy-open, L38).
+            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            let _ = reply.send(crate::redb_store::read_graph_dump_page(
+                db,
+                &graph,
+                crypto,
+                node_offset,
+                edge_offset,
+                page_size,
+            ));
             false
         }
         Cmd::ExportGraphRaw { graph, reply } => {
