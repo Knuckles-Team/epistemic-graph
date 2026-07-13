@@ -433,7 +433,9 @@ mod imp {
     /// a tick's existing logic runs, with zero change to what that logic does.
     pub fn loop_tick(name: &str, seconds: f64) {
         LOOP_TICKS_TOTAL.with_label_values(&[name]).inc();
-        LOOP_TICK_DURATION.with_label_values(&[name]).observe(seconds);
+        LOOP_TICK_DURATION
+            .with_label_values(&[name])
+            .observe(seconds);
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
