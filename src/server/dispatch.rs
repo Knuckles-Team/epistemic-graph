@@ -1062,7 +1062,9 @@ async fn dispatch_graph_op(
     if s.registry.get(graph_name).is_none() {
         drop(s);
         let cap = crate::server::persistence::cold_offload::max_resident_graphs();
-        crate::server::persistence::cold_offload::lazy_open(state, graph_name, cap).await;
+        let page_size = crate::server::persistence::cold_offload::lazy_open_page_size();
+        crate::server::persistence::cold_offload::lazy_open(state, graph_name, cap, page_size)
+            .await;
         s = state.read().await;
     }
     let entry = match s.registry.get(graph_name) {

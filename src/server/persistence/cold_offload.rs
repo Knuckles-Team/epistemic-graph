@@ -241,6 +241,28 @@ pub fn admit_capacity(
     }
 }
 
+/// The configured page size for a PAGED lazy-open (CONCEPT:EG-KG.sharding.paged-lazy-open, L38 "paged
+/// adjacency"). `EPISTEMIC_GRAPH_LAZY_OPEN_PAGE_SIZE` — `0` (unset, the DEFAULT) means
+/// paging is OFF: [`lazy_open`] calls the pre-existing [`eg_core::registry::GraphRegistry::open_lazy`]
+/// full-rehydrate path, byte-for-byte unchanged (a small/eager deployment sees no
+/// behavior change). A positive value switches `lazy_open` to
+/// [`eg_core::registry::GraphRegistry::open_lazy_paged`]: the graph becomes resident
+/// and queryable after just ONE bounded page (nodes+edges combined, per page), instead
+/// of after a full rehydrate — the concrete fix for the honest limitation
+/// `docs/architecture/epistemic-os-hardening.md` names as open ledger item L38
+/// ("first access to a lazily-opened graph still fully rehydrates it"). The rest of
+/// the graph's material is paged in by [`page_in_remaining`] as a background task —
+/// correctness in the interim is covered by the SAME per-node read-through
+/// [`open_lazy`](eg_core::registry::GraphRegistry::open_lazy) already attaches: a node
+/// not yet paged in still resolves on direct access, it just is not yet enumerated by
+/// a whole-graph scan until its page lands.
+pub fn lazy_open_page_size() -> usize {
+    std::env::var("EPISTEMIC_GRAPH_LAZY_OPEN_PAGE_SIZE")
+        .ok()
+        .and_then(|s| s.trim().parse::<usize>().ok())
+        .unwrap_or(0)
+}
+
 /// Lazily materialize a catalog-known graph's resident `GraphCore` on first access
 /// (CONCEPT:EG-KG.sharding.lazy-graph-catalog). A no-op if the graph is ALREADY resident (the common
 /// case on the hot path — checked by the caller BEFORE taking the write lock this
@@ -250,7 +272,22 @@ pub fn admit_capacity(
 /// Applies bounded-cache admission (`admit_capacity`) BEFORE materializing so the
 /// resident set never exceeds `cap`. Returns `true` when the graph is resident
 /// afterward.
-pub async fn lazy_open(state: &Arc<RwLock<ServerState>>, graph_name: &str, cap: usize) -> bool {
+///
+/// `page_size` (CONCEPT:EG-KG.sharding.paged-lazy-open, L38 "paged adjacency") — resolved by the
+/// caller via [`lazy_open_page_size`], same convention as `cap`/[`max_resident_graphs`]
+/// (an explicit parameter, not read from the environment HERE, so tests can exercise a
+/// specific page size deterministically without mutating global process env state).
+/// `0` (the default resolution) is the pre-existing full-rehydrate `open_lazy` path,
+/// byte-for-byte unchanged. `> 0` materializes only ONE bounded page inline and spawns
+/// [`page_in_remaining`] to fetch the rest off the request path — the graph is
+/// resident/queryable on return either way, but a paged open never blocks the
+/// triggering request on a full rehydrate of a 10M+-node graph.
+pub async fn lazy_open(
+    state: &Arc<RwLock<ServerState>>,
+    graph_name: &str,
+    cap: usize,
+    page_size: usize,
+) -> bool {
     let mut s = state.write().await;
     if s.registry.is_resident(graph_name) {
         return true;
@@ -260,7 +297,66 @@ pub async fn lazy_open(state: &Arc<RwLock<ServerState>>, graph_name: &str, cap: 
     }
     let tracker = s.cold_tracker.clone();
     admit_capacity(&mut s, &tracker, graph_name, cap);
-    s.registry.open_lazy(graph_name)
+
+    if page_size == 0 {
+        return s.registry.open_lazy(graph_name);
+    }
+
+    let outcome = s.registry.open_lazy_paged(graph_name, page_size);
+    if !outcome.resident {
+        return false;
+    }
+    if let Some(cursor) = outcome.cursor {
+        drop(s); // release the write lock before spawning the background continuation
+        tokio::spawn(page_in_remaining(
+            state.clone(),
+            graph_name.to_string(),
+            cursor,
+            page_size,
+        ));
+    }
+    true
+}
+
+/// Background continuation of a paged [`lazy_open`] (CONCEPT:EG-KG.sharding.paged-lazy-open, L38): keeps
+/// calling [`eg_core::registry::GraphRegistry::page_in`] until the cursor is exhausted
+/// (the graph's ENTIRE durable material has landed — the "no full rehydrate on first
+/// touch, load on demand" property, just spread across bounded off-request-path
+/// steps instead of one inline blocking fetch). Stops early, as a benign no-op, if the
+/// graph is evicted (cold-offloaded) or deleted out from under it before paging
+/// finishes — there is nothing left to continue into, and the NEXT lazy-open (paged
+/// or not) starts a fresh rehydrate from the durable tier regardless. Never awaited by
+/// a caller; entirely off the request path.
+///
+/// KNOWN RESIDUAL RACE (documented, not fixed here — narrow window, same class the
+/// registry already reasons about for `ColdTenantTracker::forget`'s "don't leak
+/// across a same-name recreate" note): if `graph_name` is DELETED and immediately
+/// RECREATED under the identical name while a page-in is in flight, `is_resident`
+/// reads true for the NEW graph and a stale-cursor page could be replayed against
+/// it. Closing this fully needs a generation/epoch stamp on `GraphEntry` to detect
+/// "same name, different incarnation" — out of scope for L38 (paged adjacency
+/// itself); tracked as a follow-up, not a load-bearing correctness gap for the
+/// common case (a graph is rarely deleted+recreated inside the same page-in
+/// window, which is bounded by a handful of redb round-trips).
+async fn page_in_remaining(
+    state: Arc<RwLock<ServerState>>,
+    graph_name: String,
+    mut cursor: crate::registry::MaterializeCursor,
+    page_size: usize,
+) {
+    loop {
+        let next = {
+            let mut s = state.write().await;
+            if !s.registry.is_resident(&graph_name) {
+                return;
+            }
+            s.registry.page_in(&graph_name, cursor, page_size)
+        };
+        match next {
+            Some(c) => cursor = c,
+            None => return,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -492,7 +588,7 @@ mod admission_tests {
         assert!(!state.read().await.registry.is_resident("acme:cold"));
 
         // Access it — lazy_open re-materializes it from the durable tier.
-        let opened = lazy_open(&state, "acme:cold", 0).await;
+        let opened = lazy_open(&state, "acme:cold", 0, 0).await;
         assert!(opened);
         let core = {
             let s = state.read().await;
@@ -500,6 +596,159 @@ mod admission_tests {
         };
         assert_eq!(core.node_count(), 5, "all 5 nodes survived the round-trip");
         for i in 0..5 {
+            assert_eq!(
+                core.get_node_properties(&format!("n{i}")),
+                Some(props(serde_json::json!({"payload": format!("n{i}")})))
+            );
+        }
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// CONCEPT:EG-KG.sharding.paged-lazy-open (L38 "paged adjacency") — the literal "no full rehydrate"
+    /// proof: `open_lazy_paged` with a small `page_size` over a REAL redb-backed
+    /// `RedbBackend::read_graph_material_page_blocking` materializes ONLY that page's
+    /// worth of nodes immediately, not the whole graph, and repeated deterministic
+    /// `page_in` calls land the rest one bounded batch at a time.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn open_lazy_paged_materializes_one_page_then_page_in_completes_deterministically() {
+        let dir = std::env::temp_dir().join(format!("eg-lazy-paged-manual-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let dir_s = dir.to_string_lossy().to_string();
+        let state = redb_state(&dir_s).await;
+
+        create(&state, 1, "paged:manual").await;
+        let total_nodes = 20u64;
+        for i in 0..total_nodes {
+            add_node(&state, 100 + i, "paged:manual", &format!("n{i}")).await;
+        }
+        {
+            let backend = state.read().await.persistence.clone().unwrap();
+            backend.checkpoint_all(&state).await.unwrap();
+        }
+        {
+            let mut s = state.write().await;
+            assert!(s.registry.evict_resident("paged:manual"));
+        }
+        assert!(!state.read().await.registry.is_resident("paged:manual"));
+
+        let page_size = 4usize;
+        let mut s = state.write().await;
+        let outcome = s.registry.open_lazy_paged("paged:manual", page_size);
+        assert!(outcome.resident, "paged open reports resident immediately");
+        let node_count_after_first_page =
+            s.registry.get("paged:manual").unwrap().core.node_count();
+        assert!(
+            node_count_after_first_page < total_nodes as usize,
+            "the FIRST page must NOT fully rehydrate the graph (got {node_count_after_first_page} \
+             of {total_nodes} — a full rehydrate here would defeat the whole point of L38)"
+        );
+        assert!(
+            node_count_after_first_page > 0,
+            "the first page still materializes SOMETHING (resident ⇒ queryable right away)"
+        );
+        assert!(
+            outcome.cursor.is_some(),
+            "more material remains ⇒ a resume cursor must be returned"
+        );
+
+        // Drive page_in to completion — deterministic, no background task / timing.
+        let mut cursor = outcome.cursor;
+        let mut iterations = 0;
+        while let Some(c) = cursor {
+            cursor = s.registry.page_in("paged:manual", c, page_size);
+            iterations += 1;
+            assert!(iterations < 1000, "runaway paging — cursor never exhausted");
+        }
+        assert!(
+            iterations > 1,
+            "a {total_nodes}-node graph at page_size={page_size} needs more than one page_in call"
+        );
+
+        let final_count = s.registry.get("paged:manual").unwrap().core.node_count();
+        assert_eq!(
+            final_count, total_nodes as usize,
+            "page_in eventually lands EVERY node — no data lost across the paged sequence"
+        );
+        for i in 0..total_nodes {
+            assert_eq!(
+                s.registry
+                    .get("paged:manual")
+                    .unwrap()
+                    .core
+                    .get_node_properties(&format!("n{i}")),
+                Some(props(serde_json::json!({"payload": format!("n{i}")}))),
+                "node n{i} survived the paged round-trip byte-identical to a full rehydrate"
+            );
+        }
+        drop(s);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// CONCEPT:EG-KG.sharding.paged-lazy-open (L38) — `lazy_open`'s wiring: with `page_size > 0` it
+    /// returns resident/queryable immediately (without inline-blocking on a full
+    /// rehydrate), and the spawned [`page_in_remaining`] background task eventually
+    /// lands the rest of a graph bigger than one page.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn paged_lazy_open_wiring_is_resident_immediately_then_completes_in_background() {
+        let dir = std::env::temp_dir().join(format!("eg-lazy-paged-bg-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let dir_s = dir.to_string_lossy().to_string();
+        let state = redb_state(&dir_s).await;
+
+        create(&state, 1, "paged:big").await;
+        let total_nodes = 25u64;
+        for i in 0..total_nodes {
+            add_node(&state, 100 + i, "paged:big", &format!("n{i}")).await;
+        }
+        {
+            let backend = state.read().await.persistence.clone().unwrap();
+            backend.checkpoint_all(&state).await.unwrap();
+        }
+        {
+            let mut s = state.write().await;
+            assert!(s.registry.evict_resident("paged:big"));
+        }
+        assert!(!state.read().await.registry.is_resident("paged:big"));
+
+        // page_size well under total_nodes forces a background continuation.
+        let opened = lazy_open(&state, "paged:big", 0, 5).await;
+        assert!(opened, "paged lazy-open must report resident immediately");
+        assert!(
+            state.read().await.registry.is_resident("paged:big"),
+            "graph is queryable right away, even though not fully paged in yet"
+        );
+
+        // The background page_in_remaining task eventually lands every node — poll
+        // with a bounded deadline rather than a fixed sleep (deterministic pass/fail,
+        // no race with the tokio scheduler's timing).
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        loop {
+            let count = {
+                let s = state.read().await;
+                s.registry.get("paged:big").map(|e| e.core.node_count())
+            };
+            if count == Some(total_nodes as usize) {
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "background page-in did not complete within the deadline (last count: {count:?})"
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+
+        // Byte-identical to a full rehydrate: every node's properties survived.
+        let core = state
+            .read()
+            .await
+            .registry
+            .get("paged:big")
+            .unwrap()
+            .core
+            .clone();
+        for i in 0..total_nodes {
             assert_eq!(
                 core.get_node_properties(&format!("n{i}")),
                 Some(props(serde_json::json!({"payload": format!("n{i}")})))
@@ -658,7 +907,7 @@ mod admission_tests {
         let cap = 4usize;
         for i in 0..n {
             let name = format!("quota:{i}");
-            let opened = lazy_open(&state, &name, cap).await;
+            let opened = lazy_open(&state, &name, cap, 0).await;
             assert!(opened, "quota:{i} must lazily open");
             let resident = state.read().await.registry.resident_len();
             assert!(
