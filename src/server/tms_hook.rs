@@ -120,9 +120,7 @@ fn load_from(path: &Path) -> TruthMaintenance {
 
 /// [`load_from`] off [`persist_path`], or an empty index when no persist dir is set.
 fn load_persisted() -> TruthMaintenance {
-    persist_path()
-        .map(|p| load_from(&p))
-        .unwrap_or_default()
+    persist_path().map(|p| load_from(&p)).unwrap_or_default()
 }
 
 /// Best-effort snapshot of the WHOLE index to `path`: write to a `.tmp` sibling, then
@@ -266,9 +264,7 @@ pub fn maybe_register_from_write(core: &eg_core::graph::GraphCore, id: &str) {
 pub fn auto_register_from_write(core: &eg_core::graph::GraphCore, method: &Method) {
     match method {
         Method::AddNode { node_id, .. } => maybe_register_from_write(core, node_id),
-        Method::CompareAndSetNodeFields { node_id, .. } => {
-            maybe_register_from_write(core, node_id)
-        }
+        Method::CompareAndSetNodeFields { node_id, .. } => maybe_register_from_write(core, node_id),
         Method::AddEdge { source_id, .. } => maybe_register_from_write(core, source_id),
         _ => {}
     }
@@ -549,7 +545,11 @@ mod tests {
         let path = dir.join("tms_index.msgpack");
 
         let mut idx = TruthMaintenance::new();
-        idx.register("claim:persisted", ["dep_1", "dep_2"], Some("activity:1".to_string()));
+        idx.register(
+            "claim:persisted",
+            ["dep_1", "dep_2"],
+            Some("activity:1".to_string()),
+        );
         idx.on_change(&ChangeEvent::Updated("dep_1".to_string()));
         assert_eq!(
             idx.status_of("claim:persisted"),

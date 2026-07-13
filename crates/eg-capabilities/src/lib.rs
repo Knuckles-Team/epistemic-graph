@@ -1170,17 +1170,15 @@ pub fn policy(m: &Method) -> MethodPolicy {
         // `MaterializationStatus` -- same profile, no args.
         Method::RegisterMaterialization { .. }
         | Method::MaterializationStatus { .. }
-        | Method::StaleMaterializations => {
-            MethodPolicy {
-                mutates: false,
-                durability_domain: DurabilityDomain::None,
-                authz_action: "explain:read",
-                idempotent: true,
-                audited: false,
-                emits_cdc: false,
-                txn_participation: TxnParticipation::Snapshot,
-            }
-        }
+        | Method::StaleMaterializations => MethodPolicy {
+            mutates: false,
+            durability_domain: DurabilityDomain::None,
+            authz_action: "explain:read",
+            idempotent: true,
+            audited: false,
+            emits_cdc: false,
+            txn_participation: TxnParticipation::Snapshot,
+        },
         // EPI-P3-7 (gap-fill): standalone Dung argumentation conflict resolution. Builds a
         // `BeliefGraph` off the caller's read-only `GraphView` snapshot and runs
         // grounded/preferred/stable extension computation -- read-only, no durability, no
