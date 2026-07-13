@@ -20,6 +20,26 @@
 //!
 //! All capacity is accounted in **bytes** per tier (KV pages vary wildly in size), never
 //! in entry count.
+//!
+//! ## Graph-guided paging (CONCEPT:EG-KG.memory.graph-guided-paging)
+//!
+//! Pure recency/frequency scoring is topology-blind: a block backing a structurally
+//! central piece of context (e.g. the KV for a hub node many other retrieved nodes cite)
+//! can still be the coldest-touched block in the working set and get demoted first, even
+//! though it is disproportionately likely to be needed again for a 10M+ token / huge
+//! context regime where most blocks are touched once. [`TieredCache::set_importance`]
+//! lets a caller layer a **graph-topology term** on top of the existing score — a
+//! per-key importance weight (typically a normalized PageRank / centrality score from
+//! `eg-compute::algorithms`, see the optional [`crate::graph_importance`] adapter, or any
+//! caller-supplied 0.0-and-up signal) that is added into the eviction ordering as
+//! `effective_score = score + importance_weight * importance(key)`. A block with high
+//! graph importance is preferentially kept resident even under low recency, without the
+//! all-or-nothing hardness of [`TieredCache::pin`] — under enough pressure it still
+//! demotes, just later than an equally-cold but topologically-peripheral block. This
+//! crate stays dependency-free either way: importance is just an `f64` the caller
+//! supplies (no `eg-compute` dependency in the base/pi build); only the optional `graph`
+//! feature (CONCEPT:EG-KG.memory.graph-guided-paging) pulls `eg-compute` for the
+//! convenience adapter that computes the scores.
 
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
@@ -118,6 +138,17 @@ where
     cold_store: Box<dyn ColdStore<K>>,
     pinned: HashSet<K>,
 
+    /// Graph-topology importance weights (CONCEPT:EG-KG.memory.graph-guided-paging), layered
+    /// ON TOP of the recency/frequency `score` the same way `versions` layers on top of
+    /// the tier maps: a key absent here contributes 0.0, so a cache that never calls
+    /// [`TieredCache::set_importance`] is byte-for-byte the pre-existing pure-LRU
+    /// behavior (zero-cost when unused).
+    importance: HashMap<K, f64>,
+    /// How strongly `importance` perturbs the eviction order — `effective_score = score +
+    /// importance_weight * importance(key)`. Defaults to `1.0`; see
+    /// [`TieredCache::with_importance_weight`].
+    importance_weight: f64,
+
     /// The [`DataVersion`] each resident key was derived at (CONCEPT:EG-KG.storage.content-addressed-put), layered
     /// ON TOP of the tier maps so the tiering/dedup/LRU/pinning machinery is untouched.
     /// A key absent here (or mapped to [`DataVersion::Agnostic`]) is a pure KV page that
@@ -186,6 +217,8 @@ where
             cold_meta: HashMap::new(),
             cold_store,
             pinned: HashSet::new(),
+            importance: HashMap::new(),
+            importance_weight: 1.0,
             versions: HashMap::new(),
             current_version: DataVersion::Agnostic,
             hot_cap,
@@ -221,6 +254,55 @@ where
     /// The WARM-tier compression codec this cache demotes with (CONCEPT:EG-KG.storage.rle-codec-default).
     pub fn warm_codec(&self) -> Codec {
         self.warm_codec
+    }
+
+    /// Select how strongly graph-topology importance perturbs the eviction order
+    /// (CONCEPT:EG-KG.memory.graph-guided-paging), builder-style. `0.0` disables the term
+    /// entirely (pure LRU, the pre-existing behavior); higher values weight importance
+    /// more heavily relative to the recency/frequency `score`. Defaults to `1.0`.
+    pub fn with_importance_weight(mut self, weight: f64) -> Self {
+        self.importance_weight = weight;
+        self
+    }
+
+    /// The current graph-topology importance weight (CONCEPT:EG-KG.memory.graph-guided-paging).
+    pub fn importance_weight(&self) -> f64 {
+        self.importance_weight
+    }
+
+    /// Set (or update) `key`'s graph-topology importance (CONCEPT:EG-KG.memory.graph-guided-paging) — typically a
+    /// normalized PageRank / centrality score from `eg-compute::algorithms` (see the
+    /// optional [`crate::graph_importance`] adapter). Does not require `key` to be
+    /// resident: an importance stamped ahead of a `put` still applies once the block
+    /// lands, the same forward-stamping pattern [`TieredCache::pin`] uses. Higher values
+    /// bias the block toward staying resident longer under byte pressure; this is a SOFT
+    /// bias (the block can still be demoted/dropped under enough pressure), unlike the
+    /// hard guarantee [`TieredCache::pin`] gives.
+    pub fn set_importance(&mut self, key: &K, importance: f64) {
+        self.importance.insert(key.clone(), importance);
+    }
+
+    /// Bulk-apply graph-topology importance scores (CONCEPT:EG-KG.memory.graph-guided-paging) — e.g. the `Vec<(String,
+    /// f64)>` a PageRank/centrality pass over `eg-compute::algorithms` returns, after the
+    /// caller maps node ids to cache keys. Equivalent to calling
+    /// [`TieredCache::set_importance`] once per entry.
+    pub fn apply_importance_scores(&mut self, scores: impl IntoIterator<Item = (K, f64)>) {
+        for (key, importance) in scores {
+            self.importance.insert(key, importance);
+        }
+    }
+
+    /// `key`'s current graph-topology importance (CONCEPT:EG-KG.memory.graph-guided-paging), or `0.0` if never set
+    /// (the zero-cost-when-unused default).
+    pub fn importance_of(&self, key: &K) -> f64 {
+        self.importance.get(key).copied().unwrap_or(0.0)
+    }
+
+    /// The eviction-ordering key for `key` at raw `score` (CONCEPT:EG-KG.memory.graph-guided-paging):
+    /// `score + importance_weight * importance(key)`. Higher is "keep longer"; eviction
+    /// picks the LOWEST.
+    fn effective_score(&self, key: &K, score: f64) -> f64 {
+        score + self.importance_weight * self.importance_of(key)
     }
 
     /// Monotonic logical clock tick (recency tiebreak for eviction).
@@ -416,11 +498,13 @@ where
         self.pinned.contains(key)
     }
 
-    /// Forcibly remove `key` from every tier (and unpin it, and drop its version stamp).
-    /// Returns whether it existed.
+    /// Forcibly remove `key` from every tier (and unpin it, drop its version stamp, and
+    /// drop its graph-topology importance stamp — CONCEPT:EG-KG.memory.graph-guided-paging). Returns
+    /// whether it existed.
     pub fn evict(&mut self, key: &K) -> bool {
         self.pinned.remove(key);
         self.versions.remove(key);
+        self.importance.remove(key);
         self.remove_resident(key)
     }
 
@@ -490,14 +574,15 @@ where
         }
     }
 
-    /// Pick the lowest-scoring UNPINNED key of a tier (tiebreak: oldest access first).
+    /// Pick the lowest-EFFECTIVE-scoring UNPINNED key of a tier (CONCEPT:EG-KG.memory.graph-guided-paging: raw score
+    /// perturbed by graph-topology importance; tiebreak: oldest access first).
     fn lowest_hot(&self) -> Option<K> {
         self.hot
             .iter()
             .filter(|(k, _)| !self.pinned.contains(*k))
             .min_by(|a, b| {
-                a.1.score
-                    .partial_cmp(&b.1.score)
+                self.effective_score(a.0, a.1.score)
+                    .partial_cmp(&self.effective_score(b.0, b.1.score))
                     .unwrap_or(std::cmp::Ordering::Equal)
                     .then(a.1.last.cmp(&b.1.last))
             })
@@ -509,8 +594,8 @@ where
             .iter()
             .filter(|(k, _)| !self.pinned.contains(*k))
             .min_by(|a, b| {
-                a.1.score
-                    .partial_cmp(&b.1.score)
+                self.effective_score(a.0, a.1.score)
+                    .partial_cmp(&self.effective_score(b.0, b.1.score))
                     .unwrap_or(std::cmp::Ordering::Equal)
                     .then(a.1.last.cmp(&b.1.last))
             })
@@ -522,8 +607,8 @@ where
             .iter()
             .filter(|(k, _)| !self.pinned.contains(*k))
             .min_by(|a, b| {
-                a.1.score
-                    .partial_cmp(&b.1.score)
+                self.effective_score(a.0, a.1.score)
+                    .partial_cmp(&self.effective_score(b.0, b.1.score))
                     .unwrap_or(std::cmp::Ordering::Equal)
                     .then(a.1.last.cmp(&b.1.last))
             })
@@ -582,6 +667,7 @@ where
                 Err(_) => {
                     // Cold device rejected the write — the block is dropped.
                     self.versions.remove(&k); // it left the cache entirely (EG-364)
+                    self.importance.remove(&k); // CONCEPT:EG-KG.memory.graph-guided-paging
                     self.drops += 1;
                 }
             }
@@ -598,6 +684,7 @@ where
             self.cold_bytes -= m.stored_len;
             let _ = self.cold_store.remove(&k);
             self.versions.remove(&k); // it left the cache entirely (EG-364)
+            self.importance.remove(&k); // CONCEPT:EG-KG.memory.graph-guided-paging
             self.drops += 1;
         }
     }
@@ -762,6 +849,95 @@ mod tests {
             Some(Tier::Hot),
             "after unpin the block is demoted/dropped under pressure like any other"
         );
+    }
+
+    /// CONCEPT:EG-KG.memory.graph-guided-paging — with NO importance stamped, eviction order is
+    /// unchanged from pure LRU (the zero-cost-when-unused guarantee): the lowest-score
+    /// block is still the one demoted.
+    #[test]
+    fn graph_guided_paging_unused_is_identical_to_pure_lru() {
+        let mut c: TieredCache<u64, Block> = TieredCache::new(80, 10_000, 10_000);
+        c.put(1, page(40, 1));
+        c.put(2, page(40, 2));
+        for _ in 0..5 {
+            assert!(c.get(&1).is_some());
+        }
+        c.put(3, page(40, 3)); // forces one demotion
+        assert_eq!(c.tier_of(&1), Some(Tier::Hot), "hot, frequently-used stays HOT");
+        assert_eq!(c.tier_of(&2), Some(Tier::Warm), "lowest-score demoted, as before");
+        assert_eq!(c.importance_of(&1), 0.0, "no importance stamped ⇒ reads as 0.0");
+    }
+
+    /// CONCEPT:EG-KG.memory.graph-guided-paging — a HIGH graph-topology importance protects an
+    /// equally-cold block from being the eviction victim: two blocks with IDENTICAL
+    /// score/recency, but block 2 is stamped as a structurally-central (high-PageRank)
+    /// node. Under HOT pressure the LOW-importance block (1) is demoted instead of the
+    /// high-importance one (2), even though pure recency ties them.
+    #[test]
+    fn graph_guided_paging_importance_protects_topologically_central_block() {
+        let mut c: TieredCache<u64, Block> = TieredCache::new(80, 10_000, 10_000);
+        c.put(1, page(40, 1));
+        c.put(2, page(40, 2));
+        // Same score (both freshly put at 1.0), same tier — a coin-flip under pure LRU
+        // except for insertion-order recency. Stamp 2 as the graph-important one BEFORE
+        // the byte-pressure event (forward-stamping, like `pin`).
+        c.set_importance(&2, 10.0);
+        assert_eq!(c.importance_of(&2), 10.0);
+        assert_eq!(c.importance_of(&1), 0.0);
+        c.put(3, page(40, 3)); // forces exactly one demotion
+        assert_eq!(
+            c.tier_of(&2),
+            Some(Tier::Hot),
+            "graph-important block stays HOT despite no recency edge"
+        );
+        assert_eq!(
+            c.tier_of(&1),
+            Some(Tier::Warm),
+            "low-importance block is the one demoted instead"
+        );
+    }
+
+    /// CONCEPT:EG-KG.memory.graph-guided-paging — `with_importance_weight(0.0)` turns the graph-topology
+    /// term OFF entirely, even with importance stamped — a caller can dial the signal
+    /// back to pure LRU without clearing every stamp.
+    #[test]
+    fn graph_guided_paging_zero_weight_disables_the_term() {
+        let mut c: TieredCache<u64, Block> =
+            TieredCache::new(80, 10_000, 10_000).with_importance_weight(0.0);
+        assert_eq!(c.importance_weight(), 0.0);
+        c.put(1, page(40, 1));
+        c.put(2, page(40, 2));
+        c.set_importance(&2, 1000.0); // would dominate at the default weight
+        c.put(3, page(40, 3));
+        // With the term disabled, the (still-)lowest-score/oldest key is demoted exactly
+        // as pure LRU would pick it — importance is stamped but inert.
+        assert_eq!(
+            c.tier_of(&1),
+            Some(Tier::Warm),
+            "weight 0.0 ⇒ importance stamp has no effect on ordering"
+        );
+    }
+
+    /// CONCEPT:EG-KG.memory.graph-guided-paging — `apply_importance_scores` bulk-loads a
+    /// PageRank/centrality-shaped `Vec<(K, f64)>` in one call (the shape
+    /// `eg_compute::algorithms::pagerank` / the `graph_importance` adapter returns).
+    #[test]
+    fn graph_guided_paging_bulk_apply_importance_scores() {
+        let mut c: TieredCache<u64, Block> = TieredCache::new(1_000, 1_000, 1_000);
+        c.apply_importance_scores(vec![(1u64, 0.5), (2u64, 0.9)]);
+        assert_eq!(c.importance_of(&1), 0.5);
+        assert_eq!(c.importance_of(&2), 0.9);
+    }
+
+    /// CONCEPT:EG-KG.memory.graph-guided-paging — `evict` also drops the importance stamp (a key
+    /// leaving the cache forever should not silently linger in the importance map).
+    #[test]
+    fn graph_guided_paging_evict_clears_importance_stamp() {
+        let mut c: TieredCache<u64, Block> = TieredCache::new(1_000, 1_000, 1_000);
+        c.put(1, page(40, 1));
+        c.set_importance(&1, 5.0);
+        assert!(c.evict(&1));
+        assert_eq!(c.importance_of(&1), 0.0, "importance stamp cleared with the key");
     }
 
     /// CONCEPT:EG-KG.memory.byte-bounded-tiers — `evict` forcibly removes a block from all tiers (and unpins it).
