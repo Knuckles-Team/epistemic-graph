@@ -5136,7 +5136,7 @@ pub struct EvidenceCitationWire {
 /// in-tree codec exists to crop/slice pixels/audio/video samples out of it yet — see
 /// `CasEvidenceResolver`'s module docs for exactly which kinds get which treatment).
 #[cfg(feature = "epistemic")]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ResolvedArtifactWire {
     /// `"text"` or `"blob"`.
     pub kind: String,
