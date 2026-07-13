@@ -1165,8 +1165,12 @@ pub fn policy(m: &Method) -> MethodPolicy {
         // effect lands only in the ephemeral process-global TMS index `tms_hook.rs` owns,
         // same posture as the CDC hook itself) -- read-only profile, same as `EpistemicStatus`
         // above. `RegisterMaterialization` is idempotent: re-registering the same id replaces
-        // its dependency set with the SAME freshly-resolved provenance read.
-        Method::RegisterMaterialization { .. } | Method::MaterializationStatus { .. } => {
+        // its dependency set with the SAME freshly-resolved provenance read. `StaleMaterializations`
+        // (SURPASS gap-closure: "give staleness a consumer") is the bulk read counterpart of
+        // `MaterializationStatus` -- same profile, no args.
+        Method::RegisterMaterialization { .. }
+        | Method::MaterializationStatus { .. }
+        | Method::StaleMaterializations => {
             MethodPolicy {
                 mutates: false,
                 durability_domain: DurabilityDomain::None,
@@ -2076,6 +2080,7 @@ pub const ALL_METHODS: &[(&str, MethodPolicy, &str)] = &[
         ("WhatChanged", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "explain:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "L53 (EPI-P3-5) bitemporal diff; handler additionally gated `epistemic-tms`"),
         ("RegisterMaterialization", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "explain:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "Seam 3 (X-6 wire surface): registers a TruthMaintenance materialization off its own stored provenance; side effect lands only in the ephemeral tms_hook index, never the durable graph; handler additionally gated `epistemic-tms`"),
         ("MaterializationStatus", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "explain:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "Seam 3: read-only status lookup on the same tms_hook index; handler additionally gated `epistemic-tms`"),
+        ("StaleMaterializations", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "explain:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "SURPASS gap-closure (\"give staleness a consumer\"): bulk read of every currently-Stale materialization id on the same tms_hook index; handler additionally gated `epistemic-tms`"),
         ("ResolveConflict", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "explain:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "EPI-P3-7 (gap-fill) standalone Dung argumentation (grounded/preferred/stable) conflict resolution over a BeliefGraph snapshot; handler additionally gated `epistemic-tms`"),
         ("ExplainEvidence", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "explain:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "CONCEPT:EG-X1 multimodal-citation resolver; handler additionally gated `evidence-graph`"),
         ("CausalEstimate", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "explain:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "EPI-P3-3/P3-6 do-calculus intervention OR observational conditioning (selected by `mode`) over a request-carried SCM; handler additionally gated `epistemic-causal`"),
@@ -2262,7 +2267,9 @@ mod smoke_tests {
         // `Method::RegisterMaterialization` / `Method::MaterializationStatus`.
         // EPI-P3-6 (gap-fill): +1 (346 -> 347 base) for `Method::CausalCounterfactual`.
         // EPI-P3-7 (gap-fill): +1 (347 -> 348 base) for `Method::ResolveConflict`.
-        let expected = if cfg!(feature = "jobs") { 349 } else { 348 };
+        // SURPASS gap-closure ("give staleness a consumer"): +1 (348 -> 349 base) for
+        // `Method::StaleMaterializations`.
+        let expected = if cfg!(feature = "jobs") { 350 } else { 349 };
         assert_eq!(
             seen.len(),
             expected,

@@ -1963,6 +1963,15 @@ pub enum Method {
     MaterializationStatus {
         id: String,
     },
+    /// Seam 3 follow-up (SURPASS gap-closure: "give staleness a consumer") — the bulk
+    /// counterpart of [`Method::MaterializationStatus`]: every id CURRENTLY `Stale` on
+    /// the SAME process-global `TruthMaintenance` index, so a scheduler/recompute sweep/
+    /// operator can discover "what needs re-answering" without already knowing which
+    /// ids to poll one at a time. Read-only, no args (the index is process-global, not
+    /// per-graph). Returns a `StaleMaterializationsResult` via `ResultPayload::raw`.
+    /// Same build-tier fallback convention as `MaterializationStatus`.
+    #[cfg(feature = "epistemic")]
+    StaleMaterializations,
     /// EPI-P3-7 (gap-fill) — standalone paraconsistent conflict resolution: run Dung
     /// abstract-argumentation semantics (`eg_epistemic::tms`, feature `epistemic-tms`)
     /// over a `BeliefGraph` built from the caller's `GraphView`, and report — for each
@@ -4824,6 +4833,26 @@ pub struct ExplainProvenanceRowWire {
     /// `ExplainProvenanceResult::resolved`), and also empty (not fabricated) for a
     /// row whose kind/shape isn't a known modality.
     pub evidence_spans: Vec<EvidenceSpanWire>,
+    /// SURPASS gap-closure ("wire `proof_ids`/`contradiction_ids` from the Arrow
+    /// `KnowledgeBatch` into `EpistemicRow`") — straight field copy of
+    /// `KnowledgeRow::contradiction_ids` (L22/CONCEPT:EG-P3-1): ids this row
+    /// CONTRADICTS/ATTACKS or is contradicted/attacked BY, SYMMETRIC. These are the
+    /// SAME two columns `eg_plan::KnowledgeBatch` already carries on its Arrow-columnar
+    /// surface (`crates/eg-plan/src/knowledge_batch.rs`) — this row-shaped wire path
+    /// closes the gap without requiring the heavier Arrow-IPC transport: a caller
+    /// (e.g. agent-utilities' `EpistemicRow`) gets the SAME two columns off the
+    /// `ExplainProvenanceByIds` RPC it already calls. Always empty when `epistemic` is
+    /// off, and also empty (not fabricated) for a row with no classified
+    /// contradiction/attack edge at all.
+    #[serde(default)]
+    pub contradiction_ids: Vec<String>,
+    /// SURPASS gap-closure (see `contradiction_ids` above) — straight field copy of
+    /// `KnowledgeRow::proof_ids`: the transitive justification/premise chain
+    /// underneath this row's belief, deduped, excluding the row's own id. Always
+    /// empty when `epistemic` is off, and also empty for a row with no evidence
+    /// neighbourhood at all.
+    #[serde(default)]
+    pub proof_ids: Vec<String>,
 }
 
 /// Materialized result of a `Method::ExplainProvenance` run. Returned via `ResultPayload::raw`.
@@ -5031,6 +5060,17 @@ pub struct MaterializationStatusResult {
     pub status: Option<String>,
 }
 
+/// Materialized result of a `Method::StaleMaterializations` run (Seam 3 follow-up).
+/// `ids` is every materialization id currently `Stale` on the process-global
+/// `TruthMaintenance` index, sorted (the index keys it in a `BTreeSet`). Empty when
+/// nothing is stale (a legitimate answer, not an error) or the build lacks
+/// `epistemic-tms`. Returned via `ResultPayload::raw`.
+#[cfg(feature = "epistemic")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StaleMaterializationsResult {
+    pub ids: Vec<String>,
+}
+
 /// Materialized result of a `Method::ResolveConflict` run (EPI-P3-7). `semantics`
 /// echoes the request. Every id in the request's `node_ids` appears in EXACTLY ONE
 /// of `surviving`/`defeated`/`undecided`:
@@ -5077,6 +5117,37 @@ pub struct EvidenceCitationWire {
     pub locus: Option<EvidenceSpanWire>,
     pub occurrence_id: Option<String>,
     pub blob_ref: Option<String>,
+    /// SURPASS gap-closure ("unify the two evidence resolvers"): the REAL content
+    /// this citation's `locus` resolves to, via `eg_alignment::EvidenceResolver`
+    /// (`src/server/blob/cas_resolver.rs`'s `CasEvidenceResolver`, the SAME
+    /// engine-backed resolver that previously had zero served-RPC call sites — only
+    /// its own unit tests exercised it). `None` when the build lacks the `alignment`
+    /// feature, no blob store is configured, the citation has no `locus`, or the
+    /// resolver had nothing for it (e.g. a dangling `blob_ref`) — degrades to the
+    /// pre-existing locus-only behavior, never a fabricated resolution.
+    #[serde(default)]
+    pub resolved: Option<ResolvedArtifactWire>,
+}
+
+/// Wire mirror of `eg_alignment::ResolvedArtifact` (SURPASS gap-closure: "unify the
+/// two evidence resolvers", "real crop/slice codecs"). `kind` is `"text"` (a real
+/// excerpt — currently `DocumentSpan` by character range, `CodeSymbol` by line
+/// range) or `"blob"` (every other locus kind: the real CAS digest is named, but no
+/// in-tree codec exists to crop/slice pixels/audio/video samples out of it yet — see
+/// `CasEvidenceResolver`'s module docs for exactly which kinds get which treatment).
+#[cfg(feature = "epistemic")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResolvedArtifactWire {
+    /// `"text"` or `"blob"`.
+    pub kind: String,
+    pub artifact_id: String,
+    /// The resolved excerpt, when `kind == "text"`.
+    pub excerpt: Option<String>,
+    /// The real CAS digest, when `kind == "blob"`.
+    pub blob_ref: Option<String>,
+    /// A human-readable note on what the `blob` reference represents (e.g. "no
+    /// in-tree codec to crop pixels with"), when `kind == "blob"`.
+    pub note: Option<String>,
 }
 
 /// Materialized result of a `Method::ExplainEvidence` run. Returned via
