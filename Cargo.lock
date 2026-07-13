@@ -2310,6 +2310,7 @@ dependencies = [
 name = "eg-kvcache"
 version = "0.1.0"
 dependencies = [
+ "eg-compute",
  "eg-modality",
  "lz4_flex 0.13.1",
  "redb",
