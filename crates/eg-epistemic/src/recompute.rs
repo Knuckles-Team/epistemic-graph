@@ -167,8 +167,13 @@ pub struct Materialization {
 /// The recompute / truth-maintenance engine: a registry of [`Materialization`]s plus
 /// the reverse (`input id -> depending materialization ids`) index that makes
 /// [`TruthMaintenance::dependents_of`] and [`TruthMaintenance::on_change`] cheap —
-/// no full-registry scan per change event.
-#[derive(Default, Debug, Clone)]
+/// no full-registry scan per change event. `Serialize`/`Deserialize` back
+/// `src/server/tms_hook.rs`'s best-effort disk snapshot (CONCEPT:EG-KG.epistemic.truth-maintenance
+/// persistence — see that module's `persist`/`load_persisted`): the whole index round-trips
+/// through msgpack byte-for-byte (both maps are `BTreeMap`s of plain-data values), so a
+/// process restart with a configured persist dir resumes with the SAME tracked
+/// materializations + their `Stale`/`Fresh`/`Retracted` status instead of an empty index.
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct TruthMaintenance {
     materializations: BTreeMap<String, Materialization>,
     /// input id -> materialization ids naming it in `depends_on` (direct edges
@@ -432,11 +437,40 @@ impl TruthMaintenance {
 /// does not care whether they resolve to another tracked `Materialization`,
 /// [`TruthMaintenance::dependents_of`] only needs the id to key the reverse index).
 pub fn register_from_provenance(tm: &mut TruthMaintenance, view: &GraphView, derived_id: &str) {
+    let node_props = view.node_properties.get(derived_id).map(|b| b.as_slice());
+    let outgoing = view
+        .edge_properties
+        .iter()
+        .filter(|((source, _), _)| source == derived_id)
+        .flat_map(|((_, target), blobs)| blobs.iter().map(move |b| (target.clone(), b.as_slice())));
+    let (depends_on, generating_activity) = resolve_provenance(node_props, outgoing);
+    tm.register(derived_id, depends_on, generating_activity);
+}
+
+/// Pure, storage-agnostic provenance resolution shared by [`register_from_provenance`]
+/// (whole-`GraphView`-backed, used by the explicit `Method::RegisterMaterialization`
+/// RPC and the follow-up-work call sites that already hold a snapshot) and the live
+/// single-id fast path `src/server/tms_hook.rs::maybe_register_from_write` uses to
+/// auto-register a materialization straight off a JUST-COMMITTED write — that path
+/// reads ONE node's properties plus its own outgoing edges directly off the live
+/// `GraphCore` (`get_node_properties`/`get_successors`/`get_edge_properties`, all
+/// O(out-degree)) rather than paying for a whole-graph `analysis_snapshot` clone on
+/// every single write. Reads the SAME two provenance channels
+/// [`register_from_provenance`]'s doc comment describes: the node's own
+/// `invalidation_deps` property, and any outgoing `:DerivedFrom`/`:GeneratedBy` edge
+/// (`relationship_type`, case-insensitive). `outgoing_edges` is `(target_id, edge
+/// properties blob)` pairs — every outgoing edge off the id being resolved, not just
+/// the recognized ones (unrecognized relationship types are silently skipped, same as
+/// the whole-view path always did).
+pub fn resolve_provenance<'a>(
+    node_props: Option<&'a [u8]>,
+    outgoing_edges: impl IntoIterator<Item = (String, &'a [u8])>,
+) -> (BTreeSet<String>, Option<String>) {
     let mut depends_on: BTreeSet<String> = BTreeSet::new();
     let mut generating_activity: Option<String> = None;
 
     // Channel 1: the node's own `invalidation_deps` property (EG-P3-1).
-    if let Some(blob) = view.node_properties.get(derived_id) {
+    if let Some(blob) = node_props {
         if let Ok(v) = rmp_serde::from_slice::<serde_json::Value>(blob) {
             if let Some(arr) = v.get("invalidation_deps").and_then(|x| x.as_array()) {
                 for item in arr {
@@ -449,37 +483,32 @@ pub fn register_from_provenance(tm: &mut TruthMaintenance, view: &GraphView, der
     }
 
     // Channel 2: outgoing `:DerivedFrom` / `:GeneratedBy` edges.
-    for ((source, target), blobs) in &view.edge_properties {
-        if source != derived_id {
+    for (target, blob) in outgoing_edges {
+        let Some(rel) = rmp_serde::from_slice::<serde_json::Value>(blob)
+            .ok()
+            .and_then(|v| {
+                v.get("relationship_type")
+                    .and_then(|r| r.as_str())
+                    .map(str::to_ascii_uppercase)
+            })
+        else {
             continue;
-        }
-        for blob in blobs {
-            let Some(rel) = rmp_serde::from_slice::<serde_json::Value>(blob)
-                .ok()
-                .and_then(|v| {
-                    v.get("relationship_type")
-                        .and_then(|r| r.as_str())
-                        .map(str::to_ascii_uppercase)
-                })
-            else {
-                continue;
-            };
-            match rel.as_str() {
-                "DERIVED_FROM" => {
-                    depends_on.insert(target.clone());
-                }
-                "GENERATED_BY" => {
-                    depends_on.insert(target.clone());
-                    if generating_activity.is_none() {
-                        generating_activity = Some(target.clone());
-                    }
-                }
-                _ => {}
+        };
+        match rel.as_str() {
+            "DERIVED_FROM" => {
+                depends_on.insert(target);
             }
+            "GENERATED_BY" => {
+                depends_on.insert(target.clone());
+                if generating_activity.is_none() {
+                    generating_activity = Some(target);
+                }
+            }
+            _ => {}
         }
     }
 
-    tm.register(derived_id, depends_on, generating_activity);
+    (depends_on, generating_activity)
 }
 
 #[cfg(test)]
