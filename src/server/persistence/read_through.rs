@@ -110,4 +110,33 @@ impl eg_core::registry::GraphMaterializer for BackendGraphMaterializer {
             }
         }
     }
+
+    /// Bounded-page override (CONCEPT:EG-KG.sharding.paged-lazy-open, L38 "paged adjacency") — routes to
+    /// [`PersistenceBackend::read_graph_material_page_blocking`] instead of
+    /// inheriting the trait's own default (which would call [`materialize`](Self::materialize)
+    /// above and slice in memory). Only the redb backend gives this a genuinely
+    /// bounded SOURCE fetch today; any other backend still gets a correct — just
+    /// not SOURCE-bounded — page via that method's own default fallback.
+    fn materialize_page(
+        &self,
+        graph_name: &str,
+        cursor: Option<eg_core::registry::MaterializeCursor>,
+        page_size: usize,
+    ) -> Option<eg_core::registry::MaterialPage> {
+        let fname = sanitize(graph_name);
+        match self
+            .backend
+            .read_graph_material_page_blocking(&fname, cursor, page_size)
+        {
+            Ok(page) => page,
+            Err(e) => {
+                tracing::warn!(
+                    "paged lazy-open materialize_page failed for graph '{}': {}",
+                    graph_name,
+                    e
+                );
+                None
+            }
+        }
+    }
 }
