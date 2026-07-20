@@ -2,7 +2,7 @@
 //! query surface. `eg-epistemic` already answers "how confident should we be in `id`"
 //! ([`crate::propagate_confidence`]) and "what is the proof" ([`crate::explain_belief`]);
 //! EPI-P3-2 ([`crate::recompute`]) added the live dependency-driven recompute/truth-
-//! maintenance half. This module is the missing QUERYABLE layer Codex's Phase-3
+//! maintenance half. This module is the missing QUERYABLE layer Phase-3
 //! acceptance criterion names verbatim: an agent must be able to answer, via ONE typed
 //! query, "what do we believe, why, on exactly which evidence, under whose authority, at
 //! what time, with what uncertainty, and WHAT WOULD INVALIDATE IT" — [`epistemic_status`]

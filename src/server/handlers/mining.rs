@@ -2800,7 +2800,7 @@ fn subgraph_node_id(pattern: &subgraph::Pattern) -> String {
     format!("subgraph:{}", hex::encode(&hasher.finalize()[..12]))
 }
 
-// ═══════════════════ Residual insight/mining families (Codex Gap-5) ═══════════════════
+// ═══════════════════ Residual insight/mining families (Gap-5) ═══════════════════
 //
 // 8 more families rounding out the mining surface: entity resolution + record
 // linkage, causal impact, process mining, root-cause propagation, seeded risk

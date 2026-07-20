@@ -42,8 +42,8 @@
 //!   `registry.rs` module docs for the `linkme`/`inventory`-vs-explicit-call design
 //!   decision.
 //! * [`TckReport`]/[`TckPoint`]/[`TckStatus`] + [`tck_report`]/[`render_fleet_table`]
-//!   (module `tck`) — the first-class 12-point Test Compatibility Kit (EG-P1-1, Codex
-//!   P1): a machine-readable, per-point `Pass`/`NotApplicable`/`NotImplemented`
+//!   (module `tck`) — the first-class 12-point Test Compatibility Kit (EG-P1-1):
+//!   a machine-readable, per-point `Pass`/`NotApplicable`/`NotImplemented`
 //!   capability report for any `ConformanceTestable` modality. The TCK is COMPLETE —
 //!   every one of the 12 points maps to a real trait hook (no structural gaps), and
 //!   nothing is ever silently green. Production certification is stricter than

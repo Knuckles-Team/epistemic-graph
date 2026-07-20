@@ -199,7 +199,7 @@ pub fn protocol_policy_inventory() -> Vec<ProtocolPolicyInventoryEntry> {
 #[allow(clippy::match_like_matches_macro)]
 pub fn policy(m: &Method) -> MethodPolicy {
     let result = match m {
-        // AUTO-GENERATED reference: this match was authored by hand (Codex/Claude workstream
+        // AUTO-GENERATED reference: this match was authored by hand (internal workstream
         // EG-P0-1), grouping variants that share an identical MethodPolicy. Grouping is by
         // IDENTICAL policy value among declaration-order-adjacent variants only -- it is a
         // readability aid, not a semantic claim that ungrouped variants elsewhere differ.

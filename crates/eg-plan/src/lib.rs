@@ -97,7 +97,7 @@ pub mod exec;
 /// `GraphView::node_row_object`'s decode.
 #[cfg(feature = "query")]
 pub mod knowledge;
-/// The Arrow-columnar `KnowledgeBatch` (CONCEPT:EG-P1-2, Codex P1 feedback) — a
+/// The Arrow-columnar `KnowledgeBatch` (CONCEPT:EG-P1-2, P1 roadmap feedback) — a
 /// RecordBatch-backed columnar projection of `KnowledgeSet`: entity/artifact id,
 /// N named score columns, calibrated confidence, typed evidence-ref columns,
 /// bitemporal valid/tx-time, provenance/policy-label list columns, lazy

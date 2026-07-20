@@ -283,7 +283,7 @@ Unreleased changes above and are not supported configuration paths.
 
 ## [2.19.0] - 2026-07-11 — Trustworthy Core (Phase 0)
 
-Assimilates the Codex 5.6 audit's P0 findings: acknowledged-write durability, one commit path,
+Assimilates the P0 audit findings: acknowledged-write durability, one commit path,
 canonical time-series visibility, an enterprise request envelope, default-deny row security,
 exhaustive audit, and ledger-driven admin scoping. Staged locally (not yet pushed).
 

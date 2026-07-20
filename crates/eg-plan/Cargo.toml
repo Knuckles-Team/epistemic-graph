@@ -191,7 +191,7 @@ nl-query = [
 # fan-out) and `EPISTEMIC_GRAPH_EXEC_SPILL_MB` (per-intermediate spill budget). NEVER folded
 # into `pi`.
 par-runtime = ["query", "dep:rayon"]
-# Arrow-columnar `KnowledgeBatch` (CONCEPT:EG-P1-2, Codex P1 feedback): a
+# Arrow-columnar `KnowledgeBatch` (CONCEPT:EG-P1-2, P1 roadmap feedback): a
 # RecordBatch-backed columnar projection of `KnowledgeSet` — entity/artifact id,
 # N named `Float32` score columns, calibrated confidence, typed evidence-ref
 # columns (an `evidence_kind` tag + a real Arrow `List<Utf8>` of per-locus JSON,
