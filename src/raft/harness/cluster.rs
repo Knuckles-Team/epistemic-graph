@@ -19,12 +19,12 @@ use openraft::BasicNode;
 use tokio::sync::RwLock;
 
 use crate::channels::ChannelManager;
+use crate::durability::DurabilityPolicy;
 use crate::isolation::IsolationLayer;
 use crate::registry::GraphRegistry;
 use crate::server::persistence::redb_backend::RedbBackend;
 use crate::server::persistence::PersistenceBackend;
 use crate::server::ServerState;
-use crate::wal_service::FsyncPolicy;
 
 use super::super::config::RaftClusterConfig;
 use super::super::node::{self, StartedNode};
@@ -63,7 +63,7 @@ pub struct Cluster {
 /// make the harness mis-report a durable-but-not-yet-replayed write as "lost".
 async fn make_state(dir: &str) -> Result<Arc<RwLock<ServerState>>, String> {
     let backend: Arc<dyn PersistenceBackend> = Arc::new(
-        RedbBackend::open(dir.to_string(), FsyncPolicy::Each, 4096)
+        RedbBackend::open(dir.to_string(), DurabilityPolicy::Each, 4096)
             .map_err(|e| format!("open redb {dir}: {e}"))?,
     );
     let state = Arc::new(RwLock::new(ServerState {
@@ -77,12 +77,11 @@ async fn make_state(dir: &str) -> Result<Arc<RwLock<ServerState>>, String> {
         auth_secret: "harness".to_string(),
         persist_dir: Some(dir.to_string()),
         persistence: Some(backend.clone()),
-        redb_authoritative: true,
         max_in_flight: Arc::new(tokio::sync::Semaphore::new(256)),
         read_admission: Arc::new(tokio::sync::Semaphore::new(256)),
         per_graph_inflight: Arc::new(dashmap::DashMap::new()),
         per_graph_inflight_limit: 64,
-        write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::from_env()),
+        write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
         open_txns: Arc::new(dashmap::DashMap::new()),
         txn_id_gen: Arc::new(crate::server::txn::TxnIdGen::default()),
         txn_ttl_secs: 300,
@@ -97,8 +96,6 @@ async fn make_state(dir: &str) -> Result<Arc<RwLock<ServerState>>, String> {
         multi_raft: None,
         #[cfg(feature = "tsdb")]
         tsdb_store: None,
-        #[cfg(feature = "rdf-redb")]
-        rdf_quads: None,
         #[cfg(feature = "streaming")]
         cdc: Some(std::sync::Arc::new(crate::server::cdc::CdcHub::new())),
         #[cfg(feature = "wasm-udf")]
@@ -111,10 +108,6 @@ async fn make_state(dir: &str) -> Result<Arc<RwLock<ServerState>>, String> {
         foreign_sources: std::sync::Arc::new(dashmap::DashMap::new()),
         #[cfg(feature = "kv")]
         kv: None,
-        #[cfg(feature = "dataset-handle")]
-        dataset_handles: std::sync::Arc::new(
-            crate::server::dataset_handle::DatasetHandleRegistry::new(),
-        ),
         #[cfg(feature = "lake")]
         lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
     }));
@@ -145,6 +138,9 @@ fn cluster_cfg(node_id: NodeId, ports: &[u16]) -> RaftClusterConfig {
         bind_addr,
         is_bootstrap: peers.keys().next() == Some(&node_id),
         groups: 1,
+        transport_secret: Some(
+            super::super::config::RaftTransportSecret::from_material(&[0x5a; 32]).unwrap(),
+        ),
     }
 }
 
@@ -289,11 +285,23 @@ impl Cluster {
             graph_fname: crate::persist::sanitize(GRAPH),
             graph_name: GRAPH.to_string(),
             graph_type: GraphType::Commons,
-            method: Method::AddNode {
-                node_id: format!("n{seq}"),
-                properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"seq": seq}))
-                    .unwrap(),
-            },
+            committed_at_ms: 0,
+            mutation: super::super::RaftMutationContext::internal(
+                "raft-cluster-harness",
+                GRAPH,
+                &format!("write-{seq}"),
+                seq,
+                0,
+            ),
+            command: super::super::ReplicatedMutation::graph(
+                Method::AddNode {
+                    node_id: format!("n{seq}"),
+                    properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"seq": seq}))
+                        .unwrap(),
+                },
+                "harness",
+            )
+            .unwrap(),
         }
     }
 

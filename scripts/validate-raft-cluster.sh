@@ -3,8 +3,8 @@
 # validate-raft-cluster.sh — prove the Raft cluster MECHANISM (CONCEPT:KG-2.273)
 # ============================================================================
 # Runs the openraft-0.10 Raft cluster proofs on FRESH, THROWAWAY persist dirs and
-# loopback TCP listeners — it NEVER touches the live single-node engine on R510 or its
-# authoritative data. The proofs are in-process multi-node clusters (each node a real
+# loopback TCP listeners — it never touches any configured deployment or authoritative
+# data. The proofs are in-process multi-node clusters (each node a real
 # `MultiRaft` with its own redb under a fresh temp dir, talking real TCP on 127.0.0.1),
 # which is exactly the cluster mechanism the production deploy uses — just co-located.
 #
@@ -44,7 +44,7 @@ TESTS=(
 
 echo "== Raft cluster validation (openraft 0.10, CONCEPT:KG-2.273) =="
 echo "features: ${FEATURES}"
-echo "fresh temp redb dirs + loopback TCP — the live R510 engine/data is NOT touched."
+echo "fresh temp redb dirs + loopback TCP — configured deployment data is not touched."
 echo
 
 # Build the test binary once (so timing the proofs is not dominated by compile).

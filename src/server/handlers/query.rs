@@ -1,4 +1,4 @@
-//! Read-only query handler. Owns BOTH query methods (one module per domain, per
+//! Governed query handler. Owns BOTH query methods (one module per domain, per
 //! the dispatch conventions — `Sql` + `CypherQuery` are the one `// ── Query ──`
 //! protocol section):
 //!   * `Method::Sql` (CONCEPT:EG-KG.query.read-only-sql-query, feature `query`) — `SELECT … FROM nodes …`
@@ -7,8 +7,10 @@
 //!     …` over ONE graph, DEP-FREE (eg-query::exec_cypher; label index / VF2 / BFS,
 //!     no DataFusion). This is the lean-Pi query path.
 //!
-//! Both are read-only — they cannot mutate — so the centralized write side-effects
-//! (dirty/WAL/gauge) in the dispatch shell never fire for them.
+//! SQL and Cypher reads use detached, policy-filtered snapshots. Query-language
+//! writes are staged and committed by the centralized MutationBatch boundary.
+//! Cypher's explicit wire mode is verified against the native parser before
+//! admission, authorization, or persistence selection.
 //!
 //! Off-lock execution: take the owned `analysis_snapshot()` (a GraphView that
 //! shares property bytes by Arc) under a brief read lock, then run on the blocking
@@ -31,8 +33,29 @@ use crate::graph::GraphCore;
 use crate::protocol::Method;
 #[cfg(any(feature = "query", feature = "cypher", feature = "graphql"))]
 use crate::protocol::{Response, ResultPayload};
+use crate::server::access::GraphReadAuthority;
 #[cfg(feature = "result-cache")]
 use eg_core::result_cache::ResultCache;
+
+/// Verify that Cypher's explicit wire mode agrees with the native parser.
+///
+/// The mode is an authorization and durability claim, not a parser hint. Callers
+/// must reject a mismatch before choosing a read lane or MutationBatch path.
+#[cfg(feature = "cypher")]
+pub(crate) fn validate_cypher_mode(method: &Method) -> Result<(), String> {
+    let Method::CypherQuery { query, mode } = method else {
+        return Ok(());
+    };
+    let parsed_mode = match eg_query::classify_cypher(query) {
+        Ok(eg_query::CypherStatementKind::Read) => crate::protocol::CypherMode::Read,
+        Ok(eg_query::CypherStatementKind::Write) => crate::protocol::CypherMode::Write,
+        Err(message) => return Err(format!("Cypher error: {message}")),
+    };
+    if &parsed_mode != mode {
+        return Err("Cypher error: declared mode does not match the parsed statement".to_string());
+    }
+    Ok(())
+}
 
 /// Process-wide GraphQL cross-modal transaction registry (CONCEPT:EG-KG.query.facade-reconcile-hook). Holds staged
 /// multi-request cross-modal txns (`beginTransaction` … `stage*` … `commitTransaction`)
@@ -46,6 +69,41 @@ fn graphql_crossmodal_registry() -> &'static eg_graphql::CrossModalTxnRegistry {
     REG.get_or_init(eg_graphql::CrossModalTxnRegistry::new)
 }
 
+#[cfg(all(feature = "query", feature = "tsdb"))]
+pub(crate) fn plan_needs_tsdb(ops: &[eg_plan::Op]) -> bool {
+    ops.iter().any(|op| match op {
+        eg_plan::Op::TsScan { .. } => true,
+        #[cfg(feature = "text")]
+        eg_plan::Op::FuseRrf { branches, .. } => {
+            branches.iter().any(|branch| plan_needs_tsdb(branch))
+        }
+        _ => false,
+    })
+}
+
+/// Resolve an actor-owned storage namespace before a served plan can touch the
+/// committed TSDB. Graph ACL/RLS actor identity alone is not a tenant carrier.
+#[cfg(all(feature = "query", feature = "tsdb"))]
+fn served_tsdb_scope(
+    plan: &eg_plan::Plan,
+    graph: &str,
+    read_authority: Option<&GraphReadAuthority>,
+) -> Result<Option<(String, String)>, String> {
+    if !plan_needs_tsdb(&plan.ops) {
+        return Ok(None);
+    }
+    let carrier = read_authority
+        .and_then(GraphReadAuthority::carrier)
+        .ok_or_else(|| {
+            crate::metrics::access_denied();
+            "ACCESS_DENIED: TsScan requires a verified tenant+actor carrier".to_string()
+        })?;
+    Ok(Some((
+        carrier.tenant_scope().to_string(),
+        carrier.namespace("timeseries-graph", graph),
+    )))
+}
+
 /// Handle `Method::Sql` / `Method::CypherQuery`. `Err(method)` hands a non-query
 /// method (or a query method whose feature is off) back to the dispatcher
 /// (routing fall-through). (CONCEPT:EG-KG.query.dispatch-convention — server dispatch convention)
@@ -55,14 +113,17 @@ pub(crate) async fn try_handle(
     graph_name: &str,
     core: Arc<GraphCore>,
     method: Method,
-    #[cfg(feature = "security")] caller: Option<&str>,
+    read_authority: Option<&GraphReadAuthority>,
+    caller: &str,
     #[cfg(feature = "security")] rls: &Arc<crate::isolation::IsolationLayer>,
 ) -> Result<Response, Method> {
+    #[cfg(not(feature = "security"))]
+    let _ = caller;
     // `state` is consumed only by the `query`-gated in-txn cross-modal RYOW arms
     // (CONCEPT:EG-KG.query.txn-cross-modal-ryow — TxnUnifiedQuery{,Text}); keep it referenced in a
     // cypher/graphql-only build (no `query`) so no dead-param warning fires.
     #[cfg(not(feature = "query"))]
-    let _ = state;
+    let _ = (state, read_authority);
     // `graph_name` is consumed only by the `graphql`-gated cross-modal durable commit
     // (CONCEPT:EG-KG.query.facade-reconcile-hook); keep it referenced in a query/cypher-only build so no dead-param
     // warning fires.
@@ -70,7 +131,14 @@ pub(crate) async fn try_handle(
     let _ = graph_name;
     match method {
         #[cfg(feature = "query")]
-        Method::Sql { query, .. } => {
+        Method::Sql {
+            query,
+            params_msgpack,
+        } => {
+            let sql_method = Method::Sql {
+                query: query.clone(),
+                params_msgpack,
+            };
             // CONCEPT:EG-KG.query.mirrors-pgwire — `Method::Sql` now routes BOTH reads AND writes (was
             // SELECT-only). Classify the statement with the SAME `eg_query::classify`
             // the pgwire shim uses, then:
@@ -82,18 +150,44 @@ pub(crate) async fn try_handle(
             //     DataFusion read path, run tables-aware (`exec_sql_typed_with_tables`)
             //     so a `SELECT` sees BOTH the graph AND user tables in one plan.
             //
-            // The shared process-wide table store is resolved once here (cheap clone of
-            // the singleton). The read path is NOT version-keyed cached (a user-table
-            // write does not bump the graph `version()`, so caching it would risk
-            // staleness); the graph-only Cypher/SPARQL/GraphQL reads keep their caches.
-            let store = match crate::server::sql_tables::user_table_store() {
+            // SQL catalogs are owned by the current verified tenant+principal. Reads
+            // and writes resolve the same owner store; there is no shared catalog or
+            // unsigned lookup path.
+            let Some(read_authority) = read_authority else {
+                crate::metrics::access_denied();
+                return Ok(Response::err(
+                    req_id,
+                    "ACCESS_DENIED: current signed tenant authority is required".to_string(),
+                ));
+            };
+            let Some(authority) = read_authority.carrier() else {
+                crate::metrics::access_denied();
+                return Ok(Response::err(
+                    req_id,
+                    "ACCESS_DENIED: current signed tenant authority is required".to_string(),
+                ));
+            };
+            let persist_dir = state.read().await.persist_dir.clone();
+            let store = match crate::server::sql_tables::user_table_store(
+                authority,
+                persist_dir.as_deref().map(std::path::Path::new),
+            ) {
                 Ok(s) => s,
                 Err(e) => return Ok(Response::err(req_id, format!("SQL error: {e}"))),
             };
             match eg_query::classify(&query) {
-                Ok(kind) if !matches!(kind, eg_query::StatementKind::Read) => {
-                    Ok(exec_sql_write(req_id, &core, &store, kind).await)
-                }
+                Ok(kind) if !matches!(kind, eg_query::StatementKind::Read) => Ok(exec_sql_write(
+                    req_id,
+                    graph_name,
+                    authority.tenant_scope(),
+                    Some(authority.actor_scope()),
+                    read_authority,
+                    sql_method,
+                    &core,
+                    &store,
+                    kind,
+                )
+                .await),
                 _ => {
                     // Read (or an unparseable statement — exec surfaces the precise
                     // parse error). RLS-filter the off-lock snapshot to the caller's
@@ -102,7 +196,7 @@ pub(crate) async fn try_handle(
                     #[cfg_attr(not(feature = "security"), allow(unused_mut))]
                     let mut snap = core.analysis_snapshot();
                     #[cfg(feature = "security")]
-                    rls.filter_view(caller.unwrap_or(""), &mut snap);
+                    rls.filter_view(caller, &mut snap);
                     // L36 (CONCEPT:EG-KG.query.streaming-spillable-collect) — a REAL, request-scoped
                     // `CancellationToken`: registered under THIS request's `req_id` for the
                     // duration of the call so an explicit client `Method::CancelRequest` or a
@@ -150,23 +244,29 @@ pub(crate) async fn try_handle(
             }
         }
         #[cfg(feature = "query")]
-        Method::UnifiedQuery {
-            plan,
-            reorder_filter_selectivity,
-        } => {
+        Method::UnifiedQuery { plan } => {
+            #[cfg(feature = "tsdb")]
+            let tsdb_scope = match served_tsdb_scope(&plan, graph_name, read_authority) {
+                Ok(scope) => scope,
+                Err(denied) => return Ok(Response::err(req_id, denied)),
+            };
             // ONE cross-modal plan (CONCEPT:AU-KG.compute.vector/209): filter (DataFusion) →
             // traverse (BFS) → rank (kNN) over ONE consistent off-lock snapshot. Take
             // BOTH the GraphView (topology + property blobs) and a SemanticStore clone
             // under a brief read each — same point-in-time, so the cross-modal read is
             // snapshot-isolated — then run the whole pipeline on the blocking pool.
             // Version-keyed, RLS-aware result cache (CONCEPT:EG-KG.coordination.distributed-cache-coherence × KG-2.231): key
-            // on the plan bytes + the reorder flag + the caller's RLS context. The plan
-            // + semantic store both reflect `version`, so a write retires the entry; the
+            // on the plan bytes + the caller's RLS context. The plan + semantic store
+            // both reflect `version`, so a write retires the entry; the
             // RLS-context salt keeps agent A's fused result out of agent B's lookups.
             #[cfg(feature = "result-cache")]
             let (snap, version, hash) = {
                 let mut payload = rmp_serde::to_vec_named(&plan).unwrap_or_default();
-                payload.extend(reorder_filter_selectivity.unwrap_or(f64::NAN).to_le_bytes());
+                #[cfg(feature = "tsdb")]
+                if let Some((tenant, graph)) = tsdb_scope.as_ref() {
+                    payload.extend_from_slice(tenant.as_bytes());
+                    payload.extend_from_slice(graph.as_bytes());
+                }
                 let hash = rls_cache_hash(
                     "unified",
                     &payload,
@@ -180,7 +280,7 @@ pub(crate) async fn try_handle(
                     return Ok(Response::ok(req_id, ResultPayload::Raw(bytes)));
                 }
                 #[cfg(feature = "security")]
-                rls.filter_view(caller.unwrap_or(""), &mut snap);
+                rls.filter_view(caller, &mut snap);
                 (snap, version, hash)
             };
             #[cfg(not(feature = "result-cache"))]
@@ -202,7 +302,16 @@ pub(crate) async fn try_handle(
             let core_for_ctx = core.clone();
             // RECONCILE (CONCEPT:EG-KG.query.native-time-series): committed tsdb store for `Op::TsScan` fusion.
             #[cfg(feature = "tsdb")]
-            let tsdb = state.read().await.tsdb_store.clone();
+            let tsdb = if tsdb_scope.is_some() {
+                state.read().await.tsdb_store.clone()
+            } else {
+                None
+            };
+            #[cfg(feature = "tsdb")]
+            let (tsdb_tenant, tsdb_graph) = match tsdb_scope {
+                Some((tenant, graph)) => (Some(tenant), Some(graph)),
+                None => (None, None),
+            };
             let resp = match compute_off_lock(req_id, move || {
                 #[cfg(feature = "text")]
                 let served_text =
@@ -213,7 +322,6 @@ pub(crate) async fn try_handle(
                 let semantic_guard = core_for_ctx.semantic_store.read();
                 run_unified(
                     plan,
-                    reorder_filter_selectivity,
                     &snap,
                     &semantic_guard,
                     ServedIndexes {
@@ -226,6 +334,10 @@ pub(crate) async fn try_handle(
                     },
                     #[cfg(feature = "tsdb")]
                     tsdb.as_deref(),
+                    #[cfg(feature = "tsdb")]
+                    tsdb_tenant.as_deref(),
+                    #[cfg(feature = "tsdb")]
+                    tsdb_graph.as_deref(),
                     // Off-txn: no staged-series overlay (CONCEPT:EG-KG.query.txn-tsdb-read-your).
                     #[cfg(feature = "tsdb")]
                     None,
@@ -245,22 +357,32 @@ pub(crate) async fn try_handle(
             Ok(resp)
         }
         #[cfg(feature = "query")]
-        Method::UnifiedQueryText {
-            text,
-            reorder_filter_selectivity,
-        } => {
+        Method::UnifiedQueryText { text } => {
+            let plan = match eg_plan::uql::parse(&text) {
+                Ok(plan) => plan,
+                Err(e) => return Ok(Response::err(req_id, e.render(&text))),
+            };
+            #[cfg(feature = "tsdb")]
+            let tsdb_scope = match served_tsdb_scope(&plan, graph_name, read_authority) {
+                Ok(scope) => scope,
+                Err(denied) => return Ok(Response::err(req_id, denied)),
+            };
             // UQL (CONCEPT:AU-KG.query.top-nodes-by-degree): parse the TEXT query into the SAME `wire::Plan`
             // `UnifiedQuery` carries, then run the IDENTICAL `run_unified` executor —
             // a pure front-end, no new execution path. A parse error is a clear,
             // caret-annotated error Response (never a panic).
             // Version-keyed, RLS-aware result cache (CONCEPT:EG-KG.coordination.distributed-cache-coherence × KG-2.231): key
-            // on the TEXT + reorder flag + the caller's RLS context (the parse is
-            // deterministic, so caching pre-parse is sound and skips the parse on a hit
-            // too). The RLS-context salt keeps agent A's result out of agent B's lookups.
+            // on the text + the caller's RLS context (the parse is deterministic, so
+            // caching pre-parse is sound and skips the parse on a hit too). The
+            // RLS-context salt keeps agent A's result out of agent B's lookups.
             #[cfg(feature = "result-cache")]
             let (snap, version, hash) = {
                 let mut payload = text.clone().into_bytes();
-                payload.extend(reorder_filter_selectivity.unwrap_or(f64::NAN).to_le_bytes());
+                #[cfg(feature = "tsdb")]
+                if let Some((tenant, graph)) = tsdb_scope.as_ref() {
+                    payload.extend_from_slice(tenant.as_bytes());
+                    payload.extend_from_slice(graph.as_bytes());
+                }
                 let hash = rls_cache_hash(
                     "unified-text",
                     &payload,
@@ -274,12 +396,8 @@ pub(crate) async fn try_handle(
                     return Ok(Response::ok(req_id, ResultPayload::Raw(bytes)));
                 }
                 #[cfg(feature = "security")]
-                rls.filter_view(caller.unwrap_or(""), &mut snap);
+                rls.filter_view(caller, &mut snap);
                 (snap, version, hash)
-            };
-            let plan = match eg_plan::uql::parse(&text) {
-                Ok(plan) => plan,
-                Err(e) => return Ok(Response::err(req_id, e.render(&text))),
             };
             #[cfg(not(feature = "result-cache"))]
             let snap = rls_snapshot(
@@ -295,7 +413,16 @@ pub(crate) async fn try_handle(
             let core_for_ctx = core.clone();
             // RECONCILE (CONCEPT:EG-KG.query.native-time-series): committed tsdb store for `Op::TsScan` fusion.
             #[cfg(feature = "tsdb")]
-            let tsdb = state.read().await.tsdb_store.clone();
+            let tsdb = if tsdb_scope.is_some() {
+                state.read().await.tsdb_store.clone()
+            } else {
+                None
+            };
+            #[cfg(feature = "tsdb")]
+            let (tsdb_tenant, tsdb_graph) = match tsdb_scope {
+                Some((tenant, graph)) => (Some(tenant), Some(graph)),
+                None => (None, None),
+            };
             let resp = match compute_off_lock(req_id, move || {
                 #[cfg(feature = "text")]
                 let served_text =
@@ -306,7 +433,6 @@ pub(crate) async fn try_handle(
                 let semantic_guard = core_for_ctx.semantic_store.read();
                 run_unified(
                     plan,
-                    reorder_filter_selectivity,
                     &snap,
                     &semantic_guard,
                     ServedIndexes {
@@ -319,6 +445,10 @@ pub(crate) async fn try_handle(
                     },
                     #[cfg(feature = "tsdb")]
                     tsdb.as_deref(),
+                    #[cfg(feature = "tsdb")]
+                    tsdb_tenant.as_deref(),
+                    #[cfg(feature = "tsdb")]
+                    tsdb_graph.as_deref(),
                     // Off-txn: no staged-series overlay (CONCEPT:EG-KG.query.txn-tsdb-read-your).
                     #[cfg(feature = "tsdb")]
                     None,
@@ -384,7 +514,7 @@ pub(crate) async fn try_handle(
             let core_for_ctx = core.clone();
             let resp = match compute_off_lock(req_id, move || {
                 let semantic = core_for_ctx.semantic_store.read();
-                explain_provenance(plan, &snap, &semantic)
+                explain_provenance(req_id, plan, &snap, &semantic)
             })
             .await
             {
@@ -411,7 +541,7 @@ pub(crate) async fn try_handle(
             let core_for_ctx = core.clone();
             let resp = match compute_off_lock(req_id, move || {
                 let semantic = core_for_ctx.semantic_store.read();
-                explain_provenance_by_ids(ids, &snap, &semantic)
+                explain_provenance_by_ids(req_id, ids, &snap, &semantic)
             })
             .await
             {
@@ -469,7 +599,7 @@ pub(crate) async fn try_handle(
             disclosure_level,
         } => {
             let snap = core.analysis_snapshot();
-            let caller_id = caller.unwrap_or("").to_string();
+            let caller_id = caller.to_string();
             let rls = rls.clone();
             let resp = match disclosure_level {
                 None => {
@@ -559,39 +689,148 @@ pub(crate) async fn try_handle(
                 };
             Ok(resp)
         }
-        // Seam 3 (CONCEPT:EG-KG.epistemic.truth-maintenance, X-6 wire surface): register
-        // `derived_id` as a live TruthMaintenance materialization off its OWN stored
-        // provenance. Needs the graph snapshot (to read `invalidation_deps` +
-        // `:DerivedFrom`/`:GeneratedBy` edges) but not `compute_off_lock` — the read +
-        // registration is a cheap map/index walk, not an algorithm worth off-loading.
+        // Fenced recompute/writeback against the durable per-graph projection. The
+        // graph snapshot supplies current provenance; request data cannot choose the
+        // dependency set or generator persisted by the projection.
         #[cfg(feature = "epistemic-tms")]
-        Method::RegisterMaterialization { derived_id } => {
+        Method::RecomputeMaterialization {
+            derived_id,
+            expected_source_graph_version,
+        } => {
+            #[cfg(feature = "raft")]
+            if crate::server::dispatch::is_replicated_apply() {
+                let method = Method::RecomputeMaterialization {
+                    derived_id: derived_id.clone(),
+                    expected_source_graph_version,
+                };
+                let persistence = state.read().await.persistence.clone();
+                let Some(persistence) = persistence else {
+                    return Ok(Response::err(
+                        req_id,
+                        "reasoning recompute requires an authoritative MutationBatch backend",
+                    ));
+                };
+                let graph_fname = crate::persist::sanitize(graph_name);
+                let authoritative_graph_version =
+                    match crate::server::mutation_batch::authoritative_graph_version(
+                        &persistence,
+                        &graph_fname,
+                        &core,
+                    )
+                    .await
+                    {
+                        Ok(version) => version,
+                        Err(error) => return Ok(Response::err(req_id, error)),
+                    };
+                if authoritative_graph_version != expected_source_graph_version {
+                    return Ok(Response::err(
+                        req_id,
+                        "STALE_RECOMPUTE_FENCE: authoritative graph version changed",
+                    ));
+                }
+                let Some(target_graph_version) = expected_source_graph_version.checked_add(1)
+                else {
+                    return Ok(Response::err(
+                        req_id,
+                        "reasoning recompute graph version exhausted",
+                    ));
+                };
+                let result = crate::protocol::RecomputeMaterializationResult {
+                    id: eg_epistemic::projection_identity(&derived_id),
+                    depends_on: Vec::new(),
+                    generating_activity: None,
+                    status: "Queued".to_string(),
+                    source_graph_version: target_graph_version,
+                    fence_epoch: 0,
+                    projection_pending: true,
+                };
+                let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
+                let payload = ResultPayload::Raw(bytes.clone());
+                let batch_id = crate::server::mutation_batch::opaque_request_key(
+                    "reasoning-recompute",
+                    graph_name,
+                    req_id,
+                    &method,
+                );
+                if let Err(error) = crate::server::mutation_batch::commit_internal_graph_methods(
+                    Some(&persistence),
+                    &core,
+                    req_id,
+                    Some(caller),
+                    graph_name,
+                    &batch_id,
+                    vec![method],
+                    &payload,
+                )
+                .await
+                {
+                    return Ok(Response::err(req_id, error));
+                }
+                return Ok(Response::ok(req_id, ResultPayload::Raw(bytes)));
+            }
+            let authoritative_graph_version = core.version();
             let snap = core.analysis_snapshot();
-            let m = crate::server::tms_hook::register_materialization(&snap, &derived_id);
-            let result = crate::protocol::RegisterMaterializationResult {
-                id: m.id,
-                depends_on: m.depends_on.into_iter().collect(),
-                generating_activity: m.generating_activity,
+            let persist_dir = state.read().await.persist_dir.clone();
+            let (materialization, fence_epoch) =
+                match crate::server::reasoning_projection::recompute_materialization(
+                    persist_dir.as_deref(),
+                    graph_name,
+                    &snap,
+                    authoritative_graph_version,
+                    &derived_id,
+                    expected_source_graph_version,
+                ) {
+                    Ok(value) => value,
+                    Err(error) => return Ok(Response::err(req_id, error)),
+                };
+            let result = crate::protocol::RecomputeMaterializationResult {
+                id: materialization.materialization_ref,
+                depends_on: materialization.dependency_refs,
+                generating_activity: materialization.generator_ref,
+                status: format!("{:?}", materialization.status),
+                source_graph_version: materialization.source_graph_version,
+                fence_epoch,
+                projection_pending: false,
             };
             let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
             Ok(Response::ok(req_id, ResultPayload::Raw(bytes)))
         }
-        // Seam 3 — read-only status lookup on the SAME global index
-        // `RegisterMaterialization`/the `tms_hook` CDC hook feed.
+        // Read-only status lookup on the durable per-graph projection.
         #[cfg(feature = "epistemic-tms")]
         Method::MaterializationStatus { id } => {
-            let status = crate::server::tms_hook::status_of(&id).map(|s| format!("{s:?}"));
-            let result = crate::protocol::MaterializationStatusResult { status };
+            let persist_dir = state.read().await.persist_dir.clone();
+            let (status, source_graph_version) =
+                match crate::server::reasoning_projection::materialization_status(
+                    persist_dir.as_deref(),
+                    graph_name,
+                    &id,
+                ) {
+                    Ok(value) => value,
+                    Err(error) => return Ok(Response::err(req_id, error)),
+                };
+            let result = crate::protocol::MaterializationStatusResult {
+                status: status.map(|status| format!("{status:?}")),
+                source_graph_version,
+            };
             let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
             Ok(Response::ok(req_id, ResultPayload::Raw(bytes)))
         }
-        // Seam 3 follow-up (SURPASS gap-closure: "give staleness a consumer") — the
-        // bulk "what's stale" read on the SAME global index. Cheap (one BTreeMap
-        // filter over the in-memory index), no `compute_off_lock` needed.
+        // Bulk "what's stale" read on the same durable per-graph projection.
         #[cfg(feature = "epistemic-tms")]
         Method::StaleMaterializations => {
-            let ids = crate::server::tms_hook::stale_ids().into_iter().collect();
-            let result = crate::protocol::StaleMaterializationsResult { ids };
+            let persist_dir = state.read().await.persist_dir.clone();
+            let (ids, source_graph_version) =
+                match crate::server::reasoning_projection::stale_materializations(
+                    persist_dir.as_deref(),
+                    graph_name,
+                ) {
+                    Ok(value) => value,
+                    Err(error) => return Ok(Response::err(req_id, error)),
+                };
+            let result = crate::protocol::StaleMaterializationsResult {
+                ids,
+                source_graph_version,
+            };
             let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
             Ok(Response::ok(req_id, ResultPayload::Raw(bytes)))
         }
@@ -739,28 +978,19 @@ pub(crate) async fn try_handle(
         // on this path (staged writes don't bump `version()`), exactly like the
         // committed SQL read path. RLS applies to the committed base snapshot.
         #[cfg(feature = "query")]
-        Method::TxnUnifiedQuery {
-            txn_id,
-            plan,
-            reorder_filter_selectivity,
-        } => Ok(run_unified_overlaid(
+        Method::TxnUnifiedQuery { txn_id, plan } => Ok(run_unified_overlaid(
             state,
             req_id,
             &txn_id,
             plan,
-            reorder_filter_selectivity,
-            #[cfg(feature = "security")]
+            read_authority,
             caller,
             #[cfg(feature = "security")]
             rls,
         )
         .await),
         #[cfg(feature = "query")]
-        Method::TxnUnifiedQueryText {
-            txn_id,
-            text,
-            reorder_filter_selectivity,
-        } => {
+        Method::TxnUnifiedQueryText { txn_id, text } => {
             // UQL front-end: parse to the SAME `wire::Plan`, then run the IDENTICAL
             // overlaid in-txn executor. A parse error is a caret-annotated Response.
             let plan = match eg_plan::uql::parse(&text) {
@@ -772,8 +1002,7 @@ pub(crate) async fn try_handle(
                 req_id,
                 &txn_id,
                 plan,
-                reorder_filter_selectivity,
-                #[cfg(feature = "security")]
+                read_authority,
                 caller,
                 #[cfg(feature = "security")]
                 rls,
@@ -816,19 +1045,33 @@ pub(crate) async fn try_handle(
                     ))
                 }
             };
+            #[cfg(feature = "tsdb")]
+            let tsdb_scope = match served_tsdb_scope(&plan, graph_name, read_authority) {
+                Ok(scope) => scope,
+                Err(denied) => return Ok(Response::err(req_id, denied)),
+            };
             // RLS-filtered off-lock snapshot, exactly like the Sql/UnifiedQueryText reads.
             // NOT result-cached: an LLM plan is non-deterministic, so keying a cache on the
             // NL text would risk serving a stale/foreign result.
             #[cfg_attr(not(feature = "security"), allow(unused_mut))]
             let mut snap = core.analysis_snapshot();
             #[cfg(feature = "security")]
-            rls.filter_view(caller.unwrap_or(""), &mut snap);
+            rls.filter_view(caller, &mut snap);
             // See the `UnifiedQuery` arm: push vector + lexical legs into the live
             // persistent indexes via a guard taken INSIDE the off-lock closure.
             let core_for_ctx = core.clone();
             // RECONCILE (CONCEPT:EG-KG.query.native-time-series): committed tsdb store for `Op::TsScan` fusion.
             #[cfg(feature = "tsdb")]
-            let tsdb = state.read().await.tsdb_store.clone();
+            let tsdb = if tsdb_scope.is_some() {
+                state.read().await.tsdb_store.clone()
+            } else {
+                None
+            };
+            #[cfg(feature = "tsdb")]
+            let (tsdb_tenant, tsdb_graph) = match tsdb_scope {
+                Some((tenant, graph)) => (Some(tenant), Some(graph)),
+                None => (None, None),
+            };
             let resp = match compute_off_lock(req_id, move || {
                 #[cfg(feature = "text")]
                 let served_text =
@@ -839,7 +1082,6 @@ pub(crate) async fn try_handle(
                 let semantic_guard = core_for_ctx.semantic_store.read();
                 run_unified(
                     plan,
-                    None,
                     &snap,
                     &semantic_guard,
                     ServedIndexes {
@@ -852,6 +1094,10 @@ pub(crate) async fn try_handle(
                     },
                     #[cfg(feature = "tsdb")]
                     tsdb.as_deref(),
+                    #[cfg(feature = "tsdb")]
+                    tsdb_tenant.as_deref(),
+                    #[cfg(feature = "tsdb")]
+                    tsdb_graph.as_deref(),
                     // Off-txn: no staged-series overlay (CONCEPT:EG-KG.query.txn-tsdb-read-your).
                     #[cfg(feature = "tsdb")]
                     None,
@@ -876,6 +1122,16 @@ pub(crate) async fn try_handle(
             // lands). NOT cached (it is a write) and NOT RLS pre-filtered (writes are
             // graph-ACL-gated in `dispatch_graph_op` — this method classified Write).
             if super::super::access::graphql_is_mutation(&query) {
+                let carrier = match read_authority.and_then(GraphReadAuthority::carrier) {
+                    Some(carrier) => carrier,
+                    None => {
+                        crate::metrics::access_denied();
+                        return Ok(Response::err(
+                            req_id,
+                            "ACCESS_DENIED: GraphQL mutation requires verified tenant+actor authority",
+                        ));
+                    }
+                };
                 // Cross-modal transaction routing (CONCEPT:EG-KG.query.eg-9/419). A GraphQL mutation
                 // is one of three shapes: a `commitTransaction` — landed DURABLY via
                 // `commit_cross_modal_txn` (ONE redb WriteTransaction across graph + vector
@@ -888,14 +1144,12 @@ pub(crate) async fn try_handle(
                     eg_graphql::CrossModalRoute::Commit(txn_id) => {
                         let committed = super::txn::commit_graphql_cross_modal(
                             state,
+                            req_id,
                             graph_name,
                             &core,
                             graphql_crossmodal_registry(),
                             &txn_id,
-                            #[cfg(feature = "security")]
-                            caller,
-                            #[cfg(not(feature = "security"))]
-                            None,
+                            carrier,
                         )
                         .await;
                         let resp = match committed {
@@ -916,10 +1170,13 @@ pub(crate) async fn try_handle(
                         return Ok(resp);
                     }
                     eg_graphql::CrossModalRoute::Staging => {
-                        let core_w = core.clone();
+                        let core_w = read_authority
+                            .expect("GraphQL mutation authority checked above")
+                            .project_core(&core);
+                        let owner_scope = carrier.owner_scope().to_string();
                         let reg = graphql_crossmodal_registry();
                         let resp = match compute_off_lock(req_id, move || {
-                            eg_graphql::execute_crossmodal(&core_w, reg, &query)
+                            eg_graphql::execute_crossmodal(&core_w, reg, &owner_scope, &query)
                         })
                         .await
                         {
@@ -935,6 +1192,9 @@ pub(crate) async fn try_handle(
                             Err(resp) => resp,
                         };
                         return Ok(resp);
+                    }
+                    eg_graphql::CrossModalRoute::Invalid(message) => {
+                        return Ok(Response::err(req_id, message));
                     }
                     eg_graphql::CrossModalRoute::NotCrossModal => {
                         let core_w = core.clone();
@@ -1003,7 +1263,7 @@ pub(crate) async fn try_handle(
                     return Ok(Response::ok(req_id, ResultPayload::Raw(bytes)));
                 }
                 #[cfg(feature = "security")]
-                rls.filter_view(caller.unwrap_or(""), &mut snap);
+                rls.filter_view(caller, &mut snap);
                 (snap, version, hash)
             };
             #[cfg(not(feature = "result-cache"))]
@@ -1035,14 +1295,21 @@ pub(crate) async fn try_handle(
             Ok(resp)
         }
         #[cfg(feature = "cypher")]
-        Method::CypherQuery { query } => {
+        Method::CypherQuery { query, mode } => {
             // Cypher WRITE surface (CONCEPT:EG-KG.query.register-each-user-table/EG-023): a `CREATE`/`MERGE`/`SET`/
             // `DELETE`/`REMOVE` statement is applied to the LIVE `GraphCore` via
             // `exec_cypher_write` (native eg-core write ops — NO DataFusion; it calls
             // `mark_dirty` once after the mutation). NOT cached, NOT RLS pre-filtered
             // (writes are graph-ACL-gated upstream — this method classified Write). A
             // read falls through to the RLS-aware cached snapshot path below.
-            if super::super::access::cypher_is_write(&query) {
+            let validation_method = Method::CypherQuery {
+                query: query.clone(),
+                mode,
+            };
+            if let Err(error) = validate_cypher_mode(&validation_method) {
+                return Ok(Response::err(req_id, error));
+            }
+            if matches!(mode, crate::protocol::CypherMode::Write) {
                 let core_w = core.clone();
                 let resp = match compute_off_lock(req_id, move || {
                     eg_query::exec_cypher_write(&core_w, &query)
@@ -1079,7 +1346,7 @@ pub(crate) async fn try_handle(
                     return Ok(Response::ok(req_id, ResultPayload::Raw(bytes)));
                 }
                 #[cfg(feature = "security")]
-                rls.filter_view(caller.unwrap_or(""), &mut snap);
+                rls.filter_view(caller, &mut snap);
                 (snap, version, hash)
             };
             #[cfg(not(feature = "result-cache"))]
@@ -1181,7 +1448,7 @@ fn build_text_index_from_view(view: &crate::graph::GraphView) -> Option<eg_text:
     }
     let mut index = eg_text::TextIndex::in_memory().ok()?;
     for (id, blob) in &view.node_properties {
-        let Ok(v) = rmp_serde::from_slice::<serde_json::Value>(blob.as_slice()) else {
+        let Ok(v) = eg_types::msgpack::decode_property_value(blob.as_slice()) else {
             continue;
         };
         let mut text = String::new();
@@ -1226,7 +1493,6 @@ pub(crate) struct ServedIndexes<'a> {
 #[cfg(feature = "query")]
 pub(crate) fn run_unified(
     plan: eg_plan::Plan,
-    reorder_filter_selectivity: Option<f64>,
     view: &crate::graph::GraphView,
     semantic: &eg_core::compute::semantic::SemanticStore,
     served: ServedIndexes<'_>,
@@ -1235,6 +1501,10 @@ pub(crate) fn run_unified(
     // time-series leg with the graph/vector/relational legs. `None` ⇒ a `TsScan`
     // yields no rows (degrade, never err). Only exists under the `tsdb` feature.
     #[cfg(feature = "tsdb")] tsdb: Option<&eg_tsdb::store::SeriesStore>,
+    // Verified tenant + actor-owned graph policy context for committed TsScan
+    // reads. Served callers bind both or omit the store entirely.
+    #[cfg(feature = "tsdb")] tsdb_tenant: Option<&str>,
+    #[cfg(feature = "tsdb")] tsdb_graph: Option<&str>,
     // In-txn tsdb read-your-own-writes (CONCEPT:EG-KG.query.txn-tsdb-read-your): the resolved txn's OWN staged,
     // uncommitted series points, overlaid onto `Op::TsScan` BEFORE the committed store so
     // an in-txn UQL reads its own measurements. `None` off-txn ⇒ committed series only.
@@ -1246,22 +1516,10 @@ pub(crate) fn run_unified(
     let served_spatial = served.spatial;
     use eg_plan::PlanCtx;
 
-    // CONCEPT:EG-KG.query.served-plan-optimize-routing — No-Legacy migration (handoff-1). The
-    // served path NO LONGER runs the bespoke single `CostModel::reorder_filter_rank` swap.
-    // Instead the plan is handed to `eg_plan::execute` UNCHANGED, and `execute` routes it
-    // through the FULL cost optimizer (`plan_optimize` → `eg_plan::optimizer::optimize`) — so a
-    // served `UnifiedQuery` now gets EVERY optimizer rule (filter/AsOf-before-Rank, Reason↔Rank
-    // reorder, FuseRrf branch reorder), not just the one legacy reorder. The optimizer folds
-    // the legacy `reorder_filter_rank` in as its `FilterAsOfBeforeRank` rule
-    // (CONCEPT:EG-KG.query.filter-pushdown-rule), driving the decision off the SAME snapshot-derived
-    // cardinality/`CostModel::order` primitives, and every rule is answer-preserving within the
-    // EG-405 non-empty guard (proven by `tests/differential_oracle.rs` + the plan snapshots), so
-    // served-plan RESULTS are unchanged on the covered cases. The runtime kill-switch
-    // `EPISTEMIC_GRAPH_COST_OPT=0` makes `plan_optimize` an identity passthrough (the reorder is
-    // pure performance, never correctness). `reorder_filter_selectivity` is now a legacy no-op
-    // HINT the optimizer's own derived selectivity supersedes — kept in the signature/wire DTO
-    // for backward compatibility (a caller may still pass it; it no longer changes the plan).
-    let _ = reorder_filter_selectivity;
+    // CONCEPT:EG-KG.query.served-plan-optimize-routing — the served path hands the plan
+    // directly to `eg_plan::execute`, which applies the complete cost optimizer using
+    // snapshot-derived cardinality and cost statistics. Optimizer rules are
+    // answer-preserving within the EG-405 non-empty guard.
     let ops = plan.ops;
 
     // CONCEPT:EG-KG.query.served-text-index-binding — bind a live BM25 lexical search surface into the
@@ -1327,12 +1585,15 @@ pub(crate) fn run_unified(
         Some(embedder) => ctx.with_embedder(embedder),
         None => ctx,
     };
-    // RECONCILE (CONCEPT:EG-KG.query.native-time-series): attach the committed tsdb store so `Op::TsScan`
-    // sources real series (tsdb-in-plan fusion). Absent store ⇒ ctx unchanged.
+    // RECONCILE (CONCEPT:EG-KG.query.native-time-series): attach the committed
+    // store and its ownership scope atomically. A partial/missing scope never
+    // leaves a raw store reachable through `TsScan`.
     #[cfg(feature = "tsdb")]
-    let ctx = match tsdb {
-        Some(store) => ctx.with_tsdb(store),
-        None => ctx,
+    let ctx = match (tsdb, tsdb_tenant, tsdb_graph) {
+        (Some(store), Some(tenant), Some(graph)) => {
+            ctx.with_tsdb(store).with_tsdb_scope(tenant, graph)
+        }
+        _ => ctx,
     };
     // CONCEPT:EG-KG.query.txn-tsdb-read-your: attach the txn's staged-series overlay so an in-txn `Op::TsScan`
     // reads its own uncommitted points (RYOW). Absent overlay ⇒ committed series only.
@@ -1359,13 +1620,13 @@ pub(crate) fn run_unified(
 #[cfg(feature = "query")]
 fn explain_snapshot(
     core: &Arc<GraphCore>,
-    #[cfg(feature = "security")] caller: Option<&str>,
+    #[cfg(feature = "security")] caller: &str,
     #[cfg(feature = "security")] rls: &Arc<crate::isolation::IsolationLayer>,
 ) -> crate::graph::GraphView {
     #[cfg_attr(not(feature = "security"), allow(unused_mut))]
     let mut snap = core.analysis_snapshot();
     #[cfg(feature = "security")]
-    rls.filter_view(caller.unwrap_or(""), &mut snap);
+    rls.filter_view(caller, &mut snap);
     snap
 }
 
@@ -1406,126 +1667,113 @@ fn explain_plan(
     })
 }
 
-/// Map an `eg_modality::EvidenceSpan` (X1, CONCEPT:E4 — `eg_plan::KnowledgeRow`'s
-/// REAL, located per-row evidence) onto its wire mirror `EvidenceSpanWire`
-/// (`eg_types`, which cannot depend on `eg_modality` — see that type's own doc
-/// comment for the DAG reason). A 1:1 field-for-field copy, variant for variant.
+/// Project the governed locus onto its DAG-safe wire mirror.
 #[cfg(feature = "epistemic")]
-fn evidence_span_wire(span: &eg_modality::EvidenceSpan) -> crate::protocol::EvidenceSpanWire {
-    use crate::protocol::EvidenceSpanWire;
-    use eg_modality::EvidenceSpan;
+fn evidence_locus_wire(locus: &eg_modality::EvidenceLocus) -> crate::protocol::EvidenceLocusWire {
+    use crate::protocol::{EvidenceAddressWire, EvidenceLocusWire, EvidenceResourceWire};
+    use eg_modality::{EvidenceAddress, ResourceId};
 
-    match span {
-        EvidenceSpan::DocumentSpan {
-            document_id,
-            start,
-            end,
-        } => EvidenceSpanWire::DocumentSpan {
-            document_id: document_id.clone(),
+    let subject = match &locus.subject {
+        ResourceId::Artifact(id) => EvidenceResourceWire::Artifact(id.as_ref().to_string()),
+        ResourceId::Occurrence(id) => EvidenceResourceWire::Occurrence(id.as_ref().to_string()),
+        ResourceId::Rendition(id) => EvidenceResourceWire::Rendition(id.as_ref().to_string()),
+        ResourceId::Segment(id) => EvidenceResourceWire::Segment(id.as_ref().to_string()),
+        ResourceId::Feature(id) => EvidenceResourceWire::Feature(id.as_ref().to_string()),
+        ResourceId::EvidenceLocus(id) => {
+            EvidenceResourceWire::EvidenceLocus(id.as_ref().to_string())
+        }
+    };
+    let address = match &locus.address {
+        EvidenceAddress::CharacterRange { start, end } => EvidenceAddressWire::CharacterRange {
             start: *start,
             end: *end,
         },
-        EvidenceSpan::TableCellRange {
-            table_id,
+        EvidenceAddress::TableCellRange {
             row_start,
             row_end,
             col_start,
             col_end,
-        } => EvidenceSpanWire::TableCellRange {
-            table_id: table_id.clone(),
+        } => EvidenceAddressWire::TableCellRange {
             row_start: *row_start,
             row_end: *row_end,
             col_start: *col_start,
             col_end: *col_end,
         },
-        EvidenceSpan::ImageRegion {
-            image_id,
+        EvidenceAddress::ImageRegion {
             x,
             y,
             width,
             height,
-        } => EvidenceSpanWire::ImageRegion {
-            image_id: image_id.clone(),
+        } => EvidenceAddressWire::ImageRegion {
             x: *x,
             y: *y,
             width: *width,
             height: *height,
         },
-        EvidenceSpan::PageBox {
-            document_id,
+        EvidenceAddress::PageRegion {
             page,
             x,
             y,
             width,
             height,
-        } => EvidenceSpanWire::PageBox {
-            document_id: document_id.clone(),
+        } => EvidenceAddressWire::PageRegion {
             page: *page,
             x: *x,
             y: *y,
             width: *width,
             height: *height,
         },
-        EvidenceSpan::AudioSegment {
-            audio_id,
-            start_ms,
-            end_ms,
-        } => EvidenceSpanWire::AudioSegment {
-            audio_id: audio_id.clone(),
+        EvidenceAddress::AudioRange { start_ms, end_ms } => EvidenceAddressWire::AudioRange {
             start_ms: *start_ms,
             end_ms: *end_ms,
         },
-        EvidenceSpan::VideoShot {
-            video_id,
-            start_ms,
-            end_ms,
-        } => EvidenceSpanWire::VideoShot {
-            video_id: video_id.clone(),
-            start_ms: *start_ms,
-            end_ms: *end_ms,
-        },
-        EvidenceSpan::VideoFrameRange {
-            video_id,
+        EvidenceAddress::VideoTimeRange { start_ms, end_ms } => {
+            EvidenceAddressWire::VideoTimeRange {
+                start_ms: *start_ms,
+                end_ms: *end_ms,
+            }
+        }
+        EvidenceAddress::FrameRange {
             start_frame,
             end_frame,
-        } => EvidenceSpanWire::VideoFrameRange {
-            video_id: video_id.clone(),
+        } => EvidenceAddressWire::FrameRange {
             start_frame: *start_frame,
             end_frame: *end_frame,
         },
-        EvidenceSpan::MetricWindow {
-            metric,
-            start_ms,
-            end_ms,
-        } => EvidenceSpanWire::MetricWindow {
-            metric: metric.clone(),
+        EvidenceAddress::MetricWindow { start_ms, end_ms } => EvidenceAddressWire::MetricWindow {
             start_ms: *start_ms,
             end_ms: *end_ms,
         },
-        EvidenceSpan::RowVersion {
-            table,
-            row_id,
-            version,
-        } => EvidenceSpanWire::RowVersion {
-            table: table.clone(),
-            row_id: row_id.clone(),
+        EvidenceAddress::Point { x, y } => EvidenceAddressWire::Point { x: *x, y: *y },
+        EvidenceAddress::RowVersion { row_ref, version } => EvidenceAddressWire::RowVersion {
+            row_ref: row_ref.to_string(),
             version: *version,
         },
-        EvidenceSpan::CodeSymbol {
-            file_path,
-            symbol,
+        EvidenceAddress::CodeSymbol {
+            revision_ref,
+            symbol_ref,
             start_line,
             end_line,
-        } => EvidenceSpanWire::CodeSymbol {
-            file_path: file_path.clone(),
-            symbol: symbol.clone(),
+        } => EvidenceAddressWire::CodeSymbol {
+            revision_ref: revision_ref.to_string(),
+            symbol_ref: symbol_ref.to_string(),
             start_line: *start_line,
             end_line: *end_line,
         },
-        EvidenceSpan::TraceSpan { trace_id, span_id } => EvidenceSpanWire::TraceSpan {
-            trace_id: trace_id.clone(),
-            span_id: span_id.clone(),
+        EvidenceAddress::TraceSpan {
+            trace_ref,
+            span_ref,
+        } => EvidenceAddressWire::TraceSpan {
+            trace_ref: trace_ref.to_string(),
+            span_ref: span_ref.to_string(),
         },
+    };
+    EvidenceLocusWire {
+        id: locus.id.as_ref().to_string(),
+        subject,
+        address,
+        policy_ref: locus.policy_ref.to_string(),
+        derivation_ref: locus.derivation_ref.as_ref().to_string(),
     }
 }
 
@@ -1533,21 +1781,22 @@ fn evidence_span_wire(span: &eg_modality::EvidenceSpan) -> crate::protocol::Evid
 /// provenance over the `KnowledgeSet` (E3) row shape (CONCEPT:EG-KG.query.knowledge-set),
 /// reusing the SAME belief-substrate resolution `Op::EvidenceFor` runs, PLUS (X1,
 /// CONCEPT:E4) the row's own located `evidence_refs` `KnowledgeSet::from_rowset`
-/// already resolved. With `epistemic` off, every row's `source_refs`/`evidence_spans`
+/// already resolved. With `epistemic` off, every row's `source_refs`/`evidence_loci`
 /// are empty and `resolved` is `false` — the documented "no epistemic resolution ran"
 /// `KnowledgeSet` v1 default.
 #[cfg(feature = "query")]
 fn explain_provenance(
+    request_id: u64,
     plan: eg_plan::Plan,
     view: &crate::graph::GraphView,
     semantic: &eg_core::compute::semantic::SemanticStore,
-) -> Result<crate::protocol::ExplainProvenanceResult, String> {
+) -> Result<crate::epistemic_operations::EvidenceBundle, String> {
     use eg_plan::PlanCtx;
 
     let ctx = PlanCtx::new(view, semantic);
     let rs = eg_plan::execute(&plan, &ctx)?;
     let ks = eg_plan::KnowledgeSet::from_rowset(&rs, view, &[]);
-    Ok(explain_provenance_result(&ks, &ctx))
+    Ok(explain_provenance_result(request_id, &ks, &ctx))
 }
 
 /// `EXPLAIN PROVENANCE BY IDS` (CONCEPT:EG-KB-CURRENCY) — the ID-seeded sibling of
@@ -1559,34 +1808,38 @@ fn explain_provenance(
 /// time-versioned rows for exactly those ids.
 #[cfg(feature = "query")]
 fn explain_provenance_by_ids(
+    request_id: u64,
     ids: Vec<String>,
     view: &crate::graph::GraphView,
     semantic: &eg_core::compute::semantic::SemanticStore,
-) -> Result<crate::protocol::ExplainProvenanceResult, String> {
+) -> Result<crate::epistemic_operations::EvidenceBundle, String> {
     use eg_plan::PlanCtx;
 
     let ctx = PlanCtx::new(view, semantic);
     let rs = eg_plan::RowSet::from_ids(ids);
     let ks = eg_plan::KnowledgeSet::from_rowset(&rs, view, &[]);
-    Ok(explain_provenance_result(&ks, &ctx))
+    Ok(explain_provenance_result(request_id, &ks, &ctx))
 }
 
 /// Shared row-resolution core of [`explain_provenance`]/[`explain_provenance_by_ids`]
 /// (CONCEPT:EG-KB-CURRENCY): map an already-built `KnowledgeSet`'s rows onto the wire
-/// shape, widened beyond id/kind/source_refs/evidence_spans to also carry `score`/
+/// shape, widened beyond id/kind/source_refs/evidence_loci to also carry `score`/
 /// `confidence`/`valid_time`/`tx_time`/`policy_labels` — straight field copies off each
 /// `KnowledgeRow` (populated by `KnowledgeSet::from_rowset` regardless of `epistemic`
 /// for score/confidence/valid_time/tx_time; `epistemic`-gated for
-/// source_refs/policy_labels/evidence_spans exactly as before this widening).
+/// source_refs/policy_labels/evidence_loci exactly as before this widening).
 #[cfg(feature = "query")]
 fn explain_provenance_result(
+    request_id: u64,
     ks: &eg_plan::KnowledgeSet,
     ctx: &eg_plan::PlanCtx<'_>,
-) -> crate::protocol::ExplainProvenanceResult {
-    use crate::protocol::{ExplainProvenanceResult, ExplainProvenanceRowWire};
+) -> crate::epistemic_operations::EvidenceBundle {
+    use crate::epistemic_operations::{
+        EvidenceBundle, EvidenceBundleSchemaVersion, EvidenceClaim, EvidenceTimeRange,
+    };
 
     #[cfg(feature = "epistemic")]
-    let rows: Vec<ExplainProvenanceRowWire> = ks
+    let claims: Vec<EvidenceClaim> = ks
         .rows
         .iter()
         .map(|row| {
@@ -1600,44 +1853,65 @@ fn explain_provenance_result(
                 .unwrap_or_default();
             // X1: the row's own located evidence, already resolved by
             // `KnowledgeSet::from_rowset` — just map it onto the wire shape.
-            let evidence_spans = row.evidence_refs.iter().map(evidence_span_wire).collect();
-            ExplainProvenanceRowWire {
-                id: row.id.clone(),
+            let evidence_locus_refs = row
+                .evidence_refs
+                .iter()
+                .map(|locus| locus.id.as_ref().to_string())
+                .collect();
+            EvidenceClaim {
+                claim_ref: row.id.clone(),
                 kind: row.kind.clone(),
-                score: row.score,
+                score: row.score.map(f64::from),
                 confidence: row.confidence,
-                valid_time: row.valid_time,
-                tx_time: row.tx_time,
+                valid_time: EvidenceTimeRange {
+                    start_ms: row.valid_time.0,
+                    end_ms: row.valid_time.1,
+                },
+                transaction_time: EvidenceTimeRange {
+                    start_ms: row.tx_time.0,
+                    end_ms: row.tx_time.1,
+                },
                 source_refs,
+                evidence_locus_refs,
+                contradiction_refs: row.contradiction_ids.clone(),
+                proof_refs: row.proof_ids.clone(),
                 policy_labels: row.policy_labels.clone(),
-                evidence_spans,
-                contradiction_ids: row.contradiction_ids.clone(),
-                proof_ids: row.proof_ids.clone(),
             }
         })
         .collect();
     #[cfg(not(feature = "epistemic"))]
-    let rows: Vec<ExplainProvenanceRowWire> = ks
+    let claims: Vec<EvidenceClaim> = ks
         .rows
         .iter()
-        .map(|row| ExplainProvenanceRowWire {
-            id: row.id.clone(),
+        .map(|row| EvidenceClaim {
+            claim_ref: row.id.clone(),
             kind: row.kind.clone(),
-            score: row.score,
+            score: row.score.map(f64::from),
             confidence: row.confidence,
-            valid_time: row.valid_time,
-            tx_time: row.tx_time,
+            valid_time: EvidenceTimeRange {
+                start_ms: row.valid_time.0,
+                end_ms: row.valid_time.1,
+            },
+            transaction_time: EvidenceTimeRange {
+                start_ms: row.tx_time.0,
+                end_ms: row.tx_time.1,
+            },
             source_refs: Vec::new(),
+            evidence_locus_refs: Vec::new(),
+            contradiction_refs: Vec::new(),
+            proof_refs: Vec::new(),
             policy_labels: Vec::new(),
-            evidence_spans: Vec::new(),
-            contradiction_ids: Vec::new(),
-            proof_ids: Vec::new(),
         })
         .collect();
 
-    ExplainProvenanceResult {
-        rows,
+    EvidenceBundle {
+        schema_version: EvidenceBundleSchemaVersion::V1,
+        bundle_id: format!("request:{request_id}"),
         resolved: cfg!(feature = "epistemic"),
+        answer_ref: None,
+        claims,
+        policy_exclusions: Vec::new(),
+        next_action_refs: Vec::new(),
     }
 }
 
@@ -2102,22 +2376,22 @@ fn resolved_artifact_wire(
 ) -> crate::protocol::ResolvedArtifactWire {
     match r {
         eg_alignment::ResolvedArtifact::Text {
-            artifact_id,
+            subject_ref,
             excerpt,
         } => crate::protocol::ResolvedArtifactWire {
             kind: "text".to_string(),
-            artifact_id,
+            subject_ref,
             excerpt: Some(excerpt),
             blob_ref: None,
             note: None,
         },
         eg_alignment::ResolvedArtifact::Blob {
-            artifact_id,
+            subject_ref,
             blob_ref,
             note,
         } => crate::protocol::ResolvedArtifactWire {
             kind: "blob".to_string(),
-            artifact_id,
+            subject_ref,
             excerpt: None,
             blob_ref: Some(blob_ref),
             note: Some(note),
@@ -2128,7 +2402,7 @@ fn resolved_artifact_wire(
 /// X-1 (CONCEPT:EG-X1) — wire-project an `eg_epistemic::EvidenceCitation`. `kind`
 /// renders the `EdgeKind` via `Debug` (the SAME flat-string convention
 /// `JustificationNodeWire::rule` uses for `JustRule`); `locus` reuses the
-/// `evidence_span_wire` mapper already defined above for `ExplainProvenance`.
+/// `evidence_locus_wire` mapper already defined above for `ExplainProvenance`.
 /// SURPASS gap-closure ("unify the two evidence resolvers"): when `resolver` is
 /// `Some` (the `alignment` feature is compiled in AND a blob store is configured —
 /// see `explain_evidence_wire`), the citation's `locus` is ALSO resolved through it
@@ -2139,17 +2413,13 @@ fn evidence_citation_wire(
     c: &eg_epistemic::EvidenceCitation,
     resolver: Option<&crate::server::blob::cas_resolver::CasEvidenceResolver<'_>>,
 ) -> crate::protocol::EvidenceCitationWire {
-    let resolved = c
-        .locus
-        .as_ref()
-        .and_then(|span| resolver.and_then(|r| eg_alignment::EvidenceResolver::resolve(r, span)))
+    let resolved = resolver
+        .and_then(|resolver| eg_alignment::EvidenceResolver::resolve(resolver, &c.locus))
         .map(resolved_artifact_wire);
     crate::protocol::EvidenceCitationWire {
         evidence_id: c.evidence_id.clone(),
         kind: format!("{:?}", c.kind),
-        locus: c.locus.as_ref().map(evidence_span_wire),
-        occurrence_id: c.occurrence_id.clone(),
-        blob_ref: c.blob_ref.clone(),
+        locus: evidence_locus_wire(&c.locus),
         resolved,
     }
 }
@@ -2165,9 +2435,7 @@ fn evidence_citation_wire(
     crate::protocol::EvidenceCitationWire {
         evidence_id: c.evidence_id.clone(),
         kind: format!("{:?}", c.kind),
-        locus: c.locus.as_ref().map(evidence_span_wire),
-        occurrence_id: c.occurrence_id.clone(),
-        blob_ref: c.blob_ref.clone(),
+        locus: evidence_locus_wire(&c.locus),
         resolved: None,
     }
 }
@@ -2403,10 +2671,12 @@ async fn run_unified_overlaid(
     req_id: u64,
     txn_id: &str,
     plan: eg_plan::Plan,
-    reorder_filter_selectivity: Option<f64>,
-    #[cfg(feature = "security")] caller: Option<&str>,
+    read_authority: Option<&GraphReadAuthority>,
+    caller: &str,
     #[cfg(feature = "security")] rls: &Arc<crate::isolation::IsolationLayer>,
 ) -> Response {
+    #[cfg(not(feature = "security"))]
+    let _ = caller;
     // Resolve the txn's target core + snapshot its staged write-set/embeddings while
     // holding only the cheap state read + per-txn lock; everything moved into the
     // off-lock closure is OWNED, so no lock is held across the compute.
@@ -2414,7 +2684,7 @@ async fn run_unified_overlaid(
     // / served-text-index-binding: the committed `SemanticStore`/text index are pushed
     // down via a guard taken INSIDE the off-lock closure below (not cloned here), so
     // `committed_semantic` is no longer materialized eagerly — see the closure.
-    let (mut view, write_set, vectors, core) = {
+    let (mut view, write_set, vectors, core, tsdb_graph) = {
         let s = state.read().await;
         let entry = match s.open_txns.get(txn_id) {
             Some(e) => e,
@@ -2423,6 +2693,20 @@ async fn run_unified_overlaid(
             }
         };
         let guard = entry.value().lock();
+        let Some(expected_owner) = read_authority
+            .and_then(GraphReadAuthority::carrier)
+            .map(crate::server::access::CarrierAuthority::owner_scope)
+        else {
+            crate::metrics::access_denied();
+            return Response::err(
+                req_id,
+                "ACCESS_DENIED: transaction read requires verified owner authority",
+            );
+        };
+        if guard.agent != expected_owner {
+            crate::metrics::access_denied();
+            return Response::err(req_id, "ACCESS_DENIED: transaction is not owned by caller");
+        }
         let core = match s.registry.get(&guard.graph) {
             Some(g) => g.core.clone(),
             None => {
@@ -2434,14 +2718,34 @@ async fn run_unified_overlaid(
         #[cfg_attr(not(feature = "security"), allow(unused_mut))]
         let mut view = core.analysis_snapshot();
         #[cfg(feature = "security")]
-        rls.filter_view(caller.unwrap_or(""), &mut view);
-        (view, guard.write_set.clone(), guard.vectors.clone(), core)
+        rls.filter_view(caller, &mut view);
+        (
+            view,
+            guard.write_set.clone(),
+            guard.vectors.clone(),
+            core,
+            guard.graph.clone(),
+        )
         // `guard` + `s` drop here — no lock held across the compute below.
+    };
+    #[cfg(feature = "tsdb")]
+    let tsdb_scope = match served_tsdb_scope(&plan, &tsdb_graph, read_authority) {
+        Ok(scope) => scope,
+        Err(denied) => return Response::err(req_id, denied),
     };
     // RECONCILE (CONCEPT:EG-KG.query.native-time-series): the committed tsdb `SeriesStore` for `Op::TsScan`
     // fusion inside the txn, so an in-txn UQL reads COMMITTED series.
     #[cfg(feature = "tsdb")]
-    let tsdb = state.read().await.tsdb_store.clone();
+    let tsdb = if tsdb_scope.is_some() {
+        state.read().await.tsdb_store.clone()
+    } else {
+        None
+    };
+    #[cfg(feature = "tsdb")]
+    let (tsdb_tenant, tsdb_graph_scope) = match tsdb_scope {
+        Some((tenant, graph)) => (Some(tenant), Some(graph)),
+        None => (None, None),
+    };
     // CONCEPT:EG-KG.query.txn-tsdb-read-your — the in-txn tsdb read-your-own-writes overlay: seed a `StagedSeries`
     // from the txn's OWN staged, uncommitted `GraphTxnState.measurements` so an in-txn
     // `Op::TsScan` sees its own points (merged BEFORE the committed store), while an
@@ -2454,7 +2758,10 @@ async fn run_unified_overlaid(
         if let Some(entry) = s.open_txns.get(txn_id) {
             let guard = entry.value().lock();
             for m in &guard.measurements {
-                staged.push_points(&m.series, m.points.iter().cloned());
+                let series = eg_tsdb::store::SeriesKey::decode(&m.series)
+                    .map(|key| key.series)
+                    .unwrap_or_else(|| m.series.clone());
+                staged.push_points(&series, m.points.iter().cloned());
             }
         }
         staged
@@ -2470,7 +2777,7 @@ async fn run_unified_overlaid(
     // short-circuits `filter_view`), so the single-tenant RYOW path is byte-for-byte
     // unchanged.
     #[cfg(feature = "security")]
-    rls.filter_view(caller.unwrap_or(""), &mut view);
+    rls.filter_view(caller, &mut view);
     match compute_off_lock(req_id, move || {
         #[cfg(feature = "text")]
         let served_text = crate::server::secondary_indexes::ServedTextIndex::new(core.clone());
@@ -2487,7 +2794,6 @@ async fn run_unified_overlaid(
             let semantic_guard = core.semantic_store.read();
             run_unified(
                 plan,
-                reorder_filter_selectivity,
                 &view,
                 &semantic_guard,
                 ServedIndexes {
@@ -2501,6 +2807,10 @@ async fn run_unified_overlaid(
                 #[cfg(feature = "tsdb")]
                 tsdb.as_deref(),
                 #[cfg(feature = "tsdb")]
+                tsdb_tenant.as_deref(),
+                #[cfg(feature = "tsdb")]
+                tsdb_graph_scope.as_deref(),
+                #[cfg(feature = "tsdb")]
                 Some(&staged_series),
             )
         } else {
@@ -2508,7 +2818,6 @@ async fn run_unified_overlaid(
             let semantic = eg_core::compute::semantic::semantic_overlay(committed, &vectors);
             run_unified(
                 plan,
-                reorder_filter_selectivity,
                 &view,
                 &semantic,
                 ServedIndexes {
@@ -2521,6 +2830,10 @@ async fn run_unified_overlaid(
                 },
                 #[cfg(feature = "tsdb")]
                 tsdb.as_deref(),
+                #[cfg(feature = "tsdb")]
+                tsdb_tenant.as_deref(),
+                #[cfg(feature = "tsdb")]
+                tsdb_graph_scope.as_deref(),
                 #[cfg(feature = "tsdb")]
                 Some(&staged_series),
             )
@@ -2574,12 +2887,8 @@ pub(crate) fn overlay_write_set(view: &mut crate::graph::GraphView, write_set: &
             } => {
                 // A decode failure is a no-op overlay (mirrors `apply_staged`).
                 if let (Ok(conditions), Ok(updates)) = (
-                    rmp_serde::from_slice::<serde_json::Map<String, serde_json::Value>>(
-                        conditions_msgpack,
-                    ),
-                    rmp_serde::from_slice::<serde_json::Map<String, serde_json::Value>>(
-                        updates_msgpack,
-                    ),
+                    eg_types::msgpack::decode_property_object(conditions_msgpack),
+                    eg_types::msgpack::decode_property_object(updates_msgpack),
                 ) {
                     view.overlay_compare_and_set_fields(node_id, &conditions, &updates);
                 }
@@ -2595,8 +2904,9 @@ pub(crate) fn overlay_write_set(view: &mut crate::graph::GraphView, write_set: &
 ///     write ops (`add_node` / `compare_and_set_fields` / `remove_node`) — the dispatch
 ///     shell then `mark_dirty`s the graph (this method classified Write) so the next
 ///     checkpoint persists it;
-///   * user-table DDL/DML → the shared durable `TableStore` (redb commit-before-ack,
-///     self-durable).
+///   * user-table DDL/DML → the shared durable `TableStore`, where rows/catalog and
+///     universal batch status/fence/idempotency/outbox share one commit-before-ack
+///     redb transaction.
 ///
 /// Blocking work (redb commits, the node scan) runs on the blocking pool via
 /// `compute_off_lock`. Returns a `QueryResult`-shaped ack (`[tag]` column, one
@@ -2604,17 +2914,29 @@ pub(crate) fn overlay_write_set(view: &mut crate::graph::GraphView, write_set: &
 #[cfg(feature = "query")]
 async fn exec_sql_write(
     req_id: u64,
+    graph_name: &str,
+    tenant_scope: &str,
+    caller: Option<&str>,
+    read_authority: &GraphReadAuthority,
+    sql_method: Method,
     core: &Arc<GraphCore>,
     store: &eg_query::TableStore,
     kind: eg_query::StatementKind,
 ) -> Response {
     use eg_query::StatementKind as K;
+    let read_core = read_authority.project_core(core);
     match kind {
         K::InsertNodes(ins) => {
             let core = core.clone();
+            let visible = read_core.clone();
             let r = compute_off_lock(req_id, move || {
                 let mut n = 0usize;
                 for node in ins.rows {
+                    if core.has_node(&node.node_id) && !visible.has_node(&node.node_id) {
+                        crate::metrics::access_denied();
+                        return Err("ACCESS_DENIED: node write is outside the visible row scope"
+                            .to_string());
+                    }
                     let blob = rmp_serde::to_vec_named(&serde_json::Value::Object(node.properties))
                         .map_err(|e| format!("encode node properties: {e}"))?;
                     core.add_node(node.node_id, blob);
@@ -2628,7 +2950,7 @@ async fn exec_sql_write(
         K::UpdateNodes(upd) => {
             let core = core.clone();
             let r = compute_off_lock(req_id, move || {
-                let ids = matched_node_ids(&core, &upd.selector);
+                let ids = matched_node_ids(&read_core, &upd.selector);
                 let conditions = serde_json::Map::new();
                 // CONCEPT:EG-KG.query.compound-predicate-decode — re-check a compound predicate under the write guard.
                 let pred = match &upd.selector {
@@ -2653,7 +2975,7 @@ async fn exec_sql_write(
         K::DeleteNodes(del) => {
             let core = core.clone();
             let r = compute_off_lock(req_id, move || {
-                let ids = matched_node_ids(&core, &del.selector);
+                let ids = matched_node_ids(&read_core, &del.selector);
                 // CONCEPT:EG-KG.query.compound-predicate-decode — re-check a compound predicate under the write guard.
                 let pred = match &del.selector {
                     eg_query::WhereEq::Predicate { pred, .. } => Some(pred.clone()),
@@ -2678,92 +3000,183 @@ async fn exec_sql_write(
             sql_write_ack(req_id, "DELETE", r)
         }
         K::CreateTable(plan) => {
-            let store = store.clone();
-            let r = compute_off_lock(req_id, move || {
-                let columns = to_store_columns(&plan.columns)?;
-                let schema = eg_query::TableSchema {
-                    name: plan.name,
-                    columns,
-                };
-                store
-                    .create_table(&schema, plan.if_not_exists)
-                    .map(|_| 0usize)
-            })
-            .await;
-            sql_write_ack(req_id, "CREATE TABLE", r)
+            let columns = match to_store_columns(&plan.columns) {
+                Ok(columns) => columns,
+                Err(error) => return Response::err(req_id, format!("SQL error: {error}")),
+            };
+            let mut txn = eg_query::TableTxn::new();
+            txn.push(eg_query::TxnOp::CreateTable {
+                schema: eg_query::TableSchema::new(plan.name, columns),
+                if_not_exists: plan.if_not_exists,
+            });
+            commit_sql_catalog_txn(
+                req_id,
+                tenant_scope,
+                graph_name,
+                caller,
+                sql_method,
+                store,
+                txn,
+                "CREATE TABLE",
+            )
+            .await
         }
         K::DropTable(plan) => {
-            let store = store.clone();
-            let r = compute_off_lock(req_id, move || {
-                store.drop_table(&plan.name, plan.if_exists).map(|_| 0usize)
-            })
-            .await;
-            sql_write_ack(req_id, "DROP TABLE", r)
+            let mut txn = eg_query::TableTxn::new();
+            txn.push(eg_query::TxnOp::DropTable {
+                name: plan.name,
+                if_exists: plan.if_exists,
+            });
+            commit_sql_catalog_txn(
+                req_id,
+                tenant_scope,
+                graph_name,
+                caller,
+                sql_method,
+                store,
+                txn,
+                "DROP TABLE",
+            )
+            .await
         }
         // CONCEPT:EG-KG.query.register-user-tables-alongside ADD COLUMN + CONCEPT:EG-KG.query.rename-table-moves-catalog the rest — one dispatch helper.
         K::AlterTable(plan) => {
-            let store = store.clone();
-            let r = compute_off_lock(req_id, move || apply_alter_table(&store, plan).map(|_| 0usize)).await;
-            sql_write_ack(req_id, "ALTER TABLE", r)
+            let op = match alter_table_txn_op(plan) {
+                Ok(op) => op,
+                Err(error) => return Response::err(req_id, format!("SQL error: {error}")),
+            };
+            let mut txn = eg_query::TableTxn::new();
+            txn.push(op);
+            commit_sql_catalog_txn(
+                req_id,
+                tenant_scope,
+                graph_name,
+                caller,
+                sql_method,
+                store,
+                txn,
+                "ALTER TABLE",
+            )
+            .await
         }
         K::InsertTable(ins) => {
-            let store = store.clone();
-            let r = compute_off_lock(req_id, move || {
-                store.insert_rows(&ins.table, &ins.columns, &ins.rows)
-            })
-            .await;
-            sql_write_ack(req_id, "INSERT", r)
+            let mut txn = eg_query::TableTxn::new();
+            txn.push(eg_query::TxnOp::Insert {
+                table: ins.table,
+                col_order: ins.columns,
+                rows: ins.rows,
+            });
+            commit_sql_catalog_txn(
+                req_id,
+                tenant_scope,
+                graph_name,
+                caller,
+                sql_method,
+                store,
+                txn,
+                "INSERT",
+            )
+            .await
         }
         K::InsertSelect(ins) => {
             // The SELECT half runs through the SAME tables-aware DataFusion path (so it
             // can JOIN user tables AND the graph); its projected rows are then durably
             // inserted. Column COUNT must match the insert column list.
-            let store = store.clone();
-            let snap = core.analysis_snapshot();
+            let eg_query::InsertSelect {
+                table,
+                columns,
+                select_sql,
+            } = ins;
+            let read_store = store.clone();
+            let snap = read_core.analysis_snapshot();
+            let expected_columns = columns.len();
             let r = compute_off_lock(req_id, move || {
-                let read = eg_query::exec_sql_typed_with_tables(&snap, &store, &ins.select_sql)?;
-                if read.columns.len() != ins.columns.len() {
+                let read =
+                    eg_query::exec_sql_typed_with_tables(&snap, &read_store, &select_sql)?;
+                if read.columns.len() != expected_columns {
                     return Err(format!(
                         "INSERT … SELECT column count mismatch: {} target columns, {} selected",
-                        ins.columns.len(),
+                        expected_columns,
                         read.columns.len()
                     ));
                 }
-                store.insert_rows(&ins.table, &ins.columns, &read.rows)
+                Ok::<_, String>(read.rows)
             })
             .await;
-            sql_write_ack(req_id, "INSERT", r)
+            let rows = match r {
+                Ok(Ok(rows)) => rows,
+                Ok(Err(error)) => return Response::err(req_id, format!("SQL error: {error}")),
+                Err(response) => return response,
+            };
+            let mut txn = eg_query::TableTxn::new();
+            txn.push(eg_query::TxnOp::Insert {
+                table,
+                col_order: columns,
+                rows,
+            });
+            commit_sql_catalog_txn(
+                req_id,
+                tenant_scope,
+                graph_name,
+                caller,
+                sql_method,
+                store,
+                txn,
+                "INSERT",
+            )
+            .await
         }
         K::UpdateTable(upd) => {
-            let store = store.clone();
-            let r = compute_off_lock(req_id, move || {
-                // CONCEPT:EG-KG.query.compound-predicate-decode — the store evaluates the compound predicate per row.
-                store.update_where(&upd.table, &upd.set, &upd.selector.pred)
-            })
-            .await;
-            sql_write_ack(req_id, "UPDATE", r)
+            let mut txn = eg_query::TableTxn::new();
+            txn.push(eg_query::TxnOp::Update {
+                table: upd.table,
+                set: upd.set,
+                selector: upd.selector.pred,
+            });
+            commit_sql_catalog_txn(
+                req_id,
+                tenant_scope,
+                graph_name,
+                caller,
+                sql_method,
+                store,
+                txn,
+                "UPDATE",
+            )
+            .await
         }
         K::DeleteTable(del) => {
-            let store = store.clone();
-            let r = compute_off_lock(req_id, move || {
-                store.delete_where(&del.table, &del.selector.pred)
-            })
-            .await;
-            sql_write_ack(req_id, "DELETE", r)
+            let mut txn = eg_query::TableTxn::new();
+            txn.push(eg_query::TxnOp::Delete {
+                table: del.table,
+                selector: del.selector.pred,
+            });
+            commit_sql_catalog_txn(
+                req_id,
+                tenant_scope,
+                graph_name,
+                caller,
+                sql_method,
+                store,
+                txn,
+                "DELETE",
+            )
+            .await
         }
-        // A single wire request cannot hold a multi-statement transaction across
-        // requests (the pgwire shim does — it is connection-stateful). These are
-        // accepted as benign no-op acks (Postgres-compatible) rather than errored, so a
-        // client that brackets statements in BEGIN/COMMIT over the wire still succeeds
-        // (each non-txn statement is already durably applied as it lands).
-        K::Begin => sql_write_ack(req_id, "BEGIN", Ok(Ok(0))),
-        K::Commit => sql_write_ack(req_id, "COMMIT", Ok(Ok(0))),
-        K::Rollback => sql_write_ack(req_id, "ROLLBACK", Ok(Ok(0))),
+        // Method::Sql is request-scoped and therefore cannot honestly represent
+        // connection-scoped transaction control. Fail closed instead of pretending
+        // BEGIN/COMMIT/ROLLBACK succeeded while committing each request separately.
+        K::Begin | K::Commit | K::Rollback => Response::err(
+            req_id,
+            "SQL error: transaction control requires a stateful SQL wire connection"
+                .to_string(),
+        ),
         // CONCEPT:EG-KG.query.insert-into-nodes-select — INSERT INTO nodes … SELECT over the RPC wire (write-ack; no RETURNING).
         K::InsertNodesSelect(ins) => {
             let core = core.clone();
             let store = store.clone();
-            let snap = core.analysis_snapshot();
+            let visible = read_core.clone();
+            let snap = visible.analysis_snapshot();
             let r = compute_off_lock(req_id, move || {
                 let read = eg_query::exec_sql_typed_with_tables(&snap, &store, &ins.select_sql)?;
                 if read.columns.len() != ins.columns.len() {
@@ -2788,7 +3201,14 @@ async fn exec_sql_write(
                             props.insert(col.clone(), row[i].clone());
                         }
                     }
-                    if core.has_node(&node_id) {
+                    if core.has_node(&node_id) && !visible.has_node(&node_id) {
+                        crate::metrics::access_denied();
+                        return Err(
+                            "ACCESS_DENIED: node write is outside the visible row scope"
+                                .to_string(),
+                        );
+                    }
+                    if visible.has_node(&node_id) {
                         match ins.on_conflict.as_ref().map(|oc| &oc.action) {
                             Some(eg_query::OnConflictAction::DoNothing) => continue,
                             Some(eg_query::OnConflictAction::DoUpdate(set)) => {
@@ -2813,7 +3233,7 @@ async fn exec_sql_write(
         K::UpdateNodesJoin(upd) => {
             let core = core.clone();
             let store = store.clone();
-            let snap = core.analysis_snapshot();
+            let snap = read_core.analysis_snapshot();
             let r = compute_off_lock(req_id, move || {
                 let read = eg_query::exec_sql_typed_with_tables(&snap, &store, &upd.resolve_sql)?;
                 if read.columns.len() != upd.set_targets.len() + 1 {
@@ -2848,7 +3268,7 @@ async fn exec_sql_write(
         K::DeleteNodesJoin(del) => {
             let core = core.clone();
             let store = store.clone();
-            let snap = core.analysis_snapshot();
+            let snap = read_core.analysis_snapshot();
             let r = compute_off_lock(req_id, move || {
                 let read = eg_query::exec_sql_typed_with_tables(&snap, &store, &del.resolve_sql)?;
                 let mut seen = std::collections::HashSet::new();
@@ -2868,61 +3288,115 @@ async fn exec_sql_write(
         }
         // CONCEPT:EG-KG.query.create-drop-view — CREATE/DROP VIEW over the RPC wire.
         K::CreateView(plan) => {
-            let store = store.clone();
-            let r = compute_off_lock(req_id, move || {
-                store
-                    .create_view(&plan.name, &plan.select_sql, plan.or_replace)
-                    .map(|_| 0usize)
-            })
-            .await;
-            sql_write_ack(req_id, "CREATE VIEW", r)
+            let mut txn = eg_query::TableTxn::new();
+            txn.push(eg_query::TxnOp::CreateView {
+                name: plan.name,
+                select_sql: plan.select_sql,
+                or_replace: plan.or_replace,
+            });
+            commit_sql_catalog_txn(
+                req_id,
+                tenant_scope,
+                graph_name,
+                caller,
+                sql_method,
+                store,
+                txn,
+                "CREATE VIEW",
+            )
+            .await
         }
         K::DropView(plan) => {
-            let store = store.clone();
-            let r = compute_off_lock(req_id, move || {
-                store.drop_view(&plan.name, plan.if_exists).map(|_| 0usize)
-            })
-            .await;
-            sql_write_ack(req_id, "DROP VIEW", r)
+            let mut txn = eg_query::TableTxn::new();
+            txn.push(eg_query::TxnOp::DropView {
+                name: plan.name,
+                if_exists: plan.if_exists,
+            });
+            commit_sql_catalog_txn(
+                req_id,
+                tenant_scope,
+                graph_name,
+                caller,
+                sql_method,
+                store,
+                txn,
+                "DROP VIEW",
+            )
+            .await
         }
         // CONCEPT:EG-KG.query.create-drop-extension-over — CREATE/DROP EXTENSION over the RPC wire.
         K::CreateExtension {
             name,
             if_not_exists,
         } => {
-            let store = store.clone();
-            let r = compute_off_lock(req_id, move || {
-                store.create_extension(&name, if_not_exists).map(|_| 0usize)
-            })
-            .await;
-            sql_write_ack(req_id, "CREATE EXTENSION", r)
+            let mut txn = eg_query::TableTxn::new();
+            txn.push(eg_query::TxnOp::CreateExtension {
+                name,
+                if_not_exists,
+            });
+            commit_sql_catalog_txn(
+                req_id,
+                tenant_scope,
+                graph_name,
+                caller,
+                sql_method,
+                store,
+                txn,
+                "CREATE EXTENSION",
+            )
+            .await
         }
         K::DropExtension { name, if_exists } => {
-            let store = store.clone();
-            let r = compute_off_lock(req_id, move || {
-                store.drop_extension(&name, if_exists).map(|_| 0usize)
-            })
-            .await;
-            sql_write_ack(req_id, "DROP EXTENSION", r)
+            let mut txn = eg_query::TableTxn::new();
+            txn.push(eg_query::TxnOp::DropExtension { name, if_exists });
+            commit_sql_catalog_txn(
+                req_id,
+                tenant_scope,
+                graph_name,
+                caller,
+                sql_method,
+                store,
+                txn,
+                "DROP EXTENSION",
+            )
+            .await
         }
         // CONCEPT:EG-KG.query.create-drop-function — CREATE/DROP FUNCTION over the RPC wire.
         K::CreateFunction(plan) => {
-            let store = store.clone();
-            let r = compute_off_lock(req_id, move || {
-                store
-                    .create_function(&plan.func, plan.or_replace)
-                    .map(|_| 0usize)
-            })
-            .await;
-            sql_write_ack(req_id, "CREATE FUNCTION", r)
+            let mut txn = eg_query::TableTxn::new();
+            txn.push(eg_query::TxnOp::CreateFunction {
+                function: plan.func,
+                or_replace: plan.or_replace,
+            });
+            commit_sql_catalog_txn(
+                req_id,
+                tenant_scope,
+                graph_name,
+                caller,
+                sql_method,
+                store,
+                txn,
+                "CREATE FUNCTION",
+            )
+            .await
         }
         K::DropFunction(plan) => {
-            let store = store.clone();
-            let r = compute_off_lock(req_id, move || {
-                store.drop_function(&plan.name, plan.if_exists).map(|_| 0usize)
-            })
-            .await;
-            sql_write_ack(req_id, "DROP FUNCTION", r)
+            let mut txn = eg_query::TableTxn::new();
+            txn.push(eg_query::TxnOp::DropFunction {
+                name: plan.name,
+                if_exists: plan.if_exists,
+            });
+            commit_sql_catalog_txn(
+                req_id,
+                tenant_scope,
+                graph_name,
+                caller,
+                sql_method,
+                store,
+                txn,
+                "DROP FUNCTION",
+            )
+            .await
         }
         // ── Postgres-family extension parity (wave 19) ──────────────────────────
         // CONCEPT:EG-KG.query.postgres-family-extension-plan — Apache AGE cypher() is a read; run it + project the agtype
@@ -2930,7 +3404,7 @@ async fn exec_sql_write(
         K::CypherCall(plan) => {
             #[cfg(feature = "cypher")]
             {
-                let core = core.clone();
+                let core = read_core.clone();
                 let r = compute_off_lock(req_id, move || {
                     let snap = core.analysis_snapshot();
                     let result = eg_query::exec_cypher(&snap, &plan.cypher)?;
@@ -2968,20 +3442,59 @@ async fn exec_sql_write(
                 )
             }
         }
-        // CONCEPT:EG-KG.query.real-ann-top-k — acknowledge the pgvector ANN index (brute-force EG-115 still
-        // serves NN queries; durable catalog + eg-ann pushdown is a follow-up).
-        K::CreateAnnIndex(_) => sql_write_ack(req_id, "CREATE INDEX", Ok(Ok(0))),
-        // CONCEPT:EG-KG.query.continuous-aggregate-lowering — accept the hypertable declaration (metadata durability is a
-        // follow-up).
-        K::CreateHypertable(_) => sql_write_ack(req_id, "CREATE TABLE", Ok(Ok(0))),
+        // CONCEPT:EG-KG.query.real-ann-top-k — persist the pgvector ANN index used
+        // by the native eg-ann pushdown planner.
+        K::CreateAnnIndex(plan) => {
+            let mut txn = eg_query::TableTxn::new();
+            txn.push(eg_query::TxnOp::PutAnnIndex { plan });
+            commit_sql_catalog_txn(
+                req_id,
+                tenant_scope,
+                graph_name,
+                caller,
+                sql_method,
+                store,
+                txn,
+                "CREATE INDEX",
+            )
+            .await
+        }
+        // CONCEPT:EG-KG.query.continuous-aggregate-lowering — validate and persist
+        // the native hypertable declaration through the SQL MutationBatch kernel.
+        K::CreateHypertable(plan) => {
+            let mut txn = eg_query::TableTxn::new();
+            txn.push(eg_query::TxnOp::PutHypertable { plan });
+            commit_sql_catalog_txn(
+                req_id,
+                tenant_scope,
+                graph_name,
+                caller,
+                sql_method,
+                store,
+                txn,
+                "CREATE TABLE",
+            )
+            .await
+        }
         // CONCEPT:EG-KG.query.continuous-aggregate-lowering — lower the continuous aggregate onto the durable view catalog.
         K::CreateContinuousAggregate(plan) => {
-            let store = store.clone();
-            let r = compute_off_lock(req_id, move || {
-                store.create_view(&plan.name, &plan.select_sql, true).map(|_| 0usize)
-            })
-            .await;
-            sql_write_ack(req_id, "CREATE MATERIALIZED VIEW", r)
+            let mut txn = eg_query::TableTxn::new();
+            txn.push(eg_query::TxnOp::CreateView {
+                name: plan.name,
+                select_sql: plan.select_sql,
+                or_replace: true,
+            });
+            commit_sql_catalog_txn(
+                req_id,
+                tenant_scope,
+                graph_name,
+                caller,
+                sql_method,
+                store,
+                txn,
+                "CREATE MATERIALIZED VIEW",
+            )
+            .await
         }
         // `COPY … FROM STDIN` is a streamed, connection-stateful pgwire op (rows arrive
         // as CopyData frames), with no single-request wire form.
@@ -3033,6 +3546,83 @@ fn sql_write_ack(
     }
 }
 
+/// SQL catalog/table native coordinator. The user-table rows/catalog, terminal
+/// MutationBatch record, SQL-domain OCC/fence, idempotency result and outbox land
+/// in one owner-scoped SQL-catalog transaction. Query text and parameters are represented
+/// only by a SHA-256 operation digest in durable metadata.
+#[cfg(feature = "query")]
+async fn commit_sql_catalog_txn(
+    req_id: u64,
+    tenant_scope: &str,
+    graph_name: &str,
+    caller: Option<&str>,
+    sql_method: Method,
+    store: &eg_query::TableStore,
+    txn: eg_query::TableTxn,
+    tag: &'static str,
+) -> Response {
+    let tenant_scope = tenant_scope.to_string();
+    let graph_name = graph_name.to_string();
+    let caller = caller.map(ToOwned::to_owned);
+    let store = store.clone();
+    let outcome = compute_off_lock(req_id, move || {
+        let batch_id = crate::server::mutation_batch::opaque_request_key(
+            "sql-catalog",
+            &graph_name,
+            req_id,
+            &sql_method,
+        );
+        let created_at_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_millis() as u64)
+            .unwrap_or(0);
+        // Recovery after commit-before-ack rebuilds the exact proposed batch with
+        // the stored OCC observation. `commit_txn_batch` then verifies every
+        // identity byte (including principal + operation digest) before returning
+        // the result without applying `txn` again.
+        let expected_version = match store.mutation_batch(&batch_id)? {
+            Some(record) => record
+                .batch
+                .expected_graph_version
+                .ok_or_else(|| "committed SQL MutationBatch has no OCC version".to_string())?,
+            None => store.mutation_version(&tenant_scope, &graph_name)?,
+        };
+        let batch = crate::server::mutation_batch::compile_opaque_method(
+            crate::server::mutation_batch::CompileBatch {
+                batch_id: &batch_id,
+                request_id: req_id,
+                principal: caller.as_deref(),
+                tenant: &tenant_scope,
+                graph: &graph_name,
+                placement_epoch: 0,
+                idempotency_key: &batch_id,
+                expected_graph_version: Some(expected_version),
+                fencing_token: None,
+                created_at_ms,
+                default_surface: crate::mutation_batch::MutationSurface::Query,
+                authoritative_state: None,
+            },
+            &sql_method,
+            crate::mutation_batch::MutationSurface::Query,
+            crate::mutation_batch::MutationDomain::SqlCatalog,
+            "sql_catalog_operation",
+        )?;
+        let committed = store.commit_txn_batch(&txn, &batch, created_at_ms)?;
+        let bytes = committed
+            .record
+            .result_msgpack
+            .as_deref()
+            .ok_or_else(|| "committed SQL MutationBatch has no result".to_string())?;
+        eg_types::msgpack::decode_bounded::<usize>(
+            bytes,
+            eg_types::msgpack::MsgpackLimits::new(64, 1, 1),
+        )
+        .map_err(|_| "committed SQL result is corrupt".to_string())
+    })
+    .await;
+    sql_write_ack(req_id, tag, outcome)
+}
+
 /// Resolve the node ids a WHERE selects (CONCEPT:EG-KG.query.mirrors-pgwire). `Id` is the fast path (the
 /// node if it exists); `Predicate` (CONCEPT:EG-KG.query.compound-predicate-decode) scans the node store once,
 /// decodes each blob to a row map (with the synthetic `id` column injected) and
@@ -3051,9 +3641,7 @@ fn matched_node_ids(core: &GraphCore, selector: &eg_query::WhereEq) -> Vec<Strin
         eg_query::WhereEq::Predicate { pred, .. } => {
             let mut out = Vec::new();
             for (id, blob) in core.get_nodes() {
-                if let Ok(serde_json::Value::Object(mut obj)) =
-                    rmp_serde::from_slice::<serde_json::Value>(&blob)
-                {
+                if let Ok(mut obj) = eg_types::msgpack::decode_property_object(&blob) {
                     obj.entry("id".to_string())
                         .or_insert_with(|| serde_json::Value::String(id.clone()));
                     if pred.eval(&obj) {
@@ -3087,32 +3675,51 @@ fn to_store_columns(cols: &[eg_query::ColumnDef]) -> Result<Vec<eg_query::Column
         .collect()
 }
 
-/// Route a decoded `ALTER TABLE` action to the matching durable `TableStore` mutation
-/// (CONCEPT:EG-KG.query.register-user-tables-alongside ADD COLUMN + CONCEPT:EG-KG.query.rename-table-moves-catalog DROP/RENAME COLUMN, RENAME TABLE, ALTER
-/// COLUMN TYPE, DROP CONSTRAINT). Mirrors the embedded/pgwire dispatch.
+/// Lower a decoded `ALTER TABLE` action into the shared transactional table-store
+/// operation. The SQL native coordinator can then apply the catalog change and its
+/// MutationBatch metadata in one redb transaction.
 #[cfg(feature = "query")]
-fn apply_alter_table(
-    store: &eg_query::TableStore,
-    plan: eg_query::AlterTablePlan,
-) -> Result<(), String> {
+fn alter_table_txn_op(plan: eg_query::AlterTablePlan) -> Result<eg_query::TxnOp, String> {
     use eg_query::AlterTableAction as A;
     match plan.action {
         A::AddColumn(col) => {
             let columns = to_store_columns(std::slice::from_ref(&col))?;
             let column = columns.into_iter().next().ok_or("ALTER TABLE: no column")?;
-            store.add_column(&plan.name, column)
+            Ok(eg_query::TxnOp::AddColumn {
+                table: plan.name,
+                column,
+            })
         }
-        A::DropColumn { column, if_exists } => store.drop_column(&plan.name, &column, if_exists),
-        A::RenameColumn { from, to } => store.rename_column(&plan.name, &from, &to),
-        A::RenameTable { new_name } => store.rename_table(&plan.name, &new_name),
+        A::DropColumn { column, if_exists } => Ok(eg_query::TxnOp::DropColumn {
+            table: plan.name,
+            column,
+            if_exists,
+        }),
+        A::RenameColumn { from, to } => Ok(eg_query::TxnOp::RenameColumn {
+            table: plan.name,
+            from,
+            to,
+        }),
+        A::RenameTable { new_name } => Ok(eg_query::TxnOp::RenameTable {
+            table: plan.name,
+            new_name,
+        }),
         A::AlterColumnType { column, new_type } => {
             let ty = eg_query::ColumnType::parse(&new_type)?;
-            store.alter_column_type(&plan.name, &column, ty)
+            Ok(eg_query::TxnOp::AlterColumnType {
+                table: plan.name,
+                column,
+                new_type: ty,
+            })
         }
         A::DropConstraint {
             constraint,
             if_exists,
-        } => store.drop_constraint(&plan.name, &constraint, if_exists),
+        } => Ok(eg_query::TxnOp::DropConstraint {
+            table: plan.name,
+            constraint,
+            if_exists,
+        }),
     }
 }
 
@@ -3136,7 +3743,7 @@ fn nl_schema_hint(core: &Arc<GraphCore>) -> String {
     let snap = core.analysis_snapshot();
     let mut labels: BTreeSet<String> = BTreeSet::new();
     for blob in snap.node_properties.values().take(SCAN_CAP) {
-        if let Ok(v) = rmp_serde::from_slice::<serde_json::Value>(blob) {
+        if let Ok(v) = eg_types::msgpack::decode_property_value(blob) {
             for key in ["type", "node_type", "label"] {
                 if let Some(s) = v.get(key).and_then(|x| x.as_str()) {
                     labels.insert(s.to_string());
@@ -3164,13 +3771,13 @@ fn nl_schema_hint(core: &Arc<GraphCore>) -> String {
 ))]
 fn rls_snapshot(
     core: &Arc<GraphCore>,
-    #[cfg(feature = "security")] caller: Option<&str>,
+    #[cfg(feature = "security")] caller: &str,
     #[cfg(feature = "security")] rls: &Arc<crate::isolation::IsolationLayer>,
 ) -> crate::graph::GraphView {
     #[cfg_attr(not(feature = "security"), allow(unused_mut))]
     let mut snap = core.analysis_snapshot();
     #[cfg(feature = "security")]
-    rls.filter_view(caller.unwrap_or(""), &mut snap);
+    rls.filter_view(caller, &mut snap);
     snap
 }
 
@@ -3181,18 +3788,14 @@ fn rls_snapshot(
 /// caller, agent A's cached (A-filtered) result could be served to agent B for the
 /// same query text — a cross-agent data leak.
 ///
-/// Fix (option a, "include the caller's RLS-key in the cache key"): when RLS is
-/// ACTIVE (`rls.has_rules()` — at least one identity registered, i.e. the engine is
-/// in multi-tenant enforcing mode), we fold the caller's RLS context into the hash
+/// The caller's RLS context is always folded into the hash
 /// `kind` so a different caller keys to a different cache slot. The agent_id IS the
 /// complete RLS visibility key: `IsolationLayer::filter_view`/`can_see_row` resolve
 /// a row's visibility for a caller PURELY from that caller's agent_id against the
 /// registered identities (owner / explicit grants / manager-of / System role), so
 /// two requests with the same agent_id always get the byte-identical filtered view,
 /// and two with different agent_ids may not — exactly the cache-key equivalence we
-/// need. When RLS is INACTIVE (single-tenant, `has_rules()==false`, or the `security`
-/// feature is off) the salt is empty and the key is the plain `(kind, payload)` —
-/// zero behavior change from the cache-only branch.
+/// need. A build without the `security` feature uses the plain `(kind, payload)`.
 #[cfg(all(
     feature = "result-cache",
     any(feature = "query", feature = "cypher", feature = "graphql")
@@ -3200,20 +3803,112 @@ fn rls_snapshot(
 fn rls_cache_hash(
     kind: &str,
     payload: &[u8],
-    #[cfg(feature = "security")] caller: Option<&str>,
-    #[cfg(feature = "security")] rls: &Arc<crate::isolation::IsolationLayer>,
+    #[cfg(feature = "security")] caller: &str,
+    #[cfg(feature = "security")] _rls: &Arc<crate::isolation::IsolationLayer>,
 ) -> u128 {
     #[cfg(feature = "security")]
     {
-        // RLS active ⇒ namespace the hash by the caller's visibility key (agent_id).
-        // The `rls:` prefix keeps it distinct from any other kind. RLS inactive ⇒
-        // fall through to the plain key so single-tenant caching is byte-identical.
-        if rls.has_rules() {
-            let salted_kind = format!("rls:{}:{}", caller.unwrap_or(""), kind);
-            return ResultCache::hash_query(&salted_kind, payload);
-        }
+        let salted_kind = format!("rls:{caller}:{kind}");
+        ResultCache::hash_query(&salted_kind, payload)
     }
-    ResultCache::hash_query(kind, payload)
+    #[cfg(not(feature = "security"))]
+    {
+        ResultCache::hash_query(kind, payload)
+    }
+}
+
+#[cfg(test)]
+mod current_auth_test_support {
+    use crate::acl::{AgentIdentity, AgentRole, RequestContextClaims};
+    use crate::isolation::IsolationLayer;
+    use crate::protocol::{Method, Request};
+    use crate::server::{compute_verified_envelope_token, VerifiedEnvelopeParams};
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    const TEST_AGENT: &str = "unit-test-agent";
+    static NONCE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+
+    pub(super) fn current_isolation() -> IsolationLayer {
+        current_isolation_with_agents(&[])
+    }
+
+    pub(super) fn current_isolation_with_agents(agent_ids: &[&str]) -> IsolationLayer {
+        let mut isolation = IsolationLayer::new();
+        isolation.register_agent(AgentIdentity {
+            agent_id: TEST_AGENT.to_string(),
+            role: AgentRole::System,
+            teams: Vec::new(),
+            roles: Vec::new(),
+        });
+        for agent_id in agent_ids {
+            isolation.register_agent(AgentIdentity {
+                agent_id: (*agent_id).to_string(),
+                role: AgentRole::Agent,
+                teams: Vec::new(),
+                roles: Vec::new(),
+            });
+        }
+        isolation
+    }
+
+    pub(super) fn current_request(secret: &str, id: u64, graph: &str, method: Method) -> Request {
+        current_request_as(secret, id, graph, TEST_AGENT, method)
+    }
+
+    pub(super) fn current_request_as(
+        secret: &str,
+        id: u64,
+        graph: &str,
+        agent_id: &str,
+        method: Method,
+    ) -> Request {
+        std::env::set_var("EPISTEMIC_GRAPH_AUDIENCE", "epistemic-graph-test");
+        std::env::set_var("EPISTEMIC_GRAPH_TENANT", "tenant-shared");
+        std::env::set_var("EPISTEMIC_GRAPH_POLICY_VERSION", "policy-test");
+        std::env::set_var(
+            "EPISTEMIC_GRAPH_SECURITY_STATE_DIR",
+            std::env::temp_dir().join(format!("epistemic-graph-unit-auth-{}", std::process::id())),
+        );
+        let context = RequestContextClaims {
+            principal: agent_id.to_string(),
+            tenant: "tenant-shared".to_string(),
+            audience: "epistemic-graph-test".to_string(),
+            agent_id: agent_id.to_string(),
+            roles: Vec::new(),
+            scopes: vec!["*".to_string()],
+            policy_version: "policy-test".to_string(),
+            delegation: Vec::new(),
+        };
+        let mut request = Request {
+            id,
+            graph: graph.to_string(),
+            auth_token: String::new(),
+            agent_id: Some(agent_id.to_string()),
+            method,
+        };
+        let sequence = NONCE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let issued_at = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("the system clock is after the Unix epoch");
+        let nonce = format!(
+            "query-{}-{id}-{sequence}-{}",
+            std::process::id(),
+            issued_at.as_nanos()
+        );
+        let idempotency_key = format!("query-request-{id}-{sequence}");
+        request.auth_token = compute_verified_envelope_token(
+            secret,
+            &request,
+            &VerifiedEnvelopeParams {
+                context: &context,
+                timestamp: issued_at.as_secs(),
+                nonce: &nonce,
+                idempotency_key: &idempotency_key,
+            },
+        );
+        request
+    }
 }
 
 #[cfg(all(test, feature = "security", feature = "query", feature = "cypher"))]
@@ -3233,10 +3928,10 @@ mod rls_no_exfiltrate_tests {
         Arc::new(rmp_serde::to_vec_named(&m).unwrap())
     }
 
-    /// Three nodes: B's private, a public one, an unowned legacy one.
+    /// Three nodes: B's private, an explicitly public one, and an untagged one.
     fn seeded_view() -> GraphView {
         let mut v = GraphView::default();
-        for id in ["secret_b", "public_x", "legacy_z"] {
+        for id in ["secret_b", "public_x", "untagged_z"] {
             let idx = v.graph.add_node(id.to_string());
             v.node_map.insert(id.to_string(), idx);
         }
@@ -3257,7 +3952,7 @@ mod rls_no_exfiltrate_tests {
             ]),
         );
         v.node_properties
-            .insert("legacy_z".to_string(), node_blob(&[("type", "Legacy")]));
+            .insert("untagged_z".to_string(), node_blob(&[("type", "Untagged")]));
         v
     }
 
@@ -3279,7 +3974,12 @@ mod rls_no_exfiltrate_tests {
     }
 
     fn sql_ids(view: &GraphView) -> Vec<String> {
-        let r = eg_query::exec_sql(view, "SELECT id FROM nodes").expect("sql");
+        let r = eg_query::exec_sql(
+            view,
+            "SELECT id FROM nodes",
+            &eg_query::CancellationToken::new(),
+        )
+        .expect("sql");
         r.rows
             .iter()
             .filter_map(|blob| {
@@ -3307,7 +4007,7 @@ mod rls_no_exfiltrate_tests {
             ids.contains(&"public_x".to_string()),
             "public hidden: {ids:?}"
         );
-        assert!(ids.contains(&"legacy_z".to_string()));
+        assert!(!ids.contains(&"untagged_z".to_string()));
 
         // Bob (owner) sees his own private node.
         let mut vb = seeded_view();
@@ -3352,11 +4052,10 @@ mod rls_no_exfiltrate_tests {
     feature = "streaming"
 ))]
 mod result_cache_dispatch_tests {
+    use super::current_auth_test_support::{current_isolation, current_request};
     use crate::channels::ChannelManager;
-    use crate::isolation::IsolationLayer;
     use crate::protocol::{Method, Request, Response, ResultPayload};
     use crate::registry::GraphRegistry;
-    use crate::server::auth::compute_auth_token;
     use crate::server::dispatch;
     use crate::server::state::ServerState;
     use dashmap::DashMap;
@@ -3372,17 +4071,16 @@ mod result_cache_dispatch_tests {
                 crate::server::persistence::cold_offload::ColdTenantTracker::new(),
             ),
             registry: GraphRegistry::new(),
-            isolation: IsolationLayer::new(),
+            isolation: current_isolation(),
             channels: ChannelManager::new(),
             auth_secret: SECRET.to_string(),
             persist_dir: None,
             persistence: None,
-            redb_authoritative: false,
             max_in_flight: Arc::new(Semaphore::new(16)),
             read_admission: Arc::new(Semaphore::new(16)),
             per_graph_inflight: Arc::new(DashMap::new()),
             per_graph_inflight_limit: 8,
-            write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::from_env()),
+            write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
             open_txns: Arc::new(DashMap::new()),
             txn_id_gen: Arc::new(crate::server::txn::TxnIdGen::default()),
             txn_ttl_secs: 300,
@@ -3398,8 +4096,6 @@ mod result_cache_dispatch_tests {
             multi_raft: None,
             #[cfg(feature = "tsdb")]
             tsdb_store: None,
-            #[cfg(feature = "rdf-redb")]
-            rdf_quads: None,
             #[cfg(feature = "streaming")]
             cdc: Some(Arc::new(crate::server::cdc::CdcHub::new())),
             #[cfg(feature = "wasm-udf")]
@@ -3412,25 +4108,17 @@ mod result_cache_dispatch_tests {
             foreign_sources: Arc::new(DashMap::new()),
             #[cfg(feature = "kv")]
             kv: None,
-            #[cfg(feature = "dataset-handle")]
-            dataset_handles: Arc::new(crate::server::dataset_handle::DatasetHandleRegistry::new()),
             #[cfg(feature = "lake")]
             lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
         }))
     }
 
     fn req(id: u64, method: Method) -> Request {
-        Request {
-            id,
-            graph: "__commons__".into(),
-            auth_token: compute_auth_token(SECRET, id),
-            agent_id: None,
-            method,
-        }
+        current_request(SECRET, id, "__commons__", method)
     }
 
     async fn add_node(state: &Arc<RwLock<ServerState>>, id: u64, node: &str, label: &str) {
-        let props = serde_json::json!({ "type": label });
+        let props = serde_json::json!({ "node_type": label });
         let bytes = rmp_serde::to_vec_named(&props).unwrap();
         let r = dispatch(
             state,
@@ -3480,7 +4168,17 @@ mod result_cache_dispatch_tests {
         let (h0, m0) = cache_stats(&core);
 
         // First query: cold MISS, computes + caches.
-        let r1 = dispatch(&state, req(10, Method::CypherQuery { query: Q.into() })).await;
+        let r1 = dispatch(
+            &state,
+            req(
+                10,
+                Method::CypherQuery {
+                    query: Q.into(),
+                    mode: crate::protocol::CypherMode::Read,
+                },
+            ),
+        )
+        .await;
         assert!(r1.error.is_none());
         let bytes1 = raw(&r1);
         let (h1, m1) = cache_stats(&core);
@@ -3488,7 +4186,17 @@ mod result_cache_dispatch_tests {
 
         // Second identical query on the UNCHANGED graph: HIT, identical bytes, no
         // recompute (the hit counter moved, the miss counter did not).
-        let r2 = dispatch(&state, req(11, Method::CypherQuery { query: Q.into() })).await;
+        let r2 = dispatch(
+            &state,
+            req(
+                11,
+                Method::CypherQuery {
+                    query: Q.into(),
+                    mode: crate::protocol::CypherMode::Read,
+                },
+            ),
+        )
+        .await;
         assert_eq!(raw(&r2), bytes1, "cached bytes identical to computed");
         let (h2, m2) = cache_stats(&core);
         assert_eq!((h2 - h1, m2 - m1), (1, 0), "second query hit the cache");
@@ -3499,7 +4207,17 @@ mod result_cache_dispatch_tests {
         assert_ne!(core.version(), v_before, "write must bump version");
 
         // Same query again: MISS (recompute), and the result is CORRECT (now 3 rows).
-        let r3 = dispatch(&state, req(12, Method::CypherQuery { query: Q.into() })).await;
+        let r3 = dispatch(
+            &state,
+            req(
+                12,
+                Method::CypherQuery {
+                    query: Q.into(),
+                    mode: crate::protocol::CypherMode::Read,
+                },
+            ),
+        )
+        .await;
         assert!(r3.error.is_none());
         let bytes3 = raw(&r3);
         assert_ne!(
@@ -3514,7 +4232,17 @@ mod result_cache_dispatch_tests {
         );
 
         // And it is cached again at the new version: the next identical query HITS.
-        let r4 = dispatch(&state, req(13, Method::CypherQuery { query: Q.into() })).await;
+        let r4 = dispatch(
+            &state,
+            req(
+                13,
+                Method::CypherQuery {
+                    query: Q.into(),
+                    mode: crate::protocol::CypherMode::Read,
+                },
+            ),
+        )
+        .await;
         assert_eq!(raw(&r4), bytes3);
         let (h4, _m4) = cache_stats(&core);
         assert_eq!(h4 - h3, 1, "post-write result is itself cached + re-hit");
@@ -3534,8 +4262,28 @@ mod result_cache_dispatch_tests {
 
         // Warm B's cache: query B once (miss) then again (hit) — B is now serving a
         // cached result for the graph.
-        let _ = dispatch(&b, req(20, Method::CypherQuery { query: Q.into() })).await;
-        let r_hit = dispatch(&b, req(21, Method::CypherQuery { query: Q.into() })).await;
+        let _ = dispatch(
+            &b,
+            req(
+                20,
+                Method::CypherQuery {
+                    query: Q.into(),
+                    mode: crate::protocol::CypherMode::Read,
+                },
+            ),
+        )
+        .await;
+        let r_hit = dispatch(
+            &b,
+            req(
+                21,
+                Method::CypherQuery {
+                    query: Q.into(),
+                    mode: crate::protocol::CypherMode::Read,
+                },
+            ),
+        )
+        .await;
         let (h_before, _m) = cache_stats(&core_b);
         assert!(h_before >= 1, "B should have a warm cache hit");
         let bytes_b_old = raw(&r_hit);
@@ -3567,7 +4315,17 @@ mod result_cache_dispatch_tests {
 
         // B's previously-cached result is now unreachable: the SAME query MISSES.
         let (h2, m2) = cache_stats(&core_b);
-        let r_after = dispatch(&b, req(22, Method::CypherQuery { query: Q.into() })).await;
+        let r_after = dispatch(
+            &b,
+            req(
+                22,
+                Method::CypherQuery {
+                    query: Q.into(),
+                    mode: crate::protocol::CypherMode::Read,
+                },
+            ),
+        )
+        .await;
         let (h3, m3) = cache_stats(&core_b);
         assert_eq!(
             (h3 - h2, m3 - m2),
@@ -3602,11 +4360,10 @@ mod result_cache_dispatch_tests {
     feature = "security"
 ))]
 mod rls_aware_cache_no_cross_agent_leak {
+    use super::current_auth_test_support::{current_isolation_with_agents, current_request_as};
     use crate::channels::ChannelManager;
-    use crate::isolation::{AgentRole, IsolationLayer};
     use crate::protocol::{Method, Request, Response, ResultPayload};
     use crate::registry::GraphRegistry;
-    use crate::server::auth::compute_auth_token;
     use crate::server::dispatch;
     use crate::server::state::ServerState;
     use dashmap::DashMap;
@@ -3622,17 +4379,16 @@ mod rls_aware_cache_no_cross_agent_leak {
                 crate::server::persistence::cold_offload::ColdTenantTracker::new(),
             ),
             registry: GraphRegistry::new(),
-            isolation: IsolationLayer::new(),
+            isolation: current_isolation_with_agents(&["alice", "bob"]),
             channels: ChannelManager::new(),
             auth_secret: SECRET.to_string(),
             persist_dir: None,
             persistence: None,
-            redb_authoritative: false,
             max_in_flight: Arc::new(Semaphore::new(16)),
             read_admission: Arc::new(Semaphore::new(16)),
             per_graph_inflight: Arc::new(DashMap::new()),
             per_graph_inflight_limit: 8,
-            write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::from_env()),
+            write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
             open_txns: Arc::new(DashMap::new()),
             txn_id_gen: Arc::new(crate::server::txn::TxnIdGen::default()),
             txn_ttl_secs: 300,
@@ -3648,8 +4404,6 @@ mod rls_aware_cache_no_cross_agent_leak {
             multi_raft: None,
             #[cfg(feature = "tsdb")]
             tsdb_store: None,
-            #[cfg(feature = "rdf-redb")]
-            rdf_quads: None,
             #[cfg(feature = "streaming")]
             cdc: Some(Arc::new(crate::server::cdc::CdcHub::new())),
             #[cfg(feature = "wasm-udf")]
@@ -3662,8 +4416,6 @@ mod rls_aware_cache_no_cross_agent_leak {
             foreign_sources: Arc::new(DashMap::new()),
             #[cfg(feature = "kv")]
             kv: None,
-            #[cfg(feature = "dataset-handle")]
-            dataset_handles: Arc::new(crate::server::dataset_handle::DatasetHandleRegistry::new()),
             #[cfg(feature = "lake")]
             lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
         }))
@@ -3671,13 +4423,7 @@ mod rls_aware_cache_no_cross_agent_leak {
 
     /// A request as `agent_id`.
     fn req_as(id: u64, agent_id: &str, method: Method) -> Request {
-        Request {
-            id,
-            graph: "__commons__".into(),
-            auth_token: compute_auth_token(SECRET, id),
-            agent_id: Some(agent_id.into()),
-            method,
-        }
+        current_request_as(SECRET, id, "__commons__", agent_id, method)
     }
 
     fn raw(resp: &Response) -> Vec<u8> {
@@ -3685,56 +4431,6 @@ mod rls_aware_cache_no_cross_agent_leak {
             Some(ResultPayload::Raw(b)) => b.clone(),
             other => panic!("expected Raw result, got {other:?}"),
         }
-    }
-
-    /// Bootstrap a `System`-role `"root"` identity via ONE dispatch call while the
-    /// layer has no rules yet (EG-P0-6: `RegisterIdentity` now requires admin
-    /// capability once ANY identity exists — the very first registration is the
-    /// documented back-compat exemption that makes bootstrap possible at all).
-    /// `System` role always holds admin capability, so `root` can register every
-    /// OTHER test identity below. Idempotent (`register_agent` is an upsert), so
-    /// calling it more than once across these tests is harmless.
-    async fn ensure_root(state: &Arc<RwLock<ServerState>>) {
-        let r = dispatch(
-            state,
-            req_as(
-                999_000,
-                "root",
-                Method::RegisterIdentity {
-                    agent_id: "root".into(),
-                    role: AgentRole::System,
-                    teams: vec![],
-                    signature: String::new(),
-                    roles: vec![],
-                },
-            ),
-        )
-        .await;
-        assert!(r.error.is_none(), "root bootstrap failed: {:?}", r.error);
-    }
-
-    /// Register `agent` (a plain `Agent`-role identity, for RLS peer-isolation
-    /// testing) via the already-admin `"root"` caller — NOT via self-registration,
-    /// since EG-P0-6 gates `RegisterIdentity` behind admin capability once `root`
-    /// exists.
-    async fn register(state: &Arc<RwLock<ServerState>>, id: u64, agent: &str) {
-        ensure_root(state).await;
-        let r = dispatch(
-            state,
-            req_as(
-                id,
-                "root",
-                Method::RegisterIdentity {
-                    agent_id: agent.into(),
-                    role: AgentRole::Agent,
-                    teams: vec![],
-                    signature: String::new(),
-                    roles: vec![],
-                },
-            ),
-        )
-        .await;
-        assert!(r.error.is_none(), "RegisterIdentity failed: {:?}", r.error);
     }
 
     /// Add a node with RLS owner/visibility props (the `_owner`/`_visibility`
@@ -3748,7 +4444,7 @@ mod rls_aware_cache_no_cross_agent_leak {
         visibility: &str,
     ) {
         let props = serde_json::json!({
-            "type": label,
+            "node_type": label,
             "_owner": owner,
             "_visibility": visibility,
         });
@@ -3786,9 +4482,7 @@ mod rls_aware_cache_no_cross_agent_leak {
     #[tokio::test]
     async fn agent_a_cached_result_is_not_served_to_agent_b() {
         let state = state();
-        // Activate RLS: register two peer agents (no manager/grant between them).
-        register(&state, 1, "alice").await;
-        register(&state, 2, "bob").await;
+        // The fixture provisions two peer agents with no manager/grant between them.
         // A private :Secret node owned by alice (bob must NEVER see it), plus a public
         // :Secret node both can see — so neither agent's result is empty.
         add_rls_node(&state, 10, "alice_secret", "Secret", "alice", "private").await;
@@ -3801,7 +4495,14 @@ mod rls_aware_cache_no_cross_agent_leak {
         let (h0, m0) = core.result_cache().stats();
         let ra1 = dispatch(
             &state,
-            req_as(20, "alice", Method::CypherQuery { query: Q.into() }),
+            req_as(
+                20,
+                "alice",
+                Method::CypherQuery {
+                    query: Q.into(),
+                    mode: crate::protocol::CypherMode::Read,
+                },
+            ),
         )
         .await;
         assert!(ra1.error.is_none());
@@ -3824,7 +4525,14 @@ mod rls_aware_cache_no_cross_agent_leak {
         //    (different agent_id ⇒ different key) and recomputes BOB's filtered view.
         let rb = dispatch(
             &state,
-            req_as(21, "bob", Method::CypherQuery { query: Q.into() }),
+            req_as(
+                21,
+                "bob",
+                Method::CypherQuery {
+                    query: Q.into(),
+                    mode: crate::protocol::CypherMode::Read,
+                },
+            ),
         )
         .await;
         assert!(rb.error.is_none());
@@ -3854,7 +4562,14 @@ mod rls_aware_cache_no_cross_agent_leak {
         //    we didn't simply disable the cache under RLS), and serves her bytes back.
         let ra2 = dispatch(
             &state,
-            req_as(22, "alice", Method::CypherQuery { query: Q.into() }),
+            req_as(
+                22,
+                "alice",
+                Method::CypherQuery {
+                    query: Q.into(),
+                    mode: crate::protocol::CypherMode::Read,
+                },
+            ),
         )
         .await;
         let (h3, m3) = core.result_cache().stats();
@@ -3877,8 +4592,6 @@ mod rls_aware_cache_no_cross_agent_leak {
     #[tokio::test]
     async fn agent_a_graphql_cached_result_is_not_served_to_agent_b() {
         let state = state();
-        register(&state, 1, "alice").await;
-        register(&state, 2, "bob").await;
         add_rls_node(&state, 10, "alice_secret", "Secret", "alice", "private").await;
         add_rls_node(&state, 11, "shared", "Secret", "alice", "public").await;
 
@@ -3985,11 +4698,10 @@ mod rls_aware_cache_no_cross_agent_leak {
 // SELECT; and the read paths still work.
 #[cfg(all(test, feature = "query", feature = "cypher", feature = "graphql"))]
 mod dispatch_write_tests {
+    use super::current_auth_test_support::{current_isolation, current_request};
     use crate::channels::ChannelManager;
-    use crate::isolation::IsolationLayer;
     use crate::protocol::{Method, Request, Response, ResultPayload};
     use crate::registry::GraphRegistry;
-    use crate::server::auth::compute_auth_token;
     use crate::server::dispatch;
     use crate::server::state::ServerState;
     use dashmap::DashMap;
@@ -4005,17 +4717,20 @@ mod dispatch_write_tests {
                 crate::server::persistence::cold_offload::ColdTenantTracker::new(),
             ),
             registry: GraphRegistry::new(),
-            isolation: IsolationLayer::new(),
+            isolation: current_isolation(),
             channels: ChannelManager::new(),
             auth_secret: SECRET.to_string(),
-            persist_dir: None,
+            persist_dir: Some(
+                crate::server::sql_tables::test_persist_dir()
+                    .to_string_lossy()
+                    .into_owned(),
+            ),
             persistence: None,
-            redb_authoritative: false,
             max_in_flight: Arc::new(Semaphore::new(16)),
             read_admission: Arc::new(Semaphore::new(16)),
             per_graph_inflight: Arc::new(DashMap::new()),
             per_graph_inflight_limit: 8,
-            write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::from_env()),
+            write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
             open_txns: Arc::new(DashMap::new()),
             txn_id_gen: Arc::new(crate::server::txn::TxnIdGen::default()),
             txn_ttl_secs: 300,
@@ -4031,8 +4746,6 @@ mod dispatch_write_tests {
             multi_raft: None,
             #[cfg(feature = "tsdb")]
             tsdb_store: None,
-            #[cfg(feature = "rdf-redb")]
-            rdf_quads: None,
             #[cfg(feature = "streaming")]
             cdc: Some(Arc::new(crate::server::cdc::CdcHub::new())),
             #[cfg(feature = "wasm-udf")]
@@ -4045,21 +4758,13 @@ mod dispatch_write_tests {
             foreign_sources: Arc::new(DashMap::new()),
             #[cfg(feature = "kv")]
             kv: None,
-            #[cfg(feature = "dataset-handle")]
-            dataset_handles: Arc::new(crate::server::dataset_handle::DatasetHandleRegistry::new()),
             #[cfg(feature = "lake")]
             lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
         }))
     }
 
     fn req(id: u64, method: Method) -> Request {
-        Request {
-            id,
-            graph: "__commons__".into(),
-            auth_token: compute_auth_token(SECRET, id),
-            agent_id: None,
-            method,
-        }
+        current_request(SECRET, id, "__commons__", method)
     }
 
     fn raw(resp: &Response) -> Vec<u8> {
@@ -4133,6 +4838,7 @@ mod dispatch_write_tests {
                 1,
                 Method::CypherQuery {
                     query: "CREATE (n:Widget {name: 'gizmo', qty: 7})".into(),
+                    mode: crate::protocol::CypherMode::Write,
                 },
             ),
         )
@@ -4145,6 +4851,7 @@ mod dispatch_write_tests {
                 2,
                 Method::CypherQuery {
                     query: "MATCH (n:Widget) RETURN n.name".into(),
+                    mode: crate::protocol::CypherMode::Read,
                 },
             ),
         )
@@ -4156,6 +4863,50 @@ mod dispatch_write_tests {
             .map(|cells| cells[0].as_str().unwrap().to_string())
             .collect();
         assert_eq!(names, vec!["gizmo"], "MATCH must see the CREATEd node");
+    }
+
+    #[tokio::test]
+    async fn cypher_declared_mode_must_match_native_parser() {
+        let state = state();
+        let disguised_write = dispatch(
+            &state,
+            req(
+                1,
+                Method::CypherQuery {
+                    query: "CREATE (n:Forbidden {name: 'write-through-read'})".into(),
+                    mode: crate::protocol::CypherMode::Read,
+                },
+            ),
+        )
+        .await;
+        assert!(
+            disguised_write
+                .error
+                .as_deref()
+                .is_some_and(|message| message.contains("declared mode")),
+            "write declared as read must fail closed: {:?}",
+            disguised_write.error
+        );
+
+        let mislabeled_read = dispatch(
+            &state,
+            req(
+                2,
+                Method::CypherQuery {
+                    query: "MATCH (n) RETURN n".into(),
+                    mode: crate::protocol::CypherMode::Write,
+                },
+            ),
+        )
+        .await;
+        assert!(
+            mislabeled_read
+                .error
+                .as_deref()
+                .is_some_and(|message| message.contains("declared mode")),
+            "read declared as write must fail closed: {:?}",
+            mislabeled_read.error
+        );
     }
 
     /// THE wire-SQL DDL/DML round-trip (CONCEPT:EG-KG.query.mirrors-pgwire): `CREATE TABLE` + `INSERT` + a
@@ -4258,6 +5009,7 @@ mod dispatch_write_tests {
                 3,
                 Method::CypherQuery {
                     query: "MATCH (n:Gadget) RETURN n.name".into(),
+                    mode: crate::protocol::CypherMode::Read,
                 },
             ),
         )
@@ -4277,11 +5029,10 @@ mod dispatch_write_tests {
 // overlaid query → commit exactly as a client would.
 #[cfg(all(test, feature = "query"))]
 mod txn_ryow_dispatch_tests {
+    use super::current_auth_test_support::{current_isolation, current_request};
     use crate::channels::ChannelManager;
-    use crate::isolation::IsolationLayer;
     use crate::protocol::{Method, Request, Response, ResultPayload};
     use crate::registry::GraphRegistry;
-    use crate::server::auth::compute_auth_token;
     use crate::server::dispatch;
     use crate::server::state::ServerState;
     use dashmap::DashMap;
@@ -4298,17 +5049,16 @@ mod txn_ryow_dispatch_tests {
                 crate::server::persistence::cold_offload::ColdTenantTracker::new(),
             ),
             registry: GraphRegistry::new(),
-            isolation: IsolationLayer::new(),
+            isolation: current_isolation(),
             channels: ChannelManager::new(),
             auth_secret: SECRET.to_string(),
             persist_dir: None,
             persistence: None,
-            redb_authoritative: false,
             max_in_flight: Arc::new(Semaphore::new(16)),
             read_admission: Arc::new(Semaphore::new(16)),
             per_graph_inflight: Arc::new(DashMap::new()),
             per_graph_inflight_limit: 8,
-            write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::from_env()),
+            write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
             open_txns: Arc::new(DashMap::new()),
             txn_id_gen: Arc::new(crate::server::txn::TxnIdGen::default()),
             txn_ttl_secs: 300,
@@ -4324,8 +5074,6 @@ mod txn_ryow_dispatch_tests {
             multi_raft: None,
             #[cfg(feature = "tsdb")]
             tsdb_store: None,
-            #[cfg(feature = "rdf-redb")]
-            rdf_quads: None,
             #[cfg(feature = "streaming")]
             cdc: Some(Arc::new(crate::server::cdc::CdcHub::new())),
             #[cfg(feature = "wasm-udf")]
@@ -4338,21 +5086,13 @@ mod txn_ryow_dispatch_tests {
             foreign_sources: Arc::new(DashMap::new()),
             #[cfg(feature = "kv")]
             kv: None,
-            #[cfg(feature = "dataset-handle")]
-            dataset_handles: Arc::new(crate::server::dataset_handle::DatasetHandleRegistry::new()),
             #[cfg(feature = "lake")]
             lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
         }))
     }
 
     fn req(id: u64, method: Method) -> Request {
-        Request {
-            id,
-            graph: "__commons__".into(),
-            auth_token: compute_auth_token(SECRET, id),
-            agent_id: None,
-            method,
-        }
+        current_request(SECRET, id, "__commons__", method)
     }
 
     fn pack(v: serde_json::Value) -> Vec<u8> {
@@ -4459,7 +5199,6 @@ mod txn_ryow_dispatch_tests {
                 Method::TxnUnifiedQueryText {
                     txn_id: txn.clone(),
                     text: vec_q.into(),
-                    reorder_filter_selectivity: None,
                 },
             ),
         )
@@ -4479,7 +5218,6 @@ mod txn_ryow_dispatch_tests {
                 Method::TxnUnifiedQueryText {
                     txn_id: txn.clone(),
                     text: trav_q.into(),
-                    reorder_filter_selectivity: None,
                 },
             ),
         )
@@ -4492,13 +5230,7 @@ mod txn_ryow_dispatch_tests {
         // OFF-TXN identical query: empty — staged writes are invisible before commit.
         let off = dispatch(
             &state,
-            req(
-                8,
-                Method::UnifiedQueryText {
-                    text: vec_q.into(),
-                    reorder_filter_selectivity: None,
-                },
-            ),
+            req(8, Method::UnifiedQueryText { text: vec_q.into() }),
         )
         .await;
         assert!(
@@ -4527,17 +5259,7 @@ mod txn_ryow_dispatch_tests {
         let q = "MATCH (:Committed) |> LIMIT 5";
 
         // Before commit: off-txn empty, in-txn sees it (RYOW).
-        let before = dispatch(
-            &state,
-            req(
-                3,
-                Method::UnifiedQueryText {
-                    text: q.into(),
-                    reorder_filter_selectivity: None,
-                },
-            ),
-        )
-        .await;
+        let before = dispatch(&state, req(3, Method::UnifiedQueryText { text: q.into() })).await;
         assert!(
             unified_ids(&before).is_empty(),
             "off-txn empty before commit"
@@ -4549,7 +5271,6 @@ mod txn_ryow_dispatch_tests {
                 Method::TxnUnifiedQueryText {
                     txn_id: txn.clone(),
                     text: q.into(),
-                    reorder_filter_selectivity: None,
                 },
             ),
         )
@@ -4572,17 +5293,7 @@ mod txn_ryow_dispatch_tests {
             "commit must succeed: {:?}",
             c.error
         );
-        let after = dispatch(
-            &state,
-            req(
-                6,
-                Method::UnifiedQueryText {
-                    text: q.into(),
-                    reorder_filter_selectivity: None,
-                },
-            ),
-        )
-        .await;
+        let after = dispatch(&state, req(6, Method::UnifiedQueryText { text: q.into() })).await;
         assert_eq!(
             unified_ids(&after),
             vec!["cn".to_string()],
@@ -4613,11 +5324,23 @@ mod evidence_resolver_wiring_tests {
         rmp_serde::to_vec_named(&v).unwrap()
     }
 
-    fn edge_blob(relationship_type: &str) -> Vec<u8> {
-        rmp_serde::to_vec_named(&json!({ "relationship_type": relationship_type })).unwrap()
+    fn edge_blob(relationship: &str) -> Vec<u8> {
+        rmp_serde::to_vec_named(&json!({ "relationship": relationship })).unwrap()
     }
 
-    /// A `DocumentSpan` citation resolves to the REAL text excerpt read back out of
+    const SUBJECT: &str = "eg:artifact:0000000000000002";
+
+    fn locus(address: serde_json::Value) -> serde_json::Value {
+        json!({
+            "id": "eg:locus:0000000000000001",
+            "subject": { "kind": "artifact", "id": SUBJECT },
+            "address": address,
+            "policy_ref": "eg:policy:0000000000000003",
+            "derivation_ref": "eg:derivation:0000000000000004"
+        })
+    }
+
+    /// A `CharacterRange` citation resolves to the REAL text excerpt read back out of
     /// the blob CAS -- `explain_evidence_wire` must thread the configured blob store
     /// all the way through to `EvidenceCitationWire::resolved`, not just return the
     /// locus metadata `evidence_citation_wire`'s `alignment`-less twin would.
@@ -4627,12 +5350,8 @@ mod evidence_resolver_wiring_tests {
         let committed = stream_blob_put(cas.as_ref(), "hello world".as_bytes(), 0).unwrap();
 
         let core = GraphCore::new();
-        // The artifact node `explain_evidence_wire`'s locus (`document_id: "doc1"`)
-        // resolves through -- a DIFFERENT node than the `:Evidence` node itself,
-        // mirroring `CasEvidenceResolver`'s own unit tests and the real
-        // `SourceObject -> Blob` identity-chain convention.
         core.add_node(
-            "doc1".into(),
+            SUBJECT.into(),
             node_blob(json!({ "node_type": "Document", "blob_ref": committed.digest })),
         );
         core.add_node(
@@ -4644,9 +5363,9 @@ mod evidence_resolver_wiring_tests {
             node_blob(json!({
                 "type": "Evidence",
                 "confidence": 0.9,
-                "evidence_span": {
-                    "DocumentSpan": { "document_id": "doc1", "start": 0, "end": 5 }
-                },
+                "evidence_locus": locus(json!({
+                    "kind": "character_range", "start": 0, "end": 5
+                })),
             })),
         );
         core.add_edge("evidence1".into(), "claim1".into(), edge_blob("SUPPORTS"))
@@ -4661,9 +5380,9 @@ mod evidence_resolver_wiring_tests {
         let resolved = citation
             .resolved
             .as_ref()
-            .expect("DocumentSpan citation must resolve through the configured blob store");
+            .expect("character-range citation must resolve through the configured blob store");
         assert_eq!(resolved.kind, "text");
-        assert_eq!(resolved.artifact_id, "doc1");
+        assert_eq!(resolved.subject_ref, SUBJECT);
         assert_eq!(resolved.excerpt.as_deref(), Some("hello"));
     }
 
@@ -4682,9 +5401,9 @@ mod evidence_resolver_wiring_tests {
             node_blob(json!({
                 "type": "Evidence",
                 "confidence": 0.9,
-                "evidence_span": {
-                    "DocumentSpan": { "document_id": "doc1", "start": 0, "end": 5 }
-                },
+                "evidence_locus": locus(json!({
+                    "kind": "character_range", "start": 0, "end": 5
+                })),
             })),
         );
         core.add_edge("evidence1".into(), "claim1".into(), edge_blob("SUPPORTS"))
@@ -4699,7 +5418,7 @@ mod evidence_resolver_wiring_tests {
 
     /// A `CodeSymbol` citation resolves to the REAL line-range excerpt -- proving
     /// the wiring covers the newly-added `CodeSymbol` codec path too, not just
-    /// `DocumentSpan`.
+    /// `CharacterRange`.
     #[tokio::test]
     async fn explain_evidence_wire_attaches_a_real_code_symbol_excerpt() {
         let cas: Arc<dyn ChunkStore> = Arc::new(RedbChunkStore::open_temp().unwrap());
@@ -4708,7 +5427,7 @@ mod evidence_resolver_wiring_tests {
 
         let core = GraphCore::new();
         core.add_node(
-            "file1".into(),
+            SUBJECT.into(),
             node_blob(json!({ "node_type": "Code", "blob_ref": committed.digest })),
         );
         core.add_node(
@@ -4720,14 +5439,13 @@ mod evidence_resolver_wiring_tests {
             node_blob(json!({
                 "type": "Evidence",
                 "confidence": 0.9,
-                "evidence_span": {
-                    "CodeSymbol": {
-                        "file_path": "file1",
-                        "symbol": "b",
+                "evidence_locus": locus(json!({
+                        "kind": "code_symbol",
+                        "revision_ref": "eg:revision:0000000000000005",
+                        "symbol_ref": "eg:symbol:0000000000000006",
                         "start_line": 1,
                         "end_line": 4
-                    }
-                },
+                })),
             })),
         );
         core.add_edge("evidence1".into(), "claim1".into(), edge_blob("SUPPORTS"))

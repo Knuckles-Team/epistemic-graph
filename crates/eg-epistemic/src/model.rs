@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 /// How one node's confidence bears on another it is linked to.
 ///
-/// Classified from the edge's `relationship_type` (see [`classify_relationship`]).
+/// Classified from the edge's canonical `relationship` (see [`classify_relationship`]).
 /// A support edge raises the target's belief; a contradiction or attack lowers it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EdgeKind {
@@ -17,13 +17,13 @@ pub enum EdgeKind {
     Attacks,
 }
 
-/// Map an edge `relationship_type` string to an [`EdgeKind`], or `None` if the edge
+/// Map an edge `relationship` string to an [`EdgeKind`], or `None` if the edge
 /// is epistemically neutral (an ordinary structural edge that does not bear on belief).
 ///
 /// The vocabulary mirrors the control-plane `RegistryEdgeType` names so a
 /// `SUPPORTS`/`CONTRADICTS` edge written by `agent-utilities` is understood verbatim.
-pub fn classify_relationship(relationship_type: &str) -> Option<EdgeKind> {
-    match relationship_type.to_ascii_uppercase().as_str() {
+pub fn classify_relationship(relationship: &str) -> Option<EdgeKind> {
+    match relationship.to_ascii_uppercase().as_str() {
         "SUPPORTS" | "SUPPORTS_BELIEF" | "HAS_EVIDENCE" | "CORROBORATES" => {
             Some(EdgeKind::Supports)
         }

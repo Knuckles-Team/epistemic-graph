@@ -5,6 +5,8 @@
 //! zlib-inflate step a full pixel decode would (the Pi-contract discipline: no image
 //! crate, no C codec, in the default build).
 
+use sha2::{Digest, Sha256};
+
 /// The 8-byte PNG signature every valid PNG file starts with.
 const PNG_SIG: [u8; 8] = [0x89, b'P', b'N', b'G', b'\r', b'\n', 0x1a, b'\n'];
 
@@ -84,20 +86,9 @@ pub fn read_jpeg_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
     None
 }
 
-/// Deterministic 128-bit FNV-1a content hash, rendered as 32-char lowercase hex — the
-/// SAME construction `eg_tensor::store::content_hash` uses for its blob CAS keys
-/// (duplicated here rather than shared, since `eg-image` must not depend on
-/// `eg-tensor`: both are DAG-parallel leaf crates). Portable + stable across
-/// processes/platforms, which a content-addressed `blob_ref` requires.
+/// SHA-256 content address rendered as 64 lowercase hexadecimal characters.
 pub fn content_hash(bytes: &[u8]) -> String {
-    const OFFSET: u128 = 0x6c62_272e_07bb_0142_62b8_2175_6295_c58d;
-    const PRIME: u128 = 0x0000_0000_0100_0000_0000_0000_0000_013b;
-    let mut h = OFFSET;
-    for &b in bytes {
-        h ^= b as u128;
-        h = h.wrapping_mul(PRIME);
-    }
-    format!("{h:032x}")
+    format!("{:x}", Sha256::digest(bytes))
 }
 
 #[cfg(test)]
@@ -180,6 +171,6 @@ mod tests {
         let c = content_hash(b"world");
         assert_eq!(a, b);
         assert_ne!(a, c);
-        assert_eq!(a.len(), 32);
+        assert_eq!(a.len(), 64);
     }
 }

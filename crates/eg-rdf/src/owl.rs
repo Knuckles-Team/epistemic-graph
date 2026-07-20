@@ -1684,33 +1684,51 @@ pub fn instances_of_weighted(
 
 /// Bridge a node's string `type` to an OWL class KEY (CONCEPT:EG-KG.ontology.string-type-iri-class) — the string-type
 /// ↔ IRI-class bridge. An already-IRI `t` (`<...>` or `http…`) is returned in canonical
-/// `<iri>` form; a BARE local name (`Widget`) is mapped to `<class_base + t>` when a
-/// `class_base` is supplied (the `REASON` target's namespace), else returned as-is (the
-/// prior bare-string behavior — `class_base = None` is byte-for-byte backward compatible).
+/// `<iri>` form; a local name (`Widget`) is mapped to `<class_base + t>`. The current
+/// class base is mandatory and must be an absolute namespace ending in `/`, `#`, or
+/// `:`; there is no bare-string class key.
 /// Keeps the class key in the SAME canonical form the reasoner/ontology signature uses,
 /// so a `{"type":"Sensor"}` node becomes a member of `<base/Sensor>` and — through the
 /// TBox subclass closure — of any superclass the ontology declares.
-pub fn bridge_type_to_class(t: &str, class_base: Option<&str>) -> String {
-    if t.starts_with('<') || t.starts_with("http") {
-        iri(t.trim_start_matches('<').trim_end_matches('>'))
-    } else if let Some(base) = class_base {
-        iri(&format!("{base}{t}"))
+pub fn bridge_type_to_class(t: &str, class_base: &str) -> Result<String, String> {
+    let class_base = class_base.trim();
+    if class_base.is_empty()
+        || !(class_base.ends_with('/') || class_base.ends_with('#') || class_base.ends_with(':'))
+        || oxrdf::NamedNode::new(format!("{class_base}Class")).is_err()
+    {
+        return Err(
+            "OWL class bridge requires an absolute current class base namespace".to_string(),
+        );
+    }
+    let t = t.trim();
+    if t.is_empty() {
+        return Err("OWL class bridge received an empty type".to_string());
+    }
+    if t.starts_with('<') != t.ends_with('>') {
+        return Err("OWL class bridge received a malformed bracketed IRI".to_string());
+    }
+    let bare = t.trim_start_matches('<').trim_end_matches('>');
+    if oxrdf::NamedNode::new(bare).is_ok() {
+        Ok(iri(bare))
     } else {
-        t.to_string()
+        let candidate = format!("{class_base}{t}");
+        oxrdf::NamedNode::new(&candidate)
+            .map_err(|_| "OWL class bridge produced an invalid class IRI".to_string())?;
+        Ok(iri(&candidate))
     }
 }
 
 /// The NAMESPACE of a class IRI (CONCEPT:EG-KG.ontology.string-type-iri-class) — everything up to and INCLUDING the
-/// last `/` or `#`, the base the string-type↔IRI-class bridge maps a bare local name
+/// last `/`, `#`, or `:`, the base the string-type↔IRI-class bridge maps a bare local name
 /// into. `<http://ex/Device>` → `http://ex/`; `<http://ex#Device>` → `http://ex#`.
 /// `None` when `iri` is not an IRI (a bare label has no namespace to inherit) or carries
-/// no `/`/`#` separator.
+/// no namespace separator.
 pub fn class_namespace(iri: &str) -> Option<String> {
     let bare = iri.trim().trim_start_matches('<').trim_end_matches('>');
-    if !(bare.starts_with("http") || bare.contains(':')) {
+    if oxrdf::NamedNode::new(bare).is_err() {
         return None;
     }
-    let cut = bare.rfind(['/', '#'])?;
+    let cut = bare.rfind(['/', '#', ':'])?;
     Some(bare[..=cut].to_string())
 }
 
@@ -1718,19 +1736,18 @@ pub fn class_namespace(iri: &str) -> Option<String> {
 /// blobs (the folded `type` property + any explicit `rdf:type` edges) so a `Reason`
 /// Op can classify the live graph. The class ids are canonical `<iri>` form to match
 /// the ontology signature. `class_base` (CONCEPT:EG-KG.ontology.string-type-iri-class) bridges a BARE string `type`
-/// into that namespace so a string-typed node participates in `REASON <iri>`; `None`
-/// keeps a bare type as-is (the prior behavior).
+/// into that mandatory namespace so a string-typed node participates in `REASON <iri>`.
 pub fn asserted_types_from_view(
     view: &eg_core::graph::GraphView,
-    class_base: Option<&str>,
-) -> HashMap<String, HashSet<String>> {
+    class_base: &str,
+) -> Result<HashMap<String, HashSet<String>>, String> {
     let mut out: HashMap<String, HashSet<String>> = HashMap::new();
     for (id, blob) in &view.node_properties {
-        if let Ok(v) = rmp_serde::from_slice::<serde_json::Value>(blob.as_slice()) {
+        if let Ok(v) = eg_types::msgpack::decode_property_value(blob.as_slice()) {
             if let Some(t) = v.get("type").and_then(|x| x.as_str()) {
                 // A folded `type` may be a bare IRI string, a bare local label (bridged
                 // to `class_base` when supplied), or already canonical `<iri>`.
-                let class = bridge_type_to_class(t, class_base);
+                let class = bridge_type_to_class(t, class_base)?;
                 out.entry(id.clone()).or_default().insert(class);
             }
         }
@@ -1740,15 +1757,15 @@ pub fn asserted_types_from_view(
     let rdf_type_edge = iri(RDF_TYPE);
     for ((s, o), blobs) in &view.edge_properties {
         for blob in blobs {
-            if let Ok(v) = rmp_serde::from_slice::<serde_json::Value>(blob.as_slice()) {
-                let pred = v.get("type").and_then(|x| x.as_str());
+            if let Ok(v) = eg_types::msgpack::decode_property_value(blob.as_slice()) {
+                let pred = v.get("relationship").and_then(|x| x.as_str());
                 if pred == Some(RDF_TYPE) || pred == Some(rdf_type_edge.as_str()) {
                     out.entry(s.clone()).or_default().insert(o.clone());
                 }
             }
         }
     }
-    out
+    Ok(out)
 }
 
 /// Like [`asserted_types_from_view`] but ALSO reads each fact's confidence
@@ -1764,8 +1781,8 @@ pub fn asserted_types_with_confidence_from_view(
     view: &eg_core::graph::GraphView,
     now: u64,
     default_half_life: f64,
-    class_base: Option<&str>,
-) -> HashMap<String, Vec<(String, f64)>> {
+    class_base: &str,
+) -> Result<HashMap<String, Vec<(String, f64)>>, String> {
     fn fact_conf_of(v: &serde_json::Value, now: u64, default_half_life: f64) -> f64 {
         let confidence = v.get("confidence").and_then(|x| x.as_f64()).unwrap_or(1.0);
         let last_access = v
@@ -1787,10 +1804,10 @@ pub fn asserted_types_with_confidence_from_view(
 
     let mut out: HashMap<String, Vec<(String, f64)>> = HashMap::new();
     for (id, blob) in &view.node_properties {
-        if let Ok(v) = rmp_serde::from_slice::<serde_json::Value>(blob.as_slice()) {
+        if let Ok(v) = eg_types::msgpack::decode_property_value(blob.as_slice()) {
             if let Some(t) = v.get("type").and_then(|x| x.as_str()) {
                 // Bridge a bare string type into `class_base` (CONCEPT:EG-KG.ontology.string-type-iri-class) when given.
-                let class = bridge_type_to_class(t, class_base);
+                let class = bridge_type_to_class(t, class_base)?;
                 let c = fact_conf_of(&v, now, default_half_life);
                 out.entry(id.clone()).or_default().push((class, c));
             }
@@ -1800,8 +1817,8 @@ pub fn asserted_types_with_confidence_from_view(
     let rdf_type_edge = iri(RDF_TYPE);
     for ((s, o), blobs) in &view.edge_properties {
         for blob in blobs {
-            if let Ok(v) = rmp_serde::from_slice::<serde_json::Value>(blob.as_slice()) {
-                let pred = v.get("type").and_then(|x| x.as_str());
+            if let Ok(v) = eg_types::msgpack::decode_property_value(blob.as_slice()) {
+                let pred = v.get("relationship").and_then(|x| x.as_str());
                 if pred == Some(RDF_TYPE) || pred == Some(rdf_type_edge.as_str()) {
                     let c = fact_conf_of(&v, now, default_half_life);
                     out.entry(s.clone()).or_default().push((o.clone(), c));
@@ -1809,24 +1826,24 @@ pub fn asserted_types_with_confidence_from_view(
             }
         }
     }
-    out
+    Ok(out)
 }
 
 /// Extract the OWL/RDF triples (the TBox axioms + folded `rdf:type` facts) directly
 /// from a live `GraphView`, WITHOUT the lossless-literal quad table (TBox axioms are
 /// resource triples — `subClassOf`/`onProperty`/`someValuesFrom`/etc. — so the quad
 /// table, which only holds multi-valued LITERALS, is irrelevant). Each edge becomes
-/// `(s, edge-type, o)`; each node `type` cell becomes `(node, rdf:type, type)`. This
+/// `(s, relationship, o)`; each node `type` cell becomes `(node, rdf:type, type)`. This
 /// is what a `Reason` Op classifies when no explicit ontology document is supplied —
 /// it reasons over the axioms already loaded into the graph via `AddTriples`.
 pub fn tbox_triples_from_view(view: &eg_core::graph::GraphView) -> Vec<Triple> {
-    use oxrdf::{BlankNode, NamedNode, Subject};
+    use oxrdf::{BlankNode, NamedNode, NamedOrBlankNode};
 
-    fn subj(id: &str) -> Option<Subject> {
+    fn subj(id: &str) -> Option<NamedOrBlankNode> {
         if let Some(i) = id.strip_prefix('<').and_then(|s| s.strip_suffix('>')) {
-            NamedNode::new(i).ok().map(Subject::NamedNode)
+            NamedNode::new(i).ok().map(NamedOrBlankNode::NamedNode)
         } else if let Some(b) = id.strip_prefix("_:") {
-            BlankNode::new(b).ok().map(Subject::BlankNode)
+            BlankNode::new(b).ok().map(NamedOrBlankNode::BlankNode)
         } else {
             None
         }
@@ -1843,11 +1860,11 @@ pub fn tbox_triples_from_view(view: &eg_core::graph::GraphView) -> Vec<Triple> {
     }
 
     let mut out = Vec::new();
-    // Edges → object triples (predicate is the edge `type`).
+    // Edges → object triples (predicate is the edge `relationship`).
     for ((s, o), blobs) in &view.edge_properties {
         for blob in blobs {
-            if let Ok(v) = rmp_serde::from_slice::<serde_json::Value>(blob.as_slice()) {
-                if let Some(pred) = v.get("type").and_then(|x| x.as_str()) {
+            if let Ok(v) = eg_types::msgpack::decode_property_value(blob.as_slice()) {
+                if let Some(pred) = v.get("relationship").and_then(|x| x.as_str()) {
                     if let (Some(su), Some(pr), Some(ob)) =
                         (subj(s), NamedNode::new(pred).ok(), obj(o))
                     {
@@ -1859,7 +1876,7 @@ pub fn tbox_triples_from_view(view: &eg_core::graph::GraphView) -> Vec<Triple> {
     }
     // Node `type` cells → folded rdf:type triples.
     for (id, blob) in &view.node_properties {
-        if let Ok(v) = rmp_serde::from_slice::<serde_json::Value>(blob.as_slice()) {
+        if let Ok(v) = eg_types::msgpack::decode_property_value(blob.as_slice()) {
             if let Some(t) = v.get("type").and_then(|x| x.as_str()) {
                 if let (Some(su), Some(ob)) = (subj(id), obj(t)) {
                     if let Ok(rt) = NamedNode::new(RDF_TYPE) {
@@ -1904,9 +1921,10 @@ pub fn reason_distributed_weighted(
     extra_ontology_triples: &[Triple],
     now: u64,
     half_life: f64,
+    class_base: &str,
     target_class: &str,
     min_confidence: f64,
-) -> WeightedReasonResult {
+) -> Result<WeightedReasonResult, String> {
     // 1. Gather + UNION the TBox axioms across every shard (+ the explicit ontology).
     let mut triples: Vec<Triple> = Vec::new();
     for v in views {
@@ -1920,13 +1938,11 @@ pub fn reason_distributed_weighted(
 
     // 3. Gather + UNION the asserted (decayed-confidence) facts across every shard.
     //    A fact for the same instance asserted on two shards keeps the STRONGER.
-    // Bridge bare string types into the target class's namespace (CONCEPT:EG-KG.ontology.string-type-iri-class) so a
-    // string-typed node participates in a distributed `REASON <iri>` too.
-    let class_base = class_namespace(target_class);
+    // Bridge local string types into the caller's explicit current class namespace.
     let mut asserted: HashMap<String, Vec<(String, f64)>> = HashMap::new();
     for v in views {
         for (inst, facts) in
-            asserted_types_with_confidence_from_view(v, now, half_life, class_base.as_deref())
+            asserted_types_with_confidence_from_view(v, now, half_life, class_base)?
         {
             asserted.entry(inst).or_default().extend(facts);
         }
@@ -1972,12 +1988,12 @@ pub fn reason_distributed_weighted(
             .collect()
     };
 
-    WeightedReasonResult {
+    Ok(WeightedReasonResult {
         subclasses,
         instances,
         consistent: cls.consistent,
         unsatisfiable: cls.unsatisfiable.into_iter().collect(),
-    }
+    })
 }
 
 #[cfg(test)]
@@ -2566,7 +2582,9 @@ ex:Article eg:confidence "0.8" .
                 now,
             ),
         ]);
-        let single_res = reason_distributed_weighted(&[&single], &onto, now, hl, "", 0.0);
+        let single_res =
+            reason_distributed_weighted(&[&single], &onto, now, hl, "http://example.org/", "", 0.0)
+                .unwrap();
 
         // The SAME ABox SPLIT across two shards: p1 on shard A, p2+p3 on shard B.
         let shard_a = view_with_individuals(&[(
@@ -2589,7 +2607,16 @@ ex:Article eg:confidence "0.8" .
                 now,
             ),
         ]);
-        let dist_res = reason_distributed_weighted(&[&shard_a, &shard_b], &onto, now, hl, "", 0.0);
+        let dist_res = reason_distributed_weighted(
+            &[&shard_a, &shard_b],
+            &onto,
+            now,
+            hl,
+            "http://example.org/",
+            "",
+            0.0,
+        )
+        .unwrap();
 
         // Identical entailments + confidences.
         assert_eq!(
@@ -2742,5 +2769,25 @@ ex:HumanHeart rdfs:subClassOf ex:Heart .
         );
         let members = instances_of(&cls, &asserted, "<http://example.org/HumanComponent>");
         assert_eq!(members, vec!["<http://example.org/myHeart>".to_string()]);
+    }
+
+    #[test]
+    fn class_bridge_requires_current_absolute_base() {
+        assert!(bridge_type_to_class("Widget", "").is_err());
+        assert!(bridge_type_to_class("Widget", "local/").is_err());
+        assert_eq!(
+            bridge_type_to_class("Widget", "http://example.org/").unwrap(),
+            "<http://example.org/Widget>"
+        );
+        assert_eq!(
+            bridge_type_to_class("urn:example:Widget", "http://example.org/").unwrap(),
+            "<urn:example:Widget>"
+        );
+        assert_eq!(
+            class_namespace("<urn:example:Widget>").as_deref(),
+            Some("urn:example:")
+        );
+        assert!(bridge_type_to_class("<urn:example:Widget", "urn:classes:").is_err());
+        assert!(bridge_type_to_class("bad type", "urn:classes:").is_err());
     }
 }

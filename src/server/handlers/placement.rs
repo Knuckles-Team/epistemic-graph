@@ -1,128 +1,136 @@
-//! Placement-catalog wire RPC (CONCEPT:EG-KG.sharding.placement-route-rpc, DIST-P2-4).
+//! Engine-authoritative placement-route RPC.
 //!
-//! Exposes [`crate::raft::placement::PlacementCatalog`] — DIST-P2-1's ONE placement
-//! authority for virtual partitions — over the served RPC surface via
-//! `Method::PlacementRoute`. Until this module, the catalog was consumed only
-//! INSIDE the engine (`MultiRaft::route_graph`, DIST-P2-2's cross-shard read
-//! fan-out); this is the DIST-P2-4 follow-up `raft/placement.rs`'s module docs
-//! call out: "AU-side consumption ... the separate Wave-2 workstream."
-//!
-//! `PlacementRoute` is always in the `Method` enum (pure serde — no heavy dep, see
-//! `protocol.rs`), exactly like the M3 catalog methods (`CatalogList`/`Reshard`/…)
-//! `handlers/admin.rs` already routes. It self-routes in `dispatch.rs` BEFORE the
-//! per-graph chain (not graph-scoped — the catalog is cluster-wide), so this module
-//! ships two `try_handle`s selected by the `raft` feature, same shape as
-//! `handlers::admin`:
-//!
-//! * `#[cfg(feature = "raft")]` — the real answer. If no `MultiRaft` cluster is
-//!   running on this node (`state.multi_raft` is `None` — the common single-engine
-//!   zero-infra case), that is NOT an error: it is answered exactly like an empty
-//!   catalog (`{"explicit": false}`), because a single-engine deployment has no
-//!   OTHER group to route to — every caller's existing hash-ring fallback is
-//!   correct there by construction.
-//! * `#[cfg(not(feature = "raft"))]` — a build with no Raft support at all answers
-//!   the SAME `{"explicit": false}` JSON (not a hard error) so a caller's fallback
-//!   path triggers identically regardless of which of these three states it hit —
-//!   "unreachable/unsupported catalog" and "reachable catalog with nothing placed
-//!   yet" are indistinguishable ON PURPOSE (see `epistemic_graph.client`'s
-//!   `PlacementClient.route` docstring and AU's `placement_catalog.py` module doc).
-//!
-//! ## The `endpoint` field is deliberately `null`
-//!
-//! The catalog resolves a `(tenant, sub_key)` to a Raft [`crate::raft::GroupId`] +
-//! routing epoch — an INTERNAL replication-group identity, not a client-facing
-//! network address. Mapping a `GroupId` to a connectable `host:port` is deployment
-//! topology the engine does not own here (a multi-group cluster may run every group
-//! in ONE process behind one client-facing listener, or a future topology could
-//! split them across processes) — so the wire answer surfaces `group`/`epoch` and
-//! leaves `endpoint` resolution to the caller's own topology config (e.g. AU's
-//! `GRAPH_SERVICE_ENDPOINTS`/`shard_topology`). This is a documented, justified
-//! partial: real + tested for the group/epoch/redirect routing answer the catalog
-//! actually authorities over; endpoint-mapping is deployment-topology, not a
-//! catalog concern.
+//! Every successful response contains a complete `(group, epoch,
+//! fencing_token)` route. An absent durable catalog row is not delegated to a
+//! client-side hash ring: the engine returns its current unplaced policy. In a
+//! clustered build only the placement-control leader answers, preventing a lagging
+//! follower from publishing an obsolete epoch.
 
 use std::sync::Arc;
 
 use tokio::sync::RwLock;
 
-use crate::protocol::{Method, Response};
+use crate::epistemic_operations::{PlacementRoute, PlacementRouteSchemaVersion};
+use crate::protocol::{Method, Response, ResultPayload};
 use crate::server::state::ServerState;
 
-/// Route `Method::PlacementRoute` (CONCEPT:EG-KG.sharding.placement-route-rpc). `Ok(resp)` = handled;
-/// `Err(method)` = not a placement method (unreachable — the dispatch arm only routes
-/// `PlacementRoute` here).
+fn route_response(
+    req_id: u64,
+    group: u64,
+    epoch: u64,
+    placed: bool,
+    client_epoch: u64,
+    tenant_ref: String,
+    partition_ref: String,
+) -> Response {
+    if placed && epoch == 0 {
+        return Response::err(req_id, "placement catalog contains an invalid epoch");
+    }
+    Response::ok(
+        req_id,
+        ResultPayload::raw(&PlacementRoute {
+            schema_version: PlacementRouteSchemaVersion::V1,
+            route_id: format!("request:{req_id}"),
+            tenant_ref,
+            partition_ref,
+            authoritative: true,
+            placed,
+            group,
+            epoch,
+            fencing_token: group,
+            stale: client_epoch < epoch,
+            leader_ref: None,
+        }),
+    )
+}
+
 #[cfg(feature = "raft")]
 pub(crate) async fn try_handle(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     method: Method,
 ) -> Result<Response, Method> {
-    use crate::protocol::ResultPayload;
-    use crate::raft::placement::RouteOutcome;
-
-    let Method::PlacementRoute {
-        tenant,
-        sub_key,
-        client_epoch,
-    } = method
-    else {
+    let Method::PlacementRoute { request } = method else {
         return Err(method);
     };
+    let tenant = request.tenant_ref;
+    let sub_key = request.partition_ref;
+    let client_epoch = request.client_epoch;
 
-    let multi = { state.read().await.multi_raft.clone() };
+    let (multi, standalone_raft) = {
+        let current = state.read().await;
+        (current.multi_raft.clone(), current.raft.is_some())
+    };
     let Some(multi) = multi else {
-        // No live MultiRaft cluster on this node -- a single-engine zero-infra
-        // deployment. There is no other group to route to, so this is the SAME
-        // well-formed "nothing explicit" answer an empty catalog gives, not an error.
-        return Ok(no_explicit_placement(req_id));
+        if standalone_raft {
+            return Ok(Response::err(
+                req_id,
+                "CLUSTER_CONFIGURATION_INVALID: MultiRaft placement authority is required",
+            ));
+        }
+        return Ok(route_response(
+            req_id,
+            crate::raft::DEFAULT_GROUP,
+            0,
+            false,
+            client_epoch,
+            tenant,
+            sub_key,
+        ));
     };
 
-    match multi.placement().route(&tenant, &sub_key).await {
-        RouteOutcome::Explicit(r) => {
-            // Mirrors `PlacementCatalog::redirect_if_stale`'s exact condition, computed
-            // off the SAME route answer instead of a second catalog scan: a caller
-            // presenting an epoch behind the entry's current one (including a fresh
-            // caller's `client_epoch = 0`) is redirected to the fresh (group, epoch).
-            let redirect = client_epoch < r.epoch;
-            Ok(Response::ok(
+    let control = match multi.group(crate::raft::DEFAULT_GROUP).await {
+        Some(group) => group,
+        None => {
+            return Ok(Response::stale_route(
                 req_id,
-                ResultPayload::Json(serde_json::json!({
-                    "explicit": true,
-                    "group": r.group,
-                    "epoch": r.epoch,
-                    "redirect": redirect,
-                    // Deliberately null -- see the module docstring's "`endpoint` is
-                    // deliberately null" section: group->endpoint is caller topology.
-                    "endpoint": serde_json::Value::Null,
-                })),
+                "__placement_catalog__",
+                crate::raft::DEFAULT_GROUP,
+                0,
+                None,
+                "placement control group is unavailable",
             ))
         }
-        RouteOutcome::Fallback => Ok(no_explicit_placement(req_id)),
+    };
+    let leader = control.current_leader().await;
+    if leader != Some(control.node_id) {
+        return Ok(Response::stale_route(
+            req_id,
+            "__placement_catalog__",
+            crate::raft::DEFAULT_GROUP,
+            0,
+            leader,
+            "placement routes require the current control-group leader",
+        ));
     }
-}
 
-#[cfg(feature = "raft")]
-fn no_explicit_placement(req_id: u64) -> Response {
-    Response::ok(
+    let route = multi.route_partition(&tenant, &sub_key).await;
+    Ok(route_response(
         req_id,
-        crate::protocol::ResultPayload::Json(serde_json::json!({ "explicit": false })),
-    )
+        route.group,
+        route.epoch,
+        route.placed,
+        client_epoch,
+        tenant,
+        sub_key,
+    ))
 }
 
-/// Non-raft build: `PlacementRoute` answers the SAME well-formed "no explicit
-/// placement" JSON a raft build with an empty/absent catalog gives (not an error) --
-/// see the module docstring for why this is deliberate, not a lesser fallback.
 #[cfg(not(feature = "raft"))]
 pub(crate) async fn try_handle(
     _state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     method: Method,
 ) -> Result<Response, Method> {
-    use crate::protocol::ResultPayload;
     match method {
-        Method::PlacementRoute { .. } => Ok(Response::ok(
+        Method::PlacementRoute { request } => Ok(route_response(
             req_id,
-            ResultPayload::Json(serde_json::json!({ "explicit": false })),
+            0,
+            0,
+            false,
+            request.client_epoch,
+            request.tenant_ref,
+            request.partition_ref,
         )),
         other => Err(other),
     }

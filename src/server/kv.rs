@@ -20,7 +20,7 @@
 //!   * `KvGet   { namespace, key }`               → the value bytes, or null if absent
 //!   * `KvPut   { namespace, key, value }`        → "ok" (durable commit-before-ack)
 //!   * `KvDelete{ namespace, key }`               → bool (whether the key existed)
-//!   * `KvScan  { namespace, prefix, limit }`     → ordered `[(key, value)]` (limit 0 ⇒ all)
+//!   * `KvScan  { namespace, prefix, limit }`     → ordered bounded `[(key, value)]`
 //!   * `KvCas   { namespace, key, expected, new }`→ bool (swapped iff current == expected)
 
 use std::path::Path;
@@ -31,12 +31,40 @@ use redb::{Database, Durability, ReadableDatabase, ReadableTable, TableDefinitio
 use tokio::sync::RwLock;
 
 use super::state::ServerState;
+use crate::mutation_batch::{MutationBatch, MutationDomain, MutationSurface};
 use crate::protocol::{Method, Response, ResultPayload};
+use crate::server::access::CarrierAuthority;
 
 /// The single KV table: `(namespace, key) -> value bytes`. Composite key so one redb
 /// file holds every namespace, and a prefix scan over a namespace is a contiguous
 /// range (tuples order lexicographically by namespace then key).
 const KV: TableDefinition<(&str, &str), &[u8]> = TableDefinition::new("kv");
+const MAX_KV_NAMESPACE_BYTES: usize = 256;
+const MAX_KV_KEY_BYTES: usize = 4 * 1024;
+const MAX_KV_VALUE_BYTES: usize = 64 * 1024 * 1024;
+const DEFAULT_KV_SCAN_LIMIT: usize = 10_000;
+const MAX_KV_SCAN_LIMIT: usize = 100_000;
+const MAX_KV_BATCH_RESULT_BYTES: usize = 1024 * 1024;
+
+fn validate_key(namespace: &str, key: &str) -> Result<(), String> {
+    if namespace.is_empty()
+        || namespace.len() > MAX_KV_NAMESPACE_BYTES
+        || namespace.contains('\0')
+        || key.len() > MAX_KV_KEY_BYTES
+        || key.contains('\0')
+    {
+        return Err("KV key exceeds resource limits".to_string());
+    }
+    Ok(())
+}
+
+fn validate_value(value: &[u8]) -> Result<(), String> {
+    if value.len() > MAX_KV_VALUE_BYTES {
+        Err("KV value exceeds resource limits".to_string())
+    } else {
+        Ok(())
+    }
+}
 
 /// A namespaced key→bytes store. Durable (redb) when a persist dir is configured,
 /// else an in-memory ordered map.
@@ -68,6 +96,7 @@ impl KvStore {
                     wtx.open_table(KV).map_err(|e| e.to_string())?;
                     wtx.commit().map_err(|e| e.to_string())?;
                 }
+                eg_mutation_store::initialize(&db)?;
                 Ok(Self {
                     backend: Backend::Redb(db),
                 })
@@ -85,6 +114,7 @@ impl KvStore {
 
     /// Fetch the value bytes for `(namespace, key)`, or `None` if absent.
     pub fn get(&self, namespace: &str, key: &str) -> Result<Option<Vec<u8>>, String> {
+        validate_key(namespace, key)?;
         match &self.backend {
             Backend::Redb(db) => {
                 let rtx = db.begin_read().map_err(|e| e.to_string())?;
@@ -92,18 +122,28 @@ impl KvStore {
                 let v = table
                     .get((namespace, key))
                     .map_err(|e| e.to_string())?
-                    .map(|g| g.value().to_vec());
+                    .map(|g| {
+                        validate_value(g.value())?;
+                        Ok::<Vec<u8>, String>(g.value().to_vec())
+                    })
+                    .transpose()?;
                 Ok(v)
             }
-            Backend::Memory(m) => Ok(m
-                .lock()
-                .get(&(namespace.to_string(), key.to_string()))
-                .cloned()),
+            Backend::Memory(m) => {
+                let guard = m.lock();
+                let value = guard.get(&(namespace.to_string(), key.to_string()));
+                if let Some(value) = value {
+                    validate_value(value)?;
+                }
+                Ok(value.cloned())
+            }
         }
     }
 
     /// Store `value` at `(namespace, key)` (overwrite). Durable commit-before-ack.
     pub fn put(&self, namespace: &str, key: &str, value: Vec<u8>) -> Result<(), String> {
+        validate_key(namespace, key)?;
+        validate_value(&value)?;
         match &self.backend {
             Backend::Redb(db) => {
                 let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
@@ -128,6 +168,7 @@ impl KvStore {
 
     /// Delete `(namespace, key)`. Returns whether the key existed.
     pub fn delete(&self, namespace: &str, key: &str) -> Result<bool, String> {
+        validate_key(namespace, key)?;
         match &self.backend {
             Backend::Redb(db) => {
                 let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
@@ -152,14 +193,22 @@ impl KvStore {
     }
 
     /// Ordered `(key, value)` pairs in `namespace` whose key starts with `prefix`
-    /// (empty prefix ⇒ every key in the namespace). `limit == 0` ⇒ no cap.
+    /// (empty prefix ⇒ every key in the namespace). `limit == 0` uses a safe
+    /// default; every scan remains bounded.
     pub fn scan(
         &self,
         namespace: &str,
         prefix: &str,
         limit: usize,
     ) -> Result<Vec<(String, Vec<u8>)>, String> {
+        validate_key(namespace, prefix)?;
+        let limit = if limit == 0 {
+            DEFAULT_KV_SCAN_LIMIT
+        } else {
+            limit.min(MAX_KV_SCAN_LIMIT)
+        };
         let mut out = Vec::new();
+        let mut response_bytes = 0usize;
         match &self.backend {
             Backend::Redb(db) => {
                 let rtx = db.begin_read().map_err(|e| e.to_string())?;
@@ -176,8 +225,14 @@ impl KvStore {
                     if ns != namespace || !key.starts_with(prefix) {
                         break;
                     }
+                    validate_value(v.value())?;
+                    response_bytes = response_bytes
+                        .checked_add(key.len())
+                        .and_then(|total| total.checked_add(v.value().len()))
+                        .filter(|total| *total <= MAX_KV_VALUE_BYTES)
+                        .ok_or_else(|| "KV scan response exceeds resource limits".to_string())?;
                     out.push((key.to_string(), v.value().to_vec()));
-                    if limit != 0 && out.len() >= limit {
+                    if out.len() >= limit {
                         break;
                     }
                 }
@@ -189,8 +244,14 @@ impl KvStore {
                     if ns != namespace || !key.starts_with(prefix) {
                         break;
                     }
+                    validate_value(v)?;
+                    response_bytes = response_bytes
+                        .checked_add(key.len())
+                        .and_then(|total| total.checked_add(v.len()))
+                        .filter(|total| *total <= MAX_KV_VALUE_BYTES)
+                        .ok_or_else(|| "KV scan response exceeds resource limits".to_string())?;
                     out.push((key.clone(), v.clone()));
-                    if limit != 0 && out.len() >= limit {
+                    if out.len() >= limit {
                         break;
                     }
                 }
@@ -211,6 +272,13 @@ impl KvStore {
         expected: Option<&[u8]>,
         new: Option<Vec<u8>>,
     ) -> Result<bool, String> {
+        validate_key(namespace, key)?;
+        if let Some(value) = expected {
+            validate_value(value)?;
+        }
+        if let Some(value) = new.as_deref() {
+            validate_value(value)?;
+        }
         match &self.backend {
             Backend::Redb(db) => {
                 let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
@@ -221,7 +289,11 @@ impl KvStore {
                     let current: Option<Vec<u8>> = table
                         .get((namespace, key))
                         .map_err(|e| e.to_string())?
-                        .map(|g| g.value().to_vec());
+                        .map(|g| {
+                            validate_value(g.value())?;
+                            Ok::<Vec<u8>, String>(g.value().to_vec())
+                        })
+                        .transpose()?;
                     if current.as_deref() == expected {
                         match &new {
                             Some(v) => {
@@ -266,6 +338,222 @@ impl KvStore {
             }
         }
     }
+
+    /// Current universal MutationBatch version for one namespace scope.
+    pub fn mutation_version(&self, tenant: &str, graph: &str) -> Result<u64, String> {
+        match &self.backend {
+            Backend::Redb(db) => eg_mutation_store::version(db, tenant, graph),
+            Backend::Memory(_) => Ok(0),
+        }
+    }
+
+    /// Atomically write a KV value and its terminal MutationBatch metadata.
+    pub fn put_batch(
+        &self,
+        namespace: &str,
+        key: &str,
+        value: Vec<u8>,
+        batch: &MutationBatch,
+        committed_at_ms: u64,
+    ) -> Result<(), String> {
+        validate_key(namespace, key)?;
+        validate_value(&value)?;
+        match &self.backend {
+            Backend::Redb(db) => {
+                let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
+                wtx.set_durability(Durability::Immediate)
+                    .map_err(|e| e.to_string())?;
+                match eg_mutation_store::begin(&wtx, batch)? {
+                    eg_mutation_store::Begin::Replay(record) => {
+                        decode_batch_result::<()>(&record)?;
+                        wtx.abort().map_err(|e| e.to_string())?;
+                        Ok(())
+                    }
+                    eg_mutation_store::Begin::Apply { source_version } => {
+                        {
+                            let mut table = wtx.open_table(KV).map_err(|e| e.to_string())?;
+                            table
+                                .insert((namespace, key), value.as_slice())
+                                .map_err(|e| e.to_string())?;
+                        }
+                        let result = rmp_serde::to_vec_named(&()).map_err(|e| e.to_string())?;
+                        eg_mutation_store::finish(
+                            &wtx,
+                            batch,
+                            Some(result),
+                            committed_at_ms,
+                            source_version,
+                        )?;
+                        eg_mutation_store::commit(wtx, batch)
+                    }
+                }
+            }
+            Backend::Memory(m) => {
+                m.lock()
+                    .insert((namespace.to_string(), key.to_string()), value);
+                Ok(())
+            }
+        }
+    }
+
+    /// Atomically delete a KV value and its terminal MutationBatch metadata.
+    pub fn delete_batch(
+        &self,
+        namespace: &str,
+        key: &str,
+        batch: &MutationBatch,
+        committed_at_ms: u64,
+    ) -> Result<bool, String> {
+        validate_key(namespace, key)?;
+        match &self.backend {
+            Backend::Redb(db) => {
+                let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
+                wtx.set_durability(Durability::Immediate)
+                    .map_err(|e| e.to_string())?;
+                match eg_mutation_store::begin(&wtx, batch)? {
+                    eg_mutation_store::Begin::Replay(record) => {
+                        let result = decode_batch_result(&record)?;
+                        wtx.abort().map_err(|e| e.to_string())?;
+                        Ok(result)
+                    }
+                    eg_mutation_store::Begin::Apply { source_version } => {
+                        let existed = {
+                            let mut table = wtx.open_table(KV).map_err(|e| e.to_string())?;
+                            let removed =
+                                table.remove((namespace, key)).map_err(|e| e.to_string())?;
+                            removed.is_some()
+                        };
+                        let result =
+                            rmp_serde::to_vec_named(&existed).map_err(|e| e.to_string())?;
+                        eg_mutation_store::finish(
+                            &wtx,
+                            batch,
+                            Some(result),
+                            committed_at_ms,
+                            source_version,
+                        )?;
+                        eg_mutation_store::commit(wtx, batch)?;
+                        Ok(existed)
+                    }
+                }
+            }
+            Backend::Memory(m) => Ok(m
+                .lock()
+                .remove(&(namespace.to_string(), key.to_string()))
+                .is_some()),
+        }
+    }
+
+    /// Atomically compare/swap a KV value and persist the exact verdict in the
+    /// same MutationBatch transaction. A failed comparison is still a terminal,
+    /// replayable request and therefore commits its status/outbox record.
+    pub fn cas_batch(
+        &self,
+        namespace: &str,
+        key: &str,
+        expected: Option<&[u8]>,
+        new: Option<Vec<u8>>,
+        batch: &MutationBatch,
+        committed_at_ms: u64,
+    ) -> Result<bool, String> {
+        validate_key(namespace, key)?;
+        if let Some(value) = expected {
+            validate_value(value)?;
+        }
+        if let Some(value) = new.as_deref() {
+            validate_value(value)?;
+        }
+        match &self.backend {
+            Backend::Redb(db) => {
+                let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
+                wtx.set_durability(Durability::Immediate)
+                    .map_err(|e| e.to_string())?;
+                match eg_mutation_store::begin(&wtx, batch)? {
+                    eg_mutation_store::Begin::Replay(record) => {
+                        let result = decode_batch_result(&record)?;
+                        wtx.abort().map_err(|e| e.to_string())?;
+                        Ok(result)
+                    }
+                    eg_mutation_store::Begin::Apply { source_version } => {
+                        let swapped = {
+                            let mut table = wtx.open_table(KV).map_err(|e| e.to_string())?;
+                            let current = table
+                                .get((namespace, key))
+                                .map_err(|e| e.to_string())?
+                                .map(|value| {
+                                    validate_value(value.value())?;
+                                    Ok::<Vec<u8>, String>(value.value().to_vec())
+                                })
+                                .transpose()?;
+                            if current.as_deref() == expected {
+                                match &new {
+                                    Some(value) => {
+                                        table
+                                            .insert((namespace, key), value.as_slice())
+                                            .map_err(|e| e.to_string())?;
+                                    }
+                                    None => {
+                                        table
+                                            .remove((namespace, key))
+                                            .map_err(|e| e.to_string())?;
+                                    }
+                                }
+                                true
+                            } else {
+                                false
+                            }
+                        };
+                        let result =
+                            rmp_serde::to_vec_named(&swapped).map_err(|e| e.to_string())?;
+                        eg_mutation_store::finish(
+                            &wtx,
+                            batch,
+                            Some(result),
+                            committed_at_ms,
+                            source_version,
+                        )?;
+                        eg_mutation_store::commit(wtx, batch)?;
+                        Ok(swapped)
+                    }
+                }
+            }
+            Backend::Memory(m) => {
+                let mut guard = m.lock();
+                let map_key = (namespace.to_string(), key.to_string());
+                if guard.get(&map_key).map(Vec::as_slice) == expected {
+                    match new {
+                        Some(value) => {
+                            guard.insert(map_key, value);
+                        }
+                        None => {
+                            guard.remove(&map_key);
+                        }
+                    }
+                    Ok(true)
+                } else {
+                    Ok(false)
+                }
+            }
+        }
+    }
+}
+
+fn decode_batch_result<T: serde::de::DeserializeOwned>(
+    record: &crate::mutation_batch::MutationBatchRecord,
+) -> Result<T, String> {
+    let bytes = record
+        .result_msgpack
+        .as_deref()
+        .ok_or_else(|| "committed native MutationBatch has no result".to_string())?;
+    eg_types::msgpack::decode_bounded(
+        bytes,
+        eg_types::msgpack::MsgpackLimits::new(
+            MAX_KV_BATCH_RESULT_BYTES,
+            1_024,
+            eg_types::msgpack::DEFAULT_MAX_DEPTH,
+        ),
+    )
+    .map_err(|_| "committed KV result is invalid or exceeds resource limits".to_string())
 }
 
 /// Route a `Method::Kv*` op through the KV store on `ServerState`. Mirrors the
@@ -273,9 +561,10 @@ impl KvStore {
 /// KV op (so the caller falls through), `Ok(Response)` otherwise. KV writes are
 /// durable commit-before-ack; classification (`requires_write`) lives in
 /// `server::access` alongside the graph-op classifier.
-pub async fn try_handle(
+pub(crate) async fn try_handle(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
+    authority: &CarrierAuthority,
     method: Method,
 ) -> Result<Response, Method> {
     // The store is small + the ops are microsecond-cheap (single-key redb get/put,
@@ -296,51 +585,115 @@ pub async fn try_handle(
         }
     };
 
+    let original_method = method.clone();
     let resp = match method {
-        Method::KvGet { namespace, key } => match store.get(&namespace, &key) {
-            Ok(Some(v)) => Response::ok(req_id, ResultPayload::PropertiesMsgpack(v)),
-            Ok(None) => Response::ok(req_id, ResultPayload::Json(serde_json::Value::Null)),
-            Err(e) => Response::err(req_id, format!("KvGet error: {e}")),
-        },
+        Method::KvGet { namespace, key } => {
+            let namespace = authority.namespace("kv-namespace", &namespace);
+            match store.get(&namespace, &key) {
+                Ok(Some(v)) => Response::ok(req_id, ResultPayload::PropertiesMsgpack(v)),
+                Ok(None) => Response::ok(req_id, ResultPayload::Json(serde_json::Value::Null)),
+                Err(e) => Response::err(req_id, format!("KvGet error: {e}")),
+            }
+        }
         Method::KvPut {
             namespace,
             key,
             value,
-        } => match store.put(&namespace, &key, value) {
-            Ok(()) => Response::ok(req_id, ResultPayload::String("ok".to_string())),
-            Err(e) => Response::err(req_id, format!("KvPut error: {e}")),
-        },
-        Method::KvDelete { namespace, key } => match store.delete(&namespace, &key) {
-            Ok(existed) => Response::ok(req_id, ResultPayload::Bool(existed)),
-            Err(e) => Response::err(req_id, format!("KvDelete error: {e}")),
-        },
+        } => {
+            let namespace = authority.namespace("kv-namespace", &namespace);
+            match compile_kv_batch(&store, req_id, authority, &namespace, &original_method)
+                .and_then(|(batch, now)| store.put_batch(&namespace, &key, value, &batch, now))
+            {
+                Ok(()) => Response::ok(req_id, ResultPayload::String("ok".to_string())),
+                Err(e) => Response::err(req_id, format!("KvPut error: {e}")),
+            }
+        }
+        Method::KvDelete { namespace, key } => {
+            let namespace = authority.namespace("kv-namespace", &namespace);
+            match compile_kv_batch(&store, req_id, authority, &namespace, &original_method)
+                .and_then(|(batch, now)| store.delete_batch(&namespace, &key, &batch, now))
+            {
+                Ok(existed) => Response::ok(req_id, ResultPayload::Bool(existed)),
+                Err(e) => Response::err(req_id, format!("KvDelete error: {e}")),
+            }
+        }
         Method::KvScan {
             namespace,
             prefix,
             limit,
-        } => match store.scan(&namespace, &prefix, limit) {
-            Ok(pairs) => {
-                // `[(key, value-bytes)]` straight to MessagePack (value rides as a bin).
-                let wire: Vec<(String, serde_bytes::ByteBuf)> = pairs
-                    .into_iter()
-                    .map(|(k, v)| (k, serde_bytes::ByteBuf::from(v)))
-                    .collect();
-                Response::ok(req_id, ResultPayload::raw(&wire))
+        } => {
+            let namespace = authority.namespace("kv-namespace", &namespace);
+            match store.scan(&namespace, &prefix, limit) {
+                Ok(pairs) => {
+                    // `[(key, value-bytes)]` straight to MessagePack (value rides as a bin).
+                    let wire: Vec<(String, serde_bytes::ByteBuf)> = pairs
+                        .into_iter()
+                        .map(|(k, v)| (k, serde_bytes::ByteBuf::from(v)))
+                        .collect();
+                    Response::ok(req_id, ResultPayload::raw(&wire))
+                }
+                Err(e) => Response::err(req_id, format!("KvScan error: {e}")),
             }
-            Err(e) => Response::err(req_id, format!("KvScan error: {e}")),
-        },
+        }
         Method::KvCas {
             namespace,
             key,
             expected,
             new,
-        } => match store.cas(&namespace, &key, expected.as_deref(), new) {
-            Ok(swapped) => Response::ok(req_id, ResultPayload::Bool(swapped)),
-            Err(e) => Response::err(req_id, format!("KvCas error: {e}")),
-        },
+        } => {
+            let namespace = authority.namespace("kv-namespace", &namespace);
+            match compile_kv_batch(&store, req_id, authority, &namespace, &original_method)
+                .and_then(|(batch, now)| {
+                    store.cas_batch(&namespace, &key, expected.as_deref(), new, &batch, now)
+                }) {
+                Ok(swapped) => Response::ok(req_id, ResultPayload::Bool(swapped)),
+                Err(e) => Response::err(req_id, format!("KvCas error: {e}")),
+            }
+        }
         other => return Err(other),
     };
     Ok(resp)
+}
+
+fn compile_kv_batch(
+    store: &KvStore,
+    req_id: u64,
+    authority: &CarrierAuthority,
+    namespace: &str,
+    method: &Method,
+) -> Result<(MutationBatch, u64), String> {
+    if namespace.trim().is_empty() {
+        return Err("KV namespace must not be empty".to_string());
+    }
+    let scope = crate::server::mutation_batch::opaque_coordinator_key(
+        "kv-scope",
+        authority.owner_scope(),
+        namespace,
+    );
+    let batch_id = crate::server::mutation_batch::opaque_request_key("kv", &scope, req_id, method);
+    let expected = store.mutation_version(authority.tenant_scope(), &scope)?;
+    let now = crate::server::dispatch::authoritative_now_ms();
+    let batch = crate::server::mutation_batch::compile_opaque_method(
+        crate::server::mutation_batch::CompileBatch {
+            batch_id: &batch_id,
+            request_id: req_id,
+            principal: Some(authority.actor_scope()),
+            tenant: authority.tenant_scope(),
+            graph: &scope,
+            placement_epoch: 0,
+            idempotency_key: &batch_id,
+            expected_graph_version: Some(expected),
+            fencing_token: None,
+            created_at_ms: now,
+            default_surface: MutationSurface::Other,
+            authoritative_state: None,
+        },
+        method,
+        MutationSurface::Other,
+        MutationDomain::KvStore,
+        "kv_operation",
+    )?;
+    Ok((batch, now))
 }
 
 /// Whether a method is one of the KV ops (used only for the no-store error path).
@@ -475,17 +828,34 @@ mod tests {
 /// over a `ServerState` carrying a durable KV store.
 #[cfg(test)]
 mod dispatch_tests {
+    use crate::acl::{AgentIdentity, AgentRole, RequestContextClaims};
     use crate::channels::ChannelManager;
     use crate::isolation::IsolationLayer;
     use crate::protocol::{Method, Request, ResultPayload};
     use crate::registry::GraphRegistry;
-    use crate::server::auth::compute_auth_token;
-    use crate::server::{dispatch, ServerState};
+    use crate::server::{
+        compute_verified_envelope_token, dispatch, ServerState, VerifiedEnvelopeParams,
+    };
     use dashmap::DashMap;
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::Arc;
+    use std::time::{SystemTime, UNIX_EPOCH};
     use tokio::sync::{RwLock, Semaphore};
 
     const SECRET: &str = "kv-test-secret";
+    const TEST_AGENT: &str = "unit-test-agent";
+    static NONCE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+
+    fn current_isolation() -> IsolationLayer {
+        let mut isolation = IsolationLayer::new();
+        isolation.register_agent(AgentIdentity {
+            agent_id: TEST_AGENT.to_string(),
+            role: AgentRole::System,
+            teams: Vec::new(),
+            roles: Vec::new(),
+        });
+        isolation
+    }
 
     fn state_with_kv(dir: &str) -> Arc<RwLock<ServerState>> {
         let kv = Arc::new(super::KvStore::open(Some(dir)).unwrap());
@@ -495,17 +865,16 @@ mod dispatch_tests {
                 crate::server::persistence::cold_offload::ColdTenantTracker::new(),
             ),
             registry: GraphRegistry::new(),
-            isolation: IsolationLayer::new(),
+            isolation: current_isolation(),
             channels: ChannelManager::new(),
             auth_secret: SECRET.to_string(),
             persist_dir: Some(dir.to_string()),
             persistence: None,
-            redb_authoritative: false,
             max_in_flight: Arc::new(Semaphore::new(16)),
             read_admission: Arc::new(Semaphore::new(16)),
             per_graph_inflight: Arc::new(DashMap::new()),
             per_graph_inflight_limit: 8,
-            write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::from_env()),
+            write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
             open_txns: Arc::new(DashMap::new()),
             txn_id_gen: Arc::new(crate::server::txn::TxnIdGen::default()),
             txn_ttl_secs: 300,
@@ -521,8 +890,6 @@ mod dispatch_tests {
             multi_raft: None,
             #[cfg(feature = "tsdb")]
             tsdb_store: None,
-            #[cfg(feature = "rdf-redb")]
-            rdf_quads: None,
             #[cfg(feature = "streaming")]
             cdc: Some(Arc::new(crate::server::cdc::CdcHub::new())),
             #[cfg(feature = "wasm-udf")]
@@ -535,21 +902,57 @@ mod dispatch_tests {
             foreign_sources: Arc::new(DashMap::new()),
             #[cfg(feature = "kv")]
             kv: Some(kv),
-            #[cfg(feature = "dataset-handle")]
-            dataset_handles: Arc::new(crate::server::dataset_handle::DatasetHandleRegistry::new()),
             #[cfg(feature = "lake")]
             lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
         }))
     }
 
     fn req(id: u64, method: Method) -> Request {
-        Request {
+        std::env::set_var("EPISTEMIC_GRAPH_AUDIENCE", "epistemic-graph-test");
+        std::env::set_var("EPISTEMIC_GRAPH_TENANT", "tenant-shared");
+        std::env::set_var("EPISTEMIC_GRAPH_POLICY_VERSION", "policy-test");
+        std::env::set_var(
+            "EPISTEMIC_GRAPH_SECURITY_STATE_DIR",
+            std::env::temp_dir().join(format!("epistemic-graph-unit-auth-{}", std::process::id())),
+        );
+        let context = RequestContextClaims {
+            principal: TEST_AGENT.to_string(),
+            tenant: "tenant-shared".to_string(),
+            audience: "epistemic-graph-test".to_string(),
+            agent_id: TEST_AGENT.to_string(),
+            roles: Vec::new(),
+            scopes: vec!["*".to_string()],
+            policy_version: "policy-test".to_string(),
+            delegation: Vec::new(),
+        };
+        let mut request = Request {
             id,
             graph: "__commons__".into(),
-            auth_token: compute_auth_token(SECRET, id),
-            agent_id: None,
+            auth_token: String::new(),
+            agent_id: Some(TEST_AGENT.to_string()),
             method,
-        }
+        };
+        let sequence = NONCE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let issued_at = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("the system clock is after the Unix epoch");
+        let nonce = format!(
+            "kv-{}-{id}-{sequence}-{}",
+            std::process::id(),
+            issued_at.as_nanos()
+        );
+        let idempotency_key = format!("kv-request-{id}-{sequence}");
+        request.auth_token = compute_verified_envelope_token(
+            SECRET,
+            &request,
+            &VerifiedEnvelopeParams {
+                context: &context,
+                timestamp: issued_at.as_secs(),
+                nonce: &nonce,
+                idempotency_key: &idempotency_key,
+            },
+        );
+        request
     }
 
     #[tokio::test]

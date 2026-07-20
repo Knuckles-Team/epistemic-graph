@@ -22,18 +22,19 @@ use super::config::RaftClusterConfig;
 use super::node::{self, StartedNode};
 use super::{NodeId, RaftRequest};
 use crate::channels::ChannelManager;
+use crate::durability::DurabilityPolicy;
 use crate::isolation::IsolationLayer;
 use crate::protocol::{GraphType, Method};
 use crate::registry::GraphRegistry;
 use crate::server::persistence::redb_backend::RedbBackend;
 use crate::server::persistence::PersistenceBackend;
 use crate::server::ServerState;
-use crate::wal_service::FsyncPolicy;
 
 /// Build a ServerState with a redb-AUTHORITATIVE backend rooted at `dir`.
 async fn make_state(dir: &str) -> Arc<RwLock<ServerState>> {
-    let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.to_string(), FsyncPolicy::Each, 4096).expect("open redb"));
+    let backend: Arc<dyn PersistenceBackend> = Arc::new(
+        RedbBackend::open(dir.to_string(), DurabilityPolicy::Each, 4096).expect("open redb"),
+    );
     make_state_with_backend(dir, backend).await
 }
 
@@ -44,6 +45,10 @@ async fn make_state_with_backend(
     dir: &str,
     backend: Arc<dyn PersistenceBackend>,
 ) -> Arc<RwLock<ServerState>> {
+    backend
+        .register_graph("__commons__", "__commons__", GraphType::Commons)
+        .await
+        .expect("register mandatory commons graph");
     Arc::new(RwLock::new(ServerState {
         #[cfg(feature = "redb")]
         cold_tracker: std::sync::Arc::new(
@@ -55,12 +60,11 @@ async fn make_state_with_backend(
         auth_secret: "raft-test".to_string(),
         persist_dir: Some(dir.to_string()),
         persistence: Some(backend),
-        redb_authoritative: true,
         max_in_flight: Arc::new(tokio::sync::Semaphore::new(64)),
         read_admission: Arc::new(tokio::sync::Semaphore::new(64)),
         per_graph_inflight: Arc::new(dashmap::DashMap::new()),
         per_graph_inflight_limit: 16,
-        write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::from_env()),
+        write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
         open_txns: Arc::new(dashmap::DashMap::new()),
         txn_id_gen: Arc::new(crate::server::txn::TxnIdGen::default()),
         txn_ttl_secs: 300,
@@ -75,8 +79,6 @@ async fn make_state_with_backend(
         multi_raft: None,
         #[cfg(feature = "tsdb")]
         tsdb_store: None,
-        #[cfg(feature = "rdf-redb")]
-        rdf_quads: None,
         #[cfg(feature = "streaming")]
         cdc: Some(std::sync::Arc::new(crate::server::cdc::CdcHub::new())),
         #[cfg(feature = "wasm-udf")]
@@ -89,10 +91,6 @@ async fn make_state_with_backend(
         foreign_sources: std::sync::Arc::new(dashmap::DashMap::new()),
         #[cfg(feature = "kv")]
         kv: None,
-        #[cfg(feature = "dataset-handle")]
-        dataset_handles: std::sync::Arc::new(
-            crate::server::dataset_handle::DatasetHandleRegistry::new(),
-        ),
         #[cfg(feature = "lake")]
         lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
     }))
@@ -120,6 +118,9 @@ fn cluster_cfg_with_groups(node_id: NodeId, ports: &[u16], groups: u64) -> RaftC
         bind_addr,
         is_bootstrap: peers.keys().next() == Some(&node_id),
         groups,
+        transport_secret: Some(
+            super::config::RaftTransportSecret::from_material(&[0x5a; 32]).unwrap(),
+        ),
     }
 }
 
@@ -187,10 +188,23 @@ async fn three_node_cluster_replicates_and_survives_leader_failover() {
             graph_fname: crate::persist::sanitize(graph),
             graph_name: graph.to_string(),
             graph_type: GraphType::Commons,
-            method: Method::AddNode {
-                node_id: format!("n{k}"),
-                properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"k": k})).unwrap(),
-            },
+            committed_at_ms: 0,
+            mutation: super::RaftMutationContext::internal(
+                "raft-test",
+                graph,
+                &format!("cluster-write-{k}"),
+                k,
+                0,
+            ),
+            command: super::ReplicatedMutation::graph(
+                Method::AddNode {
+                    node_id: format!("n{k}"),
+                    properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"k": k}))
+                        .unwrap(),
+                },
+                "raft-test",
+            )
+            .unwrap(),
         };
         leader
             .client_write(req)
@@ -233,11 +247,23 @@ async fn three_node_cluster_replicates_and_survives_leader_failover() {
         graph_fname: crate::persist::sanitize(graph),
         graph_name: graph.to_string(),
         graph_type: GraphType::Commons,
-        method: Method::AddNode {
-            node_id: "after-failover".to_string(),
-            properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"post": true}))
-                .unwrap(),
-        },
+        committed_at_ms: 0,
+        mutation: super::RaftMutationContext::internal(
+            "raft-test",
+            graph,
+            "after-failover",
+            n_writes,
+            0,
+        ),
+        command: super::ReplicatedMutation::graph(
+            Method::AddNode {
+                node_id: "after-failover".to_string(),
+                properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"post": true}))
+                    .unwrap(),
+            },
+            "raft-test",
+        )
+        .unwrap(),
     };
     nodes
         .get(&new_leader)
@@ -362,12 +388,16 @@ async fn graph_routes_to_its_ring_assigned_group_after_multi_group_startup() {
         .await
         .expect("start raft node with 3 groups");
 
-    let (gid, epoch) = started.multi.route_graph("acme:ws1").await;
-    assert!((0..3).contains(&gid), "graph must route into the ring");
-    assert_eq!(epoch, 0, "a hash-ring route (no catalog entry) has epoch 0");
+    let route = started.multi.route_graph("acme:ws1").await;
+    assert!(
+        (0..3).contains(&route.group),
+        "graph must route into the ring"
+    );
+    assert_eq!(route.epoch, 0, "an unplaced route has epoch 0");
+    assert!(!route.placed);
     // Deterministic: routing the same graph again resolves to the SAME group.
-    let (gid_again, _) = started.multi.route_graph("acme:ws1").await;
-    assert_eq!(gid, gid_again);
+    let route_again = started.multi.route_graph("acme:ws1").await;
+    assert_eq!(route.group, route_again.group);
 
     started.multi.stop_listener();
     let _ = started.handle.raft.shutdown().await;
@@ -397,13 +427,13 @@ async fn default_startup_stays_single_group_unchanged() {
         started.multi.group(1).await.is_none(),
         "no extra group should exist without EPISTEMIC_GRAPH_RAFT_GROUPS"
     );
-    let (gid, epoch) = started.multi.route_graph("any-tenant:ws1").await;
+    let route = started.multi.route_graph("any-tenant:ws1").await;
     assert_eq!(
-        gid,
+        route.group,
         super::DEFAULT_GROUP,
-        "every graph must still fall back to the default group"
+        "every unplaced graph must be authoritatively routed to the default group"
     );
-    assert_eq!(epoch, 0);
+    assert_eq!(route.epoch, 0);
 
     started.multi.stop_listener();
     let _ = started.handle.raft.shutdown().await;
@@ -454,11 +484,25 @@ fn make_log_entry(index: u64, term: u64, node_id: &str) -> EntryOf<super::TypeCo
             graph_fname: crate::persist::sanitize("__commons__"),
             graph_name: "__commons__".to_string(),
             graph_type: GraphType::Commons,
-            method: Method::AddNode {
-                node_id: node_id.to_string(),
-                properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"id": node_id}))
+            committed_at_ms: 0,
+            mutation: super::RaftMutationContext::internal(
+                "raft-log-test",
+                "__commons__",
+                &format!("{term}:{index}:{node_id}"),
+                index,
+                0,
+            ),
+            command: super::ReplicatedMutation::graph(
+                Method::AddNode {
+                    node_id: node_id.to_string(),
+                    properties_msgpack: rmp_serde::to_vec_named(
+                        &serde_json::json!({"id": node_id}),
+                    )
                     .unwrap(),
-            },
+                },
+                "raft-test",
+            )
+            .unwrap(),
         },
     )
 }
@@ -469,7 +513,7 @@ fn make_log_entry(index: u64, term: u64, node_id: &str) -> EntryOf<super::TypeCo
 async fn durable_log_replays_from_redb_after_restart() {
     let dir = fresh_dir("logreplay");
     let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
     let state = make_state_with_backend(&dir, backend.clone()).await;
     let ctx = AppCtx {
         state,
@@ -519,10 +563,10 @@ async fn durable_log_replays_from_redb_after_restart() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn fault_injection_no_committed_log_entry_lost_on_restart() {
     let dir = fresh_dir("faultlog");
-    // FsyncPolicy::Each = a committed (awaited) append is fsynced before the await
+    // DurabilityPolicy::Each = a committed (awaited) append is fsynced before the await
     // returns, so anything we observe as Ok IS on disk.
     let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
     let state = make_state_with_backend(&dir, backend.clone()).await;
     let ctx = AppCtx {
         state: state.clone(),
@@ -554,8 +598,9 @@ async fn fault_injection_no_committed_log_entry_lost_on_restart() {
 
     // Restart: brand-new backend + store over the SAME files. Every fsynced entry
     // must still be present — no lost committed entry.
-    let backend2: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("reopen redb"));
+    let backend2: Arc<dyn PersistenceBackend> = Arc::new(
+        RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("reopen redb"),
+    );
     let mut store2 = EgStore::open(super::DEFAULT_GROUP, backend2.clone(), ctx).unwrap();
     let entries = store2
         .try_get_log_entries(1..=8)
@@ -583,7 +628,7 @@ async fn fault_injection_no_committed_log_entry_lost_on_restart() {
 async fn multi_group_logs_isolate_on_shared_redb() {
     let dir = fresh_dir("multigroup");
     let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
     let state = make_state_with_backend(&dir, backend.clone()).await;
     let ctx = AppCtx {
         state,
@@ -660,7 +705,7 @@ async fn two_groups_one_node_commit_independently() {
 
     let dir = fresh_dir("twogroups");
     let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
     let state = make_state_with_backend(&dir, backend.clone()).await;
     let ctx = AppCtx {
         state: state.clone(),
@@ -699,11 +744,23 @@ async fn two_groups_one_node_commit_independently() {
             graph_fname: crate::persist::sanitize(graph),
             graph_name: graph.to_string(),
             graph_type: GraphType::Global,
-            method: Method::AddNode {
-                node_id: format!("{graph}-n1"),
-                properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"g": graph}))
-                    .unwrap(),
-            },
+            committed_at_ms: 0,
+            mutation: super::RaftMutationContext::internal(
+                "raft-group-test",
+                graph,
+                "first-write",
+                gid,
+                0,
+            ),
+            command: super::ReplicatedMutation::graph(
+                Method::AddNode {
+                    node_id: format!("{graph}-n1"),
+                    properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"g": graph}))
+                        .unwrap(),
+                },
+                "raft-test",
+            )
+            .unwrap(),
         };
         g.client_write(req)
             .await
@@ -870,7 +927,7 @@ async fn group_snapshot_is_scoped_to_its_tenant_range() {
 
     let dir = fresh_dir("scopedsnap");
     let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
     let state = make_state_with_backend(&dir, backend.clone()).await;
 
     // Two graphs, pinned to two DIFFERENT non-default groups via the router. Neither
@@ -880,17 +937,21 @@ async fn group_snapshot_is_scoped_to_its_tenant_range() {
     router.assign("graphA", 3);
     router.assign("graphB", 5);
 
-    // Materialize both graphs (one node each) in the shared registry.
+    // Snapshot membership comes from the durable graph identity authority. The
+    // registry is only the resident projection used to select this group's rows.
+    backend
+        .register_graph("graphA", "graphA", GraphType::Global)
+        .await
+        .unwrap();
+    backend
+        .register_graph("graphB", "graphB", GraphType::Global)
+        .await
+        .unwrap();
     {
         let mut s = state.write().await;
         let _ = s.registry.create_graph("graphA", GraphType::Global, None);
         let _ = s.registry.create_graph("graphB", GraphType::Global, None);
-        if let Some(e) = s.registry.get("graphA") {
-            e.core.add_node("a1".to_string(), Vec::new());
-        }
-        if let Some(e) = s.registry.get("graphB") {
-            e.core.add_node("b1".to_string(), Vec::new());
-        }
+        assert!(s.registry.evict_resident("graphB"));
     }
 
     let ctx = AppCtx {
@@ -901,9 +962,9 @@ async fn group_snapshot_is_scoped_to_its_tenant_range() {
     let g3 = EgStore::open(3, backend.clone(), ctx.clone()).unwrap();
     let g5 = EgStore::open(5, backend.clone(), ctx.clone()).unwrap();
 
-    // Group 3's snapshot carries ONLY graphA; group 5's ONLY graphB — no bleed, and
-    // neither catches the un-pinned `__commons__`. The DEFAULT group (0) owns ONLY the
-    // un-pinned bootstrap tenant, never the graphs pinned elsewhere.
+    // Group 3's snapshot carries ONLY resident graphA; group 5's ONLY catalog-only
+    // graphB — proving eviction cannot remove durable authority from a snapshot. No
+    // graph bleeds across groups, and the DEFAULT group (0) owns only `__commons__`.
     assert_eq!(
         g3.scoped_snapshot_graph_names().await,
         vec!["graphA".to_string()]
@@ -1047,7 +1108,7 @@ async fn coalesced_batch_round_trips_on_one_connection() {
 
     let dir = fresh_dir("hbbatch");
     let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
     let state = make_state_with_backend(&dir, backend.clone()).await;
     let ctx = AppCtx {
         state,
@@ -1096,6 +1157,7 @@ async fn coalesced_batch_round_trips_on_one_connection() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 6)]
 async fn multi_node_group_join_then_leader_rebalance() {
     use super::multi::{desired_leader, MultiRaft};
+    use super::xread::{ReadPageRequest, RouteToken};
 
     let root = std::env::temp_dir().join(format!("eg-mnjoin-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
@@ -1109,8 +1171,9 @@ async fn multi_node_group_join_then_leader_rebalance() {
         let dir = root.join(format!("node{i}"));
         std::fs::create_dir_all(&dir).unwrap();
         let dir = dir.to_string_lossy().to_string();
-        let backend: Arc<dyn PersistenceBackend> =
-            Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+        let backend: Arc<dyn PersistenceBackend> = Arc::new(
+            RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"),
+        );
         let state = make_state_with_backend(&dir, backend.clone()).await;
         let ctx = AppCtx {
             state: state.clone(),
@@ -1144,6 +1207,9 @@ async fn multi_node_group_join_then_leader_rebalance() {
     // ── R3: add nodes 2 and 3 as VOTERS from the leader (add_learner → change_membership).
     leader.add_group_member(gid, 2, addr(2)).await.unwrap();
     leader.add_group_member(gid, 3, addr(3)).await.unwrap();
+    for (_, multi, _) in &multis {
+        multi.router().assign("graph7", gid);
+    }
     assert_eq!(
         leader.group_membership(gid).await,
         Some(vec![1, 2, 3]),
@@ -1152,7 +1218,6 @@ async fn multi_node_group_join_then_leader_rebalance() {
 
     // ── A write through the leader replicates to the freshly-joined voters.
     {
-        leader.router().assign("graph7", gid);
         let g = leader
             .group_for_graph("graph7")
             .await
@@ -1161,11 +1226,23 @@ async fn multi_node_group_join_then_leader_rebalance() {
             graph_fname: crate::persist::sanitize("graph7"),
             graph_name: "graph7".to_string(),
             graph_type: GraphType::Global,
-            method: Method::AddNode {
-                node_id: "joined-write".to_string(),
-                properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"ok": true}))
-                    .unwrap(),
-            },
+            committed_at_ms: 0,
+            mutation: super::RaftMutationContext::internal(
+                "raft-membership-test",
+                "graph7",
+                "joined-write",
+                gid,
+                0,
+            ),
+            command: super::ReplicatedMutation::graph(
+                Method::AddNode {
+                    node_id: "joined-write".to_string(),
+                    properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"ok": true}))
+                        .unwrap(),
+                },
+                "raft-test",
+            )
+            .unwrap(),
         };
         g.client_write(req).await.expect("write via leader");
     }
@@ -1225,6 +1302,29 @@ async fn multi_node_group_join_then_leader_rebalance() {
         "leadership must converge to the round-robin target (node 2) via transfer_leader"
     );
 
+    // A request initiated on node 1 now routes to node 2's leader over the same
+    // authenticated/group-multiplexed PeerPool as Raft consensus traffic.
+    let page = node1
+        .read_page_group(
+            gid,
+            ReadPageRequest {
+                graph_name: "graph7".to_string(),
+                route: RouteToken {
+                    group: gid,
+                    epoch: 0,
+                },
+                after_node_id: None,
+                expected_snapshot_version: None,
+                limit: 16,
+                max_bytes: 1024 * 1024,
+            },
+        )
+        .await
+        .expect("remote leader read page");
+    assert_eq!(page.nodes.len(), 1);
+    assert_eq!(page.nodes[0].0, "joined-write");
+    assert!(page.raft_barrier_index > 0);
+
     // Already balanced → an extra pass anywhere transfers nothing (idempotent): node 2
     // now leads (target==self, no-op) and node 1 no longer leads group 7.
     let report2 = node2.rebalance_leaders().await;
@@ -1253,8 +1353,10 @@ async fn multi_node_group_join_then_leader_rebalance() {
 #[cfg(feature = "compute-dist")]
 mod dist_compute {
     use super::*;
+    use crate::isolation::{AgentIdentity, AgentRole};
     use crate::protocol::{DistAlgo, GraphType};
     use crate::raft::pregel::{self, DistResult};
+    use crate::server::access::GraphReadAuthority;
 
     fn props(n: &str) -> Vec<u8> {
         rmp_serde::to_vec_named(&serde_json::json!({"type": "N", "id": n})).unwrap()
@@ -1279,12 +1381,22 @@ mod dist_compute {
         ));
         let _ = std::fs::create_dir_all(&dir);
         let backend: Arc<dyn PersistenceBackend> = Arc::new(
-            RedbBackend::open(dir.to_string_lossy().to_string(), FsyncPolicy::Each, 256)
-                .expect("open redb"),
+            RedbBackend::open(
+                dir.to_string_lossy().to_string(),
+                DurabilityPolicy::Each,
+                256,
+            )
+            .expect("open redb"),
         );
         let state = make_state_with_backend(&dir.to_string_lossy(), backend).await;
         {
             let mut s = state.write().await;
+            s.isolation.register_agent(AgentIdentity {
+                agent_id: "pregel-test-authority".to_string(),
+                role: AgentRole::System,
+                teams: Vec::new(),
+                roles: Vec::new(),
+            });
             s.registry
                 .create_graph("shA", GraphType::Global, None)
                 .unwrap();
@@ -1326,6 +1438,13 @@ mod dist_compute {
         (state, union)
     }
 
+    async fn read_authority(state: &Arc<RwLock<ServerState>>) -> GraphReadAuthority {
+        let context =
+            crate::server::auth::VerifiedRequestContext::verified_for_test("pregel-test-authority");
+        let state = state.read().await;
+        GraphReadAuthority::from_verified(&context, &state.isolation).unwrap()
+    }
+
     /// Round a score map for tolerant float comparison.
     fn score_map(rows: &[(String, f64)]) -> std::collections::BTreeMap<String, i64> {
         rows.iter()
@@ -1355,6 +1474,7 @@ mod dist_compute {
             }
         };
         let (state, union) = two_shard_state(&nodes, &edges, &place).await;
+        let authority = read_authority(&state).await;
 
         let dist = pregel::run_distributed(
             &state,
@@ -1363,6 +1483,7 @@ mod dist_compute {
                 damping: 0.85,
                 iterations: 50,
             },
+            &authority,
         )
         .await
         .unwrap();
@@ -1392,11 +1513,13 @@ mod dist_compute {
             }
         };
         let (state, union) = two_shard_state(&nodes, &edges, &place).await;
+        let authority = read_authority(&state).await;
 
         let dist = pregel::run_distributed(
             &state,
             &["shA".into(), "shB".into()],
             &DistAlgo::ConnectedComponents,
+            &authority,
         )
         .await
         .unwrap();
@@ -1444,11 +1567,17 @@ mod dist_compute {
             }
         };
         let (state, _union) = two_shard_state(&nodes, &edges, &place).await;
+        let authority = read_authority(&state).await;
 
         let graphs = ["shA".to_string(), "shB".to_string()];
-        let prior = match pregel::run_distributed(&state, &graphs, &DistAlgo::ConnectedComponents)
-            .await
-            .unwrap()
+        let prior = match pregel::run_distributed(
+            &state,
+            &graphs,
+            &DistAlgo::ConnectedComponents,
+            &authority,
+        )
+        .await
+        .unwrap()
         {
             DistResult::Labels(l) => l,
             _ => panic!("labels"),
@@ -1468,14 +1597,21 @@ mod dist_compute {
         // Incremental: only b and c are affected by the new edge.
         let affected: std::collections::HashSet<String> =
             ["b".to_string(), "c".to_string()].into_iter().collect();
-        let incr = pregel::incremental_connected_components(&state, &graphs, &prior, &affected)
-            .await
-            .unwrap();
+        let incr = pregel::incremental_connected_components(
+            &state, &graphs, &prior, &affected, &authority,
+        )
+        .await
+        .unwrap();
 
         // From scratch over the same (post-delta) graphs.
-        let scratch = match pregel::run_distributed(&state, &graphs, &DistAlgo::ConnectedComponents)
-            .await
-            .unwrap()
+        let scratch = match pregel::run_distributed(
+            &state,
+            &graphs,
+            &DistAlgo::ConnectedComponents,
+            &authority,
+        )
+        .await
+        .unwrap()
         {
             DistResult::Labels(l) => l,
             _ => panic!("labels"),
@@ -1523,8 +1659,12 @@ mod matview {
             uuid::Uuid::new_v4()
         ));
         let _ = std::fs::create_dir_all(&dir);
-        let backend =
-            RedbBackend::open(dir.to_string_lossy().to_string(), FsyncPolicy::Each, 256).unwrap();
+        let backend = RedbBackend::open(
+            dir.to_string_lossy().to_string(),
+            DurabilityPolicy::Each,
+            256,
+        )
+        .unwrap();
 
         let view = MatView {
             name: "ranks".into(),

@@ -29,8 +29,9 @@ import time
 
 import msgpack
 import pytest
+from conftest import request_context
 
-from epistemic_graph.client import EpistemicGraphClient
+from epistemic_graph.client import EpistemicGraphClient, StaleRouteError
 
 # ── Deterministic client-demux proof against a mock of the pipelined engine ──
 
@@ -52,7 +53,24 @@ class PipelinedMockServer:
         params = req.get("params") or {}
         delay = float(params.get("delay", 0.0))
         await asyncio.sleep(delay)
-        if params.get("fail"):
+        if params.get("stale"):
+            detail = {
+                "code": "STALE_ROUTE",
+                "message": "route moved",
+                "route": {
+                    "graph": "tenant:graph",
+                    "group": 5,
+                    "epoch": 12,
+                    "fencing_token": "g5:e12",
+                    "leader_node": 2,
+                },
+            }
+            resp = {
+                "id": req.get("id"),
+                "result": detail,
+                "error": "structured placement error",
+            }
+        elif params.get("fail"):
             resp = {"id": req.get("id"), "error": "boom: intentional server error"}
         else:
             # Echo a per-call marker so the demux→caller routing is verifiable.
@@ -100,7 +118,11 @@ class PipelinedMockServer:
 
 async def _client_to(port: int) -> EpistemicGraphClient:
     return await EpistemicGraphClient.connect(
-        tcp_addr=f"127.0.0.1:{port}", auth_secret="s", timeout=5.0, heavy_timeout=5.0
+        tcp_addr=f"127.0.0.1:{port}",
+        auth_secret="s",
+        verified_context=request_context(),
+        timeout=5.0,
+        heavy_timeout=5.0,
     )
 
 
@@ -190,6 +212,24 @@ async def test_one_error_does_not_corrupt_other_inflight():
 
 
 @pytest.mark.asyncio
+async def test_stale_route_error_exposes_structured_redirect():
+    server = PipelinedMockServer(port=9405)
+    await server.start()
+    client = await _client_to(9405)
+    try:
+        with pytest.raises(StaleRouteError) as excinfo:
+            await client._send("Op", {"stale": True})
+        assert excinfo.value.graph == "tenant:graph"
+        assert excinfo.value.group == 5
+        assert excinfo.value.epoch == 12
+        assert excinfo.value.fencing_token == "g5:e12"
+        assert excinfo.value.leader_node == 2
+    finally:
+        await client.close()
+        await server.stop()
+
+
+@pytest.mark.asyncio
 async def test_within_caller_ordering_preserved():
     # Sequential awaits on one client keep wire order — each await blocks on its own
     # id, so a single logical sequence (node→edge→commit) is never reordered.
@@ -218,10 +258,11 @@ async def test_real_engine_single_connection_pipelines(start_epistemic_graph_ser
     socket_path = os.environ.get(
         "GRAPH_SERVICE_SOCKET", "/tmp/test_epistemic_graph_local.sock"
     )
-    secret = os.environ.get("GRAPH_SERVICE_AUTH_SECRET", "epistemic-graph-test-secret")
+    secret = os.environ.get("GRAPH_SERVICE_AUTH_SECRET", "test-epistemic-graph-secret")
     client = await EpistemicGraphClient.connect(
         socket_path=socket_path,
         auth_secret=secret,
+        verified_context=request_context(),
         graph_name="pipelining_eg038",
         timeout=120.0,
         heavy_timeout=120.0,
@@ -244,7 +285,7 @@ async def test_real_engine_single_connection_pipelines(start_epistemic_graph_ser
         # On ONE connection, fire a HEAVY op, then a CHEAP op (Ping) a hair later.
         # Under true pipelining the engine dispatches both concurrently, so the cheap
         # op completes FIRST while the heavy one is still computing. A connection that
-        # serialized (the pre-EG-043 behavior) would force the Ping to wait behind the
+        # serialized implementation would force the Ping to wait behind the
         # heavy op in the connection's queue — completion would be ["heavy", "cheap"].
         # This proof does not depend on having spare cores for a wall-clock speedup.
         completion: list[str] = []

@@ -1,27 +1,42 @@
 # Dockerfile for building and testing epistemic-graph
-FROM python:3.11-slim
+FROM python:3.11-slim@sha256:e031123e3d85762b141ad1cbc56452ba69c6e722ebf2f042cc0dc86c47c0d8b3
+COPY --from=rust:1.91.1-slim-bookworm@sha256:8514999d4786ef12efe89239e86b3d0a021b94b9d35108c8efe6c79ca7dc1a65 /usr/local/cargo /usr/local/cargo
+COPY --from=rust:1.91.1-slim-bookworm@sha256:8514999d4786ef12efe89239e86b3d0a021b94b9d35108c8efe6c79ca7dc1a65 /usr/local/rustup /usr/local/rustup
+COPY --from=ghcr.io/astral-sh/uv:0.11.7@sha256:240fb85ab0f263ef12f492d8476aa3a2e4e1e333f7d67fbdd923d00a506a516a /uv /uvx /bin/
 
-# Install system packages, build tools, and Rust toolchain
+# Install system packages; the Rust toolchain comes from the immutable stage above.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
-    curl \
     git \
-    && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-ENV PATH="/root/.cargo/bin:${PATH}"
+ENV PATH="/usr/local/cargo/bin:${PATH}" \
+    RUSTUP_HOME="/usr/local/rustup" \
+    CARGO_HOME="/usr/local/cargo" \
+    UV_PROJECT_ENVIRONMENT="/opt/venv" \
+    UV_LINK_MODE=copy \
+    UV_COMPILE_BYTECODE=1
 WORKDIR /app
 
-# Pre-install dependencies to utilize Docker cache layers
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Resolve only from the committed lock; never re-resolve mutable dependency ranges.
+COPY pyproject.toml uv.lock ./
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-install-project --extra full
 
 # Copy source and config files
 COPY . .
 
-# Compile Rust bindings and install in-place
-RUN pip install epistemic-graph[all] --break-system-packages
+# Compile the local project with the complete Python boundary and then drop root.
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --extra full \
+    && groupadd --system --gid 10001 test \
+    && useradd --system --uid 10001 --gid 10001 --no-create-home \
+        --home-dir /tmp --shell /usr/sbin/nologin test \
+    && chown -R 10001:10001 /app /opt/venv
 
 # Run pytest by default
-CMD ["pytest"]
+ENV HOME=/tmp \
+    XDG_CACHE_HOME=/tmp/.cache
+USER 10001:10001
+CMD ["uv", "run", "--frozen", "pytest"]

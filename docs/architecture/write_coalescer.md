@@ -61,14 +61,11 @@ graph — a future per-connector channel, or `__commons__` itself — gets its o
 
 ### Side-effects stay centralized in the dispatch shell
 
-The worker applies ONLY the in-memory mutation under the txn and returns its outcome.
-`mark_dirty` / WAL append (`svc.append`) / size gauges remain in
-`dispatch::dispatch_graph_op`, run per-op against the returned `Response` — so the
-crash-consistency (WAL) and checkpoint (dirty) contracts are byte-for-byte unchanged;
-only **where** the lock is taken moved. The `wal_method` is captured *before* the
-coalesced fast path runs, so a coalesced write logs to the WAL exactly as the inline
-path did. (Verified by `wal_service_logs_dispatch_then_checkpoint_truncates`, which
-exercises the dispatch path and still passes.)
+The worker applies the canonical mutation under the transaction and returns its
+outcome. The authoritative redb commit, size gauges, audit, and CDC emission remain
+centralized in `dispatch::dispatch_graph_op`, run per operation against the returned
+`Response`. The coalesced and inline paths therefore share one commit-before-ack
+durability contract; only **where** the lock is taken changes.
 
 ### CAS exactly-once is preserved
 
@@ -97,8 +94,8 @@ losing a write.
 | `queue_capacity` | `(max_batch*4).clamp(256,4096)` | a few batches in flight without unbounded growth |
 | `max_linger` | 200 µs | a tiny window for a lone op to let a burst coalesce; a single write is essentially undelayed |
 
-The **only** env is the opt-out master switch `EPISTEMIC_GRAPH_WRITE_COALESCE=0`
-(read once at startup) for an operator who needs the strictly-inline path. Default ON.
+The bounded coalescer is always on. Its hardware-sized limits are part of the
+current write path rather than a deployment profile or compatibility switch.
 
 ## Observability
 

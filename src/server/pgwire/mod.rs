@@ -9,7 +9,7 @@
 //! all live in [`crate::server::wire`] ([`WireSession`], the one shared
 //! [`WireProtocol`] impl). THIS module is now purely the Postgres-SPECIFIC adapter:
 //!   * the TCP listener + `process_socket` framing,
-//!   * SCRAM/trust startup auth (see `auth.rs`),
+//!   * mandatory SCRAM startup auth (see `auth.rs`),
 //!   * the simple + extended (prepared-statement) query protocols, parameter binding,
 //!   * the Arrow→OID result encoding and the `COPY … FROM STDIN` wire decoders,
 //!
@@ -37,7 +37,7 @@
 //! Unchanged from KG-2.189/KG-2.198/EG-020/EG-045..049/EG-072/EG-102/EG-115 — the
 //! behavior now lives in [`crate::server::wire`]; this adapter only frames it. See the
 //! `wire` module header for the mixed-store transaction and durability semantics, and
-//! `auth.rs` for the `trust`/`scram` model (CONCEPT:EG-KG.query.concept-13).
+//! `auth.rs` for the SCRAM identity model (CONCEPT:EG-KG.query.concept-13).
 //!
 //! ## Arrow → pg type-OID mapping
 //! Result columns are described from the Arrow result schema via
@@ -82,11 +82,20 @@ pub const PGWIRE_ADDR_ENV: &str = "EPISTEMIC_GRAPH_PGWIRE_ADDR";
 /// Env var: the default graph a fresh connection runs against when the libpq
 /// `database` parameter is not supplied. Defaults to `__commons__`.
 pub const PGWIRE_GRAPH_ENV: &str = "EPISTEMIC_GRAPH_PGWIRE_GRAPH";
-/// Env var: explicit path to the user-defined SQL table store redb file
-/// (CONCEPT:EG-KG.query.register-user-tables-alongside). When unset it derives from `GRAPH_SERVICE_PERSIST_DIR`
-/// (`<persist_dir>/sql_tables.redb`) so user tables live beside the graph durable
-/// tier; absent that, a process-temp file (in-memory-ish, lost on restart).
-pub const PGWIRE_SQL_TABLES_ENV: &str = "EPISTEMIC_GRAPH_SQL_TABLES_PATH";
+/// Fail-closed startup policy for the direct pgwire listener. The adapter does
+/// not terminate TLS, so it is a loopback backend only. Production additionally
+/// requires SCRAM backed by non-empty engine key material.
+pub fn validate_startup_policy(
+    addr: &str,
+    auth_secret: &str,
+    auth_mode: PgWireAuthMode,
+) -> std::io::Result<()> {
+    crate::server::validate_direct_wire_security(
+        addr,
+        "pgwire",
+        auth_mode.verified_identity_binding(auth_secret),
+    )
+}
 
 // ── error + outcome adaptation (CONCEPT:EG-KG.compute.subsystems-reference) ───────────────────────────────
 
@@ -287,16 +296,9 @@ struct EngineBackend {
 }
 
 impl EngineBackend {
-    fn new(
-        state: Arc<RwLock<ServerState>>,
-        default_graph: String,
-        auth_mode: PgWireAuthMode,
-    ) -> Self {
-        // Under SCRAM the authenticated libpq `user` becomes the ACL actor; under
-        // TRUST the connection stays anonymous (CONCEPT:EG-KG.query.concept-13).
-        let auth_maps_actor = matches!(auth_mode, PgWireAuthMode::Scram);
+    fn new(state: Arc<RwLock<ServerState>>, default_graph: String) -> Self {
         Self {
-            session: Arc::new(WireSession::new(state, default_graph, auth_maps_actor)),
+            session: Arc::new(WireSession::new(state, default_graph)),
             parser: Arc::new(EngineQueryParser),
         }
     }
@@ -304,11 +306,18 @@ impl EngineBackend {
     /// Latch the connection's startup graph + actor from the libpq `database`/`user`
     /// startup parameters (readable only once startup completes, so on the first
     /// query). Delegates the rules to [`WireProtocol::resolve_startup`].
-    fn resolve_startup_from_client<C: ClientInfo>(&self, client: &C) {
+    async fn bind_startup_from_client<C: ClientInfo>(&self, client: &C) -> PgWireResult<()> {
         let meta = client.metadata();
         let user = meta.get(pgwire::api::METADATA_USER).cloned();
         let db = meta.get(pgwire::api::METADATA_DATABASE).cloned();
-        self.session.resolve_startup(user, db);
+        self.session.resolve_startup(user.clone(), db);
+        let user = user
+            .filter(|value| !value.trim().is_empty())
+            .ok_or_else(|| user_err("authenticated SQL identity is required"))?;
+        self.session
+            .bind_authenticated_sql_actor("pgwire", &user)
+            .await
+            .map_err(wire_err_to_pg)
     }
 
     /// Resolve the wire `Type` OIDs for a statement's `$N` parameters
@@ -451,7 +460,7 @@ impl SimpleQueryHandler for EngineBackend {
     {
         // On the first query, adopt the libpq `database` startup parameter as the
         // target graph (priority 1) — readable only now that startup has completed.
-        self.resolve_startup_from_client(client);
+        self.bind_startup_from_client(client).await?;
         // Simple query: the unified TEXT wire format (no per-column format codes).
         let outcome = self.session.execute(query).await.map_err(wire_err_to_pg)?;
         Ok(vec![outcome_to_response(outcome, None)])
@@ -496,7 +505,11 @@ impl pgwire::api::copy::CopyHandler for EngineBackend {
             .session
             .take_copy_state()
             .ok_or_else(|| user_err("COPY done with no COPY in progress"))?;
-        let store = crate::server::wire::user_table_store().map_err(wire_err_to_pg)?;
+        let store = self
+            .session
+            .user_table_store()
+            .await
+            .map_err(wire_err_to_pg)?;
         let schema = store
             .get_schema(state.table())
             .map_err(user_err)?
@@ -504,10 +517,11 @@ impl pgwire::api::copy::CopyHandler for EngineBackend {
         let rows = decode_copy_rows(&state, &schema).map_err(user_err)?;
         let table = state.table().to_string();
         let columns = state.columns().to_vec();
-        let n = tokio::task::spawn_blocking(move || store.insert_rows(&table, &columns, &rows))
+        let n = self
+            .session
+            .commit_copy_rows(table, columns, rows)
             .await
-            .map_err(|e| user_err(format!("copy insert task failed: {e}")))?
-            .map_err(user_err)?;
+            .map_err(wire_err_to_pg)?;
 
         // Complete the copy: CommandComplete then ReadyForQuery (the socket loop does
         // not emit these while the connection is in copy-in mode).
@@ -540,9 +554,7 @@ fn decode_copy_rows(
     let mut types = Vec::with_capacity(columns.len());
     for name in columns {
         let col = schema
-            .columns
-            .iter()
-            .find(|c| &c.name == name)
+            .column(name)
             .ok_or_else(|| format!("COPY column `{name}` does not exist in `{}`", state.table()))?;
         types.push(col.ty);
     }
@@ -1084,7 +1096,7 @@ impl ExtendedQueryHandler for EngineBackend {
         C::Error: std::fmt::Debug,
         PgWireError: From<<C as futures::Sink<pgwire::messages::PgWireBackendMessage>>::Error>,
     {
-        self.resolve_startup_from_client(client);
+        self.bind_startup_from_client(client).await?;
         let sql = substitute_params(&portal.statement.statement.sql, portal)?;
         let outcome = self.session.execute(&sql).await.map_err(wire_err_to_pg)?;
         Ok(outcome_to_response(
@@ -1101,7 +1113,7 @@ impl ExtendedQueryHandler for EngineBackend {
     /// execute to know a read's columns, and a placeholder does not change the columns.
     async fn do_describe_statement<C>(
         &self,
-        _client: &mut C,
+        client: &mut C,
         target: &StoredStatement<Self::Statement>,
     ) -> PgWireResult<DescribeStatementResponse>
     where
@@ -1115,6 +1127,7 @@ impl ExtendedQueryHandler for EngineBackend {
         C::Error: std::fmt::Debug,
         PgWireError: From<<C as futures::Sink<pgwire::messages::PgWireBackendMessage>>::Error>,
     {
+        self.bind_startup_from_client(client).await?;
         let graph = self.session.current_graph();
         let sql = &target.statement.sql;
         let param_types = self.param_type_oids(&graph, sql).await?;
@@ -1131,7 +1144,7 @@ impl ExtendedQueryHandler for EngineBackend {
     /// from that concrete statement, honouring the portal's result column format.
     async fn do_describe_portal<C>(
         &self,
-        _client: &mut C,
+        client: &mut C,
         target: &Portal<Self::Statement>,
     ) -> PgWireResult<DescribePortalResponse>
     where
@@ -1145,6 +1158,7 @@ impl ExtendedQueryHandler for EngineBackend {
         C::Error: std::fmt::Debug,
         PgWireError: From<<C as futures::Sink<pgwire::messages::PgWireBackendMessage>>::Error>,
     {
+        self.bind_startup_from_client(client).await?;
         let graph = self.session.current_graph();
         let sql = substitute_params(&target.statement.statement.sql, target)?;
         let mut fields = self.describe_result_columns(&graph, &sql).await?;
@@ -1242,7 +1256,7 @@ impl EngineBackendFactory {
         auth_secret: String,
     ) -> Self {
         Self {
-            backend: Arc::new(EngineBackend::new(state, default_graph, auth_mode)),
+            backend: Arc::new(EngineBackend::new(state, default_graph)),
             auth_mode,
             auth_secret,
         }
@@ -1262,8 +1276,8 @@ impl PgWireServerHandlers for EngineBackendFactory {
     }
 
     fn startup_handler(&self) -> Arc<impl StartupHandler> {
-        // TRUST or SCRAM (CONCEPT:EG-KG.query.concept-13), resolved once at serve() startup. A
-        // fresh handler per connection: the SCRAM SASL state machine is per-conn.
+        // Mandatory SCRAM, resolved once at serve() startup. A fresh handler per
+        // connection: the SCRAM SASL state machine is per-conn.
         Arc::new(auth::EngineStartupHandler::new(
             self.auth_mode,
             &self.auth_secret,
@@ -1287,13 +1301,13 @@ impl PgWireServerHandlers for EngineBackendFactory {
 pub async fn serve(addr: &str, state: Arc<RwLock<ServerState>>) -> std::io::Result<()> {
     // Resolve the auth mode once from the engine secret + env (CONCEPT:EG-KG.query.concept-13).
     let auth_secret = state.read().await.auth_secret.clone();
-    let auth_mode = PgWireAuthMode::resolve(&auth_secret);
+    let auth_mode = PgWireAuthMode::resolve(&auth_secret)?;
     serve_with_auth(addr, state, auth_mode).await
 }
 
 /// `serve` with an EXPLICIT auth mode (CONCEPT:EG-KG.query.concept-13). `serve` resolves the mode
 /// from the env + engine secret and delegates here; integration tests call this
-/// directly so they pin trust vs scram deterministically without a process-global
+/// directly so they pin the secure mode deterministically without a process-global
 /// env toggle (tests run in parallel).
 pub async fn serve_with_auth(
     addr: &str,
@@ -1302,12 +1316,17 @@ pub async fn serve_with_auth(
 ) -> std::io::Result<()> {
     let default_graph =
         std::env::var(PGWIRE_GRAPH_ENV).unwrap_or_else(|_| "__commons__".to_string());
-    let auth_secret = state.read().await.auth_secret.clone();
+    let (auth_secret, persist_dir) = {
+        let state = state.read().await;
+        (state.auth_secret.clone(), state.persist_dir.clone())
+    };
+    validate_startup_policy(addr, &auth_secret, auth_mode)?;
+    crate::server::sql_tables::validate_served_configuration(
+        persist_dir.as_deref().map(std::path::Path::new),
+    )?;
     let listener = TcpListener::bind(addr).await?;
     tracing::info!(
-        "pgwire: serving Postgres wire protocol on {} (default graph '{}', auth={}, \
-         simple+extended)",
-        addr,
+        "pgwire: serving Postgres wire protocol on configured loopback (default graph '{}', auth={}, simple+extended)",
         default_graph,
         auth_mode.as_str()
     );
@@ -1337,9 +1356,9 @@ mod copy_tests {
     use eg_query::{Column, ColumnType, TableSchema};
 
     fn items_schema() -> TableSchema {
-        TableSchema {
-            name: "items".into(),
-            columns: vec![
+        TableSchema::new(
+            "items",
+            vec![
                 {
                     let mut c = Column::new("id", ColumnType::BigInt, false, true);
                     c.serial = true;
@@ -1352,7 +1371,7 @@ mod copy_tests {
                 },
                 Column::new("qty", ColumnType::Int, true, false),
             ],
-        }
+        )
     }
 
     fn copy_state(format: CopyFormat, buf: &[u8], header: bool) -> CopyState {

@@ -220,9 +220,6 @@ fn source_times_transform_matrix() {
             axis: Default::default(),
         },
         Op::Window { secs: 3600.0 },
-        Op::Foreign {
-            name: "peer".into(),
-        },
         Op::Limit { k: 3 },
     ];
     for t in transforms {
@@ -256,7 +253,6 @@ fn empty_source_every_transform() {
         Op::RankMentions {},
         Op::RankMmr { lambda: 0.3, k: 5 },
         Op::Window { secs: 60.0 },
-        Op::Foreign { name: "p".into() },
         Op::Limit { k: 10 },
     ];
     for t in transforms {
@@ -361,25 +357,25 @@ fn build_beliefs() -> (
     core.add_edge(
         "evidence1".into(),
         "claim1".into(),
-        blob(json!({ "relationship_type": "SUPPORTS" })),
+        blob(json!({ "relationship": "SUPPORTS" })),
     )
     .unwrap();
     core.add_edge(
         "counter1".into(),
         "claim1".into(),
-        blob(json!({ "relationship_type": "CONTRADICTS" })),
+        blob(json!({ "relationship": "CONTRADICTS" })),
     )
     .unwrap();
     core.add_edge(
         "attacker1".into(),
         "claim1".into(),
-        blob(json!({ "relationship_type": "ATTACKS" })),
+        blob(json!({ "relationship": "ATTACKS" })),
     )
     .unwrap();
     core.add_edge(
         "claim1".into(),
         "derived1".into(),
-        blob(json!({ "relationship_type": "SUPPORTS" })),
+        blob(json!({ "relationship": "SUPPORTS" })),
     )
     .unwrap();
 

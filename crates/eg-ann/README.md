@@ -1,7 +1,7 @@
 # eg-ann — native IVF-PQ + OPQ + SQ8-refine ANN index (CONCEPT:EG-KG.sharding.semantic-embedding-store-backed)
 
-A pure-Rust, Pi-lean approximate-nearest-neighbour index that replaces the
-rebuild-on-load `hnsw_rs` store in `eg-core::compute::semantic`. Increment 1 of a
+A pure-Rust, Pi-lean approximate-nearest-neighbour crate providing the engine's
+native HNSW and persisted IVF-PQ backends. Increment 1 of a
 multi-week vector-at-scale track; productionises the throwaway `spike/quantized-ann`
 spike, with **production-real recall** (the spike deliberately under-delivered it).
 
@@ -76,8 +76,8 @@ engine's redb durable tier (CONCEPT:AU-KG.backend.backend-modes) instead.
 
 ## SemanticStore wiring (feature `ann`)
 
-`eg-core::compute::semantic::SemanticStore` selects between the default `hnsw_rs`
-backend and this one at compile time (`#[path]`-mux in `semantic.rs`). The ANN
+`eg-core::compute::semantic::SemanticStore` selects between the default native
+`eg-ann` HNSW backend and the compressed IVF-PQ backend at compile time. The ANN
 backend keeps the **identical public API** (`add_embedding` / `semantic_search` /
 `force_compact`) and **identical serde shape** (only the embeddings map persists,
 so snapshots are interchangeable). It uses brute-force cosine below

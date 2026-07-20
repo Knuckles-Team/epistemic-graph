@@ -1,22 +1,6 @@
-//! The document modality's stored value model (CONCEPT:EG-P1-3 — first-class
-//! document/media runtime modalities) — a typed raw-bytes -> pages -> layout-blocks
-//! -> tables -> spans hierarchy, plus language/version/annotation fields and a
-//! chunk-lineage concept, deliberately NOT a rendered/OCR'd view of the source
-//! bytes (see the crate docs' Pi-contract rationale: real layout/OCR extraction is
-//! a plugin, see `crate::decoder`).
-//!
-//! [`DocumentData`] mirrors `eg_image::ImageData`/`eg_audio::AudioData`/
-//! `eg_video::VideoData`'s shape: a small, serde-serializable value that persists
-//! as a typed property in the engine's redb per-graph store, with the source
-//! bytes' content address (`blob_ref`) resolvable through the engine's blob CAS.
-//! Unlike the metadata-only image/audio/video siblings (which read ONE scalar
-//! header field), a document's structure — `pages` -> `blocks` -> `spans`/`table`
-//! — is itself the typed artifact: this crate defines that hierarchy and a
-//! `chunk_id`-addressable lineage trail (`ChunkLineage`) back to the exact
-//! page/block/byte-range a downstream chunk (e.g. an embedding-pipeline chunk) was
-//! derived from. Every level is externally supplied (by `crate::decoder`'s
-//! `DocumentDecoder` plugin, or built directly via the constructors below) — this
-//! crate never invents pages/blocks/spans out of nothing.
+//! Source-free document pages, layout blocks, spans, tables, lineage, annotations,
+//! and authority-keyed lexical postings. The SHA-256 `blob_ref` binds the durable
+//! structure to request-local source bytes without retaining source text.
 
 use serde::{Deserialize, Serialize};
 
@@ -68,7 +52,6 @@ impl Span {
 pub struct TableCell {
     pub row: usize,
     pub col: usize,
-    pub text: String,
 }
 
 /// A table extracted from a document page — row/column extent plus a sparse cell
@@ -196,6 +179,18 @@ pub struct ChunkLineage {
     pub derived_from: Vec<String>,
 }
 
+/// One privacy-safe lexical posting. `token_ref` is issued with the serving
+/// authority's keyed digest; `start`/`end` are Unicode-scalar character offsets and
+/// source text is never retained in this record.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct LexicalPosting {
+    pub token_ref: String,
+    pub page: u32,
+    pub block: u32,
+    pub start: usize,
+    pub end: usize,
+}
+
 impl ChunkLineage {
     pub fn new(
         chunk_id: impl Into<String>,
@@ -245,6 +240,7 @@ pub struct DocumentData {
     pub annotations: Vec<Annotation>,
     #[serde(default)]
     pub chunks: Vec<ChunkLineage>,
+    pub lexical_postings: Vec<LexicalPosting>,
 }
 
 impl DocumentData {
@@ -256,6 +252,7 @@ impl DocumentData {
             pages: Vec::new(),
             annotations: Vec::new(),
             chunks: Vec::new(),
+            lexical_postings: Vec::new(),
         }
     }
 
@@ -284,8 +281,13 @@ impl DocumentData {
         self
     }
 
+    pub fn with_lexical_postings(mut self, postings: Vec<LexicalPosting>) -> Self {
+        self.lexical_postings = postings;
+        self
+    }
+
     /// The first span of the first block of the first page, if any — the
-    /// "primary" located range a `ModalityContract::evidence()` resolver reports.
+    /// "primary" located range a `ModalityContract::evidence_address()` resolver reports.
     /// `None` for a document with no page/block/span structure yet (never
     /// fabricated).
     pub fn first_span(&self) -> Option<&Span> {
@@ -316,11 +318,9 @@ mod tests {
                 1,
                 vec![
                     LayoutBlock::paragraph(vec![Span::labeled("intro", 0, 10)]),
-                    LayoutBlock::table(Table::new(2, 2).with_cells(vec![TableCell {
-                        row: 0,
-                        col: 0,
-                        text: "a".to_string(),
-                    }])),
+                    LayoutBlock::table(
+                        Table::new(2, 2).with_cells(vec![TableCell { row: 0, col: 0 }]),
+                    ),
                 ],
             )])
             .with_annotations(vec![Annotation::located("redacted", 1, 0, 10)])

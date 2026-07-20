@@ -14,7 +14,7 @@ use eg_core::compute::semantic::SemanticStore;
 use eg_core::graph::GraphView;
 
 use crate::algebra::Pred;
-use crate::exec::bfs_reached;
+use crate::exec::{bfs_reached, where_clause};
 use crate::rowset::RowSet;
 
 /// The canonical fused query — "nodes of `label` matching `preds` (relational),
@@ -42,7 +42,7 @@ pub fn separate_surfaces(
         value: label.into(),
     }];
     all_preds.extend_from_slice(preds);
-    let where_sql = sql_where(&all_preds);
+    let where_sql = where_clause(&all_preds)?;
     let sql = format!("SELECT id FROM nodes WHERE {where_sql}");
     let filtered = filter_ids(view, &sql)?;
 
@@ -60,45 +60,20 @@ pub fn separate_surfaces(
     Ok(RowSet::from_scored(scored).limit(k))
 }
 
-/// Compile predicates to a SQL `WHERE` body (the siloed surface speaks raw SQL, the
-/// same way a caller would hand-write it today). Mirrors `exec::where_clause`.
-fn sql_where(preds: &[Pred]) -> String {
-    if preds.is_empty() {
-        return "1=1".into();
-    }
-    preds
-        .iter()
-        .map(|p| match p {
-            Pred::Eq { prop, value } => format!("{prop} = '{}'", value.replace('\'', "''")),
-            Pred::GtNum { prop, n } => format!("{prop} > {n}"),
-            Pred::LtNum { prop, n } => format!("{prop} < {n}"),
-            // JSONPath preds (CONCEPT:EG-KG.compute.json-deep-indexing) are not a SQL surface (per-row via
-            // `eg_core::jsonpath`); this defensive arm keeps the match exhaustive.
-            Pred::JsonPath { .. } => "1=1".into(),
-            // Spatial preds (CONCEPT:EG-KG.ontology.singles-concept / EG-258) are not a SQL surface (see
-            // `exec::filter_op`); this defensive arm keeps the match exhaustive under `geo`.
-            #[cfg(feature = "geo")]
-            Pred::SpatialWithin { .. }
-            | Pred::SpatialDWithin { .. }
-            | Pred::SpatialContains { .. }
-            | Pred::SpatialCovers { .. }
-            | Pred::SpatialTouches { .. }
-            | Pred::SpatialCrosses { .. }
-            | Pred::SpatialOverlaps { .. }
-            | Pred::SpatialEquals { .. }
-            | Pred::SpatialDisjoint { .. } => "1=1".into(),
-        })
-        .collect::<Vec<_>>()
-        .join(" AND ")
-}
-
 /// Run a `SELECT id FROM nodes WHERE …` through real DataFusion and decode the ids.
 fn filter_ids(view: &GraphView, sql: &str) -> Result<Vec<String>, String> {
-    let result = eg_query::exec_sql(view, sql)?;
+    let result = eg_query::exec_sql(view, sql, &eg_query::CancellationToken::new())?;
     let mut out = Vec::with_capacity(result.rows.len());
     for row in &result.rows {
-        let cells: Vec<serde_json::Value> =
-            rmp_serde::from_slice(row).map_err(|e| format!("decode oracle row: {e}"))?;
+        let cells: Vec<serde_json::Value> = eg_types::msgpack::decode_bounded(
+            row,
+            eg_types::msgpack::MsgpackLimits::new(
+                eg_types::msgpack::MAX_PROPERTY_BYTES,
+                eg_types::msgpack::MAX_PROPERTY_ITEMS,
+                eg_types::msgpack::DEFAULT_MAX_DEPTH,
+            ),
+        )
+        .map_err(|_| "decode oracle row failed".to_string())?;
         match cells.first().and_then(|v| v.as_str()) {
             Some(id) => out.push(id.to_string()),
             None => return Err("oracle filter row had no string id cell".into()),

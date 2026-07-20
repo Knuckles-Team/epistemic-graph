@@ -82,7 +82,7 @@ durable graph** — the engine *is* those databases, not a gateway in front of t
 ## Message broker (eg-core/broker)
 
 The broker grows out of the **native engine task queue** (CONCEPT:EG-KG.compute.atomically-claim-oldest-pending): tasks and staged work are
-nodes in the isolated `__control__` graph, and `Method::ClaimNext` is a single-round-trip, Raft/WAL-safe
+nodes in the isolated `__control__` graph, and `Method::ClaimNext` is a single-round-trip, Raft-safe
 atomic claim (under the write guard, pick the smallest-`seq` `pending` node and CAS `pending → claimed`).
 That claim/ack primitive is extended into a **RabbitMQ-class broker** (CONCEPT:EG-KG.compute.message-broker-exchanges): durable
 exchanges (direct/topic/fanout) + bindings/routing-keys + queues, publish/consume/ack over additive
@@ -195,11 +195,11 @@ loop is a *scheduled engine op*, not a Python reindex:
 - **LeanRAG hierarchical retrieval** (EG-195) — vector-retrieve at the summary level then drill down through
   provenance edges, beating flat top-k RAG on redundancy/coverage.
 
-The LLM *content* (distillation/summary text) stays in agent-utilities; the engine owns the deterministic
-graph primitives. All in eg-core, Pi-safe. Program B **exposes these primitives over the wire** — additive
-`Method`s (CreateSummary/Consolidate/Maintain/SceneObject/Trajectory ops) + dispatch handlers + WAL replay
-so AU/MCP drive summary/consolidation/decay, scene-object, and trajectory ops **remotely** (previously
-in-process only; EG-KG.memory.eg-batch-decay-caller).
+The LLM *content* (distillation/summary text) stays in agent-utilities; the engine owns the deterministic,
+dependency-light graph primitives. Current `Method`s
+(CreateSummary/Consolidate/Maintain/SceneObject/Trajectory operations), dispatch handlers, and redb persistence
+let AU/MCP drive summary/consolidation/decay, scene-object, and trajectory operations remotely
+(EG-KG.memory.eg-batch-decay-caller).
 
 ---
 
@@ -215,7 +215,7 @@ violating write — and can run in the OWL-reasoned view, surpassing Stardog ICV
 
 ---
 
-## Lakehouse interop (eg-lake — LTAP, EG-KG.storage.lsn-as-snapshot-returns)
+## Lakehouse interop (eg-lake — LTAP, EG-KG.storage.lsn-as-snapshot-returns) {#lakehouse-interop}
 
 A new leaf crate `eg-lake` (feature `lake`, an opt-in feature not in the default build) is the **read-side lakehouse egress** that makes
 the engine an **LTAP** (Lakehouse-Transactional-Analytical) superset — **Databricks-interoperable**. An async
@@ -241,8 +241,8 @@ Every subsystem above shares four invariants that keep this "one engine" and not
 
 1. **One store.** Broker queues, log streams, geometries, tensors, memories, and KV blocks are all rows in
    the redb-authoritative store (or the blob CAS behind it) — durable, crash-safe, RLS-filtered.
-2. **One dispatch shell.** They are reached by additive `Method::*` ops through the same per-domain handler
-   table, so each inherits the centralized write side-effects (in-flight gauge, WAL enqueue, CDC emit) for
+2. **One dispatch shell.** They are reached by current `Method::*` ops through the same per-domain handler
+   table, so each inherits the centralized write side-effects (in-flight gauge, redb commit, CDC emit) for
    free.
 3. **One planner where it matters.** GIS, tensor, and stream expose `Op::*` variants that compose in a single
    `RowSet` plan with graph/vector/SQL/OWL ops — a spatial filter re-ranked by a vector and fused with BM25 is

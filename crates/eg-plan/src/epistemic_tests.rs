@@ -58,25 +58,25 @@ fn beliefs() -> (GraphView, SemanticStore) {
     core.add_edge(
         "evidence1".into(),
         "claim1".into(),
-        blob(json!({ "relationship_type": "SUPPORTS" })),
+        blob(json!({ "relationship": "SUPPORTS" })),
     )
     .unwrap();
     core.add_edge(
         "counter1".into(),
         "claim1".into(),
-        blob(json!({ "relationship_type": "CONTRADICTS" })),
+        blob(json!({ "relationship": "CONTRADICTS" })),
     )
     .unwrap();
     core.add_edge(
         "attacker1".into(),
         "claim1".into(),
-        blob(json!({ "relationship_type": "ATTACKS" })),
+        blob(json!({ "relationship": "ATTACKS" })),
     )
     .unwrap();
     core.add_edge(
         "claim1".into(),
         "derived1".into(),
-        blob(json!({ "relationship_type": "SUPPORTS" })),
+        blob(json!({ "relationship": "SUPPORTS" })),
     )
     .unwrap();
 

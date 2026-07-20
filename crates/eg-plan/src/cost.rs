@@ -6,7 +6,7 @@
 //! cheapest, most-selective operator first regardless of which modality it belongs
 //! to. A caller stitching three surfaces in Python is locked into whatever fixed
 //! order it hand-coded; the planner is not. The decision is real, with two
-//! contrasting regimes the spike proved (`~/workspace/reports/spike-unified-findings.md`):
+//! contrasting regimes documented in `repo://reports/spike-unified-findings.md`:
 //!
 //! * **filter-first** when the relational predicate is highly selective — it slashes
 //!   the candidate set cheaply, so the expensive brute-force vector scoring runs over
@@ -124,37 +124,8 @@ impl CostModel {
         }
     }
 
-    /// Reorder an adjacent `Filter`/`Rank` pair (in either input order) into the
-    /// cost-optimal sequence. Other ops pass through untouched — this is the single,
-    /// focused reordering rule this increment needs to demonstrate the principle.
-    ///
-    /// Only an ADJACENT pair is reordered: adjacency is the structural proof the two
-    /// commute over the same id-set (a `Traverse` between them would change the seed
-    /// either operates on, so they no longer commute). A real optimizer would prove
-    /// commutativity structurally across longer spans; that generalization is later
-    /// optimizer work (predicate-pushdown-through-traversal).
-    ///
-    /// As of the cross-modal optimizer (CONCEPT:EG-KG.query.filter-pushdown-rule) this is the
-    /// low-level swap PRIMITIVE the engine's `FilterAsOfBeforeRank` rule folds in: the rule
-    /// derives its [`Stats`] from the plan-time [`crate::cost::Cardinality`] estimators and
-    /// then calls the SAME [`Self::order`] decision + [`Self::place_narrower`] swap this fn
-    /// uses, so there is ONE reorder implementation (No-Legacy). Kept `pub` for the
-    /// facade/server caller that passes an already-built `Stats`.
-    pub fn reorder_filter_rank(plan: Vec<Op>, s: &Stats) -> Vec<Op> {
-        let filter_idx = plan.iter().position(|o| matches!(o, Op::Filter { .. }));
-        let rank_idx = plan.iter().position(|o| matches!(o, Op::Rank { .. }));
-        let (Some(fi), Some(ri)) = (filter_idx, rank_idx) else {
-            return plan; // nothing to reorder
-        };
-        if fi.abs_diff(ri) != 1 {
-            return plan; // not an adjacent (provably commuting) pair
-        }
-        let want = Self::order(s);
-        Self::place_narrower(plan, fi, ri, want == Order::FilterFirst)
-    }
-
-    /// The adjacent-pair SWAP primitive shared by [`Self::reorder_filter_rank`] and the
-    /// cross-modal optimizer's reorder rules (CONCEPT:EG-KG.query.filter-pushdown-rule). Given the
+    /// The adjacent-pair swap primitive used by the cross-modal optimizer's reorder
+    /// rules (CONCEPT:EG-KG.query.filter-pushdown-rule). Given the
     /// index of the id-set NARROWER (`Filter`/`AsOf`/`Reason`) and the index of the `Rank`
     /// it is adjacent to, place the narrower first iff `narrower_first`. Pure list surgery —
     /// no cost logic — so both callers agree byte-for-byte on the mechanical rewrite while
@@ -178,12 +149,11 @@ impl CostModel {
 // (CONCEPT:EG-KG.query.cardinality-estimators) — the plan-time inputs Lane A's optimizer
 // reads. Everything here stays in eg-plan (Rule R1): NOTHING is added to the wire `Op`.
 
-/// Cheap, O(1) catalog statistics collected ONCE per `plan_optimize` call
-/// (CONCEPT:EG-KG.query.cardinality-estimators). Deliberately derived from `.len()` on the
-/// snapshot's maps — NEVER a per-node blob scan — so optimizing a plan costs O(1), not O(N):
-/// the estimators trade a little accuracy for a cost that never scales with graph size. A
-/// real catalog (histograms / per-label counts) can later feed richer numbers through the
-/// SAME [`Cardinality`] interface without touching the rules.
+/// Snapshot-scoped catalog statistics collected once per `plan_optimize` call
+/// (CONCEPT:EG-KG.query.cardinality-estimators). Scalar counts come from O(1) map lengths.
+/// Numeric column histograms require one O(N * F) property pass on a cold snapshot, then
+/// are memoized on that immutable snapshot; a warm collection clones O(K) column records.
+/// `N` is resident nodes, `F` top-level properties examined and `K` numeric columns.
 #[cfg(feature = "query")]
 #[derive(Clone, Debug, Default)]
 pub struct PlanStats {
@@ -197,19 +167,19 @@ pub struct PlanStats {
     /// Mean out-degree `edge_count / node_count` — the graph `Traverse` fan-out factor.
     pub avg_out_degree: f64,
     /// Per-numeric-column min/max + equi-width histogram (CONCEPT:EG-KG.query.column-range-stats).
-    /// The ONE non-O(1) member: derived from a single cheap pass over the resident node
+    /// The non-O(1) member: derived from a single pass over the resident node
     /// property blobs so a `GtNum`/`LtNum` range predicate's selectivity is estimated from the
-    /// REAL data distribution instead of a fixed heuristic. Bounded (fixed buckets + a capped
-    /// per-column sample), so its memory never scales with graph size.
+    /// REAL data distribution instead of a fixed heuristic. A fixed bucket count and capped
+    /// sample bound memory per numeric column.
     pub column_stats: ColumnStats,
 }
 
 #[cfg(feature = "query")]
 impl PlanStats {
     /// Collect the catalog from a [`crate::exec::PlanCtx`] snapshot. The scalar counts are
-    /// O(1) (`.len()` on the snapshot maps); [`ColumnStats::collect`] adds ONE cheap pass over
-    /// the resident node blobs to derive per-column numeric distributions (the input the
-    /// range-selectivity estimate reads) — done once per `plan_optimize`, not per predicate.
+    /// O(1) (`.len()` on the snapshot maps); [`ColumnStats::collect`] performs an O(N * F)
+    /// property pass once on a cold snapshot and an O(K) clone from the snapshot memo when
+    /// warm. The range-selectivity estimate itself does not rescan nodes per predicate.
     pub fn collect(ctx: &crate::exec::PlanCtx) -> Self {
         let node_count = ctx.view.node_properties.len();
         let edge_count = ctx.view.edge_properties.len();
@@ -315,7 +285,7 @@ impl ColumnStats {
         }
         let mut acc: HashMap<String, Acc> = HashMap::new();
         for blob in view.node_properties.values() {
-            let Ok(v) = rmp_serde::from_slice::<serde_json::Value>(blob.as_slice()) else {
+            let Ok(v) = eg_types::msgpack::decode_property_value(blob.as_slice()) else {
                 continue;
             };
             let Some(obj) = v.as_object() else {
@@ -451,7 +421,7 @@ pub const DEFAULT_TOP_K: usize = 10;
 ///  * bi-temporal `AsOf` — temporal range selectivity;
 ///  * relational `Filter` — per-predicate selectivity product.
 ///
-/// Holds the O(1) [`PlanStats`] catalog; `rows_out` sizes an op's output and `cost_of`
+/// Holds a snapshot-memoized [`PlanStats`] catalog; `rows_out` sizes an op's output and `cost_of`
 /// budgets its work as a [`CostEstimate`]. All numbers are estimates in abstract units —
 /// only their RELATIVE magnitudes drive a plan choice, exactly as with [`Stats`].
 #[cfg(feature = "query")]
@@ -527,7 +497,7 @@ impl ModalityCardinality {
     /// JSONPath / spatial estimates are unchanged.
     fn filter_selectivity(&self, preds: &[crate::algebra::Pred]) -> f64 {
         use crate::algebra::Pred;
-        /// The legacy fixed range heuristic — only used when the column is unknown to the stats.
+        /// Conservative range estimate used only when the column has no statistics.
         const RANGE_SEL_FALLBACK: f64 = 0.33;
         let mut sel = 1.0f64;
         for p in preds {
@@ -767,8 +737,8 @@ pub struct CostEstimate {
 /// returns the estimated number of rows the op emits, so per-modality estimators (graph
 /// degree/path, ANN recall@k / over-fetch, OWL closure + decay, `AsOf` selectivity, …) plug
 /// in behind ONE interface without baking any estimate into the wire [`Op`] (Rule R1). Gated
-/// on `query` because it borrows the `query`-tier [`PlanCtx`]; the dep-free [`CostModel`] /
-/// [`Stats`] / [`reorder_filter_rank`] stay available in the Pi tier, unchanged.
+/// on `query` because it borrows the `query`-tier [`PlanCtx`]; the dep-free
+/// [`CostModel`] / [`Stats`] remain available in the Pi tier.
 #[cfg(feature = "query")]
 pub trait Cardinality {
     /// Estimated rows OUT of `op` given `in_card` rows flowing in, over `ctx`.
@@ -808,7 +778,7 @@ mod tests {
         };
         assert_eq!(CostModel::order(&broad), Order::VectorFirst);
 
-        // The reorder rewrites the plan to the winner in each regime.
+        // The optimizer's one swap primitive places the pair according to the winner.
         let plan = vec![
             Op::Filter {
                 preds: vec![Pred::Eq {
@@ -820,12 +790,12 @@ mod tests {
                 query: vec![1.0, 0.0],
             },
         ];
-        let reordered = CostModel::reorder_filter_rank(plan.clone(), &broad);
+        let reordered = CostModel::place_narrower(plan.clone(), 0, 1, false);
         assert!(
             matches!(reordered[0], Op::Rank { .. }),
             "broad filter → vector-first puts Rank at the front"
         );
-        let kept = CostModel::reorder_filter_rank(plan, &selective);
+        let kept = CostModel::place_narrower(plan, 0, 1, true);
         assert!(
             matches!(kept[0], Op::Filter { .. }),
             "selective filter → filter-first keeps Filter at the front"

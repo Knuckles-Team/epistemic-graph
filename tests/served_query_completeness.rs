@@ -7,13 +7,13 @@
 //!    EG-KG.query.served-text-index-unbound-finding). `run_unified` binds a snapshot-derived
 //!    `eg_text::TextIndex` into the `PlanCtx`.
 //!  * CONCEPT:EG-KG.query.served-plan-optimize-routing — the served path routes the plan
-//!    through the FULL cost optimizer (via `eg_plan::execute`'s `plan_optimize`) instead of
-//!    the single legacy `reorder_filter_rank` swap; the `reorder_filter_selectivity` hint is
-//!    now a no-op the optimizer supersedes, and served results are unchanged (differential).
+//!    through the full cost optimizer via `eg_plan::execute`'s `plan_optimize`.
 //!
 //! Everything goes through the SERVED RPC: `dispatch(state, Request{ Method::* })`.
 //! Module-gated on `query` + `text`; runs under `--features full`.
 #![cfg(all(feature = "query", feature = "text"))]
+
+mod common;
 
 use std::sync::Arc;
 
@@ -23,10 +23,9 @@ use tokio::sync::{RwLock, Semaphore};
 
 use eg_plan::{Op, Plan};
 use epistemic_graph::channels::ChannelManager;
-use epistemic_graph::isolation::IsolationLayer;
 use epistemic_graph::protocol::{Method, Request, Response, ResultPayload};
 use epistemic_graph::registry::GraphRegistry;
-use epistemic_graph::server::{compute_auth_token, dispatch, ServerState};
+use epistemic_graph::server::{dispatch, ServerState};
 
 const SECRET: &str = "served-query-completeness-secret";
 
@@ -41,19 +40,16 @@ fn state() -> Arc<RwLock<ServerState>> {
             epistemic_graph::server::persistence::cold_offload::ColdTenantTracker::new(),
         ),
         registry: GraphRegistry::new(),
-        isolation: IsolationLayer::new(),
+        isolation: common::current_isolation(),
         channels: ChannelManager::new(),
         auth_secret: SECRET.to_string(),
         persist_dir: None,
         persistence: None,
-        redb_authoritative: false,
         max_in_flight: Arc::new(Semaphore::new(16)),
         read_admission: Arc::new(Semaphore::new(16)),
         per_graph_inflight: Arc::new(DashMap::new()),
         per_graph_inflight_limit: 8,
-        write_coalescer: Arc::new(
-            epistemic_graph::write_coalescer::WriteCoalescerRegistry::from_env(),
-        ),
+        write_coalescer: Arc::new(epistemic_graph::write_coalescer::WriteCoalescerRegistry::new()),
         open_txns: Arc::new(DashMap::new()),
         txn_id_gen: Arc::new(epistemic_graph::server::txn::TxnIdGen::default()),
         txn_ttl_secs: 300,
@@ -69,8 +65,6 @@ fn state() -> Arc<RwLock<ServerState>> {
         multi_raft: None,
         #[cfg(feature = "tsdb")]
         tsdb_store: None,
-        #[cfg(feature = "rdf-redb")]
-        rdf_quads: None,
         #[cfg(feature = "streaming")]
         cdc: Some(Arc::new(epistemic_graph::server::cdc::CdcHub::new())),
         #[cfg(feature = "wasm-udf")]
@@ -83,23 +77,13 @@ fn state() -> Arc<RwLock<ServerState>> {
         foreign_sources: Arc::new(DashMap::new()),
         #[cfg(feature = "kv")]
         kv: None,
-        #[cfg(feature = "dataset-handle")]
-        dataset_handles: std::sync::Arc::new(
-            epistemic_graph::server::dataset_handle::DatasetHandleRegistry::new(),
-        ),
         #[cfg(feature = "lake")]
         lake: std::sync::Arc::new(epistemic_graph::server::lake::LakeManager::new()),
     }))
 }
 
 fn req(id: u64, method: Method) -> Request {
-    Request {
-        id,
-        graph: "__commons__".into(),
-        auth_token: compute_auth_token(SECRET, id),
-        agent_id: None,
-        method,
-    }
+    common::signed_request(SECRET, id, "__commons__", method)
 }
 
 /// Decode a served `UnifiedQuery` result (a `Raw` MessagePack `Vec<(id, score|nil)>`).
@@ -179,17 +163,7 @@ async fn served_ranktext_returns_lexical_hits() {
         },
         Op::Limit { k: 5 },
     ]);
-    let resp = dispatch(
-        &state,
-        req(
-            100,
-            Method::UnifiedQuery {
-                plan,
-                reorder_filter_selectivity: None,
-            },
-        ),
-    )
-    .await;
+    let resp = dispatch(&state, req(100, Method::UnifiedQuery { plan })).await;
     let rows = rows_of(&resp);
     assert!(
         !rows.is_empty(),
@@ -230,17 +204,7 @@ async fn served_fuserrf_text_branch_contributes_lexical_hits() {
         },
         Op::Limit { k: 3 },
     ]);
-    let resp = dispatch(
-        &state,
-        req(
-            200,
-            Method::UnifiedQuery {
-                plan,
-                reorder_filter_selectivity: None,
-            },
-        ),
-    )
-    .await;
+    let resp = dispatch(&state, req(200, Method::UnifiedQuery { plan })).await;
     let rows = rows_of(&resp);
     let ids: Vec<&str> = rows.iter().map(|(id, _)| id.as_str()).collect();
     assert!(
@@ -250,69 +214,6 @@ async fn served_fuserrf_text_branch_contributes_lexical_hits() {
     assert!(
         ids.contains(&"ml"),
         "the vector branch still contributes its cluster hit: {ids:?}"
-    );
-}
-
-/// CONCEPT:EG-KG.query.served-plan-optimize-routing — differential: the `reorder_filter_selectivity`
-/// hint is now a no-op the full optimizer supersedes, and served results are UNCHANGED whether
-/// or not it is set (the optimizer's reorder is answer-preserving within the EG-405 guard).
-#[tokio::test]
-async fn served_reorder_hint_is_answer_preserving_noop() {
-    let state = state();
-    seed_corpus(&state).await;
-
-    // A Filter(before Rank) plan — the exact pair the legacy reorder targeted.
-    let mk = || {
-        Plan::new(vec![
-            Op::Scan {
-                label: "Doc".into(),
-            },
-            Op::Filter {
-                preds: vec![eg_plan::Pred::Eq {
-                    prop: "type".into(),
-                    value: "Doc".into(),
-                }],
-            },
-            Op::Rank {
-                query: vec![0.99, 0.10, 0.0],
-            },
-            Op::Limit { k: 5 },
-        ])
-    };
-
-    let with_hint = rows_of(
-        &dispatch(
-            &state,
-            req(
-                300,
-                Method::UnifiedQuery {
-                    plan: mk(),
-                    reorder_filter_selectivity: Some(0.01),
-                },
-            ),
-        )
-        .await,
-    );
-    let no_hint = rows_of(
-        &dispatch(
-            &state,
-            req(
-                301,
-                Method::UnifiedQuery {
-                    plan: mk(),
-                    reorder_filter_selectivity: None,
-                },
-            ),
-        )
-        .await,
-    );
-    assert!(
-        !with_hint.is_empty(),
-        "the plan returns rows: {with_hint:?}"
-    );
-    assert_eq!(
-        with_hint, no_hint,
-        "the legacy reorder hint no longer changes served results (optimizer supersedes it)"
     );
 }
 
@@ -373,17 +274,7 @@ async fn served_ranktext_pushes_down_into_persistent_index_not_snapshot_fallback
         },
         Op::Limit { k: 5 },
     ]);
-    let resp = dispatch(
-        &state,
-        req(
-            3,
-            Method::UnifiedQuery {
-                plan,
-                reorder_filter_selectivity: None,
-            },
-        ),
-    )
-    .await;
+    let resp = dispatch(&state, req(3, Method::UnifiedQuery { plan })).await;
     let rows = rows_of(&resp);
     let ids: Vec<&str> = rows.iter().map(|(id, _)| id.as_str()).collect();
     assert!(

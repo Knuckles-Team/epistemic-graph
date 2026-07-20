@@ -19,15 +19,11 @@ Later phases add sequential patterns, forecasting, and frequent-subgraph mining
 onto this *same* surface — so every later phase is "add an algorithm", not "add a
 surface".
 
-> **Durability (EG-P0-3).** Every `writeback=true` mining action documented below as a
-> "**WAL-durable** graph write" — `classify_predict`, `reduce`, `sequence`, `forecast`, `text`
-> (`lda`/`nmf`), `subgraph` (`gspan`) — is logged to the per-graph WAL and replayed on restart.
-> `sequence`/`forecast`/`text`/`subgraph` (plus the unrelated node-embedding write, `AddEmbedding`)
-> were **not actually durable before EG-P0-3 closed the gap**: they were already classified as
-> mutations for ACL purposes, but an acknowledged write could be silently lost on crash, and their
-> replay arms were dead code. `classify_predict`/`reduce` were already durable before this fix.
-> Several other engine methods still have this exact class of gap open — see
-> [capabilities.md's Known limitations](capabilities.md#known-limitations-in-progress-eg-p0-2p0-4p0-6).
+> **Durability.** Every `writeback=true` mining action documented below —
+> `classify_predict`, `reduce`, `sequence`, `forecast`, `text` (`lda`/`nmf`), and
+> `subgraph` (`gspan`) — is a write-authorized mutation committed to the authoritative
+> redb store before acknowledgement. Read-only algorithm variants do not enter the
+> durable mutation path.
 
 ## The one surface, five layers
 
@@ -88,7 +84,7 @@ this is the cross-modal hook. The spec:
 | `node_label` | the label whose instances each become one basket owner |
 | `direction` | `out` (successors, default) · `in` (predecessors) · `any` |
 | `item_field` | `label` (neighbor's type) · `prop:<key>` (a neighbor property) · omit ⇒ the neighbor's node id |
-| `relation` | only follow edges whose `relation`/`type` property equals this |
+| `relation` | only follow edges whose canonical `relationship` property equals this |
 | `limit` | cap the basket owners scanned (0 = uncapped) |
 
 ## Cross-modal example — mine over a graph neighborhood
@@ -149,8 +145,8 @@ papers = {
 }
 for pid, (cs, cap) in papers.items():
     c.nodes.add(pid, {"type": "Paper"})
-    for x in cs: c.edges.add(pid, concepts[x], {"relation": "TOUCHES"})
-    c.edges.add(pid, caps[cap], {"relation": "IMPLEMENTS"})
+    for x in cs: c.edges.add(pid, concepts[x], {"relationship": "TOUCHES"})
+    c.edges.add(pid, caps[cap], {"relationship": "IMPLEMENTS"})
 
 # Mine each Paper's neighborhood (concepts + capability) → co-occurrence rules,
 # and write the rules back as :AssociationRule nodes.
@@ -196,7 +192,7 @@ res = c.mining.cluster(
 )
 ```
 
-A plan is graph-derived like `source`, so WAL replay re-executes it
+A plan is graph-derived like `source`, and the canonical mutation applier executes it
 deterministically against the current graph state. A plan leg that matches no
 rows degrades to an empty feature set (never an error) — the same "no match ⇒
 empty" contract every other mining source honors. **Scope cut:** the
@@ -397,8 +393,8 @@ out = await c.mining.classify_predict(
 ```
 
 `classify_fit` is **read-only** (it returns a model, mutates nothing).
-`classify_predict` with `writeback=True` is a **WAL-durable** graph write (replayed by
-re-running the fitted model deterministically).
+`classify_predict` with `writeback=True` is a **redb-durable** graph write; the
+materialized classification rows commit before acknowledgement.
 
 ---
 
@@ -448,8 +444,8 @@ out = await c.mining.reduce(
 # → one :Embedding2D{coords, source} node per :Doc, linked REDUCED_FROM → the :Doc.
 ```
 
-`reduce` with `writeback=True` is a **WAL-durable** graph write (replayed by re-running
-the reduction deterministically; UMAP/t-SNE reproduce per `seed`).
+`reduce` with `writeback=True` is a **redb-durable** graph write; UMAP/t-SNE remain
+deterministic for a fixed `seed`.
 
 ## MCP + REST (classify / reduce)
 
@@ -521,9 +517,9 @@ out = await c.mining.sequence(
 #   PATTERN_ITEM → any item that is a resident node.
 ```
 
-`sequence` with `writeback=True` is a **WAL-durable** graph write (replayed by
-re-mining deterministically — explicit sequences reproduce byte-identically; a
-graph-derived source re-derives from the current graph state).
+`sequence` with `writeback=True` is a **redb-durable** graph write. Explicit sequences
+produce deterministic materialized rows; a graph-derived source is evaluated against
+the current graph state before the rows commit.
 
 ## MCP + REST (sequence)
 
@@ -592,8 +588,8 @@ out = await c.mining.forecast(
 #   → the :metric:daily_active_users node (if resident).
 ```
 
-`forecast` with `writeback=True` is a **WAL-durable** graph write (replayed by
-re-forecasting deterministically from the same `values`).
+`forecast` with `writeback=True` is a **redb-durable** graph write committed before
+acknowledgement; the same `values` produce the same materialized forecast.
 
 ## MCP + REST (forecast)
 
@@ -656,8 +652,8 @@ out = await c.mining.text(
 #   topic it is — a downstream feed for association-mining topics↔entities.
 ```
 
-`text` with `writeback=True` is a **WAL-durable** graph write for `lda`/`nmf`
-(replayed by re-mining deterministically); `tfidf` never writes back (no topics to
+`text` with `writeback=True` is a **redb-durable** graph write for `lda`/`nmf`;
+`tfidf` never writes back (no topics to
 materialize — the flag is ignored).
 
 ## MCP + REST (text)
@@ -721,8 +717,8 @@ out = await c.mining.subgraph(min_support=0.1, max_edges=2, writeback=True)
 #   SUBGRAPH_MEMBER → every node instance that participates in it.
 ```
 
-`subgraph` with `writeback=True` is a **WAL-durable** graph write for `gspan`
-(replayed by re-mining the current graph state deterministically); `motif` never
+`subgraph` with `writeback=True` is a **redb-durable** graph write for `gspan`;
+`motif` never
 writes back (a pure census, no patterns to materialize — the flag is ignored).
 
 ## MCP + REST (subgraph)

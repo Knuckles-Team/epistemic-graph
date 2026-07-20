@@ -5,11 +5,11 @@
 //! `eg-capabilities` (CONCEPT:EG-P0-1) is a machine-checked, exhaustive `MethodPolicy`
 //! table over every `Method` variant — but on its own it is a one-way AUDIT: it
 //! cross-checks the existing hand-rolled classifiers (`access.rs::requires_write`,
-//! `wal.rs::is_durable_mutation`, `audit.rs::audit_line`, `cdc.rs::emit_for_method`)
+//! `mutation_apply::is_durable_mutation`, `audit.rs::audit_line`, `cdc.rs::emit_for_method`)
 //! against its declared policy, without either side CONSUMING the other. Handlers
 //! still mutate `eg-core` directly (`src/server/handlers/graph_ops.rs`'s
 //! `g.add_node(...)` etc.), and the dispatch shell (`src/server/dispatch.rs`)
-//! separately re-derives whether to WAL-record / CDC-emit a given method from its
+//! separately re-derives whether to durably commit / CDC-emit a given method from its
 //! own classifiers.
 //!
 //! This module is the other direction: [`MutationPlan`] is POPULATED FROM
@@ -23,16 +23,16 @@
 //!
 //! [`GATEWAY_ROUTED`] methods are wired through this gateway. EG-P0-2 started with
 //! 7 (`AddNode`/`RemoveNode`/`AddEdge`/`RemoveEdge` + `CreateSummaryNode`/
-//! `Consolidate`/`Reinforce`); the L11 rollout expanded this to 74, adding:
+//! `Consolidate`/`Reinforce`); the L11 rollout expanded it across the full routed
+//! graph surface, adding:
 //!   * the rest of the plain graph-core family (CAS/claim/edge-temporal/scene/
 //!     trajectory/embedding/ledger/lifecycle ops — all handled in `graph_ops.rs`
 //!     already, same shape as the original 7);
 //!   * the message-broker/stream family (`Outbox` durability domain, behind
 //!     `feature = "broker"` — proves the gateway is domain-agnostic: `commit_mutation`
 //!     doesn't branch on `DurabilityDomain`, only on whether it's `None`);
-//!   * `IcvConfigure` (never touches `GraphCore` at all — `apply` ignores its
-//!     `&GraphCore` parameter — but still rides the graph-scoped authz/durability
-//!     shape);
+//!   * `IcvConfigure` (validated graph control state carried in the staged
+//!     `GraphCore`, so policy and data share the graph-scoped durable commit);
 //!   * BOTH runtime-conditional families whose REAL `mutates` answer is a
 //!     per-invocation `writeback: bool` field, not `policy()`'s conservative
 //!     upper bound: `GraphLearnFit`/`GraphLearnPredict` and every writeback-capable
@@ -41,54 +41,42 @@
 //!     ACL, no durability/audit/CDC) instead of being incorrectly gated behind
 //!     Write access or persisted as a phantom mutation.
 //!
-//! This is still not a claim of full coverage — see
-//! `tests::gateway_routed_set_matches_mutating_policy_surface` for the machine-
-//! visible, EXHAUSTIVELY-PARTITIONED backlog of mutating methods NOT yet migrated:
-//! every name falls into either `JUSTIFIED_NA` (a real architectural reason — a
-//! different commit protocol like the OCC/2PC `Txn*`/`Commit` family, a non-graph-
-//! scoped store like `Blob*`/`Kv*`/`TsAppend`, a cluster-wide/cross-shard admin op,
-//! a registry-lifecycle op, or a process-global registry) or `OPEN_NOT_JUSTIFIED`
-//! (graph-scoped and structurally routable, just not wired yet — the RDF triple
-//! family and the `Sql`/`CypherQuery`/`GraphQl` runtime-conditional family) — an
-//! undocumented name is a hard test failure, never a silent skip.
+//! Coverage is machine-partitioned by
+//! `tests::gateway_routed_set_matches_mutating_policy_surface`: graph-scoped
+//! mutations use this gateway; WorkItem, OCC/2PC, lifecycle, and non-graph stores
+//! identify their native atomic coordinator. `OPEN_NOT_JUSTIFIED` is asserted
+//! empty, so a new mutating method cannot silently bypass both categories.
 //!
-//! `src/server/dispatch.rs` wires `handlers::graph_ops::try_handle_gateway` in
-//! AHEAD of both the dispatch-shell write-coalescer branch (`try_coalesce_write`)
-//! and the legacy WAL/CDC tail for exactly the routed set, so there is never a
-//! double-apply: a routed method never reaches `dispatch::try_coalesce_write`, the
-//! old direct-`eg-core`-call arms in `graph_ops::try_handle`/`mining::try_handle`/
-//! `graphlearn::try_handle` (now `unreachable!()` there), or the dispatch shell's
-//! own `record_method`/`cdc_pre`/`cdc_method` computation (all three are gated off
-//! [`is_gateway_routed`] there). The coalescer BATCHING itself is not lost, though
-//! — the gateway re-enters the SAME per-graph writer from INSIDE `commit_mutation`
-//! (L18, see [`try_coalesce_apply`]), so a routed structural write still batches.
+//! `src/server/dispatch.rs` wires `handlers::graph_ops::try_handle_gateway` ahead
+//! of the generic handler chain. A routed method therefore reaches exactly one
+//! mutation kernel. The gateway re-enters the per-graph writer from inside
+//! `commit_mutation` (L18, see [`try_coalesce_apply`]), so routed structural writes
+//! retain batching without a second durability path.
 //!
 //! ## What this gateway does NOT reimplement
 //!
 //! Audit-chain emission (the tamper-evident hash chain, `audit.rs` +
 //! `redb_store::append_audit_entry`) is stateful PER GRAPH (each entry chains off
 //! the previous one's hash) and already lives inside the durable-commit path
-//! (`PersistenceBackend::record`/`record_durable` → the redb backend). Reimplementing
+//! (`PersistenceBackend::record_durable` → the redb backend). Reimplementing
 //! that chaining here would risk a second, diverging chain. Instead,
-//! `commit_mutation` DELEGATES to the existing `record`/`record_durable` call for
-//! durability (which — for a redb backend — appends the audit entry atomically with
-//! the data row when `audit::audit_line(method)` resolves), and `plan.audited`
+//! Compact row commits and staged-state MutationBatch commits both append the audit
+//! entry inside their authoritative redb transaction. `plan.audited`
 //! (sourced from `eg_capabilities::policy`) is the assertable, tested FACT that this
 //! delegation actually happens for the methods policy says should be audited (see
-//! `tests::routed_mutation_produces_one_wal_record_one_audit_entry_and_one_cdc_event`,
+//! `tests::routed_mutation_produces_one_durable_record_one_audit_entry_and_one_cdc_event`,
 //! which uses a REAL `RedbBackend` and reads the audit chain back).
 //!
 //! The per-graph write-coalescer's batching optimization is NO LONGER bypassed for
 //! the routed set (L18/EG-P0-6): [`commit_mutation`] step 4 routes a coalescable
-//! routed mutation (`AddNode`/`RemoveNode`/`AddEdge`/`RemoveEdge`) through the SAME
-//! `WriteCoalescerRegistry::writer_for` path the legacy `dispatch::try_coalesce_write`
-//! uses (see [`try_coalesce_apply`]), so the hot-path structural writes batch again
-//! (`stats().ops()` counts them) while WAL/audit/CDC ordering is preserved. The
+//! routed mutation (`AddNode`/`RemoveNode`/`AddEdge`/`RemoveEdge`) through the
+//! `WriteCoalescerRegistry::writer_for` path (see [`try_coalesce_apply`]), so the
+//! hot-path structural writes batch
+//! (`stats().ops()` counts them) while durability/audit/CDC ordering is preserved. The
 //! non-coalescable routed memory ops (`CreateSummaryNode`/`Consolidate`/`Reinforce`)
-//! keep the inline `apply`. The Raft consensus barrier / cross-region replica log are
-//! still untouched (both already return from `dispatch_graph_op` before this gateway
-//! is reached, or are simply not yet wired into it) — see the module docs above and
-//! the workstream report for the full backlog.
+//! keep the inline `apply`. With Raft active, dispatch reaches the consensus barrier
+//! before this local gateway; each committed ordinary Raft method is then staged and
+//! committed through the same state-backed MutationBatch authority on every replica.
 
 use std::sync::Arc;
 
@@ -149,10 +137,11 @@ impl MutationPlan {
 /// The methods currently routed through [`commit_mutation`] (CONCEPT:EG-P0-2). Kept
 /// as a public, testable allowlist so the migration surface is machine-visible: see
 /// `tests::gateway_routed_set_matches_mutating_policy_surface` for the computed
-/// complement (every OTHER mutating method, per `eg_capabilities::ALL_METHODS`) —
-/// that complement IS the EG-P0-2 rollout backlog.
+/// complement (every other mutating method, per `eg_capabilities::ALL_METHODS`),
+/// which is owned by an explicit engine-native consensus coordinator.
 pub const GATEWAY_ROUTED: &[&str] = &[
     "AddNode",
+    "CreateNodeIfAbsent",
     "RemoveNode",
     "AddEdge",
     "RemoveEdge",
@@ -186,15 +175,11 @@ pub const GATEWAY_ROUTED: &[&str] = &[
     "RunDatalogReasoning",
     // `IcvConfigure` is UNCONDITIONAL in the `Method` enum but its handler (and
     // hence its gateway arm) is behind `feature = "shacl"` — same shape as
-    // `RunDatalogReasoning`/`reasoning` above. It never touches `GraphCore` at
-    // all (it writes a process-global ICV guard policy keyed by graph name), but
-    // still rides the ordinary graph-scoped dispatch chain, so it fits the
-    // gateway's `(ctx, plan, method, apply)` shape with an `apply` that ignores
-    // `core` entirely.
+    // `RunDatalogReasoning`/`reasoning` above. Its validated policy is graph
+    // control state and therefore uses the same staged/durable gateway shape.
     "IcvConfigure",
     "PruneByLifecycle",
     "BatchUpdate",
-    "ParseRepository",
     "ClearLedger",
     "ApplyLedger",
     "CompactNodesByType",
@@ -219,6 +204,7 @@ pub const GATEWAY_ROUTED: &[&str] = &[
     "PublishIdempotent",
     "BrokerAckTag",
     "BrokerNackTag",
+    "BrokerRenewTag",
     // ── L11 rollout batch 3: RUNTIME-CONDITIONAL graph-learning family (only
     // mutates when the request's own `writeback` field is true) — routed via
     // `commit_conditional_mutation`, behind `feature = "graphlearn"`. ──
@@ -256,11 +242,16 @@ pub const GATEWAY_ROUTED: &[&str] = &[
     "GraphQl",
     // ── L11 rollout batch 4: native RDF write surface (GraphRedb-durable,
     // audited) — routed via `commit_conditional_mutation_async` at the rdf
-    // dispatch site because its durable write also touches the optional
-    // `rdf-redb` lossless quad store on `state`. Behind `feature = "rdf"`. ──
+    // dispatch site because parsing and graph projection require `state`.
+    // Behind `feature = "rdf"`. ──
     "AddTriples",
     "RemoveTriples",
     "DropNamedGraph",
+    // Verified, runtime-conditional governed document/image/audio/video service.
+    // Its dedicated dispatch arm invokes `commit_conditional_mutation` before the
+    // generic handler chain so ephemeral source bytes never enter durable receipts.
+    #[cfg(feature = "modality-serving")]
+    "ServedModality",
 ];
 
 /// Extract a `Method` variant's name as a `&'static str`, covering exactly
@@ -270,6 +261,7 @@ pub const GATEWAY_ROUTED: &[&str] = &[
 pub fn method_variant_name(m: &Method) -> &'static str {
     match m {
         Method::AddNode { .. } => "AddNode",
+        Method::CreateNodeIfAbsent { .. } => "CreateNodeIfAbsent",
         Method::RemoveNode { .. } => "RemoveNode",
         Method::AddEdge { .. } => "AddEdge",
         Method::RemoveEdge { .. } => "RemoveEdge",
@@ -303,7 +295,6 @@ pub fn method_variant_name(m: &Method) -> &'static str {
         Method::IcvConfigure { .. } => "IcvConfigure",
         Method::PruneByLifecycle { .. } => "PruneByLifecycle",
         Method::BatchUpdate { .. } => "BatchUpdate",
-        Method::ParseRepository { .. } => "ParseRepository",
         Method::ClearLedger => "ClearLedger",
         Method::ApplyLedger { .. } => "ApplyLedger",
         Method::CompactNodesByType { .. } => "CompactNodesByType",
@@ -345,6 +336,8 @@ pub fn method_variant_name(m: &Method) -> &'static str {
         Method::BrokerAckTag { .. } => "BrokerAckTag",
         #[cfg(feature = "broker")]
         Method::BrokerNackTag { .. } => "BrokerNackTag",
+        #[cfg(feature = "broker")]
+        Method::BrokerRenewTag { .. } => "BrokerRenewTag",
         #[cfg(feature = "graphlearn")]
         Method::GraphLearnFit { .. } => "GraphLearnFit",
         #[cfg(feature = "graphlearn")]
@@ -396,17 +389,104 @@ pub fn method_variant_name(m: &Method) -> &'static str {
         Method::RemoveTriples { .. } => "RemoveTriples",
         #[cfg(feature = "rdf")]
         Method::DropNamedGraph => "DropNamedGraph",
+        #[cfg(feature = "modality-serving")]
+        Method::ServedModality { .. } => "ServedModality",
         _ => "other",
     }
 }
 
-/// Is `method` one of [`GATEWAY_ROUTED`]? `dispatch_graph_op` uses this to (a)
-/// route it to `handlers::graph_ops::try_handle_gateway` AHEAD of the write-
-/// coalescer, and (b) suppress its own legacy `record_method`/`cdc_pre`/
-/// `cdc_method` computation for the SAME method, so durability/audit/CDC happen
-/// exactly once, from `commit_mutation`, never from both places.
+/// Is `method` one of [`GATEWAY_ROUTED`]? `dispatch_graph_op` routes this set to
+/// `handlers::graph_ops::try_handle_gateway`, where one kernel owns apply,
+/// durability, audit, and CDC.
 pub fn is_gateway_routed(m: &Method) -> bool {
     GATEWAY_ROUTED.contains(&method_variant_name(m))
+}
+
+/// Cluster execution class for a public request mutation.
+///
+/// Only commands with a deterministic Raft state-machine representation may be
+/// acknowledged in clustered mode. The complete mutating capability ledger is
+/// covered by graph commands, typed native commands, or explicit service control.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClusterMutationRoute {
+    ReadOnly,
+    VolatileControl,
+    ConsensusGraph,
+    ConsensusNative,
+    ConsensusFanout,
+}
+
+/// Shared plaintext ceiling for one encrypted native consensus command. Served
+/// coordinators preflight against this exact value before allocating/dispatching
+/// their encoded method, and Raft enforces it again when sealing/opening.
+pub(crate) const MAX_NATIVE_COORDINATOR_PAYLOAD_BYTES: usize = 128 * 1024 * 1024;
+
+/// Public coordinator commands that decompose into independently placed,
+/// typed consensus graph commands before any local mutation executes.
+pub const CONSENSUS_FANOUT_METHODS: &[&str] = &["MultiGraphBatchUpdate"];
+
+/// Closed current-schema `ApplyMutation.event_type` values that are consumed by
+/// a served native coordinator before the ordinary single-graph gateway. Their
+/// payloads remain exact signed protocol data; no open-ended event dispatch is
+/// admitted here.
+pub const COORDINATED_APPLY_MUTATION_EVENTS: &[&str] = &[
+    #[cfg(feature = "sparql-http")]
+    crate::server::sparql_http::SPARQL_HTTP_UPDATE_EVENT,
+];
+
+#[cfg(feature = "sparql-http")]
+pub(crate) fn is_sparql_http_update(method: &Method) -> bool {
+    matches!(method, Method::ApplyMutation { event_type, .. }
+        if event_type == crate::server::sparql_http::SPARQL_HTTP_UPDATE_EVENT)
+}
+
+fn consensus_apply_is_authorized() -> bool {
+    #[cfg(feature = "raft")]
+    {
+        crate::server::dispatch::is_replicated_apply()
+    }
+    #[cfg(not(feature = "raft"))]
+    {
+        false
+    }
+}
+
+pub fn cluster_mutation_route(method: &Method) -> ClusterMutationRoute {
+    if !eg_capabilities::policy(method).mutates {
+        return ClusterMutationRoute::ReadOnly;
+    }
+    if matches!(method, Method::Shutdown) {
+        return ClusterMutationRoute::VolatileControl;
+    }
+    if matches!(method, Method::ApplyChangeEnvelope { .. }) {
+        return ClusterMutationRoute::ConsensusNative;
+    }
+    #[cfg(feature = "sparql-http")]
+    if is_sparql_http_update(method) {
+        return ClusterMutationRoute::ConsensusFanout;
+    }
+    if matches!(method, Method::MultiGraphBatchUpdate { .. }) {
+        return ClusterMutationRoute::ConsensusFanout;
+    }
+    #[cfg(feature = "modality-serving")]
+    if let Method::ServedModality { op } = method {
+        return if op.mutates() {
+            ClusterMutationRoute::ConsensusNative
+        } else {
+            ClusterMutationRoute::ReadOnly
+        };
+    }
+    if crate::mutation_apply::is_durable_mutation(method)
+        && !crate::server::mutation_batch::is_work_item_method(method)
+    {
+        ClusterMutationRoute::ConsensusGraph
+    } else {
+        // The native constructor is the fail-closed typed admission boundary.
+        // The inventory test below proves every CURRENT mutating method reaching
+        // this branch has a bounded constructor; a future method cannot mutate
+        // locally because dispatch proposes this route unconditionally.
+        ClusterMutationRoute::ConsensusNative
+    }
 }
 
 /// Everything [`commit_mutation`] needs beyond the plan + the apply closure.
@@ -415,24 +495,49 @@ pub fn is_gateway_routed(m: &Method) -> bool {
 pub struct MutationCtx<'a> {
     pub req_id: u64,
     pub caller: Option<&'a str>,
+    /// Opaque tenant authority derived from the verified request context.
+    pub tenant_scope: &'a str,
     pub graph_name: &'a str,
     pub graph_type: GraphType,
     pub owner: Option<&'a str>,
     pub isolation: &'a IsolationLayer,
     pub core: &'a Arc<GraphCore>,
     pub persistence: Option<&'a Arc<dyn PersistenceBackend>>,
-    pub redb_authoritative: bool,
     #[cfg(feature = "streaming")]
     pub cdc: Option<&'a Arc<crate::server::cdc::CdcHub>>,
+    /// Generation-owned completeness/freshness watermark for this resident core.
+    /// The registry replaces or invalidates this handle on lifecycle transitions,
+    /// so a stale gateway completion cannot publish into a same-name recreation.
+    pub materialization_manifest:
+        Option<&'a Arc<std::sync::RwLock<crate::registry::MaterializationManifest>>>,
     /// Per-graph write-coalescer registry (CONCEPT:EG-KG.sharding.per-graph-write-coalescer, L18).
     /// When present + enabled, a coalescable routed mutation
     /// (`AddNode`/`RemoveNode`/`AddEdge`/`RemoveEdge`) has its in-memory apply
     /// BATCHED onto this graph's single-writer queue instead of taking the topology
-    /// lock itself, exactly like the legacy `dispatch::try_coalesce_write` path — so
-    /// routing a hot-path write through the gateway no longer loses write-batching.
+    /// lock itself, so routing a hot-path write through the gateway retains
+    /// write-batching.
     /// `None` (or a disabled/non-coalescable method) ⇒ the `apply` closure runs
     /// inline, unchanged. See [`commit_mutation`] step 4.
     pub write_coalescer: Option<&'a Arc<crate::write_coalescer::WriteCoalescerRegistry>>,
+}
+
+/// Publish the resident freshness watermark only after an authoritative gateway
+/// success. The manifest owns monotonic/out-of-order and lifecycle-phase fencing;
+/// this gateway owns the exact durable-commit boundary that makes the version
+/// authoritative.
+fn advance_authoritative_manifest(ctx: &MutationCtx<'_>, plan: &MutationPlan, response: &Response) {
+    if response.error.is_some()
+        || !plan.mutates
+        || matches!(plan.durability_domain, DurabilityDomain::None)
+    {
+        return;
+    }
+    let Some(manifest) = ctx.materialization_manifest else {
+        return;
+    };
+    if let Ok(mut manifest) = manifest.write() {
+        manifest.advance_committed_version(ctx.core.version());
+    }
 }
 
 /// Bounded process-global idempotency-replay cache (CONCEPT:EG-P0-2). Keyed by a
@@ -443,7 +548,7 @@ pub struct MutationCtx<'a> {
 /// just stops being replay-dedup-eligible until the process restarts or an entry
 /// frees up) rather than evicting an arbitrary entry and risking a wrong cache hit
 /// for a DIFFERENT request that happens to reuse a key. A real bounded LRU/TTL
-/// policy is a documented follow-up, not required to prove the gateway pattern.
+/// policy is outside the graph gateway because its native coordinator owns it.
 pub struct IdempotencyStore {
     seen: dashmap::DashMap<String, Response>,
 }
@@ -495,14 +600,176 @@ fn idempotency_store() -> &'static IdempotencyStore {
 /// arm covers a future idempotent addition to [`GATEWAY_ROUTED`] generically
 /// (correct but not as precise as a bespoke key).
 fn idempotency_key(graph_name: &str, method: &Method) -> String {
+    let modality_discriminator = |value: &eg_types::ServedModalityKind| match value {
+        eg_types::ServedModalityKind::Document => "document",
+        eg_types::ServedModalityKind::Image => "image",
+        eg_types::ServedModalityKind::Audio => "audio",
+        eg_types::ServedModalityKind::Video => "video",
+    };
     match method {
         Method::RemoveNode { node_id } => format!("RemoveNode|{graph_name}|{node_id}"),
         Method::RemoveEdge {
             source_id,
             target_id,
         } => format!("RemoveEdge|{graph_name}|{source_id}|{target_id}"),
+        #[cfg(feature = "modality-serving")]
+        Method::ServedModality {
+            op:
+                eg_types::ServedModalityOp::Ingest {
+                    modality,
+                    idempotency_ref,
+                    target_occurrence_id,
+                    expected_version,
+                    bundle_msgpack,
+                    source_bytes,
+                },
+        } => {
+            use sha2::{Digest, Sha256};
+            let mut digest = Sha256::new();
+            digest.update(b"served-modality-idempotency-v2");
+            digest.update(modality_discriminator(modality).as_bytes());
+            for value in [idempotency_ref.as_bytes(), target_occurrence_id.as_bytes()] {
+                digest.update((value.len() as u64).to_be_bytes());
+                digest.update(value);
+            }
+            digest.update(expected_version.unwrap_or(u64::MAX).to_be_bytes());
+            digest.update(Sha256::digest(bundle_msgpack));
+            digest.update(Sha256::digest(source_bytes));
+            format!("ServedModality|{graph_name}|{}", hex::encode(digest.finalize()))
+        }
+        Method::ServedModality {
+            op:
+                eg_types::ServedModalityOp::Delete {
+                    modality,
+                    idempotency_ref,
+                    occurrence_id,
+                    expected_version,
+                },
+        } => format!(
+            "ServedModalityDelete|{graph_name}|{}|{idempotency_ref}|{occurrence_id}|{expected_version}",
+            modality_discriminator(modality)
+        ),
+        Method::ServedModality {
+            op: eg_types::ServedModalityOp::IngestStream { modality, items },
+        } => {
+            use sha2::{Digest, Sha256};
+            let mut digest = Sha256::new();
+            digest.update(b"served-modality-stream-idempotency-v2");
+            digest.update(modality_discriminator(modality).as_bytes());
+            digest.update((items.len() as u64).to_be_bytes());
+            for item in items {
+                for value in [
+                    item.idempotency_ref.as_bytes(),
+                    item.target_occurrence_id.as_bytes(),
+                ] {
+                    digest.update((value.len() as u64).to_be_bytes());
+                    digest.update(value);
+                }
+                digest.update(item.expected_version.unwrap_or(u64::MAX).to_be_bytes());
+                digest.update(Sha256::digest(&item.bundle_msgpack));
+                digest.update(Sha256::digest(&item.source_bytes));
+            }
+            format!("ServedModalityStream|{graph_name}|{}", hex::encode(digest.finalize()))
+        }
         other => format!("{other:?}|{graph_name}"),
     }
+}
+
+/// Source bodies belong only to the live native decoder. State-backed batches
+/// persist a digest of categorical operation data plus already-opaque references;
+/// neither source bytes nor their direct content hash enter the receipt. The
+/// complete effect is independently authenticated by `MutationStateDescriptor`
+/// and the encrypted affected-row payload.
+pub(crate) fn durable_receipt_method(method: &Method) -> Method {
+    #[cfg(feature = "modality-serving")]
+    if let Method::ServedModality { op } = method {
+        use eg_types::{ServedModalityKind, ServedModalityOp};
+        use sha2::{Digest, Sha256};
+
+        let mut digest = Sha256::new();
+        let mut field = |value: &[u8]| {
+            digest.update((value.len() as u64).to_be_bytes());
+            digest.update(value);
+        };
+        field(b"served-modality-receipt-v1");
+        let modality = |value: &ServedModalityKind| match value {
+            ServedModalityKind::Document => b"document".as_slice(),
+            ServedModalityKind::Image => b"image".as_slice(),
+            ServedModalityKind::Audio => b"audio".as_slice(),
+            ServedModalityKind::Video => b"video".as_slice(),
+        };
+        match op {
+            ServedModalityOp::Ingest {
+                modality: kind,
+                idempotency_ref,
+                target_occurrence_id,
+                expected_version,
+                ..
+            } => {
+                field(b"ingest");
+                field(modality(kind));
+                field(idempotency_ref.as_bytes());
+                field(target_occurrence_id.as_bytes());
+                field(&expected_version.unwrap_or(u64::MAX).to_be_bytes());
+            }
+            ServedModalityOp::IngestStream {
+                modality: kind,
+                items,
+            } => {
+                field(b"ingest-stream");
+                field(modality(kind));
+                field(&(items.len() as u64).to_be_bytes());
+                for item in items {
+                    field(item.idempotency_ref.as_bytes());
+                    field(item.target_occurrence_id.as_bytes());
+                    field(&item.expected_version.unwrap_or(u64::MAX).to_be_bytes());
+                }
+            }
+            ServedModalityOp::Delete {
+                modality: kind,
+                idempotency_ref,
+                occurrence_id,
+                expected_version,
+            } => {
+                field(b"delete");
+                field(modality(kind));
+                field(idempotency_ref.as_bytes());
+                field(occurrence_id.as_bytes());
+                field(&expected_version.to_be_bytes());
+            }
+            ServedModalityOp::MoveToCold {
+                modality: kind,
+                occurrence_id,
+            } => {
+                field(b"move-to-cold");
+                field(modality(kind));
+                field(occurrence_id.as_bytes());
+            }
+            ServedModalityOp::Restore {
+                modality: kind,
+                occurrence_id,
+            } => {
+                field(b"restore");
+                field(modality(kind));
+                field(occurrence_id.as_bytes());
+            }
+            ServedModalityOp::CollectTombstones {
+                modality: kind,
+                through_event_sequence,
+            } => {
+                field(b"collect-tombstones");
+                field(modality(kind));
+                field(&through_event_sequence.to_be_bytes());
+            }
+            _ => return method.clone(),
+        }
+        drop(field);
+        return Method::ApplyMutation {
+            event_type: "served_modality_v1".to_string(),
+            query: format!("sha256:{}", hex::encode(digest.finalize())),
+        };
+    }
+    method.clone()
 }
 
 /// Try to apply a coalescable routed mutation THROUGH this graph's write-coalescer
@@ -510,23 +777,18 @@ fn idempotency_key(graph_name: &str, method: &Method) -> String {
 /// (the outcome mapped to the SAME `Response` the gateway's inline `apply` closure
 /// would produce) or `None` when it must fall back to the inline closure.
 ///
-/// `None` is returned when ANY of: no coalescer is configured on `ctx`; the
-/// coalescer is disabled (`EPISTEMIC_GRAPH_WRITE_COALESCE=0`); or `method` is not
+/// `None` is returned when no coalescer is configured on `ctx`, or `method` is not
 /// one of the four coalescable structural writes (`AddNode`/`RemoveNode`/`AddEdge`/
 /// `RemoveEdge`) — the other routed methods (`CreateSummaryNode`/`Consolidate`/
 /// `Reinforce`) are multi-field memory ops the coalescer does not model, so they
 /// keep the inline closure. Mirrors `dispatch::try_coalesce_write` exactly (enqueue
-/// with a per-op linger `Instant`, fall back to `apply_one_inline` on a full/closed
-/// queue, await the writer's outcome), so a routed write batches identically to how
-/// the same method batched on the legacy path before EG-P0-2 routed it.
+/// with a per-op linger `Instant`, use `apply_one_inline` on a full/closed queue,
+/// and await the writer's outcome).
 async fn try_coalesce_apply(ctx: &MutationCtx<'_>, method: &Method) -> Option<Response> {
     use crate::write_coalescer::{WriteOp, WriteOutcome};
     use tokio::sync::oneshot;
 
     let coalescer = ctx.write_coalescer?;
-    if !coalescer.enabled() {
-        return None;
-    }
 
     let (reply, reply_rx) = oneshot::channel::<WriteOutcome>();
     // Only the four coalescable structural writes map to a WriteOp; every other
@@ -565,7 +827,7 @@ async fn try_coalesce_apply(ctx: &MutationCtx<'_>, method: &Method) -> Option<Re
         _ => return None,
     };
 
-    let writer = coalescer.writer_for(ctx.graph_name, ctx.core)?;
+    let writer = coalescer.writer_for(ctx.graph_name, ctx.core);
     // Enqueue; on a full/closed queue apply this single op inline under its own txn
     // (same engine effect, just not batched) so a saturated writer never drops or
     // stalls the write — identical to `dispatch::try_coalesce_write`.
@@ -614,20 +876,22 @@ fn commit_prepare(
     // goes through, driven by the plan's `mutates` flag. (A read-only invocation of
     // a runtime-conditional method never reaches here — see
     // `commit_conditional_mutation_async`'s `mutates_now == false` branch.)
-    if let Err(denied) = check_graph_access(
-        ctx.isolation,
-        ctx.caller,
-        ctx.graph_name,
-        ctx.graph_type,
-        ctx.owner,
-        AccessLevel::Write,
-    ) {
-        return Err(Response::err(ctx.req_id, denied));
+    if !consensus_apply_is_authorized() {
+        if let Err(denied) = check_graph_access(
+            ctx.isolation,
+            ctx.caller,
+            ctx.graph_name,
+            ctx.graph_type,
+            ctx.owner,
+            AccessLevel::Write,
+        ) {
+            return Err(Response::err(ctx.req_id, denied));
+        }
     }
 
     // 2. Idempotency-replay dedup -- ONLY for methods policy marks idempotent. A
     // byte-identical replay short-circuits BEFORE touching storage: no re-apply, no
-    // second WAL record, no second audit-chain entry, no duplicate CDC event.
+    // second durable record, no second audit-chain entry, no duplicate CDC event.
     let dedup_key = plan
         .idempotent
         .then(|| idempotency_key(ctx.graph_name, method));
@@ -664,6 +928,8 @@ async fn commit_finalize(
     method: &Method,
     response: Response,
     prep: CommitPrep,
+    durability_already_committed: bool,
+    preserve_node_indexes: bool,
 ) -> Response {
     if response.error.is_some() {
         return response;
@@ -671,28 +937,31 @@ async fn commit_finalize(
 
     // 5. Mark the graph dirty (checkpoint scheduling). Idempotent flag set.
     if plan.mutates {
-        ctx.core.mark_dirty();
-    }
-
-    // 6. Durable commit -- reuses the EXISTING `PersistenceBackend` plumbing.
-    if !matches!(plan.durability_domain, DurabilityDomain::None) {
-        if let Some(p) = ctx.persistence {
-            let fname = crate::persist::sanitize(ctx.graph_name);
-            if ctx.redb_authoritative {
-                if let Err(e) = p.record_durable(&fname, method).await {
-                    return Response::err(
-                        ctx.req_id,
-                        format!("durable commit failed (write not acknowledged): {e}"),
-                    );
-                }
-            } else {
-                p.record(&fname, method);
-            }
+        if preserve_node_indexes {
+            ctx.core.mark_dirty_preserving_indexes();
+        } else {
+            ctx.core.mark_dirty();
         }
     }
 
-    // 7. CDC emit -- AFTER the durable commit succeeded, mirroring the legacy
-    // shell's ordering.
+    // 6. Durable commit -- reuses the EXISTING `PersistenceBackend` plumbing.
+    if !durability_already_committed && !matches!(plan.durability_domain, DurabilityDomain::None) {
+        let Some(persistence) = ctx.persistence else {
+            return Response::err(
+                ctx.req_id,
+                "durable mutation requires a persistence backend",
+            );
+        };
+        let fname = crate::persist::sanitize(ctx.graph_name);
+        if let Err(e) = persistence.record_durable(&fname, method).await {
+            return Response::err(
+                ctx.req_id,
+                format!("durable commit failed (write not acknowledged): {e}"),
+            );
+        }
+    }
+
+    // 7. CDC emit -- only AFTER the authoritative durable commit succeeds.
     #[cfg(feature = "streaming")]
     if plan.emits_cdc {
         if let Some(hub) = ctx.cdc {
@@ -704,23 +973,6 @@ async fn commit_finalize(
                 prep.cdc_pre,
             );
         }
-    }
-
-    // 7.5. Truth-maintenance change-feed hook (CONCEPT:EG-KG.epistemic.truth-maintenance —
-    // EPI-P3-2's server-side wiring, `src/server/tms_hook.rs`): same "after the durable
-    // commit succeeded" ordering as CDC above. Independent of `streaming` -- this hook
-    // has no CDC dependency (see `eg_epistemic::recompute`'s module docs). No-op for any
-    // method `tms_hook::change_event_for_method` does not map (the overwhelming
-    // majority), so this costs one cheap match per gateway-routed commit.
-    #[cfg(feature = "epistemic-tms")]
-    {
-        crate::server::tms_hook::notify(method);
-        // Auto-register (SURPASS gap-closure): a write that just introduced or updated
-        // a node's `invalidation_deps` property or a `:DerivedFrom`/`:GeneratedBy` edge
-        // self-registers as a live materialization, no explicit
-        // `Method::RegisterMaterialization` call required. See `tms_hook`'s doc comment
-        // for why this is cheap (targeted live reads, not a whole-graph snapshot).
-        crate::server::tms_hook::auto_register_from_write(ctx.core, method);
     }
 
     // 8. Cache the response for idempotent-replay dedup.
@@ -738,7 +990,7 @@ async fn commit_finalize(
 /// `apply` performs the actual `eg-core` mutation and returns the success payload;
 /// it is only invoked after authz passes and (for an idempotent replay hit) is
 /// skipped entirely. On a failed apply, nothing durable/audited/CDC-emitted/cached
-/// happens — exactly like the legacy per-handler + dispatch-shell path.
+/// happens.
 pub async fn commit_mutation<F>(
     ctx: &MutationCtx<'_>,
     plan: &MutationPlan,
@@ -748,28 +1000,428 @@ pub async fn commit_mutation<F>(
 where
     F: FnOnce(&GraphCore) -> Result<ResultPayload, String>,
 {
+    let response = commit_mutation_inner(ctx, plan, method, apply).await;
+    advance_authoritative_manifest(ctx, plan, &response);
+    response
+}
+
+async fn commit_mutation_inner<F>(
+    ctx: &MutationCtx<'_>,
+    plan: &MutationPlan,
+    method: &Method,
+    apply: F,
+) -> Response
+where
+    F: FnOnce(&GraphCore) -> Result<ResultPayload, String>,
+{
+    // Every mutation shares one logical graph lane from validation through RAM
+    // publication. Durable domains fail closed without an authoritative batch
+    // backend.
+    let _mutation_guard = crate::server::mutation_batch::lock_graph(ctx.graph_name).await;
     let prep = match commit_prepare(ctx, plan, method) {
         Ok(p) => p,
         Err(short_circuit) => return short_circuit,
     };
 
-    // 4. Apply the actual eg-core mutation.
-    //
-    // L18: a coalescable routed mutation (`AddNode`/`RemoveNode`/`AddEdge`/
-    // `RemoveEdge`) is BATCHED onto this graph's single-writer coalescer queue when
-    // one is configured + enabled — the SAME `writer_for` path the legacy
-    // `dispatch::try_coalesce_write` uses. Anything else — a non-coalescable routed
-    // op, a disabled/absent coalescer — falls back to the inline `apply` closure,
-    // unchanged. Steps 5-8 run per-op AFTER, so ordering is intact.
-    let response = match try_coalesce_apply(ctx, method).await {
-        Some(resp) => resp,
-        None => match apply(ctx.core) {
+    if matches!(plan.durability_domain, DurabilityDomain::None) {
+        let response = match apply(ctx.core) {
             Ok(payload) => Response::ok(ctx.req_id, payload),
-            Err(e) => Response::err(ctx.req_id, e),
-        },
+            Err(error) => Response::err(ctx.req_id, error),
+        };
+        return commit_finalize(ctx, plan, method, response, prep, true, false).await;
+    }
+    let Some(persistence) = ctx.persistence else {
+        return Response::err(
+            ctx.req_id,
+            "authoritative MutationBatch commit requires a persistence backend",
+        );
     };
 
-    commit_finalize(ctx, plan, method, response, prep).await
+    let fname = crate::persist::sanitize(ctx.graph_name);
+    let batch_id = crate::server::mutation_batch::opaque_request_key(
+        "rpc",
+        ctx.graph_name,
+        ctx.req_id,
+        method,
+    );
+
+    // A retry after `fsync` but before RAM publication repairs the serving
+    // projection from authority and returns the exact stored result. No handler is
+    // re-executed and no duplicate outbox row is produced.
+    match persistence.read_mutation_batch(&fname, &batch_id).await {
+        Ok(Some(record)) => {
+            match persistence.read_authoritative_graph_snapshot(&fname).await {
+                Ok(Some((snapshot, version))) => {
+                    if let Err(error) = ctx.core.install_committed_snapshot(snapshot, version) {
+                        return Response::err(
+                            ctx.req_id,
+                            format!("committed projection reconciliation failed: {error}"),
+                        );
+                    }
+                }
+                Ok(None) => {
+                    return Response::err(
+                        ctx.req_id,
+                        "committed projection reconciliation found no authoritative graph",
+                    );
+                }
+                Err(error) => {
+                    return Response::err(
+                        ctx.req_id,
+                        format!("committed projection reconciliation failed: {error}"),
+                    )
+                }
+            }
+            let response = record
+                .result_msgpack
+                .as_deref()
+                .ok_or_else(|| "committed MutationBatch has no durable result".to_string())
+                .and_then(|bytes| {
+                    eg_types::msgpack::decode_bounded(
+                        bytes,
+                        eg_types::msgpack::MsgpackLimits::new(64 * 1024 * 1024, 1_000_000, 64),
+                    )
+                    .map_err(|_| "committed MutationBatch result is corrupt".to_string())
+                })
+                .map(|payload| Response::ok(ctx.req_id, payload))
+                .unwrap_or_else(|error| Response::err(ctx.req_id, error));
+            if let Some(key) = prep.dedup_key {
+                idempotency_store().insert(key, response.clone());
+            }
+            return response;
+        }
+        Ok(None) => {}
+        Err(error) => {
+            return Response::err(
+                ctx.req_id,
+                format!("MutationBatch status lookup failed: {error}"),
+            )
+        }
+    }
+
+    let created_at_ms = crate::server::dispatch::authoritative_now_ms();
+
+    // Row-local operations have a deterministic success result and can commit
+    // their compact Method directly before applying the serving projection.
+    if let Some(predicted) = prepublish_success(ctx.core, method) {
+        let source_version = match crate::server::mutation_batch::authoritative_graph_version(
+            persistence,
+            &fname,
+            ctx.core,
+        )
+        .await
+        {
+            Ok(version) => version,
+            Err(error) => {
+                return Response::err(
+                    ctx.req_id,
+                    format!("authoritative version read failed: {error}"),
+                )
+            }
+        };
+        let batch = match crate::server::mutation_batch::compile_methods(
+            crate::server::mutation_batch::CompileBatch {
+                batch_id: &batch_id,
+                request_id: ctx.req_id,
+                principal: ctx.caller,
+                tenant: ctx.tenant_scope,
+                graph: ctx.graph_name,
+                placement_epoch: 0,
+                idempotency_key: &batch_id,
+                expected_graph_version: Some(source_version),
+                fencing_token: None,
+                created_at_ms,
+                default_surface: crate::mutation_batch::MutationSurface::Graph,
+                authoritative_state: None,
+            },
+            vec![method.clone()],
+        ) {
+            Ok(batch) => batch,
+            Err(error) => {
+                return Response::err(ctx.req_id, format!("MutationBatch compile failed: {error}"))
+            }
+        };
+        let result = match rmp_serde::to_vec_named(&predicted) {
+            Ok(result) => result,
+            Err(error) => {
+                return Response::err(
+                    ctx.req_id,
+                    format!("MutationBatch result encode failed: {error}"),
+                )
+            }
+        };
+        let committed = match persistence
+            .commit_mutation_batch(&fname, &batch, Some(&result), created_at_ms)
+            .await
+        {
+            Ok(committed) => committed,
+            Err(error) => {
+                return Response::err(
+                    ctx.req_id,
+                    format!("MutationBatch durable commit failed: {error}"),
+                )
+            }
+        };
+        if committed.replayed {
+            return match persistence.read_authoritative_graph_snapshot(&fname).await {
+                Ok(Some((snapshot, version))) => {
+                    match ctx.core.install_committed_snapshot(snapshot, version) {
+                        Ok(()) => Response::ok(ctx.req_id, predicted),
+                        Err(error) => Response::err(ctx.req_id, error),
+                    }
+                }
+                Ok(None) => Response::err(ctx.req_id, "committed graph image is missing"),
+                Err(error) => Response::err(ctx.req_id, error),
+            };
+        }
+        let (response, indexes_maintained) = match try_coalesce_apply(ctx, method).await {
+            Some(response) => (response, true),
+            None => (
+                match apply(ctx.core) {
+                    Ok(payload) => Response::ok(ctx.req_id, payload),
+                    Err(error) => Response::err(ctx.req_id, error),
+                },
+                preserves_node_derived_indexes(method),
+            ),
+        };
+        return commit_finalize(ctx, plan, method, response, prep, true, indexes_maintained).await;
+    }
+
+    // Runtime-result operations execute against an isolated authoritative image,
+    // never the live projection. Its authenticated affected rows, terminal result,
+    // batch, version/fence, and outbox share one redb commit point.
+    let (base_snapshot, source_version) =
+        match persistence.read_authoritative_graph_snapshot(&fname).await {
+            Ok(Some(snapshot)) => snapshot,
+            Ok(None) => match crate::server::mutation_batch::authoritative_graph_version(
+                persistence,
+                &fname,
+                ctx.core,
+            )
+            .await
+            {
+                Ok(version) => (ctx.core.snapshot(), version),
+                Err(error) => {
+                    return Response::err(
+                        ctx.req_id,
+                        format!("authoritative version read failed: {error}"),
+                    )
+                }
+            },
+            Err(error) => {
+                return Response::err(
+                    ctx.req_id,
+                    format!("authoritative graph staging read failed: {error}"),
+                )
+            }
+        };
+    let base_snapshot_for_delta = base_snapshot.clone();
+    let staged = match GraphCore::from_snapshot(base_snapshot, source_version) {
+        Ok(staged) => staged,
+        Err(error) => return Response::err(ctx.req_id, format!("graph staging failed: {error}")),
+    };
+    let payload = match apply(&staged) {
+        Ok(payload) => payload,
+        Err(error) => return Response::err(ctx.req_id, error),
+    };
+    let staged_snapshot = staged.snapshot();
+    let row_delta = match crate::graph_delta::GraphRowDelta::between(
+        &base_snapshot_for_delta,
+        &staged_snapshot,
+    ) {
+        Ok(delta) => delta,
+        Err(error) => {
+            return Response::err(ctx.req_id, format!("staged graph delta failed: {error}"))
+        }
+    };
+    let state_msgpack = match row_delta.to_msgpack() {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            return Response::err(
+                ctx.req_id,
+                format!("staged graph delta serialization failed: {error}"),
+            )
+        }
+    };
+    let max_bytes = mutation_snapshot_max_bytes();
+    if max_bytes > 0 && state_msgpack.len() > max_bytes {
+        return Response::err(
+            ctx.req_id,
+            format!(
+                "staged mutation delta is {} bytes, above the configured {} byte limit",
+                state_msgpack.len(),
+                max_bytes
+            ),
+        );
+    }
+    use sha2::{Digest, Sha256};
+    let target_graph_version = match source_version.checked_add(1) {
+        Some(version) => version,
+        None => return Response::err(ctx.req_id, "authoritative graph version overflow"),
+    };
+    let descriptor = crate::mutation_batch::MutationStateDescriptor {
+        algorithm: crate::graph_delta::ROW_DELTA_ALGORITHM.to_string(),
+        digest: hex::encode(Sha256::digest(&state_msgpack)),
+        source_graph_version: source_version,
+        target_graph_version,
+    };
+    let batch = match crate::server::mutation_batch::compile_methods(
+        crate::server::mutation_batch::CompileBatch {
+            batch_id: &batch_id,
+            request_id: ctx.req_id,
+            principal: ctx.caller,
+            tenant: ctx.tenant_scope,
+            graph: ctx.graph_name,
+            placement_epoch: 0,
+            idempotency_key: &batch_id,
+            expected_graph_version: Some(source_version),
+            fencing_token: None,
+            created_at_ms,
+            default_surface: crate::mutation_batch::MutationSurface::Graph,
+            authoritative_state: Some(descriptor),
+        },
+        vec![durable_receipt_method(method)],
+    ) {
+        Ok(batch) => batch,
+        Err(error) => {
+            return Response::err(ctx.req_id, format!("MutationBatch compile failed: {error}"))
+        }
+    };
+    let result = match rmp_serde::to_vec_named(&payload) {
+        Ok(result) => result,
+        Err(error) => {
+            return Response::err(
+                ctx.req_id,
+                format!("MutationBatch result encode failed: {error}"),
+            )
+        }
+    };
+    let committed = match persistence
+        .commit_mutation_batch_state(&fname, &batch, state_msgpack, Some(&result), created_at_ms)
+        .await
+    {
+        Ok(committed) => committed,
+        Err(error) => {
+            return Response::err(
+                ctx.req_id,
+                format!("staged MutationBatch durable commit failed: {error}"),
+            )
+        }
+    };
+    if committed.replayed {
+        return match persistence.read_authoritative_graph_snapshot(&fname).await {
+            Ok(Some((snapshot, version))) => {
+                match ctx.core.install_committed_snapshot(snapshot, version) {
+                    Ok(()) => Response::ok(ctx.req_id, payload),
+                    Err(error) => Response::err(ctx.req_id, error),
+                }
+            }
+            Ok(None) => Response::err(ctx.req_id, "committed graph image is missing"),
+            Err(error) => Response::err(ctx.req_id, error),
+        };
+    } else if let Err(error) =
+        publish_committed_row_delta(persistence, &fname, ctx.core, &row_delta, source_version).await
+    {
+        return Response::err(
+            ctx.req_id,
+            format!("durable mutation projection publish failed: {error}"),
+        );
+    }
+    commit_finalize(
+        ctx,
+        plan,
+        method,
+        Response::ok(ctx.req_id, payload),
+        prep,
+        true,
+        row_delta.preserves_node_derived_indexes(),
+    )
+    .await
+}
+
+fn preserves_node_derived_indexes(method: &Method) -> bool {
+    matches!(
+        method,
+        Method::AddEdge { .. }
+            | Method::RemoveEdge { .. }
+            | Method::AddEmbedding { .. }
+            | Method::InvalidateEdge { .. }
+    )
+}
+
+pub(crate) async fn publish_committed_row_delta(
+    persistence: &Arc<dyn PersistenceBackend>,
+    graph_fname: &str,
+    core: &Arc<GraphCore>,
+    delta: &crate::graph_delta::GraphRowDelta,
+    source_version: u64,
+) -> Result<(), String> {
+    if core.version() == source_version {
+        if delta.apply_to(core).is_ok() {
+            return Ok(());
+        }
+    }
+    // A bypass writer or an unexpected projection error cannot undo the already
+    // committed authority. Repair from redb only on that exceptional path; the
+    // normal path installs `D` affected rows and performs no full-image read.
+    let (snapshot, version) = persistence
+        .read_authoritative_graph_snapshot(graph_fname)
+        .await?
+        .ok_or_else(|| "committed graph projection is missing".to_string())?;
+    let expected_target = source_version
+        .checked_add(1)
+        .ok_or_else(|| "committed graph version overflow".to_string())?;
+    if version != expected_target {
+        return Err("committed graph projection has an unexpected version".to_string());
+    }
+    // The caller still owns the normal finalize/mark-dirty step. Install at the
+    // source version so that step advances exactly once and emits one change.
+    core.prepare_snapshot_publish(snapshot, source_version)
+}
+
+fn mutation_snapshot_max_bytes() -> usize {
+    static MAX: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *MAX.get_or_init(|| {
+        if let Ok(value) = std::env::var("EPISTEMIC_GRAPH_MUTATION_SNAPSHOT_MAX_BYTES") {
+            if let Ok(parsed) = value.trim().parse::<usize>() {
+                return parsed;
+            }
+        }
+        let ram = crate::autosize::detect_capacity().total_ram_bytes;
+        if ram == 0 {
+            128 * 1024 * 1024
+        } else {
+            (ram / 16).clamp(16 * 1024 * 1024, 2 * 1024 * 1024 * 1024) as usize
+        }
+    })
+}
+
+/// Return the exact success payload for operations whose row effect can be
+/// validated without publishing it.  This is the safe live rollout set for
+/// durable-before-RAM; no optimistic guess is made for complex/runtime-derived
+/// mutations.
+fn prepublish_success(core: &GraphCore, method: &Method) -> Option<ResultPayload> {
+    match method {
+        Method::AddNode { .. }
+        | Method::RemoveNode { .. }
+        | Method::RemoveEdge { .. }
+        | Method::ClearGraph
+        | Method::AddEmbedding { .. } => Some(ResultPayload::String("ok".to_string())),
+        Method::AddEdge {
+            source_id,
+            target_id,
+            ..
+        } if core.has_node(source_id) && core.has_node(target_id) => {
+            Some(ResultPayload::String("ok".to_string()))
+        }
+        Method::BatchUpdate { operations_msgpack } => {
+            let result = crate::algorithms::batch_update_preview(core, operations_msgpack).ok()?;
+            eg_types::msgpack::decode_property_value(&result)
+                .ok()
+                .map(ResultPayload::Json)
+        }
+        _ => None,
+    }
 }
 
 /// The gateway entry point for a RUNTIME-CONDITIONAL method (CONCEPT:EG-P0-2, L11
@@ -808,15 +1460,17 @@ where
     }
     // Read-only path: same ACL surface every other read-only graph method goes
     // through (`access::check_graph_access`), just Read instead of Write.
-    if let Err(denied) = check_graph_access(
-        ctx.isolation,
-        ctx.caller,
-        ctx.graph_name,
-        ctx.graph_type,
-        ctx.owner,
-        AccessLevel::Read,
-    ) {
-        return Response::err(ctx.req_id, denied);
+    if !consensus_apply_is_authorized() {
+        if let Err(denied) = check_graph_access(
+            ctx.isolation,
+            ctx.caller,
+            ctx.graph_name,
+            ctx.graph_type,
+            ctx.owner,
+            AccessLevel::Read,
+        ) {
+            return Response::err(ctx.req_id, denied);
+        }
     }
     match apply(ctx.core) {
         Ok(payload) => Response::ok(ctx.req_id, payload),
@@ -829,8 +1483,8 @@ where
 /// `&GraphCore` — the query surface (`Sql`/`CypherQuery`/`GraphQl`, run on the
 /// blocking pool via `handlers::query::try_handle`, needing `state`/`caller`/`rls`)
 /// and the native RDF surface (`AddTriples`/`RemoveTriples`/`DropNamedGraph`, run
-/// via `handlers::rdf::try_handle`, whose durable write ALSO touches the optional
-/// `rdf-redb` lossless quad store on `state`). The `apply` closure captures whatever
+/// via `handlers::rdf::try_handle`; lossless multi-valued literals live inside the
+/// staged graph image). The `apply` closure captures whatever
 /// state it needs and returns the payload; the gateway wraps it with the IDENTICAL
 /// authz / durability / audit / CDC / idempotency contract as the sync path (via the
 /// shared [`commit_prepare`] / [`commit_finalize`]).
@@ -850,40 +1504,276 @@ pub async fn commit_conditional_mutation_async<F, Fut>(
     apply: F,
 ) -> Response
 where
-    F: FnOnce() -> Fut,
+    F: FnOnce(Arc<GraphCore>) -> Fut,
+    Fut: std::future::Future<Output = Result<ResultPayload, String>>,
+{
+    let response =
+        commit_conditional_mutation_async_inner(ctx, plan, method, mutates_now, apply).await;
+    if mutates_now {
+        advance_authoritative_manifest(ctx, plan, &response);
+    }
+    response
+}
+
+async fn commit_conditional_mutation_async_inner<F, Fut>(
+    ctx: &MutationCtx<'_>,
+    plan: &MutationPlan,
+    method: &Method,
+    mutates_now: bool,
+    apply: F,
+) -> Response
+where
+    F: FnOnce(Arc<GraphCore>) -> Fut,
     Fut: std::future::Future<Output = Result<ResultPayload, String>>,
 {
     if !mutates_now {
         // Read-only path: Read-ACL only, apply, and NOTHING durable/audited/
         // CDC-emitted/cached — exactly what any non-mutating graph read does.
-        if let Err(denied) = check_graph_access(
-            ctx.isolation,
-            ctx.caller,
-            ctx.graph_name,
-            ctx.graph_type,
-            ctx.owner,
-            AccessLevel::Read,
-        ) {
-            return Response::err(ctx.req_id, denied);
+        if !consensus_apply_is_authorized() {
+            if let Err(denied) = check_graph_access(
+                ctx.isolation,
+                ctx.caller,
+                ctx.graph_name,
+                ctx.graph_type,
+                ctx.owner,
+                AccessLevel::Read,
+            ) {
+                return Response::err(ctx.req_id, denied);
+            }
         }
-        return match apply().await {
+        return match apply(Arc::clone(ctx.core)).await {
             Ok(payload) => Response::ok(ctx.req_id, payload),
             Err(e) => Response::err(ctx.req_id, e),
         };
     }
 
-    // Mutating path: the SAME steps-1-3 / steps-5-8 contract as `commit_mutation`,
-    // with the async apply in between (no coalescer — the query/RDF surfaces are not
-    // coalescable single-op structural writes).
+    // Mutating path: stage against a complete authoritative image. Query/RDF
+    // handlers never receive the live serving core, so an execution or durable
+    // commit failure cannot leak a partial mutation into RAM.
+    let _mutation_guard = crate::server::mutation_batch::lock_graph(ctx.graph_name).await;
     let prep = match commit_prepare(ctx, plan, method) {
         Ok(p) => p,
         Err(short_circuit) => return short_circuit,
     };
-    let response = match apply().await {
-        Ok(payload) => Response::ok(ctx.req_id, payload),
-        Err(e) => Response::err(ctx.req_id, e),
+    if matches!(plan.durability_domain, DurabilityDomain::None) {
+        let response = match apply(Arc::clone(ctx.core)).await {
+            Ok(payload) => Response::ok(ctx.req_id, payload),
+            Err(error) => Response::err(ctx.req_id, error),
+        };
+        return commit_finalize(ctx, plan, method, response, prep, true, false).await;
+    }
+    let Some(persistence) = ctx.persistence else {
+        return Response::err(
+            ctx.req_id,
+            "authoritative MutationBatch commit requires a persistence backend",
+        );
     };
-    commit_finalize(ctx, plan, method, response, prep).await
+
+    let fname = crate::persist::sanitize(ctx.graph_name);
+    let batch_id = crate::server::mutation_batch::opaque_request_key(
+        "rpc-async",
+        ctx.graph_name,
+        ctx.req_id,
+        method,
+    );
+    match persistence.read_mutation_batch(&fname, &batch_id).await {
+        Ok(Some(record)) => {
+            if let Ok(Some((snapshot, version))) =
+                persistence.read_authoritative_graph_snapshot(&fname).await
+            {
+                if let Err(error) = ctx.core.install_committed_snapshot(snapshot, version) {
+                    return Response::err(
+                        ctx.req_id,
+                        format!("committed projection reconciliation failed: {error}"),
+                    );
+                }
+            } else {
+                return Response::err(
+                    ctx.req_id,
+                    "committed projection reconciliation found no authoritative graph",
+                );
+            }
+            let response = record
+                .result_msgpack
+                .as_deref()
+                .ok_or_else(|| "committed MutationBatch has no durable result".to_string())
+                .and_then(|bytes| {
+                    eg_types::msgpack::decode_bounded(
+                        bytes,
+                        eg_types::msgpack::MsgpackLimits::new(64 * 1024 * 1024, 1_000_000, 64),
+                    )
+                    .map_err(|_| "committed MutationBatch result is corrupt".to_string())
+                })
+                .map(|payload| Response::ok(ctx.req_id, payload))
+                .unwrap_or_else(|error| Response::err(ctx.req_id, error));
+            if let Some(key) = prep.dedup_key {
+                idempotency_store().insert(key, response.clone());
+            }
+            return response;
+        }
+        Ok(None) => {}
+        Err(error) => {
+            return Response::err(
+                ctx.req_id,
+                format!("MutationBatch status lookup failed: {error}"),
+            )
+        }
+    }
+
+    let created_at_ms = crate::server::dispatch::authoritative_now_ms();
+    let (base_snapshot, source_version) =
+        match persistence.read_authoritative_graph_snapshot(&fname).await {
+            Ok(Some(snapshot)) => snapshot,
+            Ok(None) => match crate::server::mutation_batch::authoritative_graph_version(
+                persistence,
+                &fname,
+                ctx.core,
+            )
+            .await
+            {
+                Ok(version) => (ctx.core.snapshot(), version),
+                Err(error) => {
+                    return Response::err(
+                        ctx.req_id,
+                        format!("authoritative version read failed: {error}"),
+                    )
+                }
+            },
+            Err(error) => {
+                return Response::err(
+                    ctx.req_id,
+                    format!("authoritative graph staging read failed: {error}"),
+                )
+            }
+        };
+    let base_snapshot_for_delta = base_snapshot.clone();
+    let staged = match GraphCore::from_snapshot(base_snapshot, source_version) {
+        Ok(staged) => Arc::new(staged),
+        Err(error) => return Response::err(ctx.req_id, format!("graph staging failed: {error}")),
+    };
+    let payload = match apply(Arc::clone(&staged)).await {
+        Ok(payload) => payload,
+        Err(error) => return Response::err(ctx.req_id, error),
+    };
+    let staged_snapshot = staged.snapshot();
+    let row_delta = match crate::graph_delta::GraphRowDelta::between(
+        &base_snapshot_for_delta,
+        &staged_snapshot,
+    ) {
+        Ok(delta) => delta,
+        Err(error) => {
+            return Response::err(ctx.req_id, format!("staged graph delta failed: {error}"))
+        }
+    };
+    let state_msgpack = match row_delta.to_msgpack() {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            return Response::err(
+                ctx.req_id,
+                format!("staged graph delta serialization failed: {error}"),
+            )
+        }
+    };
+    let max_bytes = mutation_snapshot_max_bytes();
+    if max_bytes > 0 && state_msgpack.len() > max_bytes {
+        return Response::err(
+            ctx.req_id,
+            format!(
+                "staged mutation delta is {} bytes, above the configured {} byte limit",
+                state_msgpack.len(),
+                max_bytes
+            ),
+        );
+    }
+    use sha2::{Digest, Sha256};
+    let target_graph_version = match source_version.checked_add(1) {
+        Some(version) => version,
+        None => return Response::err(ctx.req_id, "authoritative graph version overflow"),
+    };
+    let descriptor = crate::mutation_batch::MutationStateDescriptor {
+        algorithm: crate::graph_delta::ROW_DELTA_ALGORITHM.to_string(),
+        digest: hex::encode(Sha256::digest(&state_msgpack)),
+        source_graph_version: source_version,
+        target_graph_version,
+    };
+    let default_surface = if is_rdf_gateway_method(method) {
+        crate::mutation_batch::MutationSurface::Rdf
+    } else {
+        crate::mutation_batch::MutationSurface::Query
+    };
+    let batch = match crate::server::mutation_batch::compile_methods(
+        crate::server::mutation_batch::CompileBatch {
+            batch_id: &batch_id,
+            request_id: ctx.req_id,
+            principal: ctx.caller,
+            tenant: ctx.tenant_scope,
+            graph: ctx.graph_name,
+            placement_epoch: 0,
+            idempotency_key: &batch_id,
+            expected_graph_version: Some(source_version),
+            fencing_token: None,
+            created_at_ms,
+            default_surface,
+            authoritative_state: Some(descriptor),
+        },
+        vec![method.clone()],
+    ) {
+        Ok(batch) => batch,
+        Err(error) => {
+            return Response::err(ctx.req_id, format!("MutationBatch compile failed: {error}"))
+        }
+    };
+    let result = match rmp_serde::to_vec_named(&payload) {
+        Ok(result) => result,
+        Err(error) => {
+            return Response::err(
+                ctx.req_id,
+                format!("MutationBatch result encode failed: {error}"),
+            )
+        }
+    };
+    let committed = match persistence
+        .commit_mutation_batch_state(&fname, &batch, state_msgpack, Some(&result), created_at_ms)
+        .await
+    {
+        Ok(committed) => committed,
+        Err(error) => {
+            return Response::err(
+                ctx.req_id,
+                format!("staged MutationBatch durable commit failed: {error}"),
+            )
+        }
+    };
+    if committed.replayed {
+        return match persistence.read_authoritative_graph_snapshot(&fname).await {
+            Ok(Some((snapshot, version))) => {
+                match ctx.core.install_committed_snapshot(snapshot, version) {
+                    Ok(()) => Response::ok(ctx.req_id, payload),
+                    Err(error) => Response::err(ctx.req_id, error),
+                }
+            }
+            Ok(None) => Response::err(ctx.req_id, "committed graph image is missing"),
+            Err(error) => Response::err(ctx.req_id, error),
+        };
+    }
+    if let Err(error) =
+        publish_committed_row_delta(persistence, &fname, ctx.core, &row_delta, source_version).await
+    {
+        return Response::err(
+            ctx.req_id,
+            format!("durable mutation projection publish failed: {error}"),
+        );
+    }
+    commit_finalize(
+        ctx,
+        plan,
+        method,
+        Response::ok(ctx.req_id, payload),
+        prep,
+        true,
+        row_delta.preserves_node_derived_indexes(),
+    )
+    .await
 }
 
 /// Is `m` one of the query-surface gateway methods routed via
@@ -895,9 +1785,45 @@ pub fn is_query_gateway_method(m: &Method) -> bool {
     matches!(method_variant_name(m), "Sql" | "CypherQuery" | "GraphQl")
 }
 
+/// SQL table/catalog writes and GraphQL cross-modal operations own native domain
+/// coordinators. Their commit points now include universal MutationBatch status,
+/// fences, idempotency and outbox, but they must not also be wrapped in a second
+/// graph-snapshot batch. Ordinary graph SQL/GraphQL mutations still return `false`
+/// and use the universal staged gateway.
+pub fn is_query_native_coordinator(m: &Method) -> bool {
+    #[cfg(feature = "query")]
+    if let Method::Sql { query, .. } = m {
+        use eg_query::StatementKind;
+        return match eg_query::classify(query) {
+            Ok(
+                StatementKind::InsertNodes(_)
+                | StatementKind::InsertNodesSelect(_)
+                | StatementKind::UpdateNodes(_)
+                | StatementKind::UpdateNodesJoin(_)
+                | StatementKind::DeleteNodes(_)
+                | StatementKind::DeleteNodesJoin(_),
+            ) => false,
+            // User-table/catalog statements atomically commit their rows and
+            // universal batch metadata inside TableStore. Running them against a
+            // graph staging closure would introduce a second, unrelated authority.
+            Ok(_) => true,
+            Err(_) => false,
+        };
+    }
+    #[cfg(feature = "graphql")]
+    if let Method::GraphQl { query, .. } = m {
+        return !matches!(
+            eg_graphql::classify_crossmodal(query),
+            eg_graphql::CrossModalRoute::NotCrossModal
+        );
+    }
+    let _ = m;
+    false
+}
+
 /// Is `m` one of the native-RDF gateway methods routed via
 /// [`commit_conditional_mutation_async`] at the rdf dispatch site (their durable
-/// write also touches the optional `rdf-redb` quad store on `state`)? Part of
+/// write carries the lossless RDF dataset in the staged graph image)? Part of
 /// [`GATEWAY_ROUTED`]; handed back by `try_handle_gateway` for the same reason as
 /// [`is_query_gateway_method`].
 pub fn is_rdf_gateway_method(m: &Method) -> bool {
@@ -910,11 +1836,11 @@ pub fn is_rdf_gateway_method(m: &Method) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "redb")]
+    use crate::durability::DurabilityPolicy;
     use crate::protocol::GraphType;
     #[cfg(feature = "redb")]
     use crate::server::persistence::redb_backend::RedbBackend;
-    #[cfg(feature = "redb")]
-    use crate::wal_service::FsyncPolicy;
 
     fn isolation_no_rules() -> IsolationLayer {
         IsolationLayer::new()
@@ -933,17 +1859,41 @@ mod tests {
         dir
     }
 
+    #[test]
+    fn validated_public_batch_has_a_deterministic_prepublish_result() {
+        let core = GraphCore::new();
+        let operations = rmp_serde::to_vec_named(&serde_json::json!([
+            {"op": "add_node", "id": "a", "properties": {"text": "alpha"}},
+            {"op": "add_embedding", "id": "a", "embedding": [1.0, 0.0]}
+        ]))
+        .unwrap();
+        let method = Method::BatchUpdate {
+            operations_msgpack: operations,
+        };
+        let Some(ResultPayload::Json(result)) = prepublish_success(&core, &method) else {
+            panic!("validated BatchUpdate must use compact authoritative rows");
+        };
+        assert_eq!(result["added_nodes"], 1);
+        assert_eq!(result["added_embeddings"], 1);
+
+        let malformed = Method::BatchUpdate {
+            operations_msgpack: vec![0xc1],
+        };
+        assert!(prepublish_success(&core, &malformed).is_none());
+    }
+
     /// (a) A GATEWAY_ROUTED, audited+CDC-emitting mutation (`AddNode`) produces a
-    /// WAL/redb record + an audit-chain entry + a CDC event -- all from the ONE
+    /// durable record + an audit-chain entry + a CDC event -- all from the one
     /// `commit_mutation` call, against a REAL `RedbBackend` (not a mock), so this
     /// is exercising the actual durable-commit + audit-chain-append path, not just
     /// asserting the gateway's own bookkeeping.
     #[cfg(feature = "redb")]
     #[tokio::test(flavor = "multi_thread")]
-    async fn routed_mutation_produces_one_wal_record_one_audit_entry_and_one_cdc_event() {
-        let dir = temp_dir("wal-audit-cdc");
+    async fn routed_mutation_produces_one_durable_record_one_audit_entry_and_one_cdc_event() {
+        let dir = temp_dir("durable-audit-cdc");
         let dir_s = dir.to_string_lossy().to_string();
-        let backend = RedbBackend::open(dir_s, FsyncPolicy::Each, 64).expect("open redb backend");
+        let backend =
+            RedbBackend::open(dir_s, DurabilityPolicy::Each, 64).expect("open redb backend");
         let persistence: Arc<dyn PersistenceBackend> = Arc::new(backend);
 
         let core = Arc::new(GraphCore::new());
@@ -964,19 +1914,15 @@ mod tests {
         let ctx = MutationCtx {
             req_id: 1,
             caller: Some("system-agent"),
+            tenant_scope: "opaque-test-tenant",
             graph_name,
             graph_type: GraphType::Commons,
             owner: None,
             isolation: &isolation,
             core: &core,
             persistence: Some(&persistence),
-            // Authoritative (commit-before-ack) so `commit_mutation` AWAITS the
-            // durable group-commit before returning -- the write (and its audit-
-            // chain entry) is provably on disk when we read it back below, with no
-            // race against the off-reactor writer that the fire-and-forget
-            // `record()` path would introduce.
-            redb_authoritative: true,
             cdc: Some(&cdc_hub),
+            materialization_manifest: None,
             write_coalescer: None,
         };
 
@@ -998,7 +1944,7 @@ mod tests {
             resp.error
         );
 
-        // WAL/redb: the write actually landed durably.
+        // The write actually landed durably.
         let fname = crate::persist::sanitize(graph_name);
         let read_back = persistence
             .as_redb()
@@ -1044,7 +1990,8 @@ mod tests {
     async fn audited_mutation_writes_audit_but_cdc_stays_policy_gated() {
         let dir = temp_dir("reinforce-audit-no-cdc");
         let dir_s = dir.to_string_lossy().to_string();
-        let backend = RedbBackend::open(dir_s, FsyncPolicy::Each, 64).expect("open redb backend");
+        let backend =
+            RedbBackend::open(dir_s, DurabilityPolicy::Each, 64).expect("open redb backend");
         let persistence: Arc<dyn PersistenceBackend> = Arc::new(backend);
 
         let core = Arc::new(GraphCore::new());
@@ -1067,17 +2014,15 @@ mod tests {
         let ctx = MutationCtx {
             req_id: 2,
             caller: Some("system-agent"),
+            tenant_scope: "opaque-test-tenant",
             graph_name,
             graph_type: GraphType::Commons,
             owner: None,
             isolation: &isolation,
             core: &core,
             persistence: Some(&persistence),
-            // Authoritative so `commit_mutation` AWAITS the durable group-commit
-            // (which appends the audit-chain entry) before returning, so the
-            // read-back below never races the off-reactor writer.
-            redb_authoritative: true,
             cdc: Some(&cdc_hub),
+            materialization_manifest: None,
             write_coalescer: None,
         };
         let resp = commit_mutation(&ctx, &plan, &method, |core| {
@@ -1107,7 +2052,7 @@ mod tests {
 
     /// (a5) L11 rollout batch 2, family representative: a message-broker method
     /// (`DeclareExchange`, `DurabilityDomain::Outbox`) routed through the SAME
-    /// `commit_mutation` gateway produces the policy-declared WAL/audit effect
+    /// `commit_mutation` gateway produces the policy-declared durable/audit effect
     /// (audited, no CDC) against a REAL `RedbBackend` — proving the Outbox
     /// durability domain commits through the identical `record_durable` path as
     /// the GraphRedb-domain methods above (the backend does not branch on
@@ -1117,7 +2062,8 @@ mod tests {
     async fn broker_family_routed_mutation_is_audited_with_no_cdc() {
         let dir = temp_dir("broker-declare-exchange");
         let dir_s = dir.to_string_lossy().to_string();
-        let backend = RedbBackend::open(dir_s, FsyncPolicy::Each, 64).expect("open redb backend");
+        let backend =
+            RedbBackend::open(dir_s, DurabilityPolicy::Each, 64).expect("open redb backend");
         let persistence: Arc<dyn PersistenceBackend> = Arc::new(backend);
 
         let core = Arc::new(GraphCore::new());
@@ -1138,14 +2084,15 @@ mod tests {
         let ctx = MutationCtx {
             req_id: 10,
             caller: Some("system-agent"),
+            tenant_scope: "opaque-test-tenant",
             graph_name,
             graph_type: GraphType::Commons,
             owner: None,
             isolation: &isolation,
             core: &core,
             persistence: Some(&persistence),
-            redb_authoritative: true,
             cdc: Some(&cdc_hub),
+            materialization_manifest: None,
             write_coalescer: None,
         };
 
@@ -1181,22 +2128,24 @@ mod tests {
         );
     }
 
-    /// (a6) L11 rollout batch 2, family representative: a `DurabilityDomain::None`
-    /// method (`TouchNodes` — a deliberately non-durable, non-audited maintenance
-    /// op per `wal.rs`'s own doc comment) still applies its mutation and passes
-    /// authz through the gateway, but produces NO WAL/redb record and NO audit
-    /// entry — proving `commit_mutation` step 6 correctly no-ops persistence for
-    /// the `None` domain rather than writing a phantom row.
+    /// (a6) State-backed maintenance operations use the same authoritative
+    /// MutationBatch boundary as ordinary graph writes. `TouchNodes` remains
+    /// intentionally unaudited and CDC-silent, but its resulting graph image and
+    /// terminal result must survive restart.
     #[cfg(feature = "redb")]
     #[tokio::test(flavor = "multi_thread")]
-    async fn none_durability_routed_mutation_applies_but_is_not_persisted() {
-        let dir = temp_dir("touch-nodes-none-durability");
+    async fn touch_nodes_commits_authoritative_state_without_audit_or_cdc() {
+        let dir = temp_dir("touch-nodes-state-backed");
         let dir_s = dir.to_string_lossy().to_string();
-        let backend = RedbBackend::open(dir_s, FsyncPolicy::Each, 64).expect("open redb backend");
+        let backend =
+            RedbBackend::open(dir_s, DurabilityPolicy::Each, 64).expect("open redb backend");
         let persistence: Arc<dyn PersistenceBackend> = Arc::new(backend);
 
         let core = Arc::new(GraphCore::new());
-        core.add_node("n1".to_string(), Vec::new());
+        core.add_node(
+            "n1".to_string(),
+            rmp_serde::to_vec_named(&serde_json::json!({})).expect("encode seed node"),
+        );
         let isolation = isolation_no_rules();
         let graph_name = "g-eg-p0-2-l11-none-durability-a";
 
@@ -1205,22 +2154,23 @@ mod tests {
         };
         let plan = MutationPlan::for_method(&method);
         assert!(plan.mutates);
-        assert_eq!(plan.durability_domain, DurabilityDomain::None);
+        assert_eq!(plan.durability_domain, DurabilityDomain::GraphRedb);
         assert!(!plan.audited);
         assert!(!plan.emits_cdc);
 
         let ctx = MutationCtx {
             req_id: 11,
             caller: Some("system-agent"),
+            tenant_scope: "opaque-test-tenant",
             graph_name,
             graph_type: GraphType::Commons,
             owner: None,
             isolation: &isolation,
             core: &core,
             persistence: Some(&persistence),
-            redb_authoritative: true,
             #[cfg(feature = "streaming")]
             cdc: None,
+            materialization_manifest: None,
             write_coalescer: None,
         };
 
@@ -1237,6 +2187,31 @@ mod tests {
         );
 
         let fname = crate::persist::sanitize(graph_name);
+        let batch_id =
+            crate::server::mutation_batch::opaque_request_key("rpc", graph_name, 11, &method);
+        let record = persistence
+            .read_mutation_batch(&fname, &batch_id)
+            .await
+            .expect("read mutation batch")
+            .expect("TouchNodes batch is durable");
+        assert_eq!(record.batch.tenant, "opaque-test-tenant");
+        let (snapshot, version) = persistence
+            .read_authoritative_graph_snapshot(&fname)
+            .await
+            .expect("read authoritative graph")
+            .expect("TouchNodes graph image is durable");
+        assert!(version > 0);
+        let node = snapshot
+            .nodes
+            .iter()
+            .find(|(id, _)| id == "n1")
+            .expect("durable node");
+        let properties: serde_json::Value =
+            eg_types::msgpack::decode_property_value(node.1.as_slice())
+                .expect("decode durable node");
+        assert_eq!(properties["last_access"], serde_json::json!(1_000));
+        assert_eq!(properties["confidence"], serde_json::json!(1.0));
+
         let report = persistence
             .as_redb()
             .expect("configured backend is redb")
@@ -1245,7 +2220,7 @@ mod tests {
         assert!(report.ok, "audit chain broke: {report:?}");
         assert_eq!(
             report.entries, 0,
-            "TouchNodes is durability_domain::None -- no WAL/audit record should exist"
+            "TouchNodes is state-backed but intentionally unaudited"
         );
     }
 
@@ -1253,7 +2228,7 @@ mod tests {
     /// `MineAssociate` proves `commit_conditional_mutation` resolves the
     /// durability/audit/authz gateway from the request's OWN `writeback` field,
     /// not from `policy()`'s conservative upper bound:
-    ///   * `writeback: true`  -> Write access required, ONE audited WAL/redb entry.
+    ///   * `writeback: true`  -> Write access required, one audited durable entry.
     ///   * `writeback: false` -> Read access SUFFICES (an agent with only Read
     ///     succeeds), and NOTHING durable/audited is produced -- proving a
     ///     read-only call is never incorrectly gated behind Write or persisted as
@@ -1263,7 +2238,8 @@ mod tests {
     async fn mining_family_writeback_gates_durability_and_authz() {
         let dir = temp_dir("mine-associate-conditional");
         let dir_s = dir.to_string_lossy().to_string();
-        let backend = RedbBackend::open(dir_s, FsyncPolicy::Each, 64).expect("open redb backend");
+        let backend =
+            RedbBackend::open(dir_s, DurabilityPolicy::Each, 64).expect("open redb backend");
         let persistence: Arc<dyn PersistenceBackend> = Arc::new(backend);
 
         let core = Arc::new(GraphCore::new());
@@ -1299,15 +2275,16 @@ mod tests {
         let ctx_ro = MutationCtx {
             req_id: 20,
             caller: Some("reader"),
+            tenant_scope: "opaque-test-tenant",
             graph_name,
             graph_type: GraphType::Commons,
             owner: None,
             isolation: &isolation,
             core: &core,
             persistence: Some(&persistence),
-            redb_authoritative: true,
             #[cfg(feature = "streaming")]
             cdc: None,
+            materialization_manifest: None,
             write_coalescer: None,
         };
         let resp = commit_conditional_mutation(&ctx_ro, &plan_ro, &method_ro, false, |core| {
@@ -1364,15 +2341,16 @@ mod tests {
         let ctx_rw = MutationCtx {
             req_id: 21,
             caller: Some("writer"),
+            tenant_scope: "opaque-test-tenant",
             graph_name,
             graph_type: GraphType::Commons,
             owner: None,
             isolation: &isolation,
             core: &core,
             persistence: Some(&persistence),
-            redb_authoritative: true,
             #[cfg(feature = "streaming")]
             cdc: None,
+            materialization_manifest: None,
             write_coalescer: None,
         };
         let resp = commit_conditional_mutation(&ctx_rw, &plan_rw, &method_rw, true, |core| {
@@ -1408,7 +2386,7 @@ mod tests {
         assert!(report.ok);
         assert_eq!(
             report.entries, 1,
-            "writeback:true must produce EXACTLY one audited WAL/redb record"
+            "writeback:true must produce exactly one audited durable record"
         );
     }
 
@@ -1442,15 +2420,16 @@ mod tests {
         let ctx = MutationCtx {
             req_id: 3,
             caller: Some("intruder"),
+            tenant_scope: "opaque-test-tenant",
             graph_name: "agent:owner",
             graph_type: GraphType::Agent,
             owner: Some("owner"),
             isolation: &isolation,
             core: &core,
             persistence: None,
-            redb_authoritative: false,
             #[cfg(feature = "streaming")]
             cdc: None,
+            materialization_manifest: None,
             write_coalescer: None,
         };
 
@@ -1476,8 +2455,18 @@ mod tests {
     /// deduped: the second call returns the cached response WITHOUT re-invoking
     /// `apply` (a re-`apply` on an already-removed node would still succeed, so
     /// only an explicit apply-count check proves dedup, not just a repeated OK).
+    #[cfg(feature = "redb")]
     #[tokio::test(flavor = "multi_thread")]
     async fn idempotent_replay_is_deduped_without_reapplying() {
+        let dir = temp_dir("idempotent-replay");
+        let persistence: Arc<dyn PersistenceBackend> = Arc::new(
+            RedbBackend::open(
+                dir.to_string_lossy().to_string(),
+                DurabilityPolicy::Each,
+                64,
+            )
+            .expect("open redb backend"),
+        );
         let core = Arc::new(GraphCore::new());
         core.add_node("n1".to_string(), Vec::new());
         let isolation = isolation_no_rules();
@@ -1492,15 +2481,16 @@ mod tests {
         let ctx = MutationCtx {
             req_id: 4,
             caller: None,
+            tenant_scope: "opaque-test-tenant",
             graph_name,
             graph_type: GraphType::Commons,
             owner: None,
             isolation: &isolation,
             core: &core,
-            persistence: None,
-            redb_authoritative: false,
+            persistence: Some(&persistence),
             #[cfg(feature = "streaming")]
             cdc: None,
+            materialization_manifest: None,
             write_coalescer: None,
         };
 
@@ -1544,6 +2534,10 @@ mod tests {
     fn routed_methods_plan_is_never_hardcoded_relative_to_policy() {
         let samples: Vec<Method> = vec![
             Method::AddNode {
+                node_id: "x".into(),
+                properties_msgpack: Vec::new(),
+            },
+            Method::CreateNodeIfAbsent {
                 node_id: "x".into(),
                 properties_msgpack: Vec::new(),
             },
@@ -1673,8 +2667,8 @@ mod tests {
             #[cfg(feature = "shacl")]
             Method::IcvConfigure {
                 graph: None,
-                mode: "off".into(),
-                shapes: String::new(),
+                mode: "enforce".into(),
+                shapes: "@prefix sh: <http://www.w3.org/ns/shacl#> .".into(),
             },
             #[cfg(feature = "reasoning")]
             Method::RunDatalogReasoning {
@@ -1693,9 +2687,6 @@ mod tests {
             },
             Method::BatchUpdate {
                 operations_msgpack: Vec::new(),
-            },
-            Method::ParseRepository {
-                root_path: "x".into(),
             },
             Method::ClearLedger,
             Method::ApplyLedger {
@@ -1822,12 +2813,23 @@ mod tests {
                 now_ms: None,
             },
             #[cfg(feature = "broker")]
-            Method::BrokerAckTag { delivery_tag: 0 },
+            Method::BrokerAckTag {
+                delivery_tag: 0,
+                consumer: "c".into(),
+            },
             #[cfg(feature = "broker")]
             Method::BrokerNackTag {
                 delivery_tag: 0,
+                consumer: "c".into(),
                 requeue: false,
                 now_ms: 0,
+            },
+            #[cfg(feature = "broker")]
+            Method::BrokerRenewTag {
+                delivery_tag: 0,
+                consumer: "c".into(),
+                now_ms: 0,
+                lease_ms: 1,
             },
             // ── L11 rollout batch 3: runtime-conditional graph-learning family ──
             #[cfg(feature = "graphlearn")]
@@ -1923,25 +2925,21 @@ mod tests {
     /// L11 rollout: every mutating method NOT in [`GATEWAY_ROUTED`] falls into
     /// EXACTLY one of two documented buckets -- there is no silent third category.
     ///
-    /// **JUSTIFIED_NA** -- genuinely does not fit `commit_mutation`'s
+    /// **NON_GATEWAY_COORDINATED** -- does not fit `commit_mutation`'s
     /// `(ctx, plan, method, apply)` shape for a real, load-bearing architectural
     /// reason (a different commit protocol entirely, a non-graph-scoped store
     /// with no `GraphCore`/`graph_name` in scope, a cross-shard/cluster-wide op,
     /// or a registry-lifecycle op that runs before/across a single graph's core
-    /// exists). Each entry cites the file/mechanism that already owns its
-    /// authz+durability, so this is an audit trail, not an excuse.
+    /// exists). Each entry cites the native MutationBatch, saga, translation, or
+    /// explicitly non-authoritative staging mechanism that owns the operation.
     ///
-    /// **OPEN_NOT_JUSTIFIED** -- IS graph-scoped and structurally routable, but
-    /// genuinely NOT wired yet (no architectural blocker -- just not completed in
-    /// this rollout increment). Kept SEPARATE from `JUSTIFIED_NA` on purpose: this
-    /// is the honest remainder the task brief's "nothing silently deferred" rule
-    /// is about. `RunRules` additionally flags a POSSIBLE pre-existing ledger
-    /// inaccuracy (its handler looks read-only) that needs a human audit before
-    /// it's safe to route either way.
-    const JUSTIFIED_NA: &[(&str, &str)] = &[
+    /// **OPEN_NOT_JUSTIFIED** -- reserved for a graph-scoped, structurally routable
+    /// mutation that has no coordinator yet. It is intentionally empty and asserted
+    /// empty below; adding such a method is therefore a visible test-gated regression.
+    const NON_GATEWAY_COORDINATED: &[(&str, &str)] = &[
         // ── OCC/2PC multi-op transaction protocol (src/server/handlers/txn.rs) ──
-        // `Commit` applies a DYNAMIC list of already-staged Methods (each with its
-        // own durable record), a multi-graph commit routes through 2PC
+        // `Commit` applies a DYNAMIC list of already-staged Methods through one or
+        // more child MutationBatches, while a multi-graph commit routes through 2PC
         // (`CrossShardCoordinator`), and a cross-modal commit lands
         // graph+vector+blob+series in ONE redb `WriteTransaction`
         // (`commit_cross_modal_txn`) -- none of that is a single `(ctx, plan,
@@ -1949,76 +2947,83 @@ mod tests {
         // mutate durable state at stage time (only `Commit` does); they self-route
         // in `dispatch.rs` BEFORE `dispatch_graph_op` entirely (resolved from
         // `open_txns`, not `req.graph`).
-        ("TxnAddNode", "OCC txn stage/commit protocol (txn.rs) -- see JUSTIFIED_NA doc above"),
-        ("TxnRemoveNode", "OCC txn stage/commit protocol (txn.rs) -- see JUSTIFIED_NA doc above"),
-        ("TxnAddEdge", "OCC txn stage/commit protocol (txn.rs) -- see JUSTIFIED_NA doc above"),
-        ("TxnRemoveEdge", "OCC txn stage/commit protocol (txn.rs) -- see JUSTIFIED_NA doc above"),
-        ("TxnCas", "OCC txn stage/commit protocol (txn.rs) -- see JUSTIFIED_NA doc above"),
-        ("TxnAddEmbedding", "OCC txn stage/commit protocol (txn.rs) -- see JUSTIFIED_NA doc above"),
-        ("TxnBlobRef", "OCC txn stage/commit protocol (txn.rs) -- see JUSTIFIED_NA doc above"),
-        ("TxnAddMeasurement", "OCC txn stage/commit protocol (txn.rs) -- see JUSTIFIED_NA doc above"),
-        ("TxnAxiom", "OCC txn stage/commit protocol (txn.rs) -- see JUSTIFIED_NA doc above"),
-        ("TxnConstruct", "OCC txn stage/commit protocol (txn.rs) -- see JUSTIFIED_NA doc above"),
-        ("TxnPlanWriteback", "OCC txn stage/commit protocol (txn.rs) -- see JUSTIFIED_NA doc above"),
-        ("TxnMaterializeBelief", "OCC txn stage/commit protocol (txn.rs) -- see JUSTIFIED_NA doc above"),
-        ("Commit", "OCC txn commit point (applies a DYNAMIC staged write-set, possibly 2PC/cross-modal) -- txn.rs"),
+        ("BeginTxn", "encrypted Raft-native OCC staging authority"),
+        ("TxnAddNode", "replicated OCC staging; named Commit receipt and graph MutationBatch own publication authority"),
+        ("TxnRemoveNode", "ephemeral OCC staging; named Commit receipt and graph MutationBatch own authority"),
+        ("TxnAddEdge", "ephemeral OCC staging; named Commit receipt and graph MutationBatch own authority"),
+        ("TxnRemoveEdge", "ephemeral OCC staging; named Commit receipt and graph MutationBatch own authority"),
+        ("TxnCas", "ephemeral OCC staging; named Commit receipt and graph MutationBatch own authority"),
+        ("TxnAddEmbedding", "ephemeral OCC staging; named Commit receipt and cross-modal MutationBatch own authority"),
+        ("TxnBlobRef", "ephemeral OCC staging; named Commit receipt and cross-modal MutationBatch own authority"),
+        ("TxnAddMeasurement", "ephemeral OCC staging; named Commit receipt and cross-modal MutationBatch own authority"),
+        ("TxnAxiom", "ephemeral OCC staging; named Commit receipt and cross-modal MutationBatch own authority"),
+        ("TxnConstruct", "ephemeral OCC staging; named Commit receipt and cross-modal MutationBatch own authority"),
+        ("TxnPlanWriteback", "ephemeral OCC staging; named Commit receipt and cross-modal MutationBatch own authority"),
+        ("TxnMaterializeBelief", "ephemeral OCC staging; named Commit receipt and cross-modal MutationBatch own authority"),
+        ("Commit", "named control-plane receipt coordinates graph/cross-modal/2PC child MutationBatches"),
+        ("Rollback", "replicated removal of encrypted OCC staging authority"),
+        ("ClaimWorkItem", "dedicated engine-native MutationBatch lease transition in mutation_batch.rs/redb_store.rs"),
+        ("RenewWorkItemLease", "dedicated engine-native MutationBatch lease-fence transition in mutation_batch.rs/redb_store.rs"),
+        ("CommitWorkItemResult", "dedicated engine-native MutationBatch result/dependency transition in mutation_batch.rs/redb_store.rs"),
+        ("CancelWorkItem", "dedicated engine-native MutationBatch pending-cancellation transition in mutation_batch.rs/redb_store.rs"),
+        ("DeferWorkItem", "dedicated engine-native MutationBatch fenced deferral transition in mutation_batch.rs/redb_store.rs"),
         // ── Non-graph-scoped stores: no GraphCore/graph_name in scope at all;
         // each self-routes in dispatch.rs BEFORE the per-graph chain, exactly
         // like Txn*, with its OWN dedicated redb file + commit path. ──
-        ("BlobBegin", "content-addressed CAS store (blob/store.rs, own blob.redb) -- not graph-scoped"),
-        ("BlobChunkPut", "content-addressed CAS store (blob/store.rs, own blob.redb) -- not graph-scoped"),
-        ("BlobCommit", "content-addressed CAS store (blob/store.rs, own blob.redb) -- not graph-scoped"),
-        ("BlobGc", "content-addressed CAS store (blob/store.rs, own blob.redb) -- not graph-scoped"),
-        ("BlobRef", "content-addressed CAS store (blob/store.rs, own blob.redb) -- not graph-scoped"),
-        ("BlobUnref", "content-addressed CAS store (blob/store.rs, own blob.redb) -- not graph-scoped"),
-        ("KvPut", "namespaced KV surface (kv.rs, own kv.redb) -- not graph-scoped"),
-        ("KvDelete", "namespaced KV surface (kv.rs, own kv.redb) -- not graph-scoped"),
-        ("KvCas", "namespaced KV surface (kv.rs, own kv.redb) -- not graph-scoped"),
-        ("TsAppend", "time-series store (handlers/timeseries.rs, own series.redb) -- not graph-scoped"),
+        ("BlobBegin", "native MutationBatch in blob.redb: durable upload cursor + status/fence/idempotency/outbox in one WTX"),
+        ("BlobChunkPut", "native MutationBatch in blob.redb: chunk + upload cursor + coordinator metadata in one WTX"),
+        ("BlobCommit", "native MutationBatch in blob.redb: manifest/cursor transition + coordinator metadata in one WTX"),
+        ("BlobGc", "native MutationBatch in blob.redb: GC rows + exact result/coordinator metadata in one WTX"),
+        ("BlobRef", "native MutationBatch in blob.redb: refcount + coordinator metadata in one WTX"),
+        ("BlobUnref", "native MutationBatch in blob.redb: refcount + coordinator metadata in one WTX"),
+        ("KvPut", "native MutationBatch in kv.redb: KV row + status/fence/idempotency/outbox in one WTX"),
+        ("KvDelete", "native MutationBatch in kv.redb: KV row + status/fence/idempotency/outbox in one WTX"),
+        ("KvCas", "native MutationBatch in kv.redb: CAS decision/row + exact result/coordinator metadata in one WTX"),
+        ("TsAppend", "native MutationBatch in series.redb: series rows/projection + coordinator metadata in one WTX"),
         #[cfg(feature = "jobs")]
-        ("AnalyticsJob", "durable analytics-job plane (handlers/jobs.rs, own jobs.redb, CONCEPT:INT-P2-1) -- not graph-scoped"),
-        ("ImportSqliteFile", "file-scoped: moves rows through a process-global user-table store, like Blob*/Kv*"),
-        // ── Process-global registries on ServerState: durability_domain::None,
+        ("AnalyticsJob", "native MutationBatch in jobs.redb; asynchronous claim writeback uses a staged graph MutationBatch"),
+        ("ImportSqliteFile", "native SQL-catalog MutationBatch: all imported tables + exact result/coordinator metadata in one WTX"),
+        // ── Process-global registries on ServerState: opaque control-redb sagas,
         // no GraphCore/graph_name; dispatched directly in the top-level match. ──
-        ("CreateChannel", "process-global ChannelManager (ServerState::channels) -- no GraphCore/graph_name"),
-        ("JoinChannel", "process-global ChannelManager (ServerState::channels) -- no GraphCore/graph_name"),
-        ("LeaveChannel", "process-global ChannelManager (ServerState::channels) -- no GraphCore/graph_name"),
-        ("CloseChannel", "process-global ChannelManager (ServerState::channels) -- no GraphCore/graph_name"),
-        ("SendMessage", "process-global ChannelManager (ServerState::channels) -- no GraphCore/graph_name"),
-        ("RegisterIdentity", "process-global isolation/identity registry (ServerState::isolation)"),
-        ("RbacAdmin", "process-global RBAC policy registry (ServerState::isolation)"),
-        ("RegisterForeignSource", "process-global query-federation registry (handlers/federation.rs)"),
-        ("RegisterUdf", "process-global WASM UDF registry (handlers/wasm_udf.rs)"),
-        ("RegisterContinuousQuery", "process-global CDC continuous-query registry (ServerState)"),
-        ("DropContinuousQuery", "process-global CDC continuous-query registry (ServerState)"),
-        ("RegisterTrigger", "process-global CDC trigger registry (ServerState)"),
-        ("DropTrigger", "process-global CDC trigger registry (ServerState)"),
-        ("CepSubscribe", "process-global CEP subscription registry (ServerState)"),
-        ("CepUnsubscribe", "process-global CEP subscription registry (ServerState)"),
+        ("CreateChannel", "opaque prepared/committed session-control MutationBatch"),
+        ("JoinChannel", "opaque prepared/committed session-control MutationBatch"),
+        ("LeaveChannel", "opaque prepared/committed session-control MutationBatch"),
+        ("CloseChannel", "opaque prepared/committed session-control MutationBatch"),
+        ("SendMessage", "request-scoped opaque session-control saga; a committed retry never duplicates delivery"),
+        ("RegisterIdentity", "native rbac.redb MutationBatch shares the RBAC snapshot WTX"),
+        ("RbacAdmin", "native rbac.redb MutationBatch shares the RBAC snapshot WTX"),
+        ("RegisterForeignSource", "opaque prepared/committed session-control MutationBatch"),
+        ("RegisterUdf", "opaque prepared/committed session-control MutationBatch"),
+        ("RegisterContinuousQuery", "opaque prepared/committed session-control MutationBatch"),
+        ("DropContinuousQuery", "opaque prepared/committed session-control MutationBatch"),
+        ("RegisterTrigger", "opaque prepared/committed session-control MutationBatch"),
+        ("DropTrigger", "opaque prepared/committed session-control MutationBatch"),
+        ("CepSubscribe", "opaque prepared/committed session-control MutationBatch"),
+        ("CepUnsubscribe", "opaque prepared/committed session-control MutationBatch"),
         // ── Cluster-wide / cross-shard admin ops: operate across the WHOLE
-        // registry/cluster via the concrete redb backend directly
+        // registry/cluster under a durable control-plane saga
         // (handlers::admin::try_handle / handlers::dist_compute::try_handle), not
         // a single resolved graph's core. ──
-        ("Reshard", "cluster-wide resharding admin (handlers/admin.rs, as_redb) -- not single-graph-scoped"),
-        ("CatalogAssign", "cluster-wide tenant catalog admin (handlers/admin.rs, as_redb) -- not single-graph-scoped"),
-        ("CatalogReassign", "cluster-wide tenant catalog admin (handlers/admin.rs, as_redb) -- not single-graph-scoped"),
-        ("CatalogRemove", "cluster-wide tenant catalog admin (handlers/admin.rs, as_redb) -- not single-graph-scoped"),
-        ("RebalanceExecute", "cluster-wide rebalance execution (handlers/admin.rs, as_redb) -- not single-graph-scoped"),
-        ("Restore", "cluster-wide online restore/PITR (handlers/admin.rs, as_redb) -- not single-graph-scoped"),
-        ("CreateMatView", "cross-shard materialized-view lifecycle (handlers/dist_compute.rs) -- not single-graph-scoped"),
-        ("RefreshMatView", "cross-shard materialized-view lifecycle (handlers/dist_compute.rs) -- not single-graph-scoped"),
-        ("PlanMatViewDefine", "cross-shard materialized-view lifecycle (handlers/dist_compute.rs) -- not single-graph-scoped"),
-        ("PlanMatViewRefresh", "cross-shard materialized-view lifecycle (handlers/dist_compute.rs) -- not single-graph-scoped"),
-        ("PlanMatViewDrop", "cross-shard materialized-view lifecycle (handlers/dist_compute.rs) -- not single-graph-scoped"),
-        ("DistributedCompute", "cross-shard distributed compute (handlers/dist_compute.rs) -- not single-graph-scoped"),
+        ("Reshard", "prepared/committed admin MutationBatch saga around cluster-wide resharding"),
+        ("CatalogAssign", "prepared/committed admin MutationBatch saga around the durable tenant catalog"),
+        ("CatalogReassign", "prepared/committed admin MutationBatch saga around the durable tenant catalog"),
+        ("CatalogRemove", "prepared/committed admin MutationBatch saga around the durable tenant catalog"),
+        ("RebalanceExecute", "prepared/committed admin MutationBatch saga around cluster-wide rebalance"),
+        ("Restore", "prepared/committed admin MutationBatch saga around online restore/PITR"),
+        ("CreateMatView", "prepared/committed control-plane MutationBatch saga around the durable cross-shard view row"),
+        ("RefreshMatView", "prepared/committed control-plane MutationBatch saga around the durable cross-shard view row"),
+        ("PlanMatViewDefine", "prepared/committed control-plane MutationBatch saga around the durable plan definition"),
+        ("PlanMatViewRefresh", "prepared/committed control-plane MutationBatch saga around derived-cache refresh"),
+        ("PlanMatViewDrop", "prepared/committed control-plane MutationBatch saga around durable definition removal"),
         // ── Registry-lifecycle ops: run BEFORE/ACROSS a single graph's core
         // exists (or spans many), so there is no one EXISTING graph to route
         // "through". ──
-        ("CreateGraph", "creates the registry entry itself -- no existing graph core to route through yet"),
-        ("DeleteGraph", "evicts the registry entry itself -- no existing graph core to route through anymore"),
-        ("MultiGraphBatchUpdate", "fans a batch out across MANY named graphs concurrently; routed before the single-graph path"),
+        ("CreateGraph", "native lifecycle MutationBatch commits graph identity before registry publication"),
+        ("DeleteGraph", "native lifecycle MutationBatch commits purge before registry eviction"),
+        ("MultiGraphBatchUpdate", "cluster placement fanout emits one typed graph command per child; standalone mode uses a durable parent saga"),
+        ("ApplyChangeEnvelope", "governed envelope coordinator commits typed graph/object/provenance rows, cursor, version, and outbox through one native MutationBatch"),
+        ("RecomputeMaterialization", "fenced reasoning-projection coordinator resolves authoritative graph provenance and fsyncs its projection watermark"),
         // ── Server lifecycle: TxnParticipation::None, not a graph mutation. ──
-        ("Checkpoint", "server-lifecycle control-plane action, not a graph mutation"),
         ("Shutdown", "server-lifecycle control-plane action, not a graph mutation"),
         // ── Translates away before it could ever reach the gateway. ──
         (
@@ -2030,15 +3035,14 @@ mod tests {
         ),
     ];
 
-    /// Genuinely graph-scoped + structurally routable, but NOT wired yet -- no
-    /// architectural blocker, just not done. As of the L11 batch-4 close-out this is
-    /// **EMPTY**: all 7 former entries were resolved --
+    /// Graph-scoped methods requiring a coordinator outside this gateway. The set is
+    /// **EMPTY**: all former entries now have an owning mutation kernel --
     ///   - `Sql`/`CypherQuery`/`GraphQl` are now routed via
     ///     `commit_conditional_mutation_async` at the query dispatch site (the async
     ///     twin built for exactly the `state`/`rls`-needing surfaces);
     ///   - `AddTriples`/`RemoveTriples`/`DropNamedGraph` are routed the same way at
-    ///     the rdf dispatch site (its durable write threads `state` for the optional
-    ///     `rdf-redb` quad store);
+    ///     the RDF dispatch site, with multi-valued literals included in the staged
+    ///     authoritative image;
     ///   - `RunRules` was AUDITED to be genuinely read-only, so the fix was the
     ///     policy (`eg_capabilities::policy(RunRules).mutates` : true -> false), not
     ///     a route -- it left the mutating surface entirely.
@@ -2053,7 +3057,7 @@ mod tests {
     /// name in [`GATEWAY_ROUTED`] really exists in `eg_capabilities::ALL_METHODS`
     /// and really is `mutates == true` (catches a rename/typo silently un-routing
     /// a method); the COMPLEMENT (every other mutating method) must fall ENTIRELY
-    /// into [`JUSTIFIED_NA`] or [`OPEN_NOT_JUSTIFIED`] -- an undocumented name in
+    /// into [`NON_GATEWAY_COORDINATED`] or [`OPEN_NOT_JUSTIFIED`] -- an undocumented name in
     /// the complement is a hard test failure (a silent skip), not a warning.
     #[test]
     fn gateway_routed_set_matches_mutating_policy_surface() {
@@ -2077,58 +3081,140 @@ mod tests {
         let not_yet_migrated: Vec<&'static str> =
             all_mutating.difference(&routed_set).copied().collect();
 
-        let justified_na: std::collections::HashMap<&'static str, &'static str> =
-            JUSTIFIED_NA.iter().copied().collect();
+        let coordinated: std::collections::HashMap<&'static str, &'static str> =
+            NON_GATEWAY_COORDINATED.iter().copied().collect();
         let open: std::collections::HashMap<&'static str, &'static str> =
             OPEN_NOT_JUSTIFIED.iter().copied().collect();
 
-        // Every JUSTIFIED_NA / OPEN_NOT_JUSTIFIED entry must actually be a real,
+        // Every NON_GATEWAY_COORDINATED / OPEN_NOT_JUSTIFIED entry must be a real,
         // currently-non-routed, mutating method name -- catches a stale doc entry
         // (a name that got routed, renamed, or was never mutating) as loudly as an
         // undocumented one.
-        for name in justified_na.keys().chain(open.keys()) {
+        for name in coordinated.keys().chain(open.keys()) {
             assert!(
                 not_yet_migrated.contains(name),
-                "'{name}' is documented in JUSTIFIED_NA/OPEN_NOT_JUSTIFIED but is NOT in the \
-                 current backlog (already routed, renamed, or never a mutating method?) -- stale doc entry"
+                "'{name}' is documented in NON_GATEWAY_COORDINATED/OPEN_NOT_JUSTIFIED but is NOT in the \
+                 current non-gateway set (already routed, renamed, or never a mutating method?) -- stale entry"
             );
         }
 
         let undocumented: Vec<&&'static str> = not_yet_migrated
             .iter()
-            .filter(|name| !justified_na.contains_key(*name) && !open.contains_key(*name))
+            .filter(|name| !coordinated.contains_key(*name) && !open.contains_key(*name))
             .collect();
         assert!(
             undocumented.is_empty(),
-            "UNDOCUMENTED backlog entries (silently deferred, not allowed): {undocumented:?} -- \
-             add each to JUSTIFIED_NA (real architectural reason) or OPEN_NOT_JUSTIFIED (honest \
+            "UNDOCUMENTED non-gateway entries (silently deferred, not allowed): {undocumented:?} -- \
+             add each to NON_GATEWAY_COORDINATED (native coordinator) or OPEN_NOT_JUSTIFIED (honest \
              remainder) in server::mutation::tests"
         );
         assert_eq!(
             not_yet_migrated.len(),
-            justified_na.len() + open.len(),
-            "JUSTIFIED_NA + OPEN_NOT_JUSTIFIED must exactly partition the backlog (no overlap, no gaps)"
+            coordinated.len() + open.len(),
+            "NON_GATEWAY_COORDINATED + OPEN_NOT_JUSTIFIED must exactly partition the non-gateway set"
         );
         // L11 close-out invariant: the OPEN (routable-but-unrouted) bucket is EMPTY.
-        // The entire backlog is now JUSTIFIED_NA -- every non-routed mutating method
-        // has a real architectural reason (a different commit protocol, a non-graph-
-        // scoped store, a cluster-wide op, a registry-lifecycle op, ...), none is a
-        // "just didn't get to it" deferral.
+        // Every non-routed mutating method has a concrete native coordinator,
+        // translation, or pre-commit staging protocol; none is a durability bypass.
         assert!(
             open.is_empty(),
-            "OPEN_NOT_JUSTIFIED must be empty (L11 closed all routable methods); still open: {:?}",
+            "OPEN_NOT_JUSTIFIED must be empty (all routable methods are owned); entries: {:?}",
             open.keys().collect::<Vec<_>>()
         );
 
         println!(
             "EG-P0-2/L11 gateway migration surface: {} routed / {} mutating total; \
-             {} backlog = {} justified-N/A (documented architectural reasons) + \
+             {} non-gateway = {} natively coordinated + \
              {} open-not-justified (MUST be 0)",
             routed_set.len(),
             all_mutating.len(),
             not_yet_migrated.len(),
-            justified_na.len(),
+            coordinated.len(),
             open.len(),
+        );
+    }
+
+    /// Clustered admission has no deferred mutation family. The union of the
+    /// graph state-machine gateway, bounded native commands, specialized governed
+    /// envelope/modality commands, and process shutdown exactly equals the current
+    /// mutating capability ledger.
+    #[cfg(feature = "raft")]
+    #[test]
+    fn clustered_mutation_inventory_is_complete() {
+        use std::collections::BTreeSet;
+
+        let expected: BTreeSet<&'static str> = eg_capabilities::ALL_METHODS
+            .iter()
+            .filter(|(_, policy, _)| policy.mutates)
+            .map(|(name, _, _)| *name)
+            .collect();
+        let mut covered: BTreeSet<&'static str> = GATEWAY_ROUTED.iter().copied().collect();
+        covered.extend(crate::raft::NATIVE_CONSENSUS_METHODS.iter().copied());
+        covered.extend(CONSENSUS_FANOUT_METHODS.iter().copied());
+        covered.insert("ApplyChangeEnvelope");
+        covered.insert("ServedModality");
+        covered.insert("Shutdown");
+
+        let missing: Vec<_> = expected.difference(&covered).copied().collect();
+        let stale: Vec<_> = covered.difference(&expected).copied().collect();
+        assert!(
+            missing.is_empty() && stale.is_empty(),
+            "cluster mutation inventory drift: missing={missing:?}, stale={stale:?}"
+        );
+    }
+
+    #[test]
+    fn clustered_mutations_are_consensus_typed() {
+        assert_eq!(
+            cluster_mutation_route(&Method::AddNode {
+                node_id: "opaque-node".to_string(),
+                properties_msgpack: Vec::new(),
+            }),
+            ClusterMutationRoute::ConsensusGraph,
+        );
+        assert_eq!(
+            cluster_mutation_route(&Method::CreateGraph {
+                graph_name: "opaque-graph".to_string(),
+                graph_type: GraphType::Global,
+            }),
+            ClusterMutationRoute::ConsensusNative,
+        );
+        assert_eq!(
+            cluster_mutation_route(&Method::ApplyMutation {
+                event_type: "opaque-event".to_string(),
+                query: "opaque-operation".to_string(),
+            }),
+            ClusterMutationRoute::ConsensusNative,
+        );
+        #[cfg(feature = "sparql-http")]
+        assert_eq!(
+            cluster_mutation_route(&Method::ApplyMutation {
+                event_type: crate::server::sparql_http::SPARQL_HTTP_UPDATE_EVENT.to_string(),
+                query: "CLEAR DEFAULT".to_string(),
+            }),
+            ClusterMutationRoute::ConsensusFanout,
+        );
+        assert_eq!(
+            cluster_mutation_route(&Method::MultiGraphBatchUpdate {
+                batches_msgpack: Vec::new(),
+            }),
+            ClusterMutationRoute::ConsensusFanout,
+        );
+        assert_eq!(
+            cluster_mutation_route(&Method::Shutdown),
+            ClusterMutationRoute::VolatileControl,
+        );
+        assert_eq!(
+            cluster_mutation_route(&Method::PlacementRoute {
+                request: crate::epistemic_operations::PlacementRouteRequest {
+                    schema_version:
+                        crate::epistemic_operations::PlacementRouteRequestSchemaVersion::V1,
+                    tenant_ref: "opaque-tenant".to_string(),
+                    partition_ref: "opaque-partition".to_string(),
+                    client_epoch: 0,
+                },
+            }),
+            ClusterMutationRoute::ReadOnly,
         );
     }
 }

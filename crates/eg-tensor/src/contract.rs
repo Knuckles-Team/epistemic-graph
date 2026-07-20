@@ -5,7 +5,7 @@
 //! are the v1 pilots; everything else is future work).
 
 use eg_modality::{
-    decode_staged, encode_staged, ConformanceTestable, EvidenceSpan, IngestReport,
+    decode_staged, encode_staged, ConformanceTestable, EvidenceAddress, IngestReport,
     ModalityContract, ModalitySelfTest, Provenance, RowSetShape, StagedWrite, StorageStats,
     TckPoint,
 };
@@ -58,7 +58,7 @@ impl ModalityContract for Tensor {
     }
 
     /// No located-evidence concept applies to a bare N-D array — default `None`.
-    fn evidence(&self, _id: &str) -> Option<EvidenceSpan> {
+    fn evidence_address(&self) -> Option<EvidenceAddress> {
         None
     }
 
@@ -68,8 +68,8 @@ impl ModalityContract for Tensor {
 
     // ── EG-P1-1 hooks — real, minimal implementations over the tensor's OWN durable
     // byte-blob codec (`to_blob`/`from_blob`, the content-addressed CAS persistence
-    // form) and the txn staging path. These take tensor from 5/12 to 12/12 (9 PASS +
-    // the 3 N/A declared in `tck_not_applicable`). ──
+    // form) and the txn staging path. Tensor remains first-class/non-production:
+    // streaming ingest and three storage-layer dimensions are N/A. ──
 
     /// Batch ingest = parse a `Tensor` back from its compact durable byte-blob (the
     /// exact form the content-addressed CAS stores). Streaming is genuinely N/A: a
@@ -135,7 +135,7 @@ impl ModalityContract for Tensor {
     /// * provenance/evidence/lineage — a bare array has no derivation history and is
     ///   not extracted from any located artifact; lineage, where it exists, is
     ///   recorded by the producing plan operator, not the value (matches the existing
-    ///   `provenance()`/`evidence()` returning `None`).
+    ///   `provenance()`/`evidence_address()` returning `None`).
     fn tck_not_applicable(&self, point: TckPoint) -> Option<&'static str> {
         match point {
             TckPoint::CdcDeleteRetentionGc => Some(

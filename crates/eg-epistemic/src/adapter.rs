@@ -29,8 +29,8 @@ pub struct BeliefGraph {
     /// `filter_view` reads on every other read path. Consulted ONLY by
     /// [`crate::redact::explain_belief_redacted`] (EPI-P3-4) to decide, per proof-tree
     /// node, whether the requesting actor may see that node's identity. A node absent
-    /// from this map (no property blob at all) is treated as unowned/visible — the
-    /// same default `filter_view` applies. Behind `epistemic-redaction` so a plain
+    /// from this map (no property blob at all) is untagged and therefore hidden by
+    /// the same default-deny rule `filter_view` applies. Behind `epistemic-redaction` so a plain
     /// build carries no extra dependency or per-node decode cost.
     #[cfg(feature = "epistemic-redaction")]
     pub node_visibility: HashMap<String, eg_core::isolation::RowVisibility>,
@@ -47,18 +47,16 @@ pub struct BeliefGraph {
     /// if any; `None` = unnarrowed (as of now on both axes).
     pub bitemporal_pin: Option<(Option<u64>, Option<u64>)>,
     /// node id → its located multimodal evidence locus, CONCEPT:EG-X1 (`crate::evidence`).
-    /// Decoded from the SAME per-node property blob as `priors`/`temporal` above
-    /// (`evidence_span`/`occurrence_id`/`blob_ref`); a node absent from this map, or
-    /// present with all three fields `None`, carried none of them — the common case
-    /// for most `:Claim`/`:Evidence` nodes today. Behind `evidence-graph` so a plain
-    /// build carries no extra dependency or per-node decode cost.
+    /// Decoded from the same per-node property blob as `priors`/`temporal` above.
+    /// A node is present only when its `evidence_locus` property is a complete,
+    /// validated governed locus.
     #[cfg(feature = "evidence-graph")]
-    pub evidence_loci: HashMap<String, crate::evidence::EvidenceLocusRecord>,
+    pub evidence_loci: HashMap<String, eg_modality::EvidenceLocus>,
 }
 
 impl BeliefGraph {
     /// Build from a `GraphView` snapshot. Decodes each node's `confidence` and each
-    /// epistemic edge's `relationship_type` from the msgpack property blobs; neutral
+    /// epistemic edge's canonical `relationship` from the msgpack property blobs; neutral
     /// (non-support/contradict/attack) edges are ignored.
     pub fn from_graph_view(view: &GraphView) -> Self {
         let mut priors = HashMap::with_capacity(view.node_properties.len());
@@ -66,7 +64,7 @@ impl BeliefGraph {
         #[cfg(feature = "evidence-graph")]
         let mut evidence_loci = HashMap::with_capacity(view.node_properties.len());
         for (id, blob) in &view.node_properties {
-            let parsed = rmp_serde::from_slice::<serde_json::Value>(blob).ok();
+            let parsed = eg_types::msgpack::decode_property_value(blob).ok();
             let confidence = parsed
                 .as_ref()
                 .and_then(|v| v.get("confidence").and_then(|c| c.as_f64()))
@@ -88,26 +86,20 @@ impl BeliefGraph {
                 }
             }
 
-            // Same blob, same decode pass, CONCEPT:EG-X1 — the located evidence locus
-            // (`evidence_span`) plus the `AssetOccurrence`/`Blob` identity chain it was
-            // extracted from (`occurrence_id`/`blob_ref`). A node carrying none of the
-            // three yields an all-`None` record (never fabricated) but is still
-            // inserted, so `evidence_loci.contains_key` mirrors `priors`'s "every node
-            // in the view has an entry" convention.
+            // Same blob, same decode pass: accept only the complete governed locus.
             #[cfg(feature = "evidence-graph")]
-            {
-                let record = crate::evidence::EvidenceLocusRecord::decode(parsed.as_ref());
-                evidence_loci.insert(id.clone(), record);
+            if let Some(locus) = crate::evidence::decode_locus(parsed.as_ref()) {
+                evidence_loci.insert(id.clone(), locus);
             }
         }
 
         let mut in_edges: HashMap<String, Vec<(String, EdgeKind)>> = HashMap::new();
         for ((source, target), blobs) in &view.edge_properties {
             for blob in blobs {
-                let Some(kind) = rmp_serde::from_slice::<serde_json::Value>(blob)
+                let Some(kind) = eg_types::msgpack::decode_property_value(blob)
                     .ok()
                     .and_then(|v| {
-                        v.get("relationship_type")
+                        v.get("relationship")
                             .and_then(|r| r.as_str())
                             .and_then(classify_relationship)
                     })
@@ -187,18 +179,10 @@ impl BeliefGraph {
         self
     }
 
-    /// Test/utility: attach an explicit [`crate::evidence::EvidenceLocusRecord`] to
-    /// `id` — the fixture-side mirror of [`Self::from_graph_view`]'s
-    /// `evidence_span`/`occurrence_id`/`blob_ref` blob decode (CONCEPT:EG-X1), for
-    /// exercising `crate::evidence::evidence_citations`/`resolve_locus` without a
-    /// `GraphView`.
+    /// Test/utility: attach a complete governed locus to `id`.
     #[cfg(feature = "evidence-graph")]
-    pub fn with_evidence_locus(
-        mut self,
-        id: &str,
-        record: crate::evidence::EvidenceLocusRecord,
-    ) -> Self {
-        self.evidence_loci.insert(id.to_string(), record);
+    pub fn with_evidence_locus(mut self, id: &str, locus: eg_modality::EvidenceLocus) -> Self {
+        self.evidence_loci.insert(id.to_string(), locus);
         self
     }
 
@@ -264,7 +248,7 @@ impl BeliefGraph {
     /// Attach explicit per-node [`RowVisibility`](eg_core::isolation::RowVisibility)
     /// (EPI-P3-4 test/utility constructor — a real caller builds this from a
     /// `GraphView` via [`Self::from_graph_view`]). Any id not given here defaults to
-    /// unowned/visible, exactly like a node with no property blob at all.
+    /// untagged/hidden, exactly like a node with no property blob at all.
     #[cfg(feature = "epistemic-redaction")]
     pub fn with_visibility<'a, V>(mut self, visibility: V) -> Self
     where

@@ -304,6 +304,8 @@ fn spill_if_needed(cfg: &RuntimeConfig, rs: RowSet) -> Result<RowSet, String> {
 /// the input byte-for-byte. The temp file is removed after reload (and on error).
 #[cfg(feature = "par-runtime")]
 fn spill_roundtrip(rs: RowSet) -> Result<RowSet, String> {
+    use std::io::{Read, Seek, SeekFrom, Write};
+
     let rows: Vec<(String, Option<f32>)> =
         rs.rows().iter().map(|r| (r.id.clone(), r.score)).collect();
     drop(rs); // free the intermediate before it lands on disk — the point of spilling.
@@ -312,15 +314,41 @@ fn spill_roundtrip(rs: RowSet) -> Result<RowSet, String> {
     drop(rows);
 
     let path = spill_path();
-    std::fs::write(&path, &bytes).map_err(|e| format!("spill write {}: {e}", path.display()))?;
-    drop(bytes);
-
-    let back = std::fs::read(&path).map_err(|e| format!("spill read {}: {e}", path.display()));
+    let mut options = std::fs::OpenOptions::new();
+    options.create_new(true).read(true).write(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options
+        .open(&path)
+        .map_err(|_| "unable to create query spill file".to_string())?;
+    let io_result = (|| -> Result<Vec<u8>, String> {
+        file.write_all(&bytes)
+            .map_err(|_| "unable to write query spill file".to_string())?;
+        let encoded_len = bytes.len();
+        drop(bytes);
+        file.seek(SeekFrom::Start(0))
+            .map_err(|_| "unable to rewind query spill file".to_string())?;
+        let mut back = vec![0u8; encoded_len];
+        file.read_exact(&mut back)
+            .map_err(|_| "unable to read query spill file".to_string())?;
+        Ok(back)
+    })();
+    drop(file);
     let _ = std::fs::remove_file(&path);
-    let back = back?;
+    let back = io_result?;
 
-    let decoded: Vec<(String, Option<f32>)> =
-        rmp_serde::from_slice(&back).map_err(|e| format!("spill decode: {e}"))?;
+    let decoded: Vec<(String, Option<f32>)> = eg_types::msgpack::decode_bounded(
+        &back,
+        eg_types::msgpack::MsgpackLimits::new(
+            back.len(),
+            eg_types::msgpack::MAX_PROPERTY_ITEMS,
+            eg_types::msgpack::DEFAULT_MAX_DEPTH,
+        ),
+    )
+    .map_err(|_| "invalid query spill file".to_string())?;
     Ok(RowSet::from_rows(decoded))
 }
 

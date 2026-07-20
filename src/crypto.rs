@@ -10,17 +10,16 @@
 //! ```text
 //!   [ MAGIC (1 byte) | nonce (12 bytes) | ciphertext+tag ]
 //! ```
-//! The `MAGIC` byte (`0xE6`, "eg-encrypted") lets a read DETECT an encrypted value
-//! vs a legacy plaintext one, so a store written before encryption was enabled still
-//! decodes (read-path back-compat) while every NEW write is sealed. A nonce is random
-//! per write (`getrandom`), prepended so decryption is self-describing.
+//! The `MAGIC` byte (`0xE6`, "eg-encrypted") makes the sealed format
+//! self-describing. When encryption is configured, every value must carry this
+//! format; unsealed bytes fail closed and require an explicit offline conversion.
 //!
 //! Only VALUE bytes are sealed (node/edge property blobs, the semantic store blob).
 //! redb KEYS (graph name, node id, seq) stay plaintext so range scans / point reads
 //! work unchanged — the threat model is "raw .redb file bytes must not reveal node
-//! PROPERTIES", which the gate proves (`grep -c <plaintext> graph.redb == 0`).
+//! PROPERTIES", which the gate proves (`grep -c <plaintext> graph-0.redb == 0`).
 
-#![cfg(feature = "security")]
+#![cfg(any(feature = "security", feature = "raft"))]
 
 use chacha20poly1305::aead::{Aead, KeyInit};
 use chacha20poly1305::{ChaCha20Poly1305, Key, Nonce};
@@ -30,7 +29,7 @@ use std::sync::Arc;
 /// Env var holding the raw encryption key material (any length; hashed to 32 bytes).
 pub const ENCRYPTION_KEY_ENV: &str = "EPISTEMIC_GRAPH_ENCRYPTION_KEY";
 
-/// First byte of an encrypted value blob — distinguishes it from legacy plaintext.
+/// First byte of an encrypted value blob.
 const MAGIC: u8 = 0xE6;
 const NONCE_LEN: usize = 12;
 
@@ -86,13 +85,11 @@ impl ValueCipher {
         out
     }
 
-    /// Unseal a stored value blob. A blob that does NOT begin with `MAGIC` is treated
-    /// as legacy plaintext and returned as-is (read-path back-compat for a store
-    /// written before encryption was enabled). A `MAGIC`-tagged blob that fails to
-    /// decrypt (WRONG KEY or tampering) returns `Err` — never silent plaintext.
+    /// Unseal a stored value blob. Missing framing, a wrong key, and ciphertext
+    /// tampering all fail closed; plaintext is never accepted while a cipher is active.
     pub fn unseal(&self, stored: &[u8]) -> Result<Vec<u8>, String> {
         if !is_sealed(stored) {
-            return Ok(stored.to_vec());
+            return Err("encrypted durable value is missing sealed framing".to_string());
         }
         let nonce = Nonce::from_slice(&stored[1..1 + NONCE_LEN]);
         let ct = &stored[1 + NONCE_LEN..];
@@ -145,11 +142,11 @@ mod tests {
     }
 
     #[test]
-    fn legacy_plaintext_passthrough() {
+    fn plaintext_is_rejected_when_cipher_is_active() {
         let c = ValueCipher::from_key_material(b"k");
-        let plain = b"not-encrypted-legacy-bytes";
+        let plain = b"not-encrypted-bytes";
         assert!(!is_sealed(plain));
-        assert_eq!(c.unseal(plain).unwrap(), plain);
+        assert!(c.unseal(plain).is_err());
     }
 
     #[test]

@@ -4,7 +4,7 @@
 //! Mirrors the SAME typed-node-by-convention pattern
 //! `src/server/handlers/mining.rs`'s `materialize_claim` established for the
 //! synchronous `Mine*` writeback path (E6): a `:Claim` node + a `:Evidence` node +
-//! two `SUPPORTS` edges (`relationship_type = "SUPPORTS"`, the key
+//! two `SUPPORTS` edges (`relationship = "SUPPORTS"`, the canonical key
 //! `eg_epistemic::classify_relationship` reads), so `eg-epistemic`'s
 //! `BeliefGraph`/`propagate_confidence` treat a job's result exactly like any other
 //! mined finding. This crate does not depend on `eg-epistemic` itself (that crate has
@@ -45,6 +45,7 @@
 //! deliberately IN that whitelist.
 
 use eg_core::graph::GraphCore;
+use eg_types::protocol::Method;
 
 use crate::model::AnalyticsJob;
 
@@ -95,6 +96,11 @@ pub fn activity_node_id(result_ref: &str) -> String {
     format!("jobactivity:{result_ref}")
 }
 
+/// Deterministic node for the immutable typed result dataset.
+pub fn dataset_node_id(result_ref: &str) -> String {
+    format!("jobdataset:{result_ref}")
+}
+
 /// A plain-data mirror of `eg_epistemic::model::Calibration`'s shape (L52): the
 /// central credible interval, its probability mass, and the evidence count that fed
 /// it. This crate deliberately does not depend on `eg-epistemic` (see module docs),
@@ -109,6 +115,226 @@ pub struct CalibrationInput {
     pub level: f64,
     /// How many pieces of evidence (rules/observations/samples) fed this calibration.
     pub evidence_count: usize,
+}
+
+/// Deterministic graph write-set for one succeeded job result.  The server uses
+/// this representation to commit the claim, evidence and activity through its
+/// authoritative MutationBatch gateway instead of letting a background executor
+/// mutate the live `GraphCore` directly.
+#[derive(Debug, Clone)]
+pub struct ClaimWritePlan {
+    pub claim_id: String,
+    pub methods: Vec<Method>,
+}
+
+/// Lower a durably staged result to canonical graph methods without applying them.
+/// The write-set is deterministic for `(result_ref, job_id)` and therefore safe to
+/// stage, digest, retry and replay through the engine's universal mutation kernel.
+pub fn plan_result_claim(
+    job: &AnalyticsJob,
+    confidence: f64,
+    calibration: Option<CalibrationInput>,
+) -> Result<ClaimWritePlan, String> {
+    let result_ref = match &job.state {
+        crate::model::JobState::Publishing { result_ref, .. }
+        | crate::model::JobState::Succeeded { result_ref, .. } => result_ref.clone(),
+        other => {
+            return Err(format!(
+                "plan_result_claim requires a Publishing or Succeeded job, got {}",
+                other.label()
+            ))
+        }
+    };
+    debug_assert_eq!(result_ref, job.result_ref());
+    let output = job
+        .output
+        .as_ref()
+        .ok_or_else(|| "a published job claim requires its durable typed result".to_string())?;
+    output.validate()?;
+
+    let claim_id = claim_node_id(&result_ref);
+    let evidence_id = evidence_node_id(&result_ref, &job.job_id);
+    let activity_id = activity_node_id(&result_ref);
+    let dataset_id = dataset_node_id(&result_ref);
+    let confidence = confidence.clamp(0.0, 1.0);
+    let snapshot_handle = job.input_snapshot.dataset_ref.clone();
+    let claim_props = serde_json::json!({
+        "type": "Claim",
+        "family": job.algo.family,
+        "about": result_ref.clone(),
+        "confidence": confidence,
+        "validation_state": CLAIM_VALIDATION_STATE,
+        "job_id": job.job_id,
+        "input_dataset_ref": job.input_snapshot.dataset_ref,
+        "input_content_digest": job.input_snapshot.content_digest,
+        "input_snapshot_version": job.input_snapshot.version,
+        "algo_family": job.algo.family,
+        "algo_algorithm": job.algo.algorithm,
+        "algo_params_digest": job.algo.params_digest,
+        "algo_code_version": job.algo.code_version,
+        "algo_env_version": job.algo.env_version,
+        "result_ref": result_ref.clone(),
+        "calibration": calibration.map(|c| serde_json::json!({
+            "interval": [c.interval.0, c.interval.1],
+            "level": c.level,
+            "evidence_count": c.evidence_count,
+        })).unwrap_or(serde_json::Value::Null),
+        "invalidation_deps": [snapshot_handle.as_str(), evidence_id.as_str()],
+    });
+    let evidence_props = serde_json::json!({
+        "type": "Evidence",
+        "family": job.algo.family,
+        "about": result_ref.clone(),
+        "provenance": format!("job:{}", job.job_id),
+        "confidence": confidence,
+        "validation_state": CLAIM_VALIDATION_STATE,
+        "job_id": job.job_id,
+        "tenant": job.policy.tenant,
+        "actor": job.policy.actor,
+        "purpose": job.policy.purpose,
+    });
+    let activity_props = serde_json::json!({
+        "type": "Activity",
+        "job_id": job.job_id,
+        "input_dataset_ref": job.input_snapshot.dataset_ref,
+        "input_content_digest": job.input_snapshot.content_digest,
+        "input_snapshot_version": job.input_snapshot.version,
+        "algo_family": job.algo.family,
+        "algo_algorithm": job.algo.algorithm,
+        "algo_params_digest": job.algo.params_digest,
+        "algo_code_version": job.algo.code_version,
+        "algo_env_version": job.algo.env_version,
+    });
+    let supports = rmp_serde::to_vec_named(&serde_json::json!({ "relationship": "SUPPORTS" }))
+        .map_err(|error| error.to_string())?;
+    let generated_by =
+        rmp_serde::to_vec_named(&serde_json::json!({ "relationship": "GENERATED_BY" }))
+            .map_err(|error| error.to_string())?;
+    let contains = rmp_serde::to_vec_named(&serde_json::json!({ "relationship": "CONTAINS" }))
+        .map_err(|error| error.to_string())?;
+
+    let mut methods = vec![
+        Method::AddNode {
+            node_id: claim_id.clone(),
+            properties_msgpack: rmp_serde::to_vec_named(&claim_props)
+                .map_err(|error| error.to_string())?,
+        },
+        Method::AddNode {
+            node_id: evidence_id.clone(),
+            properties_msgpack: rmp_serde::to_vec_named(&evidence_props)
+                .map_err(|error| error.to_string())?,
+        },
+        Method::AddNode {
+            node_id: activity_id.clone(),
+            properties_msgpack: rmp_serde::to_vec_named(&activity_props)
+                .map_err(|error| error.to_string())?,
+        },
+    ];
+
+    if let Some(output) = &job.output {
+        let dataset_props = serde_json::json!({
+            "type": "KnowledgeBatch",
+            "schema_version": output.schema_version,
+            "dataset_ref": output.dataset_ref,
+            "content_digest": output.content_digest,
+            "schema": output.schema,
+            "row_count": output.rows.len(),
+            "evidence_refs": output.evidence_refs,
+            "counterexample_refs": output.counterexample_refs,
+            "uncertainty": output.uncertainty,
+            "calibration": output.calibration,
+            "reproducibility": output.reproducibility,
+        });
+        methods.push(Method::AddNode {
+            node_id: dataset_id.clone(),
+            properties_msgpack: rmp_serde::to_vec_named(&dataset_props)
+                .map_err(|error| error.to_string())?,
+        });
+        methods.push(Method::AddEdge {
+            source_id: claim_id.clone(),
+            target_id: dataset_id.clone(),
+            properties_msgpack: generated_by.clone(),
+        });
+
+        for (index, row) in output.rows.iter().enumerate() {
+            let row_ref = row
+                .get("id")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string)
+                .unwrap_or_else(|| format!("row-{index}"));
+            let row_claim_id = format!("jobclaim:{result_ref}:{row_ref}");
+            let row_evidence_id = format!("jobevidence:{result_ref}:{row_ref}");
+            let row_confidence = row
+                .get("confidence")
+                .and_then(serde_json::Value::as_f64)
+                .unwrap_or(confidence)
+                .clamp(0.0, 1.0);
+            let row_claim_props = serde_json::json!({
+                "type": "Claim",
+                "family": job.algo.family,
+                "about": row_ref,
+                "confidence": row_confidence,
+                "validation_state": CLAIM_VALIDATION_STATE,
+                "result_ref": result_ref,
+                "dataset_ref": output.dataset_ref,
+                "knowledge": row,
+                "evidence_refs": row.get("evidence_refs").cloned().unwrap_or_default(),
+                "source_refs": row.get("source_refs").cloned().unwrap_or_default(),
+                "proof_ids": row.get("proof_ids").cloned().unwrap_or_default(),
+                "contradiction_ids": row.get("contradiction_ids").cloned().unwrap_or_default(),
+                "invalidation_deps": [job.input_snapshot.dataset_ref.as_str(), row_evidence_id.as_str()],
+            });
+            let row_evidence_props = serde_json::json!({
+                "type": "Evidence",
+                "about": row_ref,
+                "dataset_ref": output.dataset_ref,
+                "evidence_refs": row.get("evidence_refs").cloned().unwrap_or_default(),
+                "source_refs": row.get("source_refs").cloned().unwrap_or_default(),
+                "confidence": row_confidence,
+                "validation_state": CLAIM_VALIDATION_STATE,
+            });
+            methods.extend([
+                Method::AddNode {
+                    node_id: row_claim_id.clone(),
+                    properties_msgpack: rmp_serde::to_vec_named(&row_claim_props)
+                        .map_err(|error| error.to_string())?,
+                },
+                Method::AddNode {
+                    node_id: row_evidence_id.clone(),
+                    properties_msgpack: rmp_serde::to_vec_named(&row_evidence_props)
+                        .map_err(|error| error.to_string())?,
+                },
+                Method::AddEdge {
+                    source_id: row_evidence_id,
+                    target_id: row_claim_id.clone(),
+                    properties_msgpack: supports.clone(),
+                },
+                Method::AddEdge {
+                    source_id: dataset_id.clone(),
+                    target_id: row_claim_id,
+                    properties_msgpack: contains.clone(),
+                },
+            ]);
+        }
+    }
+
+    methods.extend([
+        Method::AddEdge {
+            source_id: evidence_id,
+            target_id: claim_id.clone(),
+            properties_msgpack: supports,
+        },
+        Method::AddEdge {
+            source_id: claim_id.clone(),
+            target_id: activity_id,
+            properties_msgpack: generated_by,
+        },
+    ]);
+
+    Ok(ClaimWritePlan {
+        claim_id: claim_id.clone(),
+        methods,
+    })
 }
 
 /// Commit `job`'s result (`job.state` must be `Succeeded`) as a provenance'd claim
@@ -153,121 +379,36 @@ pub fn commit_result_claim(
         return Ok(ClaimCommitOutcome::AlreadyCommitted { claim_id });
     }
 
-    let confidence = confidence.clamp(0.0, 1.0);
-    let evidence_id = evidence_node_id(&result_ref, &job.job_id);
-    let activity_id = activity_node_id(&result_ref);
-    // CONCEPT:EG-P3-1 — the ids whose change/removal invalidates this claim: the
-    // input-snapshot handle it was computed over, and its own evidence node.
-    let snapshot_handle = format!(
-        "snapshot:{}@{}",
-        job.input_snapshot.graph, job.input_snapshot.version
-    );
-    let claim_props = serde_json::json!({
-        "type": "Claim",
-        "family": job.algo.family,
-        "about": result_ref,
-        "confidence": confidence,
-        "validation_state": CLAIM_VALIDATION_STATE,
-        // CONCEPT:INT-P2-1 lineage — traces this claim back to the exact job run.
-        "job_id": job.job_id,
-        "input_snapshot_graph": job.input_snapshot.graph,
-        "input_snapshot_version": job.input_snapshot.version,
-        "algo_family": job.algo.family,
-        "algo_algorithm": job.algo.algorithm,
-        "algo_params_digest": job.algo.params_digest,
-        "algo_code_version": job.algo.code_version,
-        "algo_env_version": job.algo.env_version,
-        "result_ref": result_ref,
-        // CONCEPT:EG-P3-1 — universal writeback-lineage tuple (the calibration/
-        // invalidation-deps legs beyond what INT-P2-1 already carried above). L52:
-        // `calibration` is a real signal when the caller supplied one, an honest
-        // `null` otherwise (never fabricated).
-        "calibration": calibration.map(|c| serde_json::json!({
-            "interval": [c.interval.0, c.interval.1],
-            "level": c.level,
-            "evidence_count": c.evidence_count,
-        })).unwrap_or(serde_json::Value::Null),
-        "invalidation_deps": [snapshot_handle.as_str(), evidence_id.as_str()],
-    });
-    let blob = rmp_serde::to_vec_named(&claim_props).map_err(|e| e.to_string())?;
-    core.add_node(claim_id.clone(), blob);
-
-    let ev_props = serde_json::json!({
-        "type": "Evidence",
-        "family": job.algo.family,
-        "about": result_ref,
-        "provenance": format!("job:{}", job.job_id),
-        "confidence": confidence,
-        "validation_state": CLAIM_VALIDATION_STATE,
-        "job_id": job.job_id,
-        "tenant": job.policy.tenant,
-        "actor": job.policy.actor,
-        "purpose": job.policy.purpose,
-    });
-    let eb = rmp_serde::to_vec_named(&ev_props).map_err(|e| e.to_string())?;
-    core.add_node(evidence_id.clone(), eb);
-
-    // Two `SUPPORTS` edges: evidence -> claim, and (since the claim id IS the
-    // result — there is no separate mined typed-node here, unlike mining.rs's
-    // `:AssociationRule` — the evidence node stands in for it) this is the single
-    // supporting edge the claim needs. `has_edge` guards against a redundant
-    // duplicate on a race between two callers both observing `has_node` false.
-    if !core.has_edge(&evidence_id, &claim_id) {
-        supports_edge(core, &evidence_id, &claim_id)?;
-    }
-
-    // CONCEPT:EG-P3-1 — the generating Activity: the job's FULL `AlgoVersion` +
-    // `InputSnapshotHandle`, linked `claim --GENERATED_BY--> activity` (the SAME
-    // convention `mining.rs`'s synchronous writeback uses, so `eg-plan`'s
-    // `KnowledgeSet::from_rowset` resolves `KnowledgeRow::transformation_ids`
-    // identically regardless of which writeback path produced the claim).
-    if !core.has_node(&activity_id) {
-        let activity_props = serde_json::json!({
-            "type": "Activity",
-            "job_id": job.job_id,
-            "input_snapshot_graph": job.input_snapshot.graph,
-            "input_snapshot_version": job.input_snapshot.version,
-            "algo_family": job.algo.family,
-            "algo_algorithm": job.algo.algorithm,
-            "algo_params_digest": job.algo.params_digest,
-            "algo_code_version": job.algo.code_version,
-            "algo_env_version": job.algo.env_version,
-        });
-        let ab = rmp_serde::to_vec_named(&activity_props).map_err(|e| e.to_string())?;
-        core.add_node(activity_id.clone(), ab);
-    }
-    if !core.has_edge(&claim_id, &activity_id) {
-        generated_by_edge(core, &claim_id, &activity_id)?;
+    let plan = plan_result_claim(job, confidence, calibration)?;
+    for method in plan.methods {
+        match method {
+            Method::AddNode {
+                node_id,
+                properties_msgpack,
+            } => core.add_node(node_id, properties_msgpack),
+            Method::AddEdge {
+                source_id,
+                target_id,
+                properties_msgpack,
+            } => core.add_edge(source_id, target_id, properties_msgpack)?,
+            _ => return Err("claim write plan contained a non-graph operation".to_string()),
+        }
     }
 
     Ok(ClaimCommitOutcome::Committed { claim_id })
-}
-
-/// Write one epistemic `source --SUPPORTS--> target` edge using the
-/// `relationship_type` key `eg_epistemic::classify_relationship` reads (mirrors
-/// `mining.rs::supports_edge`).
-fn supports_edge(core: &GraphCore, source: &str, target: &str) -> Result<(), String> {
-    let edge = serde_json::json!({ "relationship_type": "SUPPORTS" });
-    let blob = rmp_serde::to_vec_named(&edge).map_err(|e| e.to_string())?;
-    core.add_edge(source.to_string(), target.to_string(), blob)
-}
-
-/// Write one `claim --GENERATED_BY--> activity` edge (CONCEPT:EG-P3-1) — mirrors
-/// `mining.rs::generated_by_edge`; deliberately NOT one of `classify_relationship`'s
-/// whitelisted values, so `BeliefGraph` ignores it (epistemically neutral).
-fn generated_by_edge(core: &GraphCore, source: &str, target: &str) -> Result<(), String> {
-    let edge = serde_json::json!({ "relationship_type": "GENERATED_BY" });
-    let blob = rmp_serde::to_vec_named(&edge).map_err(|e| e.to_string())?;
-    core.add_edge(source.to_string(), target.to_string(), blob)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::model::{AlgoVersion, InputSnapshotHandle, JobPolicy, JobState, RetryPolicy};
+    use crate::result::{ReproducibilityManifest, ResultColumn, TypedJobResult};
 
     fn succeeded_job(job_id: &str, graph: &str, version: u64) -> AnalyticsJob {
-        let input_snapshot = InputSnapshotHandle::new(graph, version);
+        let input_snapshot = InputSnapshotHandle::new(graph, version).with_dataset(
+            "eg:job_input:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        );
         let algo = AlgoVersion {
             family: "mining.association".into(),
             algorithm: "fpgrowth".into(),
@@ -280,14 +421,16 @@ mod tests {
             job_id: job_id.to_string(),
             input_snapshot,
             policy: JobPolicy {
-                tenant: "acme".into(),
-                actor: "agent:planner".into(),
-                purpose: "quarterly-mining".into(),
+                tenant: "tenant:sha256:test".into(),
+                actor: "principal:sha256:test".into(),
+                purpose: "purpose:sha256:test".into(),
                 priority: 0,
                 quota_cpu_ms: None,
                 deadline_unix_ms: None,
+                ..JobPolicy::default()
             },
             algo,
+            input_payload: None,
             retry: RetryPolicy::default(),
             state: JobState::Succeeded {
                 result_ref,
@@ -299,6 +442,40 @@ mod tests {
                 },
             },
             cancel_requested: false,
+            lease_epoch: 0,
+            lease: None,
+            last_worker_ref: String::new(),
+            not_before_ms: 0,
+            output: Some(
+                TypedJobResult::new(
+                    [
+                        "id",
+                        "kind",
+                        "confidence",
+                        "evidence_refs",
+                        "source_refs",
+                        "proof_ids",
+                        "contradiction_ids",
+                    ]
+                    .into_iter()
+                    .map(|name| ResultColumn {
+                        name: name.to_string(),
+                        logical_type: "json".to_string(),
+                        nullable: false,
+                    })
+                    .collect(),
+                    Vec::new(),
+                    vec![
+                        "eg:job_input:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                            .to_string(),
+                    ],
+                    Vec::new(),
+                    None,
+                    None,
+                    ReproducibilityManifest::default(),
+                )
+                .unwrap(),
+            ),
             created_at_ms: 0,
             updated_at_ms: 0,
         }
@@ -319,7 +496,10 @@ mod tests {
         let blob = core.get_node_properties(&claim_id).unwrap();
         let props: serde_json::Value = rmp_serde::from_slice(&blob).unwrap();
         assert_eq!(props["type"], "Claim");
-        assert_eq!(props["input_snapshot_graph"], "g1");
+        assert_eq!(
+            props["input_dataset_ref"],
+            "eg:job_input:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        );
         assert_eq!(props["input_snapshot_version"], 5);
         assert_eq!(props["algo_family"], "mining.association");
         assert_eq!(props["algo_algorithm"], "fpgrowth");
@@ -340,7 +520,10 @@ mod tests {
         assert!(props["calibration"].is_null());
         let deps = props["invalidation_deps"].as_array().unwrap();
         assert_eq!(deps.len(), 2);
-        assert_eq!(deps[0], "snapshot:g1@5");
+        assert_eq!(
+            deps[0],
+            "eg:job_input:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        );
         assert_eq!(deps[1], evidence_id);
 
         let activity_id = activity_node_id(&job.result_ref());
@@ -350,7 +533,10 @@ mod tests {
         let activity_props: serde_json::Value = rmp_serde::from_slice(&activity_blob).unwrap();
         assert_eq!(activity_props["type"], "Activity");
         assert_eq!(activity_props["job_id"], "job-0000000000000001");
-        assert_eq!(activity_props["input_snapshot_graph"], "g1");
+        assert_eq!(
+            activity_props["input_dataset_ref"],
+            "eg:job_input:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        );
         assert_eq!(activity_props["input_snapshot_version"], 5);
         assert_eq!(activity_props["algo_family"], "mining.association");
         assert_eq!(activity_props["algo_algorithm"], "fpgrowth");

@@ -82,7 +82,7 @@ fn cross_modal_covariance_graph_join_timeseries() {
          SELECT covariance(json_get_f64(n.props, 'x'), t.avg_reading) AS xcov \
          FROM nodes n JOIN ts t ON n.id = t.nid"
     );
-    let r = exec_sql(&snap, &sql).unwrap();
+    let r = exec_sql(&snap, &sql, &eg_query::CancellationToken::new()).unwrap();
     let v = rows(&r);
     assert!(
         (v[0][0].as_f64().unwrap() - 7.0).abs() < 1e-9,
@@ -103,7 +103,7 @@ fn cross_modal_kmeans_over_join() {
          SELECT kmeans(json_get(n.props, 'emb'), 2) AS clusters \
          FROM nodes n JOIN ts t ON n.id = t.nid"
     );
-    let r = exec_sql(&snap, &sql).unwrap();
+    let r = exec_sql(&snap, &sql, &eg_query::CancellationToken::new()).unwrap();
     let v = rows(&r);
     let labels: Vec<i64> = v[0][0]
         .as_array()
@@ -136,7 +136,7 @@ fn cross_modal_pca_over_join() {
          SELECT pca(json_get(n.props, 'emb'), 1) AS pcs \
          FROM nodes n JOIN ts t ON n.id = t.nid"
     );
-    let r = exec_sql(&snap, &sql).unwrap();
+    let r = exec_sql(&snap, &sql, &eg_query::CancellationToken::new()).unwrap();
     let v = rows(&r);
     let pcs = v[0][0].as_array().expect("pca → list of components");
     assert_eq!(pcs.len(), 1, "{pcs:?}");
@@ -163,7 +163,7 @@ fn cross_modal_join_pca_kmeans_covariance_one_query() {
                 covariance(json_get_f64(n.props, 'x'), t.avg_reading) AS xcov \
          FROM nodes n JOIN ts t ON n.id = t.nid"
     );
-    let r = exec_sql(&snap, &sql).unwrap();
+    let r = exec_sql(&snap, &sql, &eg_query::CancellationToken::new()).unwrap();
     let v = rows(&r);
     // Clustering result (vector modality over the join).
     let labels: Vec<i64> = v[0][0]

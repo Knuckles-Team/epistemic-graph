@@ -9,6 +9,8 @@
 //! metadata) contains `mvhd` (movie header), whose `version` byte selects 32-bit or
 //! 64-bit `timescale`/`duration` fields.
 
+use sha2::{Digest, Sha256};
+
 /// Read one box header at the start of `bytes`: `(fourcc, header_len, body_len)`.
 /// `header_len` is 8 normally, or 16 when a 64-bit extended size is present.
 fn read_box_header(bytes: &[u8]) -> Option<([u8; 4], usize, usize)> {
@@ -22,7 +24,7 @@ fn read_box_header(bytes: &[u8]) -> Option<([u8; 4], usize, usize)> {
             return None;
         }
         let size64 = u64::from_be_bytes(bytes[8..16].try_into().ok()?);
-        let body_len = (size64 as usize).checked_sub(16)?;
+        let body_len = usize::try_from(size64).ok()?.checked_sub(16)?;
         Some((kind, 16, body_len))
     } else if size32 == 0 {
         // A size of 0 means "extends to the end of the containing box/file".
@@ -89,22 +91,12 @@ pub fn read_mp4_duration_ms(bytes: &[u8]) -> Option<u64> {
     if timescale == 0 {
         return None;
     }
-    Some(duration * 1000 / timescale as u64)
+    u64::try_from(u128::from(duration) * 1_000 / u128::from(timescale)).ok()
 }
 
-/// Deterministic 128-bit FNV-1a content hash, rendered as 32-char lowercase hex — the
-/// SAME construction `eg_tensor::store::content_hash`/`eg_image::content_hash`/
-/// `eg_audio::content_hash` use (duplicated here rather than shared, since these are
-/// DAG-parallel leaf crates).
+/// SHA-256 content address rendered as 64 lowercase hexadecimal characters.
 pub fn content_hash(bytes: &[u8]) -> String {
-    const OFFSET: u128 = 0x6c62_272e_07bb_0142_62b8_2175_6295_c58d;
-    const PRIME: u128 = 0x0000_0000_0100_0000_0000_0000_0000_013b;
-    let mut h = OFFSET;
-    for &b in bytes {
-        h ^= b as u128;
-        h = h.wrapping_mul(PRIME);
-    }
-    format!("{h:032x}")
+    format!("{:x}", Sha256::digest(bytes))
 }
 
 #[cfg(test)]

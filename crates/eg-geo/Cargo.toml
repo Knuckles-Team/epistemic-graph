@@ -2,7 +2,7 @@
 name = "eg-geo"
 version = "0.1.0"
 edition = "2021"
-authors = ["Audel Rouhi <knucklessg1@gmail.com>"]
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
 description = "Pure-Rust spatial / geospatial modality for the epistemic-graph engine (CONCEPT:EG-083) — geometry (point/line/polygon), WKT parse/serialize, planar spatial predicates, and an in-house packed Hilbert R-tree bbox index. NO GEOS/PROJ/C deps (the Pi contract)."
 license = "MIT"
 

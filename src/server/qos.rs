@@ -9,8 +9,8 @@
 //!
 //! [`QosScheduler`] is an ADDITIVE, OPT-IN gate that runs BEFORE the baseline admission
 //! (only when configured; see [`configured`]). It classifies each request by
-//! **priority class** (interactive vs batch vs maintenance) and **tenant** (agent id, or
-//! the target graph) and then:
+//! **priority class** (interactive vs batch vs maintenance) and **tenant** (the
+//! verified request context's opaque principal scope) and then:
 //!
 //! * **Priority-based admission / preemption** — each class has a headroom ceiling. A
 //!   lower-priority class is shed (`Backpressure`) once free capacity drops into the band
@@ -68,9 +68,9 @@ impl QosClass {
     }
 }
 
-/// A request as the QoS scheduler sees it: its priority class, owning tenant, an optional
-/// relative deadline (lower micros ⇒ more urgent; used only by [`plan_admissions`]), and
-/// whether it mutates the graph.
+/// A request as the QoS scheduler sees it: its priority class, verified opaque
+/// owner scope, an optional relative deadline (lower micros ⇒ more urgent; used
+/// only by [`plan_admissions`]), and whether it mutates the graph.
 #[derive(Clone, Debug)]
 pub struct QosRequest {
     pub class: QosClass,
@@ -79,25 +79,27 @@ pub struct QosRequest {
     pub is_write: bool,
 }
 
-/// Classify a wire request into a [`QosRequest`] using ONLY fields already on the request
-/// (no protocol change): the method shape, the target graph, and the caller identity.
+/// Classify a wire request into a [`QosRequest`] after its current request
+/// envelope has been verified. The caller supplies the privacy-safe principal
+/// persistence scope derived from [`crate::server::auth::VerifiedRequestContext`],
+/// never the unsigned `Request::agent_id` display field.
 ///
-/// * **Tenant** = the caller's `agent_id` when present, else the target graph name — the
-///   unit of fair-share + quota accounting.
+/// * **Tenant** = the verified opaque principal scope — the unit of fair-share +
+///   quota accounting. Missing or blank identity is rejected before scheduler
+///   counters are touched; there is no graph-name or empty fallback bucket.
 /// * **Class**: a graph clear or a full-graph dump (`GetNodes`, an expensive whole-graph
 ///   materialisation) is `Maintenance`; any other write is `Batch`; any other read is
 ///   `Interactive`. `ClearGraph`/`GetNodes` are base (non-feature-gated) variants, so this
 ///   classifier compiles on every server build.
 pub fn classify(
     method: &Method,
-    graph: &str,
-    agent_id: Option<&str>,
+    principal_scope: &str,
     is_write: bool,
-) -> QosRequest {
-    let tenant = agent_id
-        .filter(|a| !a.is_empty())
-        .unwrap_or(graph)
-        .to_string();
+) -> Result<QosRequest, &'static str> {
+    let principal_scope = principal_scope.trim();
+    if principal_scope.is_empty() {
+        return Err("AUTHENTICATION_REQUIRED: verified principal is required for admission");
+    }
     let class = if matches!(method, Method::ClearGraph | Method::GetNodes) {
         QosClass::Maintenance
     } else if is_write {
@@ -105,12 +107,12 @@ pub fn classify(
     } else {
         QosClass::Interactive
     };
-    QosRequest {
+    Ok(QosRequest {
         class,
-        tenant,
+        tenant: principal_scope.to_string(),
         deadline_micros: None,
         is_write,
-    }
+    })
 }
 
 /// QoS scheduler configuration. Opt-in: [`configured`] returns `Some` only when
@@ -430,18 +432,32 @@ impl Drop for QosPermit {
 /// Returns the admitted indices in admission order.
 pub fn plan_admissions(pending: &[QosRequest], available: usize) -> Vec<usize> {
     let mut idx: Vec<usize> = (0..pending.len()).collect();
-    idx.sort_by(|&a, &b| {
-        // Higher class first.
-        pending[b]
-            .class
-            .cmp(&pending[a].class)
-            // Then earlier deadline first (None ⇒ u64::MAX ⇒ last).
-            .then_with(|| deadline_key(&pending[a]).cmp(&deadline_key(&pending[b])))
-            // Then stable by arrival index.
-            .then(a.cmp(&b))
-    });
-    idx.truncate(available);
+    let keep = available.min(idx.len());
+    if keep == 0 {
+        return Vec::new();
+    }
+    // Admission consumes only the winning prefix. Select it in expected O(N),
+    // then sort those `available` rows for deterministic dispatch order instead
+    // of sorting every queued request: O(N + A log A), O(1) scratch.
+    if keep < idx.len() {
+        idx.select_nth_unstable_by(keep, |&a, &b| admission_order(pending, a, b));
+        idx.truncate(keep);
+    }
+    idx.sort_unstable_by(|&a, &b| admission_order(pending, a, b));
     idx
+}
+
+#[inline]
+fn admission_order(pending: &[QosRequest], a: usize, b: usize) -> std::cmp::Ordering {
+    // Higher class first.
+    pending[b]
+        .class
+        .cmp(&pending[a].class)
+        // Then earlier deadline first (None ⇒ u64::MAX ⇒ last).
+        .then_with(|| deadline_key(&pending[a]).cmp(&deadline_key(&pending[b])))
+        // Then arrival index. This total tiebreak makes partial selection produce
+        // exactly the same winners as the former stable full sort.
+        .then(a.cmp(&b))
 }
 
 fn deadline_key(r: &QosRequest) -> u64 {
@@ -477,51 +493,58 @@ mod tests {
     // CONCEPT:EG-KG.coordination.backpressure-busy-signal — classification derives class + tenant from existing request fields.
     #[test]
     fn eg320_classify_maps_method_and_identity_to_class_and_tenant() {
-        // A read ⇒ Interactive; tenant falls back to the graph when no agent id.
+        let principal = "principal:sha256:0123456789abcdef";
+        // A read ⇒ Interactive; the verified principal scope owns the quota.
         let r = classify(
             &Method::HasNode {
                 node_id: "n".into(),
             },
-            "g1",
-            None,
+            principal,
             false,
-        );
+        )
+        .unwrap();
         assert_eq!(r.class, QosClass::Interactive);
-        assert_eq!(r.tenant, "g1");
-        // A write ⇒ Batch; agent id wins as the tenant.
+        assert_eq!(r.tenant, principal);
+        // A write ⇒ Batch under the same verified owner scope.
         let w = classify(
             &Method::AddNode {
                 node_id: "n".into(),
                 properties_msgpack: vec![],
             },
-            "g1",
-            Some("agent:planner"),
+            principal,
             true,
-        );
+        )
+        .unwrap();
         assert_eq!(w.class, QosClass::Batch);
-        assert_eq!(w.tenant, "agent:planner");
+        assert_eq!(w.tenant, principal);
         // A graph clear / full dump ⇒ Maintenance.
         assert_eq!(
-            classify(&Method::ClearGraph, "g1", None, true).class,
+            classify(&Method::ClearGraph, principal, true)
+                .unwrap()
+                .class,
             QosClass::Maintenance
         );
         assert_eq!(
-            classify(&Method::GetNodes, "g1", None, false).class,
+            classify(&Method::GetNodes, principal, false).unwrap().class,
             QosClass::Maintenance
         );
-        // Empty agent id is ignored (treated as anonymous ⇒ graph tenant).
-        assert_eq!(
-            classify(
-                &Method::HasNode {
-                    node_id: "n".into()
-                },
-                "g1",
-                Some(""),
-                false
-            )
-            .tenant,
-            "g1"
-        );
+    }
+
+    #[test]
+    fn eg320_classify_rejects_missing_verified_principal() {
+        for principal in ["", "   "] {
+            assert_eq!(
+                classify(
+                    &Method::HasNode {
+                        node_id: "n".into()
+                    },
+                    principal,
+                    false,
+                )
+                .unwrap_err(),
+                "AUTHENTICATION_REQUIRED: verified principal is required for admission"
+            );
+        }
     }
 
     // CONCEPT:EG-KG.coordination.backpressure-busy-signal — under contention a high-priority (interactive) request is admitted

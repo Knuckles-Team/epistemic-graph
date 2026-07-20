@@ -20,8 +20,6 @@ pub struct PlanMatView {
     pub name: String,
     pub graph: String,
     pub plan: eg_types::wire::Plan,
-    #[serde(default)]
-    pub reorder_filter_selectivity: Option<f64>,
 }
 
 /// In-RAM per-view tracking: the definition + a CDC-driven freshness flag.
@@ -112,7 +110,6 @@ mod tests {
             name: name.into(),
             graph: graph.into(),
             plan: eg_types::wire::Plan::new(vec![]),
-            reorder_filter_selectivity: None,
         }
     }
 

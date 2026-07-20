@@ -108,24 +108,21 @@ fn score_rows(scored: Vec<(String, f64)>) -> Vec<ProcRow> {
 
 /// Decode a node/edge property blob into a JSON object.
 fn decode_obj(blob: &[u8]) -> Option<serde_json::Map<String, Value>> {
-    match rmp_serde::from_slice::<Value>(blob) {
+    match eg_types::msgpack::decode_property_value(blob) {
         Ok(Value::Object(m)) => Some(m),
         _ => None,
     }
 }
 
-/// Collect the distinct labels carried by all nodes (the same fields the label index
-/// keys on: `type`/`node_type`/`label` scalars + the `labels` array).
+/// Collect canonical `node_type` values and explicit secondary labels.
 fn distinct_labels(view: &GraphView) -> BTreeSet<String> {
     let mut set = BTreeSet::new();
     for blob in view.node_properties.values() {
         let Some(obj) = decode_obj(blob) else {
             continue;
         };
-        for key in ["type", "node_type", "label"] {
-            if let Some(s) = obj.get(key).and_then(|v| v.as_str()) {
-                set.insert(s.to_string());
-            }
+        if let Some(s) = obj.get("node_type").and_then(|v| v.as_str()) {
+            set.insert(s.to_string());
         }
         if let Some(arr) = obj.get("labels").and_then(|v| v.as_array()) {
             for x in arr {
@@ -138,7 +135,7 @@ fn distinct_labels(view: &GraphView) -> BTreeSet<String> {
     set
 }
 
-/// Collect the distinct relationship types across all edges (`relationship`/`type`).
+/// Collect the distinct canonical relationship names across all edges.
 fn distinct_rel_types(view: &GraphView) -> BTreeSet<String> {
     let mut set = BTreeSet::new();
     for blobs in view.edge_properties.values() {
@@ -146,11 +143,7 @@ fn distinct_rel_types(view: &GraphView) -> BTreeSet<String> {
             let Some(obj) = decode_obj(blob) else {
                 continue;
             };
-            if let Some(s) = obj
-                .get("relationship")
-                .or_else(|| obj.get("type"))
-                .and_then(|v| v.as_str())
-            {
+            if let Some(s) = obj.get("relationship").and_then(|v| v.as_str()) {
                 set.insert(s.to_string());
             }
         }

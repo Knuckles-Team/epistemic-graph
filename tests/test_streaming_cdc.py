@@ -12,16 +12,17 @@ from __future__ import annotations
 import os
 
 import pytest
+from conftest import request_context
 
 from epistemic_graph.client import SyncEpistemicGraphClient
 
 
 @pytest.fixture
 def client():
-    socket_path = os.environ.get(
-        "GRAPH_SERVICE_SOCKET", "/tmp/test_epistemic_graph_local.sock"
+    socket_path = os.environ["GRAPH_SERVICE_SOCKET"]
+    c = SyncEpistemicGraphClient.connect(
+        socket_path=socket_path, verified_context=request_context()
     )
-    c = SyncEpistemicGraphClient.connect(socket_path=socket_path)
     c.graph.clear()
     return c
 

@@ -5,17 +5,17 @@
 //!
 //!   * **A read spanning two groups returns the merged, correct result** — writing
 //!     distinct nodes into two graphs pinned to two DIFFERENT groups, then
-//!     [`super::xread::CrossShardReader::read_cross_shard`]ing both, yields every node
+//!     [`super::xread::CrossShardReader::read`]ing both, yields every node
 //!     from BOTH groups, unioned.
 //!   * **Each leg routes via the [`super::placement::PlacementCatalog`]** — after
 //!     `placement_split`ting one tenant across two groups, a read naming that tenant's
 //!     two sub-key graphs resolves EACH leg to the catalog's assigned group (not the
-//!     router's hash ring), exactly like a write would.
+//!     engine-owned unplaced policy), exactly like a write would.
 //!   * **A single-graph / single-group read is NOT flagged cross-shard** — the
 //!     `is_cross_shard` gate stays false when every leg resolves to the same group,
 //!     mirroring the write-side `GroupRouter::is_cross_shard` gate.
-//!   * **An unreachable leg (its group not running here) is a loud error**, never a
-//!     silently partial/empty result — the documented cross-node-leg scope.
+//!   * **Completion is explicit** — require-complete fails on an unavailable group,
+//!     while allow-partial returns a typed failed-leg status and continuation.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -25,16 +25,19 @@ use openraft::BasicNode;
 use tokio::sync::RwLock;
 
 use super::multi::MultiRaft;
-use super::xread::CrossShardReader;
+use super::xread::{
+    CompletionPolicy, CrossGraphReadErrorCode, CrossGraphReadRequest, CrossShardReader,
+    ReadLegStatus, ReadPageErrorCode,
+};
 use super::{AppCtx, GroupId, NodeId, RaftRequest};
 use crate::channels::ChannelManager;
+use crate::durability::DurabilityPolicy;
 use crate::isolation::IsolationLayer;
 use crate::protocol::{GraphType, Method};
 use crate::registry::GraphRegistry;
 use crate::server::persistence::redb_backend::RedbBackend;
 use crate::server::persistence::PersistenceBackend;
 use crate::server::ServerState;
-use crate::wal_service::FsyncPolicy;
 
 const GROUP_A: GroupId = 500;
 const GROUP_B: GroupId = 600;
@@ -54,12 +57,11 @@ async fn make_state(dir: &str, backend: Arc<dyn PersistenceBackend>) -> Arc<RwLo
         auth_secret: "xread-test".to_string(),
         persist_dir: Some(dir.to_string()),
         persistence: Some(backend),
-        redb_authoritative: true,
         max_in_flight: Arc::new(tokio::sync::Semaphore::new(64)),
         read_admission: Arc::new(tokio::sync::Semaphore::new(64)),
         per_graph_inflight: Arc::new(dashmap::DashMap::new()),
         per_graph_inflight_limit: 16,
-        write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::from_env()),
+        write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
         open_txns: Arc::new(dashmap::DashMap::new()),
         txn_id_gen: Arc::new(crate::server::txn::TxnIdGen::default()),
         txn_ttl_secs: 300,
@@ -74,8 +76,6 @@ async fn make_state(dir: &str, backend: Arc<dyn PersistenceBackend>) -> Arc<RwLo
         multi_raft: None,
         #[cfg(feature = "tsdb")]
         tsdb_store: None,
-        #[cfg(feature = "rdf-redb")]
-        rdf_quads: None,
         #[cfg(feature = "streaming")]
         cdc: None,
         #[cfg(feature = "wasm-udf")]
@@ -88,10 +88,6 @@ async fn make_state(dir: &str, backend: Arc<dyn PersistenceBackend>) -> Arc<RwLo
         foreign_sources: std::sync::Arc::new(dashmap::DashMap::new()),
         #[cfg(feature = "kv")]
         kv: None,
-        #[cfg(feature = "dataset-handle")]
-        dataset_handles: std::sync::Arc::new(
-            crate::server::dataset_handle::DatasetHandleRegistry::new(),
-        ),
         #[cfg(feature = "lake")]
         lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
     }))
@@ -178,11 +174,17 @@ async fn put_node(multi: &Arc<MultiRaft>, gid: GroupId, graph: &str, node_id: &s
         graph_fname: crate::persist::sanitize(graph),
         graph_name: graph.to_string(),
         graph_type: GraphType::Global,
-        method: Method::AddNode {
-            node_id: node_id.to_string(),
-            properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({ "n": node_id }))
-                .unwrap(),
-        },
+        committed_at_ms: 0,
+        mutation: super::RaftMutationContext::internal("raft-xread-harness", graph, node_id, 0, 0),
+        command: super::ReplicatedMutation::graph(
+            Method::AddNode {
+                node_id: node_id.to_string(),
+                properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({ "n": node_id }))
+                    .unwrap(),
+            },
+            "xread-test",
+        )
+        .unwrap(),
     };
     group.client_write(req).await.expect("client_write");
 }
@@ -195,7 +197,7 @@ async fn put_node(multi: &Arc<MultiRaft>, gid: GroupId, graph: &str, node_id: &s
 async fn read_cross_shard_merges_rows_from_two_groups() {
     let dir = fresh_dir("merge");
     let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
     let (multi, _state) = bring_up(&dir, backend.clone()).await;
 
     multi.router().assign(GRAPH_A, GROUP_A);
@@ -206,13 +208,16 @@ async fn read_cross_shard_merges_rows_from_two_groups() {
 
     let reader = CrossShardReader::new(multi.clone());
     let result = reader
-        .read_cross_shard(&[GRAPH_A.to_string(), GRAPH_B.to_string()])
+        .read(CrossGraphReadRequest::first_page(
+            vec![GRAPH_A.to_string(), GRAPH_B.to_string()],
+            100,
+        ))
         .await
         .expect("cross-shard read");
 
     assert_eq!(result.legs.len(), 2);
-    assert_eq!(result.legs[0].group, GROUP_A);
-    assert_eq!(result.legs[1].group, GROUP_B);
+    assert_eq!(result.legs[0].route.group, GROUP_A);
+    assert_eq!(result.legs[1].route.group, GROUP_B);
     assert!(result.is_cross_shard(), "two distinct groups were spanned");
 
     let mut ids: Vec<&str> = result.merged.iter().map(|(id, _)| id.as_str()).collect();
@@ -230,7 +235,7 @@ async fn read_cross_shard_merges_rows_from_two_groups() {
 async fn read_cross_shard_single_group_is_not_flagged_cross_shard() {
     let dir = fresh_dir("single-group");
     let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
     let (multi, _state) = bring_up(&dir, backend.clone()).await;
 
     multi.router().assign(GRAPH_A, GROUP_A);
@@ -240,7 +245,10 @@ async fn read_cross_shard_single_group_is_not_flagged_cross_shard() {
 
     let reader = CrossShardReader::new(multi.clone());
     let result = reader
-        .read_cross_shard(&[GRAPH_A.to_string(), "alsoA".to_string()])
+        .read(CrossGraphReadRequest::first_page(
+            vec![GRAPH_A.to_string(), "alsoA".to_string()],
+            100,
+        ))
         .await
         .expect("read over one group");
 
@@ -252,20 +260,20 @@ async fn read_cross_shard_single_group_is_not_flagged_cross_shard() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// 2. Each leg routes via the PlacementCatalog (not just the hash ring).
+// 2. Each leg routes via the PlacementCatalog (not a caller-computed route).
 // ─────────────────────────────────────────────────────────────────────────
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn read_cross_shard_routes_each_leg_via_the_placement_catalog() {
     let dir = fresh_dir("catalog-routing");
     let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
     let (multi, _state) = bring_up(&dir, backend.clone()).await;
 
     // Pick two workspace sub-keys whose stable hashes fall on either side of a split
     // point (the SAME recipe `placement_harness::split_lets_one_tenant_span_two_groups`
     // uses), so after splitting they resolve to DIFFERENT groups via the catalog —
-    // NOT the (empty, in this test) hash ring.
+    // NOT the engine's unplaced policy.
     let (ws_x, ws_y) = ("ws-x", "ws-y");
     let (h_x, h_y) = (super::multi::fnv1a(ws_x), super::multi::fnv1a(ws_y));
     let (lo_key, lo_hash, hi_key, hi_hash) = if h_x < h_y {
@@ -291,25 +299,28 @@ async fn read_cross_shard_routes_each_leg_via_the_placement_catalog() {
 
     let reader = CrossShardReader::new(multi.clone());
     let result = reader
-        .read_cross_shard(&[graph_lo.clone(), graph_hi.clone()])
+        .read(CrossGraphReadRequest::first_page(
+            vec![graph_lo.clone(), graph_hi.clone()],
+            100,
+        ))
         .await
         .expect("cross-shard read via placement catalog");
 
     assert_eq!(result.legs[0].graph_name, graph_lo);
     assert_eq!(
-        result.legs[0].group, GROUP_A,
+        result.legs[0].route.group, GROUP_A,
         "the lower sub-range must route via the catalog"
     );
     assert_eq!(result.legs[1].graph_name, graph_hi);
     assert_eq!(
-        result.legs[1].group, GROUP_B,
+        result.legs[1].route.group, GROUP_B,
         "the upper sub-range must route via the catalog"
     );
     assert!(
-        result.legs[0].epoch > 0,
+        result.legs[0].route.epoch > 0,
         "a catalog route carries a real epoch"
     );
-    assert_eq!(result.legs[0].epoch, result.legs[1].epoch);
+    assert_eq!(result.legs[0].route.epoch, result.legs[1].route.epoch);
 
     let mut ids: Vec<&str> = result.merged.iter().map(|(id, _)| id.as_str()).collect();
     ids.sort();
@@ -324,7 +335,7 @@ async fn read_cross_shard_routes_each_leg_via_the_placement_catalog() {
 async fn read_cross_shard_errors_loudly_on_a_leg_whose_group_is_not_running_here() {
     let dir = fresh_dir("unreachable");
     let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
     let (multi, _state) = bring_up(&dir, backend.clone()).await;
 
     multi.router().assign(GRAPH_A, GROUP_A);
@@ -335,9 +346,29 @@ async fn read_cross_shard_errors_loudly_on_a_leg_whose_group_is_not_running_here
 
     let reader = CrossShardReader::new(multi.clone());
     let err = reader
-        .read_cross_shard(&[GRAPH_A.to_string(), "ghost".to_string()])
+        .read(CrossGraphReadRequest::first_page(
+            vec![GRAPH_A.to_string(), "ghost".to_string()],
+            100,
+        ))
         .await
         .expect_err("a leg whose group is not running here must error, not silently degrade");
-    assert!(err.contains("ghost"), "got: {err}");
-    assert!(err.contains("999999"), "got: {err}");
+    assert_eq!(err.code, CrossGraphReadErrorCode::RequiredLegFailed);
+    assert_eq!(
+        err.failed_legs,
+        vec![("ghost".to_string(), ReadPageErrorCode::GroupUnavailable)]
+    );
+
+    let mut partial_request =
+        CrossGraphReadRequest::first_page(vec![GRAPH_A.to_string(), "ghost".to_string()], 100);
+    partial_request.completion = CompletionPolicy::AllowPartial;
+    let partial = reader
+        .read(partial_request)
+        .await
+        .expect("explicit partial");
+    assert!(partial.partial);
+    assert!(!partial.complete);
+    assert!(matches!(
+        partial.legs[1].status,
+        ReadLegStatus::Failed(ReadPageErrorCode::GroupUnavailable)
+    ));
 }

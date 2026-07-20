@@ -1,16 +1,14 @@
-# Epistemic OS Hardening (2.20.0) — the detailed capability catalog
+# Epistemic OS Hardening — current capability catalog
 
 > **Purpose of this page.** This is the code-verified, line-anchored catalog of every
 > capability the "Epistemic OS Hardening" program (Phase 0 → Phase 3 + the "exceed"
-> tracks) shipped into `epistemic-graph`, culminating in **2.20.0**. It exists so a
-> future static audit (the kind that spawned this program — see the `CHANGELOG.md`
-> `## [2.20.0]` entry for the release-note summary and `docs/capabilities.md` for the
+> tracks) shipped into `epistemic-graph`. It exists so a static audit can use
+> `CHANGELOG.md` for release history and `docs/capabilities.md` for the
 > operation-by-operation parity matrix) can read *what is actually true of the shipped
 > code* without re-deriving it from source. Where the program's original intent and the
 > shipped reality diverge, **this page documents the shipped reality** — every claim
-> below was checked against `crates/` and `src/` at the commit this page was written
-> against (`Cargo.toml` `version = "2.20.0"`), not against the design doc or the
-> CHANGELOG prose.
+> below is kept aligned with current `crates/`, `src/`, and `Cargo.toml`, not inferred
+> from a design document or historical CHANGELOG prose.
 >
 > **How this page relates to the other capability docs (read this before citing any of them):**
 >
@@ -27,19 +25,16 @@
 >   opt-in (and the exact feature name/env var), how to exercise it, and its honest
 >   limitations. It goes deeper than the CHANGELOG's release-note prose and cross-links
 >   into the other two rather than duplicating their tables.
-> - The forward-looking companion is `plans/epistemic-os-evolution-roadmap-2026-07-11.md`
->   — a **workspace-level** file (outside this repo, so not a clickable link from this
->   site) — where the architecture goes *next* (unifying `KnowledgeBatch` as the
->   end-to-end currency, closing the placement/TMS control loops, proving scale). This
->   page is the "where we landed" half; that file is the "where we go" half.
+> - Release-certification evidence is tracked separately from source completeness:
+>   hardware, multi-host soak, and live external-service runs prove a particular build
+>   in a particular environment; they are not described here as missing source features.
 
 **Verification discipline for this page:** every code anchor below (file path, item
 name, env var, feature name, exact count) was grep/read-confirmed in this worktree.
-Where the program's own tracker or the CHANGELOG stated an approximate number (e.g.
-"~80 routed methods"), this page states the exact number found in code today and notes
-the discrepancy. Anything I could not independently confirm is called out explicitly
-in [Honest gaps and unverifiable claims](#honest-gaps-and-unverifiable-claims-in-this-pass)
-rather than asserted.
+Counts that are mechanically derived are intentionally not copied into prose. Use the
+generated ledger and exhaustive tests so a new protocol method cannot make this page's
+hard-coded count silently stale. Environment-dependent evidence is called out in
+[Release-certification evidence](#release-certification-evidence).
 
 ---
 
@@ -59,7 +54,7 @@ classifiers agreeing with each other by convention.
   ```rust
   pub struct MethodPolicy {
       pub mutates: bool,
-      pub durability_domain: DurabilityDomain,   // GraphRedb | SeriesRedb | KvRedb | JobsRedb | BlobRedb | Outbox | None
+      pub durability_domain: DurabilityDomain,   // durable state domains | VolatileControl | None
       pub authz_action: &'static str,             // "<domain>:<verb>" scope string
       pub idempotent: bool,
       pub audited: bool,
@@ -71,23 +66,22 @@ classifiers agreeing with each other by convention.
   Because `policy()` has **no wildcard arm**, adding a `Method` variant without adding
   its policy arm is a compile error ("non-exhaustive patterns") — that failure *is* the
   guarantee (CONCEPT:EG-P0-1).
-- **Exact count (verified):** `crates/eg-capabilities/tests/consistency.rs` asserts
-  `seen.len() == expected` where `expected` is **343** Method variants in the base
-  build, **344** when the opt-in `jobs` feature adds `Method::AnalyticsJob`. (The
-  program tracker's earlier "337 Methods" figure predates the X-1/EPI-P3-3 facade
-  wiring, which added 3 more — `ExplainEvidence`/`CausalEstimate`/`RankByProvenance`.)
+- **Inventory invariant:** `crates/eg-capabilities/tests/consistency.rs` checks the
+  feature-selected `ALL_METHODS` inventory, while the exhaustive `policy()` match is
+  the primary compiler gate. The generated ledger is the current count and policy
+  inventory; this narrative does not duplicate that changing number.
 - **Default-on or opt-in:** the crate is a workspace member but is **not linked
   independently** — it is pulled in only via the facade's `server` feature
   (`server = ["dep:tokio", "dep:clap", "dep:tracing-subscriber", "dep:async-trait",
   "dep:eg-capabilities"]`, `Cargo.toml`), because the one consumer (the mutation
   gateway, below) is server-only.
-- **How to exercise it:** `cargo run -p eg-capabilities --bin gen_ledger` regenerates
+- **How to exercise it:** `cargo run -p eg-capabilities --features jobs,knowledge-batch,modality-serving --bin gen_ledger` regenerates
   `docs/capabilities.generated.md` from the live `policy()` match
   (`crates/eg-capabilities/src/bin/gen_ledger.rs`).
 - **Honest limitation:** `authz_action`, `idempotent`, and `txn_participation` are
   **judgment calls** — the crate's own doc comment on `MethodPolicy` says so plainly:
   there is no pre-existing classifier in the codebase to cross-check them against, unlike
-  `mutates`/`durability_domain` (cross-checked against `access.rs`/`wal.rs`) and
+  `mutates`/`durability_domain` (cross-checked against `access.rs` and the canonical commit gateway) and
   `audited`/`emits_cdc` (cross-checked against `audit.rs`/`cdc.rs`).
 
 ### The `MutationPlan` commit gateway (`src/server/mutation.rs`)
@@ -97,25 +91,12 @@ classifiers agreeing with each other by convention.
   re-hardcoded classifier. `MutationPlan` is populated FROM the ledger; `commit_mutation`
   (and, for the runtime-conditional family, `commit_conditional_mutation` /
   `commit_conditional_mutation_async`) is the one call site.
-- **Exact rollout state (verified in code, not just the CHANGELOG's "~80"):**
-  - `GATEWAY_ROUTED: &[&str]` — **86** method names (grew from the initial 7:
-    `AddNode`/`RemoveNode`/`AddEdge`/`RemoveEdge`/`CreateSummaryNode`/`Consolidate`/
-    `Reinforce`, through the plain graph-core CRUD family, the broker/stream family
-    (`Outbox` domain, `feature = "broker"`), both runtime-conditional families
-    (`Mine*`/`GraphLearn*` via `commit_conditional_mutation`), and — the final L11
-    batch — `Sql`/`CypherQuery`/`GraphQl` via `commit_conditional_mutation_async` plus
-    `AddTriples`/`RemoveTriples`/`DropNamedGraph` at the RDF dispatch site).
-  - `JUSTIFIED_NA: &[(&str, &str)]` — **57** entries, each a `(method, reason)` pair:
-    a different commit protocol (`Txn*`/`Commit`/`Rollback` OCC family), a non-graph-
-    scoped store (`Blob*`/`Kv*`/`TsAppend` — each self-routes to its own durability
-    domain before `dispatch_graph_op`), a cluster-wide/cross-shard admin action
-    (`Reshard`/`CatalogAssign`/…), a registry-lifecycle op (`CreateGraph`/`DeleteGraph`),
-    or a process-global registry (`RbacAdmin`/channels/CDC triggers/matviews).
-  - `OPEN_NOT_JUSTIFIED: &[(&str, &str)] = &[]` — **machine-checked empty** via the
-    test `mutation::tests::gateway_routed_set_matches_mutating_policy_surface`: every
-    mutating method (per the ledger) must be in exactly one of `GATEWAY_ROUTED` or
-    `JUSTIFIED_NA`, or the test fails. A future mutating method that is routable but
-    unrouted is therefore a hard test failure, not a silent gap.
+- **Exhaustive rollout state:** every mutating method in the live ledger is assigned
+  exactly once to the canonical gateway or to a named domain-owned transaction
+  protocol. `OPEN_NOT_JUSTIFIED` is machine-checked empty by
+  `mutation::tests::gateway_routed_set_matches_mutating_policy_surface`; adding an
+  uncovered mutating method is a test failure. The test, not a prose count, is the
+  current inventory.
   - `RunRules` was found, during this rollout, to be a **policy correction, not a
     route**: `handle_run_rules` reasons over an off-lock snapshot and returns inferred
     triples with no writeback (unlike its sibling `RunDatalogReasoning`, which
@@ -127,7 +108,7 @@ classifiers agreeing with each other by convention.
   rather than risking a second, diverging chain.
 - **Coalescer interaction (L18, closed):** step 4 of `commit_mutation` routes a
   coalescable routed mutation (`AddNode`/`RemoveNode`/`AddEdge`/`RemoveEdge`) through
-  the *same* `WriteCoalescerRegistry::writer_for` path the legacy dispatch shell used,
+  the single `WriteCoalescerRegistry::writer_for` path,
   so the hot-path structural writes still batch — this was a real scale regression
   (found by the full `--lib` suite, not a filtered subset) that was fixed by re-entering
   the coalescer from inside the gateway rather than bypassing it.
@@ -137,42 +118,35 @@ classifiers agreeing with each other by convention.
 - **Exercise it:** `cargo test -p epistemic-graph --lib mutation::` (in-crate); the
   cross-check test builds a real `RedbBackend` and reads the audit chain back.
 
-### WAL durability closure (`src/wal.rs`)
+### Authoritative durability closure
 
-- **What it is:** `pub fn is_durable_mutation(m: &Method) -> bool` — the classifier that
-  decides whether a mutating method's effect is WAL-logged (survives `kill -9`). EG-P0-3
-  added durability arms for `AddEmbedding` (unconditional) and four writeback-conditional
-  mining methods: `MineSequence`/`MineForecast` (any writeback), `MineText` (only
-  `lda`/`nmf`, never `tfidf`), `MineSubgraph` (only `gspan`) — matching
-  `access.rs::requires_write`'s exact conditions byte-for-byte.
-- **Exact remaining gap (verified against `docs/capabilities.generated.md`, not just
-  restated): 9 methods**, each individually documented as recomputable / bulk-restore-only
-  / a CRDT merge (not an ordinary silent-data-loss risk), but still an open WAL gap for a
-  crash between checkpoints: `FromMsgpack`, `ClearLedger`, `ApplyLedger`,
-  `CompactNodesByType`, `RunDatalogReasoning`, `Reconcile`, `ApplyMutation`,
-  `ApplyMultisigMutation`, `IcvConfigure`. (Down from 18/23 before EG-P0-3 + the
-  `RunRules` policy correction.)
-- **Real bug found+fixed along the way (EG-P0-3):** WAL replay for `AddEmbedding` must
-  `mark_dirty`/re-apply the writeback, or the node stays hidden post-restart — a genuine
-  post-restart visibility bug, not a hypothetical.
-- **Default-on:** part of the `server` build; not separately feature-gated.
+- Every method policy declares its state domain exhaustively. Any mutating method
+  assigned `DurabilityDomain::None` fails the capability consistency gate. Explicit
+  process/session-only transitions use `VolatileControl`, which never acknowledges a
+  user-data commit or claims crash durability.
+- Graph mutations share one canonical mutation applier and authoritative redb
+  commit path. Domain-specific stores provide equivalent transactional gateways.
+- Commit-before-ack is unconditional in served mode. There is no file-WAL,
+  snapshot-backend, checkpoint, or write-behind branch.
+- Runtime-conditional mining and query methods resolve their write status before
+  authorization and commit, so `writeback=true` cannot bypass durability.
 
 ### Canonical time-series store (EG-P0-4)
 
-- **What it is:** unifies two previously-separate redb files (`graph.redb` and
-  `series.redb`) that could not share a `WriteTransaction` (exclusive-lock conflict).
+- **What it is:** unifies two stores (the authoritative graph shard and
+  `series.redb`) that cannot share a `WriteTransaction` (exclusive-lock conflict).
   The fix is **not** a single-file merge — it is a documented two-hop write with a
   reconciliation pass closing the gap:
   1. Graph + vector + blob-ref + measurement (+ lowered axiom/CONSTRUCT/plan-writeback)
-     land in **one** `graph.redb` `WriteTransaction` (`redb_store.rs::commit_crossmodal`)
+     land in **one** authoritative-shard `WriteTransaction` (`redb_store.rs::commit_crossmodal`)
      — that set is the true cross-modal ACID boundary.
   2. The measurement is then replayed into the **served** `series.redb`
      (`state.tsdb_store`) immediately after step 1 commits, so `TsRange`/`TsAsofJoin`/
      `TsWindow`/`TsGapFill`/UQL `Op::TsScan` see it post-commit *and* post-restart.
   3. This replay is a **separate, non-atomic** redb write on a different file: a crash
-     strictly between the two commits leaves the measurement durable in `graph.redb` but
+     strictly between the two commits leaves the measurement durable in the shard but
      not yet reflected in `series.redb`. **L16 closes this window**: `RedbBackend::
-     reconcile_time_series` runs once at boot, scans every shard's `graph.redb` SERIES
+     reconcile_time_series` runs once at boot, scans every authoritative shard's SERIES
      tables, and replays into `series.redb` any series whose point count hasn't
      converged — an exact multiset diff, so it is idempotent and never duplicates a
      point.
@@ -183,59 +157,32 @@ classifiers agreeing with each other by convention.
   pass every gate while silently absent.
 - **Default-on:** part of the `redb`-backed durable server; not a separate feature flag.
 
-### The opt-in v1 signed request envelope (`src/server/auth.rs`)
+### Fail-secure verified request context (`src/server/auth.rs`)
 
-- **What it is:** two authentication modes coexist:
-  - **v0 (legacy, default)** — `compute_auth_token`/`verify_auth`: a plain HMAC-SHA256
-    hex digest. Every existing client still speaks this, and it **remains the default**.
-  - **v1 (opt-in, `eg1.`-prefixed token)** — binds version/audience/tenant/principal/
-    graph/method/body-hash/timestamp/nonce/idempotency into one canonical byte layout
-    (`eg_types::protocol::build_envelope_v1_bytes`, pure data, no crypto dep), HMAC'd by
-    both the signer (`eg-plan`'s `RemoteEngineSource::auth_token_v1`) and the verifier
-    (`verify_envelope_v1`, constant-time MAC compare) from the same function.
-- **Exact env vars (verified in code):**
-  - `EPISTEMIC_GRAPH_REQUIRE_SIGNED` — read once via `require_signed_envelope()`
-    (`src/server/auth.rs:96`). **Default `false`**: a v0 request is accepted with a
-    warning log unless this is set, at which point `verify_request`'s v0 branch
-    (`verify_legacy_request`) hard-rejects it.
-  - `EPISTEMIC_GRAPH_ENVELOPE_SKEW_SECS` — the allowed clock-skew window for a v1
-    envelope's `timestamp`; also doubles as the replay-nonce cache TTL
-    (`src/server/auth.rs:113`).
-- **Request routing:** `verify_request` (`src/server/auth.rs:324`) detects v0 vs v1 by
-  the `eg1.` prefix heuristic on the wire `auth_token` field — a legacy hex digest is
-  never mistaken for a v1 envelope or vice versa.
-- **Federation note (open follow-up, L12):** a v1 `auth_token_v1` signer exists on the
-  federation client side but is **not yet wired** into `fetch_uql`/`fetch_cypher` —
-  federation calls still use v0-shaped auth today.
-- **Default-on or opt-in:** **opt-in** — a fresh deployment is byte-for-byte unchanged
-  from every pre-EG-P0-5 deployment until `EPISTEMIC_GRAPH_REQUIRE_SIGNED=1` is set.
+- **Only posture:** a served engine accepts only the `eg2.` envelope. It
+  binds principal, tenant, audience, effective agent, roles, scopes, policy
+  version, delegation, request/method/body, timestamp, nonce, and idempotency.
+  Startup requires the `security` feature, a non-empty secret, configured
+  audience/tenant/policy revision, durable replay state, and a non-empty trusted
+  signer-key registry.
+- **Fresh-store bootstrap:** an empty durable identity/RBAC store permits only a
+  signer-backed `eg2.` self-registration in `__commons__` as `System`, with no
+  teams, roles, or delegation and the single exact `security:bootstrap` scope.
+  Once the first rule is durable, all requests use ordinary graph/admin policy.
+- **Replay:** `EPISTEMIC_GRAPH_ENVELOPE_SKEW_SECS` bounds timestamp skew; `eg2.`
+  nonce acceptance uses the durable replay ledger and survives process restart.
+- **Native federation:** `RemoteEngineSource` now signs the live UQL/Cypher
+  request with the same context. Empty secret, missing claims, invalid delegation,
+  or a routable target without TLS fails before dialing.
 
-### Default-deny RLS (`crates/eg-core/src/isolation.rs`) — WS-1b (2026-07-12): flipped secure-by-default
+### Default-deny RLS (`crates/eg-core/src/isolation.rs`)
 
-- **What it is:** `IsolationLayer` carries a `rls_default_deny: bool` field
-  (`crates/eg-core/src/isolation.rs`). The struct-level builder default
-  (`IsolationLayer::new()`) stays `false` (the **permissive** posture: an unowned,
-  undecodable, or untagged-legacy row stays visible to all agents) — that is the bare
-  library default for a caller (tests/harnesses/the embedded in-process API) that
-  constructs an `IsolationLayer` directly with no env resolution of its own. Setting it
-  `true` (`set_rls_default_deny`/`with_rls_default_deny`) switches `can_see_row` to the
-  **strict** posture: such a row is denied unless explicitly `_visibility: "public"` or
-  `_owner`-tagged.
-- **Exact env var:** `EPISTEMIC_GRAPH_RLS_DEFAULT_DENY`, resolved once at server startup
-  (`src/main.rs`) via the pure, unit-tested `eg_core::isolation::resolve_rls_default_deny`
-  and wired into the `IsolationLayer` the server constructs.
-- **Default-on or opt-in:** **default-on (strict) as of WS-1b, opt-out available.** The
-  env var's own default flipped from permissive to strict: an unset
-  `EPISTEMIC_GRAPH_RLS_DEFAULT_DENY` now resolves to `true` (secure-by-default) for a
-  fresh/greenfield deployment, per this repo's no-back-compat policy (there is no
-  external caller pinned to the old posture). A deployment that still wants the
-  permissive/back-compat posture opts out explicitly with
-  `EPISTEMIC_GRAPH_RLS_DEFAULT_DENY=0` (`false`/`no`/`off` also accepted,
-  case-insensitive); any other value — including a typo — resolves to strict (fails
-  closed). **Migration note for an existing deployment upgrading past this change:**
-  legacy unowned/untagged rows become invisible to non-`System` agents until backfilled
-  with an `_owner` or an explicit `_visibility: "public"` tag, or until the deployment
-  sets the env var to `0` to keep the old permissive posture.
+`IsolationLayer` filters every served `GraphView` before query execution. An
+unowned, undecodable, or untagged row is denied unless it is explicitly
+`_visibility: "public"` or its `_owner`/grant policy authorizes the verified
+agent. The served engine always uses this posture; there is no environment
+switch or builder path that weakens it. The result-cache key includes the full
+RLS context so a filtered result cannot cross an authority boundary.
 
 ### Exhaustive audit + admin scopes (EG-P0-6)
 
@@ -270,7 +217,10 @@ classifiers agreeing with each other by convention.
   `SingleNodeFailure`, `InteropWorkloadSmoke`. Each point resolves to one of three
   honest `TckStatus` values: `Pass`, `NotApplicable(reason)` (counts as first-class —
   not a gap), or `NotImplemented(reason)` — there is deliberately no silent-skip /
-  default-pass status.
+  default-pass status. Production serving is stricter:
+  `TckReport::is_production_ready()` accepts only 12 `Pass` results plus a passing
+  native codec/normalization/index/query/resource probe; N/A or a missing probe is
+  never a production exemption.
 - **The registry:** `crate::register_modality`/`registered_modalities()`
   (`crates/eg-modality/src/registry.rs`) is a `OnceLock<Mutex<Vec<ModalityDescriptor>>>`
   — a deliberate choice over `linkme`/`inventory` (neither is a workspace dependency
@@ -280,22 +230,21 @@ classifiers agreeing with each other by convention.
   `#[cfg(test)]` conformance-test module the `modality_conformance_tests!` macro
   generates — so `registered_modalities()` only populates when that crate's own test
   binary actually *runs* its conformance suite. **This is a per-process, test-time
-  registry, not a live inventory a running server process can query** ("Cross-process
-  caveat" in the crate's own README). A future whole-binary auto-discovery seam
-  (revisiting `linkme`) is explicitly left as a follow-on, not built.
+  registry, not the server's routing table** ("Cross-process caveat" in the crate's
+  own README). Production serving does not depend on this test registry: the closed
+  `ServedModalityKind` enum dispatches document/image/audio/video to concrete decoders,
+  and its capability operation rejects any runtime whose TCK is not 12/12 PASS with
+  a passing native production probe.
 - **The macro:** `modality_conformance_tests!($T)` (exported from `eg-modality`)
   generates the full battery per implementer: round-trip losslessness, rollback
   symmetry, provenance-family non-panic, `cdc_topic` well-formedness, a malformed-payload
   decode-as-`Err` check, `analytics_ops()` well-formedness, and the TCK-report-generation
   + registration test. Invoked inside each crate's own `#[cfg(feature = "contract")]`
-  module (opt-in, default off — a conformance/testing seam, not a serving feature).
-- **Exact adoption count (grep-verified, not just restated from the CHANGELOG's "16"):**
-  **19** crates currently invoke `modality_conformance_tests!` (each behind its own
-  `contract` feature): `eg-core`, `eg-ann`, `eg-geo`, `eg-tensor`, `eg-stream`,
-  `eg-rdf`, `eg-epistemic`, `eg-text`, `eg-shacl`, `eg-shex`, `eg-lake`, `eg-kvcache`,
-  `eg-numeric`, `eg-image`, `eg-audio`, `eg-video`, `eg-document`, `eg-compute`, and
-  `eg-modality` itself (which defines the macro and dogfoods it). Every one of these
-  crates' own `contract = ["dep:eg-modality", …]` feature is off by default.
+  module. Document/image/audio/video additionally expose the common `serving`
+  runtime and are enabled by the main build's `modality-serving` feature.
+- **Adoption is source-enforced:** each `ModalityContract` implementation invokes
+  `modality_conformance_tests!` behind its crate's `contract` feature. Fleet validation
+  discovers the live invocations rather than trusting a copied crate count.
 
 ### Arrow-backed `KnowledgeBatch` (`eg-plan/knowledge_batch.rs`)
 
@@ -304,57 +253,60 @@ classifiers agreeing with each other by convention.
   (`crates/eg-plan/src/knowledge_batch.rs`). Columns
   (`arrow_schema()`/`to_record_batch()`/`from_record_batch()`, round-trip tested): `id`
   (Utf8), `kind` (Utf8), one `score_<name>` (Float32) per named score, `confidence`
-  (Float64), `evidence_kind` (Utf8 — a filterable summary spanning all 11
-  `EvidenceSpan` variants, see [X-1](#x-1-multimodal-evidence-graph-spine) below),
+  (Float64), `evidence_kind` (Utf8 — a filterable summary spanning the governed
+  `EvidenceLocus` address kinds, see [X-1](#x-1-multimodal-evidence-graph-spine) below),
   bitemporal `valid_from`/`valid_until`/`tx_from`/`tx_to` (Int64), plus list-typed
   provenance/policy/evidence-ref/contradiction/proof/transformation/alternative-id
   columns and a lazy `blob_handle` (Utf8) + `has_payload` (Boolean).
 - **Reserved epistemic columns — populated, not stub (L22 closure):**
   `contradiction_ids` (symmetric, via `AuxEdgeIndex`), `proof_ids` (via
   `explain_belief`), and `transformation_ids` (via `GENERATED_BY`→`:Activity` edges) are
-  genuinely populated on the write-back path across 18 mining families plus `eg-jobs`.
-  **Remaining gap:** no `ALTERNATIVE_TO` producer yet (the column is read-wired but
-  nothing writes it), and the calibration column is wired but always null (no calibrated
-  producer feeds it yet).
-- **Default-on or opt-in:** feature `knowledge-batch = ["query", "dep:arrow"]`
-  (`crates/eg-plan/Cargo.toml:235`) — **opt-in, not folded into `full`**. A `full` build
-  links no Arrow via this path (Arrow only enters `full` transitively through other
-  features like `lake`, which is itself opt-in — see below).
-- **`RowSet`/`KnowledgeSet` themselves are unchanged** by this addition — it is a
-  parallel, opt-in third projection, not a replacement.
+  populated by the mining and job write-back paths. `ALTERNATIVE_TO` is read-wired for
+  explicitly modeled alternatives; calibration is populated by calibrated `eg-jobs`
+  results and remains honestly null for producers that compute no calibration signal.
+- **Native served currency:** the facade `knowledge-batch` feature is folded into
+  `full`. `result_stream.rs` adapts graph, SQL, RDF, vector, time-series, job, and
+  cross-modal producers to bounded, snapshot-bound `KnowledgeBatchEnvelope`s. Every
+  row receives verified tenant/policy/snapshot/query/derivation/evidence references,
+  and `write_arrow_ipc` holds only one bounded batch at a time.
+- **`RowSet` remains the internal operator algebra;** served results cross the public
+  query/job boundary as governed `KnowledgeBatch`, rather than as a family-specific
+  terminal encoding.
 
 ### `eg-document` / `eg-image` / `eg-audio` / `eg-video` + `eg-alignment` (EG-P1-3)
 
-- **What it is:** five new leaf crates — `eg-document` (pages → layout-blocks → tables →
-  spans typed model, `decoder.rs`/`header.rs`/`document.rs`/`contract.rs`), `eg-image`/
-  `eg-audio`/`eg-video` (header-parse + region/segment/shot evidence types,
-  `runtime.rs`/`header.rs`/`{image,audio,video}.rs`/`contract.rs` each), and
-  `eg-alignment` (the shared `EvidenceResolver` trait, `crates/eg-alignment/src/
-  resolver.rs:47`, + a `graph.rs` alignment graph). Each of the four data-model crates
-  implements `ModalityContract` (unit-tested, registered in the EG-P1-1 TCK via its own
-  `contract` feature).
-- **Honest status — verified, matches the CHANGELOG's own framing:** **none of these
-  four is folded into any serving tier (pi/node/cluster/full)** — they compile,
-  unit-test, and register into the TCK, but there is no `Method`/dispatch path that a
-  deployed server exposes for them today. This is a capability-discovery/testing seam,
-  explicitly distinct from every ✅ row elsewhere in `docs/capabilities.md`.
+- **What it is:** five leaf crates — `eg-document` (bounded UTF-8 page/layout/table/
+  private-lexeme extraction), `eg-image` (strict PNG pixel reconstruction and pHash),
+  `eg-audio` (strict PCM/WAV waveform/spectral feature extraction), `eg-video`
+  (strict ISOBMFF sample tables, timing, keyframes, and 24-bit raw-RGB samples), and
+  `eg-alignment` (the shared `EvidenceResolver` trait). Each media crate exposes its
+  normalized data model, header parser, governed contract, and native runtime;
+  alignment exposes its resolver and graph. Each of the four data-model crates
+  implements `ModalityContract` and `GovernedModality` and is registered in the
+  EG-P1-1 TCK via its own `contract` feature.
+- **Served status:** all four expose `ServedModalityRuntime<T>` aliases and are enabled
+  in the main build. The runtime provides atomic batch/stream ingest, OCC update,
+  idempotent replay, governed delete/legal hold, policy-filtered paging, monotonic CDC,
+  cold/restore lifecycle, snapshot recovery, rebuilt lexical/spatial/temporal/
+  multi-probe-signature postings, and exact typed native queries. Their fleet TCK
+  reports are exactly 12 PASS and zero N/A with passing native probes.
+- **Universal identity:** `eg-modality::ArtifactBundle` ties Artifact, Occurrence,
+  Rendition, Segment, Feature, and EvidenceLocus to policy, privacy attestation, and
+  derivation. Its validated `OpaqueRef` cannot encode source paths, endpoints, email
+  addresses, or display names. See [governed modality serving](modality_serving.md).
 - **The one facade-reachable piece: `CasEvidenceResolver`**
   (`src/server/blob/cas_resolver.rs:52`, implements `eg_alignment::EvidenceResolver`).
   Gated by the **`alignment`** feature
-  (`alignment = ["blob", "dep:eg-alignment", "dep:eg-modality"]`, Cargo.toml — off by
-  default, not folded into any tier). It resolves a `DocumentSpan`/`TableCellRange`
-  locus to a **real UTF-8 excerpt** read off the engine's own blob CAS
+  (`alignment = ["blob", "dep:eg-alignment", "dep:eg-modality"]`, Cargo.toml, included
+  in `full`). It resolves a governed text/table `EvidenceLocus` to a **real
+  UTF-8 excerpt** read from the engine's own blob CAS
   (`ChunkStore`/`stream_blob_get`, a `blob_ref` property looked up in a `GraphView`
-  snapshot); every other locus kind (image/audio/video/code/trace — no in-tree codec to
-  crop/slice pixels or samples with) resolves to a real CAS-digest **reference**, never
-  a fabricated excerpt.
-- **A second, parallel resolver exists** inside `eg-epistemic` itself, crate-internal,
-  gated by the *facade* `evidence-graph` feature (not `alignment`) — see
-  [X-1](#x-1-multimodal-evidence-graph-spine) below. The two are not unified; there are
-  genuinely two resolution paths for the same `EvidenceSpan` shape today (`alignment`'s
-  blob-CAS-backed one, and `evidence-graph`'s `eg-epistemic`-internal one) — this is
-  exactly the "one evidence spine" gap the evolution roadmap's Seam 2 calls out as
-  future work, not something this program closed.
+  snapshot); every other locus kind resolves to a real CAS-digest **reference**, never
+  a fabricated excerpt. This resolver remains a provenance lookup boundary; native
+  image/audio/video decoding and extraction stay in the served runtimes rather than
+  being duplicated here.
+- The blob-CAS and epistemic resolvers consume only the single
+  `ArtifactBundle`/`EvidenceLocus` protocol.
 
 ### Persistent index pushdown into the served planner (EG-P1-4)
 
@@ -365,20 +317,14 @@ classifiers agreeing with each other by convention.
 - **Adaptive re-optimization:** cardinality-based cost re-optimization now runs
   automatically *mid-execution*, gated by the same `EPISTEMIC_GRAPH_COST_OPT`
   kill-switch (`0` → identity/off) that already governed plan-time optimization.
-- **Streaming cursor:** `ChunkedKnowledgeCursor` is a real chunk-at-a-time cursor,
-  closing the prior positional stub (L23).
-- **Documented backlog — NOT done in this pass:**
-  - Vector was the one index type wired in this specific EG-P1-4 pass; spatial/R-tree
-    index pushdown landed **separately**, in a later closeout batch (L37 — see the "GIS
-    / Spatial" section of `docs/capabilities.md`, `Op::SpatialScan`/`SpatialSource` +
-    `GraphSpatialIndex` incremental pushdown, confirmed shipped).
-  - `ExplainPlan`/`ExplainProvenance`/`ExplainPolicy` diagnostics still clone
-    `SemanticStore` per call (not on the fast path this pass optimized).
-  - The mining `RankText` leg still falls back to the snapshot text index.
-  - The opt-in `par-runtime` driver does not run adaptive-reopt yet.
-  - SQL cancellation is not wired end-to-end from the wire protocol in this pass (a
-    separate `CancelRequest`/`EPISTEMIC_GRAPH_SQL_REQUEST_TIMEOUT_MS` mechanism was
-    added in a later closeout — L36).
+- **Streaming cursor:** `KnowledgeBatchStream` is the sole governed producer. Its
+  authority- and snapshot-bound `KnowledgeStreamCursor` resumes bounded iterator-backed
+  batches without a materialized compatibility cursor.
+- **Current closeout:** vector and spatial indexes publish completeness manifests;
+  SQL cancellation uses `CancelRequest` and the bounded request-timeout contract; and
+  both serial and `par-runtime` drivers run the same adaptive re-optimization loop.
+  Snapshot-derived text and diagnostic materializations remain bounded fallbacks when
+  a complete persistent index is unavailable.
 
 ---
 
@@ -394,6 +340,16 @@ classifiers agreeing with each other by convention.
   caller still presenting a pre-cutover epoch is redirected, never served stale data.
   The catalog takes **priority over the hash-ring router** for any graph with an
   explicit placement entry (an unpinned graph still falls back to the ring).
+- **Crash-safe moves:** every move stores an immutable graph inventory, original
+  route/epoch, target, completed graph set, and stage in a replicated
+  `PartitionMoveJournal`. The placement leader reconciles non-terminal journals at
+  startup and re-verifies authoritative rows before cutover. Journal decoding and
+  stage/placement mismatches fail startup closed; transitions and completed-graph
+  evidence are monotonic. Exactly the placement leader drives a move, with an opaque
+  per-partition local guard preventing competing local workflows. `abort_move` is
+  permitted only before the epoch fence; if abort intent races a committed fence,
+  recovery records the cutover and rolls forward rather than stranding an ambiguous
+  `Aborting` state.
 - **Wire surface:** `Method::PlacementRoute` is **always in the enum** (pure serde,
   present in every build per `docs/capabilities.generated.md`); the *real* answer needs
   the `raft`/`cluster` feature plus a live `MultiRaft` cluster, otherwise it returns a
@@ -406,26 +362,33 @@ classifiers agreeing with each other by convention.
 - **Env var:** `EPISTEMIC_GRAPH_RAFT_GROUPS` (`src/raft/config.rs:90`,
   `parse_groups` at `:126`), **default `1`** — unset/empty/`"0"` all collapse to the
   single-group path, byte-for-byte unchanged from before this workstream.
-- **Cross-shard reads:** `CrossShardReader::read_cross_shard` (`src/raft/xread.rs`) fans
-  a read across every Raft group a query's graphs resolve to (each leg routed through
-  `PlacementCatalog` ahead of the ring, mirroring the write side) and merges the
-  result; a single-group read is correctly never flagged cross-shard.
+- **Cross-shard reads:** `CrossShardReader::read` (`src/raft/xread.rs`) first takes a
+  linearizable placement-catalog barrier, then fans bounded keyset pages to each
+  owning group's current leader through the authenticated shared Raft peer channel.
+  Requests cap graph count, fan-out, rows, an aggregate response-byte budget, and the
+  end-to-end deadline (including route discovery); the byte budget is divided across
+  active legs rather than multiplied by them. Completion is either require-complete
+  or an explicitly typed partial result. Placement epoch changes are re-resolved once,
+  and stale or bound-violating peer replies fail closed.
+- **Consistency contract:** each leg reports its own ReadIndex and durable graph
+  version. Continuations reject a changed version. These are per-group linearizable
+  pages, not a fabricated global snapshot; a true cross-group snapshot requires a
+  separately replicated global read fence.
+- **Deterministic pagination:** the coordinator performs a keyset K-way merge ordered
+  by `(node_id, input-leg-order)` and consumes duplicate ids from every leg before a
+  page boundary, preventing duplicate reappearance on continuation.
 - **Proven by live harnesses (not just unit tests):** `src/raft/xread_harness.rs`,
   `src/raft/xshard_harness.rs`, `src/raft/placement_harness.rs` (a one-node/two-group
   live setup).
 
 ### Lazy graph lifecycle + bounded hot-context cache (DIST-P2-3)
 
-- **`EPISTEMIC_GRAPH_LAZY_STARTUP`** (`src/main.rs:1305`) swaps the eager `load_all`
-  boot recovery for a **catalog-only scan** — a graph's identity is known at boot, but
-  its node/edge data does not hydrate until first access
-  (`BackendGraphMaterializer::materialize`, `src/server/persistence/read_through.rs:98`,
-  implementing `eg_core::registry::GraphMaterializer`).
-- **`EPISTEMIC_GRAPH_MAX_RESIDENT_GRAPHS`** (`src/server/persistence/cold_offload.rs:193`),
-  **default `0` = unbounded** — caps how many graphs are simultaneously RESIDENT,
-  evicting the coldest by last-access recency through the *same* durability-gated
-  cold-offload hibernate path R6 already used. `__commons__` is never evicted
-  (`src/server/persistence/cold_offload.rs:133,161,222`).
+- Served mode performs a **catalog-only scan**. A graph's durable identity is known
+  at boot, but its rows hydrate on first access through `BackendGraphMaterializer`.
+  There is no eager served profile.
+- **`EPISTEMIC_GRAPH_MAX_RESIDENT_GRAPHS`** caps simultaneously resident graphs and
+  evicts the coldest eligible graph through the durability-gated cold-offload path.
+  `__commons__` is never evicted. The default is **1024** and zero is rejected.
 - **L38 "paged adjacency" — ✅ CLOSED (surpass-6mo WS-3, 2026-07-13).** Was: "lazy"
   meant *when* a graph's data loads (deferred past boot to first access), not
   partial/paged loading — `BackendGraphMaterializer::materialize` called
@@ -435,31 +398,36 @@ classifiers agreeing with each other by convention.
   already existed, unit-tested in isolation, but was never called by the facade/
   server) is wired end to end:
   - **`EPISTEMIC_GRAPH_LAZY_OPEN_PAGE_SIZE`** (`src/server/persistence/cold_offload.rs::lazy_open_page_size`)
-    — a positive value switches `cold_offload::lazy_open` from `GraphRegistry::open_lazy`
-    (full rehydrate) to `GraphRegistry::open_lazy_paged`: the graph is resident/
-    queryable after just ONE bounded page, with the rest paged in by a spawned
-    background task (`page_in_remaining`) — a not-yet-paged node still resolves via
-    the pre-existing per-node read-through in the interim.
+    — a positive value switches `cold_offload::lazy_open` from a full rehydrate to a
+    source-bounded paged load. The unset production default is **4096** records;
+    development retains **0**. Incomplete graphs are intentionally not queryable:
+    graph operations receive typed `PARTIAL_MATERIALIZATION` metadata and can retry
+    once the background continuation completes.
   - **`RedbBackend::read_graph_material_page_blocking`** (`src/server/persistence/redb_backend.rs`)
     overrides the trait's default (full-fetch-then-slice) with a genuinely
     SOURCE-bounded scan — `redb_store::read_graph_dump_page` skips/takes a bounded
     window of the per-graph `nodes`/`edges` table range directly, never collecting
     the whole graph's rows into memory first. `BackendGraphMaterializer::materialize_page`
     (`src/server/persistence/read_through.rs`) routes to it.
-  - Tests: `cold_offload::admission_tests::open_lazy_paged_materializes_one_page_then_page_in_completes_deterministically`
-    (proves the first page is STRICTLY SMALLER than the full graph — the literal
-    "no full rehydrate" assertion — then drives `page_in` to completion) +
-    `paged_lazy_open_wiring_is_resident_immediately_then_completes_in_background`
-    (the `lazy_open`/background-task wiring, over a real redb backend).
-  - **Known residual (documented, not load-bearing):** a graph deleted and
-    recreated under the identical name WHILE a background page-in is still in
-    flight could replay a stale-cursor page against the new incarnation — closing
-    that fully needs a generation/epoch stamp on `GraphEntry`, tracked as a
-    follow-up, not part of L38 itself.
-- **Default-on or opt-in:** all three env vars (`EPISTEMIC_GRAPH_LAZY_STARTUP`,
-  `EPISTEMIC_GRAPH_MAX_RESIDENT_GRAPHS`, `EPISTEMIC_GRAPH_LAZY_OPEN_PAGE_SIZE`)
-  default to the pre-existing eager/unbounded/full-rehydrate behavior; a small
-  deployment is unaffected unless it opts in.
+  - **Lifecycle correctness:** every catalog entry has an immutable incarnation id
+    and cancellation token. Create/delete/evict/open serialize on the graph's
+    lifecycle lock. Durable pages carry the source incarnation and version captured
+    in one read transaction; publication is rejected after delete/recreate,
+    cancellation, or source-version drift. Durable fetches run outside the global
+    registry lock, and a failed mixed partial image is evicted so the next access
+    restarts at page zero.
+  - **Maintained-index correctness:** text, spatial, temporal, and semantic indexes
+    publish a manifest containing source snapshot, build version, completeness
+    cursor, and validity. Lazy recovery rebuilds every maintained index before the
+    graph becomes available. Served indexes reject a stale/incomplete manifest;
+    `Health` and `ListGraphs` expose graph and index completeness/freshness.
+  - **Adversarial evidence:** registry tests cover stale-page rejection after
+    delete/recreate and source-version drift; served completeness tests cover index
+    publication only after final-page rebuild; `scripts/check_lazy_lifecycle_architecture.py`
+    is the static architecture gate for fences, cancellation, bounded I/O, manifests,
+    explicit partial responses, and durable identity.
+- **Default policy:** served mode is always lazy and bounded. Positive explicit
+  resident/page limits override 1024/4096; zero and invalid values fail startup.
 
 ### Durable analytics-job plane (`eg-jobs`, INT-P2-1)
 
@@ -488,19 +456,25 @@ classifiers agreeing with each other by convention.
   ```
   jobs = ["server", "mining", "epistemic", "dep:eg-jobs", "eg-types/jobs", "eg-capabilities/jobs"]
   ```
-  (`Cargo.toml`) — **off by default, deliberately not folded into `full`** (the same
-  posture as `alignment`/`eg-document`: a narrow capability-discovery surface, not yet a
-  serving-tier feature).
+  (`Cargo.toml`) — included in `full`. P2 adds renewable leases/epoch fencing,
+  placement and tenant quotas, durable retry/checkpoint/cancellation state, typed
+  KnowledgeBatch results, and a non-terminal `Publishing` phase so success is
+  impossible before evidence-bearing result claims commit.
 
-### Arrow dataset-handle seam for external heavy compute (INT-P2-2)
+### Governed external compute stream (INT-P2-2)
 
-- A `KnowledgeBatch`-backed handle a job or foreign-compute leg can hand off over Arrow
-  IPC without re-serializing through the wire protocol row-by-row. Feature
-  `dataset-handle = ["query", "server", "blob", "dep:arrow"]` — opt-in, not in `full`.
-  **Follow-up not done here (L39):** a real data-science-mcp Arrow *client* (pull
-  IPC→compute→sign→POST result) and a resumable producer-side cursor are still open.
+- `Method::KnowledgeStream` is the single signed handoff protocol for query and native
+  `AnalyticsJob` results. Its `KnowledgeStreamCursor` is authority-, snapshot-, and
+  placement-bound; producers page bounded Arrow IPC and consumers resume without a
+  row-by-row protocol projection. External workers submit work through the durable
+  analytics-job state machine and retrieve evidence-bearing committed results through
+  the same stream, avoiding a second listener, registry, or result-publication protocol.
+- The engine's outer async driver and every Tokio worker use the same explicit 4 MiB
+  stack contract. `server::spawn_engine_driver` owns the driver-thread boundary and
+  normalizes spawn/join failures without reflecting panic payloads or environment data;
+  `RUST_MIN_STACK` is not a deployment requirement or fallback.
 
-### WAL → lake materialization + Iceberg-REST catalog + OpenLineage (INT-P2-3, `lake`)
+### Change-ledger → lake materialization + Iceberg-REST catalog + OpenLineage (INT-P2-3, `lake`)
 
 - **What it is:** `LakeManager` materialize/compact/delete runs emit a real OpenLineage
   `RunEvent` (`src/server/lake/lineage.rs`) — job/run/input-dataset/output-dataset with
@@ -527,15 +501,10 @@ Support/Contradict/Attack are ordinary edges; the base `epistemic` feature
 (`epistemic = ["query", "dep:eg-epistemic", "eg-types/epistemic", "dep:eg-plan",
 "eg-plan/epistemic", "dep:eg-modality"]`, Cargo.toml) **is folded into `full`** (verified:
 `full = [… , "epistemic"]` is the last entry in the `full` feature list) — so a standard
-build always links the base epistemic substrate. Every deeper Phase-3 feature below
-(`epistemic-tms`, `epistemic-redaction`, `epistemic-causal`, `evidence-graph`) was
-originally layered ON TOP as its own opt-in feature, NOT folded into `full`. **WS-1b
-(2026-07-12) folded the LIGHT ones — `epistemic-redaction` and `evidence-graph` — into
-`full`** (neither pulls a new heavy dependency nor runs expensive recompute; see the
-WS-1b note in `Cargo.toml` above the `full` definition). `epistemic-tms` and
-`epistemic-causal` remain deliberately opt-in (HEAVY: NP-hard-in-the-worst-case Dung
-argumentation search / genuine Pearl do-calculus computation) — a default `full` build
-must never pay for or run their recompute paths.
+build always links the epistemic substrate and its TMS, redaction, evidence and
+causal layers. Expensive argumentation searches remain request-bounded; steady-state
+TMS/conflict/causal/materialization maintenance consumes committed MutationBatch
+outbox records incrementally and advances a durable projection cursor.
 
 ### Claim/Evidence/Source/BeliefState + confidence propagation
 
@@ -554,10 +523,10 @@ must never pay for or run their recompute paths.
   dependency-directed retraction. Paraconsistent means a contradiction is contained to
   the arguments actually in tension, never an explosion into "everything is now
   unbelieved."
-- **Default-on or opt-in:** gated `epistemic-tms` (`epistemic-tms = ["epistemic",
-  "eg-epistemic/epistemic-tms"]`) — opt-in, not in `full`.
+- **Default-on or opt-in:** gated for composition as `epistemic-tms`, and included
+  in the one main `full` build.
 
-### Dependency-driven recompute + the CDC hook (`recompute.rs` + `src/server/tms_hook.rs`)
+### Dependency-driven recompute + durable projection
 
 - **The recompute engine (`crates/eg-epistemic/src/recompute.rs`):** `TruthMaintenance`
   — `register(id, depends_on, …)`, `on_change(&ChangeEvent) -> BTreeSet<String>` (which
@@ -566,35 +535,32 @@ must never pay for or run their recompute paths.
   derived_id)` — the intended real-world registration path, reading a node's
   `:DerivedFrom`/`:GeneratedBy` edges (EPI-P3-1's lineage) to auto-populate dependencies
   rather than requiring a caller to hand-list them (L45 closure).
-- **The live CDC hook (`src/server/tms_hook.rs`, 192 lines, read in full for this
-  page):** a process-global `OnceLock<Mutex<TruthMaintenance>>` singleton
-  (`global_index()`) — chosen explicitly over adding a `ServerState` field, to avoid
-  touching the ~40 test-fixture `ServerState { .. }` literals across the tree.
-  `change_event_for_method(method: &Method) -> Option<ChangeEvent>` maps **only** two
-  unambiguous cases: `RemoveNode`/`RemoveEdge` → `ChangeEvent::Deleted`,
-  `CompareAndSetNodeFields` → `ChangeEvent::Updated`. `notify(method)` looks up the
-  event and calls `on_change` on the global index, returning every materialization id
-  that was staled.
-- **Deliberately narrow — verified directly from the module's own docs and code:**
-  - A plain `AddNode` is **not mapped** — this seam has no pre-image capture (unlike
-    `crate::server::cdc::emit_for_method`, which disambiguates create-vs-update by
-    reading the pre-image), so folding it in would be semantically wrong without that
-    plumbing.
-  - `PolicyChanged`/`ModelRetired`/`OntologyEvolved` are **not on any wire `Method` yet**
-    — there is nothing to map them from.
-  - **Nothing calls `TruthMaintenance::register` from this hook** — the index starts
-    empty every process; `on_change` has nothing to stale until a caller registers
-    materializations. `register_from_provenance` (above) is the intended future source,
-    but the hook itself does not invoke it automatically on every commit.
-  - **The staled-id set is dropped after logging** — no scheduler, served query method,
-    or metric currently consumes `notify`'s return value in production traffic; this
-    hook proves the wiring works (its own two unit tests register a materialization
-    inline and observe the transition), but nothing downstream *acts* on staleness yet.
-  - The index is **in-memory only, resets on restart** — no persistence layer exists for
-    it anywhere in the crate today.
-- **Default-on or opt-in:** gated `epistemic-tms` (same feature as the TMS above,
-  since the hook is `eg-epistemic`-dependent); the module does not exist at all in a
-  build without that feature.
+  Dependency and generator reverse indexes make ordinary invalidation and
+  model/ontology retirement proportional to the affected closure rather than the
+  complete materialization registry.
+- **The served authority (`crates/eg-epistemic/src/incremental.rs` and
+  `src/server/reasoning_projection.rs`):** one compact, per-graph projection consumes
+  authoritative MutationBatch outbox records in graph-version order. It indexes
+  epistemic/causal edges, provenance dependencies, generators, stale/retracted state,
+  and recompute fence epochs. State-backed batches carry a digest-bound, privacy-safe
+  projection wake-up containing only domain-separated identity hashes and closed
+  relationship/invalidation tags; source properties and labels are not duplicated.
+- **Failure and restart semantics:** the projection image is fsync'd before its outbox
+  lease is acknowledged. Exact-position replay is idempotent. Missing or corrupt
+  images fail served status/recompute closed; a corrupt image is never silently
+  replaced with an empty index. A missing image is bootstrapped once from the
+  recovered authoritative graph and then maintained incrementally.
+- **Invalidation coverage:** committed node/edge/CAS mutations, provenance edge
+  changes, and explicit `policy_changed`, `model_retired`, and `ontology_evolved`
+  mutation events invalidate the affected transitive closure. Model and ontology
+  invalidations use the generator reverse index instead of scanning all rows.
+- **Fenced recompute:** `RecomputeMaterialization` requires both the authoritative
+  graph version and durable projection watermark to equal the caller's expected
+  source version. A monotonically increasing per-materialization epoch prevents a
+  late writeback from clearing a newer invalidation. Provenance is resolved from the
+  graph post-image; callers cannot submit a dependency set.
+- **Default-on or opt-in:** gated for composition by `epistemic-tms` and included
+  in the one main `full` build.
 
 ### Calibrated causal reasoning (`causal.rs`) — engine-native, partially wire-exposed
 
@@ -609,20 +575,15 @@ must never pay for or run their recompute paths.
     counterfactual recipe).
   - Every query returns a `CausalEstimate` (`:73`) with a calibrated credible interval,
     not a point estimate.
-- **Wire exposure — verified precisely, matches the CHANGELOG's own correction:**
-  `Method::CausalEstimate` wires **only `intervene`** (the do-calculus operation) onto
-  the facade, via the handler at `src/server/handlers/query.rs` (`causal_estimate_wire`).
-  `observe` and `counterfactual` remain **crate-internal** — exercised only by `cargo
-  test -p eg-epistemic --features epistemic-causal`, not reachable over any wire
-  `Method` today. This is an open, documented follow-on, not an oversight the CHANGELOG
-  hid.
-- **Feature gating (two layers, both opt-in, verified in `Cargo.toml`):**
+- **Wire exposure:** `CausalEstimate` and `CausalCounterfactual` expose intervention
+  and counterfactual inference; observation remains a crate-level primitive used by
+  the same causal engine.
+- **Feature gating (two compositional layers, included in `full`):**
   - `eg-epistemic`'s own `epistemic-causal` feature gates the crate-internal
     implementation.
   - The **facade** feature `epistemic-causal = ["epistemic", "eg-epistemic/epistemic-causal"]`
     turns on the wire `Method::CausalEstimate`/`Method::RankByProvenance` handler arms
-    (`#[cfg(feature = "epistemic-causal")]` in `src/server/handlers/query.rs`). **Neither
-    is in `full`.**
+    (`#[cfg(feature = "epistemic-causal")]` in `src/server/handlers/query.rs`).
 
 ### Provenance-aware retrieval ranking (`ranking.rs`)
 
@@ -633,8 +594,8 @@ must never pay for or run their recompute paths.
 - **Wire exposure:** `Method::RankByProvenance` (handler `rank_by_provenance_wire`,
   `src/server/handlers/query.rs`), a pure function over request-carried candidates — no
   graph snapshot needed.
-- **Default-on or opt-in:** same facade `epistemic-causal` feature as `CausalEstimate`
-  above (both landed together in EPI-P3-3) — opt-in, not in `full`.
+- **Default-on or opt-in:** same composable facade `epistemic-causal` feature as
+  `CausalEstimate`; included in `full`.
 
 ### Policy-aware proof redaction (`redact.rs`, `Method::ExplainBelief` `disclosure_level`)
 
@@ -672,8 +633,8 @@ must never pay for or run their recompute paths.
   - `Method::WhatChanged { tx_from, tx_to }` — a whole-graph bitemporal diff between two
     transaction times; the one facet `EpistemicStatus` does not subsume (handler
     `what_changed_wire`).
-- **Default-on or opt-in:** both gated `epistemic-tms` (same feature as the TMS/CDC hook
-  above) — opt-in, not in `full`.
+- **Default-on or opt-in:** both gated by the composable `epistemic-tms` feature,
+  included in `full`.
 
 ---
 
@@ -681,26 +642,19 @@ must never pay for or run their recompute paths.
 
 ### X-1: multimodal evidence graph spine
 
-- **`EvidenceSpan` — verified to be exactly 11 located-evidence locus kinds**
-  (`crates/eg-modality/src/evidence.rs`, read in full for this page): `DocumentSpan`
-  (character range in a text document), `TableCellRange` (rectangular cell range),
-  `ImageRegion` (pixel-space rectangle), `PageBox` (visual region on one page of a paged
-  document — distinct from `DocumentSpan`'s character range), `AudioSegment`
-  (millisecond time range), `VideoShot` (shot-boundary time range), `VideoFrameRange`
-  (frame-index range — distinct from `VideoShot`'s wall-clock range), `MetricWindow`
-  (time window on a named metric series), `RowVersion` (a SQL row's identity + exact
-  transaction/version stamp), `CodeSymbol` (named symbol by line range), `TraceSpan`
-  (distributed-tracing span). This confirms the CHANGELOG's "11" figure and corrects an
-  earlier in-flight program note that said "9" (the last two, `PageBox` and one other,
-  landed in the same final push).
+- **`EvidenceLocus` is the sole located-evidence identity.** Its governed
+  `EvidenceAddress` covers text spans, table cells, image/page regions,
+  audio/video intervals, metric windows, versioned rows, code symbols, and trace
+  spans while policy, derivation, occurrence, rendition, and content references
+  remain attached to one validated artifact bundle.
 - **The citation resolver:** `evidence_citations`/`resolve_locus`/
   `justification_citations` in `crates/eg-epistemic/src/evidence.rs` (387 lines) — walks
   the same support/contradiction/attack `BeliefGraph` topology `ExplainBelief` walks and
-  returns every transitively-cited node's located `EvidenceSpan` plus its
+  returns every transitively-cited node's `EvidenceLocus` plus its
   `AssetOccurrence`/`Blob` identity chain.
 - **Wire exposure:** `Method::ExplainEvidence { node_id }` (handler
   `explain_evidence_wire`, `src/server/handlers/query.rs`).
-- **Feature gating — two independent, non-unified resolvers, verified precisely:**
+- **Feature gating and resolution:**
   - The wire `Method::ExplainEvidence` variant itself is gated only by the base
     `epistemic` feature (already in `full`).
   - The **handler arm** that actually answers it is gated `#[cfg(feature =
@@ -708,11 +662,8 @@ must never pay for or run their recompute paths.
     — **in `full` since WS-1b**, 2026-07-12); a build that explicitly disables it
     (`--no-default-features` without re-adding it) falls through to the not-built
     catch-all.
-  - This is a **separate** resolver from `alignment`'s `CasEvidenceResolver` (Phase 1,
-    above) — same `EvidenceSpan` shape, two different implementations, reachable via two
-    different opt-in features (`evidence-graph` vs `alignment`). Neither this program nor
-    2.20.0 unifies them; the evolution roadmap's Seam 2 ("one evidence spine") names this
-    exact gap as the next step.
+  - `alignment`'s `CasEvidenceResolver` implements content resolution for this
+    same `EvidenceLocus` contract; it is not a second identity model.
 
 ### X-6: reversible intelligence, via the TMS recompute engine
 
@@ -721,75 +672,55 @@ must never pay for or run their recompute paths.
   unrelated contradiction — the paraconsistency property is preserved), and
   `TruthMaintenance::recompute` re-derives a stale id to `Fresh` or `Retracted` — this is
   genuinely reversible, dependency-directed derived-knowledge maintenance, not just
-  forward-append. Its honest limitations are exactly those documented under "Dependency-
-  driven recompute" above (nothing calls `register` automatically; staled ids are
-  currently dropped after logging, not acted on).
+  forward-append. Provenance-bearing commits auto-register materializations, and the
+  durable outbox/cursor projection persists and resumes incremental recomputation.
 
 ---
 
 ## Feature-gating map
 
 The `default` build **is** `full` (`default = ["graph", "algorithms", "metrics", "full"]`,
-`Cargo.toml`) — there is no separate pi/node tier (see
-[`docs/architecture/tiers.md`](tiers.md)). The table below covers only the features this
-program introduced or wired; consult that page for the pre-existing tier map.
+`Cargo.toml`). The table below covers only the features this program introduced or
+wired; consult the [build feature map](tiers.md) for the complete composition.
 
 | Feature | In `full`? | What it turns on | Depends on / implies |
 |---|:---:|---|---|
 | `epistemic` | **yes** | Claim/Evidence/Source/BeliefState, confidence propagation, base `ExplainBelief` | `query`, `dep:eg-epistemic`, `dep:eg-modality` |
-| `epistemic-tms` | no (HEAVY, opt-in) | Paraconsistent TMS + Dung argumentation, live CDC hook (`tms_hook.rs`), `EpistemicStatus`/`WhatChanged` | `epistemic`, `eg-epistemic/epistemic-tms` |
+| `epistemic-tms` | **yes** | Paraconsistent TMS + Dung argumentation, durable incremental projection worker, `EpistemicStatus`/`WhatChanged` | `epistemic`, `eg-epistemic/epistemic-tms` |
 | `epistemic-redaction` | **yes** (WS-1b) | `ExplainBelief`'s `disclosure_level` (policy-aware proof redaction) | `epistemic`, `security`, `eg-epistemic/epistemic-redaction` |
-| `epistemic-causal` | no (HEAVY, opt-in) | `CausalEstimate` (do-intervene only), `RankByProvenance` | `epistemic`, `eg-epistemic/epistemic-causal` |
+| `epistemic-causal` | **yes** | `CausalEstimate`, counterfactuals, `RankByProvenance`, incremental causal dependency projection | `epistemic`, `eg-epistemic/epistemic-causal` |
 | `evidence-graph` | **yes** (WS-1b) | `ExplainEvidence` citation resolver (crate-internal, `eg-epistemic`-side) | `epistemic`, `eg-epistemic/evidence-graph` |
-| `alignment` | no | `CasEvidenceResolver` (blob-CAS-backed, facade-reachable) | `blob`, `dep:eg-alignment`, `dep:eg-modality` |
-| `knowledge-batch` | no | Arrow-backed `KnowledgeBatch` `RowSet` projection (`eg-plan`) | `query`, `dep:arrow` |
-| `contract` (per-crate) | no | `ModalityContract` conformance-test battery (19 crates each have their own) | `dep:eg-modality` (+ crate-specific extras, e.g. eg-rdf also needs `owl`/`sparql`) |
-| `jobs` | no | `Method::AnalyticsJob` durable analytics-job plane (`eg-jobs`) | `server`, `mining`, `epistemic`, `dep:eg-jobs` |
-| `dataset-handle` | no | Arrow IPC dataset-handle seam for external compute | `query`, `server`, `blob`, `dep:arrow` |
+| `alignment` | **yes** | `CasEvidenceResolver` (blob-CAS-backed, facade-reachable) | `blob`, `dep:eg-alignment`, `dep:eg-modality` |
+| `knowledge-batch` | **yes** | Native governed streaming query/job result (`eg-plan`) | `query`, `dep:arrow` |
+| `modality-serving` | **yes** | Universal governed document/image/audio/video state machine and concrete dependency-light runtimes | `server`, `redb`, `security`, `streaming`, media runtime crates, `eg-modality` |
+| `contract` (per-crate) | no | `ModalityContract` conformance-test battery, selected directly for each implementation | `dep:eg-modality` (+ crate-specific extras, e.g. eg-rdf also needs `owl`/`sparql`) |
+| `jobs` | **yes** | `Method::AnalyticsJob` distributed durable analytics-job plane (`eg-jobs`) | `server`, `mining`, `epistemic`, `dep:eg-jobs` |
 | `lake` | no | Parquet/Delta/Iceberg-REST materialization + OpenLineage | `server`, `blob`, `tsdb`, `dep:eg-lake` |
 | `lake-rest` | no | Iceberg-REST catalog endpoint on top of `lake` | `lake` |
 | `raft` / `cluster` | no (opt-in layer) | `PlacementCatalog`, multi-group Raft, lazy lifecycle's cross-shard leg | `server`, `redb`, `dep:openraft` |
 
-**Small-footprint invariant, verified (not just asserted):** none of the opt-in features
-above is in `default`/`full`. `crates/eg-plan/src/knowledge_batch.rs`'s `knowledge-batch`
-feature only pulls Arrow via `dep:arrow` when explicitly requested; `full` gets Arrow
-only if `lake` is *also* explicitly requested (it is not part of `full`). A `cargo tree`
+**Small-footprint invariant:** the native `knowledge-batch` and dependency-light media
+serving features are intentionally part of `full`; external codec/model toolchains remain
+outside it. `KnowledgeBatch` shares the Arrow dependency already used by the main query
+stack, while the media runtimes add no native library. A `cargo tree`
 on the default build links no new heavy dependency class from this program beyond what
 the pre-existing `full` build already carried (DataFusion, Tantivy, redb) — the workspace
-`[features]` block's own comments assert this at each opt-in feature's definition site
-(e.g. `numeric`'s comment: "verified: `cargo tree --features pi` links no eg-numeric/
-faer/ndarray" — predates this program but the same discipline was followed for every
-feature added here).
+`[features]` block's comments assert the dependency boundary at each opt-in
+feature's definition site.
 
 ---
 
-## Honest gaps and unverifiable claims in this pass
+## Release-certification evidence
 
-Everything above was confirmed by reading the named file/line. A few things this page
-does **not** assert because they could not be independently confirmed in this pass
-(scope: static read of the worktree, no running server, no benchmark run):
+The source contracts above are implemented. The following environment-dependent runs
+belong to exact-release certification; absence of a result for a new release does not
+mean the source feature is deferred:
 
-- **Whether `cargo tree --features full` (or `--all-features`) actually shows zero new
-  *default* deps beyond pre-2.19.0** — the feature-definition comments in `Cargo.toml`
-  assert this at each site, and the pattern (every new feature requires an explicit
-  `dep:` opt-in) is structurally sound, but this page did not run `cargo tree` itself to
-  independently re-verify the claim end-to-end.
-- **The SCALE-P2-1 soak/chaos harness's actual pass/fail history** (referenced by the
-  evolution roadmap as "not yet run at the sustained 1M-resident scale") — this page
-  confirms the harness code exists (`src/raft/harness/`) but did not attempt to run it;
-  whether the 24-72h soak was ever executed is out of scope for a static read and is
-  explicitly named as open work by the roadmap itself (Seam 5).
-- **Runtime behavior of `EPISTEMIC_GRAPH_OPENLINEAGE_URL` push against a real OpenLineage
-  collector** — the code path (`src/server/lake/lineage.rs`) was read but not exercised
-  against a live endpoint.
-- **Whether the `eg-capabilities` crate's 343/344 Method-variant count will still be
-  exact by the time this page is read** — it is enforced by a compile-time exhaustive
-  match plus a test asserting the literal count, so it is a strong invariant *as of this
-  commit*, but the count itself is not a permanently-fixed constant across future
-  releases.
+- `cargo tree --features full` and `cargo tree --features cluster` dependency-policy
+  evidence for the exact source revision.
+- The 24–72 hour multi-host soak/chaos campaign at the target resident-graph count.
+- Live GPU/robotics parity on the target hardware and driver/toolchain versions.
+- OpenLineage delivery against the deployment's configured collector and trust profile.
 
-Nothing above was inflated to look more complete than the code shows, and nothing
-confirmed in code was left out to look more conservative than it should. Where the
-CHANGELOG/tracker used an approximate figure (`~80` routed methods, `16` TCK-adopting
-crates), this page states the exact, current, code-verified number instead and flags the
-discrepancy rather than silently overwriting or silently repeating the approximation.
+The generated capability ledger supplies the current method count. This narrative never
+freezes that count or substitutes release-history estimates for the executable gates.

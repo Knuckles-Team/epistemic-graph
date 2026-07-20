@@ -1,7 +1,7 @@
 // CONCEPT:EG-KG.sharding.semantic-embedding-store-backed — Semantic Embedding Store backed by the native eg-ann
 // IVF-PQ + OPQ + SQ8-refine index (feature `ann`).
 //
-// Drop-in replacement for the hnsw_rs `SemanticStore`: identical public API
+// Native `eg-ann` `SemanticStore` implementation with the stable public API
 // (`new`/`add_embedding`/`semantic_search`/`force_compact`/`len`/`is_empty`). For
 // tiny stores it uses brute-force cosine; past `ANN_BUILD_THRESHOLD` it builds and
 // maintains an eg-ann index. A persisted eg-ann index reopens WITHOUT rebuilding
@@ -160,42 +160,34 @@ impl EmbeddingArena {
         true
     }
 
-    /// Reconstruct an arena from the persisted flat wire shape (CONCEPT:EG-KG.storage.arena-row-append).
-    /// `dim` may be `0` in older flat snapshots — it is then derived from the row
-    /// count. Norms are recomputed on load (cheap; keeps the wire shape minimal and
-    /// avoids any persisted-vs-recomputed drift).
-    fn from_flat(mut dim: usize, ids: Vec<String>, data: Vec<f32>) -> Self {
-        if dim == 0 && !ids.is_empty() {
-            dim = data.len() / ids.len();
+    /// Reconstruct an arena from the sole current persisted flat wire shape
+    /// (CONCEPT:EG-KG.storage.arena-row-append). Norms are recomputed on load.
+    fn from_flat(dim: usize, ids: Vec<String>, data: Vec<f32>) -> Result<Self, String> {
+        let expected = ids
+            .len()
+            .checked_mul(dim)
+            .ok_or_else(|| "embedding arena dimensions overflow".to_string())?;
+        if expected != data.len() || (dim == 0 && !ids.is_empty()) {
+            return Err("embedding arena dimensions are inconsistent".to_string());
         }
         let mut id_to_row = HashMap::with_capacity(ids.len());
         for (r, id) in ids.iter().enumerate() {
-            id_to_row.insert(id.clone(), r);
+            if id_to_row.insert(id.clone(), r).is_some() {
+                return Err("embedding arena contains duplicate ids".to_string());
+            }
         }
         let norms = if dim > 0 {
             data.chunks_exact(dim).map(l2_norm).collect()
         } else {
             Vec::new()
         };
-        Self {
+        Ok(Self {
             dim,
             data,
             ids,
             id_to_row,
             norms,
-        }
-    }
-
-    /// CONCEPT:EG-KG.storage.arena-row-append — one-time migration read of the LEGACY `HashMap` wire shape.
-    /// A snapshot written before the arena (or by the hnsw default backend) persists
-    /// `embeddings: HashMap<String, Vec<f32>>`; we fold it into the dense arena on
-    /// load and write the flat shape thereafter (read-old / write-new).
-    fn from_legacy_map(map: HashMap<String, Vec<f32>>) -> Self {
-        let mut arena = EmbeddingArena::default();
-        for (id, v) in map {
-            arena.insert(id, &v);
-        }
-        arena
+        })
     }
 
     /// Resident bytes held by the flat embedding buffer (CONCEPT:EG-KG.compute.lane-v).
@@ -240,9 +232,8 @@ impl std::fmt::Debug for SemanticStore {
     }
 }
 
-// CONCEPT:EG-KG.storage.arena-row-append — persist the FLAT arena (`dim` + `ids` + row-major `data`) rather
-// than the old per-vector `HashMap`. Norms are derived on load. The Deserialize side
-// still reads the legacy `embeddings` map (one-time migration; read-old/write-new).
+// CONCEPT:EG-KG.storage.arena-row-append — persist the sole current arena schema:
+// `dim` + `ids` + row-major `data`. Norms are derived on load.
 impl Serialize for SemanticStore {
     fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
         use serde::ser::SerializeStruct;
@@ -258,25 +249,13 @@ impl<'de> Deserialize<'de> for SemanticStore {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         #[derive(Deserialize)]
         struct Raw {
-            // CONCEPT:EG-KG.storage.arena-row-append new flat wire shape.
-            #[serde(default)]
-            dim: Option<usize>,
-            #[serde(default)]
-            ids: Option<Vec<String>>,
-            #[serde(default)]
-            data: Option<Vec<f32>>,
-            // Legacy per-vector map (migration read only).
-            #[serde(default)]
-            embeddings: Option<HashMap<String, Vec<f32>>>,
+            dim: usize,
+            ids: Vec<String>,
+            data: Vec<f32>,
         }
         let raw = Raw::deserialize(d)?;
-        let arena = match (raw.ids, raw.data) {
-            (Some(ids), Some(data)) => EmbeddingArena::from_flat(raw.dim.unwrap_or(0), ids, data),
-            _ => match raw.embeddings {
-                Some(map) => EmbeddingArena::from_legacy_map(map),
-                None => EmbeddingArena::default(),
-            },
-        };
+        let arena = EmbeddingArena::from_flat(raw.dim, raw.ids, raw.data)
+            .map_err(serde::de::Error::custom)?;
         Ok(Self {
             arena,
             index: RwLock::new(None),
@@ -306,6 +285,24 @@ impl SemanticStore {
     /// reranker needs per-candidate vectors to compute pairwise diversity).
     pub fn get_embedding(&self, node_id: &str) -> Option<Vec<f32>> {
         self.arena.get(node_id).map(|s| s.to_vec())
+    }
+
+    /// Deterministic owned image used by the MutationBatch row-delta compiler.
+    /// The ANN directory itself is derived and intentionally excluded.
+    pub fn embeddings_snapshot(&self) -> Vec<(String, Vec<f32>)> {
+        let mut rows: Vec<_> = self
+            .arena
+            .ids
+            .iter()
+            .enumerate()
+            .map(|(row, id)| {
+                let start = row * self.arena.dim;
+                let end = start + self.arena.dim;
+                (id.clone(), self.arena.data[start..end].to_vec())
+            })
+            .collect();
+        rows.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+        rows
     }
 
     pub fn add_embedding(&mut self, node_id: String, embedding: Vec<f32>) {
@@ -845,37 +842,24 @@ mod tests {
     }
 
     #[test]
-    fn legacy_hashmap_snapshot_migrates_to_arena() {
-        // CONCEPT:EG-KG.storage.arena-row-append — a snapshot written in the OLD `embeddings: HashMap` wire
-        // shape (or by the hnsw default backend) must still load: read-old/write-new.
+    fn serde_rejects_retired_or_inconsistent_arena_shapes() {
         #[derive(serde::Serialize)]
-        struct LegacyStore {
+        struct RetiredMapShape {
             embeddings: HashMap<String, Vec<f32>>,
         }
-        let mut map = HashMap::new();
-        for i in 0..40usize {
-            let mut emb = vec![0.0f32; 8];
-            emb[i % 8] = 1.0;
-            map.insert(format!("n{i}"), emb);
-        }
-        let legacy = LegacyStore {
-            embeddings: map.clone(),
-        };
-        let bytes = rmp_serde::to_vec_named(&legacy).unwrap();
-        // Deserialize through the NEW SemanticStore — the migration path.
-        let restored: SemanticStore = rmp_serde::from_slice(&bytes).unwrap();
-        assert_eq!(restored.len(), 40, "legacy map migrated into the arena");
-        assert_eq!(restored.arena.dim, 8);
-        assert_eq!(
-            restored.arena.data.len(),
-            40 * 8,
-            "dense arena after migration"
-        );
-        // And it re-serializes in the new flat shape.
-        let rebytes = rmp_serde::to_vec_named(&restored).unwrap();
-        let again: SemanticStore = rmp_serde::from_slice(&rebytes).unwrap();
-        assert_eq!(again.len(), 40);
-        assert_eq!(again.arena.data.len(), 40 * 8);
+        let retired = rmp_serde::to_vec_named(&RetiredMapShape {
+            embeddings: HashMap::from([("n".to_string(), vec![1.0, 0.0])]),
+        })
+        .unwrap();
+        assert!(rmp_serde::from_slice::<SemanticStore>(&retired).is_err());
+
+        let inconsistent = rmp_serde::to_vec_named(&serde_json::json!({
+            "dim": 3,
+            "ids": ["n"],
+            "data": [1.0, 0.0]
+        }))
+        .unwrap();
+        assert!(rmp_serde::from_slice::<SemanticStore>(&inconsistent).is_err());
     }
 
     #[test]

@@ -31,3 +31,18 @@ pub use exec::{
 };
 pub use plan::{CypherQuery, Statement, WriteOp, WriteQuery};
 pub use proc::{CypherProcedure, ProcRow, YieldValue};
+
+/// Parser-derived statement classification used by served authorization.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CypherStatementKind {
+    Read,
+    Write,
+}
+
+/// Parse and classify one complete statement without executing it.
+pub fn classify_cypher(input: &str) -> Result<CypherStatementKind, String> {
+    match parser::parse_statement(input)? {
+        Statement::Read(_) => Ok(CypherStatementKind::Read),
+        Statement::Write(_) => Ok(CypherStatementKind::Write),
+    }
+}

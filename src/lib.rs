@@ -22,7 +22,11 @@ pub use eg_core::{compute, decay, graph, index, isolation, registry};
 // CONCEPT:EG-KG.compute.message-broker-exchanges — message-broker primitives, re-exported under `crate::broker`.
 #[cfg(feature = "broker")]
 pub use eg_core::broker;
-pub use eg_types::{acl, protocol, types, wire};
+#[cfg(feature = "knowledge-batch")]
+pub use eg_types::knowledge_stream;
+pub use eg_types::{
+    acl, change_envelope, epistemic_operations, mutation_batch, protocol, types, wire,
+};
 // Compute domains live in `eg-compute`; re-export under the historical `crate::`
 // paths. algorithms/ast/parser are always present; the feature-gated domains are
 // re-exported only when their facade feature (→ eg-compute feature) is on.
@@ -33,6 +37,9 @@ pub use eg_compute::finance;
 #[cfg(feature = "reasoning")]
 pub use eg_compute::reasoning;
 pub use eg_compute::{algorithms, ast, parser, screen};
+
+#[cfg(any(feature = "server", feature = "redb"))]
+pub mod durability;
 
 #[cfg(feature = "server")]
 pub mod channels;
@@ -52,6 +59,9 @@ pub mod slow_query;
 // Pure redb durable-row machinery (CONCEPT:EG-KG.backend.engine-modes) — server-INDEPENDENT, gated on
 // `redb` ALONE so the embedded API (and the server's `redb_backend`) share ONE
 // durable format with no Tokio. Built whenever the `redb` crate is linked.
+pub(crate) mod graph_delta;
+#[cfg(feature = "redb")]
+pub(crate) mod redb_layout;
 #[cfg(feature = "redb")]
 pub mod redb_store;
 
@@ -70,7 +80,7 @@ pub type MeasurementBatch = (String, usize, u64, Vec<String>, Vec<(i64, Vec<f64>
 // `security` (→ `redb`).
 #[cfg(feature = "security")]
 pub mod audit;
-#[cfg(feature = "security")]
+#[cfg(any(feature = "security", feature = "raft"))]
 pub mod crypto;
 // In-process embedded library API (CONCEPT:EG-KG.backend.engine-modes) — SQLite/DuckDB-style. Drives
 // the SAME GraphCore + redb durable rows the socket dispatch does, with NO Tokio
@@ -79,18 +89,13 @@ pub mod crypto;
 pub mod embedded;
 #[cfg(feature = "server")]
 pub mod server;
-// The WAL module: `WalWriter`/`replay` (snapshot+WAL tier) need `server`, but its
-// canonical "durable Method → GraphCore" applier (`wal::apply`) + the
-// `is_durable_mutation` predicate are PURE (no Tokio) and are the SAME core-apply
-// the socket dispatch, WAL replay, and the Raft state machine use. The embedded API
-// drives them too, so the module is available without `server` whenever `redb` is on.
+// Canonical durable mutation classification/application is shared by the socket,
+// embedded, and Raft paths.
 #[cfg(any(feature = "server", feature = "redb"))]
-pub mod wal;
-#[cfg(feature = "server")]
-pub mod wal_service;
+pub mod mutation_apply;
 // Per-graph write coalescer (CONCEPT:EG-KG.sharding.per-graph-write-coalescer): batches concurrent single-op
 // writes to one graph into a single topology-lock acquisition. Tokio-based, so it
-// lives in the server-gated top-level crate alongside wal_service.
+// lives in the server-gated top-level crate.
 #[cfg(feature = "server")]
 pub mod write_coalescer;
 // Hardware capacity auto-detection (CONCEPT:AU-KG.backend.b-auto-size). Derives the concurrency / buffer /

@@ -1,108 +1,354 @@
-//! Request authentication: two envelope generations coexist.
+//! Request authentication uses one `eg2.` verified request-context envelope.
 //!
-//!  * v0 (legacy) — `compute_auth_token`/`verify_auth`: HMAC-SHA256 over the
-//!    request id ONLY. No timestamp, no nonce, no body binding. Kept
-//!    byte-for-byte compatible — every existing client/test in the tree
-//!    speaks this, and it remains the DEFAULT (the v1 secure mode is opt-in;
-//!    see [`require_signed_envelope`]).
-//!  * v1 (CONCEPT:EG-KG.security.signed-request-envelope, EG-P0-5) —
-//!    `compute_envelope_token`/`verify_request`: a versioned signed envelope
-//!    binding protocol version, audience, tenant, principal, graph, method
-//!    name, a hash of the method's params (the "body"), a timestamp, a nonce,
-//!    and an idempotency key, all under ONE HMAC-SHA256 — verified in
-//!    CONSTANT TIME (`Mac::verify_slice`, never `==`), with a clock-skew
-//!    window and a bounded replay-nonce cache.
+//! The envelope binds request/body/replay fields plus the effective ACL agent,
+//! roles, scopes, active policy version, and delegation chain under HMAC-SHA256.
+//! Audience, tenant, and policy version must match deployment configuration;
+//! nonce acceptance is durable and committed before dispatch. Unknown envelope
+//! formats fail closed. This workspace intentionally has no downgraded protocol,
+//! environment alias, or development authentication escape.
 //!
-//!    The v1 envelope rides in the EXISTING `auth_token` wire field (prefixed
-//!    `eg1.`) rather than as new `Request` struct fields:
-//!    `eg_types::protocol::Request` is constructed via ~100 Rust
-//!    struct-literal call sites across the server, raft, eg-graphql, eg-rdf,
-//!    and integration-test crates. Adding required fields there would force
-//!    edits far outside this workstream's audited scope (`eg-types` + this
-//!    server crate). Packing the versioned envelope into the token string is
-//!    additive at the TYPE level (an untouched `String` field, so all ~100
-//!    call sites compile unchanged) while still explicit and versioned at the
-//!    VALUE level (the fixed `eg1.` prefix unambiguously distinguishes it from
-//!    a legacy plain hex digest — a v0 request is never silently mis-handled
-//!    as v1 or vice versa). The canonical byte layout that gets HMAC'd lives
-//!    in `eg_types::protocol::build_envelope_v1_bytes` (pure data, no crypto
-//!    dep) so the signer (`eg-plan`'s `RemoteEngineSource::auth_token_v1`) and
-//!    this verifier can never independently drift out of sync.
-//!
-//!    Transport TLS/mTLS and OIDC principal binding are a SEPARATE, later
-//!    workstream — this module is the crypto core of the trust boundary only.
+//!    Transport TLS/mTLS and upstream OIDC principal resolution are separate
+//!    layers: this module is the request-envelope crypto core, while the served
+//!    TCP boundary enforces its configured TLS policy before requests arrive.
 
-use crate::protocol::{build_envelope_v1_bytes, Request};
+use crate::acl::{AgentRole, RequestContextClaims};
+use crate::protocol::{
+    build_context_operation_signature_bytes, build_envelope_v2_bytes, Method, Request,
+};
 use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+#[cfg(test)]
 use std::collections::HashMap;
+use std::collections::{BTreeMap, HashSet};
 use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 type HmacSha256 = Hmac<Sha256>;
 
-/// Fixed prefix that marks an `auth_token` as a v1 signed envelope rather than
-/// a legacy v0 hex digest. Chosen so detection is an explicit, unambiguous
-/// string match — never a heuristic on token length/shape.
-const ENVELOPE_V1_PREFIX: &str = "eg1.";
+/// Prefix for the externally verified request-context envelope.
+const ENVELOPE_V2_PREFIX: &str = "eg2.";
 
-// ── v0 (legacy) ─────────────────────────────────────────────────────────────
-
-/// Compute the HMAC-SHA256 hex token for a request id. Shared by `verify_auth`
-/// and trusted in-process callers (tests) that dispatch requests without going
-/// through a socket client.
-pub fn compute_auth_token(secret: &str, request_id: u64) -> String {
-    let Ok(mut mac) = HmacSha256::new_from_slice(secret.as_bytes()) else {
-        return String::new();
-    };
-    mac.update(request_id.to_string().as_bytes());
-    hex::encode(mac.finalize().into_bytes())
+/// Authenticated request identity returned only after the corresponding
+/// envelope has passed cryptographic and deployment-policy verification.
+/// Fields are private so downstream code cannot construct a trusted context
+/// from caller-supplied JSON.
+#[derive(Debug, Clone)]
+pub(crate) struct VerifiedRequestContext {
+    claims: RequestContextClaims,
+    idempotency_key: String,
+    scope_index: HashSet<String>,
+    scope_wildcard_domains: HashSet<String>,
 }
 
-/// Verify a v0 (legacy) HMAC-SHA256 authentication token.
-///
-/// An empty secret accepts everything — the binary only allows that
-/// configuration behind the explicit insecure opt-out enforced at startup
-/// (`--allow-insecure` / `EPISTEMIC_GRAPH_ALLOW_INSECURE=1`, see `main.rs`).
-///
-/// Uses the `hmac` crate's own constant-time [`Mac::verify_slice`] rather than
-/// comparing the hex strings with `==`, so even the legacy path never leaks
-/// timing information about how many leading bytes of a guessed token matched.
-pub(crate) fn verify_auth(secret: &str, request_id: u64, token: &str) -> bool {
-    if secret.is_empty() {
-        return true; // Explicitly opted-out of authentication at startup.
+impl VerifiedRequestContext {
+    fn from_verified_claims(claims: RequestContextClaims, idempotency_key: String) -> Self {
+        let scope_index = claims.scopes.iter().cloned().collect();
+        let scope_wildcard_domains = claims
+            .scopes
+            .iter()
+            .filter_map(|scope| scope.strip_suffix(":*").map(str::to_owned))
+            .collect();
+        Self {
+            claims,
+            idempotency_key,
+            scope_index,
+            scope_wildcard_domains,
+        }
     }
-    let Ok(mut mac) = HmacSha256::new_from_slice(secret.as_bytes()) else {
-        return false;
-    };
-    mac.update(request_id.to_string().as_bytes());
-    match hex::decode(token) {
-        Ok(bytes) => mac.verify_slice(&bytes).is_ok(),
-        Err(_) => false,
+
+    /// Reconstruct the privacy-safe authority carried by a committed Raft entry.
+    /// This path is reachable only from the state-machine apply task: external
+    /// requests must pass ordinary signature, scope, nonce, and RBAC verification
+    /// before the leader can propose the entry. Raw tenant/principal identities are
+    /// intentionally unavailable here; followers operate on their one-way scopes.
+    #[cfg(feature = "raft")]
+    pub(crate) fn replicated_mutation(
+        authority: &crate::raft::RaftMutationContext,
+    ) -> Result<Self, String> {
+        let policy = request_context_policy()?;
+        Ok(Self::from_verified_claims(
+            RequestContextClaims {
+                principal: authority.principal_fingerprint.clone(),
+                tenant: authority.tenant_scope.clone(),
+                audience: policy.expected_audience.clone(),
+                agent_id: authority.principal_fingerprint.clone(),
+                roles: vec!["replicated-state-machine".to_string()],
+                scopes: vec!["*".to_string()],
+                policy_version: policy.expected_policy_version.clone(),
+                delegation: Vec::new(),
+            },
+            authority.batch_id.clone(),
+        ))
+    }
+
+    pub(crate) fn agent_id(&self) -> &str {
+        self.claims.agent_id.as_str()
+    }
+
+    pub(crate) fn principal(&self) -> &str {
+        &self.claims.principal
+    }
+
+    /// Tenant carried by the cryptographically verified context. Callers at
+    /// subordinate (non-graph) stores must use this value rather than a tenant-like
+    /// string supplied in the method body.
+    pub(crate) fn tenant(&self) -> &str {
+        self.claims.tenant.as_str()
+    }
+
+    /// Opaque stable subject identifier safe for durable mutation/audit rows.
+    /// Raw identity-provider subjects remain inside the verified request context
+    /// and are never copied into graph persistence.
+    pub(crate) fn principal_persistence_id(&self) -> String {
+        use sha2::{Digest, Sha256};
+        format!(
+            "principal:sha256:{}",
+            hex::encode(Sha256::digest(self.claims.principal.as_bytes()))
+        )
+    }
+
+    /// Scope gate for capability-ledger actions. A verified context must carry an exact scope,
+    /// a domain wildcard (`graph:*`), or the global `*` scope.
+    pub(crate) fn allows_action(&self, action: &str) -> bool {
+        if self.scope_index.contains("*") || self.scope_index.contains(action) {
+            return true;
+        }
+        action
+            .match_indices(':')
+            .any(|(offset, _)| self.scope_wildcard_domains.contains(&action[..offset]))
+    }
+
+    /// Dedicated authority for remote analytics worker leases. A general
+    /// `kg:write` grant cannot read job payloads or publish results.
+    pub(crate) fn allows_analytics_worker(&self) -> bool {
+        self.allows_action("analytics:worker") || self.scope_index.contains("kg:admin")
+    }
+
+    pub(crate) fn allows_identity_bootstrap(&self) -> bool {
+        self.claims.principal == self.claims.agent_id
+            && self.claims.delegation.is_empty()
+            && self.claims.scopes.len() == 1
+            && self.claims.scopes[0] == "security:bootstrap"
+    }
+
+    /// Evaluate a primitive capability action with the coarse graph-os scopes.
+    ///
+    /// Exact capability scopes and domain wildcards remain the most precise
+    /// grant. ``kg:read``/``kg:write`` are the served API's stable aggregate
+    /// scopes and are interpreted using the capability ledger's ``mutates``
+    /// bit. Administrative/control-plane actions are never implied by
+    /// ``kg:write``; they require ``kg:admin`` or an exact primitive scope.
+    pub(crate) fn allows_method(&self, action: &str, mutates: bool) -> bool {
+        if self.allows_action(action) {
+            return true;
+        }
+        let has = |scope: &str| self.scope_index.contains(scope);
+        if has("kg:admin") {
+            return true;
+        }
+        if coarse_kg_admin_only(action) {
+            return false;
+        }
+        if mutates {
+            has("kg:write")
+        } else {
+            // A write workflow may perform non-mutating precondition reads on
+            // the same graph. This does not widen it into another write domain.
+            has("kg:read") || has("kg:write")
+        }
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn claims(&self) -> &RequestContextClaims {
+        &self.claims
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn idempotency_key(&self) -> &str {
+        &self.idempotency_key
+    }
+
+    #[cfg(test)]
+    pub(crate) fn verified_for_test(agent_id: &str) -> Self {
+        Self::verified_for_test_in_tenant(agent_id, "tenant-shared")
+    }
+
+    #[cfg(test)]
+    pub(crate) fn verified_for_test_in_tenant(agent_id: &str, tenant: &str) -> Self {
+        Self::from_verified_claims(
+            RequestContextClaims {
+                principal: format!("principal:{agent_id}"),
+                tenant: tenant.to_string(),
+                agent_id: agent_id.to_string(),
+                audience: "epistemic-graph".to_string(),
+                policy_version: "policy-test".to_string(),
+                scopes: vec!["kg:read".to_string()],
+                ..RequestContextClaims::default()
+            },
+            format!("test:{agent_id}"),
+        )
+    }
+
+    /// Build the authenticated in-process context used only after an auxiliary broker
+    /// protocol has verified its own credential and converted the principal to
+    /// a secret-keyed opaque actor reference.
+    pub(crate) fn authenticated_broker_actor(
+        actor_ref: &str,
+        request_id: u64,
+    ) -> Result<Self, String> {
+        let digest = actor_ref
+            .strip_prefix("broker:actor:hmac-sha256:")
+            .ok_or_else(|| "broker actor reference is invalid".to_string())?;
+        if digest.len() != 64 || !digest.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Err("broker actor reference is invalid".to_string());
+        }
+        let policy = request_context_policy()?;
+        Ok(Self::from_verified_claims(
+            RequestContextClaims {
+                principal: actor_ref.to_string(),
+                tenant: policy.expected_tenant.clone(),
+                audience: policy.expected_audience.clone(),
+                agent_id: actor_ref.to_string(),
+                roles: vec!["broker-client".to_string()],
+                scopes: vec!["broker:*".to_string()],
+                policy_version: policy.expected_policy_version.clone(),
+                delegation: Vec::new(),
+            },
+            format!("broker-request:{request_id}"),
+        ))
+    }
+
+    /// Bind an engine-owned local query adapter to a fixed service identity.
+    /// External traffic reaches this path only after its carrier has passed the
+    /// adapter's authentication gate; the service identity must also be present
+    /// in durable RBAC policy and receives read scope only.
+    pub(crate) fn authenticated_local_query(request_id: u64) -> Result<Self, String> {
+        let policy = request_context_policy()?;
+        Ok(Self::from_verified_claims(
+            RequestContextClaims {
+                principal: "service:local-query".to_string(),
+                tenant: policy.expected_tenant.clone(),
+                audience: policy.expected_audience.clone(),
+                agent_id: "service:local-query".to_string(),
+                roles: vec!["local-query-adapter".to_string()],
+                scopes: vec!["kg:read".to_string()],
+                policy_version: policy.expected_policy_version.clone(),
+                delegation: Vec::new(),
+            },
+            format!("local-query:{request_id}"),
+        ))
+    }
+
+    /// Build the engine-owned authority for a native SQL connection after that
+    /// protocol has completed its mandatory cryptographic password proof.
+    ///
+    /// Native SQL protocols do not carry an `eg2.` envelope per statement.  Their
+    /// loopback adapters therefore act as authenticated proxies: after SCRAM/HMAC
+    /// verification they bind the authenticated ACL actor to the deployment's
+    /// configured tenant/audience/policy.  The principal stored downstream is a
+    /// secret-keyed opaque reference, never the login name.
+    pub(crate) fn authenticated_sql_wire_actor(
+        secret: &str,
+        protocol: &str,
+        agent_id: &str,
+    ) -> Result<Self, String> {
+        let protocol = match protocol {
+            "pgwire" | "mysql-wire" | "mssql-wire" => protocol,
+            _ => return Err("native SQL authority protocol is invalid".to_string()),
+        };
+        let agent_id = agent_id.trim();
+        if secret.is_empty() || agent_id.is_empty() {
+            return Err("native SQL authority requires a verified identity".to_string());
+        }
+        let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
+            .map_err(|_| "native SQL authority key is invalid".to_string())?;
+        mac.update(b"native-sql-authority\0");
+        mac.update(protocol.as_bytes());
+        mac.update(&[0]);
+        mac.update(agent_id.as_bytes());
+        let principal = format!(
+            "sql-wire:actor:hmac-sha256:{}",
+            hex::encode(mac.finalize().into_bytes())
+        );
+        let idempotency_key = format!("native-sql-session:{protocol}:{principal}");
+        let policy = request_context_policy()?;
+        Ok(Self::from_verified_claims(
+            RequestContextClaims {
+                principal,
+                tenant: policy.expected_tenant.clone(),
+                audience: policy.expected_audience.clone(),
+                agent_id: agent_id.to_string(),
+                roles: vec!["native-sql-client".to_string()],
+                scopes: vec!["kg:read".to_string(), "kg:write".to_string()],
+                policy_version: policy.expected_policy_version.clone(),
+                delegation: Vec::new(),
+            },
+            idempotency_key,
+        ))
     }
 }
 
-// ── v1 (signed envelope) — runtime config ──────────────────────────────────
-
-/// Whether this deployment REQUIRES the v1 signed envelope, read ONCE from
-/// `EPISTEMIC_GRAPH_REQUIRE_SIGNED` (mirrors the `max_response_nodes`/
-/// `txn_limits_from_env` `OnceLock`-env-read convention in `server::state` — a
-/// single flag rather than threading a new field through `ServerState`'s ~25
-/// construction sites). Default `false`: a legacy v0 request is
-/// accepted-with-a-warning, so local/dev and the full existing
-/// test/production surface keeps working unchanged. Set to `1`/`true` to flip
-/// the policy path to a hard rejection of any v0 request.
-pub fn require_signed_envelope() -> bool {
-    static FLAG: OnceLock<bool> = OnceLock::new();
-    *FLAG.get_or_init(|| {
-        std::env::var("EPISTEMIC_GRAPH_REQUIRE_SIGNED")
-            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-            .unwrap_or(false)
-    })
+/// Actions that a coarse ``kg:write`` grant must never authorize.
+///
+/// Exact fine-grained scopes still work, and ``kg:admin`` remains the explicit
+/// aggregate grant. The string classification is over MethodPolicy's canonical
+/// action, not method names, so new methods inherit the correct posture when
+/// they declare an ``*:admin``/``*:control``/``admin:*`` capability.
+fn coarse_kg_admin_only(action: &str) -> bool {
+    action.starts_with("admin:")
+        || action.starts_with("security:")
+        || action.ends_with(":admin")
+        || action.ends_with(":control")
 }
 
-/// Allowed clock-skew window (seconds) for a v1 envelope's `timestamp`, read
+/// Deployment policy used to turn signed v2 claims into a trusted context.
+/// The explicit constructor is intentionally test/adapter friendly; production
+/// builds resolve the same fields from environment configuration.
+#[derive(Debug, Clone)]
+struct RequestContextPolicy {
+    expected_audience: String,
+    expected_tenant: String,
+    expected_policy_version: String,
+}
+
+impl RequestContextPolicy {
+    fn from_env() -> Result<Self, String> {
+        fn configured(name: &str) -> Result<String, String> {
+            std::env::var(name)
+                .ok()
+                .map(|v| v.trim().to_string())
+                .filter(|v| !v.is_empty())
+                .ok_or_else(|| format!("secure request context requires {name}"))
+        }
+        Ok(RequestContextPolicy {
+            expected_audience: configured("EPISTEMIC_GRAPH_AUDIENCE")?,
+            expected_tenant: configured("EPISTEMIC_GRAPH_TENANT")?,
+            expected_policy_version: configured("EPISTEMIC_GRAPH_POLICY_VERSION")?,
+        })
+    }
+}
+
+#[cfg(not(test))]
+fn request_context_policy() -> Result<&'static RequestContextPolicy, String> {
+    static POLICY: OnceLock<Result<RequestContextPolicy, String>> = OnceLock::new();
+    match POLICY.get_or_init(RequestContextPolicy::from_env) {
+        Ok(policy) => Ok(policy),
+        Err(message) => Err(message.clone()),
+    }
+}
+
+#[cfg(test)]
+fn request_context_policy() -> Result<&'static RequestContextPolicy, String> {
+    static POLICY: OnceLock<RequestContextPolicy> = OnceLock::new();
+    Ok(POLICY.get_or_init(|| RequestContextPolicy {
+        expected_audience: "epistemic-graph-test".to_string(),
+        expected_tenant: "tenant-shared".to_string(),
+        expected_policy_version: "policy-test".to_string(),
+    }))
+}
+
+/// Allowed clock-skew window (seconds) for an envelope's `timestamp`, read
 /// ONCE from `EPISTEMIC_GRAPH_ENVELOPE_SKEW_SECS`. Also doubles as the replay
 /// cache's nonce-retention horizon (a nonce older than `2 * skew` can never
 /// pass the timestamp check anyway, so it is safe to forget). Default 300s
@@ -125,57 +371,41 @@ fn now_secs() -> u64 {
         .unwrap_or(0)
 }
 
-// ── v1 (signed envelope) — wire shape ──────────────────────────────────────
+// ── Verified request context envelope ──────────────────────────────────────
 
-/// The JSON payload packed (hex-encoded) after the [`ENVELOPE_V1_PREFIX`] in
-/// `Request.auth_token`. `mac` is the hex HMAC-SHA256 over
-/// [`build_envelope_v1_bytes`] (which ALSO folds in `request_id`/`graph`/
-/// `method_name`/`body_hash` — those are read straight off the `Request`
-/// being verified, not duplicated in this struct).
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct EnvelopeV1 {
-    #[serde(default)]
-    audience: String,
-    #[serde(default)]
-    tenant: String,
-    #[serde(default)]
-    principal: String,
+#[serde(deny_unknown_fields)]
+struct EnvelopeV2 {
+    context: RequestContextClaims,
     timestamp: u64,
     nonce: String,
-    #[serde(default)]
     idempotency_key: String,
-    /// Hex HMAC-SHA256 tag.
+    /// Hex HMAC-SHA256 tag over `build_envelope_v2_bytes`.
     mac: String,
 }
 
-/// Caller-supplied fields for a v1 envelope that don't already ride the
-/// `Request` (`id`/`graph`/`method` are read directly off it).
-#[derive(Debug, Clone, Default)]
-pub struct EnvelopeParams<'a> {
-    pub audience: &'a str,
-    pub tenant: &'a str,
-    pub principal: &'a str,
+/// Fields supplied by an external identity/context issuer when signing v2.
+#[derive(Debug, Clone)]
+pub struct VerifiedEnvelopeParams<'a> {
+    pub context: &'a RequestContextClaims,
     pub timestamp: u64,
     pub nonce: &'a str,
     pub idempotency_key: &'a str,
 }
 
-/// Build the (unfinalized) HMAC over the canonical v1 envelope bytes for
-/// `req` + the given fields. Shared by both the signer
-/// ([`compute_envelope_token`]) and the verifier ([`verify_envelope_v1`]) so
-/// signing and verifying can never diverge on the MAC construction — only the
-/// final step (`finalize()` to sign vs. `verify_slice()` to check) differs.
-fn envelope_mac(secret: &str, req: &Request, params: &EnvelopeParams) -> Option<HmacSha256> {
+fn envelope_v2_mac(
+    secret: &str,
+    req: &Request,
+    params: &VerifiedEnvelopeParams,
+) -> Option<HmacSha256> {
     let method_name = req.method.tag_name();
     let body_hash = hex::encode(Sha256::digest(req.method.canonical_body_bytes()));
-    let bytes = build_envelope_v1_bytes(
+    let bytes = build_envelope_v2_bytes(
         req.id,
         &req.graph,
         &method_name,
         &body_hash,
-        params.audience,
-        params.tenant,
-        params.principal,
+        params.context,
         params.timestamp,
         params.nonce,
         params.idempotency_key,
@@ -185,113 +415,199 @@ fn envelope_mac(secret: &str, req: &Request, params: &EnvelopeParams) -> Option<
     Some(mac)
 }
 
-/// Sign a v1 envelope for `req`, returning the full `eg1.`-prefixed token to
-/// place in `Request.auth_token`. The reference Rust signer implementation —
-/// `eg-plan`'s `RemoteEngineSource::auth_token_v1` mirrors this exactly
-/// (it cannot call this fn directly: `eg-plan` sits BELOW this facade crate in
-/// the dependency DAG).
-pub fn compute_envelope_token(secret: &str, req: &Request, params: &EnvelopeParams) -> String {
-    let Some(mac) = envelope_mac(secret, req, params) else {
+/// Reference v2 signer.  External gateways should produce the same canonical
+/// bytes and place this `eg2.` token in `Request.auth_token`.
+pub fn compute_verified_envelope_token(
+    secret: &str,
+    req: &Request,
+    params: &VerifiedEnvelopeParams,
+) -> String {
+    let Some(mac) = envelope_v2_mac(secret, req, params) else {
         return String::new();
     };
-    let envelope = EnvelopeV1 {
-        audience: params.audience.to_string(),
-        tenant: params.tenant.to_string(),
-        principal: params.principal.to_string(),
+    let envelope = EnvelopeV2 {
+        context: params.context.clone(),
         timestamp: params.timestamp,
         nonce: params.nonce.to_string(),
         idempotency_key: params.idempotency_key.to_string(),
         mac: hex::encode(mac.finalize().into_bytes()),
     };
     let json = serde_json::to_vec(&envelope).unwrap_or_default();
-    format!("{ENVELOPE_V1_PREFIX}{}", hex::encode(json))
+    format!("{ENVELOPE_V2_PREFIX}{}", hex::encode(json))
 }
 
-/// Why a v1 verification failed (or succeeded), so the dispatch caller can
-/// return an actionable error and the right metric/log line.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum EnvelopeVerdict {
-    Ok,
-    BadSignature,
-    Expired,
-    Replayed,
-}
-
-/// Verify a v1 signed envelope: constant-time MAC compare
-/// (`Mac::verify_slice`, never `==`), a timestamp-skew window, and a
-/// replay-nonce cache. The MAC is checked FIRST — before the timestamp/nonce
-/// checks — so an unauthenticated attacker (who cannot produce a valid MAC)
-/// can never pollute the replay cache with junk nonces to force legitimate
-/// requests into false "replayed" rejections.
-pub(crate) fn verify_envelope_v1(secret: &str, req: &Request) -> EnvelopeVerdict {
-    let Some(hex_json) = req.auth_token.strip_prefix(ENVELOPE_V1_PREFIX) else {
-        return EnvelopeVerdict::BadSignature;
+#[cfg(test)]
+pub(crate) fn sign_current_test_request(secret: &str, mut request: Request) -> Request {
+    const TEST_OPERATION_SIGNER_KEY: &str = "rust-unit-operation-signer-key";
+    static NONCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    let agent_id = request.agent_id.as_deref().unwrap_or("system").to_string();
+    request.agent_id = Some(agent_id.clone());
+    let identity_bootstrap = matches!(
+        &request.method,
+        Method::RegisterIdentity {
+            agent_id: registered,
+            role: AgentRole::System,
+            teams,
+            roles,
+            ..
+        } if registered == &agent_id && teams.is_empty() && roles.is_empty()
+    );
+    let context = RequestContextClaims {
+        principal: agent_id.clone(),
+        tenant: "tenant-shared".to_string(),
+        audience: "epistemic-graph-test".to_string(),
+        agent_id,
+        roles: vec!["test".to_string()],
+        scopes: vec![if identity_bootstrap {
+            "security:bootstrap".to_string()
+        } else {
+            "*".to_string()
+        }],
+        policy_version: "policy-test".to_string(),
+        delegation: Vec::new(),
     };
-    let Ok(json_bytes) = hex::decode(hex_json) else {
-        return EnvelopeVerdict::BadSignature;
-    };
-    let Ok(envelope) = serde_json::from_slice::<EnvelopeV1>(&json_bytes) else {
-        return EnvelopeVerdict::BadSignature;
-    };
-    let Ok(got_mac) = hex::decode(&envelope.mac) else {
-        return EnvelopeVerdict::BadSignature;
-    };
-    let Some(mac) = envelope_mac(
+    let nonce = format!(
+        "rust-unit-{}-{}",
+        std::process::id(),
+        NONCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    );
+    let idempotency_key = format!("rust-unit-request-{}-{nonce}", request.id);
+    if let Method::RegisterIdentity {
+        agent_id,
+        role,
+        teams,
+        signature,
+        roles,
+    } = &mut request.method
+    {
+        let verified_context =
+            VerifiedRequestContext::from_verified_claims(context.clone(), idempotency_key.clone());
+        let digest = register_identity_digest(
+            &verified_context,
+            &request.graph,
+            agent_id,
+            role,
+            teams,
+            roles,
+        );
+        let mut mac = HmacSha256::new_from_slice(TEST_OPERATION_SIGNER_KEY.as_bytes())
+            .expect("test signer key");
+        mac.update(&digest);
+        *signature = format!(
+            "{}:{}",
+            context.principal,
+            hex::encode(mac.finalize().into_bytes())
+        );
+    }
+    request.auth_token = compute_verified_envelope_token(
         secret,
-        req,
-        &EnvelopeParams {
-            audience: &envelope.audience,
-            tenant: &envelope.tenant,
-            principal: &envelope.principal,
-            timestamp: envelope.timestamp,
-            nonce: &envelope.nonce,
-            idempotency_key: &envelope.idempotency_key,
+        &request,
+        &VerifiedEnvelopeParams {
+            context: &context,
+            timestamp: now_secs(),
+            nonce: &nonce,
+            idempotency_key: &idempotency_key,
         },
-    ) else {
-        return EnvelopeVerdict::BadSignature;
-    };
-    // Constant-time tag comparison — CONCEPT: never `==` on secret-derived bytes.
-    if mac.verify_slice(&got_mac).is_err() {
-        return EnvelopeVerdict::BadSignature;
-    }
-
-    let now = now_secs();
-    let skew = envelope_skew_secs();
-    if now.abs_diff(envelope.timestamp) > skew {
-        return EnvelopeVerdict::Expired;
-    }
-
-    if envelope.nonce.is_empty() || !replay_cache().check_and_record(&envelope.nonce, now, skew) {
-        return EnvelopeVerdict::Replayed;
-    }
-
-    EnvelopeVerdict::Ok
+    );
+    request
 }
 
-// ── v1 (signed envelope) — replay-nonce cache ──────────────────────────────
+fn decode_envelope_v2(req: &Request) -> Result<EnvelopeV2, String> {
+    let hex_json = req
+        .auth_token
+        .strip_prefix(ENVELOPE_V2_PREFIX)
+        .ok_or_else(|| "Authentication failed".to_string())?;
+    let json = hex::decode(hex_json).map_err(|_| "Authentication failed".to_string())?;
+    serde_json::from_slice(&json).map_err(|_| "Authentication failed".to_string())
+}
 
-/// Bounded TTL set of nonces seen within the current skew window. A nonce
-/// presented twice inside the retention horizon is a replay and is rejected.
-/// Pruned lazily on every check (no background task), and hard-capped so a
-/// pathological configuration (a huge skew window, or a nonce flood) cannot
-/// grow the process's memory unboundedly. Global (not per-graph/per-tenant):
-/// a nonce only needs to be unique within its own timestamp window regardless
-/// of which graph/tenant it targets, so one cache is both simpler and
-/// strictly safer (a cross-tenant nonce reuse is still caught).
+fn validate_unique_claims(label: &str, values: &[String]) -> Result<(), String> {
+    let mut seen = HashSet::new();
+    for value in values {
+        if value.trim().is_empty() {
+            return Err(format!("request context contains an empty {label}"));
+        }
+        if !seen.insert(value.as_str()) {
+            return Err(format!(
+                "request context contains duplicate {label} '{value}'"
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_context_claims(
+    req: &Request,
+    claims: &RequestContextClaims,
+    policy: &RequestContextPolicy,
+) -> Result<(), String> {
+    for (name, value) in [
+        ("principal", claims.principal.as_str()),
+        ("tenant", claims.tenant.as_str()),
+        ("audience", claims.audience.as_str()),
+        ("agent_id", claims.agent_id.as_str()),
+        ("policy_version", claims.policy_version.as_str()),
+    ] {
+        if value.trim().is_empty() {
+            return Err(format!("request context {name} must not be empty"));
+        }
+    }
+    validate_unique_claims("role", &claims.roles)?;
+    validate_unique_claims("scope", &claims.scopes)?;
+    validate_unique_claims("delegation subject", &claims.delegation)?;
+
+    if let Some(asserted_agent) = req.agent_id.as_deref() {
+        if asserted_agent != claims.agent_id {
+            return Err("request agent_id does not match verified context".to_string());
+        }
+    }
+    if claims.principal == claims.agent_id {
+        if !claims.delegation.is_empty() {
+            return Err("non-delegated context must have an empty delegation chain".to_string());
+        }
+    } else if claims.delegation.first().map(String::as_str) != Some(claims.principal.as_str())
+        || claims.delegation.last().map(String::as_str) != Some(claims.agent_id.as_str())
+        || claims.delegation.len() < 2
+    {
+        return Err("delegation chain must run from principal to effective agent".to_string());
+    }
+
+    if claims.audience != policy.expected_audience {
+        return Err("request context audience does not match deployment".to_string());
+    }
+    if claims.tenant != policy.expected_tenant {
+        return Err("request context tenant does not match graph tenant".to_string());
+    }
+    if claims.policy_version != policy.expected_policy_version {
+        return Err("request context policy version is not active".to_string());
+    }
+    Ok(())
+}
+
+/// Replay ledger used after a request MAC, time window, and policy claims have
+/// verified. The production adapter is durable and commits before dispatch.
+trait ReplayLedger: Send + Sync {
+    /// Atomically record a nonce. `Ok(false)` means it was already present.
+    fn check_and_record(&self, nonce: &str, now: u64, window: u64) -> Result<bool, String>;
+}
+
+#[cfg(test)]
 struct ReplayCache {
     seen: Mutex<HashMap<String, u64>>,
 }
 
 /// Hard cap on cached nonces — bounds memory under a misconfigured
 /// (excessively large) skew window or a deliberate nonce-flood attempt.
+#[cfg(test)]
 const MAX_REPLAY_ENTRIES: usize = 200_000;
 
+#[cfg(test)]
 impl ReplayCache {
     /// Returns `true` if `nonce` is accepted (not seen before within the
     /// retention horizon); `false` if it is a replay. Always prunes entries
     /// older than `2 * window` first (anything older could never pass the
     /// timestamp-skew check anyway, so retaining it further gains nothing).
-    fn check_and_record(&self, nonce: &str, now: u64, window: u64) -> bool {
+    fn check_and_record_memory(&self, nonce: &str, now: u64, window: u64) -> bool {
         let mut seen = self.seen.lock().unwrap_or_else(|e| e.into_inner());
         let cutoff = now.saturating_sub(window.saturating_mul(2));
         seen.retain(|_, ts| *ts >= cutoff);
@@ -312,62 +628,400 @@ impl ReplayCache {
     }
 }
 
-fn replay_cache() -> &'static ReplayCache {
-    static CACHE: OnceLock<ReplayCache> = OnceLock::new();
-    CACHE.get_or_init(|| ReplayCache {
+#[cfg(test)]
+impl ReplayLedger for ReplayCache {
+    fn check_and_record(&self, nonce: &str, now: u64, window: u64) -> Result<bool, String> {
+        Ok(self.check_and_record_memory(nonce, now, window))
+    }
+}
+
+#[cfg(feature = "security")]
+const REPLAY_TABLE: redb::TableDefinition<&str, u64> =
+    redb::TableDefinition::new("verified_request_replay_v2");
+
+/// Durable replay adapter used by secure mode.  A successful insert is
+/// committed with immediate durability before the request is dispatched, so a
+/// process restart cannot make a previously accepted nonce usable again.
+#[cfg(feature = "security")]
+struct RedbReplayLedger {
+    db: redb::Database,
+    last_prune: Mutex<u64>,
+}
+
+#[cfg(feature = "security")]
+impl RedbReplayLedger {
+    fn open(dir: &std::path::Path) -> Result<Self, String> {
+        std::fs::create_dir_all(dir)
+            .map_err(|e| format!("could not create security state directory: {e}"))?;
+        let path = dir.join("request-replay.redb");
+        let db = redb::Database::create(path)
+            .map_err(|e| format!("could not open durable replay ledger: {e}"))?;
+        let wtx = db
+            .begin_write()
+            .map_err(|e| format!("could not initialize durable replay ledger: {e}"))?;
+        wtx.open_table(REPLAY_TABLE)
+            .map_err(|e| format!("could not initialize durable replay table: {e}"))?;
+        wtx.commit()
+            .map_err(|e| format!("could not commit durable replay table: {e}"))?;
+        Ok(RedbReplayLedger {
+            db,
+            last_prune: Mutex::new(0),
+        })
+    }
+}
+
+#[cfg(feature = "security")]
+impl ReplayLedger for RedbReplayLedger {
+    fn check_and_record(&self, nonce: &str, now: u64, window: u64) -> Result<bool, String> {
+        use redb::ReadableTable;
+
+        let should_prune = {
+            let mut last = self.last_prune.lock().unwrap_or_else(|e| e.into_inner());
+            if now.saturating_sub(*last) >= window {
+                *last = now;
+                true
+            } else {
+                false
+            }
+        };
+        let mut wtx = self
+            .db
+            .begin_write()
+            .map_err(|e| format!("durable replay transaction failed: {e}"))?;
+        wtx.set_durability(redb::Durability::Immediate)
+            .map_err(|e| format!("durable replay configuration failed: {e}"))?;
+        {
+            let mut table = wtx
+                .open_table(REPLAY_TABLE)
+                .map_err(|e| format!("durable replay table failed: {e}"))?;
+            if should_prune {
+                let cutoff = now.saturating_sub(window.saturating_mul(2));
+                let mut expired = Vec::new();
+                for row in table
+                    .iter()
+                    .map_err(|e| format!("durable replay scan failed: {e}"))?
+                {
+                    let (key, timestamp) =
+                        row.map_err(|e| format!("durable replay row failed: {e}"))?;
+                    if timestamp.value() < cutoff {
+                        expired.push(key.value().to_string());
+                    }
+                }
+                for key in expired {
+                    table
+                        .remove(key.as_str())
+                        .map_err(|e| format!("durable replay prune failed: {e}"))?;
+                }
+            }
+            if table
+                .get(nonce)
+                .map_err(|e| format!("durable replay lookup failed: {e}"))?
+                .is_some()
+            {
+                return Ok(false);
+            }
+            table
+                .insert(nonce, now)
+                .map_err(|e| format!("durable replay insert failed: {e}"))?;
+        }
+        wtx.commit()
+            .map_err(|e| format!("durable replay commit failed: {e}"))?;
+        Ok(true)
+    }
+}
+
+#[cfg(all(feature = "security", not(test)))]
+fn durable_replay_ledger(state_dir: Option<&str>) -> Result<&'static RedbReplayLedger, String> {
+    static LEDGER: OnceLock<Result<RedbReplayLedger, String>> = OnceLock::new();
+    match LEDGER.get_or_init(|| {
+        let dir = std::env::var("EPISTEMIC_GRAPH_SECURITY_STATE_DIR")
+            .ok()
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty())
+            .or_else(|| state_dir.map(str::to_string))
+            .ok_or_else(|| {
+                "secure request context requires EPISTEMIC_GRAPH_SECURITY_STATE_DIR or a persist directory".to_string()
+            })?;
+        RedbReplayLedger::open(std::path::Path::new(&dir))
+    }) {
+        Ok(ledger) => Ok(ledger),
+        Err(message) => Err(message.clone()),
+    }
+}
+
+#[cfg(all(not(feature = "security"), not(test)))]
+fn durable_replay_ledger(_state_dir: Option<&str>) -> Result<&'static dyn ReplayLedger, String> {
+    Err("secure request context requires the security feature".to_string())
+}
+
+#[cfg(test)]
+fn durable_replay_ledger(_state_dir: Option<&str>) -> Result<&'static dyn ReplayLedger, String> {
+    static LEDGER: OnceLock<ReplayCache> = OnceLock::new();
+    Ok(LEDGER.get_or_init(|| ReplayCache {
         seen: Mutex::new(HashMap::new()),
-    })
+    }))
+}
+
+fn verify_envelope_v2_with(
+    secret: &str,
+    req: &Request,
+    policy: &RequestContextPolicy,
+    replay: &dyn ReplayLedger,
+) -> Result<VerifiedRequestContext, String> {
+    let envelope = decode_envelope_v2(req)?;
+    let got_mac = hex::decode(&envelope.mac).map_err(|_| "Authentication failed".to_string())?;
+    let params = VerifiedEnvelopeParams {
+        context: &envelope.context,
+        timestamp: envelope.timestamp,
+        nonce: &envelope.nonce,
+        idempotency_key: &envelope.idempotency_key,
+    };
+    let mac =
+        envelope_v2_mac(secret, req, &params).ok_or_else(|| "Authentication failed".to_string())?;
+    if mac.verify_slice(&got_mac).is_err() {
+        return Err("Authentication failed".to_string());
+    }
+
+    let now = now_secs();
+    let skew = envelope_skew_secs();
+    if now.abs_diff(envelope.timestamp) > skew {
+        return Err("request timestamp is outside the allowed clock-skew window".to_string());
+    }
+    validate_context_claims(req, &envelope.context, policy)?;
+    if envelope.idempotency_key.trim().is_empty() {
+        return Err("request idempotency key must not be empty".to_string());
+    }
+    if envelope.nonce.is_empty() || !replay.check_and_record(&envelope.nonce, now, skew)? {
+        return Err("nonce already used (replay rejected)".to_string());
+    }
+
+    Ok(VerifiedRequestContext::from_verified_claims(
+        envelope.context,
+        envelope.idempotency_key,
+    ))
 }
 
 // ── policy entry point ─────────────────────────────────────────────────────
 
-/// Top-level auth gate `dispatch::dispatch_inner` calls. Routes v0 vs v1
-/// requests (by the `eg1.` prefix — an explicit string match, never a
-/// heuristic) and applies the [`require_signed_envelope`] policy to a v0
-/// request: rejected when the deployment requires v1, accepted with a
-/// degrade-path warning otherwise (the default, so local/dev and every
-/// existing client/test keeps working unchanged).
-pub(crate) fn verify_request(secret: &str, req: &Request) -> Result<(), &'static str> {
-    if req.auth_token.starts_with(ENVELOPE_V1_PREFIX) {
-        return match verify_envelope_v1(secret, req) {
-            EnvelopeVerdict::Ok => Ok(()),
-            EnvelopeVerdict::BadSignature => Err("Authentication failed"),
-            EnvelopeVerdict::Expired => {
-                Err("request timestamp is outside the allowed clock-skew window")
-            }
-            EnvelopeVerdict::Replayed => Err("nonce already used (replay rejected)"),
-        };
-    }
-    verify_legacy_request(require_signed_envelope(), secret, req)
-}
-
-/// The v0 (legacy) policy branch of [`verify_request`], factored out so it
-/// takes `require_signed` as an explicit argument — the process-wide
-/// `OnceLock` behind [`require_signed_envelope`] can only be initialized once
-/// per process, so tests exercise BOTH policy outcomes by calling this
-/// directly with `true`/`false` rather than trying to flip the env-backed
-/// global mid-suite.
-fn verify_legacy_request(
-    require_signed: bool,
+/// Top-level authentication gate. Only the current verified context envelope
+/// is accepted.
+pub(crate) fn verify_request(
     secret: &str,
     req: &Request,
-) -> Result<(), &'static str> {
-    // Explicit policy path — never a silent up/downgrade.
-    if require_signed {
+) -> Result<VerifiedRequestContext, String> {
+    verify_request_with_security_dir(secret, req, None)
+}
+
+pub(super) fn validate_verified_context_startup(
+    secret: &str,
+    state_dir: Option<&str>,
+) -> Result<(), String> {
+    if secret.is_empty() {
         return Err(
-            "legacy (v0) request rejected: this deployment requires the v1 signed \
-             envelope (EPISTEMIC_GRAPH_REQUIRE_SIGNED=1)",
+            "secure request context requires a non-empty authentication secret".to_string(),
         );
     }
-    if !verify_auth(secret, req.id, &req.auth_token) {
-        return Err("Authentication failed");
-    }
-    if !secret.is_empty() {
-        tracing::warn!(
-            request_id = req.id,
-            "accepted a legacy v0 (unsigned-envelope) request — degrade path; set \
-             EPISTEMIC_GRAPH_REQUIRE_SIGNED=1 to require the v1 signed envelope"
+    request_context_policy()?;
+    durable_replay_ledger(state_dir)?;
+    signer_registry()?;
+    Ok(())
+}
+
+pub(crate) fn verify_request_with_security_dir(
+    secret: &str,
+    req: &Request,
+    state_dir: Option<&str>,
+) -> Result<VerifiedRequestContext, String> {
+    if secret.is_empty() {
+        return Err(
+            "secure request context requires a non-empty authentication secret".to_string(),
         );
+    }
+    if !req.auth_token.starts_with(ENVELOPE_V2_PREFIX) {
+        return Err("Authentication failed".to_string());
+    }
+    let policy = request_context_policy()?;
+    let replay = durable_replay_ledger(state_dir)?;
+    verify_envelope_v2_with(secret, req, policy, replay)
+}
+
+// ── Detached identity / multisig verification ─────────────────────────────
+
+#[derive(Debug, Default)]
+struct SignerKeyRegistry {
+    keys: BTreeMap<String, String>,
+}
+
+impl SignerKeyRegistry {
+    fn from_json(raw: &str) -> Result<Self, String> {
+        let keys: BTreeMap<String, String> = serde_json::from_str(raw)
+            .map_err(|_| "EPISTEMIC_GRAPH_SIGNER_KEYS_JSON is not a string map".to_string())?;
+        if keys.is_empty()
+            || keys
+                .iter()
+                .any(|(signer, key)| signer.trim().is_empty() || key.is_empty())
+        {
+            return Err(
+                "EPISTEMIC_GRAPH_SIGNER_KEYS_JSON must contain non-empty signer keys".to_string(),
+            );
+        }
+        Ok(SignerKeyRegistry { keys })
+    }
+
+    fn verify(&self, signature: &str, digest: &[u8]) -> Result<String, String> {
+        let (signer, tag) = signature
+            .rsplit_once(':')
+            .ok_or_else(|| "signature must use signer_id:hex_hmac format".to_string())?;
+        if signer.is_empty() || tag.is_empty() {
+            return Err("signature must use signer_id:hex_hmac format".to_string());
+        }
+        let key = self
+            .keys
+            .get(signer)
+            .ok_or_else(|| format!("signature uses untrusted signer '{signer}'"))?;
+        let tag = hex::decode(tag).map_err(|_| "signature HMAC is not valid hex".to_string())?;
+        let mut mac = HmacSha256::new_from_slice(key.as_bytes())
+            .map_err(|_| "signer key is invalid".to_string())?;
+        mac.update(digest);
+        mac.verify_slice(&tag)
+            .map_err(|_| format!("signature from '{signer}' did not verify"))?;
+        Ok(signer.to_string())
+    }
+
+    fn verified_unique_count(&self, signatures: &[String], digest: &[u8]) -> Result<usize, String> {
+        let mut signers = HashSet::new();
+        for signature in signatures {
+            signers.insert(self.verify(signature, digest)?);
+        }
+        Ok(signers.len())
+    }
+}
+
+#[cfg(not(test))]
+fn signer_registry() -> Result<&'static SignerKeyRegistry, String> {
+    static REGISTRY: OnceLock<Result<SignerKeyRegistry, String>> = OnceLock::new();
+    match REGISTRY.get_or_init(|| {
+        let raw = std::env::var("EPISTEMIC_GRAPH_SIGNER_KEYS_JSON").map_err(|_| {
+            "verified identity operations require EPISTEMIC_GRAPH_SIGNER_KEYS_JSON".to_string()
+        })?;
+        SignerKeyRegistry::from_json(&raw)
+    }) {
+        Ok(registry) => Ok(registry),
+        Err(message) => Err(message.clone()),
+    }
+}
+
+#[cfg(test)]
+fn signer_registry() -> Result<&'static SignerKeyRegistry, String> {
+    static REGISTRY: OnceLock<SignerKeyRegistry> = OnceLock::new();
+    Ok(REGISTRY.get_or_init(|| SignerKeyRegistry {
+        keys: ["system", "root", "alice", "priv"]
+            .into_iter()
+            .map(|signer| {
+                (
+                    signer.to_string(),
+                    "rust-unit-operation-signer-key".to_string(),
+                )
+            })
+            .collect(),
+    }))
+}
+
+fn digest_operation(
+    domain: &str,
+    context: &VerifiedRequestContext,
+    graph: &str,
+    body: &[u8],
+) -> Vec<u8> {
+    Sha256::digest(build_context_operation_signature_bytes(
+        domain,
+        &context.claims,
+        &context.idempotency_key,
+        graph,
+        body,
+    ))
+    .to_vec()
+}
+
+fn register_identity_digest(
+    context: &VerifiedRequestContext,
+    graph: &str,
+    agent_id: &str,
+    role: &AgentRole,
+    teams: &[String],
+    roles: &[String],
+) -> Vec<u8> {
+    let method = Method::RegisterIdentity {
+        agent_id: agent_id.to_string(),
+        role: role.clone(),
+        teams: teams.to_vec(),
+        signature: String::new(),
+        roles: roles.to_vec(),
+    };
+    digest_operation(
+        "eg-register-identity-v2",
+        context,
+        graph,
+        &method.canonical_body_bytes(),
+    )
+}
+
+fn multisig_mutation_digest(
+    context: &VerifiedRequestContext,
+    graph: &str,
+    threshold: usize,
+    mutation_type: &str,
+    query: &str,
+) -> Vec<u8> {
+    let method = Method::ApplyMultisigMutation {
+        signatures: Vec::new(),
+        threshold,
+        mutation_type: mutation_type.to_string(),
+        query: query.to_string(),
+    };
+    digest_operation(
+        "eg-multisig-mutation-v2",
+        context,
+        graph,
+        &method.canonical_body_bytes(),
+    )
+}
+
+pub(crate) fn verify_register_identity_signature(
+    context: &VerifiedRequestContext,
+    graph: &str,
+    agent_id: &str,
+    role: &AgentRole,
+    teams: &[String],
+    roles: &[String],
+    signature: &str,
+) -> Result<(), String> {
+    let digest = register_identity_digest(context, graph, agent_id, role, teams, roles);
+    let signer = signer_registry()?.verify(signature, &digest)?;
+    if signer != context.principal() {
+        return Err("identity registration signer does not match verified principal".to_string());
+    }
+    Ok(())
+}
+
+pub(crate) fn verify_multisig_mutation_signatures(
+    context: &VerifiedRequestContext,
+    graph: &str,
+    signatures: &[String],
+    threshold: usize,
+    mutation_type: &str,
+    query: &str,
+) -> Result<(), String> {
+    if threshold == 0 {
+        return Err("multisig threshold must be greater than zero".to_string());
+    }
+    let digest = multisig_mutation_digest(context, graph, threshold, mutation_type, query);
+    let verified_signers = signer_registry()?.verified_unique_count(signatures, &digest)?;
+    if verified_signers < threshold {
+        return Err(format!(
+            "insufficient unique verified signers: {} < {threshold}",
+            verified_signers
+        ));
     }
     Ok(())
 }
@@ -389,192 +1043,300 @@ mod tests {
         }
     }
 
-    fn signed(id: u64, graph: &str, params: &EnvelopeParams) -> Request {
-        let mut req = ping_request(id, graph, String::new());
-        req.auth_token = compute_envelope_token(SECRET, &req, params);
-        req
-    }
-
-    // ── v0 legacy path — unaffected by this workstream ─────────────────
-
-    #[test]
-    fn v0_valid_token_accepted() {
-        let req = ping_request(1, "g", compute_auth_token(SECRET, 1));
-        assert!(verify_request(SECRET, &req).is_ok());
-    }
-
-    #[test]
-    fn v0_bad_token_rejected() {
-        let mut req = ping_request(1, "g", compute_auth_token(SECRET, 1));
-        req.auth_token = "bogus".to_string();
-        assert!(verify_request(SECRET, &req).is_err());
-    }
-
-    #[test]
-    fn v0_accepted_with_warning_when_require_signed_is_off() {
-        let req = ping_request(1, "g", compute_auth_token(SECRET, 1));
-        assert!(verify_legacy_request(false, SECRET, &req).is_ok());
-    }
-
-    #[test]
-    fn v0_rejected_when_require_signed_is_on() {
-        // Same otherwise-valid v0 request; only the policy flag differs.
-        let req = ping_request(1, "g", compute_auth_token(SECRET, 1));
-        let err = verify_legacy_request(true, SECRET, &req).unwrap_err();
-        assert!(err.contains("EPISTEMIC_GRAPH_REQUIRE_SIGNED"));
-    }
-
-    // ── v1 signed envelope ──────────────────────────────────────────────
-
-    fn base_params(nonce: &'static str) -> EnvelopeParams<'static> {
-        EnvelopeParams {
-            audience: "engine",
-            tenant: "tenant-a",
-            principal: "agent:planner",
-            timestamp: now_secs(),
-            nonce,
-            idempotency_key: "idem-1",
+    fn verified_claims() -> RequestContextClaims {
+        RequestContextClaims {
+            principal: "agent:planner".into(),
+            tenant: "tenant-a".into(),
+            audience: "engine".into(),
+            agent_id: "agent:planner".into(),
+            roles: vec!["planner".into()],
+            scopes: vec!["graph:read".into()],
+            policy_version: "policy-7".into(),
+            delegation: vec![],
         }
     }
 
-    #[test]
-    fn v1_valid_envelope_verifies() {
-        let params = base_params("nonce-a");
-        let req = signed(1, "g", &params);
-        assert!(req.auth_token.starts_with(ENVELOPE_V1_PREFIX));
-        assert!(verify_request(SECRET, &req).is_ok());
+    fn verified_policy() -> RequestContextPolicy {
+        RequestContextPolicy {
+            expected_audience: "engine".into(),
+            expected_tenant: "tenant-a".into(),
+            expected_policy_version: "policy-7".into(),
+        }
     }
 
-    #[test]
-    fn v1_tampered_graph_rejected() {
-        let params = base_params("nonce-b");
-        let mut req = signed(1, "g", &params);
-        req.graph = "other-graph".to_string();
-        assert_eq!(
-            verify_envelope_v1(SECRET, &req),
-            EnvelopeVerdict::BadSignature
+    fn memory_replay() -> ReplayCache {
+        ReplayCache {
+            seen: Mutex::new(HashMap::new()),
+        }
+    }
+
+    fn signed_v2_with_claims(id: u64, nonce: &str, claims: RequestContextClaims) -> Request {
+        let mut req = ping_request(id, "tenant-a-graph", String::new());
+        req.agent_id = Some(claims.agent_id.clone());
+        req.auth_token = compute_verified_envelope_token(
+            SECRET,
+            &req,
+            &VerifiedEnvelopeParams {
+                context: &claims,
+                timestamp: now_secs(),
+                nonce,
+                idempotency_key: "idem-v2",
+            },
         );
+        req
+    }
+
+    fn signed_v2(id: u64, nonce: &str) -> Request {
+        signed_v2_with_claims(id, nonce, verified_claims())
     }
 
     #[test]
-    fn v1_tampered_method_rejected() {
-        let params = base_params("nonce-c");
-        let mut req = signed(1, "g", &params);
-        req.method = Method::Health;
-        assert_eq!(
-            verify_envelope_v1(SECRET, &req),
-            EnvelopeVerdict::BadSignature
-        );
+    fn v2_returns_effective_agent_only_after_context_policy_verifies() {
+        let req = signed_v2(501, "v2-context-ok");
+        let context =
+            verify_envelope_v2_with(SECRET, &req, &verified_policy(), &memory_replay()).unwrap();
+        assert_eq!(context.agent_id(), "agent:planner");
+        assert_eq!(context.claims().tenant, "tenant-a");
+        assert!(context.allows_action("graph:read"));
+        assert!(!context.allows_action("graph:write"));
     }
 
     #[test]
-    fn v1_tampered_body_rejected() {
-        let params = base_params("nonce-body");
-        // Sign over `Method::Ping` (via `signed`'s default), then mutate the
-        // body to a DIFFERENT method+params AFTER signing — simulating an
-        // attacker mutating the request in flight. The body hash is baked
-        // into the MAC, so this must be rejected.
-        let mut req = signed(1, "g", &params);
-        req.method = Method::TouchNodes {
-            node_ids: vec!["a".to_string()],
+    fn v2_coarse_kg_scopes_are_policy_aware_and_admin_safe() {
+        let context_for = |scope: &str, id: u64, nonce: &str| {
+            let mut claims = verified_claims();
+            claims.scopes = vec![scope.into()];
+            let req = signed_v2_with_claims(id, nonce, claims);
+            verify_envelope_v2_with(SECRET, &req, &verified_policy(), &memory_replay()).unwrap()
         };
-        assert_eq!(
-            verify_envelope_v1(SECRET, &req),
-            EnvelopeVerdict::BadSignature
-        );
+
+        let read = context_for("kg:read", 510, "kg-read");
+        assert!(read.allows_method("node:read", false));
+        assert!(!read.allows_method("node:write", true));
+        assert!(!read.allows_method("graph:admin", false));
+
+        let write = context_for("kg:write", 511, "kg-write");
+        assert!(write.allows_method("node:read", false));
+        assert!(write.allows_method("work:write", true));
+        assert!(!write.allows_method("graph:admin", true));
+        assert!(!write.allows_method("service:control", true));
+        assert!(!write.allows_method("security:audit", false));
+        assert!(!write.allows_method("admin:cluster-read", false));
+
+        let admin = context_for("kg:admin", 512, "kg-admin");
+        assert!(admin.allows_method("graph:admin", true));
+        assert!(admin.allows_method("service:control", true));
+
+        let exact = context_for("work:write", 513, "fine-work-write");
+        assert!(exact.allows_method("work:write", true));
+        assert!(!exact.allows_method("node:write", true));
+
+        let wildcard = context_for("graph:*", 514, "graph-wildcard");
+        assert!(wildcard.allows_action("graph:read"));
+        assert!(wildcard.allows_action("graph:node:read"));
+        assert!(!wildcard.allows_action("work:read"));
     }
 
     #[test]
-    fn v1_tampered_tenant_rejected() {
-        let params = base_params("nonce-d");
-        let mut req = signed(1, "g", &params);
-        // Forge a new envelope claiming a different tenant but reusing the
-        // ORIGINAL mac — the mac was computed over "tenant-a", so it must not
-        // verify against "tenant-b".
-        let json = hex::decode(req.auth_token.strip_prefix(ENVELOPE_V1_PREFIX).unwrap()).unwrap();
-        let mut envelope: EnvelopeV1 = serde_json::from_slice(&json).unwrap();
-        envelope.tenant = "tenant-b".to_string();
-        let forged_json = serde_json::to_vec(&envelope).unwrap();
-        req.auth_token = format!("{ENVELOPE_V1_PREFIX}{}", hex::encode(forged_json));
-        assert_eq!(
-            verify_envelope_v1(SECRET, &req),
-            EnvelopeVerdict::BadSignature
-        );
-    }
+    fn identity_bootstrap_requires_exact_self_scope_without_delegation() {
+        let mut claims = verified_claims();
+        claims.scopes = vec!["security:bootstrap".into()];
+        let exact = VerifiedRequestContext::from_verified_claims(claims.clone(), "exact".into());
+        assert!(exact.allows_identity_bootstrap());
 
-    #[test]
-    fn v1_replayed_nonce_rejected() {
-        let params = base_params("nonce-unique-replay-test");
-        let req = signed(42, "replay-graph", &params);
-        assert_eq!(verify_envelope_v1(SECRET, &req), EnvelopeVerdict::Ok);
-        // Same request, same nonce, presented again — must be rejected.
-        assert_eq!(verify_envelope_v1(SECRET, &req), EnvelopeVerdict::Replayed);
-    }
-
-    #[test]
-    fn v1_expired_timestamp_rejected() {
-        let mut params = base_params("nonce-expired");
-        params.timestamp = now_secs().saturating_sub(envelope_skew_secs() + 3600);
-        let req = signed(1, "g", &params);
-        assert_eq!(verify_envelope_v1(SECRET, &req), EnvelopeVerdict::Expired);
-    }
-
-    #[test]
-    fn v1_future_timestamp_beyond_skew_rejected() {
-        let mut params = base_params("nonce-future");
-        params.timestamp = now_secs() + envelope_skew_secs() + 3600;
-        let req = signed(1, "g", &params);
-        assert_eq!(verify_envelope_v1(SECRET, &req), EnvelopeVerdict::Expired);
-    }
-
-    /// (e) the constant-time verification path is genuinely exercised: a
-    /// single-bit flip ANYWHERE in the MAC — including the very last byte —
-    /// is rejected. A short-circuiting `==`-style comparison would still
-    /// catch this (functionally), but this pins the CONTRACT that we go
-    /// through `Mac::verify_slice` (never `==`) by asserting on the internal
-    /// `envelope_mac` + `verify_slice` call directly, matching the
-    /// implementation in `verify_envelope_v1` line for line.
-    #[test]
-    fn v1_constant_time_verify_slice_path_is_used() {
-        let params = base_params("nonce-ct");
-        let req = signed(7, "g", &params);
-        let json = hex::decode(req.auth_token.strip_prefix(ENVELOPE_V1_PREFIX).unwrap()).unwrap();
-        let envelope: EnvelopeV1 = serde_json::from_slice(&json).unwrap();
-        let mut mac_bytes = hex::decode(&envelope.mac).unwrap();
-
-        // Flip the LAST byte — the position a naive short-circuiting
-        // byte-by-byte `==` is most likely to reach last, proving the whole
-        // tag is checked, not a truncated prefix.
-        *mac_bytes.last_mut().unwrap() ^= 0x01;
-        let mac_params = EnvelopeParams {
-            audience: &envelope.audience,
-            tenant: &envelope.tenant,
-            principal: &envelope.principal,
-            timestamp: envelope.timestamp,
-            nonce: &envelope.nonce,
-            idempotency_key: &envelope.idempotency_key,
-        };
-        let mac = envelope_mac(SECRET, &req, &mac_params).unwrap();
+        claims.scopes.push("kg:admin".into());
         assert!(
-            mac.verify_slice(&mac_bytes).is_err(),
-            "Mac::verify_slice must reject a tampered tag"
+            !VerifiedRequestContext::from_verified_claims(claims.clone(), "extra".into())
+                .allows_identity_bootstrap()
         );
-
-        // And the wrong-length case (verify_slice's other rejection path).
-        let mac2 = envelope_mac(SECRET, &req, &mac_params).unwrap();
-        assert!(mac2
-            .verify_slice(&mac_bytes[..mac_bytes.len() - 1])
-            .is_err());
+        claims.scopes.pop();
+        claims.delegation.push("delegate".into());
+        assert!(
+            !VerifiedRequestContext::from_verified_claims(claims.clone(), "delegated".into())
+                .allows_identity_bootstrap()
+        );
+        claims.delegation.clear();
+        claims.principal = "different-principal".into();
+        assert!(
+            !VerifiedRequestContext::from_verified_claims(claims, "not-self".into())
+                .allows_identity_bootstrap()
+        );
     }
 
     #[test]
-    fn v1_garbage_envelope_rejected_not_panicking() {
-        let mut req = ping_request(1, "g", String::new());
-        req.auth_token = format!("{ENVELOPE_V1_PREFIX}not-valid-hex-json");
-        assert_eq!(
-            verify_envelope_v1(SECRET, &req),
-            EnvelopeVerdict::BadSignature
+    fn generated_negative_context_matrix_covers_every_protocol_method() {
+        let denied = VerifiedRequestContext::from_verified_claims(
+            RequestContextClaims {
+                scopes: vec![],
+                ..verified_claims()
+            },
+            "negative-matrix".into(),
         );
-        assert!(verify_request(SECRET, &req).is_err());
+        let mut wrong_tenant = verified_claims();
+        wrong_tenant.tenant = "tenant-b".into();
+        let request = ping_request(599, "tenant-a-graph", String::new());
+
+        for (method, policy, _) in eg_capabilities::ALL_METHODS {
+            assert!(
+                !denied.allows_method(policy.authz_action, policy.mutates),
+                "{method}: a verified context with no scopes must be denied before row access"
+            );
+            let tenant_error = validate_context_claims(&request, &wrong_tenant, &verified_policy())
+                .expect_err("cross-tenant context must fail before dispatch");
+            assert!(
+                tenant_error.contains("tenant"),
+                "{method}: cross-tenant context was not rejected"
+            );
+        }
+        assert!(
+            eg_capabilities::ALL_METHODS.len() >= 350,
+            "negative matrix must track the exhaustive protocol inventory"
+        );
+    }
+
+    #[test]
+    fn v2_rejects_request_agent_that_conflicts_with_signed_context() {
+        let mut req = signed_v2(502, "v2-agent-mismatch");
+        req.agent_id = Some("agent:attacker".into());
+        let error = verify_envelope_v2_with(SECRET, &req, &verified_policy(), &memory_replay())
+            .unwrap_err();
+        assert!(error.contains("agent_id"));
+    }
+
+    #[test]
+    fn v2_rejects_valid_mac_for_wrong_configured_audience() {
+        let mut claims = verified_claims();
+        claims.audience = "other-service".into();
+        let req = signed_v2_with_claims(504, "v2-audience-mismatch", claims);
+        let error = verify_envelope_v2_with(SECRET, &req, &verified_policy(), &memory_replay())
+            .unwrap_err();
+        assert!(error.contains("audience"));
+    }
+
+    #[test]
+    fn v2_rejects_cross_tenant_context_before_dispatch() {
+        let mut claims = verified_claims();
+        claims.tenant = "tenant-b".into();
+        let req = signed_v2_with_claims(505, "v2-tenant-mismatch", claims);
+        let error = verify_envelope_v2_with(SECRET, &req, &verified_policy(), &memory_replay())
+            .unwrap_err();
+        assert!(error.contains("tenant"));
+    }
+
+    #[test]
+    fn v2_rejects_stale_policy_version_before_dispatch() {
+        let mut claims = verified_claims();
+        claims.policy_version = "policy-6".into();
+        let req = signed_v2_with_claims(506, "v2-stale-policy", claims);
+        let error = verify_envelope_v2_with(SECRET, &req, &verified_policy(), &memory_replay())
+            .unwrap_err();
+        assert!(error.contains("policy version"));
+    }
+
+    #[test]
+    fn current_envelope_replay_is_rejected() {
+        let req = signed_v2(503, "v2-replay");
+        let replay = memory_replay();
+        verify_envelope_v2_with(SECRET, &req, &verified_policy(), &replay).unwrap();
+        let error = verify_envelope_v2_with(SECRET, &req, &verified_policy(), &replay).unwrap_err();
+        assert!(error.contains("replay"));
+    }
+
+    fn detached_signature(signer: &str, key: &str, digest: &[u8]) -> String {
+        let mut mac = HmacSha256::new_from_slice(key.as_bytes()).unwrap();
+        mac.update(digest);
+        format!("{signer}:{}", hex::encode(mac.finalize().into_bytes()))
+    }
+
+    #[test]
+    fn multisig_registry_counts_unique_signers_and_binds_exact_digest() {
+        let registry = SignerKeyRegistry {
+            keys: BTreeMap::from([
+                ("signer:a".into(), "key-a".into()),
+                ("signer:b".into(), "key-b".into()),
+            ]),
+        };
+        let context =
+            VerifiedRequestContext::from_verified_claims(verified_claims(), "idem".into());
+        let digest = multisig_mutation_digest(&context, "g", 2, "apply", "MATCH (n) RETURN n");
+        let a = detached_signature("signer:a", "key-a", &digest);
+        let b = detached_signature("signer:b", "key-b", &digest);
+
+        assert_eq!(
+            registry
+                .verified_unique_count(&[a.clone(), a.clone(), b.clone()], &digest)
+                .unwrap(),
+            2
+        );
+        let changed = multisig_mutation_digest(&context, "g", 2, "apply", "MATCH (m) RETURN m");
+        assert!(registry.verify(&a, &changed).is_err());
+    }
+
+    #[test]
+    fn identity_registration_signature_binds_full_identity_record() {
+        let registry = SignerKeyRegistry {
+            keys: BTreeMap::from([("agent:planner".into(), "planner-key".into())]),
+        };
+        let context =
+            VerifiedRequestContext::from_verified_claims(verified_claims(), "register-1".into());
+        let digest = register_identity_digest(
+            &context,
+            "g",
+            "agent:new",
+            &AgentRole::Agent,
+            &["team-a".into()],
+            &["reader".into()],
+        );
+        let signature = detached_signature("agent:planner", "planner-key", &digest);
+        assert_eq!(
+            registry.verify(&signature, &digest).unwrap(),
+            "agent:planner"
+        );
+
+        let changed = register_identity_digest(
+            &context,
+            "g",
+            "agent:new",
+            &AgentRole::System,
+            &["team-a".into()],
+            &["reader".into()],
+        );
+        assert!(registry.verify(&signature, &changed).is_err());
+    }
+
+    #[test]
+    fn native_sql_authority_is_keyed_opaque_and_protocol_bound() {
+        let pg = VerifiedRequestContext::authenticated_sql_wire_actor(
+            "secret-a",
+            "pgwire",
+            "local-login",
+        )
+        .unwrap();
+        let mysql = VerifiedRequestContext::authenticated_sql_wire_actor(
+            "secret-a",
+            "mysql-wire",
+            "local-login",
+        )
+        .unwrap();
+        let other_key = VerifiedRequestContext::authenticated_sql_wire_actor(
+            "secret-b",
+            "pgwire",
+            "local-login",
+        )
+        .unwrap();
+
+        assert_eq!(pg.agent_id(), "local-login");
+        assert!(!pg.principal().contains("local-login"));
+        assert_ne!(pg.principal(), mysql.principal());
+        assert_ne!(pg.principal(), other_key.principal());
+        assert!(VerifiedRequestContext::authenticated_sql_wire_actor(
+            "secret-a",
+            "unknown-wire",
+            "local-login"
+        )
+        .is_err());
+        assert!(
+            VerifiedRequestContext::authenticated_sql_wire_actor("secret-a", "pgwire", "").is_err()
+        );
     }
 }

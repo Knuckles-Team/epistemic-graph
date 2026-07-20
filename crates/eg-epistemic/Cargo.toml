@@ -2,7 +2,7 @@
 name = "eg-epistemic"
 version = "0.1.0"
 edition = "2021"
-authors = ["Audel Rouhi <knucklessg1@gmail.com>"]
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
 description = "Engine-native epistemic layer (claims, evidence, belief-state, contradiction, confidence propagation, justification) for the epistemic-graph engine"
 license = "MIT"
 
@@ -21,6 +21,8 @@ eg-compute = { path = "../eg-compute", features = ["reasoning"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 rmp-serde = "1.3"
+sha2 = "0.10"
+hex = "0.4"
 
 # Only pulled in behind the `epistemic-tms` feature — logs when the preferred/stable
 # extension search hits its documented argument-count or branch-node cap (see
@@ -40,7 +42,7 @@ default = []
 # semantics (grounded/preferred/stable extensions) over the bipolar support/attack
 # BeliefGraph, plus dependency-directed retraction. Opt-in and heavier (NP-hard-in-the-
 # worst-case preferred/stable search) than the default confidence-propagation core.
-epistemic-tms = ["dep:tracing"]
+epistemic-tms = ["dep:tracing", "eg-types/epistemic"]
 # ModalityContract retrofit (CONCEPT:E4): `impl ModalityContract for BeliefState` +
 # the `modality_conformance_tests!` battery — the reference "does everything"
 # implementation (real provenance/policy_labels/analytics_ops overrides). OFF by
@@ -68,10 +70,10 @@ epistemic-causal = []
 epistemic-redaction = ["eg-core/security"]
 # X-1 (CONCEPT:EG-X1) — the multimodal evidence-graph spine + citation resolver:
 # lets an `:Evidence` node (the SAME typed-node-by-convention `:Claim`/`:Evidence`
-# shape this crate's own module docs describe) carry an OPTIONAL located
-# `eg_modality::EvidenceSpan` locus (`evidence_span` property) plus the
-# `AssetOccurrence`/`Blob` identity it was extracted from (`occurrence_id`/
-# `blob_ref` properties) — decoded off the SAME per-node msgpack blob
+# shape this crate's own module docs describe) carry one complete, governed
+# `eg_modality::EvidenceLocus` (`evidence_locus` property). The locus contains its
+# opaque identity, typed subject, validated address, policy, and derivation refs and
+# is decoded off the SAME per-node msgpack blob
 # `BeliefGraph::from_graph_view` already reads `confidence`/bitemporal from (one
 # decode pass, no second graph walk). `evidence_citations`/`resolve_locus`/
 # `justification_citations` (`src/evidence.rs`) turn that into the citation list

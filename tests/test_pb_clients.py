@@ -23,6 +23,7 @@ import time
 from typing import Any
 
 import pytest
+from conftest import request_context
 
 from epistemic_graph.client import (
     AdminClient,
@@ -67,7 +68,10 @@ _CANNED: dict[str, Any] = {
     "StreamCommittedOffset": 5,
     "RbacAdmin": "grant_added",
     "Backup": {"nodes": 10, "shards": 1},
-    "Restore": {"staged_dir": "/tmp/eg.restored-1"},
+    "Restore": {
+        "stage_ref": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "restored_shards": 2,
+    },
     "NlQuery": [{"id": "n1"}],
 }
 
@@ -207,18 +211,21 @@ async def test_admin_and_nl_wire_shapes() -> None:
     admin = AdminClient(fake)  # type: ignore[arg-type]
     q = QueryClient(fake)  # type: ignore[arg-type]
 
-    rep = await admin.backup("/tmp/bundle", label="nightly")
-    res = await admin.restore("/tmp/bundle")
+    rep = await admin.backup("scheduled-001", label="nightly")
+    res = await admin.restore("scheduled-001", target_shards=2)
     rows = await q.nl_query("all agents that cite paper X", graph="agent:planner")
 
     by = {m: (p, g) for m, p, g in fake.sent}
-    assert by["Backup"][0] == {"destination": "/tmp/bundle", "label": "nightly"}
-    assert by["Restore"][0] == {"source": "/tmp/bundle"}
+    assert by["Backup"][0] == {"destination": "scheduled-001", "label": "nightly"}
+    assert by["Restore"][0] == {"source": "scheduled-001", "target_shards": 2}
     # NlQuery carries the text in params and the target graph in the envelope.
     assert by["NlQuery"][0] == {"text": "all agents that cite paper X"}
     assert by["NlQuery"][1] == "agent:planner"
     assert rep == {"nodes": 10, "shards": 1}
-    assert res == {"staged_dir": "/tmp/eg.restored-1"}
+    assert res == {
+        "stage_ref": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "restored_shards": 2,
+    }
     assert rows == [{"id": "n1"}]
 
 
@@ -237,9 +244,7 @@ _LIVE_GRAPH = "pb_clients_live_test"
 def live_client():
     """A connected sync client on a dedicated graph, or a clean skip if the ephemeral
     engine never came up within the readiness window."""
-    socket_path = os.environ.get(
-        "GRAPH_SERVICE_SOCKET", "/tmp/test_epistemic_graph_local.sock"
-    )
+    socket_path = os.environ["GRAPH_SERVICE_SOCKET"]
     secret = os.environ.get("GRAPH_SERVICE_AUTH_SECRET", "")
     deadline = time.time() + 45.0
     client = None
@@ -247,7 +252,10 @@ def live_client():
         if os.path.exists(socket_path):
             try:
                 client = SyncEpistemicGraphClient.connect(
-                    socket_path=socket_path, auth_secret=secret, graph_name=_LIVE_GRAPH
+                    socket_path=socket_path,
+                    auth_secret=secret,
+                    graph_name=_LIVE_GRAPH,
+                    verified_context=request_context(),
                 )
                 client.ping()
                 break

@@ -1,0 +1,44 @@
+{
+  "schema_version": "1",
+  "profile": {
+    "transport": "private_uds",
+    "durability": "redb_authoritative",
+    "redb_shards": 1,
+    "max_inflight": 256,
+    "max_inflight_per_graph": 64,
+    "reserved_read_slots": 32,
+    "rpc_timeout_seconds": 30,
+    "heavy_rpc_timeout_seconds": 120,
+    "request_authority": "eg2_verified",
+    "optional_listeners": "disabled"
+  },
+  "metrics": {
+    "cold_start_ready_ms": {"unit": "milliseconds", "maximum": 30000},
+    "routing_latency_p50_ms": {"unit": "milliseconds", "maximum": 10},
+    "routing_latency_p99_ms": {"unit": "milliseconds", "maximum": 100},
+    "routing_throughput_ops_per_second": {"unit": "operations_per_second", "minimum": 100},
+    "ingest_batch_latency_p50_ms": {"unit": "milliseconds", "maximum": 3000},
+    "ingest_batch_latency_p99_ms": {"unit": "milliseconds", "maximum": 10000},
+    "ingest_throughput_ops_per_second": {"unit": "operations_per_second", "minimum": 100},
+    "point_query_latency_p50_ms": {"unit": "milliseconds", "maximum": 50},
+    "point_query_latency_p99_ms": {"unit": "milliseconds", "maximum": 300},
+    "point_query_throughput_rows_per_second": {"unit": "rows_per_second", "minimum": 500},
+    "analytics_query_latency_p99_ms": {"unit": "milliseconds", "maximum": 5000},
+    "job_submit_latency_p99_ms": {"unit": "milliseconds", "maximum": 2000},
+    "job_completion_latency_p99_ms": {"unit": "milliseconds", "maximum": 30000},
+    "job_throughput_jobs_per_second": {"unit": "jobs_per_second", "minimum": 0.03},
+    "modality_capability_latency_p99_ms": {"unit": "milliseconds", "maximum": 3000},
+    "modality_ingest_latency_p99_ms": {"unit": "milliseconds", "maximum": 5000},
+    "modality_query_latency_p99_ms": {"unit": "milliseconds", "maximum": 1000},
+    "modality_throughput_ops_per_second": {"unit": "operations_per_second", "minimum": 1},
+    "memory_ready_rss_mib": {"unit": "mebibytes", "maximum": 2048},
+    "memory_peak_rss_mib": {"unit": "mebibytes", "maximum": 4096},
+    "memory_growth_rss_mib": {"unit": "mebibytes", "maximum": 2048}
+  },
+  "complexity": {
+    "routing_state_growth_ratio": {"unit": "ratio", "maximum": 6},
+    "point_query_state_growth_ratio": {"unit": "ratio", "maximum": 6},
+    "fixed_batch_ingest_state_growth_ratio": {"unit": "ratio", "maximum": 8},
+    "modality_index_growth_ratio": {"unit": "ratio", "maximum": 8}
+  }
+}

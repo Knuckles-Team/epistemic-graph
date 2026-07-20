@@ -12,16 +12,14 @@
 //! already derives `Clone + Debug + PartialEq + Serialize + Deserialize`, so it needs
 //! no new bounds to satisfy `ConformanceTestable`.
 //!
-//! [`Span`] is the X1 (multimodal-evidence) reference case for `evidence()`: a
-//! distributed-tracing span already carries its own real `trace_id`/`span_id` —
-//! exactly the identity `EvidenceSpan::TraceSpan` wants — so this maps it losslessly
-//! rather than leaving the default `None`. It already derives `PartialEq`, so it too
-//! needs no new bounds for `ConformanceTestable`.
+//! [`Span`] contributes a trace address only when both distributed-tracing ids are
+//! valid opaque tokens. It already derives `PartialEq`, so it needs no new bounds
+//! for `ConformanceTestable`.
 
 use eg_modality::{
-    decode_staged, encode_staged, ConformanceTestable, EvidenceSpan, IngestReport,
-    ModalityContract, ModalitySelfTest, Provenance, RowSetShape, StagedWrite, StorageStats,
-    TckPoint,
+    decode_staged, encode_staged, ConformanceTestable, EvidenceAddress, IngestReport,
+    ModalityContract, ModalitySelfTest, OpaqueRef, Provenance, RowSetShape, StagedWrite,
+    StorageStats, TckPoint,
 };
 
 use crate::store::SeriesMeta;
@@ -64,7 +62,7 @@ impl ModalityContract for SeriesMeta {
     }
 
     /// No located-evidence concept applies to bare series metadata — default `None`.
-    fn evidence(&self, _id: &str) -> Option<EvidenceSpan> {
+    fn evidence_address(&self) -> Option<EvidenceAddress> {
         None
     }
 
@@ -197,14 +195,10 @@ impl ModalityContract for Span {
         None
     }
 
-    /// The X1 reference `evidence()`: a span's `trace_id`/`span_id` pair IS its own
-    /// located identity — "observed during this trace span" — mapping losslessly
-    /// onto `EvidenceSpan::TraceSpan`, ignoring the caller-supplied `id` (the span
-    /// already carries its own two-part identity, exact and self-sufficient).
-    fn evidence(&self, _id: &str) -> Option<EvidenceSpan> {
-        Some(EvidenceSpan::TraceSpan {
-            trace_id: self.trace_id.clone(),
-            span_id: self.span_id.clone(),
+    fn evidence_address(&self) -> Option<EvidenceAddress> {
+        Some(EvidenceAddress::TraceSpan {
+            trace_ref: OpaqueRef::scoped("trace", &self.trace_id).ok()?,
+            span_ref: OpaqueRef::scoped("span", &self.span_id).ok()?,
         })
     }
 
@@ -281,8 +275,8 @@ impl ModalityContract for Span {
 impl ConformanceTestable for Span {
     fn conformance_sample() -> Self {
         Span {
-            trace_id: "trace-1".to_string(),
-            span_id: "span-1".to_string(),
+            trace_id: "0123456789abcdef0123456789abcdef".to_string(),
+            span_id: "0123456789abcdef".to_string(),
             parent_span_id: String::new(),
             service: "gateway".to_string(),
             operation: "GET /".to_string(),
@@ -310,9 +304,7 @@ mod span_conformance {
     eg_modality::modality_conformance_tests!(Span);
 }
 
-// A direct test of the `evidence()` mapping itself, beyond the generic
-// "never panics" conformance check — the load-bearing proof that a `Span`'s own
-// trace_id/span_id maps losslessly onto `EvidenceSpan::TraceSpan` (X1).
+// A direct test of the governed evidence-address mapping itself.
 #[cfg(test)]
 mod span_evidence {
     use super::*;
@@ -321,13 +313,13 @@ mod span_evidence {
     fn maps_trace_and_span_id_losslessly() {
         let span = Span::conformance_sample();
         let ev = span
-            .evidence("ignored")
+            .evidence_address()
             .expect("an observed Span always has evidence");
         assert_eq!(
             ev,
-            EvidenceSpan::TraceSpan {
-                trace_id: "trace-1".to_string(),
-                span_id: "span-1".to_string(),
+            EvidenceAddress::TraceSpan {
+                trace_ref: OpaqueRef::scoped("trace", "0123456789abcdef0123456789abcdef").unwrap(),
+                span_ref: OpaqueRef::scoped("span", "0123456789abcdef").unwrap(),
             }
         );
     }

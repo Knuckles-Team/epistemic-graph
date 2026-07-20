@@ -1,14 +1,14 @@
-//! Keycloak JWT validation for the KV-cache HTTP surface (CONCEPT:EG-KG.backend.is-configured-so-co).
+//! OIDC JWT validation for the KV-cache HTTP surface (CONCEPT:EG-KG.backend.is-configured-so-co).
 //!
-//! Pairs the KV surface's auth with the platform's OVERALL auth (the same Keycloak
+//! Pairs the KV surface's auth with the platform's overall auth (the same OIDC
 //! client-credentials tokens graph-os validates inbound and mints outbound for the
-//! `*-mcp` fleet) instead of a separate/static mechanism. A client (the
-//! `EpistemicGraphKVBackend` connector, vLLM/LMCache) presents a Keycloak access
+//! MCP fleet) instead of a separate/static mechanism. A client (the
+//! `EpistemicGraphKVBackend` connector, vLLM/LMCache) presents an OIDC access
 //! token as `Authorization: Bearer <jwt>`; we verify its RSA signature against the
 //! realm's JWKS, plus issuer, audience, and expiry.
 //!
 //! Only compiled under `--features kvcache-server` (never a `pi` build), which is
-//! also where the `ureq`/rustls + `jsonwebtoken`/ring crypto stack lives — so the
+//! also where the `ureq`/rustls + `jsonwebtoken`/aws-lc-rs crypto stack lives — so the
 //! Pi contract (no ring/rustls in `pi`) is preserved.
 //!
 //! JWKS keys are primed once at startup and lazily re-fetched on a `kid` miss so a
@@ -34,7 +34,8 @@ const AUDIENCE_ENVS: &[&str] = &[
     "FASTMCP_SERVER_AUTH_JWT_AUDIENCE",
     "OIDC_AUDIENCE",
 ];
-/// Env: explicit JWKS URL override (else derived from the issuer, Keycloak layout).
+/// Env: explicit JWKS URL. Discovery and vendor-specific URL construction belong at
+/// the deployment boundary; the engine never guesses an identity-provider layout.
 const JWKS_URL_ENV: &str = "EPISTEMIC_GRAPH_KVCACHE_JWKS_URL";
 
 fn env_first(names: &[&str]) -> Option<String> {
@@ -62,9 +63,6 @@ pub struct JwtValidator {
 impl std::fmt::Debug for JwtValidator {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("JwtValidator")
-            .field("issuer", &self.issuer)
-            .field("audience", &self.audience)
-            .field("jwks_url", &self.jwks_url)
             .field(
                 "cached_kids",
                 &self.keys.read().map(|m| m.len()).unwrap_or(0),
@@ -73,18 +71,34 @@ impl std::fmt::Debug for JwtValidator {
     }
 }
 
+fn configured_identity(
+    issuer: Option<String>,
+    audience: Option<String>,
+    jwks_url: Option<String>,
+) -> Result<Option<(String, String, String)>, String> {
+    let Some(issuer) = issuer else {
+        return Ok(None);
+    };
+    let audience = audience
+        .ok_or_else(|| "kvcache JWT issuer requires an explicit configured audience".to_string())?;
+    let jwks_url = jwks_url
+        .ok_or_else(|| "kvcache JWT issuer requires an explicit configured JWKS URL".to_string())?;
+    Ok(Some((issuer, audience, jwks_url)))
+}
+
 impl JwtValidator {
-    /// Build from the environment. Returns `None` (⇒ JWT mode off, fall back to the
-    /// static-token guard) unless an issuer is configured.
-    pub fn from_env() -> Option<Self> {
-        let issuer = env_first(ISSUER_ENVS)?;
-        let audience = env_first(AUDIENCE_ENVS).unwrap_or_else(|| "agent-services".to_string());
-        let jwks_url = env_first(&[JWKS_URL_ENV]).unwrap_or_else(|| {
-            format!(
-                "{}/protocol/openid-connect/certs",
-                issuer.trim_end_matches('/')
-            )
-        });
+    /// Build from the environment. No issuer means JWT mode is not selected. Once
+    /// an issuer is present, audience and JWKS URL are mandatory and any incomplete
+    /// configuration is an error rather than a deployment-specific fallback.
+    pub fn from_env() -> Result<Option<Self>, String> {
+        let Some((issuer, audience, jwks_url)) = configured_identity(
+            env_first(ISSUER_ENVS),
+            env_first(AUDIENCE_ENVS),
+            env_first(&[JWKS_URL_ENV]),
+        )?
+        else {
+            return Ok(None);
+        };
         let v = JwtValidator {
             issuer,
             audience,
@@ -93,21 +107,12 @@ impl JwtValidator {
         };
         // Prime the key cache once; a failure here is non-fatal (validate() re-fetches
         // on demand) but we log it so a misconfigured JWKS URL is visible at boot.
-        if let Err(e) = v.refresh() {
-            tracing::warn!(
-                "kvcache-server: JWKS prime failed ({}) for {} — will retry on first token",
-                e,
-                v.jwks_url
-            );
+        if v.refresh().is_err() {
+            tracing::warn!("kvcache-server: JWKS prime failed; will retry on first token");
         } else {
-            tracing::info!(
-                "kvcache-server: JWT auth armed (issuer={}, audience={}, jwks={})",
-                v.issuer,
-                v.audience,
-                v.jwks_url
-            );
+            tracing::info!("kvcache-server: JWT auth armed");
         }
-        Some(v)
+        Ok(Some(v))
     }
 
     /// Fetch the realm JWKS and rebuild the `kid -> DecodingKey` cache.
@@ -181,5 +186,33 @@ impl JwtValidator {
             Some(key) => decode::<Claims>(token, key, &validation).is_ok(),
             None => false,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::configured_identity;
+
+    #[test]
+    fn jwt_configuration_is_absent_without_an_issuer() {
+        assert_eq!(configured_identity(None, None, None).unwrap(), None);
+    }
+
+    #[test]
+    fn jwt_configuration_requires_explicit_audience_and_jwks() {
+        let issuer = Some("https://identity.example.test".to_string());
+        assert!(configured_identity(issuer.clone(), None, None).is_err());
+        assert!(configured_identity(issuer, Some("runtime-audience".to_string()), None).is_err());
+    }
+
+    #[test]
+    fn jwt_configuration_accepts_a_complete_provider_neutral_contract() {
+        let configured = configured_identity(
+            Some("https://identity.example.test".to_string()),
+            Some("runtime-audience".to_string()),
+            Some("https://identity.example.test/keys".to_string()),
+        )
+        .unwrap();
+        assert!(configured.is_some());
     }
 }

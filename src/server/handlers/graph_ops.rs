@@ -8,7 +8,7 @@
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use super::super::access::check_graph_access;
+use super::super::access::{check_graph_access, requires_write, GraphReadAuthority};
 use super::super::compute::{compute_off_lock, weight_semantic_results};
 use super::super::mutation::{self, GatewayAuthzCtx, MutationCtx, MutationPlan};
 use super::super::persistence::PersistenceBackend;
@@ -27,7 +27,7 @@ use crate::protocol::{Method, Response, ResultPayload};
 /// fails the whole union.
 async fn resolve_union_cores(
     state: &Arc<RwLock<ServerState>>,
-    caller: Option<&str>,
+    read_authority: &GraphReadAuthority,
     graphs: &[String],
 ) -> Result<Vec<Arc<GraphCore>>, String> {
     let s = state.read().await;
@@ -39,7 +39,7 @@ async fn resolve_union_cores(
         };
         check_graph_access(
             &s.isolation,
-            caller,
+            read_authority.actor(),
             name,
             entry.graph_type,
             entry.owner.as_deref(),
@@ -47,7 +47,11 @@ async fn resolve_union_cores(
         )?;
         cores.push(entry.core.clone());
     }
-    Ok(cores)
+    drop(s);
+    Ok(cores
+        .iter()
+        .map(|core| read_authority.project_core(core))
+        .collect())
 }
 
 /// Intelligent overload backstop for the `GetNodes` full-graph dump
@@ -55,12 +59,11 @@ async fn resolve_union_cores(
 /// returns `Some(error_message)` when the dump would exceed the cap (so the
 /// handler can refuse with a typed `RESULT_TOO_LARGE` error instead of building
 /// a gigabyte-scale frame that resets the client connection), or `None` when the
-/// dump is within bounds and safe to materialize. A `cap` of `0` disables the
-/// guard entirely (the unbounded legacy behavior, for an operator who opts in via
-/// `EPISTEMIC_GRAPH_MAX_RESPONSE_NODES=0`). Pure + side-effect-free so the
-/// threshold logic is unit-tested directly, independent of process-global env.
+/// dump is within bounds and safe to materialize. The cap is always positive in
+/// served state and cannot be disabled. Pure + side-effect-free so the threshold
+/// logic is unit-tested directly, independent of process-global env.
 fn oversize_dump_error(count: usize, cap: usize) -> Option<String> {
-    if cap != 0 && count > cap {
+    if count > cap {
         Some(format!(
             "RESULT_TOO_LARGE: GetNodes would return {count} nodes (> cap {cap}); \
              the full-graph dump is refused to protect the connection. Use a \
@@ -78,10 +81,23 @@ fn oversize_dump_error(count: usize, cap: usize) -> Option<String> {
 /// a caller may omit props entirely — the eg-core primitive injects the structural
 /// markers regardless. Mirrors the `CompareAndSetNodeFields` blob-decode discipline.
 fn decode_json_object(blob: &[u8]) -> serde_json::Map<String, serde_json::Value> {
-    match rmp_serde::from_slice::<serde_json::Value>(blob) {
-        Ok(serde_json::Value::Object(o)) => o,
-        _ => serde_json::Map::new(),
-    }
+    eg_types::msgpack::decode_property_object(blob).unwrap_or_default()
+}
+
+/// Keep the mutation kernel behind a heap indirection so this module's large
+/// gateway match does not embed one copy of the kernel future in every arm.
+/// Without this boundary the generated `try_handle_gateway` future exceeds
+/// Tokio's default worker-thread stack on ordinary mutation requests.
+async fn commit_gateway<F>(
+    ctx: &MutationCtx<'_>,
+    plan: &MutationPlan,
+    method: &Method,
+    apply: F,
+) -> Response
+where
+    F: FnOnce(&GraphCore) -> Result<ResultPayload, String>,
+{
+    Box::pin(mutation::commit_mutation(ctx, plan, method, apply)).await
 }
 
 /// Read a node's human-readable `(name, description, type)` triple from its
@@ -268,13 +284,13 @@ fn discover(
 /// and scale to unit). Keeps the `eg-types` wire crate free of the eg-core scene
 /// dependency — the Pose lives only handler-side.
 fn decode_pose(blob: &[u8]) -> Option<eg_core::scene::Pose> {
-    let val = rmp_serde::from_slice::<serde_json::Value>(blob).ok()?;
+    let val = eg_types::msgpack::decode_property_value(blob).ok()?;
     eg_core::scene::Pose::from_json(&val)
 }
 
 /// Route a [`mutation::GATEWAY_ROUTED`] method through the single commit gateway
 /// (CONCEPT:EG-P0-2). Called from `dispatch_graph_op` AHEAD of both the write-
-/// coalescer and the legacy per-method arms below, so a routed method NEVER falls
+/// coalescer and the terminal exhaustive match below, so a routed method NEVER falls
 /// through to `g.add_node(...)` etc. directly — the only path left for it is this
 /// one, which builds a [`MutationPlan`] straight from `eg_capabilities::policy` and
 /// calls [`mutation::commit_mutation`]. A method NOT in the routed set is handed
@@ -284,10 +300,14 @@ fn decode_pose(blob: &[u8]) -> Option<eg_core::scene::Pose> {
 pub(crate) async fn try_handle_gateway(
     req_id: u64,
     caller: Option<&str>,
+    tenant_scope: &str,
     graph_name: &str,
     core: &Arc<GraphCore>,
+    materialization_manifest: Option<
+        &Arc<std::sync::RwLock<crate::registry::MaterializationManifest>>,
+    >,
+    read_authority: Option<&GraphReadAuthority>,
     persistence: Option<&Arc<dyn PersistenceBackend>>,
-    redb_authoritative: bool,
     #[cfg(feature = "streaming")] cdc: Option<&Arc<crate::server::cdc::CdcHub>>,
     write_coalescer: Option<&Arc<crate::write_coalescer::WriteCoalescerRegistry>>,
     authz_ctx: Option<&GatewayAuthzCtx>,
@@ -298,8 +318,7 @@ pub(crate) async fn try_handle_gateway(
     }
     // L11 batch 4: the query surface (`Sql`/`CypherQuery`/`GraphQl`) and the native
     // RDF write surface (`AddTriples`/`RemoveTriples`/`DropNamedGraph`) ARE
-    // `GATEWAY_ROUTED`, but their execution is `async` and needs `state`/`rls` (and,
-    // for RDF, the optional `rdf-redb` quad store) that this graph-ops entry point
+    // `GATEWAY_ROUTED`, but their execution is `async` and needs `state`/`rls` that this graph-ops entry point
     // does not carry — so they are routed via `commit_conditional_mutation_async` at
     // their OWN dispatch sites in `dispatch.rs`. Hand them back here so they reach
     // those sites; the `record_method`/`cdc_*` gating in `dispatch.rs` already keys
@@ -307,6 +326,23 @@ pub(crate) async fn try_handle_gateway(
     if mutation::is_query_gateway_method(&method) || mutation::is_rdf_gateway_method(&method) {
         return Err(method);
     }
+    // Runtime-conditional gateway methods may be reads (`writeback = false`).
+    // Give those closures a detached, row-filtered core; writes ignore any read
+    // authority and must keep operating on the authoritative graph. This is
+    // deliberately after both hand-back checks above, so SQL/RDF reads retain
+    // their existing snapshot-level RLS path without paying for a second copy.
+    let mutates = requires_write(&method);
+    let projected_core = if mutates {
+        None
+    } else {
+        read_authority.map(|authority| authority.project_core(core))
+    };
+    let selected_core = projected_core.as_ref().unwrap_or(core);
+    debug_assert!(
+        !mutates || Arc::ptr_eq(selected_core, core),
+        "mutation gateway must retain the authoritative serving projection"
+    );
+    let core = selected_core;
     let (isolation, graph_type, owner) = authz_ctx.expect(
         "dispatch_graph_op must capture a GatewayAuthzCtx for every mutation::is_gateway_routed method",
     );
@@ -314,15 +350,16 @@ pub(crate) async fn try_handle_gateway(
     let ctx = MutationCtx {
         req_id,
         caller,
+        tenant_scope,
         graph_name,
         graph_type: *graph_type,
         owner: owner.as_deref(),
         isolation,
         core,
         persistence,
-        redb_authoritative,
         #[cfg(feature = "streaming")]
         cdc,
+        materialization_manifest,
         write_coalescer,
     };
     let resp = match &method {
@@ -331,15 +368,27 @@ pub(crate) async fn try_handle_gateway(
             properties_msgpack,
         } => {
             let (node_id, properties_msgpack) = (node_id.clone(), properties_msgpack.clone());
-            mutation::commit_mutation(&ctx, &plan, &method, move |core| {
+            commit_gateway(&ctx, &plan, &method, move |core| {
                 core.add_node(node_id, properties_msgpack);
                 Ok(ResultPayload::String("ok".to_string()))
             })
             .await
         }
+        Method::CreateNodeIfAbsent {
+            node_id,
+            properties_msgpack,
+        } => {
+            let (node_id, properties_msgpack) = (node_id.clone(), properties_msgpack.clone());
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                Ok(ResultPayload::Bool(
+                    core.create_node_if_absent(node_id, properties_msgpack),
+                ))
+            })
+            .await
+        }
         Method::RemoveNode { node_id } => {
             let node_id = node_id.clone();
-            mutation::commit_mutation(&ctx, &plan, &method, move |core| {
+            commit_gateway(&ctx, &plan, &method, move |core| {
                 core.remove_node(node_id);
                 Ok(ResultPayload::String("ok".to_string()))
             })
@@ -355,7 +404,7 @@ pub(crate) async fn try_handle_gateway(
                 target_id.clone(),
                 properties_msgpack.clone(),
             );
-            mutation::commit_mutation(&ctx, &plan, &method, move |core| {
+            commit_gateway(&ctx, &plan, &method, move |core| {
                 core.add_edge(source_id, target_id, properties_msgpack)
                     .map(|()| ResultPayload::String("ok".to_string()))
                     .map_err(|e| e.to_string())
@@ -367,7 +416,7 @@ pub(crate) async fn try_handle_gateway(
             target_id,
         } => {
             let (source_id, target_id) = (source_id.clone(), target_id.clone());
-            mutation::commit_mutation(&ctx, &plan, &method, move |core| {
+            commit_gateway(&ctx, &plan, &method, move |core| {
                 core.remove_edge(source_id, target_id);
                 Ok(ResultPayload::String("ok".to_string()))
             })
@@ -380,7 +429,7 @@ pub(crate) async fn try_handle_gateway(
         } => {
             let (level, child_ids, props_msgpack) =
                 (*level, child_ids.clone(), props_msgpack.clone());
-            mutation::commit_mutation(&ctx, &plan, &method, move |core| {
+            commit_gateway(&ctx, &plan, &method, move |core| {
                 let props = decode_json_object(&props_msgpack);
                 let id = core.create_summary_node(level, &child_ids, props);
                 Ok(ResultPayload::String(id))
@@ -393,7 +442,7 @@ pub(crate) async fn try_handle_gateway(
         } => {
             let (episodic_ids, semantic_props_msgpack) =
                 (episodic_ids.clone(), semantic_props_msgpack.clone());
-            mutation::commit_mutation(&ctx, &plan, &method, move |core| {
+            commit_gateway(&ctx, &plan, &method, move |core| {
                 let props = decode_json_object(&semantic_props_msgpack);
                 let id = core.consolidate(&episodic_ids, props);
                 Ok(ResultPayload::String(id))
@@ -406,7 +455,7 @@ pub(crate) async fn try_handle_gateway(
             weight,
         } => {
             let (node_id, now_ms, weight) = (node_id.clone(), *now_ms, *weight);
-            mutation::commit_mutation(&ctx, &plan, &method, move |core| {
+            commit_gateway(&ctx, &plan, &method, move |core| {
                 let existed = core.reinforce(&node_id, now_ms, weight);
                 Ok(ResultPayload::Bool(existed))
             })
@@ -423,18 +472,13 @@ pub(crate) async fn try_handle_gateway(
                 conditions_msgpack.clone(),
                 updates_msgpack.clone(),
             );
-            mutation::commit_mutation(&ctx, &plan, &method, move |core| {
-                let conditions = match rmp_serde::from_slice::<
-                    serde_json::Map<String, serde_json::Value>,
-                >(&conditions_msgpack)
-                {
-                    Ok(m) => m,
-                    Err(_) => return Ok(ResultPayload::Bool(false)),
-                };
-                let updates = match rmp_serde::from_slice::<
-                    serde_json::Map<String, serde_json::Value>,
-                >(&updates_msgpack)
-                {
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                let conditions =
+                    match eg_types::msgpack::decode_property_object(&conditions_msgpack) {
+                        Ok(m) => m,
+                        Err(_) => return Ok(ResultPayload::Bool(false)),
+                    };
+                let updates = match eg_types::msgpack::decode_property_object(&updates_msgpack) {
                     Ok(m) => m,
                     Err(_) => return Ok(ResultPayload::Bool(false)),
                 };
@@ -448,11 +492,8 @@ pub(crate) async fn try_handle_gateway(
             updates_msgpack,
         } => {
             let (label, updates_msgpack) = (label.clone(), updates_msgpack.clone());
-            mutation::commit_mutation(&ctx, &plan, &method, move |core| {
-                let updates = match rmp_serde::from_slice::<
-                    serde_json::Map<String, serde_json::Value>,
-                >(&updates_msgpack)
-                {
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                let updates = match eg_types::msgpack::decode_property_object(&updates_msgpack) {
                     Ok(m) => m,
                     Err(_) => {
                         return Ok(ResultPayload::raw(
@@ -471,7 +512,7 @@ pub(crate) async fn try_handle_gateway(
             half_life_ms,
         } => {
             let (node_id, now_ms, half_life_ms) = (node_id.clone(), *now_ms, *half_life_ms);
-            mutation::commit_mutation(&ctx, &plan, &method, move |core| {
+            commit_gateway(&ctx, &plan, &method, move |core| {
                 let acted = core.decay_node(&node_id, now_ms, half_life_ms);
                 Ok(ResultPayload::Bool(acted))
             })
@@ -483,7 +524,7 @@ pub(crate) async fn try_handle_gateway(
             ids,
         } => {
             let (now_ms, half_life_ms, ids) = (*now_ms, *half_life_ms, ids.clone());
-            mutation::commit_mutation(&ctx, &plan, &method, move |core| {
+            commit_gateway(&ctx, &plan, &method, move |core| {
                 let n = core.decay_memories(now_ms, half_life_ms, &ids);
                 Ok(ResultPayload::Count(n as u64))
             })
@@ -495,7 +536,7 @@ pub(crate) async fn try_handle_gateway(
             delete,
         } => {
             let (ids, threshold, delete) = (ids.clone(), *threshold, *delete);
-            mutation::commit_mutation(&ctx, &plan, &method, move |core| {
+            commit_gateway(&ctx, &plan, &method, move |core| {
                 let pruned = core.evict_below(&ids, threshold, delete);
                 Ok(ResultPayload::Ids(pruned))
             })
@@ -515,7 +556,7 @@ pub(crate) async fn try_handle_gateway(
                 *evict_threshold,
                 *delete,
             );
-            mutation::commit_mutation(&ctx, &plan, &method, move |core| {
+            commit_gateway(&ctx, &plan, &method, move |core| {
                 let out = core.maintain(&ids, now_ms, half_life_ms, evict_threshold, delete);
                 Ok(ResultPayload::raw(&out))
             })
@@ -526,7 +567,7 @@ pub(crate) async fn try_handle_gateway(
             parent,
         } => {
             let (pose_msgpack, parent) = (pose_msgpack.clone(), parent.clone());
-            mutation::commit_mutation(&ctx, &plan, &method, move |core| {
+            commit_gateway(&ctx, &plan, &method, move |core| {
                 let Some(pose) = decode_pose(&pose_msgpack) else {
                     return Err("AddSceneObject: undecodable pose_msgpack".to_string());
                 };
@@ -540,7 +581,7 @@ pub(crate) async fn try_handle_gateway(
             pose_msgpack,
         } => {
             let (node_id, pose_msgpack) = (node_id.clone(), pose_msgpack.clone());
-            mutation::commit_mutation(&ctx, &plan, &method, move |core| {
+            commit_gateway(&ctx, &plan, &method, move |core| {
                 let Some(pose) = decode_pose(&pose_msgpack) else {
                     return Err("SetPose: undecodable pose_msgpack".to_string());
                 };
@@ -554,7 +595,7 @@ pub(crate) async fn try_handle_gateway(
             new_parent,
         } => {
             let (node_id, new_parent) = (node_id.clone(), new_parent.clone());
-            mutation::commit_mutation(&ctx, &plan, &method, move |core| {
+            commit_gateway(&ctx, &plan, &method, move |core| {
                 let ok = core.reparent(&node_id, new_parent.as_deref());
                 Ok(ResultPayload::Bool(ok))
             })
@@ -562,7 +603,7 @@ pub(crate) async fn try_handle_gateway(
         }
         Method::StartTrajectory { props_msgpack } => {
             let props_msgpack = props_msgpack.clone();
-            mutation::commit_mutation(&ctx, &plan, &method, move |core| {
+            commit_gateway(&ctx, &plan, &method, move |core| {
                 let props = decode_json_object(&props_msgpack);
                 let id = core.start_trajectory(props);
                 Ok(ResultPayload::String(id))
@@ -585,8 +626,8 @@ pub(crate) async fn try_handle_gateway(
                 next_state_ref.clone(),
                 *t,
             );
-            mutation::commit_mutation(&ctx, &plan, &method, move |core| {
-                let action = rmp_serde::from_slice::<serde_json::Value>(&action_msgpack)
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                let action = eg_types::msgpack::decode_property_value(&action_msgpack)
                     .unwrap_or(serde_json::Value::Null);
                 let step_id = core.append_step(
                     &traj_id,
@@ -602,10 +643,20 @@ pub(crate) async fn try_handle_gateway(
         }
         Method::AddEmbedding { node_id, embedding } => {
             let (node_id, embedding) = (node_id.clone(), embedding.clone());
-            mutation::commit_mutation(&ctx, &plan, &method, move |core| {
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                let source_version = core.version();
                 core.semantic_store
                     .write()
                     .add_embedding(node_id, embedding);
+                // Content-derived indexes are unchanged by a vector-only
+                // mutation, but their completeness manifest must advance with
+                // the graph version that commit_finalize publishes.
+                core.maintain_indexes_at(
+                    &crate::index::ChangeSet::new(),
+                    source_version.saturating_add(1),
+                    core.node_count(),
+                    core.edge_count(),
+                );
                 Ok(ResultPayload::String("ok".to_string()))
             })
             .await
@@ -624,7 +675,7 @@ pub(crate) async fn try_handle_gateway(
                 *invalid_at,
                 *tx_now,
             );
-            mutation::commit_mutation(&ctx, &plan, &method, move |core| {
+            commit_gateway(&ctx, &plan, &method, move |core| {
                 let n =
                     core.invalidate_edge(&source_id, &target_id, &relationship, invalid_at, tx_now);
                 Ok(ResultPayload::Count(n as u64))
@@ -660,7 +711,7 @@ pub(crate) async fn try_handle_gateway(
                 *valid_at,
                 *tx_now,
             );
-            mutation::commit_mutation(&ctx, &plan, &method, move |core| {
+            commit_gateway(&ctx, &plan, &method, move |core| {
                 match core.supersede_edge(
                     source_id,
                     target_id,
@@ -678,7 +729,7 @@ pub(crate) async fn try_handle_gateway(
             .await
         }
         Method::ClearGraph => {
-            mutation::commit_mutation(&ctx, &plan, &method, move |core| {
+            commit_gateway(&ctx, &plan, &method, move |core| {
                 core.clear();
                 Ok(ResultPayload::String("ok".to_string()))
             })
@@ -686,7 +737,7 @@ pub(crate) async fn try_handle_gateway(
         }
         Method::EvictLRU { max_nodes } => {
             let max_nodes = *max_nodes;
-            mutation::commit_mutation(&ctx, &plan, &method, move |core| {
+            commit_gateway(&ctx, &plan, &method, move |core| {
                 let evicted = core.evict_lru(max_nodes);
                 Ok(ResultPayload::Json(serde_json::json!(evicted)))
             })
@@ -698,7 +749,7 @@ pub(crate) async fn try_handle_gateway(
             prune,
         } => {
             let (half_life_secs, floor, prune) = (*half_life_secs, *floor, *prune);
-            mutation::commit_mutation(&ctx, &plan, &method, move |core| {
+            commit_gateway(&ctx, &plan, &method, move |core| {
                 let now = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap_or_default()
@@ -712,7 +763,7 @@ pub(crate) async fn try_handle_gateway(
         }
         Method::TouchNodes { node_ids } => {
             let node_ids = node_ids.clone();
-            mutation::commit_mutation(&ctx, &plan, &method, move |core| {
+            commit_gateway(&ctx, &plan, &method, move |core| {
                 let now = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap_or_default()
@@ -724,7 +775,7 @@ pub(crate) async fn try_handle_gateway(
         }
         Method::FromMsgpack { msgpack } => {
             let msgpack = msgpack.clone();
-            mutation::commit_mutation(&ctx, &plan, &method, move |core| {
+            commit_gateway(&ctx, &plan, &method, move |core| {
                 core.from_msgpack(&msgpack)
                     .map(|()| ResultPayload::String("ok".to_string()))
                     .map_err(|e| e.to_string())
@@ -733,7 +784,7 @@ pub(crate) async fn try_handle_gateway(
         }
         Method::Reconcile { msgpack, .. } => {
             let msgpack = msgpack.clone();
-            mutation::commit_mutation(&ctx, &plan, &method, move |core| {
+            commit_gateway(&ctx, &plan, &method, move |core| {
                 core.from_msgpack(&msgpack)
                     .map(|()| ResultPayload::String("reconciled".to_string()))
                     .map_err(|e| e.to_string())
@@ -742,63 +793,64 @@ pub(crate) async fn try_handle_gateway(
         }
         Method::ApplyMutation { event_type, query } => {
             let (event_type, query) = (event_type.clone(), query.clone());
-            // The SPARQL UPDATE executor's `GraphStore` trait hands back an owned
-            // `Arc<GraphCore>`, but `commit_mutation`'s `apply` closure only borrows
-            // `&GraphCore` — so clone the Arc handle HERE (cheap: one refcount bump,
-            // exactly what the pre-gateway arm's `core.clone()` did) and move the
-            // owned clone into the closure rather than reconstructing one unsafely
-            // from the borrow.
-            let core_arc = ctx.core.clone();
-            mutation::commit_mutation(&ctx, &plan, &method, move |_core| {
+            commit_gateway(&ctx, &plan, &method, move |core| {
                 #[cfg(feature = "sparql")]
                 {
                     let _ = event_type;
                     struct SingleCoreStore(std::sync::Arc<GraphCore>);
                     impl eg_rdf::update::GraphStore for SingleCoreStore {
-                        fn core(&self, _graph: Option<&str>) -> Option<std::sync::Arc<GraphCore>> {
-                            Some(self.0.clone())
+                        fn core(&self, graph: Option<&str>) -> Option<std::sync::Arc<GraphCore>> {
+                            graph.is_none().then(|| self.0.clone())
                         }
                     }
-                    let store = SingleCoreStore(core_arc);
-                    let result = {
-                        #[cfg(feature = "shacl")]
-                        let r = crate::server::icv_guard::with_write_guard(|guard| {
-                            eg_rdf::update::execute_guarded_str(
-                                &query,
-                                &store,
-                                &eg_rdf::sparql::Projection::raw(),
-                                guard,
-                            )
-                            .map_err(|e| e.to_string())
-                        });
-                        #[cfg(not(feature = "shacl"))]
-                        let r = eg_rdf::update::execute_str(
-                            &query,
+                    #[cfg(feature = "shacl")]
+                    {
+                        let update = eg_rdf::update::parse_update(&query)
+                            .map_err(|error| format!("ApplyMutation: {error}"))?;
+                        if !eg_rdf::update::referenced_named_graphs(&update).is_empty() {
+                            return Err(
+                                "ApplyMutation: graph-scoped updates cannot address a named RDF graph"
+                                    .to_string(),
+                            );
+                        }
+                        // GraphStore requires an owned Arc. Clone the isolated
+                        // gateway image, execute there, then copy the successful
+                        // result back into that same staged image. The live core is
+                        // never exposed before the authoritative commit succeeds.
+                        let update_core = std::sync::Arc::new(GraphCore::from_snapshot(
+                            core.snapshot(),
+                            core.version(),
+                        )?);
+                        let store = SingleCoreStore(update_core.clone());
+                        let guard =
+                            crate::server::icv_guard::CoreIcvGuard::single(update_core.as_ref());
+                        let report = eg_rdf::update::execute(
+                            &update,
                             &store,
                             &eg_rdf::sparql::Projection::raw(),
-                        );
-                        r
-                    };
-                    match result {
-                        Ok(report) => serde_json::to_value(&report)
+                            &guard,
+                        )
+                        .map_err(|error| format!("ApplyMutation: {error}"))?;
+                        core.replace_snapshot(update_core.snapshot())?;
+                        serde_json::to_value(&report)
                             .map(ResultPayload::Json)
-                            .map_err(|e| e.to_string()),
-                        Err(e) => Err(format!("ApplyMutation: {e}")),
+                            .map_err(|error| error.to_string())
+                    }
+                    #[cfg(not(feature = "shacl"))]
+                    {
+                        Err("ApplyMutation requires the shacl integrity-guard feature".to_string())
                     }
                 }
                 #[cfg(not(feature = "sparql"))]
                 {
-                    let _ = (event_type, query, core_arc);
+                    let _ = (event_type, query, core);
                     Err("ApplyMutation (SPARQL UPDATE) requires the `sparql` feature".to_string())
                 }
             })
             .await
         }
-        // IcvConfigure (CONCEPT:EG-P0-2 bypass guard, L11): GATEWAY_ROUTED, behind
-        // `feature = "shacl"`. Never touches `core` at all -- it writes a process-
-        // global ICV guard policy keyed by graph name -- so `apply` ignores its
-        // `&GraphCore` parameter entirely; it still rides the ordinary graph-scoped
-        // authz/durability(-None)/audit(false) gateway shape.
+        // IcvConfigure is ordinary graph control state: validate and stage it on
+        // the authorized graph image so policy + rows share one commit/snapshot.
         #[cfg(feature = "shacl")]
         Method::IcvConfigure {
             graph,
@@ -806,9 +858,16 @@ pub(crate) async fn try_handle_gateway(
             shapes,
         } => {
             let (graph, mode, shapes) = (graph.clone(), mode.clone(), shapes.clone());
-            mutation::commit_mutation(&ctx, &plan, &method, move |_core| {
-                crate::server::icv_guard::configure(graph.as_deref(), &mode, &shapes)
-                    .map(|()| ResultPayload::Bool(true))
+            let request_graph = ctx.graph_name.to_string();
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                crate::server::icv_guard::configure(
+                    core,
+                    &request_graph,
+                    graph.as_deref(),
+                    &mode,
+                    &shapes,
+                )
+                .map(|()| ResultPayload::Bool(true))
             })
             .await
         }
@@ -842,7 +901,7 @@ pub(crate) async fn try_handle_gateway(
                 range_rules.clone(),
                 property_chains.clone(),
             );
-            mutation::commit_mutation(&ctx, &plan, &method, move |core| {
+            commit_gateway(&ctx, &plan, &method, move |core| {
                 let mut all_inferred: Vec<std::collections::HashMap<String, String>> = Vec::new();
                 match crate::reasoning::run_datalog_reasoning(
                     core,
@@ -880,7 +939,7 @@ pub(crate) async fn try_handle_gateway(
             min_score,
         } => {
             let (max_age_secs, min_score) = (*max_age_secs, *min_score);
-            mutation::commit_mutation(&ctx, &plan, &method, move |core| {
+            commit_gateway(&ctx, &plan, &method, move |core| {
                 let stats = crate::algorithms::prune_by_lifecycle(core, max_age_secs, min_score);
                 serde_json::to_value(&stats)
                     .map(ResultPayload::Json)
@@ -890,27 +949,21 @@ pub(crate) async fn try_handle_gateway(
         }
         Method::BatchUpdate { operations_msgpack } => {
             let operations_msgpack = operations_msgpack.clone();
-            mutation::commit_mutation(&ctx, &plan, &method, move |core| {
-                match crate::algorithms::batch_update(core, &operations_msgpack) {
-                    Ok(res) => rmp_serde::from_slice::<serde_json::Value>(&res)
+            commit_gateway(
+                &ctx,
+                &plan,
+                &method,
+                move |core| match crate::algorithms::batch_update(core, &operations_msgpack) {
+                    Ok(res) => eg_types::msgpack::decode_property_value(&res)
                         .map(ResultPayload::Json)
-                        .map_err(|e| format!("Invalid batch result: {e}")),
+                        .map_err(|_| "Invalid batch result".to_string()),
                     Err(e) => Err(e),
-                }
-            })
-            .await
-        }
-        Method::ParseRepository { root_path } => {
-            let root_path = root_path.clone();
-            mutation::commit_mutation(&ctx, &plan, &method, move |core| {
-                core.parse_repository(&root_path)
-                    .map(|_| ResultPayload::String("ok".to_string()))
-                    .map_err(|e| e.to_string())
-            })
+                },
+            )
             .await
         }
         Method::ClearLedger => {
-            mutation::commit_mutation(&ctx, &plan, &method, move |core| {
+            commit_gateway(&ctx, &plan, &method, move |core| {
                 core.clear_ledger();
                 Ok(ResultPayload::String("ok".to_string()))
             })
@@ -918,7 +971,7 @@ pub(crate) async fn try_handle_gateway(
         }
         Method::ApplyLedger { transactions } => {
             let transactions = transactions.clone();
-            mutation::commit_mutation(&ctx, &plan, &method, move |core| {
+            commit_gateway(&ctx, &plan, &method, move |core| {
                 core.apply_ledger(transactions)
                     .map(|()| ResultPayload::String("ok".to_string()))
             })
@@ -929,7 +982,7 @@ pub(crate) async fn try_handle_gateway(
             threshold,
         } => {
             let (node_type, threshold) = (node_type.clone(), *threshold);
-            mutation::commit_mutation(&ctx, &plan, &method, move |core| {
+            commit_gateway(&ctx, &plan, &method, move |core| {
                 let removed = core.compact_nodes_by_type(&node_type, threshold);
                 Ok(ResultPayload::Json(
                     serde_json::json!({ "removed_nodes": removed }),
@@ -942,7 +995,7 @@ pub(crate) async fn try_handle_gateway(
         #[cfg(feature = "broker")]
         Method::DeclareExchange { exchange, kind } => {
             let (exchange, kind) = (exchange.clone(), kind.clone());
-            mutation::commit_mutation(&ctx, &plan, &method, move |core| {
+            commit_gateway(&ctx, &plan, &method, move |core| {
                 let Some(k) = crate::broker::ExchangeKind::parse(&kind) else {
                     return Err(format!(
                         "unknown exchange kind '{kind}' (want direct/topic/fanout)"
@@ -956,7 +1009,7 @@ pub(crate) async fn try_handle_gateway(
         #[cfg(feature = "broker")]
         Method::DeleteExchange { exchange } => {
             let exchange = exchange.clone();
-            mutation::commit_mutation(&ctx, &plan, &method, move |core| {
+            commit_gateway(&ctx, &plan, &method, move |core| {
                 let existed = crate::broker::delete_exchange(core, &exchange);
                 Ok(ResultPayload::Bool(existed))
             })
@@ -970,7 +1023,7 @@ pub(crate) async fn try_handle_gateway(
         } => {
             let (exchange, queue, routing_key) =
                 (exchange.clone(), queue.clone(), routing_key.clone());
-            mutation::commit_mutation(&ctx, &plan, &method, move |core| {
+            commit_gateway(&ctx, &plan, &method, move |core| {
                 crate::broker::bind_queue(core, &exchange, &queue, &routing_key);
                 Ok(ResultPayload::String("ok".to_string()))
             })
@@ -984,7 +1037,7 @@ pub(crate) async fn try_handle_gateway(
         } => {
             let (exchange, queue, routing_key) =
                 (exchange.clone(), queue.clone(), routing_key.clone());
-            mutation::commit_mutation(&ctx, &plan, &method, move |core| {
+            commit_gateway(&ctx, &plan, &method, move |core| {
                 let existed = crate::broker::unbind_queue(core, &exchange, &queue, &routing_key);
                 Ok(ResultPayload::Bool(existed))
             })
@@ -998,7 +1051,7 @@ pub(crate) async fn try_handle_gateway(
         } => {
             let (exchange, routing_key, payload) =
                 (exchange.clone(), routing_key.clone(), payload.clone());
-            mutation::commit_mutation(&ctx, &plan, &method, move |core| {
+            commit_gateway(&ctx, &plan, &method, move |core| {
                 let delivered = crate::broker::publish(core, &exchange, &routing_key, &payload);
                 Ok(ResultPayload::Count(delivered as u64))
             })
@@ -1031,7 +1084,7 @@ pub(crate) async fn try_handle_gateway(
                 *queue_expiry_ms,
                 *max_priority,
             );
-            mutation::commit_mutation(&ctx, &plan, &method, move |core| {
+            commit_gateway(&ctx, &plan, &method, move |core| {
                 let policy = crate::broker::QueuePolicy {
                     dl_exchange,
                     dl_routing_key,
@@ -1064,7 +1117,7 @@ pub(crate) async fn try_handle_gateway(
                 *ttl_ms,
                 *now_ms,
             );
-            mutation::commit_mutation(&ctx, &plan, &method, move |core| {
+            commit_gateway(&ctx, &plan, &method, move |core| {
                 let delivered = crate::broker::publish_ex(
                     core,
                     &exchange,
@@ -1096,7 +1149,7 @@ pub(crate) async fn try_handle_gateway(
                 *lease_ms,
                 *prefetch,
             );
-            mutation::commit_mutation(&ctx, &plan, &method, move |core| {
+            commit_gateway(&ctx, &plan, &method, move |core| {
                 let claimed = crate::broker::broker_consume(
                     core, &queue, &group, &consumer, now_ms, lease_ms, prefetch,
                 );
@@ -1107,7 +1160,7 @@ pub(crate) async fn try_handle_gateway(
         #[cfg(feature = "broker")]
         Method::BrokerAck { queue, node_id } => {
             let (queue, node_id) = (queue.clone(), node_id.clone());
-            mutation::commit_mutation(&ctx, &plan, &method, move |core| {
+            commit_gateway(&ctx, &plan, &method, move |core| {
                 let existed = crate::broker::broker_ack(core, &queue, &node_id);
                 Ok(ResultPayload::Bool(existed))
             })
@@ -1122,7 +1175,7 @@ pub(crate) async fn try_handle_gateway(
         } => {
             let (queue, node_id, requeue, now_ms) =
                 (queue.clone(), node_id.clone(), *requeue, *now_ms);
-            mutation::commit_mutation(&ctx, &plan, &method, move |core| {
+            commit_gateway(&ctx, &plan, &method, move |core| {
                 let outcome = crate::broker::broker_reject(core, &queue, &node_id, requeue, now_ms);
                 Ok(ResultPayload::String(outcome))
             })
@@ -1131,7 +1184,7 @@ pub(crate) async fn try_handle_gateway(
         #[cfg(feature = "broker")]
         Method::SweepExpired { now_ms } => {
             let now_ms = *now_ms;
-            mutation::commit_mutation(&ctx, &plan, &method, move |core| {
+            commit_gateway(&ctx, &plan, &method, move |core| {
                 let acted = crate::broker::sweep_expired(core, now_ms);
                 Ok(ResultPayload::Count(acted as u64))
             })
@@ -1144,7 +1197,7 @@ pub(crate) async fn try_handle_gateway(
             max_age_ms,
         } => {
             let (stream, max_messages, max_age_ms) = (stream.clone(), *max_messages, *max_age_ms);
-            mutation::commit_mutation(&ctx, &plan, &method, move |core| {
+            commit_gateway(&ctx, &plan, &method, move |core| {
                 let retention = crate::broker::StreamRetention {
                     max_messages,
                     max_age_ms,
@@ -1161,7 +1214,7 @@ pub(crate) async fn try_handle_gateway(
             now_ms,
         } => {
             let (stream, payload, now_ms) = (stream.clone(), payload.clone(), *now_ms);
-            mutation::commit_mutation(&ctx, &plan, &method, move |core| {
+            commit_gateway(&ctx, &plan, &method, move |core| {
                 let offset = crate::broker::stream_publish(core, &stream, &payload, now_ms);
                 Ok(ResultPayload::Count(offset as u64))
             })
@@ -1170,7 +1223,7 @@ pub(crate) async fn try_handle_gateway(
         #[cfg(feature = "broker")]
         Method::StreamTrim { stream, now_ms } => {
             let (stream, now_ms) = (stream.clone(), *now_ms);
-            mutation::commit_mutation(&ctx, &plan, &method, move |core| {
+            commit_gateway(&ctx, &plan, &method, move |core| {
                 let dropped = crate::broker::stream_trim(core, &stream, now_ms);
                 Ok(ResultPayload::Count(dropped as u64))
             })
@@ -1183,7 +1236,7 @@ pub(crate) async fn try_handle_gateway(
             offset,
         } => {
             let (stream, group, offset) = (stream.clone(), group.clone(), *offset);
-            mutation::commit_mutation(&ctx, &plan, &method, move |core| {
+            commit_gateway(&ctx, &plan, &method, move |core| {
                 crate::broker::commit_offset(core, &stream, &group, offset);
                 Ok(ResultPayload::String("ok".to_string()))
             })
@@ -1208,7 +1261,7 @@ pub(crate) async fn try_handle_gateway(
                 *ttl_ms,
                 *now_ms,
             );
-            mutation::commit_mutation(&ctx, &plan, &method, move |core| {
+            commit_gateway(&ctx, &plan, &method, move |core| {
                 let token = crate::broker::publish_confirmed(
                     core,
                     &exchange,
@@ -1256,7 +1309,7 @@ pub(crate) async fn try_handle_gateway(
                 *ttl_ms,
                 *now_ms,
             );
-            mutation::commit_mutation(&ctx, &plan, &method, move |core| {
+            commit_gateway(&ctx, &plan, &method, move |core| {
                 let result = crate::broker::publish_idempotent(
                     core,
                     &exchange,
@@ -1274,10 +1327,13 @@ pub(crate) async fn try_handle_gateway(
             .await
         }
         #[cfg(feature = "broker")]
-        Method::BrokerAckTag { delivery_tag } => {
-            let delivery_tag = *delivery_tag;
-            mutation::commit_mutation(&ctx, &plan, &method, move |core| {
-                let existed = crate::broker::broker_ack_tag(core, delivery_tag);
+        Method::BrokerAckTag {
+            delivery_tag,
+            consumer,
+        } => {
+            let (delivery_tag, consumer) = (*delivery_tag, consumer.clone());
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                let existed = crate::broker::broker_ack_tag(core, delivery_tag, &consumer);
                 Ok(ResultPayload::Bool(existed))
             })
             .await
@@ -1285,13 +1341,36 @@ pub(crate) async fn try_handle_gateway(
         #[cfg(feature = "broker")]
         Method::BrokerNackTag {
             delivery_tag,
+            consumer,
             requeue,
             now_ms,
         } => {
-            let (delivery_tag, requeue, now_ms) = (*delivery_tag, *requeue, *now_ms);
-            mutation::commit_mutation(&ctx, &plan, &method, move |core| {
-                let outcome = crate::broker::broker_nack_tag(core, delivery_tag, requeue, now_ms);
+            let (delivery_tag, consumer, requeue, now_ms) =
+                (*delivery_tag, consumer.clone(), *requeue, *now_ms);
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                let outcome =
+                    crate::broker::broker_nack_tag(core, delivery_tag, &consumer, requeue, now_ms);
                 Ok(ResultPayload::String(outcome))
+            })
+            .await
+        }
+        #[cfg(feature = "broker")]
+        Method::BrokerRenewTag {
+            delivery_tag,
+            consumer,
+            now_ms,
+            lease_ms,
+        } => {
+            let (delivery_tag, consumer, now_ms, lease_ms) =
+                (*delivery_tag, consumer.clone(), *now_ms, *lease_ms);
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                Ok(ResultPayload::Bool(crate::broker::broker_renew_tag(
+                    core,
+                    delivery_tag,
+                    &consumer,
+                    now_ms,
+                    lease_ms,
+                )))
             })
             .await
         }
@@ -2113,10 +2192,16 @@ pub(crate) async fn try_handle_gateway(
 pub(crate) async fn try_handle(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
-    caller: Option<&str>,
+    _caller: Option<&str>,
+    read_authority: &GraphReadAuthority,
     core: Arc<GraphCore>,
     method: Method,
 ) -> Response {
+    // Keep the projection inside the terminal handler: any future internal caller
+    // must supply a GraphReadAuthority and receives the same pre-compute projection
+    // before the first primitive can inspect existence, counts, embeddings, or
+    // topology. Query/RDF handlers instead retain their snapshot-level filter.
+    let core = read_authority.project_core(&core);
     match method {
         // AddNode/RemoveNode (CONCEPT:EG-P0-2 bypass guard): these — along with
         // AddEdge/RemoveEdge/CreateSummaryNode/Consolidate/Reinforce below — are
@@ -2131,6 +2216,10 @@ pub(crate) async fn try_handle(
         // instead of silently re-mutating `eg-core` outside the gateway.
         Method::AddNode { .. } => unreachable!(
             "AddNode is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+             through try_handle_gateway before it ever reaches this terminal handler"
+        ),
+        Method::CreateNodeIfAbsent { .. } => unreachable!(
+            "CreateNodeIfAbsent is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
              through try_handle_gateway before it ever reaches this terminal handler"
         ),
         Method::RemoveNode { .. } => unreachable!(
@@ -2149,8 +2238,8 @@ pub(crate) async fn try_handle(
             // properties into ONE response frame is a gigabyte-scale payload that
             // overruns/resets the client connection. Check the cheap topology count
             // BEFORE building the Vec, and return a typed, catchable error instead of
-            // the pathological frame. `cap == 0` disables the guard. The bounded
-            // reads (`GetNodesByLabel`, per-id) are intentionally unaffected.
+            // the pathological frame. The bounded reads (`GetNodesByLabel`, per-id)
+            // are intentionally unaffected.
             if let Some(msg) = oversize_dump_error(g.node_count(), max_response_nodes()) {
                 return Response::err(req_id, msg);
             }
@@ -2158,20 +2247,24 @@ pub(crate) async fn try_handle(
                 .get_nodes()
                 .into_iter()
                 .map(|(k, p)| {
-                    let val = rmp_serde::from_slice::<serde_json::Value>(&p)
+                    let val = eg_types::msgpack::decode_property_value(&p)
                         .unwrap_or(serde_json::json!({}));
                     (k, val)
                 })
                 .collect();
             Response::ok(req_id, ResultPayload::NodeList(nodes))
         }
-        Method::GetNodesByLabel { label, limit } => {
+        Method::GetNodesByLabel {
+            label,
+            after,
+            limit,
+        } => {
             let g = &*core;
             let nodes: Vec<(String, serde_json::Value)> = g
-                .get_nodes_by_label(&label, limit)
+                .get_nodes_by_label_page(&label, after.as_deref(), limit)
                 .into_iter()
                 .map(|(k, p)| {
-                    let val = rmp_serde::from_slice::<serde_json::Value>(&p)
+                    let val = eg_types::msgpack::decode_property_value(&p)
                         .unwrap_or(serde_json::json!({}));
                     (k, val)
                 })
@@ -2315,10 +2408,15 @@ pub(crate) async fn try_handle(
             "BrokerNackTag is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
              through try_handle_gateway before it ever reaches this terminal handler"
         ),
+        #[cfg(feature = "broker")]
+        Method::BrokerRenewTag { .. } => unreachable!(
+            "BrokerRenewTag is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+             through try_handle_gateway before it ever reaches this terminal handler"
+        ),
         // ── Agent-memory / scene-graph / trajectory wire ops (CONCEPT:EG-KG.memory.eg-batch-decay-caller) ────
         // Route each Method to its eg-core `GraphCore` primitive. The mutating arms
         // share the SAME durable/deterministic contract as the broker precedent: the
-        // dispatch shell records them (via `is_durable_mutation`) and `wal::apply`
+        // dispatch shell records them (via `is_durable_mutation`) and `mutation_apply::apply`
         // re-runs the SAME primitive over the same pre-image, and every generated id
         // derives deterministically from sorted inputs / node-count / step ordinals,
         // so a replayed WAL record reproduces byte-identical state. Reads are pure.
@@ -2508,32 +2606,6 @@ pub(crate) async fn try_handle(
             query_embedding,
             k,
         } => discover(&core, &keywords, &query_embedding, k, req_id),
-        Method::SpectralCluster {
-            vectors: _,
-            max_k: _,
-            domain: _,
-        } => Response::err(
-            req_id,
-            "SpectralCluster is deprecated. Use datascience primitives.".to_string(),
-        ),
-        Method::HypergraphEncodeInteraction {
-            pos_a: _,
-            pos_b: _,
-            pos_dim: _,
-            hidden_dim: _,
-            out_dim: _,
-            seed: _,
-        } => Response::err(
-            req_id,
-            "HypergraphEncodeInteraction is deprecated. Use datascience primitives.".to_string(),
-        ),
-        Method::BatchCosineSimilarity {
-            query: _,
-            targets: _,
-        } => Response::err(
-            req_id,
-            "BatchCosineSimilarity is deprecated. Use datascience primitives.".to_string(),
-        ),
         // CONCEPT:EG-KG.compute.l2-normalize-batch-vectors — kernel-backed in-engine batch L2-normalize (compute-near-data).
         // The `numeric` feature links the pure eg-numeric kernel (faer/ndarray, no Python-extension FFI);
         // a no-numeric build (e.g. `pi`) has no eg-numeric, so the op reports it's absent.
@@ -2588,51 +2660,6 @@ pub(crate) async fn try_handle(
             let g = &*core;
             Response::ok(req_id, ResultPayload::EdgeList(g.get_edges()))
         }
-        Method::GetTriples => {
-            // Bulk RDF-triple export for local SPARQL materialization
-            // (CONCEPT:AU-KG.query.vendor-agnostic-traversal). One call instead of per-node round-trips.
-            let g = &*core;
-            let mut triples: Vec<[String; 3]> = Vec::new();
-            // Edges → (subject, predicate=rel_type, object).
-            for (src, tgt, props) in g.get_edges() {
-                let v: serde_json::Value =
-                    rmp_serde::from_slice(&props).unwrap_or(serde_json::json!({}));
-                let rel = v
-                    .get("type")
-                    .and_then(|x| x.as_str())
-                    .or_else(|| v.get("rel_type").and_then(|x| x.as_str()))
-                    .unwrap_or("RELATED_TO")
-                    .to_string();
-                triples.push([src, rel, tgt]);
-            }
-            // Nodes → (id, rdf:type, node_type) + scalar properties as literals.
-            for (id, props) in g.get_nodes() {
-                let v: serde_json::Value =
-                    rmp_serde::from_slice(&props).unwrap_or(serde_json::json!({}));
-                if let Some(obj) = v.as_object() {
-                    if let Some(nt) = obj
-                        .get("type")
-                        .or_else(|| obj.get("node_type"))
-                        .and_then(|x| x.as_str())
-                    {
-                        triples.push([id.clone(), "rdf:type".to_string(), nt.to_string()]);
-                    }
-                    for (k, val) in obj {
-                        if k == "type" || k == "node_type" || k == "embedding" {
-                            continue;
-                        }
-                        let lit = match val {
-                            serde_json::Value::String(s) => s.clone(),
-                            serde_json::Value::Number(n) => n.to_string(),
-                            serde_json::Value::Bool(b) => b.to_string(),
-                            _ => continue, // skip arrays/objects/null
-                        };
-                        triples.push([id.clone(), k.clone(), lit]);
-                    }
-                }
-            }
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(triples)))
-        }
         Method::GetEdgeProperties {
             source_id,
             target_id,
@@ -2641,7 +2668,9 @@ pub(crate) async fn try_handle(
             let props = g.get_edge_properties(&source_id, &target_id);
             let val: Vec<serde_json::Value> = props
                 .into_iter()
-                .map(|p| rmp_serde::from_slice(&p).unwrap_or(serde_json::json!({})))
+                .map(|p| {
+                    eg_types::msgpack::decode_property_value(&p).unwrap_or(serde_json::json!({}))
+                })
                 .collect();
             Response::ok(req_id, ResultPayload::Json(serde_json::json!(val)))
         }
@@ -3023,15 +3052,11 @@ pub(crate) async fn try_handle(
                 Err(e) => Response::err(req_id, e.to_string()),
             }
         }
-        // BatchUpdate/ParseRepository (CONCEPT:EG-P0-2 bypass guard, L11):
+        // BatchUpdate (CONCEPT:EG-P0-2 bypass guard, L11):
         // GATEWAY_ROUTED — see the AddNode/RemoveNode comment above.
         Method::BatchUpdate { .. } => unreachable!(
             "BatchUpdate is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
              through try_handle_gateway before it ever reaches this terminal handler"
-        ),
-        Method::ParseRepository { .. } => unreachable!(
-            "ParseRepository is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
-             route it through try_handle_gateway before it ever reaches this terminal handler"
         ),
         Method::Vf2SubgraphMatch { pattern_graph_name } => {
             let s = state.read().await;
@@ -3039,7 +3064,7 @@ pub(crate) async fn try_handle(
             if let Some(entry) = s.registry.get(&pattern_graph_name) {
                 if let Err(denied) = check_graph_access(
                     &s.isolation,
-                    caller,
+                    read_authority.actor(),
                     &pattern_graph_name,
                     entry.graph_type,
                     entry.owner.as_deref(),
@@ -3057,6 +3082,7 @@ pub(crate) async fn try_handle(
                 // Exponential-worst-case matching never runs under either
                 // graph's lock: snapshot pattern then host SEQUENTIALLY (no
                 // nested cross-graph locks), compute off-lock (KG-2.51).
+                let p_core = read_authority.project_core(&p_core);
                 let p_snap = p_core.analysis_snapshot();
                 // vf2_subgraph_match snapshots the host internally, so the
                 // exponential-worst-case matching runs entirely off-lock.
@@ -3099,15 +3125,15 @@ pub(crate) async fn try_handle(
             let sub = g.get_subgraph(&node_ids);
             let mut nodes = Vec::with_capacity(sub.node_properties.len());
             for (id, blob) in &sub.node_properties {
-                let props: serde_json::Value =
-                    rmp_serde::from_slice(blob).unwrap_or(serde_json::Value::Null);
+                let props = eg_types::msgpack::decode_property_value(blob)
+                    .unwrap_or(serde_json::Value::Null);
                 nodes.push(serde_json::json!({ "id": id, "properties": props }));
             }
             let mut edges = Vec::new();
             for ((src, tgt), blobs) in &sub.edge_properties {
                 for blob in blobs {
-                    let props: serde_json::Value =
-                        rmp_serde::from_slice(blob).unwrap_or(serde_json::Value::Null);
+                    let props = eg_types::msgpack::decode_property_value(blob)
+                        .unwrap_or(serde_json::Value::Null);
                     edges.push(serde_json::json!({
                         "source": src, "target": tgt, "properties": props
                     }));
@@ -3135,7 +3161,7 @@ pub(crate) async fn try_handle(
         Method::UnionGetNodeProperties { graphs, node_id } => {
             // First-found across the graph set (in order); point reads, no
             // snapshot. Registry lock released before any per-core read.
-            let cores = match resolve_union_cores(state, caller, &graphs).await {
+            let cores = match resolve_union_cores(state, read_authority, &graphs).await {
                 Ok(c) => c,
                 Err(denied) => return Response::err(req_id, denied),
             };
@@ -3151,7 +3177,7 @@ pub(crate) async fn try_handle(
             label,
             limit,
         } => {
-            let cores = match resolve_union_cores(state, caller, &graphs).await {
+            let cores = match resolve_union_cores(state, read_authority, &graphs).await {
                 Ok(c) => c,
                 Err(denied) => return Response::err(req_id, denied),
             };
@@ -3160,7 +3186,7 @@ pub(crate) async fn try_handle(
             'outer: for c in &cores {
                 for (k, p) in c.get_nodes_by_label(&label, limit) {
                     if seen.insert(k.clone()) {
-                        let val = rmp_serde::from_slice::<serde_json::Value>(&p)
+                        let val = eg_types::msgpack::decode_property_value(&p)
                             .unwrap_or(serde_json::json!({}));
                         nodes.push((k, val));
                         if limit != 0 && nodes.len() >= limit {
@@ -3172,7 +3198,7 @@ pub(crate) async fn try_handle(
             Response::ok(req_id, ResultPayload::NodeList(nodes))
         }
         Method::UnionGetNeighbors { graphs, node_id } => {
-            let cores = match resolve_union_cores(state, caller, &graphs).await {
+            let cores = match resolve_union_cores(state, read_authority, &graphs).await {
                 Ok(c) => c,
                 Err(denied) => return Response::err(req_id, denied),
             };
@@ -3203,7 +3229,7 @@ pub(crate) async fn try_handle(
             // Diffing reads the other graph's content — gate it as a read.
             if let Err(denied) = check_graph_access(
                 &s_lock.isolation,
-                caller,
+                read_authority.actor(),
                 &other_graph,
                 other_entry.graph_type,
                 other_entry.owner.as_deref(),
@@ -3219,6 +3245,7 @@ pub(crate) async fn try_handle(
             // concurrent opposite-direction diffs plus a queued writer can
             // deadlock a write-preferring RwLock). The diff itself is a
             // single O(V+E) comparison, so it stays under-lock (KG-2.51).
+            let other_core = read_authority.project_core(&other_core);
             let other_snap = { other_core.analysis_snapshot() };
             let g1 = &*core;
             let diff_str = g1.diff_against(&other_snap);
@@ -3276,9 +3303,7 @@ mod tests {
     }
 
     #[test]
-    fn zero_cap_disables_the_guard() {
-        // An operator can opt back into the unbounded legacy behavior with
-        // EPISTEMIC_GRAPH_MAX_RESPONSE_NODES=0 — no error even for a huge graph.
-        assert_eq!(oversize_dump_error(10_000_000, 0), None);
+    fn zero_cap_fails_safe() {
+        assert!(oversize_dump_error(1, 0).is_some());
     }
 }

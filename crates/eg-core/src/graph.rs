@@ -10,7 +10,6 @@ use petgraph::stable_graph::{NodeIndex, StableDiGraph};
 use petgraph::visit::EdgeRef;
 use std::any::Any;
 use std::collections::HashMap;
-use std::io::Read;
 use std::sync::{Arc, OnceLock};
 
 /// The graph TOPOLOGY — the petgraph structure + the id→index map. Mutated only
@@ -303,21 +302,26 @@ impl ChangeNotifier {
         if !self.active.load(std::sync::atomic::Ordering::Acquire) {
             return;
         }
-        let mut sinks = self.sinks.lock();
         let event = ChangeEvent {
             graph: self.graph.read().clone(),
             version,
         };
-        sinks.retain(|w| match w.upgrade() {
-            Some(s) => {
-                s.on_change(&event);
-                true
+        // Upgrade/prune under the subscriber mutex, then invoke callbacks after
+        // releasing it. A slow sink no longer serializes subscribe/debug calls,
+        // and a sink may safely subscribe another sink from its callback without
+        // recursively deadlocking this notifier.
+        let live = {
+            let mut sinks = self.sinks.lock();
+            let live: Vec<_> = sinks.iter().filter_map(std::sync::Weak::upgrade).collect();
+            sinks.retain(|sink| sink.strong_count() > 0);
+            if sinks.is_empty() {
+                self.active
+                    .store(false, std::sync::atomic::Ordering::Release);
             }
-            None => false,
-        });
-        if sinks.is_empty() {
-            self.active
-                .store(false, std::sync::atomic::Ordering::Release);
+            live
+        };
+        for sink in live {
+            sink.on_change(&event);
         }
     }
 }
@@ -329,10 +333,14 @@ pub struct GraphCore {
     pub edge_properties: DashMap<(String, String), Vec<Arc<Vec<u8>>>>,
     pub ledger: Mutex<Vec<String>>,
     pub semantic_store: RwLock<crate::compute::semantic::SemanticStore>,
-    /// Has this graph been mutated since its last checkpoint? (Phase C-C —
-    /// incremental checkpointing.) Starts `true` so a freshly created or freshly
-    /// loaded graph is snapshotted once; thereafter `checkpoint_all` skips graphs
-    /// that are still clean, so an idle tenant costs no checkpoint I/O.
+    /// Authoritative closed-world integrity policy for this graph. The policy is
+    /// part of every graph snapshot and mutation delta; it is never process-global
+    /// derived state, so rollback, recovery, and Raft snapshot installation cannot
+    /// diverge from the data image it governs.
+    integrity_policy: RwLock<Option<IntegrityPolicy>>,
+    /// Has this serving projection changed since its last observer pass? Starts
+    /// `true` so a freshly created or loaded graph is observed once; authoritative
+    /// durability is handled separately at each mutation commit.
     pub dirty: std::sync::atomic::AtomicBool,
     /// Monotonic write-version counter for optimistic concurrency control
     /// (CONCEPT:EG-KG.txn.occ-graph-core — OCC ACID transactions). Bumped once per COMMITTED write
@@ -356,13 +364,18 @@ pub struct GraphCore {
     /// Cached secondary label index (CONCEPT:EG-KG.compute.consult-lazy): `label → node ids` so
     /// `get_nodes_by_label` is an O(1) map lookup instead of a full DashMap scan
     /// that deserializes every node's properties. Built lazily on first label
-    /// lookup and invalidated by `mark_dirty()` after any successful write (the
-    /// same dirty flag the checkpoint uses) — a property update can change a
+    /// lookup and invalidated when a successful node write can affect labels — a property update can change a
     /// node's label without changing `node_count`, so this index must NOT key its
     /// validity on node count the way the ontology index does. `None` until first
     /// use / after invalidation. A node appears under every label it carries
     /// across `type`/`node_type`/`label`/`labels` (mirrors `get_nodes_by_label`).
     label_index: RwLock<Option<HashMap<String, Vec<String>>>>,
+    /// Sorted node ids for the unlabeled keyset scan. Without this derived cache,
+    /// every `MATCH (n) ... LIMIT k` page copied and sorted all N ids before
+    /// returning k rows. It is built lazily from topology and invalidated with the
+    /// other node-derived caches after a committed write, making warm pages
+    /// O(log N + k) instead of O(N log N). Property bytes are never retained here.
+    node_id_index: RwLock<Option<Vec<String>>>,
     /// Cached secondary PROPERTY index (CONCEPT:EG-KG.query.concept-12): for each indexed
     /// property key, a `value → node ids` map so `nodes_by_property(key, value)`
     /// is an O(1) map lookup instead of a full DashMap scan that deserializes
@@ -372,8 +385,8 @@ pub struct GraphCore {
     /// then cached, up to `EPISTEMIC_GRAPH_MAX_INDEXED_PROPERTIES` keys (default
     /// 32); keys named in `EPISTEMIC_GRAPH_INDEXED_PROPERTIES` (comma-separated)
     /// are pre-seeded on first use. Indexing every key would be unbounded memory,
-    /// hence the cap. Invalidated by `mark_dirty()` after any successful write —
-    /// the SAME dirty flag the checkpoint + label index use — so it never serves a
+    /// hence the cap. Invalidated when a successful node write touches a covered
+    /// key (or has unknown scope), so it never serves a
     /// stale view across a mutation (a property write can change an indexed value
     /// without changing `node_count`, so validity must NOT key on node count).
     /// `None` until first use / after invalidation; the inner map only ever holds
@@ -383,7 +396,7 @@ pub struct GraphCore {
     /// indexing): `jsonpath → value → ids` (equality/`->>`) + `jsonpath → ids`
     /// (existence/`@>` selectivity), so a deep JSON filter is index-accelerated
     /// instead of a full node scan. Bounded + demand-driven exactly like
-    /// `property_index`, and invalidated by the SAME `mark_dirty()` after any write —
+    /// `property_index`, and invalidated when a node write can affect a covered path —
     /// a JSON write can change a nested value without changing `node_count`, so
     /// validity must NOT key on node count. `None` until first use / after
     /// invalidation.
@@ -401,7 +414,7 @@ pub struct GraphCore {
     /// `SecondaryIndex` descriptors (label, property, + discoverable vector /
     /// ontology) so a planner consults ONE registry — `index_for(predicate)` /
     /// `descriptors_for_column(col)` — instead of bespoke per-index checks. The
-    /// label/property CACHES still live in the fields above (lazy + `mark_dirty`-
+    /// label/property CACHES still live in the fields above (lazy + selectively
     /// invalidated); the manager only routes, so their behavior is unchanged. The
     /// registry is fixed for the graph's lifetime ⇒ no interior locking needed.
     index_manager: crate::index::IndexManager,
@@ -442,35 +455,93 @@ pub struct GraphTxn<'a> {
     ledger: &'a Mutex<Vec<String>>,
 }
 
-/// Owned, serializable persistent state of a graph — exactly what a snapshot file
-/// holds. Two roles (CONCEPT:EG-KG.storage.nonblocking-checkpoint):
+/// Result of an owner-fenced delivery-tag nack transition.
+#[cfg(feature = "broker")]
+#[derive(Debug, Clone, PartialEq)]
+pub enum BrokerNackTransition {
+    /// The lookup/message was missing, stale, or owned by another consumer.
+    Absent,
+    /// The current delivery was atomically returned to the pending pool.
+    Requeued,
+    /// The current delivery was atomically removed and may now be dead-lettered.
+    Terminal {
+        node_id: String,
+        queue: String,
+        properties: serde_json::Value,
+    },
+}
+
+/// Owned, serializable graph state used for isolated mutation staging and portable
+/// transfer (CONCEPT:EG-KG.storage.nonblocking-checkpoint). Two properties matter:
 ///
-/// * **Non-blocking checkpoint (A1):** producing it clones the node/edge/ledger/
-///   semantic data (a memcpy, fast relative to encoding), so `checkpoint_all` can
-///   take it under a BRIEF lock and serialize it OFF the lock — instead of holding
-///   the lock through the whole ~10s MessagePack encode of a 450MB graph, which
-///   froze every concurrent writer.
+/// * **Short lock scope:** producing it clones node/edge/ledger/semantic data so
+///   encoding and isolated execution happen after the topology lock is released.
 /// * **Direct serialization (A3):** encoded straight via `rmp_serde`. Node/edge
-///   properties are ALREADY MessagePack byte blobs; the previous path round-tripped
-///   them through `serde_json::Value`, re-encoding every property byte as a JSON
-///   number — pure overhead and the dominant allocator in checkpoint flamegraphs.
-///   The on-disk shape (a map keyed `nodes`/`edges`/`ledger`/`semantic_store`) is
-///   unchanged, so `from_msgpack` reads both pre- and post-change snapshot files.
-#[derive(serde::Serialize, serde::Deserialize)]
+///   properties are already MessagePack byte blobs, so the current snapshot schema
+///   never detours through `serde_json::Value` or allocates a second property image.
+/// * **Strict persisted schema:** the mandatory version and unknown-field rejection
+///   prevent a partial or differently shaped image from being accepted as current.
+pub const GRAPH_SNAPSHOT_SCHEMA_VERSION: u16 = 2;
+
+/// Current graph-scoped integrity policy. Only the enforcing posture exists;
+/// storing the validated source document keeps `eg-core` independent of SHACL
+/// while allowing the server layer to compile it into its native guard.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct IntegrityPolicy {
+    pub shapes_ttl: String,
+}
+
+fn deserialize_required_option<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::Deserialize<'de>,
+{
+    <Option<T> as serde::Deserialize>::deserialize(deserializer)
+}
+
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct GraphSnapshot {
+    pub schema_version: u16,
+    /// Required current-schema field. `None` is an explicit fail-closed,
+    /// not-yet-provisioned policy state; omission is rejected by serde.
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub integrity_policy: Option<IntegrityPolicy>,
     // Arc-valued (Phase C-A): building a snapshot clones Arc pointers, not the
-    // property bytes. `Arc<Vec<u8>>` serializes byte-for-byte the same as
-    // `Vec<u8>`, so old and new snapshot files remain interchangeable.
+    // property bytes. The serialized current schema remains an owned byte array.
     pub nodes: Vec<(String, Arc<Vec<u8>>)>,
     pub edges: Vec<(String, String, Arc<Vec<u8>>)>,
     pub ledger: Vec<String>,
     pub semantic_store: crate::compute::semantic::SemanticStore,
 }
 
+// Snapshots may be substantially larger than one RPC frame, but they still cross
+// a restore boundary and must be structurally bounded before serde can honor any
+// attacker-controlled collection length hint.
+const MAX_GRAPH_SNAPSHOT_BYTES: usize = 1024 * 1024 * 1024;
+const MAX_GRAPH_SNAPSHOT_ITEMS: usize = 16_000_000;
+fn decode_property_value(
+    bytes: &[u8],
+) -> Result<serde_json::Value, eg_types::msgpack::MsgpackValidationError> {
+    eg_types::msgpack::decode_property_value(bytes)
+}
+
 impl GraphSnapshot {
     /// Serialize this snapshot to MessagePack (called OFF the graph lock).
     pub fn to_msgpack(&self) -> Result<Vec<u8>, String> {
+        self.validate_schema()?;
         rmp_serde::to_vec_named(self).map_err(|e| e.to_string())
+    }
+
+    fn validate_schema(&self) -> Result<(), String> {
+        if self.schema_version != GRAPH_SNAPSHOT_SCHEMA_VERSION {
+            return Err(format!(
+                "unsupported graph snapshot schema version {}; expected {}",
+                self.schema_version, GRAPH_SNAPSHOT_SCHEMA_VERSION
+            ));
+        }
+        Ok(())
     }
 }
 
@@ -499,7 +570,7 @@ impl GraphView {
         node_id: &str,
     ) -> Option<serde_json::Map<String, serde_json::Value>> {
         let blob = self.node_properties.get(node_id)?;
-        match rmp_serde::from_slice::<serde_json::Value>(blob) {
+        match decode_property_value(blob) {
             Ok(serde_json::Value::Object(o)) => Some(o),
             _ => None,
         }
@@ -554,7 +625,7 @@ impl GraphView {
             Some(b) => b.clone(),
             None => return false,
         };
-        let mut val = match rmp_serde::from_slice::<serde_json::Value>(&bytes) {
+        let mut val = match decode_property_value(&bytes) {
             Ok(v) => v,
             Err(_) => return false,
         };
@@ -613,8 +684,11 @@ impl GraphView {
     /// to the in-txn Traverse leg. A no-op when either endpoint or the edge is absent.
     pub fn overlay_remove_edge(&mut self, source_id: &str, target_id: &str) {
         if let (Some(&s), Some(&t)) = (self.node_map.get(source_id), self.node_map.get(target_id)) {
-            // A pair may carry multiple parallel edges; drop them all.
-            while let Some(e) = self.graph.find_edge(s, t) {
+            // A pair may carry multiple parallel edges. Collect them in one
+            // adjacency walk; repeated `find_edge` rescanned that list once per
+            // parallel edge.
+            let edges: Vec<_> = self.graph.edges_connecting(s, t).map(|e| e.id()).collect();
+            for e in edges {
                 self.graph.remove_edge(e);
             }
         }
@@ -655,6 +729,33 @@ fn push_ledger(ledger: &mut Vec<String>, entry: String) {
 }
 
 impl<'a> GraphTxn<'a> {
+    /// Test node membership through the already-held topology guard. Compound
+    /// mutations use this to validate their complete state transition before the
+    /// first row is changed, without a second (recursive) graph lock.
+    pub fn has_node(&self, node_id: &str) -> bool {
+        self.topo.node_map.contains_key(node_id)
+    }
+
+    /// Clone one resident node property blob without reacquiring the topology lock.
+    /// Compound mutations use this accessor while this transaction already holds
+    /// the graph's write guard.
+    pub fn get_node_properties(&self, node_id: &str) -> Option<Vec<u8>> {
+        self.node_properties
+            .get(node_id)
+            .map(|properties| (**properties).clone())
+    }
+
+    /// Node count from the already-held topology guard. Index maintenance uses
+    /// this instead of recursively acquiring `GraphCore`'s topology lock.
+    pub fn node_count(&self) -> usize {
+        self.topo.graph.node_count()
+    }
+
+    /// Edge count from the already-held topology guard. See [`Self::node_count`].
+    pub fn edge_count(&self) -> usize {
+        self.topo.graph.edge_count()
+    }
+
     // ── Node CRUD (under the held topology write guard) ──────────────────
 
     pub fn add_node(&mut self, node_id: String, properties_msgpack: Vec<u8>) {
@@ -668,17 +769,105 @@ impl<'a> GraphTxn<'a> {
         push_ledger(&mut self.ledger.lock(), log);
     }
 
+    /// Insert a node only when its id is absent from the current topology.
+    ///
+    /// Membership testing and insertion share this transaction's topology write
+    /// guard, so two writers racing on the same id cannot both observe absence.
+    /// The losing writer leaves both the properties and ledger untouched.
+    pub fn create_node_if_absent(&mut self, node_id: String, properties_msgpack: Vec<u8>) -> bool {
+        if self.topo.node_map.contains_key(&node_id) {
+            return false;
+        }
+        self.add_node(node_id, properties_msgpack);
+        true
+    }
+
     pub fn remove_node(&mut self, node_id: String) {
-        if let Some(idx) = self.topo.node_map.remove(&node_id) {
+        if let Some(idx) = self.topo.node_map.get(&node_id).copied() {
+            // Derive the exact endpoint pairs from petgraph's adjacency lists before
+            // removing the node.  The old `DashMap::retain` walked EVERY edge pair
+            // for every single-node delete (O(E)); adjacency makes the work
+            // proportional to this node's degree.  A set collapses parallel edges
+            // and the incoming/outgoing duplicate of a self-loop.
+            let mut incident = std::collections::HashSet::new();
+            for edge in self
+                .topo
+                .graph
+                .edges_directed(idx, petgraph::Direction::Incoming)
+                .chain(
+                    self.topo
+                        .graph
+                        .edges_directed(idx, petgraph::Direction::Outgoing),
+                )
+            {
+                incident.insert((
+                    self.topo.graph[edge.source()].clone(),
+                    self.topo.graph[edge.target()].clone(),
+                ));
+            }
             // Properties first, then topology: a crash mid-remove can never leave
             // a live node index whose properties already vanished (which on reload
             // would resurrect a half-deleted node). Topology is the source of truth.
             self.node_properties.remove(&node_id);
-            self.edge_properties
-                .retain(|k, _| k.0 != node_id && k.1 != node_id);
+            for key in incident {
+                self.edge_properties.remove(&key);
+            }
+            self.topo.node_map.remove(&node_id);
             self.topo.graph.remove_node(idx);
             push_ledger(&mut self.ledger.lock(), format!("REMOVE_NODE|{}", node_id));
         }
+    }
+
+    /// Drop a set of nodes from the resident projection without recording logical
+    /// delete mutations. This is the memory-pressure counterpart of `remove_node`:
+    /// authoritative rows remain in the durable store and can be read through or
+    /// re-materialized later. Incident edge properties are filtered once for the
+    /// whole batch. Endpoint pairs come from the selected nodes' adjacency lists,
+    /// avoiding both the old O(evictions × edges) repeated-delete behavior and
+    /// an O(all edges) projection scan when only a small resident set is evicted.
+    pub fn evict_resident_nodes(&mut self, node_ids: &[String]) -> usize {
+        if node_ids.is_empty() {
+            return 0;
+        }
+        let selected: std::collections::HashSet<&str> =
+            node_ids.iter().map(String::as_str).collect();
+        let selected_nodes: Vec<(&str, NodeIndex)> = selected
+            .into_iter()
+            .filter_map(|node_id| {
+                self.topo
+                    .node_map
+                    .get(node_id)
+                    .copied()
+                    .map(|index| (node_id, index))
+            })
+            .collect();
+        let mut incident = std::collections::HashSet::new();
+        for (_, index) in &selected_nodes {
+            for edge in self
+                .topo
+                .graph
+                .edges_directed(*index, petgraph::Direction::Incoming)
+                .chain(
+                    self.topo
+                        .graph
+                        .edges_directed(*index, petgraph::Direction::Outgoing),
+                )
+            {
+                incident.insert((
+                    self.topo.graph[edge.source()].clone(),
+                    self.topo.graph[edge.target()].clone(),
+                ));
+            }
+        }
+        for (node_id, index) in &selected_nodes {
+            self.node_properties.remove(*node_id);
+            self.topo.node_map.remove(*node_id);
+            self.topo.graph.remove_node(*index);
+        }
+        for key in incident {
+            self.edge_properties.remove(&key);
+        }
+        selected_nodes.len()
     }
 
     /// Serializable gated remove (CONCEPT:EG-KG.txn.serializable-mutation-gate). Decodes the node's CURRENT
@@ -706,7 +895,7 @@ impl<'a> GraphTxn<'a> {
     /// reference `id` alongside property columns. `None` if absent/undecodable.
     fn node_row_map(&self, node_id: &str) -> Option<serde_json::Map<String, serde_json::Value>> {
         let bytes = self.node_properties.get(node_id)?.value().clone();
-        let val = rmp_serde::from_slice::<serde_json::Value>(&bytes).ok()?;
+        let val = decode_property_value(&bytes).ok()?;
         let mut map = match val {
             serde_json::Value::Object(o) => o,
             _ => return None,
@@ -756,7 +945,16 @@ impl<'a> GraphTxn<'a> {
             self.topo.node_map.get(&source_id),
             self.topo.node_map.get(&target_id),
         ) {
-            if let Some(edge_idx) = self.topo.graph.find_edge(src_idx, tgt_idx) {
+            // Edge properties are stored per endpoint pair, so removing only one
+            // topology edge while dropping the whole property vector left hidden
+            // parallel edges behind. Pair removal (and `upsert_edge`) replaces all.
+            let edge_indices: Vec<_> = self
+                .topo
+                .graph
+                .edges_connecting(src_idx, tgt_idx)
+                .map(|edge| edge.id())
+                .collect();
+            for edge_idx in edge_indices {
                 self.topo.graph.remove_edge(edge_idx);
             }
             self.edge_properties
@@ -788,7 +986,7 @@ impl<'a> GraphTxn<'a> {
             Some(b) => b.value().clone(),
             None => return false,
         };
-        let mut val = match rmp_serde::from_slice::<serde_json::Value>(&bytes) {
+        let mut val = match decode_property_value(&bytes) {
             Ok(v) => v,
             Err(_) => return false,
         };
@@ -845,7 +1043,8 @@ impl<'a> GraphTxn<'a> {
     /// (event-time close) and `tx_to = tx_now` (belief retracted) — it does NOT
     /// remove the edge, so an `AS OF` before `invalid_at` still sees the fact and the
     /// `AS OF TX` history of what-we-believed is preserved. Matches the edge(s)
-    /// between `(source_id, target_id)` whose `relationship`/`type` == `relationship`
+    /// between `(source_id, target_id)` whose canonical `relationship` field equals
+    /// `relationship`
     /// and that are not already closed at or before `invalid_at`. Returns how many
     /// edge blobs were updated. Deterministic in its args, so it replays identically
     /// from the WAL / on a Raft follower.
@@ -864,17 +1063,14 @@ impl<'a> GraphTxn<'a> {
         };
         let mut updated = 0usize;
         for blob in entry.value_mut().iter_mut() {
-            let Ok(mut val) = rmp_serde::from_slice::<serde_json::Value>(blob.as_slice()) else {
+            let Ok(mut val) = decode_property_value(blob.as_slice()) else {
                 continue;
             };
             let Some(obj) = val.as_object_mut() else {
                 continue;
             };
-            let rel_matches = obj
-                .get("relationship")
-                .or_else(|| obj.get("type"))
-                .and_then(|v| v.as_str())
-                == Some(relationship);
+            let rel_matches =
+                obj.get("relationship").and_then(|v| v.as_str()) == Some(relationship);
             if !rel_matches {
                 continue;
             }
@@ -957,7 +1153,7 @@ impl<'a> GraphTxn<'a> {
     /// write guard so the read-modify-write stays atomic (CONCEPT:EG-KG.compute.consolidate-cluster).
     fn node_object(&self, node_id: &str) -> Option<serde_json::Map<String, serde_json::Value>> {
         let bytes = self.node_properties.get(node_id)?.value().clone();
-        match rmp_serde::from_slice::<serde_json::Value>(&bytes) {
+        match decode_property_value(&bytes) {
             Ok(serde_json::Value::Object(o)) => Some(o),
             _ => None,
         }
@@ -983,11 +1179,11 @@ impl<'a> GraphTxn<'a> {
             .get(&(source_id.to_string(), target_id.to_string()))
             .is_some_and(|blobs| {
                 blobs.iter().any(|b| {
-                    rmp_serde::from_slice::<serde_json::Value>(b)
+                    decode_property_value(b)
                         .ok()
                         .and_then(|v| {
                             v.as_object()
-                                .and_then(|o| o.get("relationship").or_else(|| o.get("type")))
+                                .and_then(|o| o.get("relationship"))
                                 .and_then(|r| r.as_str())
                                 .map(|s| s == relationship)
                         })
@@ -1206,14 +1402,12 @@ impl<'a> GraphTxn<'a> {
         for (src, tgt, blob) in to_add {
             // Skip if an identical-relationship edge already connects these (keeps a
             // re-run from stacking duplicate redirected edges).
-            let rel = rmp_serde::from_slice::<serde_json::Value>(&blob)
-                .ok()
-                .and_then(|v| {
-                    v.as_object()
-                        .and_then(|o| o.get("relationship").or_else(|| o.get("type")))
-                        .and_then(|r| r.as_str())
-                        .map(|s| s.to_string())
-                });
+            let rel = decode_property_value(&blob).ok().and_then(|v| {
+                v.as_object()
+                    .and_then(|o| o.get("relationship"))
+                    .and_then(|r| r.as_str())
+                    .map(|s| s.to_string())
+            });
             if let Some(r) = &rel {
                 if self.has_relationship_edge(&src, &tgt, r) {
                     continue;
@@ -1267,31 +1461,23 @@ impl<'a> GraphTxn<'a> {
     //   * `forgotten`      (bool)— set true when evicted via the mark path (provenance
     //                              preserved; the node + its edges + bitemporal history
     //                              stay intact).
-    // A node WITHOUT these fields is treated as carrying the default importance and is
-    // otherwise left untouched — fully backward-compatible with pre-EG-222 nodes.
+    // Every memory participating in maintenance carries an explicit finite
+    // `importance`. Missing or non-numeric values are not interpreted as an older
+    // schema: that node is outside the maintenance operation and must be migrated by
+    // its writer before reinforcement, decay, or eviction.
 
-    /// CONCEPT:EG-KG.maintenance.combined-maintenance-primitive — default `importance` for a memory node that carries no explicit
-    /// `importance` field yet. Retrieval-priority weight starts here and is bumped by
-    /// [`GraphTxn::reinforce`] / reduced by [`GraphTxn::decay_node`]. A node that has
-    /// never been given an importance reads as this value, so untouched pre-EG-222
-    /// nodes survive any eviction `threshold <= DEFAULT_IMPORTANCE`.
-    pub const DEFAULT_IMPORTANCE: f64 = 1.0;
-
-    /// Read a node object's current `importance`, falling back to
-    /// [`GraphTxn::DEFAULT_IMPORTANCE`] when the field is absent (CONCEPT:EG-KG.maintenance.combined-maintenance-primitive —
-    /// pre-EG-222 nodes read as the default).
-    fn memory_importance(obj: &serde_json::Map<String, serde_json::Value>) -> f64 {
+    /// Read the mandatory current-schema `importance` value.
+    fn memory_importance(obj: &serde_json::Map<String, serde_json::Value>) -> Option<f64> {
         obj.get("importance")
             .and_then(|v| v.as_f64())
-            .unwrap_or(Self::DEFAULT_IMPORTANCE)
+            .filter(|importance| importance.is_finite())
     }
 
     /// CONCEPT:EG-KG.maintenance.combined-maintenance-primitive — REINFORCE a memory on retrieval: bump `access_count`, refresh
     /// `last_access_ms` to `now_ms` (recency), and raise `importance` by `weight`
-    /// (retrieval strengthens a memory). A node that carries no memory-value fields yet
-    /// is seeded from [`GraphTxn::DEFAULT_IMPORTANCE`] / a zero access count, so its
-    /// first retrieval lifts it to `DEFAULT_IMPORTANCE + weight` with `access_count =
-    /// 1`. A memory previously marked `forgotten` is REVIVED (`forgotten = false`) — a
+    /// (retrieval strengthens a memory). The current memory schema requires an explicit
+    /// finite `importance`; a node without it is rejected from this operation. A memory
+    /// previously marked `forgotten` is REVIVED (`forgotten = false`) — a
     /// re-accessed memory is live again.
     ///
     /// Deterministic (no clock/RNG — `now_ms`/`weight` are caller-supplied). This is an
@@ -1302,7 +1488,10 @@ impl<'a> GraphTxn<'a> {
         let Some(obj) = self.node_object(id) else {
             return false;
         };
-        let importance = Self::memory_importance(&obj) + weight;
+        let Some(current_importance) = Self::memory_importance(&obj) else {
+            return false;
+        };
+        let importance = current_importance + weight;
         let access_count = obj
             .get("access_count")
             .and_then(|v| v.as_u64())
@@ -1325,9 +1514,8 @@ impl<'a> GraphTxn<'a> {
     /// (recency); the method advances `last_decay_ms` — NOT `last_access_ms` — so a
     /// maintenance sweep never masquerades as an access.
     ///
-    /// Backward-compatible + localized: a node carrying no `importance` field is left
-    /// UNTOUCHED (returns `false`) — pre-EG-222 nodes are never rewritten. A node with
-    /// importance but no decay reference just stamps `last_decay_ms = now_ms` (a
+    /// A node carrying no current-schema `importance` field is rejected from the
+    /// maintenance operation (returns `false`). A node with importance but no decay reference just stamps `last_decay_ms = now_ms` (a
     /// baseline; no decay this pass). Deterministic (no clock/RNG) and IDEMPOTENT at a
     /// fixed `now_ms`: because it advances `last_decay_ms` to `now_ms`, a second call
     /// with the same `now_ms` sees zero elapsed and leaves importance unchanged; and
@@ -1400,9 +1588,8 @@ impl<'a> GraphTxn<'a> {
     /// CONCEPT:EG-KG.maintenance.combined-maintenance-primitive — EVICT every memory in the working set `ids` whose (already-
     /// decayed) `importance` has fallen strictly BELOW `threshold`, pruning it via
     /// [`GraphTxn::forget`] (mark when `delete == false`, hard-remove when `true`). A
-    /// node carrying no `importance` reads as [`GraphTxn::DEFAULT_IMPORTANCE`], so
-    /// untouched pre-EG-222 nodes survive any `threshold <= DEFAULT_IMPORTANCE`. A node
-    /// already marked `forgotten = true` is skipped (not re-pruned). LOCALIZED (only
+    /// node carrying no current-schema `importance` is skipped rather than assigned a
+    /// synthetic score. A node already marked `forgotten = true` is skipped (not re-pruned). LOCALIZED (only
     /// `ids` are considered — no full scan) and deterministic; returns the pruned ids,
     /// sorted + deduped. Callers typically [`GraphTxn::decay_memories`] first. Runs
     /// under the held write guard.
@@ -1415,7 +1602,9 @@ impl<'a> GraphTxn<'a> {
             if obj.get("forgotten").and_then(|v| v.as_bool()) == Some(true) {
                 continue; // already forgotten — idempotent skip.
             }
-            if Self::memory_importance(&obj) < threshold && self.forget(id, delete) {
+            if Self::memory_importance(&obj).is_some_and(|importance| importance < threshold)
+                && self.forget(id, delete)
+            {
                 pruned.push(id.clone());
             }
         }
@@ -1746,11 +1935,13 @@ impl GraphCore {
             edge_properties: DashMap::new(),
             ledger: Mutex::new(Vec::new()),
             semantic_store: RwLock::new(crate::compute::semantic::SemanticStore::new()),
+            integrity_policy: RwLock::new(None),
             dirty: std::sync::atomic::AtomicBool::new(true),
             version: std::sync::atomic::AtomicU64::new(0),
             changes: ChangeNotifier::default(),
             ontology_index: RwLock::new(None),
             label_index: RwLock::new(None),
+            node_id_index: RwLock::new(None),
             property_index: RwLock::new(None),
             // CONCEPT:EG-KG.compute.json-deep-indexing — cold JSONPath path-index; built lazily on first use.
             path_index: RwLock::new(None),
@@ -1780,6 +1971,27 @@ impl GraphCore {
     /// are unchanged.
     pub fn indexes(&self) -> &crate::index::IndexManager {
         &self.index_manager
+    }
+
+    /// Return the authoritative integrity policy attached to this graph image.
+    pub fn integrity_policy(&self) -> Option<IntegrityPolicy> {
+        self.integrity_policy.read().clone()
+    }
+
+    /// Replace the authoritative integrity policy. Callers validate the SHACL
+    /// source before staging this transition; the topology writer makes the
+    /// control-state update serialize with snapshots and graph mutations.
+    pub fn set_integrity_policy(&self, policy: IntegrityPolicy) {
+        self.install_integrity_policy(Some(policy));
+    }
+
+    /// Install the exact policy state recovered from durable authority. This is
+    /// public for persistence adapters; ordinary mutation surfaces should use
+    /// [`set_integrity_policy`](Self::set_integrity_policy) after validation.
+    #[doc(hidden)]
+    pub fn install_integrity_policy(&self, policy: Option<IntegrityPolicy>) {
+        let _topology = self.topo.write();
+        *self.integrity_policy.write() = policy;
     }
 
     /// Register a SERVER-LAYER secondary index (text/temporal/derived-OWL,
@@ -1814,42 +2026,107 @@ impl GraphCore {
     /// byte-for-byte the same three cache nulls.
     pub fn invalidate_indexes(&self) {
         *self.label_index.write() = None;
+        *self.node_id_index.write() = None;
         *self.property_index.write() = None;
         *self.path_index.write() = None;
     }
 
-    /// Is incremental heavy-index maintenance enabled? Read once from
-    /// `EPISTEMIC_GRAPH_INCREMENTAL_INDEX` (default ON; `0|false|off|no` = the legacy
-    /// invalidate-and-rebuild path). Kept behind the process-cached
-    /// [`crate::index::incremental_index_enabled`] so the write hot path pays a single
-    /// relaxed atomic load, never an env lookup (CONCEPT:EG-KG.storage.write-changeset).
-    #[inline]
-    pub fn incremental_indexing(&self) -> bool {
-        crate::index::incremental_index_enabled()
+    /// Invalidate only lazy caches whose indexed fields may have changed. Adds,
+    /// removes and unknown/full-image updates remain conservative; an exact
+    /// field-scoped CAS can retain unrelated warm indexes.
+    fn invalidate_indexes_for_change(&self, change: &crate::index::ChangeSet) {
+        if !change.added_nodes.is_empty() || !change.removed_nodes.is_empty() {
+            self.invalidate_indexes();
+            return;
+        }
+        let mut changed = std::collections::HashSet::new();
+        for update in &change.updated_nodes {
+            let Some(fields) = update.changed_fields.as_ref() else {
+                self.invalidate_indexes();
+                return;
+            };
+            changed.extend(fields.iter().map(String::as_str));
+        }
+        if changed.is_empty() {
+            return;
+        }
+
+        if changed
+            .iter()
+            .any(|field| matches!(*field, "type" | "node_type" | "label" | "labels"))
+        {
+            *self.label_index.write() = None;
+        }
+        {
+            let mut index = self.property_index.write();
+            if index
+                .as_ref()
+                .is_some_and(|index| changed.iter().any(|field| index.keys.contains_key(*field)))
+            {
+                *index = None;
+            }
+        }
+        {
+            let mut index = self.path_index.write();
+            let affected = index.as_ref().is_some_and(|index| {
+                index.by_value.keys().any(|path| {
+                    match crate::jsonpath::parse_path(path)
+                        .and_then(|parts| parts.into_iter().next())
+                    {
+                        Some(crate::jsonpath::Segment::Key(key)) => changed.contains(key.as_str()),
+                        // `$`, a root wildcard, or an index-root path can observe
+                        // any top-level update.
+                        _ => true,
+                    }
+                })
+            });
+            if affected {
+                *index = None;
+            }
+        }
     }
 
     /// Maintain the secondary indexes after a committed write batch
-    /// (CONCEPT:EG-KG.storage.write-changeset). Called by the per-graph write coalescer
-    /// INSIDE the batch's topology write lock so a concurrent hybrid read never
-    /// observes a torn index — the topology mutation and the index moves are
-    /// published together.
+    /// (CONCEPT:EG-KG.storage.write-changeset). This convenience is for callers
+    /// outside a topology guard. Lock-owning compound paths call
+    /// [`Self::maintain_indexes_at`] with counts read from their [`GraphTxn`], so a
+    /// concurrent hybrid read never observes a torn index and completeness
+    /// publication never recursively acquires the topology lock.
     ///
-    ///  * **Incremental (default):** route `change` through the [`IndexManager`] seam —
+    /// Route `change` through the [`IndexManager`] seam —
     ///    each heavy index applies its own delta (the vector store tombstones the
-    ///    embeddings of removed nodes, CONCEPT:EG-KG.storage.incremental-ann), falling back to a
-    ///    full rebuild only when a delta can't be applied — then invalidate the lazy
-    ///    label/property/path caches (rebuilt on the next read).
-    ///  * **`EPISTEMIC_GRAPH_INCREMENTAL_INDEX=0` (kill-switch):** the coalescer skips
-    ///    this call entirely and the dispatch shell's per-op `mark_dirty` performs the
-    ///    legacy invalidate-and-rebuild, so behavior is byte-identical to pre-seam.
+    ///    embeddings of removed nodes, CONCEPT:EG-KG.storage.incremental-ann) — then invalidate only
+    ///    lazy label/property/path caches covered by the exact node-field change.
     pub fn maintain_indexes(
         &self,
         change: &crate::index::ChangeSet,
     ) -> crate::index::BatchMaintenance {
         let outcome = self.index_manager.commit_batch(self, change);
-        // The lazy caches are rebuilt on read; keeping this here makes a coalesced
-        // batch self-contained (idempotent with the shell's per-op `mark_dirty`).
-        self.invalidate_indexes();
+        // Label/property/JSON-path postings derive only from nodes. Pure edge
+        // batches preserve those potentially expensive warm caches.
+        self.invalidate_indexes_for_change(change);
+        outcome
+    }
+
+    /// Maintain indexes for one compound mutation whose externally visible graph
+    /// version advances once, regardless of its internal operation count.
+    /// `node_count` and `edge_count` come from the caller's held [`GraphTxn`], so
+    /// publishing completeness never recursively acquires the topology lock.
+    pub fn maintain_indexes_at(
+        &self,
+        change: &crate::index::ChangeSet,
+        target_version: u64,
+        node_count: usize,
+        edge_count: usize,
+    ) -> crate::index::BatchMaintenance {
+        let outcome = self.index_manager.commit_batch_at(
+            self,
+            change,
+            target_version,
+            node_count as u64,
+            edge_count as u64,
+        );
+        self.invalidate_indexes_for_change(change);
         outcome
     }
 
@@ -1863,7 +2140,7 @@ impl GraphCore {
     }
 
     /// Attach a durable read-through (CONCEPT:EG-KG.storage.read-through-seam-exercised). Called once at startup
-    /// (only under redb-authoritative mode) so a node evicted from RAM is still
+    /// so a node evicted from RAM is still
     /// served from redb on a RAM miss. A `GraphCore` with no read-through behaves
     /// exactly as before — a miss is a genuine absence.
     pub fn set_read_through(&self, rt: Arc<dyn crate::read_through::ReadThrough>) {
@@ -1873,6 +2150,19 @@ impl GraphCore {
     /// Mark this graph as changed since its last checkpoint (Phase C-C). Called by
     /// the dispatch after any successful write op and by the background decay sweep.
     pub fn mark_dirty(&self) {
+        self.mark_dirty_inner(true);
+    }
+
+    /// Mark a committed write while retaining node-derived lazy indexes that a
+    /// preceding incremental maintenance step proved unaffected (for example a
+    /// pure edge batch). This is hidden infrastructure API: callers that do not
+    /// carry a complete [`crate::index::ChangeSet`] must use [`mark_dirty`].
+    #[doc(hidden)]
+    pub fn mark_dirty_preserving_indexes(&self) {
+        self.mark_dirty_inner(false);
+    }
+
+    fn mark_dirty_inner(&self, invalidate_node_indexes: bool) {
         self.dirty.store(true, std::sync::atomic::Ordering::Relaxed);
         // Bump the OCC write-version (CONCEPT:EG-KG.txn.occ-graph-core): every committed write —
         // single-op, coalesced batch, and (via the commit path) a multi-op txn —
@@ -1889,7 +2179,9 @@ impl GraphCore {
         // (matview cache) ↔ D (incremental write-index coherence) reconcile point is
         // pre-split: D owns the BODY of this method (delta-maintain instead of drop),
         // C owns the adjacent result-cache line here.
-        self.invalidate_indexes();
+        if invalidate_node_indexes {
+            self.invalidate_indexes();
+        }
         // CONCEPT:EG-KG.compute.cdc-event-emit — fan out a change notification (post-write version) to any
         // live subscribers (the GraphQL subscription carrier). A single relaxed
         // atomic load when there are none, so this is off the write hot path.
@@ -1954,8 +2246,31 @@ impl GraphCore {
         self.txn().add_node(node_id, properties_msgpack);
     }
 
+    /// Atomically create `node_id` without overwriting an existing node.
+    /// Returns `true` only for the writer that inserted it.
+    pub fn create_node_if_absent(&self, node_id: String, properties_msgpack: Vec<u8>) -> bool {
+        self.txn()
+            .create_node_if_absent(node_id, properties_msgpack)
+    }
+
     pub fn remove_node(&self, node_id: String) {
-        self.txn().remove_node(node_id);
+        self.txn().remove_node(node_id.clone());
+        self.semantic_store.write().remove_embedding(&node_id);
+    }
+
+    /// Bulk memory-only eviction. Unlike a logical delete this does not append a
+    /// `REMOVE_NODE` ledger record or dirty the graph; durable state remains the
+    /// authority. Semantic entries are removed under one lock so the projection
+    /// releases their resident bytes without lock-per-node overhead.
+    pub fn evict_resident_nodes(&self, node_ids: &[String]) -> usize {
+        let removed = self.txn().evict_resident_nodes(node_ids);
+        if removed > 0 {
+            let mut semantic = self.semantic_store.write();
+            for node_id in node_ids {
+                semantic.remove_embedding(node_id);
+            }
+        }
+        removed
     }
 
     // ── Distribution-valued properties (CONCEPT:EG-KG.compute.uncertainty-values) ──────────────────
@@ -1970,7 +2285,7 @@ impl GraphCore {
     /// missing, or the stored JSON is not a valid `Distribution`.
     pub fn get_distribution(&self, node_id: &str, key: &str) -> Option<eg_types::Distribution> {
         let bytes = self.get_node_properties(node_id)?;
-        let val = rmp_serde::from_slice::<serde_json::Value>(&bytes).ok()?;
+        let val = decode_property_value(&bytes).ok()?;
         let field = val.as_object()?.get(key)?.clone();
         serde_json::from_value(field).ok()
     }
@@ -1991,7 +2306,7 @@ impl GraphCore {
         };
         // Merge into the current blob (or start a fresh object).
         let mut obj = match self.get_node_properties(node_id) {
-            Some(bytes) => match rmp_serde::from_slice::<serde_json::Value>(&bytes) {
+            Some(bytes) => match decode_property_value(&bytes) {
                 Ok(serde_json::Value::Object(o)) => o,
                 _ => serde_json::Map::new(),
             },
@@ -2010,7 +2325,11 @@ impl GraphCore {
     /// [`GraphTxn::remove_node_if`]; the decode → predicate re-check → remove runs
     /// under ONE topology write guard.
     pub fn remove_node_if(&self, node_id: &str, predicate: &eg_types::RowPredicate) -> bool {
-        self.txn().remove_node_if(node_id, predicate)
+        let removed = self.txn().remove_node_if(node_id, predicate);
+        if removed {
+            self.semantic_store.write().remove_embedding(node_id);
+        }
+        removed
     }
 
     /// One-shot atomic compare-and-set over a single `txn` (CONCEPT:EG-KG.compute.backend backend-
@@ -2058,7 +2377,7 @@ impl GraphCore {
         let rows = self.get_nodes_by_label(label, 0);
         let mut best: Option<(String, i64)> = None;
         for (id, blob) in &rows {
-            let Ok(v) = rmp_serde::from_slice::<serde_json::Value>(blob) else {
+            let Ok(v) = decode_property_value(blob) else {
                 continue;
             };
             let Some(obj) = v.as_object() else { continue };
@@ -2082,7 +2401,7 @@ impl GraphCore {
         );
         if self.compare_and_set_fields(&id, &conditions, updates) {
             let blob = self.node_properties.get(&id)?;
-            let val = rmp_serde::from_slice::<serde_json::Value>(&blob).ok()?;
+            let val = decode_property_value(&blob).ok()?;
             Some((id, val))
         } else {
             None
@@ -2286,6 +2605,445 @@ impl GraphCore {
         issued
     }
 
+    /// Atomically fence a broker claim and install its fresh positive delivery tag.
+    ///
+    /// The candidate scan may happen outside the write guard, so this method
+    /// revalidates the current status and (for a reclaim) the exact expired lease.
+    /// Retiring the prior lookup, bumping the durable counter, stamping the message,
+    /// and adding the new O(1) reverse lookup all share one topology transaction.
+    #[cfg(feature = "broker")]
+    #[allow(clippy::too_many_arguments)]
+    pub fn broker_claim_delivery(
+        &self,
+        node_id: &str,
+        queue: &str,
+        group: &str,
+        consumer: &str,
+        expected_status: &str,
+        expected_lease_until: Option<u64>,
+        now_ms: u64,
+        lease_ms: u64,
+    ) -> Option<serde_json::Value> {
+        if consumer.trim().is_empty() {
+            return None;
+        }
+        let mut txn = self.txn();
+        let mut properties = txn.node_row_map(node_id)?;
+        if properties.get("status").and_then(serde_json::Value::as_str) != Some(expected_status) {
+            return None;
+        }
+        if expected_status == "claimed" {
+            let current_lease = properties
+                .get("lease_until")
+                .and_then(serde_json::Value::as_u64);
+            if current_lease != expected_lease_until
+                || current_lease.map(|until| until > now_ms).unwrap_or(true)
+            {
+                return None;
+            }
+        } else if expected_status != "pending" {
+            return None;
+        }
+
+        let counter_id = crate::broker::dtag_seq_node_id();
+        let last_tag = match txn.node_row_map(&counter_id) {
+            None => 0,
+            Some(row)
+                if row.get("type").and_then(serde_json::Value::as_str)
+                    == Some(crate::broker::BROKER_COUNTER_TYPE) =>
+            {
+                let value = row.get("last_tag").and_then(serde_json::Value::as_i64)?;
+                if value < 0 {
+                    return None;
+                }
+                value
+            }
+            Some(_) => return None,
+        };
+        let delivery_tag = last_tag.checked_add(1)?;
+        if delivery_tag <= 0 {
+            return None;
+        }
+        let prior_tag = match properties.get("delivery_tag") {
+            None | Some(serde_json::Value::Null) => None,
+            Some(value) => match value.as_i64() {
+                Some(tag) if tag > 0 => Some(tag),
+                _ => return None,
+            },
+        };
+        if expected_status == "claimed"
+            && (prior_tag.is_none() || prior_tag.is_some_and(|tag| tag > last_tag))
+        {
+            return None;
+        }
+        let lookup_id = crate::broker::dtag_lookup_node_id(delivery_tag);
+        if txn.has_node(&lookup_id) {
+            return None;
+        }
+        // Clear the old generation in the owned row before stamping the new one.
+        // The prior lookup is retired below before any new lookup is installed.
+        properties.insert("delivery_tag".into(), serde_json::Value::Null);
+        let delivery_count = match properties.get("delivery_count") {
+            None => 0,
+            Some(value) => {
+                let count = value.as_i64()?;
+                if count < 0 {
+                    return None;
+                }
+                count
+            }
+        };
+        let next_delivery_count = delivery_count.checked_add(1)?;
+        let lease_until = if lease_ms > 0 {
+            Some(now_ms.checked_add(lease_ms)?)
+        } else {
+            None
+        };
+        properties.insert("status".into(), serde_json::Value::String("claimed".into()));
+        properties.insert(
+            "owner_group".into(),
+            serde_json::Value::String(group.to_string()),
+        );
+        properties.insert(
+            "owner_consumer".into(),
+            serde_json::Value::String(consumer.to_string()),
+        );
+        properties.insert(
+            "delivery_count".into(),
+            serde_json::Value::from(next_delivery_count),
+        );
+        properties.insert("claimed_at".into(), serde_json::Value::from(now_ms));
+        properties.insert(
+            "lease_until".into(),
+            lease_until.map_or(serde_json::Value::Null, serde_json::Value::from),
+        );
+        properties.insert("delivery_tag".into(), serde_json::Value::from(delivery_tag));
+
+        let counter = serde_json::json!({
+            "type": crate::broker::BROKER_COUNTER_TYPE,
+            "last_tag": delivery_tag,
+        });
+        let lookup = serde_json::json!({
+            "type": crate::broker::DTAG_LOOKUP_TYPE,
+            "node_id": node_id,
+            "queue": queue,
+            "owner_consumer": consumer,
+        });
+        let message_value = serde_json::Value::Object(properties);
+        let counter_blob = rmp_serde::to_vec_named(&counter).ok()?;
+        let message_blob = rmp_serde::to_vec_named(&message_value).ok()?;
+        let lookup_blob = rmp_serde::to_vec_named(&lookup).ok()?;
+
+        if let Some(tag) = prior_tag {
+            txn.remove_node(crate::broker::dtag_lookup_node_id(tag));
+        }
+        txn.add_node(counter_id, counter_blob);
+        txn.add_node(node_id.to_string(), message_blob);
+        txn.add_node(lookup_id, lookup_blob);
+        Some(message_value)
+    }
+
+    /// Atomically acknowledge only the currently claimed delivery owned by
+    /// `consumer`. A stale lookup is retired, but it can never remove a reclaimed
+    /// message carrying a newer tag. An owner mismatch leaves the live lookup intact.
+    #[cfg(feature = "broker")]
+    pub fn broker_ack_delivery_tag(&self, delivery_tag: i64, consumer: &str) -> bool {
+        if delivery_tag <= 0 || consumer.trim().is_empty() {
+            return false;
+        }
+        let lookup_id = crate::broker::dtag_lookup_node_id(delivery_tag);
+        let mut txn = self.txn();
+        let Some(lookup) = txn.node_row_map(&lookup_id) else {
+            return false;
+        };
+        if lookup.get("type").and_then(serde_json::Value::as_str)
+            != Some(crate::broker::DTAG_LOOKUP_TYPE)
+        {
+            txn.remove_node(lookup_id);
+            return false;
+        }
+        if lookup
+            .get("owner_consumer")
+            .and_then(serde_json::Value::as_str)
+            != Some(consumer)
+        {
+            return false;
+        }
+        let node_id = lookup
+            .get("node_id")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        if node_id.is_empty() {
+            txn.remove_node(lookup_id);
+            return false;
+        }
+        let Some(properties) = txn.node_row_map(&node_id) else {
+            txn.remove_node(lookup_id);
+            return false;
+        };
+        let current = properties.get("status").and_then(serde_json::Value::as_str)
+            == Some("claimed")
+            && properties
+                .get("delivery_tag")
+                .and_then(serde_json::Value::as_i64)
+                == Some(delivery_tag);
+        if !current {
+            txn.remove_node(lookup_id);
+            return false;
+        }
+        if properties
+            .get("owner_consumer")
+            .and_then(serde_json::Value::as_str)
+            != Some(consumer)
+        {
+            return false;
+        }
+        txn.remove_node(lookup_id);
+        txn.remove_node(node_id);
+        true
+    }
+
+    /// Extend a still-live claimed delivery lease for its current owner. Every
+    /// comparison and the write occur under one guard; caller-supplied time keeps
+    /// replay deterministic.
+    #[cfg(feature = "broker")]
+    pub fn broker_renew_delivery_tag(
+        &self,
+        delivery_tag: i64,
+        consumer: &str,
+        now_ms: u64,
+        lease_ms: u64,
+    ) -> bool {
+        if delivery_tag <= 0 || consumer.trim().is_empty() || lease_ms == 0 {
+            return false;
+        }
+        let Some(renewed_until) = now_ms.checked_add(lease_ms) else {
+            return false;
+        };
+        let lookup_id = crate::broker::dtag_lookup_node_id(delivery_tag);
+        let mut txn = self.txn();
+        let Some(lookup) = txn.node_row_map(&lookup_id) else {
+            return false;
+        };
+        if lookup.get("type").and_then(serde_json::Value::as_str)
+            != Some(crate::broker::DTAG_LOOKUP_TYPE)
+        {
+            txn.remove_node(lookup_id);
+            return false;
+        }
+        if lookup
+            .get("owner_consumer")
+            .and_then(serde_json::Value::as_str)
+            != Some(consumer)
+        {
+            return false;
+        }
+        let node_id = lookup
+            .get("node_id")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let Some(mut properties) = txn.node_row_map(&node_id) else {
+            txn.remove_node(lookup_id);
+            return false;
+        };
+        let current = properties.get("status").and_then(serde_json::Value::as_str)
+            == Some("claimed")
+            && properties
+                .get("delivery_tag")
+                .and_then(serde_json::Value::as_i64)
+                == Some(delivery_tag);
+        if !current {
+            txn.remove_node(lookup_id);
+            return false;
+        }
+        if properties
+            .get("owner_consumer")
+            .and_then(serde_json::Value::as_str)
+            != Some(consumer)
+        {
+            return false;
+        }
+        let current_lease_until = properties
+            .get("lease_until")
+            .and_then(serde_json::Value::as_u64);
+        let Some(current_lease_until) = current_lease_until else {
+            return false;
+        };
+        if current_lease_until <= now_ms {
+            return false;
+        }
+        if renewed_until <= current_lease_until {
+            return false;
+        }
+        properties.insert("lease_until".into(), serde_json::Value::from(renewed_until));
+        let value = serde_json::Value::Object(properties);
+        let Ok(blob) = rmp_serde::to_vec_named(&value) else {
+            return false;
+        };
+        txn.add_node(node_id, blob);
+        true
+    }
+
+    /// Atomically fence and end a tag-addressed delivery. Requeue is applied in
+    /// the same transaction; a terminal transition removes the original and returns
+    /// its immutable properties so the broker layer can perform DLX routing in the
+    /// surrounding staged durable mutation.
+    #[cfg(feature = "broker")]
+    pub fn broker_nack_delivery_tag(
+        &self,
+        delivery_tag: i64,
+        consumer: &str,
+        requeue: bool,
+    ) -> BrokerNackTransition {
+        if delivery_tag <= 0 || consumer.trim().is_empty() {
+            return BrokerNackTransition::Absent;
+        }
+        let lookup_id = crate::broker::dtag_lookup_node_id(delivery_tag);
+        let mut txn = self.txn();
+        let Some(lookup) = txn.node_row_map(&lookup_id) else {
+            return BrokerNackTransition::Absent;
+        };
+        if lookup.get("type").and_then(serde_json::Value::as_str)
+            != Some(crate::broker::DTAG_LOOKUP_TYPE)
+        {
+            txn.remove_node(lookup_id);
+            return BrokerNackTransition::Absent;
+        }
+        if lookup
+            .get("owner_consumer")
+            .and_then(serde_json::Value::as_str)
+            != Some(consumer)
+        {
+            return BrokerNackTransition::Absent;
+        }
+        let node_id = lookup
+            .get("node_id")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let queue = lookup
+            .get("queue")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        if node_id.is_empty() || queue.is_empty() {
+            txn.remove_node(lookup_id);
+            return BrokerNackTransition::Absent;
+        }
+        let Some(mut properties) = txn.node_row_map(&node_id) else {
+            txn.remove_node(lookup_id);
+            return BrokerNackTransition::Absent;
+        };
+        let current = properties.get("status").and_then(serde_json::Value::as_str)
+            == Some("claimed")
+            && properties
+                .get("delivery_tag")
+                .and_then(serde_json::Value::as_i64)
+                == Some(delivery_tag);
+        if !current {
+            txn.remove_node(lookup_id);
+            return BrokerNackTransition::Absent;
+        }
+        if properties
+            .get("owner_consumer")
+            .and_then(serde_json::Value::as_str)
+            != Some(consumer)
+        {
+            return BrokerNackTransition::Absent;
+        }
+
+        let Some(delivery_count) = properties
+            .get("delivery_count")
+            .and_then(serde_json::Value::as_i64)
+            .filter(|count| *count >= 0)
+        else {
+            return BrokerNackTransition::Absent;
+        };
+        let max_delivery_count = txn
+            .node_row_map(&crate::broker::queue_policy_node_id(&queue))
+            .and_then(|policy| {
+                policy
+                    .get("max_delivery_count")
+                    .and_then(serde_json::Value::as_u64)
+            });
+        let under_max = max_delivery_count
+            .map(|max| (delivery_count as i128) < (max as i128))
+            .unwrap_or(true);
+
+        if requeue && under_max {
+            properties.insert("status".into(), serde_json::Value::String("pending".into()));
+            properties.insert("lease_until".into(), serde_json::Value::Null);
+            properties.insert("owner_consumer".into(), serde_json::Value::Null);
+            properties.insert("owner_group".into(), serde_json::Value::Null);
+            properties.insert("delivery_tag".into(), serde_json::Value::Null);
+            let value = serde_json::Value::Object(properties);
+            let Ok(blob) = rmp_serde::to_vec_named(&value) else {
+                return BrokerNackTransition::Absent;
+            };
+            txn.remove_node(lookup_id);
+            txn.add_node(node_id, blob);
+            return BrokerNackTransition::Requeued;
+        }
+
+        let value = serde_json::Value::Object(properties);
+        txn.remove_node(lookup_id);
+        txn.remove_node(node_id.clone());
+        BrokerNackTransition::Terminal {
+            node_id,
+            queue,
+            properties: value,
+        }
+    }
+
+    /// Return an expired delivery to pending while retiring its tag generation.
+    /// Used by the proactive sweep; the exact observed lease is revalidated so a
+    /// concurrent renewal cannot be undone.
+    #[cfg(feature = "broker")]
+    pub fn broker_release_expired_delivery(
+        &self,
+        node_id: &str,
+        expected_lease_until: Option<u64>,
+        now_ms: u64,
+    ) -> bool {
+        let mut txn = self.txn();
+        let Some(mut properties) = txn.node_row_map(node_id) else {
+            return false;
+        };
+        let Some(current_lease) = properties
+            .get("lease_until")
+            .and_then(serde_json::Value::as_u64)
+        else {
+            return false;
+        };
+        if properties.get("status").and_then(serde_json::Value::as_str) != Some("claimed")
+            || Some(current_lease) != expected_lease_until
+            || current_lease > now_ms
+        {
+            return false;
+        }
+        let Some(tag) = properties
+            .get("delivery_tag")
+            .and_then(serde_json::Value::as_i64)
+            .filter(|tag| *tag > 0)
+        else {
+            return false;
+        };
+        txn.remove_node(crate::broker::dtag_lookup_node_id(tag));
+        properties.insert("status".into(), serde_json::Value::String("pending".into()));
+        properties.insert("lease_until".into(), serde_json::Value::Null);
+        properties.insert("owner_consumer".into(), serde_json::Value::Null);
+        properties.insert("owner_group".into(), serde_json::Value::Null);
+        properties.insert("delivery_tag".into(), serde_json::Value::Null);
+        let value = serde_json::Value::Object(properties);
+        let Ok(blob) = rmp_serde::to_vec_named(&value) else {
+            return false;
+        };
+        txn.add_node(node_id.to_string(), blob);
+        true
+    }
+
     /// Idempotent-producer dedup check + high-water-mark bump under ONE topology write
     /// guard (CONCEPT:EG-KG.ingest.effectively-once-publish — effectively-once publish). `node_id` is the producer's
     /// durable dedup node (`broker:producer:<producer_id>`) holding a monotonic
@@ -2369,9 +3127,10 @@ impl GraphCore {
     }
 
     /// Return at most `limit` nodes (id, properties) whose `type`/`label`/`labels`
-    /// matches `label`; `limit == 0` means no cap. Scans in-engine (cheap,
-    /// in-memory) but bounds the returned payload, so a `MATCH (n:Label) … LIMIT k`
-    /// caller no longer materializes every node's properties over the wire.
+    /// matches `label`; `limit == 0` means no cap. Rows are ordered by node id.
+    /// Scans in-engine but bounds the returned payload, so a
+    /// `MATCH (n:Label) … LIMIT k` caller no longer materializes every node's
+    /// properties over the wire.
     ///
     /// An EMPTY `label` (CONCEPT:EG-KG.query.unlabeled-scan-limit-pushdown) means "no label filter" — a bounded scan of
     /// the WHOLE node store, still honouring `limit`. This gives an unlabeled
@@ -2379,8 +3138,21 @@ impl GraphCore {
     /// back to the unbounded `GetNodes` dump (which trips the `RESULT_TOO_LARGE`
     /// overload guard on a large graph even when the caller only wanted `k` rows).
     pub fn get_nodes_by_label(&self, label: &str, limit: usize) -> Vec<(String, Vec<u8>)> {
+        self.get_nodes_by_label_page(label, None, limit)
+    }
+
+    /// Deterministic keyset page over [`Self::get_nodes_by_label`]. `after` is an
+    /// exclusive node-id cursor. This is a live committed-state scan rather than
+    /// a cross-request snapshot; synchronizers must serialize a reconcile pass
+    /// with writers that could insert an older id.
+    pub fn get_nodes_by_label_page(
+        &self,
+        label: &str,
+        after: Option<&str>,
+        limit: usize,
+    ) -> Vec<(String, Vec<u8>)> {
         if label.is_empty() {
-            return self.collect_unlabeled(limit);
+            return self.collect_unlabeled(after, limit);
         }
         // CONCEPT:EG-KG.compute.consult-lazy — consult the lazy `label → ids` index so a label
         // lookup is an O(1) map hit instead of a full DashMap scan that
@@ -2390,26 +3162,48 @@ impl GraphCore {
         {
             let guard = self.label_index.read();
             if let Some(idx) = guard.as_ref() {
-                return Self::collect_by_label(idx, &self.node_properties, label, limit);
+                return Self::collect_by_label(idx, &self.node_properties, label, after, limit);
             }
         }
         let built = self.build_label_index();
-        let out = Self::collect_by_label(&built, &self.node_properties, label, limit);
+        let out = Self::collect_by_label(&built, &self.node_properties, label, after, limit);
         *self.label_index.write() = Some(built);
         out
     }
 
     /// The unlabeled-scan leg of [`Self::get_nodes_by_label`] (CONCEPT:EG-KG.query.unlabeled-scan-limit-pushdown):
-    /// every node, honouring `limit` (`0` = uncapped). Stops iterating as soon as
-    /// `limit` rows are collected — unlike [`Self::get_nodes`], a small `limit`
-    /// never materializes the whole DashMap.
-    fn collect_unlabeled(&self, limit: usize) -> Vec<(String, Vec<u8>)> {
-        let mut out: Vec<(String, Vec<u8>)> = Vec::new();
-        for e in self.node_properties.iter() {
+    /// every node in deterministic id order, honouring `limit` (`0` = uncapped).
+    /// Only ids are sorted; property blobs are cloned for the requested page.
+    fn collect_unlabeled(&self, after: Option<&str>, limit: usize) -> Vec<(String, Vec<u8>)> {
+        // Build and publish while holding the topology read guard. Every
+        // structural writer takes the matching write guard, so it cannot slip a
+        // node add/remove between this snapshot and publication; its later
+        // mark_dirty invalidates the cache before the next committed-state read.
+        if self.node_id_index.read().is_none() {
+            let topo = self.topo.read();
+            let mut cache = self.node_id_index.write();
+            if cache.is_none() {
+                let mut ids: Vec<String> = topo.node_map.keys().cloned().collect();
+                ids.sort_unstable();
+                *cache = Some(ids);
+            }
+        }
+        let cache = self.node_id_index.read();
+        let ids = cache.as_deref().unwrap_or_default();
+        let start = after.map_or(0, |cursor| ids.partition_point(|id| id.as_str() <= cursor));
+        let capacity = if limit == 0 {
+            ids.len().saturating_sub(start)
+        } else {
+            limit.min(ids.len().saturating_sub(start))
+        };
+        let mut out: Vec<(String, Vec<u8>)> = Vec::with_capacity(capacity);
+        for id in ids.iter().skip(start) {
             if limit != 0 && out.len() >= limit {
                 break;
             }
-            out.push((e.key().clone(), (**e.value()).clone()));
+            if let Some(props) = self.node_properties.get(id) {
+                out.push((id.clone(), (**props.value()).clone()));
+            }
         }
         out
     }
@@ -2422,13 +3216,15 @@ impl GraphCore {
         index: &HashMap<String, Vec<String>>,
         node_properties: &DashMap<String, Arc<Vec<u8>>>,
         label: &str,
+        after: Option<&str>,
         limit: usize,
     ) -> Vec<(String, Vec<u8>)> {
         let mut out: Vec<(String, Vec<u8>)> = Vec::new();
         let Some(ids) = index.get(label) else {
             return out;
         };
-        for id in ids {
+        let start = after.map_or(0, |cursor| ids.partition_point(|id| id.as_str() <= cursor));
+        for id in ids.iter().skip(start) {
             if limit != 0 && out.len() >= limit {
                 break;
             }
@@ -2450,8 +3246,7 @@ impl GraphCore {
     fn build_label_index(&self) -> HashMap<String, Vec<String>> {
         let mut index: HashMap<String, Vec<String>> = HashMap::new();
         for entry in self.node_properties.iter() {
-            let Ok(val) = rmp_serde::from_slice::<serde_json::Value>(entry.value().as_slice())
-            else {
+            let Ok(val) = decode_property_value(entry.value().as_slice()) else {
                 continue;
             };
             let id = entry.key();
@@ -2534,8 +3329,31 @@ impl GraphCore {
         sets.sort_by_key(|s| s.len());
         let mut acc = sets.remove(0);
         for s in &sets {
-            let other: std::collections::HashSet<&String> = s.iter().collect();
-            acc.retain(|id| other.contains(id));
+            // Every property posting is already sorted + deduplicated when built.
+            // Intersect with the classic two-pointer merge instead of allocating a
+            // fresh HashSet for every predicate. This is deterministic O(a+b) time
+            // with O(1) scratch (beyond the reused result vector).
+            let mut write = 0usize;
+            let mut left = 0usize;
+            let mut right = 0usize;
+            while left < acc.len() && right < s.len() {
+                match acc[left].cmp(&s[right]) {
+                    std::cmp::Ordering::Less => left += 1,
+                    std::cmp::Ordering::Greater => right += 1,
+                    std::cmp::Ordering::Equal => {
+                        if write != left {
+                            acc.swap(write, left);
+                        }
+                        write += 1;
+                        left += 1;
+                        right += 1;
+                    }
+                }
+            }
+            acc.truncate(write);
+            if acc.is_empty() {
+                break;
+            }
         }
         Some(acc)
     }
@@ -2578,8 +3396,7 @@ impl GraphCore {
     fn build_property_value_map(&self, key: &str) -> HashMap<String, Vec<String>> {
         let mut by_value: HashMap<String, Vec<String>> = HashMap::new();
         for entry in self.node_properties.iter() {
-            let Ok(val) = rmp_serde::from_slice::<serde_json::Value>(entry.value().as_slice())
-            else {
+            let Ok(val) = decode_property_value(entry.value().as_slice()) else {
                 continue;
             };
             if let Some(vk) = val.get(key).and_then(Self::property_value_key) {
@@ -2813,8 +3630,7 @@ impl GraphCore {
             return (by_value, present);
         };
         for entry in self.node_properties.iter() {
-            let Ok(val) = rmp_serde::from_slice::<serde_json::Value>(entry.value().as_slice())
-            else {
+            let Ok(val) = decode_property_value(entry.value().as_slice()) else {
                 continue;
             };
             let matches = crate::jsonpath::eval(&val, &segs);
@@ -2900,8 +3716,7 @@ impl GraphCore {
     fn build_ontology_index(&self) -> (AhoCorasick, Vec<OntologyMatch>) {
         let mut dedup: HashMap<String, OntologyMatch> = HashMap::new();
         for entry in self.node_properties.iter() {
-            let Ok(val) = rmp_serde::from_slice::<serde_json::Value>(entry.value().as_slice())
-            else {
+            let Ok(val) = decode_property_value(entry.value().as_slice()) else {
                 continue;
             };
             let Some(ntype) = val
@@ -3007,11 +3822,10 @@ impl GraphCore {
         if let Some(a) = self.node_properties.get(node_id) {
             return Some((**a).clone());
         }
-        // RAM miss. Under redb-authoritative mode a durable node may have been
+        // A durable node may have been
         // evicted from RAM to bound memory (CONCEPT:EG-KG.storage.read-through-seam-exercised); fetch its stored
         // blob from the durable tier so an evicted node still reads back correctly.
-        // The read-through is only ever set under authoritative mode, so this is a
-        // no-op (genuine absence) in the default model — behavior unchanged.
+        // Without an installed read-through this is a genuine absence.
         self.read_through_get(node_id)
     }
 
@@ -3096,7 +3910,10 @@ impl GraphCore {
     }
 
     pub fn edge_count(&self) -> usize {
-        self.edge_properties.iter().map(|e| e.value().len()).sum()
+        // Topology and edge-property rows are updated in the same GraphTxn. The
+        // StableGraph maintains its cardinality, so this is O(1) instead of walking
+        // every endpoint pair and parallel-edge property vector.
+        self.topo.read().graph.edge_count()
     }
 
     /// Approximate resident RAM this graph holds, in bytes (CONCEPT:EG-KG.compute.lane-v —
@@ -3241,6 +4058,8 @@ impl GraphCore {
         // turns the A1-residual ~3s lock-held deep clone of a 450MB graph into a
         // ~µs pointer copy, and removes the transient memory doubling.
         GraphSnapshot {
+            schema_version: GRAPH_SNAPSHOT_SCHEMA_VERSION,
+            integrity_policy: self.integrity_policy.read().clone(),
             nodes: self.get_nodes_arc(),
             edges: self.get_edges_arc(),
             ledger: self.ledger.lock().clone(),
@@ -3248,10 +4067,161 @@ impl GraphCore {
         }
     }
 
-    /// Serialize the whole graph to MessagePack. Now encodes the typed snapshot
-    /// directly (A3) instead of round-tripping every property byte through
-    /// `serde_json::Value`; the on-disk shape is unchanged so `from_msgpack` reads
-    /// pre- and post-change files alike.
+    /// Build an isolated mutable graph from an owned snapshot without copying
+    /// property blobs. Mutation gateways use this as their staging image: execute
+    /// against the fork, durably commit its resulting snapshot, then publish it to
+    /// the live core. The caller-supplied version is the authoritative OCC source
+    /// version captured with the snapshot.
+    pub fn from_snapshot(snapshot: GraphSnapshot, version: u64) -> Result<Self, String> {
+        let core = Self::new();
+        core.replace_snapshot(snapshot)?;
+        core.version
+            .store(version, std::sync::atomic::Ordering::Release);
+        core.dirty
+            .store(false, std::sync::atomic::Ordering::Release);
+        Ok(core)
+    }
+
+    /// Publish the authoritative version of a newly materialized projection.
+    ///
+    /// Recovery and graph creation build an unpublished [`GraphCore`] from
+    /// durable rows using the ordinary row primitives. Those primitives do not
+    /// advance the serving version because replay is not a new mutation. Before
+    /// the core becomes visible, its version must therefore adopt the exact
+    /// authoritative source watermark. This is a one-shot transition from the
+    /// fresh-core version (`0`); refusing any later transition prevents recovery
+    /// plumbing from rewinding a live projection.
+    #[doc(hidden)]
+    pub fn adopt_materialized_version(&self, authoritative_version: u64) -> Result<(), String> {
+        if authoritative_version == 0 {
+            return Err(
+                "materialized version publication requires a committed non-zero version"
+                    .to_string(),
+            );
+        }
+        self.version
+            .compare_exchange(
+                0,
+                authoritative_version,
+                std::sync::atomic::Ordering::AcqRel,
+                std::sync::atomic::Ordering::Acquire,
+            )
+            .map_err(|current| {
+                format!(
+                    "materialized version publication requires a fresh projection (current {current}, authoritative {authoritative_version})"
+                )
+            })?;
+        self.dirty
+            .store(false, std::sync::atomic::Ordering::Release);
+        Ok(())
+    }
+
+    /// Atomically replace this core's persistent image while retaining its
+    /// read-through, notifier, and index-service attachments. Property `Arc`s are
+    /// moved from the staged snapshot, avoiding a second graph-sized byte copy.
+    /// Version/dirty publication is intentionally left to the commit gateway.
+    pub fn replace_snapshot(&self, snapshot: GraphSnapshot) -> Result<(), String> {
+        snapshot.validate_schema()?;
+        let GraphSnapshot {
+            schema_version: _,
+            integrity_policy,
+            nodes,
+            edges,
+            ledger,
+            semantic_store,
+        } = snapshot;
+
+        // Validate and construct the complete replacement OFF the live graph.
+        // A duplicate node or dangling endpoint must leave the prior image intact;
+        // clearing first turned a malformed restore into partial data loss.
+        let mut next_topology = Topology::default();
+        let mut next_node_properties = Vec::with_capacity(nodes.len());
+        for (node_id, properties) in nodes {
+            if next_topology.node_map.contains_key(&node_id) {
+                return Err(format!("snapshot contains duplicate node '{}'", node_id));
+            }
+            let index = next_topology.graph.add_node(node_id.clone());
+            next_topology.node_map.insert(node_id.clone(), index);
+            next_node_properties.push((node_id, properties));
+        }
+        let mut next_edge_properties: HashMap<_, Vec<_>> = HashMap::new();
+        for (source, target, properties) in edges {
+            let source_index = next_topology
+                .node_map
+                .get(&source)
+                .copied()
+                .ok_or_else(|| format!("snapshot edge source '{}' is missing", source))?;
+            let target_index = next_topology
+                .node_map
+                .get(&target)
+                .copied()
+                .ok_or_else(|| format!("snapshot edge target '{}' is missing", target))?;
+            next_topology.graph.add_edge(
+                source_index,
+                target_index,
+                format!("{}:{}", source, target),
+            );
+            next_edge_properties
+                .entry((source, target))
+                .or_default()
+                .push(properties);
+        }
+
+        // No fallible validation remains beyond this point. Publish under the
+        // topology writer barrier, then invalidate derivatives of the old image.
+        let mut topo = self.topo.write();
+        *topo = next_topology;
+        self.node_properties.clear();
+        for (node_id, properties) in next_node_properties {
+            self.node_properties.insert(node_id, properties);
+        }
+        self.edge_properties.clear();
+        for (endpoints, properties) in next_edge_properties {
+            self.edge_properties.insert(endpoints, properties);
+        }
+        *self.ledger.lock() = ledger;
+        *self.semantic_store.write() = semantic_store;
+        *self.integrity_policy.write() = integrity_policy;
+        drop(topo);
+        self.invalidate_indexes();
+        #[cfg(feature = "result-cache")]
+        self.result_cache.invalidate_all();
+        Ok(())
+    }
+
+    /// Install a staged image at its pre-commit version. The server immediately
+    /// calls `mark_dirty()` after this non-awaiting publication step, advancing to
+    /// the durable target version and emitting the normal change notification.
+    pub fn prepare_snapshot_publish(
+        &self,
+        snapshot: GraphSnapshot,
+        source_version: u64,
+    ) -> Result<(), String> {
+        self.replace_snapshot(snapshot)?;
+        self.version
+            .store(source_version, std::sync::atomic::Ordering::Release);
+        self.dirty
+            .store(false, std::sync::atomic::Ordering::Release);
+        Ok(())
+    }
+
+    /// Reconcile RAM after a retry discovers that durability committed before the
+    /// prior process could publish. This does not increment the already-committed
+    /// version; it installs that exact version and wakes local subscribers once.
+    pub fn install_committed_snapshot(
+        &self,
+        snapshot: GraphSnapshot,
+        committed_version: u64,
+    ) -> Result<(), String> {
+        self.replace_snapshot(snapshot)?;
+        self.version
+            .store(committed_version, std::sync::atomic::Ordering::Release);
+        self.dirty.store(true, std::sync::atomic::Ordering::Release);
+        self.changes.emit(committed_version);
+        Ok(())
+    }
+
+    /// Serialize the whole graph using the sole current typed MessagePack schema.
     pub fn to_msgpack(&self) -> Result<Vec<u8>, String> {
         self.snapshot().to_msgpack()
     }
@@ -3328,54 +4298,43 @@ impl GraphCore {
     }
 
     pub fn from_msgpack(&self, msgpack: &[u8]) -> Result<(), String> {
-        let graph_map: HashMap<String, serde_json::Value> =
-            rmp_serde::from_slice(msgpack).map_err(|e| e.to_string())?;
+        let limits = eg_types::msgpack::MsgpackLimits::new(
+            MAX_GRAPH_SNAPSHOT_BYTES,
+            MAX_GRAPH_SNAPSHOT_ITEMS,
+            eg_types::msgpack::DEFAULT_MAX_DEPTH,
+        );
+        let snapshot: GraphSnapshot = eg_types::msgpack::decode_bounded(msgpack, limits)
+            .map_err(|_| "graph snapshot is invalid or exceeds resource limits".to_string())?;
 
-        // Reset + reload under ONE write txn — the whole load is atomic w.r.t. any
-        // concurrent reader/writer, and replaying through the txn avoids re-locking
-        // per node/edge.
-        let mut txn = self.txn();
-        txn.topo.graph.clear();
-        txn.topo.node_map.clear();
-        self.node_properties.clear();
-        self.edge_properties.clear();
-        self.ledger.lock().clear();
-
-        if let Some(nodes_val) = graph_map.get("nodes") {
-            let nodes: Vec<(String, Vec<u8>)> =
-                serde_json::from_value(nodes_val.clone()).map_err(|e| e.to_string())?;
-            for (node_id, props) in nodes {
-                txn.add_node(node_id, props);
-            }
-        }
-
-        if let Some(edges_val) = graph_map.get("edges") {
-            let edges: Vec<(String, String, Vec<u8>)> =
-                serde_json::from_value(edges_val.clone()).map_err(|e| e.to_string())?;
-            for (src, tgt, props) in edges {
-                let _ = txn.add_edge(src, tgt, props);
-            }
-        }
-
-        if let Some(ledger_val) = graph_map.get("ledger") {
-            let ledger: Vec<String> =
-                serde_json::from_value(ledger_val.clone()).map_err(|e| e.to_string())?;
-            *self.ledger.lock() = ledger;
-        }
-
-        if let Some(store_val) = graph_map.get("semantic_store") {
-            let store: crate::compute::semantic::SemanticStore =
-                serde_json::from_value(store_val.clone()).map_err(|e| e.to_string())?;
-            *self.semantic_store.write() = store;
-        }
-
-        Ok(())
+        // `replace_snapshot` constructs and validates all topology/property state
+        // before touching the live image, so a malformed edge or duplicate id is
+        // a fail-closed no-op rather than a partially cleared graph.
+        self.replace_snapshot(snapshot)
+            .map_err(|_| "graph snapshot is invalid or exceeds resource limits".to_string())
     }
 
     // ── Ledger Operations ────────────────────────────────────────────────
 
     pub fn get_ledger(&self) -> Vec<String> {
         self.ledger.lock().clone()
+    }
+
+    #[doc(hidden)]
+    pub fn ledger_len(&self) -> usize {
+        self.ledger.lock().len()
+    }
+
+    /// Replace only the changed suffix of an authenticated staged ledger image.
+    /// The graph-row delta validates its source length before any topology write.
+    #[doc(hidden)]
+    pub fn replace_ledger_suffix(&self, retain: usize, append: &[String]) -> Result<(), String> {
+        let mut ledger = self.ledger.lock();
+        if retain > ledger.len() {
+            return Err("graph row delta ledger prefix is invalid".to_string());
+        }
+        ledger.truncate(retain);
+        ledger.extend_from_slice(append);
+        Ok(())
     }
 
     pub fn clear_ledger(&self) {
@@ -3419,11 +4378,10 @@ impl GraphCore {
     pub fn get_subgraph(&self, node_ids: &[String]) -> GraphView {
         let topo = self.topo.read();
         let mut view = GraphView::default();
-        let id_set: std::collections::HashSet<&String> = node_ids.iter().collect();
 
         // Copy matching nodes (those that actually exist).
         for nid in node_ids {
-            if topo.node_map.contains_key(nid) {
+            if topo.node_map.contains_key(nid) && !view.node_map.contains_key(nid) {
                 let new_idx = view.graph.add_node(nid.clone());
                 view.node_map.insert(nid.clone(), new_idx);
                 if let Some(props) = self.node_properties.get(nid) {
@@ -3432,18 +4390,36 @@ impl GraphCore {
             }
         }
 
-        // Copy edges where both endpoints made it into the subgraph.
-        for entry in self.edge_properties.iter() {
-            let (src, tgt) = entry.key();
-            if id_set.contains(src) && id_set.contains(tgt) {
-                if let (Some(&s), Some(&t)) = (view.node_map.get(src), view.node_map.get(tgt)) {
-                    for props in entry.value() {
-                        view.graph.add_edge(s, t, format!("{}:{}", src, tgt));
-                        view.edge_properties
-                            .entry((src.clone(), tgt.clone()))
-                            .or_default()
-                            .push(props.clone());
-                    }
+        // Walk only outgoing adjacency of selected nodes instead of scanning the
+        // complete edge-property map. Parallel topology edges share one endpoint
+        // property vector, so visit each endpoint pair once.
+        let mut seen_pairs = std::collections::HashSet::new();
+        for src in view.node_map.keys() {
+            let Some(&source_index) = topo.node_map.get(src) else {
+                continue;
+            };
+            for edge in topo
+                .graph
+                .edges_directed(source_index, petgraph::Direction::Outgoing)
+            {
+                let tgt = &topo.graph[edge.target()];
+                if !view.node_map.contains_key(tgt)
+                    || !seen_pairs.insert((src.clone(), tgt.clone()))
+                {
+                    continue;
+                }
+                let Some(props) = self.edge_properties.get(&(src.clone(), tgt.clone())) else {
+                    continue;
+                };
+                let (Some(&s), Some(&t)) = (view.node_map.get(src), view.node_map.get(tgt)) else {
+                    continue;
+                };
+                for prop in props.iter() {
+                    view.graph.add_edge(s, t, format!("{}:{}", src, tgt));
+                    view.edge_properties
+                        .entry((src.clone(), tgt.clone()))
+                        .or_default()
+                        .push(prop.clone());
                 }
             }
         }
@@ -3543,6 +4519,7 @@ impl GraphCore {
                 .collect(),
             ledger: Mutex::new(self.ledger.lock().clone()),
             semantic_store: RwLock::new(self.semantic_store.read().clone()),
+            integrity_policy: RwLock::new(self.integrity_policy.read().clone()),
             dirty: std::sync::atomic::AtomicBool::new(true),
             // Fork starts a fresh OCC version line (CONCEPT:EG-KG.txn.occ-graph-core) — it is a new
             // independent graph; any txn against the fork baselines from 0.
@@ -3553,6 +4530,7 @@ impl GraphCore {
             // Fork starts with cold lazy indexes; rebuilt lazily on first use.
             ontology_index: RwLock::new(None),
             label_index: RwLock::new(None),
+            node_id_index: RwLock::new(None),
             property_index: RwLock::new(None),
             // CONCEPT:EG-KG.compute.json-deep-indexing — fork starts with a cold JSONPath path-index too.
             path_index: RwLock::new(None),
@@ -3651,105 +4629,6 @@ impl GraphCore {
         removed
     }
 
-    // ── Repository Parsing ───────────────────────────────────────────────
-
-    pub fn parse_repository(&self, root_path: &str) -> Result<(), String> {
-        let root = std::path::Path::new(root_path);
-        if !root.exists() {
-            return Err(format!("Path '{}' does not exist", root_path));
-        }
-        let mut files = Vec::new();
-        walk_dir_recursive(root, &mut files);
-
-        for path in files {
-            if let Ok(relative) = path.strip_prefix(root) {
-                let rel_str = relative.to_string_lossy().to_string();
-
-                let file_props = format!("{{\"type\": \"file\", \"path\": \"{}\"}}", rel_str);
-                self.add_node(rel_str.clone(), file_props.into_bytes());
-
-                if let Ok(mut file) = std::fs::File::open(&path) {
-                    let mut content = String::new();
-                    if file.read_to_string(&mut content).is_ok() {
-                        let lines: Vec<&str> = content.lines().collect();
-                        for (idx, line) in lines.iter().enumerate() {
-                            let trimmed = line.trim();
-                            self.parse_code_line(trimmed, &rel_str, idx + 1);
-                        }
-                    }
-                }
-            }
-        }
-        Ok(())
-    }
-
-    fn parse_code_line(&self, trimmed: &str, rel_str: &str, line_num: usize) {
-        // Python/JS class definition
-        if trimmed.starts_with("class ") {
-            if let Some(class_name) = trimmed.split_whitespace().nth(1) {
-                let clean_name = class_name
-                    .split('(')
-                    .next()
-                    .unwrap_or("")
-                    .split(':')
-                    .next()
-                    .unwrap_or("")
-                    .trim();
-                if !clean_name.is_empty() {
-                    let node_id = format!("{}::{}", rel_str, clean_name);
-                    let props = format!(
-                        "{{\"type\": \"class\", \"file\": \"{}\", \"line\": {}}}",
-                        rel_str, line_num
-                    );
-                    self.add_node(node_id.clone(), props.into_bytes());
-                    let edge_props = "{\"relationship\": \"contains\"}".to_string();
-                    let _ = self.add_edge(rel_str.to_string(), node_id, edge_props.into_bytes());
-                }
-            }
-        }
-
-        // Python function definition
-        if trimmed.starts_with("def ") {
-            if let Some(func_name) = trimmed.split_whitespace().nth(1) {
-                let clean_name = func_name
-                    .split('(')
-                    .next()
-                    .unwrap_or("")
-                    .split(':')
-                    .next()
-                    .unwrap_or("")
-                    .trim();
-                if !clean_name.is_empty() {
-                    let node_id = format!("{}::{}", rel_str, clean_name);
-                    let props = format!(
-                        "{{\"type\": \"function\", \"file\": \"{}\", \"line\": {}}}",
-                        rel_str, line_num
-                    );
-                    self.add_node(node_id.clone(), props.into_bytes());
-                    let edge_props = "{\"relationship\": \"contains\"}".to_string();
-                    let _ = self.add_edge(rel_str.to_string(), node_id, edge_props.into_bytes());
-                }
-            }
-        }
-
-        // JavaScript/TypeScript function
-        if trimmed.starts_with("function ") {
-            if let Some(func_name) = trimmed.split_whitespace().nth(1) {
-                let clean_name = func_name.split('(').next().unwrap_or("").trim();
-                if !clean_name.is_empty() {
-                    let node_id = format!("{}::{}", rel_str, clean_name);
-                    let props = format!(
-                        "{{\"type\": \"function\", \"file\": \"{}\", \"line\": {}}}",
-                        rel_str, line_num
-                    );
-                    self.add_node(node_id.clone(), props.into_bytes());
-                    let edge_props = "{\"relationship\": \"contains\"}".to_string();
-                    let _ = self.add_edge(rel_str.to_string(), node_id, edge_props.into_bytes());
-                }
-            }
-        }
-    }
-
     // ── VF2 Subgraph Matching ────────────────────────────────────────────
 
     pub fn vf2_subgraph_match(&self, pattern: &GraphView) -> Vec<HashMap<String, String>> {
@@ -3761,8 +4640,8 @@ impl GraphCore {
 
     /// The least-recently-added node ids that would be evicted to bring the graph
     /// down to `max_nodes` — the same set (and order) `evict_lru` removes, but
-    /// WITHOUT dropping them (CONCEPT:EG-KG.storage.read-through-seam-exercised). Used by the redb-authoritative
-    /// eviction path, which must confirm each candidate is durable in redb BEFORE
+    /// WITHOUT dropping them (CONCEPT:EG-KG.storage.read-through-seam-exercised). Used by the authoritative
+    /// eviction path, which must confirm each candidate is durable BEFORE
     /// dropping it (commit-before-ack makes that the common case; the check is the
     /// no-data-loss guarantee). Empty when the graph is at/under the cap.
     pub fn lru_eviction_candidates(&self, max_nodes: usize) -> Vec<String> {
@@ -3775,12 +4654,13 @@ impl GraphCore {
         };
         let to_evict = indexed.len() - max_nodes;
         // Nodes with the lowest NodeIndex were inserted earliest → approximate LRU.
-        indexed.sort_by_key(|(_, idx)| *idx);
-        indexed
-            .into_iter()
-            .take(to_evict)
-            .map(|(id, _)| id)
-            .collect()
+        // Partition in expected O(N); a full O(N log N) ordering is unnecessary
+        // because eviction consumes the set as one batch.
+        if to_evict < indexed.len() {
+            indexed.select_nth_unstable_by_key(to_evict, |(_, index)| *index);
+            indexed.truncate(to_evict);
+        }
+        indexed.into_iter().map(|(id, _)| id).collect()
     }
 
     /// Evict nodes down to `max_nodes` by removing the least-recently-added.
@@ -3790,30 +4670,8 @@ impl GraphCore {
     /// insertion order in `node_map`) until the count is at or below the cap.
     /// Returns the number of evicted nodes.
     pub fn evict_lru(&self, max_nodes: usize) -> usize {
-        // Snapshot the id↔index map under the read lock, then remove off-lock.
-        let mut indexed: Vec<(String, NodeIndex)> = {
-            let topo = self.topo.read();
-            if topo.node_map.len() <= max_nodes {
-                return 0;
-            }
-            topo.node_map.iter().map(|(k, &v)| (k.clone(), v)).collect()
-        };
-        let to_evict = indexed.len() - max_nodes;
-
-        // Nodes with the lowest NodeIndex were inserted earliest → approximate LRU.
-        indexed.sort_by_key(|(_, idx)| *idx);
-
-        let evict_ids: Vec<String> = indexed
-            .into_iter()
-            .take(to_evict)
-            .map(|(id, _)| id)
-            .collect();
-
-        for node_id in &evict_ids {
-            self.remove_node(node_id.clone());
-        }
-
-        evict_ids.len()
+        let evict_ids = self.lru_eviction_candidates(max_nodes);
+        self.evict_resident_nodes(&evict_ids)
     }
 
     // ── Ebbinghaus Temporal Decay (CONCEPT:EG-KG.compute.graph-compute-engine) ──────────────────────
@@ -3855,7 +4713,7 @@ impl GraphCore {
                 .collect();
             for nid in node_ids {
                 if let Some(bytes) = self.node_properties.get(&nid).map(|r| r.value().clone()) {
-                    if let Ok(mut val) = rmp_serde::from_slice::<serde_json::Value>(&bytes) {
+                    if let Ok(mut val) = decode_property_value(&bytes) {
                         if let Some(obj) = val.as_object_mut() {
                             let (new_conf, changed) = apply_decay(obj, now, default_half_life);
                             if changed {
@@ -3882,9 +4740,7 @@ impl GraphCore {
                 let mut min_conf = 1.0f64;
                 if let Some(mut blobs) = self.edge_properties.get_mut(&key) {
                     for b in blobs.iter_mut() {
-                        if let Ok(mut val) =
-                            rmp_serde::from_slice::<serde_json::Value>(b.as_slice())
-                        {
+                        if let Ok(mut val) = decode_property_value(b.as_slice()) {
                             if let Some(obj) = val.as_object_mut() {
                                 let (new_conf, changed) = apply_decay(obj, now, default_half_life);
                                 if changed {
@@ -3937,7 +4793,7 @@ impl GraphCore {
         let mut touched = 0usize;
         for nid in node_ids {
             if let Some(bytes) = self.node_properties.get(nid).map(|a| (**a).clone()) {
-                if let Ok(mut val) = rmp_serde::from_slice::<serde_json::Value>(&bytes) {
+                if let Ok(mut val) = decode_property_value(&bytes) {
                     if let Some(obj) = val.as_object_mut() {
                         obj.insert("last_access".to_string(), serde_json::json!(now));
                         obj.insert("confidence".to_string(), serde_json::json!(1.0_f64));
@@ -3986,17 +4842,17 @@ impl GraphCore {
 
     /// Does a `source → target` edge carrying `relationship` exist? (Read helper for
     /// the summary/consolidation queries — CONCEPT:EG-KG.compute.hierarchical-summary-tier-eg.) Matches on the edge
-    /// blob's `relationship` (or legacy `type`) field.
+    /// blob's canonical `relationship` field.
     fn edge_has_relationship(&self, source_id: &str, target_id: &str, relationship: &str) -> bool {
         self.edge_properties
             .get(&(source_id.to_string(), target_id.to_string()))
             .is_some_and(|blobs| {
                 blobs.iter().any(|b| {
-                    rmp_serde::from_slice::<serde_json::Value>(b)
+                    decode_property_value(b)
                         .ok()
                         .and_then(|v| {
                             v.as_object()
-                                .and_then(|o| o.get("relationship").or_else(|| o.get("type")))
+                                .and_then(|o| o.get("relationship"))
                                 .and_then(|r| r.as_str())
                                 .map(|s| s == relationship)
                         })
@@ -4037,7 +4893,7 @@ impl GraphCore {
             .get_nodes_by_label("SummaryNode", 0)
             .into_iter()
             .filter_map(|(id, blob)| {
-                let val = rmp_serde::from_slice::<serde_json::Value>(&blob).ok()?;
+                let val = decode_property_value(&blob).ok()?;
                 let lvl = val.get("summary_level").and_then(|v| v.as_u64())?;
                 (lvl == level as u64).then_some(id)
             })
@@ -4175,7 +5031,7 @@ impl GraphCore {
     /// node is absent or carries no (decodable) `pose`.
     pub fn get_pose(&self, id: &str) -> Option<crate::scene::Pose> {
         let blob = self.get_node_properties(id)?;
-        let val = rmp_serde::from_slice::<serde_json::Value>(&blob).ok()?;
+        let val = decode_property_value(&blob).ok()?;
         crate::scene::Pose::from_json(val.as_object()?.get("pose")?)
     }
 
@@ -4183,7 +5039,7 @@ impl GraphCore {
     /// in its LOCAL frame. `None` if absent / no (decodable) `aabb`.
     pub fn get_bounding_volume(&self, id: &str) -> Option<crate::scene::Aabb> {
         let blob = self.get_node_properties(id)?;
-        let val = rmp_serde::from_slice::<serde_json::Value>(&blob).ok()?;
+        let val = decode_property_value(&blob).ok()?;
         crate::scene::Aabb::from_json(val.as_object()?.get("aabb")?)
     }
 
@@ -4287,11 +5143,11 @@ impl GraphCore {
                     .value()
                     .iter()
                     .any(|b| {
-                        rmp_serde::from_slice::<serde_json::Value>(b)
+                        decode_property_value(b)
                             .ok()
                             .and_then(|v| {
                                 v.as_object()
-                                    .and_then(|o| o.get("relationship").or_else(|| o.get("type")))
+                                    .and_then(|o| o.get("relationship"))
                                     .and_then(|r| r.as_str())
                                     .map(|s| s == rel)
                             })
@@ -4345,7 +5201,7 @@ impl GraphCore {
     /// `None` if the node is absent or its blob is not a decodable object.
     fn step_object(&self, id: &str) -> Option<serde_json::Map<String, serde_json::Value>> {
         let blob = self.get_node_properties(id)?;
-        match rmp_serde::from_slice::<serde_json::Value>(&blob) {
+        match decode_property_value(&blob) {
             Ok(serde_json::Value::Object(o)) => Some(o),
             _ => None,
         }
@@ -4515,33 +5371,6 @@ fn apply_decay(
     (new_conf, true)
 }
 
-pub fn walk_dir_recursive(dir: &std::path::Path, files: &mut Vec<std::path::PathBuf>) {
-    if let Ok(entries) = std::fs::read_dir(dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                let name = path.file_name().unwrap_or_default().to_string_lossy();
-                if !name.starts_with('.') && name != "node_modules" && name != "target" {
-                    walk_dir_recursive(&path, files);
-                }
-            } else {
-                let ext = path.extension().unwrap_or_default().to_string_lossy();
-                if ext == "py"
-                    || ext == "js"
-                    || ext == "ts"
-                    || ext == "rs"
-                    || ext == "go"
-                    || ext == "tsx"
-                    || ext == "jsx"
-                    || ext == "mjs"
-                {
-                    files.push(path);
-                }
-            }
-        }
-    }
-}
-
 /// VF2 subgraph match of `pattern` against an already-materialized `host`
 /// `GraphView` (vs [`GraphCore::vf2_subgraph_match`], which snapshots its own
 /// live graph first). Lets an off-lock caller — e.g. the Cypher exec
@@ -4707,11 +5536,11 @@ fn check_edge_props(
 }
 
 pub fn match_props(p_msgpack: &[u8], t_msgpack: &[u8]) -> bool {
-    let p_val: serde_json::Value = match rmp_serde::from_slice(p_msgpack) {
+    let p_val: serde_json::Value = match decode_property_value(p_msgpack) {
         Ok(v) => v,
         Err(_) => return false,
     };
-    let t_val: serde_json::Value = match rmp_serde::from_slice(t_msgpack) {
+    let t_val: serde_json::Value = match decode_property_value(t_msgpack) {
         Ok(v) => v,
         Err(_) => return false,
     };
@@ -4785,7 +5614,7 @@ mod tests {
         assert_eq!(back, dist);
         // Set merges — the pre-existing `type` key survives.
         let blob = core.get_node_properties("m1").unwrap();
-        let obj = rmp_serde::from_slice::<serde_json::Value>(&blob).unwrap();
+        let obj = decode_property_value(&blob).unwrap();
         assert_eq!(
             obj.get("type"),
             Some(&serde_json::json!("Measurement")),
@@ -5416,6 +6245,43 @@ mod tests {
     }
 
     #[test]
+    fn change_notifier_callbacks_run_outside_the_subscriber_mutex() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        use std::sync::Arc;
+
+        struct Counter(AtomicU64);
+        impl ChangeSink for Counter {
+            fn on_change(&self, _event: &ChangeEvent) {
+                self.0.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+        struct SubscribeFromCallback {
+            notifier: Arc<ChangeNotifier>,
+            next: Arc<dyn ChangeSink>,
+        }
+        impl ChangeSink for SubscribeFromCallback {
+            fn on_change(&self, _event: &ChangeEvent) {
+                self.notifier.subscribe(&self.next);
+            }
+        }
+
+        let notifier = Arc::new(ChangeNotifier::default());
+        let counter = Arc::new(Counter(AtomicU64::new(0)));
+        let next: Arc<dyn ChangeSink> = counter.clone();
+        let reentrant: Arc<dyn ChangeSink> = Arc::new(SubscribeFromCallback {
+            notifier: notifier.clone(),
+            next: next.clone(),
+        });
+        notifier.subscribe(&reentrant);
+
+        // This would deadlock if `emit` held `sinks` while invoking callbacks.
+        notifier.emit(1);
+        assert_eq!(counter.0.load(Ordering::SeqCst), 0);
+        notifier.emit(2);
+        assert_eq!(counter.0.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
     fn property_index_composite_lookup() {
         let _g = PROP_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         std::env::remove_var("EPISTEMIC_GRAPH_MAX_INDEXED_PROPERTIES");
@@ -5861,6 +6727,74 @@ mod tests {
     }
 
     #[test]
+    fn adjacency_bounded_remove_preserves_unrelated_and_drops_parallel_edges() {
+        let g = GraphCore::new();
+        for id in ["a", "b", "c", "d"] {
+            g.add_node(id.into(), props(serde_json::json!({"id": id})));
+        }
+        g.add_edge("a".into(), "b".into(), props(serde_json::json!({"n": 1})))
+            .unwrap();
+        g.add_edge("a".into(), "b".into(), props(serde_json::json!({"n": 2})))
+            .unwrap();
+        g.add_edge(
+            "b".into(),
+            "b".into(),
+            props(serde_json::json!({"self": true})),
+        )
+        .unwrap();
+        g.add_edge(
+            "c".into(),
+            "d".into(),
+            props(serde_json::json!({"keep": true})),
+        )
+        .unwrap();
+        assert_eq!(g.edge_count(), 4);
+
+        g.remove_node("b".into());
+
+        assert_eq!(g.edge_count(), 1, "topology keeps an O(1) exact edge count");
+        assert!(g.get_edge_properties("a", "b").is_empty());
+        assert!(g.get_edge_properties("b", "b").is_empty());
+        assert_eq!(g.get_edge_properties("c", "d").len(), 1);
+        assert!(g.has_edge("c", "d"));
+    }
+
+    #[test]
+    fn induced_subgraph_walks_selected_adjacency_and_preserves_parallel_edges() {
+        let g = GraphCore::new();
+        for id in ["a", "b", "c", "outside"] {
+            g.add_node(id.into(), props(serde_json::json!({"id": id})));
+        }
+        for ordinal in 0..2 {
+            g.add_edge(
+                "a".into(),
+                "b".into(),
+                props(serde_json::json!({"ordinal": ordinal})),
+            )
+            .unwrap();
+        }
+        g.add_edge("b".into(), "c".into(), props(serde_json::json!({})))
+            .unwrap();
+        g.add_edge("a".into(), "outside".into(), props(serde_json::json!({})))
+            .unwrap();
+
+        let view = g.get_subgraph(&["a".into(), "b".into(), "a".into(), "c".into()]);
+        assert_eq!(view.graph.node_count(), 3);
+        assert_eq!(view.graph.edge_count(), 3);
+        assert_eq!(
+            view.edge_properties
+                .get(&("a".to_string(), "b".to_string()))
+                .unwrap()
+                .len(),
+            2
+        );
+        assert!(!view.node_map.contains_key("outside"));
+        assert!(!view
+            .edge_properties
+            .contains_key(&("a".to_string(), "outside".to_string())));
+    }
+
+    #[test]
     fn msgpack_roundtrip_preserves_nodes_edges_props() {
         // A3: to_msgpack now encodes the typed snapshot directly. Round-trip must
         // preserve node/edge property BYTES exactly (they are opaque msgpack blobs).
@@ -5872,7 +6806,7 @@ mod tests {
         let _ = g.add_edge(
             "a".to_string(),
             "b".to_string(),
-            props(serde_json::json!({"type": "CALLS"})),
+            props(serde_json::json!({"relationship": "CALLS"})),
         );
         g.ledger.lock().push("evt1".to_string());
         let expected_ledger = g.get_ledger(); // includes auto ADD_NODE/ADD_EDGE entries
@@ -5889,42 +6823,79 @@ mod tests {
     }
 
     #[test]
-    fn from_msgpack_reads_legacy_serde_json_value_format() {
-        // Backward compat: reproduce the PRE-A3 on-disk shape (values round-tripped
-        // through serde_json::Value before rmp encoding) and assert from_msgpack
-        // still loads it — so existing __commons__.mp snapshots keep loading.
+    fn malformed_snapshot_restore_is_bounded_and_leaves_live_graph_unchanged() {
         let g = GraphCore::new();
-        let p = props(serde_json::json!({"type": "Code", "v": 42}));
-        g.add_node("a".to_string(), p.clone());
-        let _ = g.add_edge(
-            "a".to_string(),
-            "a".to_string(),
-            props(serde_json::json!({"type": "SELF"})),
+        let original = props(serde_json::json!({"value": "keep"}));
+        g.add_node("live".to_string(), original.clone());
+
+        let malformed = GraphSnapshot {
+            schema_version: GRAPH_SNAPSHOT_SCHEMA_VERSION,
+            integrity_policy: None,
+            nodes: vec![("replacement".to_string(), Arc::new(Vec::new()))],
+            edges: vec![(
+                "replacement".to_string(),
+                "missing".to_string(),
+                Arc::new(Vec::new()),
+            )],
+            ledger: vec!["untrusted".to_string()],
+            semantic_store: crate::compute::semantic::SemanticStore::new(),
+        }
+        .to_msgpack()
+        .unwrap();
+        assert_eq!(
+            g.from_msgpack(&malformed).unwrap_err(),
+            "graph snapshot is invalid or exceeds resource limits"
+        );
+        assert_eq!(g.get_node_properties("live"), Some(original.clone()));
+        assert_eq!(g.node_count(), 1);
+
+        // map{"nodes": array32(2^32-1)}: the structural preflight rejects the
+        // allocation hint before serde can reserve it or mutate the graph.
+        let allocation_bomb = [
+            0x81, 0xa5, b'n', b'o', b'd', b'e', b's', 0xdd, 0xff, 0xff, 0xff, 0xff,
+        ];
+        assert_eq!(
+            g.from_msgpack(&allocation_bomb).unwrap_err(),
+            "graph snapshot is invalid or exceeds resource limits"
+        );
+        assert_eq!(g.get_node_properties("live"), Some(original));
+        assert_eq!(g.node_count(), 1);
+    }
+
+    #[test]
+    fn snapshot_schema_version_and_shape_are_mandatory() {
+        let g = GraphCore::new();
+        let valid = g.snapshot().to_msgpack().unwrap();
+
+        let mut missing: serde_json::Value = rmp_serde::from_slice(&valid).unwrap();
+        missing.as_object_mut().unwrap().remove("schema_version");
+        let missing = rmp_serde::to_vec_named(&missing).unwrap();
+        assert_eq!(
+            g.from_msgpack(&missing).unwrap_err(),
+            "graph snapshot is invalid or exceeds resource limits"
         );
 
-        let mut legacy = std::collections::HashMap::new();
-        legacy.insert(
-            "nodes".to_string(),
-            serde_json::to_value(g.get_nodes()).unwrap(),
+        let mut unknown: serde_json::Value = rmp_serde::from_slice(&valid).unwrap();
+        unknown
+            .as_object_mut()
+            .unwrap()
+            .insert("obsolete".to_string(), serde_json::json!(true));
+        let unknown = rmp_serde::to_vec_named(&unknown).unwrap();
+        assert_eq!(
+            g.from_msgpack(&unknown).unwrap_err(),
+            "graph snapshot is invalid or exceeds resource limits"
         );
-        legacy.insert(
-            "edges".to_string(),
-            serde_json::to_value(g.get_edges()).unwrap(),
-        );
-        legacy.insert(
-            "ledger".to_string(),
-            serde_json::to_value(g.get_ledger()).unwrap(),
-        );
-        legacy.insert(
-            "semantic_store".to_string(),
-            serde_json::to_value(&*g.semantic_store.read()).unwrap(),
-        );
-        let legacy_bytes = rmp_serde::to_vec_named(&legacy).unwrap();
 
-        let g2 = GraphCore::new();
-        g2.from_msgpack(&legacy_bytes).unwrap();
-        assert_eq!(g2.node_count(), 1);
-        assert_eq!(g2.get_node_properties("a"), Some(p));
+        let mut wrong = g.snapshot();
+        wrong.schema_version = GRAPH_SNAPSHOT_SCHEMA_VERSION + 1;
+        assert_eq!(
+            wrong.to_msgpack().unwrap_err(),
+            format!(
+                "unsupported graph snapshot schema version {}; expected {}",
+                GRAPH_SNAPSHOT_SCHEMA_VERSION + 1,
+                GRAPH_SNAPSHOT_SCHEMA_VERSION
+            )
+        );
     }
 
     #[test]
@@ -6053,6 +7024,45 @@ mod tests {
     }
 
     #[test]
+    fn label_keyset_pages_are_sorted_exclusive_and_complete() {
+        let g = GraphCore::new();
+        for id in ["n09", "n01", "n12", "n03", "n05"] {
+            g.add_node(
+                id.into(),
+                props(serde_json::json!({"type": "SourceRecord"})),
+            );
+        }
+        g.add_node(
+            "other".into(),
+            props(serde_json::json!({"type": "Unrelated"})),
+        );
+
+        let first = g.get_nodes_by_label_page("SourceRecord", None, 2);
+        assert_eq!(ids_of(&first), vec!["n01", "n03"]);
+        let second = g.get_nodes_by_label_page("SourceRecord", Some("n03"), 2);
+        assert_eq!(ids_of(&second), vec!["n05", "n09"]);
+        let third = g.get_nodes_by_label_page("SourceRecord", Some("n09"), 2);
+        assert_eq!(ids_of(&third), vec!["n12"]);
+
+        let unlabeled = g.get_nodes_by_label_page("", Some("n05"), 0);
+        assert_eq!(ids_of(&unlabeled), vec!["n09", "n12", "other"]);
+        assert!(
+            g.node_id_index.read().is_some(),
+            "unlabeled pagination must warm the sorted id directory"
+        );
+
+        // A committed structural mutation retires the directory; rebuilding it
+        // includes the new id and retains exclusive-cursor ordering.
+        g.add_node("n10".into(), props(serde_json::json!({"type": "Other"})));
+        g.mark_dirty();
+        assert!(g.node_id_index.read().is_none());
+        assert_eq!(
+            ids_of(&g.get_nodes_by_label_page("", Some("n09"), 0)),
+            vec!["n10", "n12", "other"]
+        );
+    }
+
+    #[test]
     fn label_index_invalidated_after_mutation() {
         let g = GraphCore::new();
         g.add_node("a".into(), props(serde_json::json!({"type": "Task"})));
@@ -6078,6 +7088,75 @@ mod tests {
     }
 
     #[test]
+    fn pure_edge_changes_preserve_node_derived_caches() {
+        let _guard = PROP_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let g = GraphCore::new();
+        g.add_node(
+            "a".into(),
+            props(serde_json::json!({"type": "Task", "team": "blue", "meta": {"kind": "x"}})),
+        );
+        g.add_node(
+            "b".into(),
+            props(serde_json::json!({"type": "Task", "team": "red", "meta": {"kind": "y"}})),
+        );
+        assert_eq!(g.get_nodes_by_label("Task", 0).len(), 2);
+        assert_eq!(g.nodes_by_property("team", "blue").unwrap(), vec!["a"]);
+        assert_eq!(g.nodes_by_json_path("$.meta.kind", "y").unwrap(), vec!["b"]);
+
+        g.add_edge("a".into(), "b".into(), props(serde_json::json!({})))
+            .unwrap();
+        let mut change = crate::index::ChangeSet::new();
+        change.record_add_edge("a".into(), "b".into());
+        g.maintain_indexes_at(&change, g.version() + 1, 2, 1);
+        g.mark_dirty_preserving_indexes();
+
+        assert!(g.label_index.read().is_some());
+        assert!(g.property_index.read().is_some());
+        assert!(g.path_index.read().is_some());
+        assert_eq!(g.get_nodes_by_label("Task", 0).len(), 2);
+        assert_eq!(g.nodes_by_property("team", "blue").unwrap(), vec!["a"]);
+        assert_eq!(g.nodes_by_json_path("$.meta.kind", "y").unwrap(), vec!["b"]);
+    }
+
+    #[test]
+    fn field_scoped_update_invalidates_only_covering_lazy_cache() {
+        let _guard = PROP_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let g = GraphCore::new();
+        g.add_node(
+            "a".into(),
+            props(serde_json::json!({
+                "type": "Task", "team": "blue", "meta": {"kind": "x"}
+            })),
+        );
+        assert_eq!(g.get_nodes_by_label("Task", 0).len(), 1);
+        assert_eq!(g.nodes_by_property("team", "blue").unwrap(), vec!["a"]);
+        assert_eq!(g.nodes_by_json_path("$.meta.kind", "x").unwrap(), vec!["a"]);
+
+        let mut conditions = serde_json::Map::new();
+        conditions.insert("team".into(), serde_json::json!("blue"));
+        let mut updates = serde_json::Map::new();
+        updates.insert("team".into(), serde_json::json!("red"));
+        assert!(g.compare_and_set_fields("a", &conditions, &updates));
+        let mut change = crate::index::ChangeSet::new();
+        change
+            .updated_nodes
+            .push(crate::index::NodeChange::with_fields(
+                "a".into(),
+                vec!["team".into()],
+            ));
+        g.maintain_indexes_at(&change, g.version() + 1, 1, 0);
+        g.mark_dirty_preserving_indexes();
+
+        assert!(g.label_index.read().is_some(), "labels were unaffected");
+        assert!(g.path_index.read().is_some(), "$.meta was unaffected");
+        assert!(
+            g.property_index.read().is_none(),
+            "team posting was affected"
+        );
+        assert_eq!(g.nodes_by_property("team", "red").unwrap(), vec!["a"]);
+    }
+
+    #[test]
     fn label_index_dedups_node_with_repeated_label() {
         let g = GraphCore::new();
         // Same value on type + node_type + labels[] → still ONE row for that label.
@@ -6094,7 +7173,7 @@ mod tests {
     /// Decode a node's stored property object (test helper).
     fn obj_of(g: &GraphCore, id: &str) -> serde_json::Map<String, serde_json::Value> {
         let blob = g.get_node_properties(id).expect("node present");
-        match rmp_serde::from_slice::<serde_json::Value>(&blob).unwrap() {
+        match decode_property_value(&blob).unwrap() {
             serde_json::Value::Object(o) => o,
             _ => panic!("not an object"),
         }
@@ -6326,15 +7405,14 @@ mod tests {
     }
 
     #[test]
-    fn eg222_reinforce_initializes_bare_node_from_default() {
+    fn eg222_reinforce_requires_explicit_importance() {
         let g = GraphCore::new();
         g.add_node("m".into(), props(serde_json::json!({"type": "Episodic"})));
-        assert!(g.reinforce("m", 42, 0.25));
+        assert!(!g.reinforce("m", 42, 0.25));
         let o = obj_of(&g, "m");
-        // DEFAULT_IMPORTANCE (1.0) + weight; access_count 0 -> 1.
-        assert!((imp_of(&g, "m") - 1.25).abs() < 1e-9);
-        assert_eq!(o.get("access_count"), Some(&serde_json::json!(1)));
-        assert_eq!(o.get("last_access_ms"), Some(&serde_json::json!(42)));
+        assert!(o.get("importance").is_none());
+        assert!(o.get("access_count").is_none());
+        assert!(o.get("last_access_ms").is_none());
     }
 
     #[test]
@@ -6460,14 +7538,13 @@ mod tests {
     }
 
     #[test]
-    fn eg222_evict_below_treats_missing_importance_as_default() {
+    fn eg222_evict_below_requires_explicit_importance() {
         let g = GraphCore::new();
         g.add_node("bare".into(), props(serde_json::json!({"type": "Note"})));
-        // DEFAULT_IMPORTANCE is 1.0 -> survives a threshold below it.
         assert!(g.evict_below(&["bare".into()], 0.9, false).is_empty());
         assert!(obj_of(&g, "bare").get("forgotten").is_none());
-        // A threshold above the default prunes it.
-        assert_eq!(g.evict_below(&["bare".into()], 2.0, false), vec!["bare"]);
+        assert!(g.evict_below(&["bare".into()], 2.0, false).is_empty());
+        assert!(obj_of(&g, "bare").get("forgotten").is_none());
     }
 
     #[test]
@@ -6952,6 +8029,42 @@ mod concurrency_tests {
     }
 
     #[test]
+    fn concurrent_create_if_absent_has_exactly_one_winner() {
+        let core = Arc::new(GraphCore::new());
+        let writers = 16usize;
+        let barrier = Arc::new(std::sync::Barrier::new(writers));
+        let mut handles = Vec::with_capacity(writers);
+        for writer in 0..writers {
+            let core = Arc::clone(&core);
+            let barrier = Arc::clone(&barrier);
+            handles.push(thread::spawn(move || {
+                barrier.wait();
+                (
+                    writer,
+                    core.create_node_if_absent("shared".to_string(), pbytes(writer)),
+                )
+            }));
+        }
+        let outcomes: Vec<_> = handles
+            .into_iter()
+            .map(|handle| handle.join().unwrap())
+            .collect();
+        let winners: Vec<_> = outcomes
+            .iter()
+            .filter_map(|(writer, created)| created.then_some(*writer))
+            .collect();
+        assert_eq!(winners.len(), 1, "exactly one atomic create may succeed");
+        assert_eq!(core.node_count(), 1);
+        let stored = core.get_node_properties("shared").unwrap();
+        let stored = decode_property_value(&stored).unwrap();
+        assert_eq!(
+            stored.get("i").and_then(serde_json::Value::as_u64),
+            Some(winners[0] as u64),
+            "losers must not overwrite the winning properties"
+        );
+    }
+
+    #[test]
     fn concurrent_add_edges_and_snapshot_consistent() {
         let core = Arc::new(GraphCore::new());
         let n = 200usize;
@@ -7047,7 +8160,7 @@ mod concurrency_tests {
                 for _ in 0..5000 {
                     for i in 0..100usize {
                         if let Some(b) = c.get_node_properties(&format!("n{i}")) {
-                            assert!(rmp_serde::from_slice::<serde_json::Value>(&b).is_ok());
+                            assert!(decode_property_value(&b).is_ok());
                         }
                     }
                 }
@@ -7096,5 +8209,20 @@ mod concurrency_tests {
         // Hibernation (drop all RAM) returns to ~0.
         core.hibernate();
         assert_eq!(core.memory_estimate(), 0, "hibernated graph estimates 0");
+    }
+
+    #[test]
+    fn authoritative_materialized_version_is_a_one_shot_publication() {
+        let core = GraphCore::new();
+        core.add_node("recovered".to_string(), pbytes(1));
+        assert_eq!(core.version(), 0, "row replay is not a new mutation");
+
+        core.adopt_materialized_version(7).unwrap();
+        assert_eq!(core.version(), 7);
+        assert!(
+            core.adopt_materialized_version(8).is_err(),
+            "a live projection cannot be rewound or advanced by recovery plumbing"
+        );
+        assert_eq!(core.version(), 7);
     }
 }

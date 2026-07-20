@@ -6,7 +6,7 @@
 //! `eg-modality`'s crate docs / README for the retrofit-order rationale.
 
 use eg_modality::{
-    decode_staged, encode_staged, ConformanceTestable, EvidenceSpan, IngestReport,
+    decode_staged, encode_staged, ConformanceTestable, EvidenceAddress, IngestReport,
     ModalityContract, ModalitySelfTest, Provenance, RowSetShape, StagedWrite, StorageStats,
     TckPoint,
 };
@@ -43,7 +43,7 @@ impl ModalityContract for FlatIndex {
     }
 
     /// No located-evidence concept applies to a bare vector index — default `None`.
-    fn evidence(&self, _id: &str) -> Option<EvidenceSpan> {
+    fn evidence_address(&self) -> Option<EvidenceAddress> {
         None
     }
 

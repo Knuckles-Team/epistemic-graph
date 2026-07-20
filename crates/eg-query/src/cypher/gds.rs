@@ -20,11 +20,9 @@
 //! tie-break falls back to sorted node-id order, so a given graph + config always
 //! yields the same rows.
 //!
-//! Backward-compatibility (CONCEPT:EG-KG.query.gds-call-procedures): these procedures REPLACE the earlier
-//! EG-143 GDS stubs (which ran over the live `GraphView` with no config), and they
-//! keep yielding the legacy `node` / `score` / `communityId` / `componentId`
-//! columns *in addition to* the GDS-canonical `nodeId` column, so existing
-//! `YIELD node, score` queries keep working unchanged.
+//! The procedure schema is current-only: node-valued results expose `nodeId` and
+//! the algorithm-specific value column. Alternate node-column aliases are rejected
+//! by normal `YIELD` validation.
 
 use std::collections::HashMap;
 
@@ -98,7 +96,7 @@ fn project(view: &GraphView, weight_prop: Option<&str>) -> AdjacencyGraph<String
 fn edge_weight(view: &GraphView, s: &str, t: &str, prop: &str) -> Option<f64> {
     let blobs = view.edge_properties.get(&(s.to_string(), t.to_string()))?;
     for blob in blobs {
-        if let Ok(Value::Object(m)) = rmp_serde::from_slice::<Value>(blob) {
+        if let Ok(Value::Object(m)) = eg_types::msgpack::decode_property_value(blob) {
             if let Some(w) = m.get(prop).and_then(|v| v.as_f64()) {
                 return Some(w);
             }
@@ -154,17 +152,15 @@ fn num(x: f64) -> Value {
     }
 }
 
-/// One `(node, nodeId, <score-col>)` row: the id is bound twice — as the legacy
-/// anchorable `node` column and as the GDS-canonical `nodeId` column (CONCEPT:EG-KG.query.gds-call-procedures).
+/// One `(nodeId, <score-col>)` result row (CONCEPT:EG-KG.query.gds-call-procedures).
 fn scored_row(id: String, col: &str, score: f64) -> ProcRow {
     vec![
-        ("node".to_string(), YieldValue::Node(id.clone())),
         ("nodeId".to_string(), YieldValue::Node(id)),
         (col.to_string(), YieldValue::Scalar(num(score))),
     ]
 }
 
-/// `(node, nodeId, <score-col>)` rows from a `Vec<(id, f64)>` kernel result.
+/// `(nodeId, <score-col>)` rows from a `Vec<(id, f64)>` kernel result.
 fn scored_rows(scored: Vec<(String, f64)>, col: &str) -> Vec<ProcRow> {
     scored
         .into_iter()
@@ -172,14 +168,13 @@ fn scored_rows(scored: Vec<(String, f64)>, col: &str) -> Vec<ProcRow> {
         .collect()
 }
 
-/// `(node, nodeId, <group-col>)` rows from a partition (`Vec<Vec<id>>`): every node
+/// `(nodeId, <group-col>)` rows from a partition (`Vec<Vec<id>>`): every node
 /// tagged with its 0-based group index (CONCEPT:EG-KG.query.gds-call-procedures).
 fn partition_rows(groups: Vec<Vec<String>>, col: &str) -> Vec<ProcRow> {
     let mut out = Vec::new();
     for (gid, members) in groups.into_iter().enumerate() {
         for id in members {
             out.push(vec![
-                ("node".to_string(), YieldValue::Node(id.clone())),
                 ("nodeId".to_string(), YieldValue::Node(id)),
                 (
                     col.to_string(),
@@ -202,7 +197,7 @@ impl CypherProcedure for PageRank {
         "gds.pageRank"
     }
     fn columns(&self) -> &'static [&'static str] {
-        &["nodeId", "node", "score"]
+        &["nodeId", "score"]
     }
     fn call(&self, args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
         let cfg = Config::of(args);
@@ -226,7 +221,7 @@ impl CypherProcedure for Betweenness {
         "gds.betweenness"
     }
     fn columns(&self) -> &'static [&'static str] {
-        &["nodeId", "node", "score"]
+        &["nodeId", "score"]
     }
     fn call(&self, args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
         let cfg = Config::of(args);
@@ -248,7 +243,7 @@ impl CypherProcedure for Degree {
         "gds.degree"
     }
     fn columns(&self) -> &'static [&'static str] {
-        &["nodeId", "node", "score"]
+        &["nodeId", "score"]
     }
     fn call(&self, args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
         let cfg = Config::of(args);
@@ -273,7 +268,7 @@ impl CypherProcedure for Louvain {
         "gds.louvain"
     }
     fn columns(&self) -> &'static [&'static str] {
-        &["nodeId", "node", "communityId"]
+        &["nodeId", "communityId"]
     }
     fn call(&self, args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
         let cfg = Config::of(args);
@@ -300,7 +295,7 @@ impl CypherProcedure for LabelPropagation {
         "gds.labelPropagation"
     }
     fn columns(&self) -> &'static [&'static str] {
-        &["nodeId", "node", "communityId"]
+        &["nodeId", "communityId"]
     }
     fn call(&self, args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
         let cfg = Config::of(args);
@@ -326,7 +321,7 @@ impl CypherProcedure for Wcc {
         "gds.wcc"
     }
     fn columns(&self) -> &'static [&'static str] {
-        &["nodeId", "node", "componentId"]
+        &["nodeId", "componentId"]
     }
     fn call(&self, args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
         let cfg = Config::of(args);
@@ -347,7 +342,7 @@ impl CypherProcedure for Scc {
         "gds.scc"
     }
     fn columns(&self) -> &'static [&'static str] {
-        &["nodeId", "node", "componentId"]
+        &["nodeId", "componentId"]
     }
     fn call(&self, args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
         let cfg = Config::of(args);
@@ -373,7 +368,7 @@ impl CypherProcedure for Dijkstra {
         "gds.dijkstra"
     }
     fn columns(&self) -> &'static [&'static str] {
-        &["nodeId", "node", "cost"]
+        &["nodeId", "cost"]
     }
     fn call(&self, args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
         let cfg = Config::of(args);
@@ -506,7 +501,7 @@ impl CypherProcedure for Dbscan {
         "gds.dbscan"
     }
     fn columns(&self) -> &'static [&'static str] {
-        &["nodeId", "node", "clusterId"]
+        &["nodeId", "clusterId"]
     }
     fn call(&self, args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
         let cfg = Config::of(args);
@@ -535,7 +530,6 @@ impl CypherProcedure for Dbscan {
             .zip(labels)
             .map(|(id, lbl)| {
                 vec![
-                    ("node".to_string(), YieldValue::Node(id.clone())),
                     ("nodeId".to_string(), YieldValue::Node(id)),
                     (
                         "clusterId".to_string(),
@@ -554,7 +548,7 @@ impl CypherProcedure for Dbscan {
 #[cfg(feature = "cypher-mining")]
 fn node_feature_vector(view: &GraphView, id: &str, prop: &str) -> Option<Vec<f64>> {
     let blob = view.node_properties.get(id)?;
-    let v: Value = rmp_serde::from_slice(blob).ok()?;
+    let v = eg_types::msgpack::decode_property_value(blob).ok()?;
     let field = v.as_object()?.get(prop)?;
     match field {
         Value::Array(arr) => arr.iter().map(|x| x.as_f64()).collect(),
@@ -646,7 +640,10 @@ mod tests {
     fn fixture() -> GraphView {
         let core = GraphCore::new();
         for id in ["alice", "bob", "carol", "d1"] {
-            core.add_node(id.into(), pbytes(serde_json::json!({"type": "Person"})));
+            core.add_node(
+                id.into(),
+                pbytes(serde_json::json!({"node_type": "Person"})),
+            );
         }
         core.add_edge(
             "alice".into(),
@@ -668,6 +665,13 @@ mod tests {
             .iter()
             .map(|b| rmp_serde::from_slice(b).unwrap())
             .collect()
+    }
+
+    fn node_id(value: &Value) -> &str {
+        value
+            .as_str()
+            .or_else(|| value.get("id").and_then(Value::as_str))
+            .expect("node-valued GDS projection")
     }
 
     // ── CONCEPT:EG-KG.query.gds-call-procedures — projection + config helpers ────────────────────────────
@@ -715,7 +719,7 @@ mod tests {
         assert_eq!(qr.columns, vec!["nodeId", "score"]);
         let mut by_node: HashMap<String, f64> = HashMap::new();
         for r in rows(&qr) {
-            by_node.insert(r[0].as_str().unwrap().to_string(), r[1].as_f64().unwrap());
+            by_node.insert(node_id(&r[0]).to_string(), r[1].as_f64().unwrap());
         }
         assert_eq!(by_node.len(), 4);
         // carol is the chain sink ⇒ outranks alice (chain source).
@@ -723,11 +727,11 @@ mod tests {
     }
 
     #[test]
-    fn eg298_call_gds_pagerank_legacy_node_column_still_yields() {
-        // Backward-compat: the pre-EG-298 `YIELD node, score` shape keeps working.
+    fn gds_rejects_noncanonical_node_column() {
         let v = fixture();
-        let qr = exec_cypher(&v, "CALL gds.pageRank() YIELD node, score RETURN node").unwrap();
-        assert_eq!(rows(&qr).len(), 4);
+        let error =
+            exec_cypher(&v, "CALL gds.pageRank() YIELD node, score RETURN node").unwrap_err();
+        assert!(error.contains("node"), "{error}");
     }
 
     #[test]
@@ -741,7 +745,7 @@ mod tests {
         .unwrap();
         let mut comm: HashMap<String, i64> = HashMap::new();
         for r in rows(&qr) {
-            comm.insert(r[0].as_str().unwrap().to_string(), r[1].as_i64().unwrap());
+            comm.insert(node_id(&r[0]).to_string(), r[1].as_i64().unwrap());
         }
         // The connected chain alice-bob-carol shares one community.
         assert_eq!(comm["alice"], comm["bob"]);
@@ -759,7 +763,7 @@ mod tests {
         .unwrap();
         let mut w: HashMap<String, i64> = HashMap::new();
         for r in rows(&wcc) {
-            w.insert(r[0].as_str().unwrap().to_string(), r[1].as_i64().unwrap());
+            w.insert(node_id(&r[0]).to_string(), r[1].as_i64().unwrap());
         }
         assert_eq!(w["alice"], w["carol"]);
         assert_ne!(w["alice"], w["d1"]);
@@ -788,7 +792,7 @@ mod tests {
         .unwrap();
         let mut bc: HashMap<String, f64> = HashMap::new();
         for r in rows(&qr) {
-            bc.insert(r[0].as_str().unwrap().to_string(), r[1].as_f64().unwrap());
+            bc.insert(node_id(&r[0]).to_string(), r[1].as_f64().unwrap());
         }
         // On the undirected path alice-bob-carol, bob sits on the only shortest
         // path between the endpoints ⇒ strictly highest betweenness.
@@ -806,7 +810,7 @@ mod tests {
         .unwrap();
         let mut cost: HashMap<String, f64> = HashMap::new();
         for r in rows(&qr) {
-            cost.insert(r[0].as_str().unwrap().to_string(), r[1].as_f64().unwrap());
+            cost.insert(node_id(&r[0]).to_string(), r[1].as_f64().unwrap());
         }
         // Unweighted chain: alice=0, bob=1, carol=2; d1 unreachable (absent).
         assert_eq!(cost["alice"], 0.0);
@@ -827,7 +831,7 @@ mod tests {
         .unwrap();
         let r = rows(&qr);
         assert_eq!(r.len(), 1);
-        assert_eq!(r[0][0].as_str().unwrap(), "carol");
+        assert_eq!(node_id(&r[0][0]), "carol");
         assert!((r[0][1].as_f64().unwrap() - 6.0).abs() < 1e-9);
     }
 
@@ -836,7 +840,7 @@ mod tests {
         // Two nodes sharing all out-neighbours score similarity 1.0.
         let core = GraphCore::new();
         for id in ["a", "b", "x", "y"] {
-            core.add_node(id.into(), pbytes(serde_json::json!({"type": "N"})));
+            core.add_node(id.into(), pbytes(serde_json::json!({"node_type": "N"})));
         }
         for (s, t) in [("a", "x"), ("a", "y"), ("b", "x"), ("b", "y")] {
             core.add_edge(s.into(), t.into(), pbytes(serde_json::json!({})))
@@ -850,8 +854,8 @@ mod tests {
         )
         .unwrap();
         let r = rows(&qr);
-        assert_eq!(r[0][0].as_str().unwrap(), "a");
-        assert_eq!(r[0][1].as_str().unwrap(), "b");
+        assert_eq!(node_id(&r[0][0]), "a");
+        assert_eq!(node_id(&r[0][1]), "b");
         assert!((r[0][2].as_f64().unwrap() - 1.0).abs() < 1e-9);
     }
 
@@ -868,7 +872,7 @@ mod tests {
         let clique1 = ["a", "b", "c", "d"];
         let clique2 = ["w", "x", "y", "z"];
         for id in clique1.iter().chain(clique2.iter()) {
-            core.add_node((*id).into(), pbytes(serde_json::json!({"type": "N"})));
+            core.add_node((*id).into(), pbytes(serde_json::json!({"node_type": "N"})));
         }
         for c in [&clique1, &clique2] {
             for i in 0..c.len() {
@@ -897,7 +901,7 @@ mod tests {
         .unwrap();
         let mut comm: HashMap<String, i64> = HashMap::new();
         for r in rows(&qr) {
-            comm.insert(r[0].as_str().unwrap().to_string(), r[1].as_i64().unwrap());
+            comm.insert(node_id(&r[0]).to_string(), r[1].as_i64().unwrap());
         }
         assert_eq!(comm.len(), 8);
         for id in clique1 {
@@ -915,7 +919,7 @@ mod tests {
         // fewer — same fixture shape as the nodeSimilarity test.
         let core = GraphCore::new();
         for id in ["a", "b", "c", "x", "y"] {
-            core.add_node(id.into(), pbytes(serde_json::json!({"type": "N"})));
+            core.add_node(id.into(), pbytes(serde_json::json!({"node_type": "N"})));
         }
         for (s, t) in [("a", "x"), ("a", "y"), ("b", "x"), ("b", "y"), ("c", "x")] {
             core.add_edge(s.into(), t.into(), pbytes(serde_json::json!({})))
@@ -929,12 +933,12 @@ mod tests {
         )
         .unwrap();
         let r = rows(&qr);
-        assert!(r.iter().any(|row| row[0].as_str().unwrap() == "a"
-            && row[1].as_str().unwrap() == "b"
+        assert!(r.iter().any(|row| node_id(&row[0]) == "a"
+            && node_id(&row[1]) == "b"
             && (row[2].as_f64().unwrap() - 1.0).abs() < 1e-9));
         // b's own top-1 is a (score 1.0, beats c's 0.5) ⇒ (b, c) never appears.
         assert!(!r.iter().any(|row| {
-            let ids = [row[0].as_str().unwrap(), row[1].as_str().unwrap()];
+            let ids = [node_id(&row[0]), node_id(&row[1])];
             ids.contains(&"b") && ids.contains(&"c")
         }));
     }
@@ -956,7 +960,7 @@ mod tests {
         for (id, x, y) in pts {
             core.add_node(
                 id.into(),
-                pbytes(serde_json::json!({"type": "Point", "loc": [x, y]})),
+                pbytes(serde_json::json!({"node_type": "Point", "loc": [x, y]})),
             );
         }
         let v = core.analysis_snapshot();
@@ -968,7 +972,7 @@ mod tests {
         .unwrap();
         let mut cluster: HashMap<String, i64> = HashMap::new();
         for r in rows(&qr) {
-            cluster.insert(r[0].as_str().unwrap().to_string(), r[1].as_i64().unwrap());
+            cluster.insert(node_id(&r[0]).to_string(), r[1].as_i64().unwrap());
         }
         assert_eq!(cluster.len(), 6);
         assert_eq!(cluster["a1"], cluster["a2"]);
@@ -998,7 +1002,7 @@ mod tests {
         // score the missing intra-triangle-adjacent pairs above unrelated ones.
         let core = GraphCore::new();
         for id in ["a", "b", "c", "x", "y", "z"] {
-            core.add_node(id.into(), pbytes(serde_json::json!({"type": "N"})));
+            core.add_node(id.into(), pbytes(serde_json::json!({"node_type": "N"})));
         }
         for (s, t) in [("a", "b"), ("b", "c"), ("x", "y"), ("y", "z"), ("c", "x")] {
             core.add_edge(s.into(), t.into(), pbytes(serde_json::json!({})))

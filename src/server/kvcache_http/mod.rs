@@ -71,25 +71,28 @@
 //!
 //! ## Auth
 //!
-//! A bearer-token guard mirroring the s3 SigV4-lite guard's posture: anonymous when
-//! unconfigured; when `EPISTEMIC_GRAPH_KVCACHE_TOKEN` is set, every request must carry
-//! `Authorization: Bearer <token>` or it is refused `401`.
+//! The listener starts only with configured JWT validation or a runtime-injected
+//! bearer secret. Every request must authenticate or it is refused `401`.
 
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;
 
+use hmac::{Hmac, Mac};
+use sha2::Sha256;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
+use tokio::sync::RwLock;
 
+use crate::server::ServerState;
 use eg_kvcache::{BranchId, DataVersion, SharedKvBackend, SharedKvIndex, SnapshotId};
 
 /// Env var: when set (and built `--features kvcache-server`) the KV-cache HTTP listener
 /// binds this address (documented loopback default `127.0.0.1:9130`). Unset ⇒ no
 /// listener.
 pub const KVCACHE_ADDR_ENV: &str = "EPISTEMIC_GRAPH_KVCACHE_ADDR";
-/// Env var: the bearer token. When set, the guard is armed and anonymous access is
-/// refused; every request must present `Authorization: Bearer <token>`.
+/// Env var: the runtime-injected bearer token used when JWT validation is not
+/// configured. One of those two authentication modes is mandatory.
 pub const KVCACHE_TOKEN_ENV: &str = "EPISTEMIC_GRAPH_KVCACHE_TOKEN";
 /// Request header (CONCEPT:EG-KG.storage.content-addressed-put): the `GraphCore::version()` (KG-2.180) the PUT body was
 /// DERIVED at. When present, the stored entry is version-tagged and goes stale once the
@@ -98,6 +101,9 @@ pub const KVCACHE_TOKEN_ENV: &str = "EPISTEMIC_GRAPH_KVCACHE_TOKEN";
 /// ([`DataVersion::Agnostic`], never version-invalidated) — so existing connectors are
 /// unaffected.
 pub const KVCACHE_DATA_VERSION_HEADER: &str = "x-eg-data-version";
+const MAX_HTTP_HEADER_BYTES: usize = 64 * 1024;
+const MAX_KVCACHE_BODY_BYTES: usize = 64 * 1024 * 1024;
+const HTTP_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 
 /// The KV-cache backing store: the shared, content-addressed, ref-counted index behind
 /// a `Mutex` (the index needs `&mut` to `put`/`release`; the guard is held only for the
@@ -234,7 +240,7 @@ impl KvCacheStore {
 
 mod jwt;
 
-/// A configured auth mode. `None` ⇒ anonymous access. JWT is preferred:
+/// A configured auth mode. JWT is preferred:
 /// [`KvAuth::Jwt`] validates a Keycloak client-credentials token (paired with the
 /// platform's overall auth — the same tokens graph-os validates); [`KvAuth::Static`]
 /// is a shared bearer secret (the documented OpenBao-sourced fallback).
@@ -244,14 +250,9 @@ pub enum KvAuth {
     Jwt(std::sync::Arc<jwt::JwtValidator>),
 }
 
-/// With auth configured, require a valid `Authorization: Bearer <token>` — a static
-/// secret match, or a signature/issuer/audience/expiry-verified Keycloak JWT. Without
-/// it, everything is anonymous-allowed (mirrors the s3 guard's posture).
-fn authorized(auth: &Option<KvAuth>, headers: &HashMap<String, String>) -> bool {
-    let cfg = match auth {
-        None => return true,
-        Some(c) => c,
-    };
+/// Require a valid `Authorization: Bearer <token>` — a static-secret match or a
+/// signature/issuer/audience/expiry-verified Keycloak JWT.
+fn authorized(auth: &KvAuth, headers: &HashMap<String, String>) -> bool {
     let token = match headers
         .get("authorization")
         .and_then(|h| h.strip_prefix("Bearer "))
@@ -260,16 +261,28 @@ fn authorized(auth: &Option<KvAuth>, headers: &HashMap<String, String>) -> bool 
         Some(t) => t,
         None => return false,
     };
-    match cfg {
-        KvAuth::Static(secret) => token == secret,
+    match auth {
+        KvAuth::Static(secret) => {
+            // Compare fixed-size HMAC tags rather than secret-bearing strings.
+            let Ok(mut candidate) = Hmac::<Sha256>::new_from_slice(token.as_bytes()) else {
+                return false;
+            };
+            candidate.update(b"epistemic-graph:kvcache-static-token");
+            let candidate_tag = candidate.finalize().into_bytes();
+            let Ok(mut expected) = Hmac::<Sha256>::new_from_slice(secret.as_bytes()) else {
+                return false;
+            };
+            expected.update(b"epistemic-graph:kvcache-static-token");
+            expected.verify_slice(&candidate_tag).is_ok()
+        }
         KvAuth::Jwt(validator) => validator.validate(token),
     }
 }
 
 /// Parse the `X-EG-Data-Version` header (CONCEPT:EG-KG.storage.content-addressed-put) into a [`DataVersion`]. A valid
-/// unsigned integer ⇒ [`DataVersion::At`]; absent or unparseable ⇒ [`DataVersion::Agnostic`]
-/// (a pure content-addressed KV page — the backward-compatible default that keeps existing
-/// connectors' entries out of version invalidation).
+/// unsigned integer ⇒ [`DataVersion::At`]; absent or unparseable ⇒
+/// [`DataVersion::Agnostic`] (a pure content-addressed KV page outside version
+/// invalidation).
 fn parse_data_version(headers: &HashMap<String, String>) -> DataVersion {
     headers
         .get(KVCACHE_DATA_VERSION_HEADER)
@@ -329,7 +342,7 @@ impl KvResponse {
 
 /// Route + execute one request → a [`KvResponse`]. Pure (sync) so it is fully
 /// unit-testable without a socket (CONCEPT:EG-KG.backend.is-configured-so-co).
-fn handle(store: &KvCacheStore, auth: &Option<KvAuth>, req: &KvRequest) -> KvResponse {
+fn handle(store: &KvCacheStore, auth: &KvAuth, req: &KvRequest) -> KvResponse {
     if !authorized(auth, &req.headers) {
         return KvResponse::error(
             "401 Unauthorized",
@@ -337,7 +350,13 @@ fn handle(store: &KvCacheStore, auth: &Option<KvAuth>, req: &KvRequest) -> KvRes
             "missing or invalid bearer token",
         );
     }
+    handle_authorized(store, req)
+}
 
+/// Route a request after the served boundary authenticated it. Kept separate so
+/// unit tests can exercise storage/routing without manufacturing credentials;
+/// only [`handle`] is called by the network listener.
+fn handle_authorized(store: &KvCacheStore, req: &KvRequest) -> KvResponse {
     // Everything lives under `/kv/…`.
     let rest = match req.path.strip_prefix("/kv/") {
         Some(r) => r,
@@ -546,7 +565,7 @@ async fn read_request(stream: &mut tokio::net::TcpStream) -> Option<KvRequest> {
             return None;
         }
         buf.extend_from_slice(&tmp[..n]);
-        if buf.len() > 8 * 1024 * 1024 {
+        if buf.len() > MAX_HTTP_HEADER_BYTES {
             return None; // header flood guard
         }
     };
@@ -556,22 +575,40 @@ async fn read_request(stream: &mut tokio::net::TcpStream) -> Option<KvRequest> {
     let mut parts = request_line.split_whitespace();
     let method = parts.next()?.to_string();
     let target = parts.next()?.to_string();
+    let version = parts.next()?;
+    if !version.starts_with("HTTP/1.") || parts.next().is_some() {
+        return None;
+    }
     // The address is an opaque hex/base token-hash — no query params are used here.
     let path = target.split('?').next().unwrap_or(&target).to_string();
 
     let mut headers = HashMap::new();
-    let mut content_length = 0usize;
+    let mut content_length: Option<usize> = None;
     for line in lines {
-        if let Some((k, v)) = line.split_once(':') {
-            let key = k.trim().to_ascii_lowercase();
-            let val = v.trim().to_string();
-            if key == "content-length" {
-                content_length = val.parse().unwrap_or(0);
-            }
-            headers.insert(key, val);
+        let (k, v) = line.split_once(':')?;
+        let key = k.trim().to_ascii_lowercase();
+        let val = v.trim().to_string();
+        if key.is_empty() || headers.contains_key(&key) {
+            return None;
         }
+        if key == "content-length" {
+            if content_length.is_some() {
+                return None;
+            }
+            content_length = Some(val.parse().ok()?);
+        } else if key == "transfer-encoding" {
+            return None;
+        }
+        headers.insert(key, val);
+    }
+    let content_length = content_length.unwrap_or(0);
+    if content_length > MAX_KVCACHE_BODY_BYTES {
+        return None;
     }
     let mut body = buf[header_end + 4..].to_vec();
+    if body.len() > content_length || body.len() > MAX_KVCACHE_BODY_BYTES {
+        return None;
+    }
     while body.len() < content_length {
         let n = stream.read(&mut tmp).await.ok()?;
         if n == 0 {
@@ -579,8 +616,8 @@ async fn read_request(stream: &mut tokio::net::TcpStream) -> Option<KvRequest> {
         }
         body.extend_from_slice(&tmp[..n]);
     }
-    if content_length > 0 && body.len() > content_length {
-        body.truncate(content_length);
+    if body.len() != content_length {
+        return None;
     }
     Some(KvRequest {
         method,
@@ -590,52 +627,85 @@ async fn read_request(stream: &mut tokio::net::TcpStream) -> Option<KvRequest> {
     })
 }
 
-/// Serve the KV-cache HTTP surface on `addr` until the process exits. Spawned by
-/// `main.rs` only when built `--features kvcache-server` AND
-/// `EPISTEMIC_GRAPH_KVCACHE_ADDR` is set (CONCEPT:EG-KG.backend.is-configured-so-co). One task per connection,
-/// one response per request, connection: close — the SAME idiom as the s3 listener.
-pub async fn serve(addr: &str) -> std::io::Result<()> {
+/// Production KV-cache listener linked to the live engine isolation policy. The
+/// HTTP bearer/JWT guard does not establish tenant+actor ownership of individual
+/// cache pages, so secure/RLS mode fails the carrier closed.
+pub async fn serve_with_security(
+    addr: &str,
+    state: Arc<RwLock<ServerState>>,
+) -> std::io::Result<()> {
     let store = Arc::new(KvCacheStore::new());
-    let auth = resolve_auth();
-    serve_with_store(addr, store, auth).await
+    let auth = resolve_auth()?;
+    serve_with_store_inner(addr, store, auth, Some(state)).await
 }
 
-/// Resolve the bearer-token credential from the env (set ⇒ armed; else anonymous).
-fn resolve_auth() -> Option<KvAuth> {
-    // JWT FIRST — paired with the platform's Keycloak OIDC (same tokens graph-os uses).
-    // Falls back to the static-token guard (the documented OpenBao-sourced option),
-    // then anonymous. Backward-compatible: with no JWT/token env set, ⇒ None ⇒ anon.
-    if let Some(v) = jwt::JwtValidator::from_env() {
-        return Some(KvAuth::Jwt(std::sync::Arc::new(v)));
+/// Resolve the mandatory bearer-token credential from the environment.
+fn resolve_auth() -> std::io::Result<KvAuth> {
+    // JWT first — paired with the platform's configured OIDC provider. An issuer
+    // selects JWT mode and therefore makes its audience and JWKS URL mandatory.
+    match jwt::JwtValidator::from_env() {
+        Ok(Some(validator)) => return Ok(KvAuth::Jwt(std::sync::Arc::new(validator))),
+        Ok(None) => {}
+        Err(message) => {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                message,
+            ));
+        }
     }
     std::env::var(KVCACHE_TOKEN_ENV)
         .ok()
         .filter(|s| !s.is_empty())
         .map(KvAuth::Static)
+        .ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "kvcache-server requires JWT configuration or a bearer-token secret",
+            )
+        })
 }
 
-/// `serve` with an EXPLICIT store + auth (CONCEPT:EG-KG.backend.is-configured-so-co) — tests bind an ephemeral
-/// store on a random port without process env.
-pub async fn serve_with_store(
+async fn carrier_denied(state: Option<&Arc<RwLock<ServerState>>>) -> bool {
+    let Some(state) = state else {
+        return false;
+    };
+    let state = state.read().await;
+    crate::server::access::unauthenticated_carrier_denied(&state.isolation)
+}
+
+async fn serve_with_store_inner(
     addr: &str,
     store: Arc<KvCacheStore>,
-    auth: Option<KvAuth>,
+    auth: KvAuth,
+    security_state: Option<Arc<RwLock<ServerState>>>,
 ) -> std::io::Result<()> {
     let listener = TcpListener::bind(addr).await?;
+    crate::server::require_loopback_listener(&listener)?;
     tracing::info!(
-        "kvcache-server: serving shared KV-cache HTTP surface on {} (auth={})",
-        addr,
-        auth.is_some()
+        "kvcache-server: serving authenticated shared KV-cache HTTP surface on {}",
+        addr
     );
     loop {
         let (mut stream, _peer) = listener.accept().await?;
         let store = store.clone();
         let auth = auth.clone();
+        let security_state = security_state.clone();
         tokio::spawn(async move {
-            let resp = match read_request(&mut stream).await {
-                Some(req) => handle(&store, &auth, &req),
-                None => KvResponse::error("400 Bad Request", "InvalidRequest", "malformed"),
-            };
+            let resp =
+                match tokio::time::timeout(HTTP_READ_TIMEOUT, read_request(&mut stream)).await {
+                    Ok(Some(req)) => {
+                        if carrier_denied(security_state.as_ref()).await {
+                            KvResponse::error(
+                                "403 Forbidden",
+                                "AccessDenied",
+                                "KV-cache carrier has no verified tenant/page ownership",
+                            )
+                        } else {
+                            handle(&store, &auth, &req)
+                        }
+                    }
+                    _ => KvResponse::error("400 Bad Request", "InvalidRequest", "malformed"),
+                };
             let head = format!(
                 "HTTP/1.1 {}\r\ncontent-type: {}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
                 resp.status,
@@ -677,13 +747,12 @@ mod tests {
     #[test]
     fn eg187_put_then_get_round_trips_a_block() {
         let s = store();
-        let none = None;
         let block = vec![7u8, 0, 255, 42, 13];
         // First PUT → 201 Created.
-        let put = handle(&s, &none, &req("PUT", "/kv/abc123", &block, &[]));
+        let put = handle_authorized(&s, &req("PUT", "/kv/abc123", &block, &[]));
         assert_eq!(put.status, "201 Created");
         // GET → the exact bytes back.
-        let get = handle(&s, &none, &req("GET", "/kv/abc123", b"", &[]));
+        let get = handle_authorized(&s, &req("GET", "/kv/abc123", b"", &[]));
         assert_eq!(get.status, "200 OK");
         assert_eq!(get.body, block);
         assert_eq!(get.content_type, "application/octet-stream");
@@ -692,31 +761,29 @@ mod tests {
     #[test]
     fn eg187_head_and_exists_probe() {
         let s = store();
-        let none = None;
-        handle(&s, &none, &req("PUT", "/kv/h1", b"x", &[]));
+        handle_authorized(&s, &req("PUT", "/kv/h1", b"x", &[]));
         // HEAD present → 200, no body.
-        let head = handle(&s, &none, &req("HEAD", "/kv/h1", b"", &[]));
+        let head = handle_authorized(&s, &req("HEAD", "/kv/h1", b"", &[]));
         assert_eq!(head.status, "200 OK");
         assert!(head.head_only);
         // HEAD absent → 404.
         assert_eq!(
-            handle(&s, &none, &req("HEAD", "/kv/nope", b"", &[])).status,
+            handle_authorized(&s, &req("HEAD", "/kv/nope", b"", &[])).status,
             "404 Not Found"
         );
         // GET /kv/<hash>/exists → JSON true/false.
-        let ex = handle(&s, &none, &req("GET", "/kv/h1/exists", b"", &[]));
+        let ex = handle_authorized(&s, &req("GET", "/kv/h1/exists", b"", &[]));
         assert_eq!(ex.status, "200 OK");
         assert!(String::from_utf8_lossy(&ex.body).contains("\"exists\":true"));
-        let no = handle(&s, &none, &req("GET", "/kv/ghost/exists", b"", &[]));
+        let no = handle_authorized(&s, &req("GET", "/kv/ghost/exists", b"", &[]));
         assert!(String::from_utf8_lossy(&no.body).contains("\"exists\":false"));
     }
 
     #[test]
     fn eg187_get_missing_block_is_404() {
         let s = store();
-        let none = None;
         assert_eq!(
-            handle(&s, &none, &req("GET", "/kv/missing", b"", &[])).status,
+            handle_authorized(&s, &req("GET", "/kv/missing", b"", &[])).status,
             "404 Not Found"
         );
     }
@@ -724,17 +791,16 @@ mod tests {
     #[test]
     fn eg187_stats_json_reports_dedup() {
         let s = store();
-        let none = None;
         // Two PUTs of the SAME hash ⇒ one resident block, a dedup hit on the second.
         assert_eq!(
-            handle(&s, &none, &req("PUT", "/kv/dup", &[1u8; 100], &[])).status,
+            handle_authorized(&s, &req("PUT", "/kv/dup", &[1u8; 100], &[])).status,
             "201 Created"
         );
         assert_eq!(
-            handle(&s, &none, &req("PUT", "/kv/dup", &[1u8; 100], &[])).status,
+            handle_authorized(&s, &req("PUT", "/kv/dup", &[1u8; 100], &[])).status,
             "200 OK"
         );
-        let stats = handle(&s, &none, &req("GET", "/kv/stats", b"", &[]));
+        let stats = handle_authorized(&s, &req("GET", "/kv/stats", b"", &[]));
         assert_eq!(stats.status, "200 OK");
         assert_eq!(stats.content_type, "application/json");
         let v: serde_json::Value = serde_json::from_slice(&stats.body).unwrap();
@@ -751,7 +817,7 @@ mod tests {
     #[test]
     fn eg187_bearer_token_guard_accept_reject() {
         let s = store();
-        let auth = Some(KvAuth::Static("sekret".into()));
+        let auth = KvAuth::Static("sekret".into());
         // No Authorization → 401.
         assert_eq!(
             handle(&s, &auth, &req("GET", "/kv/stats", b"", &[])).status,
@@ -779,8 +845,6 @@ mod tests {
             .status,
             "401 Unauthorized"
         );
-        // Unconfigured guard ⇒ anonymous allowed.
-        assert!(authorized(&None, &HashMap::new()));
     }
 
     #[tokio::test]
@@ -797,7 +861,7 @@ mod tests {
                 let store = srv_store.clone();
                 tokio::spawn(async move {
                     let resp = match read_request(&mut stream).await {
-                        Some(r) => handle(&store, &None, &r),
+                        Some(r) => handle_authorized(&store, &r),
                         None => KvResponse::error("400 Bad Request", "InvalidRequest", "malformed"),
                     };
                     let head = format!(
@@ -854,47 +918,44 @@ mod tests {
     #[test]
     fn eg359_version_bump_invalidates_derived_context_over_http() {
         let s = store();
-        let none = None;
         // Advance to data version 5, then cache context derived at v5.
         assert_eq!(
-            handle(&s, &none, &req("PUT", "/kv/version/5", b"", &[])).status,
+            handle_authorized(&s, &req("PUT", "/kv/version/5", b"", &[])).status,
             "200 OK"
         );
-        let put = handle(
+        let put = handle_authorized(
             &s,
-            &none,
             &req("PUT", "/kv/ctx", b"ctx-v5", &[("x-eg-data-version", "5")]),
         );
         assert_eq!(put.status, "201 Created");
-        let get = handle(&s, &none, &req("GET", "/kv/ctx", b"", &[]));
+        let get = handle_authorized(&s, &req("GET", "/kv/ctx", b"", &[]));
         assert_eq!(get.status, "200 OK");
         assert_eq!(get.body, b"ctx-v5");
 
         // A graph write bumps the surface's data version ⇒ v5 context is stale ⇒ 404.
         assert_eq!(
-            handle(&s, &none, &req("PUT", "/kv/version/6", b"", &[])).status,
+            handle_authorized(&s, &req("PUT", "/kv/version/6", b"", &[])).status,
             "200 OK"
         );
         assert_eq!(
-            handle(&s, &none, &req("GET", "/kv/ctx", b"", &[])).status,
+            handle_authorized(&s, &req("GET", "/kv/ctx", b"", &[])).status,
             "404 Not Found",
             "stale context must not be served"
         );
         assert_eq!(
-            handle(&s, &none, &req("HEAD", "/kv/ctx", b"", &[])).status,
+            handle_authorized(&s, &req("HEAD", "/kv/ctx", b"", &[])).status,
             "404 Not Found"
         );
-        let ex = handle(&s, &none, &req("GET", "/kv/ctx/exists", b"", &[]));
+        let ex = handle_authorized(&s, &req("GET", "/kv/ctx/exists", b"", &[]));
         assert!(String::from_utf8_lossy(&ex.body).contains("\"exists\":false"));
 
         // Re-cache the freshly-derived context at v6 ⇒ served again.
-        let put = handle(
+        let put = handle_authorized(
             &s,
-            &none,
             &req("PUT", "/kv/ctx", b"ctx-v6", &[("x-eg-data-version", "6")]),
         );
         assert_eq!(put.status, "201 Created");
-        let get = handle(&s, &none, &req("GET", "/kv/ctx", b"", &[]));
+        let get = handle_authorized(&s, &req("GET", "/kv/ctx", b"", &[]));
         assert_eq!(get.body, b"ctx-v6", "fresh context served");
     }
 
@@ -903,14 +964,13 @@ mod tests {
     #[test]
     fn eg359_unversioned_put_is_agnostic_and_survives_bumps() {
         let s = store();
-        let none = None;
         assert_eq!(
-            handle(&s, &none, &req("PUT", "/kv/page", b"kv-bytes", &[])).status,
+            handle_authorized(&s, &req("PUT", "/kv/page", b"kv-bytes", &[])).status,
             "201 Created"
         );
-        handle(&s, &none, &req("PUT", "/kv/version/1", b"", &[]));
-        handle(&s, &none, &req("PUT", "/kv/version/2", b"", &[]));
-        let get = handle(&s, &none, &req("GET", "/kv/page", b"", &[]));
+        handle_authorized(&s, &req("PUT", "/kv/version/1", b"", &[]));
+        handle_authorized(&s, &req("PUT", "/kv/version/2", b"", &[]));
+        let get = handle_authorized(&s, &req("GET", "/kv/page", b"", &[]));
         assert_eq!(
             get.status, "200 OK",
             "agnostic page immune to version bumps"
@@ -923,19 +983,18 @@ mod tests {
     #[test]
     fn eg359_version_endpoint_reports_and_validates() {
         let s = store();
-        let none = None;
         // Initially agnostic (tracking inactive).
-        let v = handle(&s, &none, &req("GET", "/kv/version", b"", &[]));
+        let v = handle_authorized(&s, &req("GET", "/kv/version", b"", &[]));
         assert!(String::from_utf8_lossy(&v.body).contains("\"tracking\":false"));
         // Set + read back.
-        handle(&s, &none, &req("PUT", "/kv/version/9", b"", &[]));
-        let v = handle(&s, &none, &req("GET", "/kv/version", b"", &[]));
+        handle_authorized(&s, &req("PUT", "/kv/version/9", b"", &[]));
+        let v = handle_authorized(&s, &req("GET", "/kv/version", b"", &[]));
         let j: serde_json::Value = serde_json::from_slice(&v.body).unwrap();
         assert_eq!(j["tracking"], true);
         assert_eq!(j["version"], 9);
         // Non-numeric version ⇒ 400.
         assert_eq!(
-            handle(&s, &none, &req("PUT", "/kv/version/oops", b"", &[])).status,
+            handle_authorized(&s, &req("PUT", "/kv/version/oops", b"", &[])).status,
             "400 Bad Request"
         );
     }
@@ -946,16 +1005,14 @@ mod tests {
     #[test]
     fn zerocopy_snapshot_fork_over_http() {
         let s = store();
-        let none = None;
         // Seed two pages (content-addressed; the connector would PUT under its token-hash,
         // but here we PUT under explicit keys and snapshot those keys).
-        handle(&s, &none, &req("PUT", "/kv/pageA", &[1u8; 256], &[]));
-        handle(&s, &none, &req("PUT", "/kv/pageB", &[2u8; 256], &[]));
+        handle_authorized(&s, &req("PUT", "/kv/pageA", &[1u8; 256], &[]));
+        handle_authorized(&s, &req("PUT", "/kv/pageB", &[2u8; 256], &[]));
 
         // Snapshot both pages.
-        let snap = handle(
+        let snap = handle_authorized(
             &s,
-            &none,
             &req(
                 "POST",
                 "/kv/snapshot",
@@ -970,9 +1027,8 @@ mod tests {
 
         // Fork two branches.
         let branch = |sid: u64| -> u64 {
-            let r = handle(
+            let r = handle_authorized(
                 &s,
-                &none,
                 &req("POST", &format!("/kv/snapshot/{sid}/fork"), b"", &[]),
             );
             assert_eq!(r.status, "200 OK");
@@ -984,53 +1040,33 @@ mod tests {
         let b2 = branch(sid);
 
         // Both branches read the shared pages byte-for-byte.
-        let g = handle(
-            &s,
-            &none,
-            &req("GET", &format!("/kv/branch/{b1}/pageA"), b"", &[]),
-        );
+        let g = handle_authorized(&s, &req("GET", &format!("/kv/branch/{b1}/pageA"), b"", &[]));
         assert_eq!(g.status, "200 OK");
         assert_eq!(g.body, vec![1u8; 256]);
         assert_eq!(
-            handle(
-                &s,
-                &none,
-                &req("GET", &format!("/kv/branch/{b2}/pageA"), b"", &[])
-            )
-            .body,
+            handle_authorized(&s, &req("GET", &format!("/kv/branch/{b2}/pageA"), b"", &[])).body,
             vec![1u8; 256]
         );
 
         // CoW write on b1 ⇒ isolated; b2 still sees the shared page.
-        let p = handle(
+        let p = handle_authorized(
             &s,
-            &none,
             &req("PUT", &format!("/kv/branch/{b1}/pageA"), &[9u8; 256], &[]),
         );
         assert_eq!(p.status, "200 OK");
         assert_eq!(
-            handle(
-                &s,
-                &none,
-                &req("GET", &format!("/kv/branch/{b1}/pageA"), b"", &[])
-            )
-            .body,
+            handle_authorized(&s, &req("GET", &format!("/kv/branch/{b1}/pageA"), b"", &[])).body,
             vec![9u8; 256],
             "writer sees its CoW value"
         );
         assert_eq!(
-            handle(
-                &s,
-                &none,
-                &req("GET", &format!("/kv/branch/{b2}/pageA"), b"", &[])
-            )
-            .body,
+            handle_authorized(&s, &req("GET", &format!("/kv/branch/{b2}/pageA"), b"", &[])).body,
             vec![1u8; 256],
             "sibling isolated from the CoW write"
         );
 
         // fork/stats: 2 shared pages + 1 CoW overlay page = 3 * 256 resident, NOT 2 branches × 2 pages.
-        let fs = handle(&s, &none, &req("GET", "/kv/fork/stats", b"", &[]));
+        let fs = handle_authorized(&s, &req("GET", "/kv/fork/stats", b"", &[]));
         let fj: serde_json::Value = serde_json::from_slice(&fs.body).unwrap();
         assert_eq!(fj["branches"], 2);
         assert_eq!(fj["shared_pages"], 2);
@@ -1039,11 +1075,11 @@ mod tests {
 
         // Unknown snapshot/branch paths are graceful.
         assert_eq!(
-            handle(&s, &none, &req("POST", "/kv/snapshot/9999/fork", b"", &[])).status,
+            handle_authorized(&s, &req("POST", "/kv/snapshot/9999/fork", b"", &[])).status,
             "404 Not Found"
         );
         assert_eq!(
-            handle(&s, &none, &req("GET", "/kv/branch/9999/pageA", b"", &[])).status,
+            handle_authorized(&s, &req("GET", "/kv/branch/9999/pageA", b"", &[])).status,
             "404 Not Found"
         );
     }

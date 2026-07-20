@@ -4,7 +4,7 @@
 //! over the SAME off-lock snapshot in a single execution — instead of three siloed
 //! surfaces (DataFusion SQL, petgraph BFS, vector kNN) stitched together by the
 //! caller across three round-trips. This is the production increment of the Wave-7
-//! feasibility spike (`~/workspace/reports/spike-unified-findings.md`).
+//! feasibility spike (`repo://reports/spike-unified-findings.md`).
 //!
 //! ## The closed algebra
 //!
@@ -101,12 +101,14 @@ pub mod knowledge;
 /// RecordBatch-backed columnar projection of `KnowledgeSet`: entity/artifact id,
 /// N named score columns, calibrated confidence, typed evidence-ref columns,
 /// bitemporal valid/tx-time, provenance/policy-label list columns, lazy
-/// blob-handle columns and a streaming-cursor stub. Behind its OWN
-/// `knowledge-batch` feature (implies `query`) so a default/Pi build links no
-/// Arrow at all — see the module's own docs for the full column layout and the
-/// known-lossy/reserved fields.
+/// blob-handle columns and native bounded result streams. Behind the
+/// `knowledge-batch` feature (implies `query` and is enabled by facade `full`) so a
+/// default/Pi build still links no Arrow. Family adapters cover graph, SQL, RDF,
+/// vector, time-series, jobs, and cross-modal results.
 #[cfg(feature = "knowledge-batch")]
 pub mod knowledge_batch;
+#[cfg(feature = "knowledge-batch")]
+pub mod result_stream;
 /// The physical EXECUTION runtime (CONCEPT:EG-KG.query.parallel-runtime) — Lane B. The
 /// `execute_ops` driver-dispatch `execute` routes through + the rayon-morsel, memory-accounted,
 /// spilling `ParallelDriver` (feature `par-runtime`). Gated on `query` (it schedules the
@@ -176,10 +178,15 @@ pub use knowledge::{
 };
 
 /// The Arrow-columnar `KnowledgeBatch` surface (CONCEPT:EG-P1-2): the RecordBatch-
-/// backed columnar projection of a `KnowledgeSet`, plus its row/cursor types.
+/// backed columnar projection of a `KnowledgeSet` and its row type.
 #[cfg(feature = "knowledge-batch")]
-pub use knowledge_batch::{
-    ChunkedKnowledgeCursor, KnowledgeBatch, KnowledgeBatchRow, KnowledgeCursor,
+pub use knowledge_batch::{KnowledgeBatch, KnowledgeBatchRow};
+#[cfg(feature = "knowledge-batch")]
+pub use result_stream::{
+    cross_modal_result_stream, graph_result_stream, job_result_stream, rdf_result_stream,
+    sql_result_stream, time_series_result_stream, validate_native_batch, vector_result_stream,
+    KnowledgeBatchEnvelope, KnowledgeBatchStream, KnowledgeRowResult, KnowledgeStreamContext,
+    KnowledgeStreamCursor, KnowledgeStreamError, ServedResultFamily,
 };
 
 /// The Lane-0 foundation seams the follow-on lanes hang off (append-only): the logical-plan
@@ -204,7 +211,7 @@ pub use runtime::{ParallelDriver, RuntimeConfig};
 /// Lane A's cross-modal optimizer surface (CONCEPT:EG-KG.query.xmodal-cost-optimizer): the
 /// `optimize(plan, ctx) -> Plan` rule-engine entry point `plan_optimize` drives, its
 /// `enabled()` runtime kill-switch, and the plan-time cardinality/cost estimators the rules
-/// read (`ModalityCardinality` + the O(1) `PlanStats` catalog).
+/// read (`ModalityCardinality` + the snapshot-memoized `PlanStats` catalog).
 #[cfg(feature = "query")]
 pub use cost::{ModalityCardinality, PlanStats};
 /// The DAG-aware optimizer (CONCEPT:EG-KG.query.dag-optimizer, E5 phase 3) — [`optimizer::optimize_dag`]

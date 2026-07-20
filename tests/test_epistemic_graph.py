@@ -1,5 +1,5 @@
 import pytest
-import epistemic_graph
+from conftest import request_context
 
 
 @pytest.mark.concept("CONCEPT:AU-KG.query.object-graph-mapper")
@@ -159,7 +159,7 @@ def test_blast_radius(clean_graph):
 
 @pytest.mark.concept("CONCEPT:AU-KG.query.object-graph-mapper")
 def test_ast_ingestion(clean_graph, tmp_path):
-    """Test AST repository parser extracts file structural components correctly."""
+    """AST ingestion accepts bytes and never transmits a host directory path."""
     # Write Python file
     py_file = tmp_path / "model.py"
     py_file.write_text(
@@ -170,21 +170,16 @@ def test_ast_ingestion(clean_graph, tmp_path):
     js_file = tmp_path / "harness.js"
     js_file.write_text("function executeTask() {\n    return 42;\n}\n")
 
-    clean_graph.graph.parse_repository(str(tmp_path))
-
-    # Verify File nodes
-    assert clean_graph.nodes.has("model.py") is True
-    assert clean_graph.nodes.has("harness.js") is True
-
-    # Verify Class and Function nodes
-    assert clean_graph.nodes.has("model.py::AgentModel") is True
-    assert clean_graph.nodes.has("model.py::run_agent") is True
-    assert clean_graph.nodes.has("harness.js::executeTask") is True
-
-    # Verify File contains Class and Function relationships
-    assert clean_graph.edges.has("model.py", "model.py::AgentModel") is True
-    assert clean_graph.edges.has("model.py", "model.py::run_agent") is True
-    assert clean_graph.edges.has("harness.js", "harness.js::executeTask") is True
+    result = clean_graph.graph.index_repository(
+        [("model.py", py_file.read_bytes()), ("harness.js", js_file.read_bytes())]
+    )
+    assert result["files_parsed"] == 2
+    assert result["symbols_extracted"] >= 3
+    assert {node["properties"]["file_path"] for node in result["nodes"]} == {
+        "model.py",
+        "harness.js",
+    }
+    assert all(str(tmp_path) not in str(node) for node in result["nodes"])
 
 
 @pytest.mark.concept("CONCEPT:AU-KG.query.object-graph-mapper")
@@ -199,14 +194,15 @@ def test_vf2_subgraph_match(clean_graph):
 
     # Pattern graph
     import os
+
     from epistemic_graph.client import SyncEpistemicGraphClient
 
-    socket_path = os.environ.get(
-        "GRAPH_SERVICE_SOCKET", "/tmp/test_epistemic_graph_local.sock"
-    )
+    socket_path = os.environ["GRAPH_SERVICE_SOCKET"]
     clean_graph.tenants.create("pattern_graph", "Agent")
     pattern = SyncEpistemicGraphClient.connect(
-        socket_path=socket_path, graph_name="pattern_graph"
+        socket_path=socket_path,
+        graph_name="pattern_graph",
+        verified_context=request_context(),
     )
     pattern.graph.clear()
     pattern.nodes.add("P1", '{"type": "class"}')
@@ -252,11 +248,14 @@ def test_reactive_state_ledger(clean_graph):
 
 @pytest.mark.concept("CONCEPT:AU-KG.memory.mementified-context")
 @pytest.mark.asyncio
-async def test_rust_ast_parser_fallback():
+async def test_rust_ast_parser_fallback(tmp_path):
     """Test RustASTParser local python fallback parsing behaves properly."""
     from epistemic_graph.parser import RustASTParser
 
-    parser = RustASTParser(socket_path="/tmp/non_existent_socket_path.sock")
+    parser = RustASTParser(
+        socket_path=str(tmp_path / "unavailable.sock"),
+        verified_context=request_context(),
+    )
     source = b"class MyClass:\n    def my_method(self):\n        pass\n"
     res = await parser.parse_file("test.py", source)
 
@@ -265,7 +264,9 @@ async def test_rust_ast_parser_fallback():
     assert res["symbols_extracted"] == 2
 
     # Check for MyClass and my_method symbols
-    symbols = [n["properties"]["name"] for n in res["nodes"] if n["node_type"] == "SYMBOL"]
+    symbols = [
+        n["properties"]["name"] for n in res["nodes"] if n["node_type"] == "SYMBOL"
+    ]
     assert "MyClass" in symbols
     assert "my_method" in symbols
 
@@ -326,8 +327,8 @@ def test_get_subgraph_batched(clean_graph):
     g.nodes.add("a", {"type": "Concept", "name": "Alpha"})
     g.nodes.add("b", {"type": "Concept", "name": "Beta"})
     g.nodes.add("c", {"type": "Concept", "name": "Gamma"})  # outside the request
-    g.edges.add("a", "b", {"rel_type": "RELATES_TO"})
-    g.edges.add("b", "c", {"rel_type": "MENTIONS"})  # endpoint c not requested
+    g.edges.add("a", "b", {"relationship": "RELATES_TO"})
+    g.edges.add("b", "c", {"relationship": "MENTIONS"})  # endpoint c not requested
 
     sub = g.graph.get_subgraph(["a", "b"])
 
@@ -337,6 +338,9 @@ def test_get_subgraph_batched(clean_graph):
     assert props["a"]["name"] == "Alpha" and props["a"]["type"] == "Concept"
 
     # Only the edge with both endpoints inside the requested set.
-    rels = {(e["source"], e["target"], e["properties"].get("rel_type")) for e in sub["edges"]}
+    rels = {
+        (e["source"], e["target"], e["properties"].get("relationship"))
+        for e in sub["edges"]
+    }
     assert ("a", "b", "RELATES_TO") in rels
     assert all(e["target"] != "c" and e["source"] != "c" for e in sub["edges"])

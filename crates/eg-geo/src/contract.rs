@@ -5,7 +5,7 @@
 //! are the v1 pilots; everything else is future work).
 
 use eg_modality::{
-    decode_staged, encode_staged, ConformanceTestable, EvidenceSpan, IngestReport,
+    decode_staged, encode_staged, ConformanceTestable, EvidenceAddress, IngestReport,
     ModalityContract, ModalitySelfTest, Provenance, RowSetShape, StagedWrite, StorageStats,
     TckPoint,
 };
@@ -47,7 +47,7 @@ impl ModalityContract for Geometry {
 
     /// No located-evidence concept applies to a bare geometry value — default
     /// `None`.
-    fn evidence(&self, _id: &str) -> Option<EvidenceSpan> {
+    fn evidence_address(&self) -> Option<EvidenceAddress> {
         None
     }
 
@@ -64,7 +64,8 @@ impl ModalityContract for Geometry {
 
     // ── EG-P1-1 hooks — real, minimal implementations over the geometry's OWN
     // lossless WKB codec (`to_wkb`/`from_wkb`) and the txn staging path. These take
-    // geo from 5/12 to 12/12 (9 PASS + the 3 N/A declared in `tck_not_applicable`). ──
+    // geo to first-class/non-production coverage; streaming ingest and three
+    // storage-layer dimensions are N/A. ──
 
     /// Batch ingest = parse a `Geometry` back from its lossless WKB encoding (a real,
     /// standard geospatial ingest format this crate implements). Streaming is
@@ -122,7 +123,7 @@ impl ModalityContract for Geometry {
     /// `eg-tensor`'s: CDC/delete/GC is a store-layer concern for an immutable spatial
     /// literal; tenant/row/region policy is enforced at the graph-node/isolation layer
     /// that owns the geometry; a bare geometry has no derivation history or located-
-    /// evidence artifact (its `provenance()`/`evidence()` are `None` by design).
+    /// evidence artifact (its `provenance()`/`evidence_address()` are `None` by design).
     fn tck_not_applicable(&self, point: TckPoint) -> Option<&'static str> {
         match point {
             TckPoint::CdcDeleteRetentionGc => Some(

@@ -276,14 +276,14 @@ fn read_line(c: &mut Cursor) -> Result<LineString, String> {
 fn read_poly(c: &mut Cursor) -> Result<Polygon, String> {
     let n_rings = c.u32()? as usize;
     if n_rings == 0 {
-        return Ok(Polygon::new(LineString::new(Vec::new())));
+        return Ok(Polygon::new(LineString::new(Vec::new()), Vec::new()));
     }
     let exterior = read_line(c)?;
     let mut interiors = Vec::with_capacity(n_rings - 1);
     for _ in 1..n_rings {
         interiors.push(read_line(c)?);
     }
-    Ok(Polygon::with_interiors(exterior, interiors))
+    Ok(Polygon::new(exterior, interiors))
 }
 
 #[cfg(test)]
@@ -305,7 +305,7 @@ mod tests {
             Point::new(40.0, 40.0),
         ])));
         // Polygon with a hole.
-        round_trip(Geometry::Polygon(Polygon::with_interiors(
+        round_trip(Geometry::Polygon(Polygon::new(
             LineString::new(vec![
                 Point::new(0.0, 0.0),
                 Point::new(10.0, 0.0),
@@ -333,14 +333,15 @@ mod tests {
             LineString::new(vec![Point::new(0.0, 0.0), Point::new(1.0, 1.0)]),
             LineString::new(vec![Point::new(2.0, 2.0), Point::new(3.0, 3.0)]),
         ]));
-        round_trip(Geometry::MultiPolygon(vec![Polygon::new(LineString::new(
-            vec![
+        round_trip(Geometry::MultiPolygon(vec![Polygon::new(
+            LineString::new(vec![
                 Point::new(0.0, 0.0),
                 Point::new(1.0, 0.0),
                 Point::new(1.0, 1.0),
                 Point::new(0.0, 0.0),
-            ],
-        ))]));
+            ]),
+            Vec::new(),
+        )]));
         round_trip(Geometry::GeometryCollection(vec![
             Geometry::Point(Point::new(5.0, 5.0)),
             Geometry::LineString(LineString::new(vec![

@@ -47,7 +47,8 @@ fn frames() -> GraphView {
 
 fn run(plan: &Plan, view: &GraphView) -> Vec<String> {
     let sem = SemanticStore::new();
-    let c = PlanCtx::new(view, &sem);
+    let store = Mutex::new(TensorStore::new());
+    let c = PlanCtx::new(view, &sem).with_tensor_store(&store);
     let mut ids = plan.execute(&c).unwrap().ids();
     ids.sort();
     ids
@@ -114,7 +115,7 @@ fn tensor_op_out_of_bounds_slice_drops_rows() {
 }
 
 #[test]
-fn tensor_op_reduce_and_elementwise_pass_through() {
+fn tensor_op_reduce_and_elementwise_keep_rows() {
     let view = frames();
     // A reduce over a valid axis + an elementwise op both succeed → rows survive.
     let plan = Plan::new(vec![
@@ -204,10 +205,10 @@ fn tensor_op_cas_dedups_identical_derived_tensors_eg304() {
     );
 }
 
-/// CONCEPT:EG-KG.storage.derived-tensor-writeback-sink — a `None` store ctx is UNCHANGED: the executor validates the op and
-/// keeps the same rows exactly as before, with no write-back and no panic.
+/// CONCEPT:EG-KG.storage.derived-tensor-writeback-sink — a tensor transform without its
+/// required CAS binding fails closed rather than computing and discarding a result.
 #[test]
-fn tensor_op_no_store_ctx_unchanged_eg304() {
+fn tensor_op_without_store_fails_closed_eg304() {
     let view = frames();
     let plan = Plan::new(vec![
         Op::TensorScan {
@@ -220,15 +221,12 @@ fn tensor_op_no_store_ctx_unchanged_eg304() {
             },
         },
     ]);
-    // Default (no-store) ctx → same surviving rows as the store-attached run.
-    let without = run(&plan, &view);
-    let store = Mutex::new(TensorStore::new());
-    let with = run_with_store(&plan, &view, &store);
-    assert_eq!(
-        without, with,
-        "write-back must not change which rows survive"
+    let sem = SemanticStore::new();
+    let err = plan.execute(&PlanCtx::new(&view, &sem)).unwrap_err();
+    assert!(
+        err.contains("requires a bound tensor store"),
+        "unexpected missing-store error: {err}"
     );
-    assert_eq!(without, vec!["F1", "F2", "F3"]);
 }
 
 #[test]

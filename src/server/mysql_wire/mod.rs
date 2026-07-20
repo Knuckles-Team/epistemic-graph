@@ -13,7 +13,8 @@
 //!     engine secret / ACL identity exactly as pgwire's SCRAM path is (CONCEPT:EG-KG.query.concept-13),
 //!   * the command phase (`COM_QUERY` / `COM_PING` / `COM_QUIT` / `COM_INIT_DB`),
 //!   * the encoding of a wire-neutral [`WireOutcome`] / [`WireError`] into MySQL packets
-//!     (column-count + column-definition + text rows + EOF/OK, or an ERR frame).
+//!     (column-count + column-definition + text rows + a current OK terminator, or an
+//!     ERR frame).
 //!
 //! It links NO server-side mysql protocol crate — every byte layout is hand-rolled in
 //! `packets.rs` against the documented MySQL protocol (the Pi-contract idiom pgwire /
@@ -22,8 +23,8 @@
 //! the engine's `GraphTxn` + durability path — no SQL grammar/planner/executor here.
 //!
 //! ## Protocol subset (CONCEPT:EG-KG.query.kg-2)
-//! LANDED: connection phase (Handshake v10 + Handshake-Response-41), `mysql_native_password`
-//! (or a trust/no-auth mode when no engine secret is set), and the TEXT-protocol command
+//! LANDED: connection phase (Handshake v10 + Handshake-Response-41), mandatory
+//! `mysql_native_password`, and the TEXT-protocol command
 //! phase — `COM_QUERY` (result-set OR OK/ERR), `COM_PING`, `COM_QUIT`, `COM_INIT_DB`
 //! (mapped to `SET graph`). DEFERRED: the binary prepared-statement protocol
 //! (`COM_STMT_PREPARE`/`_EXECUTE`), `LOAD DATA LOCAL INFILE`, TLS (`CLIENT_SSL`), and
@@ -46,13 +47,14 @@ use crate::server::ServerState;
 mod auth;
 mod packets;
 
-pub use auth::{derive_mysql_password, MysqlAuthMode, MYSQL_AUTH_ENV};
+pub use auth::{derive_mysql_password, native_password_scramble, MysqlAuthMode, MYSQL_AUTH_ENV};
 
 use packets::{
-    build_column_count, build_column_def, build_eof, build_err, build_handshake, build_ok,
-    parse_handshake_response, put_text_row, CLIENT_CONNECT_WITH_DB, CLIENT_LONG_PASSWORD,
-    CLIENT_PLUGIN_AUTH, CLIENT_PROTOCOL_41, CLIENT_SECURE_CONNECTION, CLIENT_TRANSACTIONS,
-    SERVER_STATUS_AUTOCOMMIT, SERVER_STATUS_IN_TRANS,
+    build_column_count, build_column_def, build_err, build_handshake, build_ok,
+    build_resultset_end, parse_handshake_response, put_text_row, CLIENT_CONNECT_WITH_DB,
+    CLIENT_DEPRECATE_EOF, CLIENT_LONG_PASSWORD, CLIENT_PLUGIN_AUTH, CLIENT_PROTOCOL_41,
+    CLIENT_SECURE_CONNECTION, CLIENT_TRANSACTIONS, SERVER_STATUS_AUTOCOMMIT,
+    SERVER_STATUS_IN_TRANS,
 };
 
 /// Env var: when set (and the binary is built `--features mysql-wire`), the MySQL wire
@@ -61,6 +63,22 @@ pub const MYSQL_ADDR_ENV: &str = "EPISTEMIC_GRAPH_MYSQL_ADDR";
 /// Env var: the default graph a fresh connection runs against when the MySQL `database`
 /// (schema) is not supplied at connect / via `USE`. Defaults to `__commons__`.
 pub const MYSQL_GRAPH_ENV: &str = "EPISTEMIC_GRAPH_MYSQL_GRAPH";
+
+/// Fail-closed startup policy for the direct MySQL listener. The adapter does
+/// not implement `CLIENT_SSL`, so it is a loopback backend only. Production
+/// additionally requires native-password proof backed by non-empty engine key
+/// material.
+pub fn validate_startup_policy(
+    addr: &str,
+    auth_secret: &str,
+    mode: MysqlAuthMode,
+) -> std::io::Result<()> {
+    crate::server::validate_direct_wire_security(
+        addr,
+        "mysql-wire",
+        mode.verified_identity_binding(auth_secret),
+    )
+}
 
 /// The advertised server version string (clients parse the leading `X.Y.Z`).
 const SERVER_VERSION: &str = "8.0.0-epistemic-graph";
@@ -79,9 +97,8 @@ fn next_conn_id() -> u32 {
 }
 
 /// The capability flags this server advertises (CONCEPT:EG-KG.query.kg-2). Protocol 4.1 with the
-/// secure-connection + plugin-auth handshake, connect-with-DB, and transaction status
-/// tracking. Deliberately NOT `CLIENT_DEPRECATE_EOF` — we send explicit EOF packets, the
-/// universally-compatible framing.
+/// secure-connection + plugin-auth handshake, connect-with-DB, transaction status
+/// tracking, and the current OK-based result-set terminator.
 fn server_capabilities() -> u32 {
     CLIENT_LONG_PASSWORD
         | CLIENT_PROTOCOL_41
@@ -89,9 +106,10 @@ fn server_capabilities() -> u32 {
         | CLIENT_SECURE_CONNECTION
         | CLIENT_PLUGIN_AUTH
         | CLIENT_CONNECT_WITH_DB
+        | CLIENT_DEPRECATE_EOF
 }
 
-/// The current server status flags for an OK/EOF packet — reports the connection's
+/// The current server status flags for an OK packet — reports the connection's
 /// transaction state so a driver tracks BEGIN/COMMIT correctly.
 fn status_flags(session: &WireSession) -> u16 {
     if session.in_txn() {
@@ -107,6 +125,7 @@ fn status_flags(session: &WireSession) -> u16 {
 /// (a payload of exactly `0xffffff` bytes signals a continuation frame). Returns the
 /// sequence id of the LAST frame + the concatenated payload.
 async fn read_message<S: AsyncRead + Unpin>(s: &mut S) -> std::io::Result<(u8, Vec<u8>)> {
+    const MAX_MYSQL_MESSAGE_BYTES: usize = 64 * 1024 * 1024;
     let mut out = Vec::new();
     let mut seq;
     loop {
@@ -115,7 +134,19 @@ async fn read_message<S: AsyncRead + Unpin>(s: &mut S) -> std::io::Result<(u8, V
         let len = u32::from_le_bytes([hdr[0], hdr[1], hdr[2], 0]) as usize;
         seq = hdr[3];
         let start = out.len();
-        out.resize(start + len, 0);
+        let end = start.checked_add(len).ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "MySQL message size overflow",
+            )
+        })?;
+        if end > MAX_MYSQL_MESSAGE_BYTES {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "MySQL message exceeds the resource limit",
+            ));
+        }
+        out.resize(end, 0);
         s.read_exact(&mut out[start..]).await?;
         if len < 0xff_ffff {
             break;
@@ -177,8 +208,9 @@ fn wire_err_to_packet(e: &WireError) -> Vec<u8> {
 /// Encode a wire-neutral [`WireOutcome`] into the ORDERED MySQL packet payloads that
 /// follow a command (starting after the command's response sequence id). This is the ONE
 /// place MySQL result framing is applied over the shared execution core:
-///   * `Rows` → column-count packet + one column-definition per column + EOF + one
-///     text-protocol row per row + a final EOF.
+///   * `Rows` → column-count packet + one column-definition per column + one
+///     text-protocol row per row + a final current OK terminator. With
+///     `CLIENT_DEPRECATE_EOF`, the metadata terminator is omitted by definition.
 ///   * `Command` → a single OK packet carrying the affected-row count.
 ///   * `TxnStart`/`TxnEnd` → an OK packet (the status flags carry the txn state).
 ///   * `CopyIn` → an ERR packet: `COPY … FROM STDIN` has no MySQL text-protocol analogue.
@@ -190,12 +222,11 @@ fn encode_outcome(outcome: WireOutcome, status: u16) -> Vec<Vec<u8>> {
             for c in &result.columns {
                 packets.push(build_column_def(&c.name, c.ty));
             }
-            packets.push(build_eof(status));
             let types: Vec<PgColType> = result.columns.iter().map(|c| c.ty).collect();
             for row in &result.rows {
                 packets.push(put_text_row(&types, row));
             }
-            packets.push(build_eof(status));
+            packets.push(build_resultset_end(status));
             packets
         }
         WireOutcome::Command { tag: _, rows } => {
@@ -220,7 +251,6 @@ fn encode_outcome(outcome: WireOutcome, status: u16) -> Vec<Vec<u8>> {
 async fn handle_connection<S>(
     s: &mut S,
     session: Arc<WireSession>,
-    mode: MysqlAuthMode,
     secret: String,
     conn_id: u32,
 ) -> std::io::Result<()>
@@ -254,23 +284,27 @@ where
             return Ok(());
         }
     };
-
-    // ── authenticate (CONCEPT:EG-KG.query.concept-13) ─────────────────────────────────────────
-    let authed = match mode {
-        MysqlAuthMode::Trust => true,
-        MysqlAuthMode::Native => {
-            auth::verify_login(&secret, &resp.username, &resp.auth_response, &seed)
-        }
-    };
-    if !authed {
+    if resp.capabilities & CLIENT_DEPRECATE_EOF == 0 {
         write_packet(
             s,
             rseq.wrapping_add(1),
             &build_err(
-                1045,
-                "28000",
-                &format!("Access denied for user '{}'", resp.username),
+                1043,
+                "08S01",
+                "current MySQL result-set framing requires CLIENT_DEPRECATE_EOF",
             ),
+        )
+        .await?;
+        return Ok(());
+    }
+
+    // ── authenticate (CONCEPT:EG-KG.query.concept-13) ─────────────────────────────────────────
+    let authed = auth::verify_login(&secret, &resp.username, &resp.auth_response, &seed);
+    if !authed {
+        write_packet(
+            s,
+            rseq.wrapping_add(1),
+            &build_err(1045, "28000", "authentication failed"),
         )
         .await?;
         return Ok(());
@@ -280,6 +314,13 @@ where
     // (only under an authenticating mode), and the connect `database` → the target graph
     // (the SAME rules pgwire's first-query latch uses).
     session.resolve_startup(Some(resp.username.clone()), resp.database.clone());
+    if let Err(error) = session
+        .bind_authenticated_sql_actor("mysql-wire", &resp.username)
+        .await
+    {
+        write_packet(s, rseq.wrapping_add(1), &wire_err_to_packet(&error)).await?;
+        return Ok(());
+    }
     write_packet(
         s,
         rseq.wrapping_add(1),
@@ -333,9 +374,9 @@ where
                 }
             }
             COM_FIELD_LIST => {
-                // Minimal: report an empty field list (a bare EOF). Enough for clients
-                // that probe a table's columns before falling back to a SELECT.
-                write_packet(s, next, &build_eof(status_flags(&session))).await?;
+                // Minimal: report an empty field list with the negotiated current
+                // result-set terminator.
+                write_packet(s, next, &build_resultset_end(status_flags(&session))).await?;
             }
             other => {
                 write_packet(
@@ -357,13 +398,13 @@ where
 /// is set. The auth mode is resolved once from the engine secret + env, mirroring pgwire.
 pub async fn serve(addr: &str, state: Arc<RwLock<ServerState>>) -> std::io::Result<()> {
     let auth_secret = state.read().await.auth_secret.clone();
-    let mode = MysqlAuthMode::resolve(&auth_secret);
+    let mode = MysqlAuthMode::resolve(&auth_secret)?;
     serve_with_auth(addr, state, mode).await
 }
 
 /// `serve` with an EXPLICIT auth mode (CONCEPT:EG-KG.query.kg-2 / KG-2.202). `serve` resolves the
 /// mode from the env + engine secret and delegates here; tests call this directly to pin
-/// trust vs native deterministically without a process-global env toggle.
+/// native auth deterministically without a process-global env toggle.
 pub async fn serve_with_auth(
     addr: &str,
     state: Arc<RwLock<ServerState>>,
@@ -371,11 +412,17 @@ pub async fn serve_with_auth(
 ) -> std::io::Result<()> {
     let default_graph =
         std::env::var(MYSQL_GRAPH_ENV).unwrap_or_else(|_| "__commons__".to_string());
-    let auth_secret = state.read().await.auth_secret.clone();
+    let (auth_secret, persist_dir) = {
+        let state = state.read().await;
+        (state.auth_secret.clone(), state.persist_dir.clone())
+    };
+    validate_startup_policy(addr, &auth_secret, mode)?;
+    crate::server::sql_tables::validate_served_configuration(
+        persist_dir.as_deref().map(std::path::Path::new),
+    )?;
     let listener = TcpListener::bind(addr).await?;
     tracing::info!(
-        "mysql-wire: serving MySQL/MariaDB wire protocol on {} (default graph '{}', auth={})",
-        addr,
+        "mysql-wire: serving MySQL/MariaDB wire protocol on configured loopback (default graph '{}', auth={})",
         default_graph,
         mode.as_str()
     );
@@ -383,16 +430,12 @@ pub async fn serve_with_auth(
         let (socket, peer) = listener.accept().await?;
         // A FRESH session per connection so each connection's `SET graph` / txn / actor
         // stays isolated (mirrors pgwire's per-connection backend).
-        let session = Arc::new(WireSession::new(
-            state.clone(),
-            default_graph.clone(),
-            mode.maps_actor(),
-        ));
+        let session = Arc::new(WireSession::new(state.clone(), default_graph.clone()));
         let secret = auth_secret.clone();
         let conn_id = next_conn_id();
         tokio::spawn(async move {
             let mut socket = socket;
-            if let Err(e) = handle_connection(&mut socket, session, mode, secret, conn_id).await {
+            if let Err(e) = handle_connection(&mut socket, session, secret, conn_id).await {
                 tracing::debug!("mysql-wire connection from {peer} ended: {e}");
             }
         });
@@ -434,11 +477,11 @@ mod tests {
             ],
         };
         let packets = encode_outcome(WireOutcome::Rows(result), SERVER_STATUS_AUTOCOMMIT);
-        // column-count + 2 defs + EOF + 2 rows + EOF = 7 packets.
-        assert_eq!(packets.len(), 7);
+        // column-count + 2 defs + 2 rows + current OK terminator = 6 packets.
+        assert_eq!(packets.len(), 6);
         assert_eq!(packets[0][0], 2, "column count = 2");
-        assert_eq!(packets[3][0], 0xfe, "EOF after column defs");
-        assert_eq!(packets[6][0], 0xfe, "trailing EOF after rows");
+        assert_ne!(packets[3][0], 0xfe, "first row follows column defs");
+        assert_eq!(packets[5][0], 0xfe, "trailing current OK after rows");
     }
 
     #[test]
@@ -475,14 +518,17 @@ mod tests {
             auth_secret: "test".to_string(),
             #[cfg(feature = "kv")]
             kv: None,
-            persist_dir: None,
+            persist_dir: Some(
+                crate::server::sql_tables::test_persist_dir()
+                    .to_string_lossy()
+                    .into_owned(),
+            ),
             persistence: None,
-            redb_authoritative: false,
             max_in_flight: Arc::new(Semaphore::new(16)),
             read_admission: Arc::new(Semaphore::new(16)),
             per_graph_inflight: Arc::new(DashMap::new()),
             per_graph_inflight_limit: 8,
-            write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::from_env()),
+            write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
             open_txns: Arc::new(DashMap::new()),
             txn_id_gen: Arc::new(crate::server::txn::TxnIdGen::default()),
             txn_ttl_secs: 300,
@@ -498,8 +544,6 @@ mod tests {
             multi_raft: None,
             #[cfg(feature = "tsdb")]
             tsdb_store: None,
-            #[cfg(feature = "rdf-redb")]
-            rdf_quads: None,
             #[cfg(feature = "streaming")]
             cdc: Some(Arc::new(crate::server::cdc::CdcHub::new())),
             #[cfg(feature = "wasm-udf")]
@@ -510,23 +554,30 @@ mod tests {
             )),
             #[cfg(feature = "federation")]
             foreign_sources: Arc::new(DashMap::new()),
-            #[cfg(feature = "dataset-handle")]
-            dataset_handles: Arc::new(crate::server::dataset_handle::DatasetHandleRegistry::new()),
             #[cfg(feature = "lake")]
             lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
         }))
     }
 
-    /// A hand-built MySQL client: complete the handshake (trust mode → empty auth) and
-    /// return the connected stream ready for the command phase.
+    /// A hand-built MySQL client: complete the mandatory native-password handshake
+    /// and return the connected stream ready for the command phase.
     async fn client_connect(addr: &str) -> TcpStream {
         let mut stream = TcpStream::connect(addr).await.unwrap();
-        // Read the server Handshake (seq 0); we don't need to validate the scramble in
-        // trust mode.
         let (seq, hs) = read_message(&mut stream).await.unwrap();
         assert_eq!(hs[0], 10, "server sends Handshake v10");
-        let caps = CLIENT_PROTOCOL_41 | CLIENT_SECURE_CONNECTION | CLIENT_PLUGIN_AUTH;
-        let resp = packets::build_handshake_response(caps, "tester", &[], None);
+        let version_end = hs[1..].iter().position(|byte| *byte == 0).unwrap() + 1;
+        let part1 = version_end + 1 + 4;
+        let part2 = part1 + 8 + 1 + 2 + 1 + 2 + 2 + 1 + 10;
+        let mut seed = [0u8; 20];
+        seed[..8].copy_from_slice(&hs[part1..part1 + 8]);
+        seed[8..].copy_from_slice(&hs[part2..part2 + 12]);
+        let password = derive_mysql_password("test", "tester");
+        let scramble = auth::native_password_scramble(&password, &seed);
+        let caps = CLIENT_PROTOCOL_41
+            | CLIENT_SECURE_CONNECTION
+            | CLIENT_PLUGIN_AUTH
+            | CLIENT_DEPRECATE_EOF;
+        let resp = packets::build_handshake_response(caps, "tester", &scramble, None);
         write_packet(&mut stream, seq.wrapping_add(1), &resp)
             .await
             .unwrap();
@@ -564,15 +615,13 @@ mod tests {
                     let (_s, def) = read_message(stream).await.unwrap();
                     col_names.push(read_col_def_name(&def));
                 }
-                // EOF after column definitions.
-                let (_s, eof) = read_message(stream).await.unwrap();
-                assert_eq!(eof[0], 0xfe, "EOF after column defs");
-                // Rows until the terminating EOF (0xfe header, short packet).
+                // CLIENT_DEPRECATE_EOF omits the metadata terminator. Rows follow
+                // the column definitions directly and end with the current OK.
                 let mut rows = Vec::new();
                 loop {
                     let (_s, p) = read_message(stream).await.unwrap();
                     if p[0] == 0xfe && p.len() < 9 {
-                        break; // EOF
+                        break;
                     }
                     rows.push(parse_text_row(&p, ncols));
                 }
@@ -631,7 +680,7 @@ mod tests {
         drop(probe);
         let serve_addr = addr.clone();
         tokio::spawn(async move {
-            let _ = serve_with_auth(&serve_addr, state, MysqlAuthMode::Trust).await;
+            let _ = serve_with_auth(&serve_addr, state, MysqlAuthMode::Native).await;
         });
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
         addr
@@ -681,7 +730,7 @@ mod tests {
             other => panic!("SELECT items returned {other:?}"),
         }
 
-        // Clean up the shared user-table store so a re-run is idempotent.
+        // Clean up this authenticated owner's user-table catalog so a re-run is idempotent.
         let _ = client_query(&mut c, "DROP TABLE eg076_items").await;
     }
 }

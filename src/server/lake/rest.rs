@@ -28,38 +28,91 @@ use std::sync::Arc;
 use serde_json::json;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::RwLock;
 
 use crate::server::blob::store::ChunkStore;
+use crate::server::ServerState;
 
 use super::LakeManager;
 
 /// Env var carrying the Iceberg-REST listener bind address (`host:port`). Unset ⇒ no
 /// listener (matches `--metrics-addr`/`--sparql-addr`/`--obs-addr`'s opt-in idiom).
 pub const ICEBERG_ADDR_ENV: &str = "EPISTEMIC_GRAPH_ICEBERG_ADDR";
+const MAX_HTTP_HEADER_BYTES: usize = 64 * 1024;
+const MAX_HTTP_BODY_BYTES: usize = 1024 * 1024;
+const HTTP_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 
 /// Serve the Iceberg-REST catalog surface on `listener`, backed by `lake` (the tables +
 /// catalog) and `store` (the blob CAS a `CommitTable` compaction reads/writes through).
 pub async fn serve(listener: TcpListener, lake: Arc<LakeManager>, store: Arc<dyn ChunkStore>) {
+    serve_inner(listener, lake, store, None).await;
+}
+
+/// Production Iceberg listener linked to live engine isolation. Catalog/table
+/// handles have no verified tenant owner in this HTTP protocol, so secure/RLS
+/// deployments fail the carrier closed.
+pub async fn serve_with_security(
+    listener: TcpListener,
+    lake: Arc<LakeManager>,
+    store: Arc<dyn ChunkStore>,
+    state: Arc<RwLock<ServerState>>,
+) {
+    serve_inner(listener, lake, store, Some(state)).await;
+}
+
+async fn carrier_denied(state: Option<&Arc<RwLock<ServerState>>>) -> bool {
+    let Some(state) = state else {
+        return false;
+    };
+    let state = state.read().await;
+    crate::server::access::unauthenticated_carrier_denied(&state.isolation)
+}
+
+async fn serve_inner(
+    listener: TcpListener,
+    lake: Arc<LakeManager>,
+    store: Arc<dyn ChunkStore>,
+    security_state: Option<Arc<RwLock<ServerState>>>,
+) {
+    if let Err(error) = crate::server::require_loopback_listener(&listener) {
+        tracing::error!("Iceberg listener refused: {error}");
+        return;
+    }
     loop {
         let Ok((mut stream, _)) = listener.accept().await else {
             continue;
         };
         let lake = lake.clone();
         let store = store.clone();
+        let security_state = security_state.clone();
         tokio::spawn(async move {
-            let (status, body) = match read_request(&mut stream).await {
-                Some(req) => handle(&lake, store.as_ref(), &req),
-                None => (
-                    "400 Bad Request",
-                    err_body("malformed HTTP request", "BadRequestException", 400),
-                ),
-            };
+            let (status, body) =
+                match tokio::time::timeout(HTTP_READ_TIMEOUT, read_request(&mut stream)).await {
+                    Ok(Some(req)) => {
+                        if carrier_denied(security_state.as_ref()).await {
+                            (
+                                "403 Forbidden",
+                                err_body(
+                                    "Iceberg carrier has no verified tenant/table ownership",
+                                    "ForbiddenException",
+                                    403,
+                                ),
+                            )
+                        } else {
+                            handle(&lake, store.as_ref(), &req)
+                        }
+                    }
+                    _ => (
+                        "400 Bad Request",
+                        err_body("malformed HTTP request", "BadRequestException", 400),
+                    ),
+                };
             // `handle`'s HEAD arm already returns an empty body, so the response
             // envelope needs no extra verb-tracking here (unlike a framework that
             // strips the body post-hoc) — content-length is 0 for HEAD/404-empty
             // responses and the body write below is simply empty.
             let resp = format!(
-                "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\naccess-control-allow-origin: *\r\nconnection: close\r\n\r\n{}",
+                "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
                 body.len(),
                 body
             );
@@ -73,6 +126,7 @@ pub async fn serve(listener: TcpListener, lake: Arc<LakeManager>, store: Arc<dyn
 struct HttpRequest {
     method: String,
     target: String,
+    origin: String,
     body: String,
 }
 
@@ -90,7 +144,7 @@ async fn read_request(stream: &mut TcpStream) -> Option<HttpRequest> {
             return None;
         }
         buf.extend_from_slice(&tmp[..n]);
-        if buf.len() > 16 * 1024 * 1024 {
+        if buf.len() > MAX_HTTP_HEADER_BYTES {
             return None;
         }
     };
@@ -100,16 +154,43 @@ async fn read_request(stream: &mut TcpStream) -> Option<HttpRequest> {
     let mut parts = request_line.split_whitespace();
     let method = parts.next()?.to_string();
     let target = parts.next()?.to_string();
+    let version = parts.next()?;
+    if !version.starts_with("HTTP/1.") || parts.next().is_some() {
+        return None;
+    }
 
-    let mut content_length = 0usize;
+    let mut content_length: Option<usize> = None;
+    let mut origin = String::new();
+    let mut origin_seen = false;
     for line in lines {
-        if let Some((k, v)) = line.split_once(':') {
-            if k.trim().eq_ignore_ascii_case("content-length") {
-                content_length = v.trim().parse().unwrap_or(0);
+        let (k, v) = line.split_once(':')?;
+        let key = k.trim().to_ascii_lowercase();
+        if key.is_empty() {
+            return None;
+        }
+        if key == "content-length" {
+            if content_length.is_some() {
+                return None;
             }
+            content_length = Some(v.trim().parse().ok()?);
+        } else if key == "transfer-encoding" {
+            return None;
+        } else if key == "origin" {
+            if origin_seen {
+                return None;
+            }
+            origin_seen = true;
+            origin = v.trim().to_string();
         }
     }
+    let content_length = content_length.unwrap_or(0);
+    if content_length > MAX_HTTP_BODY_BYTES {
+        return None;
+    }
     let mut body = buf[header_end + 4..].to_vec();
+    if body.len() > content_length || body.len() > MAX_HTTP_BODY_BYTES {
+        return None;
+    }
     while body.len() < content_length {
         let n = stream.read(&mut tmp).await.ok()?;
         if n == 0 {
@@ -117,12 +198,13 @@ async fn read_request(stream: &mut TcpStream) -> Option<HttpRequest> {
         }
         body.extend_from_slice(&tmp[..n]);
     }
-    if content_length > 0 && body.len() > content_length {
-        body.truncate(content_length);
+    if body.len() != content_length {
+        return None;
     }
     Some(HttpRequest {
         method,
         target,
+        origin,
         body: String::from_utf8_lossy(&body).to_string(),
     })
 }
@@ -142,6 +224,12 @@ fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
 /// Route + execute one request → `(status, body)`. Pure (sync) so it is fully
 /// unit-testable without a socket, mirroring `crate::server::s3::handle`'s precedent.
 fn handle(lake: &LakeManager, store: &dyn ChunkStore, req: &HttpRequest) -> (&'static str, String) {
+    if !req.origin.is_empty() {
+        return (
+            "403 Forbidden",
+            err_body("browser origin denied", "ForbiddenException", 403),
+        );
+    }
     let path = req.target.split('?').next().unwrap_or(&req.target);
     let segs: Vec<&str> = path
         .trim_matches('/')
@@ -220,6 +308,7 @@ mod tests {
         HttpRequest {
             method: method.to_string(),
             target: target.to_string(),
+            origin: String::new(),
             body: String::new(),
         }
     }
@@ -301,6 +390,7 @@ mod tests {
             &HttpRequest {
                 method: "POST".to_string(),
                 target: "/v1/namespaces/engine/tables/rest_series1".to_string(),
+                origin: String::new(),
                 body: json!({ "requirements": [], "updates": [] }).to_string(),
             },
         );
@@ -317,6 +407,7 @@ mod tests {
             &HttpRequest {
                 method: "POST".to_string(),
                 target: "/v1/namespaces/engine/tables/nope".to_string(),
+                origin: String::new(),
                 body: "{}".to_string(),
             },
         );

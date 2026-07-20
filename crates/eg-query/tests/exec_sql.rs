@@ -37,7 +37,7 @@ fn sample_view() -> GraphView {
 fn run(sql: &str) -> eg_query::QueryResult {
     // Direct call (exec_sql owns its current-thread runtime) — the spike already
     // proved the spawn_blocking nesting.
-    exec_sql(&sample_view(), sql).expect("sql executed")
+    exec_sql(&sample_view(), sql, &eg_query::CancellationToken::new()).expect("sql executed")
 }
 
 fn rows_as_values(r: &eg_query::QueryResult) -> Vec<Vec<serde_json::Value>> {
@@ -180,10 +180,8 @@ fn catalog_functions_resolve() {
 }
 
 // ── L36: a caller-supplied `CancellationToken` REALLY reaches the streaming collect ──
-// (CONCEPT:EG-KG.query.streaming-spillable-collect). Before this fix `exec_sql`/`exec_sql_typed`
-// always built a FRESH, never-cancelled token internally — a caller's own token had NO
-// effect on the query, however it was cancelled. `exec_sql_cancellable` is the fix: the
-// SAME token the caller holds is the one `collect_streaming` checks.
+// (CONCEPT:EG-KG.query.streaming-spillable-collect). `exec_sql` requires the SAME token
+// the caller holds, and `collect_streaming` checks it at each batch boundary.
 
 /// A token cancelled BEFORE the call stops `collect_streaming` before it processes even
 /// the first batch (checked at the very top of its loop, ahead of `next?`) — so a
@@ -193,13 +191,13 @@ fn catalog_functions_resolve() {
 /// return the SAME non-empty result; the divergence below is the proof the plumbing
 /// works.
 #[test]
-fn exec_sql_cancellable_pre_cancelled_token_returns_no_rows() {
+fn exec_sql_pre_cancelled_token_returns_no_rows() {
     let view = sample_view();
     let sql = "SELECT value FROM generate_series(1, 1000) ORDER BY value";
 
     let fresh = eg_query::CancellationToken::new();
-    let normal = eg_query::exec_sql_cancellable(&view, sql, &fresh)
-        .expect("an uncancelled run must execute normally");
+    let normal =
+        eg_query::exec_sql(&view, sql, &fresh).expect("an uncancelled run must execute normally");
     assert_eq!(
         normal.rows.len(),
         1000,
@@ -209,7 +207,7 @@ fn exec_sql_cancellable_pre_cancelled_token_returns_no_rows() {
     let cancelled = eg_query::CancellationToken::new();
     cancelled.cancel();
     assert!(cancelled.is_cancelled());
-    let stopped = eg_query::exec_sql_cancellable(&view, sql, &cancelled)
+    let stopped = eg_query::exec_sql(&view, sql, &cancelled)
         .expect("cancellation degrades to fewer rows, never an error");
     assert_eq!(
         stopped.rows.len(),

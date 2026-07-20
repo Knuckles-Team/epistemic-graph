@@ -12,7 +12,7 @@
 //! full field-by-field mapping).
 
 use eg_modality::{
-    decode_staged, encode_staged, ConformanceTestable, EvidenceSpan, IngestReport,
+    decode_staged, encode_staged, ConformanceTestable, EvidenceAddress, IngestReport,
     ModalityContract, ModalitySelfTest, Provenance, RowSetShape, StagedWrite, StorageStats,
     TckPoint,
 };
@@ -86,7 +86,7 @@ impl ModalityContract for ValidationResult {
     }
 
     /// No located-evidence concept applies to a validation result — default `None`.
-    fn evidence(&self, _id: &str) -> Option<EvidenceSpan> {
+    fn evidence_address(&self) -> Option<EvidenceAddress> {
         None
     }
 

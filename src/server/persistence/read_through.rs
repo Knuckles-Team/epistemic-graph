@@ -7,7 +7,7 @@
 //! object, so the dependency points the correct way (facade → eg-core, facade →
 //! backend) and no facade type leaks down into eg-core.
 //!
-//! Installed once at startup, only under redb-authoritative mode, via
+//! Installed once at startup via
 //! `GraphRegistry::set_read_through_factory`. On a RAM miss, `GraphCore` calls
 //! `ReadThrough::read_node_blob`, which routes to the backend's SYNC point-read.
 
@@ -81,10 +81,8 @@ impl ReadThroughFactory for BackendReadThroughFactory {
 /// (CONCEPT:EG-KG.sharding.lazy-graph-catalog, DIST-P2-3): fetches ONE graph's durable material
 /// (nodes/edges/semantic store) on lazy first-open by calling
 /// [`PersistenceBackend::read_graph_material_blocking`]. Installed once at
-/// startup, only under redb-authoritative mode with `EPISTEMIC_GRAPH_LAZY_STARTUP`
-/// set, mirroring [`BackendReadThroughFactory`] above. A backend whose
-/// `read_graph_material_blocking` is the trait default (`Ok(None)`) just yields an
-/// empty core on lazy-open — never an error.
+/// startup when lazy startup is enabled, mirroring
+/// [`BackendReadThroughFactory`] above.
 pub struct BackendGraphMaterializer {
     backend: Arc<dyn PersistenceBackend>,
 }

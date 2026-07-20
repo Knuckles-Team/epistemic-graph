@@ -1,6 +1,6 @@
 //! Regenerate `docs/capabilities.generated.md` from the [`eg_capabilities::policy`] table.
 //!
-//! Run with: `cargo run -p eg-capabilities --bin gen_ledger`
+//! Run with: `cargo run -p eg-capabilities --features jobs,knowledge-batch,modality-serving --bin gen_ledger`
 //!
 //! `tests/consistency.rs`'s `generated_ledger_is_not_stale` test fails CI-style if this
 //! file's checked-in content doesn't match what this binary would (re)generate, so the

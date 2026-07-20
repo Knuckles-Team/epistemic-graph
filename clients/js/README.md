@@ -9,10 +9,11 @@ binding covers only the new wire ops from B1.7:
 |--------|---------|----------------|
 | Broker admin | `declareExchange` `deleteExchange` `declareQueue` `bindQueue` `unbindQueue` | EG-275/276/277/278 |
 | Broker publish | `publish` `publishEx` `publishConfirmed` `publishIdempotent` | EG-275/279/284/314 |
-| Broker consume | `brokerConsume` `brokerAck` `brokerReject` `brokerAckTag` `brokerNackTag` `sweepExpired` | EG-KG.compute.groups-qos-prefetch-honoring/276/284 |
+| Broker consume | `brokerConsume` `brokerAck` `brokerReject` `brokerAckTag` `brokerNackTag` `brokerRenewTag` `sweepExpired` | EG-KG.compute.groups-qos-prefetch-honoring/276/284 |
 | Streams | `streamDeclare` `streamPublish` `streamRead` `streamTrim` `streamCommitOffset` `streamCommittedOffset` | EG-283 |
 | RBAC admin | `rbacAddRole` `rbacRemoveRole` `rbacAddGrant` `rbacRemoveGrant` `rbacList` | EG-KG.compute.feature |
-| Ops | `backup` `restore` | EG-090 |
+| Identity security | `registerIdentity` `bootstrapSystemIdentity` `applyMultisigMutation` | Signed current-context operations |
+| Ops | `backup(destination, label)` `restore(source, targetShards)` | EG-090 |
 | NL→query | `nlQuery` | EG-080 |
 
 > **Generated-from-the-Method-list.** Every method maps 1:1 to a Rust `Method`
@@ -28,7 +29,11 @@ PyO3/FFI, so the wire is the API):
 - **Framing:** 4-byte big-endian length prefix + a msgpack request
   `{ id, graph, auth_token, method, params }`.
 - **Correlation:** responses arrive out of order, demuxed by `id`.
-- **Auth:** `auth_token = HMAC_SHA256(authSecret, str(id)).hex()` (empty when no secret).
+- **Auth:** every request carries an `eg2.` signed request-context envelope. The
+  MAC binds the request id, graph, canonical method body hash, explicit authority
+  claims, timestamp, nonce, and idempotency key. Construction rejects an empty
+  secret, missing claims, unknown fields, empty or duplicate list entries, and a
+  malformed delegation chain.
 - **Compact results:** a top-level msgpack `bin` result is a second `Raw` layer and is
   decoded once more (matching the Python client).
 
@@ -47,6 +52,16 @@ const c = new EpistemicGraphThinClient({
   socketPath: process.env.GRAPH_SERVICE_SOCKET,
   authSecret: process.env.GRAPH_SERVICE_AUTH_SECRET,
   graph: "agent:planner",
+  verifiedContext: {
+    principal: "service:graph-client",
+    tenant: "tenant:default",
+    audience: "epistemic-graph",
+    agent_id: "service:graph-client",
+    roles: ["graph-client"],
+    scopes: ["graph:read", "graph:write"],
+    policy_version: "policy:current",
+    delegation: [],
+  },
 });
 await c.connect();
 
@@ -74,11 +89,19 @@ await c.rbacAddGrant("reader", { Graph: "agent:planner" }, "Read", "Allow");
 const policy = await c.rbacList();
 
 // Ops / NL
-const report = await c.backup("/backups/nightly", "nightly"); // redb build
+const report = await c.backup("scheduled-001", "scheduled"); // logical name under configured backup root
 const rows = await c.nlQuery("all agents that cite paper X", "agent:planner");
 
 c.close();
 ```
+
+Fresh stores use the same strict transport. Construct the client with a context
+whose only scope is `security:bootstrap`, empty roles/delegation, and explicitly
+matching principal, agent, target agent, and signer id; then call
+`bootstrapSystemIdentity({ agentId, signerId, signerKey })`. Load `signerKey` from
+the deployment secret provider. It is used only for the call and is never sent or
+retained. `registerIdentity` and `applyMultisigMutation` use the same detached
+canonical-operation signature.
 
 Requires a server built with the matching features: `broker` (broker + streams),
 `security` (RBAC), redb (backup/restore), `nl-query` + a configured planner (`nlQuery`).
@@ -86,7 +109,6 @@ A build without one returns a clear "not available in this build" error.
 
 ## Status
 
-Runtime-untested in CI (no Node engine harness in this repo yet) — the framing/auth
-mirror the Python client's verified transport exactly. Treat as a reference thin
-binding; contributions welcome to add a Node integration test against the ephemeral
-engine.
+Static context, signing, and secret-leakage tests use Node's built-in test runner.
+The repository does not yet provide a live Node engine harness for transport-level
+integration tests.

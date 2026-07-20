@@ -115,8 +115,8 @@ torn hybrid read.
 updated node's property blob into `ChangeSet.NodeChange.properties_msgpack` (zero-clone
 when no such index is registered). `apply_delta` reads content ONLY from that captured
 blob — NEVER by calling back into `core` under the held topology lock — so it can't
-deadlock; `full_rebuild`, which DOES re-read every live node, is the out-of-lock path
-only (the `EPISTEMIC_GRAPH_INCREMENTAL_INDEX=0` kill-switch + explicit maintenance).
+deadlock. `full_rebuild`, which does re-read every live node, is available only as
+an explicit out-of-lock operator repair action; served writes always maintain deltas.
 The adapters live in `src/server/secondary_indexes.rs`.
 
 The text (`CONCEPT:EG-KG.storage.incremental-text`), temporal

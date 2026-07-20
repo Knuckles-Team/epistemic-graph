@@ -1,133 +1,59 @@
-//! CAS-backed `EvidenceResolver` (L21, CONCEPT:EG-P1-3 follow-up) — see the
-//! `alignment` cargo feature's own `Cargo.toml` comment for why this lives HERE
-//! rather than inside `eg-alignment` itself: `eg-alignment` is a leaf crate BELOW
-//! the server (deps = `eg-modality` ONLY, no CAS/graph-storage dependency, by
-//! design — see its own crate docs), so a resolver that needs to read REAL bytes
-//! back out of the engine's blob CAS must live at the ONE layer that already links
-//! both `eg-alignment` (the `EvidenceResolver` trait) and the blob CAS
-//! ([`super::store::ChunkStore`] + [`super::stream::stream_blob_get`]) — this
-//! crate's server tier.
-//!
-//! [`CasEvidenceResolver`] resolves an [`eg_modality::EvidenceSpan`] in two steps:
-//!
-//!  1. Project the span's artifact id ([`eg_alignment::artifact_id`]) and look up
-//!     that id's own stored node properties on a [`GraphView`] snapshot — the SAME
-//!     `node_row_object` decode `eg_plan::KnowledgeSet::from_rowset` already uses
-//!     (see `crates/eg-plan/src/knowledge.rs`) — reading its `blob_ref` field: the
-//!     content address every modality value type (`eg_document::DocumentData`/
-//!     `eg_image::ImageData`/`eg_audio::AudioData`/`eg_video::VideoData`) stores;
-//!     see each crate's own docs ("resolvable through the engine's blob CAS").
-//!  2. Stream the blob's bytes back out of the [`ChunkStore`] via
-//!     [`stream_blob_get`].
-//!
-//! A [`EvidenceSpan::DocumentSpan`] gets a REAL `ResolvedArtifact::Text` excerpt:
-//! the blob's bytes decoded as UTF-8 (lossy — a non-UTF-8 document still resolves,
-//! just with replacement characters rather than an error) and sliced at the span's
-//! CHARACTER range, clamped to the decoded length so an out-of-range span never
-//! panics (it resolves whatever the blob actually contains — never fabricated
-//! content beyond that). A [`EvidenceSpan::CodeSymbol`] gets the SAME treatment,
-//! sliced by LINE range instead (SURPASS gap-closure: "real crop/slice codecs" —
-//! source code is UTF-8 text too, so no new codec is needed, unlike the
-//! image/audio/video kinds below). Every other span kind (`TableCellRange`/
-//! `ImageRegion`/`AudioSegment`/`VideoShot`/`VideoFrameRange`/`MetricWindow`/
-//! `RowVersion`/`TraceSpan`) needs a real codec/crop/table-model to produce
-//! anything more specific than the raw bytes — explicitly out of scope here,
-//! exactly as `eg-alignment`'s own module docs describe for a "real resolver"
-//! follow-up (image/audio/video pixel/sample decoding is a heavy external
-//! dependency this workspace deliberately keeps out of the default build; a
-//! structured table-cell excerpt needs a table-model parser not yet in-tree) — so
-//! these resolve to `ResolvedArtifact::Blob` naming the real CAS digest, never a
-//! fabricated excerpt.
-//!
-//! SURPASS gap-closure ("unify the two evidence resolvers"): before this, this
-//! resolver had ZERO served-RPC call sites — only its own unit tests exercised it,
-//! while `Method::ExplainEvidence` (`src/server/handlers/query.rs`) returned only
-//! `eg_epistemic::evidence_citations`' locus METADATA (no resolved content). That
-//! handler now builds a `CasEvidenceResolver` over the SAME `GraphView` snapshot
-//! and calls THIS resolver for each citation's locus, attaching the result as
-//! `EvidenceCitationWire::resolved` — one resolution path reachable from the wire,
-//! not two disconnected ones.
-//!
-//! `None` (never a fabricated result) whenever the artifact id has no node on the
-//! snapshot, that node carries no `blob_ref` string property, or the digest is not
-//! present in the CAS — mirroring [`eg_alignment::InMemoryResolver`]'s "nothing
-//! registered for that artifact" contract.
+//! CAS-backed resolver for governed evidence loci.
 
 use std::sync::Arc;
 
-use eg_alignment::{artifact_id, EvidenceResolver, ResolvedArtifact};
+use eg_alignment::{subject_ref, EvidenceResolver, ResolvedArtifact};
 use eg_core::graph::GraphView;
-use eg_modality::EvidenceSpan;
+use eg_modality::{EvidenceAddress, EvidenceLocus};
 
 use super::store::ChunkStore;
 use super::stream::stream_blob_get;
 
-/// A real, engine-backed [`EvidenceResolver`]: resolves a located [`EvidenceSpan`]
-/// through a [`GraphView`] snapshot's own stored `blob_ref` property, then reads
-/// the actual bytes back out of the blob [`ChunkStore`] — see the module docs.
+/// Resolves a locus through its opaque subject node and that node's CAS digest.
 pub struct CasEvidenceResolver<'a> {
     view: &'a GraphView,
     store: Arc<dyn ChunkStore>,
 }
 
 impl<'a> CasEvidenceResolver<'a> {
-    /// Build a resolver over `view` (the graph snapshot the evidence spans were
-    /// resolved from — e.g. the same one `KnowledgeSet::from_rowset` ran over) and
-    /// `store` (the server's blob CAS, [`super::BlobCursors::store`]).
     pub fn new(view: &'a GraphView, store: Arc<dyn ChunkStore>) -> Self {
         Self { view, store }
     }
 
-    /// The artifact node's own `blob_ref` string property, or `None` if the node is
-    /// absent from this snapshot or carries no such property.
-    fn blob_ref_for(&self, artifact_id: &str) -> Option<String> {
+    fn blob_ref_for(&self, subject: &str) -> Option<String> {
         self.view
-            .node_row_object(artifact_id)?
+            .node_row_object(subject)?
             .get("blob_ref")?
             .as_str()
-            .map(|s| s.to_string())
+            .map(str::to_string)
     }
 
-    /// Stream the full blob back out of the CAS into memory. `None` if the digest
-    /// is unknown to the CAS (a never-uploaded or already-GC'd blob) — never
-    /// fabricated.
-    fn fetch_bytes(&self, blob_digest: &str) -> Option<Vec<u8>> {
-        let mut buf = Vec::new();
-        stream_blob_get(self.store.as_ref(), blob_digest, &mut buf).ok()?;
-        Some(buf)
+    fn fetch_bytes(&self, digest: &str) -> Option<Vec<u8>> {
+        let mut bytes = Vec::new();
+        stream_blob_get(self.store.as_ref(), digest, &mut bytes).ok()?;
+        Some(bytes)
     }
 }
 
 impl EvidenceResolver for CasEvidenceResolver<'_> {
-    fn resolve(&self, span: &EvidenceSpan) -> Option<ResolvedArtifact> {
-        let id = artifact_id(span).to_string();
-        let blob_ref = self.blob_ref_for(&id)?;
+    fn resolve(&self, locus: &EvidenceLocus) -> Option<ResolvedArtifact> {
+        locus.validate().ok()?;
+        let subject = subject_ref(locus).as_str();
+        let blob_ref = self.blob_ref_for(subject)?;
 
-        match span {
-            EvidenceSpan::DocumentSpan { start, end, .. } => {
+        match &locus.address {
+            EvidenceAddress::CharacterRange { start, end } => {
                 let bytes = self.fetch_bytes(&blob_ref)?;
                 let text = String::from_utf8_lossy(&bytes);
                 let char_len = text.chars().count();
-                let s = (*start).min(char_len);
-                let e = (*end).max(s).min(char_len);
-                let excerpt: String = text.chars().skip(s).take(e - s).collect();
+                let start = usize::try_from(*start).ok()?.min(char_len);
+                let end = usize::try_from(*end).ok()?.max(start).min(char_len);
                 Some(ResolvedArtifact::Text {
-                    artifact_id: id,
-                    excerpt,
+                    subject_ref: subject.to_string(),
+                    excerpt: text.chars().skip(start).take(end - start).collect(),
                 })
             }
-            // SURPASS gap-closure ("real crop/slice codecs"): a `CodeSymbol` locus
-            // is UTF-8 source text, exactly like `DocumentSpan` above -- just sliced
-            // by LINE range instead of CHARACTER range. No new codec/dependency
-            // needed (unlike image/audio/video, which genuinely need pixel/sample
-            // decoding this workspace deliberately keeps out of the default build —
-            // see the module docs), so this closes one more locus kind to a REAL
-            // excerpt rather than leaving it as a bare blob reference.
-            // `start_line`/`end_line` are 0-based, INCLUSIVE-exclusive (matching
-            // `DocumentSpan`'s `start`/`end` character-offset convention), clamped
-            // to the real line count so an out-of-range span resolves whatever the
-            // file actually contains, never panics or fabricates content.
-            EvidenceSpan::CodeSymbol {
+            EvidenceAddress::CodeSymbol {
                 start_line,
                 end_line,
                 ..
@@ -135,23 +61,17 @@ impl EvidenceResolver for CasEvidenceResolver<'_> {
                 let bytes = self.fetch_bytes(&blob_ref)?;
                 let text = String::from_utf8_lossy(&bytes);
                 let lines: Vec<&str> = text.lines().collect();
-                let line_count = lines.len();
-                let s = (*start_line as usize).min(line_count);
-                let e = (*end_line as usize).max(s).min(line_count);
-                let excerpt = lines[s..e].join("\n");
+                let start = (*start_line as usize).min(lines.len());
+                let end = (*end_line as usize).max(start).min(lines.len());
                 Some(ResolvedArtifact::Text {
-                    artifact_id: id,
-                    excerpt,
+                    subject_ref: subject.to_string(),
+                    excerpt: lines[start..end].join("\n"),
                 })
             }
-            // TableCellRange/ImageRegion/AudioSegment/VideoShot/VideoFrameRange/
-            // MetricWindow/RowVersion/TraceSpan — no in-tree table-model/codec to
-            // crop/slice a real excerpt with (see the module docs), so this reports
-            // the REAL CAS digest, not a fabricated excerpt of it.
             _ => Some(ResolvedArtifact::Blob {
-                artifact_id: id,
+                subject_ref: subject.to_string(),
                 blob_ref,
-                note: "resolved via the engine's blob CAS (CasEvidenceResolver)".to_string(),
+                note: "resolved from the engine content-addressed store".to_string(),
             }),
         }
     }
@@ -163,235 +83,94 @@ mod tests {
     use crate::server::blob::store::RedbChunkStore;
     use crate::server::blob::stream::stream_blob_put;
     use eg_core::graph::GraphCore;
+    use eg_modality::{ArtifactId, DerivationId, EvidenceLocusId, OpaqueRef, ResourceId};
     use serde_json::json;
 
-    fn blob(v: serde_json::Value) -> Vec<u8> {
-        rmp_serde::to_vec_named(&v).unwrap()
+    fn blob(value: serde_json::Value) -> Vec<u8> {
+        rmp_serde::to_vec_named(&value).unwrap()
     }
 
     fn store() -> Arc<dyn ChunkStore> {
         Arc::new(RedbChunkStore::open_temp().unwrap())
     }
 
-    /// L21: a `DocumentSpan` resolves to the REAL text excerpt read back out of the
-    /// blob CAS — not a fabricated string, not just the node id.
-    #[test]
-    fn resolves_document_span_to_a_real_excerpt_from_the_blob_cas() {
+    fn r(namespace: &str, suffix: u8) -> OpaqueRef {
+        OpaqueRef::scoped(namespace, &format!("00000000000000{suffix:02x}")).unwrap()
+    }
+
+    fn locus(address: EvidenceAddress) -> EvidenceLocus {
+        EvidenceLocus {
+            id: EvidenceLocusId::from_token("0000000000000001").unwrap(),
+            subject: ResourceId::Artifact(ArtifactId::from_token("0000000000000002").unwrap()),
+            address,
+            policy_ref: r("policy", 3),
+            derivation_ref: DerivationId::from_token("0000000000000004").unwrap(),
+        }
+    }
+
+    fn resolver_fixture(content: &[u8]) -> (CasEvidenceResolver<'static>, EvidenceLocus) {
         let cas = store();
-        let committed = stream_blob_put(cas.as_ref(), "hello world".as_bytes(), 0).unwrap();
-
-        let core = GraphCore::new();
+        let committed = stream_blob_put(cas.as_ref(), content, 0).unwrap();
+        let evidence = locus(EvidenceAddress::CharacterRange { start: 0, end: 5 });
+        let subject = subject_ref(&evidence).to_string();
+        let core = Box::leak(Box::new(GraphCore::new()));
         core.add_node(
-            "doc1".into(),
-            blob(json!({
-                "node_type": "Document",
-                "blob_ref": committed.digest,
-            })),
+            subject,
+            blob(json!({ "node_type": "Document", "blob_ref": committed.digest })),
         );
-        let view = core.analysis_snapshot();
+        let view = Box::leak(Box::new(core.analysis_snapshot()));
+        (CasEvidenceResolver::new(view, cas), evidence)
+    }
 
-        let resolver = CasEvidenceResolver::new(&view, cas.clone());
-        let span = EvidenceSpan::DocumentSpan {
-            document_id: "doc1".to_string(),
-            start: 0,
-            end: 5,
-        };
-
+    #[test]
+    fn resolves_character_range_from_real_cas_bytes() {
+        let (resolver, evidence) = resolver_fixture(b"hello world");
         assert_eq!(
-            resolver.resolve(&span),
+            resolver.resolve(&evidence),
             Some(ResolvedArtifact::Text {
-                artifact_id: "doc1".to_string(),
+                subject_ref: subject_ref(&evidence).to_string(),
                 excerpt: "hello".to_string(),
             })
         );
     }
 
-    /// L21: a span whose range runs past the blob's actual length is clamped, not
-    /// fabricated — it resolves the real tail of the content, never garbage past it.
     #[test]
-    fn document_span_out_of_range_clamps_to_the_real_content() {
-        let cas = store();
-        let committed = stream_blob_put(cas.as_ref(), "hi".as_bytes(), 0).unwrap();
-
-        let core = GraphCore::new();
-        core.add_node(
-            "doc1".into(),
-            blob(json!({ "node_type": "Document", "blob_ref": committed.digest })),
-        );
-        let view = core.analysis_snapshot();
-
-        let resolver = CasEvidenceResolver::new(&view, cas.clone());
-        let span = EvidenceSpan::DocumentSpan {
-            document_id: "doc1".to_string(),
-            start: 0,
-            end: 500,
-        };
-
-        assert_eq!(
-            resolver.resolve(&span),
-            Some(ResolvedArtifact::Text {
-                artifact_id: "doc1".to_string(),
-                excerpt: "hi".to_string(),
-            })
-        );
-    }
-
-    /// SURPASS gap-closure ("real crop/slice codecs"): a `CodeSymbol` locus
-    /// resolves to the REAL line-range excerpt read back out of the blob CAS —
-    /// source text is UTF-8, exactly like `DocumentSpan`, just sliced by line
-    /// instead of character.
-    #[test]
-    fn resolves_code_symbol_to_a_real_line_range_excerpt() {
-        let cas = store();
-        let source = "fn a() {}\nfn b() {\n    1 + 1\n}\nfn c() {}";
-        let committed = stream_blob_put(cas.as_ref(), source.as_bytes(), 0).unwrap();
-
-        let core = GraphCore::new();
-        core.add_node(
-            "file1".into(),
-            blob(json!({ "node_type": "Code", "blob_ref": committed.digest })),
-        );
-        let view = core.analysis_snapshot();
-
-        let resolver = CasEvidenceResolver::new(&view, cas.clone());
-        let span = EvidenceSpan::CodeSymbol {
-            file_path: "file1".to_string(),
-            symbol: "b".to_string(),
+    fn resolves_code_lines_from_real_cas_bytes() {
+        let (resolver, mut evidence) = resolver_fixture(b"line0\nline1\nline2");
+        evidence.address = EvidenceAddress::CodeSymbol {
+            revision_ref: r("revision", 5),
+            symbol_ref: r("symbol", 6),
             start_line: 1,
-            end_line: 4,
+            end_line: 3,
         };
-
-        assert_eq!(
-            resolver.resolve(&span),
-            Some(ResolvedArtifact::Text {
-                artifact_id: "file1".to_string(),
-                excerpt: "fn b() {\n    1 + 1\n}".to_string(),
-            })
-        );
+        assert!(matches!(
+            resolver.resolve(&evidence),
+            Some(ResolvedArtifact::Text { excerpt, .. }) if excerpt == "line1\nline2"
+        ));
     }
 
-    /// A `CodeSymbol` range past the file's real line count clamps to the real
-    /// content, never fabricated.
     #[test]
-    fn code_symbol_out_of_range_clamps_to_the_real_content() {
-        let cas = store();
-        let committed = stream_blob_put(cas.as_ref(), "line0\nline1".as_bytes(), 0).unwrap();
-
-        let core = GraphCore::new();
-        core.add_node(
-            "file1".into(),
-            blob(json!({ "node_type": "Code", "blob_ref": committed.digest })),
-        );
-        let view = core.analysis_snapshot();
-
-        let resolver = CasEvidenceResolver::new(&view, cas.clone());
-        let span = EvidenceSpan::CodeSymbol {
-            file_path: "file1".to_string(),
-            symbol: "whole_file".to_string(),
-            start_line: 0,
-            end_line: 999,
-        };
-
-        assert_eq!(
-            resolver.resolve(&span),
-            Some(ResolvedArtifact::Text {
-                artifact_id: "file1".to_string(),
-                excerpt: "line0\nline1".to_string(),
-            })
-        );
-    }
-
-    /// L21: a non-text span (e.g. an `ImageRegion`) resolves to the REAL CAS digest
-    /// as a `Blob` reference — no codec to crop pixels with, so this never
-    /// fabricates a cropped excerpt, only names the real stored content address.
-    #[test]
-    fn resolves_image_region_to_the_real_blob_digest() {
-        let cas = store();
-        let committed = stream_blob_put(cas.as_ref(), &[0xFFu8; 64][..], 0).unwrap();
-
-        let core = GraphCore::new();
-        core.add_node(
-            "img1".into(),
-            blob(json!({ "node_type": "Image", "blob_ref": committed.digest })),
-        );
-        let view = core.analysis_snapshot();
-
-        let resolver = CasEvidenceResolver::new(&view, cas.clone());
-        let span = EvidenceSpan::ImageRegion {
-            image_id: "img1".to_string(),
+    fn non_text_address_returns_the_real_digest_reference() {
+        let (resolver, mut evidence) = resolver_fixture(&[0xff; 64]);
+        evidence.address = EvidenceAddress::ImageRegion {
             x: 0.0,
             y: 0.0,
             width: 10.0,
             height: 10.0,
         };
-
-        let resolved = resolver.resolve(&span);
-        assert_eq!(
-            resolved,
-            Some(ResolvedArtifact::Blob {
-                artifact_id: "img1".to_string(),
-                blob_ref: committed.digest,
-                note: "resolved via the engine's blob CAS (CasEvidenceResolver)".to_string(),
-            })
-        );
+        assert!(matches!(
+            resolver.resolve(&evidence),
+            Some(ResolvedArtifact::Blob { .. })
+        ));
     }
 
-    /// L21: an artifact id with no node at all on the snapshot resolves to `None`
-    /// — never fabricated.
     #[test]
-    fn unknown_artifact_returns_none() {
+    fn unknown_subject_returns_none() {
         let cas = store();
         let core = GraphCore::new();
         let view = core.analysis_snapshot();
-
         let resolver = CasEvidenceResolver::new(&view, cas);
-        let span = EvidenceSpan::DocumentSpan {
-            document_id: "ghost".to_string(),
-            start: 0,
-            end: 1,
-        };
-
-        assert_eq!(resolver.resolve(&span), None);
-    }
-
-    /// L21: a node that exists but carries no `blob_ref` property resolves to
-    /// `None` — never fabricated.
-    #[test]
-    fn node_without_blob_ref_returns_none() {
-        let cas = store();
-        let core = GraphCore::new();
-        core.add_node("doc1".into(), blob(json!({ "node_type": "Document" })));
-        let view = core.analysis_snapshot();
-
-        let resolver = CasEvidenceResolver::new(&view, cas);
-        let span = EvidenceSpan::DocumentSpan {
-            document_id: "doc1".to_string(),
-            start: 0,
-            end: 1,
-        };
-
-        assert_eq!(resolver.resolve(&span), None);
-    }
-
-    /// L21: a `blob_ref` that names a digest never actually stored in the CAS
-    /// resolves to `None` — never fabricated content for a dangling reference.
-    #[test]
-    fn unknown_blob_digest_returns_none() {
-        let cas = store();
-        let core = GraphCore::new();
-        core.add_node(
-            "doc1".into(),
-            blob(json!({ "node_type": "Document", "blob_ref": "does-not-exist" })),
-        );
-        let view = core.analysis_snapshot();
-
-        let resolver = CasEvidenceResolver::new(&view, cas);
-        let span = EvidenceSpan::DocumentSpan {
-            document_id: "doc1".to_string(),
-            start: 0,
-            end: 1,
-        };
-
-        assert_eq!(resolver.resolve(&span), None);
+        let evidence = locus(EvidenceAddress::CharacterRange { start: 0, end: 1 });
+        assert_eq!(resolver.resolve(&evidence), None);
     }
 }

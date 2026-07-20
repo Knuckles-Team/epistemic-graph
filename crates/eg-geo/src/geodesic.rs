@@ -243,8 +243,8 @@ mod tests {
             pt(4.0, 6.0),
             pt(4.0, 4.0),
         ]);
-        let solid = Polygon::new(ext.clone());
-        let holed = Polygon::with_interiors(ext, vec![hole]);
+        let solid = Polygon::new(ext.clone(), Vec::new());
+        let holed = Polygon::new(ext, vec![hole]);
         let a_solid = geodesic_area(&solid);
         let a_holed = geodesic_area(&holed);
         assert!(a_holed > 0.0);

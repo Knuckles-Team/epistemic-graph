@@ -52,18 +52,15 @@ pub struct PlanCtx<'a> {
     pub udf: Option<&'a eg_wasm::UdfRegistry>,
     /// The federation foreign-source registry backing `Op::Foreign` (the UQL
     /// `FOREIGN "<name>"` marker) and a `Named` `Op::ForeignScan` (CONCEPT:EG-KG.query.closure-backed-source).
-    /// `None` when no foreign sources are registered — the name-resolving ops then keep
-    /// their prior behavior (`Op::Foreign` passes its input through unchanged), so a
-    /// default ctx is byte-for-byte the old one. Gated behind `federation`, so a
-    /// non-federation build's `PlanCtx` is unchanged.
+    /// `None` when no foreign sources are registered; a name-resolving op then fails
+    /// rather than silently preserving its input. Gated behind `federation`.
     #[cfg(feature = "federation")]
     pub foreign: Option<&'a crate::federation::ForeignSourceRegistry>,
     /// CONCEPT:EG-KG.storage.derived-tensor-writeback-sink — the content-addressed [`eg_tensor::TensorStore`] into which the
     /// tensor executor WRITES BACK every derived tensor an `Op::TensorOp` produces, so a
     /// derived tensor becomes a durable, dedup-shared CAS blob addressable by its
-    /// deterministic content hash — the EG-085 CAS-write-back follow-up that v1 left
-    /// documented-but-unbuilt. `None` (the default) preserves today's validate-only
-    /// behavior byte-for-byte: no write-back, fully backward-compatible. Held behind a
+    /// deterministic content hash. A `TensorOp` requires this binding and fails when it
+    /// is absent; derived tensors are never computed and discarded. Held behind a
     /// [`std::sync::Mutex`] so the write-back is interior-mutable through the shared
     /// `&PlanCtx` the executor threads, while `PlanCtx` itself stays `Send + Sync`. An
     /// identical derived tensor content-addresses to the SAME blob, so re-running a plan
@@ -82,6 +79,14 @@ pub struct PlanCtx<'a> {
     /// `PlanCtx` is unchanged.
     #[cfg(feature = "timeseries")]
     pub tsdb: Option<&'a eg_tsdb::store::SeriesStore>,
+    /// Verified tenant scope paired with [`Self::tsdb_graph`]. Both must be set by
+    /// served callers before committed TsScan data can be addressed.
+    #[cfg(feature = "timeseries")]
+    pub tsdb_tenant: Option<&'a str>,
+    /// Graph scope paired with a verified tenant for committed `TsScan` reads.
+    /// A graph string alone never grants access to a raw SeriesStore namespace.
+    #[cfg(feature = "timeseries")]
+    pub tsdb_graph: Option<&'a str>,
     /// CONCEPT:EG-KG.query.txn-tsdb-read-your — an in-memory STAGED-series overlay consulted by `Op::TsScan`
     /// BEFORE the committed [`Self::tsdb`] store, so an in-txn UQL reading a series sees
     /// the transaction's OWN uncommitted staged points (read-your-own-writes). `None` (the
@@ -319,6 +324,10 @@ impl<'a> PlanCtx<'a> {
             #[cfg(feature = "timeseries")]
             tsdb: None,
             #[cfg(feature = "timeseries")]
+            tsdb_tenant: None,
+            #[cfg(feature = "timeseries")]
+            tsdb_graph: None,
+            #[cfg(feature = "timeseries")]
             staged_series: None,
             embedder: None,
             #[cfg(feature = "owl")]
@@ -401,9 +410,8 @@ impl<'a> PlanCtx<'a> {
     /// Attach a content-addressed [`eg_tensor::TensorStore`] so the tensor executor
     /// WRITES BACK each derived tensor an `Op::TensorOp` produces into the CAS
     /// (CONCEPT:EG-KG.storage.derived-tensor-writeback-sink). A server/facade owns the store (behind a [`std::sync::Mutex`])
-    /// and can later `persist` it to disk for durability; without this call the executor
-    /// keeps its prior validate-only behavior (no write-back), so a default ctx is
-    /// byte-for-byte the old one.
+    /// and can later `persist` it to disk for durability. `Op::TensorOp` requires this
+    /// binding.
     #[cfg(feature = "tensor")]
     pub fn with_tensor_store(
         mut self,
@@ -422,6 +430,15 @@ impl<'a> PlanCtx<'a> {
     #[cfg(feature = "timeseries")]
     pub fn with_tsdb(mut self, store: &'a eg_tsdb::store::SeriesStore) -> Self {
         self.tsdb = Some(store);
+        self
+    }
+
+    /// Bind the verified `(tenant, graph)` storage scope for committed `TsScan`
+    /// reads. Tenant ownership is never inferred from a caller-controlled graph string.
+    #[cfg(feature = "timeseries")]
+    pub fn with_tsdb_scope(mut self, tenant: &'a str, graph: &'a str) -> Self {
+        self.tsdb_tenant = Some(tenant);
+        self.tsdb_graph = Some(graph);
         self
     }
 
@@ -628,13 +645,7 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
         Op::Reason {
             target_class,
             ontology,
-        } => Ok(reason_op(
-            ctx.view,
-            ctx.decay,
-            input,
-            target_class,
-            ontology,
-        )),
+        } => reason_op(ctx.view, ctx.decay, input, target_class, ontology),
 
         #[cfg(feature = "owl")]
         Op::SparqlBgp { query, var } => sparql_source(ctx.view, query, var),
@@ -668,8 +679,8 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
         // the UQL clause lowers to. With a `ForeignSourceRegistry` attached to the ctx
         // (`federation` build) it now RESOLVES the name → rows through the registry (a
         // source op: the foreign rows replace the input); an unbound name is a clean
-        // error. With NO registry attached — or a non-federation build — it passes the
-        // rows through unchanged, exactly as before (existing behavior preserved).
+        // error. A missing registry or a build without federation is also an error;
+        // foreign-source intent is never silently discarded.
         Op::Foreign { name } => foreign_named(name, input, ctx),
 
         // SOURCE (spatial, CONCEPT:EG-KG.ontology.singles-concept) — an eg-geo packed-Hilbert-R-tree bbox scan
@@ -698,7 +709,7 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
         #[cfg(feature = "tensor")]
         Op::TensorScan { layer } => Ok(tensor_scan(ctx.view, layer)),
         #[cfg(feature = "tensor")]
-        Op::TensorOp { kind } => Ok(tensor_op(ctx, input, kind)),
+        Op::TensorOp { kind } => tensor_op(ctx, input, kind),
 
         // TRANSFORM (probabilistic, CONCEPT:EG-KG.compute.uncertainty-values) — score each row by a closed-form
         // probabilistic query (expectation / marginal / conditional posterior / seeded
@@ -774,6 +785,8 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
         #[cfg(feature = "timeseries")]
         Op::TsScan { series, from, to } => Ok(tsdb_scan_op(
             ctx.tsdb,
+            ctx.tsdb_tenant,
+            ctx.tsdb_graph,
             ctx.staged_series,
             series,
             *from,
@@ -884,23 +897,20 @@ fn foreign_scan(
 }
 
 /// FEDERATION (`FOREIGN "<name>"`, CONCEPT:EG-KG.query.closure-backed-source) — resolve the named foreign source
-/// through the registry on the ctx. With a registry attached the named source's rows
-/// REPLACE the input (a source op) and an unbound name is a clean typed error; with NO
-/// registry attached the op passes its input through unchanged (the prior behavior — so
-/// existing plans are untouched).
+/// through the registry on the ctx. The named source's rows REPLACE the input (a source
+/// op); an unbound name or registry is a typed error.
 #[cfg(feature = "federation")]
-fn foreign_named(name: &str, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, String> {
-    match ctx.foreign {
-        Some(registry) => registry.resolve(name),
-        None => Ok(input),
-    }
+fn foreign_named(name: &str, _input: RowSet, ctx: &PlanCtx) -> Result<RowSet, String> {
+    let registry = ctx
+        .foreign
+        .ok_or_else(|| "FOREIGN requires a bound foreign-source registry".to_string())?;
+    registry.resolve(name)
 }
 
-/// Without `federation` there is no registry and no foreign machinery, so the
-/// `FOREIGN "<name>"` marker keeps its pass-through behavior (CONCEPT:EG-KG.query.closure-backed-source).
+/// Without `federation` there is no registry or foreign-source execution machinery.
 #[cfg(not(feature = "federation"))]
-fn foreign_named(_name: &str, input: RowSet, _ctx: &PlanCtx) -> Result<RowSet, String> {
-    Ok(input)
+fn foreign_named(_name: &str, _input: RowSet, _ctx: &PlanCtx) -> Result<RowSet, String> {
+    Err("FOREIGN requires federation support in this build".to_string())
 }
 
 /// Fuse a foreign RowSet with the local candidate set the SAME way for EVERY foreign
@@ -937,8 +947,15 @@ fn udf_transform(ctx: &PlanCtx, input: &RowSet, id: &str) -> Result<RowSet, Stri
         .collect();
     let payload = rmp_serde::to_vec_named(&rows).map_err(|e| format!("udf input encode: {e}"))?;
     let out = registry.run(id, &payload).map_err(|e| e.to_string())?;
-    let out_rows: Vec<(String, Option<f32>)> =
-        rmp_serde::from_slice(&out).map_err(|e| format!("udf output decode: {e}"))?;
+    let out_rows: Vec<(String, Option<f32>)> = eg_types::msgpack::decode_bounded(
+        &out,
+        eg_types::msgpack::MsgpackLimits::new(
+            eg_types::msgpack::MAX_PROPERTY_BYTES,
+            eg_types::msgpack::MAX_PROPERTY_ITEMS,
+            eg_types::msgpack::DEFAULT_MAX_DEPTH,
+        ),
+    )
+    .map_err(|_| "udf output decode failed".to_string())?;
     Ok(RowSet::from_rows(out_rows))
 }
 
@@ -1007,13 +1024,13 @@ fn reason_op(
     input: RowSet,
     target_class: &str,
     ontology: &str,
-) -> RowSet {
+) -> Result<RowSet, String> {
     if input.is_empty() {
         return reason_source(view, decay, target_class, ontology);
     }
-    let inferred = reason_source(view, decay, target_class, ontology);
+    let inferred = reason_source(view, decay, target_class, ontology)?;
     let keep = inferred.id_set();
-    input.intersect_keep_order(&keep)
+    Ok(input.intersect_keep_order(&keep))
 }
 
 /// SOURCE (OWL): the individuals the native OWL 2 reasoner INFERS to be members of
@@ -1029,14 +1046,14 @@ fn reason_source(
     decay: Option<(u64, f64)>,
     target_class: &str,
     ontology: &str,
-) -> RowSet {
+) -> Result<RowSet, String> {
     use eg_rdf::owl::{asserted_types_with_confidence_from_view, instances_of_weighted, Reasoner};
 
     // Axioms: an explicit ontology document, else the triples already in the graph.
     let triples = if ontology.trim().is_empty() {
         eg_rdf::owl::tbox_triples_from_view(view)
     } else {
-        eg_rdf::mapping::parse_turtle(ontology).unwrap_or_default()
+        eg_rdf::mapping::parse_turtle(ontology)?
     };
     let mut reasoner = Reasoner::from_triples(&triples);
     // Confidence-weighted (CONCEPT:EG-KG.ontology.concept-13): each inferred member carries its
@@ -1050,8 +1067,10 @@ fn reason_source(
     // REASON target IRI's namespace, so a node with a BARE string `type` (e.g.
     // `{"type":"Sensor"}`) is resolved as `<base/Sensor>` and — through the TBox subclass
     // closure — becomes a member of `REASON <base/Device>` when `<base/Sensor> ⊑
-    // <base/Device>`. A bare (non-IRI) target yields `None` ⇒ the prior bare-match path.
-    let class_base = eg_rdf::owl::class_namespace(&target);
+    // <base/Device>`. The target must carry the current absolute class namespace.
+    let class_base = eg_rdf::owl::class_namespace(&target).ok_or_else(|| {
+        "Reason requires an absolute target class with a current class namespace".to_string()
+    })?;
     // Asserted instance→class assignments + their per-fact confidence. CONCEPT:EG-KG.query.reason-decay-in-plan:
     // when a `(now, half_life)` decay context is bound on the `PlanCtx` (via `with_decay`), the
     // fact confidences are Ebbinghaus-decayed by each node's age relative to `now` RIGHT HERE,
@@ -1060,13 +1079,12 @@ fn reason_source(
     // `Reason` stays a stable, deterministic source/leaf (byte-for-byte the prior behavior). The
     // AXIOM confidence still flows through into the score either way.
     let (now, half_life) = decay.unwrap_or((0, 0.0));
-    let asserted =
-        asserted_types_with_confidence_from_view(view, now, half_life, class_base.as_deref());
+    let asserted = asserted_types_with_confidence_from_view(view, now, half_life, &class_base)?;
     let scored: Vec<(String, f32)> = instances_of_weighted(&cls, &asserted, &target, 0.0)
         .into_iter()
         .map(|(id, conf)| (id, conf as f32))
         .collect();
-    RowSet::from_scored(scored)
+    Ok(RowSet::from_scored(scored))
 }
 
 /// SOURCE (SPARQL): the node bindings of `var` in the SPARQL `query` over the view
@@ -1074,7 +1092,13 @@ fn reason_source(
 /// (node) bindings become ids; literal bindings are skipped (an id set is node ids).
 #[cfg(feature = "owl")]
 fn sparql_source(view: &GraphView, query: &str, var: &str) -> Result<RowSet, String> {
-    let res = eg_rdf::sparql::run(view, query)?;
+    let res = eg_rdf::sparql::execute(
+        &eg_rdf::sparql::Dataset::new(view, Vec::new()),
+        query,
+        &eg_rdf::sparql::Projection::raw(),
+        None,
+    )?
+    .into_table();
     let ids = res.solutions.iter().filter_map(|sol| {
         sol.get(var).and_then(|b| match b {
             eg_rdf::sparql::Binding::Node(n) => Some(n.clone()),
@@ -1099,7 +1123,7 @@ fn normalize_class(c: &str) -> String {
 /// SOURCE: all node ids whose `type` property equals `label`.
 fn scan_label(view: &GraphView, label: &str) -> RowSet {
     let ids = view.node_properties.iter().filter_map(|(id, blob)| {
-        let v: serde_json::Value = rmp_serde::from_slice(blob.as_slice()).ok()?;
+        let v = eg_types::msgpack::decode_property_value(blob.as_slice()).ok()?;
         (v.get("type").and_then(|t| t.as_str()) == Some(label)).then(|| id.clone())
     });
     RowSet::from_ids(ids)
@@ -1112,7 +1136,7 @@ fn scan_label(view: &GraphView, label: &str) -> RowSet {
 /// "has always been" (0); a missing `until` means "still current" (open). Decodes
 /// the SAME blob `scan_label` reads — dep-free, so the time path runs in the Pi tier.
 fn live_at(blob: &[u8], ts: u64, from_key: &str, until_key: &str) -> bool {
-    let Ok(v) = rmp_serde::from_slice::<serde_json::Value>(blob) else {
+    let Ok(v) = eg_types::msgpack::decode_property_value(blob) else {
         return false;
     };
     let from = v.get(from_key).and_then(|x| x.as_u64()).unwrap_or(0);
@@ -1228,7 +1252,7 @@ fn window_aggregate(
             // Byte-for-byte the prior behavior (a present node without a valid ts/value is
             // still dropped here, never reinterpreted as a ts).
             Some(blob) => {
-                let v: serde_json::Value = rmp_serde::from_slice(blob.as_slice()).ok()?;
+                let v = eg_types::msgpack::decode_property_value(blob.as_slice()).ok()?;
                 let ts = v.get("valid_from").and_then(|x| x.as_i64())?;
                 let value = r
                     .score
@@ -1300,7 +1324,7 @@ fn sensor_fuse_op(view: &GraphView, streams: &[String], tolerance_ns: u64) -> Ro
         .map(|name| {
             let mut samples: Vec<Sample> = Vec::new();
             for blob in view.node_properties.values() {
-                let Ok(v) = rmp_serde::from_slice::<serde_json::Value>(blob.as_slice()) else {
+                let Ok(v) = eg_types::msgpack::decode_property_value(blob.as_slice()) else {
                     continue;
                 };
                 if v.get("type").and_then(|t| t.as_str()) != Some(name.as_str()) {
@@ -1366,6 +1390,8 @@ fn sensor_fuse_op(view: &GraphView, streams: &[String], tolerance_ns: u64) -> Ro
 #[cfg(feature = "timeseries")]
 fn tsdb_scan_op(
     store: Option<&eg_tsdb::store::SeriesStore>,
+    tenant: Option<&str>,
+    graph: Option<&str>,
     staged: Option<&StagedSeries>,
     series: &[String],
     from: f64,
@@ -1385,7 +1411,15 @@ fn tsdb_scan_op(
     });
     let committed_rows = store.into_iter().flat_map(|st| {
         series.iter().flat_map(move |sid| {
-            st.range(sid, from_ns, to_ns)
+            let points = match (tenant, graph) {
+                (Some(tenant), Some(graph)) => st.range_scoped(
+                    &eg_tsdb::store::SeriesKey::new(tenant, graph, sid),
+                    from_ns,
+                    to_ns,
+                ),
+                _ => Ok(Vec::new()),
+            };
+            points
                 .unwrap_or_default()
                 .into_iter()
                 .filter_map(|p| p.values.first().map(|&v| (p.ts.to_string(), v as f32)))
@@ -1653,7 +1687,7 @@ fn jsonpath_filter(view: &GraphView, input: RowSet, pred: &Pred) -> Result<RowSe
 /// the JSON leg's counterpart to `row_geometry`.
 fn row_json(view: &GraphView, id: &str) -> Option<serde_json::Value> {
     let blob = view.node_properties.get(id)?;
-    rmp_serde::from_slice(blob.as_slice()).ok()
+    eg_types::msgpack::decode_property_value(blob.as_slice()).ok()
 }
 
 // ── the spatial leg — eg-geo geometry / R-tree over the GraphView blobs (EG-083) ─
@@ -1680,7 +1714,7 @@ fn spatial_scan(ctx: &PlanCtx, layer: &str, bbox: [f64; 4]) -> RowSet {
     let mut ids: Vec<String> = Vec::new();
     let mut boxes: Vec<(usize, eg_geo::Bbox)> = Vec::new();
     for (id, blob) in view.node_properties.iter() {
-        let Ok(v) = rmp_serde::from_slice::<serde_json::Value>(blob.as_slice()) else {
+        let Ok(v) = eg_types::msgpack::decode_property_value(blob.as_slice()) else {
             continue;
         };
         if v.get("type").and_then(|t| t.as_str()) != Some(layer) {
@@ -1852,7 +1886,7 @@ fn apply_spatial_op(
 #[cfg(feature = "geo")]
 fn row_geometry(view: &GraphView, id: &str, column: &str) -> Option<eg_geo::Geometry> {
     let blob = view.node_properties.get(id)?;
-    let v: serde_json::Value = rmp_serde::from_slice(blob.as_slice()).ok()?;
+    let v = eg_types::msgpack::decode_property_value(blob.as_slice()).ok()?;
     let wkt = v.get(column)?.as_str()?;
     eg_geo::parse_wkt(wkt).ok()
 }
@@ -1870,7 +1904,7 @@ fn geometry_from_value(v: &serde_json::Value) -> Option<eg_geo::Geometry> {
 #[cfg(feature = "geo")]
 fn row_geometry_conv(view: &GraphView, id: &str) -> Option<eg_geo::Geometry> {
     let blob = view.node_properties.get(id)?;
-    let v: serde_json::Value = rmp_serde::from_slice(blob.as_slice()).ok()?;
+    let v = eg_types::msgpack::decode_property_value(blob.as_slice()).ok()?;
     geometry_from_value(&v)
 }
 
@@ -1880,7 +1914,7 @@ fn row_geometry_conv(view: &GraphView, id: &str) -> Option<eg_geo::Geometry> {
 #[cfg(feature = "geo")]
 fn row_geometry_srid(view: &GraphView, id: &str) -> Option<(Option<u32>, eg_geo::Geometry)> {
     let blob = view.node_properties.get(id)?;
-    let v: serde_json::Value = rmp_serde::from_slice(blob.as_slice()).ok()?;
+    let v = eg_types::msgpack::decode_property_value(blob.as_slice()).ok()?;
     let wkt = v.get("geometry").or_else(|| v.get("geom"))?.as_str()?;
     eg_geo::parse_with_srid(wkt).ok()
 }
@@ -1898,7 +1932,7 @@ fn row_geometry_srid(view: &GraphView, id: &str) -> Option<(Option<u32>, eg_geo:
 fn tensor_scan(view: &GraphView, layer: &str) -> RowSet {
     let mut ids: Vec<String> = Vec::new();
     for (id, blob) in view.node_properties.iter() {
-        let Ok(v) = rmp_serde::from_slice::<serde_json::Value>(blob.as_slice()) else {
+        let Ok(v) = eg_types::msgpack::decode_property_value(blob.as_slice()) else {
             continue;
         };
         if v.get("type").and_then(|t| t.as_str()) != Some(layer) {
@@ -1917,35 +1951,39 @@ fn tensor_scan(view: &GraphView, layer: &str) -> RowSet {
 /// via [`RowSet::intersect_keep_order`], exactly as the spatial `Filter` leg drops rows
 /// with no geometry.
 ///
-/// CONCEPT:EG-KG.storage.derived-tensor-writeback-sink — CAS write-back: when a [`PlanCtx::tensor_store`] is attached, each
-/// derived tensor that the op successfully produces is WRITTEN BACK into that
+/// CONCEPT:EG-KG.storage.derived-tensor-writeback-sink — CAS write-back: each derived
+/// tensor that the op successfully produces is WRITTEN BACK into the required
 /// content-addressed [`eg_tensor::TensorStore`] (via [`eg_tensor::TensorStore::put`]),
 /// so the result becomes a durable, dedup-shared blob addressable by its deterministic
-/// content hash — closing the EG-085 follow-up. The write-back is additive and does NOT
-/// change which rows survive: a row is kept iff the op succeeds, exactly as before, so a
-/// `None` store yields byte-for-byte the prior (validate-only) behavior. Deterministic:
+/// content hash. The write-back is additive and does NOT change which rows survive: a
+/// row is kept iff the op succeeds. Deterministic:
 /// identical derived tensors content-address to one blob (idempotent dedup) regardless of
 /// row order or how many times the plan runs.
 #[cfg(feature = "tensor")]
-fn tensor_op(ctx: &PlanCtx, input: RowSet, kind: &eg_types::wire::TensorOpKind) -> RowSet {
+fn tensor_op(
+    ctx: &PlanCtx,
+    input: RowSet,
+    kind: &eg_types::wire::TensorOpKind,
+) -> Result<RowSet, String> {
+    let store = ctx
+        .tensor_store
+        .ok_or_else(|| "TensorOp requires a bound tensor store".to_string())?;
     let keep: HashSet<&str> = input
         .rows()
         .iter()
         .filter(|r| {
-            // Compute the derived tensor to VALIDATE the op per row; on success, write it
-            // back to the CAS (CONCEPT:EG-KG.storage.derived-tensor-writeback-sink) when a store is attached.
+            // Compute the derived tensor and write every successful result back to the
+            // CAS (CONCEPT:EG-KG.storage.derived-tensor-writeback-sink).
             match row_tensor(ctx.view, &r.id) {
                 Some(t) => match apply_tensor_op(&t, kind) {
                     Ok(derived) => {
-                        if let Some(store) = ctx.tensor_store {
-                            // Recover from a poisoned lock: `put` is infallible, so the
-                            // guard is never left in a bad state; keep the write-back
-                            // durable rather than propagating a poison panic.
-                            store
-                                .lock()
-                                .unwrap_or_else(|p| p.into_inner())
-                                .put(&derived);
-                        }
+                        // Recover from a poisoned lock: `put` is infallible, so the
+                        // guard is never left in a bad state; keep the write-back
+                        // durable rather than propagating a poison panic.
+                        store
+                            .lock()
+                            .unwrap_or_else(|p| p.into_inner())
+                            .put(&derived);
                         true
                     }
                     Err(_) => false,
@@ -1955,7 +1993,7 @@ fn tensor_op(ctx: &PlanCtx, input: RowSet, kind: &eg_types::wire::TensorOpKind) 
         })
         .map(|r| r.id.as_str())
         .collect();
-    input.intersect_keep_order(&keep)
+    Ok(input.intersect_keep_order(&keep))
 }
 
 /// Read node `id`'s tensor from the conventional `tensor` property of its blob
@@ -1963,7 +2001,7 @@ fn tensor_op(ctx: &PlanCtx, input: RowSet, kind: &eg_types::wire::TensorOpKind) 
 #[cfg(feature = "tensor")]
 fn row_tensor(view: &GraphView, id: &str) -> Option<eg_tensor::Tensor> {
     let blob = view.node_properties.get(id)?;
-    let v: serde_json::Value = rmp_serde::from_slice(blob.as_slice()).ok()?;
+    let v = eg_types::msgpack::decode_property_value(blob.as_slice()).ok()?;
     tensor_from_value(&v)
 }
 
@@ -2034,7 +2072,7 @@ fn probabilistic_op(view: &GraphView, input: RowSet, query: &eg_types::wire::Pro
 #[cfg(feature = "probabilistic")]
 fn row_distribution(view: &GraphView, id: &str) -> Option<eg_types::Distribution> {
     let blob = view.node_properties.get(id)?;
-    let v: serde_json::Value = rmp_serde::from_slice(blob.as_slice()).ok()?;
+    let v = eg_types::msgpack::decode_property_value(blob.as_slice()).ok()?;
     serde_json::from_value::<eg_types::Distribution>(v.get("distribution")?.clone()).ok()
 }
 
@@ -2366,7 +2404,7 @@ fn cep_op(view: &GraphView, input: RowSet, spec: &eg_types::wire::CepPatternSpec
 #[cfg(feature = "stream")]
 fn row_event(view: &GraphView, id: &str) -> Option<eg_stream::Event> {
     let blob = view.node_properties.get(id)?;
-    let v: serde_json::Value = rmp_serde::from_slice(blob.as_slice()).ok()?;
+    let v = eg_types::msgpack::decode_property_value(blob.as_slice()).ok()?;
     let ts = v.get("ts").and_then(|t| t.as_u64())?;
     let key = v
         .get("key")
@@ -2450,38 +2488,106 @@ fn cep_pattern_from_spec(p: &eg_types::wire::CepNodeSpec) -> eg_stream::CepPatte
 /// string equality is single-quote-escaped. (The planner could equally hand
 /// DataFusion a pre-built `LogicalPlan`; a string keeps the leg legible and reuses
 /// `eg_query::exec_sql` verbatim — DataFusion as the relational sub-engine.)
-fn where_clause(preds: &[Pred]) -> String {
-    if preds.is_empty() {
-        return "1=1".into();
+const MAX_FILTER_PREDICATES: usize = 256;
+const MAX_FILTER_IDENTIFIER_BYTES: usize = 256;
+const MAX_FILTER_LITERAL_BYTES: usize = 1024 * 1024;
+
+fn sql_identifier(value: &str) -> Result<String, String> {
+    if value.is_empty()
+        || value.len() > MAX_FILTER_IDENTIFIER_BYTES
+        || value.chars().any(char::is_control)
+    {
+        return Err("filter property name is invalid or exceeds its safety bound".into());
     }
-    preds
+    Ok(format!("\"{}\"", value.replace('"', "\"\"")))
+}
+
+fn sql_literal(value: &str) -> Result<String, String> {
+    if value.len() > MAX_FILTER_LITERAL_BYTES || value.contains('\0') {
+        return Err("filter literal is invalid or exceeds its safety bound".into());
+    }
+    Ok(format!("'{}'", value.replace('\'', "''")))
+}
+
+pub(crate) fn where_clause(preds: &[Pred]) -> Result<String, String> {
+    if preds.len() > MAX_FILTER_PREDICATES {
+        return Err("filter predicate count exceeds its safety bound".into());
+    }
+    if preds.is_empty() {
+        return Ok("1=1".into());
+    }
+    let clauses = preds
         .iter()
-        .map(|p| match p {
-            Pred::Eq { prop, value } => {
-                format!("{prop} = '{}'", value.replace('\'', "''"))
-            }
-            Pred::GtNum { prop, n } => format!("{prop} > {n}"),
-            Pred::LtNum { prop, n } => format!("{prop} < {n}"),
-            // JSONPath preds (CONCEPT:EG-KG.compute.json-deep-indexing) are NOT lowered to SQL — `filter_op` splits
-            // them out and applies them per-row via `eg_core::jsonpath`, so they never
-            // reach here. This defensive arm keeps the match exhaustive: a no-op `1=1`.
-            Pred::JsonPath { .. } => "1=1".into(),
-            // Spatial preds (CONCEPT:EG-KG.ontology.singles-concept / EG-258) are NOT lowered to SQL — `filter_op`
-            // splits them out and applies them per-row via eg-geo, so they never reach here.
-            // This defensive arm keeps the match exhaustive under `geo`: a no-op `1=1`.
-            #[cfg(feature = "geo")]
-            Pred::SpatialWithin { .. }
-            | Pred::SpatialDWithin { .. }
-            | Pred::SpatialContains { .. }
-            | Pred::SpatialCovers { .. }
-            | Pred::SpatialTouches { .. }
-            | Pred::SpatialCrosses { .. }
-            | Pred::SpatialOverlaps { .. }
-            | Pred::SpatialEquals { .. }
-            | Pred::SpatialDisjoint { .. } => "1=1".into(),
+        .map(|p| -> Result<String, String> {
+            Ok(match p {
+                Pred::Eq { prop, value } => {
+                    format!("{} = {}", sql_identifier(prop)?, sql_literal(value)?)
+                }
+                Pred::GtNum { prop, n } => {
+                    if !n.is_finite() {
+                        return Err("filter numeric literal must be finite".into());
+                    }
+                    format!("{} > {n}", sql_identifier(prop)?)
+                }
+                Pred::LtNum { prop, n } => {
+                    if !n.is_finite() {
+                        return Err("filter numeric literal must be finite".into());
+                    }
+                    format!("{} < {n}", sql_identifier(prop)?)
+                }
+                // JSONPath predicates are evaluated per row and never reach SQL.
+                Pred::JsonPath { .. } => "1=1".into(),
+                // Spatial predicates are likewise evaluated outside this SQL leg.
+                #[cfg(feature = "geo")]
+                Pred::SpatialWithin { .. }
+                | Pred::SpatialDWithin { .. }
+                | Pred::SpatialContains { .. }
+                | Pred::SpatialCovers { .. }
+                | Pred::SpatialTouches { .. }
+                | Pred::SpatialCrosses { .. }
+                | Pred::SpatialOverlaps { .. }
+                | Pred::SpatialEquals { .. }
+                | Pred::SpatialDisjoint { .. } => "1=1".into(),
+            })
         })
-        .collect::<Vec<_>>()
-        .join(" AND ")
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(clauses.join(" AND "))
+}
+
+#[cfg(test)]
+mod filter_security_tests {
+    use super::*;
+
+    #[test]
+    fn wire_supplied_identifiers_and_literals_cannot_escape_sql() {
+        let clause = where_clause(&[Pred::Eq {
+            prop: "name\" OR 1=1 --".into(),
+            value: "x' OR '1'='1".into(),
+        }])
+        .unwrap();
+        assert_eq!(clause, "\"name\"\" OR 1=1 --\" = 'x'' OR ''1''=''1'");
+    }
+
+    #[test]
+    fn invalid_or_unbounded_wire_predicates_fail_closed() {
+        assert!(where_clause(&[Pred::GtNum {
+            prop: "score".into(),
+            n: f64::NAN,
+        }])
+        .is_err());
+        assert!(where_clause(&[Pred::Eq {
+            prop: "bad\nname".into(),
+            value: String::new(),
+        }])
+        .is_err());
+        let too_many = (0..=MAX_FILTER_PREDICATES)
+            .map(|_| Pred::Eq {
+                prop: "type".into(),
+                value: "Document".into(),
+            })
+            .collect::<Vec<_>>();
+        assert!(where_clause(&too_many).is_err());
+    }
 }
 
 /// Run the FILTER leg through real DataFusion (`eg_query::exec_sql`) over the
@@ -2496,28 +2602,35 @@ fn sql_filter_ids(
     preds: &[Pred],
     restrict_to: Option<&[String]>,
 ) -> Result<Vec<String>, String> {
-    let mut sql = format!("SELECT id FROM nodes WHERE {}", where_clause(preds));
+    let mut sql = format!("SELECT id FROM nodes WHERE {}", where_clause(preds)?);
     if let Some(ids) = restrict_to {
         if ids.is_empty() {
             return Ok(Vec::new());
         }
         let in_list = ids
             .iter()
-            .map(|i| format!("'{}'", i.replace('\'', "''")))
-            .collect::<Vec<_>>()
+            .map(|id| sql_literal(id))
+            .collect::<Result<Vec<_>, _>>()?
             .join(",");
         sql.push_str(&format!(" AND id IN ({in_list})"));
     }
 
     // `exec_sql` builds its own current-thread runtime to drive DataFusion's async
     // collect (safe to call inside spawn_blocking, exactly as the Sql handler does).
-    let result = eg_query::exec_sql(view, &sql)?;
+    let result = eg_query::exec_sql(view, &sql, &eg_query::CancellationToken::new())?;
     // `result.rows[i]` is a MessagePack-encoded `Vec<serde_json::Value>` aligned to
     // `result.columns` (here a single `id` column). Decode the id cell of each row.
     let mut out = Vec::with_capacity(result.rows.len());
     for row in &result.rows {
-        let cells: Vec<serde_json::Value> =
-            rmp_serde::from_slice(row).map_err(|e| format!("decode filter row: {e}"))?;
+        let cells: Vec<serde_json::Value> = eg_types::msgpack::decode_bounded(
+            row,
+            eg_types::msgpack::MsgpackLimits::new(
+                eg_types::msgpack::MAX_PROPERTY_BYTES,
+                eg_types::msgpack::MAX_PROPERTY_ITEMS,
+                eg_types::msgpack::DEFAULT_MAX_DEPTH,
+            ),
+        )
+        .map_err(|_| "decode filter row failed".to_string())?;
         match cells.first().and_then(|v| v.as_str()) {
             Some(id) => out.push(id.to_string()),
             None => return Err("filter result row had no string id cell".into()),
@@ -2534,8 +2647,8 @@ fn sql_filter_ids(
 ///
 /// IMPORTANT (a real data-model detail): the petgraph edge *weight* is the synthetic
 /// `"{src}:{tgt}"` string (`GraphCore::add_edge`), NOT the relationship type — the
-/// relationship lives in the edge's property blob (`relationship`/`type`/`rel_type`
-/// field — CONCEPT:EG-KG.query.rel-type-projection), exactly as eg-query/cypher's `rel_matches` reads
+/// relationship lives in the edge's canonical `relationship` property
+/// (CONCEPT:EG-KG.query.rel-type-projection), exactly as eg-query/cypher's `rel_matches` reads
 /// it. So the BFS matches on the blob, not the weight.
 ///
 /// Direction is always OUTGOING — UQL's `TRAVERSE -[:REL]->{m,n}` has no `<-`/undirected
@@ -2597,14 +2710,8 @@ pub(crate) fn bfs_reached(
 }
 
 /// Does the stored edge `(from→to)` carry relationship `rel`? Reads the edge's
-/// property blobs under any of the three keys a writer may have used for the
-/// relationship name — `relationship` (this engine's own CREATE convention),
-/// `type`, or **`rel_type`** (the key the agent-utilities `epistemic_graph`
-/// backend stamps every edge with — CONCEPT:EG-KG.query.rel-type-projection). Before this fix,
-/// UQL `TRAVERSE -[:REL]->{m,n}` read only `relationship`/`type`, so it silently
-/// returned `[]` over AU-ingested edges even though eg-query/cypher's own
-/// `rel_matches` already read `rel_type` — this brings the two matchers back in
-/// sync (see `crates/eg-query/src/cypher/exec.rs::rel_matches`).
+/// canonical `relationship` property. An ordinary `type` property is payload and
+/// is never reinterpreted as edge identity.
 fn rel_matches(view: &GraphView, from: &str, to: &str, rel: &str) -> bool {
     let Some(blobs) = view
         .edge_properties
@@ -2613,15 +2720,9 @@ fn rel_matches(view: &GraphView, from: &str, to: &str, rel: &str) -> bool {
         return false;
     };
     blobs.iter().any(|b| {
-        rmp_serde::from_slice::<serde_json::Value>(b.as_slice())
+        eg_types::msgpack::decode_property_value(b.as_slice())
             .ok()
-            .map(|v| {
-                let r = v
-                    .get("relationship")
-                    .or_else(|| v.get("type"))
-                    .or_else(|| v.get("rel_type"));
-                r.and_then(|x| x.as_str()) == Some(rel)
-            })
+            .map(|v| v.get("relationship").and_then(|x| x.as_str()) == Some(rel))
             .unwrap_or(false)
     })
 }

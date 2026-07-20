@@ -69,24 +69,24 @@ pub fn decode_entry(blob: &[u8]) -> Option<(Hash, Hash, &[u8])> {
 /// ## Exhaustiveness (CONCEPT:EG-KG.sharding.row-level-security, L3/EG-P0-6)
 ///
 /// `redb_store::append_audit_entry` calls this for EVERY `(graph, method)` pair that
-/// reaches `commit_ops`/`commit_crossmodal` — i.e. every method for which
-/// `wal.rs::is_durable_mutation` is true and a persistence backend is configured,
-/// regardless of whether it arrived via the EG-P0-2 gateway (`commit_mutation`) or
-/// the legacy dispatch-shell `record`/`record_durable` tail. Originally only 2 node/
-/// edge primitives were covered here (later grown to the 7 CRUD arms below by
-/// EG-P0-2); every OTHER durable mutation silently returned `None` — durably
-/// persisted, but with NO tamper-evident audit trail. This match is now exhaustive
+/// reaches `commit_ops`/`commit_crossmodal`: every method for which the capability
+/// policy declares authoritative durability and a persistence backend is
+/// configured. This match is exhaustive
 /// over the FULL durable-mutation surface (every `GraphRedb`- and `Outbox`-domain
 /// method per `eg_capabilities::policy`, see `crates/eg-capabilities`), so every
 /// acknowledged durable mutation chains into the audit log. A method with no
-/// durable effect (`DurabilityDomain::None` — e.g. `ApplyMutation`, `EvictLRU`,
-/// `IcvConfigure`) never reaches this function via the redb write path at all, so
-/// it is intentionally absent (there is no data-plane row for it to accompany);
-/// closing THAT gap is a durability workstream (EG-P0-3-class), not an audit one.
+/// durable effect (`DurabilityDomain::None` — e.g. a caller-supplied
+/// `ApplyMutation`, `EvictLRU`, or `IcvConfigure`) never reaches this function via
+/// the redb write path at all, so it is intentionally absent. The one reserved
+/// `ApplyMutation` event below is different: the MutationBatch compiler creates it
+/// internally as a digest-only receipt for an authoritative staged-state commit.
 pub fn audit_line(method: &Method) -> Option<String> {
     let line = match method {
         // ── Core node/edge CRUD (audited since EG-P0-2) ──────────────────────
         Method::AddNode { node_id, .. } => format!("ADD_NODE|{node_id}"),
+        Method::CreateNodeIfAbsent { node_id, .. } => {
+            format!("CREATE_NODE_IF_ABSENT|{node_id}")
+        }
         Method::RemoveNode { node_id } => format!("REMOVE_NODE|{node_id}"),
         Method::CompareAndSetNodeFields { node_id, .. } => format!("CAS_NODE|{node_id}"),
         Method::AddEdge {
@@ -100,8 +100,45 @@ pub fn audit_line(method: &Method) -> Option<String> {
         } => format!("REMOVE_EDGE|{source_id}|{target_id}"),
         Method::BatchUpdate { .. } => "BATCH_UPDATE".to_string(),
         Method::ClearGraph => "CLEAR_GRAPH".to_string(),
+        Method::ApplyChangeEnvelope { envelope } => format!(
+            "APPLY_CHANGE_ENVELOPE|{}|{}|{}",
+            envelope.envelope_id, envelope.mutation.batch_id, envelope.content_version.digest
+        ),
+        #[cfg(feature = "modality-serving")]
+        Method::ServedModality { op } if op.mutates() => {
+            use eg_types::{ServedModalityKind, ServedModalityOp};
+            let (operation, modality) = match op {
+                ServedModalityOp::Ingest { modality, .. } => ("INGEST", modality),
+                ServedModalityOp::IngestStream { modality, .. } => ("INGEST_STREAM", modality),
+                ServedModalityOp::Delete { modality, .. } => ("DELETE", modality),
+                ServedModalityOp::MoveToCold { modality, .. } => ("MOVE_TO_COLD", modality),
+                ServedModalityOp::Restore { modality, .. } => ("RESTORE", modality),
+                ServedModalityOp::CollectTombstones { modality, .. } => {
+                    ("COLLECT_TOMBSTONES", modality)
+                }
+                _ => return None,
+            };
+            let modality = match modality {
+                ServedModalityKind::Document => "DOCUMENT",
+                ServedModalityKind::Image => "IMAGE",
+                ServedModalityKind::Audio => "AUDIO",
+                ServedModalityKind::Video => "VIDEO",
+            };
+            format!("SERVED_MODALITY|{modality}|{operation}")
+        }
+        Method::ApplyMutation { event_type, query }
+            if event_type == "authoritative_state_operation"
+                && query.len() == 71
+                && query.starts_with("sha256:")
+                && query[7..].bytes().all(|byte| byte.is_ascii_hexdigit()) =>
+        {
+            // State-backed mutations persist a complete, digest-verified graph
+            // image in the same transaction. Their canonical operation is opaque
+            // by design, so the audit line binds only its SHA-256 receipt.
+            format!("AUTHORITATIVE_STATE_MUTATION|{query}")
+        }
 
-        // ── Remaining GraphRedb-durable node/edge/RDF primitives (L3/EG-P0-6) ──
+        // ── Remaining GraphRedb-durable node/edge/RDF primitives (EG-P0-6) ──
         Method::InvalidateEdge {
             source_id,
             target_id,
@@ -113,6 +150,46 @@ pub fn audit_line(method: &Method) -> Option<String> {
             ..
         } => format!("SUPERSEDE_EDGE|{source_id}|{target_id}"),
         Method::ClaimNext { label, .. } => format!("CLAIM_NEXT|{label}"),
+        Method::ClaimWorkItem { request } => {
+            format!("CLAIM_WORK_ITEM|{}", request.tenant_ref)
+        }
+        Method::RenewWorkItemLease {
+            tenant,
+            work_item_id,
+            lease_epoch,
+            ..
+        } => format!("RENEW_WORK_ITEM|{tenant}|{work_item_id}|{lease_epoch}"),
+        Method::CommitWorkItemResult {
+            tenant,
+            work_item_id,
+            lease_epoch,
+            outcome,
+            ..
+        } => format!("COMMIT_WORK_ITEM|{tenant}|{work_item_id}|{lease_epoch}|{outcome}"),
+        Method::CancelWorkItem {
+            tenant,
+            work_item_id,
+            ..
+        } => format!("CANCEL_WORK_ITEM|{tenant}|{work_item_id}"),
+        Method::DeferWorkItem {
+            tenant,
+            work_item_id,
+            lease_epoch,
+            next_retry_at_ms,
+            ..
+        } => format!("DEFER_WORK_ITEM|{tenant}|{work_item_id}|{lease_epoch}|{next_retry_at_ms}"),
+        Method::Sql { query, .. } => format!(
+            "SQL_MUTATION|sha256:{}",
+            hex::encode(Sha256::digest(query.as_bytes()))
+        ),
+        Method::CypherQuery { query, .. } => format!(
+            "CYPHER_MUTATION|sha256:{}",
+            hex::encode(Sha256::digest(query.as_bytes()))
+        ),
+        Method::GraphQl { query, .. } => format!(
+            "GRAPHQL_MUTATION|sha256:{}",
+            hex::encode(Sha256::digest(query.as_bytes()))
+        ),
         Method::AddEmbedding { node_id, .. } => format!("ADD_EMBEDDING|{node_id}"),
         #[cfg(feature = "rdf")]
         Method::AddTriples { .. } => "ADD_TRIPLES".to_string(),
@@ -243,9 +320,20 @@ pub fn audit_line(method: &Method) -> Option<String> {
             ..
         } => format!("PUBLISH_IDEMPOTENT|{exchange}|{routing_key}"),
         #[cfg(feature = "broker")]
-        Method::BrokerAckTag { delivery_tag } => format!("BROKER_ACK_TAG|{delivery_tag}"),
+        Method::BrokerAckTag { delivery_tag, .. } => format!("BROKER_ACK_TAG|{delivery_tag}"),
         #[cfg(feature = "broker")]
         Method::BrokerNackTag { delivery_tag, .. } => format!("BROKER_NACK_TAG|{delivery_tag}"),
+        #[cfg(feature = "broker")]
+        Method::BrokerRenewTag { delivery_tag, .. } => {
+            format!("BROKER_RENEW_TAG|{delivery_tag}")
+        }
+
+        // Transfer paths are logical operator-provisioned names. Keep them out
+        // of the chain so audit records never persist filesystem details.
+        #[cfg(feature = "sqlite-file")]
+        Method::ImportSqliteFile { .. } => "IMPORT_SQLITE_FILE".to_string(),
+        #[cfg(feature = "sqlite-file")]
+        Method::ExportSqliteFile { .. } => "EXPORT_SQLITE_FILE".to_string(),
 
         // Every non-durable method (`DurabilityDomain::None`) never reaches this
         // function via the redb write path in the first place; still falls through
@@ -373,5 +461,23 @@ mod tests {
         let report = verify_chain(g, kept);
         assert!(!report.ok);
         assert_eq!(report.first_broken_seq, Some(2));
+    }
+
+    #[test]
+    fn authoritative_state_receipt_audits_only_a_valid_digest() {
+        let digest = "a".repeat(64);
+        let receipt = Method::ApplyMutation {
+            event_type: "authoritative_state_operation".to_string(),
+            query: format!("sha256:{digest}"),
+        };
+        assert_eq!(
+            audit_line(&receipt).as_deref(),
+            Some(format!("AUTHORITATIVE_STATE_MUTATION|sha256:{digest}").as_str())
+        );
+        assert!(audit_line(&Method::ApplyMutation {
+            event_type: "authoritative_state_operation".to_string(),
+            query: "not-a-digest".to_string(),
+        })
+        .is_none());
     }
 }

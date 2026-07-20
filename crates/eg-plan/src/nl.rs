@@ -138,8 +138,6 @@ pub struct UreqNlPlanner {
     /// Static headers sent on EVERY request to the endpoint (e.g. a gateway
     /// ``X-Client-Id`` client-id header). Independent of the auth mode.
     headers: Vec<(String, String)>,
-    /// TLS: accept invalid/self-signed certs for THIS endpoint (danger — internal use).
-    tls_insecure: bool,
     /// TLS: path to an additional PEM CA bundle trusted for THIS endpoint (added on top
     /// of the standard webpki roots).
     tls_ca_path: Option<String>,
@@ -174,7 +172,6 @@ UQL query ONLY — no explanation, no markdown code fences.";
             max_response_bytes: 1024 * 1024,
             system_prompt: Self::DEFAULT_SYSTEM_PROMPT.to_string(),
             headers: Vec::new(),
-            tls_insecure: false,
             tls_ca_path: None,
             oauth2: None,
             token_cache: std::sync::Mutex::new(None),
@@ -184,12 +181,6 @@ UQL query ONLY — no explanation, no markdown code fences.";
     /// Set static headers sent on every request (e.g. a gateway client-id header) (fluent).
     pub fn with_headers(mut self, headers: Vec<(String, String)>) -> Self {
         self.headers = headers;
-        self
-    }
-
-    /// Per-endpoint TLS: accept invalid/self-signed certs (danger; internal endpoints) (fluent).
-    pub fn with_tls_insecure(mut self, insecure: bool) -> Self {
-        self.tls_insecure = insecure;
         self
     }
 
@@ -236,7 +227,7 @@ UQL query ONLY — no explanation, no markdown code fences.";
         let mut builder = ureq::AgentBuilder::new()
             .timeout_connect(self.connect_timeout)
             .timeout_read(self.read_timeout);
-        if self.tls_insecure || self.tls_ca_path.is_some() {
+        if self.tls_ca_path.is_some() {
             builder = builder.tls_config(std::sync::Arc::new(self.rustls_config()?));
         }
         Ok(builder.build())
@@ -244,35 +235,22 @@ UQL query ONLY — no explanation, no markdown code fences.";
 
     /// Build a rustls `ClientConfig` for the per-endpoint TLS policy. Uses the SAME `ring`
     /// crypto provider ureq already links (no aws-lc / no C toolchain — the Pi-tier
-    /// pure-Rust contract). `tls_insecure` installs a no-verify certificate verifier
-    /// (danger, internal endpoints only); otherwise the webpki roots plus any configured
-    /// PEM CA bundle are trusted.
+    /// pure-Rust contract). Certificate and hostname verification are mandatory; the
+    /// configured PEM CA bundle augments the standard webpki roots.
     fn rustls_config(&self) -> Result<rustls::ClientConfig, String> {
         let provider = std::sync::Arc::new(rustls::crypto::ring::default_provider());
-        if self.tls_insecure {
-            return Ok(
-                rustls::ClientConfig::builder_with_provider(provider.clone())
-                    .with_safe_default_protocol_versions()
-                    .map_err(|e| format!("nl-query: rustls protocol versions: {e}"))?
-                    .dangerous()
-                    .with_custom_certificate_verifier(std::sync::Arc::new(NoCertVerification::new(
-                        provider,
-                    )))
-                    .with_no_client_auth(),
-            );
-        }
         let mut roots = rustls::RootCertStore::empty();
         roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
         if let Some(path) = &self.tls_ca_path {
+            use rustls::pki_types::{pem::PemObject, CertificateDer};
+
             let pem = std::fs::read(path)
-                .map_err(|e| format!("nl-query: read TLS CA bundle {path}: {e}"))?;
-            let mut reader = std::io::BufReader::new(&pem[..]);
-            for cert in rustls_pemfile::certs(&mut reader) {
-                let cert =
-                    cert.map_err(|e| format!("nl-query: parse TLS CA bundle {path}: {e}"))?;
+                .map_err(|_| "nl-query: TLS CA bundle unavailable".to_string())?;
+            for cert in CertificateDer::pem_slice_iter(&pem) {
+                let cert = cert.map_err(|_| "nl-query: TLS CA bundle invalid".to_string())?;
                 roots
                     .add(cert)
-                    .map_err(|e| format!("nl-query: add TLS CA from {path}: {e}"))?;
+                    .map_err(|_| "nl-query: TLS CA bundle invalid".to_string())?;
             }
         }
         Ok(rustls::ClientConfig::builder_with_provider(provider)
@@ -383,8 +361,8 @@ impl NlPlanner for UreqNlPlanner {
     fn plan(&self, nl: &str, schema_hint: &str) -> Result<String, String> {
         use std::io::Read;
 
-        // Bounded, timeout-guarded agent with the per-endpoint TLS policy (SAFETY: no hang
-        // on a slow endpoint; verification unchanged unless explicitly overridden).
+        // Bounded, timeout-guarded agent with mandatory certificate and hostname
+        // verification (SAFETY: no hang on a slow endpoint).
         let agent = self.build_agent()?;
 
         let user = if schema_hint.trim().is_empty() {
@@ -436,73 +414,6 @@ impl NlPlanner for UreqNlPlanner {
             return Err("nl-query: LLM produced an empty query".to_string());
         }
         Ok(query)
-    }
-}
-
-/// A rustls certificate verifier that accepts ANY server certificate (CONCEPT:EG-KG.query.nl-tls-insecure).
-///
-/// DANGER: used ONLY when a `UreqNlPlanner` is explicitly configured `tls_insecure` for a
-/// trusted internal endpoint (e.g. a self-signed vLLM on the LAN). It skips chain/hostname
-/// validation but still verifies the handshake signatures via the real `ring` provider
-/// algorithms, so the TLS session itself is well-formed. Never wired on the default path.
-#[cfg(feature = "nl-query")]
-#[derive(Debug)]
-struct NoCertVerification {
-    provider: std::sync::Arc<rustls::crypto::CryptoProvider>,
-}
-
-#[cfg(feature = "nl-query")]
-impl NoCertVerification {
-    fn new(provider: std::sync::Arc<rustls::crypto::CryptoProvider>) -> Self {
-        Self { provider }
-    }
-}
-
-#[cfg(feature = "nl-query")]
-impl rustls::client::danger::ServerCertVerifier for NoCertVerification {
-    fn verify_server_cert(
-        &self,
-        _end_entity: &rustls::pki_types::CertificateDer<'_>,
-        _intermediates: &[rustls::pki_types::CertificateDer<'_>],
-        _server_name: &rustls::pki_types::ServerName<'_>,
-        _ocsp_response: &[u8],
-        _now: rustls::pki_types::UnixTime,
-    ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
-        Ok(rustls::client::danger::ServerCertVerified::assertion())
-    }
-
-    fn verify_tls12_signature(
-        &self,
-        message: &[u8],
-        cert: &rustls::pki_types::CertificateDer<'_>,
-        dss: &rustls::DigitallySignedStruct,
-    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
-        rustls::crypto::verify_tls12_signature(
-            message,
-            cert,
-            dss,
-            &self.provider.signature_verification_algorithms,
-        )
-    }
-
-    fn verify_tls13_signature(
-        &self,
-        message: &[u8],
-        cert: &rustls::pki_types::CertificateDer<'_>,
-        dss: &rustls::DigitallySignedStruct,
-    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
-        rustls::crypto::verify_tls13_signature(
-            message,
-            cert,
-            dss,
-            &self.provider.signature_verification_algorithms,
-        )
-    }
-
-    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
-        self.provider
-            .signature_verification_algorithms
-            .supported_schemes()
     }
 }
 
@@ -622,13 +533,12 @@ mod tests {
         assert_eq!(TokenAuthStyle::default(), TokenAuthStyle::Body);
     }
 
-    /// The fluent builders record static headers, per-endpoint TLS, and the oauth2 source.
+    /// The fluent builders record static headers, a verified custom CA, and the oauth2 source.
     #[test]
     fn builders_set_auth_tls_and_headers() {
         let p = planner()
             .with_headers(vec![("X-Client-Id".into(), "svc-42".into())])
-            .with_tls_insecure(true)
-            .with_tls_ca_path(Some("/etc/ssl/internal-ca.pem".into()))
+            .with_tls_ca_path(Some("test-fixtures/internal-ca.pem".into()))
             .with_oauth2(Some(OAuth2ClientCredentials {
                 token_url: "https://idp/token".into(),
                 client_id: "cid".into(),
@@ -640,8 +550,10 @@ mod tests {
             p.headers,
             vec![("X-Client-Id".to_string(), "svc-42".to_string())]
         );
-        assert!(p.tls_insecure);
-        assert_eq!(p.tls_ca_path.as_deref(), Some("/etc/ssl/internal-ca.pem"));
+        assert_eq!(
+            p.tls_ca_path.as_deref(),
+            Some("test-fixtures/internal-ca.pem")
+        );
         assert!(p.oauth2.is_some());
     }
 
@@ -655,18 +567,14 @@ mod tests {
         assert_eq!(keyed.resolve_bearer().unwrap(), Some("tok-123".to_string()));
     }
 
-    /// The insecure TLS policy builds a rustls config (no-verify verifier) without error.
-    #[test]
-    fn tls_insecure_builds_client_config() {
-        let p = planner().with_tls_insecure(true);
-        assert!(p.rustls_config().is_ok());
-        assert!(p.build_agent().is_ok());
-    }
-
     /// A non-existent CA bundle path fails loudly at config-build time (not a silent skip).
     #[test]
     fn tls_ca_missing_file_is_error() {
-        let p = planner().with_tls_ca_path(Some("/no/such/ca-bundle.pem".into()));
+        let missing = std::env::temp_dir()
+            .join("epistemic-graph-test-missing-ca-bundle.pem")
+            .to_string_lossy()
+            .into_owned();
+        let p = planner().with_tls_ca_path(Some(missing));
         assert!(p.rustls_config().is_err());
     }
 

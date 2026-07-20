@@ -1,79 +1,57 @@
-//! # eg-document — the document modality (layout-level, CONCEPT:EG-P1-3)
+//! # eg-document — native governed document serving
 //!
-//! A pure-Rust leaf crate (a sibling of `eg-image` / `eg-audio` / `eg-video`) giving
-//! the engine a document data type with **NO heavy PDF/HTML/OCR dependency** (no
-//! `pdfium`/`lopdf`/`tesseract` bindings) — the Raspberry-Pi contract. It is
-//! deliberately **layout-level**, not a rendering/OCR engine:
-//!
-//! * [`DocumentData`] — a typed `blob_ref` (content-addressed original bytes) +
-//!   `language`/`version` + a `pages` hierarchy (`Page` -> `LayoutBlock` ->
-//!   `Span`/`Table`) + `annotations` + `chunks` (a [`ChunkLineage`] trail back to
-//!   the exact page/byte-range a downstream chunk was derived from). This crate
-//!   never invents structure — every page/block/span/table is externally
-//!   supplied (by a [`decoder::DocumentDecoder`] plugin, or built directly via the
-//!   constructors).
-//! * [`decoder::DocumentDecoder`] — the plugin trait real extractors (PDF layout
-//!   analysis, OCR, HTML/DOCX structure extraction, table detection, …)
-//!   implement. The ONE decoder shipped here, [`decoder::PlainTextDecoder`], is
-//!   trivial: it treats raw bytes as UTF-8 text and wraps the whole thing as one
-//!   page/one paragraph/one span — enough to exercise the full bytes -> pages ->
-//!   blocks -> spans pipeline end-to-end with zero extra dependencies.
-//! * [`header::content_hash`] — the SAME FNV-1a-128 construction
-//!   `eg_image`/`eg_audio`/`eg_video`'s `header::content_hash` use (duplicated,
-//!   not shared — `eg-document` and its siblings are DAG-parallel leaf crates).
-//!
-//! ## What this crate does NOT do
-//!
-//! Real PDF/DOCX/HTML layout parsing, table detection, and OCR are explicitly OUT
-//! of scope for v1 — see the crate's reserved, dependency-free `extract` feature
-//! (currently a no-op) for where a real extractor would be gated in a follow-up,
-//! kept OUT of the default build so the Pi contract holds (no heavy
-//! extraction/OCR dependency ever lands in a default/pi/node/full build unless a
-//! caller explicitly opts in). A real extractor is a PLUGIN: implement
-//! [`decoder::DocumentDecoder`] in a separate crate/service (in-process, or a
-//! remote extraction job called over the wire) and hand this crate the resulting
-//! typed [`DocumentData`] — this crate never needs to depend on the extractor to
-//! accept its output.
+//! The current decoder accepts bounded UTF-8, derives form-feed pages, line-level
+//! heading/list/paragraph/table structure, exact Unicode-scalar character spans, and authority-keyed
+//! lexical postings. Only SHA-256 content identity, structure, spans, and opaque
+//! lexeme references are durable; source text stays request-local. Rich binary
+//! document decoders can implement [`DocumentDecoder`] and must emit the same
+//! governed, source-free [`DocumentData`] contract.
 //!
 //! ## `ModalityContract` (CONCEPT:EG-P1-3)
 //!
-//! Behind the crate's own opt-in `contract` feature (default OFF, mirroring
-//! `eg-image`/`eg-audio`/`eg-video`): `DocumentData::evidence(id)` returns a REAL,
-//! located `eg_modality::EvidenceSpan::DocumentSpan` from the first stored span
+//! Behind the crate's `contract` feature, `DocumentData::evidence_address()` returns a real,
+//! located `eg_modality::EvidenceAddress::CharacterRange` from the first stored span
 //! (or `None` when the document carries no page/block/span structure yet — never
 //! fabricated). See `src/contract.rs`.
+//!
+//! ## `serving`
+//!
+//! `serving` exposes [`runtime::NativeDocumentRuntime`] and
+//! [`DocumentServingRuntime`]. Commits use the universal governed artifact protocol,
+//! maintain the lexical posting index atomically, and never retain source text.
 
 mod decoder;
 mod document;
 mod header;
 
-// ModalityContract retrofit (CONCEPT:EG-P1-3): `impl ModalityContract for
-// DocumentData`, behind the crate's own opt-in `contract` feature (default OFF).
+// ModalityContract implementation, behind the crate's opt-in contract feature.
 #[cfg(feature = "contract")]
 mod contract;
 
-pub use decoder::{DocumentDecoder, PlainTextDecoder};
+#[cfg(feature = "serving")]
+pub mod runtime;
+
+pub use decoder::{DocumentDecoder, LexemeEncoder, NativeTextDecoder};
 pub use document::{
-    Annotation, BlockKind, ChunkLineage, DocumentData, LayoutBlock, Page, Span, Table, TableCell,
+    Annotation, BlockKind, ChunkLineage, DocumentData, LayoutBlock, LexicalPosting, Page, Span,
+    Table, TableCell,
 };
 pub use header::content_hash;
 
-// CONCEPT:EG-P1-3 — the small-footprint default is sacred: neither `contract` nor
-// the reserved `extract` seam (a real PDF/OCR/HTML extractor) is ever implied by
-// `default`, so a plain `cargo build -p eg-document` links no heavy extraction/
-// OCR dependency. Asserted here as an executable regression check (mirrors
-// `eg-image`/`eg-audio`/`eg-video`'s identical guardrail).
-#[cfg(all(test, not(any(feature = "contract", feature = "extract"))))]
+/// Governed, restartable served document runtime. Available under `serving` and
+/// backed by the universal Artifact/Occurrence/Rendition/Segment/Feature/Locus
+/// protocol rather than source-specific configuration.
+#[cfg(feature = "serving")]
+pub type DocumentServingRuntime = eg_modality::ServedModalityRuntime<DocumentData>;
+
+// The leaf default stays value-only; the main facade enables governed serving.
+#[cfg(all(test, not(feature = "contract")))]
 mod default_build_guardrail {
     #[test]
-    fn default_build_has_neither_contract_nor_extract_on() {
+    fn default_build_has_no_contract() {
         assert!(
             !cfg!(feature = "contract"),
             "the `contract` feature must stay opt-in, never part of `default`"
-        );
-        assert!(
-            !cfg!(feature = "extract"),
-            "the `extract` feature must stay opt-in, never part of `default`"
         );
     }
 }

@@ -1,11 +1,11 @@
 //! # eg-numeric — the epistemic-graph numeric kernel (CONCEPT:AU-KG.compute.numeric-kernel)
 //!
 //! A slim, **BLAS/LAPACK-free** numeric kernel: `ndarray` (arrays / reductions /
-//! element-wise) + `faer` (pure-Rust LAPACK-class linalg) — the "one kernel, two
+//! element-wise) + `nalgebra` (pure-Rust LAPACK-class linalg) — the "one kernel, two
 //! surfaces" foundation of the Analytics Program.
 //!
 //! * **Surface A (`python` feature):** a pyo3 extension module `epistemic_graph.numeric`
-//!   with zero-copy numpy interop (`rust-numpy`) + GIL release (`allow_threads`),
+//!   with zero-copy numpy interop (`rust-numpy`) + Python detachment for kernels,
 //!   consumed by `agent_utilities.numeric.xp`. Migration off numpy is then mechanical.
 //! * **Surface B (rlib, always):** the same pure kernel the engine links for
 //!   in-database analytics (DataFusion UDFs, graph/vector/timeseries ops) — no FFI,
@@ -40,7 +40,7 @@ pub use error::{NumericError, Result};
 #[cfg(feature = "python")]
 // pyo3 bindings carry unavoidable boilerplate lints: PyErr .into() round-trips
 // (useless_conversion), complex numpy return types (type_complexity), and a
-// pyo3-0.22-macro-emitted cfg(gil-refs). Scope-allow them to this module.
+// PyO3 macro-generated cfgs are scoped to this optional extension module.
 #[allow(clippy::useless_conversion, clippy::type_complexity, unexpected_cfgs)]
 mod py {
     use crate::{cluster, elementwise, linalg, random, reductions, stats};
@@ -81,7 +81,7 @@ mod py {
         if let Ok(arr) = a.extract::<PyReadonlyArrayDyn<f32>>() {
             return Ok(arr.as_array().mapv(|v| v as f64));
         }
-        let np = a.py().import_bound("numpy")?;
+        let np = a.py().import("numpy")?;
         let f64ty = np.getattr("float64")?;
         let coerced = np.getattr("asarray")?.call1((a, f64ty))?;
         let arr: PyReadonlyArrayDyn<f64> = coerced.extract()?;
@@ -114,16 +114,16 @@ mod py {
         keepdims: bool,
         flat: impl Fn(ArrayViewD<f64>) -> crate::Result<f64>,
         axisfn: impl Fn(ArrayViewD<f64>, usize) -> crate::Result<ArrayD<f64>>,
-    ) -> PyResult<PyObject> {
+    ) -> PyResult<Py<PyAny>> {
         match axis {
             None => {
                 let s = flat(a.view()).map_err(map_err)?;
                 if keepdims {
                     let shape: Vec<usize> = a.shape().iter().map(|_| 1).collect();
                     let arr = ArrayD::from_elem(IxDyn(&shape), s);
-                    Ok(arr.into_pyarray_bound(py).into_any().unbind())
+                    Ok(arr.into_pyarray(py).into_any().unbind())
                 } else {
-                    Ok(s.into_py(py))
+                    Ok(s.into_pyobject(py)?.into_any().unbind())
                 }
             }
             Some(ax) => {
@@ -131,7 +131,7 @@ mod py {
                 if keepdims {
                     out = out.insert_axis(Axis(ax));
                 }
-                Ok(out.into_pyarray_bound(py).into_any().unbind())
+                Ok(out.into_pyarray(py).into_any().unbind())
             }
         }
     }
@@ -144,16 +144,16 @@ mod py {
         keepdims: bool,
         flat: impl Fn(ArrayViewD<f64>) -> crate::Result<usize>,
         axisfn: impl Fn(ArrayViewD<f64>, usize) -> crate::Result<ArrayD<i64>>,
-    ) -> PyResult<PyObject> {
+    ) -> PyResult<Py<PyAny>> {
         match axis {
             None => {
                 let s = flat(a.view()).map_err(map_err)? as i64;
                 if keepdims {
                     let shape: Vec<usize> = a.shape().iter().map(|_| 1).collect();
                     let arr = ArrayD::from_elem(IxDyn(&shape), s);
-                    Ok(arr.into_pyarray_bound(py).into_any().unbind())
+                    Ok(arr.into_pyarray(py).into_any().unbind())
                 } else {
-                    Ok(s.into_py(py))
+                    Ok(s.into_pyobject(py)?.into_any().unbind())
                 }
             }
             Some(ax) => {
@@ -161,7 +161,7 @@ mod py {
                 if keepdims {
                     out = out.insert_axis(Axis(ax));
                 }
-                Ok(out.into_pyarray_bound(py).into_any().unbind())
+                Ok(out.into_pyarray(py).into_any().unbind())
             }
         }
     }
@@ -174,7 +174,7 @@ mod py {
         a: &Bound<'_, PyAny>,
         axis: Option<isize>,
         keepdims: bool,
-    ) -> PyResult<PyObject> {
+    ) -> PyResult<Py<PyAny>> {
         let arr = to_f64_dyn(a)?;
         let ax = norm_axis(axis, arr.ndim())?;
         finish_f64(
@@ -193,7 +193,7 @@ mod py {
         a: &Bound<'_, PyAny>,
         axis: Option<isize>,
         keepdims: bool,
-    ) -> PyResult<PyObject> {
+    ) -> PyResult<Py<PyAny>> {
         let arr = to_f64_dyn(a)?;
         let ax = norm_axis(axis, arr.ndim())?;
         finish_f64(
@@ -212,7 +212,7 @@ mod py {
         a: &Bound<'_, PyAny>,
         axis: Option<isize>,
         keepdims: bool,
-    ) -> PyResult<PyObject> {
+    ) -> PyResult<Py<PyAny>> {
         let arr = to_f64_dyn(a)?;
         let ax = norm_axis(axis, arr.ndim())?;
         finish_f64(
@@ -232,7 +232,7 @@ mod py {
         axis: Option<isize>,
         ddof: usize,
         keepdims: bool,
-    ) -> PyResult<PyObject> {
+    ) -> PyResult<Py<PyAny>> {
         let arr = to_f64_dyn(a)?;
         let ax = norm_axis(axis, arr.ndim())?;
         finish_f64(
@@ -252,7 +252,7 @@ mod py {
         axis: Option<isize>,
         ddof: usize,
         keepdims: bool,
-    ) -> PyResult<PyObject> {
+    ) -> PyResult<Py<PyAny>> {
         let arr = to_f64_dyn(a)?;
         let ax = norm_axis(axis, arr.ndim())?;
         finish_f64(
@@ -271,7 +271,7 @@ mod py {
         a: &Bound<'_, PyAny>,
         axis: Option<isize>,
         keepdims: bool,
-    ) -> PyResult<PyObject> {
+    ) -> PyResult<Py<PyAny>> {
         let arr = to_f64_dyn(a)?;
         let ax = norm_axis(axis, arr.ndim())?;
         finish_f64(
@@ -290,7 +290,7 @@ mod py {
         a: &Bound<'_, PyAny>,
         axis: Option<isize>,
         keepdims: bool,
-    ) -> PyResult<PyObject> {
+    ) -> PyResult<Py<PyAny>> {
         let arr = to_f64_dyn(a)?;
         let ax = norm_axis(axis, arr.ndim())?;
         finish_f64(
@@ -309,7 +309,7 @@ mod py {
         a: &Bound<'_, PyAny>,
         axis: Option<isize>,
         keepdims: bool,
-    ) -> PyResult<PyObject> {
+    ) -> PyResult<Py<PyAny>> {
         let arr = to_f64_dyn(a)?;
         let ax = norm_axis(axis, arr.ndim())?;
         finish_i64(
@@ -328,7 +328,7 @@ mod py {
         a: &Bound<'_, PyAny>,
         axis: Option<isize>,
         keepdims: bool,
-    ) -> PyResult<PyObject> {
+    ) -> PyResult<Py<PyAny>> {
         let arr = to_f64_dyn(a)?;
         let ax = norm_axis(axis, arr.ndim())?;
         finish_i64(
@@ -346,19 +346,15 @@ mod py {
             .into_iter()
             .map(|i| i as i64)
             .collect();
-        idx.into_pyarray_bound(py).unbind()
+        idx.into_pyarray(py).unbind()
     }
     #[pyfunction]
     fn cumsum(py: Python<'_>, a: PyReadonlyArray1<f64>) -> Py<PyArray1<f64>> {
-        reductions::cumsum(a.as_array())
-            .into_pyarray_bound(py)
-            .unbind()
+        reductions::cumsum(a.as_array()).into_pyarray(py).unbind()
     }
     #[pyfunction]
     fn cumprod(py: Python<'_>, a: PyReadonlyArray1<f64>) -> Py<PyArray1<f64>> {
-        reductions::cumprod(a.as_array())
-            .into_pyarray_bound(py)
-            .unbind()
+        reductions::cumprod(a.as_array()).into_pyarray(py).unbind()
     }
     #[pyfunction]
     fn percentile(a: PyReadonlyArray1<f64>, q: f64) -> PyResult<f64> {
@@ -374,7 +370,7 @@ mod py {
         ($name:ident, $f:path) => {
             #[pyfunction]
             fn $name(py: Python<'_>, a: PyReadonlyArray1<f64>) -> Py<PyArray1<f64>> {
-                $f(a.as_array()).into_pyarray_bound(py).unbind()
+                $f(a.as_array()).into_pyarray(py).unbind()
             }
         };
     }
@@ -387,7 +383,7 @@ mod py {
     #[pyfunction]
     fn clip(py: Python<'_>, a: PyReadonlyArray1<f64>, lo: f64, hi: f64) -> Py<PyArray1<f64>> {
         elementwise::clip(a.as_array(), lo, hi)
-            .into_pyarray_bound(py)
+            .into_pyarray(py)
             .unbind()
     }
     #[pyfunction]
@@ -400,12 +396,12 @@ mod py {
         neginf: f64,
     ) -> Py<PyArray1<f64>> {
         elementwise::nan_to_num(a.as_array(), nan, posinf, neginf)
-            .into_pyarray_bound(py)
+            .into_pyarray(py)
             .unbind()
     }
     #[pyfunction]
     fn isnan(py: Python<'_>, a: PyReadonlyArray1<f64>) -> Py<PyArray1<bool>> {
-        numpy::PyArray1::from_vec_bound(py, elementwise::isnan(a.as_array())).unbind()
+        numpy::PyArray1::from_vec(py, elementwise::isnan(a.as_array())).unbind()
     }
     #[pyfunction]
     fn maximum(
@@ -415,7 +411,7 @@ mod py {
     ) -> PyResult<Py<PyArray1<f64>>> {
         Ok(elementwise::maximum(a.as_array(), b.as_array())
             .map_err(map_err)?
-            .into_pyarray_bound(py)
+            .into_pyarray(py)
             .unbind())
     }
     #[pyfunction]
@@ -426,7 +422,7 @@ mod py {
     ) -> PyResult<Py<PyArray1<f64>>> {
         Ok(elementwise::minimum(a.as_array(), b.as_array())
             .map_err(map_err)?
-            .into_pyarray_bound(py)
+            .into_pyarray(py)
             .unbind())
     }
     #[pyfunction]
@@ -438,7 +434,7 @@ mod py {
     ) -> PyResult<Py<PyArray1<f64>>> {
         Ok(elementwise::where_(&cond, a.as_array(), b.as_array())
             .map_err(map_err)?
-            .into_pyarray_bound(py)
+            .into_pyarray(py)
             .unbind())
     }
 
@@ -463,10 +459,8 @@ mod py {
     ) -> PyResult<Py<PyArray2<f64>>> {
         let av = a.as_array();
         let bv = b.as_array();
-        let out = py
-            .allow_threads(|| linalg::matmul(av, bv))
-            .map_err(map_err)?;
-        Ok(out.into_pyarray_bound(py).unbind())
+        let out = py.detach(|| linalg::matmul(av, bv)).map_err(map_err)?;
+        Ok(out.into_pyarray(py).unbind())
     }
     #[pyfunction]
     fn solve(
@@ -476,16 +470,14 @@ mod py {
     ) -> PyResult<Py<PyArray1<f64>>> {
         let av = a.as_array();
         let bv = b.as_array();
-        let out = py
-            .allow_threads(|| linalg::solve(av, bv))
-            .map_err(map_err)?;
-        Ok(out.into_pyarray_bound(py).unbind())
+        let out = py.detach(|| linalg::solve(av, bv)).map_err(map_err)?;
+        Ok(out.into_pyarray(py).unbind())
     }
     #[pyfunction]
     fn svdvals(py: Python<'_>, a: PyReadonlyArray2<f64>) -> Py<PyArray1<f64>> {
         let av = a.as_array();
-        let s = py.allow_threads(|| linalg::svdvals(av));
-        s.into_pyarray_bound(py).unbind()
+        let s = py.detach(|| linalg::svdvals(av));
+        s.into_pyarray(py).unbind()
     }
     #[pyfunction]
     fn svd(
@@ -493,11 +485,11 @@ mod py {
         a: PyReadonlyArray2<f64>,
     ) -> PyResult<(Py<PyArray2<f64>>, Py<PyArray1<f64>>, Py<PyArray2<f64>>)> {
         let av = a.as_array();
-        let (u, s, vt) = py.allow_threads(|| linalg::svd(av)).map_err(map_err)?;
+        let (u, s, vt) = py.detach(|| linalg::svd(av)).map_err(map_err)?;
         Ok((
-            u.into_pyarray_bound(py).unbind(),
-            s.into_pyarray_bound(py).unbind(),
-            vt.into_pyarray_bound(py).unbind(),
+            u.into_pyarray(py).unbind(),
+            s.into_pyarray(py).unbind(),
+            vt.into_pyarray(py).unbind(),
         ))
     }
     #[pyfunction]
@@ -506,11 +498,8 @@ mod py {
         a: PyReadonlyArray2<f64>,
     ) -> PyResult<(Py<PyArray1<f64>>, Py<PyArray2<f64>>)> {
         let av = a.as_array();
-        let (w, v) = py.allow_threads(|| linalg::eigh(av)).map_err(map_err)?;
-        Ok((
-            w.into_pyarray_bound(py).unbind(),
-            v.into_pyarray_bound(py).unbind(),
-        ))
+        let (w, v) = py.detach(|| linalg::eigh(av)).map_err(map_err)?;
+        Ok((w.into_pyarray(py).unbind(), v.into_pyarray(py).unbind()))
     }
     /// `scipy.sparse.linalg.eigsh(A, k, which="SM")` — the k smallest-magnitude
     /// symmetric eigenpairs (CONCEPT:EG-KG.compute.concept-5). Dense first cut (O(n^3)).
@@ -522,18 +511,15 @@ mod py {
     ) -> PyResult<(Py<PyArray1<f64>>, Py<PyArray2<f64>>)> {
         let av = a.as_array();
         let (w, v) = py
-            .allow_threads(|| linalg::eigsh_smallest(av, k))
+            .detach(|| linalg::eigsh_smallest(av, k))
             .map_err(map_err)?;
-        Ok((
-            w.into_pyarray_bound(py).unbind(),
-            v.into_pyarray_bound(py).unbind(),
-        ))
+        Ok((w.into_pyarray(py).unbind(), v.into_pyarray(py).unbind()))
     }
     #[pyfunction]
     fn pinv(py: Python<'_>, a: PyReadonlyArray2<f64>) -> PyResult<Py<PyArray2<f64>>> {
         let av = a.as_array();
-        let out = py.allow_threads(|| linalg::pinv(av)).map_err(map_err)?;
-        Ok(out.into_pyarray_bound(py).unbind())
+        let out = py.detach(|| linalg::pinv(av)).map_err(map_err)?;
+        Ok(out.into_pyarray(py).unbind())
     }
     #[pyfunction]
     fn lstsq(
@@ -543,10 +529,8 @@ mod py {
     ) -> PyResult<Py<PyArray1<f64>>> {
         let av = a.as_array();
         let bv = b.as_array();
-        let out = py
-            .allow_threads(|| linalg::lstsq(av, bv))
-            .map_err(map_err)?;
-        Ok(out.into_pyarray_bound(py).unbind())
+        let out = py.detach(|| linalg::lstsq(av, bv)).map_err(map_err)?;
+        Ok(out.into_pyarray(py).unbind())
     }
     #[pyfunction]
     fn qr(
@@ -554,28 +538,25 @@ mod py {
         a: PyReadonlyArray2<f64>,
     ) -> PyResult<(Py<PyArray2<f64>>, Py<PyArray2<f64>>)> {
         let av = a.as_array();
-        let (q, r) = py.allow_threads(|| linalg::qr(av)).map_err(map_err)?;
-        Ok((
-            q.into_pyarray_bound(py).unbind(),
-            r.into_pyarray_bound(py).unbind(),
-        ))
+        let (q, r) = py.detach(|| linalg::qr(av)).map_err(map_err)?;
+        Ok((q.into_pyarray(py).unbind(), r.into_pyarray(py).unbind()))
     }
     #[pyfunction]
     fn cholesky(py: Python<'_>, a: PyReadonlyArray2<f64>) -> PyResult<Py<PyArray2<f64>>> {
         let av = a.as_array();
-        let out = py.allow_threads(|| linalg::cholesky(av)).map_err(map_err)?;
-        Ok(out.into_pyarray_bound(py).unbind())
+        let out = py.detach(|| linalg::cholesky(av)).map_err(map_err)?;
+        Ok(out.into_pyarray(py).unbind())
     }
     #[pyfunction]
     fn det(py: Python<'_>, a: PyReadonlyArray2<f64>) -> PyResult<f64> {
         let av = a.as_array();
-        py.allow_threads(|| linalg::det(av)).map_err(map_err)
+        py.detach(|| linalg::det(av)).map_err(map_err)
     }
     #[pyfunction]
     fn inv(py: Python<'_>, a: PyReadonlyArray2<f64>) -> PyResult<Py<PyArray2<f64>>> {
         let av = a.as_array();
-        let out = py.allow_threads(|| linalg::inverse(av)).map_err(map_err)?;
-        Ok(out.into_pyarray_bound(py).unbind())
+        let out = py.detach(|| linalg::inverse(av)).map_err(map_err)?;
+        Ok(out.into_pyarray(py).unbind())
     }
     #[pyfunction]
     fn matrix_power(
@@ -584,10 +565,8 @@ mod py {
         p: i64,
     ) -> PyResult<Py<PyArray2<f64>>> {
         let av = a.as_array();
-        let out = py
-            .allow_threads(|| linalg::matrix_power(av, p))
-            .map_err(map_err)?;
-        Ok(out.into_pyarray_bound(py).unbind())
+        let out = py.detach(|| linalg::matrix_power(av, p)).map_err(map_err)?;
+        Ok(out.into_pyarray(py).unbind())
     }
 
     // ---- scipy.stats-parity ops (CONCEPT:EG-KG.compute.numeric-stats/EG-358) ----
@@ -626,12 +605,12 @@ mod py {
     ) -> PyResult<(Py<PyArray1<i64>>, Py<PyArray2<f64>>)> {
         let av = data.as_array();
         let res = py
-            .allow_threads(|| cluster::kmeans(av, k, max_iter, seed))
+            .detach(|| cluster::kmeans(av, k, max_iter, seed))
             .map_err(map_err)?;
         let labels: Vec<i64> = res.labels.into_iter().map(|c| c as i64).collect();
         Ok((
-            labels.into_pyarray_bound(py).unbind(),
-            res.centroids.into_pyarray_bound(py).unbind(),
+            labels.into_pyarray(py).unbind(),
+            res.centroids.into_pyarray(py).unbind(),
         ))
     }
 
@@ -640,19 +619,19 @@ mod py {
     #[pyo3(signature = (loc, scale, size, seed))]
     fn normal(py: Python<'_>, loc: f64, scale: f64, size: usize, seed: u64) -> Py<PyArray1<f64>> {
         let mut g = random::Generator::new(seed);
-        g.normal(loc, scale, size).into_pyarray_bound(py).unbind()
+        g.normal(loc, scale, size).into_pyarray(py).unbind()
     }
     #[pyfunction]
     #[pyo3(signature = (low, high, size, seed))]
     fn uniform(py: Python<'_>, low: f64, high: f64, size: usize, seed: u64) -> Py<PyArray1<f64>> {
         let mut g = random::Generator::new(seed);
-        g.uniform(low, high, size).into_pyarray_bound(py).unbind()
+        g.uniform(low, high, size).into_pyarray(py).unbind()
     }
     #[pyfunction]
     #[pyo3(signature = (low, high, size, seed))]
     fn integers(py: Python<'_>, low: i64, high: i64, size: usize, seed: u64) -> Py<PyArray1<i64>> {
         let mut g = random::Generator::new(seed);
-        g.integers(low, high, size).into_pyarray_bound(py).unbind()
+        g.integers(low, high, size).into_pyarray(py).unbind()
     }
 
     /// Array constructors + dtype/module-attribute surface (CONCEPT:EG-KG.compute.concept-3).
@@ -664,9 +643,9 @@ mod py {
     /// numpy passthroughs. The POINT is that `agent_utilities.numeric.xp` imports
     /// these from `epistemic_graph.numeric`, so agent-utilities imports numpy
     /// NOWHERE; the compute surface (reductions/linalg/stats/random) is genuine
-    /// pure-Rust faer/ndarray/statrs kernel below.
+    /// pure-Rust nalgebra/ndarray/statrs kernel below.
     fn add_numpy_passthroughs(m: &Bound<'_, PyModule>) -> PyResult<()> {
-        let np = m.py().import_bound("numpy")?;
+        let np = m.py().import("numpy")?;
         // constructors + array manipulation
         const NAMES: &[&str] = &[
             "array",
@@ -708,7 +687,7 @@ mod py {
     /// The `epistemic_graph.numeric` extension module.
     #[pymodule]
     fn numeric(m: &Bound<'_, PyModule>) -> PyResult<()> {
-        m.add("LinAlgError", m.py().get_type_bound::<LinAlgError>())?;
+        m.add("LinAlgError", m.py().get_type::<LinAlgError>())?;
         m.add("__kernel__", "eg-numeric")?;
         add_numpy_passthroughs(m)?;
         macro_rules! add {

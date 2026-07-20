@@ -178,25 +178,20 @@ impl SpanStore {
     /// Ingest one span, updating the trace bucket and the service/operation indices.
     pub fn add_span(&self, span: Span) {
         let mut g = self.inner.lock().expect("span store lock");
-        g.by_service
-            .entry(span.service.clone())
-            .or_default()
-            .insert(span.trace_id.clone());
-        g.by_operation
-            .entry(span.operation.clone())
-            .or_default()
-            .insert(span.trace_id.clone());
-        g.by_trace
-            .entry(span.trace_id.clone())
-            .or_default()
-            .push(span);
+        insert_span(&mut g, span);
     }
 
-    /// Ingest a batch of spans; returns the count accepted.
+    /// Ingest a batch of spans under one mutex acquisition; returns the count
+    /// accepted. The old `add_span` loop locked and unlocked the global store once
+    /// per span, amplifying contention for normal OTLP batches.
     pub fn add_spans(&self, spans: Vec<Span>) -> usize {
         let n = spans.len();
+        if spans.is_empty() {
+            return 0;
+        }
+        let mut g = self.inner.lock().expect("span store lock");
         for s in spans {
-            self.add_span(s);
+            insert_span(&mut g, s);
         }
         n
     }
@@ -231,39 +226,64 @@ impl SpanStore {
     /// Search for traces matching `q`, returning the newest-started `limit` traces
     /// assembled as span trees.
     pub fn search(&self, q: &TraceQuery) -> Vec<AssembledTrace> {
-        // Candidate trace-id set: intersect the service/operation indices when given,
-        // else consider every trace.
-        let candidate_ids: Vec<String> = {
+        // Snapshot candidate spans under one mutex acquisition, then do filtering,
+        // assembly and top-k work off-lock. Iterate secondary postings by reference
+        // rather than cloning one or two complete BTreeSets before intersection.
+        let candidate_spans: Vec<(String, Vec<Span>)> = {
             let g = self.inner.lock().expect("span store lock");
-            let from_service = q
-                .service
-                .as_ref()
-                .map(|s| g.by_service.get(s).cloned().unwrap_or_default());
-            let from_operation = q
-                .operation
-                .as_ref()
-                .map(|o| g.by_operation.get(o).cloned().unwrap_or_default());
-            match (from_service, from_operation) {
-                (Some(a), Some(b)) => a.intersection(&b).cloned().collect(),
-                (Some(a), None) | (None, Some(a)) => a.into_iter().collect(),
-                (None, None) => g.by_trace.keys().cloned().collect(),
+            let snapshot =
+                |id: &String| g.by_trace.get(id).map(|spans| (id.clone(), spans.clone()));
+            match (&q.service, &q.operation) {
+                (Some(service), Some(operation)) => {
+                    match (g.by_service.get(service), g.by_operation.get(operation)) {
+                        (Some(a), Some(b)) => a.intersection(b).filter_map(snapshot).collect(),
+                        _ => Vec::new(),
+                    }
+                }
+                (Some(service), None) => g
+                    .by_service
+                    .get(service)
+                    .map(|ids| ids.iter().filter_map(snapshot).collect())
+                    .unwrap_or_default(),
+                (None, Some(operation)) => g
+                    .by_operation
+                    .get(operation)
+                    .map(|ids| ids.iter().filter_map(snapshot).collect())
+                    .unwrap_or_default(),
+                (None, None) => g
+                    .by_trace
+                    .iter()
+                    .map(|(id, spans)| (id.clone(), spans.clone()))
+                    .collect(),
             }
         };
 
-        let mut matched: Vec<AssembledTrace> = candidate_ids
+        let mut matched: Vec<AssembledTrace> = candidate_spans
             .into_iter()
-            .filter_map(|id| self.assemble(&id))
-            .filter(|t| trace_matches(t, q, self))
+            .filter_map(|(id, spans)| {
+                // One clone per candidate. Previously `assemble` cloned the trace
+                // and `trace_matches` cloned it a second time for operation/tags.
+                if spans.is_empty() || !spans_match(&spans, q) {
+                    return None;
+                }
+                let trace = assemble_spans(&id, spans);
+                trace_rollup_matches(&trace, q).then_some(trace)
+            })
             .collect();
 
-        // Newest-started first, then apply the limit.
-        matched.sort_by_key(|t| std::cmp::Reverse(t.start_time));
+        // Keep only the newest prefix in expected O(M), then sort that bounded
+        // prefix in O(L log L), rather than sorting all M matches. Trace id closes
+        // the comparator so equal timestamps are deterministic.
         let limit = if q.limit == 0 {
             DEFAULT_TRACE_LIMIT
         } else {
             q.limit
         };
-        matched.truncate(limit);
+        if matched.len() > limit {
+            matched.select_nth_unstable_by(limit, newest_trace_cmp);
+            matched.truncate(limit);
+        }
+        matched.sort_unstable_by(newest_trace_cmp);
         matched
     }
 
@@ -301,6 +321,31 @@ impl SpanStore {
             })
             .collect()
     }
+}
+
+fn insert_span(inner: &mut Inner, span: Span) {
+    inner
+        .by_service
+        .entry(span.service.clone())
+        .or_default()
+        .insert(span.trace_id.clone());
+    inner
+        .by_operation
+        .entry(span.operation.clone())
+        .or_default()
+        .insert(span.trace_id.clone());
+    inner
+        .by_trace
+        .entry(span.trace_id.clone())
+        .or_default()
+        .push(span);
+}
+
+fn newest_trace_cmp(left: &AssembledTrace, right: &AssembledTrace) -> std::cmp::Ordering {
+    right
+        .start_time
+        .cmp(&left.start_time)
+        .then_with(|| left.trace_id.cmp(&right.trace_id))
 }
 
 /// Assemble a flat span list into an [`AssembledTrace`] (pure — testable without a
@@ -364,8 +409,8 @@ fn build_node(span: Span, children_of: &mut HashMap<String, Vec<Span>>) -> SpanN
     SpanNode { span, children }
 }
 
-/// Whether an assembled trace satisfies a query's window/duration/tag/op predicates.
-fn trace_matches(t: &AssembledTrace, q: &TraceQuery, store: &SpanStore) -> bool {
+/// Whether an assembled trace satisfies the rollup-level window/duration predicates.
+fn trace_rollup_matches(t: &AssembledTrace, q: &TraceQuery) -> bool {
     if t.start_time < q.from || t.start_time > q.to {
         return false;
     }
@@ -379,11 +424,14 @@ fn trace_matches(t: &AssembledTrace, q: &TraceQuery, store: &SpanStore) -> bool 
             return false;
         }
     }
-    // Operation + tag predicates are span-level: at least one span in the trace must
-    // satisfy them (and match the service filter when both were given).
+    true
+}
+
+/// Operation + tag predicates are span-level: at least one span in the trace must
+/// satisfy them (and match the service filter when both were given).
+fn spans_match(spans: &[Span], q: &TraceQuery) -> bool {
     if q.operation.is_some() || !q.tags.is_empty() {
-        let spans = store.spans_of(&t.trace_id);
-        let ok = spans.iter().any(|s| {
+        spans.iter().any(|s| {
             q.operation
                 .as_ref()
                 .map(|o| &s.operation == o)
@@ -393,12 +441,10 @@ fn trace_matches(t: &AssembledTrace, q: &TraceQuery, store: &SpanStore) -> bool 
                     .map(|sv| &s.service == sv)
                     .unwrap_or(true)
                 && s.matches_tags(&q.tags)
-        });
-        if !ok {
-            return false;
-        }
+        })
+    } else {
+        true
     }
-    true
 }
 
 #[cfg(test)]
@@ -523,6 +569,50 @@ mod tests {
         });
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].trace_id, "T");
+    }
+
+    #[test]
+    fn batch_ingest_and_bounded_search_preserve_filters_and_order() {
+        let store = SpanStore::new();
+        let spans: Vec<_> = (0..64)
+            .map(|i| span(&format!("t{i:02}"), "root", "", "api", "op", i, 1))
+            .collect();
+        assert_eq!(store.add_spans(spans), 64);
+        assert_eq!(store.trace_count(), 64);
+
+        let hits = store.search(&TraceQuery::new(5));
+        assert_eq!(
+            hits.iter()
+                .map(|trace| trace.trace_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["t63", "t62", "t61", "t60", "t59"]
+        );
+
+        // When both indexed predicates are present, a missing posting on either
+        // side yields no candidates; it must not degrade to the other posting set.
+        let missing = store.search(&TraceQuery {
+            service: Some("missing".into()),
+            operation: Some("op".into()),
+            ..TraceQuery::new(5)
+        });
+        assert!(missing.is_empty());
+    }
+
+    #[test]
+    fn equal_start_times_have_a_deterministic_trace_id_tie_break() {
+        let store = SpanStore::new();
+        store.add_spans(vec![
+            span("z", "z", "", "api", "op", 10, 1),
+            span("a", "a", "", "api", "op", 10, 1),
+            span("m", "m", "", "api", "op", 10, 1),
+        ]);
+        let hits = store.search(&TraceQuery::new(2));
+        assert_eq!(
+            hits.iter()
+                .map(|trace| trace.trace_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["a", "m"]
+        );
     }
 
     /// CONCEPT:EG-OS.observability.trace-assembly — the service-dependency graph derives parent→child service

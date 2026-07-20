@@ -6,7 +6,10 @@ the snapshot's per-graph / aggregate counts are accurate.
 """
 
 import os
+
 import pytest
+from conftest import request_context
+
 from epistemic_graph.client import SyncEpistemicGraphClient
 
 
@@ -14,6 +17,7 @@ def _client(graph_name):
     return SyncEpistemicGraphClient.connect(
         socket_path=os.environ["GRAPH_SERVICE_SOCKET"],
         graph_name=graph_name,
+        verified_context=request_context(),
     )
 
 

@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use tree_sitter::{Language, Node, Parser};
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -468,6 +468,15 @@ pub(crate) struct CallSite {
     pub argc: Option<usize>,
 }
 
+const MAX_SYMBOL_CALL_SITES: usize = 64;
+
+fn retain_call_site(out: &mut BTreeSet<CallSite>, site: CallSite) {
+    let _ = out.insert(site);
+    if out.len() > MAX_SYMBOL_CALL_SITES {
+        let _ = out.pop_last();
+    }
+}
+
 /// Split a callee expression's text into (receiver, callee) by its last dotted/
 /// `::` segment: `obj.method` → (`obj`,`method`), `a::b::run` → (`b`,`run`),
 /// `foo` → (``,`foo`).
@@ -500,17 +509,20 @@ fn count_args(node: Node) -> Option<usize> {
 /// Collect structured call sites within a function/method body across languages:
 /// Python `call`, JS/TS/Go/Rust/C/C++ `call_expression`, Java `method_invocation`.
 /// (CONCEPT:EG-KG.compute.type-scope-resolved-call; supersedes the old name-only `collect_calls`.)
-fn collect_call_sites(node: Node, source: &[u8], out: &mut Vec<CallSite>) {
+fn collect_call_sites(node: Node, source: &[u8], out: &mut BTreeSet<CallSite>) {
     match node.kind() {
         "call" | "call_expression" => {
             if let Some(f) = node.child_by_field_name("function") {
                 let (receiver, callee) = split_receiver_callee(&get_node_text(f, source));
                 if !callee.is_empty() {
-                    out.push(CallSite {
-                        receiver,
-                        callee,
-                        argc: count_args(node),
-                    });
+                    retain_call_site(
+                        out,
+                        CallSite {
+                            receiver,
+                            callee,
+                            argc: count_args(node),
+                        },
+                    );
                 }
             }
         }
@@ -523,11 +535,14 @@ fn collect_call_sites(node: Node, source: &[u8], out: &mut Vec<CallSite>) {
                         .child_by_field_name("object")
                         .map(|o| split_receiver_callee(&get_node_text(o, source)).1)
                         .unwrap_or_default();
-                    out.push(CallSite {
-                        receiver,
-                        callee,
-                        argc: count_args(node),
-                    });
+                    retain_call_site(
+                        out,
+                        CallSite {
+                            receiver,
+                            callee,
+                            argc: count_args(node),
+                        },
+                    );
                 }
             }
         }
@@ -1005,15 +1020,15 @@ fn walk_node(
             // Structured call sites (receiver/callee/argc) for type/scope-resolved
             // call edges, plus the bare callee names kept as `calls` for the
             // name-only fallback + COVERS. (CONCEPT:EG-KG.compute.type-scope-resolved-call / KG-2.8)
-            let mut sites = Vec::new();
+            let mut sites = BTreeSet::new();
             collect_call_sites(node, source, &mut sites);
-            sites.sort();
-            sites.dedup();
-            sites.truncate(64);
-            let mut calls: Vec<String> = sites.iter().map(|s| s.callee.clone()).collect();
-            calls.sort();
-            calls.dedup();
-            calls.truncate(64);
+            let sites: Vec<CallSite> = sites.into_iter().collect();
+            let calls: Vec<String> = sites
+                .iter()
+                .map(|site| site.callee.clone())
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .collect();
             extra.insert("calls".to_string(), calls.join(","));
             extra.insert("call_sites".to_string(), encode_call_sites(&sites));
             extra.insert(
@@ -1221,7 +1236,7 @@ pub fn parse_files(files: &[(String, Vec<u8>)]) -> Vec<ParseResult> {
 // clone still matches) while keywords/operators/punctuation are kept verbatim (so
 // structure is preserved). The cross-file resolver LSH-bands these signatures into
 // `similar_to` edges — model-free, so code similarity survives the embedder being
-// offline (the recurring GB10 502s).
+// offline or unavailable.
 
 /// Number of MinHash permutations (signature width).
 pub(crate) const MINHASH_K: usize = 32;
@@ -1578,6 +1593,19 @@ namespace App {
             cg.contains(&"doThing".to_string()) && cg.contains(&"Println".to_string()),
             "{cg:?}"
         );
+    }
+
+    #[test]
+    fn call_site_cap_retains_exact_lexicographic_prefix() {
+        let mut source = "def f():\n".to_string();
+        for index in (0..100).rev() {
+            source.push_str(&format!("    call_{index:03}()\n"));
+        }
+        let props = sym("calls.py", &source, "f");
+        let calls: Vec<&str> = props["calls"].split(',').collect();
+        assert_eq!(calls.len(), MAX_SYMBOL_CALL_SITES);
+        assert_eq!(calls.first(), Some(&"call_000"));
+        assert_eq!(calls.last(), Some(&"call_063"));
     }
 
     #[cfg(feature = "ast-extended")]

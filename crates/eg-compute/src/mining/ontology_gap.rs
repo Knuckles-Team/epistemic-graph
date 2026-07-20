@@ -1,7 +1,7 @@
 // CONCEPT:EG-KG.mining.ontology-gap — Ontology completeness gap detection.
 //
 // Pure-Rust, dependency-light, GRAPH-NATIVE (no `rdf`/OWL-reasoner dependency —
-// this operates over the same `type`/`relation`-tagged resident-graph shape
+// this operates over the same node-`type`/edge-`relationship` resident-graph shape
 // `subgraph::build_host_graph` already projects elsewhere in this crate, so it
 // runs in every `mining` build, including a plain graph with no OWL ingestion at
 // all). Given a set of ontology CLASS nodes, each described by:

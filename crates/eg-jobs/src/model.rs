@@ -10,7 +10,8 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-/// Opaque job identifier, e.g. `"job-0000000000000001"` (see [`crate::store::JobStore::submit`]).
+/// Opaque job identifier. Consensus submissions derive it from their immutable
+/// MutationBatch identity; direct crate-local submissions use a monotonic id.
 pub type JobId = String;
 
 /// An IMMUTABLE handle to the input a job ran against: a graph name plus the OCC
@@ -21,6 +22,13 @@ pub type JobId = String;
 pub struct InputSnapshotHandle {
     pub graph: String,
     pub version: u64,
+    /// Opaque immutable dataset identity. It is not a path, query, or caller label.
+    #[serde(default)]
+    pub dataset_ref: String,
+    /// Digest of the actual input records, closing result-ref collisions between
+    /// different datasets read at the same graph version.
+    #[serde(default)]
+    pub content_digest: String,
 }
 
 impl InputSnapshotHandle {
@@ -28,8 +36,37 @@ impl InputSnapshotHandle {
         Self {
             graph: graph.into(),
             version,
+            dataset_ref: String::new(),
+            content_digest: String::new(),
         }
     }
+
+    pub fn with_dataset(
+        mut self,
+        dataset_ref: impl Into<String>,
+        content_digest: impl Into<String>,
+    ) -> Self {
+        self.dataset_ref = dataset_ref.into();
+        self.content_digest = content_digest.into();
+        self
+    }
+}
+
+/// Hard resource envelope enforced by the worker scheduler and executor.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct ResourceBudget {
+    pub cpu_ms: Option<u64>,
+    pub memory_bytes: Option<u64>,
+    pub io_bytes: Option<u64>,
+    pub output_bytes: Option<u64>,
+}
+
+/// Placement constraints used by a distributed worker pool.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct JobPlacement {
+    pub pool: String,
+    pub region: String,
+    pub required_capabilities: Vec<String>,
 }
 
 /// Algorithm + reproducibility lineage: WHAT ran, with WHICH knobs, on WHICH build.
@@ -71,6 +108,22 @@ pub struct JobPolicy {
     /// `Running` is a candidate for the caller's own deadline-sweep — this crate
     /// only stores the field; see [`AnalyticsJob::deadline_exceeded`].
     pub deadline_unix_ms: Option<i64>,
+    /// Digest of the authorization decision used when the input was admitted.
+    #[serde(default)]
+    pub policy_fingerprint: String,
+    #[serde(default)]
+    pub resources: ResourceBudget,
+    #[serde(default)]
+    pub placement: JobPlacement,
+}
+
+/// Renewable, fenced ownership of one durable job attempt.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkerLease {
+    pub worker_ref: String,
+    pub epoch: u64,
+    pub acquired_at_ms: i64,
+    pub expires_at_ms: i64,
 }
 
 /// Retry policy + counter for a job's failure path.
@@ -105,13 +158,21 @@ pub struct Checkpoint {
 }
 
 /// The job lifecycle (CONCEPT:INT-P2-1):
-/// `Submitted -> Running(checkpoint) -> Succeeded(result_ref) | Failed | Cancelled`,
-/// with `Failed --retry--> Submitted` and `Running --crash+resume--> Running` (same
-/// checkpoint) as the two re-entry edges. See `store.rs` for the guarded transitions.
+/// `Submitted -> Running(checkpoint) -> Publishing(typed result) -> Succeeded`,
+/// with `Running -> Failed | Cancelled`, durable retry backoff returning a failed
+/// attempt to `Submitted`, and expired leases reclaiming `Running`/`Publishing`
+/// work under a higher fencing epoch. `Succeeded` is impossible until both the
+/// typed result and its evidence-bearing claim batch are durable.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum JobState {
     Submitted,
     Running {
+        checkpoint: Checkpoint,
+    },
+    /// Compute finished and its typed result is durable, but the evidence-bearing
+    /// claims have not yet committed. This is deliberately non-terminal.
+    Publishing {
+        result_ref: String,
         checkpoint: Checkpoint,
     },
     Succeeded {
@@ -139,6 +200,7 @@ impl JobState {
         match self {
             JobState::Submitted => "submitted",
             JobState::Running { .. } => "running",
+            JobState::Publishing { .. } => "publishing",
             JobState::Succeeded { .. } => "succeeded",
             JobState::Failed { .. } => "failed",
             JobState::Cancelled { .. } => "cancelled",
@@ -149,7 +211,9 @@ impl JobState {
     pub fn checkpoint(&self) -> Option<&Checkpoint> {
         match self {
             JobState::Running { checkpoint } => Some(checkpoint),
-            JobState::Succeeded { checkpoint, .. } => Some(checkpoint),
+            JobState::Publishing { checkpoint, .. } | JobState::Succeeded { checkpoint, .. } => {
+                Some(checkpoint)
+            }
             JobState::Failed { checkpoint, .. } => checkpoint.as_ref(),
             JobState::Cancelled { checkpoint } => checkpoint.as_ref(),
             JobState::Submitted => None,
@@ -164,6 +228,10 @@ pub struct AnalyticsJob {
     pub input_snapshot: InputSnapshotHandle,
     pub policy: JobPolicy,
     pub algo: AlgoVersion,
+    /// Opaque/pseudonymized executor payload. Raw source labels, query text,
+    /// filesystem paths and identities are forbidden here.
+    #[serde(default)]
+    pub input_payload: Option<Vec<u8>>,
     pub retry: RetryPolicy,
     pub state: JobState,
     /// Cooperative cancellation flag: set by `request_cancel`, observed by the
@@ -171,6 +239,23 @@ pub struct AnalyticsJob {
     /// `Running` job can be flagged for cancellation before the executor has had a
     /// chance to observe it and transition to `Cancelled`.
     pub cancel_requested: bool,
+    /// Monotonic source for lease fencing; never decreases on reassignment.
+    #[serde(default)]
+    pub lease_epoch: u64,
+    #[serde(default)]
+    pub lease: Option<WorkerLease>,
+    /// Most recent authenticated worker reference. Retained after lease release so
+    /// a lost terminal RPC response can be retried idempotently by the same slot.
+    #[serde(default)]
+    pub last_worker_ref: String,
+    /// Earliest time a retry may be leased.  This makes backoff durable across
+    /// worker/process restarts instead of sleeping in an owning process.
+    #[serde(default)]
+    pub not_before_ms: i64,
+    /// Durable typed result dataset. Populated before entering ``Publishing`` and
+    /// retained after success so analytics output is never discarded.
+    #[serde(default)]
+    pub output: Option<crate::result::TypedJobResult>,
     pub created_at_ms: i64,
     pub updated_at_ms: i64,
 }
@@ -198,10 +283,14 @@ impl AnalyticsJob {
 /// "has this exact computation already been committed?" without running it again.
 pub fn compute_result_ref(snapshot: &InputSnapshotHandle, algo: &AlgoVersion) -> String {
     let mut hasher = Sha256::new();
-    hasher.update(b"eg-jobs.result_ref.v1\0");
+    hasher.update(b"eg-jobs.result_ref.v2\0");
     hasher.update(snapshot.graph.as_bytes());
     hasher.update([0u8]);
     hasher.update(snapshot.version.to_le_bytes());
+    hasher.update([0u8]);
+    hasher.update(snapshot.dataset_ref.as_bytes());
+    hasher.update([0u8]);
+    hasher.update(snapshot.content_digest.as_bytes());
     hasher.update([0u8]);
     hasher.update(algo.family.as_bytes());
     hasher.update([0u8]);
@@ -213,7 +302,7 @@ pub fn compute_result_ref(snapshot: &InputSnapshotHandle, algo: &AlgoVersion) ->
     hasher.update([0u8]);
     hasher.update(algo.env_version.as_bytes());
     let digest = hasher.finalize();
-    format!("result:{}", hex::encode(&digest[..16]))
+    format!("eg:job_result:{}", hex::encode(&digest[..16]))
 }
 
 /// Stable hex digest of a canonicalized JSON value — the standard way a caller

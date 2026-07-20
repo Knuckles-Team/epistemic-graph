@@ -86,19 +86,16 @@ tier — see [the master-of-all engine](architecture/engine.md).)
 - **Two ways to scale out.** *Client-side sharding* (any tier): independent
   `epistemic-graph-server` processes, each its own graph universe, with the Python
   `ShardRouter` (`epistemic_graph/pool.py`) mapping a graph name to a shard by
-  rendezvous/HRW hashing over `GRAPH_SERVICE_ENDPOINTS`. *Server-side multi-Raft*
-  (cluster tier): the engine replicates its authoritative store across nodes, with
+  an engine-authoritative placement route. *Server-side multi-Raft*
+  (`cluster` feature): the engine replicates its authoritative store across nodes, with
   online resharding (re-point ownership, not copy rows) and cross-shard 2PC for
   transactions that span groups.
 - **Durable by default (redb-authoritative).** A committed write is fsynced to redb
   *before* the client is acked (commit-before-ack); an acked write survives a hard
-  crash. A restarted shard re-opens its authoritative redb store — it does not depend
-  on the checkpoint interval to avoid data loss.
-- **HA in the cluster tier.** `openraft` replicates the authoritative store across
+  crash. A restarted shard re-opens its authoritative redb store directly.
+- **HA with `cluster`.** `openraft` replicates the authoritative store across
   nodes with automatic leader failover, so a crashed node's graphs stay available on a
-  replica. (The opt-in `snapshot` backend is the older single-process
-  rebuildable-cache mode, where RPO = checkpoint interval and there is no replication —
-  it is no longer the default.)
+  replica.
 - **What the 100M projection assumes.** The extrapolation above is
   arithmetic, not a load test: it assumes (1) ~52 kB marginal RSS per agent —
   measured on *bounded 40-node subgraphs*, so larger working sets scale the

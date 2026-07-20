@@ -9,6 +9,8 @@
 //! Module-gated on `query` + `geo`; runs under `--features full`.
 #![cfg(all(feature = "query", feature = "geo"))]
 
+mod common;
+
 use std::sync::Arc;
 
 use dashmap::DashMap;
@@ -17,10 +19,9 @@ use tokio::sync::{RwLock, Semaphore};
 
 use eg_plan::{Op, Plan};
 use epistemic_graph::channels::ChannelManager;
-use epistemic_graph::isolation::IsolationLayer;
-use epistemic_graph::protocol::{Method, Request, Response, ResultPayload};
-use epistemic_graph::registry::GraphRegistry;
-use epistemic_graph::server::{compute_auth_token, dispatch, ServerState};
+use epistemic_graph::protocol::{GraphType, Method, Request, Response, ResultPayload};
+use epistemic_graph::registry::{GraphMaterial, GraphMaterializer, GraphRegistry};
+use epistemic_graph::server::{dispatch, ServerState};
 
 const SECRET: &str = "served-spatial-completeness-secret";
 
@@ -35,19 +36,16 @@ fn state() -> Arc<RwLock<ServerState>> {
             epistemic_graph::server::persistence::cold_offload::ColdTenantTracker::new(),
         ),
         registry: GraphRegistry::new(),
-        isolation: IsolationLayer::new(),
+        isolation: common::current_isolation(),
         channels: ChannelManager::new(),
         auth_secret: SECRET.to_string(),
         persist_dir: None,
         persistence: None,
-        redb_authoritative: false,
         max_in_flight: Arc::new(Semaphore::new(16)),
         read_admission: Arc::new(Semaphore::new(16)),
         per_graph_inflight: Arc::new(DashMap::new()),
         per_graph_inflight_limit: 8,
-        write_coalescer: Arc::new(
-            epistemic_graph::write_coalescer::WriteCoalescerRegistry::from_env(),
-        ),
+        write_coalescer: Arc::new(epistemic_graph::write_coalescer::WriteCoalescerRegistry::new()),
         open_txns: Arc::new(DashMap::new()),
         txn_id_gen: Arc::new(epistemic_graph::server::txn::TxnIdGen::default()),
         txn_ttl_secs: 300,
@@ -63,8 +61,6 @@ fn state() -> Arc<RwLock<ServerState>> {
         multi_raft: None,
         #[cfg(feature = "tsdb")]
         tsdb_store: None,
-        #[cfg(feature = "rdf-redb")]
-        rdf_quads: None,
         #[cfg(feature = "streaming")]
         cdc: Some(Arc::new(epistemic_graph::server::cdc::CdcHub::new())),
         #[cfg(feature = "wasm-udf")]
@@ -77,23 +73,13 @@ fn state() -> Arc<RwLock<ServerState>> {
         foreign_sources: Arc::new(DashMap::new()),
         #[cfg(feature = "kv")]
         kv: None,
-        #[cfg(feature = "dataset-handle")]
-        dataset_handles: std::sync::Arc::new(
-            epistemic_graph::server::dataset_handle::DatasetHandleRegistry::new(),
-        ),
         #[cfg(feature = "lake")]
         lake: std::sync::Arc::new(epistemic_graph::server::lake::LakeManager::new()),
     }))
 }
 
 fn req(id: u64, method: Method) -> Request {
-    Request {
-        id,
-        graph: "__commons__".into(),
-        auth_token: compute_auth_token(SECRET, id),
-        agent_id: None,
-        method,
-    }
+    common::signed_request(SECRET, id, "__commons__", method)
 }
 
 /// Decode a served `UnifiedQuery` result (a `Raw` MessagePack `Vec<(id, score|nil)>`).
@@ -150,17 +136,7 @@ async fn served_spatial_scan_pushes_down_into_persistent_index_not_snapshot_fall
         layer: "City".into(),
         bbox: [0.0, 0.0, 10.0, 10.0],
     }]);
-    let resp = dispatch(
-        &state,
-        req(
-            3,
-            Method::UnifiedQuery {
-                plan,
-                reorder_filter_selectivity: None,
-            },
-        ),
-    )
-    .await;
+    let resp = dispatch(&state, req(3, Method::UnifiedQuery { plan })).await;
     let rows = rows_of(&resp);
     let ids: Vec<&str> = rows.iter().map(|(id, _)| id.as_str()).collect();
     assert!(
@@ -174,6 +150,156 @@ async fn served_spatial_scan_pushes_down_into_persistent_index_not_snapshot_fall
          persistent index (which does not — a per-scan-rebuild regression this test guards \
          against): {ids:?}"
     );
+}
+
+/// Recovery installs the server index factory AFTER durable graph material has
+/// already been replayed into each `GraphCore`. The newly registered spatial
+/// index must therefore backfill those existing nodes before it reports itself
+/// available; registration alone must never publish an empty index.
+#[tokio::test]
+async fn recovered_nodes_are_backfilled_before_spatial_index_is_available() {
+    let state = state();
+    for (id, point) in [("inside", "POINT (1 1)"), ("outside", "POINT (20 20)")] {
+        let resp = dispatch(
+            &state,
+            req(
+                if id == "inside" { 10 } else { 11 },
+                Method::AddNode {
+                    node_id: id.to_string(),
+                    properties_msgpack: blob(json!({ "type": "City", "geometry": point })),
+                },
+            ),
+        )
+        .await;
+        assert!(resp.error.is_none(), "AddNode {id}: {:?}", resp.error);
+    }
+
+    let plan = Plan::new(vec![Op::SpatialScan {
+        layer: "City".into(),
+        bbox: [0.0, 0.0, 10.0, 10.0],
+    }]);
+    let fallback_rows =
+        rows_of(&dispatch(&state, req(12, Method::UnifiedQuery { plan: plan.clone() })).await);
+    assert_eq!(fallback_rows[0].0, "inside");
+
+    let core = state
+        .read()
+        .await
+        .registry
+        .get("__commons__")
+        .expect("commons graph")
+        .core
+        .clone();
+    let served = epistemic_graph::server::secondary_indexes::ServedSpatialIndex::new(core);
+    assert!(
+        !served.available(),
+        "no registered index before recovery wiring"
+    );
+
+    state.write().await.registry.set_secondary_index_factory(
+        epistemic_graph::server::secondary_indexes::ServerIndexFactory::new().into_arc(),
+    );
+    assert!(
+        served.available(),
+        "factory installation must backfill before publishing availability"
+    );
+
+    let indexed_rows = rows_of(&dispatch(&state, req(13, Method::UnifiedQuery { plan })).await);
+    assert_eq!(indexed_rows, fallback_rows);
+}
+
+struct StaticMaterializer {
+    graph: String,
+    material: GraphMaterial,
+}
+
+impl GraphMaterializer for StaticMaterializer {
+    fn materialize(&self, graph_name: &str) -> Option<GraphMaterial> {
+        (graph_name == self.graph).then(|| self.material.clone())
+    }
+}
+
+/// A paged lazy-open registers its spatial index after page one so live writes
+/// can be observed, but the index must remain unavailable while its source graph
+/// is partial. Consuming the final page performs one complete backfill and only
+/// then enables pushdown.
+#[test]
+fn paged_lazy_open_advertises_spatial_only_after_final_page_backfill() {
+    let name = "tenant:spatial-paged";
+    let nodes = vec![
+        (
+            "a".to_string(),
+            blob(json!({ "type": "City", "geometry": "POINT (1 1)" })),
+        ),
+        (
+            "b".to_string(),
+            blob(json!({ "type": "City", "geometry": "POINT (2 2)" })),
+        ),
+        (
+            "c".to_string(),
+            blob(json!({ "type": "City", "geometry": "POINT (30 30)" })),
+        ),
+    ];
+    let mut registry = GraphRegistry::new();
+    registry.register_catalog_only(name, GraphType::Agent, None);
+    registry.set_materializer(Arc::new(StaticMaterializer {
+        graph: name.to_string(),
+        material: GraphMaterial {
+            nodes,
+            edges: Vec::new(),
+            semantic: Vec::new(),
+            ..GraphMaterial::default()
+        },
+    }));
+    registry.set_secondary_index_factory(
+        epistemic_graph::server::secondary_indexes::ServerIndexFactory::new().into_arc(),
+    );
+
+    let outcome = registry.open_lazy_paged(name, 1);
+    let mut cursor = outcome.cursor.expect("more than one material page");
+    let core = registry
+        .get(name)
+        .expect("resident after page one")
+        .core
+        .clone();
+    let served = epistemic_graph::server::secondary_indexes::ServedSpatialIndex::new(core.clone());
+    let partial = registry.materialization_manifest(name).unwrap();
+    assert!(!partial.valid);
+    assert!(core
+        .indexes()
+        .server_manifests()
+        .iter()
+        .all(|(_, manifest)| {
+            manifest.validity == epistemic_graph::index::IndexValidity::Building
+                && !manifest.completeness.complete
+        }));
+    assert!(
+        !served.available(),
+        "a one-page partial index must keep planner pushdown disabled"
+    );
+
+    while let Some(next) = registry.page_in(name, cursor, 1) {
+        cursor = next;
+    }
+
+    assert!(
+        served.available(),
+        "the final page must complete backfill before publishing the index"
+    );
+    let complete = registry.materialization_manifest(name).unwrap();
+    assert!(complete.valid);
+    assert!(core
+        .indexes()
+        .server_manifests()
+        .iter()
+        .all(|(_, manifest)| {
+            manifest.validity == epistemic_graph::index::IndexValidity::Valid
+                && manifest.completeness.complete
+                && manifest.covers(core.version())
+        }));
+    let mut hits = eg_plan::SpatialSource::query_bbox(&served, "City", [0.0, 0.0, 10.0, 10.0]);
+    hits.sort();
+    assert_eq!(hits, vec!["a".to_string(), "b".to_string()]);
 }
 
 /// A served `SpatialScan` still returns the correct hits when NO `ServerIndexFactory` is
@@ -201,17 +327,7 @@ async fn served_spatial_scan_without_factory_keeps_ephemeral_fallback() {
         layer: "City".into(),
         bbox: [0.0, 0.0, 10.0, 10.0],
     }]);
-    let resp = dispatch(
-        &state,
-        req(
-            2,
-            Method::UnifiedQuery {
-                plan,
-                reorder_filter_selectivity: None,
-            },
-        ),
-    )
-    .await;
+    let resp = dispatch(&state, req(2, Method::UnifiedQuery { plan })).await;
     let rows = rows_of(&resp);
     let ids: Vec<&str> = rows.iter().map(|(id, _)| id.as_str()).collect();
     assert!(

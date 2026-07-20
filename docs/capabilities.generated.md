@@ -4,17 +4,18 @@
 > truth (CONCEPT:EG-P0-1)** -- regenerate with `cargo run -p eg-capabilities --bin
 > gen_ledger`. It is derived from the exhaustive, no-wildcard `policy()` match in
 > `crates/eg-capabilities/src/lib.rs`, which the compiler forces to stay in sync with
-> every `Method` variant. The hand-maintained `docs/capabilities.md` predates this
-> table and is NOT authoritative; it has not yet been reconciled/retired (out of
-> scope for this workstream).
+> every `Method` variant. `docs/capabilities.md` describes surface-level feature
+> parity; this generated table is authoritative for per-method policy.
 
 > `mutates` marked `~true` means the value is a conservative UPPER BOUND: the real
-> runtime answer is conditional (a `writeback` flag, or a parsed query) -- see the
-> `note` column and the consistency test's `RUNTIME_CONDITIONAL` table.
+> runtime answer is conditional (an operation, a `writeback` flag, or a parsed
+> query) -- see the `note` column. `VolatileControl` is explicit non-durable
+> process/session state; `None` is reserved for methods with no state transition.
 
 | Method | Mutates | Durability | Authz action | Idempotent | Audited | Emits CDC | Txn participation | Note |
 |---|---|---|---|---|---|---|---|---|
 | `AddNode` | true | GraphRedb | `node:write` | false | true | true | Atomic |  |
+| `CreateNodeIfAbsent` | true | GraphRedb | `node:write` | false | true | true | Atomic | atomic create returns true only to the inserting writer, so its result is not cross-request cacheable |
 | `RemoveNode` | true | GraphRedb | `node:write` | true | true | true | Atomic |  |
 | `HasNode` | false | None | `node:read` | true | false | false | Snapshot |  |
 | `GetNodes` | false | None | `node:read` | true | false | false | Snapshot |  |
@@ -26,12 +27,17 @@
 | `DeleteExchange` | true | Outbox | `broker:admin` | true | true | false | Atomic |  |
 | `BindQueue` | true | Outbox | `broker:admin` | true | true | false | Atomic |  |
 | `UnbindQueue` | true | Outbox | `broker:admin` | true | true | false | Atomic |  |
-| `Publish` | ~true | Outbox | `broker:publish` | false | true | false | Atomic | PublishIdempotent is the one exception (producer-id/seq dedup makes replays idempotent by construction) |
+| `Publish` | true | Outbox | `broker:publish` | false | true | false | Atomic | PublishIdempotent is the one exception (producer-id/seq dedup makes replays idempotent by construction) |
 | `DeclareQueue` | true | Outbox | `broker:admin` | true | true | false | Atomic |  |
-| `PublishEx` | ~true | Outbox | `broker:publish` | false | true | false | Atomic | PublishIdempotent is the one exception (producer-id/seq dedup makes replays idempotent by construction) |
+| `PublishEx` | true | Outbox | `broker:publish` | false | true | false | Atomic | PublishIdempotent is the one exception (producer-id/seq dedup makes replays idempotent by construction) |
 | `BrokerConsume` | true | Outbox | `broker:consume` | false | true | false | Atomic |  |
 | `BrokerAck` | true | Outbox | `broker:ack` | true | true | false | Atomic |  |
 | `BrokerReject` | true | Outbox | `broker:ack` | true | true | false | Atomic |  |
+| `ClaimWorkItem` | true | GraphRedb | `work:claim` | false | true | false | Atomic | engine-native tenant/fair WorkItem lease claim |
+| `RenewWorkItemLease` | true | GraphRedb | `work:write` | true | true | false | Atomic | lease epoch and fencing token are validated atomically |
+| `CommitWorkItemResult` | true | GraphRedb | `work:write` | true | true | false | Atomic | terminal result references and outbox commit atomically |
+| `CancelWorkItem` | true | GraphRedb | `work:write` | true | true | false | Atomic | pending cancellation never steals an active lease |
+| `DeferWorkItem` | true | GraphRedb | `work:write` | true | true | false | Atomic | fenced lease release schedules retry without consuming an attempt |
 | `SweepExpired` | true | Outbox | `broker:admin` | true | true | false | Atomic |  |
 | `StreamDeclare` | true | Outbox | `stream:admin` | true | true | false | Atomic |  |
 | `StreamPublish` | true | Outbox | `stream:write` | false | true | false | Atomic |  |
@@ -39,10 +45,11 @@
 | `StreamTrim` | true | Outbox | `stream:admin` | true | true | false | Atomic |  |
 | `StreamCommitOffset` | true | Outbox | `stream:admin` | true | true | false | Atomic |  |
 | `StreamCommittedOffset` | false | None | `stream:read` | true | false | false | Snapshot |  |
-| `PublishConfirmed` | ~true | Outbox | `broker:publish` | false | true | false | Atomic | PublishIdempotent is the one exception (producer-id/seq dedup makes replays idempotent by construction) |
-| `PublishIdempotent` | ~true | Outbox | `broker:publish` | true | true | false | Atomic | PublishIdempotent is the one exception (producer-id/seq dedup makes replays idempotent by construction) |
-| `BrokerAckTag` | true | Outbox | `broker:ack` | true | true | false | Atomic |  |
-| `BrokerNackTag` | true | Outbox | `broker:ack` | true | true | false | Atomic |  |
+| `PublishConfirmed` | true | Outbox | `broker:publish` | false | true | false | Atomic | PublishIdempotent is the one exception (producer-id/seq dedup makes replays idempotent by construction) |
+| `PublishIdempotent` | true | Outbox | `broker:publish` | true | true | false | Atomic | PublishIdempotent is the one exception (producer-id/seq dedup makes replays idempotent by construction) |
+| `BrokerAckTag` | true | Outbox | `broker:ack` | false | true | false | Atomic | current-generation result must not be replay-cached across requests |
+| `BrokerNackTag` | true | Outbox | `broker:ack` | false | true | false | Atomic | current-generation result must not be replay-cached across requests |
+| `BrokerRenewTag` | true | Outbox | `broker:ack` | false | true | false | Atomic | current-generation result must not be replay-cached across requests |
 | `CreateSummaryNode` | true | GraphRedb | `memory:write` | false | true | false | Atomic |  |
 | `Consolidate` | true | GraphRedb | `memory:write` | false | true | false | Atomic |  |
 | `Reinforce` | true | GraphRedb | `memory:write` | false | true | false | Atomic |  |
@@ -71,7 +78,6 @@
 | `SupersedeEdge` | true | GraphRedb | `edge:write` | true | true | false | Atomic |  |
 | `HasEdge` | false | None | `edge:read` | true | false | false | Snapshot |  |
 | `GetEdges` | false | None | `edge:read` | true | false | false | Snapshot |  |
-| `GetTriples` | false | None | `rdf:read` | true | false | false | Snapshot |  |
 | `ClearGraph` | true | GraphRedb | `graph:admin` | true | true | true | Atomic |  |
 | `GetEdgeProperties` | false | None | `edge:read` | true | false | false | Snapshot |  |
 | `GetEdgePropertiesBatch` | false | None | `edge:read` | true | false | false | Snapshot |  |
@@ -101,54 +107,58 @@
 | `GraphColoring` | false | None | `compute:graph-algo` | true | false | false | Snapshot |  |
 | `ComputeSimilarityEdges` | false | None | `compute:graph-algo` | true | false | false | Snapshot |  |
 | `ResolveCandidates` | false | None | `compute:graph-algo` | true | false | false | Snapshot |  |
-| `PruneByLifecycle` | ~true | None | `node:admin` | false | false | false | Atomic | write per access.rs but intentionally excluded from wal.rs (recomputable maintenance op, per wal.rs doc comment) |
+| `PruneByLifecycle` | true | GraphRedb | `node:admin` | false | false | false | Atomic | state-backed MutationBatch commits the resulting authoritative image |
 | `GetContextView` | false | None | `node:read` | true | false | false | Snapshot |  |
 | `BatchUpdate` | true | GraphRedb | `node:write` | false | true | false | Atomic |  |
-| `MultiGraphBatchUpdate` | ~true | None | `node:write` | false | false | false | Saga | spans multiple graphs in one call (not a single-graph Atomic unit); NOT present in access.rs's write classifier or wal.rs's durable set at all -- flagged as a possible coverage gap in both |
+| `MultiGraphBatchUpdate` | true | ControlRedb | `node:write` | true | false | false | Saga | durable parent coordinator with per-graph MutationBatch children |
 | `Metrics` | false | None | `service:control` | true | false | false | None |  |
-| `EvictLRU` | ~true | None | `node:admin` | false | false | false | Atomic | write per access.rs but intentionally excluded from wal.rs (recomputable maintenance op, per wal.rs doc comment) |
-| `DecaySweep` | ~true | None | `node:admin` | false | false | false | Atomic | write per access.rs but intentionally excluded from wal.rs (recomputable maintenance op, per wal.rs doc comment) |
-| `TouchNodes` | ~true | None | `node:admin` | false | false | false | Atomic | write per access.rs but intentionally excluded from wal.rs (recomputable maintenance op, per wal.rs doc comment) |
+| `EvictLRU` | true | GraphRedb | `node:admin` | false | false | false | Atomic | state-backed MutationBatch commits the resulting authoritative image |
+| `DecaySweep` | true | GraphRedb | `node:admin` | false | false | false | Atomic | state-backed MutationBatch commits the resulting authoritative image |
+| `TouchNodes` | true | GraphRedb | `node:admin` | false | false | false | Atomic | state-backed MutationBatch commits the resulting authoritative image |
 | `ToMsgpack` | false | None | `graph:read` | true | false | false | Snapshot |  |
-| `FromMsgpack` | ~true | None | `graph:admin` | false | false | false | Atomic | write per access.rs but absent from wal.rs durable set (EG-P0-3); typically used for bulk restore, not incremental WAL logging |
+| `FromMsgpack` | true | GraphRedb | `graph:admin` | false | false | false | Atomic | state-backed MutationBatch commits the imported authoritative image |
 | `GetLedger` | false | None | `ledger:read` | true | false | false | Snapshot |  |
-| `ClearLedger` | ~true | None | `ledger:admin` | true | false | false | Atomic | write per access.rs but absent from wal.rs durable set (EG-P0-3) |
-| `ApplyLedger` | ~true | None | `ledger:write` | false | false | false | Atomic | write per access.rs but absent from wal.rs durable set (EG-P0-3) |
+| `ClearLedger` | true | GraphRedb | `ledger:admin` | true | false | false | Atomic | state-backed MutationBatch |
+| `ApplyLedger` | true | GraphRedb | `ledger:write` | false | false | false | Atomic | state-backed MutationBatch |
 | `AuditVerify` | false | None | `security:audit` | true | false | false | Snapshot |  |
 | `GetSubgraph` | false | None | `node:read` | true | false | false | Snapshot |  |
 | `Fork` | false | None | `graph:read` | true | false | false | Snapshot | returns the forked snapshot to the caller; never registers/persists it server-side |
 | `DiffAgainst` | false | None | `graph:read` | true | false | false | Snapshot |  |
-| `CompactNodesByType` | ~true | None | `node:admin` | false | false | false | Atomic | write per access.rs but absent from wal.rs durable set (EG-P0-3); recomputable |
-| `RunDatalogReasoning` | ~true | None | `reasoning:write` | false | false | false | Atomic | write per access.rs but absent from wal.rs durable set (EG-P0-3); inferred facts are recomputable |
-| `CreateGraph` | ~true | None | `graph:admin` | true | false | false | Atomic | NOT present in access.rs's write classifier (it targets the registry, not an existing graph's content) -- the registry-level ACL for this is out of this workstream's scope |
-| `DeleteGraph` | true | None | `graph:admin` | true | false | false | Atomic |  |
+| `CompactNodesByType` | true | GraphRedb | `node:admin` | false | false | false | Atomic | state-backed MutationBatch |
+| `RunDatalogReasoning` | true | GraphRedb | `reasoning:write` | false | false | false | Atomic | state-backed MutationBatch commits inferred facts |
+| `ApplyChangeEnvelope` | true | GraphRedb | `ingest:write` | true | true | true | Atomic | Engine-native object/material/governance/version/cursor/outbox commit; verified context is mandatory |
+| `GetChangeEnvelope` | false | None | `ingest:read` | true | false | false | Snapshot | Verified tenant-scoped reconciliation read |
+| `GetContentVersion` | false | None | `ingest:read` | true | false | false | Snapshot | Typed content versions are never compared lexically |
+| `GetChangeCursor` | false | None | `ingest:read` | true | false | false | Snapshot | Typed source cursors are tenant/graph/partition scoped |
+| `ServedModality` | ~true | GraphRedb | `modality:write` | false | true | true | Atomic | runtime-conditional: authority/query/events/capabilities are verified read snapshots; ingest/delete/cold/restore commit an encrypted state-backed MutationBatch |
+| `CreateGraph` | true | GraphRedb | `graph:admin` | true | false | false | Atomic | native lifecycle MutationBatch before registry publication |
+| `DeleteGraph` | true | GraphRedb | `graph:admin` | true | false | false | Atomic | native lifecycle MutationBatch before registry eviction |
 | `ListGraphs` | false | None | `graph:read` | true | false | false | Snapshot |  |
-| `Reshard` | ~true | None | `admin:cluster` | false | false | false | Saga | NOT present in access.rs's write classifier at all (server-admin action, not a per-graph content write) -- governed by a separate admin gate, out of this workstream's scope |
-| `CatalogAssign` | ~true | None | `admin:cluster` | true | false | false | Saga | NOT present in access.rs's write classifier at all -- governed elsewhere |
-| `CatalogReassign` | ~true | None | `admin:cluster` | true | false | false | Saga | NOT present in access.rs's write classifier at all -- governed elsewhere |
-| `CatalogRemove` | ~true | None | `admin:cluster` | true | false | false | Saga | NOT present in access.rs's write classifier at all -- governed elsewhere |
+| `Reshard` | true | ControlRedb | `admin:cluster` | true | false | false | Saga | prepared/committed admin MutationBatch saga |
+| `CatalogAssign` | true | ControlRedb | `admin:cluster` | true | false | false | Saga | prepared/committed admin MutationBatch saga |
+| `CatalogReassign` | true | ControlRedb | `admin:cluster` | true | false | false | Saga | prepared/committed admin MutationBatch saga |
+| `CatalogRemove` | true | ControlRedb | `admin:cluster` | true | false | false | Saga | prepared/committed admin MutationBatch saga |
 | `CatalogList` | false | None | `admin:cluster-read` | true | false | false | Snapshot |  |
 | `RebalancePlan` | false | None | `admin:cluster-read` | true | false | false | Snapshot |  |
-| `RebalanceExecute` | ~true | None | `admin:cluster` | false | false | false | Saga | NOT present in access.rs's write classifier at all -- governed elsewhere |
-| `PlacementRoute` | false | None | `admin:cluster-read` | true | false | false | Snapshot | DIST-P2-4: always in the enum (pure serde); the real answer needs `raft` + a live MultiRaft cluster, else a well-formed {"explicit": false} JSON (not an error) -- see handlers/placement.rs |
+| `RebalanceExecute` | true | ControlRedb | `admin:cluster` | true | false | false | Saga | prepared/committed admin MutationBatch saga |
+| `PlacementRoute` | false | None | `admin:cluster-read` | true | false | false | Snapshot | engine-authoritative complete route; single-node returns authoritative unplaced group 0/epoch 0, while clustered routing requires a live MultiRaft control leader |
 | `Backup` | false | None | `admin:backup` | true | false | false | Snapshot | reads a consistent snapshot out to a bundle; does not mutate the live graph |
-| `Restore` | ~true | None | `admin:backup` | false | false | false | Saga | NOT present in access.rs's write classifier at all (server-admin action) -- governed elsewhere |
-| `CreateChannel` | ~true | None | `channel:admin` | true | false | false | Atomic | NOT present in access.rs's write classifier at all -- flagged as a possible access.rs coverage gap |
-| `JoinChannel` | ~true | None | `channel:admin` | true | false | false | Atomic | NOT present in access.rs's write classifier at all -- flagged as a possible access.rs coverage gap |
-| `LeaveChannel` | ~true | None | `channel:admin` | true | false | false | Atomic | NOT present in access.rs's write classifier at all -- flagged as a possible access.rs coverage gap |
-| `CloseChannel` | ~true | None | `channel:admin` | true | false | false | Atomic | NOT present in access.rs's write classifier at all -- flagged as a possible access.rs coverage gap |
-| `SendMessage` | ~true | None | `channel:write` | false | false | false | Atomic | NOT present in access.rs's write classifier at all -- flagged as a possible access.rs coverage gap |
+| `Restore` | true | ControlRedb | `admin:backup` | true | false | false | Saga | prepared/committed admin MutationBatch saga |
+| `CreateChannel` | true | ControlRedb | `channel:admin` | true | false | false | Saga | opaque prepared/committed session-control MutationBatch; message/member payloads stay out of the ledger |
+| `JoinChannel` | true | ControlRedb | `channel:admin` | true | false | false | Saga | opaque prepared/committed session-control MutationBatch |
+| `LeaveChannel` | true | ControlRedb | `channel:admin` | true | false | false | Saga | opaque prepared/committed session-control MutationBatch |
+| `CloseChannel` | true | ControlRedb | `channel:admin` | true | false | false | Saga | opaque prepared/committed session-control MutationBatch |
+| `SendMessage` | true | ControlRedb | `channel:write` | true | false | false | Saga | request-scoped opaque session-control receipt prevents acknowledgement-lost duplicate sends |
 | `GetChannelMessages` | false | None | `channel:read` | true | false | false | Snapshot |  |
 | `ListChannels` | false | None | `channel:read` | true | false | false | Snapshot |  |
 | `GetChannelMembers` | false | None | `channel:read` | true | false | false | Snapshot |  |
 | `Ping` | false | None | `service:control` | true | false | false | None |  |
 | `Health` | false | None | `service:control` | true | false | false | None |  |
-| `Shutdown` | ~true | None | `service:admin` | true | false | false | None | a server lifecycle action, not a graph-content mutation -- governed by a separate admin gate |
-| `Checkpoint` | ~true | None | `service:admin` | true | false | false | None | flushes the ALREADY-durable WAL tail into a snapshot; does not itself add new data |
+| `Shutdown` | true | VolatileControl | `service:admin` | true | false | false | None | explicitly ephemeral process control; never acknowledges a user-data commit |
+| `CancelRequest` | false | None | `service:control` | true | false | false | None |  |
 | `ResourceStats` | false | None | `service:control` | true | false | false | None |  |
-| `Reconcile` | ~true | None | `graph:write` | false | false | false | Saga | CRDT merge of remote state; write per access.rs but absent from wal.rs durable set (EG-P0-3) |
-| `ApplyMutation` | ~true | None | `graph:write` | false | false | false | Atomic | write per access.rs but absent from wal.rs durable set (EG-P0-3) |
-| `ParseRepository` | ~true | None | `node:admin` | false | false | false | Atomic | write per access.rs but intentionally excluded from wal.rs (recomputable from source tree, per wal.rs doc comment) |
+| `Reconcile` | true | GraphRedb | `graph:write` | false | false | false | Saga | state-backed MutationBatch commits the merged image |
+| `ApplyMutation` | true | GraphRedb | `graph:write` | false | false | false | Atomic | state-backed MutationBatch |
 | `Vf2SubgraphMatch` | false | None | `compute:graph-algo` | true | false | false | Snapshot |  |
 | `ParseFile` | false | None | `compute:parse` | true | false | false | None |  |
 | `ParseFiles` | false | None | `compute:parse` | true | false | false | None |  |
@@ -158,11 +168,7 @@
 | `SemanticSearch` | false | None | `compute:semantic` | true | false | false | Snapshot |  |
 | `Discover` | false | None | `compute:semantic` | true | false | false | Snapshot |  |
 | `MatchOntologyTerms` | false | None | `compute:semantic` | true | false | false | Snapshot |  |
-| `SpectralCluster` | false | None | `compute:semantic` | true | false | false | Snapshot |  |
-| `HypergraphEncodeInteraction` | false | None | `compute:semantic` | true | false | false | Snapshot |  |
-| `BatchCosineSimilarity` | false | None | `compute:semantic` | true | false | false | Snapshot |  |
 | `BatchL2Normalize` | false | None | `compute:semantic` | true | false | false | Snapshot |  |
-| `FindSimilarPairs` | false | None | `compute:semantic` | true | false | false | Snapshot |  |
 | `FinanceOptimizePortfolio` | false | None | `compute:finance` | true | false | false | None |  |
 | `FinanceRiskParity` | false | None | `compute:finance` | true | false | false | None |  |
 | `FinanceBlackLitterman` | false | None | `compute:finance` | true | false | false | None |  |
@@ -245,12 +251,14 @@
 | `FinanceSabrImpliedVol` | false | None | `compute:finance` | true | false | false | None |  |
 | `FinanceSabrSmile` | false | None | `compute:finance` | true | false | false | None |  |
 | `FinanceSabrCalibrate` | false | None | `compute:finance` | true | false | false | None |  |
-| `RegisterIdentity` | ~true | None | `security:admin` | true | false | false | Atomic | NOT present in access.rs's write classifier at all -- flagged as a possible access.rs coverage gap |
-| `RbacAdmin` | ~true | None | `security:admin` | true | false | false | Atomic | NOT present in access.rs's write classifier at all -- flagged as a possible access.rs coverage gap |
-| `ApplyMultisigMutation` | ~true | None | `security:admin` | false | false | false | Saga | write per access.rs but absent from wal.rs durable set (EG-P0-3); multisig threshold-gated, multi-party |
-| `Sql` | ~true | None | `query:sql` | false | false | false | Atomic | mutates is a conservative upper bound: the REAL access::requires_write(m) depends on the parsed statement kind (eg_query::classify); write-but-absent-from-wal.rs's durable set too (EG-P0-3) -- SQL DML durability rides the user-table store's own persistence, not the graph WAL |
-| `CypherQuery` | ~true | None | `query:cypher` | false | false | false | Atomic | mutates is a conservative upper bound: the REAL access::requires_write(m) depends on a keyword scan of the query text (access::cypher_is_write); also write-but-absent-from-wal.rs's durable set (EG-P0-3) |
-| `GraphQl` | ~true | None | `query:graphql` | false | false | false | Atomic | mutates is a conservative upper bound: the REAL access::requires_write(m) depends on the parsed operation kind (query vs mutation); also write-but-absent-from-wal.rs's durable set (EG-P0-3) |
+| `RegisterIdentity` | true | ControlRedb | `security:admin` | true | false | false | Atomic | RBAC/identity snapshot and MutationBatch metadata share one rbac.redb WTX |
+| `RbacAdmin` | ~true | ControlRedb | `security:admin` | true | false | false | Atomic | runtime-conditional: List is a read; role and grant updates share one rbac.redb WTX with MutationBatch metadata |
+| `ApplyMultisigMutation` | true | GraphRedb | `security:admin` | true | false | false | Saga | threshold validation translates into the graph MutationBatch gateway |
+| `AnalyticsJob` | ~true | JobsRedb | `jobs:write` | false | false | false | Atomic | runtime-conditional: Status is a read; every scheduler/worker transition is ordered by the owning Raft group and materialized into its deterministic jobs.redb projection |
+| `Sql` | ~true | GraphRedb | `query:sql` | false | true | false | Atomic | runtime-conditional; graph DML uses staged graph state while table/catalog writes atomically commit SQL rows plus MutationBatch status/fence/idempotency/outbox |
+| `CypherQuery` | ~true | GraphRedb | `query:cypher` | false | true | false | Atomic | runtime-conditional; writes execute against a staged graph and publish only after durable MutationBatch commit |
+| `GraphQl` | ~true | GraphRedb | `query:graphql` | false | true | false | Atomic | runtime-conditional; ordinary writes stage through MutationBatch and cross-modal commit atomically includes universal status/fence/idempotency/outbox |
+| `KnowledgeStream` | false | None | `query:stream` | true | false | false | Snapshot | one RequestContext/RLS/placement-bound stream with the sole native Arrow IPC projection for all seven query families |
 | `UnifiedQuery` | false | None | `query:unified` | true | false | false | Snapshot |  |
 | `UnifiedQueryText` | false | None | `query:unified` | true | false | false | Snapshot |  |
 | `ExplainPlan` | false | None | `explain:read` | true | false | false | Snapshot |  |
@@ -260,64 +268,64 @@
 | `ExplainBelief` | false | None | `explain:read` | true | false | false | Snapshot |  |
 | `EpistemicStatus` | false | None | `explain:read` | true | false | false | Snapshot | L53 (EPI-P3-5) acceptance capstone; handler additionally gated `epistemic-tms` |
 | `WhatChanged` | false | None | `explain:read` | true | false | false | Snapshot | L53 (EPI-P3-5) bitemporal diff; handler additionally gated `epistemic-tms` |
-| `RegisterMaterialization` | false | None | `explain:read` | true | false | false | Snapshot | Seam 3 (X-6 wire surface): registers a TruthMaintenance materialization off its own stored provenance; side effect lands only in the ephemeral tms_hook index, never the durable graph; handler additionally gated `epistemic-tms` |
-| `MaterializationStatus` | false | None | `explain:read` | true | false | false | Snapshot | Seam 3: read-only status lookup on the same tms_hook index; handler additionally gated `epistemic-tms` |
-| `StaleMaterializations` | false | None | `explain:read` | true | false | false | Snapshot | SURPASS gap-closure ("give staleness a consumer"): bulk read of every currently-Stale materialization id on the same tms_hook index; handler additionally gated `epistemic-tms` |
+| `RecomputeMaterialization` | true | ReasoningProjection | `reasoning:write` | false | false | false | Atomic | fenced recompute/writeback resolves provenance from the authoritative graph and fsyncs the per-graph projection |
+| `MaterializationStatus` | false | None | `explain:read` | true | false | false | Snapshot | read-only status lookup on the durable per-graph projection; missing or corrupt authority fails closed |
+| `StaleMaterializations` | false | None | `explain:read` | true | false | false | Snapshot | bulk read of every currently-Stale opaque materialization reference from the durable per-graph projection |
 | `ResolveConflict` | false | None | `explain:read` | true | false | false | Snapshot | EPI-P3-7 (gap-fill) standalone Dung argumentation (grounded/preferred/stable) conflict resolution over a BeliefGraph snapshot; handler additionally gated `epistemic-tms` |
 | `ExplainEvidence` | false | None | `explain:read` | true | false | false | Snapshot | CONCEPT:EG-X1 multimodal-citation resolver; handler additionally gated `evidence-graph` |
 | `CausalEstimate` | false | None | `explain:read` | true | false | false | Snapshot | EPI-P3-3/P3-6 do-calculus intervention OR observational conditioning (selected by `mode`) over a request-carried SCM; handler additionally gated `epistemic-causal` |
 | `CausalCounterfactual` | false | None | `explain:read` | true | false | false | Snapshot | EPI-P3-6 Pearl point-counterfactual over a request-carried SCM + a fully-observed unit; handler additionally gated `epistemic-causal` |
 | `RankByProvenance` | false | None | `explain:read` | true | false | false | Snapshot | EPI-P3-3 provenance-aware retrieval ranking; handler additionally gated `epistemic-causal` |
 | `NlQuery` | false | None | `query:nl` | false | false | false | Snapshot |  |
-| `RegisterForeignSource` | ~true | None | `federation:admin` | true | false | false | Atomic | NOT present in access.rs's write classifier at all; policy marks it mutates=true on semantic grounds (registers a foreign-source config) -- flagged as a possible access.rs coverage gap |
-| `RegisterUdf` | ~true | None | `udf:admin` | true | false | false | Atomic | NOT present in access.rs's write classifier at all; policy marks it mutates=true on semantic grounds -- flagged as a possible access.rs coverage gap |
+| `RegisterForeignSource` | true | ControlRedb | `federation:admin` | true | false | false | Saga | opaque prepared/committed control receipt; endpoint configuration is not duplicated in the ledger |
+| `RegisterUdf` | true | ControlRedb | `udf:admin` | true | false | false | Saga | opaque prepared/committed control receipt; module bytes are not duplicated in the ledger |
 | `RunUdf` | false | None | `udf:exec` | false | false | false | Snapshot | executes a registered sandboxed function; treated as read/compute unless the UDF itself writes back (not modeled -- the wire protocol has no writeback flag here) |
-| `DistributedCompute` | ~true | None | `distcompute:write` | false | false | false | Saga | NOT present in access.rs's write classifier at all; policy marks it mutates=true on semantic grounds (cross-shard Pregel writeback) -- flagged as a possible access.rs coverage gap |
-| `CreateMatView` | ~true | None | `matview:admin` | false | false | false | Saga | NOT present in access.rs's write classifier at all -- flagged as a possible access.rs coverage gap |
+| `DistributedCompute` | false | None | `distcompute:read` | true | false | false | Snapshot | read-only Pregel/GAS computation; materialization uses the distinct Create*/Refresh* methods |
+| `CreateMatView` | true | ControlRedb | `matview:admin` | true | false | false | Saga | prepared/committed control-plane MutationBatch saga |
 | `GetMatView` | false | None | `matview:read` | true | false | false | Snapshot |  |
-| `RefreshMatView` | ~true | None | `matview:admin` | false | false | false | Saga | NOT present in access.rs's write classifier at all -- flagged as a possible access.rs coverage gap |
-| `PlanMatViewDefine` | ~true | None | `matview:admin` | true | false | false | Saga | NOT present in access.rs's write classifier at all -- flagged as a possible access.rs coverage gap |
+| `RefreshMatView` | true | ControlRedb | `matview:admin` | true | false | false | Saga | prepared/committed control-plane MutationBatch saga |
+| `PlanMatViewDefine` | true | ControlRedb | `matview:admin` | true | false | false | Saga | prepared/committed control-plane MutationBatch saga |
 | `PlanMatViewGet` | false | None | `matview:read` | true | false | false | Snapshot |  |
-| `PlanMatViewRefresh` | ~true | None | `matview:admin` | false | false | false | Saga | NOT present in access.rs's write classifier at all -- flagged as a possible access.rs coverage gap |
-| `PlanMatViewDrop` | ~true | None | `matview:admin` | true | false | false | Saga | NOT present in access.rs's write classifier at all -- flagged as a possible access.rs coverage gap |
-| `BeginTxn` | false | None | `txn:control` | false | false | false | Saga |  |
-| `TxnAddNode` | ~true | None | `txn:write` | false | false | false | Saga | self-routes before dispatch_graph_op (see dispatch.rs); access::requires_write is never consulted for these -- write-access is enforced once at BeginTxn, not per-op here (out of this workstream's scope to verify) |
-| `TxnRemoveNode` | ~true | None | `txn:write` | true | false | false | Saga | self-routes before dispatch_graph_op; see TxnAddNode note |
-| `TxnAddEdge` | ~true | None | `txn:write` | false | false | false | Saga | self-routes before dispatch_graph_op (see dispatch.rs); access::requires_write is never consulted for these -- write-access is enforced once at BeginTxn, not per-op here (out of this workstream's scope to verify) |
-| `TxnRemoveEdge` | ~true | None | `txn:write` | true | false | false | Saga | self-routes before dispatch_graph_op; see TxnAddNode note |
-| `TxnCas` | ~true | None | `txn:write` | true | false | false | Saga | self-routes before dispatch_graph_op; see TxnAddNode note |
-| `TxnAddEmbedding` | ~true | None | `txn:write` | false | false | false | Saga | self-routes before dispatch_graph_op (see dispatch.rs); access::requires_write is never consulted for these -- write-access is enforced once at BeginTxn, not per-op here (out of this workstream's scope to verify) |
-| `TxnBlobRef` | ~true | None | `txn:write` | false | false | false | Saga | self-routes before dispatch_graph_op (see dispatch.rs); access::requires_write is never consulted for these -- write-access is enforced once at BeginTxn, not per-op here (out of this workstream's scope to verify) |
-| `TxnAddMeasurement` | ~true | None | `txn:write` | false | false | false | Saga | self-routes before dispatch_graph_op (see dispatch.rs); access::requires_write is never consulted for these -- write-access is enforced once at BeginTxn, not per-op here (out of this workstream's scope to verify) |
-| `TxnAxiom` | ~true | None | `txn:write` | false | false | false | Saga | self-routes before dispatch_graph_op (see dispatch.rs); access::requires_write is never consulted for these -- write-access is enforced once at BeginTxn, not per-op here (out of this workstream's scope to verify) |
-| `TxnConstruct` | ~true | None | `txn:write` | false | false | false | Saga | self-routes before dispatch_graph_op (see dispatch.rs); access::requires_write is never consulted for these -- write-access is enforced once at BeginTxn, not per-op here (out of this workstream's scope to verify) |
-| `TxnPlanWriteback` | ~true | None | `txn:write` | false | false | false | Saga | self-routes before dispatch_graph_op (see dispatch.rs); access::requires_write is never consulted for these -- write-access is enforced once at BeginTxn, not per-op here (out of this workstream's scope to verify) |
-| `TxnMaterializeBelief` | ~true | None | `txn:write` | false | false | false | Saga | self-routes before dispatch_graph_op (see dispatch.rs); access::requires_write is never consulted for these -- write-access is enforced once at BeginTxn, not per-op here (out of this workstream's scope to verify) |
+| `PlanMatViewRefresh` | true | ControlRedb | `matview:admin` | true | false | false | Saga | prepared/committed control-plane MutationBatch saga |
+| `PlanMatViewDrop` | true | ControlRedb | `matview:admin` | true | false | false | Saga | prepared/committed control-plane MutationBatch saga |
+| `BeginTxn` | true | ControlRedb | `txn:control` | false | false | false | Saga | encrypted Raft-native transaction staging authority |
+| `TxnAddNode` | true | ControlRedb | `txn:write` | false | false | false | Saga | encrypted Raft-native staging; Commit owns graph publication |
+| `TxnRemoveNode` | true | ControlRedb | `txn:write` | true | false | false | Saga | encrypted Raft-native staging; Commit owns graph publication |
+| `TxnAddEdge` | true | ControlRedb | `txn:write` | false | false | false | Saga | encrypted Raft-native staging; Commit owns graph publication |
+| `TxnRemoveEdge` | true | ControlRedb | `txn:write` | true | false | false | Saga | encrypted Raft-native staging; Commit owns graph publication |
+| `TxnCas` | true | ControlRedb | `txn:write` | true | false | false | Saga | encrypted Raft-native staging; Commit owns graph publication |
+| `TxnAddEmbedding` | true | ControlRedb | `txn:write` | false | false | false | Saga | encrypted Raft-native cross-modal staging |
+| `TxnBlobRef` | true | ControlRedb | `txn:write` | false | false | false | Saga | encrypted Raft-native cross-modal staging |
+| `TxnAddMeasurement` | true | ControlRedb | `txn:write` | false | false | false | Saga | encrypted Raft-native cross-modal staging |
+| `TxnAxiom` | true | ControlRedb | `txn:write` | false | false | false | Saga | encrypted Raft-native cross-modal staging |
+| `TxnConstruct` | true | ControlRedb | `txn:write` | false | false | false | Saga | encrypted Raft-native cross-modal staging |
+| `TxnPlanWriteback` | true | ControlRedb | `txn:write` | false | false | false | Saga | encrypted Raft-native cross-modal staging |
+| `TxnMaterializeBelief` | true | ControlRedb | `txn:write` | false | false | false | Saga | encrypted Raft-native cross-modal staging |
 | `TxnUnifiedQuery` | false | None | `txn:read` | true | false | false | Saga |  |
 | `TxnUnifiedQueryText` | false | None | `txn:read` | true | false | false | Saga |  |
-| `Commit` | ~true | None | `txn:control` | false | false | false | Saga | the durable-apply moment of the multi-op OCC transaction; self-routes before dispatch_graph_op |
-| `Rollback` | false | None | `txn:control` | false | false | false | Saga |  |
-| `TsAppend` | ~true | SeriesRedb | `timeseries:write` | false | false | false | Atomic | self-routes before dispatch_graph_op, targeting its own series.redb (separate from graph.redb/blob.redb/kv.redb) |
+| `Commit` | true | ControlRedb | `txn:control` | true | false | false | Saga | named parent receipt plus atomic graph/cross-modal child batches |
+| `Rollback` | true | ControlRedb | `txn:control` | false | false | false | Saga | encrypted Raft-native transaction staging removal |
+| `TsAppend` | true | SeriesRedb | `timeseries:write` | false | false | false | Atomic | graph ACL + placement policy precede the tenant/graph/series-scoped series.redb write |
 | `TsRange` | false | None | `timeseries:read` | true | false | false | Snapshot |  |
 | `TsAsofJoin` | false | None | `timeseries:read` | true | false | false | Snapshot |  |
 | `TsWindow` | false | None | `timeseries:read` | true | false | false | Snapshot |  |
 | `TsGapFill` | false | None | `timeseries:read` | true | false | false | Snapshot |  |
-| `BlobBegin` | ~true | BlobRedb | `blob:write` | false | false | false | Saga | multi-call chunked-upload protocol (Begin ... ChunkPut* ... Commit); no single-call atomicity; durable via its own blob.redb (group-committed Immediate), self-routes before dispatch_graph_op |
-| `BlobChunkPut` | ~true | BlobRedb | `blob:write` | false | false | false | Saga | durable via its own blob.redb (group-committed Immediate); self-routes before dispatch_graph_op |
-| `BlobCommit` | ~true | BlobRedb | `blob:write` | false | false | false | Saga | multi-call chunked-upload protocol (Begin ... ChunkPut* ... Commit); no single-call atomicity; durable via its own blob.redb (group-committed Immediate), self-routes before dispatch_graph_op |
+| `BlobBegin` | true | BlobRedb | `blob:write` | false | false | false | Saga | multi-call chunked-upload protocol (Begin ... ChunkPut* ... Commit); no single-call atomicity; durable via its own blob.redb (group-committed Immediate), self-routes before dispatch_graph_op |
+| `BlobChunkPut` | true | BlobRedb | `blob:write` | false | false | false | Saga | durable via its own blob.redb (group-committed Immediate); self-routes before dispatch_graph_op |
+| `BlobCommit` | true | BlobRedb | `blob:write` | false | false | false | Saga | multi-call chunked-upload protocol (Begin ... ChunkPut* ... Commit); no single-call atomicity; durable via its own blob.redb (group-committed Immediate), self-routes before dispatch_graph_op |
 | `BlobFetchBegin` | false | None | `blob:read` | true | false | false | Snapshot |  |
 | `BlobChunkGet` | false | None | `blob:read` | true | false | false | Snapshot |  |
 | `BlobFetchEnd` | false | None | `blob:read` | true | false | false | Snapshot |  |
-| `BlobRef` | ~true | BlobRedb | `blob:write` | false | false | false | Atomic | refcount increment; idempotent-ish but re-invocation adds another ref, so not idempotent; durable via blob.redb |
-| `BlobUnref` | ~true | BlobRedb | `blob:write` | false | false | false | Atomic | durable via blob.redb |
-| `BlobGc` | ~true | BlobRedb | `blob:admin` | true | false | false | Atomic | durable via blob.redb |
+| `BlobRef` | true | BlobRedb | `blob:write` | false | false | false | Atomic | refcount increment; idempotent-ish but re-invocation adds another ref, so not idempotent; durable via blob.redb |
+| `BlobUnref` | true | BlobRedb | `blob:write` | false | false | false | Atomic | durable via blob.redb |
+| `BlobGc` | true | BlobRedb | `blob:admin` | true | false | false | Atomic | durable via blob.redb |
 | `KvGet` | false | None | `kv:read` | true | false | false | Snapshot |  |
-| `KvPut` | ~true | KvRedb | `kv:write` | false | false | false | Atomic | durable via its own kv.redb (redb::Durability::Immediate, commit-before-ack) -- self-routes before dispatch_graph_op and before wal.rs's per-graph WAL entirely; NOT a wal.rs gap, just a parallel durability domain |
-| `KvDelete` | ~true | KvRedb | `kv:write` | true | false | false | Atomic | durable via its own kv.redb (redb::Durability::Immediate); self-routes before dispatch_graph_op |
+| `KvPut` | true | KvRedb | `kv:write` | false | false | false | Atomic | durable via its own kv.redb (redb::Durability::Immediate, commit-before-ack); self-routes before graph dispatch |
+| `KvDelete` | true | KvRedb | `kv:write` | true | false | false | Atomic | durable via its own kv.redb (redb::Durability::Immediate); self-routes before dispatch_graph_op |
 | `KvScan` | false | None | `kv:read` | true | false | false | Snapshot |  |
-| `KvCas` | ~true | KvRedb | `kv:write` | false | false | false | Atomic | durable via its own kv.redb (redb::Durability::Immediate, commit-before-ack) -- self-routes before dispatch_graph_op and before wal.rs's per-graph WAL entirely; NOT a wal.rs gap, just a parallel durability domain |
-| `ImportSqliteFile` | ~true | None | `sqlite:import` | false | false | false | Atomic | NOT present in access.rs's write classifier at all -- flagged as a possible access.rs coverage gap |
-| `ExportSqliteFile` | false | None | `sqlite:export` | true | false | false | Snapshot |  |
+| `KvCas` | true | KvRedb | `kv:write` | false | false | false | Atomic | durable via its own kv.redb (redb::Durability::Immediate, commit-before-ack); self-routes before graph dispatch |
+| `ImportSqliteFile` | true | ControlRedb | `admin:sqlite-file` | true | true | false | Atomic | native SQL-catalog MutationBatch; logical transfer name is excluded from the durable receipt |
+| `ExportSqliteFile` | false | None | `admin:sqlite-file` | true | true | false | Snapshot | operator-provisioned transfer root; logical filenames only |
 | `AddTriples` | true | GraphRedb | `rdf:write` | false | true | false | Atomic |  |
 | `GetRdf` | false | None | `rdf:read` | true | false | false | Snapshot |  |
 | `RemoveTriples` | true | GraphRedb | `rdf:write` | true | true | false | Atomic |  |
@@ -329,20 +337,20 @@
 | `OwlExplain` | false | None | `owl:read` | true | false | false | Snapshot |  |
 | `RunRules` | false | None | `reasoning:read` | true | false | false | Snapshot | READ-ONLY (EG-P0-2/L11 handler audit): handle_run_rules reasons over an off-lock analysis_snapshot and returns inferred triples, no writeback -- unlike its sibling RunDatalogReasoning which materialises in-place. Corrected from a prior mutates=true semantic guess; now agrees with access.rs (never a write there) |
 | `ShaclValidate` | false | None | `validation:read` | true | false | false | Snapshot |  |
-| `IcvConfigure` | ~true | None | `security:admin` | true | false | false | Atomic | write per access.rs but absent from wal.rs durable set (EG-P0-3); a build without `security` drops audit entirely |
+| `IcvConfigure` | true | GraphRedb | `security:admin` | true | false | false | Atomic | state-backed MutationBatch |
 | `ShexValidate` | false | None | `validation:read` | true | false | false | Snapshot |  |
 | `CdcRead` | false | None | `cdc:read` | true | false | false | Snapshot |  |
-| `RegisterContinuousQuery` | ~true | None | `cdc:admin` | true | false | false | Atomic | NOT present in access.rs's write classifier at all -- flagged as a possible access.rs coverage gap |
+| `RegisterContinuousQuery` | true | ControlRedb | `cdc:admin` | true | false | false | Saga | opaque prepared/committed session-control MutationBatch |
 | `ReadContinuousQuery` | false | None | `cdc:read` | true | false | false | Snapshot |  |
-| `DropContinuousQuery` | ~true | None | `cdc:admin` | true | false | false | Atomic | NOT present in access.rs's write classifier at all -- flagged as a possible access.rs coverage gap |
+| `DropContinuousQuery` | true | ControlRedb | `cdc:admin` | true | false | false | Saga | opaque prepared/committed session-control MutationBatch |
 | `Watch` | false | None | `cdc:read` | false | false | false | None | opens a push subscription; not a snapshot read nor a mutation |
-| `RegisterTrigger` | ~true | None | `cdc:admin` | true | false | false | Atomic | NOT present in access.rs's write classifier at all -- flagged as a possible access.rs coverage gap |
-| `DropTrigger` | ~true | None | `cdc:admin` | true | false | false | Atomic | NOT present in access.rs's write classifier at all -- flagged as a possible access.rs coverage gap |
+| `RegisterTrigger` | true | ControlRedb | `cdc:admin` | true | false | false | Saga | opaque prepared/committed session-control MutationBatch |
+| `DropTrigger` | true | ControlRedb | `cdc:admin` | true | false | false | Saga | opaque prepared/committed session-control MutationBatch |
 | `ListTriggers` | false | None | `cdc:read` | true | false | false | Snapshot |  |
 | `FiredTriggers` | false | None | `cdc:read` | true | false | false | Snapshot |  |
-| `CepSubscribe` | ~true | None | `cep:admin` | true | false | false | Atomic | NOT present in access.rs's write classifier at all -- flagged as a possible access.rs coverage gap |
+| `CepSubscribe` | true | ControlRedb | `cep:admin` | true | false | false | Saga | opaque prepared/committed session-control MutationBatch |
 | `CepPoll` | false | None | `cep:read` | true | false | false | Snapshot |  |
-| `CepUnsubscribe` | ~true | None | `cep:admin` | true | false | false | Atomic | NOT present in access.rs's write classifier at all -- flagged as a possible access.rs coverage gap |
+| `CepUnsubscribe` | true | ControlRedb | `cep:admin` | true | false | false | Saga | opaque prepared/committed session-control MutationBatch |
 | `MineAssociate` | ~true | GraphRedb | `mining:write` | false | true | false | Atomic | mutates is a conservative upper bound: the REAL access::requires_write(m) returns the runtime `writeback` field |
 | `MineCluster` | ~true | GraphRedb | `mining:write` | false | true | false | Atomic | mutates is a conservative upper bound: the REAL access::requires_write(m) returns the runtime `writeback` field |
 | `MineAnomaly` | ~true | GraphRedb | `mining:write` | false | true | false | Atomic | mutates is a conservative upper bound: the REAL access::requires_write(m) returns the runtime `writeback` field |
@@ -351,10 +359,10 @@
 | `MineReduce` | ~true | GraphRedb | `mining:write` | false | true | false | Atomic | mutates is a conservative upper bound: the REAL access::requires_write(m) returns the runtime `writeback` field |
 | `GraphLearnFit` | ~true | GraphRedb | `graphlearn:write` | false | true | false | Atomic | mutates is a conservative upper bound: the REAL access::requires_write(m) returns the runtime `writeback` field |
 | `GraphLearnPredict` | ~true | GraphRedb | `graphlearn:write` | false | true | false | Atomic | mutates is a conservative upper bound: the REAL access::requires_write(m) returns the runtime `writeback` field |
-| `MineSequence` | ~true | GraphRedb | `mining:write` | false | true | false | Atomic | mutates is a conservative upper bound (writeback-conditional per access.rs); wal.rs::is_durable_mutation now covers the writeback=true case (EG-P0-3 fixed) |
-| `MineForecast` | ~true | GraphRedb | `mining:write` | false | true | false | Atomic | mutates is a conservative upper bound (writeback-conditional per access.rs); wal.rs::is_durable_mutation now covers the writeback=true case (EG-P0-3 fixed) |
-| `MineText` | ~true | GraphRedb | `mining:write` | false | true | false | Atomic | mutates is a conservative upper bound (writeback AND non-tfidf/non-motif algorithm-conditional per access.rs); wal.rs::is_durable_mutation now covers the lda/nmf writeback=true case (EG-P0-3 fixed) |
-| `MineSubgraph` | ~true | GraphRedb | `mining:write` | false | true | false | Atomic | mutates is a conservative upper bound (writeback AND non-tfidf/non-motif algorithm-conditional per access.rs); wal.rs::is_durable_mutation now covers the gspan writeback=true case (EG-P0-3 fixed) |
+| `MineSequence` | ~true | GraphRedb | `mining:write` | false | true | false | Atomic | mutates is a conservative upper bound; writeback=true enters the canonical durable mutation path |
+| `MineForecast` | ~true | GraphRedb | `mining:write` | false | true | false | Atomic | mutates is a conservative upper bound; writeback=true enters the canonical durable mutation path |
+| `MineText` | ~true | GraphRedb | `mining:write` | false | true | false | Atomic | mutates is a conservative upper bound; writeback=true for lda/nmf enters the canonical durable mutation path |
+| `MineSubgraph` | ~true | GraphRedb | `mining:write` | false | true | false | Atomic | mutates is a conservative upper bound; writeback=true for gspan enters the canonical durable mutation path |
 | `MineEntityResolve` | ~true | GraphRedb | `mining:write` | false | true | false | Atomic | mutates is a conservative upper bound: the REAL access::requires_write(m) returns the runtime `writeback` field |
 | `MineCausalImpact` | ~true | GraphRedb | `mining:write` | false | true | false | Atomic | mutates is a conservative upper bound: the REAL access::requires_write(m) returns the runtime `writeback` field |
 | `MineProcess` | ~true | GraphRedb | `mining:write` | false | true | false | Atomic | mutates is a conservative upper bound: the REAL access::requires_write(m) returns the runtime `writeback` field |

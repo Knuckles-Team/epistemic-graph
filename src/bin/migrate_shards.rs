@@ -1,13 +1,16 @@
 //! `migrate-shards` — OFFLINE K-shard migration CLI (CONCEPT:EG-KG.sharding.atomic-shard-swap, M3).
 //!
-//! Rewrites an existing durable redb store (`graph.redb` for K=1, or a
-//! `graph-<n>.redb` set) into a NEW shard count K, routing every graph with the SAME
-//! EG-026 `FNV-1a(name) % K`, so the running engine finds each graph in the shard it
-//! looks for. Run with the engine STOPPED (redb holds an exclusive per-file lock).
+//! Rewrites an existing durable redb store into the canonical `graph-<n>.redb`
+//! layout, routing every graph with the SAME EG-026 `FNV-1a(name) % K`. It is the
+//! sole one-time reader for the retired unindexed `graph.redb` layout. Run with the
+//! engine STOPPED (redb holds an exclusive per-file lock).
 //!
 //! ```text
 //! # In-place (default): swap shard files, leave a recoverable backup.
 //! migrate-shards --persist-dir /var/lib/epistemic-graph --shards 4
+//!
+//! # Retired K=1 filename -> current K=1 filename.
+//! migrate-shards --persist-dir /var/lib/epistemic-graph --shards 1
 //!
 //! # Out-of-place: write the new K into a fresh dir, swap manually after verifying.
 //! migrate-shards --persist-dir /var/lib/eg --shards 4 --dest-dir /var/lib/eg-k4
@@ -29,7 +32,7 @@ struct Args {
     #[arg(long, env = "GRAPH_SERVICE_PERSIST_DIR")]
     persist_dir: String,
 
-    /// Target shard count K to migrate to (clamped to >= 1).
+    /// Target shard count K to migrate to (1..=64).
     #[arg(long)]
     shards: usize,
 

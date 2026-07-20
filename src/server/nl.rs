@@ -66,9 +66,7 @@ struct NlSettings {
     api_key_env: Option<String>,
     /// Static headers sent on every request (e.g. a gateway client-id header).
     headers: Vec<(String, String)>,
-    /// Per-endpoint TLS: accept invalid/self-signed certs (internal endpoints only).
-    tls_insecure: bool,
-    /// Per-endpoint TLS: extra PEM CA bundle path trusted on top of the webpki roots.
+    /// Per-endpoint PEM CA bundle path. Verification is always enabled.
     tls_ca_path: Option<String>,
     /// OAuth2 client-credentials token source (mints a bearer instead of a static key).
     oauth2: Option<OAuth2Settings>,
@@ -78,7 +76,6 @@ struct NlSettings {
 const ENDPOINT_ENV: &str = "EPISTEMIC_GRAPH_NL_ENDPOINT";
 const MODEL_ENV: &str = "EPISTEMIC_GRAPH_NL_MODEL";
 const API_KEY_ENV_ENV: &str = "EPISTEMIC_GRAPH_NL_API_KEY_ENV";
-const TLS_INSECURE_ENV: &str = "EPISTEMIC_GRAPH_NL_TLS_INSECURE";
 const TLS_CA_ENV: &str = "EPISTEMIC_GRAPH_NL_TLS_CA";
 
 /// Build the standalone config default planner (CONCEPT:EG-KG.query.fence-stripper). Reads config +
@@ -112,7 +109,6 @@ fn build_default_from_config() -> Option<Arc<dyn NlPlanner>> {
     });
     let planner = UreqNlPlanner::new(settings.endpoint, settings.model, api_key)
         .with_headers(settings.headers)
-        .with_tls_insecure(settings.tls_insecure)
         .with_tls_ca_path(settings.tls_ca_path)
         .with_oauth2(oauth2);
     Some(Arc::new(planner) as Arc<dyn NlPlanner>)
@@ -138,11 +134,9 @@ fn load_or_scaffold_settings() -> NlSettings {
         scaffold_minimal_config();
     }
 
-    let env_tls_insecure = std::env::var(TLS_INSECURE_ENV)
-        .ok()
-        .filter(|s| !s.is_empty())
-        .map(|v| parse_bool(&v));
-    let env_tls_ca = std::env::var(TLS_CA_ENV).ok().filter(|s| !s.is_empty());
+    let env_tls_ca = [TLS_CA_ENV, "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE"]
+        .into_iter()
+        .find_map(|name| std::env::var(name).ok().filter(|value| !value.is_empty()));
 
     let mut settings = from_file.unwrap_or_else(NlSettings::empty);
 
@@ -156,9 +150,6 @@ fn load_or_scaffold_settings() -> NlSettings {
     if env_key_env.is_some() {
         settings.api_key_env = env_key_env;
     }
-    if let Some(insecure) = env_tls_insecure {
-        settings.tls_insecure = insecure;
-    }
     if let Some(ca) = env_tls_ca {
         settings.tls_ca_path = Some(ca);
     }
@@ -166,14 +157,6 @@ fn load_or_scaffold_settings() -> NlSettings {
         settings.model = "gpt-4o-mini".to_string();
     }
     settings
-}
-
-/// Parse a JSON-ish boolean string (`true`/`1`/`yes`/`on`, case-insensitive).
-fn parse_bool(v: &str) -> bool {
-    matches!(
-        v.trim().to_ascii_lowercase().as_str(),
-        "1" | "true" | "yes" | "on"
-    )
 }
 
 impl NlSettings {
@@ -184,7 +167,6 @@ impl NlSettings {
             model: String::new(),
             api_key_env: None,
             headers: Vec::new(),
-            tls_insecure: false,
             tls_ca_path: None,
             oauth2: None,
         }
@@ -219,7 +201,8 @@ fn find_config_file() -> Option<std::path::PathBuf> {
 /// Parse the LLM settings out of an `agent-utilities` `config.json`. Tolerant of layout:
 /// looks under a top-level `nl_query` or `llm` object (then the bare top level) for the
 /// `endpoint`/`model`/`api_key_env` string keys plus the optional `headers` map,
-/// `tls_insecure`/`tls_ca_path`, and `oauth2` client-credentials block.
+/// `tls_ca_path`, and `oauth2` client-credentials block. Certificate
+/// verification is always enabled; private roots are supplied through a CA bundle.
 fn parse_config(path: &std::path::Path) -> Option<NlSettings> {
     let text = std::fs::read_to_string(path).ok()?;
     let json: serde_json::Value = serde_json::from_str(&text).ok()?;
@@ -241,10 +224,6 @@ fn parse_config(path: &std::path::Path) -> Option<NlSettings> {
         })
         .unwrap_or_default();
 
-    let tls_insecure = section
-        .get("tls_insecure")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
     let tls_ca_path = getstr("tls_ca_path").filter(|s| !s.is_empty());
 
     // OAuth2 client-credentials block — requires token_url + client_id + client_secret_env.
@@ -271,7 +250,6 @@ fn parse_config(path: &std::path::Path) -> Option<NlSettings> {
         model: getstr("model").unwrap_or_default(),
         api_key_env: getstr("api_key_env"),
         headers,
-        tls_insecure,
         tls_ca_path,
         oauth2,
     })
@@ -303,9 +281,8 @@ fn scaffold_minimal_config() {
     keyless endpoint).",
             "_headers_comment": "Optional `headers`: a string→string map sent on every request \
     (e.g. {\"X-Client-Id\": \"my-service\"} for a gateway that requires a static client-id header).",
-            "_tls_comment": "Optional per-endpoint TLS: `tls_insecure` (bool) accepts a \
-    self-signed cert on a trusted internal endpoint; `tls_ca_path` trusts an extra PEM CA \
-    bundle. Also settable via EPISTEMIC_GRAPH_NL_TLS_INSECURE / EPISTEMIC_GRAPH_NL_TLS_CA.",
+            "_tls_comment": "Use `tls_ca_path` (or EPISTEMIC_GRAPH_NL_TLS_CA) for \
+    private trust. Certificate verification is always enabled.",
             "_oauth2_comment": "Optional `oauth2` client-credentials block minting a short-lived \
     bearer instead of a static key: {\"token_url\": \"...\", \"client_id\": \"...\", \
     \"client_secret_env\": \"NL_OAUTH_CLIENT_SECRET\", \"scope\": \"api://x/.default\", \
@@ -329,16 +306,6 @@ mod tests {
     }
 
     #[test]
-    fn parse_bool_recognizes_truthy_values() {
-        for t in ["1", "true", "TRUE", "yes", "On"] {
-            assert!(parse_bool(t), "{t} should be true");
-        }
-        for f in ["0", "false", "no", "", "off"] {
-            assert!(!parse_bool(f), "{f} should be false");
-        }
-    }
-
-    #[test]
     fn parse_config_reads_headers_tls_and_oauth2() {
         let path = write_tmp(
             "eg_nl_full_config.json",
@@ -347,7 +314,6 @@ mod tests {
                 "endpoint": "https://gw.arpa/v1/chat/completions",
                 "model": "qwen",
                 "headers": {"X-Client-Id": "svc-42"},
-                "tls_insecure": true,
                 "tls_ca_path": "/etc/ssl/internal-ca.pem",
                 "oauth2": {
                   "token_url": "https://idp/token",
@@ -365,7 +331,6 @@ mod tests {
             s.headers,
             vec![("X-Client-Id".to_string(), "svc-42".to_string())]
         );
-        assert!(s.tls_insecure);
         assert_eq!(s.tls_ca_path.as_deref(), Some("/etc/ssl/internal-ca.pem"));
         let o = s.oauth2.expect("oauth2 parsed");
         assert_eq!(o.token_url, "https://idp/token");
@@ -375,14 +340,13 @@ mod tests {
     }
 
     #[test]
-    fn parse_config_defaults_are_inert_and_backward_compatible() {
+    fn parse_config_defaults_are_inert() {
         let path = write_tmp(
             "eg_nl_minimal_config.json",
             r#"{"nl_query": {"endpoint": "http://x/v1", "model": "m"}}"#,
         );
         let s = parse_config(&path).expect("parsed");
         assert!(s.headers.is_empty());
-        assert!(!s.tls_insecure);
         assert!(s.tls_ca_path.is_none());
         assert!(s.oauth2.is_none());
         let _ = std::fs::remove_file(&path);

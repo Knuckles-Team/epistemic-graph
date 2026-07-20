@@ -9,15 +9,26 @@
 //! the data lives at the bottom of the DAG, the logic stays where it belongs.
 
 pub mod acl;
+pub mod change_envelope;
 // CONCEPT:EG-KG.compute.uncertainty-values — probabilistic / uncertainty VALUE (distribution-valued
 // properties). A stored value at the bottom of the DAG, NOT a wire `Op`.
 pub mod distribution;
+// CONCEPT:EG-KG.compute.epistemic-operations-protocol — strict shared DTOs for
+// RequestContext, mutation/ingestion, work, artifact, query, job, and trace outcomes.
+pub mod epistemic_operations;
+pub mod epistemic_operations_manifest;
 // CONCEPT:INT-P2-1 — the durable analytics-job plane's wire op (`JobOp`), gated
 // `jobs`. Lives here (not in `eg-jobs`, which sits ABOVE eg-core in the DAG) for the
 // SAME reason `acl::RbacAdminOp` does: `protocol::Method::AnalyticsJob` carries it
 // over the wire, and `protocol` is bottom-of-DAG. Pure serde — no dep.
 #[cfg(feature = "jobs")]
 pub mod jobs;
+#[cfg(feature = "knowledge-batch")]
+pub mod knowledge_stream;
+#[cfg(feature = "modality-serving")]
+pub mod modality;
+pub mod msgpack;
+pub mod mutation_batch;
 pub mod protocol;
 pub mod row_predicate;
 pub mod types;
@@ -28,4 +39,25 @@ pub mod wire;
 pub use row_predicate::{CmpOp, RowPredicate};
 
 // CONCEPT:EG-KG.compute.uncertainty-values — surface the distribution VALUE at the crate root for callers.
+pub use change_envelope::{
+    BlobReference, ChangeCursor, ChangeEnvelope, ChangeEnvelopeCommit, ChangeEnvelopeRecord,
+    ContentVersion, ContentVersionPosition, CursorPosition, EvidenceRecord, FeatureRecord,
+    LineageRecord, MaterialOperation, PolicyRecord, PrivacyAttestation, CHANGE_ENVELOPE_VERSION,
+};
 pub use distribution::Distribution;
+#[cfg(feature = "knowledge-batch")]
+pub use knowledge_stream::{
+    KnowledgeResultFamily, KnowledgeStreamBatchV1, KnowledgeStreamCursorV1,
+    KnowledgeStreamProjection, KnowledgeStreamQuery, KnowledgeStreamRequestV1,
+    KNOWLEDGE_STREAM_SCHEMA_VERSION,
+};
+#[cfg(feature = "modality-serving")]
+pub use modality::{
+    ServedModalityIngestItem, ServedModalityKind, ServedModalityOp, ServedNativePredicate,
+    ServedSegmentKind,
+};
+pub use mutation_batch::{
+    MutationBatch, MutationBatchCommit, MutationBatchRecord, MutationBatchStatus,
+    MutationOperation, MutationOutboxIntent, MutationOutboxRecord, MutationRequestContext,
+    MutationSurface, MutationVersionScope, MUTATION_BATCH_VERSION, NON_GRAPH_SOURCE_VERSION,
+};

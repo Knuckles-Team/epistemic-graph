@@ -27,6 +27,8 @@
     feature = "rdf"
 ))]
 
+mod common;
+
 use std::sync::Arc;
 
 use dashmap::DashMap;
@@ -34,10 +36,9 @@ use serde_json::json;
 use tokio::sync::{RwLock, Semaphore};
 
 use epistemic_graph::channels::ChannelManager;
-use epistemic_graph::isolation::IsolationLayer;
 use epistemic_graph::protocol::{Method, Request, Response, ResultPayload};
 use epistemic_graph::registry::GraphRegistry;
-use epistemic_graph::server::{compute_auth_token, dispatch, ServerState};
+use epistemic_graph::server::{dispatch, ServerState};
 
 const SECRET: &str = "usecase-lifecycle-secret";
 
@@ -48,19 +49,16 @@ fn state() -> Arc<RwLock<ServerState>> {
             epistemic_graph::server::persistence::cold_offload::ColdTenantTracker::new(),
         ),
         registry: GraphRegistry::new(),
-        isolation: IsolationLayer::new(),
+        isolation: common::current_isolation(),
         channels: ChannelManager::new(),
         auth_secret: SECRET.to_string(),
         persist_dir: None,
         persistence: None,
-        redb_authoritative: false,
         max_in_flight: Arc::new(Semaphore::new(16)),
         read_admission: Arc::new(Semaphore::new(16)),
         per_graph_inflight: Arc::new(DashMap::new()),
         per_graph_inflight_limit: 8,
-        write_coalescer: Arc::new(
-            epistemic_graph::write_coalescer::WriteCoalescerRegistry::from_env(),
-        ),
+        write_coalescer: Arc::new(epistemic_graph::write_coalescer::WriteCoalescerRegistry::new()),
         open_txns: Arc::new(DashMap::new()),
         txn_id_gen: Arc::new(epistemic_graph::server::txn::TxnIdGen::default()),
         txn_ttl_secs: 300,
@@ -76,8 +74,6 @@ fn state() -> Arc<RwLock<ServerState>> {
         multi_raft: None,
         #[cfg(feature = "tsdb")]
         tsdb_store: None,
-        #[cfg(feature = "rdf-redb")]
-        rdf_quads: None,
         #[cfg(feature = "streaming")]
         cdc: Some(Arc::new(epistemic_graph::server::cdc::CdcHub::new())),
         #[cfg(feature = "wasm-udf")]
@@ -90,23 +86,13 @@ fn state() -> Arc<RwLock<ServerState>> {
         foreign_sources: Arc::new(DashMap::new()),
         #[cfg(feature = "kv")]
         kv: None,
-        #[cfg(feature = "dataset-handle")]
-        dataset_handles: std::sync::Arc::new(
-            epistemic_graph::server::dataset_handle::DatasetHandleRegistry::new(),
-        ),
         #[cfg(feature = "lake")]
         lake: std::sync::Arc::new(epistemic_graph::server::lake::LakeManager::new()),
     }))
 }
 
 fn req(id: u64, method: Method) -> Request {
-    Request {
-        id,
-        graph: "__commons__".into(),
-        auth_token: compute_auth_token(SECRET, id),
-        agent_id: None,
-        method,
-    }
+    common::signed_request(SECRET, id, "__commons__", method)
 }
 
 fn pack(v: serde_json::Value) -> Vec<u8> {
@@ -157,7 +143,6 @@ async fn hybrid_read(state: &Arc<RwLock<ServerState>>, id: u64) -> Vec<String> {
             id,
             Method::UnifiedQueryText {
                 text: "MATCH (:Sensor) |> RANK BY ~[1.0,0.0] |> LIMIT 10".into(),
-                reorder_filter_selectivity: None,
             },
         ),
     )
@@ -296,19 +281,8 @@ async fn validate_commit_infer_reindex_under_concurrency_eg438() {
             ontology: String::new(),
         },
     ]);
-    let inferred = unified_ids(
-        &dispatch(
-            &state,
-            req(
-                17,
-                Method::UnifiedQuery {
-                    plan: reason,
-                    reorder_filter_selectivity: None,
-                },
-            ),
-        )
-        .await,
-    );
+    let inferred =
+        unified_ids(&dispatch(&state, req(17, Method::UnifiedQuery { plan: reason })).await);
     assert_eq!(
         inferred,
         vec!["s1".to_string()],

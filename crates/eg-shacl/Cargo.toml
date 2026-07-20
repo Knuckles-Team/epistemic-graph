@@ -13,7 +13,7 @@
 name = "eg-shacl"
 version = "0.1.0"
 edition = "2021"
-authors = ["Audel Rouhi <knucklessg1@gmail.com>"]
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
 description = "Pure-Rust SHACL Core validation engine for the epistemic-graph engine (CONCEPT:EG-132) — parses an RDF shapes graph (node/property shapes, targets, predicate paths, cardinality/datatype/class/nodeKind/range/string/in/hasValue/logical/node constraints) and validates an RDF data graph, producing a serde-serializable sh:ValidationReport. Reuses eg-rdf's oxrdf term/graph model; NO C/native deps."
 license = "MIT"
 

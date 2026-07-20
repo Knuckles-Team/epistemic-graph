@@ -1,21 +1,44 @@
-//! The video modality's stored value model (CONCEPT:E4 follow-up — image/audio/video
-//! evidence) — metadata + a content-addressed blob reference + an optional shot/scene
-//! index, deliberately NOT decoded frames.
-//!
-//! [`VideoData`] mirrors `eg-image::ImageData`/`eg-audio::AudioData`'s shape:
-//! `duration_ms` is read from a REAL MP4/ISOBMFF `moov/mvhd` box
-//! (`crate::header::read_mp4_duration_ms`) — never fabricated — and `shots` is an
-//! OPTIONAL index of named time ranges supplied by an external extractor (a
-//! shot-boundary detector, a scene-segmentation pass, a human annotation, …); this
-//! crate never invents one.
+//! Source-free normalized video tracks, frames, and governed shot ranges.
 
 use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TrackKind {
+    Video,
+    Audio,
+    Subtitle,
+    Metadata,
+    Unknown,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VideoTrack {
+    pub track_id: u32,
+    pub kind: TrackKind,
+    pub codec_fourcc: [u8; 4],
+    pub timescale: u32,
+    pub width: u16,
+    pub height: u16,
+    /// Visual sample-entry pixel depth. Non-video tracks use zero.
+    pub pixel_depth: u16,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VideoFrame {
+    pub track_id: u32,
+    pub frame_number: u64,
+    pub start_ms: u64,
+    pub end_ms: u64,
+    pub byte_offset: u64,
+    pub byte_length: u32,
+    pub keyframe: bool,
+}
 
 /// One named shot/scene time range inside a video (milliseconds from the start), as
 /// supplied by an external extractor.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct VideoShot {
-    /// A caller-supplied label ("scene-1", a shot-detector index, …). Optional.
+    /// Optional opaque label reference. Governed serving rejects display text.
     #[serde(default)]
     pub label: Option<String>,
     pub start_ms: u64,
@@ -40,16 +63,13 @@ impl VideoShot {
     }
 }
 
-/// The video modality's stored value: real duration + a content-addressed blob
-/// reference + an optional, extractor-supplied shot/scene index. No decoded frames —
-/// see module docs.
+/// The video modality's stored value. Encoded bytes and decoded pixel buffers remain
+/// outside this serializable record.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct VideoData {
     pub duration_ms: u64,
-    /// Frames per second, when known. `None` when not supplied/derivable from the
-    /// header this crate reads (frame rate lives in per-track `stbl`/`stts` boxes,
-    /// which this metadata-level parser does not walk — a documented follow-up, see
-    /// crate docs).
+    /// Frames per second, derived by the native runtime or supplied with a governed
+    /// directly constructed value.
     #[serde(default)]
     pub frame_rate: Option<f64>,
     /// Content address of the ORIGINAL video bytes, resolvable through the engine's
@@ -59,6 +79,8 @@ pub struct VideoData {
     /// with no detected/known shots yet).
     #[serde(default)]
     pub shots: Vec<VideoShot>,
+    pub tracks: Vec<VideoTrack>,
+    pub frames: Vec<VideoFrame>,
 }
 
 impl VideoData {
@@ -70,6 +92,8 @@ impl VideoData {
             frame_rate: None,
             blob_ref: blob_ref.into(),
             shots: Vec::new(),
+            tracks: Vec::new(),
+            frames: Vec::new(),
         }
     }
 
@@ -83,13 +107,14 @@ impl VideoData {
         self
     }
 
-    /// Build a `VideoData` from REAL MP4/ISOBMFF bytes: parses the `moov/mvhd` box for
-    /// `duration_ms` (never fabricated), content-addresses the bytes for `blob_ref`,
-    /// and attaches the given (externally supplied, possibly empty) shot index
-    /// verbatim. `frame_rate` stays `None` (this metadata-level parser does not walk
-    /// per-track `stbl` boxes — see the struct docs). Returns `None` if no `moov/
-    /// mvhd` box is found — a caller that already knows the duration from elsewhere
-    /// can still build one directly via [`VideoData::new`].
+    pub fn with_native_index(mut self, tracks: Vec<VideoTrack>, frames: Vec<VideoFrame>) -> Self {
+        self.tracks = tracks;
+        self.frames = frames;
+        self
+    }
+
+    /// Header-only value construction. Production serving uses
+    /// `NativeVideoRuntime` so tracks and frames are mandatory.
     pub fn from_bytes(bytes: &[u8], shots: Vec<VideoShot>) -> Option<Self> {
         let duration_ms = crate::header::read_mp4_duration_ms(bytes)?;
         Some(Self {
@@ -97,6 +122,8 @@ impl VideoData {
             frame_rate: None,
             blob_ref: crate::header::content_hash(bytes),
             shots,
+            tracks: Vec::new(),
+            frames: Vec::new(),
         })
     }
 }
@@ -116,7 +143,11 @@ mod tests {
     fn serde_round_trips() {
         let v = VideoData::new(9000, "hash1")
             .with_frame_rate(29.97)
-            .with_shots(vec![VideoShot::labeled("scene-1", 0, 3000)]);
+            .with_shots(vec![VideoShot::labeled(
+                "eg:label:0000000000000001",
+                0,
+                3000,
+            )]);
         let json = serde_json::to_string(&v).unwrap();
         let back: VideoData = serde_json::from_str(&json).unwrap();
         assert_eq!(v, back);

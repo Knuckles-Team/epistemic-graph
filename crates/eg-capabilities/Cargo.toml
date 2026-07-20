@@ -2,7 +2,7 @@
 name = "eg-capabilities"
 version = "0.1.0"
 edition = "2021"
-authors = ["Audel Rouhi <knucklessg1@gmail.com>"]
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
 description = "Machine-checked MethodPolicy capability ledger for the epistemic-graph wire protocol (CONCEPT:EG-P0-1)"
 license = "MIT"
 
@@ -63,3 +63,8 @@ default = []
 # enable one without the other (this feature enables `eg-types/jobs` itself, so a
 # caller only ever needs to request THIS one).
 jobs = ["eg-types/jobs"]
+# Mirrors the facade/eg-types native governed KnowledgeBatch wire contract.
+knowledge-batch = ["eg-types/knowledge-batch"]
+# Mirrors the facade/eg-types governed modality feature so the exhaustive policy
+# match sees `Method::ServedModality` exactly when that wire surface exists.
+modality-serving = ["eg-types/modality-serving"]

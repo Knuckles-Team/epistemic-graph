@@ -11,15 +11,21 @@
 //!
 //! The index is built from the in-RAM embeddings on first use, BUT once persisted
 //! (`save`) it reopens via `eg_ann::open` WITHOUT rebuilding from raw vectors — the
-//! no-rebuild win that distinguishes this from the hnsw_rs path.
+//! no-rebuild behavior that distinguishes it from transient indexes.
 
 use eg_ann::{IvfPq, IvfPqParams, SearchParams};
 use std::collections::HashMap;
+use std::fs::File;
+use std::io::Write;
 use std::path::Path;
 
 /// Train + switch to the IVF-PQ index once the store holds at least this many
 /// embeddings. Below it, brute-force cosine is both faster and exact.
 pub const ANN_BUILD_THRESHOLD: usize = 4096;
+const ID_MAP_MAGIC: &[u8] = b"EGIDS\x01\0";
+const MAX_ID_MAP_BYTES: u64 = 64 * 1024 * 1024;
+const MAX_IDS: usize = 5_000_000;
+const MAX_NODE_ID_BYTES: usize = 4_096;
 
 /// Target IVF cells ≈ √N, clamped to a sane range for small/medium stores.
 fn nlist_for(n: usize) -> usize {
@@ -229,15 +235,22 @@ impl AnnIndex {
     pub fn save(&self, dir: &Path) -> std::io::Result<()> {
         eg_ann::save(&self.index, dir)?;
         // The String id map lives beside the codes (eg-ann is integer-keyed).
-        let map_bytes = bincode_serialize_ids(&self.row_to_id);
-        std::fs::write(dir.join("ids.bin"), map_bytes)
+        let map_bytes = encode_ids(&self.row_to_id)?;
+        write_atomic(&dir.join("ids.bin"), &map_bytes)
     }
 
     /// Reopen a persisted index WITHOUT rebuilding from raw vectors.
     pub fn load(dir: &Path) -> std::io::Result<Self> {
         let index = eg_ann::open(dir)?;
         let dim = index.dim;
-        let row_to_id = bincode_deserialize_ids(&std::fs::read(dir.join("ids.bin"))?)?;
+        let id_path = dir.join("ids.bin");
+        if std::fs::metadata(&id_path)?.len() > MAX_ID_MAP_BYTES {
+            return Err(invalid_id_map());
+        }
+        let row_to_id = decode_ids(&std::fs::read(id_path)?)?;
+        if row_to_id.len() != index.len() {
+            return Err(invalid_id_map());
+        }
         let mut id_to_row = HashMap::with_capacity(row_to_id.len());
         for (row, id) in row_to_id.iter().enumerate() {
             if !id.is_empty() {
@@ -253,37 +266,125 @@ impl AnnIndex {
     }
 }
 
-fn bincode_serialize_ids(ids: &[String]) -> Vec<u8> {
-    // Hand-rolled length-prefixed encoding (no extra dep): u64 count, then each
-    // u32 len + utf8 bytes.
-    let mut out = Vec::new();
-    out.extend_from_slice(&(ids.len() as u64).to_le_bytes());
-    for s in ids {
-        out.extend_from_slice(&(s.len() as u32).to_le_bytes());
-        out.extend_from_slice(s.as_bytes());
+fn encode_ids(ids: &[String]) -> std::io::Result<Vec<u8>> {
+    if ids.len() > MAX_IDS {
+        return Err(invalid_id_map());
     }
-    out
-}
+    let mut encoded_len = ID_MAP_MAGIC.len() + std::mem::size_of::<u64>();
+    for id in ids {
+        if id.len() > MAX_NODE_ID_BYTES {
+            return Err(invalid_id_map());
+        }
+        encoded_len = encoded_len
+            .checked_add(std::mem::size_of::<u32>())
+            .and_then(|length| length.checked_add(id.len()))
+            .ok_or_else(invalid_id_map)?;
+    }
+    if encoded_len as u64 > MAX_ID_MAP_BYTES {
+        return Err(invalid_id_map());
+    }
 
-fn bincode_deserialize_ids(bytes: &[u8]) -> std::io::Result<Vec<String>> {
-    let err = || std::io::Error::new(std::io::ErrorKind::InvalidData, "corrupt ids.bin");
-    if bytes.len() < 8 {
-        return Err(err());
-    }
-    let count = u64::from_le_bytes(bytes[0..8].try_into().unwrap()) as usize;
-    let mut out = Vec::with_capacity(count);
-    let mut off = 8usize;
-    for _ in 0..count {
-        if off + 4 > bytes.len() {
-            return Err(err());
-        }
-        let len = u32::from_le_bytes(bytes[off..off + 4].try_into().unwrap()) as usize;
-        off += 4;
-        if off + len > bytes.len() {
-            return Err(err());
-        }
-        out.push(String::from_utf8_lossy(&bytes[off..off + len]).into_owned());
-        off += len;
+    let mut out = Vec::with_capacity(encoded_len);
+    out.extend_from_slice(ID_MAP_MAGIC);
+    out.extend_from_slice(&(ids.len() as u64).to_le_bytes());
+    for id in ids {
+        out.extend_from_slice(&(id.len() as u32).to_le_bytes());
+        out.extend_from_slice(id.as_bytes());
     }
     Ok(out)
+}
+
+fn decode_ids(bytes: &[u8]) -> std::io::Result<Vec<String>> {
+    if bytes.len() as u64 > MAX_ID_MAP_BYTES || !bytes.starts_with(ID_MAP_MAGIC) {
+        return Err(invalid_id_map());
+    }
+    let mut offset = ID_MAP_MAGIC.len();
+    let count = usize::try_from(read_u64(bytes, &mut offset)?).map_err(|_| invalid_id_map())?;
+    if count > MAX_IDS || count > bytes.len().saturating_sub(offset) / 4 {
+        return Err(invalid_id_map());
+    }
+    let mut out = Vec::new();
+    out.try_reserve_exact(count).map_err(|_| invalid_id_map())?;
+    for _ in 0..count {
+        let length = read_u32(bytes, &mut offset)? as usize;
+        if length > MAX_NODE_ID_BYTES {
+            return Err(invalid_id_map());
+        }
+        let end = offset.checked_add(length).ok_or_else(invalid_id_map)?;
+        let value = bytes.get(offset..end).ok_or_else(invalid_id_map)?;
+        out.push(
+            std::str::from_utf8(value)
+                .map_err(|_| invalid_id_map())?
+                .to_owned(),
+        );
+        offset = end;
+    }
+    if offset != bytes.len() {
+        return Err(invalid_id_map());
+    }
+    Ok(out)
+}
+
+fn read_u32(bytes: &[u8], offset: &mut usize) -> std::io::Result<u32> {
+    let end = offset.checked_add(4).ok_or_else(invalid_id_map)?;
+    let value = bytes.get(*offset..end).ok_or_else(invalid_id_map)?;
+    *offset = end;
+    Ok(u32::from_le_bytes(
+        value.try_into().map_err(|_| invalid_id_map())?,
+    ))
+}
+
+fn read_u64(bytes: &[u8], offset: &mut usize) -> std::io::Result<u64> {
+    let end = offset.checked_add(8).ok_or_else(invalid_id_map)?;
+    let value = bytes.get(*offset..end).ok_or_else(invalid_id_map)?;
+    *offset = end;
+    Ok(u64::from_le_bytes(
+        value.try_into().map_err(|_| invalid_id_map())?,
+    ))
+}
+
+fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let temporary = path.with_extension("tmp");
+    {
+        let mut file = File::create(&temporary)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+    }
+    std::fs::rename(temporary, path)
+}
+
+fn invalid_id_map() -> std::io::Error {
+    std::io::Error::new(
+        std::io::ErrorKind::InvalidData,
+        "ANN identifier map is invalid or unsupported; rebuild the index",
+    )
+}
+
+#[cfg(test)]
+mod persistence_tests {
+    use super::*;
+
+    #[test]
+    fn identifier_map_is_versioned_and_round_trips() {
+        let ids = vec!["node-a".to_string(), String::new(), "node-c".to_string()];
+        let encoded = encode_ids(&ids).unwrap();
+        assert!(encoded.starts_with(ID_MAP_MAGIC));
+        assert_eq!(decode_ids(&encoded).unwrap(), ids);
+    }
+
+    #[test]
+    fn identifier_map_rejects_unknown_format_and_trailing_bytes() {
+        assert!(decode_ids(&[0; 16]).is_err());
+
+        let mut encoded = encode_ids(&["node-a".to_string()]).unwrap();
+        encoded.push(0);
+        assert!(decode_ids(&encoded).is_err());
+    }
+
+    #[test]
+    fn identifier_map_rejects_unbounded_count_before_allocation() {
+        let mut encoded = ID_MAP_MAGIC.to_vec();
+        encoded.extend_from_slice(&u64::MAX.to_le_bytes());
+        assert!(decode_ids(&encoded).is_err());
+    }
 }

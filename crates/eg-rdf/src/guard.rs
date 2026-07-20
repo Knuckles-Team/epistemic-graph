@@ -10,7 +10,7 @@
 //! The guard is handed, per graph, the pre-change base graph plus the NET additions /
 //! removals a change set would apply, and decides whether the commit is allowed. A
 //! rejection carries a structured [`GuardRejection`] (the violating detail as JSON, so
-//! eg-rdf stays decoupled from the SHACL result types) which [`crate::update::execute_guarded`]
+//! eg-rdf stays decoupled from the SHACL result types) which [`crate::update::execute`]
 //! surfaces as a hard error WITHOUT touching the real store.
 
 use crate::oxrdf::{Graph, Triple};
@@ -20,13 +20,6 @@ use crate::oxrdf::{Graph, Triple};
 /// implementation (e.g. eg-shacl's ICV policy) returns `Ok(())` to allow the commit or a
 /// [`GuardRejection`] to abort it.
 pub trait WriteGuard {
-    /// Whether this guard is doing anything. When `false`, [`crate::update::execute_guarded`]
-    /// skips the (cost-bearing) simulate-and-diff transaction entirely and applies the
-    /// update directly — so an all-`Off` policy is byte-for-byte the plain write path.
-    fn active(&self) -> bool {
-        true
-    }
-
     /// Decide whether the net change to a single graph is allowed. `graph` is the bare
     /// named-graph IRI, or `None` for the default graph. `base` is the graph BEFORE the
     /// change; `additions` / `removals` are the net triples the change set would apply.

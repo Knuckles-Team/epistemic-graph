@@ -22,13 +22,14 @@ enforces the absence of PyO3 in source and built wheels.
 - Client framing: `epistemic_graph/client.py` (`_send`).
 - The "boundary contract" is therefore the **wire protocol** — the `Method`
   enum in `src/protocol.rs` (externally tagged: `{"method": ..., "params": ...}`)
-  and `ResultPayload`. New fields use `#[serde(default)]` for backward
-  compatibility (see `RunDatalogReasoning`).
+  and `ResultPayload`. Contract changes are cut over atomically across every
+  in-repository client; old DTO shapes and serde-default compatibility readers are
+  deleted in the same change.
 
 ## Consequences
 
-- Hardening focuses on the **wire protocol and transport**: schema/version
-  compatibility via serde defaults, HMAC auth, socket permissions, and
+- Hardening focuses on the **wire protocol and transport**: the sole current schema,
+  `eg2.` verification, socket permissions, and
   backpressure — *not* ABI/FFI concerns.
 - The engine can be restarted, replaced, or scaled independently of the Python
   process; many clients (MCP server, CLI, UIs, ingestion) share one engine,
@@ -43,8 +44,8 @@ enforces the absence of PyO3 in source and built wheels.
 
 ## Durability reality (correcting a stale assumption)
 
-> **Updated.** This section previously described the crate as "L1 only", a cache in
-> front of a separate PostgreSQL/LadybugDB durable tier. That **L0/L1/L2/L3** tier
+> **Updated.** This section previously described the crate as a cache in front of
+> a separate PostgreSQL/LadybugDB durable store. That numeric graph-storage hierarchy
 > vocabulary is gone — the engine is now a **durable source of truth in its own
 > right** (CONCEPT:AU-KG.backend.backend-modes, "the flip").
 
@@ -53,9 +54,8 @@ persist dir is the **authoritative store**: an acked
 write is fsynced to redb before the Response (commit-before-ack) and survives `kill -9`.
 The optional Postgres/pg-age, neo4j, falkordb, or ladybug backends in `agent-utilities`
 are now **mirrors** written-through for interop / BI / DR — not the system of record.
-The opt-in `EPISTEMIC_GRAPH_PERSIST_BACKEND=snapshot` mode reverts to the older
-rebuildable-cache behavior, where the local `.mp` snapshot exists only for fast warm
-restart.
+Served mode has one persistence contract: authoritative redb with
+commit-before-ack and a mandatory durable directory.
 
 SPARQL is no longer rudimentary: the engine ships a native **SPARQL 1.1 SELECT** surface
 (spargebra → GraphView scans, CONCEPT:EG-KG.ontology.concept-11) plus an **OWL 2 EL⁺/RL reasoner**
@@ -65,13 +65,14 @@ agent-utilities orchestration layer (request/grant-approval, risk-veto, blast-ra
 See [the master-of-all engine](architecture/engine.md) for the durable + reasoning
 architecture.
 
-## Auth reality (update, EG-P0-5)
+## Auth reality (current)
 
-The HMAC auth this ADR names above as the hardening focus now has a second, opt-in generation
-alongside the original: a v1 signed envelope (`src/server/auth.rs`) that additionally binds
-method/graph/tenant/principal/body-hash/timestamp/nonce under the same HMAC-SHA256 family,
-verified in constant time. It is **off by default** (`EPISTEMIC_GRAPH_REQUIRE_SIGNED=1` to require
-it) and does not change this ADR's core decision or close its transport-security gap — the UDS/TCP
-transport itself is still unencrypted; TLS/mTLS and OIDC principal binding remain future work, not
-part of this workstream. See [Service mode](service_mode.md#authentication-protocol) for the full
-v0/v1 contract.
+The served engine accepts only the `eg2.` verified request-context envelope. It
+binds method/body, graph, tenant, audience, authenticated principal,
+effective agent, roles, scopes, policy version, delegation, timestamp, nonce, and
+idempotency key under HMAC-SHA256 and commits nonce acceptance to durable replay
+state before dispatch. Startup requires the `security` feature, non-empty secret,
+audience/tenant/policy values, durable state, and a trusted signer registry. The
+request envelope does not replace transport confidentiality: routable native TCP
+must use the configured TLS/mTLS boundary. Auxiliary listeners remain loopback-only.
+See [Service mode](service_mode.md#authentication-protocol) for the full contract.

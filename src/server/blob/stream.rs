@@ -15,7 +15,10 @@
 use std::io::{Read, Write};
 
 use super::cdc::Chunker;
-use super::store::{hex_digest, BlobManifest, ChunkStore, CommittedBlob};
+use super::store::{
+    hex_digest, BlobManifest, ChunkStore, CommittedBlob, BLOB_MANIFEST_VERSION,
+    ENGINE_BLOB_OWNER_SCOPE,
+};
 
 /// Bytes pulled from `reader` per fill — refills the boundary-search window above.
 const READ_BLOCK: usize = 256 * 1024;
@@ -79,6 +82,8 @@ pub fn stream_blob_put<R: Read>(
     }
 
     let manifest = BlobManifest {
+        schema_version: BLOB_MANIFEST_VERSION,
+        owner_scope: ENGINE_BLOB_OWNER_SCOPE.to_string(),
         chunks,
         chunk_lens,
         len,

@@ -7,7 +7,6 @@ session-scoped server + `clean_graph` sync client from conftest.py.
 
 import math
 
-
 # ── Market making / microstructure ────────────────────────────────────────
 
 

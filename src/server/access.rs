@@ -1,12 +1,328 @@
 //! Write/read classification + isolation-ACL enforcement for graph ops.
 
+use super::auth::VerifiedRequestContext;
+use crate::graph::{GraphCore, GraphView};
 use crate::isolation::{AccessLevel, IsolationLayer};
-use crate::protocol::Method;
+use crate::protocol::{CypherMode, Method};
+use std::sync::Arc;
+
+/// Verified ownership carried into stores that are not naturally graph-scoped.
+///
+/// A method body's `tenant`, `actor`, namespace, cursor, or job id is never an
+/// authority claim.  This object can only be derived from the verified v2 request
+/// context and supplies stable opaque tenant/actor keys for durable ownership.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct CarrierAuthority {
+    tenant_scope: String,
+    actor_scope: String,
+    owner_scope: String,
+    agent_id: String,
+    admin: bool,
+}
+
+impl CarrierAuthority {
+    pub(crate) fn from_verified(context: &VerifiedRequestContext) -> Result<Self, String> {
+        let tenant = context.tenant().trim();
+        let principal = context.principal().trim();
+        let agent_id = context.agent_id().trim();
+        if tenant.is_empty() || principal.is_empty() || agent_id.is_empty() {
+            crate::metrics::access_denied();
+            return Err(
+                "ACCESS_DENIED: verified data carrier is missing tenant, principal, or actor"
+                    .to_string(),
+            );
+        }
+        let tenant_scope = if opaque_scope(tenant, "carrier-tenant") {
+            tenant.to_string()
+        } else {
+            crate::server::mutation_batch::opaque_coordinator_key(
+                "carrier-tenant",
+                "verified",
+                tenant,
+            )
+        };
+        let actor_scope = if opaque_scope(principal, "principal:sha256") {
+            principal.to_string()
+        } else {
+            context.principal_persistence_id()
+        };
+        let owner_scope = crate::server::mutation_batch::opaque_coordinator_key(
+            "carrier-owner",
+            &tenant_scope,
+            &actor_scope,
+        );
+        let admin = context
+            .claims()
+            .scopes
+            .iter()
+            .any(|scope| scope == "*" || scope == "kg:admin");
+        Ok(Self {
+            tenant_scope,
+            actor_scope,
+            owner_scope,
+            agent_id: agent_id.to_string(),
+            admin,
+        })
+    }
+
+    pub(crate) fn tenant_scope(&self) -> &str {
+        &self.tenant_scope
+    }
+
+    pub(crate) fn actor_scope(&self) -> &str {
+        &self.actor_scope
+    }
+
+    pub(crate) fn owner_scope(&self) -> &str {
+        &self.owner_scope
+    }
+
+    pub(crate) fn agent_id(&self) -> &str {
+        &self.agent_id
+    }
+
+    /// Collision-proof tenant+actor namespace for a caller-controlled local name.
+    pub(crate) fn namespace(&self, domain: &str, local: &str) -> String {
+        crate::server::mutation_batch::opaque_coordinator_key(domain, &self.owner_scope, local)
+    }
+
+    pub(crate) fn owns(&self, tenant_scope: &str, actor_scope: &str) -> bool {
+        self.tenant_scope == tenant_scope && self.actor_scope == actor_scope
+    }
+
+    pub(crate) fn is_admin(&self) -> bool {
+        self.admin
+    }
+
+    pub(crate) fn require_admin(&self, domain: &str) -> Result<(), String> {
+        if self.admin {
+            Ok(())
+        } else {
+            crate::metrics::access_denied();
+            Err(format!(
+                "ACCESS_DENIED: {domain} has no per-row ownership and requires kg:admin"
+            ))
+        }
+    }
+}
+
+fn opaque_scope(value: &str, namespace: &str) -> bool {
+    value
+        .strip_prefix(namespace)
+        .and_then(|rest| rest.strip_prefix(':'))
+        .is_some_and(|digest| {
+            digest.len() == 64
+                && digest
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+        })
+}
+
+/// Any carrier that has not produced the current verified context is denied
+/// before touching engine state.
+pub(crate) fn unauthenticated_carrier_denied(_isolation: &IsolationLayer) -> bool {
+    true
+}
+
+/// The single row-level authority carried by every served graph read.
+///
+/// The actor is derived from [`VerifiedRequestContext`], never from the unsigned
+/// display fields on the request envelope.  When row isolation is active, the
+/// authority projects a detached graph containing only visible nodes, edges whose
+/// two endpoints are visible, and embeddings belonging to visible nodes.  Passing
+/// that projection to primitive/algorithm handlers closes existence, count,
+/// batch, semantic, topology, and path side channels at the lowest shared read
+/// boundary instead of relying on every response serializer to remember a filter.
+#[derive(Clone)]
+pub(crate) struct GraphReadAuthority {
+    carrier: Option<CarrierAuthority>,
+    #[cfg(feature = "security")]
+    actor: String,
+    #[cfg(feature = "security")]
+    isolation: Arc<IsolationLayer>,
+}
+
+impl GraphReadAuthority {
+    /// Build a read authority after request verification and graph ACL checks.
+    /// The context is already verified before this constructor is reachable.
+    pub(crate) fn from_verified(
+        context: &VerifiedRequestContext,
+        isolation: &IsolationLayer,
+    ) -> Result<Self, String> {
+        let carrier = Some(CarrierAuthority::from_verified(context)?);
+        #[cfg(feature = "security")]
+        {
+            let actor = context.agent_id().trim().to_string();
+            if actor.is_empty() {
+                crate::metrics::access_denied();
+                return Err(
+                    "ACCESS_DENIED: verified row-level graph read has no actor identity"
+                        .to_string(),
+                );
+            }
+            return Ok(Self {
+                carrier,
+                actor,
+                isolation: Arc::new(isolation.clone()),
+            });
+        }
+        #[cfg(not(feature = "security"))]
+        {
+            let _ = (context, isolation);
+            Ok(Self { carrier })
+        }
+    }
+
+    /// Verified tenant+actor authority for non-graph legs fused into a graph read.
+    pub(crate) fn carrier(&self) -> Option<&CarrierAuthority> {
+        self.carrier.as_ref()
+    }
+
+    /// Effective actor for graph ACL checks on secondary/cross-graph reads.
+    pub(crate) fn actor(&self) -> Option<&str> {
+        #[cfg(feature = "security")]
+        {
+            return (!self.actor.is_empty()).then_some(self.actor.as_str());
+        }
+        #[cfg(not(feature = "security"))]
+        {
+            None
+        }
+    }
+
+    /// Return the non-empty actor bound to this verified read authority.
+    /// Optional transport identity exists only before authorization; served
+    /// handlers use this strict accessor before cache, RLS, admission, or state
+    /// ownership logic.
+    pub(crate) fn verified_actor(&self) -> Result<&str, String> {
+        #[cfg(feature = "security")]
+        let actor = self.actor.as_str();
+        #[cfg(not(feature = "security"))]
+        let actor = match self.carrier.as_ref() {
+            Some(carrier) => carrier.agent_id(),
+            None => {
+                crate::metrics::access_denied();
+                return Err("ACCESS_DENIED: verified row-level actor is required".to_string());
+            }
+        };
+        if actor.trim().is_empty() {
+            crate::metrics::access_denied();
+            Err("ACCESS_DENIED: verified row-level actor is required".to_string())
+        } else {
+            Ok(actor)
+        }
+    }
+
+    /// Whether per-row projection is required for this request.
+    pub(crate) fn is_active(&self) -> bool {
+        #[cfg(feature = "security")]
+        {
+            true
+        }
+        #[cfg(not(feature = "security"))]
+        {
+            false
+        }
+    }
+
+    /// Apply the same lowest-level visibility predicate used by SQL/Cypher/RDF.
+    pub(crate) fn filter_view(&self, view: &mut GraphView) {
+        #[cfg(feature = "security")]
+        self.isolation.filter_view(&self.actor, view);
+        #[cfg(not(feature = "security"))]
+        let _ = view;
+    }
+
+    /// Evaluate one CDC before/after property blob with the exact graph-row RLS
+    /// predicate.  An absent image is not evidence of visibility; callers normally
+    /// authorize an event when either its before or after image is visible.
+    pub(crate) fn can_see_blob(&self, blob: &[u8]) -> bool {
+        #[cfg(feature = "security")]
+        {
+            return self
+                .isolation
+                .can_see_row(&self.actor, &crate::isolation::row_visibility(blob));
+        }
+        #[cfg(not(feature = "security"))]
+        {
+            let _ = blob;
+            true
+        }
+    }
+
+    /// Return the original core when RLS is inactive, otherwise a detached,
+    /// fully filtered core safe for arbitrary primitive/algorithm reads.
+    pub(crate) fn project_core(&self, core: &Arc<GraphCore>) -> Arc<GraphCore> {
+        if !self.is_active() {
+            return core.clone();
+        }
+
+        let mut view = core.analysis_snapshot();
+        self.filter_view(&mut view);
+        let projected = GraphCore::new();
+
+        // Stable ordering makes serialized projections and adversarial tests
+        // deterministic even though the source maps are concurrent hash maps.
+        let mut node_ids: Vec<String> = view.node_map.keys().cloned().collect();
+        node_ids.sort();
+        for node_id in &node_ids {
+            let properties = view
+                .node_properties
+                .get(node_id)
+                .map(|value| value.as_ref().clone())
+                .unwrap_or_default();
+            projected.add_node(node_id.clone(), properties);
+        }
+
+        let mut edge_keys: Vec<(String, String)> = view.edge_properties.keys().cloned().collect();
+        edge_keys.sort();
+        for (source, target) in edge_keys {
+            if let Some(properties) = view.edge_properties.get(&(source.clone(), target.clone())) {
+                for property in properties {
+                    // Both endpoints survived `filter_view`; failure would indicate
+                    // an internally inconsistent snapshot, so simply omit that edge
+                    // rather than reintroducing a topology side channel.
+                    let _ = projected.add_edge(
+                        source.clone(),
+                        target.clone(),
+                        property.as_ref().clone(),
+                    );
+                }
+            }
+        }
+
+        // Semantic search is a row read too. Rebuild only the visible portion so
+        // ANN candidates cannot reveal hidden ids or alter result cardinality via a
+        // post-hoc serializer filter.
+        {
+            let source = core.semantic_store.read();
+            let mut target = projected.semantic_store.write();
+            for node_id in &node_ids {
+                if let Some(embedding) = source.get_embedding(node_id) {
+                    target.add_embedding(node_id.clone(), embedding);
+                }
+            }
+        }
+
+        // Construction uses the ordinary mutation helpers, which append synthetic
+        // ADD_* records. They are implementation detail, not source history. The
+        // original ledger cannot be safely row-filtered from its unstructured string
+        // representation, so active RLS serves no ledger rather than a fabricated
+        // or cross-row history.
+        projected.ledger.lock().clear();
+
+        Arc::new(projected)
+    }
+}
 
 /// Whether a graph-targeted method mutates the target graph (Write) or only
 /// reads from it (Read). Pure-compute methods (finance, datascience, parse)
 /// never touch graph state and classify as Read.
 pub(crate) fn requires_write(method: &Method) -> bool {
+    #[cfg(feature = "modality-serving")]
+    if let Method::ServedModality { op } = method {
+        return op.mutates();
+    }
     // `AddTriples` / `RemoveTriples` / `DropNamedGraph` (feature `rdf`) mutate the
     // target graph's RDF content (CONCEPT:EG-KG.ontology.kg-native-rdf-sparql / EG-017).
     #[cfg(feature = "rdf")]
@@ -27,6 +343,10 @@ pub(crate) fn requires_write(method: &Method) -> bool {
     ) {
         return true;
     }
+    #[cfg(feature = "sqlite-file")]
+    if matches!(method, Method::ImportSqliteFile { .. }) {
+        return true;
+    }
     // Message-broker admin + publish (CONCEPT:EG-KG.compute.message-broker-exchanges, feature `broker`) all mutate the
     // control graph's exchange/binding/message nodes, so they classify as writes (Write
     // access + WAL record). Consume/ack ride `ClaimNext`/`CompareAndSetNodeFields`,
@@ -35,8 +355,9 @@ pub(crate) fn requires_write(method: &Method) -> bool {
     // L10 (EG-P0-6 security finding): the stream + tag-addressed publisher-confirm/
     // consumer-ack family (`StreamDeclare`/`StreamPublish`/`StreamTrim`/
     // `StreamCommitOffset`/`PublishConfirmed`/`BrokerAckTag`/`BrokerNackTag`/
-    // `PublishIdempotent`) mutates the SAME Outbox control-graph state as the ops
-    // above — `wal.rs::is_durable_mutation` already durable-logs all eight — but was
+    // `BrokerRenewTag`/`PublishIdempotent`) mutates the SAME Outbox control-graph
+    // state as the ops above — `mutation_apply.rs::is_durable_mutation` already
+    // durable-logs all nine — but was
     // previously MISSING from this classifier, so a caller holding only Read access
     // to a graph could invoke them. Added here to close that gap: the ACL
     // classification now matches the durability classification exactly.
@@ -66,6 +387,7 @@ pub(crate) fn requires_write(method: &Method) -> bool {
             | Method::PublishIdempotent { .. }
             | Method::BrokerAckTag { .. }
             | Method::BrokerNackTag { .. }
+            | Method::BrokerRenewTag { .. }
     ) {
         return true;
     }
@@ -80,8 +402,16 @@ pub(crate) fn requires_write(method: &Method) -> bool {
         return sql_is_write(query);
     }
     #[cfg(feature = "cypher")]
-    if let Method::CypherQuery { query } = method {
-        return cypher_is_write(query);
+    if let Method::CypherQuery { query, mode } = method {
+        return match eg_query::classify_cypher(query) {
+            Ok(eg_query::CypherStatementKind::Read) => false,
+            Ok(eg_query::CypherStatementKind::Write) => true,
+            // The dispatcher rejects parser errors and mode mismatches before
+            // authorization. Until then, preserve the caller's more restrictive
+            // declaration rather than accidentally admitting a declared write to
+            // the reserved read lane.
+            Err(_) => matches!(mode, CypherMode::Write),
+        };
     }
     #[cfg(feature = "graphql")]
     if let Method::GraphQl { query, .. } = method {
@@ -157,7 +487,10 @@ pub(crate) fn requires_write(method: &Method) -> bool {
     }
     matches!(
         method,
-        Method::AddNode { .. }
+        Method::BeginTxn { .. }
+            | Method::Rollback { .. }
+            | Method::AddNode { .. }
+            | Method::CreateNodeIfAbsent { .. }
             | Method::RemoveNode { .. }
             | Method::CompareAndSetNodeFields { .. }
             | Method::AddEdge { .. }
@@ -176,17 +509,22 @@ pub(crate) fn requires_write(method: &Method) -> bool {
             | Method::ApplyLedger { .. }
             | Method::CompactNodesByType { .. }
             | Method::RunDatalogReasoning { .. }
+            | Method::ApplyChangeEnvelope { .. }
             | Method::Reconcile { .. }
             | Method::ApplyMutation { .. }
             | Method::ApplyMultisigMutation { .. }
             // X5-enforce (CONCEPT:EG-KG.ontology.rdf-update-guard): configuring the ICV
-            // write-guard's mode/shapes for a graph is a security-relevant admin
-            // action (it can DISABLE enforcement or register a hostile shape), so it
-            // requires Write access on the request's graph — never inferred from Read.
+            // shapes for a graph is a security-relevant operation. Its
+            // `security:admin` capability is enforced before this graph Write check;
+            // the graph ACL then binds that admin operation to its authorized route.
             | Method::IcvConfigure { .. }
-            | Method::ParseRepository { .. }
             | Method::DeleteGraph { .. }
             | Method::ClaimNext { .. }
+            | Method::ClaimWorkItem { .. }
+            | Method::RenewWorkItemLease { .. }
+            | Method::CommitWorkItemResult { .. }
+            | Method::CancelWorkItem { .. }
+            | Method::DeferWorkItem { .. }
             // Agent-memory / scene-graph / trajectory mutations (CONCEPT:EG-KG.memory.eg-batch-decay-caller):
             // each writes nodes/edges (summaries, semantic nodes, decay/evict
             // bookkeeping, scene objects, trajectories/steps) → Write access + WAL
@@ -225,65 +563,6 @@ pub(crate) fn sql_is_write(query: &str) -> bool {
     )
 }
 
-/// Whether a Cypher statement is a WRITE (`CREATE`/`MERGE`/`SET`/`DELETE`/`REMOVE`)
-/// rather than a read-only `MATCH … RETURN` (CONCEPT:EG-KG.query.mirrors-pgwire). The eg-query Cypher
-/// `parse_statement` (the precise read/write split) is private, so this is a robust
-/// surface scan: it walks the text skipping `'…'` / `"…"` / `` `…` `` literals so a
-/// keyword inside a string or a quoted identifier never trips it, then matches a
-/// whole, case-insensitive top-level write keyword. A read never matches (so it keeps
-/// the RLS-aware cached read path); a true write always does.
-///
-/// `REMOVE` is classified here AND parsed by `parse_statement` → `exec_cypher_write`
-/// as a `WriteOp::Remove` (property delete / label removal), so the two stay in lock
-/// step: a `REMOVE` statement always routes to the live write path (CONCEPT:EG-KG.query.cypher-execution).
-#[cfg(feature = "cypher")]
-pub(crate) fn cypher_is_write(query: &str) -> bool {
-    let bytes = query.as_bytes();
-    let mut i = 0usize;
-    let mut word = String::new();
-    let is_write_kw = |w: &str| {
-        matches!(
-            w,
-            "CREATE" | "MERGE" | "SET" | "DELETE" | "REMOVE" | "DETACH"
-        )
-    };
-    while i < bytes.len() {
-        let c = bytes[i];
-        match c {
-            // Skip the body of a string / quoted-identifier literal verbatim.
-            b'\'' | b'"' | b'`' => {
-                let quote = c;
-                i += 1;
-                while i < bytes.len() && bytes[i] != quote {
-                    // backslash escape inside single/double quotes
-                    if bytes[i] == b'\\' && quote != b'`' {
-                        i += 1;
-                    }
-                    i += 1;
-                }
-                i += 1; // consume closing quote
-            }
-            _ if c.is_ascii_alphabetic() || c == b'_' => {
-                word.push(c as char);
-                i += 1;
-                // peek: keep accumulating the word
-                while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') {
-                    word.push(bytes[i] as char);
-                    i += 1;
-                }
-                if is_write_kw(&word.to_ascii_uppercase()) {
-                    return true;
-                }
-                word.clear();
-            }
-            _ => {
-                i += 1;
-            }
-        }
-    }
-    false
-}
-
 /// Whether a GraphQL document is a MUTATION (a write) rather than a `query`/
 /// `subscription` (CONCEPT:EG-KG.query.mirrors-pgwire). Uses eg-graphql's own `parse_operation`, so the
 /// classification matches the executor exactly; an unparseable document is treated as
@@ -298,9 +577,8 @@ pub(crate) fn graphql_is_mutation(query: &str) -> bool {
 
 /// Enforce the isolation ACL for a graph-targeted operation.
 ///
-/// Back-compat invariant: while no identities are registered the layer has no
-/// rules and everything is allowed (single-tenant deployments are unchanged).
-/// Once rules exist, `check_access` decides: peer agent graphs are denied,
+/// A provisioned identity/RBAC policy is mandatory. Once rules exist,
+/// `check_access` decides: peer agent graphs are denied,
 /// managers reach subordinate graphs, team graphs are member-read/manager-write,
 /// the `__commons__` stays open to all authenticated agents.
 pub(crate) fn check_graph_access(
@@ -311,25 +589,49 @@ pub(crate) fn check_graph_access(
     graph_owner: Option<&str>,
     access: AccessLevel,
 ) -> Result<(), String> {
+    check_graph_access_with_policy(
+        isolation,
+        caller,
+        graph_name,
+        graph_type,
+        graph_owner,
+        access,
+    )
+}
+
+fn check_graph_access_with_policy(
+    isolation: &IsolationLayer,
+    caller: Option<&str>,
+    graph_name: &str,
+    graph_type: crate::protocol::GraphType,
+    graph_owner: Option<&str>,
+    access: AccessLevel,
+) -> Result<(), String> {
+    let agent = require_verified_caller(caller)?;
     if !isolation.has_rules() {
-        return Ok(());
+        crate::metrics::access_denied();
+        return Err("ACCESS_DENIED: a provisioned identity/RBAC policy is required".to_string());
     }
-    let agent = caller.unwrap_or("");
     if isolation.check_access(agent, graph_name, graph_type, graph_owner, access) {
         Ok(())
     } else {
         crate::metrics::access_denied();
         Err(format!(
-            "ACCESS_DENIED: agent '{}' lacks {:?} access to graph '{}'",
-            if agent.is_empty() {
-                "<anonymous>"
-            } else {
-                agent
-            },
-            access,
-            graph_name
+            "ACCESS_DENIED: verified principal lacks {access:?} access to graph '{graph_name}'"
         ))
     }
+}
+
+/// Resolve the authenticated ACL actor. Transport objects may exist before
+/// authentication, but an absent or empty identity must never reach ACL, quota,
+/// admission, or durable state as a synthetic bucket.
+fn require_verified_caller(caller: Option<&str>) -> Result<&str, String> {
+    caller
+        .filter(|agent| !agent.trim().is_empty())
+        .ok_or_else(|| {
+            crate::metrics::access_denied();
+            "ACCESS_DENIED: verified caller identity is required".to_string()
+        })
 }
 
 /// L10 (EG-P0-6 security finding): every broker/stream mutating op that
@@ -408,24 +710,38 @@ mod l10_broker_stream_write_tests {
 
     #[test]
     fn broker_ack_tag_requires_write() {
-        assert!(requires_write(&Method::BrokerAckTag { delivery_tag: 1 }));
+        assert!(requires_write(&Method::BrokerAckTag {
+            delivery_tag: 1,
+            consumer: "c1".into(),
+        }));
     }
 
     #[test]
     fn broker_nack_tag_requires_write() {
         assert!(requires_write(&Method::BrokerNackTag {
             delivery_tag: 1,
+            consumer: "c1".into(),
             requeue: true,
             now_ms: 0,
         }));
     }
 
-    /// Cross-check with the durability classifier: every one of these 8 ops is
+    #[test]
+    fn broker_renew_tag_requires_write() {
+        assert!(requires_write(&Method::BrokerRenewTag {
+            delivery_tag: 1,
+            consumer: "c1".into(),
+            now_ms: 0,
+            lease_ms: 1,
+        }));
+    }
+
+    /// Cross-check with the durability classifier: every one of these 9 ops is
     /// ALSO durable, so the ACL-write and WAL-durable classifications agree exactly
     /// (mirrors `durability_closure_tests::assert_write_implies_durable` below).
     #[test]
-    fn all_eight_are_also_durable() {
-        use crate::wal::is_durable_mutation;
+    fn all_nine_are_also_durable() {
+        use crate::mutation_apply::is_durable_mutation;
         let methods = vec![
             Method::StreamDeclare {
                 stream: "s1".into(),
@@ -466,11 +782,21 @@ mod l10_broker_stream_write_tests {
                 ttl_ms: None,
                 now_ms: None,
             },
-            Method::BrokerAckTag { delivery_tag: 1 },
+            Method::BrokerAckTag {
+                delivery_tag: 1,
+                consumer: "c1".into(),
+            },
             Method::BrokerNackTag {
                 delivery_tag: 1,
+                consumer: "c1".into(),
                 requeue: true,
                 now_ms: 0,
+            },
+            Method::BrokerRenewTag {
+                delivery_tag: 1,
+                consumer: "c1".into(),
+                now_ms: 0,
+                lease_ms: 1,
             },
         ];
         for m in &methods {
@@ -501,10 +827,7 @@ pub(crate) fn is_admin_authz_action(action: &str) -> bool {
 
 /// Enforce admin-scope for a method whose `authz_action` [`is_admin_authz_action`].
 ///
-/// Back-compat invariant mirrors [`check_graph_access`]: while no identities are
-/// registered the layer has no rules at all (single-tenant/dev deployments are
-/// unchanged — this is the SAME escape hatch `check_graph_access` uses). Once
-/// identities exist, the caller must hold admin capability
+/// A provisioned identity/RBAC policy is mandatory. The caller must hold admin capability
 /// ([`IsolationLayer::has_admin_capability`] — `System` role, or an explicit RBAC
 /// `Admin` grant) — there is no coarse-ACL fallback for admin actions the way graph
 /// Read/Write has one, so an agent with no admin grant is DENIED, not defaulted
@@ -514,27 +837,92 @@ pub(crate) fn require_admin_capability(
     caller: Option<&str>,
     action: &'static str,
 ) -> Result<(), String> {
+    require_admin_capability_with_policy(isolation, caller, action)
+}
+
+fn require_admin_capability_with_policy(
+    isolation: &IsolationLayer,
+    caller: Option<&str>,
+    action: &'static str,
+) -> Result<(), String> {
+    let agent = require_verified_caller(caller)?;
     if !isolation.has_rules() {
-        return Ok(());
+        crate::metrics::access_denied();
+        return Err(format!(
+            "ACCESS_DENIED: a provisioned identity/RBAC policy is required for '{action}'"
+        ));
     }
-    let agent = caller.unwrap_or("");
     if isolation.has_admin_capability(agent) {
         Ok(())
     } else {
         crate::metrics::access_denied();
         Err(format!(
-            "ACCESS_DENIED: agent '{}' lacks admin capability required for '{action}'",
-            if agent.is_empty() {
-                "<anonymous>"
-            } else {
-                agent
-            },
+            "ACCESS_DENIED: verified principal lacks admin capability required for '{action}'"
         ))
     }
 }
 
+#[cfg(test)]
+mod secure_empty_policy_tests {
+    use super::*;
+    use crate::protocol::GraphType;
+
+    #[test]
+    fn secure_graph_access_fails_closed_when_identity_store_is_empty() {
+        let isolation = IsolationLayer::new();
+        let result = check_graph_access_with_policy(
+            &isolation,
+            Some("agent:a"),
+            "agent:a",
+            GraphType::Agent,
+            Some("agent:a"),
+            AccessLevel::Read,
+        );
+        assert!(result
+            .unwrap_err()
+            .contains("provisioned identity/RBAC policy"));
+    }
+
+    #[test]
+    fn secure_admin_access_fails_closed_when_identity_store_is_empty() {
+        let isolation = IsolationLayer::new();
+        let result =
+            require_admin_capability_with_policy(&isolation, Some("agent:a"), "security:admin");
+        assert!(result
+            .unwrap_err()
+            .contains("provisioned identity/RBAC policy"));
+    }
+
+    #[test]
+    fn graph_access_rejects_absent_or_empty_verified_identity() {
+        let isolation = IsolationLayer::new();
+        for caller in [None, Some(""), Some("   ")] {
+            let error = check_graph_access_with_policy(
+                &isolation,
+                caller,
+                "__commons__",
+                GraphType::Commons,
+                None,
+                AccessLevel::Read,
+            )
+            .unwrap_err();
+            assert_eq!(error, "ACCESS_DENIED: verified caller identity is required");
+        }
+    }
+
+    #[test]
+    fn admin_access_rejects_absent_or_empty_verified_identity() {
+        let isolation = IsolationLayer::new();
+        for caller in [None, Some(""), Some("   ")] {
+            let error = require_admin_capability_with_policy(&isolation, caller, "security:admin")
+                .unwrap_err();
+            assert_eq!(error, "ACCESS_DENIED: verified caller identity is required");
+        }
+    }
+}
+
 /// EG-P0-3 (WAL durability closure): `requires_write` (this file) classifies a
-/// method as a mutation for the isolation-ACL check; `crate::wal::is_durable_mutation`
+/// method as a mutation for the isolation-ACL check; `crate::mutation_apply::is_durable_mutation`
 /// classifies it as needing a WAL record so it survives a crash. The two MUST agree
 /// for every method that can actually mutate durable data — a method acknowledged as
 /// a write but never logged is silently lost on crash. This lives here (not in
@@ -547,8 +935,8 @@ pub(crate) fn require_admin_capability(
 #[cfg(test)]
 mod durability_closure_tests {
     use super::*;
+    use crate::mutation_apply::is_durable_mutation;
     use crate::protocol::Method;
-    use crate::wal::is_durable_mutation;
 
     /// The one assertion every case below exercises: whenever `requires_write`
     /// says a method mutates (and therefore requires Write ACL + a write lock),
@@ -560,7 +948,7 @@ mod durability_closure_tests {
         assert!(
             !requires_write(m) || is_durable_mutation(m),
             "EG-P0-3: {m:?} is classified a write by `access::requires_write` but \
-             NOT durable by `wal::is_durable_mutation` — it would be acknowledged \
+             NOT durable by `mutation_apply::is_durable_mutation` — it would be acknowledged \
              then silently lost on crash"
         );
     }
@@ -695,5 +1083,170 @@ mod durability_closure_tests {
         };
         assert!(requires_write(&m));
         assert_write_implies_durable(&m);
+    }
+}
+
+#[cfg(all(test, feature = "security"))]
+mod universal_row_read_tests {
+    use super::*;
+    use crate::isolation::{AgentIdentity, AgentRole};
+
+    fn properties(values: &[(&str, &str)]) -> Vec<u8> {
+        let map: std::collections::BTreeMap<String, String> = values
+            .iter()
+            .map(|(key, value)| ((*key).to_string(), (*value).to_string()))
+            .collect();
+        rmp_serde::to_vec_named(&map).unwrap()
+    }
+
+    fn shared_graph() -> (Arc<GraphCore>, IsolationLayer) {
+        let core = Arc::new(GraphCore::new());
+        core.add_node(
+            "alice-private".to_string(),
+            properties(&[
+                ("_owner", "alice"),
+                ("_visibility", "private"),
+                ("type", "Thing"),
+            ]),
+        );
+        core.add_node(
+            "bob-private".to_string(),
+            properties(&[
+                ("_owner", "bob"),
+                ("_visibility", "private"),
+                ("type", "Thing"),
+            ]),
+        );
+        core.add_node(
+            "public".to_string(),
+            properties(&[("_visibility", "public"), ("type", "Thing")]),
+        );
+        // A topology row with no valid property metadata is hidden in strict mode.
+        core.add_node("untagged".to_string(), Vec::new());
+        core.add_edge("alice-private".into(), "public".into(), Vec::new())
+            .unwrap();
+        core.add_edge("bob-private".into(), "public".into(), Vec::new())
+            .unwrap();
+        core.add_edge("public".into(), "untagged".into(), Vec::new())
+            .unwrap();
+        {
+            let mut semantic = core.semantic_store.write();
+            semantic.add_embedding("alice-private".into(), vec![1.0, 0.0]);
+            semantic.add_embedding("bob-private".into(), vec![0.0, 1.0]);
+            semantic.add_embedding("public".into(), vec![0.7, 0.7]);
+            semantic.add_embedding("untagged".into(), vec![-1.0, 0.0]);
+        }
+
+        let mut isolation = IsolationLayer::new();
+        for agent_id in ["alice", "bob"] {
+            isolation.register_agent(AgentIdentity {
+                agent_id: agent_id.to_string(),
+                role: AgentRole::Agent,
+                teams: Vec::new(),
+                roles: Vec::new(),
+            });
+        }
+        (core, isolation)
+    }
+
+    #[test]
+    fn alice_and_bob_same_tenant_shared_graph_cannot_observe_each_others_rows() {
+        let (core, isolation) = shared_graph();
+        let alice_context = super::super::auth::VerifiedRequestContext::verified_for_test("alice");
+        let bob_context = super::super::auth::VerifiedRequestContext::verified_for_test("bob");
+        let alice = GraphReadAuthority::from_verified(&alice_context, &isolation).unwrap();
+        let bob = GraphReadAuthority::from_verified(&bob_context, &isolation).unwrap();
+        assert_eq!(alice.verified_actor().unwrap(), "alice");
+        assert_eq!(bob.verified_actor().unwrap(), "bob");
+        let alice_core = alice.project_core(&core);
+        let bob_core = bob.project_core(&core);
+
+        // Existence, point, batch, ids, and aggregate-count side channels.
+        assert!(alice_core.has_node("alice-private"));
+        assert!(!alice_core.has_node("bob-private"));
+        assert!(!alice_core.has_node("untagged"));
+        assert_eq!(alice_core.node_count(), 2);
+        assert_eq!(bob_core.node_count(), 2);
+        assert!(alice_core.get_node_properties("bob-private").is_none());
+        let batch = ["alice-private", "bob-private", "public"]
+            .map(|id| alice_core.get_node_properties(id).is_some());
+        assert_eq!(batch, [true, false, true]);
+        let alice_ids: std::collections::BTreeSet<_> = alice_core.node_ids().into_iter().collect();
+        assert_eq!(
+            alice_ids,
+            ["alice-private".to_string(), "public".to_string()]
+                .into_iter()
+                .collect()
+        );
+
+        // Edge existence, degree, neighborhoods, topology, and path computation
+        // all run on the projection, not on a post-filtered response.
+        assert_eq!(alice_core.edge_count(), 1);
+        assert!(alice_core.has_edge("alice-private", "public"));
+        assert!(!alice_core.has_edge("bob-private", "public"));
+        assert_eq!(alice_core.in_degree("public").unwrap(), 1);
+        let neighbors: std::collections::BTreeSet<_> = alice_core
+            .get_neighbors("public")
+            .unwrap()
+            .into_iter()
+            .collect();
+        assert_eq!(
+            neighbors,
+            ["alice-private".to_string()].into_iter().collect()
+        );
+        let topology = alice_core.topology_snapshot();
+        assert_eq!(
+            crate::algorithms::get_shortest_path(&topology, "alice-private", "public"),
+            Some(vec!["alice-private".to_string(), "public".to_string()])
+        );
+        assert!(crate::algorithms::get_shortest_path(&topology, "bob-private", "public").is_none());
+
+        // Semantic candidates are rebuilt from visible embeddings only; querying
+        // exactly for Bob's hidden vector still cannot return Bob's id to Alice.
+        let semantic = alice_core
+            .semantic_store
+            .read()
+            .semantic_search(&[0.0, 1.0], 10);
+        assert!(!semantic.is_empty());
+        assert!(semantic.iter().all(|(id, _)| id != "bob-private"));
+        assert!(semantic
+            .iter()
+            .all(|(id, _)| alice_ids.contains(id.as_str())));
+
+        assert!(bob_core.has_node("bob-private"));
+        assert!(!bob_core.has_node("alice-private"));
+    }
+
+    #[test]
+    fn carrier_ownership_separates_same_tenant_and_cross_tenant_callers() {
+        let alice = CarrierAuthority::from_verified(
+            &super::super::auth::VerifiedRequestContext::verified_for_test_in_tenant(
+                "alice", "tenant-a",
+            ),
+        )
+        .unwrap();
+        let bob = CarrierAuthority::from_verified(
+            &super::super::auth::VerifiedRequestContext::verified_for_test_in_tenant(
+                "bob", "tenant-a",
+            ),
+        )
+        .unwrap();
+        let alice_other_tenant = CarrierAuthority::from_verified(
+            &super::super::auth::VerifiedRequestContext::verified_for_test_in_tenant(
+                "alice", "tenant-b",
+            ),
+        )
+        .unwrap();
+
+        assert_eq!(alice.tenant_scope(), bob.tenant_scope());
+        assert_ne!(alice.actor_scope(), bob.actor_scope());
+        assert_ne!(alice.owner_scope(), bob.owner_scope());
+        assert_ne!(alice.tenant_scope(), alice_other_tenant.tenant_scope());
+        assert_ne!(
+            alice.namespace("kv-namespace", "shared"),
+            bob.namespace("kv-namespace", "shared")
+        );
+        assert!(!bob.owns(alice.tenant_scope(), alice.actor_scope()));
+        assert!(!alice_other_tenant.owns(alice.tenant_scope(), alice.actor_scope()));
     }
 }

@@ -48,7 +48,9 @@ use std::sync::Arc;
 
 use tokio::sync::RwLock;
 
+use crate::isolation::AccessLevel;
 use crate::protocol::DistAlgo;
+use crate::server::access::{check_graph_access, GraphReadAuthority};
 use crate::server::ServerState;
 
 /// A single vertex's identity: its global id. Vertices are addressed by their string
@@ -90,28 +92,45 @@ impl Partitioning {
     }
 }
 
-/// Gather each graph's topology into a [`Partitioning`]. Reads each graph's
-/// `topology_snapshot()` off-lock (the same off-lock discipline the single-graph
-/// algorithms use), assigns each vertex to the FIRST shard (in `graphs` order) that
-/// declares it as a NODE, and merges every shard's edges into the global union edge set.
+/// Gather each graph's authorized analysis projection into a [`Partitioning`]. It
+/// ACL-checks and RLS-filters every shard before assigning each vertex to the FIRST
+/// shard (in `graphs` order) that declares it as a NODE and merging the visible edges.
 ///
 /// A graph that does not exist yet is skipped (an empty shard) — mirrors the
 /// cross-graph union-read tolerance.
 async fn gather_shards(
     state: &Arc<RwLock<ServerState>>,
     graphs: &[String],
+    read_authority: &GraphReadAuthority,
 ) -> Result<Partitioning, String> {
     let s = state.read().await;
-    // Snapshot each graph's topology under the registry lock's protection but reading
-    // each core's own lock — we clone the petgraph out (off-lock compute thereafter).
-    let mut snaps: Vec<eg_core::graph::GraphView> = Vec::with_capacity(graphs.len());
+    // Resolve + ACL-check every shard while holding only the registry lock. Actual
+    // snapshots and RLS filtering happen after it is released.
+    let mut cores = Vec::with_capacity(graphs.len());
     for name in graphs {
         match s.registry.get(name) {
-            Some(entry) => snaps.push(entry.core.topology_snapshot()),
+            Some(entry) => {
+                check_graph_access(
+                    &s.isolation,
+                    read_authority.actor(),
+                    name,
+                    entry.graph_type,
+                    entry.owner.as_deref(),
+                    AccessLevel::Read,
+                )?;
+                cores.push(entry.core.clone());
+            }
             None => continue, // a shard graph may not exist yet — empty partition.
         }
     }
     drop(s);
+
+    let mut snaps: Vec<eg_core::graph::GraphView> = Vec::with_capacity(cores.len());
+    for core in cores {
+        let mut view = core.analysis_snapshot();
+        read_authority.filter_view(&mut view);
+        snaps.push(view);
+    }
 
     let n_shards = snaps.len();
     let mut owner: HashMap<VertexId, usize> = HashMap::new();
@@ -203,12 +222,17 @@ impl DistResult {
 /// Run a distributed graph algorithm across `graphs` (each a shard), returning the
 /// per-vertex result over the UNION. The cross-shard superstep coordinator: gather the
 /// partitioning, then dispatch to the algorithm's superstep loop.
-pub async fn run_distributed(
+pub(crate) async fn run_distributed(
     state: &Arc<RwLock<ServerState>>,
     graphs: &[String],
     algo: &DistAlgo,
+    read_authority: &GraphReadAuthority,
 ) -> Result<DistResult, String> {
-    let part = gather_shards(state, graphs).await?;
+    let part = gather_shards(state, graphs, read_authority).await?;
+    run_partitioned(part, algo)
+}
+
+fn run_partitioned(part: Partitioning, algo: &DistAlgo) -> Result<DistResult, String> {
     Ok(match algo {
         DistAlgo::PageRank {
             damping,
@@ -418,13 +442,14 @@ fn distributed_bfs(part: &Partitioning, source: &str) -> LabelRows {
 ///
 /// This is the streaming variant: only the affected vertices' values are recomputed; the
 /// rest are carried over from `prior`.
-pub async fn incremental_connected_components(
+pub(crate) async fn incremental_connected_components(
     state: &Arc<RwLock<ServerState>>,
     graphs: &[String],
     prior: &LabelRows,
     affected: &HashSet<String>,
+    read_authority: &GraphReadAuthority,
 ) -> Result<LabelRows, String> {
-    let part = gather_shards(state, graphs).await?;
+    let part = gather_shards(state, graphs, read_authority).await?;
     let n = part.all_vertices.len();
     if n == 0 {
         return Ok(Vec::new());

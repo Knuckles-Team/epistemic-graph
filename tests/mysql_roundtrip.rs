@@ -38,9 +38,24 @@ use epistemic_graph::server::mysql_wire::{self, MysqlAuthMode};
 use epistemic_graph::server::txn::TxnIdGen;
 use epistemic_graph::server::ServerState;
 
+fn sql_test_persist_dir() -> String {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    std::env::set_var("EPISTEMIC_GRAPH_AUDIENCE", "epistemic-graph-test");
+    std::env::set_var("EPISTEMIC_GRAPH_TENANT", "tenant-test");
+    std::env::set_var("EPISTEMIC_GRAPH_POLICY_VERSION", "policy-test");
+    std::env::temp_dir()
+        .join(format!(
+            "epistemic-graph-mysql-test-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ))
+        .to_string_lossy()
+        .into_owned()
+}
+
 // ── the seeded server state (mirrors the pgwire round-trip test's `seeded_state`) ──
 
-/// A minimal TRUST-mode `ServerState` seeded with three nodes so a wire SELECT/UQL has
+/// A minimal authenticated `ServerState` seeded with three nodes so a wire SELECT/UQL has
 /// rows to read. `__commons__` is pre-created by the registry. `persistence = None`
 /// exercises the in-memory cross-modal commit path (EG-372: `commit_cross_modal_txn` is
 /// persistence-None tolerant).
@@ -65,16 +80,13 @@ fn seeded_state() -> Arc<RwLock<ServerState>> {
         auth_secret: "test".to_string(),
         #[cfg(feature = "kv")]
         kv: None,
-        persist_dir: None,
+        persist_dir: Some(sql_test_persist_dir()),
         persistence: None,
-        redb_authoritative: false,
         max_in_flight: Arc::new(Semaphore::new(16)),
         read_admission: Arc::new(Semaphore::new(16)),
         per_graph_inflight: Arc::new(DashMap::new()),
         per_graph_inflight_limit: 8,
-        write_coalescer: Arc::new(
-            epistemic_graph::write_coalescer::WriteCoalescerRegistry::from_env(),
-        ),
+        write_coalescer: Arc::new(epistemic_graph::write_coalescer::WriteCoalescerRegistry::new()),
         open_txns: Arc::new(DashMap::new()),
         txn_id_gen: Arc::new(TxnIdGen::default()),
         txn_ttl_secs: 300,
@@ -90,8 +102,6 @@ fn seeded_state() -> Arc<RwLock<ServerState>> {
         multi_raft: None,
         #[cfg(feature = "tsdb")]
         tsdb_store: None,
-        #[cfg(feature = "rdf-redb")]
-        rdf_quads: None,
         #[cfg(feature = "streaming")]
         cdc: Some(Arc::new(epistemic_graph::server::cdc::CdcHub::new())),
         #[cfg(feature = "wasm-udf")]
@@ -102,23 +112,19 @@ fn seeded_state() -> Arc<RwLock<ServerState>> {
         )),
         #[cfg(feature = "federation")]
         foreign_sources: Arc::new(DashMap::new()),
-        #[cfg(feature = "dataset-handle")]
-        dataset_handles: Arc::new(
-            epistemic_graph::server::dataset_handle::DatasetHandleRegistry::new(),
-        ),
         #[cfg(feature = "lake")]
         lake: std::sync::Arc::new(epistemic_graph::server::lake::LakeManager::new()),
     }))
 }
 
-/// Bind an ephemeral port and serve the MySQL wire in TRUST mode (no credentials).
+/// Bind an ephemeral port and serve the MySQL wire with mandatory native auth.
 async fn spawn_listener(state: Arc<RwLock<ServerState>>) -> String {
     let probe = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = probe.local_addr().unwrap().to_string();
     drop(probe);
     let serve_addr = addr.clone();
     tokio::spawn(async move {
-        let _ = mysql_wire::serve_with_auth(&serve_addr, state, MysqlAuthMode::Trust).await;
+        let _ = mysql_wire::serve_with_auth(&serve_addr, state, MysqlAuthMode::Native).await;
     });
     // Wait for the listener to accept.
     for _ in 0..50 {
@@ -133,7 +139,7 @@ async fn spawn_listener(state: Arc<RwLock<ServerState>>) -> String {
 // ── a hand-rolled MySQL text-protocol client (no mysql client crate) ────────────────
 
 // Capability flags the client negotiates (a subset — protocol 4.1 + secure-connection +
-// plugin-auth is enough for the server's TRUST path).
+// plugin-auth is enough for the server's native-password path).
 const CLIENT_PROTOCOL_41: u32 = 0x0000_0200;
 const CLIENT_SECURE_CONNECTION: u32 = 0x0000_8000;
 const CLIENT_PLUGIN_AUTH: u32 = 0x0008_0000;
@@ -192,9 +198,9 @@ fn get_lenenc_int(buf: &[u8], pos: &mut usize) -> u64 {
     }
 }
 
-/// Build a Handshake-Response-41 for TRUST auth (empty auth response), no connect-DB
+/// Build a Handshake-Response-41 with a native-password proof, no connect-DB
 /// (the listener's default graph `__commons__` is used).
-fn handshake_response(username: &str) -> Vec<u8> {
+fn handshake_response(username: &str, auth_response: &[u8]) -> Vec<u8> {
     let caps = CLIENT_PROTOCOL_41 | CLIENT_SECURE_CONNECTION | CLIENT_PLUGIN_AUTH;
     let mut p = Vec::with_capacity(64);
     p.extend_from_slice(&caps.to_le_bytes());
@@ -203,7 +209,8 @@ fn handshake_response(username: &str) -> Vec<u8> {
     p.extend_from_slice(&[0u8; 23]); // reserved
     p.extend_from_slice(username.as_bytes());
     p.push(0);
-    p.push(0); // CLIENT_SECURE_CONNECTION: 1-byte auth-response length = 0 (trust)
+    p.push(auth_response.len() as u8);
+    p.extend_from_slice(auth_response);
     p.extend_from_slice(b"mysql_native_password"); // CLIENT_PLUGIN_AUTH plugin name
     p.push(0);
     p
@@ -231,16 +238,23 @@ impl QueryResult {
     }
 }
 
-/// Complete the handshake (TRUST → empty auth) and return the connected stream ready for
-/// the command phase.
+/// Complete the mandatory native-password handshake and return the connected stream.
 async fn connect(addr: &str) -> TcpStream {
     let mut stream = TcpStream::connect(addr).await.unwrap();
     let (seq, hs) = read_message(&mut stream).await;
     assert_eq!(hs[0], 10, "server sends Handshake v10");
+    let version_end = hs[1..].iter().position(|byte| *byte == 0).unwrap() + 1;
+    let part1 = version_end + 1 + 4;
+    let part2 = part1 + 8 + 1 + 2 + 1 + 2 + 2 + 1 + 10;
+    let mut seed = [0u8; 20];
+    seed[..8].copy_from_slice(&hs[part1..part1 + 8]);
+    seed[8..].copy_from_slice(&hs[part2..part2 + 12]);
+    let password = mysql_wire::derive_mysql_password("test", "tester");
+    let proof = mysql_wire::native_password_scramble(&password, &seed);
     write_packet(
         &mut stream,
         seq.wrapping_add(1),
-        &handshake_response("tester"),
+        &handshake_response("tester", &proof),
     )
     .await;
     let (_seq, ok) = read_message(&mut stream).await;

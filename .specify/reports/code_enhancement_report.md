@@ -46,13 +46,13 @@ xychart-beta
 |-----------|--------|----------|-----------|
 | has_pyproject | 10 | `pyproject.toml and requirements.txt` | Both pyproject.toml and requirements.txt exist, fulfilling mandatory Python proj |
 | project_type_detected | 0 | `dependency list` | No recognized ecosystem markers found in dependencies |
-| externalized_prompts | 0 | `/home/apps/workspace/agent-packages/epistemic-graph` | No prompts/ directory found. Prompts may be hardcoded in source. |
+| externalized_prompts | 0 | `${WORKSPACE_ROOT}/agent-packages/epistemic-graph` | No prompts/ directory found. Prompts may be hardcoded in source. |
 | observability | 0 | `dependency list` | No observability tools (logfire, sentry, opentelemetry) found |
 | testing_suite | 10 | `tests dir: True, pytest dep: True` | Tests directory exists, pytest in dependencies |
-| agents_md | 10 | `/home/apps/workspace/agent-packages/epistemic-graph/AGENTS.m` | AGENTS.md exists with comprehensive content |
-| pre_commit_hooks | 10 | `/home/apps/workspace/agent-packages/epistemic-graph/.pre-com` | Pre-commit configuration found for automated code quality checks |
-| gitignore | 10 | `/home/apps/workspace/agent-packages/epistemic-graph/.gitigno` | .gitignore exists to prevent committing build artifacts and secrets |
-| env_template | 10 | `/home/apps/workspace/agent-packages/epistemic-graph/.env.exa` | Environment template exists for onboarding and secret management |
+| agents_md | 10 | `${WORKSPACE_ROOT}/agent-packages/epistemic-graph/AGENTS.m` | AGENTS.md exists with comprehensive content |
+| pre_commit_hooks | 10 | `${WORKSPACE_ROOT}/agent-packages/epistemic-graph/.pre-com` | Pre-commit configuration found for automated code quality checks |
+| gitignore | 10 | `${WORKSPACE_ROOT}/agent-packages/epistemic-graph/.gitigno` | .gitignore exists to prevent committing build artifacts and secrets |
+| env_template | 10 | `${WORKSPACE_ROOT}/agent-packages/epistemic-graph/.env.exa` | Environment template exists for onboarding and secret management |
 | protocol_support | 0 | `file scan` | No A2A, ACP, or MCP protocol support detected |
 
 ---
@@ -66,7 +66,7 @@ xychart-beta
 
 | Criterion | Points | Evidence | Reasoning |
 |-----------|--------|----------|-----------|
-| dependency_freshness | 100 | `source=/home/apps/workspace/agent-packages/epistemic-graph/p` | Audited 7 deps (7 installed, 0 constraint-only). 0 major, 0 minor, 0 patch updates |
+| dependency_freshness | 100 | `source=${WORKSPACE_ROOT}/agent-packages/epistemic-graph/p` | Audited 7 deps (7 installed, 0 constraint-only). 0 major, 0 minor, 0 patch updates |
 
 ---
 
@@ -225,7 +225,7 @@ xychart-beta
 
 | Criterion | Points | Evidence | Reasoning |
 |-----------|--------|----------|-----------|
-| bumpversion_exists | 20 | `/home/apps/workspace/agent-packages/epistemic-graph/.bumpver` | .bumpversion.cfg found |
+| bumpversion_exists | 20 | `${WORKSPACE_ROOT}/agent-packages/epistemic-graph/.bumpver` | .bumpversion.cfg found |
 | current_version_defined | 20 | `0.13.0` | Current version tracked is 0.13.0 |
 | files_tracked | 20 | `3 files tracked` | Found 3 files tracked in .bumpversion.cfg |
 | version_drift_check | 40 | `0 drifted files` | No version drift detected in codebase files |

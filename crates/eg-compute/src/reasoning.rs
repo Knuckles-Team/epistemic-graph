@@ -30,7 +30,7 @@ fn extract_facts(core: &GraphCore) -> (Vec<(String, String)>, Vec<(String, Strin
     let mut node_types = Vec::new();
     for entry in core.node_properties.iter() {
         let (node_id, props_msgpack) = (entry.key(), entry.value());
-        if let Ok(val) = rmp_serde::from_slice::<serde_json::Value>(props_msgpack) {
+        if let Ok(val) = eg_types::msgpack::decode_property_value(props_msgpack) {
             if let Some(t) = val.get("type").and_then(|v| v.as_str()) {
                 node_types.push((node_id.clone(), t.to_string()));
             }
@@ -41,8 +41,8 @@ fn extract_facts(core: &GraphCore) -> (Vec<(String, String)>, Vec<(String, Strin
     for entry in core.edge_properties.iter() {
         let ((src, tgt), props_msgpack_list) = (entry.key(), entry.value());
         for props_msgpack in props_msgpack_list {
-            if let Ok(val) = rmp_serde::from_slice::<serde_json::Value>(props_msgpack) {
-                if let Some(t) = val.get("type").and_then(|v| v.as_str()) {
+            if let Ok(val) = eg_types::msgpack::decode_property_value(props_msgpack) {
+                if let Some(t) = val.get("relationship").and_then(|v| v.as_str()) {
                     edge_types.push((src.clone(), tgt.clone(), t.to_string()));
                 }
             }
@@ -92,8 +92,7 @@ pub fn run_datalog_reasoning(
         inferred_triples.push(fact);
 
         if let Some(mut props_msgpack) = core.node_properties.get_mut(node_id) {
-            if let Ok(mut val) =
-                rmp_serde::from_slice::<serde_json::Value>(props_msgpack.as_slice())
+            if let Ok(mut val) = eg_types::msgpack::decode_property_value(props_msgpack.as_slice())
             {
                 if let Some(obj) = val.as_object_mut() {
                     obj.insert(
@@ -133,7 +132,7 @@ pub fn run_datalog_reasoning(
             }
 
             let val = serde_json::json!({
-                "type": new_prop.clone(),
+                "relationship": new_prop.clone(),
                 "inferred": true
             });
             if let Ok(props_msgpack) = rmp_serde::to_vec_named(&val) {
@@ -183,8 +182,8 @@ pub fn infer_domain_range(
     for entry in core.edge_properties.iter() {
         let ((src, tgt), props_msgpack_list) = (entry.key(), entry.value());
         for props_msgpack in props_msgpack_list {
-            if let Ok(val) = rmp_serde::from_slice::<serde_json::Value>(props_msgpack) {
-                if let Some(edge_type) = val.get("type").and_then(|v| v.as_str()) {
+            if let Ok(val) = eg_types::msgpack::decode_property_value(props_msgpack) {
+                if let Some(edge_type) = val.get("relationship").and_then(|v| v.as_str()) {
                     // Domain inference: src gets the domain type
                     if let Some(domains) = domain_map.get(edge_type) {
                         for domain in domains {
@@ -224,8 +223,7 @@ pub fn infer_domain_range(
     // Apply inferred types to graph
     for (node_id, new_type) in &new_types {
         if let Some(mut props_msgpack) = core.node_properties.get_mut(node_id) {
-            if let Ok(mut val) =
-                rmp_serde::from_slice::<serde_json::Value>(props_msgpack.as_slice())
+            if let Ok(mut val) = eg_types::msgpack::decode_property_value(props_msgpack.as_slice())
             {
                 if let Some(obj) = val.as_object_mut() {
                     // Append to inferred_types array
@@ -262,13 +260,13 @@ pub fn infer_property_chains(
     let mut inferred = Vec::new();
     let mut new_edges: Vec<(String, String, String)> = Vec::new();
 
-    // Index edges by type for fast lookup
+    // Index edges by canonical relationship for fast lookup.
     let mut edges_by_type: HashMap<String, Vec<(String, String)>> = HashMap::new();
     for entry in core.edge_properties.iter() {
         let ((src, tgt), props_msgpack_list) = (entry.key(), entry.value());
         for props_msgpack in props_msgpack_list {
-            if let Ok(val) = rmp_serde::from_slice::<serde_json::Value>(props_msgpack) {
-                if let Some(edge_type) = val.get("type").and_then(|v| v.as_str()) {
+            if let Ok(val) = eg_types::msgpack::decode_property_value(props_msgpack) {
+                if let Some(edge_type) = val.get("relationship").and_then(|v| v.as_str()) {
                     edges_by_type
                         .entry(edge_type.to_string())
                         .or_default()
@@ -293,21 +291,22 @@ pub fn infer_property_chains(
             if let Some(targets) = prop2_from.get(b) {
                 for c in targets {
                     // Check if (a, inferred_prop, c) already exists
-                    let exists =
-                        core.edge_properties
-                            .get(&(a.clone(), c.clone()))
-                            .map(|props| {
-                                props.iter().any(|p| {
-                                    rmp_serde::from_slice::<serde_json::Value>(p).ok().and_then(
-                                        |v| {
-                                            v.get("type")
-                                                .and_then(|t| t.as_str())
-                                                .map(|s| s.to_string())
-                                        },
-                                    ) == Some(inferred_prop.clone())
-                                })
+                    let exists = core
+                        .edge_properties
+                        .get(&(a.clone(), c.clone()))
+                        .map(|props| {
+                            props.iter().any(|p| {
+                                eg_types::msgpack::decode_property_value(p)
+                                    .ok()
+                                    .and_then(|v| {
+                                        v.get("relationship")
+                                            .and_then(|t| t.as_str())
+                                            .map(|s| s.to_string())
+                                    })
+                                    == Some(inferred_prop.clone())
                             })
-                            .unwrap_or(false);
+                        })
+                        .unwrap_or(false);
 
                     if !exists {
                         new_edges.push((a.clone(), c.clone(), inferred_prop.clone()));
@@ -337,7 +336,7 @@ pub fn infer_property_chains(
             }
         }
         let val = serde_json::json!({
-            "type": prop.clone(),
+            "relationship": prop.clone(),
             "inferred": true,
             "chain": true
         });
@@ -370,13 +369,13 @@ mod tests {
         core.add_edge(
             "a".into(),
             "b".into(),
-            props(serde_json::json!({"type": "ancestor"})),
+            props(serde_json::json!({"relationship": "ancestor"})),
         )
         .unwrap();
         core.add_edge(
             "b".into(),
             "c".into(),
-            props(serde_json::json!({"type": "ancestor"})),
+            props(serde_json::json!({"relationship": "ancestor"})),
         )
         .unwrap();
 

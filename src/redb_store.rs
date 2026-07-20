@@ -22,14 +22,89 @@
 //!   * `edges`          `(graph, src, tgt, ord) -> edge properties msgpack`
 //!   * `ledger`         `(graph, seq)           -> ledger line`
 //!   * `semantic_store` `graph                  -> semantic store blob (msgpack)`
-//!   * `graph_meta`     `graph                  -> {name, graph_type} blob`
+//!   * `graph_meta`     `graph                  -> identity + integrity-policy blob`
 
 use redb::{Database, Durability, ReadableDatabase, ReadableTable, TableDefinition};
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 
+use crate::change_envelope::{
+    ChangeCursor, ChangeEnvelope, ChangeEnvelopeCommit, ChangeEnvelopeRecord, ContentVersion,
+    MaterialOperation,
+};
+use crate::epistemic_operations::{
+    ClaimWorkItemResult, ClaimWorkItemResultReason, ClaimWorkItemResultSchemaVersion,
+};
+use crate::mutation_batch::{
+    MutationBatch, MutationBatchCommit, MutationBatchRecord, MutationBatchStatus, MutationDomain,
+    MutationOutboxIntent, MutationOutboxLease, MutationOutboxRecord, MutationProjectionCursor,
+    MutationSurface, MutationVersionScope, MUTATION_BATCH_VERSION,
+};
 use crate::protocol::{GraphType, Method};
+
+/// Durable rows are outside the native RPC frame validator and may be supplied
+/// by a corrupted, restored, or otherwise untrusted database file. Keep one
+/// format-wide ceiling aligned with the native protocol's hard request budget,
+/// then structurally preflight every MessagePack row before serde can honor an
+/// attacker-controlled collection size hint.
+const MAX_DURABLE_MSGPACK_BYTES: usize = 384 * 1024 * 1024;
+const MAX_DURABLE_STORED_BYTES: usize = MAX_DURABLE_MSGPACK_BYTES + 1024;
+const MAX_DURABLE_MSGPACK_ITEMS: usize = 4_000_000;
+const INITIAL_GRAPH_VERSION: u64 = 0;
+
+fn durable_msgpack_limits() -> eg_types::msgpack::MsgpackLimits {
+    eg_types::msgpack::MsgpackLimits::new(
+        MAX_DURABLE_MSGPACK_BYTES,
+        MAX_DURABLE_MSGPACK_ITEMS,
+        eg_types::msgpack::DEFAULT_MAX_DEPTH,
+    )
+}
+
+fn decode_durable<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Result<T, String> {
+    eg_types::msgpack::decode_bounded(bytes, durable_msgpack_limits())
+        .map_err(|_| "durable value is invalid or exceeds resource limits".to_string())
+}
+
+fn decode_mutation_batch_record(bytes: &[u8]) -> Result<MutationBatchRecord, String> {
+    let record: MutationBatchRecord = decode_durable(bytes)?;
+    record.batch.validate()?;
+    Ok(record)
+}
+
+fn decode_mutation_outbox_record(bytes: &[u8]) -> Result<MutationOutboxRecord, String> {
+    let record: MutationOutboxRecord = decode_durable(bytes)?;
+    record.validate()?;
+    if record.version_scope != MutationVersionScope::Graph || record.source_graph_version == 0 {
+        return Err("graph mutation store contains a non-graph outbox record".to_string());
+    }
+    Ok(record)
+}
+
+fn decode_mutation_projection_cursor(bytes: &[u8]) -> Result<MutationProjectionCursor, String> {
+    let cursor: MutationProjectionCursor = decode_durable(bytes)?;
+    cursor.validate()?;
+    if cursor.version_scope != MutationVersionScope::Graph || cursor.source_graph_version == 0 {
+        return Err("graph mutation store contains a non-graph projection cursor".to_string());
+    }
+    Ok(cursor)
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct DurableMutationFence {
+    placement_epoch: u64,
+    fencing_token: u64,
+}
+
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+struct DurableOutboxDelivery {
+    consumer: String,
+    lease_epoch: u64,
+    lease_until_ms: u64,
+    attempt: u32,
+    delivered_at_ms: Option<u64>,
+}
 
 pub(crate) const NODES: TableDefinition<(&str, &str), &[u8]> = TableDefinition::new("nodes");
 pub(crate) const EDGES: TableDefinition<(&str, &str, &str, u32), &[u8]> =
@@ -44,6 +119,55 @@ pub(crate) const SEMANTIC: TableDefinition<&str, &[u8]> = TableDefinition::new("
 // `security`.
 pub(crate) const AUDIT: TableDefinition<(&str, u64), &[u8]> = TableDefinition::new("audit_chain");
 pub(crate) const GRAPH_META: TableDefinition<&str, &[u8]> = TableDefinition::new("graph_meta");
+/// Authoritative mutation-batch status/result rows, keyed by stable `batch_id`.
+/// The complete batch is retained so a retry can prove that the idempotency key
+/// names byte-identical work rather than silently accepting key reuse.
+pub(crate) const MUTATION_BATCHES: TableDefinition<&str, &[u8]> =
+    TableDefinition::new("mutation_batches");
+/// Durable idempotency index: `(tenant, graph, key) -> batch_id`.
+pub(crate) const MUTATION_IDEMPOTENCY: TableDefinition<(&str, &str, &str), &str> =
+    TableDefinition::new("mutation_idempotency");
+/// Transactional projection/CDC/audit/lineage outbox.  Rows are immutable and
+/// retry-addressable by `(batch_id, ordinal)`.
+pub(crate) const MUTATION_OUTBOX: TableDefinition<(&str, u32), &[u8]> =
+    TableDefinition::new("mutation_outbox");
+/// Latest committed lifecycle batch for a graph.  This is the generation fence
+/// that prevents retrying an old Create after a later Delete (or vice versa).
+pub(crate) const MUTATION_LIFECYCLE_HEAD: TableDefinition<&str, &str> =
+    TableDefinition::new("mutation_lifecycle_head");
+/// Monotonic authoritative graph version used for optimistic validation even
+/// when the in-memory projection is absent/restarting.
+pub(crate) const MUTATION_GRAPH_VERSION: TableDefinition<&str, u64> =
+    TableDefinition::new("mutation_graph_version");
+/// Highest accepted `(placement_epoch, fencing_token)` for a graph. A stale
+/// route or superseded lease can never commit after this row advances.
+pub(crate) const MUTATION_FENCE: TableDefinition<&str, &[u8]> =
+    TableDefinition::new("mutation_fence");
+/// Durable delivery lease/ack state for transactional outbox rows.
+pub(crate) const MUTATION_OUTBOX_DELIVERY: TableDefinition<(&str, u32, &str), &[u8]> =
+    TableDefinition::new("mutation_outbox_delivery");
+/// Per-projection reconciliation watermark, scoped by tenant and graph.
+pub(crate) const MUTATION_PROJECTION_CURSOR: TableDefinition<(&str, &str, &str), &[u8]> =
+    TableDefinition::new("mutation_projection_cursor");
+/// Complete governed envelope retained for replay/audit reconciliation.
+pub(crate) const CHANGE_ENVELOPES: TableDefinition<(&str, &str), &[u8]> =
+    TableDefinition::new("change_envelopes");
+/// Current content version, scoped by verified tenant and owning graph.
+pub(crate) const CONTENT_VERSIONS: TableDefinition<(&str, &str, &str), &[u8]> =
+    TableDefinition::new("content_versions");
+/// Current typed source cursor. No component is converted into a filename.
+pub(crate) const CHANGE_CURSORS: TableDefinition<(&str, &str, &str, &str), &[u8]> =
+    TableDefinition::new("change_cursors");
+pub(crate) const CHANGE_BLOBS: TableDefinition<(&str, &str, &str), &[u8]> =
+    TableDefinition::new("change_blobs");
+pub(crate) const CHANGE_FEATURES: TableDefinition<(&str, &str, &str), &[u8]> =
+    TableDefinition::new("change_features");
+pub(crate) const CHANGE_EVIDENCE: TableDefinition<(&str, &str, &str), &[u8]> =
+    TableDefinition::new("change_evidence");
+pub(crate) const CHANGE_POLICIES: TableDefinition<(&str, &str, &str), &[u8]> =
+    TableDefinition::new("change_policies");
+pub(crate) const CHANGE_LINEAGE: TableDefinition<(&str, &str, &str), &[u8]> =
+    TableDefinition::new("change_lineage");
 // Durable Raft log table (CONCEPT:EG-KG.storage.one-fsync-covers-raft). Defined here so `commit_ops` (shared
 // with the server's group-commit writer, which folds replicated log appends into
 // the SAME `WriteTransaction` as graph mutations) is self-contained. The embedded
@@ -54,23 +178,25 @@ pub(crate) const RAFT_LOG: TableDefinition<(u64, u64), &[u8]> = TableDefinition:
 // of an in-flight cross-shard transaction, keyed by `(txn_id, group_id)`, holding
 // that group's PREPARED-but-not-applied slice (its staged write-set). Durable so an
 // in-doubt txn survives a coordinator/participant crash between PREPARE and COMMIT
-// and is resolved on restart. Lives in `graph.redb` for the same single-file reason
+// and is resolved on restart. Lives in the authoritative shard for the same-file reason
 // as the Raft log; the PURE put/clear/scan logic lives here (shared store) next to
 // NODES/EDGES/purge_graph_rows, while the writer-thread `Cmd` arms in `redb_backend`
 // call into it (mirrors how the graph-row machinery is shared, CONCEPT:EG-KG.backend.engine-modes).
 pub(crate) const XSHARD_PREPARE: TableDefinition<(&str, u64), &[u8]> =
     TableDefinition::new("xshard_prepare");
 // The coordinator's durable DECISION record for a cross-shard txn, keyed by `txn_id`
-// (CONCEPT:EG-KG.storage.lane-n-increment). The value is `1` = COMMIT, `0` = ABORT. Writing this row is the
-// ATOMIC COMMIT POINT: once it reads COMMIT every participant will apply on recovery;
-// absent/ABORT ⇒ no participant applies (presumed-abort). Cleared after resolution.
+// (CONCEPT:EG-KG.storage.lane-n-increment). Values `0/1` are ordinary ABORT/COMMIT;
+// `2/3` are ABORT/COMMIT retained for a separate MutationBatch parent; `4` is a
+// recoverable attempt started before phase 1 but not yet decided. Writing a terminal
+// value is the ATOMIC COMMIT POINT: once it reads COMMIT every participant applies on
+// recovery; absent/pending/ABORT ⇒ no new participant applies (presumed-abort).
 pub(crate) const XSHARD_DECISION: TableDefinition<&str, u8> =
     TableDefinition::new("xshard_decision");
 // Named distributed-compute MATERIALIZED VIEWS (CONCEPT:EG-KG.storage.feature). One row per matview
 // keyed by `name`, holding the MessagePack-serialized `MatView` (its definition +
 // current result rows). Durable so a matview survives restart; the handler reloads the
 // in-RAM `MatViewStore` from this table on boot and refreshes incrementally on a delta.
-// Lives in `graph.redb` for the same single-file reason as the Raft log + xshard rows.
+// Lives in the authoritative shard for the same-file reason as the Raft log + xshard rows.
 #[cfg(feature = "compute-dist")]
 pub(crate) const MATVIEWS: TableDefinition<&str, &[u8]> = TableDefinition::new("matviews");
 
@@ -85,9 +211,75 @@ pub(crate) const MATVIEWS: TableDefinition<&str, &[u8]> = TableDefinition::new("
 pub(crate) const PLAN_MATVIEWS: TableDefinition<&str, &[u8]> =
     TableDefinition::new("plan_matviews");
 
+/// Materialize every table owned by the canonical authoritative graph store.
+///
+/// A read transaction cannot open a table that has never been created. Keep the
+/// schema bootstrap beside the table definitions so the served, embedded, and
+/// test paths cannot drift as new authoritative projections are added. Callers
+/// may open transport-specific tables in the same transaction before committing.
+pub(crate) fn initialize_canonical_tables(wtx: &redb::WriteTransaction) -> Result<(), String> {
+    wtx.open_table(NODES).map_err(|error| error.to_string())?;
+    wtx.open_table(EDGES).map_err(|error| error.to_string())?;
+    wtx.open_table(LEDGER).map_err(|error| error.to_string())?;
+    wtx.open_table(SEMANTIC)
+        .map_err(|error| error.to_string())?;
+    wtx.open_table(GRAPH_META)
+        .map_err(|error| error.to_string())?;
+    wtx.open_table(MUTATION_BATCHES)
+        .map_err(|error| error.to_string())?;
+    wtx.open_table(MUTATION_IDEMPOTENCY)
+        .map_err(|error| error.to_string())?;
+    wtx.open_table(MUTATION_OUTBOX)
+        .map_err(|error| error.to_string())?;
+    wtx.open_table(MUTATION_OUTBOX_DELIVERY)
+        .map_err(|error| error.to_string())?;
+    wtx.open_table(MUTATION_PROJECTION_CURSOR)
+        .map_err(|error| error.to_string())?;
+    wtx.open_table(MUTATION_GRAPH_VERSION)
+        .map_err(|error| error.to_string())?;
+    wtx.open_table(MUTATION_FENCE)
+        .map_err(|error| error.to_string())?;
+    wtx.open_table(MUTATION_LIFECYCLE_HEAD)
+        .map_err(|error| error.to_string())?;
+    wtx.open_table(CHANGE_ENVELOPES)
+        .map_err(|error| error.to_string())?;
+    wtx.open_table(CONTENT_VERSIONS)
+        .map_err(|error| error.to_string())?;
+    wtx.open_table(CHANGE_CURSORS)
+        .map_err(|error| error.to_string())?;
+    wtx.open_table(CHANGE_BLOBS)
+        .map_err(|error| error.to_string())?;
+    wtx.open_table(CHANGE_FEATURES)
+        .map_err(|error| error.to_string())?;
+    wtx.open_table(CHANGE_EVIDENCE)
+        .map_err(|error| error.to_string())?;
+    wtx.open_table(CHANGE_POLICIES)
+        .map_err(|error| error.to_string())?;
+    wtx.open_table(CHANGE_LINEAGE)
+        .map_err(|error| error.to_string())?;
+    wtx.open_table(RAFT_LOG)
+        .map_err(|error| error.to_string())?;
+    wtx.open_table(XSHARD_PREPARE)
+        .map_err(|error| error.to_string())?;
+    wtx.open_table(XSHARD_DECISION)
+        .map_err(|error| error.to_string())?;
+    #[cfg(feature = "compute-dist")]
+    wtx.open_table(MATVIEWS)
+        .map_err(|error| error.to_string())?;
+    #[cfg(feature = "matview")]
+    wtx.open_table(PLAN_MATVIEWS)
+        .map_err(|error| error.to_string())?;
+    #[cfg(feature = "security")]
+    wtx.open_table(AUDIT).map_err(|error| error.to_string())?;
+    Ok(())
+}
+
 /// In-doubt cross-shard prepare records `(txn_id, group_id, slice-blob)` returned by
 /// the recovery scan (CONCEPT:EG-KG.storage.lane-n-increment).
 pub(crate) type XshardPrepareScan = Result<Vec<(String, u64, Vec<u8>)>, String>;
+/// Durable 2PC decisions `(opaque_parent_id, outcome, retained_for_parent)`.
+/// `outcome=None` is the recoverable protocol-start marker (not yet decided).
+pub(crate) type XshardDecisionScan = Result<Vec<(String, Option<bool>, bool)>, String>;
 
 /// Persisted materialized views `(name, blob)` returned by the boot reload scan
 /// (CONCEPT:EG-KG.storage.feature).
@@ -139,34 +331,55 @@ impl<'a> DurableCrypto<'a> {
         Cow::Borrowed(plaintext)
     }
 
-    /// Unseal a stored value blob. Identity when no cipher is active; a sealed blob
-    /// read by a no-cipher handle is returned as-is (caller sees ciphertext — only
-    /// possible if a key was removed, which is operator error). With a cipher, a
-    /// legacy plaintext blob passes through and a sealed blob is decrypted (wrong key
-    /// ⇒ Err).
+    /// Unseal a stored value blob. Plaintext is accepted only in a deployment whose
+    /// configured current format is plaintext. A sealed blob without its cipher and
+    /// an unsealed blob with an active cipher both fail closed.
     #[inline]
-    fn unseal(&self, stored: &[u8]) -> Result<Vec<u8>, String> {
+    pub(crate) fn unseal(&self, stored: &[u8]) -> Result<Vec<u8>, String> {
+        if stored.len() > MAX_DURABLE_STORED_BYTES {
+            return Err("durable value exceeds resource limits".to_string());
+        }
         #[cfg(feature = "security")]
         if let Some(c) = self.cipher {
-            return c.unseal(stored);
+            let plaintext = c.unseal(stored)?;
+            if plaintext.len() > MAX_DURABLE_MSGPACK_BYTES {
+                return Err("durable value exceeds resource limits".to_string());
+            }
+            return Ok(plaintext);
+        }
+        #[cfg(feature = "security")]
+        if crate::crypto::is_sealed(stored) {
+            return Err("encrypted durable value requires configured key material".to_string());
         }
         Ok(stored.to_vec())
     }
 }
 
-/// Map a logical graph name (which may contain `:` / `/`) to a safe filename /
-/// durable key. Identical to `persist::sanitize`; lives here so the durable store
-/// has its own server-independent copy (the embedded path links no `persist.rs`).
+/// Map a logical graph name to the bounded durable key used by the served and
+/// embedded paths. Escaping avoids collisions caused by lossy path replacement.
 pub fn sanitize(name: &str) -> String {
-    name.chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect()
+    use sha2::{Digest, Sha256};
+
+    let mut key = String::with_capacity(name.len());
+    for &byte in name.as_bytes() {
+        use std::fmt::Write as _;
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.') {
+            key.push(char::from(byte));
+        } else {
+            write!(&mut key, "~{byte:02x}").expect("writing to String cannot fail");
+        }
+    }
+    if key.len() <= 200 {
+        return key;
+    }
+    let digest = Sha256::digest(name.as_bytes());
+    let mut bounded = String::with_capacity(66);
+    bounded.push_str("~h");
+    for byte in digest {
+        use std::fmt::Write as _;
+        write!(&mut bounded, "{byte:02x}").expect("writing to String cannot fail");
+    }
+    bounded
 }
 
 /// An owned, off-lock dump of one graph used by the checkpoint + load paths.
@@ -174,6 +387,9 @@ pub struct GraphDump {
     pub graph: String,
     pub name: String,
     pub graph_type: GraphType,
+    pub incarnation_id: String,
+    pub source_snapshot_version: u64,
+    pub integrity_policy: Option<crate::graph::IntegrityPolicy>,
     pub nodes: Vec<(String, Vec<u8>)>,
     pub edges: Vec<(String, String, Vec<u8>)>,
     pub ledger: Vec<String>,
@@ -207,31 +423,2394 @@ pub(crate) fn commit_ops(
         let mut nodes = wtx.open_table(NODES).map_err(|e| e.to_string())?;
         let mut edges = wtx.open_table(EDGES).map_err(|e| e.to_string())?;
         let mut ledger = wtx.open_table(LEDGER).map_err(|e| e.to_string())?;
+        let mut semantic = wtx.open_table(SEMANTIC).map_err(|e| e.to_string())?;
         #[cfg(feature = "security")]
         let mut audit = wtx.open_table(AUDIT).map_err(|e| e.to_string())?;
         for (graph, method) in ops.drain(..) {
             touched.insert(graph.clone());
-            apply_method_rows(&graph, &method, &mut nodes, &mut edges, &mut ledger, crypto)?;
+            apply_method_rows(
+                &graph,
+                &method,
+                &mut nodes,
+                &mut edges,
+                &mut ledger,
+                &mut semantic,
+                crypto,
+            )?;
             #[cfg(feature = "security")]
             append_audit_entry(&mut audit, audit_tail, &graph, &method)?;
         }
         let mut meta = wtx.open_table(GRAPH_META).map_err(|e| e.to_string())?;
         for g in &touched {
             if meta.get(g.as_str()).map_err(|e| e.to_string())?.is_none() {
-                meta.insert(g.as_str(), encode_meta(g, GraphType::Global).as_slice())
+                let incarnation_id = new_incarnation_id(g);
+                let encoded = encode_meta_with_incarnation(g, GraphType::Global, &incarnation_id)?;
+                meta.insert(g.as_str(), encoded.as_slice())
                     .map_err(|e| e.to_string())?;
             }
         }
         if !raft_log_ops.is_empty() {
             let mut log = wtx.open_table(RAFT_LOG).map_err(|e| e.to_string())?;
             for (gid, idx, blob) in raft_log_ops.drain(..) {
-                log.insert((gid, idx), blob.as_slice())
+                // Consensus entries carry Method payloads.  When the deployment
+                // data key is active, seal them just like authoritative value rows
+                // so source properties are not exposed by the local Raft log.
+                let sealed = crypto.seal(&blob);
+                log.insert((gid, idx), sealed.as_ref())
                     .map_err(|e| e.to_string())?;
             }
         }
     }
     wtx.commit().map_err(|e| e.to_string())?;
     Ok(())
+}
+
+/// Deterministic failure injection points around the authoritative batch commit.
+/// Production always calls with `None`; unit tests use these boundaries to prove
+/// that restart observes either no batch or one complete committed batch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MutationBatchCrashpoint {
+    BeforeRows,
+    AfterRowsBeforeMetadata,
+    BeforeCommit,
+    AfterCommitBeforeAck,
+}
+
+/// Atomically apply one canonical mutation batch to graph rows, durable status,
+/// idempotency index, and transactional outbox.
+///
+/// This is deliberately separate from [`commit_ops`]: a batch is already the
+/// caller's all-or-nothing unit and must never be folded into a partially-acked
+/// queue group.  One immediate redb `WriteTransaction` is its commit point.  A
+/// byte-identical retry returns the stored result; reusing an idempotency key for
+/// different work fails closed.
+pub(crate) fn commit_mutation_batch(
+    db: &Database,
+    graph_fname: &str,
+    batch: &MutationBatch,
+    result_msgpack: Option<&[u8]>,
+    committed_at_ms: u64,
+    crypto: DurableCrypto<'_>,
+    #[cfg(feature = "security")] audit_tail: &mut AuditTailCache,
+) -> Result<MutationBatchCommit, String> {
+    commit_mutation_batch_inner(
+        db,
+        graph_fname,
+        batch,
+        None,
+        None,
+        None,
+        result_msgpack,
+        committed_at_ms,
+        crypto,
+        #[cfg(feature = "security")]
+        audit_tail,
+        None,
+    )
+}
+
+/// Commit authenticated staged graph material through the same batch kernel. The
+/// digest/version descriptor lives in `batch`; complete snapshots or affected-row
+/// deltas are supplied out-of-line so status/outbox do not duplicate them.
+pub(crate) fn commit_mutation_batch_state(
+    db: &Database,
+    graph_fname: &str,
+    batch: &MutationBatch,
+    authoritative_state_msgpack: &[u8],
+    result_msgpack: Option<&[u8]>,
+    committed_at_ms: u64,
+    crypto: DurableCrypto<'_>,
+    #[cfg(feature = "security")] audit_tail: &mut AuditTailCache,
+) -> Result<MutationBatchCommit, String> {
+    commit_mutation_batch_inner(
+        db,
+        graph_fname,
+        batch,
+        None,
+        Some(authoritative_state_msgpack),
+        None,
+        result_msgpack,
+        committed_at_ms,
+        crypto,
+        #[cfg(feature = "security")]
+        audit_tail,
+        None,
+    )
+}
+
+/// Engine-native ChangeEnvelope commit. Graph rows, every material/governance
+/// projection, version/cursor fences, terminal batch/envelope records, and the
+/// CDC outbox are written by one redb transaction and one durability barrier.
+pub(crate) fn commit_change_envelope(
+    db: &Database,
+    graph_fname: &str,
+    envelope: &ChangeEnvelope,
+    committed_at_ms: u64,
+    crypto: DurableCrypto<'_>,
+    #[cfg(feature = "security")] audit_tail: &mut AuditTailCache,
+) -> Result<ChangeEnvelopeCommit, String> {
+    envelope.validate()?;
+    let mutation = commit_mutation_batch_inner(
+        db,
+        graph_fname,
+        &envelope.mutation,
+        Some(envelope),
+        None,
+        None,
+        None,
+        committed_at_ms,
+        crypto,
+        #[cfg(feature = "security")]
+        audit_tail,
+        None,
+    )?;
+    let outbox_count = envelope
+        .mutation
+        .operations
+        .len()
+        .checked_add(envelope.mutation.outbox.len())
+        .and_then(|count| count.checked_add(1))
+        .and_then(|count| u32::try_from(count).ok())
+        .ok_or_else(|| "change envelope outbox count overflow".to_string())?;
+    Ok(ChangeEnvelopeCommit {
+        envelope_id: envelope.envelope_id.clone(),
+        batch_id: envelope.mutation.batch_id.clone(),
+        content_version: envelope.content_version.clone(),
+        cursor: envelope.cursor.clone(),
+        outbox_count,
+        replayed: mutation.replayed,
+    })
+}
+
+/// Non-graph rows that participate in an authoritative cross-modal
+/// [`MutationBatch`] commit. The coordinator metadata, graph rows, semantic/blob
+/// projections, time-series batches, result and outbox are written by the same redb
+/// transaction; this borrowed carrier is never serialized as a second authority.
+struct CrossModalBatchRows<'a> {
+    methods: &'a [Method],
+    vectors: &'a [VectorUpsert],
+    blob_refs: &'a [BlobRefRow],
+    measurements: &'a [crate::MeasurementBatch],
+}
+
+/// Authenticated graph material supplied by a complex MutationBatch. Callers may
+/// provide a complete snapshot or persist only the affected rows.
+enum AuthoritativeGraphState {
+    Snapshot(crate::graph::GraphSnapshot),
+    RowDelta(crate::graph_delta::GraphRowDelta),
+}
+
+/// Commit a canonical cross-modal batch through the universal status/fence/
+/// idempotency/outbox kernel. Public mutation surfaces use this canonical path;
+/// [`commit_crossmodal`] remains the low-level atomic projection primitive.
+pub(crate) fn commit_mutation_batch_crossmodal(
+    db: &Database,
+    graph_fname: &str,
+    batch: &MutationBatch,
+    methods: &[Method],
+    vectors: &[VectorUpsert],
+    blob_refs: &[BlobRefRow],
+    measurements: &[crate::MeasurementBatch],
+    result_msgpack: Option<&[u8]>,
+    committed_at_ms: u64,
+    crypto: DurableCrypto<'_>,
+    #[cfg(feature = "security")] audit_tail: &mut AuditTailCache,
+) -> Result<MutationBatchCommit, String> {
+    commit_mutation_batch_inner(
+        db,
+        graph_fname,
+        batch,
+        None,
+        None,
+        Some(CrossModalBatchRows {
+            methods,
+            vectors,
+            blob_refs,
+            measurements,
+        }),
+        result_msgpack,
+        committed_at_ms,
+        crypto,
+        #[cfg(feature = "security")]
+        audit_tail,
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn commit_mutation_batch_inner(
+    db: &Database,
+    graph_fname: &str,
+    batch: &MutationBatch,
+    change: Option<&ChangeEnvelope>,
+    authoritative_state_msgpack: Option<&[u8]>,
+    crossmodal: Option<CrossModalBatchRows<'_>>,
+    result_msgpack: Option<&[u8]>,
+    committed_at_ms: u64,
+    crypto: DurableCrypto<'_>,
+    #[cfg(feature = "security")] audit_tail: &mut AuditTailCache,
+    crashpoint: Option<MutationBatchCrashpoint>,
+) -> Result<MutationBatchCommit, String> {
+    batch.validate()?;
+    // Terminal WorkItem operations own a row-local lease epoch/fencing CAS in
+    // `apply_work_item_rows`. They intentionally do not carry graph-wide OCC:
+    // the graph version advances on the first terminal commit, while a retry must
+    // reconstruct the exact same batch and return its stored result. Keep this
+    // exemption structurally narrow so every other non-lifecycle mutation still
+    // requires an authoritative graph version.
+    let native_terminal_work_item_cas = batch.authoritative_state.is_none()
+        && batch.operations.len() == 1
+        && batch.operations[0].domain == MutationDomain::ControlPlane
+        && batch.operations[0].surface == MutationSurface::Job
+        && matches!(
+            &batch.operations[0].method,
+            Method::CommitWorkItemResult { .. }
+                | Method::CancelWorkItem { .. }
+                | Method::DeferWorkItem { .. }
+        );
+    let staged_state = match (&batch.authoritative_state, authoritative_state_msgpack) {
+        (Some(descriptor), Some(bytes)) => {
+            use sha2::{Digest, Sha256};
+            let digest = hex::encode(Sha256::digest(bytes));
+            if digest != descriptor.digest {
+                return Err("authoritative state digest does not match MutationBatch".to_string());
+            }
+            let state = match descriptor.algorithm.as_str() {
+                "sha256" => AuthoritativeGraphState::Snapshot(
+                    decode_durable::<crate::graph::GraphSnapshot>(bytes).map_err(|_| {
+                        "authoritative graph state is invalid or exceeds resource limits"
+                            .to_string()
+                    })?,
+                ),
+                crate::graph_delta::ROW_DELTA_ALGORITHM => {
+                    let delta = decode_durable::<crate::graph_delta::GraphRowDelta>(bytes)
+                        .map_err(|_| {
+                            "authoritative graph row delta is invalid or exceeds resource limits"
+                                .to_string()
+                        })?;
+                    delta.validate()?;
+                    AuthoritativeGraphState::RowDelta(delta)
+                }
+                _ => return Err("unsupported authoritative state algorithm".to_string()),
+            };
+            Some(state)
+        }
+        (None, None) => None,
+        (Some(_), None) => {
+            return Err("MutationBatch state descriptor has no authoritative bytes".to_string())
+        }
+        (None, Some(_)) => {
+            return Err("authoritative bytes require a MutationBatch state descriptor".to_string())
+        }
+    };
+    // `None` means this mutation does not change graph control state. `Some(None)`
+    // is an explicit policy-free snapshot, while `Some(Some(_))` installs a new
+    // validated policy. Keeping the outer option is necessary for exact snapshot
+    // replacement without confusing "unchanged" with "absent".
+    let integrity_policy_update: Option<Option<crate::graph::IntegrityPolicy>> =
+        match staged_state.as_ref() {
+            Some(AuthoritativeGraphState::Snapshot(snapshot)) => {
+                Some(snapshot.integrity_policy.clone())
+            }
+            Some(AuthoritativeGraphState::RowDelta(delta)) => {
+                delta.integrity_policy_update().cloned().map(Some)
+            }
+            None => None,
+        };
+    if graph_fname != sanitize(&batch.graph) {
+        return Err(format!(
+            "mutation batch graph route mismatch: batch '{}' resolved to '{}' not '{}'",
+            batch.graph,
+            sanitize(&batch.graph),
+            graph_fname
+        ));
+    }
+    for operation in &batch.operations {
+        let crossmodal_sentinel = crossmodal.is_some()
+            && matches!(
+                &operation.method,
+                Method::ApplyMutation { event_type, .. }
+                    if event_type == "crossmodal_operation"
+            );
+        if staged_state.is_none()
+            && !supports_atomic_batch_rows(&operation.method)
+            && !crossmodal_sentinel
+        {
+            return Err(format!(
+                "MutationBatch operation {} is not lowered to the atomic graph-row kernel",
+                operation.ordinal
+            ));
+        }
+    }
+    if let Some(rows) = crossmodal.as_ref() {
+        for method in rows.methods {
+            if !supports_atomic_batch_rows(method) {
+                return Err(
+                    "cross-modal graph method is not lowered to the atomic row kernel".to_string(),
+                );
+            }
+        }
+    }
+    let lifecycle = batch
+        .operations
+        .iter()
+        .find_map(|operation| match &operation.method {
+            Method::CreateGraph {
+                graph_name,
+                graph_type,
+            } => Some((true, graph_name.as_str(), Some(*graph_type))),
+            Method::DeleteGraph { graph_name } => Some((false, graph_name.as_str(), None)),
+            _ => None,
+        });
+    if let Some((_, graph_name, _)) = lifecycle {
+        if batch.operations.len() != 1 || graph_name != batch.graph {
+            return Err(
+                "lifecycle MutationBatch must contain exactly one operation for its target graph"
+                    .to_string(),
+            );
+        }
+    }
+
+    let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
+    wtx.set_durability(Durability::Immediate)
+        .map_err(|e| e.to_string())?;
+
+    // Idempotency is checked INSIDE the same write transaction that will insert
+    // the new key, closing the concurrent double-commit race.
+    {
+        let idem = wtx
+            .open_table(MUTATION_IDEMPOTENCY)
+            .map_err(|e| e.to_string())?;
+        let existing_id = idem
+            .get((
+                batch.tenant.as_str(),
+                graph_fname,
+                batch.idempotency_key.as_str(),
+            ))
+            .map_err(|e| e.to_string())?
+            .map(|value| value.value().to_string());
+        if let Some(existing_id) = existing_id {
+            let records = wtx
+                .open_table(MUTATION_BATCHES)
+                .map_err(|e| e.to_string())?;
+            let stored = records
+                .get(existing_id.as_str())
+                .map_err(|e| e.to_string())?
+                .ok_or_else(|| {
+                    format!(
+                        "corrupt mutation idempotency index: '{}' has no batch record",
+                        existing_id
+                    )
+                })?;
+            let bytes = crypto.unseal(stored.value())?;
+            let record = decode_mutation_batch_record(&bytes)?;
+            let stored_ops =
+                rmp_serde::to_vec_named(&record.batch.operations).map_err(|e| e.to_string())?;
+            let proposed_ops =
+                rmp_serde::to_vec_named(&batch.operations).map_err(|e| e.to_string())?;
+            let same_identity = record.batch.batch_id == batch.batch_id
+                && record.batch.context == batch.context
+                && record.batch.tenant == batch.tenant
+                && record.batch.graph == batch.graph
+                && record.batch.placement_epoch == batch.placement_epoch
+                && record.batch.idempotency_key == batch.idempotency_key
+                && record.batch.expected_graph_version == batch.expected_graph_version
+                && record.batch.fencing_token == batch.fencing_token
+                && record.batch.authoritative_state == batch.authoritative_state
+                && record.batch.outbox == batch.outbox
+                && stored_ops == proposed_ops;
+            // `created_at_ms` is deliberately excluded: a network retry may rebuild
+            // the identical batch later. Every authority/fence/op/outbox byte must
+            // still match, so key reuse for different work fails closed.
+            if !same_identity {
+                return Err(format!(
+                    "IDEMPOTENCY_CONFLICT: key '{}' is already committed as batch '{}'",
+                    batch.idempotency_key, record.batch.batch_id
+                ));
+            }
+            if lifecycle.is_some() {
+                let heads = wtx
+                    .open_table(MUTATION_LIFECYCLE_HEAD)
+                    .map_err(|e| e.to_string())?;
+                let current = heads
+                    .get(graph_fname)
+                    .map_err(|e| e.to_string())?
+                    .map(|v| v.value().to_string());
+                if current.as_deref() != Some(record.batch.batch_id.as_str()) {
+                    return Err(format!(
+                        "STALE_FENCE: lifecycle batch '{}' is no longer current for graph '{}'",
+                        record.batch.batch_id, batch.graph
+                    ));
+                }
+            }
+            if let Some(change) = change {
+                let envelopes = wtx
+                    .open_table(CHANGE_ENVELOPES)
+                    .map_err(|e| e.to_string())?;
+                let stored = envelopes
+                    .get((graph_fname, change.envelope_id.as_str()))
+                    .map_err(|e| e.to_string())?
+                    .ok_or_else(|| {
+                        format!(
+                            "STALE_FENCE: committed envelope '{}' is no longer current for graph '{}'",
+                            change.envelope_id, batch.graph
+                        )
+                    })?;
+                let bytes = crypto.unseal(stored.value())?;
+                let record: ChangeEnvelopeRecord = decode_durable(&bytes)?;
+                let stored_bytes =
+                    rmp_serde::to_vec_named(&record.envelope).map_err(|e| e.to_string())?;
+                let proposed_bytes = rmp_serde::to_vec_named(change).map_err(|e| e.to_string())?;
+                if stored_bytes != proposed_bytes {
+                    return Err(format!(
+                        "IDEMPOTENCY_CONFLICT: envelope '{}' does not match its committed batch",
+                        change.envelope_id
+                    ));
+                }
+            }
+            return Ok(MutationBatchCommit {
+                record,
+                replayed: true,
+            });
+        }
+    }
+
+    // `batch_id` is the global status/outbox correlation key on this shard.  A
+    // caller must never be able to pair an already-committed id with a fresh
+    // idempotency key: inserting below would overwrite the record while leaving
+    // the original idempotency row pointing at different work.
+    {
+        let records = wtx
+            .open_table(MUTATION_BATCHES)
+            .map_err(|e| e.to_string())?;
+        if records
+            .get(batch.batch_id.as_str())
+            .map_err(|e| e.to_string())?
+            .is_some()
+        {
+            return Err(format!(
+                "IDEMPOTENCY_CONFLICT: batch_id '{}' is already committed under a different idempotency scope or key",
+                batch.batch_id
+            ));
+        }
+    }
+
+    if let Some(change) = change {
+        let envelopes = wtx
+            .open_table(CHANGE_ENVELOPES)
+            .map_err(|e| e.to_string())?;
+        if envelopes
+            .get((graph_fname, change.envelope_id.as_str()))
+            .map_err(|e| e.to_string())?
+            .is_some()
+        {
+            return Err(format!(
+                "IDEMPOTENCY_CONFLICT: envelope_id '{}' is already committed",
+                change.envelope_id
+            ));
+        }
+
+        let versions = wtx
+            .open_table(CONTENT_VERSIONS)
+            .map_err(|e| e.to_string())?;
+        let version_key = (
+            graph_fname,
+            batch.tenant.as_str(),
+            change.content_version.object_id.as_str(),
+        );
+        let current = versions
+            .get(version_key)
+            .map_err(|e| e.to_string())?
+            .map(|row| {
+                let bytes = crypto.unseal(row.value())?;
+                decode_durable::<ContentVersion>(&bytes)
+            })
+            .transpose()?;
+        match current {
+            Some(current) => {
+                if change.content_version.previous_digest.as_deref()
+                    != Some(current.digest.as_str())
+                {
+                    return Err(format!(
+                        "STALE_CONTENT_VERSION: object '{}' expected previous digest does not match",
+                        change.content_version.object_id
+                    ));
+                }
+                if !change
+                    .content_version
+                    .source_version
+                    .advances(&current.source_version)
+                {
+                    return Err(format!(
+                        "STALE_CONTENT_VERSION: object '{}' source version did not advance",
+                        change.content_version.object_id
+                    ));
+                }
+            }
+            None if change.content_version.previous_digest.is_some() => {
+                return Err(format!(
+                    "STALE_CONTENT_VERSION: object '{}' has no prior version",
+                    change.content_version.object_id
+                ));
+            }
+            None => {}
+        }
+
+        if let Some(cursor) = &change.cursor {
+            let cursors = wtx.open_table(CHANGE_CURSORS).map_err(|e| e.to_string())?;
+            let cursor_key = (
+                graph_fname,
+                batch.tenant.as_str(),
+                cursor.source.as_str(),
+                cursor.partition.as_str(),
+            );
+            let current = cursors
+                .get(cursor_key)
+                .map_err(|e| e.to_string())?
+                .map(|row| {
+                    let bytes = crypto.unseal(row.value())?;
+                    decode_durable::<ChangeCursor>(&bytes)
+                })
+                .transpose()?;
+            match current {
+                Some(current) => {
+                    if cursor.expected_previous.as_ref() != Some(&current.position) {
+                        return Err(format!(
+                            "STALE_CURSOR: source '{}' partition '{}' expected position does not match",
+                            cursor.source, cursor.partition
+                        ));
+                    }
+                    if !cursor.position.advances(&current.position) {
+                        return Err(format!(
+                            "STALE_CURSOR: source '{}' partition '{}' did not advance",
+                            cursor.source, cursor.partition
+                        ));
+                    }
+                }
+                None if cursor.expected_previous.is_some() => {
+                    return Err(format!(
+                        "STALE_CURSOR: source '{}' partition '{}' has no prior position",
+                        cursor.source, cursor.partition
+                    ));
+                }
+                None => {}
+            }
+        }
+    }
+
+    let stored_graph_version = {
+        let versions = wtx
+            .open_table(MUTATION_GRAPH_VERSION)
+            .map_err(|e| e.to_string())?;
+        let value = versions
+            .get(graph_fname)
+            .map_err(|e| e.to_string())?
+            .map(|value| value.value());
+        value
+    };
+    let current_graph_version = match stored_graph_version {
+        Some(version) => version,
+        None => INITIAL_GRAPH_VERSION,
+    };
+    if let Some(expected) = batch.expected_graph_version {
+        if expected != current_graph_version {
+            return Err(format!(
+                "STALE_VERSION: graph '{}' expected version {} but authoritative version is {}",
+                batch.graph, expected, current_graph_version
+            ));
+        }
+    } else if lifecycle.is_none() && !native_terminal_work_item_cas {
+        return Err(
+            "authoritative non-lifecycle MutationBatch requires expected_graph_version".to_string(),
+        );
+    }
+
+    let current_fence = {
+        let fences = wtx.open_table(MUTATION_FENCE).map_err(|e| e.to_string())?;
+        let value = fences
+            .get(graph_fname)
+            .map_err(|e| e.to_string())?
+            .map(|value| {
+                let bytes = crypto.unseal(value.value())?;
+                decode_durable::<DurableMutationFence>(&bytes)
+            })
+            .transpose()?
+            .unwrap_or(DurableMutationFence {
+                placement_epoch: 0,
+                fencing_token: 0,
+            });
+        value
+    };
+    let proposed_fence = DurableMutationFence {
+        placement_epoch: batch.placement_epoch,
+        fencing_token: batch.fencing_token.unwrap_or(0),
+    };
+    if proposed_fence.placement_epoch < current_fence.placement_epoch
+        || (proposed_fence.placement_epoch == current_fence.placement_epoch
+            && proposed_fence.fencing_token < current_fence.fencing_token)
+    {
+        return Err(format!(
+            "STALE_FENCE: graph '{}' route ({},{}) is older than ({},{})",
+            batch.graph,
+            proposed_fence.placement_epoch,
+            proposed_fence.fencing_token,
+            current_fence.placement_epoch,
+            current_fence.fencing_token,
+        ));
+    }
+
+    if crashpoint == Some(MutationBatchCrashpoint::BeforeRows) {
+        return Err("injected crash before mutation rows".to_string());
+    }
+    crate::mutation_batch::apply_certification_fault(
+        batch,
+        crate::mutation_batch::MutationCommitPhase::BeforeRows,
+    )?;
+
+    // Audit-tail updates are staged alongside the redb transaction.  Advancing
+    // the process cache before `wtx.commit()` would create a false tail when an
+    // injected/real failure drops this transaction.
+    #[cfg(feature = "security")]
+    let mut staged_audit_tail = audit_tail.clone();
+    let mut generated_result: Option<Vec<u8>> = None;
+
+    if let Some(AuthoritativeGraphState::Snapshot(snapshot)) = staged_state.as_ref() {
+        let mut nodes = wtx.open_table(NODES).map_err(|e| e.to_string())?;
+        let mut edges = wtx.open_table(EDGES).map_err(|e| e.to_string())?;
+        let mut ledger = wtx.open_table(LEDGER).map_err(|e| e.to_string())?;
+        clear_graph_rows(graph_fname, &mut nodes, &mut edges, &mut ledger)?;
+        for (node_id, properties) in &snapshot.nodes {
+            let sealed = crypto.seal(properties.as_ref());
+            nodes
+                .insert((graph_fname, node_id.as_str()), sealed.as_ref())
+                .map_err(|e| e.to_string())?;
+        }
+        for (source, target, properties) in &snapshot.edges {
+            let ordinal = next_edge_ordinal(&edges, graph_fname, source.as_str(), target.as_str())?;
+            let sealed = crypto.seal(properties.as_ref());
+            edges
+                .insert(
+                    (graph_fname, source.as_str(), target.as_str(), ordinal),
+                    sealed.as_ref(),
+                )
+                .map_err(|e| e.to_string())?;
+        }
+        for (sequence, line) in snapshot.ledger.iter().enumerate() {
+            ledger
+                .insert((graph_fname, sequence as u64), line.as_str())
+                .map_err(|e| e.to_string())?;
+        }
+        drop(nodes);
+        drop(edges);
+        drop(ledger);
+        let semantic_bytes =
+            rmp_serde::to_vec_named(&snapshot.semantic_store).map_err(|e| e.to_string())?;
+        let sealed_semantic = crypto.seal(&semantic_bytes);
+        let mut semantic = wtx.open_table(SEMANTIC).map_err(|e| e.to_string())?;
+        semantic
+            .insert(graph_fname, sealed_semantic.as_ref())
+            .map_err(|e| e.to_string())?;
+
+        #[cfg(feature = "security")]
+        {
+            let mut audit = wtx.open_table(AUDIT).map_err(|e| e.to_string())?;
+            for operation in &batch.operations {
+                append_audit_entry(
+                    &mut audit,
+                    &mut staged_audit_tail,
+                    graph_fname,
+                    &operation.method,
+                )?;
+            }
+        }
+    } else if let Some(AuthoritativeGraphState::RowDelta(delta)) = staged_state.as_ref() {
+        let mut nodes = wtx.open_table(NODES).map_err(|e| e.to_string())?;
+        let mut edges = wtx.open_table(EDGES).map_err(|e| e.to_string())?;
+        let mut ledger = wtx.open_table(LEDGER).map_err(|e| e.to_string())?;
+        let mut semantic = wtx.open_table(SEMANTIC).map_err(|e| e.to_string())?;
+        for method in delta.operations() {
+            apply_method_rows(
+                graph_fname,
+                method,
+                &mut nodes,
+                &mut edges,
+                &mut ledger,
+                &mut semantic,
+                crypto,
+            )?;
+        }
+        if let Some((_, retain, append)) = delta.ledger_patch() {
+            let suffix_keys: Vec<u64> = ledger
+                .range((graph_fname, retain)..)
+                .map_err(|error| error.to_string())?
+                .map_while(|row| match row {
+                    Ok((key, _)) if key.value().0 == graph_fname => Some(Ok(key.value().1)),
+                    Ok(_) => None,
+                    Err(error) => Some(Err(error.to_string())),
+                })
+                .collect::<Result<_, _>>()?;
+            for sequence in suffix_keys {
+                ledger
+                    .remove((graph_fname, sequence))
+                    .map_err(|error| error.to_string())?;
+            }
+            for (offset, line) in append.iter().enumerate() {
+                let sequence = retain
+                    .checked_add(offset as u64)
+                    .ok_or_else(|| "graph row delta ledger sequence overflow".to_string())?;
+                ledger
+                    .insert((graph_fname, sequence), line.as_str())
+                    .map_err(|error| error.to_string())?;
+            }
+        }
+
+        // The delta is an authenticated projection detail. Audit the original
+        // opaque operation receipt so sensitive row properties are not copied
+        // into audit/status/outbox surfaces.
+        #[cfg(feature = "security")]
+        {
+            let mut audit = wtx.open_table(AUDIT).map_err(|e| e.to_string())?;
+            for operation in &batch.operations {
+                append_audit_entry(
+                    &mut audit,
+                    &mut staged_audit_tail,
+                    graph_fname,
+                    &operation.method,
+                )?;
+            }
+        }
+    } else {
+        let mut nodes = wtx.open_table(NODES).map_err(|e| e.to_string())?;
+        let mut edges = wtx.open_table(EDGES).map_err(|e| e.to_string())?;
+        let mut ledger = wtx.open_table(LEDGER).map_err(|e| e.to_string())?;
+        let mut semantic = wtx.open_table(SEMANTIC).map_err(|e| e.to_string())?;
+        #[cfg(feature = "security")]
+        let mut audit = wtx.open_table(AUDIT).map_err(|e| e.to_string())?;
+        for operation in &batch.operations {
+            match &operation.method {
+                Method::CreateGraph { .. } => {}
+                Method::DeleteGraph { .. } => {
+                    clear_graph_rows(graph_fname, &mut nodes, &mut edges, &mut ledger)?;
+                }
+                method @ (Method::ClaimWorkItem { .. }
+                | Method::RenewWorkItemLease { .. }
+                | Method::CommitWorkItemResult { .. }
+                | Method::CancelWorkItem { .. }
+                | Method::DeferWorkItem { .. }) => {
+                    let result = apply_work_item_rows(graph_fname, method, &mut nodes, crypto)?
+                        .ok_or_else(|| {
+                            "WorkItem mutation produced no durable result".to_string()
+                        })?;
+                    if generated_result.is_some() || batch.operations.len() != 1 {
+                        return Err(
+                            "WorkItem MutationBatch must contain exactly one result-producing operation"
+                                .to_string(),
+                        );
+                    }
+                    generated_result =
+                        Some(rmp_serde::to_vec_named(&result).map_err(|e| e.to_string())?);
+                }
+                Method::ApplyMutation { event_type, .. }
+                    if crossmodal.is_some() && event_type == "crossmodal_operation" => {}
+                method => apply_method_rows(
+                    graph_fname,
+                    method,
+                    &mut nodes,
+                    &mut edges,
+                    &mut ledger,
+                    &mut semantic,
+                    crypto,
+                )?,
+            }
+            #[cfg(feature = "security")]
+            append_audit_entry(
+                &mut audit,
+                &mut staged_audit_tail,
+                graph_fname,
+                &operation.method,
+            )?;
+        }
+    }
+    if let Some(rows) = crossmodal.as_ref() {
+        if !rows.methods.is_empty() {
+            let mut nodes = wtx.open_table(NODES).map_err(|e| e.to_string())?;
+            let mut edges = wtx.open_table(EDGES).map_err(|e| e.to_string())?;
+            let mut ledger = wtx.open_table(LEDGER).map_err(|e| e.to_string())?;
+            let mut semantic = wtx.open_table(SEMANTIC).map_err(|e| e.to_string())?;
+            for method in rows.methods {
+                apply_method_rows(
+                    graph_fname,
+                    method,
+                    &mut nodes,
+                    &mut edges,
+                    &mut ledger,
+                    &mut semantic,
+                    crypto,
+                )?;
+            }
+        }
+        if rows
+            .methods
+            .iter()
+            .any(|method| matches!(method, Method::ClearGraph))
+        {
+            let mut semantic = wtx.open_table(SEMANTIC).map_err(|e| e.to_string())?;
+            semantic.remove(graph_fname).map_err(|e| e.to_string())?;
+        }
+        apply_crossmodal_projection_rows(
+            &wtx,
+            graph_fname,
+            rows.vectors,
+            rows.blob_refs,
+            rows.measurements,
+            crypto,
+        )?;
+    }
+    let clears_semantic = authoritative_state_msgpack.is_none()
+        && (matches!(lifecycle, Some((false, _, _)))
+            || batch
+                .operations
+                .iter()
+                .any(|operation| matches!(&operation.method, Method::ClearGraph)));
+    if clears_semantic {
+        let mut semantic = wtx.open_table(SEMANTIC).map_err(|e| e.to_string())?;
+        semantic.remove(graph_fname).map_err(|e| e.to_string())?;
+    }
+    if matches!(lifecycle, Some((false, _, _))) {
+        clear_change_material_rows(&wtx, graph_fname)?;
+    }
+
+    if crashpoint == Some(MutationBatchCrashpoint::AfterRowsBeforeMetadata) {
+        return Err("injected crash after mutation rows".to_string());
+    }
+    crate::mutation_batch::apply_certification_fault(
+        batch,
+        crate::mutation_batch::MutationCommitPhase::AfterRowsBeforeMetadata,
+    )?;
+
+    let record = MutationBatchRecord {
+        batch: batch.clone(),
+        status: MutationBatchStatus::Committed,
+        result_msgpack: generated_result.or_else(|| result_msgpack.map(ToOwned::to_owned)),
+        committed_at_ms,
+    };
+    let record_bytes = rmp_serde::to_vec_named(&record).map_err(|e| e.to_string())?;
+    let sealed_record = crypto.seal(&record_bytes);
+
+    {
+        let mut records = wtx
+            .open_table(MUTATION_BATCHES)
+            .map_err(|e| e.to_string())?;
+        records
+            .insert(batch.batch_id.as_str(), sealed_record.as_ref())
+            .map_err(|e| e.to_string())?;
+
+        let mut idem = wtx
+            .open_table(MUTATION_IDEMPOTENCY)
+            .map_err(|e| e.to_string())?;
+        idem.insert(
+            (
+                batch.tenant.as_str(),
+                graph_fname,
+                batch.idempotency_key.as_str(),
+            ),
+            batch.batch_id.as_str(),
+        )
+        .map_err(|e| e.to_string())?;
+
+        let next_graph_version = match batch.authoritative_state.as_ref() {
+            Some(state) => state.target_graph_version,
+            None => current_graph_version
+                .checked_add(1)
+                .ok_or_else(|| "mutation graph version overflow".to_string())?,
+        };
+        let mut versions = wtx
+            .open_table(MUTATION_GRAPH_VERSION)
+            .map_err(|e| e.to_string())?;
+        versions
+            .insert(graph_fname, next_graph_version)
+            .map_err(|e| e.to_string())?;
+
+        let fence_bytes = rmp_serde::to_vec_named(&proposed_fence).map_err(|e| e.to_string())?;
+        let sealed_fence = crypto.seal(&fence_bytes);
+        let mut fences = wtx.open_table(MUTATION_FENCE).map_err(|e| e.to_string())?;
+        fences
+            .insert(graph_fname, sealed_fence.as_ref())
+            .map_err(|e| e.to_string())?;
+
+        if lifecycle.is_some() {
+            let mut heads = wtx
+                .open_table(MUTATION_LIFECYCLE_HEAD)
+                .map_err(|e| e.to_string())?;
+            heads
+                .insert(graph_fname, batch.batch_id.as_str())
+                .map_err(|e| e.to_string())?;
+        }
+
+        let mut outbox = wtx.open_table(MUTATION_OUTBOX).map_err(|e| e.to_string())?;
+        let mut next_ordinal = 0u32;
+        // Every operation receives a canonical committed event even if a surface
+        // supplied no bespoke projection intent.  This makes rebuild/replay a
+        // property of the commit kernel, not handler discipline.
+        for operation in &batch.operations {
+            let payload = rmp_serde::to_vec_named(operation).map_err(|e| e.to_string())?;
+            let out = MutationOutboxRecord {
+                schema_version: MUTATION_BATCH_VERSION,
+                batch_id: batch.batch_id.clone(),
+                ordinal: next_ordinal,
+                tenant: batch.tenant.clone(),
+                graph: batch.graph.clone(),
+                version_scope: MutationVersionScope::Graph,
+                source_graph_version: next_graph_version,
+                intent: MutationOutboxIntent {
+                    topic: "engine.mutation.committed".to_string(),
+                    key: batch.batch_id.clone(),
+                    payload,
+                    headers: Default::default(),
+                },
+                created_at_ms: batch.created_at_ms,
+            };
+            out.validate()?;
+            let bytes = rmp_serde::to_vec_named(&out).map_err(|e| e.to_string())?;
+            let sealed = crypto.seal(&bytes);
+            outbox
+                .insert((batch.batch_id.as_str(), next_ordinal), sealed.as_ref())
+                .map_err(|e| e.to_string())?;
+            next_ordinal = next_ordinal
+                .checked_add(1)
+                .ok_or_else(|| "mutation outbox ordinal overflow".to_string())?;
+        }
+        for intent in &batch.outbox {
+            let out = MutationOutboxRecord {
+                schema_version: MUTATION_BATCH_VERSION,
+                batch_id: batch.batch_id.clone(),
+                ordinal: next_ordinal,
+                tenant: batch.tenant.clone(),
+                graph: batch.graph.clone(),
+                version_scope: MutationVersionScope::Graph,
+                source_graph_version: next_graph_version,
+                intent: intent.clone(),
+                created_at_ms: batch.created_at_ms,
+            };
+            out.validate()?;
+            let bytes = rmp_serde::to_vec_named(&out).map_err(|e| e.to_string())?;
+            let sealed = crypto.seal(&bytes);
+            outbox
+                .insert((batch.batch_id.as_str(), next_ordinal), sealed.as_ref())
+                .map_err(|e| e.to_string())?;
+            next_ordinal = next_ordinal
+                .checked_add(1)
+                .ok_or_else(|| "mutation outbox ordinal overflow".to_string())?;
+        }
+
+        if let Some(change) = change {
+            // The envelope event is metadata-only: material payloads remain in
+            // their encrypted authoritative rows and are retrieved under policy.
+            let event = serde_json::json!({
+                "schema": "epistemic.change.committed.v1",
+                "envelope_id": change.envelope_id.as_str(),
+                "batch_id": batch.batch_id.as_str(),
+                "tenant": batch.tenant.as_str(),
+                "graph": batch.graph.as_str(),
+                "object_id": change.content_version.object_id.as_str(),
+                "content_digest": change.content_version.digest.as_str(),
+            });
+            let event_payload = rmp_serde::to_vec_named(&event).map_err(|e| e.to_string())?;
+            let out = MutationOutboxRecord {
+                schema_version: MUTATION_BATCH_VERSION,
+                batch_id: batch.batch_id.clone(),
+                ordinal: next_ordinal,
+                tenant: batch.tenant.clone(),
+                graph: batch.graph.clone(),
+                version_scope: MutationVersionScope::Graph,
+                source_graph_version: next_graph_version,
+                intent: MutationOutboxIntent {
+                    topic: "engine.change.committed".to_string(),
+                    key: change.envelope_id.clone(),
+                    payload: event_payload,
+                    headers: Default::default(),
+                },
+                created_at_ms: batch.created_at_ms,
+            };
+            out.validate()?;
+            let bytes = rmp_serde::to_vec_named(&out).map_err(|e| e.to_string())?;
+            let sealed = crypto.seal(&bytes);
+            outbox
+                .insert((batch.batch_id.as_str(), next_ordinal), sealed.as_ref())
+                .map_err(|e| e.to_string())?;
+            next_ordinal = next_ordinal
+                .checked_add(1)
+                .ok_or_else(|| "change envelope outbox ordinal overflow".to_string())?;
+
+            let envelope_record = ChangeEnvelopeRecord {
+                envelope: change.clone(),
+                committed_at_ms,
+            };
+            let bytes = rmp_serde::to_vec_named(&envelope_record).map_err(|e| e.to_string())?;
+            let sealed = crypto.seal(&bytes);
+            let mut envelopes = wtx
+                .open_table(CHANGE_ENVELOPES)
+                .map_err(|e| e.to_string())?;
+            envelopes
+                .insert((graph_fname, change.envelope_id.as_str()), sealed.as_ref())
+                .map_err(|e| e.to_string())?;
+
+            let bytes =
+                rmp_serde::to_vec_named(&change.content_version).map_err(|e| e.to_string())?;
+            let sealed = crypto.seal(&bytes);
+            let mut versions = wtx
+                .open_table(CONTENT_VERSIONS)
+                .map_err(|e| e.to_string())?;
+            versions
+                .insert(
+                    (
+                        graph_fname,
+                        batch.tenant.as_str(),
+                        change.content_version.object_id.as_str(),
+                    ),
+                    sealed.as_ref(),
+                )
+                .map_err(|e| e.to_string())?;
+
+            if let Some(cursor) = &change.cursor {
+                let bytes = rmp_serde::to_vec_named(cursor).map_err(|e| e.to_string())?;
+                let sealed = crypto.seal(&bytes);
+                let mut cursors = wtx.open_table(CHANGE_CURSORS).map_err(|e| e.to_string())?;
+                cursors
+                    .insert(
+                        (
+                            graph_fname,
+                            batch.tenant.as_str(),
+                            cursor.source.as_str(),
+                            cursor.partition.as_str(),
+                        ),
+                        sealed.as_ref(),
+                    )
+                    .map_err(|e| e.to_string())?;
+            }
+
+            let mut blobs = wtx.open_table(CHANGE_BLOBS).map_err(|e| e.to_string())?;
+            for blob in &change.blobs {
+                let key = (graph_fname, batch.tenant.as_str(), blob.blob_id.as_str());
+                match blob.operation {
+                    MaterialOperation::Upsert => {
+                        let bytes = rmp_serde::to_vec_named(blob).map_err(|e| e.to_string())?;
+                        let sealed = crypto.seal(&bytes);
+                        blobs
+                            .insert(key, sealed.as_ref())
+                            .map_err(|e| e.to_string())?;
+                    }
+                    MaterialOperation::Delete => {
+                        blobs.remove(key).map_err(|e| e.to_string())?;
+                    }
+                }
+            }
+
+            let mut features = wtx.open_table(CHANGE_FEATURES).map_err(|e| e.to_string())?;
+            for feature in &change.features {
+                let key = (
+                    graph_fname,
+                    batch.tenant.as_str(),
+                    feature.feature_id.as_str(),
+                );
+                match feature.operation {
+                    MaterialOperation::Upsert => {
+                        let bytes = rmp_serde::to_vec_named(feature).map_err(|e| e.to_string())?;
+                        let sealed = crypto.seal(&bytes);
+                        features
+                            .insert(key, sealed.as_ref())
+                            .map_err(|e| e.to_string())?;
+                    }
+                    MaterialOperation::Delete => {
+                        features.remove(key).map_err(|e| e.to_string())?;
+                    }
+                }
+            }
+
+            let mut evidence = wtx.open_table(CHANGE_EVIDENCE).map_err(|e| e.to_string())?;
+            for item in &change.evidence {
+                let key = (
+                    graph_fname,
+                    batch.tenant.as_str(),
+                    item.evidence_id.as_str(),
+                );
+                match item.operation {
+                    MaterialOperation::Upsert => {
+                        let bytes = rmp_serde::to_vec_named(item).map_err(|e| e.to_string())?;
+                        let sealed = crypto.seal(&bytes);
+                        evidence
+                            .insert(key, sealed.as_ref())
+                            .map_err(|e| e.to_string())?;
+                    }
+                    MaterialOperation::Delete => {
+                        evidence.remove(key).map_err(|e| e.to_string())?;
+                    }
+                }
+            }
+
+            let mut policies = wtx.open_table(CHANGE_POLICIES).map_err(|e| e.to_string())?;
+            for policy in &change.policies {
+                let key = (
+                    graph_fname,
+                    batch.tenant.as_str(),
+                    policy.policy_id.as_str(),
+                );
+                match policy.operation {
+                    MaterialOperation::Upsert => {
+                        let bytes = rmp_serde::to_vec_named(policy).map_err(|e| e.to_string())?;
+                        let sealed = crypto.seal(&bytes);
+                        policies
+                            .insert(key, sealed.as_ref())
+                            .map_err(|e| e.to_string())?;
+                    }
+                    MaterialOperation::Delete => {
+                        policies.remove(key).map_err(|e| e.to_string())?;
+                    }
+                }
+            }
+
+            let mut lineage = wtx.open_table(CHANGE_LINEAGE).map_err(|e| e.to_string())?;
+            for item in &change.lineage {
+                let key = (graph_fname, batch.tenant.as_str(), item.lineage_id.as_str());
+                match item.operation {
+                    MaterialOperation::Upsert => {
+                        let bytes = rmp_serde::to_vec_named(item).map_err(|e| e.to_string())?;
+                        let sealed = crypto.seal(&bytes);
+                        lineage
+                            .insert(key, sealed.as_ref())
+                            .map_err(|e| e.to_string())?;
+                    }
+                    MaterialOperation::Delete => {
+                        lineage.remove(key).map_err(|e| e.to_string())?;
+                    }
+                }
+            }
+
+            debug_assert_eq!(
+                next_ordinal as usize,
+                batch.operations.len() + batch.outbox.len() + 1
+            );
+        }
+
+        let mut meta = wtx.open_table(GRAPH_META).map_err(|e| e.to_string())?;
+        match lifecycle {
+            Some((true, graph_name, Some(graph_type))) => {
+                let encoded = encode_meta_record(
+                    graph_name,
+                    graph_type,
+                    &batch.batch_id,
+                    integrity_policy_update.as_ref().and_then(Option::as_ref),
+                )?;
+                meta.insert(graph_fname, encoded.as_slice())
+                    .map_err(|e| e.to_string())?;
+            }
+            Some((false, _, _)) => {
+                meta.remove(graph_fname).map_err(|e| e.to_string())?;
+            }
+            _ => {
+                let existing = meta
+                    .get(graph_fname)
+                    .map_err(|e| e.to_string())?
+                    .map(|value| value.value().to_vec());
+                let encoded = match (existing, integrity_policy_update.as_ref()) {
+                    (Some(existing), Some(policy)) => {
+                        let record = decode_meta_record(graph_fname, &existing)?;
+                        Some(encode_meta_record(
+                            &record.name,
+                            record.graph_type,
+                            &record.incarnation_id,
+                            policy.as_ref(),
+                        )?)
+                    }
+                    (Some(_), None) => None,
+                    (None, policy) => Some(encode_meta_record(
+                        &batch.graph,
+                        GraphType::Global,
+                        &batch.batch_id,
+                        policy.and_then(Option::as_ref),
+                    )?),
+                };
+                if let Some(encoded) = encoded {
+                    meta.insert(graph_fname, encoded.as_slice())
+                        .map_err(|e| e.to_string())?;
+                }
+            }
+        }
+    }
+
+    if crashpoint == Some(MutationBatchCrashpoint::BeforeCommit) {
+        return Err("injected crash before mutation commit".to_string());
+    }
+    crate::mutation_batch::apply_certification_fault(
+        batch,
+        crate::mutation_batch::MutationCommitPhase::BeforeCommit,
+    )?;
+
+    wtx.commit().map_err(|e| e.to_string())?;
+    #[cfg(feature = "security")]
+    {
+        *audit_tail = staged_audit_tail;
+    }
+
+    if crashpoint == Some(MutationBatchCrashpoint::AfterCommitBeforeAck) {
+        return Err("injected crash after mutation commit before acknowledgement".to_string());
+    }
+    crate::mutation_batch::apply_certification_fault(
+        batch,
+        crate::mutation_batch::MutationCommitPhase::AfterCommitBeforeAck,
+    )?;
+
+    Ok(MutationBatchCommit {
+        record,
+        replayed: false,
+    })
+}
+
+/// Methods whose complete authoritative effect is represented by the NODES/EDGES/
+/// LEDGER row transaction below.  Anything else must first be lowered by its
+/// surface adapter; accepting it and letting `apply_method_rows`'s non-applicable arm
+/// run would create a committed status with missing state.
+fn supports_atomic_batch_rows(method: &Method) -> bool {
+    matches!(
+        method,
+        Method::AddNode { .. }
+            | Method::RemoveNode { .. }
+            | Method::CompareAndSetNodeFields { .. }
+            | Method::AddEdge { .. }
+            | Method::RemoveEdge { .. }
+            | Method::BatchUpdate { .. }
+            | Method::AddEmbedding { .. }
+            | Method::ClearGraph
+            | Method::CreateGraph { .. }
+            | Method::DeleteGraph { .. }
+            | Method::ClaimWorkItem { .. }
+            | Method::RenewWorkItemLease { .. }
+            | Method::CommitWorkItemResult { .. }
+            | Method::CancelWorkItem { .. }
+            | Method::DeferWorkItem { .. }
+    )
+}
+
+fn property_f64(props: &serde_json::Map<String, serde_json::Value>, key: &str) -> f64 {
+    props
+        .get(key)
+        .and_then(serde_json::Value::as_f64)
+        .unwrap_or(0.0)
+}
+
+fn property_u64(props: &serde_json::Map<String, serde_json::Value>, key: &str) -> u64 {
+    props
+        .get(key)
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0)
+}
+
+fn property_string<'a>(
+    props: &'a serde_json::Map<String, serde_json::Value>,
+    key: &str,
+) -> &'a str {
+    props
+        .get(key)
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("")
+}
+
+fn write_work_item_props(
+    nodes: &mut redb::Table<(&str, &str), &[u8]>,
+    graph: &str,
+    node_id: &str,
+    props: &serde_json::Map<String, serde_json::Value>,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    let bytes = rmp_serde::to_vec_named(props).map_err(|e| e.to_string())?;
+    let sealed = crypto.seal(&bytes);
+    nodes
+        .insert((graph, node_id), sealed.as_ref())
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Apply one native WorkItem transition while the MutationBatch write
+/// transaction is held. The returned payload is persisted as the batch result in
+/// that same transaction, so a retry observes the exact original claim/commit
+/// outcome rather than running selection twice.
+fn apply_work_item_rows(
+    graph: &str,
+    method: &Method,
+    nodes: &mut redb::Table<(&str, &str), &[u8]>,
+    crypto: DurableCrypto<'_>,
+) -> Result<Option<crate::protocol::ResultPayload>, String> {
+    let decode = |bytes: &[u8]| -> Result<serde_json::Map<String, serde_json::Value>, String> {
+        decode_durable(bytes)
+    };
+    match method {
+        Method::ClaimWorkItem { request } => {
+            let tenant = &request.tenant_ref;
+            let worker_id = &request.worker_ref;
+            let now_ms = request.now_ms;
+            let lease_ms = request.lease_ms;
+            let max_tenant_in_flight = request.max_tenant_in_flight;
+            if tenant.trim().is_empty()
+                || worker_id.trim().is_empty()
+                || lease_ms == 0
+                || !(1..=4096).contains(&max_tenant_in_flight)
+            {
+                return Err("ClaimWorkItem request violates the current protocol contract".into());
+            }
+            let now_s = now_ms as f64 / 1000.0;
+            let lease_until_s = now_s + (lease_ms as f64 / 1000.0);
+            let tenant_in_flight_limit = max_tenant_in_flight as u32;
+            let mut inflight = 0u32;
+            let mut candidates = Vec::<(
+                u64,
+                u64,
+                u64,
+                String,
+                serde_json::Map<String, serde_json::Value>,
+            )>::new();
+            for row in nodes
+                .range((graph, "")..=(graph, "\u{10ffff}"))
+                .map_err(|e| e.to_string())?
+            {
+                let (key, value) = row.map_err(|e| e.to_string())?;
+                let (_, node_id) = key.value();
+                let bytes = crypto.unseal(value.value())?;
+                let Ok(mut props) = decode(&bytes) else {
+                    continue;
+                };
+                if property_string(&props, "node_type") != "WorkItem" {
+                    continue;
+                }
+                if property_string(&props, "tenant") != tenant {
+                    continue;
+                }
+                let status = property_string(&props, "status").to_string();
+                if matches!(status.as_str(), "leased" | "running")
+                    && property_f64(&props, "lease_expires_at") > now_s
+                {
+                    inflight = inflight.saturating_add(1);
+                    continue;
+                }
+                if request
+                    .work_item_id
+                    .as_deref()
+                    .is_some_and(|selected| selected != node_id)
+                {
+                    continue;
+                }
+                // Expired owners are fenced out before the item participates in
+                // selection. This update is still private to the held transaction.
+                if matches!(status.as_str(), "leased" | "running") {
+                    let next_epoch = property_u64(&props, "lease_epoch").saturating_add(1);
+                    props.insert("status".into(), serde_json::Value::String("ready".into()));
+                    props.insert("lease_epoch".into(), serde_json::Value::from(next_epoch));
+                    props.insert("fencing_token".into(), serde_json::Value::from(next_epoch));
+                    props.insert("lease_owner".into(), serde_json::Value::Null);
+                    props.insert("lease_expires_at".into(), serde_json::Value::Null);
+                }
+                if property_string(&props, "status") != "ready"
+                    || request
+                        .queue_ref
+                        .as_deref()
+                        .is_some_and(|queue| property_string(&props, "queue") != queue)
+                    || request
+                        .resource_class
+                        .as_deref()
+                        .is_some_and(|resource_class| {
+                            property_string(&props, "resource_class") != resource_class
+                        })
+                    || request
+                        .fairness_group
+                        .as_deref()
+                        .is_some_and(|fairness_group| {
+                            property_string(&props, "fairness_group") != fairness_group
+                        })
+                    || property_f64(&props, "next_retry_at") > now_s
+                {
+                    continue;
+                }
+                let deadline = props
+                    .get("deadline_unix")
+                    .and_then(serde_json::Value::as_f64)
+                    .filter(|deadline| *deadline >= now_s)
+                    .map(|deadline| (deadline * 1000.0) as u64)
+                    .unwrap_or(u64::MAX);
+                if props
+                    .get("deadline_unix")
+                    .and_then(serde_json::Value::as_f64)
+                    .is_some_and(|deadline| deadline < now_s)
+                {
+                    continue;
+                }
+                candidates.push((
+                    property_u64(&props, "prio_bucket"),
+                    deadline,
+                    (property_f64(&props, "created_at") * 1000.0) as u64,
+                    node_id.to_string(),
+                    props,
+                ));
+            }
+            if inflight >= tenant_in_flight_limit {
+                return Ok(Some(crate::protocol::ResultPayload::raw(
+                    &ClaimWorkItemResult {
+                        schema_version: ClaimWorkItemResultSchemaVersion::V1,
+                        claimed: false,
+                        reason: ClaimWorkItemResultReason::TenantQuota,
+                        work_item_id: None,
+                        kind: None,
+                        payload_ref: None,
+                        lease_holder_ref: None,
+                        lease_epoch: None,
+                        fencing_token: None,
+                        lease_expires_at_ms: None,
+                        attempt: None,
+                        max_attempts: None,
+                        tenant_in_flight: Some(u64::from(inflight)),
+                        changed_work_item_ids: Vec::new(),
+                    },
+                )));
+            }
+            candidates.sort_by(|left, right| {
+                (&left.0, &left.1, &left.2, &left.3).cmp(&(&right.0, &right.1, &right.2, &right.3))
+            });
+            let Some((_, _, _, node_id, mut props)) = candidates.into_iter().next() else {
+                return Ok(Some(crate::protocol::ResultPayload::raw(
+                    &ClaimWorkItemResult {
+                        schema_version: ClaimWorkItemResultSchemaVersion::V1,
+                        claimed: false,
+                        reason: ClaimWorkItemResultReason::Empty,
+                        work_item_id: None,
+                        kind: None,
+                        payload_ref: None,
+                        lease_holder_ref: None,
+                        lease_epoch: None,
+                        fencing_token: None,
+                        lease_expires_at_ms: None,
+                        attempt: None,
+                        max_attempts: None,
+                        tenant_in_flight: Some(u64::from(inflight)),
+                        changed_work_item_ids: Vec::new(),
+                    },
+                )));
+            };
+            let epoch = property_u64(&props, "lease_epoch").saturating_add(1);
+            let attempt = property_u64(&props, "attempt").saturating_add(1);
+            props.insert("status".into(), serde_json::Value::String("leased".into()));
+            props.insert(
+                "lease_owner".into(),
+                serde_json::Value::String(worker_id.clone()),
+            );
+            props.insert("lease_epoch".into(), serde_json::Value::from(epoch));
+            props.insert("fencing_token".into(), serde_json::Value::from(epoch));
+            props.insert(
+                "lease_expires_at".into(),
+                serde_json::Value::from(lease_until_s),
+            );
+            props.insert("heartbeat_at".into(), serde_json::Value::from(now_s));
+            props.insert("updated_at".into(), serde_json::Value::from(now_s));
+            props.insert("attempt".into(), serde_json::Value::from(attempt));
+            let kind = property_string(&props, "kind").to_string();
+            let payload_ref = property_string(&props, "payload_ref").to_string();
+            let max_attempts = property_u64(&props, "max_attempts").max(1);
+            write_work_item_props(nodes, graph, &node_id, &props, crypto)?;
+            Ok(Some(crate::protocol::ResultPayload::raw(
+                &ClaimWorkItemResult {
+                    schema_version: ClaimWorkItemResultSchemaVersion::V1,
+                    claimed: true,
+                    reason: ClaimWorkItemResultReason::Claimed,
+                    work_item_id: Some(node_id.clone()),
+                    kind: (!kind.is_empty()).then_some(kind),
+                    payload_ref: (!payload_ref.is_empty()).then_some(payload_ref),
+                    lease_holder_ref: Some(worker_id.clone()),
+                    lease_epoch: Some(epoch),
+                    fencing_token: Some(epoch),
+                    lease_expires_at_ms: Some(now_ms.saturating_add(lease_ms)),
+                    attempt: Some(attempt),
+                    max_attempts: Some(max_attempts),
+                    tenant_in_flight: Some(u64::from(inflight.saturating_add(1))),
+                    changed_work_item_ids: vec![node_id],
+                },
+            )))
+        }
+        Method::RenewWorkItemLease {
+            tenant,
+            work_item_id,
+            worker_id,
+            lease_epoch,
+            fencing_token,
+            now_ms,
+            lease_ms,
+        } => {
+            if worker_id.trim().is_empty() || *lease_ms == 0 {
+                return Err("RenewWorkItemLease requires worker_id and non-zero lease_ms".into());
+            }
+            let current = nodes
+                .get((graph, work_item_id.as_str()))
+                .map_err(|e| e.to_string())?
+                .map(|value| crypto.unseal(value.value()))
+                .transpose()?;
+            let Some(bytes) = current else {
+                return Ok(Some(crate::protocol::ResultPayload::Json(
+                    serde_json::json!({"renewed": false, "reason": "missing"}),
+                )));
+            };
+            let mut props = decode(&bytes)?;
+            let valid = property_string(&props, "tenant") == tenant
+                && property_string(&props, "lease_owner") == worker_id
+                && matches!(property_string(&props, "status"), "leased" | "running")
+                && property_u64(&props, "lease_epoch") == *lease_epoch
+                && property_u64(&props, "fencing_token") == *fencing_token
+                && property_f64(&props, "lease_expires_at") >= *now_ms as f64 / 1000.0;
+            if !valid {
+                return Ok(Some(crate::protocol::ResultPayload::Json(
+                    serde_json::json!({"renewed": false, "reason": "fenced"}),
+                )));
+            }
+            let now_s = *now_ms as f64 / 1000.0;
+            props.insert("status".into(), serde_json::Value::String("running".into()));
+            props.insert("heartbeat_at".into(), serde_json::Value::from(now_s));
+            props.insert("updated_at".into(), serde_json::Value::from(now_s));
+            props.insert(
+                "lease_expires_at".into(),
+                serde_json::Value::from(now_s + *lease_ms as f64 / 1000.0),
+            );
+            write_work_item_props(nodes, graph, work_item_id, &props, crypto)?;
+            Ok(Some(crate::protocol::ResultPayload::Json(
+                serde_json::json!({
+                    "renewed": true,
+                    "work_item_id": work_item_id,
+                    "lease_epoch": lease_epoch,
+                    "fencing_token": fencing_token,
+                    "lease_expires_at_ms": (*now_ms).saturating_add(*lease_ms),
+                    "changed_work_item_ids": [work_item_id],
+                }),
+            )))
+        }
+        Method::CommitWorkItemResult {
+            tenant,
+            work_item_id,
+            worker_id,
+            lease_epoch,
+            fencing_token,
+            outcome,
+            result_ref,
+            error_ref,
+            retryable,
+            now_ms,
+            ..
+        } => {
+            let current = nodes
+                .get((graph, work_item_id.as_str()))
+                .map_err(|e| e.to_string())?
+                .map(|value| crypto.unseal(value.value()))
+                .transpose()?;
+            let Some(bytes) = current else {
+                return Ok(Some(crate::protocol::ResultPayload::Json(
+                    serde_json::json!({"status": "missing", "changed_work_item_ids": []}),
+                )));
+            };
+            let mut props = decode(&bytes)?;
+            if property_string(&props, "tenant") != tenant {
+                return Ok(Some(crate::protocol::ResultPayload::Json(
+                    serde_json::json!({"status": "missing", "changed_work_item_ids": []}),
+                )));
+            }
+            if matches!(
+                property_string(&props, "status"),
+                "succeeded" | "failed" | "cancelled" | "dead_letter"
+            ) {
+                return Ok(Some(crate::protocol::ResultPayload::Json(
+                    serde_json::json!({
+                        "status": "noop",
+                        "work_item_id": work_item_id,
+                        "changed_work_item_ids": [],
+                    }),
+                )));
+            }
+            let valid = property_string(&props, "lease_owner") == worker_id
+                && matches!(property_string(&props, "status"), "leased" | "running")
+                && property_u64(&props, "lease_epoch") == *lease_epoch
+                && property_u64(&props, "fencing_token") == *fencing_token
+                && property_f64(&props, "lease_expires_at") >= *now_ms as f64 / 1000.0;
+            if !valid {
+                return Ok(Some(crate::protocol::ResultPayload::Json(
+                    serde_json::json!({
+                        "status": "fenced",
+                        "work_item_id": work_item_id,
+                        "changed_work_item_ids": [],
+                    }),
+                )));
+            }
+            if !matches!(outcome.as_str(), "succeeded" | "failed" | "cancelled") {
+                return Err(
+                    "CommitWorkItemResult outcome must be succeeded, failed, or cancelled".into(),
+                );
+            }
+            let now_s = *now_ms as f64 / 1000.0;
+            let attempts = property_u64(&props, "attempt");
+            let max_attempts = property_u64(&props, "max_attempts").max(1);
+            let committed_status = if outcome == "failed" && *retryable && attempts < max_attempts {
+                let backoff = property_f64(&props, "backoff_base_s").max(1.0)
+                    * 2f64.powi(attempts.saturating_sub(1).min(31) as i32);
+                props.insert("status".into(), serde_json::Value::String("ready".into()));
+                props.insert(
+                    "next_retry_at".into(),
+                    serde_json::Value::from(now_s + backoff),
+                );
+                props.insert(
+                    "lease_epoch".into(),
+                    serde_json::Value::from((*lease_epoch).saturating_add(1)),
+                );
+                props.insert(
+                    "fencing_token".into(),
+                    serde_json::Value::from((*fencing_token).saturating_add(1)),
+                );
+                "retry_scheduled"
+            } else {
+                let terminal = if outcome == "failed" && *retryable {
+                    "dead_letter"
+                } else {
+                    outcome.as_str()
+                };
+                props.insert("status".into(), serde_json::Value::String(terminal.into()));
+                props.insert("completed_at".into(), serde_json::Value::from(now_s));
+                terminal
+            };
+            props.insert(
+                "result_ref".into(),
+                result_ref
+                    .clone()
+                    .map(serde_json::Value::String)
+                    .unwrap_or(serde_json::Value::Null),
+            );
+            props.insert(
+                "error_ref".into(),
+                error_ref
+                    .clone()
+                    .map(serde_json::Value::String)
+                    .unwrap_or(serde_json::Value::Null),
+            );
+            props.insert("lease_owner".into(), serde_json::Value::Null);
+            props.insert("lease_expires_at".into(), serde_json::Value::Null);
+            props.insert("updated_at".into(), serde_json::Value::from(now_s));
+            write_work_item_props(nodes, graph, work_item_id, &props, crypto)?;
+
+            let mut changed = vec![work_item_id.clone()];
+            if committed_status == "succeeded" {
+                let downstream = props
+                    .get("downstream_ids")
+                    .and_then(serde_json::Value::as_array)
+                    .cloned()
+                    .unwrap_or_default();
+                for child in downstream.iter().filter_map(serde_json::Value::as_str) {
+                    let child_bytes = nodes
+                        .get((graph, child))
+                        .map_err(|e| e.to_string())?
+                        .map(|value| crypto.unseal(value.value()))
+                        .transpose()?;
+                    let Some(child_bytes) = child_bytes else {
+                        continue;
+                    };
+                    let mut child_props = decode(&child_bytes)?;
+                    let count = property_u64(&child_props, "dep_count").saturating_sub(1);
+                    child_props.insert("dep_count".into(), serde_json::Value::from(count));
+                    if count == 0 && property_string(&child_props, "status") == "submitted" {
+                        child_props
+                            .insert("status".into(), serde_json::Value::String("ready".into()));
+                    }
+                    child_props.insert("updated_at".into(), serde_json::Value::from(now_s));
+                    write_work_item_props(nodes, graph, child, &child_props, crypto)?;
+                    changed.push(child.to_string());
+                }
+            }
+            Ok(Some(crate::protocol::ResultPayload::Json(
+                serde_json::json!({
+                    "status": committed_status,
+                    "work_item_id": work_item_id,
+                    "lease_epoch": lease_epoch,
+                    "fencing_token": fencing_token,
+                    "changed_work_item_ids": changed,
+                }),
+            )))
+        }
+        Method::CancelWorkItem {
+            tenant,
+            work_item_id,
+            reason_ref,
+            now_ms,
+            ..
+        } => {
+            let current = nodes
+                .get((graph, work_item_id.as_str()))
+                .map_err(|e| e.to_string())?
+                .map(|value| crypto.unseal(value.value()))
+                .transpose()?;
+            let Some(bytes) = current else {
+                return Ok(Some(crate::protocol::ResultPayload::Json(
+                    serde_json::json!({"status": "missing", "changed_work_item_ids": []}),
+                )));
+            };
+            let mut props = decode(&bytes)?;
+            if property_string(&props, "tenant") != tenant {
+                return Ok(Some(crate::protocol::ResultPayload::Json(
+                    serde_json::json!({"status": "missing", "changed_work_item_ids": []}),
+                )));
+            }
+            if matches!(
+                property_string(&props, "status"),
+                "succeeded" | "failed" | "cancelled" | "dead_letter"
+            ) {
+                return Ok(Some(crate::protocol::ResultPayload::Json(
+                    serde_json::json!({
+                        "status": "noop",
+                        "work_item_id": work_item_id,
+                        "changed_work_item_ids": [],
+                    }),
+                )));
+            }
+            let now_s = *now_ms as f64 / 1000.0;
+            if matches!(property_string(&props, "status"), "leased" | "running")
+                && property_f64(&props, "lease_expires_at") >= now_s
+            {
+                return Ok(Some(crate::protocol::ResultPayload::Json(
+                    serde_json::json!({
+                        "status": "in_flight",
+                        "work_item_id": work_item_id,
+                        "changed_work_item_ids": [],
+                    }),
+                )));
+            }
+            if !matches!(
+                property_string(&props, "status"),
+                "submitted" | "ready" | "leased" | "running"
+            ) {
+                return Ok(Some(crate::protocol::ResultPayload::Json(
+                    serde_json::json!({
+                        "status": "not_cancellable",
+                        "work_item_id": work_item_id,
+                        "changed_work_item_ids": [],
+                    }),
+                )));
+            }
+            let next_epoch = property_u64(&props, "lease_epoch").saturating_add(1);
+            props.insert(
+                "status".into(),
+                serde_json::Value::String("cancelled".into()),
+            );
+            props.insert("completed_at".into(), serde_json::Value::from(now_s));
+            props.insert("updated_at".into(), serde_json::Value::from(now_s));
+            props.insert("lease_owner".into(), serde_json::Value::Null);
+            props.insert("lease_expires_at".into(), serde_json::Value::Null);
+            props.insert("lease_epoch".into(), serde_json::Value::from(next_epoch));
+            props.insert("fencing_token".into(), serde_json::Value::from(next_epoch));
+            props.insert(
+                "cancel_reason_ref".into(),
+                reason_ref
+                    .clone()
+                    .map(serde_json::Value::String)
+                    .unwrap_or(serde_json::Value::Null),
+            );
+            write_work_item_props(nodes, graph, work_item_id, &props, crypto)?;
+            Ok(Some(crate::protocol::ResultPayload::Json(
+                serde_json::json!({
+                    "status": "cancelled",
+                    "work_item_id": work_item_id,
+                    "lease_epoch": next_epoch,
+                    "fencing_token": next_epoch,
+                    "changed_work_item_ids": [work_item_id],
+                }),
+            )))
+        }
+        Method::DeferWorkItem {
+            tenant,
+            work_item_id,
+            worker_id,
+            lease_epoch,
+            fencing_token,
+            next_retry_at_ms,
+            reason_ref,
+            now_ms,
+            ..
+        } => {
+            if next_retry_at_ms < now_ms {
+                return Err("DeferWorkItem next_retry_at_ms must not precede now_ms".into());
+            }
+            let current = nodes
+                .get((graph, work_item_id.as_str()))
+                .map_err(|e| e.to_string())?
+                .map(|value| crypto.unseal(value.value()))
+                .transpose()?;
+            let Some(bytes) = current else {
+                return Ok(Some(crate::protocol::ResultPayload::Json(
+                    serde_json::json!({"status": "missing", "changed_work_item_ids": []}),
+                )));
+            };
+            let mut props = decode(&bytes)?;
+            let now_s = *now_ms as f64 / 1000.0;
+            let valid = property_string(&props, "tenant") == tenant
+                && property_string(&props, "lease_owner") == worker_id
+                && matches!(property_string(&props, "status"), "leased" | "running")
+                && property_u64(&props, "lease_epoch") == *lease_epoch
+                && property_u64(&props, "fencing_token") == *fencing_token
+                && property_f64(&props, "lease_expires_at") >= now_s;
+            if !valid {
+                return Ok(Some(crate::protocol::ResultPayload::Json(
+                    serde_json::json!({
+                        "status": "fenced",
+                        "work_item_id": work_item_id,
+                        "changed_work_item_ids": [],
+                    }),
+                )));
+            }
+            let next_epoch = (*lease_epoch).saturating_add(1);
+            let attempts = property_u64(&props, "attempt").saturating_sub(1);
+            let defer_count = property_u64(&props, "defer_count").saturating_add(1);
+            props.insert("status".into(), serde_json::Value::String("ready".into()));
+            props.insert(
+                "next_retry_at".into(),
+                serde_json::Value::from(*next_retry_at_ms as f64 / 1000.0),
+            );
+            props.insert("attempt".into(), serde_json::Value::from(attempts));
+            props.insert("defer_count".into(), serde_json::Value::from(defer_count));
+            props.insert("lease_owner".into(), serde_json::Value::Null);
+            props.insert("lease_expires_at".into(), serde_json::Value::Null);
+            props.insert("lease_epoch".into(), serde_json::Value::from(next_epoch));
+            props.insert("fencing_token".into(), serde_json::Value::from(next_epoch));
+            props.insert("updated_at".into(), serde_json::Value::from(now_s));
+            props.insert(
+                "defer_reason_ref".into(),
+                reason_ref
+                    .clone()
+                    .map(serde_json::Value::String)
+                    .unwrap_or(serde_json::Value::Null),
+            );
+            write_work_item_props(nodes, graph, work_item_id, &props, crypto)?;
+            Ok(Some(crate::protocol::ResultPayload::Json(
+                serde_json::json!({
+                    "status": "deferred",
+                    "work_item_id": work_item_id,
+                    "lease_epoch": next_epoch,
+                    "fencing_token": next_epoch,
+                    "next_retry_at_ms": next_retry_at_ms,
+                    "attempt": attempts,
+                    "defer_count": defer_count,
+                    "changed_work_item_ids": [work_item_id],
+                }),
+            )))
+        }
+        _ => Ok(None),
+    }
+}
+
+/// Read one durable batch record from a snapshot.  Used by retry/recovery and by
+/// tests that close/reopen the database to model process death.
+pub(crate) fn read_mutation_batch(
+    db: &Database,
+    batch_id: &str,
+    crypto: DurableCrypto<'_>,
+) -> Result<Option<MutationBatchRecord>, String> {
+    let rtx = db.begin_read().map_err(|e| e.to_string())?;
+    let table = match rtx.open_table(MUTATION_BATCHES) {
+        Ok(table) => table,
+        Err(redb::TableError::TableDoesNotExist(_)) => return Ok(None),
+        Err(e) => return Err(e.to_string()),
+    };
+    let record = table
+        .get(batch_id)
+        .map_err(|e| e.to_string())?
+        .map(|v| {
+            let bytes = crypto.unseal(v.value())?;
+            decode_mutation_batch_record(&bytes)
+        })
+        .transpose()?;
+    Ok(record)
+}
+
+pub(crate) fn read_change_envelope(
+    db: &Database,
+    graph_fname: &str,
+    envelope_id: &str,
+    crypto: DurableCrypto<'_>,
+) -> Result<Option<ChangeEnvelopeRecord>, String> {
+    let rtx = db.begin_read().map_err(|e| e.to_string())?;
+    let table = match rtx.open_table(CHANGE_ENVELOPES) {
+        Ok(table) => table,
+        Err(redb::TableError::TableDoesNotExist(_)) => return Ok(None),
+        Err(e) => return Err(e.to_string()),
+    };
+    let record = table
+        .get((graph_fname, envelope_id))
+        .map_err(|e| e.to_string())?
+        .map(|row| {
+            let bytes = crypto.unseal(row.value())?;
+            decode_durable(&bytes)
+        })
+        .transpose()?;
+    Ok(record)
+}
+
+pub(crate) fn read_content_version(
+    db: &Database,
+    tenant: &str,
+    graph_fname: &str,
+    object_id: &str,
+    crypto: DurableCrypto<'_>,
+) -> Result<Option<ContentVersion>, String> {
+    let rtx = db.begin_read().map_err(|e| e.to_string())?;
+    let table = match rtx.open_table(CONTENT_VERSIONS) {
+        Ok(table) => table,
+        Err(redb::TableError::TableDoesNotExist(_)) => return Ok(None),
+        Err(e) => return Err(e.to_string()),
+    };
+    let version = table
+        .get((graph_fname, tenant, object_id))
+        .map_err(|e| e.to_string())?
+        .map(|row| {
+            let bytes = crypto.unseal(row.value())?;
+            decode_durable(&bytes)
+        })
+        .transpose()?;
+    Ok(version)
+}
+
+pub(crate) fn read_change_cursor(
+    db: &Database,
+    tenant: &str,
+    graph_fname: &str,
+    source: &str,
+    partition: &str,
+    crypto: DurableCrypto<'_>,
+) -> Result<Option<ChangeCursor>, String> {
+    let rtx = db.begin_read().map_err(|e| e.to_string())?;
+    let table = match rtx.open_table(CHANGE_CURSORS) {
+        Ok(table) => table,
+        Err(redb::TableError::TableDoesNotExist(_)) => return Ok(None),
+        Err(e) => return Err(e.to_string()),
+    };
+    let cursor = table
+        .get((graph_fname, tenant, source, partition))
+        .map_err(|e| e.to_string())?
+        .map(|row| {
+            let bytes = crypto.unseal(row.value())?;
+            decode_durable(&bytes)
+        })
+        .transpose()?;
+    Ok(cursor)
+}
+
+/// Read all immutable outbox rows for a batch in ordinal order.
+pub(crate) fn read_mutation_outbox(
+    db: &Database,
+    batch_id: &str,
+    crypto: DurableCrypto<'_>,
+) -> Result<Vec<MutationOutboxRecord>, String> {
+    let rtx = db.begin_read().map_err(|e| e.to_string())?;
+    let table = match rtx.open_table(MUTATION_OUTBOX) {
+        Ok(table) => table,
+        Err(redb::TableError::TableDoesNotExist(_)) => return Ok(Vec::new()),
+        Err(e) => return Err(e.to_string()),
+    };
+    let mut rows = Vec::new();
+    for row in table
+        .range((batch_id, 0u32)..=(batch_id, u32::MAX))
+        .map_err(|e| e.to_string())?
+    {
+        let (_, value) = row.map_err(|e| e.to_string())?;
+        let bytes = crypto.unseal(value.value())?;
+        rows.push(decode_mutation_outbox_record(&bytes)?);
+    }
+    Ok(rows)
+}
+
+/// Claim pending transactional-outbox rows for one durable consumer identity.
+///
+/// Lease state is keyed by `(batch, ordinal, consumer)`, so independent
+/// projections each observe every event while concurrent workers for the same
+/// consumer are fenced by a monotonically increasing lease epoch. Selection and
+/// lease installation share one immediate redb transaction; queue pressure can
+/// therefore delay a claim but can never lose one.
+pub(crate) fn claim_mutation_outbox(
+    db: &Database,
+    graph_fname: &str,
+    consumer: &str,
+    now_ms: u64,
+    lease_ms: u64,
+    limit: usize,
+    crypto: DurableCrypto<'_>,
+) -> Result<Vec<MutationOutboxLease>, String> {
+    if consumer.trim().is_empty() || lease_ms == 0 || limit == 0 {
+        return Err(
+            "outbox claim requires consumer, non-zero lease_ms, and non-zero limit".to_string(),
+        );
+    }
+    let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
+    wtx.set_durability(Durability::Immediate)
+        .map_err(|e| e.to_string())?;
+
+    let mut candidates = {
+        let outbox = wtx.open_table(MUTATION_OUTBOX).map_err(|e| e.to_string())?;
+        let mut rows = Vec::new();
+        for row in outbox.iter().map_err(|e| e.to_string())? {
+            let (_, value) = row.map_err(|e| e.to_string())?;
+            let bytes = crypto.unseal(value.value())?;
+            let record = decode_mutation_outbox_record(&bytes)?;
+            if sanitize(&record.graph) == graph_fname {
+                rows.push(record);
+            }
+        }
+        rows
+    };
+    candidates.sort_by(|left, right| {
+        (
+            left.source_graph_version,
+            left.created_at_ms,
+            left.batch_id.as_str(),
+            left.ordinal,
+        )
+            .cmp(&(
+                right.source_graph_version,
+                right.created_at_ms,
+                right.batch_id.as_str(),
+                right.ordinal,
+            ))
+    });
+
+    let mut claimed = Vec::new();
+    {
+        let mut deliveries = wtx
+            .open_table(MUTATION_OUTBOX_DELIVERY)
+            .map_err(|e| e.to_string())?;
+        for record in candidates {
+            if claimed.len() >= limit {
+                break;
+            }
+            let key = (record.batch_id.as_str(), record.ordinal, consumer);
+            let current = deliveries
+                .get(key)
+                .map_err(|e| e.to_string())?
+                .map(|value| {
+                    let bytes = crypto.unseal(value.value())?;
+                    decode_durable::<DurableOutboxDelivery>(&bytes)
+                })
+                .transpose()?
+                .unwrap_or_default();
+            if current.delivered_at_ms.is_some() || current.lease_until_ms > now_ms {
+                continue;
+            }
+            let delivery = DurableOutboxDelivery {
+                consumer: consumer.to_string(),
+                lease_epoch: current.lease_epoch.saturating_add(1),
+                lease_until_ms: now_ms.saturating_add(lease_ms),
+                attempt: current.attempt.saturating_add(1),
+                delivered_at_ms: None,
+            };
+            let bytes = rmp_serde::to_vec_named(&delivery).map_err(|e| e.to_string())?;
+            let sealed = crypto.seal(&bytes);
+            deliveries
+                .insert(key, sealed.as_ref())
+                .map_err(|e| e.to_string())?;
+            claimed.push(MutationOutboxLease {
+                record,
+                consumer: delivery.consumer,
+                lease_epoch: delivery.lease_epoch,
+                lease_until_ms: delivery.lease_until_ms,
+                attempt: delivery.attempt,
+            });
+        }
+    }
+    wtx.commit().map_err(|e| e.to_string())?;
+    Ok(claimed)
+}
+
+/// Acknowledge the exact durable outbox lease and advance a projection watermark
+/// in the same transaction. A superseded or expired worker fails closed; a retry
+/// of an already-delivered lease is idempotent only when its cursor is already at
+/// that exact event.
+pub(crate) fn ack_mutation_outbox(
+    db: &Database,
+    graph_fname: &str,
+    lease: &MutationOutboxLease,
+    projection: &str,
+    now_ms: u64,
+    crypto: DurableCrypto<'_>,
+) -> Result<MutationProjectionCursor, String> {
+    if projection.trim().is_empty() || lease.consumer.trim().is_empty() {
+        return Err("outbox ack requires projection and consumer".to_string());
+    }
+    lease.record.validate()?;
+    if sanitize(&lease.record.graph) != graph_fname {
+        return Err("outbox ack graph route does not match the leased record".to_string());
+    }
+    let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
+    wtx.set_durability(Durability::Immediate)
+        .map_err(|e| e.to_string())?;
+
+    // Bind the acknowledgement to the immutable outbox row, not merely to
+    // caller-supplied batch/ordinal strings.
+    {
+        let outbox = wtx.open_table(MUTATION_OUTBOX).map_err(|e| e.to_string())?;
+        let row = outbox
+            .get((lease.record.batch_id.as_str(), lease.record.ordinal))
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| "outbox lease references a missing event".to_string())?;
+        let bytes = crypto.unseal(row.value())?;
+        let stored = decode_mutation_outbox_record(&bytes)?;
+        if stored != lease.record {
+            return Err("outbox lease record does not match durable event".to_string());
+        }
+    }
+
+    let source_graph_version = {
+        let batches = wtx
+            .open_table(MUTATION_BATCHES)
+            .map_err(|e| e.to_string())?;
+        let row = batches
+            .get(lease.record.batch_id.as_str())
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| "outbox event has no committed mutation batch".to_string())?;
+        let bytes = crypto.unseal(row.value())?;
+        let batch = decode_mutation_batch_record(&bytes)?;
+        if batch.status != MutationBatchStatus::Committed
+            || batch.batch.batch_id != lease.record.batch_id
+            || batch.batch.tenant != lease.record.tenant
+            || batch.batch.graph != lease.record.graph
+        {
+            return Err("outbox event is not bound to its committed mutation batch".to_string());
+        }
+        if lease.record.version_scope != MutationVersionScope::Graph {
+            return Err("graph projection cannot acknowledge a non-graph outbox event".to_string());
+        }
+        let derived = if let Some(state) = batch.batch.authoritative_state.as_ref() {
+            Some(state.target_graph_version)
+        } else if let Some(version) = batch.batch.expected_graph_version {
+            Some(
+                version
+                    .checked_add(1)
+                    .ok_or_else(|| "mutation graph version overflow".to_string())?,
+            )
+        } else {
+            None
+        };
+        if let Some(derived) = derived {
+            if lease.record.source_graph_version != derived {
+                return Err("outbox event graph version does not match its batch".to_string());
+            }
+        } else if !batch.batch.operations.iter().all(|operation| {
+            matches!(
+                &operation.method,
+                Method::CreateGraph { .. } | Method::DeleteGraph { .. }
+            )
+        }) {
+            return Err(
+                "committed graph outbox event has no authoritative version source".to_string(),
+            );
+        }
+        lease.record.source_graph_version
+    };
+
+    let cursor_key = (projection, lease.record.tenant.as_str(), graph_fname);
+    let current_cursor = {
+        let cursors = wtx
+            .open_table(MUTATION_PROJECTION_CURSOR)
+            .map_err(|e| e.to_string())?;
+        let value = cursors
+            .get(cursor_key)
+            .map_err(|e| e.to_string())?
+            .map(|value| {
+                let bytes = crypto.unseal(value.value())?;
+                decode_mutation_projection_cursor(&bytes)
+            })
+            .transpose()?;
+        value
+    };
+
+    let delivery_key = (
+        lease.record.batch_id.as_str(),
+        lease.record.ordinal,
+        lease.consumer.as_str(),
+    );
+    let mut delivery = {
+        let deliveries = wtx
+            .open_table(MUTATION_OUTBOX_DELIVERY)
+            .map_err(|e| e.to_string())?;
+        let row = deliveries
+            .get(delivery_key)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| "outbox lease is not durably claimed".to_string())?;
+        let bytes = crypto.unseal(row.value())?;
+        decode_durable::<DurableOutboxDelivery>(&bytes)?
+    };
+
+    let proposed_order = (
+        lease.record.source_graph_version,
+        lease.record.created_at_ms,
+        lease.record.batch_id.as_str(),
+        lease.record.ordinal,
+    );
+    let earlier = {
+        let outbox = wtx.open_table(MUTATION_OUTBOX).map_err(|e| e.to_string())?;
+        let mut keys = Vec::new();
+        for row in outbox.iter().map_err(|e| e.to_string())? {
+            let (_, value) = row.map_err(|e| e.to_string())?;
+            let bytes = crypto.unseal(value.value())?;
+            let record = decode_mutation_outbox_record(&bytes)?;
+            let order = (
+                record.source_graph_version,
+                record.created_at_ms,
+                record.batch_id.as_str(),
+                record.ordinal,
+            );
+            if sanitize(&record.graph) == graph_fname && order < proposed_order {
+                keys.push((record.batch_id, record.ordinal));
+            }
+        }
+        keys
+    };
+    {
+        let deliveries = wtx
+            .open_table(MUTATION_OUTBOX_DELIVERY)
+            .map_err(|e| e.to_string())?;
+        for (batch_id, ordinal) in &earlier {
+            let prior = deliveries
+                .get((batch_id.as_str(), *ordinal, lease.consumer.as_str()))
+                .map_err(|e| e.to_string())?
+                .map(|value| {
+                    let bytes = crypto.unseal(value.value())?;
+                    decode_durable::<DurableOutboxDelivery>(&bytes)
+                })
+                .transpose()?;
+            if prior.and_then(|state| state.delivered_at_ms).is_none() {
+                return Err(format!(
+                    "OUTBOX_ORDER_GAP: event '{}:{}' is not yet delivered",
+                    batch_id, ordinal
+                ));
+            }
+        }
+    }
+
+    if delivery.consumer != lease.consumer || delivery.lease_epoch != lease.lease_epoch {
+        return Err("STALE_OUTBOX_LEASE: consumer or epoch was superseded".to_string());
+    }
+    if delivery.delivered_at_ms.is_some() {
+        if let Some(cursor) = current_cursor {
+            if cursor.batch_id == lease.record.batch_id
+                && cursor.outbox_ordinal == lease.record.ordinal
+                && cursor.version_scope == lease.record.version_scope
+                && cursor.source_graph_version == source_graph_version
+            {
+                return Ok(cursor);
+            }
+        }
+        return Err("STALE_OUTBOX_LEASE: event was already delivered".to_string());
+    }
+    if delivery.lease_until_ms < now_ms || lease.lease_until_ms != delivery.lease_until_ms {
+        return Err("STALE_OUTBOX_LEASE: lease expired or was replaced".to_string());
+    }
+
+    if let Some(current) = &current_cursor {
+        if current.version_scope != lease.record.version_scope
+            || source_graph_version < current.source_graph_version
+            || (source_graph_version == current.source_graph_version
+                && (current.batch_id != lease.record.batch_id
+                    || current.outbox_ordinal >= lease.record.ordinal))
+        {
+            return Err("STALE_PROJECTION_CURSOR: event does not advance watermark".to_string());
+        }
+    }
+
+    let cursor = MutationProjectionCursor {
+        schema_version: MUTATION_BATCH_VERSION,
+        projection: projection.to_string(),
+        tenant: lease.record.tenant.clone(),
+        graph: lease.record.graph.clone(),
+        batch_id: lease.record.batch_id.clone(),
+        outbox_ordinal: lease.record.ordinal,
+        version_scope: lease.record.version_scope,
+        source_graph_version,
+        advanced_at_ms: now_ms,
+    };
+    cursor.validate()?;
+    delivery.delivered_at_ms = Some(now_ms);
+    {
+        let delivery_bytes = rmp_serde::to_vec_named(&delivery).map_err(|e| e.to_string())?;
+        let sealed_delivery = crypto.seal(&delivery_bytes);
+        let mut deliveries = wtx
+            .open_table(MUTATION_OUTBOX_DELIVERY)
+            .map_err(|e| e.to_string())?;
+        deliveries
+            .insert(delivery_key, sealed_delivery.as_ref())
+            .map_err(|e| e.to_string())?;
+
+        let cursor_bytes = rmp_serde::to_vec_named(&cursor).map_err(|e| e.to_string())?;
+        let sealed_cursor = crypto.seal(&cursor_bytes);
+        let mut cursors = wtx
+            .open_table(MUTATION_PROJECTION_CURSOR)
+            .map_err(|e| e.to_string())?;
+        cursors
+            .insert(cursor_key, sealed_cursor.as_ref())
+            .map_err(|e| e.to_string())?;
+    }
+    wtx.commit().map_err(|e| e.to_string())?;
+    Ok(cursor)
+}
+
+pub(crate) fn read_mutation_projection_cursor(
+    db: &Database,
+    graph_fname: &str,
+    projection: &str,
+    tenant: &str,
+    crypto: DurableCrypto<'_>,
+) -> Result<Option<MutationProjectionCursor>, String> {
+    let rtx = db.begin_read().map_err(|e| e.to_string())?;
+    let table = match rtx.open_table(MUTATION_PROJECTION_CURSOR) {
+        Ok(table) => table,
+        Err(redb::TableError::TableDoesNotExist(_)) => return Ok(None),
+        Err(error) => return Err(error.to_string()),
+    };
+    let cursor = table
+        .get((projection, tenant, graph_fname))
+        .map_err(|e| e.to_string())?
+        .map(|value| {
+            let bytes = crypto.unseal(value.value())?;
+            decode_mutation_projection_cursor(&bytes)
+        })
+        .transpose()?;
+    Ok(cursor)
+}
+
+pub(crate) fn read_mutation_graph_version(
+    db: &Database,
+    graph_fname: &str,
+) -> Result<Option<u64>, String> {
+    let rtx = db.begin_read().map_err(|e| e.to_string())?;
+    let table = match rtx.open_table(MUTATION_GRAPH_VERSION) {
+        Ok(table) => table,
+        Err(redb::TableError::TableDoesNotExist(_)) => return Ok(None),
+        Err(error) => return Err(error.to_string()),
+    };
+    let version = table
+        .get(graph_fname)
+        .map_err(|e| e.to_string())?
+        .map(|value| value.value());
+    Ok(version)
+}
+
+/// Current lifecycle generation for retry fencing.
+pub(crate) fn read_mutation_lifecycle_head(
+    db: &Database,
+    graph_fname: &str,
+) -> Result<Option<String>, String> {
+    let rtx = db.begin_read().map_err(|e| e.to_string())?;
+    let table = match rtx.open_table(MUTATION_LIFECYCLE_HEAD) {
+        Ok(table) => table,
+        Err(redb::TableError::TableDoesNotExist(_)) => return Ok(None),
+        Err(e) => return Err(e.to_string()),
+    };
+    let head = table
+        .get(graph_fname)
+        .map_err(|e| e.to_string())?
+        .map(|v| v.value().to_string());
+    Ok(head)
 }
 
 /// One node's vector upsert for a cross-modal commit (CONCEPT:EG-KG.txn.reader-never-sees-node).
@@ -243,11 +2822,97 @@ pub type VectorUpsert = (String, Vec<f32>);
 /// graph pointer that must land atomically with the node/vector/property.
 pub type BlobRefRow = (String, String);
 
+/// Apply only the non-topology projections of a cross-modal batch inside an
+/// already-open redb write transaction. The universal MutationBatch kernel calls
+/// this after graph rows and before status/outbox; the low-level cross-modal
+/// primitive uses the same row shapes. No commit occurs here.
+fn apply_crossmodal_projection_rows(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+    vectors: &[VectorUpsert],
+    blob_refs: &[BlobRefRow],
+    measurements: &[crate::MeasurementBatch],
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    if !blob_refs.is_empty() {
+        let mut nodes = wtx.open_table(NODES).map_err(|e| e.to_string())?;
+        for (node_id, digest) in blob_refs {
+            let current = nodes
+                .get((graph, node_id.as_str()))
+                .map_err(|e| e.to_string())?
+                .map(|value| crypto.unseal(value.value()))
+                .transpose()?;
+            let mut props: serde_json::Map<String, serde_json::Value> = match current {
+                Some(bytes) => decode_durable(&bytes)?,
+                None => serde_json::Map::new(),
+            };
+            props.insert(
+                "__blob__".to_string(),
+                serde_json::Value::String(digest.clone()),
+            );
+            let bytes = rmp_serde::to_vec_named(&props).map_err(|e| e.to_string())?;
+            let sealed = crypto.seal(&bytes);
+            nodes
+                .insert((graph, node_id.as_str()), sealed.as_ref())
+                .map_err(|e| e.to_string())?;
+        }
+    }
+
+    if !vectors.is_empty() {
+        let mut semantic = wtx.open_table(SEMANTIC).map_err(|e| e.to_string())?;
+        let current = semantic
+            .get(graph)
+            .map_err(|e| e.to_string())?
+            .map(|value| crypto.unseal(value.value()))
+            .transpose()?;
+        let mut store = match current {
+            Some(bytes) => decode_durable::<crate::compute::semantic::SemanticStore>(&bytes)?,
+            None => crate::compute::semantic::SemanticStore::default(),
+        };
+        for (node_id, embedding) in vectors {
+            store.add_embedding(node_id.clone(), embedding.clone());
+        }
+        let bytes = rmp_serde::to_vec_named(&store).map_err(|e| e.to_string())?;
+        let sealed = crypto.seal(&bytes);
+        semantic
+            .insert(graph, sealed.as_ref())
+            .map_err(|e| e.to_string())?;
+    }
+
+    #[cfg(feature = "tsdb")]
+    for (series, n_fields, bucket_ns, field_names, points) in measurements {
+        if eg_tsdb::store::SeriesKey::decode(series).is_none() {
+            return Err("time-series key is not canonically scoped".to_string());
+        }
+        let points = points
+            .iter()
+            .map(|(ts, values)| eg_tsdb::point::Point {
+                ts: *ts,
+                values: values.clone(),
+            })
+            .collect::<Vec<_>>();
+        eg_tsdb::store::append_batch_in_wtx(
+            wtx,
+            series,
+            *n_fields,
+            *bucket_ns,
+            field_names,
+            &points,
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    #[cfg(not(feature = "tsdb"))]
+    if !measurements.is_empty() {
+        return Err("time-series cross-modal commit requires the `tsdb` feature".to_string());
+    }
+    Ok(())
+}
+
 /// **Cross-modal ACID commit (CONCEPT:EG-KG.txn.reader-never-sees-node)** — land a graph + vector + blob-ref +
 /// property write-set for ONE graph in ONE redb [`WriteTransaction`], all-or-nothing.
 ///
 /// This is the durable barrier the single-graph cross-modal txn commits through. Every
-/// modality writes into the SAME `graph.redb` transaction so the commit is atomic:
+/// modality writes into the SAME authoritative-shard transaction so the commit is atomic:
 ///   * **graph** ops (`AddNode`/`AddEdge`/`CompareAndSetNodeFields`/…) → NODES/EDGES,
 ///     via the shared [`apply_method_rows`] (the SAME rows the single-modal path writes);
 ///   * **vectors** → the graph's `SEMANTIC` blob is read-modify-written inside the txn
@@ -259,9 +2924,9 @@ pub type BlobRefRow = (String, String);
 ///   * **measurements** (CONCEPT:EG-KG.backend.cross-modal-atomic-commit) → each time-series batch is appended into
 ///     SERIES_CHUNKS/SERIES_META on THIS transaction via the shared eg-tsdb chunk
 ///     encoding ([`eg_tsdb::store::append_batch_in_wtx`]), so the points land in the
-///     SAME `graph.redb` commit as the node/vector/blob writes (not a separate
+///     SAME authoritative-shard commit as the node/vector/blob writes (not a separate
 ///     `series.redb`). `tsdb`-gated; a slim redb-only build errors on a non-empty batch.
-///     This `graph.redb` copy is the ATOMIC/authoritative one; the caller
+///     This shard copy is the atomic/authoritative one; the caller
 ///     (`handlers::txn::commit_cross_modal_txn`) additionally replays the same batch
 ///     into the SERVED `series.redb` right after this call returns `Ok`, so it's
 ///     actually reachable through the public `Ts*`/`Op::TsScan` read path
@@ -284,7 +2949,7 @@ pub(crate) fn commit_crossmodal(
     blob_refs: &[BlobRefRow],
     // Staged time-series measurement batches (CONCEPT:EG-KG.backend.cross-modal-atomic-commit). Each lands in the SAME
     // `WriteTransaction` as the graph/vector/blob writes, into SERIES_CHUNKS/SERIES_META
-    // in THIS `graph.redb` (not a separate `series.redb`), so a measurement and the node
+    // in THIS shard (not a separate `series.redb`), so a measurement and the node
     // it annotates are durable together — never one without the other.
     measurements: &[crate::MeasurementBatch],
     crypto: DurableCrypto<'_>,
@@ -298,12 +2963,21 @@ pub(crate) fn commit_crossmodal(
         let mut nodes = wtx.open_table(NODES).map_err(|e| e.to_string())?;
         let mut edges = wtx.open_table(EDGES).map_err(|e| e.to_string())?;
         let mut ledger = wtx.open_table(LEDGER).map_err(|e| e.to_string())?;
+        let mut semantic = wtx.open_table(SEMANTIC).map_err(|e| e.to_string())?;
 
         // 1. Graph mutations (nodes/edges/properties) — the SAME row apply.
         #[cfg(feature = "security")]
         let mut audit = wtx.open_table(AUDIT).map_err(|e| e.to_string())?;
         for method in methods {
-            apply_method_rows(graph, method, &mut nodes, &mut edges, &mut ledger, crypto)?;
+            apply_method_rows(
+                graph,
+                method,
+                &mut nodes,
+                &mut edges,
+                &mut ledger,
+                &mut semantic,
+                crypto,
+            )?;
             #[cfg(feature = "security")]
             append_audit_entry(&mut audit, audit_tail, graph, method)?;
         }
@@ -317,9 +2991,10 @@ pub(crate) fn commit_crossmodal(
                 .map_err(|e| e.to_string())?
                 .map(|v| crypto.unseal(v.value()))
                 .transpose()?;
-            let mut props: serde_json::Map<String, serde_json::Value> = current
-                .and_then(|b| rmp_serde::from_slice(&b).ok())
-                .unwrap_or_default();
+            let mut props: serde_json::Map<String, serde_json::Value> = match current {
+                Some(bytes) => decode_durable(&bytes)?,
+                None => serde_json::Map::new(),
+            };
             props.insert(
                 "__blob__".to_string(),
                 serde_json::Value::String(digest.clone()),
@@ -333,17 +3008,15 @@ pub(crate) fn commit_crossmodal(
 
         // 3. Vectors — read-modify-write the graph's SEMANTIC store blob in-txn.
         if !vectors.is_empty() {
-            let mut semantic = wtx.open_table(SEMANTIC).map_err(|e| e.to_string())?;
             let current = semantic
                 .get(graph)
                 .map_err(|e| e.to_string())?
                 .map(|v| crypto.unseal(v.value()))
                 .transpose()?;
-            let mut store = current
-                .and_then(|b| {
-                    rmp_serde::from_slice::<crate::compute::semantic::SemanticStore>(&b).ok()
-                })
-                .unwrap_or_default();
+            let mut store = match current {
+                Some(bytes) => decode_durable::<crate::compute::semantic::SemanticStore>(&bytes)?,
+                None => crate::compute::semantic::SemanticStore::default(),
+            };
             for (node_id, embedding) in vectors {
                 store.add_embedding(node_id.clone(), embedding.clone());
             }
@@ -357,11 +3030,16 @@ pub(crate) fn commit_crossmodal(
         // 4. Measurements (CONCEPT:EG-KG.backend.cross-modal-atomic-commit) — append each time-series batch into
         // SERIES_CHUNKS/SERIES_META ON THIS transaction (the shared eg-tsdb chunk
         // encoding, via `append_batch_in_wtx`), so the points land in the SAME
-        // `graph.redb` commit as the node/vector/blob writes. redb's exclusive
+        // authoritative-shard commit as the node/vector/blob writes. redb's exclusive
         // per-process file lock means this is the ONLY way a measurement can be atomic
         // WITH the graph modalities: through the transaction the writer already owns.
         #[cfg(feature = "tsdb")]
         for (series, n_fields, bucket_ns, field_names, points) in measurements {
+            // Persistence accepts only the authority-scoped key produced at the
+            // verified carrier boundary; it never derives or guesses a tenant.
+            if eg_tsdb::store::SeriesKey::decode(series).is_none() {
+                return Err("time-series key is not canonically scoped".to_string());
+            }
             let pts: Vec<eg_tsdb::point::Point> = points
                 .iter()
                 .map(|(ts, values)| eg_tsdb::point::Point {
@@ -390,7 +3068,9 @@ pub(crate) fn commit_crossmodal(
         // Backfill a graph_meta identity row so authoritative load_all recovers it.
         let mut meta = wtx.open_table(GRAPH_META).map_err(|e| e.to_string())?;
         if meta.get(graph).map_err(|e| e.to_string())?.is_none() {
-            meta.insert(graph, encode_meta(graph, GraphType::Global).as_slice())
+            let incarnation_id = new_incarnation_id(graph);
+            let encoded = encode_meta_with_incarnation(graph, GraphType::Global, &incarnation_id)?;
+            meta.insert(graph, encoded.as_slice())
                 .map_err(|e| e.to_string())?;
         }
     }
@@ -407,13 +3087,54 @@ pub(crate) fn write_graph_meta(
     name: &str,
     graph_type: GraphType,
 ) -> Result<(), String> {
+    {
+        let rtx = db.begin_read().map_err(|e| e.to_string())?;
+        let meta = rtx.open_table(GRAPH_META).map_err(|e| e.to_string())?;
+        if let Some(existing) = meta.get(graph).map_err(|e| e.to_string())? {
+            let record = decode_meta_record(graph, existing.value())?;
+            return if record.name == name && record.graph_type == graph_type {
+                Ok(())
+            } else {
+                Err("graph metadata conflict".to_string())
+            };
+        }
+    }
+    let incarnation_id = new_incarnation_id(graph);
+    write_graph_meta_with_incarnation(db, graph, name, graph_type, &incarnation_id)
+}
+
+/// Durably register an exact lifecycle incarnation. Repeating the same identity
+/// is idempotent; attempting to overwrite a live same-name incarnation fails
+/// closed so stale work cannot silently retarget itself.
+pub(crate) fn write_graph_meta_with_incarnation(
+    db: &Database,
+    graph: &str,
+    name: &str,
+    graph_type: GraphType,
+    incarnation_id: &str,
+) -> Result<(), String> {
+    if incarnation_id.trim().is_empty() {
+        return Err("graph incarnation id must not be empty".to_string());
+    }
     let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
     wtx.set_durability(Durability::Immediate)
         .map_err(|e| e.to_string())?;
     {
         let mut meta = wtx.open_table(GRAPH_META).map_err(|e| e.to_string())?;
-        meta.insert(graph, encode_meta(name, graph_type).as_slice())
-            .map_err(|e| e.to_string())?;
+        let existing = meta
+            .get(graph)
+            .map_err(|e| e.to_string())?
+            .map(|value| value.value().to_vec());
+        if let Some(existing) = existing {
+            let record = decode_meta_record(graph, &existing)?;
+            if record.incarnation_id != incarnation_id {
+                return Err("graph incarnation conflict".to_string());
+            }
+        } else {
+            let encoded = encode_meta_with_incarnation(name, graph_type, incarnation_id)?;
+            meta.insert(graph, encoded.as_slice())
+                .map_err(|e| e.to_string())?;
+        }
     }
     wtx.commit().map_err(|e| e.to_string())?;
     Ok(())
@@ -436,14 +3157,162 @@ pub(crate) fn read_one_node(
     Ok(v)
 }
 
+/// Test a batch of node ids against one MVCC snapshot. Eviction needs presence,
+/// not decrypted properties, so this avoids N transactions and N payload copies.
+/// The returned vector is positionally aligned with `node_ids`.
+pub(crate) fn durable_node_presence(
+    db: &Database,
+    graph: &str,
+    node_ids: &[String],
+) -> Result<Vec<bool>, String> {
+    let rtx = db.begin_read().map_err(|error| error.to_string())?;
+    let nodes = rtx.open_table(NODES).map_err(|error| error.to_string())?;
+    let mut present = Vec::with_capacity(node_ids.len());
+    for node_id in node_ids {
+        present.push(
+            nodes
+                .get((graph, node_id.as_str()))
+                .map_err(|error| error.to_string())?
+                .is_some(),
+        );
+    }
+    Ok(present)
+}
+
+fn read_semantic_store(
+    semantic: &redb::Table<&str, &[u8]>,
+    graph: &str,
+    crypto: DurableCrypto<'_>,
+) -> Result<Option<crate::compute::semantic::SemanticStore>, String> {
+    semantic
+        .get(graph)
+        .map_err(|error| error.to_string())?
+        .map(|value| {
+            let bytes = crypto.unseal(value.value())?;
+            decode_durable(&bytes)
+        })
+        .transpose()
+}
+
+fn write_semantic_store(
+    semantic: &mut redb::Table<&str, &[u8]>,
+    graph: &str,
+    store: &crate::compute::semantic::SemanticStore,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    let bytes = rmp_serde::to_vec_named(store).map_err(|error| error.to_string())?;
+    let sealed = crypto.seal(&bytes);
+    semantic
+        .insert(graph, sealed.as_ref())
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+fn upsert_durable_embedding(
+    semantic: &mut redb::Table<&str, &[u8]>,
+    graph: &str,
+    node_id: &str,
+    embedding: &[f32],
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    let mut store = read_semantic_store(semantic, graph, crypto)?.unwrap_or_default();
+    store.add_embedding(node_id.to_string(), embedding.to_vec());
+    write_semantic_store(semantic, graph, &store, crypto)
+}
+
+fn remove_durable_embedding(
+    semantic: &mut redb::Table<&str, &[u8]>,
+    graph: &str,
+    node_id: &str,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    let Some(mut store) = read_semantic_store(semantic, graph, crypto)? else {
+        return Ok(());
+    };
+    if store.remove_embedding(node_id) {
+        write_semantic_store(semantic, graph, &store, crypto)?;
+    }
+    Ok(())
+}
+
+fn remove_durable_edge_pair(
+    graph: &str,
+    source: &str,
+    target: &str,
+    edges: &mut redb::Table<(&str, &str, &str, u32), &[u8]>,
+) -> Result<(), String> {
+    let ordinals: Vec<u32> = edges
+        .range((graph, source, target, 0u32)..)
+        .map_err(|error| error.to_string())?
+        .filter_map(Result::ok)
+        .take_while(|(key, _)| {
+            let (candidate_graph, candidate_source, candidate_target, _) = key.value();
+            candidate_graph == graph && candidate_source == source && candidate_target == target
+        })
+        .map(|(key, _)| key.value().3)
+        .collect();
+    for ordinal in ordinals {
+        edges
+            .remove((graph, source, target, ordinal))
+            .map_err(|error| error.to_string())?;
+    }
+    invalidate_edge_ord(graph, source, target);
+    Ok(())
+}
+
+fn remove_durable_node(
+    graph: &str,
+    node_id: &str,
+    nodes: &mut redb::Table<(&str, &str), &[u8]>,
+    edges: &mut redb::Table<(&str, &str, &str, u32), &[u8]>,
+    semantic: &mut redb::Table<&str, &[u8]>,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    remove_durable_node_rows(graph, node_id, nodes, edges)?;
+    remove_durable_embedding(semantic, graph, node_id, crypto)
+}
+
+fn remove_durable_node_rows(
+    graph: &str,
+    node_id: &str,
+    nodes: &mut redb::Table<(&str, &str), &[u8]>,
+    edges: &mut redb::Table<(&str, &str, &str, u32), &[u8]>,
+) -> Result<(), String> {
+    nodes
+        .remove((graph, node_id))
+        .map_err(|error| error.to_string())?;
+    // The edge key is `(graph, source, target, ordinal)`: outgoing edges form a
+    // prefix, while incoming edges require one bounded scan of this graph.
+    let incident: Vec<(String, String, u32)> = edges
+        .range((graph, "", "", 0u32)..)
+        .map_err(|error| error.to_string())?
+        .filter_map(Result::ok)
+        .take_while(|(key, _)| key.value().0 == graph)
+        .filter_map(|(key, _)| {
+            let (_, source, target, ordinal) = key.value();
+            (source == node_id || target == node_id)
+                .then(|| (source.to_string(), target.to_string(), ordinal))
+        })
+        .collect();
+    for (source, target, ordinal) in incident {
+        edges
+            .remove((graph, source.as_str(), target.as_str(), ordinal))
+            .map_err(|error| error.to_string())?;
+        invalidate_edge_ord(graph, &source, &target);
+    }
+    invalidate_node_edge_ords(graph, node_id);
+    Ok(())
+}
+
 /// Translate ONE applied method into redb row writes inside an open transaction.
-/// Mirrors `crate::wal::apply`'s method set: the durable DATA mutations only.
+/// Mirrors `crate::mutation_apply::apply`'s method set: the durable DATA mutations only.
 pub(crate) fn apply_method_rows(
     graph: &str,
     method: &Method,
     nodes: &mut redb::Table<(&str, &str), &[u8]>,
     edges: &mut redb::Table<(&str, &str, &str, u32), &[u8]>,
     ledger: &mut redb::Table<(&str, u64), &str>,
+    semantic: &mut redb::Table<&str, &[u8]>,
     crypto: DurableCrypto<'_>,
 ) -> Result<(), String> {
     match method {
@@ -457,46 +3326,60 @@ pub(crate) fn apply_method_rows(
                 .map_err(|e| e.to_string())?;
         }
         Method::RemoveNode { node_id } => {
-            nodes
-                .remove((graph, node_id.as_str()))
-                .map_err(|e| e.to_string())?;
-            // Remove this node's incident edges (best-effort prefix sweep on src).
-            let to_del: Vec<(String, String, u32)> = edges
-                .range((graph, node_id.as_str(), "", 0u32)..)
-                .map_err(|e| e.to_string())?
-                .filter_map(|r| r.ok())
-                .take_while(|(k, _)| {
-                    let (g, s, _, _) = k.value();
-                    g == graph && s == node_id.as_str()
-                })
-                .map(|(k, _)| {
-                    let (_, s, t, o) = k.value();
-                    (s.to_string(), t.to_string(), o)
-                })
-                .collect();
-            for (s, t, o) in to_del {
-                let _ = edges.remove((graph, s.as_str(), t.as_str(), o));
-            }
-            // EG-029: this node's outgoing edges are gone — drop their cached ordinals so
-            // a later AddEdge from `node_id` re-seeds from the (now empty) post-removal scan.
-            invalidate_node_edge_ords(graph, node_id);
+            remove_durable_node(graph, node_id, nodes, edges, semantic, crypto)?;
         }
         Method::CompareAndSetNodeFields {
             node_id,
+            conditions_msgpack,
             updates_msgpack,
-            ..
         } => {
-            // Write-through best-effort: persist the post-update node properties.
-            let blob = crypto.seal(updates_msgpack);
-            nodes
-                .insert((graph, node_id.as_str()), blob.as_ref())
-                .map_err(|e| e.to_string())?;
+            // Evaluate and merge the CAS against the durable pre-image inside the
+            // held transaction. Persisting `updates_msgpack` by itself discarded
+            // every untouched property and could diverge from GraphCore.
+            let Some(current) = nodes
+                .get((graph, node_id.as_str()))
+                .map_err(|e| e.to_string())?
+                .map(|v| crypto.unseal(v.value()))
+                .transpose()?
+            else {
+                return Ok(());
+            };
+            let mut props: serde_json::Map<String, serde_json::Value> = decode_durable(&current)?;
+            let conditions: serde_json::Map<String, serde_json::Value> =
+                decode_durable(conditions_msgpack)?;
+            let updates: serde_json::Map<String, serde_json::Value> =
+                decode_durable(updates_msgpack)?;
+            let matches = conditions.iter().all(|(key, expected)| {
+                props.get(key).cloned().unwrap_or(serde_json::Value::Null) == *expected
+            });
+            if matches {
+                props.extend(updates);
+                let bytes = rmp_serde::to_vec_named(&props).map_err(|e| e.to_string())?;
+                let blob = crypto.seal(&bytes);
+                nodes
+                    .insert((graph, node_id.as_str()), blob.as_ref())
+                    .map_err(|e| e.to_string())?;
+            }
         }
         Method::AddEdge {
             source_id,
             target_id,
             properties_msgpack,
         } => {
+            let source_exists = nodes
+                .get((graph, source_id.as_str()))
+                .map_err(|e| e.to_string())?
+                .is_some();
+            let target_exists = nodes
+                .get((graph, target_id.as_str()))
+                .map_err(|e| e.to_string())?
+                .is_some();
+            if !source_exists || !target_exists {
+                return Err(format!(
+                    "AddEdge requires durable endpoints: source '{}' present={}, target '{}' present={}",
+                    source_id, source_exists, target_id, target_exists
+                ));
+            }
             let ord = next_edge_ordinal(edges, graph, source_id, target_id)?;
             let blob = crypto.seal(properties_msgpack);
             edges
@@ -510,27 +3393,17 @@ pub(crate) fn apply_method_rows(
             source_id,
             target_id,
         } => {
-            let ords: Vec<u32> = edges
-                .range((graph, source_id.as_str(), target_id.as_str(), 0u32)..)
-                .map_err(|e| e.to_string())?
-                .filter_map(|r| r.ok())
-                .take_while(|(k, _)| {
-                    let (g, s, t, _) = k.value();
-                    g == graph && s == source_id.as_str() && t == target_id.as_str()
-                })
-                .map(|(k, _)| k.value().3)
-                .collect();
-            for o in ords {
-                let _ = edges.remove((graph, source_id.as_str(), target_id.as_str(), o));
-            }
-            // EG-029: drop the cached next-ordinal for this (src,tgt) so a re-add re-seeds.
-            invalidate_edge_ord(graph, source_id, target_id);
+            remove_durable_edge_pair(graph, source_id, target_id, edges)?;
         }
         Method::BatchUpdate { operations_msgpack } => {
-            apply_batch_rows(graph, operations_msgpack, nodes, edges, crypto)?;
+            apply_batch_rows(graph, operations_msgpack, nodes, edges, semantic, crypto)?;
         }
         Method::ClearGraph => {
             clear_graph_rows(graph, nodes, edges, ledger)?;
+            semantic.remove(graph).map_err(|error| error.to_string())?;
+        }
+        Method::AddEmbedding { node_id, embedding } => {
+            upsert_durable_embedding(semantic, graph, node_id, embedding, crypto)?;
         }
         _ => {}
     }
@@ -667,12 +3540,12 @@ pub(crate) fn verify_audit(
 // the one writer thread and lives for its whole lifetime (= the `Pending` lifetime
 // that holds the EG-025 audit cache). On any OTHER thread (the embedded one-op-per-
 // txn path, tests, tooling) the counter is NOT authoritative — another thread could
-// be the real writer — so those contexts fall back to the scan: behavior + cost
-// unchanged from before.
+// be the real writer — so those contexts fall back to an exact bounded B-tree tail
+// seek.
 //
 // **Restart / correctness.** A fresh process ⇒ fresh writer thread ⇒ empty cache ⇒
-// the first touch of each (graph,src,tgt) re-seeds from exactly ONE scan (max+1, or 0
-// when none), then advances in RAM. Edge removals on the writer thread
+// the first touch of each (graph,src,tgt) re-seeds from one bounded tail seek (max+1,
+// or 0 when none), then advances in RAM. Edge removals on the writer thread
 // (RemoveEdge/RemoveNode/ClearGraph/checkpoint-clear) INVALIDATE the relevant cache
 // entries so a later AddEdge re-seeds from the post-removal state — preserving the
 // exact "reset to 0 once all edges of a pair are gone" behavior of the old scan.
@@ -688,18 +3561,21 @@ thread_local! {
         .map(|n| n.starts_with("eg-redb-writer"))
         .unwrap_or(false);
 
-    /// `(graph, src, tgt) -> next ordinal to assign`. Seeded once per key from a single
-    /// scan (incl. after a restart — a fresh thread starts empty), advanced in RAM per
-    /// AddEdge, invalidated on edge removal. Only populated on a writer thread.
-    static EDGE_ORD_CACHE: RefCell<HashMap<(String, String, String), u32>> =
+    /// `graph -> source -> target -> next ordinal to assign`. The u64 counter can
+    /// represent `u32::MAX + 1` as an explicit exhausted sentinel after assigning
+    /// the final valid durable ordinal; it is never serialized.
+    /// The hierarchy keeps
+    /// hot pair lookup expected O(1) while making whole-graph and whole-source
+    /// invalidation O(1), rather than retaining over every cached pair.
+    static EDGE_ORD_CACHE: RefCell<HashMap<String, HashMap<String, HashMap<String, u64>>>> =
         RefCell::new(HashMap::new());
 }
 
 /// Next free edge ordinal for a (src,tgt) pair in this graph.
 ///
 /// O(1) on the dedicated writer thread (EG-026/EG-029): the in-RAM counter, seeded once
-/// per (graph,src,tgt) from one scan. Off the writer thread it is NOT authoritative, so
-/// it falls back to the unchanged O(degree) scan.
+/// per (graph,src,tgt) from one bounded tail seek. Off the writer thread it is NOT
+/// authoritative, so it performs the same exact O(log E) seek on every call.
 fn next_edge_ordinal(
     edges: &redb::Table<(&str, &str, &str, u32), &[u8]>,
     graph: &str,
@@ -711,20 +3587,28 @@ fn next_edge_ordinal(
     }
     EDGE_ORD_CACHE.with(|c| -> Result<u32, String> {
         let mut cache = c.borrow_mut();
-        let key = (graph.to_string(), src.to_string(), tgt.to_string());
-        let next = match cache.get(&key) {
+        let targets = cache
+            .entry(graph.to_string())
+            .or_default()
+            .entry(src.to_string())
+            .or_default();
+        let next = match targets.get(tgt) {
             // Hot path: the cached counter — NO scan inside the held write txn.
             Some(&n) => n,
             // Cold path: first touch since open / restart — seed from one scan.
-            None => scan_next_edge_ordinal(edges, graph, src, tgt)?,
+            None => u64::from(scan_next_edge_ordinal(edges, graph, src, tgt)?),
         };
-        cache.insert(key, next + 1);
-        Ok(next)
+        let ordinal =
+            u32::try_from(next).map_err(|_| "edge ordinal space exhausted".to_string())?;
+        targets.insert(tgt.to_string(), next + 1);
+        Ok(ordinal)
     })
 }
 
-/// The original O(degree) scan: highest existing ordinal for (graph,src,tgt), +1 (or 0).
-/// Used to SEED the EG-029 counter on first touch and as the off-writer-thread fallback.
+/// Seek the highest existing ordinal for `(graph, src, tgt)` and add one. The
+/// composite key range is ordered by ordinal, so `next_back` makes this O(log E)
+/// instead of walking all parallel rows for the pair. Used to seed the writer cache
+/// and as the off-writer-thread fallback.
 fn scan_next_edge_ordinal(
     edges: &redb::Table<(&str, &str, &str, u32), &[u8]>,
     graph: &str,
@@ -732,24 +3616,38 @@ fn scan_next_edge_ordinal(
     tgt: &str,
 ) -> Result<u32, String> {
     let max = edges
-        .range((graph, src, tgt, 0u32)..)
+        .range((graph, src, tgt, 0u32)..=(graph, src, tgt, u32::MAX))
         .map_err(|e| e.to_string())?
-        .filter_map(|r| r.ok())
-        .take_while(|(k, _)| {
-            let (g, s, t, _) = k.value();
-            g == graph && s == src && t == tgt
-        })
-        .map(|(k, _)| k.value().3)
-        .max();
-    Ok(max.map(|m| m + 1).unwrap_or(0))
+        .next_back()
+        .transpose()
+        .map_err(|e| e.to_string())?
+        .map(|(key, _)| key.value().3);
+    max.map_or(Ok(0), |ordinal| {
+        ordinal
+            .checked_add(1)
+            .ok_or_else(|| "edge ordinal space exhausted".to_string())
+    })
 }
 
 /// Drop the cached next-ordinal for ONE (graph,src,tgt) (RemoveEdge). No-op off the
 /// writer thread / when the key was never cached.
 fn invalidate_edge_ord(graph: &str, src: &str, tgt: &str) {
     EDGE_ORD_CACHE.with(|c| {
-        c.borrow_mut()
-            .remove(&(graph.to_string(), src.to_string(), tgt.to_string()));
+        let mut cache = c.borrow_mut();
+        let mut remove_graph = false;
+        if let Some(sources) = cache.get_mut(graph) {
+            let remove_source = sources.get_mut(src).is_some_and(|targets| {
+                targets.remove(tgt);
+                targets.is_empty()
+            });
+            if remove_source {
+                sources.remove(src);
+            }
+            remove_graph = sources.is_empty();
+        }
+        if remove_graph {
+            cache.remove(graph);
+        }
     });
 }
 
@@ -757,16 +3655,62 @@ fn invalidate_edge_ord(graph: &str, src: &str, tgt: &str) {
 /// exactly that node's outgoing edges).
 fn invalidate_node_edge_ords(graph: &str, node: &str) {
     EDGE_ORD_CACHE.with(|c| {
-        c.borrow_mut()
-            .retain(|(g, s, _), _| !(g == graph && s == node));
+        let mut cache = c.borrow_mut();
+        let remove_graph = cache.get_mut(graph).is_some_and(|sources| {
+            sources.remove(node);
+            sources.is_empty()
+        });
+        if remove_graph {
+            cache.remove(graph);
+        }
     });
 }
 
 /// Drop every cached next-ordinal for `graph` (ClearGraph / purge / checkpoint re-seed).
 fn invalidate_graph_edge_ords(graph: &str) {
     EDGE_ORD_CACHE.with(|c| {
-        c.borrow_mut().retain(|(g, _, _), _| g != graph);
+        c.borrow_mut().remove(graph);
     });
+}
+
+/// Bounded exact-binary proof seam for the cold edge-ordinal seed and the
+/// writer-local invalidation path. It writes only opaque synthetic rows into the
+/// caller-owned private probe database and returns raw semantic outcomes; release
+/// evidence never includes the supplied path.
+#[doc(hidden)]
+pub fn exact_performance_probe_edge_ordinal(
+    database_path: &std::path::Path,
+    parallel_rows: usize,
+) -> Result<(u32, u32, u32), String> {
+    if parallel_rows == 0 || parallel_rows > 100_000 || parallel_rows > u32::MAX as usize {
+        return Err("edge-ordinal probe scale is outside its bound".to_string());
+    }
+    let path = database_path.to_path_buf();
+    std::thread::Builder::new()
+        .name("eg-redb-writer-g37".to_string())
+        .spawn(move || -> Result<(u32, u32, u32), String> {
+            let database = Database::create(path).map_err(|error| error.to_string())?;
+            let transaction = database.begin_write().map_err(|error| error.to_string())?;
+            let mut edges = transaction
+                .open_table(EDGES)
+                .map_err(|error| error.to_string())?;
+            let value = [0u8];
+            for ordinal in 0..parallel_rows as u32 {
+                edges
+                    .insert(("g37", "source", "target", ordinal), value.as_slice())
+                    .map_err(|error| error.to_string())?;
+            }
+            let cold = next_edge_ordinal(&edges, "g37", "source", "target")?;
+            let hot = next_edge_ordinal(&edges, "g37", "source", "target")?;
+            invalidate_edge_ord("g37", "source", "target");
+            let reseeded = next_edge_ordinal(&edges, "g37", "source", "target")?;
+            drop(edges);
+            transaction.abort().map_err(|error| error.to_string())?;
+            Ok((cold, hot, reseeded))
+        })
+        .map_err(|error| error.to_string())?
+        .join()
+        .map_err(|_| "edge-ordinal probe worker panicked".to_string())?
 }
 
 /// Apply a decoded `BatchUpdate` op-list as row writes.
@@ -775,56 +3719,119 @@ fn apply_batch_rows(
     operations_msgpack: &[u8],
     nodes: &mut redb::Table<(&str, &str), &[u8]>,
     edges: &mut redb::Table<(&str, &str, &str, u32), &[u8]>,
+    semantic: &mut redb::Table<&str, &[u8]>,
     crypto: DurableCrypto<'_>,
 ) -> Result<(), String> {
-    let ops: Vec<serde_json::Value> = match rmp_serde::from_slice(operations_msgpack) {
-        Ok(o) => o,
-        Err(_) => return Ok(()), // opaque batch — skip rather than fail the commit
-    };
-    for op in ops {
-        let kind = op.get("op").and_then(|v| v.as_str()).unwrap_or("");
-        match kind {
-            "add_node" | "upsert_node" => {
-                if let Some(id) = op.get("node_id").and_then(|v| v.as_str()) {
-                    let props = op
-                        .get("properties")
-                        .map(|p| rmp_serde::to_vec_named(p).unwrap_or_default())
-                        .unwrap_or_default();
-                    let props = crypto.seal(&props);
-                    nodes
-                        .insert((graph, id), props.as_ref())
-                        .map_err(|e| e.to_string())?;
+    use crate::algorithms::BatchOperation;
+
+    // The compute crate owns the public schema. Decode it here too instead of
+    // maintaining a second set of field aliases at the durability boundary.
+    // Any error aborts the enclosing redb transaction: never acknowledge an
+    // opaque or partially applied batch.
+    let operations = crate::algorithms::decode_batch_operations(operations_msgpack)?;
+    let has_semantic_operations = operations.iter().any(|operation| {
+        matches!(
+            operation,
+            BatchOperation::RemoveNode { .. } | BatchOperation::AddEmbedding { .. }
+        )
+    });
+    // Load the graph's vector store at most once. A large embedding batch must not
+    // repeatedly deserialize and reserialize the whole semantic blob per element.
+    let mut semantic_store = has_semantic_operations
+        .then(|| read_semantic_store(semantic, graph, crypto))
+        .transpose()?
+        .flatten()
+        .unwrap_or_default();
+    let mut semantic_dirty = false;
+    for (index, operation) in operations.into_iter().enumerate() {
+        match operation {
+            BatchOperation::AddNode {
+                id,
+                mut properties_msgpack,
+                upsert,
+            } => {
+                if upsert {
+                    let current = nodes
+                        .get((graph, id.as_str()))
+                        .map_err(|error| error.to_string())?
+                        .map(|stored| crypto.unseal(stored.value()))
+                        .transpose()?;
+                    if let Some(current) = current {
+                        properties_msgpack = crate::algorithms::merge_batch_node_properties(
+                            &current,
+                            &properties_msgpack,
+                        )
+                        .map_err(|reason| {
+                            format!("BatchUpdate op[{index}] cannot upsert node '{id}': {reason}")
+                        })?;
+                    }
                 }
+                let sealed = crypto.seal(&properties_msgpack);
+                nodes
+                    .insert((graph, id.as_str()), sealed.as_ref())
+                    .map_err(|error| error.to_string())?;
             }
-            "remove_node" => {
-                if let Some(id) = op.get("node_id").and_then(|v| v.as_str()) {
-                    nodes.remove((graph, id)).map_err(|e| e.to_string())?;
+            BatchOperation::RemoveNode { id } => {
+                remove_durable_node_rows(graph, &id, nodes, edges)?;
+                semantic_dirty |= semantic_store.remove_embedding(&id);
+            }
+            BatchOperation::AddEdge {
+                source,
+                target,
+                properties_msgpack,
+                upsert,
+            } => {
+                let source_exists = nodes
+                    .get((graph, source.as_str()))
+                    .map_err(|error| error.to_string())?
+                    .is_some();
+                let target_exists = nodes
+                    .get((graph, target.as_str()))
+                    .map_err(|error| error.to_string())?
+                    .is_some();
+                if !source_exists || !target_exists {
+                    return Err(format!(
+                        "BatchUpdate op[{index}] edge endpoints must exist at that point in the batch"
+                    ));
                 }
-            }
-            "add_edge" => {
-                if let (Some(s), Some(t)) = (
-                    op.get("source_id").and_then(|v| v.as_str()),
-                    op.get("target_id").and_then(|v| v.as_str()),
-                ) {
-                    let props = op
-                        .get("properties")
-                        .map(|p| rmp_serde::to_vec_named(p).unwrap_or_default())
-                        .unwrap_or_default();
-                    let props = crypto.seal(&props);
-                    let ord = next_edge_ordinal(edges, graph, s, t)?;
-                    edges
-                        .insert((graph, s, t, ord), props.as_ref())
-                        .map_err(|e| e.to_string())?;
+                if upsert {
+                    remove_durable_edge_pair(graph, &source, &target, edges)?;
                 }
+                let ordinal = next_edge_ordinal(edges, graph, &source, &target)?;
+                let sealed = crypto.seal(&properties_msgpack);
+                edges
+                    .insert(
+                        (graph, source.as_str(), target.as_str(), ordinal),
+                        sealed.as_ref(),
+                    )
+                    .map_err(|error| error.to_string())?;
             }
-            _ => {}
+            BatchOperation::RemoveEdge { source, target } => {
+                remove_durable_edge_pair(graph, &source, &target, edges)?;
+            }
+            BatchOperation::AddEmbedding { id, embedding } => {
+                if nodes
+                    .get((graph, id.as_str()))
+                    .map_err(|error| error.to_string())?
+                    .is_none()
+                {
+                    return Err(format!(
+                        "BatchUpdate op[{index}] embedding node '{id}' does not exist"
+                    ));
+                }
+                semantic_store.add_embedding(id, embedding);
+                semantic_dirty = true;
+            }
         }
+    }
+    if semantic_dirty {
+        write_semantic_store(semantic, graph, &semantic_store, crypto)?;
     }
     Ok(())
 }
 
 /// Drop every row for `graph` across nodes/edges/ledger (ClearGraph).
-fn clear_graph_rows(
+pub(crate) fn clear_graph_rows(
     graph: &str,
     nodes: &mut redb::Table<(&str, &str), &[u8]>,
     edges: &mut redb::Table<(&str, &str, &str, u32), &[u8]>,
@@ -870,6 +3877,79 @@ fn clear_graph_rows(
     Ok(())
 }
 
+/// Remove every current ChangeEnvelope projection for a graph inside the caller's
+/// open transaction. The immutable MutationBatch/outbox audit ledger is retained;
+/// current object/material/governance state cannot leak into a same-name graph.
+pub(crate) fn clear_change_material_rows(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+) -> Result<(), String> {
+    let mut envelopes = wtx
+        .open_table(CHANGE_ENVELOPES)
+        .map_err(|e| e.to_string())?;
+    let envelope_keys: Vec<String> = envelopes
+        .range((graph, "")..)
+        .map_err(|e| e.to_string())?
+        .filter_map(|row| row.ok())
+        .take_while(|(key, _)| key.value().0 == graph)
+        .map(|(key, _)| key.value().1.to_string())
+        .collect();
+    for id in envelope_keys {
+        envelopes
+            .remove((graph, id.as_str()))
+            .map_err(|e| e.to_string())?;
+    }
+
+    macro_rules! purge_graph_three_part_table {
+        ($definition:expr) => {{
+            let mut table = wtx.open_table($definition).map_err(|e| e.to_string())?;
+            let keys: Vec<(String, String)> = table
+                .range((graph, "", "")..)
+                .map_err(|e| e.to_string())?
+                .filter_map(|row| row.ok())
+                .take_while(|(key, _)| key.value().0 == graph)
+                .map(|(key, _)| {
+                    let (_, tenant, id) = key.value();
+                    (tenant.to_string(), id.to_string())
+                })
+                .collect();
+            for (tenant, id) in keys {
+                table
+                    .remove((graph, tenant.as_str(), id.as_str()))
+                    .map_err(|e| e.to_string())?;
+            }
+        }};
+    }
+    purge_graph_three_part_table!(CONTENT_VERSIONS);
+    purge_graph_three_part_table!(CHANGE_BLOBS);
+    purge_graph_three_part_table!(CHANGE_FEATURES);
+    purge_graph_three_part_table!(CHANGE_EVIDENCE);
+    purge_graph_three_part_table!(CHANGE_POLICIES);
+    purge_graph_three_part_table!(CHANGE_LINEAGE);
+
+    let mut cursors = wtx.open_table(CHANGE_CURSORS).map_err(|e| e.to_string())?;
+    let cursor_keys: Vec<(String, String, String)> = cursors
+        .range((graph, "", "", "")..)
+        .map_err(|e| e.to_string())?
+        .filter_map(|row| row.ok())
+        .take_while(|(key, _)| key.value().0 == graph)
+        .map(|(key, _)| {
+            let (_, tenant, source, partition) = key.value();
+            (
+                tenant.to_string(),
+                source.to_string(),
+                partition.to_string(),
+            )
+        })
+        .collect();
+    for (tenant, source, partition) in cursor_keys {
+        cursors
+            .remove((graph, tenant.as_str(), source.as_str(), partition.as_str()))
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 /// Drop EVERY durable row for `graph` in ONE durable transaction (CONCEPT:EG-KG.backend.tenant-delete-recreate-same,
 /// the tenant-DELETE path). Unlike `clear_graph_rows` (which empties a LIVE graph's
 /// data but keeps its `graph_meta` identity), this ALSO removes the `semantic_store`
@@ -892,6 +3972,8 @@ pub(crate) fn purge_graph_rows(db: &Database, graph: &str) -> Result<(), String>
         let _ = semantic.remove(graph).map_err(|e| e.to_string())?;
         let mut meta = wtx.open_table(GRAPH_META).map_err(|e| e.to_string())?;
         let _ = meta.remove(graph).map_err(|e| e.to_string())?;
+
+        clear_change_material_rows(&wtx, graph)?;
     }
     wtx.commit().map_err(|e| e.to_string())?;
     Ok(())
@@ -907,30 +3989,76 @@ pub(crate) fn put_xshard_prepare(
     txn_id: &str,
     gid: u64,
     slice: &[u8],
+    crypto: DurableCrypto<'_>,
 ) -> Result<(), String> {
     let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
     wtx.set_durability(Durability::Immediate)
         .map_err(|e| e.to_string())?;
     {
+        // Production MutationBatch parents require the environment data key before
+        // entering this path, so their prepare bodies are ciphertext.  Retain the
+        // generic no-cipher behavior for low-level in-process Raft harnesses.
+        let sealed = crypto.seal(slice);
         let mut t = wtx.open_table(XSHARD_PREPARE).map_err(|e| e.to_string())?;
-        t.insert((txn_id, gid), slice).map_err(|e| e.to_string())?;
+        t.insert((txn_id, gid), sealed.as_ref())
+            .map_err(|e| e.to_string())?;
     }
     wtx.commit().map_err(|e| e.to_string())?;
     Ok(())
 }
 
+/// Read one participant's prepared slice by its exact composite key.
+pub(crate) fn get_xshard_prepare(
+    db: &Database,
+    txn_id: &str,
+    gid: u64,
+    crypto: DurableCrypto<'_>,
+) -> Result<Option<Vec<u8>>, String> {
+    let rtx = db.begin_read().map_err(|e| e.to_string())?;
+    let table = rtx.open_table(XSHARD_PREPARE).map_err(|e| e.to_string())?;
+    let sealed = table
+        .get((txn_id, gid))
+        .map_err(|e| e.to_string())?
+        .map(|value| value.value().to_vec());
+    sealed.map(|value| crypto.unseal(&value)).transpose()
+}
+
 /// Durably write the coordinator's decision row (the atomic commit point).
-pub(crate) fn put_xshard_decision(db: &Database, txn_id: &str, commit: bool) -> Result<(), String> {
+pub(crate) fn put_xshard_decision(
+    db: &Database,
+    txn_id: &str,
+    commit: bool,
+    retain_for_parent: bool,
+) -> Result<(), String> {
     let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
     wtx.set_durability(Durability::Immediate)
         .map_err(|e| e.to_string())?;
     {
         let mut t = wtx.open_table(XSHARD_DECISION).map_err(|e| e.to_string())?;
-        t.insert(txn_id, if commit { 1u8 } else { 0u8 })
-            .map_err(|e| e.to_string())?;
+        let encoded = match (commit, retain_for_parent) {
+            (false, false) => 0u8,
+            (true, false) => 1u8,
+            (false, true) => 2u8,
+            (true, true) => 3u8,
+        };
+        t.insert(txn_id, encoded).map_err(|e| e.to_string())?;
     }
     wtx.commit().map_err(|e| e.to_string())?;
     Ok(())
+}
+
+/// Mark a parent-recoverable 2PC attempt as started but not yet decided.  Value 4
+/// is deliberately not COMMIT/ABORT; recovery resolves it by presumed abort while
+/// retaining that outcome until the MutationBatch parent is terminal.
+pub(crate) fn put_xshard_recoverable_pending(db: &Database, txn_id: &str) -> Result<(), String> {
+    let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
+    wtx.set_durability(Durability::Immediate)
+        .map_err(|e| e.to_string())?;
+    {
+        let mut table = wtx.open_table(XSHARD_DECISION).map_err(|e| e.to_string())?;
+        table.insert(txn_id, 4u8).map_err(|e| e.to_string())?;
+    }
+    wtx.commit().map_err(|e| e.to_string())
 }
 
 /// Clear one participant's prepare record after resolution.
@@ -960,14 +4088,14 @@ pub(crate) fn clear_xshard_decision(db: &Database, txn_id: &str) -> Result<(), S
 }
 
 /// Scan every in-doubt prepare record `(txn_id, group_id, slice)` for recovery.
-pub(crate) fn scan_xshard_prepares(db: &Database) -> XshardPrepareScan {
+pub(crate) fn scan_xshard_prepares(db: &Database, crypto: DurableCrypto<'_>) -> XshardPrepareScan {
     let rtx = db.begin_read().map_err(|e| e.to_string())?;
     let t = rtx.open_table(XSHARD_PREPARE).map_err(|e| e.to_string())?;
     let mut out = Vec::new();
     for kv in t.iter().map_err(|e| e.to_string())? {
         let (k, v) = kv.map_err(|e| e.to_string())?;
         let (txn_id, gid) = k.value();
-        out.push((txn_id.to_string(), gid, v.value().to_vec()));
+        out.push((txn_id.to_string(), gid, crypto.unseal(v.value())?));
     }
     Ok(out)
 }
@@ -976,9 +4104,55 @@ pub(crate) fn scan_xshard_prepares(db: &Database) -> XshardPrepareScan {
 pub(crate) fn get_xshard_decision(db: &Database, txn_id: &str) -> Result<Option<bool>, String> {
     let rtx = db.begin_read().map_err(|e| e.to_string())?;
     let t = rtx.open_table(XSHARD_DECISION).map_err(|e| e.to_string())?;
-    Ok(t.get(txn_id)
+    let encoded = t
+        .get(txn_id)
         .map_err(|e| e.to_string())?
-        .map(|v| v.value() == 1))
+        .map(|value| value.value());
+    match encoded {
+        None | Some(4) => Ok(None),
+        Some(0 | 2) => Ok(Some(false)),
+        Some(1 | 3) => Ok(Some(true)),
+        Some(_) => Err("corrupt cross-shard decision value".to_string()),
+    }
+}
+
+/// Whether the decision/pending marker must survive participant recovery until a
+/// separate MutationBatch parent receipt is durable.
+pub(crate) fn get_xshard_decision_retain(db: &Database, txn_id: &str) -> Result<bool, String> {
+    let rtx = db.begin_read().map_err(|e| e.to_string())?;
+    let table = rtx.open_table(XSHARD_DECISION).map_err(|e| e.to_string())?;
+    let retain = table
+        .get(txn_id)
+        .map_err(|e| e.to_string())?
+        .map(|value| matches!(value.value(), 2 | 3 | 4))
+        .unwrap_or(false);
+    Ok(retain)
+}
+
+/// Scan digest-only decision keys for parent-aware startup GC.  No prepared slice
+/// or source payload is returned.
+pub(crate) fn scan_xshard_decisions(db: &Database) -> XshardDecisionScan {
+    let rtx = db.begin_read().map_err(|error| error.to_string())?;
+    let table = rtx
+        .open_table(XSHARD_DECISION)
+        .map_err(|error| error.to_string())?;
+    let mut rows = Vec::new();
+    for row in table.iter().map_err(|error| error.to_string())? {
+        let (key, value) = row.map_err(|error| error.to_string())?;
+        let encoded = value.value();
+        let outcome = match encoded {
+            0 | 2 => Some(false),
+            1 | 3 => Some(true),
+            4 => None,
+            _ => return Err("corrupt cross-shard decision value".to_string()),
+        };
+        rows.push((
+            key.value().to_string(),
+            outcome,
+            matches!(encoded, 2 | 3 | 4),
+        ));
+    }
+    Ok(rows)
 }
 
 /// Durably upsert a named materialized view's serialized blob (CONCEPT:EG-KG.storage.feature).
@@ -1075,9 +4249,20 @@ pub(crate) fn apply_checkpoint(
         let mut ledger = wtx.open_table(LEDGER).map_err(|e| e.to_string())?;
         let mut semantic = wtx.open_table(SEMANTIC).map_err(|e| e.to_string())?;
         let mut meta = wtx.open_table(GRAPH_META).map_err(|e| e.to_string())?;
+        let mut versions = wtx
+            .open_table(MUTATION_GRAPH_VERSION)
+            .map_err(|e| e.to_string())?;
 
         for (graph, method) in pending.drain(..) {
-            apply_method_rows(&graph, &method, &mut nodes, &mut edges, &mut ledger, crypto)?;
+            apply_method_rows(
+                &graph,
+                &method,
+                &mut nodes,
+                &mut edges,
+                &mut ledger,
+                &mut semantic,
+                crypto,
+            )?;
         }
 
         for dump in graphs {
@@ -1111,11 +4296,17 @@ pub(crate) fn apply_checkpoint(
             semantic
                 .insert(dump.graph.as_str(), sem.as_ref())
                 .map_err(|e| e.to_string())?;
-            meta.insert(
-                dump.graph.as_str(),
-                encode_meta(&dump.name, dump.graph_type).as_slice(),
-            )
-            .map_err(|e| e.to_string())?;
+            let encoded = encode_meta_record(
+                &dump.name,
+                dump.graph_type,
+                &dump.incarnation_id,
+                dump.integrity_policy.as_ref(),
+            )?;
+            meta.insert(dump.graph.as_str(), encoded.as_slice())
+                .map_err(|e| e.to_string())?;
+            versions
+                .insert(dump.graph.as_str(), dump.source_snapshot_version)
+                .map_err(|e| e.to_string())?;
             count += 1;
         }
     }
@@ -1134,10 +4325,18 @@ pub(crate) fn read_graph_dump(
 ) -> Result<Option<GraphDump>, String> {
     let rtx = db.begin_read().map_err(|e| e.to_string())?;
     let meta_table = rtx.open_table(GRAPH_META).map_err(|e| e.to_string())?;
-    let (name, graph_type) = match meta_table.get(graph).map_err(|e| e.to_string())? {
-        Some(v) => decode_meta(v.value()),
+    let meta_record = match meta_table.get(graph).map_err(|e| e.to_string())? {
+        Some(v) => decode_meta_record(graph, v.value())?,
         None => return Ok(None),
     };
+    let version_table = rtx
+        .open_table(MUTATION_GRAPH_VERSION)
+        .map_err(|e| e.to_string())?;
+    let source_snapshot_version = version_table
+        .get(graph)
+        .map_err(|e| e.to_string())?
+        .map(|value| value.value())
+        .unwrap_or(0);
     let nodes_table = rtx.open_table(NODES).map_err(|e| e.to_string())?;
     let edges_table = rtx.open_table(EDGES).map_err(|e| e.to_string())?;
     let ledger_table = rtx.open_table(LEDGER).map_err(|e| e.to_string())?;
@@ -1187,8 +4386,11 @@ pub(crate) fn read_graph_dump(
 
     Ok(Some(GraphDump {
         graph: graph.to_string(),
-        name,
-        graph_type,
+        name: meta_record.name,
+        graph_type: meta_record.graph_type,
+        incarnation_id: meta_record.incarnation_id,
+        source_snapshot_version,
+        integrity_policy: meta_record.integrity_policy,
         nodes,
         edges,
         ledger,
@@ -1207,44 +4409,66 @@ pub(crate) fn read_graph_dump(
 pub(crate) struct GraphDumpPage {
     pub nodes: Vec<(String, Vec<u8>)>,
     pub edges: Vec<(String, String, Vec<u8>)>,
-    /// Only populated on the first page (`node_offset == 0`) — mirrors
+    /// Only populated on the first page (no keyset cursor) — mirrors
     /// [`eg_core::registry::GraphMaterializer::materialize_page`]'s single-blob
     /// convention so a paged replay attaches the semantic store exactly once.
     pub semantic: Vec<u8>,
+    /// Authoritative graph-control state, populated on the first page only.
+    pub integrity_policy: Option<crate::graph::IntegrityPolicy>,
     pub nodes_exhausted: bool,
     pub edges_exhausted: bool,
+    /// Effective durable keyset positions after this page. They preserve the
+    /// prior value when a page advances only the other row family.
+    pub node_after: Option<String>,
+    pub edge_after: Option<(String, String, u32)>,
+    pub incarnation_id: String,
+    pub source_snapshot_version: u64,
 }
 
 pub(crate) fn read_graph_dump_page(
     db: &Database,
     graph: &str,
     crypto: DurableCrypto<'_>,
-    node_offset: usize,
-    edge_offset: usize,
+    _node_offset: usize,
+    _edge_offset: usize,
+    node_after: Option<&str>,
+    edge_after: Option<(&str, &str, u32)>,
     page_size: usize,
 ) -> Result<Option<GraphDumpPage>, String> {
     let page_size = page_size.max(1);
     let rtx = db.begin_read().map_err(|e| e.to_string())?;
     let meta_table = rtx.open_table(GRAPH_META).map_err(|e| e.to_string())?;
-    if meta_table.get(graph).map_err(|e| e.to_string())?.is_none() {
-        return Ok(None);
-    }
+    let meta_record = match meta_table.get(graph).map_err(|e| e.to_string())? {
+        Some(value) => decode_meta_record(graph, value.value())?,
+        None => return Ok(None),
+    };
+    let version_table = rtx
+        .open_table(MUTATION_GRAPH_VERSION)
+        .map_err(|e| e.to_string())?;
+    let source_snapshot_version = version_table
+        .get(graph)
+        .map_err(|e| e.to_string())?
+        .map(|value| value.value())
+        .unwrap_or(0);
     let nodes_table = rtx.open_table(NODES).map_err(|e| e.to_string())?;
     let edges_table = rtx.open_table(EDGES).map_err(|e| e.to_string())?;
 
-    // Nodes: skip `node_offset` rows already paged in by a prior call, then take at
-    // most `page_size` more — the memory-bounded step (never the graph's full node
-    // set, unlike `read_graph_dump`). One extra `.next()` after filling the page
-    // (NOT collected) tells us whether more nodes remain, without reading their value.
+    // Nodes: seek to the last returned composite key, skip that one inclusive row,
+    // then take at most `page_size` more. This makes a complete paged recovery
+    // O(N log N/pages + N), rather than restarting at the prefix and skipping an
+    // ever-growing offset (O(N^2/page_size)). One extra `.next()` after filling the
+    // page (NOT collected) tells us whether more nodes remain.
     let mut nodes = Vec::with_capacity(page_size.min(1024));
     let mut nodes_exhausted;
+    let mut next_node_after = node_after.map(str::to_string);
     {
+        let lower = node_after.unwrap_or("");
         let mut iter = nodes_table
-            .range((graph, "")..)
-            .map_err(|e| e.to_string())?
-            .skip(node_offset);
+            .range((graph, lower)..)
+            .map_err(|e| e.to_string())?;
+        let mut skip_equal = node_after;
         nodes_exhausted = true;
-        for _ in 0..page_size {
+        while nodes.len() < page_size {
             match iter.next() {
                 Some(row) => {
                     let (k, v) = row.map_err(|e| e.to_string())?;
@@ -1252,7 +4476,13 @@ pub(crate) fn read_graph_dump_page(
                     if g != graph {
                         break; // ran off the end of this graph's key range
                     }
+                    if skip_equal.is_some_and(|cursor| cursor == id) {
+                        skip_equal = None;
+                        continue;
+                    }
+                    skip_equal = None;
                     nodes.push((id.to_string(), crypto.unseal(v.value())?));
+                    next_node_after = Some(id.to_string());
                     nodes_exhausted = false; // provisional; corrected by the peek below
                 }
                 None => break,
@@ -1281,21 +4511,32 @@ pub(crate) fn read_graph_dump_page(
     let edge_budget = page_size.saturating_sub(nodes.len());
     let mut edges = Vec::new();
     let mut edges_done_this_call = false;
+    let mut next_edge_after = edge_after
+        .map(|(source, target, ordinal)| (source.to_string(), target.to_string(), ordinal));
     if nodes_exhausted && edge_budget > 0 {
+        let (lower_source, lower_target, lower_ordinal) = edge_after.unwrap_or(("", "", 0));
         let mut iter = edges_table
-            .range((graph, "", "", 0u32)..)
-            .map_err(|e| e.to_string())?
-            .skip(edge_offset);
+            .range((graph, lower_source, lower_target, lower_ordinal)..)
+            .map_err(|e| e.to_string())?;
+        let mut skip_equal = edge_after;
         edges_done_this_call = true;
-        for _ in 0..edge_budget {
+        while edges.len() < edge_budget {
             match iter.next() {
                 Some(row) => {
                     let (k, v) = row.map_err(|e| e.to_string())?;
-                    let (g, s, t, _) = k.value();
+                    let (g, s, t, ordinal) = k.value();
                     if g != graph {
                         break;
                     }
+                    if skip_equal.is_some_and(|(cursor_source, cursor_target, cursor_ordinal)| {
+                        cursor_source == s && cursor_target == t && cursor_ordinal == ordinal
+                    }) {
+                        skip_equal = None;
+                        continue;
+                    }
+                    skip_equal = None;
                     edges.push((s.to_string(), t.to_string(), crypto.unseal(v.value())?));
+                    next_edge_after = Some((s.to_string(), t.to_string(), ordinal));
                     edges_done_this_call = false;
                 }
                 None => break,
@@ -1313,7 +4554,7 @@ pub(crate) fn read_graph_dump_page(
     }
     let edges_exhausted = nodes_exhausted && edges_done_this_call;
 
-    let semantic = if node_offset == 0 {
+    let semantic = if node_after.is_none() && edge_after.is_none() {
         let semantic_table = rtx.open_table(SEMANTIC).map_err(|e| e.to_string())?;
         semantic_table
             .get(graph)
@@ -1325,13 +4566,172 @@ pub(crate) fn read_graph_dump_page(
         Vec::new()
     };
 
+    let first_page = node_after.is_none() && edge_after.is_none();
     Ok(Some(GraphDumpPage {
         nodes,
         edges,
         semantic,
+        integrity_policy: first_page.then_some(meta_record.integrity_policy).flatten(),
         nodes_exhausted,
         edges_exhausted,
+        node_after: next_node_after,
+        edge_after: next_edge_after,
+        incarnation_id: meta_record.incarnation_id,
+        source_snapshot_version,
     }))
+}
+
+#[cfg(test)]
+mod keyset_page_tests {
+    use super::*;
+
+    #[test]
+    fn durable_decode_rejects_declared_allocation_bomb() {
+        let allocation_bomb = [0xdd, 0xff, 0xff, 0xff, 0xff];
+        assert!(decode_durable::<Vec<serde_json::Value>>(&allocation_bomb).is_err());
+    }
+
+    #[test]
+    fn graph_metadata_requires_the_current_version_and_complete_identity() {
+        let policy = crate::graph::IntegrityPolicy {
+            shapes_ttl: "@prefix sh: <http://www.w3.org/ns/shacl#> .".to_string(),
+        };
+        let encoded = encode_meta_record(
+            "graph",
+            GraphType::Global,
+            "incarnation:test:current",
+            Some(&policy),
+        )
+        .unwrap();
+        let decoded = decode_meta_record("graph", &encoded).unwrap();
+        assert_eq!(decoded.name, "graph");
+        assert_eq!(decoded.incarnation_id, "incarnation:test:current");
+        assert_eq!(decoded.integrity_policy, Some(policy));
+
+        let unversioned = rmp_serde::to_vec_named(&serde_json::json!({
+            "name": "graph",
+            "graph_type": GraphType::Global,
+            "incarnation_id": "incarnation:test:retired"
+        }))
+        .unwrap();
+        assert!(decode_meta_record("graph", &unversioned).is_err());
+
+        let missing_incarnation = rmp_serde::to_vec_named(&serde_json::json!({
+            "schema_version": GRAPH_META_SCHEMA_VERSION,
+            "name": "graph",
+            "graph_type": GraphType::Global,
+            "integrity_policy": null
+        }))
+        .unwrap();
+        assert!(decode_meta_record("graph", &missing_incarnation).is_err());
+
+        let missing_policy = rmp_serde::to_vec_named(&serde_json::json!({
+            "schema_version": GRAPH_META_SCHEMA_VERSION,
+            "name": "graph",
+            "graph_type": GraphType::Global,
+            "incarnation_id": "incarnation:test:missing-policy"
+        }))
+        .unwrap();
+        assert!(decode_meta_record("graph", &missing_policy).is_err());
+    }
+
+    fn temp_path() -> std::path::PathBuf {
+        std::env::temp_dir().join(format!(
+            "eg-keyset-page-{}-{}.redb",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ))
+    }
+
+    #[test]
+    fn keyset_pages_recover_every_node_and_parallel_edge_without_prefix_skips() {
+        let path = temp_path();
+        let db = Database::create(&path).unwrap();
+        let wtx = db.begin_write().unwrap();
+        {
+            wtx.open_table(NODES).unwrap();
+            wtx.open_table(EDGES).unwrap();
+            wtx.open_table(LEDGER).unwrap();
+            wtx.open_table(SEMANTIC).unwrap();
+            wtx.open_table(GRAPH_META).unwrap();
+            wtx.open_table(MUTATION_GRAPH_VERSION).unwrap();
+        }
+        wtx.commit().unwrap();
+
+        let nodes: Vec<_> = ["a", "b", "c", "n00", "n01", "n02", "n03"]
+            .into_iter()
+            .map(|id| (id.to_string(), id.as_bytes().to_vec()))
+            .collect();
+        let mut edges = Vec::new();
+        for ordinal in 0..5u8 {
+            edges.push(("a".to_string(), "b".to_string(), vec![ordinal]));
+        }
+        edges.push(("b".to_string(), "c".to_string(), vec![5]));
+        edges.push(("b".to_string(), "c".to_string(), vec![6]));
+        apply_checkpoint(
+            &db,
+            &mut Vec::new(),
+            vec![GraphDump {
+                graph: "graph".to_string(),
+                name: "graph".to_string(),
+                graph_type: GraphType::Global,
+                incarnation_id: "incarnation:test:keyset".to_string(),
+                source_snapshot_version: 7,
+                integrity_policy: None,
+                nodes: nodes.clone(),
+                edges: edges.clone(),
+                ledger: Vec::new(),
+                semantic: Vec::new(),
+            }],
+            DurableCrypto::none(),
+        )
+        .unwrap();
+
+        let mut node_after: Option<String> = None;
+        let mut edge_after: Option<(String, String, u32)> = None;
+        let mut got_nodes = Vec::new();
+        let mut got_edges = Vec::new();
+        let mut first = true;
+        loop {
+            let edge_cursor = edge_after
+                .as_ref()
+                .map(|(source, target, ordinal)| (source.as_str(), target.as_str(), *ordinal));
+            // Offsets are deliberately nonsense after page one. Correct recovery
+            // must be driven solely by the durable keyset positions.
+            let offset = if first { 0 } else { 1_000_000 };
+            let page = read_graph_dump_page(
+                &db,
+                "graph",
+                DurableCrypto::none(),
+                offset,
+                offset,
+                node_after.as_deref(),
+                edge_cursor,
+                3,
+            )
+            .unwrap()
+            .unwrap();
+            assert!(page.nodes.len() + page.edges.len() <= 3);
+            got_nodes.extend(page.nodes.iter().map(|(id, _)| id.clone()));
+            got_edges.extend(page.edges.iter().cloned());
+            node_after = page.node_after;
+            edge_after = page.edge_after;
+            first = false;
+            if page.nodes_exhausted && page.edges_exhausted {
+                break;
+            }
+        }
+
+        assert_eq!(
+            got_nodes,
+            nodes.iter().map(|(id, _)| id.clone()).collect::<Vec<_>>()
+        );
+        assert_eq!(got_edges, edges);
+        let _ = std::fs::remove_file(path);
+    }
 }
 
 /// Read the entire store into owned per-graph dumps. Each graph's rows are
@@ -1346,18 +4746,29 @@ pub(crate) fn read_all_dumps(
     let edges_table = rtx.open_table(EDGES).map_err(|e| e.to_string())?;
     let ledger_table = rtx.open_table(LEDGER).map_err(|e| e.to_string())?;
     let semantic_table = rtx.open_table(SEMANTIC).map_err(|e| e.to_string())?;
+    let version_table = rtx
+        .open_table(MUTATION_GRAPH_VERSION)
+        .map_err(|e| e.to_string())?;
 
     let mut dumps: HashMap<String, GraphDump> = HashMap::new();
     for row in meta_table.iter().map_err(|e| e.to_string())? {
         let (k, v) = row.map_err(|e| e.to_string())?;
         let graph = k.value().to_string();
-        let (name, graph_type) = decode_meta(v.value());
+        let record = decode_meta_record(&graph, v.value())?;
+        let source_snapshot_version = version_table
+            .get(graph.as_str())
+            .map_err(|e| e.to_string())?
+            .map(|value| value.value())
+            .unwrap_or(0);
         dumps.insert(
             graph.clone(),
             GraphDump {
                 graph,
-                name,
-                graph_type,
+                name: record.name,
+                graph_type: record.graph_type,
+                incarnation_id: record.incarnation_id,
+                source_snapshot_version,
+                integrity_policy: record.integrity_policy,
                 nodes: Vec::new(),
                 edges: Vec::new(),
                 ledger: Vec::new(),
@@ -1408,37 +4819,118 @@ pub(crate) fn read_all_dumps(
 /// [`read_graph_dump`] to fetch the SAME durable rows this scan skipped).
 pub(crate) fn read_all_graph_meta(
     db: &Database,
-) -> Result<Vec<(String, String, GraphType)>, String> {
+) -> Result<Vec<(String, String, GraphType, String)>, String> {
     let rtx = db.begin_read().map_err(|e| e.to_string())?;
     let meta_table = rtx.open_table(GRAPH_META).map_err(|e| e.to_string())?;
     let mut out = Vec::new();
     for row in meta_table.iter().map_err(|e| e.to_string())? {
         let (k, v) = row.map_err(|e| e.to_string())?;
         let fname = k.value().to_string();
-        let (name, graph_type) = decode_meta(v.value());
-        out.push((fname, name, graph_type));
+        let record = decode_meta_record(&fname, v.value())?;
+        out.push((fname, record.name, record.graph_type, record.incarnation_id));
     }
     Ok(out)
 }
 
-pub(crate) fn encode_meta(name: &str, gtype: GraphType) -> Vec<u8> {
-    rmp_serde::to_vec_named(&serde_json::json!({ "name": name, "graph_type": gtype }))
-        .unwrap_or_default()
+pub(crate) fn encode_meta_with_incarnation(
+    name: &str,
+    gtype: GraphType,
+    incarnation_id: &str,
+) -> Result<Vec<u8>, String> {
+    encode_meta_record(name, gtype, incarnation_id, None)
 }
 
-fn decode_meta(blob: &[u8]) -> (String, GraphType) {
-    let v: serde_json::Value = rmp_serde::from_slice(blob).unwrap_or(serde_json::Value::Null);
-    let name = v
-        .get("name")
-        .and_then(|x| x.as_str())
-        .unwrap_or_default()
-        .to_string();
-    let gtype = v
-        .get("graph_type")
-        .cloned()
-        .and_then(|x| serde_json::from_value(x).ok())
-        .unwrap_or(GraphType::Global);
-    (name, gtype)
+fn encode_meta_record(
+    name: &str,
+    graph_type: GraphType,
+    incarnation_id: &str,
+    integrity_policy: Option<&crate::graph::IntegrityPolicy>,
+) -> Result<Vec<u8>, String> {
+    if name.trim().is_empty() || incarnation_id.trim().is_empty() {
+        return Err("graph metadata identity fields must not be empty".to_string());
+    }
+    rmp_serde::to_vec_named(&GraphMetaRecord {
+        schema_version: GRAPH_META_SCHEMA_VERSION,
+        name: name.to_string(),
+        graph_type,
+        incarnation_id: incarnation_id.to_string(),
+        integrity_policy: integrity_policy.cloned(),
+    })
+    .map_err(|error| format!("encode graph metadata: {error}"))
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GraphMetaRecord {
+    schema_version: u16,
+    name: String,
+    graph_type: GraphType,
+    incarnation_id: String,
+    /// Explicit `None` is the current fail-closed unconfigured state. Because
+    /// this field has no serde default, an older/incomplete record is rejected.
+    #[serde(deserialize_with = "deserialize_required_option")]
+    integrity_policy: Option<crate::graph::IntegrityPolicy>,
+}
+
+fn deserialize_required_option<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::Deserialize<'de>,
+{
+    <Option<T> as serde::Deserialize>::deserialize(deserializer)
+}
+
+const GRAPH_META_SCHEMA_VERSION: u16 = 2;
+
+fn new_incarnation_id(graph: &str) -> String {
+    static NEXT_INCARNATION: AtomicU64 = AtomicU64::new(1);
+    use sha2::{Digest, Sha256};
+    let mut digest = Sha256::new();
+    digest.update(b"epistemic-graph-incarnation-v1\0");
+    digest.update(graph.as_bytes());
+    digest.update(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos()
+            .to_le_bytes(),
+    );
+    digest.update(
+        NEXT_INCARNATION
+            .fetch_add(1, Ordering::Relaxed)
+            .to_le_bytes(),
+    );
+    format!("incarnation:durable:{}", hex::encode(digest.finalize()))
+}
+
+fn decode_meta_record(graph: &str, blob: &[u8]) -> Result<GraphMetaRecord, String> {
+    let record: GraphMetaRecord = decode_durable(blob)
+        .map_err(|error| format!("decode graph metadata for {graph}: {error}"))?;
+    if record.schema_version != GRAPH_META_SCHEMA_VERSION {
+        return Err(format!(
+            "graph metadata for {graph} has unsupported schema version {}",
+            record.schema_version
+        ));
+    }
+    if record.name.trim().is_empty() || record.incarnation_id.trim().is_empty() {
+        return Err(format!(
+            "graph metadata for {graph} has incomplete identity"
+        ));
+    }
+    Ok(record)
+}
+
+/// Decode the logical identity carried by a raw `graph_meta` row.
+///
+/// Raft snapshots and online resharding copy this row verbatim.  Consumers must
+/// derive the logical name/type from that sole durable authority rather than
+/// trusting a second, independently serialized copy that could disagree with it.
+pub(crate) fn decode_graph_meta_identity(
+    graph: &str,
+    blob: &[u8],
+) -> Result<(String, GraphType, String), String> {
+    let record = decode_meta_record(graph, blob)?;
+    Ok((record.name, record.graph_type, record.incarnation_id))
 }
 
 #[cfg(all(test, feature = "security"))]
@@ -1450,12 +4942,13 @@ mod security_tests {
     use crate::crypto::ValueCipher;
 
     fn open_db(dir: &std::path::Path) -> Database {
-        let path = dir.join("graph.redb");
+        let path = dir.join("graph-0.redb");
         let db = Database::create(&path).unwrap();
         let wtx = db.begin_write().unwrap();
         wtx.open_table(NODES).unwrap();
         wtx.open_table(EDGES).unwrap();
         wtx.open_table(LEDGER).unwrap();
+        wtx.open_table(SEMANTIC).unwrap();
         wtx.open_table(SEMANTIC).unwrap();
         wtx.open_table(GRAPH_META).unwrap();
         wtx.open_table(AUDIT).unwrap();
@@ -1494,11 +4987,91 @@ mod security_tests {
             .collect()
     }
 
+    #[test]
+    fn hierarchical_edge_ordinal_cache_invalidates_only_the_requested_scope() {
+        EDGE_ORD_CACHE.with(|cache| {
+            let mut cache = cache.borrow_mut();
+            cache.clear();
+            cache
+                .entry("g1".into())
+                .or_default()
+                .entry("a".into())
+                .or_default()
+                .extend([("b".into(), 2), ("c".into(), 3)]);
+            cache
+                .entry("g1".into())
+                .or_default()
+                .entry("x".into())
+                .or_default()
+                .insert("y".into(), 4);
+            cache
+                .entry("g2".into())
+                .or_default()
+                .entry("a".into())
+                .or_default()
+                .insert("b".into(), 5);
+        });
+
+        invalidate_edge_ord("g1", "a", "b");
+        EDGE_ORD_CACHE.with(|cache| {
+            let cache = cache.borrow();
+            assert!(!cache["g1"]["a"].contains_key("b"));
+            assert_eq!(cache["g1"]["a"]["c"], 3);
+            assert_eq!(cache["g2"]["a"]["b"], 5);
+        });
+
+        invalidate_node_edge_ords("g1", "a");
+        EDGE_ORD_CACHE.with(|cache| {
+            let cache = cache.borrow();
+            assert!(!cache["g1"].contains_key("a"));
+            assert_eq!(cache["g1"]["x"]["y"], 4);
+        });
+
+        invalidate_graph_edge_ords("g1");
+        EDGE_ORD_CACHE.with(|cache| {
+            let mut cache = cache.borrow_mut();
+            assert!(!cache.contains_key("g1"));
+            assert_eq!(cache["g2"]["a"]["b"], 5);
+            cache.clear();
+        });
+    }
+
+    #[test]
+    fn edge_ordinal_cache_assigns_u32_max_once_then_fails_closed() {
+        let dir = tempdir();
+        std::thread::Builder::new()
+            .name("eg-redb-writer-exhaustion-test".to_string())
+            .spawn(move || {
+                let db = open_db(&dir);
+                let wtx = db.begin_write().unwrap();
+                let edges = wtx.open_table(EDGES).unwrap();
+                EDGE_ORD_CACHE.with(|cache| {
+                    cache
+                        .borrow_mut()
+                        .entry("g".into())
+                        .or_default()
+                        .entry("a".into())
+                        .or_default()
+                        .insert("b".into(), u64::from(u32::MAX));
+                });
+
+                assert_eq!(next_edge_ordinal(&edges, "g", "a", "b").unwrap(), u32::MAX);
+                assert_eq!(
+                    next_edge_ordinal(&edges, "g", "a", "b").unwrap_err(),
+                    "edge ordinal space exhausted"
+                );
+                EDGE_ORD_CACHE.with(|cache| cache.borrow_mut().clear());
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
     /// CONCEPT:EG-KG.storage.redb-store #3 — the O(1) edge-ordinal counter assigns CORRECT, strictly
     /// monotonic ordinals across many `AddEdge` to one node (per-op across SEPARATE commit
     /// batches on the dedicated writer thread — the hot path that used to range-scan every
     /// time), and a FRESH writer thread (the restart case) RE-SEEDS each (src,tgt) from one
-    /// scan and continues with no gap, reset, or collision. `RemoveEdge` invalidates the
+    /// bounded tail seek and continues with no gap, reset, or collision. `RemoveEdge` invalidates the
     /// counter so a re-add resets to 0, matching the old scan behavior exactly.
     #[test]
     fn edge_ordinals_monotonic_o1_counter_and_reseed_after_restart() {
@@ -1622,7 +5195,7 @@ mod security_tests {
     #[test]
     fn encryption_no_plaintext_on_disk_round_trips_and_wrong_key_fails() {
         let dir = tempdir();
-        let db_path = dir.join("graph.redb");
+        let db_path = dir.join("graph-0.redb");
         let cipher = ValueCipher::from_key_material(b"correct-horse-battery-staple");
         let crypto = DurableCrypto::new(Some(&cipher));
 
@@ -1837,5 +5410,1316 @@ mod security_tests {
         ));
         std::fs::create_dir_all(&base).unwrap();
         base
+    }
+}
+
+#[cfg(test)]
+mod mutation_batch_tests {
+    use super::*;
+    use crate::change_envelope::{
+        ChangeCursor, ChangeEnvelope, ContentVersion, ContentVersionPosition, CursorPosition,
+        PolicyRecord, PrivacyAttestation, CHANGE_ENVELOPE_VERSION,
+    };
+    use crate::mutation_batch::{
+        MutationDomain, MutationOperation, MutationOutboxIntent, MutationRequestContext,
+        MutationSurface, MUTATION_BATCH_VERSION,
+    };
+
+    fn temp_path(tag: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!(
+            "eg-mutation-batch-{tag}-{}-{}.redb",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ))
+    }
+
+    fn open(path: &std::path::Path) -> Database {
+        let db = Database::create(path).unwrap();
+        let wtx = db.begin_write().unwrap();
+        initialize_canonical_tables(&wtx).unwrap();
+        {
+            let mut versions = wtx.open_table(MUTATION_GRAPH_VERSION).unwrap();
+            let initialize = versions.get("graph-a").unwrap().is_none();
+            if initialize {
+                versions.insert("graph-a", 3).unwrap();
+            }
+        }
+        wtx.commit().unwrap();
+        db
+    }
+
+    fn node(id: &str, value: i64) -> Method {
+        Method::AddNode {
+            node_id: id.to_string(),
+            properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"value": value}))
+                .unwrap(),
+        }
+    }
+
+    fn batch(batch_id: &str, key: &str) -> MutationBatch {
+        MutationBatch {
+            schema_version: MUTATION_BATCH_VERSION,
+            batch_id: batch_id.to_string(),
+            context: MutationRequestContext {
+                request_id: 42,
+                principal: format!("principal:sha256:{}", "a".repeat(64)),
+                purpose: Some("crash-test".to_string()),
+                policy_fingerprint: Some("policy-v1".to_string()),
+                trace_id: Some("trace-1".to_string()),
+            },
+            tenant: "tenant-a".to_string(),
+            graph: "graph-a".to_string(),
+            placement_epoch: 7,
+            idempotency_key: key.to_string(),
+            expected_graph_version: Some(3),
+            fencing_token: Some(9),
+            authoritative_state: None,
+            operations: vec![
+                MutationOperation {
+                    ordinal: 0,
+                    surface: MutationSurface::Transaction,
+                    domain: MutationDomain::GraphRows,
+                    method: node("a", 1),
+                },
+                MutationOperation {
+                    ordinal: 1,
+                    surface: MutationSurface::Transaction,
+                    domain: MutationDomain::GraphRows,
+                    method: node("b", 2),
+                },
+            ],
+            outbox: vec![MutationOutboxIntent {
+                topic: "projection.test".to_string(),
+                key: batch_id.to_string(),
+                payload: vec![1, 2, 3],
+                headers: Default::default(),
+            }],
+            created_at_ms: 100,
+        }
+    }
+
+    fn public_batch_method(operations: serde_json::Value) -> Method {
+        Method::BatchUpdate {
+            operations_msgpack: rmp_serde::to_vec_named(&operations).unwrap(),
+        }
+    }
+
+    fn commit_at(
+        db: &Database,
+        batch: &MutationBatch,
+        point: Option<MutationBatchCrashpoint>,
+    ) -> Result<MutationBatchCommit, String> {
+        #[cfg(feature = "security")]
+        let mut audit = AuditTailCache::new();
+        commit_mutation_batch_inner(
+            db,
+            "graph-a",
+            batch,
+            None,
+            None,
+            None,
+            Some(&[0x81, 0xa2, b'o', b'k']),
+            101,
+            DurableCrypto::none(),
+            #[cfg(feature = "security")]
+            &mut audit,
+            point,
+        )
+    }
+
+    fn commit_crossmodal_at(
+        db: &Database,
+        batch: &MutationBatch,
+        methods: &[Method],
+        vectors: &[VectorUpsert],
+        point: Option<MutationBatchCrashpoint>,
+    ) -> Result<MutationBatchCommit, String> {
+        #[cfg(feature = "security")]
+        let mut audit = AuditTailCache::new();
+        commit_mutation_batch_inner(
+            db,
+            "graph-a",
+            batch,
+            None,
+            None,
+            Some(CrossModalBatchRows {
+                methods,
+                vectors,
+                blob_refs: &[],
+                measurements: &[],
+            }),
+            Some(&[0x81, 0xa2, b'o', b'k']),
+            101,
+            DurableCrypto::none(),
+            #[cfg(feature = "security")]
+            &mut audit,
+            point,
+        )
+    }
+
+    fn assert_absent_after_reopen(path: &std::path::Path, batch_id: &str) {
+        let reopened = open(path);
+        assert!(
+            read_one_node(&reopened, "graph-a", "a", DurableCrypto::none())
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            read_one_node(&reopened, "graph-a", "b", DurableCrypto::none())
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            read_mutation_batch(&reopened, batch_id, DurableCrypto::none())
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            read_mutation_outbox(&reopened, batch_id, DurableCrypto::none())
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    /// Deterministic kill points before the redb commit all reopen as NO mutation:
+    /// never one node, status without rows, or an orphan outbox record.
+    #[test]
+    fn precommit_crashpoints_reopen_with_no_partial_batch() {
+        for point in [
+            MutationBatchCrashpoint::BeforeRows,
+            MutationBatchCrashpoint::AfterRowsBeforeMetadata,
+            MutationBatchCrashpoint::BeforeCommit,
+        ] {
+            let path = temp_path(&format!("pre-{point:?}"));
+            {
+                let db = open(&path);
+                let b = batch("batch-pre", "idem-pre");
+                assert!(commit_at(&db, &b, Some(point)).is_err());
+            }
+            assert_absent_after_reopen(&path, "batch-pre");
+            let _ = std::fs::remove_file(path);
+        }
+    }
+
+    #[test]
+    fn missing_graph_version_is_initial_zero_not_caller_seeded() {
+        let path = temp_path("missing-version");
+        let db = open(&path);
+        {
+            let wtx = db.begin_write().unwrap();
+            wtx.open_table(MUTATION_GRAPH_VERSION)
+                .unwrap()
+                .remove("graph-a")
+                .unwrap();
+            wtx.commit().unwrap();
+        }
+        let error = commit_at(&db, &batch("batch-version", "idem-version"), None).unwrap_err();
+        assert!(error.contains("authoritative version is 0"));
+        drop(db);
+        let _ = std::fs::remove_file(path);
+    }
+
+    /// A crash after commit but before acknowledgement reopens as one COMPLETE
+    /// committed mutation.  Retrying returns its stored result and does not append
+    /// duplicate rows or outbox events.
+    #[test]
+    fn postcommit_crash_restarts_and_replays_idempotently() {
+        let path = temp_path("postcommit");
+        let b = batch("batch-post", "idem-post");
+        {
+            let db = open(&path);
+            assert!(
+                commit_at(&db, &b, Some(MutationBatchCrashpoint::AfterCommitBeforeAck)).is_err()
+            );
+        }
+        {
+            let db = open(&path);
+            assert!(read_one_node(&db, "graph-a", "a", DurableCrypto::none())
+                .unwrap()
+                .is_some());
+            assert!(read_one_node(&db, "graph-a", "b", DurableCrypto::none())
+                .unwrap()
+                .is_some());
+            let record = read_mutation_batch(&db, "batch-post", DurableCrypto::none())
+                .unwrap()
+                .unwrap();
+            assert_eq!(record.status, MutationBatchStatus::Committed);
+            let outbox = read_mutation_outbox(&db, "batch-post", DurableCrypto::none()).unwrap();
+            assert_eq!(
+                outbox.len(),
+                3,
+                "two canonical events + one explicit intent"
+            );
+
+            let replay = commit_at(&db, &b, None).unwrap();
+            assert!(replay.replayed);
+            assert_eq!(
+                read_mutation_outbox(&db, "batch-post", DurableCrypto::none())
+                    .unwrap()
+                    .len(),
+                3
+            );
+        }
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn public_batch_reopens_and_replays_edges_vectors_and_tombstones_once() {
+        let path = temp_path("public-batch-replay");
+        let operations = serde_json::json!([
+            {"op": "add_node", "id": "a", "properties": {"text": "alpha"}},
+            {"op": "add_node", "id": "b", "properties": {"text": "beta"}},
+            {"op": "add_node", "id": "c", "properties": {"text": "gamma"}},
+            {"op": "add_edge", "source": "a", "target": "b", "properties": {"kind": "old"}},
+            {"op": "add_edge", "source": "a", "target": "b", "properties": {"kind": "also old"}},
+            {"op": "upsert_edge", "source": "a", "target": "b", "properties": {"kind": "new"}},
+            {"op": "add_edge", "source": "c", "target": "a", "properties": {"kind": "incoming"}},
+            {"op": "add_embedding", "id": "a", "embedding": [0.25, 0.75]}
+        ]);
+        let mut initial = batch("batch-public", "idem-public");
+        initial.operations = vec![MutationOperation {
+            ordinal: 0,
+            surface: MutationSurface::Graph,
+            domain: MutationDomain::GraphRows,
+            method: public_batch_method(operations),
+        }];
+        {
+            let db = open(&path);
+            let committed = commit_at(&db, &initial, None).unwrap();
+            assert!(!committed.replayed);
+        }
+        {
+            let db = open(&path);
+            let replay = commit_at(&db, &initial, None).unwrap();
+            assert!(replay.replayed, "retry must use the stored batch result");
+            let dump = read_graph_dump(&db, "graph-a", DurableCrypto::none())
+                .unwrap()
+                .unwrap();
+            assert_eq!(dump.nodes.len(), 3);
+            assert_eq!(dump.edges.len(), 2, "upsert must not duplicate the pair");
+            let (_, _, properties) = dump
+                .edges
+                .iter()
+                .find(|(source, target, _)| source == "a" && target == "b")
+                .expect("upserted edge");
+            let properties: serde_json::Value = rmp_serde::from_slice(properties).unwrap();
+            assert_eq!(properties["kind"], "new");
+            let semantic: crate::compute::semantic::SemanticStore =
+                rmp_serde::from_slice(&dump.semantic).unwrap();
+            assert_eq!(semantic.get_embedding("a"), Some(vec![0.25, 0.75]));
+        }
+
+        let mut removal = batch("batch-remove-a", "idem-remove-a");
+        removal.expected_graph_version = Some(4);
+        removal.operations = vec![MutationOperation {
+            ordinal: 0,
+            surface: MutationSurface::Graph,
+            domain: MutationDomain::GraphRows,
+            method: public_batch_method(serde_json::json!([
+                {"op": "remove_node", "id": "a"}
+            ])),
+        }];
+        {
+            let db = open(&path);
+            commit_at(&db, &removal, None).unwrap();
+        }
+        {
+            let db = open(&path);
+            let dump = read_graph_dump(&db, "graph-a", DurableCrypto::none())
+                .unwrap()
+                .unwrap();
+            assert_eq!(dump.nodes.len(), 2);
+            assert!(
+                dump.edges.is_empty(),
+                "outgoing and incoming edges must tombstone"
+            );
+            let semantic: crate::compute::semantic::SemanticStore =
+                rmp_serde::from_slice(&dump.semantic).unwrap();
+            assert_eq!(semantic.get_embedding("a"), None);
+        }
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn public_batch_upsert_node_merges_durable_fields_across_reopen() {
+        let path = temp_path("public-batch-node-upsert");
+        let mut seed = batch("batch-upsert-seed", "idem-upsert-seed");
+        seed.operations = vec![MutationOperation {
+            ordinal: 0,
+            surface: MutationSurface::Graph,
+            domain: MutationDomain::GraphRows,
+            method: public_batch_method(serde_json::json!([{
+                "op": "add_node",
+                "id": "existing",
+                "properties": {
+                    "retained": "yes",
+                    "overwritten": "old",
+                    "nested": {"left": 1, "right": 2}
+                }
+            }])),
+        }];
+        let mut upsert = batch("batch-upsert-merge", "idem-upsert-merge");
+        upsert.expected_graph_version = Some(4);
+        upsert.operations = vec![MutationOperation {
+            ordinal: 0,
+            surface: MutationSurface::Graph,
+            domain: MutationDomain::GraphRows,
+            method: public_batch_method(serde_json::json!([
+                {
+                    "op": "upsert_node",
+                    "id": "existing",
+                    "properties": {
+                        "overwritten": "new",
+                        "added": true,
+                        "nested": {"left": 9}
+                    }
+                },
+                {"op": "upsert_node", "id": "created", "properties": {"created": true}}
+            ])),
+        }];
+        {
+            let db = open(&path);
+            commit_at(&db, &seed, None).unwrap();
+            commit_at(&db, &upsert, None).unwrap();
+        }
+        {
+            let db = open(&path);
+            let dump = read_graph_dump(&db, "graph-a", DurableCrypto::none())
+                .unwrap()
+                .unwrap();
+            let existing = dump
+                .nodes
+                .iter()
+                .find(|(id, _)| id == "existing")
+                .expect("existing node");
+            let existing: serde_json::Value = rmp_serde::from_slice(&existing.1).unwrap();
+            assert_eq!(existing["retained"], "yes");
+            assert_eq!(existing["overwritten"], "new");
+            assert_eq!(existing["added"], true);
+            assert_eq!(existing["nested"], serde_json::json!({"left": 9}));
+            let created = dump
+                .nodes
+                .iter()
+                .find(|(id, _)| id == "created")
+                .expect("created node");
+            let created: serde_json::Value = rmp_serde::from_slice(&created.1).unwrap();
+            assert_eq!(created, serde_json::json!({"created": true}));
+        }
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn malformed_or_state_invalid_public_batch_rolls_back_all_rows() {
+        for (tag, method) in [
+            (
+                "opaque",
+                Method::BatchUpdate {
+                    operations_msgpack: vec![0xc1],
+                },
+            ),
+            (
+                "missing-endpoint",
+                public_batch_method(serde_json::json!([
+                    {"op": "add_node", "id": "partial", "properties": {}},
+                    {"op": "add_edge", "source": "partial", "target": "missing", "properties": {}}
+                ])),
+            ),
+        ] {
+            let path = temp_path(tag);
+            let mut mutation = batch("batch-invalid", "idem-invalid");
+            mutation.operations = vec![MutationOperation {
+                ordinal: 0,
+                surface: MutationSurface::Graph,
+                domain: MutationDomain::GraphRows,
+                method,
+            }];
+            {
+                let db = open(&path);
+                assert!(commit_at(&db, &mutation, None).is_err());
+            }
+            let db = open(&path);
+            assert!(
+                read_one_node(&db, "graph-a", "partial", DurableCrypto::none())
+                    .unwrap()
+                    .is_none(),
+                "redb must discard earlier rows when a later operation fails"
+            );
+            assert!(
+                read_mutation_batch(&db, "batch-invalid", DurableCrypto::none())
+                    .unwrap()
+                    .is_none()
+            );
+            drop(db);
+            let _ = std::fs::remove_file(path);
+        }
+    }
+
+    #[test]
+    fn terminal_work_item_retry_replays_and_conflicting_payload_fails_closed() {
+        let path = temp_path("work-item-terminal-replay");
+        let db = open(&path);
+
+        let mut seed = batch("work-item-terminal-seed", "work-item-terminal-seed-key");
+        seed.operations = vec![MutationOperation {
+            ordinal: 0,
+            surface: MutationSurface::Graph,
+            domain: MutationDomain::GraphRows,
+            method: Method::AddNode {
+                node_id: "work-1".into(),
+                properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({
+                    "node_type": "WorkItem",
+                    "tenant": "tenant-a",
+                    "status": "leased",
+                    "lease_owner": "worker-a",
+                    "lease_epoch": 2,
+                    "fencing_token": 9,
+                    "lease_expires_at": 60.0,
+                    "attempt": 1,
+                    "max_attempts": 3,
+                }))
+                .unwrap(),
+            },
+        }];
+        commit_at(&db, &seed, None).unwrap();
+
+        let terminal_method = Method::CommitWorkItemResult {
+            tenant: "tenant-a".into(),
+            work_item_id: "work-1".into(),
+            worker_id: "worker-a".into(),
+            lease_epoch: 2,
+            fencing_token: 9,
+            idempotency_key: "terminal-key".into(),
+            outcome: "succeeded".into(),
+            result_ref: Some("result:sha256:one".into()),
+            error_ref: None,
+            retryable: false,
+            now_ms: 1_000,
+        };
+        let mut terminal = batch(
+            "work:terminal-stable-batch",
+            "work-idem:terminal-stable-key",
+        );
+        terminal.context.request_id = 777;
+        terminal.context.purpose = None;
+        terminal.context.policy_fingerprint = None;
+        terminal.context.trace_id = None;
+        terminal.expected_graph_version = None;
+        terminal.operations = vec![MutationOperation {
+            ordinal: 0,
+            surface: MutationSurface::Job,
+            domain: MutationDomain::ControlPlane,
+            method: terminal_method,
+        }];
+        terminal.outbox[0].key = terminal.batch_id.clone();
+
+        let first = commit_at(&db, &terminal, None).unwrap();
+        assert!(!first.replayed);
+        assert_eq!(
+            read_mutation_graph_version(&db, "graph-a").unwrap(),
+            Some(5)
+        );
+
+        // A fresh transport request is normalized to the same durable request id
+        // before this kernel sees it; only the non-identity creation timestamp differs.
+        let mut retry = terminal.clone();
+        retry.created_at_ms = 200;
+        let replay = commit_at(&db, &retry, None).unwrap();
+        assert!(replay.replayed);
+        assert_eq!(
+            read_mutation_graph_version(&db, "graph-a").unwrap(),
+            Some(5)
+        );
+
+        let mut conflicting_payload = retry.clone();
+        let Method::CommitWorkItemResult { result_ref, .. } =
+            &mut conflicting_payload.operations[0].method
+        else {
+            unreachable!();
+        };
+        *result_ref = Some("result:sha256:different".into());
+        let error = commit_at(&db, &conflicting_payload, None).unwrap_err();
+        assert!(error.contains("IDEMPOTENCY_CONFLICT"));
+
+        let mut conflicting_authority = retry;
+        conflicting_authority.context.principal = format!("principal:sha256:{}", "b".repeat(64));
+        let error = commit_at(&db, &conflicting_authority, None).unwrap_err();
+        assert!(error.contains("IDEMPOTENCY_CONFLICT"));
+        assert_eq!(
+            read_mutation_graph_version(&db, "graph-a").unwrap(),
+            Some(5)
+        );
+
+        let stored = read_one_node(&db, "graph-a", "work-1", DurableCrypto::none())
+            .unwrap()
+            .unwrap();
+        let stored: serde_json::Value = decode_durable(&stored).unwrap();
+        assert_eq!(stored["status"], "succeeded");
+        assert_eq!(stored["result_ref"], "result:sha256:one");
+        drop(db);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn work_item_claim_always_enforces_the_bounded_tenant_limit() {
+        let path = temp_path("work-item-quota");
+        let db = open(&path);
+        let mut seed = batch("work-item-seed", "work-item-seed-key");
+        seed.operations = vec![
+            MutationOperation {
+                ordinal: 0,
+                surface: MutationSurface::Transaction,
+                domain: MutationDomain::GraphRows,
+                method: Method::AddNode {
+                    node_id: "leased".into(),
+                    properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({
+                        "node_type": "WorkItem",
+                        "tenant": "tenant-a",
+                        "status": "leased",
+                        "lease_expires_at": 60.0,
+                    }))
+                    .unwrap(),
+                },
+            },
+            MutationOperation {
+                ordinal: 1,
+                surface: MutationSurface::Transaction,
+                domain: MutationDomain::GraphRows,
+                method: Method::AddNode {
+                    node_id: "ready".into(),
+                    properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({
+                        "node_type": "WorkItem",
+                        "tenant": "tenant-a",
+                        "status": "ready",
+                    }))
+                    .unwrap(),
+                },
+            },
+        ];
+        commit_at(&db, &seed, None).unwrap();
+
+        let mut claim = batch("work-item-claim", "work-item-claim-key");
+        claim.expected_graph_version = Some(4);
+        claim.operations = vec![MutationOperation {
+            ordinal: 0,
+            surface: MutationSurface::Transaction,
+            domain: MutationDomain::GraphRows,
+            method: Method::ClaimWorkItem {
+                request: crate::epistemic_operations::ClaimWorkItemRequest {
+                    schema_version:
+                        crate::epistemic_operations::ClaimWorkItemRequestSchemaVersion::V1,
+                    tenant_ref: "tenant-a".into(),
+                    work_item_id: None,
+                    queue_ref: None,
+                    resource_class: None,
+                    fairness_group: None,
+                    worker_ref: "worker-a".into(),
+                    now_ms: 1_000,
+                    lease_ms: 10_000,
+                    max_tenant_in_flight: 1,
+                },
+            },
+        }];
+        let committed = commit_at(&db, &claim, None).unwrap();
+        let payload: crate::protocol::ResultPayload = decode_durable(
+            committed
+                .record
+                .result_msgpack
+                .as_deref()
+                .expect("claim result"),
+        )
+        .unwrap();
+        let crate::protocol::ResultPayload::Raw(bytes) = payload else {
+            panic!("ClaimWorkItem must return a typed result");
+        };
+        let result: ClaimWorkItemResult = decode_durable(&bytes).unwrap();
+        assert!(!result.claimed);
+        assert_eq!(result.reason, ClaimWorkItemResultReason::TenantQuota);
+        assert_eq!(result.tenant_in_flight, Some(1));
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn crossmodal_batch_recovers_rows_status_vector_and_outbox_together() {
+        let path = temp_path("crossmodal-postcommit");
+        let mut mutation = batch("batch-crossmodal", "idem-crossmodal");
+        let methods = mutation
+            .operations
+            .iter()
+            .map(|operation| operation.method.clone())
+            .collect::<Vec<_>>();
+        mutation.operations = vec![MutationOperation {
+            ordinal: 0,
+            surface: MutationSurface::Transaction,
+            domain: MutationDomain::CrossModal,
+            method: Method::ApplyMutation {
+                event_type: "crossmodal_operation".to_string(),
+                query: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                    .to_string(),
+            },
+        }];
+        let vectors = vec![("a".to_string(), vec![0.25, 0.75])];
+        {
+            let db = open(&path);
+            assert!(commit_crossmodal_at(
+                &db,
+                &mutation,
+                &methods,
+                &vectors,
+                Some(MutationBatchCrashpoint::AfterCommitBeforeAck),
+            )
+            .is_err());
+        }
+        {
+            let db = open(&path);
+            let dump = read_graph_dump(&db, "graph-a", DurableCrypto::none())
+                .unwrap()
+                .unwrap();
+            let semantic: crate::compute::semantic::SemanticStore =
+                rmp_serde::from_slice(&dump.semantic).unwrap();
+            assert_eq!(semantic.get_embedding("a"), Some(vec![0.25, 0.75]));
+            assert!(
+                read_mutation_batch(&db, "batch-crossmodal", DurableCrypto::none(),)
+                    .unwrap()
+                    .is_some()
+            );
+            assert_eq!(
+                read_mutation_outbox(&db, "batch-crossmodal", DurableCrypto::none())
+                    .unwrap()
+                    .len(),
+                2,
+            );
+            let replay = commit_crossmodal_at(&db, &mutation, &methods, &vectors, None).unwrap();
+            assert!(replay.replayed);
+        }
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn outbox_claim_ack_is_ordered_fenced_and_reconcilable() {
+        let path = temp_path("outbox-lease");
+        let db = open(&path);
+        let mutation = batch("batch-outbox", "idem-outbox");
+        commit_at(&db, &mutation, None).unwrap();
+
+        let leases = claim_mutation_outbox(
+            &db,
+            "graph-a",
+            "projection-worker",
+            1_000,
+            100,
+            10,
+            DurableCrypto::none(),
+        )
+        .unwrap();
+        assert_eq!(leases.len(), 3);
+        let gap = ack_mutation_outbox(
+            &db,
+            "graph-a",
+            &leases[1],
+            "search-index",
+            1_001,
+            DurableCrypto::none(),
+        )
+        .unwrap_err();
+        assert!(gap.contains("OUTBOX_ORDER_GAP"));
+
+        for lease in &leases {
+            ack_mutation_outbox(
+                &db,
+                "graph-a",
+                lease,
+                "search-index",
+                1_001,
+                DurableCrypto::none(),
+            )
+            .unwrap();
+        }
+        assert!(claim_mutation_outbox(
+            &db,
+            "graph-a",
+            "projection-worker",
+            2_000,
+            100,
+            10,
+            DurableCrypto::none(),
+        )
+        .unwrap()
+        .is_empty());
+        let cursor = read_mutation_projection_cursor(
+            &db,
+            "graph-a",
+            "search-index",
+            "tenant-a",
+            DurableCrypto::none(),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(cursor.batch_id, "batch-outbox");
+        assert_eq!(cursor.outbox_ordinal, 2);
+        assert_eq!(cursor.schema_version, MUTATION_BATCH_VERSION);
+        assert_eq!(cursor.version_scope, MutationVersionScope::Graph);
+        assert_eq!(cursor.source_graph_version, 4);
+
+        let mut next = batch("batch-outbox-next", "idem-outbox-next");
+        next.expected_graph_version = Some(4);
+        commit_at(&db, &next, None).unwrap();
+        let next_lease = claim_mutation_outbox(
+            &db,
+            "graph-a",
+            "projection-worker",
+            2_100,
+            100,
+            10,
+            DurableCrypto::none(),
+        )
+        .unwrap()
+        .remove(0);
+        let advanced = ack_mutation_outbox(
+            &db,
+            "graph-a",
+            &next_lease,
+            "search-index",
+            2_101,
+            DurableCrypto::none(),
+        )
+        .unwrap();
+        assert_eq!(advanced.source_graph_version, 5);
+        assert!(ack_mutation_outbox(
+            &db,
+            "graph-a",
+            &leases[2],
+            "search-index",
+            2_102,
+            DurableCrypto::none(),
+        )
+        .unwrap_err()
+        .contains("STALE_OUTBOX_LEASE"));
+
+        let first = claim_mutation_outbox(
+            &db,
+            "graph-a",
+            "lease-fence-worker",
+            3_000,
+            10,
+            1,
+            DurableCrypto::none(),
+        )
+        .unwrap()
+        .remove(0);
+        let replacement = claim_mutation_outbox(
+            &db,
+            "graph-a",
+            "lease-fence-worker",
+            3_011,
+            10,
+            1,
+            DurableCrypto::none(),
+        )
+        .unwrap()
+        .remove(0);
+        assert!(replacement.lease_epoch > first.lease_epoch);
+        assert!(ack_mutation_outbox(
+            &db,
+            "graph-a",
+            &first,
+            "secondary-index",
+            3_012,
+            DurableCrypto::none(),
+        )
+        .unwrap_err()
+        .contains("STALE_OUTBOX_LEASE"));
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn staged_state_commit_replaces_rows_and_replays_without_reexecution() {
+        use sha2::{Digest, Sha256};
+
+        let path = temp_path("authoritative-state");
+        let db = open(&path);
+        let staged = crate::graph::GraphCore::new();
+        staged.add_node(
+            "replacement".to_string(),
+            rmp_serde::to_vec_named(&serde_json::json!({"value": 7})).unwrap(),
+        );
+        let state = staged.snapshot().to_msgpack().unwrap();
+        let mut mutation = batch("batch-state", "idem-state");
+        mutation.operations = vec![MutationOperation {
+            ordinal: 0,
+            surface: MutationSurface::Query,
+            domain: MutationDomain::GraphSnapshot,
+            method: Method::ApplyMutation {
+                event_type: "authoritative_state_operation".to_string(),
+                query: "sha256:opaque".to_string(),
+            },
+        }];
+        mutation.authoritative_state = Some(crate::mutation_batch::MutationStateDescriptor {
+            algorithm: "sha256".to_string(),
+            digest: hex::encode(Sha256::digest(&state)),
+            source_graph_version: 3,
+            target_graph_version: 4,
+        });
+
+        #[cfg(feature = "security")]
+        let mut audit = AuditTailCache::new();
+        let committed = commit_mutation_batch_state(
+            &db,
+            "graph-a",
+            &mutation,
+            &state,
+            Some(&[0x81, 0xa2, b'o', b'k']),
+            101,
+            DurableCrypto::none(),
+            #[cfg(feature = "security")]
+            &mut audit,
+        )
+        .unwrap();
+        assert!(!committed.replayed);
+        assert!(
+            read_one_node(&db, "graph-a", "replacement", DurableCrypto::none())
+                .unwrap()
+                .is_some()
+        );
+        assert!(read_one_node(&db, "graph-a", "a", DurableCrypto::none())
+            .unwrap()
+            .is_none());
+        assert_eq!(
+            read_mutation_graph_version(&db, "graph-a").unwrap(),
+            Some(4)
+        );
+
+        let replay = commit_mutation_batch_state(
+            &db,
+            "graph-a",
+            &mutation,
+            &state,
+            Some(&[0x81, 0xa2, b'o', b'k']),
+            101,
+            DurableCrypto::none(),
+            #[cfg(feature = "security")]
+            &mut audit,
+        )
+        .unwrap();
+        assert!(replay.replayed);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn staged_row_delta_updates_only_affected_durable_rows() {
+        use sha2::{Digest, Sha256};
+
+        let path = temp_path("authoritative-row-delta");
+        let db = open(&path);
+        let initial = batch("batch-row-delta-base", "idem-row-delta-base");
+        commit_at(&db, &initial, None).unwrap();
+
+        let before = crate::graph::GraphCore::new();
+        before.add_node(
+            "a".to_string(),
+            rmp_serde::to_vec_named(&serde_json::json!({"value": 1})).unwrap(),
+        );
+        before.add_node(
+            "b".to_string(),
+            rmp_serde::to_vec_named(&serde_json::json!({"value": 2})).unwrap(),
+        );
+        before.clear_ledger();
+        let before_snapshot = before.snapshot();
+        let after = crate::graph::GraphCore::from_snapshot(before_snapshot.clone(), 0).unwrap();
+        after.add_node(
+            "a".to_string(),
+            rmp_serde::to_vec_named(&serde_json::json!({"value": 9})).unwrap(),
+        );
+        after
+            .add_edge(
+                "a".to_string(),
+                "b".to_string(),
+                rmp_serde::to_vec_named(&serde_json::json!({"kind": "new"})).unwrap(),
+            )
+            .unwrap();
+        after
+            .semantic_store
+            .write()
+            .add_embedding("a".to_string(), vec![0.25, 0.75]);
+        after.set_integrity_policy(crate::graph::IntegrityPolicy {
+            shapes_ttl: "@prefix sh: <http://www.w3.org/ns/shacl#> .".to_string(),
+        });
+        let delta = crate::graph_delta::GraphRowDelta::between(&before_snapshot, &after.snapshot())
+            .unwrap();
+        let state = delta.to_msgpack().unwrap();
+
+        let mut mutation = batch("batch-row-delta", "idem-row-delta");
+        mutation.expected_graph_version = Some(4);
+        mutation.operations = vec![MutationOperation {
+            ordinal: 0,
+            surface: MutationSurface::Query,
+            domain: MutationDomain::GraphSnapshot,
+            method: Method::ApplyMutation {
+                event_type: "authoritative_state_operation".to_string(),
+                query: "sha256-row-delta-v2:opaque".to_string(),
+            },
+        }];
+        mutation.authoritative_state = Some(crate::mutation_batch::MutationStateDescriptor {
+            algorithm: crate::graph_delta::ROW_DELTA_ALGORITHM.to_string(),
+            digest: hex::encode(Sha256::digest(&state)),
+            source_graph_version: 4,
+            target_graph_version: 5,
+        });
+
+        #[cfg(feature = "security")]
+        let mut audit = AuditTailCache::new();
+        commit_mutation_batch_state(
+            &db,
+            "graph-a",
+            &mutation,
+            &state,
+            None,
+            102,
+            DurableCrypto::none(),
+            #[cfg(feature = "security")]
+            &mut audit,
+        )
+        .unwrap();
+
+        let a: serde_json::Value = decode_durable(
+            &read_one_node(&db, "graph-a", "a", DurableCrypto::none())
+                .unwrap()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(a["value"], 9);
+        let b: serde_json::Value = decode_durable(
+            &read_one_node(&db, "graph-a", "b", DurableCrypto::none())
+                .unwrap()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(b["value"], 2, "the untouched row must survive");
+        let dump = read_graph_dump(&db, "graph-a", DurableCrypto::none())
+            .unwrap()
+            .unwrap();
+        assert_eq!(dump.edges.len(), 1);
+        assert_eq!(dump.ledger, after.snapshot().ledger);
+        let semantic: crate::compute::semantic::SemanticStore =
+            decode_durable(&dump.semantic).unwrap();
+        assert_eq!(
+            semantic.embeddings_snapshot(),
+            vec![("a".to_string(), vec![0.25, 0.75])]
+        );
+        assert_eq!(dump.source_snapshot_version, 5);
+        assert_eq!(dump.integrity_policy, after.integrity_policy());
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn failed_row_delta_commit_does_not_publish_integrity_policy() {
+        use sha2::{Digest, Sha256};
+
+        let path = temp_path("integrity-policy-rollback");
+        let db = open(&path);
+        commit_at(&db, &batch("batch-policy-base", "idem-policy-base"), None).unwrap();
+
+        let before = crate::graph::GraphCore::new();
+        let before_snapshot = before.snapshot();
+        let after = crate::graph::GraphCore::from_snapshot(before_snapshot.clone(), 0).unwrap();
+        after.set_integrity_policy(crate::graph::IntegrityPolicy {
+            shapes_ttl: "@prefix sh: <http://www.w3.org/ns/shacl#> .".to_string(),
+        });
+        let delta = crate::graph_delta::GraphRowDelta::between(&before_snapshot, &after.snapshot())
+            .unwrap();
+        let state = delta.to_msgpack().unwrap();
+        let mut mutation = batch("batch-policy-fail", "idem-policy-fail");
+        mutation.expected_graph_version = Some(4);
+        mutation.operations = vec![MutationOperation {
+            ordinal: 0,
+            surface: MutationSurface::Graph,
+            domain: MutationDomain::GraphSnapshot,
+            method: Method::IcvConfigure {
+                graph: Some("graph-a".to_string()),
+                mode: "enforce".to_string(),
+                shapes: "sha256:policy-receipt".to_string(),
+            },
+        }];
+        mutation.authoritative_state = Some(crate::mutation_batch::MutationStateDescriptor {
+            algorithm: crate::graph_delta::ROW_DELTA_ALGORITHM.to_string(),
+            digest: hex::encode(Sha256::digest(&state)),
+            source_graph_version: 4,
+            target_graph_version: 5,
+        });
+
+        #[cfg(feature = "security")]
+        let mut audit = AuditTailCache::new();
+        assert!(commit_mutation_batch_inner(
+            &db,
+            "graph-a",
+            &mutation,
+            None,
+            Some(&state),
+            None,
+            None,
+            103,
+            DurableCrypto::none(),
+            #[cfg(feature = "security")]
+            &mut audit,
+            Some(MutationBatchCrashpoint::BeforeCommit),
+        )
+        .is_err());
+
+        let dump = read_graph_dump(&db, "graph-a", DurableCrypto::none())
+            .unwrap()
+            .unwrap();
+        assert!(dump.integrity_policy.is_none());
+        assert_eq!(
+            read_mutation_graph_version(&db, "graph-a").unwrap(),
+            Some(4)
+        );
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn idempotency_key_reuse_for_different_work_fails_closed() {
+        let path = temp_path("conflict");
+        let db = open(&path);
+        let first = batch("batch-one", "same-key");
+        commit_at(&db, &first, None).unwrap();
+        let mut conflicting = batch("batch-two", "same-key");
+        conflicting.operations[0].method = node("different", 99);
+        let err = commit_at(&db, &conflicting, None).unwrap_err();
+        assert!(err.contains("IDEMPOTENCY_CONFLICT"));
+        assert!(
+            read_one_node(&db, "graph-a", "different", DurableCrypto::none())
+                .unwrap()
+                .is_none()
+        );
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn batch_id_reuse_with_a_fresh_key_fails_closed() {
+        let path = temp_path("batch-id-conflict");
+        let db = open(&path);
+        let first = batch("same-batch", "first-key");
+        commit_at(&db, &first, None).unwrap();
+        let mut conflicting = batch("same-batch", "fresh-key");
+        conflicting.operations[0].method = node("different", 99);
+        let err = commit_at(&db, &conflicting, None).unwrap_err();
+        assert!(err.contains("IDEMPOTENCY_CONFLICT"));
+        assert!(
+            read_one_node(&db, "graph-a", "different", DurableCrypto::none())
+                .unwrap()
+                .is_none()
+        );
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn lifecycle_adapter_commits_meta_and_delete_before_registry_publication() {
+        let path = temp_path("lifecycle");
+        let db = open(&path);
+        let mut create = batch("create-graph-a", "create-key");
+        create.operations = vec![MutationOperation {
+            ordinal: 0,
+            surface: MutationSurface::Lifecycle,
+            domain: MutationDomain::Lifecycle,
+            method: Method::CreateGraph {
+                graph_name: "graph-a".to_string(),
+                graph_type: GraphType::Agent,
+            },
+        }];
+        commit_at(&db, &create, None).unwrap();
+        assert_eq!(
+            read_mutation_lifecycle_head(&db, "graph-a")
+                .unwrap()
+                .as_deref(),
+            Some("create-graph-a")
+        );
+        let meta = read_all_graph_meta(&db).unwrap();
+        assert!(meta
+            .iter()
+            .any(|(fname, name, graph_type, incarnation_id)| {
+                fname == "graph-a"
+                    && name == "graph-a"
+                    && *graph_type == GraphType::Agent
+                    && incarnation_id == "create-graph-a"
+            }));
+
+        let mut delete = batch("delete-graph-a", "delete-key");
+        delete.expected_graph_version = Some(4);
+        delete.operations = vec![MutationOperation {
+            ordinal: 0,
+            surface: MutationSurface::Lifecycle,
+            domain: MutationDomain::Lifecycle,
+            method: Method::DeleteGraph {
+                graph_name: "graph-a".to_string(),
+            },
+        }];
+        commit_at(&db, &delete, None).unwrap();
+        assert_eq!(
+            read_mutation_lifecycle_head(&db, "graph-a")
+                .unwrap()
+                .as_deref(),
+            Some("delete-graph-a")
+        );
+        assert!(read_all_graph_meta(&db).unwrap().is_empty());
+        assert_eq!(
+            read_mutation_batch(&db, "delete-graph-a", DurableCrypto::none())
+                .unwrap()
+                .unwrap()
+                .status,
+            MutationBatchStatus::Committed
+        );
+        drop(db);
+        let db = open(&path);
+        assert_eq!(
+            read_mutation_lifecycle_head(&db, "graph-a")
+                .unwrap()
+                .as_deref(),
+            Some("delete-graph-a"),
+            "the lifecycle fence must survive restart"
+        );
+        let stale = commit_at(&db, &create, None).unwrap_err();
+        assert!(stale.contains("STALE_FENCE"));
+        assert!(
+            read_all_graph_meta(&db).unwrap().is_empty(),
+            "retrying the old Create must not resurrect graph metadata after Delete"
+        );
+        let _ = std::fs::remove_file(path);
+    }
+
+    fn governed_envelope(batch_id: &str, key: &str, sequence: u64) -> ChangeEnvelope {
+        let mut mutation = batch(batch_id, key);
+        mutation.expected_graph_version = Some(2 + sequence);
+        mutation.operations.truncate(1);
+        mutation.outbox[0].payload = rmp_serde::to_vec_named(&serde_json::json!({
+            "event": "projection.test"
+        }))
+        .unwrap();
+        let digest = if sequence == 1 { "a" } else { "b" }.repeat(64);
+        ChangeEnvelope {
+            schema_version: CHANGE_ENVELOPE_VERSION,
+            envelope_id: format!("envelope-{sequence}"),
+            mutation,
+            content_version: ContentVersion {
+                object_id: "object-1".to_string(),
+                digest_algorithm: "sha256".to_string(),
+                digest,
+                previous_digest: (sequence > 1).then(|| "a".repeat(64)),
+                source_version: ContentVersionPosition::Sequence(sequence),
+            },
+            cursor: Some(ChangeCursor {
+                source: "fixture-source".to_string(),
+                partition: "partition-1".to_string(),
+                position: CursorPosition::Sequence(sequence),
+                expected_previous: (sequence > 1).then_some(CursorPosition::Sequence(sequence - 1)),
+            }),
+            blobs: Vec::new(),
+            features: Vec::new(),
+            evidence: Vec::new(),
+            policies: vec![PolicyRecord {
+                policy_id: "policy-object-1".to_string(),
+                operation: MaterialOperation::Upsert,
+                object_id: "object-1".to_string(),
+                tenant: "tenant-a".to_string(),
+                classification: "internal".to_string(),
+                policy_version: "policy-v1".to_string(),
+                subject_set_digest: "c".repeat(64),
+                retention_policy: "standard".to_string(),
+                legal_hold: false,
+            }],
+            lineage: Vec::new(),
+            privacy: PrivacyAttestation {
+                policy_version: "privacy-v1".to_string(),
+                sanitizer_version: "sanitizer-v1".to_string(),
+                sanitized_payload_digest: "d".repeat(64),
+            },
+        }
+    }
+
+    fn commit_envelope_at(
+        db: &Database,
+        envelope: &ChangeEnvelope,
+    ) -> Result<ChangeEnvelopeCommit, String> {
+        #[cfg(feature = "security")]
+        let mut audit = AuditTailCache::new();
+        commit_change_envelope(
+            db,
+            "graph-a",
+            envelope,
+            123,
+            DurableCrypto::none(),
+            #[cfg(feature = "security")]
+            &mut audit,
+        )
+    }
+
+    #[test]
+    fn change_envelope_commits_rows_governance_version_cursor_and_outbox_once() {
+        let path = temp_path("change-envelope");
+        let db = open(&path);
+        let first = governed_envelope("change-batch-1", "change-key-1", 1);
+        let committed = commit_envelope_at(&db, &first).unwrap();
+        assert!(!committed.replayed);
+        assert_eq!(committed.outbox_count, 3);
+        assert!(read_one_node(&db, "graph-a", "a", DurableCrypto::none())
+            .unwrap()
+            .is_some());
+        assert_eq!(
+            read_change_envelope(&db, "graph-a", "envelope-1", DurableCrypto::none())
+                .unwrap()
+                .unwrap()
+                .envelope
+                .mutation
+                .batch_id,
+            "change-batch-1"
+        );
+        assert_eq!(
+            read_content_version(
+                &db,
+                "tenant-a",
+                "graph-a",
+                "object-1",
+                DurableCrypto::none(),
+            )
+            .unwrap()
+            .unwrap()
+            .source_version,
+            ContentVersionPosition::Sequence(1)
+        );
+        assert!(commit_envelope_at(&db, &first).unwrap().replayed);
+        assert_eq!(
+            read_mutation_outbox(&db, "change-batch-1", DurableCrypto::none())
+                .unwrap()
+                .len(),
+            3,
+            "replay must not duplicate an outbox row"
+        );
+
+        let second = governed_envelope("change-batch-2", "change-key-2", 2);
+        commit_envelope_at(&db, &second).unwrap();
+        assert_eq!(
+            read_change_cursor(
+                &db,
+                "tenant-a",
+                "graph-a",
+                "fixture-source",
+                "partition-1",
+                DurableCrypto::none(),
+            )
+            .unwrap()
+            .unwrap()
+            .position,
+            CursorPosition::Sequence(2)
+        );
+        let mut stale = governed_envelope("change-batch-3", "change-key-3", 2);
+        stale.envelope_id = "envelope-stale".to_string();
+        let error = commit_envelope_at(&db, &stale).unwrap_err();
+        assert!(
+            error.contains("STALE_CONTENT_VERSION"),
+            "unexpected stale-envelope rejection: {error}"
+        );
+        let _ = std::fs::remove_file(path);
     }
 }

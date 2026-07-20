@@ -20,13 +20,9 @@
 //! `placement_assign`/`placement_split` to pin tenants — the ring only ever catches the
 //! un-pinned remainder.
 //!
-//! Every extra group bootstraps as a single-member (this-node-only) group — the SAME
-//! scope [`MultiRaft::configure_group_ring`] and the placement/xshard test harnesses
-//! already use. Making a non-default group span the FULL multi-node peer set (so it
-//! survives this node's loss) still needs the R3 `join_group`/`add_group_member` join
-//! flow (CONCEPT:EG-KG.storage.kg-kg-2) run against it after boot — a documented follow-up,
-//! not a regression this change introduces (a single-node multi-group deployment, the
-//! common case this knob targets, is fully HA-equivalent to today's single-group path).
+//! Every group starts with the complete configured peer set. Non-default groups
+//! therefore have the same quorum replication, leader failover, authenticated remote
+//! read routing, and membership contract as the default group.
 
 use std::sync::Arc;
 
@@ -41,7 +37,7 @@ use crate::server::ServerState;
 ///
 /// * Builds the [`MultiRaft`] manager and its single shared RPC listener.
 /// * Opens the DEFAULT group over the shared M2 redb backend (its durable log +
-///   meta are keyed by the group id in `graph.redb` — CONCEPT:EG-KG.storage.one-fsync-covers-raft).
+///   meta are keyed by the group id in the authoritative shard — CONCEPT:EG-KG.storage.one-fsync-covers-raft).
 /// * On the bootstrap node (lowest id) the group `initialize`s the cluster.
 ///
 /// Returns a [`StartedNode`]: the [`RaftHandle`] for routing writes + the
@@ -61,7 +57,15 @@ pub async fn start(
         router: None,
     };
 
-    let multi = MultiRaft::start(cfg.node_id, cfg.bind_addr.clone(), backend, ctx).await?;
+    let multi = MultiRaft::start_configured(
+        cfg.node_id,
+        cfg.bind_addr.clone(),
+        &cfg.peers,
+        cfg.transport_secret.as_ref(),
+        backend.clone(),
+        ctx,
+    )
+    .await?;
     multi
         .create_group(DEFAULT_GROUP, cfg.peers.clone(), cfg.is_bootstrap)
         .await?;
@@ -73,12 +77,45 @@ pub async fn start(
     // `cfg.groups > 1` stands up the additional groups and sets the ring, so the
     // router (consulted only when the PlacementCatalog has no explicit entry for a
     // graph's tenant) spreads un-pinned graphs across all of them.
-    multi.configure_group_ring(cfg.groups).await?;
+    multi
+        .configure_group_ring(cfg.groups, &cfg.peers, cfg.is_bootstrap)
+        .await?;
+
+    // Crash-safe online-move recovery is driven by the placement-group leader only.
+    // Every other replica has the same journal, but must not race a second driver.
+    let pending_moves = !multi
+        .placement()
+        .validate_move_recovery_state()
+        .await?
+        .is_empty();
+    if pending_moves {
+        let control = multi
+            .group(DEFAULT_GROUP)
+            .await
+            .ok_or_else(|| "placement control group is unavailable during recovery".to_string())?;
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
+        let leader = loop {
+            if let Some(leader) = control.current_leader().await {
+                break leader;
+            }
+            if tokio::time::Instant::now() >= deadline {
+                return Err(
+                    "placement control group has no leader during move recovery".to_string()
+                );
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        };
+        if leader == cfg.node_id {
+            let manager = super::reshard::TenantManager::new(multi.clone(), backend.clone());
+            manager.reconcile_moves().await?;
+        }
+    }
 
     let handle = multi
         .handle_for_graph("__commons__")
         .await
-        .ok_or_else(|| "default group not running after create".to_string())?;
+        .ok_or_else(|| "default group not running after create".to_string())?
+        .handle;
 
     tracing::info!(
         "Raft node {} started ({} peers, bootstrap={}, group {}, {} group(s) total)",

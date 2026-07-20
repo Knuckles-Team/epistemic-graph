@@ -15,7 +15,7 @@
 //! expansion + compaction. Framing, `@list`/`@set` containers, and remote contexts
 //! are a documented follow-up (not needed for the concrete-syntax matrix round-trip).
 
-use oxrdf::{BlankNode, GraphName, Literal, NamedNode, Quad, Subject, Term, Triple};
+use oxrdf::{BlankNode, GraphName, Literal, NamedNode, NamedOrBlankNode, Quad, Term, Triple};
 use serde_json::{Map, Value};
 
 const RDF_TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
@@ -24,17 +24,17 @@ const XSD_STRING: &str = "http://www.w3.org/2001/XMLSchema#string";
 // ── term-string helpers (CONCEPT:EG-KG.ontology.eg-concrete-syntax-matrix) ─────────────────────────────────────────
 
 /// The JSON-LD `@id` string for a subject term (IRI verbatim; blank node as `_:b`).
-fn subject_id(s: &Subject) -> String {
+fn subject_id(s: &NamedOrBlankNode) -> String {
     match s {
-        Subject::NamedNode(n) => n.as_str().to_string(),
-        Subject::BlankNode(b) => format!("_:{}", b.as_str()),
+        NamedOrBlankNode::NamedNode(n) => n.as_str().to_string(),
+        NamedOrBlankNode::BlankNode(b) => format!("_:{}", b.as_str()),
         #[allow(unreachable_patterns)]
         _ => "_:b".to_string(),
     }
 }
 
 /// A stable grouping key for a subject (identical to its `@id`).
-fn subject_key(s: &Subject) -> String {
+fn subject_key(s: &NamedOrBlankNode) -> String {
     subject_id(s)
 }
 
@@ -531,13 +531,13 @@ fn walk_node(
 }
 
 /// A subject/`NamedOrBlankNode` from an expanded id string.
-fn make_subject(id: &str) -> Result<Subject, String> {
+fn make_subject(id: &str) -> Result<NamedOrBlankNode, String> {
     if let Some(b) = id.strip_prefix("_:") {
-        Ok(Subject::BlankNode(
+        Ok(NamedOrBlankNode::BlankNode(
             BlankNode::new(b).map_err(|e| format!("bad bnode {b}: {e}"))?,
         ))
     } else {
-        Ok(Subject::NamedNode(
+        Ok(NamedOrBlankNode::NamedNode(
             NamedNode::new(id).map_err(|e| format!("bad subject iri {id}: {e}"))?,
         ))
     }

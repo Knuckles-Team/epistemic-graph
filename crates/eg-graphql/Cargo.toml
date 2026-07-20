@@ -14,7 +14,7 @@
 name = "eg-graphql"
 version = "0.1.0"
 edition = "2021"
-authors = ["Audel Rouhi <knucklessg1@gmail.com>"]
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
 description = "Native GraphQL read surface for the epistemic-graph engine: schema-from-graph + a resolver that compiles a GraphQL query to GraphView scans/traversals (pure-Rust, no async-graphql)"
 license = "MIT"
 
@@ -48,32 +48,32 @@ hardening = ["dep:sha2"]
 # `PlanCtx` — the SAME `UnifiedPlan::execute` `run_unified` wraps; `query` is where the
 # unified executor lives) and `eg-rdf/sparql` (the CONSTRUCT eval + `INSERT DATA`
 # lowering). All of these are already in the facade's graphql tiers (node/cluster/full).
-# Build a cross-modal-free surface with
-# `--no-default-features`. RECONCILE (EG-383): the facade should enable
-# `crossmodal-tsdb` from its tsdb-bearing graphql tier so `addMeasurement` lights up in a
-# `full` build, and wire the GraphQL HTTP carrier's `commitTransaction` to the facade's
-# durable `commit_cross_modal_txn` (see crossmodal.rs module docs).
+# Build a cross-modal-free surface with `--no-default-features`. The facade enables
+# `crossmodal-tsdb` from its tsdb-bearing GraphQL tier and owns the sole authoritative
+# `commitTransaction` path (see crossmodal.rs module docs).
 crossmodal = ["dep:eg-plan", "eg-plan/query", "dep:eg-rdf", "eg-rdf/sparql"]
 # EG-381 — the tsdb leg of the cross-modal seam: `addMeasurement` staging + the in-txn
 # `eg_plan::StagedSeries` read-your-own-writes overlay (CONCEPT:EG-374 parity). Pulls
 # `eg-plan/timeseries` (→ eg-tsdb). Default-OFF (parity with the facade's `tsdb`-gated
-# measurement staging); enabled by the facade's tsdb tier at reconcile.
+# measurement staging); enabled by the facade's tsdb tier.
 crossmodal-tsdb = ["crossmodal", "eg-plan/timeseries"]
 
 [dependencies]
+eg-types = { path = "../eg-types" }
 eg-core = { path = "../eg-core" }
 # EG-379: the unified-query plan front-end + executor (uql parse, `Plan`/`Op`, `execute`,
 # `PlanCtx`, `StagedSeries`) — the SAME machinery `run_unified` wraps. Optional + gated by
 # `crossmodal` (which enables `eg-plan/query`, where the unified executor lives);
 # `crossmodal-tsdb` adds `eg-plan/timeseries` for the in-txn `StagedSeries` overlay.
 eg-plan = { path = "../eg-plan", optional = true }
-# EG-379: SPARQL CONSTRUCT evaluation (`run_outcome`) + `INSERT DATA` lowering
+# EG-379: SPARQL CONSTRUCT evaluation (`execute`) + `INSERT DATA` lowering
 # (`insert_data_triples`) + the RDF term model (`oxrdf`, `mapping::literal_to_cell`).
 # Optional + gated by `crossmodal` (pulls `eg-rdf/sparql`).
 eg-rdf = { path = "../eg-rdf", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rmp-serde = "1.3"
+uuid = { version = "1.8", features = ["v4"] }
 # Variable-hop / single-hop edge traversal over GraphView's StableDiGraph. Already
 # linked transitively via eg-core; pin the same minor. NOT a new heavy dep.
 petgraph = { version = "0.6.4", features = ["serde-1"] }

@@ -6,39 +6,16 @@
 
 use serde::{Deserialize, Serialize};
 
-/// serde defaults for `DsTrainTestSplit` so older clients omitting these fields
-/// get scikit-learn-compatible behavior (shuffle on, fixed seed).
-fn default_shuffle() -> bool {
-    true
-}
-fn default_split_seed() -> u64 {
-    42
-}
-
-/// serde defaults for the training loss/optimizer kernels (CONCEPT:EG-KG.compute.rust-native-training-loss).
-fn default_temperature() -> f64 {
-    1.0
-}
-fn default_dpo_beta() -> f64 {
-    0.1
-}
-fn default_clip_eps() -> f64 {
-    0.2
-}
-fn default_adam_beta1() -> f64 {
-    0.9
-}
-fn default_adam_beta2() -> f64 {
-    0.999
-}
-fn default_adam_eps() -> f64 {
-    1e-8
-}
-
-/// serde default for the Ebbinghaus decay half-life (CONCEPT:EG-KG.memory.forgetting-curve-decay): 7 days in
-/// seconds. Older clients omitting it get a one-week memory half-life.
-fn default_decay_half_life() -> f64 {
-    604_800.0
+/// Deserialize an explicitly present nullable field.
+///
+/// Serde otherwise treats a missing `Option<T>` exactly like an explicit null,
+/// which would silently admit an older wire shape after a current-only cutover.
+fn deserialize_required_option<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer)
 }
 
 /// serde default for association-rule `min_support` (CONCEPT:EG-KG.mining.frequent-itemset-mining):
@@ -64,109 +41,130 @@ fn default_argumentation_semantics() -> String {
     "grounded".to_string()
 }
 
+/// Required execution authority for a Cypher statement.
+///
+/// The caller must declare whether a statement is a read or mutation. The
+/// server parses the statement and rejects a mismatch, so a mutation can never
+/// obtain read authorization by hiding a keyword in comments, literals, or an
+/// unsupported clause.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CypherMode {
+    Read,
+    Write,
+}
+
 // ── Request ─────────────────────────────────────────────────────────────
 
 /// Top-level request envelope sent by the Python client.
 ///
-/// `auth_token` carries TWO envelope generations (CONCEPT:EG-KG.security.signed-request-envelope,
-/// EG-P0-5):
-///  * v0 (legacy) — a bare HMAC-SHA256 hex digest over the request id ONLY. This
-///    is the historical, unauthenticated-body scheme every existing client/test
-///    speaks; it remains the default.
-///  * v1 — a versioned, `eg1.`-prefixed signed envelope binding protocol
-///    version, audience, tenant, principal, graph, method name, a hash of the
-///    method's params (the "body"), a timestamp, a nonce, and an idempotency
-///    key, all under one HMAC, verified in constant time with a clock-skew
-///    window and a replay-nonce cache (`src/server/auth.rs` in the facade
-///    crate). The v1 envelope rides in this EXISTING field (rather than new
-///    `Request` struct fields) deliberately: `Request` is constructed via ~100
-///    Rust struct-literal call sites across several crates, and adding
-///    required fields there would ripple far outside the crypto-core
-///    workstream that introduced v1. Packing the versioned envelope into the
-///    token string is additive at the type level (an untouched `String`
-///    field) while still explicit and versioned at the value level (the fixed
-///    `eg1.` prefix unambiguously distinguishes it from a legacy plain hex
-///    digest, so a v0 request is never silently mis-handled as v1 or vice
-///    versa). `build_envelope_v1_bytes` below is the shared, canonical byte
-///    encoding both the signer and the verifier hash — it lives here (pure
-///    data, no crypto dep) so the two sides can never independently drift out
-///    of sync.
+/// `auth_token` carries the current `eg2.` verified request context
+/// (CONCEPT:EG-KG.security.signed-request-envelope, EG-P0-5). It binds the
+/// request id, graph, method, body hash, effective ACL agent, roles, scopes,
+/// active policy version, delegation chain, timestamp, nonce, and idempotency
+/// key. The server validates audience, tenant, policy version, and durable
+/// replay state before dispatch.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Request {
     /// Monotonically increasing request ID for correlation.
     pub id: u64,
     /// Target graph name (e.g., "agent:planner", "__commons__", "channel:p2p:a:b").
     pub graph: String,
-    /// HMAC-SHA256 hex digest for authentication (v0), or an `eg1.`-prefixed
-    /// signed envelope (v1) — see the struct doc above.
+    /// Current `eg2.` verified request-context envelope.
     pub auth_token: String,
-    /// Caller identity for ACL enforcement (see `isolation.rs`). Optional and
-    /// backward-compatible: older clients simply omit the field. When isolation
-    /// rules are registered, graph-targeted operations are checked against this
-    /// identity; an absent identity is treated as an anonymous agent.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Optional caller assertion. The server rejects a mismatch and replaces
+    /// this value with the signed effective agent before authorization.
+    #[serde(deserialize_with = "deserialize_required_option")]
     pub agent_id: Option<String>,
     /// The operation to perform.
     #[serde(flatten)]
     pub method: Method,
 }
 
-// ── Signed Request Envelope (v1) — canonical byte encoding ────────────────
-//
-// CONCEPT:EG-KG.security.signed-request-envelope (EG-P0-5). Pure data-shaping — NO crypto
-// dependency here (`eg-types` stays at the bottom of the crate DAG, Pi-tier
-// contract) — so the signer (`eg-plan`'s `RemoteEngineSource`) and the
-// verifier (the facade's `src/server/auth.rs`) both call this SAME function
-// rather than re-implementing the byte layout independently, which would risk
-// the two drifting out of sync (a verifier that hashes fields in a different
-// order than the signer would reject everything, or worse, silently accept
-// forged content that collides under a looser encoding).
-
-/// Canonical, unambiguous byte encoding for the v1 signed-request envelope.
-/// Length-prefixes every variable-length field (`u32` big-endian length +
-/// bytes) so no concatenation ambiguity lets an attacker shift bytes between
-/// adjacent fields to forge a signature over different logical content (e.g.
-/// `tenant="ab", principal="c"` must NOT hash identically to
-/// `tenant="a", principal="bc"`).
+/// Canonical byte encoding for a verified request-context envelope (v2).
 ///
-/// Binds: a fixed domain tag (so a v1 envelope MAC can never collide with a
-/// MAC computed for an unrelated purpose over similar bytes), the request
-/// `id`, `graph`, the method's tag name + a hash of its serialized params
-/// (`method_name`/`body_hash` — together these bind BOTH "what operation" and
-/// "what data"), `audience`/`tenant`/`principal` (multi-tenant/ABAC binding —
-/// enforcement of these is a later workstream; this only guarantees they
-/// cannot be forged once something DOES enforce them), `timestamp` + `nonce`
-/// (replay defense), and `idempotency_key` (so a client's idempotency key
-/// can't be stripped/substituted in flight).
+/// The current envelope signs every request/replay binding plus the effective
+/// agent, roles, scopes, policy version, and ordered delegation
+/// chain.  Every scalar and list item is length-prefixed, and list lengths are
+/// explicit, so distinct logical claim sets cannot share an encoding.
 #[allow(clippy::too_many_arguments)]
-pub fn build_envelope_v1_bytes(
+pub fn build_envelope_v2_bytes(
     request_id: u64,
     graph: &str,
     method_name: &str,
     body_hash: &str,
-    audience: &str,
-    tenant: &str,
-    principal: &str,
+    claims: &crate::acl::RequestContextClaims,
     timestamp: u64,
     nonce: &str,
     idempotency_key: &str,
 ) -> Vec<u8> {
-    fn put(buf: &mut Vec<u8>, s: &str) {
-        buf.extend_from_slice(&(s.len() as u32).to_be_bytes());
-        buf.extend_from_slice(s.as_bytes());
+    fn put(buf: &mut Vec<u8>, value: &str) {
+        buf.extend_from_slice(&(value.len() as u32).to_be_bytes());
+        buf.extend_from_slice(value.as_bytes());
     }
+    fn put_list(buf: &mut Vec<u8>, values: &[String]) {
+        buf.extend_from_slice(&(values.len() as u32).to_be_bytes());
+        for value in values {
+            put(buf, value);
+        }
+    }
+
     let mut buf = Vec::new();
-    put(&mut buf, "eg-envelope-v1");
+    put(&mut buf, "eg-envelope-v2");
     buf.extend_from_slice(&request_id.to_be_bytes());
     put(&mut buf, graph);
     put(&mut buf, method_name);
     put(&mut buf, body_hash);
-    put(&mut buf, audience);
-    put(&mut buf, tenant);
-    put(&mut buf, principal);
+    put(&mut buf, &claims.principal);
+    put(&mut buf, &claims.tenant);
+    put(&mut buf, &claims.audience);
+    put(&mut buf, &claims.agent_id);
+    put_list(&mut buf, &claims.roles);
+    put_list(&mut buf, &claims.scopes);
+    put(&mut buf, &claims.policy_version);
+    put_list(&mut buf, &claims.delegation);
     buf.extend_from_slice(&timestamp.to_be_bytes());
     put(&mut buf, nonce);
     put(&mut buf, idempotency_key);
+    buf
+}
+
+/// Canonical bytes for a detached administrative-operation signature scoped to
+/// a verified context. `body` is the canonical `Method` encoding with its
+/// signature field/list cleared, so the signature binds every operation
+/// parameter without recursively signing itself.
+pub fn build_context_operation_signature_bytes(
+    domain: &str,
+    claims: &crate::acl::RequestContextClaims,
+    idempotency_key: &str,
+    graph: &str,
+    body: &[u8],
+) -> Vec<u8> {
+    fn put(buf: &mut Vec<u8>, bytes: &[u8]) {
+        buf.extend_from_slice(&(bytes.len() as u64).to_be_bytes());
+        buf.extend_from_slice(bytes);
+    }
+    fn put_list(buf: &mut Vec<u8>, values: &[String]) {
+        put(buf, &(values.len() as u64).to_be_bytes());
+        for value in values {
+            put(buf, value.as_bytes());
+        }
+    }
+
+    let mut buf = Vec::new();
+    put(&mut buf, domain.as_bytes());
+    put(&mut buf, claims.principal.as_bytes());
+    put(&mut buf, claims.tenant.as_bytes());
+    put(&mut buf, claims.audience.as_bytes());
+    put(&mut buf, claims.agent_id.as_bytes());
+    put_list(&mut buf, &claims.roles);
+    put_list(&mut buf, &claims.scopes);
+    put(&mut buf, claims.policy_version.as_bytes());
+    put_list(&mut buf, &claims.delegation);
+    put(&mut buf, idempotency_key.as_bytes());
+    put(&mut buf, graph.as_bytes());
+    put(&mut buf, body);
     buf
 }
 
@@ -177,10 +175,18 @@ pub fn build_envelope_v1_bytes(
 // `op` label for request counters/histograms (CONCEPT:EG-KG.txn.per-graph-write-isolation).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "metrics", derive(strum::IntoStaticStr))]
-#[serde(tag = "method", content = "params")]
+#[serde(tag = "method", content = "params", deny_unknown_fields)]
 pub enum Method {
     // ── Node CRUD ────────────────────────────────────────────────────
     AddNode {
+        node_id: String,
+        #[serde(with = "serde_bytes")]
+        properties_msgpack: Vec<u8>,
+    },
+    /// Create a node only when `node_id` is absent, returning `Bool(true)` only
+    /// for the inserting writer. The membership test and insert are one durable
+    /// atomic operation; an existing node is never overwritten.
+    CreateNodeIfAbsent {
         node_id: String,
         #[serde(with = "serde_bytes")]
         properties_msgpack: Vec<u8>,
@@ -192,8 +198,10 @@ pub enum Method {
         node_id: String,
     },
     GetNodes,
-    /// Labeled + bounded node fetch: return at most `limit` nodes whose
-    /// `type`/`label`/`labels` matches `label` (limit 0 ⇒ no cap). Unlike
+    /// Labeled + keyset-bounded node fetch: return at most `limit` nodes whose
+    /// `type`/`label`/`labels` matches `label`, ordered by node id. `after` is an
+    /// exclusive node-id cursor (`None` starts at the first id); callers advance
+    /// it to the last id returned. `limit == 0` means no cap. Unlike
     /// `GetNodes` (which materializes the WHOLE graph), this bounds the wire
     /// payload to `limit`, so a `MATCH (n:Label) … LIMIT k` no longer pulls every
     /// node's properties off the engine. (CONCEPT:EG-KG.txn.per-graph-write-isolation)
@@ -205,6 +213,8 @@ pub enum Method {
     /// the caller only wanted `k` rows.
     GetNodesByLabel {
         label: String,
+        #[serde(default)]
+        after: Option<String>,
         limit: usize,
     },
     GetNodeProperties {
@@ -364,6 +374,72 @@ pub enum Method {
         requeue: bool,
         now_ms: u64,
     },
+    /// Atomically select and lease the next runnable `WorkItem` node. Selection is
+    /// tenant/resource/fairness scoped, priority ascending, then deadline/creation
+    /// ordered. A negative result is authoritative and must not trigger another
+    /// claim path.
+    ClaimWorkItem {
+        request: crate::epistemic_operations::ClaimWorkItemRequest,
+    },
+    /// Renew an existing WorkItem lease. Both epoch and fencing token must match
+    /// the durable row, preventing a superseded worker from extending ownership.
+    RenewWorkItemLease {
+        tenant: String,
+        work_item_id: String,
+        worker_id: String,
+        lease_epoch: u64,
+        fencing_token: u64,
+        now_ms: u64,
+        lease_ms: u64,
+    },
+    /// Publish a WorkItem terminal/retry result through the same authoritative
+    /// transaction as its state transition and mutation outbox. Result bodies are
+    /// referenced, never embedded, so the durable control plane stores no PII.
+    CommitWorkItemResult {
+        tenant: String,
+        work_item_id: String,
+        worker_id: String,
+        lease_epoch: u64,
+        fencing_token: u64,
+        idempotency_key: String,
+        outcome: String,
+        #[serde(default)]
+        result_ref: Option<String>,
+        #[serde(default)]
+        error_ref: Option<String>,
+        #[serde(default)]
+        retryable: bool,
+        now_ms: u64,
+    },
+    /// Cancel a pending WorkItem without first manufacturing a worker lease.
+    /// Active, unexpired leases are never stolen: their current owner must use
+    /// `CommitWorkItemResult` with the matching epoch/fencing token instead.
+    CancelWorkItem {
+        tenant: String,
+        work_item_id: String,
+        idempotency_key: String,
+        /// Opaque reference to a redacted cancellation reason. The engine never
+        /// persists a caller-supplied reason body in the control-plane node.
+        #[serde(default)]
+        reason_ref: Option<String>,
+        now_ms: u64,
+    },
+    /// Release a leased WorkItem back to `ready` at an explicit retry time
+    /// without consuming an execution attempt. This is the native transition
+    /// for self-polling barriers and other cooperative deferrals.
+    DeferWorkItem {
+        tenant: String,
+        work_item_id: String,
+        worker_id: String,
+        lease_epoch: u64,
+        fencing_token: u64,
+        idempotency_key: String,
+        next_retry_at_ms: u64,
+        /// Opaque reference only; no free-form reason body is retained.
+        #[serde(default)]
+        reason_ref: Option<String>,
+        now_ms: u64,
+    },
     /// Reaper sweep (CONCEPT:EG-KG.compute.message-ttl-expiry): dead-letter/drop messages whose `expires_at`
     /// has passed and return messages whose visibility lease has expired to claimable,
     /// across every known queue. Called periodically by the scheduler with the current
@@ -488,22 +564,37 @@ pub enum Method {
         #[serde(default)]
         now_ms: Option<u64>,
     },
-    /// Acknowledge (remove) a claimed message by its consumer `delivery_tag`
-    /// (CONCEPT:EG-KG.compute.publisher-confirms-consumer-qos) — the tag-addressed sibling of [`BrokerAck`]. Returns
-    /// `Bool(true)` if the message existed.
+    /// Acknowledge (remove) a claimed message by its positive `delivery_tag`
+    /// (CONCEPT:EG-KG.compute.publisher-confirms-consumer-qos). The caller must name the claiming `consumer`; the
+    /// status, current tag, and owner are fenced atomically. Returns `Bool(false)`
+    /// for an absent, stale, or foreign-owned generation.
     #[cfg(feature = "broker")]
     BrokerAckTag {
         delivery_tag: i64,
+        consumer: String,
     },
-    /// Nack a claimed message by its consumer `delivery_tag` (CONCEPT:EG-KG.compute.publisher-confirms-consumer-qos) — the
-    /// tag-addressed sibling of [`BrokerReject`]. With `requeue` the message returns to
-    /// claimable (at-least-once redelivery) unless its delivery budget is exhausted.
-    /// Returns `String` outcome (`requeued`/`dead-lettered`/`dropped`/`absent`).
+    /// Nack a claimed message by its positive `delivery_tag` (CONCEPT:EG-KG.compute.publisher-confirms-consumer-qos). The caller
+    /// must name the claiming `consumer`; status, current tag, and owner are fenced
+    /// atomically. With `requeue` the message returns to claimable (at-least-once
+    /// redelivery) unless its delivery budget is exhausted. Returns `String` outcome
+    /// (`requeued`/`dead-lettered`/`dropped`/`absent`).
     #[cfg(feature = "broker")]
     BrokerNackTag {
         delivery_tag: i64,
+        consumer: String,
         requeue: bool,
         now_ms: u64,
+    },
+    /// Extend a still-live claimed delivery lease for its current owner. The
+    /// status, tag, owner, and unexpired lease are fenced atomically. The requested
+    /// deadline must advance the current deadline. `now_ms` is explicit so durable
+    /// replay is deterministic.
+    #[cfg(feature = "broker")]
+    BrokerRenewTag {
+        delivery_tag: i64,
+        consumer: String,
+        now_ms: u64,
+        lease_ms: u64,
     },
     // ── Agent-memory / scene-graph / trajectory wire ops (CONCEPT:EG-KG.memory.eg-batch-decay-caller) ──
     // Expose the eg-core LIBRARY primitives for hierarchical summaries (EG-220),
@@ -516,7 +607,7 @@ pub enum Method {
     // deterministic (SipHash zero-key over sorted inputs, or a monotonic
     // node-count / step-ordinal), and any clock is the EXPLICIT caller-supplied
     // `now_ms` — never a server clock — so a replayed WAL record / committed Raft
-    // entry reproduces byte-identical state (`wal::apply`). Non-security /
+    // entry reproduces byte-identical state (`mutation_apply::apply`). Non-security /
     // non-broker builds are unaffected: a build that never issues these sees no
     // behavioral change.
     /// CONCEPT:EG-KG.memory.eg-batch-decay-caller/EG-220 — create (or UPSERT) a hierarchical summary node at
@@ -727,11 +818,6 @@ pub enum Method {
         target_id: String,
     },
     GetEdges,
-    /// Bulk-export the graph as RDF triples ``[subject, predicate, object]`` in a
-    /// single call — the fast path for local SPARQL materialization (CONCEPT:AU-KG.query.vendor-agnostic-traversal):
-    /// edges → (src, rel_type, tgt), node type → (id, "rdf:type", node_type), and
-    /// scalar node properties → (id, prop, literal). Avoids per-node round-trips.
-    GetTriples,
     ClearGraph,
     GetEdgeProperties {
         source_id: String,
@@ -876,11 +962,8 @@ pub enum Method {
 
     // ── Temporal Decay (CONCEPT:EG-KG.memory.forgetting-curve-decay — Ebbinghaus forgetting curve) ──
     DecaySweep {
-        #[serde(default = "default_decay_half_life")]
         half_life_secs: f64,
-        #[serde(default)]
         floor: f64,
-        #[serde(default)]
         prune: bool,
     },
     TouchNodes {
@@ -945,6 +1028,42 @@ pub enum Method {
         property_chains: Vec<(String, String, String)>,
     },
 
+    // ── Governed change ingestion ────────────────────────────────────
+    /// Atomically materialize one externally sourced object and all of its
+    /// governance/provenance state. The embedded MutationBatch is the graph-row
+    /// mutation authority; blob/feature/evidence/policy/lineage, content version,
+    /// typed cursor, durable status, and outbox share its commit point.
+    ApplyChangeEnvelope {
+        envelope: crate::change_envelope::ChangeEnvelope,
+    },
+    /// Read a committed envelope by stable identity for retry reconciliation.
+    GetChangeEnvelope {
+        envelope_id: String,
+        tenant: String,
+    },
+    /// Read the current typed content version for an object in this graph/tenant.
+    GetContentVersion {
+        object_id: String,
+        tenant: String,
+    },
+    /// Read the current typed source cursor. Cursors are partition scoped and are
+    /// never compared as strings.
+    GetChangeCursor {
+        source: String,
+        #[serde(default)]
+        partition: String,
+        tenant: String,
+    },
+
+    // ── Governed document/image/audio/video serving ─────────────────────
+    // Graph-scoped and available in the one main build. Authority comes only from
+    // the verified request context; no caller-supplied tenant or policy scope is
+    // accepted by the operation DTO.
+    #[cfg(feature = "modality-serving")]
+    ServedModality {
+        op: crate::modality::ServedModalityOp,
+    },
+
     // ── Multi-Tenant Graph Management ────────────────────────────────
     CreateGraph {
         graph_name: String,
@@ -1000,27 +1119,15 @@ pub enum Method {
     },
 
     // ── Placement-catalog wire consumption (CONCEPT:EG-KG.sharding.placement-route-rpc, DIST-P2-4) ──
-    // The DIST-P2-1 `PlacementCatalog` (`src/raft/placement.rs`) was, until now, an
-    // authority consumed only INSIDE the engine (`MultiRaft::route_graph`). This
-    // variant exposes it over the wire so an EXTERNAL caller (e.g. `agent-utilities`'s
-    // `placement_catalog.py`, `epistemic_graph.client`'s `placement` namespace) can ask
-    // "who owns (tenant, sub_key) right now" without independently guessing via its
-    // own hash ring. PURE serde (String/String/u64) — no heavy dep — so, like the M3
-    // catalog methods above, this variant is always in the enum; a build without the
-    // `raft` feature (or a raft build with no live `MultiRaft` cluster) answers a
-    // well-formed "no explicit placement" JSON rather than an error, so a caller's
-    // fallback-to-hash-ring path triggers identically either way.
+    // Exposes the engine's sole placement authority over the wire. The response is
+    // complete even for an unplaced/single-node partition, so callers never hash or
+    // guess. A configured Raft node without MultiRaft is an invalid cluster.
     /// Resolve `(tenant, sub_key)`'s current placement (CONCEPT:EG-KG.sharding.placement-route-rpc). `client_epoch`
     /// is the caller's last-known routing epoch for this partition (`0` if never
-    /// resolved) — used only to compute the `redirect` hint in the response, never to
-    /// reject the request. Returns JSON: `{"explicit": false}` (no catalog entry — fall
-    /// back to the hash ring) or `{"explicit": true, "group": <GroupId>, "epoch": <u64>,
-    /// "redirect": <bool>, "endpoint": null}`. `redirect` is `true` when `client_epoch`
-    /// is behind the entry's current epoch (mirrors `PlacementCatalog::redirect_if_stale`).
+    /// resolved). Returns the schema-generated `PlacementRoute`. A placed route
+    /// always has a non-zero epoch; an authoritative unplaced route uses epoch zero.
     PlacementRoute {
-        tenant: String,
-        sub_key: String,
-        client_epoch: u64,
+        request: crate::epistemic_operations::PlacementRouteRequest,
     },
 
     // ── Online backup / restore + PITR (CONCEPT:EG-KG.sharding.reshard-on-restore) ──────────────
@@ -1029,18 +1136,24 @@ pub enum Method {
     // verbatim to a portable bundle reusing EG-030's raw-row copy) and a restore
     // (verbatim import via the EG-030 engine). Redb-only; in a non-redb build they
     // return a clean "not available" error, exactly like the EG-038 admin surface.
-    /// Take an ONLINE consistent backup of the durable store into `destination` (a bundle
-    /// directory), tagged with `label` (CONCEPT:EG-KG.sharding.reshard-on-restore). Returns a `BackupReport` JSON.
+    /// Take an ONLINE consistent backup under the operator-provisioned
+    /// `EPISTEMIC_GRAPH_BACKUP_ROOT`. `destination` is a bounded logical bundle name,
+    /// never a host path. The RPC is disabled when no private root is configured.
     Backup {
         destination: String,
         label: Option<String>,
     },
-    /// Restore from a backup bundle at `source` (CONCEPT:EG-KG.sharding.reshard-on-restore). The engine holds an
-    /// exclusive lock on its live store, so this stages the rebuilt copy in a sibling dir
-    /// (returned in the response) for the operator to swap in after stopping the engine;
+    /// Restore the logical bundle name `source` from the operator-provisioned backup
+    /// root (CONCEPT:EG-KG.sharding.reshard-on-restore). The engine holds an
+    /// exclusive lock on its live store, so this stages the rebuilt copy in an
+    /// engine-owned sibling directory and returns only an opaque stage reference for
+    /// the operator to correlate after stopping the engine;
     /// an in-place restore uses the offline `restore` CLI. Returns a `RestoreReport` JSON.
     Restore {
         source: String,
+        /// Required current target layout. Setting this to a different value from the
+        /// bundle proves restore-time migration rather than silently preserving K.
+        target_shards: usize,
     },
 
     // ── Dynamic Communication Channels ───────────────────────────────
@@ -1083,7 +1196,6 @@ pub enum Method {
     Ping,
     Health,
     Shutdown,
-    Checkpoint,
     /// Cooperatively cancel an IN-FLIGHT request by its `target_req_id` (CONCEPT:EG-KG.query.streaming-spillable-collect,
     /// L36) — trips the `CancellationToken` the request-scoped registry (`server::request_cancel`)
     /// registered for it, if one is still live. A REAL `Method::Sql` read currently threads a
@@ -1113,9 +1225,6 @@ pub enum Method {
     ApplyMutation {
         event_type: String,
         query: String,
-    },
-    ParseRepository {
-        root_path: String,
     },
     Vf2SubgraphMatch {
         pattern_graph_name: String,
@@ -1189,38 +1298,11 @@ pub enum Method {
     MatchOntologyTerms {
         query: String,
     },
-    SpectralCluster {
-        vectors: Vec<Vec<f64>>,
-        max_k: usize,
-        domain: String,
-    },
-    HypergraphEncodeInteraction {
-        pos_a: usize,
-        pos_b: usize,
-        pos_dim: usize,
-        hidden_dim: usize,
-        out_dim: usize,
-        seed: u64,
-    },
-    BatchCosineSimilarity {
-        query: Vec<f32>,
-        targets: Vec<Vec<f32>>,
-    },
     /// CONCEPT:EG-KG.compute.l2-normalize-batch-vectors — L2-normalize a batch of vectors IN-ENGINE via the `eg-numeric`
     /// kernel (compute-near-data over a resident vector set): returns each row's unit
-    /// vector `v/‖v‖`. The kernel-backed successor to the deprecated
-    /// `BatchCosineSimilarity` on the same client/Method path (feature `numeric`).
+    /// vector `v/‖v‖` (feature `numeric`).
     BatchL2Normalize {
         vectors: Vec<Vec<f64>>,
-    },
-    FindSimilarPairs {
-        embeddings: Vec<Vec<f32>>,
-        ids: Vec<String>,
-        threshold: f32,
-        use_lsh: bool,
-        lsh_num_tables: usize,
-        lsh_hash_size: usize,
-        seed: u64,
     },
 
     // ── Quantitative Finance ──────────────────────────────────────────
@@ -1269,9 +1351,7 @@ pub enum Method {
         data: Vec<Vec<f64>>,
         labels: Vec<f64>,
         test_ratio: f64,
-        #[serde(default = "default_shuffle")]
         shuffle: bool,
-        #[serde(default = "default_split_seed")]
         seed: u64,
     },
     // These two variants embed `datascience` domain types, so they are gated with
@@ -1293,7 +1373,6 @@ pub enum Method {
     // ── Training loss / optimizer kernels (CONCEPT:EG-KG.compute.rust-native-training-loss) ────────────
     DsSoftmax {
         logits: Vec<f64>,
-        #[serde(default = "default_temperature")]
         temperature: f64,
     },
     DsLogSoftmax {
@@ -1308,14 +1387,12 @@ pub enum Method {
         policy_rejected: Vec<f64>,
         ref_chosen: Vec<f64>,
         ref_rejected: Vec<f64>,
-        #[serde(default = "default_dpo_beta")]
         beta: f64,
     },
     DsGrpoSurrogate {
         logprob: Vec<f64>,
         old_logprob: Vec<f64>,
         advantage: Vec<f64>,
-        #[serde(default = "default_clip_eps")]
         clip_eps: f64,
     },
     DsKlDivergence {
@@ -1325,16 +1402,11 @@ pub enum Method {
     DsAdamStep {
         params: Vec<f64>,
         grads: Vec<f64>,
-        #[serde(default)]
         m: Vec<f64>,
-        #[serde(default)]
         v: Vec<f64>,
         lr: f64,
-        #[serde(default = "default_adam_beta1")]
         beta1: f64,
-        #[serde(default = "default_adam_beta2")]
         beta2: f64,
-        #[serde(default = "default_adam_eps")]
         eps: f64,
         t: u64,
     },
@@ -1716,9 +1788,7 @@ pub enum Method {
         role: crate::acl::AgentRole,
         teams: Vec<String>,
         signature: String,
-        /// RBAC role names this agent holds (CONCEPT:EG-KG.compute.feature). `#[serde(default)]`
-        /// keeps pre-RBAC clients wire-compatible (they omit it ⇒ empty set).
-        #[serde(default)]
+        /// RBAC role names this agent holds (CONCEPT:EG-KG.compute.feature).
         roles: Vec<String>,
     },
     /// Administer the RBAC role/grant policy (CONCEPT:EG-KG.compute.feature). Unconditional in the
@@ -1735,13 +1805,14 @@ pub enum Method {
         query: String,
     },
 
-    /// The durable analytics-job plane (CONCEPT:INT-P2-1): async submit/status/
-    /// cancel/resume over a redb-backed `AnalyticsJob` state machine (`eg-jobs`),
+    /// The durable analytics-job plane (CONCEPT:INT-P2-1): async caller control
+    /// plus verified remote-worker claim/renew/checkpoint/stage/publish/cancel over
+    /// a coordinator-owned `AnalyticsJob` state machine (`eg-jobs`),
     /// whose eventual success commits a provenance'd `:Claim`/`:Evidence` pair (the
     /// SAME typed-node convention `eg-epistemic` reads). ONE variant wrapping an
     /// internal op enum — mirrors `RbacAdmin { op }` above — so the whole
-    /// submit/status/cancel/resume surface costs exactly one `Method` arm rather
-    /// than four. Gated `jobs`; the handler (`src/server/handlers/jobs.rs`)
+    /// full surface costs exactly one `Method` arm. Gated `jobs`; the handler
+    /// (`src/server/handlers/jobs.rs`)
     /// self-routes in `dispatch.rs` before the per-graph chain (jobs are keyed by
     /// `job_id` in their own `jobs.redb`, not a graph — like `TsAppend`/`Kv*`).
     #[cfg(feature = "jobs")]
@@ -1769,6 +1840,8 @@ pub enum Method {
     // catch-all.
     CypherQuery {
         query: String,
+        /// Exact requested execution authority; no implicit or inferred mode.
+        mode: CypherMode,
     },
     // Read-only GraphQL query surface (CONCEPT:EG-KG.query.sparql-completeness). A GraphQL `query`
     // operation whose root fields are node TYPES (label-scan + `first`/`limit` +
@@ -1784,11 +1857,19 @@ pub enum Method {
         /// Optional GraphQL `$variables` — a JSON object bound at execution
         /// (CONCEPT:EG-KG.query.fragments-variables-directives variables, wired through the wire path as an EG-064
         /// follow-up). The handler binds these via `execute_with_variables`
-        /// (`@skip`/`@include` + `$var` args). Absent / `None` ⇒ an empty binding, so
-        /// this is non-breaking: an old client that omits the field still deserializes
-        /// and runs exactly as before.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
+        /// (`@skip`/`@include` + `$var` args). `None` is encoded explicitly and means
+        /// an empty binding.
+        #[serde(deserialize_with = "deserialize_required_option")]
         variables: Option<serde_json::Value>,
+    },
+
+    /// Pull one bounded Arrow `KnowledgeBatch` from any served query family.
+    /// `cursor=None` opens a snapshot; passing the returned cursor resumes only
+    /// when authority, graph snapshot, query, schema and batch size still match.
+    /// This is the sole native result contract and returns bounded Arrow IPC.
+    #[cfg(feature = "knowledge-batch")]
+    KnowledgeStream {
+        request: crate::knowledge_stream::KnowledgeStreamRequestV1,
     },
 
     // ── Unified cross-modal query (CONCEPT:AU-KG.compute.vector/209) ──────────────────
@@ -1804,11 +1885,6 @@ pub enum Method {
     #[cfg(feature = "query")]
     UnifiedQuery {
         plan: crate::wire::Plan,
-        /// Optional cost-based reorder hint: when set, the planner reorders an
-        /// adjacent (Filter, Rank) pair by this estimated filter selectivity in
-        /// [0,1] (CONCEPT:EG-KG.query.concept-14). Absent ⇒ the plan executes as given.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        reorder_filter_selectivity: Option<f64>,
     },
 
     // ── Unified query, TEXT surface — UQL (CONCEPT:AU-KG.query.top-nodes-by-degree) ────────────────
@@ -1822,9 +1898,6 @@ pub enum Method {
     #[cfg(feature = "query")]
     UnifiedQueryText {
         text: String,
-        /// Same optional cost-based reorder hint as `UnifiedQuery` (CONCEPT:EG-KG.query.concept-14).
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        reorder_filter_selectivity: Option<f64>,
     },
 
     // ── EXPLAIN surfaces (CONCEPT:EG-KG.query.plan-dag, E5 phase 4) ──────────────────
@@ -1846,20 +1919,20 @@ pub enum Method {
     /// `epistemic` feature OFF (or absent at runtime) every row's provenance is empty and
     /// `resolved` is `false` — the documented "no epistemic resolution ran" behavior E3's
     /// `KnowledgeSet` already carries (CONCEPT:EG-KG.query.knowledge-set). Returns an
-    /// `ExplainProvenanceResult` via `ResultPayload::raw`. Gated `query`.
+    /// schema-generated `EvidenceBundle` via `ResultPayload::raw`. Gated `query`.
     #[cfg(feature = "query")]
     ExplainProvenance {
         plan: crate::wire::Plan,
     },
     /// `EXPLAIN PROVENANCE BY IDS` (CONCEPT:EG-KB-CURRENCY) — the ID-seeded sibling of
     /// `ExplainProvenance`: skip the `Plan`/`Op` algebra entirely and resolve the SAME
-    /// per-row epistemic columns (`ExplainProvenanceRowWire`) directly for `ids` — the
+    /// protocol evidence claims directly for `ids` — the
     /// shape a caller that already has a set of node ids from ANY other read path
     /// (a Cypher `MATCH`, a SQL `SELECT`, a prior `UnifiedQuery`) needs to "currency-
     /// upgrade" a plain id list into calibrated, cited, time-versioned rows without
     /// hand-building an `Op` plan first. `ids` is deduplicated, first-occurrence order
     /// preserved (mirrors `RowSet::from_ids`); an id absent from the graph is silently
-    /// skipped (never fabricated). Returns an `ExplainProvenanceResult` via
+    /// skipped (never fabricated). Returns an `EvidenceBundle` via
     /// `ResultPayload::raw`, byte-identical in shape to `ExplainProvenance`'s. Gated
     /// `query` (same as `ExplainProvenance`).
     #[cfg(feature = "query")]
@@ -1933,42 +2006,31 @@ pub enum Method {
         tx_from: u64,
         tx_to: u64,
     },
-    /// Seam 3 (CONCEPT:EG-KG.epistemic.truth-maintenance, X-6 wire surface) — register
-    /// `derived_id` as a live [`eg_epistemic::recompute::TruthMaintenance`]
-    /// materialization straight from its OWN already-stored provenance:
-    /// `eg_epistemic::register_from_provenance` reads the node's `invalidation_deps`
-    /// property plus any outgoing `:DerivedFrom`/`:GeneratedBy` edge into a
-    /// `depends_on` set, then registers it on the SAME process-global index
-    /// `src/server/tms_hook.rs`'s CDC hook feeds. A caller (e.g. agent-utilities,
-    /// writing a derived claim/summary/classification) calls this ONCE right after
-    /// writing the derived node + its provenance edges — from then on, any committed
-    /// `RemoveNode`/`RemoveEdge`/`CompareAndSetNodeFields` touching a dependency
-    /// automatically marks this materialization `Stale`/`Retracted` (no polling, no
-    /// re-registration needed until the caller recomputes it). Returns a
-    /// `RegisterMaterializationResult` via `ResultPayload::raw`. Gated `epistemic` at
-    /// the wire level; the HANDLER additionally requires `epistemic-tms` — a build
-    /// with `epistemic` but not `epistemic-tms` falls to the graph_ops "not available
-    /// in this build" catch-all (same convention as `EpistemicStatus`/`WhatChanged`).
+    /// Fenced recompute/writeback for one stale materialization. The expected source
+    /// graph version must exactly match the durable reasoning projection watermark.
+    /// Replicated serving commits an opaque recompute intent with the authoritative
+    /// graph version fence, then the durable outbox worker resolves provenance from
+    /// the graph post-image and fsyncs the side projection before acknowledging it.
+    /// A late recompute fails with `STALE_RECOMPUTE_FENCE` rather than overwriting a
+    /// newer invalidation.
     #[cfg(feature = "epistemic")]
-    RegisterMaterialization {
+    RecomputeMaterialization {
         derived_id: String,
+        expected_source_graph_version: u64,
     },
     /// Seam 3 — query the CURRENT status (`"Fresh"`/`"Stale"`/`"Retracted"`, or
     /// absent if never registered) of a materialization tracked on the SAME
-    /// process-global `TruthMaintenance` index [`Method::RegisterMaterialization`]
-    /// writes to. Read-only — does not itself recompute anything. Returns a
+    /// per-graph durable incremental reasoning projection. Read-only — does not
+    /// itself recompute anything. Returns a
     /// `MaterializationStatusResult` via `ResultPayload::raw`. Same build-tier
-    /// fallback convention as `RegisterMaterialization`.
+    /// fallback convention as `RecomputeMaterialization`.
     #[cfg(feature = "epistemic")]
     MaterializationStatus {
         id: String,
     },
     /// Seam 3 follow-up (SURPASS gap-closure: "give staleness a consumer") — the bulk
-    /// counterpart of [`Method::MaterializationStatus`]: every id CURRENTLY `Stale` on
-    /// the SAME process-global `TruthMaintenance` index, so a scheduler/recompute sweep/
-    /// operator can discover "what needs re-answering" without already knowing which
-    /// ids to poll one at a time. Read-only, no args (the index is process-global, not
-    /// per-graph). Returns a `StaleMaterializationsResult` via `ResultPayload::raw`.
+    /// counterpart of [`Method::MaterializationStatus`]: every opaque materialization
+    /// reference CURRENTLY `Stale` in this graph's durable projection.
     /// Same build-tier fallback convention as `MaterializationStatus`.
     #[cfg(feature = "epistemic")]
     StaleMaterializations,
@@ -1995,9 +2057,9 @@ pub enum Method {
     /// X-1 (CONCEPT:EG-X1) — resolve `node_id`'s cited multimodal evidence: build a
     /// `BeliefGraph` off the caller's `GraphView` and walk the SAME support/
     /// contradiction/attack topology `ExplainBelief` walks, returning every
-    /// transitively-reachable node that carries a located `EvidenceSpan` locus (PDF
-    /// page+box, audio/video interval, SQL row version, code range, trace span, …)
-    /// plus the `AssetOccurrence`/`Blob` identity chain it was extracted from
+    /// transitively-reachable node that carries one complete governed `EvidenceLocus`
+    /// (page region, audio/video interval, row version, code range, trace span, …).
+    /// The locus itself carries the opaque subject, policy, and derivation references
     /// (`eg_epistemic::evidence_citations`, feature `evidence-graph`) — "here is
     /// exactly where in the source this claim's evidence came from." Returns an
     /// `ExplainEvidenceResult` via `ResultPayload::raw`. Gated `epistemic` at the wire
@@ -2016,9 +2078,8 @@ pub enum Method {
     /// (EPI-P3-6) selects which of `eg_epistemic::CausalGraph`'s two
     /// non-counterfactual queries `do_values` feeds:
     ///
-    /// * `CausalQueryModeWire::Intervene` (the `#[serde(default)]` — every
-    ///   pre-existing caller that omits `mode` gets BYTE-FOR-BYTE the old
-    ///   behavior) — a **do-calculus intervention** `P(· | do(X₁=x₁, X₂=x₂, …))`:
+    /// * `CausalQueryModeWire::Intervene` — a **do-calculus intervention**
+    ///   `P(· | do(X₁=x₁, X₂=x₂, …))`:
     ///   `do_values` fixes the named variables via graph surgery
     ///   (`CausalGraph::intervene`) — incoming edges are CUT, not conditioned on.
     /// * `CausalQueryModeWire::Observe` — the **observational** query
@@ -2042,7 +2103,6 @@ pub enum Method {
     CausalEstimate {
         variables: Vec<StructuralEquationWire>,
         do_values: std::collections::BTreeMap<String, f64>,
-        #[serde(default)]
         mode: CausalQueryModeWire,
     },
     /// EPI-P3-6 — Pearl's point-**counterfactual** recipe
@@ -2187,16 +2247,13 @@ pub enum Method {
     // variants fall to the dispatch "not available in this build" catch-all.
     /// Define (or replace) a plan-backed materialized view `name` over `graph`, whose
     /// definition is the cross-modal `plan`. Executes the plan once, caches the result,
-    /// and persists the definition durably. `reorder_filter_selectivity` mirrors
-    /// `UnifiedQuery`'s optional cost-based (Filter,Rank) reorder hint. Returns the row
-    /// count of the first materialization.
+    /// and persists the definition durably. Returns the row count of the first
+    /// materialization.
     #[cfg(feature = "matview")]
     PlanMatViewDefine {
         name: String,
         graph: String,
         plan: crate::wire::Plan,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        reorder_filter_selectivity: Option<f64>,
     },
     /// Read a plan-backed materialized view's current rows by name
     /// (`ResultPayload::Raw`, `[id, score|nil]`). Serves the cached result when fresh;
@@ -2236,12 +2293,12 @@ pub enum Method {
     // true durability barrier — is a future enhancement; M6 persists per staged op
     // at commit and relies on the single GraphTxn for in-memory atomicity.)
     BeginTxn {
-        /// Optional explicit target graph; defaults to the request envelope's
-        /// `graph` when absent.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
+        /// Optional explicit target graph. An explicit `None` selects the request
+        /// envelope's `graph`.
+        #[serde(deserialize_with = "deserialize_required_option")]
         graph: Option<String>,
         /// Reserved isolation hint; only snapshot isolation is implemented.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(deserialize_with = "deserialize_required_option")]
         isolation: Option<String>,
     },
     TxnAddNode {
@@ -2250,16 +2307,16 @@ pub enum Method {
         #[serde(with = "serde_bytes")]
         properties_msgpack: Vec<u8>,
         /// Optional target graph for THIS staged op (CONCEPT:EG-KG.txn.routes-cross-shard-txn — multi-graph
-        /// txn). Absent ⇒ the txn's default graph (single-graph, backward-compatible).
+        /// txn). An explicit `None` selects the txn's default graph.
         /// A staged op naming a graph that resolves to a DIFFERENT Raft group makes
         /// the txn CROSS-SHARD, routed through 2PC at commit.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(deserialize_with = "deserialize_required_option")]
         graph: Option<String>,
     },
     TxnRemoveNode {
         txn_id: String,
         node_id: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(deserialize_with = "deserialize_required_option")]
         graph: Option<String>,
     },
     TxnAddEdge {
@@ -2268,14 +2325,14 @@ pub enum Method {
         target_id: String,
         #[serde(with = "serde_bytes")]
         properties_msgpack: Vec<u8>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(deserialize_with = "deserialize_required_option")]
         graph: Option<String>,
     },
     TxnRemoveEdge {
         txn_id: String,
         source_id: String,
         target_id: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(deserialize_with = "deserialize_required_option")]
         graph: Option<String>,
     },
     TxnCas {
@@ -2285,7 +2342,7 @@ pub enum Method {
         conditions_msgpack: Vec<u8>,
         #[serde(with = "serde_bytes")]
         updates_msgpack: Vec<u8>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(deserialize_with = "deserialize_required_option")]
         graph: Option<String>,
     },
     /// Stage a VECTOR upsert into a txn (CONCEPT:EG-KG.txn.reader-never-sees-node — cross-modal ACID). The
@@ -2295,7 +2352,7 @@ pub enum Method {
         txn_id: String,
         node_id: String,
         embedding: Vec<f32>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(deserialize_with = "deserialize_required_option")]
         graph: Option<String>,
     },
     /// Stage a BLOB REFERENCE into a txn (CONCEPT:EG-KG.txn.reader-never-sees-node — cross-modal ACID). Records
@@ -2305,7 +2362,7 @@ pub enum Method {
         txn_id: String,
         node_id: String,
         digest: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(deserialize_with = "deserialize_required_option")]
         graph: Option<String>,
     },
     /// Stage a TIME-SERIES measurement batch into a txn (CONCEPT:EG-KG.backend.cross-modal-atomic-commit — extended
@@ -2323,7 +2380,7 @@ pub enum Method {
         /// MessagePack `Vec<(i64, Vec<f64>)>` — the batch of points (one round-trip).
         #[serde(with = "serde_bytes")]
         points: Vec<u8>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(deserialize_with = "deserialize_required_option")]
         graph: Option<String>,
     },
     /// Stage OWL AXIOMS (Turtle) into a txn (CONCEPT:EG-KG.txn.extended-cross-modal — extended cross-modal
@@ -2336,7 +2393,7 @@ pub enum Method {
         txn_id: String,
         /// OWL axioms as Turtle to stage into the txn.
         turtle: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(deserialize_with = "deserialize_required_option")]
         graph: Option<String>,
     },
     /// Stage a SPARQL CONSTRUCT into a txn (CONCEPT:EG-KG.query.extended-cross-modal — extended cross-modal
@@ -2349,7 +2406,7 @@ pub enum Method {
         txn_id: String,
         /// SPARQL CONSTRUCT query whose triples are staged into the txn.
         sparql: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(deserialize_with = "deserialize_required_option")]
         graph: Option<String>,
     },
     /// Stage a PLANNER WRITEBACK into a txn (CONCEPT:EG-KG.query.plan-dag, D7 — the
@@ -2370,7 +2427,7 @@ pub enum Method {
         anchor_id: String,
         /// The `relationship` property every materialized edge carries.
         relationship: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(deserialize_with = "deserialize_required_option")]
         graph: Option<String>,
     },
     /// Stage a MATERIALIZE-BELIEF op into a txn (CONCEPT:EG-KG.epistemic.epistemic-substrate,
@@ -2397,7 +2454,7 @@ pub enum Method {
         txn_id: String,
         /// The node whose propagated belief is computed and written back.
         node_id: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(deserialize_with = "deserialize_required_option")]
         graph: Option<String>,
     },
     /// Run a UNIFIED cross-modal query INSIDE a txn with read-your-own-writes
@@ -2411,9 +2468,6 @@ pub enum Method {
     TxnUnifiedQuery {
         txn_id: String,
         plan: crate::wire::Plan,
-        /// Same optional cost-based reorder hint as `UnifiedQuery` (CONCEPT:EG-KG.query.concept-14).
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        reorder_filter_selectivity: Option<f64>,
     },
     /// In-txn unified query, TEXT surface — UQL (CONCEPT:EG-KG.query.txn-cross-modal-ryow). The human/agent-
     /// writable counterpart of `TxnUnifiedQuery`: a UQL `text` string PARSED into the
@@ -2423,9 +2477,6 @@ pub enum Method {
     TxnUnifiedQueryText {
         txn_id: String,
         text: String,
-        /// Same optional cost-based reorder hint as `UnifiedQuery` (CONCEPT:EG-KG.query.concept-14).
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        reorder_filter_selectivity: Option<f64>,
     },
     Commit {
         txn_id: String,
@@ -2438,7 +2489,7 @@ pub enum Method {
     // Native time-series store + query primitives (the eg-tsdb crate), gated
     // behind the facade `tsdb` feature; in a slim build each variant falls to the
     // graph_ops not-built catch-all. Series are keyed by `series_id` in their OWN
-    // redb file (`series.redb`) beside `graph.redb`. Points cross the wire as a
+    // redb file (`series.redb`) beside the graph shards. Points cross the wire as a
     // MessagePack blob (`Vec<(i64 ts, Vec<f64> values)>`) so the protocol enum (at
     // the bottom of the DAG) stays free of any eg-tsdb type. Query results return
     // via `ResultPayload::raw` (the client double-unpacks), matching `Sql`/`Cypher`.
@@ -2614,24 +2665,25 @@ pub enum Method {
     // ── SQLite `.db` file import/export (CONCEPT:EG-KG.query.eg-feature/EG-332) ─────────
     // Read/write a real on-disk `sqlite3` `.db` FILE (the documented EG-075 follow-up),
     // distinct from the `sqlite-wire` NDJSON dialect surface. NOT graph-scoped: both ops
-    // target a filesystem `path` and move rows through the process-global user-table
+    // accept a logical `.db` filename under an operator-provisioned private transfer root
+    // and move rows through the process-global user-table
     // store (the SAME `TableStore` the `Method::Sql` DDL/DML + pgwire paths use), so they
     // self-route in dispatch like the Blob*/Kv* ops. Each is a BATCH op — ONE engine
     // round-trip that reads/writes the whole file, never per-row. The variants only exist
     // with the `sqlite-file` feature (which pulls the bundled C sqlite kept OUT of pi); a
     // build without it drops them from the enum, so a slim/pi build can't reach the arm.
-    /// Import every user table (+ its rows) from the `sqlite3` `.db` file at `path`
+    /// Import every user table (+ its rows) from logical `.db` filename `path`
     /// into the engine's user-table store (CONCEPT:EG-KG.query.eg-feature). A table that already exists
     /// is REPLACED (drop-then-recreate) so the import mirrors the file. Returns a `Json`
-    /// report `{"path", "imported_tables":[{"table","rows"},…]}`.
+    /// report `{"source":"sqlite", "imported_tables":[{"table","rows"},…]}`.
     #[cfg(feature = "sqlite-file")]
     ImportSqliteFile {
         path: String,
     },
-    /// Export user tables OUT to a fresh, valid `sqlite3` `.db` file at `path` that the
+    /// Export user tables OUT to a fresh, valid `sqlite3` `.db` logical filename `path` that the
     /// `sqlite3` CLI can open (CONCEPT:EG-KG.query.full-protocol). `tables` empty ⇒ every user table; else
-    /// exactly the named tables (each must exist). Any pre-existing file at `path` is
-    /// overwritten. Returns a `Json` report `{"path", "exported_tables":[{"table","rows"},…]}`.
+    /// exactly the named tables (each must exist). Publication is private and atomic.
+    /// Returns aggregate table counts without a host path.
     #[cfg(feature = "sqlite-file")]
     ExportSqliteFile {
         path: String,
@@ -2641,7 +2693,7 @@ pub enum Method {
 
     // ── RDF/SPARQL (CONCEPT:EG-KG.ontology.kg-native-rdf-sparql / KG-2.218 — native semantic-web surface) ──
     // The RDF dataset maps onto the SAME property-graph the rest of the engine uses
-    // (resource object ⇒ typed edge `{type: predicate}`; literal object ⇒ a typed
+    // (resource object ⇒ typed edge `{relationship: predicate}`; literal object ⇒ a typed
     // JSON property cell preserving xsd datatype + @lang; rdf:type ⇒ the engine
     // `type` label; named graph ⇒ the target registry graph). So these are
     // GRAPH-SCOPED ops (they target `req.graph`) and route through the normal
@@ -2653,7 +2705,7 @@ pub enum Method {
     // `BatchUpdate` replays. `GetRdf` (serialize OUT) and `Sparql` are read-only.
     /// Parse `turtle` OR `ntriples` (exactly one non-empty) and store the triples
     /// into the request's graph (CONCEPT:EG-KG.ontology.kg-native-rdf-sparql). Returns a `Raw` `LoadReport`
-    /// (`{triples, multivalue, dropped_multivalue}`). Gated `rdf`; a build without it
+    /// (`{triples, multivalue}`). Gated `rdf`; a build without it
     /// drops the variant → the dispatch not-built catch-all.
     #[cfg(feature = "rdf")]
     AddTriples {
@@ -2666,8 +2718,7 @@ pub enum Method {
     },
     /// Serialize the request's graph back OUT to RDF as N-Triples (CONCEPT:EG-KG.ontology.kg-native-rdf-sparql).
     /// Returns a `Raw` `String` (the canonical, order-independent form) — the
-    /// datatype/lang-faithful inverse of `AddTriples`, distinct from the legacy lossy
-    /// `GetTriples` JSON triple-list (CONCEPT:AU-KG.query.vendor-agnostic-traversal). Read-only.
+    /// datatype/lang-faithful inverse of `AddTriples`. Read-only.
     #[cfg(feature = "rdf")]
     GetRdf,
     /// Physically RETRACT triples from the request's graph (CONCEPT:EG-KG.query.named-graph-support) — the
@@ -2765,9 +2816,7 @@ pub enum Method {
         /// per-entailment confidence (axioms/facts may be uncertain; the closure
         /// propagates it — `eg:confidence` annotations × the per-node confidence ×
         /// Ebbinghaus decay). Only entailments with `confidence ≥ min_confidence` are
-        /// returned. `0.0` (default) keeps everything (and a HARD ontology yields all
-        /// `1.0`, so the surface is backwards-identical when nothing is uncertain).
-        #[serde(default)]
+        /// returned. `0.0` keeps everything (and a HARD ontology yields all `1.0`).
         min_confidence: f64,
     },
     /// DISTRIBUTED confidence-weighted OWL reasoning over the UNION of `graphs`
@@ -2867,22 +2916,19 @@ pub enum Method {
     /// X5-enforce (CONCEPT:EG-KG.ontology.rdf-update-guard) — (re)register a graph's
     /// SHACL shapes as WRITE-TIME closed-world integrity constraints (ICV, reusing
     /// `eg-shacl`'s existing `IcvPolicyRegistry`/`WriteGuard` verbatim — no new
-    /// validator). `mode` is `"off"` (default/inert) · `"warn"` (a violating change is
-    /// logged but still applied) · `"enforce"` (a violating change ABORTS the
+    /// validator). The required `mode` value is `"enforce"`: a violating change ABORTS the
     /// `AddTriples`/`RemoveTriples`/`ApplyMutation` commit with the introduced
     /// violations, each carrying its SPARQL witness). `graph` names the target graph;
     /// `None` sets the DEFAULT-graph policy. `shapes` is the SHACL shapes Turtle
     /// document — e.g. the SHACL a connector-manifest compiler emits alongside its
-    /// RLS/ABAC policy output (agent-utilities side); empty is only valid with
-    /// `mode="off"` (clearing a previously registered policy). Like `ShaclValidate`,
+    /// RLS/ABAC policy output (agent-utilities side) and must be non-empty. Like `ShaclValidate`,
     /// this variant is UNCONDITIONAL in the enum; the HANDLER is gated `shacl` — a
     /// build without it drops the handler arm and the request falls through to the
     /// dispatch "not available in this build" catch-all.
     IcvConfigure {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(deserialize_with = "deserialize_required_option")]
         graph: Option<String>,
         mode: String,
-        #[serde(default)]
         shapes: String,
     },
 
@@ -3817,7 +3863,7 @@ pub enum Method {
     },
 
     /// Ontology-gap detection (CONCEPT:EG-KG.mining.ontology-gap): scans the
-    /// resident graph's own `type`/`relation`-tagged class nodes (GRAPH-NATIVE —
+    /// resident graph's own node-`type`/edge-`relationship` class shape (GRAPH-NATIVE —
     /// no `rdf`/OWL-reasoner dependency) for completeness gaps: no declared
     /// properties, an unresolved `subClassOf` parent (an orphan subclass), or a
     /// fully disconnected class. With `writeback=true` materializes each gap as a
@@ -3976,7 +4022,6 @@ pub enum MineSeqAlgorithm {
 pub enum ForecastAlgorithm {
     #[default]
     Arima,
-    #[serde(alias = "holt_winters", alias = "hw", alias = "ets")]
     Holtwinters,
     Stl,
 }
@@ -4193,7 +4238,7 @@ pub struct TransactionSource {
     /// `None`, the neighbor's node id is used verbatim.
     #[serde(default)]
     pub item_field: Option<String>,
-    /// Optional edge-relation filter: only follow edges whose `relation`/`type`
+    /// Optional edge-relation filter: only follow edges whose `relationship`
     /// property equals this. `None` ⇒ all edges.
     #[serde(default)]
     pub relation: Option<String>,
@@ -4229,7 +4274,7 @@ pub struct SequenceSource {
     /// `None`, the neighbor's node id is used verbatim.
     #[serde(default)]
     pub item_field: Option<String>,
-    /// Optional edge-relation filter: only follow edges whose `relation`/`type`
+    /// Optional edge-relation filter: only follow edges whose `relationship`
     /// property equals this. `None` ⇒ all edges.
     #[serde(default)]
     pub relation: Option<String>,
@@ -4354,17 +4399,14 @@ fn default_nu() -> f64 {
 pub enum ClassifyAlgorithm {
     /// Gaussian Naive Bayes (default) — continuous features.
     #[default]
-    #[serde(alias = "gaussian_nb", alias = "gnb")]
     Gaussiannb,
     /// Multinomial Naive Bayes — count features.
-    #[serde(alias = "multinomial_nb", alias = "mnb")]
     Multinomialnb,
     /// k-nearest-neighbor majority vote.
     Knn,
     /// One-vs-rest logistic regression.
     Logistic,
     /// One-vs-rest linear SVM (SVC).
-    #[serde(alias = "linear_svc", alias = "linearsvc")]
     Svc,
 }
 
@@ -4375,7 +4417,6 @@ pub enum ClassifyAlgorithm {
 pub enum ReduceAlgorithm {
     /// Truncated SVD (default) — unsupervised linear projection.
     #[default]
-    #[serde(alias = "truncated_svd", alias = "truncatedsvd", alias = "svd")]
     Svd,
     /// Fisher LDA — supervised (needs labels).
     Lda,
@@ -4467,7 +4508,7 @@ pub struct GraphSource {
     /// for prediction), `out` (successors), or `in` (predecessors).
     #[serde(default = "default_gl_direction")]
     pub direction: String,
-    /// Optional edge-relation filter: only use edges whose `relation`/`type` equals
+    /// Optional edge-relation filter: only use edges whose `relationship` equals
     /// this. `None` ⇒ all edges among the label's nodes.
     #[serde(default)]
     pub relation: Option<String>,
@@ -4708,163 +4749,230 @@ pub struct ExplainPlanResult {
     pub applied_rules: Vec<String>,
 }
 
-/// Wire mirror of `eg_modality::EvidenceSpan` (CONCEPT:E4/X1) — a DAG-safe DUP, not a
-/// re-export: `eg_types` sits BELOW `eg_modality` in the crate DAG (`eg-modality`
-/// depends on `eg-types`, never the reverse — see its own crate docs), so `eg_types`
-/// cannot depend on it, exactly the same reason `eg_modality::RowSetShape` is its own
-/// small dup of `eg_plan`'s real `RowSet` `Row` rather than a re-export. Every variant
-/// mirrors `eg_modality::evidence::EvidenceSpan` 1:1; the facade (which depends on
-/// BOTH `eg_plan` — hence transitively `eg_modality` — and `eg_types`) maps one to the
-/// other in `explain_provenance` (`src/server/handlers/query.rs`).
+/// DAG-safe wire mirror of `eg_modality::ResourceId` for an evidence subject.
 #[cfg(feature = "query")]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum EvidenceSpanWire {
-    /// A character range `[start, end)` inside a text document.
-    DocumentSpan {
-        document_id: String,
-        start: usize,
-        end: usize,
+#[serde(tag = "kind", content = "id", rename_all = "snake_case")]
+pub enum EvidenceResourceWire {
+    Artifact(String),
+    Occurrence(String),
+    Rendition(String),
+    Segment(String),
+    Feature(String),
+    EvidenceLocus(String),
+}
+
+/// DAG-safe wire mirror of `eg_modality::EvidenceAddress`.
+#[cfg(feature = "query")]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum EvidenceAddressWire {
+    CharacterRange {
+        start: u64,
+        end: u64,
     },
-    /// A rectangular cell range inside a tabular source (inclusive bounds).
     TableCellRange {
-        table_id: String,
-        row_start: usize,
-        row_end: usize,
-        col_start: usize,
-        col_end: usize,
+        row_start: u64,
+        row_end: u64,
+        col_start: u64,
+        col_end: u64,
     },
-    /// A pixel-space rectangular region of an image.
     ImageRegion {
-        image_id: String,
         x: f64,
         y: f64,
         width: f64,
         height: f64,
     },
-    /// A rectangular box on one page of a paged document (CONCEPT:EG-X1) — e.g.
-    /// "PDF page N, box (x,y,w,h)". Distinct from `DocumentSpan`'s character range.
-    PageBox {
-        document_id: String,
+    PageRegion {
         page: u32,
         x: f64,
         y: f64,
         width: f64,
         height: f64,
     },
-    /// A time range (milliseconds) inside an audio recording.
-    AudioSegment {
-        audio_id: String,
+    AudioRange {
         start_ms: u64,
         end_ms: u64,
     },
-    /// A shot boundary time range (milliseconds) inside a video.
-    VideoShot {
-        video_id: String,
+    VideoTimeRange {
         start_ms: u64,
         end_ms: u64,
     },
-    /// A frame-index range (inclusive) inside a video.
-    VideoFrameRange {
-        video_id: String,
+    FrameRange {
         start_frame: u64,
         end_frame: u64,
     },
-    /// A time window (milliseconds) on a named metric series.
     MetricWindow {
-        metric: String,
         start_ms: u64,
         end_ms: u64,
     },
-    /// A versioned row in a relational/SQL source.
+    Point {
+        x: f64,
+        y: f64,
+    },
     RowVersion {
-        table: String,
-        row_id: String,
+        row_ref: String,
         version: u64,
     },
-    /// A named symbol (function/class/etc.) inside a source file, by line range.
     CodeSymbol {
-        file_path: String,
-        symbol: String,
+        revision_ref: String,
+        symbol_ref: String,
         start_line: u32,
         end_line: u32,
     },
-    /// A distributed-tracing span: "observed during this trace span" provenance.
-    TraceSpan { trace_id: String, span_id: String },
+    TraceSpan {
+        trace_ref: String,
+        span_ref: String,
+    },
 }
 
-/// One result row's resolved provenance for `Method::ExplainProvenance`.
-///
-/// CONCEPT:EG-KB-CURRENCY — widened beyond id/kind/source_refs/evidence_spans to carry
-/// the SAME per-row epistemic columns [`crate::wire::KnowledgeRow`]/`eg_plan::KnowledgeSet`
-/// already resolves (score, confidence, the bitemporal valid/tx window, policy labels) —
-/// straight field copies off the `KnowledgeSet` row this handler already builds, not a new
-/// computation. This is the ONE wire surface a caller (e.g. the agent-utilities Python
-/// facade) uses to get calibrated, cited, time-versioned rows instead of the flat
-/// id/score-only shape `Method::UnifiedQuery`/`UnifiedQueryText` return.
+/// The sole located-evidence wire representation. Its custom deserializer rejects
+/// unsafe references and malformed coordinates before a request reaches a handler.
 #[cfg(feature = "query")]
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ExplainProvenanceRowWire {
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct EvidenceLocusWire {
     pub id: String,
-    /// The row's `KnowledgeSet` (E3) `kind` (`node_type`/`type`, or empty when absent).
-    pub kind: String,
-    /// The row's plan-assigned score (`RowSet::Row::score`), `None` for an unranked
-    /// result (a plain `Scan`/`Filter`/`Traverse` with no `Rank` stage).
-    pub score: Option<f32>,
-    /// Belief confidence (`KnowledgeRow::confidence`, default `1.0` when the node's
-    /// property blob carries no `confidence` field or didn't decode) — populated
-    /// regardless of the `epistemic` feature.
-    pub confidence: f64,
-    /// `(valid_from, valid_until)` — the fact's validity window in the world
-    /// (`KnowledgeRow::valid_time`). Populated regardless of `epistemic`.
-    pub valid_time: (Option<u64>, Option<u64>),
-    /// `(tx_from, tx_to)` — when the engine began/stopped believing this fact
-    /// (`KnowledgeRow::tx_time`). Populated regardless of `epistemic`.
-    pub tx_time: (Option<u64>, Option<u64>),
-    /// Ids of nodes providing EVIDENCE FOR this row (the `Op::EvidenceFor` resolution).
-    /// Always empty when provenance resolution did not run (see `ExplainProvenanceResult::resolved`).
-    pub source_refs: Vec<String>,
-    /// `"epistemic:contested"` / `"epistemic:corroborated"` / `"epistemic:asserted"`
-    /// (`KnowledgeRow::policy_labels`) — always empty when `epistemic` is off, and also
-    /// empty (not fabricated) for a row with no classified incoming evidence edge.
-    pub policy_labels: Vec<String>,
-    /// Located evidence for this row (X1, CONCEPT:E4) — this row's own modality
-    /// `ModalityContract::evidence()`, when its stored shape decodes as a known
-    /// modality value type. Always empty when `epistemic` is off (see
-    /// `ExplainProvenanceResult::resolved`), and also empty (not fabricated) for a
-    /// row whose kind/shape isn't a known modality.
-    pub evidence_spans: Vec<EvidenceSpanWire>,
-    /// SURPASS gap-closure ("wire `proof_ids`/`contradiction_ids` from the Arrow
-    /// `KnowledgeBatch` into `EpistemicRow`") — straight field copy of
-    /// `KnowledgeRow::contradiction_ids` (L22/CONCEPT:EG-P3-1): ids this row
-    /// CONTRADICTS/ATTACKS or is contradicted/attacked BY, SYMMETRIC. These are the
-    /// SAME two columns `eg_plan::KnowledgeBatch` already carries on its Arrow-columnar
-    /// surface (`crates/eg-plan/src/knowledge_batch.rs`) — this row-shaped wire path
-    /// closes the gap without requiring the heavier Arrow-IPC transport: a caller
-    /// (e.g. agent-utilities' `EpistemicRow`) gets the SAME two columns off the
-    /// `ExplainProvenanceByIds` RPC it already calls. Always empty when `epistemic` is
-    /// off, and also empty (not fabricated) for a row with no classified
-    /// contradiction/attack edge at all.
-    #[serde(default)]
-    pub contradiction_ids: Vec<String>,
-    /// SURPASS gap-closure (see `contradiction_ids` above) — straight field copy of
-    /// `KnowledgeRow::proof_ids`: the transitive justification/premise chain
-    /// underneath this row's belief, deduped, excluding the row's own id. Always
-    /// empty when `epistemic` is off, and also empty for a row with no evidence
-    /// neighbourhood at all.
-    #[serde(default)]
-    pub proof_ids: Vec<String>,
+    pub subject: EvidenceResourceWire,
+    pub address: EvidenceAddressWire,
+    pub policy_ref: String,
+    pub derivation_ref: String,
 }
 
-/// Materialized result of a `Method::ExplainProvenance` run. Returned via `ResultPayload::raw`.
 #[cfg(feature = "query")]
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ExplainProvenanceResult {
-    pub rows: Vec<ExplainProvenanceRowWire>,
-    /// `true` iff the `epistemic` feature resolved real `source_refs`/`evidence_spans`
-    /// (X1, CONCEPT:E4); `false` ⇒ every row's `source_refs`/`evidence_spans` are
-    /// empty (no epistemic resolution ran — the `KnowledgeSet` v1 default,
-    /// CONCEPT:EG-KG.query.knowledge-set).
-    pub resolved: bool,
+impl EvidenceLocusWire {
+    fn valid_opaque(value: &str, namespace: Option<&str>) -> bool {
+        let parts: Vec<&str> = value.split(':').collect();
+        (3..=6).contains(&parts.len())
+            && parts.first() == Some(&"eg")
+            && namespace.map_or(true, |expected| parts.get(1) == Some(&expected))
+            && parts[1..parts.len() - 1].iter().all(|part| {
+                !part.is_empty()
+                    && part.len() <= 32
+                    && part.bytes().all(|byte| {
+                        byte.is_ascii_lowercase()
+                            || byte.is_ascii_digit()
+                            || matches!(byte, b'_' | b'-')
+                    })
+            })
+            && parts.last().is_some_and(|token| {
+                (16..=128).contains(&token.len())
+                    && token
+                        .bytes()
+                        .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+            })
+    }
+
+    fn valid(&self) -> bool {
+        let subject_valid = match &self.subject {
+            EvidenceResourceWire::Artifact(value) => Self::valid_opaque(value, Some("artifact")),
+            EvidenceResourceWire::Occurrence(value) => {
+                Self::valid_opaque(value, Some("occurrence"))
+            }
+            EvidenceResourceWire::Rendition(value) => Self::valid_opaque(value, Some("rendition")),
+            EvidenceResourceWire::Segment(value) => Self::valid_opaque(value, Some("segment")),
+            EvidenceResourceWire::Feature(value) => Self::valid_opaque(value, Some("feature")),
+            EvidenceResourceWire::EvidenceLocus(value) => Self::valid_opaque(value, Some("locus")),
+        };
+        let address_valid = match &self.address {
+            EvidenceAddressWire::CharacterRange { start, end }
+            | EvidenceAddressWire::AudioRange {
+                start_ms: start,
+                end_ms: end,
+            }
+            | EvidenceAddressWire::VideoTimeRange {
+                start_ms: start,
+                end_ms: end,
+            }
+            | EvidenceAddressWire::MetricWindow {
+                start_ms: start,
+                end_ms: end,
+            } => end > start,
+            EvidenceAddressWire::FrameRange {
+                start_frame,
+                end_frame,
+            } => end_frame >= start_frame,
+            EvidenceAddressWire::TableCellRange {
+                row_start,
+                row_end,
+                col_start,
+                col_end,
+            } => row_end >= row_start && col_end >= col_start,
+            EvidenceAddressWire::ImageRegion {
+                x,
+                y,
+                width,
+                height,
+            }
+            | EvidenceAddressWire::PageRegion {
+                x,
+                y,
+                width,
+                height,
+                ..
+            } => {
+                x.is_finite()
+                    && y.is_finite()
+                    && width.is_finite()
+                    && height.is_finite()
+                    && *width > 0.0
+                    && *height > 0.0
+            }
+            EvidenceAddressWire::Point { x, y } => x.is_finite() && y.is_finite(),
+            EvidenceAddressWire::RowVersion { row_ref, .. } => Self::valid_opaque(row_ref, None),
+            EvidenceAddressWire::CodeSymbol {
+                revision_ref,
+                symbol_ref,
+                start_line,
+                end_line,
+            } => {
+                Self::valid_opaque(revision_ref, None)
+                    && Self::valid_opaque(symbol_ref, None)
+                    && end_line >= start_line
+            }
+            EvidenceAddressWire::TraceSpan {
+                trace_ref,
+                span_ref,
+            } => Self::valid_opaque(trace_ref, None) && Self::valid_opaque(span_ref, None),
+        };
+        Self::valid_opaque(&self.id, Some("locus"))
+            && subject_valid
+            && address_valid
+            && Self::valid_opaque(&self.policy_ref, None)
+            && Self::valid_opaque(&self.derivation_ref, Some("derivation"))
+    }
+}
+
+#[cfg(feature = "query")]
+impl<'de> Deserialize<'de> for EvidenceLocusWire {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct Unchecked {
+            id: String,
+            subject: EvidenceResourceWire,
+            address: EvidenceAddressWire,
+            policy_ref: String,
+            derivation_ref: String,
+        }
+
+        let value = Unchecked::deserialize(deserializer)?;
+        let locus = Self {
+            id: value.id,
+            subject: value.subject,
+            address: value.address,
+            policy_ref: value.policy_ref,
+            derivation_ref: value.derivation_ref,
+        };
+        if locus.valid() {
+            Ok(locus)
+        } else {
+            Err(<D::Error as serde::de::Error>::custom(
+                "invalid governed evidence locus",
+            ))
+        }
+    }
 }
 
 /// Materialized result of a `Method::ExplainPolicy` run (CONCEPT:EG-KG.sharding.row-level-security).
@@ -5037,17 +5145,20 @@ pub struct WhatChangedResult {
     pub changed: Vec<ChangedBeliefWire>,
 }
 
-/// Materialized result of a `Method::RegisterMaterialization` run (Seam 3). `id`
-/// echoes the registered `derived_id`; `depends_on` and `generating_activity` are
-/// the dependency set `eg_epistemic::register_from_provenance` actually resolved
-/// off the node's stored provenance (never caller-supplied) — a caller reads this
-/// back to confirm what got tracked. Returned via `ResultPayload::raw`.
+/// Materialized result of a fenced `Method::RecomputeMaterialization` writeback.
+/// All identifiers are domain-separated opaque projection references.
 #[cfg(feature = "epistemic")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RegisterMaterializationResult {
+pub struct RecomputeMaterializationResult {
     pub id: String,
     pub depends_on: Vec<String>,
     pub generating_activity: Option<String>,
+    pub status: String,
+    pub source_graph_version: u64,
+    pub fence_epoch: u64,
+    /// `true` when the authoritative recompute intent is committed but its local
+    /// durable projection image has not yet been acknowledged by the outbox worker.
+    pub projection_pending: bool,
 }
 
 /// Materialized result of a `Method::MaterializationStatus` run (Seam 3). `status`
@@ -5058,17 +5169,19 @@ pub struct RegisterMaterializationResult {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MaterializationStatusResult {
     pub status: Option<String>,
+    pub source_graph_version: u64,
 }
 
 /// Materialized result of a `Method::StaleMaterializations` run (Seam 3 follow-up).
-/// `ids` is every materialization id currently `Stale` on the process-global
-/// `TruthMaintenance` index, sorted (the index keys it in a `BTreeSet`). Empty when
-/// nothing is stale (a legitimate answer, not an error) or the build lacks
-/// `epistemic-tms`. Returned via `ResultPayload::raw`.
+/// `ids` is every opaque materialization reference currently `Stale` in the
+/// durable per-graph projection, sorted by its persisted `BTreeSet`. Empty means
+/// nothing is stale; missing or corrupt projection authority is an error.
+/// Returned via `ResultPayload::raw`.
 #[cfg(feature = "epistemic")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StaleMaterializationsResult {
     pub ids: Vec<String>,
+    pub source_graph_version: u64,
 }
 
 /// Materialized result of a `Method::ResolveConflict` run (EPI-P3-7). `semantics`
@@ -5102,11 +5215,11 @@ pub struct ResolveConflictResult {
 // `evidence-graph`) ─────────────────────────────────────────────────────────────
 
 /// Wire mirror of `eg_epistemic::EvidenceCitation` — one node bearing on a claim
-/// (support/contradiction/attack), together with its located locus and identity
-/// chain, when present. `kind` is the `Debug`-rendered `eg_epistemic::EdgeKind`
+/// (support/contradiction/attack), together with its complete governed locus.
+/// `kind` is the `Debug`-rendered `eg_epistemic::EdgeKind`
 /// (`"Supports"`/`"Contradicts"`/`"Attacks"`), the SAME flat-string convention
 /// `JustificationNodeWire::rule` uses for its `JustRule`. `locus` reuses
-/// [`EvidenceSpanWire`] (the SAME wire mirror `ExplainProvenanceRowWire` carries —
+/// [`EvidenceLocusWire`] (the governed evidence-locus wire mirror —
 /// `epistemic` implies `query`, so it is always nameable here).
 #[cfg(feature = "epistemic")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -5114,16 +5227,14 @@ pub struct EvidenceCitationWire {
     pub evidence_id: String,
     /// One of `"Supports"`, `"Contradicts"`, `"Attacks"`.
     pub kind: String,
-    pub locus: Option<EvidenceSpanWire>,
-    pub occurrence_id: Option<String>,
-    pub blob_ref: Option<String>,
+    pub locus: EvidenceLocusWire,
     /// SURPASS gap-closure ("unify the two evidence resolvers"): the REAL content
     /// this citation's `locus` resolves to, via `eg_alignment::EvidenceResolver`
     /// (`src/server/blob/cas_resolver.rs`'s `CasEvidenceResolver`, the SAME
     /// engine-backed resolver that previously had zero served-RPC call sites — only
     /// its own unit tests exercised it). `None` when the build lacks the `alignment`
-    /// feature, no blob store is configured, the citation has no `locus`, or the
-    /// resolver had nothing for it (e.g. a dangling `blob_ref`) — degrades to the
+    /// feature, no blob store is configured, or the resolver had nothing for the
+    /// locus subject (e.g. a dangling `blob_ref`) — degrades to the
     /// pre-existing locus-only behavior, never a fabricated resolution.
     #[serde(default)]
     pub resolved: Option<ResolvedArtifactWire>,
@@ -5131,7 +5242,7 @@ pub struct EvidenceCitationWire {
 
 /// Wire mirror of `eg_alignment::ResolvedArtifact` (SURPASS gap-closure: "unify the
 /// two evidence resolvers", "real crop/slice codecs"). `kind` is `"text"` (a real
-/// excerpt — currently `DocumentSpan` by character range, `CodeSymbol` by line
+/// excerpt — currently `CharacterRange` by character range, `CodeSymbol` by line
 /// range) or `"blob"` (every other locus kind: the real CAS digest is named, but no
 /// in-tree codec exists to crop/slice pixels/audio/video samples out of it yet — see
 /// `CasEvidenceResolver`'s module docs for exactly which kinds get which treatment).
@@ -5140,7 +5251,7 @@ pub struct EvidenceCitationWire {
 pub struct ResolvedArtifactWire {
     /// `"text"` or `"blob"`.
     pub kind: String,
-    pub artifact_id: String,
+    pub subject_ref: String,
     /// The resolved excerpt, when `kind == "text"`.
     pub excerpt: Option<String>,
     /// The real CAS digest, when `kind == "blob"`.
@@ -5200,14 +5311,10 @@ pub struct CausalEstimateResult {
 }
 
 /// Which of `eg_epistemic::CausalGraph`'s two non-counterfactual queries
-/// `Method::CausalEstimate::do_values` feeds (EPI-P3-6). `Intervene` is the
-/// `#[default]` — matches the wire field's own `#[serde(default)]`, so a request
-/// that omits `mode` entirely (every pre-existing caller) decodes to `Intervene`
-/// and gets BYTE-FOR-BYTE the query this variant answered before `mode` existed.
+/// `Method::CausalEstimate::do_values` feeds (EPI-P3-6).
 #[cfg(feature = "epistemic")]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CausalQueryModeWire {
-    #[default]
     Intervene,
     Observe,
 }
@@ -5339,8 +5446,8 @@ impl ResultPayload {
     /// Encode a typed value straight to MessagePack as a [`ResultPayload::Raw`],
     /// bypassing the `serde_json::Value` tree (the dominant allocator for large
     /// algorithm results). The compact encoding is the ONE wire contract — clients
-    /// decode a top-level `bytes` result with a second `unpackb`. No fallback, no
-    /// flag: a greenfield codebase carries no dual-path legacy baggage. (Phase C-D)
+    /// decode a top-level `bytes` result with a second `unpackb`; there is no
+    /// alternate encoding flag. (Phase C-D)
     pub fn raw<T: Serialize>(value: &T) -> Self {
         ResultPayload::Raw(rmp_serde::to_vec_named(value).unwrap_or_default())
     }
@@ -5354,7 +5461,7 @@ pub struct Response {
     /// Result payload on success.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result: Option<ResultPayload>,
-    /// Error message on failure.
+    /// Stable error code on failure; structured detail is carried by OperationResult.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }
@@ -5375,6 +5482,44 @@ impl Response {
             id,
             result: None,
             error: Some(error.into()),
+        }
+    }
+
+    /// Schema-generated placement redirect used when this node cannot serve the
+    /// graph's current `(group, epoch)`.
+    pub fn stale_route(
+        id: u64,
+        graph: &str,
+        group: u64,
+        epoch: u64,
+        leader: Option<u64>,
+        _reason: impl Into<String>,
+    ) -> Self {
+        use crate::epistemic_operations::{
+            OperationRedirect, OperationRedirectKind, OperationResult,
+            OperationResultSchemaVersion, OperationResultStatus,
+        };
+
+        let detail = OperationResult {
+            schema_version: OperationResultSchemaVersion::V1,
+            operation_id: format!("request:{id}"),
+            status: OperationResultStatus::Redirected,
+            result_kind: None,
+            result_ref: None,
+            error: None,
+            redirect: Some(OperationRedirect {
+                kind: OperationRedirectKind::Placement,
+                target_ref: graph.to_string(),
+                group,
+                epoch,
+                fencing_token: group,
+                leader_ref: leader.map(|node| format!("node:{node}")),
+            }),
+        };
+        Response {
+            id,
+            result: Some(ResultPayload::raw(&detail)),
+            error: Some("OPERATION_REDIRECTED".to_string()),
         }
     }
 }
@@ -5403,6 +5548,20 @@ mod tests {
         let parsed: Request = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.id, 1);
         assert_eq!(parsed.graph, "agent:planner");
+    }
+
+    #[test]
+    fn stale_route_is_structured_and_carries_fencing_epoch() {
+        let response = Response::stale_route(9, "opaque:graph", 3, 17, Some(2), "not leader");
+        let detail: crate::epistemic_operations::OperationResult = match response.result {
+            Some(ResultPayload::Raw(bytes)) => rmp_serde::from_slice(&bytes).unwrap(),
+            other => panic!("expected structured redirect, got {other:?}"),
+        };
+        let redirect = detail.redirect.unwrap();
+        assert_eq!(redirect.group, 3);
+        assert_eq!(redirect.epoch, 17);
+        assert_eq!(redirect.fencing_token, 3);
+        assert_eq!(response.error.as_deref(), Some("OPERATION_REDIRECTED"));
     }
 
     #[test]
@@ -5465,6 +5624,63 @@ mod tests {
         let json = serde_json::to_string(&method).unwrap();
         let parsed: Method = serde_json::from_str(&json).unwrap();
         assert!(matches!(parsed, Method::Ping));
+    }
+
+    #[test]
+    fn retired_methods_and_parameters_are_rejected() {
+        for method in [
+            "BatchCosineSimilarity",
+            "SpectralCluster",
+            "HypergraphEncodeInteraction",
+            "FindSimilarPairs",
+        ] {
+            let value = serde_json::json!({"method": method, "params": {}});
+            assert!(serde_json::from_value::<Method>(value).is_err());
+        }
+
+        let retired_parameter = serde_json::json!({
+            "method": "UnifiedQueryText",
+            "params": {
+                "text": "MATCH (n) |> LIMIT 1",
+                "reorder_filter_selectivity": 0.5
+            }
+        });
+        assert!(serde_json::from_value::<Method>(retired_parameter).is_err());
+    }
+
+    #[cfg(feature = "mining")]
+    #[test]
+    fn mining_algorithms_accept_only_the_current_canonical_names() {
+        assert_eq!(
+            serde_json::from_str::<ForecastAlgorithm>("\"holtwinters\"").unwrap(),
+            ForecastAlgorithm::Holtwinters
+        );
+        assert_eq!(
+            serde_json::from_str::<ClassifyAlgorithm>("\"gaussiannb\"").unwrap(),
+            ClassifyAlgorithm::Gaussiannb
+        );
+        assert_eq!(
+            serde_json::from_str::<ReduceAlgorithm>("\"svd\"").unwrap(),
+            ReduceAlgorithm::Svd
+        );
+        for retired in [
+            "holt_winters",
+            "hw",
+            "ets",
+            "gaussian_nb",
+            "gnb",
+            "multinomial_nb",
+            "mnb",
+            "linear_svc",
+            "linearsvc",
+            "truncated_svd",
+            "truncatedsvd",
+        ] {
+            let encoded = serde_json::to_string(retired).unwrap();
+            assert!(serde_json::from_str::<ForecastAlgorithm>(&encoded).is_err());
+            assert!(serde_json::from_str::<ClassifyAlgorithm>(&encoded).is_err());
+            assert!(serde_json::from_str::<ReduceAlgorithm>(&encoded).is_err());
+        }
     }
 
     #[test]
@@ -5578,5 +5794,53 @@ mod tests {
             let re = rmp_serde::to_vec_named(&back).unwrap();
             assert_eq!(wire, re, "EG-318 method must msgpack-roundtrip identically");
         }
+    }
+
+    #[cfg(feature = "query")]
+    #[test]
+    fn governed_evidence_locus_wire_round_trips() {
+        let locus = EvidenceLocusWire {
+            id: "eg:locus:0000000000000001".to_string(),
+            subject: EvidenceResourceWire::Occurrence("eg:occurrence:0000000000000002".to_string()),
+            address: EvidenceAddressWire::PageRegion {
+                page: 4,
+                x: 1.0,
+                y: 2.0,
+                width: 3.0,
+                height: 4.0,
+            },
+            policy_ref: "eg:policy:0000000000000003".to_string(),
+            derivation_ref: "eg:derivation:0000000000000004".to_string(),
+        };
+        let encoded = rmp_serde::to_vec_named(&locus).unwrap();
+        assert_eq!(
+            rmp_serde::from_slice::<EvidenceLocusWire>(&encoded).unwrap(),
+            locus
+        );
+    }
+
+    #[cfg(feature = "query")]
+    #[test]
+    fn governed_evidence_locus_wire_rejects_unsafe_identity_and_coordinates() {
+        let unsafe_identity = serde_json::json!({
+            "id": "eg:locus:0000000000000001",
+            "subject": { "kind": "artifact", "id": "not-an-opaque-reference" },
+            "address": { "kind": "character_range", "start": 0, "end": 1 },
+            "policy_ref": "eg:policy:0000000000000003",
+            "derivation_ref": "eg:derivation:0000000000000004"
+        });
+        assert!(serde_json::from_value::<EvidenceLocusWire>(unsafe_identity).is_err());
+
+        let invalid_range = serde_json::json!({
+            "id": "eg:locus:0000000000000001",
+            "subject": {
+                "kind": "artifact",
+                "id": "eg:artifact:0000000000000002"
+            },
+            "address": { "kind": "character_range", "start": 1, "end": 1 },
+            "policy_ref": "eg:policy:0000000000000003",
+            "derivation_ref": "eg:derivation:0000000000000004"
+        });
+        assert!(serde_json::from_value::<EvidenceLocusWire>(invalid_range).is_err());
     }
 }

@@ -3,7 +3,7 @@
 epistemic-graph carries a **RabbitMQ-class message broker** as a native modality (feature `broker`),
 built on the EG-KG.compute.atomically-claim-oldest-pending in-engine claim/ack work-queue: exchanges, queues, bindings, DLQ, TTL, priority,
 delayed delivery, consumer groups, replayable streams, and publisher confirms — all as nodes in the
-isolated `__control__` graph, Raft/WAL-safe. Three protocol wires front it: **AMQP 0.9.1**, **MQTT**,
+isolated `__control__` graph, Raft-safe and redb-durable. Three protocol wires front it: **AMQP 0.9.1**, **MQTT**,
 and **STOMP**. All three share the **one** broker, so a message published over AMQP can be consumed over
 MQTT/STOMP by topic.
 
@@ -24,11 +24,24 @@ MQTT/STOMP by topic.
 | **Delayed / scheduled delivery** | Deliver-after (delay) + deliver-at (scheduled): messages held invisible until their eta, then made claimable, via a due-time index | EG-KG.compute.delayed-scheduled-delivery |
 | **Consumer groups + QoS/prefetch** | Named consumer groups sharing a queue, per-consumer prefetch (unacked-in-flight limit), fair round-robin dispatch, per-consumer visibility leases | EG-KG.compute.groups-qos-prefetch-honoring |
 | **Replayable streams** | Kafka/RabbitMQ-Streams-style persistent append-only logs: messages retained (not deleted on consume) in an ordered offset-indexed log; consumers read from an explicit offset (earliest/latest/N) and replay; retention by size/age | EG-283 |
-| **Publisher confirms + consumer acks** | Per-message confirm/nack once durably enqueued (monotonic delivery-tag ⇒ at-least-once) + consumer manual-ack / nack-with-requeue over the claim path | EG-KG.compute.publisher-confirms-consumer-qos |
+| **Publisher confirms + consumer acks** | Per-message confirm/nack once durably enqueued (monotonic delivery-tag ⇒ at-least-once) + owner-fenced manual ack/nack and live-lease renewal over the claim path | EG-KG.compute.publisher-confirms-consumer-qos |
 | **Exactly-once (idempotent producer)** | A producer-id + monotonic sequence lets the broker **drop duplicate publishes** (a retried publish after a lost confirm is de-duplicated) for effectively-exactly-once on top of at-least-once; the stream/confirm/ack ops are exposed over the AMQP `confirm.select` + MQTT 5 wire frames (previously engine-Method-only) | EG-314 |
 
 Work-queue (claim/delete) semantics and stream (retain/replay) semantics coexist: the queue is the
 task/RPC pattern, the stream is the event-log pattern.
+
+Every successful `BrokerConsume` returns a positive integer `delivery_tag`. Tag operations are
+current-generation operations: `ack_tag`, `nack_tag`, and `renew_tag` require the claiming
+`consumer`; the engine atomically verifies `status == "claimed"`, the current tag, and the owner.
+Renewal additionally requires a still-live lease, explicit `now_ms`/`lease_ms`, and a resulting
+deadline later than the current deadline. Reclaim retires
+the prior reverse lookup before installing a fresh tag, so a delayed acknowledgement from an old
+consumer cannot mutate the reclaimed delivery. There are no ownerless tag-operation forms.
+`BrokerConsume.lease_ms = 0` creates an explicitly non-expiring claim; the sweeper leaves it
+owned until its current consumer acknowledges or nacks it.
+`consumer` is an opaque runtime worker/principal reference, not a person's name, username,
+filesystem path, host name, or connection URL; identity-aware gateways derive it from the
+verified principal before dispatch.
 
 ## AMQP 0.9.1 wire (EG-275, feature `amqp-wire`)
 
@@ -37,12 +50,16 @@ frames onto the broker primitives.
 
 ```bash
 EPISTEMIC_GRAPH_AMQP_ADDR=127.0.0.1:5672 \
-  epistemic-graph-server --persist-dir /var/lib/eg   # --features "amqp-wire server"
+GRAPH_SERVICE_AUTH_SECRET=$SECRET \
+  epistemic-graph-server --persist-dir "${GRAPH_SERVICE_PERSIST_DIR:?}"   # --features "amqp-wire server"
 ```
 
 ```python
 import pika
-conn = pika.BlockingConnection(pika.ConnectionParameters("127.0.0.1", 5672))
+credentials = pika.PlainCredentials("publisher", AMQP_PASSWORD)
+conn = pika.BlockingConnection(
+    pika.ConnectionParameters("127.0.0.1", 5672, credentials=credentials)
+)
 ch = conn.channel()
 ch.exchange_declare(exchange="events", exchange_type="topic")
 ch.queue_declare(queue="tasks")
@@ -57,10 +74,11 @@ Maps CONNECT/PUBLISH/SUBSCRIBE/PINGREQ/DISCONNECT onto the broker's topic exchan
 
 ```bash
 EPISTEMIC_GRAPH_MQTT_ADDR=127.0.0.1:1883 \
-  epistemic-graph-server --persist-dir /var/lib/eg   # --features "mqtt-wire server"
+GRAPH_SERVICE_AUTH_SECRET=$SECRET \
+  epistemic-graph-server --persist-dir "${GRAPH_SERVICE_PERSIST_DIR:?}"   # --features "mqtt-wire server"
 
-mosquitto_sub -h 127.0.0.1 -p 1883 -t 'sensors/#' &
-mosquitto_pub -h 127.0.0.1 -p 1883 -t 'sensors/room1' -m '21.5'
+mosquitto_sub -h 127.0.0.1 -p 1883 -u subscriber -P "$MQTT_SUB_PASSWORD" -t 'sensors/#' &
+mosquitto_pub -h 127.0.0.1 -p 1883 -u publisher -P "$MQTT_PUB_PASSWORD" -t 'sensors/room1' -m '21.5'
 ```
 
 ## STOMP 1.2 wire (EG-KG.ontology.stomp-frame-codec-unit, feature `stomp-wire`)
@@ -69,15 +87,23 @@ A text-frame listener mapping CONNECT/SEND/SUBSCRIBE/ACK/DISCONNECT onto the bro
 
 ```bash
 EPISTEMIC_GRAPH_STOMP_ADDR=127.0.0.1:61613 \
-  epistemic-graph-server --persist-dir /var/lib/eg   # --features "stomp-wire server"
+GRAPH_SERVICE_AUTH_SECRET=$SECRET \
+  epistemic-graph-server --persist-dir "${GRAPH_SERVICE_PERSIST_DIR:?}"   # --features "stomp-wire server"
 ```
+
+All three direct broker listeners require authenticated loopback. Credentials are
+`hex(HMAC-SHA256(secret, prefix + principal))`, using the domain prefixes `amqp:`,
+`mqtt:` and `stomp:`. A verified principal becomes a secret-keyed pseudonymous actor
+reference before broker dispatch, so raw protocol usernames do not enter request or
+persistence state. Remote clients terminate TLS/mTLS at an identity-binding gateway
+that forwards to loopback; missing key material fails startup.
 
 ## Wire ↔ broker graph
 
 Each wire selects the broker graph via its `*_GRAPH` env var (default `__commons__`):
 `EPISTEMIC_GRAPH_AMQP_GRAPH`, `EPISTEMIC_GRAPH_MQTT_GRAPH`, `EPISTEMIC_GRAPH_STOMP_GRAPH`. Because all
 three front the same broker, cross-protocol pub/sub works by topic. See
-[connecting](connecting.md#rabbitmq--amqp-091-client-amqp-wire--broker) for the per-wire connect recipes.
+[connecting](connecting.md#rabbitmq-amqp-client) for the per-wire connect recipes.
 
 ---
 *The broker is the Phase-Y modality over the EG-KG.compute.atomically-claim-oldest-pending native engine task queue — messages are durable,

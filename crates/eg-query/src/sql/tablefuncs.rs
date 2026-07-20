@@ -2,7 +2,7 @@
 //!
 //! A scalar UDF sees one row at a time and cannot run a whole-graph algorithm, so
 //! `pagerank()` and `betweenness()` are exposed as zero-arg DataFusion **table
-//! functions** (`SessionContext::register_udtf`, DataFusion 43's
+//! functions** (`SessionContext::register_udtf`, DataFusion 54's
 //! [`TableFunctionImpl`]). Each call runs the eg_compute algorithm over the query's
 //! GraphView snapshot ONCE and returns the `(id: Utf8, score: Float64)` rows as a
 //! `MemTable`, so a query can JOIN the scores against `nodes`:
@@ -22,8 +22,7 @@ use std::sync::Arc;
 use arrow::array::{Float64Array, Int64Array, StringArray};
 use arrow::datatypes::{DataType, Field, Schema, SchemaRef};
 use arrow::record_batch::RecordBatch;
-use datafusion::catalog::TableProvider;
-use datafusion::datasource::function::TableFunctionImpl;
+use datafusion::catalog::{TableFunctionArgs, TableFunctionImpl, TableProvider};
 use datafusion::datasource::MemTable;
 use datafusion::error::{DataFusionError, Result as DfResult};
 use datafusion::logical_expr::Expr;
@@ -68,7 +67,7 @@ impl PagerankFunc {
 }
 
 impl TableFunctionImpl for PagerankFunc {
-    fn call(&self, _args: &[Expr]) -> DfResult<Arc<dyn TableProvider>> {
+    fn call_with_args(&self, _args: TableFunctionArgs<'_, '_>) -> DfResult<Arc<dyn TableProvider>> {
         let rows =
             eg_compute::algorithms::pagerank(&self.view, PAGERANK_DAMPING, PAGERANK_ITERATIONS);
         scores_table(rows)
@@ -88,7 +87,7 @@ impl BetweennessFunc {
 }
 
 impl TableFunctionImpl for BetweennessFunc {
-    fn call(&self, _args: &[Expr]) -> DfResult<Arc<dyn TableProvider>> {
+    fn call_with_args(&self, _args: TableFunctionArgs<'_, '_>) -> DfResult<Arc<dyn TableProvider>> {
         let rows = eg_compute::algorithms::betweenness_centrality(&self.view);
         scores_table(rows)
     }
@@ -102,7 +101,7 @@ const GENERATE_SERIES_MAX_ROWS: usize = 10_000_000;
 
 /// `generate_series(start, stop[, step]) -> TABLE(value int8)` (CONCEPT:EG-KG.query.greatest-least-int4range-tsrange) — the
 /// Postgres set-returning function ORMs/BI tools emit for numeric series and calendar
-/// spines. DataFusion 43's `default-features = false` build registers no `generate_series`
+/// spines. DataFusion 54's `default-features = false` build registers no `generate_series`
 /// table function, so EG-104 provides it: an inclusive integer series from `start` to
 /// `stop` stepping by `step` (default `1`; negative counts down). Arguments must be
 /// integer literals (the ordinary `SELECT * FROM generate_series(1, 5)` shape). Column is
@@ -112,7 +111,7 @@ pub(crate) struct GenerateSeriesFunc;
 
 /// Pull an i64 out of a literal `Expr` argument (Int64/Int32/UInt64/Float64), else error.
 fn literal_i64(e: &Expr, ctx: &str) -> DfResult<i64> {
-    if let Expr::Literal(sv) = e {
+    if let Expr::Literal(sv, _) = e {
         match sv {
             ScalarValue::Int64(Some(v)) => return Ok(*v),
             ScalarValue::Int32(Some(v)) => return Ok(*v as i64),
@@ -130,7 +129,8 @@ fn literal_i64(e: &Expr, ctx: &str) -> DfResult<i64> {
 }
 
 impl TableFunctionImpl for GenerateSeriesFunc {
-    fn call(&self, args: &[Expr]) -> DfResult<Arc<dyn TableProvider>> {
+    fn call_with_args(&self, args: TableFunctionArgs<'_, '_>) -> DfResult<Arc<dyn TableProvider>> {
+        let args = args.exprs();
         if args.len() != 2 && args.len() != 3 {
             return Err(DataFusionError::Execution(
                 "generate_series expects (start, stop[, step])".into(),

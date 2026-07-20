@@ -22,7 +22,8 @@ Wire contract (see ``docs/architecture/kvcache-remote-backend.md``):
 
 ``<hash>`` is the **caller's opaque token-hash key** (what LMCache computes over
 the token ids of a block); the engine stores the body verbatim under it and does
-NOT re-hash. Auth is an optional ``Authorization: Bearer <token>`` guard.
+NOT re-hash. Every request carries a mandatory
+``Authorization: Bearer <token>`` credential (a configured bearer secret or JWT).
 
 Graceful degradation is a hard requirement: this sits on the inference hot path,
 so every network / protocol error is swallowed and mapped to a cache **miss**
@@ -39,6 +40,7 @@ from __future__ import annotations
 
 import json
 import logging
+import ssl
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -67,6 +69,11 @@ HTTPX_AVAILABLE = _httpx is not None
 _TRANSPORT_ERRORS: tuple[type[BaseException], ...] = (OSError, ValueError)
 if HTTPX_AVAILABLE:  # pragma: no cover - only where httpx installed
     _TRANSPORT_ERRORS = (*_TRANSPORT_ERRORS, _httpx.HTTPError)
+
+
+def _require_verified_tls_context(context: ssl.SSLContext) -> None:
+    if context.verify_mode != ssl.CERT_REQUIRED or not context.check_hostname:
+        raise ValueError("KV-cache TLS peer verification cannot be disabled")
 
 
 @dataclass(slots=True)
@@ -127,10 +134,18 @@ class UrllibTransport:
     package import needs nothing beyond stdlib.
     """
 
-    def __init__(self, *, timeout_s: float, verify_tls: bool = True) -> None:
+    def __init__(
+        self, *, timeout_s: float, tls_context: ssl.SSLContext | None = None
+    ) -> None:
         self._timeout = timeout_s
-        self._verify_tls = verify_tls
-        self._opener = urllib.request.build_opener()
+        if tls_context is not None:
+            _require_verified_tls_context(tls_context)
+        handlers = (
+            [urllib.request.HTTPSHandler(context=tls_context)]
+            if tls_context is not None
+            else []
+        )
+        self._opener = urllib.request.build_opener(*handlers)
 
     def request(
         self,
@@ -143,16 +158,8 @@ class UrllibTransport:
         req = urllib.request.Request(url, data=body, method=method)
         for name, value in (headers or {}).items():
             req.add_header(name, value)
-        kwargs: dict[str, Any] = {"timeout": self._timeout}
-        if url.startswith("https://") and not self._verify_tls:
-            import ssl
-
-            # Explicit, narrow opt-out: only reached when the caller passed
-            # verify_tls=False (default True) for an https:// endpoint — e.g. a
-            # self-signed dev/test KV-cache HTTP surface. Never the default path.
-            kwargs["context"] = ssl._create_unverified_context()  # nosec B323
         try:
-            with self._opener.open(req, **kwargs) as resp:
+            with self._opener.open(req, timeout=self._timeout) as resp:
                 return _Response(status=resp.status, body=resp.read())
         except urllib.error.HTTPError as exc:
             # An HTTP status (404/401/…) is a normal outcome, not a transport
@@ -171,19 +178,21 @@ class HttpxTransport:
         *,
         base_url: str,
         timeout_s: float,
-        verify_tls: bool,
+        tls_context: ssl.SSLContext | bool,
         max_connections: int,
-        client: Any | None = None,
     ) -> None:
         if _httpx is None:  # pragma: no cover - guarded by callers
             raise RuntimeError(
                 "httpx is not installed (pip install epistemic-graph[lmcache])"
             )
-        self._owns_client = client is None
-        self._client = client or _httpx.Client(
+        if tls_context is not True and not isinstance(tls_context, ssl.SSLContext):
+            raise ValueError("KV-cache TLS peer verification cannot be disabled")
+        if isinstance(tls_context, ssl.SSLContext):
+            _require_verified_tls_context(tls_context)
+        self._client = _httpx.Client(
             base_url=base_url,
             timeout=timeout_s,
-            verify=verify_tls,
+            verify=tls_context,
             limits=_httpx.Limits(max_connections=max_connections),
         )
 
@@ -201,8 +210,7 @@ class HttpxTransport:
         return _Response(status=resp.status_code, body=resp.content)
 
     def close(self) -> None:
-        if self._owns_client:
-            self._client.close()
+        self._client.close()
 
 
 class RemoteKVConnector:
@@ -210,14 +218,13 @@ class RemoteKVConnector:
 
     CONCEPT:EG-KG.backend.shipped-pip-installable-python. Implements the LMCache remote-backend shape
     (``get`` / ``put`` / ``exists`` / ``contains`` / ``stats``) against EG-187
-    with an optional bearer token, a short per-request timeout, and total
+    with a mandatory bearer/JWT token, a short per-request timeout, and total
     graceful degradation — every error is a cache miss, never a raised exception
     on the inference path.
 
     Args:
-        config: Endpoint / auth / timeout settings. Defaults to
-            :class:`KvCacheConfig` defaults; use :meth:`from_env` to source from
-            the engine's EG-187 environment.
+        config: Endpoint / auth / timeout settings. When omitted, the current
+            environment contract is loaded with :meth:`KvCacheConfig.from_env`.
         transport: Optional pre-built :class:`_Transport` (dependency injection —
             unit tests / callers can supply their own). When omitted an
             :class:`HttpxTransport` is used if ``httpx`` is installed, else the
@@ -230,7 +237,7 @@ class RemoteKVConnector:
         *,
         transport: _Transport | None = None,
     ) -> None:
-        self.config = config or KvCacheConfig()
+        self.config = config or KvCacheConfig.from_env()
         self._owns_transport = transport is None
         self._transport = transport or self._build_transport()
 
@@ -241,30 +248,25 @@ class RemoteKVConnector:
         return cls(KvCacheConfig.from_env())
 
     def _build_transport(self) -> _Transport:
+        tls_context: ssl.SSLContext | bool = True
+        if self.config.base_url.startswith("https://"):
+            tls_context = self.config.ssl_context()
         if HTTPX_AVAILABLE:
-            headers = self._auth_headers()
-            client = _httpx.Client(  # type: ignore[union-attr]
-                base_url=self.config.base_url,
-                timeout=self.config.timeout_s,
-                verify=self.config.verify_tls,
-                headers=headers,
-                limits=_httpx.Limits(max_connections=self.config.max_connections),  # type: ignore[union-attr]
-            )
             return HttpxTransport(
                 base_url=self.config.base_url,
                 timeout_s=self.config.timeout_s,
-                verify_tls=self.config.verify_tls,
+                tls_context=tls_context,
                 max_connections=self.config.max_connections,
-                client=client,
             )
         return UrllibTransport(
-            timeout_s=self.config.timeout_s, verify_tls=self.config.verify_tls
+            timeout_s=self.config.timeout_s,
+            tls_context=(
+                tls_context if isinstance(tls_context, ssl.SSLContext) else None
+            ),
         )
 
     def _auth_headers(self) -> dict[str, str]:
-        if self.config.token:
-            return {"Authorization": f"Bearer {self.config.token}"}
-        return {}
+        return {"Authorization": f"Bearer {self.config.token}"}
 
     # -- key / url handling ---------------------------------------------------
     @staticmethod

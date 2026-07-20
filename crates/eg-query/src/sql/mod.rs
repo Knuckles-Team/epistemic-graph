@@ -17,8 +17,8 @@
 //!     it. The pg containment/overlap *operators* map to functions: `@>` ⇒
 //!     `array_has_all`, `&&` ⇒ `array_has_any` (the `@>` token itself stays bound to
 //!     JSONB containment on node columns, CONCEPT:EG-KG.compute.json-deep-indexing). `> ALL(array)` is **not**
-//!     supported by DataFusion 43's SQL planner (deferred).
-//!   * **Scalar/aggregate functions** — most are already in DataFusion 43
+//!     supported by DataFusion 54's SQL planner (deferred).
+//!   * **Scalar/aggregate functions** — most are already in DataFusion 54
 //!     (`split_part`, `regexp_replace`/`regexp_match`, `date_trunc`, `date_part`,
 //!     `to_timestamp`, `coalesce`, `nullif`, `string_agg`, `array_agg`, `concat`,
 //!     `substr`, …); EG-104 ADDS `greatest`/`least` (absent in 43) and desugars
@@ -35,7 +35,7 @@
 //!
 //! ## SQL window functions (CONCEPT:EG-KG.temporal.columnar-schema-inference)
 //! `<fn>() OVER (PARTITION BY … ORDER BY … <ROWS|RANGE frame>)` is DataFusion-backed:
-//! DataFusion 43 provides the window operator + the full function set natively
+//! DataFusion 54 provides the window operator + the full function set natively
 //! (ranking `ROW_NUMBER`/`RANK`/`DENSE_RANK`/`NTILE`/`PERCENT_RANK`/`CUME_DIST`;
 //! offset `LAG`/`LEAD`/`FIRST_VALUE`/`LAST_VALUE`/`NTH_VALUE`; aggregate
 //! `SUM`/`AVG`/`MIN`/`MAX`/`COUNT OVER`; `ROWS`/`RANGE` frame specs with the standard
@@ -83,9 +83,9 @@ pub use classify::{
 };
 pub use exec::{
     default_spill_rows, exec_sql, exec_sql_arrow, exec_sql_arrow_cancellable, exec_sql_cached,
-    exec_sql_cancellable, exec_sql_over_tables, exec_sql_typed, exec_sql_typed_cancellable,
-    exec_sql_typed_with_tables, exec_sql_typed_with_tables_cancellable, CancellationToken,
-    PgColType, QueryResult, StreamOutcome, TypedColumn, TypedQueryResult,
+    exec_sql_over_tables, exec_sql_typed, exec_sql_typed_cancellable, exec_sql_typed_with_tables,
+    exec_sql_typed_with_tables_cancellable, CancellationToken, PgColType, QueryResult,
+    StreamOutcome, TypedColumn, TypedQueryResult,
 };
 // CONCEPT:EG-KG.query.postgres-family-extension-plan/116/117/119 — Postgres-family extension parity plans + planners.
 pub use pgfamily::{

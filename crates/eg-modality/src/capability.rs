@@ -55,8 +55,9 @@ impl ModalitySelfTest {
 /// A modality's ingest capability report: batch ingest (the base requirement) plus
 /// streaming ingest "where applicable" (a modality that is a whole-value literal, not
 /// a stream, legitimately reports `NotApplicable` for streaming — see `eg-tensor`/
-/// `eg-geo`). The TCK's ingest point keys on `batch`; `streaming` is carried for
-/// completeness / future streaming-aware planners. Not serde (see [`ModalitySelfTest`]).
+/// `eg-geo`). The TCK evaluates both fields: production certification requires both
+/// to pass; a documented streaming N/A can only produce first-class/non-production
+/// coverage. Not serde (see [`ModalitySelfTest`]).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct IngestReport {
     pub batch: ModalitySelfTest,
@@ -108,4 +109,25 @@ pub struct StorageStats {
     /// Whether this modality participates in a secondary index (an R-tree, an ANN
     /// index, …) beyond primary-key/id lookup.
     pub has_secondary_index: bool,
+}
+
+/// Executed native-runtime evidence required in addition to the generic 12-point
+/// contract before a leaf can be advertised by the production server.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct NativeProductionProbe {
+    pub codec: bool,
+    pub normalized_payload: bool,
+    pub secondary_index: bool,
+    pub typed_query: bool,
+    pub malformed_and_resource_bounds: bool,
+}
+
+impl NativeProductionProbe {
+    pub fn passed(self) -> bool {
+        self.codec
+            && self.normalized_payload
+            && self.secondary_index
+            && self.typed_query
+            && self.malformed_and_resource_bounds
+    }
 }

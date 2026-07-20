@@ -20,30 +20,32 @@
 //! `apply_delta` under the SAME topology write lock as the vector store, so text/
 //! temporal/derived-OWL stay coherent with the graph and never torn.
 //!
+//! Spatial indexes additionally carry an explicit completeness state. Recovery
+//! replays graph material before the factory is installed, and paged lazy-open
+//! temporarily exposes only a prefix; neither case is planner-visible until a
+//! full source-graph backfill completes. Served queries use their existing
+//! snapshot fallback while the index is absent or incomplete.
+//!
 //! ## Deadlock discipline
 //!
 //! `apply_delta` runs INSIDE the batch's topology write lock. It therefore reads a
 //! node's content ONLY from the `ChangeSet`'s captured blob — NEVER by calling back
 //! into `core` (`get_node_properties` would re-enter the held topology lock and
-//! deadlock). `full_rebuild`, which DOES re-read every live node from `core`, is the
-//! OUT-OF-LOCK path only (`EPISTEMIC_GRAPH_INCREMENTAL_INDEX=0` kill-switch +
-//! explicit maintenance via `IndexManager::rebuild_all`) — never reached from the
-//! in-lock `commit_batch` fallback, because these `apply_delta`s are infallible.
+//! deadlock). `full_rebuild`, which DOES re-read every live node from `core`, is an
+//! explicit OUT-OF-LOCK startup/recovery operation and is never reached from the
+//! in-lock commit path.
 
 use crate::graph::GraphCore;
 use crate::index::{
-    ChangeSet, IndexColumns, IndexDescriptor, IndexError, IndexKind, Predicate, SecondaryIndex,
-    SecondaryIndexFactory,
+    ChangeSet, IndexColumns, IndexDescriptor, IndexError, IndexKind, IndexManifest, Predicate,
+    SecondaryIndex, SecondaryIndexFactory,
 };
 
 /// Decode a captured `NodeChange.properties_msgpack` blob into a JSON value map. The
 /// coalescer captures the FULL property blob for an added node, and the CAS `updates`
 /// map for an updated node — both MessagePack maps.
 fn decode_props(blob: &[u8]) -> Option<serde_json::Map<String, serde_json::Value>> {
-    match rmp_serde::from_slice::<serde_json::Value>(blob) {
-        Ok(serde_json::Value::Object(m)) => Some(m),
-        _ => None,
-    }
+    eg_types::msgpack::decode_property_object(blob).ok()
 }
 
 // ── text (CONCEPT:EG-KG.storage.incremental-text) ────────────────────────────────────
@@ -78,6 +80,7 @@ fn extract_text(props: &serde_json::Map<String, serde_json::Value>) -> Option<St
 #[cfg(feature = "text")]
 pub struct GraphTextIndex {
     index: std::sync::Mutex<eg_text::TextIndex>,
+    manifest: std::sync::Mutex<IndexManifest>,
 }
 
 #[cfg(feature = "text")]
@@ -85,6 +88,7 @@ impl GraphTextIndex {
     pub fn new(index: eg_text::TextIndex) -> Self {
         Self {
             index: std::sync::Mutex::new(index),
+            manifest: std::sync::Mutex::new(IndexManifest::default()),
         }
     }
 
@@ -120,6 +124,15 @@ impl SecondaryIndex for GraphTextIndex {
         None
     }
     fn needs_content(&self) -> bool {
+        true
+    }
+    fn manifest(&self) -> IndexManifest {
+        *self.manifest.lock().unwrap_or_else(|e| e.into_inner())
+    }
+    fn publish_manifest(&self, manifest: IndexManifest) {
+        *self.manifest.lock().unwrap_or_else(|e| e.into_inner()) = manifest;
+    }
+    fn maintains_manifest(&self) -> bool {
         true
     }
 
@@ -165,9 +178,8 @@ impl SecondaryIndex for GraphTextIndex {
     /// index first so it reflects exactly the live set.
     fn full_rebuild(&self, core: &GraphCore) -> Result<(), IndexError> {
         let mut ix = self.index.lock().unwrap_or_else(|e| e.into_inner());
-        for id in core.node_ids() {
-            ix.delete(&id); // clear any stale doc for this id first
-        }
+        ix.clear()
+            .map_err(|e| IndexError::Failed(format!("text rebuild reset: {e}")))?;
         for id in core.node_ids() {
             let body = core
                 .get_node_properties(&id)
@@ -212,8 +224,10 @@ impl ServedTextIndex {
     pub fn available(&self) -> bool {
         self.core
             .indexes()
-            .with_server_index(crate::index::IndexKind::Text, |_| ())
-            .is_some()
+            .with_server_index(crate::index::IndexKind::Text, |index| {
+                index.manifest().covers(self.core.version())
+            })
+            .unwrap_or(false)
     }
 }
 
@@ -223,6 +237,9 @@ impl eg_plan::TextSource for ServedTextIndex {
         self.core
             .indexes()
             .with_server_index(crate::index::IndexKind::Text, |idx| {
+                if !idx.manifest().covers(self.core.version()) {
+                    return Vec::new();
+                }
                 idx.as_any()
                     .downcast_ref::<GraphTextIndex>()
                     .map(|gti| gti.search(query, k))
@@ -273,6 +290,7 @@ fn extract_measurements(
 pub struct GraphTemporalIndex {
     store: std::sync::Arc<eg_tsdb::store::SeriesStore>,
     graph: String,
+    manifest: std::sync::Mutex<IndexManifest>,
 }
 
 #[cfg(feature = "tsdb")]
@@ -284,6 +302,7 @@ impl GraphTemporalIndex {
         Self {
             store,
             graph: graph.into(),
+            manifest: std::sync::Mutex::new(IndexManifest::default()),
         }
     }
 
@@ -329,6 +348,15 @@ impl SecondaryIndex for GraphTemporalIndex {
         None
     }
     fn needs_content(&self) -> bool {
+        true
+    }
+    fn manifest(&self) -> IndexManifest {
+        *self.manifest.lock().unwrap_or_else(|e| e.into_inner())
+    }
+    fn publish_manifest(&self, manifest: IndexManifest) {
+        *self.manifest.lock().unwrap_or_else(|e| e.into_inner()) = manifest;
+    }
+    fn maintains_manifest(&self) -> bool {
         true
     }
 
@@ -393,7 +421,18 @@ impl SecondaryIndex for GraphTemporalIndex {
 /// differential materialization stays owned by the reasoner. The incremental ≡ rebuild
 /// equivalence of THAT materializer is proven directly against `Reasoner` in the tests.
 #[cfg(feature = "owl")]
-pub struct DerivedOwlIndex;
+pub struct DerivedOwlIndex {
+    manifest: std::sync::Mutex<IndexManifest>,
+}
+
+#[cfg(feature = "owl")]
+impl Default for DerivedOwlIndex {
+    fn default() -> Self {
+        Self {
+            manifest: std::sync::Mutex::new(IndexManifest::default()),
+        }
+    }
+}
 
 #[cfg(feature = "owl")]
 impl SecondaryIndex for DerivedOwlIndex {
@@ -419,6 +458,15 @@ impl SecondaryIndex for DerivedOwlIndex {
     // No content needed: the reasoner reads the graph's triples/axioms itself on-demand.
     fn needs_content(&self) -> bool {
         false
+    }
+    fn manifest(&self) -> IndexManifest {
+        *self.manifest.lock().unwrap_or_else(|e| e.into_inner())
+    }
+    fn publish_manifest(&self, manifest: IndexManifest) {
+        *self.manifest.lock().unwrap_or_else(|e| e.into_inner()) = manifest;
+    }
+    fn maintains_manifest(&self) -> bool {
+        true
     }
     /// No-op: the reasoner already differentially materialized this delta (see the
     /// struct docs). Returns Ok so the batch never falls back to a rebuild.
@@ -481,6 +529,14 @@ struct LayerTree {
 struct SpatialState {
     items: std::collections::HashMap<String, (String, eg_geo::Bbox)>,
     built: std::collections::HashMap<String, LayerTree>,
+    /// `true` only after a full source-graph backfill completed. A freshly
+    /// registered index starts incomplete so recovery/paged lazy-open can never
+    /// advertise its initially empty or partial item set to the planner.
+    manifest: IndexManifest,
+    /// Incremented by every node delta. A full rebuild samples this before and
+    /// after reading the graph and retries if a concurrent maintained write
+    /// landed, preventing the replacement from overwriting that delta.
+    maintenance_revision: u64,
 }
 
 #[cfg(feature = "geo")]
@@ -571,6 +627,16 @@ impl GraphSpatialIndex {
             .unwrap_or_else(|e| e.into_inner())
             .query(layer, bbox)
     }
+
+    /// Whether the maintained item set covers the graph material from which it
+    /// was registered. Planner pushdown is legal only in this state; otherwise
+    /// the served path keeps its snapshot-derived fallback.
+    pub fn is_complete(&self) -> bool {
+        let state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        state
+            .manifest
+            .covers(state.manifest.source_snapshot_version)
+    }
 }
 
 #[cfg(feature = "geo")]
@@ -595,6 +661,21 @@ impl SecondaryIndex for GraphSpatialIndex {
         None
     }
     fn needs_content(&self) -> bool {
+        true
+    }
+    fn manifest(&self) -> IndexManifest {
+        self.state
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .manifest
+    }
+    fn publish_manifest(&self, manifest: IndexManifest) {
+        self.state
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .manifest = manifest;
+    }
+    fn maintains_manifest(&self) -> bool {
         true
     }
 
@@ -625,6 +706,12 @@ impl SecondaryIndex for GraphSpatialIndex {
                 st.upsert(&nc.id, layer, bbox);
             }
         }
+        if !change.added_nodes.is_empty()
+            || !change.updated_nodes.is_empty()
+            || !change.removed_nodes.is_empty()
+        {
+            st.maintenance_revision = st.maintenance_revision.wrapping_add(1);
+        }
         Ok(())
     }
 
@@ -632,21 +719,40 @@ impl SecondaryIndex for GraphSpatialIndex {
     /// dropping any node that no longer carries both. Safe here — no topology lock held
     /// on this path.
     fn full_rebuild(&self, core: &GraphCore) -> Result<(), IndexError> {
-        let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        *st = SpatialState::default();
-        for id in core.node_ids() {
-            let Some(props) = core
-                .get_node_properties(&id)
-                .as_deref()
-                .and_then(decode_props)
-            else {
-                continue;
-            };
-            if let (Some(layer), Some(bbox)) = (extract_layer(&props), extract_bbox(&props)) {
-                st.upsert(&id, layer, bbox);
+        const MAX_STABLE_REBUILD_ATTEMPTS: usize = 8;
+
+        for _ in 0..MAX_STABLE_REBUILD_ATTEMPTS {
+            let revision = self
+                .state
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .maintenance_revision;
+            let mut rebuilt = SpatialState::default();
+            for id in core.node_ids() {
+                let Some(props) = core
+                    .get_node_properties(&id)
+                    .as_deref()
+                    .and_then(decode_props)
+                else {
+                    continue;
+                };
+                if let (Some(layer), Some(bbox)) = (extract_layer(&props), extract_bbox(&props)) {
+                    rebuilt.upsert(&id, layer, bbox);
+                }
             }
+
+            let mut current = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            if current.maintenance_revision != revision {
+                continue;
+            }
+            rebuilt.maintenance_revision = revision;
+            *current = rebuilt;
+            return Ok(());
         }
-        Ok(())
+
+        Err(IndexError::Failed(
+            "spatial index source changed throughout backfill".to_string(),
+        ))
     }
 }
 
@@ -671,16 +777,21 @@ impl ServedSpatialIndex {
         Self { core }
     }
 
-    /// `true` iff this graph has a maintained persistent spatial index registered —
-    /// the caller (the query handler) uses this to choose between pushing an
-    /// `Op::SpatialScan` down into THIS adapter or leaving `PlanCtx::spatial` unbound
-    /// so `spatial_scan` runs its own ephemeral fallback (a graph created before the
-    /// factory installed, or a test harness with no `ServerIndexFactory` wired at all).
+    /// `true` iff this graph has a maintained persistent spatial index registered
+    /// AND fully backfilled from its source graph. The caller uses this to choose
+    /// between pushdown and the snapshot-derived fallback; merely registering an
+    /// empty/incomplete recovery or paged-lazy-open index is never sufficient.
     pub fn available(&self) -> bool {
         self.core
             .indexes()
-            .with_server_index(crate::index::IndexKind::Spatial, |_| ())
-            .is_some()
+            .with_server_index(crate::index::IndexKind::Spatial, |idx| {
+                idx.as_any()
+                    .downcast_ref::<GraphSpatialIndex>()
+                    .is_some_and(|index| {
+                        index.is_complete() && idx.manifest().covers(self.core.version())
+                    })
+            })
+            .unwrap_or(false)
     }
 }
 
@@ -692,6 +803,7 @@ impl eg_plan::SpatialSource for ServedSpatialIndex {
             .with_server_index(crate::index::IndexKind::Spatial, |idx| {
                 idx.as_any()
                     .downcast_ref::<GraphSpatialIndex>()
+                    .filter(|gsi| gsi.is_complete() && idx.manifest().covers(self.core.version()))
                     .map(|gsi| gsi.query_bbox(layer, bbox))
                     .unwrap_or_default()
             })
@@ -797,9 +909,68 @@ impl SecondaryIndexFactory for ServerIndexFactory {
             out.push(Box::new(GraphTemporalIndex::new(series.clone(), name)));
         }
         #[cfg(feature = "owl")]
-        out.push(Box::new(DerivedOwlIndex));
+        out.push(Box::new(DerivedOwlIndex::default()));
         #[cfg(feature = "geo")]
         out.push(Box::new(GraphSpatialIndex::new()));
         out
+    }
+}
+
+#[cfg(all(test, feature = "text"))]
+mod batch_update_tests {
+    use super::*;
+
+    fn text_hits(core: &GraphCore, query: &str) -> Vec<String> {
+        core.indexes()
+            .with_server_index(crate::index::IndexKind::Text, |index| {
+                index
+                    .as_any()
+                    .downcast_ref::<GraphTextIndex>()
+                    .expect("graph text index")
+                    .search(query, 10)
+                    .into_iter()
+                    .map(|hit| hit.id)
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn public_batch_keeps_text_manifest_complete_and_tombstones_removed_docs() {
+        let core = std::sync::Arc::new(GraphCore::new());
+        core.add_node(
+            "doc".to_string(),
+            rmp_serde::to_vec_named(&serde_json::json!({"text": "legacy phrase"})).unwrap(),
+        );
+        core.register_index(Box::new(GraphTextIndex::new(
+            eg_text::TextIndex::in_memory().unwrap(),
+        )));
+        core.indexes().rebuild_server_indexes(&core);
+        assert_eq!(text_hits(&core, "legacy"), vec!["doc"]);
+
+        let update = rmp_serde::to_vec_named(&serde_json::json!([
+            {"op": "upsert_node", "id": "doc", "properties": {"text": "current phrase"}},
+            {"op": "add_embedding", "id": "doc", "embedding": [1.0, 0.0]}
+        ]))
+        .unwrap();
+        crate::algorithms::batch_update(&core, &update).unwrap();
+        core.mark_dirty();
+        assert!(ServedTextIndex::new(core.clone()).available());
+        assert!(text_hits(&core, "legacy").is_empty());
+        assert_eq!(text_hits(&core, "current"), vec!["doc"]);
+
+        let remove = rmp_serde::to_vec_named(&serde_json::json!([
+            {"op": "remove_node", "id": "doc"}
+        ]))
+        .unwrap();
+        crate::algorithms::batch_update(&core, &remove).unwrap();
+        core.mark_dirty();
+        assert!(text_hits(&core, "current").is_empty());
+        assert_eq!(core.semantic_store.read().get_embedding("doc"), None);
+        assert!(core
+            .indexes()
+            .server_manifests()
+            .iter()
+            .all(|(_, manifest)| manifest.covers(core.version())));
     }
 }

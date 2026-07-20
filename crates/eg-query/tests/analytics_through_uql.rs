@@ -182,6 +182,7 @@ fn analytics_resolve_through_the_rpc_path_too_eg353() {
     let r = exec_sql(
         &snap,
         "SELECT covariance(x, y) AS cov, corr(x, y) AS r FROM nodes",
+        &eg_query::CancellationToken::new(),
     )
     .unwrap();
     let rows = rpc_rows(&r);
@@ -197,7 +198,12 @@ fn analytics_resolve_through_the_rpc_path_too_eg353() {
     );
 
     // A kernel matrix operator through the RPC path as well.
-    let r = exec_sql(&snap, "SELECT kmeans(emb, 2) AS lbl FROM nodes").unwrap();
+    let r = exec_sql(
+        &snap,
+        "SELECT kmeans(emb, 2) AS lbl FROM nodes",
+        &eg_query::CancellationToken::new(),
+    )
+    .unwrap();
     let rows = rpc_rows(&r);
     let labels = rows[0][0].as_array().expect("kmeans labels");
     assert_eq!(labels.len(), 6, "rpc kmeans labels: {labels:?}");

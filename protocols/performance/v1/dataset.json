@@ -1,0 +1,22 @@
+{
+  "schema_version": "1",
+  "seed": 370037,
+  "graph_ref": "g37:synthetic",
+  "node_count": 1024,
+  "edge_count": 2048,
+  "batch_size": 128,
+  "scale_points": [256, 512, 1024],
+  "probe_repetitions": 24,
+  "query_batch_size": 32,
+  "analytics_query_repetitions": 3,
+  "job_count": 3,
+  "job_transaction_count": 32,
+  "job_items_per_transaction": 4,
+  "job_item_cardinality": 12,
+  "job_poll_timeout_seconds": 30,
+  "modality_capability_repetitions": 3,
+  "modality_records_per_kind": 8,
+  "modality_scale_points": [1, 4, 8],
+  "modality_query_repetitions": 8,
+  "expected_workload_sha256": "42dc59247d7cd28cd222948d3365441920cacba0b4f712b8e5af1dd708125a1b"
+}

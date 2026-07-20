@@ -1,8 +1,8 @@
 //! eg-ann — native IVF-PQ + OPQ + SQ8-refine approximate-nearest-neighbour index
 //! (CONCEPT:EG-KG.sharding.semantic-embedding-store-backed).
 //!
-//! A pure-Rust, Pi-lean vector index that replaces the rebuild-on-load `hnsw_rs`
-//! store in `eg-core::compute::semantic`. The headline properties:
+//! A pure-Rust, Pi-lean vector index for persisted and in-memory ANN search.
+//! The headline properties:
 //!
 //!   * **Persistent / no-rebuild load** — `persist::save` → `persist::open`
 //!     reopens via mmap + an O(N) integer posting-list pass; no k-means, no graph
@@ -23,6 +23,7 @@
 //! Pi/full tiers — serving is CPU integer-table lookups (ADC) and needs no
 //! accelerator. The default build links no GPU, no faiss, no native-ML deps.
 
+mod codec;
 pub mod distance;
 pub mod flat;
 pub mod hnsw;

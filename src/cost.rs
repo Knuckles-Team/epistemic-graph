@@ -98,7 +98,7 @@ fn is_hibernated(graph: &str) -> bool {
 /// Per-tenant memory budget configuration (CONCEPT:EG-KG.compute.lane-v), read once at startup.
 #[derive(Debug, Clone, Copy)]
 pub struct CostConfig {
-    /// Process-wide resident-memory ceiling, bytes. `0` ⇒ disabled (no budgeting).
+    /// Process-wide resident-memory ceiling, bytes.
     pub global_ceiling_bytes: u64,
     /// Default per-tenant budget, bytes. A tenant may never exceed this; under global
     /// pressure its effective budget is further capped to the fair share.
@@ -120,44 +120,88 @@ fn system_total_bytes() -> Option<u64> {
     None
 }
 
+/// Effective memory available to this process. Containers commonly expose host
+/// `MemTotal` while enforcing a much smaller cgroup limit, so use the smallest
+/// finite value. This keeps the automatic budget meaningful in WSL/containers.
+fn system_memory_limit_bytes() -> Option<u64> {
+    fn read_limit(path: &str) -> Option<u64> {
+        let raw = std::fs::read_to_string(path).ok()?;
+        let value = raw.trim();
+        if value.eq_ignore_ascii_case("max") {
+            return None;
+        }
+        value.parse::<u64>().ok().filter(|limit| *limit > 0)
+    }
+
+    let total = system_total_bytes();
+    let cgroup = read_limit("/sys/fs/cgroup/memory.max")
+        .or_else(|| read_limit("/sys/fs/cgroup/memory/memory.limit_in_bytes"))
+        // Some v1 runtimes expose an effectively-unlimited sentinel near u64::MAX.
+        .filter(|limit| *limit < (1u64 << 60));
+    match (total, cgroup) {
+        (Some(total), Some(limit)) => Some(total.min(limit)),
+        (Some(total), None) => Some(total),
+        (None, Some(limit)) => Some(limit),
+        (None, None) => None,
+    }
+}
+
 impl CostConfig {
     /// Resolve from the environment (CONCEPT:EG-KG.compute.lane-v). ONE knob is enough to turn it on
     /// with a sensible auto-sized default:
     ///
     /// * `EPISTEMIC_GRAPH_MEMORY_BUDGET` — the global resident-memory ceiling. Accepts a
     ///   plain byte count OR a `k`/`m`/`g` suffix (`512m`, `2g`). When UNSET it AUTO-SIZES
-    ///   to 70% of system RAM (the headroom a shared engine should not exceed); `0`
-    ///   disables budgeting entirely. This is the single knob.
+    ///   to 40% of the smaller of system RAM and the cgroup limit. The safety
+    ///   ceiling cannot be disabled.
     /// * `EPISTEMIC_GRAPH_TENANT_BUDGET` — optional per-tenant budget override. Defaults
     ///   to the global ceiling (so a single-tenant box budgets against the ceiling); the
     ///   fair-share cap still applies under multi-tenant pressure regardless.
     /// * `EPISTEMIC_GRAPH_BUDGET_INTERVAL` — sweep cadence, seconds (default 15).
-    pub fn from_env() -> Self {
+    pub fn from_env() -> Result<Self, String> {
+        let automatic_ceiling = system_memory_limit_bytes()
+            .map(|total| total / 10 * 4)
+            .unwrap_or(512 * 1024 * 1024 / 10 * 4);
         let global_ceiling_bytes = match std::env::var("EPISTEMIC_GRAPH_MEMORY_BUDGET") {
-            Ok(v) => parse_bytes(&v).unwrap_or(0),
-            // Auto-size: 70% of system RAM, or 0 (disabled) if RAM is unknowable.
-            Err(_) => system_total_bytes().map(|t| t / 10 * 7).unwrap_or(0),
+            Ok(value) => parse_bytes(&value)
+                .filter(|parsed| *parsed > 0)
+                .ok_or_else(|| "EPISTEMIC_GRAPH_MEMORY_BUDGET must be positive".to_string())?,
+            // A shared engine leaves most memory available to its host process,
+            // filesystem cache, and peer services. Operators of a dedicated node
+            // can explicitly raise this value.
+            Err(std::env::VarError::NotPresent) => automatic_ceiling,
+            Err(std::env::VarError::NotUnicode(_)) => {
+                return Err("EPISTEMIC_GRAPH_MEMORY_BUDGET is not valid Unicode".to_string())
+            }
         };
-        let per_tenant_budget_bytes = std::env::var("EPISTEMIC_GRAPH_TENANT_BUDGET")
-            .ok()
-            .and_then(|v| parse_bytes(&v))
-            .filter(|&n| n > 0)
-            .unwrap_or(global_ceiling_bytes);
-        let interval_secs = std::env::var("EPISTEMIC_GRAPH_BUDGET_INTERVAL")
-            .ok()
-            .and_then(|v| v.parse::<u64>().ok())
-            .filter(|&n| n > 0)
-            .unwrap_or(15);
-        CostConfig {
+        let per_tenant_budget_bytes = match std::env::var("EPISTEMIC_GRAPH_TENANT_BUDGET") {
+            Ok(value) => parse_bytes(&value)
+                .filter(|budget| *budget > 0)
+                .ok_or_else(|| "EPISTEMIC_GRAPH_TENANT_BUDGET must be positive".to_string())?,
+            Err(std::env::VarError::NotPresent) => global_ceiling_bytes,
+            Err(std::env::VarError::NotUnicode(_)) => {
+                return Err("EPISTEMIC_GRAPH_TENANT_BUDGET is not valid Unicode".to_string())
+            }
+        };
+        let interval_secs = match std::env::var("EPISTEMIC_GRAPH_BUDGET_INTERVAL") {
+            Ok(value) => value
+                .trim()
+                .parse::<u64>()
+                .ok()
+                .filter(|interval| (1..=3_600).contains(interval))
+                .ok_or_else(|| {
+                    "EPISTEMIC_GRAPH_BUDGET_INTERVAL must be between 1 and 3600".to_string()
+                })?,
+            Err(std::env::VarError::NotPresent) => 15,
+            Err(std::env::VarError::NotUnicode(_)) => {
+                return Err("EPISTEMIC_GRAPH_BUDGET_INTERVAL is not valid Unicode".to_string())
+            }
+        };
+        Ok(CostConfig {
             global_ceiling_bytes,
             per_tenant_budget_bytes,
             interval_secs,
-        }
-    }
-
-    /// Is budgeting active? (A `0` ceiling means off.)
-    pub fn enabled(&self) -> bool {
-        self.global_ceiling_bytes > 0
+        })
     }
 }
 
@@ -173,7 +217,10 @@ fn parse_bytes(s: &str) -> Option<u64> {
         'g' => (&s[..s.len() - 1], 1024 * 1024 * 1024),
         _ => (s, 1),
     };
-    num.trim().parse::<u64>().ok().map(|n| n * mult)
+    num.trim()
+        .parse::<u64>()
+        .ok()
+        .and_then(|value| value.checked_mul(mult))
 }
 
 // ── Resource snapshot (autoscale signals) ───────────────────────────────────
@@ -213,7 +260,8 @@ pub struct TenantResourceStats {
 pub struct ResourceSnapshot {
     /// Total resident RAM across all graphs (sum of `memory_bytes`).
     pub total_memory_bytes: u64,
-    /// Process peak RSS (VmHWM), bytes — the OS-observed footprint, for calibration.
+    /// Current process RSS (falling back to peak RSS), bytes — the OS-observed
+    /// footprint used for calibration and hard-ceiling pressure.
     pub process_rss_bytes: u64,
     /// Configured global ceiling (0 ⇒ budgeting disabled).
     pub global_ceiling_bytes: u64,
@@ -236,11 +284,15 @@ pub struct ResourceSnapshot {
     pub graphs: Vec<GraphResourceStats>,
 }
 
-/// Process peak RSS (VmHWM) in bytes, from `/proc/self/status`. `0` if unavailable.
+/// Current process RSS in bytes, falling back to peak RSS when a platform omits
+/// `VmRSS`. Returns `0` when `/proc` is unavailable.
 fn process_rss_bytes() -> u64 {
     let s = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
-    for line in s.lines() {
-        if let Some(rest) = line.strip_prefix("VmHWM:") {
+    for key in ["VmRSS:", "VmHWM:"] {
+        for line in s.lines() {
+            let Some(rest) = line.strip_prefix(key) else {
+                continue;
+            };
             if let Some(kb) = rest
                 .split_whitespace()
                 .next()
@@ -257,8 +309,10 @@ fn process_rss_bytes() -> u64 {
 /// counts + the memory estimate per graph, rolls them up per tenant, and pulls the live
 /// in-flight admission state — the structured signal an autoscaler scales on. Off the hot
 /// path (a `ResourceStats` request / the metrics scrape).
-pub async fn collect_resource_stats(state: &Arc<RwLock<ServerState>>) -> ResourceSnapshot {
-    let config = CostConfig::from_env();
+pub async fn collect_resource_stats(
+    state: &Arc<RwLock<ServerState>>,
+) -> Result<ResourceSnapshot, String> {
+    let config = CostConfig::from_env()?;
     let (entries, configured_max_inflight, permits_available) = {
         let s = state.read().await;
         let entries: Vec<(String, Arc<GraphCore>)> = s
@@ -343,8 +397,7 @@ pub async fn collect_resource_stats(state: &Arc<RwLock<ServerState>>) -> Resourc
     }
 
     for t in tenant_rollup.values_mut() {
-        t.over_budget =
-            config.per_tenant_budget_bytes > 0 && t.memory_bytes > config.per_tenant_budget_bytes;
+        t.over_budget = t.memory_bytes > config.per_tenant_budget_bytes;
     }
 
     let mut tenants: Vec<TenantResourceStats> = tenant_rollup.into_values().collect();
@@ -352,7 +405,7 @@ pub async fn collect_resource_stats(state: &Arc<RwLock<ServerState>>) -> Resourc
     graphs.sort_by_key(|g| std::cmp::Reverse(g.memory_bytes));
 
     let st = cost_state();
-    ResourceSnapshot {
+    Ok(ResourceSnapshot {
         total_memory_bytes,
         process_rss_bytes: process_rss_bytes(),
         global_ceiling_bytes: config.global_ceiling_bytes,
@@ -370,7 +423,7 @@ pub async fn collect_resource_stats(state: &Arc<RwLock<ServerState>>) -> Resourc
             .load(std::sync::atomic::Ordering::Relaxed),
         tenants,
         graphs,
-    }
+    })
 }
 
 // ── Budget enforcement ──────────────────────────────────────────────────────
@@ -392,12 +445,8 @@ pub async fn enforce_memory_budgets(
     state: &Arc<RwLock<ServerState>>,
     config: CostConfig,
 ) -> (u64, u64) {
-    if !config.enabled() {
-        return (0, 0);
-    }
-
-    // Snapshot per-graph footprint + the durability backend / authoritative flag.
-    let (entries, authoritative, backend) = {
+    // Snapshot per-graph footprint + durable authority.
+    let (entries, backend) = {
         let s = state.read().await;
         let entries: Vec<(String, Arc<GraphCore>)> = s
             .registry
@@ -405,7 +454,7 @@ pub async fn enforce_memory_budgets(
             .iter()
             .map(|e| (e.name.clone(), e.core.clone()))
             .collect();
-        (entries, s.redb_authoritative, s.persistence.clone())
+        (entries, s.persistence.clone())
     };
 
     // Roll up resident memory per tenant + count active tenants for the fair share.
@@ -425,7 +474,17 @@ pub async fn enforce_memory_budgets(
     // tenant's EFFECTIVE budget is the smaller of its configured budget and this share,
     // so one hot tenant cannot consume the whole ceiling and starve others.
     let active_tenants = per_tenant.len().max(1) as u64;
-    let fair_share = config.global_ceiling_bytes / active_tenants;
+    let estimated_total = tenant_mem.values().copied().sum::<u64>();
+    let rss = process_rss_bytes();
+    let pressure_target = if rss > config.global_ceiling_bytes && estimated_total > 0 {
+        // Approximate how much of the modeled resident projection must remain to
+        // bring process RSS under the hard ceiling. Saturating integer arithmetic
+        // avoids float precision loss and overflow on large hosts.
+        ((estimated_total as u128 * config.global_ceiling_bytes as u128) / rss as u128) as u64
+    } else {
+        config.global_ceiling_bytes
+    };
+    let fair_share = config.global_ceiling_bytes.min(pressure_target) / active_tenants;
     let effective_budget = config.per_tenant_budget_bytes.min(fair_share.max(1));
 
     let mut total_evicted = 0u64;
@@ -451,7 +510,7 @@ pub async fn enforce_memory_budgets(
 
             // Step 1: durability-gated LRU eviction down to empty (max_nodes = 0 evicts
             // every durable node; a node whose durability can't be confirmed stays).
-            let evicted = evict_graph_to(&name, &core, 0, authoritative, &backend).await;
+            let evicted = evict_graph_to(&name, &core, 0, &backend).await;
             if evicted > 0 {
                 total_evicted += evicted as u64;
                 cost_state()
@@ -460,22 +519,15 @@ pub async fn enforce_memory_budgets(
                 crate::metrics::budget_evicted(evicted as u64);
             }
 
-            // Step 2: if still resident (eviction couldn't fully drain it, or this is the
-            // rebuildable-cache model where eviction drops to the durable backend), and
-            // the tenant is still over budget, hibernate the whole graph. Hibernation is
-            // durability-gated by the caller's checkpoint guarantee in authoritative mode;
-            // in the rebuildable-cache model the durable backend already holds the data.
+            // Step 2: if still resident and the tenant is still over budget, hibernate
+            // only after confirming every remaining node in durable authority.
             let still_resident = core.node_count() > 0;
             if still_resident && tenant_resident.saturating_sub(mem) < effective_budget {
-                // Checkpoint this graph's state durable BEFORE dropping RAM (no loss).
-                let durable_ok = checkpoint_before_hibernate(state, &backend).await;
-                if durable_ok {
-                    let freed = core.hibernate();
-                    if freed > 0 {
-                        total_hibernated += 1;
-                        note_hibernated(&name, true);
-                        crate::metrics::budget_hibernated();
-                    }
+                let freed = hibernate_graph_if_durable(&name, &core, &backend);
+                if freed > 0 {
+                    total_hibernated += 1;
+                    note_hibernated(&name, true);
+                    crate::metrics::budget_hibernated();
                 }
             }
 
@@ -494,21 +546,14 @@ pub async fn enforce_memory_budgets(
     (total_evicted, total_hibernated)
 }
 
-/// Evict one graph's LRU nodes down to `max_nodes`, durability-gated under authoritative
-/// mode (CONCEPT:EG-KG.storage.read-through-seam-exercised) — the same no-loss gate `persist::evict_oversized_all` uses,
-/// applied to a single graph. In the rebuildable-cache model (non-authoritative), drop
-/// the LRU directly (the durable backend re-hydrates on access). Returns nodes evicted.
+/// Evict one graph's LRU nodes down to `max_nodes` only after durable presence is
+/// confirmed (CONCEPT:EG-KG.storage.read-through-seam-exercised).
 async fn evict_graph_to(
     fname_graph: &str,
     core: &Arc<GraphCore>,
     max_nodes: usize,
-    authoritative: bool,
     backend: &Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
 ) -> usize {
-    if !authoritative {
-        return core.evict_lru(max_nodes);
-    }
-    // Authoritative: confirm each candidate durable in redb BEFORE dropping it.
     let backend = match backend {
         Some(b) => b,
         None => return 0, // nothing durable to confirm against ⇒ never drop
@@ -518,32 +563,42 @@ async fn evict_graph_to(
         return 0;
     }
     let fname = crate::persist::sanitize(fname_graph);
-    let mut evicted = 0usize;
-    for node_id in candidates {
-        match backend.read_node(&fname, &node_id).await {
-            Ok(Some(_)) => {
-                core.remove_node(node_id);
-                evicted += 1;
-            }
-            Ok(None) | Err(_) => { /* durability unconfirmed ⇒ keep resident */ }
-        }
-    }
-    evicted
+    let presence = match backend.durable_node_presence(&fname, &candidates) {
+        Ok(value) if value.len() == candidates.len() => value,
+        Ok(_) | Err(_) => return 0,
+    };
+    let durable: Vec<String> = candidates
+        .into_iter()
+        .zip(presence)
+        .filter_map(|(node_id, present)| present.then_some(node_id))
+        .collect();
+    core.evict_resident_nodes(&durable)
 }
 
-/// Checkpoint all graphs durable before a budget hibernation drops RAM (no data loss).
-/// In the rebuildable-cache model the durable backend already holds the data, so a
-/// missing backend is treated as "durable elsewhere" (the model's contract). Returns
-/// `true` when it is safe to hibernate.
-async fn checkpoint_before_hibernate(
-    state: &Arc<RwLock<ServerState>>,
+fn hibernate_graph_if_durable(
+    graph_name: &str,
+    core: &GraphCore,
     backend: &Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
-) -> bool {
-    match backend {
-        Some(b) => b.checkpoint_all(state).await.is_ok(),
-        // No engine-side durable backend ⇒ an external system-of-record holds the data
-        // (the rebuildable-cache model); hibernation just drops a rebuildable cache.
-        None => true,
+) -> usize {
+    let Some(backend) = backend else {
+        return 0;
+    };
+    let node_ids: Vec<String> = core
+        .get_nodes()
+        .into_iter()
+        .map(|(node_id, _)| node_id)
+        .collect();
+    if node_ids.is_empty() {
+        return 0;
+    }
+    let fname = crate::persist::sanitize(graph_name);
+    match backend.durable_node_presence(&fname, &node_ids) {
+        Ok(presence)
+            if presence.len() == node_ids.len() && presence.iter().all(|present| *present) =>
+        {
+            core.hibernate()
+        }
+        Ok(_) | Err(_) => 0,
     }
 }
 
@@ -620,16 +675,6 @@ mod tests {
         assert_eq!(parse_bytes("notanumber"), None);
     }
 
-    #[test]
-    fn disabled_config_is_a_noop_budget() {
-        let cfg = CostConfig {
-            global_ceiling_bytes: 0,
-            per_tenant_budget_bytes: 0,
-            interval_secs: 15,
-        };
-        assert!(!cfg.enabled());
-    }
-
     // ── Budget-enforcement integration proofs (CONCEPT:EG-KG.compute.lane-v) ────────────
     // These need a real durable backend (redb) so eviction is durability-gated and a
     // rehydrate read serves the evicted node back. Gated on `redb` (present in
@@ -637,20 +682,41 @@ mod tests {
     #[cfg(feature = "redb")]
     mod integration {
         use super::super::*;
+        use crate::acl::{AgentIdentity, AgentRole, RequestContextClaims};
         use crate::channels::ChannelManager;
+        use crate::durability::DurabilityPolicy;
         use crate::isolation::IsolationLayer;
-        use crate::protocol::{GraphType, Method, Request};
+        use crate::protocol::{GraphType, Method, Request, Response};
         use crate::registry::GraphRegistry;
-        use crate::server::compute_auth_token;
-        use crate::server::persistence::read_through::BackendReadThroughFactory;
+        use crate::server::persistence::read_through::{
+            BackendGraphMaterializer, BackendReadThroughFactory,
+        };
         use crate::server::persistence::redb_backend::RedbBackend;
         use crate::server::persistence::PersistenceBackend;
-        use crate::server::{dispatch, ServerState};
-        use crate::wal_service::FsyncPolicy;
+        use crate::server::{
+            compute_verified_envelope_token, dispatch, ServerState, VerifiedEnvelopeParams,
+        };
+        use std::future::Future;
+        use std::pin::Pin;
+        use std::sync::atomic::{AtomicU64, Ordering};
         use std::sync::Arc;
+        use std::time::{SystemTime, UNIX_EPOCH};
         use tokio::sync::{RwLock, Semaphore};
 
         const SECRET: &str = "cost-budget-test";
+        const TEST_AGENT: &str = "unit-test-agent";
+        static NONCE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+
+        fn current_isolation() -> IsolationLayer {
+            let mut isolation = IsolationLayer::new();
+            isolation.register_agent(AgentIdentity {
+                agent_id: TEST_AGENT.to_string(),
+                role: AgentRole::System,
+                teams: Vec::new(),
+                roles: Vec::new(),
+            });
+            isolation
+        }
 
         fn props(v: serde_json::Value) -> Vec<u8> {
             rmp_serde::to_vec(&v).unwrap()
@@ -658,7 +724,7 @@ mod tests {
 
         async fn redb_state(dir_s: &str) -> Arc<RwLock<ServerState>> {
             let backend: Arc<dyn PersistenceBackend> = Arc::new(
-                RedbBackend::open(dir_s.to_string(), FsyncPolicy::Each, 256).expect("open"),
+                RedbBackend::open(dir_s.to_string(), DurabilityPolicy::Each, 256).expect("open"),
             );
             let state = Arc::new(RwLock::new(ServerState {
                 #[cfg(feature = "redb")]
@@ -666,19 +732,16 @@ mod tests {
                     crate::server::persistence::cold_offload::ColdTenantTracker::new(),
                 ),
                 registry: GraphRegistry::new(),
-                isolation: IsolationLayer::new(),
+                isolation: current_isolation(),
                 channels: ChannelManager::new(),
                 auth_secret: SECRET.to_string(),
                 persist_dir: Some(dir_s.to_string()),
                 persistence: Some(backend.clone()),
-                redb_authoritative: true,
                 max_in_flight: Arc::new(Semaphore::new(64)),
                 read_admission: Arc::new(Semaphore::new(64)),
                 per_graph_inflight: Arc::new(dashmap::DashMap::new()),
                 per_graph_inflight_limit: 32,
-                write_coalescer: Arc::new(
-                    crate::write_coalescer::WriteCoalescerRegistry::from_env(),
-                ),
+                write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
                 open_txns: Arc::new(dashmap::DashMap::new()),
                 txn_id_gen: Arc::new(crate::server::txn::TxnIdGen::default()),
                 txn_ttl_secs: 300,
@@ -694,8 +757,6 @@ mod tests {
                 multi_raft: None,
                 #[cfg(feature = "tsdb")]
                 tsdb_store: None,
-                #[cfg(feature = "rdf-redb")]
-                rdf_quads: None,
                 #[cfg(feature = "streaming")]
                 cdc: Some(Arc::new(crate::server::cdc::CdcHub::new())),
                 #[cfg(feature = "wasm-udf")]
@@ -708,10 +769,6 @@ mod tests {
                 foreign_sources: Arc::new(dashmap::DashMap::new()),
                 #[cfg(feature = "kv")]
                 kv: None,
-                #[cfg(feature = "dataset-handle")]
-                dataset_handles: Arc::new(
-                    crate::server::dataset_handle::DatasetHandleRegistry::new(),
-                ),
                 #[cfg(feature = "lake")]
                 lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
             }));
@@ -720,22 +777,113 @@ mod tests {
                 let mut s = state.write().await;
                 let factory = Arc::new(BackendReadThroughFactory::new(backend.clone()));
                 s.registry.set_read_through_factory(factory);
+                let materializer = Arc::new(BackendGraphMaterializer::new(backend.clone()));
+                s.registry.set_materializer(materializer);
             }
             state
         }
 
         fn req(id: u64, graph: &str, method: Method) -> Request {
-            Request {
+            std::env::set_var("EPISTEMIC_GRAPH_AUDIENCE", "epistemic-graph-test");
+            std::env::set_var("EPISTEMIC_GRAPH_TENANT", "tenant-shared");
+            std::env::set_var("EPISTEMIC_GRAPH_POLICY_VERSION", "policy-test");
+            std::env::set_var(
+                "EPISTEMIC_GRAPH_SECURITY_STATE_DIR",
+                std::env::temp_dir()
+                    .join(format!("epistemic-graph-unit-auth-{}", std::process::id())),
+            );
+            let context = RequestContextClaims {
+                principal: TEST_AGENT.to_string(),
+                tenant: "tenant-shared".to_string(),
+                audience: "epistemic-graph-test".to_string(),
+                agent_id: TEST_AGENT.to_string(),
+                roles: Vec::new(),
+                scopes: vec!["*".to_string()],
+                policy_version: "policy-test".to_string(),
+                delegation: Vec::new(),
+            };
+            let mut request = Request {
                 id,
                 graph: graph.to_string(),
-                auth_token: compute_auth_token(SECRET, id),
-                agent_id: None,
+                auth_token: String::new(),
+                agent_id: Some(TEST_AGENT.to_string()),
                 method,
-            }
+            };
+            let sequence = NONCE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+            let issued_at = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("the system clock is after the Unix epoch");
+            let nonce = format!(
+                "cost-{}-{id}-{sequence}-{}",
+                std::process::id(),
+                issued_at.as_nanos()
+            );
+            let idempotency_key = format!("cost-request-{id}-{sequence}");
+            request.auth_token = compute_verified_envelope_token(
+                SECRET,
+                &request,
+                &VerifiedEnvelopeParams {
+                    context: &context,
+                    timestamp: issued_at.as_secs(),
+                    nonce: &nonce,
+                    idempotency_key: &idempotency_key,
+                },
+            );
+            request
+        }
+
+        /// Keep the full dispatcher state machine behind one heap indirection. The
+        /// all-feature dispatcher is intentionally broad, and embedding its future in
+        /// this integration test's future can exhaust the test harness thread stack
+        /// before the first request is polled. Production transport tasks are already
+        /// heap-owned; this gives the direct library test the same structural boundary.
+        fn dispatch_on_heap<'a>(
+            state: &'a Arc<RwLock<ServerState>>,
+            request: Request,
+        ) -> Pin<Box<dyn Future<Output = Response> + Send + 'a>> {
+            Box::pin(dispatch(state, request))
+        }
+
+        async fn assert_authoritative_projection(state: &Arc<RwLock<ServerState>>, graph: &str) {
+            let (core, backend, manifest) = {
+                let state = state.read().await;
+                let core = state
+                    .registry
+                    .get(graph)
+                    .unwrap_or_else(|| panic!("graph {graph} is not resident"))
+                    .core
+                    .clone();
+                let backend = state
+                    .persistence
+                    .clone()
+                    .expect("cost integration state has durable persistence");
+                let manifest = state
+                    .registry
+                    .materialization_manifest(graph)
+                    .expect("resident graph has a materialization manifest");
+                (core, backend, manifest)
+            };
+            let fname = crate::persist::sanitize(graph);
+            let durable_version = backend
+                .read_mutation_graph_version(&fname)
+                .await
+                .expect("authoritative version read")
+                .expect("created graph has an authoritative version");
+            assert_eq!(
+                core.version(),
+                durable_version,
+                "serving projection must publish the committed authoritative version"
+            );
+            assert!(manifest.valid, "resident projection must be complete");
+            assert_eq!(
+                manifest.source_snapshot_version,
+                Some(durable_version),
+                "materialization manifest must carry the authoritative watermark"
+            );
         }
 
         async fn create(state: &Arc<RwLock<ServerState>>, id: u64, graph: &str) {
-            let r = dispatch(
+            let r = dispatch_on_heap(
                 state,
                 req(
                     id,
@@ -748,10 +896,12 @@ mod tests {
             )
             .await;
             assert!(r.error.is_none(), "create {graph}: {:?}", r.error);
+            assert_authoritative_projection(state, graph).await;
         }
 
         async fn add(state: &Arc<RwLock<ServerState>>, id: u64, graph: &str, node: &str) {
-            let r = dispatch(
+            assert_authoritative_projection(state, graph).await;
+            let r = dispatch_on_heap(
                 state,
                 req(
                     id,
@@ -780,6 +930,41 @@ mod tests {
             // resident memory is well over a tiny budget.
             create(&state, 1, "acme:hot").await;
             create(&state, 2, "acme:cold").await;
+            let hot_was_evicted = {
+                let state = state.read().await;
+                let resident = state.registry.get("acme:hot").is_some();
+                let manifest = state
+                    .registry
+                    .materialization_manifest("acme:hot")
+                    .expect("created graph remains cataloged");
+                if !resident {
+                    assert_eq!(
+                        manifest.phase,
+                        crate::registry::MaterializationPhase::CatalogOnly,
+                        "capacity eviction must leave a catalog-only generation"
+                    );
+                }
+                !resident
+            };
+            if hot_was_evicted {
+                let reopened = dispatch_on_heap(
+                    &state,
+                    req(
+                        50,
+                        "acme:hot",
+                        Method::GetNodeProperties {
+                            node_id: "version-probe".into(),
+                        },
+                    ),
+                )
+                .await;
+                assert!(
+                    reopened.error.is_none(),
+                    "catalog-only graph must reopen: {:?}",
+                    reopened.error
+                );
+            }
+            assert_authoritative_projection(&state, "acme:hot").await;
             let mut id = 100u64;
             for i in 0..40 {
                 add(&state, id, "acme:hot", &format!("h{i}")).await;
@@ -788,13 +973,7 @@ mod tests {
                 id += 1;
             }
 
-            // Checkpoint so every node is durable in redb (the eviction gate confirms it).
-            {
-                let backend = state.read().await.persistence.clone().unwrap();
-                backend.checkpoint_all(&state).await.unwrap();
-            }
-
-            let before = collect_resource_stats(&state).await;
+            let before = collect_resource_stats(&state).await.unwrap();
             let acme_before = before
                 .tenants
                 .iter()
@@ -819,7 +998,7 @@ mod tests {
             // STAYS UNDER CAP: after enforcement the tenant's resident footprint is at
             // or under the budget (within one graph's residual, since reclamation is
             // coldest-graph-granular).
-            let after = collect_resource_stats(&state).await;
+            let after = collect_resource_stats(&state).await.unwrap();
             let acme_after = after.tenants.iter().find(|t| t.tenant == "acme").unwrap();
             assert!(
                 acme_after.memory_bytes < acme_before.memory_bytes,
@@ -830,7 +1009,7 @@ mod tests {
 
             // REHYDRATES CORRECTLY: a read of an evicted node serves its durable blob
             // back through the read-through seam (no data loss).
-            let r = dispatch(
+            let r = dispatch_on_heap(
                 &state,
                 req(
                     9000,
@@ -868,13 +1047,8 @@ mod tests {
             }
             add(&state, id, "minnow:small", "s0").await;
 
-            {
-                let backend = state.read().await.persistence.clone().unwrap();
-                backend.checkpoint_all(&state).await.unwrap();
-            }
-
             let small_before = {
-                let s = collect_resource_stats(&state).await;
+                let s = collect_resource_stats(&state).await.unwrap();
                 s.tenants
                     .iter()
                     .find(|t| t.tenant == "minnow")
@@ -891,7 +1065,7 @@ mod tests {
             };
             enforce_memory_budgets(&state, cfg).await;
 
-            let after = collect_resource_stats(&state).await;
+            let after = collect_resource_stats(&state).await.unwrap();
             let small_after = after
                 .tenants
                 .iter()
@@ -924,7 +1098,7 @@ mod tests {
                 add(&state, 200 + i, "beta:b", &format!("b{i}")).await;
             }
 
-            let snap = collect_resource_stats(&state).await;
+            let snap = collect_resource_stats(&state).await.unwrap();
 
             // Per-graph node counts are exact.
             let ga = snap.graphs.iter().find(|g| g.graph == "acme:a").unwrap();

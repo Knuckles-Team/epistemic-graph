@@ -8,6 +8,9 @@
 //! redb table store persists them verbatim (MessagePack) and they round-trip across a
 //! restart unchanged.
 
+use std::collections::HashMap;
+use std::sync::OnceLock;
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -148,9 +151,7 @@ impl ColCheck {
 
 /// One column of a user table: its name, declared type, NULL-ability, primary-key /
 /// uniqueness participation, an optional column DEFAULT, SERIAL auto-increment, and an
-/// optional simple CHECK (CONCEPT:EG-KG.query.register-user-tables-alongside + constraints CONCEPT:EG-KG.query.register-each-user-table). The new
-/// constraint fields are `#[serde(default)]` so a table written by the EG-018 increment
-/// (no constraints) deserializes unchanged.
+/// optional simple CHECK (CONCEPT:EG-KG.query.register-user-tables-alongside + constraints CONCEPT:EG-KG.query.register-each-user-table).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Column {
     pub name: String,
@@ -158,23 +159,18 @@ pub struct Column {
     pub nullable: bool,
     pub primary_key: bool,
     /// `UNIQUE` (or `PRIMARY KEY`) — enforced on insert/update (CONCEPT:EG-KG.query.register-each-user-table).
-    #[serde(default)]
     pub unique: bool,
     /// `SERIAL`/`BIGSERIAL` (or `DEFAULT nextval(...)`) — auto-assigned from the
     /// per-table sequence when not supplied (CONCEPT:EG-KG.query.register-each-user-table).
-    #[serde(default)]
     pub serial: bool,
     /// Column `DEFAULT <literal>` value, used when a row omits the column.
-    #[serde(default)]
     pub default: Option<Value>,
     /// Optional simple `CHECK (col OP literal)` enforced on the write path.
-    #[serde(default)]
     pub check: Option<ColCheck>,
 }
 
 impl Column {
-    /// A plain column with no constraints beyond name/type/nullability/PK (the EG-018
-    /// shape). Keeps existing call sites concise as new constraint fields are added.
+    /// A plain column with no constraints beyond name/type/nullability/PK.
     pub fn new(name: impl Into<String>, ty: ColumnType, nullable: bool, primary_key: bool) -> Self {
         Self {
             name: name.into(),
@@ -197,21 +193,169 @@ impl Column {
 /// A user table's full schema: its name and ordered columns (CONCEPT:EG-KG.query.register-user-tables-alongside). The
 /// column ORDER is canonical — every stored row's `Vec<Cell>` is aligned to it, and
 /// a SELECT projects columns in this order unless the query names them explicitly.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TableSchema {
     pub name: String,
-    pub columns: Vec<Column>,
+    columns: Vec<Column>,
+    /// Derived name directory. It is rebuilt after deserialization and deliberately
+    /// excluded from the durable schema so persistence has one canonical source of
+    /// truth: the ordered `columns` vector.
+    #[serde(skip)]
+    column_offsets: OnceLock<Result<HashMap<String, usize>, String>>,
+}
+
+impl Clone for TableSchema {
+    fn clone(&self) -> Self {
+        // A clone is intentionally cold. Copying a populated directory would make
+        // cache state observable through clone/equality and duplicates derived data.
+        Self::new(self.name.clone(), self.columns.clone())
+    }
+}
+
+impl PartialEq for TableSchema {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name && self.columns == other.columns
+    }
 }
 
 impl TableSchema {
+    pub fn new(name: impl Into<String>, columns: Vec<Column>) -> Self {
+        Self {
+            name: name.into(),
+            columns,
+            column_offsets: OnceLock::new(),
+        }
+    }
+
+    /// Validate durable schema invariants and initialize the derived directory.
+    /// Invalid persisted schemas fail closed instead of making duplicate names
+    /// resolve according to vector order.
+    pub fn validate(&self) -> Result<(), String> {
+        validate_schema_name(&self.name, "table")?;
+        if self.columns.is_empty() {
+            return Err(format!(
+                "table `{}` must declare at least one column",
+                self.name
+            ));
+        }
+        self.column_offsets()
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+
+    /// Ordered columns. Rows remain positionally aligned with this slice.
+    pub fn columns(&self) -> &[Column] {
+        &self.columns
+    }
+
+    /// Mutably borrow the ordered columns, invalidating the derived name directory
+    /// before any possible name/shape change.
+    pub fn columns_mut(&mut self) -> &mut Vec<Column> {
+        self.column_offsets.take();
+        &mut self.columns
+    }
+
     /// The position of `column` in the schema's column order, if present.
+    /// The first lookup builds the directory in O(W); warm lookups are expected O(1).
     pub fn column_index(&self, column: &str) -> Option<usize> {
-        self.columns.iter().position(|c| c.name == column)
+        self.column_offsets().ok()?.get(column).copied()
     }
 
     /// The column with the given name, if present.
     pub fn column(&self, column: &str) -> Option<&Column> {
-        self.columns.iter().find(|c| c.name == column)
+        self.column_index(column)
+            .and_then(|offset| self.columns.get(offset))
+    }
+
+    fn column_offsets(&self) -> Result<&HashMap<String, usize>, &String> {
+        self.column_offsets
+            .get_or_init(|| {
+                let mut offsets = HashMap::with_capacity(self.columns.len());
+                for (offset, column) in self.columns.iter().enumerate() {
+                    validate_schema_name(&column.name, "column")?;
+                    if offsets.insert(column.name.clone(), offset).is_some() {
+                        return Err(format!(
+                            "table `{}` declares duplicate column `{}`",
+                            self.name, column.name
+                        ));
+                    }
+                }
+                Ok(offsets)
+            })
+            .as_ref()
+    }
+}
+
+fn validate_schema_name(value: &str, kind: &str) -> Result<(), String> {
+    if value.is_empty() || value.contains('\0') {
+        return Err(format!("{kind} name is empty or contains NUL"));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod table_schema_tests {
+    use super::*;
+
+    fn column(name: &str) -> Column {
+        Column::new(name, ColumnType::Text, true, false)
+    }
+
+    #[test]
+    fn column_directory_is_lazy_and_warm_lookups_are_direct() {
+        let schema = TableSchema::new("events", vec![column("id"), column("payload")]);
+        assert!(schema.column_offsets.get().is_none());
+        assert_eq!(schema.column_index("payload"), Some(1));
+        assert!(schema.column_offsets.get().is_some());
+        assert_eq!(
+            schema.column("id").map(|value| value.name.as_str()),
+            Some("id")
+        );
+        assert_eq!(schema.column_index("missing"), None);
+    }
+
+    #[test]
+    fn serialized_schema_excludes_and_rebuilds_the_directory() {
+        let schema = TableSchema::new("events", vec![column("id"), column("payload")]);
+        assert_eq!(schema.column_index("payload"), Some(1));
+
+        let encoded = serde_json::to_value(&schema).unwrap();
+        assert!(encoded.get("column_offsets").is_none());
+        let restored: TableSchema = serde_json::from_value(encoded).unwrap();
+        assert_eq!(restored, schema);
+        assert!(restored.column_offsets.get().is_none());
+        assert_eq!(restored.column_index("payload"), Some(1));
+    }
+
+    #[test]
+    fn clone_preserves_only_canonical_schema_and_rebuilds_lazily() {
+        let schema = TableSchema::new("events", vec![column("id"), column("payload")]);
+        assert_eq!(schema.column_index("payload"), Some(1));
+        let cloned = schema.clone();
+        assert_eq!(cloned, schema);
+        assert!(cloned.column_offsets.get().is_none());
+        assert_eq!(cloned.column_index("payload"), Some(1));
+    }
+
+    #[test]
+    fn mutation_invalidates_the_directory_and_validation_rejects_bad_names() {
+        let mut schema = TableSchema::new("events", vec![column("id"), column("payload")]);
+        assert_eq!(schema.column_index("id"), Some(0));
+        schema.columns_mut()[0].name = "event_id".to_string();
+        assert!(schema.column_offsets.get().is_none());
+        assert_eq!(schema.column_index("event_id"), Some(0));
+        assert_eq!(schema.column_index("id"), None);
+
+        let duplicate = TableSchema::new("events", vec![column("id"), column("id")]);
+        assert!(duplicate
+            .validate()
+            .unwrap_err()
+            .contains("duplicate column"));
+        assert_eq!(duplicate.column_index("id"), None);
+
+        let malformed = TableSchema::new("events", vec![column("")]);
+        assert!(malformed.validate().unwrap_err().contains("column name"));
     }
 }
 
@@ -410,12 +554,9 @@ pub enum FunctionReturns {
 /// The procedural language a stored function's body is written in (CONCEPT:EG-KG.query.eg-validate-procedural-body).
 /// `Sql` bodies are EXPANDED inline at plan time (CONCEPT:EG-KG.query.create-drop-function); `PlPgSql` bodies are
 /// run through the procedural interpreter (`sql::plpgsql`) on a bare top-level call.
-/// `#[serde(other)]`-free but `StoredFunction.language` carries `#[serde(default)]` so a
-/// catalog record written before EG-340 (no `language` field) decodes as `Sql`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FunctionLanguage {
     /// `LANGUAGE sql` — body is a single `SELECT`, expanded inline (CONCEPT:EG-KG.query.create-drop-function).
-    #[default]
     Sql,
     /// `LANGUAGE plpgsql` — a procedural body (DECLARE/BEGIN..END, IF, loops, `:=`,
     /// `SELECT … INTO`, RETURN) executed by the interpreter (CONCEPT:EG-KG.query.eg-validate-procedural-body/EG-341).
@@ -437,9 +578,7 @@ pub struct StoredFunction {
     /// The function body. For `Sql`: a dollar-/single-quoted `SELECT …` whose argument
     /// identifiers reference `args` by name. For `PlPgSql`: the procedural block.
     pub body: String,
-    /// The body's procedural language (CONCEPT:EG-KG.query.eg-validate-procedural-body). `#[serde(default)]` so a
-    /// pre-EG-340 catalog record (no field) decodes as [`FunctionLanguage::Sql`].
-    #[serde(default)]
+    /// The body's procedural language (CONCEPT:EG-KG.query.eg-validate-procedural-body).
     pub language: FunctionLanguage,
 }
 

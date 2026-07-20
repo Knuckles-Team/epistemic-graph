@@ -2,7 +2,7 @@
 name = "eg-tsdb"
 version = "0.1.0"
 edition = "2021"
-authors = ["Audel Rouhi <knucklessg1@gmail.com>"]
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
 description = "Native time-series store + TS query primitives (time_bucket/ASOF/gap-fill/OHLC/rollup) for the epistemic-graph engine"
 license = "MIT"
 
@@ -22,7 +22,7 @@ default = []
 # the finance kernels (eg-compute) for the primitive reuse. The native TS
 # primitives (ASOF / gap-fill / time_bucket / OHLC / decay_weighted_mean) need
 # NOTHING but this — no DataFusion (the Pi contract).
-redb-store = ["dep:redb"]
+redb-store = ["dep:redb", "dep:eg-mutation-store", "dep:eg-types"]
 # Arrow columnar segment + DataFusion `time_bucket = GROUP BY (ts/w)*w` scan path.
 # Heavy (Arrow + DataFusion); OFF in the lean build, folded only into node/cluster/
 # full via the facade `query` feature.
@@ -43,7 +43,7 @@ promql = []
 traces = []
 # ModalityContract retrofit (CONCEPT:E4): `impl ModalityContract for
 # store::SeriesMeta` AND `impl ModalityContract for traces::Span` (the X1 real
-# `evidence()` -> `EvidenceSpan::TraceSpan` resolver) + the
+# `evidence_address()` -> `EvidenceAddress::TraceSpan` resolver) + the
 # `modality_conformance_tests!` battery for each. OFF by default, deliberately NOT
 # folded into any tier aggregate (pi/node/full) — it is a capability-discovery/
 # testing seam, not a serving feature. Implies `redb-store` (since `SeriesMeta`
@@ -60,8 +60,10 @@ eg-compute = { path = "../eg-compute", features = ["finance"] }
 
 # Same pins as the engine so footprint/throughput findings transfer 1:1.
 redb = { version = "4.1", optional = true }
-arrow = { version = "53", optional = true }
-datafusion = { version = "43", default-features = false, optional = true }
+eg-mutation-store = { path = "../eg-mutation-store", optional = true }
+eg-types = { path = "../eg-types", optional = true }
+arrow = { version = "58.3", optional = true }
+datafusion = { version = "54", default-features = false, optional = true }
 tokio = { version = "1.38", features = ["rt", "rt-multi-thread", "macros"], optional = true }
 async-trait = { version = "0.1", optional = true }
 

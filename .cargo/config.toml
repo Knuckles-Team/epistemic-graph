@@ -11,11 +11,11 @@
 #     lacks AVX2 the process SIGILLs (illegal instruction). The fleet is heterogeneous
 #     — some build/CI hosts are only x86-64-v2 (SSE4.2, no AVX) — so forcing v3 for
 #     every `cargo build`/`cargo test`/`cargo run` would crash on those hosts.
-#   * aarch64 (GB10/ARM) keeps its native NEON codegen regardless (the cfg below is
+#   * aarch64 targets keep their native NEON codegen regardless (the cfg below is
 #     x86_64-Linux scoped), so this never touches non-x86 arches.
 #
-# Enable it ONLY for the x86 release/deploy build on AVX2-capable homelab hosts
-# (Dell R-series, etc.), either by exporting RUSTFLAGS for that build:
+# Enable it ONLY for an x86 release/deploy build whose target profile requires
+# AVX2, either by exporting RUSTFLAGS for that build:
 #
 #     RUSTFLAGS="-C target-cpu=x86-64-v3" cargo build --release --features full
 #
@@ -25,4 +25,4 @@
 # rustflags = ["-C", "target-cpu=x86-64-v3"]
 #
 # (Use `target-cpu=native` instead for a single-host build; `x86-64-v3` is the safe
-# portable AVX2 baseline across the R-series fleet.)
+# portable AVX2 baseline across compatible x86 hosts.)

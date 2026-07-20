@@ -34,11 +34,18 @@ import subprocess
 import time
 
 import pytest
+from conftest import (
+    TEST_AGENT_ID,
+    TEST_SIGNER_KEY,
+    bootstrap_context,
+    request_context,
+    strict_server_env,
+)
 
 from epistemic_graph.client import SyncEpistemicGraphClient
 
 RUST_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-AUTH_SECRET = "epi-gapfill-roundtrip-secret"  # sanitizer:ignore — test-only value
+AUTH_SECRET = "test-epi-gapfill-roundtrip-secret"
 FEATURES = "full epistemic-causal epistemic-redaction epistemic-tms jobs"
 
 
@@ -56,12 +63,11 @@ def _build() -> str | None:
     return binary if os.path.exists(binary) else None
 
 
-def _free_socket_path(tag: str) -> str:
-    return f"/tmp/test_epi_gapfill_{tag}_{os.getpid()}.sock"
-
-
-def _launch(binary: str, socket_path: str) -> subprocess.Popen:
-    env = {**os.environ, "GRAPH_SERVICE_AUTH_SECRET": AUTH_SECRET}
+def _launch(binary: str, socket_path: str, state_dir: str) -> subprocess.Popen:
+    env = {
+        **os.environ,
+        **strict_server_env(state_dir, auth_secret=AUTH_SECRET),
+    }
     if os.path.exists(socket_path):
         os.remove(socket_path)
     proc = subprocess.Popen(
@@ -88,15 +94,32 @@ def _launch(binary: str, socket_path: str) -> subprocess.Popen:
 
 
 @pytest.fixture(scope="module")
-def gapfill_client():
+def gapfill_client(tmp_path_factory):
     binary = _build()
     if binary is None:
         pytest.skip(f'build with --features "{FEATURES}" failed in this environment')
         return  # pragma: no cover - pytest.skip is NoReturn
-    socket_path = _free_socket_path("main")
-    proc = _launch(binary, socket_path)
+    runtime = tmp_path_factory.mktemp("epi-gapfill")
+    socket_path = str(runtime / "engine.sock")
+    proc = _launch(binary, socket_path, str(runtime / "security"))
+    bootstrap = SyncEpistemicGraphClient.connect(
+        socket_path=socket_path,
+        auth_secret=AUTH_SECRET,
+        verified_context=bootstrap_context(),
+    )
+    try:
+        bootstrap.consensus.bootstrap_system_identity(
+            agent_id=TEST_AGENT_ID,
+            signer_id=TEST_AGENT_ID,
+            signer_key=TEST_SIGNER_KEY,
+        )
+    finally:
+        bootstrap.close()
     client = SyncEpistemicGraphClient.connect(
-        socket_path=socket_path, graph_name="gapfill", auth_secret=AUTH_SECRET
+        socket_path=socket_path,
+        graph_name="gapfill",
+        auth_secret=AUTH_SECRET,
+        verified_context=request_context(),
     )
     try:
         client.tenants.create("gapfill")
@@ -248,7 +271,7 @@ def test_causal_estimate_observe_differs_from_intervene_under_confounding(
     interventional = client.query.causal_estimate(
         _VARIABLES, {"x": 2.0}, mode="Intervene"
     )
-    # Default (mode omitted) must be byte-for-byte the same as explicit "Intervene".
+    # The client default is still encoded explicitly in the current wire request.
     default_mode = client.query.causal_estimate(_VARIABLES, {"x": 2.0})
     observational = client.query.causal_estimate(_VARIABLES, {"x": 2.0}, mode="Observe")
 
@@ -314,8 +337,8 @@ def _seed_conflict_graph(client):
     client.nodes.add("gap5:a", {"type": "Claim", "confidence": 0.5})
     client.nodes.add("gap5:b", {"type": "Claim", "confidence": 0.5})
     client.nodes.add("gap5:c", {"type": "Claim", "confidence": 0.9})
-    client.edges.add("gap5:a", "gap5:b", {"relationship_type": "ATTACKS"})
-    client.edges.add("gap5:b", "gap5:a", {"relationship_type": "ATTACKS"})
+    client.edges.add("gap5:a", "gap5:b", {"relationship": "ATTACKS"})
+    client.edges.add("gap5:b", "gap5:a", {"relationship": "ATTACKS"})
 
 
 def test_resolve_conflict_grounded_is_paraconsistent(gapfill_client):

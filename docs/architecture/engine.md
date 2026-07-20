@@ -4,8 +4,8 @@ This is the deep architectural reference for `epistemic-graph` — the one durab
 graph, vector, SQL, RDF/SPARQL, OWL-2, time-series, content-addressed BLOB, full-text, and reasoning
 behind a single cross-modal planner, distributed and replicated from a Raspberry Pi to an HA cluster.
 
-For the entry-level map see [the overview](../overview.md); for build tiers see
-[Tiers & binaries](tiers.md); for the protocol see [Service Mode](../service_mode.md).
+For the entry-level map see [the overview](../overview.md); for build composition see
+[One build, opt-in layers](tiers.md); for the protocol see [Service Mode](../service_mode.md).
 
 ---
 
@@ -87,7 +87,7 @@ flowchart TB
         end
 
         subgraph Durable["Durability and distribution"]
-            REDB[("redb authoritative store + WAL apply")]
+            REDB[("redb authoritative store + canonical mutation applier")]
             COAL["write coalescer (group commit)"]
             RAFT["Multi-Raft groups + cross-shard 2PC"]
             CDC["CDC hub: streaming / subscriptions / triggers"]
@@ -133,9 +133,14 @@ set). Three rules make "authoritative" safe:
 - **Backpressure, not drop.** The redb writer's bounded channel blocks for capacity off-reactor instead
   of shedding a mutation.
 
-The opt-in `EPISTEMIC_GRAPH_PERSIST_BACKEND=snapshot` mode reverts to the older rebuildable-cache
-behavior (an in-memory cache + compute layer over an external system-of-record), where the `.mp`
-snapshot + WAL exist only for fast warm restart. This is no longer the default.
+Served mode requires this authoritative redb contract and a durable directory;
+there is no alternate write-behind persistence mode.
+
+Portable and isolated `GraphCore` images use one strict MessagePack
+`GraphSnapshot` schema. Every image carries the mandatory current schema version,
+rejects unknown or missing fields, and is structurally bounded before deserialization.
+Restore never interprets an older or partial shape as current; format conversion is an
+explicit offline operation.
 
 ---
 
@@ -181,8 +186,8 @@ tiers link no object-store SDK.
 
 The engine does not bolt on a separate triple-store: an RDF dataset is **projected onto the same
 property graph** the rest of the engine uses, and serialized back out (Turtle / N-Triples via
-oxrdf/oxttl). Multi-valued-literal predicates the property blob cannot hold live in an opt-in lossless
-redb `quads` table (`rdf-redb`) and are unioned back on read.
+oxrdf/oxttl). Multi-valued literals live in a reserved typed property inside the same authoritative
+node image and therefore share its transaction, ownership, backup, and recovery boundary.
 
 ```mermaid
 flowchart LR
@@ -229,9 +234,8 @@ surface sees it, so **no query language can exfiltrate a forbidden row**.
 
 ```mermaid
 flowchart TB
-    REQ["Request (agent_id, query)"]
-    AUTH{"HMAC valid?"}
-    IDENT{"any identity registered?"}
+    REQ["Request (eg2 authority, query)"]
+    AUTH{"eg2 + deployment policy + replay valid?"}
     SNAP["analysis_snapshot_versioned() under topo read lock"]
     RLS["IsolationLayer.filter_view(caller): keep owner / grant / manager / System rows"]
     CACHE{"result cache hit?<br/>key = (query-hash, version, rls_cache_hash)"}
@@ -241,27 +245,28 @@ flowchart TB
 
     REQ --> AUTH
     AUTH -->|no| DENY["reject: auth failure"]
-    AUTH -->|yes| IDENT
-    IDENT -->|"no — single tenant"| SNAP
-    IDENT -->|yes| SNAP
+    AUTH -->|yes| SNAP
     SNAP --> RLS --> CACHE
     CACHE -->|hit| RESP
     CACHE -->|miss| SURF --> AUDIT --> RESP
 ```
 
-With zero registered identities nothing is filtered (single-tenant back-compat). The result cache key
-folds in the caller's RLS context (`rls_cache_hash`, agent-id-salted when rules exist), so agent A's
-filtered cached result is never served to agent B for the same query text. Encryption-at-rest seals the
-redb durable **value** blobs with ChaCha20-Poly1305 (keys stay plaintext so range scans work); a wrong
-key fails the read rather than silently returning ciphertext.
+An empty durable identity store grants no graph access. Its only admitted mutation
+is the exact signer-backed `security:bootstrap` self-registration that creates the
+first `System` identity; normal durable RBAC applies immediately afterward. RLS is
+always default-deny, and the result cache key folds in the caller's complete RLS
+context (`rls_cache_hash`), so one authority's filtered result is never served to
+another. Encryption-at-rest seals redb durable **value** blobs with
+ChaCha20-Poly1305 (keys stay plaintext so range scans work); a wrong key fails the
+read rather than silently returning ciphertext.
 
 ---
 
 ## Streaming / CDC / the reactive substrate
 
 Every durable mutation the dispatch shell records also emits an ordered, cursor-addressable `CdcEvent`
-into a per-graph in-memory feed (a bounded ring + a Tokio `Notify`) — pure-Rust, so `streaming` folds
-into every tier. From that one feed the engine drives CDC reads, incremental continuous queries, and
+into a per-graph in-memory feed (a bounded ring + a Tokio `Notify`); `streaming` is
+included in the main build. From that one feed the engine drives CDC reads, incremental continuous queries, and
 LISTEN/NOTIFY-style watches + triggers, all over the **same one-Response-per-Request transport** (no
 side-channel socket).
 
@@ -327,9 +332,9 @@ a minimal server build links no ureq/rustls/sqlx. Federation is in the one main 
 
 ## Distribution: multi-Raft, cross-shard 2PC, resharding, hibernation
 
-The cluster tier runs the engine as a multi-node HA cluster. A `MultiRaft` manager holds N openraft
+The `cluster` feature runs the engine as a multi-node HA cluster. A `MultiRaft` manager holds N openraft
 groups keyed by `GroupId`, sharing **one** TCP listener per node (frames tagged + demuxed by group id)
-and **one** shared `graph.redb` (the Raft log shares M2's group-commit writer, so a log append + its
+and **one** shared authoritative shard (the Raft log shares M2's group-commit writer, so a log append + its
 graph mutation coalesce into one fsync). A `GroupRouter` maps `graph_name -> GroupId`; a group is the
 transaction boundary.
 
@@ -369,7 +374,7 @@ named results as redb-backed materialized views reloaded on boot.
 
 ### Tenant lifecycle (create / hibernate / reshard / delete + purge)
 
-Because one shared registry + one shared `graph.redb` is keyed by graph name, a "move" is re-pointing
+Because one shared registry + one shared authoritative shard is keyed by graph name, a "move" is re-pointing
 ownership of future writes, not copying rows — so resharding is zero-downtime.
 
 ```mermaid

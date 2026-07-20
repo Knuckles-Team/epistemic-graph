@@ -30,12 +30,17 @@
 //!   status that counts as an outstanding gap.
 //!
 //! `is_first_class()` == no `NotImplemented` remains (all Pass or N/A).
+//! `is_production_ready()` == all 12 points are `Pass` and the concrete native
+//! codec/normalization/index/query/resource probe passes; N/A or a missing probe is
+//! not production certification. The fleet TCK applies that stronger rule to every
+//! served modality.
 //!
 //! ## How each point is decided
 //!
 //! 1. **Schema/ids** — `storage_kind()` names itself and `to_rowset(id)` echoes the
 //!    SAME id it was given.
-//! 2. **Ingest (+streaming)** — `ingest_report().batch` self-check `Passed`.
+//! 2. **Ingest (+streaming)** — both `ingest_report().batch` and `.streaming`
+//!    self-check `Passed`; a streaming N/A is first-class but not production-ready.
 //! 3. **Codec / unsupported-format** — a corrupted `Put` payload must `decode_staged`
 //!    as `Err`, never silently succeed (and never panic — `decode_staged` is
 //!    `serde_json`-backed, which itself never panics on malformed input, only errors).
@@ -49,7 +54,8 @@
 //! 8. **Tenant/row/region policy** — non-empty `policy_labels()`. Empty is the
 //!    legitimate default when policy lives one layer up (`eg-core::isolation`); such a
 //!    modality declares this point N/A rather than leaving a gap.
-//! 9. **Provenance + evidence + lineage** — either `provenance()` or `evidence()`
+//! 9. **Provenance + evidence + lineage** — either `provenance()` or
+//!    `evidence_address()`
 //!    reports `Some`.
 //! 10. **Backup/restore/migrate/recover** — `backup_selfcheck()` self-check `Passed`
 //!     (a real round-trip through the modality's durable codec).
@@ -196,6 +202,7 @@ pub struct TckPointResult {
 pub struct TckReport {
     pub modality: &'static str,
     pub results: Vec<TckPointResult>,
+    pub native_production_probe: Option<crate::NativeProductionProbe>,
 }
 
 impl TckReport {
@@ -205,6 +212,32 @@ impl TckReport {
     /// unimplemented one is.
     pub fn is_first_class(&self) -> bool {
         self.results.iter().all(|r| r.status.is_covered())
+    }
+
+    /// Production certification requires every core dimension to execute and PASS.
+    /// A declared
+    /// `NotApplicable` remains useful for experimental/value-only modalities, but
+    /// cannot certify a served production modality.
+    pub fn is_production_ready(&self) -> bool {
+        self.results.len() == TckPoint::ALL.len()
+            && self.results.iter().all(|result| result.status.is_pass())
+            && self
+                .native_production_probe
+                .is_some_and(crate::NativeProductionProbe::passed)
+    }
+
+    pub fn native_probe_passed(&self) -> bool {
+        self.native_production_probe
+            .is_some_and(crate::NativeProductionProbe::passed)
+    }
+
+    /// The exact core dimensions preventing production certification.
+    pub fn production_gaps(&self) -> Vec<TckPoint> {
+        self.results
+            .iter()
+            .filter(|result| !result.status.is_pass())
+            .map(|result| result.point)
+            .collect()
     }
 
     pub fn pass_count(&self) -> usize {
@@ -232,8 +265,12 @@ impl TckReport {
     /// `"5 PASS + 0 N/A = 5/12 covered [4 gaps]"`.
     pub fn summary(&self) -> String {
         let gaps = self.results.len() - self.covered_count();
-        let tail = if self.is_first_class() {
-            "FIRST-CLASS".to_string()
+        let tail = if self.is_production_ready() {
+            "PRODUCTION-READY".to_string()
+        } else if self.results.iter().all(|result| result.status.is_pass()) {
+            "NATIVE-PROBE-FAILED".to_string()
+        } else if self.is_first_class() {
+            "FIRST-CLASS (NON-PRODUCTION N/A)".to_string()
         } else {
             format!("{gaps} gap(s)")
         };
@@ -269,6 +306,17 @@ impl TckReport {
                 detail
             ));
         }
+        let (status, detail) = match self.native_production_probe {
+            Some(probe) if probe.passed() => (
+                "PASS",
+                "codec + normalized payload + index + query + bounds",
+            ),
+            Some(_) => ("FAILED", "one or more native production checks failed"),
+            None => ("MISSING", "no native production probe declared"),
+        };
+        out.push_str(&format!(
+            "| native production probe | {status} | {detail} |\n"
+        ));
         out
     }
 }
@@ -283,11 +331,11 @@ pub fn render_fleet_table(reports: &[TckReport]) -> String {
     for p in TckPoint::ALL {
         out.push_str(&format!(" {} |", p.short()));
     }
-    out.push_str(" first-class |\n|---|");
+    out.push_str(" native | production | first-class |\n|---|");
     for _ in TckPoint::ALL {
         out.push_str("---|");
     }
-    out.push_str("---|\n");
+    out.push_str("---|---|---|\n");
     for report in reports {
         out.push_str(&format!("| `{}` |", report.modality));
         for point in TckPoint::ALL {
@@ -299,12 +347,22 @@ pub fn render_fleet_table(reports: &[TckReport]) -> String {
                 .unwrap_or("-");
             out.push_str(&format!(" {tag} |"));
         }
+        let native = match report.native_production_probe {
+            Some(probe) if probe.passed() => "PASS",
+            Some(_) => "FAIL",
+            None => "-",
+        };
+        let production = if report.is_production_ready() {
+            "✓"
+        } else {
+            "-"
+        };
         let mark = if report.is_first_class() {
             format!("**{}/{}** ✓", report.covered_count(), report.results.len())
         } else {
             format!("{}/{}", report.covered_count(), report.results.len())
         };
-        out.push_str(&format!(" {mark} |\n"));
+        out.push_str(&format!(" {native} | {production} | {mark} |\n"));
     }
     out
 }
@@ -322,6 +380,22 @@ fn selftest_status(t: ModalitySelfTest, unsupported_reason: &'static str) -> Tck
         ),
         ModalitySelfTest::Unsupported => TckStatus::NotImplemented(unsupported_reason),
         ModalitySelfTest::NotApplicable(reason) => TckStatus::NotApplicable(reason),
+    }
+}
+
+fn ingest_status(report: crate::IngestReport) -> TckStatus {
+    match (report.batch, report.streaming) {
+        (ModalitySelfTest::Passed, ModalitySelfTest::Passed) => TckStatus::Pass,
+        (ModalitySelfTest::Failed, _) | (_, ModalitySelfTest::Failed) => {
+            TckStatus::NotImplemented("batch or streaming ingest self-check FAILED")
+        }
+        (ModalitySelfTest::Unsupported, _) | (_, ModalitySelfTest::Unsupported) => {
+            TckStatus::NotImplemented(
+                "ingest_report() does not attest both batch and streaming ingest",
+            )
+        }
+        (ModalitySelfTest::NotApplicable(reason), _)
+        | (_, ModalitySelfTest::NotApplicable(reason)) => TckStatus::NotApplicable(reason),
     }
 }
 
@@ -368,49 +442,43 @@ pub fn tck_report<T: ConformanceTestable>() -> TckReport {
             },
         );
 
-        // (2) Ingest (+streaming where applicable): EG-P1-1 hook `ingest_report`. Pass iff
-        // the modality's own batch-ingest self-check passed; streaming is reported
-        // separately and may legitimately be N/A for a whole-value modality.
+        // (2) Ingest (+streaming): production Pass requires both self-checks. A
+        // whole-value modality may report streaming N/A, which remains honest
+        // first-class coverage but cannot become production certification.
         let ingest = ModalityContract::ingest_report(&sample, id);
-        push(
-        TckPoint::IngestStreaming,
-        selftest_status(
-            ingest.batch,
-            "ingest_report() defaults to unsupported — modality has not wired a batch-ingest self-check",
-        ),
-    );
+        push(TckPoint::IngestStreaming, ingest_status(ingest));
 
         // (3) Codec / unsupported-format behavior: a corrupted Put payload must decode as
         // Err, never silently succeed.
         let staged = ModalityContract::txn_stage(&sample, id);
         let codec_status = match staged.kind {
-        WriteKind::Put => {
-            let mut corrupt = staged.clone();
-            corrupt.payload = b"\xff\xfe not a valid payload for any codec".to_vec();
-            match decode_staged::<T>(&corrupt) {
-                Err(_) => TckStatus::Pass,
-                Ok(_) => TckStatus::NotImplemented(
-                    "decode_staged silently accepted a malformed payload instead of erroring",
-                ),
+            WriteKind::Put => {
+                let mut corrupt = staged.clone();
+                corrupt.payload = b"\xff\xfe not a valid payload for any codec".to_vec();
+                match decode_staged::<T>(&corrupt) {
+                    Err(_) => TckStatus::Pass,
+                    Ok(_) => TckStatus::NotImplemented(
+                        "decode_staged silently accepted a malformed payload instead of erroring",
+                    ),
+                }
             }
-        }
-        WriteKind::Delete => TckStatus::NotImplemented(
-            "conformance_sample() stages as Delete — no Put payload exists to exercise the codec against",
-        ),
-    };
+            WriteKind::Delete => TckStatus::NotImplemented(
+                "conformance_sample() stages as Delete — no Put payload exists to exercise the codec against",
+            ),
+        };
         push(TckPoint::CodecUnsupportedFormat, codec_status);
 
         // (4) Storage + secondary-index + stats presence: EG-P1-1 hook `storage_stats`.
         // Pass iff the modality can attest its own storage stats.
         push(
-        TckPoint::StorageIndexStats,
-        match ModalityContract::storage_stats(&sample, id) {
-            Some(_) => TckStatus::Pass,
-            None => TckStatus::NotImplemented(
-                "storage_stats() is None — modality attests no storage/secondary-index/stats at this layer",
-            ),
-        },
-    );
+            TckPoint::StorageIndexStats,
+            match ModalityContract::storage_stats(&sample, id) {
+                Some(_) => TckStatus::Pass,
+                None => TckStatus::NotImplemented(
+                    "storage_stats() is None — modality attests no storage/secondary-index/stats at this layer",
+                ),
+            },
+        );
 
         // (5) Typed query operators: Pass iff the modality declares at least one
         // well-formed named analytics op.
@@ -442,14 +510,14 @@ pub fn tck_report<T: ConformanceTestable>() -> TckReport {
         // (cdc_topic()); delete/tombstone live in the txn engine (StagedWrite::Delete).
         // Pass only if a genuinely non-empty CDC topic is declared.
         push(
-        TckPoint::CdcDeleteRetentionGc,
-        match ModalityContract::cdc_topic(&sample) {
-            Some(topic) if !topic.is_empty() => TckStatus::Pass,
-            _ => TckStatus::NotImplemented(
-                "no cdc_topic() declared; a modality that does not publish change events has no observable delete/retention/GC story here",
-            ),
-        },
-    );
+            TckPoint::CdcDeleteRetentionGc,
+            match ModalityContract::cdc_topic(&sample) {
+                Some(topic) if !topic.is_empty() => TckStatus::Pass,
+                _ => TckStatus::NotImplemented(
+                    "no cdc_topic() declared; a modality that does not publish change events has no observable delete/retention/GC story here",
+                ),
+            },
+        );
 
         // (8) Tenant/row/region policy: Pass iff the modality attaches its own policy
         // labels. Empty is the LEGITIMATE default (policy usually lives one layer up, at
@@ -462,22 +530,22 @@ pub fn tck_report<T: ConformanceTestable>() -> TckReport {
                 TckStatus::Pass
             } else {
                 TckStatus::NotImplemented(
-                "policy_labels() is empty — no modality-level tenant/row/region policy attached",
-            )
+                    "policy_labels() is empty — no modality-level tenant/row/region policy attached",
+                )
             },
         );
 
         // (9) Provenance + evidence-location + lineage: Pass iff EITHER provenance() or
-        // evidence() reports something.
+        // evidence_address() reports something.
         let has_prov = ModalityContract::provenance(&sample, id).is_some();
-        let has_evi = ModalityContract::evidence(&sample, id).is_some();
+        let has_evi = ModalityContract::evidence_address(&sample).is_some();
         push(
             TckPoint::ProvenanceEvidenceLineage,
             if has_prov || has_evi {
                 TckStatus::Pass
             } else {
                 TckStatus::NotImplemented(
-                    "both provenance() and evidence() are None — no lineage attached at this layer",
+                    "both provenance() and evidence_address() are None — no lineage attached at this layer",
                 )
             },
         );
@@ -485,22 +553,22 @@ pub fn tck_report<T: ConformanceTestable>() -> TckReport {
         // (10) Backup / restore / migrate / recover: EG-P1-1 hook `backup_selfcheck` —
         // a real round-trip through the modality's DURABLE codec.
         push(
-        TckPoint::BackupRestoreMigrateRecover,
-        selftest_status(
-            ModalityContract::backup_selfcheck(&sample, id),
-            "backup_selfcheck() defaults to unsupported — modality has not wired a durable backup/restore round-trip",
-        ),
-    );
+            TckPoint::BackupRestoreMigrateRecover,
+            selftest_status(
+                ModalityContract::backup_selfcheck(&sample, id),
+                "backup_selfcheck() defaults to unsupported — modality has not wired a durable backup/restore round-trip",
+            ),
+        );
 
         // (11) Single-node failure / recovery: EG-P1-1 hook `recovery_selfcheck` — a
         // simulated crash-and-recover via the staged-write (WAL analog) replay path.
         push(
-        TckPoint::SingleNodeFailure,
-        selftest_status(
-            ModalityContract::recovery_selfcheck(&sample, id),
-            "recovery_selfcheck() defaults to unsupported — modality has not wired a crash-recovery replay",
-        ),
-    );
+            TckPoint::SingleNodeFailure,
+            selftest_status(
+                ModalityContract::recovery_selfcheck(&sample, id),
+                "recovery_selfcheck() defaults to unsupported — modality has not wired a crash-recovery replay",
+            ),
+        );
 
         // (12) Interop / workload smoke: the base round-trip exercised above (project
         // to a row, stage a write, decode it back, roll it back) completing without
@@ -511,5 +579,6 @@ pub fn tck_report<T: ConformanceTestable>() -> TckReport {
     TckReport {
         modality: kind,
         results,
+        native_production_probe: T::native_production_probe(),
     }
 }

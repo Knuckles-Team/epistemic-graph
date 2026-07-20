@@ -504,13 +504,16 @@ mod tests {
     use crate::geometry::{LineString, Polygon};
 
     fn square() -> Geometry {
-        Geometry::Polygon(Polygon::new(LineString::new(vec![
-            Point::new(0.0, 0.0),
-            Point::new(4.0, 0.0),
-            Point::new(4.0, 4.0),
-            Point::new(0.0, 4.0),
-            Point::new(0.0, 0.0),
-        ])))
+        Geometry::Polygon(Polygon::new(
+            LineString::new(vec![
+                Point::new(0.0, 0.0),
+                Point::new(4.0, 0.0),
+                Point::new(4.0, 4.0),
+                Point::new(0.0, 4.0),
+                Point::new(0.0, 0.0),
+            ]),
+            Vec::new(),
+        ))
     }
 
     #[test]
@@ -618,7 +621,7 @@ mod tests {
             Point::new(3.0, 7.0),
             Point::new(3.0, 3.0),
         ]);
-        let holed = Geometry::Polygon(Polygon::with_interiors(ext, vec![hole]));
+        let holed = Geometry::Polygon(Polygon::new(ext, vec![hole]));
         // Inside the ring but outside the hole → within; distance 0.
         let in_ring = Geometry::Point(Point::new(1.0, 1.0));
         assert!(within(&in_ring, &holed));
@@ -649,19 +652,25 @@ mod tests {
     #[test]
     fn multipolygon_distance_takes_nearest_part() {
         let mpoly = Geometry::MultiPolygon(vec![
-            Polygon::new(LineString::new(vec![
-                Point::new(0.0, 0.0),
-                Point::new(2.0, 0.0),
-                Point::new(2.0, 2.0),
-                Point::new(0.0, 2.0),
-                Point::new(0.0, 0.0),
-            ])),
-            Polygon::new(LineString::new(vec![
-                Point::new(100.0, 100.0),
-                Point::new(102.0, 100.0),
-                Point::new(102.0, 102.0),
-                Point::new(100.0, 100.0),
-            ])),
+            Polygon::new(
+                LineString::new(vec![
+                    Point::new(0.0, 0.0),
+                    Point::new(2.0, 0.0),
+                    Point::new(2.0, 2.0),
+                    Point::new(0.0, 2.0),
+                    Point::new(0.0, 0.0),
+                ]),
+                Vec::new(),
+            ),
+            Polygon::new(
+                LineString::new(vec![
+                    Point::new(100.0, 100.0),
+                    Point::new(102.0, 100.0),
+                    Point::new(102.0, 102.0),
+                    Point::new(100.0, 100.0),
+                ]),
+                Vec::new(),
+            ),
         ]);
         // A point at (3,1) is 1.0 from the near square's right edge.
         let d = distance(&Geometry::Point(Point::new(3.0, 1.0)), &mpoly);
@@ -671,9 +680,10 @@ mod tests {
     // ── DE-9IM relations (CONCEPT:EG-KG.ontology.de-9im-relations) ────────────────────────────────────────
 
     fn poly(pts: &[(f64, f64)]) -> Geometry {
-        Geometry::Polygon(Polygon::new(LineString::new(
-            pts.iter().map(|&(x, y)| Point::new(x, y)).collect(),
-        )))
+        Geometry::Polygon(Polygon::new(
+            LineString::new(pts.iter().map(|&(x, y)| Point::new(x, y)).collect()),
+            Vec::new(),
+        ))
     }
     fn line(pts: &[(f64, f64)]) -> Geometry {
         Geometry::LineString(LineString::new(

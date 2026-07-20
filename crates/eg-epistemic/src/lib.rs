@@ -8,7 +8,7 @@
 //! **No new persistence.** Claims/Evidence/Sources are ordinary `type`-tagged nodes
 //! over the existing [`eg_types::NodeData`] (`confidence`/`valid_from`/`tx_from`);
 //! Support/Contradict/Attack are ordinary edges over [`eg_types::EdgeData`]
-//! (`relationship_type`/`confidence`/`provenance`) — the same "typed node/edge by
+//! (`relationship`/`confidence`/`provenance`) — the same "typed node/edge by
 //! convention" pattern mining already uses for `:AssociationRule`. This crate holds
 //! only VIEW/compute types over that data — nothing here is a new stored struct.
 //!
@@ -21,6 +21,8 @@
 //! never double-count.
 
 mod adapter;
+#[cfg(feature = "epistemic-tms")]
+mod incremental;
 mod model;
 mod propagate;
 #[cfg(feature = "epistemic-tms")]
@@ -60,9 +62,9 @@ mod query;
 #[cfg(feature = "contract")]
 mod contract;
 // X-1 (CONCEPT:EG-X1) — the multimodal evidence-graph spine + citation resolver:
-// lets an `:Evidence` node carry a located `eg_modality::EvidenceSpan` locus (plus
-// its `AssetOccurrence`/`Blob` identity chain) and resolves a claim's evidence
-// neighbourhood into a citation list. Behind its own opt-in `evidence-graph`
+// lets an `:Evidence` node carry one complete governed
+// `eg_modality::EvidenceLocus` and resolves a claim's evidence neighbourhood into a
+// citation list. Behind its own opt-in `evidence-graph`
 // feature (default OFF, reuses the SAME optional `eg-modality` dep `contract`
 // already pulls — no new dependency). See `src/evidence.rs` module docs.
 #[cfg(feature = "evidence-graph")]
@@ -100,6 +102,12 @@ pub use tms::{
 // resting at `Stale`, and wire the TMS's own dependency-directed retraction
 // straight into the same index. See `recompute` module docs.
 #[cfg(feature = "epistemic-tms")]
+pub use incremental::{
+    projection_identity, IncrementalDelta, IncrementalReasoningEvent, IncrementalReasoningIndex,
+    ProjectedMaterialization, ProjectedMaterializationStatus, ProjectionInvalidationKind,
+    ProjectionPosition, ReasoningProjectionWakeup, REASONING_PROJECTION_VERSION,
+};
+#[cfg(feature = "epistemic-tms")]
 pub use recompute::{
     register_from_provenance, resolve_provenance, ChangeEvent, Materialization,
     MaterializationStatus, TruthMaintenance,
@@ -128,7 +136,4 @@ pub use query::{
 // X-1 (CONCEPT:EG-X1) — the multimodal evidence-graph spine + citation resolver,
 // see `evidence` module docs.
 #[cfg(feature = "evidence-graph")]
-pub use evidence::{
-    evidence_citations, justification_citations, resolve_locus, EvidenceCitation,
-    EvidenceLocusRecord, NODE_TYPE_ASSET_OCCURRENCE, NODE_TYPE_BLOB, NODE_TYPE_SOURCE_OBJECT,
-};
+pub use evidence::{evidence_citations, justification_citations, resolve_locus, EvidenceCitation};

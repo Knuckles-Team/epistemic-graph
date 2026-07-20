@@ -21,7 +21,7 @@ directly — a concurrent session or sync may reset it):
 
 ```bash
 rm_worktree add epistemic-graph <your-branch>     # repository-manager MCP, or:
-git worktree add /home/apps/worktrees/epistemic-graph/<branch> -b <branch> main
+git worktree add ${WORKTREE_ROOT}/epistemic-graph/<branch> -b <branch> main
 ```
 
 Commit early and often; merge to `main` locally when done. Push only when asked.
