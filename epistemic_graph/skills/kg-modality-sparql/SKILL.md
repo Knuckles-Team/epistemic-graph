@@ -1,5 +1,6 @@
 ---
 name: kg-modality-sparql
+skill_type: skill
 description: >-
   Query and update the engine's RDF/OWL store over the W3C SPARQL 1.1 Protocol — the engine
   IS the triplestore (epistemic-graph owns the `/sparql` wire). Use when you need SELECT/ASK/
