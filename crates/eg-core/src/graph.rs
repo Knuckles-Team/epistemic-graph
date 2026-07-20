@@ -45,13 +45,29 @@ pub struct GraphView {
     /// `eg-plan` types that populate it; the producing crate downcasts. NOT filled
     /// here — populated lazily on first access via `get_or_init`.
     pub plan_stats_memo: OnceLock<Arc<dyn Any + Send + Sync>>,
+    /// Interior-mutable memo of a caller-defined `label → node ids` index over
+    /// this snapshot's `node_properties` (CONCEPT:EG-KG.query.column-range-stats sibling of
+    /// `plan_stats_memo` above — same per-view `OnceLock` memoization shape, minus
+    /// the type erasure since every populator shares one `HashMap<String,
+    /// Vec<String>>` value type). A `GraphView` never changes after construction,
+    /// so once built the memo is valid for the rest of this view's life — a
+    /// labeled scan pays the O(N) decode pass at most ONCE per snapshot no matter
+    /// how many label lookups the query makes, instead of once per lookup.
+    /// `eg-core` does not decide what a "label" is (a node's `type`/`node_type`/
+    /// `label` fields serve `GraphCore.label_index`'s broader write-path
+    /// contract, while Cypher's own `(var:Label)` predicate is deliberately
+    /// narrower — see `eg-query`'s `node_has_label`); [`Self::label_index`] takes
+    /// the indexing rule as a builder closure from its caller instead, exactly
+    /// how `plan_stats_memo` is filled by the producing crate rather than by
+    /// eg-core itself. `None` until first use.
+    pub label_index_memo: OnceLock<HashMap<String, Vec<String>>>,
 }
 
 impl Clone for GraphView {
-    /// Clone the immutable graph data but START THE MEMO COLD. The clone is a
+    /// Clone the immutable graph data but START THE MEMOS COLD. The clone is a
     /// distinct value a caller may in principle mutate through its `pub` fields, so it
     /// must not inherit the source's cached stats (which describe the source's data).
-    /// A fresh empty memo makes any derived stat recompute on demand for the clone —
+    /// Fresh empty memos make any derived stat recompute on demand for the clone —
     /// staleness is impossible even under a hypothetical clone-then-mutate.
     fn clone(&self) -> Self {
         Self {
@@ -60,14 +76,16 @@ impl Clone for GraphView {
             node_properties: self.node_properties.clone(),
             edge_properties: self.edge_properties.clone(),
             plan_stats_memo: OnceLock::new(),
+            label_index_memo: OnceLock::new(),
         }
     }
 }
 
 impl std::fmt::Debug for GraphView {
-    /// The type-erased `plan_stats_memo` is a derived cache, not data (and isn't
-    /// `Debug`), so it is omitted — `Debug` shows exactly the snapshot's graph and
-    /// property data, unchanged from the former `#[derive(Debug)]`.
+    /// The type-erased `plan_stats_memo` and the `label_index_memo` are derived
+    /// caches, not data (and the former isn't `Debug`), so both are omitted —
+    /// `Debug` shows exactly the snapshot's graph and property data, unchanged
+    /// from the former `#[derive(Debug)]`.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("GraphView")
             .field("graph", &self.graph)
@@ -574,6 +592,20 @@ impl GraphView {
             Ok(serde_json::Value::Object(o)) => Some(o),
             _ => None,
         }
+    }
+
+    /// Lazily build-and-cache a `label → node ids` index over this snapshot's
+    /// `node_properties`, using `build` to decide what "label" means (see
+    /// `label_index_memo`'s doc). Computed once per view on first call — an O(N)
+    /// decode pass — and reused for every later lookup against the same
+    /// immutable snapshot, regardless of which label(s) are queried, so a
+    /// caller that used to full-scan on every `(var:Label)` lookup now full-scans
+    /// at most once per query.
+    pub fn label_index(
+        &self,
+        build: impl FnOnce(&Self) -> HashMap<String, Vec<String>>,
+    ) -> &HashMap<String, Vec<String>> {
+        self.label_index_memo.get_or_init(|| build(self))
     }
 
     // ── Read-your-own-writes overlay (CONCEPT:EG-KG.compute.kg-transaction-is-pinned) ────────────────────
@@ -4446,6 +4478,7 @@ impl GraphCore {
             node_properties: HashMap::new(),
             edge_properties: HashMap::new(),
             plan_stats_memo: OnceLock::new(),
+            label_index_memo: OnceLock::new(),
         }
     }
 
@@ -4468,6 +4501,7 @@ impl GraphCore {
                 .map(|e| (e.key().clone(), e.value().clone()))
                 .collect(),
             plan_stats_memo: OnceLock::new(),
+            label_index_memo: OnceLock::new(),
         }
     }
 
@@ -4496,6 +4530,7 @@ impl GraphCore {
                 .map(|e| (e.key().clone(), e.value().clone()))
                 .collect(),
             plan_stats_memo: OnceLock::new(),
+            label_index_memo: OnceLock::new(),
         };
         (view, version)
     }
