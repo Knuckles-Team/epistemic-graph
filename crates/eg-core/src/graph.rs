@@ -3251,11 +3251,20 @@ impl GraphCore {
         after: Option<&str>,
         limit: usize,
     ) -> Vec<(String, Vec<u8>)> {
-        let mut out: Vec<(String, Vec<u8>)> = Vec::new();
         let Some(ids) = index.get(label) else {
-            return out;
+            return Vec::new();
         };
         let start = after.map_or(0, |cursor| ids.partition_point(|id| id.as_str() <= cursor));
+        // Sized allocation instead of doubling growth, mirroring
+        // `collect_unlabeled`'s identical capacity computation two functions
+        // above — the caller-requested page size upper-bounds the true count
+        // (some ids may since have been removed from `node_properties`).
+        let capacity = if limit == 0 {
+            ids.len().saturating_sub(start)
+        } else {
+            limit.min(ids.len().saturating_sub(start))
+        };
+        let mut out: Vec<(String, Vec<u8>)> = Vec::with_capacity(capacity);
         for id in ids.iter().skip(start) {
             if limit != 0 && out.len() >= limit {
                 break;
