@@ -374,13 +374,20 @@ impl IvfPq {
 
         // 2. ADC over each probed cell's posting list.
         let mut cands: Vec<AdcCandidate> = Vec::new();
+        // Scratch buffers reused across probed cells instead of reallocated each
+        // iteration: `qresid` (dim floats) and `table` (m*PQ_KSUB floats, ~100KB
+        // at default settings) are both FULLY overwritten every iteration before
+        // any read — `qresid` by the `0..dim` fill below, `table` by the `sq`/`kc`
+        // double loop covering every `sq*PQ_KSUB+kc` index exactly once — so
+        // reuse is behavior-preserving and turns O(nprobe) allocations into O(1).
+        let mut qresid = vec![0.0f32; dim];
+        let mut table = vec![0.0f32; self.m * PQ_KSUB];
         for &(cell, _) in &cell_d {
             let base = cell * dim;
-            let qresid: Vec<f32> = (0..dim)
-                .map(|d| rq[d] - self.coarse_centroids[base + d])
-                .collect();
+            for d in 0..dim {
+                qresid[d] = rq[d] - self.coarse_centroids[base + d];
+            }
             // ADC table: m x 256 squared sub-distances.
-            let mut table = vec![0.0f32; self.m * PQ_KSUB];
             for sq in 0..self.m {
                 let qs = &qresid[sq * dsub..(sq + 1) * dsub];
                 let book_base = sq * PQ_KSUB * dsub;
