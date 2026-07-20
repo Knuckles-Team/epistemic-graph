@@ -94,7 +94,7 @@ c = await EpistemicGraphClient.connect(
 print(await c.query.uql("MATCH (:Concept) |> LIMIT 1"))   # engine serves queries
 ```
 For the full surface smoke (temporal / rerank), see `scripts/promote_engine.sh --verify`
-and [UQL](../../docs/uql.md).
+and [UQL](../../../docs/uql.md).
 
 ## Escalate to
 - `epistemic-graph-deploy` — to (re)promote a binary or restart services cleanly.
