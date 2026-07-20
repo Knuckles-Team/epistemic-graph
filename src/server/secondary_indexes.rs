@@ -811,6 +811,44 @@ impl eg_plan::SpatialSource for ServedSpatialIndex {
     }
 }
 
+/// Map a graph/tenant name to a bounded, INJECTIVE, filesystem-safe directory
+/// name for the per-graph text index root. Every byte outside `[A-Za-z0-9._-]`
+/// — including `~` itself — is escaped as `~XX` (lowercase hex), so distinct
+/// inputs can never collide: the old scheme collapsed EVERY such byte to a
+/// single `_`, so `"agent:planner"`, `"agent-planner"`, `"agent.planner"`, and
+/// `"agent_planner"` (four distinct tenants) all sanitized to the identical
+/// `"agent_planner"` directory — a multi-tenant text-index collision in every
+/// deployment that sets `GRAPH_SERVICE_PERSIST_DIR` (mandatory in served mode).
+/// An escaped name over 200 bytes falls back to a fixed-width SHA-256 hash of
+/// the raw name to stay filesystem-safe. Mirrors `crate::redb_store::sanitize`'s
+/// collision-free escape scheme exactly, duplicated here (rather than reused)
+/// because that module lives behind the `redb` feature and this one must not —
+/// see `build_text`'s doc.
+#[cfg(feature = "text")]
+fn sanitize_text_dir_name(name: &str) -> String {
+    use sha2::{Digest, Sha256};
+    use std::fmt::Write as _;
+
+    let mut key = String::with_capacity(name.len());
+    for &byte in name.as_bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.') {
+            key.push(char::from(byte));
+        } else {
+            write!(&mut key, "~{byte:02x}").expect("write to String cannot fail");
+        }
+    }
+    if key.len() <= 200 {
+        return key;
+    }
+    let digest = Sha256::digest(name.as_bytes());
+    let mut bounded = String::with_capacity(66);
+    bounded.push_str("~h");
+    for byte in digest {
+        write!(&mut bounded, "{byte:02x}").expect("write to String cannot fail");
+    }
+    bounded
+}
+
 // ── the factory (registered per-graph by the registry) ───────────────────────────
 
 /// Builds the enabled server-layer secondary indexes for each graph and hands them to
@@ -860,12 +898,13 @@ impl ServerIndexFactory {
     fn build_text(&self, name: &str) -> Option<Box<dyn SecondaryIndex>> {
         let ix = match &self.text_persist_dir {
             Some(root) => {
-                // Dependency-free filesystem-safe graph name (no coupling to the
-                // redb-gated `redb_store::sanitize`).
-                let safe: String = name
-                    .chars()
-                    .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
-                    .collect();
+                // Injective, filesystem-safe graph/tenant name — dependency-free (no
+                // coupling to the redb-gated `redb_store::sanitize`), but the SAME
+                // collision-free escape scheme: every byte outside
+                // `[A-Za-z0-9._-]` is `~`-hex-escaped rather than collapsed, so two
+                // distinct tenant names can never sanitize to the same directory
+                // (see `sanitize_text_dir_name`'s doc for why the old scheme could).
+                let safe = sanitize_text_dir_name(name);
                 let dir = root.join(safe);
                 if let Err(e) = std::fs::create_dir_all(&dir) {
                     tracing::warn!(
@@ -972,5 +1011,112 @@ mod batch_update_tests {
             .server_manifests()
             .iter()
             .all(|(_, manifest)| manifest.covers(core.version())));
+    }
+}
+
+#[cfg(all(test, feature = "text"))]
+mod sanitize_tenant_dir_tests {
+    use super::*;
+
+    /// The exact four-tenant collision the OLD `map(|c| ...).collect()` scheme
+    /// produced (every non-alphanumeric byte collapsed to the same `_`):
+    /// `"agent:planner"`, `"agent-planner"`, `"agent.planner"`, and
+    /// `"agent_planner"` all sanitized to the identical `"agent_planner"`
+    /// string, so two distinct tenants' Tantivy text indexes silently shared
+    /// one on-disk directory. The injective scheme must map all four to
+    /// pairwise-DISTINCT names.
+    #[test]
+    fn distinct_tenant_names_no_longer_collide() {
+        let names = [
+            "agent:planner",
+            "agent-planner",
+            "agent.planner",
+            "agent_planner",
+        ];
+        let sanitized: Vec<String> = names.iter().map(|n| sanitize_text_dir_name(n)).collect();
+
+        let mut unique = sanitized.clone();
+        unique.sort();
+        unique.dedup();
+        assert_eq!(
+            unique.len(),
+            names.len(),
+            "expected {} pairwise-distinct sanitized names, got {:?}",
+            names.len(),
+            sanitized
+        );
+
+        // Confirm this is exactly the collision the old scheme produced — i.e.
+        // the fix actually changed the outcome, not just that the new scheme is
+        // injective in the abstract.
+        let old_scheme = |n: &str| -> String {
+            n.chars()
+                .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+                .collect()
+        };
+        let old_sanitized: Vec<String> = names.iter().map(|n| old_scheme(n)).collect();
+        let mut old_unique = old_sanitized.clone();
+        old_unique.sort();
+        old_unique.dedup();
+        assert_eq!(
+            old_unique.len(),
+            1,
+            "expected the OLD scheme to collide all four names (regression baseline), got {:?}",
+            old_sanitized
+        );
+    }
+
+    /// End-to-end proof at the level `build_text` actually operates: two
+    /// previously-colliding tenant names must root their text indexes at two
+    /// different, independently-created directories on disk.
+    #[test]
+    fn build_text_creates_distinct_directories_for_colliding_tenant_names() {
+        let tmp = tempfile::tempdir().unwrap();
+        let factory = ServerIndexFactory::new().with_text_dir(Some(tmp.path().to_path_buf()));
+
+        assert!(factory.build_text("agent:planner").is_some());
+        assert!(factory.build_text("agent-planner").is_some());
+        assert!(factory.build_text("agent.planner").is_some());
+        assert!(factory.build_text("agent_planner").is_some());
+
+        let dirs: Vec<std::path::PathBuf> = [
+            "agent:planner",
+            "agent-planner",
+            "agent.planner",
+            "agent_planner",
+        ]
+        .iter()
+        .map(|n| tmp.path().join(sanitize_text_dir_name(n)))
+        .collect();
+        let mut unique = dirs.clone();
+        unique.sort();
+        unique.dedup();
+        assert_eq!(
+            unique.len(),
+            dirs.len(),
+            "expected 4 distinct on-disk directories, got {:?}",
+            dirs
+        );
+        for dir in &dirs {
+            assert!(dir.is_dir(), "{} was not created", dir.display());
+        }
+    }
+
+    #[test]
+    fn long_name_falls_back_to_bounded_hash() {
+        let long = "x".repeat(5000);
+        let sanitized = sanitize_text_dir_name(&long);
+        assert!(
+            sanitized.len() < 100,
+            "expected a bounded hash fallback, got length {}",
+            sanitized.len()
+        );
+        assert!(sanitized.starts_with("~h"));
+        // Two different long names must still map to different hashes.
+        let other = "y".repeat(5000);
+        assert_ne!(
+            sanitize_text_dir_name(&long),
+            sanitize_text_dir_name(&other)
+        );
     }
 }
