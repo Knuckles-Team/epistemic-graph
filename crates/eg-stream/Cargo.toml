@@ -2,7 +2,7 @@
 name = "eg-stream"
 version = "0.1.0"
 edition = "2021"
-authors = ["Audel Rouhi <knucklessg1@gmail.com>"]
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
 description = "Pure-Rust event-stream + complex-event-processing (CEP) modality for the epistemic-graph engine (CONCEPT:EG-088) — a bounded NFA CEP engine over a time-ordered event stream with Sequence / Within / Absence operators + per-event attribute predicates, run over sliding / tumbling windows. Sync + runtime-free (NO tokio) so the engine is trivially unit-testable; the live standing-query loop fed by the EG-064 CDC bus is a documented follow-up. EG-067 `Op::Window` is the windowing primitive."
 license = "MIT"
 

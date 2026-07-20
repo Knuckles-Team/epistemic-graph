@@ -1,4 +1,4 @@
-"""Cross-shard scatter-gather union + affinity co-residency (CONCEPT:EG-KG.ingest.ingest-lane-affinity).
+"""Cross-shard scatter-gather union over engine-authoritative routes.
 
 Fake clients only — no running engine. Mirrors tests/test_union_reads.py.
 """
@@ -8,44 +8,23 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from conftest import request_context
 
-from epistemic_graph.pool import (
-    AffinityRegistry,
-    ShardRouter,
-    _default_affinity_groups,
-)
-
-# ── (a) affinity routing pins ingest lanes to the __commons__ shard ──────────
+from epistemic_graph.pool import ShardRouter
 
 
-def test_affinity_pins_ingest_lanes_to_commons() -> None:
-    reg = AffinityRegistry()
-    anchor = reg.anchor_for("__commons__")
-    assert reg.anchor_for("__ingest__") == anchor
-    assert reg.anchor_for("__ingest_news__") == anchor
-    assert reg.anchor_for("__ingest_arxiv__") == anchor
-    # An unrelated graph anchors to itself (plain HRW).
-    assert reg.anchor_for("agent:planner") == "agent:planner"
-
-
-def test_affinity_routes_ingest_lanes_to_same_shard() -> None:
-    # Several endpoints so plain HRW would scatter the lanes.
+def test_authority_can_co_locate_ingest_lanes() -> None:
+    # The fake engine authority returns the same route for the co-resident set.
     eps = [f"tcp://shard-{i}:9000" for i in range(5)]
-    router = ShardRouter(eps)
+    router = ShardRouter(
+        eps,
+        verified_context=request_context(),
+        auth_secret="s",
+        route_resolver=lambda _graph: eps[0],
+    )
     commons_shard = router._get_shard_endpoint("__commons__")
     for lane in ("__ingest__", "__ingest_news__", "__ingest_x__", "__ingest_pdf__"):
         assert router._get_shard_endpoint(lane) == commons_shard, lane
-
-
-def test_affinity_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("GRAPH_AFFINITY_GROUPS", "__hot__:__hot_a__|__hot_b*")
-    groups = _default_affinity_groups()
-    reg = AffinityRegistry(groups)
-    assert reg.anchor_for("__hot_a__") == "__hot__"
-    assert reg.anchor_for("__hot_b_extra__") == "__hot__"
-    # Defaults still present.
-    assert reg.anchor_for("__ingest__") == "__commons__"
-
 
 # ── scatter-gather fakes ─────────────────────────────────────────────────────
 
@@ -121,9 +100,21 @@ class _FakePool:
 def _router_with_fakes(
     endpoints: list[str],
     shards: dict[str, _FakeShardClient],
-    affinity: AffinityRegistry | None = None,
+    routes: dict[str, str] | None = None,
 ) -> ShardRouter:
-    router = ShardRouter(endpoints, affinity=affinity)
+    resolved = dict(routes or {})
+
+    def resolve(graph: str) -> str:
+        if graph not in resolved:
+            resolved[graph] = endpoints[len(resolved) % len(endpoints)]
+        return resolved[graph]
+
+    router = ShardRouter(
+        endpoints,
+        verified_context=request_context(),
+        auth_secret="s",
+        route_resolver=resolve,
+    )
     router.pools = {ep: _FakePool(shards[ep]) for ep in endpoints}  # type: ignore[assignment,misc]
     return router
 
@@ -133,9 +124,14 @@ def _router_with_fakes(
 
 @pytest.mark.asyncio
 async def test_group_by_shard_partitions() -> None:
-    # No affinity → graphs scatter by HRW across endpoints.
+    # A fake engine authority spreads the graphs across endpoints.
     eps = ["tcp://a:1", "tcp://b:1", "tcp://c:1"]
-    router = ShardRouter(eps, affinity=AffinityRegistry(groups={}))
+    router = ShardRouter(
+        eps,
+        verified_context=request_context(),
+        auth_secret="s",
+        route_resolver=lambda graph: eps[(int(graph[1:]) - 1) % len(eps)],
+    )
     graphs = ["g1", "g2", "g3", "g4", "g5", "g6"]
     groups = router.group_by_shard(graphs)
     # Every graph accounted for exactly once.
@@ -151,9 +147,7 @@ async def test_properties_union_first_found_across_shards() -> None:
     shard_a = _FakeShardClient()
     shard_b = _FakeShardClient()
     shards = {eps[0]: shard_a, eps[1]: shard_b}
-    # Disjoint affinity groups so the two graphs land on different shards.
-    affinity = AffinityRegistry(groups={"ga": "ga", "gb": "gb"})
-    router = _router_with_fakes(eps, shards, affinity)
+    router = _router_with_fakes(eps, shards, {"ga": eps[0], "gb": eps[1]})
 
     ep_a = router._get_shard_endpoint("ga")
     ep_b = router._get_shard_endpoint("gb")
@@ -181,8 +175,7 @@ async def test_label_union_merges_and_dedupes_across_shards() -> None:
     shard_a = _FakeShardClient()
     shard_b = _FakeShardClient()
     shards = {eps[0]: shard_a, eps[1]: shard_b}
-    affinity = AffinityRegistry(groups={"ga": "ga", "gb": "gb"})
-    router = _router_with_fakes(eps, shards, affinity)
+    router = _router_with_fakes(eps, shards, {"ga": eps[0], "gb": eps[1]})
 
     ep_a = router._get_shard_endpoint("ga")
     ep_b = router._get_shard_endpoint("gb")
@@ -210,8 +203,7 @@ async def test_label_union_merges_and_dedupes_across_shards() -> None:
 async def test_label_union_respects_global_limit() -> None:
     eps = ["tcp://a:1", "tcp://b:1"]
     shards = {eps[0]: _FakeShardClient(), eps[1]: _FakeShardClient()}
-    affinity = AffinityRegistry(groups={"ga": "ga", "gb": "gb"})
-    router = _router_with_fakes(eps, shards, affinity)
+    router = _router_with_fakes(eps, shards, {"ga": eps[0], "gb": eps[1]})
     ep_a = router._get_shard_endpoint("ga")
     ep_b = router._get_shard_endpoint("gb")
     shards[ep_a].label_rows["ga"] = [(f"a{i}", "Doc", {}) for i in range(5)]
@@ -224,8 +216,7 @@ async def test_label_union_respects_global_limit() -> None:
 async def test_neighbors_union_dedupes_across_shards() -> None:
     eps = ["tcp://a:1", "tcp://b:1"]
     shards = {eps[0]: _FakeShardClient(), eps[1]: _FakeShardClient()}
-    affinity = AffinityRegistry(groups={"ga": "ga", "gb": "gb"})
-    router = _router_with_fakes(eps, shards, affinity)
+    router = _router_with_fakes(eps, shards, {"ga": eps[0], "gb": eps[1]})
     ep_a = router._get_shard_endpoint("ga")
     ep_b = router._get_shard_endpoint("gb")
     shards[ep_a].neighbors[("ga", "X")] = ["n1", "n2"]
@@ -237,10 +228,19 @@ async def test_neighbors_union_dedupes_across_shards() -> None:
 
 @pytest.mark.asyncio
 async def test_fan_out_groups_each_shard_once() -> None:
-    # Two ingest lanes co-resident with commons (one shard) + one off-shard graph.
+    # The authority co-locates two ingest lanes with commons and places one graph away.
     eps = ["tcp://a:1", "tcp://b:1", "tcp://c:1"]
     shards = {ep: _FakeShardClient() for ep in eps}
-    router = _router_with_fakes(eps, shards)  # default affinity
+    router = _router_with_fakes(
+        eps,
+        shards,
+        {
+            "__commons__": eps[0],
+            "__ingest__": eps[0],
+            "__ingest_news__": eps[0],
+            "agent:planner": eps[1],
+        },
+    )
 
     graphs = ["__commons__", "__ingest__", "__ingest_news__", "agent:planner"]
     groups = router.group_by_shard(graphs)

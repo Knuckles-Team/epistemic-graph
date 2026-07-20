@@ -8,8 +8,9 @@ in the planner tests: a UQL string parses to the byte-identical plan a hand-buil
 constructs, and the served query returns the same result as the structured plan *and* the
 separate-surfaces oracle.
 
-The parser is dependency-free (no DataFusion, no regex), so the whole front-end ships even
-in a Pi/`--no-default-features` build — only *execution* of a given stage is feature-gated.
+The parser is dependency-free (no DataFusion, no regex), so it can be included in
+an explicitly minimal `--no-default-features` build; execution of each stage still
+requires its owning feature.
 
 ## The mental model: one pipeline, one RowSet currency
 
@@ -98,7 +99,7 @@ a prior stage, it is pushed down as `id IN (…)` over just the current candidat
 `TRAVERSE -[:CITES]->{1,2}` (or the bare-rel form `TRAVERSE CITES {1,2}`) → `Traverse{rel,min,max}`.
 Follows outgoing `rel` edges for `min..=max` hops. `{2}` means exactly 2; `{1,3}` means 1–3;
 omitted range means 1 hop. The relationship is matched against the edge's stored
-`relationship`/`type` blob field (same as Cypher's `rel_matches`).
+canonical `relationship` blob field (same as Cypher's `rel_matches`).
 
 #### `RANK BY` — vector re-rank
 `RANK BY ~[0.1,0.9,-0.3]` → `Rank{query}` (feature `query`). Re-orders the current candidates
@@ -152,8 +153,8 @@ instant `ts`, using a half-open window `[from, until)`:
 - `AS OF TX @t` — **transaction time**: "what we **BELIEVED** at `t`" — filters `tx_from`/`tx_to`.
 
 Order-preserving: a `RANK …` then `AS OF` keeps the ranked survivors in rank order. When it is
-the first stage it acts as a source (every node live at `t`). Dep-free (no DataFusion), so it
-runs in the Pi tier. The two axes give the headline bi-temporal pair in one grammar — see
+the first stage it acts as a source (every node live at `t`). Its implementation is
+dependency-light and available in the main build. The two axes give the headline bi-temporal pair in one grammar — see
 [Bi-temporal facts](architecture/engine.md).
 
 #### `WINDOW` — tumbling time-series aggregate (CONCEPT:EG-KG.compute.tsscan-series-window-60s / EG-KG.compute.trailing-aggregate-selector-lowers)
@@ -176,7 +177,7 @@ a 30-second min-aggregate. Canonical example — downsample a series and rerank:
 
 #### Epistemic — belief, evidence & justification (CONCEPT:EG-KG.epistemic.epistemic-substrate, E2)
 Claims/Evidence/Sources are ordinary `type`-tagged nodes; SUPPORTS/CONTRADICTS/ATTACKS
-edges (classified from `relationship_type` — `SUPPORTS`/`SUPPORTS_BELIEF`/`HAS_EVIDENCE`/
+edges (classified from canonical `relationship` — `SUPPORTS`/`SUPPORTS_BELIEF`/`HAS_EVIDENCE`/
 `CORROBORATES`, `CONTRADICTS`/`CONTRADICTS_BELIEF`/`REFUTES`, `ATTACKS`/`DEFEATS`/
 `UNDERCUTS`) are the evidence graph the confidence-propagation walk runs over (a bounded,
 cycle-guarded conjugate Bayesian update, `eg-epistemic`). Feature `epistemic`.
@@ -262,10 +263,25 @@ Ebbinghaus-decayed **in-plan** and composes alongside `AS OF` in one fused pipel
 **Python client** (the front-end over `unified`):
 
 ```python
+import os
+
 from epistemic_graph.client import EpistemicGraphClient
 
+context = {
+    "principal": "service:client",
+    "tenant": "tenant:default",
+    "audience": "epistemic-graph",
+    "agent_id": "service:client",
+    "roles": ["graph-client"],
+    "scopes": ["kg:read"],
+    "policy_version": "policy:initial",
+    "delegation": [],
+}
 c = await EpistemicGraphClient.connect(
-    socket_path="/run/epistemic-graph/epistemic-graph.sock", graph_name="__commons__")
+    socket_path=os.environ["GRAPH_SERVICE_SOCKET"],
+    graph_name="__commons__",
+    verified_context=context,
+)
 rows = await c.query.uql("MATCH (:Concept) |> AS OF @1700000000 |> RERANK MMR 0.5 5 |> LIMIT 5")
 ```
 

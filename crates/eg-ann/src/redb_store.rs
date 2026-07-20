@@ -15,8 +15,13 @@ const ANN: TableDefinition<&str, &[u8]> = TableDefinition::new("eg_ann");
 /// Persist the index into a redb database file under three keys: `meta`, `codes`,
 /// `refine`. Atomic + durable via redb's transaction commit (fsync).
 pub fn save_redb(idx: &IvfPq, db_path: &Path) -> Result<(), redb::Error> {
+    crate::persist::validate_index(idx).map_err(redb_error)?;
     let db = Database::create(db_path)?;
-    let meta = bincode::serialize(&MetaBlob::from(idx)).expect("serialize meta");
+    let meta =
+        crate::codec::serialize(&crate::persist::Meta::from_index(idx)).map_err(redb_error)?;
+    if meta.len() as u64 > crate::persist::MAX_METADATA_BYTES {
+        return Err(redb_error("ANN metadata exceeds its safety bound"));
+    }
     let wtxn = db.begin_write()?;
     {
         let mut t = wtxn.open_table(ANN)?;
@@ -34,84 +39,44 @@ pub fn open_redb(db_path: &Path) -> Result<IvfPq, redb::Error> {
     let db = Database::open(db_path)?;
     let rtxn = db.begin_read()?;
     let t = rtxn.open_table(ANN)?;
-    let meta: MetaBlob = bincode::deserialize(
-        t.get("meta")?
-            .ok_or_else(|| {
-                redb::Error::from(std::io::Error::new(
-                    std::io::ErrorKind::NotFound,
-                    "meta missing",
-                ))
-            })?
-            .value(),
-    )
-    .map_err(|e| redb::Error::from(std::io::Error::new(std::io::ErrorKind::InvalidData, e)))?;
-    let codes = t
+    let meta_guard = t.get("meta")?.ok_or_else(|| {
+        redb::Error::from(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "ANN metadata is missing",
+        ))
+    })?;
+    if meta_guard.value().len() as u64 > crate::persist::MAX_METADATA_BYTES {
+        return Err(redb_error("ANN metadata exceeds its safety bound"));
+    }
+    let meta: crate::persist::Meta =
+        crate::codec::deserialize(meta_guard.value()).map_err(redb_error)?;
+    let (codes_len, refine_len) = meta.expected_code_lengths().map_err(redb_error)?;
+    let codes_guard = t
         .get("codes")?
-        .map(|v| v.value().to_vec())
-        .unwrap_or_default();
-    let sq_codes = t
+        .ok_or_else(|| redb_error("ANN PQ codes are missing"))?;
+    if codes_guard.value().len() != codes_len {
+        return Err(redb_error("ANN PQ-code length does not match metadata"));
+    }
+    let refine_guard = t
         .get("refine")?
-        .map(|v| v.value().to_vec())
-        .unwrap_or_default();
+        .ok_or_else(|| redb_error("ANN refine codes are missing"))?;
+    if refine_guard.value().len() != refine_len {
+        return Err(redb_error("ANN refine-code length does not match metadata"));
+    }
+    let codes = codes_guard.value().to_vec();
+    let sq_codes = refine_guard.value().to_vec();
+    drop(meta_guard);
+    drop(codes_guard);
+    drop(refine_guard);
     drop(t);
 
-    let mut idx = meta.into_index(codes, sq_codes);
+    let mut idx = meta.into_index(codes, sq_codes).map_err(redb_error)?;
     idx.rebuild_postings();
     Ok(idx)
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
-struct MetaBlob {
-    dim: usize,
-    nlist: usize,
-    m: usize,
-    dsub: usize,
-    rotation: Vec<f32>,
-    coarse_centroids: Vec<f32>,
-    pq_centroids: Vec<f32>,
-    sq_min: Vec<f32>,
-    sq_scale: Vec<f32>,
-    ids: Vec<u64>,
-    list_of: Vec<u32>,
-    deleted: Vec<u8>,
-}
-
-impl MetaBlob {
-    fn from(idx: &IvfPq) -> Self {
-        Self {
-            dim: idx.dim,
-            nlist: idx.nlist,
-            m: idx.m,
-            dsub: idx.dsub,
-            rotation: idx.rotation.clone(),
-            coarse_centroids: idx.coarse_centroids.clone(),
-            pq_centroids: idx.pq_centroids.clone(),
-            sq_min: idx.sq_min.clone(),
-            sq_scale: idx.sq_scale.clone(),
-            ids: idx.ids.clone(),
-            list_of: idx.list_of.clone(),
-            deleted: idx.deleted.clone(),
-        }
-    }
-    fn into_index(self, codes: Vec<u8>, sq_codes: Vec<u8>) -> IvfPq {
-        IvfPq {
-            dim: self.dim,
-            nlist: self.nlist,
-            m: self.m,
-            dsub: self.dsub,
-            rotation: self.rotation,
-            coarse_centroids: self.coarse_centroids,
-            pq_centroids: self.pq_centroids,
-            codes,
-            sq_codes,
-            sq_min: self.sq_min,
-            sq_scale: self.sq_scale,
-            ids: self.ids,
-            list_of: self.list_of,
-            deleted: self.deleted,
-            postings: Vec::new(),
-        }
-    }
+fn redb_error(error: impl std::fmt::Display) -> redb::Error {
+    redb::Error::from(crate::persist::invalid_data(error))
 }
 
 #[cfg(test)]

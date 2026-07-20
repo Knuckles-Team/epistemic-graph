@@ -5,7 +5,6 @@ server instance per test session using a temporary UDS socket.
 """
 
 import asyncio
-import json
 import os
 import signal
 import subprocess
@@ -13,6 +12,13 @@ import tempfile
 import time
 
 import pytest
+from conftest import (
+    TEST_AGENT_ID,
+    TEST_SIGNER_KEY,
+    bootstrap_context,
+    request_context,
+    strict_server_env,
+)
 
 # Skip all tests if the server binary is not available.
 _SERVER_BIN = os.path.join(
@@ -37,7 +43,11 @@ def service():
     secret = "test-secret-key"
 
     proc = subprocess.Popen(
-        [_SERVER_BIN, "--socket-path", socket_path, "--auth-secret", secret],
+        [_SERVER_BIN, "--socket-path", socket_path],
+        env={
+            **os.environ,
+            **strict_server_env(os.path.join(tmpdir, "security"), auth_secret=secret),
+        },
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
@@ -50,6 +60,22 @@ def service():
     else:
         proc.kill()
         pytest.fail("Service failed to start within 5 seconds")
+
+    from epistemic_graph.client import SyncEpistemicGraphClient
+
+    bootstrap = SyncEpistemicGraphClient.connect(
+        socket_path=socket_path,
+        auth_secret=secret,
+        verified_context=bootstrap_context(),
+    )
+    try:
+        bootstrap.consensus.bootstrap_system_identity(
+            agent_id=TEST_AGENT_ID,
+            signer_id=TEST_AGENT_ID,
+            signer_key=TEST_SIGNER_KEY,
+        )
+    finally:
+        bootstrap.close()
 
     yield {"socket_path": socket_path, "auth_secret": secret, "proc": proc}
 
@@ -75,6 +101,7 @@ def client_factory(service):
             socket_path=service["socket_path"],
             auth_secret=service["auth_secret"],
             graph_name=graph_name,
+            verified_context=request_context(),
         )
         clients.append(c)
         return c
@@ -118,6 +145,28 @@ def test_service_node_crud(service, client_factory):
         assert await client.nodes.has("nonexistent") is False
         await client.nodes.remove("test:n1")
         assert await client.nodes.has("test:n1") is False
+
+    asyncio.run(_test())
+
+
+@pytest.mark.concept("CONCEPT:AU-KG.query.object-graph-mapper")
+def test_service_create_if_absent_has_one_winner(service, client_factory):
+    """Concurrent callers share one durable atomic create decision."""
+
+    async def _test():
+        client = await client_factory()
+        results = await asyncio.gather(
+            *(
+                client.nodes.create_if_absent(
+                    "create-once:shared", {"type": "Work", "writer": writer}
+                )
+                for writer in range(8)
+            )
+        )
+        assert results.count(True) == 1
+        winner = results.index(True)
+        props = await client.nodes.properties("create-once:shared")
+        assert props == {"type": "Work", "writer": winner}
 
     asyncio.run(_test())
 
@@ -257,6 +306,7 @@ def test_service_auth_required(service):
             socket_path=service["socket_path"],
             auth_secret="wrong-secret",
             graph_name="__commons__",
+            verified_context=request_context(),
         )
         with pytest.raises(RuntimeError, match="Authentication failed"):
             await client.ping()

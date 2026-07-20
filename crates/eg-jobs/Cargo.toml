@@ -2,7 +2,7 @@
 name = "eg-jobs"
 version = "0.1.0"
 edition = "2021"
-authors = ["Audel Rouhi <knucklessg1@gmail.com>"]
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
 description = "Durable analytics-job plane (CONCEPT:INT-P2-1): async submit/status/progress/cancel/resume over a redb-backed AnalyticsJob state machine, committing results as provenance'd epistemic claims"
 license = "MIT"
 
@@ -12,9 +12,9 @@ name = "eg_jobs"
 # A leaf crate ALONG the DAG (CONCEPT:INT-P2-1): deps = eg-types (wire-shaped value
 # types) + eg-core (the `GraphCore` write primitive the claim-commit step needs — the
 # SAME `add_node`/`add_edge`/`has_node`/`version()` surface `eg-epistemic` reads and
-# `src/server/handlers/mining.rs`'s `materialize_claim` writes through). It is NOT a
-# dependency of the main `epistemic-graph` package's default build; see the root
-# `Cargo.toml`'s `members` comment and the opt-in `jobs` facade feature that links it.
+# `src/server/handlers/mining.rs`'s `materialize_claim` writes through). The facade's
+# self-contained `full` contract includes the `jobs` feature; lean custom builds may
+# still omit it explicitly.
 #
 # Durability is the crate's whole reason to exist, so `redb` is an UNCONDITIONAL
 # dependency here (unlike eg-tsdb/eg-kvcache's optional `redb-store`/`durable`
@@ -23,6 +23,7 @@ name = "eg_jobs"
 [dependencies]
 eg-types = { path = "../eg-types" }
 eg-core = { path = "../eg-core" }
+eg-mutation-store = { path = "../eg-mutation-store" }
 
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

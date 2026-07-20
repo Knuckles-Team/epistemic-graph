@@ -3,26 +3,38 @@
 ## Quick Start
 
 ```bash
-# 1. Build the server binary (the binary requires the `server` feature)
-cd epistemic-graph
-cargo build --release --features server
+# 1. Build the standard server; `full` includes required `server` + `security`.
+cargo build --release
 
-# 2. Start the service (an auth secret is REQUIRED — see Authentication Protocol)
-./target/release/epistemic-graph-server \
-  --socket-path /tmp/epistemic-graph.sock \
-  --auth-secret my-secret
+# 2. Load secrets/policy from deployment configuration and start durably.
+: "${GRAPH_SERVICE_AUTH_SECRET:?required}"
+: "${EPISTEMIC_GRAPH_SIGNER_KEYS_JSON:?required}"
+: "${GRAPH_SERVICE_PERSIST_DIR:?required}"
+: "${GRAPH_SERVICE_SOCKET:?required}"
+export EPISTEMIC_GRAPH_AUDIENCE=epistemic-graph
+export EPISTEMIC_GRAPH_TENANT=tenant:default
+export EPISTEMIC_GRAPH_POLICY_VERSION=policy:initial
+epistemic-graph-server
 
 # 3. Use from Python
-export GRAPH_SERVICE_SOCKET=/tmp/epistemic-graph.sock
-export GRAPH_SERVICE_AUTH_SECRET=my-secret
 python -c "
 from epistemic_graph import EpistemicGraphClient
 import asyncio
 
 async def main():
-    client = await EpistemicGraphClient.connect()
-    await client.nodes.add('agent:planner', {'type': 'Agent'})
-    print(await client.nodes.has('agent:planner'))  # True
+    context = {
+        'principal': 'service:client',
+        'tenant': 'tenant:default',
+        'audience': 'epistemic-graph',
+        'agent_id': 'service:client',
+        'roles': ['graph-client'],
+        'scopes': ['kg:read', 'kg:write'],
+        'policy_version': 'policy:initial',
+        'delegation': [],
+    }
+    client = await EpistemicGraphClient.connect(verified_context=context)
+    await client.nodes.add('node:example', {'type': 'Entity'})
+    print(await client.nodes.has('node:example'))
     await client.close()
 
 asyncio.run(main())
@@ -52,14 +64,16 @@ epistemic-graph-service graphs list
 
 | Argument | Env Var | Default | Description |
 |---|---|---|---|
-| `--socket-path` | `GRAPH_SERVICE_SOCKET` | `/tmp/epistemic-graph.sock` | UDS socket path |
-| `--tcp-addr` | — | None | Optional TCP listener (e.g., `0.0.0.0:9100`) |
-| `--auth-secret` | `GRAPH_SERVICE_AUTH_SECRET` | — (**required**) | HMAC-SHA256 secret; an empty secret refuses to start unless the insecure opt-out is set |
-| `--allow-insecure` | `EPISTEMIC_GRAPH_ALLOW_INSECURE` | off | Explicit opt-out: start with an empty secret (unauthenticated, development only) |
-| `--persist-dir` | `GRAPH_SERVICE_PERSIST_DIR` | None | Checkpoint directory |
-| `--checkpoint-interval` | — | `300` | Auto-checkpoint interval (seconds) |
-| `--persist-on-shutdown` | — | `true` | Serialize on SIGTERM |
+| `--socket-path` | `GRAPH_SERVICE_SOCKET` | platform runtime socket | UDS socket path |
+| `--tcp-addr` | `GRAPH_SERVICE_TCP_ADDR` | None | Optional native TCP listener; a routable address requires TLS |
+| `--tcp-tls-cert` / `--tcp-tls-key` | `GRAPH_SERVICE_TLS_CERT` / `GRAPH_SERVICE_TLS_KEY` | — | PEM identity required together for routable native TCP |
+| `--tcp-tls-client-ca` | `GRAPH_SERVICE_TLS_CLIENT_CA` | — | Optional CA bundle enabling required client certificates |
+| `--auth-secret` | `GRAPH_SERVICE_AUTH_SECRET` | — (**required**) | Non-empty HMAC-SHA256 secret for `eg2.` envelopes |
+| `--persist-dir` | `GRAPH_SERVICE_PERSIST_DIR` | — (**required for served mode**) | Durable store and replay-ledger directory |
 | `--metrics-addr` | `GRAPH_SERVICE_METRICS_ADDR` | None (disabled) | Prometheus `/metrics` HTTP listener (e.g. `127.0.0.1:9101`) |
+
+Every auxiliary listener is loopback-only. A bare enable token or port resolves
+to loopback, and a non-loopback auxiliary address is rejected at startup.
 
 ## Prometheus metrics
 
@@ -80,8 +94,6 @@ bind: `127.0.0.1:9101` (one port per shard).
 | `epistemic_graph_busy_rejections_total` | counter | — | Requests shed with `BUSY` |
 | `epistemic_graph_graph_ops_total` | counter | `graph` | Graph-targeted ops admitted past the ACL |
 | `epistemic_graph_graph_nodes` / `_edges` | gauge | `graph` | Per-graph size, refreshed on mutation (O(1) counts) |
-| `epistemic_graph_checkpoint_duration_seconds` | histogram | — | Full-registry checkpoint wall time |
-| `epistemic_graph_checkpoint_last_success_timestamp_seconds` | gauge | — | Unix time of the last successful checkpoint |
 | `epistemic_graph_auth_failures_total` | counter | — | HMAC authentication rejections |
 | `epistemic_graph_access_denied_total` | counter | — | Isolation-ACL denials |
 
@@ -89,26 +101,12 @@ The `graph` label is capped at 128 distinct names; graphs beyond the cap
 aggregate under `__overflow__` (deleting a graph frees its slot), so an
 unbounded tenant namespace cannot explode time-series cardinality.
 
-## Snapshot persistence
+## Durable persistence
 
-When `--persist-dir` is set the service keeps a fast, RDB-style on-disk snapshot of
-every in-memory graph so state survives a restart without an external database
-(`src/persist.rs`, server-feature-gated):
-
-- **Format.** Each graph is serialized with `GraphCore::to_msgpack` to
-  `{persist_dir}/{sanitized-name}.mp` (compact MessagePack — small on disk, fast to
-  write), alongside a `manifest.json` listing the graphs and their files.
-- **Atomicity.** Each snapshot is written to a temp file and `rename`d into place, so
-  a crash mid-write never corrupts the previous good snapshot.
-- **Triggers.** `checkpoint_all(state)` runs (1) on an interval timer every
-  `--checkpoint-interval` seconds, (2) on the `Checkpoint` RPC (returns
-  `checkpoint_complete:{n}`), and (3) on graceful shutdown when
-  `--persist-on-shutdown` is true.
-- **Recovery.** On startup `load_all(state)` reads the manifest and rehydrates every
-  graph before the listener accepts connections, so clients reconnect to a warm graph.
-
-This is the durable-backup path for the singleton host daemon: cheap enough to run on
-a short interval, and bounded by the live graph size (no unbounded WAL growth).
+Served mode requires `GRAPH_SERVICE_PERSIST_DIR`. The redb store is authoritative:
+each accepted mutation is committed before acknowledgement and restart recovery reads
+that same store. There is no in-memory-only served profile, alternate snapshot format,
+checkpoint RPC, or write-behind durability mode.
 
 ## Wire Protocol
 
@@ -136,9 +134,9 @@ import msgpack
 
 request = {
     "id": 1,                                  # u64 correlation id
-    "graph": "agent:planner",                 # target graph name
-    "auth_token": "hex-encoded-hmac-sha256",  # see Authentication Protocol
-    "agent_id": "planner",                    # OPTIONAL caller identity (ACLs)
+    "graph": "graph:example",                 # target graph name
+    "auth_token": "eg2.<claims>.<hmac>",       # see Authentication Protocol
+    "agent_id": "service:client",              # must match verified authority
     "method": "AddNode",
     "params": {
         "node_id": "n1",
@@ -150,8 +148,8 @@ body = msgpack.packb(request)
 frame = len(body).to_bytes(4, byteorder="big") + body
 ```
 
-`agent_id` is optional and backward-compatible: clients that omit it are
-treated as anonymous for ACL purposes (see Isolation Policy below).
+`agent_id` is an authenticated assertion, never authority by itself. The server
+derives the effective actor from the verified envelope and rejects a conflict.
 
 ### Response Shape
 
@@ -187,8 +185,7 @@ applying them at `COMMIT`.
 
 `COMMIT` is **best-effort ordered across stores**. It (a) replays the buffered
 graph-node ops as ONE atomic in-memory batch (a single topology write guard) and
-records them as ONE durable group (a single redb `WriteTransaction` under
-`EPISTEMIC_GRAPH_REDB_AUTHORITATIVE`, else write-behind), THEN (b) commits the
+records them as ONE durable group in a single redb `WriteTransaction`, THEN (b) commits the
 user-table transaction. **Each store commits atomically within itself, but the two
 are sequenced** — there is a narrow partial-failure window: if the graph group
 commits and the user-table commit then fails, the graph writes are durable while
@@ -199,53 +196,43 @@ cross-store window and is fully atomic.
 
 ## Authentication Protocol
 
-Two envelope generations coexist on the wire (`src/server/auth.rs`,
-CONCEPT:EG-KG.security.signed-request-envelope, EG-P0-5): a legacy v0 token, which remains the
-**default**, and an opt-in v1 signed envelope.
+`eg2.` is the only request envelope accepted by `src/server/auth.rs`. It binds
+the request id, graph, canonical method/body digest, timestamp, nonce,
+idempotency key, authenticated principal, tenant, audience, effective agent,
+roles, scopes, policy version, and delegation path under HMAC-SHA256. Tokens are
+compared in constant time. Unknown prefixes and malformed, stale, replayed, or
+policy-mismatched envelopes fail before dispatch.
 
-### v0 (legacy, still the default)
+The server refuses to open a listener unless all of these are true:
 
-1. Client and server share a secret (`--auth-secret` / `GRAPH_SERVICE_AUTH_SECRET`)
-2. For each request, client computes: `HMAC-SHA256(secret, str(request_id))`
-3. Token is sent as `auth_token` field in the request
-4. Server recomputes and compares in constant time (`Mac::verify_slice`, never `==`); rejects on
-   mismatch (`"Authentication failed"`)
-5. **A secret is mandatory.** With an empty secret the server **refuses to
-   start** (exit code 2). To intentionally run unauthenticated — development
-   only — pass `--allow-insecure` or set `EPISTEMIC_GRAPH_ALLOW_INSECURE=1`;
-   the server then starts but logs a prominent `SECURITY:` warning naming the
-   bind addresses. This applies to UDS and TCP alike; never combine the
-   insecure opt-out with a non-loopback `--tcp-addr`. Note the TCP transport
-   is also unencrypted (no TLS) — for cross-host deployments put it behind a
-   TLS-terminating or WireGuard/SSH tunnel.
+- the binary includes the `security` feature;
+- `GRAPH_SERVICE_AUTH_SECRET` is non-empty;
+- `EPISTEMIC_GRAPH_AUDIENCE`, `EPISTEMIC_GRAPH_TENANT`, and
+  `EPISTEMIC_GRAPH_POLICY_VERSION` are non-empty;
+- `GRAPH_SERVICE_PERSIST_DIR` provides the durable replay ledger;
+- `EPISTEMIC_GRAPH_SIGNER_KEYS_JSON` contains non-empty trusted signer ids and
+  keys.
 
-v0 binds only the request id — no timestamp, no nonce, and no binding to the method, graph, tenant,
-principal, or request body.
+`EPISTEMIC_GRAPH_ENVELOPE_SKEW_SECS` controls the accepted timestamp window and
+replay-retention horizon. Nonce acceptance is committed durably before dispatch,
+so a process restart cannot make a captured envelope reusable.
 
-### v1 (signed envelope, EG-P0-5 — opt-in, off by default)
+### Fresh-store identity bootstrap
 
-A versioned envelope, carried in the same `auth_token` wire field (prefixed `eg1.` so a v1 token can
-never be mistaken for, or silently mishandled as, a v0 hex digest), binding under ONE HMAC-SHA256:
-envelope-version + audience + tenant + principal + graph + method name + a hash of the method's
-params (the request body) + timestamp + nonce + idempotency key.
+An empty durable identity/RBAC store does not grant ordinary graph or admin
+access. It permits exactly one bootstrap mutation in `__commons__`: a trusted
+signer-backed `RegisterIdentity` request that registers the envelope's own
+principal/effective agent as `System`, with empty teams and roles, no delegation,
+and the single exact scope `security:bootstrap`. The detached operation signature
+must verify against `EPISTEMIC_GRAPH_SIGNER_KEYS_JSON` and its signer id must equal
+the verified principal. Once the first rule exists, this bootstrap path closes;
+all operations, including later identity administration, require normal durable
+RBAC and capability checks.
 
-- Verified in **constant time** (`Mac::verify_slice`), with a configurable clock-skew window
-  (`EPISTEMIC_GRAPH_ENVELOPE_SKEW_SECS`, default 300s, which doubles as the replay-cache retention
-  horizon) and a bounded replay-nonce cache — a nonce cannot be reused within the skew window.
-- **Backward compatible and default-off.** A v0 token is still **accepted with a warning** unless the
-  server is started with `EPISTEMIC_GRAPH_REQUIRE_SIGNED=1` (or `true`), in which case any v0 request
-  is **rejected** outright. Nothing about the v0 behavior above changes unless this flag is set.
-- The v1 signer exists server-side and in `eg-plan`'s federation source
-  (`RemoteEngineSource::auth_token_v1`, sharing byte-for-byte the same canonical layout as the
-  verifier so the two can't independently drift). **It is not yet the path any real client takes** —
-  the Python/JS/Go client drivers (see [Client drivers](interfaces/clients.md)) still only speak v0,
-  and the federation fetch path does not yet call the v1 signer (tracked as a follow-up, not part of
-  this workstream).
-- **Out of scope for EG-P0-5, still future work:** transport-level TLS/mTLS (the UDS/TCP transport
-  itself remains unencrypted regardless of v0/v1 — see the TLS/tunnel note under v0 above) and
-  OIDC-derived principals. This workstream is the crypto core of the request-signing trust boundary
-  only, not a full enterprise auth stack — describe it as exactly that, not as an established
-  enterprise trust boundary.
+Remote native TCP also requires TLS; the request envelope authenticates and
+authorizes a request but does not provide transport confidentiality. Native
+federation signs the same `eg2.` contract and fails before dialing when its
+claims, secret, or TLS boundary are incomplete.
 
 ## Multi-Graph Management
 
@@ -314,18 +301,21 @@ ACLs are **enforced in dispatch** (`src/server.rs::check_graph_access` calling
 `src/isolation.rs::check_access`) for every graph-targeted operation.
 Violations return an `ACCESS_DENIED: ...` error response.
 
-How it activates:
+Enforcement is unconditional:
 
-- **No identities registered → no rules → nothing is checked.** A
-  single-tenant deployment that never calls `RegisterIdentity` behaves exactly
-  as before (full back-compat).
-- The first `RegisterIdentity` (Python: `client.consensus.register_identity`)
-  switches the server to enforcing mode.
-- The caller is identified by the optional `agent_id` request field (Python:
-  `EpistemicGraphClient.connect(..., agent_id="worker1")`; also accepted by
-  `ConnectionPool` / `ShardRouter`). Requests without it are anonymous:
-  in enforcing mode they can still use `__bus__` and read `global:` graphs,
-  but are denied on `agent:`/`team:` graphs.
+- Every caller comes from verified `eg2.` authority. The unsigned `agent_id`
+  request field cannot establish or change identity.
+- Native wire session objects may exist before authentication, but they cannot
+  execute, enter QoS/admission accounting, evaluate ACLs, or access state until
+  a non-empty verified identity and opaque principal scope are bound. There is
+  no anonymous, graph-name, or empty-string identity bucket.
+- An empty durable identity/RBAC store grants no graph access. It admits only
+  the exact signer-backed `security:bootstrap` self-registration described
+  above.
+- After that first `System` rule commits, normal durable graph ACL, admin RBAC,
+  and row-level policy govern every request.
+- Unowned, undecodable, and untagged rows are denied unless explicitly public
+  or authorized by owner/grant policy.
 - `CreateGraph` records the caller as the graph **owner** — ownership is what
   peer-deny and manager-access resolve against. `DeleteGraph` requires Write
   access to the target graph.
@@ -341,7 +331,7 @@ How it activates:
 | Team member | `team:<name>` | ✅ | ❌ |
 | Team manager | `team:<name>` | ✅ | ✅ |
 | Any agent | `global:<name>` | ✅ | ❌ |
-| Anonymous (no `agent_id`) | `agent:` / `team:` | ❌ | ❌ |
+| Unbound transport (before verified identity) | Any graph | Cannot execute | Cannot execute |
 
 ## Building & Running
 
@@ -356,5 +346,5 @@ cargo build --release
 cargo test
 
 # Run with tracing
-RUST_LOG=info ./target/release/epistemic-graph-server --socket-path /tmp/eg.sock
+RUST_LOG=info ./target/release/epistemic-graph-server --socket-path "${GRAPH_SERVICE_SOCKET:?}"
 ```

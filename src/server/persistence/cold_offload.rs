@@ -15,11 +15,9 @@
 //! rehydrates from the durable dump on demand. It complements — does not replace — the
 //! budget-pressure path: this is proactive (idle-driven), that is reactive (budget-driven).
 //!
-//! Offload is durability-gated: under redb-authoritative mode every acked write is already
-//! committed (commit-before-ack, KG-2.187), so dropping the in-RAM core loses nothing —
-//! the node read-through serves every node back from redb. In the non-authoritative
-//! rebuildable-cache model the external system-of-record holds the data, so dropping the
-//! cache is likewise loss-free. Either way, an offloaded graph is never lost, only evicted.
+//! Offload is durability-gated: every resident node must be confirmed in the
+//! authoritative backend before the in-RAM core is dropped. An offloaded graph is
+//! therefore never lost, only evicted.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -30,6 +28,7 @@ use parking_lot::Mutex;
 use tokio::sync::RwLock;
 
 use crate::graph::GraphCore;
+use crate::server::persistence::PersistenceBackend;
 use crate::server::ServerState;
 
 /// Per-graph last-access tracker + offload bookkeeping (CONCEPT:EG-KG.sharding.eg-r6). The engine calls
@@ -113,20 +112,25 @@ impl ColdTenantTracker {
 /// Returns the freed node count, or `None` when it was NOT safe to drop (durability could
 /// not be confirmed — the graph stays resident, no loss). Reuses [`GraphCore::hibernate`]
 /// (KG-2.224) so reads serve via the KG-2.191 read-through afterward.
-pub fn offload_graph_core(core: &GraphCore, authoritative: bool) -> Option<usize> {
+pub fn offload_graph_core(
+    core: &GraphCore,
+    backend: &Arc<dyn PersistenceBackend>,
+    graph_name: &str,
+) -> Option<usize> {
     if core.node_count() == 0 {
         return Some(0); // already empty / hibernated
     }
-    if authoritative {
-        // Every acked node is already durable (commit-before-ack), and the node
-        // read-through serves an evicted node from redb — so dropping the core is
-        // loss-free.
-        Some(core.hibernate())
-    } else {
-        // Rebuildable-cache model: the external system-of-record holds the data, so the
-        // in-RAM core is a rebuildable cache and dropping it is loss-free.
-        Some(core.hibernate())
+    let node_ids: Vec<String> = core
+        .get_nodes()
+        .into_iter()
+        .map(|(node_id, _)| node_id)
+        .collect();
+    let fname = crate::persist::sanitize(graph_name);
+    let presence = backend.durable_node_presence(&fname, &node_ids).ok()?;
+    if presence.len() != node_ids.len() || presence.iter().any(|present| !present) {
+        return None;
     }
+    Some(core.hibernate())
 }
 
 /// Sweep the registry and offload every graph idle longer than `idle_window`
@@ -144,8 +148,8 @@ pub async fn offload_cold_tenants(
         return 0;
     }
 
-    // Snapshot the resident cores + the authoritative flag under a read lock.
-    let (entries, authoritative) = {
+    // Snapshot the resident cores + durable authority under a read lock.
+    let (entries, persistence) = {
         let s = state.read().await;
         let entries: Vec<(String, Arc<GraphCore>)> = s
             .registry
@@ -153,7 +157,10 @@ pub async fn offload_cold_tenants(
             .iter()
             .map(|e| (e.name.clone(), e.core.clone()))
             .collect();
-        (entries, s.redb_authoritative)
+        (entries, s.persistence.clone())
+    };
+    let Some(persistence) = persistence else {
+        return 0;
     };
 
     let mut offloaded = 0u64;
@@ -164,7 +171,7 @@ pub async fn offload_cold_tenants(
         if core.node_count() == 0 {
             continue; // nothing resident to drop
         }
-        if let Some(freed) = offload_graph_core(&core, authoritative) {
+        if let Some(freed) = offload_graph_core(&core, &persistence, &name) {
             if freed > 0 {
                 tracker.mark_offloaded(&name);
                 offloaded += 1;
@@ -185,15 +192,16 @@ pub async fn offload_cold_tenants(
 // hibernate path R6 cold-offload uses — before a new one is admitted. `__commons__`
 // is never evicted.
 
-/// The configured cap on RESIDENT hot-context graphs (CONCEPT:EG-KG.sharding.lazy-graph-catalog).
-/// `EPISTEMIC_GRAPH_MAX_RESIDENT_GRAPHS` — `0` (unset, the default) ⇒ UNBOUNDED:
-/// every accessed/created graph stays resident forever, exactly the pre-DIST-P2-3
-/// behavior, so a small deployment is byte-for-byte unchanged.
+pub const DEFAULT_PRODUCTION_MAX_RESIDENT_GRAPHS: usize = 1024;
+pub const DEFAULT_PRODUCTION_LAZY_OPEN_PAGE_SIZE: usize = 4096;
+
+/// The configured finite cap on resident hot-context graphs.
 pub fn max_resident_graphs() -> usize {
     std::env::var("EPISTEMIC_GRAPH_MAX_RESIDENT_GRAPHS")
         .ok()
         .and_then(|s| s.trim().parse::<usize>().ok())
-        .unwrap_or(0)
+        .filter(|value| *value > 0)
+        .unwrap_or(DEFAULT_PRODUCTION_MAX_RESIDENT_GRAPHS)
 }
 
 /// Admit a new/lazily-opened graph into the bounded hot-context cache
@@ -204,22 +212,19 @@ pub fn max_resident_graphs() -> usize {
 /// map entirely (`GraphRegistry::evict_resident`, not merely `hibernate`, so the
 /// freed memory includes the `GraphCore` structures themselves, not just its
 /// content). The catalog row survives, so the evicted graph re-opens on its next
-/// access. `cap == 0` ⇒ unbounded (a no-op) — the default, matching pre-existing
-/// behavior for a small deployment. Takes the cap as an explicit parameter (not
-/// read from the environment here) so it composes cleanly with a caller that
-/// already resolved it once, and so tests can exercise a tight cap deterministically
-/// without mutating global process env state.
+/// access. Takes the cap as an explicit parameter so tests can exercise a tight cap
+/// deterministically without mutating global process environment.
 pub fn admit_capacity(
     s: &mut ServerState,
     tracker: &ColdTenantTracker,
     incoming: &str,
     cap: usize,
 ) {
-    if cap == 0 {
-        return;
-    }
+    let cap = cap.max(1);
     while s.registry.resident_len() >= cap {
-        let authoritative = s.redb_authoritative;
+        let Some(persistence) = s.persistence.clone() else {
+            return;
+        };
         let candidate_names: Vec<String> = s
             .registry
             .all_entries()
@@ -235,32 +240,29 @@ pub fn admit_capacity(
             Some(e) => e.core.clone(),
             None => return, // race: victim already gone
         };
-        offload_graph_core(&core, authoritative);
+        if offload_graph_core(&core, &persistence, &victim).is_none() {
+            return;
+        }
         s.registry.evict_resident(&victim);
         tracker.forget(&victim);
     }
 }
 
-/// The configured page size for a PAGED lazy-open (CONCEPT:EG-KG.sharding.paged-lazy-open, L38 "paged
-/// adjacency"). `EPISTEMIC_GRAPH_LAZY_OPEN_PAGE_SIZE` — `0` (unset, the DEFAULT) means
-/// paging is OFF: [`lazy_open`] calls the pre-existing [`eg_core::registry::GraphRegistry::open_lazy`]
-/// full-rehydrate path, byte-for-byte unchanged (a small/eager deployment sees no
-/// behavior change). A positive value switches `lazy_open` to
+/// The configured positive page size for a paged lazy-open.
 /// [`eg_core::registry::GraphRegistry::open_lazy_paged`]: the graph becomes resident
-/// and queryable after just ONE bounded page (nodes+edges combined, per page), instead
-/// of after a full rehydrate — the concrete fix for the honest limitation
+/// after one bounded page (nodes+edges combined, per page), instead of after a full
+/// rehydrate. Operations receive explicit partial-materialization state until all
+/// pages and maintained indexes are valid — the concrete fix for the honest limitation
 /// `docs/architecture/epistemic-os-hardening.md` names as open ledger item L38
 /// ("first access to a lazily-opened graph still fully rehydrates it"). The rest of
-/// the graph's material is paged in by [`page_in_remaining`] as a background task —
-/// correctness in the interim is covered by the SAME per-node read-through
-/// [`open_lazy`](eg_core::registry::GraphRegistry::open_lazy) already attaches: a node
-/// not yet paged in still resolves on direct access, it just is not yet enumerated by
-/// a whole-graph scan until its page lands.
+/// the graph's material is paged in by [`page_in_remaining`] as a background task;
+/// no incomplete whole-graph result is served in the interim.
 pub fn lazy_open_page_size() -> usize {
     std::env::var("EPISTEMIC_GRAPH_LAZY_OPEN_PAGE_SIZE")
         .ok()
         .and_then(|s| s.trim().parse::<usize>().ok())
-        .unwrap_or(0)
+        .filter(|value| *value > 0)
+        .unwrap_or(DEFAULT_PRODUCTION_LAZY_OPEN_PAGE_SIZE)
 }
 
 /// Lazily materialize a catalog-known graph's resident `GraphCore` on first access
@@ -277,43 +279,53 @@ pub fn lazy_open_page_size() -> usize {
 /// caller via [`lazy_open_page_size`], same convention as `cap`/[`max_resident_graphs`]
 /// (an explicit parameter, not read from the environment HERE, so tests can exercise a
 /// specific page size deterministically without mutating global process env state).
-/// `0` (the default resolution) is the pre-existing full-rehydrate `open_lazy` path,
-/// byte-for-byte unchanged. `> 0` materializes only ONE bounded page inline and spawns
-/// [`page_in_remaining`] to fetch the rest off the request path — the graph is
-/// resident/queryable on return either way, but a paged open never blocks the
-/// triggering request on a full rehydrate of a 10M+-node graph.
+/// The positive page size materializes only one bounded page inline and spawns
+/// [`page_in_remaining`] to fetch the rest off the request path. The graph is resident
+/// but explicitly partial on return; a paged open never blocks the triggering request
+/// on a full rehydrate of a very large graph.
 pub async fn lazy_open(
     state: &Arc<RwLock<ServerState>>,
     graph_name: &str,
     cap: usize,
     page_size: usize,
 ) -> bool {
+    // The same striped per-graph lane used by Create/Delete/MutationBatch fences
+    // lifecycle work without serializing unrelated graphs. Durable page reads run
+    // outside the server-wide state lock.
+    let _lifecycle_guard = crate::server::mutation_batch::lock_graph(graph_name).await;
+    let ticket = {
+        let s = state.read().await;
+        if s.registry.is_resident(graph_name) {
+            return true;
+        }
+        if !s.registry.exists(graph_name) {
+            return false;
+        }
+        match s.registry.prepare_lazy_open(graph_name) {
+            Some(ticket) => ticket,
+            None => return false,
+        }
+    };
+
+    let page_size = page_size.max(1);
+    let fetch_ticket = ticket.clone();
+    let page =
+        match tokio::task::spawn_blocking(move || fetch_ticket.materialize_page(None, page_size))
+            .await
+        {
+            Ok(page) => page,
+            Err(_) => return false,
+        };
     let mut s = state.write().await;
-    if s.registry.is_resident(graph_name) {
-        return true;
-    }
-    if !s.registry.exists(graph_name) {
-        return false;
-    }
     let tracker = s.cold_tracker.clone();
     admit_capacity(&mut s, &tracker, graph_name, cap);
-
-    if page_size == 0 {
-        return s.registry.open_lazy(graph_name);
-    }
-
-    let outcome = s.registry.open_lazy_paged(graph_name, page_size);
+    let outcome = s.registry.publish_lazy_first_page(&ticket, page);
     if !outcome.resident {
         return false;
     }
     if let Some(cursor) = outcome.cursor {
-        drop(s); // release the write lock before spawning the background continuation
-        tokio::spawn(page_in_remaining(
-            state.clone(),
-            graph_name.to_string(),
-            cursor,
-            page_size,
-        ));
+        drop(s);
+        tokio::spawn(page_in_remaining(state.clone(), ticket, cursor, page_size));
     }
     true
 }
@@ -328,33 +340,57 @@ pub async fn lazy_open(
 /// or not) starts a fresh rehydrate from the durable tier regardless. Never awaited by
 /// a caller; entirely off the request path.
 ///
-/// KNOWN RESIDUAL RACE (documented, not fixed here — narrow window, same class the
-/// registry already reasons about for `ColdTenantTracker::forget`'s "don't leak
-/// across a same-name recreate" note): if `graph_name` is DELETED and immediately
-/// RECREATED under the identical name while a page-in is in flight, `is_resident`
-/// reads true for the NEW graph and a stale-cursor page could be replayed against
-/// it. Closing this fully needs a generation/epoch stamp on `GraphEntry` to detect
-/// "same name, different incarnation" — out of scope for L38 (paged adjacency
-/// itself); tracked as a follow-up, not a load-bearing correctness gap for the
-/// common case (a graph is rarely deleted+recreated inside the same page-in
-/// window, which is bounded by a handful of redb round-trips).
 async fn page_in_remaining(
     state: Arc<RwLock<ServerState>>,
-    graph_name: String,
+    ticket: crate::registry::LazyOpenTicket,
     mut cursor: crate::registry::MaterializeCursor,
     page_size: usize,
 ) {
     loop {
-        let next = {
-            let mut s = state.write().await;
-            if !s.registry.is_resident(&graph_name) {
-                return;
-            }
-            s.registry.page_in(&graph_name, cursor, page_size)
+        let _lifecycle_guard = crate::server::mutation_batch::lock_graph(ticket.name()).await;
+        if ticket.is_cancelled() {
+            return;
+        }
+        let fetch_ticket = ticket.clone();
+        let fetch_cursor = cursor;
+        let page = match tokio::task::spawn_blocking(move || {
+            fetch_ticket.materialize_page(Some(fetch_cursor), page_size)
+        })
+        .await
+        {
+            Ok(Some(page)) => page,
+            _ => return,
         };
+        let (handle, manifest) = {
+            let s = state.read().await;
+            let Some(handle) = s.registry.handle(ticket.name()) else {
+                return;
+            };
+            let Some(manifest) = s.registry.materialization_handle(ticket.name()) else {
+                return;
+            };
+            (handle, manifest)
+        };
+        let next = crate::registry::GraphRegistry::apply_lazy_page_to_handle(
+            &ticket, &handle, &manifest, page,
+        );
         match next {
             Some(c) => cursor = c,
-            None => return,
+            None => {
+                // `None` is either complete or a failed/mixed source snapshot.
+                // A failed partial core is evicted so the next access restarts
+                // from page zero; it is never advertised as complete.
+                let mut s = state.write().await;
+                if s.registry
+                    .materialization_manifest(ticket.name())
+                    .is_some_and(|manifest| {
+                        manifest.phase == crate::registry::MaterializationPhase::Failed
+                    })
+                {
+                    s.registry.evict_resident(ticket.name());
+                }
+                return;
+            }
         }
     }
 }
@@ -365,19 +401,23 @@ mod admission_tests {
     //! backend (CONCEPT:EG-KG.sharding.lazy-graph-catalog, DIST-P2-3) — the durable tier a lazily-opened
     //! graph rehydrates from, and the tier that makes eviction loss-free.
     use super::*;
+    use crate::acl::{AgentIdentity, AgentRole, RequestContextClaims};
     use crate::channels::ChannelManager;
+    use crate::durability::DurabilityPolicy;
     use crate::isolation::IsolationLayer;
     use crate::protocol::{GraphType, Method, Request};
     use crate::registry::GraphRegistry;
-    use crate::server::compute_auth_token;
     use crate::server::persistence::read_through::{
         BackendGraphMaterializer, BackendReadThroughFactory,
     };
     use crate::server::persistence::redb_backend::RedbBackend;
     use crate::server::persistence::PersistenceBackend;
-    use crate::server::{dispatch, ServerState};
-    use crate::wal_service::FsyncPolicy;
+    use crate::server::{
+        compute_verified_envelope_token, dispatch, ServerState, VerifiedEnvelopeParams,
+    };
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::Arc;
+    use std::time::{SystemTime, UNIX_EPOCH};
     use tokio::sync::{RwLock, Semaphore};
 
     fn props(v: serde_json::Value) -> Vec<u8> {
@@ -385,28 +425,37 @@ mod admission_tests {
     }
 
     const SECRET: &str = "lazy-lifecycle-test";
+    const TEST_AGENT: &str = "unit-test-agent";
+    static NONCE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+
+    fn current_isolation() -> IsolationLayer {
+        let mut isolation = IsolationLayer::new();
+        isolation.register_agent(AgentIdentity {
+            agent_id: TEST_AGENT.to_string(),
+            role: AgentRole::System,
+            teams: Vec::new(),
+            roles: Vec::new(),
+        });
+        isolation
+    }
 
     async fn redb_state(dir_s: &str) -> Arc<RwLock<ServerState>> {
-        let backend: Arc<dyn PersistenceBackend> =
-            Arc::new(RedbBackend::open(dir_s.to_string(), FsyncPolicy::Each, 64).expect("open"));
+        let backend: Arc<dyn PersistenceBackend> = Arc::new(
+            RedbBackend::open(dir_s.to_string(), DurabilityPolicy::Each, 64).expect("open"),
+        );
         let state = Arc::new(RwLock::new(ServerState {
-            #[cfg(feature = "dataset-handle")]
-            dataset_handles: std::sync::Arc::new(
-                crate::server::dataset_handle::DatasetHandleRegistry::new(),
-            ),
             cold_tracker: Arc::new(ColdTenantTracker::new()),
             registry: GraphRegistry::new(),
-            isolation: IsolationLayer::new(),
+            isolation: current_isolation(),
             channels: ChannelManager::new(),
             auth_secret: SECRET.to_string(),
             persist_dir: Some(dir_s.to_string()),
             persistence: Some(backend.clone()),
-            redb_authoritative: true,
             max_in_flight: Arc::new(Semaphore::new(64)),
             read_admission: Arc::new(Semaphore::new(64)),
             per_graph_inflight: Arc::new(dashmap::DashMap::new()),
             per_graph_inflight_limit: 32,
-            write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::from_env()),
+            write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
             open_txns: Arc::new(dashmap::DashMap::new()),
             txn_id_gen: Arc::new(crate::server::txn::TxnIdGen::default()),
             txn_ttl_secs: 300,
@@ -422,8 +471,6 @@ mod admission_tests {
             multi_raft: None,
             #[cfg(feature = "tsdb")]
             tsdb_store: None,
-            #[cfg(feature = "rdf-redb")]
-            rdf_quads: None,
             #[cfg(feature = "streaming")]
             cdc: Some(Arc::new(crate::server::cdc::CdcHub::new())),
             #[cfg(feature = "wasm-udf")]
@@ -452,13 +499,51 @@ mod admission_tests {
     }
 
     fn req(id: u64, graph: &str, method: Method) -> Request {
-        Request {
+        std::env::set_var("EPISTEMIC_GRAPH_AUDIENCE", "epistemic-graph-test");
+        std::env::set_var("EPISTEMIC_GRAPH_TENANT", "tenant-shared");
+        std::env::set_var("EPISTEMIC_GRAPH_POLICY_VERSION", "policy-test");
+        std::env::set_var(
+            "EPISTEMIC_GRAPH_SECURITY_STATE_DIR",
+            std::env::temp_dir().join(format!("epistemic-graph-unit-auth-{}", std::process::id())),
+        );
+        let context = RequestContextClaims {
+            principal: TEST_AGENT.to_string(),
+            tenant: "tenant-shared".to_string(),
+            audience: "epistemic-graph-test".to_string(),
+            agent_id: TEST_AGENT.to_string(),
+            roles: Vec::new(),
+            scopes: vec!["*".to_string()],
+            policy_version: "policy-test".to_string(),
+            delegation: Vec::new(),
+        };
+        let mut request = Request {
             id,
             graph: graph.to_string(),
-            auth_token: compute_auth_token(SECRET, id),
-            agent_id: None,
+            auth_token: String::new(),
+            agent_id: Some(TEST_AGENT.to_string()),
             method,
-        }
+        };
+        let sequence = NONCE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let issued_at = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("the system clock is after the Unix epoch");
+        let nonce = format!(
+            "cold-offload-{}-{id}-{sequence}-{}",
+            std::process::id(),
+            issued_at.as_nanos()
+        );
+        let idempotency_key = format!("cold-offload-request-{id}-{sequence}");
+        request.auth_token = compute_verified_envelope_token(
+            SECRET,
+            &request,
+            &VerifiedEnvelopeParams {
+                context: &context,
+                timestamp: issued_at.as_secs(),
+                nonce: &nonce,
+                idempotency_key: &idempotency_key,
+            },
+        );
+        request
     }
 
     async fn create(state: &Arc<RwLock<ServerState>>, id: u64, graph: &str) {
@@ -515,10 +600,6 @@ mod admission_tests {
         // Checkpoint so every graph is durable, then evict ALL of them back to
         // catalog-only (simulating cold tenants that have aged out of RAM),
         // leaving the catalog fully populated but nothing but __commons__ resident.
-        {
-            let backend = state.read().await.persistence.clone().unwrap();
-            backend.checkpoint_all(&state).await.unwrap();
-        }
         {
             let mut s = state.write().await;
             for i in 0..n {
@@ -578,17 +659,19 @@ mod admission_tests {
             add_node(&state, 100 + i, "acme:cold", &format!("n{i}")).await;
         }
         {
-            let backend = state.read().await.persistence.clone().unwrap();
-            backend.checkpoint_all(&state).await.unwrap();
-        }
-        {
             let mut s = state.write().await;
             assert!(s.registry.evict_resident("acme:cold"));
         }
         assert!(!state.read().await.registry.is_resident("acme:cold"));
 
         // Access it — lazy_open re-materializes it from the durable tier.
-        let opened = lazy_open(&state, "acme:cold", 0, 0).await;
+        let opened = lazy_open(
+            &state,
+            "acme:cold",
+            DEFAULT_PRODUCTION_MAX_RESIDENT_GRAPHS,
+            DEFAULT_PRODUCTION_LAZY_OPEN_PAGE_SIZE,
+        )
+        .await;
         assert!(opened);
         let core = {
             let s = state.read().await;
@@ -621,10 +704,6 @@ mod admission_tests {
         let total_nodes = 20u64;
         for i in 0..total_nodes {
             add_node(&state, 100 + i, "paged:manual", &format!("n{i}")).await;
-        }
-        {
-            let backend = state.read().await.persistence.clone().unwrap();
-            backend.checkpoint_all(&state).await.unwrap();
         }
         {
             let mut s = state.write().await;
@@ -702,17 +781,19 @@ mod admission_tests {
             add_node(&state, 100 + i, "paged:big", &format!("n{i}")).await;
         }
         {
-            let backend = state.read().await.persistence.clone().unwrap();
-            backend.checkpoint_all(&state).await.unwrap();
-        }
-        {
             let mut s = state.write().await;
             assert!(s.registry.evict_resident("paged:big"));
         }
         assert!(!state.read().await.registry.is_resident("paged:big"));
 
         // page_size well under total_nodes forces a background continuation.
-        let opened = lazy_open(&state, "paged:big", 0, 5).await;
+        let opened = lazy_open(
+            &state,
+            "paged:big",
+            DEFAULT_PRODUCTION_MAX_RESIDENT_GRAPHS,
+            5,
+        )
+        .await;
         assert!(opened, "paged lazy-open must report resident immediately");
         assert!(
             state.read().await.registry.is_resident("paged:big"),
@@ -773,18 +854,13 @@ mod admission_tests {
                 add_node(&state, 100 + i as u64, &format!("boot:{i}"), "n").await;
             }
             let backend = state.read().await.persistence.clone().unwrap();
-            backend.checkpoint_all(&state).await.unwrap();
             backend.shutdown();
         }
 
         // ── reload side: fresh backend + fresh empty state, CATALOG-ONLY load ──
         let backend2: Arc<dyn PersistenceBackend> =
-            Arc::new(RedbBackend::open(dir_s.clone(), FsyncPolicy::Each, 64).expect("reopen"));
+            Arc::new(RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 64).expect("reopen"));
         let state2 = Arc::new(RwLock::new(ServerState {
-            #[cfg(feature = "dataset-handle")]
-            dataset_handles: std::sync::Arc::new(
-                crate::server::dataset_handle::DatasetHandleRegistry::new(),
-            ),
             cold_tracker: Arc::new(ColdTenantTracker::new()),
             registry: GraphRegistry::new(),
             isolation: IsolationLayer::new(),
@@ -792,12 +868,11 @@ mod admission_tests {
             auth_secret: SECRET.to_string(),
             persist_dir: Some(dir_s.clone()),
             persistence: Some(backend2.clone()),
-            redb_authoritative: true,
             max_in_flight: Arc::new(Semaphore::new(64)),
             read_admission: Arc::new(Semaphore::new(64)),
             per_graph_inflight: Arc::new(dashmap::DashMap::new()),
             per_graph_inflight_limit: 32,
-            write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::from_env()),
+            write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
             open_txns: Arc::new(dashmap::DashMap::new()),
             txn_id_gen: Arc::new(crate::server::txn::TxnIdGen::default()),
             txn_ttl_secs: 300,
@@ -813,8 +888,6 @@ mod admission_tests {
             multi_raft: None,
             #[cfg(feature = "tsdb")]
             tsdb_store: None,
-            #[cfg(feature = "rdf-redb")]
-            rdf_quads: None,
             #[cfg(feature = "streaming")]
             cdc: Some(Arc::new(crate::server::cdc::CdcHub::new())),
             #[cfg(feature = "wasm-udf")]
@@ -890,10 +963,6 @@ mod admission_tests {
             add_node(&state, 100 + i as u64, &format!("quota:{i}"), "n").await;
         }
         {
-            let backend = state.read().await.persistence.clone().unwrap();
-            backend.checkpoint_all(&state).await.unwrap();
-        }
-        {
             let mut s = state.write().await;
             for i in 0..n {
                 s.registry.evict_resident(&format!("quota:{i}"));
@@ -906,7 +975,8 @@ mod admission_tests {
         let cap = 4usize;
         for i in 0..n {
             let name = format!("quota:{i}");
-            let opened = lazy_open(&state, &name, cap, 0).await;
+            let opened =
+                lazy_open(&state, &name, cap, DEFAULT_PRODUCTION_LAZY_OPEN_PAGE_SIZE).await;
             assert!(opened, "quota:{i} must lazily open");
             let resident = state.read().await.registry.resident_len();
             assert!(

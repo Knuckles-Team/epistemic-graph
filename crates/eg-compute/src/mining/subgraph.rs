@@ -25,11 +25,11 @@
 // This module is graph-STORE-agnostic: it works over a plain [`HostGraph`]
 // (dense node indices + labeled edges). The handler
 // (`src/server/handlers/mining.rs`) builds the `HostGraph` from the resident
-// `GraphCore` (every node's `type`/`label` property, every edge's
-// `relation`/`type` property, optionally filtered to one node label) and does
+// `GraphCore` (every node's `type`/`label` property, every edge's canonical
+// `relationship` property, optionally filtered to one node label) and does
 // the KG write-back (`:FrequentSubgraph`).
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 /// A dense index into a [`HostGraph`]'s node array.
 pub type HostNodeId = usize;
@@ -310,19 +310,28 @@ fn extend_candidates(
 ) -> Vec<Pattern> {
     let k = pattern.node_labels.len();
     let mut out = Vec::new();
+    let pattern_edges: HashSet<(usize, usize, &str)> = pattern
+        .edges
+        .iter()
+        .map(|(from, to, label)| (*from, *to, label.as_str()))
+        .collect();
     // Only need a handful of embeddings to discover every extension shape
     // that actually occurs — cap the scan for tractability on dense graphs.
     for mapping in embeddings.iter().take(64) {
+        // Reverse lookup turns every incident host-neighbor membership test into
+        // expected O(1), instead of re-scanning all `k` mapped nodes. A malformed
+        // embedding with a duplicate host node retains `position()`'s historical
+        // first-local-index behavior.
+        let mut local_by_host: HashMap<HostNodeId, usize> = HashMap::with_capacity(mapping.len());
+        for (local, host_node) in mapping.iter().copied().enumerate() {
+            local_by_host.entry(host_node).or_insert(local);
+        }
         for (local_i, &host_i) in mapping.iter().enumerate() {
             // Outgoing extensions: host_i -> neighbor.
             for (nbr, lbl) in &host.out_adj[host_i] {
-                if let Some(existing_local) = mapping.iter().position(|&h| h == *nbr) {
+                if let Some(existing_local) = local_by_host.get(nbr).copied() {
                     // Closes a cycle onto an existing pattern node.
-                    if !pattern
-                        .edges
-                        .iter()
-                        .any(|(a, b, l)| *a == local_i && *b == existing_local && l == lbl)
-                    {
+                    if !pattern_edges.contains(&(local_i, existing_local, lbl.as_str())) {
                         let mut edges = pattern.edges.clone();
                         edges.push((local_i, existing_local, lbl.clone()));
                         out.push(Pattern {
@@ -341,12 +350,8 @@ fn extend_candidates(
             }
             // Incoming extensions: neighbor -> host_i.
             for (nbr, lbl) in &host.in_adj[host_i] {
-                if let Some(existing_local) = mapping.iter().position(|&h| h == *nbr) {
-                    if !pattern
-                        .edges
-                        .iter()
-                        .any(|(a, b, l)| *a == existing_local && *b == local_i && l == lbl)
-                    {
+                if let Some(existing_local) = local_by_host.get(nbr).copied() {
+                    if !pattern_edges.contains(&(existing_local, local_i, lbl.as_str())) {
                         let mut edges = pattern.edges.clone();
                         edges.push((existing_local, local_i, lbl.clone()));
                         out.push(Pattern {

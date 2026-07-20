@@ -253,6 +253,7 @@ pub fn cold_offload_intent(window_secs: u64) -> JobIntent {
             priority: -10, // background, per the design doc's PriorityClass mapping
             quota_cpu_ms: None,
             deadline_unix_ms: None,
+            ..JobPolicy::default()
         },
     );
     intent.enabled = false;

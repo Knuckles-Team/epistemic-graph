@@ -17,7 +17,54 @@
 // convenience that interns `String` items, runs the chosen engine, and hands back
 // string-labeled rules — used by both the handler and the unit tests.
 
+use std::cell::RefCell;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+
+thread_local! {
+    /// Execution-local cancellation token.  Analytics workers install a token for
+    /// the duration of one kernel invocation; ordinary synchronous callers leave
+    /// it unset and retain the original API/behaviour.
+    static CANCELLATION: RefCell<Option<Arc<AtomicBool>>> = const { RefCell::new(None) };
+}
+
+fn cancelled() -> bool {
+    CANCELLATION.with(|slot| {
+        slot.borrow()
+            .as_ref()
+            .is_some_and(|flag| flag.load(Ordering::Relaxed))
+    })
+}
+
+struct CancellationGuard(Option<Arc<AtomicBool>>);
+
+impl CancellationGuard {
+    fn install(flag: Arc<AtomicBool>) -> Self {
+        Self(CANCELLATION.with(|slot| slot.replace(Some(flag))))
+    }
+}
+
+impl Drop for CancellationGuard {
+    fn drop(&mut self) {
+        let previous = self.0.take();
+        CANCELLATION.with(|slot| {
+            slot.replace(previous);
+        });
+    }
+}
+
+/// Cooperative cancellation outcome for a compute kernel.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MiningCancelled;
+
+impl std::fmt::Display for MiningCancelled {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("association mining cancelled")
+    }
+}
+
+impl std::error::Error for MiningCancelled {}
 
 /// An interned item id (small, dense — assigned by [`intern`]).
 pub type ItemId = u32;
@@ -84,6 +131,9 @@ pub fn apriori(transactions: &[Vec<ItemId>], min_count: usize) -> Vec<FrequentIt
     // L1: singleton counts.
     let mut counts: HashMap<ItemId, usize> = HashMap::new();
     for t in &txns {
+        if cancelled() {
+            return Vec::new();
+        }
         for &item in t {
             *counts.entry(item).or_insert(0) += 1;
         }
@@ -105,9 +155,15 @@ pub fn apriori(transactions: &[Vec<ItemId>], min_count: usize) -> Vec<FrequentIt
 
     // Lk from L(k-1) until no frequent set remains.
     while !current.is_empty() {
+        if cancelled() {
+            return Vec::new();
+        }
         let candidates = apriori_gen(&current);
         let mut next: Vec<Vec<ItemId>> = Vec::new();
         for cand in candidates {
+            if cancelled() {
+                return Vec::new();
+            }
             let count = txns.iter().filter(|t| contains_sorted(t, &cand)).count();
             if count >= min_count {
                 next.push(cand.clone());
@@ -131,6 +187,9 @@ fn apriori_gen(prev: &[Vec<ItemId>]) -> Vec<Vec<ItemId>> {
     let prev_set: std::collections::HashSet<&Vec<ItemId>> = prev.iter().collect();
     let mut out: Vec<Vec<ItemId>> = Vec::new();
     for i in 0..prev.len() {
+        if cancelled() {
+            return Vec::new();
+        }
         for j in (i + 1)..prev.len() {
             let a = &prev[i];
             let b = &prev[j];
@@ -159,6 +218,9 @@ fn all_subsets_frequent(
         return true;
     }
     for drop in 0..cand.len() {
+        if cancelled() {
+            return false;
+        }
         let subset: Vec<ItemId> = cand
             .iter()
             .enumerate()
@@ -182,6 +244,9 @@ pub fn eclat(transactions: &[Vec<ItemId>], min_count: usize) -> Vec<FrequentItem
     // Build the vertical tid-sets for frequent singletons.
     let mut tid: HashMap<ItemId, Vec<usize>> = HashMap::new();
     for (t_idx, t) in transactions.iter().enumerate() {
+        if cancelled() {
+            return Vec::new();
+        }
         for &item in sorted_unique(t).iter() {
             tid.entry(item).or_default().push(t_idx);
         }
@@ -206,6 +271,9 @@ fn eclat_dfs(
     out: &mut Vec<FrequentItemset>,
 ) {
     for i in 0..atoms.len() {
+        if cancelled() {
+            return;
+        }
         let (item, ref tids) = atoms[i];
         let mut items = prefix.to_vec();
         items.push(item);
@@ -217,6 +285,9 @@ fn eclat_dfs(
         // Build the extension atoms (only later items, keeping itemsets sorted).
         let mut children: Vec<(ItemId, Vec<usize>)> = Vec::new();
         for &(next_item, ref next_tids) in atoms.iter().skip(i + 1) {
+            if cancelled() {
+                return;
+            }
             let inter = intersect_sorted(tids, next_tids);
             if inter.len() >= min_count {
                 children.push((next_item, inter));
@@ -248,6 +319,9 @@ pub fn fpgrowth(transactions: &[Vec<ItemId>], min_count: usize) -> Vec<FrequentI
     // count (ties broken by item id for determinism).
     let mut freq: HashMap<ItemId, usize> = HashMap::new();
     for t in transactions {
+        if cancelled() {
+            return Vec::new();
+        }
         for &item in sorted_unique(t).iter() {
             *freq.entry(item).or_insert(0) += 1;
         }
@@ -309,6 +383,9 @@ fn fp_mine(
     }];
     let mut header: HashMap<ItemId, Vec<usize>> = HashMap::new();
     for path in txns {
+        if cancelled() {
+            return;
+        }
         let mut cur = 0usize; // root
         for &item in path {
             let next = match arena[cur].children.get(&item) {
@@ -344,6 +421,9 @@ fn fp_mine(
     items.sort_unstable();
 
     for item in items {
+        if cancelled() {
+            return;
+        }
         let count = item_counts[&item];
         if count < min_count {
             continue;
@@ -362,6 +442,9 @@ fn fp_mine(
         // (root→parent) repeated `node.count` times.
         let mut cond_txns: Vec<Vec<ItemId>> = Vec::new();
         for &leaf in &header[&item] {
+            if cancelled() {
+                return;
+            }
             let mut path: Vec<ItemId> = Vec::new();
             let mut p = arena[leaf].parent;
             while let Some(idx) = p {
@@ -397,6 +480,9 @@ pub fn generate_rules(itemsets: &[FrequentItemset], min_confidence: f64) -> Vec<
     let mut support: HashMap<Vec<ItemId>, usize> = HashMap::new();
     let mut n_est = 0usize;
     for fi in itemsets {
+        if cancelled() {
+            return Vec::new();
+        }
         support.insert(fi.items.clone(), fi.count);
         // Recover the transaction count from any singleton (count / support).
         if fi.items.len() == 1 && fi.support > 0.0 {
@@ -407,6 +493,9 @@ pub fn generate_rules(itemsets: &[FrequentItemset], min_confidence: f64) -> Vec<
 
     let mut rules: Vec<Rule> = Vec::new();
     for fi in itemsets {
+        if cancelled() {
+            return Vec::new();
+        }
         if fi.items.len() < 2 {
             continue;
         }
@@ -415,6 +504,9 @@ pub fn generate_rules(itemsets: &[FrequentItemset], min_confidence: f64) -> Vec<
         // the itemset's items — itemsets are small, so 2^k is fine).
         let k = fi.items.len();
         for mask in 1u32..((1u32 << k) - 1) {
+            if cancelled() {
+                return Vec::new();
+            }
             let mut antecedent: Vec<ItemId> = Vec::new();
             let mut consequent: Vec<ItemId> = Vec::new();
             for (bit, &item) in fi.items.iter().enumerate() {
@@ -503,6 +595,9 @@ pub fn intern(transactions: &[Vec<String>]) -> (Vec<Vec<ItemId>>, Vec<String>) {
     let mut index: HashMap<String, ItemId> = HashMap::new();
     let mut out: Vec<Vec<ItemId>> = Vec::with_capacity(transactions.len());
     for t in transactions {
+        if cancelled() {
+            return (Vec::new(), Vec::new());
+        }
         let mut row: Vec<ItemId> = Vec::with_capacity(t.len());
         for item in t {
             let id = *index.entry(item.clone()).or_insert_with(|| {
@@ -545,6 +640,29 @@ pub fn mine_labeled(
             lift: r.lift,
         })
         .collect()
+}
+
+/// Run association mining with a worker-owned cooperative cancellation token.
+/// The token is checked in candidate generation, transaction scans, recursive
+/// Eclat/FP-growth expansion and rule generation.  A cancelled computation never
+/// exposes a partial result.
+pub fn mine_labeled_cancellable(
+    transactions: &[Vec<String>],
+    min_support: f64,
+    min_confidence: f64,
+    algorithm: Algorithm,
+    cancellation: Arc<AtomicBool>,
+) -> Result<Vec<LabeledRule>, MiningCancelled> {
+    if cancellation.load(Ordering::Relaxed) {
+        return Err(MiningCancelled);
+    }
+    let _guard = CancellationGuard::install(cancellation.clone());
+    let rules = mine_labeled(transactions, min_support, min_confidence, algorithm);
+    if cancellation.load(Ordering::Relaxed) {
+        Err(MiningCancelled)
+    } else {
+        Ok(rules)
+    }
 }
 
 // ─────────────────────────── helpers ───────────────────────────
@@ -724,5 +842,18 @@ mod tests {
                 assert!(["bread", "butter", "milk"].contains(&it.as_str()));
             }
         }
+    }
+
+    #[test]
+    fn cancellable_kernel_never_returns_partial_rules() {
+        let token = Arc::new(AtomicBool::new(true));
+        let result = mine_labeled_cancellable(
+            &[vec!["opaque-a".into(), "opaque-b".into()]],
+            0.1,
+            0.1,
+            Algorithm::Apriori,
+            token,
+        );
+        assert_eq!(result, Err(MiningCancelled));
     }
 }

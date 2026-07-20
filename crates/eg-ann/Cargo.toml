@@ -2,7 +2,7 @@
 name = "eg-ann"
 version = "0.1.0"
 edition = "2021"
-authors = ["Audel Rouhi <knucklessg1@gmail.com>"]
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
 description = "Native IVF-PQ + OPQ + SQ8-refine approximate-nearest-neighbour index for the epistemic-graph engine (CONCEPT:KG-2.207)"
 license = "MIT"
 
@@ -14,7 +14,9 @@ name = "eg_ann"
 # parallelism). This is the index that ships in `pi`/`full`.
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
-bincode = "1.3"
+# Compact, maintained serde wire. The old bincode crate is permanently
+# unmaintained (RUSTSEC-2025-0141) and is not retained as a reader or dependency.
+postcard = { version = "1.1.3", default-features = false, features = ["alloc", "use-std"] }
 memmap2 = "0.9"
 rayon = "1.10"
 rand = "0.8"
@@ -37,14 +39,14 @@ eg-modality = { path = "../eg-modality", optional = true }
 # Embedding-set drift detection (`src/drift.rs`, CONCEPT:EG-KG.sharding.semantic-embedding-store-backed depth):
 # reuses the shared numeric kernel's `percentile` for PSI bin edges. Optional,
 # only under `drift` (default OFF) — eg-numeric's own default build is BLAS/
-# LAPACK-free (ndarray + faer, no statrs/pyo3), but a Pi/default `eg-ann` build
+# LAPACK-free (ndarray + nalgebra, no statrs/pyo3), but a Pi/default `eg-ann` build
 # still links none of it unless this is opted in.
 eg-numeric = { path = "../eg-numeric", optional = true }
 # `drift.rs` passes an `ArrayView1<f64>` into `eg_numeric::reductions::percentile`
 # (its public signature), so it needs `ndarray` directly. Version-pinned to match
-# eg-numeric's own `ndarray = "0.16"` so the `ArrayView1` types unify to one crate
+# eg-numeric's own `ndarray = "0.17"` so the `ArrayView1` types unify to one crate
 # version. Optional, only under `drift` (default OFF) — Pi/default links none of it.
-ndarray = { version = "0.16", optional = true }
+ndarray = { version = "0.17", optional = true }
 
 [features]
 default = []

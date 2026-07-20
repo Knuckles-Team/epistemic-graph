@@ -370,8 +370,8 @@ mod tests {
     /// GPU↔CPU parity (CONCEPT:EG-KG.compute.tensor-gpu-distance). When a CUDA device is present, the real CUDA
     /// batch-assign kernel MUST match the CPU ground truth for every point; when no device
     /// is available `cuda::backend()` is `None` and the test SKIPS cleanly. So it is a
-    /// no-op in GPU-less CI yet auto-validates the kernel wherever a GPU exists (e.g. the
-    /// GB10 box) without breaking CI. Only compiled under `--features gpu-cuda`.
+    /// no-op in GPU-less CI yet auto-validates the kernel wherever a compatible CUDA
+    /// device exists without breaking CI. Only compiled under `--features gpu-cuda`.
     #[cfg(feature = "gpu-cuda")]
     #[test]
     fn eg351_cuda_batch_assign_matches_cpu_ground_truth() {

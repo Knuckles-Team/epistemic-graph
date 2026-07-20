@@ -312,7 +312,7 @@ impl Parser {
     /// (CONCEPT:EG-KG.query.quantified-path-pattern), e.g. `((a)-[:REL]->(b)){1,3}`. Compiles
     /// to a synthetic `(EdgePat, NodePat)` hop whose `EdgePat.group` carries the
     /// inner sub-pattern + quantifier; matched in `exec.rs` by repeated
-    /// whole-subpattern expansion (`group_reachable`), a generalization of the
+    /// whole-subpattern expansion (`quantified_group_matches`), a generalization of the
     /// single-relationship `*min..max` BFS. The optional trailing `node` (e.g.
     /// `(y:Person)`) constrains the LAST repetition's end position, exactly like
     /// an ordinary hop's end node.
@@ -379,6 +379,11 @@ impl Parser {
             lo
         };
         self.expect(&Tok::RBrace)?;
+        if hi < lo {
+            return Err(format!(
+                "quantifier upper bound {hi} is smaller than lower bound {lo}"
+            ));
+        }
         Ok((lo, hi))
     }
 
@@ -1450,6 +1455,28 @@ mod tests {
     }
 
     #[test]
+    fn quantified_group_rejects_descending_bounds() {
+        let err = parse("MATCH (a)((x)-[:R]->(y)){3,1}(b) RETURN b").unwrap_err();
+        assert!(err.contains("upper bound"), "{err}");
+    }
+
+    #[test]
+    fn parses_quantified_group_in_create() {
+        let statement =
+            parse_statement("CREATE (a)((x)-[r:KNOWS]->(y)){1,3}(b) RETURN x, y, type(r), b")
+                .unwrap();
+        let Statement::Write(write) = statement else {
+            panic!("expected a write statement")
+        };
+        let WriteOp::Create(pattern) = &write.ops[0] else {
+            panic!("expected CREATE")
+        };
+        let group = pattern.hops[0].0.group.as_deref().unwrap();
+        assert_eq!(group.quantifier, (1, 3));
+        assert_eq!(group.hops[0].0.var.as_deref(), Some("r"));
+    }
+
+    #[test]
     fn parses_property_return_and_comparison() {
         let q = parse("MATCH (a:Doc) WHERE a.size > 10 RETURN a.size").unwrap();
         assert_eq!(q.ret.items[0].column(), "a.size");
@@ -1570,13 +1597,13 @@ mod tests {
     #[test]
     fn parses_call_proc_yield() {
         // CONCEPT:EG-KG.query.cypher-planning/EG-143
-        let q = parse("CALL gds.pageRank() YIELD node, score RETURN node, score").unwrap();
+        let q = parse("CALL gds.pageRank() YIELD nodeId, score RETURN nodeId, score").unwrap();
         match &q.stages[0] {
             ReadStage::CallProc { name, args, yields } => {
                 assert_eq!(name, "gds.pageRank");
                 assert!(args.is_empty());
                 assert_eq!(yields.len(), 2);
-                assert_eq!(yields[0].col, "node");
+                assert_eq!(yields[0].col, "nodeId");
             }
             _ => panic!("expected CALL proc"),
         }

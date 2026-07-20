@@ -35,11 +35,11 @@
 
 use datafusion::sql::sqlparser::ast::{
     AlterColumnOperation, AlterTableOperation, Assignment, AssignmentTarget, BinaryOperator,
-    ColumnDef as SqlColumnDef, ColumnOption, ConflictTarget, CopyLegacyOption, CopyOption,
-    CopySource, CopyTarget, CreateTable, Delete, Expr, FromTable, Function, FunctionArg,
-    FunctionArgExpr, FunctionArguments, Insert, ObjectName, ObjectType,
-    OnConflictAction as SqlOnConflictAction, OnInsert, SelectItem, SetExpr, Statement, TableFactor,
-    TableWithJoins, UnaryOperator, Value as SqlValue, Values,
+    ColumnDef as SqlColumnDef, ColumnOption, ConflictTarget, CopyOption, CopySource, CopyTarget,
+    CreateTable, Delete, Expr, FromTable, Function, FunctionArg, FunctionArgExpr,
+    FunctionArguments, Insert, ObjectName, ObjectType, OnConflictAction as SqlOnConflictAction,
+    OnInsert, RenameTableNameKind, SelectItem, SetExpr, Statement, TableFactor, TableObject,
+    TableWithJoins, UnaryOperator, UpdateTableFromKind, Value as SqlValue, Values,
 };
 // CONCEPT:EG-KG.query.postgres-family-extension-plan/116/117 — the Postgres-family extension plan shapes classify routes to.
 use super::pgfamily::{AnnIndexPlan, ContinuousAggPlan, CypherCallPlan, HypertablePlan};
@@ -512,45 +512,46 @@ pub fn classify(sql: &str) -> Result<StatementKind, String> {
         | Statement::ShowColumns { .. }
         | Statement::ShowTables { .. } => Ok(StatementKind::Read),
         Statement::Insert(insert) => classify_any_insert(insert),
-        Statement::Update {
-            table,
-            assignments,
-            from,
-            selection,
-            returning,
-        } => classify_any_update(
-            table,
-            assignments,
-            from.as_ref(),
-            selection.as_ref(),
-            returning,
-        ),
+        Statement::Update(update) => {
+            let from = match update.from.as_ref() {
+                None => None,
+                Some(UpdateTableFromKind::BeforeSet(tables))
+                | Some(UpdateTableFromKind::AfterSet(tables)) => match tables.as_slice() {
+                    [] => None,
+                    [table] => Some(table),
+                    _ => {
+                        return Err("UPDATE ... FROM supports exactly one source table".to_string())
+                    }
+                },
+            };
+            classify_any_update(
+                &update.table,
+                &update.assignments,
+                from,
+                update.selection.as_ref(),
+                &update.returning,
+            )
+        }
         Statement::Delete(delete) => classify_any_delete(delete),
         // ── DDL (CONCEPT:EG-KG.query.register-user-tables-alongside) ──────────────────────────────────────────────
         Statement::CreateTable(ct) => classify_create_table(ct).map(StatementKind::CreateTable),
         // ── extensions (CONCEPT:EG-KG.query.create-drop-extension-over) ─────────────────────────────────────────
-        Statement::CreateExtension {
-            name,
-            if_not_exists,
-            ..
-        } => classify_create_extension(&name.value, *if_not_exists),
+        Statement::CreateExtension(extension) => {
+            classify_create_extension(&extension.name.value, extension.if_not_exists)
+        }
         Statement::Drop {
             object_type,
             if_exists,
             names,
             ..
         } => classify_drop(*object_type, *if_exists, names),
-        Statement::AlterTable {
-            name, operations, ..
-        } => classify_alter_table(name, operations).map(StatementKind::AlterTable),
+        Statement::AlterTable(alter) => {
+            classify_alter_table(&alter.name, &alter.operations).map(StatementKind::AlterTable)
+        }
         // ── views (CONCEPT:EG-KG.query.create-drop-view) ─────────────────────────────────────────────
-        Statement::CreateView {
-            name,
-            query,
-            or_replace,
-            materialized,
-            ..
-        } => classify_create_view(name, query, *or_replace, *materialized),
+        Statement::CreateView(view) => {
+            classify_create_view(&view.name, &view.query, view.or_replace, view.materialized)
+        }
         // ── transactions + COPY (CONCEPT:EG-KG.query.register-each-user-table) ──────────────────────────────
         Statement::StartTransaction { .. } => Ok(StatementKind::Begin),
         Statement::Commit { .. } => Ok(StatementKind::Commit),
@@ -562,7 +563,14 @@ pub fn classify(sql: &str) -> Result<StatementKind, String> {
             options,
             legacy_options,
             ..
-        } => classify_copy(source, *to, target, options, legacy_options),
+        } => {
+            if !legacy_options.is_empty() {
+                return Err(
+                    "COPY positional options are not supported; use WITH (...) options".to_string(),
+                );
+            }
+            classify_copy(source, *to, target, options)
+        }
         other => Err(format!("unsupported statement: {other}")),
     }
 }
@@ -584,7 +592,6 @@ fn classify_copy(
     to: bool,
     target: &CopyTarget,
     options: &[CopyOption],
-    legacy_options: &[CopyLegacyOption],
 ) -> Result<StatementKind, String> {
     if to {
         return Err("COPY TO is not supported (only COPY … FROM STDIN)".to_string());
@@ -610,8 +617,8 @@ fn classify_copy(
         }
     };
 
-    // Resolve the format + delimiter + header from BOTH the modern `WITH (...)` options
-    // and the legacy positional options.
+    // Resolve format, delimiter, and header solely from the current `WITH (...)`
+    // option grammar.
     let mut format = CopyFormat::Text;
     let mut delimiter = None;
     let mut header = false;
@@ -627,16 +634,6 @@ fn classify_copy(
             }
             CopyOption::Delimiter(c) => delimiter = Some(*c),
             CopyOption::Header(h) => header = *h,
-            _ => {}
-        }
-    }
-    for opt in legacy_options {
-        match opt {
-            CopyLegacyOption::Binary => format = CopyFormat::Binary,
-            CopyLegacyOption::Csv(_) if format == CopyFormat::Text => {
-                format = CopyFormat::Csv;
-            }
-            CopyLegacyOption::Delimiter(c) => delimiter = Some(*c),
             _ => {}
         }
     }
@@ -697,17 +694,13 @@ pub fn infer_param_sites(sql: &str) -> Result<Vec<ParamSite>, String> {
     let mut sites: std::collections::HashMap<usize, ParamSite> = std::collections::HashMap::new();
     match stmt {
         Statement::Query(q) => collect_query_param_sites(q, &mut sites),
-        Statement::Update {
-            assignments,
-            selection,
-            ..
-        } => {
-            for a in assignments {
+        Statement::Update(update) => {
+            for a in &update.assignments {
                 if let AssignmentTarget::ColumnName(name) = &a.target {
                     record_value_site(&last_ident(name), &a.value, &mut sites);
                 }
             }
-            if let Some(sel) = selection {
+            if let Some(sel) = &update.selection {
                 collect_expr_param_sites(sel, &mut sites);
             }
         }
@@ -717,7 +710,7 @@ pub fn infer_param_sites(sql: &str) -> Result<Vec<ParamSite>, String> {
             }
         }
         Statement::Insert(insert) => {
-            let columns: Vec<String> = insert.columns.iter().map(|c| c.value.clone()).collect();
+            let columns: Vec<String> = insert.columns.iter().map(last_ident).collect();
             if let Some(src) = &insert.source {
                 if let SetExpr::Values(Values { rows, .. }) = src.body.as_ref() {
                     for row in rows {
@@ -815,10 +808,12 @@ fn site_from_operand(operand: &Expr) -> ParamSite {
 
 /// The 1-based index of a `$N` placeholder expression, if `expr` is exactly one.
 fn placeholder_index(expr: &Expr) -> Option<usize> {
-    if let Expr::Value(SqlValue::Placeholder(p)) = expr {
-        p.strip_prefix('$').and_then(|d| d.parse::<usize>().ok())
-    } else {
-        None
+    match expr {
+        Expr::Value(value) => match &value.value {
+            SqlValue::Placeholder(p) => p.strip_prefix('$').and_then(|d| d.parse::<usize>().ok()),
+            _ => None,
+        },
+        _ => None,
     }
 }
 
@@ -841,8 +836,7 @@ pub fn schema_probe_sql(sql: &str) -> Option<String> {
         return None;
     };
     // Drop row-limiting clauses — they don't change the column schema.
-    query.limit = None;
-    query.offset = None;
+    query.limit_clause = None;
     // Neutralize the predicate(s) of the (possibly nested) SELECT body so all rows
     // pass and the schema is stable.
     neutralize_select_predicates(&mut query.body);
@@ -873,7 +867,7 @@ fn neutralize_select_predicates(body: &mut SetExpr) {
 
 /// The literal `TRUE` expression.
 fn true_expr() -> Expr {
-    Expr::Value(SqlValue::Boolean(true))
+    Expr::Value(SqlValue::Boolean(true).into())
 }
 
 /// The explicit RETURNING projection column names of a write, if the statement has
@@ -888,7 +882,7 @@ pub fn returning_columns(sql: &str) -> Option<Vec<String>> {
     };
     let items = match stmt {
         Statement::Insert(insert) => insert.returning.as_ref(),
-        Statement::Update { returning, .. } => returning.as_ref(),
+        Statement::Update(update) => update.returning.as_ref(),
         Statement::Delete(delete) => delete.returning.as_ref(),
         _ => None,
     }?;
@@ -948,8 +942,11 @@ pub fn desugar_vector_ops(sql: &str) -> String {
 fn rewrite_query_vector_ops(q: &mut datafusion::sql::sqlparser::ast::Query, changed: &mut bool) {
     rewrite_setexpr_vector_ops(&mut q.body, changed);
     if let Some(order_by) = &mut q.order_by {
-        for ob in &mut order_by.exprs {
-            rewrite_expr_vector_ops(&mut ob.expr, changed);
+        if let datafusion::sql::sqlparser::ast::OrderByKind::Expressions(exprs) = &mut order_by.kind
+        {
+            for ob in exprs {
+                rewrite_expr_vector_ops(&mut ob.expr, changed);
+            }
         }
     }
 }
@@ -990,7 +987,7 @@ fn rewrite_setexpr_vector_ops(body: &mut SetExpr, changed: &mut bool) {
 /// avoiding a version-fragile hand-construction of `sqlparser`'s `Function` AST.
 fn rewrite_expr_vector_ops(expr: &mut Expr, changed: &mut bool) {
     // CONCEPT:EG-KG.query.greatest-least-int4range-tsrange — `EXTRACT(field FROM src)` → `date_part('field', src)`. DataFusion
-    // 43 here has no ExprPlanner that lowers the `EXTRACT` AST node (it errors "Extract not
+    // 54 here has no ExprPlanner that lowers the `EXTRACT` AST node (it errors "Extract not
     // supported by ExprPlanner"), but the equivalent `date_part` scalar function IS
     // registered, so rewrite to it. Recurse into `src` first so a nested vector op inside
     // the extracted expression still desugars.
@@ -1045,14 +1042,16 @@ fn rewrite_expr_vector_ops(expr: &mut Expr, changed: &mut bool) {
         // CONCEPT:EG-KG.query.paradedb-bm25 — `paradedb.score(x)`/`paradedb.snippet(x)` → the registered
         // `bm25_score`/`bm25_snippet` UDFs. Rename the function + recurse into its args.
         Expr::Function(f) => {
-            if f.name.0.len() == 2 && f.name.0[0].value.eq_ignore_ascii_case("paradedb") {
-                let renamed = match f.name.0[1].value.to_ascii_lowercase().as_str() {
+            let parts: Vec<_> = f.name.0.iter().filter_map(|part| part.as_ident()).collect();
+            if parts.len() == 2 && parts[0].value.eq_ignore_ascii_case("paradedb") {
+                let renamed = match parts[1].value.to_ascii_lowercase().as_str() {
                     "score" => Some("bm25_score"),
                     "snippet" => Some("bm25_snippet"),
                     _ => None,
                 };
                 if let Some(new_name) = renamed {
-                    f.name.0 = vec![datafusion::sql::sqlparser::ast::Ident::new(new_name)];
+                    f.name =
+                        ObjectName::from(datafusion::sql::sqlparser::ast::Ident::new(new_name));
                     *changed = true;
                 }
             }
@@ -1099,13 +1098,13 @@ fn reparse_expr(text: &str) -> Option<Expr> {
 /// rows are accepted — anything else is an explicit error (no silent mis-route).
 /// Multiple `VALUES` rows produce multiple [`InsertNode`]s (CONCEPT:EG-KG.query.follow-up).
 fn classify_insert(insert: &Insert) -> Result<InsertNodes, String> {
-    require_nodes_table(&insert.table_name.to_string(), "INSERT")?;
+    require_nodes_table(&insert_table_name(insert)?.to_string(), "INSERT")?;
     if insert.columns.is_empty() {
         return Err(
             "INSERT INTO nodes requires an explicit column list including `id`".to_string(),
         );
     }
-    let columns: Vec<String> = insert.columns.iter().map(|c| c.value.clone()).collect();
+    let columns: Vec<String> = insert.columns.iter().map(last_ident).collect();
 
     let source = insert
         .source
@@ -1275,17 +1274,27 @@ fn is_reserved_table(leaf: &str) -> bool {
     leaf.eq_ignore_ascii_case("nodes") || leaf.eq_ignore_ascii_case("edges")
 }
 
+/// The named table target of an INSERT. Function/query targets are deliberately
+/// rejected: the engine's DML router only mutates named graph/user tables.
+fn insert_table_name(insert: &Insert) -> Result<&ObjectName, String> {
+    match &insert.table {
+        TableObject::TableName(name) => Ok(name),
+        other => Err(format!(
+            "INSERT target must be a named table, got `{other}`"
+        )),
+    }
+}
+
 /// The bare (last-segment) name of an INSERT target.
-fn insert_leaf(insert: &Insert) -> String {
-    let s = insert.table_name.to_string();
-    s.rsplit('.').next().unwrap_or(&s).to_string()
+fn insert_leaf(insert: &Insert) -> Result<String, String> {
+    insert_table_name(insert).map(last_ident)
 }
 
 /// Route an INSERT by target table: `nodes` → the graph node path (unchanged);
 /// `edges` → rejected (graph edge writes are not a wire DML shape); any other table
 /// → the user-table path (literal VALUES or `INSERT … SELECT`).
 fn classify_any_insert(insert: &Insert) -> Result<StatementKind, String> {
-    let leaf = insert_leaf(insert);
+    let leaf = insert_leaf(insert)?;
     if leaf.eq_ignore_ascii_case("nodes") {
         // A SELECT/WITH body → `INSERT INTO nodes … SELECT` (CONCEPT:EG-KG.query.insert-into-nodes-select); a literal
         // VALUES body → the existing single/multi-row node insert.
@@ -1314,7 +1323,7 @@ fn classify_insert_nodes_select(insert: &Insert) -> Result<StatementKind, String
                 .to_string(),
         );
     }
-    let columns: Vec<String> = insert.columns.iter().map(|c| c.value.clone()).collect();
+    let columns: Vec<String> = insert.columns.iter().map(last_ident).collect();
     if !columns.iter().any(|c| c.eq_ignore_ascii_case("id")) {
         return Err("INSERT INTO nodes … SELECT column list must include `id`".to_string());
     }
@@ -1338,7 +1347,7 @@ fn classify_insert_table(insert: &Insert, table: String) -> Result<StatementKind
             "INSERT INTO {table} requires an explicit column list"
         ));
     }
-    let columns: Vec<String> = insert.columns.iter().map(|c| c.value.clone()).collect();
+    let columns: Vec<String> = insert.columns.iter().map(last_ident).collect();
     let source = insert
         .source
         .as_ref()
@@ -1358,7 +1367,7 @@ fn classify_insert_table(insert: &Insert, table: String) -> Result<StatementKind
                     ));
                 }
                 let mut vals = Vec::with_capacity(row.len());
-                for expr in row {
+                for expr in row.iter() {
                     vals.push(expr_to_json(expr)?);
                 }
                 out_rows.push(vals);
@@ -1556,12 +1565,13 @@ fn decode_column_def(c: &SqlColumnDef) -> Result<ColumnDef, String> {
         match &opt.option {
             ColumnOption::NotNull => nullable = false,
             ColumnOption::Null => nullable = true,
-            ColumnOption::Unique { is_primary, .. } => {
+            ColumnOption::PrimaryKey(_) => {
                 unique = true;
-                if *is_primary {
-                    primary_key = true;
-                    nullable = false;
-                }
+                primary_key = true;
+                nullable = false;
+            }
+            ColumnOption::Unique(_) => {
+                unique = true;
             }
             ColumnOption::Default(expr) => {
                 // `DEFAULT nextval('…')` ⇒ a sequence (SERIAL); a literal ⇒ a default value.
@@ -1577,8 +1587,8 @@ fn decode_column_def(c: &SqlColumnDef) -> Result<ColumnDef, String> {
                     })?);
                 }
             }
-            ColumnOption::Check(expr) => {
-                check = Some(decode_check(expr, &c.name.value)?);
+            ColumnOption::Check(constraint) => {
+                check = Some(decode_check(&constraint.expr, &c.name.value)?);
             }
             _ => {}
         }
@@ -2254,13 +2264,18 @@ fn classify_alter_table(
         }
         // CONCEPT:EG-KG.query.rename-table-moves-catalog — `DROP [COLUMN] [IF EXISTS] col`.
         AlterTableOperation::DropColumn {
-            column_name,
+            column_names,
             if_exists,
             ..
-        } => AlterTableAction::DropColumn {
-            column: column_name.value.clone(),
-            if_exists: *if_exists,
-        },
+        } => {
+            let [column_name] = column_names.as_slice() else {
+                return Err("ALTER TABLE DROP COLUMN supports exactly one column".to_string());
+            };
+            AlterTableAction::DropColumn {
+                column: column_name.value.clone(),
+                if_exists: *if_exists,
+            }
+        }
         // CONCEPT:EG-KG.query.rename-table-moves-catalog — `RENAME [COLUMN] a TO b`.
         AlterTableOperation::RenameColumn {
             old_column_name,
@@ -2271,7 +2286,9 @@ fn classify_alter_table(
         },
         // CONCEPT:EG-KG.query.rename-table-moves-catalog — `RENAME TO newtable`. Reject renaming onto a reserved graph name.
         AlterTableOperation::RenameTable { table_name } => {
-            let new_name = last_ident(table_name);
+            let new_name = match table_name {
+                RenameTableNameKind::As(name) | RenameTableNameKind::To(name) => last_ident(name),
+            };
             if is_reserved_table(&new_name) {
                 return Err(format!(
                     "cannot rename table `{table}` onto the reserved graph table `{new_name}`"
@@ -2451,7 +2468,8 @@ fn ident_column(expr: &Expr) -> Result<String, String> {
 fn last_ident(name: &ObjectName) -> String {
     name.0
         .last()
-        .map(|i| i.value.clone())
+        .and_then(|part| part.as_ident())
+        .map(|ident| ident.value.clone())
         .unwrap_or_else(|| name.to_string())
 }
 
@@ -2573,7 +2591,7 @@ fn classify_delete_nodes_join(
 /// shim substitutes them to literals before classify.
 fn expr_to_json(expr: &Expr) -> Result<Value, String> {
     match expr {
-        Expr::Value(v) => sql_value_to_json(v),
+        Expr::Value(v) => sql_value_to_json(&v.value),
         // `-1`, `+2.5` etc. — a unary op over a numeric literal.
         Expr::UnaryOp { op, expr } => {
             use datafusion::sql::sqlparser::ast::UnaryOperator;
@@ -2739,12 +2757,16 @@ fn accessor_base(expr: &Expr) -> Option<(String, String)> {
 /// One `->`/`->>` key: a string literal ⇒ `['key']`, a number literal ⇒ `[n]`.
 fn json_key_segment(expr: &Expr) -> Option<String> {
     match expr {
-        Expr::Value(SqlValue::SingleQuotedString(s))
-        | Expr::Value(SqlValue::DoubleQuotedString(s)) => Some(format!("['{s}']")),
-        Expr::Value(SqlValue::Number(n, _)) => {
-            let i: usize = n.parse().ok()?;
-            Some(format!("[{i}]"))
-        }
+        Expr::Value(value) => match &value.value {
+            SqlValue::SingleQuotedString(s) | SqlValue::DoubleQuotedString(s) => {
+                Some(format!("['{s}']"))
+            }
+            SqlValue::Number(n, _) => {
+                let i: usize = n.parse().ok()?;
+                Some(format!("[{i}]"))
+            }
+            _ => None,
+        },
         _ => None,
     }
 }
@@ -2770,8 +2792,10 @@ fn json_text_path(expr: &Expr) -> Option<String> {
 /// Extract a string literal operand, else `None`.
 fn string_operand(expr: &Expr) -> Option<String> {
     match expr {
-        Expr::Value(SqlValue::SingleQuotedString(s))
-        | Expr::Value(SqlValue::DoubleQuotedString(s)) => Some(s.clone()),
+        Expr::Value(value) => match &value.value {
+            SqlValue::SingleQuotedString(s) | SqlValue::DoubleQuotedString(s) => Some(s.clone()),
+            _ => None,
+        },
         Expr::Nested(e) => string_operand(e),
         _ => None,
     }
@@ -2780,10 +2804,13 @@ fn string_operand(expr: &Expr) -> Option<String> {
 /// The RHS of `@>`: a JSON literal (a quoted string parsed as JSON, or a bare scalar).
 fn json_literal(expr: &Expr) -> Result<Value, String> {
     match expr {
-        Expr::Value(SqlValue::SingleQuotedString(s))
-        | Expr::Value(SqlValue::DoubleQuotedString(s)) => {
-            serde_json::from_str(s).map_err(|e| format!("`@>` right must be a JSON literal: {e}"))
-        }
+        Expr::Value(value) => match &value.value {
+            SqlValue::SingleQuotedString(s) | SqlValue::DoubleQuotedString(s) => {
+                serde_json::from_str(s)
+                    .map_err(|e| format!("`@>` right must be a JSON literal: {e}"))
+            }
+            _ => expr_to_json(expr),
+        },
         other => expr_to_json(other),
     }
 }
@@ -3504,6 +3531,12 @@ mod tests {
     fn copy_to_and_reserved_rejected() {
         assert!(classify("COPY nodes FROM STDIN").is_err());
         assert!(classify("COPY prices TO STDOUT").is_err());
+    }
+
+    #[test]
+    fn copy_positional_options_are_rejected() {
+        let error = classify("COPY prices FROM STDIN CSV").unwrap_err();
+        assert!(error.contains("positional options"), "{error}");
     }
 
     // ── INSERT INTO nodes … SELECT (CONCEPT:EG-KG.query.insert-into-nodes-select) ───────────────────────────

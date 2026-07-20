@@ -130,8 +130,8 @@ fn reorder_preserves_result_set_both_regimes() {
 }
 
 /// The cost model picks filter-first for a selective predicate and vector-first for a
-/// broad one, and `reorder_filter_rank` rewrites a real plan to the winner — over the
-/// fixture, both resulting plans still produce the SAME result set.
+/// broad one. The optimizer's sole swap primitive places a real plan according to
+/// that decision; both resulting plans still produce the SAME result set.
 #[test]
 fn cost_reorder_picks_winner_same_result() {
     let fx = build();
@@ -158,8 +158,8 @@ fn cost_reorder_picks_winner_same_result() {
     assert_eq!(CostModel::order(&broad), Order::VectorFirst);
 
     // The (Filter, Rank) pair is at indices 1,2 (adjacent) — the reorder swaps them.
-    let sel_plan = CostModel::reorder_filter_rank(plan.clone(), &selective);
-    let broad_plan = CostModel::reorder_filter_rank(plan, &broad);
+    let sel_plan = CostModel::place_narrower(plan.clone(), 1, 2, true);
+    let broad_plan = CostModel::place_narrower(plan, 1, 2, false);
     assert!(
         matches!(sel_plan[1], Op::Filter { .. }) && matches!(sel_plan[2], Op::Rank { .. }),
         "selective → filter-first"
@@ -390,16 +390,9 @@ fn udf_op_without_registry_errs() {
     assert!(err.contains("registry"), "got: {err}");
 }
 
-/// F3(b) regression (CONCEPT:EG-KG.query.rel-type-projection): UQL `TRAVERSE -[:REL]->{m,n}`
-/// (`Op::Traverse`) must reach neighbors whose relationship name is stored under
-/// `rel_type` — the key the agent-utilities `epistemic_graph` backend stamps every
-/// edge with — not just this engine's own `relationship`/`type` CREATE convention.
-/// Before the fix, `eg-plan`'s `rel_matches` (unlike eg-query/cypher's) never read
-/// `rel_type`, so a typed directed traversal over AU-ingested edges silently
-/// returned `[]` even though the edge existed and eg-query/cypher's `<-[r]-`/
-/// `-[r]->` could already see it.
+/// UQL `TRAVERSE -[:REL]->{m,n}` consumes the canonical `relationship` field.
 #[cfg(test)]
-mod rel_type_traverse_tests {
+mod relationship_traverse_tests {
     use crate::algebra::{Op, Plan};
     use crate::exec::{PlanCtx, PlanExt};
     use eg_core::compute::semantic::SemanticStore;
@@ -411,16 +404,15 @@ mod rel_type_traverse_tests {
     }
 
     #[test]
-    fn traverse_matches_rel_type_keyed_edge() {
+    fn traverse_matches_canonical_relationship() {
         let core = GraphCore::new();
         core.add_node("concept:src".into(), blob(json!({"type":"Concept"})));
         core.add_node("concept:nbr".into(), blob(json!({"type":"Concept"})));
-        // Edge carries the relationship name ONLY under `rel_type` (AU convention),
-        // stored src -> nbr (the direction a forward TRAVERSE from the source expects).
+        // Stored src -> nbr (the direction a forward TRAVERSE from the source expects).
         core.add_edge(
             "concept:src".into(),
             "concept:nbr".into(),
-            blob(json!({"rel_type":"RELATED_TO"})),
+            blob(json!({"relationship":"RELATED_TO"})),
         )
         .unwrap();
         let view = core.analysis_snapshot();
@@ -428,7 +420,7 @@ mod rel_type_traverse_tests {
         let ctx = PlanCtx::new(&view, &sem);
 
         // Scan seeds both Concept nodes; TRAVERSE from `src` must reach `nbr` via the
-        // rel_type-keyed edge (from `nbr` there is no outgoing edge, so it contributes
+        // canonical edge (from `nbr` there is no outgoing edge, so it contributes
         // nothing) — before the fix this silently returned `[]`.
         let out = Plan::new(vec![
             Op::Scan {
@@ -446,7 +438,7 @@ mod rel_type_traverse_tests {
         assert_eq!(
             out.ids(),
             vec!["concept:nbr".to_string()],
-            "TRAVERSE must reach the rel_type-keyed neighbor, not return []"
+            "TRAVERSE must reach the canonical-relationship neighbor, not return []"
         );
     }
 }

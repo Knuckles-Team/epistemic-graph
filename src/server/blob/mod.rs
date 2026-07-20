@@ -28,7 +28,7 @@ pub mod stream;
 pub mod s3;
 
 // A real, engine-backed `eg_alignment::EvidenceResolver` (L21, CONCEPT:EG-P1-3
-// follow-up): resolves a located `EvidenceSpan` through a `GraphView` snapshot's
+// follow-up): resolves a located `EvidenceLocus` through a `GraphView` snapshot's
 // own stored `blob_ref` property, then reads the actual bytes back out of THIS
 // module's `ChunkStore` — see `cas_resolver`'s module docs for why it lives here
 // rather than inside `eg-alignment` itself. Behind the `alignment` feature (implies
@@ -39,15 +39,19 @@ pub mod cas_resolver;
 use dashmap::DashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 
-pub use store::{BlobManifest, ChunkStore, RedbChunkStore, SweepStats, DEFAULT_CHUNK_SIZE};
+pub use store::{
+    BlobManifest, ChunkStore, RedbChunkStore, SweepStats, BLOB_MANIFEST_VERSION,
+    DEFAULT_CHUNK_SIZE, ENGINE_BLOB_OWNER_SCOPE,
+};
 
 /// An open UPLOAD cursor. It does NOT buffer the whole file: each arriving chunk is
 /// hashed + written to the CAS immediately and only its digest is appended here, so
 /// the resident memory for an upload is ~(len/chunk_size)·~70 bytes of digests —
 /// kilobytes, not gigabytes.
 pub struct UploadCursor {
+    /// Verified tenant+principal owner of the cursor.
+    pub owner_scope: String,
     pub chunk_digests: Vec<String>,
     /// Per-chunk byte lengths, parallel to `chunk_digests` (CONCEPT:EG-KG.storage.backward-manifest-read): the
     /// variable content-defined boundaries the manifest records. Chunk boundaries
@@ -60,6 +64,10 @@ pub struct UploadCursor {
     pub chunk_size: u32,
     /// Last-activity wall-clock ms, for the idle TTL reaper.
     pub last_active_ms: u64,
+    /// Opaque MutationBatch ids already projected into this cursor. This makes an
+    /// ack-lost `BlobChunkPut` replay idempotent without storing payload or caller
+    /// identity in memory.
+    pub applied_batches: std::collections::HashSet<String>,
 }
 
 /// An open FETCH cursor: just the manifest. Chunks are pulled from the CAS one at a
@@ -72,10 +80,7 @@ pub struct FetchCursor {
 /// Wall-clock milliseconds since the epoch (monotonic enough for TTL; tolerates
 /// clock skew the same way the OCC-txn sweep does).
 pub fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
+    crate::server::dispatch::authoritative_now_ms()
 }
 
 /// Server-side blob cursor state, held on [`ServerState`](crate::server::ServerState).
@@ -102,29 +107,60 @@ impl BlobCursors {
         self.next_id.fetch_add(1, Ordering::Relaxed)
     }
 
-    /// Open an upload cursor; returns its id.
-    pub fn open_upload(&self, chunk_size: u32) -> u64 {
-        let id = self.alloc();
+    /// Reserve an id without publishing cursor state. The handler first commits
+    /// this id as the native batch result, then restores the owned upload row.
+    pub fn allocate_upload_id(&self) -> u64 {
+        self.alloc()
+    }
+
+    /// Rebuild the in-memory serving projection from the authoritative durable
+    /// upload row after startup or an ack-lost retry.
+    pub fn restore_upload_manifest(&self, id: u64, manifest: BlobManifest) -> Result<(), String> {
+        manifest.validate()?;
+        self.next_id
+            .fetch_max(id.saturating_add(1), Ordering::Relaxed);
         self.uploads.insert(
             id,
             UploadCursor {
-                chunk_digests: Vec::new(),
-                chunk_lens: Vec::new(),
-                len: 0,
-                chunk_size,
+                owner_scope: manifest.owner_scope.clone(),
+                chunk_digests: manifest.chunks,
+                chunk_lens: manifest.chunk_lens,
+                len: manifest.len,
+                chunk_size: manifest.chunk_size,
                 last_active_ms: now_ms(),
+                applied_batches: std::collections::HashSet::new(),
             },
         );
-        id
+        Ok(())
     }
 
-    /// Append a stored chunk's digest to an open upload cursor. Returns the running
-    /// chunk count, or `Err` if the cursor is unknown.
-    pub fn push_chunk(&self, cursor: u64, digest: String, added_len: u64) -> Result<u32, String> {
+    pub fn authorize_upload(&self, cursor: u64, owner_scope: &str) -> Result<(), String> {
+        let upload = self
+            .uploads
+            .get(&cursor)
+            .ok_or_else(|| "unknown upload cursor".to_string())?;
+        if !owner_scope.is_empty() && upload.owner_scope == owner_scope {
+            Ok(())
+        } else {
+            Err("unknown upload cursor".to_string())
+        }
+    }
+
+    /// Idempotent serving-projection update for one durably committed chunk batch.
+    pub fn push_chunk_once(
+        &self,
+        cursor: u64,
+        batch_id: &str,
+        digest: String,
+        added_len: u64,
+    ) -> Result<u32, String> {
         let mut up = self
             .uploads
             .get_mut(&cursor)
             .ok_or_else(|| "unknown upload cursor".to_string())?;
+        if !up.applied_batches.insert(batch_id.to_string()) {
+            return Ok(up.chunk_digests.len() as u32);
+        }
         up.len += added_len;
         up.chunk_digests.push(digest);
         up.chunk_lens.push(added_len as u32);
@@ -132,18 +168,25 @@ impl BlobCursors {
         Ok(up.chunk_digests.len() as u32)
     }
 
-    /// Finalize an upload cursor → its [`BlobManifest`]. Drops the cursor.
-    pub fn take_upload(&self, cursor: u64) -> Result<BlobManifest, String> {
-        let (_, up) = self
+    /// Snapshot a manifest without consuming the upload cursor. Consumption is a
+    /// serving projection performed only after the manifest batch commits.
+    pub fn snapshot_upload(&self, cursor: u64) -> Result<BlobManifest, String> {
+        let up = self
             .uploads
-            .remove(&cursor)
+            .get(&cursor)
             .ok_or_else(|| "unknown upload cursor".to_string())?;
         Ok(BlobManifest {
-            chunks: up.chunk_digests,
-            chunk_lens: up.chunk_lens,
+            schema_version: BLOB_MANIFEST_VERSION,
+            owner_scope: up.owner_scope.clone(),
+            chunks: up.chunk_digests.clone(),
+            chunk_lens: up.chunk_lens.clone(),
             len: up.len,
             chunk_size: up.chunk_size,
         })
+    }
+
+    pub fn finish_upload(&self, cursor: u64) {
+        self.uploads.remove(&cursor);
     }
 
     /// Open a fetch cursor over a stored manifest; returns `(cursor, n_chunks)`.
@@ -158,6 +201,18 @@ impl BlobCursors {
             },
         );
         (id, n)
+    }
+
+    pub fn authorize_fetch(&self, cursor: u64, owner_scope: &str) -> Result<(), String> {
+        let fetch = self
+            .fetches
+            .get(&cursor)
+            .ok_or_else(|| "unknown fetch cursor".to_string())?;
+        if !owner_scope.is_empty() && fetch.manifest.owner_scope == owner_scope {
+            Ok(())
+        } else {
+            Err("unknown fetch cursor".to_string())
+        }
     }
 
     /// The chunk digest at `idx` of an open fetch cursor.
@@ -227,13 +282,27 @@ mod tests {
     #[test]
     fn upload_then_fetch_cursor_lifecycle() {
         let c = cursors();
-        let up = c.open_upload(8);
+        let up = c.allocate_upload_id();
+        c.restore_upload_manifest(
+            up,
+            BlobManifest {
+                schema_version: BLOB_MANIFEST_VERSION,
+                owner_scope: ENGINE_BLOB_OWNER_SCOPE.to_string(),
+                chunks: Vec::new(),
+                chunk_lens: Vec::new(),
+                len: 0,
+                chunk_size: 8,
+            },
+        )
+        .unwrap();
         // Stream three tiny chunks through the store + cursor.
-        for part in [b"aaaa".as_slice(), b"bbbb", b"cc"] {
+        for (ordinal, part) in [b"aaaa".as_slice(), b"bbbb", b"cc"].into_iter().enumerate() {
             let (digest, _) = c.store.put_chunk(part).unwrap();
-            c.push_chunk(up, digest, part.len() as u64).unwrap();
+            c.push_chunk_once(up, &format!("batch-{ordinal}"), digest, part.len() as u64)
+                .unwrap();
         }
-        let manifest = c.take_upload(up).unwrap();
+        let manifest = c.snapshot_upload(up).unwrap();
+        c.finish_upload(up);
         assert_eq!(manifest.len, 10);
         assert_eq!(manifest.chunks.len(), 3);
         assert!(
@@ -253,16 +322,16 @@ mod tests {
     #[test]
     fn reaper_reclaims_idle_cursors() {
         let c = cursors();
-        let up = c.open_upload(8);
-        let (_, manifest) = (
-            up,
-            BlobManifest {
-                chunks: vec![],
-                chunk_lens: vec![],
-                len: 0,
-                chunk_size: 8,
-            },
-        );
+        let up = c.allocate_upload_id();
+        let manifest = BlobManifest {
+            schema_version: BLOB_MANIFEST_VERSION,
+            owner_scope: ENGINE_BLOB_OWNER_SCOPE.to_string(),
+            chunks: vec![],
+            chunk_lens: vec![],
+            len: 0,
+            chunk_size: 8,
+        };
+        c.restore_upload_manifest(up, manifest.clone()).unwrap();
         let (_fc, _) = c.open_fetch(manifest);
         assert_eq!(c.open_count(), 2);
         // A reap with a far-future "now" (TTL elapsed) reclaims both.
@@ -274,8 +343,41 @@ mod tests {
     #[test]
     fn unknown_cursor_errs() {
         let c = cursors();
-        assert!(c.push_chunk(999, "x".into(), 1).is_err());
-        assert!(c.take_upload(999).is_err());
+        assert!(c.push_chunk_once(999, "batch", "x".into(), 1).is_err());
+        assert!(c.snapshot_upload(999).is_err());
         assert!(c.fetch_chunk_digest(999, 0).is_err());
+    }
+
+    #[test]
+    fn upload_and_fetch_cursors_are_owner_bound() {
+        let c = cursors();
+        c.restore_upload_manifest(
+            41,
+            BlobManifest {
+                schema_version: BLOB_MANIFEST_VERSION,
+                owner_scope: "tenant-a/alice".to_string(),
+                chunks: Vec::new(),
+                chunk_lens: Vec::new(),
+                len: 0,
+                chunk_size: 8,
+            },
+        )
+        .unwrap();
+        assert!(c.authorize_upload(41, "tenant-a/alice").is_ok());
+        assert!(c.authorize_upload(41, "tenant-a/bob").is_err());
+        assert!(c.authorize_upload(41, "tenant-b/alice").is_err());
+
+        let manifest = BlobManifest {
+            schema_version: BLOB_MANIFEST_VERSION,
+            owner_scope: "tenant-a/alice".to_string(),
+            chunks: Vec::new(),
+            chunk_lens: Vec::new(),
+            len: 0,
+            chunk_size: 0,
+        };
+        let (fetch, _) = c.open_fetch(manifest);
+        assert!(c.authorize_fetch(fetch, "tenant-a/alice").is_ok());
+        assert!(c.authorize_fetch(fetch, "tenant-a/bob").is_err());
+        assert!(c.authorize_fetch(fetch, "tenant-b/alice").is_err());
     }
 }

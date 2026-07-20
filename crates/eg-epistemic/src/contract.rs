@@ -16,17 +16,17 @@
 //!   `as_of:<axis>` label when the belief was pinned to a bitemporal instant.
 //! * `analytics_ops()` — real: the crate's actual compute entry points.
 //!
-//! `evidence()` is DELIBERATELY left at its default (`None`) — not a stub, a genuine
+//! `evidence_address()` is DELIBERATELY left at its default (`None`) — not a stub, a genuine
 //! "does not apply" per the trait's own module docs (override ONLY where meaningful).
 //! `BeliefState` has no located-evidence concept: its `supporting`/`contradicting`/
 //! `attacking` fields are GRAPH NODE IDS, not spans into a document/table/image/audio/
-//! video/code/trace artifact — none of `EvidenceSpan`'s variants fit a bare node id
+//! video/code/trace artifact — none of `EvidenceAddress`'s variants fit a bare node id
 //! without inventing a meaningless new one. That is a legitimate outcome the crate
 //! README explicitly anticipates ("a modality overrides ONLY the ones that are
 //! meaningful for it"), not a gap in this retrofit.
 
 use eg_modality::{
-    decode_staged, encode_staged, ConformanceTestable, EvidenceSpan, IngestReport,
+    decode_staged, encode_staged, ConformanceTestable, EvidenceAddress, IngestReport,
     ModalityContract, ModalitySelfTest, Provenance, RowSetShape, StagedWrite, StorageStats,
     TckPoint,
 };
@@ -95,8 +95,8 @@ impl ModalityContract for BeliefState {
 
     /// See module docs: genuinely `None` — `supporting`/`contradicting`/`attacking` are
     /// graph node ids, not a located span into a document/table/image/audio/video/code/
-    /// trace artifact that any `EvidenceSpan` variant could carry losslessly.
-    fn evidence(&self, _id: &str) -> Option<EvidenceSpan> {
+    /// trace artifact that any `EvidenceAddress` variant could carry losslessly.
+    fn evidence_address(&self) -> Option<EvidenceAddress> {
         None
     }
 
@@ -272,6 +272,6 @@ mod overrides {
         assert_eq!(prov.source, format!("{:?}", JustRule::Asserted));
         assert!(prov.detail.is_empty());
         assert_eq!(b.policy_labels("x"), vec!["epistemic:asserted".to_string()]);
-        assert!(b.evidence("x").is_none());
+        assert!(b.evidence_address().is_none());
     }
 }

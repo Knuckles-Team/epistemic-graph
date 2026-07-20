@@ -10,14 +10,20 @@
 //!
 //! [`EmbeddingVersion`] is the minimal tag (`model_id` + a monotonic `model_version`
 //! integer); [`EmbeddingVersionStore`] is a side-table `id -> EmbeddingVersion`,
-//! persisted independently of the PQ codes (bincode, same codec [`crate::persist`]
-//! already uses) so tagging is fully additive — an index built before this feature
-//! existed just has an empty version store.
+//! persisted independently of the PQ codes (the same strict versioned codec [`crate::persist`]
+//! already uses) so tagging remains independent of the code buffers.
 
-use serde::{Deserialize, Serialize};
+use serde::de::{self, SeqAccess, Visitor};
+use serde::ser::SerializeSeq;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::HashMap;
+use std::fmt;
 use std::fs;
 use std::path::Path;
+
+const MAX_VERSION_METADATA_BYTES: u64 = 256 * 1024 * 1024;
+const MAX_VERSION_TAGS: usize = 5_000_000;
+const MAX_MODEL_ID_BYTES: usize = 1_024;
 
 /// The model identity + version that produced one stored embedding.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -42,9 +48,69 @@ impl EmbeddingVersion {
 /// A side-table mapping stored embedding id → the [`EmbeddingVersion`] that
 /// produced it. Independent of the PQ/SQ8 code buffers — tagging (or re-tagging)
 /// never touches the vector data itself.
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default)]
 pub struct EmbeddingVersionStore {
     tags: HashMap<u64, EmbeddingVersion>,
+}
+
+impl Serialize for EmbeddingVersionStore {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut entries: Vec<_> = self.tags.iter().collect();
+        entries.sort_unstable_by_key(|(id, _)| **id);
+        let mut sequence = serializer.serialize_seq(Some(entries.len()))?;
+        for (&id, version) in entries {
+            sequence.serialize_element(&(id, version))?;
+        }
+        sequence.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for EmbeddingVersionStore {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct StoreVisitor;
+
+        impl<'de> Visitor<'de> for StoreVisitor {
+            type Value = EmbeddingVersionStore;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str("a bounded sequence of embedding-version tags")
+            }
+
+            fn visit_seq<A>(self, mut sequence: A) -> Result<Self::Value, A::Error>
+            where
+                A: SeqAccess<'de>,
+            {
+                let mut tags = HashMap::new();
+                while let Some((id, version)) =
+                    sequence.next_element::<(u64, EmbeddingVersion)>()?
+                {
+                    if tags.len() >= MAX_VERSION_TAGS {
+                        return Err(de::Error::custom("embedding-version tag limit exceeded"));
+                    }
+                    validate_version(&version).map_err(de::Error::custom)?;
+                    if tags.insert(id, version).is_some() {
+                        return Err(de::Error::custom("duplicate embedding-version tag"));
+                    }
+                }
+                Ok(EmbeddingVersionStore { tags })
+            }
+        }
+
+        deserializer.deserialize_seq(StoreVisitor)
+    }
+}
+
+fn validate_version(version: &EmbeddingVersion) -> Result<(), &'static str> {
+    if version.model_id.is_empty() || version.model_id.len() > MAX_MODEL_ID_BYTES {
+        return Err("embedding model identifier is empty or too long");
+    }
+    Ok(())
 }
 
 impl EmbeddingVersionStore {
@@ -103,26 +169,48 @@ impl EmbeddingVersionStore {
         out
     }
 
-    /// Persist the tag table (bincode) — the same codec [`crate::persist`] uses for
+    /// Persist the tag table — the same codec [`crate::persist`] uses for
     /// the index's own `meta.bin`, so this drops beside it in an index directory.
     pub fn save(&self, path: &Path) -> std::io::Result<()> {
-        let bytes = bincode::serialize(self)
+        if self.tags.len() > MAX_VERSION_TAGS
+            || self
+                .tags
+                .values()
+                .any(|version| validate_version(version).is_err())
+        {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "embedding-version metadata exceeds its safety bounds",
+            ));
+        }
+        let bytes = crate::codec::serialize(self)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        if bytes.len() as u64 > MAX_VERSION_METADATA_BYTES {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "embedding-version metadata exceeds its byte limit",
+            ));
+        }
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
         fs::write(path, bytes)
     }
 
-    /// Reopen a persisted tag table. A missing file is NOT an error — it means "no
-    /// tags yet" (an index built before versioning existed), so this returns an
-    /// empty store rather than failing.
+    /// Reopen a persisted tag table. A missing optional side-table means that no
+    /// embedding-version tags have been materialized yet.
     pub fn open(path: &Path) -> std::io::Result<Self> {
         if !path.exists() {
             return Ok(Self::default());
         }
+        if fs::metadata(path)?.len() > MAX_VERSION_METADATA_BYTES {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "embedding-version metadata exceeds its byte limit",
+            ));
+        }
         let bytes = fs::read(path)?;
-        bincode::deserialize(&bytes)
+        crate::codec::deserialize(&bytes)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
     }
 }

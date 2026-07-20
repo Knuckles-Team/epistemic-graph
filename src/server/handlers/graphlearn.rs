@@ -338,7 +338,7 @@ fn materialize_predicted_edges(
         core.add_node(node_id.clone(), blob);
         for endpoint in [src, dst] {
             if core.has_node(endpoint) {
-                let edge = serde_json::json!({ "relation": "PREDICTED_LINK" });
+                let edge = serde_json::json!({ "relationship": "PREDICTED_LINK" });
                 if let Ok(eb) = rmp_serde::to_vec_named(&edge) {
                     let _ = core.add_edge(node_id.clone(), endpoint.clone(), eb);
                 }
@@ -435,11 +435,9 @@ fn edge_matches_relation(
     };
     for &(s, t) in pairs {
         for blob in core.get_edge_properties(s, t) {
-            if let Ok(val) = rmp_serde::from_slice::<serde_json::Value>(&blob) {
-                for key in ["relation", "type", "rel"] {
-                    if val.get(key).and_then(|v| v.as_str()) == Some(relation) {
-                        return true;
-                    }
+            if let Ok(val) = eg_types::msgpack::decode_property_value(&blob) {
+                if val.get("relationship").and_then(|v| v.as_str()) == Some(relation) {
+                    return true;
                 }
             }
         }
@@ -543,7 +541,7 @@ mod tests {
             let _ = core.add_edge(
                 s.into(),
                 d.into(),
-                node(serde_json::json!({ "relation": "KNOWS" })),
+                node(serde_json::json!({ "relationship": "KNOWS" })),
             );
         }
         core.mark_dirty();

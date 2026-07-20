@@ -720,16 +720,15 @@ async fn local_execute(
     graph: &str,
 ) -> Result<Vec<FedRow>, String> {
     let method = build_local_method(query, lang, graph);
-    let secret = { state.read().await.auth_secret.clone() };
     let id = 1u64;
     let request = crate::protocol::Request {
         id,
         graph: graph.to_string(),
-        auth_token: crate::server::compute_auth_token(&secret, id),
-        agent_id: None,
+        auth_token: String::new(),
+        agent_id: Some("service:local-query".to_string()),
         method,
     };
-    let resp = crate::server::dispatch(state, request).await;
+    let resp = crate::server::dispatch::dispatch_authenticated_local_query(state, request).await;
     if let Some(err) = resp.error {
         return Err(err);
     }
@@ -769,7 +768,10 @@ fn build_local_method(query: &str, lang: &str, graph: &str) -> crate::protocol::
 fn decode_local_rows(bytes: &[u8], lang: &str) -> Vec<FedRow> {
     #[cfg(feature = "sparql")]
     if lang == "sparql" {
-        if let Ok(res) = rmp_serde::from_slice::<crate::protocol::SparqlResult>(bytes) {
+        if let Ok(res) = eg_types::msgpack::decode_bounded::<crate::protocol::SparqlResult>(
+            bytes,
+            eg_types::msgpack::MsgpackLimits::new(MAX_RESPONSE_BYTES as usize, 1_000_000, 64),
+        ) {
             return res
                 .rows
                 .into_iter()
@@ -795,13 +797,23 @@ fn decode_local_rows(bytes: &[u8], lang: &str) -> Vec<FedRow> {
     }
     #[cfg(feature = "query")]
     if lang == "sql" {
-        if let Ok(res) = rmp_serde::from_slice::<crate::protocol::QueryResult>(bytes) {
+        if let Ok(res) = eg_types::msgpack::decode_bounded::<crate::protocol::QueryResult>(
+            bytes,
+            eg_types::msgpack::MsgpackLimits::new(MAX_RESPONSE_BYTES as usize, 1_000_000, 64),
+        ) {
             return res
                 .rows
                 .into_iter()
                 .map(|blob| {
-                    let cells: Vec<serde_json::Value> =
-                        rmp_serde::from_slice(&blob).unwrap_or_default();
+                    let cells: Vec<serde_json::Value> = eg_types::msgpack::decode_bounded(
+                        &blob,
+                        eg_types::msgpack::MsgpackLimits::new(
+                            MAX_RESPONSE_BYTES as usize,
+                            1_000_000,
+                            64,
+                        ),
+                    )
+                    .unwrap_or_default();
                     let key = cells
                         .iter()
                         .map(|c| c.to_string())
@@ -823,7 +835,10 @@ fn decode_local_rows(bytes: &[u8], lang: &str) -> Vec<FedRow> {
     }
     let _ = lang;
     // Default ranked-search path: `[(id, score)]` rows.
-    match rmp_serde::from_slice::<Vec<(String, Option<f32>)>>(bytes) {
+    match eg_types::msgpack::decode_bounded::<Vec<(String, Option<f32>)>>(
+        bytes,
+        eg_types::msgpack::MsgpackLimits::new(MAX_RESPONSE_BYTES as usize, 1_000_000, 64),
+    ) {
         Ok(rows) => rows
             .into_iter()
             .map(|(id, score)| FedRow {
@@ -967,6 +982,17 @@ async fn handle(
     };
     if req.method == "OPTIONS" && path == "/federated" {
         return ("204 No Content", "application/json", String::new());
+    }
+    {
+        let state = state.read().await;
+        if crate::server::access::unauthenticated_carrier_denied(&state.isolation) {
+            return (
+                "403 Forbidden",
+                "application/json",
+                r#"{"error":"ACCESS_DENIED: federated HTTP reads require verified tenant ownership"}"#
+                    .to_string(),
+            );
+        }
     }
     if path != "/federated" {
         return (

@@ -7,13 +7,9 @@
 //!   * an `INSERT INTO nodes …` (routed through the GraphTxn write path) is visible
 //!     to a subsequent `SELECT` on the same connection.
 //!
-//! It also proves the durability barrier (CONCEPT:EG-KG.query.concept-10): a pgwire INSERT runs
-//! the SAME post-write durable-record block dispatch runs, so the wire write is
-//!   * fire-and-forget `record()`'d in the default (non-authoritative) regime
-//!     (regression: today's behavior intact, plus the per-op record M8 was missing),
-//!   * commit-before-ack `record_durable().await`'d under redb-AUTHORITATIVE mode —
-//!     verified by reading the row back from a FRESH redb backend on the same dir
-//!     (durable WITHOUT any checkpoint), the gated test below.
+//! It also proves the durability barrier (CONCEPT:EG-KG.query.concept-10): a pgwire
+//! INSERT awaits `record_durable` before completion, verified by reading the row
+//! back from a fresh backend on the same directory.
 //!
 //! Only compiled with `--features pgwire` (the listener + the eg-query SQL path);
 //! the authoritative durability test additionally needs `--features redb`.
@@ -34,14 +30,24 @@ use epistemic_graph::server::ServerState;
 
 use epistemic_graph::server::persistence::PersistenceBackend;
 
+fn sql_test_persist_dir() -> String {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    std::env::set_var("EPISTEMIC_GRAPH_AUDIENCE", "epistemic-graph-test");
+    std::env::set_var("EPISTEMIC_GRAPH_TENANT", "tenant-test");
+    std::env::set_var("EPISTEMIC_GRAPH_POLICY_VERSION", "policy-test");
+    std::env::temp_dir()
+        .join(format!(
+            "epistemic-graph-pgwire-test-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ))
+        .to_string_lossy()
+        .into_owned()
+}
+
 /// Build a minimal `ServerState` with one seeded node so a wire SELECT has rows to
-/// return. `__commons__` is pre-created by the registry. `persistence` /
-/// `redb_authoritative` parameterize the durability tier so the durability tests can
-/// exercise both regimes (default = `None` / `false` = the cache-only path).
-fn state_with(
-    persistence: Option<Arc<dyn PersistenceBackend>>,
-    redb_authoritative: bool,
-) -> Arc<RwLock<ServerState>> {
+/// return. `__commons__` is pre-created by the registry.
+fn state_with(persistence: Option<Arc<dyn PersistenceBackend>>) -> Arc<RwLock<ServerState>> {
     let registry = GraphRegistry::new();
     // Seed three nodes directly via the graph core (the engine write API).
     {
@@ -63,16 +69,13 @@ fn state_with(
         auth_secret: "test".to_string(),
         #[cfg(feature = "kv")]
         kv: None,
-        persist_dir: None,
+        persist_dir: Some(sql_test_persist_dir()),
         persistence,
-        redb_authoritative,
         max_in_flight: Arc::new(Semaphore::new(16)),
         read_admission: Arc::new(Semaphore::new(16)),
         per_graph_inflight: Arc::new(DashMap::new()),
         per_graph_inflight_limit: 8,
-        write_coalescer: Arc::new(
-            epistemic_graph::write_coalescer::WriteCoalescerRegistry::from_env(),
-        ),
+        write_coalescer: Arc::new(epistemic_graph::write_coalescer::WriteCoalescerRegistry::new()),
         open_txns: Arc::new(DashMap::new()),
         txn_id_gen: Arc::new(TxnIdGen::default()),
         txn_ttl_secs: 300,
@@ -88,8 +91,6 @@ fn state_with(
         multi_raft: None,
         #[cfg(feature = "tsdb")]
         tsdb_store: None,
-        #[cfg(feature = "rdf-redb")]
-        rdf_quads: None,
         #[cfg(feature = "streaming")]
         cdc: Some(Arc::new(epistemic_graph::server::cdc::CdcHub::new())),
         #[cfg(feature = "wasm-udf")]
@@ -100,10 +101,6 @@ fn state_with(
         )),
         #[cfg(feature = "federation")]
         foreign_sources: Arc::new(DashMap::new()),
-        #[cfg(feature = "dataset-handle")]
-        dataset_handles: Arc::new(
-            epistemic_graph::server::dataset_handle::DatasetHandleRegistry::new(),
-        ),
         #[cfg(feature = "lake")]
         lake: std::sync::Arc::new(epistemic_graph::server::lake::LakeManager::new()),
     }))
@@ -111,14 +108,13 @@ fn state_with(
 
 /// The cache-only default state (no durable tier) the original round-trip tests use.
 fn seeded_state() -> Arc<RwLock<ServerState>> {
-    state_with(None, false)
+    state_with(None)
 }
 
-/// Bind the listener on an ephemeral port and serve it in TRUST mode (the default
-/// for the historical round-trip + durability tests, which connect without a
-/// password). Returns the chosen `127.0.0.1:<port>` address.
+/// Bind the listener on an ephemeral port with mandatory SCRAM authentication.
+/// Returns the chosen `127.0.0.1:<port>` address.
 async fn spawn_listener(state: Arc<RwLock<ServerState>>) -> String {
-    spawn_listener_mode(state, pgwire::PgWireAuthMode::Trust).await
+    spawn_listener_mode(state, pgwire::PgWireAuthMode::Scram).await
 }
 
 /// Bind + serve with an EXPLICIT auth mode (CONCEPT:EG-KG.query.concept-13). Used by the auth
@@ -141,11 +137,14 @@ async fn spawn_listener_mode(
     addr_s
 }
 
-/// Connect a real tokio-postgres client to the shim (trust auth, first increment).
+/// Connect a real tokio-postgres client with the fixture's derived SCRAM password.
 async fn connect(addr: &str) -> tokio_postgres::Client {
-    let conn_str = format!("host=127.0.0.1 port={} user=tester dbname=__commons__", {
-        addr.rsplit(':').next().unwrap()
-    });
+    let password = pgwire::derive_pg_password("test", "tester");
+    let conn_str = format!(
+        "host=127.0.0.1 port={} user=tester password={} dbname=__commons__",
+        addr.rsplit(':').next().unwrap(),
+        password
+    );
     let (client, connection) = tokio_postgres::connect(&conn_str, tokio_postgres::NoTls)
         .await
         .expect("pgwire connect");
@@ -350,10 +349,7 @@ async fn insert_returning_row() {
     assert_eq!(urows[0].get::<_, i64>("rank"), 77i64);
 }
 
-/// A recording `PersistenceBackend` that captures every `record()` / `record_durable`
-/// call. Lets the non-authoritative regression test assert a pgwire write is handed
-/// to the durable writer (write-behind) WITHOUT a real durable store — and that the
-/// authoritative `record_durable` await path is NOT taken when the flag is off.
+/// A recording `PersistenceBackend` that captures every `record_durable` call.
 #[derive(Default)]
 struct RecordingBackend {
     recorded: std::sync::Mutex<Vec<(String, String)>>,
@@ -361,7 +357,7 @@ struct RecordingBackend {
 }
 
 impl RecordingBackend {
-    /// `(graph_fname, node_id)` pairs captured via the fire-and-forget `record()`.
+    /// `(graph_fname, node_id)` pairs captured via the durable commit seam.
     fn recorded_pairs(&self) -> Vec<(String, String)> {
         self.recorded.lock().unwrap().clone()
     }
@@ -375,17 +371,6 @@ impl PersistenceBackend for RecordingBackend {
     async fn load_all(&self, _state: &Arc<RwLock<ServerState>>) -> Result<usize, String> {
         Ok(0)
     }
-    async fn checkpoint_all(&self, _state: &Arc<RwLock<ServerState>>) -> Result<usize, String> {
-        Ok(0)
-    }
-    fn record(&self, graph_fname: &str, method: &epistemic_graph::protocol::Method) {
-        if let epistemic_graph::protocol::Method::AddNode { node_id, .. } = method {
-            self.recorded
-                .lock()
-                .unwrap()
-                .push((graph_fname.to_string(), node_id.clone()));
-        }
-    }
     async fn record_durable(
         &self,
         graph_fname: &str,
@@ -393,21 +378,22 @@ impl PersistenceBackend for RecordingBackend {
     ) -> Result<(), String> {
         self.durable
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        // Mirror the trait default so the captured pair is still observable.
-        self.record(graph_fname, method);
+        if let epistemic_graph::protocol::Method::AddNode { node_id, .. } = method {
+            self.recorded
+                .lock()
+                .unwrap()
+                .push((graph_fname.to_string(), node_id.clone()));
+        }
         Ok(())
     }
     fn shutdown(&self) {}
 }
 
-/// Non-authoritative regression (CONCEPT:EG-KG.query.concept-10): with a durable backend present
-/// but `redb_authoritative = false`, a pgwire INSERT must take the write-BEHIND path
-/// — fire-and-forget `record()` (NOT the awaited `record_durable`). Proves today's
-/// behavior is intact AND the per-op `record()` the M8 path was missing now fires.
+/// A pgwire INSERT awaits the durable backend before reporting completion.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn wire_insert_non_authoritative_records_write_behind() {
+async fn wire_insert_awaits_durable_backend() {
     let backend = Arc::new(RecordingBackend::default());
-    let state = state_with(Some(backend.clone()), false);
+    let state = state_with(Some(backend.clone()));
     let addr = spawn_listener(state).await;
     let client = connect(&addr).await;
 
@@ -424,32 +410,30 @@ async fn wire_insert_non_authoritative_records_write_behind() {
         .expect("INSERT CommandComplete");
     assert_eq!(affected, 1);
 
-    // Write-behind: `record()` fired once for the inserted node; the awaited
-    // commit-before-ack path was NOT taken (that is authoritative-only).
     assert_eq!(
         backend.recorded_pairs(),
         vec![("__commons__".to_string(), "w1".to_string())],
-        "write-behind record() must fire for the pgwire INSERT"
+        "the durable commit must receive the pgwire INSERT"
     );
     assert_eq!(
         backend.durable_calls(),
-        0,
-        "record_durable must NOT be awaited when not authoritative"
+        1,
+        "record_durable must be awaited before completion"
     );
 }
 
-/// Authoritative durability (CONCEPT:EG-KG.query.concept-10): under `EPISTEMIC_GRAPH_REDB_AUTHORITATIVE`
-/// a pgwire INSERT is commit-before-ack — `record_durable` is AWAITED before the
+/// Authoritative durability (CONCEPT:EG-KG.query.concept-10): a pgwire INSERT is
+/// commit-before-ack — `record_durable` is awaited before the
 /// CommandComplete is sent. We prove the wire write is durable WITHOUT any checkpoint
 /// by reading the row back from a SEPARATE redb backend reopened on the same dir: the
 /// row is only there because the INSERT's await observed a durable commit, exactly
-/// like a normal `Method::AddNode` write. Uses `FsyncPolicy::Interval` so the ONLY way
+/// like a normal `Method::AddNode` write. Uses `DurabilityPolicy::Interval` so the ONLY way
 /// the row lands is the group-commit barrier firing the awaited writer.
 #[cfg(feature = "redb")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn wire_insert_authoritative_is_durable_without_checkpoint() {
+    use epistemic_graph::durability::DurabilityPolicy;
     use epistemic_graph::server::persistence::redb_backend::RedbBackend;
-    use epistemic_graph::wal_service::FsyncPolicy;
 
     let dir = std::env::temp_dir().join(format!("eg-pgwire-durable-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
@@ -458,17 +442,16 @@ async fn wire_insert_authoritative_is_durable_without_checkpoint() {
     let backend: Arc<dyn PersistenceBackend> = Arc::new(
         RedbBackend::open(
             dir_s.clone(),
-            FsyncPolicy::Interval(std::time::Duration::from_millis(20)),
+            DurabilityPolicy::Interval(std::time::Duration::from_millis(20)),
             64,
         )
         .expect("open redb backend"),
     );
-    let state = state_with(Some(backend.clone()), true);
+    let state = state_with(Some(backend.clone()));
     let addr = spawn_listener(state).await;
     let client = connect(&addr).await;
 
-    // INSERT over the wire. Under authoritative mode the CommandComplete below is
-    // only returned AFTER record_durable's group-commit has fsynced this op.
+    // CommandComplete is returned only after the durable group commit.
     let insert = client
         .simple_query("INSERT INTO nodes (id, type, rank) VALUES ('d1', 'Agent', 7)")
         .await
@@ -484,13 +467,13 @@ async fn wire_insert_authoritative_is_durable_without_checkpoint() {
 
     // The wire write was acked ⇒ (commit-before-ack) it is on disk. Prove it is
     // durable independent of any checkpoint by reopening a FRESH redb backend on the
-    // SAME dir and point-reading the node — no checkpoint_all was ever called.
+    // SAME dir and point-reading the node — no bulk registry export was involved.
     // Shut the live backend down first so its owner thread drops the redb `Database`
     // and releases the exclusive file lock (redb forbids two open handles).
     backend.shutdown();
     let reopened = RedbBackend::open(
         dir_s.clone(),
-        FsyncPolicy::Interval(std::time::Duration::from_millis(20)),
+        DurabilityPolicy::Interval(std::time::Duration::from_millis(20)),
         64,
     )
     .expect("reopen redb backend");
@@ -513,7 +496,7 @@ async fn wire_insert_authoritative_is_durable_without_checkpoint() {
 }
 
 /// Extended-protocol durable-on-ack (CONCEPT:EG-KG.query.describe + KG-2.198): a parameterized
-/// `UPDATE … WHERE id = $1` issued over the EXTENDED protocol under redb-authoritative
+/// `UPDATE … WHERE id = $1` issued over the extended protocol
 /// mode is commit-before-ack — `record_durable` (a `CompareAndSetNodeFields` method)
 /// is AWAITED before the client's `execute()` returns. We prove the wire write is
 /// durable WITHOUT any checkpoint by reopening a FRESH redb backend on the same dir
@@ -522,8 +505,8 @@ async fn wire_insert_authoritative_is_durable_without_checkpoint() {
 #[cfg(feature = "redb")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn extended_update_authoritative_is_durable_without_checkpoint() {
+    use epistemic_graph::durability::DurabilityPolicy;
     use epistemic_graph::server::persistence::redb_backend::RedbBackend;
-    use epistemic_graph::wal_service::FsyncPolicy;
 
     let dir = std::env::temp_dir().join(format!("eg-pgwire-ext-durable-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
@@ -532,12 +515,12 @@ async fn extended_update_authoritative_is_durable_without_checkpoint() {
     let backend: Arc<dyn PersistenceBackend> = Arc::new(
         RedbBackend::open(
             dir_s.clone(),
-            FsyncPolicy::Interval(std::time::Duration::from_millis(20)),
+            DurabilityPolicy::Interval(std::time::Duration::from_millis(20)),
             64,
         )
         .expect("open redb backend"),
     );
-    let state = state_with(Some(backend.clone()), true);
+    let state = state_with(Some(backend.clone()));
     let addr = spawn_listener(state).await;
     let client = connect(&addr).await;
 
@@ -561,7 +544,7 @@ async fn extended_update_authoritative_is_durable_without_checkpoint() {
     backend.shutdown();
     let reopened = RedbBackend::open(
         dir_s.clone(),
-        FsyncPolicy::Interval(std::time::Duration::from_millis(20)),
+        DurabilityPolicy::Interval(std::time::Duration::from_millis(20)),
         64,
     )
     .expect("reopen redb backend");
@@ -728,16 +711,13 @@ fn scram_state(secret: &str) -> Arc<RwLock<ServerState>> {
         auth_secret: secret.to_string(),
         #[cfg(feature = "kv")]
         kv: None,
-        persist_dir: None,
+        persist_dir: Some(sql_test_persist_dir()),
         persistence: None,
-        redb_authoritative: false,
         max_in_flight: Arc::new(Semaphore::new(16)),
         read_admission: Arc::new(Semaphore::new(16)),
         per_graph_inflight: Arc::new(DashMap::new()),
         per_graph_inflight_limit: 8,
-        write_coalescer: Arc::new(
-            epistemic_graph::write_coalescer::WriteCoalescerRegistry::from_env(),
-        ),
+        write_coalescer: Arc::new(epistemic_graph::write_coalescer::WriteCoalescerRegistry::new()),
         open_txns: Arc::new(DashMap::new()),
         txn_id_gen: Arc::new(TxnIdGen::default()),
         txn_ttl_secs: 300,
@@ -753,8 +733,6 @@ fn scram_state(secret: &str) -> Arc<RwLock<ServerState>> {
         multi_raft: None,
         #[cfg(feature = "tsdb")]
         tsdb_store: None,
-        #[cfg(feature = "rdf-redb")]
-        rdf_quads: None,
         #[cfg(feature = "streaming")]
         cdc: Some(Arc::new(epistemic_graph::server::cdc::CdcHub::new())),
         #[cfg(feature = "wasm-udf")]
@@ -765,10 +743,6 @@ fn scram_state(secret: &str) -> Arc<RwLock<ServerState>> {
         )),
         #[cfg(feature = "federation")]
         foreign_sources: Arc::new(DashMap::new()),
-        #[cfg(feature = "dataset-handle")]
-        dataset_handles: Arc::new(
-            epistemic_graph::server::dataset_handle::DatasetHandleRegistry::new(),
-        ),
         #[cfg(feature = "lake")]
         lake: std::sync::Arc::new(epistemic_graph::server::lake::LakeManager::new()),
     }))

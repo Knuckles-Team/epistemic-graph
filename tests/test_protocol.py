@@ -1,6 +1,7 @@
 """Tests for the wire protocol serialization round-trips."""
 
 import json
+
 import pytest
 
 
@@ -99,7 +100,6 @@ def test_all_method_names_are_strings():
         "GetChannelMembers",
         "Ping",
         "Shutdown",
-        "Checkpoint",
         "Reconcile",
     ]
     for m in methods:

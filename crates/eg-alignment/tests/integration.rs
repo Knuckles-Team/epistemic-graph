@@ -11,8 +11,27 @@
 use eg_alignment::{AlignmentGraph, AlignmentNode, AlignmentRelation, InMemoryResolver};
 use eg_audio::AudioData;
 use eg_document::{DocumentDecoder, PlainTextDecoder};
-use eg_modality::ModalityContract;
+use eg_modality::{
+    ArtifactId, DerivationId, EvidenceAddress, EvidenceLocus, EvidenceLocusId, ModalityContract,
+    OpaqueRef, ResourceId,
+};
 use eg_video::VideoData;
+
+fn r(namespace: &str, suffix: u8) -> OpaqueRef {
+    OpaqueRef::scoped(namespace, &format!("00000000000000{suffix:02x}")).unwrap()
+}
+
+fn locus(address: EvidenceAddress, suffix: u8) -> EvidenceLocus {
+    EvidenceLocus {
+        id: EvidenceLocusId::from_token(&format!("00000000000000{suffix:02x}")).unwrap(),
+        subject: ResourceId::Artifact(
+            ArtifactId::from_token(&format!("00000000000001{suffix:02x}")).unwrap(),
+        ),
+        address,
+        policy_ref: r("policy", suffix),
+        derivation_ref: DerivationId::from_token(&format!("00000000000002{suffix:02x}")).unwrap(),
+    }
+}
 
 #[test]
 fn document_bytes_to_pages_to_spans() {
@@ -30,33 +49,24 @@ fn image_artifact_via_the_modality_contract_trait() {
     let image = eg_image::ImageData::new(64, 48, "img-blob-1").with_regions(vec![
         eg_image::ImageRegion::labeled("subject", 4.0, 4.0, 20.0, 20.0),
     ]);
-    let evidence = ModalityContract::evidence(&image, "img-1").expect("image has a region");
-    assert!(matches!(
-        evidence,
-        eg_modality::EvidenceSpan::ImageRegion { ref image_id, .. } if image_id == "img-1"
-    ));
+    let address = ModalityContract::evidence_address(&image).expect("image has a region");
+    assert!(matches!(address, EvidenceAddress::ImageRegion { .. }));
 }
 
 #[test]
 fn audio_artifact_via_the_modality_contract_trait() {
     let audio = AudioData::new(16_000, 3000, "audio-blob-1")
         .with_segments(vec![eg_audio::AudioSegment::labeled("speech", 0, 1500)]);
-    let evidence = ModalityContract::evidence(&audio, "audio-1").expect("audio has a segment");
-    assert!(matches!(
-        evidence,
-        eg_modality::EvidenceSpan::AudioSegment { ref audio_id, .. } if audio_id == "audio-1"
-    ));
+    let address = ModalityContract::evidence_address(&audio).expect("audio has a segment");
+    assert!(matches!(address, EvidenceAddress::AudioRange { .. }));
 }
 
 #[test]
 fn video_artifact_via_the_modality_contract_trait() {
     let video = VideoData::new(9000, "video-blob-1")
         .with_shots(vec![eg_video::VideoShot::labeled("scene-1", 0, 3000)]);
-    let evidence = ModalityContract::evidence(&video, "video-1").expect("video has a shot");
-    assert!(matches!(
-        evidence,
-        eg_modality::EvidenceSpan::VideoShot { ref video_id, .. } if video_id == "video-1"
-    ));
+    let address = ModalityContract::evidence_address(&video).expect("video has a shot");
+    assert!(matches!(address, EvidenceAddress::VideoTimeRange { .. }));
 }
 
 /// The load-bearing test: a document span aligns to an image region, which
@@ -69,16 +79,24 @@ fn alignment_links_a_document_span_to_an_image_region_to_a_claim_and_resolves() 
     let doc = decoder
         .decode(b"a fox jumps over the fence")
         .expect("plain text decodes");
-    let doc_span = ModalityContract::evidence(&doc, "doc-1").expect("document has a span");
+    let doc_locus = locus(
+        ModalityContract::evidence_address(&doc).expect("document has a span"),
+        1,
+    );
 
     let image = eg_image::ImageData::new(100, 100, "img-blob-1").with_regions(vec![
         eg_image::ImageRegion::labeled("fox", 10.0, 10.0, 40.0, 30.0),
     ]);
-    let image_region = ModalityContract::evidence(&image, "img-1").expect("image has a region");
+    let image_locus = locus(
+        ModalityContract::evidence_address(&image).expect("image has a region"),
+        2,
+    );
 
     let mut graph = AlignmentGraph::new();
-    let doc_node = graph.add_node(AlignmentNode::Evidence(doc_span));
-    let image_node = graph.add_node(AlignmentNode::Evidence(image_region));
+    let doc_subject = doc_locus.subject.opaque().clone();
+    let image_subject = image_locus.subject.opaque().clone();
+    let doc_node = graph.add_node(AlignmentNode::Evidence(doc_locus));
+    let image_node = graph.add_node(AlignmentNode::Evidence(image_locus));
     let claim_node = graph.add_node(AlignmentNode::Claim {
         claim_id: "claim-fox-in-fence".to_string(),
     });
@@ -94,15 +112,16 @@ fn alignment_links_a_document_span_to_an_image_region_to_a_claim_and_resolves() 
     // Resolution: both evidence nodes resolve to a real artifact through the
     // evidence-resolver seam; the claim node (not an `Evidence` node) does not.
     let resolver = InMemoryResolver::new()
-        .with_text("doc-1", "a fox jumps over the fence")
-        .with_blob("img-1", "img-blob-1");
+        .with_text(doc_subject.clone(), "a fox jumps over the fence")
+        .with_blob(image_subject.clone(), "img-blob-1");
 
     let resolved_doc = graph
         .resolve_evidence(doc_node, &resolver)
         .expect("the document span resolves");
     assert!(matches!(
         resolved_doc,
-        eg_alignment::ResolvedArtifact::Text { ref artifact_id, .. } if artifact_id == "doc-1"
+        eg_alignment::ResolvedArtifact::Text { ref subject_ref, .. }
+            if subject_ref == doc_subject.as_str()
     ));
 
     let resolved_image = graph
@@ -110,7 +129,8 @@ fn alignment_links_a_document_span_to_an_image_region_to_a_claim_and_resolves() 
         .expect("the image region resolves");
     assert!(matches!(
         resolved_image,
-        eg_alignment::ResolvedArtifact::Blob { ref artifact_id, .. } if artifact_id == "img-1"
+        eg_alignment::ResolvedArtifact::Blob { ref subject_ref, .. }
+            if subject_ref == image_subject.as_str()
     ));
 
     assert_eq!(graph.resolve_evidence(claim_node, &resolver), None);

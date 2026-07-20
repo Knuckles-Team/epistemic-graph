@@ -3,10 +3,8 @@
 //! claims, and source blobs.
 //!
 //! Every "located evidence" node ([`AlignmentNode::Evidence`]) wraps an
-//! `eg_modality::EvidenceSpan` — the SAME wire shape `ModalityContract::evidence()`
-//! already returns for a document/image/audio/video/code/trace value (see
-//! `eg-modality::evidence` module docs) — so this crate never needs its own
-//! parallel located-span type. Entities, claims, and source blobs are referenced by
+//! `eg_modality::EvidenceLocus`, so this crate never needs a parallel located-
+//! evidence type. Entities, claims, and source blobs are referenced by
 //! bare id (they live in the KG one layer up — this crate does not know or care
 //! whether an `entity_id`/`claim_id` resolves to a real KG node; it only records
 //! that an alignment edge points at one).
@@ -16,7 +14,7 @@
 //! (e.g. per extraction run, or per document) and later reads back (`node`,
 //! `edges_from`, `path_exists`) or resolves through an [`crate::resolver::EvidenceResolver`].
 
-use eg_modality::EvidenceSpan;
+use eg_modality::EvidenceLocus;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 
@@ -27,14 +25,14 @@ pub struct AlignmentNodeId(pub usize);
 
 /// One node of the alignment graph. `Evidence` covers every located-artifact
 /// kind (document span, image region, audio interval, video frame/shot, table
-/// cell, code symbol, trace span — see `eg_modality::EvidenceSpan`); `Entity`/
+/// cell, code symbol, trace span — see `eg_modality::EvidenceLocus`); `Entity`/
 /// `Claim`/`Blob` are bare KG-id references for the non-artifact-located
 /// endpoints an alignment can also connect.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum AlignmentNode {
     /// A located reference into a source artifact (document span, image region,
     /// audio interval, video frame/shot, …).
-    Evidence(EvidenceSpan),
+    Evidence(EvidenceLocus),
     /// An extracted entity, by its KG id.
     Entity { entity_id: String },
     /// A claim, by its KG id.
@@ -171,6 +169,26 @@ impl AlignmentGraph {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use eg_modality::{
+        ArtifactId, DerivationId, EvidenceAddress, EvidenceLocusId, OpaqueRef, ResourceId,
+    };
+
+    fn r(namespace: &str, suffix: u8) -> OpaqueRef {
+        OpaqueRef::scoped(namespace, &format!("00000000000000{suffix:02x}")).unwrap()
+    }
+
+    fn locus(address: EvidenceAddress, suffix: u8) -> EvidenceLocus {
+        EvidenceLocus {
+            id: EvidenceLocusId::from_token(&format!("00000000000000{suffix:02x}")).unwrap(),
+            subject: ResourceId::Artifact(
+                ArtifactId::from_token(&format!("00000000000001{suffix:02x}")).unwrap(),
+            ),
+            address,
+            policy_ref: r("policy", suffix),
+            derivation_ref: DerivationId::from_token(&format!("00000000000002{suffix:02x}"))
+                .unwrap(),
+        }
+    }
 
     #[test]
     fn add_node_returns_sequential_ids() {
@@ -208,18 +226,19 @@ mod tests {
     #[test]
     fn path_exists_follows_a_transitive_chain() {
         let mut g = AlignmentGraph::new();
-        let doc_span = g.add_node(AlignmentNode::Evidence(EvidenceSpan::DocumentSpan {
-            document_id: "doc-1".to_string(),
-            start: 0,
-            end: 10,
-        }));
-        let image_region = g.add_node(AlignmentNode::Evidence(EvidenceSpan::ImageRegion {
-            image_id: "img-1".to_string(),
-            x: 0.0,
-            y: 0.0,
-            width: 10.0,
-            height: 10.0,
-        }));
+        let doc_span = g.add_node(AlignmentNode::Evidence(locus(
+            EvidenceAddress::CharacterRange { start: 0, end: 10 },
+            1,
+        )));
+        let image_region = g.add_node(AlignmentNode::Evidence(locus(
+            EvidenceAddress::ImageRegion {
+                x: 0.0,
+                y: 0.0,
+                width: 10.0,
+                height: 10.0,
+            },
+            2,
+        )));
         let claim = g.add_node(AlignmentNode::Claim {
             claim_id: "claim-1".to_string(),
         });
@@ -274,12 +293,10 @@ mod tests {
     #[test]
     fn resolve_evidence_resolves_a_registered_evidence_node() {
         let mut g = AlignmentGraph::new();
-        let doc_span = g.add_node(AlignmentNode::Evidence(EvidenceSpan::DocumentSpan {
-            document_id: "doc-1".to_string(),
-            start: 0,
-            end: 5,
-        }));
-        let resolver = crate::resolver::InMemoryResolver::new().with_text("doc-1", "hello");
+        let evidence = locus(EvidenceAddress::CharacterRange { start: 0, end: 5 }, 1);
+        let subject = evidence.subject.opaque().clone();
+        let doc_span = g.add_node(AlignmentNode::Evidence(evidence));
+        let resolver = crate::resolver::InMemoryResolver::new().with_text(subject, "hello");
         assert!(g.resolve_evidence(doc_span, &resolver).is_some());
     }
 

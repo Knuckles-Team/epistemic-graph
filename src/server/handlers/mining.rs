@@ -46,6 +46,7 @@ use crate::protocol::{
 pub(crate) fn try_handle(
     req_id: u64,
     core: Arc<GraphCore>,
+    read_authority: Option<&crate::server::access::GraphReadAuthority>,
     method: Method,
 ) -> Result<Response, Method> {
     match method {
@@ -82,22 +83,30 @@ pub(crate) fn try_handle(
             epochs,
             l2,
             c,
-        } => Ok(handle_classify_fit(
-            req_id,
-            &core,
-            x,
-            source,
-            #[cfg(feature = "query")]
-            plan,
-            y,
-            algorithm,
-            k,
-            alpha,
-            lr,
-            epochs,
-            l2,
-            c,
-        )),
+        } => {
+            // This is the only mining method that bypasses the mutation gateway.
+            // Project here, after routing has identified it as a true graph read,
+            // so unrelated methods do not pay an O(V+E) copy.
+            let authority = read_authority
+                .expect("MineClassifyFit must carry the universal served-read authority");
+            let core = authority.project_core(&core);
+            Ok(handle_classify_fit(
+                req_id,
+                &core,
+                x,
+                source,
+                #[cfg(feature = "query")]
+                plan,
+                y,
+                algorithm,
+                k,
+                alpha,
+                lr,
+                epochs,
+                l2,
+                c,
+            ))
+        }
         Method::MineClassifyPredict { .. } => unreachable!(
             "MineClassifyPredict is mutation::GATEWAY_ROUTED; dispatch_graph_op \
              must route it through try_handle_gateway before it ever reaches this fallback handler"
@@ -1241,8 +1250,8 @@ fn neighbors_in_direction(core: &GraphCore, node_id: &str, direction: &str) -> V
     }
 }
 
-/// Whether an edge between owner and neighbor carries `relation` on its
-/// `relation`/`type` property. Checks both directions when `direction == "any"`.
+/// Whether an edge between owner and neighbor carries the requested canonical
+/// `relationship`. Checks both directions when `direction == "any"`.
 fn edge_matches_relation(
     core: &GraphCore,
     owner: &str,
@@ -1257,11 +1266,9 @@ fn edge_matches_relation(
     };
     for &(s, t) in pairs {
         for blob in core.get_edge_properties(s, t) {
-            if let Ok(val) = rmp_serde::from_slice::<serde_json::Value>(&blob) {
-                for key in ["relation", "type", "rel"] {
-                    if val.get(key).and_then(|v| v.as_str()) == Some(relation) {
-                        return true;
-                    }
+            if let Ok(val) = eg_types::msgpack::decode_property_value(&blob) {
+                if val.get("relationship").and_then(|v| v.as_str()) == Some(relation) {
+                    return true;
                 }
             }
         }
@@ -1279,7 +1286,7 @@ fn extract_item(core: &GraphCore, neighbor: &str, item_field: &Option<String>) -
         Some(f) => f.as_str(),
     };
     let props = core.get_node_properties(neighbor)?;
-    let val: serde_json::Value = rmp_serde::from_slice(&props).ok()?;
+    let val = eg_types::msgpack::decode_property_value(&props).ok()?;
     if field == "label" {
         for key in ["type", "node_type", "label"] {
             if let Some(s) = val.get(key).and_then(|v| v.as_str()) {
@@ -1329,7 +1336,7 @@ fn materialize_rules(core: &GraphCore, rules: &[LabeledRule]) -> usize {
         // Link the rule to any item that is a resident node (source objects).
         for item in r.antecedent.iter().chain(r.consequent.iter()) {
             if core.has_node(item) {
-                let edge = serde_json::json!({ "relation": "RULE_ITEM" });
+                let edge = serde_json::json!({ "relationship": "RULE_ITEM" });
                 if let Ok(eb) = rmp_serde::to_vec_named(&edge) {
                     let _ = core.add_edge(node_id.clone(), item.clone(), eb);
                 }
@@ -1508,7 +1515,7 @@ fn materialize_clusters(
         core.add_node(node_id.clone(), blob);
         for mid in &member_ids {
             if core.has_node(mid) {
-                let edge = serde_json::json!({ "relation": "CLUSTER_MEMBER" });
+                let edge = serde_json::json!({ "relationship": "CLUSTER_MEMBER" });
                 if let Ok(eb) = rmp_serde::to_vec_named(&edge) {
                     let _ = core.add_edge(node_id.clone(), mid.clone(), eb);
                 }
@@ -1673,7 +1680,7 @@ fn materialize_anomalies(
         };
         core.add_node(node_id.clone(), blob);
         if core.has_node(&src) {
-            let edge = serde_json::json!({ "relation": "ANOMALY_OF" });
+            let edge = serde_json::json!({ "relationship": "ANOMALY_OF" });
             if let Ok(eb) = rmp_serde::to_vec_named(&edge) {
                 let _ = core.add_edge(node_id.clone(), src.clone(), eb);
             }
@@ -1871,7 +1878,7 @@ fn materialize_classifications(
         };
         core.add_node(node_id.clone(), blob);
         if core.has_node(&src) {
-            let edge = serde_json::json!({ "relation": "CLASSIFIED_AS" });
+            let edge = serde_json::json!({ "relationship": "CLASSIFIED_AS" });
             if let Ok(eb) = rmp_serde::to_vec_named(&edge) {
                 let _ = core.add_edge(node_id.clone(), src.clone(), eb);
             }
@@ -2031,7 +2038,7 @@ fn materialize_embeddings(core: &GraphCore, out: &reduce::Reduction, ids: &[Stri
         };
         core.add_node(node_id.clone(), blob);
         if core.has_node(&src) {
-            let edge = serde_json::json!({ "relation": "REDUCED_FROM" });
+            let edge = serde_json::json!({ "relationship": "REDUCED_FROM" });
             if let Ok(eb) = rmp_serde::to_vec_named(&edge) {
                 let _ = core.add_edge(node_id.clone(), src.clone(), eb);
             }
@@ -2185,7 +2192,7 @@ fn materialize_patterns(core: &GraphCore, patterns: &[LabeledPattern]) -> usize 
         core.add_node(node_id.clone(), blob);
         for item in &p.items {
             if core.has_node(item) {
-                let edge = serde_json::json!({ "relation": "PATTERN_ITEM" });
+                let edge = serde_json::json!({ "relationship": "PATTERN_ITEM" });
                 if let Ok(eb) = rmp_serde::to_vec_named(&edge) {
                     let _ = core.add_edge(node_id.clone(), item.clone(), eb);
                 }
@@ -2340,7 +2347,7 @@ fn materialize_forecast(
     };
     core.add_node(node_id.clone(), blob);
     if !series_id.is_empty() && core.has_node(series_id) {
-        let edge = serde_json::json!({ "relation": "FORECAST_OF" });
+        let edge = serde_json::json!({ "relationship": "FORECAST_OF" });
         if let Ok(eb) = rmp_serde::to_vec_named(&edge) {
             let _ = core.add_edge(node_id, series_id.to_string(), eb);
         }
@@ -2504,7 +2511,7 @@ fn build_text_docs(
     let mut tokenized = Vec::with_capacity(owners.len());
     let mut ids = Vec::with_capacity(owners.len());
     for (node_id, blob) in owners {
-        let Ok(props) = rmp_serde::from_slice::<serde_json::Value>(&blob) else {
+        let Ok(props) = eg_types::msgpack::decode_property_value(&blob) else {
             continue;
         };
         let Some(text_val) = props.get(&spec.field).and_then(|v| v.as_str()) else {
@@ -2564,7 +2571,7 @@ fn materialize_topics(
         core.add_node(node_id.clone(), blob);
         for (i, doc_id) in ids.iter().enumerate() {
             if dominant.get(i) == Some(&t) && core.has_node(doc_id) {
-                let edge = serde_json::json!({ "relation": "HAS_TOPIC" });
+                let edge = serde_json::json!({ "relationship": "HAS_TOPIC" });
                 if let Ok(eb) = rmp_serde::to_vec_named(&edge) {
                     let _ = core.add_edge(doc_id.clone(), node_id.clone(), eb);
                 }
@@ -2669,7 +2676,7 @@ pub(crate) fn handle_subgraph(
 /// Build a [`HostGraph`] from the resident graph (CONCEPT:EG-KG.mining.gspan-frequent-subgraph):
 /// every node's type/label property (checked in the same `type`/`node_type`/
 /// `label` precedence as `extract_item`'s `"label"` field), every edge's
-/// relation label (`relation`/`type`/`rel`, defaulting to `"_"`). When
+/// canonical `relationship` label (defaulting to `"_"` when absent). When
 /// `label_filter` is given, only nodes of that ONE type are included (both
 /// edge endpoints must be included for the edge to count). Returns the host
 /// graph AND a parallel `ids` vec (dense index → resident node id).
@@ -2705,7 +2712,7 @@ fn build_host_graph(core: &GraphCore, label_filter: &Option<String>) -> (HostGra
 /// Extract a node's type/label from its property blob, per the
 /// `type`/`node_type`/`label` precedence used elsewhere in this handler.
 fn node_type_label(blob: &[u8]) -> Option<String> {
-    let val: serde_json::Value = rmp_serde::from_slice(blob).ok()?;
+    let val = eg_types::msgpack::decode_property_value(blob).ok()?;
     for key in ["type", "node_type", "label"] {
         if let Some(s) = val.get(key).and_then(|v| v.as_str()) {
             return Some(s.to_string());
@@ -2714,17 +2721,15 @@ fn node_type_label(blob: &[u8]) -> Option<String> {
     None
 }
 
-/// Extract an edge's relation label from its property blob (`relation`/
-/// `type`/`rel`, defaulting to `"_"` when none is set — an unlabeled edge is
-/// still a valid, matchable edge, just under one shared label).
+/// Extract an edge's canonical `relationship` from its property blob, defaulting
+/// to `"_"` when none is set — an unlabeled edge is
+/// still a valid, matchable edge, just under one shared label.
 fn edge_relation_label(blob: &[u8]) -> String {
-    let Ok(val) = rmp_serde::from_slice::<serde_json::Value>(blob) else {
+    let Ok(val) = eg_types::msgpack::decode_property_value(blob) else {
         return "_".to_string();
     };
-    for key in ["relation", "type", "rel"] {
-        if let Some(s) = val.get(key).and_then(|v| v.as_str()) {
-            return s.to_string();
-        }
+    if let Some(s) = val.get("relationship").and_then(|v| v.as_str()) {
+        return s.to_string();
     }
     "_".to_string()
 }
@@ -2769,7 +2774,7 @@ fn materialize_subgraphs(
         for &member_idx in &r.member_nodes {
             if let Some(member_id) = ids.get(member_idx) {
                 if core.has_node(member_id) {
-                    let edge = serde_json::json!({ "relation": "SUBGRAPH_MEMBER" });
+                    let edge = serde_json::json!({ "relationship": "SUBGRAPH_MEMBER" });
                     if let Ok(eb) = rmp_serde::to_vec_named(&edge) {
                         let _ = core.add_edge(node_id.clone(), member_id.clone(), eb);
                     }
@@ -2949,7 +2954,7 @@ fn materialize_entity_matches(
         core.add_node(node_id.clone(), blob);
         for member in [&left, &right] {
             if core.has_node(member) {
-                let edge = serde_json::json!({ "relation": "ENTITY_MATCH_MEMBER" });
+                let edge = serde_json::json!({ "relationship": "ENTITY_MATCH_MEMBER" });
                 if let Ok(eb) = rmp_serde::to_vec_named(&edge) {
                     let _ = core.add_edge(node_id.clone(), member.clone(), eb);
                 }
@@ -3087,7 +3092,7 @@ fn materialize_causal_effect(
     };
     core.add_node(node_id.clone(), blob);
     if !series_id.is_empty() && core.has_node(series_id) {
-        let edge = serde_json::json!({ "relation": "CAUSAL_EFFECT_OF" });
+        let edge = serde_json::json!({ "relationship": "CAUSAL_EFFECT_OF" });
         if let Ok(eb) = rmp_serde::to_vec_named(&edge) {
             let _ = core.add_edge(node_id, series_id.to_string(), eb);
         }
@@ -3225,7 +3230,7 @@ fn materialize_process_model(
     core.add_node(node_id.clone(), blob);
     for label in labels {
         if core.has_node(label) {
-            let edge = serde_json::json!({ "relation": "PROCESS_MEMBER" });
+            let edge = serde_json::json!({ "relationship": "PROCESS_MEMBER" });
             if let Ok(eb) = rmp_serde::to_vec_named(&edge) {
                 let _ = core.add_edge(node_id.clone(), label.clone(), eb);
             }
@@ -3405,13 +3410,13 @@ fn materialize_root_cause(
     };
     core.add_node(node_id.clone(), blob);
     if core.has_node(symptom) {
-        let edge = serde_json::json!({ "relation": "ROOT_CAUSE_OF" });
+        let edge = serde_json::json!({ "relationship": "ROOT_CAUSE_OF" });
         if let Ok(eb) = rmp_serde::to_vec_named(&edge) {
             let _ = core.add_edge(node_id.clone(), symptom.to_string(), eb);
         }
     }
     if core.has_node(&cause_id) {
-        let edge = serde_json::json!({ "relation": "ROOT_CAUSE_CANDIDATE" });
+        let edge = serde_json::json!({ "relationship": "ROOT_CAUSE_CANDIDATE" });
         if let Ok(eb) = rmp_serde::to_vec_named(&edge) {
             let _ = core.add_edge(node_id, cause_id, eb);
         }
@@ -3541,7 +3546,7 @@ fn materialize_risk_scores(
         };
         core.add_node(node_id.clone(), blob);
         if core.has_node(id) {
-            let edge = serde_json::json!({ "relation": "RISK_SCORE_OF" });
+            let edge = serde_json::json!({ "relationship": "RISK_SCORE_OF" });
             if let Ok(eb) = rmp_serde::to_vec_named(&edge) {
                 let _ = core.add_edge(node_id, id.clone(), eb);
             }
@@ -3720,7 +3725,7 @@ fn materialize_ontology_gaps(
         };
         core.add_node(node_id.clone(), blob);
         if core.has_node(class_id) {
-            let edge = serde_json::json!({ "relation": "GAP_OF" });
+            let edge = serde_json::json!({ "relationship": "GAP_OF" });
             if let Ok(eb) = rmp_serde::to_vec_named(&edge) {
                 let _ = core.add_edge(node_id, class_id.clone(), eb);
             }
@@ -3841,7 +3846,7 @@ fn materialize_retrieval_quality(
     };
     core.add_node(node_id.clone(), blob);
     if !query_id.is_empty() && core.has_node(query_id) {
-        let edge = serde_json::json!({ "relation": "RETRIEVAL_QUALITY_OF" });
+        let edge = serde_json::json!({ "relationship": "RETRIEVAL_QUALITY_OF" });
         if let Ok(eb) = rmp_serde::to_vec_named(&edge) {
             let _ = core.add_edge(node_id, query_id.to_string(), eb);
         }
@@ -4008,7 +4013,7 @@ fn materialize_communities(
         core.add_node(node_id.clone(), blob);
         for m in &member_ids {
             if core.has_node(m) {
-                let edge = serde_json::json!({ "relation": "COMMUNITY_MEMBER" });
+                let edge = serde_json::json!({ "relationship": "COMMUNITY_MEMBER" });
                 if let Ok(eb) = rmp_serde::to_vec_named(&edge) {
                     let _ = core.add_edge(node_id.clone(), m.clone(), eb);
                 }
@@ -4226,7 +4231,6 @@ fn gather_plan_rows(
     let store = core.semantic_store.read();
     let rows = match crate::server::handlers::query::run_unified(
         plan.clone(),
-        None,
         &snap,
         &store,
         crate::server::handlers::query::ServedIndexes {
@@ -4237,6 +4241,10 @@ fn gather_plan_rows(
             #[cfg(not(any(feature = "text", feature = "geo")))]
             _marker: std::marker::PhantomData,
         },
+        #[cfg(feature = "tsdb")]
+        None,
+        #[cfg(feature = "tsdb")]
+        None,
         #[cfg(feature = "tsdb")]
         None,
         #[cfg(feature = "tsdb")]
@@ -4270,10 +4278,13 @@ fn gather_plan_rows_snapshot(
     let store = core.semantic_store.read();
     let rows = match crate::server::handlers::query::run_unified(
         plan.clone(),
-        None,
         &snap,
         &store,
         crate::server::handlers::query::ServedIndexes::default(),
+        #[cfg(feature = "tsdb")]
+        None,
+        #[cfg(feature = "tsdb")]
+        None,
         #[cfg(feature = "tsdb")]
         None,
         #[cfg(feature = "tsdb")]
@@ -4322,7 +4333,7 @@ fn validate_matrix(rows: &[Vec<f64>]) -> Result<(), String> {
 //   * one `:Evidence` node — capturing the request's OWN `source`/`plan` provenance
 //     (no new provenance plumbing; reuse what the request already carries);
 //   * two `SUPPORTS` edges (`mined_node -> claim`, `evidence -> claim`) written with
-//     the `relationship_type` property key that `eg_epistemic::classify_relationship`
+//     the canonical `relationship` property that `eg_epistemic::classify_relationship`
 //     + `BeliefGraph::from_graph_view` read — so the belief layer propagates confidence
 //     over the finding. (The structural mining edges use the `relation` key instead, so
 //     they stay epistemically neutral and never pollute belief.)
@@ -4437,26 +4448,14 @@ fn materialize_claim(
         core.add_node(activity_id.clone(), blob);
     }
     generated_by_edge(core, &claim_id, &activity_id);
-
-    // SURPASS gap-closure (CONCEPT:EG-KG.epistemic.truth-maintenance, "auto-register
-    // materializations on write"): this whole quartet is written DIRECTLY against
-    // `core` (bypassing the `Method::AddNode`/`AddEdge` wire dispatch entirely -- an
-    // in-process mining/job handler, not an RPC caller), so `tms_hook`'s
-    // `auto_register_from_write` (wired onto the commit-gateway path) never sees it.
-    // Auto-register the claim HERE instead, right after its `invalidation_deps` +
-    // `:GENERATED_BY` edge are both in place, so every synchronously mined finding is
-    // a live TruthMaintenance materialization the moment it's written -- no caller
-    // has to remember to call `Method::RegisterMaterialization` by hand.
-    #[cfg(feature = "epistemic-tms")]
-    crate::server::tms_hook::maybe_register_from_write(core, &claim_id);
 }
 
-/// Write one epistemic `source --SUPPORTS--> target` edge using the `relationship_type`
+/// Write one epistemic `source --SUPPORTS--> target` edge using the canonical `relationship`
 /// property key `eg_epistemic` reads (NOT the `relation` key the structural mining edges
 /// use). Both endpoints are freshly resident, so `add_edge` always binds.
 #[cfg(feature = "epistemic")]
 fn supports_edge(core: &GraphCore, source: &str, target: &str) {
-    let edge = serde_json::json!({ "relationship_type": "SUPPORTS" });
+    let edge = serde_json::json!({ "relationship": "SUPPORTS" });
     if let Ok(eb) = rmp_serde::to_vec_named(&edge) {
         let _ = core.add_edge(source.to_string(), target.to_string(), eb);
     }
@@ -4469,7 +4468,7 @@ fn supports_edge(core: &GraphCore, source: &str, target: &str) {
 /// `KnowledgeRow::transformation_ids`.
 #[cfg(feature = "epistemic")]
 fn generated_by_edge(core: &GraphCore, source: &str, target: &str) {
-    let edge = serde_json::json!({ "relationship_type": "GENERATED_BY" });
+    let edge = serde_json::json!({ "relationship": "GENERATED_BY" });
     if let Ok(eb) = rmp_serde::to_vec_named(&edge) {
         let _ = core.add_edge(source.to_string(), target.to_string(), eb);
     }
@@ -5723,7 +5722,7 @@ mod tests {
             let _ = core.add_edge(
                 format!("concept_{i}"),
                 format!("capability_{i}"),
-                node(serde_json::json!({"relation": "touches"})),
+                node(serde_json::json!({"relationship": "touches"})),
             );
         }
         core.add_node("noise_a".into(), node(serde_json::json!({"type": "Noise"})));
@@ -5731,7 +5730,7 @@ mod tests {
         let _ = core.add_edge(
             "noise_a".into(),
             "noise_b".into(),
-            node(serde_json::json!({"relation": "unrelated"})),
+            node(serde_json::json!({"relationship": "unrelated"})),
         );
 
         let m = Method::MineSubgraph {
@@ -5789,17 +5788,17 @@ mod tests {
         let _ = core.add_edge(
             "n0".into(),
             "n1".into(),
-            node(serde_json::json!({"relation": "e"})),
+            node(serde_json::json!({"relationship": "e"})),
         );
         let _ = core.add_edge(
             "n1".into(),
             "n2".into(),
-            node(serde_json::json!({"relation": "e"})),
+            node(serde_json::json!({"relationship": "e"})),
         );
         let _ = core.add_edge(
             "n2".into(),
             "n0".into(),
-            node(serde_json::json!({"relation": "e"})),
+            node(serde_json::json!({"relationship": "e"})),
         );
 
         let m = Method::MineSubgraph {
@@ -5831,12 +5830,12 @@ mod tests {
         let _ = core.add_edge(
             "a".into(),
             "b".into(),
-            node(serde_json::json!({"relation": "e"})),
+            node(serde_json::json!({"relationship": "e"})),
         );
         let _ = core.add_edge(
             "a".into(),
             "a2".into(),
-            node(serde_json::json!({"relation": "e"})),
+            node(serde_json::json!({"relationship": "e"})),
         );
 
         let m = Method::MineSubgraph {
@@ -5958,7 +5957,7 @@ mod tests {
                     rmp_serde::from_slice::<serde_json::Value>(blob)
                         .ok()
                         .and_then(|v| {
-                            v.get("relationship_type")
+                            v.get("relationship")
                                 .and_then(|r| r.as_str())
                                 .map(str::to_string)
                         })
@@ -6229,7 +6228,7 @@ mod tests {
                 let _ = core.add_edge(
                     format!("concept_{i}"),
                     format!("capability_{i}"),
-                    node(serde_json::json!({"relation": "touches"})),
+                    node(serde_json::json!({"relationship": "touches"})),
                 );
             }
             core.add_node("noise_a".into(), node(serde_json::json!({"type": "Noise"})));
@@ -6237,7 +6236,7 @@ mod tests {
             let _ = core.add_edge(
                 "noise_a".into(),
                 "noise_b".into(),
-                node(serde_json::json!({"relation": "unrelated"})),
+                node(serde_json::json!({"relationship": "unrelated"})),
             );
         };
         let mk = |as_claim: bool| Method::MineSubgraph {

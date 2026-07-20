@@ -3,6 +3,7 @@ from typing import cast
 
 import msgpack
 import pytest
+from conftest import request_context
 
 from epistemic_graph.client import EpistemicGraphClient
 from epistemic_graph.pool import ConnectionPool, ShardRouter
@@ -26,13 +27,13 @@ class MockServer:
                 req = msgpack.unpackb(msg_bytes, raw=False)
                 self.requests_handled += 1
 
-                resp: dict[str, object] = {}
+                resp: dict[str, object] = {"id": req["id"]}
                 if req["method"] == "Ping":
-                    resp = {"result": "pong"}
+                    resp["result"] = "pong"
                 elif req["method"] == "Health":
-                    resp = {"result": {"status": "ok"}}
+                    resp["result"] = {"status": "ok"}
                 else:
-                    resp = {"error": "unknown method"}
+                    resp["error"] = "unknown method"
 
                 resp_bytes = msgpack.packb(resp)
                 resp_len = len(resp_bytes).to_bytes(4, byteorder="big")
@@ -63,7 +64,13 @@ async def test_frame_handling_and_pool():
     await server.start()
 
     try:
-        pool = ConnectionPool("tcp://127.0.0.1:9101", min_size=2, max_size=3)
+        pool = ConnectionPool(
+            "tcp://127.0.0.1:9101",
+            verified_context=request_context(),
+            auth_secret="s",
+            min_size=2,
+            max_size=3,
+        )
         await pool.initialize()
 
         # Test basic acquire and frame handling
@@ -111,6 +118,7 @@ async def test_rpc_timeout_is_bounded_and_connection_fatal():
         client = await EpistemicGraphClient.connect(
             tcp_addr="127.0.0.1:9120",
             auth_secret="s",
+            verified_context=request_context(),
             timeout=0.2,
             heavy_timeout=0.2,
         )
@@ -138,8 +146,8 @@ async def test_send_reconnects_after_connection_drop():
             while True:
                 len_buf = await reader.readexactly(4)
                 msg_len = int.from_bytes(len_buf, byteorder="big")
-                await reader.readexactly(msg_len)
-                resp_bytes = msgpack.packb({"result": "pong"})
+                request = msgpack.unpackb(await reader.readexactly(msg_len), raw=False)
+                resp_bytes = msgpack.packb({"id": request["id"], "result": "pong"})
                 writer.write(len(resp_bytes).to_bytes(4, byteorder="big"))
                 writer.write(resp_bytes)
                 await writer.drain()
@@ -152,7 +160,10 @@ async def test_send_reconnects_after_connection_drop():
     server = await asyncio.start_server(handler, "127.0.0.1", 9121)
     try:
         client = await EpistemicGraphClient.connect(
-            tcp_addr="127.0.0.1:9121", auth_secret="s", timeout=1.0
+            tcp_addr="127.0.0.1:9121",
+            auth_secret="s",
+            verified_context=request_context(),
+            timeout=1.0,
         )
         assert await client.ping() == "pong"  # served on the first connection
 
@@ -175,8 +186,14 @@ async def test_send_reconnects_after_connection_drop():
 
 @pytest.mark.asyncio
 async def test_shard_stickiness():
+    routes = {
+        "graph_alpha": "tcp://127.0.0.1:9101",
+        "graph_beta": "tcp://127.0.0.1:9102",
+    }
     router = ShardRouter(
-        ["tcp://127.0.0.1:9101", "tcp://127.0.0.1:9102", "tcp://127.0.0.1:9103"]
+        ["tcp://127.0.0.1:9101", "tcp://127.0.0.1:9102", "tcp://127.0.0.1:9103"],
+        verified_context=request_context(),
+        route_resolver=routes.__getitem__,
     )
 
     # Check that the same graph always maps to the same endpoint
@@ -184,10 +201,47 @@ async def test_shard_stickiness():
     ep2 = router._get_shard_endpoint("graph_alpha")
     assert ep1 == ep2
 
-    # Different graph should (with high probability) map elsewhere, though HRW could collide.
-    # But for a small set, let's just ensure stickiness and that it's in the valid set.
+    # The authority may place a different graph elsewhere; the answer must still be
+    # one of the configured endpoints.
     ep3 = router._get_shard_endpoint("graph_beta")
     assert ep3 in router.endpoints
+
+
+def test_multi_endpoint_router_requires_authoritative_resolver():
+    endpoints = ["tcp://shard-a:9100", "tcp://shard-b:9100"]
+    with pytest.raises(ValueError, match="authoritative route_resolver"):
+        ShardRouter(
+            endpoints,
+            verified_context=request_context(),
+            auth_secret="test-route-secret",
+        )
+    router = ShardRouter(
+        endpoints,
+        verified_context=request_context(),
+        auth_secret="test-route-secret",
+        route_resolver=lambda _graph: endpoints[1],
+    )
+    assert router._get_shard_endpoint("graph:test") == endpoints[1]
+
+
+@pytest.mark.asyncio
+async def test_pool_propagates_tls_endpoint_to_native_client(monkeypatch):
+    captured = {}
+
+    async def connect(**kwargs):
+        captured.update(kwargs)
+        return object()
+
+    monkeypatch.setattr(EpistemicGraphClient, "connect", connect)
+    pool = ConnectionPool(
+        "tls://engine.example.invalid:9100",
+        verified_context=request_context(),
+        auth_secret="s",
+        max_size=1,
+    )
+    await pool._create_client()
+    assert captured["tcp_addr"] == "engine.example.invalid:9100"
+    assert captured["tls"] is True
 
 
 @pytest.mark.asyncio
@@ -218,6 +272,7 @@ async def test_write_drain_timeout_is_bounded_and_connection_fatal(monkeypatch):
         cast(asyncio.StreamWriter, _HangingWriter()),
         auth_secret="s",
         graph_name="g",
+        verified_context=request_context(),
         timeout=30,
         heavy_timeout=30,
     )
@@ -236,5 +291,8 @@ async def test_connect_is_bounded(monkeypatch):
     monkeypatch.setattr("asyncio.open_connection", _never_connects)
     with pytest.raises(TimeoutError):
         await EpistemicGraphClient.connect(
-            tcp_addr="127.0.0.1:9199", auth_secret="s", connect_timeout=0.2
+            tcp_addr="127.0.0.1:9199",
+            auth_secret="s",
+            verified_context=request_context(),
+            connect_timeout=0.2,
         )

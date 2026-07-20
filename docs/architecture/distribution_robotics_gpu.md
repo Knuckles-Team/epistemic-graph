@@ -22,7 +22,7 @@ Beyond the synchronous multi-Raft groups + the EG-KG.ontology.federation-client 
 a **local, eventually-consistent read copy** that never pays a cross-region Raft round-trip on
 every write. The primary appends every committed mutation to a bounded monotone-LSN
 `ReplicationLog` and serves the tail over `/replicate?since=<lsn>`; a follower pulls it and
-applies it via the canonical `wal::apply` path (byte-identical to Raft/WAL replay). Capacity
+applies it via the same canonical mutation applier as Raft. Capacity
 guardrails — a circuit breaker, a per-tenant quota, and backpressure — protect the primary from
 a slow/hostile region or a greedy tenant.
 
@@ -36,7 +36,7 @@ flowchart LR
     CB{CircuitBreaker\nallow?}
     PULL[run_replica_follower\npull loop] --> CB
     CB -->|closed / half-open| SRV
-    SRV -->|ordered tail| APPLY[apply_replicated_batch\nwal::apply]
+    SRV -->|ordered tail| APPLY[apply_replicated_batch\ncanonical mutation applier]
     APPLY --> REG[(local registry\nread-serve)]
     CB -->|open: fail fast| SKIP[skip tick]
   end
@@ -107,7 +107,7 @@ pure-Rust `tokio-tungstenite` client.
 flowchart LR
   subgraph Engine
     CDC[(CDC feed)] --> C2P[cdc_to_publish]
-    P2M[publish_to_method] --> APPLY[wal::apply → graph]
+    P2M[publish_to_request] --> APPLY[authenticated dispatch → MutationBatch gateway]
   end
   subgraph WS [rosbridge WebSocket]
     C2P -->|op:publish| RB[rosbridge_server]
@@ -121,7 +121,8 @@ flowchart LR
 * **Engine → ROS2:** tail the CDC feed for a graph; each change becomes a rosbridge
   `{"op":"publish","topic":…,"msg":{"data":…}}` (`cdc_to_publish`).
 * **ROS2 → engine:** `subscribe` a topic; each inbound publish maps to an `AddNode`
-  (`publish_to_method`) applied via `wal::apply`.
+  (`publish_to_request`) verified and applied through authenticated dispatch and the
+  canonical MutationBatch gateway.
 
 The protocol framing (`RosbridgeOp`) + the CDC↔ROS2 mapping are pure and unit-tested; the
 WebSocket driver (`run_ros2_bridge`) wires them onto a live connection. Enabled by

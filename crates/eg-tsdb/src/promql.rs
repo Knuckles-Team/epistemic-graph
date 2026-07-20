@@ -1131,8 +1131,15 @@ impl<'a> Evaluator<'a> {
                 let mut out = Vec::new();
                 for s in series {
                     // The instant value = the most recent point at-or-before `at`
-                    // within the lookback window.
-                    if let Some(&(_, v)) = s.points.iter().rev().find(|(ts, _)| *ts <= at) {
+                    // within the lookback window. Sources promise timestamp order;
+                    // their conforming fast path is the O(1) tail. A defensive
+                    // binary predecessor lookup stays O(log N) for cache adapters
+                    // that return a wider ordered slice than requested.
+                    let point = s.points.last().filter(|(ts, _)| *ts <= at).or_else(|| {
+                        let end = s.points.partition_point(|(ts, _)| *ts <= at);
+                        end.checked_sub(1).and_then(|i| s.points.get(i))
+                    });
+                    if let Some(&(_, v)) = point {
                         out.push(InstantSample {
                             labels: s.labels,
                             value: v,
@@ -2964,6 +2971,32 @@ mod tests {
         };
         assert_eq!(iv.len(), 1);
         assert_eq!(iv[0].labels.get("method").unwrap(), "post");
+    }
+
+    #[test]
+    fn instant_selector_binary_searches_a_sorted_wide_source_slice() {
+        struct WideSource;
+        impl SeriesSource for WideSource {
+            fn select(
+                &self,
+                _matchers: &[LabelMatcher],
+                _start: Ts,
+                _end: Ts,
+            ) -> Vec<LabeledSeries> {
+                vec![LabeledSeries {
+                    labels: MemSeriesSource::labels("wide", &[]),
+                    // A cache adapter may hand back an ordered superset. The
+                    // evaluator must still choose the predecessor, not the tail.
+                    points: vec![(10, 1.0), (20, 2.0), (30, 3.0), (40, 4.0)],
+                }]
+            }
+        }
+
+        let value = query_instant(&WideSource, "wide", 25).unwrap();
+        match value {
+            Value::Instant(samples) => assert_eq!(samples[0].value, 2.0),
+            other => panic!("expected instant vector, got {other:?}"),
+        }
     }
 
     #[test]

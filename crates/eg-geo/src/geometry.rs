@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 
 /// A single planar coordinate `(x, y)`.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Point {
     pub x: f64,
     pub y: f64,
@@ -34,6 +35,7 @@ impl Point {
 
 /// An ordered chain of coordinates.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LineString {
     pub points: Vec<Point>,
 }
@@ -50,31 +52,24 @@ impl LineString {
 }
 
 /// A polygon defined by an exterior ring (a closed [`LineString`]) plus zero or more
-/// **interior rings (holes)** (CONCEPT:EG-KG.domains.geometry-collections). Backward-compatible: [`Polygon::new`]
-/// still takes only the exterior (holes default empty); [`Polygon::with_interiors`]
-/// adds holes.
+/// **interior rings (holes)** (CONCEPT:EG-KG.domains.geometry-collections). Both parts
+/// are mandatory in the current value schema, including an explicit empty vector for
+/// a solid polygon.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Polygon {
     /// The exterior ring. Conventionally closed (first == last coordinate); the
     /// point-in-polygon test tolerates an unclosed ring too (implicit wrap edge).
     pub exterior: LineString,
     /// Interior rings (holes). A point inside the exterior but inside any hole is
-    /// **outside** the polygon. Empty for a solid polygon.
-    #[serde(default)]
+    /// **outside** the polygon. Explicitly empty for a solid polygon.
     pub interiors: Vec<LineString>,
 }
 
 impl Polygon {
-    /// A solid polygon from just its exterior ring (no holes). Unchanged EG-083 API.
-    pub fn new(exterior: LineString) -> Self {
-        Self {
-            exterior,
-            interiors: Vec::new(),
-        }
-    }
-
-    /// A polygon with an exterior ring and interior rings (holes) (CONCEPT:EG-KG.domains.geometry-collections).
-    pub fn with_interiors(exterior: LineString, interiors: Vec<LineString>) -> Self {
+    /// Construct the complete current polygon value. Callers representing a solid
+    /// polygon pass an explicit empty `interiors` vector.
+    pub fn new(exterior: LineString, interiors: Vec<LineString>) -> Self {
         Self {
             exterior,
             interiors,
@@ -147,19 +142,6 @@ impl Geometry {
                 }
                 acc
             }
-        }
-    }
-
-    /// The vertices of the FIRST (or only) ring/chain of a *single* geometry
-    /// (`Point`/`LineString`/`Polygon`-exterior). Retained for EG-083 backward
-    /// compatibility; composite geometries return an empty slice — use the internal
-    /// [`Geometry::primitives`] flattening (or [`Geometry::all_vertices`]) instead.
-    pub fn points(&self) -> &[Point] {
-        match self {
-            Geometry::Point(p) => std::slice::from_ref(p),
-            Geometry::LineString(l) => &l.points,
-            Geometry::Polygon(pg) => &pg.exterior.points,
-            _ => &[],
         }
     }
 
@@ -357,13 +339,16 @@ mod tests {
     #[test]
     fn point_in_polygon_raycast() {
         // A unit square.
-        let sq = Polygon::new(LineString::new(vec![
-            Point::new(0.0, 0.0),
-            Point::new(4.0, 0.0),
-            Point::new(4.0, 4.0),
-            Point::new(0.0, 4.0),
-            Point::new(0.0, 0.0),
-        ]));
+        let sq = Polygon::new(
+            LineString::new(vec![
+                Point::new(0.0, 0.0),
+                Point::new(4.0, 0.0),
+                Point::new(4.0, 4.0),
+                Point::new(0.0, 4.0),
+                Point::new(0.0, 0.0),
+            ]),
+            Vec::new(),
+        );
         assert!(sq.contains_point(&Point::new(2.0, 2.0))); // interior
         assert!(sq.contains_point(&Point::new(0.0, 2.0))); // on edge (inclusive)
         assert!(!sq.contains_point(&Point::new(5.0, 2.0))); // outside
@@ -386,7 +371,7 @@ mod tests {
             Point::new(3.0, 7.0),
             Point::new(3.0, 3.0),
         ]);
-        let pg = Polygon::with_interiors(exterior, vec![hole]);
+        let pg = Polygon::new(exterior, vec![hole]);
         assert!(pg.contains_point(&Point::new(1.0, 1.0))); // in the ring, outside hole
         assert!(!pg.contains_point(&Point::new(5.0, 5.0))); // inside the hole → outside
         assert!(pg.contains_point(&Point::new(3.0, 5.0))); // on the hole edge → inside
@@ -403,18 +388,24 @@ mod tests {
         assert_eq!(mp.bbox(), Some(Bbox::new(-1.0, -2.0, 5.0, 3.0)));
 
         let mpoly = Geometry::MultiPolygon(vec![
-            Polygon::new(LineString::new(vec![
-                Point::new(0.0, 0.0),
-                Point::new(1.0, 0.0),
-                Point::new(1.0, 1.0),
-                Point::new(0.0, 0.0),
-            ])),
-            Polygon::new(LineString::new(vec![
-                Point::new(10.0, 10.0),
-                Point::new(12.0, 10.0),
-                Point::new(12.0, 12.0),
-                Point::new(10.0, 10.0),
-            ])),
+            Polygon::new(
+                LineString::new(vec![
+                    Point::new(0.0, 0.0),
+                    Point::new(1.0, 0.0),
+                    Point::new(1.0, 1.0),
+                    Point::new(0.0, 0.0),
+                ]),
+                Vec::new(),
+            ),
+            Polygon::new(
+                LineString::new(vec![
+                    Point::new(10.0, 10.0),
+                    Point::new(12.0, 10.0),
+                    Point::new(12.0, 12.0),
+                    Point::new(10.0, 10.0),
+                ]),
+                Vec::new(),
+            ),
         ]);
         assert_eq!(mpoly.bbox(), Some(Bbox::new(0.0, 0.0, 12.0, 12.0)));
     }

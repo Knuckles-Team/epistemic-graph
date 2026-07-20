@@ -31,7 +31,7 @@ pub trait ReadThrough: std::fmt::Debug + Send + Sync {
 }
 
 /// Builds a per-graph [`ReadThrough`] for a logical graph name. One factory is set
-/// on the registry at startup (only under redb-authoritative mode); the registry
+/// on the registry at startup; the registry
 /// asks it for a read-through whenever a `GraphCore` is created, so every graph —
 /// existing and future — transparently gains read-through with a single wiring
 /// point. The factory sanitizes the logical name to the durable key itself, so

@@ -9,7 +9,7 @@
 //!
 //! The cold/warm p50 delta is the reopen amortization cost. Uses the durable reopen
 //! fixture pattern from `tests/graphql_crossmodal_durable.rs` (unique pid+nanos persist
-//! dir, `RedbBackend::open(dir, FsyncPolicy::Each, 8192)`, write, `shutdown`, reopen).
+//! dir, `RedbBackend::open(dir, DurabilityPolicy::Each, 8192)`, write, `shutdown`, reopen).
 //!
 //! Run: `cargo bench --features full --bench cold_warm_reopen`
 //! Gated to `--features full` (needs the redb backend + tokio server runtime); a default
@@ -19,10 +19,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use epistemic_graph::durability::DurabilityPolicy;
 use epistemic_graph::protocol::Method;
 use epistemic_graph::server::persistence::redb_backend::RedbBackend;
 use epistemic_graph::server::persistence::PersistenceBackend;
-use epistemic_graph::wal_service::FsyncPolicy;
 use tokio::runtime::Builder;
 
 const GRAPH: &str = "__commons__";
@@ -51,8 +51,9 @@ fn unique_dir(tag: &str) -> String {
 /// Populate a persist dir with `NODES` durable (commit-before-ack) nodes and shut the
 /// writer down (releasing the per-file lock) so it can be COLD-reopened.
 fn populate(rt: &tokio::runtime::Runtime, dir: &str) {
-    let backend =
-        Arc::new(RedbBackend::open(dir.to_string(), FsyncPolicy::Each, 8192).expect("open redb"));
+    let backend = Arc::new(
+        RedbBackend::open(dir.to_string(), DurabilityPolicy::Each, 8192).expect("open redb"),
+    );
     rt.block_on(async {
         for i in 0..NODES {
             backend
@@ -82,8 +83,8 @@ fn bench_cold_warm(c: &mut Criterion) {
     populate(&rt, &cold_dir);
     c.bench_function("cold_reopen_read", |b| {
         b.iter(|| {
-            let backend =
-                RedbBackend::open(cold_dir.clone(), FsyncPolicy::Each, 8192).expect("reopen redb");
+            let backend = RedbBackend::open(cold_dir.clone(), DurabilityPolicy::Each, 8192)
+                .expect("reopen redb");
             let got = rt
                 .block_on(backend.read_node(GRAPH, READ_ID))
                 .expect("read");
@@ -96,7 +97,8 @@ fn bench_cold_warm(c: &mut Criterion) {
     // ── WARM: a populated backend opened ONCE, repeated reads on the warm handle ──
     let warm_dir = unique_dir("warm");
     populate(&rt, &warm_dir);
-    let warm = RedbBackend::open(warm_dir.clone(), FsyncPolicy::Each, 8192).expect("open warm");
+    let warm =
+        RedbBackend::open(warm_dir.clone(), DurabilityPolicy::Each, 8192).expect("open warm");
     let _ = rt.block_on(warm.read_node(GRAPH, READ_ID)); // warm the handle/snapshot (untimed)
     c.bench_function("warm_read", |b| {
         b.iter(|| black_box(rt.block_on(warm.read_node(GRAPH, READ_ID)).expect("read")));

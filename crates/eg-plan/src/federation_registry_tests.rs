@@ -1,8 +1,7 @@
 //! Federation NAME-RESOLUTION proofs (CONCEPT:EG-KG.query.closure-backed-source): the `ForeignSourceRegistry`
 //! resolves a foreign source BY NAME so a `Named` `Op::ForeignScan` (and the UQL
 //! `FOREIGN "<name>"` marker `Op::Foreign`) materialize the registered source's rows,
-//! compose with a local Join, error cleanly on an unbound name, and — crucially — leave
-//! every existing plan unchanged when NO registry is attached (the default ctx).
+//! compose with a local Join, and fail cleanly on an unbound name or registry.
 //!
 //! These sources are OFFLINE (a fixed `TableSource` / a closure), so the proofs exercise
 //! the resolution seam without standing up a live external endpoint — the network kinds
@@ -188,11 +187,10 @@ fn eg073_named_scan_without_a_registry_errors() {
     );
 }
 
-/// CONCEPT:EG-KG.query.closure-backed-source — the CRITICAL invariant: with NO registry attached (the default ctx),
-/// the `Op::Foreign` marker keeps its PRIOR pass-through behavior, so every existing plan
-/// is byte-for-byte unchanged. A registry is strictly additive.
+/// CONCEPT:EG-KG.query.closure-backed-source — a foreign marker without its required
+/// registry fails closed; it must never silently preserve local rows.
 #[test]
-fn eg073_empty_registry_preserves_existing_foreign_marker_passthrough() {
+fn eg073_foreign_marker_without_registry_fails_closed() {
     let fx = crate::fixture::build();
     let plan = Plan::new(vec![
         Op::Scan {
@@ -203,21 +201,11 @@ fn eg073_empty_registry_preserves_existing_foreign_marker_passthrough() {
         },
     ]);
 
-    // No registry attached → the marker passes the local scan through unchanged.
     let ctx = PlanCtx::new(&fx.view, &fx.semantic);
-    let mut with_marker = execute(&plan, &ctx).unwrap().ids();
-    with_marker.sort();
-
-    // The SAME scan without the marker at all.
-    let bare = Plan::new(vec![Op::Scan {
-        label: "Doc".into(),
-    }]);
-    let mut without = execute(&bare, &ctx).unwrap().ids();
-    without.sort();
-
-    assert_eq!(
-        with_marker, without,
-        "no-registry FOREIGN marker is a pass-through (existing behavior preserved)"
+    let err = execute(&plan, &ctx).unwrap_err();
+    assert!(
+        err.contains("requires a bound foreign-source registry"),
+        "unexpected missing-registry error: {err}"
     );
 }
 

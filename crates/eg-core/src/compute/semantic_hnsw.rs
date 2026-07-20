@@ -1,6 +1,6 @@
 // CONCEPT:EG-KG.compute.semantic-embedding-store-hnsw — Semantic Embedding Store with HNSW Index (default backend).
 //
-// High-performance embedding store using the hnsw_rs crate for
+// High-performance embedding store using the in-tree eg-ann HNSW index for
 // O(log n) approximate nearest-neighbor search. Falls back to
 // brute-force cosine for small collections (< 32 embeddings).
 //
@@ -9,22 +9,23 @@
 // CONCEPT:EG-KG.sharding.semantic-embedding-store-backed), which reopens a persisted index without rebuilding from raw
 // vectors. `compute::semantic` re-exports whichever backend is active.
 
-use hnsw_rs::hnsw::Hnsw;
-use hnsw_rs::prelude::DistCosine;
+use eg_ann::{HnswIndex as NativeHnswIndex, Metric};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// Maximum number of connections per layer in the HNSW graph.
 const HNSW_MAX_NB_CONN: usize = 16;
-/// Number of layers in the HNSW index.
-const HNSW_NB_LAYER: usize = 16;
 /// Expansion factor during search (higher = more accurate, slower).
 const HNSW_EF_SEARCH: usize = 64;
+/// Expansion factor while inserting points.
+const HNSW_EF_CONSTRUCTION: usize = 200;
+/// Stable seed keeps graph construction reproducible across nodes and reloads.
+const HNSW_SEED: u64 = 0x4550_4953_5445_4D49;
 /// Threshold below which we use brute-force (HNSW overhead not worth it).
 const BRUTE_FORCE_THRESHOLD: usize = 32;
 /// Rebuild the index once tombstoned (superseded) points exceed this percent of
-/// total inserts. hnsw_rs cannot remove a point, so an overwrite leaves the old
+/// total inserts. The additive HNSW cannot remove a point, so an overwrite leaves the old
 /// vector in the graph; rather than rebuild on every overwrite (the old O(n)
 /// thrash), we tombstone + incrementally insert and rebuild only past this ratio,
 /// which also bounds the recall drag from dead neighbors polluting the traversal.
@@ -37,8 +38,7 @@ const COMPACT_TOMBSTONE_PCT: usize = 30;
 struct HnswIndex {
     /// The live index. `None` until first built / after a compaction invalidates
     /// it. `'static` is sound because `insert` copies the data into an owned `Vec`
-    /// (the crate's lifetime is for mmap-backed points).
-    hnsw: Option<Hnsw<'static, f32, DistCosine>>,
+    hnsw: Option<NativeHnswIndex>,
     /// HNSW internal id → node id. The internal id is the insertion ordinal;
     /// append-only, so it includes superseded (tombstoned) slots.
     order: Vec<String>,
@@ -138,6 +138,18 @@ impl SemanticStore {
         self.embeddings.get(node_id).cloned()
     }
 
+    /// Deterministic owned image used by the MutationBatch row-delta compiler.
+    /// HNSW internals are derived and intentionally excluded.
+    pub fn embeddings_snapshot(&self) -> Vec<(String, Vec<f32>)> {
+        let mut rows: Vec<_> = self
+            .embeddings
+            .iter()
+            .map(|(id, embedding)| (id.clone(), embedding.clone()))
+            .collect();
+        rows.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+        rows
+    }
+
     pub fn add_embedding(&mut self, node_id: String, embedding: Vec<f32>) {
         let is_update = self.embeddings.contains_key(&node_id);
         self.embeddings.insert(node_id.clone(), embedding.clone());
@@ -154,12 +166,12 @@ impl SemanticStore {
         // Incremental insert at a fresh internal id (append-only).
         let internal = idx.order.len();
         idx.hnsw
-            .as_ref()
-            .unwrap()
-            .insert((&embedding[..], internal));
+            .as_mut()
+            .expect("resident HNSW checked above")
+            .insert(internal as u64, embedding);
         idx.order.push(node_id.clone());
         if is_update {
-            // Overwrite: tombstone the node's previous internal id (hnsw_rs can't
+            // Overwrite: tombstone the node's previous internal id (HNSW can't
             // remove it) so search filters the stale vector — no full rebuild.
             if let Some(&old) = idx.id_to_internal.get(&node_id) {
                 idx.tombstones.insert(old);
@@ -180,7 +192,7 @@ impl SemanticStore {
 
     /// Incrementally remove `node_id`'s embedding (CONCEPT:EG-KG.storage.incremental-ann): drop it
     /// from the embedding map and tombstone its live internal id in the resident HNSW
-    /// index (hnsw_rs cannot delete a point) — NO full rebuild. Returns `true` if an
+    /// index (the additive HNSW cannot delete a point) — NO full rebuild. Returns `true` if an
     /// embedding was removed. Called from the write coalescer's index-maintenance seam
     /// when a node is removed, so kNN never returns a dead node.
     pub fn remove_embedding(&mut self, node_id: &str) -> bool {
@@ -215,6 +227,9 @@ impl SemanticStore {
     }
 
     pub fn semantic_search(&self, query_embedding: &[f32], n_results: usize) -> Vec<(String, f32)> {
+        if n_results == 0 {
+            return Vec::new();
+        }
         if self.embeddings.len() < BRUTE_FORCE_THRESHOLD {
             return self.brute_force_search(query_embedding, n_results);
         }
@@ -223,7 +238,7 @@ impl SemanticStore {
         self.hnsw_query(query_embedding, n_results, &idx)
     }
 
-    /// kNN search restricted to ids passing `allow` (CONCEPT:EG-KG.retrieval.hybrid-metadata-prefilter). hnsw_rs has no
+    /// kNN search restricted to ids passing `allow` (CONCEPT:EG-KG.retrieval.hybrid-metadata-prefilter). The additive HNSW has no
     /// native candidate pre-filter, so this backend realises the predicate by
     /// over-fetching a wider band and post-filtering — still correct, just without the
     /// push-down win the `ann` (IVF-PQ) backend gets from `search_filtered`. The
@@ -268,19 +283,23 @@ impl SemanticStore {
             .next()
             .map(|e| e.len())
             .unwrap_or(0);
-        let hnsw: Hnsw<'static, f32, DistCosine> = Hnsw::new(
+        if dim == 0 {
+            *idx = HnswIndex::empty();
+            return;
+        }
+        let mut hnsw = NativeHnswIndex::new(
+            dim,
+            Metric::Cosine,
             HNSW_MAX_NB_CONN,
-            self.embeddings.len().max(1),
-            HNSW_NB_LAYER,
-            HNSW_EF_SEARCH,
-            DistCosine,
+            HNSW_EF_CONSTRUCTION,
+            HNSW_SEED,
         );
         let mut order = Vec::with_capacity(self.embeddings.len());
         let mut id_to_internal = HashMap::with_capacity(self.embeddings.len());
         for (id, emb) in &self.embeddings {
             if emb.len() == dim {
                 let internal = order.len();
-                hnsw.insert((&emb[..], internal));
+                hnsw.insert(internal as u64, emb.clone());
                 order.push(id.clone());
                 id_to_internal.insert(id.clone(), internal);
             }
@@ -293,7 +312,7 @@ impl SemanticStore {
         idx.built_len = self.embeddings.len();
     }
 
-    /// Query the (already-current) HNSW index. hnsw_rs `DistCosine` returns a
+    /// Query the (already-current) HNSW index. `Metric::Cosine` returns a
     /// distance of `1 - cosine_similarity`, converted back to similarity here.
     fn hnsw_query(
         &self,
@@ -306,7 +325,7 @@ impl SemanticStore {
             None => return Vec::new(),
         };
         // Over-fetch to absorb tombstoned hits — dead points are still traversed by
-        // hnsw_rs and can appear in the raw result list. Bounded (compaction caps
+        // the additive index and can appear in the raw result list. Bounded (compaction caps
         // the tombstone ratio), so this stays a small constant-factor over-fetch.
         let want = if idx.tombstones.is_empty() {
             n_results
@@ -315,11 +334,12 @@ impl SemanticStore {
         };
         hnsw.search(query_embedding, want, HNSW_EF_SEARCH)
             .iter()
-            .filter(|nb| !idx.tombstones.contains(&nb.d_id))
-            .filter_map(|nb| {
+            .filter_map(|neighbor| usize::try_from(neighbor.id).ok().map(|id| (id, neighbor)))
+            .filter(|(internal, _)| !idx.tombstones.contains(internal))
+            .filter_map(|(internal, neighbor)| {
                 idx.order
-                    .get(nb.d_id)
-                    .map(|id| (id.clone(), 1.0 - nb.distance))
+                    .get(internal)
+                    .map(|id| (id.clone(), 1.0 - neighbor.distance))
             })
             .take(n_results)
             .collect()
@@ -346,8 +366,7 @@ impl SemanticStore {
             })
             .collect();
 
-        scores.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-        scores.truncate(n_results);
+        truncate_highest_similarity(&mut scores, n_results);
         scores
     }
 
@@ -387,9 +406,52 @@ fn dot_product(a: &[f32], b: &[f32]) -> f32 {
     a.iter().zip(b.iter()).map(|(x, y)| x * y).sum()
 }
 
+/// Retain the exact best `limit` cosine hits without fully sorting the small-set
+/// fallback. Selection is expected O(N), followed by O(limit log limit) ordering
+/// of the returned prefix. Ids break equal-score ties and NaN is always last.
+#[inline]
+fn truncate_highest_similarity(scores: &mut Vec<(String, f32)>, limit: usize) {
+    if limit == 0 {
+        scores.clear();
+        return;
+    }
+    if scores.len() > limit {
+        scores.select_nth_unstable_by(limit, similarity_cmp);
+        scores.truncate(limit);
+    }
+    scores.sort_unstable_by(similarity_cmp);
+}
+
+#[inline]
+fn similarity_cmp(left: &(String, f32), right: &(String, f32)) -> std::cmp::Ordering {
+    let score_order = match (left.1.is_nan(), right.1.is_nan()) {
+        (true, false) => std::cmp::Ordering::Greater,
+        (false, true) => std::cmp::Ordering::Less,
+        (true, true) => left.1.to_bits().cmp(&right.1.to_bits()),
+        (false, false) => right.1.total_cmp(&left.1),
+    };
+    score_order.then_with(|| left.0.cmp(&right.0))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn partial_brute_force_selection_matches_total_full_sort() {
+        let input: Vec<(String, f32)> = (0..257)
+            .map(|index| (format!("node-{index:03}"), ((index * 37) % 29) as f32))
+            .chain(std::iter::once(("malformed".into(), f32::NAN)))
+            .collect();
+        let mut expected = input.clone();
+        expected.sort_unstable_by(similarity_cmp);
+        expected.truncate(13);
+
+        let mut selected = input;
+        truncate_highest_similarity(&mut selected, 13);
+
+        assert_eq!(selected, expected);
+    }
 
     #[test]
     fn test_add_and_search_brute_force() {

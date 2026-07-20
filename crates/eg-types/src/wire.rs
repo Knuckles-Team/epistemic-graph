@@ -309,18 +309,24 @@ pub enum ForeignSourceSpec {
     /// MessagePack + HMAC transport this engine speaks. The federation client
     /// connects to `endpoint` (a `host:port` TCP address), sends a `UnifiedQueryText`
     /// (UQL) — or, when `uql` is empty, a `CypherQuery` — against the remote `graph`,
-    /// and projects the result rows into a local RowSet. `secret` is the remote's
-    /// HMAC-SHA256 auth secret (empty ⇒ the remote runs insecure). This composes the
-    /// engine with ANOTHER engine without a Python round-trip — the cross-engine
-    /// federation seam.
+    /// and projects the result rows into a local RowSet. Every request is an `eg2.`
+    /// verified-context envelope; an empty secret or incomplete context fails before
+    /// dialing. This composes the engine with ANOTHER engine without a Python
+    /// round-trip — the cross-engine federation seam.
     RemoteEngine {
         /// `host:port` of the remote engine's TCP listener.
         endpoint: String,
         /// The remote graph to query (e.g. `__commons__`).
         graph: String,
-        /// HMAC-SHA256 secret of the remote (empty ⇒ remote is insecure).
+        /// HMAC-SHA256 secret used by the remote verified-context issuer. Empty is
+        /// invalid; native federation never downgrades to insecure or legacy auth.
         #[serde(default)]
         secret: String,
+        /// Identity, tenant, audience, capabilities, active policy version, and
+        /// delegation path signed into every remote request. The receiving engine
+        /// independently checks these claims against deployment policy and RBAC.
+        #[serde(default)]
+        context: crate::acl::RequestContextClaims,
         /// A UQL query run on the remote (its rows seed the RowSet). When empty, `cypher`
         /// is used instead.
         #[serde(default)]
@@ -545,12 +551,8 @@ pub enum Op {
     /// RowSet-narrowing temporal filter executed in `eg-plan` (dep-free blob scan, no
     /// DataFusion — Pi-safe). `axis` selects the timeline: `Valid` = "what was TRUE at
     /// ts" (`valid_from`/`valid_until`); `Transaction` = "what we BELIEVED at ts"
-    /// (`tx_from`/`tx_to`). `#[serde(default)]` keeps older plans (no axis) as valid-time.
-    AsOf {
-        ts: f64,
-        #[serde(default)]
-        axis: TimeAxis,
-    },
+    /// (`tx_from`/`tx_to`). The axis is explicit in the current plan contract.
+    AsOf { ts: f64, axis: TimeAxis },
     /// TIME (`WINDOW <dur>`, CONCEPT:EG-KG.query.sparql-completeness) — declare a trailing time window of
     /// `secs` seconds for the windowed time-series aggregate. A RowSet-preserving
     /// CONTEXT op paired with `AsOf`; passes the rows through unchanged today (the
@@ -573,13 +575,11 @@ pub enum Op {
     /// only wired under `timeseries`; a non-`timeseries` build passes the rows through, as
     /// `Window` does).
     WindowAgg { secs: f64, agg: String },
-    /// FEDERATION (`FOREIGN "<name>"`, CONCEPT:EG-KG.query.sparql-completeness) — mark the seed as drawn from
-    /// the named foreign source `name` (a registered federation peer). A RowSet
-    /// CONTEXT op: today it passes the rows through (the cross-source pull is the
-    /// federation seam) but gives the `FOREIGN "<name>"` UQL clause a plan AST to lower
-    /// to. Always available under `query`. The RESOLVED-source executor is the
-    /// `federation`-gated [`Op::ForeignScan`] above; see its note for why the UQL
-    /// name marker stays distinct from the resolved spec.
+    /// FEDERATION (`FOREIGN "<name>"`, CONCEPT:EG-KG.query.sparql-completeness) — replace the seed with rows from
+    /// the registered foreign source `name`. The plan fails when no registry/source is
+    /// bound; foreign intent is never ignored. Always available under `query`, while
+    /// execution requires the `federation` feature. The inline-spec counterpart is the
+    /// `federation`-gated [`Op::ForeignScan`] above.
     Foreign { name: String },
     /// SOURCE (spatial, CONCEPT:EG-KG.ontology.singles-concept) — seed the RowSet with every node in the spatial
     /// `layer` (a node label / `type`) whose geometry's bounding box intersects `bbox`

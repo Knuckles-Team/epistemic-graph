@@ -7,44 +7,39 @@
 //! `TextHit` itself is dep-free (no `tantivy` needed), so `contract` here does NOT
 //! need to imply `tantivy` — it stays minimal (`contract = ["dep:eg-modality"]`).
 //!
-//! `evidence()` is the X1 (multimodal-evidence) case where the modality's OWN value
-//! shape limits how precise the located span can honestly be — see the method's own
-//! doc comment for why this is a whole-document `DocumentSpan`, not a fabricated
-//! character range.
+//! `evidence_address()` is the X1 (multimodal-evidence) case where the modality's own
+//! value lacks enough information for an honest location. A bare hit therefore
+//! returns `None`; a caller with the original text can bind a real snippet range.
 
 use eg_modality::{
-    decode_staged, encode_staged, ConformanceTestable, EvidenceSpan, IngestReport,
+    decode_staged, encode_staged, ConformanceTestable, EvidenceAddress, IngestReport,
     ModalityContract, ModalitySelfTest, RowSetShape, StagedWrite, StorageStats, TckPoint,
 };
 
 use crate::{CitationSpan, TableSpan, TextHit};
 
 /// A [`TableSpan`] (from `src/layout.rs`'s heuristic table extractor) IS
-/// field-for-field an `EvidenceSpan::TableCellRange` — this conversion only
+/// field-for-field an `EvidenceAddress::TableCellRange` — this conversion only
 /// exists under `contract` since that's the only place `eg-modality` is linked
 /// (the extractor itself stays dependency-free; see `src/layout.rs`'s module docs).
-impl From<&TableSpan> for EvidenceSpan {
+impl From<&TableSpan> for EvidenceAddress {
     fn from(span: &TableSpan) -> Self {
-        EvidenceSpan::TableCellRange {
-            table_id: span.table_id.clone(),
-            row_start: span.row_start,
-            row_end: span.row_end,
-            col_start: span.col_start,
-            col_end: span.col_end,
+        EvidenceAddress::TableCellRange {
+            row_start: span.row_start as u64,
+            row_end: span.row_end as u64,
+            col_start: span.col_start as u64,
+            col_end: span.col_end as u64,
         }
     }
 }
 
 /// A [`CitationSpan`] is a located byte range inside SOME document; the caller
-/// supplies the document id (a `CitationSpan` alone doesn't know which document it
-/// was scanned from), mirroring `TextHit`'s own `to_rowset`/`evidence` convention
-/// above ("the modality value itself does not know its own id").
+/// binds the resulting address to a governed `EvidenceLocus` subject.
 impl CitationSpan {
-    pub fn to_evidence_span(&self, document_id: &str) -> EvidenceSpan {
-        EvidenceSpan::DocumentSpan {
-            document_id: document_id.to_string(),
-            start: self.start,
-            end: self.end,
+    pub fn to_evidence_address(&self) -> EvidenceAddress {
+        EvidenceAddress::CharacterRange {
+            start: self.start as u64,
+            end: self.end as u64,
         }
     }
 }
@@ -90,20 +85,11 @@ impl ModalityContract for TextHit {
     /// (given the ORIGINAL doc text, which a bare `TextHit` does not carry) computes
     /// a real byte-offset match window.
     ///
-    /// Rather than fabricate a byte range this modality does not know, this reports
-    /// the one thing that IS real and exact — `id` names the precise document this
-    /// hit resolved to — as a whole-document `DocumentSpan`: `start: 0`, `end:
-    /// usize::MAX` as an explicit "rest of document, exact length not tracked at
-    /// this granularity" sentinel, never a specific fabricated sub-range. A future
-    /// passage-level resolver — e.g. a caller pairing a `TextHit` with the query and
-    /// the doc's own text to run `bm25_snippet`'s window-finding logic and keep its
-    /// `(lo_byte, hi_byte)` — is the documented follow-up once that pairing exists.
-    fn evidence(&self, id: &str) -> Option<EvidenceSpan> {
-        Some(EvidenceSpan::DocumentSpan {
-            document_id: id.to_string(),
-            start: 0,
-            end: usize::MAX,
-        })
+    /// Rather than fabricate a byte range this modality does not know, this returns
+    /// `None`. The ingestion boundary must bind a real snippet range and governed
+    /// subject before it can construct an `EvidenceLocus`.
+    fn evidence_address(&self) -> Option<EvidenceAddress> {
+        None
     }
 
     // ── EG-P1-1 hooks — real, minimal implementations over TextHit's serialization
@@ -188,36 +174,23 @@ impl ConformanceTestable for TextHit {
 
 eg_modality::modality_conformance_tests!(TextHit);
 
-// A direct test of the `evidence()` mapping itself, beyond the generic "never
-// panics" conformance check — proves the whole-document `DocumentSpan` uses the
-// caller-supplied `id` (NOT `self.id`, consistent with `to_rowset`'s own id
-// contract) and the documented `usize::MAX` "rest of document" sentinel.
+// A direct test beyond the generic "never panics" conformance check: a scored hit
+// without an exact snippet must never fabricate a location.
 #[cfg(test)]
 mod evidence_mapping {
     use super::*;
 
     #[test]
-    fn whole_document_span_uses_the_caller_supplied_id() {
+    fn scored_hit_without_snippet_has_no_evidence_address() {
         let hit = TextHit {
             id: "doc-1".to_string(),
             score: 4.2,
         };
-        let span = hit
-            .evidence("doc-7")
-            .expect("a TextHit always reports document-granularity evidence");
-        assert_eq!(
-            span,
-            EvidenceSpan::DocumentSpan {
-                document_id: "doc-7".to_string(),
-                start: 0,
-                end: usize::MAX,
-            }
-        );
+        assert_eq!(hit.evidence_address(), None);
     }
 }
 
-// Direct tests of the layout-extractor → `EvidenceSpan` conversions (CONCEPT:E4/X1
-// depth: table/citation spans feeding X1's `TableCellRange`/`DocumentSpan`).
+// Direct tests of the layout-extractor → `EvidenceAddress` conversions.
 #[cfg(test)]
 mod layout_evidence_mapping {
     use super::*;
@@ -228,11 +201,10 @@ mod layout_evidence_mapping {
         let text = "| A | B |\n| --- | --- |\n| 1 | 2 |\n";
         let tables = extract_tables(text);
         let cell = tables[0].cell_span(1, 0).unwrap();
-        let evidence: EvidenceSpan = (&cell).into();
+        let evidence: EvidenceAddress = (&cell).into();
         assert_eq!(
             evidence,
-            EvidenceSpan::TableCellRange {
-                table_id: "table-0".to_string(),
+            EvidenceAddress::TableCellRange {
                 row_start: 1,
                 row_end: 1,
                 col_start: 0,
@@ -245,13 +217,12 @@ mod layout_evidence_mapping {
     fn citation_span_converts_to_document_span_with_caller_supplied_id() {
         let text = "supported by prior work [12].";
         let spans = citation_spans(text);
-        let evidence = spans[0].to_evidence_span("doc-42");
+        let evidence = spans[0].to_evidence_address();
         assert_eq!(
             evidence,
-            EvidenceSpan::DocumentSpan {
-                document_id: "doc-42".to_string(),
-                start: spans[0].start,
-                end: spans[0].end,
+            EvidenceAddress::CharacterRange {
+                start: spans[0].start as u64,
+                end: spans[0].end as u64,
             }
         );
     }

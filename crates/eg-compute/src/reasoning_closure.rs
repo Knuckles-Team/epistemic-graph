@@ -22,7 +22,7 @@
 //! Correctness anchors (see `tests`): [`infer_semi_naive`] derives the SAME set of facts
 //! as the prior naive fixpoint ([`infer_naive_reference`], the differential oracle), and
 //! the CUDA transitive-join agrees pair-for-pair with the CPU join (the parity test SKIPs
-//! cleanly on a GPU-less host and auto-validates on a real device such as the GB10).
+//! cleanly on a GPU-less host and auto-validates on a compatible CUDA device).
 //!
 //! Pi contract: identical to `eg-ann` — the CPU path needs no feature; `gpu`/`gpu-cuda`
 //! are OUT of `pi`/`default`/`full` and `cudarc` links only under `gpu-cuda` (dlopen at
@@ -821,7 +821,7 @@ mod tests {
     /// present the real transitive-join kernel MUST produce the SAME pair SET as the CPU
     /// hash-join for a batch spanning several thread blocks; when no device is available
     /// `cuda::backend()` is `None` and the test SKIPs cleanly. So it is a no-op in GPU-less
-    /// CI yet auto-validates the kernel wherever a GPU exists (e.g. the GB10). Only
+    /// CI yet auto-validates the kernel wherever a compatible CUDA device exists. Only
     /// compiled under `--features gpu-cuda`.
     #[cfg(feature = "gpu-cuda")]
     #[test]

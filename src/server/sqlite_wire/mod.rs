@@ -40,7 +40,7 @@
 //! One JSON object per line, one JSON response line back, over a persistent TCP
 //! connection (so `SET graph = …` and `BEGIN`/`COMMIT` are connection-scoped, exactly
 //! like a pgwire connection):
-//!   * request:  `{"sql": "<one statement>"}`
+//!   * request:  `{"id":1,"graph":"<graph>","auth_token":"eg2.…","sql":"<statement>"}`
 //!   * rows:     `{"columns":[{"name":..,"type":..}, …], "rows":[[..], …]}`
 //!   * command:  `{"tag":"INSERT", "rows_affected": 1}`  (`rows_affected` omitted when none)
 //!   * txn:      `{"tag":"BEGIN"|"COMMIT"|"ROLLBACK"}`
@@ -65,7 +65,9 @@ use tokio::net::TcpListener;
 use tokio::sync::RwLock;
 
 use eg_query::PgColType;
+use serde::Deserialize;
 
+use crate::protocol::{Method, Request};
 use crate::server::wire::{WireError, WireOutcome, WireProtocol, WireSession};
 use crate::server::ServerState;
 
@@ -80,6 +82,16 @@ pub const SQLITE_ADDR_ENV: &str = "EPISTEMIC_GRAPH_SQLITE_ADDR";
 /// overrides it. Defaults to `__commons__`.
 pub const SQLITE_GRAPH_ENV: &str = "EPISTEMIC_GRAPH_SQLITE_GRAPH";
 
+#[derive(Deserialize)]
+struct SignedSqliteRequest {
+    id: u64,
+    graph: String,
+    auth_token: String,
+    #[serde(default)]
+    agent_id: Option<String>,
+    sql: String,
+}
+
 /// The largest single request line accepted (guards against an unbounded line flood on
 /// the persistent connection). One SQL statement per line; 8 MiB is generous.
 const MAX_LINE_BYTES: u64 = 8 * 1024 * 1024;
@@ -90,20 +102,22 @@ const MAX_LINE_BYTES: u64 = 8 * 1024 * 1024;
 /// exits. Spawned by `main.rs` only when built `--features sqlite-wire` AND
 /// `EPISTEMIC_GRAPH_SQLITE_ADDR` is set.
 pub async fn serve(listener: TcpListener, state: Arc<RwLock<ServerState>>) {
+    let persist_dir = state.read().await.persist_dir.clone();
+    if crate::server::sql_tables::validate_served_configuration(
+        persist_dir.as_deref().map(std::path::Path::new),
+    )
+    .is_err()
+    {
+        tracing::error!("sqlite-wire disabled: owner-scoped SQL catalog is not configured");
+        return;
+    }
     let default_graph =
         std::env::var(SQLITE_GRAPH_ENV).unwrap_or_else(|_| "__commons__".to_string());
     loop {
         let Ok((stream, _peer)) = listener.accept().await else {
             continue;
         };
-        // A trust/interop surface: the connection is anonymous (no handshake identity),
-        // so `auth_maps_actor = false` — the same back-compat single-tenant behavior the
-        // SPARQL/native surfaces use when no identity is presented.
-        let session = Arc::new(WireSession::new(
-            state.clone(),
-            default_graph.clone(),
-            false,
-        ));
+        let session = Arc::new(WireSession::new(state.clone(), default_graph.clone()));
         tokio::spawn(async move {
             handle_conn(stream, session).await;
         });
@@ -149,19 +163,26 @@ async fn handle_conn(stream: tokio::net::TcpStream, session: Arc<WireSession>) {
 /// place SQLite-surface framing meets the wire-neutral core). This is the testable
 /// heart of the surface — a socket is not required to exercise it.
 pub async fn execute_request(session: &WireSession, line: &str) -> String {
-    let req: serde_json::Value = match serde_json::from_str(line) {
+    let request: SignedSqliteRequest = match serde_json::from_str(line) {
         Ok(v) => v,
         Err(e) => return error_json("22000", &format!("malformed JSON request: {e}")),
     };
-    let Some(sql) = req.get("sql").and_then(|v| v.as_str()) else {
-        return error_json(
-            "22000",
-            "request must be a JSON object with a string `sql` field",
-        );
+    let signed = Request {
+        id: request.id,
+        graph: request.graph,
+        auth_token: request.auth_token,
+        agent_id: request.agent_id,
+        method: Method::Sql {
+            query: request.sql.clone(),
+            params_msgpack: Vec::new(),
+        },
     };
+    if let Err(error) = session.authenticate_request(&signed).await {
+        return wire_error_json(&error);
+    }
 
-    match translate_sqlite_sql(sql) {
-        // A PRAGMA is a no-op ack — the engine is never touched.
+    match translate_sqlite_sql(&request.sql) {
+        // A PRAGMA is an authenticated no-op acknowledgement.
         Translated::Noop { tag } => serde_json::json!({ "tag": tag }).to_string(),
         Translated::Sql(engine_sql) => match session.execute(&engine_sql).await {
             Ok(outcome) => outcome_json(outcome),
@@ -238,7 +259,7 @@ mod tests {
     use tokio::sync::Semaphore;
 
     use crate::channels::ChannelManager;
-    use crate::isolation::IsolationLayer;
+    use crate::isolation::{AgentIdentity, AgentRole, IsolationLayer};
     use crate::registry::GraphRegistry;
     use crate::server::txn::TxnIdGen;
 
@@ -246,25 +267,41 @@ mod tests {
     /// creates it), mirroring `tests/pgwire_roundtrip.rs::state_with`. Feature-gated
     /// fields track whatever tier the test build enables.
     fn test_state() -> Arc<RwLock<ServerState>> {
+        let mut isolation = IsolationLayer::new();
+        isolation.register_agent(AgentIdentity {
+            agent_id: "system".to_string(),
+            role: AgentRole::System,
+            teams: Vec::new(),
+            roles: Vec::new(),
+        });
+        isolation.register_agent(AgentIdentity {
+            agent_id: "peer".to_string(),
+            role: AgentRole::Agent,
+            teams: Vec::new(),
+            roles: Vec::new(),
+        });
         Arc::new(RwLock::new(ServerState {
             #[cfg(feature = "redb")]
             cold_tracker: Arc::new(
                 crate::server::persistence::cold_offload::ColdTenantTracker::new(),
             ),
             registry: GraphRegistry::new(),
-            isolation: IsolationLayer::new(),
+            isolation,
             channels: ChannelManager::new(),
-            auth_secret: "sqlite-wire-test".to_string(), // # sanitizer:ignore
+            auth_secret: "test-sqlite-wire-secret".to_string(),
             #[cfg(feature = "kv")]
             kv: None,
-            persist_dir: None,
+            persist_dir: Some(
+                crate::server::sql_tables::test_persist_dir()
+                    .to_string_lossy()
+                    .into_owned(),
+            ),
             persistence: None,
-            redb_authoritative: false,
             max_in_flight: Arc::new(Semaphore::new(16)),
             read_admission: Arc::new(Semaphore::new(16)),
             per_graph_inflight: Arc::new(DashMap::new()),
             per_graph_inflight_limit: 8,
-            write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::from_env()),
+            write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
             open_txns: Arc::new(DashMap::new()),
             txn_id_gen: Arc::new(TxnIdGen::default()),
             txn_ttl_secs: 300,
@@ -280,8 +317,6 @@ mod tests {
             multi_raft: None,
             #[cfg(feature = "tsdb")]
             tsdb_store: None,
-            #[cfg(feature = "rdf-redb")]
-            rdf_quads: None,
             #[cfg(feature = "streaming")]
             cdc: Some(Arc::new(crate::server::cdc::CdcHub::new())),
             #[cfg(feature = "wasm-udf")]
@@ -292,15 +327,13 @@ mod tests {
             )),
             #[cfg(feature = "federation")]
             foreign_sources: Arc::new(DashMap::new()),
-            #[cfg(feature = "dataset-handle")]
-            dataset_handles: Arc::new(crate::server::dataset_handle::DatasetHandleRegistry::new()),
             #[cfg(feature = "lake")]
             lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
         }))
     }
 
     fn test_session(state: &Arc<RwLock<ServerState>>) -> WireSession {
-        WireSession::new(state.clone(), "__commons__".to_string(), false)
+        WireSession::new(state.clone(), "__commons__".to_string())
     }
 
     /// A unique user-table name — the user-table SQL store is a process-global
@@ -315,7 +348,80 @@ mod tests {
     }
 
     fn req(sql: &str) -> String {
-        serde_json::json!({ "sql": sql }).to_string()
+        static REQUEST_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        let id = REQUEST_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let signed = crate::server::auth::sign_current_test_request(
+            "test-sqlite-wire-secret",
+            Request {
+                id,
+                graph: "__commons__".to_string(),
+                auth_token: String::new(),
+                agent_id: Some("system".to_string()),
+                method: Method::Sql {
+                    query: sql.to_string(),
+                    params_msgpack: Vec::new(),
+                },
+            },
+        );
+        serde_json::json!({
+            "id": signed.id,
+            "graph": signed.graph,
+            "auth_token": signed.auth_token,
+            "agent_id": signed.agent_id,
+            "sql": sql,
+        })
+        .to_string()
+    }
+
+    #[tokio::test]
+    async fn actor_only_session_cannot_execute_or_change_graph() {
+        let state = test_state();
+        let session = test_session(&state);
+        session.resolve_startup(
+            Some("unverified-actor".to_string()),
+            Some("__commons__".to_string()),
+        );
+
+        let read = match session.execute("SELECT id FROM nodes").await {
+            Ok(_) => panic!("actor-only SQL read must fail closed"),
+            Err(error) => error,
+        };
+        assert_eq!(read.code, "28000");
+        let graph_switch = match session.execute("SET graph = '__commons__'").await {
+            Ok(_) => panic!("actor-only graph switch must fail closed"),
+            Err(error) => error,
+        };
+        assert_eq!(graph_switch.code, "28000");
+    }
+
+    #[tokio::test]
+    async fn served_catalog_is_actor_isolated_and_cross_protocol_for_same_actor() {
+        let state = test_state();
+        let creator = test_session(&state);
+        creator
+            .bind_authenticated_sql_actor("pgwire", "system")
+            .await
+            .unwrap();
+        creator
+            .execute("CREATE TABLE owner_probe (value TEXT)")
+            .await
+            .unwrap_or_else(|error| panic!("owner create failed: {error}"));
+
+        let same_actor = test_session(&state);
+        same_actor
+            .bind_authenticated_sql_actor("mysql-wire", "system")
+            .await
+            .unwrap();
+        assert!(same_actor
+            .execute("SELECT value FROM owner_probe")
+            .await
+            .is_ok());
+
+        let peer = test_session(&state);
+        peer.bind_authenticated_sql_actor("mssql-wire", "peer")
+            .await
+            .unwrap();
+        assert!(peer.execute("SELECT value FROM owner_probe").await.is_err());
     }
 
     /// The full SQLite-dialect statement set from the correctness bar, executed IN
@@ -446,7 +552,7 @@ mod tests {
             reader: &mut BufReader<tokio::net::tcp::OwnedReadHalf>,
             sql: &str,
         ) -> serde_json::Value {
-            let line = format!("{}\n", serde_json::json!({ "sql": sql }));
+            let line = format!("{}\n", req(sql));
             wh.write_all(line.as_bytes()).await.unwrap();
             let mut resp = String::new();
             reader.read_line(&mut resp).await.unwrap();

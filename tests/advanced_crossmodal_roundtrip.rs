@@ -40,6 +40,8 @@
 
 #![cfg(all(feature = "query", feature = "tsdb", feature = "owl-plan"))]
 
+mod common;
+
 use std::sync::Arc;
 
 use dashmap::DashMap;
@@ -47,36 +49,43 @@ use serde_json::json;
 use tokio::sync::{RwLock, Semaphore};
 
 use epistemic_graph::channels::ChannelManager;
-use epistemic_graph::isolation::IsolationLayer;
 use epistemic_graph::protocol::{Method, Request, Response, ResultPayload};
 use epistemic_graph::registry::GraphRegistry;
-use epistemic_graph::server::{compute_auth_token, dispatch, ServerState};
+use epistemic_graph::server::{dispatch, ServerState};
 
 const SECRET: &str = "advanced-crossmodal-secret";
 
-/// A fully-featured in-memory `ServerState` (no persistence → the in-memory durability
-/// tier: graph/vector/axiom writes apply in-memory at commit, durable-only measurements
-/// are dropped — documented in `handlers::txn::commit_cross_modal_txn`).
+/// A fully-featured state with no graph persistence (graph/vector/axiom writes apply
+/// in-memory at commit). A configured scratch base exists solely because every served
+/// SQL adapter now requires its owner-scoped catalog directory.
 fn state() -> Arc<RwLock<ServerState>> {
+    static NEXT_SQL_DIR: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    common::configure_authority();
     Arc::new(RwLock::new(ServerState {
         #[cfg(feature = "redb")]
         cold_tracker: std::sync::Arc::new(
             epistemic_graph::server::persistence::cold_offload::ColdTenantTracker::new(),
         ),
         registry: GraphRegistry::new(),
-        isolation: IsolationLayer::new(),
+        isolation: common::current_isolation(),
         channels: ChannelManager::new(),
         auth_secret: SECRET.to_string(),
-        persist_dir: None,
+        persist_dir: Some(
+            std::env::temp_dir()
+                .join(format!(
+                    "epistemic-graph-crossmodal-sql-test-{}-{}",
+                    std::process::id(),
+                    NEXT_SQL_DIR.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+                ))
+                .to_string_lossy()
+                .into_owned(),
+        ),
         persistence: None,
-        redb_authoritative: false,
         max_in_flight: Arc::new(Semaphore::new(16)),
         read_admission: Arc::new(Semaphore::new(16)),
         per_graph_inflight: Arc::new(DashMap::new()),
         per_graph_inflight_limit: 8,
-        write_coalescer: Arc::new(
-            epistemic_graph::write_coalescer::WriteCoalescerRegistry::from_env(),
-        ),
+        write_coalescer: Arc::new(epistemic_graph::write_coalescer::WriteCoalescerRegistry::new()),
         open_txns: Arc::new(DashMap::new()),
         txn_id_gen: Arc::new(epistemic_graph::server::txn::TxnIdGen::default()),
         txn_ttl_secs: 300,
@@ -92,8 +101,6 @@ fn state() -> Arc<RwLock<ServerState>> {
         multi_raft: None,
         #[cfg(feature = "tsdb")]
         tsdb_store: None,
-        #[cfg(feature = "rdf-redb")]
-        rdf_quads: None,
         #[cfg(feature = "streaming")]
         cdc: Some(Arc::new(epistemic_graph::server::cdc::CdcHub::new())),
         #[cfg(feature = "wasm-udf")]
@@ -106,23 +113,13 @@ fn state() -> Arc<RwLock<ServerState>> {
         foreign_sources: Arc::new(DashMap::new()),
         #[cfg(feature = "kv")]
         kv: None,
-        #[cfg(feature = "dataset-handle")]
-        dataset_handles: std::sync::Arc::new(
-            epistemic_graph::server::dataset_handle::DatasetHandleRegistry::new(),
-        ),
         #[cfg(feature = "lake")]
         lake: std::sync::Arc::new(epistemic_graph::server::lake::LakeManager::new()),
     }))
 }
 
 fn req(id: u64, method: Method) -> Request {
-    Request {
-        id,
-        graph: "__commons__".into(),
-        auth_token: compute_auth_token(SECRET, id),
-        agent_id: None,
-        method,
-    }
+    common::signed_request(SECRET, id, "__commons__", method)
 }
 
 fn pack(v: serde_json::Value) -> Vec<u8> {
@@ -158,6 +155,95 @@ async fn ok(state: &Arc<RwLock<ServerState>>, id: u64, method: Method) {
     assert!(r.error.is_none(), "op {id} failed: {:?}", r.error);
 }
 
+#[cfg(feature = "security")]
+async fn begin_as(state: &Arc<RwLock<ServerState>>, id: u64, agent: &str) -> String {
+    let response = dispatch(
+        state,
+        req_as(
+            id,
+            agent,
+            Method::BeginTxn {
+                graph: None,
+                isolation: None,
+            },
+        ),
+    )
+    .await;
+    match response.result {
+        Some(ResultPayload::String(txn_id)) => txn_id,
+        other => panic!(
+            "BeginTxn as {agent} failed: {:?} / {other:?}",
+            response.error
+        ),
+    }
+}
+
+#[cfg(feature = "security")]
+async fn ok_as(state: &Arc<RwLock<ServerState>>, id: u64, agent: &str, method: Method) {
+    let response = dispatch(state, req_as(id, agent, method)).await;
+    assert!(
+        response.error.is_none(),
+        "op {id} as {agent} failed: {:?}",
+        response.error
+    );
+}
+
+#[cfg(feature = "security")]
+async fn stage_rls_overlay(state: &Arc<RwLock<ServerState>>, first_id: u64, agent: &str) -> String {
+    let txn_id = begin_as(state, first_id, agent).await;
+    ok_as(
+        state,
+        first_id + 1,
+        agent,
+        Method::TxnAddNode {
+            txn_id: txn_id.clone(),
+            node_id: "stg_pub".into(),
+            properties_msgpack: pack(json!({ "type": "Robot" })),
+            graph: None,
+        },
+    )
+    .await;
+    ok_as(
+        state,
+        first_id + 2,
+        agent,
+        Method::TxnAddEmbedding {
+            txn_id: txn_id.clone(),
+            node_id: "stg_pub".into(),
+            embedding: vec![1.0, 0.0],
+            graph: None,
+        },
+    )
+    .await;
+    ok_as(
+        state,
+        first_id + 3,
+        agent,
+        Method::TxnAddNode {
+            txn_id: txn_id.clone(),
+            node_id: "stg_sec".into(),
+            properties_msgpack: pack(
+                json!({ "type": "Robot", "_owner": "agent_a", "_visibility": "private" }),
+            ),
+            graph: None,
+        },
+    )
+    .await;
+    ok_as(
+        state,
+        first_id + 4,
+        agent,
+        Method::TxnAddEmbedding {
+            txn_id: txn_id.clone(),
+            node_id: "stg_sec".into(),
+            embedding: vec![1.0, 0.0],
+            graph: None,
+        },
+    )
+    .await;
+    txn_id
+}
+
 /// Decode a unified-query response into its result node ids.
 fn unified_ids(resp: &Response) -> Vec<String> {
     assert!(
@@ -186,7 +272,6 @@ async fn in_txn_text(
             Method::TxnUnifiedQueryText {
                 txn_id: txn.into(),
                 text: text.into(),
-                reorder_filter_selectivity: None,
             },
         ),
     )
@@ -197,13 +282,7 @@ async fn in_txn_text(
 async fn off_txn_text(state: &Arc<RwLock<ServerState>>, id: u64, text: &str) -> Vec<String> {
     let r = dispatch(
         state,
-        req(
-            id,
-            Method::UnifiedQueryText {
-                text: text.into(),
-                reorder_filter_selectivity: None,
-            },
-        ),
+        req(id, Method::UnifiedQueryText { text: text.into() }),
     )
     .await;
     unified_ids(&r)
@@ -341,7 +420,6 @@ async fn five_modality_in_txn_ryow_then_commit_eg390() {
             Method::TxnUnifiedQuery {
                 txn_id: txn.clone(),
                 plan: ts_plan,
-                reorder_filter_selectivity: None,
             },
         ),
     )
@@ -372,7 +450,6 @@ async fn five_modality_in_txn_ryow_then_commit_eg390() {
             Method::TxnUnifiedQuery {
                 txn_id: txn.clone(),
                 plan: reason_plan,
-                reorder_filter_selectivity: None,
             },
         ),
     )
@@ -450,7 +527,6 @@ async fn five_modality_in_txn_ryow_then_commit_eg390() {
             16,
             Method::UnifiedQuery {
                 plan: committed_reason,
-                reorder_filter_selectivity: None,
             },
         ),
     )
@@ -562,13 +638,26 @@ async fn concurrent_serializable_phantom_conflict_eg392() {
 /// filter to that agent's visible rows (dispatch threads `req.agent_id` → `caller`).
 #[cfg(feature = "security")]
 fn req_as(id: u64, agent: &str, method: Method) -> Request {
-    Request {
+    common::signed_request_as(SECRET, id, "__commons__", agent, method)
+}
+
+#[cfg(feature = "security")]
+fn register_identity_req(
+    id: u64,
+    actor: &str,
+    agent_id: &str,
+    role: epistemic_graph::acl::AgentRole,
+) -> Request {
+    common::signed_register_identity_request(
+        SECRET,
         id,
-        graph: "__commons__".into(),
-        auth_token: compute_auth_token(SECRET, id),
-        agent_id: Some(agent.to_string()),
-        method,
-    }
+        "__commons__",
+        actor,
+        agent_id,
+        role,
+        Vec::new(),
+        Vec::new(),
+    )
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -582,9 +671,9 @@ fn req_as(id: u64, agent: &str, method: Method) -> Request {
 /// agent A (the owner) sees them.
 ///
 /// Fixture: two COMMITTED `Robot` rows (one unowned/public, one `_owner=agent_a`+`_visibility=
-/// private`) each with an embedding, seeded BEFORE any identity is registered (so the writes
-/// bypass the ACL); then identities `agent_a`/`agent_b` are registered (`has_rules()` flips
-/// on). A txn STAGES two more `Robot` rows (one public, one `agent_a`-private) with embeddings.
+/// private`) each with an embedding, seeded by the provisioned system test identity;
+/// then identities `agent_a`/`agent_b` are registered through the signed admin operation.
+/// A txn STAGES two more `Robot` rows (one public, one `agent_a`-private) with embeddings.
 /// The fused plan `[Reason<Machine> |> Rank ~[1,0] |> Limit]` runs in-txn as each agent:
 ///   * agent_b sees ONLY the public rows (`pub_r`, `stg_pub`) — the committed private row is
 ///     dropped by `filter_view` on the base, the STAGED private row by the EG-KG.query.overlay-leg-rls-filter post-overlay
@@ -597,9 +686,9 @@ async fn rls_per_agent_fused_reason_rank_overlay_eg391() {
 
     let state = state();
 
-    // ── seed the committed base BEFORE registering identities (has_rules()==false ⇒ the
-    // writes bypass the ACL). One PUBLIC (unowned) row + one agent_a-owned PRIVATE row,
-    // each with an embedding so the vector RANK ranks it. ──
+    // ── Seed the committed base as the provisioned system identity. One PUBLIC
+    // (unowned) row + one agent_a-owned PRIVATE row, each with an embedding so the
+    // vector RANK ranks it. ──
     ok(
         &state,
         1,
@@ -641,43 +730,20 @@ async fn rls_per_agent_fused_reason_rank_overlay_eg391() {
 
     // ── register the two agent identities → RLS enforcing mode. ──
     //
-    // EG-P0-6: `RegisterIdentity` now requires admin capability once ANY identity
-    // exists (`System` role, or an explicit RBAC `Admin` grant) — only the VERY
-    // FIRST registration (while `has_rules()` is still false) is exempt, as the
-    // bootstrap escape hatch. So bootstrap a `System`-role `"root"` identity first
-    // (anonymous caller, allowed because no rules exist yet), then have `root`
-    // register `agent_a`/`agent_b` as plain `Agent`-role identities for the RLS
-    // peer-isolation fixture below.
+    // EG-P0-6: the provisioned system test actor registers a `System`-role `root`
+    // using a detached operation signature. Root then registers `agent_a`/`agent_b`
+    // as plain `Agent`-role identities for the RLS peer-isolation fixture below.
     let r = dispatch(
         &state,
-        req(
-            999_000,
-            Method::RegisterIdentity {
-                agent_id: "root".into(),
-                role: AgentRole::System,
-                teams: vec![],
-                signature: String::new(),
-                roles: vec![],
-            },
-        ),
+        register_identity_req(999_000, common::TEST_AGENT, "root", AgentRole::System),
     )
     .await;
-    assert!(r.error.is_none(), "root bootstrap failed: {:?}", r.error);
+    assert!(r.error.is_none(), "root registration failed: {:?}", r.error);
 
     for (i, agent) in [(5u64, "agent_a"), (6, "agent_b")] {
         let r = dispatch(
             &state,
-            req_as(
-                i,
-                "root",
-                Method::RegisterIdentity {
-                    agent_id: agent.into(),
-                    role: AgentRole::Agent,
-                    teams: vec![],
-                    signature: String::new(),
-                    roles: vec![],
-                },
-            ),
+            register_identity_req(i, "root", agent, AgentRole::Agent),
         )
         .await;
         assert!(
@@ -687,55 +753,11 @@ async fn rls_per_agent_fused_reason_rank_overlay_eg391() {
         );
     }
 
-    // ── STAGE two more Robot rows in a txn: one public, one agent_a-private, each with an
-    // embedding (the staged-overlay leg the EG-KG.query.overlay-leg-rls-filter filter must also cover). ──
-    let txn = begin(&state, 7, None).await;
-    ok(
-        &state,
-        8,
-        Method::TxnAddNode {
-            txn_id: txn.clone(),
-            node_id: "stg_pub".into(),
-            properties_msgpack: pack(json!({ "type": "Robot" })),
-            graph: None,
-        },
-    )
-    .await;
-    ok(
-        &state,
-        9,
-        Method::TxnAddEmbedding {
-            txn_id: txn.clone(),
-            node_id: "stg_pub".into(),
-            embedding: vec![1.0, 0.0],
-            graph: None,
-        },
-    )
-    .await;
-    ok(
-        &state,
-        10,
-        Method::TxnAddNode {
-            txn_id: txn.clone(),
-            node_id: "stg_sec".into(),
-            properties_msgpack: pack(
-                json!({ "type": "Robot", "_owner": "agent_a", "_visibility": "private" }),
-            ),
-            graph: None,
-        },
-    )
-    .await;
-    ok(
-        &state,
-        11,
-        Method::TxnAddEmbedding {
-            txn_id: txn.clone(),
-            node_id: "stg_sec".into(),
-            embedding: vec![1.0, 0.0],
-            graph: None,
-        },
-    )
-    .await;
+    // Each peer owns its own transaction. Both stage the same public and
+    // agent_a-private rows so strict transaction ownership and overlay RLS are
+    // exercised together without sharing a transaction as a bearer capability.
+    let txn_b = stage_rls_overlay(&state, 7, "agent_b").await;
+    let txn_a = stage_rls_overlay(&state, 20, "agent_a").await;
 
     // The fused Reason→Rank plan: infer Machine members over the (RLS-filtered) view, then
     // vector-rank them. `Reason` bridges the bare `Robot` type ↔ `<http://ex/Robot>`.
@@ -753,22 +775,13 @@ async fn rls_per_agent_fused_reason_rank_overlay_eg391() {
             eg_plan::Op::Limit { k: 10 },
         ])
     };
-    let run_as = |id: u64, agent: &'static str| {
+    let run_as = |id: u64, agent: &'static str, txn: String| {
         let state = state.clone();
-        let txn = txn.clone();
         let plan = fused();
         async move {
             let r = dispatch(
                 &state,
-                req_as(
-                    id,
-                    agent,
-                    Method::TxnUnifiedQuery {
-                        txn_id: txn,
-                        plan,
-                        reorder_filter_selectivity: None,
-                    },
-                ),
+                req_as(id, agent, Method::TxnUnifiedQuery { txn_id: txn, plan }),
             )
             .await;
             let mut ids = unified_ids(&r);
@@ -780,7 +793,7 @@ async fn rls_per_agent_fused_reason_rank_overlay_eg391() {
     // agent_b: ONLY the public rows — the committed private row is hidden on the base leg,
     // the STAGED private row on the overlay leg (the EG-KG.query.overlay-leg-rls-filter post-overlay filter).
     assert_eq!(
-        run_as(12, "agent_b").await,
+        run_as(30, "agent_b", txn_b).await,
         vec!["pub_r".to_string(), "stg_pub".to_string()],
         "agent_b must see only the public committed + staged Robot rows (RLS hides agent_a's \
          private rows on BOTH the committed and the staged-overlay legs)"
@@ -788,7 +801,7 @@ async fn rls_per_agent_fused_reason_rank_overlay_eg391() {
 
     // agent_a (the owner): sees ALL FOUR rows (committed + staged, public + its own private).
     assert_eq!(
-        run_as(13, "agent_a").await,
+        run_as(31, "agent_a", txn_a).await,
         vec![
             "pub_r".to_string(),
             "sec_r".to_string(),
@@ -845,7 +858,7 @@ async fn pgwire_sparql_native_consistent_snapshot_eg393() {
 
     let state = state();
 
-    // ── bind the pgwire listener on an ephemeral port (TRUST auth — no password). ──
+    // ── bind the pgwire listener on an ephemeral port with mandatory SCRAM. ──
     let pg_probe = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let pg_addr = pg_probe.local_addr().unwrap().to_string();
     drop(pg_probe);
@@ -853,7 +866,8 @@ async fn pgwire_sparql_native_consistent_snapshot_eg393() {
         let state = state.clone();
         let pg_addr = pg_addr.clone();
         tokio::spawn(async move {
-            let _ = pgwire::serve_with_auth(&pg_addr, state, pgwire::PgWireAuthMode::Trust).await;
+            let mode = pgwire::PgWireAuthMode::resolve(SECRET).expect("SCRAM test config");
+            let _ = pgwire::serve_with_auth(&pg_addr, state, mode).await;
         });
     }
 
@@ -870,8 +884,11 @@ async fn pgwire_sparql_native_consistent_snapshot_eg393() {
 
     // ── a real tokio-postgres client (extended-protocol driver) on the pgwire surface. ──
     let pg_port = pg_addr.rsplit(':').next().unwrap();
+    let password = pgwire::derive_pg_password(SECRET, "tester");
     let (pg, pg_conn) = tokio_postgres::connect(
-        &format!("host=127.0.0.1 port={pg_port} user=tester dbname=__commons__"),
+        &format!(
+            "host=127.0.0.1 port={pg_port} user=tester password={password} dbname=__commons__"
+        ),
         tokio_postgres::NoTls,
     )
     .await
@@ -1051,9 +1068,9 @@ static ENC_ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn encryption_at_rest_wrong_key_fails_eg394() {
     use epistemic_graph::crypto::ENCRYPTION_KEY_ENV;
+    use epistemic_graph::durability::DurabilityPolicy;
     use epistemic_graph::server::persistence::redb_backend::RedbBackend;
     use epistemic_graph::server::persistence::PersistenceBackend;
-    use epistemic_graph::wal_service::FsyncPolicy;
 
     let _guard = ENC_ENV_LOCK.lock().await;
     let prev = std::env::var(ENCRYPTION_KEY_ENV).ok();
@@ -1063,7 +1080,7 @@ async fn encryption_at_rest_wrong_key_fails_eg394() {
     let dir_s = dir.to_string_lossy().to_string();
 
     const SECRET_PROP: &str = "top-secret-serial-42";
-    let policy = || FsyncPolicy::Interval(std::time::Duration::from_millis(20));
+    let policy = || DurabilityPolicy::Interval(std::time::Duration::from_millis(20));
 
     // ── K1: open a keyed backend, commit a cross-modal write (node + edge + embedding). ──
     std::env::set_var(ENCRYPTION_KEY_ENV, "key-one-K1");
@@ -1483,7 +1500,7 @@ async fn explain_belief_returns_full_justification_tree() {
         Method::AddEdge {
             source_id: "evidence1".into(),
             target_id: "claim1".into(),
-            properties_msgpack: pack(json!({ "relationship_type": "SUPPORTS" })),
+            properties_msgpack: pack(json!({ "relationship": "SUPPORTS" })),
         },
     )
     .await;
@@ -1532,9 +1549,7 @@ async fn explain_belief_disclosure_level_returns_redacted_skeleton_over_rpc() {
 
     let state = state();
 
-    // Seed the claim/evidence/secret topology BEFORE any identity is registered
-    // (has_rules()==false ⇒ the writes bypass the ACL, same bootstrap convention
-    // `rls_per_agent_fused_reason_rank_overlay_eg391` uses).
+    // Seed the claim/evidence/secret topology as the provisioned system identity.
     ok(
         &state,
         1,
@@ -1573,7 +1588,7 @@ async fn explain_belief_disclosure_level_returns_redacted_skeleton_over_rpc() {
         Method::AddEdge {
             source_id: "evidence1".into(),
             target_id: "claim1".into(),
-            properties_msgpack: pack(json!({ "relationship_type": "SUPPORTS" })),
+            properties_msgpack: pack(json!({ "relationship": "SUPPORTS" })),
         },
     )
     .await;
@@ -1583,42 +1598,23 @@ async fn explain_belief_disclosure_level_returns_redacted_skeleton_over_rpc() {
         Method::AddEdge {
             source_id: "secret1".into(),
             target_id: "evidence1".into(),
-            properties_msgpack: pack(json!({ "relationship_type": "SUPPORTS" })),
+            properties_msgpack: pack(json!({ "relationship": "SUPPORTS" })),
         },
     )
     .await;
 
-    // Bootstrap root (System, exempt while has_rules()==false) then register agent_a +
-    // stranger — same two-step convention EG-391 uses.
+    // Register root as System through the signed admin operation, then have root
+    // register agent_a + stranger — the same governed two-step flow EG-391 uses.
     let r = dispatch(
         &state,
-        req(
-            100,
-            Method::RegisterIdentity {
-                agent_id: "root".into(),
-                role: AgentRole::System,
-                teams: vec![],
-                signature: String::new(),
-                roles: vec![],
-            },
-        ),
+        register_identity_req(100, common::TEST_AGENT, "root", AgentRole::System),
     )
     .await;
-    assert!(r.error.is_none(), "root bootstrap failed: {:?}", r.error);
+    assert!(r.error.is_none(), "root registration failed: {:?}", r.error);
     for (i, agent) in [(101u64, "agent_a"), (102, "stranger")] {
         let r = dispatch(
             &state,
-            req_as(
-                i,
-                "root",
-                Method::RegisterIdentity {
-                    agent_id: agent.into(),
-                    role: AgentRole::Agent,
-                    teams: vec![],
-                    signature: String::new(),
-                    roles: vec![],
-                },
-            ),
+            register_identity_req(i, "root", agent, AgentRole::Agent),
         )
         .await;
         assert!(
@@ -1707,127 +1703,6 @@ async fn explain_belief_disclosure_level_returns_redacted_skeleton_over_rpc() {
         .any(|n| n.claim.is_none()));
 }
 
-/// Seam 3 (CONCEPT:EG-KG.epistemic.truth-maintenance, X-6 across the storage boundary) —
-/// `Method::RegisterMaterialization` + `Method::MaterializationStatus` prove the FULL
-/// invalidation loop end-to-end over the served RPC surface, through the REAL
-/// `dispatch()` commit path (not a direct `tms_hook::notify` call): a base fact plus a
-/// derived node linked `derived --DERIVED_FROM--> base` register as a live
-/// `TruthMaintenance` materialization off their own stored provenance; a normal
-/// committed `RemoveNode` on the base fact — riding the SAME commit path CDC/audit
-/// use (`mutation::commit_finalize` step 7.5 / the dispatch-shell legacy-tail
-/// counterpart, `src/server/tms_hook.rs`) — then flips the derived materialization's
-/// served status from `"Fresh"` to `"Stale"` with ZERO additional wiring: a caller
-/// (e.g. agent-utilities) that registers once right after writing a derived artifact
-/// gets automatic invalidation on every subsequent base change from then on.
-#[cfg(feature = "epistemic-tms")]
-#[tokio::test]
-async fn register_materialization_over_rpc_then_base_change_stales_it() {
-    use epistemic_graph::protocol::{MaterializationStatusResult, RegisterMaterializationResult};
-
-    async fn materialization_status(
-        state: &Arc<RwLock<ServerState>>,
-        id: u64,
-        node_id: &str,
-    ) -> Option<String> {
-        let resp = dispatch(
-            state,
-            req(
-                id,
-                Method::MaterializationStatus {
-                    id: node_id.to_string(),
-                },
-            ),
-        )
-        .await;
-        assert!(
-            resp.error.is_none(),
-            "MaterializationStatus error: {:?}",
-            resp.error
-        );
-        let bytes = match &resp.result {
-            Some(ResultPayload::Raw(b)) => b.clone(),
-            other => panic!("expected Raw result, got {other:?}"),
-        };
-        let result: MaterializationStatusResult =
-            rmp_serde::from_slice(&bytes).expect("MaterializationStatusResult decodes");
-        result.status
-    }
-
-    let state = state();
-    ok(
-        &state,
-        1,
-        Method::AddNode {
-            node_id: "seam3_base_fact".into(),
-            properties_msgpack: pack(json!({ "type": "Claim", "confidence": 0.9 })),
-        },
-    )
-    .await;
-    ok(
-        &state,
-        2,
-        Method::AddNode {
-            node_id: "seam3_derived_claim".into(),
-            properties_msgpack: pack(json!({ "type": "Claim", "confidence": 0.8 })),
-        },
-    )
-    .await;
-    ok(
-        &state,
-        3,
-        Method::AddEdge {
-            source_id: "seam3_derived_claim".into(),
-            target_id: "seam3_base_fact".into(),
-            properties_msgpack: pack(json!({ "relationship_type": "DERIVED_FROM" })),
-        },
-    )
-    .await;
-
-    // Register the derived node's materialization straight off its stored provenance.
-    let resp = dispatch(
-        &state,
-        req(
-            4,
-            Method::RegisterMaterialization {
-                derived_id: "seam3_derived_claim".into(),
-            },
-        ),
-    )
-    .await;
-    assert!(
-        resp.error.is_none(),
-        "RegisterMaterialization error: {:?}",
-        resp.error
-    );
-    let bytes = match &resp.result {
-        Some(ResultPayload::Raw(b)) => b.clone(),
-        other => panic!("expected Raw result, got {other:?}"),
-    };
-    let registered: RegisterMaterializationResult =
-        rmp_serde::from_slice(&bytes).expect("RegisterMaterializationResult decodes");
-    assert_eq!(registered.id, "seam3_derived_claim");
-    assert_eq!(registered.depends_on, vec!["seam3_base_fact".to_string()]);
-    assert_eq!(registered.generating_activity, None);
-
-    // Immediately after registering, the materialization is Fresh.
-    let status_before = materialization_status(&state, 5, "seam3_derived_claim").await;
-    assert_eq!(status_before, Some("Fresh".to_string()));
-
-    // A REAL committed mutation on the base fact -- through the normal write path,
-    // not a direct `tms_hook` call -- must flip the derived materialization Stale.
-    ok(
-        &state,
-        6,
-        Method::RemoveNode {
-            node_id: "seam3_base_fact".into(),
-        },
-    )
-    .await;
-
-    let status_after = materialization_status(&state, 7, "seam3_derived_claim").await;
-    assert_eq!(status_after, Some("Stale".to_string()));
-}
-
 /// L53 (EPI-P3-5 wiring) — `Method::EpistemicStatus`, the acceptance capstone, callable
 /// end-to-end through the served RPC surface: belief + evidence + authority + time +
 /// uncertainty + invalidation-deps all come back for one claim in ONE typed call.
@@ -1866,7 +1741,7 @@ async fn epistemic_status_returns_every_facet_over_rpc() {
         Method::AddEdge {
             source_id: "evidence1".into(),
             target_id: "claim1".into(),
-            properties_msgpack: pack(json!({ "relationship_type": "SUPPORTS" })),
+            properties_msgpack: pack(json!({ "relationship": "SUPPORTS" })),
         },
     )
     .await;
@@ -1915,50 +1790,19 @@ async fn epistemic_status_returns_every_facet_over_rpc() {
 }
 
 /// X-1 (CONCEPT:EG-X1) — `Method::ExplainEvidence`, over the served RPC surface: a
-/// small `SourceObject -> AssetOccurrence -> Blob -> Evidence -> Claim` identity
-/// chain, where the `:Evidence` node carries a located `PageBox` locus plus the
-/// `occurrence_id`/`blob_ref` identity it was extracted from. Asserts the citation's
-/// exact locus round-trips over the wire byte-for-byte.
+/// claim whose evidence node carries one complete governed page-region locus.
 #[cfg(feature = "evidence-graph")]
 #[tokio::test]
 async fn explain_evidence_resolves_a_located_citation_over_rpc() {
-    use epistemic_graph::protocol::{EvidenceSpanWire, ExplainEvidenceResult};
+    use epistemic_graph::protocol::{
+        EvidenceAddressWire, EvidenceLocusWire, EvidenceResourceWire, ExplainEvidenceResult,
+    };
 
     let state = state();
 
-    // The identity chain a real multimodal ingestion pipeline would stamp — plain
-    // `type`-tagged nodes, per `eg_epistemic::evidence` module docs (not walked by
-    // `evidence_citations` itself, but the real-world provenance these ids name).
     ok(
         &state,
         1,
-        Method::AddNode {
-            node_id: "src-doc-1".into(),
-            properties_msgpack: pack(json!({ "type": "SourceObject" })),
-        },
-    )
-    .await;
-    ok(
-        &state,
-        2,
-        Method::AddNode {
-            node_id: "occ-1".into(),
-            properties_msgpack: pack(json!({ "type": "AssetOccurrence" })),
-        },
-    )
-    .await;
-    ok(
-        &state,
-        3,
-        Method::AddNode {
-            node_id: "blob-1".into(),
-            properties_msgpack: pack(json!({ "type": "Blob" })),
-        },
-    )
-    .await;
-    ok(
-        &state,
-        4,
         Method::AddNode {
             node_id: "claim1".into(),
             properties_msgpack: pack(json!({ "type": "Claim", "confidence": 0.5 })),
@@ -1967,32 +1811,37 @@ async fn explain_evidence_resolves_a_located_citation_over_rpc() {
     .await;
     ok(
         &state,
-        5,
+        2,
         Method::AddNode {
             node_id: "evidence1".into(),
             properties_msgpack: pack(json!({
                 "type": "Evidence",
                 "confidence": 0.9,
-                "evidence_span": {
-                    "PageBox": {
-                        "document_id": "src-doc-1",
+                "evidence_locus": {
+                    "id": "eg:locus:0000000000000001",
+                    "subject": {
+                        "kind": "occurrence",
+                        "id": "eg:occurrence:0000000000000002"
+                    },
+                    "address": {
+                        "kind": "page_region",
                         "page": 4,
                         "x": 12.0, "y": 34.0, "width": 200.0, "height": 50.0
-                    }
-                },
-                "occurrence_id": "occ-1",
-                "blob_ref": "blob-1",
+                    },
+                    "policy_ref": "eg:policy:0000000000000003",
+                    "derivation_ref": "eg:derivation:0000000000000004"
+                }
             })),
         },
     )
     .await;
     ok(
         &state,
-        6,
+        3,
         Method::AddEdge {
             source_id: "evidence1".into(),
             target_id: "claim1".into(),
-            properties_msgpack: pack(json!({ "relationship_type": "SUPPORTS" })),
+            properties_msgpack: pack(json!({ "relationship": "SUPPORTS" })),
         },
     )
     .await;
@@ -2000,7 +1849,7 @@ async fn explain_evidence_resolves_a_located_citation_over_rpc() {
     let resp = dispatch(
         &state,
         req(
-            7,
+            4,
             Method::ExplainEvidence {
                 node_id: "claim1".into(),
             },
@@ -2030,18 +1879,21 @@ async fn explain_evidence_resolves_a_located_citation_over_rpc() {
     assert_eq!(citation.kind, "Supports");
     assert_eq!(
         citation.locus,
-        Some(EvidenceSpanWire::PageBox {
-            document_id: "src-doc-1".into(),
-            page: 4,
-            x: 12.0,
-            y: 34.0,
-            width: 200.0,
-            height: 50.0,
-        }),
-        "the PageBox locus must round-trip over the wire byte-for-byte"
+        EvidenceLocusWire {
+            id: "eg:locus:0000000000000001".into(),
+            subject: EvidenceResourceWire::Occurrence("eg:occurrence:0000000000000002".into(),),
+            address: EvidenceAddressWire::PageRegion {
+                page: 4,
+                x: 12.0,
+                y: 34.0,
+                width: 200.0,
+                height: 50.0,
+            },
+            policy_ref: "eg:policy:0000000000000003".into(),
+            derivation_ref: "eg:derivation:0000000000000004".into(),
+        },
+        "the governed locus must round-trip over the wire byte-for-byte"
     );
-    assert_eq!(citation.occurrence_id.as_deref(), Some("occ-1"));
-    assert_eq!(citation.blob_ref.as_deref(), Some("blob-1"));
 }
 
 /// EPI-P3-3 — `Method::CausalEstimate`, over the served RPC surface: the SAME
@@ -2052,7 +1904,9 @@ async fn explain_evidence_resolves_a_located_citation_over_rpc() {
 #[cfg(feature = "epistemic-causal")]
 #[tokio::test]
 async fn causal_estimate_do_calculus_matches_hand_derivation_over_rpc() {
-    use epistemic_graph::protocol::{CausalEstimateResult, StructuralEquationWire};
+    use epistemic_graph::protocol::{
+        CausalEstimateResult, CausalQueryModeWire, StructuralEquationWire,
+    };
     use std::collections::BTreeMap;
 
     let state = state();
@@ -2087,7 +1941,7 @@ async fn causal_estimate_do_calculus_matches_hand_derivation_over_rpc() {
             Method::CausalEstimate {
                 variables,
                 do_values,
-                mode: Default::default(),
+                mode: CausalQueryModeWire::Intervene,
             },
         ),
     )
@@ -2232,7 +2086,7 @@ async fn resolve_conflict_matches_tms_crate_semantics_over_rpc() {
         Method::AddEdge {
             source_id: "a".into(),
             target_id: "b".into(),
-            properties_msgpack: pack(json!({ "relationship_type": "ATTACKS" })),
+            properties_msgpack: pack(json!({ "relationship": "ATTACKS" })),
         },
     )
     .await;
@@ -2243,7 +2097,7 @@ async fn resolve_conflict_matches_tms_crate_semantics_over_rpc() {
         Method::AddEdge {
             source_id: "b".into(),
             target_id: "a".into(),
-            properties_msgpack: pack(json!({ "relationship_type": "ATTACKS" })),
+            properties_msgpack: pack(json!({ "relationship": "ATTACKS" })),
         },
     )
     .await;

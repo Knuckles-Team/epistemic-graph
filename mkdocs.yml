@@ -1,5 +1,5 @@
 site_name: "epistemic-graph"
-site_description: "Rust-native knowledge-graph compute engine — graph algorithms, quantitative finance, data science, and OWL reasoning served over a MessagePack/UDS daemon for the agent-utilities ecosystem."
+site_description: "Rust-native durable multimodal and epistemic database with governed mutation batches, distributed analytics, reasoning, and native program optimization."
 site_url: "https://knuckles-team.github.io/epistemic-graph/"
 repo_name: "Knuckles-Team/epistemic-graph"
 repo_url: "https://github.com/Knuckles-Team/epistemic-graph"
@@ -89,11 +89,17 @@ nav:
   # advanced analytics -> how it distributes/scales -> how you run it -> reference.
   - Home: index.md
   - Capabilities & Parity Matrix: capabilities.md
-  - Epistemic OS Hardening (2.20.0): architecture/epistemic-os-hardening.md
+  - Generated Capability Policy Ledger: capabilities.generated.md
+  - Epistemic OS Hardening: architecture/epistemic-os-hardening.md
   - Technical Overview: overview.md
   - Foundations:
       - "North Star: Seamless": north_star.md
       - Master-of-all Engine: architecture/engine.md
+      - Verified Request Authority: architecture/request_authority.md
+      - Authoritative MutationBatch: architecture/mutation_batch.md
+      - Governed ChangeEnvelope: architecture/change_envelope.md
+      - Governed Modality Serving: architecture/modality_serving.md
+      - Canonical Structural Properties: architecture/canonical-property-schema.md
       - Subsystems (C4 Containers): architecture/subsystems.md
       - Unified Planner & UQL: uql.md
       - One Build, Opt-in Layers: architecture/tiers.md
@@ -102,6 +108,7 @@ nav:
       - Transport Boundary (ADR): transport_boundary_adr.md
   - Query Surfaces & Interfaces:
       - Connecting (per-wire guide): interfaces/connecting.md
+      - Atomic Batch Updates: interfaces/batch_update.md
       - SQL & pgwire: interfaces/sql.md
       - SPARQL & RDF: interfaces/sparql.md
       - Cypher & Bolt: interfaces/cypher.md
@@ -113,11 +120,15 @@ nav:
       - Observability (logs/metrics/traces): interfaces/observability.md
       - GIS / Spatial: interfaces/gis.md
       - KV-cache (vLLM/LMCache): interfaces/kvcache.md
+      - KV-cache Remote Backend: architecture/kvcache_remote_backend.md
       - Agent Memory: interfaces/memory.md
       - Ontology Lifecycle: interfaces/ontology.md
       - Client Drivers (Python/JS/Go): interfaces/clients.md
+      - Epistemic Operations Protocol: interfaces/epistemic_operations.md
   - Analytics & Advanced Capabilities:
+      - Native Program Optimization: architecture/native-program-optimization.md
       - Analytics Program (one kernel, two surfaces): architecture/analytics_program.md
+      - Distributed Analytics & Incremental Reasoning: architecture/distributed-analytics-reasoning.md
       - Data Mining (graph_mine / /api/mining): mining.md
       - Graph Learning (graph_learn / /api/graphlearn): graphlearn.md
       - Analytics in UQL (EG-353): analytics_in_uql.md
@@ -130,6 +141,7 @@ nav:
       - Catalog-driven Resharding (M3): architecture/m3_resharding.md
       - Cluster Deployment: architecture/cluster_deployment.md
       - Per-Graph Write Coalescer: architecture/write_coalescer.md
+      - Hot-path Complexity Ledger: architecture/hot-path-complexity.md
       - Reserved Read-Admission Lane (EG-044): architecture/reserved_read_lane.md
       - Index Manager: architecture/index_manager.md
       - Correctness Harness: architecture/correctness_harness.md
@@ -138,12 +150,16 @@ nav:
       - DBeaver / psql Quickstart: dbeaver_quickstart.md
       - Deployment Topology (components): deployment_topology.md
       - Operations Runbook: operations/runbook.md
+      - Exact Fault/Restart Certification: operations/exact-fault-restart-certification.md
+      - Exact Release Campaigns: operations/exact-release-campaigns.md
       - Deployment (database): deployment.md
       - Cost Model & Capacity: cost_model.md
       - Binary Promotion (deploy): deploy/binary_promotion.md
       - Rust Compute Guide: rust_compute_guide.md
   - Performance:
+      - Exact-binary Certification: performance_certification.md
       - Transport Benchmarks: benchmarks.md
       - Soak / Chaos Benchmarks: benchmarks-soak.md
   - Reference:
       - Concept Registry: concepts.md
+      - Roadmap: roadmap.md

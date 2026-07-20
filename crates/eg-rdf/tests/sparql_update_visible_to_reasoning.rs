@@ -16,9 +16,25 @@
 
 use std::collections::HashSet;
 
+use eg_rdf::guard::{GuardRejection, WriteGuard};
 use eg_rdf::owl::{asserted_types_from_view, instances_of, tbox_triples_from_view, Reasoner};
+use eg_rdf::oxrdf::{Graph, Triple};
 use eg_rdf::sparql::Projection;
 use eg_rdf::update::{execute_str, MapStore};
+
+struct SeamWriteGuard;
+
+impl WriteGuard for SeamWriteGuard {
+    fn check_graph(
+        &self,
+        _graph: Option<&str>,
+        _base: &Graph,
+        _additions: &[Triple],
+        _removals: &[Triple],
+    ) -> Result<(), GuardRejection> {
+        Ok(())
+    }
+}
 
 /// The (inferred) members of `class` over the store's default graph, right now.
 fn members_of(store: &MapStore, class: &str) -> HashSet<String> {
@@ -26,7 +42,7 @@ fn members_of(store: &MapStore, class: &str) -> HashSet<String> {
     let triples = tbox_triples_from_view(&view);
     let mut reasoner = Reasoner::from_triples(&triples);
     let cls = reasoner.classify();
-    let asserted = asserted_types_from_view(&view, None);
+    let asserted = asserted_types_from_view(&view, "http://ex/").unwrap();
     instances_of(&cls, &asserted, class).into_iter().collect()
 }
 
@@ -48,6 +64,7 @@ fn sparql_update_reparents_class_and_reasoner_sees_new_inference() {
          INSERT DATA { ex:Dog rdfs:subClassOf ex:Mammal . ex:rex a ex:Dog }",
         &store,
         &Projection::raw(),
+        &SeamWriteGuard,
     )
     .unwrap();
 
@@ -69,6 +86,7 @@ fn sparql_update_reparents_class_and_reasoner_sees_new_inference() {
          WHERE  { ex:Dog rdfs:subClassOf ex:Mammal }",
         &store,
         &Projection::raw(),
+        &SeamWriteGuard,
     )
     .unwrap();
     assert_eq!(report.deleted, 1, "the old subClassOf axiom was deleted");

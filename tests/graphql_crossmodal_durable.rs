@@ -19,19 +19,20 @@
 
 #![cfg(all(feature = "graphql", feature = "redb"))]
 
+mod common;
+
 use std::sync::Arc;
 
 use dashmap::DashMap;
 use tokio::sync::{RwLock, Semaphore};
 
 use epistemic_graph::channels::ChannelManager;
-use epistemic_graph::isolation::IsolationLayer;
+use epistemic_graph::durability::DurabilityPolicy;
 use epistemic_graph::protocol::{GraphType, Method, Request, Response, ResultPayload};
 use epistemic_graph::registry::GraphRegistry;
 use epistemic_graph::server::persistence::redb_backend::RedbBackend;
 use epistemic_graph::server::persistence::PersistenceBackend;
-use epistemic_graph::server::{compute_auth_token, dispatch, ServerState};
-use epistemic_graph::wal_service::FsyncPolicy;
+use epistemic_graph::server::{dispatch, ServerState};
 
 const SECRET: &str = "gql-crossmodal-durable-secret";
 const GRAPH: &str = "gqlxmdurable"; // lowercase-alnum ⇒ sanitize() is identity ⇒ fname == GRAPH
@@ -45,19 +46,16 @@ fn state_with(backend: Arc<dyn PersistenceBackend>, dir: String) -> Arc<RwLock<S
             epistemic_graph::server::persistence::cold_offload::ColdTenantTracker::new(),
         ),
         registry: GraphRegistry::new(),
-        isolation: IsolationLayer::new(),
+        isolation: common::current_isolation(),
         channels: ChannelManager::new(),
         auth_secret: SECRET.to_string(),
         persist_dir: Some(dir),
         persistence: Some(backend),
-        redb_authoritative: true,
         max_in_flight: Arc::new(Semaphore::new(16)),
         read_admission: Arc::new(Semaphore::new(16)),
         per_graph_inflight: Arc::new(DashMap::new()),
         per_graph_inflight_limit: 8,
-        write_coalescer: Arc::new(
-            epistemic_graph::write_coalescer::WriteCoalescerRegistry::from_env(),
-        ),
+        write_coalescer: Arc::new(epistemic_graph::write_coalescer::WriteCoalescerRegistry::new()),
         open_txns: Arc::new(DashMap::new()),
         txn_id_gen: Arc::new(epistemic_graph::server::txn::TxnIdGen::default()),
         txn_ttl_secs: 300,
@@ -73,8 +71,6 @@ fn state_with(backend: Arc<dyn PersistenceBackend>, dir: String) -> Arc<RwLock<S
         multi_raft: None,
         #[cfg(feature = "tsdb")]
         tsdb_store: None,
-        #[cfg(feature = "rdf-redb")]
-        rdf_quads: None,
         #[cfg(feature = "streaming")]
         cdc: Some(Arc::new(epistemic_graph::server::cdc::CdcHub::new())),
         #[cfg(feature = "wasm-udf")]
@@ -87,23 +83,13 @@ fn state_with(backend: Arc<dyn PersistenceBackend>, dir: String) -> Arc<RwLock<S
         foreign_sources: Arc::new(DashMap::new()),
         #[cfg(feature = "kv")]
         kv: None,
-        #[cfg(feature = "dataset-handle")]
-        dataset_handles: std::sync::Arc::new(
-            epistemic_graph::server::dataset_handle::DatasetHandleRegistry::new(),
-        ),
         #[cfg(feature = "lake")]
         lake: std::sync::Arc::new(epistemic_graph::server::lake::LakeManager::new()),
     }))
 }
 
 fn req(id: u64, graph: &str, method: Method) -> Request {
-    Request {
-        id,
-        graph: graph.into(),
-        auth_token: compute_auth_token(SECRET, id),
-        agent_id: None,
-        method,
-    }
+    common::signed_request(SECRET, id, graph, method)
 }
 
 /// Run a GraphQL doc against `GRAPH`; assert no error; return the decoded `{data:…}` JSON.
@@ -143,7 +129,7 @@ async fn graphql_cross_modal_commit_survives_reopen() {
 
     // ── Phase 1: open the durable tier, create the graph, run the cross-modal txn ──
     let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir_s.clone(), FsyncPolicy::Each, 8192).unwrap());
+        Arc::new(RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 8192).unwrap());
     let state = state_with(backend.clone(), dir_s.clone());
 
     // Create the graph (dispatch registers it in BOTH the registry and the durable tier).
@@ -215,7 +201,7 @@ async fn graphql_cross_modal_commit_survives_reopen() {
     drop(state);
 
     let reopened: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir_s.clone(), FsyncPolicy::Each, 8192).unwrap());
+        Arc::new(RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 8192).unwrap());
 
     // The committed node must be on disk — read it back from the durable tier.
     let blob = reopened

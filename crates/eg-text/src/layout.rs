@@ -5,9 +5,9 @@
 //! legal-clause markers). Dependency-free, ships in EVERY build (no `tantivy`
 //! needed) — mirrors [`crate::bm25`]'s "always compiled" posture.
 //!
-//! The shapes here are deliberately **`EvidenceSpan`-shaped**: [`TableSpan`] mirrors
-//! `eg_modality::EvidenceSpan::TableCellRange` field-for-field and
-//! [`CitationSpan`]/[`LayoutSpan`] mirror `EvidenceSpan::DocumentSpan`, so once a
+//! The shapes here are deliberately **`EvidenceAddress`-shaped**: [`TableSpan`] mirrors
+//! `eg_modality::EvidenceAddress::TableCellRange` field-for-field and
+//! [`CitationSpan`]/[`LayoutSpan`] mirror `EvidenceAddress::CharacterRange`, so once a
 //! caller has an `eg-modality` `contract` build available, converting is a free
 //! `From` (see `src/contract.rs`) — this module itself takes no `eg-modality`
 //! dependency.
@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 
 /// One detected table: its parsed grid (row-major, `rows[r][c]`) and the
 /// half-open BYTE range `[byte_start, byte_end)` of the source text it came from
-/// (for a `DocumentSpan`-shaped backing reference to the surrounding document).
+/// (for a `CharacterRange` backing address in the surrounding document).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ExtractedTable {
     pub table_id: String,
@@ -64,8 +64,8 @@ impl ExtractedTable {
 }
 
 /// A `TableCellRange`-shaped span: identical fields to
-/// `eg_modality::EvidenceSpan::TableCellRange` plus the cell text itself (the
-/// `EvidenceSpan` variant carries no payload — this is the extractor's own richer
+/// `eg_modality::EvidenceAddress::TableCellRange` plus the cell text itself (the
+/// `EvidenceAddress` variant carries no payload — this is the extractor's own richer
 /// intermediate the caller reads before staging just the located reference).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TableSpan {
@@ -204,7 +204,7 @@ pub enum LayoutKind {
     Paragraph,
 }
 
-/// A `DocumentSpan`-shaped structural region: a half-open BYTE range `[start, end)`
+/// A `CharacterRange`-shaped structural region: a half-open BYTE range `[start, end)`
 /// tagged with its [`LayoutKind`].
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct LayoutSpan {
@@ -331,7 +331,7 @@ pub enum CitationKind {
     ClauseReference,
 }
 
-/// A `DocumentSpan`-shaped citation/clause reference: a half-open byte range plus
+/// A `CharacterRange`-shaped citation/clause reference: a half-open byte range plus
 /// its matched text and [`CitationKind`].
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct CitationSpan {
@@ -450,7 +450,7 @@ fn scan_clause_references(text: &str) -> Vec<CitationSpan> {
                         // not the leading keyword: `text` is the clause identifier
                         // callers key on, and keeping `start`/`end` on the locator
                         // preserves the crate-wide `text == text[start..end]`
-                        // invariant that `to_evidence_span` relies on.
+                        // invariant that `to_evidence_address` relies on.
                         let end = locator_start + loc_len;
                         out.push(CitationSpan {
                             kind: CitationKind::ClauseReference,

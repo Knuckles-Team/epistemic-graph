@@ -4,8 +4,8 @@
 //! engine's own primitives.
 //!
 //! Strategy:
-//!   * a node's `:Label` predicate            → the eg-core label index (the same
-//!     `type`/`node_type`/`label`/`labels` fields `get_nodes_by_label` keys on),
+//!   * a node's `:Label` predicate            → canonical `node_type` plus the
+//!     explicit multi-label `labels` array,
 //!     resolved here directly off the `GraphView`;
 //!   * a linear MATCH path                     → an incremental neighbour-walk
 //!     (`resolve_match`): start from the label-index candidates, then extend hop by
@@ -48,6 +48,9 @@ pub type Params = serde_json::Map<String, Value>;
 /// `@path@<var>` key as a JSON-array string of the node ids along the path; an edge
 /// variable (write path) under `@edge@<var>` as `src\0tgt`; a SCALAR value bound by
 /// `UNWIND`/`CALL`/`YIELD` (CONCEPT:EG-KG.query.param-list-drives-unwind/142) under `@val@<var>` as a JSON string.
+/// Cypher 25 group variables use `@qpp-node@<var>` / `@qpp-edge@<var>` JSON arrays
+/// so their ordered per-repetition values cannot be confused with singleton
+/// variables in the surrounding scope.
 type Binding = HashMap<String, String>;
 
 /// Parse + run `cypher` over `view` (read-only, single graph). Synchronous and
@@ -157,6 +160,32 @@ fn val_key(var: &str) -> String {
     format!("@val@{var}")
 }
 
+/// Binding sidecar for a quantified-path node group variable.
+fn qpp_node_key(var: &str) -> String {
+    format!("@qpp-node@{var}")
+}
+
+/// Binding sidecar for a quantified-path relationship group variable.
+fn qpp_edge_key(var: &str) -> String {
+    format!("@qpp-edge@{var}")
+}
+
+/// Decode one internal JSON string-list sidecar. Internal bindings are produced
+/// by this module, so a malformed value is treated as an empty accumulator rather
+/// than exposed to callers as parser state.
+fn binding_list(binding: &Binding, key: &str) -> Vec<String> {
+    binding
+        .get(key)
+        .and_then(|raw| serde_json::from_str(raw).ok())
+        .unwrap_or_default()
+}
+
+fn append_binding_list(binding: &mut Binding, key: String, value: String) {
+    let mut values = binding_list(binding, &key);
+    values.push(value);
+    binding.insert(key, serde_json::to_string(&values).unwrap_or_default());
+}
+
 /// Evaluate an UNWIND list operand into its element values (CONCEPT:EG-KG.query.param-list-drives-unwind).
 fn eval_list(b: &Binding, params: &Params, list: &ListExpr) -> Result<Vec<Value>, String> {
     match list {
@@ -190,10 +219,18 @@ fn resolve_prop_val(b: &Binding, params: &Params, pv: &PropVal) -> Result<Value,
     }
 }
 
-/// The value a bound variable carries: its `@val@` scalar (decoded), else its node id
-/// as a string, else `None`.
+/// The value a bound variable carries while resolving expressions: its `@val@`
+/// scalar (decoded), else its node id as a string, else `None`.
+///
+/// This is deliberately an internal binding value, not the public projection of a
+/// node. A bare node expression is materialized by [`eval_scalar`] as the canonical
+/// node map returned on the Cypher wire.
 fn bound_value(b: &Binding, var: &str) -> Option<Value> {
-    if let Some(s) = b.get(&val_key(var)) {
+    if let Some(ids) = b.get(&qpp_node_key(var)) {
+        serde_json::from_str(ids).ok()
+    } else if let Some(edges) = b.get(&qpp_edge_key(var)) {
+        serde_json::from_str(edges).ok()
+    } else if let Some(s) = b.get(&val_key(var)) {
         Some(serde_json::from_str(s).unwrap_or(Value::Null))
     } else {
         b.get(var).map(|id| Value::String(id.clone()))
@@ -229,8 +266,15 @@ fn subquery_additions(
         let qr = finalize(view, subquery, sub_bindings)?;
         let mut out = Vec::new();
         for row in &qr.rows {
-            let cells: Vec<Value> =
-                rmp_serde::from_slice(row).map_err(|e| format!("decode subquery row: {e}"))?;
+            let cells: Vec<Value> = eg_types::msgpack::decode_bounded(
+                row,
+                eg_types::msgpack::MsgpackLimits::new(
+                    eg_types::msgpack::MAX_PROPERTY_BYTES,
+                    eg_types::msgpack::MAX_PROPERTY_ITEMS,
+                    eg_types::msgpack::DEFAULT_MAX_DEPTH,
+                ),
+            )
+            .map_err(|_| "decode subquery row failed".to_string())?;
             let mut add = Binding::new();
             for (i, col) in qr.columns.iter().enumerate() {
                 let v = cells.get(i).cloned().unwrap_or(Value::Null);
@@ -368,7 +412,7 @@ fn resolve_match(
         partials.push((b, sid));
     }
 
-    partials = walk_hops(view, &pattern.hops, partials, params);
+    partials = walk_hops(view, &pattern.hops, partials, params)?;
 
     let mut out: Vec<Binding> = Vec::new();
     for (b, _) in partials {
@@ -384,53 +428,47 @@ fn resolve_match(
 /// by hop. Factored out of [`resolve_match`] so quantified-path-pattern group
 /// expansion (CONCEPT:EG-KG.query.quantified-path-pattern) can recursively reuse the exact
 /// same hop-walking semantics for its inner sub-pattern — a group hop's `edge.group`
-/// dispatches to [`group_reachable`] instead of [`neighbors`]/[`bfs_reachable`];
+/// dispatches to [`quantified_group_matches`] instead of [`neighbors`]/[`bfs_reachable`];
 /// everything downstream (label/prop/anchor checks, variable binding) is identical.
 fn walk_hops(
     view: &GraphView,
     hops: &[(EdgePat, NodePat)],
     mut partials: Vec<(Binding, String)>,
     params: &Params,
-) -> Vec<(Binding, String)> {
+) -> Result<Vec<(Binding, String)>, String> {
     for (edge, node) in hops {
         let mut next: Vec<(Binding, String)> = Vec::new();
         for (b, cur) in &partials {
-            let targets: Vec<String> = if let Some(group) = &edge.group {
-                group_reachable(view, cur, group, params)
-            } else {
-                match edge.var_len {
-                    Some((min, max)) => bfs_reachable(view, cur, edge, min, max),
-                    None => neighbors(view, cur, edge),
+            if let Some(group) = &edge.group {
+                for (group_binding, target) in
+                    quantified_group_matches(view, cur, group, b, params)?
+                {
+                    if let Some(nb) = bind_target_node(view, node, &group_binding, &target, params)
+                    {
+                        next.push((nb, target));
+                    }
+                    if next.len() > MAX_ROWS {
+                        return Err(format!(
+                            "quantified path pattern exceeded the {MAX_ROWS}-row expansion limit"
+                        ));
+                    }
                 }
+                continue;
+            }
+
+            let targets = match edge.var_len {
+                Some((min, max)) => bfs_reachable(view, cur, edge, min, max),
+                None => neighbors(view, cur, edge),
             };
             for t in targets {
-                // node label filter
-                if let Some(lbl) = &node.label {
-                    if !node_has_label_id(view, &t, lbl) {
-                        continue;
-                    }
-                }
-                // inline property constraints (CONCEPT:EG-KG.query.param-list-drives-unwind)
-                if !node_props_match(view, &t, node, b, params) {
+                let Some(mut nb) = bind_target_node(view, node, b, &t, params) else {
                     continue;
-                }
-                // anchor / already-bound consistency
-                if let Some(v) = &node.var {
-                    if let Some(bound) = b.get(v) {
-                        if bound != &t {
-                            continue;
-                        }
-                    }
-                }
-                let mut nb = b.clone();
-                if let Some(v) = &node.var {
-                    nb.insert(v.clone(), t.clone());
-                }
+                };
                 // Bind a named edge variable (`-[r]->`) on the READ path too — not just
                 // write's DELETE-only enrichment — so `RETURN type(r)` (CONCEPT:EG-KG.query.rel-type-projection)
-                // can resolve it. Only meaningful for a single fixed hop (var-length/group
-                // hops match a whole reachable SET, not one edge).
-                if let (Some(evar), None, None) = (&edge.var, edge.var_len, &edge.group) {
+                // can resolve it. Only meaningful for a single fixed hop; QPP
+                // relationship variables are captured per iteration separately.
+                if let (Some(evar), None) = (&edge.var, edge.var_len) {
                     let (src, tgt) = match edge.direction {
                         Direction::Right => (cur.clone(), t.clone()),
                         Direction::Left => (t.clone(), cur.clone()),
@@ -443,84 +481,205 @@ fn walk_hops(
         }
         partials = next;
     }
-    partials
+    Ok(partials)
 }
 
-/// Every node id reachable from `src` by repeating `group`'s whole inner
-/// sub-pattern between `group.quantifier.0` and `group.quantifier.1` times
-/// (inclusive) — a Cypher 25 quantified path pattern (CONCEPT:EG-KG.query.quantified-path-pattern).
-/// Generalizes [`bfs_reachable`] (which repeats ONE relationship) to repeating an
-/// ARBITRARY sub-pattern: each "meta-edge" of the outer BFS is one full
-/// application of `group.hops` starting at the group's `start` position. The
-/// shallowest repetition count that reaches a node wins (each end node appears
-/// once), matching `bfs_reachable`'s dedup semantics.
-fn group_reachable(
+/// Apply the outer node constraints/binding after an ordinary or quantified hop.
+fn bind_target_node(
+    view: &GraphView,
+    node: &NodePat,
+    binding: &Binding,
+    target: &str,
+    params: &Params,
+) -> Option<Binding> {
+    if node
+        .label
+        .as_ref()
+        .is_some_and(|label| !node_has_label_id(view, target, label))
+        || !node_props_match(view, target, node, binding, params)
+    {
+        return None;
+    }
+    if let Some(var) = &node.var {
+        if binding.get(var).is_some_and(|bound| bound != target) {
+            return None;
+        }
+    }
+    let mut next = binding.clone();
+    if let Some(var) = &node.var {
+        next.insert(var.clone(), target.to_string());
+    }
+    Some(next)
+}
+
+/// Every distinct path produced by repeating `group`'s whole inner sub-pattern
+/// between `min` and `max` times. Unlike a reachability BFS, this preserves the
+/// ordered per-repetition values for every variable declared inside the group.
+/// Two paths ending at the same node therefore remain distinct when their group
+/// bindings differ, as required by Cypher 25 group-variable semantics.
+fn quantified_group_matches(
     view: &GraphView,
     src: &str,
     group: &QuantifiedGroup,
+    binding: &Binding,
     params: &Params,
-) -> Vec<String> {
+) -> Result<Vec<(Binding, String)>, String> {
     let (min, max) = group.quantifier;
-    if max == 0 {
-        return Vec::new();
+    let mut seed = binding.clone();
+    initialize_group_variables(&mut seed, group);
+    let mut out = Vec::new();
+    if min == 0 {
+        out.push((seed.clone(), src.to_string()));
     }
-    let mut reached: HashSet<String> = HashSet::new();
-    let mut out: Vec<String> = Vec::new();
-    let mut frontier: Vec<String> = vec![src.to_string()];
+    if max == 0 {
+        return Ok(out);
+    }
+    let mut frontier = vec![(seed, src.to_string())];
 
     for depth in 1..=max {
-        let mut next_frontier: Vec<String> = Vec::new();
-        for cur in &frontier {
-            for end in expand_group_once(view, group, cur, params) {
-                if depth >= min && reached.insert(end.clone()) {
-                    out.push(end.clone());
+        let mut next_frontier = Vec::new();
+        for (state, current) in &frontier {
+            for matched in expand_group_once(view, group, current, state, params)? {
+                next_frontier.push(matched);
+                if next_frontier.len() > MAX_ROWS {
+                    return Err(format!(
+                        "quantified path pattern exceeded the {MAX_ROWS}-row expansion limit"
+                    ));
                 }
-                next_frontier.push(end);
             }
         }
         if next_frontier.is_empty() {
             break;
         }
-        // Dedup the frontier so a dense/cyclic graph doesn't blow up repetition
-        // count across iterations (reachability only cares about the node set).
-        next_frontier.sort();
-        next_frontier.dedup();
+        if depth >= min {
+            out.extend(next_frontier.iter().cloned());
+            if out.len() > MAX_ROWS {
+                return Err(format!(
+                    "quantified path pattern exceeded the {MAX_ROWS}-row result limit"
+                ));
+            }
+        }
         frontier = next_frontier;
     }
-    out
+    Ok(out)
 }
 
 /// One application of `group`'s inner sub-pattern anchored at `cur` (the group's
 /// `start` position must resolve to `cur`, subject to its own label/prop
-/// constraints), returning every node id the pattern's last hop reaches
-/// (CONCEPT:EG-KG.query.quantified-path-pattern). The group's own start/inner variables are
-/// LOCAL to this one application — they do not escape into the caller's binding
-/// (the documented QPP simplification: only reachability + the final end node
-/// participate in the outer scope).
+/// constraints), returning every resulting binding/end node. Group-local plain
+/// variables are captured into ordered list sidecars before the iteration result
+/// escapes to the outer scope (CONCEPT:EG-KG.query.quantified-path-pattern).
 fn expand_group_once(
     view: &GraphView,
     group: &QuantifiedGroup,
     cur: &str,
+    binding: &Binding,
     params: &Params,
-) -> Vec<String> {
+) -> Result<Vec<(Binding, String)>, String> {
     if let Some(lbl) = &group.start.label {
         if !node_has_label_id(view, cur, lbl) {
-            return Vec::new();
+            return Ok(Vec::new());
         }
     }
-    let empty_anchor: Binding = HashMap::new();
-    if !node_props_match(view, cur, &group.start, &empty_anchor, params) {
-        return Vec::new();
+    if !node_props_match(view, cur, &group.start, binding, params) {
+        return Ok(Vec::new());
     }
-    let mut b0: Binding = HashMap::new();
+    let mut local = binding.clone();
+    clear_group_singletons(&mut local, group);
     if let Some(v) = &group.start.var {
-        b0.insert(v.clone(), cur.to_string());
+        local.insert(v.clone(), cur.to_string());
     }
-    let partials = vec![(b0, cur.to_string())];
-    walk_hops(view, &group.hops, partials, params)
-        .into_iter()
-        .map(|(_, id)| id)
-        .collect()
+    Ok(
+        walk_hops(view, &group.hops, vec![(local, cur.to_string())], params)?
+            .into_iter()
+            .map(|(local, end)| {
+                let mut captured = local;
+                capture_group_iteration(&mut captured, group);
+                (captured, end)
+            })
+            .collect(),
+    )
+}
+
+fn initialize_group_variables(binding: &mut Binding, group: &QuantifiedGroup) {
+    for var in group_node_variables(group) {
+        binding
+            .entry(qpp_node_key(var))
+            .or_insert_with(|| "[]".to_string());
+    }
+    for var in group_edge_variables(group) {
+        binding
+            .entry(qpp_edge_key(var))
+            .or_insert_with(|| "[]".to_string());
+    }
+}
+
+fn clear_group_singletons(binding: &mut Binding, group: &QuantifiedGroup) {
+    for var in group_node_variables(group) {
+        binding.remove(var);
+    }
+    for var in group_edge_variables(group) {
+        binding.remove(&edge_key(var));
+    }
+}
+
+fn capture_group_iteration(binding: &mut Binding, group: &QuantifiedGroup) {
+    for var in group_node_variables(group) {
+        if let Some(id) = binding.remove(var) {
+            append_binding_list(binding, qpp_node_key(var), id);
+        }
+    }
+    for var in group_edge_variables(group) {
+        if let Some(edge) = binding.remove(&edge_key(var)) {
+            append_binding_list(binding, qpp_edge_key(var), edge);
+        }
+    }
+}
+
+fn group_node_variables(group: &QuantifiedGroup) -> Vec<&str> {
+    let mut vars = Vec::new();
+    if let Some(var) = group.start.var.as_deref() {
+        vars.push(var);
+    }
+    for (_, node) in &group.hops {
+        if let Some(var) = node.var.as_deref() {
+            if !vars.contains(&var) {
+                vars.push(var);
+            }
+        }
+    }
+    vars
+}
+
+fn group_edge_variables(group: &QuantifiedGroup) -> Vec<&str> {
+    let mut vars = Vec::new();
+    for (edge, _) in &group.hops {
+        if let Some(var) = edge.var.as_deref() {
+            if !vars.contains(&var) {
+                vars.push(var);
+            }
+        }
+    }
+    vars
+}
+
+fn group_scope_variables(group: &QuantifiedGroup) -> Vec<&str> {
+    let mut vars = group_node_variables(group);
+    for var in group_edge_variables(group) {
+        if !vars.contains(&var) {
+            vars.push(var);
+        }
+    }
+    for (edge, _) in &group.hops {
+        if let Some(nested) = edge.group.as_deref() {
+            for var in group_scope_variables(nested) {
+                if !vars.contains(&var) {
+                    vars.push(var);
+                }
+            }
+        }
+    }
+    vars
 }
 
 /// The petgraph traversal direction(s) `direction` resolves to: one for
@@ -643,13 +802,8 @@ fn resolve_undirected_endpoints(view: &GraphView, a: &str, b: &str) -> (String, 
 }
 
 /// Does the stored edge `(from→to)` carry relationship `rel`? Reads the edge's
-/// property blobs under any of the three keys a writer may have used for the
-/// relationship name — `relationship` (this engine's own CREATE convention, see
-/// [`create_pattern`]), `type`, or `rel_type` (the key the agent-utilities
-/// `epistemic_graph` backend stamps every edge with). Reading all three is what
-/// makes a typed pattern `-[:REL]->` match edges written by that backend instead
-/// of silently matching zero (the pre-fix mismatch that forced every relationship
-/// traversal onto client-side interpreters). `None` ⇒ any relationship.
+/// canonical `relationship` property stamped by every current writer. An ordinary
+/// `type` property is payload, not edge identity. `None` means any relationship.
 fn rel_matches(view: &GraphView, from: &str, to: &str, rel: Option<&str>) -> bool {
     let Some(rel) = rel else { return true };
     let Some(props_list) = view
@@ -659,12 +813,8 @@ fn rel_matches(view: &GraphView, from: &str, to: &str, rel: Option<&str>) -> boo
         return false;
     };
     for blob in props_list {
-        if let Ok(Value::Object(m)) = rmp_serde::from_slice::<Value>(blob) {
-            let stored = m
-                .get("relationship")
-                .or_else(|| m.get("type"))
-                .or_else(|| m.get("rel_type"))
-                .and_then(|v| v.as_str());
+        if let Ok(Value::Object(m)) = eg_types::msgpack::decode_property_value(blob) {
+            let stored = m.get("relationship").and_then(|v| v.as_str());
             if stored == Some(rel) {
                 return true;
             }
@@ -674,27 +824,45 @@ fn rel_matches(view: &GraphView, from: &str, to: &str, rel: Option<&str>) -> boo
 }
 
 /// The stored edge `(from→to)`'s relationship type — the value `type(r)`
-/// (CONCEPT:EG-KG.query.rel-type-projection) projects, and the SAME `relationship`/`type`/`rel_type`
-/// key precedence [`rel_matches`] reads, so `type(r)` is never null for an edge a
-/// typed pattern could have matched. `None` if the edge carries no relationship
-/// name under any of the three keys.
+/// (CONCEPT:EG-KG.query.rel-type-projection) projects, and the SAME canonical
+/// `relationship` field [`rel_matches`] reads, so `type(r)` is never null for an
+/// edge a typed pattern could have matched. `None` if that field is absent.
 fn edge_rel_type(view: &GraphView, from: &str, to: &str) -> Option<String> {
     let props_list = view
         .edge_properties
         .get(&(from.to_string(), to.to_string()))?;
     for blob in props_list {
-        if let Ok(Value::Object(m)) = rmp_serde::from_slice::<Value>(blob) {
-            let stored = m
-                .get("relationship")
-                .or_else(|| m.get("type"))
-                .or_else(|| m.get("rel_type"))
-                .and_then(|v| v.as_str());
+        if let Ok(Value::Object(m)) = eg_types::msgpack::decode_property_value(blob) {
+            let stored = m.get("relationship").and_then(|v| v.as_str());
             if let Some(s) = stored {
                 return Some(s.to_string());
             }
         }
     }
     None
+}
+
+/// Materialize a relationship binding as a property map with authoritative
+/// endpoint fields. QPP relationship group variables project an ordered list of
+/// these maps; singleton relationship variables use the same representation.
+fn edge_value(view: &GraphView, edge: &str) -> Value {
+    let Some((from, to)) = edge.split_once('\u{0}') else {
+        return Value::Null;
+    };
+    let mut obj = view
+        .edge_properties
+        .get(&(from.to_string(), to.to_string()))
+        .and_then(|props| props.first())
+        .and_then(|blob| eg_types::msgpack::decode_property_value(blob).ok())
+        .and_then(|value| value.as_object().cloned())
+        .unwrap_or_default();
+    obj.insert("source".to_string(), Value::String(from.to_string()));
+    obj.insert("target".to_string(), Value::String(to.to_string()));
+    Value::Object(obj)
+}
+
+fn edge_prop_value(view: &GraphView, edge: &str, prop: &str) -> Option<Value> {
+    edge_value(view, edge).get(prop).cloned()
 }
 
 // ── path / WITH plumbing (CONCEPT:EG-KG.query.eg-extend-read-side / EG-063) ───────────────────────────
@@ -742,6 +910,12 @@ fn project_with(b: &Binding, items: &[WithItem]) -> Binding {
         if let Some(v) = b.get(&val_key(&it.var)) {
             nb.insert(val_key(&target), v.clone());
         }
+        if let Some(v) = b.get(&qpp_node_key(&it.var)) {
+            nb.insert(qpp_node_key(&target), v.clone());
+        }
+        if let Some(v) = b.get(&qpp_edge_key(&it.var)) {
+            nb.insert(qpp_edge_key(&target), v.clone());
+        }
     }
     nb
 }
@@ -763,7 +937,14 @@ fn scope_vars(stages: &[ReadStage]) -> Vec<String> {
                 if let Some(v) = &pattern.start.var {
                     push(v, &mut scope);
                 }
-                for (_, node) in &pattern.hops {
+                for (edge, node) in &pattern.hops {
+                    if let Some(group) = edge.group.as_deref() {
+                        for var in group_scope_variables(group) {
+                            push(var, &mut scope);
+                        }
+                    } else if let Some(var) = edge.var.as_deref() {
+                        push(var, &mut scope);
+                    }
                     if let Some(v) = &node.var {
                         push(v, &mut scope);
                     }
@@ -963,25 +1144,80 @@ fn eval_scalar(view: &GraphView, binding: &Binding, expr: &Expr) -> Value {
         Expr::Var(v) => {
             if let Some(p) = binding.get(&path_key(v)) {
                 serde_json::from_str(p).unwrap_or(Value::Null)
+            } else if binding.contains_key(&qpp_node_key(v)) {
+                Value::Array(
+                    binding_list(binding, &qpp_node_key(v))
+                        .into_iter()
+                        .map(|id| materialize_node(view, &id))
+                        .collect(),
+                )
+            } else if binding.contains_key(&qpp_edge_key(v)) {
+                Value::Array(
+                    binding_list(binding, &qpp_edge_key(v))
+                        .into_iter()
+                        .map(|edge| edge_value(view, &edge))
+                        .collect(),
+                )
             } else if let Some(s) = binding.get(&val_key(v)) {
                 // A scalar bound by UNWIND/CALL/YIELD (CONCEPT:EG-KG.query.param-list-drives-unwind/142).
                 serde_json::from_str(s).unwrap_or(Value::Null)
             } else if let Some(id) = binding.get(v) {
-                Value::String(id.clone())
+                materialize_node(view, id)
+            } else if let Some(edge) = binding.get(&edge_key(v)) {
+                edge_value(view, edge)
             } else {
                 Value::Null
             }
         }
-        Expr::Prop(v, p) => binding
-            .get(v)
-            .and_then(|id| node_prop(view, id, p))
-            .unwrap_or(Value::Null),
-        Expr::RelType(v) => binding
-            .get(&edge_key(v))
-            .and_then(|edge| edge.split_once('\u{0}'))
-            .and_then(|(from, to)| edge_rel_type(view, from, to))
-            .map(Value::String)
-            .unwrap_or(Value::Null),
+        Expr::Prop(v, p) => {
+            if binding.contains_key(&qpp_node_key(v)) {
+                Value::Array(
+                    binding_list(binding, &qpp_node_key(v))
+                        .into_iter()
+                        .map(|id| node_prop(view, &id, p).unwrap_or(Value::Null))
+                        .collect(),
+                )
+            } else if binding.contains_key(&qpp_edge_key(v)) {
+                Value::Array(
+                    binding_list(binding, &qpp_edge_key(v))
+                        .into_iter()
+                        .map(|edge| edge_prop_value(view, &edge, p).unwrap_or(Value::Null))
+                        .collect(),
+                )
+            } else {
+                binding
+                    .get(v)
+                    .and_then(|id| node_prop(view, id, p))
+                    .or_else(|| {
+                        binding
+                            .get(&edge_key(v))
+                            .and_then(|edge| edge_prop_value(view, edge, p))
+                    })
+                    .unwrap_or(Value::Null)
+            }
+        }
+        Expr::RelType(v) => {
+            if binding.contains_key(&qpp_edge_key(v)) {
+                Value::Array(
+                    binding_list(binding, &qpp_edge_key(v))
+                        .into_iter()
+                        .map(|edge| {
+                            edge.split_once('\u{0}')
+                                .and_then(|(from, to)| edge_rel_type(view, from, to))
+                                .map(Value::String)
+                                .unwrap_or(Value::Null)
+                        })
+                        .collect(),
+                )
+            } else {
+                binding
+                    .get(&edge_key(v))
+                    .and_then(|edge| edge.split_once('\u{0}'))
+                    .and_then(|(from, to)| edge_rel_type(view, from, to))
+                    .map(Value::String)
+                    .unwrap_or(Value::Null)
+            }
+        }
         // Aggregates never reach here (the agg path owns them).
         Expr::CountStar | Expr::Aggregate(..) => Value::Null,
     }
@@ -1103,15 +1339,52 @@ fn arg_value(view: &GraphView, b: &Binding, arg: &AggArg) -> Option<Value> {
         AggArg::Var(v) => {
             if let Some(p) = b.get(&path_key(v)) {
                 Some(serde_json::from_str(p).unwrap_or(Value::Null))
+            } else if b.contains_key(&qpp_node_key(v)) {
+                Some(Value::Array(
+                    binding_list(b, &qpp_node_key(v))
+                        .into_iter()
+                        .map(|id| materialize_node(view, &id))
+                        .collect(),
+                ))
+            } else if b.contains_key(&qpp_edge_key(v)) {
+                Some(Value::Array(
+                    binding_list(b, &qpp_edge_key(v))
+                        .into_iter()
+                        .map(|edge| edge_value(view, &edge))
+                        .collect(),
+                ))
             } else if let Some(s) = b.get(&val_key(v)) {
                 Some(serde_json::from_str(s).unwrap_or(Value::Null))
             } else {
-                b.get(v).map(|id| Value::String(id.clone()))
+                b.get(v)
+                    .map(|id| materialize_node(view, id))
+                    .or_else(|| b.get(&edge_key(v)).map(|edge| edge_value(view, edge)))
             }
         }
-        AggArg::Prop(v, p) => b
-            .get(v)
-            .map(|id| node_prop(view, id, p).unwrap_or(Value::Null)),
+        AggArg::Prop(v, p) => {
+            if b.contains_key(&qpp_node_key(v)) {
+                Some(Value::Array(
+                    binding_list(b, &qpp_node_key(v))
+                        .into_iter()
+                        .map(|id| node_prop(view, &id, p).unwrap_or(Value::Null))
+                        .collect(),
+                ))
+            } else if b.contains_key(&qpp_edge_key(v)) {
+                Some(Value::Array(
+                    binding_list(b, &qpp_edge_key(v))
+                        .into_iter()
+                        .map(|edge| edge_prop_value(view, &edge, p).unwrap_or(Value::Null))
+                        .collect(),
+                ))
+            } else {
+                b.get(v)
+                    .map(|id| node_prop(view, id, p).unwrap_or(Value::Null))
+                    .or_else(|| {
+                        b.get(&edge_key(v))
+                            .map(|edge| edge_prop_value(view, edge, p).unwrap_or(Value::Null))
+                    })
+            }
+        }
     }
 }
 
@@ -1178,16 +1451,14 @@ fn node_has_label_id(view: &GraphView, id: &str, label: &str) -> bool {
         .is_some_and(|blob| node_has_label(blob, label))
 }
 
-/// Does a node's property blob carry `label` on any of `type`/`node_type`/`label`
-/// or in the `labels` array — mirroring `GraphCore::build_label_index`.
+/// Does a node's property blob carry `label` as canonical `node_type` or in the
+/// explicit multi-label `labels` array?
 fn node_has_label(blob: &[u8], label: &str) -> bool {
-    let Ok(val) = rmp_serde::from_slice::<Value>(blob) else {
+    let Ok(val) = eg_types::msgpack::decode_property_value(blob) else {
         return false;
     };
-    for key in ["type", "node_type", "label"] {
-        if val.get(key).and_then(|v| v.as_str()) == Some(label) {
-            return true;
-        }
+    if val.get("node_type").and_then(|v| v.as_str()) == Some(label) {
+        return true;
     }
     if let Some(arr) = val.get("labels").and_then(|v| v.as_array()) {
         if arr.iter().any(|x| x.as_str() == Some(label)) {
@@ -1221,10 +1492,38 @@ fn node_props_match(
     true
 }
 
-/// Read one property from a node's blob.
+/// Materialize the public Cypher value for a node variable.
+///
+/// The graph key is the authoritative node identity, so it always wins over a
+/// payload field named `id`. `node_type` is the sole canonical primary label and
+/// is always present in the projected map (null for an explicitly untyped node).
+/// This keeps result decoding uniform across native, Bolt, and delegated clients.
+fn materialize_node(view: &GraphView, node_id: &str) -> Value {
+    let mut obj = view
+        .node_properties
+        .get(node_id)
+        .and_then(|blob| eg_types::msgpack::decode_property_value(blob).ok())
+        .and_then(|value| value.as_object().cloned())
+        .unwrap_or_default();
+    obj.insert("id".to_string(), Value::String(node_id.to_string()));
+    if !obj.get("node_type").is_some_and(Value::is_string) {
+        obj.insert("node_type".to_string(), Value::Null);
+    }
+    Value::Object(obj)
+}
+
+/// Read one property from a node. `id` is a virtual canonical property backed by
+/// the graph key; every other property, including `node_type`, comes from the
+/// stored node map.
 fn node_prop(view: &GraphView, node_id: &str, prop: &str) -> Option<Value> {
+    if prop == "id" {
+        return view
+            .node_map
+            .contains_key(node_id)
+            .then(|| Value::String(node_id.to_string()));
+    }
     let blob = view.node_properties.get(node_id)?;
-    let val: Value = rmp_serde::from_slice(blob).ok()?;
+    let val = eg_types::msgpack::decode_property_value(blob).ok()?;
     val.get(prop).cloned()
 }
 
@@ -1349,22 +1648,30 @@ fn apply_create(
     mutated: &mut bool,
 ) -> Result<(), String> {
     let start_id = realize_node(core, binding, &pattern.start, params, mutated)?;
-    let mut prev_id = start_id;
-    for (edge, node) in &pattern.hops {
-        // A quantified path pattern (CONCEPT:EG-KG.query.quantified-path-pattern) describes a
-        // MATCH-time repeated-reachability shape, not a concrete relationship to
-        // realize — CREATE has no well-defined meaning for it (unlike a plain
-        // fixed hop or even `*min..max`, which at least name ONE relationship
-        // type/direction to create). Reject rather than silently creating a
-        // type-less edge.
-        if edge.group.is_some() {
-            return Err(
-                "CREATE does not support quantified path pattern groups `((...)){m,n}`".into(),
-            );
+    create_hops(core, binding, &pattern.hops, start_id, params, mutated)?;
+    Ok(())
+}
+
+/// Materialize a hop sequence from an already-realized start node. Quantified
+/// groups recurse through this same routine, so multi-hop and nested groups use
+/// exactly the ordinary CREATE node/edge semantics.
+fn create_hops(
+    core: &GraphCore,
+    binding: &mut Binding,
+    hops: &[(EdgePat, NodePat)],
+    mut prev_id: String,
+    params: &Params,
+    mutated: &mut bool,
+) -> Result<String, String> {
+    for (edge, node) in hops {
+        if let Some(group) = edge.group.as_deref() {
+            prev_id = create_quantified_group(core, binding, group, prev_id, params, mutated)?;
+            apply_existing_node_spec(core, binding, node, &prev_id, params, mutated)?;
+            continue;
         }
         // Undirected `-[...]-` (CONCEPT:EG-KG.query.undirected-relationship-pattern) is a MATCH-only
         // shape: it names no concrete direction to store the edge in, so — like the
-        // quantified-group case above — CREATE rejects it rather than guessing.
+        // quantified-group's own inner edges — CREATE rejects it rather than guessing.
         if edge.direction == Direction::Both {
             return Err(
                 "CREATE requires a directed relationship (`->` or `<-`); `-[...]-` (undirected) has no direction to create".into(),
@@ -1382,16 +1689,125 @@ fn apply_create(
         }
         let blob = rmp_serde::to_vec_named(&Value::Object(props))
             .map_err(|e| format!("encode edge props: {e}"))?;
+        if let Some(var) = &edge.var {
+            binding.insert(edge_key(var), format!("{src}\u{0}{tgt}"));
+        }
         core.add_edge(src, tgt, blob)
             .map_err(|e| format!("CREATE edge: {e}"))?;
         *mutated = true;
         prev_id = next_id;
     }
+    Ok(prev_id)
+}
+
+/// CREATE extension for a quantified group. A range deterministically
+/// materializes its inclusive upper bound (`{m,n}` creates `n` repetitions), so
+/// write cardinality never depends on planner choice. Per-iteration variables are
+/// captured into the same ordered group-variable lists as MATCH.
+fn create_quantified_group(
+    core: &GraphCore,
+    binding: &mut Binding,
+    group: &QuantifiedGroup,
+    mut current: String,
+    params: &Params,
+    mutated: &mut bool,
+) -> Result<String, String> {
+    initialize_group_variables(binding, group);
+    for _ in 0..group.quantifier.1 {
+        let mut local = binding.clone();
+        clear_group_singletons(&mut local, group);
+        apply_existing_node_spec(core, &mut local, &group.start, &current, params, mutated)?;
+        let end = create_hops(core, &mut local, &group.hops, current, params, mutated)?;
+        capture_group_iteration(&mut local, group);
+        *binding = local;
+        current = end;
+    }
+    Ok(current)
+}
+
+/// Apply a node pattern to an existing QPP boundary node. Missing label/property
+/// constraints are added; conflicting constraints fail instead of silently
+/// overwriting an already-created node.
+fn apply_existing_node_spec(
+    core: &GraphCore,
+    binding: &mut Binding,
+    node: &NodePat,
+    id: &str,
+    params: &Params,
+    mutated: &mut bool,
+) -> Result<(), String> {
+    if let Some(var) = &node.var {
+        if binding.get(var).is_some_and(|bound| bound != id) {
+            return Err(format!(
+                "CREATE node variable `{var}` is already bound to a different node"
+            ));
+        }
+        binding.insert(var.clone(), id.to_string());
+    }
+
+    let blob = core
+        .get_node_properties(id)
+        .ok_or_else(|| format!("CREATE QPP boundary node `{id}` is absent"))?;
+    let mut value = eg_types::msgpack::decode_property_value(&blob)
+        .map_err(|_| format!("decode node `{id}` failed"))?;
+    let obj = value
+        .as_object_mut()
+        .ok_or_else(|| format!("CREATE QPP boundary node `{id}` has non-object properties"))?;
+    let mut changed = false;
+
+    if let Some(label) = &node.label {
+        match obj.get("node_type").and_then(Value::as_str) {
+            Some(existing) if existing != label => {
+                return Err(format!(
+                    "CREATE QPP boundary label `{label}` conflicts with `{existing}`"
+                ));
+            }
+            Some(_) => {}
+            None if obj.contains_key("node_type") => {
+                return Err(
+                    "CREATE QPP boundary node_type must be a string when a label is present"
+                        .to_string(),
+                );
+            }
+            None => {
+                obj.insert("node_type".to_string(), Value::String(label.clone()));
+                changed = true;
+            }
+        }
+    }
+    for (key, wanted) in props_to_map(node.props.as_deref(), binding, params)? {
+        if key == "id" {
+            if wanted.as_str() != Some(id) {
+                return Err(format!(
+                    "CREATE QPP boundary id constraint does not match `{id}`"
+                ));
+            }
+            continue;
+        }
+        match obj.get(&key) {
+            Some(existing) if existing != &wanted => {
+                return Err(format!(
+                    "CREATE QPP boundary property `{key}` conflicts with its existing value"
+                ));
+            }
+            Some(_) => {}
+            None => {
+                obj.insert(key, wanted);
+                changed = true;
+            }
+        }
+    }
+    if changed {
+        let encoded =
+            rmp_serde::to_vec_named(&value).map_err(|e| format!("encode node `{id}`: {e}"))?;
+        core.add_node(id.to_string(), encoded);
+        *mutated = true;
+    }
     Ok(())
 }
 
 /// Resolve a CREATE node position to an id: reuse a bound variable, else create a new
-/// node carrying its label (`type`) + inline props (CONCEPT:EG-KG.query.register-each-user-table).
+/// node carrying its canonical `node_type` + inline props (CONCEPT:EG-KG.query.register-each-user-table).
 fn realize_node(
     core: &GraphCore,
     binding: &mut Binding,
@@ -1406,9 +1822,20 @@ fn realize_node(
     }
     let mut props = props_to_map(node.props.as_deref(), binding, params)?;
     if let Some(label) = &node.label {
-        props
-            .entry("type".to_string())
-            .or_insert_with(|| Value::String(label.clone()));
+        match props.get("node_type").and_then(Value::as_str) {
+            Some(explicit) if explicit != label => {
+                return Err(format!(
+                    "node label `{label}` conflicts with explicit node_type `{explicit}`"
+                ));
+            }
+            Some(_) => {}
+            None if props.contains_key("node_type") => {
+                return Err("node_type must be a string when a node label is present".to_string());
+            }
+            None => {
+                props.insert("node_type".to_string(), Value::String(label.clone()));
+            }
+        }
     }
     let id = match props.get("id").and_then(|v| v.as_str()) {
         Some(s) => s.to_string(),
@@ -1439,7 +1866,15 @@ fn apply_merge(
         None => core.get_nodes(),
     };
     for (id, blob) in &candidates {
-        let Ok(Value::Object(obj)) = rmp_serde::from_slice::<Value>(blob) else {
+        if let Some(label) = &node.label {
+            // GraphCore's general label index intentionally serves other engine
+            // surfaces too. Cypher's current-only contract is narrower: a legacy
+            // payload `type`/`label` must never satisfy a Cypher node label.
+            if !node_has_label(blob, label) {
+                continue;
+            }
+        }
+        let Ok(Value::Object(obj)) = eg_types::msgpack::decode_property_value(blob) else {
             continue;
         };
         if want.iter().all(|(k, v)| obj.get(k) == Some(v)) {
@@ -1518,8 +1953,8 @@ fn apply_remove(
         let blob = core
             .get_node_properties(id)
             .ok_or_else(|| format!("REMOVE on absent node `{var}` ({id})"))?;
-        let mut val: Value =
-            rmp_serde::from_slice(&blob).map_err(|e| format!("decode node `{id}`: {e}"))?;
+        let mut val = eg_types::msgpack::decode_property_value(&blob)
+            .map_err(|_| format!("decode node `{id}` failed"))?;
         let Some(obj) = val.as_object_mut() else {
             continue;
         };
@@ -1544,16 +1979,13 @@ fn apply_remove(
     Ok(())
 }
 
-/// Remove `label` from a node's property object, mirroring the label-index fields
-/// (`type`/`node_type`/`label` scalar, or membership in the `labels` array). Returns
-/// whether anything changed (CONCEPT:EG-KG.query.cypher-execution).
+/// Remove `label` from canonical `node_type` or the explicit `labels` array.
+/// Returns whether anything changed (CONCEPT:EG-KG.query.cypher-execution).
 fn remove_label(obj: &mut serde_json::Map<String, Value>, label: &str) -> bool {
     let mut changed = false;
-    for key in ["type", "node_type", "label"] {
-        if obj.get(key).and_then(|v| v.as_str()) == Some(label) {
-            obj.remove(key);
-            changed = true;
-        }
+    if obj.get("node_type").and_then(|v| v.as_str()) == Some(label) {
+        obj.remove("node_type");
+        changed = true;
     }
     if let Some(Value::Array(arr)) = obj.get_mut("labels") {
         let before = arr.len();
@@ -1686,19 +2118,19 @@ mod tests {
         let core = GraphCore::new();
         core.add_node(
             "alice".into(),
-            pbytes(serde_json::json!({"type":"Person","name":"Alice"})),
+            pbytes(serde_json::json!({"node_type":"Person","name":"Alice"})),
         );
         core.add_node(
             "bob".into(),
-            pbytes(serde_json::json!({"type":"Person","name":"Bob"})),
+            pbytes(serde_json::json!({"node_type":"Person","name":"Bob"})),
         );
         core.add_node(
             "carol".into(),
-            pbytes(serde_json::json!({"type":"Person","name":"Carol"})),
+            pbytes(serde_json::json!({"node_type":"Person","name":"Carol"})),
         );
         core.add_node(
             "d1".into(),
-            pbytes(serde_json::json!({"type":"Doc","size":42})),
+            pbytes(serde_json::json!({"node_type":"Doc","size":42})),
         );
         core.add_edge(
             "alice".into(),
@@ -1721,11 +2153,17 @@ mod tests {
             .iter()
             .map(|b| {
                 let cells: Vec<Value> = rmp_serde::from_slice(b).unwrap();
-                cells[col].as_str().unwrap().to_string()
+                projected_id(&cells[col]).unwrap().to_string()
             })
             .collect();
         out.sort();
         out
+    }
+
+    fn projected_id(value: &Value) -> Option<&str> {
+        value
+            .as_str()
+            .or_else(|| value.get("id").and_then(Value::as_str))
     }
 
     fn cells_of(qr: &QueryResult, row: usize) -> Vec<Value> {
@@ -1738,6 +2176,57 @@ mod tests {
         let qr = exec_cypher(&v, "MATCH (a:Person) RETURN a").unwrap();
         assert_eq!(qr.columns, vec!["a"]);
         assert_eq!(ids(&qr, 0), vec!["alice", "bob", "carol"]);
+    }
+
+    #[test]
+    fn bare_node_projection_is_a_canonical_map() {
+        let v = fixture();
+        let qr = exec_cypher(
+            &v,
+            "MATCH (a:Person) WHERE a.name = 'Alice' RETURN a, a.id, a.node_type",
+        )
+        .unwrap();
+        let cells = cells_of(&qr, 0);
+        let node = cells[0].as_object().expect("bare node must be a map");
+        assert_eq!(node.get("id"), Some(&Value::String("alice".into())));
+        assert_eq!(node.get("node_type"), Some(&Value::String("Person".into())));
+        assert_eq!(node.get("name"), Some(&Value::String("Alice".into())));
+        assert_eq!(cells[1], Value::String("alice".into()));
+        assert_eq!(cells[2], Value::String("Person".into()));
+    }
+
+    #[test]
+    fn graph_key_overrides_spoofed_payload_id_in_node_projection() {
+        let core = GraphCore::new();
+        core.add_node(
+            "canonical-id".into(),
+            pbytes(serde_json::json!({
+                "id": "spoofed-id", "node_type": "Person", "name": "Ada"
+            })),
+        );
+        let qr = exec_cypher(&core.analysis_snapshot(), "MATCH (n:Person) RETURN n, n.id").unwrap();
+        let cells = cells_of(&qr, 0);
+        assert_eq!(projected_id(&cells[0]), Some("canonical-id"));
+        assert_eq!(cells[1], Value::String("canonical-id".into()));
+    }
+
+    #[test]
+    fn cypher_labels_reject_legacy_type_and_label_aliases() {
+        let core = GraphCore::new();
+        core.add_node(
+            "legacy-type".into(),
+            pbytes(serde_json::json!({"type": "Person"})),
+        );
+        core.add_node(
+            "legacy-label".into(),
+            pbytes(serde_json::json!({"label": "Person"})),
+        );
+        core.add_node(
+            "canonical".into(),
+            pbytes(serde_json::json!({"node_type": "Person"})),
+        );
+        let qr = exec_cypher(&core.analysis_snapshot(), "MATCH (n:Person) RETURN n").unwrap();
+        assert_eq!(ids(&qr, 0), vec!["canonical"]);
     }
 
     #[test]
@@ -1757,8 +2246,8 @@ mod tests {
             .map(|b| {
                 let c: Vec<Value> = rmp_serde::from_slice(b).unwrap();
                 (
-                    c[0].as_str().unwrap().to_string(),
-                    c[1].as_str().unwrap().to_string(),
+                    projected_id(&c[0]).unwrap().to_string(),
+                    projected_id(&c[1]).unwrap().to_string(),
                 )
             })
             .collect();
@@ -1792,31 +2281,24 @@ mod tests {
         assert_eq!(vf2.len(), 2);
     }
 
-    /// Regression: a typed pattern `-[:REL]->` must match edges whose relationship
-    /// name is stored under the `rel_type` property key — the convention the
-    /// agent-utilities `epistemic_graph` backend stamps every edge with. Before the
-    /// `rel_matches` fix, native Cypher read only `relationship`/`type`, so a typed
-    /// traversal over those edges silently matched zero (the root cause behind the
-    /// delegation router's `(:Server)-[:PROVIDES]->(:CallableResource)` discovery
-    /// query returning `[]` despite the edges existing). Mirrors that exact shape,
-    /// including the grouped `count()` aggregate + `ORDER BY`/`LIMIT`.
-    fn rel_type_fixture() -> GraphView {
+    /// Typed patterns and `type(r)` consume the same canonical relationship field.
+    /// Mirrors the delegation router's grouped discovery shape.
+    fn relationship_fixture() -> GraphView {
         let core = GraphCore::new();
         core.add_node(
             "srv:a".into(),
-            pbytes(serde_json::json!({"type":"Server","name":"a-mcp"})),
+            pbytes(serde_json::json!({"node_type":"Server","name":"a-mcp"})),
         );
         core.add_node(
             "srv:b".into(),
-            pbytes(serde_json::json!({"type":"Server","name":"b-mcp"})),
+            pbytes(serde_json::json!({"node_type":"Server","name":"b-mcp"})),
         );
         for r in ["res:a1", "res:a2", "res:b1"] {
             core.add_node(
                 r.into(),
-                pbytes(serde_json::json!({"type":"CallableResource","name":r})),
+                pbytes(serde_json::json!({"node_type":"CallableResource","name":r})),
             );
         }
-        // Edges carry the relationship name ONLY under `rel_type` (AU convention).
         for (s, t) in [
             ("srv:a", "res:a1"),
             ("srv:a", "res:a2"),
@@ -1825,7 +2307,7 @@ mod tests {
             core.add_edge(
                 s.into(),
                 t.into(),
-                pbytes(serde_json::json!({"rel_type":"PROVIDES"})),
+                pbytes(serde_json::json!({"relationship":"PROVIDES"})),
             )
             .unwrap();
         }
@@ -1833,8 +2315,8 @@ mod tests {
     }
 
     #[test]
-    fn typed_traversal_matches_rel_type_keyed_edges() {
-        let v = rel_type_fixture();
+    fn typed_traversal_matches_canonical_relationship() {
+        let v = relationship_fixture();
         // Typed directed traversal must find all three PROVIDES edges.
         let qr = exec_cypher(
             &v,
@@ -1850,8 +2332,8 @@ mod tests {
     }
 
     #[test]
-    fn grouped_count_over_rel_type_traversal() {
-        let v = rel_type_fixture();
+    fn grouped_count_over_canonical_relationship() {
+        let v = relationship_fixture();
         // The delegation router's discovery shape: per-server tool counts.
         let qr = exec_cypher(
             &v,
@@ -1869,15 +2351,11 @@ mod tests {
         assert_eq!(second[1].as_i64(), Some(1));
     }
 
-    /// Regression F3(a): `RETURN type(r)` over a bound edge variable must project
-    /// the edge's relationship name (rel_type-keyed, AU convention) instead of
-    /// `null` — the previous behavior when the edge variable was bound (write path
-    /// only) but no `type(...)` accessor existed to read it back on a plain read
-    /// query. Also proves the READ path now binds the edge variable at all
-    /// (previously only the write/DELETE path did).
+    /// `RETURN type(r)` over a bound edge variable projects the canonical
+    /// relationship and proves the read path binds the edge variable.
     #[test]
-    fn type_function_projects_rel_type_keyed_edge() {
-        let v = rel_type_fixture();
+    fn type_function_projects_canonical_relationship() {
+        let v = relationship_fixture();
         let qr = exec_cypher(
             &v,
             "MATCH (s:Server {name:'a-mcp'})-[r]->(res:CallableResource) \
@@ -1890,7 +2368,7 @@ mod tests {
             assert_eq!(
                 row[0].as_str(),
                 Some("PROVIDES"),
-                "type(r) must project the rel_type-keyed relationship name, not null"
+                "type(r) must project the canonical relationship name, not null"
             );
         }
         assert_eq!(cells_of(&qr, 0)[1].as_str(), Some("res:a1"));
@@ -1925,15 +2403,11 @@ mod tests {
     /// covered.
     #[test]
     fn undirected_variable_length_path_walks_both_directions() {
-        // A local fixture whose nodes carry their own id as a property (the `{id:
-        // $id}` anchor shape from the bug report needs a real `id` property to
-        // match against — the shared `fixture()` above doesn't set one).
+        // The graph key is the virtual `id` property, so the anchor works without
+        // duplicating identity in every stored property map.
         let core = GraphCore::new();
         for id in ["alice", "bob", "carol"] {
-            core.add_node(
-                id.into(),
-                pbytes(serde_json::json!({"type":"Person","id":id})),
-            );
+            core.add_node(id.into(), pbytes(serde_json::json!({"node_type":"Person"})));
         }
         core.add_edge(
             "alice".into(),
@@ -1971,8 +2445,8 @@ mod tests {
 
     /// `CREATE` has no defined direction for `-[...]-` (undirected) and must reject
     /// it with a clear typed error rather than guessing a direction
-    /// (CONCEPT:EG-KG.query.undirected-relationship-pattern), mirroring the existing quantified-group
-    /// CREATE rejection.
+    /// (CONCEPT:EG-KG.query.undirected-relationship-pattern). This remains true
+    /// inside a natively materialized quantified group.
     #[test]
     fn create_rejects_undirected_relationship() {
         let core = GraphCore::new();
@@ -2020,13 +2494,72 @@ mod tests {
     }
 
     #[test]
+    fn quantified_group_projects_ordered_per_iteration_variables() {
+        let v = fixture();
+        let qr = exec_cypher(
+            &v,
+            "MATCH (a:Person)((x)-[r:KNOWS]->(y)){1,3}(b:Person) \
+             WHERE a.name = 'Alice' RETURN x.name, y.name, type(r), b",
+        )
+        .unwrap();
+        assert_eq!(qr.rows.len(), 2);
+
+        let by_end: HashMap<String, Vec<Value>> = (0..qr.rows.len())
+            .map(|row| {
+                let cells = cells_of(&qr, row);
+                (projected_id(&cells[3]).unwrap().to_string(), cells)
+            })
+            .collect();
+        assert_eq!(by_end["bob"][0], serde_json::json!(["Alice"]));
+        assert_eq!(by_end["bob"][1], serde_json::json!(["Bob"]));
+        assert_eq!(by_end["bob"][2], serde_json::json!(["KNOWS"]));
+        assert_eq!(by_end["carol"][0], serde_json::json!(["Alice", "Bob"]));
+        assert_eq!(by_end["carol"][1], serde_json::json!(["Bob", "Carol"]));
+        assert_eq!(by_end["carol"][2], serde_json::json!(["KNOWS", "KNOWS"]));
+    }
+
+    #[test]
+    fn quantified_group_zero_repetitions_binds_empty_group_lists() {
+        let v = fixture();
+        let qr = exec_cypher(
+            &v,
+            "MATCH (a:Person)((x)-[r:KNOWS]->(y)){0}(b) \
+             WHERE a.name = 'Alice' RETURN x, y, type(r), b",
+        )
+        .unwrap();
+        let cells = cells_of(&qr, 0);
+        assert_eq!(cells[0], serde_json::json!([]));
+        assert_eq!(cells[1], serde_json::json!([]));
+        assert_eq!(cells[2], serde_json::json!([]));
+        assert_eq!(projected_id(&cells[3]), Some("alice"));
+    }
+
+    #[test]
+    fn quantified_group_lists_survive_with_aliasing() {
+        let v = fixture();
+        let qr = exec_cypher(
+            &v,
+            "MATCH (a:Person)((x)-[:KNOWS]->(y)){2}(b) \
+             WHERE a.name = 'Alice' WITH y AS steps RETURN steps",
+        )
+        .unwrap();
+        let cells = cells_of(&qr, 0);
+        let steps = cells[0]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|value| projected_id(value).unwrap().to_string())
+            .collect::<Vec<_>>();
+        assert_eq!(steps, vec!["bob".to_string(), "carol".to_string()]);
+    }
+
+    #[test]
     fn quantified_group_multi_hop_inner_pattern_repeats_the_whole_subpath() {
         let v = fixture();
         // Repeating the 2-hop inner pattern {alice->bob->carol} once from alice
         // reaches carol; twice would need a 4th node, which the fixture lacks.
-        // The group's own inner vars (`x`/`y`) are local to each repetition —
-        // only the outer trailing node `(end)` is exposed to RETURN (the
-        // documented QPP simplification).
+        // The group's own inner vars are available as ordered lists; this query
+        // only projects the outer trailing node.
         let qr = exec_cypher(
             &v,
             "MATCH (a:Person {name: 'Alice'})((x)-[:KNOWS]->()-[:KNOWS]->(y)){1,2}(end) \
@@ -2050,10 +2583,27 @@ mod tests {
     }
 
     #[test]
-    fn create_rejects_quantified_group_pattern() {
+    fn create_quantified_group_materializes_upper_bound_and_returns_group_lists() {
         let core = GraphCore::new();
-        let err = exec_cypher_write(&core, "CREATE (a)((x)-[:KNOWS]->(y)){1,2}(b)").unwrap_err();
-        assert!(err.contains("quantified path pattern"), "{err}");
+        let qr = exec_cypher_write(
+            &core,
+            "CREATE (a:Person {id:'qpp-a', name:'A'}) \
+             ((x)-[r:KNOWS]->(y:Person {name:'Step'})){1,3}(end) \
+             RETURN x.name, y.name, type(r), end",
+        )
+        .unwrap();
+        let cells = cells_of(&qr, 0);
+        assert_eq!(cells[0], serde_json::json!(["A", "Step", "Step"]));
+        assert_eq!(cells[1], serde_json::json!(["Step", "Step", "Step"]));
+        assert_eq!(cells[2], serde_json::json!(["KNOWS", "KNOWS", "KNOWS"]));
+        assert!(projected_id(&cells[3]).is_some());
+
+        let reach = exec_cypher_write(
+            &core,
+            "MATCH (a:Person {id:'qpp-a'})-[:KNOWS*1..3]->(b) RETURN b",
+        )
+        .unwrap();
+        assert_eq!(reach.rows.len(), 3);
     }
 
     #[test]
@@ -2122,10 +2672,10 @@ mod tests {
         let mut by_a: HashMap<String, Value> = HashMap::new();
         for r in 0..qr.rows.len() {
             let c = cells_of(&qr, r);
-            by_a.insert(c[0].as_str().unwrap().to_string(), c[1].clone());
+            by_a.insert(projected_id(&c[0]).unwrap().to_string(), c[1].clone());
         }
-        assert_eq!(by_a["alice"], Value::String("bob".into()));
-        assert_eq!(by_a["bob"], Value::String("carol".into()));
+        assert_eq!(projected_id(&by_a["alice"]), Some("bob"));
+        assert_eq!(projected_id(&by_a["bob"]), Some("carol"));
         assert_eq!(by_a["carol"], Value::Null);
     }
 
@@ -2159,7 +2709,7 @@ mod tests {
         assert_eq!(names.len(), 3);
 
         // Grouped aggregation + sum.
-        let qr3 = exec_cypher(&v, "MATCH (a:Doc) RETURN a.type, sum(a.size)").unwrap();
+        let qr3 = exec_cypher(&v, "MATCH (a:Doc) RETURN a.node_type, sum(a.size)").unwrap();
         let c3 = cells_of(&qr3, 0);
         assert_eq!(c3[0], Value::String("Doc".into()));
         assert_eq!(c3[1], Value::Number(42.into()));
@@ -2168,8 +2718,8 @@ mod tests {
     #[test]
     fn distinct_dedups_rows() {
         let v = fixture();
-        // Every Person has type 'Person' → DISTINCT collapses to one row.
-        let qr = exec_cypher(&v, "MATCH (a:Person) RETURN DISTINCT a.type").unwrap();
+        // Every Person has node_type 'Person' → DISTINCT collapses to one row.
+        let qr = exec_cypher(&v, "MATCH (a:Person) RETURN DISTINCT a.node_type").unwrap();
         assert_eq!(qr.rows.len(), 1);
         assert_eq!(cells_of(&qr, 0)[0], Value::String("Person".into()));
     }
@@ -2179,7 +2729,7 @@ mod tests {
         let v = fixture();
         let qr = exec_cypher(&v, "MATCH (a:Person) WHERE a.name = 'Alice' RETURN *").unwrap();
         assert_eq!(qr.columns, vec!["a"]);
-        assert_eq!(cells_of(&qr, 0)[0], Value::String("alice".into()));
+        assert_eq!(projected_id(&cells_of(&qr, 0)[0]), Some("alice"));
     }
 
     // ── var-length generalization (CONCEPT:EG-KG.query.concept-2) ─────────────────────────────
@@ -2306,16 +2856,19 @@ mod tests {
         let v = fixture();
         let qr = exec_cypher(
             &v,
-            "CALL gds.pageRank() YIELD node, score RETURN node, score",
+            "CALL gds.pageRank() YIELD nodeId, score RETURN nodeId, score",
         )
         .unwrap();
-        assert_eq!(qr.columns, vec!["node", "score"]);
+        assert_eq!(qr.columns, vec!["nodeId", "score"]);
         // Every node scored; carol (a KNOWS sink) should out-rank alice.
         assert_eq!(qr.rows.len(), 4);
         let mut by_node: HashMap<String, f64> = HashMap::new();
         for r in 0..qr.rows.len() {
             let c = cells_of(&qr, r);
-            by_node.insert(c[0].as_str().unwrap().to_string(), c[1].as_f64().unwrap());
+            by_node.insert(
+                projected_id(&c[0]).unwrap().to_string(),
+                c[1].as_f64().unwrap(),
+            );
         }
         assert!(by_node["carol"] > by_node["alice"]);
     }
@@ -2326,13 +2879,16 @@ mod tests {
         // alice/bob/carol are one weakly-connected component; d1 is its own.
         let qr = exec_cypher(
             &v,
-            "CALL gds.wcc() YIELD node, componentId RETURN node, componentId",
+            "CALL gds.wcc() YIELD nodeId, componentId RETURN nodeId, componentId",
         )
         .unwrap();
         let mut comp: HashMap<String, i64> = HashMap::new();
         for r in 0..qr.rows.len() {
             let c = cells_of(&qr, r);
-            comp.insert(c[0].as_str().unwrap().to_string(), c[1].as_i64().unwrap());
+            comp.insert(
+                projected_id(&c[0]).unwrap().to_string(),
+                c[1].as_i64().unwrap(),
+            );
         }
         assert_eq!(comp["alice"], comp["bob"]);
         assert_eq!(comp["bob"], comp["carol"]);
@@ -2361,12 +2917,12 @@ mod tests {
 
     #[test]
     fn call_proc_result_feeds_downstream_match() {
-        // CONCEPT:EG-KG.query.eg-2 — a YIELD `node` binds an anchorable node id, so a downstream
+        // CONCEPT:EG-KG.query.eg-2 — a YIELD `nodeId` binds an anchorable node id, so a downstream
         // labelled MATCH re-anchors on it and filters by label (keeps only the Doc).
         let v = fixture();
         let qr = exec_cypher(
             &v,
-            "CALL gds.degree() YIELD node MATCH (node:Doc) RETURN node",
+            "CALL gds.degree() YIELD nodeId MATCH (nodeId:Doc) RETURN nodeId",
         )
         .unwrap();
         assert_eq!(ids(&qr, 0), vec!["d1"]);
@@ -2380,7 +2936,7 @@ mod tests {
             .iter()
             .map(|b| {
                 let cells: Vec<Value> = rmp_serde::from_slice(b).unwrap();
-                cells[0].as_str().unwrap().to_string()
+                projected_id(&cells[0]).unwrap().to_string()
             })
             .collect();
         out.sort();
@@ -2398,6 +2954,34 @@ mod tests {
     }
 
     #[test]
+    fn create_persists_only_canonical_node_type_for_label() {
+        let core = GraphCore::new();
+        exec_cypher_write(&core, "CREATE (n:Person {id: 'alice'})").unwrap();
+        let stored = eg_types::msgpack::decode_property_value(
+            &core.get_node_properties("alice").expect("created node"),
+        )
+        .unwrap();
+        assert_eq!(
+            stored.get("node_type"),
+            Some(&Value::String("Person".into()))
+        );
+        assert!(stored.get("type").is_none());
+        assert!(stored.get("label").is_none());
+    }
+
+    #[test]
+    fn create_rejects_conflicting_explicit_node_type() {
+        let core = GraphCore::new();
+        let err = exec_cypher_write(
+            &core,
+            "CREATE (n:Person {id: 'alice', node_type: 'Service'})",
+        )
+        .unwrap_err();
+        assert!(err.contains("conflicts"), "{err}");
+        assert!(core.get_node_properties("alice").is_none());
+    }
+
+    #[test]
     fn create_edge_between_new_nodes() {
         let core = GraphCore::new();
         exec_cypher_write(
@@ -2408,8 +2992,8 @@ mod tests {
         let qr =
             exec_cypher_write(&core, "MATCH (a:Person)-[:KNOWS]->(b:Person) RETURN a, b").unwrap();
         let cells = cells_of(&qr, 0);
-        assert_eq!(cells[0], Value::String("a".into()));
-        assert_eq!(cells[1], Value::String("b".into()));
+        assert_eq!(projected_id(&cells[0]), Some("a"));
+        assert_eq!(projected_id(&cells[1]), Some("b"));
     }
 
     #[test]
@@ -2504,7 +3088,7 @@ mod tests {
     #[test]
     fn remove_label_drops_from_label_index() {
         let core = GraphCore::new();
-        // A node that is both Person (type) and carries Admin in a labels array.
+        // A node that is both Person (node_type) and carries Admin in a labels array.
         exec_cypher_write(&core, "CREATE (n:Person {id: 'al', name: 'Al'})").unwrap();
         // Give it a secondary label via SET (labels array), then REMOVE it.
         // (SET only takes literals; build the labels array through a fresh create.)
@@ -2512,14 +3096,14 @@ mod tests {
         core2.add_node(
             "al".into(),
             rmp_serde::to_vec_named(&serde_json::json!({
-                "type": "Person", "labels": ["Admin"], "id": "al"
+                "node_type": "Person", "labels": ["Admin"], "id": "al"
             }))
             .unwrap(),
         );
-        // Remove the type label → no longer a Person.
+        // Remove the canonical label → no longer a Person.
         exec_cypher_write(&core2, "MATCH (n:Person) WHERE n.id = 'al' REMOVE n:Person").unwrap();
         let persons = exec_cypher_write(&core2, "MATCH (n:Person) RETURN n").unwrap();
-        assert!(persons.rows.is_empty(), "type label removed");
+        assert!(persons.rows.is_empty(), "canonical label removed");
         // Remove the array label → no longer an Admin.
         exec_cypher_write(&core2, "MATCH (n:Admin) WHERE n.id = 'al' REMOVE n:Admin").unwrap();
         let admins = exec_cypher_write(&core2, "MATCH (n:Admin) RETURN n").unwrap();

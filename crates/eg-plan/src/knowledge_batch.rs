@@ -4,8 +4,8 @@
 //! [`RowSet`](crate::RowSet) stays the minimal id+score closed-algebra currency
 //! (see `rowset.rs`'s module docs) and [`KnowledgeSet`] stays the row-oriented
 //! enriched shape a caller builds AFTER a plan runs (see `knowledge.rs`'s module
-//! docs) — this module changes NEITHER. `KnowledgeBatch` is a THIRD, still
-//! OPT-IN, shape: the same `KnowledgeSet` data laid out **columnar** and
+//! docs) — this module changes NEITHER. `KnowledgeBatch` is the engine-native
+//! served-result shape: the same `KnowledgeSet` data laid out **columnar** and
 //! convertible to a real `arrow::record_batch::RecordBatch`, for a caller that
 //! wants to hand results to anything Arrow-speaking (DataFusion, Parquet/Arrow
 //! IPC, a Python/Polars/pandas consumer over Arrow FFI, a vectorized downstream
@@ -14,7 +14,8 @@
 //! ## Feature gate
 //!
 //! Everything here lives behind the `knowledge-batch` cargo feature (which
-//! implies `query`, since it builds FROM a `KnowledgeSet`). It pulls `arrow`,
+//! implies `query`, since it builds FROM a `KnowledgeSet`). The facade's `full`
+//! deployment enables this feature, while default/Pi builds remain small. It pulls `arrow`,
 //! pinned to the SAME version (`53`) `eg-lake`'s `lake` feature already carries,
 //! so this does not introduce a second Arrow version into the workspace lock. A
 //! default/Pi build sets neither feature and links NO Arrow at all — the
@@ -28,8 +29,8 @@
 //! | `kind` | `Utf8` (non-null) | `KnowledgeRow::kind` |
 //! | `score_<name>` (one per [`KnowledgeBatch::score_names`]) | `Float32` | `KnowledgeRow::score` (name `"score"` from `from_knowledge_set`) or [`KnowledgeBatch::with_named_score`] |
 //! | `confidence` | `Float64` (non-null) | `KnowledgeRow::confidence` |
-//! | `evidence_kind` | `Utf8` | the FIRST `EvidenceSpan`'s variant tag (`"document_span"` / `"table_cell_range"` / `"image_region"` / `"page_box"` / `"audio_segment"` / `"video_shot"` / `"video_frame_range"` / `"metric_window"` / `"row_version"` / `"code_symbol"` / `"trace_span"`), or null when the row has none — a typed, filterable summary column covering every granularity `EvidenceSpan` models (text span, table cell, image pixel region, page-scoped visual box (CONCEPT:EG-X1), audio/video time interval or frame-range, metric time-window, versioned SQL row, code symbol, trace span) |
-//! | `evidence_refs_json` | `List<Utf8>` | every `EvidenceSpan` on the row, each one JSON-serialized (lossless — `EvidenceSpan` already derives `Serialize`/`Deserialize`); a real Arrow `List` column, not a single opaque blob |
+//! | `evidence_kind` | `Utf8` | the first locus address tag (`"character_range"`, `"table_cell_range"`, `"image_region"`, `"page_region"`, `"audio_range"`, `"video_time_range"`, `"frame_range"`, `"metric_window"`, `"point"`, `"row_version"`, `"code_symbol"`, or `"trace_span"`), or null when the row has none |
+//! | `evidence_refs_json` | `List<Utf8>` | every `EvidenceLocus` on the row, each one JSON-serialized (lossless — `EvidenceLocus` already derives `Serialize`/`Deserialize`); a real Arrow `List` column, not a single opaque blob |
 //! | `valid_from` / `valid_until` | `Int64` | `KnowledgeRow::valid_time` (u64 -> i64) |
 //! | `tx_from` / `tx_to` | `Int64` | `KnowledgeRow::tx_time` |
 //! | `source_refs` | `List<Utf8>` | `KnowledgeRow::source_refs` (provenance ids) |
@@ -59,53 +60,28 @@
 //! `eg-jobs::claim::commit_result_claim` for `GENERATED_BY`; `ALTERNATIVE_TO` has no
 //! writeback producer yet — an honest, documented follow-up).
 //!
-//! ## Streaming cursor (CONCEPT:EG-P1-4, closes the L23 stub)
+//! ## Native streaming currency
 //!
-//! [`KnowledgeCursor`] started as a STUB — a resumable POSITION (offset/total/
-//! exhausted) with no way to actually advance. [`ChunkedKnowledgeCursor`] is the
-//! real driver: it owns a `KnowledgeBatch`'s rows and hands them out
-//! chunk-by-chunk via [`ChunkedKnowledgeCursor::next_chunk`], updating a
-//! [`KnowledgeCursor`] position as it goes — so a caller consuming a large result
-//! never has to hold the WHOLE thing as one `KnowledgeBatch` in flight; it pulls
-//! bounded slices instead, each one a fully-formed `KnowledgeBatch` sharing the
-//! source's Arrow schema (`score_names` is constant across every chunk).
-//!
-//! This is the CONSUMER-side half of streaming — turning an already-computed row
-//! sequence into a genuine chunk-at-a-time iterator with correct bookkeeping
-//! (proven by the equivalence test: concatenating every yielded chunk reconstructs
-//! the source exactly). A PRODUCER-side cursor — one that re-drives the underlying
-//! `Op` chain per chunk so a huge result is never even row-materialized in one
-//! place — needs a resumable [`crate::exec::Driver`], not a `KnowledgeBatch`-shape
-//! change; that is listed in the rollout backlog (EG-P1-4), out of this
-//! workstream's scope.
+//! [`crate::result_stream::KnowledgeBatchStream`] is the native pull-based producer:
+//! it accepts fallible row iterators, validates and enriches each bounded batch with
+//! opaque tenant/policy/snapshot/query/derivation/evidence context, and emits a
+//! snapshot- and family-bound cursor. Dedicated adapters cover graph, SQL, RDF,
+//! vector, time-series, jobs, and cross-modal results. Its Arrow IPC writer consumes
+//! one batch at a time and does not materialize the complete source.
 //!
 //! ## Chunk-driven Arrow IPC encoding (CONCEPT:EG-P1-5, INT-P2-5)
 //!
-//! [`ChunkedKnowledgeCursor::to_arrow_ipc_stream`] closes the OTHER honest gap the
-//! INT-P2-2 dataset-handle Arrow export shares with this module: both convert a
-//! whole already-computed result to Arrow in ONE pass — `KnowledgeBatch::
-//! to_record_batch` builds ONE `RecordBatch` from every row at once, and
-//! `dataset_handle.rs` holds the FULL `Vec<RecordBatch>` in memory for the
-//! lifetime of the handle. `to_arrow_ipc_stream` re-drives THIS cursor's existing
-//! `next_chunk` loop while writing straight into an `arrow::ipc::writer::
-//! StreamWriter`, so only one chunk's rows and one chunk's `RecordBatch` are ever
-//! alive at once during ENCODING — a real, resumable, chunk-at-a-time PRODUCER for
-//! the Arrow wire format, built entirely from the EG-P1-4 primitive above. It does
-//! NOT re-drive the underlying plan `Op` chain per chunk (the `KnowledgeSet` this
-//! cursor was built from is still one materialize-once `RowSet`/`KnowledgeSet`
-//! pass) — that deeper producer-side cursor still needs a resumable
-//! [`crate::exec::Driver`] and remains the documented follow-up above; this closes
-//! the ENCODING half with what already exists.
+//! A materialized [`KnowledgeBatch`] can encode its single bounded batch directly.
+//! Native producers use
+//! [`crate::result_stream::KnowledgeBatchStream::write_arrow_ipc`], which pulls from
+//! the source iterator and holds only the current bounded batch during encoding.
 //!
-//! Honest scope note: `dataset_handle.rs`'s OWN `Vec<RecordBatch>` export (built
-//! straight from `eg_query::exec_sql_arrow`, not from a `KnowledgeSet`) is
-//! untouched by this — it is a genuinely separate data path with no `KnowledgeSet`
-//! in it to cursor over. `to_arrow_ipc_stream` is the real, tested producer-side
-//! chunked encoder for the `KnowledgeBatch`/`KnowledgeSet` shape this module owns;
-//! wiring an analogous chunked encoder onto `dataset_handle.rs`'s SQL-sourced
-//! batches (or onto `KnowledgeSet`-backed exports once a caller exists) is a
-//! follow-up wiring step, not a `KnowledgeBatch`-shape change.
+//! `dataset_handle.rs` is intentionally a different artifact-export protocol: it
+//! publishes already-materialized SQL Arrow data through a blob handle rather than
+//! serving query/job rows. The seven served result families use
+//! `KnowledgeBatchStream`; dataset handles retain their artifact semantics.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use arrow::array::{
@@ -114,29 +90,25 @@ use arrow::array::{
 };
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
-use eg_modality::EvidenceSpan;
+use eg_modality::{EvidenceAddress, EvidenceLocus};
 
 use crate::knowledge::KnowledgeSet;
 
-/// The stable variant tag for one [`EvidenceSpan`] — the `evidence_kind` column's
-/// value. Covers every granularity the type models: `DocumentSpan` (text span),
-/// `TableCellRange` (tabular cell range), `ImageRegion` (pixel region), `PageBox`
-/// (CONCEPT:EG-X1 — a page-scoped visual box, e.g. "PDF page N box (x,y,w,h)"),
-/// `AudioSegment`/`VideoShot` (time interval / frame range), `CodeSymbol` (code
-/// symbol by line range), `TraceSpan` (distributed-trace span).
-fn evidence_kind_tag(span: &EvidenceSpan) -> &'static str {
-    match span {
-        EvidenceSpan::DocumentSpan { .. } => "document_span",
-        EvidenceSpan::TableCellRange { .. } => "table_cell_range",
-        EvidenceSpan::ImageRegion { .. } => "image_region",
-        EvidenceSpan::PageBox { .. } => "page_box",
-        EvidenceSpan::AudioSegment { .. } => "audio_segment",
-        EvidenceSpan::VideoShot { .. } => "video_shot",
-        EvidenceSpan::VideoFrameRange { .. } => "video_frame_range",
-        EvidenceSpan::MetricWindow { .. } => "metric_window",
-        EvidenceSpan::RowVersion { .. } => "row_version",
-        EvidenceSpan::CodeSymbol { .. } => "code_symbol",
-        EvidenceSpan::TraceSpan { .. } => "trace_span",
+/// The stable address tag for one governed locus.
+fn evidence_kind_tag(locus: &EvidenceLocus) -> &'static str {
+    match &locus.address {
+        EvidenceAddress::CharacterRange { .. } => "character_range",
+        EvidenceAddress::TableCellRange { .. } => "table_cell_range",
+        EvidenceAddress::ImageRegion { .. } => "image_region",
+        EvidenceAddress::PageRegion { .. } => "page_region",
+        EvidenceAddress::AudioRange { .. } => "audio_range",
+        EvidenceAddress::VideoTimeRange { .. } => "video_time_range",
+        EvidenceAddress::FrameRange { .. } => "frame_range",
+        EvidenceAddress::MetricWindow { .. } => "metric_window",
+        EvidenceAddress::Point { .. } => "point",
+        EvidenceAddress::RowVersion { .. } => "row_version",
+        EvidenceAddress::CodeSymbol { .. } => "code_symbol",
+        EvidenceAddress::TraceSpan { .. } => "trace_span",
     }
 }
 
@@ -154,7 +126,7 @@ pub struct KnowledgeBatchRow {
     /// `KnowledgeRow::score`; [`KnowledgeBatch::with_named_score`] appends more.
     pub scores: Vec<(String, Option<f32>)>,
     pub confidence: f64,
-    pub evidence_refs: Vec<EvidenceSpan>,
+    pub evidence_refs: Vec<EvidenceLocus>,
     /// `(valid_from, valid_until)`.
     pub valid_time: (Option<u64>, Option<u64>),
     /// `(tx_from, tx_to)`.
@@ -181,145 +153,6 @@ pub struct KnowledgeBatchRow {
     /// had no decodable payload at all.
     pub blob_handle: Option<String>,
     pub has_payload: bool,
-}
-
-/// A resumable position over a (potentially unbounded/live) sequence of
-/// [`KnowledgeBatch`]es — the streaming-cursor STUB (CONCEPT:EG-P1-2). See the
-/// module docs' "Streaming cursor" section: wiring this into a real chunked
-/// executor is explicit follow-up, not done here.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct KnowledgeCursor {
-    /// Row offset already consumed across every batch seen so far.
-    pub offset: usize,
-    /// Total row count, when known up front (`None` for a genuinely unbounded/live
-    /// source that hasn't reported a total).
-    pub total: Option<usize>,
-    /// Whether the underlying source is known to be exhausted (no further batches).
-    pub exhausted: bool,
-}
-
-/// A REAL chunked/streaming cursor over a [`KnowledgeBatch`]'s rows (CONCEPT:EG-P1-4 — closes
-/// the L23 `KnowledgeCursor` stub). Owns the row sequence and hands it out
-/// CHUNK-BY-CHUNK via [`Self::next_chunk`], so a caller consuming a large result
-/// never has to hold the WHOLE thing as one `KnowledgeBatch` — it pulls bounded
-/// slices, exactly the shape a paginated wire response or a backpressured
-/// consumer needs. `score_names` stays constant across every yielded chunk (each
-/// one carries the SAME schema as the source batch), so a caller can convert
-/// every chunk to a `RecordBatch` via [`KnowledgeBatch::to_record_batch`] and they
-/// all share one Arrow schema.
-///
-/// Why "materialize once, then chunk" rather than a lazy database-style cursor
-/// that re-drives the underlying query per chunk: a `KnowledgeSet` is itself built
-/// from ONE snapshot-isolated plan run (`KnowledgeSet::from_rowset` over an
-/// off-lock `GraphView`) — there is no live, resumable executor state underneath
-/// it to re-drive per chunk (the engine's plan model today is "run once, get a
-/// RowSet", not a server-side open cursor). This type is the real, non-stub
-/// CONSUMER-side half of streaming: it turns an already-computed row sequence
-/// into a genuine chunk-at-a-time iterator with correct `exhausted`/`offset`/
-/// `total` bookkeeping — proven by the equivalence test: concatenating every
-/// yielded chunk reconstructs the source batch exactly. A follow-up PRODUCER-side
-/// cursor that re-drives the underlying `Op` chain per chunk (so a huge result is
-/// never even row-materialized in one place) needs a resumable
-/// [`crate::exec::Driver`], not a `KnowledgeBatch`-shape change — listed in the
-/// rollout backlog, out of this workstream's scope.
-#[derive(Clone, Debug)]
-pub struct ChunkedKnowledgeCursor {
-    rows: Vec<KnowledgeBatchRow>,
-    score_names: Vec<String>,
-    chunk_size: usize,
-    pos: KnowledgeCursor,
-}
-
-impl ChunkedKnowledgeCursor {
-    /// A chunked cursor over `batch`, yielding up to `chunk_size` rows per
-    /// [`Self::next_chunk`] call (clamped to at least 1, so a caller can never wedge
-    /// it with `chunk_size: 0`).
-    pub fn new(batch: KnowledgeBatch, chunk_size: usize) -> Self {
-        let total = batch.len();
-        Self {
-            rows: batch.rows,
-            score_names: batch.score_names,
-            chunk_size: chunk_size.max(1),
-            pos: KnowledgeCursor {
-                offset: 0,
-                total: Some(total),
-                exhausted: total == 0,
-            },
-        }
-    }
-
-    /// The cursor's current position/exhaustion snapshot.
-    pub fn position(&self) -> KnowledgeCursor {
-        self.pos
-    }
-
-    /// True iff every row has already been yielded (no more chunks to pull).
-    pub fn is_exhausted(&self) -> bool {
-        self.pos.exhausted
-    }
-
-    /// Total row count across every chunk this cursor will ever yield (fixed at
-    /// construction — the source `KnowledgeBatch` is already fully materialized).
-    pub fn total(&self) -> usize {
-        self.rows.len()
-    }
-
-    /// Pull the NEXT chunk (up to `chunk_size` rows) as its own `KnowledgeBatch`,
-    /// advancing `offset` and flipping `exhausted` once the source is drained.
-    /// Returns `None` — with [`Self::is_exhausted`] already `true` — once every row
-    /// has been yielded; a caller drains it with
-    /// `while let Some(chunk) = cursor.next_chunk() { … }`. Every yielded chunk is
-    /// non-empty (an already-`exhausted` cursor short-circuits to `None` rather
-    /// than yielding an empty tail).
-    pub fn next_chunk(&mut self) -> Option<KnowledgeBatch> {
-        if self.pos.exhausted {
-            return None;
-        }
-        let start = self.pos.offset;
-        let end = (start + self.chunk_size).min(self.rows.len());
-        let slice = self.rows[start..end].to_vec();
-        self.pos.offset = end;
-        if end >= self.rows.len() {
-            self.pos.exhausted = true;
-        }
-        Some(KnowledgeBatch {
-            rows: slice,
-            score_names: self.score_names.clone(),
-        })
-    }
-
-    /// Encode the cursor's remaining rows as a real Arrow IPC **stream**
-    /// (CONCEPT:EG-P1-5, INT-P2-5) — the producer-side chunk-at-a-time Arrow encoder.
-    /// Writes ONE `RecordBatch` per [`Self::next_chunk`] straight into an
-    /// `arrow::ipc::writer::StreamWriter` rather than converting the whole result to
-    /// ONE `RecordBatch` first, so only one chunk's rows/`RecordBatch` are ever
-    /// alive at once — see the module docs' "Chunk-driven Arrow IPC encoding"
-    /// section for what this does and does not close.
-    ///
-    /// Consumes `self` (single-use once drained). Every chunk shares the SAME
-    /// Arrow schema (`score_names` is fixed at construction), so the stream's one
-    /// schema message covers every batch message that follows — any Arrow IPC
-    /// reader (`arrow::ipc::reader::StreamReader`, `pyarrow.ipc.open_stream`)
-    /// reads it back as the ordinary multi-batch stream it is. A zero-row source
-    /// still yields a valid (schema-only, zero-batch) stream.
-    pub fn to_arrow_ipc_stream(mut self) -> Result<Vec<u8>, String> {
-        let schema = Arc::new(arrow_schema(&self.score_names));
-        let mut buf: Vec<u8> = Vec::new();
-        {
-            let mut writer = arrow::ipc::writer::StreamWriter::try_new(&mut buf, &schema)
-                .map_err(|e| format!("arrow ipc stream writer: {e}"))?;
-            while let Some(chunk) = self.next_chunk() {
-                let batch = chunk.to_record_batch()?;
-                writer
-                    .write(&batch)
-                    .map_err(|e| format!("arrow ipc write: {e}"))?;
-            }
-            writer
-                .finish()
-                .map_err(|e| format!("arrow ipc finish: {e}"))?;
-        }
-        Ok(buf)
-    }
 }
 
 /// The Arrow-columnar projection of a [`KnowledgeSet`] (CONCEPT:EG-P1-2). See the
@@ -408,30 +241,32 @@ impl KnowledgeBatch {
         self.rows.is_empty()
     }
 
-    /// A cursor positioned at the end of THIS batch, as if it were the only/last
-    /// batch in the stream (`exhausted: true`) — a bare position snapshot with no
-    /// way to advance; see [`Self::into_chunks`]/[`ChunkedKnowledgeCursor`] for the
-    /// REAL chunked driver (CONCEPT:EG-P1-4).
-    pub fn cursor(&self) -> KnowledgeCursor {
-        KnowledgeCursor {
-            offset: self.len(),
-            total: Some(self.len()),
-            exhausted: true,
-        }
-    }
-
-    /// Turn this batch into a [`ChunkedKnowledgeCursor`] yielding up to `chunk_size`
-    /// rows per [`ChunkedKnowledgeCursor::next_chunk`] call (CONCEPT:EG-P1-4, closes the L23
-    /// stub) — the real streaming consumer a caller drains instead of holding the
-    /// whole batch in flight at once.
-    pub fn into_chunks(self, chunk_size: usize) -> ChunkedKnowledgeCursor {
-        ChunkedKnowledgeCursor::new(self, chunk_size)
-    }
-
     /// The Arrow [`Schema`] this batch converts to, given its current
     /// `score_names` (the score columns are the only schema-shape-varying part).
     pub fn arrow_schema(&self) -> Schema {
         arrow_schema(&self.score_names)
+    }
+
+    /// Encode this already-bounded batch as one Arrow IPC stream batch. An empty
+    /// batch produces a valid schema-only stream. Multi-batch served results use
+    /// [`crate::result_stream::KnowledgeBatchStream::write_arrow_ipc`] directly.
+    pub fn to_arrow_ipc_stream(&self) -> Result<Vec<u8>, String> {
+        let schema = Arc::new(self.arrow_schema());
+        let mut bytes = Vec::new();
+        {
+            let mut writer = arrow::ipc::writer::StreamWriter::try_new(&mut bytes, &schema)
+                .map_err(|error| format!("arrow ipc stream writer: {error}"))?;
+            if !self.is_empty() {
+                let batch = self.to_record_batch()?;
+                writer
+                    .write(&batch)
+                    .map_err(|error| format!("arrow ipc write: {error}"))?;
+            }
+            writer
+                .finish()
+                .map_err(|error| format!("arrow ipc finish: {error}"))?;
+        }
+        Ok(bytes)
     }
 
     /// Convert to a real Arrow [`RecordBatch`] — the wire-compatible columnar form
@@ -451,17 +286,41 @@ impl KnowledgeBatch {
                 .collect::<Vec<_>>(),
         )));
 
-        for name in &self.score_names {
-            let vals: Vec<Option<f32>> = self
-                .rows
-                .iter()
-                .map(|r| {
-                    r.scores
-                        .iter()
-                        .find(|(n, _)| n == name)
-                        .and_then(|(_, v)| *v)
-                })
-                .collect();
+        // Transpose every row's sparse, name-keyed scores in one pass.  Looking up
+        // every schema name with `row.scores.iter().find(...)` made conversion
+        // O(rows * schema_scores * row_scores), quadratic in the number of score
+        // columns for the normal dense case.  The directory is schema-sized and
+        // the per-row `resolved` bitmap preserves the old "first duplicate wins"
+        // behavior without retaining a hash map per result row.
+        let mut positions: HashMap<&str, Vec<usize>> =
+            HashMap::with_capacity(self.score_names.len());
+        for (position, name) in self.score_names.iter().enumerate() {
+            positions.entry(name.as_str()).or_default().push(position);
+        }
+        let mut score_columns: Vec<Vec<Option<f32>>> = (0..self.score_names.len())
+            .map(|_| Vec::with_capacity(self.rows.len()))
+            .collect();
+        let mut values = vec![None; self.score_names.len()];
+        let mut resolved = vec![false; self.score_names.len()];
+        for row in &self.rows {
+            for (name, value) in &row.scores {
+                let Some(columns) = positions.get(name.as_str()) else {
+                    continue;
+                };
+                for &column in columns {
+                    if !resolved[column] {
+                        values[column] = *value;
+                        resolved[column] = true;
+                    }
+                }
+            }
+            for (column, &value) in score_columns.iter_mut().zip(&values) {
+                column.push(value);
+            }
+            values.fill(None);
+            resolved.fill(false);
+        }
+        for vals in score_columns {
             columns.push(Arc::new(Float32Array::from(vals)));
         }
 
@@ -543,7 +402,7 @@ impl KnowledgeBatch {
     /// Reconstruct a `KnowledgeBatch` from a [`RecordBatch`] previously produced by
     /// [`Self::to_record_batch`] — the inverse conversion, lossless for every
     /// column except `evidence_refs_json`'s malformed-JSON edge case (a value that
-    /// fails to parse back as an `EvidenceSpan` is dropped from that row's
+    /// fails to parse back as an `EvidenceLocus` is dropped from that row's
     /// `evidence_refs`, never fabricated) and `score_<name>` columns not shaped
     /// like `Float32` (treated as absent for that name). Column order does not
     /// matter — columns are looked up BY NAME, so a schema built by
@@ -648,7 +507,8 @@ impl KnowledgeBatch {
                     .collect();
                 let evidence_refs = evidence_json[i]
                     .iter()
-                    .filter_map(|s| serde_json::from_str::<EvidenceSpan>(s).ok())
+                    .filter_map(|s| serde_json::from_str::<EvidenceLocus>(s).ok())
+                    .filter(|locus| locus.validate().is_ok())
                     .collect();
                 KnowledgeBatchRow {
                     id: ids[i].clone().unwrap_or_default(),
@@ -736,7 +596,7 @@ mod tests {
         rmp_serde::to_vec_named(&v).unwrap()
     }
 
-    /// Build a `KnowledgeSet` exercising confidence, evidence spans, the
+    /// Build a `KnowledgeSet` exercising confidence, governed evidence, the
     /// bitemporal window and (indirectly, via `epistemic`) policy labels — the
     /// fixture the workstream's test plan asked for.
     fn fixture_batch() -> KnowledgeBatch {
@@ -745,22 +605,22 @@ mod tests {
             "sym1".into(),
             blob(json!({
                 "node_type": "Symbol",
-                "id": "sym:abc123",
-                "name": "handle_request",
-                "qualified_name": "crate::server::handle_request",
-                "symbol_type": "Function",
-                "file_path": "src/server.rs",
-                "line_start": 42,
-                "line_end": 88,
-                "column": 0,
-                "ast_hash": "deadbeef",
-                "dependencies": [],
-                "documentation": "",
-                "language": "rust",
-                "is_exported": true,
-                "annotations": [],
-                "byte_start": 900,
-                "byte_end": 1500,
+                "evidence_locus": {
+                    "id": "eg:locus:0000000000000001",
+                    "subject": {
+                        "kind": "artifact",
+                        "id": "eg:artifact:0000000000000002"
+                    },
+                    "address": {
+                        "kind": "code_symbol",
+                        "revision_ref": "eg:revision:0000000000000003",
+                        "symbol_ref": "eg:symbol:0000000000000004",
+                        "start_line": 42,
+                        "end_line": 88
+                    },
+                    "policy_ref": "eg:policy:0000000000000005",
+                    "derivation_ref": "eg:derivation:0000000000000006"
+                },
                 "confidence": 0.82,
                 "valid_from": 100,
                 "valid_until": 200,
@@ -835,20 +695,17 @@ mod tests {
         assert_eq!(sym_row.valid_time, (Some(100), Some(200)));
         assert_eq!(sym_row.tx_time, (Some(10), None));
         assert_eq!(sym_row.scores, vec![("score".to_string(), Some(0.9_f32))]);
-        // `evidence_refs` is only resolved by `KnowledgeSet::from_rowset` under the
-        // `epistemic` feature (see `knowledge.rs`'s module docs) — a plain
-        // `knowledge-batch` build (epistemic off) faithfully carries the empty
-        // `Vec` through the round trip; never fabricated either way.
+        // Governed loci resolve only under the epistemic feature.
         if cfg!(feature = "epistemic") {
-            assert_eq!(
-                sym_row.evidence_refs,
-                vec![EvidenceSpan::CodeSymbol {
-                    file_path: "src/server.rs".to_string(),
-                    symbol: "handle_request".to_string(),
+            assert_eq!(sym_row.evidence_refs.len(), 1);
+            assert!(matches!(
+                &sym_row.evidence_refs[0].address,
+                EvidenceAddress::CodeSymbol {
                     start_line: 42,
                     end_line: 88,
-                }]
-            );
+                    ..
+                }
+            ));
         } else {
             assert!(sym_row.evidence_refs.is_empty());
         }
@@ -883,6 +740,36 @@ mod tests {
         assert!(sym_row
             .scores
             .contains(&("bm25".to_string(), Some(3.2_f32))));
+    }
+
+    #[test]
+    fn score_transpose_preserves_name_alignment_and_first_duplicate() {
+        let mut kb = fixture_batch()
+            .with_named_score("bm25", vec![Some(3.2), Some(1.1)])
+            .expect("with_named_score");
+        kb.rows[0].scores = vec![
+            ("bm25".to_string(), Some(3.2)),
+            ("score".to_string(), Some(0.9)),
+            ("score".to_string(), Some(99.0)),
+        ];
+        kb.rows[1].scores = vec![("score".to_string(), Some(0.3))];
+
+        let rb = kb.to_record_batch().expect("to_record_batch");
+        let score = rb
+            .column(2)
+            .as_any()
+            .downcast_ref::<Float32Array>()
+            .expect("score column");
+        let bm25 = rb
+            .column(3)
+            .as_any()
+            .downcast_ref::<Float32Array>()
+            .expect("bm25 column");
+
+        assert_eq!(score.value(0), 0.9);
+        assert_eq!(score.value(1), 0.3);
+        assert_eq!(bm25.value(0), 3.2);
+        assert!(bm25.is_null(1));
     }
 
     #[test]
@@ -921,7 +808,7 @@ mod tests {
         core.add_edge(
             "evidence1".into(),
             "claim1".into(),
-            blob(json!({ "relationship_type": "SUPPORTS" })),
+            blob(json!({ "relationship": "SUPPORTS" })),
         )
         .unwrap();
         let view = core.analysis_snapshot();
@@ -979,25 +866,25 @@ mod tests {
         core.add_edge(
             "mid".into(),
             "claim1".into(),
-            blob(json!({ "relationship_type": "SUPPORTS" })),
+            blob(json!({ "relationship": "SUPPORTS" })),
         )
         .unwrap();
         core.add_edge(
             "evidence1".into(),
             "mid".into(),
-            blob(json!({ "relationship_type": "SUPPORTS" })),
+            blob(json!({ "relationship": "SUPPORTS" })),
         )
         .unwrap();
         core.add_edge(
             "counter1".into(),
             "claim1".into(),
-            blob(json!({ "relationship_type": "CONTRADICTS" })),
+            blob(json!({ "relationship": "CONTRADICTS" })),
         )
         .unwrap();
         core.add_edge(
             "claim1".into(),
             "activity1".into(),
-            blob(json!({ "relationship_type": "GENERATED_BY" })),
+            blob(json!({ "relationship": "GENERATED_BY" })),
         )
         .unwrap();
         let view = core.analysis_snapshot();
@@ -1027,15 +914,6 @@ mod tests {
     }
 
     #[test]
-    fn cursor_reports_exhausted_stub() {
-        let kb = fixture_batch();
-        let cursor = kb.cursor();
-        assert_eq!(cursor.offset, 2);
-        assert_eq!(cursor.total, Some(2));
-        assert!(cursor.exhausted);
-    }
-
-    #[test]
     fn empty_knowledge_set_converts_to_zero_row_batch() {
         let ks = KnowledgeSet::default();
         let kb = KnowledgeBatch::from_knowledge_set(&ks);
@@ -1045,111 +923,6 @@ mod tests {
         assert_eq!(rb.num_columns(), kb.arrow_schema().fields().len());
     }
 
-    // ── ChunkedKnowledgeCursor (CONCEPT:EG-P1-4, closes the L23 stub) ────────────────
-
-    /// A `KnowledgeBatch` of `n` rows (`n0`..`n{n-1}`), for exercising chunked streaming
-    /// over a "large" result — big enough that a small `chunk_size` yields several
-    /// chunks.
-    fn large_batch(n: usize) -> KnowledgeBatch {
-        let core = GraphCore::new();
-        let mut ids = Vec::with_capacity(n);
-        for i in 0..n {
-            let id = format!("n{i}");
-            core.add_node(id.clone(), blob(json!({"node_type": "Item"})));
-            ids.push(id);
-        }
-        let view = core.analysis_snapshot();
-        let rs = RowSet::from_ids(ids);
-        let ks = KnowledgeSet::from_rowset(&rs, &view, &[]);
-        assert_eq!(ks.len(), n);
-        KnowledgeBatch::from_knowledge_set(&ks)
-    }
-
-    /// A large result streams in MULTIPLE non-empty chunks, then exhausts: 25 rows at
-    /// chunk_size 10 yields chunks of 10, 10, 5, then `None` — the canonical shape the
-    /// task's test plan asked for.
-    #[test]
-    fn chunked_cursor_streams_multiple_nonempty_chunks_then_exhausts() {
-        let kb = large_batch(25);
-        let mut cursor = kb.into_chunks(10);
-
-        assert!(!cursor.is_exhausted());
-        let c1 = cursor.next_chunk().expect("chunk 1");
-        assert_eq!(c1.len(), 10);
-        assert!(!cursor.is_exhausted());
-
-        let c2 = cursor.next_chunk().expect("chunk 2");
-        assert_eq!(c2.len(), 10);
-        assert!(!cursor.is_exhausted());
-
-        let c3 = cursor.next_chunk().expect("chunk 3");
-        assert_eq!(c3.len(), 5);
-        assert!(cursor.is_exhausted());
-
-        assert!(
-            cursor.next_chunk().is_none(),
-            "an exhausted cursor yields no further chunks"
-        );
-        assert_eq!(cursor.position().offset, 25);
-        assert_eq!(cursor.position().total, Some(25));
-        assert!(cursor.position().exhausted);
-    }
-
-    /// EQUIVALENCE: concatenating every chunk a cursor yields reconstructs the exact
-    /// same row sequence (ids, in order) as the source batch — chunking never drops,
-    /// duplicates, or reorders a row.
-    #[test]
-    fn chunked_cursor_concatenation_equals_source_batch() {
-        let kb = large_batch(23);
-        let expected: Vec<String> = kb.rows.iter().map(|r| r.id.clone()).collect();
-        let score_names = kb.score_names.clone();
-
-        let mut cursor = kb.into_chunks(7);
-        let mut got: Vec<String> = Vec::new();
-        let mut chunk_count = 0;
-        while let Some(chunk) = cursor.next_chunk() {
-            assert!(!chunk.is_empty(), "next_chunk never yields an empty chunk");
-            assert_eq!(
-                chunk.score_names, score_names,
-                "every chunk shares the source's Arrow schema (score_names)"
-            );
-            got.extend(chunk.rows.into_iter().map(|r| r.id));
-            chunk_count += 1;
-        }
-        assert_eq!(got, expected);
-        assert_eq!(
-            chunk_count, 4,
-            "23 rows at chunk_size 7 ⇒ 7,7,7,2 = 4 chunks"
-        );
-    }
-
-    /// An empty batch is immediately exhausted — no chunk to yield, ever.
-    #[test]
-    fn chunked_cursor_over_empty_batch_is_immediately_exhausted() {
-        let kb = KnowledgeBatch::default();
-        let mut cursor = kb.into_chunks(10);
-        assert!(cursor.is_exhausted());
-        assert_eq!(cursor.total(), 0);
-        assert!(cursor.next_chunk().is_none());
-    }
-
-    /// `chunk_size: 0` is clamped to `1` rather than wedging the cursor (which would
-    /// never advance `offset` and loop forever).
-    #[test]
-    fn chunked_cursor_clamps_zero_chunk_size_to_one() {
-        let kb = large_batch(3);
-        let mut cursor = kb.into_chunks(0);
-        let mut n = 0;
-        while let Some(chunk) = cursor.next_chunk() {
-            assert_eq!(chunk.len(), 1, "clamped to chunk_size 1");
-            n += 1;
-            assert!(n <= 10, "cursor must terminate, not loop forever");
-        }
-        assert_eq!(n, 3);
-    }
-
-    // ── Chunk-driven Arrow IPC encoding (CONCEPT:EG-P1-5, INT-P2-5) ──────────────────
-
     /// Reads an Arrow IPC stream's bytes back into its `RecordBatch`es (test helper —
     /// mirrors any real Arrow IPC consumer, e.g. `pyarrow.ipc.open_stream`).
     fn read_ipc_stream(bytes: &[u8]) -> Vec<RecordBatch> {
@@ -1158,34 +931,13 @@ mod tests {
         reader.map(|b| b.expect("valid record batch")).collect()
     }
 
-    /// `to_arrow_ipc_stream` writes MULTIPLE `RecordBatch` messages (one per chunk) —
-    /// not one big materialized batch — and reading them all back reconstructs the
-    /// exact same row sequence (ids, in order) the source `KnowledgeBatch` had. Proves
-    /// the producer-side chunked Arrow encoder is real: bounded per-chunk memory
-    /// during ENCODING, byte-for-byte equivalent to the whole batch once reassembled.
     #[test]
-    fn arrow_ipc_stream_is_chunked_and_reassembles_to_the_source_batch() {
-        let kb = large_batch(23);
+    fn bounded_batch_encodes_as_one_arrow_ipc_batch() {
+        let kb = fixture_batch();
         let expected: Vec<String> = kb.rows.iter().map(|r| r.id.clone()).collect();
-        let cursor = kb.into_chunks(7);
-
-        let bytes = cursor
-            .to_arrow_ipc_stream()
-            .expect("encode arrow ipc stream");
+        let bytes = kb.to_arrow_ipc_stream().expect("encode arrow ipc stream");
         let batches = read_ipc_stream(&bytes);
-
-        // 23 rows at chunk_size 7 ⇒ 7,7,7,2 = 4 separate RecordBatch messages, proving
-        // this is genuinely chunk-at-a-time, not one big RecordBatch reassembled after
-        // the fact.
-        assert_eq!(batches.len(), 4, "one RecordBatch message per chunk");
-        assert_eq!(
-            batches.iter().map(|b| b.num_rows()).collect::<Vec<_>>(),
-            vec![7, 7, 7, 2]
-        );
-
-        // Concatenating every batch's `id` column reconstructs the source row order
-        // exactly (the SAME equivalence `chunked_cursor_concatenation_equals_source_batch`
-        // proves at the `KnowledgeBatch` level, now proven at the ENCODED ARROW level).
+        assert_eq!(batches.len(), 1);
         let mut got: Vec<String> = Vec::new();
         for batch in &batches {
             let id_col = batch
@@ -1206,8 +958,7 @@ mod tests {
     #[test]
     fn arrow_ipc_stream_over_empty_batch_is_valid_and_empty() {
         let kb = KnowledgeBatch::default();
-        let cursor = kb.into_chunks(10);
-        let bytes = cursor
+        let bytes = kb
             .to_arrow_ipc_stream()
             .expect("encode empty arrow ipc stream");
         let batches = read_ipc_stream(&bytes);

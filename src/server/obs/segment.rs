@@ -14,7 +14,7 @@
 //!  * a content-addressed blob CAS ([`crate::server::blob`], CONCEPT:EG-KG.storage.blob-namespace)
 //!    that, with `blob-s3` on, lands chunks on S3.
 //!
-//! So a log segment is: `Vec<LogRecord>` → Arrow `RecordBatch` → Parquet bytes →
+//! So a log segment is: `Vec<LogRecord>` → typed column frame → Parquet bytes →
 //! stored in the CAS (one content-addressed blob) → a [`SegmentManifest`]
 //! recording `(stream, [min_ts, max_ts], row_count, schema)`. The manifest is the
 //! prune index: a later time/stream-bounded search (EG-162/164, a follow-up Phase T
@@ -31,11 +31,11 @@
 
 use std::sync::Arc;
 
-use arrow::array::{Array, Int64Array, StringArray};
+use arrow::array::{Int64Array, StringArray};
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
-use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
-use parquet::arrow::ArrowWriter;
+use polars_core::prelude::{Column, DataFrame};
+use polars_io::prelude::{ParquetCompression, ParquetReader, ParquetWriter, SerReader};
 use serde::{Deserialize, Serialize};
 
 use crate::server::blob::store::{hex_digest, BlobManifest, ChunkStore, DEFAULT_CHUNK_SIZE};
@@ -116,74 +116,101 @@ pub(super) fn records_to_batch(records: &[LogRecord]) -> Result<RecordBatch, Str
     .map_err(|e| format!("build log RecordBatch: {e}"))
 }
 
-/// Encode log records into Parquet bytes (Arrow → Parquet, UNCOMPRESSED — the
-/// codec crates stay out of the tree). Returns the serialized segment blob.
+/// Encode log records into Parquet bytes (Arrow → Parquet, deliberately
+/// uncompressed to keep segment CPU predictable). Returns the serialized blob.
 pub fn records_to_parquet(records: &[LogRecord]) -> Result<Vec<u8>, String> {
-    let batch = records_to_batch(records)?;
+    let attrs_values: Vec<String> = records.iter().map(attrs_json).collect();
+    let mut frame = DataFrame::new(
+        records.len(),
+        vec![
+            Column::new(
+                "ts".into(),
+                records.iter().map(|record| record.ts).collect::<Vec<_>>(),
+            ),
+            Column::new(
+                "stream".into(),
+                records
+                    .iter()
+                    .map(|record| record.stream.as_str())
+                    .collect::<Vec<_>>(),
+            ),
+            Column::new(
+                "severity".into(),
+                records
+                    .iter()
+                    .map(|record| record.severity.as_str())
+                    .collect::<Vec<_>>(),
+            ),
+            Column::new(
+                "body".into(),
+                records
+                    .iter()
+                    .map(|record| record.body.as_str())
+                    .collect::<Vec<_>>(),
+            ),
+            Column::new(
+                "attrs".into(),
+                attrs_values.iter().map(String::as_str).collect::<Vec<_>>(),
+            ),
+        ],
+    )
+    .map_err(|e| format!("build parquet frame: {e}"))?;
     let mut buf: Vec<u8> = Vec::new();
-    {
-        let mut writer = ArrowWriter::try_new(&mut buf, log_arrow_schema(), None)
-            .map_err(|e| format!("open parquet writer: {e}"))?;
-        writer
-            .write(&batch)
-            .map_err(|e| format!("write parquet batch: {e}"))?;
-        writer
-            .close()
-            .map_err(|e| format!("close parquet writer: {e}"))?;
-    }
+    ParquetWriter::new(&mut buf)
+        .with_compression(ParquetCompression::Uncompressed)
+        .set_parallel(false)
+        .finish(&mut frame)
+        .map_err(|e| format!("write parquet frame: {e}"))?;
     Ok(buf)
 }
 
 /// Decode Parquet segment bytes back into log records (the round-trip read).
 pub fn parquet_to_records(bytes: &[u8]) -> Result<Vec<LogRecord>, String> {
-    let data = bytes::Bytes::copy_from_slice(bytes);
-    let builder = ParquetRecordBatchReaderBuilder::try_new(data)
-        .map_err(|e| format!("open parquet reader: {e}"))?;
-    let reader = builder
-        .build()
-        .map_err(|e| format!("build parquet reader: {e}"))?;
-    let mut out = Vec::new();
-    for batch in reader {
-        let batch = batch.map_err(|e| format!("read parquet batch: {e}"))?;
-        let col_i64 = |name: &str| -> Result<Int64Array, String> {
-            let idx = batch
-                .schema()
-                .index_of(name)
-                .map_err(|e| format!("column {name}: {e}"))?;
-            batch
-                .column(idx)
-                .as_any()
-                .downcast_ref::<Int64Array>()
-                .cloned()
-                .ok_or_else(|| format!("column {name} not Int64"))
-        };
-        let col_str = |name: &str| -> Result<StringArray, String> {
-            let idx = batch
-                .schema()
-                .index_of(name)
-                .map_err(|e| format!("column {name}: {e}"))?;
-            batch
-                .column(idx)
-                .as_any()
-                .downcast_ref::<StringArray>()
-                .cloned()
-                .ok_or_else(|| format!("column {name} not Utf8"))
-        };
-        let ts = col_i64("ts")?;
-        let stream = col_str("stream")?;
-        let severity = col_str("severity")?;
-        let body = col_str("body")?;
-        let attrs = col_str("attrs")?;
-        for i in 0..batch.num_rows() {
-            let attr_map = parse_attrs_json(attrs.value(i));
-            out.push(LogRecord {
-                ts: ts.value(i),
-                stream: stream.value(i).to_string(),
-                severity: severity.value(i).to_string(),
-                body: body.value(i).to_string(),
-                attrs: attr_map,
-            });
-        }
+    let frame = ParquetReader::new(std::io::Cursor::new(bytes))
+        .finish()
+        .map_err(|e| format!("read parquet frame: {e}"))?;
+    let ts = frame
+        .column("ts")
+        .and_then(Column::i64)
+        .map_err(|e| format!("column ts: {e}"))?;
+    let stream = frame
+        .column("stream")
+        .and_then(Column::str)
+        .map_err(|e| format!("column stream: {e}"))?;
+    let severity = frame
+        .column("severity")
+        .and_then(Column::str)
+        .map_err(|e| format!("column severity: {e}"))?;
+    let body = frame
+        .column("body")
+        .and_then(Column::str)
+        .map_err(|e| format!("column body: {e}"))?;
+    let attrs = frame
+        .column("attrs")
+        .and_then(Column::str)
+        .map_err(|e| format!("column attrs: {e}"))?;
+
+    let mut out = Vec::with_capacity(frame.height());
+    for row in 0..frame.height() {
+        let attr_json = attrs
+            .get(row)
+            .ok_or_else(|| format!("null attrs at row {row}"))?;
+        out.push(LogRecord {
+            ts: ts.get(row).ok_or_else(|| format!("null ts at row {row}"))?,
+            stream: stream
+                .get(row)
+                .ok_or_else(|| format!("null stream at row {row}"))?
+                .to_string(),
+            severity: severity
+                .get(row)
+                .ok_or_else(|| format!("null severity at row {row}"))?
+                .to_string(),
+            body: body
+                .get(row)
+                .ok_or_else(|| format!("null body at row {row}"))?
+                .to_string(),
+            attrs: parse_attrs_json(attr_json),
+        });
     }
     Ok(out)
 }
@@ -217,11 +244,12 @@ pub fn store_segment_bytes(store: &dyn ChunkStore, bytes: &[u8]) -> Result<Strin
         chunk_lens.push(part.len() as u32);
     }
     let manifest = BlobManifest {
+        schema_version: crate::server::blob::BLOB_MANIFEST_VERSION,
+        owner_scope: crate::server::blob::ENGINE_BLOB_OWNER_SCOPE.to_string(),
         chunks,
         chunk_lens,
         len: bytes.len() as u64,
-        // Content-defined-shaped manifest (variable chunk_lens recorded); 0 marks it
-        // non-legacy per CONCEPT:EG-KG.storage.backward-manifest-read.
+        // Native content-defined boundaries are recorded explicitly in chunk_lens.
         chunk_size: 0,
     };
     let mbytes = rmp_serde::to_vec_named(&manifest).map_err(|e| e.to_string())?;

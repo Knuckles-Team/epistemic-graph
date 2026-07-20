@@ -134,12 +134,6 @@ mod imp {
              after the global pool / per-graph cap was saturated by writes — each is an \
              interactive read that would otherwise have been shed BUSY behind ingestion",
         );
-        static ref WAL_APPEND_DROPPED: IntCounter = counter(
-            "epistemic_graph_wal_append_dropped_total",
-            "Durable mutations whose WAL append was dropped because the off-reactor \
-             WAL writer channel was saturated (data is still in memory + checkpointed; \
-             the crash-recovery window widened — investigate disk/throughput)",
-        );
         static ref GRAPH_OPS: IntCounterVec = counter_vec(
             "epistemic_graph_graph_ops_total",
             "Graph-targeted operations admitted past the ACL, by graph (bounded cardinality)",
@@ -172,6 +166,18 @@ mod imp {
         static ref CHECKPOINT_LAST_SUCCESS: IntGauge = gauge(
             "epistemic_graph_checkpoint_last_success_timestamp_seconds",
             "Unix timestamp of the last successful checkpoint",
+        );
+        static ref ANALYTICS_JOBS_READY: IntGauge = gauge(
+            "epistemic_graph_analytics_jobs_ready",
+            "Durable analytics jobs eligible for a remote worker lease",
+        );
+        static ref ANALYTICS_JOBS_ACTIVE: IntGauge = gauge(
+            "epistemic_graph_analytics_jobs_active",
+            "Durable analytics jobs with a currently live worker lease",
+        );
+        static ref ANALYTICS_JOBS_PUBLISHING: IntGauge = gauge(
+            "epistemic_graph_analytics_jobs_publishing",
+            "Durable analytics jobs with a staged result awaiting publication",
         );
         static ref AUTH_FAILURES: IntCounter = counter(
             "epistemic_graph_auth_failures_total",
@@ -275,8 +281,8 @@ mod imp {
             &["loop"],
         );
         // CONCEPT:EG-KG.epistemic.truth-maintenance — the "give staleness a consumer"
-        // SURPASS gap-closure: a live gauge (the CURRENT stale count, refreshed after
-        // every mutation to the process-global TMS index — see `src/server/tms_hook.rs`)
+        // SURPASS gap-closure: a live gauge (the CURRENT stale count, refreshed from
+        // the durable per-graph reasoning projection after committed invalidations)
         // plus a cumulative counter (how many staling EVENTS have fired, distinct from
         // the gauge because a materialization can go stale, get recomputed back to
         // fresh, and go stale again — the counter never decreases, the gauge does).
@@ -387,16 +393,19 @@ mod imp {
         CHECKPOINT_LAST_SUCCESS.set(now as i64);
     }
 
+    /// Publish authoritative job-store queue state for autoscaling and SLOs.
+    pub fn set_analytics_job_counts(ready: i64, active: i64, publishing: i64) {
+        ANALYTICS_JOBS_READY.set(ready);
+        ANALYTICS_JOBS_ACTIVE.set(active);
+        ANALYTICS_JOBS_PUBLISHING.set(publishing);
+    }
+
     pub fn auth_failure() {
         AUTH_FAILURES.inc();
     }
 
     pub fn access_denied() {
         ACCESS_DENIED.inc();
-    }
-
-    pub fn wal_append_dropped() {
-        WAL_APPEND_DROPPED.inc();
     }
 
     /// Record one committed coalesced write batch of `ops` single-op writes against
@@ -486,9 +495,9 @@ mod imp {
     pub fn slow_query() {}
     pub fn drop_graph(_graph: &str) {}
     pub fn checkpoint_completed(_seconds: f64) {}
+    pub fn set_analytics_job_counts(_ready: i64, _active: i64, _publishing: i64) {}
     pub fn auth_failure() {}
     pub fn access_denied() {}
-    pub fn wal_append_dropped() {}
     pub fn write_batch_committed(_graph: &str, _ops: usize) {}
     pub fn observe_write_lock_wait(_graph: &str, _seconds: f64) {}
     pub fn observe_write_lock_hold(_graph: &str, _seconds: f64) {}

@@ -31,18 +31,18 @@ pub mod tables;
 #[cfg(feature = "sql")]
 pub use sql::{
     classify, cypher_output_columns, default_spill_rows, exec_sql, exec_sql_arrow,
-    exec_sql_arrow_cancellable, exec_sql_cached, exec_sql_cancellable, exec_sql_over_tables,
-    exec_sql_typed, exec_sql_typed_cancellable, exec_sql_typed_with_tables,
-    exec_sql_typed_with_tables_cancellable, infer_param_sites, parse_create_ann_index,
-    parse_cypher_call, plan_ann_search, plan_bm25_search, project_cypher_rows, returning_columns,
-    schema_probe_sql, AlterTableAction, AlterTablePlan, AnnIndexPlan, AnnMethod, AnnSearchPlan,
-    Bm25SearchPlan, CancellationToken, ColumnDef, ContinuousAggPlan, CopyFormat, CopyPlan,
-    CreateFunctionPlan, CreateTablePlan, CreateViewPlan, CypherCallPlan, CypherColumn, DeleteNodes,
-    DeleteNodesJoin, DeleteTable, DropFunctionPlan, DropTablePlan, DropViewPlan, HypertablePlan,
-    InsertNode, InsertNodes, InsertNodesSelect, InsertSelect, InsertTable, OnConflict,
-    OnConflictAction, ParamLiteralType, ParamSite, PgColType, QueryResult, SqlCache, StatementKind,
-    StreamOutcome, TableWhereEq, TypedColumn, TypedQueryResult, UpdateNodes, UpdateNodesJoin,
-    UpdateTable, VectorMetric, WhereEq,
+    exec_sql_arrow_cancellable, exec_sql_cached, exec_sql_over_tables, exec_sql_typed,
+    exec_sql_typed_cancellable, exec_sql_typed_with_tables, exec_sql_typed_with_tables_cancellable,
+    infer_param_sites, parse_create_ann_index, parse_cypher_call, plan_ann_search,
+    plan_bm25_search, project_cypher_rows, returning_columns, schema_probe_sql, AlterTableAction,
+    AlterTablePlan, AnnIndexPlan, AnnMethod, AnnSearchPlan, Bm25SearchPlan, CancellationToken,
+    ColumnDef, ContinuousAggPlan, CopyFormat, CopyPlan, CreateFunctionPlan, CreateTablePlan,
+    CreateViewPlan, CypherCallPlan, CypherColumn, DeleteNodes, DeleteNodesJoin, DeleteTable,
+    DropFunctionPlan, DropTablePlan, DropViewPlan, HypertablePlan, InsertNode, InsertNodes,
+    InsertNodesSelect, InsertSelect, InsertTable, OnConflict, OnConflictAction, ParamLiteralType,
+    ParamSite, PgColType, QueryResult, SqlCache, StatementKind, StreamOutcome, TableWhereEq,
+    TypedColumn, TypedQueryResult, UpdateNodes, UpdateNodesJoin, UpdateTable, VectorMetric,
+    WhereEq,
 };
 
 #[cfg(feature = "sql")]
@@ -56,6 +56,6 @@ pub mod cypher;
 
 #[cfg(feature = "cypher")]
 pub use cypher::{
-    exec_cypher, exec_cypher_params, exec_cypher_write, exec_cypher_write_params, CypherProcedure,
-    Params, ProcRow, YieldValue,
+    classify_cypher, exec_cypher, exec_cypher_params, exec_cypher_write, exec_cypher_write_params,
+    CypherProcedure, CypherStatementKind, Params, ProcRow, YieldValue,
 };

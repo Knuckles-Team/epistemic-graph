@@ -43,6 +43,24 @@ use serde::{Deserialize, Serialize};
 /// is routed by EG-026 FNV-1a, so the table only ever holds the *exceptions* to the
 /// hash (moved / rebalanced tenants) — it does not have to enumerate all 100M graphs.
 const CATALOG: TableDefinition<&str, &[u8]> = TableDefinition::new("tenant_catalog");
+const MAX_CATALOG_ENTRIES: usize = 1_000_000;
+const MAX_CATALOG_KEY_BYTES: usize = 4 * 1024;
+
+fn decode_assignment(bytes: &[u8]) -> Result<ShardAssignment, String> {
+    eg_types::msgpack::decode_bounded(
+        bytes,
+        eg_types::msgpack::MsgpackLimits::new(1024, 32, eg_types::msgpack::DEFAULT_MAX_DEPTH),
+    )
+    .map_err(|_| "tenant catalog row is invalid or exceeds resource limits".to_string())
+}
+
+fn validate_catalog_key(key: &str) -> Result<(), String> {
+    if key.is_empty() || key.len() > MAX_CATALOG_KEY_BYTES || key.contains('\0') {
+        Err("tenant catalog key exceeds resource limits".to_string())
+    } else {
+        Ok(())
+    }
+}
 
 /// Where a tenant/graph is placed (CONCEPT:EG-KG.sharding.empty-catalog-routing). `shard` is the durable redb shard
 /// index (matches EG-026's `graph-<shard>.redb`); `node` is the FUTURE cluster node id
@@ -104,10 +122,13 @@ impl TenantCatalog {
             let rtx = db.begin_read().map_err(|e| e.to_string())?;
             let table = rtx.open_table(CATALOG).map_err(|e| e.to_string())?;
             for row in table.iter().map_err(|e| e.to_string())? {
-                let (k, v) = row.map_err(|e| e.to_string())?;
-                if let Ok(a) = rmp_serde::from_slice::<ShardAssignment>(v.value()) {
-                    entries.insert(k.value().to_string(), a);
+                if entries.len() >= MAX_CATALOG_ENTRIES {
+                    return Err("tenant catalog exceeds resource limits".to_string());
                 }
+                let (k, v) = row.map_err(|e| e.to_string())?;
+                validate_catalog_key(k.value())?;
+                let assignment = decode_assignment(v.value())?;
+                entries.insert(k.value().to_string(), assignment);
             }
         }
         Ok(TenantCatalog {
@@ -140,11 +161,12 @@ impl TenantCatalog {
     /// the ROUTE only — moving an already-populated graph's rows to the new shard is
     /// online-resharding execution (remaining M3; see the design doc).
     pub fn assign(&self, graph_fname: &str, shard: u32, node: Option<u32>) -> Result<(), String> {
+        validate_catalog_key(graph_fname)?;
+        let mut entries = self.entries.write().unwrap();
+        if !entries.contains_key(graph_fname) && entries.len() >= MAX_CATALOG_ENTRIES {
+            return Err("tenant catalog exceeds resource limits".to_string());
+        }
         let a = ShardAssignment { shard, node };
-        self.entries
-            .write()
-            .unwrap()
-            .insert(graph_fname.to_string(), a);
         if let Some(db) = &self.db {
             let blob = rmp_serde::to_vec_named(&a).map_err(|e| e.to_string())?;
             let wtx = db.begin_write().map_err(|e| e.to_string())?;
@@ -155,6 +177,7 @@ impl TenantCatalog {
             }
             wtx.commit().map_err(|e| e.to_string())?;
         }
+        entries.insert(graph_fname.to_string(), a);
         Ok(())
     }
 
@@ -167,7 +190,7 @@ impl TenantCatalog {
 
     /// Drop the explicit assignment for `graph_fname` (it reverts to EG-026 routing).
     pub fn remove(&self, graph_fname: &str) -> Result<(), String> {
-        self.entries.write().unwrap().remove(graph_fname);
+        validate_catalog_key(graph_fname)?;
         if let Some(db) = &self.db {
             let wtx = db.begin_write().map_err(|e| e.to_string())?;
             {
@@ -176,6 +199,7 @@ impl TenantCatalog {
             }
             wtx.commit().map_err(|e| e.to_string())?;
         }
+        self.entries.write().unwrap().remove(graph_fname);
         Ok(())
     }
 
@@ -205,6 +229,11 @@ impl TenantCatalog {
 mod tests {
     use super::*;
     use crate::server::persistence::redb_backend::shard_index;
+
+    #[test]
+    fn durable_assignment_decoder_rejects_allocation_bombs() {
+        assert!(decode_assignment(&[0xdd, 0xff, 0xff, 0xff, 0xff]).is_err());
+    }
 
     #[test]
     fn empty_catalog_is_pure_fnv1a() {

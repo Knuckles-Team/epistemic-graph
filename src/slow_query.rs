@@ -101,8 +101,15 @@ pub fn describe(method: &Method) -> Option<SlowQuery> {
         return None;
     }
     match method {
+        #[cfg(feature = "knowledge-batch")]
+        Method::KnowledgeStream { .. } => Some(SlowQuery::new(
+            "knowledge_stream",
+            "<opaque governed query>",
+            None,
+            None,
+        )),
         Method::Sql { query, .. } => Some(SlowQuery::new("sql", query, None, None)),
-        Method::CypherQuery { query } => Some(SlowQuery::new("cypher", query, None, None)),
+        Method::CypherQuery { query, .. } => Some(SlowQuery::new("cypher", query, None, None)),
         #[cfg(feature = "graphql")]
         Method::GraphQl { query, .. } => Some(SlowQuery::new("graphql", query, None, None)),
         #[cfg(feature = "query")]

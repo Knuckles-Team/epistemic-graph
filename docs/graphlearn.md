@@ -30,8 +30,8 @@ edge weight with a *learnable univariate function on each edge*.
   artifact**.
 - **Basis** (`CONCEPT:EG-KG.graphlearn.chebyshev-basis`) — Chebyshev (first kind) by
   default, Jacobi optional. Both are closed-form three-term recurrences with **zero
-  special functions**, deliberately NOT B-spline/RBF — matching the engine's
-  no-BLAS/no-libm Raspberry-Pi contract. (`ChebyKAN`/`JacobiKAN`/`TaylorKAN` validate
+  special functions**, deliberately NOT B-spline/RBF — preserving a dependency-light,
+  no-BLAS/no-libm implementation. (`ChebyKAN`/`JacobiKAN`/`TaylorKAN` validate
   the polynomial basis as a competitive spline substitute.)
 - **Link predictor** (`CONCEPT:EG-KG.graphlearn.link-predictor`) — per candidate pair
   `(u, v)` a small structural feature vector is built from what is already resident:
@@ -94,9 +94,8 @@ pred = await client.graphlearn.predict(
 **missing** links. With `writeback=True` each becomes a typed **`:PredictedEdge`** node
 linked to its endpoints (`CONCEPT:EG-KG.graphlearn.predicted-edge-writeback`).
 
-Both write-back paths are graph **mutations** → classify as writes and **WAL-replay**
-by re-deriving from the current graph (deterministic given the seed), exactly like
-mining.
+Both write-back paths are graph **mutations**: they require write authorization and
+commit their materialized rows to authoritative redb before acknowledgement.
 
 ## Interpretability example
 

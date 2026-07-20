@@ -13,8 +13,8 @@
 //! MQTT topics map naturally onto a broker TOPIC exchange + bindings: a client PUBLISH
 //! routes through `Method::Publish` (topic routing), and each SUBSCRIBE topic filter
 //! (with MQTT `+`/`#` wildcards) binds a per-session queue to that exchange, whose
-//! matching messages are streamed back to the subscriber via the KG-2.303 claim path
-//! (`Method::ClaimNext` + `CompareAndSetNodeFields`, exactly as amqp-wire's consume).
+//! matching messages are streamed back to the subscriber through the native
+//! `Method::BrokerConsume`/`BrokerAck` lifecycle.
 //!
 //! It links NO MQTT crate — every byte layout is hand-rolled against the published MQTT
 //! 3.1.1 spec (the Pi-contract idiom pgwire / amqp-wire / redis-wire use), so a
@@ -23,10 +23,12 @@
 //! ## Protocol subset (CONCEPT:EG-KG.query.mqtt-packet-codec)
 //! LANDED: CONNECT/CONNACK, PUBLISH (QoS 0 + QoS 1 with PUBACK), SUBSCRIBE/SUBACK
 //! (topic filters incl. `+`/`#` wildcards → broker topic bindings), UNSUBSCRIBE/
-//! UNSUBACK, PINGREQ/PINGRESP, DISCONNECT. Auth is a localhost TRUST surface (any
-//! CONNECT accepted, like the SQL wires' trust mode). DEFERRED (a client degrades
-//! gracefully): retained messages, will messages, QoS 2 (PUBREC/PUBREL/PUBCOMP), TLS,
-//! and session persistence.
+//! UNSUBACK, PINGREQ/PINGRESP, DISCONNECT. CONNECT username/password authentication is
+//! mandatory: the password is a domain-separated HMAC derived from
+//! `GRAPH_SERVICE_AUTH_SECRET`, and the authenticated principal becomes a secret-keyed
+//! pseudonymous actor reference before every engine request. The direct listener is
+//! loopback-only; remote access must traverse a TLS/mTLS identity-binding gateway.
+//! Unsupported CONNECT/PUBLISH options and packet types fail closed.
 //!
 //! ## Publisher confirms + idempotent publish (CONCEPT:EG-KG.ingest.mqtt-publish-property-block / EG-284)
 //! MQTT's QoS-1 PUBLISH → PUBACK already IS the publisher-confirm surface (the broker
@@ -42,13 +44,14 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
+use hmac::{Hmac, Mac};
+use sha2::Sha256;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::RwLock;
 
 use crate::protocol::{Method, Request, ResultPayload};
-use crate::server::auth::compute_auth_token;
-use crate::server::dispatch::dispatch;
+use crate::server::dispatch::dispatch_authenticated_broker_actor;
 use crate::server::ServerState;
 
 /// Env var: when set (and the binary is built `--features mqtt-wire`), the MQTT wire
@@ -63,6 +66,32 @@ pub const MQTT_GRAPH_ENV: &str = "EPISTEMIC_GRAPH_MQTT_GRAPH";
 pub const MQTT_EXCHANGE_ENV: &str = "EPISTEMIC_GRAPH_MQTT_EXCHANGE";
 
 const DEFAULT_EXCHANGE: &str = "amq.topic";
+const MAX_MQTT_PACKET_BYTES: usize = 64 * 1024 * 1024;
+const MAX_MQTT_CONTROL_PACKET_BYTES: usize = 2 * 1024 * 1024;
+const MAX_MQTT_SUBSCRIPTIONS: usize = 1_024;
+const MAX_MQTT_SUBSCRIPTION_BYTES: usize = 1024 * 1024;
+const MAX_MQTT_FILTERS_PER_PACKET: usize = 1_024;
+const MAX_MQTT_PROPERTIES: usize = 1_024;
+const MAX_MQTT_IDENTIFIER_BYTES: usize = 4 * 1024;
+const MAX_MQTT_TOPIC_BYTES: usize = u16::MAX as usize;
+const MAX_BROKER_RESULT_ITEMS: usize = 1_000_000;
+const BROKER_LEASE_MS: u64 = 5 * 60 * 1_000;
+
+fn invalid_data(message: &'static str) -> std::io::Error {
+    std::io::Error::new(std::io::ErrorKind::InvalidData, message)
+}
+
+fn decode_broker_result<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Option<T> {
+    eg_types::msgpack::decode_bounded(
+        bytes,
+        eg_types::msgpack::MsgpackLimits::new(
+            MAX_MQTT_PACKET_BYTES,
+            MAX_BROKER_RESULT_ITEMS,
+            eg_types::msgpack::DEFAULT_MAX_DEPTH,
+        ),
+    )
+    .ok()
+}
 
 // ── MQTT control packet types (high nibble of byte 1) ─────────────────────
 const PKT_CONNECT: u8 = 1;
@@ -78,9 +107,42 @@ const PKT_PINGRESP: u8 = 13;
 const PKT_DISCONNECT: u8 = 14;
 
 static REQ_ID: AtomicU64 = AtomicU64::new(1);
+type HmacSha256 = Hmac<Sha256>;
 
 fn next_req_id() -> u64 {
     REQ_ID.fetch_add(1, Ordering::Relaxed)
+}
+
+/// Derive the CONNECT password for an MQTT principal.
+pub fn derive_mqtt_password(secret: &str, principal: &str) -> String {
+    let mut mac =
+        HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC accepts any key length");
+    mac.update(b"mqtt:");
+    mac.update(principal.as_bytes());
+    hex::encode(mac.finalize().into_bytes())
+}
+
+fn verify_mqtt_password(secret: &str, principal: &str, password: &[u8]) -> bool {
+    if secret.is_empty()
+        || principal.is_empty()
+        || principal.len() > MAX_MQTT_IDENTIFIER_BYTES
+        || password.len() != 64
+    {
+        return false;
+    }
+    let Ok(candidate) = hex::decode(password) else {
+        return false;
+    };
+    let mut mac =
+        HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC accepts any key length");
+    mac.update(b"mqtt:");
+    mac.update(principal.as_bytes());
+    mac.verify_slice(&candidate).is_ok()
+}
+
+/// Fail closed before binding the plaintext MQTT listener.
+pub fn validate_startup_policy(addr: &str, secret: &str) -> std::io::Result<()> {
+    crate::server::validate_direct_wire_security(addr, "mqtt-wire", !secret.is_empty())
 }
 
 /// Serve the MQTT wire protocol on `addr` until the listener errors (CONCEPT:EG-KG.query.mqtt-packet-codec).
@@ -88,14 +150,16 @@ pub async fn serve(addr: &str, state: Arc<RwLock<ServerState>>) -> std::io::Resu
     let graph = std::env::var(MQTT_GRAPH_ENV).unwrap_or_else(|_| "__commons__".to_string());
     let exchange =
         std::env::var(MQTT_EXCHANGE_ENV).unwrap_or_else(|_| DEFAULT_EXCHANGE.to_string());
+    let auth_secret = state.read().await.auth_secret.clone();
+    validate_startup_policy(addr, &auth_secret)?;
     let listener = TcpListener::bind(addr).await?;
     tracing::info!(
-        "mqtt-wire: serving MQTT 3.1.1 on {} (broker graph '{}', topic exchange '{}')",
-        addr,
+        "mqtt-wire: serving authenticated MQTT on loopback (broker graph '{}', topic \
+         exchange '{}'; remote access requires a TLS identity-binding gateway)",
         graph,
         exchange
     );
-    accept_loop(listener, state, graph, exchange).await
+    accept_loop(listener, state, graph, exchange, auth_secret).await
 }
 
 /// The bind-agnostic accept loop (shared by `serve` and the test harness).
@@ -104,15 +168,17 @@ async fn accept_loop(
     state: Arc<RwLock<ServerState>>,
     graph: String,
     exchange: String,
+    auth_secret: String,
 ) -> std::io::Result<()> {
     loop {
         let (socket, peer) = listener.accept().await?;
         let st = state.clone();
         let g = graph.clone();
         let ex = exchange.clone();
+        let secret = auth_secret.clone();
         tokio::spawn(async move {
             let mut socket = socket;
-            if let Err(e) = handle_connection(&mut socket, st, g, ex).await {
+            if let Err(e) = handle_connection(&mut socket, st, g, ex, secret).await {
                 tracing::debug!("mqtt-wire connection from {peer} ended: {e}");
             }
         });
@@ -124,52 +190,69 @@ async fn accept_loop(
 async fn engine_call(
     state: &Arc<RwLock<ServerState>>,
     graph: &str,
+    actor: &str,
     method: Method,
 ) -> ResultPayload {
     let id = next_req_id();
-    let secret = { state.read().await.auth_secret.clone() };
     let req = Request {
         id,
         graph: graph.to_string(),
-        auth_token: compute_auth_token(&secret, id),
+        auth_token: String::new(),
         agent_id: None,
         method,
     };
-    let resp = dispatch(state, req).await;
+    let resp = dispatch_authenticated_broker_actor(state, req, actor).await;
     resp.result.unwrap_or(ResultPayload::Bool(false))
 }
 
-fn obj(map: serde_json::Value) -> Vec<u8> {
-    rmp_serde::to_vec_named(map.as_object().unwrap()).unwrap_or_default()
+fn current_time_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+        .try_into()
+        .unwrap_or(u64::MAX)
 }
 
-/// Claim the oldest pending message from `queue` (CONCEPT:EG-KG.compute.atomically-claim-oldest-pending), marking it
-/// `claimed`. Returns `(node_id, routing_key, body)` or `None`.
+/// Claim one deliverable message through the native broker lifecycle. Returns
+/// `(node_id, routing_key, body)` or `None`.
 async fn claim_one(
     state: &Arc<RwLock<ServerState>>,
     graph: &str,
+    actor: &str,
     queue: &str,
+    consumer: &str,
 ) -> Option<(String, String, Vec<u8>)> {
-    let updates = obj(serde_json::json!({ "status": "claimed" }));
     let payload = engine_call(
         state,
         graph,
-        Method::ClaimNext {
-            label: crate::broker::queue_msg_label(queue),
-            updates_msgpack: updates,
+        actor,
+        Method::BrokerConsume {
+            queue: queue.to_string(),
+            group: "mqtt".to_string(),
+            consumer: consumer.to_string(),
+            now_ms: current_time_ms(),
+            lease_ms: BROKER_LEASE_MS,
+            prefetch: 1,
         },
     )
     .await;
     let ResultPayload::Raw(bytes) = payload else {
         return None;
     };
-    let claimed: Option<(String, serde_json::Value)> = rmp_serde::from_slice(&bytes).ok()?;
+    let claimed: Option<(String, serde_json::Value)> = decode_broker_result(&bytes)?;
     let (id, props) = claimed?;
+    if id.len() > MAX_MQTT_IDENTIFIER_BYTES {
+        return None;
+    }
     let rk = props
         .get("routing_key")
         .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
+        .unwrap_or("");
+    if rk.len() > MAX_MQTT_TOPIC_BYTES {
+        return None;
+    }
+    let rk = rk.to_string();
     let body = props
         .get("payload")
         .and_then(|v| v.as_str())
@@ -178,18 +261,21 @@ async fn claim_one(
     Some((id, rk, body))
 }
 
-/// Finalize a delivered message: CAS its status `claimed → acked` (CONCEPT:EG-KG.compute.atomically-claim-oldest-pending ack
-/// path). Best-effort — a lost ack simply leaves the node `claimed`.
-async fn ack_message(state: &Arc<RwLock<ServerState>>, graph: &str, node_id: &str) {
-    let conditions = obj(serde_json::json!({ "status": "claimed" }));
-    let updates = obj(serde_json::json!({ "status": "acked" }));
+/// Finalize a delivered message through the native broker acknowledgement path.
+async fn ack_message(
+    state: &Arc<RwLock<ServerState>>,
+    graph: &str,
+    actor: &str,
+    queue: &str,
+    node_id: &str,
+) {
     let _ = engine_call(
         state,
         graph,
-        Method::CompareAndSetNodeFields {
+        actor,
+        Method::BrokerAck {
+            queue: queue.to_string(),
             node_id: node_id.to_string(),
-            conditions_msgpack: conditions,
-            updates_msgpack: updates,
         },
     )
     .await;
@@ -213,11 +299,16 @@ fn key_to_mqtt_topic(key: &str) -> String {
 /// producer_seq)`. Steps over the other PUBLISH properties by their known wire widths;
 /// an unrecognised property id ends the scan (its width is undeterminable) with whatever
 /// was found so far. `producer-seq` accepts a decimal string value.
-fn parse_publish_properties(bytes: &[u8]) -> (Option<String>, Option<i64>) {
+fn parse_publish_properties(bytes: &[u8]) -> Option<(Option<String>, Option<i64>)> {
     let mut c = Cursor::new(bytes);
     let mut producer_id: Option<String> = None;
     let mut producer_seq: Option<i64> = None;
+    let mut property_count = 0usize;
     while c.remaining() > 0 {
+        property_count += 1;
+        if property_count > MAX_MQTT_PROPERTIES {
+            return None;
+        }
         let id = c.u8();
         match id {
             0x01 => {
@@ -249,10 +340,10 @@ fn parse_publish_properties(bytes: &[u8]) -> (Option<String>, Option<i64>) {
                     _ => {}
                 }
             }
-            _ => break, // unknown property — width unknown, stop the scan
+            _ => return None, // unknown property width: fail closed
         }
     }
-    (producer_id, producer_seq)
+    c.valid.then_some((producer_id, producer_seq))
 }
 
 /// An MQTT SUBSCRIBE topic FILTER (`sport/+/#`) → broker topic-binding pattern
@@ -260,6 +351,31 @@ fn parse_publish_properties(bytes: &[u8]) -> (Option<String>, Option<i64>) {
 /// (zero-or-more trailing levels) maps to the broker `#` (zero-or-more words) as-is.
 fn mqtt_filter_to_pattern(filter: &str) -> String {
     filter.replace('/', ".").replace('+', "*")
+}
+
+fn valid_topic_name(topic: &str) -> bool {
+    !topic.is_empty()
+        && topic.len() <= MAX_MQTT_TOPIC_BYTES
+        && !topic.contains(['#', '+'])
+        && !topic.chars().any(char::is_control)
+}
+
+fn valid_topic_filter(filter: &str) -> bool {
+    if filter.is_empty()
+        || filter.len() > MAX_MQTT_TOPIC_BYTES
+        || filter.chars().any(char::is_control)
+    {
+        return false;
+    }
+    let mut levels = filter.split('/').peekable();
+    while let Some(level) = levels.next() {
+        if (level.contains('#') && (level != "#" || levels.peek().is_some()))
+            || (level.contains('+') && level != "+")
+        {
+            return false;
+        }
+    }
+    true
 }
 
 // ── Per-connection state ──────────────────────────────────────────────────
@@ -274,6 +390,7 @@ async fn handle_connection(
     state: Arc<RwLock<ServerState>>,
     graph: String,
     exchange: String,
+    auth_secret: String,
 ) -> std::io::Result<()> {
     // ── CONNECT ──
     let Some((ptype, _flags, payload)) = read_packet(socket).await? else {
@@ -282,13 +399,24 @@ async fn handle_connection(
     if ptype != PKT_CONNECT {
         return Ok(()); // protocol violation → drop silently
     }
-    let version = parse_connect_version(&payload);
+    let version = parse_connect_version(&payload)
+        .ok_or_else(|| invalid_data("invalid MQTT CONNECT packet"))?;
+    let Some(actor) = authenticate_connect(&payload, &auth_secret) else {
+        write_packet(
+            socket,
+            PKT_CONNACK << 4,
+            &build_auth_failure_connack(version),
+        )
+        .await?;
+        return Ok(());
+    };
     write_packet(socket, PKT_CONNACK << 4, &build_connack(version)).await?;
 
     // Ensure the shared broker TOPIC exchange exists (idempotent).
     let _ = engine_call(
         &state,
         &graph,
+        &actor,
         Method::DeclareExchange {
             exchange: exchange.clone(),
             kind: "topic".to_string(),
@@ -298,9 +426,9 @@ async fn handle_connection(
 
     // A per-session queue receives this subscriber's routed copies.
     let session_queue = format!("mqtt.{}", next_req_id());
+    let session_consumer = format!("{actor}:{}", next_req_id());
     let mut subs: Vec<Subscription> = Vec::new();
-    // ack-id (packet id) → node id for QoS-1 delivery finalization (unused for QoS 0).
-    let mut unacked: std::collections::HashMap<u16, String> = std::collections::HashMap::new();
+    let mut subscription_bytes = 0usize;
 
     loop {
         // With active subscriptions, bound the read so the delivery pump can run.
@@ -317,12 +445,21 @@ async fn handle_connection(
                 Ok(Ok(None)) => break,
                 Ok(Err(e)) => return Err(e),
                 Err(_) => {
-                    pump_subscription(socket, &state, &graph, &session_queue, version).await?;
+                    pump_subscription(
+                        socket,
+                        &state,
+                        &graph,
+                        &actor,
+                        &session_queue,
+                        &session_consumer,
+                        version,
+                    )
+                    .await?;
                     continue;
                 }
             }
         };
-        let (ptype, flags, payload) = pkt;
+        let (ptype, flags, mut payload) = pkt;
 
         match ptype {
             PKT_PUBLISH => {
@@ -334,17 +471,32 @@ async fn handle_connection(
                 // properties (`producer-id` / `producer-seq`); MQTT 3.1.1 has none.
                 let (producer_id, producer_seq) = if version >= 5 {
                     let props = c.take_props();
-                    parse_publish_properties(&props)
+                    parse_publish_properties(props)
+                        .ok_or_else(|| invalid_data("invalid MQTT property block"))?
                 } else {
                     (None, None)
                 };
-                let body = c.rest();
+                if !c.valid
+                    || !valid_topic_name(&topic)
+                    || qos > 1
+                    || flags & 0x01 != 0
+                    || (qos > 0 && packet_id == 0)
+                {
+                    return Err(invalid_data("invalid MQTT PUBLISH packet"));
+                }
+                let body_start = c.i.min(payload.len());
+                drop(c);
+                // Reuse the packet allocation for the body instead of cloning a
+                // potentially-large payload into a second Vec.
+                payload.drain(..body_start);
+                let body = payload;
                 // Route through the idempotent path — with no producer-id it is a plain
                 // at-least-once publish (byte-identical to before); with one the broker
                 // dedups (CONCEPT:EG-KG.ingest.mqtt-publish-property-block).
                 let _ = engine_call(
                     &state,
                     &graph,
+                    &actor,
                     Method::PublishIdempotent {
                         exchange: exchange.clone(),
                         routing_key: mqtt_topic_to_key(&topic),
@@ -358,8 +510,7 @@ async fn handle_connection(
                     },
                 )
                 .await;
-                // QoS 1 requires a PUBACK echoing the packet id (QoS 0 is fire-and-forget;
-                // QoS 2 is DEFERRED — such a PUBLISH is still routed but not acked here).
+                // QoS 1 requires a PUBACK echoing the packet id; QoS 0 is fire-and-forget.
                 if qos == 1 {
                     write_packet(socket, PKT_PUBACK << 4, &packet_id.to_be_bytes()).await?;
                 }
@@ -370,17 +521,55 @@ async fn handle_connection(
                 if version >= 5 {
                     c.skip_props();
                 }
+                if !c.valid || packet_id == 0 {
+                    return Err(invalid_data("invalid MQTT SUBSCRIBE packet"));
+                }
                 let mut granted: Vec<u8> = Vec::new();
+                let mut filter_count = 0usize;
                 while c.remaining() >= 2 {
+                    filter_count += 1;
+                    if filter_count > MAX_MQTT_FILTERS_PER_PACKET {
+                        return Err(invalid_data(
+                            "MQTT subscription packet exceeds resource limits",
+                        ));
+                    }
                     let filter = c.mqtt_str();
-                    let _opts = c.u8(); // requested QoS / v5 sub-options (low 2 bits = QoS)
-                    if filter.is_empty() {
-                        break;
+                    let opts = c.u8(); // requested QoS / v5 subscription options
+                    if !c.valid {
+                        return Err(invalid_data("invalid MQTT SUBSCRIBE packet"));
+                    }
+                    let invalid_options = opts & 0x03 == 0x03
+                        || (version < 5 && opts & 0xfc != 0)
+                        || (version >= 5 && (opts & 0xc0 != 0 || (opts >> 4) & 0x03 == 0x03));
+                    if !valid_topic_filter(&filter) || invalid_options {
+                        return Err(invalid_data("invalid MQTT subscription filter"));
+                    }
+                    if subs.len() >= MAX_MQTT_SUBSCRIPTIONS {
+                        granted.push(0x80); // subscription rejected: resource limit
+                        continue;
                     }
                     let pattern = mqtt_filter_to_pattern(&filter);
+                    if subs
+                        .iter()
+                        .any(|subscription| subscription.pattern == pattern)
+                    {
+                        granted.push(0x00);
+                        continue;
+                    }
+                    let Some(next_subscription_bytes) =
+                        subscription_bytes.checked_add(pattern.len())
+                    else {
+                        granted.push(0x80);
+                        continue;
+                    };
+                    if next_subscription_bytes > MAX_MQTT_SUBSCRIPTION_BYTES {
+                        granted.push(0x80);
+                        continue;
+                    }
                     let _ = engine_call(
                         &state,
                         &graph,
+                        &actor,
                         Method::BindQueue {
                             exchange: exchange.clone(),
                             queue: session_queue.clone(),
@@ -389,6 +578,7 @@ async fn handle_connection(
                     )
                     .await;
                     subs.push(Subscription { pattern });
+                    subscription_bytes = next_subscription_bytes;
                     granted.push(0x00); // granted QoS 0
                 }
                 write_packet(
@@ -404,16 +594,28 @@ async fn handle_connection(
                 if version >= 5 {
                     c.skip_props();
                 }
+                if !c.valid || packet_id == 0 {
+                    return Err(invalid_data("invalid MQTT UNSUBSCRIBE packet"));
+                }
                 let mut count = 0usize;
                 while c.remaining() >= 2 {
+                    if count >= MAX_MQTT_FILTERS_PER_PACKET {
+                        return Err(invalid_data(
+                            "MQTT unsubscription packet exceeds resource limits",
+                        ));
+                    }
                     let filter = c.mqtt_str();
-                    if filter.is_empty() {
-                        break;
+                    if !c.valid {
+                        return Err(invalid_data("invalid MQTT UNSUBSCRIBE packet"));
+                    }
+                    if !valid_topic_filter(&filter) {
+                        return Err(invalid_data("invalid MQTT unsubscription filter"));
                     }
                     let pattern = mqtt_filter_to_pattern(&filter);
                     let _ = engine_call(
                         &state,
                         &graph,
+                        &actor,
                         Method::UnbindQueue {
                             exchange: exchange.clone(),
                             queue: session_queue.clone(),
@@ -421,7 +623,16 @@ async fn handle_connection(
                         },
                     )
                     .await;
-                    subs.retain(|s| s.pattern != pattern);
+                    let mut removed_bytes = 0usize;
+                    subs.retain(|subscription| {
+                        let keep = subscription.pattern != pattern;
+                        if !keep {
+                            removed_bytes =
+                                removed_bytes.saturating_add(subscription.pattern.len());
+                        }
+                        keep
+                    });
+                    subscription_bytes = subscription_bytes.saturating_sub(removed_bytes);
                     count += 1;
                 }
                 write_packet(
@@ -431,18 +642,12 @@ async fn handle_connection(
                 )
                 .await?;
             }
-            PKT_PUBACK if payload.len() >= 2 => {
-                // A subscriber's QoS-1 delivery acknowledgement (echoed packet id).
-                let id = u16::from_be_bytes([payload[0], payload[1]]);
-                if let Some(node_id) = unacked.remove(&id) {
-                    ack_message(&state, &graph, &node_id).await;
-                }
-            }
+            PKT_PUBACK => return Err(invalid_data("unexpected MQTT PUBACK packet")),
             PKT_PINGREQ => {
                 write_packet(socket, PKT_PINGRESP << 4, &[]).await?;
             }
             PKT_DISCONNECT => break,
-            _ => {} // spec-tolerant no-op
+            _ => return Err(invalid_data("unsupported MQTT packet type")),
         }
     }
 
@@ -451,6 +656,7 @@ async fn handle_connection(
         let _ = engine_call(
             &state,
             &graph,
+            &actor,
             Method::UnbindQueue {
                 exchange: exchange.clone(),
                 queue: session_queue.clone(),
@@ -468,12 +674,15 @@ async fn pump_subscription(
     socket: &mut TcpStream,
     state: &Arc<RwLock<ServerState>>,
     graph: &str,
+    actor: &str,
     queue: &str,
+    consumer: &str,
     version: u8,
 ) -> std::io::Result<()> {
     const MAX_PER_POLL: usize = 32;
     for _ in 0..MAX_PER_POLL {
-        let Some((node_id, rk, body)) = claim_one(state, graph, queue).await else {
+        let Some((node_id, rk, body)) = claim_one(state, graph, actor, queue, consumer).await
+        else {
             break;
         };
         let topic = key_to_mqtt_topic(&rk);
@@ -486,7 +695,7 @@ async fn pump_subscription(
         // Header byte: PUBLISH, QoS 0 (flags 0).
         write_packet(socket, PKT_PUBLISH << 4, &p).await?;
         // QoS-0 delivery: finalize immediately.
-        ack_message(state, graph, &node_id).await;
+        ack_message(state, graph, actor, queue, &node_id).await;
     }
     Ok(())
 }
@@ -505,17 +714,42 @@ async fn read_packet(socket: &mut TcpStream) -> std::io::Result<Option<(u8, u8, 
     }
     let ptype = b0[0] >> 4;
     let flags = b0[0] & 0x0f;
+    let valid_flags = match ptype {
+        PKT_PUBLISH => ((flags >> 1) & 0x03) != 0x03,
+        6 | PKT_SUBSCRIBE | PKT_UNSUBSCRIBE => flags == 0x02,
+        1 | 2 | 4 | 5 | 7 | 9 | 11 | 12 | 13 | 14 | 15 => flags == 0,
+        _ => false,
+    };
+    if !valid_flags {
+        return Err(invalid_data("invalid MQTT fixed header"));
+    }
     // Remaining-length: variable-byte integer (1..4 bytes).
     let mut mult: usize = 1;
     let mut len: usize = 0;
-    for _ in 0..4 {
+    let mut terminated = false;
+    for index in 0..4 {
         let mut nb = [0u8; 1];
         socket.read_exact(&mut nb).await?;
         len += (nb[0] & 0x7f) as usize * mult;
         if nb[0] & 0x80 == 0 {
+            if index > 0 && nb[0] == 0 {
+                return Err(invalid_data("non-canonical MQTT remaining-length encoding"));
+            }
+            terminated = true;
             break;
         }
         mult *= 128;
+    }
+    if !terminated {
+        return Err(invalid_data("invalid MQTT remaining-length encoding"));
+    }
+    let packet_limit = if ptype == PKT_PUBLISH {
+        MAX_MQTT_PACKET_BYTES
+    } else {
+        MAX_MQTT_CONTROL_PACKET_BYTES
+    };
+    if len > packet_limit {
+        return Err(invalid_data("MQTT packet exceeds the resource limit"));
     }
     let mut payload = vec![0u8; len];
     if len > 0 {
@@ -531,7 +765,16 @@ async fn write_packet(
     header_byte: u8,
     payload: &[u8],
 ) -> std::io::Result<()> {
-    let mut buf = Vec::with_capacity(payload.len() + 5);
+    if payload.len() > MAX_MQTT_PACKET_BYTES {
+        return Err(invalid_data(
+            "MQTT output packet exceeds the resource limit",
+        ));
+    }
+    let capacity = payload
+        .len()
+        .checked_add(5)
+        .ok_or_else(|| invalid_data("MQTT output packet length overflow"))?;
+    let mut buf = Vec::with_capacity(capacity);
     buf.push(header_byte);
     encode_remaining_length(payload.len(), &mut buf);
     buf.extend_from_slice(payload);
@@ -561,6 +804,9 @@ fn decode_remaining_length(bytes: &[u8]) -> Option<(usize, usize)> {
     for (i, &b) in bytes.iter().enumerate().take(4) {
         value += (b & 0x7f) as usize * mult;
         if b & 0x80 == 0 {
+            if i > 0 && b == 0 {
+                return None;
+            }
             return Some((value, i + 1));
         }
         mult *= 128;
@@ -579,15 +825,72 @@ fn put_mqtt_str(out: &mut Vec<u8>, s: &str) {
 
 /// Extract the MQTT protocol level (4 = 3.1.1, 5 = 5.0) from a CONNECT payload; defaults
 /// to 4 on a short/odd packet.
-fn parse_connect_version(payload: &[u8]) -> u8 {
+fn parse_connect_version(payload: &[u8]) -> Option<u8> {
     let mut c = Cursor::new(payload);
-    let _proto_name = c.mqtt_str();
+    let proto_name = c.mqtt_str();
     let level = c.u8();
-    if level == 0 {
-        4
-    } else {
-        level
+    let connect_flags = c.u8();
+    let _keep_alive = c.u16();
+    if level == 5 {
+        c.skip_props();
     }
+    let will = connect_flags & 0x04 != 0;
+    let clean_start = connect_flags & 0x02 != 0;
+    let will_qos = (connect_flags >> 3) & 0x03;
+    let will_retain = connect_flags & 0x20 != 0;
+    let password = connect_flags & 0x40 != 0;
+    let username = connect_flags & 0x80 != 0;
+    let invalid_flags = connect_flags & 0x01 != 0
+        || will_qos == 0x03
+        || (!will && (will_qos != 0 || will_retain))
+        || will
+        || !clean_start
+        || (password && !username);
+    (c.valid && proto_name == "MQTT" && matches!(level, 4 | 5) && !invalid_flags).then_some(level)
+}
+
+/// Parse a complete CONNECT payload and verify its mandatory username/password.
+fn authenticate_connect(payload: &[u8], secret: &str) -> Option<String> {
+    let mut c = Cursor::new(payload);
+    let proto_name = c.mqtt_str();
+    let level = c.u8();
+    let connect_flags = c.u8();
+    let _keep_alive = c.u16();
+    if proto_name != "MQTT" || !matches!(level, 4 | 5) {
+        return None;
+    }
+    if level == 5 {
+        c.skip_props();
+    }
+    let will = connect_flags & 0x04 != 0;
+    let will_qos = (connect_flags >> 3) & 0x03;
+    let will_retain = connect_flags & 0x20 != 0;
+    let has_password = connect_flags & 0x40 != 0;
+    let has_username = connect_flags & 0x80 != 0;
+    if connect_flags & 0x01 != 0
+        || will_qos == 0x03
+        || (!will && (will_qos != 0 || will_retain))
+        || !has_username
+        || !has_password
+    {
+        return None;
+    }
+    let _client_id = c.mqtt_str();
+    if will {
+        if level == 5 {
+            c.skip_props();
+        }
+        let _will_topic = c.mqtt_str();
+        let will_len = c.u16() as usize;
+        let _will_payload = c.take(will_len);
+    }
+    let principal = c.mqtt_str();
+    let password_len = c.u16() as usize;
+    let password = c.take(password_len);
+    if !c.valid || c.remaining() != 0 || !verify_mqtt_password(secret, &principal, password) {
+        return None;
+    }
+    crate::server::pseudonymous_broker_actor(secret, &principal).ok()
 }
 
 /// CONNACK: session-present=0 + reason/return-code=0 (accepted). MQTT 5.0 appends a
@@ -597,6 +900,15 @@ fn build_connack(version: u8) -> Vec<u8> {
         vec![0x00, 0x00, 0x00] // ack flags, reason code, property length = 0
     } else {
         vec![0x00, 0x00] // ack flags, return code
+    }
+}
+
+/// CONNACK rejected due to bad credentials (v3.1.1 code 4 / v5 reason 0x86).
+fn build_auth_failure_connack(version: u8) -> Vec<u8> {
+    if version >= 5 {
+        vec![0x00, 0x86, 0x00]
+    } else {
+        vec![0x00, 0x04]
     }
 }
 
@@ -630,14 +942,20 @@ fn build_unsuback(packet_id: u16, count: usize, version: u8) -> Vec<u8> {
 struct Cursor<'a> {
     b: &'a [u8],
     i: usize,
+    valid: bool,
 }
 
 impl<'a> Cursor<'a> {
     fn new(b: &'a [u8]) -> Self {
-        Self { b, i: 0 }
+        Self {
+            b,
+            i: 0,
+            valid: true,
+        }
     }
     fn u8(&mut self) -> u8 {
         if self.i >= self.b.len() {
+            self.valid = false;
             return 0;
         }
         let x = self.b[self.i];
@@ -646,6 +964,8 @@ impl<'a> Cursor<'a> {
     }
     fn u16(&mut self) -> u16 {
         if self.i + 2 > self.b.len() {
+            self.valid = false;
+            self.i = self.b.len();
             return 0;
         }
         let x = u16::from_be_bytes([self.b[self.i], self.b[self.i + 1]]);
@@ -654,6 +974,8 @@ impl<'a> Cursor<'a> {
     }
     fn u32(&mut self) -> u32 {
         if self.i + 4 > self.b.len() {
+            self.valid = false;
+            self.i = self.b.len();
             return 0;
         }
         let mut a = [0u8; 4];
@@ -663,32 +985,55 @@ impl<'a> Cursor<'a> {
     }
     /// Read `n` bytes (clamped), advancing the cursor.
     fn take(&mut self, n: usize) -> &'a [u8] {
-        let end = (self.i + n).min(self.b.len());
-        let out = &self.b[self.i.min(self.b.len())..end];
+        let Some(end) = self.i.checked_add(n).filter(|end| *end <= self.b.len()) else {
+            self.valid = false;
+            self.i = self.b.len();
+            return &[];
+        };
+        let out = &self.b[self.i..end];
         self.i = end;
         out
     }
     /// A variable-byte-length-prefixed MQTT binary block (a `u16`-length-prefixed slot
     /// is `mqtt_str`; this is the property-block form). Returns the block bytes and
     /// advances past them (CONCEPT:EG-KG.ingest.mqtt-publish-property-block — reach the PUBLISH property block).
-    fn take_props(&mut self) -> Vec<u8> {
+    fn take_props(&mut self) -> &'a [u8] {
         let rem = &self.b[self.i.min(self.b.len())..];
         if let Some((plen, consumed)) = decode_remaining_length(rem) {
-            let start = self.i + consumed;
-            let end = (start + plen).min(self.b.len());
-            let out = self.b[start.min(self.b.len())..end].to_vec();
+            let Some(start) = self.i.checked_add(consumed) else {
+                self.valid = false;
+                self.i = self.b.len();
+                return &[];
+            };
+            let Some(end) = start.checked_add(plen).filter(|end| *end <= self.b.len()) else {
+                self.valid = false;
+                self.i = self.b.len();
+                return &[];
+            };
+            let out = &self.b[start..end];
             self.i = end;
             out
         } else {
+            self.valid = false;
             self.i = self.b.len();
-            Vec::new()
+            &[]
         }
     }
     /// A length-prefixed UTF-8 MQTT string.
     fn mqtt_str(&mut self) -> String {
         let len = self.u16() as usize;
-        let end = (self.i + len).min(self.b.len());
-        let s = String::from_utf8_lossy(&self.b[self.i..end]).into_owned();
+        let Some(end) = self.i.checked_add(len).filter(|end| *end <= self.b.len()) else {
+            self.valid = false;
+            self.i = self.b.len();
+            return String::new();
+        };
+        let s = match std::str::from_utf8(&self.b[self.i..end]) {
+            Ok(value) => value.to_string(),
+            Err(_) => {
+                self.valid = false;
+                String::new()
+            }
+        };
         self.i = end;
         s
     }
@@ -696,7 +1041,20 @@ impl<'a> Cursor<'a> {
     fn skip_props(&mut self) {
         if let Some((plen, consumed)) = decode_remaining_length(&self.b[self.i.min(self.b.len())..])
         {
-            self.i = (self.i + consumed + plen).min(self.b.len());
+            if let Some(end) = self
+                .i
+                .checked_add(consumed)
+                .and_then(|start| start.checked_add(plen))
+                .filter(|end| *end <= self.b.len())
+            {
+                self.i = end;
+            } else {
+                self.valid = false;
+                self.i = self.b.len();
+            }
+        } else {
+            self.valid = false;
+            self.i = self.b.len();
         }
     }
     fn remaining(&self) -> usize {
@@ -707,9 +1065,20 @@ impl<'a> Cursor<'a> {
     fn varint(&mut self) -> usize {
         let rem = &self.b[self.i.min(self.b.len())..];
         if let Some((val, consumed)) = decode_remaining_length(rem) {
-            self.i = (self.i + consumed).min(self.b.len());
-            val
+            if let Some(end) = self
+                .i
+                .checked_add(consumed)
+                .filter(|end| *end <= self.b.len())
+            {
+                self.i = end;
+                val
+            } else {
+                self.valid = false;
+                self.i = self.b.len();
+                0
+            }
         } else {
+            self.valid = false;
             self.i = self.b.len();
             0
         }
@@ -837,14 +1206,14 @@ mod tests {
         props.push(0x26);
         put_mqtt_str(&mut props, "producer-seq");
         put_mqtt_str(&mut props, "5");
-        let (id, seq) = parse_publish_properties(&props);
+        let (id, seq) = parse_publish_properties(&props).unwrap();
         assert_eq!(id.as_deref(), Some("prod-9"));
         assert_eq!(seq, Some(5));
     }
 
     #[test]
     fn eg314_parse_publish_properties_absent_is_none() {
-        assert_eq!(parse_publish_properties(&[]), (None, None));
+        assert_eq!(parse_publish_properties(&[]), Some((None, None)));
     }
 
     #[test]
@@ -867,11 +1236,45 @@ mod tests {
         let mut v4 = Vec::new();
         put_mqtt_str(&mut v4, "MQTT");
         v4.push(4);
-        assert_eq!(parse_connect_version(&v4), 4);
+        v4.push(0x02); // clean start
+        v4.extend_from_slice(&0u16.to_be_bytes());
+        assert_eq!(parse_connect_version(&v4), Some(4));
         let mut v5 = Vec::new();
         put_mqtt_str(&mut v5, "MQTT");
         v5.push(5);
-        assert_eq!(parse_connect_version(&v5), 5);
+        v5.push(0x02);
+        v5.extend_from_slice(&0u16.to_be_bytes());
+        v5.push(0); // property length
+        assert_eq!(parse_connect_version(&v5), Some(5));
+    }
+
+    #[test]
+    fn connect_authentication_is_verified_and_identity_bound() {
+        let principal = "agent:subscriber";
+        let password = derive_mqtt_password("test", principal);
+        let mut connect = Vec::new();
+        put_mqtt_str(&mut connect, "MQTT");
+        connect.push(4);
+        connect.push(0xC2); // username + password + clean session
+        connect.extend_from_slice(&0u16.to_be_bytes());
+        put_mqtt_str(&mut connect, "client-1");
+        put_mqtt_str(&mut connect, principal);
+        put_mqtt_str(&mut connect, &password);
+        let actor = authenticate_connect(&connect, "test").unwrap();
+        assert_eq!(
+            actor,
+            crate::server::pseudonymous_broker_actor("test", principal).unwrap()
+        );
+        assert!(!actor.contains(principal));
+        assert!(authenticate_connect(&connect, "other").is_none());
+        assert!(authenticate_connect(&connect, "").is_none());
+    }
+
+    #[test]
+    fn startup_policy_rejects_anonymous_or_remote_mqtt() {
+        assert!(validate_startup_policy("127.0.0.1:1883", "").is_err());
+        assert!(validate_startup_policy("0.0.0.0:1883", "test").is_err());
+        assert!(validate_startup_policy("127.0.0.1:1883", "test").is_ok());
     }
 
     // ── Served listener round-trip (CONCEPT:EG-KG.query.mqtt-packet-codec) ───────────────────────
@@ -895,12 +1298,11 @@ mod tests {
             auth_secret: "test".to_string(),
             persist_dir: None,
             persistence: None,
-            redb_authoritative: false,
             max_in_flight: Arc::new(Semaphore::new(16)),
             read_admission: Arc::new(Semaphore::new(16)),
             per_graph_inflight: Arc::new(DashMap::new()),
             per_graph_inflight_limit: 8,
-            write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::from_env()),
+            write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
             open_txns: Arc::new(DashMap::new()),
             txn_id_gen: Arc::new(crate::server::txn::TxnIdGen::default()),
             txn_ttl_secs: 300,
@@ -916,8 +1318,6 @@ mod tests {
             multi_raft: None,
             #[cfg(feature = "tsdb")]
             tsdb_store: None,
-            #[cfg(feature = "rdf-redb")]
-            rdf_quads: None,
             #[cfg(feature = "streaming")]
             cdc: Some(std::sync::Arc::new(crate::server::cdc::CdcHub::new())),
             #[cfg(feature = "wasm-udf")]
@@ -930,8 +1330,6 @@ mod tests {
             foreign_sources: std::sync::Arc::new(DashMap::new()),
             #[cfg(feature = "kv")]
             kv: None,
-            #[cfg(feature = "dataset-handle")]
-            dataset_handles: Arc::new(crate::server::dataset_handle::DatasetHandleRegistry::new()),
             #[cfg(feature = "lake")]
             lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
         }))
@@ -947,6 +1345,7 @@ mod tests {
                 state,
                 "__commons__".to_string(),
                 DEFAULT_EXCHANGE.to_string(),
+                "test".to_string(),
             )
             .await;
         });
@@ -962,9 +1361,11 @@ mod tests {
         let mut connect = Vec::new();
         put_mqtt_str(&mut connect, "MQTT");
         connect.push(4); // protocol level 3.1.1
-        connect.push(0x02); // connect flags: clean session
+        connect.push(0xC2); // username + password + clean session
         connect.extend_from_slice(&0u16.to_be_bytes()); // keepalive
         put_mqtt_str(&mut connect, "sub-client"); // client id
+        put_mqtt_str(&mut connect, "subscriber");
+        put_mqtt_str(&mut connect, &derive_mqtt_password("test", "subscriber"));
         write_packet(&mut sub, PKT_CONNECT << 4, &connect)
             .await
             .unwrap();
@@ -988,9 +1389,11 @@ mod tests {
         let mut connect2 = Vec::new();
         put_mqtt_str(&mut connect2, "MQTT");
         connect2.push(4);
-        connect2.push(0x02);
+        connect2.push(0xC2);
         connect2.extend_from_slice(&0u16.to_be_bytes());
         put_mqtt_str(&mut connect2, "pub-client");
+        put_mqtt_str(&mut connect2, "publisher");
+        put_mqtt_str(&mut connect2, &derive_mqtt_password("test", "publisher"));
         write_packet(&mut pubc, PKT_CONNECT << 4, &connect2)
             .await
             .unwrap();

@@ -198,6 +198,8 @@ impl LakeManager {
             chunk_lens.push(part.len() as u32);
         }
         let manifest = BlobManifest {
+            schema_version: crate::server::blob::BLOB_MANIFEST_VERSION,
+            owner_scope: crate::server::blob::ENGINE_BLOB_OWNER_SCOPE.to_string(),
             chunks,
             chunk_lens,
             len: bytes.len() as u64,

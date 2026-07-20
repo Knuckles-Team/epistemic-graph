@@ -22,10 +22,9 @@
 //!
 //! LANDED: `PutObject` / `GetObject` / `HeadObject` / `DeleteObject`,
 //! `ListObjectsV2` (+ v1 fallback, `prefix`), `CreateBucket` / `DeleteBucket` /
-//! `HeadBucket` / `ListBuckets`, and a **SigV4-lite** auth guard (anonymous when no
-//! credentials are configured; when configured, the `Authorization:
-//! AWS4-HMAC-SHA256` header's `Credential=<access-key>` must match and a
-//! `Signature=` must be present).
+//! `HeadBucket` / `ListBuckets`, and a mandatory SigV4 auth guard. Requests verify
+//! the canonical request, signed headers, payload digest,
+//! credential scope, and timestamp freshness with the secret access key.
 //!
 //! ## Multipart upload + ranged reads (CONCEPT:EG-KG.txn.pubsub-transactions)
 //!
@@ -39,15 +38,17 @@
 //! per-upload registry until completion/abort. Plus `Range:` support on
 //! `GetObject` — `bytes=start-end` / `bytes=start-` / `bytes=-suffix` → a
 //! `206 Partial Content` reply carrying the requested slice + a `Content-Range`
-//! header. DEFERRED: object versioning, ACLs / bucket policies, multipart ETag
-//! MD5-of-MD5 semantics, and full canonical-request HMAC signature verification.
+//! header. Object versioning, ACLs / bucket policies, and multipart ETag
+//! MD5-of-MD5 semantics are outside this adapter's intentionally narrow API.
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
+use hmac::{Hmac, Mac};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::sync::RwLock;
@@ -60,11 +61,24 @@ use crate::server::ServerState;
 /// this address (documented loopback default `127.0.0.1:9000`, the MinIO default).
 /// Unset ⇒ no listener.
 pub const S3_ADDR_ENV: &str = "EPISTEMIC_GRAPH_S3_ADDR";
-/// Env var: the access-key id. When set (with the secret), the SigV4-lite guard is
+/// Env var: the access-key id. When set (with the secret), the SigV4 guard is
 /// armed and anonymous access is refused.
 pub const S3_ACCESS_KEY_ENV: &str = "EPISTEMIC_GRAPH_S3_ACCESS_KEY";
 /// Env var: the secret access key (armed together with the access key).
 pub const S3_SECRET_KEY_ENV: &str = "EPISTEMIC_GRAPH_S3_SECRET_KEY";
+const MAX_HTTP_HEADER_BYTES: usize = 64 * 1024;
+const MAX_HTTP_HEADERS: usize = 256;
+const MAX_HTTP_QUERY_FIELDS: usize = 256;
+const MAX_S3_BODY_BYTES: usize = 64 * 1024 * 1024;
+const MAX_S3_META_BYTES: usize = 16 * 1024;
+const MAX_S3_META_ITEMS: usize = 128;
+const MAX_S3_BUCKET_BYTES: usize = 63;
+const MAX_S3_KEY_BYTES: usize = 4_000;
+const MAX_S3_CONTENT_TYPE_BYTES: usize = 1024;
+const MAX_S3_UPLOADS: usize = 1_024;
+const MAX_S3_MULTIPART_PARTS: usize = 1_000;
+const MAX_S3_LIST_RESULTS: usize = 1_000;
+const HTTP_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 
 const BUCKET_NS: &str = "s3:buckets";
 const OBJECT_NS: &str = "s3:objects";
@@ -76,11 +90,10 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-/// Configured credentials for the SigV4-lite guard. `None` ⇒ anonymous access.
+/// Configured credentials for the mandatory SigV4 guard.
 #[derive(Clone, Debug)]
 pub struct S3Auth {
     pub access_key: String,
-    #[allow(dead_code)]
     pub secret_key: String,
 }
 
@@ -92,6 +105,63 @@ struct ObjectMeta {
     etag: String,
     last_modified_ms: u64,
     content_type: String,
+}
+
+fn validate_bucket(bucket: &str) -> Result<(), String> {
+    if bucket.is_empty()
+        || bucket.len() > MAX_S3_BUCKET_BYTES
+        || bucket.chars().any(char::is_control)
+        || bucket.contains('/')
+    {
+        Err("invalid S3 bucket identifier".to_string())
+    } else {
+        Ok(())
+    }
+}
+
+fn validate_object_key(key: &str) -> Result<(), String> {
+    if key.is_empty() || key.len() > MAX_S3_KEY_BYTES || key.chars().any(char::is_control) {
+        Err("invalid S3 object key".to_string())
+    } else {
+        Ok(())
+    }
+}
+
+fn validate_content_type(content_type: &str) -> Result<(), String> {
+    if content_type.is_empty()
+        || content_type.len() > MAX_S3_CONTENT_TYPE_BYTES
+        || content_type.chars().any(char::is_control)
+    {
+        Err("invalid S3 content type".to_string())
+    } else {
+        Ok(())
+    }
+}
+
+fn validate_object_meta(meta: &ObjectMeta) -> Result<(), String> {
+    if meta.digest.len() != 64
+        || !meta.digest.bytes().all(|byte| byte.is_ascii_hexdigit())
+        || meta.etag != format!("\"{}\"", meta.digest)
+        || meta.size > MAX_S3_BODY_BYTES as u64
+    {
+        return Err("stored S3 metadata is invalid or exceeds resource limits".to_string());
+    }
+    validate_content_type(&meta.content_type)
+        .map_err(|_| "stored S3 metadata is invalid or exceeds resource limits".to_string())
+}
+
+fn decode_object_meta(bytes: &[u8]) -> Result<ObjectMeta, String> {
+    let meta: ObjectMeta = eg_types::msgpack::decode_bounded(
+        bytes,
+        eg_types::msgpack::MsgpackLimits::new(
+            MAX_S3_META_BYTES,
+            MAX_S3_META_ITEMS,
+            eg_types::msgpack::DEFAULT_MAX_DEPTH,
+        ),
+    )
+    .map_err(|_| "stored S3 metadata is invalid or exceeds resource limits".to_string())?;
+    validate_object_meta(&meta)?;
+    Ok(meta)
 }
 
 // ── the store (CONCEPT:EG-KG.ontology.object-put-get-head) — objects over the BLOB CAS + KV index ────────────
@@ -114,6 +184,7 @@ struct MultipartUpload {
     key: String,
     content_type: String,
     parts: BTreeMap<u32, PartInfo>,
+    total_size: u64,
 }
 
 /// The S3 backing store: a content-addressed [`ChunkStore`] for object bytes + a
@@ -162,15 +233,18 @@ impl S3Store {
     }
 
     fn bucket_exists(&self, bucket: &str) -> Result<bool, String> {
+        validate_bucket(bucket)?;
         Ok(self.kv.get(BUCKET_NS, bucket)?.is_some())
     }
 
     fn create_bucket(&self, bucket: &str) -> Result<(), String> {
+        validate_bucket(bucket)?;
         self.kv.put(BUCKET_NS, bucket, b"1".to_vec())
     }
 
     /// Delete a bucket. Errors with `BucketNotEmpty` if it still holds objects.
     fn delete_bucket(&self, bucket: &str) -> Result<bool, String> {
+        validate_bucket(bucket)?;
         if !self.list_objects(bucket, "")?.is_empty() {
             return Err("BucketNotEmpty".into());
         }
@@ -178,12 +252,13 @@ impl S3Store {
     }
 
     fn list_buckets(&self) -> Result<Vec<String>, String> {
-        Ok(self
-            .kv
-            .scan(BUCKET_NS, "", 0)?
-            .into_iter()
-            .map(|(k, _)| k)
-            .collect())
+        let rows = self.kv.scan(BUCKET_NS, "", MAX_S3_LIST_RESULTS)?;
+        let mut buckets = Vec::with_capacity(rows.len());
+        for (bucket, _) in rows {
+            validate_bucket(&bucket)?;
+            buckets.push(bucket);
+        }
+        Ok(buckets)
     }
 
     fn obj_key(bucket: &str, key: &str) -> String {
@@ -198,6 +273,12 @@ impl S3Store {
         body: &[u8],
         content_type: &str,
     ) -> Result<String, String> {
+        validate_bucket(bucket)?;
+        validate_object_key(key)?;
+        validate_content_type(content_type)?;
+        if body.len() > MAX_S3_BODY_BYTES {
+            return Err("S3 object exceeds resource limits".to_string());
+        }
         let (digest, _) = self.blob.put_chunk(body)?;
         let etag = format!("\"{digest}\"");
         let meta = ObjectMeta {
@@ -208,13 +289,24 @@ impl S3Store {
             content_type: content_type.to_string(),
         };
         let bytes = rmp_serde::to_vec_named(&meta).map_err(|e| e.to_string())?;
+        eg_types::msgpack::validate_single_value(
+            &bytes,
+            eg_types::msgpack::MsgpackLimits::new(
+                MAX_S3_META_BYTES,
+                MAX_S3_META_ITEMS,
+                eg_types::msgpack::DEFAULT_MAX_DEPTH,
+            ),
+        )
+        .map_err(|_| "S3 metadata exceeds resource limits".to_string())?;
         self.kv.put(OBJECT_NS, &Self::obj_key(bucket, key), bytes)?;
         Ok(etag)
     }
 
     fn object_meta(&self, bucket: &str, key: &str) -> Result<Option<ObjectMeta>, String> {
+        validate_bucket(bucket)?;
+        validate_object_key(key)?;
         match self.kv.get(OBJECT_NS, &Self::obj_key(bucket, key))? {
-            Some(b) => Ok(Some(rmp_serde::from_slice(&b).map_err(|e| e.to_string())?)),
+            Some(bytes) => Ok(Some(decode_object_meta(&bytes)?)),
             None => Ok(None),
         }
     }
@@ -222,7 +314,13 @@ impl S3Store {
     fn get_object(&self, bucket: &str, key: &str) -> Result<Option<(ObjectMeta, Vec<u8>)>, String> {
         match self.object_meta(bucket, key)? {
             Some(meta) => {
-                let bytes = self.blob.get_chunk(&meta.digest)?.unwrap_or_default();
+                let bytes = self
+                    .blob
+                    .get_chunk(&meta.digest)?
+                    .ok_or_else(|| "stored S3 object chunk is missing".to_string())?;
+                if bytes.len() as u64 != meta.size {
+                    return Err("stored S3 object size does not match metadata".to_string());
+                }
                 Ok(Some((meta, bytes)))
             }
             None => Ok(None),
@@ -230,6 +328,8 @@ impl S3Store {
     }
 
     fn delete_object(&self, bucket: &str, key: &str) -> Result<bool, String> {
+        validate_bucket(bucket)?;
+        validate_object_key(key)?;
         // The CAS chunk is left in place (content-addressed / shareable; reclaimed by
         // the blob sweep, not on the S3 delete path).
         self.kv.delete(OBJECT_NS, &Self::obj_key(bucket, key))
@@ -241,12 +341,17 @@ impl S3Store {
         bucket: &str,
         prefix: &str,
     ) -> Result<Vec<(String, ObjectMeta)>, String> {
+        validate_bucket(bucket)?;
+        if prefix.len() > MAX_S3_KEY_BYTES || prefix.chars().any(char::is_control) {
+            return Err("invalid S3 object prefix".to_string());
+        }
         let scan_prefix = format!("{bucket}/{prefix}");
         let bucket_prefix = format!("{bucket}/");
         let mut out = Vec::new();
-        for (k, v) in self.kv.scan(OBJECT_NS, &scan_prefix, 0)? {
+        for (k, v) in self.kv.scan(OBJECT_NS, &scan_prefix, MAX_S3_LIST_RESULTS)? {
             let key = k.strip_prefix(&bucket_prefix).unwrap_or(&k).to_string();
-            let meta: ObjectMeta = rmp_serde::from_slice(&v).map_err(|e| e.to_string())?;
+            validate_object_key(&key)?;
+            let meta = decode_object_meta(&v)?;
             out.push((key, meta));
         }
         out.sort_by(|a, b| a.0.cmp(&b.0));
@@ -257,34 +362,86 @@ impl S3Store {
 
     /// Begin a multipart upload, returning a fresh, process-unique `UploadId`. The
     /// upload accumulates parts in memory until completed/aborted.
-    fn create_multipart(&self, bucket: &str, key: &str, content_type: &str) -> String {
-        static UPLOAD_SEQ: AtomicU64 = AtomicU64::new(0);
-        let seq = UPLOAD_SEQ.fetch_add(1, Ordering::Relaxed);
-        let upload_id = format!("{:x}-{:x}-{:x}", std::process::id(), now_ms(), seq);
-        self.uploads.lock().insert(
+    fn create_multipart(
+        &self,
+        bucket: &str,
+        key: &str,
+        content_type: &str,
+    ) -> Result<String, String> {
+        validate_bucket(bucket)?;
+        validate_object_key(key)?;
+        validate_content_type(content_type)?;
+        let upload_id = uuid::Uuid::new_v4().simple().to_string();
+        let mut uploads = self.uploads.lock();
+        if uploads.len() >= MAX_S3_UPLOADS {
+            return Err("S3 multipart upload limit exceeded".to_string());
+        }
+        uploads.insert(
             upload_id.clone(),
             MultipartUpload {
                 bucket: bucket.to_string(),
                 key: key.to_string(),
                 content_type: content_type.to_string(),
                 parts: BTreeMap::new(),
+                total_size: 0,
             },
         );
-        upload_id
+        Ok(upload_id)
     }
 
     /// Store one part's bytes in the CAS and record it under `part_number`. Returns
     /// the part's etag. Errors with `NoSuchUpload` for an unknown upload id.
     fn upload_part(
         &self,
+        bucket: &str,
+        key: &str,
         upload_id: &str,
         part_number: u32,
         body: &[u8],
     ) -> Result<String, String> {
+        validate_bucket(bucket)?;
+        validate_object_key(key)?;
+        if !(1..=MAX_S3_MULTIPART_PARTS as u32).contains(&part_number)
+            || body.len() > MAX_S3_BODY_BYTES
+        {
+            return Err("S3 multipart part exceeds resource limits".to_string());
+        }
+        {
+            let uploads = self.uploads.lock();
+            let upload = uploads.get(upload_id).ok_or("NoSuchUpload")?;
+            if upload.bucket != bucket || upload.key != key {
+                return Err("NoSuchUpload".to_string());
+            }
+            let replaced_size = upload
+                .parts
+                .get(&part_number)
+                .map(|part| part.size)
+                .unwrap_or(0);
+            upload
+                .total_size
+                .checked_sub(replaced_size)
+                .and_then(|size| size.checked_add(body.len() as u64))
+                .filter(|size| *size <= MAX_S3_BODY_BYTES as u64)
+                .ok_or_else(|| "S3 multipart object exceeds resource limits".to_string())?;
+        }
         let (digest, _) = self.blob.put_chunk(body)?;
         let etag = format!("\"{digest}\"");
         let mut uploads = self.uploads.lock();
         let up = uploads.get_mut(upload_id).ok_or("NoSuchUpload")?;
+        if up.bucket != bucket || up.key != key {
+            return Err("NoSuchUpload".to_string());
+        }
+        let replaced_size = up
+            .parts
+            .get(&part_number)
+            .map(|part| part.size)
+            .unwrap_or(0);
+        let next_size = up
+            .total_size
+            .checked_sub(replaced_size)
+            .and_then(|size| size.checked_add(body.len() as u64))
+            .filter(|size| *size <= MAX_S3_BODY_BYTES as u64)
+            .ok_or_else(|| "S3 multipart object exceeds resource limits".to_string())?;
         up.parts.insert(
             part_number,
             PartInfo {
@@ -293,69 +450,338 @@ impl S3Store {
                 etag: etag.clone(),
             },
         );
+        up.total_size = next_size;
         Ok(etag)
     }
 
     /// List the parts received so far for an in-progress upload (ascending part
     /// number). Errors with `NoSuchUpload` for an unknown id.
-    fn list_parts(&self, upload_id: &str) -> Result<Vec<(u32, PartInfo)>, String> {
+    fn list_parts(
+        &self,
+        bucket: &str,
+        key: &str,
+        upload_id: &str,
+    ) -> Result<Vec<(u32, PartInfo)>, String> {
         let uploads = self.uploads.lock();
         let up = uploads.get(upload_id).ok_or("NoSuchUpload")?;
+        if up.bucket != bucket || up.key != key {
+            return Err("NoSuchUpload".to_string());
+        }
         Ok(up.parts.iter().map(|(n, p)| (*n, p.clone())).collect())
     }
 
     /// Complete a multipart upload: concatenate the parts (ascending part number)
     /// into one object stored in the CAS + KV index, drop the in-progress state, and
     /// return `(bucket, key, etag)`. Errors with `NoSuchUpload` for an unknown id.
-    fn complete_multipart(&self, upload_id: &str) -> Result<(String, String, String), String> {
+    fn complete_multipart(
+        &self,
+        bucket: &str,
+        key: &str,
+        upload_id: &str,
+    ) -> Result<(String, String, String), String> {
         let up = self
             .uploads
             .lock()
             .remove(upload_id)
             .ok_or("NoSuchUpload")?;
-        // Concatenate the parts in ascending part-number order (BTreeMap is ordered).
-        let mut body = Vec::new();
-        for part in up.parts.values() {
-            let bytes = self.blob.get_chunk(&part.digest)?.unwrap_or_default();
-            body.extend_from_slice(&bytes);
+        if up.bucket != bucket || up.key != key {
+            self.uploads.lock().insert(upload_id.to_string(), up);
+            return Err("NoSuchUpload".to_string());
         }
-        let etag = self.put_object(&up.bucket, &up.key, &body, &up.content_type)?;
-        Ok((up.bucket, up.key, etag))
+        let result = (|| -> Result<(String, String, String), String> {
+            if up.parts.is_empty()
+                || up.parts.len() > MAX_S3_MULTIPART_PARTS
+                || up.total_size > MAX_S3_BODY_BYTES as u64
+            {
+                return Err("S3 multipart object exceeds resource limits".to_string());
+            }
+            // Concatenate the parts in ascending part-number order (BTreeMap is ordered).
+            let capacity = usize::try_from(up.total_size)
+                .map_err(|_| "S3 multipart object exceeds resource limits".to_string())?;
+            let mut body = Vec::with_capacity(capacity);
+            for part in up.parts.values() {
+                let bytes = self
+                    .blob
+                    .get_chunk(&part.digest)?
+                    .ok_or_else(|| "stored S3 multipart chunk is missing".to_string())?;
+                if bytes.len() as u64 != part.size {
+                    return Err("stored S3 multipart chunk size is invalid".to_string());
+                }
+                body.extend_from_slice(&bytes);
+            }
+            if body.len() != capacity {
+                return Err("stored S3 multipart aggregate size is invalid".to_string());
+            }
+            let etag = self.put_object(&up.bucket, &up.key, &body, &up.content_type)?;
+            Ok((up.bucket.clone(), up.key.clone(), etag))
+        })();
+        if result.is_err() {
+            self.uploads.lock().insert(upload_id.to_string(), up);
+        }
+        result
     }
 
     /// Abort a multipart upload, discarding its in-progress state. `true` if an
     /// upload with that id existed. (CAS part chunks are content-addressed and
     /// reclaimed by the blob sweep, not on this path — mirrors `delete_object`.)
-    fn abort_multipart(&self, upload_id: &str) -> bool {
-        self.uploads.lock().remove(upload_id).is_some()
+    fn abort_multipart(&self, bucket: &str, key: &str, upload_id: &str) -> bool {
+        let mut uploads = self.uploads.lock();
+        if uploads
+            .get(upload_id)
+            .is_some_and(|upload| upload.bucket == bucket && upload.key == key)
+        {
+            uploads.remove(upload_id);
+            true
+        } else {
+            false
+        }
     }
 }
 
-// ── SigV4-lite auth guard (CONCEPT:EG-KG.ontology.object-put-get-head) ────────────────────────────────────────
+// ── SigV4 auth guard (CONCEPT:EG-KG.ontology.object-put-get-head) ─────────────────────────────────────────────
 
-/// SigV4-lite: with credentials configured, require an `Authorization:
-/// AWS4-HMAC-SHA256` header whose `Credential=<access-key>` matches AND that
-/// carries a `Signature=`. Without credentials, everything is anonymous-allowed.
-/// (Full canonical-request HMAC verification is a documented follow-up.)
-fn authorized(auth: &Option<S3Auth>, headers: &HashMap<String, String>) -> bool {
-    let cfg = match auth {
-        None => return true,
-        Some(c) => c,
+type HmacSha256 = Hmac<Sha256>;
+
+fn aws_uri_encode(value: &str, encode_slash: bool) -> String {
+    let mut out = String::new();
+    for byte in value.as_bytes() {
+        if byte.is_ascii_alphanumeric()
+            || matches!(*byte, b'-' | b'_' | b'.' | b'~')
+            || (!encode_slash && *byte == b'/')
+        {
+            out.push(*byte as char);
+        } else {
+            out.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    out
+}
+
+fn canonical_query(raw: &str) -> String {
+    let mut fields: Vec<(String, String)> = raw
+        .split('&')
+        .filter(|part| !part.is_empty())
+        .map(|part| {
+            let (key, value) = part.split_once('=').unwrap_or((part, ""));
+            (
+                aws_uri_encode(&percent_decode(key), true),
+                aws_uri_encode(&percent_decode(value), true),
+            )
+        })
+        .collect();
+    fields.sort();
+    fields
+        .into_iter()
+        .map(|(key, value)| format!("{key}={value}"))
+        .collect::<Vec<_>>()
+        .join("&")
+}
+
+fn hmac_bytes(key: &[u8], value: &[u8]) -> Option<Vec<u8>> {
+    let mut mac = HmacSha256::new_from_slice(key).ok()?;
+    mac.update(value);
+    Some(mac.finalize().into_bytes().to_vec())
+}
+
+fn valid_amz_date(value: &str, scope_date: &str) -> bool {
+    if value.len() != 16
+        || !value.ends_with('Z')
+        || value.get(0..8) != Some(scope_date)
+        || value.as_bytes().get(8) != Some(&b'T')
+    {
+        return false;
+    }
+    let number = |range: std::ops::Range<usize>| value.get(range)?.parse::<i64>().ok();
+    let (year, month, day, hour, minute, second) = match (
+        number(0..4),
+        number(4..6),
+        number(6..8),
+        number(9..11),
+        number(11..13),
+        number(13..15),
+    ) {
+        (Some(y), Some(m), Some(d), Some(h), Some(mi), Some(s)) => (y, m, d, h, mi, s),
+        _ => return false,
     };
-    let hdr = match headers.get("authorization") {
+    let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+    let month_days = [
+        31,
+        if leap { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
+    ];
+    if !(1..=12).contains(&month)
+        || day < 1
+        || day > month_days[(month - 1) as usize]
+        || hour > 23
+        || minute > 59
+        || second > 59
+    {
+        return false;
+    }
+    // Howard Hinnant's civil-date conversion, yielding days from Unix epoch.
+    let adjusted_year = year - if month <= 2 { 1 } else { 0 };
+    let era = if adjusted_year >= 0 {
+        adjusted_year
+    } else {
+        adjusted_year - 399
+    } / 400;
+    let yoe = adjusted_year - era * 400;
+    let shifted_month = month + if month > 2 { -3 } else { 9 };
+    let doy = (153 * shifted_month + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146_097 + doe - 719_468;
+    let timestamp = days
+        .saturating_mul(86_400)
+        .saturating_add(hour * 3_600 + minute * 60 + second);
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_secs() as i64)
+        .unwrap_or(0);
+    now.abs_diff(timestamp) <= 900
+}
+
+fn verify_sigv4(auth: &S3Auth, req: &S3Request, header: &str) -> bool {
+    if req
+        .query
+        .split('&')
+        .filter(|field| !field.is_empty())
+        .count()
+        > MAX_HTTP_QUERY_FIELDS
+    {
+        return false;
+    }
+    let Some(fields) = header.strip_prefix("AWS4-HMAC-SHA256 ") else {
+        return false;
+    };
+    let mut parsed_fields = HashMap::with_capacity(3);
+    for field in fields.split(',') {
+        let Some((name, value)) = field.trim().split_once('=') else {
+            return false;
+        };
+        if !matches!(name, "Credential" | "SignedHeaders" | "Signature")
+            || value.is_empty()
+            || parsed_fields.insert(name, value).is_some()
+        {
+            return false;
+        }
+    }
+    if parsed_fields.len() != 3 {
+        return false;
+    }
+    let fields = parsed_fields;
+    let Some(credential) = fields.get("Credential") else {
+        return false;
+    };
+    let Some(signed_headers_raw) = fields.get("SignedHeaders") else {
+        return false;
+    };
+    let Some(signature) = fields.get("Signature") else {
+        return false;
+    };
+    let credential: Vec<&str> = credential.split('/').collect();
+    if credential.len() != 5
+        || credential[0] != auth.access_key
+        || credential[3] != "s3"
+        || credential[4] != "aws4_request"
+    {
+        return false;
+    }
+    let signed_headers: Vec<&str> = signed_headers_raw.split(';').collect();
+    if signed_headers.is_empty()
+        || signed_headers.len() > MAX_HTTP_HEADERS
+        || signed_headers.windows(2).any(|pair| pair[0] >= pair[1])
+        || signed_headers.iter().any(|name| {
+            name.is_empty()
+                || !name
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+        })
+        || !["host", "x-amz-content-sha256", "x-amz-date"]
+            .iter()
+            .all(|required| signed_headers.contains(required))
+    {
+        return false;
+    }
+    let Some(amz_date) = req.headers.get("x-amz-date") else {
+        return false;
+    };
+    if !valid_amz_date(amz_date, credential[1]) {
+        return false;
+    }
+    let Some(payload_hash) = req.headers.get("x-amz-content-sha256") else {
+        return false;
+    };
+    let actual_payload_hash = hex::encode(Sha256::digest(&req.body));
+    if payload_hash != &actual_payload_hash {
+        return false;
+    }
+    let mut canonical_headers = Vec::with_capacity(signed_headers.len());
+    for name in &signed_headers {
+        let Some(value) = req.headers.get(*name) else {
+            return false;
+        };
+        canonical_headers.push(format!(
+            "{name}:{}",
+            value.split_whitespace().collect::<Vec<_>>().join(" ")
+        ));
+    }
+    let canonical_request = format!(
+        "{}\n{}\n{}\n{}\n{}\n{}",
+        req.method,
+        aws_uri_encode(&req.path, false),
+        canonical_query(&req.query),
+        canonical_headers.join("\n"),
+        signed_headers_raw,
+        payload_hash,
+    );
+    let scope = credential[1..].join("/");
+    let string_to_sign = format!(
+        "AWS4-HMAC-SHA256\n{}\n{}\n{}",
+        amz_date,
+        scope,
+        hex::encode(Sha256::digest(canonical_request.as_bytes())),
+    );
+    let Some(date_key) = hmac_bytes(
+        format!("AWS4{}", auth.secret_key).as_bytes(),
+        credential[1].as_bytes(),
+    ) else {
+        return false;
+    };
+    let Some(region_key) = hmac_bytes(&date_key, credential[2].as_bytes()) else {
+        return false;
+    };
+    let Some(service_key) = hmac_bytes(&region_key, credential[3].as_bytes()) else {
+        return false;
+    };
+    let Some(signing_key) = hmac_bytes(&service_key, credential[4].as_bytes()) else {
+        return false;
+    };
+    let Ok(got_signature) = hex::decode(signature) else {
+        return false;
+    };
+    let Ok(mut verifier) = HmacSha256::new_from_slice(&signing_key) else {
+        return false;
+    };
+    verifier.update(string_to_sign.as_bytes());
+    verifier.verify_slice(&got_signature).is_ok()
+}
+
+/// Verify a complete body-bound SigV4 request.
+fn authorized(auth: &S3Auth, req: &S3Request) -> bool {
+    let hdr = match req.headers.get("authorization") {
         Some(h) => h,
         None => return false,
     };
-    if !hdr.starts_with("AWS4-HMAC-SHA256") {
-        return false;
-    }
-    let cred = hdr
-        .split("Credential=")
-        .nth(1)
-        .and_then(|s| s.split('/').next())
-        .map(|s| s.trim());
-    let has_sig = hdr.contains("Signature=");
-    cred == Some(cfg.access_key.as_str()) && has_sig
+    verify_sigv4(auth, req, hdr)
 }
 
 // ── request / response + routing ───────────────────────────────────────────────
@@ -483,10 +909,15 @@ fn iso8601(ms: u64) -> String {
 
 /// Route + execute one S3 request → an [`S3Response`]. Pure (sync) so it is fully
 /// unit-testable without a socket (CONCEPT:EG-KG.ontology.object-put-get-head).
-fn handle(store: &S3Store, auth: &Option<S3Auth>, req: &S3Request) -> S3Response {
-    if !authorized(auth, &req.headers) {
+fn handle(store: &S3Store, auth: &S3Auth, req: &S3Request) -> S3Response {
+    if !authorized(auth, req) {
         return S3Response::error("403 Forbidden", "AccessDenied", "Access Denied");
     }
+    handle_authorized(store, req)
+}
+
+/// Route a request after the network boundary verified SigV4.
+fn handle_authorized(store: &S3Store, req: &S3Request) -> S3Response {
     let (bucket, key) = split_bucket_key(&req.path);
 
     // Service-level: `GET /` → ListBuckets.
@@ -557,8 +988,12 @@ fn handle(store: &S3Store, auth: &Option<S3Auth>, req: &S3Request) -> S3Response
                     .get("content-type")
                     .cloned()
                     .unwrap_or_else(|| "application/octet-stream".to_string());
-                let uid = store.create_multipart(&bucket, &key, &ctype);
-                S3Response::xml("200 OK", initiate_multipart_xml(&bucket, &key, &uid))
+                match store.create_multipart(&bucket, &key, &ctype) {
+                    Ok(uid) => {
+                        S3Response::xml("200 OK", initiate_multipart_xml(&bucket, &key, &uid))
+                    }
+                    Err(error) => internal(&error),
+                }
             }
         };
     }
@@ -626,16 +1061,16 @@ fn handle_multipart(
     match req.method.as_str() {
         "PUT" => {
             let pn = match part_number {
-                Some(n) if n >= 1 => n,
+                Some(n) if (1..=MAX_S3_MULTIPART_PARTS as u32).contains(&n) => n,
                 _ => {
                     return S3Response::error(
                         "400 Bad Request",
                         "InvalidArgument",
-                        "partNumber must be >= 1",
+                        "partNumber is outside the supported range",
                     )
                 }
             };
-            match store.upload_part(upload_id, pn, &req.body) {
+            match store.upload_part(bucket, key, upload_id, pn, &req.body) {
                 Ok(etag) => {
                     let mut r = S3Response::empty("200 OK");
                     r.headers.push(("ETag".into(), etag));
@@ -645,19 +1080,19 @@ fn handle_multipart(
                 Err(e) => internal(&e),
             }
         }
-        "POST" => match store.complete_multipart(upload_id) {
+        "POST" => match store.complete_multipart(bucket, key, upload_id) {
             Ok((b, k, etag)) => S3Response::xml("200 OK", complete_multipart_xml(&b, &k, &etag)),
             Err(e) if e == "NoSuchUpload" => no_such(),
             Err(e) => internal(&e),
         },
         "DELETE" => {
-            if store.abort_multipart(upload_id) {
+            if store.abort_multipart(bucket, key, upload_id) {
                 S3Response::empty("204 No Content")
             } else {
                 no_such()
             }
         }
-        "GET" => match store.list_parts(upload_id) {
+        "GET" => match store.list_parts(bucket, key, upload_id) {
             Ok(parts) => S3Response::xml("200 OK", list_parts_xml(bucket, key, upload_id, &parts)),
             Err(e) if e == "NoSuchUpload" => no_such(),
             Err(e) => internal(&e),
@@ -852,35 +1287,64 @@ async fn read_request(stream: &mut tokio::net::TcpStream) -> Option<S3Request> {
             return None;
         }
         buf.extend_from_slice(&tmp[..n]);
-        if buf.len() > 8 * 1024 * 1024 {
+        if buf.len() > MAX_HTTP_HEADER_BYTES {
             return None; // header flood guard
         }
     };
-    let head = String::from_utf8_lossy(&buf[..header_end]).to_string();
+    let head = std::str::from_utf8(&buf[..header_end]).ok()?.to_string();
     let mut lines = head.split("\r\n");
     let request_line = lines.next()?;
     let mut parts = request_line.split_whitespace();
     let method = parts.next()?.to_string();
     let target = parts.next()?.to_string();
+    let version = parts.next()?;
+    if !matches!(version, "HTTP/1.0" | "HTTP/1.1") || parts.next().is_some() {
+        return None;
+    }
     let (raw_path, query) = match target.split_once('?') {
         Some((p, q)) => (p, q.to_string()),
         None => (target.as_str(), String::new()),
     };
+    if query.split('&').filter(|field| !field.is_empty()).count() > MAX_HTTP_QUERY_FIELDS {
+        return None;
+    }
     let path = percent_decode(raw_path);
 
     let mut headers = HashMap::new();
-    let mut content_length = 0usize;
+    let mut content_length: Option<usize> = None;
     for line in lines {
-        if let Some((k, v)) = line.split_once(':') {
-            let key = k.trim().to_ascii_lowercase();
-            let val = v.trim().to_string();
-            if key == "content-length" {
-                content_length = val.parse().unwrap_or(0);
-            }
-            headers.insert(key, val);
+        if headers.len() >= MAX_HTTP_HEADERS {
+            return None;
         }
+        let (k, v) = line.split_once(':')?;
+        let key = k.trim().to_ascii_lowercase();
+        let val = v.trim().to_string();
+        if key.is_empty()
+            || !key
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+            || headers.contains_key(&key)
+        {
+            return None;
+        }
+        if key == "content-length" {
+            if content_length.is_some() {
+                return None;
+            }
+            content_length = Some(val.parse().ok()?);
+        } else if key == "transfer-encoding" {
+            return None;
+        }
+        headers.insert(key, val);
+    }
+    let content_length = content_length.unwrap_or(0);
+    if content_length > MAX_S3_BODY_BYTES {
+        return None;
     }
     let mut body = buf[header_end + 4..].to_vec();
+    if body.len() > content_length || body.len() > MAX_S3_BODY_BYTES {
+        return None;
+    }
     while body.len() < content_length {
         let n = stream.read(&mut tmp).await.ok()?;
         if n == 0 {
@@ -888,8 +1352,8 @@ async fn read_request(stream: &mut tokio::net::TcpStream) -> Option<S3Request> {
         }
         body.extend_from_slice(&tmp[..n]);
     }
-    if content_length > 0 && body.len() > content_length {
-        body.truncate(content_length);
+    if body.len() != content_length {
+        return None;
     }
     Some(S3Request {
         method,
@@ -907,13 +1371,12 @@ async fn read_request(stream: &mut tokio::net::TcpStream) -> Option<S3Request> {
 pub async fn serve(addr: &str, state: Arc<RwLock<ServerState>>) -> std::io::Result<()> {
     let persist_dir = { state.read().await.persist_dir.clone() };
     let store = Arc::new(S3Store::open(persist_dir.as_deref()).map_err(std::io::Error::other)?);
-    let auth = resolve_auth();
-    serve_with_store(addr, store, auth).await
+    let auth = resolve_auth()?;
+    serve_with_store_inner(addr, store, auth, Some(state)).await
 }
 
-/// Resolve the SigV4-lite credentials from the env (both must be set to arm the
-/// guard; else anonymous).
-fn resolve_auth() -> Option<S3Auth> {
+/// Resolve mandatory SigV4 credentials from the environment.
+fn resolve_auth() -> std::io::Result<S3Auth> {
     let access = std::env::var(S3_ACCESS_KEY_ENV)
         .ok()
         .filter(|s| !s.is_empty());
@@ -921,37 +1384,59 @@ fn resolve_auth() -> Option<S3Auth> {
         .ok()
         .filter(|s| !s.is_empty());
     match (access, secret) {
-        (Some(access_key), Some(secret_key)) => Some(S3Auth {
+        (Some(access_key), Some(secret_key)) => Ok(S3Auth {
             access_key,
             secret_key,
         }),
-        _ => None,
+        _ => Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "S3 access and secret credentials are required",
+        )),
     }
 }
 
-/// `serve` with an EXPLICIT store + auth (CONCEPT:EG-KG.ontology.object-put-get-head) — tests bind an ephemeral
-/// store on a random port without process env / `ServerState`.
-pub async fn serve_with_store(
+async fn carrier_denied(state: Option<&Arc<RwLock<ServerState>>>) -> bool {
+    let Some(state) = state else {
+        return false;
+    };
+    let state = state.read().await;
+    crate::server::access::unauthenticated_carrier_denied(&state.isolation)
+}
+
+async fn serve_with_store_inner(
     addr: &str,
     store: Arc<S3Store>,
-    auth: Option<S3Auth>,
+    auth: S3Auth,
+    security_state: Option<Arc<RwLock<ServerState>>>,
 ) -> std::io::Result<()> {
     let listener = TcpListener::bind(addr).await?;
+    crate::server::require_loopback_listener(&listener)?;
     tracing::info!(
-        "s3-api: serving S3-compatible REST surface on {} (durable={}, auth={})",
+        "s3-api: serving authenticated S3-compatible REST surface on {} (durable={})",
         addr,
-        store.is_durable(),
-        auth.is_some()
+        store.is_durable()
     );
     loop {
         let (mut stream, _peer) = listener.accept().await?;
         let store = store.clone();
         let auth = auth.clone();
+        let security_state = security_state.clone();
         tokio::spawn(async move {
-            let resp = match read_request(&mut stream).await {
-                Some(req) => handle(&store, &auth, &req),
-                None => S3Response::error("400 Bad Request", "InvalidRequest", "malformed"),
-            };
+            let resp =
+                match tokio::time::timeout(HTTP_READ_TIMEOUT, read_request(&mut stream)).await {
+                    Ok(Some(req)) => {
+                        if carrier_denied(security_state.as_ref()).await {
+                            S3Response::error(
+                                "403 Forbidden",
+                                "AccessDenied",
+                                "S3 carrier has no verified tenant/object ownership",
+                            )
+                        } else {
+                            handle(&store, &auth, &req)
+                        }
+                    }
+                    _ => S3Response::error("400 Bad Request", "InvalidRequest", "malformed"),
+                };
             let head = format!(
                 "HTTP/1.1 {}\r\ncontent-type: {}\r\ncontent-length: {}\r\nconnection: close\r\n{}\r\n",
                 resp.status,
@@ -974,7 +1459,7 @@ pub async fn serve_with_store(
 #[cfg(test)]
 mod tests {
     //! CONCEPT:EG-KG.ontology.object-put-get-head — object PUT/GET/HEAD/List/Delete round-trip over the CAS+KV
-    //! store, bucket lifecycle, the SigV4-lite auth accept/reject, and helper
+    //! store, bucket lifecycle, the SigV4 auth accept/reject, and helper
     //! coverage (path split, query parse, XML shape).
     use super::*;
 
@@ -1015,16 +1500,14 @@ mod tests {
     #[test]
     fn eg176_object_put_get_list_delete() {
         let store = mem_store();
-        let none = None;
         // CreateBucket.
         assert_eq!(
-            handle(&store, &none, &req("PUT", "/mybucket", b"", &[])).status,
+            handle_authorized(&store, &req("PUT", "/mybucket", b"", &[])).status,
             "200 OK"
         );
         // PutObject.
-        let put = handle(
+        let put = handle_authorized(
             &store,
-            &none,
             &req(
                 "PUT",
                 "/mybucket/hello.txt",
@@ -1035,36 +1518,27 @@ mod tests {
         assert_eq!(put.status, "200 OK");
         assert!(put.headers.iter().any(|(k, _)| k == "ETag"));
         // GetObject → bytes + content-type.
-        let get = handle(&store, &none, &req("GET", "/mybucket/hello.txt", b"", &[]));
+        let get = handle_authorized(&store, &req("GET", "/mybucket/hello.txt", b"", &[]));
         assert_eq!(get.status, "200 OK");
         assert_eq!(get.body, b"hello world");
         assert_eq!(get.content_type, "text/plain");
         // HeadObject → headers, no body.
-        let head = handle(&store, &none, &req("HEAD", "/mybucket/hello.txt", b"", &[]));
+        let head = handle_authorized(&store, &req("HEAD", "/mybucket/hello.txt", b"", &[]));
         assert_eq!(head.status, "200 OK");
         assert!(head.head_only);
         // ListObjectsV2 → the key appears in the XML.
-        let list = handle(
-            &store,
-            &none,
-            &req("GET", "/mybucket?list-type=2", b"", &[]),
-        );
+        let list = handle_authorized(&store, &req("GET", "/mybucket?list-type=2", b"", &[]));
         assert_eq!(list.status, "200 OK");
         let xml = String::from_utf8(list.body).unwrap();
         assert!(xml.contains("<Key>hello.txt</Key>"), "{xml}");
         assert!(xml.contains("<Size>11</Size>"), "{xml}");
         // DeleteObject → 204, then GET → 404.
         assert_eq!(
-            handle(
-                &store,
-                &none,
-                &req("DELETE", "/mybucket/hello.txt", b"", &[])
-            )
-            .status,
+            handle_authorized(&store, &req("DELETE", "/mybucket/hello.txt", b"", &[])).status,
             "204 No Content"
         );
         assert_eq!(
-            handle(&store, &none, &req("GET", "/mybucket/hello.txt", b"", &[])).status,
+            handle_authorized(&store, &req("GET", "/mybucket/hello.txt", b"", &[])).status,
             "404 Not Found"
         );
     }
@@ -1072,60 +1546,59 @@ mod tests {
     #[test]
     fn eg176_missing_bucket_and_key_errors() {
         let store = mem_store();
-        let none = None;
         // PUT object into a non-existent bucket → NoSuchBucket.
-        let r = handle(&store, &none, &req("PUT", "/ghost/x", b"data", &[]));
+        let r = handle_authorized(&store, &req("PUT", "/ghost/x", b"data", &[]));
         assert_eq!(r.status, "404 Not Found");
         assert!(String::from_utf8_lossy(&r.body).contains("NoSuchBucket"));
         // GET a missing key → NoSuchKey.
-        handle(&store, &none, &req("PUT", "/b", b"", &[]));
-        let r = handle(&store, &none, &req("GET", "/b/missing", b"", &[]));
+        handle_authorized(&store, &req("PUT", "/b", b"", &[]));
+        let r = handle_authorized(&store, &req("GET", "/b/missing", b"", &[]));
         assert!(String::from_utf8_lossy(&r.body).contains("NoSuchKey"));
     }
 
     #[test]
     fn eg176_list_buckets_and_bucket_lifecycle() {
         let store = mem_store();
-        let none = None;
-        handle(&store, &none, &req("PUT", "/b1", b"", &[]));
-        handle(&store, &none, &req("PUT", "/b2", b"", &[]));
+        handle_authorized(&store, &req("PUT", "/b1", b"", &[]));
+        handle_authorized(&store, &req("PUT", "/b2", b"", &[]));
         let xml =
-            String::from_utf8(handle(&store, &none, &req("GET", "/", b"", &[])).body).unwrap();
+            String::from_utf8(handle_authorized(&store, &req("GET", "/", b"", &[])).body).unwrap();
         assert!(
             xml.contains("<Name>b1</Name>") && xml.contains("<Name>b2</Name>"),
             "{xml}"
         );
         // A non-empty bucket refuses deletion.
-        handle(&store, &none, &req("PUT", "/b1/obj", b"x", &[]));
+        handle_authorized(&store, &req("PUT", "/b1/obj", b"x", &[]));
         assert_eq!(
-            handle(&store, &none, &req("DELETE", "/b1", b"", &[])).status,
+            handle_authorized(&store, &req("DELETE", "/b1", b"", &[])).status,
             "409 Conflict"
         );
         // An empty bucket deletes.
         assert_eq!(
-            handle(&store, &none, &req("DELETE", "/b2", b"", &[])).status,
+            handle_authorized(&store, &req("DELETE", "/b2", b"", &[])).status,
             "204 No Content"
         );
     }
 
     #[test]
-    fn eg176_sigv4_lite_auth_accept_reject() {
+    fn eg176_sigv4_rejects_unverified_or_stale_signatures() {
         let store = mem_store();
-        let auth = Some(S3Auth {
+        let auth = S3Auth {
             access_key: "AKIA_TEST".into(),
             secret_key: "shh".into(),
-        });
+        };
         // No Authorization header → 403.
         let r = handle(&store, &auth, &req("GET", "/", b"", &[]));
         assert_eq!(r.status, "403 Forbidden");
-        // Correct access key + a Signature → accepted.
+        // Merely naming the correct access key and adding any Signature is not
+        // authentication; the former incomplete signature path accepted this forgery.
         let good = "AWS4-HMAC-SHA256 Credential=AKIA_TEST/20130524/us-east-1/s3/aws4_request, SignedHeaders=host, Signature=abc123";
         let r = handle(
             &store,
             &auth,
             &req("GET", "/", b"", &[("authorization", good)]),
         );
-        assert_eq!(r.status, "200 OK");
+        assert_eq!(r.status, "403 Forbidden");
         // Wrong access key → 403.
         let bad =
             "AWS4-HMAC-SHA256 Credential=WRONG/20130524/us-east-1/s3/aws4_request, Signature=abc";
@@ -1138,24 +1611,17 @@ mod tests {
     }
 
     #[test]
-    fn eg176_authorized_helper_anonymous_when_unconfigured() {
-        // No configured credentials ⇒ anonymous access is allowed.
-        assert!(authorized(&None, &HashMap::new()));
-    }
-
-    #[test]
     fn eg176_etag_is_content_addressed() {
         // Identical bytes across two keys share the CAS digest (dedup) → same etag.
         let store = mem_store();
-        let none = None;
-        handle(&store, &none, &req("PUT", "/b", b"", &[]));
-        let e1 = handle(&store, &none, &req("PUT", "/b/a", b"same", &[]))
+        handle_authorized(&store, &req("PUT", "/b", b"", &[]));
+        let e1 = handle_authorized(&store, &req("PUT", "/b/a", b"same", &[]))
             .headers
             .into_iter()
             .find(|(k, _)| k == "ETag")
             .unwrap()
             .1;
-        let e2 = handle(&store, &none, &req("PUT", "/b/c", b"same", &[]))
+        let e2 = handle_authorized(&store, &req("PUT", "/b/c", b"same", &[]))
             .headers
             .into_iter()
             .find(|(k, _)| k == "ETag")
@@ -1164,9 +1630,24 @@ mod tests {
         assert_eq!(e1, e2);
         // And a GET returns the stored bytes.
         assert_eq!(
-            handle(&store, &none, &req("GET", "/b/a", b"", &[])).body,
+            handle_authorized(&store, &req("GET", "/b/a", b"", &[])).body,
             b"same"
         );
+    }
+
+    #[test]
+    fn stored_object_metadata_rejects_declared_allocation_bombs() {
+        let store = mem_store();
+        store.create_bucket("bucket").unwrap();
+        store
+            .kv
+            .put(
+                OBJECT_NS,
+                &S3Store::obj_key("bucket", "object"),
+                vec![0xdd, 0xff, 0xff, 0xff, 0xff],
+            )
+            .unwrap();
+        assert!(store.object_meta("bucket", "object").is_err());
     }
 
     // ── multipart upload + ranged reads (CONCEPT:EG-KG.txn.pubsub-transactions) ─────────────────────────
@@ -1181,12 +1662,10 @@ mod tests {
     #[test]
     fn eg307_multipart_create_upload_complete_roundtrips_object() {
         let store = mem_store();
-        let none = None;
-        handle(&store, &none, &req("PUT", "/b", b"", &[]));
+        handle_authorized(&store, &req("PUT", "/b", b"", &[]));
         // CreateMultipartUpload → an UploadId.
-        let init = handle(
+        let init = handle_authorized(
             &store,
-            &none,
             &req(
                 "POST",
                 "/b/big.txt?uploads",
@@ -1200,9 +1679,8 @@ mod tests {
         let uid = upload_id_of(&xml);
 
         // UploadPart 1 + 2 (out of order arrival is fine — completion sorts).
-        let p2 = handle(
+        let p2 = handle_authorized(
             &store,
-            &none,
             &req(
                 "PUT",
                 &format!("/b/big.txt?partNumber=2&uploadId={uid}"),
@@ -1212,9 +1690,8 @@ mod tests {
         );
         assert_eq!(p2.status, "200 OK");
         assert!(p2.headers.iter().any(|(k, _)| k == "ETag"));
-        let p1 = handle(
+        let p1 = handle_authorized(
             &store,
-            &none,
             &req(
                 "PUT",
                 &format!("/b/big.txt?partNumber=1&uploadId={uid}"),
@@ -1225,9 +1702,8 @@ mod tests {
         assert_eq!(p1.status, "200 OK");
 
         // ListParts shows both, ascending.
-        let lp = handle(
+        let lp = handle_authorized(
             &store,
-            &none,
             &req("GET", &format!("/b/big.txt?uploadId={uid}"), b"", &[]),
         );
         let lpx = String::from_utf8(lp.body).unwrap();
@@ -1235,24 +1711,22 @@ mod tests {
         assert!(lpx.contains("<PartNumber>2</PartNumber>"), "{lpx}");
 
         // CompleteMultipartUpload concatenates → one object.
-        let done = handle(
+        let done = handle_authorized(
             &store,
-            &none,
             &req("POST", &format!("/b/big.txt?uploadId={uid}"), b"", &[]),
         );
         assert_eq!(done.status, "200 OK");
         assert!(String::from_utf8_lossy(&done.body).contains("<CompleteMultipartUploadResult"));
 
         // The assembled object round-trips the concatenated bytes.
-        let get = handle(&store, &none, &req("GET", "/b/big.txt", b"", &[]));
+        let get = handle_authorized(&store, &req("GET", "/b/big.txt", b"", &[]));
         assert_eq!(get.status, "200 OK");
         assert_eq!(get.body, b"Hello, world!");
         assert_eq!(get.content_type, "text/plain");
 
         // The upload id is consumed — a second complete is NoSuchUpload.
-        let again = handle(
+        let again = handle_authorized(
             &store,
-            &none,
             &req("POST", &format!("/b/big.txt?uploadId={uid}"), b"", &[]),
         );
         assert_eq!(again.status, "404 Not Found");
@@ -1262,13 +1736,11 @@ mod tests {
     #[test]
     fn eg307_multipart_abort_discards_upload() {
         let store = mem_store();
-        let none = None;
-        handle(&store, &none, &req("PUT", "/b", b"", &[]));
-        let init = handle(&store, &none, &req("POST", "/b/k?uploads", b"", &[]));
+        handle_authorized(&store, &req("PUT", "/b", b"", &[]));
+        let init = handle_authorized(&store, &req("POST", "/b/k?uploads", b"", &[]));
         let uid = upload_id_of(&String::from_utf8(init.body).unwrap());
-        handle(
+        handle_authorized(
             &store,
-            &none,
             &req(
                 "PUT",
                 &format!("/b/k?partNumber=1&uploadId={uid}"),
@@ -1277,36 +1749,50 @@ mod tests {
             ),
         );
         // Abort → 204, then the upload id is gone.
-        let abort = handle(
+        let abort = handle_authorized(
             &store,
-            &none,
             &req("DELETE", &format!("/b/k?uploadId={uid}"), b"", &[]),
         );
         assert_eq!(abort.status, "204 No Content");
-        let list = handle(
+        let list = handle_authorized(
             &store,
-            &none,
             &req("GET", &format!("/b/k?uploadId={uid}"), b"", &[]),
         );
         assert_eq!(list.status, "404 Not Found");
         // And no object was ever materialized.
         assert_eq!(
-            handle(&store, &none, &req("GET", "/b/k", b"", &[])).status,
+            handle_authorized(&store, &req("GET", "/b/k", b"", &[])).status,
             "404 Not Found"
         );
     }
 
     #[test]
+    fn multipart_upload_id_is_scoped_to_its_object() {
+        let store = mem_store();
+        handle_authorized(&store, &req("PUT", "/bucket", b"", &[]));
+        let init = handle_authorized(&store, &req("POST", "/bucket/original?uploads", b"", &[]));
+        let upload_id = upload_id_of(&String::from_utf8(init.body).unwrap());
+        let response = handle_authorized(
+            &store,
+            &req(
+                "PUT",
+                &format!("/bucket/different?partNumber=1&uploadId={upload_id}"),
+                b"data",
+                &[],
+            ),
+        );
+        assert_eq!(response.status, "404 Not Found");
+    }
+
+    #[test]
     fn eg307_range_get_returns_206_partial_content() {
         let store = mem_store();
-        let none = None;
-        handle(&store, &none, &req("PUT", "/b", b"", &[]));
-        handle(&store, &none, &req("PUT", "/b/data", b"0123456789", &[]));
+        handle_authorized(&store, &req("PUT", "/b", b"", &[]));
+        handle_authorized(&store, &req("PUT", "/b/data", b"0123456789", &[]));
 
         // bytes=2-5 → the inclusive slice "2345".
-        let r = handle(
+        let r = handle_authorized(
             &store,
-            &none,
             &req("GET", "/b/data", b"", &[("range", "bytes=2-5")]),
         );
         assert_eq!(r.status, "206 Partial Content");
@@ -1321,25 +1807,23 @@ mod tests {
             .any(|(k, v)| k == "Accept-Ranges" && v == "bytes"));
 
         // Open-ended bytes=5- → tail "56789".
-        let r = handle(
+        let r = handle_authorized(
             &store,
-            &none,
             &req("GET", "/b/data", b"", &[("range", "bytes=5-")]),
         );
         assert_eq!(r.status, "206 Partial Content");
         assert_eq!(r.body, b"56789");
 
         // Suffix bytes=-3 → the last 3 bytes "789".
-        let r = handle(
+        let r = handle_authorized(
             &store,
-            &none,
             &req("GET", "/b/data", b"", &[("range", "bytes=-3")]),
         );
         assert_eq!(r.status, "206 Partial Content");
         assert_eq!(r.body, b"789");
 
         // A GET with no Range header is still a whole-object 200.
-        let full = handle(&store, &none, &req("GET", "/b/data", b"", &[]));
+        let full = handle_authorized(&store, &req("GET", "/b/data", b"", &[]));
         assert_eq!(full.status, "200 OK");
         assert_eq!(full.body, b"0123456789");
     }
@@ -1347,13 +1831,11 @@ mod tests {
     #[test]
     fn eg307_range_get_unsatisfiable_returns_416() {
         let store = mem_store();
-        let none = None;
-        handle(&store, &none, &req("PUT", "/b", b"", &[]));
-        handle(&store, &none, &req("PUT", "/b/data", b"abc", &[]));
+        handle_authorized(&store, &req("PUT", "/b", b"", &[]));
+        handle_authorized(&store, &req("PUT", "/b/data", b"abc", &[]));
         // Start past the end → 416.
-        let r = handle(
+        let r = handle_authorized(
             &store,
-            &none,
             &req("GET", "/b/data", b"", &[("range", "bytes=10-20")]),
         );
         assert_eq!(r.status, "416 Range Not Satisfiable");

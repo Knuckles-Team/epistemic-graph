@@ -25,10 +25,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use epistemic_graph::durability::DurabilityPolicy;
 use epistemic_graph::protocol::Method;
 use epistemic_graph::server::persistence::redb_backend::RedbBackend;
 use epistemic_graph::server::persistence::PersistenceBackend;
-use epistemic_graph::wal_service::FsyncPolicy;
 use tokio::runtime::Builder;
 
 const GRAPH: &str = "__commons__";
@@ -96,7 +96,7 @@ fn bench_group_commit(c: &mut Criterion) {
                 dir.to_string_lossy().to_string(),
                 // Long interval so ONLY the barrier path (+ linger) commits a batch,
                 // never the timer — isolates the linger's effect on batch size.
-                FsyncPolicy::Interval(Duration::from_millis(500)),
+                DurabilityPolicy::Interval(Duration::from_millis(500)),
                 4096,
             )
             .expect("open redb backend"),

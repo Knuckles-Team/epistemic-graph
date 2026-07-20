@@ -48,8 +48,6 @@ fn stage_strategy() -> impl Strategy<Value = String> {
         // Time context ops.
         (0u64..2_000_000_000).prop_map(|ts| format!("AS OF @{ts}")),
         (1u64..7200).prop_map(|s| format!("WINDOW {s}")),
-        // Federation name marker (pass-through).
-        Just("FOREIGN \"peer\"".to_string()),
         // LIMIT.
         (0usize..20).prop_map(|k| format!("LIMIT {k}")),
     ]

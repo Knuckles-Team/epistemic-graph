@@ -1,0 +1,22 @@
+[package]
+name = "eg-program"
+version = "0.1.0"
+edition = "2021"
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
+description = "Graph-native, governed LM-program and self-improvement contracts for epistemic-graph"
+license = "MIT"
+
+[lib]
+name = "eg_program"
+
+[dependencies]
+eg-types = { path = "../eg-types" }
+eg-modality = { path = "../eg-modality" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+hex = "0.4"
+
+[dev-dependencies]
+rmp-serde = "1.3"
+

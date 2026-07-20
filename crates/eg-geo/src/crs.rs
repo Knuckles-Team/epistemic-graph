@@ -125,7 +125,7 @@ fn map_coords(
         ))
     };
     let poly = |pg: &Polygon| -> Result<Polygon, String> {
-        Ok(Polygon::with_interiors(
+        Ok(Polygon::new(
             line(&pg.exterior)?,
             pg.interiors
                 .iter()

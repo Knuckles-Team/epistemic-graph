@@ -48,7 +48,6 @@ import asyncio
 import json
 import os
 import random
-import statistics
 import subprocess
 import sys
 import tempfile
@@ -322,7 +321,7 @@ async def open_pool(sock: str, n: int) -> list[Any]:
     from epistemic_graph.client import EpistemicGraphClient
 
     conns = []
-    for i in range(n):
+    for _ in range(n):
         c = await EpistemicGraphClient.connect(
             socket_path=sock, graph_name="__soak__", auth_secret=""
         )
@@ -375,7 +374,7 @@ async def populate(
 
     tasks = []
     ci = 0
-    for graph, count in zip(tenants.ids, tenants.residents):
+    for graph, count in zip(tenants.ids, tenants.residents, strict=True):
         for r in range(count):
             tasks.append(add_resident(conns[ci % len(conns)], graph, r))
             ci += 1

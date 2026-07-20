@@ -1,5 +1,5 @@
 import pytest
-import epistemic_graph
+
 from epistemic_graph.client import SyncEpistemicGraphClient
 
 

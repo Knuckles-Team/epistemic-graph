@@ -287,7 +287,7 @@ fn assemble_polygon(parts: Vec<Vec<Point>>) -> Geometry {
     if exteriors.is_empty() {
         let polys: Vec<Polygon> = holes
             .into_iter()
-            .map(|r| Polygon::new(LineString::new(r)))
+            .map(|r| Polygon::new(LineString::new(r), Vec::new()))
             .collect();
         return if polys.len() == 1 {
             Geometry::Polygon(polys.into_iter().next().unwrap())
@@ -297,7 +297,7 @@ fn assemble_polygon(parts: Vec<Vec<Point>>) -> Geometry {
     }
     let mut polys: Vec<Polygon> = exteriors
         .into_iter()
-        .map(|r| Polygon::new(LineString::new(r)))
+        .map(|r| Polygon::new(LineString::new(r), Vec::new()))
         .collect();
     for hole in holes {
         let anchor = hole.first().copied();
@@ -305,7 +305,7 @@ fn assemble_polygon(parts: Vec<Vec<Point>>) -> Geometry {
         let mut target = 0usize;
         if let Some(a) = anchor {
             for (i, pg) in polys.iter().enumerate() {
-                let ring = Polygon::new(pg.exterior.clone());
+                let ring = Polygon::new(pg.exterior.clone(), Vec::new());
                 if ring.contains_point(&a) {
                     target = i;
                     break;

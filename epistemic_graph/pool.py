@@ -1,31 +1,13 @@
-"""Connection pooling and shard routing for epistemic-graph Tokio service.
+"""Connection pooling and authoritative endpoint routing for epistemic-graph.
 
-Provides an async ConnectionPool to manage multiple connections to a single service endpoint,
-and a ShardRouter that distributes graphs across multiple backend endpoints using
-Highest Random Weight (HRW) consistent hashing.
+``ConnectionPool`` manages bounded connections to one service endpoint.
+``ShardRouter`` accepts routes resolved by the engine placement authority; it
+never hashes graph names or guesses placement.
 
-CONCEPT:EG-KG.ingest.ingest-lane-affinity — Cross-shard union co-residency + scatter-gather.
-
-The engine's cross-graph UNION read (CONCEPT:EG-KG.query.cross-graph-union) is *single-shard*: the
-handler re-enters one shard's local registry, so every graph in a union set must
-be CO-RESIDENT on the shard the request routes to. Plain HRW hashing scatters
-related graphs (``__commons__`` and the per-lane ``__ingest_*`` graphs) across
-shards, which would break the union read.
-
-Two mechanisms close that gap, both purely client-side:
-
-* **Affinity / co-residency** (``AffinityRegistry`` + ``ShardRouter._route_key``):
-  a declared group of graphs is pinned to the SAME shard by routing every member
-  through the group's *anchor* key instead of the graph's own name. The default
-  group pins the ingest lanes to the ``__commons__`` shard so a union over
-  ``{__commons__, __ingest__, __ingest_*}`` always lands on one shard and can use
-  the fast single-shard union RPC directly.
-
-* **Scatter-gather** (``ShardRouter.*_union``): when a union set still spans more
-  than one shard (graphs in different affinity groups, or none), the router groups
-  the graphs by their resolved shard endpoint, fans the existing per-shard union
-  RPC out to each shard concurrently, then merges + dedupes the per-shard results.
-  No new engine/Rust method is introduced — it reuses the KG-2.171 RPCs.
+Cross-graph union co-residency is placement metadata owned by the engine. The
+client groups graphs by the endpoints returned by its authoritative resolver,
+fans the existing per-shard union RPC out concurrently, and merges the results.
+It never changes a route to manufacture affinity.
 
 Single-endpoint homelab behavior is unchanged: with one endpoint every graph
 co-resides trivially, so affinity is a no-op and scatter-gather degenerates to a
@@ -40,48 +22,34 @@ was unreachable" in a deduped merge, and a silently partial union is a correctne
 hazard. (A missing graph is still skipped engine-side, exactly as in the
 single-shard union — that is an empty contribution, not an error.)
 
-CONCEPT:EG-KG.backend.multiplexed-connections — Multiplexed engine connections (parallelize the wire).
+CONCEPT:EG-KG.backend.multiplexed-connections — bounded physical connections.
 
-One ``EpistemicGraphClient`` connection dispatches requests SERIALLY: ``_send``
-holds a per-connection ``asyncio.Lock`` for the whole write→round-trip→read, and
-— decisively — the *engine's* per-connection loop is itself serial (it awaits
-``dispatch`` fully before reading the next frame, see
-``src/server/transport.rs::handle_connection``). So M concurrent callers sharing
-ONE connection are serialized on the wire even though each request already carries
-a correlation id (``Request.id``/``Response.id``).
+One ``EpistemicGraphClient`` already pipelines concurrent requests on a single
+connection and demultiplexes out-of-order responses by ``Response.id``. A pool
+adds bounded physical-connection isolation: a large response or failed stream
+does not stall every caller, and independent work can use separate transport
+flow-control windows. ``ConnectionPool.map_concurrent`` and
+``ShardRouter.map_concurrent`` deliberately fan out only independent operations.
+The pool auto-sizes to the box (``_auto_pool_size``); callers can set an explicit
+cap when their deployment has a stricter connection budget.
 
-The high-value win that needs NO server change is **connection multiplexing**: a
-real pool hands out N independent connections, and because the engine
-``tokio::spawn``s one task PER connection, N pooled connections run as N parallel
-server tasks. ``ConnectionPool.map_concurrent`` / ``ShardRouter.map_concurrent``
-fan a set of INDEPENDENT operations out across the pool — each op on its own
-connection — so wall-clock collapses from the serial sum to roughly one op. The
-pool auto-sizes to the box (``_auto_pool_size``); there is no knob to tune.
-
-Ordering is preserved where callers rely on it: a single logical write (a node
-before its edges) runs as ONE ``fn`` on ONE connection via ``connection()`` /
-``acquire``; only operations that are genuinely independent of each other are
-spread across connections.
-
-**Pipelining is a server follow-up, not done here.** True single-connection
-pipelining (many in-flight requests demuxed by id) would need
-``handle_connection`` to read-ahead and ``spawn`` a task per request, writing
-responses back out-of-order as they complete — a change to
-``src/server/transport.rs`` (the correlation-id field the demux needs already
-exists in the protocol). Until then, single-connection pipelining buys no
-concurrency (the engine reads the next frame only after replying), so we
-multiplex CONNECTIONS instead and flag the server change as the next step.
+Dependent operations remain sequential awaits inside one logical function. A
+node write must complete before its edge writes begin; merely sharing a physical
+connection is not an ordering primitive because current requests are pipelined.
 """
 
 import asyncio
 import contextlib
-import hashlib
 import logging
 import os
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
-from .client import EpistemicGraphClient
+from .client import (
+    EpistemicGraphClient,
+    RequestContextClaims,
+    validate_request_context,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -89,86 +57,13 @@ logger = logging.getLogger(__name__)
 def _auto_pool_size() -> int:
     """Auto-size a per-endpoint connection pool to the box (CONCEPT:EG-KG.backend.multiplexed-connections).
 
-    The pool must give every concurrent caller hitting one shard its own
-    in-flight connection — the K shard-writers, the staged pipeline's WRITE pool,
-    and the read fan-out — so none serializes behind another on the wire. We size
-    by CPU count (the server spawns a task per connection, so this is the parallel
-    width the engine can actually service) clamped to a sane floor/ceiling. No env
-    knob: the operator's law is auto-size, not tune.
+    The pool gives concurrent shard writers and read fan-out independent physical
+    flow-control windows while keeping the connection count bounded. Size by CPU
+    count, clamped to a sane floor/ceiling. No environment knob: deployments that
+    need a tighter budget pass an explicit cap.
     """
     cpu = os.cpu_count() or 4
     return max(8, min(2 * cpu, 64))
-
-
-# CONCEPT:EG-KG.ingest.ingest-lane-affinity — anchor key for the default ingest-lane affinity group.
-_COMMONS_ANCHOR = "__commons__"
-
-
-def _default_affinity_groups() -> dict[str, str]:
-    """Default graph→anchor co-residency map.
-
-    Pins the per-lane ingest graphs to the ``__commons__`` shard so a union read
-    over the ingest lanes + commons resolves on one shard (CONCEPT:EG-KG.query.cross-graph-union's
-    co-residency contract). ``__ingest_*`` lanes are matched by prefix at routing
-    time; the explicit map covers the bare lane name.
-
-    Override / extend via ``GRAPH_AFFINITY_GROUPS`` — a comma-separated list of
-    ``anchor:member1|member2|...`` clauses, e.g.
-    ``__commons__:__ingest__|__ingest_news__,__hot__:__hot_a__|__hot_b__``.
-    A member may be a literal graph name or a ``prefix*`` glob (trailing ``*``).
-    """
-    groups: dict[str, str] = {
-        _COMMONS_ANCHOR: _COMMONS_ANCHOR,
-        "__ingest__": _COMMONS_ANCHOR,
-        # Prefix glob: any __ingest_<lane> co-resides with __commons__.
-        "__ingest_*": _COMMONS_ANCHOR,
-    }
-    env = os.environ.get("GRAPH_AFFINITY_GROUPS", "").strip()
-    if env:
-        for clause in env.split(","):
-            clause = clause.strip()
-            if not clause or ":" not in clause:
-                continue
-            anchor, members = clause.split(":", 1)
-            anchor = anchor.strip()
-            if not anchor:
-                continue
-            groups.setdefault(anchor, anchor)
-            for member in members.split("|"):
-                member = member.strip()
-                if member:
-                    groups[member] = anchor
-    return groups
-
-
-class AffinityRegistry:
-    """Maps a graph name to its co-residency *anchor* key (CONCEPT:EG-KG.ingest.ingest-lane-affinity).
-
-    Routing by the anchor instead of the graph's own name forces every member of
-    an affinity group onto the same shard. Members may be exact names or trailing
-    ``*`` prefix globs. A graph in no group anchors to itself (plain HRW).
-    """
-
-    def __init__(self, groups: dict[str, str] | None = None) -> None:
-        raw = groups if groups is not None else _default_affinity_groups()
-        self._exact: dict[str, str] = {}
-        self._prefixes: list[tuple[str, str]] = []
-        for member, anchor in raw.items():
-            if member.endswith("*"):
-                self._prefixes.append((member[:-1], anchor))
-            else:
-                self._exact[member] = anchor
-        # Longest prefix first so the most specific glob wins.
-        self._prefixes.sort(key=lambda kv: len(kv[0]), reverse=True)
-
-    def anchor_for(self, graph_name: str) -> str:
-        """Return the routing key for ``graph_name`` (itself if no affinity)."""
-        if graph_name in self._exact:
-            return self._exact[graph_name]
-        for prefix, anchor in self._prefixes:
-            if graph_name.startswith(prefix):
-                return anchor
-        return graph_name
 
 
 class ConnectionPool:
@@ -177,16 +72,19 @@ class ConnectionPool:
     def __init__(
         self,
         endpoint: str,
+        *,
+        verified_context: RequestContextClaims | dict[str, Any],
         auth_secret: str | None = None,
         min_size: int = 1,
         max_size: int | None = None,
-        agent_id: str | None = None,
     ) -> None:
         self.endpoint = endpoint
-        self.auth_secret = auth_secret
-        # Optional caller identity forwarded on every request for server-side
-        # ACL enforcement (see the server's isolation layer).
-        self.agent_id = agent_id
+        self.auth_secret = auth_secret or os.environ.get(
+            "GRAPH_SERVICE_AUTH_SECRET", ""
+        )
+        if not self.auth_secret:
+            raise ValueError("a non-empty authentication secret is required")
+        self.verified_context = validate_request_context(verified_context)
         # CONCEPT:EG-KG.backend.multiplexed-connections — auto-size to the box when the caller doesn't pin a cap,
         # so M concurrent callers each get their own in-flight connection instead
         # of contending on one. An explicit cap is still honored.
@@ -206,24 +104,28 @@ class ConnectionPool:
                 self._pool.put_nowait(client)
 
     async def _create_client(self) -> EpistemicGraphClient:
-        if self.endpoint.startswith("tcp://"):
+        if self.endpoint.startswith(("tcp://", "tls://")):
+            use_tls = self.endpoint.startswith("tls://")
             tcp_addr = self.endpoint[6:]
             client = await EpistemicGraphClient.connect(
-                tcp_addr=tcp_addr, auth_secret=self.auth_secret, agent_id=self.agent_id
+                tcp_addr=tcp_addr,
+                auth_secret=self.auth_secret,
+                verified_context=self.verified_context,
+                tls=use_tls,
             )
         elif self.endpoint.startswith("unix://"):
             socket_path = self.endpoint[7:]
             client = await EpistemicGraphClient.connect(
                 socket_path=socket_path,
                 auth_secret=self.auth_secret,
-                agent_id=self.agent_id,
+                verified_context=self.verified_context,
             )
         else:
             # Default to socket if no scheme provided
             client = await EpistemicGraphClient.connect(
                 socket_path=self.endpoint,
                 auth_secret=self.auth_secret,
-                agent_id=self.agent_id,
+                verified_context=self.verified_context,
             )
 
         self._active_connections += 1
@@ -267,9 +169,8 @@ class ConnectionPool:
         The leak-free way the hot path should hold a connection: ``async with
         pool.connection() as client: ...`` checks one out and returns it to the
         pool on exit (even on error), so a forgotten ``release`` can't strand a
-        connection and starve the cap. A single logical write that relies on
-        ordering (a node before its edges) stays inside ONE such block — i.e. ONE
-        connection — so its operations keep their on-the-wire order.
+        connection and starve the cap. A logical write that relies on ordering
+        awaits each dependent operation before issuing the next inside this block.
         """
         client = await self.acquire()
         try:
@@ -315,27 +216,35 @@ class ConnectionPool:
 
 
 class ShardRouter:
-    """Routes graphs to specific shard endpoints using HRW consistent hashing."""
+    """Pool router driven by an engine-authoritative endpoint resolver."""
 
     def __init__(
         self,
         endpoints: list[str],
+        *,
+        verified_context: RequestContextClaims | dict[str, Any],
         auth_secret: str | None = None,
         min_size: int = 1,
         max_size: int | None = None,
-        agent_id: str | None = None,
-        affinity: AffinityRegistry | None = None,
+        route_resolver: Callable[[str], str] | None = None,
     ) -> None:
         if not endpoints:
             raise ValueError("ShardRouter requires at least one endpoint")
+        if len(endpoints) > 1 and route_resolver is None:
+            raise ValueError(
+                "multi-endpoint ShardRouter requires an authoritative route_resolver"
+            )
         self.endpoints = endpoints
-        # CONCEPT:EG-KG.ingest.ingest-lane-affinity — co-residency layer. Routing keys pass through here
-        # so an affinity group's members share one shard (anchor-keyed HRW).
-        self.affinity = affinity if affinity is not None else AffinityRegistry()
+        self._route_resolver = route_resolver
+        context = validate_request_context(verified_context)
         self.pools: dict[str, ConnectionPool] = {}
         for ep in endpoints:
             self.pools[ep] = ConnectionPool(
-                ep, auth_secret, min_size, max_size, agent_id=agent_id
+                ep,
+                verified_context=context,
+                auth_secret=auth_secret,
+                min_size=min_size,
+                max_size=max_size,
             )
 
     async def initialize(self) -> None:
@@ -343,32 +252,14 @@ class ShardRouter:
         for pool in self.pools.values():
             await pool.initialize()
 
-    def _route_key(self, graph_name: str) -> str:
-        """Resolve the HRW routing key for ``graph_name`` via affinity.
-
-        CONCEPT:EG-KG.ingest.ingest-lane-affinity — members of an affinity group hash by their anchor key,
-        which pins them to the same shard as the anchor (e.g. ingest lanes →
-        ``__commons__``).
-        """
-        return self.affinity.anchor_for(graph_name)
-
     def _get_shard_endpoint(self, graph_name: str) -> str:
-        # Route by the affinity anchor so co-resident graphs share a shard.
-        key = self._route_key(graph_name)
-        # Rendezvous hashing (HRW)
-        max_score = -1
-        best_endpoint = self.endpoints[0]
-
-        for ep in self.endpoints:
-            # Hash endpoint + routing key
-            s = f"{ep}-{key}".encode()
-            # MD5 used only for rendezvous/HRW shard selection, never security.
-            score = int(hashlib.md5(s, usedforsecurity=False).hexdigest(), 16)  # nosec B324
-            if score > max_score:
-                max_score = score
-                best_endpoint = ep
-
-        return best_endpoint
+        if len(self.endpoints) == 1:
+            return self.endpoints[0]
+        assert self._route_resolver is not None
+        endpoint = self._route_resolver(graph_name)
+        if endpoint not in self.pools:
+            raise ValueError("authoritative route returned an unconfigured endpoint")
+        return endpoint
 
     def group_by_shard(self, graph_names: list[str]) -> dict[str, list[str]]:
         """Group ``graph_names`` by their resolved shard endpoint (order-preserving).
@@ -407,7 +298,7 @@ class ShardRouter:
 
         ``async with router.connection(graph) as client: ...`` — the leak-free way
         the hot write/read path holds a connection. Order-dependent operations on
-        one graph (node-before-edge) stay inside one block / one connection.
+        one graph (node-before-edge) are sequentially awaited inside one block.
         """
         ep = self._get_shard_endpoint(graph_name)
         client = await self.pools[ep].acquire()

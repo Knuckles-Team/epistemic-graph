@@ -1,7 +1,7 @@
 # Multi-node Raft cluster — deployment & data migration (CONCEPT:AU-KG.backend.authority-has-already-acked)
 
 > How to run the epistemic-graph engine as a highly-available **Raft cluster** across
-> the fleet's 4 nodes, and how to convert the **live single-node R510 engine** (which
+> four runtime-selected nodes, and how to convert the **current authoritative node** (which
 > already holds the authoritative redb data) into the SEED of that cluster **without
 > data loss**. Built on openraft **0.10** (the v2 split-storage API + native graceful
 > `trigger().transfer_leader()` — see `m2_raft_status.md`).
@@ -13,21 +13,28 @@
 
 ## 0. Topology
 
-| Raft node | Host  | IP          | Role                                   |
-|-----------|-------|-------------|----------------------------------------|
-| 1         | R510  | 10.0.0.10   | **SEED** — already holds authoritative data; lowest id ⇒ bootstrap |
-| 2         | R710  | 10.0.0.11   | learner → voter                        |
-| 3         | RW710 | 10.0.0.12   | learner → voter                        |
-| 4         | R820  | 10.0.0.13   | learner → voter (Swarm manager)        |
+| Raft node | Runtime host variable | Runtime address variable | Role |
+|-----------|-----------------------|--------------------------|------|
+| 1         | `NODE_1_HOST`         | `NODE_1_ADDR`            | **SEED** — already holds authoritative data; lowest id ⇒ bootstrap |
+| 2         | `NODE_2_HOST`         | `NODE_2_ADDR`            | learner → voter |
+| 3         | `NODE_3_HOST`         | `NODE_3_ADDR`            | learner → voter |
+| 4         | `NODE_4_HOST`         | `NODE_4_ADDR`            | learner → voter (deployment manager when applicable) |
 
 * **Raft RPC** binds `:9100` on every node (the `EPISTEMIC_GRAPH_RAFT_PEERS` port).
-  Peers dial each other at `10.0.0.x:9100`.
+  Peers dial the runtime-injected `NODE_<N>_ADDR` values on `:9100`.
 * The engine's **client TCP** must therefore move OFF `:9100` (collision) — the
   `cluster.env` flavor sets `ENGINE_TCP_ADDR=0.0.0.0:9101`; a **co-located graph-os**
   should prefer the **local UDS**. Remote clients dial a member's `:9101` and follow
   the `ForwardToLeader` redirect.
 * `EPISTEMIC_GRAPH_RAFT_BIND_ADDR=0.0.0.0:9100` lets a containerized member bind all
-  interfaces while still **advertising** its routable host IP (from `PEERS`) to peers.
+  interfaces while still **advertising** its runtime-injected routable address (from
+  `PEERS`) to peers.
+* Every member receives the same runtime-mounted key through
+  `EPISTEMIC_GRAPH_RAFT_AUTH_SECRET_FILE`. The Raft transport authenticates both peer
+  ids with a fresh nonce exchange, derives a per-connection key, encrypts frames with
+  XChaCha20-Poly1305, and rejects replayed/out-of-order sequence numbers. A routable
+  or multi-member cluster refuses to start without key material; plaintext is limited
+  to one-member loopback development.
 
 ### Writer model — K=1 under an active Raft node
 
@@ -43,8 +50,8 @@ effort and is **off** in this deployment. Read that as: a 4-node cluster buys yo
 
 ## 1. Pre-flight (do these BEFORE touching anything)
 
-1. **Back up R510's authoritative data.** Stop writers if you can; snapshot the redb
-   persist dir (`ENGINE_PERSIST`, e.g. `/home/genius/epistemic-graph/graph_snapshots`)
+1. **Back up node 1's authoritative data.** Stop writers if you can; snapshot the redb
+   persist dir (`ENGINE_PERSIST`, configured outside the repository)
    — a filesystem copy of the closed `*.redb` files, or a borg/zfs snapshot. **Verify
    the backup restores** before proceeding. This is the rollback anchor.
 2. **Build the cluster-capable engine.** The cluster image/binary must be built with
@@ -59,27 +66,29 @@ effort and is **off** in this deployment. Read that as: a 4-node cluster buys yo
 
 ---
 
-## 2. Convert R510 (live single-node) into the SEED — no data loss
+## 2. Convert the authoritative node into the SEED — no data loss
 
-The key idea: **R510 keeps its redb data and becomes node 1.** The other nodes start
-**empty** and replicate the authoritative state FROM R510 (via Raft log + snapshot).
-You never wipe R510, and you never let an empty node bootstrap the cluster.
+The key idea: **the authoritative host keeps its redb data and becomes node 1.** The
+other nodes start **empty** and replicate the authoritative state from node 1 (via
+Raft log + snapshot). You never wipe node 1, and you never let an empty node bootstrap
+the cluster.
 
-### 2a. Restart R510 as a single-member Raft cluster (still authoritative, now HA-ready)
+### 2a. Restart node 1 as a single-member Raft cluster (still authoritative, now HA-ready)
 
-R510 boots with `EPISTEMIC_GRAPH_RAFT_NODE_ID=1` and a `PEERS` list. Because node 1 is
+Node 1 boots with `EPISTEMIC_GRAPH_RAFT_NODE_ID=1` and a `PEERS` list. Because node 1 is
 the **lowest id**, it is the bootstrap candidate; it `initialize`s the cluster as a
 single voter `{1}` over **its existing redb** (the Raft log lives in the SAME
-`graph.redb`, keyed by group id — the authoritative graph data is untouched). At this
-point the cluster is `{1}` and every committed write still lands on R510's disk exactly
+the authoritative shard, keyed by group id — the graph data is untouched). At this
+point the cluster is `{1}` and every committed write still lands on node 1's disk exactly
 as before.
 
 ```bash
-# On the Swarm manager (R820):
+# On the runtime-selected deployment manager:
 set -a; source services/epistemic-graph/flavors/cluster.env; set +a
 export EPISTEMIC_GRAPH_RAFT_NODE_ID=1
-export SERVER=R510
-export ENGINE_PERSIST=/home/genius/epistemic-graph/graph_snapshots   # R510's EXISTING data
+export EPISTEMIC_GRAPH_RAFT_AUTH_SECRET_FILE="${RAFT_AUTH_SECRET_FILE:?set a runtime secret-file reference}"
+export SERVER="${NODE_1_HOST:?set the node 1 host alias at runtime}"
+export ENGINE_PERSIST="${ENGINE_PERSIST:?set to node 1's existing data directory}"
 docker stack deploy -c services/epistemic-graph/compose.dev.yml epistemic-graph-1
 ```
 
@@ -88,25 +97,27 @@ cluster, and its data is intact (node/edge counts match the pre-cutover baseline
 then proceed.
 
 > Why this is safe: `RaftClusterConfig` only lets the lowest-id node bootstrap, and the
-> store recovers its applied pointers + graph data from the existing redb. R510 is the
+> store recovers its applied pointers + graph data from the existing redb. Node 1 is the
 > single source of truth throughout.
 
-### 2b. Bring up nodes 2, 3, 4 EMPTY (they will replicate from R510)
+### 2b. Bring up nodes 2, 3, 4 EMPTY (they will replicate from node 1)
 
 Each joins on a **fresh, empty** persist dir. They do NOT bootstrap (only node 1 can):
 they stand up, then wait to be added by the leader.
 
 ```bash
-# Node 2 (R710):
+# Node 2:
 set -a; source services/epistemic-graph/flavors/cluster.env; set +a
 export EPISTEMIC_GRAPH_RAFT_NODE_ID=2
-export SERVER=R710
-export ENGINE_PERSIST=/home/genius/epistemic-graph/graph_snapshots   # MUST be empty on R710
+export EPISTEMIC_GRAPH_RAFT_AUTH_SECRET_FILE="${RAFT_AUTH_SECRET_FILE:?set the shared runtime secret-file reference}"
+export SERVER="${NODE_2_HOST:?set the node 2 host alias at runtime}"
+export ENGINE_PERSIST="${ENGINE_PERSIST:?set to node 2's empty data directory}"
 docker stack deploy -c services/epistemic-graph/compose.dev.yml epistemic-graph-2
-# Repeat for node 3 (RW710, id=3) and node 4 (R820, id=4), each with its own empty dir.
+# Repeat for node 3 and node 4, using `NODE_3_HOST` and `NODE_4_HOST`; each gets its own
+# empty directory.
 ```
 
-### 2c. Add nodes 2→4 as learners, then promote to voters (from the LEADER, R510)
+### 2c. Add nodes 2→4 as learners, then promote to voters (from the node 1 LEADER)
 
 Membership changes are leader-only. The engine exposes this through the `MultiRaft`
 membership lifecycle (`add_group_member` = `add_learner` blocking-until-caught-up →
@@ -127,7 +138,7 @@ catch-up between each, so quorum is never at risk:
 
 ### 2d. Verify replication, then (optionally) rebalance leadership
 
-* Read a known key back **on a follower** (e.g. node 3) — it must match R510.
+* Read a known key back **on a follower** (e.g. node 3) — it must match node 1.
 * Write a new key through the leader — it must appear on every follower within a
   heartbeat.
 * Leadership starts entirely on node 1 (it bootstrapped). If you want it spread, the
@@ -135,7 +146,7 @@ catch-up between each, so quorum is never at risk:
   (graceful, near-instant) toward the deterministic round-robin target. With one group
   this is a no-op worth skipping; it matters once multi-group sharding is enabled.
 
-The cluster is now 4-node HA with R510's data fully replicated. **No data was lost and
+The cluster is now 4-node HA with node 1's data fully replicated. **No data was lost and
 no node was wiped.**
 
 ---
@@ -145,16 +156,16 @@ no node was wiped.**
 At any point before you trust the cluster, you can return to the single-node engine:
 
 1. **Tear down nodes 2–4** (`docker stack rm epistemic-graph-2/3/4`). With them gone the
-   cluster loses quorum — that is fine for rollback because R510 still holds the
+   cluster loses quorum — that is fine for rollback because node 1 still holds the
    authoritative data on disk.
-2. **Restart R510 WITHOUT the Raft env** (unset `EPISTEMIC_GRAPH_RAFT_NODE_ID`/`PEERS`):
+2. **Restart node 1 WITHOUT the Raft env** (unset `EPISTEMIC_GRAPH_RAFT_NODE_ID`/`PEERS`):
    redeploy the single-node default `compose.dev.yml`. The engine runs single-node over
    the SAME redb exactly as before the migration (the Raft log rows are inert when Raft
    is off).
-3. If R510's data is ever in doubt, **restore the §1 backup** into `ENGINE_PERSIST` and
+3. If node 1's data is ever in doubt, **restore the §1 backup** into `ENGINE_PERSIST` and
    restart single-node.
 
-Because R510 is never wiped and the Raft log shares its redb, rollback is "stop the new
+Because node 1 is never wiped and the Raft log shares its redb, rollback is "stop the new
 nodes, drop the Raft env" — no data reconstruction needed.
 
 ---
@@ -169,9 +180,10 @@ nodes, drop the Raft env" — no data reconstruction needed.
   rest from the leader — it does not need a wipe.
 * **Snapshots are per-group and tenant-scoped**, so a large tenant never bloats another
   group's snapshot transfer.
-* **Security:** Raft RPC on `:9100` is unauthenticated on the trusted LAN (matching the
-  homelab `--allow-insecure` posture). To require auth, set `GRAPH_SERVICE_AUTH_SECRET`
-  identically on every node and drop `--allow-insecure`.
+* **Security:** Raft and served RPC never run unauthenticated. Every node requires
+  the same runtime-provisioned request secret, audience/tenant/policy revision,
+  trusted signer registry, and Raft transport key. Routable native client traffic
+  uses TLS/mTLS; auxiliary listeners remain loopback-only.
 
 ---
 

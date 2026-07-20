@@ -1,147 +1,152 @@
-//! X5-enforce (CONCEPT:EG-KG.ontology.rdf-update-guard) — wires the EXISTING eg-shacl ICV
-//! commit guard (`eg_shacl::policy::IcvPolicyRegistry`, which already implements
-//! `eg_rdf::guard::WriteGuard`) onto the engine's LIVE RDF write path
-//! (`AddTriples`/`RemoveTriples`/`ApplyMutation`), so a commit that violates a registered
-//! SHACL shape — e.g. one emitted by the connector-manifest compiler's policy block
-//! (agent-utilities side, alongside its RLS/ABAC output) — is REJECTED (`IcvMode::Enforce`)
-//! or logged-and-applied (`IcvMode::Warn`), configurable per graph exactly like the
-//! library-level `eg_rdf::update::execute_guarded` already offers the SPARQL-UPDATE surface.
+//! Mandatory graph-scoped SHACL integrity enforcement.
 //!
-//! **Reuses eg-shacl's validation/guard verbatim — no new validator.** This module is
-//! pure wiring: `Method::IcvConfigure` (re)registers a graph's shapes + mode, and
-//! [`check_before_write`] evaluates the SAME `eg_shacl::icv::check_write` decision the
-//! library's `IcvPolicyRegistry::check_graph` already runs, over a `base` graph built from
-//! the SAME `eg_rdf::mapping::export_triples` snapshot `ShaclValidate`/`ShexValidate`
-//! already use as "the current data graph" (`handlers/rdf.rs`).
-//!
-//! **Why a static, not a `ServerState` field:** `IcvPolicyRegistry` already keys by graph
-//! name internally (one `default` policy + a `named: HashMap<graph, IcvPolicy>`), so ONE
-//! process-wide instance covers every graph exactly like the registry's own API implies —
-//! no new mandatory `ServerState` field, which ~25 call sites across the crate construct as
-//! a full struct literal (test harnesses + wire-protocol facades), each of which would need
-//! a mechanical edit for a field this module doesn't otherwise need. `std::sync::OnceLock`
-//! (already the project's idiom for a process-wide lazy static — see `src/slow_query.rs`,
-//! `src/cost.rs`, `src/server/replica.rs`) avoids pulling in a new `once_cell` dependency.
-//!
-//! Default (unconfigured) state: the registry is empty ⇒ `WriteGuard::active() == false` ⇒
-//! [`check_before_write`] is a single cheap `bool` check with NO export/validate work — the
-//! write path is byte-identical to pre-X5 until a caller explicitly configures a policy.
+//! The validated Turtle source is authoritative graph control state in
+//! [`GraphCore`]. It therefore participates in the same staged MutationBatch,
+//! redb transaction, recovery image, and Raft snapshot as the rows it governs.
+//! This module only compiles that source into eg-shacl's native guard at the
+//! write boundary; it owns no process-global or pre-commit policy mirror.
 
-use std::sync::{Arc, OnceLock};
-
-use parking_lot::RwLock;
+use std::collections::HashMap;
+use std::sync::Arc;
 
 use eg_rdf::guard::{GuardRejection, WriteGuard};
 use eg_rdf::oxrdf::{Graph, Triple};
-#[cfg(feature = "rdf-redb")]
-use eg_rdf::quads::QuadStore;
-use eg_shacl::policy::{IcvMode, IcvPolicy, IcvPolicyRegistry};
+use eg_shacl::policy::{IcvPolicy, IcvPolicyRegistry};
 
-use crate::graph::GraphCore;
+use crate::graph::{GraphCore, IntegrityPolicy};
 
-static ICV_REGISTRY: OnceLock<RwLock<IcvPolicyRegistry>> = OnceLock::new();
-
-fn registry() -> &'static RwLock<IcvPolicyRegistry> {
-    ICV_REGISTRY.get_or_init(|| RwLock::new(IcvPolicyRegistry::new()))
-}
-
-/// Parse the wire `mode` string (case-insensitive `off`/`warn`/`enforce`) into an
-/// [`IcvMode`]. An unknown string is a configuration error — NEVER silently `Off`.
-pub(crate) fn parse_mode(mode: &str) -> Result<IcvMode, String> {
-    match mode.to_ascii_lowercase().as_str() {
-        "off" => Ok(IcvMode::Off),
-        "warn" => Ok(IcvMode::Warn),
-        "enforce" => Ok(IcvMode::Enforce),
-        other => Err(format!(
-            "IcvConfigure: unknown mode '{other}' (want off/warn/enforce)"
-        )),
+/// Stage a current enforcing policy on the request graph. The optional wire
+/// target is an assertion, not an alternate route: cross-graph configuration
+/// must be dispatched and authorized against that graph explicitly.
+pub(crate) fn configure(
+    core: &GraphCore,
+    request_graph: &str,
+    graph: Option<&str>,
+    mode: &str,
+    shapes_ttl: &str,
+) -> Result<(), String> {
+    if request_graph.trim().is_empty() {
+        return Err("IcvConfigure: request graph must not be empty".to_string());
     }
-}
-
-/// `Method::IcvConfigure` — (re)register a graph's SHACL shapes as closed-world integrity
-/// constraints at the given enforcement mode. `graph = None` sets the DEFAULT-graph policy
-/// (mirrors `IcvPolicyRegistry::set`). An empty `shapes_ttl` is only accepted with
-/// `mode="off"` (clearing/no-op — there is nothing to enforce without shapes); a non-off
-/// mode with no shapes is a configuration error rather than a silently inert policy.
-pub(crate) fn configure(graph: Option<&str>, mode: &str, shapes_ttl: &str) -> Result<(), String> {
-    let parsed_mode = parse_mode(mode)?;
+    if graph.is_some_and(|target| target != request_graph) {
+        return Err(
+            "IcvConfigure: target graph must match the authorized request graph".to_string(),
+        );
+    }
+    if !mode.eq_ignore_ascii_case("enforce") {
+        return Err("IcvConfigure: current policy mode must be 'enforce'".to_string());
+    }
     if shapes_ttl.trim().is_empty() {
-        if parsed_mode != IcvMode::Off {
-            return Err(format!(
-                "IcvConfigure: mode '{mode}' requires a non-empty `shapes_ttl`"
-            ));
-        }
-        registry()
-            .write()
-            .set(graph, IcvPolicy::new(IcvMode::Off, Graph::new()));
-        return Ok(());
+        return Err("IcvConfigure: a non-empty `shapes_ttl` is required".to_string());
     }
-    let shapes = eg_shacl::graph_from_turtle(shapes_ttl)
-        .map_err(|e| format!("IcvConfigure: bad shapes graph: {e}"))?;
-    registry()
-        .write()
-        .set(graph, IcvPolicy::new(parsed_mode, shapes));
+    IcvPolicy::from_turtle(shapes_ttl)
+        .map_err(|error| format!("IcvConfigure: bad shapes graph: {error}"))?;
+    core.set_integrity_policy(IntegrityPolicy {
+        shapes_ttl: shapes_ttl.to_string(),
+    });
     Ok(())
 }
 
-/// Run `f` with the CURRENT registry as a `&dyn WriteGuard` (for callers — e.g.
-/// `eg_rdf::update::execute_guarded_str` — that take the guard by trait object for the
-/// duration of one call). Holds the read lock only for `f`'s extent.
-pub(crate) fn with_write_guard<R>(f: impl FnOnce(&dyn WriteGuard) -> R) -> R {
-    let guard = registry().read();
-    f(&*guard)
+enum PolicyAuthority<'a> {
+    Single(&'a GraphCore),
+    Routed(&'a HashMap<String, Arc<GraphCore>>),
 }
 
-/// Enforce (or warn, per the registered mode) the ICV guard for a proposed
-/// additions/removals change to `graph_name`'s live RDF projection — the direct-write
-/// counterpart of `eg_rdf::update::execute_guarded` for handlers (`AddTriples`/
-/// `RemoveTriples`) that mutate the property graph directly rather than through the
-/// `GraphStore`/SPARQL-UPDATE executor. `Err` means the caller MUST NOT apply the change.
-///
-/// Fails CLOSED on a base-graph export error WHEN a policy is active (never silently lets
-/// a write through it couldn't actually check) — the one exception to "byte-identical
-/// until configured", since an active policy is itself an explicit opt-in.
+/// A derived write guard backed exclusively by authoritative graph images.
+/// `Single` is used by graph-scoped RPC mutation staging; `Routed` follows the
+/// SPARQL endpoint store's `"" = default graph` convention.
+pub(crate) struct CoreIcvGuard<'a> {
+    authority: PolicyAuthority<'a>,
+}
+
+impl<'a> CoreIcvGuard<'a> {
+    pub(crate) fn single(core: &'a GraphCore) -> Self {
+        Self {
+            authority: PolicyAuthority::Single(core),
+        }
+    }
+
+    pub(crate) fn routed(graphs: &'a HashMap<String, Arc<GraphCore>>) -> Self {
+        Self {
+            authority: PolicyAuthority::Routed(graphs),
+        }
+    }
+
+    fn resolve(&self, graph: Option<&str>) -> Option<&GraphCore> {
+        match &self.authority {
+            PolicyAuthority::Single(core) => Some(*core),
+            PolicyAuthority::Routed(graphs) => graphs.get(graph.unwrap_or("")).map(Arc::as_ref),
+        }
+    }
+}
+
+impl WriteGuard for CoreIcvGuard<'_> {
+    fn check_graph(
+        &self,
+        graph: Option<&str>,
+        base: &Graph,
+        additions: &[Triple],
+        removals: &[Triple],
+    ) -> Result<(), GuardRejection> {
+        let Some(core) = self.resolve(graph) else {
+            return Err(GuardRejection {
+                graph: graph.map(str::to_string),
+                message: "EG-KG.ontology.rdf-update-guard: graph authority is not loaded"
+                    .to_string(),
+                details: serde_json::json!({"reason": "graph_authority_required"}),
+            });
+        };
+        let Some(authority) = core.integrity_policy() else {
+            return Err(GuardRejection {
+                graph: graph.map(str::to_string),
+                message: "EG-KG.ontology.rdf-update-guard: no integrity policy is registered"
+                    .to_string(),
+                details: serde_json::json!({"reason": "integrity_policy_required"}),
+            });
+        };
+        let policy = IcvPolicy::from_turtle(&authority.shapes_ttl).map_err(|_| GuardRejection {
+            graph: graph.map(str::to_string),
+            message: "EG-KG.ontology.rdf-update-guard: authoritative integrity policy is invalid"
+                .to_string(),
+            details: serde_json::json!({"reason": "integrity_policy_invalid"}),
+        })?;
+        IcvPolicyRegistry::new()
+            .with(graph, policy)
+            .check_graph(graph, base, additions, removals)
+    }
+}
+
+/// Enforce the policy on a direct property-graph RDF write. Export failure and
+/// absent/invalid policy are hard rejections before any live mutation occurs.
 pub(crate) fn check_before_write(
     core: &Arc<GraphCore>,
     graph_name: &str,
     additions: &[Triple],
     removals: &[Triple],
-    #[cfg(feature = "rdf-redb")] quads: Option<&QuadStore>,
 ) -> Result<(), GuardRejection> {
-    let reg = registry().read();
-    if !reg.active() {
-        return Ok(()); // no policy registered anywhere — the cheap, default path.
-    }
-    let exported = eg_rdf::mapping::export_triples(
-        core,
-        graph_name,
-        #[cfg(feature = "rdf-redb")]
-        quads,
-    )
-    .map_err(|e| GuardRejection {
-        graph: Some(graph_name.to_string()),
-        message: format!(
-            "EG-KG.ontology.rdf-update-guard: could not read the base graph to evaluate ICV: {e}"
-        ),
-        details: serde_json::Value::Null,
-    })?;
+    let exported =
+        eg_rdf::mapping::export_triples(core, graph_name).map_err(|error| GuardRejection {
+            graph: Some(graph_name.to_string()),
+            message: format!(
+                "EG-KG.ontology.rdf-update-guard: could not read the base graph to evaluate ICV: {error}"
+            ),
+            details: serde_json::Value::Null,
+        })?;
     let mut base = Graph::new();
-    for t in &exported {
-        base.insert(t);
+    for triple in &exported {
+        base.insert(triple);
     }
-    reg.check_graph(Some(graph_name), &base, additions, removals)
+    CoreIcvGuard::single(core.as_ref()).check_graph(Some(graph_name), &base, additions, removals)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::GraphCore;
 
     const PREFIXES: &str = r#"
 @prefix sh:   <http://www.w3.org/ns/shacl#> .
 @prefix ex:   <http://example.org/> .
 "#;
-    // At most one manager (a resource-valued maxCount, mirrors eg-shacl's own policy test).
     const SHAPES: &str = r#"
 ex:PersonShape a sh:NodeShape ;
     sh:targetClass ex:Person ;
@@ -157,56 +162,37 @@ ex:PersonShape a sh:NodeShape ;
         )
     }
 
-    // Each test uses its own graph name (the registry is process-wide/shared across
-    // `#[test]` threads) so configuring one test's policy can never leak into another's.
-    fn unique_graph(tag: &str) -> String {
-        use std::sync::atomic::{AtomicU64, Ordering};
-        static N: AtomicU64 = AtomicU64::new(0);
-        format!("icv-guard-test:{tag}:{}", N.fetch_add(1, Ordering::Relaxed))
-    }
-
-    /// Test-only wrapper supplying `check_before_write`'s `rdf-redb`-gated `quads`
-    /// argument as `None` (no lossless quad store bound), so every test call site
-    /// stays feature-agnostic.
     fn check(
         core: &Arc<GraphCore>,
         graph_name: &str,
         additions: &[Triple],
-        removals: &[Triple],
     ) -> Result<(), GuardRejection> {
-        check_before_write(
-            core,
-            graph_name,
-            additions,
-            removals,
-            #[cfg(feature = "rdf-redb")]
-            None,
-        )
+        check_before_write(core, graph_name, additions, &[])
     }
 
     #[test]
-    fn unconfigured_graph_is_a_cheap_noop() {
+    fn unconfigured_graph_is_rejected() {
         let core = Arc::new(GraphCore::new());
-        let g = unique_graph("noop");
-        // No policy registered for `g` at all — must accept ANYTHING, including a
-        // maxCount-violating shape it never saw, since nothing is configured.
         let add = vec![triple(
             "http://example.org/a",
             "http://example.org/manager",
             "http://example.org/m2",
         )];
-        assert!(check(&core, &g, &add, &[]).is_ok());
+        let error = check(&core, "graph", &add).unwrap_err();
+        assert_eq!(error.details["reason"], "integrity_policy_required");
     }
 
     #[test]
-    fn enforce_rejects_a_manifest_derived_shape_violation() {
+    fn enforce_rejects_a_shape_violation() {
         let core = Arc::new(GraphCore::new());
-        let g = unique_graph("enforce");
-        configure(Some(&g), "enforce", &format!("{PREFIXES}{SHAPES}")).expect("configure ok");
-
-        // `core` is a fresh empty graph, so the exported BASE is empty (no prior
-        // violation). The proposed ADDITIONS alone assert a Person with TWO managers —
-        // introducing a fresh maxCount-1 violation relative to that empty base.
+        configure(
+            core.as_ref(),
+            "graph",
+            Some("graph"),
+            "enforce",
+            &format!("{PREFIXES}{SHAPES}"),
+        )
+        .unwrap();
         let add = vec![
             triple(
                 "http://example.org/a",
@@ -224,17 +210,21 @@ ex:PersonShape a sh:NodeShape ;
                 "http://example.org/m2",
             ),
         ];
-        let err = check(&core, &g, &add, &[])
-            .expect_err("enforce must reject the maxCount-1-breaking additions");
-        assert_eq!(err.graph.as_deref(), Some(g.as_str()));
-        assert!(err.details.to_string().contains("witness"));
+        let error = check(&core, "graph", &add).unwrap_err();
+        assert!(error.details.to_string().contains("witness"));
     }
 
     #[test]
     fn enforce_accepts_a_clean_change() {
         let core = Arc::new(GraphCore::new());
-        let g = unique_graph("clean");
-        configure(Some(&g), "enforce", &format!("{PREFIXES}{SHAPES}")).expect("configure ok");
+        configure(
+            core.as_ref(),
+            "graph",
+            None,
+            "enforce",
+            &format!("{PREFIXES}{SHAPES}"),
+        )
+        .unwrap();
         let add = vec![
             triple(
                 "http://example.org/a",
@@ -247,57 +237,28 @@ ex:PersonShape a sh:NodeShape ;
                 "http://example.org/m1",
             ),
         ];
-        assert!(check(&core, &g, &add, &[]).is_ok());
+        assert!(check(&core, "graph", &add).is_ok());
     }
 
     #[test]
-    fn warn_never_rejects() {
-        let core = Arc::new(GraphCore::new());
-        let g = unique_graph("warn");
-        configure(Some(&g), "warn", &format!("{PREFIXES}{SHAPES}")).expect("configure ok");
-        let add = vec![
-            triple(
-                "http://example.org/a",
-                "http://www.w3.org/1999/02/22-rdf-syntax-ns#type",
-                "http://example.org/Person",
-            ),
-            triple(
-                "http://example.org/a",
-                "http://example.org/manager",
-                "http://example.org/m1",
-            ),
-            triple(
-                "http://example.org/a",
-                "http://example.org/manager",
-                "http://example.org/m2",
-            ),
-        ];
-        // Warn never aborts, even though the SAME change rejects under Enforce above.
-        assert!(check(&core, &g, &add, &[]).is_ok());
+    fn cross_graph_configuration_is_rejected_without_mutation() {
+        let core = GraphCore::new();
+        assert!(configure(
+            &core,
+            "authorized",
+            Some("other"),
+            "enforce",
+            &format!("{PREFIXES}{SHAPES}"),
+        )
+        .is_err());
+        assert!(core.integrity_policy().is_none());
     }
 
     #[test]
-    fn configure_rejects_unknown_mode() {
-        assert!(configure(None, "bogus", "").is_err());
-    }
-
-    #[test]
-    fn configure_rejects_non_off_mode_with_no_shapes() {
-        let g = unique_graph("no-shapes");
-        assert!(configure(Some(&g), "enforce", "").is_err());
-    }
-
-    #[test]
-    fn off_with_empty_shapes_clears_cleanly() {
-        let g = unique_graph("clear");
-        configure(Some(&g), "enforce", &format!("{PREFIXES}{SHAPES}")).expect("configure ok");
-        configure(Some(&g), "off", "").expect("clearing to off is always accepted");
-        let core = Arc::new(GraphCore::new());
-        let add = vec![triple(
-            "http://example.org/a",
-            "http://example.org/manager",
-            "http://example.org/m2",
-        )];
-        assert!(check(&core, &g, &add, &[]).is_ok());
+    fn retired_modes_and_empty_shapes_are_rejected() {
+        let core = GraphCore::new();
+        assert!(configure(&core, "graph", None, "warn", &format!("{PREFIXES}{SHAPES}")).is_err());
+        assert!(configure(&core, "graph", None, "off", &format!("{PREFIXES}{SHAPES}")).is_err());
+        assert!(configure(&core, "graph", None, "enforce", "").is_err());
     }
 }

@@ -3,7 +3,7 @@
 //! tables (Prometheus metrics, Langfuse time-series, stock bars, connector mirrors,
 //! ETL outputs).
 //!
-//! ## redb layout (one `Database` file, three system tables)
+//! ## redb layout (one `Database` file)
 //!   * `__sql_catalog__`  `table_name              -> MessagePack(TableSchema)`
 //!     The catalog. One row per user table, recording its full typed schema.
 //!   * `__sql_rows__`     `(table_name, rowid: u64) -> MessagePack(Vec<Cell>)`
@@ -14,6 +14,9 @@
 //!   * `__sql_seq__`      `table_name              -> next rowid (u64)`
 //!     A per-table monotonic rowid allocator — the internal row identity AND the
 //!     surface exposed as `SERIAL`/`DEFAULT nextval` (CONCEPT:EG-KG.query.register-each-user-table).
+//!   * `__sql_mutation_*` batch/status, idempotency, SQL-domain version/fence,
+//!     and immutable outbox tables. These are committed in the same transaction as
+//!     table/catalog mutations, enabling exact retry and restart reconciliation.
 //!
 //! ## Durability + transactions (CONCEPT:EG-KG.query.register-each-user-table)
 //! Every one-shot mutation runs in ONE redb `WriteTransaction` committed at
@@ -31,10 +34,15 @@
 //! enforced on the write path; a violation aborts the (one-shot or multi-statement)
 //! transaction.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
 
+use eg_types::mutation_batch::{
+    MutationBatch, MutationBatchCommit, MutationBatchRecord, MutationBatchStatus, MutationDomain,
+    MutationOutboxIntent, MutationOutboxRecord, MutationVersionScope, MUTATION_BATCH_VERSION,
+    NON_GRAPH_SOURCE_VERSION,
+};
 use redb::{
     Database, Durability, ReadableDatabase, ReadableTable, TableDefinition, WriteTransaction,
 };
@@ -43,7 +51,7 @@ use serde_json::Value;
 use super::schema::{Cell, Column, ColumnType, StoredFunction, TableSchema};
 // CONCEPT:EG-KG.query.real-ann-top-k/EG-313 — the durable pgvector ANN index registration the exec
 // pushdown consults to choose a real eg-ann index over the brute-force scan.
-use crate::sql::AnnIndexPlan;
+use crate::sql::{AnnIndexPlan, HypertablePlan};
 
 /// Catalog system table: `table_name -> MessagePack(TableSchema)`.
 const CATALOG: TableDefinition<&str, &[u8]> = TableDefinition::new("__sql_catalog__");
@@ -70,6 +78,88 @@ const FUNCTIONS: TableDefinition<&str, &[u8]> = TableDefinition::new("__sql_func
 /// (lower-cased) so one column can carry an index per metric; the value is the durable
 /// [`AnnIndexPlan`] the exec pushdown consults.
 const ANN_INDEXES: TableDefinition<&str, &[u8]> = TableDefinition::new("__sql_ann_indexes__");
+/// Timescale-compatible hypertable catalog: `table_name -> MessagePack(HypertablePlan)`.
+const HYPERTABLES: TableDefinition<&str, &[u8]> = TableDefinition::new("__sql_hypertables__");
+/// Universal SQL-domain mutation status/result rows.
+const MUTATION_BATCHES: TableDefinition<&str, &[u8]> =
+    TableDefinition::new("__sql_mutation_batches__");
+/// `(tenant, graph, idempotency_key) -> batch_id`.
+const MUTATION_IDEMPOTENCY: TableDefinition<(&str, &str, &str), &str> =
+    TableDefinition::new("__sql_mutation_idempotency__");
+/// SQL catalog/data OCC version, independent from the graph-row version.
+const MUTATION_VERSION: TableDefinition<(&str, &str), u64> =
+    TableDefinition::new("__sql_mutation_version__");
+/// SQL-domain placement/worker fence.
+const MUTATION_FENCE: TableDefinition<(&str, &str), &[u8]> =
+    TableDefinition::new("__sql_mutation_fence__");
+/// Immutable transactional outbox rows.
+const MUTATION_OUTBOX: TableDefinition<(&str, u32), &[u8]> =
+    TableDefinition::new("__sql_mutation_outbox__");
+const MAX_SQL_STORED_VALUE_BYTES: usize = 64 * 1024 * 1024;
+const MAX_SQL_STORED_VALUE_ITEMS: usize = 1_000_000;
+const MAX_SQL_SCAN_ROWS: usize = 100_000;
+const MAX_SQL_SCAN_BYTES: usize = 64 * 1024 * 1024;
+const INITIAL_SQL_DOMAIN_VERSION: u64 = 0;
+
+fn decode_stored<T: serde::de::DeserializeOwned>(
+    bytes: &[u8],
+    kind: &'static str,
+) -> Result<T, String> {
+    eg_types::msgpack::decode_bounded(
+        bytes,
+        eg_types::msgpack::MsgpackLimits::new(
+            MAX_SQL_STORED_VALUE_BYTES,
+            MAX_SQL_STORED_VALUE_ITEMS,
+            eg_types::msgpack::DEFAULT_MAX_DEPTH,
+        ),
+    )
+    .map_err(|_| format!("stored SQL {kind} is invalid or exceeds resource limits"))
+}
+
+fn decode_mutation_record(bytes: &[u8]) -> Result<MutationBatchRecord, String> {
+    let record: MutationBatchRecord = decode_stored(bytes, "mutation record")?;
+    record.batch.validate()?;
+    Ok(record)
+}
+
+fn decode_mutation_outbox(bytes: &[u8]) -> Result<MutationOutboxRecord, String> {
+    let record: MutationOutboxRecord = decode_stored(bytes, "mutation outbox record")?;
+    record.validate()?;
+    if record.version_scope != MutationVersionScope::NonGraph
+        || record.source_graph_version != NON_GRAPH_SOURCE_VERSION
+    {
+        return Err("SQL mutation store contains a graph-scoped outbox record".to_string());
+    }
+    Ok(record)
+}
+
+fn account_collection(count: &mut usize, bytes: &mut usize, added: usize) -> Result<(), String> {
+    *count = (*count)
+        .checked_add(1)
+        .filter(|count| *count <= MAX_SQL_SCAN_ROWS)
+        .ok_or_else(|| "SQL collection row limit exceeded".to_string())?;
+    *bytes = (*bytes)
+        .checked_add(added)
+        .filter(|bytes| *bytes <= MAX_SQL_SCAN_BYTES)
+        .ok_or_else(|| "SQL collection byte limit exceeded".to_string())?;
+    Ok(())
+}
+
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+struct SqlMutationFence {
+    placement_epoch: u64,
+    fencing_token: u64,
+}
+
+/// Failure-injection boundaries proving SQL rows/catalog and coordinator metadata
+/// recover as one unit. Production always supplies `None`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SqlMutationCrashpoint {
+    BeforeRows,
+    AfterRowsBeforeMetadata,
+    BeforeCommit,
+    AfterCommitBeforeAck,
+}
 
 /// The action an `ON CONFLICT` clause takes for a user-table insert (CONCEPT:EG-KG.query.delete-returning-sees-row).
 /// The store-level mirror of `classify::OnConflictAction` (kept here so the store has
@@ -146,6 +236,41 @@ pub enum TxnOp {
         table: String,
         selector: eg_types::RowPredicate,
     },
+    CreateView {
+        name: String,
+        select_sql: String,
+        or_replace: bool,
+    },
+    DropView {
+        name: String,
+        if_exists: bool,
+    },
+    CreateExtension {
+        name: String,
+        if_not_exists: bool,
+    },
+    DropExtension {
+        name: String,
+        if_exists: bool,
+    },
+    CreateFunction {
+        function: StoredFunction,
+        or_replace: bool,
+    },
+    DropFunction {
+        name: String,
+        if_exists: bool,
+    },
+    PutAnnIndex {
+        plan: AnnIndexPlan,
+    },
+    PutHypertable {
+        plan: HypertablePlan,
+    },
+    DropAnnIndexesForColumn {
+        table: String,
+        column: String,
+    },
 }
 
 /// A buffered multi-statement transaction (CONCEPT:EG-KG.query.register-each-user-table). `BEGIN` creates one;
@@ -165,8 +290,8 @@ impl TableTxn {
     }
 }
 
-/// The durable user-table store. Cheap to clone (`Arc<Database>`), so the pgwire
-/// shim can hold one process-wide and hand a clone to each connection.
+/// One durable user-table catalog. Cheap to clone (`Arc<Database>`), so the served
+/// owner-scoped registry can hand the verified tenant+actor's handle to each surface.
 #[derive(Clone)]
 pub struct TableStore {
     db: Arc<Database>,
@@ -293,8 +418,8 @@ impl TableStore {
         };
         match cat.get(name).map_err(map_err)? {
             Some(v) => {
-                let schema: TableSchema =
-                    rmp_serde::from_slice(v.value()).map_err(|e| format!("decode schema: {e}"))?;
+                let schema: TableSchema = decode_stored(v.value(), "schema")?;
+                schema.validate()?;
                 Ok(Some(schema))
             }
             None => Ok(None),
@@ -308,12 +433,14 @@ impl TableStore {
             Ok(t) => t,
             Err(_) => return Ok(Vec::new()),
         };
-        let mut names: Vec<String> = cat
-            .iter()
-            .map_err(map_err)?
-            .map(|r| r.map(|(k, _)| k.value().to_string()))
-            .collect::<Result<_, _>>()
-            .map_err(map_err)?;
+        let mut names = Vec::new();
+        let mut count = 0usize;
+        let mut bytes = 0usize;
+        for row in cat.iter().map_err(map_err)? {
+            let (key, _) = row.map_err(map_err)?;
+            account_collection(&mut count, &mut bytes, key.value().len())?;
+            names.push(key.value().to_string());
+        }
         names.sort();
         Ok(names)
     }
@@ -324,7 +451,7 @@ impl TableStore {
         let schema = self
             .get_schema(table)?
             .ok_or_else(|| format!("table `{table}` does not exist"))?;
-        let width = schema.columns.len();
+        let width = schema.columns().len();
         let rtx = self.db.begin_read().map_err(map_err)?;
         // The physical row table is created lazily on the first committed INSERT; a
         // table that only ever had its schema created (or whose inserts rolled back)
@@ -334,13 +461,20 @@ impl TableStore {
             Err(_) => return Ok(Vec::new()),
         };
         let mut out = Vec::new();
+        let mut encoded_bytes = 0usize;
         for r in rows
             .range((table, 0u64)..=(table, u64::MAX))
             .map_err(map_err)?
         {
             let (_, v) = r.map_err(map_err)?;
-            let mut cells: Vec<Cell> =
-                rmp_serde::from_slice(v.value()).map_err(|e| format!("decode row: {e}"))?;
+            encoded_bytes = encoded_bytes
+                .checked_add(v.value().len())
+                .filter(|bytes| *bytes <= MAX_SQL_SCAN_BYTES)
+                .ok_or_else(|| "SQL scan response exceeds resource limits".to_string())?;
+            if out.len() >= MAX_SQL_SCAN_ROWS {
+                return Err("SQL scan row limit exceeded".to_string());
+            }
+            let mut cells: Vec<Cell> = decode_stored(v.value(), "row")?;
             if cells.len() < width {
                 cells.resize(width, Cell::Null);
             }
@@ -447,19 +581,8 @@ impl TableStore {
         select_sql: &str,
         or_replace: bool,
     ) -> Result<(), String> {
-        if self.get_schema(name)?.is_some() {
-            return Err(format!(
-                "`{name}` is a table; cannot create a view with that name"
-            ));
-        }
         let wtx = self.begin()?;
-        {
-            let mut views = wtx.open_table(VIEWS).map_err(map_err)?;
-            if !or_replace && views.get(name).map_err(map_err)?.is_some() {
-                return Err(format!("view `{name}` already exists"));
-            }
-            views.insert(name, select_sql).map_err(map_err)?;
-        }
+        create_view_in(&wtx, name, select_sql, or_replace)?;
         wtx.commit().map_err(map_err)?;
         Ok(())
     }
@@ -468,20 +591,7 @@ impl TableStore {
     /// view was removed, `Ok(false)` when absent and `if_exists` was set.
     pub fn drop_view(&self, name: &str, if_exists: bool) -> Result<bool, String> {
         let wtx = self.begin()?;
-        let existed = {
-            let mut views = wtx.open_table(VIEWS).map_err(map_err)?;
-            let existed = views.get(name).map_err(map_err)?.is_some();
-            if !existed {
-                if if_exists {
-                    drop(views);
-                    wtx.commit().map_err(map_err)?;
-                    return Ok(false);
-                }
-                return Err(format!("view `{name}` does not exist"));
-            }
-            views.remove(name).map_err(map_err)?;
-            existed
-        };
+        let existed = drop_view_in(&wtx, name, if_exists)?;
         wtx.commit().map_err(map_err)?;
         Ok(existed)
     }
@@ -506,12 +616,19 @@ impl TableStore {
             Ok(t) => t,
             Err(_) => return Ok(Vec::new()),
         };
-        let mut out: Vec<(String, String)> = views
-            .iter()
-            .map_err(map_err)?
-            .map(|r| r.map(|(k, v)| (k.value().to_string(), v.value().to_string())))
-            .collect::<Result<_, _>>()
-            .map_err(map_err)?;
+        let mut out = Vec::new();
+        let mut count = 0usize;
+        let mut bytes = 0usize;
+        for row in views.iter().map_err(map_err)? {
+            let (key, value) = row.map_err(map_err)?;
+            let added = key
+                .value()
+                .len()
+                .checked_add(value.value().len())
+                .ok_or_else(|| "SQL collection byte limit exceeded".to_string())?;
+            account_collection(&mut count, &mut bytes, added)?;
+            out.push((key.value().to_string(), value.value().to_string()));
+        }
         out.sort_by(|a, b| a.0.cmp(&b.0));
         Ok(out)
     }
@@ -525,14 +642,7 @@ impl TableStore {
     /// extension as a benign success so a re-run setup script proceeds).
     pub fn create_extension(&self, name: &str, _if_not_exists: bool) -> Result<bool, String> {
         let wtx = self.begin()?;
-        let created = {
-            let mut exts = wtx.open_table(EXTENSIONS).map_err(map_err)?;
-            let existed = exts.get(name).map_err(map_err)?.is_some();
-            if !existed {
-                exts.insert(name, "").map_err(map_err)?;
-            }
-            !existed
-        };
+        let created = create_extension_in(&wtx, name, _if_not_exists)?;
         wtx.commit().map_err(map_err)?;
         Ok(created)
     }
@@ -541,20 +651,7 @@ impl TableStore {
     /// extension was removed, `Ok(false)` when absent and `if_exists` was set (else Err).
     pub fn drop_extension(&self, name: &str, if_exists: bool) -> Result<bool, String> {
         let wtx = self.begin()?;
-        let existed = {
-            let mut exts = wtx.open_table(EXTENSIONS).map_err(map_err)?;
-            let existed = exts.get(name).map_err(map_err)?.is_some();
-            if !existed {
-                if if_exists {
-                    drop(exts);
-                    wtx.commit().map_err(map_err)?;
-                    return Ok(false);
-                }
-                return Err(format!("extension `{name}` does not exist"));
-            }
-            exts.remove(name).map_err(map_err)?;
-            existed
-        };
+        let existed = drop_extension_in(&wtx, name, if_exists)?;
         wtx.commit().map_err(map_err)?;
         Ok(existed)
     }
@@ -576,12 +673,14 @@ impl TableStore {
             Ok(t) => t,
             Err(_) => return Ok(Vec::new()),
         };
-        let mut out: Vec<String> = exts
-            .iter()
-            .map_err(map_err)?
-            .map(|r| r.map(|(k, _)| k.value().to_string()))
-            .collect::<Result<_, _>>()
-            .map_err(map_err)?;
+        let mut out = Vec::new();
+        let mut count = 0usize;
+        let mut bytes = 0usize;
+        for row in exts.iter().map_err(map_err)? {
+            let (key, _) = row.map_err(map_err)?;
+            account_collection(&mut count, &mut bytes, key.value().len())?;
+            out.push(key.value().to_string());
+        }
         out.sort();
         Ok(out)
     }
@@ -593,23 +692,8 @@ impl TableStore {
     /// and `or_replace` is false, or if a user table already claims the name (a function
     /// and a table cannot share a name — a call `name(args)` would be ambiguous).
     pub fn create_function(&self, func: &StoredFunction, or_replace: bool) -> Result<(), String> {
-        if self.get_schema(&func.name)?.is_some() {
-            return Err(format!(
-                "`{}` is a table; cannot create a function with that name",
-                func.name
-            ));
-        }
-        let bytes = rmp_serde::to_vec_named(func).map_err(|e| format!("encode function: {e}"))?;
         let wtx = self.begin()?;
-        {
-            let mut funcs = wtx.open_table(FUNCTIONS).map_err(map_err)?;
-            if !or_replace && funcs.get(func.name.as_str()).map_err(map_err)?.is_some() {
-                return Err(format!("function `{}` already exists", func.name));
-            }
-            funcs
-                .insert(func.name.as_str(), bytes.as_slice())
-                .map_err(map_err)?;
-        }
+        create_function_in(&wtx, func, or_replace)?;
         wtx.commit().map_err(map_err)?;
         Ok(())
     }
@@ -618,20 +702,7 @@ impl TableStore {
     /// when a function was removed, `Ok(false)` when absent and `if_exists` was set.
     pub fn drop_function(&self, name: &str, if_exists: bool) -> Result<bool, String> {
         let wtx = self.begin()?;
-        let existed = {
-            let mut funcs = wtx.open_table(FUNCTIONS).map_err(map_err)?;
-            let existed = funcs.get(name).map_err(map_err)?.is_some();
-            if !existed {
-                if if_exists {
-                    drop(funcs);
-                    wtx.commit().map_err(map_err)?;
-                    return Ok(false);
-                }
-                return Err(format!("function `{name}` does not exist"));
-            }
-            funcs.remove(name).map_err(map_err)?;
-            existed
-        };
+        let existed = drop_function_in(&wtx, name, if_exists)?;
         wtx.commit().map_err(map_err)?;
         Ok(existed)
     }
@@ -645,8 +716,7 @@ impl TableStore {
         };
         match funcs.get(name).map_err(map_err)? {
             Some(v) => {
-                let f: StoredFunction = rmp_serde::from_slice(v.value())
-                    .map_err(|e| format!("decode function: {e}"))?;
+                let f: StoredFunction = decode_stored(v.value(), "function")?;
                 Ok(Some(f))
             }
             None => Ok(None),
@@ -661,16 +731,14 @@ impl TableStore {
             Ok(t) => t,
             Err(_) => return Ok(Vec::new()),
         };
-        let mut out: Vec<StoredFunction> = funcs
-            .iter()
-            .map_err(map_err)?
-            .map(|r| {
-                r.map_err(map_err).and_then(|(_, v)| {
-                    rmp_serde::from_slice::<StoredFunction>(v.value())
-                        .map_err(|e| format!("decode function: {e}"))
-                })
-            })
-            .collect::<Result<_, _>>()?;
+        let mut out = Vec::new();
+        let mut count = 0usize;
+        let mut bytes = 0usize;
+        for row in funcs.iter().map_err(map_err)? {
+            let (_, value) = row.map_err(map_err)?;
+            account_collection(&mut count, &mut bytes, value.value().len())?;
+            out.push(decode_stored::<StoredFunction>(value.value(), "function")?);
+        }
         out.sort_by(|a, b| a.name.cmp(&b.name));
         Ok(out)
     }
@@ -694,14 +762,8 @@ impl TableStore {
     /// same key is a benign success); an existing key without `if_not_exists` is replaced
     /// (the newest DDL wins — pgvector's `CREATE INDEX` build is idempotent in practice).
     pub fn put_ann_index(&self, plan: &AnnIndexPlan) -> Result<(), String> {
-        let key = Self::ann_index_key(plan);
-        let bytes = rmp_serde::to_vec_named(plan).map_err(|e| format!("encode ann index: {e}"))?;
         let wtx = self.begin()?;
-        {
-            let mut idxs = wtx.open_table(ANN_INDEXES).map_err(map_err)?;
-            idxs.insert(key.as_str(), bytes.as_slice())
-                .map_err(map_err)?;
-        }
+        put_ann_index_in(&wtx, plan)?;
         wtx.commit().map_err(map_err)?;
         Ok(())
     }
@@ -709,25 +771,8 @@ impl TableStore {
     /// `DROP INDEX name` (CONCEPT:EG-KG.query.real-ann-top-k): remove every ANN index registered for
     /// `table`.`column` (all metrics). `Ok(n)` = number of entries removed.
     pub fn drop_ann_indexes_for_column(&self, table: &str, column: &str) -> Result<usize, String> {
-        let prefix = format!(
-            "{}.{}.",
-            table.to_ascii_lowercase(),
-            column.to_ascii_lowercase()
-        );
         let wtx = self.begin()?;
-        let removed = {
-            let mut idxs = wtx.open_table(ANN_INDEXES).map_err(map_err)?;
-            let keys: Vec<String> = idxs
-                .iter()
-                .map_err(map_err)?
-                .filter_map(|r| r.ok().map(|(k, _)| k.value().to_string()))
-                .filter(|k| k.starts_with(&prefix))
-                .collect();
-            for k in &keys {
-                idxs.remove(k.as_str()).map_err(map_err)?;
-            }
-            keys.len()
-        };
+        let removed = drop_ann_indexes_for_column_in(&wtx, table, column)?;
         wtx.commit().map_err(map_err)?;
         Ok(removed)
     }
@@ -740,19 +785,63 @@ impl TableStore {
             Ok(t) => t,
             Err(_) => return Ok(Vec::new()),
         };
-        let mut pairs: Vec<(String, AnnIndexPlan)> = idxs
-            .iter()
-            .map_err(map_err)?
-            .map(|r| {
-                r.map_err(map_err).and_then(|(k, v)| {
-                    rmp_serde::from_slice::<AnnIndexPlan>(v.value())
-                        .map(|p| (k.value().to_string(), p))
-                        .map_err(|e| format!("decode ann index: {e}"))
-                })
-            })
-            .collect::<Result<_, _>>()?;
+        let mut pairs = Vec::new();
+        let mut count = 0usize;
+        let mut bytes = 0usize;
+        for row in idxs.iter().map_err(map_err)? {
+            let (key, value) = row.map_err(map_err)?;
+            let added = key
+                .value()
+                .len()
+                .checked_add(value.value().len())
+                .ok_or_else(|| "SQL collection byte limit exceeded".to_string())?;
+            account_collection(&mut count, &mut bytes, added)?;
+            pairs.push((
+                key.value().to_string(),
+                decode_stored::<AnnIndexPlan>(value.value(), "ANN index")?,
+            ));
+        }
         pairs.sort_by(|a, b| a.0.cmp(&b.0));
         Ok(pairs.into_iter().map(|(_, p)| p).collect())
+    }
+
+    // ── Timescale-compatible hypertable catalog ──────────────────────────────
+
+    /// Persist a hypertable declaration after validating its table and time
+    /// column against the current catalog.
+    pub fn put_hypertable(&self, plan: &HypertablePlan) -> Result<(), String> {
+        let wtx = self.begin()?;
+        put_hypertable_in(&wtx, plan)?;
+        wtx.commit().map_err(map_err)?;
+        Ok(())
+    }
+
+    /// Return every native hypertable declaration in stable table-name order.
+    pub fn list_hypertables(&self) -> Result<Vec<HypertablePlan>, String> {
+        let rtx = self.db.begin_read().map_err(map_err)?;
+        let hypertables = match rtx.open_table(HYPERTABLES) {
+            Ok(table) => table,
+            Err(redb::TableError::TableDoesNotExist(_)) => return Ok(Vec::new()),
+            Err(error) => return Err(map_err(error)),
+        };
+        let mut rows = Vec::new();
+        let mut count = 0usize;
+        let mut bytes = 0usize;
+        for row in hypertables.iter().map_err(map_err)? {
+            let (key, value) = row.map_err(map_err)?;
+            let added = key
+                .value()
+                .len()
+                .checked_add(value.value().len())
+                .ok_or_else(|| "SQL collection byte limit exceeded".to_string())?;
+            account_collection(&mut count, &mut bytes, added)?;
+            rows.push((
+                key.value().to_string(),
+                decode_stored::<HypertablePlan>(value.value(), "hypertable")?,
+            ));
+        }
+        rows.sort_by(|left, right| left.0.cmp(&right.0));
+        Ok(rows.into_iter().map(|(_, plan)| plan).collect())
     }
 
     // ── multi-statement transaction (CONCEPT:EG-KG.query.register-each-user-table) ──────────────────────────
@@ -768,68 +857,299 @@ impl TableStore {
         let wtx = self.begin()?;
         let mut affected = 0usize;
         for op in &txn.ops {
-            match op {
-                TxnOp::CreateTable {
-                    schema,
-                    if_not_exists,
-                } => {
-                    create_in(&wtx, schema, *if_not_exists)?;
-                }
-                TxnOp::DropTable { name, if_exists } => {
-                    drop_in(&wtx, name, *if_exists)?;
-                }
-                TxnOp::AddColumn { table, column } => {
-                    add_column_in(&wtx, table, column)?;
-                }
-                // CONCEPT:EG-KG.query.rename-table-moves-catalog — ALTER TABLE ops staged into a multi-statement txn.
-                TxnOp::DropColumn {
-                    table,
-                    column,
-                    if_exists,
-                } => {
-                    drop_column_in(&wtx, table, column, *if_exists)?;
-                }
-                TxnOp::RenameColumn { table, from, to } => {
-                    rename_column_in(&wtx, table, from, to)?;
-                }
-                TxnOp::RenameTable { table, new_name } => {
-                    rename_table_in(&wtx, table, new_name)?;
-                }
-                TxnOp::AlterColumnType {
-                    table,
-                    column,
-                    new_type,
-                } => {
-                    alter_column_type_in(&wtx, table, column, *new_type)?;
-                }
-                TxnOp::DropConstraint {
-                    table,
-                    constraint,
-                    if_exists,
-                } => {
-                    drop_constraint_in(&wtx, table, constraint, *if_exists)?;
-                }
-                TxnOp::Insert {
-                    table,
-                    col_order,
-                    rows,
-                } => {
-                    affected += insert_in(&wtx, table, col_order, rows)?.len();
-                }
-                TxnOp::Update {
-                    table,
-                    set,
-                    selector,
-                } => {
-                    affected += update_in(&wtx, table, set, selector)?.len();
-                }
-                TxnOp::Delete { table, selector } => {
-                    affected += delete_in(&wtx, table, selector)?.len();
-                }
-            }
+            affected = affected.saturating_add(apply_txn_op(&wtx, op)?);
         }
         wtx.commit().map_err(map_err)?;
         Ok(affected)
+    }
+
+    /// Commit a SQL table/catalog transaction together with the universal durable
+    /// MutationBatch record, OCC/fence, idempotency result and immutable outbox.
+    /// One redb `WriteTransaction` is the only commit point; a retry after an
+    /// acknowledgement-lost crash returns the stored affected-row count without
+    /// executing the SQL mutation again.
+    pub fn commit_txn_batch(
+        &self,
+        txn: &TableTxn,
+        batch: &MutationBatch,
+        committed_at_ms: u64,
+    ) -> Result<MutationBatchCommit, String> {
+        self.commit_txn_batch_inner(txn, batch, committed_at_ms, None, None)
+    }
+
+    /// Variant for native adapters whose terminal result is richer than the SQL
+    /// affected-row count (for example a whole SQLite-file import report).
+    pub fn commit_txn_batch_result(
+        &self,
+        txn: &TableTxn,
+        batch: &MutationBatch,
+        result_msgpack: Vec<u8>,
+        committed_at_ms: u64,
+    ) -> Result<MutationBatchCommit, String> {
+        self.commit_txn_batch_inner(txn, batch, committed_at_ms, None, Some(result_msgpack))
+    }
+
+    fn commit_txn_batch_inner(
+        &self,
+        txn: &TableTxn,
+        batch: &MutationBatch,
+        committed_at_ms: u64,
+        crashpoint: Option<SqlMutationCrashpoint>,
+        result_override: Option<Vec<u8>>,
+    ) -> Result<MutationBatchCommit, String> {
+        batch.validate()?;
+        if batch
+            .operations
+            .iter()
+            .any(|operation| operation.domain != MutationDomain::SqlCatalog)
+        {
+            return Err("SQL MutationBatch contains a non-SqlCatalog operation".to_string());
+        }
+        let wtx = self.begin()?;
+
+        // Idempotency check and insertion share this write transaction, closing the
+        // concurrent double-execution race.
+        {
+            let idem = wtx.open_table(MUTATION_IDEMPOTENCY).map_err(map_err)?;
+            let existing = idem
+                .get((
+                    batch.tenant.as_str(),
+                    batch.graph.as_str(),
+                    batch.idempotency_key.as_str(),
+                ))
+                .map_err(map_err)?
+                .map(|value| value.value().to_string());
+            if let Some(existing) = existing {
+                let records = wtx.open_table(MUTATION_BATCHES).map_err(map_err)?;
+                let bytes = records
+                    .get(existing.as_str())
+                    .map_err(map_err)?
+                    .ok_or_else(|| {
+                        format!(
+                            "corrupt SQL mutation idempotency index: '{existing}' has no batch record"
+                        )
+                    })?
+                    .value()
+                    .to_vec();
+                let record = decode_mutation_record(&bytes)?;
+                if !same_batch_identity(&record.batch, batch)? {
+                    return Err(format!(
+                        "IDEMPOTENCY_CONFLICT: SQL key '{}' is already committed as batch '{}'",
+                        batch.idempotency_key, record.batch.batch_id
+                    ));
+                }
+                return Ok(MutationBatchCommit {
+                    record,
+                    replayed: true,
+                });
+            }
+        }
+        {
+            let records = wtx.open_table(MUTATION_BATCHES).map_err(map_err)?;
+            if records
+                .get(batch.batch_id.as_str())
+                .map_err(map_err)?
+                .is_some()
+            {
+                return Err(format!(
+                    "IDEMPOTENCY_CONFLICT: SQL batch_id '{}' already exists",
+                    batch.batch_id
+                ));
+            }
+        }
+
+        let version_key = (batch.tenant.as_str(), batch.graph.as_str());
+        let current_version = {
+            let versions = wtx.open_table(MUTATION_VERSION).map_err(map_err)?;
+            let version = match versions.get(version_key).map_err(map_err)? {
+                Some(value) => value.value(),
+                None => INITIAL_SQL_DOMAIN_VERSION,
+            };
+            version
+        };
+        let expected = batch.expected_graph_version.ok_or_else(|| {
+            "authoritative SQL MutationBatch requires expected_graph_version".to_string()
+        })?;
+        if expected != current_version {
+            return Err(format!(
+                "STALE_VERSION: SQL scope '{}/{}' expected {} but authoritative version is {}",
+                batch.tenant, batch.graph, expected, current_version
+            ));
+        }
+
+        let current_fence = {
+            let fences = wtx.open_table(MUTATION_FENCE).map_err(map_err)?;
+            let value = fences
+                .get(version_key)
+                .map_err(map_err)?
+                .map(|value| decode_stored::<SqlMutationFence>(value.value(), "mutation fence"))
+                .transpose()?
+                .unwrap_or_default();
+            value
+        };
+        let proposed_fence = SqlMutationFence {
+            placement_epoch: batch.placement_epoch,
+            fencing_token: batch.fencing_token.unwrap_or(0),
+        };
+        if proposed_fence.placement_epoch < current_fence.placement_epoch
+            || (proposed_fence.placement_epoch == current_fence.placement_epoch
+                && proposed_fence.fencing_token < current_fence.fencing_token)
+        {
+            return Err("STALE_FENCE: SQL mutation coordinator is superseded".to_string());
+        }
+        if crashpoint == Some(SqlMutationCrashpoint::BeforeRows) {
+            return Err("injected crash before SQL mutation rows".to_string());
+        }
+        eg_types::mutation_batch::apply_certification_fault(
+            batch,
+            eg_types::mutation_batch::MutationCommitPhase::BeforeRows,
+        )?;
+
+        let mut affected = 0usize;
+        for op in &txn.ops {
+            affected = affected.saturating_add(apply_txn_op(&wtx, op)?);
+        }
+        if crashpoint == Some(SqlMutationCrashpoint::AfterRowsBeforeMetadata) {
+            return Err("injected crash after SQL mutation rows".to_string());
+        }
+        eg_types::mutation_batch::apply_certification_fault(
+            batch,
+            eg_types::mutation_batch::MutationCommitPhase::AfterRowsBeforeMetadata,
+        )?;
+
+        let result_msgpack = match result_override {
+            Some(result) => result,
+            None => rmp_serde::to_vec_named(&affected).map_err(|e| e.to_string())?,
+        };
+        let record = MutationBatchRecord {
+            batch: batch.clone(),
+            status: MutationBatchStatus::Committed,
+            result_msgpack: Some(result_msgpack),
+            committed_at_ms,
+        };
+        let record_bytes = rmp_serde::to_vec_named(&record).map_err(|e| e.to_string())?;
+        let next_version = current_version
+            .checked_add(1)
+            .ok_or_else(|| "SQL mutation domain version overflow".to_string())?;
+        {
+            let mut records = wtx.open_table(MUTATION_BATCHES).map_err(map_err)?;
+            records
+                .insert(batch.batch_id.as_str(), record_bytes.as_slice())
+                .map_err(map_err)?;
+            let mut idem = wtx.open_table(MUTATION_IDEMPOTENCY).map_err(map_err)?;
+            idem.insert(
+                (
+                    batch.tenant.as_str(),
+                    batch.graph.as_str(),
+                    batch.idempotency_key.as_str(),
+                ),
+                batch.batch_id.as_str(),
+            )
+            .map_err(map_err)?;
+            let mut versions = wtx.open_table(MUTATION_VERSION).map_err(map_err)?;
+            versions
+                .insert(version_key, next_version)
+                .map_err(map_err)?;
+            let fence_bytes =
+                rmp_serde::to_vec_named(&proposed_fence).map_err(|e| e.to_string())?;
+            let mut fences = wtx.open_table(MUTATION_FENCE).map_err(map_err)?;
+            fences
+                .insert(version_key, fence_bytes.as_slice())
+                .map_err(map_err)?;
+
+            let mut outbox = wtx.open_table(MUTATION_OUTBOX).map_err(map_err)?;
+            let mut ordinal = 0u32;
+            for operation in &batch.operations {
+                let intent = MutationOutboxIntent {
+                    topic: "engine.mutation.committed".to_string(),
+                    key: batch.batch_id.clone(),
+                    payload: rmp_serde::to_vec_named(operation).map_err(|e| e.to_string())?,
+                    headers: Default::default(),
+                };
+                insert_sql_outbox(&mut outbox, batch, ordinal, intent)?;
+                ordinal = ordinal
+                    .checked_add(1)
+                    .ok_or_else(|| "SQL mutation outbox ordinal overflow".to_string())?;
+            }
+            for intent in &batch.outbox {
+                insert_sql_outbox(&mut outbox, batch, ordinal, intent.clone())?;
+                ordinal = ordinal
+                    .checked_add(1)
+                    .ok_or_else(|| "SQL mutation outbox ordinal overflow".to_string())?;
+            }
+        }
+        if crashpoint == Some(SqlMutationCrashpoint::BeforeCommit) {
+            return Err("injected crash before SQL mutation commit".to_string());
+        }
+        eg_types::mutation_batch::apply_certification_fault(
+            batch,
+            eg_types::mutation_batch::MutationCommitPhase::BeforeCommit,
+        )?;
+        wtx.commit().map_err(map_err)?;
+        if crashpoint == Some(SqlMutationCrashpoint::AfterCommitBeforeAck) {
+            return Err("injected crash after SQL mutation commit before ack".to_string());
+        }
+        eg_types::mutation_batch::apply_certification_fault(
+            batch,
+            eg_types::mutation_batch::MutationCommitPhase::AfterCommitBeforeAck,
+        )?;
+        Ok(MutationBatchCommit {
+            record,
+            replayed: false,
+        })
+    }
+
+    /// Current authoritative SQL-domain OCC version for batch planning.
+    pub fn mutation_version(&self, tenant: &str, graph: &str) -> Result<u64, String> {
+        let rtx = self.db.begin_read().map_err(map_err)?;
+        let table = match rtx.open_table(MUTATION_VERSION) {
+            Ok(table) => table,
+            Err(redb::TableError::TableDoesNotExist(_)) => return Ok(0),
+            Err(error) => return Err(map_err(error)),
+        };
+        let version = match table.get((tenant, graph)).map_err(map_err)? {
+            Some(value) => value.value(),
+            None => INITIAL_SQL_DOMAIN_VERSION,
+        };
+        Ok(version)
+    }
+
+    /// Read durable SQL-domain batch status/result for retry and restart recovery.
+    pub fn mutation_batch(&self, batch_id: &str) -> Result<Option<MutationBatchRecord>, String> {
+        let rtx = self.db.begin_read().map_err(map_err)?;
+        let table = match rtx.open_table(MUTATION_BATCHES) {
+            Ok(table) => table,
+            Err(redb::TableError::TableDoesNotExist(_)) => return Ok(None),
+            Err(error) => return Err(map_err(error)),
+        };
+        let record = table
+            .get(batch_id)
+            .map_err(map_err)?
+            .map(|value| decode_mutation_record(value.value()))
+            .transpose()?;
+        Ok(record)
+    }
+
+    /// Read the SQL-domain transactional outbox for one committed batch.
+    pub fn mutation_outbox(&self, batch_id: &str) -> Result<Vec<MutationOutboxRecord>, String> {
+        let rtx = self.db.begin_read().map_err(map_err)?;
+        let table = match rtx.open_table(MUTATION_OUTBOX) {
+            Ok(table) => table,
+            Err(redb::TableError::TableDoesNotExist(_)) => return Ok(Vec::new()),
+            Err(error) => return Err(map_err(error)),
+        };
+        let mut rows = Vec::new();
+        let mut count = 0usize;
+        let mut bytes = 0usize;
+        for row in table
+            .range((batch_id, 0u32)..=(batch_id, u32::MAX))
+            .map_err(map_err)?
+        {
+            let (_, value) = row.map_err(map_err)?;
+            account_collection(&mut count, &mut bytes, value.value().len())?;
+            rows.push(decode_mutation_outbox(value.value())?);
+        }
+        Ok(rows)
     }
 
     /// Begin an immediate-durability write transaction (commit-before-ack).
@@ -847,6 +1167,155 @@ impl TableStore {
 // the catalog/rows THROUGH the same `wtx` (read-your-writes) is what lets a later op
 // in a multi-statement transaction see an earlier op's staged writes.
 
+fn apply_txn_op(wtx: &WriteTransaction, op: &TxnOp) -> Result<usize, String> {
+    match op {
+        TxnOp::CreateTable {
+            schema,
+            if_not_exists,
+        } => {
+            create_in(wtx, schema, *if_not_exists)?;
+            Ok(0)
+        }
+        TxnOp::DropTable { name, if_exists } => {
+            drop_in(wtx, name, *if_exists)?;
+            Ok(0)
+        }
+        TxnOp::AddColumn { table, column } => {
+            add_column_in(wtx, table, column)?;
+            Ok(0)
+        }
+        TxnOp::DropColumn {
+            table,
+            column,
+            if_exists,
+        } => {
+            drop_column_in(wtx, table, column, *if_exists)?;
+            Ok(0)
+        }
+        TxnOp::RenameColumn { table, from, to } => {
+            rename_column_in(wtx, table, from, to)?;
+            Ok(0)
+        }
+        TxnOp::RenameTable { table, new_name } => {
+            rename_table_in(wtx, table, new_name)?;
+            Ok(0)
+        }
+        TxnOp::AlterColumnType {
+            table,
+            column,
+            new_type,
+        } => {
+            alter_column_type_in(wtx, table, column, *new_type)?;
+            Ok(0)
+        }
+        TxnOp::DropConstraint {
+            table,
+            constraint,
+            if_exists,
+        } => {
+            drop_constraint_in(wtx, table, constraint, *if_exists)?;
+            Ok(0)
+        }
+        TxnOp::Insert {
+            table,
+            col_order,
+            rows,
+        } => Ok(insert_in(wtx, table, col_order, rows)?.len()),
+        TxnOp::Update {
+            table,
+            set,
+            selector,
+        } => Ok(update_in(wtx, table, set, selector)?.len()),
+        TxnOp::Delete { table, selector } => Ok(delete_in(wtx, table, selector)?.len()),
+        TxnOp::CreateView {
+            name,
+            select_sql,
+            or_replace,
+        } => {
+            create_view_in(wtx, name, select_sql, *or_replace)?;
+            Ok(0)
+        }
+        TxnOp::DropView { name, if_exists } => {
+            drop_view_in(wtx, name, *if_exists)?;
+            Ok(0)
+        }
+        TxnOp::CreateExtension {
+            name,
+            if_not_exists,
+        } => {
+            create_extension_in(wtx, name, *if_not_exists)?;
+            Ok(0)
+        }
+        TxnOp::DropExtension { name, if_exists } => {
+            drop_extension_in(wtx, name, *if_exists)?;
+            Ok(0)
+        }
+        TxnOp::CreateFunction {
+            function,
+            or_replace,
+        } => {
+            create_function_in(wtx, function, *or_replace)?;
+            Ok(0)
+        }
+        TxnOp::DropFunction { name, if_exists } => {
+            drop_function_in(wtx, name, *if_exists)?;
+            Ok(0)
+        }
+        TxnOp::PutAnnIndex { plan } => {
+            put_ann_index_in(wtx, plan)?;
+            Ok(0)
+        }
+        TxnOp::PutHypertable { plan } => {
+            put_hypertable_in(wtx, plan)?;
+            Ok(0)
+        }
+        TxnOp::DropAnnIndexesForColumn { table, column } => {
+            drop_ann_indexes_for_column_in(wtx, table, column)
+        }
+    }
+}
+
+fn same_batch_identity(stored: &MutationBatch, proposed: &MutationBatch) -> Result<bool, String> {
+    let stored_ops = rmp_serde::to_vec_named(&stored.operations).map_err(|e| e.to_string())?;
+    let proposed_ops = rmp_serde::to_vec_named(&proposed.operations).map_err(|e| e.to_string())?;
+    Ok(stored.batch_id == proposed.batch_id
+        && stored.context == proposed.context
+        && stored.tenant == proposed.tenant
+        && stored.graph == proposed.graph
+        && stored.placement_epoch == proposed.placement_epoch
+        && stored.idempotency_key == proposed.idempotency_key
+        && stored.expected_graph_version == proposed.expected_graph_version
+        && stored.fencing_token == proposed.fencing_token
+        && stored.authoritative_state == proposed.authoritative_state
+        && stored.outbox == proposed.outbox
+        && stored_ops == proposed_ops)
+}
+
+fn insert_sql_outbox(
+    outbox: &mut redb::Table<(&str, u32), &[u8]>,
+    batch: &MutationBatch,
+    ordinal: u32,
+    intent: MutationOutboxIntent,
+) -> Result<(), String> {
+    let record = MutationOutboxRecord {
+        schema_version: MUTATION_BATCH_VERSION,
+        batch_id: batch.batch_id.clone(),
+        ordinal,
+        tenant: batch.tenant.clone(),
+        graph: batch.graph.clone(),
+        version_scope: MutationVersionScope::NonGraph,
+        source_graph_version: NON_GRAPH_SOURCE_VERSION,
+        intent,
+        created_at_ms: batch.created_at_ms,
+    };
+    record.validate()?;
+    let bytes = rmp_serde::to_vec_named(&record).map_err(|e| e.to_string())?;
+    outbox
+        .insert((batch.batch_id.as_str(), ordinal), bytes.as_slice())
+        .map_err(map_err)?;
+    Ok(())
+}
+
 /// Read a table schema through an open write txn (sees staged CREATE/ALTER).
 fn get_schema_in(wtx: &WriteTransaction, name: &str) -> Result<Option<TableSchema>, String> {
     let cat = match wtx.open_table(CATALOG) {
@@ -857,9 +1326,173 @@ fn get_schema_in(wtx: &WriteTransaction, name: &str) -> Result<Option<TableSchem
         Some(v) => v.value().to_vec(),
         None => return Ok(None),
     };
-    Ok(Some(
-        rmp_serde::from_slice(&blob).map_err(|e| format!("decode schema: {e}"))?,
-    ))
+    let schema: TableSchema = decode_stored(&blob, "schema")?;
+    schema.validate()?;
+    Ok(Some(schema))
+}
+
+fn create_view_in(
+    wtx: &WriteTransaction,
+    name: &str,
+    select_sql: &str,
+    or_replace: bool,
+) -> Result<(), String> {
+    if get_schema_in(wtx, name)?.is_some() {
+        return Err(format!(
+            "`{name}` is a table; cannot create a view with that name"
+        ));
+    }
+    let mut views = wtx.open_table(VIEWS).map_err(map_err)?;
+    if !or_replace && views.get(name).map_err(map_err)?.is_some() {
+        return Err(format!("view `{name}` already exists"));
+    }
+    views.insert(name, select_sql).map_err(map_err)?;
+    Ok(())
+}
+
+fn drop_view_in(wtx: &WriteTransaction, name: &str, if_exists: bool) -> Result<bool, String> {
+    let mut views = wtx.open_table(VIEWS).map_err(map_err)?;
+    let existed = views.get(name).map_err(map_err)?.is_some();
+    if !existed {
+        if if_exists {
+            return Ok(false);
+        }
+        return Err(format!("view `{name}` does not exist"));
+    }
+    views.remove(name).map_err(map_err)?;
+    Ok(true)
+}
+
+fn create_extension_in(
+    wtx: &WriteTransaction,
+    name: &str,
+    _if_not_exists: bool,
+) -> Result<bool, String> {
+    let mut extensions = wtx.open_table(EXTENSIONS).map_err(map_err)?;
+    let existed = extensions.get(name).map_err(map_err)?.is_some();
+    if !existed {
+        extensions.insert(name, "").map_err(map_err)?;
+    }
+    Ok(!existed)
+}
+
+fn drop_extension_in(wtx: &WriteTransaction, name: &str, if_exists: bool) -> Result<bool, String> {
+    let mut extensions = wtx.open_table(EXTENSIONS).map_err(map_err)?;
+    let existed = extensions.get(name).map_err(map_err)?.is_some();
+    if !existed {
+        if if_exists {
+            return Ok(false);
+        }
+        return Err(format!("extension `{name}` does not exist"));
+    }
+    extensions.remove(name).map_err(map_err)?;
+    Ok(true)
+}
+
+fn create_function_in(
+    wtx: &WriteTransaction,
+    function: &StoredFunction,
+    or_replace: bool,
+) -> Result<(), String> {
+    if get_schema_in(wtx, &function.name)?.is_some() {
+        return Err(format!(
+            "`{}` is a table; cannot create a function with that name",
+            function.name
+        ));
+    }
+    let bytes = rmp_serde::to_vec_named(function).map_err(|e| format!("encode function: {e}"))?;
+    let mut functions = wtx.open_table(FUNCTIONS).map_err(map_err)?;
+    if !or_replace
+        && functions
+            .get(function.name.as_str())
+            .map_err(map_err)?
+            .is_some()
+    {
+        return Err(format!("function `{}` already exists", function.name));
+    }
+    functions
+        .insert(function.name.as_str(), bytes.as_slice())
+        .map_err(map_err)?;
+    Ok(())
+}
+
+fn drop_function_in(wtx: &WriteTransaction, name: &str, if_exists: bool) -> Result<bool, String> {
+    let mut functions = wtx.open_table(FUNCTIONS).map_err(map_err)?;
+    let existed = functions.get(name).map_err(map_err)?.is_some();
+    if !existed {
+        if if_exists {
+            return Ok(false);
+        }
+        return Err(format!("function `{name}` does not exist"));
+    }
+    functions.remove(name).map_err(map_err)?;
+    Ok(true)
+}
+
+fn put_ann_index_in(wtx: &WriteTransaction, plan: &AnnIndexPlan) -> Result<(), String> {
+    let key = TableStore::ann_index_key(plan);
+    let bytes = rmp_serde::to_vec_named(plan).map_err(|e| format!("encode ann index: {e}"))?;
+    let mut indexes = wtx.open_table(ANN_INDEXES).map_err(map_err)?;
+    indexes
+        .insert(key.as_str(), bytes.as_slice())
+        .map_err(map_err)?;
+    Ok(())
+}
+
+fn put_hypertable_in(wtx: &WriteTransaction, plan: &HypertablePlan) -> Result<(), String> {
+    let schema = get_schema_in(wtx, &plan.table)?
+        .ok_or_else(|| format!("table `{}` does not exist", plan.table))?;
+    let time_column = schema.column(&plan.time_column).ok_or_else(|| {
+        format!(
+            "time column `{}` does not exist in table `{}`",
+            plan.time_column, plan.table
+        )
+    })?;
+    if !matches!(time_column.ty, ColumnType::Timestamp) {
+        return Err(format!(
+            "hypertable time column `{}.{}` must be a timestamp",
+            plan.table, plan.time_column
+        ));
+    }
+    let bytes = rmp_serde::to_vec_named(plan).map_err(|e| format!("encode hypertable: {e}"))?;
+    let mut hypertables = wtx.open_table(HYPERTABLES).map_err(map_err)?;
+    if let Some(existing) = hypertables.get(plan.table.as_str()).map_err(map_err)? {
+        let existing = decode_stored::<HypertablePlan>(existing.value(), "hypertable")?;
+        if existing != *plan {
+            return Err(format!(
+                "table `{}` is already a hypertable on `{}`",
+                plan.table, existing.time_column
+            ));
+        }
+        return Ok(());
+    }
+    hypertables
+        .insert(plan.table.as_str(), bytes.as_slice())
+        .map_err(map_err)?;
+    Ok(())
+}
+
+fn drop_ann_indexes_for_column_in(
+    wtx: &WriteTransaction,
+    table: &str,
+    column: &str,
+) -> Result<usize, String> {
+    let prefix = format!(
+        "{}.{}.",
+        table.to_ascii_lowercase(),
+        column.to_ascii_lowercase()
+    );
+    let mut indexes = wtx.open_table(ANN_INDEXES).map_err(map_err)?;
+    let keys = indexes
+        .iter()
+        .map_err(map_err)?
+        .filter_map(|row| row.ok().map(|(key, _)| key.value().to_string()))
+        .filter(|key| key.starts_with(&prefix))
+        .collect::<Vec<_>>();
+    for key in &keys {
+        indexes.remove(key.as_str()).map_err(map_err)?;
+    }
+    Ok(keys.len())
 }
 
 fn create_in(
@@ -867,6 +1500,7 @@ fn create_in(
     schema: &TableSchema,
     if_not_exists: bool,
 ) -> Result<bool, String> {
+    schema.validate()?;
     if get_schema_in(wtx, &schema.name)?.is_some() {
         if if_not_exists {
             return Ok(false);
@@ -913,6 +1547,10 @@ fn drop_in(wtx: &WriteTransaction, name: &str, if_exists: bool) -> Result<bool, 
             rows.remove((name, rowid)).map_err(map_err)?;
         }
     }
+    {
+        let mut hypertables = wtx.open_table(HYPERTABLES).map_err(map_err)?;
+        hypertables.remove(name).map_err(map_err)?;
+    }
     Ok(true)
 }
 
@@ -925,13 +1563,14 @@ fn add_column_in(wtx: &WriteTransaction, table: &str, column: &Column) -> Result
             column.name
         ));
     }
-    schema.columns.push(column.clone());
+    schema.columns_mut().push(column.clone());
     put_schema_in(wtx, &schema)
 }
 
 /// Persist a (possibly renamed) schema back into the catalog under its `name` key.
 /// The single place an ALTER rewrites the catalog entry (CONCEPT:EG-KG.query.rename-table-moves-catalog).
 fn put_schema_in(wtx: &WriteTransaction, schema: &TableSchema) -> Result<(), String> {
+    schema.validate()?;
     let blob = rmp_serde::to_vec_named(schema).map_err(|e| format!("encode schema: {e}"))?;
     let mut cat = wtx.open_table(CATALOG).map_err(map_err)?;
     cat.insert(schema.name.as_str(), blob.as_slice())
@@ -956,8 +1595,7 @@ fn migrate_rows_in(
         .map_err(map_err)?
     {
         let (k, v) = r.map_err(map_err)?;
-        let cells: Vec<Cell> =
-            rmp_serde::from_slice(v.value()).map_err(|e| format!("decode row: {e}"))?;
+        let cells: Vec<Cell> = decode_stored(v.value(), "row")?;
         items.push((k.value().1, cells));
     }
     for (rowid, mut cells) in items {
@@ -981,6 +1619,17 @@ fn drop_column_in(
 ) -> Result<(), String> {
     let mut schema =
         get_schema_in(wtx, table)?.ok_or_else(|| format!("table `{table}` does not exist"))?;
+    {
+        let hypertables = wtx.open_table(HYPERTABLES).map_err(map_err)?;
+        if let Some(value) = hypertables.get(table).map_err(map_err)? {
+            let plan = decode_stored::<HypertablePlan>(value.value(), "hypertable")?;
+            if plan.time_column == column {
+                return Err(format!(
+                    "cannot drop hypertable time column `{table}.{column}`"
+                ));
+            }
+        };
+    }
     let idx = match schema.column_index(column) {
         Some(i) => i,
         None => {
@@ -992,12 +1641,12 @@ fn drop_column_in(
             ));
         }
     };
-    if schema.columns.len() == 1 {
+    if schema.columns().len() == 1 {
         return Err(format!(
             "cannot drop the only column `{column}` of table `{table}`"
         ));
     }
-    schema.columns.remove(idx);
+    schema.columns_mut().remove(idx);
     put_schema_in(wtx, &schema)?;
     // Splice the dropped cell out of each stored row (rows may be short if written before
     // a later ADD COLUMN — guard the index).
@@ -1025,8 +1674,28 @@ fn rename_column_in(
     let idx = schema
         .column_index(from)
         .ok_or_else(|| format!("column `{from}` does not exist in table `{table}`"))?;
-    schema.columns[idx].name = to.to_string();
-    put_schema_in(wtx, &schema)
+    schema.columns_mut()[idx].name = to.to_string();
+    put_schema_in(wtx, &schema)?;
+    let replacement = {
+        let hypertables = wtx.open_table(HYPERTABLES).map_err(map_err)?;
+        let plan = hypertables
+            .get(table)
+            .map_err(map_err)?
+            .map(|value| decode_stored::<HypertablePlan>(value.value(), "hypertable"))
+            .transpose()?
+            .filter(|plan| plan.time_column == from);
+        plan
+    };
+    if let Some(mut plan) = replacement {
+        plan.time_column = to.to_string();
+        let bytes =
+            rmp_serde::to_vec_named(&plan).map_err(|e| format!("encode hypertable: {e}"))?;
+        let mut hypertables = wtx.open_table(HYPERTABLES).map_err(map_err)?;
+        hypertables
+            .insert(table, bytes.as_slice())
+            .map_err(map_err)?;
+    }
+    Ok(())
 }
 
 /// CONCEPT:EG-KG.query.rename-table-moves-catalog — `RENAME TO newtable`: move the catalog entry, the sequence, and
@@ -1074,6 +1743,25 @@ fn rename_table_in(wtx: &WriteTransaction, table: &str, new_name: &str) -> Resul
                 .map_err(map_err)?;
         }
     }
+    let renamed_hypertable = {
+        let hypertables = wtx.open_table(HYPERTABLES).map_err(map_err)?;
+        let plan = hypertables
+            .get(table)
+            .map_err(map_err)?
+            .map(|value| decode_stored::<HypertablePlan>(value.value(), "hypertable"))
+            .transpose()?;
+        plan
+    };
+    if let Some(mut plan) = renamed_hypertable {
+        plan.table = new_name.to_string();
+        let bytes =
+            rmp_serde::to_vec_named(&plan).map_err(|e| format!("encode hypertable: {e}"))?;
+        let mut hypertables = wtx.open_table(HYPERTABLES).map_err(map_err)?;
+        hypertables.remove(table).map_err(map_err)?;
+        hypertables
+            .insert(new_name, bytes.as_slice())
+            .map_err(map_err)?;
+    }
     Ok(())
 }
 
@@ -1091,7 +1779,7 @@ fn alter_column_type_in(
     let idx = schema
         .column_index(column)
         .ok_or_else(|| format!("column `{column}` does not exist in table `{table}`"))?;
-    let nullable = schema.columns[idx].nullable;
+    let nullable = schema.columns()[idx].nullable;
     // Migrate rows FIRST so an incompatible value aborts before the schema is touched.
     migrate_rows_in(wtx, table, |cells| {
         if let Some(cell) = cells.get_mut(idx) {
@@ -1100,7 +1788,7 @@ fn alter_column_type_in(
         }
         Ok(())
     })?;
-    schema.columns[idx].ty = new_type;
+    schema.columns_mut()[idx].ty = new_type;
     put_schema_in(wtx, &schema)
 }
 
@@ -1119,7 +1807,7 @@ fn drop_constraint_in(
         get_schema_in(wtx, table)?.ok_or_else(|| format!("table `{table}` does not exist"))?;
     let mut matched = false;
     if constraint == format!("{table}_pkey") {
-        for c in &mut schema.columns {
+        for c in schema.columns_mut() {
             if c.primary_key {
                 c.primary_key = false;
                 c.unique = false;
@@ -1128,7 +1816,7 @@ fn drop_constraint_in(
         }
     }
     if !matched {
-        for c in &mut schema.columns {
+        for c in schema.columns_mut() {
             if constraint == format!("{table}_{}_key", c.name) && c.is_unique() {
                 c.unique = false;
                 c.primary_key = false;
@@ -1324,7 +2012,7 @@ fn build_insert_cells(
     row: &[Value],
     rowid: u64,
 ) -> Result<Vec<Cell>, String> {
-    let width = schema.columns.len();
+    let width = schema.columns().len();
     if row.len() != col_order.len() {
         return Err(format!(
             "INSERT column/value count mismatch: {} columns, {} values",
@@ -1333,12 +2021,14 @@ fn build_insert_cells(
         ));
     }
     let mut cells: Vec<Cell> = vec![Cell::Null; width];
+    let mut supplied = vec![false; width];
     for (val, &idx) in row.iter().zip(targets.iter()) {
-        let col = &schema.columns[idx];
+        let col = &schema.columns()[idx];
         cells[idx] = Cell::coerce(val, col.ty, col.nullable)?;
+        supplied[idx] = true;
     }
-    for (ci, col) in schema.columns.iter().enumerate() {
-        if targets.contains(&ci) {
+    for (ci, col) in schema.columns().iter().enumerate() {
+        if supplied[ci] {
             continue;
         }
         if col.serial {
@@ -1352,7 +2042,7 @@ fn build_insert_cells(
             ));
         }
     }
-    for (ci, col) in schema.columns.iter().enumerate() {
+    for (ci, col) in schema.columns().iter().enumerate() {
         if let Some(check) = &col.check {
             if !check.holds(&cells[ci].to_json()) {
                 return Err(format!(
@@ -1380,52 +2070,68 @@ fn insert_on_conflict_in(
 ) -> Result<Vec<Vec<Cell>>, String> {
     let schema =
         get_schema_in(wtx, table)?.ok_or_else(|| format!("table `{table}` does not exist"))?;
-    let width = schema.columns.len();
+    let width = schema.columns().len();
     let targets = resolve_targets(&schema, table, col_order)?;
     let unique_cols: Vec<usize> = schema
-        .columns
+        .columns()
         .iter()
         .enumerate()
         .filter(|(_, c)| c.is_unique())
         .map(|(i, _)| i)
         .collect();
+    let mut target_position_by_col = vec![None; width];
+    for (position, &column) in targets.iter().enumerate() {
+        // Preserve the historical `position` behavior if a malformed INSERT names
+        // the same target column more than once: the first supplied value wins for
+        // conflict detection (row construction still retains its existing rules).
+        target_position_by_col[column].get_or_insert(position);
+    }
 
     // Current unique-value snapshot (committed + staged), rebuilt from the store. When
     // the physical row table does not exist yet there are simply no existing rows.
     let mut existing: Vec<(u64, Vec<Cell>)> = Vec::new();
+    let mut row_slot: HashMap<u64, usize> = HashMap::new();
+    let mut unique_rows: Vec<HashMap<String, u64>> =
+        (0..unique_cols.len()).map(|_| HashMap::new()).collect();
     if let Ok(rows_t) = wtx.open_table(ROWS) {
         for r in rows_t
             .range((table, 0u64)..=(table, u64::MAX))
             .map_err(map_err)?
         {
             let (k, v) = r.map_err(map_err)?;
-            let mut cells: Vec<Cell> =
-                rmp_serde::from_slice(v.value()).map_err(|e| format!("decode row: {e}"))?;
+            let mut cells: Vec<Cell> = decode_stored(v.value(), "row")?;
             if cells.len() < width {
                 cells.resize(width, Cell::Null);
             }
-            existing.push((k.value().1, cells));
+            let rowid = k.value().1;
+            row_slot.insert(rowid, existing.len());
+            for (slot, &column) in unique_cols.iter().enumerate() {
+                if let Some(key) = unique_cell_key(&cells[column]) {
+                    // Existing corruption is still rejected by the authoritative
+                    // final validation. Keeping the first row mirrors the old scan.
+                    unique_rows[slot].entry(key).or_insert(rowid);
+                }
+            }
+            existing.push((rowid, cells));
         }
     }
 
     let mut affected: Vec<Vec<Cell>> = Vec::new();
+    let mut rows_t = wtx.open_table(ROWS).map_err(map_err)?;
     for row in rows {
         // Coerce the supplied unique-column values to detect a conflict.
         let mut conflict_rowid: Option<u64> = None;
-        'find: for &uci in &unique_cols {
+        for (slot, &uci) in unique_cols.iter().enumerate() {
             // The value this row supplies for the unique column (if any).
-            let Some(pos) = targets.iter().position(|&t| t == uci) else {
+            let Some(pos) = target_position_by_col[uci] else {
                 continue;
             };
-            let col = &schema.columns[uci];
+            let col = &schema.columns()[uci];
             let supplied = Cell::coerce(&row[pos], col.ty, col.nullable)?;
-            if supplied == Cell::Null {
-                continue;
-            }
-            for (rid, cells) in &existing {
-                if cells.get(uci) == Some(&supplied) {
-                    conflict_rowid = Some(*rid);
-                    break 'find;
+            if let Some(key) = unique_cell_key(&supplied) {
+                if let Some(&rowid) = unique_rows[slot].get(&key) {
+                    conflict_rowid = Some(rowid);
+                    break;
                 }
             }
         }
@@ -1434,19 +2140,24 @@ fn insert_on_conflict_in(
             (Some(_), ConflictAction::DoNothing) => { /* skip */ }
             (Some(rid), ConflictAction::DoUpdate(set)) => {
                 // Merge the SET assignments into the conflicting row.
-                let slot = existing
-                    .iter_mut()
-                    .find(|(r, _)| *r == rid)
-                    .expect("conflict rowid present");
+                let index = *row_slot.get(&rid).expect("conflict rowid present");
+                let slot = &mut existing[index];
+                for (map, &column) in unique_rows.iter_mut().zip(&unique_cols) {
+                    if let Some(key) = unique_cell_key(&slot.1[column]) {
+                        if map.get(&key) == Some(&rid) {
+                            map.remove(&key);
+                        }
+                    }
+                }
                 for (col, val) in set {
                     let idx = schema.column_index(col).ok_or_else(|| {
                         format!("column `{col}` does not exist in table `{table}`")
                     })?;
-                    let c = &schema.columns[idx];
+                    let c = &schema.columns()[idx];
                     slot.1[idx] = Cell::coerce(val, c.ty, c.nullable)?;
                 }
                 // Re-check CHECK constraints on the updated row.
-                for (ci, col) in schema.columns.iter().enumerate() {
+                for (ci, col) in schema.columns().iter().enumerate() {
                     if let Some(check) = &col.check {
                         if !check.holds(&slot.1[ci].to_json()) {
                             return Err(format!(
@@ -1456,9 +2167,13 @@ fn insert_on_conflict_in(
                         }
                     }
                 }
+                for (map, &column) in unique_rows.iter_mut().zip(&unique_cols) {
+                    if let Some(key) = unique_cell_key(&slot.1[column]) {
+                        map.entry(key).or_insert(rid);
+                    }
+                }
                 let blob =
                     rmp_serde::to_vec_named(&slot.1).map_err(|e| format!("encode row: {e}"))?;
-                let mut rows_t = wtx.open_table(ROWS).map_err(map_err)?;
                 rows_t
                     .insert((table, rid), blob.as_slice())
                     .map_err(map_err)?;
@@ -1470,27 +2185,39 @@ fn insert_on_conflict_in(
                 let cells = build_insert_cells(&schema, col_order, &targets, row, rowid)?;
                 let blob =
                     rmp_serde::to_vec_named(&cells).map_err(|e| format!("encode row: {e}"))?;
-                {
-                    let mut rows_t = wtx.open_table(ROWS).map_err(map_err)?;
-                    rows_t
-                        .insert((table, rowid), blob.as_slice())
-                        .map_err(map_err)?;
+                rows_t
+                    .insert((table, rowid), blob.as_slice())
+                    .map_err(map_err)?;
+                row_slot.insert(rowid, existing.len());
+                for (map, &column) in unique_rows.iter_mut().zip(&unique_cols) {
+                    if let Some(key) = unique_cell_key(&cells[column]) {
+                        map.entry(key).or_insert(rowid);
+                    }
                 }
                 existing.push((rowid, cells.clone()));
                 affected.push(cells);
             }
         }
     }
+    drop(rows_t);
     validate_uniqueness_in(wtx, table, &schema)?;
     Ok(affected)
+}
+
+/// Canonical key used by the existing uniqueness validator, factored so the
+/// ON-CONFLICT lookup directory and the final integrity pass cannot drift. SQL
+/// NULL is deliberately absent because UNIQUE permits multiple NULL values.
+fn unique_cell_key(cell: &Cell) -> Option<String> {
+    let value = cell.to_json();
+    (!value.is_null()).then(|| value.to_string())
 }
 
 /// Build a `col -> json` row map for predicate evaluation (CONCEPT:EG-KG.query.compound-predicate-decode): one
 /// entry per schema column, the cell decoded to its JSON value. A column the
 /// predicate references that is NOT in the schema is simply absent (reads as NULL).
 fn row_map(schema: &TableSchema, cells: &[Cell]) -> serde_json::Map<String, Value> {
-    let mut map = serde_json::Map::with_capacity(schema.columns.len());
-    for (ci, col) in schema.columns.iter().enumerate() {
+    let mut map = serde_json::Map::with_capacity(schema.columns().len());
+    for (ci, col) in schema.columns().iter().enumerate() {
         let cell = cells.get(ci).cloned().unwrap_or(Cell::Null);
         map.insert(col.name.clone(), cell.to_json());
     }
@@ -1510,10 +2237,10 @@ fn update_in(
         let idx = schema
             .column_index(col)
             .ok_or_else(|| format!("column `{col}` does not exist in table `{table}`"))?;
-        let c = &schema.columns[idx];
+        let c = &schema.columns()[idx];
         assigns.push((idx, Cell::coerce(val, c.ty, c.nullable)?));
     }
-    let width = schema.columns.len();
+    let width = schema.columns().len();
     let mut updated: Vec<Vec<Cell>> = Vec::new();
     {
         let mut rows_t = wtx.open_table(ROWS).map_err(map_err)?;
@@ -1523,8 +2250,7 @@ fn update_in(
             .map_err(map_err)?
         {
             let (k, v) = r.map_err(map_err)?;
-            let mut cells: Vec<Cell> =
-                rmp_serde::from_slice(v.value()).map_err(|e| format!("decode row: {e}"))?;
+            let mut cells: Vec<Cell> = decode_stored(v.value(), "row")?;
             if cells.len() < width {
                 cells.resize(width, Cell::Null);
             }
@@ -1539,7 +2265,7 @@ fn update_in(
                 cells[*idx] = cell.clone();
             }
             // CHECK constraints on the updated row.
-            for (ci, col) in schema.columns.iter().enumerate() {
+            for (ci, col) in schema.columns().iter().enumerate() {
                 if let Some(check) = &col.check {
                     if !check.holds(&cells[ci].to_json()) {
                         return Err(format!(
@@ -1567,7 +2293,7 @@ fn delete_in(
 ) -> Result<Vec<Vec<Cell>>, String> {
     let schema =
         get_schema_in(wtx, table)?.ok_or_else(|| format!("table `{table}` does not exist"))?;
-    let width = schema.columns.len();
+    let width = schema.columns().len();
     // Capture the pre-removal cells (CONCEPT:EG-KG.query.delete-returning-sees-row — DELETE … RETURNING sees the row
     // as it was before deletion).
     let mut removed: Vec<Vec<Cell>> = Vec::new();
@@ -1578,8 +2304,7 @@ fn delete_in(
         .map_err(map_err)?
     {
         let (k, v) = r.map_err(map_err)?;
-        let mut cells: Vec<Cell> =
-            rmp_serde::from_slice(v.value()).map_err(|e| format!("decode row: {e}"))?;
+        let mut cells: Vec<Cell> = decode_stored(v.value(), "row")?;
         if cells.len() < width {
             cells.resize(width, Cell::Null);
         }
@@ -1605,7 +2330,7 @@ fn validate_uniqueness_in(
     schema: &TableSchema,
 ) -> Result<(), String> {
     let unique_cols: Vec<usize> = schema
-        .columns
+        .columns()
         .iter()
         .enumerate()
         .filter(|(_, c)| c.is_unique())
@@ -1614,7 +2339,7 @@ fn validate_uniqueness_in(
     if unique_cols.is_empty() {
         return Ok(());
     }
-    let width = schema.columns.len();
+    let width = schema.columns().len();
     let rows_t = wtx.open_table(ROWS).map_err(map_err)?;
     let mut seen: Vec<HashSet<String>> = vec![HashSet::new(); unique_cols.len()];
     for r in rows_t
@@ -1622,21 +2347,15 @@ fn validate_uniqueness_in(
         .map_err(map_err)?
     {
         let (_, v) = r.map_err(map_err)?;
-        let mut cells: Vec<Cell> =
-            rmp_serde::from_slice(v.value()).map_err(|e| format!("decode row: {e}"))?;
+        let mut cells: Vec<Cell> = decode_stored(v.value(), "row")?;
         if cells.len() < width {
             cells.resize(width, Cell::Null);
         }
         for (slot, &ci) in unique_cols.iter().enumerate() {
-            let v = cells[ci].to_json();
-            if v.is_null() {
-                continue;
-            }
-            let key = v.to_string();
-            if !seen[slot].insert(key) {
+            if unique_cell_key(&cells[ci]).is_some_and(|key| !seen[slot].insert(key)) {
                 return Err(format!(
                     "duplicate key value violates unique constraint on column `{}`",
-                    schema.columns[ci].name
+                    schema.columns()[ci].name
                 ));
             }
         }
@@ -1654,19 +2373,25 @@ mod tests {
     use super::*;
     use crate::tables::schema::{CmpOp, ColCheck, ColumnType};
 
+    #[test]
+    fn stored_sql_decoder_rejects_declared_allocation_bombs() {
+        let bomb = [0xdd, 0xff, 0xff, 0xff, 0xff];
+        assert!(decode_stored::<Vec<Cell>>(&bomb, "row").is_err());
+    }
+
     fn col(name: &str, ty: ColumnType, nullable: bool) -> Column {
         Column::new(name, ty, nullable, false)
     }
 
     fn metrics_schema() -> TableSchema {
-        TableSchema {
-            name: "metrics".to_string(),
-            columns: vec![
+        TableSchema::new(
+            "metrics",
+            vec![
                 col("ts", ColumnType::Timestamp, false),
                 col("name", ColumnType::Text, false),
                 col("value", ColumnType::Double, true),
             ],
-        }
+        )
     }
 
     #[test]
@@ -1872,8 +2597,8 @@ mod tests {
         drop(store);
         let store2 = TableStore::open(&path).unwrap();
         let schema = store2.get_schema("metrics").unwrap().unwrap();
-        assert_eq!(schema.columns.len(), 3);
-        assert_eq!(schema.columns[0].ty, ColumnType::Timestamp);
+        assert_eq!(schema.columns().len(), 3);
+        assert_eq!(schema.columns()[0].ty, ColumnType::Timestamp);
         let rows = store2.scan("metrics").unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0][0], Cell::Timestamp(42));
@@ -1911,10 +2636,7 @@ mod tests {
             op: CmpOp::Ge,
             value: Value::Number(0.into()),
         });
-        TableSchema {
-            name: "items".to_string(),
-            columns: vec![id, sku, qty],
-        }
+        TableSchema::new("items", vec![id, sku, qty])
     }
 
     #[test]
@@ -2051,6 +2773,39 @@ mod tests {
         let rows = store.scan("items").unwrap();
         assert_eq!(rows.len(), 1, "no new row — the existing one was updated");
         assert_eq!(rows[0][2], Cell::Int(42), "DO UPDATE merged qty");
+    }
+
+    #[test]
+    fn on_conflict_directory_tracks_same_batch_inserts_and_unique_updates() {
+        let (store, _p) = TableStore::open_temp().unwrap();
+        store.create_table(&constrained_schema(), false).unwrap();
+
+        let rows: Vec<Vec<Value>> = (0..128)
+            .flat_map(|i| {
+                let sku = Value::String(format!("sku-{i:03}"));
+                [vec![sku.clone()], vec![sku]]
+            })
+            .collect();
+        let affected = store
+            .insert_rows_on_conflict("items", &["sku".into()], &rows, &ConflictAction::DoNothing)
+            .unwrap();
+        assert_eq!(affected.len(), 128);
+        assert_eq!(store.scan("items").unwrap().len(), 128);
+
+        // Move one unique value, then address the moved value again in the same
+        // batch. The derived directory must observe the update immediately.
+        let mut set = serde_json::Map::new();
+        set.insert("sku".into(), "renamed".into());
+        let updated = store
+            .insert_rows_on_conflict(
+                "items",
+                &["sku".into()],
+                &[vec!["sku-000".into()], vec!["renamed".into()]],
+                &ConflictAction::DoUpdate(set),
+            )
+            .unwrap();
+        assert_eq!(updated.len(), 2);
+        assert_eq!(store.scan("items").unwrap().len(), 128);
     }
 
     #[test]
@@ -2191,5 +2946,175 @@ mod tests {
         drop(store);
         let store2 = TableStore::open(&path).unwrap();
         assert_eq!(store2.get_function("add").unwrap().as_ref(), Some(&f));
+    }
+
+    #[test]
+    fn hypertable_catalog_validates_and_tracks_schema_changes() {
+        let (store, _p) = TableStore::open_temp().unwrap();
+        store.create_table(&metrics_schema(), false).unwrap();
+        let plan = HypertablePlan {
+            table: "metrics".to_string(),
+            time_column: "ts".to_string(),
+        };
+        store.put_hypertable(&plan).unwrap();
+        assert_eq!(store.list_hypertables().unwrap(), vec![plan]);
+
+        let mut rename_column = TableTxn::new();
+        rename_column.push(TxnOp::RenameColumn {
+            table: "metrics".to_string(),
+            from: "ts".to_string(),
+            to: "observed_at".to_string(),
+        });
+        store.commit_txn(&rename_column).unwrap();
+        assert_eq!(
+            store.list_hypertables().unwrap(),
+            vec![HypertablePlan {
+                table: "metrics".to_string(),
+                time_column: "observed_at".to_string(),
+            }]
+        );
+
+        let mut drop_time = TableTxn::new();
+        drop_time.push(TxnOp::DropColumn {
+            table: "metrics".to_string(),
+            column: "observed_at".to_string(),
+            if_exists: false,
+        });
+        assert!(drop_time.ops.len() == 1 && store.commit_txn(&drop_time).is_err());
+
+        let mut rename_table = TableTxn::new();
+        rename_table.push(TxnOp::RenameTable {
+            table: "metrics".to_string(),
+            new_name: "measurements".to_string(),
+        });
+        store.commit_txn(&rename_table).unwrap();
+        assert_eq!(
+            store.list_hypertables().unwrap(),
+            vec![HypertablePlan {
+                table: "measurements".to_string(),
+                time_column: "observed_at".to_string(),
+            }]
+        );
+
+        store.drop_table("measurements", false).unwrap();
+        assert!(store.list_hypertables().unwrap().is_empty());
+    }
+
+    #[test]
+    fn hypertable_requires_a_timestamp_column() {
+        let (store, _p) = TableStore::open_temp().unwrap();
+        store.create_table(&metrics_schema(), false).unwrap();
+        assert!(store
+            .put_hypertable(&HypertablePlan {
+                table: "metrics".to_string(),
+                time_column: "name".to_string(),
+            })
+            .is_err());
+    }
+
+    fn sql_batch(batch_id: &str) -> MutationBatch {
+        use eg_types::mutation_batch::{
+            MutationOperation, MutationRequestContext, MutationSurface, MUTATION_BATCH_VERSION,
+        };
+        MutationBatch {
+            schema_version: MUTATION_BATCH_VERSION,
+            batch_id: batch_id.to_string(),
+            context: MutationRequestContext {
+                request_id: 7,
+                principal: format!("principal:sha256:{}", "a".repeat(64)),
+                purpose: None,
+                policy_fingerprint: None,
+                trace_id: None,
+            },
+            tenant: "tenant-a".to_string(),
+            graph: "graph-a".to_string(),
+            placement_epoch: 0,
+            idempotency_key: format!("idem-{batch_id}"),
+            expected_graph_version: Some(0),
+            fencing_token: None,
+            authoritative_state: None,
+            operations: vec![MutationOperation {
+                ordinal: 0,
+                surface: MutationSurface::Query,
+                domain: MutationDomain::SqlCatalog,
+                method: eg_types::protocol::Method::ApplyMutation {
+                    event_type: "sql_catalog_operation".to_string(),
+                    query:
+                        "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                            .to_string(),
+                },
+            }],
+            outbox: vec![MutationOutboxIntent {
+                topic: "engine.projection.rebuild".to_string(),
+                key: batch_id.to_string(),
+                payload: vec![1],
+                headers: Default::default(),
+            }],
+            created_at_ms: 100,
+        }
+    }
+
+    fn create_metrics_txn() -> TableTxn {
+        let mut txn = TableTxn::new();
+        txn.push(TxnOp::CreateTable {
+            schema: metrics_schema(),
+            if_not_exists: false,
+        });
+        txn
+    }
+
+    #[test]
+    fn mutation_batch_crash_before_commit_recovers_neither_half() {
+        for point in [
+            SqlMutationCrashpoint::BeforeRows,
+            SqlMutationCrashpoint::AfterRowsBeforeMetadata,
+            SqlMutationCrashpoint::BeforeCommit,
+        ] {
+            let (store, path) = TableStore::open_temp().unwrap();
+            let batch = sql_batch(&format!("before-{point:?}"));
+            assert!(store
+                .commit_txn_batch_inner(&create_metrics_txn(), &batch, 101, Some(point), None)
+                .is_err());
+            drop(store);
+            let reopened = TableStore::open(&path).unwrap();
+            assert!(reopened.get_schema("metrics").unwrap().is_none());
+            assert!(reopened.mutation_batch(&batch.batch_id).unwrap().is_none());
+            assert!(reopened
+                .mutation_outbox(&batch.batch_id)
+                .unwrap()
+                .is_empty());
+            assert_eq!(reopened.mutation_version("tenant-a", "graph-a").unwrap(), 0);
+        }
+    }
+
+    #[test]
+    fn mutation_batch_after_commit_replays_without_sql_reexecution() {
+        let (store, path) = TableStore::open_temp().unwrap();
+        let batch = sql_batch("after-commit");
+        assert!(store
+            .commit_txn_batch_inner(
+                &create_metrics_txn(),
+                &batch,
+                101,
+                Some(SqlMutationCrashpoint::AfterCommitBeforeAck),
+                None,
+            )
+            .is_err());
+        drop(store);
+
+        let reopened = TableStore::open(&path).unwrap();
+        assert!(reopened.get_schema("metrics").unwrap().is_some());
+        assert!(reopened.mutation_batch(&batch.batch_id).unwrap().is_some());
+        assert_eq!(reopened.mutation_outbox(&batch.batch_id).unwrap().len(), 2);
+        assert_eq!(reopened.mutation_version("tenant-a", "graph-a").unwrap(), 1);
+
+        // Reapplying CREATE TABLE would fail. A successful replay therefore proves
+        // the durable result was returned without executing the transaction twice.
+        let replay = reopened
+            .commit_txn_batch(&create_metrics_txn(), &batch, 102)
+            .unwrap();
+        assert!(replay.replayed);
+        assert_eq!(reopened.list_tables().unwrap(), vec!["metrics".to_string()]);
+        assert_eq!(reopened.mutation_outbox(&batch.batch_id).unwrap().len(), 2);
     }
 }

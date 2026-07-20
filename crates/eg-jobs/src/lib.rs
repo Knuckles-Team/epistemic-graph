@@ -8,11 +8,12 @@
 //!
 //! This crate adds the missing durable JOB layer ON TOP of that (it does not
 //! replace or reimplement any mining kernel): an [`AnalyticsJob`] record + state
-//! machine (`submitted -> running(checkpoint, progress) ->
-//! succeeded(result_ref) | failed | cancelled`), persisted durably in its own
-//! `jobs.redb` (mirrors `eg-tsdb`/`eg-kvcache`'s own-file pattern), carrying full
-//! tenant/actor/purpose + an IMMUTABLE input-snapshot HANDLE (a graph name + OCC
-//! version, never a copy of rows) + policy/quota/priority/deadline + algorithm/
+//! machine (`submitted -> running(checkpoint, fenced lease) ->
+//! publishing(typed result) -> succeeded | failed | cancelled`). In clustered mode
+//! its transitions are Raft-ordered and `jobs.redb` is a deterministic local
+//! projection; single-node mode commits directly to that same store. Records carry
+//! pseudonymized policy identity + an immutable input dataset/content digest and OCC
+//! version + policy/quota/priority/deadline + algorithm/
 //! params/code/env version lineage + a retry policy + checkpoint/progress.
 //!
 //! Determinism + idempotency (CONCEPT:INT-P2-1): [`AnalyticsJob::result_ref`] is a
@@ -24,21 +25,19 @@
 //!
 //! ## Crate shape
 //!
-//! A leaf crate ALONG the DAG: `eg-types` (nothing from it directly today, but the
-//! facade's wire `JobOp` lives there per the `RbacAdminOp` precedent) + `eg-core`
+//! A leaf crate ALONG the DAG: `eg-types` (wire and mutation currency) + `eg-core`
 //! (the `GraphCore` write primitive `claim.rs` needs — the SAME surface
 //! `eg-epistemic` reads and `mining.rs` writes through). NOT a dependency of the
-//! main `epistemic-graph` package's default build; see the root `Cargo.toml`'s
-//! `members` comment and the opt-in `jobs` facade feature.
+//! facade's self-contained `full` contract includes the `jobs` feature.
 //!
 //! ## What lives where
 //!
 //! * [`model`] — the `AnalyticsJob` record + every value type it carries
 //!   (`InputSnapshotHandle`, `AlgoVersion`, `JobPolicy`, `RetryPolicy`, `Checkpoint`,
 //!   `JobState`).
-//! * [`store`] — [`store::JobStore`], the durable redb-backed state machine: guarded
-//!   `submit`/`start_running`/`checkpoint`/`succeed`/`fail`/`request_cancel`/
-//!   `mark_cancelled`/`resume`, plus the `mark_result_committed` idempotency ledger
+//! * [`store`] — [`store::JobStore`], the durable redb-backed state machine with
+//!   atomic claim, renewable leases, epoch fencing, quotas, retry backoff,
+//!   typed-result staging and publication barriers, plus the result idempotency ledger
 //!   AND (daemon-consolidation design Phase 3) the generalized
 //!   `claim_idempotency`/`idempotency_claimed_by` ledger + the `JobIntent` registry
 //!   (`register_intent`/`get_intent`/`list_intents`/`due_intents`/
@@ -53,22 +52,24 @@
 //!   expresses the engine's own off-by-default cold-tenant idle-offload sweep as a
 //!   `JobIntent` WITHOUT changing what actually drives that sweep today.
 //!
-//! The facade wires this crate's `submit`/`get`/`request_cancel`/`resume` behind
-//! ONE protocol surface (`Method::AnalyticsJob { op: JobOp }`,
-//! `src/server/handlers/jobs.rs`) that spawns the actual analytics work
-//! asynchronously off the request. See that module's docs for the reference job
-//! kind (association-rule mining) and what remains a Wave-2 follow-up (more mining
-//! families as job kinds; an AU-side feature/model/experiment registry).
+//! The facade wires caller control and verified remote-worker operations behind one
+//! protocol surface (`Method::AnalyticsJob { op: JobOp }`). There is no elected
+//! application coordinator or pod-number dependency: the current Raft leader orders
+//! transitions and any caught-up replica can take over after leader failure.
 
 pub mod claim;
 pub mod intent;
 pub mod model;
+pub mod result;
 pub mod store;
 
-pub use claim::{commit_result_claim, CalibrationInput, ClaimCommitOutcome};
+pub use claim::{
+    commit_result_claim, plan_result_claim, CalibrationInput, ClaimCommitOutcome, ClaimWritePlan,
+};
 pub use intent::{cold_offload_intent, JobIntent, Trigger};
 pub use model::{
     compute_result_ref, digest_params, AlgoVersion, AnalyticsJob, Checkpoint, InputSnapshotHandle,
-    JobId, JobPolicy, JobState, RetryPolicy,
+    JobId, JobPlacement, JobPolicy, JobState, ResourceBudget, RetryPolicy, WorkerLease,
 };
-pub use store::{JobError, JobStore, SubmitSpec};
+pub use result::{ReproducibilityManifest, ResultColumn, TypedJobResult};
+pub use store::{JobError, JobStore, SubmitSpec, TenantJobQuota, WorkerClaim};

@@ -46,8 +46,6 @@ ex:p4 a ex:Paper .
         &mut iris,
         "g",
         eg_rdf::mapping::parse_turtle(ttl).unwrap(),
-        #[cfg(feature = "rdf-redb")]
-        None,
     )
     .unwrap();
 
@@ -91,7 +89,7 @@ fn owl_inferred_set_then_rank_equals_separate() {
     let triples = eg_rdf::owl::tbox_triples_from_view(&view);
     let mut reasoner = eg_rdf::owl::Reasoner::from_triples(&triples);
     let cls = reasoner.classify();
-    let asserted = eg_rdf::owl::asserted_types_from_view(&view, None);
+    let asserted = eg_rdf::owl::asserted_types_from_view(&view, "http://example.org/").unwrap();
     let members: HashSet<String> = eg_rdf::owl::instances_of(&cls, &asserted, target)
         .into_iter()
         .collect();
@@ -144,7 +142,14 @@ fn sparql_selected_set_then_rank_equals_separate() {
     let fused_ids = fused.ids();
 
     // Separate: SPARQL select the Papers, then an independent kNN.
-    let res = eg_rdf::sparql::run(&view, sparql).unwrap();
+    let res = eg_rdf::sparql::execute(
+        &eg_rdf::sparql::Dataset::new(&view, Vec::new()),
+        sparql,
+        &eg_rdf::sparql::Projection::raw(),
+        None,
+    )
+    .unwrap()
+    .into_table();
     let members: HashSet<String> = res
         .solutions
         .iter()

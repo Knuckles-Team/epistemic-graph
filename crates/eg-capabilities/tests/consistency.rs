@@ -1,7 +1,7 @@
 //! Consistency test: cross-checks [`eg_capabilities::policy`] against the REAL existing
 //! classifiers, as of this commit:
 //!   - `src/server/access.rs::requires_write`   (mutates)
-//!   - `src/wal.rs::is_durable_mutation`         (durability)
+//!   - `src/mutation_apply.rs::is_durable_mutation`         (durability)
 //!   - `src/audit.rs::audit_line`                (audited)
 //!   - `src/server/cdc.rs::emit_for_method`      (emits_cdc)
 //!
@@ -16,7 +16,7 @@
 //! from *this* crate's own test binary is not just undesirable but architecturally
 //! impossible without inverting that dependency. So instead of a live function call, the
 //! constants below are a literal, hand-transcribed snapshot of those four functions' match
-//! arms, each cited by file + function name. If `access.rs`/`wal.rs`/`audit.rs`/`cdc.rs`
+//! arms, each cited by file + function name. If `access.rs`/`mutation_apply.rs`/`audit.rs`/`cdc.rs`
 //! change without updating this file, this test will start passing against a STALE mirror
 //! instead of the real thing -- it will not catch that drift by itself.
 //!
@@ -24,18 +24,19 @@
 //!
 //! EG-P0-2's `src/server/mutation.rs` (`MutationPlan`/`commit_mutation`/
 //! `commit_conditional_mutation`) is the "handlers CONSUME `policy()`" refactor this doc used
-//! to describe as future work for EG-P0-2/EG-P0-6 -- as of the L11 rollout it covers 74
-//! methods (`mutation::GATEWAY_ROUTED`), spanning plain graph-core CRUD, the message-broker/
+//! to describe as future work for EG-P0-2/EG-P0-6 -- as of the L11 rollout it covers
+//! `mutation::GATEWAY_ROUTED`, spanning plain graph-core CRUD, the message-broker/
 //! stream family, AND both runtime-conditional families (`GraphLearnFit`/`GraphLearnPredict`,
 //! every writeback-capable `Mine*`). Because that refactor lives in `epistemic-graph` (which
 //! CAN depend on this crate), the genuinely LIVE cross-check for the ROUTED set lives there
 //! too, in `src/server/mutation.rs`'s own `#[cfg(test)]` module -- NOT here:
-//!   - `routed_mutation_produces_one_wal_record_one_audit_entry_and_one_cdc_event` /
+//!   - routed mutation tests drive committed writes, audit entries, and CDC events /
 //!     `audited_mutation_writes_audit_but_cdc_stays_policy_gated` /
 //!     `broker_family_routed_mutation_is_audited_with_no_cdc` /
 //!     `none_durability_routed_mutation_applies_but_is_not_persisted` drive a routed method
 //!     through the REAL `commit_mutation` against a REAL `RedbBackend` and read the actual
-//!     WAL/redb row + audit chain + CDC feed back, asserting they match `policy(method)` --
+//!     authoritative redb row + audit chain + CDC feed back, asserting they match
+//!     `policy(method)` --
 //!     not a second hand-transcribed table.
 //!   - `mining_family_writeback_gates_durability_and_authz` does the same for the RUNTIME-
 //!     CONDITIONAL half specifically: it drives the SAME method (`MineAssociate`) through
@@ -47,13 +48,13 @@
 //!     for_method(m) == eg_capabilities::policy(m)` field-by-field -- a live equality, not a
 //!     transcription.
 //!   - `gateway_routed_set_matches_mutating_policy_surface` partitions every OTHER mutating
-//!     method into a documented `JUSTIFIED_NA` (real architectural reason: a different commit
-//!     protocol, a non-graph-scoped store, a cross-shard op, ...) or `OPEN_NOT_JUSTIFIED`
-//!     (honest remainder, no blocker) bucket -- an undocumented name is a hard test failure.
+//!     method into a documented `NON_GATEWAY_COORDINATED` bucket (native MutationBatch/saga,
+//!     translation, or explicitly ephemeral pre-commit staging) or `OPEN_NOT_JUSTIFIED`
+//!     (honest remainder, no blocker) -- an undocumented name is a hard test failure.
 //!
-//! So for the 74 routed methods, THIS file's snapshot mirror is no longer the only
+//! So for the routed methods, THIS file's snapshot mirror is no longer the only
 //! consistency check in the codebase (arguably no longer the interesting one) -- it still
-//! runs and still catches a drift in `access.rs`/`wal.rs`/`audit.rs`/`cdc.rs` for the OTHER
+//! runs and still catches a drift in `access.rs`/`mutation_apply.rs`/`audit.rs`/`cdc.rs` for the OTHER
 //! ~264 methods those four functions still solely govern, which is exactly the scope this
 //! crate's leaf-build constraint permits it to check on its own.
 
@@ -73,24 +74,34 @@ const ACCESS_RS_MUTATES_UNCONDITIONAL: &[&str] = &[
     "AddSceneObject",
     "AddTriples",
     "AppendStep",
+    "ApplyChangeEnvelope",
     "ApplyLedger",
     "ApplyMultisigMutation",
     "ApplyMutation",
     "BatchUpdate",
+    "BeginTxn",
     "BindQueue",
     "BrokerAck",
+    "BrokerAckTag",
     "BrokerConsume",
+    "BrokerNackTag",
     "BrokerReject",
+    "BrokerRenewTag",
+    "CancelWorkItem",
     "ClaimNext",
+    "ClaimWorkItem",
     "ClearGraph",
     "ClearLedger",
     "CompactNodesByType",
     "CompareAndSetNodeFields",
+    "CommitWorkItemResult",
     "Consolidate",
+    "CreateNodeIfAbsent",
     "CreateSummaryNode",
     "DecayMemories",
     "DecayNode",
     "DecaySweep",
+    "DeferWorkItem",
     "DeclareExchange",
     "DeclareQueue",
     "DeleteExchange",
@@ -99,13 +110,13 @@ const ACCESS_RS_MUTATES_UNCONDITIONAL: &[&str] = &[
     "EvictBelow",
     "EvictLRU",
     "FromMsgpack",
+    "ImportSqliteFile",
     "IcvConfigure",
     "InvalidateEdge",
     "KvCas",
     "KvDelete",
     "KvPut",
     "Maintain",
-    "ParseRepository",
     "PruneByLifecycle",
     "Publish",
     "PublishEx",
@@ -115,7 +126,9 @@ const ACCESS_RS_MUTATES_UNCONDITIONAL: &[&str] = &[
     "RemoveNode",
     "RemoveTriples",
     "Reparent",
+    "RenewWorkItemLease",
     "RunDatalogReasoning",
+    "Rollback",
     "SetPose",
     "StartTrajectory",
     "SupersedeEdge",
@@ -125,8 +138,9 @@ const ACCESS_RS_MUTATES_UNCONDITIONAL: &[&str] = &[
 ];
 
 /// Mirrors `src/server/access.rs::requires_write`'s RUNTIME-CONDITIONAL set: the Mine*/
-/// GraphLearn* families (`return *writeback;`) and the Sql/CypherQuery/GraphQl variants
-/// (`sql_is_write`/`cypher_is_write`/`graphql_is_mutation`, which parse the query text).
+/// GraphLearn* families (`return *writeback;`) and the Sql/CypherQuery/GraphQl variants.
+/// SQL and GraphQL are parsed here; Cypher carries a required declared mode which the
+/// handler independently verifies against the native parser before execution.
 /// `policy()`'s `mutates: true` for these is a conservative UPPER BOUND, not an equality --
 /// the real answer depends on data the static table cannot see.
 const ACCESS_RS_MUTATES_CONDITIONAL: &[&str] = &[
@@ -152,16 +166,18 @@ const ACCESS_RS_MUTATES_CONDITIONAL: &[&str] = &[
     "MineSubgraph",
     "MineText",
     "Sql",
+    #[cfg(feature = "modality-serving")]
+    "ServedModality",
 ];
 
 /// Mirrors `access.rs`'s ONE explicit-false special case: `MineClassifyFit` always returns
 /// `false` from `requires_write` regardless of any field (it never writes back).
 const ACCESS_RS_MUTATES_EXPLICIT_FALSE: &[&str] = &["MineClassifyFit"];
 
-/// Mirrors `src/wal.rs::is_durable_mutation`'s GraphRedb-domain true set (the plain
+/// Mirrors `src/mutation_apply.rs::is_durable_mutation`'s GraphRedb-domain true set (the plain
 /// node/edge/memory/scene/trajectory primitives + RDF triples + the writeback-true Mine*/
 /// GraphLearn* variants that DO make the durable list).
-const WAL_RS_DURABLE_GRAPHREDB: &[&str] = &[
+const MUTATION_APPLY_DURABLE_GRAPHREDB: &[&str] = &[
     "AddEdge",
     "AddEmbedding",
     "AddNode",
@@ -169,13 +185,18 @@ const WAL_RS_DURABLE_GRAPHREDB: &[&str] = &[
     "AddTriples",
     "AppendStep",
     "BatchUpdate",
+    "CancelWorkItem",
     "ClaimNext",
+    "ClaimWorkItem",
     "ClearGraph",
     "CompareAndSetNodeFields",
+    "CommitWorkItemResult",
     "Consolidate",
+    "CreateNodeIfAbsent",
     "CreateSummaryNode",
     "DecayMemories",
     "DecayNode",
+    "DeferWorkItem",
     "DropNamedGraph",
     "EvictBelow",
     "GraphLearnFit",
@@ -204,19 +225,47 @@ const WAL_RS_DURABLE_GRAPHREDB: &[&str] = &[
     "RemoveNode",
     "RemoveTriples",
     "Reparent",
+    "RenewWorkItemLease",
     "SetPose",
     "StartTrajectory",
     "SupersedeEdge",
+    #[cfg(feature = "modality-serving")]
+    "ServedModality",
 ];
 
-/// Mirrors `src/wal.rs::is_durable_mutation`'s message-broker/stream true set.
-const WAL_RS_DURABLE_OUTBOX: &[&str] = &[
+/// GraphRedb operations that own a native transaction/status/outbox commit point
+/// outside the per-method graph mutation-applier classifier.
+const NATIVE_GRAPHREDB_DURABLE: &[&str] = &[
+    "ApplyChangeEnvelope",
+    "ApplyLedger",
+    "ApplyMultisigMutation",
+    "ApplyMutation",
+    "ClearLedger",
+    "CompactNodesByType",
+    "CreateGraph",
+    "CypherQuery",
+    "DecaySweep",
+    "DeleteGraph",
+    "EvictLRU",
+    "FromMsgpack",
+    "GraphQl",
+    "IcvConfigure",
+    "PruneByLifecycle",
+    "Reconcile",
+    "RunDatalogReasoning",
+    "Sql",
+    "TouchNodes",
+];
+
+/// Mirrors `src/mutation_apply.rs::is_durable_mutation`'s message-broker/stream true set.
+const MUTATION_APPLY_DURABLE_OUTBOX: &[&str] = &[
     "BindQueue",
     "BrokerAck",
     "BrokerAckTag",
     "BrokerConsume",
     "BrokerNackTag",
     "BrokerReject",
+    "BrokerRenewTag",
     "DeclareExchange",
     "DeclareQueue",
     "DeleteExchange",
@@ -240,7 +289,7 @@ const WAL_RS_DURABLE_OUTBOX: &[&str] = &[
 /// `Outbox`-domain durable mutation (every durable mutation actually reaches
 /// `redb_store::append_audit_entry` via `record`/`record_durable` ->
 /// `commit_ops`/`commit_crossmodal`, gateway-routed or not), so this mirror grows
-/// to match: 64 audited methods total.
+/// with the durable surface and is compared exactly below.
 const AUDIT_RS_AUDITED: &[&str] = &[
     "AddEdge",
     "AddEmbedding",
@@ -248,6 +297,7 @@ const AUDIT_RS_AUDITED: &[&str] = &[
     "AddSceneObject",
     "AddTriples",
     "AppendStep",
+    "ApplyChangeEnvelope",
     "BatchUpdate",
     "BindQueue",
     "BrokerAck",
@@ -255,20 +305,30 @@ const AUDIT_RS_AUDITED: &[&str] = &[
     "BrokerConsume",
     "BrokerNackTag",
     "BrokerReject",
+    "BrokerRenewTag",
+    "CancelWorkItem",
     "ClaimNext",
+    "ClaimWorkItem",
     "ClearGraph",
     "CompareAndSetNodeFields",
+    "CommitWorkItemResult",
     "Consolidate",
+    "CreateNodeIfAbsent",
     "CreateSummaryNode",
+    "CypherQuery",
     "DecayMemories",
     "DecayNode",
+    "DeferWorkItem",
     "DeclareExchange",
     "DeclareQueue",
     "DeleteExchange",
     "DropNamedGraph",
     "EvictBelow",
+    "ExportSqliteFile",
     "GraphLearnFit",
     "GraphLearnPredict",
+    "GraphQl",
+    "ImportSqliteFile",
     "InvalidateEdge",
     "Maintain",
     "MineAnomaly",
@@ -297,7 +357,9 @@ const AUDIT_RS_AUDITED: &[&str] = &[
     "RemoveNode",
     "RemoveTriples",
     "Reparent",
+    "RenewWorkItemLease",
     "SetPose",
+    "Sql",
     "StartTrajectory",
     "StreamCommitOffset",
     "StreamDeclare",
@@ -306,6 +368,8 @@ const AUDIT_RS_AUDITED: &[&str] = &[
     "SupersedeEdge",
     "SweepExpired",
     "UnbindQueue",
+    #[cfg(feature = "modality-serving")]
+    "ServedModality",
 ];
 
 /// Mirrors `src/server/cdc.rs::emit_for_method`'s explicit match (everything else falls to
@@ -313,10 +377,14 @@ const AUDIT_RS_AUDITED: &[&str] = &[
 const CDC_RS_EMITS_CDC: &[&str] = &[
     "AddEdge",
     "AddNode",
+    "ApplyChangeEnvelope",
     "ClearGraph",
     "CompareAndSetNodeFields",
+    "CreateNodeIfAbsent",
     "RemoveEdge",
     "RemoveNode",
+    #[cfg(feature = "modality-serving")]
+    "ServedModality",
 ];
 
 // ── KNOWN_DIVERGENCE ────────────────────────────────────────────────────────────────
@@ -331,6 +399,12 @@ const CDC_RS_EMITS_CDC: &[&str] = &[
 /// real means making the handlers consult a PER-INVOCATION policy (EG-P0-2/EG-P0-6), not a
 /// per-variant one.
 const RUNTIME_CONDITIONAL: &[(&str, &str, &str)] = &[
+    #[cfg(feature = "modality-serving")]
+    (
+        "ServedModality",
+        "P2.14",
+        "mutates is operation-conditional; authority/query/events/capabilities are reads",
+    ),
     (
         "CypherQuery",
         "EG-P0-2",
@@ -443,44 +517,7 @@ const RUNTIME_CONDITIONAL: &[(&str, &str, &str)] = &[
     ),
 ];
 
-/// Category 2: `policy(m).mutates == true` per `access.rs` (unconditionally, or as the
-/// upper bound of a runtime-conditional write), yet the method is ABSENT from
-/// `wal.rs::is_durable_mutation`'s durable set -- a crash between checkpoints loses the
-/// effect. Some of these are DELIBERATE per `wal.rs`'s own doc comment (derived/
-/// recomputable maintenance ops); others (`ApplyMutation`, `ApplyMultisigMutation`,
-/// `Reconcile`, the Ledger ops) look like real gaps. This is exactly the class of finding
-/// the task brief names EG-P0-3 for.
-///
-/// L14 (EG-P0-6): this table originally listed 23 entries, including `AddEmbedding`,
-/// `MineForecast`, `MineSequence`, `MineSubgraph`, and `MineText` -- but EG-P0-3
-/// (which landed AFTER the EG-P0-1 divergence report this table transcribes) already
-/// fixed `wal.rs::is_durable_mutation` to cover all five (see
-/// `src/server/access.rs::durability_closure_tests` in the main crate, which asserts
-/// exactly this). The ledger + this snapshot were stale, still counting them as open
-/// gaps; both are now corrected (23 -> 18) to match the real, already-fixed
-/// classifier -- see `WAL_RS_DURABLE_GRAPHREDB` above, which now includes all five.
-const WAL_DURABILITY_GAP: &[(&str, &str, &str)] = &[
-    ("ApplyLedger", "EG-P0-3", "write per access.rs but absent from wal.rs::is_durable_mutation -- a crash loses this mutation"),
-    ("ApplyMultisigMutation", "EG-P0-3", "write per access.rs but absent from wal.rs::is_durable_mutation -- a crash loses this mutation"),
-    ("ApplyMutation", "EG-P0-3", "write per access.rs but absent from wal.rs::is_durable_mutation -- a crash loses this mutation"),
-    ("ClearLedger", "EG-P0-3", "write per access.rs but absent from wal.rs::is_durable_mutation -- a crash loses this mutation"),
-    ("CompactNodesByType", "EG-P0-3", "write per access.rs but absent from wal.rs::is_durable_mutation -- a crash loses this mutation"),
-    ("DecaySweep", "EG-P0-3", "write per access.rs but absent from wal.rs::is_durable_mutation -- a crash loses this mutation"),
-    ("DeleteGraph", "EG-P0-3", "write per access.rs but absent from wal.rs::is_durable_mutation -- a crash loses this mutation"),
-    ("EvictLRU", "EG-P0-3", "write per access.rs but absent from wal.rs::is_durable_mutation -- a crash loses this mutation"),
-    ("FromMsgpack", "EG-P0-3", "write per access.rs but absent from wal.rs::is_durable_mutation -- a crash loses this mutation"),
-    ("IcvConfigure", "EG-P0-3", "write per access.rs but absent from wal.rs::is_durable_mutation -- a crash loses this mutation"),
-    ("ParseRepository", "EG-P0-3", "write per access.rs but absent from wal.rs::is_durable_mutation -- a crash loses this mutation"),
-    ("PruneByLifecycle", "EG-P0-3", "write per access.rs but absent from wal.rs::is_durable_mutation -- a crash loses this mutation"),
-    ("Reconcile", "EG-P0-3", "write per access.rs but absent from wal.rs::is_durable_mutation -- a crash loses this mutation"),
-    ("RunDatalogReasoning", "EG-P0-3", "write per access.rs but absent from wal.rs::is_durable_mutation -- a crash loses this mutation"),
-    ("TouchNodes", "EG-P0-3", "write per access.rs but absent from wal.rs::is_durable_mutation -- a crash loses this mutation"),
-    ("CypherQuery", "EG-P0-3", "write-conditional per access.rs (when the condition holds) but absent from wal.rs::is_durable_mutation"),
-    ("GraphQl", "EG-P0-3", "write-conditional per access.rs (when the condition holds) but absent from wal.rs::is_durable_mutation"),
-    ("Sql", "EG-P0-3", "write-conditional per access.rs (when the condition holds) but absent from wal.rs::is_durable_mutation"),
-];
-
-/// Category 3: `policy(m).mutates == true` on plain semantic/documentation grounds (the
+/// Category 2: `policy(m).mutates == true` on plain semantic/documentation grounds (the
 /// method plainly changes server state), yet the variant is not mentioned ANYWHERE in
 /// `access.rs::requires_write` at all -- not even in its unconditional-false fallthrough
 /// path in a way that was deliberate. Some of these are legitimately governed by a
@@ -501,23 +538,18 @@ const ACCESS_RS_COVERAGE_GAP: &[(&str, &str, &str)] = &[
     ("BlobGc", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("BlobRef", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("BlobUnref", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
-    ("BrokerAckTag", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
-    ("BrokerNackTag", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("CatalogAssign", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("CatalogReassign", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("CatalogRemove", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("CepSubscribe", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("CepUnsubscribe", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
-    ("Checkpoint", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("CloseChannel", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("Commit", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("CreateChannel", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("CreateGraph", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("CreateMatView", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
-    ("DistributedCompute", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("DropContinuousQuery", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("DropTrigger", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
-    ("ImportSqliteFile", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("JoinChannel", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("LeaveChannel", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("MultiGraphBatchUpdate", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
@@ -560,7 +592,6 @@ const ACCESS_RS_COVERAGE_GAP: &[(&str, &str, &str)] = &[
 fn all_known_divergence_names() -> std::collections::HashSet<&'static str> {
     RUNTIME_CONDITIONAL
         .iter()
-        .chain(WAL_DURABILITY_GAP.iter())
         .chain(ACCESS_RS_COVERAGE_GAP.iter())
         .map(|(n, _, _)| *n)
         .collect()
@@ -622,34 +653,48 @@ fn mutates_matches_access_rs_for_every_governed_variant() {
 }
 
 #[test]
-fn durability_domain_matches_wal_rs_for_the_graph_wal() {
-    // wal.rs::is_durable_mutation only knows about the per-graph WAL. `KvRedb`/`BlobRedb`/
-    // `SeriesRedb`/`JobsRedb` are real, but they are DIFFERENT durability domains living in
-    // their own redb files (kv.redb / blob.redb / series.redb / jobs.redb) that wal.rs never
-    // touches, so those domains are excluded from this specific cross-check (they are not a
-    // wal.rs divergence at all -- see the module doc on `DurabilityDomain`).
+fn durability_domain_matches_the_graph_mutation_applier() {
+    // mutation_apply::is_durable_mutation only knows about the per-method graph
+    // mutation-applier classifier.
+    // `KvRedb`/`BlobRedb`/`SeriesRedb`/`JobsRedb` are native redb domains,
+    // `ReasoningProjection` is the durable reasoning side index, and `ControlRedb`
+    // is the coordinator/RBAC ledger. The graph mutation applier never owns any of
+    // them, so those domains are excluded from this classifier cross-check.
     let mut failures = Vec::new();
     for (name, p, _note) in eg_capabilities::ALL_METHODS {
         match p.durability_domain {
             DurabilityDomain::KvRedb
             | DurabilityDomain::BlobRedb
             | DurabilityDomain::SeriesRedb
-            | DurabilityDomain::JobsRedb => continue,
+            | DurabilityDomain::JobsRedb
+            | DurabilityDomain::ReasoningProjection
+            | DurabilityDomain::ControlRedb => continue,
             DurabilityDomain::GraphRedb => {
-                if !WAL_RS_DURABLE_GRAPHREDB.contains(name) {
-                    failures.push(format!("{name}: policy says GraphRedb-durable, wal.rs::is_durable_mutation disagrees"));
+                if !MUTATION_APPLY_DURABLE_GRAPHREDB.contains(name)
+                    && !NATIVE_GRAPHREDB_DURABLE.contains(name)
+                {
+                    failures.push(format!("{name}: policy says GraphRedb-durable, mutation_apply::is_durable_mutation disagrees"));
                 }
             }
             DurabilityDomain::Outbox => {
-                if !WAL_RS_DURABLE_OUTBOX.contains(name) {
+                if !MUTATION_APPLY_DURABLE_OUTBOX.contains(name) {
                     failures.push(format!(
-                        "{name}: policy says Outbox-durable, wal.rs::is_durable_mutation disagrees"
+                        "{name}: policy says Outbox-durable, mutation_apply::is_durable_mutation disagrees"
                     ));
                 }
             }
             DurabilityDomain::None => {
-                if WAL_RS_DURABLE_GRAPHREDB.contains(name) || WAL_RS_DURABLE_OUTBOX.contains(name) {
-                    failures.push(format!("{name}: policy says not durable, but wal.rs::is_durable_mutation says it IS"));
+                if MUTATION_APPLY_DURABLE_GRAPHREDB.contains(name)
+                    || MUTATION_APPLY_DURABLE_OUTBOX.contains(name)
+                {
+                    failures.push(format!("{name}: policy says not durable, but mutation_apply::is_durable_mutation says it IS"));
+                }
+            }
+            DurabilityDomain::VolatileControl => {
+                if MUTATION_APPLY_DURABLE_GRAPHREDB.contains(name)
+                    || MUTATION_APPLY_DURABLE_OUTBOX.contains(name)
+                {
+                    failures.push(format!("{name}: policy says volatile control, but mutation_apply::is_durable_mutation says it IS"));
                 }
             }
         }
@@ -701,25 +746,17 @@ fn print_known_divergence_report() {
         eprintln!("  {name:<24} [{ws}] {reason}");
     }
     eprintln!(
-        "\n-- Category 2: WAL_DURABILITY_GAP ({} variants; workstream EG-P0-3) --",
-        WAL_DURABILITY_GAP.len()
-    );
-    for (name, ws, reason) in WAL_DURABILITY_GAP {
-        eprintln!("  {name:<24} [{ws}] {reason}");
-    }
-    eprintln!(
-        "\n-- Category 3: ACCESS_RS_COVERAGE_GAP ({} variants; workstream UNASSIGNED) --",
+        "\n-- Category 2: ACCESS_RS_COVERAGE_GAP ({} variants; workstream UNASSIGNED) --",
         ACCESS_RS_COVERAGE_GAP.len()
     );
     for (name, ws, reason) in ACCESS_RS_COVERAGE_GAP {
         eprintln!("  {name:<24} [{ws}] {reason}");
     }
     eprintln!(
-        "\ntotals: {} runtime-conditional + {} wal-durability-gap + {} access.rs-coverage-gap = {} documented divergences\n",
+        "\ntotals: {} runtime-conditional + {} access.rs-coverage-gap = {} documented divergences\n",
         RUNTIME_CONDITIONAL.len(),
-        WAL_DURABILITY_GAP.len(),
         ACCESS_RS_COVERAGE_GAP.len(),
-        RUNTIME_CONDITIONAL.len() + WAL_DURABILITY_GAP.len() + ACCESS_RS_COVERAGE_GAP.len(),
+        RUNTIME_CONDITIONAL.len() + ACCESS_RS_COVERAGE_GAP.len(),
     );
 }
 
@@ -733,14 +770,14 @@ fn generated_ledger_is_not_stale() {
     let checked_in_path = repo_root.join("docs").join("capabilities.generated.md");
     let checked_in = std::fs::read_to_string(&checked_in_path).unwrap_or_else(|e| {
         panic!(
-            "failed to read {}: {e} -- run `cargo run -p eg-capabilities --bin gen_ledger` first",
+            "failed to read {}: {e} -- run `cargo run -p eg-capabilities --features jobs,knowledge-batch,modality-serving --bin gen_ledger` first",
             checked_in_path.display()
         )
     });
     let fresh = eg_capabilities::gen_ledger();
     assert_eq!(
         checked_in, fresh,
-        "docs/capabilities.generated.md is STALE -- regenerate with `cargo run -p eg-capabilities --bin gen_ledger` and commit the result"
+        "docs/capabilities.generated.md is STALE -- regenerate with `cargo run -p eg-capabilities --features jobs,knowledge-batch,modality-serving --bin gen_ledger` and commit the result"
     );
 }
 
@@ -749,21 +786,11 @@ fn generated_ledger_is_not_stale() {
 /// is caught here too (in addition to the exhaustive-match compile error in `lib.rs`).
 #[test]
 fn all_methods_table_has_the_expected_variant_count() {
-    // CONCEPT:INT-P2-1: +1 (340/341) when `jobs` adds `Method::AnalyticsJob`.
-    // CONCEPT:EG-KG.sharding.placement-route-rpc (DIST-P2-4): +1 (338 base) for the
-    // always-in-the-enum `Method::PlacementRoute`.
-    // L53 (EPI-P3-5): +2 (338 -> 340 base) for `Method::EpistemicStatus` /
-    // `Method::WhatChanged`.
-    // CONCEPT:EG-X1 + EPI-P3-3 (facade wiring): +3 (340 -> 343 base) for
-    // `Method::ExplainEvidence`/`Method::CausalEstimate`/`Method::RankByProvenance`.
-    // CONCEPT:EG-KB-CURRENCY: +1 (343 -> 344 base) for `Method::ExplainProvenanceByIds`.
-    // Seam 3 (X-6 wire surface): +2 (344 -> 346 base) for
-    // `Method::RegisterMaterialization` / `Method::MaterializationStatus`.
-    // EPI-P3-6 (gap-fill): +1 (346 -> 347 base) for `Method::CausalCounterfactual`.
-    // EPI-P3-7 (gap-fill): +1 (347 -> 348 base) for `Method::ResolveConflict`.
-    // SURPASS gap-closure ("give staleness a consumer"): +1 (348 -> 349 base) for
-    // `Method::StaleMaterializations`.
-    let expected = if cfg!(feature = "jobs") { 350 } else { 349 };
+    // Current-only table after the strict removal of four deprecated methods.
+    let expected = 352
+        + usize::from(cfg!(feature = "jobs"))
+        + usize::from(cfg!(feature = "modality-serving"))
+        + usize::from(cfg!(feature = "knowledge-batch"));
     assert_eq!(eg_capabilities::ALL_METHODS.len(), expected);
 }
 

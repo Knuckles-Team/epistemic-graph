@@ -4,13 +4,14 @@
 is a **single durable engine** that unifies a property graph, vector ANN, SQL, RDF/SPARQL, OWL-2
 reasoning, time-series, content-addressed BLOB, full-text, and finance/data-science compute behind
 **one cross-modal `RowSet` planner**. Python reaches it **out-of-process** over length-prefixed
-**MessagePack on UDS/TCP**, HMAC-authenticated — there is **no PyO3 / in-process FFI** — or, on the
+**MessagePack on UDS/TCP**, authenticated by the current `eg2.` verified request envelope — there is
+**no PyO3 / in-process engine FFI** — or, on the
 edge, embeds it in-process via the `embedded` feature.
 
 This page is the architectural map. For the operational protocol see
 [Service Mode](service_mode.md); for the deep dive (distribution, security, streaming, federation,
-multimodal) see [the master-of-all engine](architecture/engine.md); for build tiers see
-[Tiers & binaries](architecture/tiers.md).
+multimodal) see [the master-of-all engine](architecture/engine.md); for build composition see
+[One build, opt-in layers](architecture/tiers.md).
 
 ---
 
@@ -39,16 +40,17 @@ flowchart LR
     CORE --> REDB
 ```
 
-Both transports drive the **same** `GraphCore` + redb-authoritative durable rows (via `wal::apply` +
-the server-independent `redb_store`). The socket path adds Tokio + HMAC; the embedded path is a plain
+Both transports drive the **same** `GraphCore`, canonical mutation applier, and
+redb-authoritative durable rows. The socket path adds Tokio + HMAC; the embedded path is a plain
 library handle. One core, two front doors.
 
 ---
 
 ## The crate workspace (a dependency DAG)
 
-The engine is a Cargo workspace whose member crates map 1:1 to an acyclic dependency DAG. A crate may
-only `use` crates to its left; a cycle will not compile, which is the enforcement.
+The engine is an acyclic Cargo workspace. The diagram below shows the primary query/storage flow;
+the current workspace-member list and exact optional edges live in `Cargo.toml`. A dependency cycle
+will not compile, which is the enforcement.
 
 ```mermaid
 flowchart LR
@@ -98,11 +100,11 @@ flowchart LR
     EGTSDB --> EGLAKE
 ```
 
-The facade re-exports `eg-{types,core,compute}` under the historical `crate::` paths and adds the
+The facade re-exports `eg-{types,core,compute}` through the current public `crate::` paths and adds the
 server-side modules (dispatch, handlers, persistence, raft, embedded, **the multi-wire adapters**, and
 **the observability listener**). Server dispatch is a thin routing table: each `Method` routes to a
-`handlers::<domain>::try_handle` and the write side-effects (in-flight gauge, dirty mark, WAL enqueue,
-CDC emit) stay centralized in the shell so every write handler gets durability + reactivity for free.
+`handlers::<domain>::try_handle` and the write side-effects (in-flight gauge, authoritative redb
+commit, CDC emit) stay centralized in the shell so every write handler gets durability + reactivity for free.
 
 Six leaf/modality crates were added in the 2.2.0 cycle: **eg-geo** (GIS — geometry, R-tree, CRS, routing;
 CONCEPT:EG-KG.ontology.singles-concept/255-267/155), **eg-tensor** (N-D arrays; CONCEPT:EG-KG.storage.content-addressed-dedup), **eg-stream** (windowed CEP;
@@ -178,7 +180,7 @@ each), computed off the per-graph lock on a structural snapshot so analytics nev
 - **Shortest path** — unweighted BFS with predecessor backtrack.
 - **Blast radius** — BFS to `max_depth`, returning all downstream transitive dependents.
 - **PageRank / PPR, betweenness, community detection (Louvain), MST, VF2 subgraph isomorphism.**
-- **Distributed Pregel/GAS** (cluster tier) — PageRank / connected-components / BFS across graphs that
+- **Distributed Pregel/GAS** (`cluster` feature) — PageRank / connected-components / BFS across graphs that
   span multiple Raft shards, with incrementally-maintained materialized views.
 
 See the [Rust Compute Guide](rust_compute_guide.md) for the procedure to add a capability across the

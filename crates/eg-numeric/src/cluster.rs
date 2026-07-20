@@ -2,7 +2,7 @@
 //! Lloyd's-algorithm k-means (k-means++ seeding) over an `ndarray` matrix, using the
 //! kernel's own seedable RNG ([`crate::random::Generator`], ChaCha20) so a run is
 //! **deterministic for a given seed** — no `linfa`/BLAS dependency, keeping the Pi
-//! contract (`cargo tree --features pi` links no eg-numeric/faer/ndarray/linfa).
+//! contract (`cargo tree --features pi` links no eg-numeric/nalgebra/ndarray/linfa).
 //!
 //! This is the clustering kernel behind the Surface-B `kmeans(vec_col, k)` DataFusion
 //! UDAF (`crates/eg-query/src/sql/numeric.rs`): a column of vectors is marshalled into an

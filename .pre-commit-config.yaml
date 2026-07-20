@@ -8,7 +8,7 @@ ci:
 
 repos:
 - repo: https://github.com/pre-commit/pre-commit-hooks
-  rev: v6.0.0
+  rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c # v6.0.0
   hooks:
   - id: check-added-large-files
     args: ["--maxkb=2000"]
@@ -26,7 +26,7 @@ repos:
   - id: trailing-whitespace
   - id: end-of-file-fixer
 - repo: https://github.com/astral-sh/ruff-pre-commit
-  rev: v0.15.12
+  rev: 6fec9b7edb08fd9989088709d864a7826dc74e80 # v0.15.12
   hooks:
   - id: ruff-check
     args: ["--fix", "--ignore=E402,B008,E501"]
@@ -34,44 +34,44 @@ repos:
   - id: ruff-format
     exclude: ^(tests/|test/|scripts/|script/)
 - repo: https://github.com/pre-commit/mirrors-mypy
-  rev: v1.20.2
+  rev: fc0f09a29bb495f4a91f00266155d6282d52485d # v1.20.2
   hooks:
   - id: mypy
-    additional_dependencies: [pydantic, types-PyYAML, types-requests, types-setuptools]
+    additional_dependencies: [pydantic==2.13.4, types-PyYAML==6.0.12.20260518, types-requests==2.33.0.20260518, types-setuptools==83.0.0.20260706]
     args: ["--ignore-missing-imports"]
 - repo: https://github.com/jendrikseipp/vulture
-  rev: v2.16
+  rev: b0f67ba0044693aa9ec0d38fe460590facc98004 # v2.16
   hooks:
   - id: vulture
     pass_filenames: false
     args: [".", "--min-confidence", "95", "--exclude", "node_modules,dotnet,.venv,venv,node_modules,.git,build,dist,target"]
     require_serial: true
 - repo: https://github.com/codespell-project/codespell
-  rev: v2.4.2
+  rev: 2ccb47ff45ad361a21071a7eedda4c37e6ae8c5a # v2.4.2
   hooks:
   - id: codespell
     args: ["-L", "ans,linar,nam,tread,ot,ser,inh,copyin,unparseable,implementors,nd,datas,alls,re-declaring", "--ignore-words=.codespellignore"]
     exclude: ^(tests/|test/|scripts/|script/|.*lock.*|Cargo.lock|\.specify/)
 - repo: https://github.com/PyCQA/bandit
-  rev: 1.9.4
+  rev: 92ae8b82fb422a639f0ed8d99e96cea769594e08 # 1.9.4
   hooks:
   - id: bandit
     args: ["--skip", "B101,B404,B603"]
     exclude: ^(tests/|test/|scripts/|script/|__tests__/)
 - repo: https://github.com/astral-sh/uv-pre-commit
-  rev: 0.11.8
+  rev: 659a7789596d520c849e9c96525119e9fbaa731f # 0.11.8
   hooks:
   - id: uv-lock
 - repo: local
   hooks:
   - id: check-stubs
     name: Check for Active Stubs and TODOs
-    entry: python3 /home/apps/workspace/agent-packages/agent-utilities/scripts/check_stubs.py
+    entry: bash -c 'repo=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)"); root=${AGENT_UTILITIES_ROOT:-"$(dirname "$repo")/agent-utilities"}; python3 "$root/scripts/check_stubs.py" "$@"' --
     language: system
     types: [python]
   - id: check-sprawl
     name: Guardrail — anti-sprawl
-    entry: python3 /home/apps/workspace/agent-packages/agent-utilities/scripts/check_sprawl.py
+    entry: bash -c 'repo=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)"); root=${AGENT_UTILITIES_ROOT:-"$(dirname "$repo")/agent-utilities"}; python3 "$root/scripts/check_sprawl.py" "$@"' --
     language: system
     args: ["."]
     pass_filenames: false
@@ -95,6 +95,24 @@ repos:
 # ─────────────────────────────────────────────────────────────────────────
 - repo: local
   hooks:
+  - id: documentation-contract
+    name: Documentation contract (Cargo, ledger, MkDocs)
+    entry: python3 scripts/check_documentation_contract.py
+    language: system
+    pass_filenames: false
+    always_run: true
+  - id: canonical-property-schema
+    name: Canonical structural property schema
+    entry: python3 scripts/check_canonical_property_schema.py
+    language: system
+    pass_filenames: false
+    always_run: true
+  - id: epistemic-operations-protocol
+    name: Epistemic Operations manifest ⇄ Rust DTO parity
+    entry: python3 scripts/check_epistemic_operations_protocol.py
+    language: system
+    pass_filenames: false
+    always_run: true
   # rust-ci.yml `protocol-parity` job — the Python client mirrors the Rust `Method`
   # enum by sending variant-name strings (no PyO3/codegen), so a renamed/removed Rust
   # variant or an unbound new one silently drifts. This gate catches it on every

@@ -28,7 +28,15 @@ import pytest
 _ROOT = Path(__file__).parent.parent
 _PROTOCOL = _ROOT / "crates" / "eg-types" / "src" / "protocol.rs"
 _CLIENT = _ROOT / "epistemic_graph" / "client.py"
+_KNOWLEDGE_STREAM = _ROOT / "crates" / "eg-types" / "src" / "knowledge_stream.rs"
 _BASELINE = Path(__file__).parent / "protocol_unbound_baseline.txt"
+
+_RETIRED_METHODS = {
+    "BatchCosineSimilarity",
+    "SpectralCluster",
+    "HypergraphEncodeInteraction",
+    "FindSimilarPairs",
+}
 
 
 def _rust_method_variants() -> set[str]:
@@ -105,6 +113,23 @@ def test_unbound_variants_match_baseline():
         "Baseline lists variants that are now bound (or no longer exist) — "
         f"remove them from protocol_unbound_baseline.txt: {stale}"
     )
+
+
+def test_retired_protocol_surfaces_are_absent():
+    variants = _rust_method_variants()
+    sent = _python_sent_methods()
+    assert not (_RETIRED_METHODS & variants)
+    assert not (_RETIRED_METHODS & sent)
+
+    protocol = _PROTOCOL.read_text(encoding="utf-8")
+    protocol_contract = protocol.split("// ── Tests", maxsplit=1)[0]
+    client = _CLIENT.read_text(encoding="utf-8")
+    stream = _KNOWLEDGE_STREAM.read_text(encoding="utf-8")
+    assert "reorder_filter_selectivity" not in protocol_contract
+    assert 'content = "params", deny_unknown_fields' in protocol_contract
+    assert "reorder_filter_selectivity" not in client
+    assert "CompatibilityMsgpackV1" not in stream
+    assert "ArrowIpcV1" in stream
 
 
 @pytest.mark.skip(reason="diagnostic helper, run manually")

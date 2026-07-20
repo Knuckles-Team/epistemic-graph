@@ -86,7 +86,7 @@ pub(crate) mod dist_compute;
 pub(crate) mod federation;
 // SQLite `.db` FILE import/export (CONCEPT:EG-KG.query.eg-feature/EG-332, feature `sqlite-file`). The
 // ImportSqliteFile/ExportSqliteFile methods move rows between an on-disk `sqlite3` `.db`
-// file and the process-global `eg_query::TableStore` (behind `query`), via the bundled
+// file and the verified caller's owner-scoped `eg_query::TableStore` (behind `query`), via the bundled
 // C `rusqlite` (kept OUT of pi). NOT graph-scoped; a build without `sqlite-file` omits
 // the module and the variants aren't in the enum (so the dispatch chain never routes them).
 #[cfg(feature = "sqlite-file")]
@@ -101,6 +101,15 @@ pub(crate) mod sqlite_file;
 // than a resolved `GraphCore`.
 #[cfg(feature = "jobs")]
 pub(crate) mod jobs;
+// Governed document/image/audio/video serving. The wire carries an ephemeral
+// source body, while this handler persists only an encrypted, opaque runtime
+// snapshot through the graph mutation gateway.
+#[cfg(feature = "modality-serving")]
+pub(crate) mod modality;
+// One governed, bounded Arrow KnowledgeBatch result plane for graph, SQL, RDF,
+// vector, time-series, analytics jobs, and cross-modal plans.
+#[cfg(feature = "knowledge-batch")]
+pub(crate) mod knowledge_stream;
 // Placement-catalog wire RPC (CONCEPT:EG-KG.sharding.placement-route-rpc, DIST-P2-4): exposes the
 // DIST-P2-1 `PlacementCatalog` (raft/placement.rs) over `Method::PlacementRoute`. Always
 // declared (like `admin`); the real answer is `raft`-gated (the only build where

@@ -48,7 +48,7 @@ not the durable tier).
 
 | Env var | Meaning | Default |
 |---------|---------|---------|
-| `EPISTEMIC_GRAPH_MEMORY_BUDGET` | Global resident-memory ceiling (`512m`, `2g`, or plain bytes). `0` disables budgeting. **This is the single knob.** | 70% of system RAM (`/proc/meminfo`) |
+| `EPISTEMIC_GRAPH_MEMORY_BUDGET` | Global resident-memory ceiling (`512m`, `2g`, or plain bytes). `0` explicitly disables budgeting. Invalid values fall back to the safe automatic ceiling. **This is the single knob.** | 40% of the smaller of system RAM and the cgroup limit |
 | `EPISTEMIC_GRAPH_TENANT_BUDGET` | Optional per-tenant budget override. | = the global ceiling |
 | `EPISTEMIC_GRAPH_BUDGET_INTERVAL` | Sweep cadence, seconds. | 15 |
 
@@ -63,7 +63,7 @@ signals an autoscaler needs (also exported on the Prometheus `/metrics` endpoint
 | Signal | Per-graph | Per-tenant | Aggregate |
 |--------|:---------:|:----------:|:---------:|
 | resident memory bytes | ✓ | ✓ | ✓ (`total_memory_bytes`) |
-| process peak RSS (calibration) | | | ✓ (`process_rss_bytes`) |
+| current process RSS (hard-ceiling calibration; peak fallback) | | | ✓ (`process_rss_bytes`) |
 | node / edge counts | ✓ | ✓ | ✓ |
 | hibernated vs resident | ✓ | ✓ | ✓ |
 | in-flight / queue depth | | | ✓ (`in_flight`, `inflight_permits_available`) |
@@ -76,7 +76,7 @@ Prometheus series: `epistemic_graph_graph_memory_bytes{graph}`,
 
 **Scale-out trigger (typical autoscaler rule):** sustained `budget_evictions_total` rate > 0
 **and** `inflight_permits_available` near zero ⇒ the shard is memory- + admission-bound ⇒
-add a shard (client-side HRW resharding spreads tenants across the new shard).
+add capacity through governed membership and placement movement.
 
 ## Capacity estimate
 
@@ -106,7 +106,7 @@ far fewer resident bytes.
 
 The key property: because cold tenants evict/hibernate to the durable tier and rehydrate on
 access, a shard's resident RAM tracks the **hot working set**, not the total tenant count —
-the "100M agents, a local engine each" story holds at every tier.
+the "100M agents, a local engine each" story holds across supported deployment topologies.
 
 ## Deferred
 

@@ -135,11 +135,8 @@ pub struct CoalescerConfig {
 }
 
 impl CoalescerConfig {
-    /// Auto-size from cpu count (Configuration discipline: a hardware/load tunable
-    /// is auto-sized, not exposed as a flag). More cores → more concurrent
-    /// producers → a larger batch amortizes the lock further. One opt-out env
-    /// (`EPISTEMIC_GRAPH_WRITE_COALESCE=0`) disables coalescing entirely for an
-    /// operator who needs the strictly-inline path; it is read once at startup.
+    /// Auto-size from cpu count. More cores mean more concurrent producers, so a
+    /// larger batch amortizes the lock while all queues remain bounded.
     pub fn auto() -> Self {
         let cpus = std::thread::available_parallelism()
             .map(|n| n.get())
@@ -296,17 +293,13 @@ fn apply_batch(
     }
     // CONCEPT:EG-KG.storage.write-changeset — collect the per-WriteOp delta for this batch so the
     // heavy secondary indexes can be maintained incrementally under this SAME lock.
-    // Gated on the incremental switch so the kill-switch path pays ZERO extra work
-    // (no id clones, no changeset): when off, the dispatch shell's per-op mark_dirty
-    // performs the legacy invalidate-and-rebuild exactly as before.
-    let incremental = core.incremental_indexing();
     // CONCEPT:EG-KG.storage.incremental-text / .incremental-temporal — a content-derived
     // server index (text/temporal) is registered on this graph, so capture each
     // added/updated node's property blob into the ChangeSet. The adapter reads its
     // field from the captured blob rather than re-reading `core` under this batch's
     // topology lock (which would deadlock). `false` (the vector-only default) keeps
     // the hot path zero-clone — no blob is cloned.
-    let capture_content = incremental && core.wants_change_content();
+    let capture_content = core.wants_change_content();
     let mut change = crate::index::ChangeSet::new();
     for (_, op) in batch {
         match op {
@@ -322,17 +315,18 @@ fn apply_batch(
                             node_id.clone(),
                             properties_msgpack.clone(),
                         ));
-                } else if incremental {
+                } else {
                     change.record_add_node(node_id.clone());
                 }
                 txn.add_node(node_id, properties_msgpack);
                 let _ = reply.send(WriteOutcome::Ok);
             }
             WriteOp::RemoveNode { node_id, reply } => {
-                if incremental {
-                    change.record_remove_node(node_id.clone());
-                }
-                txn.remove_node(node_id);
+                change.record_remove_node(node_id.clone());
+                txn.remove_node(node_id.clone());
+                // Node identity owns its vector in every indexing mode. The
+                // incremental descriptor repeats this as an idempotent safety net.
+                core.semantic_store.write().remove_embedding(&node_id);
                 let _ = reply.send(WriteOutcome::Ok);
             }
             WriteOp::AddEdge {
@@ -343,16 +337,10 @@ fn apply_batch(
             } => {
                 // Only a SUCCESSFUL add-edge is a real change (a missing endpoint is
                 // an Err that touches nothing), so record it after the outcome.
-                let recorded = if incremental {
-                    Some((source_id.clone(), target_id.clone()))
-                } else {
-                    None
-                };
+                let recorded = (source_id.clone(), target_id.clone());
                 let outcome = match txn.add_edge(source_id, target_id, properties_msgpack) {
                     Ok(()) => {
-                        if let Some((s, t)) = recorded {
-                            change.record_add_edge(s, t);
-                        }
+                        change.record_add_edge(recorded.0, recorded.1);
                         WriteOutcome::Ok
                     }
                     Err(e) => WriteOutcome::Err(e),
@@ -364,9 +352,7 @@ fn apply_batch(
                 target_id,
                 reply,
             } => {
-                if incremental {
-                    change.record_remove_edge(source_id.clone(), target_id.clone());
-                }
+                change.record_remove_edge(source_id.clone(), target_id.clone());
                 txn.remove_edge(source_id, target_id);
                 let _ = reply.send(WriteOutcome::Ok);
             }
@@ -387,11 +373,20 @@ fn apply_batch(
                         let blob =
                             rmp_serde::to_vec_named(&serde_json::Value::Object(updates.clone()))
                                 .unwrap_or_default();
+                        change.updated_nodes.push(
+                            crate::index::NodeChange::with_properties_and_fields(
+                                node_id,
+                                blob,
+                                updates.keys().cloned().collect(),
+                            ),
+                        );
+                    } else {
                         change
                             .updated_nodes
-                            .push(crate::index::NodeChange::with_properties(node_id, blob));
-                    } else if incremental {
-                        change.record_update_node(node_id);
+                            .push(crate::index::NodeChange::with_fields(
+                                node_id,
+                                updates.keys().cloned().collect(),
+                            ));
                     }
                 }
                 let _ = reply.send(WriteOutcome::Cas(ok));
@@ -402,8 +397,13 @@ fn apply_batch(
     // text/temporal/derived-OWL via the same seam in future) BEFORE releasing the
     // topology lock, so a concurrent hybrid read sees the topology mutation and the
     // index moves together — never a torn index.
-    if incremental && !change.is_empty() {
-        core.maintain_indexes(&change);
+    if !change.is_empty() {
+        core.maintain_indexes_at(
+            &change,
+            core.version().saturating_add(change.len() as u64),
+            txn.node_count(),
+            txn.edge_count(),
+        );
     }
     drop(txn); // release the lock; reads + the next batch can proceed.
                // CONCEPT:EG-KG.compute.parse-resolve-span — hold = acquire → release: the window readers were blocked.
@@ -419,26 +419,14 @@ fn apply_batch(
 pub struct WriteCoalescerRegistry {
     writers: DashMap<String, Arc<GraphWriter>>,
     config: CoalescerConfig,
-    /// Master switch (opt-out only). When false, `writer_for` returns None and the
-    /// dispatch path stays strictly inline.
-    enabled: bool,
 }
 
 impl WriteCoalescerRegistry {
-    /// Build a registry, reading the single opt-out env once
-    /// (`EPISTEMIC_GRAPH_WRITE_COALESCE=0|false|off` disables). Default ON.
-    pub fn from_env() -> Self {
-        let enabled = !matches!(
-            std::env::var("EPISTEMIC_GRAPH_WRITE_COALESCE")
-                .ok()
-                .map(|v| v.trim().to_ascii_lowercase())
-                .as_deref(),
-            Some("0") | Some("false") | Some("off") | Some("no")
-        );
+    /// Build an always-on, hardware-sized bounded coalescer registry.
+    pub fn new() -> Self {
         Self {
             writers: DashMap::new(),
             config: CoalescerConfig::auto(),
-            enabled,
         }
     }
 
@@ -447,34 +435,22 @@ impl WriteCoalescerRegistry {
         Self {
             writers: DashMap::new(),
             config,
-            enabled: true,
         }
-    }
-
-    pub fn enabled(&self) -> bool {
-        self.enabled
     }
 
     /// Get (or lazily create) the writer for `graph_name`, spawning its worker over
-    /// `core` on first use. Returns `None` when coalescing is disabled — the caller
-    /// then takes the inline path. The `core` passed MUST be the same `Arc` for a
-    /// given name across calls (the dispatch always clones it from the one registry
-    /// entry), so a graph has exactly one writer over its one core.
-    pub fn writer_for(&self, graph_name: &str, core: &Arc<GraphCore>) -> Option<Arc<GraphWriter>> {
-        if !self.enabled {
-            return None;
-        }
+    /// `core` on first use. The `core` passed must be the same `Arc` for a given
+    /// name, so a graph has exactly one writer over its one core.
+    pub fn writer_for(&self, graph_name: &str, core: &Arc<GraphCore>) -> Arc<GraphWriter> {
         if let Some(w) = self.writers.get(graph_name) {
-            return Some(w.clone());
+            return w.clone();
         }
-        let writer = self
-            .writers
+        self.writers
             .entry(graph_name.to_string())
             .or_insert_with(|| {
                 GraphWriter::spawn(graph_name.to_string(), core.clone(), self.config)
             })
-            .clone();
-        Some(writer)
+            .clone()
     }
 
     /// Drop the cached writer for `graph_name` (CONCEPT:EG-KG.backend.many-repeated-create-delete). Called by
@@ -489,6 +465,12 @@ impl WriteCoalescerRegistry {
     /// fresh writer over the NEW core. No-op if no writer exists yet.
     pub fn remove(&self, graph_name: &str) {
         self.writers.remove(graph_name);
+    }
+}
+
+impl Default for WriteCoalescerRegistry {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -652,16 +634,12 @@ mod tests {
         let core_a = Arc::new(GraphCore::new());
         let core_b = Arc::new(GraphCore::new());
 
-        let wa = reg.writer_for("__commons__", &core_a).expect("writer A");
-        let wb = reg
-            .writer_for("connector:brand_new", &core_b)
-            .expect("writer B");
+        let wa = reg.writer_for("__commons__", &core_a);
+        let wb = reg.writer_for("connector:brand_new", &core_b);
         // Distinct graphs → distinct writers.
         assert!(!Arc::ptr_eq(&wa, &wb));
         // Same name → same writer (one worker per graph).
-        let wa2 = reg
-            .writer_for("__commons__", &core_a)
-            .expect("writer A again");
+        let wa2 = reg.writer_for("__commons__", &core_a);
         assert!(Arc::ptr_eq(&wa, &wa2));
     }
 
@@ -793,12 +771,12 @@ mod tests {
         let new_core = Arc::new(GraphCore::new());
 
         // First incarnation gets a writer over old_core.
-        let _w1 = reg.writer_for("g", &old_core).expect("w1");
+        let _w1 = reg.writer_for("g", &old_core);
         // Delete: drop the cached writer (the registry entry / old_core is gone too).
         reg.remove("g");
         // Recreate with a brand-new core; the next write lazily spawns a fresh writer
         // over new_core.
-        let w2 = reg.writer_for("g", &new_core).expect("w2");
+        let w2 = reg.writer_for("g", &new_core);
         let (reply, rx) = oneshot::channel();
         w2.try_enqueue(WriteOp::AddNode {
             node_id: "x".into(),
@@ -815,18 +793,6 @@ mod tests {
             !old_core.has_node("x"),
             "write must NOT land on the deleted incarnation's orphaned core"
         );
-    }
-
-    /// The opt-out env disables coalescing (writer_for returns None → inline path).
-    #[test]
-    fn opt_out_disables_coalescing() {
-        let reg = WriteCoalescerRegistry {
-            writers: DashMap::new(),
-            config: CoalescerConfig::auto(),
-            enabled: false,
-        };
-        let core = Arc::new(GraphCore::new());
-        assert!(reg.writer_for("__commons__", &core).is_none());
     }
 
     fn emb8(i: usize, n: usize) -> Vec<f32> {

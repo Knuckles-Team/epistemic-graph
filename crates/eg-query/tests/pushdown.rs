@@ -36,7 +36,7 @@ fn rows(r: &QueryResult) -> Vec<Vec<serde_json::Value>> {
 /// Helper: run a query, return sorted id list.
 fn ids(core: &GraphCore, sql: &str) -> Vec<String> {
     let snap = core.analysis_snapshot();
-    let r = exec_sql(&snap, sql).unwrap();
+    let r = exec_sql(&snap, sql, &eg_query::CancellationToken::new()).unwrap();
     let mut v: Vec<String> = rows(&r)
         .into_iter()
         .map(|row| row[0].as_str().unwrap().to_string())
@@ -63,7 +63,12 @@ fn pushdown_equality_matches_full_scan() {
     // the full batch when there is no equality predicate, so this is the full-scan
     // path.)
     let snap = core.analysis_snapshot();
-    let all = exec_sql(&snap, "SELECT id, team FROM nodes").unwrap();
+    let all = exec_sql(
+        &snap,
+        "SELECT id, team FROM nodes",
+        &eg_query::CancellationToken::new(),
+    )
+    .unwrap();
     let mut truth: Vec<String> = rows(&all)
         .into_iter()
         .filter(|row| row[1].as_str() == Some("blue"))
@@ -89,7 +94,12 @@ fn pushdown_integer_equality() {
     let core = graph(70);
     let pushed = ids(&core, "SELECT id FROM nodes WHERE rank = 3 ORDER BY id");
     let snap = core.analysis_snapshot();
-    let all = exec_sql(&snap, "SELECT id, rank FROM nodes").unwrap();
+    let all = exec_sql(
+        &snap,
+        "SELECT id, rank FROM nodes",
+        &eg_query::CancellationToken::new(),
+    )
+    .unwrap();
     let mut truth: Vec<String> = rows(&all)
         .into_iter()
         .filter(|row| row[1].as_i64() == Some(3))
@@ -109,7 +119,12 @@ fn pushdown_composite_and() {
         "SELECT id FROM nodes WHERE team = 'blue' AND type = 'Tool' ORDER BY id",
     );
     let snap = core.analysis_snapshot();
-    let all = exec_sql(&snap, "SELECT id, team, type FROM nodes").unwrap();
+    let all = exec_sql(
+        &snap,
+        "SELECT id, team, type FROM nodes",
+        &eg_query::CancellationToken::new(),
+    )
+    .unwrap();
     let mut truth: Vec<String> = rows(&all)
         .into_iter()
         .filter(|row| row[1].as_str() == Some("blue") && row[2].as_str() == Some("Tool"))
@@ -131,7 +146,12 @@ fn non_indexed_predicate_full_scan_fallback() {
         "SELECT id FROM nodes WHERE name LIKE 'node-1%' ORDER BY id",
     );
     let snap = core.analysis_snapshot();
-    let all = exec_sql(&snap, "SELECT id, name FROM nodes").unwrap();
+    let all = exec_sql(
+        &snap,
+        "SELECT id, name FROM nodes",
+        &eg_query::CancellationToken::new(),
+    )
+    .unwrap();
     let mut truth: Vec<String> = rows(&all)
         .into_iter()
         .filter(|row| {
@@ -147,7 +167,12 @@ fn non_indexed_predicate_full_scan_fallback() {
 
     // An inequality (>) is also not equality-pushable.
     let gt = ids(&core, "SELECT id FROM nodes WHERE rank > 4 ORDER BY id");
-    let all2 = exec_sql(&snap, "SELECT id, rank FROM nodes").unwrap();
+    let all2 = exec_sql(
+        &snap,
+        "SELECT id, rank FROM nodes",
+        &eg_query::CancellationToken::new(),
+    )
+    .unwrap();
     let mut truth2: Vec<String> = rows(&all2)
         .into_iter()
         .filter(|row| row[1].as_i64().map(|r| r > 4).unwrap_or(false))
@@ -167,7 +192,12 @@ fn pushdown_mixed_equality_and_inequality() {
         "SELECT id FROM nodes WHERE team = 'red' AND rank > 3 ORDER BY id",
     );
     let snap = core.analysis_snapshot();
-    let all = exec_sql(&snap, "SELECT id, team, rank FROM nodes").unwrap();
+    let all = exec_sql(
+        &snap,
+        "SELECT id, team, rank FROM nodes",
+        &eg_query::CancellationToken::new(),
+    )
+    .unwrap();
     let mut truth: Vec<String> = rows(&all)
         .into_iter()
         .filter(|row| {

@@ -2,7 +2,7 @@
 //!
 //! The nemesis harness for the cross-shard distributed transaction: it spins a live
 //! two-group cluster (one in-process node, two Raft groups on the shared listener,
-//! one shared `graph.redb`) — the SAME machinery the single-group failover test uses
+//! one shared authoritative shard) — the SAME machinery the single-group failover test uses
 //! — and proves the atomicity invariant under fault injection:
 //!
 //!   * **No partial commit.** A cross-shard txn either commits on EVERY participant
@@ -29,13 +29,13 @@ use super::cross_shard_txn::{CrossShardCoordinator, CrossShardTxn, GraphSlice, T
 use super::multi::MultiRaft;
 use super::{AppCtx, NodeId};
 use crate::channels::ChannelManager;
+use crate::durability::DurabilityPolicy;
 use crate::isolation::IsolationLayer;
 use crate::protocol::{GraphType, Method};
 use crate::registry::GraphRegistry;
 use crate::server::persistence::redb_backend::RedbBackend;
 use crate::server::persistence::PersistenceBackend;
 use crate::server::ServerState;
-use crate::wal_service::FsyncPolicy;
 
 const GROUP_A: u64 = 100;
 const GROUP_B: u64 = 200;
@@ -57,12 +57,11 @@ async fn make_state(dir: &str, backend: Arc<dyn PersistenceBackend>) -> Arc<RwLo
         auth_secret: "xshard-test".to_string(),
         persist_dir: Some(dir.to_string()),
         persistence: Some(backend),
-        redb_authoritative: true,
         max_in_flight: Arc::new(tokio::sync::Semaphore::new(64)),
         read_admission: Arc::new(tokio::sync::Semaphore::new(64)),
         per_graph_inflight: Arc::new(dashmap::DashMap::new()),
         per_graph_inflight_limit: 16,
-        write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::from_env()),
+        write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
         open_txns: Arc::new(dashmap::DashMap::new()),
         txn_id_gen: Arc::new(crate::server::txn::TxnIdGen::default()),
         txn_ttl_secs: 300,
@@ -77,8 +76,6 @@ async fn make_state(dir: &str, backend: Arc<dyn PersistenceBackend>) -> Arc<RwLo
         multi_raft: None,
         #[cfg(feature = "tsdb")]
         tsdb_store: None,
-        #[cfg(feature = "rdf-redb")]
-        rdf_quads: None,
         #[cfg(feature = "streaming")]
         cdc: None,
         #[cfg(feature = "wasm-udf")]
@@ -91,10 +88,6 @@ async fn make_state(dir: &str, backend: Arc<dyn PersistenceBackend>) -> Arc<RwLo
         foreign_sources: std::sync::Arc::new(dashmap::DashMap::new()),
         #[cfg(feature = "kv")]
         kv: None,
-        #[cfg(feature = "dataset-handle")]
-        dataset_handles: std::sync::Arc::new(
-            crate::server::dataset_handle::DatasetHandleRegistry::new(),
-        ),
         #[cfg(feature = "lake")]
         lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
     }))
@@ -237,7 +230,7 @@ where
 async fn span_detection_routes_single_group_to_fast_path() {
     let dir = fresh_dir("span");
     let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
     let (multi, coord, _state) = bring_up(&dir, backend.clone()).await;
 
     let router = multi.router();
@@ -270,7 +263,7 @@ async fn span_detection_routes_single_group_to_fast_path() {
 async fn cross_shard_commit_is_atomic_on_all_participants() {
     let dir = fresh_dir("happy");
     let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
     let (multi, coord, state) = bring_up(&dir, backend.clone()).await;
 
     let txn = two_shard_txn("t-happy", "a1", "b1");
@@ -310,7 +303,7 @@ async fn cross_shard_commit_is_atomic_on_all_participants() {
 async fn killed_participant_during_prepare_aborts_with_no_partial_commit() {
     let dir = fresh_dir("killprep");
     let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
     let (multi, coord, state) = bring_up(&dir, backend.clone()).await;
 
     // KILL participant B (close group 200) — it is now unreachable to prepare.
@@ -365,7 +358,7 @@ async fn killed_participant_during_prepare_aborts_with_no_partial_commit() {
 async fn recovery_commits_in_doubt_txn_after_crash_post_decision() {
     let dir = fresh_dir("recovercommit");
     let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
     let txn_id = "t-recover-commit";
     {
         let (multi, coord, state) = bring_up(&dir, backend.clone()).await;
@@ -387,8 +380,9 @@ async fn recovery_commits_in_doubt_txn_after_crash_post_decision() {
     backend.shutdown();
     drop(backend);
 
-    let backend2: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("reopen redb"));
+    let backend2: Arc<dyn PersistenceBackend> = Arc::new(
+        RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("reopen redb"),
+    );
     let (multi2, coord2, state2) = bring_up(&dir, backend2.clone()).await;
 
     // RECOVERY: the in-doubt txn's decision is COMMIT → re-apply both slices.
@@ -427,7 +421,7 @@ async fn recovery_commits_in_doubt_txn_after_crash_post_decision() {
 async fn recovery_aborts_in_doubt_txn_with_no_decision_record() {
     let dir = fresh_dir("recoverabort");
     let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
     let txn_id = "t-recover-abort";
     {
         let (multi, coord, _state) = bring_up(&dir, backend.clone()).await;
@@ -453,8 +447,9 @@ async fn recovery_aborts_in_doubt_txn_with_no_decision_record() {
     backend.shutdown();
     drop(backend);
 
-    let backend2: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("reopen redb"));
+    let backend2: Arc<dyn PersistenceBackend> = Arc::new(
+        RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("reopen redb"),
+    );
     let (multi2, coord2, state2) = bring_up(&dir, backend2.clone()).await;
 
     let resolved = coord2.recover_in_doubt().await.expect("recover");
@@ -563,7 +558,7 @@ async fn begin_two_graph_txn(
 async fn user_multigraph_txn_commits_atomically_across_groups() {
     let dir = fresh_dir("userhappy");
     let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
     let (multi, _coord, state) = bring_up(&dir, backend.clone()).await;
     wire_user_graphs(&state, &multi).await;
 
@@ -598,7 +593,7 @@ async fn user_multigraph_txn_commits_atomically_across_groups() {
 async fn user_multigraph_txn_atomic_under_participant_kill() {
     let dir = fresh_dir("userkill");
     let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
     let (multi, _coord, state) = bring_up(&dir, backend.clone()).await;
     wire_user_graphs(&state, &multi).await;
 
@@ -643,7 +638,7 @@ async fn user_multigraph_txn_atomic_under_participant_kill() {
 async fn read_only_participant_skips_prepare_and_phase2() {
     let dir = fresh_dir("readonly");
     let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
     let (multi, coord, state) = bring_up(&dir, backend.clone()).await;
 
     // shardA writes, shardB is read-only (empty slice). Still a 2-group span → the
@@ -731,7 +726,7 @@ fn three_writer_txn(txn_id: &str, a: &str, b: &str, c: &str) -> CrossShardTxn {
 async fn parallel_prepare_multi_writer_commits_atomically() {
     let dir = fresh_dir("parcommit");
     let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
     let (multi, coord, state) = bring_up(&dir, backend.clone()).await;
     add_third_group(&multi).await;
 
@@ -771,7 +766,7 @@ async fn parallel_prepare_multi_writer_commits_atomically() {
 async fn parallel_prepare_multi_writer_recovers_after_post_decision_crash() {
     let dir = fresh_dir("parrecover");
     let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
     let txn_id = "t-par-recover";
     {
         let (multi, coord, state) = bring_up(&dir, backend.clone()).await;
@@ -791,8 +786,9 @@ async fn parallel_prepare_multi_writer_recovers_after_post_decision_crash() {
     backend.shutdown();
     drop(backend);
 
-    let backend2: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("reopen redb"));
+    let backend2: Arc<dyn PersistenceBackend> = Arc::new(
+        RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("reopen redb"),
+    );
     let (multi2, coord2, state2) = bring_up(&dir, backend2.clone()).await;
     add_third_group(&multi2).await;
 
@@ -859,7 +855,7 @@ async fn add_decision_group(multi: &Arc<MultiRaft>) {
 async fn nonblocking_commit_is_atomic_via_replicated_decision() {
     let dir = fresh_dir("nbhappy");
     let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
     let (multi, coord, state) = bring_up(&dir, backend.clone()).await;
     add_decision_group(&multi).await;
 
@@ -908,7 +904,7 @@ async fn nonblocking_commit_is_atomic_via_replicated_decision() {
 async fn nonblocking_coordinator_crash_between_decision_and_apply_does_not_block() {
     let dir = fresh_dir("nblive");
     let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
     let (multi, coord, state) = bring_up(&dir, backend.clone()).await;
     add_decision_group(&multi).await;
 
@@ -976,7 +972,7 @@ async fn nonblocking_coordinator_crash_between_decision_and_apply_does_not_block
 async fn nonblocking_aborts_like_2pc_on_killed_participant() {
     let dir = fresh_dir("nbabort");
     let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
     let (multi, coord, state) = bring_up(&dir, backend.clone()).await;
     add_decision_group(&multi).await;
 
@@ -1026,7 +1022,7 @@ async fn nonblocking_aborts_like_2pc_on_killed_participant() {
 async fn nonblocking_recovery_presumed_abort_with_no_replicated_decision() {
     let dir = fresh_dir("nbpresumed");
     let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
     let (multi, coord, state) = bring_up(&dir, backend.clone()).await;
     add_decision_group(&multi).await;
 
@@ -1073,7 +1069,7 @@ async fn calvin_deterministic_commit_is_atomic_and_vote_free() {
     use super::cross_shard_txn::{CalvinSequencer, GlobalSeq};
     let dir = fresh_dir("calvinhappy");
     let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
     let (multi, coord, state) = bring_up(&dir, backend.clone()).await;
     add_decision_group(&multi).await;
     let seq = CalvinSequencer::new();
@@ -1124,7 +1120,7 @@ async fn calvin_crash_after_sequencing_is_resolved_by_replay() {
     use super::cross_shard_txn::CalvinSequencer;
     let dir = fresh_dir("calvinreplay");
     let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
     let (multi, coord, state) = bring_up(&dir, backend.clone()).await;
     add_decision_group(&multi).await;
     let seq = CalvinSequencer::new();
@@ -1194,10 +1190,22 @@ async fn write_node(
         graph_fname: crate::persist::sanitize(graph),
         graph_name: graph.to_string(),
         graph_type: GraphType::Global,
-        method: Method::AddNode {
-            node_id: node.to_string(),
-            properties_msgpack: rmp_serde::to_vec_named(&props).unwrap(),
-        },
+        committed_at_ms: 0,
+        mutation: super::RaftMutationContext::internal(
+            "raft-xshard-harness",
+            graph,
+            &format!("{node}:{props}"),
+            0,
+            0,
+        ),
+        command: super::ReplicatedMutation::graph(
+            Method::AddNode {
+                node_id: node.to_string(),
+                properties_msgpack: rmp_serde::to_vec_named(&props).unwrap(),
+            },
+            "xshard-test",
+        )
+        .unwrap(),
     };
     g.client_write(req).await.expect("client_write");
 }
@@ -1229,7 +1237,7 @@ async fn calvin_ollp_ordered_readlock_serializes_conflicting_txns() {
 
     let dir = fresh_dir("calvinollp");
     let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
     let (multi, coord, _state) = bring_up(&dir, backend.clone()).await;
     let coord = Arc::new(coord);
 
@@ -1388,7 +1396,7 @@ async fn calvin_ollp_stale_recon_is_restarted_and_commits_serializably() {
 
     let dir = fresh_dir("calvinrestart");
     let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
     let (multi, coord, _state) = bring_up(&dir, backend.clone()).await;
     let coord = Arc::new(coord);
 
@@ -1614,7 +1622,7 @@ async fn calvin_ollp_epoch_routing_restart_agrees_across_nodes() {
 
     let dir = fresh_dir("calvinepochrt");
     let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
     let (multi, coord, _state) = bring_up(&dir, backend.clone()).await;
     let coord = Arc::new(coord);
 

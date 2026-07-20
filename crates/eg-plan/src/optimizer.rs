@@ -17,8 +17,8 @@
 //!  1. [`FilterAsOfBeforeRank`] (CONCEPT:EG-KG.query.filter-pushdown-rule) — push a SELECTIVE
 //!     id-set narrower (`Filter` / `AsOf`) ahead of an adjacent expensive vector `Rank` when
 //!     the cost model says filter-first wins; keep the `Rank` first when the narrower is
-//!     broad (vector-first). Folds the legacy [`crate::cost::CostModel::reorder_filter_rank`]
-//!     into the engine as one rule, sharing its decision + swap primitive (No-Legacy).
+//!     broad (vector-first). This is the sole filter/rank reorder authority and shares
+//!     the cost model's decision and swap primitive.
 //!  2. [`ReorderReasonRank`] (CONCEPT:EG-KG.query.reason-rank-reorder-rule) — order an adjacent
 //!     mid-pipeline OWL `Reason` (a confidence-preserving FILTER) vs a vector `Rank` by which
 //!     shrinks the candidate set more, so the second leg runs over fewer rows.
@@ -67,7 +67,8 @@ pub fn enabled() -> bool {
 }
 
 /// Rewrite `plan` into a cheaper-but-equivalent plan (CONCEPT:EG-KG.query.xmodal-cost-optimizer).
-/// Collects the O(1) [`PlanStats`] catalog once, binds the [`ModalityCardinality`] estimators,
+/// Collects the snapshot-memoized [`PlanStats`] catalog once, binds the
+/// [`ModalityCardinality`] estimators,
 /// and folds every rule over the op list in order. A no-op (identity clone) whenever no rule
 /// finds a beneficial, provably-safe rewrite.
 pub fn optimize(plan: &Plan, ctx: &PlanCtx) -> Plan {
@@ -250,8 +251,8 @@ fn is_rank(op: &Op) -> bool {
 }
 
 /// Reorder EVERY adjacent `(narrower, Rank)` pair (in either order) where `is_narrower` holds,
-/// by the cost model, sharing [`CostModel::order`] + [`CostModel::place_narrower`] with the
-/// legacy `reorder_filter_rank` (CONCEPT:EG-KG.query.filter-pushdown-rule). Guarded to the proven
+/// by the cost model, using [`CostModel::order`] + [`CostModel::place_narrower`]
+/// (CONCEPT:EG-KG.query.filter-pushdown-rule). Guarded to the proven
 /// EG-405-safe regime: the pair must sit AFTER a source (index ≥ 1) and BOTH candidate
 /// intermediates must stay ≥ 1 row, else the pair is left untouched.
 fn reorder_narrower_rank_pairs(
@@ -306,7 +307,7 @@ fn reorder_narrower_rank_pairs(
 
 /// Push a SELECTIVE relational `Filter` or bi-temporal `AsOf` ahead of an adjacent vector
 /// `Rank` when the cost model says filter-first wins; keep `Rank` first for a BROAD narrower
-/// (CONCEPT:EG-KG.query.filter-pushdown-rule). Folds the legacy `reorder_filter_rank` in as one rule.
+/// (CONCEPT:EG-KG.query.filter-pushdown-rule). This rule is the only execution path.
 struct FilterAsOfBeforeRank;
 
 impl Rule for FilterAsOfBeforeRank {
@@ -474,8 +475,8 @@ fn is_reorderable(op: &Op) -> bool {
 
 /// The bound on a single reorderable run's length before [`GlobalChainCost`] gives up on an
 /// exhaustive permutation search (CONCEPT:EG-KG.query.global-plan-cost). `5! = 120` candidate
-/// orderings is a trivial plan-time cost (each `optimize()` call already pays an O(1) stats
-/// collection); a run longer than this is vanishingly rare in practice (it would mean 6+
+/// orderings is a bounded plan-time cost beside the snapshot-memoized stats collection; a
+/// run longer than this is vanishingly rare in practice (it would mean 6+
 /// `Filter`/`AsOf`/`Reason`/`Rank` ops chained with no `Traverse`/`Scan`/`Limit` between them) and
 /// is left untouched rather than risk a combinatorial blowup.
 const MAX_CHAIN_SEGMENT: usize = 5;
@@ -1066,8 +1067,6 @@ ex:p4 a ex:Paper .
             &mut iris,
             "g",
             eg_rdf::mapping::parse_turtle(ttl).unwrap(),
-            #[cfg(feature = "rdf-redb")]
-            None,
         )
         .unwrap();
 

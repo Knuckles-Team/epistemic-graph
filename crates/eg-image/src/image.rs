@@ -1,17 +1,5 @@
-//! The image modality's stored value model (CONCEPT:E4-follow-up — image/audio/video
-//! evidence) — metadata + a content-addressed blob reference + an optional region
-//! index, deliberately NOT a decoded pixel buffer (see the crate docs' Pi-contract
-//! rationale).
-//!
-//! [`ImageData`] mirrors `eg-tensor`'s `Tensor` / `eg-geo`'s `Geometry` shape: a small,
-//! serde-serializable value that persists as a typed property in the engine's redb
-//! per-graph store. Unlike those two, an image's raw content lives OUTSIDE this value
-//! (in the engine's content-addressed blob CAS) — `blob_ref` is that content address
-//! (see [`crate::header::content_hash`]). `width`/`height` are read from the REAL file
-//! header (`crate::header::read_png_dimensions` / `read_jpeg_dimensions`) — never
-//! fabricated — and `regions` is an OPTIONAL index of named sub-image bounding boxes
-//! supplied by an external extractor (an object detector, an OCR box finder, a
-//! human annotation, …); this crate never invents one.
+//! Source-free decoded image facts, perceptual identity, and governed region ranges.
+//! The SHA-256 `blob_ref` binds them to request-local source pixels.
 
 use serde::{Deserialize, Serialize};
 
@@ -28,13 +16,22 @@ pub enum ImageFormat {
     Unknown,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ImageColorSpace {
+    Gray,
+    GrayAlpha,
+    Rgb,
+    Rgba,
+    Indexed,
+    Unknown,
+}
+
 /// One named rectangular region inside an image, in pixel space — as supplied by an
 /// external extractor. This crate never fabricates one; a region only exists here
 /// because a caller passed it in.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ImageRegion {
-    /// A caller-supplied label ("face", "license-plate", a detector's class name, …).
-    /// Optional — a region need not be classified.
+    /// Optional opaque label reference. Governed serving rejects display text.
     #[serde(default)]
     pub label: Option<String>,
     pub x: f64,
@@ -72,19 +69,18 @@ impl ImageRegion {
 pub struct ImageData {
     pub width: u32,
     pub height: u32,
-    #[serde(default = "default_format")]
     pub format: ImageFormat,
     /// Content address of the ORIGINAL image bytes (e.g. `crate::header::content_hash`
     /// output), resolvable through the engine's blob CAS. Opaque to this crate.
     pub blob_ref: String,
+    pub color_space: ImageColorSpace,
+    pub bit_depth: u8,
+    /// Native 9x8 luminance difference hash over decoded pixels.
+    pub perceptual_hash: u64,
     /// Named bounding-box regions inside the image, in pixel space. May be empty (an
     /// image with no detected/known regions yet).
     #[serde(default)]
     pub regions: Vec<ImageRegion>,
-}
-
-fn default_format() -> ImageFormat {
-    ImageFormat::Unknown
 }
 
 impl ImageData {
@@ -96,6 +92,9 @@ impl ImageData {
             height,
             format: ImageFormat::Unknown,
             blob_ref: blob_ref.into(),
+            color_space: ImageColorSpace::Unknown,
+            bit_depth: 0,
+            perceptual_hash: 0,
             regions: Vec::new(),
         }
     }
@@ -110,12 +109,26 @@ impl ImageData {
         self
     }
 
-    /// Build an `ImageData` from REAL image bytes: parses the PNG/JPEG header for
+    pub fn with_native_features(
+        mut self,
+        color_space: ImageColorSpace,
+        bit_depth: u8,
+        perceptual_hash: u64,
+    ) -> Self {
+        self.color_space = color_space;
+        self.bit_depth = bit_depth;
+        self.perceptual_hash = perceptual_hash;
+        self
+    }
+
+    /// Build a header-only `ImageData`: parses the PNG/JPEG header for
     /// `width`/`height` (never fabricated), content-addresses the bytes for
     /// `blob_ref`, and attaches the given (externally supplied, possibly empty)
     /// region index verbatim. Returns `None` if the header is neither a recognized
     /// PNG nor JPEG — a caller that already knows the dimensions from elsewhere can
-    /// still build one directly via [`ImageData::new`].
+    /// still build one directly via [`ImageData::new`]. Production serving uses
+    /// `NativeImageRuntime` so decoded color facts and perceptual identity are
+    /// mandatory.
     pub fn from_bytes(bytes: &[u8], regions: Vec<ImageRegion>) -> Option<Self> {
         let (format, width, height) =
             if let Some((w, h)) = crate::header::read_png_dimensions(bytes) {
@@ -130,6 +143,9 @@ impl ImageData {
             height,
             format,
             blob_ref: crate::header::content_hash(bytes),
+            color_space: ImageColorSpace::Unknown,
+            bit_depth: 0,
+            perceptual_hash: 0,
             regions,
         })
     }
@@ -148,8 +164,13 @@ mod tests {
 
     #[test]
     fn serde_round_trips() {
-        let img = ImageData::new(10, 20, "hash1")
-            .with_regions(vec![ImageRegion::labeled("face", 1.0, 2.0, 3.0, 4.0)]);
+        let img = ImageData::new(10, 20, "hash1").with_regions(vec![ImageRegion::labeled(
+            "eg:label:0000000000000001",
+            1.0,
+            2.0,
+            3.0,
+            4.0,
+        )]);
         let json = serde_json::to_string(&img).unwrap();
         let back: ImageData = serde_json::from_str(&json).unwrap();
         assert_eq!(img, back);

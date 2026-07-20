@@ -2,48 +2,34 @@
 name = "eg-audio"
 version = "0.1.0"
 edition = "2021"
-authors = ["Audel Rouhi <knucklessg1@gmail.com>"]
-description = "Pure-Rust audio modality for the epistemic-graph engine — a metadata/segment-level AudioData stored value (real sample rate + duration from a hand-rolled WAV/RIFF header parse, a content-addressed blob ref, an optional extractor-supplied segment index) with a ModalityContract impl producing a real EvidenceSpan::AudioSegment. NO heavy audio-codec crate in the default build (the Pi contract)."
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
+description = "Pure-Rust governed PCM/WAV decode, temporal feature indexing, and audio evidence for epistemic-graph."
 license = "MIT"
 
 [lib]
 name = "eg_audio"
 
-# Pure-Rust, Pi-lean leaf crate — a sibling of eg-tensor/eg-geo/eg-image. The ONLY
-# unconditional dependency is serde (so `AudioData` persists as a typed property in the
-# redb per-graph store). Deliberately NO `symphonia`/`hound`/codec crate: this crate
-# parses ONLY the WAV/RIFF header (uncompressed PCM container — see src/header.rs) and
-# never decodes/resamples waveform samples; a real (e.g. MP3/FLAC/Opus) codec is an
-# explicitly out-of-scope, documented TODO (see the reserved `codec` feature below,
-# which pulls no dependency in v1).
+# Pure-Rust leaf. serde persists normalized source-free facts, SHA-256 binds source
+# identity, and the runtime directly decodes strict 8/16-bit PCM/WAV.
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
-# ModalityContract PILOT retrofit (CONCEPT:E4 follow-up), mirroring eg-tensor/eg-geo.
+sha2 = "0.10"
+# ModalityContract implementation (CONCEPT:E4), mirroring eg-tensor/eg-geo.
 # Optional, only under `contract` (default OFF) — a default/pi/node/full build links
 # none of it and `AudioData` carries no new required trait. See `src/contract.rs`.
 eg-modality = { path = "../eg-modality", optional = true }
 
 [features]
 default = []
-# ModalityContract retrofit (CONCEPT:E4 follow-up): `impl ModalityContract for
-# AudioData` + the `modality_conformance_tests!` battery. OFF by default, deliberately
-# NOT folded into any tier aggregate (pi/node/full) — it is a capability-discovery/
-# testing seam, not a serving feature. `cargo test -p eg-audio --features contract`
-# runs the suite.
+# `impl ModalityContract for AudioData` + the conformance battery. OFF by default;
+# `serving` promotes it to the governed runtime and is enabled by the facade's
+# production epistemic surface.
 contract = ["dep:eg-modality"]
-# RESERVED seam for a real waveform codec (MP3/FLAC/Opus decode to PCM samples). NOT
-# implemented in v1 — this crate stays metadata/segment-level only (see crate docs).
-# Turning this on TODAY adds no dependency and changes no behavior; a future real
-# decoder would gate its heavy dep behind this SAME feature name so the default build
-# never links it (the Pi contract).
-codec = []
-# OPT-IN runtime seam (CONCEPT:EG-P1-3): `src/runtime.rs`'s codec/waveform-window/
-# spectrogram/VAD/diarization/transcript-alignment TRAITS + typed artifacts.
-# Default OFF, no new dependency AT ALL (a trait-definition layer, not an
-# implementation — a real codec/VAD/diarization/ASR-alignment model plugs in by
-# implementing the trait in its own crate/service). Turning this on today adds
-# zero dependency and changes no behavior of `AudioData` itself.
-runtime = []
+serving = ["contract"]
+# Dependency-light native runtime (CONCEPT:EG-P1-3): 8/16-bit PCM/WAV decode,
+# waveform windows, a bounded DFT spectrogram, VAD, opaque speaker grouping, and
+# transcript-reference alignment.
+runtime = ["serving"]
 
 [dev-dependencies]
 serde_json = "1.0"

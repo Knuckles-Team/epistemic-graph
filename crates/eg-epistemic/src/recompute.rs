@@ -12,12 +12,11 @@
 //! [`Materialization`]: an id, the set of base-fact/input ids it was derived from
 //! (`depends_on` — the invalidation-dependency edges), and optionally the
 //! `generating_activity` (a model version, job id, or ontology version) that
-//! produced it. This mirrors the `:DerivedFrom`/`:GeneratedBy` invalidation-dependency
-//! edges EPI-P3-1 adds onto the stored graph; [`TruthMaintenance`] keeps its own
-//! compact in-memory index of that same shape so this crate does not need to depend
-//! on EPI-P3-1's storage layer to reason about it (a follow-up wiring populates
-//! [`TruthMaintenance::register`] from those real edges once they land — see the
-//! module docs' "Follow-up" note at the bottom).
+//! produced it. This mirrors the stored `:DerivedFrom`/`:GeneratedBy`
+//! invalidation-dependency edges. [`TruthMaintenance`] keeps compact reverse indexes
+//! over both dependency and generator relationships. The served engine uses the
+//! durable incremental reasoning projection for this role; this type remains the
+//! pure in-crate algorithm and fixture surface.
 //!
 //! ## Change events drive truth maintenance, never silent staleness
 //! A [`ChangeEvent`] — a base fact deleted or updated, a permission/policy scope
@@ -59,15 +58,12 @@
 //! strictly a transient in-flight state between a change event and a caller acting
 //! on it, never a resting state.
 //!
-//! ## Follow-up: wiring a live CDC hook
-//! This module deliberately does not depend on `eg-types::wire::CdcEvent` /
-//! `CdcKind` (streaming feature) — `eg-epistemic` has no `streaming` dependency and
-//! this keeps the truth-maintenance core testable in complete isolation. A server-
-//! side hook (once EPI-P3-1's storage-level dependency edges exist to seed
-//! `register` calls from) maps the existing CDC vocabulary onto [`ChangeEvent`]
-//! one-for-one: `CdcKind::RemoveNode` -> [`ChangeEvent::Deleted`], `CdcKind::UpdateNode`
-//! -> [`ChangeEvent::Updated`]; permission/policy-change and model/ontology-version
-//! events are not yet on the CDC feed at all and would need their own emission point.
+//! ## Durable projection integration
+//! This crate deliberately remains independent of the streaming wire vocabulary so
+//! the truth-maintenance core is usable without a server. The served engine's sole
+//! status/recompute authority is [`IncrementalReasoningIndex`](crate::IncrementalReasoningIndex):
+//! it tails the authoritative mutation outbox, persists its compact indexes before
+//! advancing the fenced cursor, and resumes from that cursor after restart.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
@@ -95,7 +91,7 @@ pub enum MaterializationStatus {
 }
 
 /// What changed, upstream of zero or more tracked materializations. See the module
-/// docs' "Follow-up" note for how a live CDC feed maps onto this.
+/// server integration described in the module docs for committed-event mapping.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ChangeEvent {
     /// A base fact / input node was deleted outright.
@@ -140,13 +136,11 @@ impl ChangeEvent {
         !matches!(self, ChangeEvent::Updated(_))
     }
 
-    /// Whether `generating_activity` (a tracked materialization's own generator id)
-    /// is the one this event retires.
-    fn matches_generator(&self, generating_activity: Option<&str>) -> bool {
-        match (self, generating_activity) {
-            (ChangeEvent::ModelRetired(id), Some(g)) => id == g,
-            (ChangeEvent::OntologyEvolved(id), Some(g)) => id == g,
-            _ => false,
+    /// Generator id retired by this event, if this is a generator-keyed event.
+    fn retired_generator(&self) -> Option<&str> {
+        match self {
+            ChangeEvent::ModelRetired(id) | ChangeEvent::OntologyEvolved(id) => Some(id),
+            _ => None,
         }
     }
 }
@@ -167,26 +161,74 @@ pub struct Materialization {
 /// The recompute / truth-maintenance engine: a registry of [`Materialization`]s plus
 /// the reverse (`input id -> depending materialization ids`) index that makes
 /// [`TruthMaintenance::dependents_of`] and [`TruthMaintenance::on_change`] cheap —
-/// no full-registry scan per change event. `Serialize`/`Deserialize` back
-/// `src/server/tms_hook.rs`'s best-effort disk snapshot (CONCEPT:EG-KG.epistemic.truth-maintenance
-/// persistence — see that module's `persist`/`load_persisted`): the whole index round-trips
-/// through msgpack byte-for-byte (both maps are `BTreeMap`s of plain-data values), so a
-/// process restart with a configured persist dir resumes with the SAME tracked
-/// materializations + their `Stale`/`Fresh`/`Retracted` status instead of an empty index.
-#[derive(Default, Debug, Clone, Serialize, Deserialize)]
+/// no full-registry scan per change event. `Serialize`/`Deserialize` keeps the pure
+/// algorithm portable for embedded callers and tests; served status never reads this
+/// in-memory value and instead uses the durable incremental projection.
+#[derive(Default, Debug, Clone, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct TruthMaintenance {
     materializations: BTreeMap<String, Materialization>,
-    /// input id -> materialization ids naming it in `depends_on` (direct edges
-    /// only; [`Self::dependents_of`] walks this transitively). Does NOT cover
-    /// `generating_activity` matches — those are found by the linear scan in
-    /// [`Self::on_change`], since model/ontology retirement is rare and not worth a
-    /// second reverse index.
+    /// Input id -> materialization ids naming it in `depends_on` (direct edges
+    /// only; [`Self::dependents_of`] walks this transitively).
+    #[serde(skip)]
     dependents: BTreeMap<String, BTreeSet<String>>,
+    /// Generator id -> materializations it directly produced. Model and ontology
+    /// retirement can therefore range-seek the affected set instead of scanning the
+    /// complete registry.
+    #[serde(skip)]
+    generators: BTreeMap<String, BTreeSet<String>>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TruthMaintenanceSnapshot {
+    materializations: BTreeMap<String, Materialization>,
+}
+
+impl<'de> Deserialize<'de> for TruthMaintenance {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let snapshot = TruthMaintenanceSnapshot::deserialize(deserializer)?;
+        Self::from_materializations(snapshot.materializations).map_err(serde::de::Error::custom)
+    }
 }
 
 impl TruthMaintenance {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    fn from_materializations(
+        materializations: BTreeMap<String, Materialization>,
+    ) -> Result<Self, String> {
+        let mut dependents: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+        let mut generators: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+        for (key, materialization) in &materializations {
+            if key != &materialization.id {
+                return Err(
+                    "truth-maintenance materialization key does not match its identity".to_string(),
+                );
+            }
+            for dependency in &materialization.depends_on {
+                dependents
+                    .entry(dependency.clone())
+                    .or_default()
+                    .insert(key.clone());
+            }
+            if let Some(generator) = &materialization.generating_activity {
+                generators
+                    .entry(generator.clone())
+                    .or_default()
+                    .insert(key.clone());
+            }
+        }
+        Ok(Self {
+            materializations,
+            dependents,
+            generators,
+        })
     }
 
     /// Register (or re-register) a materialization: `id` derives from every id in
@@ -210,6 +252,12 @@ impl TruthMaintenance {
                 .or_default()
                 .insert(id.clone());
         }
+        if let Some(generator) = &generating_activity {
+            self.generators
+                .entry(generator.clone())
+                .or_default()
+                .insert(id.clone());
+        }
         self.materializations.insert(
             id.clone(),
             Materialization {
@@ -227,8 +275,25 @@ impl TruthMaintenance {
     fn unregister(&mut self, id: &str) {
         if let Some(old) = self.materializations.remove(id) {
             for dep in &old.depends_on {
-                if let Some(set) = self.dependents.get_mut(dep) {
+                let prune = if let Some(set) = self.dependents.get_mut(dep) {
                     set.remove(id);
+                    set.is_empty()
+                } else {
+                    false
+                };
+                if prune {
+                    self.dependents.remove(dep);
+                }
+            }
+            if let Some(generator) = old.generating_activity {
+                let prune = if let Some(set) = self.generators.get_mut(&generator) {
+                    set.remove(id);
+                    set.is_empty()
+                } else {
+                    false
+                };
+                if prune {
+                    self.generators.remove(&generator);
                 }
             }
         }
@@ -298,12 +363,10 @@ impl TruthMaintenance {
         // Generator-keyed events (model retirement / ontology evolution): every
         // materialization the retired generator produced goes stale, and so does
         // everything transitively built on top of THOSE.
-        let generator_hit: Vec<String> = self
-            .materializations
-            .values()
-            .filter(|m| event.matches_generator(m.generating_activity.as_deref()))
-            .map(|m| m.id.clone())
-            .collect();
+        let generator_hit = event
+            .retired_generator()
+            .and_then(|generator| self.generators.get(generator).cloned())
+            .unwrap_or_default();
         for id in generator_hit {
             if self.stale_unless_retracted(&id) {
                 changed.insert(id.clone());
@@ -420,16 +483,15 @@ impl TruthMaintenance {
 ///     convention): the ids whose change/removal invalidates this node, already
 ///     EXACTLY the `depends_on` set [`TruthMaintenance::register`] wants;
 ///   * any OUTGOING edge classified `:DerivedFrom` or `:GeneratedBy`
-///     (`relationship_type` `DERIVED_FROM`/`GENERATED_BY`, case-insensitive, mirroring
+///     (`relationship` `DERIVED_FROM`/`GENERATED_BY`, case-insensitive, mirroring
 ///     [`crate::model::classify_relationship`]'s own convention) — each target is
 ///     folded into `depends_on` too (a `:DerivedFrom` target is itself an invalidation
 ///     dependency), and the FIRST `:GeneratedBy` target additionally becomes
 ///     `generating_activity` (the model/job/ontology version `ChangeEvent::ModelRetired`/
 ///     `ChangeEvent::OntologyEvolved` key on) — the real writers today emit
-///     `claim --GENERATED_BY--> activity`, so this is the live edge shape, not a
-///     speculative one; `DERIVED_FROM` is recognized for forward-compatibility with a
-///     future writer that emits it directly as an edge rather than folding its targets
-///     into `invalidation_deps`.
+///     `claim --GENERATED_BY--> activity`, so this is the live edge shape.
+///     `DERIVED_FROM` is a canonical current provenance edge and is consumed directly
+///     when present.
 ///
 /// A node with NEITHER channel registers with an EMPTY `depends_on` (nothing tracked
 /// invalidates it) — a legitimate answer, not an error. Both `:GeneratedBy` targets and
@@ -448,17 +510,11 @@ pub fn register_from_provenance(tm: &mut TruthMaintenance, view: &GraphView, der
 }
 
 /// Pure, storage-agnostic provenance resolution shared by [`register_from_provenance`]
-/// (whole-`GraphView`-backed, used by the explicit `Method::RegisterMaterialization`
-/// RPC and the follow-up-work call sites that already hold a snapshot) and the live
-/// single-id fast path `src/server/tms_hook.rs::maybe_register_from_write` uses to
-/// auto-register a materialization straight off a JUST-COMMITTED write — that path
-/// reads ONE node's properties plus its own outgoing edges directly off the live
-/// `GraphCore` (`get_node_properties`/`get_successors`/`get_edge_properties`, all
-/// O(out-degree)) rather than paying for a whole-graph `analysis_snapshot` clone on
-/// every single write. Reads the SAME two provenance channels
+/// (whole-`GraphView`-backed, used by the durable reasoning projection bootstrap and
+/// fenced recompute writeback). Reads the SAME two provenance channels
 /// [`register_from_provenance`]'s doc comment describes: the node's own
 /// `invalidation_deps` property, and any outgoing `:DerivedFrom`/`:GeneratedBy` edge
-/// (`relationship_type`, case-insensitive). `outgoing_edges` is `(target_id, edge
+/// (`relationship`, case-insensitive). `outgoing_edges` is `(target_id, edge
 /// properties blob)` pairs — every outgoing edge off the id being resolved, not just
 /// the recognized ones (unrecognized relationship types are silently skipped, same as
 /// the whole-view path always did).
@@ -471,7 +527,7 @@ pub fn resolve_provenance<'a>(
 
     // Channel 1: the node's own `invalidation_deps` property (EG-P3-1).
     if let Some(blob) = node_props {
-        if let Ok(v) = rmp_serde::from_slice::<serde_json::Value>(blob) {
+        if let Ok(v) = eg_types::msgpack::decode_property_value(blob) {
             if let Some(arr) = v.get("invalidation_deps").and_then(|x| x.as_array()) {
                 for item in arr {
                     if let Some(s) = item.as_str() {
@@ -484,10 +540,10 @@ pub fn resolve_provenance<'a>(
 
     // Channel 2: outgoing `:DerivedFrom` / `:GeneratedBy` edges.
     for (target, blob) in outgoing_edges {
-        let Some(rel) = rmp_serde::from_slice::<serde_json::Value>(blob)
+        let Some(rel) = eg_types::msgpack::decode_property_value(blob)
             .ok()
             .and_then(|v| {
-                v.get("relationship_type")
+                v.get("relationship")
                     .and_then(|r| r.as_str())
                     .map(str::to_ascii_uppercase)
             })
@@ -608,6 +664,67 @@ mod tests {
         let changed = tm.on_change(&ChangeEvent::OntologyEvolved("ontology-v3".to_string()));
         assert!(changed.contains("edge1"));
         assert_eq!(tm.status_of("edge1"), Some(MaterializationStatus::Stale));
+    }
+
+    #[test]
+    fn reregister_replaces_the_generator_reverse_index() {
+        let mut tm = TruthMaintenance::new();
+        tm.register("claim1", ["fact_a"], Some("model-v1".to_string()));
+        tm.register("claim1", ["fact_b"], Some("model-v2".to_string()));
+
+        assert!(tm
+            .on_change(&ChangeEvent::ModelRetired("model-v1".to_string()))
+            .is_empty());
+        assert_eq!(tm.status_of("claim1"), Some(MaterializationStatus::Fresh));
+
+        let changed = tm.on_change(&ChangeEvent::ModelRetired("model-v2".to_string()));
+        assert_eq!(changed, ["claim1".to_string()].into_iter().collect());
+        assert_eq!(tm.status_of("claim1"), Some(MaterializationStatus::Stale));
+    }
+
+    #[test]
+    fn deserialization_rebuilds_reverse_indexes_from_canonical_materializations() {
+        let mut tm = TruthMaintenance::new();
+        tm.register("claim1", ["fact_a"], Some("model-v1".to_string()));
+        let encoded = serde_json::to_value(&tm).unwrap();
+        assert!(encoded.get("dependents").is_none());
+        assert!(encoded.get("generators").is_none());
+
+        let mut restored: TruthMaintenance = serde_json::from_value(encoded).unwrap();
+        assert_eq!(
+            restored.dependents_of("fact_a"),
+            ["claim1".to_string()].into_iter().collect()
+        );
+        assert_eq!(
+            restored.on_change(&ChangeEvent::ModelRetired("model-v1".to_string())),
+            ["claim1".to_string()].into_iter().collect()
+        );
+    }
+
+    #[test]
+    fn deserialization_rejects_a_materialization_key_identity_mismatch() {
+        let mut tm = TruthMaintenance::new();
+        tm.register("claim1", ["fact_a"], Some("model-v1".to_string()));
+        let mut encoded = serde_json::to_value(&tm).unwrap();
+        let materializations = encoded
+            .get_mut("materializations")
+            .and_then(serde_json::Value::as_object_mut)
+            .unwrap();
+        let value = materializations.remove("claim1").unwrap();
+        materializations.insert("different-key".to_string(), value);
+        assert!(serde_json::from_value::<TruthMaintenance>(encoded).is_err());
+    }
+
+    #[test]
+    fn deserialization_rejects_noncanonical_derived_index_fields() {
+        let mut tm = TruthMaintenance::new();
+        tm.register("claim1", ["fact_a"], Some("model-v1".to_string()));
+        let mut encoded = serde_json::to_value(&tm).unwrap();
+        encoded
+            .as_object_mut()
+            .unwrap()
+            .insert("dependents".to_string(), serde_json::json!({}));
+        assert!(serde_json::from_value::<TruthMaintenance>(encoded).is_err());
     }
 
     // --- "what depends on X" -----------------------------------------------------
@@ -733,9 +850,8 @@ mod tests {
         rmp_serde::to_vec_named(&props).unwrap()
     }
 
-    fn edge_blob(relationship_type: &str) -> Vec<u8> {
-        rmp_serde::to_vec_named(&serde_json::json!({ "relationship_type": relationship_type }))
-            .unwrap()
+    fn edge_blob(relationship: &str) -> Vec<u8> {
+        rmp_serde::to_vec_named(&serde_json::json!({ "relationship": relationship })).unwrap()
     }
 
     // A base node + a derived node linked `derived --DERIVED_FROM--> base`:

@@ -58,7 +58,7 @@ fn register_pg_common(ctx: &SessionContext) {
 /// `eg-numeric`-backed `cosine_sim`/`l2_normalize`/`zscore` scalar UDFs + the
 /// `covariance` UDAF — so analytics run in-engine over resident columns
 /// (compute-near-data). Gated behind the `numeric` feature (out of `pi`); a no-numeric
-/// build links neither eg-numeric nor faer. Shared by the graph exec path and the
+/// build links neither eg-numeric nor nalgebra. Shared by the graph exec path and the
 /// tables-only obs path so both expose the identical operator set.
 #[cfg(feature = "numeric")]
 fn register_numeric(ctx: &SessionContext) {
@@ -323,24 +323,12 @@ async fn collect_default(
     Ok(batches)
 }
 
-/// Run `sql` over `view` (read-only, single graph), with no cache: re-scans the
+/// Run `sql` over `view` (read-only, single graph), with no cache: re-scan the
 /// `nodes`/`edges` tables every call. Synchronous — builds and drives its own
-/// current-thread runtime, safe to call inside `spawn_blocking`.
-///
-/// A fresh, never-cancelled [`CancellationToken`] — a caller that needs REAL
-/// cancellation (a request-scoped token a client cancel / timeout can trip, L36) calls
-/// [`exec_sql_cancellable`] instead; this fn is a thin backward-compatible wrapper over it
-/// so every existing call site is unaffected.
-pub fn exec_sql(view: &GraphView, sql: &str) -> Result<QueryResult, String> {
-    exec_sql_cancellable(view, sql, &CancellationToken::new())
-}
-
-/// As [`exec_sql`], but threads `cancel` all the way down to [`collect_streaming`]
-/// (CONCEPT:EG-KG.query.streaming-spillable-collect, L36) so a caller holding the OTHER end of
-/// `cancel` (e.g. the wire handler's request-scoped registry, tripped by an explicit
-/// client cancel or a per-request timeout) can stop this query mid-stream, at its next
-/// batch boundary.
-pub fn exec_sql_cancellable(
+/// current-thread runtime, safe to call inside `spawn_blocking`. `cancel` is a
+/// required part of the current execution contract and is checked at each batch
+/// boundary.
+pub fn exec_sql(
     view: &GraphView,
     sql: &str,
     cancel: &CancellationToken,
@@ -1114,7 +1102,7 @@ fn batches_to_result(batches: &[arrow::record_batch::RecordBatch]) -> Result<Que
 
 /// One cell at `(col, row)` to a `serde_json::Value` (CONCEPT:EG-KG.query.concept-11).
 ///
-/// DataFusion 43 fully executes aggregates / GROUP BY / HAVING, window functions,
+/// DataFusion 54 fully executes aggregates / GROUP BY / HAVING, window functions,
 /// CTEs, subqueries, set ops (UNION/INTERSECT/EXCEPT) and DISTINCT — but their
 /// results materialize as a much wider set of Arrow types than the `nodes`/`edges`
 /// schema-on-read produces (every Int/UInt/Float width, Decimal128/256, Date/Time/

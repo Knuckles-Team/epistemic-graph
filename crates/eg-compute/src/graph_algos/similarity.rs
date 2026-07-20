@@ -2,6 +2,7 @@
 // Neo4j GDS `gds.nodeSimilarity` parity.
 
 use super::graph::AdjacencyGraph;
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::hash::Hash;
 
@@ -51,6 +52,76 @@ where
     }
 }
 
+/// Prepare each node's neighbor vector once for an all-pairs query. Directed
+/// views borrow the graph's already-sorted adjacency without copying; only the
+/// synthesized undirected view owns merged rows.
+fn prepared_neighbors<N>(graph: &AdjacencyGraph<N>, dir: Direction) -> Vec<Cow<'_, [(usize, f64)]>>
+where
+    N: Clone + Eq + Hash + Ord,
+{
+    (0..graph.node_count())
+        .map(|index| match dir {
+            Direction::Out => Cow::Borrowed(graph.out_edges(index)),
+            Direction::In => Cow::Borrowed(graph.in_edges(index)),
+            Direction::Undirected => Cow::Owned(neighbor_vec(graph, index, dir)),
+        })
+        .collect()
+}
+
+fn neighbor_intersection(a: &[(usize, f64)], b: &[(usize, f64)]) -> usize {
+    let (mut i, mut j, mut intersection) = (0, 0, 0);
+    while i < a.len() && j < b.len() {
+        match a[i].0.cmp(&b[j].0) {
+            std::cmp::Ordering::Less => i += 1,
+            std::cmp::Ordering::Greater => j += 1,
+            std::cmp::Ordering::Equal => {
+                intersection += 1;
+                i += 1;
+                j += 1;
+            }
+        }
+    }
+    intersection
+}
+
+fn jaccard_from_neighbors(a: &[(usize, f64)], b: &[(usize, f64)]) -> f64 {
+    let intersection = neighbor_intersection(a, b);
+    let union = a.len() + b.len() - intersection;
+    if union == 0 {
+        0.0
+    } else {
+        intersection as f64 / union as f64
+    }
+}
+
+fn neighbor_norm(neighbors: &[(usize, f64)]) -> f64 {
+    neighbors
+        .iter()
+        .map(|(_, weight)| weight * weight)
+        .sum::<f64>()
+        .sqrt()
+}
+
+fn cosine_from_neighbors(a: &[(usize, f64)], b: &[(usize, f64)], norm_a: f64, norm_b: f64) -> f64 {
+    if norm_a == 0.0 || norm_b == 0.0 {
+        return 0.0;
+    }
+    let (mut i, mut j) = (0, 0);
+    let mut dot = 0.0;
+    while i < a.len() && j < b.len() {
+        match a[i].0.cmp(&b[j].0) {
+            std::cmp::Ordering::Less => i += 1,
+            std::cmp::Ordering::Greater => j += 1,
+            std::cmp::Ordering::Equal => {
+                dot += a[i].1 * b[j].1;
+                i += 1;
+                j += 1;
+            }
+        }
+    }
+    dot / (norm_a * norm_b)
+}
+
 /// **Jaccard** similarity of two nodes' neighbour *sets* (weights ignored):
 /// `|N(a) ∩ N(b)| / |N(a) ∪ N(b)|`. Two nodes with no neighbours score 0.
 ///
@@ -59,20 +130,9 @@ pub fn jaccard_similarity<N>(graph: &AdjacencyGraph<N>, a: usize, b: usize, dir:
 where
     N: Clone + Eq + Hash + Ord,
 {
-    let na: Vec<usize> = neighbor_vec(graph, a, dir)
-        .into_iter()
-        .map(|(k, _)| k)
-        .collect();
-    let nb: Vec<usize> = neighbor_vec(graph, b, dir)
-        .into_iter()
-        .map(|(k, _)| k)
-        .collect();
-    let (inter, union) = set_overlap(&na, &nb);
-    if union == 0 {
-        0.0
-    } else {
-        inter as f64 / union as f64
-    }
+    let na = neighbor_vec(graph, a, dir);
+    let nb = neighbor_vec(graph, b, dir);
+    jaccard_from_neighbors(&na, &nb)
 }
 
 /// **Cosine** similarity of two nodes' weighted neighbour *vectors*:
@@ -86,20 +146,7 @@ where
 {
     let va = neighbor_vec(graph, a, dir);
     let vb = neighbor_vec(graph, b, dir);
-    let map_a: HashMap<usize, f64> = va.iter().copied().collect();
-    let mut dot = 0.0;
-    for &(k, w) in &vb {
-        if let Some(&wa) = map_a.get(&k) {
-            dot += wa * w;
-        }
-    }
-    let norm_a: f64 = va.iter().map(|(_, w)| w * w).sum::<f64>().sqrt();
-    let norm_b: f64 = vb.iter().map(|(_, w)| w * w).sum::<f64>().sqrt();
-    if norm_a == 0.0 || norm_b == 0.0 {
-        0.0
-    } else {
-        dot / (norm_a * norm_b)
-    }
+    cosine_from_neighbors(&va, &vb, neighbor_norm(&va), neighbor_norm(&vb))
 }
 
 /// Which metric an all-pairs sweep uses.
@@ -109,6 +156,14 @@ pub enum Metric {
     Jaccard,
     /// Weighted cosine.
     Cosine,
+}
+
+fn neighbor_score_cmp(left: &(usize, f64), right: &(usize, f64)) -> std::cmp::Ordering {
+    right
+        .1
+        .partial_cmp(&left.1)
+        .unwrap_or(std::cmp::Ordering::Equal)
+        .then_with(|| left.0.cmp(&right.0))
 }
 
 /// All-pairs node similarity above a cutoff. Returns each unordered pair
@@ -126,12 +181,20 @@ where
     N: Clone + Eq + Hash + Ord,
 {
     let n = graph.node_count();
+    let neighbors = prepared_neighbors(graph, dir);
+    let norms: Vec<f64> = if metric == Metric::Cosine {
+        neighbors.iter().map(|row| neighbor_norm(row)).collect()
+    } else {
+        Vec::new()
+    };
     let mut out: Vec<(usize, usize, f64)> = Vec::new();
     for a in 0..n {
         for b in (a + 1)..n {
             let s = match metric {
-                Metric::Jaccard => jaccard_similarity(graph, a, b, dir),
-                Metric::Cosine => cosine_similarity(graph, a, b, dir),
+                Metric::Jaccard => jaccard_from_neighbors(&neighbors[a], &neighbors[b]),
+                Metric::Cosine => {
+                    cosine_from_neighbors(&neighbors[a], &neighbors[b], norms[a], norms[b])
+                }
             };
             if s > cutoff {
                 out.push((a, b, s));
@@ -178,25 +241,34 @@ where
 {
     let n = graph.node_count();
     let k = top_k.max(1);
+    let neighbors = prepared_neighbors(graph, dir);
+    let norms: Vec<f64> = if metric == Metric::Cosine {
+        neighbors.iter().map(|row| neighbor_norm(row)).collect()
+    } else {
+        Vec::new()
+    };
     let mut pair_best: HashMap<(usize, usize), f64> = HashMap::new();
     for a in 0..n {
         let mut scored: Vec<(usize, f64)> = (0..n)
             .filter(|&b| b != a)
             .map(|b| {
                 let s = match metric {
-                    Metric::Jaccard => jaccard_similarity(graph, a, b, dir),
-                    Metric::Cosine => cosine_similarity(graph, a, b, dir),
+                    Metric::Jaccard => jaccard_from_neighbors(&neighbors[a], &neighbors[b]),
+                    Metric::Cosine => {
+                        cosine_from_neighbors(&neighbors[a], &neighbors[b], norms[a], norms[b])
+                    }
                 };
                 (b, s)
             })
             .filter(|&(_, s)| s > cutoff)
             .collect();
-        scored.sort_by(|x, y| {
-            y.1.partial_cmp(&x.1)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| x.0.cmp(&y.0))
-        });
-        scored.truncate(k);
+        if scored.len() > k {
+            scored.select_nth_unstable_by(k, neighbor_score_cmp);
+            scored.truncate(k);
+        }
+        // The public result is ordered, but the discarded V-k neighbors are not:
+        // only sort the exact selected prefix under the established score/id order.
+        scored.sort_by(neighbor_score_cmp);
         for (b, s) in scored {
             let key = if a < b { (a, b) } else { (b, a) };
             let e = pair_best.entry(key).or_insert(f64::MIN);
@@ -220,32 +292,6 @@ where
             score,
         })
         .collect()
-}
-
-/// Intersection + union sizes of two sorted, de-duplicated index lists.
-fn set_overlap(a: &[usize], b: &[usize]) -> (usize, usize) {
-    let (mut i, mut j) = (0, 0);
-    let (mut inter, mut union) = (0usize, 0usize);
-    while i < a.len() && j < b.len() {
-        match a[i].cmp(&b[j]) {
-            std::cmp::Ordering::Less => {
-                union += 1;
-                i += 1;
-            }
-            std::cmp::Ordering::Greater => {
-                union += 1;
-                j += 1;
-            }
-            std::cmp::Ordering::Equal => {
-                inter += 1;
-                union += 1;
-                i += 1;
-                j += 1;
-            }
-        }
-    }
-    union += (a.len() - i) + (b.len() - j);
-    (inter, union)
 }
 
 #[cfg(test)]
@@ -312,6 +358,33 @@ mod tests {
         ]);
         let (a, b) = (g.index_of(&"a").unwrap(), g.index_of(&"b").unwrap());
         assert!((cosine_similarity(&g, a, b, Direction::Out) - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn prepared_pair_scores_match_pointwise_semantics() {
+        let g = AdjacencyGraph::from_edges([
+            ("a", "a", 0.5),
+            ("a", "b", 1.0),
+            ("b", "a", 2.0),
+            ("b", "c", 3.0),
+            ("c", "a", 4.0),
+        ]);
+        for direction in [Direction::Out, Direction::In, Direction::Undirected] {
+            let prepared = prepared_neighbors(&g, direction);
+            let norms: Vec<f64> = prepared.iter().map(|row| neighbor_norm(row)).collect();
+            for a in 0..g.node_count() {
+                for b in 0..g.node_count() {
+                    assert_eq!(
+                        jaccard_from_neighbors(&prepared[a], &prepared[b]),
+                        jaccard_similarity(&g, a, b, direction)
+                    );
+                    let prepared_cosine =
+                        cosine_from_neighbors(&prepared[a], &prepared[b], norms[a], norms[b]);
+                    let pointwise_cosine = cosine_similarity(&g, a, b, direction);
+                    assert!((prepared_cosine - pointwise_cosine).abs() < 1e-12);
+                }
+            }
+        }
     }
 
     #[test]

@@ -7,7 +7,7 @@
 //! document span, which was derived from this source blob." That place is
 //! [`graph::AlignmentGraph`]:
 //!
-//! * [`graph::AlignmentNode`] — `Evidence(eg_modality::EvidenceSpan)` (covers
+//! * [`graph::AlignmentNode`] — `Evidence(eg_modality::EvidenceLocus)` (covers
 //!   document/image/audio/video/table/code/trace locations) plus bare
 //!   `Entity`/`Claim`/`Blob` id references for the non-artifact-located
 //!   endpoints.
@@ -19,7 +19,7 @@
 //!   `resolve_evidence` to resolve an `Evidence` node through an
 //!   [`resolver::EvidenceResolver`].
 //! * [`resolver::EvidenceResolver`] — the evidence-resolver seam: resolves an
-//!   `EvidenceSpan` back to its [`resolver::ResolvedArtifact`] (a text excerpt or
+//!   `EvidenceLocus` back to its [`resolver::ResolvedArtifact`] (a text excerpt or
 //!   a blob reference). [`resolver::InMemoryResolver`] is the trivial,
 //!   dependency-free implementation this crate ships; a real resolver backed by
 //!   the engine's blob CAS + real codecs is a documented follow-up (see module
@@ -27,7 +27,7 @@
 //!
 //! ## Dependency footprint
 //!
-//! The default build depends on `eg-modality` ONLY (for `EvidenceSpan`) — no
+//! The default build depends on `eg-modality` only for the governed locus protocol — no
 //! concrete artifact crate (`eg-document`/`eg-image`/`eg-audio`/`eg-video`), and
 //! certainly no heavy codec/OCR dependency. The one place this crate exercises a
 //! REAL cross-modal alignment end-to-end (a document span -> an image region ->
@@ -39,4 +39,4 @@ pub mod graph;
 pub mod resolver;
 
 pub use graph::{AlignmentGraph, AlignmentLink, AlignmentNode, AlignmentNodeId, AlignmentRelation};
-pub use resolver::{artifact_id, EvidenceResolver, InMemoryResolver, ResolvedArtifact};
+pub use resolver::{subject_ref, EvidenceResolver, InMemoryResolver, ResolvedArtifact};

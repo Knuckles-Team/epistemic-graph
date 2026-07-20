@@ -1,3 +1,4 @@
+#![recursion_limit = "256"]
 #![allow(dead_code)]
 #![deny(unsafe_code)]
 // CONCEPT:EG-KG.query.wire-protocol — Epistemic Graph Service Binary
@@ -7,6 +8,7 @@
 // the UDS/TCP listener.
 
 use clap::Parser;
+use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::info;
@@ -16,10 +18,26 @@ use epistemic_graph::isolation::IsolationLayer;
 use epistemic_graph::registry::GraphRegistry;
 use epistemic_graph::server::{self, ServerState};
 
+#[cfg(feature = "full")]
+mod performance_probe;
+
 #[derive(Parser, Debug)]
 #[command(name = "epistemic-graph-server")]
 #[command(about = "Tokio-native epistemic graph service")]
 struct Args {
+    /// Run one bounded, stdin-driven G-37 performance scenario and exit.
+    #[arg(long, hide = true)]
+    exact_performance_probe: bool,
+
+    /// Private scratch directory created by the exact-performance certifier.
+    #[arg(
+        long,
+        hide = true,
+        requires = "exact_performance_probe",
+        value_name = "DIRECTORY"
+    )]
+    exact_performance_probe_root: Option<std::path::PathBuf>,
+
     /// Unix Domain Socket path.
     /// Falls back to $GRAPH_SERVICE_SOCKET, then $XDG_RUNTIME_DIR/epistemic-graph.sock,
     /// then /tmp/epistemic-graph.sock.
@@ -27,29 +45,28 @@ struct Args {
     socket_path: Option<String>,
 
     /// Optional TCP address (e.g., 0.0.0.0:9100). If set, TCP listener is started.
-    #[arg(long)]
+    #[arg(long, env = "GRAPH_SERVICE_TCP_ADDR")]
     tcp_addr: Option<String>,
+
+    /// PEM certificate chain for native TCP TLS.
+    #[arg(long, env = "GRAPH_SERVICE_TLS_CERT")]
+    tcp_tls_cert: Option<String>,
+
+    /// PEM private key for native TCP TLS.
+    #[arg(long, env = "GRAPH_SERVICE_TLS_KEY")]
+    tcp_tls_key: Option<String>,
+
+    /// Optional PEM CA bundle for required client-certificate authentication.
+    #[arg(long, env = "GRAPH_SERVICE_TLS_CLIENT_CA")]
+    tcp_tls_client_ca: Option<String>,
 
     /// HMAC-SHA256 shared secret for authentication.
     #[arg(long, env = "GRAPH_SERVICE_AUTH_SECRET", default_value = "")]
     auth_secret: String,
 
-    /// Allow starting WITHOUT an auth secret (insecure; development only).
-    /// Also enabled by EPISTEMIC_GRAPH_ALLOW_INSECURE=1|true.
-    #[arg(long)]
-    allow_insecure: bool,
-
-    /// Directory for checkpoint persistence.
+    /// Directory for the authoritative durable store.
     #[arg(long, env = "GRAPH_SERVICE_PERSIST_DIR")]
     persist_dir: Option<String>,
-
-    /// Auto-checkpoint interval in seconds (0 = disabled).
-    #[arg(long, default_value = "300")]
-    checkpoint_interval: u64,
-
-    /// Serialize graphs to disk on shutdown.
-    #[arg(long, default_value = "true")]
-    persist_on_shutdown: bool,
 
     /// Ebbinghaus decay sweep interval in seconds (0 = disabled).
     #[arg(long, default_value = "0", env = "GRAPH_SERVICE_DECAY_INTERVAL")]
@@ -75,12 +92,28 @@ struct Args {
     #[arg(long, env = "EPISTEMIC_GRAPH_SPARQL_ADDR")]
     sparql_addr: Option<String>,
 
-    /// GraphQL subscription SSE carrier listener address (e.g. 127.0.0.1:7879), feature
-    /// `graphql` (CONCEPT:EG-KG.compute.cdc-event-emit). Disabled when unset. Streams a `subscription { … }`
-    /// as a live query — a `text/event-stream` frame per graph change. Separate from the
-    /// RPC transports and the read/write GraphQL RPC surface (`Method::GraphQl`).
+    /// Loopback address for the authenticated GraphQL subscription SSE carrier
+    /// (e.g. 127.0.0.1:7879), feature `graphql`. Non-loopback binds are refused;
+    /// remote access must use a same-host TLS reverse proxy. Every subscription
+    /// requires a current eg2 envelope, graph ACL, and RLS projection.
     #[arg(long, env = "EPISTEMIC_GRAPH_GRAPHQL_ADDR")]
     graphql_addr: Option<String>,
+
+    /// Maximum concurrent GraphQL SSE handshakes and sessions.
+    #[arg(
+        long,
+        env = "EPISTEMIC_GRAPH_GRAPHQL_MAX_CONNECTIONS",
+        default_value_t = 128
+    )]
+    graphql_max_connections: usize,
+
+    /// Maximum GraphQL SSE session lifetime before a fresh eg2 envelope is required.
+    #[arg(
+        long,
+        env = "EPISTEMIC_GRAPH_GRAPHQL_MAX_SESSION_SECS",
+        default_value_t = 300
+    )]
+    graphql_max_session_secs: u64,
 
     /// Observability log-ingestion HTTP listener address (e.g. 127.0.0.1:5080),
     /// feature `obs` (CONCEPT:AU-KG.ingest.self-ingest/161). Disabled when unset. Accepts OTLP/HTTP
@@ -107,16 +140,6 @@ struct Args {
     /// from the RPC transports and the `/sparql` surface.
     #[arg(long, env = "EPISTEMIC_GRAPH_FEDERATED_ADDR")]
     federated_addr: Option<String>,
-
-    /// Arrow dataset-handle HTTP listener address (e.g. 127.0.0.1:7901), feature
-    /// `dataset-handle` (CONCEPT:INT-P2-2). Disabled when unset. `POST /dataset/export`
-    /// materializes a query over a graph snapshot into an immutable Arrow dataset
-    /// handle; `GET /dataset/<id>` streams it back as Arrow IPC
-    /// (`application/vnd.apache.arrow.stream`); `POST /dataset/<id>/result` accepts a
-    /// signed result artifact from an external heavy-compute job and commits it
-    /// transactionally. Separate from the RPC transports and every other HTTP surface.
-    #[arg(long, env = "EPISTEMIC_GRAPH_DATASET_ADDR")]
-    dataset_addr: Option<String>,
 
     /// Self-terminate after N seconds with ZERO active connections (reference-
     /// counted idle shutdown). 0 or absent ⇒ NEVER self-terminate on idle: the
@@ -181,15 +204,19 @@ fn resolve_socket_path(explicit: Option<String>) -> String {
     }
 }
 
-/// The default TCP loopback endpoint used when AF_UNIX is unavailable for the
-/// primary transport (Windows, or any non-unix target). Honors
-/// `$GRAPH_SERVICE_TCP_FALLBACK_ADDR` so an operator can pin host:port without a
-/// CLI flag; defaults to `127.0.0.1:8765` (loopback-only — never 0.0.0.0).
-fn default_tcp_fallback_addr() -> String {
-    std::env::var("GRAPH_SERVICE_TCP_FALLBACK_ADDR")
-        .ok()
-        .filter(|s| !s.trim().is_empty())
-        .unwrap_or_else(|| "127.0.0.1:8765".to_string())
+fn native_tcp_addr_is_loopback(addr: &str) -> bool {
+    addr.parse::<SocketAddr>()
+        .map(|value| value.ip().is_loopback())
+        .unwrap_or_else(|_| {
+            addr.rsplit_once(':')
+                .map(|(host, port)| {
+                    host.trim_matches(|character| character == '[' || character == ']')
+                        .eq_ignore_ascii_case("localhost")
+                        && !port.is_empty()
+                        && port.chars().all(|character| character.is_ascii_digit())
+                })
+                .unwrap_or(false)
+        })
 }
 
 /// Resolve an optional listener bind address from a deploy-supplied value
@@ -199,32 +226,58 @@ fn default_tcp_fallback_addr() -> String {
 ///   * `None` / empty / `0`|`off`|`false`|`no`|`disabled` ⇒ `None` (listener off).
 ///   * `1`|`on`|`true`|`yes`|`enabled` ⇒ the safe localhost default `default_addr`.
 ///   * a bare port (`9101`) ⇒ `127.0.0.1:9101` (loopback — never `0.0.0.0`).
-///   * anything else ⇒ taken verbatim as the bind address (an operator pinning a
-///     specific interface keeps full control, including binding non-loopback).
+///   * an explicit loopback socket address / ``localhost:port`` is honored.
+///   * a non-loopback address is rejected. Remote access terminates at an
+///     authenticated TLS identity-binding gateway that connects to loopback.
 fn resolve_listener_addr(value: Option<&str>, default_addr: &str) -> Option<String> {
     let v = value.map(str::trim).filter(|s| !s.is_empty())?;
-    match v.to_ascii_lowercase().as_str() {
+    let resolved = match v.to_ascii_lowercase().as_str() {
         "0" | "off" | "false" | "no" | "disabled" => None,
         "1" | "on" | "true" | "yes" | "enabled" => Some(default_addr.to_string()),
         _ if v.chars().all(|c| c.is_ascii_digit()) => Some(format!("127.0.0.1:{v}")),
         _ => Some(v.to_string()),
+    };
+    let Some(addr) = resolved else {
+        return None;
+    };
+    let is_loopback = addr
+        .parse::<SocketAddr>()
+        .map(|socket| socket.ip().is_loopback())
+        .unwrap_or_else(|_| {
+            addr.rsplit_once(':')
+                .map(|(host, port)| {
+                    host.eq_ignore_ascii_case("localhost")
+                        && !port.is_empty()
+                        && port.chars().all(|c| c.is_ascii_digit())
+                })
+                .unwrap_or(false)
+        });
+    if !is_loopback {
+        tracing::error!("refusing non-loopback auxiliary listener");
+        return None;
     }
+    Some(addr)
 }
 
-/// True if any legacy snapshot (`.mp`) or WAL (`.wal`) file exists in `dir` —
-/// the trigger for the one-time redb-authoritative migration (CONCEPT:EG-KG.backend.authoritative-dispatch).
-fn legacy_snapshots_present(dir: &str) -> bool {
-    std::fs::read_dir(dir)
-        .map(|rd| {
-            rd.filter_map(|e| e.ok()).any(|e| {
-                let p = e.path();
-                matches!(
-                    p.extension().and_then(|x| x.to_str()),
-                    Some("mp") | Some("wal")
-                )
-            })
-        })
-        .unwrap_or(false)
+#[cfg(test)]
+mod listener_policy_tests {
+    use super::resolve_listener_addr;
+
+    #[test]
+    fn listener_resolution_stays_loopback_by_default() {
+        assert_eq!(
+            resolve_listener_addr(Some("on"), "127.0.0.1:9101"),
+            Some("127.0.0.1:9101".to_string())
+        );
+        assert_eq!(
+            resolve_listener_addr(Some("5433"), "127.0.0.1:9101"),
+            Some("127.0.0.1:5433".to_string())
+        );
+        assert_eq!(
+            resolve_listener_addr(Some("0.0.0.0:9101"), "127.0.0.1:9101"),
+            None
+        );
+    }
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -240,45 +293,90 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or(2);
     let worker_threads = cores.max(2);
     let max_blocking = (cores * 2).max(4);
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .worker_threads(worker_threads)
-        .max_blocking_threads(max_blocking)
-        .enable_all()
-        .build()?;
-    runtime.block_on(run())
+    let driver = server::spawn_engine_driver(move || {
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(worker_threads)
+            .thread_stack_size(server::ENGINE_WORKER_STACK_BYTES)
+            .max_blocking_threads(max_blocking)
+            .enable_all()
+            .build()
+            .map_err(|_| ())?;
+        runtime.block_on(async { run().await.map_err(|_| ()) })
+    })?;
+    match server::join_engine_driver(driver)? {
+        Ok(()) => Ok(()),
+        Err(()) => Err(std::io::Error::other("engine runtime driver failed").into()),
+    }
 }
 
 async fn run() -> Result<(), Box<dyn std::error::Error>> {
+    let args = Args::parse();
+
+    if args.exact_performance_probe {
+        let root = args
+            .exact_performance_probe_root
+            .as_deref()
+            .ok_or("exact performance probe root is required")?;
+        #[cfg(feature = "full")]
+        {
+            performance_probe::run_stdio(root)?;
+            return Ok(());
+        }
+        #[cfg(not(feature = "full"))]
+        {
+            let _ = root;
+            return Err("exact performance probes require the full server binary".into());
+        }
+    }
+
     // CONCEPT:EG-OS.observability.tracing-subscriber-init — install the tracing subscriber. This is the fmt-only
     // subscriber (INFO, no target) UNLESS built with `otel` AND
     // EPISTEMIC_GRAPH_OTLP_ENDPOINT is set, in which case an OTLP batch span
     // exporter is layered on top. Off/unset ⇒ byte-for-byte the prior behavior.
-    epistemic_graph::otel::init_tracing();
+    epistemic_graph::otel::init_tracing()?;
 
-    let args = Args::parse();
     let socket_path = resolve_socket_path(args.socket_path);
 
     // ── Security gate: an auth secret is mandatory ───────────────────────
-    // An empty secret means every request is accepted unauthenticated. That is
-    // never a silent default: the server refuses to start unless the operator
-    // explicitly opts in via --allow-insecure or EPISTEMIC_GRAPH_ALLOW_INSECURE=1.
-    let allow_insecure = args.allow_insecure
-        || std::env::var("EPISTEMIC_GRAPH_ALLOW_INSECURE")
-            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-            .unwrap_or(false);
-    if args.auth_secret.is_empty() && !allow_insecure {
+    if args.auth_secret.is_empty() {
         eprintln!(
             "error: no auth secret configured — refusing to start.\n\
              Set GRAPH_SERVICE_AUTH_SECRET (or pass --auth-secret) to enable \
-             HMAC-SHA256 authentication.\n\
-             To intentionally run unauthenticated (development only), pass \
-             --allow-insecure or set EPISTEMIC_GRAPH_ALLOW_INSECURE=1."
+             HMAC-SHA256 authentication."
+        );
+        std::process::exit(2);
+    }
+    if args.persist_dir.is_none() {
+        eprintln!(
+            "error: the served engine requires an externally configured durable-state directory"
         );
         std::process::exit(2);
     }
 
+    let tcp_tls = match (&args.tcp_tls_cert, &args.tcp_tls_key) {
+        (Some(cert_path), Some(key_path)) => Some(server::TcpTlsConfig {
+            cert_path: cert_path.clone(),
+            key_path: key_path.clone(),
+            client_ca_path: args.tcp_tls_client_ca.clone(),
+        }),
+        (None, None) if args.tcp_tls_client_ca.is_none() => None,
+        _ => {
+            eprintln!("error: native TCP TLS requires both certificate and private-key material");
+            std::process::exit(2);
+        }
+    };
+    if let Some(ref addr) = args.tcp_addr {
+        if !native_tcp_addr_is_loopback(addr) && tcp_tls.is_none() {
+            eprintln!("error: non-loopback native TCP requires TLS");
+            std::process::exit(2);
+        }
+    }
+    if let Some(ref tls) = tcp_tls {
+        server::validate_tcp_tls_config(tls)?;
+    }
+
     info!("Starting epistemic-graph-server");
-    info!("  UDS: {}", socket_path);
+    info!("  UDS: private local socket configured");
 
     // ── Hardware capacity auto-detection (CONCEPT:AU-KG.backend.b-auto-size) ─────────────────
     // Size the concurrency / buffer / per-graph node-cap DEFAULTS from
@@ -288,44 +386,29 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     // CoalescerConfig::auto + cost.rs's /proc/meminfo read.
     let host_capacity = epistemic_graph::autosize::detect_capacity();
     info!(
-        "  Capacity: {} cpu(s), {} MiB RAM, tier {:?} (auto-sizing inflight/WAL/node-cap defaults)",
+        "  Capacity: {} cpu(s), {} MiB RAM, tier {:?} (auto-sizing inflight/writer/node-cap defaults)",
         host_capacity.cpus,
         host_capacity.total_ram_bytes / (1024 * 1024),
         host_capacity.tier
     );
-    if let Some(ref tcp) = args.tcp_addr {
-        info!("  TCP: {}", tcp);
-    }
-    info!(
-        "  Auth: {}",
-        if args.auth_secret.is_empty() {
-            "disabled"
-        } else {
-            "enabled"
-        }
-    );
-    if args.auth_secret.is_empty() {
-        tracing::warn!(
-            "SECURITY: running WITHOUT authentication (insecure opt-out is set). \
-             Every connection to UDS {}{} is trusted unconditionally. \
-             Do NOT expose this server beyond localhost.",
-            socket_path,
-            match &args.tcp_addr {
-                Some(tcp) => format!(" and TCP {}", tcp),
-                None => String::new(),
-            }
+    if args.tcp_addr.is_some() {
+        info!(
+            "  TCP: configured (tls={}, mtls={})",
+            tcp_tls.is_some(),
+            args.tcp_tls_client_ca.is_some()
         );
     }
+    info!("  Auth: enabled");
 
-    // ── Single-writer persist-dir guard (CONCEPT:EG-KG.storage.nonblocking-checkpoint / OS-5.9, Phase B1) ──
+    // ── Single-writer durable-store guard ──────────────────────────────────
     // Refuse to start if another engine already owns this persist dir; hold the
     // lock for the whole process lifetime so no second engine can clobber our
-    // snapshots (the engine-level complement to the Python spawn guard). Kept in
+    // authoritative rows (the engine-level complement to the Python spawn guard). Kept in
     // `_persist_lock` until run() returns; the kernel releases it on exit/crash.
     let _persist_lock = match &args.persist_dir {
         Some(dir) => match epistemic_graph::persist_lock::acquire(dir) {
             Ok(lock) => {
-                info!("Acquired single-writer lock on persist dir {}", dir);
+                info!("Acquired the configured single-writer persistence lock");
                 Some(lock)
             }
             Err(e) => {
@@ -366,7 +449,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         max_in_flight, per_graph_inflight_limit, read_reserved
     );
     // Per-graph write coalescer (CONCEPT:EG-KG.sharding.per-graph-write-coalescer): batch size auto-sized from cpu
-    // count; default ON, opt out with EPISTEMIC_GRAPH_WRITE_COALESCE=0.
+    // count and always enabled with bounded queues.
     {
         let cfg = epistemic_graph::write_coalescer::CoalescerConfig::auto();
         info!(
@@ -375,140 +458,40 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
 
-    // ── Off-reactor WAL writer (CONCEPT:EG-KG.storage.nonblocking-checkpoint, Phase B3) ────────────────
-    // When persisting, all WAL file I/O runs on one dedicated thread so durable
-    // mutations never block a Tokio worker; fsync is group-committed per
-    // EPISTEMIC_GRAPH_WAL_FSYNC (off | each | <ms> | interval, default 100ms).
-    // The bounded channel (EPISTEMIC_GRAPH_WAL_QUEUE, default 8192) sheds — loudly
-    // — rather than stalling the reactor under a saturated disk.
-    // Build the durable persistence backend (CONCEPT:EG-KG.storage.kg-kg). `snapshot`
-    // (default) = today's snapshot RDB + off-reactor WAL; `redb` = the
-    // feature-gated write-through tier. Selection is one env read; both own their
-    // off-reactor writer internally so the dispatch path only sees the trait.
-    // THE FLIP (CONCEPT:AU-KG.backend.backend-modes): the engine is a SOURCE OF TRUTH out of the box.
-    // The persist backend now DEFAULTS to "redb" (was "snapshot"); operators can
-    // still force the old rebuildable-cache path with
-    // EPISTEMIC_GRAPH_PERSIST_BACKEND=snapshot.
-    let backend_env = std::env::var("EPISTEMIC_GRAPH_PERSIST_BACKEND")
-        .ok()
-        .map(|s| s.trim().to_ascii_lowercase());
-    // Whether the operator NAMED a backend (vs. taking the new default). Used to
-    // keep the fallback path quiet for the implicit default: a build without the
-    // redb feature must boot clean even though "redb" is now the default name.
-    let backend_explicit = backend_env.is_some();
-    let backend_kind = backend_env.unwrap_or_else(|| "redb".to_string());
-    // Is the redb backend actually USABLE in this build? Authoritative mode is only
-    // real when the `redb` cargo feature is compiled in AND `redb` is the selected
-    // backend (so `RedbBackend::open` is the live PersistenceBackend, not the
-    // snapshot fallback). A `redb` request in a build without the feature silently
-    // degrades to snapshot+WAL below, so it is NOT authoritative.
-    let redb_feature = cfg!(feature = "redb");
-    let redb_active = redb_feature && backend_kind == "redb";
-
-    // redb-authoritative mode (CONCEPT:EG-KG.backend.authoritative-dispatch / KG-2.195), read ONCE at startup.
-    // EXPLICIT env (Option<bool>): when the operator sets EPISTEMIC_GRAPH_REDB_AUTHORITATIVE
-    // we honor it verbatim; when UNSET it DEFAULTS to ON exactly when the redb
-    // backend is active — so a stock redb-bearing build (full/node/cluster/pi) is a
-    // durable source of truth by default, while a snapshot or no-redb build stays in
-    // the byte-for-byte rebuildable-cache model.
-    let redb_authoritative_explicit = std::env::var("EPISTEMIC_GRAPH_REDB_AUTHORITATIVE")
-        .ok()
-        .map(|s| {
-            let s = s.trim().to_ascii_lowercase();
-            s == "1" || s == "true" || s == "yes" || s == "on"
-        });
-    let redb_authoritative = redb_authoritative_explicit.unwrap_or(redb_active);
-    // Warn ONLY when an operator EXPLICITLY asked for authoritative mode but the
-    // redb backend is not active (snapshot selected, or redb feature not compiled) —
-    // a genuine misconfig. The NEW default never trips this, so a snapshot / no-redb
-    // build boots clean with no scary warning.
-    if redb_authoritative_explicit == Some(true) && !redb_active {
-        tracing::warn!(
-            "EPISTEMIC_GRAPH_REDB_AUTHORITATIVE is set but the redb backend is not active \
-             (EPISTEMIC_GRAPH_PERSIST_BACKEND='{}', redb feature compiled: {}); authoritative \
-             mode is IGNORED — it only applies to the redb backend",
-            backend_kind,
-            redb_feature
-        );
-    }
-    if redb_authoritative && redb_active {
-        if args.persist_dir.is_some() {
-            info!("redb AUTHORITATIVE mode ON (CONCEPT:EG-KG.backend.authoritative-dispatch): commit-before-ack, eviction gated, backpressure (no drop)");
-        } else {
-            // Authoritative is requested/defaulted but there is no persist dir, so
-            // there is nowhere durable to write — the engine runs IN-MEMORY ONLY and
-            // every durable-record path short-circuits. Be loud so an operator does
-            // not mistake this for a durable source of truth.
-            tracing::warn!(
-                "redb authoritative is active but no persist dir is configured \
-                 (GRAPH_SERVICE_PERSIST_DIR / --persist-dir) — running IN-MEMORY ONLY; \
-                 writes are NOT durable. Set a persist dir to make the engine a source of truth."
+    // The served engine has one durability implementation: authoritative redb.
+    // Every acknowledged mutation crosses the commit barrier, and bounded writer
+    // queues apply backpressure rather than dropping work.
+    let persistence: Option<Arc<dyn epistemic_graph::server::persistence::PersistenceBackend>> =
+        args.persist_dir.as_ref().map(|dir| {
+            let policy = epistemic_graph::durability::DurabilityPolicy::from_env(
+                std::env::var("EPISTEMIC_GRAPH_REDB_COMMIT_POLICY")
+                    .ok()
+                    .as_deref(),
+            )
+            .unwrap_or_else(|error| {
+                eprintln!("error: {error}");
+                std::process::exit(2);
+            });
+            let capacity = std::env::var("EPISTEMIC_GRAPH_REDB_WRITER_QUEUE")
+                .ok()
+                .and_then(|v| v.parse::<usize>().ok())
+                .filter(|&n| n > 0)
+                .unwrap_or_else(|| host_capacity.writer_queue());
+            info!(
+                "Persistence: authoritative redb (fsync {:?}, queue {})",
+                policy, capacity
             );
-        }
-    }
-    let persistence: Option<
-        Arc<dyn epistemic_graph::server::persistence::PersistenceBackend>,
-    > = args.persist_dir.as_ref().map(|dir| {
-        let policy = epistemic_graph::wal_service::FsyncPolicy::from_env(
-            std::env::var("EPISTEMIC_GRAPH_WAL_FSYNC").ok().as_deref(),
-        );
-        // WAL channel depth: default auto-sizes from cpu count (CONCEPT:AU-KG.backend.b-auto-size) so a
-        // Pi holds little and a big box absorbs bursts. Env override (>0) still wins.
-        // (`capacity` here is the queue depth; the host Capacity is `host_capacity`.)
-        let capacity = std::env::var("EPISTEMIC_GRAPH_WAL_QUEUE")
-            .ok()
-            .and_then(|v| v.parse::<usize>().ok())
-            .filter(|&n| n > 0)
-            .unwrap_or_else(|| host_capacity.wal_queue());
-        match backend_kind.as_str() {
-            #[cfg(feature = "redb")]
-            "redb" => {
-                info!(
-                    "Persistence: redb write-through tier (fsync {:?}, queue {})",
-                    policy, capacity
-                );
-                let b: Arc<dyn epistemic_graph::server::persistence::PersistenceBackend> =
-                    match epistemic_graph::server::persistence::redb_backend::RedbBackend::open(
-                        dir.clone(),
-                        policy,
-                        capacity,
-                    ) {
-                        Ok(b) => Arc::new(b),
-                        Err(e) => {
-                            eprintln!("error: failed to open redb backend at {dir}: {e}");
-                            std::process::exit(1);
-                        }
-                    };
-                b
-            }
-            other => {
-                // Warn about a fallback only when the operator EXPLICITLY named a
-                // backend we can't honor (e.g. set redb but the feature isn't
-                // compiled, or a typo). The NEW implicit default ("redb" on a build
-                // without the feature) falls back to snapshot SILENTLY so a
-                // bare/server-only build boots clean (CONCEPT:AU-KG.backend.backend-modes).
-                if other != "snapshot" && backend_explicit {
-                    tracing::warn!(
-                        "EPISTEMIC_GRAPH_PERSIST_BACKEND='{}' not available in this build; \
-                         falling back to snapshot+WAL",
-                        other
-                    );
-                }
-                info!(
-                    "Persistence: snapshot+WAL (fsync {:?}, queue {})",
-                    policy, capacity
-                );
-                let svc =
-                    epistemic_graph::wal_service::WalService::spawn(dir.clone(), policy, capacity);
-                let b: Arc<dyn epistemic_graph::server::persistence::PersistenceBackend> = Arc::new(
-                    epistemic_graph::server::persistence::snapshot_wal::SnapshotWalBackend::new(
-                        Some(svc),
-                    ),
-                );
-                b
-            }
-        }
-    });
+            let backend = epistemic_graph::server::persistence::redb_backend::RedbBackend::open(
+                dir.clone(),
+                policy,
+                capacity,
+            )
+            .unwrap_or_else(|error| {
+                eprintln!("error: failed to open durable graph store: {error}");
+                std::process::exit(1);
+            });
+            Arc::new(backend) as Arc<dyn epistemic_graph::server::persistence::PersistenceBackend>
+        });
     let persistence_shutdown = persistence.clone();
 
     // OCC ACID transaction limits (CONCEPT:EG-KG.txn.multi-op-occ-acid).
@@ -516,7 +499,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         epistemic_graph::server::txn_limits_from_env();
 
     // Native time-series store (CONCEPT:AU-KG.retrieval.god-nodes-communities, feature `tsdb`). A durable
-    // `series.redb` beside `graph.redb` when a persist dir is set; else a
+    // `series.redb` beside the graph shards when a persist dir is set; else a
     // process-temp file (in-memory deployments). Built BEFORE `persist_dir` is moved
     // into the struct. A store-open failure is fatal at boot (loud + early), same
     // discipline as the persistence backend above.
@@ -528,40 +511,14 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         };
         match eg_tsdb::store::SeriesStore::open(&path) {
             Ok(s) => {
-                info!("Time-series store (tsdb): {}", path.display());
+                info!("Time-series store (tsdb): durable store ready");
                 Some(Arc::new(s))
             }
             Err(e) => {
-                tracing::error!(
-                    "failed to open time-series store at {}: {e}",
-                    path.display()
-                );
+                tracing::error!("failed to open durable time-series store: {e}");
                 std::process::exit(1);
             }
         }
-    };
-
-    // Opt-in lossless RDF quad table (CONCEPT:EG-KG.ontology.kg-native-rdf-sparql, feature `rdf-redb`). A
-    // durable `rdf_quads.redb` beside `graph.redb` ONLY when a persist dir is set —
-    // with no persist dir the property-graph mapping alone is used (the multi-valued
-    // literal extras are reported by `LoadReport`, never silently lost), so there is
-    // nothing to durably store. A store-open failure is fatal at boot.
-    #[cfg(feature = "rdf-redb")]
-    let rdf_quads: Option<Arc<eg_rdf::quads::QuadStore>> = match &args.persist_dir {
-        Some(dir) => {
-            let path = std::path::Path::new(dir).join("rdf_quads.redb");
-            match eg_rdf::quads::QuadStore::open(&path) {
-                Ok(s) => {
-                    info!("RDF lossless quad store (rdf-redb): {}", path.display());
-                    Some(Arc::new(s))
-                }
-                Err(e) => {
-                    tracing::error!("failed to open RDF quad store at {}: {e}", path.display());
-                    std::process::exit(1);
-                }
-            }
-        }
-        None => None,
     };
 
     // Streamed content-addressed BLOB substrate (CONCEPT:EG-KG.storage.blob-namespace). The CAS lives
@@ -582,7 +539,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                     match epistemic_graph::server::blob::s3::S3ChunkStore::open(dir) {
                         Ok(s) => Arc::new(s),
                         Err(e) => {
-                            eprintln!("error: failed to open blob-s3 CAS at {dir}: {e}");
+                            eprintln!("error: failed to open durable blob-s3 CAS: {e}");
                             std::process::exit(1);
                         }
                     };
@@ -591,13 +548,11 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                     match epistemic_graph::server::blob::RedbChunkStore::open(dir) {
                         Ok(s) => Arc::new(s),
                         Err(e) => {
-                            eprintln!("error: failed to open blob CAS at {dir}: {e}");
+                            eprintln!("error: failed to open durable blob CAS: {e}");
                             std::process::exit(1);
                         }
                     };
-                info!(
-                    "Blob substrate: content-addressed CAS at {dir}/blob.redb (CONCEPT:EG-KG.storage.blob-namespace)"
-                );
+                info!("Blob substrate: durable content-addressed CAS ready");
                 Some(Arc::new(epistemic_graph::server::blob::BlobCursors::new(
                     store,
                 )))
@@ -645,61 +600,61 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         ),
         registry: GraphRegistry::new(),
         isolation: {
-            // RLS default-deny / strict-isolation posture (CONCEPT:EG-KG.sharding.row-level-security, EG-P0-6).
-            // STRICT (secure-by-default) unless explicitly opted out: a fresh/
-            // greenfield deployment hides an unowned/undecodable/untagged-legacy row
-            // unless it explicitly carries `_visibility: "public"` or an `_owner` a
-            // rule already grants. Opt back into the permissive/back-compat posture
-            // with `EPISTEMIC_GRAPH_RLS_DEFAULT_DENY=0|false|no|off` -- see
-            // `eg_core::isolation::resolve_rls_default_deny` for the exact parse
-            // rules and `IsolationLayer`'s `rls_default_deny` field docs for the
-            // semantics and migration implication (legacy unowned rows become
-            // invisible until backfilled with an `_owner` or an explicit
-            // `_visibility: "public"` tag).
+            // RLS is unconditionally default-deny. Every served request carries
+            // a verified tenant context and resolves through provisioned durable
+            // identity/RBAC policy before any row is exposed.
             #[cfg(feature = "security")]
             {
-                let strict = epistemic_graph::isolation::resolve_rls_default_deny(
-                    std::env::var("EPISTEMIC_GRAPH_RLS_DEFAULT_DENY")
-                        .ok()
-                        .as_deref(),
+                info!(
+                    "RLS default-deny ACTIVE: rows require explicit public visibility or an owner grant"
                 );
-                if strict {
+                let isolation = match args.persist_dir.as_deref() {
+                    Some(dir) => match IsolationLayer::with_persist_dir(dir) {
+                        Ok(layer) => layer,
+                        Err(error) => {
+                            eprintln!(
+                                "error: could not open durable identity/RBAC policy: {error}"
+                            );
+                            std::process::exit(1);
+                        }
+                    },
+                    None => {
+                        eprintln!(
+                            "error: secure request context requires --persist-dir / GRAPH_SERVICE_PERSIST_DIR for durable identity policy and replay state"
+                        );
+                        std::process::exit(1);
+                    }
+                };
+                if let Err(error) = server::validate_verified_request_context_startup(
+                    &args.auth_secret,
+                    args.persist_dir.as_deref(),
+                ) {
+                    eprintln!("error: invalid verified request-context configuration: {error}");
+                    std::process::exit(1);
+                }
+                if isolation.identity_bootstrap_pending() {
                     info!(
-                        "RLS default-deny (strict isolation) ACTIVE (secure-by-default; \
-                         set EPISTEMIC_GRAPH_RLS_DEFAULT_DENY=0 to opt back into the permissive \
-                         posture): unowned/undecodable/untagged-legacy rows are hidden unless \
-                         explicitly `_visibility: public` or `_owner`-granted \
-                         (CONCEPT:EG-KG.sharding.row-level-security, EG-P0-6)"
-                    );
-                } else {
-                    info!(
-                        "RLS default-deny DISABLED via EPISTEMIC_GRAPH_RLS_DEFAULT_DENY: running the \
-                         permissive/back-compat posture -- an unowned/undecodable/untagged-legacy row \
-                         stays visible to all (CONCEPT:EG-KG.sharding.row-level-security, EG-P0-6)"
+                        "Identity policy is empty: only a signer-backed current-envelope System identity bootstrap is admitted"
                     );
                 }
-                IsolationLayer::new().with_rls_default_deny(strict)
+                isolation
             }
             #[cfg(not(feature = "security"))]
             {
-                IsolationLayer::new()
+                eprintln!("error: server deployment requires a build with the security feature");
+                std::process::exit(1);
             }
         },
         channels: ChannelManager::new(),
         auth_secret: args.auth_secret,
         persist_dir: args.persist_dir,
         persistence,
-        // Only honor authoritative mode when the redb backend is actually active
-        // (feature compiled AND selected — its `record_durable`/`read_node` are the
-        // only real implementations); any other backend / a redb fallback stays in
-        // safe write-through/no-op behavior.
-        redb_authoritative: redb_authoritative && redb_active,
         max_in_flight: std::sync::Arc::new(tokio::sync::Semaphore::new(max_in_flight)),
         read_admission: std::sync::Arc::new(tokio::sync::Semaphore::new(read_reserved)),
         per_graph_inflight: std::sync::Arc::new(dashmap::DashMap::new()),
         per_graph_inflight_limit,
         write_coalescer: std::sync::Arc::new(
-            epistemic_graph::write_coalescer::WriteCoalescerRegistry::from_env(),
+            epistemic_graph::write_coalescer::WriteCoalescerRegistry::new(),
         ),
         open_txns: std::sync::Arc::new(dashmap::DashMap::new()),
         txn_id_gen: std::sync::Arc::new(epistemic_graph::server::txn::TxnIdGen::default()),
@@ -719,8 +674,6 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         multi_raft: None,
         #[cfg(feature = "tsdb")]
         tsdb_store,
-        #[cfg(feature = "rdf-redb")]
-        rdf_quads,
         // Change-Data-Capture hub (CONCEPT:EG-KG.query.streaming-cdc-subscriptions/230). In-memory only (a bounded
         // per-graph ring + Notify) — needs no persist dir, so it is always live on a
         // `streaming` build. The dispatch shell emits a change into it after every
@@ -737,10 +690,6 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         foreign_sources: std::sync::Arc::new(dashmap::DashMap::new()),
         #[cfg(feature = "kv")]
         kv,
-        #[cfg(feature = "dataset-handle")]
-        dataset_handles: std::sync::Arc::new(
-            epistemic_graph::server::dataset_handle::DatasetHandleRegistry::new(),
-        ),
         // LTAP lakehouse materialization manager (CONCEPT:EG-317 engine-side seam,
         // INT-P2-3). Process-global + always constructed (empty) on a `lake` build —
         // the periodic drain sweep and the `lake-rest` Iceberg-REST listener below
@@ -753,8 +702,8 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     // Opt-in + deploy-configurable (CONCEPT:EG-OS.config.configurable-listeners): bound only when
     // --metrics-addr / GRAPH_SERVICE_METRICS_ADDR is set. A bare enable token
     // (`1`/`on`/…) binds the safe localhost default `127.0.0.1:9101`; a bare port
-    // binds loopback:port; a full addr is honored verbatim — so a deploy turns the
-    // listener on without a code change, and shards still never collide by default.
+    // binds loopback:port. A non-loopback address additionally requires the
+    // protected-ingress two-key policy.
     let metrics_addr = resolve_listener_addr(args.metrics_addr.as_deref(), "127.0.0.1:9101");
     if let Some(ref metrics_addr) = metrics_addr {
         #[cfg(feature = "metrics")]
@@ -780,8 +729,8 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     // sparql-http` AND --sparql-addr / EPISTEMIC_GRAPH_SPARQL_ADDR is set. With the
     // feature off, or unset, this is a no-op and the engine runs exactly as before.
     // Deploy-configurable (CONCEPT:EG-OS.config.configurable-listeners): a bare enable token binds the safe
-    // localhost default `127.0.0.1:7878`; a bare port binds loopback:port; a full
-    // addr is honored verbatim.
+    // localhost default `127.0.0.1:7878`; a bare port binds loopback:port. A
+    // non-loopback address additionally requires the protected-ingress policy.
     let sparql_addr = resolve_listener_addr(args.sparql_addr.as_deref(), "127.0.0.1:7878");
     #[cfg(feature = "sparql-http")]
     if let Some(ref sparql_addr) = sparql_addr {
@@ -827,50 +776,54 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
 
-    // ── Arrow dataset-handle export + signed result writeback (CONCEPT:INT-P2-2) ────────────────
-    // Opt-in AND feature-gated: the listener starts ONLY when built `--features
-    // dataset-handle` AND --dataset-addr / EPISTEMIC_GRAPH_DATASET_ADDR is set. With the
-    // feature off, or unset, this is a no-op. `POST /dataset/export` materializes a query
-    // over a graph snapshot into an immutable Arrow dataset handle; `GET /dataset/<id>`
-    // streams it back as Arrow IPC; `POST /dataset/<id>/result` accepts a signed result
-    // artifact from an external heavy-compute job (data-science-mcp, a training loop) and
-    // commits it transactionally. Deploy-configurable (EG-022): a bare enable token binds
-    // the safe localhost default `127.0.0.1:7901`.
-    let dataset_addr = resolve_listener_addr(args.dataset_addr.as_deref(), "127.0.0.1:7901");
-    #[cfg(feature = "dataset-handle")]
-    if let Some(ref dataset_addr) = dataset_addr {
-        let listener = tokio::net::TcpListener::bind(dataset_addr).await?;
-        info!(
-            "Dataset handle: serving Arrow export + result writeback on http://{}/dataset",
-            dataset_addr
-        );
-        let ds_state = state.clone();
-        tokio::spawn(async move {
-            epistemic_graph::server::dataset_handle::serve(listener, ds_state).await;
-        });
-    }
-    #[cfg(not(feature = "dataset-handle"))]
-    if dataset_addr.is_some() {
-        tracing::warn!("--dataset-addr ignored: binary built without the `dataset-handle` feature");
-    }
-
     // ── GraphQL subscription SSE carrier (CONCEPT:EG-KG.compute.cdc-event-emit) ────────────────
     // Opt-in AND feature-gated: the listener starts ONLY when built `--features graphql`
     // AND --graphql-addr / EPISTEMIC_GRAPH_GRAPHQL_ADDR is set. With the feature off, or
-    // unset, this is a no-op. Streams a GraphQL `subscription { … }` as a live query
-    // (re-resolve-on-change) over `text/event-stream`. Deploy-configurable (EG-022): a
-    // bare enable token binds the safe localhost default `127.0.0.1:7879`.
-    let graphql_addr = resolve_listener_addr(args.graphql_addr.as_deref(), "127.0.0.1:7879");
+    // unset, this is a no-op. The listener is loopback-only because its HTTP framing
+    // does not terminate TLS; a same-host TLS reverse proxy is the sole remote exposure
+    // path. Every accepted request carries an eg2 envelope signed over the exact graph,
+    // request id, and subscription document, then passes graph ACL + RLS on every frame.
+    let graphql_requested = args
+        .graphql_addr
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let graphql_explicitly_disabled = graphql_requested.is_some_and(|value| {
+        matches!(
+            value.to_ascii_lowercase().as_str(),
+            "0" | "off" | "false" | "no" | "disabled"
+        )
+    });
+    let graphql_addr = resolve_listener_addr(graphql_requested, "127.0.0.1:7879");
+    if graphql_requested.is_some() && !graphql_explicitly_disabled && graphql_addr.is_none() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "GraphQL subscription address must be a valid loopback host and port",
+        )
+        .into());
+    }
     #[cfg(feature = "graphql")]
     if let Some(ref graphql_addr) = graphql_addr {
+        let graphql_config = epistemic_graph::server::graphql_sub::GraphQlSubscriptionConfig::new(
+            args.graphql_max_connections,
+            args.graphql_max_session_secs,
+        )
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidInput, error))?;
         let listener = tokio::net::TcpListener::bind(graphql_addr).await?;
+        if !listener.local_addr()?.ip().is_loopback() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "GraphQL subscription SSE must bind to loopback; use a same-host TLS reverse proxy for remote access",
+            )
+            .into());
+        }
         info!(
-            "GraphQL: serving subscription SSE carrier on http://{}/graphql/subscribe",
+            "GraphQL: serving authenticated subscription SSE carrier on http://{}/graphql/subscribe",
             graphql_addr
         );
         let gql_state = state.clone();
         tokio::spawn(async move {
-            epistemic_graph::server::graphql_sub::serve(listener, gql_state).await;
+            epistemic_graph::server::graphql_sub::serve(listener, gql_state, graphql_config).await;
         });
     }
     #[cfg(not(feature = "graphql"))]
@@ -905,8 +858,14 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                     obs_addr
                 );
                 let obs_state = std::sync::Arc::new(obs_state);
+                let obs_security_state = state.clone();
                 tokio::spawn(async move {
-                    epistemic_graph::server::obs::serve(listener, obs_state).await;
+                    epistemic_graph::server::obs::serve_with_security(
+                        listener,
+                        obs_state,
+                        obs_security_state,
+                    )
+                    .await;
                 });
             }
             Err(e) => tracing::error!(
@@ -944,8 +903,15 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                     "Iceberg-REST: serving the standards catalog surface on http://{}/v1/config",
                     iceberg_addr
                 );
+                let lake_security_state = state.clone();
                 tokio::spawn(async move {
-                    epistemic_graph::server::lake::rest::serve(listener, lake_handle, store).await;
+                    epistemic_graph::server::lake::rest::serve_with_security(
+                        listener,
+                        lake_handle,
+                        store,
+                        lake_security_state,
+                    )
+                    .await;
                 });
             }
             None => tracing::error!(
@@ -986,14 +952,21 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                     let __loop_tick_started = std::time::Instant::now();
                     // `lake` implies `blob` + `tsdb`, so both are always configured
                     // (`Some`) here — neither is ever independently off in this build.
-                    let (lake_handle, tsdb, store) = {
+                    let (lake_handle, tsdb, store, carrier_denied) = {
                         let s = sweep_state.read().await;
                         (
                             s.lake.clone(),
                             s.tsdb_store.clone(),
                             s.blob.as_ref().map(|b| b.store.clone()),
+                            epistemic_graph::server::unauthenticated_carrier_denied(&s.isolation),
                         )
                     };
+                    if carrier_denied {
+                        tracing::warn!(
+                            "Lake materialize sweep denied: raw series export has no verified tenant ownership"
+                        );
+                        continue;
+                    }
                     let (Some(tsdb), Some(store)) = (tsdb, store) else {
                         tracing::warn!(
                             "Lake materialize sweep: no tsdb/blob store configured, skipping tick"
@@ -1045,7 +1018,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     // off, or on but unset, this is a no-op and the engine runs exactly as today.
     // Deploy-configurable (CONCEPT:EG-OS.config.configurable-listeners): the addr is env-driven
     // (EPISTEMIC_GRAPH_PGWIRE_ADDR); a bare enable token binds the safe localhost
-    // default `127.0.0.1:5433`, a bare port binds loopback:port, a full addr verbatim.
+    // default `127.0.0.1:5433`; non-loopback requires the protected-ingress policy.
     // pgwire's OWN internals are untouched — only the bind addr is resolved here.
     #[cfg(feature = "pgwire")]
     if let Some(addr) = resolve_listener_addr(
@@ -1054,10 +1027,21 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             .as_deref(),
         "127.0.0.1:5433",
     ) {
+        let pg_auth_secret = state.read().await.auth_secret.clone();
+        let pg_auth_mode =
+            epistemic_graph::server::pgwire::PgWireAuthMode::resolve(&pg_auth_secret)?;
+        epistemic_graph::server::pgwire::validate_startup_policy(
+            &addr,
+            &pg_auth_secret,
+            pg_auth_mode,
+        )?;
         let pg_state = state.clone();
-        info!("pgwire: serving Postgres wire protocol on {}", addr);
+        info!("pgwire: enabling the configured loopback listener");
         tokio::spawn(async move {
-            if let Err(e) = epistemic_graph::server::pgwire::serve(&addr, pg_state).await {
+            if let Err(e) =
+                epistemic_graph::server::pgwire::serve_with_auth(&addr, pg_state, pg_auth_mode)
+                    .await
+            {
                 tracing::error!("pgwire server error: {}", e);
             }
         });
@@ -1070,7 +1054,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     // NDJSON-over-TCP request/response line protocol, translating SQLite-dialect SQL and
     // running it through the SAME shared `WireSession` the pgwire shim uses (EG-074).
     // Deploy-configurable (CONCEPT:EG-OS.config.configurable-listeners): a bare enable token binds the safe localhost
-    // default `127.0.0.1:5461`, a bare port binds loopback:port, a full addr verbatim.
+    // default `127.0.0.1:5461`; non-loopback requires the protected-ingress policy.
     #[cfg(feature = "sqlite-wire")]
     if let Some(addr) = resolve_listener_addr(
         std::env::var(epistemic_graph::server::sqlite_wire::SQLITE_ADDR_ENV)
@@ -1098,7 +1082,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     // `--features mysql-wire` AND EPISTEMIC_GRAPH_MYSQL_ADDR is set. With the feature
     // off, or on but unset, this is a no-op and the engine runs exactly as today.
     // Deploy-configurable (CONCEPT:EG-OS.config.configurable-listeners): a bare enable token binds the safe localhost
-    // default `127.0.0.1:3306`, a bare port binds loopback:port, a full addr verbatim.
+    // default `127.0.0.1:3306`; non-loopback requires the protected-ingress policy.
     // The hand-rolled MySQL protocol reuses the SAME `WireSession` execute→classify→exec
     // core as pgwire (CONCEPT:EG-KG.compute.subsystems-reference), so a MySQL driver/ORM runs SQL over `nodes`/`edges`.
     #[cfg(feature = "mysql-wire")]
@@ -1108,13 +1092,24 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             .as_deref(),
         "127.0.0.1:3306",
     ) {
+        let mysql_auth_secret = state.read().await.auth_secret.clone();
+        let mysql_auth_mode =
+            epistemic_graph::server::mysql_wire::MysqlAuthMode::resolve(&mysql_auth_secret)?;
+        epistemic_graph::server::mysql_wire::validate_startup_policy(
+            &addr,
+            &mysql_auth_secret,
+            mysql_auth_mode,
+        )?;
         let my_state = state.clone();
-        info!(
-            "mysql-wire: serving MySQL/MariaDB wire protocol on {}",
-            addr
-        );
+        info!("mysql-wire: enabling the configured loopback listener");
         tokio::spawn(async move {
-            if let Err(e) = epistemic_graph::server::mysql_wire::serve(&addr, my_state).await {
+            if let Err(e) = epistemic_graph::server::mysql_wire::serve_with_auth(
+                &addr,
+                my_state,
+                mysql_auth_mode,
+            )
+            .await
+            {
                 tracing::error!("mysql-wire server error: {}", e);
             }
         });
@@ -1125,7 +1120,8 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     // binary is built `--features mssql-wire` AND EPISTEMIC_GRAPH_MSSQL_ADDR is set.
     // With the feature off, or on but unset, this is a no-op. Deploy-configurable
     // (CONCEPT:EG-OS.config.configurable-listeners): a bare enable token binds the safe localhost default
-    // `127.0.0.1:1433`, a bare port binds loopback:port, a full addr verbatim.
+    // `127.0.0.1:1433`. Direct TDS is authenticated loopback-only; remote clients
+    // terminate TLS/mTLS at an identity-binding gateway that forwards to loopback.
     #[cfg(feature = "mssql-wire")]
     if let Some(addr) = resolve_listener_addr(
         std::env::var(epistemic_graph::server::mssql_wire::MSSQL_ADDR_ENV)
@@ -1133,8 +1129,10 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             .as_deref(),
         "127.0.0.1:1433",
     ) {
+        let mssql_auth_secret = state.read().await.auth_secret.clone();
+        epistemic_graph::server::mssql_wire::validate_startup_policy(&addr, &mssql_auth_secret)?;
         let mssql_state = state.clone();
-        info!("mssql-wire: serving MSSQL TDS wire protocol on {}", addr);
+        info!("mssql-wire: enabling the configured authenticated loopback listener");
         tokio::spawn(async move {
             if let Err(e) = epistemic_graph::server::mssql_wire::serve(&addr, mssql_state).await {
                 tracing::error!("mssql-wire server error: {}", e);
@@ -1147,7 +1145,8 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     // the binary is built `--features amqp-wire` AND EPISTEMIC_GRAPH_AMQP_ADDR is set.
     // With the feature off, or on but unset, this is a no-op. Deploy-configurable
     // (CONCEPT:EG-OS.config.configurable-listeners): a bare enable token binds the safe localhost default
-    // `127.0.0.1:5672`, a bare port binds loopback:port, a full addr verbatim. Maps AMQP
+    // `127.0.0.1:5672`. Direct AMQP is authenticated loopback-only; remote clients
+    // terminate TLS/mTLS at an identity-binding gateway. Maps AMQP
     // exchange/queue/basic.* onto the `broker` primitives (KG-2.303 queue) via dispatch.
     #[cfg(feature = "amqp-wire")]
     if let Some(addr) = resolve_listener_addr(
@@ -1156,8 +1155,10 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             .as_deref(),
         "127.0.0.1:5672",
     ) {
+        let amqp_auth_secret = state.read().await.auth_secret.clone();
+        epistemic_graph::server::amqp_wire::validate_startup_policy(&addr, &amqp_auth_secret)?;
         let amqp_state = state.clone();
-        info!("amqp-wire: serving AMQP 0.9.1 wire protocol on {}", addr);
+        info!("amqp-wire: enabling the configured authenticated loopback listener");
         tokio::spawn(async move {
             if let Err(e) = epistemic_graph::server::amqp_wire::serve(&addr, amqp_state).await {
                 tracing::error!("amqp-wire server error: {}", e);
@@ -1170,8 +1171,8 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     // the binary is built `--features bolt-wire` AND EPISTEMIC_GRAPH_BOLT_ADDR is set.
     // With the feature off, or on but unset, this is a no-op. Deploy-configurable
     // (CONCEPT:EG-OS.config.configurable-listeners): a bare enable token binds the safe localhost default
-    // `127.0.0.1:7687` (the Neo4j default), a bare port binds loopback:port, a full addr
-    // verbatim. A native hand-rolled Bolt v4.4 server (PackStream v2 + chunked framing)
+    // `127.0.0.1:7687` (the Neo4j default); non-loopback requires the protected-ingress
+    // policy. A native hand-rolled Bolt v4.4 server (PackStream v2 + chunked framing)
     // that routes RUN's Cypher straight to the eg-query cypher engine, so a Neo4j driver
     // runs Cypher over a graph directly.
     #[cfg(feature = "bolt-wire")]
@@ -1181,8 +1182,10 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             .as_deref(),
         "127.0.0.1:7687",
     ) {
+        let bolt_auth_secret = state.read().await.auth_secret.clone();
+        epistemic_graph::server::bolt_wire::validate_startup_policy(&addr, &bolt_auth_secret)?;
         let bolt_state = state.clone();
-        info!("bolt-wire: serving Neo4j Bolt wire protocol on {}", addr);
+        info!("bolt-wire: enabling the configured loopback listener");
         tokio::spawn(async move {
             if let Err(e) = epistemic_graph::server::bolt_wire::serve(&addr, bolt_state).await {
                 tracing::error!("bolt-wire server error: {}", e);
@@ -1195,9 +1198,9 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     // the binary is built `--features redis-wire` AND EPISTEMIC_GRAPH_REDIS_ADDR is set.
     // With the feature off, or on but unset, this is a no-op. Deploy-configurable
     // (CONCEPT:EG-OS.config.configurable-listeners): a bare enable token binds the safe localhost default
-    // `127.0.0.1:6379` (the Redis default), a bare port binds loopback:port, a full addr
-    // verbatim. A native hand-rolled RESP2/RESP3 server storing Redis types on the
-    // engine's durable KV surface, so a Redis client runs GET/SET/HSET/… directly.
+    // `127.0.0.1:6379` (the Redis default). Direct Redis is authenticated
+    // loopback-only; remote clients terminate TLS/mTLS at an identity-binding
+    // gateway. Each verified principal receives a pseudonymous isolated keyspace.
     #[cfg(feature = "redis-wire")]
     if let Some(addr) = resolve_listener_addr(
         std::env::var(epistemic_graph::server::redis_wire::REDIS_ADDR_ENV)
@@ -1219,8 +1222,9 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     // the binary is built `--features mqtt-wire` AND EPISTEMIC_GRAPH_MQTT_ADDR is set.
     // With the feature off, or on but unset, this is a no-op. Deploy-configurable
     // (CONCEPT:EG-OS.config.configurable-listeners): a bare enable token binds the safe localhost default
-    // `127.0.0.1:1883` (the MQTT default), a bare port binds loopback:port, a full addr
-    // verbatim. A native hand-rolled MQTT server mapping CONNECT/PUBLISH/SUBSCRIBE onto
+    // `127.0.0.1:1883` (the MQTT default). Direct MQTT is authenticated loopback-only;
+    // remote clients terminate TLS/mTLS at an identity-binding gateway. A native
+    // hand-rolled MQTT server mapping CONNECT/PUBLISH/SUBSCRIBE onto
     // the `broker` topic exchange (KG-2.303 queue) via dispatch, so an MQTT client
     // pub/subs directly against the engine.
     #[cfg(feature = "mqtt-wire")]
@@ -1230,8 +1234,10 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             .as_deref(),
         "127.0.0.1:1883",
     ) {
+        let mqtt_auth_secret = state.read().await.auth_secret.clone();
+        epistemic_graph::server::mqtt_wire::validate_startup_policy(&addr, &mqtt_auth_secret)?;
         let mqtt_state = state.clone();
-        info!("mqtt-wire: serving MQTT 3.1.1 wire protocol on {}", addr);
+        info!("mqtt-wire: enabling the configured authenticated loopback listener");
         tokio::spawn(async move {
             if let Err(e) = epistemic_graph::server::mqtt_wire::serve(&addr, mqtt_state).await {
                 tracing::error!("mqtt-wire server error: {}", e);
@@ -1244,8 +1250,9 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     // the binary is built `--features stomp-wire` AND EPISTEMIC_GRAPH_STOMP_ADDR is set.
     // With the feature off, or on but unset, this is a no-op. Deploy-configurable
     // (CONCEPT:EG-OS.config.configurable-listeners): a bare enable token binds the safe localhost default
-    // `127.0.0.1:61613` (the STOMP default), a bare port binds loopback:port, a full addr
-    // verbatim. A native hand-rolled STOMP text-frame server mapping SEND/SUBSCRIBE onto
+    // `127.0.0.1:61613` (the STOMP default). Direct STOMP is authenticated
+    // loopback-only; remote clients terminate TLS/mTLS at an identity-binding gateway.
+    // A native hand-rolled STOMP text-frame server mapping SEND/SUBSCRIBE onto
     // the `broker` primitives (destinations → exchange + per-subscription queues) via
     // dispatch, so a STOMP client pub/subs directly against the engine.
     #[cfg(feature = "stomp-wire")]
@@ -1255,8 +1262,10 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             .as_deref(),
         "127.0.0.1:61613",
     ) {
+        let stomp_auth_secret = state.read().await.auth_secret.clone();
+        epistemic_graph::server::stomp_wire::validate_startup_policy(&addr, &stomp_auth_secret)?;
         let stomp_state = state.clone();
-        info!("stomp-wire: serving STOMP 1.2 wire protocol on {}", addr);
+        info!("stomp-wire: enabling the configured authenticated loopback listener");
         tokio::spawn(async move {
             if let Err(e) = epistemic_graph::server::stomp_wire::serve(&addr, stomp_state).await {
                 tracing::error!("stomp-wire server error: {}", e);
@@ -1269,10 +1278,10 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     // binary is built `--features s3-api` AND EPISTEMIC_GRAPH_S3_ADDR is set. With the
     // feature off, or on but unset, this is a no-op. Deploy-configurable
     // (CONCEPT:EG-OS.config.configurable-listeners): a bare enable token binds the safe localhost default
-    // `127.0.0.1:9000` (the MinIO default), a bare port binds loopback:port, a full addr
-    // verbatim. A hand-rolled S3 REST API over the content-addressed BLOB CAS + the
-    // durable KV listing index, with a SigV4-lite auth guard (anonymous unless
-    // EPISTEMIC_GRAPH_S3_ACCESS_KEY/SECRET_KEY are configured).
+    // `127.0.0.1:9000` (the MinIO default); non-loopback requires the protected-ingress
+    // policy. A hand-rolled S3 REST API over the content-addressed BLOB CAS + the
+    // durable KV listing index, with mandatory SigV4 authentication. Startup fails
+    // closed unless both access and secret credentials are runtime-injected.
     #[cfg(feature = "s3-api")]
     if let Some(addr) = resolve_listener_addr(
         std::env::var(epistemic_graph::server::s3::S3_ADDR_ENV)
@@ -1295,8 +1304,8 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     // set. With the feature off, or on but unset, this is a no-op. Exposes the
     // `eg-kvcache` shared, content-addressed backend (EG-186) over HTTP so parallel
     // vLLM/LMCache instances SHARE KV blocks by token-hash; a bare enable token binds
-    // the safe localhost default `127.0.0.1:9130`. Bearer-token guard (anonymous unless
-    // EPISTEMIC_GRAPH_KVCACHE_TOKEN is configured).
+    // the safe localhost default `127.0.0.1:9130`. Startup fails closed unless JWT
+    // validation or a runtime-injected bearer secret is configured.
     #[cfg(feature = "kvcache-server")]
     if let Some(addr) = resolve_listener_addr(
         std::env::var(epistemic_graph::server::kvcache_http::KVCACHE_ADDR_ENV)
@@ -1304,161 +1313,65 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             .as_deref(),
         "127.0.0.1:9130",
     ) {
+        let kvcache_state = state.clone();
         info!(
             "kvcache-server: serving shared KV-cache HTTP surface on {}",
             addr
         );
         tokio::spawn(async move {
-            if let Err(e) = epistemic_graph::server::kvcache_http::serve(&addr).await {
+            if let Err(e) =
+                epistemic_graph::server::kvcache_http::serve_with_security(&addr, kvcache_state)
+                    .await
+            {
                 tracing::error!("kvcache-server error: {}", e);
             }
         });
     }
 
-    // ── Snapshot persistence (CONCEPT:EG-KG.storage.nonblocking-checkpoint / OS-5.9) ───────────────────
-    // Load any prior checkpoint for a fast warm restart, then auto-checkpoint on
-    // the configured interval. Both no-op when no persist dir is configured.
-    // Boot-time recovery + periodic checkpoint route through the chosen backend
-    // (CONCEPT:EG-KG.storage.kg-kg). Both no-op when no persist dir is configured.
-    // Lazy-graph-lifecycle startup opt-in (CONCEPT:EG-KG.sharding.lazy-graph-catalog, DIST-P2-3):
-    // `EPISTEMIC_GRAPH_LAZY_STARTUP=1` swaps the eager `load_all` boot recovery for
-    // a catalog-only scan (`load_catalog`) — every graph's identity is known, but
-    // NO node/edge data hydrates until a graph is actually accessed. OFF by
-    // default: an unset/false value keeps the boot path byte-for-byte the eager
-    // `load_all` it always was, so a small deployment is unaffected.
-    let lazy_startup = std::env::var("EPISTEMIC_GRAPH_LAZY_STARTUP")
-        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-        .unwrap_or(false);
+    // Recover the durable catalog first; graph material is paged in on demand.
+    // This bounded current path is the only served startup mode.
     let persistence_for_load = { state.read().await.persistence.clone() };
     if let Some(p) = &persistence_for_load {
-        // One-time legacy → redb migration (CONCEPT:EG-KG.backend.authoritative-dispatch). When authoritative and
-        // the redb store is EMPTY but legacy snapshot/WAL files exist (an engine that
-        // ran on snapshot+WAL before the flag flip), import them into redb FIRST so
-        // the authoritative store is seeded loss-free, then proceed. Precedent:
-        // persist.rs migrate_legacy_commons (AGENTS.md sanctions a one-time
-        // read-old→write-new). The old files are LEFT in place as a backstop.
-        let authoritative = { state.read().await.redb_authoritative };
-        if authoritative {
-            let load_result = if lazy_startup {
-                p.load_catalog(&state).await
-            } else {
-                p.load_all(&state).await
-            };
-            match load_result {
-                Ok(0) => {
-                    // Bind `dir` to an OWNED String and DROP the read guard before the
-                    // migration body. A `state.read().await` temporary in the `if let`
-                    // scrutinee would otherwise live to the end of the `if let` block —
-                    // and the body below calls `persist::load_all`/`checkpoint_all`, both
-                    // of which take `state.write().await`. A read guard held across that
-                    // write acquire is a permanent deadlock: the migration awaits a write
-                    // lock that can never be granted, the task parks forever, and the UDS
-                    // socket is never bound (CONCEPT:EG-KG.storage.authoritative-flip).
-                    let migrate_dir = {
-                        let s = state.read().await;
-                        s.persist_dir.clone()
-                    };
-                    if let Some(dir) = migrate_dir {
-                        if legacy_snapshots_present(&dir) {
-                            info!(
-                                "redb authoritative: redb store empty but legacy snapshot/WAL \
-                                 present at {dir} — importing into redb (one-time migration)"
-                            );
-                            // Load the legacy snapshot+WAL into the live registry via the
-                            // snapshot recovery path, then checkpoint the registry into redb.
-                            // Both phases are O(graphs) and run BEFORE the socket binds, so
-                            // each logs progress (CONCEPT:EG-KG.storage.authoritative-flip) — a silent multi-second
-                            // boot on a many-graph homelab is indistinguishable from a hang.
-                            let mig_start = std::time::Instant::now();
-                            if let Err(e) = epistemic_graph::persist::load_all(&state, None).await {
-                                tracing::warn!("legacy snapshot load failed: {e}");
-                            }
-                            let loaded = { state.read().await.registry.all_entries().len() };
-                            info!(
-                                "redb authoritative migration: legacy load complete \
-                                 ({loaded} graph(s) in registry after {:.1}s) — writing them \
-                                 into redb…",
-                                mig_start.elapsed().as_secs_f64()
-                            );
-                            // checkpoint_all writes the WHOLE registry into redb in ONE atomic
-                            // transaction: a crash mid-write leaves the txn uncommitted (redb
-                            // stays empty), so the next boot re-detects "empty + legacy
-                            // present" and re-runs the migration — idempotent + crash-safe, no
-                            // half-populated-yet-considered-done store.
-                            match p.checkpoint_all(&state).await {
-                                Ok(n) => info!(
-                                    "redb authoritative migration: imported {n} graph(s) from \
-                                     legacy snapshot/WAL into redb in {:.1}s (old files left as \
-                                     backstop)",
-                                    mig_start.elapsed().as_secs_f64()
-                                ),
-                                Err(e) => tracing::warn!("redb migration checkpoint failed: {e}"),
-                            }
-                        }
-                    }
-                }
-                Ok(n) if lazy_startup => {
-                    info!(
-                        "redb authoritative: cataloged {n} graph(s) from redb (lazy startup — \
-                         CONCEPT:EG-KG.sharding.lazy-graph-catalog, no node/edge data hydrated yet)"
-                    )
-                }
-                Ok(n) => info!("redb authoritative: loaded {n} graph(s) from redb"),
-                Err(e) => tracing::warn!("redb load failed (continuing fresh): {e}"),
-            }
-        } else if let Err(e) = p.load_all(&state).await {
-            tracing::warn!("Snapshot load failed (continuing fresh): {}", e);
-        }
-
-        // Install the durable read-through (CONCEPT:EG-KG.storage.read-through-seam-exercised) AFTER recovery, only
-        // under redb-authoritative mode. This is the single wiring point that lets
-        // the per-graph node cap resume EVICTING (memory bounded) without data loss:
-        // an evicted node's properties are served back from redb on a RAM miss. It
-        // attaches to every recovered graph and to every future one. In the default
-        // (rebuildable-cache) model the factory is never installed, so reads and
-        // eviction behave byte-for-byte as before.
-        if state.read().await.redb_authoritative {
-            let factory = std::sync::Arc::new(
-                epistemic_graph::server::persistence::read_through::BackendReadThroughFactory::new(
-                    p.clone(),
-                ),
-            );
-            state
-                .write()
-                .await
-                .registry
-                .set_read_through_factory(factory);
-            info!(
-                "redb authoritative: read-through-on-RAM-miss installed (CONCEPT:EG-KG.storage.read-through-seam-exercised) — \
-                 per-graph node cap now EVICTS durable nodes (memory bounded, no data loss)"
-            );
-
-            // Install the lazy-open durable-material factory (CONCEPT:EG-KG.sharding.lazy-graph-catalog,
-            // DIST-P2-3) — mirrors the read-through wiring just above. Whenever a
-            // catalog-only graph (one `load_catalog` registered but never hydrated,
-            // or one the bounded hot-context cache evicted back to catalog-only)
-            // is next accessed, `server::persistence::cold_offload::lazy_open`
-            // reconstructs its `GraphCore` through this seam — the SAME durable
-            // rows `read_through`/`load_all` already know how to read.
-            let materializer = std::sync::Arc::new(
-                epistemic_graph::server::persistence::read_through::BackendGraphMaterializer::new(
-                    p.clone(),
-                ),
-            );
-            state.write().await.registry.set_materializer(materializer);
-            if lazy_startup {
-                info!(
-                    "lazy-startup: catalog-only boot — graphs materialize on first access \
-                     (CONCEPT:EG-KG.sharding.lazy-graph-catalog); bound residency with \
-                     EPISTEMIC_GRAPH_MAX_RESIDENT_GRAPHS"
-                );
+        match p.load_catalog(&state).await {
+            Ok(n) => info!(
+                "durable catalog recovered: {n} graph(s); material pages load on first access"
+            ),
+            Err(error) => {
+                return Err(
+                    format!("durable recovery failed; refusing availability: {error}").into(),
+                )
             }
         }
+        p.register_graph(
+            "__commons__",
+            "__commons__",
+            epistemic_graph::protocol::GraphType::Commons,
+        )
+        .await
+        .map_err(|error| format!("failed to register the mandatory commons graph: {error}"))?;
+
+        let factory = std::sync::Arc::new(
+            epistemic_graph::server::persistence::read_through::BackendReadThroughFactory::new(
+                p.clone(),
+            ),
+        );
+        state
+            .write()
+            .await
+            .registry
+            .set_read_through_factory(factory);
+        let materializer = std::sync::Arc::new(
+            epistemic_graph::server::persistence::read_through::BackendGraphMaterializer::new(
+                p.clone(),
+            ),
+        );
+        state.write().await.registry.set_materializer(materializer);
+        info!("durable read-through and bounded lazy materialization enabled");
 
         // ── Time-series STARTUP RECONCILIATION (CONCEPT:EG-KG.backend.ts-startup-reconcile, L16) ──
         // EG-P0-4 replays a cross-modal-committed measurement into the served
-        // `series.redb` right after the `graph.redb` commit succeeds, but a crash
-        // strictly BETWEEN those two commits can leave graph.redb ahead of the served
+        // `series.redb` right after the graph-shard commit succeeds, but a crash
+        // strictly BETWEEN those two commits can leave the shard ahead of the served
         // store (documented residual). Run this ONCE here — after the redb backend has
         // (re)loaded and before the server accepts traffic — so any such residual from a
         // prior crash never lingers. No-op when either the backend isn't redb or no
@@ -1475,13 +1388,18 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                         report.series_reconciled, report.points_replayed
                     ),
                     Ok(_) => {}
-                    Err(e) => {
-                        tracing::warn!("time-series startup reconciliation failed: {e}")
+                    Err(error) => {
+                        return Err(format!(
+                            "time-series startup reconciliation failed; refusing availability: {error}"
+                        )
+                        .into())
                     }
                 }
             }
         }
     }
+    #[cfg(feature = "epistemic-tms")]
+    epistemic_graph::server::reasoning_projection::spawn(state.clone());
     // CONCEPT:EG-KG.storage.incremental-text / .incremental-temporal / .incremental-derived-owl —
     // install the server-layer secondary-index factory so a committed write batch
     // maintains the text / temporal / derived-OWL indexes INCREMENTALLY through the
@@ -1600,27 +1518,6 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
-    if args.checkpoint_interval > 0 {
-        if let Some(backend) = { state.read().await.persistence.clone() } {
-            let cp_state = state.clone();
-            let interval = args.checkpoint_interval;
-            tokio::spawn(async move {
-                let mut ticker = tokio::time::interval(std::time::Duration::from_secs(interval));
-                ticker.tick().await; // consume the immediate first tick
-                loop {
-                    ticker.tick().await;
-                    let __loop_tick_started = std::time::Instant::now();
-                    if let Err(e) = backend.checkpoint_all(&cp_state).await {
-                        tracing::warn!("Auto-checkpoint failed: {}", e);
-                    }
-                    epistemic_graph::metrics::loop_tick(
-                        "checkpoint",
-                        __loop_tick_started.elapsed().as_secs_f64(),
-                    );
-                }
-            });
-        }
-    }
     // Periodic Ebbinghaus decay sweep (CONCEPT:EG-KG.compute.graph-compute-engine) — opt-in. Confidence on
     // every node/edge decays toward 0 with a configurable half-life; with a
     // non-zero floor, forgotten facts are pruned. Off by default (interval 0).
@@ -1654,103 +1551,115 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // ── Per-graph memory cap (CONCEPT:EG-KG.storage.nonblocking-checkpoint) — degrade, don't OOM ─────────
-    // The engine is a rebuildable cache over the durable backend, so a graph that
+    // The engine keeps a bounded resident projection over the durable backend, so a graph that
     // exceeds EPISTEMIC_GRAPH_MAX_NODES_PER_GRAPH is evicted (LRU) back down to it
     // — the backstop that makes a shard shed working set instead of OOM-killing
     // every tenant. The sweep is periodic so it never touches the write hot path.
     //
     // CONCEPT:AU-KG.backend.b-auto-size (Pi-OOM correctness): the DEFAULT now AUTO-SIZES from total RAM
-    // instead of being 0/unbounded. An unbounded default OOM-kills a 1 GiB Pi; a
+    // instead of being unbounded. An unbounded projection OOM-kills a 1 GiB Pi; a
     // RAM-derived cap bounds a runaway graph's RESIDENT footprint with ZERO data loss
     // — evicted nodes still serve from the durable redb tier (read-through eviction,
-    // CONCEPT:EG-KG.storage.read-through-seam-exercised). A big box derives an effectively-unbounded cap, so it is not
-    // constrained. Setting the env to `0` is the explicit opt-out for "truly
-    // unbounded"; any explicit value still wins.
+    // CONCEPT:EG-KG.storage.read-through-seam-exercised). Any explicit override must
+    // remain positive; the safety bound cannot be disabled.
     let max_nodes_per_graph = match std::env::var("EPISTEMIC_GRAPH_MAX_NODES_PER_GRAPH") {
-        Ok(v) => v
-            .trim()
-            .parse::<usize>()
-            .unwrap_or_else(|_| host_capacity.node_cap()),
-        Err(_) => host_capacity.node_cap(),
-    };
-    if max_nodes_per_graph > 0 {
-        let cap_state = state.clone();
-        let cap_interval = std::env::var("EPISTEMIC_GRAPH_MEMCAP_INTERVAL")
-            .ok()
-            .and_then(|v| v.parse::<u64>().ok())
-            .filter(|&n| n > 0)
-            .unwrap_or(10);
-        info!(
-            "Memory cap: per-graph max {} nodes, swept every {}s (LRU eviction)",
-            max_nodes_per_graph, cap_interval
-        );
-        tokio::spawn(async move {
-            let mut ticker = tokio::time::interval(std::time::Duration::from_secs(cap_interval));
-            ticker.tick().await; // consume the immediate first tick
-            loop {
-                ticker.tick().await;
-                let __loop_tick_started = std::time::Instant::now();
-                let evicted =
-                    epistemic_graph::persist::evict_oversized_all(&cap_state, max_nodes_per_graph)
-                        .await;
-                if evicted > 0 {
-                    tracing::info!("Memory cap: evicted {} LRU node(s) over cap", evicted);
-                }
-                epistemic_graph::metrics::loop_tick(
-                    "memcap_sweep",
-                    __loop_tick_started.elapsed().as_secs_f64(),
-                );
+        Ok(value) => match value.trim().parse::<usize>() {
+            Ok(limit) if limit > 0 => limit,
+            _ => {
+                eprintln!("error: EPISTEMIC_GRAPH_MAX_NODES_PER_GRAPH must be positive");
+                std::process::exit(2);
             }
-        });
-    }
+        },
+        Err(std::env::VarError::NotPresent) => host_capacity.node_cap(),
+        Err(std::env::VarError::NotUnicode(_)) => {
+            eprintln!("error: EPISTEMIC_GRAPH_MAX_NODES_PER_GRAPH is not valid Unicode");
+            std::process::exit(2);
+        }
+    };
+    let cap_state = state.clone();
+    let cap_interval = match std::env::var("EPISTEMIC_GRAPH_MEMCAP_INTERVAL") {
+        Ok(value) => match value.trim().parse::<u64>() {
+            Ok(interval) if (1..=3_600).contains(&interval) => interval,
+            _ => {
+                eprintln!("error: EPISTEMIC_GRAPH_MEMCAP_INTERVAL must be between 1 and 3600");
+                std::process::exit(2);
+            }
+        },
+        Err(std::env::VarError::NotPresent) => 10,
+        Err(std::env::VarError::NotUnicode(_)) => {
+            eprintln!("error: EPISTEMIC_GRAPH_MEMCAP_INTERVAL is not valid Unicode");
+            std::process::exit(2);
+        }
+    };
+    info!(
+        "Memory cap: per-graph max {} nodes, swept every {}s (LRU eviction)",
+        max_nodes_per_graph, cap_interval
+    );
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(cap_interval));
+        ticker.tick().await;
+        loop {
+            ticker.tick().await;
+            let loop_started = std::time::Instant::now();
+            let evicted =
+                epistemic_graph::persist::evict_oversized_all(&cap_state, max_nodes_per_graph)
+                    .await;
+            if evicted > 0 {
+                tracing::info!("Memory cap: evicted {} LRU node(s) over cap", evicted);
+            }
+            epistemic_graph::metrics::loop_tick(
+                "memcap_sweep",
+                loop_started.elapsed().as_secs_f64(),
+            );
+        }
+    });
 
     // ── Per-tenant memory budget enforcer (CONCEPT:EG-KG.compute.lane-v, Lane V) ─────
     // Tracks an approximate resident-RAM estimate per TENANT (a tenant owns one or more
     // graphs) and evicts/hibernates a tenant's coldest graphs when it exceeds its byte
     // budget, with a global ceiling + fair per-tenant caps so one hot tenant can't starve
-    // others. ONE knob (EPISTEMIC_GRAPH_MEMORY_BUDGET) turns it on; the default auto-sizes
-    // to 70% of system RAM. Off when the ceiling resolves to 0. Reuses the durability-
+    // others. The default auto-sizes to 40% of the effective system/cgroup memory
+    // limit and cannot be disabled. Reuses the durability-
     // gated eviction + hibernation ops, so it never loses data. Periodic — never on the
     // write hot path. Complements the per-GRAPH node cap above (this adds the per-TENANT
     // byte dimension on top).
     #[cfg(feature = "cost")]
     {
-        let cost_config = epistemic_graph::cost::CostConfig::from_env();
-        if cost_config.enabled() {
-            let budget_state = state.clone();
-            info!(
-                "Memory budget: global ceiling {} bytes, per-tenant {} bytes, swept every {}s \
+        let cost_config = epistemic_graph::cost::CostConfig::from_env().unwrap_or_else(|error| {
+            eprintln!("error: {error}");
+            std::process::exit(2);
+        });
+        let budget_state = state.clone();
+        info!(
+            "Memory budget: global ceiling {} bytes, per-tenant {} bytes, swept every {}s \
                  (CONCEPT:EG-KG.compute.lane-v)",
-                cost_config.global_ceiling_bytes,
-                cost_config.per_tenant_budget_bytes,
-                cost_config.interval_secs
-            );
-            tokio::spawn(async move {
-                let mut ticker = tokio::time::interval(std::time::Duration::from_secs(
-                    cost_config.interval_secs,
-                ));
-                ticker.tick().await; // consume the immediate first tick
-                loop {
-                    ticker.tick().await;
-                    let __loop_tick_started = std::time::Instant::now();
-                    let (evicted, hibernated) =
-                        epistemic_graph::cost::enforce_memory_budgets(&budget_state, cost_config)
-                            .await;
-                    if evicted > 0 || hibernated > 0 {
-                        tracing::info!(
-                            "Memory budget: evicted {} node(s), hibernated {} graph(s) to keep \
+            cost_config.global_ceiling_bytes,
+            cost_config.per_tenant_budget_bytes,
+            cost_config.interval_secs
+        );
+        tokio::spawn(async move {
+            let mut ticker =
+                tokio::time::interval(std::time::Duration::from_secs(cost_config.interval_secs));
+            ticker.tick().await; // consume the immediate first tick
+            loop {
+                ticker.tick().await;
+                let __loop_tick_started = std::time::Instant::now();
+                let (evicted, hibernated) =
+                    epistemic_graph::cost::enforce_memory_budgets(&budget_state, cost_config).await;
+                if evicted > 0 || hibernated > 0 {
+                    tracing::info!(
+                        "Memory budget: evicted {} node(s), hibernated {} graph(s) to keep \
                              tenants under budget",
-                            evicted,
-                            hibernated
-                        );
-                    }
-                    epistemic_graph::metrics::loop_tick(
-                        "budget_enforcer",
-                        __loop_tick_started.elapsed().as_secs_f64(),
+                        evicted,
+                        hibernated
                     );
                 }
-            });
-        }
+                epistemic_graph::metrics::loop_tick(
+                    "budget_enforcer",
+                    __loop_tick_started.elapsed().as_secs_f64(),
+                );
+            }
+        });
     }
 
     // ── Cold-tenant idle offload sweep (CONCEPT:EG-KG.backend.r6-feature, R6) ─────────────
@@ -1933,16 +1842,13 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     // ONE coordinator shared by every accept loop, the SIGTERM/SIGINT handler,
     // and the optional idle watcher. When its signal fires, the accept loop(s)
     // BREAK and the main listener returns, so we fall through to the persistence
-    // flush below (which was previously UNREACHABLE — the accept loop looped
-    // forever). The durable/redb commit-before-ack semantics are untouched: an
-    // already-acked write is already on disk; shutdown only flushes the writer's
-    // buffered/in-flight tail and writes a final checkpoint.
+    // flush below. An acknowledged write is already committed; shutdown only
+    // drains the writer's bounded in-flight tail.
     let shutdown = server::ShutdownCoordinator::new();
 
     // SIGTERM (a supervisor / `kill` / agent-utilities stopping the daemon) and
-    // SIGINT (Ctrl-C) both fire the SAME graceful signal, so a supervised stop is
-    // a clean checkpointed shutdown in BOTH the persistent and the idle-shutdown
-    // modes. On non-unix only Ctrl-C is available.
+    // SIGINT (Ctrl-C) both fire the same graceful signal. On non-unix only Ctrl-C
+    // is available.
     {
         let sig_coord = shutdown.clone();
         tokio::spawn(async move {
@@ -2005,9 +1911,10 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             let tcp_state = state.clone();
             let tcp_shutdown = shutdown.clone();
             let addr = tcp_addr.clone();
+            let tls = tcp_tls.clone();
             tokio::spawn(async move {
-                if let Err(e) = server::serve_tcp(&addr, tcp_state, tcp_shutdown).await {
-                    tracing::error!("TCP server error: {}", e);
+                if let Err(e) = server::serve_tcp(&addr, tcp_state, tcp_shutdown, tls).await {
+                    tracing::error!("TCP server error ({:?})", e.kind());
                 }
             });
         }
@@ -2020,28 +1927,21 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     {
         // Non-unix (Windows): Tokio has no UnixListener, so AF_UNIX is unavailable.
         // TCP loopback is the per-platform DEFAULT transport here — an explicit
-        // --tcp-addr wins, else GRAPH_SERVICE_TCP_FALLBACK_ADDR, else 127.0.0.1:8765.
+        // --tcp-addr wins; otherwise the loopback-only platform default is used.
         // `socket_path` is still resolved (above) for config/lock parity & logging.
         let _ = &socket_path;
         let addr = args
             .tcp_addr
             .clone()
-            .unwrap_or_else(default_tcp_fallback_addr);
-        info!(
-            "AF_UNIX unavailable on this platform; default transport is TCP loopback: {}",
-            addr
-        );
-        server::serve_tcp(&addr, state.clone(), shutdown.clone()).await?;
+            .unwrap_or_else(|| "127.0.0.1:8765".to_string());
+        info!("AF_UNIX unavailable; using the configured native TCP transport");
+        server::serve_tcp(&addr, state.clone(), shutdown.clone(), tcp_tls).await?;
     }
 
-    // Graceful shutdown: the accept loop has exited, so flush + fsync any buffered
-    // durable writes and write a final checkpoint before exit. Reachable now that
-    // the accept loop breaks on the shutdown signal (previously dead code).
-    info!("Accept loop stopped — flushing durable state and checkpointing");
+    // Graceful shutdown: the accept loop has exited, so flush any bounded writer
+    // work that had not yet crossed its acknowledgement barrier.
+    info!("Accept loop stopped — flushing durable state");
     if let Some(p) = &persistence_shutdown {
-        if let Err(e) = p.checkpoint_all(&state).await {
-            tracing::warn!("Final checkpoint failed: {}", e);
-        }
         p.shutdown();
     }
     info!("Shutdown complete");

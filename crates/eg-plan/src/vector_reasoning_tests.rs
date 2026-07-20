@@ -45,8 +45,6 @@ ex:p2 a ex:Article .
         &mut iris,
         "g",
         eg_rdf::mapping::parse_turtle(ttl).unwrap(),
-        #[cfg(feature = "rdf-redb")]
-        None,
     )
     .unwrap();
     core

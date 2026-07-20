@@ -2,56 +2,54 @@
 //
 // This is the ONE place the binary installs the global `tracing` subscriber. It
 // layers an OTLP batch span exporter ON TOP of the engine's existing tracing
-// setup, purely additively:
-//   * built WITHOUT `otel`, OR with `otel` but `EPISTEMIC_GRAPH_OTLP_ENDPOINT`
-//     unset  ⇒  the ORIGINAL fmt-only subscriber (INFO, no target), byte-for-byte
-//     unchanged. No exporter is installed, zero overhead.
+// setup:
+//   * with `EPISTEMIC_GRAPH_OTLP_ENDPOINT` unset, install the fmt-only subscriber;
 //   * built WITH `otel` AND the endpoint set  ⇒  the SAME fmt layer PLUS a
 //     `tracing-opentelemetry` layer that BATCH-exports the spans the engine
 //     ALREADY emits to the OTLP endpoint. No new spans are created — it is a pure
 //     export layer over the existing instrumentation.
 //
-// On any OTLP setup error we log a warning and fall back to the fmt-only
-// subscriber, so a mis-configured endpoint can never take the server down.
+// A configured endpoint is an operational contract. A build without `otel`, an
+// invalid exporter configuration, or subscriber setup failure therefore fails
+// startup instead of silently changing trace delivery.
 
 /// Install the global tracing subscriber (see module docs). Called once from
 /// `main::run`, replacing the previous inline `tracing_subscriber::fmt().init()`.
-pub fn init_tracing() {
-    #[cfg(feature = "otel")]
-    {
-        if let Some(endpoint) = std::env::var("EPISTEMIC_GRAPH_OTLP_ENDPOINT")
-            .ok()
-            .filter(|s| !s.trim().is_empty())
+pub fn init_tracing() -> Result<(), String> {
+    let endpoint = std::env::var("EPISTEMIC_GRAPH_OTLP_ENDPOINT")
+        .ok()
+        .filter(|value| !value.trim().is_empty());
+    if let Some(endpoint) = endpoint {
+        #[cfg(feature = "otel")]
         {
-            match init_with_otel(&endpoint) {
-                Ok(()) => {
-                    tracing::info!(
-                        "OTel (CONCEPT:EG-OS.observability.otlp-span-export): exporting tracing spans to OTLP endpoint {endpoint}"
-                    );
-                    return;
-                }
-                Err(e) => {
-                    // The subscriber is not yet installed, so tracing macros would
-                    // be dropped — report on stderr and fall through to fmt-only.
-                    eprintln!(
-                        "warning: OTLP exporter init failed ({e}); \
-                         falling back to stdout-only tracing"
-                    );
-                }
-            }
+            init_with_otel(&endpoint).map_err(|error| {
+                format!("configured OTLP exporter could not initialize: {error}")
+            })?;
+            tracing::info!(
+                "OTel (CONCEPT:EG-OS.observability.otlp-span-export): exporting tracing spans to configured endpoint"
+            );
+            return Ok(());
+        }
+        #[cfg(not(feature = "otel"))]
+        {
+            let _ = endpoint;
+            return Err(
+                "EPISTEMIC_GRAPH_OTLP_ENDPOINT requires a build with the otel feature".to_string(),
+            );
         }
     }
-    init_fmt_only();
+    init_fmt_only()
 }
 
 /// The engine's original fmt subscriber (INFO, no target) — the exact behavior
 /// prior to EG-091. Used whenever OTLP export is off (feature absent, endpoint
 /// unset, or exporter init failed).
-fn init_fmt_only() {
+fn init_fmt_only() -> Result<(), String> {
     tracing_subscriber::fmt()
         .with_max_level(tracing::Level::INFO)
         .with_target(false)
-        .init();
+        .try_init()
+        .map_err(|error| format!("tracing subscriber initialization failed: {error}"))
 }
 
 /// Build the OTLP batch exporter and install a Registry carrying BOTH the fmt

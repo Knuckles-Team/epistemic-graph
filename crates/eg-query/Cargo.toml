@@ -2,7 +2,7 @@
 name = "eg-query"
 version = "0.31.0"
 edition = "2021"
-authors = ["Audel Rouhi <knucklessg1@gmail.com>"]
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
 description = "SQL/Cypher query surface (CONCEPT:KG-2.178) over the epistemic-graph engine — DataFusion behind the `sql` feature"
 license = "MIT"
 
@@ -39,9 +39,9 @@ finance = ["sql", "eg-compute/finance"]
 # eg-numeric-backed DataFusion UDFs/UDAFs (`cosine_sim`, `l2_normalize`, `zscore`,
 # `covariance`) so analytics run in-engine over resident columns (compute-near-data,
 # no fetch-to-Python). Implies `sql` (the only place UDFs compile) and pulls the pure
-# faer/ndarray kernel rlib — NO pyo3 (eg-numeric's `python` feature stays off), so the
+# nalgebra/ndarray kernel rlib — NO pyo3 (eg-numeric's `python` feature stays off), so the
 # Pi-contract holds (numeric is out of `pi`; `cargo tree --features pi` links neither
-# eg-numeric nor faer).
+# eg-numeric nor nalgebra).
 numeric = ["sql", "dep:eg-numeric", "dep:ndarray"]
 
 [dependencies]
@@ -58,13 +58,13 @@ eg-text = { path = "../eg-text", optional = true }
 # sole place the exec pushdown compiles). eg-ann's DEFAULT build links no heavy/GPU
 # deps (pure-Rust, Pi-lean), so this stays out of a `cypher`-only eg-query build.
 eg-ann = { path = "../eg-ann", optional = true }
-# CONCEPT:EG-329 — the pure BLAS/LAPACK-free numeric kernel (faer + ndarray) behind the
+# CONCEPT:EG-329 — the pure BLAS/LAPACK-free numeric kernel (nalgebra + ndarray) behind the
 # Surface-B SQL UDFs. OPTIONAL, only under `numeric`; the engine links it WITHOUT pyo3
 # (eg-numeric's `python` feature stays off), preserving the Pi-contract (out of `pi`).
 eg-numeric = { path = "../eg-numeric", optional = true }
 # CONCEPT:EG-329 — marshal Arrow columns into `ndarray` views the kernel consumes.
 # Only under `numeric`; already in the tree via eg-numeric, so no new heavy dep.
-ndarray = { version = "0.16", optional = true }
+ndarray = { version = "0.17", optional = true }
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"
 rmp-serde = "1.3"
@@ -77,11 +77,12 @@ rmp-serde = "1.3"
 # the `||` array concat, and `= ANY`/`ALL (array)`. Without it a `default-features =
 # false` DataFusion links NONE of these (the crate is off), so ORMs/BI array SQL fails to
 # plan. Additive: only affects builds that already compile DataFusion (the `sql` feature).
-datafusion = { version = "43", default-features = false, optional = true, features = [
+datafusion = { version = "54", default-features = false, optional = true, features = [
     "nested_expressions",
+    "sql",
 ] }
-arrow = { version = "53", optional = true }
-arrow-schema = { version = "53", optional = true }
+arrow = { version = "58.3", optional = true }
+arrow-schema = { version = "58.3", optional = true }
 # Durable embedded KV for the user-defined table store (CONCEPT:EG-018). Same pin as
 # the engine's server-side durable tier so a `query`/`full` build links one redb.
 redb = { version = "4.1", optional = true }

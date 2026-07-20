@@ -1,6 +1,6 @@
 //! SQL window-function end-to-end tests (CONCEPT:EG-KG.temporal.columnar-schema-inference): `<fn>() OVER (PARTITION BY
 //! … ORDER BY … <frame>)` executed through the SAME DataFusion read path as every
-//! other SELECT (`exec_sql` → `SessionContext::sql`). DataFusion 43 provides the
+//! other SELECT (`exec_sql` → `SessionContext::sql`). DataFusion 54 provides the
 //! window operator + the ranking/offset/aggregate window functions natively; these
 //! tests assert that the classify/exec path routes them (a window SELECT is a
 //! `StatementKind::Read`) and that partition → order → frame evaluation is correct.
@@ -35,7 +35,8 @@ fn sample_view() -> GraphView {
 }
 
 fn run(sql: &str) -> (Vec<String>, Vec<Vec<Value>>) {
-    let r = exec_sql(&sample_view(), sql).expect("window sql executed");
+    let r = exec_sql(&sample_view(), sql, &eg_query::CancellationToken::new())
+        .expect("window sql executed");
     let rows = r
         .rows
         .iter()

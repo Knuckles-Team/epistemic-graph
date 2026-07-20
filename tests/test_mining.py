@@ -92,8 +92,8 @@ def _seed_evolution_graph(client):
     for pid, (cs, cap) in papers.items():
         client.nodes.add(pid, {"type": "Paper"})
         for c in cs:
-            client.edges.add(pid, concepts[c], {"relation": "TOUCHES"})
-        client.edges.add(pid, caps[cap], {"relation": "IMPLEMENTS"})
+            client.edges.add(pid, concepts[c], {"relationship": "TOUCHES"})
+        client.edges.add(pid, caps[cap], {"relationship": "IMPLEMENTS"})
 
 
 def test_graph_derived_source_and_writeback(clean_graph):

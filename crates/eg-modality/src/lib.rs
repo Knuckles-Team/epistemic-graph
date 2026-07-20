@@ -20,8 +20,16 @@
 //!   [`encode_staged`]/[`decode_staged`] helpers.
 //! * [`Provenance`] — a generalized derivation record, drafted against
 //!   `eg-rdf::owl::Justification`.
-//! * [`EvidenceSpan`] — the X1 (multimodal-evidence) seam: a located-evidence enum,
-//!   default-unused, so E3's `KnowledgeSet::evidence_refs` can later carry it.
+//! * [`ArtifactBundle`] and its six stable identity tiers — the universal governed
+//!   artifact/evidence protocol. Every durable identity is an [`OpaqueRef`], and a
+//!   privacy attestation is required before certification.
+//! * [`ServedModalityRuntime`] — the adapter-neutral governed state machine for
+//!   idempotent ingest/update/delete, policy checks, paging, CDC, lifecycle, and
+//!   restart recovery.
+//! * [`GovernedModality`] — the mandatory, leaf-specific privacy and invariant check
+//!   a typed payload must pass before the served state machine persists it.
+//! * [`EvidenceLocus`] and [`EvidenceAddress`] — the sole governed located-evidence
+//!   identity and its modality-neutral address.
 //! * [`ConformanceTestable`] + [`modality_conformance_tests!`] — the conformance
 //!   harness: implement the trait once per pilot, invoke the macro once, get the
 //!   full test battery (round-trip / provenance non-panic / txn-stage-rollback
@@ -38,42 +46,57 @@
 //!   P1): a machine-readable, per-point `Pass`/`NotApplicable`/`NotImplemented`
 //!   capability report for any `ConformanceTestable` modality. The TCK is COMPLETE —
 //!   every one of the 12 points maps to a real trait hook (no structural gaps), and
-//!   nothing is ever silently green. See `tck.rs` module docs for how each point is
-//!   decided.
+//!   nothing is ever silently green. Production certification is stricter than
+//!   first-class compatibility: it requires 12 `Pass` results, no N/A, and a passing
+//!   concrete native codec/index/query/resource probe.
+//!   See `tck.rs` module docs for how each point is decided.
 //! * [`IngestReport`]/[`StorageStats`]/[`ModalitySelfTest`] (module `capability`) —
 //!   the DTOs for the four EG-P1-1 hooks that closed the TCK's last structural gaps
 //!   (ingest, storage/stats, backup, single-node recovery).
 //!
 //! ## Retrofit status
 //!
-//! `ModalityContract` (behind each crate's own opt-in `contract` feature, default
-//! OFF) is implemented across most of the modality-shaped leaf crates already:
+//! `ModalityContract` is implemented across most modality-shaped leaf crates:
 //! `eg-tensor::Tensor`, `eg-geo::Geometry`, `eg-tsdb`, `eg-stream`, `eg-rdf`,
 //! `eg-epistemic`, `eg-ann`, `eg-text`, `eg-shacl`, `eg-shex`, `eg-lake`,
 //! `eg-kvcache`, `eg-numeric`, `eg-image`, `eg-audio`, `eg-video`, `eg-compute`,
 //! `eg-core`. See this crate's `README.md` for the full per-crate rationale and any
-//! remaining gaps. This crate itself does NOT retrofit anything — it only defines
-//! the seam (plus, as of EG-P1-1, the registry + TCK every retrofit is now
-//! automatically evaluated against). Adding `eg-modality` to a crate's
-//! `Cargo.toml`/feature list and implementing the trait is each pilot's own,
-//! separate, additive change (see `eg-tensor`/`eg-geo`'s `contract` feature for the
-//! pattern to repeat).
+//! remaining gaps. Document, image, audio, and video additionally expose governed
+//! serving runtimes and are held to the production 12/12 rule. See this crate's
+//! `README.md` and the architecture guide for the supported feature surface.
 
+pub mod artifact;
 mod capability;
 mod contract;
-mod evidence;
+mod native;
 mod provenance;
 mod registry;
 mod rowset;
+pub mod served;
 mod tck;
 mod txn;
 
-pub use capability::{IngestReport, ModalitySelfTest, StorageStats};
-pub use contract::{ConformanceTestable, ModalityContract};
-pub use evidence::EvidenceSpan;
+pub use artifact::{
+    Artifact, ArtifactBundle, ArtifactId, Classification, Derivation, DerivationId,
+    EvidenceAddress, EvidenceLocus, EvidenceLocusId, Feature, FeatureId, FeatureKind, ModalityKind,
+    Occurrence, OccurrenceId, OpaqueRef, PolicyEnvelope, PrivacyAttestation, ProtocolError,
+    Rendition, RenditionId, ResourceId, Segment, SegmentId, SegmentKind, ARTIFACT_PROTOCOL_VERSION,
+};
+pub use capability::{IngestReport, ModalitySelfTest, NativeProductionProbe, StorageStats};
+pub use contract::{ConformanceTestable, GovernedModality, ModalityContract};
+pub use native::{
+    signature_bands, spatial_cells, temporal_buckets, NativeIndexKey, NativePredicate,
+    NativePredicateError, NativeQueryStats, MAX_PERCEPTUAL_HASH_DISTANCE,
+    MAX_TEMPORAL_QUERY_BUCKETS, SPATIAL_GRID_WIDTH, TEMPORAL_BUCKET_MS,
+};
 pub use provenance::Provenance;
 pub use registry::{register_modality, registered_modalities, ModalityDescriptor};
 pub use rowset::RowSetShape;
+pub use served::{
+    ApplyDisposition, ApplyOutcome, LifecycleState, ServedDelete, ServedError, ServedEvent,
+    ServedEventKind, ServedIngest, ServedModalityRuntime, ServedNativeQuery, ServedPage,
+    ServedPolicyScope, ServedQuery, ServedRecord, ServedRuntimeStats,
+};
 pub use tck::{render_fleet_table, tck_report, TckPoint, TckPointResult, TckReport, TckStatus};
 pub use txn::{decode_staged, encode_staged, StagedWrite, WriteKind};
 
@@ -85,7 +108,7 @@ pub use txn::{decode_staged, encode_staged, StagedWrite, WriteKind};
 #[cfg(test)]
 mod harness_selftest {
     use crate::{
-        ConformanceTestable, EvidenceSpan, IngestReport, ModalityContract, ModalitySelfTest,
+        ConformanceTestable, EvidenceAddress, IngestReport, ModalityContract, ModalitySelfTest,
         Provenance, RowSetShape, StagedWrite, StorageStats,
     };
     use serde::{Deserialize, Serialize};
@@ -116,12 +139,8 @@ mod harness_selftest {
         fn provenance(&self, _id: &str) -> Option<Provenance> {
             Some(Provenance::asserted())
         }
-        fn evidence(&self, _id: &str) -> Option<EvidenceSpan> {
-            Some(EvidenceSpan::DocumentSpan {
-                document_id: self.label.clone(),
-                start: 0,
-                end: 1,
-            })
+        fn evidence_address(&self) -> Option<EvidenceAddress> {
+            Some(EvidenceAddress::CharacterRange { start: 0, end: 1 })
         }
         fn policy_labels(&self, _id: &str) -> Vec<String> {
             vec!["smoke:public".to_string()]
@@ -133,19 +152,23 @@ mod harness_selftest {
         // ── the 4 EG-P1-1 hooks, each a REAL round-trip (no bare `Passed` literal) ──
 
         fn ingest_report(&self, _id: &str) -> IngestReport {
-            // Batch ingest = re-decode this value from its encoded form and confirm
-            // it round-trips; streaming genuinely N/A for a whole-value fixture.
+            // Batch and singleton-stream ingest both re-decode the encoded value.
             let encoded = crate::encode_staged(self);
             let batch = match serde_json::from_slice::<SmokeValue>(&encoded) {
                 Ok(rt) if &rt == self => ModalitySelfTest::Passed,
                 _ => ModalitySelfTest::Failed,
             };
-            IngestReport {
-                batch,
-                streaming: ModalitySelfTest::NotApplicable(
-                    "SmokeValue is a whole value, not a stream",
-                ),
-            }
+            let streaming = [encoded]
+                .into_iter()
+                .all(|item| {
+                    matches!(
+                        serde_json::from_slice::<SmokeValue>(&item),
+                        Ok(ref round_trip) if round_trip == self
+                    )
+                })
+                .then_some(ModalitySelfTest::Passed)
+                .unwrap_or(ModalitySelfTest::Failed);
+            IngestReport { batch, streaming }
         }
         fn storage_stats(&self, _id: &str) -> Option<StorageStats> {
             Some(StorageStats {
@@ -201,7 +224,7 @@ mod harness_selftest {
         assert_eq!(v.storage_kind(), "smoke");
         assert_eq!(v.cdc_topic(), Some("smoke.cdc"));
         assert!(v.provenance("x").is_some());
-        assert!(v.evidence("x").is_some());
+        assert!(v.evidence_address().is_some());
         assert_eq!(v.policy_labels("x"), vec!["smoke:public".to_string()]);
         assert_eq!(v.analytics_ops(), vec!["identity"]);
         assert_eq!(v.to_rowset("x").score, Some(0.5));
@@ -247,7 +270,7 @@ mod harness_selftest {
         }
         let b = Bare;
         assert!(b.provenance("x").is_none());
-        assert!(b.evidence("x").is_none());
+        assert!(b.evidence_address().is_none());
         assert!(b.policy_labels("x").is_empty());
         assert!(b.analytics_ops().is_empty());
         // A Delete stages no payload.

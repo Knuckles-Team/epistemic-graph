@@ -40,8 +40,7 @@
 //! implemented here — it requires a ledger replay API that lives outside the txn
 //! subsystem.
 
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -51,10 +50,119 @@ use crate::graph::GraphCore;
 use crate::protocol::Method;
 use crate::server::ServerState;
 
+#[cfg(feature = "raft")]
+#[derive(Clone, PartialEq, Eq)]
+struct ConsensusGraphFence {
+    coordinator_id: String,
+    participant_id: u64,
+}
+
+#[cfg(feature = "raft")]
+fn consensus_graph_fences() -> &'static dashmap::DashMap<String, ConsensusGraphFence> {
+    static FENCES: std::sync::OnceLock<dashmap::DashMap<String, ConsensusGraphFence>> =
+        std::sync::OnceLock::new();
+    FENCES.get_or_init(dashmap::DashMap::new)
+}
+
+#[cfg(feature = "raft")]
+fn consensus_placement_fence_lock() -> &'static Arc<tokio::sync::Mutex<()>> {
+    static LOCK: std::sync::OnceLock<Arc<tokio::sync::Mutex<()>>> = std::sync::OnceLock::new();
+    LOCK.get_or_init(|| Arc::new(tokio::sync::Mutex::new(())))
+}
+
+/// Serialize placement cutovers with the prepare-fence check-and-persist interval.
+#[cfg(feature = "raft")]
+pub(crate) async fn consensus_placement_fence_guard() -> tokio::sync::OwnedMutexGuard<()> {
+    Arc::clone(consensus_placement_fence_lock())
+        .lock_owned()
+        .await
+}
+
+/// Reserve a participant graph between replicated PREPARE and COMMIT/ABORT. The
+/// fence is process-local serving state reconstructed by Raft history; its durable
+/// authority remains the encrypted participant intent.
+#[cfg(feature = "raft")]
+pub(crate) fn acquire_consensus_graph_fence(
+    graph: &str,
+    coordinator_id: &str,
+    participant_id: u64,
+) -> Result<bool, String> {
+    let expected = ConsensusGraphFence {
+        coordinator_id: coordinator_id.to_string(),
+        participant_id,
+    };
+    match consensus_graph_fences().entry(graph.to_string()) {
+        dashmap::mapref::entry::Entry::Vacant(entry) => {
+            entry.insert(expected);
+            Ok(true)
+        }
+        dashmap::mapref::entry::Entry::Occupied(entry) if entry.get() == &expected => Ok(false),
+        dashmap::mapref::entry::Entry::Occupied(_) => {
+            Err("graph is reserved by another prepared transaction".to_string())
+        }
+    }
+}
+
+#[cfg(feature = "raft")]
+pub(crate) fn release_consensus_graph_fence(
+    graph: &str,
+    coordinator_id: &str,
+    participant_id: u64,
+) {
+    let should_remove = consensus_graph_fences()
+        .get(graph)
+        .map(|fence| {
+            fence.coordinator_id == coordinator_id && fence.participant_id == participant_id
+        })
+        .unwrap_or(false);
+    if should_remove {
+        consensus_graph_fences().remove(graph);
+    }
+}
+
+#[cfg(feature = "raft")]
+pub(crate) fn consensus_graph_is_prepared(graph: &str) -> bool {
+    consensus_graph_fences().contains_key(graph)
+}
+
+/// Reject control-plane operations that would move, reroute, or remove a graph
+/// while a replicated participant intent owns its prepare fence.
+#[cfg(feature = "raft")]
+pub(crate) fn consensus_control_conflicts(method: &Method) -> bool {
+    match method {
+        Method::Reshard { graph, .. }
+        | Method::CatalogAssign { graph, .. }
+        | Method::CatalogReassign { graph, .. }
+        | Method::CatalogRemove { graph }
+        | Method::DeleteGraph { graph_name: graph } => consensus_graph_is_prepared(graph),
+        Method::RebalanceExecute { .. } => !consensus_graph_fences().is_empty(),
+        _ => false,
+    }
+}
+
+/// Placement administration for a tenant cannot race any prepared graph in that
+/// tenant's exact or partition-qualified keyspace.
+#[cfg(feature = "raft")]
+pub(crate) fn consensus_tenant_is_prepared(tenant: &str) -> bool {
+    let partition_prefix = format!("{tenant}:");
+    consensus_graph_fences()
+        .iter()
+        .any(|entry| entry.key() == tenant || entry.key().starts_with(&partition_prefix))
+}
+
+#[cfg(feature = "raft")]
+pub(crate) fn consensus_has_prepared_graphs() -> bool {
+    !consensus_graph_fences().is_empty()
+}
+
 /// Wall-clock milliseconds for the idle-TTL bookkeeping. Monotonicity is not
 /// required — the TTL sweep tolerates clock skew (it auto-rolls-back only txns
 /// idle *past* the TTL; a skewed clock at worst delays/advances a reclaim).
 pub fn now_ms() -> u64 {
+    #[cfg(feature = "raft")]
+    if crate::server::dispatch::is_replicated_apply() {
+        return crate::server::dispatch::authoritative_now_ms();
+    }
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
@@ -89,7 +197,7 @@ pub fn sweep_expired_txns(state: &Arc<RwLock<ServerState>>, ttl_secs: u64, now: 
 
 /// Fingerprint of a node's current state, captured when a staged op first
 /// references it and re-checked at commit for OCC conflict detection.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) enum NodeFingerprint {
     /// Node absent at capture time.
     Absent,
@@ -119,7 +227,7 @@ fn hash_bytes(bytes: &[u8]) -> u64 {
 /// Transaction isolation level (CONCEPT:EG-KG.txn.serializable-zero-cost). `Snapshot` is today's behavior
 /// (per-node OCC read-set only); `Serializable` additionally re-evaluates a captured
 /// predicate read-set at commit to reject phantom/range anomalies.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) enum IsolationLevel {
     Snapshot,
     Serializable,
@@ -167,7 +275,7 @@ pub(crate) fn parse_isolation(
 /// commit (CONCEPT:EG-KG.txn.serializable-zero-cost serializable). Currently the one supported predicate is
 /// a label scan — the minimal staged-read primitive the txn subsystem can express
 /// without a protocol change.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) enum PredicateRead {
     /// `get_nodes_by_label(label)` — the set of nodes carrying `label`.
     Label(String),
@@ -215,9 +323,13 @@ impl PredicateRead {
 /// name, the OCC begin-version, the staged durable-mutation write-set, and the
 /// per-node read-set fingerprints for conflict detection. Stored behind a `Mutex`
 /// in `ServerState::open_txns` keyed by a server-issued `txn_id`.
+#[derive(Clone)]
 pub struct GraphTxnState {
     /// Target graph (resolved at begin; all staged ops apply here).
     pub(crate) graph: String,
+    /// Opaque tenant authority derived from the verified request context. This is
+    /// the sole durable tenant scope for every batch produced by the transaction.
+    pub(crate) tenant_scope: String,
     /// `core.version()` at begin — the coarse OCC guard.
     pub(crate) begin_version: u64,
     /// Staged durable mutations, applied in order at commit. Restricted to the
@@ -232,7 +344,8 @@ pub struct GraphTxnState {
     /// serializable — each entry is `(predicate, fingerprint-at-begin)`. Empty under
     /// snapshot (so snapshot pays no extra cost).
     pub(crate) predicate_reads: Vec<(PredicateRead, u64)>,
-    /// Owning agent (for the per-agent open-txn cap), or `""` when anonymous.
+    /// Owning verified tenant+actor scope (for authorization and the per-owner
+    /// open-txn cap).
     pub(crate) agent: String,
     /// Monotonic ms timestamp of the last staged/begun activity, for TTL idle
     /// expiry. Updated on every stage so an actively-used txn is never swept.
@@ -288,6 +401,7 @@ pub struct GraphTxnState {
 /// (`n_fields`/`bucket_ns`/`field_names`); for an already-existing series the stored meta
 /// is authoritative and these are ignored. Decoded once at stage time so the commit path
 /// is a pure durable write.
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) struct StagedMeasurement {
     pub(crate) series: String,
     pub(crate) n_fields: usize,
@@ -296,6 +410,37 @@ pub(crate) struct StagedMeasurement {
     /// `(ts_nanos, field_values)` points — the SAME shape `TsAppend` carries on the wire.
     pub(crate) points: Vec<(i64, Vec<f64>)>,
 }
+
+/// Canonical private recovery body for a prepared transaction coordinator.  It is
+/// never written to a coordinator batch, outbox, log message, or trace: callers
+/// serialize this deterministic shape, encrypt it with the environment-managed
+/// data key, and atomically attach only the ciphertext to the parent receipt.
+///
+/// `agent` and wall-clock activity are deliberately absent.  Retry authorization
+/// is bound by the parent's principal fingerprint, avoiding durable raw identity;
+/// idle bookkeeping is reconstructed in memory.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct DurableTxnPlan {
+    schema_version: u16,
+    graph: String,
+    tenant_scope: String,
+    begin_version: u64,
+    write_set: Vec<Method>,
+    read_set: BTreeMap<String, NodeFingerprint>,
+    isolation: IsolationLevel,
+    predicate_reads: Vec<(PredicateRead, u64)>,
+    extra_writes: BTreeMap<String, Vec<Method>>,
+    vectors: Vec<(String, Vec<f32>)>,
+    blob_refs: Vec<(String, String)>,
+    measurements: Vec<StagedMeasurement>,
+    axioms: Vec<Method>,
+    constructs: Vec<Method>,
+    plan_writeback: Vec<Method>,
+}
+
+const DURABLE_TXN_PLAN_VERSION: u16 = 2;
+const MAX_DURABLE_TXN_PLAN_BYTES: usize = 64 * 1024 * 1024;
+const MAX_DURABLE_TXN_PLAN_ITEMS: usize = 1_000_000;
 
 impl StagedMeasurement {
     /// Flatten into the persistence-layer [`crate::MeasurementBatch`] tuple threaded
@@ -312,6 +457,91 @@ impl StagedMeasurement {
 }
 
 impl GraphTxnState {
+    /// Serialize the complete staged transaction into a stable canonical ordering.
+    /// The returned bytes are plaintext only in process memory and MUST be sealed
+    /// before persistence.
+    pub(crate) fn encode_recovery_plan(&self) -> Result<Vec<u8>, String> {
+        let plan = DurableTxnPlan {
+            schema_version: DURABLE_TXN_PLAN_VERSION,
+            graph: self.graph.clone(),
+            tenant_scope: self.tenant_scope.clone(),
+            begin_version: self.begin_version,
+            write_set: self.write_set.clone(),
+            read_set: self
+                .read_set
+                .iter()
+                .map(|(node, fingerprint)| (node.clone(), fingerprint.clone()))
+                .collect(),
+            isolation: self.isolation,
+            predicate_reads: self.predicate_reads.clone(),
+            extra_writes: self
+                .extra_writes
+                .iter()
+                .map(|(graph, methods)| (graph.clone(), methods.clone()))
+                .collect(),
+            vectors: self.vectors.clone(),
+            blob_refs: self.blob_refs.clone(),
+            measurements: self.measurements.clone(),
+            axioms: self.axioms.clone(),
+            constructs: self.constructs.clone(),
+            plan_writeback: self.plan_writeback.clone(),
+        };
+        let bytes = rmp_serde::to_vec_named(&plan)
+            .map_err(|_| "transaction recovery plan encode failed".to_string())?;
+        eg_types::msgpack::validate_single_value(
+            &bytes,
+            eg_types::msgpack::MsgpackLimits::new(
+                MAX_DURABLE_TXN_PLAN_BYTES,
+                MAX_DURABLE_TXN_PLAN_ITEMS,
+                64,
+            ),
+        )
+        .map_err(|_| "transaction recovery plan exceeds limits".to_string())?;
+        Ok(bytes)
+    }
+
+    /// Reconstruct an ephemeral staged transaction from authenticated private
+    /// recovery bytes.  The retrying caller is held only in RAM; its durable scope
+    /// was already verified against the parent receipt before this method is called.
+    pub(crate) fn decode_recovery_plan(bytes: &[u8], agent: String) -> Result<Self, String> {
+        let plan: DurableTxnPlan = eg_types::msgpack::decode_bounded(
+            bytes,
+            eg_types::msgpack::MsgpackLimits::new(
+                MAX_DURABLE_TXN_PLAN_BYTES,
+                MAX_DURABLE_TXN_PLAN_ITEMS,
+                64,
+            ),
+        )
+        .map_err(|_| "transaction recovery plan is corrupt".to_string())?;
+        if plan.schema_version != DURABLE_TXN_PLAN_VERSION {
+            return Err(format!(
+                "unsupported transaction recovery plan version {}",
+                plan.schema_version
+            ));
+        }
+        if plan.graph.is_empty() || plan.tenant_scope.is_empty() {
+            return Err("transaction recovery plan has incomplete authority".to_string());
+        }
+        Ok(GraphTxnState {
+            graph: plan.graph,
+            tenant_scope: plan.tenant_scope,
+            begin_version: plan.begin_version,
+            write_set: plan.write_set,
+            read_set: plan.read_set.into_iter().collect(),
+            isolation: plan.isolation,
+            predicate_reads: plan.predicate_reads,
+            agent,
+            last_active_ms: now_ms(),
+            extra_writes: plan.extra_writes.into_iter().collect(),
+            vectors: plan.vectors,
+            blob_refs: plan.blob_refs,
+            measurements: plan.measurements,
+            axioms: plan.axioms,
+            constructs: plan.constructs,
+            plan_writeback: plan.plan_writeback,
+        })
+    }
+
     /// Open a fresh staged transaction. Under `Serializable` with a declared
     /// `predicate`, capture its result-set fingerprint NOW (the snapshot the txn
     /// reads against) so commit can detect a phantom/range change. `core` is the
@@ -319,6 +549,7 @@ impl GraphTxnState {
     pub(crate) fn new(
         core: &GraphCore,
         graph: String,
+        tenant_scope: String,
         begin_version: u64,
         isolation: IsolationLevel,
         predicate: Option<PredicateRead>,
@@ -334,6 +565,7 @@ impl GraphTxnState {
         };
         GraphTxnState {
             graph,
+            tenant_scope,
             begin_version,
             write_set: Vec::new(),
             read_set: HashMap::new(),
@@ -562,17 +794,72 @@ impl GraphTxnState {
     }
 }
 
-/// Server-issued monotonic transaction-id source (CONCEPT:EG-KG.txn.multi-op-occ-acid). A plain
-/// `AtomicU64` counter — no `rand`/`Date` dependency — rendered as a hex string so
-/// the client can thread it back opaquely. Unique within a server process, which is
-/// all the keying of `ServerState::open_txns` requires.
+/// Server-issued opaque transaction-id source (CONCEPT:EG-KG.txn.multi-op-occ-acid).
+/// IDs must now remain unique across process restarts because a prepared/terminal
+/// coordinator receipt outlives `open_txns`; a per-process counter would collide
+/// with durable parent/child idempotency keys after every restart.
 #[derive(Debug, Default)]
-pub struct TxnIdGen(AtomicU64);
+pub struct TxnIdGen;
 
 impl TxnIdGen {
-    /// Next unique transaction id, e.g. `"txn-0000000000000001"`.
+    /// Next UUID-v4 transaction id.  It is exposed to the client only as an opaque
+    /// capability and is one-way hashed before entering coordinator metadata.
     pub fn next(&self) -> String {
-        let n = self.0.fetch_add(1, Ordering::Relaxed) + 1;
-        format!("txn-{n:016x}")
+        format!("txn-{}", uuid::Uuid::new_v4().simple())
+    }
+}
+
+#[cfg(test)]
+mod recovery_plan_tests {
+    use super::*;
+
+    #[test]
+    fn recovery_plan_is_canonical_and_omits_raw_agent_identity() {
+        let core = GraphCore::new();
+        let mut first = GraphTxnState::new(
+            &core,
+            "logical-graph".to_string(),
+            "opaque-tenant-scope".to_string(),
+            7,
+            IsolationLevel::Snapshot,
+            None,
+            "raw-personal-identity".to_string(),
+            10,
+        );
+        first.write_set.push(Method::RemoveNode {
+            node_id: "node-a".to_string(),
+        });
+        first
+            .read_set
+            .insert("node-b".to_string(), NodeFingerprint::Absent);
+        first
+            .read_set
+            .insert("node-a".to_string(), NodeFingerprint::Present(42));
+
+        let mut second = first.clone();
+        second.read_set.clear();
+        second
+            .read_set
+            .insert("node-a".to_string(), NodeFingerprint::Present(42));
+        second
+            .read_set
+            .insert("node-b".to_string(), NodeFingerprint::Absent);
+
+        let encoded = first.encode_recovery_plan().unwrap();
+        assert_eq!(encoded, second.encode_recovery_plan().unwrap());
+        assert!(!encoded
+            .windows(b"raw-personal-identity".len())
+            .any(|window| window == b"raw-personal-identity"));
+
+        let recovered = GraphTxnState::decode_recovery_plan(
+            &encoded,
+            "retry-identity-held-only-in-ram".to_string(),
+        )
+        .unwrap();
+        assert_eq!(recovered.graph, "logical-graph");
+        assert_eq!(recovered.tenant_scope, "opaque-tenant-scope");
+        assert_eq!(recovered.begin_version, 7);
+        assert_eq!(recovered.agent, "retry-identity-held-only-in-ram");
+        assert_eq!(recovered.read_set, first.read_set);
     }
 }

@@ -2,47 +2,34 @@
 name = "eg-image"
 version = "0.1.0"
 edition = "2021"
-authors = ["Audel Rouhi <knucklessg1@gmail.com>"]
-description = "Pure-Rust image modality for the epistemic-graph engine — a metadata/region-level ImageData stored value (real width/height from a hand-rolled PNG/JPEG header parse, a content-addressed blob ref, an optional extractor-supplied region index) with a ModalityContract impl producing a real EvidenceSpan::ImageRegion. NO heavy image-decode crate in the default build (the Pi contract)."
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
+description = "Pure-Rust governed PNG decode, spatial indexing, perceptual hashing, and image evidence for epistemic-graph."
 license = "MIT"
 
 [lib]
 name = "eg_image"
 
-# Pure-Rust, Pi-lean leaf crate — a sibling of eg-tensor/eg-geo. The ONLY unconditional
-# dependency is serde (so `ImageData` persists as a typed property in the redb per-graph
-# store). Deliberately NO `image`/`png`/`jpeg-decoder` crate: this crate parses ONLY the
-# few header bytes needed for real width/height (see src/header.rs) and never decodes
-# pixels — a full pixel codec is an explicitly out-of-scope, documented TODO (see the
-# reserved `codec` feature below, which pulls no dependency in v1).
+# Pure-Rust leaf. serde persists normalized source-free facts, SHA-256 binds source
+# identity, and the runtime uses the Rust flate2 backend for bounded PNG decode.
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
-# ModalityContract PILOT retrofit (CONCEPT:E4), mirroring eg-tensor/eg-geo. Optional,
+sha2 = "0.10"
+# ModalityContract implementation (CONCEPT:E4), mirroring eg-tensor/eg-geo. Optional,
 # only under `contract` (default OFF) — a default/pi/node/full build links none of it
 # and `ImageData` carries no new required trait. See `src/contract.rs`.
 eg-modality = { path = "../eg-modality", optional = true }
+flate2 = { version = "1.1", default-features = false, features = ["rust_backend"], optional = true }
 
 [features]
 default = []
-# ModalityContract PILOT retrofit (CONCEPT:E4): `impl ModalityContract for ImageData` +
-# the `modality_conformance_tests!` battery. OFF by default, deliberately NOT folded
-# into any tier aggregate (pi/node/full) — it is a capability-discovery/testing seam,
-# not a serving feature. `cargo test -p eg-image --features contract` runs the suite.
+# `impl ModalityContract for ImageData` + the conformance battery. OFF by default;
+# `serving` promotes it to the governed runtime and is enabled by the facade's
+# production epistemic surface.
 contract = ["dep:eg-modality"]
-# RESERVED seam for a real pixel codec (full PNG/JPEG decode to a pixel buffer). NOT
-# implemented in v1 — this crate stays metadata/region-level only (see crate docs).
-# Turning this on TODAY adds no dependency and changes no behavior; a future real
-# decoder would gate its heavy dep (e.g. `png`/`zune-jpeg`) behind this SAME feature
-# name so the default build never links it (the Pi contract).
-codec = []
-# OPT-IN runtime seam (CONCEPT:EG-P1-3): `src/runtime.rs`'s decode/color/EXIF/
-# pyramid/thumbnail/mask/image-embedding TRAITS + typed artifacts. Default OFF, no
-# new dependency AT ALL (this is a trait-definition layer, not an implementation —
-# a real decoder/embedding model plugs in by implementing the trait in its own
-# crate/service). Turning this on today adds zero dependency and changes no
-# behavior of `ImageData` itself; it only unlocks the trait module for a plugin to
-# target.
-runtime = []
+serving = ["contract"]
+# Memory-bounded native PNG decode, color conversion, perceptual hash, and governed
+# secondary-index/query behavior. The pure-Rust inflater adds no native toolchain.
+runtime = ["serving", "dep:flate2"]
 
 [dev-dependencies]
 serde_json = "1.0"

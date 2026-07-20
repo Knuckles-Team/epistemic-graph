@@ -140,7 +140,7 @@ pub struct EdgePat {
     /// `((a)-[:REL]->(b)){min,max}`. When `Some`, this hop is a synthetic
     /// placeholder standing in for a whole repeated sub-pattern — `rel_type`/
     /// `direction`/`var_len` above are ignored and the group's own `hops` +
-    /// `quantifier` drive matching (`group_reachable` in `exec.rs`), which
+    /// `quantifier` drive matching (`quantified_group_matches` in `exec.rs`), which
     /// generalizes the single-relationship `bfs_reachable` to repeated
     /// whole-subpattern expansion. `None` for every ordinary hop (the common
     /// case, unaffected).
@@ -151,18 +151,16 @@ pub struct EdgePat {
 /// pattern `((start)(hop)*){min,max}` (CONCEPT:EG-KG.query.quantified-path-pattern).
 /// Matched by repeating whole-pattern expansion `min..=max` times (BFS over
 /// "meta-edges", each meta-edge being one full application of `hops` starting
-/// from `start`'s position) — see `group_reachable`/`expand_group_once` in
-/// `exec.rs`. **Documented limitation (deferred):** only the group's overall
-/// start (already bound going in) and the final repetition's end node
-/// participate in the surrounding MATCH/WHERE/RETURN scope; per-iteration
-/// variable bindings inside the group (e.g. every `a`/`b` across repetitions)
-/// are NOT exposed as list values the way full Cypher 25 exposes them — this
-/// engine matches reachability + the end node, not per-iteration projections.
+/// from `start`'s position) — see `quantified_group_matches`/
+/// `expand_group_once` in `exec.rs`. Variables declared inside the group are
+/// group variables: each result binding carries their per-repetition node or
+/// relationship values as ordered lists, including an empty list for a valid
+/// zero-repetition match.
 #[derive(Debug, Clone, PartialEq)]
 pub struct QuantifiedGroup {
     /// The group's own start-position constraint (label/props/var), re-applied
-    /// at the start of EVERY repetition — but the var (if any) is local to the
-    /// group and not threaded to the outer binding.
+    /// at the start of every repetition. Its variable, when named, is captured
+    /// into the ordered node group-variable list exposed to the outer scope.
     pub start: NodePat,
     /// The repeated hop sequence (one or more), applied once per repetition.
     pub hops: Vec<(EdgePat, NodePat)>,
@@ -275,8 +273,8 @@ pub enum Expr {
     /// An aggregation over a variable or `var.prop` (CONCEPT:EG-KG.query.eg-extend-read-side).
     Aggregate(AggFunc, AggArg),
     /// `type(r)` — the relationship-type accessor over a bound edge variable
-    /// (CONCEPT:EG-KG.query.rel-type-projection). Reads the SAME `relationship`/`type`/`rel_type`
-    /// property keys `rel_matches` matches on, so `type(r)` is never null for an
+    /// (CONCEPT:EG-KG.query.rel-type-projection). Reads the SAME canonical `relationship`
+    /// property `rel_matches` matches on, so `type(r)` is never null for an
     /// edge a typed `-[:REL]->` pattern could have matched.
     RelType(String),
 }

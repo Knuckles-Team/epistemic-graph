@@ -6,7 +6,7 @@
 //! `StagedSeries` (an in-txn overlay of uncommitted `(ts, field_values)` points, read
 //! through for read-your-own-writes, then either merged into the durable store on
 //! commit or simply dropped on abort — CONCEPT:EG-KG.query.txn-tsdb-read-your) and the
-//! engine's WAL (`src/wal.rs`: a durable mutation is appended, then either replayed on
+//! engine's WAL (`src/mutation_apply.rs`: a durable mutation is appended, then either replayed on
 //! restart or truncated at a checkpoint). `StagedWrite` generalizes the SHAPE of that
 //! staging step across modalities — an id, a `Put`/`Delete` kind, and an opaque
 //! serialized payload — without prescribing HOW a modality's own txn engine actually

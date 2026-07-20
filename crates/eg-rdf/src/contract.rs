@@ -11,7 +11,7 @@
 //! `sub ⊑ sup`) -> `detail`, `confidence -> confidence`.
 
 use eg_modality::{
-    decode_staged, encode_staged, ConformanceTestable, EvidenceSpan, IngestReport,
+    decode_staged, encode_staged, ConformanceTestable, EvidenceAddress, IngestReport,
     ModalityContract, ModalitySelfTest, Provenance, RowSetShape, StagedWrite, StorageStats,
     TckPoint,
 };
@@ -70,7 +70,7 @@ impl ModalityContract for ProofNode {
     /// range inside a source artifact. There is no artifact to point INTO here (the
     /// entailment is derived, not observed at a location) — provenance-only is the
     /// correct, real answer for this modality, not an unresolved TODO.
-    fn evidence(&self, _id: &str) -> Option<EvidenceSpan> {
+    fn evidence_address(&self) -> Option<EvidenceAddress> {
         None
     }
 

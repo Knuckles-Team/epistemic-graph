@@ -32,35 +32,11 @@
 //!
 //! ## `evidence_refs` (X1, CONCEPT:E4) — located, not just node ids
 //!
-//! With the `epistemic` feature on, [`KnowledgeSet::from_rowset`] additionally tries
-//! to decode each row's OWN stored node properties (the SAME `obj` already decoded
-//! for `kind`/`confidence`/the bitemporal window, above) as one of the modality
-//! value types that have a REAL `eg_modality::ModalityContract::evidence()` resolver
-//! — today: `eg_compute::ast::symbol::Symbol` (a row whose `kind == "Symbol"`),
-//! `eg_tsdb::traces::Span` (`kind == "Span"`), and (CONCEPT:E4 follow-up)
-//! `eg_image::ImageData` (`kind == "Image"`), `eg_audio::AudioData`
-//! (`kind == "Audio"`), `eg_video::VideoData` (`kind == "Video"`), and (L20,
-//! CONCEPT:EG-P1-3) `eg_document::DocumentData` (`kind == "Document"`) — and, on a
-//! successful decode, calls `evidence()` and pushes the resulting LOCATED
-//! `eg_modality::EvidenceSpan` (e.g. a `CodeSymbol{file_path, symbol, start_line,
-//! end_line}`, a `TraceSpan{trace_id, span_id}`, an `ImageRegion{image_id, x, y,
-//! width, height}`, an `AudioSegment{audio_id, start_ms, end_ms}`, or a
-//! `VideoShot{video_id, start_ms, end_ms}`, or a `DocumentSpan{document_id, start,
-//! end}`) into `evidence_refs`. A row whose `kind`
-//! matches neither (or whose properties don't structurally decode as that type, or
-//! whose modality value has no region/segment/shot to report — e.g. an `ImageData`
-//! with an empty region index) gets an empty `evidence_refs` — never a fabricated
-//! span. `provenance_frame` becomes `ProvenanceFrame::Resolved` whenever `epistemic`
-//! is on, exactly mirroring how `ExplainProvenanceResult::resolved` reports
-//! `cfg!(feature = "epistemic")` (see the facade's `explain_provenance`) — even
-//! though `source_refs` itself is a separate, not-yet-wired-here dimension of that
-//! same frame (see the module docs above).
-//!
-//! `TextHit` (eg-text) and `ProofNode` (eg-rdf) are deliberately NOT in this decode
-//! list: a `TextHit`'s `{id, score}` shape is not a safe/distinguishing structural
-//! signature (almost any scored row would false-positive-match it), and a
-//! `ProofNode` is a query-time-derived value that is never itself a stored node
-//! (see `eg-rdf/src/contract.rs`'s `evidence()` doc for why it stays `None` anyway).
+//! With the `epistemic` feature on, [`KnowledgeSet::from_rowset`] decodes the row's
+//! single `evidence_locus` property as a complete [`EvidenceLocus`]. Its opaque
+//! identity, subject, policy, derivation, and validated address were committed by
+//! ingestion. Query execution never derives those fields from raw modality values;
+//! an absent or malformed property yields an empty `evidence_refs` list.
 //!
 //! ## `source_refs` / `policy_labels` (D24, closing the X1 residue)
 //!
@@ -156,73 +132,26 @@
 use std::collections::{HashMap, HashSet};
 
 use eg_core::graph::GraphView;
-use eg_modality::EvidenceSpan;
+use eg_modality::EvidenceLocus;
 use serde::{Deserialize, Serialize};
 
 use crate::rowset::RowSet;
 
-/// Try to decode `obj` (a row's own stored node properties) as one of the modality
-/// value types that have a REAL `ModalityContract::evidence()` resolver, dispatched
-/// by `kind` (the SAME `node_type`/`type` string [`KnowledgeSet::from_rowset`]
-/// already derives) so an unrelated node shape can never accidentally structurally
-/// match. `kind` matching neither known modality — or a `kind` match whose
-/// properties don't ALSO decode as that modality's real Rust type (e.g. a legacy/
-/// partial shape) — yields an empty `Vec`, never a fabricated span. See the module
-/// docs above for why `TextHit`/`ProofNode` are not attempted here.
+/// Decode the row's certified governed locus. There is one property and one shape:
+/// ingestion must persist a complete `EvidenceLocus`; query execution never derives
+/// opaque identities, policy, or lineage from raw modality fields.
 #[cfg(feature = "epistemic")]
 fn resolve_evidence(
     obj: &Option<serde_json::Map<String, serde_json::Value>>,
-    kind: &str,
-    row_id: &str,
-) -> Vec<EvidenceSpan> {
-    use eg_modality::ModalityContract;
-
+) -> Vec<EvidenceLocus> {
     let Some(o) = obj else {
         return Vec::new();
     };
-    let value = serde_json::Value::Object(o.clone());
-    match kind {
-        "Symbol" => serde_json::from_value::<eg_compute::ast::symbol::Symbol>(value)
-            .ok()
-            .and_then(|sym| sym.evidence(row_id))
-            .into_iter()
-            .collect(),
-        "Span" => serde_json::from_value::<eg_tsdb::traces::Span>(value)
-            .ok()
-            .and_then(|span| span.evidence(row_id))
-            .into_iter()
-            .collect(),
-        // CONCEPT:E4 follow-up — image/audio/video evidence. Each decode ALSO calls
-        // the value's REAL `evidence()`, which itself yields `None` (not a fabricated
-        // span) when the modality value carries no region/segment/shot index — see
-        // `eg_image`/`eg_audio`/`eg_video`'s `contract.rs` docs.
-        "Image" => serde_json::from_value::<eg_image::ImageData>(value)
-            .ok()
-            .and_then(|img| img.evidence(row_id))
-            .into_iter()
-            .collect(),
-        "Audio" => serde_json::from_value::<eg_audio::AudioData>(value)
-            .ok()
-            .and_then(|audio| audio.evidence(row_id))
-            .into_iter()
-            .collect(),
-        "Video" => serde_json::from_value::<eg_video::VideoData>(value)
-            .ok()
-            .and_then(|video| video.evidence(row_id))
-            .into_iter()
-            .collect(),
-        // L20 (CONCEPT:EG-P1-3) — the document modality's own `DocumentSpan`
-        // evidence, mirroring the image/audio/video arms above. `evidence()` itself
-        // yields `None` (never a fabricated whole-document fallback span) when the
-        // document carries no page/block/span structure yet — see
-        // `eg_document`'s `contract.rs` docs.
-        "Document" => serde_json::from_value::<eg_document::DocumentData>(value)
-            .ok()
-            .and_then(|doc| doc.evidence(row_id))
-            .into_iter()
-            .collect(),
-        _ => Vec::new(),
-    }
+    o.get("evidence_locus")
+        .and_then(|value| serde_json::from_value::<EvidenceLocus>(value.clone()).ok())
+        .filter(|locus| locus.validate().is_ok())
+        .into_iter()
+        .collect()
 }
 
 /// Resolve `(source_refs, policy_labels)` for one row id off a shared
@@ -304,10 +233,10 @@ impl AuxEdgeIndex {
         let mut idx = AuxEdgeIndex::default();
         for ((source, target), blobs) in &view.edge_properties {
             for blob in blobs {
-                let Ok(val) = rmp_serde::from_slice::<serde_json::Value>(blob) else {
+                let Ok(val) = eg_types::msgpack::decode_property_value(blob) else {
                     continue;
                 };
-                let Some(rel) = val.get("relationship_type").and_then(|r| r.as_str()) else {
+                let Some(rel) = val.get("relationship").and_then(|r| r.as_str()) else {
                     continue;
                 };
                 if matches!(
@@ -416,18 +345,17 @@ pub struct ProjectionSchema {
 }
 
 /// The resolution mode used to populate `source_refs`/`evidence_refs` on the rows
-/// of a `KnowledgeSet`. Kept as a minimal marker enum for v1 — no resolution work
-/// happens under plain `query`; the `epistemic` feature (a follow-up) fills
-/// `Resolved` in and does the actual per-row lookups.
+/// of a `KnowledgeSet`. No resolution work happens under plain `query`; the
+/// `epistemic` feature fills `Resolved` and performs the per-row lookups.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ProvenanceFrame {
     /// No provenance resolution ran — every row's `source_refs`/`evidence_refs`
-    /// are empty. The only mode this tier (plain `query`) produces.
+    /// are empty. This is the only mode a plain-`query` build produces.
     #[default]
     None,
     /// The `epistemic` feature resolved provenance refs per row: `evidence_refs` (a
-    /// row's decodable modality value's located `EvidenceSpan`, X1/CONCEPT:E4, see
-    /// `resolve_evidence`) AND, as of D24, `source_refs` (the row's own incoming
+    /// row's complete governed `EvidenceLocus`, see `resolve_evidence`) and
+    /// `source_refs` (the row's own incoming
     /// `Supports`-classified edges over the `eg_epistemic::BeliefGraph`, see
     /// `resolve_provenance_and_policy` and the module docs) — both per-row lookups
     /// run off the SAME `GraphView` snapshot, not a re-run plan.
@@ -457,8 +385,8 @@ pub enum PolicyFrame {
 #[derive(Clone, Debug, PartialEq)]
 pub struct KnowledgeRow {
     pub id: String,
-    /// The node's `node_type` (falling back to the legacy `type` key), or `""`
-    /// when neither is present / the blob did not decode.
+    /// The node's canonical `node_type`, or `""` when it is absent / the blob did
+    /// not decode. An ordinary `type` property is not structural metadata.
     pub kind: String,
     pub score: Option<f32>,
     pub payload_ref: Option<PayloadRef>,
@@ -478,13 +406,10 @@ pub struct KnowledgeRow {
     /// (see `resolve_provenance_and_policy`). Always `Vec::new()` without `epistemic`,
     /// and also empty (not fabricated) for a row with no classified incoming edge.
     pub source_refs: Vec<String>,
-    /// Located evidence for this row (X1, CONCEPT:E4) — e.g. a `CodeSymbol`'s exact
-    /// file/line range or a `TraceSpan`'s trace/span id — resolved via the row's own
-    /// modality `ModalityContract::evidence()` when `epistemic` is on and the row's
-    /// stored shape decodes as a known modality value type (see `resolve_evidence`).
-    /// Always `Vec::new()` without `epistemic` (byte-for-byte the v1 default), and
-    /// also empty (not fabricated) for a row whose kind/shape isn't a known modality.
-    pub evidence_refs: Vec<EvidenceSpan>,
+    /// Complete governed evidence for this row, decoded only from its certified
+    /// `evidence_locus` property. Always empty without `epistemic`, or when no valid
+    /// locus was committed.
+    pub evidence_refs: Vec<EvidenceLocus>,
     /// `"epistemic:contested"` / `"epistemic:corroborated"` / `"epistemic:asserted"`
     /// (D24, closing the X1 residue) — derived from the SAME incoming evidence
     /// neighbourhood as `source_refs` when `epistemic` is on (see
@@ -562,7 +487,7 @@ impl KnowledgeSet {
 
                 let kind = obj
                     .as_ref()
-                    .and_then(|o| o.get("node_type").or_else(|| o.get("type")))
+                    .and_then(|o| o.get("node_type"))
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .to_string();
@@ -601,16 +526,12 @@ impl KnowledgeSet {
                     has_payload: obj.is_some(),
                 });
 
-                // X1 (CONCEPT:E4): under `epistemic`, try to decode this row's OWN
-                // stored properties (`obj`, already fetched above) as a known
-                // modality value type and call its REAL `evidence()`. Off, or when
-                // `kind`/the shape doesn't match a known modality, this is the v1
-                // empty default — never fabricated. See `resolve_evidence` + the
-                // module docs for which modalities are covered and why.
+                // A query can only surface the complete governed locus committed by
+                // ingestion; it never derives identity or policy from raw fields.
                 #[cfg(feature = "epistemic")]
-                let evidence_refs = resolve_evidence(&obj, &kind, &row.id);
+                let evidence_refs = resolve_evidence(&obj);
                 #[cfg(not(feature = "epistemic"))]
-                let evidence_refs: Vec<EvidenceSpan> = Vec::new();
+                let evidence_refs: Vec<EvidenceLocus> = Vec::new();
 
                 // D24 (closing the X1 residue): under `epistemic`, resolve this row's
                 // own incoming evidence-classified edges off the SAME shared
@@ -673,7 +594,7 @@ impl KnowledgeSet {
             },
             // `provenance_frame`/`policy_frame` reflect that `evidence_refs`/
             // `source_refs` and `policy_labels` respectively WERE resolved when
-            // `epistemic` is on (mirrors `ExplainProvenanceResult::resolved` in the
+            // `epistemic` is on (mirrors `EvidenceBundle::resolved` in the
             // facade, which reports the same `cfg!(feature = "epistemic")`).
             provenance_frame: if cfg!(feature = "epistemic") {
                 ProvenanceFrame::Resolved
@@ -727,7 +648,7 @@ mod tests {
         core.add_node(
             "d2".into(),
             blob(json!({
-                "type": "Doc", // legacy key — no node_type
+                "node_type": "Doc",
             })),
         );
         core.analysis_snapshot()
@@ -759,7 +680,7 @@ mod tests {
     #[test]
     fn no_epistemic_yields_empty_provenance_and_policy_but_correct_kind_confidence_times() {
         let view = fixture();
-        // d2 has no bitemporal/confidence fields and uses the legacy `type` key.
+        // d2 has no bitemporal/confidence fields.
         let rs = RowSet::from_ids(["d2".to_string()]);
 
         let ks = KnowledgeSet::from_rowset(&rs, &view, &[]);
@@ -782,7 +703,7 @@ mod tests {
         assert_eq!(ks.policy_frame, expected_policy);
 
         let row = &ks.rows[0];
-        assert_eq!(row.kind, "Doc"); // fell back to legacy `type` key
+        assert_eq!(row.kind, "Doc");
         assert_eq!(row.confidence, 1.0); // NodeData's default_confidence
         assert_eq!(row.valid_time, (None, None));
         assert_eq!(row.tx_time, (None, None));
@@ -834,33 +755,32 @@ mod tests {
         assert_eq!(rs.ids(), vec!["d1", "d2"]);
     }
 
-    /// X1 (CONCEPT:E4): a row whose stored node properties decode losslessly as an
-    /// `eg_compute::ast::symbol::Symbol` (kind `"Symbol"`) gets a REAL, located
-    /// `EvidenceSpan::CodeSymbol` — not just its node id.
+    /// A complete governed locus is decoded without deriving identity from raw
+    /// modality fields.
     #[cfg(feature = "epistemic")]
     #[test]
-    fn epistemic_resolves_code_symbol_evidence() {
+    fn epistemic_resolves_certified_evidence_locus() {
         let core = GraphCore::new();
         core.add_node(
             "sym1".into(),
             blob(json!({
                 "node_type": "Symbol",
-                "id": "sym:abc123",
-                "name": "handle_request",
-                "qualified_name": "crate::server::handle_request",
-                "symbol_type": "Function",
-                "file_path": "src/server.rs",
-                "line_start": 42,
-                "line_end": 88,
-                "column": 0,
-                "ast_hash": "deadbeef",
-                "dependencies": [],
-                "documentation": "",
-                "language": "rust",
-                "is_exported": true,
-                "annotations": [],
-                "byte_start": 900,
-                "byte_end": 1500,
+                "evidence_locus": {
+                    "id": "eg:locus:0000000000000001",
+                    "subject": {
+                        "kind": "artifact",
+                        "id": "eg:artifact:0000000000000002"
+                    },
+                    "address": {
+                        "kind": "code_symbol",
+                        "revision_ref": "eg:revision:0000000000000003",
+                        "symbol_ref": "eg:symbol:0000000000000004",
+                        "start_line": 42,
+                        "end_line": 88
+                    },
+                    "policy_ref": "eg:policy:0000000000000005",
+                    "derivation_ref": "eg:derivation:0000000000000006"
+                }
             })),
         );
         let view = core.analysis_snapshot();
@@ -871,23 +791,21 @@ mod tests {
         assert_eq!(ks.provenance_frame, ProvenanceFrame::Resolved);
         let row = &ks.rows[0];
         assert_eq!(row.kind, "Symbol");
-        assert_eq!(
-            row.evidence_refs,
-            vec![EvidenceSpan::CodeSymbol {
-                file_path: "src/server.rs".to_string(),
-                symbol: "handle_request".to_string(),
+        assert_eq!(row.evidence_refs.len(), 1);
+        assert!(matches!(
+            &row.evidence_refs[0].address,
+            eg_modality::EvidenceAddress::CodeSymbol {
                 start_line: 42,
                 end_line: 88,
-            }]
-        );
+                ..
+            }
+        ));
     }
 
-    /// X1 (CONCEPT:E4): a row whose stored node properties decode losslessly as an
-    /// `eg_tsdb::traces::Span` (kind `"Span"`) gets a REAL, located
-    /// `EvidenceSpan::TraceSpan` — not just its node id.
+    /// Raw trace ids are not promoted into governed evidence identities.
     #[cfg(feature = "epistemic")]
     #[test]
-    fn epistemic_resolves_trace_span_evidence() {
+    fn epistemic_does_not_derive_locus_from_raw_trace_fields() {
         let core = GraphCore::new();
         core.add_node(
             "span1".into(),
@@ -912,21 +830,13 @@ mod tests {
 
         let row = &ks.rows[0];
         assert_eq!(row.kind, "Span");
-        assert_eq!(
-            row.evidence_refs,
-            vec![EvidenceSpan::TraceSpan {
-                trace_id: "trace-42".to_string(),
-                span_id: "span-7".to_string(),
-            }]
-        );
+        assert!(row.evidence_refs.is_empty());
     }
 
-    /// CONCEPT:E4 follow-up — a row whose stored node properties decode losslessly as
-    /// an `eg_image::ImageData` (kind `"Image"`) gets a REAL, located
-    /// `EvidenceSpan::ImageRegion` from its first region — not just its node id.
+    /// Raw image metadata is not promoted into a governed evidence identity.
     #[cfg(feature = "epistemic")]
     #[test]
-    fn epistemic_resolves_image_region_evidence() {
+    fn epistemic_does_not_derive_locus_from_raw_image_fields() {
         let core = GraphCore::new();
         core.add_node(
             "img1".into(),
@@ -947,16 +857,7 @@ mod tests {
 
         let row = &ks.rows[0];
         assert_eq!(row.kind, "Image");
-        assert_eq!(
-            row.evidence_refs,
-            vec![EvidenceSpan::ImageRegion {
-                image_id: "img1".to_string(),
-                x: 10.0,
-                y: 20.0,
-                width: 100.0,
-                height: 80.0,
-            }]
-        );
+        assert!(row.evidence_refs.is_empty());
     }
 
     /// CONCEPT:E4 follow-up — an `ImageData` row with NO region index decodes fine
@@ -983,12 +884,10 @@ mod tests {
         assert!(ks.rows[0].evidence_refs.is_empty());
     }
 
-    /// CONCEPT:E4 follow-up — a row whose stored node properties decode losslessly as
-    /// an `eg_audio::AudioData` (kind `"Audio"`) gets a REAL, located
-    /// `EvidenceSpan::AudioSegment` from its first segment — not just its node id.
+    /// Raw audio metadata is not promoted into a governed evidence identity.
     #[cfg(feature = "epistemic")]
     #[test]
-    fn epistemic_resolves_audio_segment_evidence() {
+    fn epistemic_does_not_derive_locus_from_raw_audio_fields() {
         let core = GraphCore::new();
         core.add_node(
             "audio1".into(),
@@ -1009,22 +908,13 @@ mod tests {
 
         let row = &ks.rows[0];
         assert_eq!(row.kind, "Audio");
-        assert_eq!(
-            row.evidence_refs,
-            vec![EvidenceSpan::AudioSegment {
-                audio_id: "audio1".to_string(),
-                start_ms: 0,
-                end_ms: 2500,
-            }]
-        );
+        assert!(row.evidence_refs.is_empty());
     }
 
-    /// CONCEPT:E4 follow-up — a row whose stored node properties decode losslessly as
-    /// an `eg_video::VideoData` (kind `"Video"`) gets a REAL, located
-    /// `EvidenceSpan::VideoShot` from its first shot — not just its node id.
+    /// Raw video metadata is not promoted into a governed evidence identity.
     #[cfg(feature = "epistemic")]
     #[test]
-    fn epistemic_resolves_video_shot_evidence() {
+    fn epistemic_does_not_derive_locus_from_raw_video_fields() {
         let core = GraphCore::new();
         core.add_node(
             "video1".into(),
@@ -1044,25 +934,13 @@ mod tests {
 
         let row = &ks.rows[0];
         assert_eq!(row.kind, "Video");
-        assert_eq!(
-            row.evidence_refs,
-            vec![EvidenceSpan::VideoShot {
-                video_id: "video1".to_string(),
-                start_ms: 0,
-                end_ms: 4000,
-            }]
-        );
+        assert!(row.evidence_refs.is_empty());
     }
 
-    /// L20 (CONCEPT:EG-P1-3) — a row whose stored node properties decode losslessly
-    /// as an `eg_document::DocumentData` (kind `"Document"`) gets a REAL, located
-    /// `EvidenceSpan::DocumentSpan` from its first page/block/span — not just its
-    /// node id. This is the gap the ledger flagged: `eg-document` shipped a real
-    /// `ModalityContract` impl (`src/contract.rs`) but `KnowledgeSet::from_rowset`
-    /// had no dispatch arm calling it; this test proves the arm now exists.
+    /// Raw document metadata is not promoted into a governed evidence identity.
     #[cfg(feature = "epistemic")]
     #[test]
-    fn epistemic_resolves_document_span_evidence() {
+    fn epistemic_does_not_derive_locus_from_raw_document_fields() {
         let core = GraphCore::new();
         core.add_node(
             "doc1".into(),
@@ -1093,14 +971,7 @@ mod tests {
         assert_eq!(ks.provenance_frame, ProvenanceFrame::Resolved);
         let row = &ks.rows[0];
         assert_eq!(row.kind, "Document");
-        assert_eq!(
-            row.evidence_refs,
-            vec![EvidenceSpan::DocumentSpan {
-                document_id: "doc1".to_string(),
-                start: 0,
-                end: 42,
-            }]
-        );
+        assert!(row.evidence_refs.is_empty());
     }
 
     /// L20 (CONCEPT:EG-P1-3) — a `Document` row with NO page/block/span structure
@@ -1162,7 +1033,7 @@ mod tests {
         core.add_edge(
             "evidence1".into(),
             "claim1".into(),
-            blob(json!({ "relationship_type": "SUPPORTS" })),
+            blob(json!({ "relationship": "SUPPORTS" })),
         )
         .unwrap();
         let view = core.analysis_snapshot();
@@ -1198,13 +1069,13 @@ mod tests {
         core.add_edge(
             "evidence1".into(),
             "claim1".into(),
-            blob(json!({ "relationship_type": "SUPPORTS" })),
+            blob(json!({ "relationship": "SUPPORTS" })),
         )
         .unwrap();
         core.add_edge(
             "evidence2".into(),
             "claim1".into(),
-            blob(json!({ "relationship_type": "HAS_EVIDENCE" })),
+            blob(json!({ "relationship": "HAS_EVIDENCE" })),
         )
         .unwrap();
         let view = core.analysis_snapshot();
@@ -1244,13 +1115,13 @@ mod tests {
         core.add_edge(
             "evidence1".into(),
             "claim1".into(),
-            blob(json!({ "relationship_type": "SUPPORTS" })),
+            blob(json!({ "relationship": "SUPPORTS" })),
         )
         .unwrap();
         core.add_edge(
             "counter1".into(),
             "claim1".into(),
-            blob(json!({ "relationship_type": "CONTRADICTS" })),
+            blob(json!({ "relationship": "CONTRADICTS" })),
         )
         .unwrap();
         let view = core.analysis_snapshot();
@@ -1281,7 +1152,7 @@ mod tests {
         core.add_edge(
             "evidence1".into(),
             "claim1".into(),
-            blob(json!({ "relationship_type": "SUPPORTS" })),
+            blob(json!({ "relationship": "SUPPORTS" })),
         )
         .unwrap();
         let view = core.analysis_snapshot();
@@ -1313,7 +1184,7 @@ mod tests {
         core.add_edge(
             "evidence1".into(),
             "claim1".into(),
-            blob(json!({ "relationship_type": "SUPPORTS" })),
+            blob(json!({ "relationship": "SUPPORTS" })),
         )
         .unwrap();
         let view = core.analysis_snapshot();
@@ -1360,7 +1231,7 @@ mod tests {
         core.add_edge(
             "claim1".into(),
             "activity1".into(),
-            blob(json!({ "relationship_type": "GENERATED_BY" })),
+            blob(json!({ "relationship": "GENERATED_BY" })),
         )
         .unwrap();
         let view = core.analysis_snapshot();
@@ -1391,7 +1262,7 @@ mod tests {
         core.add_edge(
             "claim1".into(),
             "activity1".into(),
-            blob(json!({ "relationship_type": "GENERATED_BY" })),
+            blob(json!({ "relationship": "GENERATED_BY" })),
         )
         .unwrap();
         let view = core.analysis_snapshot();
@@ -1420,7 +1291,7 @@ mod tests {
         core.add_edge(
             "claim1".into(),
             "claim2".into(),
-            blob(json!({ "relationship_type": "CONTRADICTS" })),
+            blob(json!({ "relationship": "CONTRADICTS" })),
         )
         .unwrap();
         let view = core.analysis_snapshot();
@@ -1457,13 +1328,13 @@ mod tests {
         core.add_edge(
             "mid".into(),
             "claim1".into(),
-            blob(json!({ "relationship_type": "SUPPORTS" })),
+            blob(json!({ "relationship": "SUPPORTS" })),
         )
         .unwrap();
         core.add_edge(
             "evidence1".into(),
             "mid".into(),
-            blob(json!({ "relationship_type": "SUPPORTS" })),
+            blob(json!({ "relationship": "SUPPORTS" })),
         )
         .unwrap();
         let view = core.analysis_snapshot();
@@ -1509,7 +1380,7 @@ mod tests {
         core.add_edge(
             "claim1".into(),
             "claim2".into(),
-            blob(json!({ "relationship_type": "ALTERNATIVE_TO" })),
+            blob(json!({ "relationship": "ALTERNATIVE_TO" })),
         )
         .unwrap();
         let view = core.analysis_snapshot();
@@ -1540,7 +1411,7 @@ mod tests {
         core.add_edge(
             "claim1".into(),
             "claim2".into(),
-            blob(json!({ "relationship_type": "CONTRADICTS" })),
+            blob(json!({ "relationship": "CONTRADICTS" })),
         )
         .unwrap();
         let view = core.analysis_snapshot();

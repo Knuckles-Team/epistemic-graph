@@ -9,7 +9,8 @@
 //!      - `MATCH → TRAVERSE → RANK`  (relational-source → graph → vector),
 //!      - `REASON → RANK → TRAVERSE` (OWL-source → vector → graph, `owl`),
 //!      - `TsScan → WINDOW`          (time-series source → tumbling aggregate, `timeseries`),
-//!      - `FUSE`                     (RRF hybrid of vector+lexical+graph legs, `text`);
+//!      - `FUSE`                     (RRF hybrid of vector+lexical+graph legs, `text`),
+//!      - LeanRAG bounded top-k      (wide provenance fan-out → fixed drill/context budget);
 //!  * **recall@k** of the VECTOR leg — the ANN/HNSW `semantic_search` top-k vs a
 //!    BRUTE-FORCE cosine oracle over the SAME vectors, on a fixed synthetic dataset.
 //!    Recall is deterministic (fixed data + fixed HNSW params), so a drop below the
@@ -27,7 +28,10 @@
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use eg_core::compute::semantic::SemanticStore;
 use eg_core::graph::{GraphCore, GraphView};
-use eg_plan::{cost_opt_enabled, execute, execute_ops, optimize, Op, Plan, PlanCtx, Pred};
+use eg_plan::{
+    cost_opt_enabled, execute, execute_ops, optimize, AnnIndex, GraphTopology,
+    HierarchicalRetriever, Op, Plan, PlanCtx, Pred, RetrievalParams, Scored,
+};
 use serde_json::json;
 
 // ── deterministic PRNG (LCG) — no rand dep, so the dataset is byte-reproducible ──
@@ -236,8 +240,6 @@ ex:p1 a ex:Paper . ex:p2 a ex:Article . ex:p3 a ex:Topic . ex:p4 a ex:Paper .
         &mut iris,
         "g",
         eg_rdf::mapping::parse_turtle(ttl).unwrap(),
-        #[cfg(feature = "rdf-redb")]
-        None,
     )
     .unwrap();
     let mut semantic = SemanticStore::new();
@@ -714,6 +716,80 @@ fn run_filter_pushdown_ablation() -> bool {
     true
 }
 
+/// Allocation-light synthetic hierarchy for isolating LeanRAG's bounded child
+/// selection. Children and embeddings are generated deterministically on demand,
+/// so the benchmark does not hide ranking cost behind a second storage index.
+struct LeanRagBenchFixture {
+    summaries: usize,
+    fanout: usize,
+}
+
+impl AnnIndex for LeanRagBenchFixture {
+    fn search(
+        &self,
+        _query: &[f32],
+        k: usize,
+        allow: Option<&dyn Fn(&str) -> bool>,
+    ) -> Vec<Scored> {
+        (0..self.summaries)
+            .map(|index| Scored {
+                id: format!("summary-{index}"),
+                score: 1.0 - index as f32 / self.summaries.max(1) as f32,
+            })
+            .filter(|row| allow.is_none_or(|predicate| predicate(&row.id)))
+            .take(k)
+            .collect()
+    }
+}
+
+impl GraphTopology for LeanRagBenchFixture {
+    fn label(&self, id: &str) -> Option<String> {
+        id.starts_with("summary-")
+            .then(|| "SummaryNode".to_string())
+    }
+
+    fn children(&self, id: &str) -> Vec<String> {
+        let Some(summary) = id.strip_prefix("summary-") else {
+            return Vec::new();
+        };
+        (0..self.fanout)
+            .map(|child| format!("leaf-{summary}-{child}"))
+            .collect()
+    }
+
+    fn embedding(&self, id: &str) -> Option<Vec<f32>> {
+        let child = id.rsplit('-').next()?.parse::<usize>().ok()?;
+        Some(vec![
+            1.0,
+            (self.fanout.saturating_sub(child) as f32 + 1.0) / self.fanout.max(1) as f32,
+        ])
+    }
+}
+
+/// Wide fan-outs make an accidental full child sort visible while retaining a
+/// small fixed drill/context budget, the intended LeanRAG operating regime.
+fn bench_leanrag_bounded_topk(c: &mut Criterion) {
+    let mut group = c.benchmark_group("leanrag_bounded_topk");
+    for &fanout in &[64usize, 4_096] {
+        let fixture = LeanRagBenchFixture {
+            summaries: 4,
+            fanout,
+        };
+        let retriever = HierarchicalRetriever::new(&fixture, &fixture);
+        let params = RetrievalParams {
+            k: 4,
+            drill_depth: 1,
+            drill_breadth: 8,
+            leaf_budget: 16,
+        };
+        group.throughput(Throughput::Elements((fixture.summaries * fanout) as u64));
+        group.bench_with_input(BenchmarkId::from_parameter(fanout), &fanout, |b, _| {
+            b.iter(|| black_box(retriever.retrieve(black_box(&[1.0, 1.0]), params)))
+        });
+    }
+    group.finish();
+}
+
 fn all_benches(c: &mut Criterion) {
     if run_filter_pushdown_ablation() {
         return; // ablation mode: skip the long criterion sweep
@@ -722,6 +798,7 @@ fn all_benches(c: &mut Criterion) {
     bench_selective_filter_rank(c);
     bench_scale_sweep(c);
     bench_recall(c);
+    bench_leanrag_bounded_topk(c);
     #[cfg(feature = "owl")]
     bench_reason_rank_traverse(c);
     #[cfg(feature = "timeseries")]

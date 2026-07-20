@@ -38,17 +38,23 @@ one main build now. Only `raft`/`compute-dist` (the `cluster` layer) and `gpu-cu
 
 | Var / flag | Purpose | Default |
 |------------|---------|---------|
-| `--persist-dir` / `GRAPH_SERVICE_PERSIST_DIR` | Durable redb store directory. **Unset ⇒ IN-MEMORY ONLY** (data lost on exit). | (none) |
+| `--persist-dir` / `GRAPH_SERVICE_PERSIST_DIR` | Durable redb store and request-replay ledger directory. **Required for served mode.** | (none) |
 | `--socket-path` / `GRAPH_SERVICE_SOCKET` | Native UDS listener path (the primary transport). | per-platform default |
-| `--tcp-addr` / `GRAPH_SERVICE_TCP_FALLBACK_ADDR` | Native TCP fallback for the client protocol. | `127.0.0.1:8765` |
-| `GRAPH_SERVICE_AUTH_SECRET` | HMAC secret for the native protocol + SCRAM for the SQL wires. **Set this in production.** | (empty) |
-| `EPISTEMIC_GRAPH_ALLOW_INSECURE` | Opt out of the empty-secret guard (dev only). | off |
-| `EPISTEMIC_GRAPH_PERSIST_BACKEND` / `EPISTEMIC_GRAPH_REDB_AUTHORITATIVE` | Select / confirm the redb-authoritative durable path (AU-KG.backend.backend-modes). | authoritative |
+| `--tcp-addr` / `GRAPH_SERVICE_TCP_ADDR` | Native TCP listener; a routable bind requires TLS. | disabled |
+| `GRAPH_SERVICE_TLS_CERT` / `GRAPH_SERVICE_TLS_KEY` | PEM server identity for native TCP TLS. Both are required together. | (none) |
+| `GRAPH_SERVICE_TLS_CLIENT_CA` | Optional client CA bundle; setting it requires mTLS. | (none) |
+| `GRAPH_SERVICE_AUTH_SECRET` | Non-empty HMAC secret for `eg2.` plus protocol-specific credential derivation. **Required.** | (none) |
+| `EPISTEMIC_GRAPH_AUDIENCE` | Exact non-empty request audience. **Required.** | (none) |
+| `EPISTEMIC_GRAPH_TENANT` | Exact non-empty request tenant. **Required.** | (none) |
+| `EPISTEMIC_GRAPH_POLICY_VERSION` | Exact non-empty authorization-policy revision. **Required.** | (none) |
+| `EPISTEMIC_GRAPH_SIGNER_KEYS_JSON` | Runtime secret map of trusted operation signer ids to HMAC keys. **Required.** | (none) |
 | `EPISTEMIC_GRAPH_IDLE_SHUTDOWN_SECS` | Auto-shutdown after idle (edge/serverless). | off |
 
-> **Loopback default everywhere.** A bare enable token or bare port binds `127.0.0.1`, never
-> `0.0.0.0`. Terminate TLS/mTLS at the edge (Caddy/ingress) — the wire listeners speak
-> plaintext on the wire they emulate.
+> **Strict listener boundary.** A bare auxiliary enable token or port binds
+> `127.0.0.1`, never `0.0.0.0`, and every non-loopback auxiliary bind is rejected.
+> Routable native MessagePack TCP requires TLS/mTLS. Place a co-located
+> authenticated TLS gateway in front of an auxiliary protocol when remote access
+> is required.
 
 ## 3. Listener / env-var catalog
 
@@ -57,20 +63,20 @@ Every listener is opt-in (feature **and** address must be set). Full connect exa
 
 | Surface | Feature | Listen-addr env (flag) | Default | Aux env |
 |---------|---------|------------------------|---------|---------|
-| Native client (UDS/TCP) | (core) | `GRAPH_SERVICE_SOCKET` / `…_TCP_FALLBACK_ADDR` | UDS; `127.0.0.1:8765` | `GRAPH_SERVICE_AUTH_SECRET` |
+| Native client (UDS/TCP/TLS) | (core; TLS in `server-tls`, included by `full`) | `GRAPH_SERVICE_SOCKET` / `GRAPH_SERVICE_TCP_ADDR` | platform runtime UDS; TCP disabled | `GRAPH_SERVICE_AUTH_SECRET`, `GRAPH_SERVICE_TLS_*` |
 | Postgres wire | `pgwire` | `EPISTEMIC_GRAPH_PGWIRE_ADDR` | `127.0.0.1:5433` | `EPISTEMIC_GRAPH_PGWIRE_AUTH`, `…_PGWIRE_GRAPH` |
 | MySQL wire | `mysql-wire` | `EPISTEMIC_GRAPH_MYSQL_ADDR` | `127.0.0.1:3306` | `EPISTEMIC_GRAPH_MYSQL_AUTH`, `…_MYSQL_GRAPH` |
 | MSSQL wire | `mssql-wire` | `EPISTEMIC_GRAPH_MSSQL_ADDR` | `127.0.0.1:1433` | `EPISTEMIC_GRAPH_MSSQL_GRAPH` |
 | SQLite NDJSON | `sqlite-wire` | `EPISTEMIC_GRAPH_SQLITE_ADDR` | (your port) | `EPISTEMIC_GRAPH_SQLITE_GRAPH` |
-| Bolt wire (Neo4j) `EG-KG.query.bolt-wire-protocol` | `bolt-wire` | `EPISTEMIC_GRAPH_BOLT_ADDR` | `127.0.0.1:7687` | `EPISTEMIC_GRAPH_BOLT_GRAPH` |
-| Redis RESP wire `EG-KG.ontology.resp2-resp3-codec-round` | `redis-wire` | `EPISTEMIC_GRAPH_REDIS_ADDR` | `127.0.0.1:6379` | `EPISTEMIC_GRAPH_REDIS_PASSWORD` |
+| Bolt wire (Neo4j) `EG-KG.query.bolt-wire-protocol` | `bolt-wire` | `EPISTEMIC_GRAPH_BOLT_ADDR` | `127.0.0.1:7687` | signed `eg2.` session request binds the graph; no graph/auth-mode env |
+| Redis RESP wire `EG-KG.ontology.resp2-resp3-codec-round` | `redis-wire` | `EPISTEMIC_GRAPH_REDIS_ADDR` | `127.0.0.1:6379` | `AUTH <principal> <hex(HMAC-SHA256(GRAPH_SERVICE_AUTH_SECRET, "redis:" + principal))>`; isolated pseudonymous keyspace |
 | AMQP broker `EG-275` | `amqp-wire` | `EPISTEMIC_GRAPH_AMQP_ADDR` | `127.0.0.1:5672` | `EPISTEMIC_GRAPH_AMQP_GRAPH` |
 | MQTT broker `EG-281` | `mqtt-wire` | `EPISTEMIC_GRAPH_MQTT_ADDR` | `127.0.0.1:1883` | `EPISTEMIC_GRAPH_MQTT_GRAPH`, `…_MQTT_EXCHANGE` |
 | STOMP broker `EG-KG.ontology.stomp-frame-codec-unit` | `stomp-wire` | `EPISTEMIC_GRAPH_STOMP_ADDR` | `127.0.0.1:61613` | `EPISTEMIC_GRAPH_STOMP_GRAPH`, `…_STOMP_EXCHANGE` |
 | S3 REST (object store) `EG-KG.ontology.object-put-get-head` | `s3-api` | `EPISTEMIC_GRAPH_S3_ADDR` | `127.0.0.1:9000` | `EPISTEMIC_GRAPH_S3_ACCESS_KEY`, `…_S3_SECRET_KEY` |
 | Shared KV-cache HTTP `EG-KG.backend.is-configured-so-co` | `kvcache-server` | `EPISTEMIC_GRAPH_KVCACHE_ADDR` | `127.0.0.1:9130` | `EPISTEMIC_GRAPH_KVCACHE_TOKEN` |
 | SPARQL HTTP + `/nl` | `sparql-http` (+ `nl-query`) | `EPISTEMIC_GRAPH_SPARQL_ADDR` (`--sparql-addr`) | `127.0.0.1:7878` | `EPISTEMIC_GRAPH_SPARQL_DEFAULT_GRAPH`, `…_SPARQL_SERVICE_ALLOW`; NL: `…_NL_ENDPOINT`, `…_NL_MODEL`, `…_NL_API_KEY_ENV` |
-| GraphQL SSE | `graphql` | `EPISTEMIC_GRAPH_GRAPHQL_ADDR` (`--graphql-addr`) | `127.0.0.1:7879` | — |
+| GraphQL SSE | `graphql` | `EPISTEMIC_GRAPH_GRAPHQL_ADDR` (`--graphql-addr`) | `127.0.0.1:7879` | `EPISTEMIC_GRAPH_GRAPHQL_MAX_CONNECTIONS`, `EPISTEMIC_GRAPH_GRAPHQL_MAX_SESSION_SECS` |
 | Obs: logs + PromQL + traces + VRL | `obs`/`promql`/`traces` | `EPISTEMIC_GRAPH_OBS_ADDR` (`--obs-addr`) | `127.0.0.1:5080` | `EPISTEMIC_GRAPH_OBS_FLUSH_RECORDS` |
 | Federated search `EG-KG.ontology.federation-client` | `federation-search` | `EPISTEMIC_GRAPH_FEDERATED_ADDR` (`--federated-addr`) | `127.0.0.1:7900` | `EPISTEMIC_GRAPH_FEDERATION_PEERS`, `…_FEDERATION_ALLOW` |
 | Prometheus `/metrics` | `metrics` (default) | `GRAPH_SERVICE_METRICS_ADDR` (`--metrics-addr`) | `127.0.0.1:9101` | — |
@@ -80,11 +86,9 @@ Every listener is opt-in (feature **and** address must be set). Full connect exa
 
 | Var | Effect |
 |-----|--------|
-| `EPISTEMIC_GRAPH_WAL_FSYNC` | Durability/latency: `off` \| `each` \| `<ms>` \| `interval` (default 100ms). `each` = fsync-per-commit. |
-| `EPISTEMIC_GRAPH_WAL_QUEUE` | WAL apply queue depth. |
+| `EPISTEMIC_GRAPH_REDB_COMMIT_POLICY` | Commit policy: `each`, `interval`, or positive milliseconds. Invalid values and zero fail startup; durability cannot be disabled. |
 | `EPISTEMIC_GRAPH_REDB_GROUP_LINGER_US` / `…_REDB_GROUP_SHALLOW` | Group-commit micro-linger window / shallow batch (EG-024). |
-| `EPISTEMIC_GRAPH_REDB_FLUSH_THRESHOLD` / `…_REDB_SHARDS` | redb flush threshold / shard count. |
-| `EPISTEMIC_GRAPH_WRITE_COALESCE` | Per-graph write-coalescer window (EG-KG.txn.write-path-benchmarks). |
+| `EPISTEMIC_GRAPH_REDB_FLUSH_THRESHOLD` / `…_REDB_SHARDS` | redb flush threshold / shard count. Every K uses `graph-<n>.redb`; K=1 is `graph-0.redb`. |
 | `EPISTEMIC_GRAPH_MAX_INFLIGHT` / `…_MAX_INFLIGHT_PER_GRAPH` | Admission control / back-pressure. |
 | `EPISTEMIC_GRAPH_READ_RESERVED` | Reserved read-admission lane (EG-KG.coordination.reserved-read-lane) — keep reads fast under a write firehose. |
 | `EPISTEMIC_GRAPH_RESULT_CACHE_CAP` | Version-keyed result-cache capacity (KG-2.233). |
@@ -94,39 +98,68 @@ Every listener is opt-in (feature **and** address must be set). Full connect exa
 | `EPISTEMIC_GRAPH_COLD_OFFLOAD_SECS` | Cold-tier offload idle threshold (KG-2.233 `cold-tier`). |
 | `EPISTEMIC_GRAPH_TXN_TTL_SECS` / `…_TXN_MAX_PER_AGENT` / `…_TXN_MAX_PER_GRAPH` | Interactive-transaction TTL / caps. |
 | `EPISTEMIC_GRAPH_MAX_NODES_PER_GRAPH` / `…_MAX_RESPONSE_NODES` | Per-graph node ceiling / response cap. |
+| `EPISTEMIC_GRAPH_MAX_REQUEST_BYTES` / `…_MAX_RESPONSE_BYTES` | Native protocol frame limits (bounded by a hard engine ceiling). |
+| `EPISTEMIC_GRAPH_CONNECTION_IO_TIMEOUT_SECS` / `…_TLS_HANDSHAKE_TIMEOUT_SECS` | Native connection I/O and TLS-handshake deadlines. |
+| `EPISTEMIC_GRAPH_GRAPHQL_MAX_CONNECTIONS` | GraphQL SSE process-wide cap across handshakes and sessions; `1..=10000`, default `128`, outside the range fails startup. |
+| `EPISTEMIC_GRAPH_GRAPHQL_MAX_SESSION_SECS` | Maximum GraphQL SSE session lifetime before a newly signed eg2 request is required; `1..=3600` seconds, default `300`, outside the range fails startup. |
 | `EPISTEMIC_GRAPH_TENANT_CATALOG` | Multi-tenant catalog path. |
 | `GRAPH_SERVICE_DECAY_HALF_LIFE` / `…_DECAY_FLOOR` / `…_DECAY_INTERVAL` | Ebbinghaus fact-decay (agent memory). |
 
 ## 4. Backup, restore & PITR (CONCEPT:EG-KG.sharding.reshard-on-restore)
 
-The redb-authoritative store supports **online** consistent backups (no stop-the-world; the
-bundle is a crash-consistent point-in-time image). A bundle is a portable shard set +
-`MANIFEST.json` (format version, engine version, shard count K, per-shard digests).
+The redb-authoritative store supports **online** consistent format-v4 backups without
+a global stop-the-world. Each attempt brackets the per-shard MVCC copies with
+cryptographic change tokens for the admin saga ledger and cross-shard
+prepare/decision state. A transition during the copy leaves the attempt unpublished
+and the caller retries. A complete bundle contains the portable graph shard set,
+`admin-mutations.redb`, and `MANIFEST.json` with aggregate graph, receipt, encrypted
+recovery-plan and cross-shard-decision counts plus exact portable-file digests. The
+manifest is file-synced and atomically published only after those stores validate.
+
+Normal startup accepts only a contiguous canonical `graph-<n>.redb` set and fails on
+the retired unindexed `graph.redb`. With the engine stopped, convert that one-time
+persisted layout in place (leaving a timestamped backup) with:
+
+```bash
+migrate-shards --persist-dir "${GRAPH_SERVICE_PERSIST_DIR:?}" --shards 1
+```
+
+Restore validates all aggregate counts against the copied stores. Coordinator
+receipt/idempotency/child links must remain internally bound, and private prepared
+plans must remain authenticated ciphertext. Backup and restore command output exposes
+only aggregate counts and opaque digests; never store locations, endpoints, graph
+content or identity values in operational evidence.
 
 **Online backup** — over the native protocol, while serving:
 
+Provision a dedicated private directory at deployment time and expose its path only
+through `EPISTEMIC_GRAPH_BACKUP_ROOT` (mode `0700` on Unix). The wire request carries a
+logical bundle name, never a host path. Without the root, both remote DR methods fail
+closed. Backup publication is staged and renamed atomically inside that root.
+
 ```jsonc
 // Method::Backup  → returns a BackupReport JSON
-{ "Backup": { "destination": "/backups/eg-2026-07-02", "label": "nightly" } }
+{ "Backup": { "destination": "scheduled-001", "label": "scheduled" } }
 ```
 
 **Restore** — two paths:
 
 ```jsonc
-// Method::Restore stages a rebuilt copy in a sibling dir (swap in after stopping the engine)
-{ "Restore": { "source": "/backups/eg-2026-07-02" } }
+// Method::Restore requires the intended current shard layout and returns an opaque stage_ref.
+{ "Restore": { "source": "scheduled-001", "target_shards": 1 } }
 ```
 
 ```bash
-# Offline in-place restore CLI (engine stopped). Re-shard-on-restore: pass --shards K.
-restore --bundle /backups/eg-2026-07-02 --persist-dir /var/lib/epistemic-graph
-restore --bundle /backups/eg-2026-07-02 --persist-dir /var/lib/eg-k8 --shards 8
+# Offline in-place restore CLI (engine stopped). The target K is always explicit.
+restore --bundle "${BACKUP_BUNDLE:?}" --persist-dir "${GRAPH_SERVICE_PERSIST_DIR:?}" --shards 1
+restore --bundle "${BACKUP_BUNDLE:?}" --persist-dir "${TARGET_PERSIST_DIR:?}" --shards 8
 ```
 
-Restoring at the bundle's own K is a 1:1 verbatim row import; a different K re-shards on
+The wire request always states `target_shards`; restoring at the bundle's own K is a
+1:1 verbatim row import, while a different K re-shards on
 restore (EG-030 routing). **PITR**: the backup is the base image; replay the durable change
-ledger / WAL forward to a target instant on top of a restored bundle. Both halves (backup +
-restore) ship here; the forward-replay driver rides the same ledger.
+ledger forward to a target instant on top of a restored bundle. Both halves (backup +
+restore) ship here; the forward-replay driver rides that ledger.
 
 Non-redb builds return a clean "not available" error for `Backup`/`Restore` (no panic).
 
@@ -137,21 +170,29 @@ form an inheritance hierarchy (a role gets every grant of its transitively-reach
 `Grant`s bind a role to a `(resource, action, effect)` triple. `RbacPolicy::evaluate` returns
 the winning effect (deny-overrides, most-specific-wins).
 
-- An agent presents its roles on the request (`roles`, `#[serde(default)]` ⇒ pre-RBAC clients
-  stay wire-compatible with an empty set).
+- Roles and scopes come from the verified `eg2.` authority envelope; unsigned
+  request fields never grant access.
 - Administer the policy with `Method::RbacAdmin { op }` (add/remove role, grant/revoke).
 - The identity flows through the SQL wires too: a pgwire `user` (SCRAM) becomes the engine ACL
   actor, so **Row-Level Security** (below) applies to every wire query.
+
+A fresh durable policy store denies every ordinary graph and admin action. Its
+only admitted mutation is a trusted-signer-backed `RegisterIdentity` in
+`__commons__` that registers the verified principal/effective agent itself as
+`System`, with no teams, roles, or delegation and exactly the
+`security:bootstrap` scope. After that first rule commits, all identity and RBAC
+administration requires the normal durable admin policy.
 
 ## 6. Security-at-rest, RLS & audit (CONCEPT:EG-KG.sharding.row-level-security, feature `security`)
 
 | Capability | Enable | Notes |
 |------------|--------|-------|
-| Row-Level Security (per-agent read/plan-path view filter) | `security` | pure-Rust; applies across every wire |
+| Row-Level Security (per-agent read/plan-path view filter) | always in served mode | strict/default-deny across every wire; no runtime toggle |
 | Encryption-at-rest (redb value blobs) | `security` + `EPISTEMIC_GRAPH_ENCRYPTION_KEY` | ChaCha20-Poly1305 (RustCrypto — no ring/openssl); rides the redb tier |
 | Hash-chained tamper-evident audit log | `security` | over the durable ledger (sha2/hmac) |
 
-`security` is part of the one main build (and therefore the `cluster` layer).
+`security` is part of the one main build (and therefore the `cluster` layer) and
+is mandatory for any served binary. Startup fails if it is absent.
 
 ## 7. Enabling each modality (feature ⇒ what lights up)
 
@@ -162,12 +203,12 @@ the winning effect (deny-overrides, most-specific-wins).
 | MySQL / MSSQL / SQLite clients | `mysql-wire` / `mssql-wire` / `sqlite-wire` | the matching `*_ADDR` |
 | Bolt (Neo4j drivers) `EG-KG.query.bolt-wire-protocol` | `bolt-wire` (impl `cypher`) | `EPISTEMIC_GRAPH_BOLT_ADDR` |
 | Redis clients (RESP2/3) `EG-KG.ontology.resp2-resp3-codec-round` | `redis-wire` (impl `kv`) | `EPISTEMIC_GRAPH_REDIS_ADDR` |
-| Cypher | `cypher` (in `pi`) | — / Bolt for remote drivers |
-| GraphQL (+ Apollo Federation / hardening `EG-295`/`296`) | `graphql` | — / `EPISTEMIC_GRAPH_GRAPHQL_ADDR` for SSE |
-| SPARQL / RDF / OWL (+ JSON-LD/TriG/RDF-XML/ShEx/ICV/GSP `EG-KG.compute.concept-2`..`137`/`146`) | `sparql` (in `pi`) / `owl` / `shex` | `EPISTEMIC_GRAPH_SPARQL_ADDR` for HTTP |
+| Cypher | `cypher` (in the main build) | — / Bolt for remote drivers |
+| GraphQL (+ Apollo Federation / hardening `EG-295`/`296`) | `graphql` | — / loopback `EPISTEMIC_GRAPH_GRAPHQL_ADDR` for authenticated SSE; current eg2 header + request id required, remote access through a same-host TLS proxy only |
+| SPARQL / RDF / OWL (+ JSON-LD/TriG/RDF-XML/ShEx/ICV/GSP `EG-KG.compute.concept-2`..`137`/`146`) | `sparql` / `owl` / `shex` (in the main build) | `EPISTEMIC_GRAPH_SPARQL_ADDR` for HTTP |
 | GeoSPARQL / spatial (+ RCC8/Egenhofer `EG-KG.ontology.concept-7`/`261`) | `geosparql` / `geo` | — |
 | GIS / logistics (CRS/R-tree/tiles/routing/map-tasks `EG-KG.domains.coordinate-reference-system`..`267`) | `geo` | — |
-| Vector ANN (+ exact/flat recall harness `EG-KG.query.concept-5`) | `ann` (in `pi`) | — |
+| Vector ANN (+ exact/flat recall harness `EG-KG.query.concept-5`) | `ann` (in the main build) | — |
 | Time-series | `tsdb` | — |
 | Blob / CAS | `blob` (+ `blob-s3` for S3/MinIO) | `EPISTEMIC_GRAPH_BLOB_*` |
 | S3-compatible object store (serve) `EG-KG.ontology.object-put-get-head` | `s3-api` (impl `blob`+`kv`) | `EPISTEMIC_GRAPH_S3_ADDR` |
@@ -182,7 +223,7 @@ the winning effect (deny-overrides, most-specific-wins).
 | WASM UDF | `wasm-udf` | — (`RegisterUdf`/`RunUdf`) |
 | Federation (remote / HTTP / external SQL) | `federation` / `federation-sql` | per-source spec |
 | Super-cluster federated search `EG-KG.ontology.federation-client` | `federation-search` | `EPISTEMIC_GRAPH_FEDERATED_ADDR` (+ `…_FEDERATION_PEERS` / `…_FEDERATION_ALLOW`) |
-| Clustering / HA | `raft` (in `cluster`) | `EPISTEMIC_GRAPH_RAFT_NODE_ID` + `…_RAFT_PEERS` (+ `…_RAFT_BIND_ADDR`) |
+| Clustering / HA | `raft` (in `cluster`) | `EPISTEMIC_GRAPH_RAFT_NODE_ID` + `…_RAFT_PEERS` + `…_RAFT_AUTH_SECRET_FILE` (+ `…_RAFT_BIND_ADDR`) |
 
 ## 8. Observability of the engine itself
 

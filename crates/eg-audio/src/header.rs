@@ -5,6 +5,8 @@
 //! falls out of arithmetic over the declared byte rate and the `data` chunk's byte
 //! length, no entropy decoding involved.
 
+use sha2::{Digest, Sha256};
+
 /// The real facts read out of a WAV file's header — no samples are decoded.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct WavInfo {
@@ -19,13 +21,23 @@ pub struct WavInfo {
 /// rate implied by `fmt `. Returns `None` if the bytes aren't a `RIFF....WAVE`
 /// container, `fmt ` is missing/malformed, or no `data` chunk was found.
 pub fn read_wav_header(bytes: &[u8]) -> Option<WavInfo> {
-    if bytes.len() < 12 || &bytes[0..4] != b"RIFF" || &bytes[8..12] != b"WAVE" {
+    if bytes.len() < 12
+        || &bytes[0..4] != b"RIFF"
+        || &bytes[8..12] != b"WAVE"
+        || usize::try_from(u32::from_le_bytes(bytes[4..8].try_into().ok()?))
+            .ok()?
+            .checked_add(8)?
+            != bytes.len()
+    {
         return None;
     }
     let mut pos = 12usize;
     let mut sample_rate = 0u32;
     let mut channels = 0u16;
     let mut bits_per_sample = 0u16;
+    let mut block_align = 0u16;
+    let mut byte_rate = 0u32;
+    let mut saw_format = false;
     let mut data_len: Option<u64> = None;
 
     while pos + 8 <= bytes.len() {
@@ -34,40 +46,56 @@ pub fn read_wav_header(bytes: &[u8]) -> Option<WavInfo> {
         let body_start = pos + 8;
         let body_end = match body_start.checked_add(chunk_size) {
             Some(e) if e <= bytes.len() => e,
-            // A truncated/oversized final chunk (common when a data chunk's declared
-            // size overruns due to streaming writers) — stop walking rather than error,
-            // as long as we already found what we need.
-            _ => break,
+            _ => return None,
         };
         match chunk_id {
             b"fmt " => {
-                if chunk_size < 16 {
+                if saw_format || chunk_size < 16 {
                     return None;
                 }
                 let body = &bytes[body_start..body_end];
+                if u16::from_le_bytes(body[0..2].try_into().ok()?) != 1 {
+                    return None;
+                }
                 channels = u16::from_le_bytes(body[2..4].try_into().ok()?);
                 sample_rate = u32::from_le_bytes(body[4..8].try_into().ok()?);
+                byte_rate = u32::from_le_bytes(body[8..12].try_into().ok()?);
+                block_align = u16::from_le_bytes(body[12..14].try_into().ok()?);
                 bits_per_sample = u16::from_le_bytes(body[14..16].try_into().ok()?);
+                saw_format = true;
             }
             b"data" => {
+                if data_len.is_some() {
+                    return None;
+                }
                 data_len = Some(chunk_size as u64);
             }
             _ => {}
         }
         // RIFF chunks are word-aligned: an odd chunk_size has one pad byte after it.
-        pos = body_end + (chunk_size % 2);
+        pos = body_end.checked_add(chunk_size % 2)?;
+        if pos > bytes.len() {
+            return None;
+        }
+    }
+
+    if pos != bytes.len() {
+        return None;
     }
 
     let data_len = data_len?;
-    if sample_rate == 0 || channels == 0 || bits_per_sample == 0 {
+    if sample_rate == 0 || channels == 0 || !matches!(bits_per_sample, 8 | 16) || block_align == 0 {
         return None;
     }
-    let bytes_per_sample = (bits_per_sample as u64 / 8).max(1);
-    let byte_rate = sample_rate as u64 * channels as u64 * bytes_per_sample;
-    if byte_rate == 0 {
+    let expected_align = u32::from(channels).checked_mul(u32::from(bits_per_sample / 8))?;
+    let expected_rate = sample_rate.checked_mul(expected_align)?;
+    if u32::from(block_align) != expected_align
+        || byte_rate != expected_rate
+        || data_len % u64::from(block_align) != 0
+    {
         return None;
     }
-    let duration_ms = data_len * 1000 / byte_rate;
+    let duration_ms = data_len.checked_mul(1_000)? / u64::from(byte_rate);
     Some(WavInfo {
         sample_rate,
         channels,
@@ -76,18 +104,9 @@ pub fn read_wav_header(bytes: &[u8]) -> Option<WavInfo> {
     })
 }
 
-/// Deterministic 128-bit FNV-1a content hash, rendered as 32-char lowercase hex — the
-/// SAME construction `eg_tensor::store::content_hash` / `eg_image::content_hash` use
-/// (duplicated here rather than shared, since these are DAG-parallel leaf crates).
+/// SHA-256 content address rendered as 64 lowercase hexadecimal characters.
 pub fn content_hash(bytes: &[u8]) -> String {
-    const OFFSET: u128 = 0x6c62_272e_07bb_0142_62b8_2175_6295_c58d;
-    const PRIME: u128 = 0x0000_0000_0100_0000_0000_0000_0000_013b;
-    let mut h = OFFSET;
-    for &b in bytes {
-        h ^= b as u128;
-        h = h.wrapping_mul(PRIME);
-    }
-    format!("{h:032x}")
+    format!("{:x}", Sha256::digest(bytes))
 }
 
 #[cfg(test)]

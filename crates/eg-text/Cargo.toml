@@ -2,7 +2,7 @@
 name = "eg-text"
 version = "0.33.0"
 edition = "2021"
-authors = ["Audel Rouhi <knucklessg1@gmail.com>"]
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
 description = "Embedded BM25 full-text inverted index over node text fields (CONCEPT:KG-2.215). Tantivy-backed, persistent-no-rebuild, incremental add/delete. HARD feature-gated OUT of the Pi/default build — Tantivy (zstd-sys etc.) is heavy."
 license = "MIT"
 

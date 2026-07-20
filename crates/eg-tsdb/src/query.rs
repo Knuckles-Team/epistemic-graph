@@ -9,7 +9,7 @@
 //!     DataFusion via `GROUP BY (ts/w)*w` (see `arrow_seg`); the native form here is
 //!     the Pi path.
 //!   * `asof_join_backward` — join a series to events/another series by NEAREST-in-
-//!     time. THE critical primitive (ticks ↔ memories ↔ events); DataFusion 43 has
+//!     time. THE critical primitive (ticks ↔ memories ↔ events); DataFusion 54 has
 //!     no ASOF JOIN, so it MUST be native. O(L+R) merge over two ts-sorted inputs.
 //!   * `gap_fill_locf` — emit a row on a fixed grid carrying the last observation
 //!     forward across gaps. Also not native to DataFusion.
@@ -55,15 +55,35 @@ pub fn time_bucket(points: &[Point], width: Ts, agg: Agg) -> Vec<Bucket> {
     while i < points.len() {
         let b = (points[i].ts / width) * width;
         let mut j = i;
-        let mut acc: Vec<f64> = Vec::new();
+        let mut count = 0usize;
+        let mut value = match agg {
+            Agg::Min => f64::INFINITY,
+            Agg::Max => f64::NEG_INFINITY,
+            _ => 0.0,
+        };
         while j < points.len() && (points[j].ts / width) * width == b {
-            acc.push(points[j].values[0]);
+            let sample = points[j].values[0];
+            match agg {
+                Agg::First if count == 0 => value = sample,
+                Agg::First => {}
+                Agg::Last => value = sample,
+                Agg::Min => value = value.min(sample),
+                Agg::Max => value = value.max(sample),
+                Agg::Mean | Agg::Sum => value += sample,
+                Agg::Count => {}
+            }
+            count += 1;
             j += 1;
+        }
+        if agg == Agg::Mean {
+            value /= count as f64;
+        } else if agg == Agg::Count {
+            value = count as f64;
         }
         out.push(Bucket {
             bucket_start: b,
-            value: aggregate(&acc, agg),
-            count: acc.len(),
+            value,
+            count,
         });
         i = j;
     }
@@ -115,24 +135,6 @@ pub fn ohlc_bars(points: &[Point], width: Ts) -> Vec<Ohlc> {
         i = j;
     }
     out
-}
-
-fn aggregate(xs: &[f64], agg: Agg) -> f64 {
-    match agg {
-        Agg::First => xs.first().copied().unwrap_or(f64::NAN),
-        Agg::Last => xs.last().copied().unwrap_or(f64::NAN),
-        Agg::Min => xs.iter().copied().fold(f64::INFINITY, f64::min),
-        Agg::Max => xs.iter().copied().fold(f64::NEG_INFINITY, f64::max),
-        Agg::Mean => {
-            if xs.is_empty() {
-                f64::NAN
-            } else {
-                xs.iter().sum::<f64>() / xs.len() as f64
-            }
-        }
-        Agg::Sum => xs.iter().sum(),
-        Agg::Count => xs.len() as f64,
-    }
 }
 
 /// One ASOF output row: the left event time/value and the nearest prior right value.
@@ -341,52 +343,71 @@ pub struct FusedRow {
 /// opaque [`Cell`] — a scalar OR an EG-085 tensor-blob reference (camera/LiDAR frame) —
 /// so fusion is modality-agnostic.
 ///
-/// The ASOF match is done over an INDEX-encoded series (each sample's array index rides
-/// as the ASOF value) so the opaque cell can be fetched back by index after the match —
-/// this REUSES `asof_join_backward` verbatim rather than re-implementing the merge.
-/// Streams must be ts-sorted; empty input (or all-empty streams) yields no rows.
+/// The implementation k-way merges the already-sorted clocks, then advances one
+/// monotonic backward-ASOF cursor per stream. This applies the same matching rule as
+/// [`asof_join_backward`] without allocating index-encoded point copies or a
+/// transposed intermediate channel matrix. Streams must be ts-sorted; empty input
+/// (or all-empty streams) yields no rows.
 pub fn sensor_fuse(streams: &[SeriesRef], tolerance: Option<i64>) -> Vec<FusedRow> {
-    // 1. The common clock: the sorted, de-duplicated union of all sample timestamps.
-    let mut clock: Vec<Ts> = streams
-        .iter()
-        .flat_map(|s| s.samples.iter().map(|smp| smp.ts))
-        .collect();
-    clock.sort_unstable();
-    clock.dedup();
+    // 1. Merge the already-sorted input clocks. A binary heap keeps one frontier
+    // item per stream, reducing union construction from O(T log T) over a flattened
+    // copy to O(T log S), where T is total samples and S is stream count.
+    let clock = merged_clock(streams);
     if clock.is_empty() {
         return Vec::new();
     }
-    // ASOF `left` = the reference clock (its value is unused; 0.0 is a placeholder).
-    let ref_pts: Vec<Point> = clock.iter().map(|&t| Point::single(t, 0.0)).collect();
 
-    // 2. Per stream, ASOF-backward-join an INDEX-encoded copy of the stream onto the
-    //    clock; the matched ASOF value is the sample index, which fetches the opaque
-    //    cell back. `None` (no prior sample / outside tolerance) is a gap.
-    let mut columns: Vec<Vec<Option<Cell>>> = Vec::with_capacity(streams.len());
-    for s in streams {
-        let idx_pts: Vec<Point> = s
-            .samples
-            .iter()
-            .enumerate()
-            .map(|(i, smp)| Point::single(smp.ts, i as f64))
-            .collect();
-        let joined = asof_join_backward(&ref_pts, &idx_pts, tolerance);
-        let col: Vec<Option<Cell>> = joined
-            .iter()
-            .map(|row| row.right.map(|idx| s.samples[idx as usize].cell.clone()))
-            .collect();
-        columns.push(col);
+    // 2. Advance one monotonic cursor per stream while walking the common clock.
+    // This is the same backward-ASOF rule as `asof_join_backward`, but writes each
+    // final row directly. It avoids index-encoded Point copies plus the O(S*R)
+    // intermediate column matrix that was transposed into the returned O(S*R)
+    // rows (R = union-clock length).
+    let mut cursors = vec![0usize; streams.len()];
+    let mut rows = Vec::with_capacity(clock.len());
+    for ts in clock {
+        let mut channels = Vec::with_capacity(streams.len());
+        for (stream_index, stream) in streams.iter().enumerate() {
+            let cursor = &mut cursors[stream_index];
+            while *cursor < stream.samples.len() && stream.samples[*cursor].ts <= ts {
+                *cursor += 1;
+            }
+            let cell = cursor.checked_sub(1).and_then(|sample_index| {
+                let sample = &stream.samples[sample_index];
+                let within_tolerance = tolerance
+                    .map(|limit| ts.saturating_sub(sample.ts) <= limit)
+                    .unwrap_or(true);
+                within_tolerance.then(|| sample.cell.clone())
+            });
+            channels.push(cell);
+        }
+        rows.push(FusedRow { ts, channels });
     }
+    rows
+}
 
-    // 3. Transpose the per-stream columns into per-instant fused rows.
+/// Sorted, de-duplicated union of the sorted stream clocks using a k-way merge.
+fn merged_clock(streams: &[SeriesRef]) -> Vec<Ts> {
+    use std::cmp::Reverse;
+    use std::collections::BinaryHeap;
+
+    let total = streams.iter().map(|stream| stream.samples.len()).sum();
+    let mut clock = Vec::with_capacity(total);
+    let mut frontier: BinaryHeap<Reverse<(Ts, usize, usize)>> = BinaryHeap::new();
+    for (stream_index, stream) in streams.iter().enumerate() {
+        if let Some(first) = stream.samples.first() {
+            frontier.push(Reverse((first.ts, stream_index, 0)));
+        }
+    }
+    while let Some(Reverse((ts, stream_index, sample_index))) = frontier.pop() {
+        if clock.last().copied() != Some(ts) {
+            clock.push(ts);
+        }
+        let next = sample_index + 1;
+        if let Some(sample) = streams[stream_index].samples.get(next) {
+            frontier.push(Reverse((sample.ts, stream_index, next)));
+        }
+    }
     clock
-        .iter()
-        .enumerate()
-        .map(|(ri, &t)| FusedRow {
-            ts: t,
-            channels: columns.iter().map(|col| col[ri].clone()).collect(),
-        })
-        .collect()
 }
 
 #[cfg(test)]
@@ -483,5 +504,63 @@ mod sensor_fuse_tests {
             samples: vec![],
         };
         assert!(sensor_fuse(&[empty], None).is_empty());
+    }
+
+    #[test]
+    fn duplicate_clock_ticks_choose_the_last_sample_at_that_tick() {
+        let a = SeriesRef {
+            name: "a".into(),
+            samples: vec![
+                Sample::scalar(1, 10.0),
+                Sample::scalar(1, 11.0),
+                Sample::scalar(3, 30.0),
+            ],
+        };
+        let b = SeriesRef {
+            name: "b".into(),
+            samples: vec![Sample::scalar(2, 20.0), Sample::scalar(3, 31.0)],
+        };
+        let fused = sensor_fuse(&[a, b], None);
+        assert_eq!(
+            fused.iter().map(|row| row.ts).collect::<Vec<_>>(),
+            vec![1, 2, 3]
+        );
+        assert_eq!(fused[0].channels, vec![Some(Cell::Scalar(11.0)), None]);
+        assert_eq!(
+            fused[2].channels,
+            vec![Some(Cell::Scalar(30.0)), Some(Cell::Scalar(31.0))]
+        );
+    }
+}
+
+#[cfg(test)]
+mod aggregation_tests {
+    use super::*;
+
+    #[test]
+    fn streaming_time_bucket_preserves_every_aggregate() {
+        let points = vec![
+            Point::single(0, 3.0),
+            Point::single(1, 1.0),
+            Point::single(2, 5.0),
+            Point::single(10, 7.0),
+        ];
+        let first = time_bucket(&points, 10, Agg::First);
+        let last = time_bucket(&points, 10, Agg::Last);
+        let min = time_bucket(&points, 10, Agg::Min);
+        let max = time_bucket(&points, 10, Agg::Max);
+        let mean = time_bucket(&points, 10, Agg::Mean);
+        let sum = time_bucket(&points, 10, Agg::Sum);
+        let count = time_bucket(&points, 10, Agg::Count);
+
+        assert_eq!(first[0].value, 3.0);
+        assert_eq!(last[0].value, 5.0);
+        assert_eq!(min[0].value, 1.0);
+        assert_eq!(max[0].value, 5.0);
+        assert_eq!(mean[0].value, 3.0);
+        assert_eq!(sum[0].value, 9.0);
+        assert_eq!(count[0].value, 3.0);
+        assert_eq!(count[0].count, 3);
+        assert_eq!(count[1].value, 1.0);
     }
 }

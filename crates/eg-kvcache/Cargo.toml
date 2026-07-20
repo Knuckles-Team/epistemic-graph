@@ -2,7 +2,7 @@
 name = "eg-kvcache"
 version = "0.1.0"
 edition = "2021"
-authors = ["Audel Rouhi <knucklessg1@gmail.com>"]
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
 description = "Tiered (hot/warm/cold) KV-cache store (CONCEPT:EG-185) + a content-addressed shared multi-instance KV-cache backend (CONCEPT:EG-186) for the epistemic-graph engine — the vLLM/LMCache shared-KV / OOM-offload substrate. Pure-Rust, Pi-lean; the durable cold tier is behind the optional `durable` feature (redb)."
 license = "MIT"
 

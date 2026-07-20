@@ -34,11 +34,11 @@
 //!
 //! ## The four default-empty methods
 //!
-//! `provenance`/`evidence`/`policy_labels`/`analytics_ops` all default to
+//! `provenance`/`evidence_address`/`policy_labels`/`analytics_ops` all default to
 //! "nothing to report". A modality overrides ONLY the ones that are meaningful for
 //! it — e.g. `eg-rdf` overriding `provenance` to map `owl::Justification`, or
 //! `eg-tensor` overriding `analytics_ops` to list `slice`/`reduce`/`elementwise`.
-//! Tensor/geo (the v1 pilots) do not need to override `provenance`/`evidence`/
+//! Tensor/geo (the v1 pilots) do not need to override `provenance`/`evidence_address`/
 //! `policy_labels` at all — that is the point: no stub boilerplate on modalities
 //! that have nothing to say there.
 //!
@@ -53,9 +53,12 @@
 //! codecs). A fifth hook, `tck_not_applicable`, lets a modality declare a point
 //! genuinely N/A (with a reason) — a distinct, honest status from "not implemented".
 //! All five default such that the ~17 existing implementers keep compiling untouched.
+//! `TckReport::is_production_ready` is intentionally stricter: a served production
+//! modality must pass all 12 points and cannot use N/A to satisfy a core dimension.
 
-use crate::capability::{IngestReport, ModalitySelfTest, StorageStats};
-use crate::evidence::EvidenceSpan;
+use crate::artifact::EvidenceAddress;
+use crate::capability::{IngestReport, ModalitySelfTest, NativeProductionProbe, StorageStats};
+use crate::native::{NativeIndexKey, NativePredicate};
 use crate::provenance::Provenance;
 use crate::rowset::RowSetShape;
 use crate::tck::TckPoint;
@@ -98,10 +101,11 @@ pub trait ModalityContract {
         None
     }
 
-    /// A located evidence reference for the value at `id`, in the X1
-    /// multimodal-evidence shape. Default: `None` — see `crate::evidence` module
-    /// docs for the seam this defines for E3's `KnowledgeSet::evidence_refs`.
-    fn evidence(&self, _id: &str) -> Option<EvidenceSpan> {
+    /// The exact numeric or opaque address this value contributes to a governed
+    /// [`crate::EvidenceLocus`]. Identity, subject, policy, and derivation are
+    /// supplied by the ingestion boundary; a modality value may not fabricate
+    /// them from raw source identifiers. Default: `None`.
+    fn evidence_address(&self) -> Option<EvidenceAddress> {
         None
     }
 
@@ -172,6 +176,23 @@ pub trait ModalityContract {
     }
 }
 
+/// Additional fail-closed validation required before a typed modality value may be
+/// persisted by [`crate::ServedModalityRuntime`]. Implementations reject raw text,
+/// display labels, source locations, personal identifiers, malformed coordinates,
+/// and non-opaque references that the generic artifact envelope cannot inspect.
+///
+/// There is intentionally no default implementation: adding a modality to the
+/// production served runtime requires an explicit privacy/invariant audit.
+pub trait GovernedModality: ModalityContract {
+    fn validate_governed_payload(&self) -> bool;
+
+    /// Keys maintained atomically with this value by the served runtime.
+    fn native_index_keys(&self) -> Vec<NativeIndexKey>;
+
+    /// Exact predicate evaluation after bounded index candidate selection.
+    fn matches_native_predicate(&self, predicate: &NativePredicate) -> bool;
+}
+
 /// A `ModalityContract` implementer that can also produce a deterministic sample of
 /// itself, so `modality_conformance_tests!` can exercise the trait without the
 /// pilot crate hand-writing fixture-construction boilerplate per test.
@@ -195,6 +216,12 @@ pub trait ConformanceTestable:
     /// collides with a real id space the pilot crate's own tests use.
     fn conformance_id() -> &'static str {
         "eg-modality-conformance-sample"
+    }
+
+    /// Execute the concrete native codec/index/query/resource probe. Value-only
+    /// modalities may leave this absent; a served production modality may not.
+    fn native_production_probe() -> Option<NativeProductionProbe> {
+        None
     }
 }
 
@@ -289,7 +316,7 @@ macro_rules! modality_conformance_tests {
                 let sample = <$T as ConformanceTestable>::conformance_sample();
                 let id = <$T as ConformanceTestable>::conformance_id();
                 let _ = ModalityContract::provenance(&sample, id);
-                let _ = ModalityContract::evidence(&sample, id);
+                let _ = ModalityContract::evidence_address(&sample);
                 let _ = ModalityContract::policy_labels(&sample, id);
                 let _ = ModalityContract::analytics_ops(&sample);
             }

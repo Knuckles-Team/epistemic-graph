@@ -32,10 +32,8 @@
 //! caller-selectable, since a caller could otherwise simply request a higher level
 //! than their access earns:
 //!
-//! * [`DisclosureLevel::Full`] — every node in the tree is visible to the actor (or
-//!   the isolation layer has no rules registered at all — single-tenant back-compat,
-//!   the same condition [`IsolationLayer::has_rules`] already special-cases
-//!   elsewhere). Redaction is a structural no-op: the rendered tree is identical to
+//! * [`DisclosureLevel::Full`] — every node in the tree is visible to the actor.
+//!   Redaction is a structural no-op: the rendered tree is identical to
 //!   [`explain_belief`](crate::propagate::explain_belief)'s.
 //! * [`DisclosureLevel::Skeleton`] — the root claim itself is visible, but one or
 //!   more premises are not: those are individually redacted in place as described
@@ -54,10 +52,9 @@ use crate::adapter::BeliefGraph;
 use crate::model::{AuthorityPolicy, JustRule, ProofNode};
 use crate::propagate::explain_belief;
 
-/// The visibility a node with NO captured RLS metadata defaults to — mirrors
-/// `filter_view`'s own rule: "a node present in topology but with NO property blob is
-/// unowned ⇒ visible".
-fn unowned_visible() -> RowVisibility {
+/// A node with no captured RLS metadata is untagged and therefore hidden by the
+/// same default-deny rule used by `IsolationLayer::filter_view`.
+fn untagged_hidden() -> RowVisibility {
     RowVisibility {
         owner: None,
         public: true,
@@ -178,7 +175,7 @@ fn node_visible(bg: &BeliefGraph, id: &str, isolation: &IsolationLayer, actor_id
     let vis = match bg.node_visibility.get(id) {
         Some(v) => v,
         None => {
-            default_vis = unowned_visible();
+            default_vis = untagged_hidden();
             &default_vis
         }
     };
@@ -216,18 +213,6 @@ fn redact_node(
     }
 }
 
-/// An unredacted rendering — used only when there is nothing to check against (no
-/// rules registered at all).
-fn unredacted(node: &ProofNode) -> RedactedProofNode {
-    RedactedProofNode {
-        claim: Some(node.claim.clone()),
-        redaction_label: None,
-        rule: node.rule,
-        confidence: node.confidence,
-        premises: node.premises.iter().map(unredacted).collect(),
-    }
-}
-
 /// Produce the policy-aware, selectively-disclosed proof for `seed` as seen by
 /// `actor_id` — the redaction-aware sibling of
 /// [`explain_belief`](crate::propagate::explain_belief). Reuses `isolation`'s
@@ -244,16 +229,6 @@ pub fn explain_belief_redacted(
 ) -> RedactedJustificationGraph {
     let full = explain_belief(bg, seed, policy);
     let existence = ExistenceSignal::from_confidence(full.root.confidence);
-
-    // Single-tenant back-compat: no registered identities ⇒ no RLS to enforce at all
-    // (the same no-op condition `IsolationLayer::filter_view`/`check_access` apply).
-    if !isolation.has_rules() {
-        return RedactedJustificationGraph {
-            level: DisclosureLevel::Full,
-            existence,
-            root: Some(unredacted(&full.root)),
-        };
-    }
 
     if !node_visible(bg, seed, isolation, actor_id) {
         // The claim itself is invisible to the actor: no structure at all — a
@@ -382,15 +357,16 @@ mod tests {
     }
 
     #[test]
-    fn no_rules_registered_is_full_back_compat() {
+    fn empty_identity_store_still_redacts_private_evidence() {
         let bg = bg_with_secret_leaf();
-        let layer = IsolationLayer::new(); // no identities ⇒ no-op, matches filter_view
+        let layer = IsolationLayer::new();
         let j =
             explain_belief_redacted(&bg, "claim", &AuthorityPolicy::default(), &layer, "anyone");
-        assert_eq!(j.level, DisclosureLevel::Full);
-        assert!(!j.has_redactions());
+        assert_eq!(j.level, DisclosureLevel::Skeleton);
+        assert!(j.has_redactions());
         let root = j.root.unwrap();
         assert_eq!(root.claim.as_deref(), Some("claim"));
+        assert_eq!(root.premises[0].premises[0].claim, None);
     }
 
     #[test]

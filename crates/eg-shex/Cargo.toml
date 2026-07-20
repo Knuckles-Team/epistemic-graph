@@ -16,7 +16,7 @@
 name = "eg-shex"
 version = "0.1.0"
 edition = "2021"
-authors = ["Audel Rouhi <knucklessg1@gmail.com>"]
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
 description = "Pure-Rust ShEx (Shape Expressions) Core validation engine for the epistemic-graph engine (CONCEPT:EG-133) — parses a ShExJ schema (node constraints: nodeKind/datatype/string+numeric facets/value sets; triple constraints with cardinality; EachOf/OneOf/AND/OR/NOT combinators; shape references; CLOSED/EXTRA) and validates focus nodes of an RDF data graph against a shape map, producing a serde-serializable ShexReport. Reuses eg-rdf's oxrdf term/graph model; NO C/native deps."
 license = "MIT"
 

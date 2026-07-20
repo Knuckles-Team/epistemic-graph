@@ -10,15 +10,14 @@
 //! `eg-rdf`'s: a real "rule" (`kind` — `"same_as"` or `"extends"`) that produced it
 //! and real "premises" (the member ids it clustered).
 //!
-//! `Symbol` is the X1 (multimodal-evidence) reference case for `evidence()`: a
-//! parsed AST symbol already carries a real located source position
-//! (`file_path`/`line_start`/`line_end`) — exactly the shape `EvidenceSpan::CodeSymbol`
-//! wants — so this maps it losslessly rather than leaving the default `None`.
+//! `Symbol` contributes a code-symbol address only when its AST identity is already
+//! a valid opaque token. Raw file paths and symbol display names never cross the
+//! governed evidence boundary.
 
 use eg_modality::{
-    decode_staged, encode_staged, ConformanceTestable, EvidenceSpan, IngestReport,
-    ModalityContract, ModalitySelfTest, Provenance, RowSetShape, StagedWrite, StorageStats,
-    TckPoint,
+    decode_staged, encode_staged, ConformanceTestable, EvidenceAddress, IngestReport,
+    ModalityContract, ModalitySelfTest, OpaqueRef, Provenance, RowSetShape, StagedWrite,
+    StorageStats, TckPoint,
 };
 
 use crate::algorithms::MergeProposal;
@@ -211,15 +210,12 @@ impl ModalityContract for Symbol {
         None
     }
 
-    /// The X1 reference `evidence()`: `Symbol` already carries a real located source
-    /// position — `file_path` + the `[line_start, line_end]` range this symbol spans
-    /// — so this maps LOSSLESSLY onto `EvidenceSpan::CodeSymbol`, ignoring the
-    /// caller-supplied `id` (the symbol's own `name` is the more meaningful label,
-    /// and `file_path`/line range are already exact — nothing to resolve via `id`).
-    fn evidence(&self, _id: &str) -> Option<EvidenceSpan> {
-        Some(EvidenceSpan::CodeSymbol {
-            file_path: self.file_path.clone(),
-            symbol: self.name.clone(),
+    fn evidence_address(&self) -> Option<EvidenceAddress> {
+        let revision_ref = OpaqueRef::scoped("revision", &self.ast_hash).ok()?;
+        let symbol_ref = OpaqueRef::scoped("symbol", &self.ast_hash).ok()?;
+        Some(EvidenceAddress::CodeSymbol {
+            revision_ref,
+            symbol_ref,
             start_line: self.line_start,
             end_line: self.line_end,
         })
@@ -237,7 +233,7 @@ impl ConformanceTestable for Symbol {
             line_start: 42,
             line_end: 88,
             column: 0,
-            ast_hash: "deadbeef".to_string(),
+            ast_hash: "deadbeefdeadbeefdeadbeefdeadbeef".to_string(),
             dependencies: Vec::new(),
             documentation: "Handles an inbound request.".to_string(),
             language: "rust".to_string(),
@@ -264,9 +260,7 @@ mod symbol_conformance {
     eg_modality::modality_conformance_tests!(Symbol);
 }
 
-// A direct test of the `evidence()` mapping itself, beyond the generic
-// "never panics" conformance check — the load-bearing proof that `Symbol`'s own
-// file_path/line range maps losslessly onto `EvidenceSpan::CodeSymbol` (X1).
+// A direct test of the governed evidence-address mapping itself.
 #[cfg(test)]
 mod symbol_evidence {
     use super::*;
@@ -274,14 +268,16 @@ mod symbol_evidence {
     #[test]
     fn maps_file_path_and_line_range_losslessly() {
         let sym = Symbol::conformance_sample();
-        let span = sym
-            .evidence("ignored")
+        let address = sym
+            .evidence_address()
             .expect("a parsed Symbol always has evidence");
         assert_eq!(
-            span,
-            EvidenceSpan::CodeSymbol {
-                file_path: "src/server.rs".to_string(),
-                symbol: "handle_request".to_string(),
+            address,
+            EvidenceAddress::CodeSymbol {
+                revision_ref: OpaqueRef::scoped("revision", "deadbeefdeadbeefdeadbeefdeadbeef")
+                    .unwrap(),
+                symbol_ref: OpaqueRef::scoped("symbol", "deadbeefdeadbeefdeadbeefdeadbeef")
+                    .unwrap(),
                 start_line: 42,
                 end_line: 88,
             }

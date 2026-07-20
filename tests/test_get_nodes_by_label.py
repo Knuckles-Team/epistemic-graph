@@ -23,7 +23,9 @@ async def test_list_by_label_sends_bounded_rpc() -> None:
     fake = _FakeClient()
     nc = NodeClient(fake)  # type: ignore[arg-type]
     out = await nc.list_by_label("Agent", 5)
-    assert fake.sent == [("GetNodesByLabel", {"label": "Agent", "limit": 5})]
+    assert fake.sent == [
+        ("GetNodesByLabel", {"label": "Agent", "after": None, "limit": 5})
+    ]
     assert out == [("n1", {"type": "Agent"})]
 
 
@@ -32,4 +34,23 @@ async def test_list_by_label_default_limit_zero() -> None:
     fake = _FakeClient()
     nc = NodeClient(fake)  # type: ignore[arg-type]
     await nc.list_by_label("Concept")
-    assert fake.sent == [("GetNodesByLabel", {"label": "Concept", "limit": 0})]
+    assert fake.sent == [
+        ("GetNodesByLabel", {"label": "Concept", "after": None, "limit": 0})
+    ]
+
+
+@pytest.mark.asyncio
+async def test_list_by_label_sends_exclusive_reconciliation_cursor() -> None:
+    fake = _FakeClient()
+    nc = NodeClient(fake)  # type: ignore[arg-type]
+    await nc.list_by_label("SourceRecord", 1000, after="record:0099")
+    assert fake.sent == [
+        (
+            "GetNodesByLabel",
+            {
+                "label": "SourceRecord",
+                "after": "record:0099",
+                "limit": 1000,
+            },
+        )
+    ]

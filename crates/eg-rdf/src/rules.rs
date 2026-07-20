@@ -1210,8 +1210,8 @@ pub fn facts_from_triples(triples: &[Triple]) -> Vec<(String, Vec<String>, f64)>
             continue;
         }
         let s = match &t.subject {
-            oxrdf::Subject::NamedNode(n) => format!("<{}>", n.as_str()),
-            oxrdf::Subject::BlankNode(b) => format!("_:{}", b.as_str()),
+            oxrdf::NamedOrBlankNode::NamedNode(n) => format!("<{}>", n.as_str()),
+            oxrdf::NamedOrBlankNode::BlankNode(b) => format!("_:{}", b.as_str()),
             #[allow(unreachable_patterns)]
             _ => continue,
         };

@@ -12,7 +12,6 @@
 //! An `id: Utf8` column (the node id) and a raw `props: Binary` escape-hatch column
 //! (the original msgpack blob, for the `json_get*` UDFs) are ALWAYS emitted.
 
-use std::any::Any;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, RwLock};
 
@@ -108,12 +107,7 @@ pub(crate) fn infer_nodes(view: &GraphView) -> Result<(SchemaRef, RecordBatch), 
     let mut inferred: BTreeMap<String, Inferred> = BTreeMap::new();
 
     for (id, blob) in view.node_properties.iter() {
-        let obj = rmp_serde::from_slice::<Value>(blob.as_slice())
-            .ok()
-            .and_then(|v| match v {
-                Value::Object(m) => Some(m),
-                _ => None,
-            });
+        let obj = eg_types::msgpack::decode_property_object(blob.as_slice()).ok();
         if let Some(ref m) = obj {
             for (k, v) in m.iter() {
                 let kind = Inferred::from_value(v);
@@ -252,7 +246,7 @@ fn build_batch(
 /// The `edges` table schema: fixed columns over the petgraph topology.
 ///   src:  Utf8   — source node id (the petgraph source node weight)
 ///   dst:  Utf8   — target node id (the petgraph target node weight)
-///   rel:  Utf8   — the edge weight string (relationship/type), `StableDiGraph`'s
+///   rel:  Utf8   — the edge weight string (canonical relationship), `StableDiGraph`'s
 ///                  edge weight in `GraphView`
 ///   props: Binary — the FIRST raw msgpack edge-property blob for `(src,dst)` if
 ///                   one exists (the same escape hatch `nodes.props` provides),
@@ -542,8 +536,8 @@ impl PushdownRegistry {
             return None;
         }
         let (col, lit) = match (be.left.as_ref(), be.right.as_ref()) {
-            (Expr::Column(c), Expr::Literal(v)) => (c, v),
-            (Expr::Literal(v), Expr::Column(c)) => (c, v),
+            (Expr::Column(c), Expr::Literal(v, _)) => (c, v),
+            (Expr::Literal(v, _), Expr::Column(c)) => (c, v),
             _ => return None,
         };
         if !self.is_indexable_column(&col.name) {
@@ -610,10 +604,6 @@ fn scalar_to_key(v: &ScalarValue) -> Option<IndexKey> {
 
 #[async_trait]
 impl TableProvider for NodesTableProvider {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
     fn schema(&self) -> SchemaRef {
         self.schema.clone()
     }
@@ -694,7 +684,7 @@ impl TableProvider for NodesTableProvider {
             rows.sort_unstable();
             let indices = UInt32Array::from(rows);
             arrow::compute::take_record_batch(&self.batch, &indices)
-                .map_err(|e| datafusion::error::DataFusionError::ArrowError(e, None))?
+                .map_err(|e| datafusion::error::DataFusionError::ArrowError(Box::new(e), None))?
         };
 
         let mem = MemTable::try_new(self.schema.clone(), vec![vec![batch]])?;
@@ -798,13 +788,13 @@ mod provider_tests {
         use crate::tables::schema::{Cell, Column, ColumnType, TableSchema};
         use datafusion::logical_expr::{col, lit};
 
-        let schema = TableSchema {
-            name: "prices".into(),
-            columns: vec![
+        let schema = TableSchema::new(
+            "prices",
+            vec![
                 Column::new("symbol", ColumnType::Text, false, false),
                 Column::new("px", ColumnType::Double, true, false),
             ],
-        };
+        );
         let rows = vec![
             vec![Cell::Text("AAPL".into()), Cell::Float(1.0)],
             vec![Cell::Text("MSFT".into()), Cell::Float(2.0)],
@@ -900,12 +890,20 @@ mod provider_tests {
         );
         let snap = core.analysis_snapshot();
 
-        let count = exec_sql(&snap, "SELECT COUNT(*) FROM nodes WHERE label='Server'")
-            .expect("COUNT(*) query must not fail with a duplicate-field schema error");
+        let count = exec_sql(
+            &snap,
+            "SELECT COUNT(*) FROM nodes WHERE label='Server'",
+            &crate::sql::CancellationToken::new(),
+        )
+        .expect("COUNT(*) query must not fail with a duplicate-field schema error");
         assert_eq!(count.rows.len(), 1);
 
-        let sel = exec_sql(&snap, "SELECT id FROM nodes LIMIT 1")
-            .expect("SELECT id query must not fail with a duplicate-field schema error");
+        let sel = exec_sql(
+            &snap,
+            "SELECT id FROM nodes LIMIT 1",
+            &crate::sql::CancellationToken::new(),
+        )
+        .expect("SELECT id query must not fail with a duplicate-field schema error");
         assert_eq!(sel.rows.len(), 1);
     }
 }

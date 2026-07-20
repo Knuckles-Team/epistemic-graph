@@ -36,10 +36,10 @@ fn run(store: &TableStore, view: &GraphView, sql: &str) -> Option<TypedQueryResu
     match classify(sql).expect("classify") {
         StatementKind::Read => Some(exec_sql_typed_with_tables(view, store, sql).expect("select")),
         StatementKind::CreateTable(plan) => {
-            let schema = TableSchema {
-                name: plan.name.clone(),
-                columns: plan.columns.iter().map(to_store_column).collect(),
-            };
+            let schema = TableSchema::new(
+                plan.name.clone(),
+                plan.columns.iter().map(to_store_column).collect(),
+            );
             store.create_table(&schema, plan.if_not_exists).unwrap();
             None
         }
@@ -339,9 +339,9 @@ fn create_view_over_nodes_and_select_through_it() {
 #[test]
 fn every_column_type_roundtrips() {
     let (store, _p) = TableStore::open_temp().unwrap();
-    let schema = TableSchema {
-        name: "typed".into(),
-        columns: vec![
+    let schema = TableSchema::new(
+        "typed",
+        vec![
             Column::new("i", ColumnType::Int, true, false),
             Column::new("b", ColumnType::BigInt, true, false),
             Column::new("f", ColumnType::Double, true, false),
@@ -351,9 +351,9 @@ fn every_column_type_roundtrips() {
             Column::new("by", ColumnType::Bytes, true, false),
             Column::new("j", ColumnType::Json, true, false),
         ],
-    };
+    );
     store.create_table(&schema, false).unwrap();
-    let cols: Vec<String> = schema.columns.iter().map(|c| c.name.clone()).collect();
+    let cols: Vec<String> = schema.columns().iter().map(|c| c.name.clone()).collect();
     store
         .insert_rows(
             "typed",
@@ -885,7 +885,7 @@ fn eg310_drop_column_removes_schema_and_cells() {
     // Schema no longer has the column.
     let schema = store.get_schema("prices").unwrap().unwrap();
     assert!(schema.column("price").is_none());
-    assert_eq!(schema.columns.len(), 2);
+    assert_eq!(schema.columns().len(), 2);
     // Stored rows were migrated: each cell for the dropped column is gone.
     for row in store.scan("prices").unwrap() {
         assert_eq!(row.len(), 2);

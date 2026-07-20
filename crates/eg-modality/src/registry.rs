@@ -108,6 +108,7 @@ mod tests {
                 point: TckPoint::InteropWorkloadSmoke,
                 status: TckStatus::Pass,
             }],
+            native_production_probe: None,
         }
     }
 

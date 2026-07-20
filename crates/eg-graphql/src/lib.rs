@@ -19,7 +19,8 @@
 //!     re-render only on change.
 //!   * [`LiveQuery`] — the real PUSH path (CONCEPT:EG-KG.query.graphql-push-path): a subscription parsed once,
 //!     re-resolved per change event. The server layer subscribes to `GraphCore::changes()`
-//!     and drives it over a WS/SSE carrier; this crate stays runtime-free.
+//!     and drives it through the current authenticated SSE carrier; this crate stays
+//!     runtime-free.
 //!
 //! ## Why a hand-written parser (async-graphql evaluated, rejected)
 //! `async-graphql` is the standard Rust GraphQL crate, but it pulls ~80+ transitive
@@ -184,7 +185,7 @@ mod tests {
     #[test]
     fn schema_derived_from_graph() {
         let view = fixture();
-        let s = Schema::from_view(&view);
+        let s = Schema::from_view(&view).unwrap();
         assert!(s.has_type("Person") && s.has_type("Doc"));
         let person = &s.types["Person"];
         assert!(person.scalar_fields.contains("name"));
@@ -647,7 +648,7 @@ mod tests {
     #[test]
     fn mutation_sdl_renders() {
         let view = fixture();
-        let sdl = Schema::from_view(&view).to_mutation_sdl();
+        let sdl = Schema::from_view(&view).unwrap().to_mutation_sdl();
         assert!(sdl.contains("type Mutation"));
         assert!(sdl.contains("createNode(label: String!"));
         assert!(sdl.contains("addEdge(from: ID!"));

@@ -14,22 +14,23 @@
 //!
 //! ## Flow
 //!   1. **PRELOGIN** → respond VERSION + ENCRYPTION = `ENCRYPT_NOT_SUP` (plaintext v1).
-//!   2. **LOGIN7** → parse UserName/Password/Database; authenticate (secret-derived
-//!      password when an engine secret is set, else trust); send LOGINACK + DONE.
+//!   2. **LOGIN7** → parse UserName/Password/Database; authenticate the mandatory
+//!      secret-derived password; send LOGINACK + DONE.
 //!   3. **Command phase** — `SQLBatch` → execute → COLMETADATA + ROW* + DONE (or an
 //!      ERROR token + DONE(error)); ATTENTION → DONE(attn); transaction-manager → DONE;
-//!      RPC → an ERROR token (RPC/prepared deferred). A closed socket ends the loop.
+//!      RPC → an ERROR token (RPC/prepared statements are unsupported). A closed
+//!      socket ends the loop.
 //!
 //! ## Auth (CONCEPT:EG-KG.query.concept-13)
 //! A TDS `user` maps to an engine `agent_id`, exactly like pgwire. When
-//! `GRAPH_SERVICE_AUTH_SECRET` is set, the connection password must equal
+//! `GRAPH_SERVICE_AUTH_SECRET` is required and the connection password must equal
 //! `hex(HMAC-SHA256(secret, "mssql:" || user))` (an authorized operator computes it
-//! offline) and the authenticated `user` becomes the ACL actor; with no secret the
-//! listener is TRUST (anonymous) — the zero-infra/dev path.
+//! offline). The authenticated `user` becomes the ACL actor. The direct plaintext TDS
+//! listener is loopback-only; remote clients must traverse an
+//! authenticated TLS/mTLS identity-binding gateway into that loopback listener.
 //!
-//! ## Deferred (documented)
-//! TLS/encryption (answered `ENCRYPT_NOT_SUP`), RPC / prepared `sp_executesql`, MARS,
-//! and NVARCHAR(MAX)/PLP chunking (long text truncated). See `protocol.rs`.
+//! TLS/encryption is answered `ENCRYPT_NOT_SUP`; RPC/prepared `sp_executesql`, MARS,
+//! and NVARCHAR(MAX)/PLP chunking are unsupported. See `protocol.rs`.
 
 pub mod protocol;
 
@@ -80,6 +81,28 @@ pub fn derive_mssql_password(secret: &str, user: &str) -> String {
     hex::encode(mac.finalize().into_bytes())
 }
 
+/// Verify a LOGIN7 principal/password without a timing-sensitive string comparison.
+/// The credential is the hex encoding returned by [`derive_mssql_password`].
+pub fn verify_mssql_login(secret: &str, user: &str, password: &str) -> bool {
+    if secret.is_empty() || user.is_empty() || user.len() > 4 * 1024 || password.len() != 64 {
+        return false;
+    }
+    let Ok(candidate) = hex::decode(password) else {
+        return false;
+    };
+    let mut mac =
+        HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC accepts any key length");
+    mac.update(b"mssql:");
+    mac.update(user.as_bytes());
+    mac.verify_slice(&candidate).is_ok()
+}
+
+/// Fail closed before binding the direct TDS listener. TDS encryption
+/// is not implemented here, so the only safe direct bind is authenticated loopback.
+pub fn validate_startup_policy(addr: &str, secret: &str) -> std::io::Result<()> {
+    crate::server::validate_direct_wire_security(addr, "mssql-wire", !secret.is_empty())
+}
+
 /// Map an engine result-column type to the TDS column type emitted in COLMETADATA.
 /// Numbers/bools get their precise nullable TDS type; text (and the pgvector `vector`,
 /// rendered as its text form by the shared core) goes as NVARCHAR — documented.
@@ -96,6 +119,7 @@ fn map_col_type(t: PgColType) -> TdsType {
 /// status bit), returning `(message_type, payload)`. `Ok(None)` on a clean EOF at a
 /// message boundary (the client closed the connection).
 async fn read_message<R: AsyncRead + Unpin>(r: &mut R) -> std::io::Result<Option<(u8, Vec<u8>)>> {
+    const MAX_TDS_MESSAGE_BYTES: usize = 64 * 1024 * 1024;
     let mut payload = Vec::new();
     let mut msg_type: Option<u8> = None;
     loop {
@@ -113,7 +137,16 @@ async fn read_message<R: AsyncRead + Unpin>(r: &mut R) -> std::io::Result<Option
         let body_len = hdr.body_len();
         if body_len > 0 {
             let start = payload.len();
-            payload.resize(start + body_len, 0);
+            let end = start.checked_add(body_len).ok_or_else(|| {
+                std::io::Error::new(std::io::ErrorKind::InvalidData, "TDS message size overflow")
+            })?;
+            if end > MAX_TDS_MESSAGE_BYTES {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "TDS message exceeds the resource limit",
+                ));
+            }
+            payload.resize(end, 0);
             r.read_exact(&mut payload[start..]).await?;
         }
         if hdr.is_eom() {
@@ -181,7 +214,7 @@ async fn run_batch(session: &WireSession, sql: &str) -> Vec<u8> {
 }
 
 /// Drive one accepted TDS connection: PRELOGIN → LOGIN7/auth → command loop. `secret`
-/// is the engine auth secret ("" ⇒ TRUST). Generic over the stream so an in-process
+/// is the required engine auth secret. Generic over the stream so an in-process
 /// duplex can exercise the exact same path in tests.
 pub async fn handle_connection<S>(
     mut stream: S,
@@ -210,22 +243,26 @@ where
         return Ok(());
     }
     let login = parse_login7(&payload);
-    if !secret.is_empty() {
-        let expected = derive_mssql_password(secret, &login.user);
-        if login.password != expected {
-            let e = WireError {
-                code: "28000".to_owned(),
-                message: format!("authentication failed for user '{}'", login.user),
-            };
-            write_tabular(&mut stream, &error_response(&e)).await?;
-            return Ok(());
-        }
+    if !verify_mssql_login(secret, &login.user, &login.password) {
+        let e = WireError {
+            code: "28000".to_owned(),
+            message: "authentication failed".to_owned(),
+        };
+        write_tabular(&mut stream, &error_response(&e)).await?;
+        return Ok(());
     }
     // Latch the startup identity/graph onto the session (same rules as pgwire): the
-    // authenticated user becomes the ACL actor only under an authenticating listener.
+    // authenticated user becomes the ACL actor.
     let user = (!login.user.is_empty()).then(|| login.user.clone());
     let database = (!login.database.is_empty()).then(|| login.database.clone());
     session.resolve_startup(user, database);
+    if let Err(error) = session
+        .bind_authenticated_sql_actor("mssql-wire", &login.user)
+        .await
+    {
+        write_tabular(&mut stream, &error_response(&error)).await?;
+        return Ok(());
+    }
     // LOGINACK + DONE(final) — the client is now ready to send batches.
     let mut ack = encode_loginack(SERVER_NAME);
     ack.extend(encode_done(DONE_FINAL, 0, 0));
@@ -245,7 +282,7 @@ where
             PKT_ATTENTION => encode_done(DONE_FINAL | DONE_ATTN, 0, 0),
             // Transaction-manager envelope (driver BEGIN/COMMIT wrapper): ack no-op.
             PKT_TXMGR => encode_done(DONE_FINAL, 0, 0),
-            // RPC / prepared statements are deferred (documented).
+            // RPC / prepared statements are unsupported and fail closed.
             PKT_RPC => {
                 let e = WireError {
                     code: "0A000".to_owned(),
@@ -271,23 +308,23 @@ where
 /// Bind `addr` and serve TDS connections until the process exits. Spawned by `main.rs`
 /// only when built `--features mssql-wire` AND `EPISTEMIC_GRAPH_MSSQL_ADDR` is set. The
 /// default graph is read once from `EPISTEMIC_GRAPH_MSSQL_GRAPH` (else `__commons__`);
-/// TRUST vs authenticated is decided by whether an engine secret is configured.
+/// Authentication is mandatory and startup fails when the engine secret is absent.
 pub async fn serve(addr: &str, state: Arc<RwLock<ServerState>>) -> std::io::Result<()> {
     let default_graph =
         std::env::var(MSSQL_GRAPH_ENV).unwrap_or_else(|_| "__commons__".to_string());
-    let auth_secret = state.read().await.auth_secret.clone();
-    let auth_mode = if auth_secret.is_empty() {
-        "trust"
-    } else {
-        "secret-derived"
+    let (auth_secret, persist_dir) = {
+        let state = state.read().await;
+        (state.auth_secret.clone(), state.persist_dir.clone())
     };
+    validate_startup_policy(addr, &auth_secret)?;
+    crate::server::sql_tables::validate_served_configuration(
+        persist_dir.as_deref().map(std::path::Path::new),
+    )?;
     let listener = TcpListener::bind(addr).await?;
     tracing::info!(
-        "mssql-wire: serving MSSQL TDS wire protocol on {} (default graph '{}', auth={}, \
-         encryption=not-supported/plaintext)",
-        addr,
-        default_graph,
-        auth_mode
+        "mssql-wire: serving authenticated MSSQL TDS protocol on loopback \
+         (default graph '{}'; remote access requires a TLS identity-binding gateway)",
+        default_graph
     );
     loop {
         let (socket, peer) = listener.accept().await?;
@@ -295,10 +332,7 @@ pub async fn serve(addr: &str, state: Arc<RwLock<ServerState>>) -> std::io::Resu
         let default_graph = default_graph.clone();
         let secret = auth_secret.clone();
         tokio::spawn(async move {
-            // The authenticated user becomes the ACL actor only under an authenticating
-            // (secret-configured) listener; trust stays anonymous.
-            let auth_maps_actor = !secret.is_empty();
-            let session = Arc::new(WireSession::new(state, default_graph, auth_maps_actor));
+            let session = Arc::new(WireSession::new(state, default_graph));
             if let Err(e) = handle_connection(socket, session, &secret).await {
                 tracing::warn!("mssql-wire connection from {peer} ended with error: {e}");
             }
@@ -324,6 +358,23 @@ mod tests {
             mac.update(b"agent:planner");
             hex::encode(mac.finalize().into_bytes())
         });
+    }
+
+    #[test]
+    fn login_verification_is_fail_closed() {
+        let password = derive_mssql_password("s3cret", "agent:planner");
+        assert!(verify_mssql_login("s3cret", "agent:planner", &password));
+        assert!(!verify_mssql_login("", "agent:planner", &password));
+        assert!(!verify_mssql_login("s3cret", "", &password));
+        assert!(!verify_mssql_login("s3cret", "agent:planner", "not-hex"));
+        assert!(!verify_mssql_login("s3cret", "agent:worker", &password));
+    }
+
+    #[test]
+    fn startup_policy_rejects_anonymous_or_remote_tds() {
+        assert!(validate_startup_policy("127.0.0.1:1433", "").is_err());
+        assert!(validate_startup_policy("0.0.0.0:1433", "s3cret").is_err());
+        assert!(validate_startup_policy("127.0.0.1:1433", "s3cret").is_ok());
     }
 
     #[test]

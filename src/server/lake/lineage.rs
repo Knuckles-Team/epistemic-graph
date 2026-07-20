@@ -35,7 +35,7 @@ use super::LakeOp;
 /// in-memory ring + traced, but never pushed over HTTP.
 pub const OPENLINEAGE_URL_ENV: &str = "EPISTEMIC_GRAPH_OPENLINEAGE_URL";
 /// The `producer` OpenLineage stamps on every event this tier emits.
-const PRODUCER: &str = "https://github.com/knucklessg1/epistemic-graph/tree/main/crates/eg-lake";
+const PRODUCER: &str = "https://github.com/Knuckles-Team/epistemic-graph/tree/main/crates/eg-lake";
 const SCHEMA_URL: &str = "https://openlineage.io/spec/1-0-5/OpenLineage.json#/$defs/RunEvent";
 const JOB_NAMESPACE: &str = "epistemic-graph.lake";
 

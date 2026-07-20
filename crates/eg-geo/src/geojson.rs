@@ -255,14 +255,14 @@ fn parse_poly(v: &Value) -> Result<Polygon, String> {
         .as_array()
         .ok_or("GeoJSON: polygon coordinates not an array")?;
     if rings.is_empty() {
-        return Ok(Polygon::new(LineString::new(Vec::new())));
+        return Ok(Polygon::new(LineString::new(Vec::new()), Vec::new()));
     }
     let exterior = parse_line(&rings[0])?;
     let interiors = rings[1..]
         .iter()
         .map(parse_line)
         .collect::<Result<Vec<_>, _>>()?;
-    Ok(Polygon::with_interiors(exterior, interiors))
+    Ok(Polygon::new(exterior, interiors))
 }
 
 #[cfg(test)]
@@ -282,7 +282,7 @@ mod tests {
             Point::new(30.0, 10.0),
             Point::new(10.0, 30.0),
         ])));
-        round_trip(Geometry::Polygon(Polygon::with_interiors(
+        round_trip(Geometry::Polygon(Polygon::new(
             LineString::new(vec![
                 Point::new(0.0, 0.0),
                 Point::new(10.0, 0.0),
@@ -300,14 +300,15 @@ mod tests {
             Point::new(1.0, 2.0),
             Point::new(3.0, 4.0),
         ]));
-        round_trip(Geometry::MultiPolygon(vec![Polygon::new(LineString::new(
-            vec![
+        round_trip(Geometry::MultiPolygon(vec![Polygon::new(
+            LineString::new(vec![
                 Point::new(0.0, 0.0),
                 Point::new(1.0, 0.0),
                 Point::new(1.0, 1.0),
                 Point::new(0.0, 0.0),
-            ],
-        ))]));
+            ]),
+            Vec::new(),
+        )]));
         round_trip(Geometry::GeometryCollection(vec![
             Geometry::Point(Point::new(1.0, 1.0)),
             Geometry::LineString(LineString::new(vec![

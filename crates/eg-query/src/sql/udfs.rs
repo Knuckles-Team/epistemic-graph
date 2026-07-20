@@ -15,7 +15,7 @@ use serde_json::Value;
 
 /// Decode a single msgpack blob and return the JSON value at `key`, if present.
 fn field(blob: &[u8], key: &str) -> Option<Value> {
-    match rmp_serde::from_slice::<Value>(blob).ok()? {
+    match eg_types::msgpack::decode_property_value(blob).ok()? {
         Value::Object(mut m) => m.remove(key),
         _ => None,
     }
@@ -293,10 +293,24 @@ struct VectorDistanceUdf {
     kernel: fn(&[f32], &[f32]) -> Option<f64>,
 }
 
-impl datafusion::logical_expr::ScalarUDFImpl for VectorDistanceUdf {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
+// The registered name uniquely selects `kernel`; comparing or hashing function
+// pointers is not stable across code-generation units.
+impl PartialEq for VectorDistanceUdf {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name && self.signature == other.signature
     }
+}
+
+impl Eq for VectorDistanceUdf {}
+
+impl std::hash::Hash for VectorDistanceUdf {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        std::hash::Hash::hash(&self.name, state);
+        std::hash::Hash::hash(&self.signature, state);
+    }
+}
+
+impl datafusion::logical_expr::ScalarUDFImpl for VectorDistanceUdf {
     fn name(&self) -> &str {
         self.name
     }
@@ -306,7 +320,11 @@ impl datafusion::logical_expr::ScalarUDFImpl for VectorDistanceUdf {
     fn return_type(&self, _arg_types: &[DataType]) -> datafusion::error::Result<DataType> {
         Ok(DataType::Float64)
     }
-    fn invoke(&self, args: &[ColumnarValue]) -> datafusion::error::Result<ColumnarValue> {
+    fn invoke_with_args(
+        &self,
+        call: datafusion::logical_expr::ScalarFunctionArgs,
+    ) -> datafusion::error::Result<ColumnarValue> {
+        let args = &call.args;
         let arrays = ColumnarValue::values_to_arrays(args)?;
         if arrays.len() != 2 {
             return Err(datafusion::error::DataFusionError::Execution(format!(
@@ -465,14 +483,11 @@ fn row_to_string(array: &dyn Array, row: usize) -> Option<String> {
 /// labelling the eg-tsdb `Op::Window` (EG-067) aggregation uses; gap-fill is a follow-up.
 pub(crate) fn time_bucket_udf() -> ScalarUDF {
     use datafusion::logical_expr::{ScalarUDFImpl, Signature};
-    #[derive(Debug)]
+    #[derive(Debug, PartialEq, Eq, Hash)]
     struct TimeBucketUdf {
         signature: Signature,
     }
     impl ScalarUDFImpl for TimeBucketUdf {
-        fn as_any(&self) -> &dyn std::any::Any {
-            self
-        }
         fn name(&self) -> &str {
             "time_bucket"
         }
@@ -482,7 +497,11 @@ pub(crate) fn time_bucket_udf() -> ScalarUDF {
         fn return_type(&self, _: &[DataType]) -> datafusion::error::Result<DataType> {
             Ok(DataType::Int64)
         }
-        fn invoke(&self, args: &[ColumnarValue]) -> datafusion::error::Result<ColumnarValue> {
+        fn invoke_with_args(
+            &self,
+            call: datafusion::logical_expr::ScalarFunctionArgs,
+        ) -> datafusion::error::Result<ColumnarValue> {
+            let args = &call.args;
             let arrays = ColumnarValue::values_to_arrays(args)?;
             if arrays.len() != 2 {
                 return Err(datafusion::error::DataFusionError::Execution(
@@ -522,14 +541,11 @@ pub(crate) fn time_bucket_udf() -> ScalarUDF {
 pub(crate) fn bm25_match_udf() -> ScalarUDF {
     use arrow::array::BooleanArray;
     use datafusion::logical_expr::{ScalarUDFImpl, Signature};
-    #[derive(Debug)]
+    #[derive(Debug, PartialEq, Eq, Hash)]
     struct Bm25MatchUdf {
         signature: Signature,
     }
     impl ScalarUDFImpl for Bm25MatchUdf {
-        fn as_any(&self) -> &dyn std::any::Any {
-            self
-        }
         fn name(&self) -> &str {
             "bm25_match"
         }
@@ -539,7 +555,11 @@ pub(crate) fn bm25_match_udf() -> ScalarUDF {
         fn return_type(&self, _: &[DataType]) -> datafusion::error::Result<DataType> {
             Ok(DataType::Boolean)
         }
-        fn invoke(&self, args: &[ColumnarValue]) -> datafusion::error::Result<ColumnarValue> {
+        fn invoke_with_args(
+            &self,
+            call: datafusion::logical_expr::ScalarFunctionArgs,
+        ) -> datafusion::error::Result<ColumnarValue> {
+            let args = &call.args;
             let arrays = ColumnarValue::values_to_arrays(args)?;
             if arrays.len() != 2 {
                 return Err(datafusion::error::DataFusionError::Execution(
@@ -580,14 +600,11 @@ pub(crate) fn bm25_match_udf() -> ScalarUDF {
 ///     noted). See the module docs on the two-path design.
 pub(crate) fn bm25_score_udf() -> ScalarUDF {
     use datafusion::logical_expr::{ScalarUDFImpl, Signature, TypeSignature};
-    #[derive(Debug)]
+    #[derive(Debug, PartialEq, Eq, Hash)]
     struct Bm25ScoreUdf {
         signature: Signature,
     }
     impl ScalarUDFImpl for Bm25ScoreUdf {
-        fn as_any(&self) -> &dyn std::any::Any {
-            self
-        }
         fn name(&self) -> &str {
             "bm25_score"
         }
@@ -597,7 +614,11 @@ pub(crate) fn bm25_score_udf() -> ScalarUDF {
         fn return_type(&self, _: &[DataType]) -> datafusion::error::Result<DataType> {
             Ok(DataType::Float64)
         }
-        fn invoke(&self, args: &[ColumnarValue]) -> datafusion::error::Result<ColumnarValue> {
+        fn invoke_with_args(
+            &self,
+            call: datafusion::logical_expr::ScalarFunctionArgs,
+        ) -> datafusion::error::Result<ColumnarValue> {
+            let args = &call.args;
             // 2-arg informative form `(doc_text, query)` ⇒ real per-row BM25.
             if args.len() == 2 {
                 let arrays = ColumnarValue::values_to_arrays(args)?;
@@ -649,14 +670,11 @@ pub(crate) fn bm25_snippet_udf() -> ScalarUDF {
     /// Default snippet width (chars) when `paradedb.snippet` is called without an
     /// explicit max length — a readable one-line fragment.
     const DEFAULT_MAXLEN: usize = 200;
-    #[derive(Debug)]
+    #[derive(Debug, PartialEq, Eq, Hash)]
     struct Bm25SnippetUdf {
         signature: Signature,
     }
     impl ScalarUDFImpl for Bm25SnippetUdf {
-        fn as_any(&self) -> &dyn std::any::Any {
-            self
-        }
         fn name(&self) -> &str {
             "bm25_snippet"
         }
@@ -666,7 +684,11 @@ pub(crate) fn bm25_snippet_udf() -> ScalarUDF {
         fn return_type(&self, _: &[DataType]) -> datafusion::error::Result<DataType> {
             Ok(DataType::Utf8)
         }
-        fn invoke(&self, args: &[ColumnarValue]) -> datafusion::error::Result<ColumnarValue> {
+        fn invoke_with_args(
+            &self,
+            call: datafusion::logical_expr::ScalarFunctionArgs,
+        ) -> datafusion::error::Result<ColumnarValue> {
+            let args = &call.args;
             let arrays = ColumnarValue::values_to_arrays(args)?;
             let n = arrays.iter().map(|a| a.len()).max().unwrap_or(1);
             // 2+ args ⇒ query is in scope ⇒ real highlighted snippet.
@@ -747,23 +769,20 @@ fn unify_minmax(types: &[DataType]) -> DataType {
     }
 }
 
-/// `greatest(...)` / `least(...)` variadic scalar UDFs (CONCEPT:EG-KG.query.greatest-least-int4range-tsrange) — DataFusion 43
+/// `greatest(...)` / `least(...)` variadic scalar UDFs (CONCEPT:EG-KG.query.greatest-least-int4range-tsrange) — DataFusion 54
 /// ships neither. Each argument column is cast to the unified result type
 /// ([`unify_minmax`]) and reduced row-wise, IGNORING NULLs (Postgres semantics: the
 /// result is NULL only when EVERY argument is NULL in that row). `is_greatest` picks max
 /// vs min.
 fn minmax_udf(name: &'static str, is_greatest: bool) -> ScalarUDF {
     use datafusion::logical_expr::{ScalarUDFImpl, Signature, TypeSignature};
-    #[derive(Debug)]
+    #[derive(Debug, PartialEq, Eq, Hash)]
     struct MinMaxUdf {
         name: &'static str,
         signature: Signature,
         is_greatest: bool,
     }
     impl ScalarUDFImpl for MinMaxUdf {
-        fn as_any(&self) -> &dyn std::any::Any {
-            self
-        }
         fn name(&self) -> &str {
             self.name
         }
@@ -773,7 +792,11 @@ fn minmax_udf(name: &'static str, is_greatest: bool) -> ScalarUDF {
         fn return_type(&self, arg_types: &[DataType]) -> datafusion::error::Result<DataType> {
             Ok(unify_minmax(arg_types))
         }
-        fn invoke(&self, args: &[ColumnarValue]) -> datafusion::error::Result<ColumnarValue> {
+        fn invoke_with_args(
+            &self,
+            call: datafusion::logical_expr::ScalarFunctionArgs,
+        ) -> datafusion::error::Result<ColumnarValue> {
+            let args = &call.args;
             let arrays = ColumnarValue::values_to_arrays(args)?;
             if arrays.is_empty() {
                 return Err(datafusion::error::DataFusionError::Execution(format!(
@@ -993,15 +1016,12 @@ pub(crate) fn tsrange_udf() -> ScalarUDF {
 /// Shared range constructor: `(lo, hi[, bounds]) -> Utf8` canonical range text.
 fn range_ctor_udf(name: &'static str) -> ScalarUDF {
     use datafusion::logical_expr::{ScalarUDFImpl, Signature, TypeSignature};
-    #[derive(Debug)]
+    #[derive(Debug, PartialEq, Eq, Hash)]
     struct RangeCtorUdf {
         name: &'static str,
         signature: Signature,
     }
     impl ScalarUDFImpl for RangeCtorUdf {
-        fn as_any(&self) -> &dyn std::any::Any {
-            self
-        }
         fn name(&self) -> &str {
             self.name
         }
@@ -1011,7 +1031,11 @@ fn range_ctor_udf(name: &'static str) -> ScalarUDF {
         fn return_type(&self, _: &[DataType]) -> datafusion::error::Result<DataType> {
             Ok(DataType::Utf8)
         }
-        fn invoke(&self, args: &[ColumnarValue]) -> datafusion::error::Result<ColumnarValue> {
+        fn invoke_with_args(
+            &self,
+            call: datafusion::logical_expr::ScalarFunctionArgs,
+        ) -> datafusion::error::Result<ColumnarValue> {
+            let args = &call.args;
             let arrays = ColumnarValue::values_to_arrays(args)?;
             if arrays.len() < 2 {
                 return Err(datafusion::error::DataFusionError::Execution(format!(
@@ -1061,14 +1085,11 @@ fn range_ctor_udf(name: &'static str) -> ScalarUDF {
 pub(crate) fn range_contains_udf() -> ScalarUDF {
     use arrow::array::BooleanArray;
     use datafusion::logical_expr::{ScalarUDFImpl, Signature};
-    #[derive(Debug)]
+    #[derive(Debug, PartialEq, Eq, Hash)]
     struct RangeContainsUdf {
         signature: Signature,
     }
     impl ScalarUDFImpl for RangeContainsUdf {
-        fn as_any(&self) -> &dyn std::any::Any {
-            self
-        }
         fn name(&self) -> &str {
             "range_contains"
         }
@@ -1078,7 +1099,11 @@ pub(crate) fn range_contains_udf() -> ScalarUDF {
         fn return_type(&self, _: &[DataType]) -> datafusion::error::Result<DataType> {
             Ok(DataType::Boolean)
         }
-        fn invoke(&self, args: &[ColumnarValue]) -> datafusion::error::Result<ColumnarValue> {
+        fn invoke_with_args(
+            &self,
+            call: datafusion::logical_expr::ScalarFunctionArgs,
+        ) -> datafusion::error::Result<ColumnarValue> {
+            let args = &call.args;
             let arrays = ColumnarValue::values_to_arrays(args)?;
             if arrays.len() != 2 {
                 return Err(datafusion::error::DataFusionError::Execution(
@@ -1115,10 +1140,20 @@ fn range_pred_udf(name: &'static str, kernel: fn(&HalfOpen, &HalfOpen) -> bool) 
         signature: Signature,
         kernel: fn(&HalfOpen, &HalfOpen) -> bool,
     }
-    impl ScalarUDFImpl for RangePredUdf {
-        fn as_any(&self) -> &dyn std::any::Any {
-            self
+    // `name` uniquely selects `kernel`; avoid unstable function-pointer identity.
+    impl PartialEq for RangePredUdf {
+        fn eq(&self, other: &Self) -> bool {
+            self.name == other.name && self.signature == other.signature
         }
+    }
+    impl Eq for RangePredUdf {}
+    impl std::hash::Hash for RangePredUdf {
+        fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+            std::hash::Hash::hash(&self.name, state);
+            std::hash::Hash::hash(&self.signature, state);
+        }
+    }
+    impl ScalarUDFImpl for RangePredUdf {
         fn name(&self) -> &str {
             self.name
         }
@@ -1128,7 +1163,11 @@ fn range_pred_udf(name: &'static str, kernel: fn(&HalfOpen, &HalfOpen) -> bool) 
         fn return_type(&self, _: &[DataType]) -> datafusion::error::Result<DataType> {
             Ok(DataType::Boolean)
         }
-        fn invoke(&self, args: &[ColumnarValue]) -> datafusion::error::Result<ColumnarValue> {
+        fn invoke_with_args(
+            &self,
+            call: datafusion::logical_expr::ScalarFunctionArgs,
+        ) -> datafusion::error::Result<ColumnarValue> {
+            let args = &call.args;
             let arrays = ColumnarValue::values_to_arrays(args)?;
             if arrays.len() != 2 {
                 return Err(datafusion::error::DataFusionError::Execution(format!(

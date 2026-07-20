@@ -2,7 +2,7 @@
 name = "eg-tensor"
 version = "0.1.0"
 edition = "2021"
-authors = ["Audel Rouhi <knucklessg1@gmail.com>"]
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
 description = "Pure-Rust dense N-D array / tensor modality for the epistemic-graph engine (CONCEPT:EG-085) — a dtype/shape/row-major-buffer Tensor with slice / reduce / elementwise / reshape ops and a compact little-endian byte-blob codec for content-addressed storage in the blob CAS. NO BLAS/C deps (the Pi contract)."
 license = "MIT"
 

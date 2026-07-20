@@ -2,7 +2,7 @@
 name = "eg-lake"
 version = "0.1.0"
 edition = "2021"
-authors = ["Audel Rouhi <knucklessg1@gmail.com>"]
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
 description = "LTAP lakehouse-interop tier for the epistemic-graph engine (CONCEPT:EG-317). Transcodes engine table/columnar data into Parquet-on-object-store with Delta Lake + Iceberg transaction logs, an Iceberg-REST catalog stub and LSN-style as-of snapshots, so external lakehouse engines (Spark/Trino/DuckDB) read our tables with zero ETL. Heavy arrow/parquet deps sit behind the `lake` feature; the crate is a leaf and stays OUT of the Pi build."
 license = "MIT"
 
@@ -24,15 +24,14 @@ name = "eg_lake"
 # columnar materialization.
 [features]
 default = []
-# Real Parquet materialization + read-back via the arrow + parquet crates, PLUS the
+# Real Parquet materialization + read-back via the maintained Polars codec, PLUS the
 # real Iceberg Avro manifest / manifest-list writer via `apache-avro`
-# (CONCEPT:EG-333/EG-334). Heavy (Arrow columnar + Parquet codec); arrow/parquet are
-# pinned to the SAME versions the engine's `eg-tsdb/arrow-seg` + DataFusion path
-# already carry (arrow 53 / parquet 53), so the lockfile footprint is shared, not new.
+# (CONCEPT:EG-333/EG-334). Heavy (columnar + Parquet codec), but isolated behind
+# the lake feature.
 # `apache-avro` is pure-Rust (default-features off → no snappy/zstd/bzip/xz C codecs),
 # so it stays in the Pi-contract spirit. OUT of pi (eg-lake is not a pi member) — the
 # same `lake` gate the Parquet transcode already lives behind.
-lake = ["dep:arrow", "dep:parquet", "dep:bytes", "dep:apache-avro"]
+lake = ["dep:polars-core", "dep:polars-io", "dep:apache-avro"]
 # ModalityContract retrofit (CONCEPT:E4): `impl ModalityContract for LakeBatch` +
 # the `modality_conformance_tests!` battery. OFF by default, deliberately NOT folded
 # into any tier aggregate (default/lake) — it is a capability-discovery/testing seam,
@@ -47,19 +46,12 @@ serde_json = "1.0"
 # required trait. See `src/contract.rs`.
 eg-modality = { path = "../eg-modality", optional = true }
 
-# Same pins as the engine's `eg-tsdb` arrow-seg path so the Parquet we emit and the
-# Arrow schema we map to line up 1:1 with the rest of the tree. Optional + only
-# referenced under `#[cfg(feature = "lake")]`.
-arrow = { version = "53", optional = true }
-# `default-features = false` drops parquet's C-based compression codecs (zstd-sys /
-# lz4 / brotli / snap) — we write UNCOMPRESSED Parquet, which every lakehouse reader
-# opens, and it keeps eg-lake free of C `*-sys` deps (in the Pi-contract spirit) AND
-# avoids a `zstd-sys` version clash with the workspace lock. Only the `arrow`
-# integration feature is needed (the ArrowWriter / RecordBatchReader).
-parquet = { version = "53", default-features = false, features = ["arrow"], optional = true }
-# `bytes::Bytes` is the parquet `ChunkReader` used to read a materialized file back;
-# `bytes` is already a transitive dep of parquet, so this adds nothing new to the lock.
-bytes = { version = "1", optional = true }
+# Maintained native Parquet codec. Apache `parquet` is intentionally absent because
+# its format layer retains the unmaintained `thrift` and `paste` crates. Polars uses
+# a safe hand-written format codec and remains interoperable with Spark/Trino/DuckDB.
+# The implementation always selects uncompressed pages.
+polars-core = { version = "0.54.4", optional = true, default-features = false, features = ["dtype-datetime"] }
+polars-io = { version = "0.54.4", optional = true, default-features = false, features = ["parquet", "dtype-datetime"] }
 # Pure-Rust Avro codec for the spec-compliant Iceberg v2 manifest + manifest-list
 # files (CONCEPT:EG-333/EG-334). `default-features = false` drops the optional
 # snappy / zstandard / bzip / xz codecs (all C `*-sys`) — we write the Avro container

@@ -60,11 +60,13 @@ it with your own clients (psql, DBeaver, a BI tool, an app, an ORM).
 
 ### 2. Engine + agent-utilities (the full platform)
 
-Add the orchestrator/KG hub. `agent-utilities` **embeds** the engine for a
-single-process dev box, or connects to the **standalone engine container** you
-deployed in shape (1) for a shared, durable, separately-scaled database. It layers on
-ontology-driven ingestion, an agent fleet, MCP tools, and the loop engine — turning
-the raw database into a reasoning knowledge-graph platform.
+Add the orchestrator/KG hub. The `agent-utilities` base install always carries the
+mandatory `epistemic-graph[full]` artifact. For a local dev box, GraphOS autostarts and
+supervises its server binary over a private UDS socket; alternatively it connects to the
+**standalone engine container** you deployed in shape (1) for a shared, durable,
+separately-scaled database. It layers on ontology-driven ingestion, an agent fleet, MCP
+tools, and the loop engine — turning the raw database into a reasoning knowledge-graph
+platform.
 
 The engine is deployed **exactly the same way** whether or not agent-utilities is
 present; agent-utilities simply points its `GRAPH_SERVICE_TCP_ADDR` /
@@ -110,7 +112,7 @@ reading (paths are in the `agent-utilities` repo under `docs/`):
 - **`docs/deploy.md`** — the top-level one-link self-deploy entry point (tiny /
   single-node-prod / enterprise profiles; lists the optional UIs).
 - **`docs/guides/deployment-configurations.md`** — the five-rung configuration ladder
-  (zero-infra dev → autonomous ops); each rung names the engine tier it uses.
+  (zero-infra dev → autonomous ops); each rung names its engine deployment shape.
 - **`docs/guides/day0.md`** — the day-0 / `agent-os-genesis` bootstrap workflow.
 - **`docs/recipes/tiny.md`** — zero-infra, engine-embedded laptop/edge recipe.
 - **`docs/recipes/single-node-prod.md`** — one durable server (engine + optional

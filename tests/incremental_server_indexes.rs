@@ -48,6 +48,7 @@ fn text_incremental_equals_rebuild() {
     let core = GraphCore::new();
     let ix = GraphTextIndex::new(eg_text::TextIndex::in_memory().unwrap());
     core.register_index(Box::new(ix));
+    core.indexes().rebuild_server_indexes(&core);
     assert!(
         core.wants_change_content(),
         "text index flips content capture"
@@ -148,6 +149,7 @@ fn temporal_incremental_equals_rebuild() {
     // (register a boxed clone-equivalent onto core purely to flip the capture flag;
     // we drive `idx` directly for assertions.)
     core.register_index(Box::new(GraphTemporalIndex::new(series.clone(), "g")));
+    core.indexes().rebuild_server_indexes(&core);
     assert!(core.wants_change_content());
 
     let n1 = serde_json::json!({ "measurements": [ {"ts": 1000, "value": 1.0}, {"ts": 2000, "value": 2.0} ] });
@@ -199,14 +201,15 @@ fn temporal_incremental_equals_rebuild() {
 /// and never errors — so it never triggers an under-lock rebuild.
 #[test]
 fn derived_owl_index_is_a_participating_noop() {
-    let owl_idx = DerivedOwlIndex;
+    let owl_idx = DerivedOwlIndex::default();
     assert!(
         !owl_idx.needs_content(),
         "reasoner reads triples itself, on-demand"
     );
 
     let core = GraphCore::new();
-    core.register_index(Box::new(DerivedOwlIndex));
+    core.register_index(Box::new(DerivedOwlIndex::default()));
+    core.indexes().rebuild_server_indexes(&core);
     // Registering a needs_content=false index alone must NOT flip content capture.
     assert!(!core.wants_change_content());
 
