@@ -350,6 +350,12 @@ pub mod kvcache_http;
 /// tied to the graph `ServerState`.
 #[cfg(feature = "obs")]
 pub mod obs;
+/// Shared OIDC/JWKS bearer-token verification core (feature `oidc`, pulled in by
+/// both `security` and `kvcache-server`): one RSA-signature-against-JWKS
+/// verifier reused by the KV-cache HTTP bearer guard AND `auth`'s primary
+/// `eg2.` identity binding. See the module doc for the full split.
+#[cfg(feature = "oidc")]
+pub(crate) mod oidc;
 #[cfg(feature = "s3-api")]
 pub mod s3;
 /// W3C SPARQL 1.1 Protocol HTTP endpoint (CONCEPT:EG-KG.query.named-graph-support, feature `sparql-http`).

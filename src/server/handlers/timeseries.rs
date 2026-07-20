@@ -14,6 +14,30 @@
 //! Wire shapes (the protocol enum stays free of eg-tsdb types — it's at the bottom of
 //! the DAG): points cross as MessagePack `Vec<(i64, Vec<f64>)>`; query results return
 //! via `ResultPayload::raw` (the client double-unpacks), matching `Sql`/`Cypher`.
+//!
+//! ## Why this file never calls `GraphReadAuthority::filter_view`/`project_core`
+//!
+//! Unlike `graph_ops.rs`/`rdf.rs`/`query.rs`, no method here ever constructs a
+//! `GraphView`/`GraphCore` at all, so the per-node `_owner`/`_visibility`/
+//! `_grants` row-level primitive (`crates/eg-core/src/isolation.rs::can_see_row`)
+//! has nothing to filter. Every `Ts*` method instead derives its `SeriesKey`
+//! from [`scoped_key`], which namespaces it under the VERIFIED caller's own
+//! `CarrierAuthority` (`tenant_scope` + an owner-scoped `namespace`) — never
+//! from a caller-supplied tenant/owner. Two different actors (or the same
+//! actor in two different tenants) addressing the "same" `graph`/`series_id`
+//! therefore compute two DIFFERENT, non-colliding keys: cross-actor addressing
+//! is structurally impossible, not merely hidden-unless-granted. This is
+//! stronger than default-deny RLS in one respect (there is no way to guess or
+//! collide into another actor's series at all) but does not support explicit
+//! `_visibility:public`/`_grants` SHARING the way graph-row RLS does — series
+//! data has no such use case today. See
+//! `server::access::read_rls_coverage_tests::every_read_method_routes_through_rls_or_is_a_documented_exception`
+//! for the machine-checked inventory this reasoning is pinned against (the
+//! `TsRange`/`TsAsofJoin`/`TsWindow`/`TsGapFill` entries there cite this exact
+//! comment) — a future method here that DOES read graph node/edge data must
+//! bind a `GraphReadAuthority` and route through `filter_view`/`project_core`
+//! like every other graph-row read, not extend `scoped_key`'s reasoning to
+//! data it wasn't designed for.
 
 use std::sync::Arc;
 

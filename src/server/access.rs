@@ -1250,3 +1250,418 @@ mod universal_row_read_tests {
         assert!(!alice_other_tenant.owns(alice.tenant_scope(), alice.actor_scope()));
     }
 }
+
+// ── L-RLS-1 (next-level-analysis report §9 item #10): read-method RLS coverage ──
+
+/// Every non-mutating (`mutates == false`) protocol method falls into EXACTLY
+/// one documented bucket below — there is no silent fourth category. Mirrors
+/// `server::mutation::tests::gateway_routed_set_matches_mutating_policy_surface`'s
+/// exhaustive-partition idiom (mutation side) on the READ side.
+///
+/// **[`RLS_ROUTED`]** — the method's serving handler filters its `GraphView`/
+/// `GraphCore` through [`GraphReadAuthority::filter_view`]/
+/// [`GraphReadAuthority::project_core`] (which call
+/// `crate::isolation::IsolationLayer::can_see_row`,
+/// `crates/eg-core/src/isolation.rs`) before any row reaches the caller. Every
+/// entry was confirmed by reading its owning handler's actual `project_core`/
+/// `filter_view` call site, not assumed from the method's name — see
+/// `every_read_method_routes_through_rls_or_is_a_documented_exception`'s own
+/// test module for the file:line evidence recorded per group.
+///
+/// **[`NON_ROW_SCOPED`]** — the method never constructs a `GraphView`/
+/// `GraphCore` at all: either it is pure compute over caller-supplied data
+/// with no server-held row (finance/datascience math, a sandboxed WASM UDF),
+/// or it reads a DIFFERENT store whose authority is a verified tenant/actor/
+/// owner/membership scope rather than per-node `_owner`/`_visibility`/
+/// `_grants` — each entry names the real mechanism and why RLS's public/
+/// grants sharing model does not apply to that store's data shape.
+/// `TsRange`/`TsAsofJoin`/`TsWindow`/`TsGapFill`
+/// (`src/server/handlers/timeseries.rs`) are the exact gap the next-level-
+/// analysis report §9 item #10 named; see that file's module doc for the full
+/// reasoning [`REASON_TENANT_KEY_SCOPED_SERIES`] cites.
+///
+/// **[`NOT_YET_AUDITED`]** — this pass did not trace the method's handler to
+/// a `project_core`/`filter_view` call with enough confidence to assert
+/// either of the above buckets. Deliberately distinct from both: a flagged,
+/// visible TODO for a human/future pass, never a silent assumption of safety
+/// in either direction.
+///
+/// Ratchet, mirroring the mutation-side gate: `UNDOCUMENTED` (a method whose
+/// name matches none of the three lists) is the only HARD test failure below.
+/// Shrinking [`NOT_YET_AUDITED`] to zero — by moving an entry into
+/// `RLS_ROUTED` or `NON_ROW_SCOPED` backed by a real, cited call site — is the
+/// intended burn-down, exactly like `OPEN_NOT_JUSTIFIED` on the mutation side.
+const RLS_ROUTED: &[&str] = &[
+    "BatchL2Normalize",
+    "BestTrajectory",
+    "BetweennessCentrality",
+    "CdcRead",
+    "CommunityDetectEphemeral",
+    "CommunityDetection",
+    "ComputeSimilarityEdges",
+    "ConnectedComponents",
+    "DegreeCentrality",
+    "DegreeCentralityAll",
+    "DiffAgainst",
+    "DiscountedReturn",
+    "Discover",
+    "DistributedCompute",
+    "EdgeCount",
+    "EpistemicStatus",
+    "ExplainBelief",
+    "ExplainPlan",
+    "ExplainPolicy",
+    "ExplainProvenance",
+    "ExplainProvenanceByIds",
+    "FindCycle",
+    "FiredTriggers",
+    "Fork",
+    "GetBlastRadius",
+    "GetContextView",
+    "GetEdgeProperties",
+    "GetEdgePropertiesBatch",
+    "GetEdges",
+    "GetLedger",
+    "GetMatView",
+    "GetNeighbors",
+    "GetNodeProperties",
+    "GetNodePropertiesBatch",
+    "GetNodes",
+    "GetNodesByLabel",
+    "GetPredecessors",
+    "GetRdf",
+    "GetShortestPath",
+    "GetSubgraph",
+    "GetSuccessors",
+    "GraphColoring",
+    "HasEdge",
+    "HasNode",
+    "HasNodesBatch",
+    "InDegree",
+    "IndexRepository",
+    "KnowledgeStream",
+    "ListGraphs",
+    "ListTriggers",
+    "MatchOntologyTerms",
+    "MaterializationStatus",
+    "MineClassifyFit",
+    "MinimumSpanningTree",
+    "NlQuery",
+    "NodeCount",
+    "NodeIds",
+    "ObserveScreen",
+    "OutDegree",
+    "OwlExplain",
+    "OwlReason",
+    "OwlReasonDistributed",
+    "PageRank",
+    "ParseFile",
+    "ParseFiles",
+    "PersonalizedPageRank",
+    "PlanMatViewGet",
+    "ReadContinuousQuery",
+    "ResolveCandidates",
+    "RunRules",
+    "SceneChildren",
+    "SemanticSearch",
+    "ShaclValidate",
+    "ShexValidate",
+    "Sparql",
+    "SparqlVirtual",
+    "StaleMaterializations",
+    "StreamCommittedOffset",
+    "StreamRead",
+    "StronglyConnectedComponents",
+    "SummariesAtLevel",
+    "SummaryChildren",
+    "ToMsgpack",
+    "TopologicalSort",
+    "TxnUnifiedQuery",
+    "TxnUnifiedQueryText",
+    "UnifiedQuery",
+    "UnifiedQueryText",
+    "UnionGetNeighbors",
+    "UnionGetNodeProperties",
+    "UnionGetNodesByLabel",
+    "Vf2SubgraphMatch",
+    "Watch",
+    "WhatChanged",
+    "WorldTransform",
+];
+
+const REASON_SERVER_LIFECYCLE: &str =
+    "server-lifecycle / liveness methods touch no tenant-owned row";
+const REASON_AUDIT_CHAIN_ADMIN_GATED: &str =
+    "AuditVerify walks the hash-chained audit log under the kg:admin capability gate -- not a graph row read";
+const REASON_VERIFIED_TENANT_CLAIM: &str =
+    "dispatch.rs compares the request's tenant against verified_context.claims().tenant before serving it (GetChangeEnvelope/GetContentVersion/GetChangeCursor) -- an explicit verified-tenant-claim check, not a graph row";
+const REASON_CLUSTER_ADMIN_GATED: &str =
+    "cluster-wide / control-plane methods gated by the kg:admin capability (IsolationLayer::require_admin_capability) -- span the whole registry/cluster, not one resolved graph's rows, mirroring mutation.rs's own NON_GATEWAY_COORDINATED classification of the equivalent admin writes";
+const REASON_CHANNEL_MEMBERSHIP: &str =
+    "dispatch.rs checks ServerState::channels.authorize_member(channel_id, tenant_scope, agent_id) before returning channel messages/roster -- channel membership is the authority, not graph row visibility";
+const REASON_PURE_COMPUTE: &str =
+    "pure compute over caller-supplied arrays/parameters (finance/datascience primitives) -- no server-held graph row is read";
+const REASON_SANDBOXED_UDF: &str =
+    "wasm_udf.rs's RunUdf executes a sandboxed WASM module over an opaque caller-supplied byte payload only -- no graph state is read";
+const REASON_TENANT_KEY_SCOPED_SERIES: &str =
+    "src/server/handlers/timeseries.rs::scoped_key derives the SeriesKey from CarrierAuthority (verified tenant+actor) -- a series is namespaced under the CALLING actor's own scope, so cross-actor addressing is structurally impossible (never constructs a GraphView). Stronger than default-deny in one respect (no address collision possible at all), but does not support _visibility:public/_grants sharing -- the exact gap the next-level-analysis report section 9 item #10 named; see that file's module doc for the full reasoning";
+const REASON_BLOB_OWNER_SCOPED: &str =
+    "src/server/handlers/blob.rs checks authority.owner_scope() against the stored manifest/cursor owner_scope on every fetch (ensure_blob_owner/authorize_fetch); content is addressed by digest, not by a graph row";
+const REASON_TENANT_KEY_SCOPED_KV: &str =
+    "src/server/kv.rs namespaces every key via CarrierAuthority::namespace(\"kv-namespace\", ...) -- the identical tenant+actor-scoped-key pattern as timeseries; never constructs a GraphView";
+const REASON_ADMIN_ONLY_CEP: &str =
+    "src/server/cep.rs gates CEP subscription management, including polling one, behind CarrierAuthority::require_admin -- stricter than row RLS, not row-scoped at all";
+const REASON_EPISTEMIC_NOT_TRACED: &str =
+    "lives in src/server/mod.rs's epistemic-reasoning arms; this pass did not independently trace its evidence/belief-graph resolution to a project_core/filter_view call (the next-level-analysis report separately describes eg-epistemic's OWN bounded-BFS + CAS-digest evidence resolver as a plausible, real mechanism, but this pass did not re-verify it here) -- flagged for human review rather than asserted either way";
+
+const NON_ROW_SCOPED: &[(&str, &str)] = &[
+    // REASON_SERVER_LIFECYCLE
+    ("CancelRequest", REASON_SERVER_LIFECYCLE),
+    ("Health", REASON_SERVER_LIFECYCLE),
+    ("Metrics", REASON_SERVER_LIFECYCLE),
+    ("Ping", REASON_SERVER_LIFECYCLE),
+    ("ResourceStats", REASON_SERVER_LIFECYCLE),
+    // REASON_AUDIT_CHAIN_ADMIN_GATED
+    ("AuditVerify", REASON_AUDIT_CHAIN_ADMIN_GATED),
+    // REASON_VERIFIED_TENANT_CLAIM
+    ("GetChangeCursor", REASON_VERIFIED_TENANT_CLAIM),
+    ("GetChangeEnvelope", REASON_VERIFIED_TENANT_CLAIM),
+    ("GetContentVersion", REASON_VERIFIED_TENANT_CLAIM),
+    // REASON_CLUSTER_ADMIN_GATED
+    ("Backup", REASON_CLUSTER_ADMIN_GATED),
+    ("CatalogList", REASON_CLUSTER_ADMIN_GATED),
+    ("ExportSqliteFile", REASON_CLUSTER_ADMIN_GATED),
+    ("PlacementRoute", REASON_CLUSTER_ADMIN_GATED),
+    ("RebalancePlan", REASON_CLUSTER_ADMIN_GATED),
+    // REASON_CHANNEL_MEMBERSHIP
+    ("GetChannelMembers", REASON_CHANNEL_MEMBERSHIP),
+    ("GetChannelMessages", REASON_CHANNEL_MEMBERSHIP),
+    ("ListChannels", REASON_CHANNEL_MEMBERSHIP),
+    // REASON_PURE_COMPUTE
+    ("DsAdamStep", REASON_PURE_COMPUTE),
+    ("DsComputeStats", REASON_PURE_COMPUTE),
+    ("DsCrossEntropy", REASON_PURE_COMPUTE),
+    ("DsDpoLoss", REASON_PURE_COMPUTE),
+    ("DsFitEstimator", REASON_PURE_COMPUTE),
+    ("DsGrpoSurrogate", REASON_PURE_COMPUTE),
+    ("DsKMeans", REASON_PURE_COMPUTE),
+    ("DsKlDivergence", REASON_PURE_COMPUTE),
+    ("DsLinearRegression", REASON_PURE_COMPUTE),
+    ("DsLogSoftmax", REASON_PURE_COMPUTE),
+    ("DsPca", REASON_PURE_COMPUTE),
+    ("DsPredictEstimator", REASON_PURE_COMPUTE),
+    ("DsSgdStep", REASON_PURE_COMPUTE),
+    ("DsSoftmax", REASON_PURE_COMPUTE),
+    ("DsTrainTestSplit", REASON_PURE_COMPUTE),
+    ("FinanceAdfTest", REASON_PURE_COMPUTE),
+    ("FinanceAlphaCombinationEngine", REASON_PURE_COMPUTE),
+    ("FinanceAvellanedaStoikov", REASON_PURE_COMPUTE),
+    ("FinanceBayesianKelly", REASON_PURE_COMPUTE),
+    ("FinanceBlackLitterman", REASON_PURE_COMPUTE),
+    ("FinanceBreakevenAlpha", REASON_PURE_COMPUTE),
+    ("FinanceBrierScore", REASON_PURE_COMPUTE),
+    ("FinanceCombineAlphas", REASON_PURE_COMPUTE),
+    ("FinanceConvergenceGate", REASON_PURE_COMPUTE),
+    ("FinanceCrossSectionalRank", REASON_PURE_COMPUTE),
+    ("FinanceCvar", REASON_PURE_COMPUTE),
+    ("FinanceDeflatedSharpe", REASON_PURE_COMPUTE),
+    ("FinanceDetectRegimes", REASON_PURE_COMPUTE),
+    ("FinanceDieboldMariano", REASON_PURE_COMPUTE),
+    ("FinanceDownsideDeviation", REASON_PURE_COMPUTE),
+    ("FinanceDrawdownSeries", REASON_PURE_COMPUTE),
+    ("FinanceEffectiveIndependentN", REASON_PURE_COMPUTE),
+    ("FinanceEfficientFrontier", REASON_PURE_COMPUTE),
+    ("FinanceEmpiricalKelly", REASON_PURE_COMPUTE),
+    ("FinanceEwma", REASON_PURE_COMPUTE),
+    ("FinanceExpectedPnlRate", REASON_PURE_COMPUTE),
+    ("FinanceForensicReport", REASON_PURE_COMPUTE),
+    ("FinanceGlostenMilgromSpread", REASON_PURE_COMPUTE),
+    ("FinanceGltQuotes", REASON_PURE_COMPUTE),
+    ("FinanceHardimanBouchaud", REASON_PURE_COMPUTE),
+    ("FinanceHawkesMle", REASON_PURE_COMPUTE),
+    ("FinanceInformationCoefficient", REASON_PURE_COMPUTE),
+    ("FinanceInformationRatio", REASON_PURE_COMPUTE),
+    ("FinanceKalmanBeta", REASON_PURE_COMPUTE),
+    ("FinanceKalmanFilter1d", REASON_PURE_COMPUTE),
+    ("FinanceKalmanVolatility", REASON_PURE_COMPUTE),
+    ("FinanceKellyFraction", REASON_PURE_COMPUTE),
+    ("FinanceKyleLambda", REASON_PURE_COMPUTE),
+    ("FinanceLogitQuotes", REASON_PURE_COMPUTE),
+    ("FinanceMarketImpact", REASON_PURE_COMPUTE),
+    ("FinanceMarkovTransitionMatrix", REASON_PURE_COMPUTE),
+    ("FinanceMatchOrders", REASON_PURE_COMPUTE),
+    ("FinanceMaxDrawdown", REASON_PURE_COMPUTE),
+    ("FinanceMeanReversion", REASON_PURE_COMPUTE),
+    ("FinanceMicropriceSeries", REASON_PURE_COMPUTE),
+    ("FinanceMomentum", REASON_PURE_COMPUTE),
+    ("FinanceMonteCarloVar", REASON_PURE_COMPUTE),
+    ("FinanceOfiSeries", REASON_PURE_COMPUTE),
+    ("FinanceOptimizePortfolio", REASON_PURE_COMPUTE),
+    ("FinanceOrderBookImbalance", REASON_PURE_COMPUTE),
+    ("FinanceOuCalibrate", REASON_PURE_COMPUTE),
+    ("FinanceOuOptimalThresholds", REASON_PURE_COMPUTE),
+    ("FinancePairsTrading", REASON_PURE_COMPUTE),
+    ("FinancePosteriorCredibleInterval", REASON_PURE_COMPUTE),
+    ("FinanceProbabilityBacktestOverfit", REASON_PURE_COMPUTE),
+    ("FinancePurgedCpcv", REASON_PURE_COMPUTE),
+    ("FinanceQueueImbalance", REASON_PURE_COMPUTE),
+    ("FinanceRealizedVolTick", REASON_PURE_COMPUTE),
+    ("FinanceRiskMetrics", REASON_PURE_COMPUTE),
+    ("FinanceRiskParity", REASON_PURE_COMPUTE),
+    ("FinanceRollingZscore", REASON_PURE_COMPUTE),
+    ("FinanceSabrCalibrate", REASON_PURE_COMPUTE),
+    ("FinanceSabrImpliedVol", REASON_PURE_COMPUTE),
+    ("FinanceSabrSmile", REASON_PURE_COMPUTE),
+    ("FinanceSignalDecay", REASON_PURE_COMPUTE),
+    ("FinanceSpreadReversion", REASON_PURE_COMPUTE),
+    ("FinanceStressTest", REASON_PURE_COMPUTE),
+    ("FinanceSurveillanceRisk", REASON_PURE_COMPUTE),
+    ("FinanceTwap", REASON_PURE_COMPUTE),
+    ("FinanceVar", REASON_PURE_COMPUTE),
+    ("FinanceVpinPm", REASON_PURE_COMPUTE),
+    ("FinanceVwap", REASON_PURE_COMPUTE),
+    // REASON_SANDBOXED_UDF
+    ("RunUdf", REASON_SANDBOXED_UDF),
+    // REASON_TENANT_KEY_SCOPED_SERIES
+    ("TsAsofJoin", REASON_TENANT_KEY_SCOPED_SERIES),
+    ("TsGapFill", REASON_TENANT_KEY_SCOPED_SERIES),
+    ("TsRange", REASON_TENANT_KEY_SCOPED_SERIES),
+    ("TsWindow", REASON_TENANT_KEY_SCOPED_SERIES),
+    // REASON_BLOB_OWNER_SCOPED
+    ("BlobChunkGet", REASON_BLOB_OWNER_SCOPED),
+    ("BlobFetchBegin", REASON_BLOB_OWNER_SCOPED),
+    ("BlobFetchEnd", REASON_BLOB_OWNER_SCOPED),
+    // REASON_TENANT_KEY_SCOPED_KV
+    ("KvGet", REASON_TENANT_KEY_SCOPED_KV),
+    ("KvScan", REASON_TENANT_KEY_SCOPED_KV),
+    // REASON_ADMIN_ONLY_CEP
+    ("CepPoll", REASON_ADMIN_ONLY_CEP),
+];
+
+const NOT_YET_AUDITED: &[(&str, &str)] = &[
+    ("CausalCounterfactual", REASON_EPISTEMIC_NOT_TRACED),
+    ("CausalEstimate", REASON_EPISTEMIC_NOT_TRACED),
+    ("ExplainEvidence", REASON_EPISTEMIC_NOT_TRACED),
+    ("RankByProvenance", REASON_EPISTEMIC_NOT_TRACED),
+    ("ResolveConflict", REASON_EPISTEMIC_NOT_TRACED),
+];
+#[cfg(test)]
+mod read_rls_coverage_tests {
+    use super::*;
+    use std::collections::{BTreeSet, HashMap};
+
+    /// Every non-mutating (`mutates == false`) protocol method routes through
+    /// the audited RLS primitive, or is a documented, named exception. `UNDOCUMENTED`
+    /// (a method whose name matches none of `RLS_ROUTED`/`NON_ROW_SCOPED`/
+    /// `NOT_YET_AUDITED`) is the only hard failure -- mirrors
+    /// `server::mutation::tests::gateway_routed_set_matches_mutating_policy_surface`'s
+    /// exhaustive-partition idiom on the read side.
+    ///
+    /// A handful of methods (e.g. `KnowledgeStream`, feature `knowledge-batch`)
+    /// are themselves `#[cfg(feature = ...)]`-gated INSIDE `eg_capabilities::
+    /// ALL_METHODS`'s own array literal, so `all_read` legitimately varies by
+    /// build. This test therefore checks every method ACTUALLY PRESENT in the
+    /// CURRENT build's `all_read` against the three lists (which are a
+    /// superset spanning every feature combination) rather than requiring
+    /// every listed name to be present -- run with `--features full` (or at
+    /// least `knowledge-batch`/`jobs`/`tensor`/…) for the widest single-run
+    /// coverage; CI's per-feature test matrix covers the rest.
+    #[test]
+    fn every_read_method_routes_through_rls_or_is_a_documented_exception() {
+        let all_read: BTreeSet<&'static str> = eg_capabilities::ALL_METHODS
+            .iter()
+            .filter(|(_, p, _)| !p.mutates)
+            .map(|(name, _, _)| *name)
+            .collect();
+
+        let routed_set: BTreeSet<&'static str> = RLS_ROUTED.iter().copied().collect();
+        assert_eq!(
+            routed_set.len(),
+            RLS_ROUTED.len(),
+            "RLS_ROUTED contains a duplicate entry"
+        );
+        let non_row: HashMap<&'static str, &'static str> = NON_ROW_SCOPED.iter().copied().collect();
+        assert_eq!(
+            non_row.len(),
+            NON_ROW_SCOPED.len(),
+            "NON_ROW_SCOPED contains a duplicate method name"
+        );
+        let not_audited: HashMap<&'static str, &'static str> =
+            NOT_YET_AUDITED.iter().copied().collect();
+        assert_eq!(
+            not_audited.len(),
+            NOT_YET_AUDITED.len(),
+            "NOT_YET_AUDITED contains a duplicate method name"
+        );
+
+        // The three lists must be pairwise disjoint -- a method double-listed
+        // (e.g. both RLS_ROUTED and NON_ROW_SCOPED) is a self-contradiction
+        // regardless of which methods the current build actually compiled in.
+        for name in non_row.keys().chain(not_audited.keys()) {
+            assert!(
+                !routed_set.contains(name),
+                "'{name}' is listed in both RLS_ROUTED and NON_ROW_SCOPED/NOT_YET_AUDITED"
+            );
+        }
+        for name in non_row.keys() {
+            assert!(
+                !not_audited.contains_key(name),
+                "'{name}' is listed in both NON_ROW_SCOPED and NOT_YET_AUDITED"
+            );
+        }
+
+        // Every method ACTUALLY PRESENT in this build's non-mutating surface
+        // must be classified -- the hard failure. A documented name that this
+        // build happens not to compile in (a narrower `--features` selection
+        // than `full`) is not checked here; it is still verified whenever a
+        // build that includes it runs this test.
+        let undocumented: Vec<&&'static str> = all_read
+            .iter()
+            .filter(|name| {
+                !routed_set.contains(*name)
+                    && !non_row.contains_key(*name)
+                    && !not_audited.contains_key(*name)
+            })
+            .collect();
+        assert!(
+            undocumented.is_empty(),
+            "UNDOCUMENTED read methods (silently unclassified, not allowed): {undocumented:?} -- \
+             add each to RLS_ROUTED, NON_ROW_SCOPED, or NOT_YET_AUDITED in server::access"
+        );
+
+        let present_routed = all_read.intersection(&routed_set).count();
+        let present_non_row = all_read.iter().filter(|n| non_row.contains_key(*n)).count();
+        let present_not_audited = all_read
+            .iter()
+            .filter(|n| not_audited.contains_key(*n))
+            .count();
+        println!(
+            "L-RLS-1 read coverage (this build): {present_routed} RLS-routed / \
+             {present_non_row} non-row-scoped (justified) / {present_not_audited} not-yet-audited \
+             / {} non-mutating methods total present ({} / {} / {} known across all builds)",
+            all_read.len(),
+            RLS_ROUTED.len(),
+            NON_ROW_SCOPED.len(),
+            NOT_YET_AUDITED.len(),
+        );
+    }
+
+    /// The exact, task-named gap this gate exists to close: `timeseries.rs`'s 4
+    /// read methods must be a DOCUMENTED, justified `NON_ROW_SCOPED` exception --
+    /// never `RLS_ROUTED` (they never construct a `GraphView`) and never
+    /// silently absent from every bucket.
+    #[test]
+    fn timeseries_read_methods_are_a_documented_non_row_scoped_exception() {
+        let non_row: HashMap<&'static str, &'static str> = NON_ROW_SCOPED.iter().copied().collect();
+        for method in ["TsRange", "TsAsofJoin", "TsWindow", "TsGapFill"] {
+            assert!(
+                non_row.contains_key(method),
+                "'{method}' must be a documented NON_ROW_SCOPED exception"
+            );
+            assert!(
+                !RLS_ROUTED.contains(&method),
+                "'{method}' must not also claim to be RLS_ROUTED"
+            );
+        }
+    }
+}

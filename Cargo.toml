@@ -397,9 +397,12 @@ geo = ["query", "dep:eg-plan", "eg-plan/geo", "eg-types/geo", "dep:eg-geo"]
 # modality composes with Traverse/Rank/Filter in ONE UnifiedQuery plan. Pulls eg-plan's
 # `tensor` (the executor + the pure-Rust eg-tensor leaf crate: dense N-D array + ops +
 # byte-blob codec — only serde, NO BLAS/LAPACK/C dep), which IMPLIES `query` (the ops
-# live inside the `query`-gated `Op` enum). It is pure Rust and included in the one
-# main build.
-tensor = ["query", "dep:eg-plan", "eg-plan/tensor", "eg-types/tensor"]
+# live inside the `query`-gated `Op` enum). Also pulls `dep:eg-tensor` directly (mirrors
+# `geo`'s `dep:eg-geo`): the served `run_unified` binds the process-lifetime
+# `TensorStore` write-back sink itself (`src/server/handlers/query.rs`), so the facade
+# needs the leaf crate's type, not just eg-plan's internal use of it. It is pure Rust
+# and included in the one main build.
+tensor = ["query", "dep:eg-plan", "eg-plan/tensor", "eg-types/tensor", "dep:eg-tensor"]
 # Event-stream + complex-event-processing (CEP) modality (CONCEPT:EG-088): the
 # `Op::Cep { pattern }` TRANSFORM op — interpret a RowSet as a time-ordered event stream
 # and run a bounded NFA (Sequence/Within/Absence over sliding/tumbling windows) — so a
@@ -770,9 +773,10 @@ lake-rest = ["lake"]
 # KV blocks by token-hash (GET/PUT/HEAD /kv/<hash> + /kv/stats, bearer-token guard). A
 # HAND-ROLLED HTTP/1.1 listener (the same dependency-free tokio idiom as `s3-api`/`obs`)
 # — links NO axum/hyper, so it adds NO new HTTP dependency; it pulls only the pure-Rust
-# `eg-kvcache` leaf crate. It is included in the one main build and starts only when
-# configured via EPISTEMIC_GRAPH_KVCACHE_ADDR.
-kvcache-server = ["server", "dep:eg-kvcache", "dep:jsonwebtoken", "dep:ureq"]
+# `eg-kvcache` leaf crate plus `oidc` (its bearer-token guard's JWT validation, shared
+# with the primary protocol's identity binding). It is included in the one main build
+# and starts only when configured via EPISTEMIC_GRAPH_KVCACHE_ADDR.
+kvcache-server = ["server", "oidc", "dep:eg-kvcache"]
 # Real WARM-tier KV-cache codec (CONCEPT:EG-315): turns on `eg-kvcache/compression`
 # (zstd) so the KV-cache warm tier can compress with a production-grade codec instead of
 # the built-in RLE. It is included in the one main build; zstd is reached only through
@@ -941,10 +945,20 @@ compute = ["finance", "ast", "ast-extended", "datascience", "mining", "graphlear
 # blobs, and a hash-chained tamper-evident audit log over the ledger. PURE-RUST end
 # to end: RLS + audit chain link only `sha2`/`hmac` (already deps, RustCrypto) — NO
 # C; encryption pulls `chacha20poly1305` (RustCrypto AEAD, pure-Rust, NO ring/openssl).
-# Encryption-at-rest also rides the redb substrate, so it implies `redb`. Security is
-# mandatory in the one main `full` build and remains present in both source-built layers.
-security = ["redb", "dep:chacha20poly1305", "eg-types/security", "eg-core/security"]
-full = ["compute", "server", "server-tls", "query", "knowledge-batch", "cypher", "graphql", "eg-graphql/crossmodal-tsdb", "redb", "ann", "ann-redb", "tsdb", "blob", "kv", "text", "sparql", "sparql-http", "sparql-hash", "rdf-xml", "json-ld", "sparql-star", "sparql-service", "shacl", "owl", "owl-dl", "owl-plan", "obda", "streaming", "wasm-udf", "security", "federation", "federation-sql", "pgwire", "mysql-wire", "mssql-wire", "sqlite-wire", "bolt-wire", "redis-wire", "broker", "amqp-wire", "mqtt-wire", "stomp-wire", "geo", "tensor", "stream", "result-cache", "cold-tier", "cost", "cost-opt", "otel", "otel-export", "shex", "obs", "geosparql", "nl-query", "promql", "traces", "s3-api", "federation-search", "kvcache-server", "kvcache-compression", "numeric", "sqlite-file", "epistemic", "epistemic-redaction", "evidence-graph", "epistemic-tms", "epistemic-causal", "alignment", "jobs", "program-optimization", "modality-serving", "embedded"]
+# Encryption-at-rest also rides the redb substrate, so it implies `redb`. Also pulls
+# `oidc` — the primary `eg2.` protocol's OIDC identity binding is a security-feature
+# capability (verified-identity envelope claims, not just HMAC channel integrity).
+# Security is mandatory in the one main `full` build and remains present in both
+# source-built layers.
+security = ["redb", "oidc", "dep:chacha20poly1305", "eg-types/security", "eg-core/security"]
+# Shared OIDC/JWKS bearer-token verification core (`src/server/oidc.rs`):
+# RSA-signature-against-JWKS, issuer/audience/expiry, Keycloak-compatible. A small,
+# dependency-bounded feature so the RSA/JWT crates are linked exactly once and reused
+# by every surface that needs OIDC identity verification — `security`'s primary
+# `eg2.` protocol identity binding and `kvcache-server`'s KV-cache HTTP bearer auth —
+# rather than each surface vendoring its own copy.
+oidc = ["dep:jsonwebtoken", "dep:ureq"]
+full = ["compute", "server", "server-tls", "query", "knowledge-batch", "cypher", "graphql", "eg-graphql/crossmodal-tsdb", "redb", "ann", "ann-redb", "tsdb", "blob", "kv", "text", "sparql", "sparql-http", "sparql-hash", "rdf-xml", "json-ld", "sparql-star", "sparql-service", "shacl", "owl", "owl-dl", "owl-plan", "obda", "streaming", "wasm-udf", "security", "oidc", "federation", "federation-sql", "pgwire", "mysql-wire", "mssql-wire", "sqlite-wire", "bolt-wire", "redis-wire", "broker", "amqp-wire", "mqtt-wire", "stomp-wire", "geo", "tensor", "stream", "result-cache", "cold-tier", "cost", "cost-opt", "otel", "otel-export", "shex", "obs", "geosparql", "nl-query", "promql", "traces", "s3-api", "federation-search", "kvcache-server", "kvcache-compression", "numeric", "sqlite-file", "epistemic", "epistemic-redaction", "evidence-graph", "epistemic-tms", "epistemic-causal", "alignment", "jobs", "program-optimization", "modality-serving", "embedded"]
 all = ["full"]
 # D4 (CONCEPT:EG-KG.epistemic.epistemic-substrate): `epistemic` (the eg-epistemic
 # claims/evidence/belief-state layer, E6/E2/D3/D5) is folded into `full` above so a
@@ -1103,6 +1117,13 @@ eg-text = { path = "crates/eg-text", optional = true }
 # maintained `GraphSpatialIndex` (L37, CONCEPT:EG-KG.storage.incremental-spatial) —
 # mirroring eg-text's identical direct-edge precedent above.
 eg-geo = { path = "crates/eg-geo", optional = true }
+# Array/tensor leaf crate (feature `tensor`, CONCEPT:EG-085). Pulled transitively via
+# eg-plan's `tensor` feature already (the `Op::TensorScan`/`Op::TensorOp` executor);
+# this direct edge adds NO new crate — it only makes `eg_tensor::TensorStore` nameable
+# here, so the served `run_unified` (`src/server/handlers/query.rs`) can bind the
+# process-lifetime write-back sink `Op::TensorOp` requires — mirroring eg-geo's
+# identical direct-edge precedent above.
+eg-tensor = { path = "crates/eg-tensor", optional = true }
 # Arrow + maintained Polars Parquet columnar segment encode for observability logs
 # (feature `obs`, CONCEPT:EG-161). Apache `parquet` is deliberately not used: its
 # metadata codec still carries the unmaintained `thrift` and `paste` crates. Polars
@@ -1137,12 +1158,15 @@ eg-wasm = { path = "crates/eg-wasm", optional = true }
 # SPARQL SERVICE federation client (feature `sparql-service`, CONCEPT:EG-052). The SAME
 # pure-Rust rustls HTTP client `federation` already links via eg-plan — pinned to the
 # same 2.x, so activating it here adds a direct edge but no new crate to the tree. The
-# main build includes both federation features.
+# main build includes both federation features. Also the JWKS-fetch transport for
+# `oidc` (`src/server/oidc.rs::JwtValidator::refresh`).
 ureq = { version = "2.10", optional = true }
-# Keycloak JWT validation for the KV-cache HTTP surface (`kvcache-server`, included in
-# the main build): verifies the platform's OIDC client-credentials bearer against the
-# realm JWKS. Uses the maintained aws-lc-rs JWT backend. Transport TLS remains supplied
-# by the existing `ureq`/rustls path.
+# Keycloak JWT validation, feature `oidc` (`src/server/oidc.rs`): verifies an OIDC
+# bearer against the realm JWKS — issuer/audience/expiry, RSA-signature-only (never
+# `none`/HMAC). Shared by the KV-cache HTTP surface's bearer guard (`kvcache-server`)
+# and the primary `eg2.` protocol's identity binding (`security`). Uses the maintained
+# aws-lc-rs JWT backend. Transport TLS remains supplied by the existing `ureq`/rustls
+# path.
 jsonwebtoken = { version = "10.4", optional = true, default-features = false, features = ["aws_lc_rs"] }
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"

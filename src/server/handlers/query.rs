@@ -1602,12 +1602,142 @@ pub(crate) fn run_unified(
         Some(staged) => ctx.with_staged_series(staged),
         None => ctx,
     };
+    // CONCEPT:EG-KG.storage.derived-tensor-writeback-sink — bind the tensor CAS
+    // write-back sink so a served `Op::TensorOp` actually runs instead of its
+    // documented-but-unreachable "TensorOp requires a bound tensor store" error.
+    // `Op::TensorScan`/`Op::TensorOp` read their INPUT tensor directly off the
+    // queried `GraphView`'s node properties (`eg_plan::exec::row_tensor`) — this
+    // store is purely the write-back destination for a TensorOp's DERIVED output,
+    // so a process-wide singleton (not threaded through `ServerState`/callers) is
+    // sufficient and still gives real content-address dedup across requests,
+    // unlike a fresh store per call. In-memory only for now — `TensorStore::
+    // persist`/`load` (disk durability across restarts) is a follow-up, tracked
+    // the same way `tsdb_store` earned its own dedicated `ServerState` wiring.
+    #[cfg(feature = "tensor")]
+    let ctx = {
+        static TENSOR_STORE: std::sync::OnceLock<std::sync::Mutex<eg_tensor::TensorStore>> =
+            std::sync::OnceLock::new();
+        let store =
+            TENSOR_STORE.get_or_init(|| std::sync::Mutex::new(eg_tensor::TensorStore::new()));
+        ctx.with_tensor_store(store)
+    };
     let result = eg_plan::execute(&eg_plan::Plan::new(ops), &ctx)?;
     Ok(result
         .rows()
         .iter()
         .map(|r| (r.id.clone(), r.score))
         .collect())
+}
+
+/// CONCEPT:EG-KG.storage.derived-tensor-writeback-sink — served-path proof that
+/// `run_unified` (not just `eg-plan`'s own internal executor, already proven by
+/// `crates/eg-plan/src/tensor_tests.rs`) now binds a tensor store: an
+/// `Op::TensorScan` + `Op::TensorOp` plan run through the SAME entry point every
+/// `UnifiedQuery`/`UnifiedQueryText` request uses now executes and returns rows
+/// instead of the "TensorOp requires a bound tensor store" error `run_unified`
+/// deterministically returned before the `.with_tensor_store(...)` binding was
+/// added.
+#[cfg(all(test, feature = "tensor"))]
+mod tensor_served_round_trip_tests {
+    use super::*;
+    use eg_core::compute::semantic::SemanticStore;
+    use eg_core::graph::GraphCore;
+    use eg_tensor::{Buffer, Tensor};
+    use eg_types::wire::{TensorOpKind, TensorReduceKind};
+
+    fn blob(v: serde_json::Value) -> Vec<u8> {
+        rmp_serde::to_vec_named(&v).unwrap()
+    }
+
+    /// A `Frame` layer of three nodes each holding the same dense 2×3 tensor in
+    /// their conventional `tensor` property, mirroring
+    /// `eg_plan::tensor_tests::frames()`.
+    fn frames_view() -> crate::graph::GraphView {
+        let core = GraphCore::new();
+        let t = Tensor::new(vec![2, 3], Buffer::F32(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0])).unwrap();
+        let tv = serde_json::to_value(&t).unwrap();
+        for id in ["F1", "F2", "F3"] {
+            core.add_node(
+                id.into(),
+                blob(serde_json::json!({ "type": "Frame", "tensor": tv })),
+            );
+        }
+        core.analysis_snapshot()
+    }
+
+    fn served_indexes() -> ServedIndexes<'static> {
+        ServedIndexes {
+            #[cfg(feature = "text")]
+            text: None,
+            #[cfg(feature = "geo")]
+            spatial: None,
+            #[cfg(not(any(feature = "text", feature = "geo")))]
+            _marker: std::marker::PhantomData,
+        }
+    }
+
+    fn call_run_unified(plan: eg_plan::Plan) -> Result<Vec<(String, Option<f32>)>, String> {
+        let view = frames_view();
+        let semantic = SemanticStore::new();
+        run_unified(
+            plan,
+            &view,
+            &semantic,
+            served_indexes(),
+            #[cfg(feature = "tsdb")]
+            None,
+            #[cfg(feature = "tsdb")]
+            None,
+            #[cfg(feature = "tsdb")]
+            None,
+            #[cfg(feature = "tsdb")]
+            None,
+        )
+    }
+
+    #[test]
+    fn served_tensor_scan_and_op_executes_instead_of_erroring() {
+        let plan = eg_plan::Plan::new(vec![
+            eg_plan::Op::TensorScan {
+                layer: "Frame".into(),
+            },
+            eg_plan::Op::TensorOp {
+                kind: TensorOpKind::Reduce {
+                    axis: 1,
+                    kind: TensorReduceKind::Mean,
+                },
+            },
+        ]);
+        let rows = call_run_unified(plan).expect(
+            "served TensorOp must execute now that run_unified binds a tensor store, \
+             not error with 'TensorOp requires a bound tensor store'",
+        );
+        let mut ids: Vec<&str> = rows.iter().map(|(id, _)| id.as_str()).collect();
+        ids.sort();
+        assert_eq!(ids, vec!["F1", "F2", "F3"]);
+    }
+
+    /// Before the fix, `run_unified` had no `tensor_store` binding at all, so this
+    /// exact plan deterministically failed with "TensorOp requires a bound tensor
+    /// store" regardless of input — the gap this test closes.
+    #[test]
+    fn served_tensor_op_without_the_fix_would_have_errored() {
+        let plan = eg_plan::Plan::new(vec![
+            eg_plan::Op::TensorScan {
+                layer: "Frame".into(),
+            },
+            eg_plan::Op::TensorOp {
+                kind: TensorOpKind::Elementwise {
+                    op: eg_types::wire::TensorElementwiseOp::Mul,
+                    scalar: 2.0,
+                },
+            },
+        ]);
+        assert!(
+            call_run_unified(plan).is_ok(),
+            "TensorOp over the served path must not deterministically error"
+        );
+    }
 }
 
 // ── EXPLAIN surfaces (CONCEPT:EG-KG.query.plan-dag, E5 phase 4) ──────────────────────

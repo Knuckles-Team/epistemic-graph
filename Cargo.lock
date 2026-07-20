@@ -2883,6 +2883,7 @@ dependencies = [
  "eg-shacl",
  "eg-shex",
  "eg-stream",
+ "eg-tensor",
  "eg-text",
  "eg-tsdb",
  "eg-types",
