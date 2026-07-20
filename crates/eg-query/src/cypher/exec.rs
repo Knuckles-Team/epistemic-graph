@@ -1087,7 +1087,12 @@ fn finalize(
     let columns: Vec<String> = items.iter().map(|i| i.column()).collect();
 
     // (cells, source-binding). The binding is kept so ORDER BY can reach an
-    // un-projected `var.prop`; aggregated rows carry an empty binding.
+    // un-projected `var.prop`; aggregated rows carry an empty binding. Only
+    // ORDER BY ever reads `.1` (via `order_value` below) — ratified two lines
+    // down, where it's the sole consumer before the final skip/take discards
+    // it — so a query without ORDER BY carries an empty `Binding` instead of
+    // cloning the (potentially multi-variable) source binding for every row.
+    let needs_binding = !ret.order_by.is_empty();
     let mut rows: Vec<(Vec<Value>, Binding)> = if items.iter().any(|i| is_agg(&i.expr)) {
         aggregate(view, &items, &bindings)
     } else {
@@ -1098,7 +1103,12 @@ fn finalize(
                     .iter()
                     .map(|i| eval_scalar(view, b, &i.expr))
                     .collect();
-                (cells, b.clone())
+                let carried = if needs_binding {
+                    b.clone()
+                } else {
+                    Binding::new()
+                };
+                (cells, carried)
             })
             .collect()
     };
@@ -2201,6 +2211,18 @@ mod tests {
         out
     }
 
+    /// Like [`ids`], but preserves row order — for asserting an `ORDER BY`
+    /// result rather than merely a result *set*.
+    fn ids_in_order(qr: &QueryResult, col: usize) -> Vec<String> {
+        qr.rows
+            .iter()
+            .map(|b| {
+                let cells: Vec<Value> = rmp_serde::from_slice(b).unwrap();
+                projected_id(&cells[col]).unwrap().to_string()
+            })
+            .collect()
+    }
+
     fn projected_id(value: &Value) -> Option<&str> {
         value
             .as_str()
@@ -2688,6 +2710,29 @@ mod tests {
         // DESC: Carol, Bob, Alice → first row is Carol.
         let qr2 = exec_cypher(&v, "MATCH (a:Person) RETURN a.name ORDER BY a.name DESC").unwrap();
         assert_eq!(cells_of(&qr2, 0)[0], Value::String("Carol".into()));
+    }
+
+    /// `ORDER BY` on a property that is NOT itself a projected column (the
+    /// projection is the bare node `a`, column name `"a"`; the sort key is
+    /// `a.name`, column name `"a.name"` — they don't match) must still resolve
+    /// via the row's carried source `Binding`, per `order_value`'s fallback to
+    /// `eval_scalar(view, &row.1, expr)`. This is the scenario `finalize()`'s
+    /// per-row binding carry-through exists for: a query WITHOUT `ORDER BY`
+    /// skips the clone entirely (an empty `Binding` is never read), but a query
+    /// WITH `ORDER BY` must still carry the real one. Ordering DESC makes a
+    /// dropped/empty binding detectable: `eval_scalar` would return `Null` for
+    /// every row, `cmp_values` would treat them all as tied, and a stable sort
+    /// would leave the label-index-order (ascending by id: alice, bob, carol)
+    /// untouched instead of reversing it.
+    #[test]
+    fn order_by_unprojected_property_resolves_via_carried_binding() {
+        let v = fixture();
+        let qr = exec_cypher(&v, "MATCH (a:Person) RETURN a ORDER BY a.name DESC").unwrap();
+        assert_eq!(
+            ids_in_order(&qr, 0),
+            vec!["carol", "bob", "alice"],
+            "ORDER BY on an unprojected property must sort via the real binding, not tie"
+        );
     }
 
     #[test]
