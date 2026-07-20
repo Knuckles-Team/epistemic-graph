@@ -1432,23 +1432,30 @@ fn cmp_values(a: &Value, b: &Value) -> Ordering {
 
 /// Node ids matching a `(var:Label)` — via the same fields the eg-core label index
 /// keys on. No label ⇒ every node.
+///
+/// Consults `view`'s memoized [`GraphView::label_index`] instead of scanning +
+/// decoding every node's property blob on every call: the O(N) decode pass now
+/// runs at most ONCE per snapshot (the first label lookup builds and caches it),
+/// and every later `(var:Label)` in the same query — a common shape across
+/// multi-hop patterns — is an O(1) map hit over already-decoded ids.
 fn label_candidates(view: &GraphView, node: &NodePat) -> Vec<String> {
     match &node.label {
         None => view.node_map.keys().cloned().collect(),
         Some(label) => view
-            .node_properties
-            .iter()
-            .filter(|(_, blob)| node_has_label(blob, label))
-            .map(|(id, _)| id.clone())
-            .collect(),
+            .label_index(build_cypher_label_index)
+            .get(label)
+            .cloned()
+            .unwrap_or_default(),
     }
 }
 
-/// Does the node `id` carry `label`?
+/// Does the node `id` carry `label`? Consults the same memoized index as
+/// [`label_candidates`] (built at most once per snapshot) instead of re-decoding
+/// `id`'s property blob on every call.
 fn node_has_label_id(view: &GraphView, id: &str, label: &str) -> bool {
-    view.node_properties
-        .get(id)
-        .is_some_and(|blob| node_has_label(blob, label))
+    view.label_index(build_cypher_label_index)
+        .get(label)
+        .is_some_and(|ids| ids.binary_search_by(|probe| probe.as_str().cmp(id)).is_ok())
 }
 
 /// Does a node's property blob carry `label` as canonical `node_type` or in the
@@ -1466,6 +1473,40 @@ fn node_has_label(blob: &[u8], label: &str) -> bool {
         }
     }
     false
+}
+
+/// Build the `label → node ids` index for [`GraphView::label_index`], keyed on
+/// EXACTLY the fields [`node_has_label`] reads (`node_type` + the `labels`
+/// array) — deliberately narrower than `GraphCore.label_index`'s `type`/
+/// `node_type`/`label`, which also serves the write path's broader contract
+/// (see `apply_merge`'s own comment on this same distinction). Consulting the
+/// memoized index therefore returns the identical candidate set the old
+/// per-call `node_has_label` scan did. Ids are sorted + deduped per label (a
+/// node matching via both `node_type` and its own `labels` array must still
+/// contribute exactly one row, matching the old scan's 1-node-1-row behavior
+/// since `node_properties` is keyed by id).
+fn build_cypher_label_index(view: &GraphView) -> HashMap<String, Vec<String>> {
+    let mut index: HashMap<String, Vec<String>> = HashMap::new();
+    for (id, blob) in &view.node_properties {
+        let Ok(val) = eg_types::msgpack::decode_property_value(blob) else {
+            continue;
+        };
+        if let Some(lbl) = val.get("node_type").and_then(|v| v.as_str()) {
+            index.entry(lbl.to_string()).or_default().push(id.clone());
+        }
+        if let Some(arr) = val.get("labels").and_then(|v| v.as_array()) {
+            for x in arr {
+                if let Some(lbl) = x.as_str() {
+                    index.entry(lbl.to_string()).or_default().push(id.clone());
+                }
+            }
+        }
+    }
+    for ids in index.values_mut() {
+        ids.sort_unstable();
+        ids.dedup();
+    }
+    index
 }
 
 /// Do node `id`'s stored properties satisfy `node`'s inline property constraints
