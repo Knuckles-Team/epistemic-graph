@@ -1526,7 +1526,7 @@ pub(crate) fn run_unified(
     // served `PlanCtx` so a served `UnifiedQuery`/`UnifiedQueryText` whose plan carries
     // `Op::RankText` or an `Op::FuseRrf` text branch gets REAL lexical scores (it
     // previously always rebuilt a throwaway index from the queried snapshot on EVERY
-    // request — the EG-P1-4 Codex gap). Preference order:
+    // request — the EG-P1-4 gap). Preference order:
     //   1. the MAINTAINED persistent per-graph `GraphTextIndex`, via `served_text`, when
     //      one is registered — no per-query rebuild, and it reflects every committed
     //      write incrementally (CONCEPT:EG-KG.storage.incremental-text);

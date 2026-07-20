@@ -1,5 +1,5 @@
 //! The first-class Test Compatibility Kit (TCK) — 12 capability points every `eg-*`
-//! modality is evaluated against (CONCEPT:E4 / EG-P1-1, Codex P1 feedback: promote
+//! modality is evaluated against (CONCEPT:E4 / EG-P1-1, P1 roadmap feedback: promote
 //! `ModalityContract` from an opt-in conformance macro to a genuine, provable,
 //! first-class TCK).
 //!

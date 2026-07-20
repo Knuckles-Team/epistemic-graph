@@ -27,7 +27,7 @@ pub mod sequence;
 pub mod subgraph;
 pub mod text;
 
-// Residual insight/mining families (Codex Gap-5): entity resolution + record
+// Residual insight/mining families (Gap-5): entity resolution + record
 // linkage, causal impact (ITS/DiD), process mining (DFG + alpha-miner-lite),
 // root-cause propagation, seeded risk propagation, ontology-gap detection,
 // retrieval quality (precision/recall/MRR), and a thin community-detection

@@ -1,5 +1,5 @@
 //! `KnowledgeBatch` — the Arrow-columnar projection of a [`KnowledgeSet`]
-//! (CONCEPT:EG-P1-2, Codex P1 feedback).
+//! (CONCEPT:EG-P1-2, P1 roadmap feedback).
 //!
 //! [`RowSet`](crate::RowSet) stays the minimal id+score closed-algebra currency
 //! (see `rowset.rs`'s module docs) and [`KnowledgeSet`] stays the row-oriented

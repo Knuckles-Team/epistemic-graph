@@ -3668,7 +3668,7 @@ pub enum Method {
         as_claim: bool,
     },
 
-    // ── Residual insight/mining families (Codex Gap-5) ──────────────────────
+    // ── Residual insight/mining families (Gap-5) ──────────────────────
     // Rounds out the mining surface begun by `MineAssociate` above with 8 more
     // families, each following the SAME shape (explicit-or-graph-derived input,
     // optional `writeback` of a typed node, optional `as_claim` epistemic
