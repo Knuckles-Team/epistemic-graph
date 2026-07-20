@@ -1,5 +1,6 @@
 ---
 name: epistemic-graph-troubleshooting
+skill_type: skill
 description: >
   Diagnose and recover a live epistemic-graph engine (the AI-native database):
   engine down / socket refused, host-daemon crash-loop, circuit-breaker open,
@@ -82,8 +83,14 @@ Prefer cycling via the **manager** (`docker service update --force`) — no dupl
 ## Confirm recovery (live UQL smoke)
 ```python
 from epistemic_graph.client import EpistemicGraphClient
+context = {
+    "principal": "ops:troubleshoot", "tenant": "__commons__", "audience": "epistemic-graph",
+    "agent_id": "ops:troubleshoot", "roles": ["graph-client"], "scopes": ["kg:read"],
+    "policy_version": "policy:initial", "delegation": [],
+}
 c = await EpistemicGraphClient.connect(
-    socket_path="/run/epistemic-graph/epistemic-graph.sock", graph_name="__commons__")
+    socket_path="/run/epistemic-graph/epistemic-graph.sock", graph_name="__commons__",
+    verified_context=context)
 print(await c.query.uql("MATCH (:Concept) |> LIMIT 1"))   # engine serves queries
 ```
 For the full surface smoke (temporal / rerank), see `scripts/promote_engine.sh --verify`

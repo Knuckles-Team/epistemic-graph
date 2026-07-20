@@ -1,5 +1,6 @@
 ---
 name: kg-modality-consensus
+skill_type: skill
 description: >-
   Operate the engine's distributed substrate — openraft consensus with automatic failover,
   multi-Raft groups, online resharding (ownership move / hibernate / rehydrate), cross-shard
@@ -44,7 +45,7 @@ or the REST twins graph-os exposes for these engine domains.
 ## Admin tier (scope-gated)
 All five domains above are classified **ADMIN** (`agent_utilities.mcp.tools.engine_tools.
 ADMIN_DOMAINS`): every action they expose is denied fail-closed to an acting identity
-that lacks the `kg:admin` scope/role (`_enforce_admin_scope`), never merely hidden.
+that lacks the `kg:admin` scope/role (`_enforce_action_scope`), never merely hidden.
 `engine_rbac`/`engine_admin` complete that ADMIN set — RBAC policy administration
 (roles + resource/action grants) and the ops backup/restore surface — so use this
 skill whenever you need to grant/revoke a role, inspect a resource's ACL, or run an

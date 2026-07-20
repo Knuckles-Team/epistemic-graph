@@ -1,5 +1,6 @@
 ---
 name: epistemic-graph-deploy
+skill_type: skill
 description: >
   Promote and deploy the epistemic-graph engine binary (the AI-native database) into the
   live Swarm fleet, and restart its clients, safely. Use when shipping a new engine build,

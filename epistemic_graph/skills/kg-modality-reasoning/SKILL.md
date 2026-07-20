@@ -1,5 +1,6 @@
 ---
 name: kg-modality-reasoning
+skill_type: skill
 description: >-
   Run OWL / rule reasoning inside the engine — OWL 2 EL⁺/RL completion, OWL-DL tableau, SWRL
   user rules, forward-chaining materialization, classification and consistency checking over
