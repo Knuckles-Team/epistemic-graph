@@ -63,8 +63,8 @@ Expect transient duplicate/zombie churn — reconcile to one healthy task (see
 `epistemic-graph-troubleshooting`). Prefer the manager path.
 
 ## Rollback
-`mv /home/apps/workspace/.venv/bin/epistemic-graph-server.bak-<ts>
-   /home/apps/workspace/.venv/bin/epistemic-graph-server` then restart the engine service.
+`mv ${WORKSPACE_ROOT}/.venv/bin/epistemic-graph-server.bak-<ts>
+   ${WORKSPACE_ROOT}/.venv/bin/epistemic-graph-server` then restart the engine service.
 
 ## Related
 - `epistemic-graph-migrations` — snapshot/redb + config/schema migrations, version flips.
