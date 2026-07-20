@@ -237,8 +237,10 @@ impl KvCacheStore {
 }
 
 // ── bearer-token auth guard (CONCEPT:EG-KG.backend.is-configured-so-co) ──────────────────────────────────────
-
-mod jwt;
+//
+// The JWT verifier itself lives in `crate::server::oidc` (feature `oidc`) —
+// shared with the primary `eg2.` protocol's identity binding, not vendored
+// here.
 
 /// A configured auth mode. JWT is preferred:
 /// [`KvAuth::Jwt`] validates a Keycloak client-credentials token (paired with the
@@ -247,7 +249,7 @@ mod jwt;
 #[derive(Clone, Debug)]
 pub enum KvAuth {
     Static(String),
-    Jwt(std::sync::Arc<jwt::JwtValidator>),
+    Jwt(std::sync::Arc<crate::server::oidc::JwtValidator>),
 }
 
 /// Require a valid `Authorization: Bearer <token>` — a static-secret match or a
@@ -643,7 +645,7 @@ pub async fn serve_with_security(
 fn resolve_auth() -> std::io::Result<KvAuth> {
     // JWT first — paired with the platform's configured OIDC provider. An issuer
     // selects JWT mode and therefore makes its audience and JWKS URL mandatory.
-    match jwt::JwtValidator::from_env() {
+    match crate::server::oidc::JwtValidator::from_env() {
         Ok(Some(validator)) => return Ok(KvAuth::Jwt(std::sync::Arc::new(validator))),
         Ok(None) => {}
         Err(message) => {

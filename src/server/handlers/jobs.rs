@@ -8,6 +8,27 @@
 //! chain — see that module's doc + `src/server/mutation.rs`'s native-coordinator
 //! inventory.
 //!
+//! ## Why this file never calls `GraphReadAuthority::filter_view`/`project_core`
+//!
+//! `handle_submit` resolves the target graph's `Arc<GraphCore>` and calls
+//! `check_graph_access(..., AccessLevel::Read)` — a COARSE, graph-LEVEL ACL
+//! check ("does this caller have any access to this graph at all?") — plus
+//! `core.version()`, used ONLY to stamp the job's immutable input-snapshot
+//! handle (CONCEPT:INT-P2-1: a client cannot forge which graph-version a job
+//! ran against). Neither is a per-row decision, and today neither NEEDS to be:
+//! [`reads_graph_rows_server_side`] is an exhaustive, no-wildcard match proving
+//! (at compile time — a new `JobKind` variant without an arm here fails to
+//! build) that no shipped `JobKind` reads a node/edge property from `core`.
+//! `MineAssociate` mines only caller-supplied `transactions`; `ProgramOptimize`
+//! submits an opaque request a REMOTE WORKER later claims and executes under
+//! its OWN independently authenticated session (see "Distributed execution
+//! contract" below) — this handler never touches the worker's read path.
+//! `handle_submit` also runtime-checks this classification (fail-closed, not a
+//! debug-only assert) before ever destructuring `kind`, so a FUTURE
+//! graph-reading `JobKind` that is marked `true` here but not yet wired
+//! through `GraphReadAuthority::project_core` is refused rather than silently
+//! served unfiltered.
+//!
 //! ## Distributed execution contract
 //!
 //! A bounded worker pool claims durable work by renewable lease and monotonically
@@ -1094,6 +1115,63 @@ async fn resolve_core_ref(
         .map(|entry| (entry.name.clone(), entry.graph_type, entry.core.clone()))
 }
 
+/// L-RLS-2 (§9 #10 next-level-analysis): does executing `kind` read graph
+/// node/edge property data server-side, and therefore need its `GraphCore`
+/// routed through [`GraphReadAuthority::project_core`]/`filter_view`
+/// (`crate::server::access`, backed by
+/// `crates/eg-core/src/isolation.rs::can_see_row`) before anything downstream
+/// inspects a row?
+///
+/// Exhaustive match, deliberately NO wildcard arm: a new `JobKind` variant
+/// that isn't given an arm here is a compile error (`E0004`), so a future
+/// graph-reading job kind cannot silently ship without an explicit decision.
+///
+/// Both current kinds read ZERO graph node/edge data server-side:
+/// - `MineAssociate` mines only the `transactions` the CALLER supplied inline
+///   in the request — each item is opaque-ref-hashed under the caller's own
+///   `owner_scope` before it ever reaches durable storage (see this file's
+///   `handle_submit`, the `JobKind::MineAssociate` arm).
+/// - `ProgramOptimize` submits an opaque `OptimizationRequest`; the actual
+///   optimization work is claimed and executed later by a remote worker under
+///   its OWN independently authenticated session (see the module doc's
+///   "Distributed execution contract") — this handler never reads graph rows
+///   on that worker's behalf.
+///
+/// `handle_submit` calls this BEFORE it does anything else with `kind`, and
+/// fails closed (an error response, not a debug-only assert) if a future
+/// variant is marked `true` here without also being wired through
+/// `project_core` — see that call site.
+fn reads_graph_rows_server_side(kind: &JobKind) -> bool {
+    match kind {
+        JobKind::MineAssociate { .. } => false,
+        #[cfg(feature = "program-optimization")]
+        JobKind::ProgramOptimize { .. } => false,
+    }
+}
+
+#[cfg(test)]
+mod read_rls_tests {
+    use super::*;
+
+    /// Locks in TODAY's classification for both currently-shipped kinds, so a
+    /// future change that flips one to graph-row-reading is a visible,
+    /// intentional diff here — not just a silent behavior change caught only
+    /// by `reads_graph_rows_server_side`'s own compile-time exhaustiveness.
+    #[test]
+    fn no_shipped_job_kind_reads_graph_rows_server_side_today() {
+        assert!(!reads_graph_rows_server_side(&JobKind::MineAssociate {
+            transactions: vec![],
+            min_support: 0.1,
+            min_confidence: 0.5,
+            algorithm: "fpgrowth".to_string(),
+        }));
+        #[cfg(feature = "program-optimization")]
+        assert!(!reads_graph_rows_server_side(&JobKind::ProgramOptimize {
+            request_msgpack: Vec::new(),
+        }));
+    }
+}
+
 async fn handle_submit(
     state: &Arc<RwLock<ServerState>>,
     store: &Arc<JobStore>,
@@ -1143,6 +1221,20 @@ async fn handle_submit(
     // graph's OCC version, never accepted from the caller (CONCEPT:INT-P2-1: a
     // client cannot forge which graph-version a job ran against).
     let snapshot_version = core.version();
+
+    // L-RLS-2 (§9 #10 next-level-analysis): fail closed, not merely document,
+    // if a future JobKind is classified as graph-row-reading. No shipped kind
+    // reaches this branch today (see `reads_graph_rows_server_side`'s own
+    // exhaustive match); a kind that DOES need row data must be wired through
+    // `GraphReadAuthority::project_core` before this point, then this function
+    // updated to return `true` for it — never the reverse order.
+    if reads_graph_rows_server_side(&kind) {
+        return Response::err(
+            req_id,
+            "INTERNAL: this JobKind is classified as reading graph rows server-side, \
+             but handle_submit has no per-row RLS projection wired for it yet",
+        );
+    }
 
     let invalid_placement_value =
         |value: &str| value.len() > 128 || value.chars().any(char::is_control);
