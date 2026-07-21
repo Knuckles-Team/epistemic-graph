@@ -113,6 +113,38 @@ pub(crate) fn user_table_store(
     Ok(store)
 }
 
+fn context_cache_registry(
+) -> &'static Mutex<HashMap<String, std::sync::Arc<eg_query::SqlContextCache>>> {
+    static CACHES: OnceLock<Mutex<HashMap<String, std::sync::Arc<eg_query::SqlContextCache>>>> =
+        OnceLock::new();
+    CACHES.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Resolve the ONE served-path whole-`SessionContext` cache (CONCEPT:EG-KG.query.served-context-cache) for
+/// `authority`'s owner-scoped SQL catalog — keyed by the SAME owner-hash registry
+/// key [`user_table_store`] uses, so repeated served SQL reads from the SAME
+/// tenant+actor reuse the SAME `SqlContextCache` instance (the entire point:
+/// amortizing the `SessionContext` build ACROSS requests, not just within one). A
+/// fresh, empty cache the first time this owner ever runs a served SQL read.
+pub(crate) fn sql_context_cache(
+    authority: &CarrierAuthority,
+    persist_dir: Option<&Path>,
+) -> Result<std::sync::Arc<eg_query::SqlContextCache>, String> {
+    let persist_dir = persist_dir.ok_or_else(|| {
+        "owner-scoped SQL catalog requires the configured persistence directory".to_string()
+    })?;
+    let key = registry_key(&store_path(authority, persist_dir));
+    let mut caches = context_cache_registry()
+        .lock()
+        .map_err(|_| "owner-scoped SQL context cache registry is unavailable".to_string())?;
+    if let Some(cache) = caches.get(&key) {
+        return Ok(cache.clone());
+    }
+    let cache = std::sync::Arc::new(eg_query::SqlContextCache::new());
+    caches.insert(key, cache.clone());
+    Ok(cache)
+}
+
 #[cfg(test)]
 pub(crate) fn test_persist_dir() -> PathBuf {
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);

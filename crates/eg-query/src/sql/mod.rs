@@ -84,8 +84,9 @@ pub use classify::{
 pub use exec::{
     default_spill_rows, exec_sql, exec_sql_arrow, exec_sql_arrow_cancellable, exec_sql_cached,
     exec_sql_over_tables, exec_sql_typed, exec_sql_typed_cancellable, exec_sql_typed_with_tables,
-    exec_sql_typed_with_tables_cancellable, CancellationToken, PgColType, QueryResult,
-    StreamOutcome, TypedColumn, TypedQueryResult,
+    exec_sql_typed_with_tables_cached_cancellable, exec_sql_typed_with_tables_cancellable,
+    CancellationToken, PgColType, QueryResult, SqlContextCache, StreamOutcome, TypedColumn,
+    TypedQueryResult,
 };
 // CONCEPT:EG-KG.query.postgres-family-extension-plan/116/117/119 — Postgres-family extension parity plans + planners.
 pub use pgfamily::{

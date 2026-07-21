@@ -8,7 +8,8 @@
 //! `spawn_blocking` (the `compute_off_lock` idiom), so no DataFusion work ever runs
 //! on a reactor worker.
 
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 use arrow::array::Array;
 use arrow::datatypes::SchemaRef;
@@ -433,7 +434,7 @@ pub enum PgColType {
 
 /// One typed result column: its name plus the pg-mappable type inferred from the
 /// Arrow result schema.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TypedColumn {
     pub name: String,
     pub ty: PgColType,
@@ -444,6 +445,9 @@ pub struct TypedColumn {
 /// `DataRow`s. Reuses the SAME DataFusion exec path as [`exec_sql`]; the only
 /// difference is it surfaces the Arrow column types and hands back JSON cells
 /// instead of MessagePack blobs (no wire-protocol re-encode needed downstream).
+/// `Debug`/`PartialEq` (CONCEPT:EG-KG.query.served-context-cache) let a test assert two runs —
+/// e.g. the cached vs. the uncached SQL context path — produced an IDENTICAL result.
+#[derive(Debug, Clone, PartialEq)]
 pub struct TypedQueryResult {
     pub columns: Vec<TypedColumn>,
     pub rows: Vec<Vec<serde_json::Value>>,
@@ -570,6 +574,314 @@ pub fn exec_sql_cached(
         sql,
         &CancellationToken::new(),
     )
+}
+
+// ── whole-`SessionContext` cache for the served SQL read path (CONCEPT:EG-KG.query.served-context-cache) ──
+//
+// `run`/`run_typed`/`run_arrow` (via `build_ctx` + `register_views` +
+// `register_system_catalogs`) rebuild the ENTIRE `SessionContext` from scratch on
+// EVERY call: ~20 UDF/UDAF/UDTF registrations, re-parsing + re-planning EVERY
+// durable view's SQL, resynthesizing the system catalogs, and (in the callers that
+// don't already share one) a fresh `tokio::runtime::Builder::new_current_thread()`
+// built + torn down per call. None of that depends on the QUERY TEXT — only on the
+// graph's row/topology snapshot, the SQL-domain catalog (tables/views/functions/
+// indexes), and the caller's RLS visibility. [`SqlContextCache`] amortizes it: a
+// repeat call sharing the same [`SqlContextEpoch`] reuses the already-built,
+// already-registered context instead of redoing any of that work.
+//
+// This is a NEW, served-path-ONLY entry point
+// ([`exec_sql_typed_with_tables_cached_cancellable`]) alongside — not replacing —
+// [`exec_sql_typed_with_tables_cancellable`]; every existing caller (the embedded
+// API, the write-path's internal reads, every pre-existing test) is unchanged.
+
+/// The cache key a served SQL context is safely amortized under. Two calls with an
+/// IDENTICAL epoch are guaranteed to see the SAME `nodes`/`edges`/user-table DATA
+/// and the SAME view/function/index/extension/hypertable CATALOG — each field below
+/// closes one specific mutation surface; see its own doc. Correctness rule: when in
+/// doubt about whether something changed, the field must change too (a false MISS
+/// only costs a rebuild; a false HIT would serve a stale or cross-agent result).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct SqlContextEpoch {
+    /// `TableStore` is one durable redb file PER (tenant, actor) (owner-scoped
+    /// catalogs — see `server::sql_tables::user_table_store`) — folding tenant into
+    /// the key makes a same-shaped key from two DIFFERENT tenants' stores
+    /// structurally impossible to collide on, rather than merely unlikely.
+    tenant: String,
+    /// `GraphCore::version()` is PER-GRAPH, not global (CONCEPT:EG-KG.txn.multi-op-occ-acid) — the bare
+    /// version number alone is not a unique key across two different graphs
+    /// sitting at the same version, so the graph name itself is part of the key.
+    graph: String,
+    /// `GraphCore::version()` at snapshot time — bumps on every committed node/edge
+    /// mutation (`AddNode`/`RemoveNode`/`AddEdge`/`RemoveEdge`/property writes,
+    /// INCLUDING a node's `_owner`/`_visibility`/`_grants` RLS tags, since those are
+    /// ordinary node properties). Closes: graph row/topology changes.
+    graph_version: u64,
+    /// [`TableStore::catalog_fingerprint`] — a hash over EVERY durable SQL-domain
+    /// OCC counter the store holds, across every scope any served write path uses
+    /// (see that method's own doc for exactly why "every scope", not one). Closes:
+    /// `CREATE|DROP|ALTER TABLE`, `CREATE|DROP VIEW`, `CREATE|DROP FUNCTION`,
+    /// `CREATE|DROP EXTENSION`, `CREATE INDEX` (pgvector ANN registration),
+    /// `CREATE HYPERTABLE`, and `INSERT`/`UPDATE`/`DELETE` on a user table —
+    /// everything `register_views`, `materialize_user_tables`, and the
+    /// system-catalog synthesis read.
+    catalog_fingerprint: u64,
+    /// The requesting agent id `IsolationLayer::filter_view` filtered `view`
+    /// against BEFORE it ever reached this module (every served caller applies RLS
+    /// first — see `server::handlers::query`'s `Method::Sql` read arm).
+    /// `nodes`/`edges`/the planned views/the `pagerank`/`betweenness` UDTFs are ALL
+    /// built from that already-filtered snapshot, so two different callers'
+    /// contexts are NEVER interchangeable even at an otherwise-identical
+    /// graph/catalog epoch — omitting this field would let one agent's
+    /// row-filtered `nodes` table leak to a different agent through a shared cache
+    /// entry. Mirrors `server::handlers::query::rls_cache_hash`'s identical
+    /// `caller`-salting discipline for the served `UnifiedQuery` result cache (the
+    /// one KNOWN, already-accepted residual gap that discipline carries — and this
+    /// cache inherits unchanged, not newly — is a caller's EFFECTIVE visibility
+    /// changing via `RegisterIdentity`/`RbacAdmin` with NO graph or catalog write in
+    /// between; there is no existing isolation-policy epoch counter to close it, and
+    /// this module cannot see `IsolationLayer` at all — see the crate-level report
+    /// for the full accounting).
+    caller: String,
+}
+
+/// Bound on [`SqlContextCache`]'s resident entries — otherwise a cache holding one
+/// entry per distinct (tenant, graph, caller) triple could grow without bound under
+/// many-agent traffic. Overridable via `EPISTEMIC_GRAPH_SQL_CONTEXT_CACHE_SIZE`.
+fn max_cached_contexts() -> usize {
+    std::env::var("EPISTEMIC_GRAPH_SQL_CONTEXT_CACHE_SIZE")
+        .ok()
+        .and_then(|s| s.trim().parse::<usize>().ok())
+        .filter(|&n| n > 0)
+        .unwrap_or(64)
+}
+
+/// Amortized whole-`SessionContext` cache for the served SQL read path. Mirrors
+/// [`SqlCache`]'s staleness discipline (version/epoch-keyed, build OUTSIDE the
+/// lock, replace inside it, never serve a mismatched key) but does NOT literally
+/// compose an [`SqlCache`] instance for the `nodes`/`edges` half — see
+/// [`Self::get_or_build`]'s doc for exactly why that specific reuse would be
+/// unsafe here, discovered by this cache's own invalidation tests. Caches the
+/// fully built + registered [`BuiltCtx`] (UDFs/UDAFs/UDTFs, planned durable views,
+/// synthesized system catalogs) keyed by [`SqlContextEpoch`].
+pub struct SqlContextCache {
+    contexts: Mutex<HashMap<SqlContextEpoch, Arc<BuiltCtx>>>,
+    hits: std::sync::atomic::AtomicU64,
+    misses: std::sync::atomic::AtomicU64,
+}
+
+impl Default for SqlContextCache {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl SqlContextCache {
+    pub fn new() -> Self {
+        Self {
+            contexts: Mutex::new(HashMap::new()),
+            hits: std::sync::atomic::AtomicU64::new(0),
+            misses: std::sync::atomic::AtomicU64::new(0),
+        }
+    }
+
+    /// `(hits, misses)` since construction — observability, and the exact hook the
+    /// invalidation tests below assert against to prove a call actually reused (or
+    /// actually rebuilt) the cached context, not just that the RESULT happened to
+    /// look right.
+    pub fn stats(&self) -> (u64, u64) {
+        (
+            self.hits.load(std::sync::atomic::Ordering::Relaxed),
+            self.misses.load(std::sync::atomic::Ordering::Relaxed),
+        )
+    }
+
+    /// Return the built context for `epoch`, rebuilding (and caching) it when
+    /// absent. The build itself — `build_ctx` + `register_views` +
+    /// `register_system_catalogs`, all async (a view's SELECT is planned via
+    /// `ctx.sql(...).await`) — runs OUTSIDE the lock, the SAME discipline
+    /// `SqlCache::tables_at` uses: a concurrent request for a DIFFERENT epoch never
+    /// blocks on this one's build. Two concurrent misses for the SAME epoch may
+    /// both build (last insert wins); both callers still get a valid, correctly
+    /// built context for that epoch — the identical race tolerance
+    /// `SqlCache::tables_at` already accepts.
+    ///
+    /// Deliberately does NOT call [`SqlCache::tables_at`] here (an earlier version
+    /// of this cache did, and its OWN invalidation test caught the bug):
+    /// `tables_at` is keyed on `version: u64` ALONE, which is only a safe cache key
+    /// when a given version always corresponds to the SAME `view` content —
+    /// TRUE for `exec_sql_cached`'s callers (never caller/RLS-aware), but FALSE
+    /// here, where `view` is ALREADY caller-filtered and two different callers can
+    /// legitimately share a `graph_version` while their view CONTENT differs. Two
+    /// different callers sharing one `SqlCache` instance at the same version would
+    /// silently hand caller B caller A's (already RLS-filtered) `nodes`/`edges`
+    /// batch. Instead, `nodes`/`edges` are inferred fresh on every genuine EPOCH
+    /// miss — safe because the epoch (which DOES include `caller`) is what gates
+    /// reuse, not a narrower sub-key.
+    async fn get_or_build(
+        &self,
+        epoch: SqlContextEpoch,
+        snap: Arc<GraphView>,
+        view: &GraphView,
+        store: &TableStore,
+    ) -> Result<Arc<BuiltCtx>, String> {
+        if let Some(hit) = self.contexts.lock().unwrap().get(&epoch).cloned() {
+            self.hits.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            return Ok(hit);
+        }
+        self.misses
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+        let nodes = infer_nodes(view)?;
+        let edges = infer_edges(view)?;
+        let user = materialize_user_tables(store)?;
+        let views = store.list_views()?;
+        let functions = store.list_functions()?;
+        let built = build_ctx(snap, nodes, edges, user)?;
+        register_views(&built.ctx, &views, &functions).await?;
+        register_system_catalogs(
+            &built.ctx,
+            &built.nodes_schema,
+            &built.edges_schema,
+            &built.user_relations,
+            &views,
+            &functions,
+        )
+        .await?;
+        let built = Arc::new(built);
+
+        let mut guard = self.contexts.lock().unwrap();
+        // Crude-but-correct bound: clear the WHOLE map on overflow rather than
+        // tracking per-entry recency. An extra miss only costs a rebuild; a buggy
+        // eviction policy could serve the wrong epoch's context — simplicity here
+        // is a correctness choice, not a shortcut.
+        if guard.len() >= max_cached_contexts() && !guard.contains_key(&epoch) {
+            guard.clear();
+        }
+        guard.insert(epoch, built.clone());
+        Ok(built)
+    }
+}
+
+thread_local! {
+    /// One lazily-built `current_thread` Tokio runtime PER blocking-pool OS thread,
+    /// reused across every [`exec_sql_typed_with_tables_cached_cancellable`] call
+    /// that happens to land on that thread — instead of building + tearing one down
+    /// per call. Safe because: (1) the runtime holds no query-specific state, only
+    /// an executor — each call's `block_on` future runs to completion before the
+    /// next one starts, so there is nothing for one call to leak into the next; (2)
+    /// `thread_local` gives each OS thread its OWN runtime, so there is no
+    /// cross-thread sharing/contention to reason about; (3) `.block_on()` is only
+    /// ever invoked from the thread that owns this cell, never nested — identical to
+    /// the existing per-call `Builder::new_current_thread()...build()` idiom the
+    /// REST of this file uses; this only changes WHEN the runtime is constructed,
+    /// never who drives it or how.
+    static SQL_EXEC_RUNTIME: std::cell::RefCell<Option<tokio::runtime::Runtime>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Run `f` against this thread's lazily-built, reused current-thread runtime.
+fn with_thread_runtime<T>(f: impl FnOnce(&tokio::runtime::Runtime) -> T) -> Result<T, String> {
+    SQL_EXEC_RUNTIME.with(|cell| {
+        let mut slot = cell.borrow_mut();
+        if slot.is_none() {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(|e| format!("runtime build: {e}"))?;
+            *slot = Some(rt);
+        }
+        Ok(f(slot.as_ref().expect("just ensured Some above")))
+    })
+}
+
+/// Conservative predicate: could `sql` trigger [`apply_ann_pushdown`] against
+/// `ann_indexes`? A durable ANN index's top-k pushdown narrows `nodes`/a user table
+/// to a slice specific to THIS query's vector + k — that result is per-QUERY, not
+/// per-epoch, so a query this returns `true` for must never be served from
+/// [`SqlContextCache`]. Deliberately over-approximates (checks only the cheap,
+/// side-effect-free PREFIX of `apply_ann_pushdown`'s own conditions — index
+/// non-empty, a covering `ORDER BY <->/<=>/<#> ... LIMIT` shape parses, no `WHERE`):
+/// a query this flags that `apply_ann_pushdown` would ultimately no-op on anyway (an
+/// unresolved bind placeholder, no matching index config, or `topk_slice` declining)
+/// just falls back to the slower uncached path for nothing — never a correctness
+/// bug. `false` is the one case this predicate must get exactly right.
+fn ann_pushdown_may_apply(sql: &str, ann_indexes: &[AnnIndexPlan]) -> bool {
+    !ann_indexes.is_empty()
+        && plan_ann_search(sql, ann_indexes).is_some()
+        && !super::ann::sql_has_where(sql)
+}
+
+/// As [`exec_sql_typed_with_tables_cancellable`], but amortizing the WHOLE
+/// `SessionContext` build across every call that shares an identical
+/// [`SqlContextEpoch`] (CONCEPT:EG-KG.query.served-context-cache — the served-path context cache).
+///
+/// `graph_version` MUST be the version `view` was snapshotted at
+/// (`GraphCore::analysis_snapshot_versioned`, taken atomically with the snapshot so
+/// the two can never drift out of sync); `tenant`/`graph` identify the epoch's
+/// tenant + graph; `caller` is the agent id `view` was ALREADY `filter_view`d for by
+/// the caller of this function (this function does not filter anything itself — it
+/// trusts `view` exactly like [`exec_sql_typed_with_tables_cancellable`] already
+/// does).
+///
+/// Falls back to the byte-identical UNCACHED path for the two shapes a cached
+/// context cannot safely serve: a bare `plpgsql` call (handled entirely before any
+/// context would be built) and a query [`ann_pushdown_may_apply`] to (its top-k
+/// slice is per-query, not per-epoch).
+#[allow(clippy::too_many_arguments)]
+pub fn exec_sql_typed_with_tables_cached_cancellable(
+    view: &GraphView,
+    graph_version: u64,
+    tenant: &str,
+    graph: &str,
+    caller: &str,
+    store: &TableStore,
+    cache: &SqlContextCache,
+    sql: &str,
+    cancel: &CancellationToken,
+) -> Result<TypedQueryResult, String> {
+    // plpgsql calls run through the procedural interpreter, never through a
+    // SessionContext at all — identical short-circuit to the uncached entry point,
+    // which this delegates to unchanged.
+    let functions = store.list_functions()?;
+    if functions.iter().any(|f| f.is_plpgsql()) {
+        return exec_sql_typed_with_tables_cancellable(view, store, sql, cancel);
+    }
+    // A durable ANN index covering this exact query shape narrows `nodes`/a user
+    // table to a query-specific top-k slice — per-query, never cacheable. Delegate
+    // to the unchanged uncached path.
+    let ann_indexes = store.list_ann_indexes()?;
+    if ann_pushdown_may_apply(sql, &ann_indexes) {
+        return exec_sql_typed_with_tables_cancellable(view, store, sql, cancel);
+    }
+
+    let epoch = SqlContextEpoch {
+        tenant: tenant.to_string(),
+        graph: graph.to_string(),
+        graph_version,
+        catalog_fingerprint: store.catalog_fingerprint()?,
+        caller: caller.to_string(),
+    };
+
+    // Same pre-plan SQL-text transforms `run_typed` applies, in the same order —
+    // strip the `pg_catalog.` function qualifier, expand stored SQL functions, then
+    // desugar the pgvector operators. None of these depend on the epoch.
+    let sql_text = super::catalog::strip_pg_catalog_fn_qualifier(sql);
+    let sql_text = super::funcs::expand_functions(&sql_text, &functions)?;
+    let sql_text = super::classify::desugar_vector_ops(&sql_text);
+    let snap = Arc::new(view.clone());
+
+    with_thread_runtime(|rt| {
+        rt.block_on(async move {
+            let built = cache.get_or_build(epoch, snap, view, store).await?;
+            let df = built
+                .ctx
+                .sql(&sql_text)
+                .await
+                .map_err(|e| format!("sql: {e}"))?;
+            let batches = collect_default(df, cancel).await?;
+            batches_to_typed(&batches)
+        })
+    })?
 }
 
 /// The materialized `SessionContext` plus the live-relation Arrow schemas the
@@ -1453,6 +1765,68 @@ mod streaming_tests {
         assert!(
             tok.is_cancelled(),
             "cancel on a clone must be observed on every other clone (shared flag)"
+        );
+    }
+}
+
+// ── SqlContextEpoch / ann_pushdown_may_apply unit tests (CONCEPT:EG-KG.query.served-context-cache) ──
+//
+// The end-to-end invalidation proofs (view add/alter/drop, epoch isolation across
+// graph-version AND caller, cached-vs-uncached parity, the cross-scope-commit gap)
+// live in `tests/sql_context_cache_invalidation.rs` — a crate-level integration
+// test, since they need a real `TableStore` + `MutationBatch` commit path. This
+// module covers the one PURE, side-effect-free predicate `SqlContextCache`'s
+// caller introduces: `ann_pushdown_may_apply`.
+#[cfg(test)]
+mod sql_context_cache_unit_tests {
+    use super::*;
+    use crate::sql::pgfamily::{AnnMethod, VectorMetric};
+
+    fn idx() -> AnnIndexPlan {
+        AnnIndexPlan {
+            name: None,
+            table: "nodes".to_string(),
+            column: "embedding".to_string(),
+            method: AnnMethod::Hnsw,
+            metric: VectorMetric::L2,
+            if_not_exists: false,
+        }
+    }
+
+    /// `false` is the one answer [`ann_pushdown_may_apply`] must get exactly right
+    /// (a `true` that turns out unnecessary just costs a slower uncached fallback;
+    /// a `false` that should have been `true` would let a query-specific top-k
+    /// slice be cached and served to a LATER, differently-shaped query). The
+    /// positive ("does flag a genuinely covering query") case is deliberately NOT
+    /// asserted here: it depends on `plan_ann_search` itself recognizing the SQL
+    /// shape, which is CURRENTLY BROKEN on this branch for reasons unrelated to
+    /// this cache — `sql::pgfamily::tests::eg116_ann_pushdown_chooses_ann_when_index_present`
+    /// (pre-existing, untouched by this change, using the identical query shape)
+    /// already fails the SAME way on a clean checkout. `ann_pushdown_may_apply`
+    /// only ever WEAKENS as `plan_ann_search` weakens (fewer bypasses, never more
+    /// unsafe caching), so this is a known, cited, pre-existing gap this task did
+    /// not introduce and is out of scope to fix — not a silently assumed pass.
+    #[test]
+    fn ann_pushdown_predicate_is_false_for_every_non_covering_shape() {
+        let indexes = vec![idx()];
+        assert!(
+            !ann_pushdown_may_apply(
+                "SELECT id FROM nodes ORDER BY embedding <-> '[1,2,3]' LIMIT 5",
+                &[],
+            ),
+            "no registered ANN index at all must never flag (nothing to push down)"
+        );
+        assert!(
+            !ann_pushdown_may_apply(
+                "SELECT id FROM nodes WHERE id = 'x' ORDER BY embedding <-> '[1,2,3]' LIMIT 5",
+                &indexes,
+            ),
+            "a WHERE clause changes pgvector semantics (filter THEN rank) -- never pushed \
+             down, so never cache-bypassed either"
+        );
+        assert!(
+            !ann_pushdown_may_apply("SELECT id FROM nodes", &indexes),
+            "an ordinary query with no vector ORDER BY at all must never flag"
         );
     }
 }
