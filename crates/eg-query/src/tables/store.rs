@@ -1114,6 +1114,52 @@ impl TableStore {
         Ok(version)
     }
 
+    /// A single fingerprint over EVERY durable SQL-domain OCC counter this store
+    /// currently holds, across every `(tenant, scope)` entry in [`MUTATION_VERSION`]
+    /// -- not just one caller-named scope. [`Self::mutation_version`] reads ONE
+    /// `(tenant, graph)` counter; a served SQL write always bumps SOME entry in this
+    /// table on commit (`commit_txn`/`commit_txn_batch`/`commit_txn_batch_result`,
+    /// the SQL-catalog gateway every `CREATE|DROP|ALTER TABLE|VIEW|FUNCTION|
+    /// EXTENSION`, `CREATE INDEX`, `CREATE HYPERTABLE`, and user-table
+    /// `INSERT|UPDATE|DELETE` route through) -- but NOT always under the literal
+    /// `graph` name a caller happens to be asking about: the sqlite-import gateway
+    /// (`src/server/handlers/sqlite_file.rs::compile_import_batch`) commits under a
+    /// FIXED cross-graph scope (`authority.namespace("sqlite-import",
+    /// "global-user-tables")`), independent of whichever graph issued the import.
+    /// A cache keyed on `mutation_version(tenant, graph)` alone would miss that
+    /// commit and serve a stale (pre-import) user-table batch. Scanning every scope
+    /// closes that gap AND is future-proof: a new write path introduced later that
+    /// picks yet another scope string is still covered automatically, with no
+    /// caller-side list of "every scope name in use" to keep in sync.
+    ///
+    /// Cheap: distinct scopes per store are small (one per graph the tenant has run
+    /// `Method::Sql`/pgwire DDL/DML against, plus a handful of fixed cross-graph
+    /// scopes like the sqlite-import one) -- a full scan of this table is a tiny
+    /// fraction of the cost `register_views`/`register_system_catalogs` amortize
+    /// away. Deterministic (redb's `iter()` yields keys in sorted order): the same
+    /// stored state always hashes to the same fingerprint, and ANY row added or
+    /// changed changes it (a version only ever increases monotonically per scope,
+    /// and scopes are only ever added, never removed, so the fingerprint can never
+    /// coincidentally repeat a prior value after a real commit).
+    pub fn catalog_fingerprint(&self) -> Result<u64, String> {
+        use std::hash::{Hash, Hasher};
+        let rtx = self.db.begin_read().map_err(map_err)?;
+        let table = match rtx.open_table(MUTATION_VERSION) {
+            Ok(table) => table,
+            Err(redb::TableError::TableDoesNotExist(_)) => return Ok(0),
+            Err(error) => return Err(map_err(error)),
+        };
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        for row in table.iter().map_err(map_err)? {
+            let (key, value) = row.map_err(map_err)?;
+            let (tenant, scope) = key.value();
+            tenant.hash(&mut hasher);
+            scope.hash(&mut hasher);
+            value.value().hash(&mut hasher);
+        }
+        Ok(hasher.finish())
+    }
+
     /// Read durable SQL-domain batch status/result for retry and restart recovery.
     pub fn mutation_batch(&self, batch_id: &str) -> Result<Option<MutationBatchRecord>, String> {
         let rtx = self.db.begin_read().map_err(map_err)?;
@@ -3116,5 +3162,58 @@ mod tests {
         assert!(replay.replayed);
         assert_eq!(reopened.list_tables().unwrap(), vec!["metrics".to_string()]);
         assert_eq!(reopened.mutation_outbox(&batch.batch_id).unwrap().len(), 2);
+    }
+
+    /// L-RLS-1-adjacent (WS-H, the served SQL context cache): [`TableStore::catalog_fingerprint`]
+    /// must change on EVERY committed SQL-domain write, regardless of which `(tenant,
+    /// scope)` pair the write's `MutationBatch` used -- not just the one a caller
+    /// happens to be asking about. `mutation_version("tenant-a", "graph-a")` alone
+    /// would miss a commit under a DIFFERENT scope string entirely (the exact shape
+    /// `src/server/handlers/sqlite_file.rs`'s sqlite-import gateway uses: a fixed
+    /// cross-graph scope independent of the calling graph) -- proving the fingerprint
+    /// closes that gap is the whole point of scanning every row instead of one key.
+    #[test]
+    fn catalog_fingerprint_changes_on_any_scope_commit_and_is_deterministic() {
+        let (store, _p) = TableStore::open_temp().unwrap();
+        let empty = store.catalog_fingerprint().unwrap();
+        // Determinism: re-reading with no intervening write returns the identical value.
+        assert_eq!(store.catalog_fingerprint().unwrap(), empty);
+
+        // A commit under "graph-a" (sql_batch's default scope) changes the fingerprint.
+        let batch_a = sql_batch("fp-a");
+        store
+            .commit_txn_batch(&create_metrics_txn(), &batch_a, 101)
+            .unwrap();
+        let after_a = store.catalog_fingerprint().unwrap();
+        assert_ne!(
+            after_a, empty,
+            "a committed CREATE TABLE must change the fingerprint"
+        );
+        assert_eq!(
+            store.catalog_fingerprint().unwrap(),
+            after_a,
+            "re-reading with no intervening write is deterministic"
+        );
+
+        // A SECOND commit under a DIFFERENT scope string ("graph-b" -- standing in for
+        // the sqlite-import gateway's fixed cross-graph scope, which is never the
+        // literal calling graph) must ALSO change the fingerprint: this is the
+        // property `mutation_version(tenant, ONE_graph)` cannot offer on its own.
+        let mut batch_b = sql_batch("fp-b");
+        batch_b.graph = "graph-b".to_string();
+        batch_b.idempotency_key = "idem-fp-b".to_string();
+        let mut txn_b = TableTxn::new();
+        txn_b.push(TxnOp::CreateTable {
+            schema: TableSchema::new("other_table", vec![col("value", ColumnType::Text, false)]),
+            if_not_exists: false,
+        });
+        store.commit_txn_batch(&txn_b, &batch_b, 102).unwrap();
+        let after_b = store.catalog_fingerprint().unwrap();
+        assert_ne!(
+            after_b, after_a,
+            "a committed write under a DIFFERENT scope string must ALSO change the \
+             fingerprint -- a cache keyed on only ONE scope's mutation_version would \
+             silently miss this commit"
+        );
     }
 }

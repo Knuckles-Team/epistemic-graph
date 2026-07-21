@@ -192,11 +192,30 @@ pub(crate) async fn try_handle(
                     // Read (or an unparseable statement — exec surfaces the precise
                     // parse error). RLS-filter the off-lock snapshot to the caller's
                     // visible rows BEFORE execution so a SELECT cannot exfiltrate a
-                    // forbidden row.
+                    // forbidden row. `analysis_snapshot_versioned` (not the bare
+                    // `analysis_snapshot`) so the OCC version used to key the served
+                    // context cache below is taken ATOMICALLY with the snapshot it
+                    // describes — they can never drift apart.
                     #[cfg_attr(not(feature = "security"), allow(unused_mut))]
-                    let mut snap = core.analysis_snapshot();
+                    let (mut snap, graph_version) = core.analysis_snapshot_versioned();
                     #[cfg(feature = "security")]
                     rls.filter_view(caller, &mut snap);
+                    // CONCEPT:EG-KG.query.served-context-cache — the whole-`SessionContext` cache (UDFs,
+                    // durable views, synthesized system catalogs), amortized across every
+                    // served SQL read for this owner. One instance PER owner-scoped SQL
+                    // catalog (the same registry key `user_table_store` resolves `store`
+                    // by), so repeated calls from the SAME tenant+actor actually reuse
+                    // it — not just within one request.
+                    let context_cache = match crate::server::sql_tables::sql_context_cache(
+                        authority,
+                        persist_dir.as_deref().map(std::path::Path::new),
+                    ) {
+                        Ok(c) => c,
+                        Err(e) => return Ok(Response::err(req_id, format!("SQL error: {e}"))),
+                    };
+                    let tenant_scope = authority.tenant_scope().to_string();
+                    let graph_name_owned = graph_name.to_string();
+                    let caller_owned = caller.to_string();
                     // L36 (CONCEPT:EG-KG.query.streaming-spillable-collect) — a REAL, request-scoped
                     // `CancellationToken`: registered under THIS request's `req_id` for the
                     // duration of the call so an explicit client `Method::CancelRequest` or a
@@ -212,9 +231,14 @@ pub(crate) async fn try_handle(
                     let timeout_task = crate::server::request_cancel::spawn_timeout(cancel.clone());
                     let cancel_for_task = cancel.clone();
                     let resp = match compute_off_lock(req_id, move || {
-                        eg_query::exec_sql_typed_with_tables_cancellable(
+                        eg_query::exec_sql_typed_with_tables_cached_cancellable(
                             &snap,
+                            graph_version,
+                            &tenant_scope,
+                            &graph_name_owned,
+                            &caller_owned,
                             &store,
+                            &context_cache,
                             &query,
                             &cancel_for_task,
                         )

@@ -811,17 +811,21 @@ impl WireSession {
 
     /// Execute a read (`SELECT`/`WITH`/…) over `graph` by reusing the EXACT
     /// DataFusion path `Method::Sql` uses: take the owned off-lock
-    /// `analysis_snapshot()` and run `eg_query::exec_sql_typed` on the blocking
-    /// pool (DataFusion's executor must not run on a reactor worker).
+    /// `analysis_snapshot()` and run the served, context-cached SQL exec on the
+    /// blocking pool (DataFusion's executor must not run on a reactor worker).
     pub(crate) async fn run_read(&self, graph: &str, sql: String) -> WireResult<TypedQueryResult> {
         let core = self.graph_core(graph).await?;
-        let mut snap = core.analysis_snapshot();
+        // `analysis_snapshot_versioned` (not the bare `analysis_snapshot`) so the OCC
+        // version keying the served context cache below is taken ATOMICALLY with the
+        // snapshot it describes.
+        let (mut snap, graph_version) = core.analysis_snapshot_versioned();
+        let in_txn = self.in_txn();
         // CONCEPT:EG-KG.compute.kg-transaction-is-pinned — read-your-own-writes: overlay this connection's buffered
         // graph-node ops onto the snapshot so a SELECT (or a candidate-id / RETURNING
         // read) issued INSIDE an open transaction observes the transaction's own
         // uncommitted inserts/updates/deletes. Off-txn reads are byte-for-byte
         // unchanged (the buffer is empty).
-        if self.in_txn() {
+        if in_txn {
             self.apply_node_buffer(&mut snap);
         }
         #[cfg(feature = "security")]
@@ -829,8 +833,50 @@ impl WireSession {
         // CONCEPT:EG-KG.query.register-user-tables-alongside: register the user tables alongside the graph projection so a
         // SELECT can read a user table, JOIN it to `nodes`/`edges`, or both in ONE plan.
         let store = self.user_table_store().await?;
+
+        // An in-txn overlaid snapshot carries THIS connection's own buffered
+        // (uncommitted) writes — content [`SqlContextEpoch`] cannot see (staged
+        // writes don't bump `version()`), so it must never be served from, or land
+        // in, the shared served context cache. Mirrors the identical precedent
+        // `run_unified_overlaid`'s result-cache skip already sets: "no result cache
+        // on this path". Off-txn (the overwhelming common case) uses the amortized
+        // cached path below.
+        if in_txn {
+            return tokio::task::spawn_blocking(move || {
+                eg_query::exec_sql_typed_with_tables(&snap, &store, &sql)
+            })
+            .await
+            .map_err(|e| user_err(format!("query task failed: {e}")))?
+            .map_err(|msg| user_err(format!("SQL error: {msg}")));
+        }
+
+        // CONCEPT:EG-KG.query.served-context-cache — the whole-`SessionContext` cache (UDFs, durable
+        // views, synthesized system catalogs), amortized across every served SQL read
+        // for this owner. Same registry `sql_tables::sql_context_cache` resolves by
+        // as `user_table_store` above, so repeated reads from the SAME tenant+actor
+        // reuse the SAME instance.
+        let authority = self.carrier_authority()?;
+        let tenant_scope = authority.tenant_scope().to_string();
+        let caller = self.verified_actor()?;
+        let graph_owned = graph.to_string();
+        let persist_dir = self.state.read().await.persist_dir.clone();
+        let cache = crate::server::sql_tables::sql_context_cache(
+            &authority,
+            persist_dir.as_deref().map(std::path::Path::new),
+        )
+        .map_err(user_err)?;
         tokio::task::spawn_blocking(move || {
-            eg_query::exec_sql_typed_with_tables(&snap, &store, &sql)
+            eg_query::exec_sql_typed_with_tables_cached_cancellable(
+                &snap,
+                graph_version,
+                &tenant_scope,
+                &graph_owned,
+                &caller,
+                &store,
+                &cache,
+                &sql,
+                &eg_query::CancellationToken::new(),
+            )
         })
         .await
         .map_err(|e| user_err(format!("query task failed: {e}")))?
