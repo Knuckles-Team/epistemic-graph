@@ -15,17 +15,17 @@
 //! into the KG as typed nodes/edges (see [`crate::kg`]) and persisted in redb (see
 //! [`crate::store`]), but those are derived views — never the authority.
 //!
-//! ## Hierarchy / parallel / history (phase-1: schema-only)
+//! ## Hierarchy / parallel / history (executable)
 //!
-//! [`State`] already carries the DATA needed for composite states
-//! (`children`/`initial_child`), parallel regions (`parallel`), and history markers
-//! (`history`) — see requirement 6. This is deliberate: the *shape* is forward
-//! compatible, so hierarchical/parallel/history SEMANTICS can be layered in later
-//! WITHOUT a breaking change to the type or the wire. **Phase-1 semantics are flat**:
-//! [`StatechartDef::validate`] rejects a definition that actually USES those fields
-//! (`State::is_composite`), so the flat interpreter in [`crate::transition`] never
-//! silently mis-runs a hierarchical chart. A composite chart is well-formed *data*
-//! today; it just is not yet *executable*.
+//! [`State`] carries the DATA for composite states (`children`/`initial_child`),
+//! parallel regions (`parallel`), and history markers (`history`) — see requirement 6 —
+//! and [`crate::transition::step`] now EXECUTES that shape with SCXML-style semantics: a
+//! parent's transition applies to any active descendant, entry runs outer-in / exit
+//! inner-out, orthogonal regions each see every event, and a history composite resumes
+//! its remembered children. [`crate::check::validate`] accordingly ACCEPTS composite /
+//! parallel / history charts (checking their containment structure) instead of rejecting
+//! them; a running instance is a [`crate::instance::Configuration`] (a set of active
+//! states), not a single state string.
 
 use std::collections::{BTreeMap, BTreeSet};
 

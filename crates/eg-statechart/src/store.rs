@@ -32,7 +32,7 @@ use crate::check::validate;
 use crate::context::{Context, EventInput};
 use crate::instance::{InstanceId, InstanceStatus, MachineInstance};
 use crate::model::{DefId, StatechartDef};
-use crate::transition::{transition, TransitionError, TransitionOutcome};
+use crate::transition::{initial_configuration, step, StepOutcome, TransitionError};
 
 const DEFS: TableDefinition<'static, &str, &[u8]> = TableDefinition::new("statechart_defs");
 const INSTANCES: TableDefinition<'static, &str, &[u8]> =
@@ -126,9 +126,11 @@ fn encode_def(def: &StatechartDef) -> Result<Vec<u8>> {
 }
 
 fn encode_instance(instance: &MachineInstance) -> Result<Vec<u8>> {
+    let states_valid = !instance.configuration.active.is_empty()
+        && instance.configuration.active.iter().all(|s| valid_identifier(s));
     if instance.instance_id.len() > MAX_ID_BYTES
         || !valid_identifier(&instance.def_id)
-        || !valid_identifier(&instance.state)
+        || !states_valid
     {
         return Err(codec_err("statechart instance record exceeds storage limits"));
     }
@@ -147,9 +149,10 @@ fn encode_instance(instance: &MachineInstance) -> Result<Vec<u8>> {
 pub struct SendOutcome {
     /// The durable instance after the event (unchanged on a no-op).
     pub instance: MachineInstance,
-    /// The pure transition result (its `fired` flag distinguishes a real transition
-    /// from a no-op; its `actions` are the effects for the interpreter to run).
-    pub outcome: TransitionOutcome,
+    /// The pure step result (its `fired` flag distinguishes a real transition from a
+    /// no-op; its `actions` are the effects for the interpreter to run). Configuration-
+    /// aware, so it carries the whole next active set for hierarchical/parallel charts.
+    pub outcome: StepOutcome,
 }
 
 /// A durable statechart store, backed by `statecharts.redb`.
@@ -252,20 +255,20 @@ impl StatechartStore {
         actor: &str,
     ) -> Result<MachineInstance> {
         let def = self.get_def(def_id)?;
-        let initial_state = def.state(&def.initial).ok_or_else(|| {
-            // A stored, validated def always has a real initial state; this is defensive.
-            StatechartError::InvalidTransition {
-                instance_id: "<new>".to_string(),
-                reason: "definition has no initial state".to_string(),
-            }
-        })?;
 
-        // Entering s₀ fires its entry actions (Moore). Use a null-payload event.
+        // Enter s₀ (descending into its default children for a composite/parallel chart)
+        // and fold the ordered entry actions into the seeded context. A stored, validated
+        // def always has a real initial state; a missing one maps to a defensive error.
+        let (configuration, entry_actions) =
+            initial_configuration(&def).map_err(|error| StatechartError::InvalidTransition {
+                instance_id: "<new>".to_string(),
+                reason: error.to_string(),
+            })?;
         let entry_event = EventInput::new("__init__");
-        let context = apply_all(initial_context, &initial_state.entry, &entry_event);
+        let context = apply_all(initial_context, &entry_actions, &entry_event);
 
         let now = now_ms();
-        let status = if def.is_final(&def.initial) {
+        let status = if configuration.is_final(&def) {
             InstanceStatus::Final
         } else {
             InstanceStatus::Active
@@ -273,7 +276,7 @@ impl StatechartStore {
         let instance = MachineInstance {
             instance_id: self.next_instance_id(),
             def_id: def_id.to_string(),
-            state: def.initial.clone(),
+            configuration,
             context,
             version: 0,
             status,
@@ -346,9 +349,8 @@ impl StatechartStore {
             }
         }
         let def = self.get_def(&instance.def_id)?;
-        let outcome = transition(&def, &instance.state, &instance.context, event).map_err(
-            |error| map_transition_error(instance_id, error),
-        )?;
+        let outcome = step(&def, &instance.configuration, &instance.context, event)
+            .map_err(|error| map_transition_error(instance_id, error))?;
 
         if !outcome.fired {
             // Well-defined no-op: stay put, persist nothing.
@@ -377,12 +379,12 @@ impl StatechartStore {
                 return Ok(Err(current.version));
             }
             let now = now_ms();
-            instance.state = outcome.next_state.clone();
+            instance.configuration = outcome.next.clone();
             instance.context = outcome.next_context.clone();
             instance.version = instance.version.saturating_add(1);
             instance.transitions_fired = instance.transitions_fired.saturating_add(1);
             instance.events_seen = instance.events_seen.saturating_add(1);
-            instance.status = if def.is_final(&instance.state) {
+            instance.status = if instance.configuration.is_final(&def) {
                 InstanceStatus::Final
             } else {
                 InstanceStatus::Active
@@ -555,19 +557,19 @@ mod tests {
                 .send_event(&instance_id, &EventInput::new("coin"), None)
                 .unwrap();
             assert!(out.outcome.fired);
-            assert_eq!(out.instance.state, "unlocked");
+            assert!(out.instance.in_state("unlocked"));
             assert_eq!(out.instance.version, 1);
         }
         // Reopen a brand-new store handle on the same dir: the waiting machine is just
         // (state, context) on disk — rehydrate and continue.
         let store = StatechartStore::open_in_dir(dir.path()).unwrap();
         let rehydrated = store.get_instance(&instance_id).unwrap();
-        assert_eq!(rehydrated.state, "unlocked");
+        assert!(rehydrated.in_state("unlocked"));
         assert_eq!(rehydrated.version, 1);
         let out = store
             .send_event(&instance_id, &EventInput::new("push"), None)
             .unwrap();
-        assert_eq!(out.instance.state, "locked");
+        assert!(out.instance.in_state("locked"));
         assert_eq!(out.instance.version, 2);
     }
 
@@ -584,7 +586,7 @@ mod tests {
             .unwrap();
         assert!(!out.outcome.fired);
         assert_eq!(out.instance.version, 0);
-        assert_eq!(out.instance.state, "locked");
+        assert!(out.instance.in_state("locked"));
     }
 
     #[test]
@@ -633,5 +635,54 @@ mod tests {
             .list_owned_instances("t1", "a1", Some("eg:statechart:nope"))
             .unwrap()
             .is_empty());
+    }
+
+    /// A composite chart round-trips through the durable store: instantiate descends into
+    /// the initial child, a parent-level edge applies to the active descendant, and the
+    /// whole configuration rehydrates across a store reopen.
+    fn nested() -> StatechartDef {
+        let mut active = State::new("active");
+        active.children = vec!["idle".into(), "running".into()];
+        active.initial_child = Some("idle".into());
+        StatechartDef {
+            name: "nested".into(),
+            schema_version: 1,
+            states: vec![active, State::new("idle"), State::new("running"), State::new("off")],
+            alphabet: vec!["start".into(), "kill".into()],
+            transitions: vec![
+                Transition::new("idle", "start", "running"),
+                Transition::new("active", "kill", "off"),
+            ],
+            initial: "active".into(),
+            finals: vec![],
+            meta: Default::default(),
+        }
+    }
+
+    #[test]
+    fn hierarchical_instance_persists_and_rehydrates_its_configuration() {
+        let dir = tempfile::tempdir().unwrap();
+        let instance_id;
+        {
+            let store = StatechartStore::open_in_dir(dir.path()).unwrap();
+            let def_id = store.define(&nested()).unwrap();
+            let inst = store.instantiate(&def_id, Context::new(), "t", "a").unwrap();
+            instance_id = inst.instance_id.clone();
+            // Initial configuration descended into the default child.
+            assert!(inst.in_state("active") && inst.in_state("idle"));
+            let out = store
+                .send_event(&instance_id, &EventInput::new("start"), None)
+                .unwrap();
+            assert!(out.instance.in_state("active") && out.instance.in_state("running"));
+        }
+        // Rehydrate: the parent-level `kill` edge applies to the active `running` state.
+        let store = StatechartStore::open_in_dir(dir.path()).unwrap();
+        let rehydrated = store.get_instance(&instance_id).unwrap();
+        assert!(rehydrated.in_state("running"));
+        let out = store
+            .send_event(&instance_id, &EventInput::new("kill"), None)
+            .unwrap();
+        assert!(out.instance.in_state("off"));
+        assert!(!out.instance.in_state("active"));
     }
 }
