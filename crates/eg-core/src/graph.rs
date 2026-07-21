@@ -444,6 +444,25 @@ pub struct GraphCore {
     /// off authoritative mode) means a miss is a genuine absence — behavior is then
     /// byte-for-byte unchanged. See `crate::read_through`.
     read_through: RwLock<Option<Arc<dyn crate::read_through::ReadThrough>>>,
+    /// Bloom-filter guard on the `read_through` NEGATIVE-lookup path
+    /// (CONCEPT:EG-KG.storage.bloom-negative-lookup-guard): populated on every
+    /// `AddNode` and on every full/complete node-set (re)materialization, so a
+    /// RAM miss for a node id that was NEVER seen skips the blocking redb
+    /// point-read entirely. `RwLock` because the filter is replaced wholesale
+    /// (resized) on a full re-materialization (`replace_snapshot`); ordinary
+    /// inserts only need the read guard (bit words are `AtomicU64`). See
+    /// `crate::bloom`.
+    node_bloom: RwLock<crate::bloom::NodeBloomFilter>,
+    /// Whether `node_bloom` currently reflects the COMPLETE known durable node-id
+    /// set for this graph (as opposed to only the ids added so far in a
+    /// paged-lazy-open still in progress — CONCEPT:EG-KG.sharding.paged-lazy-open).
+    /// While `false`, `read_through_get` never consults the filter (falls
+    /// through to the original always-read behavior), so a not-yet-paged-in
+    /// node can never be mistaken for a genuine absence. Set by the registry on
+    /// a full/eager load and on the final page of a paged-lazy open; also set by
+    /// `replace_snapshot`, which always rebuilds the filter from a COMPLETE
+    /// node set.
+    bloom_complete: std::sync::atomic::AtomicBool,
     /// Version-keyed query-RESULT cache (CONCEPT:EG-KG.coordination.distributed-cache-coherence, feature `result-cache`).
     /// Caches the serialized bytes of a read query (`Sql`/`Cypher`/`Sparql`/
     /// `UnifiedQuery`) keyed by `(query-hash, version())`. A repeated identical query
@@ -471,6 +490,10 @@ pub struct GraphTxn<'a> {
     node_properties: &'a DashMap<String, Arc<Vec<u8>>>,
     edge_properties: &'a DashMap<(String, String), Vec<Arc<Vec<u8>>>>,
     ledger: &'a Mutex<Vec<String>>,
+    /// Read-guard access to `GraphCore::node_bloom` (CONCEPT:EG-KG.storage.bloom-negative-lookup-guard) —
+    /// `add_node` records every id it inserts, lock-free (`fetch_or` on `AtomicU64`
+    /// words) under a shared read guard.
+    node_bloom: &'a RwLock<crate::bloom::NodeBloomFilter>,
 }
 
 /// Result of an owner-fenced delivery-tag nack transition.
@@ -798,6 +821,9 @@ impl<'a> GraphTxn<'a> {
         let log = format!("ADD_NODE|{}|{}", node_id, HexLedger(&properties_msgpack));
         self.node_properties
             .insert(node_id.clone(), Arc::new(properties_msgpack));
+        // CONCEPT:EG-KG.storage.bloom-negative-lookup-guard — record every id ever
+        // added so a later durable-read-through miss can trust a bloom "no".
+        self.node_bloom.read().insert(&node_id);
         push_ledger(&mut self.ledger.lock(), log);
     }
 
@@ -1981,6 +2007,8 @@ impl GraphCore {
             path_index_store: RwLock::new(None),
             index_manager: crate::index::IndexManager::with_default_indexes(),
             read_through: RwLock::new(None),
+            node_bloom: RwLock::new(crate::bloom::NodeBloomFilter::default()),
+            bloom_complete: std::sync::atomic::AtomicBool::new(false),
             #[cfg(feature = "result-cache")]
             result_cache: crate::result_cache::ResultCache::new(),
         }
@@ -2269,6 +2297,7 @@ impl GraphCore {
             node_properties: &self.node_properties,
             edge_properties: &self.edge_properties,
             ledger: &self.ledger,
+            node_bloom: &self.node_bloom,
         }
     }
 
@@ -3879,7 +3908,29 @@ impl GraphCore {
     /// nodes cannot re-grow the resident set past the cap (memory stays bounded).
     fn read_through_get(&self, node_id: &str) -> Option<Vec<u8>> {
         let rt = self.read_through.read().clone()?;
+        // CONCEPT:EG-KG.storage.bloom-negative-lookup-guard — only trust a bloom "no"
+        // once `node_bloom` reflects the COMPLETE durable node-id set (never during
+        // a paged-lazy-open still in progress: CONCEPT:EG-KG.sharding.paged-lazy-open); a not-yet-
+        // paged-in-but-durable node would otherwise be wrongly reported absent. When
+        // incomplete this is a no-op guard and behavior is byte-for-byte the
+        // pre-bloom original: every miss falls through to the durable point-read.
+        if self.bloom_complete.load(std::sync::atomic::Ordering::Acquire)
+            && !self.node_bloom.read().might_contain(node_id)
+        {
+            return None;
+        }
         rt.read_node_blob(node_id)
+    }
+
+    /// Mark `node_bloom` as reflecting the COMPLETE known durable node-id set for
+    /// this graph (CONCEPT:EG-KG.storage.bloom-negative-lookup-guard). Called by the registry once a
+    /// full/eager load or the FINAL page of a paged-lazy-open has replayed every
+    /// durable node through `add_node` — before that point `read_through_get`
+    /// never gates on the filter, so an in-progress paged open cannot regress.
+    #[doc(hidden)]
+    pub fn mark_bloom_complete(&self) {
+        self.bloom_complete
+            .store(true, std::sync::atomic::Ordering::Release);
     }
 
     pub fn node_count(&self) -> usize {
@@ -4208,6 +4259,15 @@ impl GraphCore {
                 .push(properties);
         }
 
+        // A snapshot is by construction a COMPLETE point-in-time node set (unlike a
+        // bounded `MaterialPage`), so the bloom guard can be rebuilt fresh and
+        // trusted immediately (CONCEPT:EG-KG.storage.bloom-negative-lookup-guard) — sized off this
+        // exact cardinality rather than the prior graph's.
+        let next_bloom = crate::bloom::NodeBloomFilter::new(next_node_properties.len(), 0.01);
+        for (node_id, _) in &next_node_properties {
+            next_bloom.insert(node_id);
+        }
+
         // No fallible validation remains beyond this point. Publish under the
         // topology writer barrier, then invalidate derivatives of the old image.
         let mut topo = self.topo.write();
@@ -4216,6 +4276,9 @@ impl GraphCore {
         for (node_id, properties) in next_node_properties {
             self.node_properties.insert(node_id, properties);
         }
+        *self.node_bloom.write() = next_bloom;
+        self.bloom_complete
+            .store(true, std::sync::atomic::Ordering::Release);
         self.edge_properties.clear();
         for (endpoints, properties) in next_edge_properties {
             self.edge_properties.insert(endpoints, properties);
@@ -4588,6 +4651,18 @@ impl GraphCore {
             // A fork is a fresh, detached graph (not registered, not backed by the
             // durable tier), so it carries no read-through (CONCEPT:EG-KG.storage.read-through-seam-exercised).
             read_through: RwLock::new(None),
+            // CONCEPT:EG-KG.storage.bloom-negative-lookup-guard — a fork copies the parent's
+            // COMPLETE resident node set (no read-through of its own to guard
+            // anyway), so its bloom filter is rebuilt fresh from those exact ids
+            // and trusted immediately.
+            node_bloom: RwLock::new({
+                let filter = crate::bloom::NodeBloomFilter::new(self.node_properties.len(), 0.01);
+                for id in self.node_properties.iter().map(|e| e.key().clone()) {
+                    filter.insert(&id);
+                }
+                filter
+            }),
+            bloom_complete: std::sync::atomic::AtomicBool::new(true),
             // A fork starts with an empty result cache (its own version line).
             #[cfg(feature = "result-cache")]
             result_cache: crate::result_cache::ResultCache::new(),
@@ -6423,6 +6498,76 @@ mod tests {
         );
         // A node in neither RAM nor the store is still absent.
         assert_eq!(core.get_node_properties("absent"), None);
+    }
+
+    /// CONCEPT:EG-KG.storage.bloom-negative-lookup-guard — once the bloom filter is marked complete, a
+    /// miss for an id that was NEVER inserted skips the durable read-through call
+    /// entirely (zero I/O), while a genuinely durable (evicted) node still reads
+    /// through with fidelity. Before `mark_bloom_complete`, behavior is unchanged:
+    /// every miss still consults the durable store (covers the in-progress
+    /// paged-lazy-open window, where a not-yet-paged-in node must not be treated
+    /// as absent).
+    #[test]
+    fn bloom_guard_skips_durable_read_for_never_inserted_key_once_complete() {
+        use std::collections::HashMap;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Mutex;
+
+        #[derive(Debug, Default)]
+        struct CountingStore {
+            rows: Mutex<HashMap<String, Vec<u8>>>,
+            calls: AtomicUsize,
+        }
+        impl crate::read_through::ReadThrough for CountingStore {
+            fn read_node_blob(&self, node_id: &str) -> Option<Vec<u8>> {
+                self.calls.fetch_add(1, Ordering::SeqCst);
+                self.rows.lock().unwrap().get(node_id).cloned()
+            }
+        }
+
+        let core = GraphCore::new();
+        core.add_node("hot".into(), props(serde_json::json!({"i": 1})));
+        // Simulate node-cap eviction of "cold": it WAS added (so `add_node`
+        // recorded it in the bloom), then dropped from RAM only — exactly what
+        // eviction does, per `read_through_serves_evicted_node` above.
+        core.add_node("cold".into(), props(serde_json::json!({"i": 2})));
+        core.node_properties.remove("cold");
+
+        let store = Arc::new(CountingStore::default());
+        store
+            .rows
+            .lock()
+            .unwrap()
+            .insert("cold".into(), props(serde_json::json!({"i": 2})));
+        core.set_read_through(store.clone());
+
+        // Before `mark_bloom_complete`: an id NEVER passed to `add_node` still
+        // falls through to the durable store (byte-for-byte pre-bloom behavior).
+        assert_eq!(core.get_node_properties("never-existed"), None);
+        assert_eq!(
+            store.calls.load(Ordering::SeqCst),
+            1,
+            "guard must be a no-op before the filter is marked complete"
+        );
+
+        core.mark_bloom_complete();
+
+        // After: a node evicted from RAM but genuinely durable (was `add_node`'d,
+        // hence in the bloom) still reads through with fidelity.
+        assert_eq!(
+            core.get_node_properties("cold"),
+            Some(props(serde_json::json!({"i": 2})))
+        );
+        assert_eq!(store.calls.load(Ordering::SeqCst), 2);
+
+        // A key that was NEVER inserted anywhere is now rejected by the bloom
+        // filter BEFORE the durable call — the call count does not advance.
+        assert_eq!(core.get_node_properties("never-existed"), None);
+        assert_eq!(
+            store.calls.load(Ordering::SeqCst),
+            2,
+            "bloom guard must skip the durable read for a never-inserted key"
+        );
     }
 
     fn confidence_of(core: &GraphCore, id: &str) -> f64 {
