@@ -25,10 +25,12 @@ use super::pgfamily::{plan_ann_search, AnnIndexPlan};
 use super::providers::{infer_edges, infer_nodes, NodesTableProvider, SqlCache};
 use super::tablefuncs::{BetweennessFunc, GenerateSeriesFunc, PagerankFunc};
 use super::udfs::{
-    bm25_match_udf, bm25_score_udf, bm25_snippet_udf, epistemic_decay_udf, greatest_udf,
-    int4range_udf, json_get_f64_udf, json_get_i64_udf, json_get_udf, least_udf,
+    base64_decode_udf, base64_encode_udf, bm25_match_udf, bm25_score_udf, bm25_snippet_udf,
+    epistemic_decay_udf, greatest_udf, int4range_udf, ipcontains_udf, ipfamily_udf, iphost_udf,
+    ipmasklen_udf, json_get_f64_udf, json_get_i64_udf, json_get_udf, least_udf, md5_udf,
     range_contained_by_udf, range_contains_range_udf, range_contains_udf, range_overlaps_udf,
-    time_bucket_udf, tsrange_udf, vector_cosine_udf, vector_ip_udf, vector_l2_udf,
+    sha1_udf, sha256_udf, time_bucket_udf, tsrange_udf, vector_cosine_udf, vector_ip_udf,
+    vector_l2_udf,
 };
 use crate::tables::{StoredFunction, TableStore};
 
@@ -53,6 +55,17 @@ fn register_pg_common(ctx: &SessionContext) {
     ctx.register_udf(range_contains_range_udf());
     ctx.register_udf(range_contained_by_udf());
     ctx.register_udtf("generate_series", Arc::new(GenerateSeriesFunc));
+    // CONCEPT:EG-KG.query.sqlite-compat-scalar-udfs (turso-assimilation rank 14) —
+    // crypto hash + base64 + ipaddr helpers turso ships as loadable extensions.
+    ctx.register_udf(md5_udf());
+    ctx.register_udf(sha1_udf());
+    ctx.register_udf(sha256_udf());
+    ctx.register_udf(base64_encode_udf());
+    ctx.register_udf(base64_decode_udf());
+    ctx.register_udf(ipfamily_udf());
+    ctx.register_udf(ipmasklen_udf());
+    ctx.register_udf(iphost_udf());
+    ctx.register_udf(ipcontains_udf());
 }
 
 /// Register the CONCEPT:EG-KG.query.surface-b-numeric-operators Analytics-Program Surface-B numeric operators — the
