@@ -1063,3 +1063,169 @@ mod timeseries_tests {
         );
     }
 }
+
+/// RANK 10 — the ID/point-lookup fast path (`crate::exec::point_lookup_ids`, wired into
+/// `filter_op`): a lone `id = <id>` equality bypasses `sql_filter_ids`'s DataFusion round
+/// trip for an O(1) `HashMap` check, byte-identical in RESULT to the SQL path it replaces.
+mod point_lookup_tests {
+    use crate::algebra::{Op, Plan, Pred};
+    use crate::exec::{PlanCtx, PlanExt};
+    use eg_core::compute::semantic::SemanticStore;
+    use eg_core::graph::{GraphCore, GraphView};
+    use serde_json::json;
+
+    fn blob(v: serde_json::Value) -> Vec<u8> {
+        rmp_serde::to_vec_named(&v).unwrap()
+    }
+
+    fn fixture() -> (GraphView, SemanticStore) {
+        let core = GraphCore::new();
+        core.add_node("d1".into(), blob(json!({"type":"Doc","year":2025})));
+        core.add_node("d2".into(), blob(json!({"type":"Doc","year":2024})));
+        (core.analysis_snapshot(), SemanticStore::new())
+    }
+
+    /// A lone `id = <id>` equality resolves to exactly one row, same as any other
+    /// Filter, and misses cleanly (empty, never an error) for a nonexistent id.
+    #[test]
+    fn id_equality_resolves_the_single_node() {
+        let (view, sem) = fixture();
+        let ctx = PlanCtx::new(&view, &sem);
+
+        let hit = Plan::new(vec![
+            Op::Scan {
+                label: "Doc".into(),
+            },
+            Op::Filter {
+                preds: vec![Pred::Eq {
+                    prop: "id".into(),
+                    value: "d1".into(),
+                }],
+            },
+        ])
+        .execute(&ctx)
+        .unwrap();
+        assert_eq!(hit.ids(), vec!["d1".to_string()]);
+
+        let miss = Plan::new(vec![
+            Op::Scan {
+                label: "Doc".into(),
+            },
+            Op::Filter {
+                preds: vec![Pred::Eq {
+                    prop: "id".into(),
+                    value: "nope".into(),
+                }],
+            },
+        ])
+        .execute(&ctx)
+        .unwrap();
+        assert!(miss.is_empty());
+    }
+
+    /// The fast path composes correctly with a PRIOR candidate-set restriction: an id
+    /// that exists in the graph but was narrowed OUT by an upstream Filter must still
+    /// miss — the fast path must not silently resurrect it via the reserved-id lookup.
+    #[test]
+    fn id_equality_respects_a_prior_candidate_restriction() {
+        let (view, sem) = fixture();
+        let ctx = PlanCtx::new(&view, &sem);
+
+        // d2 exists but is excluded once the upstream Filter narrows to year>2024.5 (d1 only).
+        let excluded = Plan::new(vec![
+            Op::Scan {
+                label: "Doc".into(),
+            },
+            Op::Filter {
+                preds: vec![Pred::GtNum {
+                    prop: "year".into(),
+                    n: 2024.5,
+                }],
+            },
+            Op::Filter {
+                preds: vec![Pred::Eq {
+                    prop: "id".into(),
+                    value: "d2".into(),
+                }],
+            },
+        ])
+        .execute(&ctx)
+        .unwrap();
+        assert!(
+            excluded.is_empty(),
+            "d2 was narrowed out upstream; the id lookup must not resurrect it"
+        );
+
+        let included = Plan::new(vec![
+            Op::Scan {
+                label: "Doc".into(),
+            },
+            Op::Filter {
+                preds: vec![Pred::GtNum {
+                    prop: "year".into(),
+                    n: 2024.5,
+                }],
+            },
+            Op::Filter {
+                preds: vec![Pred::Eq {
+                    prop: "id".into(),
+                    value: "d1".into(),
+                }],
+            },
+        ])
+        .execute(&ctx)
+        .unwrap();
+        assert_eq!(included.ids(), vec!["d1".to_string()]);
+    }
+
+    /// The fast path's RESULT is byte-identical to the ordinary SQL leg it replaces —
+    /// proven by forcing the SAME id-equality predicate through the full
+    /// `sql_filter_ids`/DataFusion path (a second, always-true predicate alongside it
+    /// makes the pred count 2, so `filter_op` cannot take the length-1 fast-path match).
+    #[test]
+    fn fast_path_agrees_with_the_full_sql_leg_it_replaces() {
+        let (view, sem) = fixture();
+        let ctx = PlanCtx::new(&view, &sem);
+        for probe in ["d1", "d2", "nope"] {
+            let via_fast_path = Plan::new(vec![
+                Op::Scan {
+                    label: "Doc".into(),
+                },
+                Op::Filter {
+                    preds: vec![Pred::Eq {
+                        prop: "id".into(),
+                        value: probe.into(),
+                    }],
+                },
+            ])
+            .execute(&ctx)
+            .unwrap();
+
+            let via_sql_leg = Plan::new(vec![
+                Op::Scan {
+                    label: "Doc".into(),
+                },
+                Op::Filter {
+                    preds: vec![
+                        Pred::GtNum {
+                            prop: "year".into(),
+                            n: -1.0,
+                        },
+                        Pred::Eq {
+                            prop: "id".into(),
+                            value: probe.into(),
+                        },
+                    ],
+                },
+            ])
+            .execute(&ctx)
+            .unwrap();
+
+            assert_eq!(
+                via_fast_path.ids(),
+                via_sql_leg.ids(),
+                "probe={probe}: fast path and SQL leg must agree byte-for-byte"
+            );
+        }
+    }
+}
