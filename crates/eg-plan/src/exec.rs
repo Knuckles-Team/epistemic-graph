@@ -165,12 +165,28 @@ pub trait TextSource: Send + Sync {
     /// BM25 top-`k` for `query` — same contract as `eg_text::TextIndex::search`:
     /// `(id, bm25_score)` descending, empty on an empty/unparsable query.
     fn search(&self, query: &str, k: usize) -> Vec<eg_text::TextHit>;
+
+    /// The (live) document count backing this index (CONCEPT:EG-KG.query.index-method-seam) —
+    /// lets a candidate-restricted `RankText` size its over-fetch pool from the ACTUAL
+    /// selectivity of the current candidate set against the real corpus, the same way
+    /// [`crate::cost::CostModel::vector_first_cost`] already does for the vector leg,
+    /// instead of a blind fixed multiplier. Defaults to `u64::MAX` (a "cardinality
+    /// unknown" sentinel any implementor need not override) so an adapter that cannot
+    /// cheaply report its size degrades to the prior fixed-heuristic over-fetch rather
+    /// than mis-sizing one off a fabricated count.
+    fn doc_count(&self) -> u64 {
+        u64::MAX
+    }
 }
 
 #[cfg(feature = "text")]
 impl TextSource for eg_text::TextIndex {
     fn search(&self, query: &str, k: usize) -> Vec<eg_text::TextHit> {
         eg_text::TextIndex::search(self, query, k)
+    }
+
+    fn doc_count(&self) -> u64 {
+        eg_text::TextIndex::num_docs(self)
     }
 }
 
@@ -960,21 +976,59 @@ fn udf_transform(ctx: &PlanCtx, input: &RowSet, id: &str) -> Result<RowSet, Stri
 }
 
 /// RANK (lexical, BM25): re-order the candidate set by BM25 relevance to `query`.
-/// Symmetric to the vector `Rank` — BM25 top-k over the FULL index (over-fetch),
-/// then keep only the current candidates, in BM25-score order. With no text index
-/// configured the result is empty (degrade, never err), mirroring `Rank` over an
-/// empty embedding store.
+/// Symmetric to the vector `Rank` — BM25 top-k over the FULL index, intersected with
+/// the current candidates, in BM25-score order. With no text index configured the
+/// result is empty (degrade, never err), mirroring `Rank` over an empty embedding
+/// store.
+///
+/// **The over-fetch pool is SELECTIVITY-AWARE** (CONCEPT:EG-KG.query.index-method-seam /
+/// RANK-3+RANK-11 assimilation), not the fixed `k*4` multiplier this used to be: `want`
+/// is sized off the current candidate set's actual fraction of the live corpus via
+/// [`crate::cost::CostModel::overfetch_pool_size`] — the SAME `top_k/selectivity`
+/// formula the vector leg's cost model already uses to reason about this exact
+/// coexist-with-a-filter case. A fixed `k*4` can silently under-fetch: if a preceding
+/// FILTER already narrowed to a SMALL, highly selective candidate set out of a LARGE
+/// corpus, none of those candidates may fall inside the naive global top-`k*4` BM25
+/// hits even though several would legitimately rank within their own subset — dropping
+/// otherwise-correct matches. Falls back to the prior fixed heuristic when the index
+/// can't report its size ([`TextSource::doc_count`]'s `u64::MAX` sentinel).
+///
+/// **Bloom-gated probe** (CONCEPT:EG-KG.query.bloom-gate, pairs with the sizing above): once
+/// `want` grows large, most fetched hits are NOT in the (comparatively small) candidate
+/// set — a cheap bit-array pre-check on each hit rejects the common non-member case
+/// before paying for the exact `HashSet` lookup, mirroring turso's `join.rs`
+/// `use_bloom_filter` heuristic on the smaller side of a join.
 #[cfg(feature = "text")]
 fn rank_text(ctx: &PlanCtx, input: &RowSet, query: &str) -> RowSet {
     let Some(index) = ctx.text else {
         return RowSet::new();
     };
     let candidates = input.id_set();
-    let k = candidates.len().max(1);
-    let want = (k * 4).max(k + 32);
+    if candidates.is_empty() {
+        return RowSet::new();
+    }
+    let k = candidates.len();
+    let doc_count = index.doc_count();
+    let want = if doc_count == 0 || doc_count == u64::MAX {
+        // Cardinality unknown (or the index reports itself empty): keep the prior
+        // fixed-heuristic behavior rather than divide by an unusable corpus size.
+        (k * 4).max(k + 32)
+    } else {
+        let selectivity = (k as f64 / doc_count as f64).clamp(1e-9, 1.0);
+        crate::cost::CostModel::overfetch_pool_size(k, selectivity).min(doc_count as usize)
+    };
     let hits = index.search(query, want);
+
+    // RANK-11 bloom gate: only worth building for a pool large enough that most probes
+    // will miss — a tiny `hits` list is cheaper to just linear-filter through the exact
+    // HashSet directly.
+    const BLOOM_GATE_MIN_HITS: usize = 256;
+    let gate = (hits.len() >= BLOOM_GATE_MIN_HITS)
+        .then(|| crate::cost::BloomFilter::from_ids(candidates.iter().copied(), candidates.len()));
+
     let scored: Vec<(String, f32)> = hits
         .into_iter()
+        .filter(|h| gate.as_ref().is_none_or(|g| g.might_contain(&h.id)))
         .filter(|h| candidates.contains(h.id.as_str()))
         .map(|h| (h.id, h.score))
         .collect();
@@ -1626,7 +1680,20 @@ fn filter_op(ctx: &PlanCtx, preds: &[Pred], input: RowSet) -> Result<RowSet, Str
     } else {
         Some(input.ids())
     };
-    let passed = sql_filter_ids(ctx.view, &relational, restrict.as_deref())?;
+    // ID/POINT-LOOKUP FAST PATH (CONCEPT:EG-KG.query.point-lookup-fast-path, RANK-10
+    // assimilation): a lone equality on the graph's own reserved `id` column is exactly
+    // what `sql_filter_ids` below would build as `SELECT id FROM nodes WHERE id =
+    // '<value>' [AND id IN (restrict)]` — a full DataFusion parse/plan/execute round
+    // trip for what is, structurally, an O(1) `HashMap` membership check. Bypass
+    // DataFusion entirely for this exact shape; every other predicate shape (including
+    // an equality on a SAME-NAMED ordinary JSON property, which this must never
+    // misfire on) still goes through the real SQL leg unchanged.
+    let passed: Vec<String> = match relational.as_slice() {
+        [Pred::Eq { prop, value }] if prop == "id" => {
+            point_lookup_ids(ctx.view, value, restrict.as_deref())
+        }
+        _ => sql_filter_ids(ctx.view, &relational, restrict.as_deref())?,
+    };
     // Preserve the input's order (so a vector-first plan stays ranked); if there was no
     // input (Filter is the source), the SQL order is the order.
     let mut out = if input.is_empty() {
@@ -2587,6 +2654,25 @@ mod filter_security_tests {
             })
             .collect::<Vec<_>>();
         assert!(where_clause(&too_many).is_err());
+    }
+}
+
+/// The O(1) fast-path RESULT for a lone `id = <id>` equality predicate
+/// (CONCEPT:EG-KG.query.point-lookup-fast-path) — BYTE-IDENTICAL to what
+/// `sql_filter_ids(view, &[Pred::Eq{prop:"id", value:id.into()}], restrict_to)` would
+/// return (a single-element `Vec` iff `id` both exists AND — when `restrict_to`
+/// narrows to a prior candidate set — is a member of it), computed via a direct
+/// `HashMap` lookup instead of DataFusion's parse/plan/execute round trip.
+fn point_lookup_ids(view: &GraphView, id: &str, restrict_to: Option<&[String]>) -> Vec<String> {
+    if let Some(ids) = restrict_to {
+        if !ids.iter().any(|i| i == id) {
+            return Vec::new();
+        }
+    }
+    if view.node_properties.contains_key(id) {
+        vec![id.to_string()]
+    } else {
+        Vec::new()
     }
 }
 
