@@ -3,13 +3,12 @@
 //! distinct from the `sqlite-wire` NDJSON dialect surface (which speaks SQLite SQL over
 //! a socket but never touches a `.db` file).
 //!
-//! ## Why the C `rusqlite`, not pure-Rust
-//! The export half must produce a `.db` a stock `sqlite3` CLI can open, i.e. a
-//! spec-correct SQLite b-tree page file. There is no mature pure-Rust crate that WRITES
-//! that format; hand-rolling it is the exact blocker `src/server/sqlite_wire/mod.rs`
-//! documented. So this ONE feature (`sqlite-file`) pulls `rusqlite` with the BUNDLED C
-//! sqlite3 — and is kept OUT of `pi`/`default` (folded only into `full`/`node`), so the
-//! Pi contract holds: a `--features pi` build links no rusqlite/libsqlite3-sys.
+//! ## Pure-Rust, no C sqlite
+//! Both halves go through `eg-sqlite-format`, a from-scratch SQLite page-format reader +
+//! bulk-load writer (no rusqlite, no libsqlite3-sys, no C toolchain). The export half
+//! produces a `.db` a stock `sqlite3` CLI can open — a spec-correct b-tree page file whose
+//! output passes a real `sqlite3 PRAGMA integrity_check` (see the differential test below).
+//! This falsifies the old "a spec-correct pure-Rust SQLite writer is infeasible" blocker.
 //!
 //! ## What moves
 //! Rows flow between the `.db` file and the caller's owner-scoped user-table store
@@ -28,8 +27,7 @@
 //! map picks a SQLite declared type per column so a re-import round-trips.
 
 use eg_query::{Cell, Column, ColumnType, TableSchema, TableStore, TableTxn, TxnOp};
-use rusqlite::types::Value as SqlValue;
-use rusqlite::{Connection, OpenFlags};
+use eg_sqlite_format::{ColumnDef as SqliteColumnDef, Reader, Value as SqliteValue, Writer};
 use serde_json::Value as JsonValue;
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -311,17 +309,16 @@ pub(crate) fn import_sqlite_file(store: &TableStore, path: &Path) -> Result<Json
     if !path.exists() {
         return Err("SQLite import source does not exist".to_string());
     }
-    let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
-        .map_err(|_| "open SQLite import source failed".to_string())?;
+    let reader = Reader::open(path).map_err(|_| "open SQLite import source failed".to_string())?;
 
-    let tables = list_user_tables(&conn)?;
+    let tables = list_user_tables(&reader)?;
     let mut report = Vec::with_capacity(tables.len());
     for table in &tables {
-        let (schema, col_order) = import_schema(&conn, table)?;
+        let (schema, col_order) = import_schema(&reader, table)?;
         // Replace an existing same-name table so the import mirrors the file.
         store.drop_table(table, true)?;
         store.create_table(&schema, false)?;
-        let rows = import_rows(&conn, table, &schema)?;
+        let rows = import_rows(&reader, table, &schema)?;
         let n = if rows.is_empty() {
             0
         } else {
@@ -337,9 +334,8 @@ fn prepare_sqlite_import(path: &Path) -> Result<(TableTxn, JsonValue), String> {
     if !path.exists() {
         return Err("SQLite import source does not exist".to_string());
     }
-    let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
-        .map_err(|_| "open SQLite import source failed".to_string())?;
-    let tables = list_user_tables(&conn)?;
+    let reader = Reader::open(path).map_err(|_| "open SQLite import source failed".to_string())?;
+    let tables = list_user_tables(&reader)?;
     let (_, max_rows) = sqlite_limits()?;
     if tables.len() > MAX_SQLITE_TABLES {
         return Err("SQLite import contains too many tables".to_string());
@@ -348,15 +344,15 @@ fn prepare_sqlite_import(path: &Path) -> Result<(TableTxn, JsonValue), String> {
     let mut report = Vec::with_capacity(tables.len());
     let mut total_rows = 0u64;
     for table in &tables {
-        let (schema, col_order) = import_schema(&conn, table)?;
-        let row_count = sqlite_table_row_count(&conn, table)?;
+        let (schema, col_order) = import_schema(&reader, table)?;
+        let row_count = sqlite_table_row_count(&reader, table)?;
         total_rows = total_rows
             .checked_add(row_count)
             .ok_or_else(|| "SQLite import row count overflow".to_string())?;
         if total_rows > max_rows {
             return Err("SQLite import exceeds the configured row limit".to_string());
         }
-        let rows = import_rows(&conn, table, &schema)?;
+        let rows = import_rows(&reader, table, &schema)?;
         if rows.len() as u64 != row_count {
             return Err("SQLite import changed while it was being read".to_string());
         }
@@ -383,57 +379,39 @@ fn prepare_sqlite_import(path: &Path) -> Result<(TableTxn, JsonValue), String> {
     ))
 }
 
-fn sqlite_table_row_count(conn: &Connection, table: &str) -> Result<u64, String> {
-    let sql = format!("SELECT COUNT(*) FROM {}", quote_ident(table));
-    let count = conn
-        .query_row(&sql, [], |row| row.get::<_, i64>(0))
-        .map_err(|_| "count SQLite import rows failed".to_string())?;
-    u64::try_from(count).map_err(|_| "SQLite import returned a negative row count".to_string())
+fn sqlite_table_row_count(reader: &Reader, table: &str) -> Result<u64, String> {
+    reader
+        .table_row_count(table)
+        .map_err(|_| "count SQLite import rows failed".to_string())
 }
 
 /// The user tables in a `.db` (skip `sqlite_*` internal tables), sorted for determinism.
-fn list_user_tables(conn: &Connection) -> Result<Vec<String>, String> {
-    let mut stmt = conn
-        .prepare(
-            "SELECT name FROM sqlite_master WHERE type='table' \
-             AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\' ORDER BY name",
-        )
-        .map_err(|e| format!("read sqlite_master: {e}"))?;
-    let names = stmt
-        .query_map([], |r| r.get::<_, String>(0))
-        .map_err(|e| format!("read sqlite_master: {e}"))?
-        .collect::<Result<Vec<String>, _>>()
-        .map_err(|e| format!("read sqlite_master: {e}"))?;
-    Ok(names)
+/// The pure-Rust [`Reader`] applies the same filter/ordering the old `sqlite_master`
+/// query did (`type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name`).
+fn list_user_tables(reader: &Reader) -> Result<Vec<String>, String> {
+    reader
+        .list_tables()
+        .map_err(|e| format!("read sqlite schema: {e}"))
 }
 
-/// Build the engine [`TableSchema`] for a `.db` table from `PRAGMA table_info` (every
-/// column NULLABLE + non-PK — values, not constraints, are mirrored). Returns the schema
-/// and the column-name order for the batch insert.
-fn import_schema(conn: &Connection, table: &str) -> Result<(TableSchema, Vec<String>), String> {
-    let mut stmt = conn
-        .prepare(&format!("PRAGMA table_info({})", quote_ident(table)))
-        .map_err(|e| format!("table_info({table}): {e}"))?;
-    // PRAGMA table_info columns: cid, name, type, notnull, dflt_value, pk.
-    let rows = stmt
-        .query_map([], |r| {
-            let name: String = r.get(1)?;
-            let decl: Option<String> = r.get(2)?;
-            Ok((name, decl.unwrap_or_default()))
-        })
-        .map_err(|e| format!("table_info({table}): {e}"))?;
+/// Build the engine [`TableSchema`] for a `.db` table from its stored `CREATE TABLE`
+/// columns (every column NULLABLE + non-PK — values, not constraints, are mirrored).
+/// Returns the schema and the column-name order for the batch insert.
+fn import_schema(reader: &Reader, table: &str) -> Result<(TableSchema, Vec<String>), String> {
+    let cols = reader
+        .table_columns(table)
+        .map_err(|e| format!("table columns({table}): {e}"))?;
 
     let mut columns = Vec::new();
     let mut names = Vec::new();
-    for row in rows {
-        let (name, decl) = row.map_err(|e| format!("table_info({table}): {e}"))?;
+    for col in cols {
         columns.push(Column::new(
-            name.clone(),
-            affinity_to_type(&decl),
+            col.name.clone(),
+            affinity_to_type(&col.decl_type),
             true,
             false,
         ));
-        names.push(name);
+        names.push(col.name);
     }
     if columns.is_empty() {
         return Err(format!("sqlite table `{table}` has no columns"));
@@ -462,32 +440,25 @@ fn affinity_to_type(decl: &str) -> ColumnType {
     }
 }
 
-/// Read every row of `table`, converting each SQLite runtime value to the JSON shape the
+/// Read every row of `table`, converting each SQLite value to the JSON shape the
 /// target column's [`ColumnType`] coerces from cleanly.
 fn import_rows(
-    conn: &Connection,
+    reader: &Reader,
     table: &str,
     schema: &TableSchema,
 ) -> Result<Vec<Vec<JsonValue>>, String> {
     let ncols = schema.columns().len();
-    let mut stmt = conn
-        .prepare(&format!("SELECT * FROM {}", quote_ident(table)))
-        .map_err(|e| format!("scan `{table}`: {e}"))?;
-    let raw = stmt
-        .query_map([], |r| {
-            let mut cells = Vec::with_capacity(ncols);
-            for i in 0..ncols {
-                cells.push(r.get::<_, SqlValue>(i)?);
-            }
-            Ok(cells)
-        })
+    let raw = reader
+        .scan_table(table)
         .map_err(|e| format!("scan `{table}`: {e}"))?;
 
     let mut out = Vec::new();
     for row in raw {
-        let row = row.map_err(|e| format!("scan `{table}`: {e}"))?;
+        // `scan_table` yields exactly the stored columns; a short row (fewer stored cells
+        // than schema columns) is NULL-padded to the schema width.
         let mut jrow = Vec::with_capacity(ncols);
-        for (i, v) in row.into_iter().enumerate() {
+        for i in 0..ncols {
+            let v = row.get(i).cloned().unwrap_or(SqliteValue::Null);
             jrow.push(sqlite_value_to_json(v, schema.columns()[i].ty)?);
         }
         out.push(jrow);
@@ -495,22 +466,22 @@ fn import_rows(
     Ok(out)
 }
 
-/// Convert a SQLite runtime value into the `serde_json::Value` the store's `Cell::coerce`
+/// Convert a SQLite value into the `serde_json::Value` the store's `Cell::coerce`
 /// accepts for `ty`.
-fn sqlite_value_to_json(v: SqlValue, ty: ColumnType) -> Result<JsonValue, String> {
+fn sqlite_value_to_json(v: SqliteValue, ty: ColumnType) -> Result<JsonValue, String> {
     let num_f64 = |f: f64| {
         serde_json::Number::from_f64(f)
             .map(JsonValue::Number)
             .unwrap_or(JsonValue::Null)
     };
     match v {
-        SqlValue::Null => Ok(JsonValue::Null),
-        SqlValue::Integer(i) => match ty {
+        SqliteValue::Null => Ok(JsonValue::Null),
+        SqliteValue::Integer(i) => match ty {
             ColumnType::Float | ColumnType::Double => Ok(num_f64(i as f64)),
             _ => Ok(JsonValue::Number(i.into())),
         },
-        SqlValue::Real(f) => Ok(num_f64(f)),
-        SqlValue::Text(s) => match ty {
+        SqliteValue::Real(f) => Ok(num_f64(f)),
+        SqliteValue::Text(s) => match ty {
             ColumnType::Int | ColumnType::BigInt | ColumnType::Timestamp => s
                 .trim()
                 .parse::<i64>()
@@ -523,7 +494,7 @@ fn sqlite_value_to_json(v: SqlValue, ty: ColumnType) -> Result<JsonValue, String
                 .map_err(|_| "non-numeric text in a real column".to_string()),
             _ => Ok(JsonValue::String(s)),
         },
-        SqlValue::Blob(b) => match ty {
+        SqliteValue::Blob(b) => match ty {
             // Bytes coerce accepts a JSON array of byte-sized ints (the props escape form).
             ColumnType::Bytes => Ok(JsonValue::Array(
                 b.into_iter().map(|x| JsonValue::Number(x.into())).collect(),
@@ -563,7 +534,9 @@ pub(crate) fn export_sqlite_file(
     }
     let (max_bytes, max_rows) = sqlite_limits()?;
     let temp_path = create_private_export_temp(path)?;
-    let mut conn = match Connection::open(&temp_path) {
+    // The pure-Rust Writer accumulates every table/row and serializes the whole `.db` in
+    // one bottom-up bulk load on `finish()` — no C sqlite, no per-row wire loop.
+    let mut writer = match Writer::create(&temp_path, 4096) {
         Ok(value) => value,
         Err(_) => {
             let _ = std::fs::remove_file(&temp_path);
@@ -581,9 +554,10 @@ pub(crate) fn export_sqlite_file(
             if schema.columns().len() > MAX_SQLITE_COLUMNS {
                 return Err("SQLite export table contains too many columns".to_string());
             }
-            conn.execute(&export_ddl(&schema), [])
+            writer
+                .add_table(&schema.name, &columns_from_schema(&schema))
                 .map_err(|_| "create table in SQLite export failed".to_string())?;
-            // ONE scan per table (batch), then one bulk transaction of inserts.
+            // ONE scan per table (batch), then one bulk insert of the whole table.
             let rows = store.scan(table)?;
             total_rows = total_rows
                 .checked_add(rows.len() as u64)
@@ -591,14 +565,11 @@ pub(crate) fn export_sqlite_file(
             if total_rows > max_rows {
                 return Err("SQLite export exceeds the configured row limit".to_string());
             }
-            let n = export_rows(&mut conn, &schema, &rows)?;
+            let n = export_rows(&mut writer, &schema, &rows)?;
             report.push(serde_json::json!({ "table": table, "rows": n }));
         }
         Ok(report)
     })();
-    // Flush pages to the file before reporting success (the connection drop also flushes).
-    let _ = conn.cache_flush();
-    drop(conn);
     let report = match result {
         Ok(value) => value,
         Err(error) => {
@@ -606,6 +577,11 @@ pub(crate) fn export_sqlite_file(
             return Err(error);
         }
     };
+    // Serialize + fsync the accumulated tables to the temp file.
+    if let Err(error) = writer.finish() {
+        let _ = remove_db_files(&temp_path);
+        return Err(format!("finalize SQLite export failed: {error}"));
+    }
     let export_bytes = match std::fs::metadata(&temp_path) {
         Ok(metadata) => metadata.len(),
         Err(_) => {
@@ -691,19 +667,18 @@ fn remove_db_files(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// The `CREATE TABLE` DDL for an engine schema, mapping each [`ColumnType`] back to a
-/// SQLite declared type so a re-import round-trips its affinity.
-fn export_ddl(schema: &TableSchema) -> String {
-    let cols: Vec<String> = schema
+/// The column list for a table, mapping each [`ColumnType`] back to a SQLite declared type
+/// so a re-import round-trips its affinity. The `Writer` builds the `CREATE TABLE` DDL
+/// itself from these (`CREATE TABLE "name" ("col" TYPE, …)`), matching the old `export_ddl`.
+fn columns_from_schema(schema: &TableSchema) -> Vec<SqliteColumnDef> {
+    schema
         .columns()
         .iter()
-        .map(|c| format!("{} {}", quote_ident(&c.name), type_to_sqlite(c.ty)))
-        .collect();
-    format!(
-        "CREATE TABLE {} ({})",
-        quote_ident(&schema.name),
-        cols.join(", ")
-    )
+        .map(|c| SqliteColumnDef {
+            name: c.name.clone(),
+            decl_type: type_to_sqlite(c.ty).to_string(),
+        })
+        .collect()
 }
 
 /// Map an engine [`ColumnType`] to a SQLite declared type (the inverse of
@@ -720,9 +695,10 @@ fn type_to_sqlite(ty: ColumnType) -> &'static str {
     }
 }
 
-/// Insert every scanned row into the sqlite table in ONE transaction (all-or-nothing).
+/// Bulk-insert every scanned row into the writer's in-memory table (one batch, no per-row
+/// wire loop — the `Writer` packs leaves/interiors on `finish()`).
 fn export_rows(
-    conn: &mut Connection,
+    writer: &mut Writer,
     schema: &TableSchema,
     rows: &[Vec<Cell>],
 ) -> Result<usize, String> {
@@ -730,43 +706,27 @@ fn export_rows(
         return Ok(0);
     }
     let ncols = schema.columns().len();
-    let placeholders = vec!["?"; ncols].join(", ");
-    let insert = format!(
-        "INSERT INTO {} VALUES ({})",
-        quote_ident(&schema.name),
-        placeholders
-    );
-    let tx = conn
-        .transaction()
-        .map_err(|e| format!("begin export txn: {e}"))?;
-    let mut count = 0usize;
-    {
-        let mut stmt = tx
-            .prepare(&insert)
-            .map_err(|e| format!("prepare export insert: {e}"))?;
-        for row in rows {
-            // `scan` NULL-pads each row to the schema width, so `row.len() == ncols`.
-            let params: Vec<SqlValue> = row.iter().take(ncols).map(cell_to_sqlite).collect();
-            stmt.execute(rusqlite::params_from_iter(params))
-                .map_err(|e| format!("export insert row: {e}"))?;
-            count += 1;
-        }
-    }
-    tx.commit().map_err(|e| format!("commit export txn: {e}"))?;
-    Ok(count)
+    // `scan` NULL-pads each row to the schema width, so `row.len() == ncols`.
+    let converted: Vec<Vec<SqliteValue>> = rows
+        .iter()
+        .map(|row| row.iter().take(ncols).map(cell_to_sqlite_value).collect())
+        .collect();
+    writer
+        .insert_rows(&schema.name, &converted)
+        .map_err(|e| format!("export insert rows: {e}"))
 }
 
-/// Convert a stored [`Cell`] to a SQLite runtime value for export.
-fn cell_to_sqlite(cell: &Cell) -> SqlValue {
+/// Convert a stored [`Cell`] to an `eg-sqlite-format` value for export.
+fn cell_to_sqlite_value(cell: &Cell) -> SqliteValue {
     match cell {
-        Cell::Null => SqlValue::Null,
-        Cell::Int(i) | Cell::Timestamp(i) => SqlValue::Integer(*i),
-        Cell::Float(f) => SqlValue::Real(*f),
-        Cell::Text(s) => SqlValue::Text(s.clone()),
-        Cell::Bool(b) => SqlValue::Integer(*b as i64),
-        Cell::Bytes(b) => SqlValue::Blob(b.clone()),
-        Cell::Json(v) => SqlValue::Text(v.to_string()),
-        Cell::Vector(v) => SqlValue::Text(render_vector(v)),
+        Cell::Null => SqliteValue::Null,
+        Cell::Int(i) | Cell::Timestamp(i) => SqliteValue::Integer(*i),
+        Cell::Float(f) => SqliteValue::Real(*f),
+        Cell::Text(s) => SqliteValue::Text(s.clone()),
+        Cell::Bool(b) => SqliteValue::Integer(*b as i64),
+        Cell::Bytes(b) => SqliteValue::Blob(b.clone()),
+        Cell::Json(v) => SqliteValue::Text(v.to_string()),
+        Cell::Vector(v) => SqliteValue::Text(render_vector(v)),
     }
 }
 
@@ -776,16 +736,9 @@ fn render_vector(v: &[f32]) -> String {
     format!("[{}]", inner.join(","))
 }
 
-/// Double-quote a SQL identifier (table/column name), escaping embedded quotes, so a name
-/// with spaces/keywords is safe in the generated DDL/DML.
-fn quote_ident(name: &str) -> String {
-    format!("\"{}\"", name.replace('"', "\"\""))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rusqlite::Connection;
 
     fn unique_paths() -> (std::path::PathBuf, std::path::PathBuf) {
         use std::time::{SystemTime, UNIX_EPOCH};
@@ -801,69 +754,109 @@ mod tests {
         )
     }
 
-    /// CONCEPT:EG-KG.query.eg-feature / CONCEPT:EG-KG.query.full-protocol — the full `.db` file round-trip: write a source
-    /// SQLite file with the C sqlite library, IMPORT it into an isolated engine table
-    /// store, EXPORT that store back out to a fresh `.db`, then RE-OPEN the exported file
-    /// with the sqlite library (proving it is a valid, `sqlite3`-readable database) and
-    /// assert every value — including a NULL and a BLOB — survived the round-trip.
+    fn sqlite3_available() -> bool {
+        std::process::Command::new("sqlite3")
+            .arg("--version")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    }
+
+    /// Run a SQL script through the real `sqlite3` CLI against `db`, returning stdout.
+    fn run_sqlite(db: &Path, sql: &str) -> String {
+        let out = std::process::Command::new("sqlite3")
+            .arg(db)
+            .arg(sql)
+            .output()
+            .expect("spawn sqlite3");
+        assert!(
+            out.status.success(),
+            "sqlite3 failed for {sql:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        String::from_utf8_lossy(&out.stdout).into_owned()
+    }
+
+    /// CONCEPT:EG-KG.query.eg-feature / CONCEPT:EG-KG.query.full-protocol — the full `.db`
+    /// file round-trip, now fully pure-Rust on the engine side and DIFFERENTIALLY verified
+    /// against the real `sqlite3` CLI: author a source `.db` with `sqlite3`, IMPORT it
+    /// (pure-Rust `Reader`) into an isolated engine store, EXPORT that store back out
+    /// (pure-Rust `Writer`), then prove the export with `sqlite3`: `PRAGMA integrity_check`
+    /// must be `ok`, and the `.schema`/`SELECT` output must match — including a NULL, a
+    /// BLOB, an overflow-forcing large TEXT, and a multi-leaf/interior b-tree. Skips (not
+    /// fails) when `sqlite3` is not on `$PATH`.
     #[test]
     fn test_sqlite_file_roundtrip_eg331_eg332() {
+        if !sqlite3_available() {
+            eprintln!("SKIP test_sqlite_file_roundtrip_eg331_eg332: sqlite3 not on PATH");
+            return;
+        }
         let (src, dst) = unique_paths();
 
-        // 1. Build a source `.db` with the bundled sqlite3 library.
-        {
-            let conn = Connection::open(&src).unwrap();
-            conn.execute_batch(
-                "CREATE TABLE people (id INTEGER, name TEXT, score REAL, active INTEGER, blob_col BLOB);",
-            )
-            .unwrap();
-            conn.execute(
-                "INSERT INTO people VALUES (1, 'alice', 9.5, 1, x'0102')",
-                [],
-            )
-            .unwrap();
-            conn.execute("INSERT INTO people VALUES (2, 'bob', NULL, 0, NULL)", [])
-                .unwrap();
-        }
+        // 1. Build a source `.db` with the real sqlite3 CLI — every storage class, a NULL,
+        //    a BLOB, a >4KB TEXT (overflow), and 4000 rows (multi-leaf + interior b-tree).
+        run_sqlite(
+            &src,
+            "CREATE TABLE people (id INTEGER, name TEXT, score REAL, active INTEGER, blob_col BLOB);
+             INSERT INTO people VALUES (1,'alice',9.5,1,x'0102');
+             INSERT INTO people VALUES (2,'bob',NULL,0,NULL);
+             CREATE TABLE big (id INTEGER, txt TEXT);
+             INSERT INTO big VALUES (1, hex(randomblob(9000)));
+             CREATE TABLE nums (n INTEGER, label TEXT);
+             WITH RECURSIVE c(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM c WHERE n<4000)
+               INSERT INTO nums SELECT n, 'row'||n FROM c;",
+        );
 
-        // 2. Import into an ISOLATED user-table store (the served path uses the
-        //    process-global store; a temp store keeps the test hermetic).
+        // 2. Import into an ISOLATED user-table store (pure-Rust Reader).
         let (store, store_path) = TableStore::open_temp().unwrap();
         let report = import_sqlite_file(&store, &src).unwrap();
-        assert_eq!(report["imported_tables"][0]["table"], "people");
-        assert_eq!(report["imported_tables"][0]["rows"], 2);
+        let imported: Vec<&str> = report["imported_tables"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| t["table"].as_str().unwrap())
+            .collect();
+        assert_eq!(imported, ["big", "nums", "people"]);
         assert_eq!(store.scan("people").unwrap().len(), 2);
+        assert_eq!(store.scan("nums").unwrap().len(), 4000);
 
-        // 3. Export the store back out to a fresh `.db`.
+        // 3. Export the store back out to a fresh `.db` (pure-Rust Writer).
         let report2 = export_sqlite_file(&store, &dst, &[]).unwrap();
-        assert_eq!(report2["exported_tables"][0]["table"], "people");
-        assert_eq!(report2["exported_tables"][0]["rows"], 2);
+        assert!(report2["exported_tables"].as_array().unwrap().len() == 3);
 
-        // 4. Re-open the EXPORTED file with the sqlite library — this proves it is a
-        //    valid, sqlite3-readable `.db` — and assert the rows round-tripped.
-        let conn = Connection::open(&dst).unwrap();
-        let rows: Vec<(i64, String, Option<f64>, i64)> = {
-            let mut stmt = conn
-                .prepare("SELECT id, name, score, active FROM people ORDER BY id")
-                .unwrap();
-            stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
-                .unwrap()
-                .collect::<Result<_, _>>()
-                .unwrap()
-        };
-        assert_eq!(rows.len(), 2);
-        assert_eq!(rows[0], (1, "alice".to_string(), Some(9.5), 1));
-        assert_eq!(rows[1].0, 2);
-        assert_eq!(rows[1].1, "bob");
-        assert_eq!(rows[1].2, None, "a NULL must survive the round-trip");
-        assert_eq!(rows[1].3, 0);
-        let blob: Vec<u8> = conn
-            .query_row("SELECT blob_col FROM people WHERE id = 1", [], |r| r.get(0))
-            .unwrap();
-        assert_eq!(blob, vec![1u8, 2u8], "a BLOB must survive the round-trip");
+        // 4a. THE conformance bar: real sqlite3 integrity_check on OUR-written file.
+        assert_eq!(
+            run_sqlite(&dst, "PRAGMA integrity_check;").trim(),
+            "ok",
+            "exported `.db` failed sqlite3 integrity_check"
+        );
+
+        // 4b. Differential SELECT: values (incl. NULL + BLOB) survived, per the real CLI.
+        let people = run_sqlite(
+            &dst,
+            "SELECT id,name,ifnull(score,'NULL'),active,quote(blob_col) FROM people ORDER BY id;",
+        );
+        let people: Vec<&str> = people.lines().collect();
+        assert_eq!(people[0], "1|alice|9.5|1|X'0102'");
+        assert_eq!(people[1], "2|bob|NULL|0|NULL");
+
+        // Overflow TEXT (18000 hex chars) and the large b-tree round-tripped intact.
+        assert_eq!(run_sqlite(&dst, "SELECT length(txt) FROM big;").trim(), "18000");
+        assert_eq!(
+            run_sqlite(&dst, "SELECT count(*),min(n),max(n) FROM nums;").trim(),
+            "4000|1|4000"
+        );
+        assert_eq!(
+            run_sqlite(&dst, "SELECT label FROM nums WHERE n=3333;").trim(),
+            "row3333"
+        );
+        // Exact stored DDL round-trips its affinity.
+        assert_eq!(
+            run_sqlite(&dst, "SELECT sql FROM sqlite_master WHERE name='people';").trim(),
+            "CREATE TABLE \"people\" (\"id\" INTEGER, \"name\" TEXT, \"score\" REAL, \"active\" INTEGER, \"blob_col\" BLOB)"
+        );
 
         // Cleanup.
-        drop(conn);
         let _ = std::fs::remove_file(&src);
         let _ = std::fs::remove_file(&dst);
         let _ = std::fs::remove_file(&store_path);
