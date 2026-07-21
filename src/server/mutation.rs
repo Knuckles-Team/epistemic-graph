@@ -1297,7 +1297,18 @@ where
         }
     };
     let committed = match persistence
-        .commit_mutation_batch_state(&fname, &batch, state_msgpack, Some(&result), created_at_ms)
+        .commit_mutation_batch_state(
+            &fname,
+            &batch,
+            state_msgpack,
+            Some(&result),
+            created_at_ms,
+            // The ORIGINAL method's policy-audited answer, captured before
+            // `compile_methods` erased its identity into an opaque state receipt
+            // (see `redb_store::commit_mutation_batch_inner`'s doc comment).
+            // `TouchNodes` is the standing durable-but-unaudited example.
+            plan.audited,
+        )
         .await
     {
         Ok(committed) => committed,
@@ -1733,7 +1744,18 @@ where
         }
     };
     let committed = match persistence
-        .commit_mutation_batch_state(&fname, &batch, state_msgpack, Some(&result), created_at_ms)
+        .commit_mutation_batch_state(
+            &fname,
+            &batch,
+            state_msgpack,
+            Some(&result),
+            created_at_ms,
+            // The ORIGINAL method's policy-audited answer, captured before
+            // `compile_methods` erased its identity into an opaque state receipt
+            // (see `redb_store::commit_mutation_batch_inner`'s doc comment).
+            // `TouchNodes` is the standing durable-but-unaudited example.
+            plan.audited,
+        )
         .await
     {
         Ok(committed) => committed,
@@ -3282,6 +3304,20 @@ mod tests {
         ("TsAppend", "native MutationBatch in series.redb: series rows/projection + coordinator metadata in one WTX"),
         #[cfg(feature = "jobs")]
         ("AnalyticsJob", "native MutationBatch in jobs.redb; asynchronous claim writeback uses a staged graph MutationBatch"),
+        // `Statechart` self-routes in dispatch.rs BEFORE dispatch_graph_op (see the
+        // `Method::Statechart` arm there and `handlers::statechart` module docs) --
+        // it never reaches this gateway's `try_handle_gateway`/`commit_mutation` at
+        // all. `eg-statechart`'s `StatechartStore::instantiate`/`send_event` commit
+        // through `eg-mutation-store` (the SAME universal MutationBatch/OCC
+        // primitive `eg-jobs` uses for `AnalyticsJob`, per eg-statechart/Cargo.toml)
+        // against their OWN `statecharts.redb`, keyed by def_id/instance_id, not a
+        // graph -- structurally identical to `AnalyticsJob` above, just gated
+        // `statechart` instead of `jobs`. Note: this is `eg-mutation-store` (a
+        // generic per-store OCC/durable-commit primitive shared by jobs/kv/blob/
+        // series/statecharts), NOT this module's `GATEWAY_ROUTED`/`commit_mutation`
+        // -- the two are easily conflated by name but are different mechanisms.
+        #[cfg(feature = "statechart")]
+        ("Statechart", "native MutationBatch in statecharts.redb; instance define/instantiate/send_event commit status/version/fence/idempotency/outbox in one WTX via eg-mutation-store, exactly like AnalyticsJob in jobs.redb"),
         ("ImportSqliteFile", "native SQL-catalog MutationBatch: all imported tables + exact result/coordinator metadata in one WTX"),
         // ── Process-global registries on ServerState: opaque control-redb sagas,
         // no GraphCore/graph_name; dispatched directly in the top-level match. ──

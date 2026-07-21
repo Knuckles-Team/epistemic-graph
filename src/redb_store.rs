@@ -505,6 +505,11 @@ pub(crate) fn commit_mutation_batch(
         crypto,
         #[cfg(feature = "security")]
         audit_tail,
+        // Compact-row batches never carry `authoritative_state`, so `audited` is
+        // never consulted for them (see `commit_mutation_batch_inner`): method
+        // identity is preserved (not opaque-wrapped) and `append_audit_entry`'s
+        // per-method `audit_line` match already gates correctly.
+        true,
         None,
     )
 }
@@ -512,6 +517,11 @@ pub(crate) fn commit_mutation_batch(
 /// Commit authenticated staged graph material through the same batch kernel. The
 /// digest/version descriptor lives in `batch`; complete snapshots or affected-row
 /// deltas are supplied out-of-line so status/outbox do not duplicate them.
+///
+/// `audited` is the CALLER's already-resolved `MutationPlan::audited` (or
+/// equivalent `eg_capabilities::policy(method).audited`) for the ORIGINAL,
+/// pre-opaque-wrapped method -- see the doc comment on `commit_mutation_batch_inner`
+/// for why this cannot be re-derived downstream once the operation is compiled.
 pub(crate) fn commit_mutation_batch_state(
     db: &Database,
     graph_fname: &str,
@@ -521,6 +531,7 @@ pub(crate) fn commit_mutation_batch_state(
     committed_at_ms: u64,
     crypto: DurableCrypto<'_>,
     #[cfg(feature = "security")] audit_tail: &mut AuditTailCache,
+    audited: bool,
 ) -> Result<MutationBatchCommit, String> {
     commit_mutation_batch_inner(
         db,
@@ -534,6 +545,7 @@ pub(crate) fn commit_mutation_batch_state(
         crypto,
         #[cfg(feature = "security")]
         audit_tail,
+        audited,
         None,
     )
 }
@@ -562,6 +574,9 @@ pub(crate) fn commit_change_envelope(
         crypto,
         #[cfg(feature = "security")]
         audit_tail,
+        // No `authoritative_state`, so `audited` is inert here -- see
+        // `commit_mutation_batch_inner`'s doc comment.
+        true,
         None,
     )?;
     let outbox_count = envelope
@@ -633,10 +648,32 @@ pub(crate) fn commit_mutation_batch_crossmodal(
         crypto,
         #[cfg(feature = "security")]
         audit_tail,
+        // No `authoritative_state`, so `audited` is inert here -- see
+        // `commit_mutation_batch_inner`'s doc comment.
+        true,
         None,
     )
 }
 
+/// `audited`: whether THIS commit should append tamper-evident audit-chain
+/// entries for its operations. Only consulted when `authoritative_state_msgpack`
+/// is `Some` (the Snapshot/RowDelta branches below) -- irrelevant otherwise
+/// (compact-row/crossmodal/envelope callers pass a placeholder `true`; see each
+/// call site).
+///
+/// Why this can't be re-derived from `batch.operations` alone: a state-backed
+/// commit's `MutationOperation::method` is NOT the original causal `Method`
+/// (e.g. `TouchNodes`) -- `mutation_batch::compile_methods`'s `opaque_state_operation`
+/// unconditionally rewrites EVERY state-backed operation into the SAME opaque
+/// digest receipt shape (`Method::ApplyMutation{event_type:
+/// "authoritative_state_operation", ..}`), by design, so sensitive row payloads
+/// never enter the durable batch/audit/outbox record. `audit::audit_line` always
+/// recognizes that receipt shape as auditable, so by the time this function sees
+/// `batch.operations`, the original method's OWN `eg_capabilities::policy(..).audited`
+/// answer is unrecoverable from the operation alone. Callers must therefore
+/// capture it themselves (typically `MutationPlan::audited`, already resolved from
+/// the untranslated method at the top of `commit_mutation`/
+/// `commit_conditional_mutation_async`) and pass it through here.
 #[allow(clippy::too_many_arguments)]
 fn commit_mutation_batch_inner(
     db: &Database,
@@ -649,8 +686,13 @@ fn commit_mutation_batch_inner(
     committed_at_ms: u64,
     crypto: DurableCrypto<'_>,
     #[cfg(feature = "security")] audit_tail: &mut AuditTailCache,
+    audited: bool,
     crashpoint: Option<MutationBatchCrashpoint>,
 ) -> Result<MutationBatchCommit, String> {
+    // `audited` is only read inside the `#[cfg(feature = "security")]` Snapshot/
+    // RowDelta branches below; this no-op keeps a `security`-disabled build
+    // warning-free without cfg-gating the parameter itself across every call site.
+    let _ = audited;
     batch.validate()?;
     // Terminal WorkItem operations own a row-local lease epoch/fencing CAS in
     // `apply_work_item_rows`. They intentionally do not carry graph-wide OCC:
@@ -1112,7 +1154,7 @@ fn commit_mutation_batch_inner(
             .map_err(|e| e.to_string())?;
 
         #[cfg(feature = "security")]
-        {
+        if audited {
             let mut audit = wtx.open_table(AUDIT).map_err(|e| e.to_string())?;
             for operation in &batch.operations {
                 append_audit_entry(
@@ -1166,9 +1208,16 @@ fn commit_mutation_batch_inner(
 
         // The delta is an authenticated projection detail. Audit the original
         // opaque operation receipt so sensitive row properties are not copied
-        // into audit/status/outbox surfaces.
+        // into audit/status/outbox surfaces -- but only when the ORIGINAL,
+        // pre-opaque-wrapped method's policy actually calls for it (`audited`,
+        // resolved by the caller before the operation was compiled; see this
+        // function's doc comment). `TouchNodes` is the standing example of a
+        // state-backed method that is durable but intentionally unaudited: the
+        // opaque receipt shape here is identical to an audited method's, so this
+        // flag -- not the operation's (rewritten) method -- is what tells the two
+        // apart.
         #[cfg(feature = "security")]
-        {
+        if audited {
             let mut audit = wtx.open_table(AUDIT).map_err(|e| e.to_string())?;
             for operation in &batch.operations {
                 append_audit_entry(
@@ -5526,6 +5575,7 @@ mod mutation_batch_tests {
             DurableCrypto::none(),
             #[cfg(feature = "security")]
             &mut audit,
+            true,
             point,
         )
     }
@@ -5556,6 +5606,7 @@ mod mutation_batch_tests {
             DurableCrypto::none(),
             #[cfg(feature = "security")]
             &mut audit,
+            true,
             point,
         )
     }
@@ -6276,6 +6327,7 @@ mod mutation_batch_tests {
             DurableCrypto::none(),
             #[cfg(feature = "security")]
             &mut audit,
+            true,
         )
         .unwrap();
         assert!(!committed.replayed);
@@ -6302,6 +6354,7 @@ mod mutation_batch_tests {
             DurableCrypto::none(),
             #[cfg(feature = "security")]
             &mut audit,
+            true,
         )
         .unwrap();
         assert!(replay.replayed);
@@ -6381,6 +6434,7 @@ mod mutation_batch_tests {
             DurableCrypto::none(),
             #[cfg(feature = "security")]
             &mut audit,
+            true,
         )
         .unwrap();
 
@@ -6464,6 +6518,7 @@ mod mutation_batch_tests {
             DurableCrypto::none(),
             #[cfg(feature = "security")]
             &mut audit,
+            true,
             Some(MutationBatchCrashpoint::BeforeCommit),
         )
         .is_err());

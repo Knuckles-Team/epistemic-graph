@@ -138,6 +138,13 @@ pub(crate) struct MutationBatchPayload {
     pub(crate) authoritative_state_msgpack: Option<Vec<u8>>,
     pub(crate) result_msgpack: Option<Vec<u8>>,
     pub(crate) committed_at_ms: u64,
+    /// Whether this commit should append audit-chain entries. Only meaningful
+    /// when `authoritative_state_msgpack` is `Some`; `commit_mutation_batch`
+    /// (compact-row, `authoritative_state_msgpack: None`) always stamps `true`
+    /// here since that path gates audit per-operation from the (identity-
+    /// preserving) method itself. See `redb_store::commit_mutation_batch_inner`'s
+    /// doc comment.
+    pub(crate) audited: bool,
 }
 
 /// One writer command for a cross-modal universal batch. It carries the coordinator
@@ -1708,6 +1715,9 @@ impl PersistenceBackend for RedbBackend {
                 authoritative_state_msgpack: None,
                 result_msgpack: result_msgpack.map(ToOwned::to_owned),
                 committed_at_ms,
+                // No authoritative_state -> audit is gated per-operation from the
+                // (identity-preserving) method itself downstream; this flag is inert.
+                audited: true,
             }),
             done,
         };
@@ -1739,6 +1749,7 @@ impl PersistenceBackend for RedbBackend {
         authoritative_state_msgpack: Vec<u8>,
         result_msgpack: Option<&[u8]>,
         committed_at_ms: u64,
+        audited: bool,
     ) -> Result<MutationBatchCommit, String> {
         let (done, rx) = oneshot::channel();
         let cmd = Cmd::MutationBatchCommit {
@@ -1748,6 +1759,7 @@ impl PersistenceBackend for RedbBackend {
                 authoritative_state_msgpack: Some(authoritative_state_msgpack),
                 result_msgpack: result_msgpack.map(ToOwned::to_owned),
                 committed_at_ms,
+                audited,
             }),
             done,
         };
@@ -3198,6 +3210,7 @@ fn handle_cmd(
                 authoritative_state_msgpack,
                 result_msgpack,
                 committed_at_ms,
+                audited,
             } = *payload;
             // Preserve command ordering and make the batch its own indivisible
             // commit point.  Pending best-effort/grouped writes land first; none
@@ -3214,6 +3227,7 @@ fn handle_cmd(
                     crypto,
                     #[cfg(feature = "security")]
                     &mut pending.audit_tail,
+                    audited,
                 )
             } else {
                 commit_mutation_batch(
