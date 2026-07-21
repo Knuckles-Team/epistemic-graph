@@ -1842,20 +1842,15 @@ mod tests {
     #[cfg(feature = "redb")]
     use crate::server::persistence::redb_backend::RedbBackend;
 
-    fn isolation_no_rules() -> IsolationLayer {
-        IsolationLayer::new()
-    }
-
     /// W1c: `check_graph_access_with_policy` (`src/server/access.rs`, the L-RLS-1
     /// hardening) now mandates a provisioned identity for EVERY graph-scoped
-    /// access -- `isolation_no_rules()` alone (no registered agents) is
-    /// unconditionally denied, not just under-ruled. The W1c tests below need a
+    /// access -- an empty, rule-less `IsolationLayer` (no registered agents) is
+    /// unconditionally denied, not just under-ruled. Every test below needs a
     /// caller that actually clears that gate, so they provision "system-agent"
     /// with `AgentRole::System` (the one role `IsolationLayer::check_access`
     /// treats as unconditionally allowed, same mechanism
     /// `unauthorized_actor_is_rejected_at_the_gateway` already relies on for its
-    /// registered identities) instead of reaching for the now-insufficient
-    /// no-rules layer.
+    /// registered identities) instead of an insufficient no-rules layer.
     fn isolation_with_system_agent() -> IsolationLayer {
         let mut isolation = IsolationLayer::new();
         isolation.register_agent(crate::acl::AgentIdentity {
@@ -1918,7 +1913,7 @@ mod tests {
         let persistence: Arc<dyn PersistenceBackend> = Arc::new(backend);
 
         let core = Arc::new(GraphCore::new());
-        let isolation = isolation_no_rules();
+        let isolation = isolation_with_system_agent();
         let cdc_hub = Arc::new(crate::server::cdc::CdcHub::new());
         let graph_name = "g-eg-p0-2-a";
 
@@ -2017,7 +2012,7 @@ mod tests {
 
         let core = Arc::new(GraphCore::new());
         core.add_node("n1".to_string(), Vec::new());
-        let isolation = isolation_no_rules();
+        let isolation = isolation_with_system_agent();
         let cdc_hub = Arc::new(crate::server::cdc::CdcHub::new());
         let graph_name = "g-eg-p0-2-a2";
 
@@ -2372,7 +2367,7 @@ mod tests {
         let persistence: Arc<dyn PersistenceBackend> = Arc::new(backend);
 
         let core = Arc::new(GraphCore::new());
-        let isolation = isolation_no_rules();
+        let isolation = isolation_with_system_agent();
         let cdc_hub = Arc::new(crate::server::cdc::CdcHub::new());
         let graph_name = "g-eg-p0-2-l11-broker-a";
 
@@ -2451,7 +2446,7 @@ mod tests {
             "n1".to_string(),
             rmp_serde::to_vec_named(&serde_json::json!({})).expect("encode seed node"),
         );
-        let isolation = isolation_no_rules();
+        let isolation = isolation_with_system_agent();
         let graph_name = "g-eg-p0-2-l11-none-durability-a";
 
         let method = Method::TouchNodes {
@@ -2557,7 +2552,7 @@ mod tests {
         // Read)`; `true` goes through `commit_mutation`, which uses `AccessLevel::
         // Write`) and by `unauthorized_actor_is_rejected_at_the_gateway` proving the
         // Write gate itself denies an unauthorized caller.
-        let isolation = isolation_no_rules();
+        let isolation = isolation_with_system_agent();
 
         let transactions = vec![
             vec!["a".to_string(), "b".to_string()],
@@ -2579,7 +2574,7 @@ mod tests {
         let plan_ro = MutationPlan::for_method(&method_ro);
         let ctx_ro = MutationCtx {
             req_id: 20,
-            caller: Some("reader"),
+            caller: Some("system-agent"),
             tenant_scope: "opaque-test-tenant",
             graph_name,
             graph_type: GraphType::Commons,
@@ -2645,7 +2640,7 @@ mod tests {
         assert!(!plan_rw.emits_cdc, "MineAssociate policy-does-NOT-emit-CDC");
         let ctx_rw = MutationCtx {
             req_id: 21,
-            caller: Some("writer"),
+            caller: Some("system-agent"),
             tenant_scope: "opaque-test-tenant",
             graph_name,
             graph_type: GraphType::Commons,
@@ -2774,7 +2769,7 @@ mod tests {
         );
         let core = Arc::new(GraphCore::new());
         core.add_node("n1".to_string(), Vec::new());
-        let isolation = isolation_no_rules();
+        let isolation = isolation_with_system_agent();
         let graph_name = "g-eg-p0-2-idem-unique-9f31";
 
         let method = Method::RemoveNode {
@@ -2785,7 +2780,7 @@ mod tests {
 
         let ctx = MutationCtx {
             req_id: 4,
-            caller: None,
+            caller: Some("system-agent"),
             tenant_scope: "opaque-test-tenant",
             graph_name,
             graph_type: GraphType::Commons,
