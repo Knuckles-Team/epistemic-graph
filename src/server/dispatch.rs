@@ -3055,6 +3055,21 @@ async fn dispatch_inner(
             .await
         }
 
+        // ── Native statechart engine (CONCEPT:INT-P2-2, feature `statechart`) ───────
+        // NOT graph-scoped (own `statecharts.redb`, keyed by def_id/instance_id) —
+        // self-routes here, BEFORE the per-graph `dispatch_graph_op` chain, exactly
+        // like `AnalyticsJob` above. See `handlers/statechart.rs` module docs.
+        #[cfg(feature = "statechart")]
+        Method::Statechart { op } => {
+            // Durable owner attribution comes from the authenticated context, never
+            // from the unsigned request envelope's display/agent field.
+            let carrier = match CarrierAuthority::from_verified(&verified_context) {
+                Ok(authority) => authority,
+                Err(denied) => return Response::err(req.id, denied),
+            };
+            handlers::statechart::handle(state, req.id, &carrier, op).await
+        }
+
         // ── Transactions (CONCEPT:EG-KG.txn.multi-op-occ-acid — multi-op OCC ACID) ──────
         // Stateful + self-routing: a Txn* op targets the graph the txn was opened
         // against (resolved from `open_txns`), NOT necessarily `req.graph`, and

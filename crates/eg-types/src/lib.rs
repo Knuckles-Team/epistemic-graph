@@ -23,6 +23,12 @@ pub mod epistemic_operations_manifest;
 // over the wire, and `protocol` is bottom-of-DAG. Pure serde — no dep.
 #[cfg(feature = "jobs")]
 pub mod jobs;
+// CONCEPT:INT-P2-2 — the native statechart engine's wire op (`StatechartOp`), gated
+// `statechart`. Lives here (not in `eg-statechart`, which sits ABOVE this crate in the
+// DAG) for the SAME reason `jobs` does: `protocol::Method::Statechart` carries it over
+// the wire, and `protocol` is bottom-of-DAG. Pure serde — no dep.
+#[cfg(feature = "statechart")]
+pub mod statechart;
 #[cfg(feature = "knowledge-batch")]
 pub mod knowledge_stream;
 #[cfg(feature = "modality-serving")]

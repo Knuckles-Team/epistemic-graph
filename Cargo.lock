@@ -2896,6 +2896,7 @@ dependencies = [
  "eg-rdf",
  "eg-shacl",
  "eg-shex",
+ "eg-statechart",
  "eg-stream",
  "eg-tensor",
  "eg-text",

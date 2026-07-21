@@ -55,6 +55,10 @@ use eg_types::protocol::{CypherMode, Method};
 ///   - [`JobsRedb`](DurabilityDomain::JobsRedb): the durable analytics-job plane's own
 ///     `jobs.redb` (CONCEPT:INT-P2-1), entirely separate from graph shards (`eg-jobs`,
 ///     wired by the facade's `src/server/handlers/jobs.rs`, feature `jobs`).
+///   - [`StatechartRedb`](DurabilityDomain::StatechartRedb): the native statechart
+///     engine's own `statecharts.redb` (CONCEPT:INT-P2-2), entirely separate from graph
+///     shards (`eg-statechart`, wired by `src/server/handlers/statechart.rs`, feature
+///     `statechart`) — the exact sibling of `JobsRedb`.
 ///   - [`ReasoningProjection`](DurabilityDomain::ReasoningProjection): the fsync'd,
 ///     per-graph incremental reasoning authority, advanced from the MutationBatch
 ///     outbox and fenced by its source graph watermark.
@@ -72,6 +76,7 @@ pub enum DurabilityDomain {
     SeriesRedb,
     KvRedb,
     JobsRedb,
+    StatechartRedb,
     ReasoningProjection,
     BlobRedb,
     Outbox,
@@ -1221,6 +1226,27 @@ pub fn policy(m: &Method) -> MethodPolicy {
             emits_cdc: false,
             txn_participation: TxnParticipation::Atomic,
         },
+        // CONCEPT:INT-P2-2 -- the native statechart engine. `mutates: true` is the
+        // conservative upper bound (like `AnalyticsJob`/`RbacAdmin`): the real per-op
+        // answer is runtime-conditional on `StatechartOp` (`GetState`/`List` are pure
+        // reads; `Define`/`Instantiate`/`SendEvent` mutate the instance store). Own
+        // durability domain (`StatechartRedb`, its own `statecharts.redb`) -- NOT
+        // `GraphRedb`, so it is excluded from the graph mutation-applier cross-check the
+        // same way `JobsRedb`/`SeriesRedb`/`KvRedb`/`BlobRedb` are (see the consistency
+        // test). Not audited/CDC-emitted for the same reason `AnalyticsJob`/`TsAppend`/
+        // `Kv*` aren't: it self-manages its own durability out of band of the graph
+        // tamper-evident chain, and self-routes before `dispatch_graph_op`, so it never
+        // reaches `mutation_apply::apply`/`audit.rs::audit_line` at all.
+        #[cfg(feature = "statechart")]
+        Method::Statechart { .. } => MethodPolicy {
+            mutates: true,
+            durability_domain: DurabilityDomain::StatechartRedb,
+            authz_action: "statechart:write",
+            idempotent: false,
+            audited: false,
+            emits_cdc: false,
+            txn_participation: TxnParticipation::Atomic,
+        },
         Method::Sql { .. } => MethodPolicy {
             mutates: true,
             durability_domain: DurabilityDomain::GraphRedb,
@@ -2250,6 +2276,8 @@ pub const ALL_METHODS: &[(&str, MethodPolicy, &str)] = &[
         ("ApplyMultisigMutation", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "security:admin", idempotent: true, audited: true, emits_cdc: true, txn_participation: TxnParticipation::Saga }, "threshold validation translates into the graph MutationBatch gateway"),
         #[cfg(feature = "jobs")]
         ("AnalyticsJob", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::JobsRedb, authz_action: "jobs:write", idempotent: false, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "runtime-conditional: Status is a read; Submit/Cancel/Resume commit through the native jobs.redb MutationBatch gateway"),
+        #[cfg(feature = "statechart")]
+        ("Statechart", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::StatechartRedb, authz_action: "statechart:write", idempotent: false, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "runtime-conditional: GetState/List are reads; Define/Instantiate/SendEvent commit to the native statecharts.redb store (CONCEPT:INT-P2-2)"),
         ("Sql", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "query:sql", idempotent: false, audited: true, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "runtime-conditional; graph DML uses staged graph state while table/catalog writes atomically commit SQL rows plus MutationBatch status/fence/idempotency/outbox"),
         ("CypherQuery", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "query:cypher", idempotent: false, audited: true, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "runtime-conditional; writes execute against a staged graph and publish only after durable MutationBatch commit"),
         ("GraphQl", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "query:graphql", idempotent: false, audited: true, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "runtime-conditional; ordinary writes stage through MutationBatch and cross-modal commit atomically includes universal status/fence/idempotency/outbox"),
@@ -2446,6 +2474,7 @@ mod smoke_tests {
         // Current-only table after the strict removal of four deprecated methods.
         let expected = 352
             + usize::from(cfg!(feature = "jobs"))
+            + usize::from(cfg!(feature = "statechart"))
             + usize::from(cfg!(feature = "modality-serving"))
             + usize::from(cfg!(feature = "knowledge-batch"));
         assert_eq!(
