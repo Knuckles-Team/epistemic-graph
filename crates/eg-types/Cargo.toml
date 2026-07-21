@@ -68,8 +68,8 @@ blob = []
 kv = []
 # SQLite `.db` FILE import/export (CONCEPT:EG-331/EG-332): gates the two `// ── SQLite
 # .db file ──` Method variants (`ImportSqliteFile`/`ExportSqliteFile`). PURE serde — no
-# dep here (the C `rusqlite` leg lives in the facade behind its own `sqlite-file` gate);
-# this only adds the two wire variants. A build without it drops them from the enum.
+# dep here (the pure-Rust `eg-sqlite-format` reader/writer lives in the facade behind its
+# own `sqlite-file` gate); this only adds the two wire variants. A build without it drops them.
 sqlite-file = []
 # Streaming / CDC / subscriptions (CONCEPT:KG-2.229/230): gates the `// ── Streaming
 # ──` Method variants + the CDC/continuous-query/watch/trigger wire DTOs. PURE serde

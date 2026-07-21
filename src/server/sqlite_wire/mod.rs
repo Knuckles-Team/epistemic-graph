@@ -21,12 +21,10 @@
 //!   2. **`.db` file export/import** — producing / loading a real SQLite database file.
 //!      SHIPPED as `CONCEPT:EG-KG.query.eg-feature`/`CONCEPT:EG-KG.query.full-protocol` behind the SEPARATE `sqlite-file`
 //!      feature (`src/server/handlers/sqlite_file.rs` + the `ImportSqliteFile`/
-//!      `ExportSqliteFile` methods). A spec-correct SQLite b-tree file cannot be written
-//!      without reimplementing the page format (the blocker below), so `sqlite-file`
-//!      pulls `rusqlite` with the BUNDLED C sqlite3 — and is therefore kept OUT of
-//!      `pi`/`default` (folded only into `full`/`node`), so the Pi contract still holds:
-//!      a `--features pi` build links NO rusqlite/libsqlite3-sys. That C leg is gated to
-//!      the non-Pi tiers ONLY; the `sqlite-wire` surface here stays pure-Rust.
+//!      `ExportSqliteFile` methods). It reimplements the SQLite b-tree page format from
+//!      scratch in `eg-sqlite-format` (a pure-Rust reader + bulk-load writer — NO rusqlite,
+//!      NO libsqlite3-sys, NO C toolchain), so BOTH the `sqlite-wire` surface here AND the
+//!      `.db` file leg stay pure-Rust and the Pi contract holds everywhere.
 //!
 //! ## The wire-neutral promise (CONCEPT:EG-KG.compute.subsystems-reference)
 //! NOTHING about SQL classification, read execution (DataFusion), the graph write path,
@@ -53,10 +51,10 @@
 //! ## `.db` file export/import — SHIPPED (CONCEPT:EG-KG.query.eg-feature/EG-332)
 //! Delivered in `src/server/handlers/sqlite_file.rs` behind the `sqlite-file` feature:
 //! import reads a `.db`'s tables+rows into the `TableStore`; export writes a `TableStore`
-//! selection out to a valid `sqlite3`-readable `.db`. Serializing the SQLite b-tree page
-//! format WITHOUT a C dependency proved infeasible (a pure-Rust writer would reimplement
-//! the whole format), so the feature pulls the BUNDLED C sqlite3 via `rusqlite` and is
-//! kept OUT of `pi` (folded only into `full`/`node`) — the Pi contract is preserved.
+//! selection out to a valid `sqlite3`-readable `.db`. The SQLite b-tree page format is
+//! serialized WITHOUT any C dependency by the pure-Rust `eg-sqlite-format` crate (reader +
+//! bottom-up bulk-load writer), whose output passes a real `sqlite3 PRAGMA integrity_check`
+//! — so the whole `sqlite-file` leg is pure-Rust and the Pi contract is preserved.
 
 use std::sync::Arc;
 

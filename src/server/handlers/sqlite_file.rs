@@ -3,13 +3,12 @@
 //! distinct from the `sqlite-wire` NDJSON dialect surface (which speaks SQLite SQL over
 //! a socket but never touches a `.db` file).
 //!
-//! ## Why the C `rusqlite`, not pure-Rust
-//! The export half must produce a `.db` a stock `sqlite3` CLI can open, i.e. a
-//! spec-correct SQLite b-tree page file. There is no mature pure-Rust crate that WRITES
-//! that format; hand-rolling it is the exact blocker `src/server/sqlite_wire/mod.rs`
-//! documented. So this ONE feature (`sqlite-file`) pulls `rusqlite` with the BUNDLED C
-//! sqlite3 — and is kept OUT of `pi`/`default` (folded only into `full`/`node`), so the
-//! Pi contract holds: a `--features pi` build links no rusqlite/libsqlite3-sys.
+//! ## Pure-Rust, no C sqlite
+//! Both halves go through `eg-sqlite-format`, a from-scratch SQLite page-format reader +
+//! bulk-load writer (no rusqlite, no libsqlite3-sys, no C toolchain). The export half
+//! produces a `.db` a stock `sqlite3` CLI can open — a spec-correct b-tree page file whose
+//! output passes a real `sqlite3 PRAGMA integrity_check` (see the differential test below).
+//! This falsifies the old "a spec-correct pure-Rust SQLite writer is infeasible" blocker.
 //!
 //! ## What moves
 //! Rows flow between the `.db` file and the caller's owner-scoped user-table store
