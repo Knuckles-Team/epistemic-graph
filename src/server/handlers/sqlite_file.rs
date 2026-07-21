@@ -28,8 +28,9 @@
 //! map picks a SQLite declared type per column so a re-import round-trips.
 
 use eg_query::{Cell, Column, ColumnType, TableSchema, TableStore, TableTxn, TxnOp};
+use eg_sqlite_format::{Reader, Value as SqliteValue};
 use rusqlite::types::Value as SqlValue;
-use rusqlite::{Connection, OpenFlags};
+use rusqlite::Connection;
 use serde_json::Value as JsonValue;
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -311,17 +312,16 @@ pub(crate) fn import_sqlite_file(store: &TableStore, path: &Path) -> Result<Json
     if !path.exists() {
         return Err("SQLite import source does not exist".to_string());
     }
-    let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
-        .map_err(|_| "open SQLite import source failed".to_string())?;
+    let reader = Reader::open(path).map_err(|_| "open SQLite import source failed".to_string())?;
 
-    let tables = list_user_tables(&conn)?;
+    let tables = list_user_tables(&reader)?;
     let mut report = Vec::with_capacity(tables.len());
     for table in &tables {
-        let (schema, col_order) = import_schema(&conn, table)?;
+        let (schema, col_order) = import_schema(&reader, table)?;
         // Replace an existing same-name table so the import mirrors the file.
         store.drop_table(table, true)?;
         store.create_table(&schema, false)?;
-        let rows = import_rows(&conn, table, &schema)?;
+        let rows = import_rows(&reader, table, &schema)?;
         let n = if rows.is_empty() {
             0
         } else {
@@ -337,9 +337,8 @@ fn prepare_sqlite_import(path: &Path) -> Result<(TableTxn, JsonValue), String> {
     if !path.exists() {
         return Err("SQLite import source does not exist".to_string());
     }
-    let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
-        .map_err(|_| "open SQLite import source failed".to_string())?;
-    let tables = list_user_tables(&conn)?;
+    let reader = Reader::open(path).map_err(|_| "open SQLite import source failed".to_string())?;
+    let tables = list_user_tables(&reader)?;
     let (_, max_rows) = sqlite_limits()?;
     if tables.len() > MAX_SQLITE_TABLES {
         return Err("SQLite import contains too many tables".to_string());
@@ -348,15 +347,15 @@ fn prepare_sqlite_import(path: &Path) -> Result<(TableTxn, JsonValue), String> {
     let mut report = Vec::with_capacity(tables.len());
     let mut total_rows = 0u64;
     for table in &tables {
-        let (schema, col_order) = import_schema(&conn, table)?;
-        let row_count = sqlite_table_row_count(&conn, table)?;
+        let (schema, col_order) = import_schema(&reader, table)?;
+        let row_count = sqlite_table_row_count(&reader, table)?;
         total_rows = total_rows
             .checked_add(row_count)
             .ok_or_else(|| "SQLite import row count overflow".to_string())?;
         if total_rows > max_rows {
             return Err("SQLite import exceeds the configured row limit".to_string());
         }
-        let rows = import_rows(&conn, table, &schema)?;
+        let rows = import_rows(&reader, table, &schema)?;
         if rows.len() as u64 != row_count {
             return Err("SQLite import changed while it was being read".to_string());
         }
@@ -383,57 +382,39 @@ fn prepare_sqlite_import(path: &Path) -> Result<(TableTxn, JsonValue), String> {
     ))
 }
 
-fn sqlite_table_row_count(conn: &Connection, table: &str) -> Result<u64, String> {
-    let sql = format!("SELECT COUNT(*) FROM {}", quote_ident(table));
-    let count = conn
-        .query_row(&sql, [], |row| row.get::<_, i64>(0))
-        .map_err(|_| "count SQLite import rows failed".to_string())?;
-    u64::try_from(count).map_err(|_| "SQLite import returned a negative row count".to_string())
+fn sqlite_table_row_count(reader: &Reader, table: &str) -> Result<u64, String> {
+    reader
+        .table_row_count(table)
+        .map_err(|_| "count SQLite import rows failed".to_string())
 }
 
 /// The user tables in a `.db` (skip `sqlite_*` internal tables), sorted for determinism.
-fn list_user_tables(conn: &Connection) -> Result<Vec<String>, String> {
-    let mut stmt = conn
-        .prepare(
-            "SELECT name FROM sqlite_master WHERE type='table' \
-             AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\' ORDER BY name",
-        )
-        .map_err(|e| format!("read sqlite_master: {e}"))?;
-    let names = stmt
-        .query_map([], |r| r.get::<_, String>(0))
-        .map_err(|e| format!("read sqlite_master: {e}"))?
-        .collect::<Result<Vec<String>, _>>()
-        .map_err(|e| format!("read sqlite_master: {e}"))?;
-    Ok(names)
+/// The pure-Rust [`Reader`] applies the same filter/ordering the old `sqlite_master`
+/// query did (`type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name`).
+fn list_user_tables(reader: &Reader) -> Result<Vec<String>, String> {
+    reader
+        .list_tables()
+        .map_err(|e| format!("read sqlite schema: {e}"))
 }
 
-/// Build the engine [`TableSchema`] for a `.db` table from `PRAGMA table_info` (every
-/// column NULLABLE + non-PK — values, not constraints, are mirrored). Returns the schema
-/// and the column-name order for the batch insert.
-fn import_schema(conn: &Connection, table: &str) -> Result<(TableSchema, Vec<String>), String> {
-    let mut stmt = conn
-        .prepare(&format!("PRAGMA table_info({})", quote_ident(table)))
-        .map_err(|e| format!("table_info({table}): {e}"))?;
-    // PRAGMA table_info columns: cid, name, type, notnull, dflt_value, pk.
-    let rows = stmt
-        .query_map([], |r| {
-            let name: String = r.get(1)?;
-            let decl: Option<String> = r.get(2)?;
-            Ok((name, decl.unwrap_or_default()))
-        })
-        .map_err(|e| format!("table_info({table}): {e}"))?;
+/// Build the engine [`TableSchema`] for a `.db` table from its stored `CREATE TABLE`
+/// columns (every column NULLABLE + non-PK — values, not constraints, are mirrored).
+/// Returns the schema and the column-name order for the batch insert.
+fn import_schema(reader: &Reader, table: &str) -> Result<(TableSchema, Vec<String>), String> {
+    let cols = reader
+        .table_columns(table)
+        .map_err(|e| format!("table columns({table}): {e}"))?;
 
     let mut columns = Vec::new();
     let mut names = Vec::new();
-    for row in rows {
-        let (name, decl) = row.map_err(|e| format!("table_info({table}): {e}"))?;
+    for col in cols {
         columns.push(Column::new(
-            name.clone(),
-            affinity_to_type(&decl),
+            col.name.clone(),
+            affinity_to_type(&col.decl_type),
             true,
             false,
         ));
-        names.push(name);
+        names.push(col.name);
     }
     if columns.is_empty() {
         return Err(format!("sqlite table `{table}` has no columns"));
@@ -462,32 +443,25 @@ fn affinity_to_type(decl: &str) -> ColumnType {
     }
 }
 
-/// Read every row of `table`, converting each SQLite runtime value to the JSON shape the
+/// Read every row of `table`, converting each SQLite value to the JSON shape the
 /// target column's [`ColumnType`] coerces from cleanly.
 fn import_rows(
-    conn: &Connection,
+    reader: &Reader,
     table: &str,
     schema: &TableSchema,
 ) -> Result<Vec<Vec<JsonValue>>, String> {
     let ncols = schema.columns().len();
-    let mut stmt = conn
-        .prepare(&format!("SELECT * FROM {}", quote_ident(table)))
-        .map_err(|e| format!("scan `{table}`: {e}"))?;
-    let raw = stmt
-        .query_map([], |r| {
-            let mut cells = Vec::with_capacity(ncols);
-            for i in 0..ncols {
-                cells.push(r.get::<_, SqlValue>(i)?);
-            }
-            Ok(cells)
-        })
+    let raw = reader
+        .scan_table(table)
         .map_err(|e| format!("scan `{table}`: {e}"))?;
 
     let mut out = Vec::new();
     for row in raw {
-        let row = row.map_err(|e| format!("scan `{table}`: {e}"))?;
+        // `scan_table` yields exactly the stored columns; a short row (fewer stored cells
+        // than schema columns) is NULL-padded to the schema width.
         let mut jrow = Vec::with_capacity(ncols);
-        for (i, v) in row.into_iter().enumerate() {
+        for i in 0..ncols {
+            let v = row.get(i).cloned().unwrap_or(SqliteValue::Null);
             jrow.push(sqlite_value_to_json(v, schema.columns()[i].ty)?);
         }
         out.push(jrow);
@@ -495,22 +469,22 @@ fn import_rows(
     Ok(out)
 }
 
-/// Convert a SQLite runtime value into the `serde_json::Value` the store's `Cell::coerce`
+/// Convert a SQLite value into the `serde_json::Value` the store's `Cell::coerce`
 /// accepts for `ty`.
-fn sqlite_value_to_json(v: SqlValue, ty: ColumnType) -> Result<JsonValue, String> {
+fn sqlite_value_to_json(v: SqliteValue, ty: ColumnType) -> Result<JsonValue, String> {
     let num_f64 = |f: f64| {
         serde_json::Number::from_f64(f)
             .map(JsonValue::Number)
             .unwrap_or(JsonValue::Null)
     };
     match v {
-        SqlValue::Null => Ok(JsonValue::Null),
-        SqlValue::Integer(i) => match ty {
+        SqliteValue::Null => Ok(JsonValue::Null),
+        SqliteValue::Integer(i) => match ty {
             ColumnType::Float | ColumnType::Double => Ok(num_f64(i as f64)),
             _ => Ok(JsonValue::Number(i.into())),
         },
-        SqlValue::Real(f) => Ok(num_f64(f)),
-        SqlValue::Text(s) => match ty {
+        SqliteValue::Real(f) => Ok(num_f64(f)),
+        SqliteValue::Text(s) => match ty {
             ColumnType::Int | ColumnType::BigInt | ColumnType::Timestamp => s
                 .trim()
                 .parse::<i64>()
@@ -523,7 +497,7 @@ fn sqlite_value_to_json(v: SqlValue, ty: ColumnType) -> Result<JsonValue, String
                 .map_err(|_| "non-numeric text in a real column".to_string()),
             _ => Ok(JsonValue::String(s)),
         },
-        SqlValue::Blob(b) => match ty {
+        SqliteValue::Blob(b) => match ty {
             // Bytes coerce accepts a JSON array of byte-sized ints (the props escape form).
             ColumnType::Bytes => Ok(JsonValue::Array(
                 b.into_iter().map(|x| JsonValue::Number(x.into())).collect(),

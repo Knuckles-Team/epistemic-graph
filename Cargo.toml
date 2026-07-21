@@ -676,7 +676,7 @@ sqlite-wire = ["wire"]
 # in the one main build, which already carries C dependencies via `text`→zstd-sys.
 # Needs `query` (the TableStore) + `server` (the dispatch handler);
 # `eg-types/sqlite-file` gates the two `Method` variants onto the wire.
-sqlite-file = ["query", "server", "dep:rusqlite", "eg-types/sqlite-file"]
+sqlite-file = ["query", "server", "dep:eg-sqlite-format", "dep:rusqlite", "eg-types/sqlite-file"]
 # MySQL / MariaDB wire-protocol listener (CONCEPT:EG-076) — the SECOND `WireProtocol`
 # adapter (CONCEPT:EG-074), a HAND-ROLLED MySQL client/server protocol (handshake v10,
 # `mysql_native_password` auth, `COM_QUERY`/`COM_PING`/`COM_QUIT`/`COM_INIT_DB`,
@@ -1233,11 +1233,11 @@ redb = { version = "4.1", optional = true }
 # pure Rust and links no ring, OpenSSL, or C crate. Cluster builds also use the
 # security feature for authenticated Raft transport.
 chacha20poly1305 = { version = "0.10", optional = true }
-# SQLite `.db` FILE import/export (feature `sqlite-file`, CONCEPT:EG-331/EG-332). The
-# `bundled` feature compiles the vendored C sqlite3 amalgamation (libsqlite3-sys) — the
-# only C-linked leg gated behind `sqlite-file`. The main build selects this feature.
-# A pure-Rust SQLite-file writer producing a `sqlite3`-CLI-readable `.db` is infeasible
-# because it would reimplement the b-tree page format.
+# SQLite `.db` FILE import/export (feature `sqlite-file`, CONCEPT:EG-331/EG-332).
+# Pure-Rust page-format reader + bulk-load writer — no C dependency.
+eg-sqlite-format = { path = "crates/eg-sqlite-format", optional = true }
+# TEMPORARY (removed once the export path is on eg-sqlite-format's Writer): the export
+# half still uses the bundled C sqlite3 during the incremental migration.
 rusqlite = { version = "0.32", optional = true, features = ["bundled"] }
 # S3/MinIO object-store chunk backend (feature `blob-s3`, CONCEPT:KG-2.206). The
 # ONLY dep that pulls an object-store/AWS SDK, gated behind `blob-s3` (NOT `blob`),
