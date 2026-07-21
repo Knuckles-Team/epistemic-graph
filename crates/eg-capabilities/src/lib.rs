@@ -674,8 +674,10 @@ pub fn policy(m: &Method) -> MethodPolicy {
             durability_domain: DurabilityDomain::GraphRedb,
             authz_action: "graph:admin",
             idempotent: false,
-            audited: false,
-            emits_cdc: false,
+            // W1c: closes the audit/CDC-visibility gap -- see `audit::audit_line`
+            // and `cdc::emit_for_method`, which now cover this variant.
+            audited: true,
+            emits_cdc: true,
             txn_participation: TxnParticipation::Atomic,
         },
         Method::GetLedger => MethodPolicy {
@@ -692,8 +694,10 @@ pub fn policy(m: &Method) -> MethodPolicy {
             durability_domain: DurabilityDomain::GraphRedb,
             authz_action: "ledger:admin",
             idempotent: true,
-            audited: false,
-            emits_cdc: false,
+            // W1c: closes the audit/CDC-visibility gap -- see `audit::audit_line`
+            // and `cdc::emit_for_method`, which now cover this variant.
+            audited: true,
+            emits_cdc: true,
             txn_participation: TxnParticipation::Atomic,
         },
         Method::ApplyLedger { .. } => MethodPolicy {
@@ -701,8 +705,10 @@ pub fn policy(m: &Method) -> MethodPolicy {
             durability_domain: DurabilityDomain::GraphRedb,
             authz_action: "ledger:write",
             idempotent: false,
-            audited: false,
-            emits_cdc: false,
+            // W1c: closes the audit/CDC-visibility gap -- see `audit::audit_line`
+            // and `cdc::emit_for_method`, which now cover this variant.
+            audited: true,
+            emits_cdc: true,
             txn_participation: TxnParticipation::Atomic,
         },
         Method::AuditVerify => MethodPolicy {
@@ -737,8 +743,10 @@ pub fn policy(m: &Method) -> MethodPolicy {
             durability_domain: DurabilityDomain::GraphRedb,
             authz_action: "node:admin",
             idempotent: false,
-            audited: false,
-            emits_cdc: false,
+            // W1c: closes the audit/CDC-visibility gap -- see `audit::audit_line`
+            // and `cdc::emit_for_method`, which now cover this variant.
+            audited: true,
+            emits_cdc: true,
             txn_participation: TxnParticipation::Atomic,
         },
         Method::RunDatalogReasoning { .. } => MethodPolicy {
@@ -746,8 +754,10 @@ pub fn policy(m: &Method) -> MethodPolicy {
             durability_domain: DurabilityDomain::GraphRedb,
             authz_action: "reasoning:write",
             idempotent: false,
-            audited: false,
-            emits_cdc: false,
+            // W1c: closes the audit/CDC-visibility gap -- see `audit::audit_line`
+            // and `cdc::emit_for_method`, which now cover this variant.
+            audited: true,
+            emits_cdc: true,
             txn_participation: TxnParticipation::Atomic,
         },
         Method::ApplyChangeEnvelope { .. } => MethodPolicy {
@@ -946,8 +956,10 @@ pub fn policy(m: &Method) -> MethodPolicy {
             durability_domain: DurabilityDomain::GraphRedb,
             authz_action: "graph:write",
             idempotent: false,
-            audited: false,
-            emits_cdc: false,
+            // W1c: closes the audit/CDC-visibility gap -- see `audit::audit_line`
+            // and `cdc::emit_for_method`, which now cover this variant.
+            audited: true,
+            emits_cdc: true,
             txn_participation: TxnParticipation::Saga,
         },
         Method::ApplyMutation { .. } => MethodPolicy {
@@ -955,8 +967,12 @@ pub fn policy(m: &Method) -> MethodPolicy {
             durability_domain: DurabilityDomain::GraphRedb,
             authz_action: "graph:write",
             idempotent: false,
-            audited: false,
-            emits_cdc: false,
+            // W1c: closes the audit/CDC-visibility gap -- see `audit::audit_line`
+            // and `cdc::emit_for_method`, which now cover this variant. The
+            // digest-only `authoritative_state_operation` receipt already had an
+            // `audit_line` arm; the general caller-supplied case did not.
+            audited: true,
+            emits_cdc: true,
             txn_participation: TxnParticipation::Atomic,
         },
         Method::Vf2SubgraphMatch { .. } => MethodPolicy {
@@ -1178,8 +1194,10 @@ pub fn policy(m: &Method) -> MethodPolicy {
             durability_domain: DurabilityDomain::GraphRedb,
             authz_action: "security:admin",
             idempotent: true,
-            audited: false,
-            emits_cdc: false,
+            // W1c: closes the audit/CDC-visibility gap -- see `audit::audit_line`
+            // and `cdc::emit_for_method`, which now cover this variant.
+            audited: true,
+            emits_cdc: true,
             txn_participation: TxnParticipation::Saga,
         },
         // CONCEPT:INT-P2-1 -- the durable analytics-job plane. `mutates: true` is the
@@ -1781,8 +1799,10 @@ pub fn policy(m: &Method) -> MethodPolicy {
             durability_domain: DurabilityDomain::GraphRedb,
             authz_action: "security:admin",
             idempotent: true,
-            audited: false,
-            emits_cdc: false,
+            // W1c: closes the audit/CDC-visibility gap -- see `audit::audit_line`
+            // and `cdc::emit_for_method`, which now cover this variant.
+            audited: true,
+            emits_cdc: true,
             txn_participation: TxnParticipation::Atomic,
         },
         Method::ShexValidate { .. } => MethodPolicy {
@@ -2089,16 +2109,16 @@ pub const ALL_METHODS: &[(&str, MethodPolicy, &str)] = &[
         ("DecaySweep", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "node:admin", idempotent: false, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "state-backed MutationBatch commits the resulting authoritative image"),
         ("TouchNodes", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "node:admin", idempotent: false, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "state-backed MutationBatch commits the resulting authoritative image"),
         ("ToMsgpack", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "graph:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, ""),
-        ("FromMsgpack", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "graph:admin", idempotent: false, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "state-backed MutationBatch commits the imported authoritative image"),
+        ("FromMsgpack", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "graph:admin", idempotent: false, audited: true, emits_cdc: true, txn_participation: TxnParticipation::Atomic }, "state-backed MutationBatch commits the imported authoritative image"),
         ("GetLedger", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "ledger:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, ""),
-        ("ClearLedger", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "ledger:admin", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "state-backed MutationBatch"),
-        ("ApplyLedger", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "ledger:write", idempotent: false, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "state-backed MutationBatch"),
+        ("ClearLedger", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "ledger:admin", idempotent: true, audited: true, emits_cdc: true, txn_participation: TxnParticipation::Atomic }, "state-backed MutationBatch"),
+        ("ApplyLedger", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "ledger:write", idempotent: false, audited: true, emits_cdc: true, txn_participation: TxnParticipation::Atomic }, "state-backed MutationBatch"),
         ("AuditVerify", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "security:audit", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, ""),
         ("GetSubgraph", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "node:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, ""),
         ("Fork", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "graph:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "returns the forked snapshot to the caller; never registers/persists it server-side"),
         ("DiffAgainst", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "graph:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, ""),
-        ("CompactNodesByType", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "node:admin", idempotent: false, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "state-backed MutationBatch"),
-        ("RunDatalogReasoning", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "reasoning:write", idempotent: false, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "state-backed MutationBatch commits inferred facts"),
+        ("CompactNodesByType", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "node:admin", idempotent: false, audited: true, emits_cdc: true, txn_participation: TxnParticipation::Atomic }, "state-backed MutationBatch"),
+        ("RunDatalogReasoning", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "reasoning:write", idempotent: false, audited: true, emits_cdc: true, txn_participation: TxnParticipation::Atomic }, "state-backed MutationBatch commits inferred facts"),
         ("ApplyChangeEnvelope", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "ingest:write", idempotent: true, audited: true, emits_cdc: true, txn_participation: TxnParticipation::Atomic }, "Engine-native object/material/governance/version/cursor/outbox commit; verified context is mandatory"),
         ("GetChangeEnvelope", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "ingest:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "Verified tenant-scoped reconciliation read"),
         ("GetContentVersion", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "ingest:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "Typed content versions are never compared lexically"),
@@ -2131,8 +2151,8 @@ pub const ALL_METHODS: &[(&str, MethodPolicy, &str)] = &[
         ("Shutdown", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::VolatileControl, authz_action: "service:admin", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::None }, "explicitly ephemeral process control; never acknowledges a user-data commit"),
         ("CancelRequest", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "service:control", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::None }, ""),
         ("ResourceStats", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "service:control", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::None }, ""),
-        ("Reconcile", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "graph:write", idempotent: false, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Saga }, "state-backed MutationBatch commits the merged image"),
-        ("ApplyMutation", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "graph:write", idempotent: false, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "state-backed MutationBatch"),
+        ("Reconcile", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "graph:write", idempotent: false, audited: true, emits_cdc: true, txn_participation: TxnParticipation::Saga }, "state-backed MutationBatch commits the merged image"),
+        ("ApplyMutation", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "graph:write", idempotent: false, audited: true, emits_cdc: true, txn_participation: TxnParticipation::Atomic }, "state-backed MutationBatch"),
         ("Vf2SubgraphMatch", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "compute:graph-algo", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, ""),
         ("ParseFile", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "compute:parse", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::None }, ""),
         ("ParseFiles", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "compute:parse", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::None }, ""),
@@ -2227,7 +2247,7 @@ pub const ALL_METHODS: &[(&str, MethodPolicy, &str)] = &[
         ("FinanceSabrCalibrate", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "compute:finance", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::None }, ""),
         ("RegisterIdentity", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::ControlRedb, authz_action: "security:admin", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "RBAC/identity snapshot and MutationBatch metadata share one rbac.redb WTX"),
         ("RbacAdmin", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::ControlRedb, authz_action: "security:admin", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "runtime-conditional: List is a read; role and grant updates share one rbac.redb WTX with MutationBatch metadata"),
-        ("ApplyMultisigMutation", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "security:admin", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Saga }, "threshold validation translates into the graph MutationBatch gateway"),
+        ("ApplyMultisigMutation", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "security:admin", idempotent: true, audited: true, emits_cdc: true, txn_participation: TxnParticipation::Saga }, "threshold validation translates into the graph MutationBatch gateway"),
         #[cfg(feature = "jobs")]
         ("AnalyticsJob", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::JobsRedb, authz_action: "jobs:write", idempotent: false, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "runtime-conditional: Status is a read; Submit/Cancel/Resume commit through the native jobs.redb MutationBatch gateway"),
         ("Sql", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "query:sql", idempotent: false, audited: true, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "runtime-conditional; graph DML uses staged graph state while table/catalog writes atomically commit SQL rows plus MutationBatch status/fence/idempotency/outbox"),
@@ -2313,7 +2333,7 @@ pub const ALL_METHODS: &[(&str, MethodPolicy, &str)] = &[
         ("OwlExplain", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "owl:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, ""),
         ("RunRules", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "reasoning:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "READ-ONLY (EG-P0-2/L11 handler audit): handle_run_rules reasons over an off-lock analysis_snapshot and returns inferred triples, no writeback -- unlike its sibling RunDatalogReasoning which materialises in-place. Corrected from a prior mutates=true semantic guess; now agrees with access.rs (never a write there)"),
         ("ShaclValidate", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "validation:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, ""),
-        ("IcvConfigure", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "security:admin", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, "state-backed MutationBatch"),
+        ("IcvConfigure", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "security:admin", idempotent: true, audited: true, emits_cdc: true, txn_participation: TxnParticipation::Atomic }, "state-backed MutationBatch"),
         ("ShexValidate", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "validation:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, ""),
         ("CdcRead", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "cdc:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, ""),
         ("RegisterContinuousQuery", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::ControlRedb, authz_action: "cdc:admin", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Saga }, "opaque prepared/committed session-control MutationBatch"),

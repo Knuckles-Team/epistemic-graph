@@ -1846,6 +1846,27 @@ mod tests {
         IsolationLayer::new()
     }
 
+    /// W1c: `check_graph_access_with_policy` (`src/server/access.rs`, the L-RLS-1
+    /// hardening) now mandates a provisioned identity for EVERY graph-scoped
+    /// access -- `isolation_no_rules()` alone (no registered agents) is
+    /// unconditionally denied, not just under-ruled. The W1c tests below need a
+    /// caller that actually clears that gate, so they provision "system-agent"
+    /// with `AgentRole::System` (the one role `IsolationLayer::check_access`
+    /// treats as unconditionally allowed, same mechanism
+    /// `unauthorized_actor_is_rejected_at_the_gateway` already relies on for its
+    /// registered identities) instead of reaching for the now-insufficient
+    /// no-rules layer.
+    fn isolation_with_system_agent() -> IsolationLayer {
+        let mut isolation = IsolationLayer::new();
+        isolation.register_agent(crate::acl::AgentIdentity {
+            agent_id: "system-agent".to_string(),
+            role: crate::acl::AgentRole::System,
+            teams: Vec::new(),
+            roles: Vec::new(),
+        });
+        isolation
+    }
+
     fn temp_dir(tag: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!(
             "eg-mutation-gateway-test-{tag}-{}-{}",
@@ -2048,6 +2069,290 @@ mod tests {
             0,
             "Reinforce must NOT emit a CDC event (CDC stays the policy-gated leg)"
         );
+    }
+
+    /// (a2b) W1c: drive one `method` through the REAL `commit_mutation` gateway
+    /// against a fresh `RedbBackend`, asserting the policy is `audited: true` +
+    /// `emits_cdc: true` and that exactly one audit-chain entry and one CDC marker
+    /// event actually land. Shared by every W1c admin/ledger-method case below (each
+    /// gets its own temp dir/backend/graph, so `report.entries`/the CDC feed start
+    /// clean per call).
+    #[cfg(feature = "redb")]
+    async fn assert_w1c_method_audits_and_emits_one_cdc_marker<F>(
+        tag: &str,
+        method: Method,
+        apply: F,
+    ) where
+        F: FnOnce(&GraphCore) -> Result<ResultPayload, String>,
+    {
+        let dir = temp_dir(&format!("w1c-{tag}"));
+        let dir_s = dir.to_string_lossy().to_string();
+        let backend =
+            RedbBackend::open(dir_s, DurabilityPolicy::Each, 64).expect("open redb backend");
+        let persistence: Arc<dyn PersistenceBackend> = Arc::new(backend);
+        let core = Arc::new(GraphCore::new());
+        let isolation = isolation_with_system_agent();
+        let cdc_hub = Arc::new(crate::server::cdc::CdcHub::new());
+        let graph_name = format!("g-w1c-{tag}");
+
+        let plan = MutationPlan::for_method(&method);
+        assert!(plan.mutates, "{tag}: must be classified as a mutation");
+        assert!(plan.audited, "{tag}: W1c must now be policy-audited");
+        assert!(plan.emits_cdc, "{tag}: W1c must now policy-emit CDC");
+        assert_eq!(plan.durability_domain, DurabilityDomain::GraphRedb);
+
+        let ctx = MutationCtx {
+            req_id: 1,
+            caller: Some("system-agent"),
+            tenant_scope: "opaque-test-tenant",
+            graph_name: &graph_name,
+            graph_type: GraphType::Commons,
+            owner: None,
+            isolation: &isolation,
+            core: &core,
+            persistence: Some(&persistence),
+            cdc: Some(&cdc_hub),
+            materialization_manifest: None,
+            write_coalescer: None,
+        };
+        let resp = commit_mutation(&ctx, &plan, &method, apply).await;
+        assert!(
+            resp.error.is_none(),
+            "{tag}: commit_mutation failed: {:?}",
+            resp.error
+        );
+
+        let fname = crate::persist::sanitize(&graph_name);
+        let report = persistence
+            .as_redb()
+            .expect("configured backend is redb")
+            .audit_verify_blocking(&fname)
+            .expect("audit_verify_blocking");
+        assert!(report.ok, "{tag}: audit chain broke: {report:?}");
+        assert_eq!(
+            report.entries, 1,
+            "{tag}: exactly one audit-chain entry must land"
+        );
+
+        let events = cdc_hub.read(&graph_name, 0, 100).expect("cdc read");
+        assert_eq!(
+            events.len(),
+            1,
+            "{tag}: exactly one CDC marker event, got {events:?}"
+        );
+    }
+
+    /// (a2c) W1c: the 9 durable admin/ledger methods (`FromMsgpack`/`ClearLedger`/
+    /// `ApplyLedger`/`CompactNodesByType`/`RunDatalogReasoning`/`Reconcile`/
+    /// `ApplyMutation`/`ApplyMultisigMutation`/`IcvConfigure`) were GATEWAY_ROUTED
+    /// and GraphRedb-durable but `audited: false, emits_cdc: false` -- invisible to
+    /// both the tamper-evident audit chain and the CDC feed despite committing
+    /// durably. Each now audits + emits CDC, consistent with the rest of the
+    /// durable mutation surface (`audit::audit_line` / `cdc::emit_for_method`).
+    /// 7 of the 9 don't map onto a single node/edge row, so each emits ONE
+    /// reserved-marker `UpdateNode` CDC event (the same shape `ApplyChangeEnvelope`/
+    /// `ServedModality` already use); those 7 are exercised here.
+    #[cfg(feature = "redb")]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn w1c_marker_admin_ledger_methods_now_audit_and_emit_cdc() {
+        assert_w1c_method_audits_and_emits_one_cdc_marker(
+            "clear-ledger",
+            Method::ClearLedger,
+            |core| {
+                core.clear_ledger();
+                Ok(ResultPayload::String("ok".to_string()))
+            },
+        )
+        .await;
+
+        assert_w1c_method_audits_and_emits_one_cdc_marker(
+            "apply-ledger",
+            Method::ApplyLedger {
+                transactions: Vec::new(),
+            },
+            |core| {
+                core.apply_ledger(Vec::new())
+                    .map(|()| ResultPayload::String("ok".to_string()))
+            },
+        )
+        .await;
+
+        assert_w1c_method_audits_and_emits_one_cdc_marker(
+            "compact-nodes-by-type",
+            Method::CompactNodesByType {
+                node_type: "x".into(),
+                threshold: 1,
+            },
+            |core| {
+                let removed = core.compact_nodes_by_type("x", 1);
+                Ok(ResultPayload::Json(
+                    serde_json::json!({ "removed_nodes": removed }),
+                ))
+            },
+        )
+        .await;
+
+        assert_w1c_method_audits_and_emits_one_cdc_marker(
+            "apply-mutation",
+            Method::ApplyMutation {
+                event_type: "w1c_test_event".into(),
+                query: "SELECT 1".into(),
+            },
+            |_core| Ok(ResultPayload::String("ok".to_string())),
+        )
+        .await;
+
+        assert_w1c_method_audits_and_emits_one_cdc_marker(
+            "apply-multisig-mutation",
+            Method::ApplyMultisigMutation {
+                signatures: vec!["sig1".into(), "sig2".into()],
+                threshold: 2,
+                mutation_type: "policy_update".into(),
+                query: "UPDATE policy SET x = 1".into(),
+            },
+            |_core| Ok(ResultPayload::Bool(true)),
+        )
+        .await;
+
+        assert_w1c_method_audits_and_emits_one_cdc_marker(
+            "icv-configure",
+            Method::IcvConfigure {
+                graph: None,
+                mode: "enforce".into(),
+                shapes: "@prefix sh: <http://www.w3.org/ns/shacl#> .".into(),
+            },
+            |_core| Ok(ResultPayload::Bool(true)),
+        )
+        .await;
+
+        assert_w1c_method_audits_and_emits_one_cdc_marker(
+            "run-datalog-reasoning",
+            Method::RunDatalogReasoning {
+                subclass_relations: Vec::new(),
+                subproperty_relations: Vec::new(),
+                symmetric_properties: Vec::new(),
+                transitive_properties: Vec::new(),
+                inverse_properties: Vec::new(),
+                domain_rules: Vec::new(),
+                range_rules: Vec::new(),
+                property_chains: Vec::new(),
+            },
+            |_core| {
+                Ok(ResultPayload::Json(serde_json::json!({
+                    "inferred_count": 0,
+                    "inferred_triples": Vec::<()>::new(),
+                })))
+            },
+        )
+        .await;
+    }
+
+    /// (a2d) W1c: `FromMsgpack`/`Reconcile` both replace the graph's ENTIRE
+    /// node/edge content with an imported/merged authoritative image
+    /// (`GraphCore::from_msgpack`) -- the same "whole graph replaced" shape as
+    /// `ClearGraph`, so their CDC signal is a feed RESET (`CdcHub::reset_graph`),
+    /// not a marker event. Proven by seeding one real CDC event first (a durable
+    /// `AddNode`) and observing the feed empty out afterward, while the audit
+    /// chain still grows by one entry for the `FromMsgpack`/`Reconcile` call
+    /// itself.
+    #[cfg(feature = "redb")]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn w1c_from_msgpack_and_reconcile_reset_the_cdc_feed_and_audit() {
+        for (tag, build_method) in [
+            (
+                "from-msgpack",
+                (|msgpack: Vec<u8>| Method::FromMsgpack { msgpack })
+                    as fn(Vec<u8>) -> Method,
+            ),
+            (
+                "reconcile",
+                (|msgpack: Vec<u8>| Method::Reconcile {
+                    graph_name: "other-graph".to_string(),
+                    msgpack,
+                }) as fn(Vec<u8>) -> Method,
+            ),
+        ] {
+            let dir = temp_dir(&format!("w1c-{tag}"));
+            let dir_s = dir.to_string_lossy().to_string();
+            let backend =
+                RedbBackend::open(dir_s, DurabilityPolicy::Each, 64).expect("open redb backend");
+            let persistence: Arc<dyn PersistenceBackend> = Arc::new(backend);
+            let core = Arc::new(GraphCore::new());
+            let isolation = isolation_with_system_agent();
+            let cdc_hub = Arc::new(crate::server::cdc::CdcHub::new());
+            let graph_name = format!("g-w1c-{tag}");
+
+            let ctx = MutationCtx {
+                req_id: 1,
+                caller: Some("system-agent"),
+                tenant_scope: "opaque-test-tenant",
+                graph_name: &graph_name,
+                graph_type: GraphType::Commons,
+                owner: None,
+                isolation: &isolation,
+                core: &core,
+                persistence: Some(&persistence),
+                cdc: Some(&cdc_hub),
+                materialization_manifest: None,
+                write_coalescer: None,
+            };
+
+            // Seed one durable AddNode -- one audit entry, one CDC event.
+            let seed = Method::AddNode {
+                node_id: "seed".to_string(),
+                properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"v": 1}))
+                    .unwrap(),
+            };
+            let seed_plan = MutationPlan::for_method(&seed);
+            let seed_resp = commit_mutation(&ctx, &seed_plan, &seed, |core| {
+                core.add_node("seed".to_string(), Vec::new());
+                Ok(ResultPayload::String("ok".to_string()))
+            })
+            .await;
+            assert!(seed_resp.error.is_none(), "{tag}: seed AddNode failed");
+            assert_eq!(
+                cdc_hub.read(&graph_name, 0, 100).expect("cdc read").len(),
+                1,
+                "{tag}: seed AddNode must emit exactly one CDC event"
+            );
+
+            // FromMsgpack/Reconcile: replace with a (valid, empty) authoritative
+            // snapshot of the SAME core -- policy-audited + policy-CDC-emitting.
+            let msgpack = core.to_msgpack().expect("to_msgpack");
+            let method = build_method(msgpack.clone());
+            let plan = MutationPlan::for_method(&method);
+            assert!(plan.audited, "{tag}: W1c must now be policy-audited");
+            assert!(plan.emits_cdc, "{tag}: W1c must now policy-emit CDC");
+
+            let resp = commit_mutation(&ctx, &plan, &method, move |core| {
+                core.from_msgpack(&msgpack)
+                    .map(|()| ResultPayload::String("ok".to_string()))
+            })
+            .await;
+            assert!(
+                resp.error.is_none(),
+                "{tag}: commit_mutation failed: {:?}",
+                resp.error
+            );
+
+            let fname = crate::persist::sanitize(&graph_name);
+            let report = persistence
+                .as_redb()
+                .expect("configured backend is redb")
+                .audit_verify_blocking(&fname)
+                .expect("audit_verify_blocking");
+            assert!(report.ok, "{tag}: audit chain broke: {report:?}");
+            assert_eq!(
+                report.entries, 2,
+                "{tag}: seed AddNode + {tag} == exactly two audit-chain entries"
+            );
+
+            assert_eq!(
+                cdc_hub.read(&graph_name, 0, 100).expect("cdc read").len(),
+                0,
+                "{tag}: the CDC feed must be RESET (empty) after the whole-graph replace"
+            );
+        }
     }
 
     /// (a5) L11 rollout batch 2, family representative: a message-broker method
