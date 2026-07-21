@@ -13,17 +13,30 @@
 //!   * `STATECHART_INSTANCES` — `instance_id -> msgpack(MachineInstance)`, one small
 //!     row per running machine.
 //!
-//! What this store deliberately does NOT do in phase-1: it does not route through the
-//! consensus `MutationBatch` gateway (`eg-mutation-store`) the way `eg-jobs` does, so
-//! transitions are not yet Raft-ordered across a cluster. The OCC `version` gives
-//! single-node correctness today; cluster replication is a documented phase-2 layer
-//! (it slots in exactly where `eg-jobs`' `mutate_job_batch` sits, without changing the
-//! record shape). See the crate `README`/lib docs.
+//! Cluster ordering: every authoritative instance write (both `instantiate` and a
+//! FIRING `send_event`) routes through the universal `MutationBatch` /
+//! durable-commit gateway (`eg-mutation-store`) — the SAME `begin` → change-rows →
+//! `finish` → `commit` sequence `eg-jobs`' `mutate_job_batch` uses, on the *same*
+//! redb `WriteTransaction` that mutates the `STATECHART_INSTANCES` row. So each
+//! transition carries an atomic terminal batch record, a monotonic domain version,
+//! a route fence, an idempotency row and an outbox intent — exactly the evidence a
+//! Raft state machine needs to order and replay it deterministically, with no
+//! coordinator/native-row split-brain window. The per-instance OCC `version`
+//! compare-and-set is preserved on top of that (it still guards lost updates on a
+//! single node), and single-node behavior is byte-for-byte identical: a batch is
+//! content-addressed by the exact instance image it persists, so a replayed
+//! proposal is an idempotent no-op. A well-defined NO-OP event still writes nothing
+//! — it never opens a batch.
 
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use eg_types::mutation_batch::{
+    MutationBatch, MutationDomain, MutationOperation, MutationOutboxIntent, MutationRequestContext,
+    MutationSurface, MUTATION_BATCH_VERSION,
+};
+use eg_types::protocol::Method;
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 use serde::de::DeserializeOwned;
 
@@ -173,6 +186,9 @@ impl StatechartStore {
             wtx.open_table(INSTANCES).map_err(redb_err)?;
             wtx.commit().map_err(redb_err)?;
         }
+        // Materialize the shared batch/version/fence/idempotency/outbox tables in the
+        // same redb file, exactly as `eg-jobs::JobStore::open` does for `jobs.redb`.
+        eg_mutation_store::initialize(&db).map_err(redb_err)?;
         let seed = initialize_next_id(&db)?;
         Ok(Self {
             db,
@@ -291,17 +307,36 @@ impl StatechartStore {
         Ok(instance)
     }
 
+    /// Persist a fresh instance image through the universal durable-commit gateway
+    /// (the `instantiate` write path). This is the blind-insert analogue of
+    /// `eg-jobs`' `put_raw_batch`: the row change and its terminal batch/version/
+    /// fence/idempotency/outbox evidence commit as one all-or-nothing redb txn. The
+    /// batch is content-addressed by the exact bytes being written, so a replayed
+    /// proposal (same image) is an idempotent no-op.
     fn put_instance(&self, instance: &MachineInstance) -> Result<()> {
         let blob = encode_instance(instance)?;
+        let batch = instance_batch(instance, &blob)?;
+        let committed_at_ms = instance.updated_at_ms.max(0) as u64;
         let wtx = self.db.begin_write().map_err(redb_err)?;
-        {
-            let mut table = wtx.open_table(INSTANCES).map_err(redb_err)?;
-            table
-                .insert(instance.instance_id.as_str(), blob.as_slice())
-                .map_err(redb_err)?;
+        match eg_mutation_store::begin(&wtx, &batch).map_err(redb_err)? {
+            eg_mutation_store::Begin::Replay(_record) => {
+                // This exact instance image already committed durably; nothing to do.
+                wtx.abort().map_err(redb_err)?;
+                Ok(())
+            }
+            eg_mutation_store::Begin::Apply { source_version } => {
+                {
+                    let mut table = wtx.open_table(INSTANCES).map_err(redb_err)?;
+                    table
+                        .insert(instance.instance_id.as_str(), blob.as_slice())
+                        .map_err(redb_err)?;
+                }
+                eg_mutation_store::finish(&wtx, &batch, Some(blob), committed_at_ms, source_version)
+                    .map_err(redb_err)?;
+                eg_mutation_store::commit(wtx, &batch).map_err(redb_err)?;
+                Ok(())
+            }
         }
-        wtx.commit().map_err(redb_err)?;
-        Ok(())
     }
 
     /// Fetch (rehydrate) an instance by id.
@@ -338,7 +373,7 @@ impl StatechartStore {
     ) -> Result<SendOutcome> {
         // Read + decide first; the pure transition function does not need the write txn
         // open, and a no-op must not take a write at all.
-        let mut instance = self.get_instance(instance_id)?;
+        let instance = self.get_instance(instance_id)?;
         if let Some(expected) = expected_version {
             if expected != instance.version {
                 return Err(StatechartError::VersionConflict {
@@ -357,61 +392,101 @@ impl StatechartStore {
             return Ok(SendOutcome { instance, outcome });
         }
 
-        // A firing transition: commit the new (state, context) under a fresh version.
-        // Re-open the row inside a write txn and re-check the version so a concurrent
-        // writer cannot be silently clobbered (compare-and-set). The block below owns
-        // every borrow of the write txn (the redb `AccessGuard`/`Table`) and returns a
-        // plain `Result<(), u64>` — `Ok(())` staged the write, `Err(actual)` found an
-        // OCC conflict — so the txn can be committed or aborted with no borrow alive.
+        // A firing transition. Compute the RESULTING instance image up front — the new
+        // hierarchical CONFIGURATION the pure `step` transition decided, folded onto a
+        // clone of the current instance — so the MutationBatch is content-addressed by
+        // the exact bytes we will persist (the key that makes a replayed Raft proposal
+        // an idempotent no-op). A well-defined no-op returned above; it never reaches
+        // here.
+        let now = now_ms();
+        let mut next = instance.clone();
+        next.configuration = outcome.next.clone();
+        next.context = outcome.next_context.clone();
+        next.version = next.version.saturating_add(1);
+        next.transitions_fired = next.transitions_fired.saturating_add(1);
+        next.events_seen = next.events_seen.saturating_add(1);
+        next.status = if next.configuration.is_final(&def) {
+            InstanceStatus::Final
+        } else {
+            InstanceStatus::Active
+        };
+        next.updated_at_ms = now;
+        let blob = encode_instance(&next)?;
+        let batch = instance_batch(&next, &blob)?;
+        let committed_at_ms = now.max(0) as u64;
+
+        // Commit the row change and its terminal batch/version/fence/idempotency/
+        // outbox evidence through the SAME `eg-mutation-store` gateway `eg-jobs` uses,
+        // on one redb `WriteTransaction`. Inside that txn the row is re-read and its
+        // OCC `version` re-checked (compare-and-set) so a concurrent writer cannot be
+        // silently clobbered — the per-instance guard is preserved on top of the
+        // gateway.
         let wtx = self.db.begin_write().map_err(redb_err)?;
-        let staged: std::result::Result<std::result::Result<(), u64>, StatechartError> = (|| {
-            let mut table = wtx.open_table(INSTANCES).map_err(redb_err)?;
-            let current_bytes = {
-                let guard = table
-                    .get(instance_id)
-                    .map_err(redb_err)?
-                    .ok_or_else(|| StatechartError::NotFound(instance_id.to_string()))?;
-                guard.value().to_vec()
-            };
-            let current: MachineInstance = decode_stored(&current_bytes)?;
-            if current.version != instance.version {
-                // Someone advanced the instance between our read and our write.
-                return Ok(Err(current.version));
-            }
-            let now = now_ms();
-            instance.configuration = outcome.next.clone();
-            instance.context = outcome.next_context.clone();
-            instance.version = instance.version.saturating_add(1);
-            instance.transitions_fired = instance.transitions_fired.saturating_add(1);
-            instance.events_seen = instance.events_seen.saturating_add(1);
-            instance.status = if instance.configuration.is_final(&def) {
-                InstanceStatus::Final
-            } else {
-                InstanceStatus::Active
-            };
-            instance.updated_at_ms = now;
-            let blob = encode_instance(&instance)?;
-            table.insert(instance_id, blob.as_slice()).map_err(redb_err)?;
-            Ok(Ok(()))
-        })();
-        match staged {
-            Ok(Ok(())) => {
-                wtx.commit().map_err(redb_err)?;
-                Ok(SendOutcome { instance, outcome })
-            }
-            Ok(Err(actual)) => {
+        match eg_mutation_store::begin(&wtx, &batch).map_err(redb_err)? {
+            eg_mutation_store::Begin::Replay(_record) => {
+                // This exact resulting image already committed durably (idempotent
+                // replay of a re-proposed transition); the instance is already at
+                // `next`. Report it without writing again.
                 wtx.abort().map_err(redb_err)?;
-                Err(StatechartError::VersionConflict {
-                    instance_id: instance_id.to_string(),
-                    expected: instance.version,
-                    actual,
-                })
+                Ok(SendOutcome { instance: next, outcome })
             }
-            Err(error) => {
-                let _ = wtx.abort();
-                Err(error)
+            eg_mutation_store::Begin::Apply { source_version } => {
+                // Re-open the row inside the write txn and re-check the OCC version.
+                // The block owns every borrow of the `INSTANCES` table and yields a
+                // plain `Result<(), u64>` — `Ok(())` staged the write, `Err(actual)`
+                // found a compare-and-set conflict — so the table borrow is dropped
+                // before `finish`/`commit`/`abort` touch the gateway's own tables.
+                let occ: std::result::Result<(), u64> = {
+                    let mut table = wtx.open_table(INSTANCES).map_err(redb_err)?;
+                    let current_bytes = {
+                        let guard = table
+                            .get(instance_id)
+                            .map_err(redb_err)?
+                            .ok_or_else(|| StatechartError::NotFound(instance_id.to_string()))?;
+                        guard.value().to_vec()
+                    };
+                    let current: MachineInstance = decode_stored(&current_bytes)?;
+                    if current.version != instance.version {
+                        // Someone advanced the instance between our read and our write.
+                        Err(current.version)
+                    } else {
+                        table.insert(instance_id, blob.as_slice()).map_err(redb_err)?;
+                        Ok(())
+                    }
+                };
+                match occ {
+                    Ok(()) => {
+                        eg_mutation_store::finish(
+                            &wtx,
+                            &batch,
+                            Some(blob),
+                            committed_at_ms,
+                            source_version,
+                        )
+                        .map_err(redb_err)?;
+                        eg_mutation_store::commit(wtx, &batch).map_err(redb_err)?;
+                        Ok(SendOutcome { instance: next, outcome })
+                    }
+                    Err(actual) => {
+                        wtx.abort().map_err(redb_err)?;
+                        Err(StatechartError::VersionConflict {
+                            instance_id: instance_id.to_string(),
+                            expected: instance.version,
+                            actual,
+                        })
+                    }
+                }
             }
         }
+    }
+
+    /// The gateway's monotonic mutation-domain version for the statechart instance
+    /// scope — the count of durable instance batches committed through
+    /// `eg-mutation-store` (mirrors `eg-jobs`' `mutation_version`). A cluster layer
+    /// reads this to order/replay instance transitions.
+    pub fn mutation_version(&self) -> Result<u64> {
+        eg_mutation_store::version(&self.db, INSTANCE_MUTATION_TENANT, INSTANCE_MUTATION_GRAPH)
+            .map_err(redb_err)
     }
 
     /// List instance ids, optionally filtered to one definition. Diagnostic/admin use;
@@ -463,6 +538,69 @@ impl StatechartStore {
         }
         Ok(out)
     }
+}
+
+/// Fixed mutation-domain scope for statechart instance writes. A single
+/// `(tenant, graph)` scope gives every instance transition one totally-ordered
+/// mutation log — exactly what a Raft state machine orders and replays — mirroring
+/// `eg-jobs`' fixed `native`/`analytics-jobs` scope.
+const INSTANCE_MUTATION_TENANT: &str = "native";
+const INSTANCE_MUTATION_GRAPH: &str = "statechart-instances";
+
+/// Give each durable instance image the same deterministic, digest-only
+/// `MutationBatch` `eg-jobs`' `internal_job_batch` stamps on every `JOBS` transition,
+/// so an `instantiate` or a firing `send_event` carries identical atomic
+/// status/version/fence/idempotency/outbox evidence and is Raft-orderable and
+/// crash-consistent across nodes. The batch identity is a pure hash of the resulting
+/// instance image (`encoded`), so a re-proposed transition replays idempotently
+/// rather than double-applying.
+fn instance_batch(instance: &MachineInstance, encoded: &[u8]) -> Result<MutationBatch> {
+    use sha2::{Digest, Sha256};
+    let digest = hex::encode(Sha256::digest(encoded));
+    // Attribute the transition to the authenticated, server-hashed owner of the
+    // instance. The actor is already an opaque scope; never emit a raw label.
+    let principal = format!(
+        "principal:sha256:{}",
+        hex::encode(Sha256::digest(instance.actor.as_bytes()))
+    );
+    let batch_id = format!("statechart-transition:{digest}");
+    let operation = MutationOperation {
+        ordinal: 0,
+        surface: MutationSurface::Lifecycle,
+        domain: MutationDomain::Lifecycle,
+        method: Method::ApplyMutation {
+            event_type: "statechart_instance_transition".to_string(),
+            query: format!("sha256:{digest}"),
+        },
+    };
+    let batch = MutationBatch {
+        schema_version: MUTATION_BATCH_VERSION,
+        batch_id: batch_id.clone(),
+        context: MutationRequestContext {
+            request_id: 0,
+            principal,
+            purpose: None,
+            policy_fingerprint: None,
+            trace_id: None,
+        },
+        tenant: INSTANCE_MUTATION_TENANT.to_string(),
+        graph: INSTANCE_MUTATION_GRAPH.to_string(),
+        placement_epoch: 0,
+        idempotency_key: batch_id.clone(),
+        expected_graph_version: None,
+        fencing_token: None,
+        authoritative_state: None,
+        operations: vec![operation.clone()],
+        outbox: vec![MutationOutboxIntent {
+            topic: "engine.statechart-instance.transitioned".to_string(),
+            key: batch_id,
+            payload: rmp_serde::to_vec_named(&operation).map_err(codec_err)?,
+            headers: std::collections::BTreeMap::new(),
+        }],
+        created_at_ms: instance.updated_at_ms.max(0) as u64,
+    };
+    batch.validate().map_err(codec_err)?;
+    Ok(batch)
 }
 
 fn map_transition_error(instance_id: &str, error: TransitionError) -> StatechartError {
@@ -616,6 +754,75 @@ mod tests {
             .send_event(&instance.instance_id, &EventInput::new("teleport"), None)
             .unwrap_err();
         assert!(matches!(err, StatechartError::InvalidTransition { .. }));
+    }
+
+    #[test]
+    fn transitions_commit_through_the_mutation_gateway() {
+        let (store, _dir) = store();
+        let def_id = store.define(&turnstile()).unwrap();
+
+        // instantiate itself is an authoritative instance write: it must land one
+        // durable batch through the gateway, advancing the mutation-domain version.
+        let instance = store.instantiate(&def_id, Context::new(), "t", "a").unwrap();
+        let v_after_instantiate = store.mutation_version().unwrap();
+        assert_eq!(
+            v_after_instantiate, 1,
+            "instantiate must commit exactly one gateway batch"
+        );
+
+        // A FIRING transition advances the gateway version by exactly one and leaves a
+        // committed batch keyed by the resulting instance image, carrying the
+        // transition result payload and the post-commit outbox intent — the eg-jobs
+        // precedent, mirrored.
+        let out = store
+            .send_event(&instance.instance_id, &EventInput::new("coin"), None)
+            .unwrap();
+        assert!(out.outcome.fired);
+        assert!(out.instance.in_state("unlocked"));
+        assert_eq!(out.instance.version, 1);
+        let v_after_fire = store.mutation_version().unwrap();
+        assert_eq!(
+            v_after_fire, 2,
+            "a firing transition commits exactly one gateway batch"
+        );
+
+        // The committed batch is content-addressed by the exact persisted image and is
+        // terminally Committed; its result payload rehydrates to that same image.
+        let blob = encode_instance(&out.instance).unwrap();
+        let batch = instance_batch(&out.instance, &blob).unwrap();
+        let record = eg_mutation_store::read_record(&store.db, &batch.batch_id)
+            .unwrap()
+            .expect("a firing transition must leave a committed batch record");
+        assert_eq!(record.status, eg_types::MutationBatchStatus::Committed);
+        let committed_image: MachineInstance =
+            decode_stored(record.result_msgpack.as_ref().unwrap()).unwrap();
+        assert_eq!(committed_image, out.instance);
+        let outbox = eg_mutation_store::read_outbox(&store.db, &batch.batch_id).unwrap();
+        assert_eq!(outbox.len(), 1);
+        assert_eq!(outbox[0].intent.topic, "engine.statechart-instance.transitioned");
+
+        // A well-defined NO-OP must NOT open a batch: the gateway version is unchanged.
+        // 'coin' from 'unlocked' is undefined ⇒ no-op.
+        let noop = store
+            .send_event(&instance.instance_id, &EventInput::new("coin"), None)
+            .unwrap();
+        assert!(!noop.outcome.fired);
+        assert_eq!(
+            store.mutation_version().unwrap(),
+            v_after_fire,
+            "a no-op event must commit no gateway batch"
+        );
+
+        // And an OCC conflict likewise commits nothing through the gateway.
+        let conflict = store
+            .send_event(&instance.instance_id, &EventInput::new("push"), Some(99))
+            .unwrap_err();
+        assert!(matches!(conflict, StatechartError::VersionConflict { .. }));
+        assert_eq!(
+            store.mutation_version().unwrap(),
+            v_after_fire,
+            "a rejected OCC transition must commit no gateway batch"
+        );
     }
 
     #[test]
