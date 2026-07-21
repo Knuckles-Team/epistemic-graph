@@ -7,17 +7,32 @@
 > graph/snapshot — and mined patterns **write back** into the KG as typed nodes for
 > OWL reasoning and the next mining pass (the discovery flywheel).
 
-The surface exposes three actions today:
+The surface exposes seventeen actions today:
 
 - **`associate`** (Phase 1) — association-rule mining (frequent itemsets + rules
   with **support / confidence / lift**).
 - **`cluster`** (Phase 2) — DBSCAN, hierarchical agglomerative, GMM (EM),
   k-medoids (PAM), completing the family beyond the existing k-Means/spectral.
 - **`anomaly`** (Phase 2) — z-score/MAD, Isolation Forest, LOF, One-Class SVM.
+- **`classify_fit`/`classify_predict`** (Phase 3) — logistic/softmax regression +
+  Gaussian naive Bayes, completing the classifier family beyond the datascience
+  tree/forest/boosting kernels.
+- **`reduce`** (Phase 3) — PCA, truncated SVD, LDA, UMAP, t-SNE.
+- **`sequence`** (Phase 4) — sequential-pattern mining (frequent ORDERED item
+  sequences, PrefixSpan-style).
+- **`forecast`** (Phase 4) — classical forecasting (ARIMA, Holt-Winters, STL).
+- **`text`** (Phase 4) — TF-IDF, LDA, NMF topic mining over tokenized documents.
+- **`subgraph`** (Phase 4) — frequent subgraph mining (`gspan`) + topological
+  motif census over the resident graph's own topology.
+- **`entity_resolve`, `causal_impact`, `process`, `root_cause`,
+  `risk_propagation`, `ontology_gap`, `retrieval_quality`, `community`** — eight
+  more families rounding out the surface (`Method::MineEntityResolve` through
+  `Method::MineCommunity` in `crates/eg-types/src/protocol.rs`), each following the
+  SAME shape: explicit-or-graph-derived input, optional `writeback` of a typed
+  node, optional `as_claim` epistemic writeback gated `all(mining, epistemic)`.
 
-Later phases add sequential patterns, forecasting, and frequent-subgraph mining
-onto this *same* surface — so every later phase is "add an algorithm", not "add a
-surface".
+Every family lands on this *same* surface — so every later phase is "add an
+algorithm", not "add a surface".
 
 > **Durability.** Every `writeback=true` mining action documented below —
 > `classify_predict`, `reduce`, `sequence`, `forecast`, `text` (`lda`/`nmf`), and
@@ -732,4 +747,311 @@ graph_mine { "action": "subgraph",
 
 // REST twin (same _execute_tool core)
 POST /api/mining/subgraph { "min_support": 0.1, "max_edges": 2, "algorithm": "gspan" }
+```
+
+---
+
+# Entity resolution + record linkage — `action="entity_resolve"`
+
+Finds which record PAIRS refer to the same real-world entity, over EITHER token
+attributes (`records`, Jaccard) or embeddings (`vectors`/graph-derived `source`,
+Cosine) — sharing one blocking + pairwise-similarity pipeline. Blocking cuts the
+naive O(n²) comparison down to same-block pairs only: `records` blocks by an
+explicit `block_keys` value per record; the embedding path blocks by a coarse grid
+bucket (`bucket_precision`). This is DISTINCT from the existing always-on
+`ResolveCandidates` op (all-pairs cosine + union-find dedup-ladder, no epistemic
+writeback) — this family is opt-in, supports both similarity kinds, and writes a
+typed `:EntityMatch` node per match above `threshold`.
+
+```python
+# Jaccard record linkage over token attributes, blocked by a normalized last name.
+out = await c.mining.entity_resolve(
+    records=[["john", "smith", "12345"], ["jon", "smith", "12345"]],
+    block_keys=["smith", "smith"], threshold=0.5,
+)
+# out["matches"] == [{"a":0,"b":1,"score":...}, ...]
+```
+
+## Cross-modal — resolve entities over node embeddings, write back
+
+```python
+# Cosine entity resolution over :Person node embeddings, writing :EntityMatch back.
+out = await c.mining.entity_resolve(
+    source={"node_label": "Person", "field": "embedding"},
+    threshold=0.85, writeback=True,
+)
+# → one :EntityMatch{score} node per match, linked to both member nodes.
+```
+
+## MCP + REST (entity_resolve)
+
+```jsonc
+// MCP
+graph_mine { "action": "entity_resolve",
+             "params_json": "{\"records\":[[\"a\",\"b\"],[\"a\",\"c\"]],\"threshold\":0.5}" }
+graph_mine { "action": "entity_resolve",
+             "params_json": "{\"source\":{\"node_label\":\"Person\",\"field\":\"embedding\"},\"writeback\":true}" }
+
+// REST twin (same _execute_tool core)
+POST /api/mining/entity_resolve { "vectors": [[0.1,0.2],[0.1,0.21]], "threshold": 0.9 }
+```
+
+---
+
+# Causal impact estimation — `action="causal_impact"`
+
+Estimates the causal effect of an intervention at a known point in a time series —
+mirrors `forecast`'s "caller hands in the tsdb window" convention, no direct tsdb
+coupling.
+
+- **Interrupted time series** — a single `series` split at `intervention_index`;
+  effect = shift in mean level (`post_mean - pre_mean`).
+- **Difference-in-differences** — `series` (treatment) plus a non-empty `control`,
+  both split at the SAME `intervention_index`; effect subtracts the control's own
+  pre→post drift, isolating the treatment's incremental effect from a shared trend.
+
+Both report a standard error and a two-sided `confidence = 1 - p` (Normal
+approximation), the same asymptotic treatment `anomaly`'s z-scores get elsewhere
+in the crate.
+
+```python
+# Interrupted time series — did the metric shift after the intervention?
+out = await c.mining.causal_impact(series=[1,1,1,1, 5,5,5,5], intervention_index=4)
+# out["effect_size"] == 4.0 (post_mean - pre_mean)
+```
+
+## Write-back — materialize the estimate for the loop engine
+
+```python
+out = await c.mining.causal_impact(
+    series=[...], control=[...], intervention_index=10,
+    series_id="rollout-v2", writeback=True,
+)
+# → one :CausalEffect{pre_mean, post_mean, effect_size, ...} node, linked to
+#   the identified series.
+```
+
+## MCP + REST (causal_impact)
+
+```jsonc
+// MCP
+graph_mine { "action": "causal_impact",
+             "params_json": "{\"series\":[1,1,1,5,5,5],\"intervention_index\":3}" }
+
+// REST twin (same _execute_tool core)
+POST /api/mining/causal_impact { "series": [...], "control": [...], "intervention_index": 10 }
+```
+
+---
+
+# Process mining — `action="process"`
+
+Given ordered event `traces` (each a time-ordered activity-label sequence, an
+activity may repeat within a trace), mines the **directly-follows graph** (a
+directed edge `a -> b` weighted by how often `a` is immediately followed by `b`)
+and derives the classic alpha-algorithm footprint:
+
+- **causal** (`a > b`) — one-way dependency, sequential flow.
+- **parallel** (`a || b`) — both directions occur; concurrent, no fixed order.
+- **choice** (`a # b`) — neither follows the other; exclusive branch or unrelated.
+
+plus the trace-level start/end activity sets. This is a documented "lite" scope —
+the footprint stops short of full Petri-net synthesis, since the footprint alone
+is already the queryable `:ProcessModel` this family writes back.
+
+```python
+out = await c.mining.process(traces=[
+    ["login", "browse", "checkout"],
+    ["login", "browse", "browse", "checkout"],
+])
+# out["footprint"]["login","browse"] == "causal"
+```
+
+## Write-back — materialize the footprint
+
+```python
+out = await c.mining.process(traces=[...], process_id="checkout-flow", writeback=True)
+# → one :ProcessModel{dfg, footprint, start_activities, end_activities} node.
+```
+
+## MCP + REST (process)
+
+```jsonc
+// MCP
+graph_mine { "action": "process",
+             "params_json": "{\"traces\":[[\"login\",\"browse\",\"checkout\"]]}" }
+
+// REST twin (same _execute_tool core)
+POST /api/mining/process { "traces": [["a","b","c"]], "writeback": true }
+```
+
+---
+
+# Root-cause propagation — `action="root_cause"`
+
+Given a directed weighted dependency graph (`edges`, `cause -> effect`) and a
+per-node anomaly `scores` vector (the `anomaly` family's own output, or any other
+score), finds the most-likely upstream root cause of one already-flagged
+`symptom` node — a bounded-depth (`max_hops`), decaying (`decay`, mirrors
+PageRank's damping) backward search over the dependency graph.
+
+```python
+out = await c.mining.root_cause(
+    nodes=["svc-a","svc-b","svc-c"], scores=[0.1, 0.2, 0.9],
+    edges=[("svc-a","svc-b",1.0), ("svc-b","svc-c",1.0)],
+    symptom="svc-c",
+)
+# out["candidates"][0]["node"] == "svc-a" or "svc-b", ranked by responsibility
+```
+
+## Write-back — materialize the top candidate
+
+```python
+out = await c.mining.root_cause(..., symptom="svc-c", writeback=True)
+# → one :RootCause node, linked to the symptom node it explains.
+```
+
+## MCP + REST (root_cause)
+
+```jsonc
+// MCP
+graph_mine { "action": "root_cause",
+             "params_json": "{\"nodes\":[\"a\",\"b\"],\"scores\":[0.1,0.9],\"edges\":[[\"a\",\"b\",1.0]],\"symptom\":\"b\"}" }
+
+// REST twin (same _execute_tool core)
+POST /api/mining/root_cause { "nodes": [...], "scores": [...], "edges": [...], "symptom": "b" }
+```
+
+---
+
+# Seeded risk propagation — `action="risk_propagation"`
+
+Personalized PageRank over a directed weighted graph (`edges`), restarting to a
+`seed` risk distribution instead of teleporting uniformly — propagates risk from
+seeded nodes outward along dependency edges, controlled by `damping`, `tolerance`
+(L1 convergence), and `max_iterations`.
+
+```python
+out = await c.mining.risk_propagation(
+    nodes=["a","b","c"], seed=[1.0, 0.0, 0.0],
+    edges=[("a","b",1.0), ("b","c",1.0)],
+)
+# out["scores"] sums to (approximately) the seed mass, spread along edges
+```
+
+## Write-back — materialize each node's propagated score
+
+```python
+out = await c.mining.risk_propagation(..., writeback=True)
+# → one :RiskScore{score} node per input node, linked to it.
+```
+
+## MCP + REST (risk_propagation)
+
+```jsonc
+// MCP
+graph_mine { "action": "risk_propagation",
+             "params_json": "{\"nodes\":[\"a\",\"b\"],\"seed\":[1.0,0.0],\"edges\":[[\"a\",\"b\",1.0]]}" }
+
+// REST twin (same _execute_tool core)
+POST /api/mining/risk_propagation { "nodes": [...], "seed": [...], "edges": [...] }
+```
+
+---
+
+# Ontology-gap detection — `action="ontology_gap"`
+
+Scans the resident graph's own node-`type`/edge-`relationship` class shape
+(GRAPH-NATIVE — no `rdf`/OWL-reasoner dependency) for completeness gaps: a class
+with no declared properties, an unresolved `subClassOf` parent (an orphan
+subclass), or a fully disconnected class. `label`, when given, restricts the scan
+to class nodes of that one type.
+
+```python
+out = await c.mining.ontology_gap(label="Concept")
+# out["gaps"] == [{"class": "Concept", "kind": "no_properties", "severity": ...}, ...]
+```
+
+## Write-back — materialize each gap
+
+```python
+out = await c.mining.ontology_gap(writeback=True)
+# → one :OntologyGap{kind, severity} node per gap, linked to its class.
+```
+
+## MCP + REST (ontology_gap)
+
+```jsonc
+// MCP
+graph_mine { "action": "ontology_gap", "params_json": "{\"label\":\"Concept\"}" }
+
+// REST twin (same _execute_tool core)
+POST /api/mining/ontology_gap { "writeback": true }
+```
+
+---
+
+# Retrieval-quality evaluation — `action="retrieval_quality"`
+
+Evaluates precision@k / recall@k / MRR over stored retrieval `traces` (each a
+query's retrieved-vs-relevant id lists) — a report family for auditing a RAG or
+search pipeline's own quality, rather than mining structure from data.
+
+```python
+out = await c.mining.retrieval_quality(
+    traces=[{"retrieved": ["d1","d2","d3"], "relevant": ["d1","d3"]}], k=3,
+)
+# out["precision_at_k"], out["recall_at_k"], out["mrr"]
+```
+
+## Write-back — materialize the aggregate report
+
+```python
+out = await c.mining.retrieval_quality(traces=[...], query_id="rag-eval-2026-07", writeback=True)
+# → one :RetrievalQuality{precision_at_k, recall_at_k, mrr} node.
+```
+
+## MCP + REST (retrieval_quality)
+
+```jsonc
+// MCP
+graph_mine { "action": "retrieval_quality",
+             "params_json": "{\"traces\":[{\"retrieved\":[\"d1\",\"d2\"],\"relevant\":[\"d1\"]}],\"k\":2}" }
+
+// REST twin (same _execute_tool core)
+POST /api/mining/retrieval_quality { "traces": [...], "k": 5 }
+```
+
+---
+
+# Community detection as a mining family — `action="community"`
+
+Wraps the EXISTING GDS Louvain / label-propagation kernels
+(`eg_compute::graph_algos`, already exposed on the Cypher `CALL gds.*` surface) —
+adds NO new algorithm, only the epistemic writeback. Runs over the resident graph,
+optionally restricted to one node `label` (like `subgraph`). `algorithm` selects
+the kernel; `resolution` (Louvain modularity) and `weighted` (label-propagation
+neighbor-vote weighting) are ignored by the kernel that doesn't use them.
+
+```python
+out = await c.mining.community(label="Concept", algorithm="louvain", resolution=1.0)
+# out["communities"] == [{"id": 0, "members": [...]}, ...]
+```
+
+## Write-back — materialize each community
+
+```python
+out = await c.mining.community(algorithm="label_propagation", writeback=True)
+# → one :Community{algorithm, size} node per community, linked to every member.
+```
+
+## MCP + REST (community)
+
+```jsonc
+// MCP
+graph_mine { "action": "community",
+             "params_json": "{\"label\":\"Concept\",\"algorithm\":\"louvain\"}" }
+
+// REST twin (same _execute_tool core)
+POST /api/mining/community { "algorithm": "label_propagation", "writeback": true }
 ```
