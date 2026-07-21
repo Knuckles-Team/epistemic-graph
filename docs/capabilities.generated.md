@@ -255,6 +255,7 @@
 | `RbacAdmin` | ~true | ControlRedb | `security:admin` | true | false | false | Atomic | runtime-conditional: List is a read; role and grant updates share one rbac.redb WTX with MutationBatch metadata |
 | `ApplyMultisigMutation` | true | GraphRedb | `security:admin` | true | true | true | Saga | threshold validation translates into the graph MutationBatch gateway |
 | `AnalyticsJob` | ~true | JobsRedb | `jobs:write` | false | false | false | Atomic | runtime-conditional: Status is a read; Submit/Cancel/Resume commit through the native jobs.redb MutationBatch gateway |
+| `Statechart` | ~true | StatechartRedb | `statechart:write` | false | false | false | Atomic | runtime-conditional: GetState/List are reads; Define/Instantiate/SendEvent commit to the native statecharts.redb store (CONCEPT:INT-P2-2) |
 | `Sql` | ~true | GraphRedb | `query:sql` | false | true | false | Atomic | runtime-conditional; graph DML uses staged graph state while table/catalog writes atomically commit SQL rows plus MutationBatch status/fence/idempotency/outbox |
 | `CypherQuery` | ~true | GraphRedb | `query:cypher` | false | true | false | Atomic | runtime-conditional; writes execute against a staged graph and publish only after durable MutationBatch commit |
 | `GraphQl` | ~true | GraphRedb | `query:graphql` | false | true | false | Atomic | runtime-conditional; ordinary writes stage through MutationBatch and cross-modal commit atomically includes universal status/fence/idempotency/outbox |
