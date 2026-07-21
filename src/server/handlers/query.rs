@@ -837,13 +837,23 @@ pub(crate) async fn try_handle(
         // EPI-P3-7 (gap-fill): standalone Dung argumentation conflict resolution. A
         // pure classification over a `BeliefGraph` snapshot — no writes. Gated
         // `epistemic-tms` at the handler (same fallback convention as
-        // `EpistemicStatus`/`WhatChanged`).
+        // `EpistemicStatus`/`WhatChanged`). L-RLS-1 (RLS_ROUTED): `node_ids` are
+        // caller-supplied, and the grounded/preferred/stable extension is computed
+        // over the WHOLE argumentation graph before `node_ids` is partitioned against
+        // it — an RLS-invisible node's own status would otherwise be classified
+        // directly, and its attack/support edges would still shape OTHER (visible)
+        // nodes' computed status. `rls.filter_view` the snapshot first, the SAME
+        // idiom every other read arm in this file applies, so an invisible node (and
+        // its edges) never enters `BeliefGraph::from_graph_view` at all.
         #[cfg(feature = "epistemic-tms")]
         Method::ResolveConflict {
             node_ids,
             semantics,
         } => {
-            let snap = core.analysis_snapshot();
+            #[cfg_attr(not(feature = "security"), allow(unused_mut))]
+            let mut snap = core.analysis_snapshot();
+            #[cfg(feature = "security")]
+            rls.filter_view(caller, &mut snap);
             let resp = match compute_off_lock(req_id, move || {
                 resolve_conflict_wire(&node_ids, &semantics, &snap)
             })
@@ -866,10 +876,19 @@ pub(crate) async fn try_handle(
         // compiled in, resolve the configured blob store (if any) BEFORE entering
         // the off-lock closure (needs `state.read().await`, not available inside a
         // `spawn_blocking` closure) and thread it through so citations carry REAL
-        // resolved content, not just locus metadata.
+        // resolved content, not just locus metadata. L-RLS-1 (RLS_ROUTED): `node_id`
+        // is caller-supplied and `evidence_citations` walks the graph's incoming
+        // support/attack edges transitively — an unfiltered snapshot would resolve
+        // (and return) an RLS-invisible evidence node's citation. `rls.filter_view`
+        // the snapshot first, the SAME idiom every other read arm in this file
+        // applies, so a hidden node (and the edges naming it) never enters
+        // `BeliefGraph::from_graph_view` at all.
         #[cfg(all(feature = "evidence-graph", feature = "alignment"))]
         Method::ExplainEvidence { node_id } => {
-            let snap = core.analysis_snapshot();
+            #[cfg_attr(not(feature = "security"), allow(unused_mut))]
+            let mut snap = core.analysis_snapshot();
+            #[cfg(feature = "security")]
+            rls.filter_view(caller, &mut snap);
             let blob_store = state.read().await.blob.as_ref().map(|b| b.store.clone());
             let resp = match compute_off_lock(req_id, move || {
                 explain_evidence_wire(&node_id, &snap, blob_store)
@@ -886,7 +905,10 @@ pub(crate) async fn try_handle(
         }
         #[cfg(all(feature = "evidence-graph", not(feature = "alignment")))]
         Method::ExplainEvidence { node_id } => {
-            let snap = core.analysis_snapshot();
+            #[cfg_attr(not(feature = "security"), allow(unused_mut))]
+            let mut snap = core.analysis_snapshot();
+            #[cfg(feature = "security")]
+            rls.filter_view(caller, &mut snap);
             let resp = match compute_off_lock(req_id, move || {
                 explain_evidence_wire(&node_id, &snap)
             })
