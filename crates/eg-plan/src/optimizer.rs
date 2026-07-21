@@ -52,7 +52,7 @@
 //! (byte-for-byte the pre-optimizer fold). The `cost-opt` cargo feature (implies `query`) is
 //! the facade tier selector — default-on in `full`.
 
-use crate::algebra::{Op, Plan};
+use crate::algebra::{Op, Plan, Pred};
 use crate::cost::{Cardinality, CostModel, ModalityCardinality, PlanStats, Stats, DEFAULT_TOP_K};
 use crate::exec::PlanCtx;
 
@@ -72,12 +72,40 @@ pub fn enabled() -> bool {
 /// and folds every rule over the op list in order. A no-op (identity clone) whenever no rule
 /// finds a beneficial, provably-safe rewrite.
 pub fn optimize(plan: &Plan, ctx: &PlanCtx) -> Plan {
+    // ID/POINT-LOOKUP FAST PATH (CONCEPT:EG-KG.query.point-lookup-fast-path): a
+    // `Scan{label} -> Filter{single Eq(id)}` (optionally + `Limit`) shape — what
+    // UQL/Cypher `WHERE id = ...` and SQL `WHERE id = ?` all lower to — has NO adjacent
+    // `Rank` to reorder against, so every rule below is structurally a no-op on it. The
+    // cost-based machinery still has to pay for `PlanStats::collect`'s O(N) column-
+    // histogram pass on a COLD snapshot (the first call against it) to discover that,
+    // which buys a trivial single-key lookup nothing. Skip straight to the identity —
+    // a syntactic, zero-cost-model short-circuit ahead of the optimizer, mirroring
+    // GraniteDB's `choose_strategy`'s `_id`-equality check ahead of its own (cheap but
+    // real) index-matching loop.
+    if is_point_lookup(&plan.ops) {
+        return plan.clone();
+    }
     let card = ModalityCardinality::new(PlanStats::collect(ctx));
     let mut ops = plan.ops.clone();
     for rule in rules() {
         ops = rule.apply(ops, &card, ctx);
     }
     Plan::new(ops)
+}
+
+/// The trivial ID/point-lookup shape [`optimize`] short-circuits on
+/// (CONCEPT:EG-KG.query.point-lookup-fast-path): a leading `Scan`, then a `Filter` whose
+/// ONLY predicate is an equality on the graph's own reserved `id` column (the exact
+/// column [`crate::exec::sql_filter_ids`]'s `SELECT id FROM nodes WHERE id = ...`
+/// resolves — never a same-named JSON property, which would be a different, unrelated
+/// predicate this must NOT misfire on), followed by zero or more `Limit`s and nothing
+/// else. There is no `Rank`/`AsOf`/`Reason` for any rule to place this pair against.
+fn is_point_lookup(ops: &[Op]) -> bool {
+    let [Op::Scan { .. }, Op::Filter { preds }, rest @ ..] = ops else {
+        return false;
+    };
+    let is_id_eq = matches!(preds.as_slice(), [Pred::Eq { prop, .. }] if prop == "id");
+    is_id_eq && rest.iter().all(|op| matches!(op, Op::Limit { .. }))
 }
 
 /// The ordered rule set the engine folds over a plan. `Reason`↔`Rank` and the `FuseRrf`
@@ -246,8 +274,15 @@ fn trailing_top_k(ops: &[Op], rank_idx: usize) -> usize {
 }
 
 /// Is `op` a vector `Rank` (the expensive reranker a narrower is ordered against)?
+/// Is `op` an index-backed reranker the reorder rules place a narrower against
+/// (CONCEPT:EG-KG.query.index-method-seam)? Both registered [`crate::cost::IndexMethod`]s —
+/// vector `Rank`/`RankEmbed` (ANN) AND, under `text`, lexical `RankText` (BM25) — so a
+/// selective/broad narrower is placed by the SAME cost-based seam regardless of which
+/// index the rerank is backed by; before this, only the vector leg was ever recognized
+/// here, so a `[Filter, RankText]` pair was NEVER reordered no matter how selective the
+/// filter was.
 fn is_rank(op: &Op) -> bool {
-    matches!(op, Op::Rank { .. } | Op::RankEmbed { .. })
+    crate::cost::is_index_method_op(op)
 }
 
 /// Reorder EVERY adjacent `(narrower, Rank)` pair (in either order) where `is_narrower` holds,
@@ -290,11 +325,22 @@ fn reorder_narrower_rank_pairs(
         }
 
         let top_k = trailing_top_k(&ops, rank_idx);
+        // The "index size" `Stats::estimate` uses to price a SOURCE top-k probe is
+        // modality-specific (CONCEPT:EG-KG.query.index-method-seam): the embedding store for a
+        // vector `Rank`/`RankEmbed`, but the resident node count (the BM25 corpus) for a
+        // lexical `RankText` — using the embedding count for BOTH (as before `is_rank`
+        // recognized `RankText` at all) would size a text reorder off an unrelated
+        // catalog number.
+        let index_size = match &ops[rank_idx] {
+            #[cfg(feature = "text")]
+            Op::RankText { .. } => card.stats().node_count,
+            _ => card.stats().embedding_count,
+        };
         let stats = Stats::estimate(
             in_card.round().max(1.0) as usize,
             narrower_sel,
             top_k,
-            card.stats().embedding_count,
+            index_size,
         );
         let want_narrower_first = CostModel::order(&stats) == crate::cost::Order::FilterFirst;
         ops = CostModel::place_narrower(ops, narrower_idx, rank_idx, want_narrower_first);
@@ -706,6 +752,96 @@ mod tests {
         );
     }
 
+    // ── RANK 10: the ID/point-lookup fast path ────────────────────────────────────
+
+    #[test]
+    fn point_lookup_shape_is_recognized() {
+        let scan = Op::Scan {
+            label: "Doc".into(),
+        };
+        let id_eq = Op::Filter {
+            preds: vec![Pred::Eq {
+                prop: "id".into(),
+                value: "d1".into(),
+            }],
+        };
+        assert!(
+            is_point_lookup(&[scan.clone(), id_eq.clone()]),
+            "Scan -> Filter{{id = X}} is the trivial point-lookup shape"
+        );
+        assert!(
+            is_point_lookup(&[scan.clone(), id_eq.clone(), Op::Limit { k: 1 }]),
+            "a trailing Limit is still a point lookup"
+        );
+
+        // Near-miss shapes must NOT be misrecognized.
+        assert!(
+            !is_point_lookup(&[scan.clone()]),
+            "no Filter at all is not a point lookup"
+        );
+        let non_id_eq = Op::Filter {
+            preds: vec![Pred::Eq {
+                prop: "type".into(),
+                value: "Doc".into(),
+            }],
+        };
+        assert!(
+            !is_point_lookup(&[scan.clone(), non_id_eq]),
+            "an equality on a property OTHER than id is a normal filter, not a point lookup"
+        );
+        let multi_pred = Op::Filter {
+            preds: vec![
+                Pred::Eq {
+                    prop: "id".into(),
+                    value: "d1".into(),
+                },
+                Pred::Eq {
+                    prop: "type".into(),
+                    value: "Doc".into(),
+                },
+            ],
+        };
+        assert!(
+            !is_point_lookup(&[scan.clone(), multi_pred]),
+            "a SECOND predicate alongside id= is not the trivial single-key shape"
+        );
+        assert!(
+            !is_point_lookup(&[
+                scan,
+                id_eq.clone(),
+                Op::Rank {
+                    query: vec![1.0, 0.0]
+                }
+            ]),
+            "a trailing Rank means there IS something to reorder — not a bare point lookup"
+        );
+    }
+
+    /// `optimize()` returns a point-lookup plan byte-identical (the fast path bypasses
+    /// the whole cost-based rule engine, not just leaves it a no-op).
+    #[test]
+    fn optimize_short_circuits_point_lookup_plans() {
+        let fx = crate::fixture::build();
+        let ctx = PlanCtx::new(&fx.view, &fx.semantic);
+        let plan = Plan::new(vec![
+            Op::Scan {
+                label: "Doc".into(),
+            },
+            Op::Filter {
+                preds: vec![Pred::Eq {
+                    prop: "id".into(),
+                    value: "d2".into(),
+                }],
+            },
+        ]);
+        let out = optimize(&plan, &ctx);
+        assert_eq!(out, plan, "a point-lookup plan is returned unchanged");
+        // And it still executes to the single matching node — the fast path is a
+        // planning-time shortcut only, never a behavior change.
+        let rs = execute(&plan, &ctx).unwrap();
+        assert_eq!(rs.ids(), vec!["d2".to_string()]);
+    }
+
     /// A selective `Filter` behind a `Rank` is pushed AHEAD of it, and the rewrite is
     /// answer-preserving (the in-crate differential proof).
     #[test]
@@ -730,6 +866,67 @@ mod tests {
         assert!(
             matches!(opt.ops[1], Op::Filter { .. }) && matches!(opt.ops[2], Op::Rank { .. }),
             "selective filter pushed before Rank, got {:?}",
+            opt.ops
+        );
+        assert_eq!(
+            sorted_ids(&execute(&original, &ctx).unwrap()),
+            sorted_ids(&execute(&opt, &ctx).unwrap()),
+            "reorder must preserve the result set"
+        );
+    }
+
+    // ── RANK 2: BM25 `RankText` joins the SAME cost-based reorder seam as vector `Rank` ──
+
+    /// Before this fix `is_rank` recognized ONLY `Op::Rank`/`Op::RankEmbed` — a
+    /// `[RankText, Filter]` pair was NEVER reordered, no matter how selective the filter,
+    /// because the pairwise rule's adjacency scan never even considered `RankText` a
+    /// "Rank" to place a narrower against. This proves the SAME `FilterAsOfBeforeRank`
+    /// rule the ANN test above exercises now fires for the lexical leg too, through the
+    /// [`crate::cost::IndexMethod`] seam, and that the rewrite is still answer-preserving.
+    #[cfg(feature = "text")]
+    #[test]
+    fn selective_filter_pushed_ahead_of_rank_text_and_preserves_result() {
+        use eg_core::compute::semantic::SemanticStore;
+        use eg_core::graph::GraphCore;
+        use eg_text::TextIndex;
+
+        fn blob(v: serde_json::Value) -> Vec<u8> {
+            rmp_serde::to_vec_named(&v).unwrap()
+        }
+
+        // A wider fixture than the 7-node graph default: the EG-405 non-empty guard
+        // requires `in_card * selectivity >= 1`, and `Filter{Eq}`'s fixed 0.1 selectivity
+        // needs enough seed rows to clear that bar.
+        let core = GraphCore::new();
+        let mut text = TextIndex::in_memory().unwrap();
+        for i in 0..40 {
+            let id = format!("d{i}");
+            core.add_node(id.clone(), blob(serde_json::json!({ "type": "Doc" })));
+            text.upsert(&id, "graph database text retrieval engine");
+        }
+        text.commit().unwrap();
+        let view = core.analysis_snapshot();
+        let semantic = SemanticStore::new();
+        let ctx = PlanCtx::new(&view, &semantic).with_text(&text);
+
+        let original = Plan::new(vec![
+            Op::Scan {
+                label: "Doc".into(),
+            },
+            Op::RankText {
+                query: "graph database".into(),
+            },
+            Op::Filter {
+                preds: vec![Pred::Eq {
+                    prop: "type".into(),
+                    value: "Doc".into(),
+                }],
+            },
+        ]);
+        let opt = optimize(&original, &ctx);
+        assert!(
+            matches!(opt.ops[1], Op::Filter { .. }) && matches!(opt.ops[2], Op::RankText { .. }),
+            "a selective Filter is now pushed AHEAD of an adjacent RankText, got {:?}",
             opt.ops
         );
         assert_eq!(
