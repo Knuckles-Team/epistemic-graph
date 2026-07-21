@@ -16,6 +16,10 @@ pub use eg_types::{acl, protocol, types, wire};
 #[cfg(test)]
 pub(crate) static PROP_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+/// CONCEPT:EG-KG.storage.bloom-negative-lookup-guard — lock-free per-graph Bloom
+/// filter guarding the durable read-through negative-lookup path. Pure-Rust,
+/// always compiled (no feature gate — the default/Pi build already links it).
+pub mod bloom;
 // CONCEPT:EG-KG.compute.message-broker-exchanges — message-broker exchanges/routing on top of the KG-2.303 queue.
 #[cfg(feature = "broker")]
 pub mod broker;

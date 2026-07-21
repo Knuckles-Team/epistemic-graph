@@ -862,6 +862,10 @@ impl GraphRegistry {
                 }
             }
         }
+        // CONCEPT:EG-KG.storage.bloom-negative-lookup-guard — this is the FULL/eager
+        // (non-paged) load: every durable node (if any) was just replayed through
+        // `add_node` above, so the bloom filter now reflects the complete set.
+        core.mark_bloom_complete();
         if let Some(version) = source_snapshot_version.filter(|version| *version > 0) {
             if core.adopt_materialized_version(version).is_err() {
                 return false;
@@ -985,6 +989,15 @@ impl GraphRegistry {
             loaded_nodes = page.nodes.len() as u64;
             loaded_edges = page.edges.len() as u64;
             apply_material_page(&core, &page);
+        }
+        // CONCEPT:EG-KG.storage.bloom-negative-lookup-guard — a `None` cursor means this
+        // first page was ALSO the last (nothing left to page in), so the bloom
+        // filter already reflects the complete durable node set. When a cursor
+        // remains, leave it unmarked: `page_in`/`apply_lazy_page_to_handle` marks
+        // it on the eventual final page instead, so a not-yet-paged-in node is
+        // never mistaken for a genuine absence in the meantime.
+        if cursor.is_none() {
+            core.mark_bloom_complete();
         }
         if let Some(version) = source_snapshot_version.filter(|version| *version > 0) {
             if core.adopt_materialized_version(version).is_err() {
@@ -1144,6 +1157,11 @@ impl GraphRegistry {
             manifest.valid = false;
         }
         if final_page {
+            // CONCEPT:EG-KG.storage.bloom-negative-lookup-guard — every durable node has now
+            // been replayed through `add_node` across this graph's pages, so the
+            // bloom filter reflects the complete set regardless of index-rebuild
+            // outcome (index validity is orthogonal to node-id completeness).
+            handle.core.mark_bloom_complete();
             rebuild_secondary_indexes(&handle.core);
             let indexes_valid = secondary_indexes_valid(&handle.core);
             if let Ok(mut manifest) = manifest_ref.write() {
