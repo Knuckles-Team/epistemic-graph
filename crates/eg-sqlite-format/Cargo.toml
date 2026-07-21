@@ -1,0 +1,16 @@
+[package]
+name = "eg-sqlite-format"
+version = "0.1.0"
+edition = "2021"
+description = "Pure-Rust SQLite .db file-format reader + bulk-load writer (no C, no libsqlite3)"
+
+[lib]
+name = "eg_sqlite_format"
+
+[dependencies]
+# thiserror for a small typed error enum (Corrupt/Io/Unsupported); the format layer is
+# byte-level, not wire DTOs, so it needs no serde.
+thiserror = "1.0"
+
+[dev-dependencies]
+tempfile = "3.10"
