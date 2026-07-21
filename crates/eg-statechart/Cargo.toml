@@ -9,14 +9,19 @@ license = "MIT"
 [lib]
 name = "eg_statechart"
 
-# A leaf crate ALONG the DAG (mirrors eg-jobs' placement, one rung lighter): the
-# in-memory typed definition model + the pure transition function need NOTHING above
-# `eg-types` (whose `msgpack::decode_bounded` we reuse for the SAME bounded-decode
-# robustness eg-jobs' store relies on). Durability is the store's reason to exist, so
+# A leaf crate ALONG the DAG (mirrors eg-jobs' placement): the in-memory typed
+# definition model + the pure transition function need nothing above `eg-types`
+# (whose `msgpack::decode_bounded` we reuse for the SAME bounded-decode robustness
+# eg-jobs' store relies on). The durable store additionally routes every instance
+# mutation through `eg-mutation-store` — the exact universal MutationBatch /
+# durable-commit gateway `eg-jobs` uses — so instance transitions carry atomic
+# status/version/fence/idempotency/outbox evidence and are Raft-orderable and
+# crash-consistent across nodes. Durability is the store's reason to exist, so
 # `redb` is UNCONDITIONAL here exactly as it is in `eg-jobs` — there is no "durable
 # machine-instance plane without a durable store" configuration worth shipping.
 [dependencies]
 eg-types = { path = "../eg-types" }
+eg-mutation-store = { path = "../eg-mutation-store" }
 
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

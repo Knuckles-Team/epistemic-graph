@@ -2742,6 +2742,7 @@ dependencies = [
 name = "eg-statechart"
 version = "0.1.0"
 dependencies = [
+ "eg-mutation-store",
  "eg-types",
  "hex",
  "redb",
