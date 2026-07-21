@@ -580,6 +580,12 @@ const ACCESS_RS_COVERAGE_GAP: &[(&str, &str, &str)] = &[
     ("PublishIdempotent", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("RbacAdmin", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("RebalanceExecute", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
+    // Pre-existing gap (predates the statechart work): `RecomputeMaterialization`
+    // mutates per policy (ReasoningProjection writeback) but, like its matview siblings
+    // `CreateMatView`/`RefreshMatView`, is absent from access.rs::requires_write
+    // entirely. It was simply never added to this table; documented here so the
+    // `mutates_matches_access_rs_for_every_governed_variant` invariant is accurate.
+    ("RecomputeMaterialization", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("RefreshMatView", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("RegisterContinuousQuery", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("RegisterForeignSource", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
@@ -791,14 +797,14 @@ fn generated_ledger_is_not_stale() {
     let checked_in_path = repo_root.join("docs").join("capabilities.generated.md");
     let checked_in = std::fs::read_to_string(&checked_in_path).unwrap_or_else(|e| {
         panic!(
-            "failed to read {}: {e} -- run `cargo run -p eg-capabilities --features jobs,knowledge-batch,modality-serving --bin gen_ledger` first",
+            "failed to read {}: {e} -- run `cargo run -p eg-capabilities --features jobs,knowledge-batch,modality-serving,statechart --bin gen_ledger` first",
             checked_in_path.display()
         )
     });
     let fresh = eg_capabilities::gen_ledger();
     assert_eq!(
         checked_in, fresh,
-        "docs/capabilities.generated.md is STALE -- regenerate with `cargo run -p eg-capabilities --features jobs,knowledge-batch,modality-serving --bin gen_ledger` and commit the result"
+        "docs/capabilities.generated.md is STALE -- regenerate with `cargo run -p eg-capabilities --features jobs,knowledge-batch,modality-serving,statechart --bin gen_ledger` and commit the result"
     );
 }
 
@@ -807,9 +813,15 @@ fn generated_ledger_is_not_stale() {
 /// is caught here too (in addition to the exhaustive-match compile error in `lib.rs`).
 #[test]
 fn all_methods_table_has_the_expected_variant_count() {
-    // Current-only table after the strict removal of four deprecated methods.
-    let expected = 352
+    // 354 unconditional rows (the table has 358 total entry lines, 4 feature-gated:
+    // jobs, statechart, modality-serving, knowledge-batch). NOTE: this constant was
+    // `352` and was already STALE by two before the statechart work (base `main` had
+    // 354 unconditional rows), and it was ALSO missing the `statechart` term — both
+    // corrected here so the count is accurate for every feature combination, matching
+    // the sibling constant in `lib.rs::all_methods_table_matches_policy_fn...`.
+    let expected = 354
         + usize::from(cfg!(feature = "jobs"))
+        + usize::from(cfg!(feature = "statechart"))
         + usize::from(cfg!(feature = "modality-serving"))
         + usize::from(cfg!(feature = "knowledge-batch"));
     assert_eq!(eg_capabilities::ALL_METHODS.len(), expected);

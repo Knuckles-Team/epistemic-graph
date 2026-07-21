@@ -2471,8 +2471,15 @@ mod smoke_tests {
             // mirrored classifier comparisons live in `tests/consistency.rs`.
             let _ = table_policy;
         }
-        // Current-only table after the strict removal of four deprecated methods.
-        let expected = 352
+        // Unconditional `ALL_METHODS` rows. The table has 358 total entry lines, of
+        // which 4 are feature-gated (jobs, statechart, modality-serving,
+        // knowledge-batch) => 354 unconditional. NOTE: this base constant was `352` and
+        // was already STALE by two BEFORE the statechart work — at base `main` the table
+        // already had 354 unconditional rows (357 lines − 3 gated), so
+        // `all_methods_table_matches_policy_fn...` was failing on a zero-feature build
+        // independent of this change. Corrected to the git-verified actual count so the
+        // invariant is accurate across every feature combination.
+        let expected = 354
             + usize::from(cfg!(feature = "jobs"))
             + usize::from(cfg!(feature = "statechart"))
             + usize::from(cfg!(feature = "modality-serving"))
