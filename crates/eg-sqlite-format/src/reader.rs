@@ -36,7 +36,7 @@ impl Reader {
     pub fn from_bytes(bytes: Vec<u8>) -> Result<Self> {
         let header = DatabaseHeader::decode(&bytes)?;
         let page_size = header.page_size as usize;
-        if bytes.len() % page_size != 0 || bytes.len() < page_size {
+        if !bytes.len().is_multiple_of(page_size) || bytes.len() < page_size {
             return Err(Error::corrupt("file length not a whole number of pages"));
         }
         let mut reader = Reader {
