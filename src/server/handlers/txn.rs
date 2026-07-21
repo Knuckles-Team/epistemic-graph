@@ -425,10 +425,26 @@ fn finish_txn_receipt(_receipt: (), _result: ResultPayload) -> Result<ResultPayl
     Err("transaction commit requires the redb MutationBatch coordinator".to_string())
 }
 
+/// Upper bound on concurrent durable-batch lookups fanned out per reconcile call.
+/// Bounds worst-case fan-out (resident graphs x 2 namespaces) against the
+/// persistence backend instead of letting an unusually large resident set spawn
+/// thousands of simultaneous reads on one ack-lost retry.
+const RECONCILE_LOOKUP_CONCURRENCY: usize = 32;
+
 /// Resolve an acknowledgement-lost retry before consulting ephemeral staging.
 /// Single/cross-modal children are discovered across the durable graph catalog;
 /// multi-graph commits use their named parent receipt. Successful child discovery
 /// repairs both the serving projection and any still-Prepared parent receipt.
+///
+/// The durable `read_mutation_batch` lookup (graph x {"txn","crossmodal"}) is the
+/// only I/O here, and previously ran fully serialized — O(resident-graphs) awaited
+/// round-trips before falling through to "not found" on a miss. The lookups are
+/// independent reads keyed by a deterministic (graph, namespace) batch id, so they
+/// are fanned out concurrently (bounded by `RECONCILE_LOOKUP_CONCURRENCY`) and only
+/// the results are then walked in the original graph/namespace order, preserving
+/// receipt semantics exactly: the first match (in that order) wins, and any read
+/// error at an earlier position than a match still aborts the reconcile, same as
+/// the prior sequential loop.
 async fn reconcile_committed_txn(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
@@ -451,54 +467,92 @@ async fn reconcile_committed_txn(
     let expected_principal = crate::server::mutation_batch::principal_fingerprint(
         caller.ok_or_else(|| "transaction recovery requires a verified principal".to_string())?,
     )?;
-    for (graph, core) in graphs {
-        let fname = crate::persist::sanitize(&graph);
-        let parent_id = transaction_receipt_id(txn_id);
+
+    let parent_id = transaction_receipt_id(txn_id);
+    // (graph, core, fname, batch_id) for every (resident graph x namespace) pair,
+    // in the same order the original sequential loop visited them.
+    let mut lookups = Vec::with_capacity(graphs.len() * 2);
+    for (graph, core) in &graphs {
+        let fname = crate::persist::sanitize(graph);
         for namespace in ["txn", "crossmodal"] {
             let batch_id = crate::server::mutation_batch::opaque_coordinator_key(
-                namespace, &graph, &parent_id,
+                namespace, graph, &parent_id,
             );
-            let Some(record) = persistence.read_mutation_batch(&fname, &batch_id).await? else {
-                continue;
-            };
-            if record.status != crate::mutation_batch::MutationBatchStatus::Committed
-                || record.batch.batch_id != batch_id
-                || record.batch.graph != graph
-                || record.batch.tenant != graph
-                || record.batch.context.principal != expected_principal
-            {
-                return Err("committed transaction receipt does not match caller scope".to_string());
-            }
-            let bytes = record
-                .result_msgpack
-                .as_deref()
-                .ok_or_else(|| "committed transaction has no durable result".to_string())?;
-            let result = decode_txn_result(bytes)?;
-            if !matches!(&result, ResultPayload::Bool(_)) {
-                return Err("committed transaction child has the wrong result type".to_string());
-            }
-            let (snapshot, version) = persistence
-                .read_authoritative_graph_snapshot(&fname)
-                .await?
-                .ok_or_else(|| "committed transaction graph image is missing".to_string())?;
-            core.install_committed_snapshot(snapshot, version)?;
-
-            // The child graph commit and the control-plane receipt deliberately
-            // live in different redb authorities. A crash after the child fsync but
-            // before `finish_txn_receipt` therefore leaves a recoverable Prepared
-            // parent. Re-enter that named parent and terminalize it from the exact
-            // durable child result before acknowledging the retry.
-            let Some((receipt, replayed, _)) =
-                resume_txn_receipt(Some(persistence.clone()), caller, txn_id)?
-            else {
-                return Err("committed child has no durable transaction parent".to_string());
-            };
-            let reconciled = match replayed {
-                Some(stored) => stored,
-                None => finish_txn_receipt(receipt, result)?,
-            };
-            return Ok(Some(Response::ok(req_id, reconciled)));
+            lookups.push((graph.clone(), core.clone(), fname.clone(), batch_id));
         }
+    }
+
+    // Fan the durable reads out concurrently (bounded), then replay the results in
+    // original order below so business-logic semantics are unchanged.
+    let semaphore = Arc::new(tokio::sync::Semaphore::new(RECONCILE_LOOKUP_CONCURRENCY));
+    let mut set = tokio::task::JoinSet::new();
+    for (idx, (_graph, _core, fname, batch_id)) in lookups.iter().enumerate() {
+        let persistence = persistence.clone();
+        let semaphore = semaphore.clone();
+        let fname = fname.clone();
+        let batch_id = batch_id.clone();
+        set.spawn(async move {
+            let _permit = semaphore
+                .acquire_owned()
+                .await
+                .expect("reconcile lookup semaphore is never closed");
+            (idx, persistence.read_mutation_batch(&fname, &batch_id).await)
+        });
+    }
+    let mut read_results: Vec<Option<Result<Option<crate::mutation_batch::MutationBatchRecord>, String>>> =
+        (0..lookups.len()).map(|_| None).collect();
+    while let Some(joined) = set.join_next().await {
+        let (idx, result) =
+            joined.map_err(|error| format!("txn reconcile lookup task failed: {error}"))?;
+        read_results[idx] = Some(result);
+    }
+
+    for (idx, (graph, core, fname, batch_id)) in lookups.into_iter().enumerate() {
+        let record = match read_results[idx]
+            .take()
+            .expect("every lookup index is populated before results are read")
+        {
+            Ok(Some(record)) => record,
+            Ok(None) => continue,
+            Err(error) => return Err(error),
+        };
+        if record.status != crate::mutation_batch::MutationBatchStatus::Committed
+            || record.batch.batch_id != batch_id
+            || record.batch.graph != graph
+            || record.batch.tenant != graph
+            || record.batch.context.principal != expected_principal
+        {
+            return Err("committed transaction receipt does not match caller scope".to_string());
+        }
+        let bytes = record
+            .result_msgpack
+            .as_deref()
+            .ok_or_else(|| "committed transaction has no durable result".to_string())?;
+        let result = decode_txn_result(bytes)?;
+        if !matches!(&result, ResultPayload::Bool(_)) {
+            return Err("committed transaction child has the wrong result type".to_string());
+        }
+        let (snapshot, version) = persistence
+            .read_authoritative_graph_snapshot(&fname)
+            .await?
+            .ok_or_else(|| "committed transaction graph image is missing".to_string())?;
+        core.install_committed_snapshot(snapshot, version)?;
+
+        // The child graph commit and the control-plane receipt deliberately
+        // live in different redb authorities. A crash after the child fsync but
+        // before `finish_txn_receipt` therefore leaves a recoverable Prepared
+        // parent. Re-enter that named parent and terminalize it from the exact
+        // durable child result before acknowledging the retry.
+        let Some((receipt, replayed, _)) =
+            resume_txn_receipt(Some(persistence.clone()), caller, txn_id)?
+        else {
+            return Err("committed child has no durable transaction parent".to_string());
+        };
+        let reconciled = match replayed {
+            Some(stored) => stored,
+            None => finish_txn_receipt(receipt, result)?,
+        };
+        return Ok(Some(Response::ok(req_id, reconciled)));
     }
     #[cfg(feature = "redb")]
     if let Some(redb) = persistence.as_redb() {
