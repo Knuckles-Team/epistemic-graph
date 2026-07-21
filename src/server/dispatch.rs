@@ -5865,7 +5865,7 @@ async fn dispatch_graph_op_inner(
         // Distributed graph compute (CONCEPT:EG-KG.storage.feature, feature `compute-dist`):
         // DistributedCompute + the matview lifecycle. Cross-shard, so it takes
         // `state` (it gathers each shard graph's snapshot from the registry).
-        #[cfg(feature = "compute-dist")]
+        #[cfg(any(feature = "compute-dist", feature = "matview"))]
         let method = match handlers::dist_compute::try_handle(
             state,
             req_id,

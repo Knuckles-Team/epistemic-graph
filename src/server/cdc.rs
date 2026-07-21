@@ -157,6 +157,10 @@ impl CdcHub {
         after: Option<Vec<u8>>,
     ) -> u64 {
         let label = extract_label(after.as_deref().or(before.as_deref()));
+        // Bound outside the feeds-lock block so the post-lock matview hooks can read the
+        // event without re-borrowing the feed (matview-only; a no-op field otherwise).
+        #[cfg(feature = "matview")]
+        let emitted_event;
         let (seq, notify) = {
             let mut feeds = self.feeds.lock();
             let feed = feeds
@@ -191,7 +195,12 @@ impl CdcHub {
             if let Some(cep) = self.cep.get() {
                 cep.feed_change(&event);
             }
-            (seq, feed.notify.clone())
+            let notify = feed.notify.clone();
+            #[cfg(feature = "matview")]
+            {
+                emitted_event = event;
+            }
+            (seq, notify)
         };
         // CDC INVALIDATION for plan-backed matviews (CONCEPT:EG-KG.storage.matview-cdc-invalidation):
         // a committed change to `graph` retires every plan-backed matview over it, so the
@@ -200,7 +209,15 @@ impl CdcHub {
         // on the write (the (query_hash, version) result-cache key retires the cached
         // bytes); this is the belt-and-braces manager-side signal reusing that discipline.
         #[cfg(feature = "matview")]
-        crate::server::matview::note_change(graph);
+        {
+            // Recompute-mode views: blunt stale flag (belt-and-braces on the OCC version).
+            crate::server::matview::note_change(graph);
+            // Incremental-mode views: DBSP delta maintenance (CONCEPT:EG-KG.storage.incremental-matview)
+            // — fold this exact before/after image through the compiled circuit so the
+            // view's `current` stays fresh WITHOUT a full recompute. One is a no-op per
+            // view depending on its mode.
+            crate::server::matview::apply_delta(graph, &emitted_event);
+        }
         notify.notify_waiters();
         seq
     }

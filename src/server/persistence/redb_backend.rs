@@ -62,7 +62,7 @@ use super::PersistenceBackend;
 // durable format with no Tokio. This backend reuses them verbatim — ONE format,
 // never duplicated — and adds only the off-reactor group-commit writer thread +
 // the `PersistenceBackend` async trait wiring on top.
-#[cfg(feature = "compute-dist")]
+#[cfg(any(feature = "compute-dist", feature = "matview"))]
 use crate::redb_store::MatViewScanResult;
 use crate::redb_store::{
     ack_mutation_outbox, claim_mutation_outbox, clear_xshard_decision, clear_xshard_prepare,
@@ -471,6 +471,25 @@ pub(crate) enum Cmd {
     /// Scan every persisted plan-backed matview `(name, blob)` for reload on boot.
     #[cfg(feature = "matview")]
     PlanMatViewScan {
+        reply: std::sync::mpsc::Sender<MatViewScanResult>,
+    },
+    /// Durably upsert an incremental matview's operator-state snapshot
+    /// (CONCEPT:EG-KG.storage.incremental-matview).
+    #[cfg(feature = "matview")]
+    MatViewOperatorStatePut {
+        name: String,
+        blob: Vec<u8>,
+        done: oneshot::Sender<Result<(), String>>,
+    },
+    /// Durably delete an incremental matview's operator-state snapshot.
+    #[cfg(feature = "matview")]
+    MatViewOperatorStateDelete {
+        name: String,
+        done: oneshot::Sender<Result<(), String>>,
+    },
+    /// Scan every persisted incremental-matview operator-state snapshot.
+    #[cfg(feature = "matview")]
+    MatViewOperatorStateScan {
         reply: std::sync::mpsc::Sender<MatViewScanResult>,
     },
 }
@@ -2409,9 +2428,11 @@ fn missing_points(
 // The Raft log lives in the SAME authoritative shard Database, written by the SAME
 // off-reactor group-commit thread, keyed by `(group_id, index)` so one table
 // serves every group (CONCEPT:EG-KG.sharding.raft-resharding). Sharing the writer is what lets a log
-// append and its graph mutation coalesce into ONE fsync. All gated on `raft`
-// (only the raft module consumes them).
-#[cfg(feature = "raft")]
+// append and its graph mutation coalesce into ONE fsync. The raft/xshard methods are
+// individually `raft`-gated; the plan-backed matview persistence methods below are
+// `matview`-gated (single-node native), so the impl block opens under EITHER — the
+// plan-backed incremental matview needs its durable rows WITHOUT pulling raft.
+#[cfg(any(feature = "raft", feature = "matview"))]
 impl RedbBackend {
     /// Durably append Raft log entries for a group, awaiting the group-commit fsync
     /// (commit-before-ack). The entries fold into the SAME batch as concurrent M2
@@ -2819,6 +2840,50 @@ impl RedbBackend {
             .map_err(|_| "redb writer thread is gone".to_string())?;
         rx.recv()
             .map_err(|_| "redb writer dropped plan_matview_scan reply".to_string())?
+    }
+
+    /// Durably upsert an incremental matview's operator-state snapshot
+    /// (CONCEPT:EG-KG.storage.incremental-matview). Awaits the fsync.
+    #[cfg(feature = "matview")]
+    pub async fn matview_operator_state_put(&self, name: &str, blob: Vec<u8>) -> Result<(), String> {
+        let (done, rx) = oneshot::channel();
+        let name = name.to_string();
+        let tx = self.shard0().tx.clone();
+        tokio::task::spawn_blocking(move || {
+            tx.send(Cmd::MatViewOperatorStatePut { name, blob, done })
+        })
+        .await
+        .map_err(|e| format!("matview_operator_state_put join error: {e}"))?
+        .map_err(|_| "redb writer thread is gone".to_string())?;
+        rx.await
+            .map_err(|_| "redb writer dropped matview_operator_state_put completion".to_string())?
+    }
+
+    /// Durably delete an incremental matview's operator-state snapshot (awaits the fsync).
+    #[cfg(feature = "matview")]
+    pub async fn matview_operator_state_delete(&self, name: &str) -> Result<(), String> {
+        let (done, rx) = oneshot::channel();
+        let name = name.to_string();
+        let tx = self.shard0().tx.clone();
+        tokio::task::spawn_blocking(move || tx.send(Cmd::MatViewOperatorStateDelete { name, done }))
+            .await
+            .map_err(|e| format!("matview_operator_state_delete join error: {e}"))?
+            .map_err(|_| "redb writer thread is gone".to_string())?;
+        rx.await.map_err(|_| {
+            "redb writer dropped matview_operator_state_delete completion".to_string()
+        })?
+    }
+
+    /// Scan every persisted incremental-matview operator-state snapshot `(name, blob)`.
+    #[cfg(feature = "matview")]
+    pub fn matview_operator_state_scan(&self) -> MatViewScanResult {
+        let (reply, rx) = std::sync::mpsc::channel();
+        self.shard0()
+            .tx
+            .send(Cmd::MatViewOperatorStateScan { reply })
+            .map_err(|_| "redb writer thread is gone".to_string())?;
+        rx.recv()
+            .map_err(|_| "redb writer dropped matview_operator_state_scan reply".to_string())?
     }
 }
 
@@ -3462,6 +3527,24 @@ fn handle_cmd(
         Cmd::PlanMatViewScan { reply } => {
             commit_and_notify(db, pending, Durability::Immediate, crypto);
             let _ = reply.send(crate::redb_store::scan_plan_matviews(db));
+            false
+        }
+        #[cfg(feature = "matview")]
+        Cmd::MatViewOperatorStatePut { name, blob, done } => {
+            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            let _ = done.send(crate::redb_store::put_matview_operator_state(db, &name, &blob));
+            false
+        }
+        #[cfg(feature = "matview")]
+        Cmd::MatViewOperatorStateDelete { name, done } => {
+            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            let _ = done.send(crate::redb_store::delete_matview_operator_state(db, &name));
+            false
+        }
+        #[cfg(feature = "matview")]
+        Cmd::MatViewOperatorStateScan { reply } => {
+            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            let _ = reply.send(crate::redb_store::scan_matview_operator_state(db));
             false
         }
     }

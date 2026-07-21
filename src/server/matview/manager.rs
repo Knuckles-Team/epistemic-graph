@@ -8,6 +8,8 @@
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
+use eg_plan::incremental::Circuit;
+use eg_plan::RowSet;
 use parking_lot::Mutex;
 
 /// The durable DEFINITION of a plan-backed materialized view (CONCEPT:EG-KG.storage.plan-backed-matview):
@@ -22,13 +24,38 @@ pub struct PlanMatView {
     pub plan: eg_types::wire::Plan,
 }
 
-/// In-RAM per-view tracking: the definition + a CDC-driven freshness flag.
+/// Which maintenance mode a tracked view runs in
+/// (CONCEPT:EG-KG.storage.incremental-matview).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Mode {
+    /// Its plan compiled to a DBSP circuit: `apply_delta` maintains `current` on each CDC
+    /// change; `Get` serves `current` directly (no recompute, no cache round-trip).
+    Incremental,
+    /// Its plan has an op with no incremental form (Traverse/Reason/…): today's
+    /// recompute-on-`Get` path, unchanged. A CDC change flags it stale.
+    Recompute,
+}
+
+/// In-RAM per-view tracking: the definition + freshness flag + (for `Incremental` views)
+/// the compiled circuit, its live maintained result, and its CDC watermark.
 struct Tracked {
     def: PlanMatView,
     /// Set by [`PlanMatViewManager::note_change`] when a committed write to `def.graph`
     /// lands — so the next `Get` (or an explicit `Refresh`) recomputes even if a stale
-    /// cache entry somehow lingered. A freshly-materialized view clears it.
+    /// cache entry somehow lingered. A freshly-materialized view clears it. Governs
+    /// `Mode::Recompute` views only; an `Incremental` view is fresh by construction.
     stale: bool,
+    /// The maintenance mode (CONCEPT:EG-KG.storage.incremental-matview).
+    mode: Mode,
+    /// `Some` ⇒ `Mode::Incremental`: the compiled DBSP circuit `apply_delta` folds
+    /// deltas into. `None` ⇒ `Mode::Recompute`.
+    circuit: Option<Circuit>,
+    /// The live, incrementally-maintained result an `Incremental` `Get` serves directly.
+    current: RowSet,
+    /// CDC watermark — the next `seq` this view expects (mirrors
+    /// `cdc::ContinuousQuery::through_seq`). Deltas with `seq < through_seq` are already
+    /// folded and skipped.
+    through_seq: u64,
 }
 
 /// The process-global plan-backed matview registry.
@@ -45,11 +72,100 @@ pub fn manager() -> &'static PlanMatViewManager {
 }
 
 impl PlanMatViewManager {
-    /// Insert (or replace) a view definition, marking it freshly materialized.
+    /// Insert (or replace) a view definition in `Mode::Recompute`, marking it freshly
+    /// materialized. The unchanged path — used for a plan the circuit compiler can't
+    /// incrementalize and for boot reload (which re-materializes lazily on first `Get`).
     pub fn define(&self, def: PlanMatView) {
-        self.views
-            .lock()
-            .insert(def.name.clone(), Tracked { def, stale: false });
+        self.views.lock().insert(
+            def.name.clone(),
+            Tracked {
+                def,
+                stale: false,
+                mode: Mode::Recompute,
+                circuit: None,
+                current: RowSet::new(),
+                through_seq: 0,
+            },
+        );
+    }
+
+    /// Install (or replace) a view in `Mode::Incremental` with its compiled `circuit`, an
+    /// initial maintained `current` (the just-materialized rows), and the CDC `through_seq`
+    /// watermark captured at definition time (CONCEPT:EG-KG.storage.incremental-matview).
+    pub fn install_incremental(
+        &self,
+        def: PlanMatView,
+        circuit: Circuit,
+        current: RowSet,
+        through_seq: u64,
+    ) {
+        self.views.lock().insert(
+            def.name.clone(),
+            Tracked {
+                def,
+                stale: false,
+                mode: Mode::Incremental,
+                circuit: Some(circuit),
+                current,
+                through_seq,
+            },
+        );
+    }
+
+    /// The maintenance mode of `name`, if tracked.
+    pub fn mode(&self, name: &str) -> Option<Mode> {
+        self.views.lock().get(name).map(|t| t.mode)
+    }
+
+    /// The live maintained result rows `[id, score?]` of an `Incremental` view (`None` for
+    /// an unknown or `Recompute`-mode view — the caller then takes the recompute path).
+    pub fn incremental_rows(&self, name: &str) -> Option<Vec<(String, Option<f32>)>> {
+        let views = self.views.lock();
+        let t = views.get(name)?;
+        if t.mode != Mode::Incremental {
+            return None;
+        }
+        Some(
+            t.current
+                .rows()
+                .iter()
+                .map(|r| (r.id.clone(), r.score))
+                .collect(),
+        )
+    }
+
+    /// A snapshot of an `Incremental` view's compiled circuit (for durable operator-state
+    /// persistence). `None` for unknown/`Recompute` views.
+    pub fn circuit_snapshot(&self, name: &str) -> Option<Circuit> {
+        self.views.lock().get(name).and_then(|t| t.circuit.clone())
+    }
+
+    /// INCREMENTAL CDC maintenance (CONCEPT:EG-KG.storage.incremental-matview): fold one
+    /// change into every `Mode::Incremental` view over `graph`. For each such view, only a
+    /// change at/after its watermark is applied (mirroring `cdc::maintain`); the circuit's
+    /// output updates `current` and the watermark advances. Returns how many views it
+    /// maintained. `Mode::Recompute` views are UNTOUCHED here (they ride `note_change`).
+    pub fn apply_delta(&self, graph: &str, event: &eg_types::wire::CdcEvent) -> usize {
+        let mut views = self.views.lock();
+        let mut n = 0;
+        for t in views.values_mut() {
+            if t.mode != Mode::Incremental || t.def.graph != graph {
+                continue;
+            }
+            if event.seq < t.through_seq {
+                continue;
+            }
+            if let Some(circuit) = t.circuit.as_mut() {
+                let delta = super::incremental::event_to_delta(event);
+                if !delta.is_empty() {
+                    circuit.apply(&delta);
+                    t.current = circuit.current();
+                }
+                t.through_seq = event.seq + 1;
+                n += 1;
+            }
+        }
+        n
     }
 
     /// The stored definition for `name`, if any.
@@ -92,6 +208,11 @@ impl PlanMatViewManager {
         let mut views = self.views.lock();
         let mut n = 0;
         for t in views.values_mut() {
+            // Incremental views are maintained by `apply_delta`, not invalidated — the
+            // stale flag governs only the recompute path.
+            if t.mode == Mode::Incremental {
+                continue;
+            }
             if t.def.graph == graph && !t.stale {
                 t.stale = true;
                 n += 1;

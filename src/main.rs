@@ -1829,7 +1829,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     // On every boot, reload any persisted matviews from the redb durable tier into
     // the in-RAM index so `GetMatView` serves them immediately. A no-op when no
     // matviews were ever created / no redb backend is configured.
-    #[cfg(feature = "compute-dist")]
+    #[cfg(any(feature = "compute-dist", feature = "matview"))]
     match epistemic_graph::server::reload_matviews(&state).await {
         Ok(0) => {}
         Ok(n) => {
