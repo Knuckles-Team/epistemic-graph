@@ -1896,6 +1896,178 @@ async fn explain_evidence_resolves_a_located_citation_over_rpc() {
     );
 }
 
+/// L-RLS-1 (RLS_ROUTED regression proof): `Method::ExplainEvidence` must not resolve a
+/// citation through an evidence node the caller cannot see. Fixture: `claim1` is
+/// publicly SUPPORTED by two evidence nodes carrying an identical complete governed
+/// locus — `evidence1` (public) and `secret1` (`_owner=agent_a`, `_visibility=private`)
+/// — so BOTH would resolve to a citation if the snapshot were not RLS-filtered before
+/// `BeliefGraph::from_graph_view`/`evidence_citations` walk it. Mirrors the identity
+/// setup `explain_belief_disclosure_level_returns_redacted_skeleton_over_rpc` uses.
+#[cfg(all(feature = "evidence-graph", feature = "security"))]
+#[tokio::test]
+async fn explain_evidence_hides_other_agents_private_evidence_over_rpc() {
+    use epistemic_graph::isolation::AgentRole;
+    use epistemic_graph::protocol::ExplainEvidenceResult;
+
+    let state = state();
+    let locus = json!({
+        "id": "eg:locus:0000000000000001",
+        "subject": { "kind": "occurrence", "id": "eg:occurrence:0000000000000002" },
+        "address": {
+            "kind": "page_region", "page": 4, "x": 12.0, "y": 34.0, "width": 200.0, "height": 50.0
+        },
+        "policy_ref": "eg:policy:0000000000000003",
+        "derivation_ref": "eg:derivation:0000000000000004"
+    });
+
+    ok(
+        &state,
+        1,
+        Method::AddNode {
+            node_id: "claim1".into(),
+            properties_msgpack: pack(json!({ "type": "Claim", "confidence": 0.5 })),
+        },
+    )
+    .await;
+    ok(
+        &state,
+        2,
+        Method::AddNode {
+            node_id: "evidence1".into(),
+            properties_msgpack: pack(json!({
+                "type": "Evidence",
+                "confidence": 0.9,
+                "evidence_locus": locus,
+            })),
+        },
+    )
+    .await;
+    ok(
+        &state,
+        3,
+        Method::AddNode {
+            node_id: "secret1".into(),
+            properties_msgpack: pack(json!({
+                "type": "Evidence",
+                "confidence": 0.95,
+                "_owner": "agent_a",
+                "_visibility": "private",
+                "evidence_locus": locus,
+            })),
+        },
+    )
+    .await;
+    ok(
+        &state,
+        4,
+        Method::AddEdge {
+            source_id: "evidence1".into(),
+            target_id: "claim1".into(),
+            properties_msgpack: pack(json!({ "relationship": "SUPPORTS" })),
+        },
+    )
+    .await;
+    ok(
+        &state,
+        5,
+        Method::AddEdge {
+            source_id: "secret1".into(),
+            target_id: "claim1".into(),
+            properties_msgpack: pack(json!({ "relationship": "SUPPORTS" })),
+        },
+    )
+    .await;
+
+    let r = dispatch(
+        &state,
+        register_identity_req(100, common::TEST_AGENT, "root", AgentRole::System),
+    )
+    .await;
+    assert!(r.error.is_none(), "root registration failed: {:?}", r.error);
+    for (i, agent) in [(101u64, "agent_a"), (102, "stranger")] {
+        let r = dispatch(
+            &state,
+            register_identity_req(i, "root", agent, AgentRole::Agent),
+        )
+        .await;
+        assert!(
+            r.error.is_none(),
+            "RegisterIdentity {agent} failed: {:?}",
+            r.error
+        );
+    }
+
+    // stranger: only the public evidence1 citation -- agent_a's private secret1 must
+    // be invisible (never resolved), not merely omitted after the fact.
+    let resp = dispatch(
+        &state,
+        req_as(
+            200,
+            "stranger",
+            Method::ExplainEvidence {
+                node_id: "claim1".into(),
+            },
+        ),
+    )
+    .await;
+    assert!(
+        resp.error.is_none(),
+        "ExplainEvidence error: {:?}",
+        resp.error
+    );
+    let bytes = match &resp.result {
+        Some(ResultPayload::Raw(b)) => b.clone(),
+        other => panic!("expected Raw result, got {other:?}"),
+    };
+    let result: ExplainEvidenceResult =
+        rmp_serde::from_slice(&bytes).expect("ExplainEvidenceResult decodes");
+    let ids: Vec<&str> = result
+        .citations
+        .iter()
+        .map(|c| c.evidence_id.as_str())
+        .collect();
+    assert_eq!(
+        ids,
+        vec!["evidence1"],
+        "stranger must not see agent_a's private secret1 evidence citation, got {ids:?}"
+    );
+
+    // agent_a (the owner): sees BOTH citations.
+    let resp_owner = dispatch(
+        &state,
+        req_as(
+            201,
+            "agent_a",
+            Method::ExplainEvidence {
+                node_id: "claim1".into(),
+            },
+        ),
+    )
+    .await;
+    assert!(
+        resp_owner.error.is_none(),
+        "ExplainEvidence error: {:?}",
+        resp_owner.error
+    );
+    let bytes = match &resp_owner.result {
+        Some(ResultPayload::Raw(b)) => b.clone(),
+        other => panic!("expected Raw result, got {other:?}"),
+    };
+    let result_owner: ExplainEvidenceResult =
+        rmp_serde::from_slice(&bytes).expect("ExplainEvidenceResult decodes");
+    let mut owner_ids: Vec<&str> = result_owner
+        .citations
+        .iter()
+        .map(|c| c.evidence_id.as_str())
+        .collect();
+    owner_ids.sort();
+    assert_eq!(
+        owner_ids,
+        vec!["evidence1", "secret1"],
+        "agent_a (owner) must see both citations, got {owner_ids:?}"
+    );
+}
+
 /// EPI-P3-3 — `Method::CausalEstimate`, over the served RPC surface: the SAME
 /// confounded-graph fixture (`Z -> X`, `Z -> Y`, `X -> Y`) `eg_epistemic::causal`'s
 /// own unit tests use, proving `do(X)` genuinely differs from a naive conditional —
@@ -2198,6 +2370,166 @@ async fn resolve_conflict_matches_tms_crate_semantics_over_rpc() {
         resp.error.is_some(),
         "expected an explicit error for an unknown semantics"
     );
+}
+
+/// L-RLS-1 (RLS_ROUTED regression proof): `Method::ResolveConflict` must not classify an
+/// RLS-invisible node's real conflict status, NOR let its attack edges leak into another
+/// (visible) node's computed status. Fixture: the SAME textbook mutual-conflict AF
+/// `resolve_conflict_matches_tms_crate_semantics_over_rpc` uses (`a` attacks `b`, `b`
+/// attacks `a`, `c` uninvolved) except `b` is now `_owner=agent_a`+`_visibility=private`.
+#[cfg(all(feature = "epistemic-tms", feature = "security"))]
+#[tokio::test]
+async fn resolve_conflict_hides_other_agents_private_argument_over_rpc() {
+    use epistemic_graph::isolation::AgentRole;
+    use epistemic_graph::protocol::ResolveConflictResult;
+
+    let state = state();
+    ok(
+        &state,
+        1,
+        Method::AddNode {
+            node_id: "a".into(),
+            properties_msgpack: pack(json!({ "type": "Claim", "confidence": 0.5 })),
+        },
+    )
+    .await;
+    ok(
+        &state,
+        2,
+        Method::AddNode {
+            node_id: "b".into(),
+            properties_msgpack: pack(json!({
+                "type": "Claim",
+                "confidence": 0.5,
+                "_owner": "agent_a",
+                "_visibility": "private",
+            })),
+        },
+    )
+    .await;
+    ok(
+        &state,
+        3,
+        Method::AddNode {
+            node_id: "c".into(),
+            properties_msgpack: pack(json!({ "type": "Claim", "confidence": 0.9 })),
+        },
+    )
+    .await;
+    ok(
+        &state,
+        4,
+        Method::AddEdge {
+            source_id: "a".into(),
+            target_id: "b".into(),
+            properties_msgpack: pack(json!({ "relationship": "ATTACKS" })),
+        },
+    )
+    .await;
+    ok(
+        &state,
+        5,
+        Method::AddEdge {
+            source_id: "b".into(),
+            target_id: "a".into(),
+            properties_msgpack: pack(json!({ "relationship": "ATTACKS" })),
+        },
+    )
+    .await;
+
+    let r = dispatch(
+        &state,
+        register_identity_req(100, common::TEST_AGENT, "root", AgentRole::System),
+    )
+    .await;
+    assert!(r.error.is_none(), "root registration failed: {:?}", r.error);
+    for (i, agent) in [(101u64, "agent_a"), (102, "stranger")] {
+        let r = dispatch(
+            &state,
+            register_identity_req(i, "root", agent, AgentRole::Agent),
+        )
+        .await;
+        assert!(
+            r.error.is_none(),
+            "RegisterIdentity {agent} failed: {:?}",
+            r.error
+        );
+    }
+
+    let node_ids = vec!["a".to_string(), "b".to_string(), "c".to_string()];
+
+    // stranger: `b` (and both edges naming it) is invisible, so its mutual attack on
+    // `a` vanishes WITH it -- `a` is now unattacked (surviving) and `b` itself reports
+    // no signal (undecided), never its real defeated/surviving verdict.
+    let resp = dispatch(
+        &state,
+        req_as(
+            200,
+            "stranger",
+            Method::ResolveConflict {
+                node_ids: node_ids.clone(),
+                semantics: "grounded".into(),
+            },
+        ),
+    )
+    .await;
+    assert!(
+        resp.error.is_none(),
+        "ResolveConflict error: {:?}",
+        resp.error
+    );
+    let bytes = match &resp.result {
+        Some(ResultPayload::Raw(b)) => b.clone(),
+        other => panic!("expected Raw result, got {other:?}"),
+    };
+    let stranger_view: ResolveConflictResult =
+        rmp_serde::from_slice(&bytes).expect("ResolveConflictResult decodes");
+    let mut surviving = stranger_view.surviving.clone();
+    surviving.sort();
+    assert_eq!(
+        surviving,
+        vec!["a".to_string(), "c".to_string()],
+        "with agent_a's private 'b' (and its attack edges) hidden, 'a' has no visible \
+         attacker left and must survive, got {stranger_view:?}"
+    );
+    assert_eq!(
+        stranger_view.undecided,
+        vec!["b".to_string()],
+        "an RLS-invisible node degrades to undecided (no signal), never a fabricated \
+         surviving/defeated verdict, got {stranger_view:?}"
+    );
+    assert!(stranger_view.defeated.is_empty());
+
+    // agent_a (the owner): sees the REAL mutual conflict -- a and b both undecided,
+    // only c survives (matches the unfiltered semantics test above).
+    let resp_owner = dispatch(
+        &state,
+        req_as(
+            201,
+            "agent_a",
+            Method::ResolveConflict {
+                node_ids,
+                semantics: "grounded".into(),
+            },
+        ),
+    )
+    .await;
+    assert!(
+        resp_owner.error.is_none(),
+        "ResolveConflict error: {:?}",
+        resp_owner.error
+    );
+    let bytes = match &resp_owner.result {
+        Some(ResultPayload::Raw(b)) => b.clone(),
+        other => panic!("expected Raw result, got {other:?}"),
+    };
+    let owner_view: ResolveConflictResult =
+        rmp_serde::from_slice(&bytes).expect("ResolveConflictResult decodes");
+    assert_eq!(owner_view.surviving, vec!["c".to_string()]);
+    let mut owner_undecided = owner_view.undecided.clone();
+    owner_undecided.sort();
+    assert_eq!(owner_undecided, vec!["a".to_string(), "b".to_string()]);
+    assert!(owner_view.defeated.is_empty());
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

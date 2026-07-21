@@ -1309,6 +1309,7 @@ const RLS_ROUTED: &[&str] = &[
     "EdgeCount",
     "EpistemicStatus",
     "ExplainBelief",
+    "ExplainEvidence",
     "ExplainPlan",
     "ExplainPolicy",
     "ExplainProvenance",
@@ -1361,6 +1362,7 @@ const RLS_ROUTED: &[&str] = &[
     "PlanMatViewGet",
     "ReadContinuousQuery",
     "ResolveCandidates",
+    "ResolveConflict",
     "RunRules",
     "SceneChildren",
     "SemanticSearch",
@@ -1411,8 +1413,14 @@ const REASON_TENANT_KEY_SCOPED_KV: &str =
     "src/server/kv.rs namespaces every key via CarrierAuthority::namespace(\"kv-namespace\", ...) -- the identical tenant+actor-scoped-key pattern as timeseries; never constructs a GraphView";
 const REASON_ADMIN_ONLY_CEP: &str =
     "src/server/cep.rs gates CEP subscription management, including polling one, behind CarrierAuthority::require_admin -- stricter than row RLS, not row-scoped at all";
-const REASON_EPISTEMIC_NOT_TRACED: &str =
-    "lives in src/server/mod.rs's epistemic-reasoning arms; this pass did not independently trace its evidence/belief-graph resolution to a project_core/filter_view call (the next-level-analysis report separately describes eg-epistemic's OWN bounded-BFS + CAS-digest evidence resolver as a plausible, real mechanism, but this pass did not re-verify it here) -- flagged for human review rather than asserted either way";
+// L-RLS-1 follow-up audit (CONCEPT:EPI-P3-3/P3-6): the 5 formerly-`NOT_YET_AUDITED` epistemic
+// read methods were traced to their handlers in `src/server/handlers/query.rs`. Two
+// (`ResolveConflict`/`ExplainEvidence`) DO build a `BeliefGraph` off `core.analysis_snapshot()`
+// and are now `RLS_ROUTED` above (their handler arms were fixed to `rls.filter_view` the
+// snapshot first -- see those arms' own doc comments). The other three below never touch
+// `core`/`state`/`GraphView` at all.
+const REASON_EPISTEMIC_CAUSAL_PURE_COMPUTE: &str =
+    "src/server/handlers/query.rs's causal_estimate_wire/causal_counterfactual_wire/rank_by_provenance_wire (Method::CausalEstimate/CausalCounterfactual/RankByProvenance) build an ephemeral eg_epistemic::CausalGraph, or rank eg_epistemic::RetrievalCandidates, purely from the REQUEST's own variables/do_values/actual/candidates/weights fields -- these three handler arms never call core.analysis_snapshot() or reference state/core/GraphView at all (confirmed by reading each arm and its wire fn body), so there is no tenant-owned graph row in play to RLS-scope; the same posture as REASON_PURE_COMPUTE's finance/datascience primitives, just epistemic-causal's own request-scoped SCM/ranking inputs instead";
 
 const NON_ROW_SCOPED: &[(&str, &str)] = &[
     // REASON_SERVER_LIFECYCLE
@@ -1536,15 +1544,17 @@ const NON_ROW_SCOPED: &[(&str, &str)] = &[
     ("KvScan", REASON_TENANT_KEY_SCOPED_KV),
     // REASON_ADMIN_ONLY_CEP
     ("CepPoll", REASON_ADMIN_ONLY_CEP),
+    // REASON_EPISTEMIC_CAUSAL_PURE_COMPUTE
+    ("CausalCounterfactual", REASON_EPISTEMIC_CAUSAL_PURE_COMPUTE),
+    ("CausalEstimate", REASON_EPISTEMIC_CAUSAL_PURE_COMPUTE),
+    ("RankByProvenance", REASON_EPISTEMIC_CAUSAL_PURE_COMPUTE),
 ];
 
-const NOT_YET_AUDITED: &[(&str, &str)] = &[
-    ("CausalCounterfactual", REASON_EPISTEMIC_NOT_TRACED),
-    ("CausalEstimate", REASON_EPISTEMIC_NOT_TRACED),
-    ("ExplainEvidence", REASON_EPISTEMIC_NOT_TRACED),
-    ("RankByProvenance", REASON_EPISTEMIC_NOT_TRACED),
-    ("ResolveConflict", REASON_EPISTEMIC_NOT_TRACED),
-];
+// L-RLS-1 burn-down (CONCEPT:EPI-P3-3/P3-6): the 5 methods this pass covered (see the
+// `REASON_EPISTEMIC_CAUSAL_PURE_COMPUTE` doc above) were the entire prior contents of this
+// list. Empty is the intended end state, not an initial one -- a future audit pass adds a
+// new entry here ONLY as a flagged, visible TODO, never silently.
+const NOT_YET_AUDITED: &[(&str, &str)] = &[];
 #[cfg(test)]
 mod read_rls_coverage_tests {
     use super::*;
@@ -1663,5 +1673,96 @@ mod read_rls_coverage_tests {
                 "'{method}' must not also claim to be RLS_ROUTED"
             );
         }
+    }
+
+    // ── L-RLS-1 follow-up: the 5 formerly-`NOT_YET_AUDITED` epistemic read methods ──
+    //
+    // One focused test per method (task-required granularity), each pinning its
+    // resolved routing bucket AND asserting it is absent from the other two -- so a
+    // future regression on any ONE of these 5 names fails at ITS OWN assertion, not
+    // just the exhaustive partition test above. `ResolveConflict`/`ExplainEvidence`
+    // were traced to a real `core.analysis_snapshot()` read in
+    // `src/server/handlers/query.rs` (their handler arms now `rls.filter_view` it
+    // before use, see those arms' doc comments) -- `RLS_ROUTED`. `CausalEstimate`/
+    // `CausalCounterfactual`/`RankByProvenance` were traced to the SAME file's
+    // `causal_estimate_wire`/`causal_counterfactual_wire`/`rank_by_provenance_wire`,
+    // none of which reference `core`/`state`/`GraphView` at all -- `NON_ROW_SCOPED`.
+
+    #[test]
+    fn resolve_conflict_is_rls_routed() {
+        assert!(
+            RLS_ROUTED.contains(&"ResolveConflict"),
+            "ResolveConflict's handler builds a BeliefGraph off core.analysis_snapshot() \
+             (src/server/handlers/query.rs's Method::ResolveConflict arm) and must \
+             rls.filter_view it before eg_epistemic::BeliefGraph::from_graph_view sees it -- \
+             RLS_ROUTED"
+        );
+        let non_row: HashMap<&'static str, &'static str> = NON_ROW_SCOPED.iter().copied().collect();
+        let not_audited: HashMap<&'static str, &'static str> =
+            NOT_YET_AUDITED.iter().copied().collect();
+        assert!(!non_row.contains_key("ResolveConflict"));
+        assert!(!not_audited.contains_key("ResolveConflict"));
+    }
+
+    #[test]
+    fn explain_evidence_is_rls_routed() {
+        assert!(
+            RLS_ROUTED.contains(&"ExplainEvidence"),
+            "ExplainEvidence's handler builds a BeliefGraph off core.analysis_snapshot() \
+             (src/server/handlers/query.rs's Method::ExplainEvidence arms) and must \
+             rls.filter_view it before eg_epistemic::BeliefGraph::from_graph_view sees it -- \
+             RLS_ROUTED"
+        );
+        let non_row: HashMap<&'static str, &'static str> = NON_ROW_SCOPED.iter().copied().collect();
+        let not_audited: HashMap<&'static str, &'static str> =
+            NOT_YET_AUDITED.iter().copied().collect();
+        assert!(!non_row.contains_key("ExplainEvidence"));
+        assert!(!not_audited.contains_key("ExplainEvidence"));
+    }
+
+    #[test]
+    fn causal_estimate_is_a_documented_non_row_scoped_exception() {
+        let non_row: HashMap<&'static str, &'static str> = NON_ROW_SCOPED.iter().copied().collect();
+        assert_eq!(
+            non_row.get("CausalEstimate").copied(),
+            Some(REASON_EPISTEMIC_CAUSAL_PURE_COMPUTE),
+            "CausalEstimate's handler (causal_estimate_wire) never reads core/state/GraphView -- \
+             pure compute over the request's own variables/do_values/mode"
+        );
+        assert!(!RLS_ROUTED.contains(&"CausalEstimate"));
+        let not_audited: HashMap<&'static str, &'static str> =
+            NOT_YET_AUDITED.iter().copied().collect();
+        assert!(!not_audited.contains_key("CausalEstimate"));
+    }
+
+    #[test]
+    fn causal_counterfactual_is_a_documented_non_row_scoped_exception() {
+        let non_row: HashMap<&'static str, &'static str> = NON_ROW_SCOPED.iter().copied().collect();
+        assert_eq!(
+            non_row.get("CausalCounterfactual").copied(),
+            Some(REASON_EPISTEMIC_CAUSAL_PURE_COMPUTE),
+            "CausalCounterfactual's handler (causal_counterfactual_wire) never reads \
+             core/state/GraphView -- pure compute over the request's own \
+             variables/actual/do_values"
+        );
+        assert!(!RLS_ROUTED.contains(&"CausalCounterfactual"));
+        let not_audited: HashMap<&'static str, &'static str> =
+            NOT_YET_AUDITED.iter().copied().collect();
+        assert!(!not_audited.contains_key("CausalCounterfactual"));
+    }
+
+    #[test]
+    fn rank_by_provenance_is_a_documented_non_row_scoped_exception() {
+        let non_row: HashMap<&'static str, &'static str> = NON_ROW_SCOPED.iter().copied().collect();
+        assert_eq!(
+            non_row.get("RankByProvenance").copied(),
+            Some(REASON_EPISTEMIC_CAUSAL_PURE_COMPUTE),
+            "RankByProvenance's handler (rank_by_provenance_wire) never reads \
+             core/state/GraphView -- pure compute over the request's own candidates/weights"
+        );
+        assert!(!RLS_ROUTED.contains(&"RankByProvenance"));
+        let not_audited: HashMap<&'static str, &'static str> =
+            NOT_YET_AUDITED.iter().copied().collect();
+        assert!(!not_audited.contains_key("RankByProvenance"));
     }
 }
