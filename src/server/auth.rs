@@ -795,6 +795,19 @@ fn durable_replay_ledger(_state_dir: Option<&str>) -> Result<&'static dyn Replay
     }))
 }
 
+/// Parse a boolean-ish deployment flag from the environment. Unset or any
+/// unrecognized value ⇒ `false` (the safe default that preserves today's
+/// behavior). Accepts the common truthy spellings so an operator is not
+/// surprised by `TRUE`/`yes`/`on`. Read fresh each call: this is a coarse,
+/// process-lifetime posture switch, not a hot path.
+fn env_flag_enabled(name: &str) -> bool {
+    std::env::var(name)
+        .ok()
+        .map(|v| v.trim().to_ascii_lowercase())
+        .map(|v| matches!(v.as_str(), "1" | "true" | "yes" | "on"))
+        .unwrap_or(false)
+}
+
 // ── OIDC identity binding (primary eg2. protocol, feature `oidc`) ─────────
 //
 // Extends `crate::server::oidc`'s existing RSA/JWKS verifier — the exact one
@@ -835,14 +848,48 @@ fn primary_oidc_validator() -> Result<Option<&'static crate::server::oidc::JwtVa
     }
 }
 
+/// Config-gated MANDATORY-OIDC posture (`EPISTEMIC_GRAPH_REQUIRE_OIDC`).
+///
+/// Default (unset / falsey) ⇒ `false`: [`bind_verified_identity`] behaves
+/// byte-identically to before this posture existed — an unconfigured
+/// deployment keeps today's HMAC-only behavior.
+///
+/// Truthy ⇒ `true`: the engine refuses any request whose self-asserted
+/// identity cannot be bound to a valid, RSA/JWKS-verified OIDC bearer token
+/// whose subject/tenant match the claimed principal/tenant. Critically this
+/// also fails closed when NO OIDC issuer is configured — a deployment that
+/// demands OIDC but forgot to (or failed to) configure a verifier must never
+/// silently downgrade to shared-secret HMAC alone.
+#[cfg(all(feature = "oidc", not(test)))]
+fn require_oidc() -> bool {
+    env_flag_enabled("EPISTEMIC_GRAPH_REQUIRE_OIDC")
+}
+
+// Test-only override for `require_oidc()`. Env vars are process-global and
+// would race across the parallel `libtest` threads, so — exactly like
+// `TEST_OIDC_VALIDATOR` — the posture is a per-thread cell each `#[test]`
+// sets explicitly (default `false`), with a guard that resets it on drop.
+#[cfg(all(feature = "oidc", test))]
+thread_local! {
+    static TEST_REQUIRE_OIDC: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+#[cfg(all(feature = "oidc", test))]
+fn require_oidc() -> bool {
+    TEST_REQUIRE_OIDC.with(std::cell::Cell::get)
+}
+
 /// Bind the envelope's self-asserted `principal`/`tenant`/`roles`/`scopes` to
 /// a verified OIDC bearer token when the primary protocol is configured for
 /// external identity verification.
 ///
 /// Fail-closed and config-gated:
 /// - No issuer configured (`primary_oidc_validator` returns `Ok(None)`) ⇒
-///   `Ok(())` unconditionally — today's HMAC-only behavior is preserved for
-///   unauthenticated local/dev deployments.
+///   `Ok(())` — today's HMAC-only behavior is preserved for unauthenticated
+///   local/dev deployments — UNLESS the MANDATORY-OIDC posture
+///   (`EPISTEMIC_GRAPH_REQUIRE_OIDC`, see [`require_oidc`]) is on, in which
+///   case an unconfigured verifier is a hard, fail-closed rejection rather
+///   than a silent downgrade to shared-secret HMAC alone.
 /// - Issuer configured ⇒ the envelope MUST carry a non-empty `oidc_token`
 ///   that independently RSA/JWKS-verifies (signature, issuer, audience, not
 ///   expired — `JwtValidator::validate_claims`), AND whose claims agree with
@@ -867,6 +914,17 @@ fn bind_verified_identity(
     oidc_token: Option<&str>,
 ) -> Result<(), String> {
     let Some(validator) = primary_oidc_validator()? else {
+        // No OIDC verifier is configured. Default posture: preserve today's
+        // HMAC-only behavior. MANDATORY-OIDC posture: fail closed — a
+        // deployment that demanded OIDC must never fall back to shared-secret
+        // HMAC just because a verifier was not (or could not be) configured.
+        if require_oidc() {
+            return Err(
+                "EPISTEMIC_GRAPH_REQUIRE_OIDC is set but no OIDC issuer/JWKS is \
+                 configured; refusing HMAC-only identity (fail-closed)"
+                    .to_string(),
+            );
+        }
         return Ok(());
     };
     let token = oidc_token
@@ -915,6 +973,17 @@ fn bind_verified_identity(
     _claims: &RequestContextClaims,
     _oidc_token: Option<&str>,
 ) -> Result<(), String> {
+    // This build has no `oidc` feature, so no verifier exists at all. Default
+    // posture: today's HMAC-only behavior. MANDATORY-OIDC posture: fail closed
+    // rather than silently accept HMAC-only identity when an operator set
+    // EPISTEMIC_GRAPH_REQUIRE_OIDC against a build that cannot honor it.
+    if env_flag_enabled("EPISTEMIC_GRAPH_REQUIRE_OIDC") {
+        return Err(
+            "EPISTEMIC_GRAPH_REQUIRE_OIDC is set but this build lacks the `oidc` \
+             feature; refusing HMAC-only identity (fail-closed)"
+                .to_string(),
+        );
+    }
     Ok(())
 }
 
@@ -1549,6 +1618,22 @@ mod tests {
             OidcTestGuard
         }
 
+        /// Resets `TEST_REQUIRE_OIDC` when dropped so the MANDATORY-OIDC
+        /// posture never leaks into a later test on the same thread.
+        struct RequireOidcGuard;
+
+        impl Drop for RequireOidcGuard {
+            fn drop(&mut self) {
+                TEST_REQUIRE_OIDC.with(|cell| cell.set(false));
+            }
+        }
+
+        /// Turn the `EPISTEMIC_GRAPH_REQUIRE_OIDC` posture ON for this test.
+        fn require_oidc_on() -> RequireOidcGuard {
+            TEST_REQUIRE_OIDC.with(|cell| cell.set(true));
+            RequireOidcGuard
+        }
+
         fn sign(claims: &serde_json::Value) -> String {
             let mut header = Header::new(JwtAlgorithm::RS256);
             header.kid = Some(OIDC_KID.to_string());
@@ -1762,6 +1847,86 @@ mod tests {
             let result =
                 verify_envelope_v2_with(SECRET, &req, &verified_policy(), &memory_replay());
             assert!(result.is_ok(), "{:?}", result.err());
+        }
+
+        // ── MANDATORY-OIDC posture (EPISTEMIC_GRAPH_REQUIRE_OIDC) ─────────
+        //
+        // With the posture ON, an unconfigured verifier must fail closed
+        // rather than fall back to HMAC-only, and a configured verifier must
+        // still accept a genuinely valid, matching token.
+
+        #[test]
+        fn require_oidc_rejects_hmac_only_when_verifier_unconfigured() {
+            // Posture ON but NO validator installed — the exact hole this
+            // package closes: today's default silently accepts HMAC-only here.
+            TEST_OIDC_VALIDATOR.with(|cell| cell.set(None));
+            let _require = require_oidc_on();
+            let req = envelope_request(710, "oidc-require-unconfigured", matching_claims(), None);
+            let error = verify_envelope_v2_with(SECRET, &req, &verified_policy(), &memory_replay())
+                .unwrap_err();
+            assert!(
+                error.contains("EPISTEMIC_GRAPH_REQUIRE_OIDC"),
+                "{error}"
+            );
+        }
+
+        #[test]
+        fn require_oidc_rejects_even_with_token_when_verifier_unconfigured() {
+            // A token cannot be RSA/JWKS-verified without a configured verifier,
+            // so presenting one must not smuggle past the posture either.
+            TEST_OIDC_VALIDATOR.with(|cell| cell.set(None));
+            let _require = require_oidc_on();
+            let token = sign(&oidc_claims(
+                "agent:planner",
+                "tenant-a",
+                &["kg:read"],
+                "kg:read",
+            ));
+            let req = envelope_request(
+                711,
+                "oidc-require-unconfigured-with-token",
+                matching_claims(),
+                Some(&token),
+            );
+            let error = verify_envelope_v2_with(SECRET, &req, &verified_policy(), &memory_replay())
+                .unwrap_err();
+            assert!(
+                error.contains("EPISTEMIC_GRAPH_REQUIRE_OIDC"),
+                "{error}"
+            );
+        }
+
+        #[test]
+        fn require_oidc_still_accepts_a_valid_matching_token() {
+            // Posture ON with a configured verifier and a genuinely valid,
+            // subject/tenant/role/scope-matching token still binds and passes.
+            let _guard = install_test_validator();
+            let _require = require_oidc_on();
+            let token = sign(&oidc_claims(
+                "agent:planner",
+                "tenant-a",
+                &["kg:read"],
+                "kg:read kg:write",
+            ));
+            let req = envelope_request(712, "oidc-require-valid", matching_claims(), Some(&token));
+            let result =
+                verify_envelope_v2_with(SECRET, &req, &verified_policy(), &memory_replay());
+            assert!(result.is_ok(), "{:?}", result.err());
+        }
+
+        #[test]
+        fn require_oidc_rejects_missing_token_with_configured_verifier() {
+            // Posture ON, verifier configured, but the envelope carries no
+            // token — rejected exactly as the configured-but-default case is.
+            let _guard = install_test_validator();
+            let _require = require_oidc_on();
+            let req = envelope_request(713, "oidc-require-missing", matching_claims(), None);
+            let error = verify_envelope_v2_with(SECRET, &req, &verified_policy(), &memory_replay())
+                .unwrap_err();
+            assert!(
+                error.contains("OIDC") && error.contains("bearer"),
+                "{error}"
+            );
         }
     }
 }
