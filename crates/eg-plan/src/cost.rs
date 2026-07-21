@@ -111,8 +111,22 @@ impl CostModel {
     /// A SELECTIVE filter forces a huge over-fetch → vector-first loses; a BROAD
     /// filter barely over-fetches → vector-first wins.
     pub fn vector_first_cost(s: &Stats) -> f64 {
-        let fetch = (s.top_k as f64) / s.filter_selectivity.max(1e-9);
+        let fetch = Self::overfetch_pool_size(s.top_k, s.filter_selectivity) as f64;
         s.cost_vector_topk + fetch * (s.cost_vector_per_row + s.cost_filter_per_row)
+    }
+
+    /// How many candidates a `top_k`-target index probe must OVER-FETCH to survive a
+    /// downstream narrower of `selectivity` (CONCEPT:EG-KG.query.index-method-seam) — the
+    /// `top_k/selectivity` formula [`Self::vector_first_cost`] used inline, extracted so a
+    /// PHYSICAL executor (not just this plan-time cost estimate) can size a real
+    /// candidate-set-intersection over-fetch pool with the SAME canonical formula instead
+    /// of a hand-rolled duplicate (the seam [`IndexMethod`] and its registered methods
+    /// share). Used by ANY index-backed rerank that must coexist with an already-applied
+    /// filter — e.g. the BM25 `RankText` leg (`crate::exec::rank_text`) sizing its
+    /// over-fetch against the current candidate set's selectivity, mirroring the vector
+    /// `Rank` leg's (now allowlist-during-probe, no over-fetch needed) prior approach.
+    pub fn overfetch_pool_size(top_k: usize, selectivity: f64) -> usize {
+        ((top_k as f64) / selectivity.max(1e-9)).ceil() as usize
     }
 
     /// Choose the cheaper order for a (FILTER, RANK) pair over the same set.
@@ -142,6 +156,245 @@ impl CostModel {
             plan.swap(lo, hi);
         }
         plan
+    }
+}
+
+// ── Pluggable index-method cost seam: ANN + BM25 unified (CONCEPT:EG-KG.query.index-method-seam) ──
+//
+// eg's ANN (`Rank`/`RankEmbed`) and BM25 (`RankText`) rerankers were each hand-costed as
+// their own inline match arm below — ANN got a real brute-force-vs-index-topk cost model,
+// but BM25 fell through the wildcard pass-through (`_ => in_card`, ZERO cost reasoning),
+// so the reorder rules (`crate::optimizer::is_rank`) never even considered reordering a
+// narrower against a lexical rerank the way they already did for a vector one — one
+// unified planner argument (cross-modal reordering), enforced for only ONE of its two
+// index-backed rerankers. This trait — mirroring turso's `IndexMethod`/
+// `IndexMethodCostEstimate` seam that unifies its IVF-vector and FTS pushdowns — closes
+// that: both modalities' "index vs brute-force" cost now flows through ONE registered
+// seam instead of two independently (and unevenly) hand-costed special cases.
+#[cfg(feature = "query")]
+mod index_method {
+    use super::{ModalityCardinality, DEFAULT_TOP_K};
+    use crate::algebra::Op;
+
+    /// The seam's shared COST OUTPUT — mirrors turso's
+    /// `IndexMethodCostEstimate{estimated_cost, estimated_rows}`. `estimated_cost` is the
+    /// SAME abstract-unit currency [`super::CostEstimate::weight`] compares;
+    /// `estimated_rows` is what [`super::Cardinality::rows_out`] returns for this op.
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct IndexMethodCostEstimate {
+        pub estimated_cost: f64,
+        pub estimated_rows: f64,
+    }
+
+    /// One pluggable index-backed reranker — the trait ANN and BM25 both implement so
+    /// the optimizer costs them through ONE seam instead of two independently hand-costed
+    /// special cases. A future geo nearest-neighbor pushdown (the finding this closes
+    /// names it explicitly as the natural third) registers the SAME way.
+    pub trait IndexMethod: Send + Sync {
+        /// A stable name (EXPLAIN / test introspection).
+        fn name(&self) -> &'static str;
+        /// Does this method drive `op`?
+        fn matches(&self, op: &Op) -> bool;
+        /// Cost + output cardinality of running `op` over `in_card` candidate rows.
+        /// `in_card == 0` ⇒ this op is the plan's SOURCE (a pure index top-k); `in_card >
+        /// 0` ⇒ it reranks/narrows an existing candidate set — brute-force per survivor,
+        /// since neither index natively accepts an arbitrary caller-supplied id-set as
+        /// its scan domain. Mirrors the SAME regime split
+        /// [`ModalityCardinality::cost_of`]'s `Rank` arm already drew for ANN alone.
+        fn estimate(&self, in_card: f64, card: &ModalityCardinality) -> IndexMethodCostEstimate;
+    }
+
+    /// ANN vector rerank (`Rank`/`RankEmbed`) as an [`IndexMethod`] — the SAME formulas
+    /// [`ModalityCardinality`]'s per-row/top-k constants already used inline. Registered
+    /// so [`is_index_method_op`] recognizes it uniformly alongside BM25 (the seam
+    /// [`crate::optimizer::is_rank`] now dispatches through); `ModalityCardinality::
+    /// cost_of`/`rows_out`'s pre-existing `Rank`/`RankEmbed` arms are deliberately left
+    /// calling their own inline formula rather than this method (zero regression risk
+    /// to the already-proven, extensively-tested vector leg) — this impl exists so the
+    /// REGISTRY recognizes ANN uniformly with BM25 today, and is the drop-in body a
+    /// follow-up can point `cost_of`/`rows_out` at once the vector arm is ready to be
+    /// re-verified against it.
+    pub(super) struct AnnIndexMethod;
+
+    impl IndexMethod for AnnIndexMethod {
+        fn name(&self) -> &'static str {
+            "ann-vector"
+        }
+        fn matches(&self, op: &Op) -> bool {
+            matches!(op, Op::Rank { .. } | Op::RankEmbed { .. })
+        }
+        fn estimate(&self, in_card: f64, card: &ModalityCardinality) -> IndexMethodCostEstimate {
+            if in_card > 0.0 {
+                IndexMethodCostEstimate {
+                    estimated_cost: in_card * ModalityCardinality::COST_VECTOR_PER_ROW,
+                    estimated_rows: in_card * card.embed_coverage(),
+                }
+            } else {
+                IndexMethodCostEstimate {
+                    estimated_cost: card.ann_topk_cost(),
+                    estimated_rows: (card.stats.embedding_count as f64).min(DEFAULT_TOP_K as f64),
+                }
+            }
+        }
+    }
+
+    /// BM25 lexical rerank (`RankText`) as an [`IndexMethod`] — the counterpart ANN
+    /// already had and BM25 never did: a real cost for BOTH regimes (candidate-restricted
+    /// brute force vs. a SOURCE top-k postings probe), instead of the wildcard
+    /// pass-through every other unrecognized op falls to.
+    #[cfg(feature = "text")]
+    pub(super) struct Bm25IndexMethod;
+
+    #[cfg(feature = "text")]
+    impl IndexMethod for Bm25IndexMethod {
+        fn name(&self) -> &'static str {
+            "bm25-text"
+        }
+        fn matches(&self, op: &Op) -> bool {
+            matches!(op, Op::RankText { .. })
+        }
+        fn estimate(&self, in_card: f64, card: &ModalityCardinality) -> IndexMethodCostEstimate {
+            // A postings-list hit check is cheaper than a full vector distance (no
+            // dot-product over an embedding dimension — a term-frequency lookup) but
+            // pricier than a bare relational predicate eval; calibrated conservatively
+            // between the two rather than duplicating either exactly.
+            const COST_TEXT_PER_ROW: f64 = 5.0;
+            const EF: f64 = 64.0;
+            if in_card > 0.0 {
+                IndexMethodCostEstimate {
+                    estimated_cost: in_card * COST_TEXT_PER_ROW,
+                    // No per-doc "missing embedding" analogue is modeled for text (every
+                    // resident node is either indexed or not, uniformly) — unlike ANN's
+                    // `embed_coverage`, a BM25 rerank is assumed to cover the full
+                    // candidate set.
+                    estimated_rows: in_card,
+                }
+            } else {
+                let n = (card.stats.node_count.max(2) as f64).log2();
+                IndexMethodCostEstimate {
+                    estimated_cost: n * EF,
+                    estimated_rows: (card.stats.node_count as f64).min(DEFAULT_TOP_K as f64),
+                }
+            }
+        }
+    }
+
+    /// Every registered [`IndexMethod`] — ANN always, BM25 only under `text` (its wire
+    /// `Op::RankText` variant does not exist otherwise).
+    fn methods() -> Vec<Box<dyn IndexMethod>> {
+        let mut m: Vec<Box<dyn IndexMethod>> = vec![Box::new(AnnIndexMethod)];
+        #[cfg(feature = "text")]
+        m.push(Box::new(Bm25IndexMethod));
+        m
+    }
+
+    /// Is `op` driven by a registered [`IndexMethod`] — the generalized
+    /// [`crate::optimizer::is_rank`] check spanning EVERY registered index-backed
+    /// reranker, not just the vector one.
+    pub fn is_index_method_op(op: &Op) -> bool {
+        methods().iter().any(|m| m.matches(op))
+    }
+
+    /// The registered [`IndexMethod`]'s cost estimate for `op`, or `None` if no method
+    /// claims it (a caller falls back to its own default costing).
+    pub fn estimate(op: &Op, in_card: f64, card: &ModalityCardinality) -> Option<IndexMethodCostEstimate> {
+        methods()
+            .into_iter()
+            .find(|m| m.matches(op))
+            .map(|m| m.estimate(in_card, card))
+    }
+}
+
+#[cfg(feature = "query")]
+pub use index_method::{IndexMethod, IndexMethodCostEstimate};
+#[cfg(feature = "query")]
+pub(crate) use index_method::{estimate as index_method_estimate, is_index_method_op};
+
+// ── A tiny Bloom filter for cross-modal candidate-set join probes ────────────────
+// (CONCEPT:EG-KG.query.bloom-gate) — pairs with the index-method seam above: when an
+// over-fetched index candidate pool (ANN or BM25) must be intersected against an
+// already-narrowed candidate set, a compact bit-array membership PRE-check rejects the
+// (usually large majority of) non-candidate hits before paying for the exact `HashSet`
+// lookup — the SAME heuristic turso's `join.rs` `use_bloom_filter` applies to its build
+// side of a join. Dep-free (two salted `DefaultHasher` passes, Kirsch-Mitzenmacher double
+// hashing — no external crate), so it ships in every tier that already links `std`.
+#[cfg(feature = "text")]
+pub(crate) struct BloomFilter {
+    bits: Vec<u64>,
+    num_bits: usize,
+    num_hashes: u32,
+}
+
+#[cfg(feature = "text")]
+impl BloomFilter {
+    /// Size a filter for `expected_items` at a target false-positive rate `fp_rate`
+    /// (standard formulas: `m = -n·ln(p)/ln(2)²` bits, `k = (m/n)·ln(2)` hash rounds).
+    /// `expected_items == 0` still yields a small, usable (if maximally conservative)
+    /// filter rather than a degenerate zero-bit one.
+    pub fn new(expected_items: usize, fp_rate: f64) -> Self {
+        let n = (expected_items.max(1)) as f64;
+        let p = fp_rate.clamp(1e-6, 0.5);
+        let m = ((-(n * p.ln())) / std::f64::consts::LN_2.powi(2))
+            .ceil()
+            .max(64.0);
+        let k = ((m / n) * std::f64::consts::LN_2).round().clamp(1.0, 16.0);
+        let num_bits = m as usize;
+        let num_words = num_bits.div_ceil(64);
+        Self {
+            bits: vec![0u64; num_words],
+            num_bits: num_words * 64,
+            num_hashes: k as u32,
+        }
+    }
+
+    /// Build a populated filter directly from an id iterator, sized off `count_hint`
+    /// (the caller's already-known candidate-set cardinality — avoids a second pass).
+    pub fn from_ids<'a, I: IntoIterator<Item = &'a str>>(ids: I, count_hint: usize) -> Self {
+        let mut f = Self::new(count_hint, 0.01);
+        for id in ids {
+            f.insert(id);
+        }
+        f
+    }
+
+    /// Two independent hashes of `item`, salted so they are NOT the same value —
+    /// Kirsch-Mitzenmacher then derives all `k` probe positions from this one pair
+    /// without `k` separate hash passes.
+    fn hashes(item: &str) -> (u64, u64) {
+        use std::hash::{Hash, Hasher};
+        let mut h1 = std::collections::hash_map::DefaultHasher::new();
+        item.hash(&mut h1);
+        let a = h1.finish();
+        let mut h2 = std::collections::hash_map::DefaultHasher::new();
+        item.hash(&mut h2);
+        0x9E37_79B9_7F4A_7C15u64.hash(&mut h2); // salt so h2 != h1
+        let b = h2.finish();
+        (a, b)
+    }
+
+    fn bit_index(&self, round: u32, h1: u64, h2: u64) -> usize {
+        // g_i(x) = h1 + i*h2 (mod m) — the standard double-hashing derivation that
+        // simulates `k` independent hash functions from just two (Kirsch & Mitzenmacher).
+        (h1.wrapping_add((round as u64).wrapping_mul(h2)) as usize) % self.num_bits
+    }
+
+    pub fn insert(&mut self, item: &str) {
+        let (h1, h2) = Self::hashes(item);
+        for i in 0..self.num_hashes {
+            let idx = self.bit_index(i, h1, h2);
+            self.bits[idx / 64] |= 1u64 << (idx % 64);
+        }
+    }
+
+    /// `false` ⇒ DEFINITELY absent (no false negatives, ever); `true` ⇒ probably
+    /// present (bounded false-positive rate — the caller must still confirm with an
+    /// exact check, exactly like turso's gate: a bloom filter narrows, never decides).
+    pub fn might_contain(&self, item: &str) -> bool {
+        let (h1, h2) = Self::hashes(item);
+        (0..self.num_hashes).all(|i| {
+            let idx = self.bit_index(i, h1, h2);
+            self.bits[idx / 64] & (1u64 << (idx % 64)) != 0
+        })
     }
 }
 
@@ -563,6 +816,15 @@ impl ModalityCardinality {
             // OWL EL⁺ classification: a fixed up-front closure cost + a per-candidate check.
             #[cfg(feature = "owl")]
             Op::Reason { .. } => (Self::REASON_FIXED_COST + in_card, in_card * 0.2),
+            // Lexical BM25 rerank, through the SAME `IndexMethod` seam ANN uses just
+            // above (CONCEPT:EG-KG.query.index-method-seam) — previously fell through the
+            // wildcard pass-through below with NO cost reasoning at all.
+            #[cfg(feature = "text")]
+            Op::RankText { .. } => {
+                let est = index_method_estimate(op, in_card, self)
+                    .expect("RankText is a registered IndexMethod");
+                (est.estimated_cost, est.estimated_rows.max(1.0) * 0.1)
+            }
             // Everything else: a linear pass over the input (a rerank / narrow / source).
             _ => (in_card.max(1.0), in_card * 0.1),
         };
@@ -702,6 +964,13 @@ impl Cardinality for ModalityCardinality {
             // FUSE (RRF): the union of the branch rankings — bounded by the seed.
             #[cfg(feature = "text")]
             Op::FuseRrf { .. } => in_card.max(1.0),
+            // RANK (lexical, BM25), through the SAME `IndexMethod` seam as vector `Rank`
+            // above (CONCEPT:EG-KG.query.index-method-seam) — previously the wildcard
+            // pass-through below (`in_card` unchanged) gave it NO real narrowing model.
+            #[cfg(feature = "text")]
+            Op::RankText { .. } => index_method_estimate(op, in_card, self)
+                .map(|e| e.estimated_rows)
+                .unwrap_or(in_card),
             // Rerankers / context / other sources: preserve the row count (pass-through).
             _ => in_card,
         }
@@ -965,5 +1234,123 @@ mod tests {
             memoized.frac_gt("year", n),
             "an old snapshot keeps its own stats — snapshots are independent"
         );
+    }
+
+    // ── RANK 2: the pluggable IndexMethod seam ────────────────────────────────────
+
+    /// Both registered index methods claim exactly the `Op` variants they should, and
+    /// nothing else — the dispatch [`crate::optimizer::is_rank`] now delegates to.
+    #[test]
+    fn index_method_registry_dispatches_ann_and_bm25() {
+        let rank = Op::Rank {
+            query: vec![1.0, 0.0],
+        };
+        let rank_embed = Op::RankEmbed { text: "q".into() };
+        let filter = Op::Filter { preds: vec![] };
+        assert!(is_index_method_op(&rank), "vector Rank is registered");
+        assert!(
+            is_index_method_op(&rank_embed),
+            "RankEmbed is registered under the same ANN method"
+        );
+        assert!(
+            !is_index_method_op(&filter),
+            "Filter is not an index-backed reranker"
+        );
+
+        #[cfg(feature = "text")]
+        {
+            let rank_text = Op::RankText { query: "q".into() };
+            assert!(
+                is_index_method_op(&rank_text),
+                "RankText is now registered under the BM25 IndexMethod"
+            );
+        }
+    }
+
+    /// Before this increment `Op::RankText` fell through `cost_of`/`rows_out`'s wildcard
+    /// pass-through (`in_card` unchanged, no cost at all). It now gets a REAL cost model
+    /// through the same [`IndexMethod`] seam ANN uses: as a SOURCE it is bounded by
+    /// [`DEFAULT_TOP_K`] (not the raw node count), and a candidate-restricted rerank
+    /// costs strictly more than a bare pass-through would.
+    #[cfg(feature = "text")]
+    #[test]
+    fn bm25_rank_text_gets_a_real_cost_model() {
+        let fx = crate::fixture::build();
+        let ctx = crate::exec::PlanCtx::new(&fx.view, &fx.semantic);
+        let card = ModalityCardinality::new(PlanStats::collect(&ctx));
+        let rank_text = Op::RankText {
+            query: "q".into(),
+        };
+
+        // As a SOURCE (empty input): bounded by DEFAULT_TOP_K, not a pass-through zero.
+        let source_rows = card.rows_out(&rank_text, 0.0, &ctx);
+        assert!(
+            source_rows > 0.0 && source_rows <= DEFAULT_TOP_K as f64,
+            "a SOURCE RankText is a bounded top-k probe, got {source_rows}"
+        );
+
+        // Candidate-restricted: the estimated cost is strictly positive and scales with
+        // in_card (a real per-row cost), unlike the old wildcard `(in_card.max(1.0), ..)`
+        // pass-through, which this now overrides with its own arm.
+        let cost_10 = card.cost_of(&rank_text, 10.0, &ctx).weight();
+        let cost_100 = card.cost_of(&rank_text, 100.0, &ctx).weight();
+        assert!(
+            cost_100 > cost_10,
+            "BM25 rerank cost must scale with the candidate count: {cost_10} vs {cost_100}"
+        );
+    }
+
+    /// [`CostModel::overfetch_pool_size`] reproduces the `top_k/selectivity` formula
+    /// [`CostModel::vector_first_cost`] computes inline — the extraction changed
+    /// nothing about the existing vector-leg numbers.
+    #[test]
+    fn overfetch_pool_size_matches_the_vector_first_cost_formula() {
+        assert_eq!(CostModel::overfetch_pool_size(10, 0.1), 100);
+        assert_eq!(CostModel::overfetch_pool_size(10, 1.0), 10);
+        // A near-zero selectivity is clamped, never divides by zero / overflows.
+        assert!(CostModel::overfetch_pool_size(10, 0.0) > 0);
+    }
+
+    // ── RANK 11: the Bloom filter join-probe gate ─────────────────────────────────
+
+    #[cfg(feature = "text")]
+    #[test]
+    fn bloom_filter_never_false_negatives() {
+        let ids: Vec<String> = (0..500).map(|i| format!("id-{i}")).collect();
+        let filter = BloomFilter::from_ids(ids.iter().map(String::as_str), ids.len());
+        for id in &ids {
+            assert!(
+                filter.might_contain(id),
+                "every INSERTED id must test as present: {id}"
+            );
+        }
+    }
+
+    #[cfg(feature = "text")]
+    #[test]
+    fn bloom_filter_bounded_false_positive_rate() {
+        let members: Vec<String> = (0..1_000).map(|i| format!("member-{i}")).collect();
+        let filter = BloomFilter::from_ids(members.iter().map(String::as_str), members.len());
+        let non_members: Vec<String> = (0..5_000).map(|i| format!("absent-{i}")).collect();
+        let false_positives = non_members
+            .iter()
+            .filter(|id| filter.might_contain(id))
+            .count();
+        let rate = false_positives as f64 / non_members.len() as f64;
+        // Sized at the default 1% target; a generous 10% ceiling keeps this robust to
+        // hash-distribution noise while still catching a badly broken implementation
+        // (e.g. one that degenerates to "always true").
+        assert!(
+            rate < 0.10,
+            "false-positive rate too high: {rate} ({false_positives}/{})",
+            non_members.len()
+        );
+    }
+
+    #[cfg(feature = "text")]
+    #[test]
+    fn bloom_filter_empty_never_panics_and_rejects_everything_absent() {
+        let filter = BloomFilter::from_ids(std::iter::empty(), 0);
+        assert!(!filter.might_contain("anything"));
     }
 }

@@ -232,3 +232,68 @@ fn rank_text_without_index_is_empty_not_error() {
         "no text index ⇒ no lexical hits (degrade, not error)"
     );
 }
+
+/// RANK 3 + RANK 11 assimilation: a SELECTIVE upstream candidate set must still surface
+/// its BM25 hits even when hundreds of documents OUTSIDE that candidate set score
+/// higher globally — the fixed `k*4` over-fetch this replaces would have missed them
+/// (300 higher-scoring "noise" docs blow straight past a `k*4`/`k+32` window for a
+/// 2-candidate query), because it never sized the fetch off the candidate set's real
+/// selectivity against the corpus. The new selectivity-aware pool ([`crate::cost::
+/// CostModel::overfetch_pool_size`], plus the RANK-11 bloom gate once the pool is
+/// large) must retrieve BOTH candidates regardless.
+#[test]
+fn rank_text_finds_selective_candidates_behind_many_higher_scoring_noise_docs() {
+    use eg_core::compute::semantic::SemanticStore;
+    use eg_core::graph::GraphCore;
+
+    let core = GraphCore::new();
+    let mut text = TextIndex::in_memory().unwrap();
+
+    // 300 "noise" docs that all score HIGHER than the two candidates below (the query
+    // term repeated densely) — none of them carry `keep=yes`.
+    for i in 0..300 {
+        let id = format!("noise{i}");
+        core.add_node(id.clone(), json_doc(false));
+        text.upsert(&id, "apple apple apple apple apple");
+    }
+    // The two SELECTIVE candidates: contain the query term just once (a much lower BM25
+    // score than every noise doc above), but marked `keep=yes` so the upstream Filter
+    // narrows the RowSet down to exactly these two before RankText runs.
+    for id in ["keep1", "keep2"] {
+        core.add_node(id.into(), json_doc(true));
+        text.upsert(id, "a sentence that mentions apple exactly once among other words");
+    }
+    text.commit().unwrap();
+
+    let view = core.analysis_snapshot();
+    let semantic = SemanticStore::new();
+    let ctx = PlanCtx::new(&view, &semantic).with_text(&text);
+
+    let plan = Plan::new(vec![
+        Op::Scan {
+            label: "Doc".into(),
+        },
+        Op::Filter {
+            preds: vec![crate::algebra::Pred::Eq {
+                prop: "keep".into(),
+                value: "yes".into(),
+            }],
+        },
+        Op::RankText {
+            query: "apple".into(),
+        },
+    ]);
+    let ids = plan.execute(&ctx).unwrap().ids();
+    let mut sorted = ids.clone();
+    sorted.sort();
+    assert_eq!(
+        sorted,
+        vec!["keep1".to_string(), "keep2".to_string()],
+        "both selective candidates must survive despite 300 higher-scoring docs \
+         outside the candidate set, got {ids:?}"
+    );
+}
+
+fn json_doc(keep: bool) -> Vec<u8> {
+    blob(json!({ "type": "Doc", "keep": if keep { "yes" } else { "no" } }))
+}
