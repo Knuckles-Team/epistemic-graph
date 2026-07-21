@@ -42,7 +42,7 @@
 //! retry attempts, whereas an expired publication lease safely replays the same
 //! deterministic claim batch without recomputing or discarding the staged result.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
@@ -1105,15 +1105,190 @@ async fn resolve_core_ref(
     state: &Arc<RwLock<ServerState>>,
     graph_ref: &str,
 ) -> Option<(String, crate::protocol::GraphType, Arc<GraphCore>)> {
-    state
-        .read()
-        .await
-        .registry
-        .all_entries()
-        .into_iter()
-        .find(|entry| native_opaque_ref("graph", &entry.name) == graph_ref)
-        .map(|entry| (entry.name.clone(), entry.graph_type, entry.core.clone()))
+    let s = state.read().await;
+    resolve_opaque_graph_ref(&s.registry, graph_ref)
 }
+
+/// Process-wide `native_opaque_ref("graph", name) -> name` reverse index for
+/// [`resolve_opaque_graph_ref`]. A small accessor (rather than an inline
+/// function-local `static`, the pattern this file's own `job_store` and
+/// `query.rs`'s `TENSOR_STORE` otherwise use) so the architecture test in
+/// `jobs_read_rls_architecture.rs`/`resolve_core_ref_tests` below can exercise
+/// cache-hit, cache-miss, and stale/poisoned-entry self-healing directly.
+fn opaque_graph_ref_index() -> &'static std::sync::RwLock<HashMap<String, String>> {
+    static INDEX: OnceLock<std::sync::RwLock<HashMap<String, String>>> = OnceLock::new();
+    INDEX.get_or_init(|| std::sync::RwLock::new(HashMap::new()))
+}
+
+/// [`resolve_core_ref`]'s actual lookup, decoupled from `ServerState`/
+/// `tokio::sync::RwLock` so it is directly unit-testable against a bare
+/// `GraphRegistry`.
+///
+/// This used to be a straight `all_entries().into_iter().find(...)` — an
+/// O(resident-graphs) SHA-256 digest + string-compare on EVERY call — and sits
+/// on the job-publication hot path (`prepare_consensus_job_publication`/
+/// `publish_staged_result` each call it once per completed job under the
+/// `raft` cluster tier), so cost scaled with (jobs completed) x (resident
+/// graphs). A cache HIT below costs one read-lock + one hashmap get + one
+/// direct-by-name `registry.get` (already O(1)) — no hashing, no scan.
+///
+/// A cache MISS (the first-ever lookup for this digest, or a stale hit whose
+/// cached name the live registry no longer backs with a matching digest)
+/// falls back to the original full scan — unchanged worst-case cost — but
+/// that scan now populates the index for EVERY entry it visits, not just the
+/// match, so any of those OTHER resident graphs' next lookup is also O(1)
+/// instead of paying its own O(n) scan later.
+///
+/// Correctness never depends on the cache being fresh: the entry returned
+/// always comes from a LIVE `registry.get(&name)` call, and its digest is
+/// re-verified against `graph_ref` before use, cache-hit or not — so a stale,
+/// deleted, renamed, or even directly-poisoned cache entry can only ever cost
+/// a wasted rescan, never resolve to the wrong graph (see
+/// `resolve_core_ref_tests::a_poisoned_cache_entry_can_only_waste_a_rescan_never_resolve_the_wrong_graph`
+/// and `..._a_deleted_graphs_stale_cache_entry_resolves_to_none_not_a_wrong_graph`).
+fn resolve_opaque_graph_ref(
+    registry: &crate::registry::GraphRegistry,
+    graph_ref: &str,
+) -> Option<(String, crate::protocol::GraphType, Arc<GraphCore>)> {
+    let index = opaque_graph_ref_index();
+
+    let cached_name = index
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(graph_ref)
+        .cloned();
+    if let Some(name) = cached_name {
+        if let Some(entry) = registry.get(&name) {
+            if native_opaque_ref("graph", &entry.name) == graph_ref {
+                return Some((entry.name.clone(), entry.graph_type, entry.core.clone()));
+            }
+        }
+        // Stale: the live registry disagrees with the cached digest (the
+        // graph was deleted, or the cache entry was never trustworthy in the
+        // first place) — fall through to the authoritative rescan rather than
+        // returning `None` or the stale name outright.
+    }
+
+    let entries = registry.all_entries();
+    let mut fresh = HashMap::with_capacity(entries.len());
+    let mut found = None;
+    for entry in entries {
+        let opaque = native_opaque_ref("graph", &entry.name);
+        if opaque == graph_ref {
+            found = Some((entry.name.clone(), entry.graph_type, entry.core.clone()));
+        }
+        fresh.insert(opaque, entry.name.clone());
+    }
+    *index.write().unwrap_or_else(|e| e.into_inner()) = fresh;
+    found
+}
+
+#[cfg(test)]
+mod resolve_core_ref_tests {
+    use super::*;
+    use crate::protocol::GraphType;
+    use crate::registry::GraphRegistry;
+
+    /// A unique-enough name per call so parallel `cargo test` threads sharing
+    /// the ONE process-wide `opaque_graph_ref_index()` singleton never collide
+    /// on the same digest.
+    fn unique_name(label: &str) -> String {
+        static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        format!("w1b-resolve-core-ref-test-{label}-{n}-{nanos}")
+    }
+
+    #[test]
+    fn resolves_every_resident_graph_by_its_opaque_ref_after_a_cold_scan() {
+        let mut registry = GraphRegistry::new();
+        let a = unique_name("a");
+        let b = unique_name("b");
+        registry.create_graph(&a, GraphType::Agent, None).unwrap();
+        registry.create_graph(&b, GraphType::Team, None).unwrap();
+
+        let ref_a = native_opaque_ref("graph", &a);
+        let ref_b = native_opaque_ref("graph", &b);
+
+        let (name, kind, _core) = resolve_opaque_graph_ref(&registry, &ref_a).unwrap();
+        assert_eq!(name, a);
+        assert_eq!(kind, GraphType::Agent);
+
+        let (name, kind, _core) = resolve_opaque_graph_ref(&registry, &ref_b).unwrap();
+        assert_eq!(name, b);
+        assert_eq!(kind, GraphType::Team);
+
+        assert!(resolve_opaque_graph_ref(&registry, "eg:graph:not-a-real-digest").is_none());
+    }
+
+    #[test]
+    fn a_warm_cache_hit_still_returns_the_live_registry_entry() {
+        let mut registry = GraphRegistry::new();
+        let name = unique_name("warm");
+        registry.create_graph(&name, GraphType::Agent, None).unwrap();
+        let graph_ref = native_opaque_ref("graph", &name);
+
+        // Cold lookup: falls back to the full scan and populates the index.
+        let first = resolve_opaque_graph_ref(&registry, &graph_ref).unwrap();
+        assert_eq!(first.0, name);
+
+        // Warm lookup: same digest, same registry -- must take the cache-hit
+        // path and still resolve to the live entry.
+        let second = resolve_opaque_graph_ref(&registry, &graph_ref).unwrap();
+        assert_eq!(second.0, name);
+        assert_eq!(second.1, GraphType::Agent);
+    }
+
+    #[test]
+    fn a_poisoned_cache_entry_can_only_waste_a_rescan_never_resolve_the_wrong_graph() {
+        let mut registry = GraphRegistry::new();
+        let real_name = unique_name("real");
+        registry
+            .create_graph(&real_name, GraphType::Agent, None)
+            .unwrap();
+        let real_ref = native_opaque_ref("graph", &real_name);
+
+        // Directly poison the shared process-wide index with a WRONG name for
+        // this exact digest, simulating a stale or corrupted cache entry --
+        // e.g. left over from a deleted graph whose name got reused for a
+        // digest collision class this test forces by hand.
+        opaque_graph_ref_index()
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(real_ref.clone(), "not-the-real-graph-name".to_string());
+
+        // The live registry has no graph by that poisoned name, so the digest
+        // re-verification must reject the cache hit and fall back to a fresh
+        // scan -- resolving to the REAL graph, never the poisoned name and
+        // never `None`.
+        let resolved = resolve_opaque_graph_ref(&registry, &real_ref);
+        assert_eq!(resolved.map(|(name, _, _)| name), Some(real_name));
+    }
+
+    #[test]
+    fn a_deleted_graphs_stale_cache_entry_resolves_to_none_not_a_wrong_graph() {
+        let mut registry = GraphRegistry::new();
+        let name = unique_name("deleted");
+        registry.create_graph(&name, GraphType::Agent, None).unwrap();
+        let graph_ref = native_opaque_ref("graph", &name);
+
+        // Populate the cache while the graph is still live.
+        assert!(resolve_opaque_graph_ref(&registry, &graph_ref).is_some());
+
+        registry.delete_graph(&name).unwrap();
+
+        // The index may still hold `graph_ref -> name`, but the live registry
+        // no longer backs it -- must resolve to `None`, never a stale core.
+        assert!(resolve_opaque_graph_ref(&registry, &graph_ref).is_none());
+    }
+}
+
+#[cfg(test)]
+#[path = "jobs_read_rls_architecture.rs"]
+mod jobs_read_rls_architecture;
 
 /// L-RLS-2 (§9 #10 next-level-analysis): does executing `kind` read graph
 /// node/edge property data server-side, and therefore need its `GraphCore`

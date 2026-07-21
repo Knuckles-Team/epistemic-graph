@@ -1291,6 +1291,26 @@ mod universal_row_read_tests {
 /// Shrinking [`NOT_YET_AUDITED`] to zero — by moving an entry into
 /// `RLS_ROUTED` or `NON_ROW_SCOPED` backed by a real, cited call site — is the
 /// intended burn-down, exactly like `OPEN_NOT_JUSTIFIED` on the mutation side.
+///
+/// **Blind spot this method-level ratchet cannot see, and where its coverage
+/// continues (W1b / L-RLS-2):** `AnalyticsJob` never appears in `RLS_ROUTED`/
+/// `NON_ROW_SCOPED`/`NOT_YET_AUDITED` below at all, because
+/// `eg_capabilities`'s static policy table classifies the WHOLE method
+/// `mutates: true` (a conservative upper bound — one wire method carries
+/// `Submit`/`Status`/`Cancel`/`Resume` `op`s of different shapes, and `Status`
+/// is genuinely a read), so it never reaches this file's `!p.mutates` read
+/// partition. The actual per-request row-read question for `AnalyticsJob`
+/// isn't "does this method read a row" (bundled with three writes, it always
+/// says yes) but "does THIS SUBMISSION's `JobKind` read a graph row
+/// server-side" — a question this method-granularity table cannot express.
+/// That finer axis is ratcheted separately, at job-KIND granularity, by
+/// `handlers::jobs::reads_graph_rows_server_side` (an exhaustive, no-wildcard
+/// match a new `JobKind` variant cannot silently skip) plus the architecture
+/// test in `handlers::jobs_read_rls_architecture` (declared from
+/// `handlers::jobs`'s own test module), which independently cross-checks that
+/// classification and textually pins `handle_submit`'s fail-closed ordering.
+/// Both ratchets currently agree: zero shipped read surfaces of any kind
+/// bypass RLS without a documented, checked reason.
 const RLS_ROUTED: &[&str] = &[
     "BatchL2Normalize",
     "BestTrajectory",
