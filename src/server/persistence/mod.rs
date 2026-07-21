@@ -127,6 +127,15 @@ pub trait PersistenceBackend: Send + Sync {
     /// Commit authenticated staged graph material with its MutationBatch metadata
     /// in one transaction. Implementations must verify the descriptor digest before
     /// replacing or updating any row; the default fails closed.
+    ///
+    /// `audited`: the caller's already-resolved `MutationPlan::audited` (or
+    /// equivalent `eg_capabilities::policy(method).audited`) for the ORIGINAL
+    /// method, captured BEFORE it was compiled into this batch's operations.
+    /// State-backed operations are compiled into an opaque digest receipt that no
+    /// longer carries the original method's identity, so an implementation must
+    /// use this flag -- not the compiled operation -- to decide whether to append
+    /// a tamper-evident audit-chain entry (e.g. `TouchNodes` is durable but
+    /// intentionally unaudited).
     async fn commit_mutation_batch_state(
         &self,
         _graph_fname: &str,
@@ -134,6 +143,7 @@ pub trait PersistenceBackend: Send + Sync {
         _authoritative_state_msgpack: Vec<u8>,
         _result_msgpack: Option<&[u8]>,
         _committed_at_ms: u64,
+        _audited: bool,
     ) -> Result<MutationBatchCommit, String> {
         Err("persistence backend does not support atomic staged-state commits".to_string())
     }

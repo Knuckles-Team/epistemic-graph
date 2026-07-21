@@ -879,6 +879,12 @@ impl EgStore {
             target_graph_version: source_version.saturating_add(1),
         };
         let created_at_ms = authority.created_at_ms;
+        // Resolve BEFORE `durable_method` is moved into `compile_methods` below --
+        // `compile_methods` erases it into an opaque state receipt (see
+        // `redb_store::commit_mutation_batch_inner`'s doc comment), so the
+        // policy-audited answer for the REAL replicated method must be captured
+        // here or it becomes unrecoverable.
+        let audited = eg_capabilities::policy(&durable_method).audited;
         let batch = crate::server::mutation_batch::compile_methods(
             crate::server::mutation_batch::CompileBatch {
                 batch_id,
@@ -914,6 +920,7 @@ impl EgStore {
                 state_msgpack,
                 Some(&result),
                 created_at_ms,
+                audited,
             )
             .await?;
         if committed.replayed {

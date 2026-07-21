@@ -713,6 +713,15 @@ pub(crate) async fn commit_internal_graph_methods(
             state_msgpack,
             Some(&result_msgpack),
             created_at_ms,
+            // Preserves this function's existing (pre-existing, out of scope here)
+            // behavior exactly: every `methods` list this internal coordinator sees
+            // today (Txn/2PC child write-sets, multi-graph commit slices, job-claim
+            // provenance) is policy-audited == true. NOTE: `handlers::query.rs`'s
+            // `RecomputeMaterialization` caller is a known exception (policy
+            // `audited: false`) that this `true` does NOT correctly honor -- same
+            // root cause as the TouchNodes fix elsewhere in this changeset, but
+            // untested here and out of scope for this fix; left as a follow-up.
+            true,
         )
         .await?;
     if committed.replayed {
