@@ -1405,6 +1405,99 @@ class NodeClient:
         )
 
 
+class StatechartClient:
+    """CONCEPT:INT-P2-2 — the native finite-state-machine / statechart engine namespace:
+    define/instantiate/send_event/get_state/list over ``Method::Statechart { op }``
+    (``eg_statechart::StatechartDef`` + a durable, rehydratable ``MachineInstance``).
+
+    Definitions are content-addressed data (a dict shaped like
+    ``{"name", "schema_version", "states", "alphabet", "transitions", "initial",
+    "finals", "meta"}`` — see the Rust ``eg_statechart::model::StatechartDef`` this
+    mirrors 1:1) — ``define()`` MessagePack-encodes it (named/map form, matching
+    ``rmp_serde::to_vec_named``) and returns the server-computed, deterministic
+    ``def_id``; re-defining a byte-identical chart is idempotent (same id, no new row).
+    Instances are NOT graph-scoped (their own ``statecharts.redb``, like
+    :class:`JobsClient`'s jobs), owner-scoped to the caller's ``(tenant, actor)``::
+
+        def_id = await client.statechart.define(LOOP_STATECHART_DEF)
+        instance = await client.statechart.instantiate(def_id, context={})
+        out = await client.statechart.send_event(
+            instance["instance_id"], "claim"
+        )
+        state = await client.statechart.get_state(instance["instance_id"])
+
+    ``send_event``'s response includes ``fired`` (``False`` on a well-defined no-op —
+    an undefined edge or every guard false — never an error) and the resulting
+    ``instance["configuration"]["active"]`` (the new active state(s)).
+    """
+
+    def __init__(self, client: EpistemicGraphClient) -> None:
+        self._client = client
+
+    async def define(self, definition: dict[str, Any]) -> str:
+        """Register a ``StatechartDef`` (a plain dict — see the class docstring for
+        its shape). Returns the content-addressed ``def_id``."""
+        if not isinstance(definition, dict):
+            raise TypeError("definition must be a dict shaped like StatechartDef")
+        blob = msgpack.packb(definition, use_bin_type=True)
+        resp = await self._client._send(
+            "Statechart", {"op": {"Define": {"def_msgpack": list(blob)}}}
+        )
+        return str(resp["def_id"])
+
+    async def instantiate(
+        self, def_id: str, context: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """Create a running instance of ``def_id`` in its initial state, seeded with
+        ``context`` (a JSON object; empty/``None`` for no initial extended state).
+        Returns the freshly durable ``MachineInstance`` record (including its
+        server-issued ``instance_id``)."""
+        return await self._client._send(
+            "Statechart",
+            {"op": {"Instantiate": {"def_id": def_id, "context": context or {}}}},
+        )
+
+    async def send_event(
+        self,
+        instance_id: str,
+        event: str,
+        payload: dict[str, Any] | None = None,
+        *,
+        expected_version: int | None = None,
+    ) -> dict[str, Any]:
+        """Deliver ``event`` (with optional structured ``payload`` guards/actions may
+        read) to ``instance_id``. ``expected_version``, when given, is an OCC token —
+        the send is rejected if the stored instance has moved on. Returns
+        ``{"instance", "fired", "no_op_reason", "fired_label", "actions", "effects"}``."""
+        return await self._client._send(
+            "Statechart",
+            {
+                "op": {
+                    "SendEvent": {
+                        "instance_id": instance_id,
+                        "event": event,
+                        "payload": payload if payload is not None else {},
+                        "expected_version": expected_version,
+                    }
+                }
+            },
+        )
+
+    async def get_state(self, instance_id: str) -> dict[str, Any]:
+        """Fetch (rehydrate) ``instance_id``'s current durable ``(state, context)`` +
+        version. Read-only, owner-scoped."""
+        return await self._client._send(
+            "Statechart", {"op": {"GetState": {"instance_id": instance_id}}}
+        )
+
+    async def list(self, def_id: str | None = None) -> dict[str, Any]:
+        """List instance ids owned by the caller, optionally filtered to one
+        definition. Returns ``{"instance_ids", "count"}``."""
+        return await self._client._send(
+            "Statechart", {"op": {"List": {"def_id": def_id}}}
+        )
+
+
 class WorkItemClient:
     """Engine-native durable WorkItem claim, lease, and result namespace."""
 
@@ -7652,6 +7745,7 @@ class EpistemicGraphClient:
         self.rbac = RbacClient(self)
         self.admin = AdminClient(self)
         self.jobs = JobsClient(self)
+        self.statechart = StatechartClient(self)
 
     @staticmethod
     def _resolve_tls(
@@ -8453,6 +8547,7 @@ class SyncEpistemicGraphClient:
         self.rbac = self._SyncWrapper(self._client.rbac, self._loop)
         self.admin = self._SyncWrapper(self._client.admin, self._loop)
         self.jobs = self._SyncWrapper(self._client.jobs, self._loop)
+        self.statechart = self._SyncWrapper(self._client.statechart, self._loop)
 
     def clear(self) -> None:
         """Synchronously clear the graph (used primarily by the test suite teardown)."""

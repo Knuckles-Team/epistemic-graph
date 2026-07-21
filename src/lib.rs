@@ -65,6 +65,13 @@ pub(crate) mod redb_layout;
 #[cfg(feature = "redb")]
 pub mod redb_store;
 
+// CONCEPT:INT-P2-2 -- the Loop statechart definition (W2.5 control-plane migration):
+// `LoopStatus`'s 16 values as a reusable `eg_statechart::StatechartDef`, instantiated
+// via the EXISTING `Method::Statechart` surface. Pure data + tests; no wire/dispatch
+// change. See `loop_statechart.rs`'s module doc for the full derivation.
+#[cfg(feature = "statechart")]
+pub mod loop_statechart;
+
 /// One staged time-series measurement batch for a cross-modal ACID commit
 /// (CONCEPT:EG-KG.backend.cross-modal-atomic-commit): `(series_id, n_fields, bucket_ns, field_names, points)` where each
 /// point is `(ts_nanos, field_values)`. Carried as PLAIN data (no `eg-tsdb` type) so it
