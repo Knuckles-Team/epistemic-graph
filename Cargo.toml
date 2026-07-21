@@ -669,14 +669,13 @@ sqlite-wire = ["wire"]
 # `sqlite-wire` NDJSON dialect surface above. Import reads a `.db`'s tables+rows into
 # the engine's user-table store (the SAME `eg_query::TableStore` the `Method::Sql`
 # DDL/DML + pgwire paths write); export writes selected user tables OUT to a valid
-# `.db` a `sqlite3` CLI can open. Producing a spec-correct SQLite b-tree file WITHOUT
-# a C dependency is infeasible (a pure-Rust writer would have to reimplement the page
-# format — the documented blocker in `src/server/sqlite_wire/mod.rs`), so this ONE
-# feature pulls `rusqlite` with the BUNDLED C sqlite3 (libsqlite3-sys). It is included
-# in the one main build, which already carries C dependencies via `text`→zstd-sys.
-# Needs `query` (the TableStore) + `server` (the dispatch handler);
-# `eg-types/sqlite-file` gates the two `Method` variants onto the wire.
-sqlite-file = ["query", "server", "dep:eg-sqlite-format", "dep:rusqlite", "eg-types/sqlite-file"]
+# `.db` a `sqlite3` CLI can open. PURE-RUST (CONCEPT:EG-KG.query.eg-feature): both
+# directions go through `eg-sqlite-format`, a from-scratch SQLite page-format reader +
+# bulk-load writer — no rusqlite, no libsqlite3-sys, no C toolchain (falsifying the old
+# "a spec-correct pure-Rust writer is infeasible" blocker; proved by a real-`sqlite3`
+# `PRAGMA integrity_check` differential test). Needs `query` (the TableStore) + `server`
+# (the dispatch handler); `eg-types/sqlite-file` gates the two `Method` variants.
+sqlite-file = ["query", "server", "dep:eg-sqlite-format", "eg-types/sqlite-file"]
 # MySQL / MariaDB wire-protocol listener (CONCEPT:EG-076) — the SECOND `WireProtocol`
 # adapter (CONCEPT:EG-074), a HAND-ROLLED MySQL client/server protocol (handshake v10,
 # `mysql_native_password` auth, `COM_QUERY`/`COM_PING`/`COM_QUIT`/`COM_INIT_DB`,
@@ -1236,9 +1235,6 @@ chacha20poly1305 = { version = "0.10", optional = true }
 # SQLite `.db` FILE import/export (feature `sqlite-file`, CONCEPT:EG-331/EG-332).
 # Pure-Rust page-format reader + bulk-load writer — no C dependency.
 eg-sqlite-format = { path = "crates/eg-sqlite-format", optional = true }
-# TEMPORARY (removed once the export path is on eg-sqlite-format's Writer): the export
-# half still uses the bundled C sqlite3 during the incremental migration.
-rusqlite = { version = "0.32", optional = true, features = ["bundled"] }
 # S3/MinIO object-store chunk backend (feature `blob-s3`, CONCEPT:KG-2.206). The
 # ONLY dep that pulls an object-store/AWS SDK, gated behind `blob-s3` (NOT `blob`),
 # so the main, cluster, and full-extras bundles link no object_store/AWS crate. Select
