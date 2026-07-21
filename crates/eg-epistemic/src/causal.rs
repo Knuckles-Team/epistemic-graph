@@ -440,6 +440,537 @@ fn invert_matrix(m: &[Vec<f64>]) -> Option<Vec<Vec<f64>>> {
     Some(aug.into_iter().map(|row| row[n..].to_vec()).collect())
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// EPI-P3-3 (W1e) — DISCRETE conditional-probability-table (categorical) SCM.
+//
+// The [`CausalGraph`] above answers the three causal questions for CONTINUOUS,
+// linear-Gaussian variables. Many real causal questions are over CATEGORICAL
+// variables (a treatment that is on/off, a diagnosis in {healthy, mild, severe},
+// …) whose mechanism is a **conditional probability table** (CPT), not a linear
+// equation. [`DiscreteCausalGraph`] is the categorical sibling: each variable
+// `X` takes a value in `{0, …, cardinality-1}` and carries a CPT
+// `P(X = v | parents = pa)` keyed by the tuple of its parents' values.
+//
+// It answers the SAME three questions, by the SAME constructions, so the
+// discrete/continuous split is a model-KIND choice ([`CausalModelKind`]) and
+// nothing else:
+//
+// * [`DiscreteCausalGraph::observe`] — the observational query `P(· | E=e)` by
+//   EXACT inference: enumerate the joint over all assignments (the categorical
+//   analogue of the linear model's closed-form joint — exact, not sampled),
+//   restrict to the assignments consistent with the evidence, and renormalize.
+//   Evidence propagates BACKWARD to ancestors, exactly as Gaussian conditioning
+//   does — the confounder-biasing mechanism, now for categoricals.
+// * [`DiscreteCausalGraph::intervene`] — the do-query `P(· | do(X=v))` by the
+//   SAME graph surgery as the linear model: the `do` variables' incoming edges
+//   are CUT and the variable is pinned to a point-mass CPT before the joint is
+//   recomputed. No information flows backward through a `do` variable.
+// * [`DiscreteCausalGraph::counterfactual`] — Pearl's abduction/action/prediction
+//   for a single fully-observed unit, using the canonical CDF-inversion
+//   structural function `X = f(pa, u)`, `u ~ Uniform[0,1)`: abduct each
+//   variable's exogenous quantile `u` from what actually happened, apply the
+//   intervention, then replay forward with the SAME quantiles (the discrete
+//   "same inferred noise" — a monotonic/quantile-preserving counterfactual, the
+//   discrete analogue of reusing the Gaussian's inferred noise term).
+//
+// Pure Rust, no new dependency (categorical — it does not even need
+// `Distribution`). Additive: it does not touch the linear-Gaussian path above.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Which structural-causal-model family a causal query runs against — the
+/// model-KIND selector that lets a caller (e.g. the `Method::CausalEstimate` /
+/// `Method::CausalCounterfactual` handler) pick the continuous linear-Gaussian
+/// model ([`CausalGraph`]) or the discrete categorical CPT model
+/// ([`DiscreteCausalGraph`]) for the SAME observe / intervene / counterfactual
+/// question. Defaults to [`CausalModelKind::LinearGaussian`] so the historical
+/// behaviour is preserved when no kind is specified.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum CausalModelKind {
+    /// The continuous linear-Gaussian SCM — [`CausalGraph`].
+    #[default]
+    LinearGaussian,
+    /// The discrete categorical conditional-probability-table SCM —
+    /// [`DiscreteCausalGraph`].
+    DiscreteCpt,
+}
+
+impl CausalModelKind {
+    /// Parse the wire/parameter spelling of a model-kind (case-insensitive,
+    /// hyphen/underscore-insensitive) so a `model_kind` string parameter on a
+    /// causal `Method` can select the discrete model. Unknown spellings are an
+    /// error rather than a silent fallback.
+    pub fn parse(s: &str) -> Result<Self, String> {
+        match s.trim().to_ascii_lowercase().replace(['-', ' '], "_").as_str() {
+            "" | "linear_gaussian" | "lineargaussian" | "gaussian" | "linear" | "continuous" => {
+                Ok(CausalModelKind::LinearGaussian)
+            }
+            "discrete_cpt" | "discretecpt" | "discrete" | "categorical" | "cpt" => {
+                Ok(CausalModelKind::DiscreteCpt)
+            }
+            other => Err(format!(
+                "unknown causal model kind '{other}' (expected 'linear_gaussian' or 'discrete_cpt')"
+            )),
+        }
+    }
+}
+
+/// One categorical variable's structural equation: a conditional probability
+/// table over its `cardinality` categories `{0, …, cardinality-1}`, keyed by the
+/// tuple of its parents' category values in `parents` order (the empty tuple for
+/// a root). Every parent-value combination must be present and each row must be a
+/// valid probability vector — enforced by [`DiscreteCausalGraph::add_variable`].
+#[derive(Clone, Debug, PartialEq)]
+pub struct DiscreteStructuralEquation {
+    /// Parent variable ids, in the order their values index [`Self::table`] keys.
+    /// All must already be in the graph (enforced at add time → acyclic +
+    /// topological order by construction, exactly like the linear model).
+    pub parents: Vec<String>,
+    /// Number of categories this variable can take: values are `0..cardinality`.
+    pub cardinality: usize,
+    /// `parent-value-tuple → P(this = 0), P(this = 1), …` (length `cardinality`,
+    /// non-negative, sums to 1). A root has the single key `vec![]`.
+    pub table: HashMap<Vec<usize>, Vec<f64>>,
+}
+
+/// A discrete categorical structural causal model: a DAG of
+/// [`DiscreteStructuralEquation`]s in topological (insertion) order — the
+/// categorical sibling of [`CausalGraph`].
+#[derive(Clone, Debug, Default)]
+pub struct DiscreteCausalGraph {
+    equations: HashMap<String, DiscreteStructuralEquation>,
+    /// Insertion order == a valid topological order (parents precede children).
+    order: Vec<String>,
+    /// `id → cardinality`, cached for O(1) parent-config validation/enumeration.
+    cardinality: HashMap<String, usize>,
+}
+
+/// A calibrated result of one DISCRETE causal query: the full posterior
+/// categorical distribution over a variable's categories, plus the maximum-a-
+/// posteriori category. The discrete analogue of [`CausalEstimate`] (whose
+/// mean/variance/interval assume a continuous variable).
+#[derive(Clone, Debug, PartialEq)]
+pub struct CategoricalEstimate {
+    /// `P(X = 0), P(X = 1), …` — length equals the variable's `cardinality`.
+    pub probs: Vec<f64>,
+    /// `argmax_v P(X = v)` — the most probable category (ties resolve to the
+    /// lowest index).
+    pub map_category: usize,
+}
+
+impl CategoricalEstimate {
+    fn from_probs(probs: Vec<f64>) -> Self {
+        let map_category = probs
+            .iter()
+            .enumerate()
+            .fold((0usize, f64::NEG_INFINITY), |(bi, bv), (i, &v)| {
+                if v > bv {
+                    (i, v)
+                } else {
+                    (bi, bv)
+                }
+            })
+            .0;
+        CategoricalEstimate {
+            probs,
+            map_category,
+        }
+    }
+}
+
+/// Tolerance a CPT row's probabilities may deviate from summing to 1.
+const CPT_SUM_TOL: f64 = 1e-9;
+
+impl DiscreteCausalGraph {
+    pub fn new() -> Self {
+        DiscreteCausalGraph::default()
+    }
+
+    /// Add one categorical variable. `parents` must already be present (checked),
+    /// so a graph built purely through this method is acyclic by construction and
+    /// `self.order` is a valid topological order. `table` must contain a row for
+    /// EVERY combination of the parents' category values, and each row must be a
+    /// length-`cardinality` probability vector (non-negative, sums to 1 within
+    /// [`CPT_SUM_TOL`]).
+    pub fn add_variable(
+        &mut self,
+        id: impl Into<String>,
+        parents: Vec<&str>,
+        cardinality: usize,
+        table: Vec<(Vec<usize>, Vec<f64>)>,
+    ) -> Result<(), String> {
+        let id = id.into();
+        if self.equations.contains_key(&id) {
+            return Err(format!("variable '{id}' already defined"));
+        }
+        if cardinality == 0 {
+            return Err(format!("variable '{id}': cardinality must be >= 1"));
+        }
+        let mut owned_parents = Vec::with_capacity(parents.len());
+        let mut parent_cards = Vec::with_capacity(parents.len());
+        for p in parents {
+            let pc = self.cardinality.get(p).ok_or_else(|| {
+                format!(
+                    "variable '{id}': parent '{p}' is not yet defined — variables \
+                     must be added in topological order (parents before children)"
+                )
+            })?;
+            owned_parents.push(p.to_string());
+            parent_cards.push(*pc);
+        }
+
+        // Index the supplied rows and validate each is a proper probability
+        // vector over `cardinality` categories.
+        let mut map: HashMap<Vec<usize>, Vec<f64>> = HashMap::with_capacity(table.len());
+        for (key, row) in table {
+            if key.len() != owned_parents.len() {
+                return Err(format!(
+                    "variable '{id}': CPT key {key:?} has {} entries but the variable has {} parents",
+                    key.len(),
+                    owned_parents.len()
+                ));
+            }
+            for (pos, &kv) in key.iter().enumerate() {
+                if kv >= parent_cards[pos] {
+                    return Err(format!(
+                        "variable '{id}': CPT key {key:?} value {kv} out of range for parent \
+                         '{}' (cardinality {})",
+                        owned_parents[pos], parent_cards[pos]
+                    ));
+                }
+            }
+            if row.len() != cardinality {
+                return Err(format!(
+                    "variable '{id}': CPT row for key {key:?} has length {} but cardinality is {cardinality}",
+                    row.len()
+                ));
+            }
+            let mut sum = 0.0;
+            for &p in &row {
+                if p < 0.0 {
+                    return Err(format!(
+                        "variable '{id}': CPT row for key {key:?} has a negative probability"
+                    ));
+                }
+                sum += p;
+            }
+            if (sum - 1.0).abs() > CPT_SUM_TOL {
+                return Err(format!(
+                    "variable '{id}': CPT row for key {key:?} sums to {sum}, not 1"
+                ));
+            }
+            if map.insert(key.clone(), row).is_some() {
+                return Err(format!("variable '{id}': duplicate CPT key {key:?}"));
+            }
+        }
+
+        // Every parent-value combination must be covered (a total CPT).
+        let expected = parent_cards.iter().product::<usize>().max(1);
+        if map.len() != expected {
+            return Err(format!(
+                "variable '{id}': CPT has {} rows but needs {expected} (one per parent-value \
+                 combination)",
+                map.len()
+            ));
+        }
+        for combo in cartesian(&parent_cards) {
+            if !map.contains_key(&combo) {
+                return Err(format!(
+                    "variable '{id}': CPT is missing a row for parent-value combination {combo:?}"
+                ));
+            }
+        }
+
+        self.cardinality.insert(id.clone(), cardinality);
+        self.equations.insert(
+            id.clone(),
+            DiscreteStructuralEquation {
+                parents: owned_parents,
+                cardinality,
+                table: map,
+            },
+        );
+        self.order.push(id);
+        Ok(())
+    }
+
+    pub fn contains(&self, id: &str) -> bool {
+        self.equations.contains_key(id)
+    }
+
+    fn require(&self, id: &str) -> Result<(), String> {
+        if self.contains(id) {
+            Ok(())
+        } else {
+            Err(format!("unknown variable '{id}'"))
+        }
+    }
+
+    /// The exact joint distribution over ALL variables as `(assignment, prob)`
+    /// pairs, where `assignment[i]` is the category of `self.order[i]`. Built by a
+    /// single forward pass in topological order, multiplying in each variable's
+    /// CPT row for the (already-known) parent values — the categorical analogue of
+    /// the linear model's closed-form joint, and exact (full enumeration, no
+    /// sampling). Cost is the product of cardinalities, so intended for the small
+    /// SCMs causal queries pose in practice.
+    fn joint_assignments(&self) -> (Vec<(Vec<usize>, f64)>, HashMap<String, usize>) {
+        let idx: HashMap<String, usize> = self
+            .order
+            .iter()
+            .enumerate()
+            .map(|(i, id)| (id.clone(), i))
+            .collect();
+        let mut states: Vec<(Vec<usize>, f64)> = vec![(Vec::new(), 1.0)];
+        for id in &self.order {
+            let eq = &self.equations[id];
+            let parent_pos: Vec<usize> = eq.parents.iter().map(|p| idx[p]).collect();
+            let mut next: Vec<(Vec<usize>, f64)> = Vec::with_capacity(states.len() * eq.cardinality);
+            for (assignment, prob) in &states {
+                let key: Vec<usize> = parent_pos.iter().map(|&pp| assignment[pp]).collect();
+                let row = &eq.table[&key];
+                for (v, &pv) in row.iter().enumerate() {
+                    if pv == 0.0 {
+                        continue; // impossible branch — prune (keeps the joint sparse)
+                    }
+                    let mut a = assignment.clone();
+                    a.push(v);
+                    next.push((a, prob * pv));
+                }
+            }
+            states = next;
+        }
+        (states, idx)
+    }
+
+    /// Marginal categorical distribution per variable from a set of weighted
+    /// assignments (already renormalized by the caller if conditioned).
+    fn marginals(
+        &self,
+        assignments: &[(Vec<usize>, f64)],
+        idx: &HashMap<String, usize>,
+        norm: f64,
+    ) -> HashMap<String, CategoricalEstimate> {
+        self.order
+            .iter()
+            .map(|id| {
+                let i = idx[id];
+                let card = self.equations[id].cardinality;
+                let mut probs = vec![0.0_f64; card];
+                for (assignment, prob) in assignments {
+                    probs[assignment[i]] += *prob;
+                }
+                if norm > 0.0 {
+                    for p in &mut probs {
+                        *p /= norm;
+                    }
+                }
+                (id.clone(), CategoricalEstimate::from_probs(probs))
+            })
+            .collect()
+    }
+
+    /// Build a mutilated copy (Pearl's graph surgery): every variable in `do_`
+    /// has its incoming edges CUT and is pinned to a point-mass CPT at its given
+    /// category. All other equations and the topological order are unchanged.
+    fn mutilate(&self, do_: &HashMap<String, usize>) -> DiscreteCausalGraph {
+        let mut equations = HashMap::with_capacity(self.equations.len());
+        for id in &self.order {
+            if let Some(&v) = do_.get(id) {
+                let card = self.equations[id].cardinality;
+                let mut row = vec![0.0_f64; card];
+                row[v] = 1.0;
+                let mut table = HashMap::with_capacity(1);
+                table.insert(Vec::new(), row);
+                equations.insert(
+                    id.clone(),
+                    DiscreteStructuralEquation {
+                        parents: Vec::new(),
+                        cardinality: card,
+                        table,
+                    },
+                );
+            } else {
+                equations.insert(id.clone(), self.equations[id].clone());
+            }
+        }
+        DiscreteCausalGraph {
+            equations,
+            order: self.order.clone(),
+            cardinality: self.cardinality.clone(),
+        }
+    }
+
+    /// **Interventional** query `P(· | do(X₁=v₁, …))` — genuine do-calculus via
+    /// graph surgery ([`Self::mutilate`]) then the exact joint marginals of the
+    /// mutilated graph. Returns a [`CategoricalEstimate`] for every variable
+    /// (the `do` variables trivially a point mass on their fixed category).
+    pub fn intervene(
+        &self,
+        do_: &HashMap<String, usize>,
+    ) -> Result<HashMap<String, CategoricalEstimate>, String> {
+        for (id, &v) in do_ {
+            self.require(id)?;
+            let card = self.equations[id].cardinality;
+            if v >= card {
+                return Err(format!(
+                    "do({id}={v}) is out of range (variable '{id}' has cardinality {card})"
+                ));
+            }
+        }
+        let mutilated = self.mutilate(do_);
+        let (assignments, idx) = mutilated.joint_assignments();
+        Ok(mutilated.marginals(&assignments, &idx, 1.0))
+    }
+
+    /// **Observational** query `P(· | E=e)` by exact inference: enumerate the
+    /// joint of the ORIGINAL (unmutilated) graph, keep the assignments consistent
+    /// with `evidence`, and renormalize. Unlike [`Self::intervene`] this cuts no
+    /// edges, so evidence propagates BACKWARD to ancestors (a confounder) — the
+    /// categorical mirror of the linear model's Gaussian conditioning.
+    pub fn observe(
+        &self,
+        evidence: &HashMap<String, usize>,
+    ) -> Result<HashMap<String, CategoricalEstimate>, String> {
+        for (id, &v) in evidence {
+            self.require(id)?;
+            let card = self.equations[id].cardinality;
+            if v >= card {
+                return Err(format!(
+                    "evidence {id}={v} is out of range (variable '{id}' has cardinality {card})"
+                ));
+            }
+        }
+        let (all, idx) = self.joint_assignments();
+        if evidence.is_empty() {
+            return Ok(self.marginals(&all, &idx, 1.0));
+        }
+        let ev_pos: Vec<(usize, usize)> =
+            evidence.iter().map(|(id, &v)| (idx[id], v)).collect();
+        let kept: Vec<(Vec<usize>, f64)> = all
+            .into_iter()
+            .filter(|(a, _)| ev_pos.iter().all(|&(pos, v)| a[pos] == v))
+            .collect();
+        let norm: f64 = kept.iter().map(|(_, p)| *p).sum();
+        if norm <= 0.0 {
+            return Err(
+                "observe: the evidence assignment has probability zero under the model".to_string(),
+            );
+        }
+        Ok(self.marginals(&kept, &idx, norm))
+    }
+
+    /// **Counterfactual** query for a single fully-observed unit — Pearl's
+    /// abduction/action/prediction over the canonical CDF-inversion structural
+    /// function `X = f(pa, u)`, `u ~ Uniform[0,1)`:
+    ///
+    /// 1. **Abduction**: for each variable, from its ACTUAL value and actual
+    ///    parent config, recover the exogenous quantile `u` as the midpoint of the
+    ///    consistent CDF interval — the canonical representative of "the noise that
+    ///    produced this outcome" (a quantile-preserving / monotonic counterfactual,
+    ///    the discrete analogue of recovering the Gaussian model's noise term).
+    /// 2. **Action**: pin the `do_` variables (same surgery as [`Self::intervene`]).
+    /// 3. **Prediction**: replay forward in topological order re-evaluating each
+    ///    non-`do_` variable's structural function at its SAME abducted quantile —
+    ///    so every variable not downstream of a `do_` variable reproduces its
+    ///    actual value and downstream variables get their counterfactual category.
+    ///
+    /// Requires `actual` to cover every variable and to have non-zero probability
+    /// under the model.
+    pub fn counterfactual(
+        &self,
+        actual: &HashMap<String, usize>,
+        do_: &HashMap<String, usize>,
+    ) -> Result<HashMap<String, usize>, String> {
+        for (id, &v) in do_ {
+            self.require(id)?;
+            let card = self.equations[id].cardinality;
+            if v >= card {
+                return Err(format!(
+                    "do({id}={v}) is out of range (variable '{id}' has cardinality {card})"
+                ));
+            }
+        }
+        for id in &self.order {
+            match actual.get(id) {
+                None => {
+                    return Err(format!(
+                        "counterfactual requires a fully-observed unit: missing actual value for '{id}'"
+                    ));
+                }
+                Some(&v) if v >= self.equations[id].cardinality => {
+                    return Err(format!(
+                        "actual {id}={v} is out of range (variable '{id}' has cardinality {})",
+                        self.equations[id].cardinality
+                    ));
+                }
+                Some(_) => {}
+            }
+        }
+
+        // 1. Abduction: recover each variable's exogenous quantile.
+        let mut quantile: HashMap<String, f64> = HashMap::with_capacity(self.order.len());
+        for id in &self.order {
+            let eq = &self.equations[id];
+            let key: Vec<usize> = eq.parents.iter().map(|p| actual[p]).collect();
+            let row = &eq.table[&key];
+            let v = actual[id];
+            let lo: f64 = row[..v].iter().sum();
+            let hi: f64 = lo + row[v];
+            if row[v] <= 0.0 {
+                return Err(format!(
+                    "counterfactual: actual assignment gives '{id}={v}' zero probability under the model"
+                ));
+            }
+            quantile.insert(id.clone(), 0.5 * (lo + hi));
+        }
+
+        // 2. Action + 3. Prediction, replaying forward with the abducted quantiles.
+        let mut cf: HashMap<String, usize> = HashMap::with_capacity(self.order.len());
+        for id in &self.order {
+            if let Some(&v) = do_.get(id) {
+                cf.insert(id.clone(), v);
+                continue;
+            }
+            let eq = &self.equations[id];
+            let key: Vec<usize> = eq.parents.iter().map(|p| cf[p]).collect();
+            let row = &eq.table[&key];
+            cf.insert(id.clone(), invert_cdf(row, quantile[id]));
+        }
+        Ok(cf)
+    }
+}
+
+/// The canonical CDF-inversion structural function: the smallest category `v`
+/// whose cumulative probability strictly exceeds the quantile `u ∈ [0,1)`.
+fn invert_cdf(row: &[f64], u: f64) -> usize {
+    let mut cum = 0.0;
+    for (v, &p) in row.iter().enumerate() {
+        cum += p;
+        if u < cum {
+            return v;
+        }
+    }
+    row.len().saturating_sub(1)
+}
+
+/// Every combination of category values for a list of cardinalities, in
+/// lexicographic order (`[]` yields the single empty combination — a root's only
+/// parent-value tuple).
+fn cartesian(cards: &[usize]) -> Vec<Vec<usize>> {
+    let mut out: Vec<Vec<usize>> = vec![Vec::new()];
+    for &c in cards {
+        let mut next = Vec::with_capacity(out.len() * c);
+        for combo in &out {
+            for v in 0..c {
+                let mut e = combo.clone();
+                e.push(v);
+                next.push(e);
+            }
+        }
+        out = next;
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -628,5 +1159,216 @@ mod tests {
     fn singular_matrix_returns_none() {
         let m = vec![vec![1.0, 2.0], vec![2.0, 4.0]];
         assert!(invert_matrix(&m).is_none());
+    }
+
+    // ── Discrete (categorical CPT) SCM ───────────────────────────────────────
+
+    // A binary confounded chain Z -> X -> Y with Z -> X too, so do(X) and
+    // observe(X) genuinely disagree on the confounder Z:
+    //   Z:  P(Z=1) = 0.5
+    //   X | Z=0: P(X=1)=0.2 ;  X | Z=1: P(X=1)=0.8
+    //   Y | X=0: P(Y=1)=0.1 ;  Y | X=1: P(Y=1)=0.7   (Y depends only on X)
+    fn discrete_chain() -> DiscreteCausalGraph {
+        let mut g = DiscreteCausalGraph::new();
+        g.add_variable("z", vec![], 2, vec![(vec![], vec![0.5, 0.5])])
+            .unwrap();
+        g.add_variable(
+            "x",
+            vec!["z"],
+            2,
+            vec![(vec![0], vec![0.8, 0.2]), (vec![1], vec![0.2, 0.8])],
+        )
+        .unwrap();
+        g.add_variable(
+            "y",
+            vec!["x"],
+            2,
+            vec![(vec![0], vec![0.9, 0.1]), (vec![1], vec![0.3, 0.7])],
+        )
+        .unwrap();
+        g
+    }
+
+    #[test]
+    fn discrete_add_variable_rejects_bad_cpts() {
+        let mut g = DiscreteCausalGraph::new();
+        // parent not yet defined
+        assert!(g
+            .add_variable("x", vec!["z"], 2, vec![(vec![0], vec![1.0, 0.0])])
+            .is_err());
+        g.add_variable("z", vec![], 2, vec![(vec![], vec![0.5, 0.5])])
+            .unwrap();
+        // row does not sum to 1
+        assert!(g
+            .add_variable("a", vec![], 2, vec![(vec![], vec![0.5, 0.4])])
+            .is_err());
+        // missing a parent-value combination (only z=0 row present)
+        assert!(g
+            .add_variable("b", vec!["z"], 2, vec![(vec![0], vec![0.5, 0.5])])
+            .is_err());
+        // wrong row length for the cardinality
+        assert!(g
+            .add_variable("c", vec![], 3, vec![(vec![], vec![0.5, 0.5])])
+            .is_err());
+    }
+
+    #[test]
+    fn discrete_intervene_cuts_the_backdoor_and_pins_the_target() {
+        let g = discrete_chain();
+        let mut do_x = HashMap::new();
+        do_x.insert("x".to_string(), 1usize);
+        let out = g.intervene(&do_x).unwrap();
+
+        // X is pinned to a point mass on category 1.
+        assert!((out["x"].probs[1] - 1.0).abs() < EPS);
+        assert!((out["x"].probs[0]).abs() < EPS);
+        assert_eq!(out["x"].map_category, 1);
+
+        // Y | do(X=1) = the CPT row for X=1 exactly: P(Y=1)=0.7.
+        assert!(
+            (out["y"].probs[1] - 0.7).abs() < EPS,
+            "P(Y=1|do(X=1)) should be 0.7, got {}",
+            out["y"].probs[1]
+        );
+
+        // do(X) severs Z->X, so the confounder keeps its prior: P(Z=1)=0.5.
+        assert!(
+            (out["z"].probs[1] - 0.5).abs() < EPS,
+            "do(X) must leave the (edge-cut) confounder Z at its prior 0.5, got {}",
+            out["z"].probs[1]
+        );
+    }
+
+    #[test]
+    fn discrete_observe_differs_from_intervene_on_the_confounder() {
+        let g = discrete_chain();
+        let mut ev = HashMap::new();
+        ev.insert("x".to_string(), 1usize);
+        let obs = g.observe(&ev).unwrap();
+
+        // Backward inference: P(Z=1|X=1) = P(X=1|Z=1)P(Z=1)/P(X=1)
+        //   P(X=1) = 0.2*0.5 + 0.8*0.5 = 0.5 ; so = 0.8*0.5/0.5 = 0.8.
+        assert!(
+            (obs["z"].probs[1] - 0.8).abs() < EPS,
+            "observing X=1 should update the confounder to P(Z=1)=0.8, got {}",
+            obs["z"].probs[1]
+        );
+        // Y depends only on X, so P(Y=1|X=1)=0.7 — same as do here, but Z differs.
+        assert!((obs["y"].probs[1] - 0.7).abs() < EPS);
+
+        // The whole point: seeing vs doing disagree on Z (0.8 vs 0.5).
+        let mut do_x = HashMap::new();
+        do_x.insert("x".to_string(), 1usize);
+        let ivn = g.intervene(&do_x).unwrap();
+        assert!(
+            (obs["z"].probs[1] - ivn["z"].probs[1]).abs() > 0.25,
+            "observe(X) ({}) and do(X) ({}) must disagree on the confounder Z",
+            obs["z"].probs[1],
+            ivn["z"].probs[1]
+        );
+    }
+
+    #[test]
+    fn discrete_counterfactual_known_answer() {
+        let g = discrete_chain();
+        // Fully-observed unit consistent with the model: Z=1, X=1, Y=1.
+        let mut actual = HashMap::new();
+        actual.insert("z".to_string(), 1usize);
+        actual.insert("x".to_string(), 1usize);
+        actual.insert("y".to_string(), 1usize);
+
+        // "What would Y have been had X been 0 instead of 1?"
+        let mut do_x = HashMap::new();
+        do_x.insert("x".to_string(), 0usize);
+        let cf = g.counterfactual(&actual, &do_x).unwrap();
+
+        // Hand derivation of the abduction (midpoint of the consistent CDF band):
+        //   Z=1: row [0.5,0.5], band for cat 1 = [0.5,1.0) -> u_z = 0.75
+        //   X=1 | Z=1: row [0.2,0.8], band for cat 1 = [0.2,1.0) -> u_x = 0.6
+        //   Y=1 | X=1: row [0.3,0.7], band for cat 1 = [0.3,1.0) -> u_y = 0.65
+        // Prediction under do(X=0):
+        //   Z: unaffected upstream, replay u_z=0.75 -> cat 1 (reproduces actual).
+        //   X: pinned to 0.
+        //   Y | X=0: row [0.9,0.1], cum[0]=0.9 ; u_y=0.65 < 0.9 -> cat 0.
+        assert_eq!(cf["z"], 1, "Z is upstream of X and must reproduce its actual value");
+        assert_eq!(cf["x"], 0, "X is pinned to the counterfactual category");
+        assert_eq!(
+            cf["y"], 0,
+            "counterfactual Y must flip 1 -> 0 under do(X=0) at the abducted quantile"
+        );
+    }
+
+    #[test]
+    fn discrete_empty_do_counterfactual_reproduces_the_actual_unit() {
+        // Consistency: abduction then prediction with no intervention returns the
+        // exact observed unit (the quantile-preserving property).
+        let g = discrete_chain();
+        let mut actual = HashMap::new();
+        actual.insert("z".to_string(), 1usize);
+        actual.insert("x".to_string(), 1usize);
+        actual.insert("y".to_string(), 1usize);
+        let cf = g.counterfactual(&actual, &HashMap::new()).unwrap();
+        assert_eq!(cf["z"], 1);
+        assert_eq!(cf["x"], 1);
+        assert_eq!(cf["y"], 1);
+    }
+
+    #[test]
+    fn discrete_counterfactual_requires_a_fully_observed_unit() {
+        let g = discrete_chain();
+        let mut partial = HashMap::new();
+        partial.insert("z".to_string(), 1usize); // missing x, y
+        let mut do_x = HashMap::new();
+        do_x.insert("x".to_string(), 0usize);
+        assert!(g.counterfactual(&partial, &do_x).is_err());
+    }
+
+    #[test]
+    fn discrete_observe_marginals_are_a_normalized_distribution() {
+        let g = discrete_chain();
+        let out = g.observe(&HashMap::new()).unwrap();
+        for (id, est) in &out {
+            let sum: f64 = est.probs.iter().sum();
+            assert!(
+                (sum - 1.0).abs() < EPS,
+                "{id}: marginal must sum to 1, got {sum}"
+            );
+            assert!(est.map_category < est.probs.len());
+        }
+        // Unconditioned marginal of X: P(X=1) = 0.2*0.5 + 0.8*0.5 = 0.5.
+        assert!((out["x"].probs[1] - 0.5).abs() < EPS);
+    }
+
+    #[test]
+    fn discrete_out_of_range_do_and_evidence_are_errors() {
+        let g = discrete_chain();
+        let mut bad_do = HashMap::new();
+        bad_do.insert("x".to_string(), 5usize); // cardinality is 2
+        assert!(g.intervene(&bad_do).is_err());
+        let mut bad_ev = HashMap::new();
+        bad_ev.insert("y".to_string(), 9usize);
+        assert!(g.observe(&bad_ev).is_err());
+    }
+
+    #[test]
+    fn model_kind_parses_and_defaults_to_linear_gaussian() {
+        assert_eq!(CausalModelKind::default(), CausalModelKind::LinearGaussian);
+        assert_eq!(
+            CausalModelKind::parse("").unwrap(),
+            CausalModelKind::LinearGaussian
+        );
+        assert_eq!(
+            CausalModelKind::parse("Linear-Gaussian").unwrap(),
+            CausalModelKind::LinearGaussian
+        );
+        assert_eq!(
+            CausalModelKind::parse("discrete_cpt").unwrap(),
+            CausalModelKind::DiscreteCpt
+        );
+        assert_eq!(
+            CausalModelKind::parse("Categorical").unwrap(),
+            CausalModelKind::DiscreteCpt
+        );
+        assert!(CausalModelKind::parse("nonsense").is_err());
     }
 }
