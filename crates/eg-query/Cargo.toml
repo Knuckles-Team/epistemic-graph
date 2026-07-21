@@ -15,7 +15,7 @@ name = "eg_query"
 default = []
 # `eg-types/query` surfaces the `Pred`/`JsonPathOp` wire enums the SQL classifier lowers
 # the Postgres/Mongo JSON operators onto (CONCEPT:EG-084) — additive, always on with `sql`.
-sql = ["dep:datafusion", "dep:arrow", "dep:arrow-schema", "dep:tokio", "dep:petgraph", "dep:tracing", "dep:async-trait", "dep:redb", "dep:eg-text", "dep:eg-ann", "dep:futures-util", "eg-types/query"]
+sql = ["dep:datafusion", "dep:arrow", "dep:arrow-schema", "dep:tokio", "dep:petgraph", "dep:tracing", "dep:async-trait", "dep:redb", "dep:eg-text", "dep:eg-ann", "dep:futures-util", "dep:md-5", "dep:sha1", "dep:sha2", "dep:hex", "dep:base64", "dep:ipnet", "eg-types/query"]
 # Dep-free Cypher subset (CONCEPT:KG-2.179): a hand-written parser compiled to the
 # engine's own primitives (label index, VF2, BFS). Pulls only `petgraph` for the
 # variable-length-path BFS — already in the tree via eg-core, NOT a new heavy dep —
@@ -111,6 +111,19 @@ async-trait = { version = "0.1", optional = true }
 futures-util = { version = "0.3", optional = true, default-features = false, features = [
     "std",
 ] }
+
+# CONCEPT:EG-KG.query.sqlite-compat-scalar-udfs (turso-assimilation rank 14) — the
+# `md5`/`sha1`/`sha256`/`base64_encode`/`base64_decode`/`ip*` scalar UDFs. All four
+# are already resolved transitively (sha2 via other crates, md-5/sha1/base64/ipnet
+# via DataFusion/Arrow's own tree), so this adds no new dependency FAMILY to the
+# tree — only a direct `use` path, gated behind `sql` (the only place these UDFs
+# register) so a lean Pi/`cypher`-only build stays untouched.
+md-5 = { version = "0.10", optional = true }
+sha1 = { version = "0.10", optional = true }
+sha2 = { version = "0.10", optional = true }
+hex = { version = "0.4", optional = true }
+base64 = { version = "0.22", optional = true }
+ipnet = { version = "2.12", optional = true }
 
 [dev-dependencies]
 # The spike's OUTER reactor mimics the server's multi-thread runtime; the inner

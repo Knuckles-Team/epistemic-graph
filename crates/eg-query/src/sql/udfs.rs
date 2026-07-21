@@ -1341,3 +1341,302 @@ mod finance_udf {
 
 #[cfg(feature = "finance")]
 pub(crate) use finance_udf::{cvar_udaf, var_udaf};
+
+// ── SQLite-extension-style scalar functions (CONCEPT:EG-KG.query.sqlite-compat-scalar-udfs,
+// turso-assimilation rank 14) — crypto hash + ipaddr helpers turso ships as loadable
+// extensions (`crypto_md5`/`sha1`/`sha256`, base64 encode/decode, `ipcontains`/`ipfamily`).
+// Plain `Utf8 -> Utf8`/`Utf8 -> Boolean` scalar UDFs; hex-encoded digest text (matching
+// SQLite's `crypto_*` convention) rather than a raw Binary return. ──
+
+/// One-argument `Utf8 -> Utf8` scalar UDF wrapper — feeds each row's text through
+/// `f` (returning `None` on failure, e.g. an unparseable base64/IP literal).
+fn text_to_text_udf(
+    name: &'static str,
+    f: impl Fn(&str) -> Option<String> + Send + Sync + 'static,
+) -> ScalarUDF {
+    let fun = Arc::new(move |args: &[ColumnarValue]| {
+        let arrays = ColumnarValue::values_to_arrays(args)?;
+        let input = arrays[0].as_any().downcast_ref::<StringArray>().ok_or_else(|| {
+            datafusion::error::DataFusionError::Execution(format!(
+                "{name}: argument must be Utf8"
+            ))
+        })?;
+        let out: StringArray = (0..input.len())
+            .map(|i| {
+                if input.is_null(i) {
+                    None
+                } else {
+                    f(input.value(i))
+                }
+            })
+            .collect();
+        Ok(ColumnarValue::Array(Arc::new(out) as ArrayRef))
+    });
+    create_udf(
+        name,
+        vec![DataType::Utf8],
+        DataType::Utf8,
+        Volatility::Immutable,
+        fun,
+    )
+}
+
+/// One-argument `Utf8 -> Boolean` scalar UDF wrapper (the `ip*` predicates), `None`
+/// (SQL NULL) on an unparseable literal rather than erroring the whole batch.
+fn text_to_bool_udf(
+    name: &'static str,
+    f: impl Fn(&str) -> Option<bool> + Send + Sync + 'static,
+) -> ScalarUDF {
+    let fun = Arc::new(move |args: &[ColumnarValue]| {
+        let arrays = ColumnarValue::values_to_arrays(args)?;
+        let input = arrays[0].as_any().downcast_ref::<StringArray>().ok_or_else(|| {
+            datafusion::error::DataFusionError::Execution(format!(
+                "{name}: argument must be Utf8"
+            ))
+        })?;
+        let out: arrow::array::BooleanArray = (0..input.len())
+            .map(|i| {
+                if input.is_null(i) {
+                    None
+                } else {
+                    f(input.value(i))
+                }
+            })
+            .collect();
+        Ok(ColumnarValue::Array(Arc::new(out) as ArrayRef))
+    });
+    create_udf(
+        name,
+        vec![DataType::Utf8],
+        DataType::Boolean,
+        Volatility::Immutable,
+        fun,
+    )
+}
+
+/// `md5(text) -> Utf8` — lower-hex MD5 digest of the UTF-8 bytes (turso's `crypto_md5`).
+pub(crate) fn md5_udf() -> ScalarUDF {
+    text_to_text_udf("md5", |s| {
+        use md5::Digest;
+        Some(hex::encode(md5::Md5::digest(s.as_bytes())))
+    })
+}
+
+/// `sha1(text) -> Utf8` — lower-hex SHA-1 digest (turso's `crypto_sha1`).
+pub(crate) fn sha1_udf() -> ScalarUDF {
+    text_to_text_udf("sha1", |s| {
+        use sha1::Digest;
+        Some(hex::encode(sha1::Sha1::digest(s.as_bytes())))
+    })
+}
+
+/// `sha256(text) -> Utf8` — lower-hex SHA-256 digest (turso's `crypto_sha256`).
+pub(crate) fn sha256_udf() -> ScalarUDF {
+    text_to_text_udf("sha256", |s| {
+        use sha2::Digest;
+        Some(hex::encode(sha2::Sha256::digest(s.as_bytes())))
+    })
+}
+
+/// `base64_encode(text) -> Utf8` — standard (non-URL) base64 of the UTF-8 bytes.
+pub(crate) fn base64_encode_udf() -> ScalarUDF {
+    text_to_text_udf("base64_encode", |s| {
+        use base64::Engine;
+        Some(base64::engine::general_purpose::STANDARD.encode(s.as_bytes()))
+    })
+}
+
+/// `base64_decode(text) -> Utf8` — inverse of `base64_encode`; `NULL` on invalid
+/// base64 or non-UTF-8 decoded bytes rather than erroring the query.
+pub(crate) fn base64_decode_udf() -> ScalarUDF {
+    text_to_text_udf("base64_decode", |s| {
+        use base64::Engine;
+        let bytes = base64::engine::general_purpose::STANDARD.decode(s).ok()?;
+        String::from_utf8(bytes).ok()
+    })
+}
+
+/// `ipfamily(text) -> Utf8` — `'4'`/`'6'` for a bare IP or CIDR literal, `NULL` if
+/// unparseable (turso's `ipfamily`).
+pub(crate) fn ipfamily_udf() -> ScalarUDF {
+    text_to_text_udf("ipfamily", |s| {
+        parse_ip_or_net(s).map(|(addr, _)| match addr {
+            std::net::IpAddr::V4(_) => "4".to_string(),
+            std::net::IpAddr::V6(_) => "6".to_string(),
+        })
+    })
+}
+
+/// `ipmasklen(text) -> Utf8` — the CIDR prefix length as text (`"32"`/`"128"` for a
+/// bare address), `NULL` if unparseable (turso's `ipmasklen`).
+pub(crate) fn ipmasklen_udf() -> ScalarUDF {
+    text_to_text_udf("ipmasklen", |s| {
+        parse_ip_or_net(s).map(|(_, prefix)| prefix.to_string())
+    })
+}
+
+/// Parse either a bare IP (`"10.0.0.1"`) or a CIDR literal (`"10.0.0.0/24"`) into
+/// `(address, prefix_len)`, defaulting the prefix to the address's full width when
+/// no `/n` suffix is present — the common ground `ipfamily`/`ipmasklen`/`ipcontains`
+/// all need.
+fn parse_ip_or_net(s: &str) -> Option<(std::net::IpAddr, u8)> {
+    if let Some((addr_str, prefix_str)) = s.split_once('/') {
+        let prefix: u8 = prefix_str.parse().ok()?;
+        let addr: std::net::IpAddr = addr_str.parse().ok()?;
+        Some((addr, prefix))
+    } else {
+        let addr: std::net::IpAddr = s.parse().ok()?;
+        let full = if addr.is_ipv4() { 32 } else { 128 };
+        Some((addr, full))
+    }
+}
+
+/// `ipcontains(network, addr) -> Boolean` — is `addr` inside `network` (a CIDR
+/// literal, e.g. `"10.0.0.0/24"`)? `NULL` if either argument fails to parse
+/// (turso's `ipcontains`).
+pub(crate) fn ipcontains_udf() -> ScalarUDF {
+    let fun = Arc::new(|args: &[ColumnarValue]| {
+        let arrays = ColumnarValue::values_to_arrays(args)?;
+        let nets = arrays[0]
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .ok_or_else(|| {
+                datafusion::error::DataFusionError::Execution(
+                    "ipcontains: first argument must be Utf8 (network)".into(),
+                )
+            })?;
+        let addrs = arrays[1]
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .ok_or_else(|| {
+                datafusion::error::DataFusionError::Execution(
+                    "ipcontains: second argument must be Utf8 (address)".into(),
+                )
+            })?;
+        let out: arrow::array::BooleanArray = (0..nets.len())
+            .map(|i| {
+                if nets.is_null(i) || addrs.is_null(i) {
+                    return None;
+                }
+                let net: ipnet::IpNet = nets.value(i).parse().ok()?;
+                let addr: std::net::IpAddr = addrs.value(i).parse().ok()?;
+                Some(net.contains(&addr))
+            })
+            .collect();
+        Ok(ColumnarValue::Array(Arc::new(out) as ArrayRef))
+    });
+    create_udf(
+        "ipcontains",
+        vec![DataType::Utf8, DataType::Utf8],
+        DataType::Boolean,
+        Volatility::Immutable,
+        fun,
+    )
+}
+
+/// `iphost(text) -> Boolean` — is this a host address (prefix == full width, i.e.
+/// no `/n` suffix or `/32`\`/128`) rather than a network literal? (turso's `iphost`).
+pub(crate) fn iphost_udf() -> ScalarUDF {
+    text_to_bool_udf("iphost", |s| {
+        parse_ip_or_net(s).map(|(addr, prefix)| {
+            let full = if addr.is_ipv4() { 32 } else { 128 };
+            prefix == full
+        })
+    })
+}
+
+#[cfg(test)]
+mod crypto_ipaddr_tests {
+    use super::*;
+
+    // ── hash/encode round-trips exercised directly against the pure Rust helpers
+    // the UDF closures call, matching known test vectors (no DataFusion plumbing
+    // needed to prove the digest/codec logic itself). ──
+
+    #[test]
+    fn md5_matches_known_vector() {
+        use md5::Digest;
+        assert_eq!(
+            hex::encode(md5::Md5::digest(b"")),
+            "d41d8cd98f00b204e9800998ecf8427e"
+        );
+        assert_eq!(
+            hex::encode(md5::Md5::digest(b"abc")),
+            "900150983cd24fb0d6963f7d28e17f72"
+        );
+    }
+
+    #[test]
+    fn sha1_matches_known_vector() {
+        use sha1::Digest;
+        assert_eq!(
+            hex::encode(sha1::Sha1::digest(b"abc")),
+            "a9993e364706816aba3e25717850c26c9cd0d89d"
+        );
+    }
+
+    #[test]
+    fn sha256_matches_known_vector() {
+        use sha2::Digest;
+        assert_eq!(
+            hex::encode(sha2::Sha256::digest(b"abc")),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+    }
+
+    #[test]
+    fn base64_round_trips() {
+        use base64::Engine;
+        let encoded = base64::engine::general_purpose::STANDARD.encode(b"hello world");
+        assert_eq!(encoded, "aGVsbG8gd29ybGQ=");
+        let decoded = base64::engine::general_purpose::STANDARD
+            .decode(&encoded)
+            .unwrap();
+        assert_eq!(decoded, b"hello world");
+    }
+
+    #[test]
+    fn parse_ip_or_net_defaults_full_width_prefix() {
+        assert_eq!(
+            parse_ip_or_net("10.0.0.1"),
+            Some((std::net::IpAddr::from([10, 0, 0, 1]), 32))
+        );
+        assert_eq!(
+            parse_ip_or_net("::1"),
+            Some((
+                std::net::IpAddr::from([0, 0, 0, 0, 0, 0, 0, 1]),
+                128
+            ))
+        );
+        assert_eq!(parse_ip_or_net("not-an-ip"), None);
+    }
+
+    #[test]
+    fn parse_ip_or_net_reads_cidr_prefix() {
+        assert_eq!(
+            parse_ip_or_net("10.0.0.0/24"),
+            Some((std::net::IpAddr::from([10, 0, 0, 0]), 24))
+        );
+    }
+
+    #[test]
+    fn ipcontains_true_for_address_inside_network() {
+        let net: ipnet::IpNet = "10.0.0.0/24".parse().unwrap();
+        let addr: std::net::IpAddr = "10.0.0.42".parse().unwrap();
+        assert!(net.contains(&addr));
+        let outside: std::net::IpAddr = "10.0.1.1".parse().unwrap();
+        assert!(!net.contains(&outside));
+    }
+
+    #[test]
+    fn ipfamily_distinguishes_v4_and_v6() {
+        assert_eq!(
+            parse_ip_or_net("10.0.0.1").map(|(a, _)| a.is_ipv4()),
+            Some(true)
+        );
+        assert_eq!(
+            parse_ip_or_net("::1").map(|(a, _)| a.is_ipv4()),
+            Some(false)
+        );
+    }
+}
