@@ -84,9 +84,10 @@ build affected.
   `Method::ExplainBelief`'s `disclosure_level` (policy-aware proof redaction) and
   `Method::ExplainEvidence` (multimodal evidence citation resolver) with no extra build
   flags. `epistemic-tms` (paraconsistent TMS + Dung argumentation — NP-hard-in-the-worst-
-  case extension search) and `epistemic-causal` (genuine Pearl do-calculus) remain
-  deliberately opt-in/HEAVY, reachable via `--features epistemic-tms` /
-  `--features epistemic-causal`.
+  case extension search) and `epistemic-causal` (genuine Pearl do-calculus) were
+  originally left opt-in/HEAVY, reachable via `--features epistemic-tms` /
+  `--features epistemic-causal`, but have since been folded into the default `full`
+  build alongside the other epistemic-substrate surfaces.
 - **RLS is unconditionally default-deny (EG-P0-6).** Every served read filters
   before query execution. Unowned, undecodable, and untagged rows are hidden
   unless explicitly public or authorized by owner/grant policy. The runtime
