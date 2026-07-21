@@ -75,11 +75,16 @@ pub fn decode_entry(blob: &[u8]) -> Option<(Hash, Hash, &[u8])> {
 /// over the FULL durable-mutation surface (every `GraphRedb`- and `Outbox`-domain
 /// method per `eg_capabilities::policy`, see `crates/eg-capabilities`), so every
 /// acknowledged durable mutation chains into the audit log. A method with no
-/// durable effect (`DurabilityDomain::None` — e.g. a caller-supplied
-/// `ApplyMutation`, `EvictLRU`, or `IcvConfigure`) never reaches this function via
-/// the redb write path at all, so it is intentionally absent. The one reserved
-/// `ApplyMutation` event below is different: the MutationBatch compiler creates it
-/// internally as a digest-only receipt for an authoritative staged-state commit.
+/// durable effect (`DurabilityDomain::None`) never reaches this function via the
+/// redb write path at all, so it is intentionally absent (still falls through to
+/// the final `_ => return None` for a direct caller). `ApplyMutation`/`EvictLRU`/
+/// `IcvConfigure` are NOT such methods (all three are `GraphRedb`-durable and
+/// GATEWAY_ROUTED) -- W1c gave each an explicit arm below, closing what used to be
+/// a real audit-visibility gap for `ApplyMutation`/`IcvConfigure` (`EvictLRU`
+/// already had one). The one reserved digest-guarded `ApplyMutation` arm is
+/// different from its general fallback further down: the MutationBatch compiler
+/// creates that specific `event_type`/`query` shape internally as a digest-only
+/// receipt for an authoritative staged-state commit.
 pub fn audit_line(method: &Method) -> Option<String> {
     let line = match method {
         // ── Core node/edge CRUD (audited since EG-P0-2) ──────────────────────
@@ -137,6 +142,57 @@ pub fn audit_line(method: &Method) -> Option<String> {
             // by design, so the audit line binds only its SHA-256 receipt.
             format!("AUTHORITATIVE_STATE_MUTATION|{query}")
         }
+        // Fallback for a caller-supplied `ApplyMutation` that is NOT the opaque
+        // digest receipt above (e.g. a direct SPARQL UPDATE `event_type`/`query`
+        // pair) -- W1c: this durable admin/ledger method previously fell through
+        // to `_ => return None`; it is now audited like every other durable
+        // mutation. The query text itself is digested (not persisted verbatim)
+        // for the same reason `Sql`/`CypherQuery`/`GraphQl` hash their query.
+        Method::ApplyMutation { event_type, query } => format!(
+            "APPLY_MUTATION|{event_type}|sha256:{}",
+            hex::encode(Sha256::digest(query.as_bytes()))
+        ),
+
+        // ── W1c: close the 9-method audit/CDC-visibility gap. These durable
+        // admin/ledger methods previously fell through to `_ => return None`
+        // (never chained into the tamper-evident audit log) despite being
+        // GraphRedb-durable and GATEWAY_ROUTED. Each line below is a canonical,
+        // deterministic "who/what" summary (the chain's `graph`+`seq` already
+        // bind the "who" via the durable-commit call site; `redb_store`'s
+        // `(graph, seq)` key plus the chain hash supply the "when"/ordering). ──
+        Method::FromMsgpack { msgpack } => format!(
+            "FROM_MSGPACK|sha256:{}",
+            hex::encode(Sha256::digest(msgpack))
+        ),
+        Method::Reconcile { graph_name, msgpack } => format!(
+            "RECONCILE|{graph_name}|sha256:{}",
+            hex::encode(Sha256::digest(msgpack))
+        ),
+        Method::ApplyMultisigMutation {
+            signatures,
+            threshold,
+            mutation_type,
+            query,
+        } => format!(
+            "APPLY_MULTISIG_MUTATION|{mutation_type}|threshold={threshold}|signers={}|sha256:{}",
+            signatures.len(),
+            hex::encode(Sha256::digest(query.as_bytes()))
+        ),
+        #[cfg(feature = "shacl")]
+        Method::IcvConfigure { graph, mode, .. } => format!(
+            "ICV_CONFIGURE|{}|{mode}",
+            graph.as_deref().unwrap_or("<default>")
+        ),
+        #[cfg(feature = "reasoning")]
+        Method::RunDatalogReasoning { .. } => "RUN_DATALOG_REASONING".to_string(),
+        Method::ClearLedger => "CLEAR_LEDGER".to_string(),
+        Method::ApplyLedger { transactions } => {
+            format!("APPLY_LEDGER|count={}", transactions.len())
+        }
+        Method::CompactNodesByType {
+            node_type,
+            threshold,
+        } => format!("COMPACT_NODES_BY_TYPE|{node_type}|threshold={threshold}"),
 
         // ── Remaining GraphRedb-durable node/edge/RDF primitives (EG-P0-6) ──
         Method::InvalidateEdge {
