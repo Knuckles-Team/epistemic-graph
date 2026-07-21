@@ -626,6 +626,92 @@ pub fn emit_for_method(hub: &CdcHub, core: &GraphCore, graph: &str, method: &Met
         // A whole-graph wipe resets the change feed: the per-node changes are moot once
         // the graph is empty, so the feed rewinds to seq 0 and a consumer re-seeds.
         (Method::ClearGraph, _) => hub.reset_graph(graph),
+        // FromMsgpack/Reconcile both replace the graph's entire node/edge content
+        // with an imported or merged authoritative image (`core.from_msgpack`) --
+        // the same "whole graph replaced" shape as `ClearGraph`, so any prior
+        // incremental deltas are equally moot. W1c: previously fell to the `_`
+        // catch-all (no CDC at all) despite being durable + GATEWAY_ROUTED.
+        (Method::FromMsgpack { .. }, _) => hub.reset_graph(graph),
+        (Method::Reconcile { .. }, _) => hub.reset_graph(graph),
+        // ── W1c: close the 9-method audit/CDC-visibility gap for the remaining
+        // durable admin/ledger methods. None of these map to a single node/edge
+        // row, so -- consistent with `emit_served_modality`'s reserved-marker-id
+        // shape below -- each emits ONE `UpdateNode` marker event with a
+        // reserved `__`-prefixed id (never a real node id) and no before/after
+        // payload, giving CDC consumers an observable "this happened" signal
+        // without fabricating a fake property diff. ──
+        (Method::ApplyMutation { .. }, _) => {
+            hub.emit(
+                graph,
+                CdcKind::UpdateNode,
+                "__apply_mutation".to_string(),
+                String::new(),
+                None,
+                None,
+            );
+        }
+        (Method::ApplyMultisigMutation { .. }, _) => {
+            hub.emit(
+                graph,
+                CdcKind::UpdateNode,
+                "__apply_multisig_mutation".to_string(),
+                String::new(),
+                None,
+                None,
+            );
+        }
+        #[cfg(feature = "shacl")]
+        (Method::IcvConfigure { .. }, _) => {
+            hub.emit(
+                graph,
+                CdcKind::UpdateNode,
+                "__icv_configure".to_string(),
+                String::new(),
+                None,
+                None,
+            );
+        }
+        #[cfg(feature = "reasoning")]
+        (Method::RunDatalogReasoning { .. }, _) => {
+            hub.emit(
+                graph,
+                CdcKind::UpdateNode,
+                "__run_datalog_reasoning".to_string(),
+                String::new(),
+                None,
+                None,
+            );
+        }
+        (Method::ClearLedger, _) => {
+            hub.emit(
+                graph,
+                CdcKind::UpdateNode,
+                "__ledger".to_string(),
+                String::new(),
+                None,
+                None,
+            );
+        }
+        (Method::ApplyLedger { .. }, _) => {
+            hub.emit(
+                graph,
+                CdcKind::UpdateNode,
+                "__ledger".to_string(),
+                String::new(),
+                None,
+                None,
+            );
+        }
+        (Method::CompactNodesByType { .. }, _) => {
+            hub.emit(
+                graph,
+                CdcKind::UpdateNode,
+                "__compact_nodes_by_type".to_string(),
+                String::new(),
+                None,
+                None,
+            );
+        }
         (Method::ApplyChangeEnvelope { envelope }, _) => {
             hub.emit(
                 graph,
