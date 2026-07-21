@@ -550,6 +550,8 @@ const RUNTIME_CONDITIONAL: &[(&str, &str, &str)] = &[
 const ACCESS_RS_COVERAGE_GAP: &[(&str, &str, &str)] = &[
     #[cfg(feature = "jobs")]
     ("AnalyticsJob", "UNASSIGNED", "self-routes before dispatch_graph_op (own jobs.redb, CONCEPT:INT-P2-1), mirrors RbacAdmin's access.rs coverage gap"),
+    #[cfg(feature = "statechart")]
+    ("Statechart", "UNASSIGNED", "self-routes before dispatch_graph_op (own statecharts.redb, CONCEPT:INT-P2-2), mirrors AnalyticsJob's access.rs coverage gap"),
     ("BlobBegin", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("BlobChunkPut", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("BlobCommit", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
@@ -685,6 +687,7 @@ fn durability_domain_matches_the_graph_mutation_applier() {
             | DurabilityDomain::BlobRedb
             | DurabilityDomain::SeriesRedb
             | DurabilityDomain::JobsRedb
+            | DurabilityDomain::StatechartRedb
             | DurabilityDomain::ReasoningProjection
             | DurabilityDomain::ControlRedb => continue,
             DurabilityDomain::GraphRedb => {

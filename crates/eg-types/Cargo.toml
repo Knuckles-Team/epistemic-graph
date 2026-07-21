@@ -178,6 +178,12 @@ probabilistic = ["query"]
 # crate in the DAG); the facade wires it through `jobs`, included in the main
 # `full` deployment while remaining absent from small leaf builds unless selected.
 jobs = []
+# CONCEPT:INT-P2-2 — the native statechart engine: gates the `statechart` wire module
+# (`StatechartOp`) + the `Method::Statechart` variant. Pure serde/enum-variant gate,
+# same shape as `jobs`; the durable engine (typed model + redb store + pure transition
+# function) lives in `eg-statechart` (ABOVE this crate in the DAG) and the facade wires
+# it through `statechart`, included in the main `full` build.
+statechart = []
 # Graph-native program optimization extends the jobs wire contract with its one
 # typed job kind. A jobs-only build does not expose a non-executable variant.
 program-optimization = ["jobs"]

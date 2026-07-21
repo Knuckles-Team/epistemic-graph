@@ -101,6 +101,16 @@ pub(crate) mod sqlite_file;
 // than a resolved `GraphCore`.
 #[cfg(feature = "jobs")]
 pub(crate) mod jobs;
+// Native finite-state-machine / statechart engine (CONCEPT:INT-P2-2, feature
+// `statechart`). The `Method::Statechart { op }` surface (define/instantiate/
+// send_event/get_state/list) over `eg-statechart`'s redb-backed `StatechartDef` +
+// `MachineInstance` store; a durable machine instance is just a `(state, context)`
+// row, rehydrated on the next event. NOT graph-scoped (own `statecharts.redb`, like
+// `AnalyticsJob`/`TsAppend`/`Kv*`) — self-routes in `dispatch.rs` before the per-graph
+// chain, so it needs `state` directly (only for `persist_dir`) rather than a resolved
+// `GraphCore`.
+#[cfg(feature = "statechart")]
+pub(crate) mod statechart;
 // Governed document/image/audio/video serving. The wire carries an ephemeral
 // source body, while this handler persists only an encrypted, opaque runtime
 // snapshot through the graph mutation gateway.

@@ -321,6 +321,19 @@ jobs = [
     "server", "mining", "epistemic",
     "dep:eg-jobs", "eg-types/jobs", "eg-capabilities/jobs",
 ]
+# CONCEPT:INT-P2-2 -- the native finite-state-machine / statechart engine:
+# `Method::Statechart` (define/instantiate/send_event/get_state/list over a durable,
+# rehydratable `(state, context)` machine-instance record in `statecharts.redb`) +
+# `src/server/handlers/statechart.rs`. Pulls `server` (Tokio dispatch + ServerState) +
+# `dep:eg-statechart` (the typed model + pure transition fn + redb store) + the matching
+# `eg-types/statechart` and `eg-capabilities/statechart` wire/policy features (kept in
+# LOCKSTEP, exactly like `jobs`). Unlike `jobs` it needs neither `mining` nor `epistemic`
+# -- phase-1 does not reuse a compute kernel or write claims. Included in the main `full`
+# build.
+statechart = [
+    "server",
+    "dep:eg-statechart", "eg-types/statechart", "eg-capabilities/statechart",
+]
 # Graph-native, provider-neutral LM programs and governed self-improvement. This
 # extends the one analytics-job authority; it does not introduce another network,
 # cache, provider, or graph-mutation path.
@@ -958,7 +971,7 @@ security = ["redb", "oidc", "dep:chacha20poly1305", "eg-types/security", "eg-cor
 # `eg2.` protocol identity binding and `kvcache-server`'s KV-cache HTTP bearer auth —
 # rather than each surface vendoring its own copy.
 oidc = ["dep:jsonwebtoken", "dep:ureq"]
-full = ["compute", "server", "server-tls", "query", "knowledge-batch", "cypher", "graphql", "eg-graphql/crossmodal-tsdb", "redb", "ann", "ann-redb", "tsdb", "blob", "kv", "text", "sparql", "sparql-http", "sparql-hash", "rdf-xml", "json-ld", "sparql-star", "sparql-service", "shacl", "owl", "owl-dl", "owl-plan", "obda", "streaming", "wasm-udf", "security", "oidc", "federation", "federation-sql", "pgwire", "mysql-wire", "mssql-wire", "sqlite-wire", "bolt-wire", "redis-wire", "broker", "amqp-wire", "mqtt-wire", "stomp-wire", "geo", "tensor", "stream", "result-cache", "cold-tier", "cost", "cost-opt", "otel", "otel-export", "shex", "obs", "geosparql", "nl-query", "promql", "traces", "s3-api", "federation-search", "kvcache-server", "kvcache-compression", "numeric", "sqlite-file", "epistemic", "epistemic-redaction", "evidence-graph", "epistemic-tms", "epistemic-causal", "alignment", "jobs", "program-optimization", "modality-serving", "embedded"]
+full = ["compute", "server", "server-tls", "query", "knowledge-batch", "cypher", "graphql", "eg-graphql/crossmodal-tsdb", "redb", "ann", "ann-redb", "tsdb", "blob", "kv", "text", "sparql", "sparql-http", "sparql-hash", "rdf-xml", "json-ld", "sparql-star", "sparql-service", "shacl", "owl", "owl-dl", "owl-plan", "obda", "streaming", "wasm-udf", "security", "oidc", "federation", "federation-sql", "pgwire", "mysql-wire", "mssql-wire", "sqlite-wire", "bolt-wire", "redis-wire", "broker", "amqp-wire", "mqtt-wire", "stomp-wire", "geo", "tensor", "stream", "result-cache", "cold-tier", "cost", "cost-opt", "otel", "otel-export", "shex", "obs", "geosparql", "nl-query", "promql", "traces", "s3-api", "federation-search", "kvcache-server", "kvcache-compression", "numeric", "sqlite-file", "epistemic", "epistemic-redaction", "evidence-graph", "epistemic-tms", "epistemic-causal", "alignment", "jobs", "program-optimization", "statechart", "modality-serving", "embedded"]
 all = ["full"]
 # D4 (CONCEPT:EG-KG.epistemic.epistemic-substrate): `epistemic` (the eg-epistemic
 # claims/evidence/belief-state layer, E6/E2/D3/D5) is folded into `full` above so a
@@ -1081,6 +1094,12 @@ eg-capabilities = { path = "crates/eg-capabilities", optional = true }
 # `src/server/handlers/jobs.rs`. See the workspace `[workspace]` comment above for
 # why it is a workspace member with an optional direct edge from the facade.
 eg-jobs = { path = "crates/eg-jobs", optional = true }
+# CONCEPT:INT-P2-2 -- the native statechart engine (feature `statechart`): the typed
+# StatechartDef model + pure transition function + its own `statecharts.redb` instance
+# store (`eg_statechart::StatechartStore`), consumed by
+# `src/server/handlers/statechart.rs`. An optional direct edge from the facade, exactly
+# like `eg-jobs`.
+eg-statechart = { path = "crates/eg-statechart", optional = true }
 # Clean-room graph-native LM-program contracts, deterministic kernels, and governed
 # runtime plans. The crate deliberately has no provider SDK or HTTP client.
 eg-program = { path = "crates/eg-program", optional = true }

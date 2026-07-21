@@ -63,6 +63,10 @@ default = []
 # enable one without the other (this feature enables `eg-types/jobs` itself, so a
 # caller only ever needs to request THIS one).
 jobs = ["eg-types/jobs"]
+# CONCEPT:INT-P2-2 -- see the module doc above. Mirrors `eg-types/statechart` 1:1 (same
+# lockstep contract as `jobs`): this feature enables `eg-types/statechart` AND cfg-gates
+# `policy()`'s one `Method::Statechart` arm together, so the two can never drift.
+statechart = ["eg-types/statechart"]
 # Mirrors the facade/eg-types native governed KnowledgeBatch wire contract.
 knowledge-batch = ["eg-types/knowledge-batch"]
 # Mirrors the facade/eg-types governed modality feature so the exhaustive policy

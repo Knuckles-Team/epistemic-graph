@@ -1820,6 +1820,19 @@ pub enum Method {
         op: crate::jobs::JobOp,
     },
 
+    /// The native finite-state-machine / statechart engine (CONCEPT:INT-P2-2):
+    /// define/instantiate/send_event/get_state/list over a durable, rehydratable
+    /// `MachineInstance` `(state, context)` record in `statecharts.redb` (`eg-statechart`).
+    /// ONE variant wrapping an internal op enum — mirrors `AnalyticsJob { op }` above —
+    /// so the whole engine surface costs exactly one `Method` arm. Gated `statechart`;
+    /// the handler (`src/server/handlers/statechart.rs`) self-routes in `dispatch.rs`
+    /// before the per-graph chain (instances are keyed by `instance_id` in their own
+    /// `statecharts.redb`, not a graph — like `AnalyticsJob`/`TsAppend`/`Kv*`).
+    #[cfg(feature = "statechart")]
+    Statechart {
+        op: crate::statechart::StatechartOp,
+    },
+
     // ── Query (SQL + Cypher) ──────────────────────────────────────────
     // Read-only relational query surface (CONCEPT:EG-KG.query.read-only-sql-query). `SELECT … FROM
     // nodes …` over ONE graph via DataFusion, gated behind the facade `query`
