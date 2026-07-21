@@ -12,13 +12,20 @@ use tokio::sync::RwLock;
 use super::super::access::GraphReadAuthority;
 use super::super::state::ServerState;
 use crate::protocol::{Method, Response, ResultPayload};
+// The algo-only Pregel matview lives behind `compute-dist` (it runs cross-shard
+// supersteps over multi-Raft groups). The plan-backed matview path below shares this
+// module but touches NONE of it.
+#[cfg(feature = "compute-dist")]
 use crate::raft::pregel::{self, MatView};
 #[cfg(feature = "matview")]
 use crate::server::matview::{self, PlanMatView};
 
+#[cfg(feature = "compute-dist")]
 const MAX_DISTRIBUTED_MATVIEW_BYTES: usize = 64 * 1024 * 1024;
+#[cfg(feature = "compute-dist")]
 const MAX_DISTRIBUTED_MATVIEW_ITEMS: usize = 1_000_000;
 
+#[cfg(feature = "compute-dist")]
 fn decode_distributed_matview(blob: &[u8]) -> Result<MatView, String> {
     eg_types::msgpack::decode_bounded(
         blob,
@@ -42,6 +49,7 @@ pub(crate) async fn try_handle(
 ) -> Result<Response, Method> {
     let original_method = method.clone();
     match method {
+        #[cfg(feature = "compute-dist")]
         Method::DistributedCompute { graphs, algo } => {
             let Some(read_authority) = read_authority else {
                 return Ok(Response::err(
@@ -56,6 +64,7 @@ pub(crate) async fn try_handle(
                 },
             )
         }
+        #[cfg(feature = "compute-dist")]
         Method::CreateMatView { name, graphs, algo } => {
             let Some(read_authority) = read_authority else {
                 return Ok(Response::err(
@@ -82,6 +91,7 @@ pub(crate) async fn try_handle(
             };
             Ok(persist_and_index(state, req_id, caller, &original_method, view).await)
         }
+        #[cfg(feature = "compute-dist")]
         Method::GetMatView { name } => {
             let Some(read_authority) = read_authority else {
                 return Ok(Response::err(
@@ -105,6 +115,7 @@ pub(crate) async fn try_handle(
                 None => Response::err(req_id, format!("no materialized view '{name}'")),
             })
         }
+        #[cfg(feature = "compute-dist")]
         Method::RefreshMatView { name } => {
             let Some(read_authority) = read_authority else {
                 return Ok(Response::err(
@@ -344,8 +355,59 @@ async fn define_plan_matview(
         Ok(result) => result,
         Err(error) => return Response::err(req_id, error),
     };
-    matview::manager().define(def);
+    index_matview(state, def).await;
     Response::ok(req_id, result)
+}
+
+/// Index a freshly-defined view into the manager: attempt to compile its plan into a DBSP
+/// circuit (CONCEPT:EG-KG.storage.incremental-matview). On success it installs the view in
+/// `Mode::Incremental` — seeded from the current graph so future CDC deltas maintain it in
+/// O(delta) and `Get` serves the maintained result directly — and durably snapshots the
+/// operator state. On an unsupported op it falls back to `Mode::Recompute` (today's
+/// path, unchanged), NEVER a silently-wrong incremental result.
+#[cfg(feature = "matview")]
+async fn index_matview(state: &Arc<RwLock<ServerState>>, def: PlanMatView) {
+    let mut circuit = match eg_plan::incremental::Circuit::compile(&def.plan) {
+        Ok(circuit) => circuit,
+        Err(unsupported) => {
+            tracing::debug!(
+                "plan matview '{}' is not incrementally maintainable ({unsupported}); \
+                 keeping it on the recompute path",
+                def.name
+            );
+            matview::manager().define(def);
+            return;
+        }
+    };
+    // Seed the circuit from the current authoritative graph so it reproduces the full
+    // materialization through the same gating the incremental path uses.
+    let Some(core) = resolve_core(state, &def.graph).await else {
+        matview::manager().define(def);
+        return;
+    };
+    let seed = matview::incremental::seed_delta_from_core(&core);
+    circuit.apply(&seed);
+    let current = circuit.current();
+    // Watermark AFTER seeding (mirrors `cdc::register_query`): later deltas fold from here.
+    let through_seq = {
+        let s = state.read().await;
+        s.cdc
+            .as_ref()
+            .map(|hub| hub.head_seq(&def.graph))
+            .unwrap_or(0)
+    };
+    // Best-effort durable operator-state snapshot (observability + a future resume seam;
+    // reload today conservatively re-materializes in Recompute mode, per the CDC-ring
+    // staleness guard — never a silent gap).
+    if let Ok(blob) = matview::incremental::encode_operator_state(&circuit) {
+        let backend = { state.read().await.persistence.clone() };
+        if let Some(redb) = backend.as_ref().and_then(|b| b.as_redb()) {
+            if let Err(e) = redb.matview_operator_state_put(&def.name, blob).await {
+                tracing::warn!("persist matview '{}' operator state failed: {e}", def.name);
+            }
+        }
+    }
+    matview::manager().install_incremental(def, circuit, current, through_seq);
 }
 
 /// `PlanMatViewGet`: serve the cached result when fresh (no CDC change AND a cache hit at
@@ -355,6 +417,16 @@ async fn get_plan_matview(state: &Arc<RwLock<ServerState>>, req_id: u64, name: &
     let Some(def) = matview::manager().get(name) else {
         return Response::err(req_id, format!("no plan materialized view '{name}'"));
     };
+    // INCREMENTAL fast path (CONCEPT:EG-KG.storage.incremental-matview): the view's plan
+    // compiled to a DBSP circuit that CDC deltas already maintained, so serve the live
+    // `current` result directly — no recompute, no `ResultCache` round-trip, no staleness
+    // check (it is fresh by construction).
+    if let Some(rows) = matview::manager().incremental_rows(name) {
+        return match rmp_serde::to_vec_named(&rows) {
+            Ok(bytes) => Response::ok(req_id, ResultPayload::Raw(bytes)),
+            Err(e) => Response::err(req_id, format!("serialize matview rows: {e}")),
+        };
+    }
     // Fast path: not marked stale by CDC AND a live cache hit at the current version.
     if !matview::manager().is_stale(name) {
         if let Some(core) = resolve_core(state, &def.graph).await {
@@ -430,6 +502,11 @@ async fn drop_plan_matview(
     if let Err(error) = redb.plan_matview_delete(name).await {
         return Response::err(req_id, error);
     }
+    // Also drop the incremental operator-state row (CONCEPT:EG-KG.storage.incremental-matview);
+    // best-effort — a missing row is a clean no-op.
+    if let Err(e) = redb.matview_operator_state_delete(name).await {
+        tracing::warn!("drop matview '{name}' operator state failed: {e}");
+    }
     let result = match finish_control_saga(control, ResultPayload::Bool(true)) {
         Ok(result) => result,
         Err(error) => return Response::err(req_id, error),
@@ -441,6 +518,7 @@ async fn drop_plan_matview(
 /// Persist a matview to the durable redb tier under a prepared/committed control-plane
 /// saga and publish it into RAM only after the terminal receipt is durable. A redb or
 /// coordinator failure therefore leaves no uncommitted in-memory view visible.
+#[cfg(feature = "compute-dist")]
 async fn persist_and_index(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
@@ -492,9 +570,11 @@ pub async fn reload_matviews(state: &Arc<RwLock<ServerState>>) -> Result<usize, 
     let Some(redb) = backend.as_redb() else {
         return Ok(0);
     };
-    let rows = redb.matview_scan()?;
     let mut n = 0usize;
+    // The algo-only Pregel matview store (cross-shard) — cluster-only.
+    #[cfg(feature = "compute-dist")]
     {
+        let rows = redb.matview_scan()?;
         let s = state.read().await;
         let mut store = s.matviews.lock();
         for (name, blob) in rows {

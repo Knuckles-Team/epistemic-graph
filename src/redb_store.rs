@@ -211,6 +211,16 @@ pub(crate) const MATVIEWS: TableDefinition<&str, &[u8]> = TableDefinition::new("
 pub(crate) const PLAN_MATVIEWS: TableDefinition<&str, &[u8]> =
     TableDefinition::new("plan_matviews");
 
+// DBSP INCREMENTAL operator state (CONCEPT:EG-KG.storage.incremental-matview): the durable
+// snapshot of an incrementally-maintained plan-backed matview's circuit state (its
+// membership map / per-bucket accumulators + CDC watermark), keyed by view name. The
+// direct analogue of turso's `dbsp_state` btree, scoped down to redb. DISJOINT from
+// `plan_matviews` (that table holds the DEFINITION; this holds the maintained STATE).
+// Written when an incremental view is defined and dropped with it.
+#[cfg(feature = "matview")]
+pub(crate) const MATVIEW_OPERATOR_STATE: TableDefinition<&str, &[u8]> =
+    TableDefinition::new("matview_operator_state");
+
 /// Materialize every table owned by the canonical authoritative graph store.
 ///
 /// A read transaction cannot open a table that has never been created. Keep the
@@ -282,8 +292,9 @@ pub(crate) type XshardPrepareScan = Result<Vec<(String, u64, Vec<u8>)>, String>;
 pub(crate) type XshardDecisionScan = Result<Vec<(String, Option<bool>, bool)>, String>;
 
 /// Persisted materialized views `(name, blob)` returned by the boot reload scan
-/// (CONCEPT:EG-KG.storage.feature).
-#[cfg(feature = "compute-dist")]
+/// (CONCEPT:EG-KG.storage.feature). Shared by the algo-only distributed matview
+/// (`compute-dist`) and the plan-backed incremental matview (`matview`) scan surfaces.
+#[cfg(any(feature = "compute-dist", feature = "matview"))]
 pub(crate) type MatViewScanResult = Result<Vec<(String, Vec<u8>)>, String>;
 
 /// Encryption-at-rest cipher handle threaded through the durable read/write paths
@@ -4269,6 +4280,59 @@ pub(crate) fn delete_plan_matview(db: &Database, name: &str) -> Result<(), Strin
 pub(crate) fn scan_plan_matviews(db: &Database) -> Result<Vec<(String, Vec<u8>)>, String> {
     let rtx = db.begin_read().map_err(|e| e.to_string())?;
     let t = match rtx.open_table(PLAN_MATVIEWS) {
+        Ok(t) => t,
+        Err(_) => return Ok(Vec::new()),
+    };
+    let mut out = Vec::new();
+    for kv in t.iter().map_err(|e| e.to_string())? {
+        let (k, v) = kv.map_err(|e| e.to_string())?;
+        out.push((k.value().to_string(), v.value().to_vec()));
+    }
+    Ok(out)
+}
+
+/// Durably upsert an incremental matview's operator-state snapshot
+/// (CONCEPT:EG-KG.storage.incremental-matview).
+#[cfg(feature = "matview")]
+pub(crate) fn put_matview_operator_state(
+    db: &Database,
+    name: &str,
+    blob: &[u8],
+) -> Result<(), String> {
+    let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
+    wtx.set_durability(Durability::Immediate)
+        .map_err(|e| e.to_string())?;
+    {
+        let mut t = wtx
+            .open_table(MATVIEW_OPERATOR_STATE)
+            .map_err(|e| e.to_string())?;
+        t.insert(name, blob).map_err(|e| e.to_string())?;
+    }
+    wtx.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Durably delete an incremental matview's operator-state snapshot (missing = no-op).
+#[cfg(feature = "matview")]
+pub(crate) fn delete_matview_operator_state(db: &Database, name: &str) -> Result<(), String> {
+    let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
+    wtx.set_durability(Durability::Immediate)
+        .map_err(|e| e.to_string())?;
+    {
+        let mut t = wtx
+            .open_table(MATVIEW_OPERATOR_STATE)
+            .map_err(|e| e.to_string())?;
+        t.remove(name).map_err(|e| e.to_string())?;
+    }
+    wtx.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Scan every persisted incremental-matview operator-state snapshot `(name, blob)`.
+#[cfg(feature = "matview")]
+pub(crate) fn scan_matview_operator_state(db: &Database) -> Result<Vec<(String, Vec<u8>)>, String> {
+    let rtx = db.begin_read().map_err(|e| e.to_string())?;
+    let t = match rtx.open_table(MATVIEW_OPERATOR_STATE) {
         Ok(t) => t,
         Err(_) => return Ok(Vec::new()),
     };

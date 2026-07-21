@@ -477,7 +477,7 @@ pub fn unauthenticated_carrier_denied(isolation: &crate::isolation::IsolationLay
 pub use nl::{resolve_planner as resolve_nl_planner, set_nl_planner};
 // Distributed-compute materialized-view boot reload (CONCEPT:EG-KG.storage.feature): the binary
 // calls this on startup to repopulate the in-RAM matview index from redb.
-#[cfg(feature = "compute-dist")]
+#[cfg(any(feature = "compute-dist", feature = "matview"))]
 pub use handlers::dist_compute::reload_matviews;
 pub use persistence::PersistenceBackend;
 pub use state::{txn_limits_from_env, ServerState, MAX_BATCH_IDS};
