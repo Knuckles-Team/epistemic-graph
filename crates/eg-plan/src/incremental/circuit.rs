@@ -69,7 +69,7 @@ impl std::error::Error for UnsupportedOp {}
 
 /// The linear tumbling aggregate a `WindowAgg` maintains — the subset that retracts by
 /// pure subtraction (`count`/`sum`/`mean`). `min`/`max`/`first`/`last` are NOT here.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 enum Agg {
     Count,
     Sum,
@@ -84,7 +84,7 @@ const TS_FIELD: &str = "ts";
 /// One bucket accumulator: a running weighted sum and a signed count. Present in the
 /// result iff `count > 0`; for integer inputs (the property-test domain) the running sum
 /// is exact regardless of fold order.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 struct Bucket {
     sum: f64,
     count: i64,
@@ -92,15 +92,17 @@ struct Bucket {
 
 /// The maintained `WindowAgg` stage: the window width, the aggregate, and the per-bucket
 /// accumulators.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 struct WindowState {
     secs: f64,
     agg: Agg,
     buckets: BTreeMap<i64, Bucket>,
 }
 
-/// A compiled incremental circuit for one supported plan.
-#[derive(Clone, Debug)]
+/// A compiled incremental circuit for one supported plan. Serializable so its maintained
+/// state (membership map / bucket accumulators) persists in the `matview_operator_state`
+/// redb table — the analogue of turso's `dbsp_state` btree.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Circuit {
     /// The `Scan` source label (`type`/`node_type`/`label` property must equal this).
     label: String,

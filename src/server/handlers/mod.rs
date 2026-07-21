@@ -75,7 +75,10 @@ pub(crate) mod wasm_udf;
 // DistributedCompute/*MatView methods drive the cross-shard Pregel engine + the
 // matview store on ServerState; a non-cluster build omits the module and the variants
 // fall to the graph_ops not-available catch-all.
-#[cfg(feature = "compute-dist")]
+// Present under EITHER `compute-dist` (the algo-only Pregel matview + DistributedCompute)
+// OR `matview` (the plan-backed, single-node incremental matview) — the two families share
+// this dispatch module but NOT a feature dependency (the plan-backed path uses no raft).
+#[cfg(any(feature = "compute-dist", feature = "matview"))]
 pub(crate) mod dist_compute;
 // Query federation / foreign sources (CONCEPT:EG-KG.query.query-federation, feature `federation`).
 // RegisterForeignSource records a named foreign source on ServerState (the inline-spec

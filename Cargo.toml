@@ -531,13 +531,14 @@ result-cache = ["eg-core/result-cache"]
 # result cache. Defining it executes the plan once (via the eg-plan runtime) and caches
 # the bytes; a committed write bumps the graph version — and the CDC hub marks the view
 # stale (`src/server/matview/`) — so the next Get recomputes, never serving stale rows.
-# GENERALIZES the algo-only distributed-compute matview: its Method variants route
-# through the `compute-dist` dispatch line, so `matview` IMPLIES `compute-dist`; it needs
-# `query` (the Plan AST + runtime), `result-cache` (the result store) and `streaming`
-# (the CDC invalidation hook). It requires Raft and is therefore included only in the
-# source-built `cluster` layer, not the single-node main build.
+# It generalizes the algo-only distributed-compute matview, but that kinship is only a
+# DISPATCH-ROUTING accident: `manager.rs`/`lifecycle.rs`/`incremental.rs` reference ZERO
+# raft/compute-dist symbols. So `matview` needs only `query` (the Plan AST + runtime +
+# the DBSP `incremental` circuit), `result-cache` (the result store) and `streaming` (the
+# CDC delta source) — ALL THREE already in the single-node `full` build. It no longer
+# implies `compute-dist`/`raft`, so PLAN-BACKED incremental matviews are native to the
+# single-node main build; only the UNRELATED algo-only Pregel matview stays cluster-gated.
 matview = [
-    "compute-dist",
     "query",
     "result-cache",
     "streaming",
@@ -971,7 +972,7 @@ security = ["redb", "oidc", "dep:chacha20poly1305", "eg-types/security", "eg-cor
 # `eg2.` protocol identity binding and `kvcache-server`'s KV-cache HTTP bearer auth —
 # rather than each surface vendoring its own copy.
 oidc = ["dep:jsonwebtoken", "dep:ureq"]
-full = ["compute", "server", "server-tls", "query", "knowledge-batch", "cypher", "graphql", "eg-graphql/crossmodal-tsdb", "redb", "ann", "ann-redb", "tsdb", "blob", "kv", "text", "sparql", "sparql-http", "sparql-hash", "rdf-xml", "json-ld", "sparql-star", "sparql-service", "shacl", "owl", "owl-dl", "owl-plan", "obda", "streaming", "wasm-udf", "security", "oidc", "federation", "federation-sql", "pgwire", "mysql-wire", "mssql-wire", "sqlite-wire", "bolt-wire", "redis-wire", "broker", "amqp-wire", "mqtt-wire", "stomp-wire", "geo", "tensor", "stream", "result-cache", "cold-tier", "cost", "cost-opt", "otel", "otel-export", "shex", "obs", "geosparql", "nl-query", "promql", "traces", "s3-api", "federation-search", "kvcache-server", "kvcache-compression", "numeric", "sqlite-file", "epistemic", "epistemic-redaction", "evidence-graph", "epistemic-tms", "epistemic-causal", "alignment", "jobs", "program-optimization", "statechart", "modality-serving", "embedded"]
+full = ["compute", "server", "server-tls", "query", "knowledge-batch", "cypher", "graphql", "eg-graphql/crossmodal-tsdb", "redb", "ann", "ann-redb", "tsdb", "blob", "kv", "text", "sparql", "sparql-http", "sparql-hash", "rdf-xml", "json-ld", "sparql-star", "sparql-service", "shacl", "owl", "owl-dl", "owl-plan", "obda", "streaming", "wasm-udf", "security", "oidc", "federation", "federation-sql", "pgwire", "mysql-wire", "mssql-wire", "sqlite-wire", "bolt-wire", "redis-wire", "broker", "amqp-wire", "mqtt-wire", "stomp-wire", "geo", "tensor", "stream", "result-cache", "cold-tier", "cost", "cost-opt", "otel", "otel-export", "shex", "obs", "geosparql", "nl-query", "promql", "traces", "s3-api", "federation-search", "kvcache-server", "kvcache-compression", "numeric", "sqlite-file", "epistemic", "epistemic-redaction", "evidence-graph", "epistemic-tms", "epistemic-causal", "alignment", "jobs", "program-optimization", "statechart", "modality-serving", "embedded", "matview"]
 all = ["full"]
 # D4 (CONCEPT:EG-KG.epistemic.epistemic-substrate): `epistemic` (the eg-epistemic
 # claims/evidence/belief-state layer, E6/E2/D3/D5) is folded into `full` above so a
