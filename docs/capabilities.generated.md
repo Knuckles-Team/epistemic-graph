@@ -116,16 +116,16 @@
 | `DecaySweep` | true | GraphRedb | `node:admin` | false | false | false | Atomic | state-backed MutationBatch commits the resulting authoritative image |
 | `TouchNodes` | true | GraphRedb | `node:admin` | false | false | false | Atomic | state-backed MutationBatch commits the resulting authoritative image |
 | `ToMsgpack` | false | None | `graph:read` | true | false | false | Snapshot |  |
-| `FromMsgpack` | true | GraphRedb | `graph:admin` | false | false | false | Atomic | state-backed MutationBatch commits the imported authoritative image |
+| `FromMsgpack` | true | GraphRedb | `graph:admin` | false | true | true | Atomic | state-backed MutationBatch commits the imported authoritative image |
 | `GetLedger` | false | None | `ledger:read` | true | false | false | Snapshot |  |
-| `ClearLedger` | true | GraphRedb | `ledger:admin` | true | false | false | Atomic | state-backed MutationBatch |
-| `ApplyLedger` | true | GraphRedb | `ledger:write` | false | false | false | Atomic | state-backed MutationBatch |
+| `ClearLedger` | true | GraphRedb | `ledger:admin` | true | true | true | Atomic | state-backed MutationBatch |
+| `ApplyLedger` | true | GraphRedb | `ledger:write` | false | true | true | Atomic | state-backed MutationBatch |
 | `AuditVerify` | false | None | `security:audit` | true | false | false | Snapshot |  |
 | `GetSubgraph` | false | None | `node:read` | true | false | false | Snapshot |  |
 | `Fork` | false | None | `graph:read` | true | false | false | Snapshot | returns the forked snapshot to the caller; never registers/persists it server-side |
 | `DiffAgainst` | false | None | `graph:read` | true | false | false | Snapshot |  |
-| `CompactNodesByType` | true | GraphRedb | `node:admin` | false | false | false | Atomic | state-backed MutationBatch |
-| `RunDatalogReasoning` | true | GraphRedb | `reasoning:write` | false | false | false | Atomic | state-backed MutationBatch commits inferred facts |
+| `CompactNodesByType` | true | GraphRedb | `node:admin` | false | true | true | Atomic | state-backed MutationBatch |
+| `RunDatalogReasoning` | true | GraphRedb | `reasoning:write` | false | true | true | Atomic | state-backed MutationBatch commits inferred facts |
 | `ApplyChangeEnvelope` | true | GraphRedb | `ingest:write` | true | true | true | Atomic | Engine-native object/material/governance/version/cursor/outbox commit; verified context is mandatory |
 | `GetChangeEnvelope` | false | None | `ingest:read` | true | false | false | Snapshot | Verified tenant-scoped reconciliation read |
 | `GetContentVersion` | false | None | `ingest:read` | true | false | false | Snapshot | Typed content versions are never compared lexically |
@@ -157,8 +157,8 @@
 | `Shutdown` | true | VolatileControl | `service:admin` | true | false | false | None | explicitly ephemeral process control; never acknowledges a user-data commit |
 | `CancelRequest` | false | None | `service:control` | true | false | false | None |  |
 | `ResourceStats` | false | None | `service:control` | true | false | false | None |  |
-| `Reconcile` | true | GraphRedb | `graph:write` | false | false | false | Saga | state-backed MutationBatch commits the merged image |
-| `ApplyMutation` | true | GraphRedb | `graph:write` | false | false | false | Atomic | state-backed MutationBatch |
+| `Reconcile` | true | GraphRedb | `graph:write` | false | true | true | Saga | state-backed MutationBatch commits the merged image |
+| `ApplyMutation` | true | GraphRedb | `graph:write` | false | true | true | Atomic | state-backed MutationBatch |
 | `Vf2SubgraphMatch` | false | None | `compute:graph-algo` | true | false | false | Snapshot |  |
 | `ParseFile` | false | None | `compute:parse` | true | false | false | None |  |
 | `ParseFiles` | false | None | `compute:parse` | true | false | false | None |  |
@@ -253,8 +253,8 @@
 | `FinanceSabrCalibrate` | false | None | `compute:finance` | true | false | false | None |  |
 | `RegisterIdentity` | true | ControlRedb | `security:admin` | true | false | false | Atomic | RBAC/identity snapshot and MutationBatch metadata share one rbac.redb WTX |
 | `RbacAdmin` | ~true | ControlRedb | `security:admin` | true | false | false | Atomic | runtime-conditional: List is a read; role and grant updates share one rbac.redb WTX with MutationBatch metadata |
-| `ApplyMultisigMutation` | true | GraphRedb | `security:admin` | true | false | false | Saga | threshold validation translates into the graph MutationBatch gateway |
-| `AnalyticsJob` | ~true | JobsRedb | `jobs:write` | false | false | false | Atomic | runtime-conditional: Status is a read; every scheduler/worker transition is ordered by the owning Raft group and materialized into its deterministic jobs.redb projection |
+| `ApplyMultisigMutation` | true | GraphRedb | `security:admin` | true | true | true | Saga | threshold validation translates into the graph MutationBatch gateway |
+| `AnalyticsJob` | ~true | JobsRedb | `jobs:write` | false | false | false | Atomic | runtime-conditional: Status is a read; Submit/Cancel/Resume commit through the native jobs.redb MutationBatch gateway |
 | `Sql` | ~true | GraphRedb | `query:sql` | false | true | false | Atomic | runtime-conditional; graph DML uses staged graph state while table/catalog writes atomically commit SQL rows plus MutationBatch status/fence/idempotency/outbox |
 | `CypherQuery` | ~true | GraphRedb | `query:cypher` | false | true | false | Atomic | runtime-conditional; writes execute against a staged graph and publish only after durable MutationBatch commit |
 | `GraphQl` | ~true | GraphRedb | `query:graphql` | false | true | false | Atomic | runtime-conditional; ordinary writes stage through MutationBatch and cross-modal commit atomically includes universal status/fence/idempotency/outbox |
@@ -269,8 +269,8 @@
 | `EpistemicStatus` | false | None | `explain:read` | true | false | false | Snapshot | L53 (EPI-P3-5) acceptance capstone; handler additionally gated `epistemic-tms` |
 | `WhatChanged` | false | None | `explain:read` | true | false | false | Snapshot | L53 (EPI-P3-5) bitemporal diff; handler additionally gated `epistemic-tms` |
 | `RecomputeMaterialization` | true | ReasoningProjection | `reasoning:write` | false | false | false | Atomic | fenced recompute/writeback resolves provenance from the authoritative graph and fsyncs the per-graph projection |
-| `MaterializationStatus` | false | None | `explain:read` | true | false | false | Snapshot | read-only status lookup on the durable per-graph projection; missing or corrupt authority fails closed |
-| `StaleMaterializations` | false | None | `explain:read` | true | false | false | Snapshot | bulk read of every currently-Stale opaque materialization reference from the durable per-graph projection |
+| `MaterializationStatus` | false | None | `explain:read` | true | false | false | Snapshot | read-only status from the durable per-graph incremental reasoning authority |
+| `StaleMaterializations` | false | None | `explain:read` | true | false | false | Snapshot | bulk opaque stale references from the durable per-graph incremental reasoning authority |
 | `ResolveConflict` | false | None | `explain:read` | true | false | false | Snapshot | EPI-P3-7 (gap-fill) standalone Dung argumentation (grounded/preferred/stable) conflict resolution over a BeliefGraph snapshot; handler additionally gated `epistemic-tms` |
 | `ExplainEvidence` | false | None | `explain:read` | true | false | false | Snapshot | CONCEPT:EG-X1 multimodal-citation resolver; handler additionally gated `evidence-graph` |
 | `CausalEstimate` | false | None | `explain:read` | true | false | false | Snapshot | EPI-P3-3/P3-6 do-calculus intervention OR observational conditioning (selected by `mode`) over a request-carried SCM; handler additionally gated `epistemic-causal` |
@@ -337,7 +337,7 @@
 | `OwlExplain` | false | None | `owl:read` | true | false | false | Snapshot |  |
 | `RunRules` | false | None | `reasoning:read` | true | false | false | Snapshot | READ-ONLY (EG-P0-2/L11 handler audit): handle_run_rules reasons over an off-lock analysis_snapshot and returns inferred triples, no writeback -- unlike its sibling RunDatalogReasoning which materialises in-place. Corrected from a prior mutates=true semantic guess; now agrees with access.rs (never a write there) |
 | `ShaclValidate` | false | None | `validation:read` | true | false | false | Snapshot |  |
-| `IcvConfigure` | true | GraphRedb | `security:admin` | true | false | false | Atomic | state-backed MutationBatch |
+| `IcvConfigure` | true | GraphRedb | `security:admin` | true | true | true | Atomic | state-backed MutationBatch |
 | `ShexValidate` | false | None | `validation:read` | true | false | false | Snapshot |  |
 | `CdcRead` | false | None | `cdc:read` | true | false | false | Snapshot |  |
 | `RegisterContinuousQuery` | true | ControlRedb | `cdc:admin` | true | false | false | Saga | opaque prepared/committed session-control MutationBatch |
