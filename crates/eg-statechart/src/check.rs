@@ -50,9 +50,24 @@ pub enum DefError {
     /// A final state has an outgoing transition.
     FinalHasOutgoing { state: String, transition: String },
     /// A state uses composite/parallel/history features (unsupported in phase-1).
+    /// Retained for wire/back-compat; the hierarchy phase no longer emits it — composite
+    /// charts are accepted and checked structurally instead.
     CompositeUnsupported(String),
     /// The alphabet contains a duplicate symbol.
     DuplicateAlphabetSymbol(String),
+    /// A composite state lists a child that is not a declared state.
+    ChildNotDeclared { parent: String, child: String },
+    /// A composite state's `initial_child` is not among its declared children.
+    InitialChildNotInChildren { parent: String, child: String },
+    /// A state is listed as a child of more than one composite (the containment tree
+    /// must be a forest — every state has at most one parent).
+    MultipleParents(String),
+    /// The containment tree has a cycle reachable from this state (a state cannot be its
+    /// own ancestor).
+    CompositeCycle(String),
+    /// An ATOMIC state (no children) carries a history marker — history only means
+    /// something on a composite state that has children to remember.
+    HistoryOnAtomic(String),
 }
 
 impl std::fmt::Display for DefError {
@@ -79,6 +94,21 @@ impl std::fmt::Display for DefError {
                 write!(f, "state '{s}' is composite/parallel/history (unsupported in phase-1)")
             }
             DefError::DuplicateAlphabetSymbol(s) => write!(f, "duplicate alphabet symbol '{s}'"),
+            DefError::ChildNotDeclared { parent, child } => {
+                write!(f, "composite state '{parent}' lists undeclared child '{child}'")
+            }
+            DefError::InitialChildNotInChildren { parent, child } => {
+                write!(f, "state '{parent}' initial_child '{child}' is not one of its children")
+            }
+            DefError::MultipleParents(s) => {
+                write!(f, "state '{s}' is a child of more than one composite state")
+            }
+            DefError::CompositeCycle(s) => {
+                write!(f, "state '{s}' is part of a containment cycle")
+            }
+            DefError::HistoryOnAtomic(s) => {
+                write!(f, "atomic state '{s}' carries a history marker but has no children")
+            }
         }
     }
 }
@@ -124,8 +154,59 @@ pub fn validate(def: &StatechartDef) -> Result<CompletenessReport, CompletenessR
         if !seen_states.insert(state.id.as_str()) {
             report.errors.push(DefError::DuplicateState(state.id.clone()));
         }
-        if state.is_composite() {
-            report.errors.push(DefError::CompositeUnsupported(state.id.clone()));
+    }
+
+    // ── containment tree well-formed (hierarchy / parallel / history) ────────────────
+    // A composite state's children must be declared, form a forest (single parent, no
+    // cycle), and any initial_child must be a real child; history only means something on
+    // a composite. This replaces the phase-1 blanket rejection of composite charts.
+    let declared: BTreeSet<&str> = def.state_ids();
+    let mut parents_of: BTreeMap<&str, usize> = BTreeMap::new();
+    for state in &def.states {
+        for child in &state.children {
+            if !declared.contains(child.as_str()) {
+                report.errors.push(DefError::ChildNotDeclared {
+                    parent: state.id.clone(),
+                    child: child.clone(),
+                });
+            }
+            *parents_of.entry(child.as_str()).or_default() += 1;
+        }
+        if let Some(initial_child) = &state.initial_child {
+            if !state.children.iter().any(|c| c == initial_child) {
+                report.errors.push(DefError::InitialChildNotInChildren {
+                    parent: state.id.clone(),
+                    child: initial_child.clone(),
+                });
+            }
+        }
+        if state.history.is_some() && state.children.is_empty() {
+            report.errors.push(DefError::HistoryOnAtomic(state.id.clone()));
+        }
+    }
+    for (child, count) in &parents_of {
+        if *count > 1 {
+            report.errors.push(DefError::MultipleParents(child.to_string()));
+        }
+    }
+    // Cycle guard: walk each state up its (single-parent) containment chain; a revisit of
+    // the start, or an over-long walk, is a cycle.
+    let single_parent: BTreeMap<&str, &str> = def
+        .states
+        .iter()
+        .flat_map(|s| s.children.iter().map(move |c| (c.as_str(), s.id.as_str())))
+        .filter(|(child, _)| parents_of.get(*child).copied() == Some(1))
+        .collect();
+    for state in &def.states {
+        let mut cur = single_parent.get(state.id.as_str()).copied();
+        let mut steps = 0usize;
+        while let Some(ancestor) = cur {
+            if ancestor == state.id.as_str() || steps > def.states.len() {
+                report.errors.push(DefError::CompositeCycle(state.id.clone()));
+                break;
+            }
+            steps += 1;
+            cur = single_parent.get(ancestor).copied();
         }
     }
 
@@ -222,7 +303,11 @@ pub fn validate(def: &StatechartDef) -> Result<CompletenessReport, CompletenessR
     }
 }
 
-/// The set of state ids reachable from `start` by following transitions (BFS).
+/// The set of state ids reachable from `start` (BFS). Two kinds of edge make a state
+/// reachable: a TRANSITION targeting it, and CONTAINMENT — entering a composite state
+/// enters its children, and a transition declared on a parent can target any of them, so
+/// every child of a reachable composite is itself reachable. This is what lets a valid
+/// hierarchical chart pass the no-dead-state check.
 pub fn reachable_from<'a>(def: &'a StatechartDef, start: &str) -> BTreeSet<&'a str> {
     let mut reachable = BTreeSet::new();
     if let Some(state) = def.state(start) {
@@ -230,10 +315,21 @@ pub fn reachable_from<'a>(def: &'a StatechartDef, start: &str) -> BTreeSet<&'a s
         reachable.insert(state.id.as_str());
         queue.push_back(state.id.as_str());
         while let Some(current) = queue.pop_front() {
+            // transition targets
             for t in def.transitions.iter().filter(|t| t.from == current) {
                 if let Some(target) = def.state(&t.to) {
                     if reachable.insert(target.id.as_str()) {
                         queue.push_back(target.id.as_str());
+                    }
+                }
+            }
+            // containment: children of a reachable composite are reachable
+            if let Some(state) = def.state(current) {
+                for child in &state.children {
+                    if let Some(child_state) = def.state(child) {
+                        if reachable.insert(child_state.id.as_str()) {
+                            queue.push_back(child_state.id.as_str());
+                        }
                     }
                 }
             }
@@ -252,15 +348,42 @@ pub enum Coverage {
     /// Several transitions are defined for this cell (target list, in order). Legal and
     /// deterministic (first enabled fires); listed so a coverage test can see them all.
     DefinedMany { to: Vec<StateId> },
+    /// No transition is defined ON this state, but an ANCESTOR (composite parent) has one
+    /// for this event — so an atomic state in this cell INHERITS the parent's edge
+    /// (hierarchy semantics). Records the ancestor it inherits from and that edge's
+    /// target.
+    Inherited { from: StateId, to: StateId },
     /// No transition is defined — a well-defined no-op (the machine stays put).
     NoOp,
+}
+
+/// The composite state that directly contains `id`, if any (its parent in the
+/// containment tree).
+fn container_of<'a>(def: &'a StatechartDef, id: &str) -> Option<&'a str> {
+    def.states
+        .iter()
+        .find(|s| s.children.iter().any(|c| c == id))
+        .map(|s| s.id.as_str())
 }
 
 /// Classify one `(state, event)` cell.
 pub fn coverage(def: &StatechartDef, state: &str, event: &str) -> Coverage {
     let targets: Vec<&crate::model::Transition> = def.transitions_from(state, event).collect();
     match targets.as_slice() {
-        [] => Coverage::NoOp,
+        [] => {
+            // Hierarchy: an atomic state with no direct edge delegates to its ancestors.
+            let mut cur = container_of(def, state);
+            while let Some(ancestor) = cur {
+                if let Some(t) = def.transitions_from(ancestor, event).next() {
+                    return Coverage::Inherited {
+                        from: ancestor.to_string(),
+                        to: t.to.clone(),
+                    };
+                }
+                cur = container_of(def, ancestor);
+            }
+            Coverage::NoOp
+        }
         [only] => Coverage::Defined {
             to: only.to.clone(),
             guarded: only.guard.is_some(),
@@ -295,7 +418,10 @@ pub fn coverage_matrix(def: &StatechartDef) -> Vec<(StateId, EventName, Coverage
 pub fn assert_total(def: &StatechartDef) -> Result<(), String> {
     for (state, event, cover) in coverage_matrix(def) {
         match cover {
-            Coverage::Defined { .. } | Coverage::DefinedMany { .. } | Coverage::NoOp => {}
+            Coverage::Defined { .. }
+            | Coverage::DefinedMany { .. }
+            | Coverage::Inherited { .. }
+            | Coverage::NoOp => {}
             #[allow(unreachable_patterns)]
             _ => return Err(format!("({state}, {event}) is neither defined nor a no-op")),
         }
@@ -362,14 +488,86 @@ mod tests {
             .any(|e| matches!(e, DefError::TransitionToUndeclared { to, .. } if to == "ghost")));
     }
 
+    /// A well-formed composite chart: `parent`(a|b, initial a) with a parent-level `fin`
+    /// edge to a final `done`.
+    fn composite() -> StatechartDef {
+        let mut parent = State::new("parent");
+        parent.children = vec!["a".into(), "b".into()];
+        parent.initial_child = Some("a".into());
+        StatechartDef {
+            name: "composite".into(),
+            schema_version: 0,
+            states: vec![parent, State::new("a"), State::new("b"), State::new("done")],
+            alphabet: vec!["go".into(), "fin".into()],
+            transitions: vec![
+                Transition::new("a", "go", "b"),
+                Transition::new("parent", "fin", "done"),
+            ],
+            initial: "parent".into(),
+            finals: vec!["done".into()],
+            meta: Default::default(),
+        }
+    }
+
     #[test]
-    fn composite_state_is_rejected_in_phase_1() {
-        let mut def = base();
-        let mut composite = State::new("parent");
-        composite.children = vec!["a".into()];
-        def.states.push(composite);
+    fn well_formed_composite_chart_is_accepted() {
+        // The hierarchy phase ACCEPTS composite/parallel/history charts.
+        let report = validate(&composite()).expect("composite chart is valid");
+        assert!(report.errors.is_empty());
+    }
+
+    #[test]
+    fn malformed_composite_is_rejected() {
+        // initial_child not among children.
+        let mut def = composite();
+        if let Some(parent) = def.states.iter_mut().find(|s| s.id == "parent") {
+            parent.initial_child = Some("ghost".into());
+        }
         let err = validate(&def).unwrap_err();
-        assert!(err.errors.contains(&DefError::CompositeUnsupported("parent".into())));
+        assert!(err.errors.iter().any(|e| matches!(
+            e,
+            DefError::InitialChildNotInChildren { child, .. } if child == "ghost"
+        )));
+
+        // child referencing an undeclared state.
+        let mut def2 = composite();
+        if let Some(parent) = def2.states.iter_mut().find(|s| s.id == "parent") {
+            parent.children.push("nope".into());
+        }
+        let err2 = validate(&def2).unwrap_err();
+        assert!(err2.errors.iter().any(|e| matches!(
+            e,
+            DefError::ChildNotDeclared { child, .. } if child == "nope"
+        )));
+
+        // a state claimed as a child of two composites.
+        let mut def3 = composite();
+        let mut poacher = State::new("poacher");
+        poacher.children = vec!["a".into()];
+        def3.states.push(poacher);
+        let err3 = validate(&def3).unwrap_err();
+        assert!(err3.errors.contains(&DefError::MultipleParents("a".into())));
+    }
+
+    #[test]
+    fn coverage_reflects_inherited_parent_transitions() {
+        let def = composite();
+        // `a` has a direct `go` edge...
+        assert_eq!(
+            coverage(&def, "a", "go"),
+            Coverage::Defined { to: "b".into(), guarded: false }
+        );
+        // ...but no direct `fin` edge — it INHERITS the parent's `fin` edge to `done`.
+        assert_eq!(
+            coverage(&def, "a", "fin"),
+            Coverage::Inherited { from: "parent".into(), to: "done".into() }
+        );
+        // and `b` inherits it too.
+        assert_eq!(
+            coverage(&def, "b", "fin"),
+            Coverage::Inherited { from: "parent".into(), to: "done".into() }
+        );
+        assert!(assert_total(&def).is_ok());
     }
 
     #[test]

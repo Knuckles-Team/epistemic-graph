@@ -43,12 +43,15 @@
 //!
 //! ## Phase-1 vs deferred
 //!
-//! **Phase-1 (this crate): FLAT** single-state machines. [`model::State`] already
-//! carries the *data* for composite (`children`/`initial_child`), parallel
-//! (`parallel`), and history (`history`) states, so those semantics can be layered in
-//! later WITHOUT a breaking change — but [`check::validate`] rejects a chart that
-//! actually uses them, so the flat interpreter never silently mis-runs a hierarchical
-//! chart. **Deferred:** hierarchy/parallel/history execution, and Raft-ordered
+//! **Hierarchy phase (this crate): FULL statechart execution.** A running instance is a
+//! [`instance::Configuration`] (a SET of active states + history memory), and
+//! [`transition::step`] implements SCXML-style compound (hierarchy), parallel-region,
+//! and shallow/deep history semantics: a parent's transition applies to any active
+//! descendant, entry runs outer-in / exit inner-out, orthogonal regions each see every
+//! event, and a history composite resumes its remembered children. [`check::validate`]
+//! now ACCEPTS composite/parallel/history charts (checking their containment structure)
+//! rather than rejecting them. The flat [`transition::transition`] is retained for
+//! single-state charts. **Deferred:** Raft-ordered
 //! transitions through the consensus `MutationBatch` gateway (the OCC `version` gives
 //! single-node correctness today; cluster ordering slots in where `eg-jobs`'
 //! `mutate_job_batch` sits).
@@ -67,10 +70,13 @@ pub use action::{Action, ActionValue};
 pub use check::{coverage, coverage_matrix, validate, Coverage, CompletenessReport, DefError, DefWarning};
 pub use context::{Context, EventInput};
 pub use guard::Guard;
-pub use instance::{InstanceId, InstanceStatus, MachineInstance};
+pub use instance::{Configuration, InstanceId, InstanceStatus, MachineInstance};
 pub use kg::{project, KgEdge, KgNode, KgProjection};
 pub use model::{
     DefId, EventName, HistoryKind, State, StateId, StatechartDef, Transition,
 };
 pub use store::{SendOutcome, StatechartError, StatechartStore};
-pub use transition::{transition, NoOpReason, TransitionError, TransitionOutcome};
+pub use transition::{
+    initial_configuration, step, transition, NoOpReason, StepOutcome, TransitionError,
+    TransitionOutcome,
+};

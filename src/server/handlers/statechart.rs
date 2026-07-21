@@ -261,7 +261,7 @@ mod tests {
 
         let inst = op_instantiate(&store, &def_id, serde_json::Value::Null, "t1", "a1").unwrap();
         let instance_id = inst["instance_id"].as_str().unwrap().to_string();
-        assert_eq!(inst["state"], serde_json::json!("locked"));
+        assert_eq!(inst["configuration"]["active"], serde_json::json!(["locked"]));
 
         // fire coin -> unlocked
         let sent = op_send_event(
@@ -275,7 +275,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(sent["fired"], serde_json::json!(true));
-        assert_eq!(sent["instance"]["state"], serde_json::json!("unlocked"));
+        assert_eq!(sent["instance"]["configuration"]["active"], serde_json::json!(["unlocked"]));
         assert_eq!(sent["instance"]["version"], serde_json::json!(1));
 
         // undefined edge (coin from unlocked) is a no-op, not an error
@@ -293,7 +293,7 @@ mod tests {
 
         // get + list are owner-scoped
         let got = op_get_state(&store, "t1", "a1", &instance_id).unwrap();
-        assert_eq!(got["state"], serde_json::json!("unlocked"));
+        assert_eq!(got["configuration"]["active"], serde_json::json!(["unlocked"]));
         let listed = op_list(&store, "t1", "a1", None).unwrap();
         assert_eq!(listed["count"], serde_json::json!(1));
     }
