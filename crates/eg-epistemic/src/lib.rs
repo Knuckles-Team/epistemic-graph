@@ -77,9 +77,14 @@ pub use model::{
 };
 pub use propagate::{belief_distribution, explain_belief, propagate_confidence};
 
-// EPI-P3-3 — causal reasoning primitives, see `causal` module docs.
+// EPI-P3-3 — causal reasoning primitives, see `causal` module docs. Both the
+// continuous linear-Gaussian SCM and the discrete categorical CPT SCM (W1e),
+// selectable by `CausalModelKind`.
 #[cfg(feature = "epistemic-causal")]
-pub use causal::{CausalEstimate, CausalGraph, StructuralEquation};
+pub use causal::{
+    CategoricalEstimate, CausalEstimate, CausalGraph, CausalModelKind, DiscreteCausalGraph,
+    DiscreteStructuralEquation, StructuralEquation,
+};
 // EPI-P3-3 — provenance-aware retrieval ranking, see `ranking` module docs.
 #[cfg(feature = "epistemic-causal")]
 pub use ranking::{evidence_quality, rank, RankWeights, RankedResult, RetrievalCandidate};
