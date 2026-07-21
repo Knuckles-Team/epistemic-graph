@@ -14,15 +14,25 @@
 //! The handler (`server::handlers::dist_compute`) drives Define / Get / Refresh / Drop;
 //! `reload_plan_matviews` re-hydrates the manager from redb on boot.
 
+pub(crate) mod incremental;
 mod lifecycle;
 mod manager;
 
 pub use lifecycle::{decode_def, encode_def, materialize, plan_hash};
-pub use manager::{manager, PlanMatView, PlanMatViewManager};
+pub use manager::{manager, Mode, PlanMatView, PlanMatViewManager};
 
-/// CDC hook (CONCEPT:EG-KG.storage.matview-cdc-invalidation): mark every plan-backed
-/// matview over `graph` stale. Called from `CdcHub::emit` per committed change so a write
-/// to an underlying graph retires the affected views. Returns how many it retired.
+/// CDC hook (CONCEPT:EG-KG.storage.matview-cdc-invalidation): mark every `Recompute`-mode
+/// plan-backed matview over `graph` stale. Called from `CdcHub::emit` per committed change
+/// so a write to an underlying graph retires the affected views. Returns how many it
+/// retired. `Incremental`-mode views are untouched here (they ride [`apply_delta`]).
 pub fn note_change(graph: &str) -> usize {
     manager().note_change(graph)
+}
+
+/// INCREMENTAL CDC hook (CONCEPT:EG-KG.storage.incremental-matview): fold one `CdcEvent`
+/// into every `Incremental`-mode plan-backed matview over `graph` — the delta-driven
+/// sibling of [`note_change`], called from the SAME `CdcHub::emit` spot. Returns how many
+/// views it maintained. A `Recompute`-mode view is a no-op here.
+pub fn apply_delta(graph: &str, event: &eg_types::wire::CdcEvent) -> usize {
+    manager().apply_delta(graph, event)
 }
