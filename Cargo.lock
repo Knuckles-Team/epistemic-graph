@@ -2739,6 +2739,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "eg-statechart"
+version = "0.1.0"
+dependencies = [
+ "eg-types",
+ "hex",
+ "redb",
+ "rmp-serde",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+]
+
+[[package]]
 name = "eg-stream"
 version = "0.1.0"
 dependencies = [
