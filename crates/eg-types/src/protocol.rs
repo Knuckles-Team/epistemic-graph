@@ -168,6 +168,31 @@ pub fn build_context_operation_signature_bytes(
     buf
 }
 
+/// One operation on the placement-catalog admin surface (CONCEPT:EG-KG.sharding.placement-catalog-admin-rpc,
+/// DIST-P2-5). Nested under `Method::PlacementAdmin { op }` — mirrors
+/// [`crate::modality::ServedModalityOp`]'s "one Method variant, many operations" shape.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
+pub enum PlacementAdminOp {
+    /// Assign the WHOLE keyspace of `tenant` to `group` (the placement DECISION leg).
+    /// Collapses any prior split. Returns `{"epoch": u64}` — the new routing epoch
+    /// every subsequent `PlacementRoute`/read observes immediately.
+    Assign { tenant: String, group: u64 },
+    /// Online-move `tenant`'s partition `[range_start, range_end]` to `target`.
+    /// Returns a `PlacementMoveReport` JSON: `{tenant, range, target, epoch,
+    /// graphs: [{graph, from_group, to_group, nodes_transferred}]}`.
+    Move {
+        tenant: String,
+        range_start: u64,
+        range_end: u64,
+        target: u64,
+    },
+    /// Abort an in-flight online move identified by `move_id` before its cutover
+    /// fence. A move already past its epoch fence is rejected (roll-forward only,
+    /// matching `TenantManager::abort_move`'s in-process contract). Returns `Bool`.
+    AbortMove { move_id: String },
+}
+
 // ── Method ──────────────────────────────────────────────────────────────
 
 /// All operations supported by the service.
@@ -1164,6 +1189,30 @@ pub enum Method {
     /// always has a non-zero epoch; an authoritative unplaced route uses epoch zero.
     PlacementRoute {
         request: crate::epistemic_operations::PlacementRouteRequest,
+    },
+
+    // ── Placement-catalog ADMIN mutations (CONCEPT:EG-KG.sharding.placement-catalog-admin-rpc,
+    // DIST-P2-5) ─────────────────────────────────────────────────────────────
+    // Before this existed, `PlacementCatalog`'s assign/split/merge/online-move machinery
+    // (`src/raft/placement.rs`, `src/raft/reshard.rs::TenantManager`) was reachable ONLY
+    // from in-process Rust (tests/harnesses) -- there was no wire method to actually
+    // TRIGGER a placement decision or an online move from outside the engine process,
+    // even on a real multi-group Raft cluster. This closes that gap: a thin RPC entry
+    // point over the ALREADY-PROVEN `MultiRaft`/`TenantManager` admin API
+    // (`src/server/handlers/placement.rs`), raft/cluster-only, admin-scoped
+    // (`"admin:cluster"`, the same tier as `Reshard`/`CatalogAssign`). ONE `Method`
+    // variant carrying a nested op enum (mirrors `ServedModality { op }` above) rather
+    // than three flat variants, keeping the top-level `Method` enum's growth to +1.
+    /// Drive the placement-catalog admin API (CONCEPT:EG-KG.sharding.placement-catalog-admin-rpc):
+    /// [`PlacementAdminOp::Assign`] (the placement DECISION leg), [`PlacementAdminOp::Move`]
+    /// (the full PLAN → EXECUTE → CATALOG-UPDATE leg — snapshot → per-graph
+    /// durability-barrier catch-up → fenced cutover, reusing the already-proven
+    /// `TenantManager::move_partition` state machine, crash-safe via its durable move
+    /// journal), or [`PlacementAdminOp::AbortMove`] (roll back before the cutover
+    /// fence). Raft/cluster only; a non-clustered build returns a typed "not available"
+    /// error. Returns operation-specific JSON — see [`PlacementAdminOp`].
+    PlacementAdmin {
+        op: PlacementAdminOp,
     },
 
     // ── Online backup / restore + PITR (CONCEPT:EG-KG.sharding.reshard-on-restore) ──────────────
