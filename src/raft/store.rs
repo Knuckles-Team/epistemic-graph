@@ -666,14 +666,40 @@ impl EgStore {
             });
         }
 
-        // Resolve (creating if absent) the target graph's core. A follower that has
-        // never seen this graph creates it from the request's name/type.
+        // Resolve the target graph's RESIDENT core. Mirrors the live dispatch
+        // cold-path: a follower replaying a CreateGraph->write sequence may find the
+        // graph catalog-known but not yet materialized (evicted mid-replay, or
+        // catalog-only after a restart) -- `exists()` true but `get()` None. Lazy-open
+        // it FIRST (a no-op for a genuinely-unknown name, so a follower's first sight
+        // of a brand-new graph still falls through to create), then create only if
+        // genuinely absent. Fixes the follower catch-up "missing after create" apply
+        // failure that stalls a lagging node from ever finishing catch-up.
+        #[cfg(feature = "redb")]
+        {
+            let miss = {
+                let s = self.ctx.state.read().await;
+                s.registry.get(&req.graph_name).is_none()
+            };
+            if miss {
+                let cap = crate::server::persistence::cold_offload::max_resident_graphs();
+                let page_size = crate::server::persistence::cold_offload::lazy_open_page_size();
+                crate::server::persistence::cold_offload::lazy_open(
+                    &self.ctx.state,
+                    &req.graph_name,
+                    cap,
+                    page_size,
+                )
+                .await;
+            }
+        }
         let (core, persistence) = {
             let mut s = self.ctx.state.write().await;
             if !s.registry.exists(&req.graph_name) {
-                let _ = s
-                    .registry
-                    .create_graph(&req.graph_name, req.graph_type, None);
+                s.registry
+                    .create_graph(&req.graph_name, req.graph_type, None)
+                    .map_err(|e| {
+                        format!("graph '{}' create failed on replay: {e}", req.graph_name)
+                    })?;
             }
             let core = match s.registry.get(&req.graph_name).map(|e| e.core.clone()) {
                 Some(c) => c,
