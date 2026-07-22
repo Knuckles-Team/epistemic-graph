@@ -1444,6 +1444,33 @@ impl RedbBackend {
     /// with millions of persisted graphs costs one shared-lock scan, not a
     /// per-graph write-lock round-trip.
     async fn load_catalog_into(&self, state: &Arc<RwLock<ServerState>>) -> Result<usize, String> {
+        // Write-new half of the one-time graph_meta migration, before the read
+        // below. A store written by a pre-versioned build has rows the current
+        // record cannot decode; `read_all_graph_meta` can now READ them via the
+        // legacy fallback, but leaving them on disk in the old shape would mean
+        // taking that path on every subsequent open. Converting here makes the
+        // fallback genuinely one-time (and is a no-op on an already-current
+        // store, so it costs one read pass per shard at startup and nothing else).
+        let mut upgrade_tasks = Vec::with_capacity(self.shards.len());
+        for shard in &self.shards {
+            let db = shard
+                .db
+                .upgrade()
+                .ok_or_else(|| "redb writer thread is gone".to_string())?;
+            upgrade_tasks.push(move || crate::redb_store::upgrade_legacy_graph_meta(&db));
+        }
+        let upgraded: usize = join_blocking_in_order(upgrade_tasks)
+            .await?
+            .into_iter()
+            .sum();
+        if upgraded > 0 {
+            tracing::info!(
+                "redb: migrated {upgraded} graph metadata row(s) from the pre-versioned \
+                 format to schema v{}",
+                crate::redb_store::graph_meta_schema_version()
+            );
+        }
+
         let mut tasks = Vec::with_capacity(self.shards.len());
         for shard in &self.shards {
             let db = shard
