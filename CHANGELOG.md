@@ -8,7 +8,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
-No unreleased changes.
+### Added
+- **Raft cluster-membership admin RPC** (CONCEPT:EG-KG.storage.kg-kg-2 —
+  `cluster_deployment.md` §5 item 2). `MultiRaft::add_group_learner` /
+  `change_group_voters` (the openraft add-learner / change-membership primitives,
+  split out of the pre-existing `add_group_member`) are now reachable at runtime
+  as `Method::RaftAddLearner` / `Method::RaftChangeMembership`, gated
+  `admin:cluster` and leader-only (a follower answers `OPERATION_REDIRECTED`
+  naming the current leader). Closes the gap where a fresh node could never
+  actually be attached to a live cluster outside the in-process test harness.
+  New `epistemic_graph.client.RaftAdminClient` (`client.raft_admin.add_learner` /
+  `.change_membership`).
 
 ---
 

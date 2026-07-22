@@ -129,3 +129,9 @@ pub(crate) mod knowledge_stream;
 // `MultiRaft`/the catalog exist), and a non-raft build (or a raft build with no live
 // cluster) answers a well-formed "no explicit placement" JSON rather than an error.
 pub(crate) mod placement;
+// Raft cluster-membership ADMIN RPC (CONCEPT:EG-KG.storage.kg-kg-2 — cluster_deployment.md
+// §5 item 2): exposes `MultiRaft::add_group_learner`/`change_group_voters`
+// (raft/multi.rs) over `Method::RaftAddLearner`/`Method::RaftChangeMembership`. Always
+// declared (like `placement`); the real answer is `raft`-gated, and a non-raft build
+// answers a clean typed error.
+pub(crate) mod raft_admin;

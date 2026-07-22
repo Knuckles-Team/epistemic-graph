@@ -703,9 +703,12 @@ impl MultiRaft {
     // cluster on one node. To make a group span multiple NODES you (a) stand the
     // group up EMPTY on each joining node (`join_group`, is_bootstrap=false, so it
     // never `initialize`s — it just opens its store + serves its slot on the shared
-    // listener) and (b) on the group's LEADER add each joiner as a learner then
-    // promote the whole set to voters (`add_group_member`). This is the openraft
-    // add-learner → change-membership lifecycle, per group, over the shared listener.
+    // listener) and (b) on the group's LEADER add each joiner as a learner
+    // (`add_group_learner`) then promote it to a voter (`change_group_voters`), or do
+    // both at once with `add_group_member`. This is the openraft add-learner →
+    // change-membership lifecycle, per group, over the shared listener — reachable at
+    // runtime via `Method::RaftAddLearner`/`Method::RaftChangeMembership`
+    // (src/server/handlers/raft_admin.rs), not just this in-process API.
 
     /// Stand group `gid` up on THIS node as an EMPTY, non-bootstrapping member ready to
     /// receive replication (CONCEPT:EG-KG.storage.kg-kg-2). Unlike [`ensure_group`] (which
@@ -741,17 +744,39 @@ impl MultiRaft {
         Some(voters)
     }
 
-    /// Add `new_node` (reachable at `addr`) to group `gid` as a VOTER (CONCEPT:EG-KG.storage.kg-kg-2).
-    /// MUST be called on the group's current LEADER (membership changes are leader-only
-    /// in Raft). Runs the openraft two-step join:
+    /// The current NON-VOTING LEARNER set of group `gid` as this node sees it (sorted;
+    /// voters excluded), or `None` if the group isn't running here (CONCEPT:EG-KG.storage.kg-kg-2). The
+    /// [`add_group_learner`](MultiRaft::add_group_learner) counterpart to
+    /// [`group_membership`](MultiRaft::group_membership)'s voter set, so a caller can
+    /// observe a learner attached but not yet promoted.
+    pub async fn group_learners(&self, gid: GroupId) -> Option<Vec<NodeId>> {
+        let raft = self.groups.read().await.get(&gid).cloned()?;
+        let metrics = raft.metrics();
+        let mut learners: Vec<NodeId> = metrics
+            .borrow_watched()
+            .membership_config
+            .membership()
+            .learner_ids()
+            .collect();
+        learners.sort_unstable();
+        Some(learners)
+    }
+
+    /// Attach `new_node` (reachable at `addr`) to group `gid` as a NON-VOTING LEARNER
+    /// (CONCEPT:EG-KG.storage.kg-kg-2) — the primitive `cluster_deployment.md` §5 item 2 flagged as having
+    /// no external caller. MUST be called on the group's current LEADER (membership
+    /// changes are leader-only in Raft). Registers `addr` in the node's [`BasicNode`]
+    /// so every member's network layer can reach it, then runs ONLY the openraft
+    /// `add_learner(new_node, blocking)` step: it starts replicating to the node and
+    /// BLOCKS until its log is caught up, but does NOT touch the voter set, so quorum
+    /// size and fault tolerance are unaffected. This is the safe, always-available
+    /// first step; promote the learner afterward with [`change_group_voters`] (or use
+    /// [`add_group_member`] for the old bundled add+promote behavior). Idempotent:
+    /// re-adding an existing learner/voter re-confirms the same membership.
     ///
-    /// 1. `add_learner(new_node, blocking)` — start replicating to it and BLOCK until
-    ///    its log is up-to-date, so promoting it can't stall the quorum;
-    /// 2. `change_membership(voters ∪ {new_node})` — commit the new uniform config.
-    ///
-    /// The `addr` is stored in the node's [`BasicNode`] so every member's network layer
-    /// can reach it. Idempotent-ish: re-adding an existing voter re-commits the same set.
-    pub async fn add_group_member(
+    /// [`change_group_voters`]: MultiRaft::change_group_voters
+    /// [`add_group_member`]: MultiRaft::add_group_member
+    pub async fn add_group_learner(
         &self,
         gid: GroupId,
         new_node: NodeId,
@@ -767,23 +792,81 @@ impl MultiRaft {
             .get(&gid)
             .cloned()
             .ok_or_else(|| format!("group {gid} not running on node {}", self.node_id))?;
-        let mut voters: BTreeSet<NodeId> = {
-            let metrics = raft.metrics();
-            let v = metrics
-                .borrow_watched()
-                .membership_config
-                .voter_ids()
-                .collect();
-            v
-        };
         raft.add_learner(new_node, BasicNode::new(addr), true)
             .await
             .map_err(|e| format!("add_learner {new_node} to group {gid}: {e}"))?;
-        voters.insert(new_node);
+        Ok(())
+    }
+
+    /// Set group `gid`'s VOTER set to exactly `voters` (CONCEPT:EG-KG.storage.kg-kg-2) — openraft
+    /// `change_membership`. This is the promotion/rebalance half of the two-step join,
+    /// split out of [`add_group_member`] so a learner added via [`add_group_learner`]
+    /// can be promoted (or the voter set otherwise changed) as its OWN admin step: pass
+    /// the full desired voter set (existing voters plus whichever learner(s) are being
+    /// promoted). MUST be called on the group's current LEADER. Refuses to produce an
+    /// EMPTY voter set (that would make the group leaderless / unrecoverable).
+    /// Idempotent: setting the same voter set re-commits the same config.
+    ///
+    /// [`add_group_member`]: MultiRaft::add_group_member
+    /// [`add_group_learner`]: MultiRaft::add_group_learner
+    pub async fn change_group_voters(
+        &self,
+        gid: GroupId,
+        voters: BTreeSet<NodeId>,
+    ) -> Result<(), String> {
+        if voters.is_empty() {
+            return Err(format!(
+                "refusing to set an empty voter set for group {gid}"
+            ));
+        }
+        let raft = self
+            .groups
+            .read()
+            .await
+            .get(&gid)
+            .cloned()
+            .ok_or_else(|| format!("group {gid} not running on node {}", self.node_id))?;
         raft.change_membership(voters, false)
             .await
-            .map_err(|e| format!("change_membership group {gid} add {new_node}: {e}"))?;
+            .map_err(|e| format!("change_membership group {gid}: {e}"))?;
         Ok(())
+    }
+
+    /// Add `new_node` (reachable at `addr`) to group `gid` as a VOTER (CONCEPT:EG-KG.storage.kg-kg-2).
+    /// MUST be called on the group's current LEADER (membership changes are leader-only
+    /// in Raft). The original bundled two-step join, now composed from
+    /// [`add_group_learner`] (add + block-until-caught-up) followed by
+    /// [`change_group_voters`] (commit the new uniform config including `new_node`) —
+    /// byte-identical behavior to before the split, kept for callers that always want
+    /// the immediate promotion. Idempotent-ish: re-adding an existing voter re-commits
+    /// the same set.
+    ///
+    /// [`add_group_learner`]: MultiRaft::add_group_learner
+    /// [`change_group_voters`]: MultiRaft::change_group_voters
+    pub async fn add_group_member(
+        &self,
+        gid: GroupId,
+        new_node: NodeId,
+        addr: String,
+    ) -> Result<(), String> {
+        self.add_group_learner(gid, new_node, addr).await?;
+        let raft = self
+            .groups
+            .read()
+            .await
+            .get(&gid)
+            .cloned()
+            .ok_or_else(|| format!("group {gid} not running on node {}", self.node_id))?;
+        let mut voters: BTreeSet<NodeId> = {
+            let metrics = raft.metrics();
+            metrics
+                .borrow_watched()
+                .membership_config
+                .voter_ids()
+                .collect()
+        };
+        voters.insert(new_node);
+        self.change_group_voters(gid, voters).await
     }
 
     /// Remove `node` from group `gid`'s voter set (CONCEPT:EG-KG.storage.kg-kg-2). MUST be called on
