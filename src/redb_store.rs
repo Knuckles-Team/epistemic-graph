@@ -4995,6 +4995,52 @@ where
 
 const GRAPH_META_SCHEMA_VERSION: u16 = 2;
 
+/// The durable `graph_meta` schema version this build writes.
+pub(crate) fn graph_meta_schema_version() -> u16 {
+    GRAPH_META_SCHEMA_VERSION
+}
+
+/// The pre-schema_version `graph_meta` value: a bare msgpack map of exactly
+/// `{"name", "graph_type"}` written by every engine build before the versioned
+/// record landed.
+///
+/// Retaining this reader is the ON-DISK MIGRATION exception to No-Legacy — the
+/// one case the architecture doc carves out, because a durable store cannot be
+/// updated by editing code. Without it a store written by any prior build is
+/// permanently unopenable: `GraphMetaRecord` is `deny_unknown_fields` and its
+/// `integrity_policy` has no serde default, so a legacy row cannot decode, the
+/// catalog load fails, and the engine refuses to start with
+/// "durable recovery failed; refusing availability". That is exactly what a 9.9G
+/// production store did.
+///
+/// This is read-old → write-new, not a permanent dual-format reader: every
+/// decoded legacy row is rewritten in the current format by
+/// [`upgrade_legacy_graph_meta`], so a converted store never takes this path
+/// again and this shape can be deleted once no legacy store remains.
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LegacyGraphMetaRecord {
+    name: String,
+    graph_type: GraphType,
+}
+
+/// Derive a STABLE incarnation id for a graph recovered from a legacy record.
+///
+/// Deliberately not [`new_incarnation_id`]: that mixes in the wall clock, so a
+/// legacy store would mint a different incarnation on every open. Incarnation
+/// identity is what fencing and raft replica agreement are keyed on, so a
+/// per-restart value would make a migrated graph look like a new incarnation on
+/// each boot and would disagree across replicas converting the same store.
+/// Hashing only a fixed domain tag and the graph name makes the upgrade
+/// deterministic, idempotent, and identical on every node.
+fn legacy_incarnation_id(graph: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut digest = Sha256::new();
+    digest.update(b"epistemic-graph-incarnation-legacy-v1\0");
+    digest.update(graph.as_bytes());
+    format!("{:x}", digest.finalize())[..32].to_string()
+}
+
 fn new_incarnation_id(graph: &str) -> String {
     static NEXT_INCARNATION: AtomicU64 = AtomicU64::new(1);
     use sha2::{Digest, Sha256};
@@ -5017,8 +5063,14 @@ fn new_incarnation_id(graph: &str) -> String {
 }
 
 fn decode_meta_record(graph: &str, blob: &[u8]) -> Result<GraphMetaRecord, String> {
-    let record: GraphMetaRecord = decode_durable(blob)
-        .map_err(|error| format!("decode graph metadata for {graph}: {error}"))?;
+    let record: GraphMetaRecord = match decode_durable::<GraphMetaRecord>(blob) {
+        Ok(record) => record,
+        // A legacy row cannot decode into the versioned record at all (it has no
+        // schema_version/incarnation_id and the struct denies unknown fields), so
+        // the fallback is keyed on the decode failing, not on a version compare.
+        Err(current_error) => decode_legacy_meta_record(graph, blob)
+            .ok_or_else(|| format!("decode graph metadata for {graph}: {current_error}"))?,
+    };
     if record.schema_version != GRAPH_META_SCHEMA_VERSION {
         return Err(format!(
             "graph metadata for {graph} has unsupported schema version {}",
@@ -5033,6 +5085,93 @@ fn decode_meta_record(graph: &str, blob: &[u8]) -> Result<GraphMetaRecord, Strin
     Ok(record)
 }
 
+/// Lift a legacy `{"name", "graph_type"}` row into the current record shape.
+///
+/// Returns `None` when the blob is not a legacy record either, so the caller can
+/// report the CURRENT format's decode error rather than masking genuine
+/// corruption as "not legacy".
+///
+/// `integrity_policy` becomes `None` — its documented fail-closed unconfigured
+/// state, and a faithful reading of a store written before the field existed:
+/// no policy was ever configured, so none is asserted.
+fn decode_legacy_meta_record(graph: &str, blob: &[u8]) -> Option<GraphMetaRecord> {
+    let legacy: LegacyGraphMetaRecord = decode_durable(blob).ok()?;
+    if legacy.name.trim().is_empty() {
+        return None;
+    }
+    Some(GraphMetaRecord {
+        schema_version: GRAPH_META_SCHEMA_VERSION,
+        incarnation_id: legacy_incarnation_id(&legacy.name),
+        name: legacy.name,
+        graph_type: legacy.graph_type,
+        integrity_policy: None,
+    })
+    .inspect(|_| {
+        tracing::info!(
+            "graph metadata for {graph} upgraded from the pre-versioned format \
+             (integrity policy unconfigured); it is rewritten in the current format"
+        )
+    })
+}
+
+/// Rewrite every legacy `graph_meta` row in `db` in the current format.
+///
+/// The write-new half of the one-time migration. Runs inside a single redb write
+/// transaction so a crash mid-upgrade leaves the store wholly on the old format
+/// (still readable by the fallback above) rather than half-converted. Idempotent:
+/// rows already in the current format decode on the first attempt and are left
+/// untouched, so a second run is a no-op and rewrites nothing.
+///
+/// Returns the number of rows upgraded.
+pub(crate) fn upgrade_legacy_graph_meta(db: &Database) -> Result<usize, String> {
+    let stale: Vec<(String, Vec<u8>)> = {
+        let rtx = db.begin_read().map_err(|e| e.to_string())?;
+        // A store that has never held a graph has no `graph_meta` table yet, and
+        // opening a missing table in a READ transaction is an error (a write
+        // transaction would create it). A fresh install has nothing to migrate,
+        // so treat that as "no legacy rows" rather than failing startup — the
+        // migration must never be the reason a new deployment cannot boot.
+        let Ok(table) = rtx.open_table(GRAPH_META) else {
+            return Ok(0);
+        };
+        let mut stale = Vec::new();
+        for row in table.iter().map_err(|e| e.to_string())? {
+            let (k, v) = row.map_err(|e| e.to_string())?;
+            let key = k.value().to_string();
+            if decode_durable::<GraphMetaRecord>(v.value()).is_ok() {
+                continue; // already current
+            }
+            let Some(record) = decode_legacy_meta_record(&key, v.value()) else {
+                // Neither format: leave it. The catalog load reports it properly.
+                continue;
+            };
+            let encoded = encode_meta_record(
+                &record.name,
+                record.graph_type,
+                &record.incarnation_id,
+                record.integrity_policy.as_ref(),
+            )?;
+            stale.push((key, encoded));
+        }
+        stale
+    };
+    if stale.is_empty() {
+        return Ok(0);
+    }
+    let count = stale.len();
+    let wtx = db.begin_write().map_err(|e| e.to_string())?;
+    {
+        let mut table = wtx.open_table(GRAPH_META).map_err(|e| e.to_string())?;
+        for (key, encoded) in stale {
+            table
+                .insert(key.as_str(), encoded.as_slice())
+                .map_err(|e| e.to_string())?;
+        }
+    }
+    wtx.commit().map_err(|e| e.to_string())?;
+    Ok(count)
+}
+
 /// Decode the logical identity carried by a raw `graph_meta` row.
 ///
 /// Raft snapshots and online resharding copy this row verbatim.  Consumers must
@@ -5044,6 +5183,131 @@ pub(crate) fn decode_graph_meta_identity(
 ) -> Result<(String, GraphType, String), String> {
     let record = decode_meta_record(graph, blob)?;
     Ok((record.name, record.graph_type, record.incarnation_id))
+}
+
+#[cfg(test)]
+mod graph_meta_migration_tests {
+    //! The pre-versioned `graph_meta` format must stay openable, because a
+    //! durable store cannot be migrated by shipping new code alone. A production
+    //! store written by an earlier build was permanently unopenable without this
+    //! path: the engine died with "durable recovery failed; refusing availability".
+    use super::*;
+
+    /// The exact bytes a pre-versioned build wrote: `{"name", "graph_type"}`.
+    fn legacy_blob(name: &str, gtype: GraphType) -> Vec<u8> {
+        rmp_serde::to_vec_named(&serde_json::json!({"name": name, "graph_type": gtype})).unwrap()
+    }
+
+    fn open(dir: &std::path::Path) -> Database {
+        Database::create(dir.join("graph-0.redb")).unwrap()
+    }
+
+    fn put(db: &Database, key: &str, blob: &[u8]) {
+        let wtx = db.begin_write().unwrap();
+        {
+            let mut t = wtx.open_table(GRAPH_META).unwrap();
+            t.insert(key, blob).unwrap();
+        }
+        wtx.commit().unwrap();
+    }
+
+    #[test]
+    fn a_legacy_row_decodes_instead_of_failing_recovery() {
+        let record = decode_meta_record("g", &legacy_blob("mygraph", GraphType::Global)).unwrap();
+        assert_eq!(record.name, "mygraph");
+        assert_eq!(record.schema_version, GRAPH_META_SCHEMA_VERSION);
+        // Faithful to a store written before the field existed: nothing was configured.
+        assert!(record.integrity_policy.is_none());
+        assert!(!record.incarnation_id.trim().is_empty());
+    }
+
+    #[test]
+    fn a_legacy_incarnation_is_stable_across_calls() {
+        // Fencing and raft replica agreement key on incarnation identity, so a
+        // per-open value would make a migrated graph look new on every boot and
+        // would disagree between replicas converting the same store.
+        assert_eq!(legacy_incarnation_id("g"), legacy_incarnation_id("g"));
+        assert_ne!(legacy_incarnation_id("g"), legacy_incarnation_id("h"));
+        assert_eq!(
+            decode_meta_record("g", &legacy_blob("g", GraphType::Global))
+                .unwrap()
+                .incarnation_id,
+            decode_meta_record("g", &legacy_blob("g", GraphType::Global))
+                .unwrap()
+                .incarnation_id
+        );
+    }
+
+    #[test]
+    fn a_current_row_still_round_trips_unchanged() {
+        let encoded = encode_meta_with_incarnation("g", GraphType::Global, "inc-1").unwrap();
+        let record = decode_meta_record("g", &encoded).unwrap();
+        assert_eq!(record.incarnation_id, "inc-1");
+    }
+
+    #[test]
+    fn genuine_corruption_still_reports_the_current_format_error() {
+        // The fallback must not mask real corruption as "not legacy".
+        let error = match decode_meta_record("g", b"\xc1\xc1not-msgpack") {
+            Ok(_) => panic!("corrupt graph metadata must not decode"),
+            Err(error) => error,
+        };
+        assert!(error.contains("decode graph metadata for g"), "{error}");
+    }
+
+    #[test]
+    fn upgrade_rewrites_legacy_rows_and_is_idempotent() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = open(dir.path());
+        put(&db, "graph-a", &legacy_blob("graph-a", GraphType::Global));
+        put(
+            &db,
+            "graph-b",
+            &encode_meta_with_incarnation("graph-b", GraphType::Global, "inc-b").unwrap(),
+        );
+
+        assert_eq!(
+            upgrade_legacy_graph_meta(&db).unwrap(),
+            1,
+            "only the legacy row"
+        );
+        // Second run rewrites nothing — the migration is genuinely one-time.
+        assert_eq!(upgrade_legacy_graph_meta(&db).unwrap(), 0);
+
+        let rows = read_all_graph_meta(&db).unwrap();
+        assert_eq!(rows.len(), 2);
+        // The converted row now decodes as current WITHOUT the legacy fallback.
+        let rtx = db.begin_read().unwrap();
+        let table = rtx.open_table(GRAPH_META).unwrap();
+        let raw = table.get("graph-a").unwrap().unwrap();
+        assert!(decode_durable::<GraphMetaRecord>(raw.value()).is_ok());
+    }
+
+    #[test]
+    fn upgrade_is_a_no_op_on_a_store_with_no_graph_meta_table() {
+        // A fresh install has never written a graph, so the table does not exist.
+        // Opening a missing table in a read txn is an error; the migration must
+        // not turn that into a startup failure for a brand-new deployment.
+        let dir = tempfile::tempdir().unwrap();
+        let db = open(dir.path());
+        assert_eq!(upgrade_legacy_graph_meta(&db).unwrap(), 0);
+    }
+
+    #[test]
+    fn a_whole_legacy_store_recovers_its_catalog() {
+        // The end-to-end shape of the production failure: several legacy graphs,
+        // none of which the current record can decode.
+        let dir = tempfile::tempdir().unwrap();
+        let db = open(dir.path());
+        for name in ["alpha", "beta", "gamma"] {
+            put(&db, name, &legacy_blob(name, GraphType::Global));
+        }
+        let rows = read_all_graph_meta(&db).unwrap();
+        assert_eq!(rows.len(), 3);
+        let mut names: Vec<_> = rows.into_iter().map(|(_, n, _, _)| n).collect();
+        names.sort();
+        assert_eq!(names, vec!["alpha", "beta", "gamma"]);
+    }
 }
 
 #[cfg(all(test, feature = "security"))]

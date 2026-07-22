@@ -300,8 +300,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .max_blocking_threads(max_blocking)
             .enable_all()
             .build()
-            .map_err(|_| ())?;
-        runtime.block_on(async { run().await.map_err(|_| ()) })
+            .map_err(|error| {
+                eprintln!("error: could not build the engine runtime: {error}");
+            })?;
+        runtime.block_on(async {
+            // The driver signature carries no error payload, so this is the LAST
+            // place the real cause exists. Report it before it is discarded:
+            // without this the operator sees only "engine runtime driver failed"
+            // for every possible startup fault. A durable-recovery failure on a
+            // 9.9G production store presented exactly that way, and the actual
+            // reason — a graph_meta row the current build could not decode — was
+            // only recoverable by bisecting against an empty store.
+            run().await.map_err(|error| {
+                eprintln!("error: engine startup failed: {error}");
+            })
+        })
     })?;
     match server::join_engine_driver(driver)? {
         Ok(()) => Ok(()),
