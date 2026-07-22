@@ -51,6 +51,9 @@ pub mod nemesis;
 #[cfg(test)]
 mod gauntlet_test;
 
+#[cfg(test)]
+mod catchup_test;
+
 use std::sync::Arc;
 use std::time::Duration;
 
