@@ -2684,6 +2684,20 @@ async fn dispatch_inner(
             }
         }
 
+        // ── Raft cluster membership admin (CONCEPT:EG-KG.storage.kg-kg-2 — cluster_deployment.md §5
+        // item 2) ── Self-routing, NOT graph-scoped (cluster-wide, like the M3 admin
+        // block above): attaches/promotes a node against `MultiRaft` directly. Gated
+        // `admin:cluster` by the SAME scope+admin enforcement every other admin-tier
+        // method goes through above (`eg_capabilities::policy`), not a second check
+        // here.
+        Method::RaftAddLearner { .. } | Method::RaftChangeMembership { .. } => {
+            match handlers::raft_admin::try_handle(state, req.id, req.method).await {
+                Ok(resp) => resp,
+                // Unreachable: both variants matched above are raft-admin methods.
+                Err(_) => Response::err(req.id, "raft-admin dispatch routing error"),
+            }
+        }
+
         // ── Channel operations ───────────────────────────────────────
         Method::CreateChannel {
             channel_id,

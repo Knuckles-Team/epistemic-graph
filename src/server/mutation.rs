@@ -3346,6 +3346,8 @@ mod tests {
         ("CatalogRemove", "prepared/committed admin MutationBatch saga around the durable tenant catalog"),
         ("RebalanceExecute", "prepared/committed admin MutationBatch saga around cluster-wide rebalance"),
         ("Restore", "prepared/committed admin MutationBatch saga around online restore/PITR"),
+        ("RaftAddLearner", "leader-only openraft add_learner via handlers::raft_admin::try_handle against MultiRaft directly -- no GraphCore/graph_name in scope, cluster-wide like Reshard/CatalogAssign above"),
+        ("RaftChangeMembership", "leader-only openraft change_membership via handlers::raft_admin::try_handle against MultiRaft directly -- no GraphCore/graph_name in scope, cluster-wide like Reshard/CatalogAssign above"),
         ("CreateMatView", "prepared/committed control-plane MutationBatch saga around the durable cross-shard view row"),
         ("RefreshMatView", "prepared/committed control-plane MutationBatch saga around the durable cross-shard view row"),
         ("PlanMatViewDefine", "prepared/committed control-plane MutationBatch saga around the durable plan definition"),

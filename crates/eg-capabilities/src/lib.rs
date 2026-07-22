@@ -870,6 +870,15 @@ pub fn policy(m: &Method) -> MethodPolicy {
             emits_cdc: false,
             txn_participation: TxnParticipation::Snapshot,
         },
+        Method::RaftAddLearner { .. } | Method::RaftChangeMembership { .. } => MethodPolicy {
+            mutates: true,
+            durability_domain: DurabilityDomain::ControlRedb,
+            authz_action: "admin:cluster",
+            idempotent: true,
+            audited: false,
+            emits_cdc: false,
+            txn_participation: TxnParticipation::Saga,
+        },
         Method::Backup { .. } => MethodPolicy {
             mutates: false,
             durability_domain: DurabilityDomain::None,
@@ -2162,6 +2171,8 @@ pub const ALL_METHODS: &[(&str, MethodPolicy, &str)] = &[
         ("RebalancePlan", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "admin:cluster-read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, ""),
         ("RebalanceExecute", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::ControlRedb, authz_action: "admin:cluster", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Saga }, "prepared/committed admin MutationBatch saga"),
         ("PlacementRoute", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "admin:cluster-read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "engine-authoritative complete route; single-node returns authoritative unplaced group 0/epoch 0, while clustered routing requires a live MultiRaft control leader"),
+        ("RaftAddLearner", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::ControlRedb, authz_action: "admin:cluster", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Saga }, "leader-only openraft add_learner; attaches a non-voting replica without changing the voter set"),
+        ("RaftChangeMembership", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::ControlRedb, authz_action: "admin:cluster", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Saga }, "leader-only openraft change_membership; sets the group's exact voter set (the usual way to promote a learner added via RaftAddLearner)"),
         ("Backup", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "admin:backup", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "reads a consistent snapshot out to a bundle; does not mutate the live graph"),
         ("Restore", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::ControlRedb, authz_action: "admin:backup", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Saga }, "prepared/committed admin MutationBatch saga"),
         ("CreateChannel", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::ControlRedb, authz_action: "channel:admin", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Saga }, "opaque prepared/committed session-control MutationBatch; message/member payloads stay out of the ledger"),
@@ -2471,15 +2482,17 @@ mod smoke_tests {
             // mirrored classifier comparisons live in `tests/consistency.rs`.
             let _ = table_policy;
         }
-        // Unconditional `ALL_METHODS` rows. The table has 358 total entry lines, of
+        // Unconditional `ALL_METHODS` rows. The table has 360 total entry lines, of
         // which 4 are feature-gated (jobs, statechart, modality-serving,
-        // knowledge-batch) => 354 unconditional. NOTE: this base constant was `352` and
+        // knowledge-batch) => 356 unconditional. NOTE: this base constant was `352` and
         // was already STALE by two BEFORE the statechart work — at base `main` the table
         // already had 354 unconditional rows (357 lines − 3 gated), so
         // `all_methods_table_matches_policy_fn...` was failing on a zero-feature build
         // independent of this change. Corrected to the git-verified actual count so the
-        // invariant is accurate across every feature combination.
-        let expected = 354
+        // invariant is accurate across every feature combination. Bumped 354 -> 356 for
+        // the `RaftAddLearner`/`RaftChangeMembership` cluster-membership admin methods
+        // (CONCEPT:EG-KG.storage.kg-kg-2).
+        let expected = 356
             + usize::from(cfg!(feature = "jobs"))
             + usize::from(cfg!(feature = "statechart"))
             + usize::from(cfg!(feature = "modality-serving"))

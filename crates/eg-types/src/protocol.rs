@@ -1118,6 +1118,42 @@ pub enum Method {
         max_moves: Option<usize>,
     },
 
+    // ── Raft cluster membership admin (CONCEPT:EG-KG.storage.kg-kg-2 — cluster_deployment.md §5 item 2) ──
+    // The wire surface that lets an operator attach a fresh node to a LIVE Raft
+    // group without a bespoke binary. `MultiRaft::add_group_learner` /
+    // `change_group_voters` (src/raft/multi.rs) already implement the openraft
+    // add-learner / change-membership lifecycle — they simply had NO external
+    // caller, so §2c of the cluster deployment runbook could not actually be
+    // driven outside the in-process test harness. Both ops are leader-only; a
+    // follower answers `OPERATION_REDIRECTED` naming the current leader
+    // (mirroring `PlacementRoute`'s stale-route redirect), and an engine with
+    // no live `MultiRaft` returns a clean typed error rather than a silent
+    // no-op. Always declared (like the M3 admin block above); the real answer
+    // is `raft`-gated, and a non-raft build returns "not available".
+    /// Attach `node_id` (reachable at `addr`) to `group` as a NON-VOTING
+    /// LEARNER (CONCEPT:EG-KG.storage.kg-kg-2). Starts replication immediately and BLOCKS
+    /// until the learner's log is caught up, but does NOT change the voter
+    /// set — quorum size and fault tolerance are unaffected. The safe,
+    /// always-available first step before optionally promoting the node with
+    /// `RaftChangeMembership`. `group` defaults to the single-group
+    /// deployment's `raft::DEFAULT_GROUP` (0) when omitted. Returns `Bool` on
+    /// success.
+    RaftAddLearner {
+        group: Option<u64>,
+        node_id: u64,
+        addr: String,
+    },
+    /// Set `group`'s VOTER set to exactly `voters` (CONCEPT:EG-KG.storage.kg-kg-2) — openraft
+    /// `change_membership`. The usual way to PROMOTE one or more learners
+    /// added via `RaftAddLearner`: pass the full desired voter set (existing
+    /// voters plus the learner(s) being promoted). Refuses to produce an
+    /// empty voter set. `group` defaults to `raft::DEFAULT_GROUP` (0) when
+    /// omitted. Returns `Bool` on success.
+    RaftChangeMembership {
+        group: Option<u64>,
+        voters: Vec<u64>,
+    },
+
     // ── Placement-catalog wire consumption (CONCEPT:EG-KG.sharding.placement-route-rpc, DIST-P2-4) ──
     // Exposes the engine's sole placement authority over the wire. The response is
     // complete even for an unplaced/single-node partition, so callers never hash or
