@@ -43,6 +43,15 @@ def bootstrap_context() -> dict[str, object]:
 def strict_server_env(state_dir: str, *, auth_secret: str) -> dict[str, str]:
     return {
         "GRAPH_SERVICE_AUTH_SECRET": auth_secret,
+        # Explicit, deliberate opt-out of the MANDATORY-OIDC posture (secure
+        # by default since 2026-07-22 — see auth.rs's `require_oidc()`). This
+        # test suite deliberately exercises the plain `eg2.` HMAC-envelope
+        # protocol (no Keycloak/OIDC provider is available in CI), which is
+        # exactly the documented local/dev use case for this opt-out. A
+        # dedicated end-to-end proof that the REAL default (this var unset)
+        # refuses to start, and that this opt-out genuinely restores the
+        # legacy behavior, lives in test_auth_enforcement.py.
+        "EPISTEMIC_GRAPH_REQUIRE_OIDC": "false",
         "EPISTEMIC_GRAPH_AUDIENCE": TEST_AUDIENCE,
         "EPISTEMIC_GRAPH_TENANT": TEST_TENANT,
         "EPISTEMIC_GRAPH_POLICY_VERSION": TEST_POLICY_VERSION,

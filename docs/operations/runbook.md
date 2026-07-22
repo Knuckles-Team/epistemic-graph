@@ -44,6 +44,8 @@ one main build now. Only `raft`/`compute-dist` (the `cluster` layer) and `gpu-cu
 | `GRAPH_SERVICE_TLS_CERT` / `GRAPH_SERVICE_TLS_KEY` | PEM server identity for native TCP TLS. Both are required together. | (none) |
 | `GRAPH_SERVICE_TLS_CLIENT_CA` | Optional client CA bundle; setting it requires mTLS. | (none) |
 | `GRAPH_SERVICE_AUTH_SECRET` | Non-empty HMAC secret for `eg2.` plus protocol-specific credential derivation. **Required.** | (none) |
+| `EPISTEMIC_GRAPH_REQUIRE_OIDC` | MANDATORY-OIDC posture (since 2026-07-22). Unset/unrecognized ⇒ **required**: refuses to start without a configured OIDC verifier. `false`/`0`/`no`/`off` is the explicit, deliberate local/dev opt-out. See [deployment.md § Migrating to OIDC-required](../deployment.md#migrating-to-oidc-required). | **required** |
+| `EPISTEMIC_GRAPH_OIDC_JWT_ISSUER` / `_AUDIENCE` / `EPISTEMIC_GRAPH_OIDC_JWKS_URL` | Keycloak realm issuer / audience / JWKS URL. **Required unless `EPISTEMIC_GRAPH_REQUIRE_OIDC` is explicitly opted out.** | (none) |
 | `EPISTEMIC_GRAPH_AUDIENCE` | Exact non-empty request audience. **Required.** | (none) |
 | `EPISTEMIC_GRAPH_TENANT` | Exact non-empty request tenant. **Required.** | (none) |
 | `EPISTEMIC_GRAPH_POLICY_VERSION` | Exact non-empty authorization-policy revision. **Required.** | (none) |

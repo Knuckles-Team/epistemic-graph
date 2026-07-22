@@ -232,6 +232,10 @@ asyncio.run(main())
 | — | Bolt auth token | `epistemic` | Fresh hex-MessagePack `Health` request carrying the current `eg2.` envelope; its signed graph/tenant/audience/policy/scopes become the session authority |
 | — | MSSQL/AMQP/MQTT/STOMP protocol auth | fixed HMAC derivation | Mandatory domain-separated credential proof from `GRAPH_SERVICE_AUTH_SECRET`; missing key material fails startup |
 | `--auth-secret` | `GRAPH_SERVICE_AUTH_SECRET` | — (**required**) | Non-empty HMAC-SHA256 secret for `eg2.` envelopes |
+| — | `EPISTEMIC_GRAPH_REQUIRE_OIDC` | unset ⇒ **required** (secure by default since 2026-07-22) | MANDATORY-OIDC posture. Unset/unrecognized ⇒ every request must carry a verified OIDC bearer token bound to its `principal`/`tenant`, and the server refuses to **start** if no OIDC issuer is configured. Explicit, deliberate opt-out for local/dev only: `false`/`0`/`no`/`off` restores pre-2026-07-22 HMAC-only-permitted behavior. See [Migrating to OIDC-required](#migrating-to-oidc-required) below. |
+| — | `EPISTEMIC_GRAPH_OIDC_JWT_ISSUER` (falls back to `OIDC_ISSUER`) | — (required when `EPISTEMIC_GRAPH_REQUIRE_OIDC` is not explicitly opted out) | Keycloak realm issuer URL, e.g. `https://keycloak.example/realms/eg` |
+| — | `EPISTEMIC_GRAPH_OIDC_JWT_AUDIENCE` (falls back to `OIDC_AUDIENCE`) | — (required alongside the issuer) | Expected `aud` claim — the Keycloak client id/audience minted for `epistemic-graph` |
+| — | `EPISTEMIC_GRAPH_OIDC_JWKS_URL` | — (required alongside the issuer, no fallback) | Keycloak realm JWKS endpoint, e.g. `https://keycloak.example/realms/eg/protocol/openid-connect/certs` |
 | — | `EPISTEMIC_GRAPH_AUDIENCE` | — (**required**) | Exact audience accepted by request verification |
 | — | `EPISTEMIC_GRAPH_TENANT` | — (**required**) | Exact tenant accepted by request verification |
 | — | `EPISTEMIC_GRAPH_POLICY_VERSION` | — (**required**) | Exact authorization-policy revision accepted by request verification |
@@ -263,6 +267,59 @@ Authentication cannot be disabled on any of these listeners. Missing key materia
 unknown auth values and self-asserted principals fail startup or
 authentication in every profile. Fixed credential derivations are domain-separated:
 `mssql:`, `amqp:`, `mqtt:` and `stomp:` plus the verified principal.
+
+### Migrating to OIDC-required
+
+Since 2026-07-22, `EPISTEMIC_GRAPH_REQUIRE_OIDC` defaults ON (unset ⇒ required — see
+`src/server/auth.rs`'s `require_oidc()`). This closes the primary `eg2.` protocol's
+Identity boundary seam: previously, the HMAC envelope alone (`GRAPH_SERVICE_AUTH_SECRET`)
+was sufficient to claim ANY principal/tenant/roles/scopes; OIDC verification was real but
+opt-in. Today, absent explicit configuration, **the server refuses to start** rather than
+silently accept HMAC-only identity — the same fail-closed posture as the mandatory
+`GRAPH_SERVICE_AUTH_SECRET` gate.
+
+A deployment upgrading past this point needs exactly one of:
+
+1. **Configure OIDC** (recommended for every non-trivial deployment) — set all three:
+   - `EPISTEMIC_GRAPH_OIDC_JWT_ISSUER` (or the shared `OIDC_ISSUER`) — the realm issuer URL
+   - `EPISTEMIC_GRAPH_OIDC_JWT_AUDIENCE` (or the shared `OIDC_AUDIENCE`) — the expected `aud`
+   - `EPISTEMIC_GRAPH_OIDC_JWKS_URL` — the realm JWKS endpoint (no shared fallback)
+
+   Every client must then present a real `oidc_token` (a bearer token from that issuer) inside
+   its `eg2.` envelope whose verified `sub`/tenant/roles/scopes match what it self-asserts.
+   Homelab deployments point these at **Keycloak** — see the Keycloak-specific note below.
+
+2. **Explicit local/dev opt-out** — set `EPISTEMIC_GRAPH_REQUIRE_OIDC=false` (or `0`/`no`/`off`)
+   to keep the pre-2026-07-22 HMAC-only-permitted posture. This must be a deliberate,
+   documented choice per deployment; it is never the default.
+
+**What breaks if neither is done:** the server prints
+`EPISTEMIC_GRAPH_REQUIRE_OIDC requires OIDC identity binding ... but no usable OIDC verifier
+is configured` and exits with status `1` before opening any listener — an immediate, loud
+boot failure, not a degraded or partially-open service.
+
+**Keycloak-side configuration this implies:** a confidential OIDC client registered for
+`epistemic-graph` in the target realm, with:
+- Client authentication ON (confidential client), so callers exchange credentials for a
+  real access token — matches the existing SSO pattern the rest of the homelab already uses.
+- The access token's issuer (`iss`) reachable at `EPISTEMIC_GRAPH_OIDC_JWT_ISSUER` and its
+  audience (`aud`) matching `EPISTEMIC_GRAPH_OIDC_JWT_AUDIENCE` — in Keycloak terms, either
+  the client id itself or a configured audience mapper/scope that stamps that value into `aud`.
+- The realm's JWKS reachable (network-wise, from every `epistemic-graph` node) at
+  `.../realms/<realm>/protocol/openid-connect/certs` — `EPISTEMIC_GRAPH_OIDC_JWKS_URL`.
+- Token claims carrying subject (`sub`), a tenant claim (`tenant_id`/`tenant`/`org_id`/`tid`/
+  `org` — any one), and roles/scopes the caller's `eg2.` envelope self-asserts (via
+  `realm_access.roles`, `resource_access.<client>.roles`, and `scope`/`scp`) — every caller
+  (human SSO session or service account/client-credentials grant) must carry a **tenant**
+  claim or its requests are rejected (`bind_verified_identity` treats an absent tenant claim
+  as proof of nothing, not a wildcard).
+- RS256/RS384/RS512 signing only (Keycloak's default) — this verifier explicitly rejects
+  `none`/HMAC-signed tokens to prevent an algorithm-downgrade attack.
+
+Nothing about this changes how Keycloak SSO works for humans; it only requires that the
+`epistemic-graph` server itself, and every direct `eg2.`-protocol caller (agent-utilities'
+`GraphSession`, service accounts, CLI tooling), present a Keycloak-issued token instead of
+relying on the shared HMAC secret alone.
 
 ---
 

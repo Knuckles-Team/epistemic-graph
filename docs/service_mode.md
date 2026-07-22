@@ -69,6 +69,8 @@ epistemic-graph-service graphs list
 | `--tcp-tls-cert` / `--tcp-tls-key` | `GRAPH_SERVICE_TLS_CERT` / `GRAPH_SERVICE_TLS_KEY` | — | PEM identity required together for routable native TCP |
 | `--tcp-tls-client-ca` | `GRAPH_SERVICE_TLS_CLIENT_CA` | — | Optional CA bundle enabling required client certificates |
 | `--auth-secret` | `GRAPH_SERVICE_AUTH_SECRET` | — (**required**) | Non-empty HMAC-SHA256 secret for `eg2.` envelopes |
+| — | `EPISTEMIC_GRAPH_REQUIRE_OIDC` | unset ⇒ **required** (secure by default since 2026-07-22) | OIDC identity binding is mandatory unless explicitly opted out (`false`/`0`/`no`/`off`); see [deployment.md § Migrating to OIDC-required](deployment.md#migrating-to-oidc-required) |
+| — | `EPISTEMIC_GRAPH_OIDC_JWT_ISSUER` / `EPISTEMIC_GRAPH_OIDC_JWT_AUDIENCE` / `EPISTEMIC_GRAPH_OIDC_JWKS_URL` | — (required unless opted out) | Keycloak realm issuer / audience / JWKS URL |
 | `--persist-dir` | `GRAPH_SERVICE_PERSIST_DIR` | — (**required for served mode**) | Durable store and replay-ledger directory |
 | `--metrics-addr` | `GRAPH_SERVICE_METRICS_ADDR` | None (disabled) | Prometheus `/metrics` HTTP listener (e.g. `127.0.0.1:9101`) |
 
@@ -211,7 +213,11 @@ The server refuses to open a listener unless all of these are true:
   `EPISTEMIC_GRAPH_POLICY_VERSION` are non-empty;
 - `GRAPH_SERVICE_PERSIST_DIR` provides the durable replay ledger;
 - `EPISTEMIC_GRAPH_SIGNER_KEYS_JSON` contains non-empty trusted signer ids and
-  keys.
+  keys;
+- **since 2026-07-22**, `EPISTEMIC_GRAPH_REQUIRE_OIDC` is not explicitly opted
+  out (`false`/`0`/`no`/`off`) AND `EPISTEMIC_GRAPH_OIDC_JWT_ISSUER` (plus its
+  audience and JWKS URL) is configured — OIDC identity binding is required by
+  default; see [deployment.md § Migrating to OIDC-required](deployment.md#migrating-to-oidc-required).
 
 `EPISTEMIC_GRAPH_ENVELOPE_SKEW_SECS` controls the accepted timestamp window and
 replay-retention horizon. Nonce acceptance is committed durably before dispatch,
