@@ -2030,7 +2030,14 @@ async fn dispatch_inner(
             };
             if standalone_raft || multi_raft {
                 match crate::server::mutation::cluster_mutation_route(&req.method) {
-                    ClusterMutationRoute::ReadOnly | ClusterMutationRoute::VolatileControl => {}
+                    // `SelfRoutedAdmin` owns its OWN `MultiRaft`-presence check
+                    // (`handlers::raft_admin::try_handle` answers
+                    // `RAFT_NOT_CONFIGURED`/`CLUSTER_CONFIGURATION_INVALID` itself,
+                    // matching this exact pair of messages) — it must not be
+                    // pre-empted here, exactly like `ReadOnly`/`VolatileControl`.
+                    ClusterMutationRoute::ReadOnly
+                    | ClusterMutationRoute::VolatileControl
+                    | ClusterMutationRoute::SelfRoutedAdmin => {}
                     ClusterMutationRoute::ConsensusGraph
                     | ClusterMutationRoute::ConsensusNative
                     | ClusterMutationRoute::ConsensusFanout
