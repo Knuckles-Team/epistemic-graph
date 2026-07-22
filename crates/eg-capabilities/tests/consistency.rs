@@ -578,6 +578,8 @@ const ACCESS_RS_COVERAGE_GAP: &[(&str, &str, &str)] = &[
     ("PlanMatViewRefresh", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("PublishConfirmed", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("PublishIdempotent", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
+    ("RaftAddLearner", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely (self-routes in dispatch.rs before dispatch_graph_op, like Reshard/CatalogAssign)"),
+    ("RaftChangeMembership", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely (self-routes in dispatch.rs before dispatch_graph_op, like Reshard/CatalogAssign)"),
     ("RbacAdmin", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("RebalanceExecute", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     // Pre-existing gap (predates the statechart work): `RecomputeMaterialization`
@@ -813,13 +815,13 @@ fn generated_ledger_is_not_stale() {
 /// is caught here too (in addition to the exhaustive-match compile error in `lib.rs`).
 #[test]
 fn all_methods_table_has_the_expected_variant_count() {
-    // 354 unconditional rows (the table has 358 total entry lines, 4 feature-gated:
+    // 356 unconditional rows (the table has 360 total entry lines, 4 feature-gated:
     // jobs, statechart, modality-serving, knowledge-batch). NOTE: this constant was
     // `352` and was already STALE by two before the statechart work (base `main` had
     // 354 unconditional rows), and it was ALSO missing the `statechart` term — both
     // corrected here so the count is accurate for every feature combination, matching
     // the sibling constant in `lib.rs::all_methods_table_matches_policy_fn...`.
-    let expected = 354
+    let expected = 356
         + usize::from(cfg!(feature = "jobs"))
         + usize::from(cfg!(feature = "statechart"))
         + usize::from(cfg!(feature = "modality-serving"))

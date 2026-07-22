@@ -2808,6 +2808,50 @@ class PlacementClient:
         return answer
 
 
+class RaftAdminClient:
+    """CONCEPT:EG-KG.storage.kg-kg-2 — Raft cluster-membership admin namespace
+    (``cluster_deployment.md`` §5 item 2).
+
+    Drives ``MultiRaft::add_group_learner``/``change_group_voters`` (raft/multi.rs)
+    over the wire via ``Method::RaftAddLearner``/``Method::RaftChangeMembership``,
+    the missing "attach a node to a live cluster" entrypoint the M2 soak flagged.
+    Both ops are leader-only; a follower answers ``OPERATION_REDIRECTED`` naming the
+    current leader (the same shape ``PlacementRoute``'s stale route uses), and an
+    engine with no live ``MultiRaft`` raises a clean error.
+    """
+
+    def __init__(self, client: EpistemicGraphClient) -> None:
+        self._client = client
+
+    async def add_learner(
+        self, node_id: int, addr: str, *, group: int | None = None
+    ) -> bool:
+        """Attach ``node_id`` (reachable at ``addr``) to ``group`` (default: the
+        single-group deployment's group 0) as a NON-VOTING LEARNER. Starts
+        replication immediately and blocks until the learner's log is caught up,
+        but does NOT change the voter set — quorum size and fault tolerance are
+        unaffected. MUST be issued against the group's current leader. The safe
+        first step before optionally promoting the node with
+        :meth:`change_membership`."""
+        return await self._client._send(
+            "RaftAddLearner",
+            {"group": group, "node_id": node_id, "addr": addr},
+        )
+
+    async def change_membership(
+        self, voters: list[int], *, group: int | None = None
+    ) -> bool:
+        """Set ``group``'s (default: group 0) VOTER set to exactly ``voters``. The
+        usual way to PROMOTE one or more learners added via :meth:`add_learner`:
+        pass the full desired voter set (existing voters plus the learner(s) being
+        promoted). Refuses to produce an empty voter set. MUST be issued against
+        the group's current leader."""
+        return await self._client._send(
+            "RaftChangeMembership",
+            {"group": group, "voters": voters},
+        )
+
+
 class ConsensusClient:
     """CONCEPT:AU-KG.research.research-pipeline-runner — Zero-Trust Consensus Namespace"""
 
@@ -7726,6 +7770,7 @@ class EpistemicGraphClient:
         self.tenants = MultiTenantClient(self)
         self.resharding = ReshardingClient(self)
         self.placement = PlacementClient(self)
+        self.raft_admin = RaftAdminClient(self)
         self.consensus = ConsensusClient(self)
         self.finance = FinanceClient(self)
         self.datascience = DataScienceClient(self)
@@ -8529,6 +8574,7 @@ class SyncEpistemicGraphClient:
         self.tenants = self._SyncWrapper(self._client.tenants, self._loop)
         self.resharding = self._SyncWrapper(self._client.resharding, self._loop)
         self.placement = self._SyncWrapper(self._client.placement, self._loop)
+        self.raft_admin = self._SyncWrapper(self._client.raft_admin, self._loop)
         self.consensus = self._SyncWrapper(self._client.consensus, self._loop)
         self.finance = self._SyncWrapper(self._client.finance, self._loop)
         self.datascience = self._SyncWrapper(self._client.datascience, self._loop)

@@ -2030,7 +2030,14 @@ async fn dispatch_inner(
             };
             if standalone_raft || multi_raft {
                 match crate::server::mutation::cluster_mutation_route(&req.method) {
-                    ClusterMutationRoute::ReadOnly | ClusterMutationRoute::VolatileControl => {}
+                    // `SelfRoutedAdmin` owns its OWN `MultiRaft`-presence check
+                    // (`handlers::raft_admin::try_handle` answers
+                    // `RAFT_NOT_CONFIGURED`/`CLUSTER_CONFIGURATION_INVALID` itself,
+                    // matching this exact pair of messages) — it must not be
+                    // pre-empted here, exactly like `ReadOnly`/`VolatileControl`.
+                    ClusterMutationRoute::ReadOnly
+                    | ClusterMutationRoute::VolatileControl
+                    | ClusterMutationRoute::SelfRoutedAdmin => {}
                     ClusterMutationRoute::ConsensusGraph
                     | ClusterMutationRoute::ConsensusNative
                     | ClusterMutationRoute::ConsensusFanout
@@ -2681,6 +2688,20 @@ async fn dispatch_inner(
                 Ok(resp) => resp,
                 // Unreachable: the only variant matched above is a placement method.
                 Err(_) => Response::err(req.id, "placement dispatch routing error"),
+            }
+        }
+
+        // ── Raft cluster membership admin (CONCEPT:EG-KG.storage.kg-kg-2 — cluster_deployment.md §5
+        // item 2) ── Self-routing, NOT graph-scoped (cluster-wide, like the M3 admin
+        // block above): attaches/promotes a node against `MultiRaft` directly. Gated
+        // `admin:cluster` by the SAME scope+admin enforcement every other admin-tier
+        // method goes through above (`eg_capabilities::policy`), not a second check
+        // here.
+        Method::RaftAddLearner { .. } | Method::RaftChangeMembership { .. } => {
+            match handlers::raft_admin::try_handle(state, req.id, req.method).await {
+                Ok(resp) => resp,
+                // Unreachable: both variants matched above are raft-admin methods.
+                Err(_) => Response::err(req.id, "raft-admin dispatch routing error"),
             }
         }
 

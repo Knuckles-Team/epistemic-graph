@@ -142,6 +142,8 @@
 | `RebalancePlan` | false | None | `admin:cluster-read` | true | false | false | Snapshot |  |
 | `RebalanceExecute` | true | ControlRedb | `admin:cluster` | true | false | false | Saga | prepared/committed admin MutationBatch saga |
 | `PlacementRoute` | false | None | `admin:cluster-read` | true | false | false | Snapshot | engine-authoritative complete route; single-node returns authoritative unplaced group 0/epoch 0, while clustered routing requires a live MultiRaft control leader |
+| `RaftAddLearner` | true | ControlRedb | `admin:cluster` | true | false | false | Saga | leader-only openraft add_learner; attaches a non-voting replica without changing the voter set |
+| `RaftChangeMembership` | true | ControlRedb | `admin:cluster` | true | false | false | Saga | leader-only openraft change_membership; sets the group's exact voter set (the usual way to promote a learner added via RaftAddLearner) |
 | `Backup` | false | None | `admin:backup` | true | false | false | Snapshot | reads a consistent snapshot out to a bundle; does not mutate the live graph |
 | `Restore` | true | ControlRedb | `admin:backup` | true | false | false | Saga | prepared/committed admin MutationBatch saga |
 | `CreateChannel` | true | ControlRedb | `channel:admin` | true | false | false | Saga | opaque prepared/committed session-control MutationBatch; message/member payloads stay out of the ledger |

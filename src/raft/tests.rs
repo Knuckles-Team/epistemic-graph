@@ -11,7 +11,7 @@
 //! 5. EVERY committed write survives on the new leader (no data loss, no
 //!    split-brain — the survivors form a quorum of 2/3).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -1338,6 +1338,416 @@ async fn multi_node_group_join_then_leader_rebalance() {
     for (_, multi, _) in &multis {
         multi.stop_listener();
         let _ = multi.close_group(gid).await;
+    }
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// CONCEPT:EG-KG.storage.kg-kg-2 — `cluster_deployment.md` §5 item 2: a learner can be
+/// attached to a LIVE Raft group WITHOUT changing the voter set (the gap the M2 soak
+/// found — `MultiRaft::add_group_learner`/`change_group_voters`, split out of the
+/// pre-existing bundled `add_group_member`, had no external caller). Proves the split
+/// end-to-end at the `MultiRaft` API level: node 2 joins group 8 as a non-voting
+/// learner, is OBSERVED in the leader's committed membership as a learner (not a
+/// voter) via `group_learners`, then is promoted via `change_group_voters` and
+/// observed moving into the voter set via `group_membership`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn multi_add_group_learner_attaches_non_voting_learner_then_promotes() {
+    use super::multi::MultiRaft;
+
+    let root = std::env::temp_dir().join(format!("eg-mnlearner-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let ports = free_ports(2);
+    let addr = |i: usize| format!("127.0.0.1:{}", ports[i - 1]);
+    let gid = 8u64;
+
+    let mut multis: Vec<(NodeId, Arc<MultiRaft>)> = Vec::new();
+    for i in 1..=2u64 {
+        let dir = root.join(format!("node{i}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        let dir = dir.to_string_lossy().to_string();
+        let backend: Arc<dyn PersistenceBackend> = Arc::new(
+            RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"),
+        );
+        let state = make_state_with_backend(&dir, backend.clone()).await;
+        let ctx = super::AppCtx {
+            state,
+            router: None,
+        };
+        let multi = MultiRaft::start(i, addr(i as usize), backend, ctx)
+            .await
+            .expect("start multi");
+        if i == 1 {
+            let peers: BTreeMap<NodeId, BasicNode> = [(1u64, BasicNode::new(addr(1)))].into();
+            multi.create_group(gid, peers, true).await.unwrap();
+        } else {
+            // Empty, non-bootstrapping member ready to receive replication — exactly
+            // the "boots straight into learner-ready" state a real node 2 reaches
+            // with `EPISTEMIC_GRAPH_RAFT_NODE_ID`/`_PEERS` set but `is_bootstrap`
+            // false (see `cluster_deployment.md` §2b/§5).
+            multi.join_group(gid, BTreeMap::new()).await.unwrap();
+        }
+        multis.push((i, multi));
+    }
+
+    let leader = multis[0].1.clone();
+    let follower = multis[1].1.clone();
+    {
+        let g = leader.group(gid).await.expect("group on node 1");
+        wait_until(Duration::from_secs(15), || {
+            let g = g.clone();
+            async move { g.current_leader().await == Some(1) }
+        })
+        .await
+        .expect("node 1 must lead the single-member group 8");
+    }
+
+    // Before the learner is attached, membership is just the bootstrap voter and
+    // there are no learners on either side.
+    assert_eq!(leader.group_membership(gid).await, Some(vec![1]));
+    assert_eq!(leader.group_learners(gid).await, Some(vec![]));
+
+    // ── Attach node 2 as a NON-VOTING LEARNER. Real openraft add_learner: it blocks
+    // until node 2's log is caught up, so this is a genuine catch-up, not a stub.
+    leader
+        .add_group_learner(gid, 2, addr(2))
+        .await
+        .expect("add_group_learner must succeed against the leader");
+
+    // ── Observe the REAL committed membership: node 2 is a learner, NOT a voter.
+    assert_eq!(
+        leader.group_membership(gid).await,
+        Some(vec![1]),
+        "attaching a learner must NOT change the voter set"
+    );
+    assert_eq!(
+        leader.group_learners(gid).await,
+        Some(vec![2]),
+        "node 2 must appear as a non-voting learner in the leader's committed membership"
+    );
+    // The follower's own view (once it has applied the membership entry) agrees —
+    // this is REPLICATED state, not a leader-local fiction.
+    wait_until(Duration::from_secs(10), || {
+        let follower = follower.clone();
+        async move { follower.group_learners(gid).await == Some(vec![2]) }
+    })
+    .await
+    .expect("node 2 must observe itself as a learner in the replicated membership");
+
+    // A second `add_group_learner` for the SAME node is idempotent (re-confirms the
+    // same membership, does not error).
+    leader
+        .add_group_learner(gid, 2, addr(2))
+        .await
+        .expect("re-adding an existing learner must be idempotent");
+    assert_eq!(leader.group_learners(gid).await, Some(vec![2]));
+
+    // ── Promote the learner to a voter via change_group_voters (a SEPARATE admin
+    // step from add_group_learner — the whole point of the split).
+    let mut voters: BTreeSet<NodeId> = BTreeSet::new();
+    voters.insert(1);
+    voters.insert(2);
+    leader
+        .change_group_voters(gid, voters)
+        .await
+        .expect("change_group_voters must promote the caught-up learner");
+    assert_eq!(
+        leader.group_membership(gid).await,
+        Some(vec![1, 2]),
+        "node 2 must now be a voter"
+    );
+    assert_eq!(
+        leader.group_learners(gid).await,
+        Some(vec![]),
+        "a promoted node is no longer listed as a learner"
+    );
+
+    // change_group_voters refuses to produce an empty voter set.
+    let err = leader
+        .change_group_voters(gid, BTreeSet::new())
+        .await
+        .expect_err("an empty voter set must be refused");
+    assert!(err.contains("empty voter set"), "unexpected error: {err}");
+
+    // ── Cleanup.
+    for (_, multi) in &multis {
+        multi.stop_listener();
+    }
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// CONCEPT:EG-KG.storage.kg-kg-2 — the SAME gap, exercised through the REAL served
+/// dispatch path (`Method::RaftAddLearner`/`Method::RaftChangeMembership`,
+/// `src/server/handlers/raft_admin.rs`), not just the in-process `MultiRaft` API the
+/// test above drives directly. This is the external-caller seam
+/// `epistemic_graph.client`'s `raft_admin` namespace drives. Proves, in order: (a)
+/// a request against the LEADER actually attaches node 2 as a learner (real
+/// execution, not a stub); (b) a `RaftChangeMembership` request against that now
+/// genuinely-attached FOLLOWER is redirected to the leader (`OPERATION_REDIRECTED`
+/// with the real observed `leader_ref`, mirroring `PlacementRoute`'s stale-route
+/// shape) and is NOT silently mis-served or applied locally; (c) the SAME request
+/// against the LEADER actually promotes node 2 to a voter; and (d) an engine with
+/// no live `MultiRaft` answers a clean typed error rather than a silent no-op. (a)
+/// runs before (b) deliberately: openraft's `current_leader()` is honest local
+/// knowledge learned only from real AppendEntries/vote traffic, so the redirect is
+/// proven against a follower that has actually observed the leader through
+/// replication, not one the test simply asserts knows something it was never told.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn wire_raft_add_learner_and_change_membership_resolve_through_dispatch() {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use super::multi::MultiRaft;
+    use crate::acl::{AgentIdentity, AgentRole, RequestContextClaims};
+    use crate::protocol::{Request, ResultPayload};
+    use crate::server::dispatch;
+    use crate::server::{compute_verified_envelope_token, VerifiedEnvelopeParams};
+
+    const TEST_AGENT: &str = "raft-admin-wire-test-agent";
+    const SECRET: &str = "raft-test";
+    static NONCE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+
+    std::env::set_var("EPISTEMIC_GRAPH_AUDIENCE", "epistemic-graph-test");
+    std::env::set_var("EPISTEMIC_GRAPH_TENANT", "tenant-shared");
+    std::env::set_var("EPISTEMIC_GRAPH_POLICY_VERSION", "policy-test");
+    std::env::set_var(
+        "EPISTEMIC_GRAPH_SECURITY_STATE_DIR",
+        std::env::temp_dir().join(format!("eg-raft-admin-wire-auth-{}", std::process::id())),
+    );
+
+    fn signed_request(id: u64, method: Method) -> Request {
+        let context = RequestContextClaims {
+            principal: TEST_AGENT.to_string(),
+            tenant: "tenant-shared".to_string(),
+            audience: "epistemic-graph-test".to_string(),
+            agent_id: TEST_AGENT.to_string(),
+            roles: Vec::new(),
+            scopes: vec!["*".to_string()],
+            policy_version: "policy-test".to_string(),
+            delegation: Vec::new(),
+        };
+        let mut request = Request {
+            id,
+            graph: "__commons__".to_string(),
+            auth_token: String::new(),
+            agent_id: Some(TEST_AGENT.to_string()),
+            method,
+        };
+        let sequence = NONCE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let issued_at = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("the system clock is after the Unix epoch");
+        let nonce = format!(
+            "raft-admin-{}-{id}-{sequence}-{}",
+            std::process::id(),
+            issued_at.as_nanos()
+        );
+        let idempotency_key = format!("raft-admin-request-{id}-{sequence}");
+        request.auth_token = compute_verified_envelope_token(
+            SECRET,
+            &request,
+            &VerifiedEnvelopeParams {
+                context: &context,
+                timestamp: issued_at.as_secs(),
+                nonce: &nonce,
+                idempotency_key: &idempotency_key,
+            },
+        );
+        request
+    }
+
+    let root = std::env::temp_dir().join(format!("eg-wire-raft-admin-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let ports = free_ports(2);
+    let addr = |i: usize| format!("127.0.0.1:{}", ports[i - 1]);
+    let gid = super::DEFAULT_GROUP;
+
+    let mut multis: Vec<(NodeId, Arc<MultiRaft>, Arc<RwLock<ServerState>>)> = Vec::new();
+    for i in 1..=2u64 {
+        let dir = root.join(format!("node{i}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        let dir = dir.to_string_lossy().to_string();
+        let backend: Arc<dyn PersistenceBackend> = Arc::new(
+            RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"),
+        );
+        let state = make_state_with_backend(&dir, backend.clone()).await;
+        state
+            .write()
+            .await
+            .isolation
+            .register_agent(AgentIdentity {
+                agent_id: TEST_AGENT.to_string(),
+                role: AgentRole::System,
+                teams: Vec::new(),
+                roles: Vec::new(),
+            });
+        let ctx = super::AppCtx {
+            state: state.clone(),
+            router: None,
+        };
+        let multi = MultiRaft::start(i, addr(i as usize), backend, ctx)
+            .await
+            .expect("start multi");
+        if i == 1 {
+            let peers: BTreeMap<NodeId, BasicNode> = [(1u64, BasicNode::new(addr(1)))].into();
+            multi.create_group(gid, peers, true).await.unwrap();
+        } else {
+            multi.join_group(gid, BTreeMap::new()).await.unwrap();
+        }
+        // The real served `Method::RaftAddLearner`/`RaftChangeMembership` handler
+        // (`handlers/raft_admin.rs`) resolves `MultiRaft` off `state.multi_raft`,
+        // exactly like `handlers/placement.rs` does — wire it here so this test
+        // exercises the SAME lookup a real server does.
+        state.write().await.multi_raft = Some(multi.clone());
+        multis.push((i, multi, state));
+    }
+
+    let leader_multi = multis[0].1.clone();
+    let leader_state = multis[0].2.clone();
+    let follower_state = multis[1].2.clone();
+    {
+        let g = leader_multi.group(gid).await.expect("group on node 1");
+        wait_until(Duration::from_secs(15), || {
+            let g = g.clone();
+            async move { g.current_leader().await == Some(1) }
+        })
+        .await
+        .expect("node 1 must lead the default group");
+    }
+
+    // (a) A request against the LEADER actually attaches node 2 as a learner.
+    // Deliberately proven FIRST: an openraft node's `current_leader()` is honest
+    // LOCAL knowledge learned only through real AppendEntries/vote traffic — a
+    // node that has never been contacted (like node 2 immediately after its own
+    // empty, non-bootstrapping `join_group`) has no leader to report and no
+    // basis to fabricate one. Attaching it as a learner is the real replication
+    // event that gives it that knowledge, exactly like a real operator's first
+    // admin call against a live cluster would.
+    let resp = dispatch(
+        &leader_state,
+        signed_request(
+            1,
+            Method::RaftAddLearner {
+                group: None,
+                node_id: 2,
+                addr: addr(2),
+            },
+        ),
+    )
+    .await;
+    assert!(resp.error.is_none(), "dispatch error: {:?}", resp.error);
+    assert!(matches!(resp.result, Some(ResultPayload::Bool(true))));
+    assert_eq!(leader_multi.group_learners(gid).await, Some(vec![2]));
+    assert_eq!(leader_multi.group_membership(gid).await, Some(vec![1]));
+
+    // Node 2 is now a genuinely attached, caught-up learner (openraft's
+    // `add_learner(.., blocking=true)` does not return until the learner's log
+    // is caught up) -- it has observed node 1 as leader through REAL replicated
+    // traffic, not a value the test injects. Confirm that before relying on it.
+    let follower_multi = multis[1].1.clone();
+    {
+        let g = follower_multi.group(gid).await.expect("group on node 2");
+        wait_until(Duration::from_secs(15), || {
+            let g = g.clone();
+            async move { g.current_leader().await == Some(1) }
+        })
+        .await
+        .expect("node 2 must observe node 1 as leader after being attached as a learner");
+    }
+
+    // (b) A membership-admin request against this now-attached FOLLOWER is
+    // redirected to the leader, not silently mis-served, mis-applied locally, or
+    // panicking -- proven with the follower's REAL observed leader, not merely
+    // that the `OPERATION_REDIRECTED` constant exists somewhere in the source.
+    let resp = dispatch(
+        &follower_state,
+        signed_request(
+            2,
+            Method::RaftChangeMembership {
+                group: None,
+                voters: vec![1, 2],
+            },
+        ),
+    )
+    .await;
+    assert_eq!(resp.error.as_deref(), Some("OPERATION_REDIRECTED"));
+    match resp.result {
+        Some(ResultPayload::Raw(bytes)) => {
+            let detail: crate::epistemic_operations::OperationResult =
+                rmp_serde::from_slice(&bytes).expect("typed OperationResult");
+            let redirect = detail.redirect.expect("redirect detail present");
+            assert_eq!(redirect.leader_ref.as_deref(), Some("node:1"));
+        }
+        other => panic!("expected a typed redirect result, got {other:?}"),
+    }
+    // The redirected request must NOT have been applied anywhere: membership is
+    // unchanged (still just the learner from step (a), no promotion happened).
+    assert_eq!(leader_multi.group_membership(gid).await, Some(vec![1]));
+    assert_eq!(leader_multi.group_learners(gid).await, Some(vec![2]));
+
+    // (c) The SAME `RaftChangeMembership` issued against the LEADER actually
+    // promotes node 2 -- real execution, not just a redirect-shaped stub.
+    let resp = dispatch(
+        &leader_state,
+        signed_request(
+            3,
+            Method::RaftChangeMembership {
+                group: None,
+                voters: vec![1, 2],
+            },
+        ),
+    )
+    .await;
+    assert!(resp.error.is_none(), "dispatch error: {:?}", resp.error);
+    assert!(matches!(resp.result, Some(ResultPayload::Bool(true))));
+    assert_eq!(leader_multi.group_membership(gid).await, Some(vec![1, 2]));
+    assert_eq!(leader_multi.group_learners(gid).await, Some(vec![]));
+
+    // (c) An engine with no live MultiRaft answers a clean typed error, never a
+    // silent no-op or a panic.
+    let unclustered_dir = root.join("unclustered");
+    std::fs::create_dir_all(&unclustered_dir).unwrap();
+    let unclustered_backend: Arc<dyn PersistenceBackend> = Arc::new(
+        RedbBackend::open(
+            unclustered_dir.to_string_lossy().to_string(),
+            DurabilityPolicy::Each,
+            4096,
+        )
+        .expect("open redb"),
+    );
+    let unclustered_state =
+        make_state_with_backend(&unclustered_dir.to_string_lossy(), unclustered_backend.clone())
+            .await;
+    unclustered_state
+        .write()
+        .await
+        .isolation
+        .register_agent(AgentIdentity {
+            agent_id: TEST_AGENT.to_string(),
+            role: AgentRole::System,
+            teams: Vec::new(),
+            roles: Vec::new(),
+        });
+    let resp = dispatch(
+        &unclustered_state,
+        signed_request(
+            4,
+            Method::RaftAddLearner {
+                group: None,
+                node_id: 9,
+                addr: "127.0.0.1:1".to_string(),
+            },
+        ),
+    )
+    .await;
+    assert_eq!(
+        resp.error.as_deref(),
+        Some("RAFT_NOT_CONFIGURED: this node is not running a Raft cluster")
+    );
+    unclustered_backend.shutdown();
+
+    // ── Cleanup.
+    for (_, multi, _) in &multis {
+        multi.stop_listener();
     }
     let _ = std::fs::remove_dir_all(&root);
 }

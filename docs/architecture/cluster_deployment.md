@@ -120,21 +120,27 @@ docker stack deploy -c services/epistemic-graph/compose.dev.yml epistemic-graph-
 ### 2c. Add nodes 2→4 as learners, then promote to voters (from the node 1 LEADER)
 
 Membership changes are leader-only. The engine exposes this through the `MultiRaft`
-membership lifecycle (`add_group_member` = `add_learner` blocking-until-caught-up →
-`change_membership`). The leader replicates the authoritative state to each learner
-(log tail, or a full snapshot if the log was purged) BEFORE promoting it, so a node is
-only made a voter once it holds the data. Add them **one at a time**, verifying
-catch-up between each, so quorum is never at risk:
+membership lifecycle — `add_group_learner` (`add_learner`, blocking-until-caught-up)
+then `change_group_voters` (`change_membership`), reachable at runtime as
+`Method::RaftAddLearner` / `Method::RaftChangeMembership` (see §5 item 2 below). The
+leader replicates the authoritative state to each learner (log tail, or a full
+snapshot if the log was purged) BEFORE promoting it, so a node is only made a voter
+once it holds the data. Add them **one at a time**, verifying catch-up between each,
+so quorum is never at risk:
 
-1. Add node 2 as a learner; wait until its applied index matches the leader; promote to
-   voter. Membership becomes `{1,2}`.
+1. Add node 2 as a learner (`client.raft_admin.add_learner(node_id=2, addr=...)`);
+   wait until its applied index matches the leader; promote to voter
+   (`client.raft_admin.change_membership(voters=[1, 2])`). Membership becomes
+   `{1,2}`.
 2. Add node 3 the same way → `{1,2,3}` (now a fault-tolerant majority of 3).
 3. Add node 4 → `{1,2,3,4}`.
 
-> Operationally this is driven by the engine's admin surface for membership (the
-> `MultiRaft::add_group_member` path the lib test `multi_node_group_join_then_leader_rebalance`
-> exercises). Wire it to your ops entrypoint, or drive it via a one-shot admin call on
-> the leader. Each step is idempotent and refuses to remove the last voter.
+> Operationally this is driven by the engine's admin surface for membership — the
+> `MultiRaft::add_group_learner`/`change_group_voters` path the lib tests
+> `multi_node_group_join_then_leader_rebalance` (voter promotion) and
+> `raft_add_learner_wire_method_attaches_non_voting_learner` (wire method, non-voting)
+> exercise — over `epistemic_graph.client`'s `raft_admin` namespace (§5 item 2). Each
+> step is idempotent and refuses to produce an empty voter set.
 
 ### 2d. Verify replication, then (optionally) rebalance leadership
 
@@ -199,9 +205,33 @@ confirm there before declaring the cluster production-live:
    surface the leader hint so the client retries against the leader (or the co-located
    graph-os transparently forwards). Verify this is wired for the 0.10 `client_write`
    return/`ForwardToLeader` shape.
-2. **Membership admin entrypoint:** expose `MultiRaft::add_group_member` /
-   `remove_group_member` on an ops surface so §2c can be driven without a bespoke
-   binary. The methods exist (`src/raft/multi.rs`); they just need a caller.
+2. **Membership admin entrypoint — DONE.** `MultiRaft::add_group_member` was split
+   into [`add_group_learner`](../../src/raft/multi.rs) (add-learner only, no
+   promotion) + `change_group_voters` (the promotion/rebalance half), both now
+   reachable at runtime as `Method::RaftAddLearner` /
+   `Method::RaftChangeMembership` (`src/server/handlers/raft_admin.rs`), gated
+   `admin:cluster` and leader-only — a follower answers `OPERATION_REDIRECTED`
+   naming the current leader, exactly like `PlacementRoute`'s stale-route
+   redirect. `remove_group_member` still has no wire Method (out of scope here;
+   `RaftChangeMembership` can shrink the voter set as a workaround by omitting a
+   node from the requested `voters`, but that is NOT the same safety envelope as
+   a dedicated remove entrypoint — flag for a follow-up).
+   
+   §2c is now drivable end-to-end without a bespoke binary: bring node 2 up on
+   the SAME `EPISTEMIC_GRAPH_RAFT_NODE_ID`/`EPISTEMIC_GRAPH_RAFT_PEERS`/
+   `EPISTEMIC_GRAPH_RAFT_AUTH_SECRET_FILE` boot env this doc already documents in
+   §2b (its `is_bootstrap` resolves to `false` because its id isn't the lowest in
+   `EPISTEMIC_GRAPH_RAFT_PEERS`, so it opens the group WITHOUT `initialize` — i.e.
+   it boots straight into "empty, non-bootstrapping, learner-ready" — no new env
+   var needed), then from the LEADER:
+
+   ```python
+   await client.raft_admin.add_learner(node_id=2, addr=NODE_2_PEER_ADDR)
+   # ... verify replication (§2d), then promote:
+   await client.raft_admin.change_membership(voters=[1, 2])
+   ```
+
+   Repeat per node, one at a time, exactly as §2c already prescribed.
 
 ---
 
