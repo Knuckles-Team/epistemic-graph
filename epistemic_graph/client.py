@@ -2731,15 +2731,21 @@ class ReshardingClient:
 
 
 class PlacementClient:
-    """CONCEPT:EG-KG.sharding.placement-route-rpc — DIST-P2-4 placement-catalog wire consumer namespace.
+    """CONCEPT:EG-KG.sharding.placement-route-rpc / EG-KG.sharding.placement-catalog-admin-rpc —
+    DIST-P2-4/DIST-P2-5 placement-catalog wire consumer + admin namespace.
 
     Exposes the engine's ``raft::placement::PlacementCatalog`` (DIST-P2-1's ONE
     placement authority for virtual partitions — durable, versioned, spans-multiple-
-    groups routing with a fenced-cutover epoch) over the wire via ``Method::
-    PlacementRoute``. Until this namespace, the catalog was consumed only INSIDE the
-    engine (``MultiRaft::route_graph``); this is the seam an external caller (e.g.
-    ``agent_utilities``'s ``placement_catalog.py``) drives. No client-side
-    placement algorithm exists in the current contract.
+    groups routing with a fenced-cutover epoch) over the wire: :meth:`route` (a read,
+    ``Method::PlacementRoute``) plus the admin mutation trio :meth:`assign` /
+    :meth:`move` / :meth:`abort_move` (DIST-P2-5, ``Method::PlacementAssign``/
+    ``PlacementMove``/``PlacementAbortMove``). Before the admin trio existed, the
+    catalog's assign/split/merge/online-move machinery was reachable only from
+    in-process Rust — even on a real multi-node Raft cluster there was no way for an
+    external caller to trigger a placement decision or drive an online move. All four
+    methods require a `raft`/`cluster`-feature engine build with `MultiRaft` running;
+    a single-node build answers `route` with the authoritative unplaced policy and
+    the three admin methods with a typed "not available" error.
     """
 
     def __init__(self, client: EpistemicGraphClient) -> None:
@@ -2806,6 +2812,44 @@ class PlacementClient:
         ):
             raise ValueError("engine returned an invalid placement fence")
         return answer
+
+    async def assign(self, tenant: str, group: int) -> int:
+        """Assign the WHOLE keyspace of ``tenant`` to ``group`` (the placement
+        DECISION leg, DIST-P2-5, ``Method::PlacementAssign``). Collapses any prior
+        split. Raft/cluster-only. Returns the new routing epoch — every subsequent
+        :meth:`route` call observes it immediately."""
+        result = await self._client._send(
+            "PlacementAssign", {"tenant": tenant, "group": group}
+        )
+        return _integer("PlacementAssign.epoch", result["epoch"])
+
+    async def move(
+        self, tenant: str, range_start: int, range_end: int, target: int
+    ) -> dict[str, Any]:
+        """Online-move ``tenant``'s partition ``[range_start, range_end]`` to
+        ``target`` (DIST-P2-5, ``Method::PlacementMove``) — the full PLAN -> EXECUTE
+        -> CATALOG-UPDATE leg: snapshot, per-graph durability-barrier catch-up, then a
+        fenced cutover, reusing the engine's already-proven ``TenantManager::
+        move_partition`` state machine (crash-safe via its durable move journal).
+        Raft/cluster-only. Returns the engine's ``PlacementMoveReport``:
+        ``{tenant, range: [start, end], target, epoch, graphs: [{graph, from_group,
+        to_group, nodes_transferred}, ...]}``."""
+        return await self._client._send(
+            "PlacementMove",
+            {
+                "tenant": tenant,
+                "range_start": range_start,
+                "range_end": range_end,
+                "target": target,
+            },
+        )
+
+    async def abort_move(self, move_id: str) -> bool:
+        """Abort an in-flight online move identified by ``move_id`` before its
+        cutover fence (DIST-P2-5, ``Method::PlacementAbortMove``). A move already
+        past its epoch fence is rejected — recovery is roll-forward only. Raft/
+        cluster-only."""
+        return await self._client._send("PlacementAbortMove", {"move_id": move_id})
 
 
 class ConsensusClient:
