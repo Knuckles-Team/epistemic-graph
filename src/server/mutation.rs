@@ -391,6 +391,11 @@ pub fn method_variant_name(m: &Method) -> &'static str {
         Method::DropNamedGraph => "DropNamedGraph",
         #[cfg(feature = "modality-serving")]
         Method::ServedModality { .. } => "ServedModality",
+        // Self-routed cluster-admin (see `SELF_ROUTED_ADMIN_METHODS`): named here
+        // too so `cluster_mutation_route`'s drift self-check is meaningful rather
+        // than comparing against the `_ => "other"` catch-all.
+        Method::RaftAddLearner { .. } => "RaftAddLearner",
+        Method::RaftChangeMembership { .. } => "RaftChangeMembership",
         _ => "other",
     }
 }
@@ -406,7 +411,8 @@ pub fn is_gateway_routed(m: &Method) -> bool {
 ///
 /// Only commands with a deterministic Raft state-machine representation may be
 /// acknowledged in clustered mode. The complete mutating capability ledger is
-/// covered by graph commands, typed native commands, or explicit service control.
+/// covered by graph commands, typed native commands, explicit service control,
+/// or a self-routed admin handler.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ClusterMutationRoute {
     ReadOnly,
@@ -414,6 +420,14 @@ pub enum ClusterMutationRoute {
     ConsensusGraph,
     ConsensusNative,
     ConsensusFanout,
+    /// Cluster-wide, non-graph-scoped admin mutation with its OWN dedicated
+    /// handler that resolves `MultiRaft` and performs the leader check /
+    /// `OPERATION_REDIRECTED` routing itself (`handlers::raft_admin::try_handle`,
+    /// the same shape `handlers::placement::try_handle` uses for reads) — it
+    /// does NOT go through [`propose_native_mutation`](crate::server::dispatch)'s
+    /// generic `NativeMutationCommand` proposal/replication path, so it must
+    /// never be classified `ConsensusNative` (see [`SELF_ROUTED_ADMIN_METHODS`]).
+    SelfRoutedAdmin,
 }
 
 /// Shared plaintext ceiling for one encrypted native consensus command. Served
@@ -424,6 +438,33 @@ pub(crate) const MAX_NATIVE_COORDINATOR_PAYLOAD_BYTES: usize = 128 * 1024 * 1024
 /// Public coordinator commands that decompose into independently placed,
 /// typed consensus graph commands before any local mutation executes.
 pub const CONSENSUS_FANOUT_METHODS: &[&str] = &["MultiGraphBatchUpdate"];
+
+/// Mutating, cluster-wide (non-graph-scoped) admin methods that are NOT routed
+/// through the generic `NativeMutationCommand` proposal path
+/// ([`ClusterMutationRoute::ConsensusNative`]) even though nothing else claims
+/// them (not [`GATEWAY_ROUTED`], not `is_durable_mutation`, not
+/// [`CONSENSUS_FANOUT_METHODS`]).
+///
+/// This is the deliberate complement of `crate::raft::NATIVE_CONSENSUS_METHODS`:
+/// that list is every mutating method with a *bounded* `NativeMutationCommand`
+/// (`raft::native_domain(method).is_some()`); THIS list is every mutating method
+/// that instead owns a dedicated, self-routing handler (resolves `MultiRaft`,
+/// performs the leader check, and answers `OPERATION_REDIRECTED` itself — exactly
+/// like `handlers::placement::try_handle` does for the read-only `PlacementRoute`,
+/// just for a method that also mutates). Routing a `SelfRoutedAdmin` method
+/// through `propose_native_mutation` instead would hit
+/// `NativeMutationCommand::from_public_method`'s `Err` arm (no bounded native
+/// command exists) before ever reaching its real handler — the exact bug this
+/// list exists to prevent structurally, not by adding this file to the "please
+/// remember" list.
+///
+/// `crate::server::mutation::tests::clustered_mutation_inventory_is_complete`
+/// keeps this list, `GATEWAY_ROUTED`, `crate::raft::NATIVE_CONSENSUS_METHODS`,
+/// and `CONSENSUS_FANOUT_METHODS` an exhaustive, non-overlapping partition of
+/// every mutating method in `eg_capabilities::ALL_METHODS` — a Method added to
+/// the protocol without being placed in exactly one of these buckets fails that
+/// test, not a silent `CLUSTER_MUTATION_UNAVAILABLE` at request time.
+pub const SELF_ROUTED_ADMIN_METHODS: &[&str] = &["RaftAddLearner", "RaftChangeMembership"];
 
 /// Closed current-schema `ApplyMutation.event_type` values that are consumed by
 /// a served native coordinator before the ordinary single-graph gateway. Their
@@ -457,6 +498,27 @@ pub fn cluster_mutation_route(method: &Method) -> ClusterMutationRoute {
     }
     if matches!(method, Method::Shutdown) {
         return ClusterMutationRoute::VolatileControl;
+    }
+    if matches!(
+        method,
+        Method::RaftAddLearner { .. } | Method::RaftChangeMembership { .. }
+    ) {
+        // These mutate (`admin:cluster`, `ControlRedb`, `Saga` — the SAME policy
+        // shape as `Reshard`/`CatalogAssign`/etc.), so `authz_action ==
+        // "admin:cluster"` alone can't discriminate them: those sibling methods
+        // legitimately ARE `ConsensusNative` (they have a bounded
+        // `NativeMutationDomain::ClusterAdmin` command). What actually sets
+        // `RaftAddLearner`/`RaftChangeMembership` apart is that they have NO
+        // bounded `NativeMutationCommand` at all — see
+        // `SELF_ROUTED_ADMIN_METHODS`'s doc comment — and are handled entirely by
+        // `handlers::raft_admin::try_handle`, which resolves `MultiRaft` and does
+        // its own leader check/`OPERATION_REDIRECTED` redirect, exactly like
+        // `handlers::placement::try_handle` does for `PlacementRoute`.
+        debug_assert!(
+            SELF_ROUTED_ADMIN_METHODS.contains(&method_variant_name(method)),
+            "SELF_ROUTED_ADMIN_METHODS drifted from this match arm"
+        );
+        return ClusterMutationRoute::SelfRoutedAdmin;
     }
     if matches!(method, Method::ApplyChangeEnvelope { .. }) {
         return ClusterMutationRoute::ConsensusNative;
@@ -3346,6 +3408,8 @@ mod tests {
         ("CatalogRemove", "prepared/committed admin MutationBatch saga around the durable tenant catalog"),
         ("RebalanceExecute", "prepared/committed admin MutationBatch saga around cluster-wide rebalance"),
         ("Restore", "prepared/committed admin MutationBatch saga around online restore/PITR"),
+        ("RaftAddLearner", "leader-only openraft add_learner via handlers::raft_admin::try_handle against MultiRaft directly -- no GraphCore/graph_name in scope, cluster-wide like Reshard/CatalogAssign above"),
+        ("RaftChangeMembership", "leader-only openraft change_membership via handlers::raft_admin::try_handle against MultiRaft directly -- no GraphCore/graph_name in scope, cluster-wide like Reshard/CatalogAssign above"),
         ("CreateMatView", "prepared/committed control-plane MutationBatch saga around the durable cross-shard view row"),
         ("RefreshMatView", "prepared/committed control-plane MutationBatch saga around the durable cross-shard view row"),
         ("PlanMatViewDefine", "prepared/committed control-plane MutationBatch saga around the durable plan definition"),
@@ -3472,8 +3536,8 @@ mod tests {
 
     /// Clustered admission has no deferred mutation family. The union of the
     /// graph state-machine gateway, bounded native commands, specialized governed
-    /// envelope/modality commands, and process shutdown exactly equals the current
-    /// mutating capability ledger.
+    /// envelope/modality commands, self-routed admin handlers, and process
+    /// shutdown exactly equals the current mutating capability ledger.
     #[cfg(feature = "raft")]
     #[test]
     fn clustered_mutation_inventory_is_complete() {
@@ -3487,6 +3551,7 @@ mod tests {
         let mut covered: BTreeSet<&'static str> = GATEWAY_ROUTED.iter().copied().collect();
         covered.extend(crate::raft::NATIVE_CONSENSUS_METHODS.iter().copied());
         covered.extend(CONSENSUS_FANOUT_METHODS.iter().copied());
+        covered.extend(SELF_ROUTED_ADMIN_METHODS.iter().copied());
         covered.insert("ApplyChangeEnvelope");
         covered.insert("ServedModality");
         covered.insert("Shutdown");
@@ -3496,6 +3561,44 @@ mod tests {
         assert!(
             missing.is_empty() && stale.is_empty(),
             "cluster mutation inventory drift: missing={missing:?}, stale={stale:?}"
+        );
+
+        // The same discriminator explained on `SELF_ROUTED_ADMIN_METHODS`: NOT
+        // ALSO present in `raft::NATIVE_CONSENSUS_METHODS`, or `cluster_mutation_route`
+        // would be ambiguous about which route wins.
+        let native_consensus: BTreeSet<&'static str> =
+            crate::raft::NATIVE_CONSENSUS_METHODS.iter().copied().collect();
+        for name in SELF_ROUTED_ADMIN_METHODS {
+            assert!(
+                !native_consensus.contains(name),
+                "'{name}' is in both SELF_ROUTED_ADMIN_METHODS and \
+                 raft::NATIVE_CONSENSUS_METHODS -- cluster_mutation_route would be ambiguous"
+            );
+        }
+    }
+
+    /// `cluster_mutation_route` must classify each `SELF_ROUTED_ADMIN_METHODS`
+    /// entry as `SelfRoutedAdmin`, never `ConsensusNative` -- the exact bug
+    /// (`CLUSTER_MUTATION_UNAVAILABLE: no bounded native command exists`) that
+    /// made `Method::RaftAddLearner`/`RaftChangeMembership` unreachable through
+    /// dispatch even though `handlers::raft_admin::try_handle` fully implements
+    /// them.
+    #[test]
+    fn self_routed_admin_methods_bypass_the_native_mutation_router() {
+        assert_eq!(
+            cluster_mutation_route(&Method::RaftAddLearner {
+                group: None,
+                node_id: 2,
+                addr: "127.0.0.1:1".to_string(),
+            }),
+            ClusterMutationRoute::SelfRoutedAdmin,
+        );
+        assert_eq!(
+            cluster_mutation_route(&Method::RaftChangeMembership {
+                group: None,
+                voters: vec![1, 2],
+            }),
+            ClusterMutationRoute::SelfRoutedAdmin,
         );
     }
 
