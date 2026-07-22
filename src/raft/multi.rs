@@ -859,11 +859,8 @@ impl MultiRaft {
             .ok_or_else(|| format!("group {gid} not running on node {}", self.node_id))?;
         let mut voters: BTreeSet<NodeId> = {
             let metrics = raft.metrics();
-            metrics
-                .borrow_watched()
-                .membership_config
-                .voter_ids()
-                .collect()
+            let watched = metrics.borrow_watched();
+            watched.membership_config.voter_ids().collect()
         };
         voters.insert(new_node);
         self.change_group_voters(gid, voters).await
