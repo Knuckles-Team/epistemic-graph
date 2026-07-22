@@ -354,16 +354,20 @@ RLS context so a filtered result cannot cross an authority boundary.
   **always in the enum** (pure serde, present in every build per
   `docs/capabilities.generated.md`); the *real* answer needs the `raft`/`cluster`
   feature plus a live `MultiRaft` cluster, otherwise it returns a well-formed
-  authoritative-unplaced route — not an error. `Method::PlacementAssign` /
-  `PlacementMove` / `PlacementAbortMove` (DIST-P2-5) are the admin mutation trio that
-  closes the gap `PlacementRoute` alone left: before they existed, the
+  authoritative-unplaced route — not an error. `Method::PlacementAdmin { op }`
+  (DIST-P2-5, `op` one of `Assign`/`Move`/`AbortMove` — one `Method` variant with a
+  nested op enum, mirroring `ServedModality { op }`) is the admin mutation that
+  closes the gap `PlacementRoute` alone left: before it existed, the
   assign/split/merge/online-move machinery below was reachable ONLY from in-process
   Rust (tests/harnesses) — there was no way for an external caller, on a real
-  multi-node cluster, to trigger a placement decision or drive an online move. The
-  three are thin RPC entry points over the SAME already-proven `MultiRaft`/
-  `TenantManager` API (`src/server/handlers/placement.rs`), admin-scoped
-  (`"admin:cluster"`, the same tier as `Reshard`/`CatalogAssign`), returning a typed
-  "not available" error on a non-`raft` build. Proven against a REAL three-node
+  multi-node cluster, to trigger a placement decision or drive an online move. It is
+  a thin RPC entry point over the SAME already-proven `MultiRaft`/`TenantManager` API
+  (`src/server/handlers/placement.rs`), admin-scoped (`"admin:cluster"`, the same
+  tier as `Reshard`/`CatalogAssign`), returning a typed "not available" error on a
+  non-`raft` build, and classified `ClusterMutationRoute::VolatileControl` (not
+  `ConsensusNative`) since it replicates via its own internal `commit_placement`
+  round-trip rather than the generic native-command proposal wrapper. Proven against
+  a REAL three-node
   cluster (three independent tokio-spawned nodes, real openraft consensus — not the
   one-node/two-group simplification below) by
   `src/raft/tests.rs::placement_admin_wire_rpc::
