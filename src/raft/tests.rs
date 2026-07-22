@@ -1479,11 +1479,18 @@ async fn multi_add_group_learner_attaches_non_voting_learner_then_promotes() {
 /// dispatch path (`Method::RaftAddLearner`/`Method::RaftChangeMembership`,
 /// `src/server/handlers/raft_admin.rs`), not just the in-process `MultiRaft` API the
 /// test above drives directly. This is the external-caller seam
-/// `epistemic_graph.client`'s `raft_admin` namespace drives. Proves: (a) a request
-/// against a FOLLOWER is redirected to the leader (`OPERATION_REDIRECTED`, mirroring
-/// `PlacementRoute`'s stale-route shape), (b) a request against the LEADER actually
-/// attaches + promotes, and (c) an engine with no live `MultiRaft` answers a clean
-/// typed error rather than a silent no-op.
+/// `epistemic_graph.client`'s `raft_admin` namespace drives. Proves, in order: (a)
+/// a request against the LEADER actually attaches node 2 as a learner (real
+/// execution, not a stub); (b) a `RaftChangeMembership` request against that now
+/// genuinely-attached FOLLOWER is redirected to the leader (`OPERATION_REDIRECTED`
+/// with the real observed `leader_ref`, mirroring `PlacementRoute`'s stale-route
+/// shape) and is NOT silently mis-served or applied locally; (c) the SAME request
+/// against the LEADER actually promotes node 2 to a voter; and (d) an engine with
+/// no live `MultiRaft` answers a clean typed error rather than a silent no-op. (a)
+/// runs before (b) deliberately: openraft's `current_leader()` is honest local
+/// knowledge learned only from real AppendEntries/vote traffic, so the redirect is
+/// proven against a follower that has actually observed the leader through
+/// replication, not one the test simply asserts knows something it was never told.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn wire_raft_add_learner_and_change_membership_resolve_through_dispatch() {
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -1607,16 +1614,57 @@ async fn wire_raft_add_learner_and_change_membership_resolve_through_dispatch() 
         .expect("node 1 must lead the default group");
     }
 
-    // (a) A request against the FOLLOWER is redirected to the leader, not silently
-    // mis-served or panicking.
+    // (a) A request against the LEADER actually attaches node 2 as a learner.
+    // Deliberately proven FIRST: an openraft node's `current_leader()` is honest
+    // LOCAL knowledge learned only through real AppendEntries/vote traffic — a
+    // node that has never been contacted (like node 2 immediately after its own
+    // empty, non-bootstrapping `join_group`) has no leader to report and no
+    // basis to fabricate one. Attaching it as a learner is the real replication
+    // event that gives it that knowledge, exactly like a real operator's first
+    // admin call against a live cluster would.
     let resp = dispatch(
-        &follower_state,
+        &leader_state,
         signed_request(
             1,
             Method::RaftAddLearner {
                 group: None,
                 node_id: 2,
                 addr: addr(2),
+            },
+        ),
+    )
+    .await;
+    assert!(resp.error.is_none(), "dispatch error: {:?}", resp.error);
+    assert!(matches!(resp.result, Some(ResultPayload::Bool(true))));
+    assert_eq!(leader_multi.group_learners(gid).await, Some(vec![2]));
+    assert_eq!(leader_multi.group_membership(gid).await, Some(vec![1]));
+
+    // Node 2 is now a genuinely attached, caught-up learner (openraft's
+    // `add_learner(.., blocking=true)` does not return until the learner's log
+    // is caught up) -- it has observed node 1 as leader through REAL replicated
+    // traffic, not a value the test injects. Confirm that before relying on it.
+    let follower_multi = multis[1].1.clone();
+    {
+        let g = follower_multi.group(gid).await.expect("group on node 2");
+        wait_until(Duration::from_secs(15), || {
+            let g = g.clone();
+            async move { g.current_leader().await == Some(1) }
+        })
+        .await
+        .expect("node 2 must observe node 1 as leader after being attached as a learner");
+    }
+
+    // (b) A membership-admin request against this now-attached FOLLOWER is
+    // redirected to the leader, not silently mis-served, mis-applied locally, or
+    // panicking -- proven with the follower's REAL observed leader, not merely
+    // that the `OPERATION_REDIRECTED` constant exists somewhere in the source.
+    let resp = dispatch(
+        &follower_state,
+        signed_request(
+            2,
+            Method::RaftChangeMembership {
+                group: None,
+                voters: vec![1, 2],
             },
         ),
     )
@@ -1631,26 +1679,13 @@ async fn wire_raft_add_learner_and_change_membership_resolve_through_dispatch() 
         }
         other => panic!("expected a typed redirect result, got {other:?}"),
     }
-
-    // (b) A request against the LEADER actually attaches node 2 as a learner.
-    let resp = dispatch(
-        &leader_state,
-        signed_request(
-            2,
-            Method::RaftAddLearner {
-                group: None,
-                node_id: 2,
-                addr: addr(2),
-            },
-        ),
-    )
-    .await;
-    assert!(resp.error.is_none(), "dispatch error: {:?}", resp.error);
-    assert!(matches!(resp.result, Some(ResultPayload::Bool(true))));
-    assert_eq!(leader_multi.group_learners(gid).await, Some(vec![2]));
+    // The redirected request must NOT have been applied anywhere: membership is
+    // unchanged (still just the learner from step (a), no promotion happened).
     assert_eq!(leader_multi.group_membership(gid).await, Some(vec![1]));
+    assert_eq!(leader_multi.group_learners(gid).await, Some(vec![2]));
 
-    // Promote via the wire `RaftChangeMembership` method.
+    // (c) The SAME `RaftChangeMembership` issued against the LEADER actually
+    // promotes node 2 -- real execution, not just a redirect-shaped stub.
     let resp = dispatch(
         &leader_state,
         signed_request(
