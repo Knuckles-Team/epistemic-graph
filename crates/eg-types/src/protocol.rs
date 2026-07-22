@@ -1130,6 +1130,46 @@ pub enum Method {
         request: crate::epistemic_operations::PlacementRouteRequest,
     },
 
+    // ── Placement-catalog ADMIN mutations (CONCEPT:EG-KG.sharding.placement-catalog-admin-rpc,
+    // DIST-P2-5) ─────────────────────────────────────────────────────────────
+    // Before this trio, `PlacementCatalog`'s assign/split/merge/online-move machinery
+    // (`src/raft/placement.rs`, `src/raft/reshard.rs::TenantManager`) was reachable ONLY
+    // from in-process Rust (tests/harnesses) -- there was no wire method to actually
+    // TRIGGER a placement decision or an online move from outside the engine process,
+    // even on a real multi-group Raft cluster. These three close that gap: they are
+    // thin RPC entry points over the ALREADY-PROVEN `MultiRaft`/`TenantManager` admin
+    // API (`src/server/handlers/placement.rs`), raft/cluster-only, admin-scoped
+    // (`"admin:cluster"`, the same tier as `Reshard`/`CatalogAssign`).
+    /// Assign the WHOLE keyspace of `tenant` to `group` through the placement-catalog
+    /// authority (CONCEPT:EG-KG.sharding.placement-catalog-admin-rpc — the placement DECISION
+    /// leg). Collapses any prior split. Raft/cluster only; a non-clustered build returns
+    /// a typed "not available" error. Returns `{"epoch": u64}` JSON — the new routing
+    /// epoch every subsequent `PlacementRoute`/read observes immediately.
+    PlacementAssign {
+        tenant: String,
+        group: u64,
+    },
+    /// Online-move `tenant`'s partition `[range_start, range_end]` to `target`
+    /// (CONCEPT:EG-KG.sharding.placement-catalog-admin-rpc — the full PLAN → EXECUTE →
+    /// CATALOG-UPDATE leg): snapshot → per-graph durability-barrier catch-up → fenced
+    /// cutover, reusing the already-proven `TenantManager::move_partition` state
+    /// machine (crash-safe via its durable move journal). Raft/cluster only. Returns a
+    /// `PlacementMoveReport` JSON: `{tenant, range, target, epoch, graphs: [{graph,
+    /// from_group, to_group, nodes_transferred}]}`.
+    PlacementMove {
+        tenant: String,
+        range_start: u64,
+        range_end: u64,
+        target: u64,
+    },
+    /// Abort an in-flight online move identified by `move_id` before its cutover fence
+    /// (CONCEPT:EG-KG.sharding.placement-catalog-admin-rpc). Raft/cluster only; a move
+    /// already past its epoch fence is rejected (roll-forward only, matching
+    /// `TenantManager::abort_move`'s in-process contract). Returns `Bool`.
+    PlacementAbortMove {
+        move_id: String,
+    },
+
     // ── Online backup / restore + PITR (CONCEPT:EG-KG.sharding.reshard-on-restore) ──────────────
     // The wire surface for the DR ops the durable store now supports: an ONLINE
     // consistent backup (per-shard begin_read() MVCC snapshot, EG-027, streamed

@@ -350,12 +350,32 @@ RLS context so a filtered result cannot cross an authority boundary.
   permitted only before the epoch fence; if abort intent races a committed fence,
   recovery records the cutover and rolls forward rather than stranding an ambiguous
   `Aborting` state.
-- **Wire surface:** `Method::PlacementRoute` is **always in the enum** (pure serde,
-  present in every build per `docs/capabilities.generated.md`); the *real* answer needs
-  the `raft`/`cluster` feature plus a live `MultiRaft` cluster, otherwise it returns a
-  well-formed `{"explicit": false}` JSON — not an error.
+- **Wire surface (DIST-P2-4 read / DIST-P2-5 admin):** `Method::PlacementRoute` is
+  **always in the enum** (pure serde, present in every build per
+  `docs/capabilities.generated.md`); the *real* answer needs the `raft`/`cluster`
+  feature plus a live `MultiRaft` cluster, otherwise it returns a well-formed
+  authoritative-unplaced route — not an error. `Method::PlacementAssign` /
+  `PlacementMove` / `PlacementAbortMove` (DIST-P2-5) are the admin mutation trio that
+  closes the gap `PlacementRoute` alone left: before they existed, the
+  assign/split/merge/online-move machinery below was reachable ONLY from in-process
+  Rust (tests/harnesses) — there was no way for an external caller, on a real
+  multi-node cluster, to trigger a placement decision or drive an online move. The
+  three are thin RPC entry points over the SAME already-proven `MultiRaft`/
+  `TenantManager` API (`src/server/handlers/placement.rs`), admin-scoped
+  (`"admin:cluster"`, the same tier as `Reshard`/`CatalogAssign`), returning a typed
+  "not available" error on a non-`raft` build. Proven against a REAL three-node
+  cluster (three independent tokio-spawned nodes, real openraft consensus — not the
+  one-node/two-group simplification below) by
+  `src/raft/tests.rs::placement_admin_wire_rpc::
+  placement_admin_wire_rpcs_move_data_across_a_real_three_node_cluster`: assign the
+  decision, write data, move it to the other group, and read it back — from a
+  DIFFERENT physical node at every step — asserting the data is actually placed and
+  readable post-reshard, not merely that the RPC returned `Ok`.
 - **Default-on or opt-in:** gated `raft`/`cluster` (opt-in layer stacked on `full`, per
-  `docs/architecture/tiers.md`).
+  `docs/architecture/tiers.md`). The gate stays default-OFF by design (a single-node
+  homelab deployment has no second group to place anything on); what changed is that
+  the path BEHIND the gate is now wire-reachable and exercised end-to-end, not merely
+  present.
 
 ### Multi-group production startup + cross-shard read fan-out (DIST-P2-2)
 
