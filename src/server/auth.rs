@@ -14,15 +14,23 @@
 //! **Identity binding (feature `oidc`).** The HMAC envelope above proves only
 //! that the caller holds `GRAPH_SERVICE_AUTH_SECRET` — it does not by itself
 //! prove the envelope's self-asserted `principal`/`tenant`/`roles`/`scopes`
-//! belong to whoever is actually calling. When `EPISTEMIC_GRAPH_OIDC_JWT_ISSUER`
-//! is configured, [`bind_verified_identity`] additionally requires the envelope
-//! to carry an `oidc_token` that independently RSA/JWKS-verifies (reusing
-//! `crate::server::oidc`'s verifier, the same one the KV-cache HTTP surface
-//! uses) and rejects any mismatch between the envelope's claims and the
-//! token's verified subject/tenant/roles/scopes. The HMAC envelope remains
-//! channel integrity (replay/tamper/downgrade); the OIDC token is the
-//! independent proof of claimed identity. Unconfigured ⇒ today's HMAC-only
-//! behavior is unchanged (unauthenticated local/dev deployments still work).
+//! belong to whoever is actually calling. [`bind_verified_identity`] requires
+//! the envelope to carry an `oidc_token` that independently RSA/JWKS-verifies
+//! (reusing `crate::server::oidc`'s verifier, the same one the KV-cache HTTP
+//! surface uses) and rejects any mismatch between the envelope's claims and
+//! the token's verified subject/tenant/roles/scopes. The HMAC envelope
+//! remains channel integrity (replay/tamper/downgrade); the OIDC token is the
+//! independent proof of claimed identity.
+//!
+//! **SECURE BY DEFAULT since 2026-07-22** (`EPISTEMIC_GRAPH_REQUIRE_OIDC`,
+//! see [`require_oidc`] — closes the Identity boundary seam, the highest-
+//! priority finding of `reports/seam-closure-audit-2026-07-22.md`): a
+//! deployment that has NOT configured `EPISTEMIC_GRAPH_OIDC_JWT_ISSUER` (plus
+//! its audience/JWKS URL) now fails closed rather than silently accepting
+//! HMAC-only identity. The one deliberate, explicit opt-out — for local/dev
+//! use only — is `EPISTEMIC_GRAPH_REQUIRE_OIDC=false` (or `0`/`no`/`off`),
+//! which restores the pre-2026-07-22 HMAC-only-permitted posture. Nothing
+//! defaults into that downgrade; an operator must type it.
 
 use crate::acl::{AgentRole, RequestContextClaims};
 use crate::protocol::{
@@ -675,6 +683,30 @@ const REPLAY_TABLE: redb::TableDefinition<&str, u64> =
 /// Durable replay adapter used by secure mode.  A successful insert is
 /// committed with immediate durability before the request is dispatched, so a
 /// process restart cannot make a previously accepted nonce usable again.
+///
+/// **KNOWN GAP — per-node only, NOT replicated across a `cluster`/`raft`
+/// deployment** (tracked in `reports/seam-identity-closure.md`, "Raft
+/// replay-ledger replication" section; called out by
+/// `reports/seam-closure-audit-2026-07-22.md`'s Identity row). This ledger is
+/// a local `redb` table scoped to ONE node's `EPISTEMIC_GRAPH_SECURITY_STATE_DIR`.
+/// It is checked entirely BEFORE any Raft/consensus code runs (see
+/// `dispatch_inner` in `server/dispatch.rs`, which calls
+/// `verify_request_with_security_dir` — and therefore this ledger — before
+/// any `#[cfg(feature = "raft")]` code executes). In a hypothetical
+/// multi-node `cluster` deployment, a captured, still-signature-valid signed
+/// envelope COULD be replayed once against every node independently within
+/// the clock-skew window (`envelope_skew_secs()`, default 300s), because each
+/// node's `seen`-nonce set is disjoint. Closing this requires routing the
+/// nonce check-and-record through the SAME Raft-log consensus path ordinary
+/// mutations use (`crate::raft::ReplicatedMutation` / `NativeMutationCommand`
+/// in `src/raft/mod.rs`) rather than a purely local pre-check — a genuine new
+/// integration point on the hot path of EVERY authenticated request
+/// (including reads), not merely "replicate existing state." As of this
+/// writing the homelab's production `epistemic-graph` deployment does not run
+/// the `cluster`/`raft` feature at all (the default/`full` build links no
+/// `openraft`; see this crate's `Cargo.toml` `cluster` feature and the seam
+/// audit's Placement-seam finding), so this gap is not currently exploitable
+/// in production — but MUST be closed before any multi-node `cluster` rollout.
 #[cfg(feature = "security")]
 struct RedbReplayLedger {
     db: redb::Database,
@@ -808,6 +840,23 @@ fn env_flag_enabled(name: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// Parse an EXPLICIT env override for a boolean-ish deployment flag:
+/// `Some(true)`/`Some(false)` for a recognized value, `None` if the variable
+/// is unset, empty, OR carries an unrecognized value. Unlike
+/// [`env_flag_enabled`] (whose safe default is "off"), this is the primitive
+/// for flags whose safe default is "on" — [`require_oidc`] uses it so a
+/// mistyped opt-out (e.g. `EPISTEMIC_GRAPH_REQUIRE_OIDC=fals`) can never
+/// silently disable a security gate by falling through to `false`; only a
+/// clearly-recognized falsy spelling opts out.
+fn env_flag_explicit(name: &str) -> Option<bool> {
+    let raw = std::env::var(name).ok()?;
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => Some(true),
+        "0" | "false" | "no" | "off" => Some(false),
+        _ => None,
+    }
+}
+
 // ── OIDC identity binding (primary eg2. protocol, feature `oidc`) ─────────
 //
 // Extends `crate::server::oidc`'s existing RSA/JWKS verifier — the exact one
@@ -849,32 +898,58 @@ fn primary_oidc_validator() -> Result<Option<&'static crate::server::oidc::JwtVa
 }
 
 /// Config-gated MANDATORY-OIDC posture (`EPISTEMIC_GRAPH_REQUIRE_OIDC`).
+/// Shared by both [`bind_verified_identity`] variants below (the `oidc`-
+/// feature verifier path AND the no-`oidc`-feature fallback), so the default
+/// posture is identical regardless of which server binary is running.
 ///
-/// Default (unset / falsey) ⇒ `false`: [`bind_verified_identity`] behaves
-/// byte-identically to before this posture existed — an unconfigured
-/// deployment keeps today's HMAC-only behavior.
+/// **SECURE BY DEFAULT since 2026-07-22** (unset, empty, or any unrecognized
+/// value ⇒ `true`, via [`env_flag_explicit`]): the engine refuses any request
+/// whose self-asserted identity cannot be bound to a valid, RSA/JWKS-verified
+/// OIDC bearer token whose subject/tenant match the claimed principal/tenant.
+/// Critically this also fails closed when NO OIDC issuer is configured (or
+/// when this binary was built without the `oidc` feature at all) — a
+/// deployment that demands OIDC but forgot to (or cannot) configure a
+/// verifier must never silently downgrade to shared-secret HMAC alone.
 ///
-/// Truthy ⇒ `true`: the engine refuses any request whose self-asserted
-/// identity cannot be bound to a valid, RSA/JWKS-verified OIDC bearer token
-/// whose subject/tenant match the claimed principal/tenant. Critically this
-/// also fails closed when NO OIDC issuer is configured — a deployment that
-/// demands OIDC but forgot to (or failed to) configure a verifier must never
-/// silently downgrade to shared-secret HMAC alone.
-#[cfg(all(feature = "oidc", not(test)))]
+/// Explicit, deliberate opt-out for local/dev use ONLY: a RECOGNIZED falsy
+/// value (`false`/`0`/`no`/`off`) ⇒ `false`, restoring the pre-2026-07-22
+/// HMAC-only-permitted posture. An unrecognized value does NOT opt out (see
+/// [`env_flag_explicit`]) — only a clean, deliberate spelling downgrades
+/// security.
+#[cfg(not(test))]
 fn require_oidc() -> bool {
-    env_flag_enabled("EPISTEMIC_GRAPH_REQUIRE_OIDC")
+    env_flag_explicit("EPISTEMIC_GRAPH_REQUIRE_OIDC").unwrap_or(true)
 }
 
 // Test-only override for `require_oidc()`. Env vars are process-global and
 // would race across the parallel `libtest` threads, so — exactly like
 // `TEST_OIDC_VALIDATOR` — the posture is a per-thread cell each `#[test]`
-// sets explicitly (default `false`), with a guard that resets it on drop.
-#[cfg(all(feature = "oidc", test))]
+// sets explicitly.
+//
+// Default is `false`, i.e. the PRE-2026-07-22 posture, deliberately NOT
+// matching the new production default. Rationale: hundreds of pre-existing
+// unit/integration tests across this crate (dispatch, redb persistence, the
+// bolt/mqtt/stomp/mysql/sqlite wire protocols, transactions, …) build a
+// plain `eg2.` HMAC envelope with no `oidc_token` because they are
+// deliberately testing something else entirely; if this thread-local
+// defaulted to the new secure posture, every one of them would need an
+// unrelated opt-out edit — exactly the kind of scope explosion a change like
+// this must avoid. So this default stays scoped to the test harness rather
+// than mirroring a live deployment: only tests that specifically exercise
+// identity binding call
+// `require_oidc_on()`. The REAL production default (secure-by-default,
+// unset ⇒ required) lives in the `#[cfg(not(test))]` `require_oidc()` below
+// and in `env_flag_explicit`'s `.unwrap_or(true)` fold, both exercised
+// directly by `env_flag_explicit_defaults_secure_when_unset_or_unrecognized`
+// and by the process-level integration tests in
+// `tests/test_auth_enforcement.py` (which spawn the real binary with a truly
+// unset environment).
+#[cfg(test)]
 thread_local! {
     static TEST_REQUIRE_OIDC: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
-#[cfg(all(feature = "oidc", test))]
+#[cfg(test)]
 fn require_oidc() -> bool {
     TEST_REQUIRE_OIDC.with(std::cell::Cell::get)
 }
@@ -885,11 +960,12 @@ fn require_oidc() -> bool {
 ///
 /// Fail-closed and config-gated:
 /// - No issuer configured (`primary_oidc_validator` returns `Ok(None)`) ⇒
-///   `Ok(())` — today's HMAC-only behavior is preserved for unauthenticated
-///   local/dev deployments — UNLESS the MANDATORY-OIDC posture
-///   (`EPISTEMIC_GRAPH_REQUIRE_OIDC`, see [`require_oidc`]) is on, in which
-///   case an unconfigured verifier is a hard, fail-closed rejection rather
-///   than a silent downgrade to shared-secret HMAC alone.
+///   `Ok(())` ONLY when the MANDATORY-OIDC posture (`EPISTEMIC_GRAPH_REQUIRE_OIDC`,
+///   see [`require_oidc`]) has been explicitly opted out of — the pre-
+///   2026-07-22 HMAC-only behavior for unauthenticated local/dev deployments.
+///   Since 2026-07-22 the posture defaults ON, so the common case (no issuer,
+///   no opt-out) is a hard, fail-closed rejection rather than a silent
+///   downgrade to shared-secret HMAC alone.
 /// - Issuer configured ⇒ the envelope MUST carry a non-empty `oidc_token`
 ///   that independently RSA/JWKS-verifies (signature, issuer, audience, not
 ///   expired — `JwtValidator::validate_claims`), AND whose claims agree with
@@ -973,14 +1049,19 @@ fn bind_verified_identity(
     _claims: &RequestContextClaims,
     _oidc_token: Option<&str>,
 ) -> Result<(), String> {
-    // This build has no `oidc` feature, so no verifier exists at all. Default
-    // posture: today's HMAC-only behavior. MANDATORY-OIDC posture: fail closed
-    // rather than silently accept HMAC-only identity when an operator set
-    // EPISTEMIC_GRAPH_REQUIRE_OIDC against a build that cannot honor it.
-    if env_flag_enabled("EPISTEMIC_GRAPH_REQUIRE_OIDC") {
+    // This build has no `oidc` feature, so no verifier can ever exist. Same
+    // shared `require_oidc()` posture as the `oidc`-feature variant above:
+    // SECURE BY DEFAULT since 2026-07-22 — a build lacking the `oidc` feature
+    // altogether must fail closed rather than silently accept HMAC-only
+    // identity, unless an operator has explicitly opted out.
+    if require_oidc() {
         return Err(
-            "EPISTEMIC_GRAPH_REQUIRE_OIDC is set but this build lacks the `oidc` \
-             feature; refusing HMAC-only identity (fail-closed)"
+            "EPISTEMIC_GRAPH_REQUIRE_OIDC requires OIDC identity binding (the \
+             secure-by-default posture) but this build lacks the `oidc` \
+             feature; refusing HMAC-only identity (fail-closed). Either \
+             deploy a build with the `oidc` feature (part of the default \
+             `full` build) and configure EPISTEMIC_GRAPH_OIDC_JWT_ISSUER, or \
+             set EPISTEMIC_GRAPH_REQUIRE_OIDC=false to explicitly opt out."
                 .to_string(),
         );
     }
@@ -1054,7 +1135,28 @@ pub(super) fn validate_verified_context_startup(
     // audience/JWKS URL) fails server startup here, same as every other
     // secure-context config error, rather than lazily on the first request.
     #[cfg(feature = "oidc")]
-    primary_oidc_validator()?;
+    let validator = primary_oidc_validator()?;
+    #[cfg(not(feature = "oidc"))]
+    let validator: Option<()> = None;
+    // MANDATORY-OIDC posture (secure by default since 2026-07-22): if the
+    // deployment has not explicitly opted out via
+    // `EPISTEMIC_GRAPH_REQUIRE_OIDC=false`, an unconfigured (or unbuildable —
+    // no `oidc` feature) OIDC verifier must fail server STARTUP, not merely
+    // the first request. This turns a silently-inert production deployment
+    // into an immediate, loud boot failure — the same operator experience as
+    // the missing-auth-secret / missing-persist-dir gates above it.
+    if require_oidc() && validator.is_none() {
+        return Err(
+            "EPISTEMIC_GRAPH_REQUIRE_OIDC requires OIDC identity binding (the \
+             secure-by-default posture) but no usable OIDC verifier is \
+             configured — set EPISTEMIC_GRAPH_OIDC_JWT_ISSUER (plus its \
+             audience and JWKS URL, or the shared OIDC_ISSUER/OIDC_AUDIENCE) \
+             pointing at your Keycloak realm, or set \
+             EPISTEMIC_GRAPH_REQUIRE_OIDC=false to explicitly opt out for \
+             local/dev use"
+                .to_string(),
+        );
+    }
     Ok(())
 }
 
@@ -1264,6 +1366,38 @@ mod tests {
 
     const SECRET: &str = "request-security-test-secret";
 
+    /// Resets `TEST_REQUIRE_OIDC` when dropped so a posture override never
+    /// leaks into a later test on the same thread. Resets to `false`,
+    /// matching `TEST_REQUIRE_OIDC`'s own default (see its definition) — the
+    /// test harness's baseline, NOT production's.
+    struct RequireOidcGuard;
+
+    impl Drop for RequireOidcGuard {
+        fn drop(&mut self) {
+            TEST_REQUIRE_OIDC.with(|cell| cell.set(false));
+        }
+    }
+
+    /// Turn the `EPISTEMIC_GRAPH_REQUIRE_OIDC` posture ON for this test —
+    /// simulates a deployment that either left it at its real (secure)
+    /// default or explicitly set it truthy.
+    fn require_oidc_on() -> RequireOidcGuard {
+        TEST_REQUIRE_OIDC.with(|cell| cell.set(true));
+        RequireOidcGuard
+    }
+
+    /// Turn the `EPISTEMIC_GRAPH_REQUIRE_OIDC` posture OFF for this test —
+    /// the explicit, deliberate, documented opt-out
+    /// (`EPISTEMIC_GRAPH_REQUIRE_OIDC=false`) a real local/dev deployment
+    /// must type to restore pre-2026-07-22 HMAC-only-permitted behavior. A
+    /// no-op against `TEST_REQUIRE_OIDC`'s own default, kept for tests that
+    /// want to state the opt-out explicitly rather than rely on the harness
+    /// default coinciding with it.
+    fn require_oidc_off() -> RequireOidcGuard {
+        TEST_REQUIRE_OIDC.with(|cell| cell.set(false));
+        RequireOidcGuard
+    }
+
     fn ping_request(id: u64, graph: &str, auth_token: String) -> Request {
         Request {
             id,
@@ -1323,6 +1457,12 @@ mod tests {
 
     #[test]
     fn v2_returns_effective_agent_only_after_context_policy_verifies() {
+        // Not an identity-binding test: exercises HMAC-envelope-derived
+        // policy/scope authority, so it deliberately opts out of the
+        // mandatory-OIDC posture (no `oidc_token` is ever set on this
+        // envelope). See `oidc_binding` below for the identity-binding
+        // security tests.
+        let _opt_out = require_oidc_off();
         let req = signed_v2(501, "v2-context-ok");
         let context =
             verify_envelope_v2_with(SECRET, &req, &verified_policy(), &memory_replay()).unwrap();
@@ -1334,6 +1474,10 @@ mod tests {
 
     #[test]
     fn v2_coarse_kg_scopes_are_policy_aware_and_admin_safe() {
+        // Not an identity-binding test: exercises scope-authority policy over
+        // plain HMAC envelopes (no `oidc_token`), so it deliberately opts out
+        // of the mandatory-OIDC posture.
+        let _opt_out = require_oidc_off();
         let context_for = |scope: &str, id: u64, nonce: &str| {
             let mut claims = verified_claims();
             claims.scopes = vec![scope.into()];
@@ -1466,11 +1610,66 @@ mod tests {
 
     #[test]
     fn current_envelope_replay_is_rejected() {
+        // Not an identity-binding test: exercises nonce/replay rejection over
+        // a plain HMAC envelope (no `oidc_token`), so it deliberately opts
+        // out of the mandatory-OIDC posture.
+        let _opt_out = require_oidc_off();
         let req = signed_v2(503, "v2-replay");
         let replay = memory_replay();
         verify_envelope_v2_with(SECRET, &req, &verified_policy(), &replay).unwrap();
         let error = verify_envelope_v2_with(SECRET, &req, &verified_policy(), &replay).unwrap_err();
         assert!(error.contains("replay"));
+    }
+
+    #[test]
+    fn env_flag_explicit_defaults_secure_when_unset_or_unrecognized() {
+        // Direct unit coverage of the exact primitive `require_oidc()`'s real
+        // (`#[cfg(not(test))]`) implementation folds via `.unwrap_or(true)` —
+        // the thing that cannot be exercised through `TEST_REQUIRE_OIDC`
+        // (see its definition) because that thread-local is a *simulation*
+        // used by request-path tests, not the real env-reading code path.
+        // Uses a private probe name (never read by production code) so this
+        // can never race with another parallel test or a real deployment
+        // env var of the same name.
+        const PROBE: &str = "EPISTEMIC_GRAPH_REQUIRE_OIDC_TEST_PROBE_env_flag_explicit";
+
+        std::env::remove_var(PROBE);
+        assert_eq!(
+            env_flag_explicit(PROBE),
+            None,
+            "unset must be None so callers can apply THEIR OWN default"
+        );
+        // The exact fold `require_oidc()` performs: unset ⇒ secure (true).
+        assert!(
+            env_flag_explicit(PROBE).unwrap_or(true),
+            "production's require_oidc() must default to true (OIDC required) when unset"
+        );
+
+        std::env::set_var(PROBE, "not-a-recognized-value");
+        assert_eq!(
+            env_flag_explicit(PROBE),
+            None,
+            "an unrecognized value must not silently opt out of the secure default"
+        );
+        assert!(
+            env_flag_explicit(PROBE).unwrap_or(true),
+            "a typo'd opt-out must still resolve to the secure default"
+        );
+
+        for falsy in ["false", "0", "no", "off", "FALSE", " False "] {
+            std::env::set_var(PROBE, falsy);
+            assert_eq!(
+                env_flag_explicit(PROBE),
+                Some(false),
+                "{falsy:?} must be a recognized, deliberate opt-out"
+            );
+        }
+        for truthy in ["true", "1", "yes", "on", "TRUE"] {
+            std::env::set_var(PROBE, truthy);
+            assert_eq!(env_flag_explicit(PROBE), Some(true), "{truthy:?} must be truthy");
+        }
+
+        std::env::remove_var(PROBE);
     }
 
     fn detached_signature(signer: &str, key: &str, digest: &[u8]) -> String {
@@ -1618,21 +1817,6 @@ mod tests {
             OidcTestGuard
         }
 
-        /// Resets `TEST_REQUIRE_OIDC` when dropped so the MANDATORY-OIDC
-        /// posture never leaks into a later test on the same thread.
-        struct RequireOidcGuard;
-
-        impl Drop for RequireOidcGuard {
-            fn drop(&mut self) {
-                TEST_REQUIRE_OIDC.with(|cell| cell.set(false));
-            }
-        }
-
-        /// Turn the `EPISTEMIC_GRAPH_REQUIRE_OIDC` posture ON for this test.
-        fn require_oidc_on() -> RequireOidcGuard {
-            TEST_REQUIRE_OIDC.with(|cell| cell.set(true));
-            RequireOidcGuard
-        }
 
         fn sign(claims: &serde_json::Value) -> String {
             let mut header = Header::new(JwtAlgorithm::RS256);
@@ -1837,12 +2021,20 @@ mod tests {
         }
 
         #[test]
-        fn absent_oidc_configuration_preserves_current_hmac_only_behavior() {
-            // No validator installed — mirrors production with no
-            // EPISTEMIC_GRAPH_OIDC_JWT_ISSUER configured. An envelope with NO
-            // oidc_token must verify exactly as it did before this feature
-            // existed.
+        fn explicit_opt_out_preserves_pre_2026_07_22_hmac_only_behavior() {
+            // No validator installed AND the deliberate, documented opt-out
+            // (`EPISTEMIC_GRAPH_REQUIRE_OIDC=false`) is set — mirrors a real
+            // local/dev deployment that has consciously typed the escape
+            // hatch. An envelope with NO oidc_token must verify exactly as it
+            // did before the 2026-07-22 secure-by-default flip. This proves
+            // the documented opt-out genuinely works; the complementary proof
+            // that the SAME scenario is REJECTED when the posture is ON
+            // (production's real default) is
+            // `require_oidc_rejects_hmac_only_when_verifier_unconfigured`
+            // below — together they show the gate is neither always-on
+            // (worthless/unusable) nor always-off (worthless/no security).
             TEST_OIDC_VALIDATOR.with(|cell| cell.set(None));
+            let _opt_out = require_oidc_off();
             let req = envelope_request(709, "oidc-unconfigured", matching_claims(), None);
             let result =
                 verify_envelope_v2_with(SECRET, &req, &verified_policy(), &memory_replay());
@@ -1853,7 +2045,14 @@ mod tests {
         //
         // With the posture ON, an unconfigured verifier must fail closed
         // rather than fall back to HMAC-only, and a configured verifier must
-        // still accept a genuinely valid, matching token.
+        // still accept a genuinely valid, matching token. Since 2026-07-22
+        // "ON" is ALSO production's real, unconfigured default (see
+        // `require_oidc()`'s `#[cfg(not(test))]` implementation, exercised
+        // directly — not via this thread-local — by
+        // `env_flag_explicit_defaults_secure_when_unset_or_unrecognized`
+        // below and by `tests/test_auth_enforcement.py`'s process-level
+        // spawn tests, both of which touch real environment variables rather
+        // than this test-only override).
 
         #[test]
         fn require_oidc_rejects_hmac_only_when_verifier_unconfigured() {
