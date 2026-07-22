@@ -2676,13 +2676,10 @@ async fn dispatch_inner(
         // `placement_catalog.py`) can consume it instead of guessing independently. A
         // A single-node engine returns an authoritative unplaced route. A configured
         // Raft node without MultiRaft is an invalid cluster and fails closed.
-        // The admin mutation trio (CONCEPT:EG-KG.sharding.placement-catalog-admin-rpc, DIST-P2-5)
-        // is routed through the SAME handler, self-routing exactly like the M3 admin
+        // The admin mutation (CONCEPT:EG-KG.sharding.placement-catalog-admin-rpc, DIST-P2-5) is
+        // routed through the SAME handler, self-routing exactly like the M3 admin
         // block above -- see `handlers::placement::try_handle`'s per-variant arms.
-        Method::PlacementRoute { .. }
-        | Method::PlacementAssign { .. }
-        | Method::PlacementMove { .. }
-        | Method::PlacementAbortMove { .. } => {
+        Method::PlacementRoute { .. } | Method::PlacementAdmin { .. } => {
             match handlers::placement::try_handle(state, req.id, req.method).await {
                 Ok(resp) => resp,
                 // Unreachable: every variant matched above is a placement method.

@@ -142,6 +142,7 @@
 | `RebalancePlan` | false | None | `admin:cluster-read` | true | false | false | Snapshot |  |
 | `RebalanceExecute` | true | ControlRedb | `admin:cluster` | true | false | false | Saga | prepared/committed admin MutationBatch saga |
 | `PlacementRoute` | false | None | `admin:cluster-read` | true | false | false | Snapshot | engine-authoritative complete route; single-node returns authoritative unplaced group 0/epoch 0, while clustered routing requires a live MultiRaft control leader |
+| `PlacementAdmin` | true | ControlRedb | `admin:cluster` | false | false | false | Saga | raft-replicated placement-catalog admin op (Assign/Move/AbortMove, the placement DECISION + PLAN->EXECUTE->CATALOG-UPDATE legs): MultiRaft::placement_assign / TenantManager::move_partition / abort_move commit through the DEFAULT group's own client_write / commit_placement, not this gateway's per-graph MutationBatch |
 | `Backup` | false | None | `admin:backup` | true | false | false | Snapshot | reads a consistent snapshot out to a bundle; does not mutate the live graph |
 | `Restore` | true | ControlRedb | `admin:backup` | true | false | false | Saga | prepared/committed admin MutationBatch saga |
 | `CreateChannel` | true | ControlRedb | `channel:admin` | true | false | false | Saga | opaque prepared/committed session-control MutationBatch; message/member payloads stay out of the ledger |

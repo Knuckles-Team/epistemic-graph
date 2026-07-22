@@ -7,16 +7,16 @@
 //! policy. In a clustered build only the placement-control leader answers,
 //! preventing a lagging follower from publishing an obsolete epoch.
 //!
-//! `PlacementAssign` / `PlacementMove` / `PlacementAbortMove` are the wire-exposed
-//! admin mutations that DRIVE the catalog: before this trio, `PlacementCatalog`'s
-//! assign/split/merge/online-move machinery (`src/raft/placement.rs`,
-//! `src/raft/reshard.rs::TenantManager`) was fully implemented and unit/harness
-//! tested, but reachable ONLY from in-process Rust — there was no way for an
-//! external caller (a real multi-node cluster's operator, or an automated placement
-//! control loop) to trigger a placement decision or drive an online move over the
-//! wire. These three thin handlers call the SAME already-proven `MultiRaft`/
-//! `TenantManager` API the harness tests exercise directly, so no new placement
-//! logic is introduced here — only its external RPC surface.
+//! `PlacementAdmin` is the wire-exposed admin mutation that DRIVES the catalog
+//! (`op` selects `Assign`/`Move`/`AbortMove`, see [`crate::protocol::PlacementAdminOp`]):
+//! before it existed, `PlacementCatalog`'s assign/split/merge/online-move machinery
+//! (`src/raft/placement.rs`, `src/raft/reshard.rs::TenantManager`) was fully
+//! implemented and unit/harness tested, but reachable ONLY from in-process Rust —
+//! there was no way for an external caller (a real multi-node cluster's operator, or
+//! an automated placement control loop) to trigger a placement decision or drive an
+//! online move over the wire. These handlers call the SAME already-proven
+//! `MultiRaft`/`TenantManager` API the harness tests exercise directly, so no new
+//! placement logic is introduced here — only its external RPC surface.
 
 use std::sync::Arc;
 
@@ -175,6 +175,28 @@ async fn handle_assign(
 }
 
 #[cfg(feature = "raft")]
+async fn handle_placement_admin_op(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+    op: crate::protocol::PlacementAdminOp,
+) -> Response {
+    match op {
+        crate::protocol::PlacementAdminOp::Assign { tenant, group } => {
+            handle_assign(state, req_id, tenant, group).await
+        }
+        crate::protocol::PlacementAdminOp::Move {
+            tenant,
+            range_start,
+            range_end,
+            target,
+        } => handle_move(state, req_id, tenant, range_start, range_end, target).await,
+        crate::protocol::PlacementAdminOp::AbortMove { move_id } => {
+            handle_abort_move(state, req_id, move_id).await
+        }
+    }
+}
+
+#[cfg(feature = "raft")]
 fn reshard_report_json(report: &crate::raft::reshard::ReshardReport) -> serde_json::Value {
     serde_json::json!({
         "graph": report.graph,
@@ -242,18 +264,7 @@ pub(crate) async fn try_handle(
 ) -> Result<Response, Method> {
     match method {
         Method::PlacementRoute { request } => Ok(handle_route(state, req_id, request).await),
-        Method::PlacementAssign { tenant, group } => {
-            Ok(handle_assign(state, req_id, tenant, group).await)
-        }
-        Method::PlacementMove {
-            tenant,
-            range_start,
-            range_end,
-            target,
-        } => Ok(handle_move(state, req_id, tenant, range_start, range_end, target).await),
-        Method::PlacementAbortMove { move_id } => {
-            Ok(handle_abort_move(state, req_id, move_id).await)
-        }
+        Method::PlacementAdmin { op } => Ok(handle_placement_admin_op(state, req_id, op).await),
         other => Err(other),
     }
 }
@@ -274,9 +285,7 @@ pub(crate) async fn try_handle(
             request.tenant_ref,
             request.partition_ref,
         )),
-        Method::PlacementAssign { .. }
-        | Method::PlacementMove { .. }
-        | Method::PlacementAbortMove { .. } => Ok(Response::err(
+        Method::PlacementAdmin { .. } => Ok(Response::err(
             req_id,
             "CLUSTER_CONFIGURATION_INVALID: placement admin mutations require a `raft`-feature \
              cluster build",

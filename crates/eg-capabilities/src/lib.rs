@@ -870,18 +870,16 @@ pub fn policy(m: &Method) -> MethodPolicy {
             emits_cdc: false,
             txn_participation: TxnParticipation::Snapshot,
         },
-        Method::PlacementAssign { .. }
-        | Method::PlacementMove { .. }
-        | Method::PlacementAbortMove { .. } => MethodPolicy {
+        Method::PlacementAdmin { .. } => MethodPolicy {
             mutates: true,
             durability_domain: DurabilityDomain::ControlRedb,
             authz_action: "admin:cluster",
-            // A repeat call is not a no-op: `PlacementAssign` bumps the routing epoch
-            // again even onto the same group, and both `PlacementMove` and
-            // `PlacementAbortMove` reject a repeat call once their journal/entry has
-            // already advanced past the state the retry expects (see
-            // `PlacementCatalog::plan_assign`/`TenantManager::move_partition`/
-            // `abort_move`), rather than silently returning the prior success.
+            // A repeat call is not a no-op: `Assign` bumps the routing epoch again
+            // even onto the same group, and both `Move` and `AbortMove` reject a
+            // repeat call once their journal/entry has already advanced past the
+            // state the retry expects (see `PlacementCatalog::plan_assign`/
+            // `TenantManager::move_partition`/`abort_move`), rather than silently
+            // returning the prior success.
             idempotent: false,
             audited: false,
             emits_cdc: false,
@@ -2179,9 +2177,7 @@ pub const ALL_METHODS: &[(&str, MethodPolicy, &str)] = &[
         ("RebalancePlan", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "admin:cluster-read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, ""),
         ("RebalanceExecute", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::ControlRedb, authz_action: "admin:cluster", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Saga }, "prepared/committed admin MutationBatch saga"),
         ("PlacementRoute", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "admin:cluster-read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "engine-authoritative complete route; single-node returns authoritative unplaced group 0/epoch 0, while clustered routing requires a live MultiRaft control leader"),
-        ("PlacementAssign", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::ControlRedb, authz_action: "admin:cluster", idempotent: false, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Saga }, "raft-replicated placement-catalog admin op (the placement DECISION leg): MultiRaft::placement_assign commits through the DEFAULT group's own client_write, not this gateway's per-graph MutationBatch"),
-        ("PlacementMove", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::ControlRedb, authz_action: "admin:cluster", idempotent: false, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Saga }, "raft-replicated placement-catalog admin op (the PLAN->EXECUTE->CATALOG-UPDATE leg): TenantManager::move_partition drives the durable move journal through MultiRaft's commit_placement, not this gateway's per-graph MutationBatch"),
-        ("PlacementAbortMove", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::ControlRedb, authz_action: "admin:cluster", idempotent: false, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Saga }, "raft-replicated placement-catalog admin op: TenantManager::abort_move restores the pre-cutover source route through MultiRaft's commit_placement, not this gateway's per-graph MutationBatch"),
+        ("PlacementAdmin", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::ControlRedb, authz_action: "admin:cluster", idempotent: false, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Saga }, "raft-replicated placement-catalog admin op (Assign/Move/AbortMove, the placement DECISION + PLAN->EXECUTE->CATALOG-UPDATE legs): MultiRaft::placement_assign / TenantManager::move_partition / abort_move commit through the DEFAULT group's own client_write / commit_placement, not this gateway's per-graph MutationBatch"),
         ("Backup", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "admin:backup", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "reads a consistent snapshot out to a bundle; does not mutate the live graph"),
         ("Restore", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::ControlRedb, authz_action: "admin:backup", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Saga }, "prepared/committed admin MutationBatch saga"),
         ("CreateChannel", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::ControlRedb, authz_action: "channel:admin", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Saga }, "opaque prepared/committed session-control MutationBatch; message/member payloads stay out of the ledger"),
@@ -2491,15 +2487,18 @@ mod smoke_tests {
             // mirrored classifier comparisons live in `tests/consistency.rs`.
             let _ = table_policy;
         }
-        // Unconditional `ALL_METHODS` rows. The table has 358 total entry lines, of
+        // Unconditional `ALL_METHODS` rows. The table has 359 total entry lines, of
         // which 4 are feature-gated (jobs, statechart, modality-serving,
-        // knowledge-batch) => 354 unconditional. NOTE: this base constant was `352` and
+        // knowledge-batch) => 355 unconditional. NOTE: this base constant was `352` and
         // was already STALE by two BEFORE the statechart work — at base `main` the table
         // already had 354 unconditional rows (357 lines − 3 gated), so
         // `all_methods_table_matches_policy_fn...` was failing on a zero-feature build
         // independent of this change. Corrected to the git-verified actual count so the
-        // invariant is accurate across every feature combination.
-        let expected = 354
+        // invariant is accurate across every feature combination. Bumped 354 -> 355
+        // (DIST-P2-5): `PlacementAssign`/`PlacementMove`/`PlacementAbortMove` (three flat
+        // variants) were consolidated into ONE `PlacementAdmin { op }` variant (mirrors
+        // `ServedModality { op }`), a net +1 unconditional row.
+        let expected = 355
             + usize::from(cfg!(feature = "jobs"))
             + usize::from(cfg!(feature = "statechart"))
             + usize::from(cfg!(feature = "modality-serving"))
