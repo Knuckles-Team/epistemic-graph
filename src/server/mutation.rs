@@ -520,6 +520,22 @@ pub fn cluster_mutation_route(method: &Method) -> ClusterMutationRoute {
         );
         return ClusterMutationRoute::SelfRoutedAdmin;
     }
+    // `PlacementAdmin` (CONCEPT:EG-KG.sharding.placement-catalog-admin-rpc, DIST-P2-5) is durable, but
+    // NOT via this generic layer: `MultiRaft::placement_assign`/`TenantManager::
+    // move_partition`/`abort_move` each commit through their OWN raft round-trip
+    // (`commit_placement` -> the DEFAULT group's `client_write`) BEFORE this
+    // classifier ever runs on the replicated-apply pass. Routing it through
+    // `ConsensusNative`'s generic `propose_native_mutation` wrapper (as `Reshard`/
+    // `CatalogAssign` correctly do — they have no self-contained commit of their
+    // own) would propose a SECOND, redundant raft entry and, worse, re-enter
+    // `handlers::placement::try_handle` -> another `commit_placement` proposal from
+    // INSIDE that second entry's own apply callback. `VolatileControl` is the
+    // existing bucket for "this method's own mechanism handles durability; the
+    // generic cluster-routing layer does nothing extra" (see `Shutdown` above) --
+    // the name describes this layer's role, not whether the effect persists.
+    if matches!(method, Method::PlacementAdmin { .. }) {
+        return ClusterMutationRoute::VolatileControl;
+    }
     if matches!(method, Method::ApplyChangeEnvelope { .. }) {
         return ClusterMutationRoute::ConsensusNative;
     }
@@ -3410,6 +3426,7 @@ mod tests {
         ("Restore", "prepared/committed admin MutationBatch saga around online restore/PITR"),
         ("RaftAddLearner", "leader-only openraft add_learner via handlers::raft_admin::try_handle against MultiRaft directly -- no GraphCore/graph_name in scope, cluster-wide like Reshard/CatalogAssign above"),
         ("RaftChangeMembership", "leader-only openraft change_membership via handlers::raft_admin::try_handle against MultiRaft directly -- no GraphCore/graph_name in scope, cluster-wide like Reshard/CatalogAssign above"),
+        ("PlacementAdmin", "raft-replicated placement-catalog admin op (Assign/Move/AbortMove); MultiRaft::placement_assign / TenantManager::move_partition / abort_move commit through the DEFAULT group's own client_write / commit_placement to the __placement_catalog__ control graph, not this gateway's per-graph MutationBatch"),
         ("CreateMatView", "prepared/committed control-plane MutationBatch saga around the durable cross-shard view row"),
         ("RefreshMatView", "prepared/committed control-plane MutationBatch saga around the durable cross-shard view row"),
         ("PlanMatViewDefine", "prepared/committed control-plane MutationBatch saga around the durable plan definition"),
@@ -3555,6 +3572,7 @@ mod tests {
         covered.insert("ApplyChangeEnvelope");
         covered.insert("ServedModality");
         covered.insert("Shutdown");
+        covered.insert("PlacementAdmin");
 
         let missing: Vec<_> = expected.difference(&covered).copied().collect();
         let stale: Vec<_> = covered.difference(&expected).copied().collect();

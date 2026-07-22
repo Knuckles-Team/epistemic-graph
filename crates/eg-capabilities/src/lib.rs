@@ -879,6 +879,21 @@ pub fn policy(m: &Method) -> MethodPolicy {
             emits_cdc: false,
             txn_participation: TxnParticipation::Saga,
         },
+        Method::PlacementAdmin { .. } => MethodPolicy {
+            mutates: true,
+            durability_domain: DurabilityDomain::ControlRedb,
+            authz_action: "admin:cluster",
+            // A repeat call is not a no-op: `Assign` bumps the routing epoch again
+            // even onto the same group, and both `Move` and `AbortMove` reject a
+            // repeat call once their journal/entry has already advanced past the
+            // state the retry expects (see `PlacementCatalog::plan_assign`/
+            // `TenantManager::move_partition`/`abort_move`), rather than silently
+            // returning the prior success.
+            idempotent: false,
+            audited: false,
+            emits_cdc: false,
+            txn_participation: TxnParticipation::Saga,
+        },
         Method::Backup { .. } => MethodPolicy {
             mutates: false,
             durability_domain: DurabilityDomain::None,
@@ -2173,6 +2188,7 @@ pub const ALL_METHODS: &[(&str, MethodPolicy, &str)] = &[
         ("PlacementRoute", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "admin:cluster-read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "engine-authoritative complete route; single-node returns authoritative unplaced group 0/epoch 0, while clustered routing requires a live MultiRaft control leader"),
         ("RaftAddLearner", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::ControlRedb, authz_action: "admin:cluster", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Saga }, "leader-only openraft add_learner; attaches a non-voting replica without changing the voter set"),
         ("RaftChangeMembership", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::ControlRedb, authz_action: "admin:cluster", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Saga }, "leader-only openraft change_membership; sets the group's exact voter set (the usual way to promote a learner added via RaftAddLearner)"),
+        ("PlacementAdmin", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::ControlRedb, authz_action: "admin:cluster", idempotent: false, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Saga }, "raft-replicated placement-catalog admin op (Assign/Move/AbortMove, the placement DECISION + PLAN->EXECUTE->CATALOG-UPDATE legs): MultiRaft::placement_assign / TenantManager::move_partition / abort_move commit through the DEFAULT group's own client_write / commit_placement, not this gateway's per-graph MutationBatch"),
         ("Backup", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "admin:backup", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, "reads a consistent snapshot out to a bundle; does not mutate the live graph"),
         ("Restore", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::ControlRedb, authz_action: "admin:backup", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Saga }, "prepared/committed admin MutationBatch saga"),
         ("CreateChannel", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::ControlRedb, authz_action: "channel:admin", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Saga }, "opaque prepared/committed session-control MutationBatch; message/member payloads stay out of the ledger"),
@@ -2485,6 +2501,9 @@ mod smoke_tests {
         // Unconditional `ALL_METHODS` rows. The table has 360 total entry lines, of
         // which 4 are feature-gated (jobs, statechart, modality-serving,
         // knowledge-batch) => 356 unconditional. NOTE: this base constant was `352` and
+        // Unconditional `ALL_METHODS` rows. The table has 359 total entry lines, of
+        // which 4 are feature-gated (jobs, statechart, modality-serving,
+        // knowledge-batch) => 355 unconditional. NOTE: this base constant was `352` and
         // was already STALE by two BEFORE the statechart work — at base `main` the table
         // already had 354 unconditional rows (357 lines − 3 gated), so
         // `all_methods_table_matches_policy_fn...` was failing on a zero-feature build
@@ -2492,7 +2511,11 @@ mod smoke_tests {
         // invariant is accurate across every feature combination. Bumped 354 -> 356 for
         // the `RaftAddLearner`/`RaftChangeMembership` cluster-membership admin methods
         // (CONCEPT:EG-KG.storage.kg-kg-2).
-        let expected = 356
+        // Plus DIST-P2-5: `PlacementAssign`/`PlacementMove`/`PlacementAbortMove` (three
+        // flat variants) consolidated into ONE `PlacementAdmin { op }` variant (mirrors
+        // `ServedModality { op }`), a net +1 unconditional row.
+        // Net: 354 base + 2 (raft-admin) + 1 (PlacementAdmin) = 357.
+        let expected = 357
             + usize::from(cfg!(feature = "jobs"))
             + usize::from(cfg!(feature = "statechart"))
             + usize::from(cfg!(feature = "modality-serving"))

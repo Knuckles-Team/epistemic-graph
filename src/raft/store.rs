@@ -467,7 +467,23 @@ impl EgStore {
     /// against the authoritative image and committed as one state-backed
     /// MutationBatch before RAM publication. A ChangeEnvelope invokes its richer
     /// native atomic kernel as one state-machine command.
-    async fn apply_request(&self, req: &RaftRequest) -> Result<RaftResponse, String> {
+    ///
+    /// Explicitly boxed (rather than a bare `async fn`) so its return type is a
+    /// concrete `Pin<Box<dyn Future>>` instead of an inferred opaque type: this
+    /// function is the shared, ~500-line body BOTH `apply` and `install_snapshot`
+    /// (the two huge `RaftStateMachine` trait-method coroutines above) call, and an
+    /// opaque return type here entangles their two independent `Send`-bound
+    /// computations into a single rustc query cycle (`error[E0391]: cycle detected
+    /// ... coroutine witness ... Send`) once enough unrelated type-checking work
+    /// exists elsewhere in the crate to shift query evaluation order — the standard,
+    /// behavior-preserving fix for this class of async-fn-shared-by-two-trait-impls
+    /// cycle is to make the shared callee's future type explicit.
+    fn apply_request<'a>(
+        &'a self,
+        req: &'a RaftRequest,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<RaftResponse, String>> + Send + 'a>>
+    {
+        Box::pin(async move {
         req.validate()?;
         let server_secret = self.ctx.state.read().await.auth_secret.clone();
 
@@ -975,6 +991,7 @@ impl EgStore {
         Ok(RaftResponse {
             applied: true,
             ..Default::default()
+        })
         })
     }
 
