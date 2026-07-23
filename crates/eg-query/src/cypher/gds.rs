@@ -31,20 +31,24 @@ use petgraph::visit::{EdgeRef, IntoEdgeReferences};
 use serde_json::Value;
 
 use eg_compute::graph_algos::{
-    all_pairs_similarity, betweenness_centrality, degree_centrality, dijkstra, knn_similarity,
-    label_propagation, louvain, pagerank, strongly_connected_components,
-    weakly_connected_components, AdjacencyGraph, DegreeKind, Direction, LabelPropagationConfig,
-    LouvainConfig, Metric, PageRankConfig,
+    all_pairs_similarity, betweenness_centrality, degree_centrality, dijkstra, k1_coloring, k_core,
+    knn_similarity, label_propagation, leiden, local_clustering_coefficient, louvain, pagerank,
+    strongly_connected_components, triangle_count, weakly_connected_components, AdjacencyGraph,
+    DegreeKind, Direction, LabelPropagationConfig, LeidenConfig, LouvainConfig, Metric,
+    PageRankConfig,
 };
 
 use super::proc::{CypherProcedure, ProcRow, YieldValue};
 
 /// Every GDS procedure, ready to fold into the procedure registry
 /// (CONCEPT:EG-KG.query.gds-call-procedures / CONCEPT:EG-KG.query.gds-procedure-routing). Consumed
-/// by `proc::build_registry`. The base 10 (EG-298 + `labelPropagation`/`knn`)
-/// always route to always-on `graph_algos` kernels; `gds.dbscan` and
-/// `gds.linkPrediction` are gated behind the `cypher-mining`/`cypher-graphlearn`
-/// features (they route to heavier eg-compute domains — see `Cargo.toml`).
+/// by `proc::build_registry`. The always-on base (EG-298 + `labelPropagation`/
+/// `knn` + the W4.1 GDS-parity expansion — Leiden/triangle-count/
+/// local-clustering-coefficient/k-core/k1-coloring community family) all
+/// route to always-on `graph_algos` kernels; `gds.dbscan` and
+/// `gds.linkPrediction` are gated behind the `cypher-mining`/
+/// `cypher-graphlearn` features (they route to heavier eg-compute domains —
+/// see `Cargo.toml`).
 pub fn gds_procedures() -> Vec<Box<dyn CypherProcedure>> {
     #[allow(unused_mut)]
     let mut v: Vec<Box<dyn CypherProcedure>> = vec![
@@ -52,8 +56,13 @@ pub fn gds_procedures() -> Vec<Box<dyn CypherProcedure>> {
         Box::new(Betweenness),
         Box::new(Degree),
         Box::new(Louvain),
+        Box::new(Leiden),
         Box::new(Wcc),
         Box::new(Scc),
+        Box::new(TriangleCount),
+        Box::new(LocalClusteringCoefficient),
+        Box::new(KCore),
+        Box::new(K1Coloring),
         Box::new(Dijkstra),
         Box::new(NodeSimilarity),
         Box::new(LabelPropagation),
@@ -165,6 +174,24 @@ fn scored_rows(scored: Vec<(String, f64)>, col: &str) -> Vec<ProcRow> {
     scored
         .into_iter()
         .map(|(id, s)| scored_row(id, col, s))
+        .collect()
+}
+
+/// One `(nodeId, <col>)` result row for an INTEGER-valued per-node metric
+/// (triangle counts, core numbers, coloring ids — CONCEPT:EG-KG.query.gds-call-procedures) —
+/// the `u64` sibling of [`scored_row`].
+fn int_row(id: String, col: &str, v: u64) -> ProcRow {
+    vec![
+        ("nodeId".to_string(), YieldValue::Node(id)),
+        (col.to_string(), YieldValue::Scalar(Value::Number(v.into()))),
+    ]
+}
+
+/// `(nodeId, <col>)` rows from a `Vec<(id, u64)>` kernel result.
+fn int_rows(scored: Vec<(String, u64)>, col: &str) -> Vec<ProcRow> {
+    scored
+        .into_iter()
+        .map(|(id, v)| int_row(id, col, v))
         .collect()
 }
 
@@ -283,6 +310,35 @@ impl CypherProcedure for Louvain {
     }
 }
 
+/// `gds.leiden(config)` — Leiden community detection with a
+/// connectivity-guaranteeing refinement phase (CONCEPT:EG-KG.query.gds-call-procedures).
+/// Config: `resolution` (alias `gamma`, 1.0), `maxLevels` (50),
+/// `maxIterations`/`maxSweeps` (100), `relationshipWeightProperty`. Yields
+/// `nodeId` / `node`, `communityId`. Routes to `eg_compute::graph_algos::leiden`
+/// (CONCEPT:EG-KG.compute.leiden-community-detection) — see that module's doc for the exact
+/// guarantee (every returned community's induced subgraph is connected, the
+/// defect Traag, Waltman & van Eck 2019 prove plain Louvain does not avoid).
+struct Leiden;
+impl CypherProcedure for Leiden {
+    fn name(&self) -> &'static str {
+        "gds.leiden"
+    }
+    fn columns(&self) -> &'static [&'static str] {
+        &["nodeId", "communityId"]
+    }
+    fn call(&self, args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
+        let cfg = Config::of(args);
+        let g = project(view, cfg.string("relationshipWeightProperty").as_deref());
+        let lc = LeidenConfig {
+            resolution: cfg.f64("resolution", cfg.f64("gamma", 1.0)),
+            seed: None,
+            max_sweeps: cfg.usize("maxIterations", cfg.usize("maxSweeps", 100)),
+            max_levels: cfg.usize("maxLevels", 50),
+        };
+        Ok(partition_rows(leiden(&g, &lc).communities, "communityId"))
+    }
+}
+
 /// `gds.labelPropagation(config)` — synchronous Label Propagation (LPA) community
 /// detection (CONCEPT:EG-KG.query.gds-procedure-routing). Config: `maxIterations` (10),
 /// `relationshipWeightProperty` (edge-weighted neighbour voting; unweighted votes
@@ -351,6 +407,82 @@ impl CypherProcedure for Scc {
             strongly_connected_components(&g),
             "componentId",
         ))
+    }
+}
+
+// ── structural / community metrics (W4.1, CONCEPT:EG-KG.query.gds-call-procedures) ────────────────
+
+/// `gds.triangleCount(config)` — per-node triangle count over the undirected
+/// symmetrisation (CONCEPT:EG-KG.query.gds-call-procedures). Config:
+/// `relationshipWeightProperty` (topology only — triangle count ignores
+/// weight/direction). Yields `nodeId` / `node`, `triangleCount`. Routes to
+/// `eg_compute::graph_algos::triangle_count` (CONCEPT:EG-KG.compute.triangle-counting).
+struct TriangleCount;
+impl CypherProcedure for TriangleCount {
+    fn name(&self) -> &'static str {
+        "gds.triangleCount"
+    }
+    fn columns(&self) -> &'static [&'static str] {
+        &["nodeId", "triangleCount"]
+    }
+    fn call(&self, _args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
+        let g = project(view, None);
+        Ok(int_rows(triangle_count(&g), "triangleCount"))
+    }
+}
+
+/// `gds.localClusteringCoefficient(config)` — per-node local clustering
+/// coefficient (CONCEPT:EG-KG.query.gds-call-procedures). Yields `nodeId` / `node`,
+/// `localClusteringCoefficient`. Routes to
+/// `eg_compute::graph_algos::local_clustering_coefficient` (CONCEPT:EG-KG.compute.triangle-counting).
+struct LocalClusteringCoefficient;
+impl CypherProcedure for LocalClusteringCoefficient {
+    fn name(&self) -> &'static str {
+        "gds.localClusteringCoefficient"
+    }
+    fn columns(&self) -> &'static [&'static str] {
+        &["nodeId", "localClusteringCoefficient"]
+    }
+    fn call(&self, _args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
+        let g = project(view, None);
+        Ok(scored_rows(
+            local_clustering_coefficient(&g),
+            "localClusteringCoefficient",
+        ))
+    }
+}
+
+/// `gds.kcore(config)` — k-core decomposition (degeneracy / coreness)
+/// (CONCEPT:EG-KG.query.gds-call-procedures). Yields `nodeId` / `node`, `coreValue`. Routes to
+/// `eg_compute::graph_algos::k_core` (CONCEPT:EG-KG.compute.k-core-decomposition).
+struct KCore;
+impl CypherProcedure for KCore {
+    fn name(&self) -> &'static str {
+        "gds.kcore"
+    }
+    fn columns(&self) -> &'static [&'static str] {
+        &["nodeId", "coreValue"]
+    }
+    fn call(&self, _args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
+        let g = project(view, None);
+        Ok(int_rows(k_core(&g), "coreValue"))
+    }
+}
+
+/// `gds.k1coloring(config)` — greedy proper graph coloring (Welsh–Powell
+/// largest-degree-first) (CONCEPT:EG-KG.query.gds-call-procedures). Yields `nodeId` / `node`,
+/// `color`. Routes to `eg_compute::graph_algos::k1_coloring` (CONCEPT:EG-KG.compute.k1-coloring).
+struct K1Coloring;
+impl CypherProcedure for K1Coloring {
+    fn name(&self) -> &'static str {
+        "gds.k1coloring"
+    }
+    fn columns(&self) -> &'static [&'static str] {
+        &["nodeId", "color"]
+    }
+    fn call(&self, _args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
+        let g = project(view, None);
+        Ok(int_rows(k1_coloring(&g), "color"))
     }
 }
 
@@ -753,6 +885,26 @@ mod tests {
     }
 
     #[test]
+    fn call_gds_leiden_yields_community_ids() {
+        let v = fixture();
+        let qr = exec_cypher(
+            &v,
+            "CALL gds.leiden({resolution: 1.0}) YIELD nodeId, communityId \
+             RETURN nodeId, communityId",
+        )
+        .unwrap();
+        let mut comm: HashMap<String, i64> = HashMap::new();
+        for r in rows(&qr) {
+            comm.insert(node_id(&r[0]).to_string(), r[1].as_i64().unwrap());
+        }
+        // The connected chain alice-bob-carol shares one community; d1 is isolated.
+        assert_eq!(comm.len(), 4);
+        assert_eq!(comm["alice"], comm["bob"]);
+        assert_eq!(comm["bob"], comm["carol"]);
+        assert_ne!(comm["alice"], comm["d1"]);
+    }
+
+    #[test]
     fn eg298_call_gds_wcc_and_scc_partition_differently() {
         let v = fixture();
         // WCC: alice/bob/carol weakly connected (one component), d1 its own.
@@ -779,6 +931,101 @@ mod tests {
             s.insert(r[1].as_i64().unwrap());
         }
         assert_eq!(s.len(), 4);
+    }
+
+    /// Fixture for the structural family: a real triangle {a,b,c} plus an
+    /// isolated d, so triangle-count/LCC/k-core/coloring all have a known,
+    /// hand-computable expected shape.
+    fn triangle_plus_isolated_fixture() -> GraphView {
+        let core = GraphCore::new();
+        for id in ["a", "b", "c", "d"] {
+            core.add_node(id.into(), pbytes(serde_json::json!({"node_type": "N"})));
+        }
+        for (s, t) in [("a", "b"), ("b", "c"), ("a", "c")] {
+            core.add_edge(s.into(), t.into(), pbytes(serde_json::json!({})))
+                .unwrap();
+        }
+        core.analysis_snapshot()
+    }
+
+    #[test]
+    fn call_gds_triangle_count_counts_the_known_triangle() {
+        let v = triangle_plus_isolated_fixture();
+        let qr = exec_cypher(
+            &v,
+            "CALL gds.triangleCount() YIELD nodeId, triangleCount \
+             RETURN nodeId, triangleCount",
+        )
+        .unwrap();
+        let mut counts: HashMap<String, i64> = HashMap::new();
+        for r in rows(&qr) {
+            counts.insert(node_id(&r[0]).to_string(), r[1].as_i64().unwrap());
+        }
+        assert_eq!(counts["a"], 1);
+        assert_eq!(counts["b"], 1);
+        assert_eq!(counts["c"], 1);
+        assert_eq!(counts["d"], 0);
+    }
+
+    #[test]
+    fn call_gds_local_clustering_coefficient_full_triangle_is_one() {
+        let v = triangle_plus_isolated_fixture();
+        let qr = exec_cypher(
+            &v,
+            "CALL gds.localClusteringCoefficient() \
+             YIELD nodeId, localClusteringCoefficient \
+             RETURN nodeId, localClusteringCoefficient",
+        )
+        .unwrap();
+        let mut lcc: HashMap<String, f64> = HashMap::new();
+        for r in rows(&qr) {
+            lcc.insert(node_id(&r[0]).to_string(), r[1].as_f64().unwrap());
+        }
+        assert!((lcc["a"] - 1.0).abs() < 1e-9);
+        assert!(
+            (lcc["d"] - 0.0).abs() < 1e-9,
+            "isolated node has no neighbours"
+        );
+    }
+
+    #[test]
+    fn call_gds_kcore_triangle_is_a_2_core_isolated_is_a_0_core() {
+        let v = triangle_plus_isolated_fixture();
+        let qr = exec_cypher(
+            &v,
+            "CALL gds.kcore() YIELD nodeId, coreValue RETURN nodeId, coreValue",
+        )
+        .unwrap();
+        let mut core: HashMap<String, i64> = HashMap::new();
+        for r in rows(&qr) {
+            core.insert(node_id(&r[0]).to_string(), r[1].as_i64().unwrap());
+        }
+        assert_eq!(core["a"], 2);
+        assert_eq!(core["b"], 2);
+        assert_eq!(core["c"], 2);
+        assert_eq!(core["d"], 0);
+    }
+
+    #[test]
+    fn call_gds_k1coloring_is_a_proper_coloring() {
+        let v = triangle_plus_isolated_fixture();
+        let qr = exec_cypher(
+            &v,
+            "CALL gds.k1coloring() YIELD nodeId, color RETURN nodeId, color",
+        )
+        .unwrap();
+        let mut color: HashMap<String, i64> = HashMap::new();
+        for r in rows(&qr) {
+            color.insert(node_id(&r[0]).to_string(), r[1].as_i64().unwrap());
+        }
+        // The genuine correctness property: no two adjacent nodes (the triangle)
+        // share a color; the triangle needs exactly 3 distinct colors.
+        assert_ne!(color["a"], color["b"]);
+        assert_ne!(color["b"], color["c"]);
+        assert_ne!(color["a"], color["c"]);
+        let distinct: std::collections::HashSet<i64> =
+            [color["a"], color["b"], color["c"]].into_iter().collect();
+        assert_eq!(distinct.len(), 3);
     }
 
     #[test]
