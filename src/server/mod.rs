@@ -237,6 +237,13 @@ pub mod cache_coherence;
 // `cold-tier-s3`. The seam + in-memory impl live in eg-core; this needs redb.
 #[cfg(all(feature = "cold-tier", feature = "redb"))]
 pub mod cold_tier_impl;
+// Warm-on-demand for the semantic ANN index (W0.4, CONCEPT:EG-KG.storage.semantic-index-directory): the
+// boot-time warm task only covers graphs resident at startup, so this module
+// supplies the post-write trigger + periodic backstop for a graph created — or
+// crossing `ANN_BUILD_THRESHOLD` — after boot. Gated with the `ann` feature the
+// warm mechanism itself requires; a non-`ann` build compiles none of it.
+#[cfg(feature = "ann")]
+pub mod ann_warm;
 mod compute;
 mod dispatch;
 pub(crate) mod handlers;
@@ -2235,6 +2242,83 @@ mod tests {
         assert_ok(&resp);
         // Compact encoding (Phase C-D): the weighted result is a Raw msgpack blob.
         assert!(matches!(resp.result, Some(ResultPayload::Raw(_))));
+    }
+
+    /// W0.4 — a graph that crosses `ANN_BUILD_THRESHOLD` AFTER "boot" (this
+    /// harness never runs `main.rs`'s boot-time warm task at all) must still
+    /// reach `is_ready()` WITHOUT a restart: the post-write dispatch-tail trigger
+    /// (`ann_warm::maybe_warm_after_write`) must spawn the warm the moment a
+    /// write on the graph observes the threshold crossed. Brute-force search
+    /// stays exactly correct both before the warm and after.
+    #[cfg(feature = "ann")]
+    #[tokio::test]
+    async fn test_ann_warms_on_demand_after_threshold_crossing_post_boot() {
+        let state = test_state();
+        {
+            let mut s = state.write().await;
+            s.registry
+                .create_graph("agent:grows-post-boot", GraphType::Agent, None)
+                .unwrap();
+        }
+        let core = {
+            let s = state.read().await;
+            s.registry
+                .get("agent:grows-post-boot")
+                .unwrap()
+                .core
+                .clone()
+        };
+
+        // Simulate embeddings accumulated before this process's "boot", seeded
+        // directly (bypassing per-request dispatch overhead so the test stays
+        // fast) — exactly the state a graph is in the instant it crosses the
+        // threshold, with no boot-time warm task ever having run for it (there is
+        // none in this harness).
+        let dim = 8;
+        let n = crate::compute::semantic_ann::ANN_BUILD_THRESHOLD + 50;
+        let mut target = vec![0.0f32; dim];
+        {
+            let mut store = core.semantic_store.write();
+            for i in 0..n {
+                let mut v = vec![0.0f32; dim];
+                v[i % dim] = 1.0;
+                if i == 42 {
+                    target = v.clone();
+                }
+                store.add_embedding(format!("n{i}"), v);
+            }
+        }
+        assert!(
+            !core.semantic_store.read().is_ready(),
+            "nothing has triggered a warm yet"
+        );
+        // Brute force must already be exact even before any warm.
+        let before = core.semantic_store.read().semantic_search(&target, 3);
+        assert!(before.iter().any(|(id, _)| id == "n42"));
+
+        // The ONE mechanism under test: a normal write through the real dispatch
+        // path (any Write-classified method on this graph) must trigger the
+        // post-write warm hook — no restart, no explicit warm() call from the
+        // test itself.
+        let resp = dispatch(
+            &state,
+            request(1, "agent:grows-post-boot", None, add_node("trigger")),
+        )
+        .await;
+        assert_ok(&resp);
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while !core.semantic_store.read().is_ready() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "semantic ANN index never warmed after crossing the threshold post-write"
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+
+        // Still exact after warming — the ANN path must agree with brute force.
+        let after = core.semantic_store.read().semantic_search(&target, 3);
+        assert!(after.iter().any(|(id, _)| id == "n42"));
     }
 
     /// One-round-trip hybrid discovery (CONCEPT:EG-KG.retrieval.one-round-trip-discovery): a single `Discover`
