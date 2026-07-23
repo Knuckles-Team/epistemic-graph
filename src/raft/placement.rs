@@ -88,6 +88,8 @@
 //! catalog row returns the engine-owned unplaced policy; it never delegates a
 //! placement decision to the caller.
 
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -438,6 +440,27 @@ pub struct PendingWrite<'a> {
 pub struct PlacementCatalog {
     state: Arc<RwLock<ServerState>>,
     write_lock: Mutex<()>,
+    /// W0.3 in-memory routing index (CONCEPT:EG-KG.sharding.placement-catalog): `tenant → its entries`, paired
+    /// with the [`PLACEMENT_GRAPH`] core version it was built from.
+    /// `route`/`tenant_entries`/`route_many`/epoch-alloc read this instead of
+    /// decoding every node on every call. Rebuilt (one full scan) only when the
+    /// paired version no longer matches the graph's CURRENT version
+    /// ([`Self::ensure_index_fresh`]) — which covers a LOCAL admin commit (this
+    /// node's own `plan_*` calls, which run through the SAME apply path as any
+    /// other write) exactly like it covers a placement change this node only
+    /// observes via Raft-replicated apply: a follower never calls `plan_*`
+    /// locally, so a delta only the admin call sites maintained would go stale on
+    /// every follower. [`crate::graph::GraphCore::version`] is the graph's
+    /// universal per-commit counter (bumped by `mark_dirty` on every committed
+    /// write regardless of which path applied it), so it is the correct
+    /// invalidation signal for either case. `None` until first access.
+    index: RwLock<Option<(u64, HashMap<String, Vec<PlacementEntry>>)>>,
+    /// Monotonic high-water mark of every epoch this index has ever observed, so
+    /// `plan_assign`/`plan_split`/`plan_fence_cutover` allocate `max_epoch + 1` in
+    /// O(1) instead of a full-catalog `max()` scan. Recomputed from scratch on
+    /// every index rebuild (see [`Self::ensure_index_fresh`]), which is always
+    /// correct because a full rescan reflects the graph's true current state.
+    max_epoch: AtomicU64,
 }
 
 impl PlacementCatalog {
@@ -445,13 +468,26 @@ impl PlacementCatalog {
         PlacementCatalog {
             state,
             write_lock: Mutex::new(()),
+            index: RwLock::new(None),
+            max_epoch: AtomicU64::new(0),
         }
     }
 
-    /// Every durably-recorded placement entry, decoded from [`PLACEMENT_GRAPH`]'s
-    /// current nodes. Empty (not an error) when the graph doesn't exist yet — an
-    /// untouched catalog.
-    pub async fn all_entries(&self) -> Vec<PlacementEntry> {
+    /// [`PLACEMENT_GRAPH`]'s current core version, or `0` if the graph does not
+    /// exist yet (an untouched catalog) — the invalidation signal
+    /// [`Self::ensure_index_fresh`] compares against.
+    async fn graph_version(&self) -> u64 {
+        let s = self.state.read().await;
+        s.registry
+            .get(PLACEMENT_GRAPH)
+            .map(|e| e.core.version())
+            .unwrap_or(0)
+    }
+
+    /// Full scan + decode of [`PLACEMENT_GRAPH`]'s CURRENT nodes (CONCEPT:EG-KG.sharding.placement-catalog) —
+    /// the ONE full-scan pass [`Self::ensure_index_fresh`] performs when (and only
+    /// when) the index is stale relative to the graph's current version.
+    async fn scan_all_entries(&self) -> Vec<PlacementEntry> {
         let core = {
             let s = self.state.read().await;
             s.registry.get(PLACEMENT_GRAPH).map(|e| e.core.clone())
@@ -477,14 +513,74 @@ impl PlacementCatalog {
         }
     }
 
-    /// This tenant's placement entries (0, 1 whole-keyspace, or several ranged after a
-    /// split).
-    pub async fn tenant_entries(&self, tenant: &str) -> Vec<PlacementEntry> {
-        self.all_entries()
+    /// Ensure the in-memory routing index reflects [`PLACEMENT_GRAPH`]'s CURRENT
+    /// core version (CONCEPT:EG-KG.sharding.placement-catalog, W0.3 — the O(N)→O(1) routing fix). A cheap O(1)
+    /// version compare when nothing has changed since the last build; a full
+    /// scan + decode ONLY when the version has advanced (this node's own admin
+    /// commit, or a Raft-replicated apply from the group leader).
+    async fn ensure_index_fresh(&self) {
+        let current_version = self.graph_version().await;
+        if let Some((built_version, _)) = self.index.read().await.as_ref() {
+            if *built_version == current_version {
+                return;
+            }
+        }
+        let mut guard = self.index.write().await;
+        // Re-read: the version may have advanced again, or a racing caller may
+        // have already rebuilt for this exact version, while we waited for the
+        // write lock.
+        let current_version = self.graph_version().await;
+        if let Some((built_version, _)) = guard.as_ref() {
+            if *built_version == current_version {
+                return;
+            }
+        }
+        let mut by_tenant: HashMap<String, Vec<PlacementEntry>> = HashMap::new();
+        let mut max_epoch = 0u64;
+        for entry in self.scan_all_entries().await {
+            max_epoch = max_epoch.max(entry.epoch);
+            by_tenant
+                .entry(entry.key.tenant.clone())
+                .or_default()
+                .push(entry);
+        }
+        self.max_epoch.store(max_epoch, Ordering::Release);
+        *guard = Some((current_version, by_tenant));
+    }
+
+    /// Allocate the next cluster-wide routing epoch (CONCEPT:EG-KG.sharding.placement-catalog epoch allocation,
+    /// W0.3): O(1) off the maintained high-water mark instead of a full-catalog
+    /// `max()` scan.
+    async fn next_epoch(&self) -> u64 {
+        self.ensure_index_fresh().await;
+        self.max_epoch.load(Ordering::Acquire) + 1
+    }
+
+    /// Every durably-recorded placement entry (CONCEPT:EG-KG.sharding.placement-catalog). Index-backed (W0.3):
+    /// reads the in-memory routing index, rebuilt from a full scan only when
+    /// [`PLACEMENT_GRAPH`]'s version has advanced since the last build. Empty
+    /// (not an error) when the graph doesn't exist yet — an untouched catalog.
+    pub async fn all_entries(&self) -> Vec<PlacementEntry> {
+        self.ensure_index_fresh().await;
+        self.index
+            .read()
             .await
-            .into_iter()
-            .filter(|e| e.key.tenant == tenant)
-            .collect()
+            .as_ref()
+            .map(|(_, by_tenant)| by_tenant.values().flatten().cloned().collect())
+            .unwrap_or_default()
+    }
+
+    /// This tenant's placement entries (0, 1 whole-keyspace, or several ranged
+    /// after a split). Index-backed (W0.3): an O(1) `HashMap` lookup instead of a
+    /// full-catalog filter.
+    pub async fn tenant_entries(&self, tenant: &str) -> Vec<PlacementEntry> {
+        self.ensure_index_fresh().await;
+        self.index
+            .read()
+            .await
+            .as_ref()
+            .and_then(|(_, by_tenant)| by_tenant.get(tenant).cloned())
+            .unwrap_or_default()
     }
 
     /// Every durable move journal, including terminal records retained for audit.
@@ -644,25 +740,22 @@ impl PlacementCatalog {
         PlacementRoute::unplaced(unplaced_group)
     }
 
-    /// Resolve a complete route vector from one catalog snapshot.  This avoids an
-    /// O(graphs × catalog) rescan when a cross-graph read has many legs.
+    /// Resolve a complete route vector from one catalog snapshot (CONCEPT:EG-KG.sharding.placement-catalog).
+    /// Index-backed (W0.3): one [`Self::ensure_index_fresh`] call (amortized O(1)
+    /// absent a placement change since the last build) then ONE read-lock
+    /// acquisition for the whole batch — still exactly one pass over `keys`,
+    /// avoiding the O(graphs × catalog) rescan a cross-graph read with many legs
+    /// would otherwise pay, and no longer reconstructing a fresh local map on
+    /// every call the way the pre-index version did.
     pub async fn route_many(&self, keys: &[(String, String, GroupId)]) -> Vec<PlacementRoute> {
-        let mut by_tenant: std::collections::HashMap<String, Vec<PlacementEntry>> =
-            std::collections::HashMap::new();
-        for entry in self.all_entries().await {
-            by_tenant
-                .entry(entry.key.tenant.clone())
-                .or_default()
-                .push(entry);
-        }
-        for entries in by_tenant.values_mut() {
-            entries.sort_by_key(|entry| (entry.key.range_start, entry.key.range_end));
-        }
+        self.ensure_index_fresh().await;
+        let guard = self.index.read().await;
+        let by_tenant = guard.as_ref().map(|(_, by_tenant)| by_tenant);
         keys.iter()
             .map(|(tenant, sub_key, unplaced_group)| {
                 let hash = super::multi::fnv1a(sub_key);
                 by_tenant
-                    .get(tenant)
+                    .and_then(|by_tenant| by_tenant.get(tenant))
                     .and_then(|entries| entries.iter().find(|entry| entry.key.contains(hash)))
                     .map_or_else(
                         || PlacementRoute::unplaced(*unplaced_group),
@@ -721,11 +814,11 @@ impl PlacementCatalog {
     /// Bumps the cluster-wide epoch (the authoritative group changed).
     pub async fn plan_assign(&self, tenant: &str, group: GroupId) -> PendingWrite<'_> {
         let guard = self.write_lock.lock().await;
-        let all = self.all_entries().await;
-        let epoch = all.iter().map(|e| e.epoch).max().unwrap_or(0) + 1;
-        let mut methods: Vec<Method> = all
+        let epoch = self.next_epoch().await;
+        let mut methods: Vec<Method> = self
+            .tenant_entries(tenant)
+            .await
             .iter()
-            .filter(|e| e.key.tenant == tenant)
             .map(|e| Self::remove_method(&e.key))
             .collect();
         let entry = PlacementEntry {
@@ -760,14 +853,11 @@ impl PlacementCatalog {
         group_b: GroupId,
     ) -> Result<PendingWrite<'_>, String> {
         let guard = self.write_lock.lock().await;
-        let all = self.all_entries().await;
-        let epoch = all.iter().map(|e| e.epoch).max().unwrap_or(0) + 1;
-        let tenant_entries: Vec<&PlacementEntry> =
-            all.iter().filter(|e| e.key.tenant == tenant).collect();
+        let epoch = self.next_epoch().await;
+        let tenant_entries = self.tenant_entries(tenant).await;
         let covering = tenant_entries
             .iter()
-            .find(|e| e.key.contains(at) && at > e.key.range_start)
-            .copied();
+            .find(|e| e.key.contains(at) && at > e.key.range_start);
         let (old_start, old_end) = match covering {
             Some(e) => (e.key.range_start, e.key.range_end),
             None if tenant_entries.is_empty() => (0u64, u64::MAX),
@@ -875,13 +965,12 @@ impl PlacementCatalog {
         target: GroupId,
     ) -> Result<PendingWrite<'_>, String> {
         let guard = self.write_lock.lock().await;
-        let all = self.all_entries().await;
-        let epoch = all.iter().map(|e| e.epoch).max().unwrap_or(0) + 1;
-        let entry = all
+        let epoch = self.next_epoch().await;
+        let entry = self
+            .tenant_entries(tenant)
+            .await
             .into_iter()
-            .find(|e| {
-                e.key.tenant == tenant && e.key.range_start == range.0 && e.key.range_end == range.1
-            })
+            .find(|e| e.key.range_start == range.0 && e.key.range_end == range.1)
             .ok_or_else(|| {
                 format!("no placement entry for tenant '{tenant}' range {range:?} to cut over")
             })?;

@@ -6001,6 +6001,18 @@ async fn dispatch_graph_op_inner(
         core.mark_dirty();
     }
 
+    // W0.4 semantic-ANN warm-on-demand (CONCEPT:EG-KG.storage.semantic-index-directory): a graph created, or
+    // one whose embedding count crosses `ANN_BUILD_THRESHOLD`, AFTER the
+    // boot-time warm task's one-shot snapshot never gets a trigger from it
+    // otherwise. Every write that adds embeddings (`AddEmbedding`, and every
+    // mining/graph-learning writeback) flows through this SAME dispatch tail, so
+    // one hook here — spawned, never inline on the request path — covers them
+    // all. Cheap no-op below the threshold or once already warm/warming.
+    #[cfg(feature = "ann")]
+    if matches!(access, AccessLevel::Write) && response.error.is_none() {
+        crate::server::ann_warm::maybe_warm_after_write(state, graph_name, &core).await;
+    }
+
     response
 }
 
