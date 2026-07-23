@@ -1537,6 +1537,14 @@ fn preflight_request_msgpack(method: &Method) -> Result<(), &'static str> {
         // ChangeEnvelope validates every feature/evidence/outbox/mutation blob
         // with the shared eg-types preflight as part of its schema validation.
         Method::ApplyChangeEnvelope { .. } => Ok(()),
+        // The batch bounds its cardinality up front (the per-envelope nested-blob
+        // validation stays each envelope's own `validate()` responsibility).
+        Method::ApplyChangeEnvelopes { envelopes } => {
+            if envelopes.len() > crate::change_envelope::MAX_ENVELOPES_PER_BATCH {
+                return Err("change envelope batch exceeds the resource limit");
+            }
+            Ok(())
+        }
         _ => Ok(()),
     }
 }
@@ -2179,6 +2187,7 @@ async fn dispatch_inner(
                 "ObserveScreen",
                 "Discover",
                 "ApplyChangeEnvelope",
+                "ApplyChangeEnvelopes",
                 "GetChangeEnvelope",
                 "GetContentVersion",
                 "GetChangeCursor",
@@ -3459,6 +3468,16 @@ async fn dispatch_inner(
             )
             .await
         }
+        Method::ApplyChangeEnvelopes { envelopes } => {
+            dispatch_change_envelopes(
+                state,
+                req.id,
+                req.agent_id.as_deref(),
+                &verified_context,
+                envelopes,
+            )
+            .await
+        }
         #[cfg(feature = "modality-serving")]
         Method::ServedModality { op } => {
             let auth_secret = state.read().await.auth_secret.clone();
@@ -4337,6 +4356,128 @@ mod coordinator_restart_tests {
 /// The reply is `{"results": {graph: <batch_result>}, "errors": {graph: msg}}`;
 /// one graph's failure never aborts the others (partial-success contract).
 #[cfg(feature = "redb")]
+/// Batch envelope coordinator (CONCEPT:EG-KG.ingest.batched-change-envelopes). Validates
+/// each envelope's context against the verified request authority, groups envelopes
+/// by their `mutation.graph`, and routes each graph's envelopes to `dispatch_graph_op`
+/// (which resolves that graph's Write ACL + placement and commits the group in ONE
+/// coalesced transaction). Per-graph groups are independent (partial success across
+/// graphs); within a graph the commit is atomic. Per-envelope results are reassembled
+/// into REQUEST order under `{"results": [...]}` so a caller can advance a watermark
+/// through the contiguous success prefix.
+async fn dispatch_change_envelopes(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+    caller: Option<&str>,
+    verified_context: &VerifiedRequestContext,
+    envelopes: Vec<crate::change_envelope::ChangeEnvelope>,
+) -> Response {
+    let total = envelopes.len();
+    if total == 0 {
+        return Response::ok(
+            req_id,
+            ResultPayload::Json(serde_json::json!({ "results": [] })),
+        );
+    }
+    if total > crate::change_envelope::MAX_ENVELOPES_PER_BATCH {
+        return Response::err(
+            req_id,
+            format!(
+                "CHANGE_BATCH_TOO_LARGE: {total} envelopes exceed the {} cap",
+                crate::change_envelope::MAX_ENVELOPES_PER_BATCH
+            ),
+        );
+    }
+    // Per-envelope authority binding — mirror the single `ApplyChangeEnvelope` arm,
+    // minus the two batch-varying fields: the idempotency_key (per envelope, enforced
+    // by the mutation-store idempotency table) and the graph (per envelope, ACL-checked
+    // per group by `dispatch_graph_op`).
+    let claims = verified_context.claims();
+    let principal = verified_context.principal_persistence_id();
+    for envelope in &envelopes {
+        let ctx = &envelope.mutation.context;
+        if envelope.mutation.tenant != claims.tenant
+            || ctx.request_id != req_id
+            || ctx.principal != principal
+            || ctx.policy_fingerprint.as_deref() != Some(claims.policy_version.as_str())
+        {
+            return Response::err(
+                req_id,
+                "ApplyChangeEnvelopes context does not match the verified request authority",
+            );
+        }
+    }
+
+    // Group envelope indices by graph, preserving first-seen graph order and the
+    // per-graph envelope order.
+    let mut graph_order: Vec<String> = Vec::new();
+    let mut groups: std::collections::HashMap<
+        String,
+        Vec<(usize, crate::change_envelope::ChangeEnvelope)>,
+    > = std::collections::HashMap::new();
+    for (index, envelope) in envelopes.into_iter().enumerate() {
+        let graph = envelope.mutation.graph.clone();
+        groups
+            .entry(graph.clone())
+            .or_insert_with(|| {
+                graph_order.push(graph.clone());
+                Vec::new()
+            })
+            .push((index, envelope));
+    }
+
+    let mut per_index: Vec<serde_json::Value> = vec![serde_json::Value::Null; total];
+    for graph in graph_order {
+        let group = groups.remove(&graph).expect("grouped graph is present");
+        let indices: Vec<usize> = group.iter().map(|(index, _)| *index).collect();
+        let group_envelopes: Vec<crate::change_envelope::ChangeEnvelope> =
+            group.into_iter().map(|(_, envelope)| envelope).collect();
+        let resp = dispatch_graph_op(
+            state,
+            &graph,
+            req_id,
+            caller,
+            verified_context,
+            Method::ApplyChangeEnvelopes {
+                envelopes: group_envelopes,
+            },
+        )
+        .await;
+        if let Some(err) = resp.error {
+            // A transport/ACL/placement failure for the whole group (distinct from the
+            // per-envelope atomic-batch abort, which returns Ok with conflict entries).
+            for index in &indices {
+                per_index[*index] = serde_json::json!({ "status": "conflict", "error": err });
+            }
+        } else if let Some(ResultPayload::Json(value)) = resp.result {
+            let group_results = value
+                .get("results")
+                .and_then(|results| results.as_array())
+                .cloned()
+                .unwrap_or_default();
+            for (position, index) in indices.iter().enumerate() {
+                per_index[*index] = group_results.get(position).cloned().unwrap_or_else(|| {
+                    serde_json::json!({
+                        "status": "conflict",
+                        "error": "missing per-envelope result in batch response",
+                    })
+                });
+            }
+        } else {
+            for index in &indices {
+                per_index[*index] = serde_json::json!({
+                    "status": "conflict",
+                    "error": "empty batch response",
+                });
+            }
+        }
+    }
+
+    Response::ok(
+        req_id,
+        ResultPayload::Json(serde_json::json!({ "results": per_index })),
+    )
+}
+
 async fn multi_graph_batch_update(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
@@ -5262,6 +5403,103 @@ async fn dispatch_graph_op_inner(
             };
             let result = change_envelope_result(&committed, projection_error.is_some());
             return Response::ok(req_id, ResultPayload::Json(result));
+        }
+        // Batch envelope commit for ONE graph (the top-level `dispatch_change_envelopes`
+        // groups by graph and routes each group here). Every envelope targets
+        // `graph_name`; they land in ONE coalesced redb transaction — the atomic
+        // graph-batch. A single failing envelope aborts the whole group and every
+        // envelope in it reports the batch outcome honestly. Per-envelope results are
+        // returned in group order under `{"results": [...]}`.
+        Method::ApplyChangeEnvelopes { envelopes } => {
+            // Under an active cluster placement the batch is not offered: raft keeps
+            // each envelope one log entry (K=1 serializes anyway), so the client falls
+            // back to per-record `ApplyChangeEnvelope`. Single-node is where the
+            // one-transaction batching win lands, and prod is single-node.
+            #[cfg(feature = "raft")]
+            if routed_raft.is_some() {
+                return Response::err(
+                    req_id,
+                    "CHANGE_BATCH_UNAVAILABLE_UNDER_PLACEMENT: use per-envelope ApplyChangeEnvelope",
+                );
+            }
+            let _mutation_guard = crate::server::mutation_batch::lock_graph(graph_name).await;
+            for envelope in &envelopes {
+                if envelope.mutation.placement_epoch != 0
+                    || envelope.mutation.fencing_token.is_some()
+                {
+                    return Response::err(
+                        req_id,
+                        "ChangeEnvelope carries a placement fence in a single-node build",
+                    );
+                }
+            }
+            let committed_at_ms = envelopes.iter().fold(authoritative_now_ms(), |acc, e| {
+                acc.max(e.mutation.created_at_ms)
+            });
+            let Some(backend) = persistence.as_ref() else {
+                return Response::err(
+                    req_id,
+                    "ApplyChangeEnvelopes requires a configured persistence backend",
+                );
+            };
+            let fname = crate::persist::sanitize(graph_name);
+            let mut results: Vec<serde_json::Value> = Vec::with_capacity(envelopes.len());
+            match backend
+                .commit_change_envelopes(&fname, &envelopes, committed_at_ms)
+                .await
+            {
+                Ok(commits) => {
+                    for (envelope, committed) in envelopes.iter().zip(commits.iter()) {
+                        let projection_error = if committed.replayed {
+                            None
+                        } else {
+                            crate::server::mutation_batch::publish_change_envelope_projection(
+                                &core, envelope,
+                            )
+                            .err()
+                        };
+                        let mut entry =
+                            change_envelope_result(committed, projection_error.is_some());
+                        if let Some(object) = entry.as_object_mut() {
+                            object.insert(
+                                "status".to_string(),
+                                serde_json::Value::String(
+                                    if committed.replayed {
+                                        "idempotent_skip"
+                                    } else {
+                                        "applied"
+                                    }
+                                    .to_string(),
+                                ),
+                            );
+                        }
+                        results.push(entry);
+                    }
+                }
+                Err((failing_index, error)) => {
+                    // The whole graph-batch aborted atomically — nothing committed.
+                    // Report the batch outcome per envelope honestly: the offender
+                    // carries its own error; the siblings carry the abort cause.
+                    for (index, envelope) in envelopes.iter().enumerate() {
+                        let this_error = if index == failing_index {
+                            error.clone()
+                        } else {
+                            format!(
+                                "ABORTED_ATOMIC_GRAPH_BATCH: sibling envelope {failing_index} failed ({error})"
+                            )
+                        };
+                        results.push(serde_json::json!({
+                            "status": "conflict",
+                            "envelope_id": envelope.envelope_id,
+                            "error": this_error,
+                        }));
+                    }
+                }
+            }
+            return Response::ok(
+                req_id,
+                ResultPayload::Json(serde_json::json!({ "results": results })),
+            );
         }
         Method::GetChangeEnvelope {
             envelope_id,

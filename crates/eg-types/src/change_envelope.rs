@@ -14,6 +14,13 @@ use crate::mutation_batch::MutationBatch;
 
 pub const CHANGE_ENVELOPE_VERSION: u16 = 1;
 
+/// Server cap on the number of envelopes one `ApplyChangeEnvelopes` batch may carry.
+/// A larger batch is rejected with a typed error before any transaction opens. The
+/// per-envelope nested-MessagePack privacy/size limits still apply individually to
+/// every envelope. Lives in `eg-types` so both the request boundary and the durable
+/// commit kernel share ONE bound.
+pub const MAX_ENVELOPES_PER_BATCH: usize = 1024;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "value", rename_all = "snake_case")]
 pub enum CursorPosition {
