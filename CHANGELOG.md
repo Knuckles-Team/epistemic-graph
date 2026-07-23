@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+> **Documentation clarification (2026-07-23):** The `epistemic-tms` (paraconsistent truth-maintenance + Dung argumentation) and `epistemic-causal` (Pearl do-calculus) features are **included in the default `full` build as of 2.23.1** (EG-P0-6). Both features are unconditionally present in any served deployment; there is no configuration or flag to disable them.
+
 ### Added
 - **Raft cluster-membership admin RPC** (CONCEPT:EG-KG.storage.kg-kg-2 —
   `cluster_deployment.md` §5 item 2). `MultiRaft::add_group_learner` /
