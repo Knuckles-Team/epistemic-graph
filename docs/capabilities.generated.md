@@ -128,6 +128,7 @@
 | `CompactNodesByType` | true | GraphRedb | `node:admin` | false | true | true | Atomic | state-backed MutationBatch |
 | `RunDatalogReasoning` | true | GraphRedb | `reasoning:write` | false | true | true | Atomic | state-backed MutationBatch commits inferred facts |
 | `ApplyChangeEnvelope` | true | GraphRedb | `ingest:write` | true | true | true | Atomic | Engine-native object/material/governance/version/cursor/outbox commit; verified context is mandatory |
+| `ApplyChangeEnvelopes` | true | GraphRedb | `ingest:write` | true | true | true | Atomic | Batch envelope coordinator: one coalesced graph transaction per shard-partition; same policy class as ApplyChangeEnvelope |
 | `GetChangeEnvelope` | false | None | `ingest:read` | true | false | false | Snapshot | Verified tenant-scoped reconciliation read |
 | `GetContentVersion` | false | None | `ingest:read` | true | false | false | Snapshot | Typed content versions are never compared lexically |
 | `GetChangeCursor` | false | None | `ingest:read` | true | false | false | Snapshot | Typed source cursors are tenant/graph/partition scoped |

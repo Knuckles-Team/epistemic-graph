@@ -66,7 +66,7 @@ use super::PersistenceBackend;
 use crate::redb_store::MatViewScanResult;
 use crate::redb_store::{
     ack_mutation_outbox, claim_mutation_outbox, clear_xshard_decision, clear_xshard_prepare,
-    commit_change_envelope, commit_crossmodal, commit_mutation_batch,
+    commit_change_envelope, commit_change_envelopes, commit_crossmodal, commit_mutation_batch,
     commit_mutation_batch_crossmodal, commit_mutation_batch_state, commit_ops,
     durable_node_presence as read_durable_node_presence, get_xshard_decision,
     get_xshard_decision_retain, get_xshard_prepare, purge_graph_rows, put_xshard_decision,
@@ -164,6 +164,14 @@ pub(crate) struct CrossModalBatchPayload {
 pub(crate) struct ChangeEnvelopePayload {
     pub(crate) graph: String,
     pub(crate) envelope: ChangeEnvelope,
+    pub(crate) committed_at_ms: u64,
+}
+
+/// Payload of a [`Cmd::ChangeEnvelopesCommit`] — a batch of governed envelopes that
+/// all target `graph`, committed in ONE shard transaction.
+pub(crate) struct ChangeEnvelopesPayload {
+    pub(crate) graph: String,
+    pub(crate) envelopes: Vec<ChangeEnvelope>,
     pub(crate) committed_at_ms: u64,
 }
 
@@ -322,6 +330,12 @@ pub(crate) enum Cmd {
     ChangeEnvelopeCommit {
         payload: Box<ChangeEnvelopePayload>,
         done: oneshot::Sender<Result<ChangeEnvelopeCommit, String>>,
+    },
+    /// Engine-native governed ingest commit for a BATCH of envelopes targeting one
+    /// graph — one writer command, one shard transaction/fsync for the whole page.
+    ChangeEnvelopesCommit {
+        payload: Box<ChangeEnvelopesPayload>,
+        done: oneshot::Sender<Result<Vec<ChangeEnvelopeCommit>, (usize, String)>>,
     },
     /// Lease pending transactional-outbox events on the writer thread so claim
     /// selection and lease installation are one durable transaction.
@@ -2063,6 +2077,44 @@ impl PersistenceBackend for RedbBackend {
             .map_err(|_| "redb writer dropped ChangeEnvelope completion".to_string())?
     }
 
+    async fn commit_change_envelopes(
+        &self,
+        graph_fname: &str,
+        envelopes: &[ChangeEnvelope],
+        committed_at_ms: u64,
+    ) -> Result<Vec<ChangeEnvelopeCommit>, (usize, String)> {
+        let (done, rx) = oneshot::channel();
+        let cmd = Cmd::ChangeEnvelopesCommit {
+            payload: Box::new(ChangeEnvelopesPayload {
+                graph: graph_fname.to_string(),
+                envelopes: envelopes.to_vec(),
+                committed_at_ms,
+            }),
+            done,
+        };
+        let send_result = if self.catalog.is_some() {
+            let guard = self.routing_epoch.clone().read_owned().await;
+            let tx = self.shard_for(graph_fname).tx.clone();
+            tokio::task::spawn_blocking(move || {
+                let _routing = guard;
+                tx.send(cmd).map_err(|_| ())
+            })
+            .await
+        } else {
+            let tx = self.shard_for(graph_fname).tx.clone();
+            tokio::task::spawn_blocking(move || tx.send(cmd).map_err(|_| ())).await
+        };
+        send_result
+            .map_err(|e| (0usize, format!("commit_change_envelopes join error: {e}")))?
+            .map_err(|_| (0usize, "redb writer thread is gone".to_string()))?;
+        rx.await.map_err(|_| {
+            (
+                0usize,
+                "redb writer dropped ChangeEnvelopes completion".to_string(),
+            )
+        })?
+    }
+
     async fn read_change_envelope(
         &self,
         graph_fname: &str,
@@ -3390,6 +3442,28 @@ fn handle_cmd(
                 #[cfg(feature = "security")]
                 &mut pending.audit_tail,
             );
+            let _ = done.send(res);
+            false
+        }
+        Cmd::ChangeEnvelopesCommit { payload, done } => {
+            let ChangeEnvelopesPayload {
+                graph,
+                envelopes,
+                committed_at_ms,
+            } = *payload;
+            // Same ordering/atomicity as the single envelope: flush any pending
+            // grouped writes first, then this whole page owns one indivisible fsync.
+            commit_and_notify(db, pending, Durability::Immediate, crypto);
+            let res = commit_change_envelopes(
+                db,
+                &graph,
+                &envelopes,
+                committed_at_ms,
+                crypto,
+                #[cfg(feature = "security")]
+                &mut pending.audit_tail,
+            )
+            .map_err(|e| (e.index, e.error));
             let _ = done.send(res);
             false
         }

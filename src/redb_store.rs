@@ -615,6 +615,115 @@ pub(crate) fn commit_change_envelope(
     })
 }
 
+/// A ChangeEnvelope batch aborted at `index` (the first envelope that failed its
+/// idempotency/version/cursor/fence check or row projection). Because every envelope
+/// for one graph shares ONE atomic transaction, the abort rolls back the whole
+/// group — no envelope in it commits — and the caller reports the batch outcome per
+/// envelope honestly.
+#[derive(Debug, Clone)]
+pub(crate) struct ChangeEnvelopesError {
+    pub(crate) index: usize,
+    pub(crate) error: String,
+}
+
+/// Engine-native BATCH ChangeEnvelope commit: apply EVERY envelope in `envelopes`
+/// (all of which must target `graph_fname`) into ONE redb transaction and one
+/// durability barrier (CONCEPT:EG-KG.ingest.batched-change-envelopes). The envelopes
+/// are applied in order; read-your-writes inside the shared transaction chains each
+/// envelope's content-version, cursor, and +1 graph-version onto the previous one,
+/// so a page of records built with sequential `expected_graph_version`s commits as a
+/// single fsync instead of N.
+///
+/// Atomicity is per graph-batch: the first envelope that fails a check aborts the
+/// whole transaction (nothing in this group commits) and returns [`ChangeEnvelopesError`]
+/// naming the offending index. A byte-identical idempotency replay is NOT a failure —
+/// it is reported per envelope via `ChangeEnvelopeCommit::replayed` and the
+/// transaction still commits its non-replayed siblings. When every envelope is a
+/// replay, nothing was written and the transaction is dropped without an fsync,
+/// exactly like the single-envelope path.
+pub(crate) fn commit_change_envelopes(
+    db: &Database,
+    graph_fname: &str,
+    envelopes: &[ChangeEnvelope],
+    committed_at_ms: u64,
+    crypto: DurableCrypto<'_>,
+    #[cfg(feature = "security")] audit_tail: &mut AuditTailCache,
+) -> Result<Vec<ChangeEnvelopeCommit>, ChangeEnvelopesError> {
+    let max_batch = crate::change_envelope::MAX_ENVELOPES_PER_BATCH;
+    if envelopes.len() > max_batch {
+        return Err(ChangeEnvelopesError {
+            index: 0,
+            error: format!(
+                "CHANGE_BATCH_TOO_LARGE: {} envelopes exceed the {max_batch} cap",
+                envelopes.len()
+            ),
+        });
+    }
+    let at = |index: usize, error: String| ChangeEnvelopesError { index, error };
+    // Stage the audit tail once for the whole shared transaction; the caller-owned
+    // cache is advanced only after the single commit succeeds.
+    #[cfg(feature = "security")]
+    let mut staged_audit_tail = audit_tail.clone();
+    let mut wtx = db.begin_write().map_err(|e| at(0, e.to_string()))?;
+    wtx.set_durability(Durability::Immediate)
+        .map_err(|e| at(0, e.to_string()))?;
+
+    let mut commits = Vec::with_capacity(envelopes.len());
+    let mut any_applied = false;
+    for (index, envelope) in envelopes.iter().enumerate() {
+        envelope.validate().map_err(|e| at(index, e))?;
+        let mutation = apply_mutation_batch_in_wtx(
+            &wtx,
+            graph_fname,
+            &envelope.mutation,
+            Some(envelope),
+            None,
+            None,
+            None,
+            committed_at_ms,
+            crypto,
+            #[cfg(feature = "security")]
+            &mut staged_audit_tail,
+            // No `authoritative_state`, so `audited` is inert here -- see
+            // `apply_mutation_batch_in_wtx`'s doc comment.
+            true,
+            None,
+        )
+        .map_err(|e| at(index, e))?;
+        if !mutation.replayed {
+            any_applied = true;
+        }
+        let outbox_count = envelope
+            .mutation
+            .operations
+            .len()
+            .checked_add(envelope.mutation.outbox.len())
+            .and_then(|count| count.checked_add(1))
+            .and_then(|count| u32::try_from(count).ok())
+            .ok_or_else(|| at(index, "change envelope outbox count overflow".to_string()))?;
+        commits.push(ChangeEnvelopeCommit {
+            envelope_id: envelope.envelope_id.clone(),
+            batch_id: envelope.mutation.batch_id.clone(),
+            content_version: envelope.content_version.clone(),
+            cursor: envelope.cursor.clone(),
+            outbox_count,
+            replayed: mutation.replayed,
+        });
+    }
+
+    // Commit the whole group as ONE fsync only when something was actually written.
+    // An all-replay batch did reads only, so drop the transaction (no fsync) exactly
+    // as the single-envelope path does; the caller-owned audit tail is untouched.
+    if any_applied {
+        wtx.commit().map_err(|e| at(0, e.to_string()))?;
+        #[cfg(feature = "security")]
+        {
+            *audit_tail = staged_audit_tail;
+        }
+    }
+    Ok(commits)
+}
+
 /// Non-graph rows that participate in an authoritative cross-modal
 /// [`MutationBatch`] commit. The coordinator metadata, graph rows, semantic/blob
 /// projections, time-series batches, result and outbox are written by the same redb
@@ -691,6 +800,12 @@ pub(crate) fn commit_mutation_batch_crossmodal(
 /// capture it themselves (typically `MutationPlan::audited`, already resolved from
 /// the untranslated method at the top of `commit_mutation`/
 /// `commit_conditional_mutation_async`) and pass it through here.
+/// Commit ONE canonical MutationBatch/ChangeEnvelope: open the shard write
+/// transaction, apply the batch through [`apply_mutation_batch_in_wtx`], and commit
+/// it as one indivisible fsync point. The applier owns everything BETWEEN
+/// `begin_write` and `commit`; keeping the transaction boundary here lets the batch
+/// envelope path ([`commit_change_envelopes`]) reuse the identical apply logic across
+/// MANY envelopes inside ONE transaction without duplicating the kernel.
 #[allow(clippy::too_many_arguments)]
 fn commit_mutation_batch_inner(
     db: &Database,
@@ -703,6 +818,101 @@ fn commit_mutation_batch_inner(
     committed_at_ms: u64,
     crypto: DurableCrypto<'_>,
     #[cfg(feature = "security")] audit_tail: &mut AuditTailCache,
+    audited: bool,
+    crashpoint: Option<MutationBatchCrashpoint>,
+) -> Result<MutationBatchCommit, String> {
+    // Audit-tail updates are staged alongside the redb transaction. Advancing the
+    // process cache before `wtx.commit()` would create a false tail when an
+    // injected/real failure drops this transaction.
+    #[cfg(feature = "security")]
+    let mut staged_audit_tail = audit_tail.clone();
+    let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
+    wtx.set_durability(Durability::Immediate)
+        .map_err(|e| e.to_string())?;
+    let committed = apply_mutation_batch_in_wtx(
+        &wtx,
+        graph_fname,
+        batch,
+        change,
+        authoritative_state_msgpack,
+        crossmodal,
+        result_msgpack,
+        committed_at_ms,
+        crypto,
+        #[cfg(feature = "security")]
+        &mut staged_audit_tail,
+        audited,
+        crashpoint,
+    )?;
+    // A byte-identical replay short-circuited on reads only; nothing was written, so
+    // drop the transaction (no fsync) exactly as the pre-refactor path did.
+    if committed.replayed {
+        return Ok(committed);
+    }
+
+    if crashpoint == Some(MutationBatchCrashpoint::BeforeCommit) {
+        return Err("injected crash before mutation commit".to_string());
+    }
+    crate::mutation_batch::apply_certification_fault(
+        batch,
+        crate::mutation_batch::MutationCommitPhase::BeforeCommit,
+    )?;
+
+    wtx.commit().map_err(|e| e.to_string())?;
+    #[cfg(feature = "security")]
+    {
+        *audit_tail = staged_audit_tail;
+    }
+
+    if crashpoint == Some(MutationBatchCrashpoint::AfterCommitBeforeAck) {
+        return Err("injected crash after mutation commit before acknowledgement".to_string());
+    }
+    crate::mutation_batch::apply_certification_fault(
+        batch,
+        crate::mutation_batch::MutationCommitPhase::AfterCommitBeforeAck,
+    )?;
+
+    Ok(committed)
+}
+
+/// Apply one canonical MutationBatch/ChangeEnvelope's rows, governance material,
+/// version/cursor/fence checks, terminal batch record, and outbox INTO an
+/// already-open `wtx` — WITHOUT opening or committing the transaction. The caller
+/// owns `begin_write`/`commit` and the post-commit audit-tail writeback, so multiple
+/// batches (the ChangeEnvelope batch path) can share ONE transaction/fsync. Returns
+/// `replayed: true` (having done reads only) on a byte-identical idempotency hit.
+///
+/// `audited`: whether THIS commit should append tamper-evident audit-chain
+/// entries for its operations. Only consulted when `authoritative_state_msgpack`
+/// is `Some` (the Snapshot/RowDelta branches below) -- irrelevant otherwise
+/// (compact-row/crossmodal/envelope callers pass a placeholder `true`; see each
+/// call site).
+///
+/// Why this can't be re-derived from `batch.operations` alone: a state-backed
+/// commit's `MutationOperation::method` is NOT the original causal `Method`
+/// (e.g. `TouchNodes`) -- `mutation_batch::compile_methods`'s `opaque_state_operation`
+/// unconditionally rewrites EVERY state-backed operation into the SAME opaque
+/// digest receipt shape (`Method::ApplyMutation{event_type:
+/// "authoritative_state_operation", ..}`), by design, so sensitive row payloads
+/// never enter the durable batch/audit/outbox record. `audit::audit_line` always
+/// recognizes that receipt shape as auditable, so by the time this function sees
+/// `batch.operations`, the original method's OWN `eg_capabilities::policy(..).audited`
+/// answer is unrecoverable from the operation alone. Callers must therefore
+/// capture it themselves (typically `MutationPlan::audited`, already resolved from
+/// the untranslated method at the top of `commit_mutation`/
+/// `commit_conditional_mutation_async`) and pass it through here.
+#[allow(clippy::too_many_arguments)]
+fn apply_mutation_batch_in_wtx(
+    wtx: &redb::WriteTransaction,
+    graph_fname: &str,
+    batch: &MutationBatch,
+    change: Option<&ChangeEnvelope>,
+    authoritative_state_msgpack: Option<&[u8]>,
+    crossmodal: Option<CrossModalBatchRows<'_>>,
+    result_msgpack: Option<&[u8]>,
+    committed_at_ms: u64,
+    crypto: DurableCrypto<'_>,
+    #[cfg(feature = "security")] staged_audit_tail: &mut AuditTailCache,
     audited: bool,
     crashpoint: Option<MutationBatchCrashpoint>,
 ) -> Result<MutationBatchCommit, String> {
@@ -829,10 +1039,6 @@ fn commit_mutation_batch_inner(
             );
         }
     }
-
-    let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
-    wtx.set_durability(Durability::Immediate)
-        .map_err(|e| e.to_string())?;
 
     // Idempotency is checked INSIDE the same write transaction that will insert
     // the new key, closing the concurrent double-commit race.
@@ -1126,11 +1332,11 @@ fn commit_mutation_batch_inner(
         crate::mutation_batch::MutationCommitPhase::BeforeRows,
     )?;
 
-    // Audit-tail updates are staged alongside the redb transaction.  Advancing
-    // the process cache before `wtx.commit()` would create a false tail when an
-    // injected/real failure drops this transaction.
-    #[cfg(feature = "security")]
-    let mut staged_audit_tail = audit_tail.clone();
+    // Audit-tail updates are staged into the caller-owned `staged_audit_tail`
+    // alongside the redb transaction. The caller advances the process cache only
+    // AFTER `wtx.commit()`, so an injected/real failure that drops this transaction
+    // (or a sibling envelope aborting the shared batch transaction) never leaves a
+    // false tail.
     let mut generated_result: Option<Vec<u8>> = None;
 
     if let Some(AuthoritativeGraphState::Snapshot(snapshot)) = staged_state.as_ref() {
@@ -1176,7 +1382,7 @@ fn commit_mutation_batch_inner(
             for operation in &batch.operations {
                 append_audit_entry(
                     &mut audit,
-                    &mut staged_audit_tail,
+                    staged_audit_tail,
                     graph_fname,
                     &operation.method,
                 )?;
@@ -1239,7 +1445,7 @@ fn commit_mutation_batch_inner(
             for operation in &batch.operations {
                 append_audit_entry(
                     &mut audit,
-                    &mut staged_audit_tail,
+                    staged_audit_tail,
                     graph_fname,
                     &operation.method,
                 )?;
@@ -1291,7 +1497,7 @@ fn commit_mutation_batch_inner(
             #[cfg(feature = "security")]
             append_audit_entry(
                 &mut audit,
-                &mut staged_audit_tail,
+                staged_audit_tail,
                 graph_fname,
                 &operation.method,
             )?;
@@ -1704,28 +1910,10 @@ fn commit_mutation_batch_inner(
         }
     }
 
-    if crashpoint == Some(MutationBatchCrashpoint::BeforeCommit) {
-        return Err("injected crash before mutation commit".to_string());
-    }
-    crate::mutation_batch::apply_certification_fault(
-        batch,
-        crate::mutation_batch::MutationCommitPhase::BeforeCommit,
-    )?;
-
-    wtx.commit().map_err(|e| e.to_string())?;
-    #[cfg(feature = "security")]
-    {
-        *audit_tail = staged_audit_tail;
-    }
-
-    if crashpoint == Some(MutationBatchCrashpoint::AfterCommitBeforeAck) {
-        return Err("injected crash after mutation commit before acknowledgement".to_string());
-    }
-    crate::mutation_batch::apply_certification_fault(
-        batch,
-        crate::mutation_batch::MutationCommitPhase::AfterCommitBeforeAck,
-    )?;
-
+    // The transaction boundary (BeforeCommit crashpoint / certification fault /
+    // `wtx.commit()` / audit-tail writeback / AfterCommitBeforeAck) is owned by the
+    // caller so the shared-transaction batch path can commit MANY applied envelopes
+    // with ONE fsync. This function only stages rows into `wtx`.
     Ok(MutationBatchCommit {
         record,
         replayed: false,
@@ -7223,5 +7411,201 @@ mod mutation_batch_tests {
             "unexpected stale-envelope rejection: {error}"
         );
         let _ = std::fs::remove_file(path);
+    }
+
+    // ── Batched ChangeEnvelope commit (W1.4) ──────────────────────────────────
+
+    /// One first-write envelope on a DISTINCT object, chained onto the graph's seeded
+    /// version 3: envelope `index` expects graph version `3 + index` and advances the
+    /// shared source cursor to `index + 1`. A whole page of these commits in ONE
+    /// transaction (read-your-writes chains version + cursor across the envelopes).
+    fn governed_envelope_seq(index: u64) -> ChangeEnvelope {
+        let object = format!("object-{index}");
+        let mut mutation = batch(&format!("batch-{index}"), &format!("key-{index}"));
+        mutation.expected_graph_version = Some(3 + index);
+        mutation.operations.truncate(1);
+        mutation.operations[0].method = node(&format!("n{index}"), index as i64);
+        mutation.outbox[0].payload =
+            rmp_serde::to_vec_named(&serde_json::json!({ "event": "batch" })).unwrap();
+        ChangeEnvelope {
+            schema_version: CHANGE_ENVELOPE_VERSION,
+            envelope_id: format!("env-{index}"),
+            mutation,
+            content_version: ContentVersion {
+                object_id: object.clone(),
+                digest_algorithm: "sha256".to_string(),
+                digest: format!("{:064x}", index + 1),
+                previous_digest: None,
+                source_version: ContentVersionPosition::Sequence(1),
+            },
+            cursor: Some(ChangeCursor {
+                source: "batch-source".to_string(),
+                partition: "p1".to_string(),
+                position: CursorPosition::Sequence(index + 1),
+                expected_previous: (index > 0).then_some(CursorPosition::Sequence(index)),
+            }),
+            blobs: Vec::new(),
+            features: Vec::new(),
+            evidence: Vec::new(),
+            policies: vec![PolicyRecord {
+                policy_id: format!("policy-{index}"),
+                operation: MaterialOperation::Upsert,
+                object_id: object,
+                tenant: "tenant-a".to_string(),
+                classification: "internal".to_string(),
+                policy_version: "policy-v1".to_string(),
+                subject_set_digest: "c".repeat(64),
+                retention_policy: "standard".to_string(),
+                legal_hold: false,
+            }],
+            lineage: Vec::new(),
+            privacy: PrivacyAttestation {
+                policy_version: "privacy-v1".to_string(),
+                sanitizer_version: "sanitizer-v1".to_string(),
+                sanitized_payload_digest: "d".repeat(64),
+            },
+        }
+    }
+
+    fn commit_envelopes_at(
+        db: &Database,
+        envelopes: &[ChangeEnvelope],
+    ) -> Result<Vec<ChangeEnvelopeCommit>, ChangeEnvelopesError> {
+        #[cfg(feature = "security")]
+        let mut audit = AuditTailCache::new();
+        commit_change_envelopes(
+            db,
+            "graph-a",
+            envelopes,
+            123,
+            DurableCrypto::none(),
+            #[cfg(feature = "security")]
+            &mut audit,
+        )
+    }
+
+    #[test]
+    fn change_envelopes_commit_whole_page_in_one_transaction() {
+        let path = temp_path("change-envelopes-page");
+        let db = open(&path);
+        let page: Vec<ChangeEnvelope> = (0..3).map(governed_envelope_seq).collect();
+
+        let commits = commit_envelopes_at(&db, &page).unwrap();
+
+        // Per-envelope result vocabulary: every envelope is `applied` (not replayed).
+        assert_eq!(commits.len(), 3);
+        assert!(commits.iter().all(|commit| !commit.replayed));
+        assert_eq!(commits[0].envelope_id, "env-0");
+        // Every object landed and the graph version advanced by exactly N (3 -> 6),
+        // proving all three applied inside the one shared transaction.
+        for index in 0..3 {
+            assert!(
+                read_one_node(&db, "graph-a", &format!("n{index}"), DurableCrypto::none())
+                    .unwrap()
+                    .is_some()
+            );
+        }
+        // The chained cursor advanced to the last envelope's position — proof that the
+        // final envelope (and therefore every earlier one) committed atomically.
+        assert_eq!(
+            read_change_cursor(
+                &db,
+                "tenant-a",
+                "graph-a",
+                "batch-source",
+                "p1",
+                DurableCrypto::none()
+            )
+            .unwrap()
+            .unwrap()
+            .position,
+            CursorPosition::Sequence(3)
+        );
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn change_envelopes_idempotent_replay_skips_without_duplicating_outbox() {
+        let path = temp_path("change-envelopes-replay");
+        let db = open(&path);
+        let page: Vec<ChangeEnvelope> = (0..2).map(governed_envelope_seq).collect();
+
+        commit_envelopes_at(&db, &page).unwrap();
+        // A byte-identical replay of the whole page: every envelope idempotent-skips.
+        let replay = commit_envelopes_at(&db, &page).unwrap();
+        assert!(replay.iter().all(|commit| commit.replayed));
+        assert_eq!(
+            read_mutation_outbox(&db, "batch-0", DurableCrypto::none())
+                .unwrap()
+                .len(),
+            3,
+            "idempotent replay must not duplicate an outbox row"
+        );
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn change_envelopes_abort_rolls_back_the_whole_graph_batch() {
+        let path = temp_path("change-envelopes-abort");
+        let db = open(&path);
+        // The second envelope fails its content-version check (previous digest on a
+        // fresh object) — the whole atomic graph-batch must roll back.
+        let mut bad = governed_envelope_seq(1);
+        bad.content_version.previous_digest = Some("a".repeat(64));
+        let page = vec![governed_envelope_seq(0), bad];
+
+        let error = commit_envelopes_at(&db, &page).unwrap_err();
+        assert_eq!(error.index, 1);
+        assert!(
+            error.error.contains("STALE_CONTENT_VERSION"),
+            "{}",
+            error.error
+        );
+        // NOTHING committed: the first (valid) envelope rolled back with the batch.
+        assert!(read_one_node(&db, "graph-a", "n0", DurableCrypto::none())
+            .unwrap()
+            .is_none());
+        assert!(
+            read_change_envelope(&db, "graph-a", "env-0", DurableCrypto::none())
+                .unwrap()
+                .is_none()
+        );
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn change_envelopes_oversized_batch_is_a_typed_error() {
+        let path = temp_path("change-envelopes-oversized");
+        let db = open(&path);
+        let too_many: Vec<ChangeEnvelope> =
+            (0..(crate::change_envelope::MAX_ENVELOPES_PER_BATCH as u64 + 1))
+                .map(governed_envelope_seq)
+                .collect();
+
+        let error = commit_envelopes_at(&db, &too_many).unwrap_err();
+        assert!(
+            error.error.contains("CHANGE_BATCH_TOO_LARGE"),
+            "{}",
+            error.error
+        );
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn change_envelope_batch_of_one_matches_the_single_commit_receipt() {
+        let batch_path = temp_path("change-envelopes-parity-batch");
+        let single_path = temp_path("change-envelopes-parity-single");
+        let batch_db = open(&batch_path);
+        let single_db = open(&single_path);
+        let envelope = governed_envelope_seq(0);
+
+        let batched = commit_envelopes_at(&batch_db, std::slice::from_ref(&envelope)).unwrap();
+        let single = commit_envelope_at(&single_db, &envelope).unwrap();
+
+        // A one-envelope batch yields the exact same receipt the single method does.
+        assert_eq!(batched.len(), 1);
+        assert_eq!(batched[0], single);
+        let _ = std::fs::remove_file(batch_path);
+        let _ = std::fs::remove_file(single_path);
     }
 }
