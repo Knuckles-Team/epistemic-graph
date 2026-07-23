@@ -968,6 +968,54 @@ fn eg310_rename_table_moves_rows() {
     assert_eq!(res.rows.last().unwrap()[0], json!(3));
 }
 
+/// Flatten an `EXPLAIN` `TypedQueryResult` into one text blob for substring
+/// assertions (its rows are `(plan_type, plan)` string pairs).
+fn explain_text(r: &TypedQueryResult) -> String {
+    r.rows
+        .iter()
+        .flat_map(|row| {
+            row.iter()
+                .map(|c| c.as_str().unwrap_or_default().to_string())
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// `EXPLAIN` must show the user-table PK point-get pushdown (P10/W1.7-B acceptance
+/// criterion) — the SAME `partial_filters=`/`unsupported_filters=` EXPLAIN signal
+/// `explain_shows_edges_src_pushdown_and_rel_fallback` (eg-query's own
+/// `joins_udfs.rs`) verifies for `edges`, here for a `UserTableProvider`-backed
+/// user table: an equality on the `SERIAL` PK is `Inexact` (pushed to the redb
+/// point-get), so it shows under `partial_filters=`.
+#[test]
+fn explain_shows_user_table_serial_pk_pushdown() {
+    let (store, _p) = TableStore::open_temp().unwrap();
+    let view = graph_with_stocks();
+    run(
+        &store,
+        &view,
+        "CREATE TABLE prices (id SERIAL PRIMARY KEY, symbol TEXT)",
+    );
+    run(
+        &store,
+        &view,
+        "INSERT INTO prices (symbol) VALUES ('AAPL'), ('MSFT')",
+    );
+
+    let r = exec_sql_typed_with_tables(
+        &view,
+        &store,
+        "EXPLAIN SELECT symbol FROM prices WHERE id = 1",
+    )
+    .expect("explain");
+    let text = explain_text(&r);
+    assert!(
+        text.contains("partial_filters=[prices.id"),
+        "EXPLAIN must show the SERIAL PK equality pushed down as a partial \
+         (Inexact) filter, not left unsupported/absent:\n{text}"
+    );
+}
+
 /// CONCEPT:EG-KG.query.rename-table-moves-catalog — ALTER COLUMN TYPE migrates every stored cell best-effort: numeric
 /// text → bigint, int → double, and int → text all coerce correctly.
 #[test]

@@ -291,8 +291,12 @@ impl TableTxn {
 }
 
 /// One durable user-table catalog. Cheap to clone (`Arc<Database>`), so the served
-/// owner-scoped registry can hand the verified tenant+actor's handle to each surface.
-#[derive(Clone)]
+/// owner-scoped registry can hand the verified tenant+actor's handle to each
+/// surface — including a [`crate::sql::providers::EdgesTableProvider`]-style lazy
+/// `TableProvider` (`crate::tables::provider::UserTableProvider`) that holds its
+/// own owned handle instead of a borrow. `Debug` is derived (via `redb::Database`'s
+/// own impl) because `datafusion::catalog::TableProvider` requires it.
+#[derive(Debug, Clone)]
 pub struct TableStore {
     db: Arc<Database>,
 }
@@ -481,6 +485,42 @@ impl TableStore {
             out.push(cells);
         }
         Ok(out)
+    }
+
+    /// A single row by its PHYSICAL rowid — a true redb POINT GET (CONCEPT:EG-KG.query.register-user-tables-alongside),
+    /// O(log n) via the B-tree rather than [`Self::scan`]'s full O(n) table walk.
+    /// `Ok(None)` when no row lives at `rowid` (never allocated, or since removed —
+    /// rowids are never reused, see the module doc). NULL-padded to the current
+    /// schema width, exactly like `scan`.
+    ///
+    /// The only place a caller computes a TARGET `rowid` from a SQL value is
+    /// `crate::tables::provider::UserTableProvider`, which maps a `SERIAL` column's
+    /// value back to `rowid` (`value - 1`, CONCEPT:EG-KG.query.register-each-user-table) and then RE-CHECKS the
+    /// fetched row's own cell before trusting it — a caller MAY supply (INSERT) or
+    /// later (UPDATE) an explicit value into a nominally-`SERIAL` column, same as
+    /// Postgres, which would otherwise silently diverge that mapping for one row.
+    /// This method itself makes no such assumption; it is a plain point lookup.
+    pub fn get_row(&self, table: &str, rowid: u64) -> Result<Option<Vec<Cell>>, String> {
+        let schema = self
+            .get_schema(table)?
+            .ok_or_else(|| format!("table `{table}` does not exist"))?;
+        let width = schema.columns().len();
+        let rtx = self.db.begin_read().map_err(map_err)?;
+        // Mirrors `scan`: no committed INSERT yet ⇒ no physical row table ⇒ no row.
+        let rows = match rtx.open_table(ROWS) {
+            Ok(t) => t,
+            Err(_) => return Ok(None),
+        };
+        match rows.get((table, rowid)).map_err(map_err)? {
+            Some(v) => {
+                let mut cells: Vec<Cell> = decode_stored(v.value(), "row")?;
+                if cells.len() < width {
+                    cells.resize(width, Cell::Null);
+                }
+                Ok(Some(cells))
+            }
+            None => Ok(None),
+        }
     }
 
     // ── one-shot DML (each opens + commits its own txn) ───────────────────────
@@ -2462,6 +2502,54 @@ mod tests {
         assert_eq!(rows[0][1], Cell::Text("cpu".into()));
         assert_eq!(rows[0][2], Cell::Float(0.5));
         assert_eq!(rows[1][1], Cell::Text("mem".into()));
+    }
+
+    /// `get_row` is a true point get: it returns exactly the row at the given
+    /// PHYSICAL rowid — the first insert into a fresh table allocates rowids
+    /// sequentially from 0 (`alloc_rowids`'s own `unwrap_or(0)` default) — and
+    /// `None`, not an error, for a rowid that was never allocated.
+    #[test]
+    fn get_row_is_a_true_point_get_by_physical_rowid() {
+        let (store, _p) = TableStore::open_temp().unwrap();
+        store.create_table(&metrics_schema(), false).unwrap();
+        let cols = vec!["ts".to_string(), "name".to_string(), "value".to_string()];
+        store
+            .insert_rows(
+                "metrics",
+                &cols,
+                &[
+                    vec![1i64.into(), "cpu".into(), 0.5.into()],
+                    vec![2i64.into(), "mem".into(), 0.9.into()],
+                ],
+            )
+            .unwrap();
+        let r0 = store.get_row("metrics", 0).unwrap().unwrap();
+        assert_eq!(r0[1], Cell::Text("cpu".into()));
+        let r1 = store.get_row("metrics", 1).unwrap().unwrap();
+        assert_eq!(r1[1], Cell::Text("mem".into()));
+        assert_eq!(
+            store.get_row("metrics", 99).unwrap(),
+            None,
+            "no row ever occupied rowid 99"
+        );
+    }
+
+    /// A table whose schema exists but has never had a committed INSERT has no
+    /// physical row table yet — `get_row` returns `None`, mirroring `scan`'s own
+    /// "no rows table yet ⇒ empty, not an error" behavior.
+    #[test]
+    fn get_row_before_any_insert_is_none_not_an_error() {
+        let (store, _p) = TableStore::open_temp().unwrap();
+        store.create_table(&metrics_schema(), false).unwrap();
+        assert_eq!(store.get_row("metrics", 0).unwrap(), None);
+    }
+
+    /// A nonexistent table errors, exactly like `scan`.
+    #[test]
+    fn get_row_on_a_nonexistent_table_errors_like_scan() {
+        let (store, _p) = TableStore::open_temp().unwrap();
+        assert!(store.scan("ghost").is_err());
+        assert!(store.get_row("ghost", 0).is_err());
     }
 
     #[test]

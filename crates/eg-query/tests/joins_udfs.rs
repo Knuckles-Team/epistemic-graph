@@ -96,6 +96,73 @@ fn join_reaches_edge_props_via_json_get() {
     assert_eq!(v[1], vec![json!("n2"), json!(2.0)]);
 }
 
+/// Flatten an `EXPLAIN`/`EXPLAIN ANALYZE` `QueryResult` into one text blob (its
+/// rows are `(plan_type, plan)` string pairs) for substring assertions.
+fn explain_text(r: &QueryResult) -> String {
+    rows(r)
+        .iter()
+        .flat_map(|row| {
+            row.iter()
+                .map(|c| c.as_str().unwrap_or_default().to_string())
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// `EXPLAIN` must show the edges pushdown (P10/W1.7-A acceptance criterion).
+/// DataFusion's own `TableScan` logical-plan `Display` (CONCEPT:EG-KG.query.concept-12) annotates its
+/// `TableScan` node with `partial_filters=[...]` for every conjunct its source
+/// reported `Inexact` (verified against `datafusion-optimizer`'s own
+/// `push_down_filter.rs`: only `Exact`/`Inexact` filters even survive into
+/// `TableScan.filters` in the first place) — a stable, version-checked signal the
+/// pushdown happened, not a row-count heuristic. `EdgesTableProvider` reports a
+/// `src` equality `Inexact` (pushed to the O(deg) adjacency walk), so `EXPLAIN`
+/// must show it under `partial_filters=` on the `TableScan: edges` node.
+///
+/// `rel`, reported `Unsupported`, proves the NEGATIVE the opposite way: DataFusion
+/// drops an `Unsupported` conjunct from `TableScan.filters` entirely, so it can
+/// never appear under any of `full_filters=`/`partial_filters=`/`unsupported_filters=`
+/// on the scan node at all — instead it surfaces as its OWN `Filter:` node ABOVE
+/// the `TableScan`, exactly the "ordinary post-scan Filter" the module doc
+/// describes. Both shapes were confirmed against this test's OWN real `EXPLAIN`
+/// output before asserting on them.
+#[test]
+fn explain_shows_edges_src_pushdown_and_rel_fallback() {
+    let snap = graph().analysis_snapshot();
+
+    let r_src = exec_sql(
+        &snap,
+        "EXPLAIN SELECT dst FROM edges WHERE src = 'n1'",
+        &eg_query::CancellationToken::new(),
+    )
+    .unwrap();
+    let text_src = explain_text(&r_src);
+    assert!(
+        text_src.contains("partial_filters=[edges.src"),
+        "EXPLAIN must show `src` pushed down as a partial (Inexact) filter on the \
+         TableScan node itself, not left as an unsupported/absent one:\n{text_src}"
+    );
+
+    let r_rel = exec_sql(
+        &snap,
+        "EXPLAIN SELECT src FROM edges WHERE rel = 'n1:n2'",
+        &eg_query::CancellationToken::new(),
+    )
+    .unwrap();
+    let text_rel = explain_text(&r_rel);
+    assert!(
+        text_rel.contains("Filter: edges.rel"),
+        "EXPLAIN must show `rel` kept as its OWN ordinary Filter node ABOVE the \
+         scan (never pushed — no adjacency shortcut exists for it — see \
+         EdgesTableProvider's module doc):\n{text_rel}"
+    );
+    assert!(
+        !text_rel.contains("partial_filters=") && !text_rel.contains("full_filters="),
+        "the `rel`-only scan's TableScan node must carry NO pushed-filter \
+         attribution at all (rel is never pushed down, unlike src/dst):\n{text_rel}"
+    );
+}
+
 #[test]
 fn epistemic_decay_scalar() {
     let snap = graph().analysis_snapshot();
