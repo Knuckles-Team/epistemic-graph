@@ -193,9 +193,9 @@ where
         for slot in next.iter_mut() {
             *slot = 0.0;
         }
-        for u in 0..n {
+        for (u, xu) in x.iter().enumerate().take(n) {
             for &(v, w) in graph.out_edges(u) {
-                next[v] += w * x[u];
+                next[v] += w * xu;
             }
         }
         let norm = next.iter().map(|v| v * v).sum::<f64>().sqrt();
