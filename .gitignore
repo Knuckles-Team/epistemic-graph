@@ -96,3 +96,15 @@ trace.txt
 .pytest_tmp/
 .hypothesis/
 site/
+
+# Generated analysis output and scratch — these belong in the workspace-level
+# reports/ directory, never in a package's commit history. A 3.0G build dir was
+# one `git add -A` away from being committed here.
+reports/
+target-isolated/
+target-*/
+scratch/
+.scratch/
+*.log
+*.orig
+*.rej
