@@ -47,6 +47,15 @@ pub(crate) fn try_handle(
     req_id: u64,
     core: Arc<GraphCore>,
     read_authority: Option<&crate::server::access::GraphReadAuthority>,
+    // CONCEPT:EG-KG.mining.tsdb-typed-absent — the graph this request is scoped to, and the
+    // server's live tsdb store handle, both needed ONLY to bind a plan-sourced `Op::TsScan`
+    // leg for `MineClassifyFit` (the one Mine* method NOT routed through
+    // `graph_ops::try_handle_gateway`, which binds the same pair for the gateway-routed
+    // Mine* methods). `dispatch_graph_op_inner` is the sole caller with both in scope.
+    #[cfg(all(feature = "query", feature = "tsdb"))] graph_name: &str,
+    #[cfg(all(feature = "query", feature = "tsdb"))] tsdb_store: Option<
+        &Arc<eg_tsdb::store::SeriesStore>,
+    >,
     method: Method,
 ) -> Result<Response, Method> {
     match method {
@@ -90,6 +99,12 @@ pub(crate) fn try_handle(
             let authority = read_authority
                 .expect("MineClassifyFit must carry the universal served-read authority");
             let core = authority.project_core(&core);
+            #[cfg(all(feature = "query", feature = "tsdb"))]
+            let tsdb_bind = MiningTsdbBind {
+                graph_name,
+                read_authority: Some(authority),
+                tsdb_store,
+            };
             Ok(handle_classify_fit(
                 req_id,
                 &core,
@@ -105,6 +120,8 @@ pub(crate) fn try_handle(
                 epochs,
                 l2,
                 c,
+                #[cfg(all(feature = "query", feature = "tsdb"))]
+                tsdb_bind,
             ))
         }
         Method::MineClassifyPredict { .. } => unreachable!(
@@ -183,6 +200,16 @@ fn dispatch_for_test(
     core: Arc<GraphCore>,
     method: Method,
 ) -> Result<Response, Method> {
+    // No live server wiring in this harness (CONCEPT:EG-KG.mining.tsdb-typed-absent) — a
+    // `TsScan`-bearing plan run through this shim is a typed error, exactly as it would be
+    // against a real server with no tsdb store configured. None of this module's own tests
+    // exercise a `TsScan` leg, so this is otherwise inert.
+    #[cfg(all(feature = "query", feature = "tsdb"))]
+    let tsdb_bind = MiningTsdbBind {
+        graph_name: "test",
+        read_authority: None,
+        tsdb_store: None,
+    };
     match method {
         Method::MineAssociate {
             transactions,
@@ -237,6 +264,8 @@ fn dispatch_for_test(
             writeback,
             #[cfg(feature = "epistemic")]
             as_claim,
+            #[cfg(all(feature = "query", feature = "tsdb"))]
+            tsdb_bind,
         )),
         Method::MineAnomaly {
             features,
@@ -276,6 +305,8 @@ fn dispatch_for_test(
             writeback,
             #[cfg(feature = "epistemic")]
             as_claim,
+            #[cfg(all(feature = "query", feature = "tsdb"))]
+            tsdb_bind,
         )),
         Method::MineClassifyFit {
             x,
@@ -305,6 +336,8 @@ fn dispatch_for_test(
             epochs,
             l2,
             c,
+            #[cfg(all(feature = "query", feature = "tsdb"))]
+            tsdb_bind,
         )),
         Method::MineClassifyPredict {
             model,
@@ -326,6 +359,8 @@ fn dispatch_for_test(
             writeback,
             #[cfg(feature = "epistemic")]
             as_claim,
+            #[cfg(all(feature = "query", feature = "tsdb"))]
+            tsdb_bind,
         )),
         Method::MineReduce {
             x,
@@ -363,6 +398,8 @@ fn dispatch_for_test(
             writeback,
             #[cfg(feature = "epistemic")]
             as_claim,
+            #[cfg(all(feature = "query", feature = "tsdb"))]
+            tsdb_bind,
         )),
         Method::MineSequence {
             sequences,
@@ -1388,14 +1425,20 @@ pub(crate) fn handle_cluster(
     seed: u64,
     writeback: bool,
     #[cfg(feature = "epistemic")] as_claim: bool,
+    #[cfg(all(feature = "query", feature = "tsdb"))] tsdb: MiningTsdbBind<'_>,
 ) -> Response {
-    let (rows, ids) = build_vectors(
+    let (rows, ids) = match build_vectors(
         core,
         &features,
         &source,
         #[cfg(feature = "query")]
         &plan,
-    );
+        #[cfg(all(feature = "query", feature = "tsdb"))]
+        tsdb,
+    ) {
+        Ok(v) => v,
+        Err(e) => return Response::err(req_id, e),
+    };
     if let Err(e) = validate_matrix(&rows) {
         return Response::err(req_id, e);
     }
@@ -1571,15 +1614,21 @@ pub(crate) fn handle_anomaly(
     threshold: Option<f64>,
     writeback: bool,
     #[cfg(feature = "epistemic")] as_claim: bool,
+    #[cfg(all(feature = "query", feature = "tsdb"))] tsdb: MiningTsdbBind<'_>,
 ) -> Response {
-    let (rows, ids) = build_anomaly_rows(
+    let (rows, ids) = match build_anomaly_rows(
         core,
         &features,
         &values,
         &source,
         #[cfg(feature = "query")]
         &plan,
-    );
+        #[cfg(all(feature = "query", feature = "tsdb"))]
+        tsdb,
+    ) {
+        Ok(v) => v,
+        Err(e) => return Response::err(req_id, e),
+    };
     if let Err(e) = validate_matrix(&rows) {
         return Response::err(req_id, e);
     }
@@ -1729,14 +1778,20 @@ fn handle_classify_fit(
     epochs: usize,
     l2: f64,
     c: f64,
+    #[cfg(all(feature = "query", feature = "tsdb"))] tsdb: MiningTsdbBind<'_>,
 ) -> Response {
-    let (rows, _ids) = build_vectors(
+    let (rows, _ids) = match build_vectors(
         core,
         &x,
         &source,
         #[cfg(feature = "query")]
         &plan,
-    );
+        #[cfg(all(feature = "query", feature = "tsdb"))]
+        tsdb,
+    ) {
+        Ok(v) => v,
+        Err(e) => return Response::err(req_id, e),
+    };
     if let Err(e) = validate_matrix(&rows) {
         return Response::err(req_id, e);
     }
@@ -1768,14 +1823,20 @@ pub(crate) fn handle_classify_predict(
     #[cfg(feature = "query")] plan: Option<crate::wire::Plan>,
     writeback: bool,
     #[cfg(feature = "epistemic")] as_claim: bool,
+    #[cfg(all(feature = "query", feature = "tsdb"))] tsdb: MiningTsdbBind<'_>,
 ) -> Response {
-    let (rows, ids) = build_vectors(
+    let (rows, ids) = match build_vectors(
         core,
         &x,
         &source,
         #[cfg(feature = "query")]
         &plan,
-    );
+        #[cfg(all(feature = "query", feature = "tsdb"))]
+        tsdb,
+    ) {
+        Ok(v) => v,
+        Err(e) => return Response::err(req_id, e),
+    };
     if let Err(e) = validate_matrix(&rows) {
         return Response::err(req_id, e);
     }
@@ -1920,14 +1981,20 @@ pub(crate) fn handle_reduce(
     seed: u64,
     writeback: bool,
     #[cfg(feature = "epistemic")] as_claim: bool,
+    #[cfg(all(feature = "query", feature = "tsdb"))] tsdb: MiningTsdbBind<'_>,
 ) -> Response {
-    let (rows, ids) = build_vectors(
+    let (rows, ids) = match build_vectors(
         core,
         &x,
         &source,
         #[cfg(feature = "query")]
         &plan,
-    );
+        #[cfg(all(feature = "query", feature = "tsdb"))]
+        tsdb,
+    ) {
+        Ok(v) => v,
+        Err(e) => return Response::err(req_id, e),
+    };
     if let Err(e) = validate_matrix(&rows) {
         return Response::err(req_id, e);
     }
@@ -4075,48 +4142,62 @@ fn community_provenance(label: &Option<String>) -> String {
 /// upstream `plan` (CONCEPT:EG-KG.mining.fused-plan-source); then the `source`
 /// node-label embedding scan (the cross-modal hook). Returns the rows AND a
 /// parallel `ids` vec (node ids for the embedding/plan path, empty for explicit).
+/// `Err` only ever originates from the plan leg (CONCEPT:EG-KG.mining.tsdb-typed-absent).
 fn build_vectors(
     core: &Arc<GraphCore>,
     features: &[Vec<f64>],
     source: &Option<VectorSource>,
     #[cfg(feature = "query")] plan: &Option<crate::wire::Plan>,
-) -> (Vec<Vec<f64>>, Vec<String>) {
+    #[cfg(all(feature = "query", feature = "tsdb"))] tsdb: MiningTsdbBind<'_>,
+) -> Result<(Vec<Vec<f64>>, Vec<String>), String> {
     if !features.is_empty() {
-        return (features.to_vec(), Vec::new());
+        return Ok((features.to_vec(), Vec::new()));
     }
     #[cfg(feature = "query")]
     if let Some(p) = plan {
-        return gather_plan_rows(core, p);
+        return gather_plan_rows(
+            core,
+            p,
+            #[cfg(feature = "tsdb")]
+            tsdb,
+        );
     }
     match source {
-        Some(spec) => gather_embeddings(core, spec),
-        None => (Vec::new(), Vec::new()),
+        Some(spec) => Ok(gather_embeddings(core, spec)),
+        None => Ok((Vec::new(), Vec::new())),
     }
 }
 
 /// Resolve the anomaly rows: explicit `features` win, then a 1-D `values` series
 /// (each scalar → a one-element row — the tsdb RCA path), then a fused upstream
-/// `plan`, then node embeddings.
+/// `plan`, then node embeddings. `Err` only ever originates from the plan leg
+/// (CONCEPT:EG-KG.mining.tsdb-typed-absent).
 fn build_anomaly_rows(
     core: &Arc<GraphCore>,
     features: &[Vec<f64>],
     values: &[f64],
     source: &Option<VectorSource>,
     #[cfg(feature = "query")] plan: &Option<crate::wire::Plan>,
-) -> (Vec<Vec<f64>>, Vec<String>) {
+    #[cfg(all(feature = "query", feature = "tsdb"))] tsdb: MiningTsdbBind<'_>,
+) -> Result<(Vec<Vec<f64>>, Vec<String>), String> {
     if !features.is_empty() {
-        return (features.to_vec(), Vec::new());
+        return Ok((features.to_vec(), Vec::new()));
     }
     if !values.is_empty() {
-        return (values.iter().map(|&v| vec![v]).collect(), Vec::new());
+        return Ok((values.iter().map(|&v| vec![v]).collect(), Vec::new()));
     }
     #[cfg(feature = "query")]
     if let Some(p) = plan {
-        return gather_plan_rows(core, p);
+        return gather_plan_rows(
+            core,
+            p,
+            #[cfg(feature = "tsdb")]
+            tsdb,
+        );
     }
     match source {
-        Some(spec) => gather_embeddings(core, spec),
-        None => (Vec::new(), Vec::new()),
+        Some(spec) => Ok(gather_embeddings(core, spec)),
+        None => Ok((Vec::new(), Vec::new())),
     }
 }
 
@@ -4190,6 +4271,25 @@ fn gather_embeddings(core: &GraphCore, spec: &VectorSource) -> (Vec<Vec<f64>>, V
     (rows, ids)
 }
 
+/// Bundles what a plan-sourced mining leg (CONCEPT:EG-KG.mining.fused-plan-source) needs to
+/// resolve and bind the server's live tsdb store for an `Op::TsScan` leg, mirroring
+/// `query::run_unified`'s own `TsdbLegBind` — the difference is WHERE the scope gets
+/// resolved: a served `UnifiedQuery` resolves it once per request at the top of its own
+/// handler, while mining resolves it once per plan inside [`gather_plan_rows`], since
+/// FIVE different `Mine*` handlers share that one call site (resolving there, rather
+/// than duplicating the "does this plan need tsdb" check in every handler, keeps a
+/// single source of truth). `read_authority`/`tsdb_store` are `None` when no live server
+/// wiring is available (the `#[cfg(test)]` `dispatch_for_test` harness); a `TsScan`-bearing
+/// plan is then a typed error rather than the old silent-empty degrade
+/// (CONCEPT:EG-KG.mining.tsdb-typed-absent) — a plan that never touches tsdb is unaffected.
+#[cfg(all(feature = "query", feature = "tsdb"))]
+#[derive(Clone, Copy)]
+pub(crate) struct MiningTsdbBind<'a> {
+    pub graph_name: &'a str,
+    pub read_authority: Option<&'a crate::server::access::GraphReadAuthority>,
+    pub tsdb_store: Option<&'a Arc<eg_tsdb::store::SeriesStore>>,
+}
+
 /// Run an upstream cross-modal RETRIEVAL `plan` (`Op::Scan|Filter|Traverse|Rank|…`)
 /// over a fresh graph+semantic snapshot and resolve each resulting row's id to its
 /// stored embedding — the SAME lookup [`gather_embeddings`] uses for a bare
@@ -4200,19 +4300,18 @@ fn gather_embeddings(core: &GraphCore, spec: &VectorSource) -> (Vec<Vec<f64>>, V
 /// the mining op then reads embeddings from — ONE round-trip, no client
 /// marshalling between "retrieve the candidate set" and "mine it". A plan
 /// execution error degrades to an empty row set (never panics/propagates) —
-/// consistent with every other mining source's "no match ⇒ empty" contract.
-///
-/// NOTE (scope cut): the committed native tsdb store is NOT threaded through this
-/// synchronous, graph-scoped path (mining dispatches off `Arc<GraphCore>` alone,
-/// unlike the async `UnifiedQuery` handler which also carries the server's live
-/// tsdb handle) — a plan containing `Op::TsScan` degrades to no rows for that leg
-/// exactly like an unbound embedder degrades `RankEmbed`, rather than erroring.
-/// Wiring the live tsdb store into the mining dispatch path is a follow-up.
+/// consistent with every other mining source's "no match ⇒ empty" contract —
+/// EXCEPT for a plan-sourced `Op::TsScan` leg (CONCEPT:EG-KG.mining.tsdb-typed-absent):
+/// that ONE case now returns a typed `Err` when the server genuinely has no live
+/// tsdb store (or no verified carrier authority) bound, rather than silently
+/// degrading to empty — a `TsScan`-bearing mining plan is otherwise
+/// indistinguishable from "your query legitimately matched nothing".
 #[cfg(feature = "query")]
 fn gather_plan_rows(
     core: &Arc<GraphCore>,
     plan: &crate::wire::Plan,
-) -> (Vec<Vec<f64>>, Vec<String>) {
+    #[cfg(feature = "tsdb")] tsdb: MiningTsdbBind<'_>,
+) -> Result<(Vec<Vec<f64>>, Vec<String>), String> {
     let snap = core.analysis_snapshot();
     // CONCEPT:EG-KG.query.served-vector-index-binding / served-text-index-binding — push the
     // vector leg into the LIVE persistent `SemanticStore` via a guard, reused for the embedding
@@ -4228,6 +4327,24 @@ fn gather_plan_rows(
     // pushes down into the graph's MAINTAINED persistent spatial index, same as the text leg.
     #[cfg(feature = "geo")]
     let served_spatial = crate::server::secondary_indexes::ServedSpatialIndex::new(core.clone());
+    // CONCEPT:EG-KG.mining.tsdb-typed-absent — resolve the SAME verified tenant/namespace scope
+    // the served `UnifiedQuery` path resolves (`query::served_tsdb_scope`, single source of
+    // truth), THEN require the live store to actually be bound before falling through to the
+    // old silent-empty degrade. `None` (the plan has no `TsScan` leg) is unaffected.
+    #[cfg(feature = "tsdb")]
+    let tsdb_scope = crate::server::handlers::query::served_tsdb_scope(
+        plan,
+        tsdb.graph_name,
+        tsdb.read_authority,
+    )?;
+    #[cfg(feature = "tsdb")]
+    if tsdb_scope.is_some() && tsdb.tsdb_store.is_none() {
+        return Err(
+            "graph_mine: plan requires Op::TsScan but this server has no time-series store \
+             configured"
+                .to_string(),
+        );
+    }
     let store = core.semantic_store.read();
     let rows = match crate::server::handlers::query::run_unified(
         plan.clone(),
@@ -4242,25 +4359,50 @@ fn gather_plan_rows(
             _marker: std::marker::PhantomData,
         },
         #[cfg(feature = "tsdb")]
-        crate::server::handlers::query::TsdbLegBind {
-            tsdb: None,
-            tsdb_tenant: None,
-            tsdb_graph: None,
-            staged_series: None,
+        match &tsdb_scope {
+            Some((tenant, graph)) => crate::server::handlers::query::TsdbLegBind {
+                tsdb: tsdb.tsdb_store.map(|store| store.as_ref()),
+                tsdb_tenant: Some(tenant.as_str()),
+                tsdb_graph: Some(graph.as_str()),
+                staged_series: None,
+            },
+            None => crate::server::handlers::query::TsdbLegBind {
+                tsdb: None,
+                tsdb_tenant: None,
+                tsdb_graph: None,
+                staged_series: None,
+            },
         },
     ) {
         Ok(rows) => rows,
-        Err(_) => return (Vec::new(), Vec::new()),
+        Err(_) => return Ok((Vec::new(), Vec::new())),
     };
     let mut feats: Vec<Vec<f64>> = Vec::with_capacity(rows.len());
     let mut ids: Vec<String> = Vec::with_capacity(rows.len());
-    for (node_id, _score) in rows {
-        if let Some(vec) = store.get_embedding(&node_id) {
+    for (row_id, score) in rows {
+        if let Some(vec) = store.get_embedding(&row_id) {
             feats.push(vec.into_iter().map(|f| f as f64).collect());
-            ids.push(node_id);
+            ids.push(row_id);
+            continue;
+        }
+        // CONCEPT:EG-KG.mining.tsdb-typed-absent — a time-series SOURCE row (an `Op::TsScan`
+        // point): the id IS the point timestamp — not a graph node, so it never resolves to
+        // an embedding — and `score` IS the value. Mirrors EXACTLY how `window_aggregate`
+        // (CONCEPT:EG-KG.compute.tsscan-series-window-60s, `crates/eg-plan/src/exec.rs`)
+        // already disambiguates a TsScan-produced row from a graph-node row. Without this
+        // fallback a TsScan-sourced mining plan would still yield zero feature rows even
+        // after binding the live tsdb store above: the row would round-trip through
+        // `run_unified` correctly, then be silently dropped HERE by the embedding lookup —
+        // the exact same "a TsScan row's id is not a node, so it's dropped" failure mode
+        // `window_aggregate`'s own fix note describes. A row id that merely LOOKS numeric
+        // but isn't a real timestamp is indistinguishable from a genuine one at this layer,
+        // exactly as `window_aggregate` accepts the same ambiguity.
+        if let (Ok(_ts), Some(value)) = (row_id.parse::<i64>(), score) {
+            feats.push(vec![value as f64]);
+            ids.push(row_id);
         }
     }
-    (feats, ids)
+    Ok((feats, ids))
 }
 
 /// WAL-replay counterpart of [`gather_plan_rows`] — the pre-L34 behavior, kept for
