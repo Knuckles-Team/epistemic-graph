@@ -1542,6 +1542,42 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
+    // ── Periodic ANN warm re-check sweep (W0.4 mechanism 2, CONCEPT:EG-KG.storage.semantic-index-directory) ──
+    // The boot-time warm task above and the post-write trigger (the dispatch
+    // write-path tail) cover graphs warmed at startup and graphs written to
+    // through the live request path. Neither runs for a change this node only
+    // observes via Raft-replicated apply or a redb-recovery replay (which never
+    // pass through the live dispatch tail) — so this backstop re-scans every
+    // resident graph on the SAME interval-task cadence as the sweeps above and
+    // spawns a warm for any at/above threshold whose index is not ready. O(1)
+    // per resident graph and a no-op once nothing needs it; always armed (no env
+    // gate needed — unlike cold-offload, index readiness is a baseline
+    // correctness/performance concern, not an opt-in memory policy).
+    #[cfg(feature = "ann")]
+    {
+        let sweep_state = state.clone();
+        tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(std::time::Duration::from_secs(30));
+            ticker.tick().await; // consume the immediate first tick
+            loop {
+                ticker.tick().await;
+                let __loop_tick_started = std::time::Instant::now();
+                let n =
+                    epistemic_graph::server::ann_warm::sweep_resident_graphs(&sweep_state).await;
+                if n > 0 {
+                    tracing::info!(
+                        "Semantic ANN warm re-check: spawned {} warm(s) for resident graph(s)",
+                        n
+                    );
+                }
+                epistemic_graph::metrics::loop_tick(
+                    "ann_warm_sweep",
+                    __loop_tick_started.elapsed().as_secs_f64(),
+                );
+            }
+        });
+    }
+
     // Periodic Ebbinghaus decay sweep (CONCEPT:EG-KG.compute.graph-compute-engine) — opt-in. Confidence on
     // every node/edge decays toward 0 with a configurable half-life; with a
     // non-zero floor, forgotten facts are pruned. Off by default (interval 0).
