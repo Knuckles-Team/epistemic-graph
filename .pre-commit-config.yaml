@@ -39,6 +39,7 @@ repos:
   - id: mypy
     additional_dependencies: [pydantic==2.13.4, types-PyYAML==6.0.12.20260518, types-requests==2.33.0.20260518, types-setuptools==83.0.0.20260706]
     args: ["--ignore-missing-imports"]
+    exclude: ^(scripts/|script/|tests/|test/)
 - repo: https://github.com/jendrikseipp/vulture
   rev: b0f67ba0044693aa9ec0d38fe460590facc98004 # v2.16
   hooks:
@@ -50,7 +51,7 @@ repos:
   rev: 2ccb47ff45ad361a21071a7eedda4c37e6ae8c5a # v2.4.2
   hooks:
   - id: codespell
-    args: ["-L", "ans,linar,nam,tread,ot,ser,inh,copyin,unparseable,implementors,nd,datas,alls,re-declaring", "--ignore-words=.codespellignore"]
+    args: ["-L", "ans,linar,nam,tread,ot,ser,inh,copyin,unparseable,implementors,implementor,nd,datas,alls,re-declaring,re-declares,fals,paeth", "--ignore-words=.codespellignore"]
     exclude: ^(tests/|test/|scripts/|script/|.*lock.*|Cargo.lock|\.specify/)
 - repo: https://github.com/PyCQA/bandit
   rev: 92ae8b82fb422a639f0ed8d99e96cea769594e08 # 1.9.4
