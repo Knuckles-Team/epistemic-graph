@@ -43,6 +43,12 @@ const COMPACT_TOMBSTONE_PCT: f32 = 0.30;
 // fast exact brute-force result while the index is still `Cold`, instead of building.
 const STATE_COLD: u8 = 0;
 const STATE_READY: u8 = 1;
+// W0.4 — a warm build claimed in flight (`ensure_index`'s duplicate-concurrent-
+// warm guard below): distinct from `STATE_COLD` so a second trigger (e.g. the
+// on-write hook racing the periodic re-check sweep for the SAME graph) can tell
+// "nothing built yet" apart from "somebody is already building" and back off
+// instead of blocking on the index write lock for the whole build.
+const STATE_WARMING: u8 = 2;
 
 /// CONCEPT:EG-KG.storage.arena-row-append — the contiguous row-major embedding arena.
 ///
@@ -437,6 +443,14 @@ impl SemanticStore {
             && *self.built_len.read() == self.arena.len()
     }
 
+    /// True while a background `warm()` build is in flight for this store (W0.4).
+    /// Lets a caller (the on-write trigger, the periodic re-check sweep) skip
+    /// scheduling a redundant warm task for a graph that is already warming
+    /// instead of discovering that only after paying for a `spawn_blocking` slot.
+    pub fn is_warming(&self) -> bool {
+        self.state.load(Ordering::Acquire) == STATE_WARMING
+    }
+
     /// True if a resident index reflects the CURRENT embedding count (no staleness).
     /// Used by the warm task to decide whether a reopened persisted index is usable
     /// as-is or must be rebuilt because the store grew since it was saved.
@@ -465,10 +479,19 @@ impl SemanticStore {
                 return;
             }
         }
-        let mut idx = self.index.write();
-        if idx.is_some() && *self.built_len.read() == self.arena.len() {
-            return; // another thread built it while we waited
+        // W0.4 duplicate-concurrent-warm guard: claim the warm slot BEFORE taking
+        // the (potentially minutes-long) index write lock. `swap` is a single
+        // atomic RMW, so exactly one concurrent caller observes a previous value
+        // other than `STATE_WARMING` (COLD, or READY-but-stale after a
+        // `load_index` reopen whose persisted index undercounts a since-grown
+        // arena) and proceeds to build below; every other concurrent caller (the
+        // on-write trigger racing the periodic re-check sweep for the same graph)
+        // observes `STATE_WARMING` and returns immediately instead of blocking on
+        // `index.write()` for the entire build.
+        if self.state.swap(STATE_WARMING, Ordering::AcqRel) == STATE_WARMING {
+            return;
         }
+        let mut idx = self.index.write();
         let n = self.arena.len();
         let span = tracing::info_span!("ann_index_build", graph = label, n_vectors = n);
         let _g = span.enter();
@@ -725,6 +748,84 @@ mod tests {
             after.iter().all(|(id, _)| id != "n123"),
             "tombstoned node must not surface via the ANN index: {after:?}"
         );
+    }
+
+    /// W0.4 — a warm already `STATE_WARMING` must make `warm()` back off
+    /// immediately (no build, no state change) instead of blocking on the index
+    /// write lock, so a second trigger for the same graph (the on-write hook
+    /// racing the periodic re-check sweep) never wastes a `spawn_blocking` slot
+    /// for the whole build duration.
+    #[test]
+    fn warm_backs_off_when_already_warming() {
+        let dim = 16;
+        let n = ANN_BUILD_THRESHOLD + 50;
+        let mut store = SemanticStore::new();
+        for i in 0..n {
+            let mut v = vec![0.0f32; dim];
+            v[i % dim] = 1.0;
+            store.add_embedding(format!("n{i}"), v);
+        }
+        assert!(!store.is_ready(), "not warmed yet");
+
+        // Simulate a build already in flight (as `ensure_index`'s claim leaves it
+        // for the whole build duration).
+        store.state.store(STATE_WARMING, Ordering::Release);
+        store.warm("test");
+        assert!(
+            !store.is_ready(),
+            "a racing warm() must not build while another is in flight"
+        );
+        assert!(
+            store.index.read().is_none(),
+            "the index must be untouched by the backed-off caller"
+        );
+        assert!(
+            store.is_warming(),
+            "the in-flight claim must survive untouched"
+        );
+
+        // Once the in-flight build "finishes" (state reset), a fresh warm() must
+        // still succeed normally — the guard never permanently wedges the store.
+        store.state.store(STATE_COLD, Ordering::Release);
+        store.warm("test");
+        assert!(
+            store.is_ready(),
+            "warm() must build once nothing is in flight"
+        );
+        assert_eq!(store.len(), n);
+    }
+
+    /// W0.4 — two REAL concurrent `warm()` calls on the same store (the on-write
+    /// trigger racing the periodic re-check sweep in practice) must leave the
+    /// store correctly warmed, with no panics, corruption, or dropped rows —
+    /// exactly one of them performs the build, the other observes `STATE_WARMING`
+    /// via the atomic claim in `ensure_index` and returns immediately.
+    #[test]
+    fn concurrent_warm_calls_are_race_free() {
+        let dim = 16;
+        let n = ANN_BUILD_THRESHOLD + 50;
+        let mut store = SemanticStore::new();
+        for i in 0..n {
+            let mut v = vec![0.0f32; dim];
+            v[i % dim] = 1.0;
+            store.add_embedding(format!("n{i}"), v);
+        }
+        let store = std::sync::Arc::new(store);
+        let handles: Vec<_> = (0..8)
+            .map(|_| {
+                let store = store.clone();
+                std::thread::spawn(move || store.warm("concurrent-test"))
+            })
+            .collect();
+        for h in handles {
+            h.join()
+                .expect("warm() must not panic under concurrent callers");
+        }
+        assert!(store.is_ready(), "the index must end up warmed");
+        assert_eq!(store.len(), n, "no rows lost across the concurrent warms");
+        let q = store.get_embedding("n0").unwrap();
+        let hits = store.semantic_search(&q, 5);
+        assert!(hits.iter().any(|(id, _)| id == "n0"));
     }
 
     #[test]
