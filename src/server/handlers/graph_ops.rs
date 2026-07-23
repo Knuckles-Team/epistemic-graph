@@ -12,10 +12,10 @@ use super::super::access::{check_graph_access, requires_write, GraphReadAuthorit
 use super::super::compute::{compute_off_lock, weight_semantic_results};
 use super::super::mutation::{self, GatewayAuthzCtx, MutationCtx, MutationPlan};
 use super::super::persistence::PersistenceBackend;
-use super::super::state::{max_response_nodes, ServerState, MAX_BATCH_IDS};
+use super::super::state::{max_response_edges, max_response_nodes, ServerState, MAX_BATCH_IDS};
 use crate::graph::GraphCore;
 use crate::isolation::AccessLevel;
-use crate::protocol::{Method, Response, ResultPayload};
+use crate::protocol::{Method, Response, ResultPayload, Vf2MatchResult};
 
 /// Resolve a cross-graph union read's graph set to their cores (CONCEPT:EG-KG.query.cross-graph-union).
 ///
@@ -69,6 +69,26 @@ fn oversize_dump_error(count: usize, cap: usize) -> Option<String> {
              the full-graph dump is refused to protect the connection. Use a \
              bounded query instead (get_nodes_by_label(label, limit) or \
              paginate), or raise EPISTEMIC_GRAPH_MAX_RESPONSE_NODES."
+        ))
+    } else {
+        None
+    }
+}
+
+/// Intelligent overload backstop for the `GetEdges` full-graph dump — the
+/// edge-count sibling of [`oversize_dump_error`]. Given the graph's edge `count`
+/// and the configured `cap`, returns `Some(error_message)` when the dump would
+/// exceed the cap, or `None` when it is within bounds and safe to materialize.
+/// The cap is always positive in served state and cannot be disabled. Pure +
+/// side-effect-free so the threshold logic is unit-tested directly, independent
+/// of process-global env.
+fn oversize_edge_dump_error(count: usize, cap: usize) -> Option<String> {
+    if count > cap {
+        Some(format!(
+            "RESULT_TOO_LARGE: GetEdges would return {count} edges (> cap {cap}); \
+             the full-graph dump is refused to protect the connection. Use a \
+             bounded query instead (GetEdgesPage(after, limit) / paginate), or \
+             raise EPISTEMIC_GRAPH_MAX_RESPONSE_EDGES."
         ))
     } else {
         None
@@ -2658,7 +2678,24 @@ pub(crate) async fn try_handle(
         }
         Method::GetEdges => {
             let g = &*core;
+            // Intelligent overload backstop (CONCEPT:EG-KG.ingest.resets-socket-so-assimilation), the edge-count
+            // sibling of the `GetNodes` guard just above `try_handle`'s match:
+            // check the cheap O(1) edge count BEFORE building the Vec, and
+            // return a typed, catchable error instead of the pathological
+            // gigabyte-scale frame. `GetEdgesPage` (bounded pagination) is
+            // intentionally unaffected.
+            if let Some(msg) = oversize_edge_dump_error(g.edge_count(), max_response_edges()) {
+                return Response::err(req_id, msg);
+            }
             Response::ok(req_id, ResultPayload::EdgeList(g.get_edges()))
+        }
+        Method::GetEdgesPage { after, limit } => {
+            let g = &*core;
+            let after_ref = after
+                .as_ref()
+                .map(|(s, t, ord)| (s.as_str(), t.as_str(), *ord));
+            let edges = g.get_edges_page(after_ref, limit);
+            Response::ok(req_id, ResultPayload::raw(&edges))
         }
         Method::GetEdgeProperties {
             source_id,
@@ -3058,7 +3095,11 @@ pub(crate) async fn try_handle(
             "BatchUpdate is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
              through try_handle_gateway before it ever reaches this terminal handler"
         ),
-        Method::Vf2SubgraphMatch { pattern_graph_name } => {
+        Method::Vf2SubgraphMatch {
+            pattern_graph_name,
+            max_results,
+            max_steps,
+        } => {
             let s = state.read().await;
             // The pattern graph is read too — gate it like any other read.
             if let Some(entry) = s.registry.get(&pattern_graph_name) {
@@ -3085,10 +3126,18 @@ pub(crate) async fn try_handle(
                 let p_core = read_authority.project_core(&p_core);
                 let p_snap = p_core.analysis_snapshot();
                 // vf2_subgraph_match snapshots the host internally, so the
-                // exponential-worst-case matching runs entirely off-lock.
+                // NP-hard backtracking (bounded by max_results/max_steps) runs
+                // entirely off-lock.
                 let host = core.clone();
-                match compute_off_lock(req_id, move || host.vf2_subgraph_match(&p_snap)).await {
-                    Ok(v) => Response::ok(req_id, ResultPayload::raw(&v)),
+                match compute_off_lock(req_id, move || {
+                    host.vf2_subgraph_match(&p_snap, max_results, max_steps)
+                })
+                .await
+                {
+                    Ok((matches, truncated)) => Response::ok(
+                        req_id,
+                        ResultPayload::raw(&Vf2MatchResult { matches, truncated }),
+                    ),
                     Err(resp) => resp,
                 }
             } else {
@@ -3305,5 +3354,35 @@ mod tests {
     #[test]
     fn zero_cap_fails_safe() {
         assert!(oversize_dump_error(1, 0).is_some());
+    }
+
+    // CONCEPT:EG-KG.ingest.resets-socket-so-assimilation — the GetEdges overload backstop decision logic
+    // (edge-count sibling of the GetNodes tests above).
+
+    #[test]
+    fn edges_under_cap_returns_no_error_so_data_is_served() {
+        assert_eq!(oversize_edge_dump_error(0, 50_000), None);
+        assert_eq!(oversize_edge_dump_error(1, 50_000), None);
+        assert_eq!(oversize_edge_dump_error(49_999, 50_000), None);
+        // Exactly at the cap is allowed (the guard fires only when EXCEEDED).
+        assert_eq!(oversize_edge_dump_error(50_000, 50_000), None);
+    }
+
+    #[test]
+    fn edges_over_cap_returns_typed_error_not_a_giant_payload() {
+        let err = oversize_edge_dump_error(166_000, 50_000)
+            .expect("over-cap dump must produce an error, not the data");
+        assert!(err.starts_with("RESULT_TOO_LARGE"), "got: {err}");
+        // The message must steer the caller to the bounded alternative.
+        assert!(err.contains("GetEdgesPage"), "got: {err}");
+        assert!(
+            err.contains("166000") && err.contains("50000"),
+            "got: {err}"
+        );
+    }
+
+    #[test]
+    fn edges_zero_cap_fails_safe() {
+        assert!(oversize_edge_dump_error(1, 0).is_some());
     }
 }

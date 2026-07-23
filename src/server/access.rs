@@ -1343,6 +1343,7 @@ const RLS_ROUTED: &[&str] = &[
     "GetEdgeProperties",
     "GetEdgePropertiesBatch",
     "GetEdges",
+    "GetEdgesPage",
     "GetLedger",
     "GetMatView",
     "GetNeighbors",

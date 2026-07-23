@@ -210,9 +210,11 @@ def test_vf2_subgraph_match(clean_graph):
     pattern.edges.add("P1", "P2", "{}")
 
     # Pass the pattern client to vf2_subgraph_match (client handles sending pattern_graph_name)
-    matches = clean_graph.graph.vf2_subgraph_match(pattern)
+    result = clean_graph.graph.vf2_subgraph_match(pattern)
+    matches = result["matches"]
     assert len(matches) == 1
     assert matches[0] == {"P1": "A", "P2": "B"}
+    assert result["truncated"] is False
 
 
 @pytest.mark.concept("CONCEPT:AU-KG.query.object-graph-mapper")

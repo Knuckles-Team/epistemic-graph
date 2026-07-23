@@ -46,6 +46,34 @@ pub fn max_response_nodes() -> usize {
     })
 }
 
+/// Default cap on the number of edges a `GetEdges`-style FULL-graph dump may
+/// return before the engine refuses to build the response — the edge-count
+/// sibling of [`DEFAULT_MAX_RESPONSE_NODES`] (CONCEPT:EG-KG.ingest.resets-socket-so-assimilation). Tunable via
+/// `EPISTEMIC_GRAPH_MAX_RESPONSE_EDGES`. An unbounded `GetEdges` on a large graph
+/// materializes EVERY edge's property blob into ONE response frame — the same
+/// gigabyte-scale, connection-resetting payload `GetNodes` was guarded against.
+/// Past this cap the handler returns a typed `RESULT_TOO_LARGE` error telling the
+/// caller to use `GetEdgesPage` (bounded pagination) instead of building the
+/// pathological frame.
+pub const DEFAULT_MAX_RESPONSE_EDGES: usize = 50_000;
+
+/// Resolve the `GetEdges` full-dump edge cap, read ONCE from
+/// `EPISTEMIC_GRAPH_MAX_RESPONSE_EDGES` — the edge-count sibling of
+/// [`max_response_nodes`]. Cached in a `OnceLock` so the env var is parsed a
+/// single time at first use. Zero, absent, and non-parsable values resolve to
+/// [`DEFAULT_MAX_RESPONSE_EDGES`]; the served response bound cannot be disabled.
+pub fn max_response_edges() -> usize {
+    use std::sync::OnceLock;
+    static CAP: OnceLock<usize> = OnceLock::new();
+    *CAP.get_or_init(|| {
+        std::env::var("EPISTEMIC_GRAPH_MAX_RESPONSE_EDGES")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .filter(|value| *value > 0)
+            .unwrap_or(DEFAULT_MAX_RESPONSE_EDGES)
+    })
+}
+
 /// Read the OCC-transaction TTL + open-txn caps from the environment
 /// (CONCEPT:EG-KG.txn.multi-op-occ-acid), with the documented defaults. Centralized so every
 /// `ServerState` construction site gets the same knobs without re-reading env.

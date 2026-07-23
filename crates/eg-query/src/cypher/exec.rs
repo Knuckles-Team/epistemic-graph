@@ -2340,8 +2340,9 @@ mod tests {
                 serde_json::json!({"relationship":"KNOWS"}),
             ))],
         );
-        let vf2 = vf2_match_views(&v, &pat);
+        let (vf2, truncated) = vf2_match_views(&v, &pat, 0, 0);
         assert_eq!(vf2.len(), 2);
+        assert!(!truncated, "tiny fixture must not hit the default budget");
     }
 
     /// Typed patterns and `type(r)` consume the same canonical relationship field.
