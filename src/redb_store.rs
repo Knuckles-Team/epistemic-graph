@@ -1530,7 +1530,7 @@ fn apply_mutation_batch_in_wtx(
             semantic.remove(graph_fname).map_err(|e| e.to_string())?;
         }
         apply_crossmodal_projection_rows(
-            &wtx,
+            wtx,
             graph_fname,
             rows.vectors,
             rows.blob_refs,
@@ -1549,7 +1549,7 @@ fn apply_mutation_batch_in_wtx(
         semantic.remove(graph_fname).map_err(|e| e.to_string())?;
     }
     if matches!(lifecycle, Some((false, _, _))) {
-        clear_change_material_rows(&wtx, graph_fname)?;
+        clear_change_material_rows(wtx, graph_fname)?;
     }
 
     if crashpoint == Some(MutationBatchCrashpoint::AfterRowsBeforeMetadata) {

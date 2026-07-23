@@ -93,7 +93,9 @@ def validate_request_context(
     if "node" in context:
         node = context["node"]
         if not isinstance(node, str) or not node.strip():
-            raise ValueError("verified_context.node must be a non-empty string when present")
+            raise ValueError(
+                "verified_context.node must be a non-empty string when present"
+            )
 
     value: dict[str, Any] = copy.deepcopy(dict(context))
     for name in ("principal", "tenant", "audience", "agent_id", "policy_version"):
@@ -317,13 +319,8 @@ def _mark_method_f32(method_wire: dict[str, Any], *, path: str = "method") -> No
             )
     elif method == "ServedModality":
         operation = params.get("op")
-        predicate = (
-            operation.get("predicate") if isinstance(operation, dict) else None
-        )
-        if (
-            isinstance(predicate, dict)
-            and predicate.get("predicate") == "audio_window"
-        ):
+        predicate = operation.get("predicate") if isinstance(operation, dict) else None
+        if isinstance(predicate, dict) and predicate.get("predicate") == "audio_window":
             _mark_f32_scalar(
                 predicate,
                 "minimum_rms",
@@ -366,9 +363,7 @@ def _mark_method_f32(method_wire: dict[str, Any], *, path: str = "method") -> No
                     continue
                 for index, operation in enumerate(operations):
                     nested_method = (
-                        operation.get("method")
-                        if isinstance(operation, dict)
-                        else None
+                        operation.get("method") if isinstance(operation, dict) else None
                     )
                     if isinstance(nested_method, dict):
                         _mark_method_f32(
@@ -1184,15 +1179,14 @@ def _modality_capabilities(value: Any) -> ServedModalityCapabilities:
     )
     certified = (
         capabilities["component_ready"] is True
-        and _integer("capabilities.component_pass", capabilities["component_pass"]) == 12
+        and _integer("capabilities.component_pass", capabilities["component_pass"])
+        == 12
         and _integer(
             "capabilities.component_not_applicable",
             capabilities["component_not_applicable"],
         )
         == 0
-        and _integer(
-            "capabilities.component_total", capabilities["component_total"]
-        )
+        and _integer("capabilities.component_total", capabilities["component_total"])
         == 12
     )
     if not certified:
@@ -1219,7 +1213,9 @@ def _modality_stats(value: Any) -> ServedModalityStats:
     stats = _exact_mapping("served modality stats", value, fields)
     for field in fields:
         stats[field] = _integer(
-            f"stats.{field}", stats[field], minimum=1 if field == "snapshot_bytes" else 0
+            f"stats.{field}",
+            stats[field],
+            minimum=1 if field == "snapshot_bytes" else 0,
         )
     if stats["active_records"] + stats["tombstoned_records"] != stats["total_records"]:
         raise ValueError("served modality stats record totals are inconsistent")
@@ -1593,14 +1589,10 @@ class WorkItemClient:
                 _string(f"ClaimWorkItem.{field}", value[field])
         _integer("ClaimWorkItem.now_ms", value["now_ms"])
         _integer("ClaimWorkItem.lease_ms", value["lease_ms"], minimum=1)
-        tenant_limit = _integer(
-            "max_tenant_in_flight", value["max_tenant_in_flight"]
-        )
+        tenant_limit = _integer("max_tenant_in_flight", value["max_tenant_in_flight"])
         if not 1 <= tenant_limit <= 4096:
             raise ValueError("max_tenant_in_flight must be between 1 and 4096")
-        result = await self._client._send(
-            "ClaimWorkItem", {"request": value}
-        )
+        result = await self._client._send("ClaimWorkItem", {"request": value})
         answer = _exact_mapping(
             "ClaimWorkItem result",
             result,
@@ -1649,20 +1641,23 @@ class WorkItemClient:
             changed = answer["changed_work_item_ids"]
             if not isinstance(changed, list) or answer["work_item_id"] not in changed:
                 raise ValueError("ClaimWorkItem result changed ids are invalid")
-        elif any(
-            answer[field] is not None
-            for field in (
-                "work_item_id",
-                "kind",
-                "payload_ref",
-                "lease_holder_ref",
-                "lease_epoch",
-                "fencing_token",
-                "lease_expires_at_ms",
-                "attempt",
-                "max_attempts",
+        elif (
+            any(
+                answer[field] is not None
+                for field in (
+                    "work_item_id",
+                    "kind",
+                    "payload_ref",
+                    "lease_holder_ref",
+                    "lease_epoch",
+                    "fencing_token",
+                    "lease_expires_at_ms",
+                    "attempt",
+                    "max_attempts",
+                )
             )
-        ) or answer["changed_work_item_ids"] != []:
+            or answer["changed_work_item_ids"] != []
+        ):
             raise ValueError("negative ClaimWorkItem result carries lease state")
         return answer
 
@@ -5980,9 +5975,7 @@ class TimeSeriesClient:
                 raise ValueError(
                     f"points[{index}] must contain exactly {nf} field values"
                 )
-            normalized_points.append(
-                [int(ts), [float(value) for value in values]]
-            )
+            normalized_points.append([int(ts), [float(value) for value in values]])
 
         if field_names is None:
             if nf != 1:
@@ -8247,7 +8240,7 @@ class EpistemicGraphClient:
         request: dict[str, Any] = {
             "id": self._next_id(),
             "graph": target_graph,
-            "auth_token": "",
+            "auth_token": "",  # nosec B105 - empty placeholder, real token computed below
             "method": "Health",
             "agent_id": str(self._effective_verified_context()["agent_id"]),
         }
@@ -8608,7 +8601,7 @@ class EpistemicGraphClient:
         request: dict[str, Any] = {
             "id": req_id,
             "graph": target_graph,
-            "auth_token": "",
+            "auth_token": "",  # nosec B105 - empty placeholder, real token computed below
             "method": method,
         }
         verified_context = self._effective_verified_context()
