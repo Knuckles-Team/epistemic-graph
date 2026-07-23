@@ -132,14 +132,33 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
-  # rust-ci gates 2-4 — clippy every crate all-features + the two slim variants,
-  # each with -D warnings (a lint is a hard error, exactly as CI).
+  # rust-ci gates 2-4 — clippy. The EVERYDAY leg lints the SHIPPED build (`full`,
+  # which == `default`) + the two slim variants, each -D warnings. The exhaustive
+  # `--all-features` leg is split to a pre-push/manual hook below: `--all-features`
+  # additionally pulls the OPT-IN layers that are NOT in any shipped wheel — `cluster`
+  # (openraft/`raft`/`harness`) and `full-extras` (real CUDA `cudarc` + ROS2 `rustdds`
+  # + CycloneDDS's C cmake build) — so recompiling them on EVERY commit is the single
+  # biggest local cost while catching lints only in code the main artifact never links.
+  # `full` is a strict subset of `--all-features`, so this everyday leg can only be a
+  # subset of the lints CI/pre-push still enforce (rust-ci.yml gate 1 is unchanged).
   - id: cargo-clippy
-    name: cargo clippy -D warnings (workspace all-features + 2 slim variants)
-    entry: bash -c 'if [ -f "Cargo.toml" ]; then set -e; cargo clippy --workspace --all-features --all-targets -- -D warnings; cargo clippy --no-default-features --features graph,algorithms -- -D warnings; cargo clippy --no-default-features --features server --all-targets -- -D warnings; fi'
+    name: cargo clippy -D warnings (shipped `full` build + 2 slim variants)
+    entry: bash -c 'if [ -f "Cargo.toml" ]; then set -e; cargo clippy --no-default-features --features full --all-targets -- -D warnings; cargo clippy --no-default-features --features graph,algorithms -- -D warnings; cargo clippy --no-default-features --features server --all-targets -- -D warnings; fi'
     language: system
     pass_filenames: false
     always_run: true
+  # Exhaustive clippy across EVERY feature incl. the opt-in `cluster` (raft/harness) and
+  # `full-extras` (GPU/ROS2) layers — the heaviest compile in the repo (openraft, cudarc,
+  # rustdds, the CycloneDDS C build). Mirrors rust-ci.yml gate 1 byte-for-byte. Staged
+  # pre-push + manual so it runs on push and in the `--hook-stage pre-push`/`manual`
+  # parity check, but not on every commit (CI is the always-on backstop).
+  - id: cargo-clippy-all-features
+    name: cargo clippy --workspace --all-features (HEAVY — pre-push/manual)
+    entry: bash -c 'if [ -f "Cargo.toml" ]; then cargo clippy --workspace --all-features --all-targets -- -D warnings; fi'
+    language: system
+    pass_filenames: false
+    always_run: true
+    stages: [pre-push, manual]
   # rust-ci gates 5 + 7 — the FAST test legs (lower crates all-features, then the
   # slim-server feature-gating guard row). Replaces the old weak `cargo test
   # --quiet`. Gate 6 (facade full) is heavy → its own pre-push/manual hook below.
