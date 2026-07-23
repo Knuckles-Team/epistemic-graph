@@ -83,8 +83,11 @@ pub(crate) fn plan_needs_tsdb(ops: &[eg_plan::Op]) -> bool {
 
 /// Resolve an actor-owned storage namespace before a served plan can touch the
 /// committed TSDB. Graph ACL/RLS actor identity alone is not a tenant carrier.
+/// `pub(crate)`: also the single source of truth `handlers::mining`'s plan-sourced
+/// `TsScan` leg reuses (CONCEPT:EG-KG.mining.tsdb-typed-absent) rather than
+/// re-deriving the same tenant/namespace scope a second time.
 #[cfg(all(feature = "query", feature = "tsdb"))]
-fn served_tsdb_scope(
+pub(crate) fn served_tsdb_scope(
     plan: &eg_plan::Plan,
     graph: &str,
     read_authority: Option<&GraphReadAuthority>,
