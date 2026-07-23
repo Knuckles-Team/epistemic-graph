@@ -3527,16 +3527,21 @@ pub(crate) fn append_audit_entry(
     let (prev, next_seq) = match cache.get(graph) {
         Some(&(seq, hash)) => (hash, seq + 1),
         None => {
-            // First touch since open (or after restart): single range-scan to find the
-            // highest existing seq + its hash. Extract OWNED values so the read
+            // First touch since open (or after restart): seek the highest existing
+            // seq directly via a BOUNDED reverse range — the audit-tail sibling of
+            // `scan_next_edge_ordinal`'s `next_back()` pattern below. The upper bound
+            // `(graph, u64::MAX)` already excludes every later graph's rows, so this
+            // is one B-tree seek to the tail (O(log chain length)), not the old
+            // forward walk-to-the-end (`.range((graph, 0u64)..)` + `.last()`) whose
+            // cost grew with the chain. Extract OWNED values so the read
             // access-guards drop before the mutable `insert` below.
             let tail: Option<(u64, crate::audit::Hash)> = {
                 let last = audit
-                    .range((graph, 0u64)..)
+                    .range((graph, 0u64)..=(graph, u64::MAX))
                     .map_err(|e| e.to_string())?
-                    .filter_map(|r| r.ok())
-                    .take_while(|(k, _)| k.value().0 == graph)
-                    .last();
+                    .next_back()
+                    .transpose()
+                    .map_err(|e| e.to_string())?;
                 match last {
                     Some((k, v)) => {
                         let seq = k.value().1;
@@ -5795,6 +5800,92 @@ mod security_tests {
         let broken = verify_audit(&db, "g1").unwrap();
         assert!(!broken.ok, "tamper on cache-built chain undetected");
         assert_eq!(broken.first_broken_seq, Some(3));
+    }
+
+    /// CONCEPT:EG-KG.storage.embedded-store — the cold-seed tail lookup is a BOUNDED reverse seek
+    /// (`(graph, 0)..=(graph, u64::MAX)` + `next_back`), not a forward walk to the end
+    /// of the chain. Proven by comparing the wall-clock cost of re-seeding (fresh
+    /// cache, i.e. after a simulated writer restart) a chain of 200,000 prior entries
+    /// against re-seeding a chain of 5: the chains differ 40,000x in length, but a
+    /// single bounded reverse seek's cost is independent of that (only the B-tree's
+    /// O(log n) depth differs — a small constant next to the `*50 + 20ms` slack
+    /// below). The old `.range((graph, 0u64)..)` + `.last()` forward walk (O(chain
+    /// length)) would blow well past this bound on the long chain.
+    #[test]
+    fn audit_tail_cold_seed_is_a_bounded_seek_not_a_forward_scan() {
+        let crypto = DurableCrypto::none();
+
+        // Build a chain of `len` AddNode entries for `graph` in ONE commit batch (the
+        // cache stays warm for the whole build, so construction cost is irrelevant —
+        // only the POST-RESTART re-seed below is timed), then re-seed from a FRESH
+        // cache (simulating a writer restart) and time just that one call.
+        let reseed_cost = |graph: &str, len: usize| -> std::time::Duration {
+            let dir = tempdir();
+            let db = open_db(&dir);
+            let mut ops: Vec<(String, Method)> = (0..len)
+                .map(|i| {
+                    (
+                        graph.to_string(),
+                        add_node_method(&format!("n{i}"), serde_json::json!({"i": i})),
+                    )
+                })
+                .collect();
+            let mut log = Vec::new();
+            let mut warm_cache = AuditTailCache::new();
+            commit_ops(
+                &db,
+                &mut ops,
+                &mut log,
+                Durability::Immediate,
+                crypto,
+                &mut warm_cache,
+            )
+            .unwrap();
+
+            // Simulated restart: a brand-new empty cache forces the NEXT append to
+            // cold-seed the tail from durable state instead of chaining off RAM.
+            let mut cold_cache = AuditTailCache::new();
+            let mut restart_ops = vec![(
+                graph.to_string(),
+                add_node_method(&format!("n{len}"), serde_json::json!({"i": len})),
+            )];
+            let mut restart_log = Vec::new();
+            let start = std::time::Instant::now();
+            commit_ops(
+                &db,
+                &mut restart_ops,
+                &mut restart_log,
+                Durability::Immediate,
+                crypto,
+                &mut cold_cache,
+            )
+            .unwrap();
+            let elapsed = start.elapsed();
+
+            // Correctness: the re-seeded tail must continue the chain with no gap, and
+            // the full (len + 1)-entry chain must still verify clean.
+            assert_eq!(
+                cold_cache.get(graph).unwrap().0,
+                len as u64,
+                "re-seeded tail must continue at seq {len}"
+            );
+            let report = verify_audit(&db, graph).unwrap();
+            assert!(report.ok, "{report:?}");
+            assert_eq!(report.entries, (len + 1) as u64);
+
+            elapsed
+        };
+
+        let short = reseed_cost("g-short", 5);
+        let long = reseed_cost("g-long", 200_000);
+
+        let bound = short.saturating_mul(50) + std::time::Duration::from_millis(20);
+        assert!(
+            long <= bound,
+            "cold-seed on a 200,000-entry chain took {long:?}, budget was {bound:?} \
+             (short-chain baseline {short:?}) — looks like the O(chain length) forward \
+             scan regressed"
+        );
     }
 
     /// A throwaway temp dir under the scratch space.

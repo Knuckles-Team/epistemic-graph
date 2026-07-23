@@ -78,6 +78,7 @@
 | `SupersedeEdge` | true | GraphRedb | `edge:write` | true | true | false | Atomic |  |
 | `HasEdge` | false | None | `edge:read` | true | false | false | Snapshot |  |
 | `GetEdges` | false | None | `edge:read` | true | false | false | Snapshot |  |
+| `GetEdgesPage` | false | None | `edge:read` | true | false | false | Snapshot |  |
 | `ClearGraph` | true | GraphRedb | `graph:admin` | true | true | true | Atomic |  |
 | `GetEdgeProperties` | false | None | `edge:read` | true | false | false | Snapshot |  |
 | `GetEdgePropertiesBatch` | false | None | `edge:read` | true | false | false | Snapshot |  |

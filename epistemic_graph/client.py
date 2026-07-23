@@ -2091,7 +2091,39 @@ class EdgeClient:
         )
 
     async def list(self) -> builtins.list[tuple[str, str, builtins.list[int] | bytes]]:
+        """Dump EVERY edge in the graph (unbounded full-graph read).
+
+        On a large graph this is refused by the engine's overload backstop
+        (CONCEPT:EG-KG.ingest.resets-socket-so-assimilation): if the graph has more than
+        ``EPISTEMIC_GRAPH_MAX_RESPONSE_EDGES`` edges (default 50_000), this raises
+        :class:`ResultTooLargeError` instead of materializing a gigabyte-scale
+        frame that would reset the connection. Use :meth:`list_page` (bounded
+        by ``limit``) to paginate for large graphs.
+        """
         return await self._client._send("GetEdges")
+
+    async def list_page(
+        self,
+        limit: int = 0,
+        *,
+        after: tuple[str, str, int] | None = None,
+    ) -> builtins.list[tuple[str, str, int, builtins.list[int] | bytes]]:
+        """Return one deterministic keyset page of edges.
+
+        Each row is ``(source, target, ordinal, properties)``, ordered by
+        ``(source, target, ordinal)`` — ``ordinal`` distinguishes multiple
+        parallel edges stored under the same ``(source, target)`` pair.
+        ``after`` is an exclusive ``(source, target, ordinal)`` cursor; advance
+        it to the last row returned in each non-empty page. ``limit=0`` is
+        uncapped and intended only for small graphs.
+        """
+        return await self._client._send(
+            "GetEdgesPage",
+            {
+                "after": list(after) if after is not None else None,
+                "limit": int(limit),
+            },
+        )
 
     async def properties(self, source_id: str, target_id: str) -> dict[str, Any] | None:
         raw_val = await self._client._send(
@@ -2286,10 +2318,31 @@ class GraphOperationsClient:
         return await self._client._send("BatchL2Normalize", {"vectors": vectors})
 
     async def vf2_subgraph_match(
-        self, pattern: EpistemicGraphClient
-    ) -> list[dict[str, str]]:
+        self,
+        pattern: EpistemicGraphClient,
+        *,
+        max_results: int = 0,
+        max_steps: int = 0,
+    ) -> dict[str, Any]:
+        """VF2 subgraph isomorphism match of ``pattern`` against this graph.
+
+        VF2 subgraph isomorphism is NP-hard with no bound otherwise, so the
+        engine's backtracking search stops early once it collects
+        ``max_results`` matches or spends ``max_steps`` candidate-pair
+        attempts (whichever first); ``0`` for either uses the engine's
+        conservative built-in default. Returns
+        ``{"matches": [{pattern_node_id: host_node_id, ...}, ...], "truncated": bool}``
+        — ``truncated`` is ``True`` when the search stopped early (a PARTIAL
+        result, not proof no further match exists); pass an explicit
+        ``max_results``/``max_steps`` to see more.
+        """
         return await self._client._send(
-            "Vf2SubgraphMatch", {"pattern_graph_name": pattern._graph_name}
+            "Vf2SubgraphMatch",
+            {
+                "pattern_graph_name": pattern._graph_name,
+                "max_results": int(max_results),
+                "max_steps": int(max_steps),
+            },
         )
 
     async def topological_sort(self) -> list[str]:
