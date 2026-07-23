@@ -810,6 +810,23 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
         )),
 
         Op::Limit { k } => Ok(input.limit(*k)),
+
+        // `eg-types/query` (which gates this whole module) surfaces the FULL `Op` wire
+        // contract, so modality ops whose executor lives behind an eg-plan feature the
+        // current build did not enable (`geo`/`owl`/`federation`/`wasm-udf`/`stream`/
+        // `epistemic`) still EXIST here. Their handler crates are absent, so decode them
+        // to a typed "not built in this configuration" error rather than a non-exhaustive
+        // match. Every one of those features is in the shipped `full` build, so this arm
+        // is compiled out there (no handler is ever shadowed / left unreachable).
+        #[cfg(not(all(
+            feature = "geo",
+            feature = "owl",
+            feature = "federation",
+            feature = "wasm-udf",
+            feature = "stream",
+            feature = "epistemic"
+        )))]
+        _ => Err("plan operator requires a modality feature not enabled in this build".into()),
     }
 }
 
@@ -2604,8 +2621,11 @@ pub(crate) fn where_clause(preds: &[Pred]) -> Result<String, String> {
                 }
                 // JSONPath predicates are evaluated per row and never reach SQL.
                 Pred::JsonPath { .. } => "1=1".into(),
-                // Spatial predicates are likewise evaluated outside this SQL leg.
-                #[cfg(feature = "geo")]
+                // Spatial predicates are likewise evaluated outside this SQL leg. This module
+                // only compiles under `query`, which pulls `eg-types/query` — the full wire
+                // contract that surfaces the geo `Pred` variants unconditionally. The "1=1"
+                // passthrough needs no eg-geo executor, so this arm is NOT `geo`-gated: the
+                // variants always exist here even when eg-plan does not link the geo backend.
                 Pred::SpatialWithin { .. }
                 | Pred::SpatialDWithin { .. }
                 | Pred::SpatialContains { .. }

@@ -5655,11 +5655,16 @@ mod tests {
         ];
         let backend: Arc<dyn PersistenceBackend> =
             Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 64).unwrap());
+        // The measurement modality of this cross-modal commit is written to the tsdb
+        // SeriesStore, so the state MUST carry one (same setup the measurement +
+        // reconciliation tests use) — without it the Commit fails writing the tsdb leg.
+        let series_store = Arc::new(SeriesStore::open_in_dir(std::path::Path::new(&dir)).unwrap());
         let state = new_state(Some(dir.clone()));
         {
             let mut s = state.write().await;
             let _ = s.registry.create_graph("media", GraphType::Global, None);
             s.persistence = Some(backend.clone());
+            s.tsdb_store = Some(series_store.clone());
         }
 
         let txn_id =
