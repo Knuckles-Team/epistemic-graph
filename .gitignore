@@ -65,6 +65,9 @@ dmypy.json
 
 # Rust target directory and backups
 target/
+# Worktree-local isolated build dirs (per-worktree cargo target-dir; see AGENTS.md)
+target-isolated/
+target-*/
 debug/
 **/*.rs.bk
 *.pdb
