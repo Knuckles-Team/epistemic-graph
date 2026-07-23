@@ -1523,6 +1523,7 @@ mod envelope_signer_tests {
             scopes: vec!["kg:read".into()],
             policy_version: "policy-test".into(),
             delegation: vec![],
+            node: None,
         }
     }
 

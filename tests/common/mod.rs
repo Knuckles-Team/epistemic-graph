@@ -71,6 +71,7 @@ fn context_for(agent_id: &str) -> RequestContextClaims {
         scopes: vec!["*".to_string()],
         policy_version: TEST_POLICY_VERSION.to_string(),
         delegation: Vec::new(),
+        node: None,
     }
 }
 
@@ -112,6 +113,46 @@ pub fn signed_request_as(
         graph: graph.to_string(),
         auth_token: String::new(),
         agent_id: Some(agent_id.to_string()),
+        method,
+    };
+    let sequence = NONCE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    let nonce = format!("integration-{}-{id}-{sequence}", std::process::id());
+    let idempotency_key = format!("integration-request-{}-{id}-{sequence}", std::process::id());
+    request.auth_token = compute_verified_envelope_token(
+        secret,
+        &request,
+        &VerifiedEnvelopeParams {
+            context: &context,
+            timestamp: now_secs(),
+            nonce: &nonce,
+            idempotency_key: &idempotency_key,
+        },
+    );
+    request
+}
+
+/// Node-bound variant of [`signed_request`] (ADR-3 / W1.9,
+/// `reports/wave1/ADR-scale-trio.md`): mints the SAME kind of request but
+/// with an explicit `node` claim, so a caller can exercise node-binding
+/// enforcement through the real dispatch path rather than only the `auth`
+/// module's own unit tests. `node: None` mints a request with no claim at
+/// all -- an "old client" that predates node binding.
+#[allow(dead_code)]
+pub fn signed_request_with_node(
+    secret: &str,
+    id: u64,
+    graph: &str,
+    method: Method,
+    node: Option<&str>,
+) -> Request {
+    configure_authority();
+    let mut context = context_for(TEST_AGENT);
+    context.node = node.map(str::to_string);
+    let mut request = Request {
+        id,
+        graph: graph.to_string(),
+        auth_token: String::new(),
+        agent_id: Some(TEST_AGENT.to_string()),
         method,
     };
     let sequence = NONCE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
