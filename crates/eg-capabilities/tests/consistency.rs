@@ -824,7 +824,9 @@ fn all_methods_table_has_the_expected_variant_count() {
     // the sibling constant in `lib.rs::all_methods_table_matches_policy_fn...`.
     // 354 base + 2 (RaftAddLearner/RaftChangeMembership) + 1 (PlacementAdmin,
     // DIST-P2-5: three flat Placement* variants consolidated into one) = 357.
-    let expected = 357
+    // Plus `GetEdgesPage` (CONCEPT:EG-KG.ingest.resets-socket-so-assimilation — the keyset-paginated sibling of
+    // `GetEdges`, unconditional): 357 + 1 = 358.
+    let expected = 358
         + usize::from(cfg!(feature = "jobs"))
         + usize::from(cfg!(feature = "statechart"))
         + usize::from(cfg!(feature = "modality-serving"))

@@ -43,6 +43,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   actually be attached to a live cluster outside the in-process test harness.
   New `epistemic_graph.client.RaftAdminClient` (`client.raft_admin.add_learner` /
   `.change_membership`).
+- **`GetEdges` overload guard + `GetEdgesPage` keyset pagination**
+  (CONCEPT:EG-KG.ingest.resets-socket-so-assimilation — the edge-count sibling of the existing `GetNodes` guard).
+  `GetEdges` now refuses a full-graph dump past `EPISTEMIC_GRAPH_MAX_RESPONSE_EDGES`
+  (default `50_000`) with a typed `RESULT_TOO_LARGE` error instead of
+  materializing every edge's property blob into one gigabyte-scale response
+  frame. New `Method::GetEdgesPage { after, limit }` pages edges ordered by
+  `(source, target, ordinal)` — `ordinal` distinguishes parallel edges under one
+  `(source, target)` pair, mirroring the durable row key — so a full edge walk
+  stays bounded. New `GraphCore::get_edges_page` (a cached, lazily-built sorted
+  key index, invalidated on every write). Python:
+  `client.edges.list_page(limit, after=...)`.
+- **`Vf2SubgraphMatch` result budget** (CONCEPT:EG-KG.mining.gspan-frequent-subgraph). The VF2 subgraph-isomorphism
+  backtracking search is NP-hard with no bound otherwise; `Method::Vf2SubgraphMatch`
+  now takes `max_results`/`max_steps` (`0` ⇒ the engine's conservative built-in
+  defaults, 1,000 matches / 2,000,000 candidate-pair attempts) and the response
+  carries a `truncated: bool` reporting whether the search stopped early against
+  either budget. Python: `client.graph.vf2_subgraph_match(pattern, max_results=,
+  max_steps=)` now returns `{"matches": [...], "truncated": bool}`.
+
+### Fixed
+- **Audit-chain cold-seed tail lookup is now a bounded seek, not a forward scan**
+  (CONCEPT:EG-KG.storage.embedded-store). `append_audit_entry`'s cache-miss path (first touch of a
+  graph's audit chain since open/restart) walked `(graph, 0)..` forward to the
+  end of the chain to find the tail — O(chain length). Rewritten as the bounded
+  reverse range `(graph, 0)..=(graph, u64::MAX)` + `next_back()` (the same
+  pattern `scan_next_edge_ordinal` already used for edge ordinals) — one B-tree
+  seek, O(log chain length), regardless of how long-lived the graph's audit
+  chain is.
 
 ---
 

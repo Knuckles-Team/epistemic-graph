@@ -394,6 +394,17 @@ pub struct GraphCore {
     /// other node-derived caches after a committed write, making warm pages
     /// O(log N + k) instead of O(N log N). Property bytes are never retained here.
     node_id_index: RwLock<Option<Vec<String>>>,
+    /// Sorted `(source, target)` edge-key pairs for the keyset-paginated edge scan
+    /// (CONCEPT:EG-KG.ingest.resets-socket-so-assimilation — the edge sibling of `node_id_index`'s unlabeled
+    /// keyset scan). Without this derived cache, every `get_edges_page` call would
+    /// re-collect and re-sort every edge key before returning one page. Built
+    /// lazily on first `get_edges_page` call. Invalidated UNCONDITIONALLY on every
+    /// committed write (both `mark_dirty` and `mark_dirty_preserving_indexes`,
+    /// unlike the node-derived caches above) because a "pure edge batch" — the one
+    /// case `mark_dirty_preserving_indexes` exists for — is exactly the case that
+    /// changes this index; it cannot ride that node-only skip. Property bytes are
+    /// never retained here — only the lightweight key pairs.
+    edge_key_index: RwLock<Option<Vec<(String, String)>>>,
     /// Cached secondary PROPERTY index (CONCEPT:EG-KG.query.concept-12): for each indexed
     /// property key, a `value → node ids` map so `nodes_by_property(key, value)`
     /// is an O(1) map lookup instead of a full DashMap scan that deserializes
@@ -2000,6 +2011,7 @@ impl GraphCore {
             ontology_index: RwLock::new(None),
             label_index: RwLock::new(None),
             node_id_index: RwLock::new(None),
+            edge_key_index: RwLock::new(None),
             property_index: RwLock::new(None),
             // CONCEPT:EG-KG.compute.json-deep-indexing — cold JSONPath path-index; built lazily on first use.
             path_index: RwLock::new(None),
@@ -2089,6 +2101,15 @@ impl GraphCore {
         *self.node_id_index.write() = None;
         *self.property_index.write() = None;
         *self.path_index.write() = None;
+    }
+
+    /// Invalidate the edge-key keyset-scan cache (CONCEPT:EG-KG.ingest.resets-socket-so-assimilation). Kept
+    /// separate from [`Self::invalidate_indexes`] (the NODE-derived caches) because
+    /// it must fire on EVERY committed write that touches edges, including the
+    /// "pure edge batch" path that deliberately skips the node-derived caches via
+    /// [`Self::mark_dirty_preserving_indexes`].
+    fn invalidate_edge_key_index(&self) {
+        *self.edge_key_index.write() = None;
     }
 
     /// Invalidate only lazy caches whose indexed fields may have changed. Adds,
@@ -2242,6 +2263,10 @@ impl GraphCore {
         if invalidate_node_indexes {
             self.invalidate_indexes();
         }
+        // Unconditional (unlike the node-derived caches above): a pure edge batch
+        // is exactly the case `mark_dirty_preserving_indexes` exists for, and it
+        // is exactly the case that changes this index.
+        self.invalidate_edge_key_index();
         // CONCEPT:EG-KG.compute.cdc-event-emit — fan out a change notification (post-write version) to any
         // live subscribers (the GraphQL subscription carrier). A single relaxed
         // atomic load when there are none, so this is off the write hot path.
@@ -2267,6 +2292,7 @@ impl GraphCore {
         // subsequent local read after a remote-applied change rebuilds them. Same
         // carved block as `mark_dirty` (CONCEPT:EG-KG.storage.index-manager-seam).
         self.invalidate_indexes();
+        self.invalidate_edge_key_index();
         // CONCEPT:EG-KG.compute.cdc-event-emit — a replicated write must also wake local live-query
         // subscribers, so a subscription reflects remote writes, not just local ones.
         self.changes.emit(new_version);
@@ -3973,6 +3999,13 @@ impl GraphCore {
         }
     }
 
+    /// Unconditionally materializes EVERY edge's property blob (CONCEPT:EG-KG.ingest.resets-socket-so-assimilation) — the
+    /// full-graph-dump primitive behind the served `GetEdges` RPC, which guards
+    /// this with an edge-count cap before calling it (`oversize_edge_dump_error`
+    /// in `graph_ops.rs`) precisely because it has no bound of its own. Callers
+    /// that don't need a full-graph snapshot/export/mining pass should prefer
+    /// [`Self::get_edges_page`] (bounded, keyset-paginated) instead of adding a
+    /// new unguarded caller here.
     pub fn get_edges(&self) -> Vec<(String, String, Vec<u8>)> {
         let mut res = Vec::new();
         for entry in self.edge_properties.iter() {
@@ -3985,6 +4018,8 @@ impl GraphCore {
     }
 
     /// Like `get_edges` but clones the Arc pointers — snapshot hot path (C-A).
+    /// Same unbounded-materialization caveat; prefer [`Self::get_edges_page`]
+    /// for a bounded read.
     pub fn get_edges_arc(&self) -> Vec<(String, String, Arc<Vec<u8>>)> {
         let mut res = Vec::new();
         for entry in self.edge_properties.iter() {
@@ -3994,6 +4029,88 @@ impl GraphCore {
             }
         }
         res
+    }
+
+    /// Deterministic keyset page over the edge store (CONCEPT:EG-KG.ingest.resets-socket-so-assimilation — the edge
+    /// sibling of `get_nodes_by_label_page`'s unlabeled scan). Returns at most
+    /// `limit` edges ordered by `(source, target, ordinal)` — `ordinal` is the
+    /// index among parallel edges stored under the same `(source, target)` pair,
+    /// mirroring the durable `(graph, src, tgt, ordinal)` row key
+    /// (`redb_store::read_graph_dump_page` / `scan_next_edge_ordinal`). `after` is
+    /// an EXCLUSIVE `(source, target, ordinal)` cursor (`None` starts at the first
+    /// edge); a caller advances it to the last row returned. `limit == 0` means no
+    /// cap.
+    ///
+    /// Unlike `get_edges`/`get_edges_arc` (which clone EVERY edge's property
+    /// blob), this clones/decodes properties ONLY for the requested page — the
+    /// full scan is over the lightweight `(source, target)` key pairs (cached
+    /// after the first call, invalidated on any write), never the property bytes.
+    ///
+    /// This is a live committed-state scan rather than a cross-request snapshot
+    /// (same caveat as `get_nodes_by_label_page`): a concurrent writer can insert
+    /// or remove an edge between two page calls; the cursor is not a MVCC
+    /// snapshot handle.
+    pub fn get_edges_page(
+        &self,
+        after: Option<(&str, &str, u32)>,
+        limit: usize,
+    ) -> Vec<(String, String, u32, Vec<u8>)> {
+        {
+            let guard = self.edge_key_index.read();
+            if let Some(keys) = guard.as_ref() {
+                return Self::collect_edge_page(keys, &self.edge_properties, after, limit);
+            }
+        }
+        let mut keys: Vec<(String, String)> = self
+            .edge_properties
+            .iter()
+            .map(|entry| entry.key().clone())
+            .collect();
+        keys.sort_unstable();
+        let out = Self::collect_edge_page(&keys, &self.edge_properties, after, limit);
+        *self.edge_key_index.write() = Some(keys);
+        out
+    }
+
+    /// Materialize one page of `(source, target, ordinal, properties)` rows from a
+    /// SORTED `(source, target)` key list, honouring `limit` (`0` = uncapped) and
+    /// the exclusive `after` cursor. Skips a key that has since been removed from
+    /// `edge_properties` (defensive against an in-flight removal that hasn't yet
+    /// invalidated the cache) — mirrors `GraphCore::collect_by_label`'s identical
+    /// defensiveness for the node-label keyset scan.
+    fn collect_edge_page(
+        keys: &[(String, String)],
+        edge_properties: &DashMap<(String, String), Vec<Arc<Vec<u8>>>>,
+        after: Option<(&str, &str, u32)>,
+        limit: usize,
+    ) -> Vec<(String, String, u32, Vec<u8>)> {
+        let start = match after {
+            Some((s, t, _)) => keys.partition_point(|(ks, kt)| (ks.as_str(), kt.as_str()) < (s, t)),
+            None => 0,
+        };
+        let mut out: Vec<(String, String, u32, Vec<u8>)> =
+            Vec::with_capacity(if limit == 0 { 0 } else { limit });
+        'outer: for (src, tgt) in keys.iter().skip(start) {
+            let Some(props_list) = edge_properties.get(&(src.clone(), tgt.clone())) else {
+                continue; // removed since the key list was built; skip defensively.
+            };
+            for (ordinal, props) in props_list.iter().enumerate() {
+                let ordinal = ordinal as u32;
+                if let Some((after_src, after_tgt, after_ordinal)) = after {
+                    if src.as_str() == after_src
+                        && tgt.as_str() == after_tgt
+                        && ordinal <= after_ordinal
+                    {
+                        continue;
+                    }
+                }
+                if limit != 0 && out.len() >= limit {
+                    break 'outer;
+                }
+                out.push((src.clone(), tgt.clone(), ordinal, (**props).clone()));
+            }
+        }
+        out
     }
 
     pub fn get_edge_properties(&self, source_id: &str, target_id: &str) -> Vec<Vec<u8>> {
@@ -4640,6 +4757,7 @@ impl GraphCore {
             ontology_index: RwLock::new(None),
             label_index: RwLock::new(None),
             node_id_index: RwLock::new(None),
+            edge_key_index: RwLock::new(None),
             property_index: RwLock::new(None),
             // CONCEPT:EG-KG.compute.json-deep-indexing — fork starts with a cold JSONPath path-index too.
             path_index: RwLock::new(None),
@@ -4752,11 +4870,19 @@ impl GraphCore {
 
     // ── VF2 Subgraph Matching ────────────────────────────────────────────
 
-    pub fn vf2_subgraph_match(&self, pattern: &GraphView) -> Vec<HashMap<String, String>> {
-        // Match against a consistent read view so the O(V·E) backtracking never
-        // holds a live lock.
+    /// VF2 subgraph isomorphism match against a consistent read view so the
+    /// worst-case-exponential backtracking never holds a live lock. `max_results`/
+    /// `max_steps` (`0` ⇒ [`DEFAULT_VF2_MAX_RESULTS`]/[`DEFAULT_VF2_MAX_STEPS`]) bound
+    /// the search; the returned `bool` is `true` when it stopped early against
+    /// either budget rather than exhausting the search space.
+    pub fn vf2_subgraph_match(
+        &self,
+        pattern: &GraphView,
+        max_results: usize,
+        max_steps: usize,
+    ) -> (Vec<HashMap<String, String>>, bool) {
         let host = self.analysis_snapshot();
-        vf2_match_views(&host, pattern)
+        vf2_match_views(&host, pattern, max_results, max_steps)
     }
 
     /// The least-recently-added node ids that would be evicted to bring the graph
@@ -5492,20 +5618,70 @@ fn apply_decay(
     (new_conf, true)
 }
 
+/// Conservative default cap on the number of matches [`vf2_match_views`] collects
+/// before stopping the backtracking search early. VF2 subgraph isomorphism is
+/// NP-hard with no bound otherwise; a caller wanting more must pass an explicit
+/// `max_results` on the request.
+pub const DEFAULT_VF2_MAX_RESULTS: usize = 1_000;
+
+/// Conservative default cap on the number of candidate-pair attempts (one per
+/// `backtrack_match` inner-loop iteration) [`vf2_match_views`] spends before
+/// stopping early, regardless of how many matches it has already found. Bounds
+/// worst-case CPU on a pathological pattern/host pair.
+pub const DEFAULT_VF2_MAX_STEPS: usize = 2_000_000;
+
+/// Collected matches plus search-budget accounting threaded through
+/// [`backtrack_match`] (bundled into one struct rather than 2 more positional
+/// params, keeping the function at 7 arguments). `truncated` is checked at the
+/// top of every recursive call, so a tripped budget unwinds the whole call tree
+/// promptly instead of finishing the in-flight branch.
+struct Vf2Search {
+    matches: Vec<HashMap<String, String>>,
+    max_results: usize,
+    max_steps: usize,
+    steps: usize,
+    truncated: bool,
+}
+
 /// VF2 subgraph match of `pattern` against an already-materialized `host`
 /// `GraphView` (vs [`GraphCore::vf2_subgraph_match`], which snapshots its own
 /// live graph first). Lets an off-lock caller — e.g. the Cypher exec
 /// (CONCEPT:EG-KG.query.dep-free-behind), which already holds the `analysis_snapshot()` view — reuse
 /// the exact same matcher without re-snapshotting. Each result maps a pattern
 /// node id → the host node id it bound to.
-pub fn vf2_match_views(host: &GraphView, pattern: &GraphView) -> Vec<HashMap<String, String>> {
-    let mut matches = Vec::new();
+///
+/// `max_results`/`max_steps` bound the otherwise-unbounded backtracking search
+/// (`0` ⇒ [`DEFAULT_VF2_MAX_RESULTS`]/[`DEFAULT_VF2_MAX_STEPS`]); the returned
+/// `bool` is `true` when the search stopped early against either budget rather
+/// than exhausting the search space (a PARTIAL result, not proof no further
+/// match exists).
+pub fn vf2_match_views(
+    host: &GraphView,
+    pattern: &GraphView,
+    max_results: usize,
+    max_steps: usize,
+) -> (Vec<HashMap<String, String>>, bool) {
     let pattern_nodes: Vec<String> = pattern.node_map.keys().cloned().collect();
     if pattern_nodes.is_empty() {
-        return matches;
+        return (Vec::new(), false);
     }
     let mut current_mapping = HashMap::new();
     let mut mapped_targets = std::collections::HashSet::new();
+    let mut search = Vf2Search {
+        matches: Vec::new(),
+        max_results: if max_results == 0 {
+            DEFAULT_VF2_MAX_RESULTS
+        } else {
+            max_results
+        },
+        max_steps: if max_steps == 0 {
+            DEFAULT_VF2_MAX_STEPS
+        } else {
+            max_steps
+        },
+        steps: 0,
+        truncated: false,
+    };
     backtrack_match(
         host,
         0,
@@ -5513,9 +5689,9 @@ pub fn vf2_match_views(host: &GraphView, pattern: &GraphView) -> Vec<HashMap<Str
         &mut current_mapping,
         &mut mapped_targets,
         pattern,
-        &mut matches,
+        &mut search,
     );
-    matches
+    (search.matches, search.truncated)
 }
 
 fn backtrack_match(
@@ -5525,16 +5701,30 @@ fn backtrack_match(
     current_mapping: &mut HashMap<String, String>,
     mapped_targets: &mut std::collections::HashSet<String>,
     pattern: &GraphView,
-    matches: &mut Vec<HashMap<String, String>>,
+    search: &mut Vf2Search,
 ) {
+    if search.truncated {
+        return;
+    }
     if pattern_node_idx == pattern_nodes.len() {
-        matches.push(current_mapping.clone());
+        search.matches.push(current_mapping.clone());
+        if search.matches.len() >= search.max_results {
+            search.truncated = true;
+        }
         return;
     }
 
     let p_node = &pattern_nodes[pattern_node_idx];
 
     for t_node in host.node_map.keys() {
+        if search.truncated {
+            return;
+        }
+        search.steps += 1;
+        if search.steps > search.max_steps {
+            search.truncated = true;
+            return;
+        }
         if mapped_targets.contains(t_node) {
             continue;
         }
@@ -5550,11 +5740,15 @@ fn backtrack_match(
                 current_mapping,
                 mapped_targets,
                 pattern,
-                matches,
+                search,
             );
 
             current_mapping.remove(p_node);
             mapped_targets.remove(t_node);
+
+            if search.truncated {
+                return;
+            }
         }
     }
 }
@@ -6983,6 +7177,176 @@ mod tests {
         assert!(!view
             .edge_properties
             .contains_key(&("a".to_string(), "outside".to_string())));
+    }
+
+    /// CONCEPT:EG-KG.ingest.resets-socket-so-assimilation — `get_edges_page` walked with `limit=1` recovers
+    /// EXACTLY the same edges as `get_edges()`, including every parallel edge
+    /// under one `(source, target)` pair, in strictly increasing `(source,
+    /// target, ordinal)` order.
+    #[test]
+    fn edges_page_walk_matches_full_dump_including_parallel_edges() {
+        let g = GraphCore::new();
+        for id in ["a", "b", "c", "d"] {
+            g.add_node(id.into(), props(serde_json::json!({"id": id})));
+        }
+        g.add_edge("a".into(), "b".into(), props(serde_json::json!({"n": 1})))
+            .unwrap();
+        g.add_edge("a".into(), "b".into(), props(serde_json::json!({"n": 2})))
+            .unwrap();
+        g.add_edge("a".into(), "d".into(), props(serde_json::json!({})))
+            .unwrap();
+        g.add_edge("b".into(), "c".into(), props(serde_json::json!({})))
+            .unwrap();
+
+        let mut full = g.get_edges();
+        full.sort();
+        assert_eq!(full.len(), 4);
+
+        let mut after: Option<(String, String, u32)> = None;
+        let mut paged: Vec<(String, String, u32, Vec<u8>)> = Vec::new();
+        loop {
+            let after_ref = after
+                .as_ref()
+                .map(|(s, t, ord)| (s.as_str(), t.as_str(), *ord));
+            let page = g.get_edges_page(after_ref, 1);
+            if page.is_empty() {
+                break;
+            }
+            assert_eq!(page.len(), 1, "limit=1 must return at most one row");
+            let (s, t, ord, _) = page[0].clone();
+            after = Some((s, t, ord));
+            paged.extend(page);
+            assert!(paged.len() <= full.len(), "pagination did not terminate");
+        }
+
+        assert_eq!(paged.len(), 4);
+        for w in paged.windows(2) {
+            let a = (w[0].0.as_str(), w[0].1.as_str(), w[0].2);
+            let b = (w[1].0.as_str(), w[1].1.as_str(), w[1].2);
+            assert!(a < b, "page rows must strictly increase: {a:?} then {b:?}");
+        }
+        let mut paged_triples: Vec<(String, String, Vec<u8>)> =
+            paged.into_iter().map(|(s, t, _, p)| (s, t, p)).collect();
+        paged_triples.sort();
+        assert_eq!(paged_triples, full);
+    }
+
+    /// `limit == 0` is uncapped, matching `GetNodesByLabel`'s convention.
+    #[test]
+    fn edges_page_limit_zero_is_uncapped() {
+        let g = GraphCore::new();
+        for id in ["a", "b", "c"] {
+            g.add_node(id.into(), props(serde_json::json!({})));
+        }
+        g.add_edge("a".into(), "b".into(), props(serde_json::json!({})))
+            .unwrap();
+        g.add_edge("a".into(), "c".into(), props(serde_json::json!({})))
+            .unwrap();
+        assert_eq!(g.get_edges_page(None, 0).len(), 2);
+    }
+
+    /// An empty graph pages to an empty first page (no panic).
+    #[test]
+    fn edges_page_on_empty_graph_is_empty() {
+        let g = GraphCore::new();
+        assert!(g.get_edges_page(None, 10).is_empty());
+    }
+
+    /// The edge-key cache must be invalidated by BOTH `mark_dirty` and
+    /// `mark_dirty_preserving_indexes` (CONCEPT:EG-KG.ingest.resets-socket-so-assimilation) — the latter is the
+    /// "pure edge batch" path that deliberately skips the node-derived caches,
+    /// which is exactly the case that changes this index. A regression that ties
+    /// invalidation to `invalidate_indexes` instead (the node-only caches) would
+    /// serve a stale page after an edge-only commit.
+    #[test]
+    fn edges_page_cache_invalidates_on_preserving_indexes_write_too() {
+        let g = GraphCore::new();
+        for id in ["a", "b", "c"] {
+            g.add_node(id.into(), props(serde_json::json!({})));
+        }
+        g.add_edge("a".into(), "b".into(), props(serde_json::json!({})))
+            .unwrap();
+        // Build the cache.
+        assert_eq!(g.get_edges_page(None, 0).len(), 1);
+        assert!(g.edge_key_index.read().is_some());
+
+        // Simulate the "pure edge batch" dispatch path.
+        g.add_edge("a".into(), "c".into(), props(serde_json::json!({})))
+            .unwrap();
+        g.mark_dirty_preserving_indexes();
+        assert!(
+            g.edge_key_index.read().is_none(),
+            "mark_dirty_preserving_indexes must still invalidate the edge-key cache"
+        );
+        assert_eq!(
+            g.get_edges_page(None, 0).len(),
+            2,
+            "the new edge must be visible after re-seeding"
+        );
+
+        // And the plain node-oriented `mark_dirty` path invalidates it too.
+        assert!(g.edge_key_index.read().is_some());
+        g.mark_dirty();
+        assert!(g.edge_key_index.read().is_none());
+    }
+
+    /// A single-node pattern (empty properties, so it matches ANY host node)
+    /// against a 10-node host, with generous budgets that never trip, finds
+    /// every host node exactly once and reports `truncated: false`.
+    #[test]
+    fn vf2_match_finds_every_candidate_with_generous_defaults() {
+        let host = GraphCore::new();
+        for i in 0..10 {
+            host.add_node(format!("n{i}"), props(serde_json::json!({})));
+        }
+        let pattern = GraphCore::new();
+        pattern.add_node("p".into(), props(serde_json::json!({})));
+
+        let (matches, truncated) = host.vf2_subgraph_match(&pattern.analysis_snapshot(), 0, 0);
+        assert_eq!(matches.len(), 10);
+        assert!(!truncated, "generous defaults must not truncate 10 matches");
+    }
+
+    /// CONCEPT:EG-KG.mining.gspan-frequent-subgraph — `max_results` stops the backtracking search the moment it
+    /// has collected enough matches, reporting `truncated: true` for the
+    /// caller-visible partial result.
+    #[test]
+    fn vf2_match_truncates_at_max_results() {
+        let host = GraphCore::new();
+        for i in 0..10 {
+            host.add_node(format!("n{i}"), props(serde_json::json!({})));
+        }
+        let pattern = GraphCore::new();
+        pattern.add_node("p".into(), props(serde_json::json!({})));
+
+        let (matches, truncated) = host.vf2_subgraph_match(&pattern.analysis_snapshot(), 2, 0);
+        assert_eq!(matches.len(), 2, "must stop at exactly max_results");
+        assert!(truncated);
+    }
+
+    /// CONCEPT:EG-KG.mining.gspan-frequent-subgraph — `max_steps` bounds the number of candidate-pair attempts
+    /// independent of `max_results`, so a pathological search cannot run
+    /// unbounded CPU even when it is still finding matches. A 1-node pattern
+    /// spends exactly one step per host node considered, so `max_steps=3`
+    /// stops after exactly 3 candidates (all matching here) with `truncated:
+    /// true`.
+    #[test]
+    fn vf2_match_truncates_at_max_steps_independent_of_max_results() {
+        let host = GraphCore::new();
+        for i in 0..10 {
+            host.add_node(format!("n{i}"), props(serde_json::json!({})));
+        }
+        let pattern = GraphCore::new();
+        pattern.add_node("p".into(), props(serde_json::json!({})));
+
+        // max_results is generous (100, never trips); only max_steps=3 bounds it.
+        let (matches, truncated) = host.vf2_subgraph_match(&pattern.analysis_snapshot(), 100, 3);
+        assert_eq!(
+            matches.len(),
+            3,
+            "exactly 3 candidate-pair attempts were spent before the step budget tripped"
+        );
+        assert!(truncated);
     }
 
     #[test]

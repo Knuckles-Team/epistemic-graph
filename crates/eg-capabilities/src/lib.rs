@@ -539,7 +539,7 @@ pub fn policy(m: &Method) -> MethodPolicy {
             emits_cdc: false,
             txn_participation: TxnParticipation::Atomic,
         },
-        Method::HasEdge { .. } | Method::GetEdges => MethodPolicy {
+        Method::HasEdge { .. } | Method::GetEdges | Method::GetEdgesPage { .. } => MethodPolicy {
             mutates: false,
             durability_domain: DurabilityDomain::None,
             authz_action: "edge:read",
@@ -2121,6 +2121,7 @@ pub const ALL_METHODS: &[(&str, MethodPolicy, &str)] = &[
         ("SupersedeEdge", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "edge:write", idempotent: true, audited: true, emits_cdc: false, txn_participation: TxnParticipation::Atomic }, ""),
         ("HasEdge", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "edge:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, ""),
         ("GetEdges", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "edge:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, ""),
+        ("GetEdgesPage", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "edge:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, ""),
         ("ClearGraph", MethodPolicy { mutates: true, durability_domain: DurabilityDomain::GraphRedb, authz_action: "graph:admin", idempotent: true, audited: true, emits_cdc: true, txn_participation: TxnParticipation::Atomic }, ""),
         ("GetEdgeProperties", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "edge:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, ""),
         ("GetEdgePropertiesBatch", MethodPolicy { mutates: false, durability_domain: DurabilityDomain::None, authz_action: "edge:read", idempotent: true, audited: false, emits_cdc: false, txn_participation: TxnParticipation::Snapshot }, ""),
@@ -2515,7 +2516,9 @@ mod smoke_tests {
         // flat variants) consolidated into ONE `PlacementAdmin { op }` variant (mirrors
         // `ServedModality { op }`), a net +1 unconditional row.
         // Net: 354 base + 2 (raft-admin) + 1 (PlacementAdmin) = 357.
-        let expected = 357
+        // Plus `GetEdgesPage` (CONCEPT:EG-KG.ingest.resets-socket-so-assimilation — the keyset-paginated
+        // sibling of `GetEdges`, unconditional): 357 + 1 = 358.
+        let expected = 358
             + usize::from(cfg!(feature = "jobs"))
             + usize::from(cfg!(feature = "statechart"))
             + usize::from(cfg!(feature = "modality-serving"))
