@@ -18,6 +18,10 @@
 //! | [`coloring::k1_coloring`] | `gds.k1coloring` | `O(V logV + E)` |
 //! | [`degree_centrality`] | `gds.degree` | `O(V+E)` |
 //! | [`betweenness_centrality`] | `gds.betweenness` | `O(V·E)` |
+//! | [`centrality::eigenvector_centrality`] | `gds.eigenvector` | `O(k·(V+E))` |
+//! | [`centrality::article_rank`] | `gds.articleRank` | `O(k·(V+E))` |
+//! | [`centrality::closeness_centrality`] | `gds.closeness` | `O(V·(V+E)logV)` |
+//! | [`centrality::harmonic_centrality`] | `gds.harmonic` | `O(V·(V+E)logV)` |
 //! | [`dijkstra`] / [`all_pairs_shortest_paths`] | `gds.shortestPath.dijkstra` | `O((V+E)logV)` |
 //! | [`jaccard_similarity`] / [`cosine_similarity`] | `gds.nodeSimilarity` | `O(deg)` |
 //! | [`knn_similarity`] | `gds.knn` | `O(V²·d̄)` (exact top-`k`, not sampled KNN-descent) |
@@ -47,7 +51,11 @@ pub mod shortest_path;
 pub mod similarity;
 pub mod triangle;
 
-pub use centrality::{betweenness_centrality, degree_centrality, DegreeKind};
+pub use centrality::{
+    article_rank, betweenness_centrality, closeness_centrality, degree_centrality,
+    eigenvector_centrality, harmonic_centrality, ArticleRankConfig, ArticleRankResult,
+    ClosenessConfig, DegreeKind, EigenvectorConfig, EigenvectorResult,
+};
 pub use coloring::k1_coloring;
 pub use components::{strongly_connected_components, weakly_connected_components};
 pub use graph::AdjacencyGraph;
