@@ -30,6 +30,7 @@ use datafusion::logical_expr::{Expr, Operator, TableProviderFilterPushDown, Tabl
 use datafusion::physical_plan::ExecutionPlan;
 use eg_core::graph::GraphView;
 use petgraph::visit::{EdgeRef, IntoEdgeReferences};
+use petgraph::Direction;
 use serde_json::Value;
 
 /// Widening lattice for an inferred column type. `Null` means "seen only null /
@@ -255,7 +256,7 @@ fn build_batch(
 ///   `SELECT … FROM nodes JOIN edges ON nodes.id = edges.src`
 /// joins a node row to its outgoing edges in DataFusion (a hash/merge join over the
 /// two MemTables), with `json_get*` reaching into either `props` column.
-fn edges_schema() -> SchemaRef {
+pub(crate) fn edges_schema() -> SchemaRef {
     Arc::new(Schema::new(vec![
         Field::new("src", DataType::Utf8, false),
         Field::new("dst", DataType::Utf8, false),
@@ -304,21 +305,296 @@ pub(crate) fn infer_edges(view: &GraphView) -> Result<(SchemaRef, RecordBatch), 
     Ok((schema, batch))
 }
 
+// ── edges TableProvider: src/dst adjacency pushdown (CONCEPT:EG-KG.query.concept-12) ──
+//
+// Unlike `nodes` — whose SCHEMA is itself data-dependent (the union of every
+// observed property key) and therefore requires an O(V) scan just to know the
+// columns — `edges`'s schema is FIXED (`src`/`dst`/`rel`/`props`, see
+// `edges_schema`). So unlike [`NodesTableProvider`] (which wraps an ALREADY
+// fully-materialized batch — the O(V) scan already happened before the provider
+// exists), [`EdgesTableProvider`] needs no batch at construction time at all: it
+// holds the graph snapshot itself and defers row materialization to `scan`, where
+// the pushed predicate decides how much of the graph is actually touched.
+//
+// A `src = 'x'` / `dst = 'x'` equality resolves via a direct O(deg(x)) adjacency
+// walk over the SAME `GraphView::graph`/`node_map` petgraph topology eg-core's own
+// `GraphCore::get_successors`/`get_predecessors` use (`edges_directed`) — the full
+// edge set is never touched, so an edge-predicated query no longer pays the O(E)
+// `infer_edges` scan at all (not just a narrower post-scan Filter over an
+// already-built batch). `rel` (the third fixed column) carries no independent
+// information to index on: every edge's weight is deterministically
+// `"{src}:{dst}"` (`GraphTxn::add_edge`), so a `rel = 'a:b'` predicate is already
+// fully implied by (and no cheaper than) a `src`+`dst` equality — there is no
+// eg-core structural index over relationship strings to push it through, so it is
+// left as an ordinary post-scan `Filter` (`Unsupported`), the documented
+// "fall back to scan" case. `props` is the opaque per-edge blob (reached via
+// `json_get*`, never equality-indexed — exactly like `nodes.props`).
+//
+// With NO recognized src/dst equality (an unfiltered `SELECT * FROM edges`, or a
+// predicate over `rel`/`props`/anything else), the provider falls back to the
+// full walk — the SAME O(E) cost `infer_edges` always paid — but memoizes it
+// (once per provider instance) so a repeat unfiltered query against the SAME
+// provider (e.g. `SqlContextCache`'s reused `BuiltCtx`) doesn't re-walk the graph.
+
+/// A recognized `col = literal` equality on `edges`'s two adjacency columns
+/// (`src`/`dst` — NOT `rel`, which has no adjacency shortcut at all, see the
+/// module doc and [`edge_column_eq`]'s own doc for exactly why it is excluded
+/// here rather than merely reported `Unsupported` downstream). `edges` has a
+/// small, FIXED schema (unlike `nodes`/user tables' arbitrary inferred one), so a
+/// dedicated 2-column classifier is the simplest correct fit — not a second
+/// generic [`PushdownRegistry`] instance.
+#[derive(Debug, Default, Clone)]
+struct EdgeEquality {
+    src: Option<String>,
+    dst: Option<String>,
+}
+
+impl EdgeEquality {
+    /// Collect every recognized equality across `filters` (first occurrence per
+    /// column wins — DataFusion ANDs a multi-predicate `WHERE`, so any one of them
+    /// holding is enough to narrow; [`EdgesTableProvider::scan`] still returns
+    /// `Inexact`, so a redundant/contradictory second equality on the same column
+    /// is re-checked correctly by the Filter DataFusion keeps above the scan).
+    fn from_filters(filters: &[Expr]) -> Self {
+        let mut eq = Self::default();
+        for f in filters {
+            let Some((col, val)) = edge_column_eq(f) else {
+                continue;
+            };
+            match col.as_str() {
+                "src" if eq.src.is_none() => eq.src = Some(val),
+                "dst" if eq.dst.is_none() => eq.dst = Some(val),
+                _ => {}
+            }
+        }
+        eq
+    }
+}
+
+/// `col = literal` / `literal = col` on `src` or `dst` — the two columns
+/// [`EdgeEquality`] tracks. Mirrors [`PushdownRegistry::indexable_eq`]'s
+/// shape-matching exactly (same `Eq`-only, `Column`/`Literal` either-side rule) but
+/// against the fixed edges column set instead of a registry lookup.
+///
+/// Deliberately does NOT recognize `rel`: DataFusion's `PushDownFilter` optimizer
+/// drops any `Unsupported`-classified conjunct before it ever reaches `scan`
+/// (verified against `datafusion-optimizer`'s own source — only `Exact`/`Inexact`
+/// filters survive into what a provider's `scan` receives), so a `rel = 'a:b'`
+/// equality can NEVER reach [`EdgesTableProvider::scan`] at all, whether it rides
+/// alone or alongside a pushed `src`/`dst` equality in the same `WHERE`. Recognizing
+/// it here would therefore only ever be dead code; the correctness of a `rel`
+/// equality is carried entirely by the ordinary Filter DataFusion keeps above the
+/// scan (see `EdgesTableProvider::supports_filters_pushdown`'s doc for the
+/// `Inexact`-vs-`Unsupported` classification this mirrors).
+fn edge_column_eq(expr: &Expr) -> Option<(String, IndexKey)> {
+    let Expr::BinaryExpr(be) = expr else {
+        return None;
+    };
+    if be.op != Operator::Eq {
+        return None;
+    }
+    let (col, lit) = match (be.left.as_ref(), be.right.as_ref()) {
+        (Expr::Column(c), Expr::Literal(v, _)) => (c, v),
+        (Expr::Literal(v, _), Expr::Column(c)) => (c, v),
+        _ => return None,
+    };
+    if !matches!(col.name.as_str(), "src" | "dst") {
+        return None;
+    }
+    scalar_to_key(lit).map(|k| (col.name.clone(), k))
+}
+
+/// `edges` table provider (CONCEPT:EG-KG.query.concept-12) — see the module section
+/// doc above for the full pushdown design.
+#[derive(Debug)]
+pub(crate) struct EdgesTableProvider {
+    schema: SchemaRef,
+    view: Arc<GraphView>,
+    /// The full, unfiltered batch — built at most once per provider instance, and
+    /// only when a query has no src/dst equality this provider can push down.
+    full: RwLock<Option<RecordBatch>>,
+}
+
+impl EdgesTableProvider {
+    pub(crate) fn new(view: Arc<GraphView>) -> Self {
+        Self {
+            schema: edges_schema(),
+            view,
+            full: RwLock::new(None),
+        }
+    }
+
+    /// Outgoing adjacency for `src` — O(deg(src)), via the SAME `edges_directed`
+    /// primitive `GraphCore::get_successors` uses. `dst`, if ALSO pushed alongside
+    /// `src` in the same `WHERE`, is checked per candidate edge (still O(deg(src))
+    /// total, never a second pass over the whole graph). An empty batch (not an
+    /// error) when `src` names no node — matching the full-scan path, which would
+    /// also return zero rows.
+    fn scan_by_src(&self, src: &str, dst: Option<&str>) -> Result<RecordBatch, String> {
+        let mut rows = Vec::new();
+        if let Some(&idx) = self.view.node_map.get(src) {
+            for e in self.view.graph.edges_directed(idx, Direction::Outgoing) {
+                let d = &self.view.graph[e.target()];
+                if dst.is_some_and(|want| want != d.as_str()) {
+                    continue;
+                }
+                rows.push((src.to_string(), d.clone(), e.weight().clone()));
+            }
+        }
+        edges_batch_from_rows(&self.view, &rows)
+    }
+
+    /// Incoming adjacency for `dst` — O(deg(dst)), mirroring [`Self::scan_by_src`].
+    /// Only reached when NO `src` equality was pushed (see `scan`, which tries
+    /// `src` first).
+    fn scan_by_dst(&self, dst: &str) -> Result<RecordBatch, String> {
+        let mut rows = Vec::new();
+        if let Some(&idx) = self.view.node_map.get(dst) {
+            for e in self.view.graph.edges_directed(idx, Direction::Incoming) {
+                let s = &self.view.graph[e.source()];
+                rows.push((s.clone(), dst.to_string(), e.weight().clone()));
+            }
+        }
+        edges_batch_from_rows(&self.view, &rows)
+    }
+
+    /// The full, unfiltered table — the ONLY path that pays the O(E) walk
+    /// `infer_edges` always paid, and only when the query pushed no src/dst
+    /// equality this provider can resolve cheaper. Memoized so a provider shared
+    /// across repeat calls (`SqlContextCache`'s reused `BuiltCtx`) walks the graph
+    /// at most once for every such query, not once per call.
+    fn full_batch(&self) -> Result<RecordBatch, String> {
+        if let Some(b) = self.full.read().unwrap().as_ref() {
+            return Ok(b.clone());
+        }
+        let (_, batch) = infer_edges(&self.view)?;
+        *self.full.write().unwrap() = Some(batch.clone());
+        Ok(batch)
+    }
+}
+
+#[async_trait]
+impl TableProvider for EdgesTableProvider {
+    fn schema(&self) -> SchemaRef {
+        self.schema.clone()
+    }
+
+    fn table_type(&self) -> TableType {
+        TableType::Base
+    }
+
+    /// `Inexact` for a `src`/`dst` equality (pushed to an O(deg) adjacency walk in
+    /// `scan`); everything else — including a `rel`/`props` equality, see
+    /// `edge_column_eq`'s doc for exactly why `rel` is excluded — `Unsupported`
+    /// (an ordinary post-scan `Filter`). `Inexact`, not `Exact`, for the identical
+    /// reason `NodesTableProvider` uses it: DataFusion re-applies the equality as
+    /// a Filter above the scan regardless, so correctness never depends on the
+    /// walk being exhaustive.
+    fn supports_filters_pushdown(
+        &self,
+        filters: &[&Expr],
+    ) -> DfResult<Vec<TableProviderFilterPushDown>> {
+        Ok(filters
+            .iter()
+            .map(|f| {
+                if edge_column_eq(f).is_some() {
+                    TableProviderFilterPushDown::Inexact
+                } else {
+                    TableProviderFilterPushDown::Unsupported
+                }
+            })
+            .collect())
+    }
+
+    async fn scan(
+        &self,
+        state: &dyn Session,
+        projection: Option<&Vec<usize>>,
+        filters: &[Expr],
+        limit: Option<usize>,
+    ) -> DfResult<Arc<dyn ExecutionPlan>> {
+        let eq = EdgeEquality::from_filters(filters);
+
+        // `src`, when pushed, is tried first (it also absorbs a co-pushed `dst`
+        // as an extra per-candidate check — see `scan_by_src`); otherwise `dst`
+        // alone; otherwise the full walk.
+        let batch = if let Some(src) = eq.src.as_deref() {
+            self.scan_by_src(src, eq.dst.as_deref())
+        } else if let Some(dst) = eq.dst.as_deref() {
+            self.scan_by_dst(dst)
+        } else {
+            self.full_batch()
+        }
+        .map_err(datafusion::error::DataFusionError::Execution)?;
+
+        let mem = MemTable::try_new(self.schema.clone(), vec![vec![batch]])?;
+        // No filters passed down: the walk already narrowed by any recognized
+        // equality; any OTHER (unsupported) predicate is still a Filter node ABOVE
+        // this scan, applied by DataFusion.
+        mem.scan(state, projection, &[], limit).await
+    }
+}
+
+/// Build one `edges` RecordBatch from an explicit, already-selected sequence of
+/// `(src, dst, rel)` triples — shared by [`EdgesTableProvider`]'s src/dst-pushed
+/// traversals. Looks up each pair's `props` blob the SAME way [`infer_edges`]'s
+/// full scan does (the first stored property blob for that endpoint pair, or
+/// null), so a narrowed row is byte-identical to the row the full scan would have
+/// produced for the same edge.
+fn edges_batch_from_rows(
+    view: &GraphView,
+    rows: &[(String, String, String)],
+) -> Result<RecordBatch, String> {
+    let mut src_b = StringBuilder::new();
+    let mut dst_b = StringBuilder::new();
+    let mut rel_b = StringBuilder::new();
+    let mut props_b = BinaryBuilder::new();
+
+    for (src, dst, rel) in rows {
+        src_b.append_value(src);
+        dst_b.append_value(dst);
+        rel_b.append_value(rel);
+        match view
+            .edge_properties
+            .get(&(src.clone(), dst.clone()))
+            .and_then(|blobs| blobs.first().cloned())
+        {
+            Some(blob) => props_b.append_value(blob.as_slice()),
+            None => props_b.append_null(),
+        }
+    }
+
+    let columns: Vec<ArrayRef> = vec![
+        Arc::new(src_b.finish()),
+        Arc::new(dst_b.finish()),
+        Arc::new(rel_b.finish()),
+        Arc::new(props_b.finish()),
+    ];
+    RecordBatch::try_new(edges_schema(), columns).map_err(|e| format!("edges batch: {e}"))
+}
+
 // ── version-keyed inferred-schema cache (CONCEPT:EG-KG.query.version-keyed-cache) ─────────────────
 
-/// One cached, version-stamped inference of the `nodes` and `edges` tables. The
-/// schema-on-read scan is O(V) (decode every node blob) + O(E); for a read-mostly
-/// graph that cost is wasted on every query because the snapshot is identical
-/// between writes. Caching it keyed by the GraphCore OCC `version()` (CONCEPT:EG-KG.txn.multi-op-occ-acid)
-/// turns repeated queries into a cheap MemTable re-wrap of the already-built batches.
+/// One cached, version-stamped inference of the `nodes` table. The schema-on-read
+/// scan is O(V) (decode every node blob); for a read-mostly graph that cost is
+/// wasted on every query because the snapshot is identical between writes.
+/// Caching it keyed by the GraphCore OCC `version()` (CONCEPT:EG-KG.txn.multi-op-occ-acid) turns
+/// repeated queries into a cheap MemTable re-wrap of the already-built batch.
+///
+/// `edges` is deliberately NOT cached here: [`EdgesTableProvider`] defers its own
+/// row materialization to `scan()` (a src/dst equality resolves via an O(deg)
+/// adjacency walk, never a full table scan at all — see its own module doc), so
+/// there is no eager `(SchemaRef, RecordBatch)` to cache for it in the first
+/// place; [`super::exec::run`]/`run_typed`/`run_arrow` construct an
+/// `EdgesTableProvider` directly from the snapshot instead of consulting this
+/// cache.
 #[derive(Clone)]
 pub(crate) struct CachedTables {
     pub nodes: (SchemaRef, RecordBatch),
-    pub edges: (SchemaRef, RecordBatch),
 }
 
 /// A tiny version-keyed cache: holds the last `(version, CachedTables)`. A query
-/// with a matching version reuses the batches; a different version (any committed
+/// with a matching version reuses the batch; a different version (any committed
 /// write bumped the counter) rebuilds and replaces the entry. Correctness rests on
 /// the monotonic `version()` — it changes on every committed mutation, so a stale
 /// entry can never be served after a write. Read-only, so a single `Mutex<Option<…>>`
@@ -333,9 +609,9 @@ impl SqlCache {
         Self::default()
     }
 
-    /// Return the cached `(nodes, edges)` tables for `view` at `version`, rebuilding
-    /// (and replacing the cached entry) when the stored version differs or the cache
-    /// is cold. The build itself runs outside the lock so a concurrent reader of a
+    /// Return the cached `nodes` table for `view` at `version`, rebuilding (and
+    /// replacing the cached entry) when the stored version differs or the cache is
+    /// cold. The build itself runs outside the lock so a concurrent reader of a
     /// different version doesn't block on a long scan.
     pub(crate) fn tables_at(&self, view: &GraphView, version: u64) -> Result<CachedTables, String> {
         if let Some((v, tables)) = self.inner.lock().unwrap().as_ref() {
@@ -345,7 +621,6 @@ impl SqlCache {
         }
         let built = CachedTables {
             nodes: infer_nodes(view)?,
-            edges: infer_edges(view)?,
         };
         *self.inner.lock().unwrap() = Some((version, built.clone()));
         Ok(built)
@@ -905,5 +1180,191 @@ mod provider_tests {
         )
         .expect("SELECT id query must not fail with a duplicate-field schema error");
         assert_eq!(sel.rows.len(), 1);
+    }
+}
+
+/// `EdgesTableProvider` pushdown correctness (P10/W1.7-A). Every test compares an
+/// `EXPLAIN`-observable claim (the pushdown narrows what DataFusion touches) or a
+/// direct classification check against [`NodesTableProvider`]'s own established
+/// pattern, and every query result is cross-checked against what the SAME query
+/// returns from a graph with NO src/dst/rel predicate at all (the definition of
+/// "the pushdown must never change the answer, only how it's computed").
+#[cfg(test)]
+mod edges_provider_tests {
+    use super::*;
+    use crate::sql::exec::exec_sql;
+    use crate::sql::CancellationToken;
+    use datafusion::logical_expr::{col, lit};
+    use eg_core::graph::GraphCore;
+    use serde_json::json;
+
+    /// n1 -> n2, n1 -> n3, n2 -> n3 (a tiny DAG so src/dst pushdown each narrow to
+    /// a strict, non-trivial, non-empty subset of the 3 edges).
+    fn graph() -> GraphCore {
+        let core = GraphCore::new();
+        for id in ["n1", "n2", "n3"] {
+            core.add_node(id.into(), rmp_serde::to_vec_named(&json!({})).unwrap());
+        }
+        for (s, d) in [("n1", "n2"), ("n1", "n3"), ("n2", "n3")] {
+            core.add_edge(
+                s.into(),
+                d.into(),
+                rmp_serde::to_vec_named(&json!({})).unwrap(),
+            )
+            .unwrap();
+        }
+        core
+    }
+
+    fn ids(r: &crate::sql::QueryResult, col_index: usize) -> Vec<String> {
+        r.rows
+            .iter()
+            .map(|blob| {
+                let cells: Vec<serde_json::Value> = rmp_serde::from_slice(blob).unwrap();
+                cells[col_index].as_str().unwrap().to_string()
+            })
+            .collect()
+    }
+
+    /// A `src = 'n1'` equality returns EXACTLY n1's two outgoing edges — never n2's
+    /// or n3's — proving `scan_by_src`'s O(deg) walk is both correct (right rows)
+    /// and narrowing (not the full 3-edge set) rather than a full-scan-then-filter
+    /// that happened to produce the right answer regardless.
+    #[test]
+    fn src_equality_returns_only_that_nodes_outgoing_edges() {
+        let snap = graph().analysis_snapshot();
+        let r = exec_sql(
+            &snap,
+            "SELECT dst FROM edges WHERE src = 'n1' ORDER BY dst",
+            &CancellationToken::new(),
+        )
+        .unwrap();
+        assert_eq!(ids(&r, 0), vec!["n2".to_string(), "n3".to_string()]);
+    }
+
+    /// A `dst = 'n3'` equality returns EXACTLY n3's two incoming edges (from n1 and
+    /// n2), proving `scan_by_dst`'s O(deg) incoming walk.
+    #[test]
+    fn dst_equality_returns_only_that_nodes_incoming_edges() {
+        let snap = graph().analysis_snapshot();
+        let r = exec_sql(
+            &snap,
+            "SELECT src FROM edges WHERE dst = 'n3' ORDER BY src",
+            &CancellationToken::new(),
+        )
+        .unwrap();
+        assert_eq!(ids(&r, 0), vec!["n1".to_string(), "n2".to_string()]);
+    }
+
+    /// A `src` equality naming a node with NO outgoing edges (or that doesn't
+    /// exist at all) returns zero rows — not an error — matching what a full scan
+    /// would find.
+    #[test]
+    fn src_equality_on_a_sink_or_absent_node_returns_no_rows() {
+        let snap = graph().analysis_snapshot();
+        let sink = exec_sql(
+            &snap,
+            "SELECT dst FROM edges WHERE src = 'n3'",
+            &CancellationToken::new(),
+        )
+        .unwrap();
+        assert!(sink.rows.is_empty(), "n3 has no outgoing edges");
+
+        let absent = exec_sql(
+            &snap,
+            "SELECT dst FROM edges WHERE src = 'ghost'",
+            &CancellationToken::new(),
+        )
+        .unwrap();
+        assert!(absent.rows.is_empty(), "ghost names no node at all");
+    }
+
+    /// A combined `src = 'n1' AND dst = 'n2'` equality (both pushed) resolves to
+    /// exactly the one matching edge — `scan_by_src`'s per-candidate `dst` check.
+    #[test]
+    fn combined_src_and_dst_equality_resolves_to_the_one_edge() {
+        let snap = graph().analysis_snapshot();
+        let r = exec_sql(
+            &snap,
+            "SELECT src, dst FROM edges WHERE src = 'n1' AND dst = 'n2'",
+            &CancellationToken::new(),
+        )
+        .unwrap();
+        assert_eq!(r.rows.len(), 1);
+        assert_eq!(ids(&r, 0), vec!["n1".to_string()]);
+        assert_eq!(ids(&r, 1), vec!["n2".to_string()]);
+    }
+
+    /// An unfiltered `SELECT * FROM edges` still returns the full, correct edge
+    /// set (the `full_batch` fallback) — the pushdown adds a fast path, it never
+    /// narrows a query that didn't ask for it.
+    #[test]
+    fn unfiltered_query_returns_every_edge() {
+        let snap = graph().analysis_snapshot();
+        let r = exec_sql(
+            &snap,
+            "SELECT src, dst FROM edges ORDER BY src, dst",
+            &CancellationToken::new(),
+        )
+        .unwrap();
+        assert_eq!(r.rows.len(), 3);
+    }
+
+    /// A `rel = '<src>:<dst>'` equality (the ONE column with no adjacency
+    /// shortcut, per the module doc) still returns the correct row — via the
+    /// `Unsupported`-classified post-scan `Filter`, not a pushdown into `scan`.
+    #[test]
+    fn rel_equality_still_works_via_the_post_scan_filter() {
+        let snap = graph().analysis_snapshot();
+        let r = exec_sql(
+            &snap,
+            "SELECT src, dst FROM edges WHERE rel = 'n1:n2'",
+            &CancellationToken::new(),
+        )
+        .unwrap();
+        assert_eq!(r.rows.len(), 1);
+        assert_eq!(ids(&r, 0), vec!["n1".to_string()]);
+        assert_eq!(ids(&r, 1), vec!["n2".to_string()]);
+    }
+
+    fn edges_provider() -> EdgesTableProvider {
+        let snap = graph().analysis_snapshot();
+        EdgesTableProvider::new(Arc::new(snap))
+    }
+
+    /// Direct classification check (mirrors `NodesTableProvider`'s own
+    /// `supports_filters_classifies_predicates` test): `src`/`dst` equality is
+    /// `Inexact` (pushed to `scan`'s adjacency walk); `rel` equality and a
+    /// non-equality predicate are `Unsupported` (kept as an ordinary Filter).
+    #[test]
+    fn supports_filters_pushdown_classifies_src_dst_inexact_rel_unsupported() {
+        let p = edges_provider();
+        let src_eq = col("src").eq(lit("n1"));
+        let dst_eq = col("dst").eq(lit("n2"));
+        let rel_eq = col("rel").eq(lit("n1:n2"));
+        let like = col("src").like(lit("n%"));
+        let refs: Vec<&Expr> = vec![&src_eq, &dst_eq, &rel_eq, &like];
+        let got = p.supports_filters_pushdown(&refs).unwrap();
+        assert_eq!(got[0], TableProviderFilterPushDown::Inexact, "src");
+        assert_eq!(got[1], TableProviderFilterPushDown::Inexact, "dst");
+        assert_eq!(
+            got[2],
+            TableProviderFilterPushDown::Unsupported,
+            "rel — no adjacency shortcut, see the module doc"
+        );
+        assert_eq!(
+            got[3],
+            TableProviderFilterPushDown::Unsupported,
+            "non-equality"
+        );
+    }
+
+    /// `EdgesTableProvider::schema()` is the same static shape `edges_schema()`
+    /// returns — proving the schema needs no batch/scan to be known (the
+    /// asymmetry with `nodes` the module doc explains).
+    #[test]
+    fn schema_is_available_with_no_scan() {
+        let p = edges_provider();
+        assert_eq!(p.schema(), edges_schema());
     }
 }
