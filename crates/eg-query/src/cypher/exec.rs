@@ -2493,6 +2493,237 @@ mod tests {
         assert_eq!(ids(&qr, 0), vec!["alice", "carol"]);
     }
 
+    // ── CONCEPT:EG-KG.query.anon-propmap-parity — anonymous-node inline-property-map parity (W0.8) ──
+    //
+    // `agent-utilities` (`orchestration/manager.py:132`, `agent_digital_twin.py`)
+    // both carried a defensive comment claiming this engine's Cypher executor
+    // silently under-matches (zero rows, no error) an ANONYMOUS node pattern
+    // carrying an inline property map — e.g. `MATCH (:RunTrace {id: $tid})` —
+    // relative to the identical pattern written with a bound-but-otherwise-unused
+    // variable (`MATCH (t:RunTrace {id: $tid})`), and both worked around it by
+    // always naming the variable. Diagnosis (this change) found
+    // `resolve_match`/`walk_hops`/`bind_target_node`/`node_props_match` already
+    // apply label + inline-property constraints uniformly regardless of
+    // `NodePat.var` — true back to the read-side inline prop-map's original
+    // introduction (CONCEPT:EG-KG.query.param-list-drives-unwind) — so the differential does not reproduce
+    // against this engine version. These tests lock that invariant in as a
+    // permanent regression gate across every pattern position (start, hop
+    // target, multi-hop interior), value source (`$param` vs inline literal),
+    // property count, and combined with labels/WHERE/OPTIONAL MATCH: the
+    // anonymous and bound-variable forms must produce byte-identical rows.
+
+    /// Start-node position, inline literal.
+    #[test]
+    fn anon_start_node_propmap_matches_bound_form() {
+        let v = fixture();
+        let bound = exec_cypher(
+            &v,
+            "MATCH (a:Person {name:'Alice'})-[:KNOWS]->(b:Person) RETURN b",
+        )
+        .unwrap();
+        let anon = exec_cypher(
+            &v,
+            "MATCH (:Person {name:'Alice'})-[:KNOWS]->(b:Person) RETURN b",
+        )
+        .unwrap();
+        assert_eq!(anon.rows, bound.rows, "byte-identical rows required");
+        assert_eq!(ids(&anon, 0), vec!["bob"]);
+    }
+
+    /// Start-node position, value from a `$param` rather than an inline literal.
+    #[test]
+    fn anon_start_node_propmap_matches_bound_form_with_param() {
+        let v = fixture();
+        let mut params = Params::new();
+        params.insert("tid".into(), Value::String("Alice".into()));
+        let bound = exec_cypher_params(
+            &v,
+            "MATCH (t:Person {name: $tid})-[:KNOWS]->(tc:Person) RETURN tc",
+            &params,
+        )
+        .unwrap();
+        let anon = exec_cypher_params(
+            &v,
+            "MATCH (:Person {name: $tid})-[:KNOWS]->(tc:Person) RETURN tc",
+            &params,
+        )
+        .unwrap();
+        assert_eq!(anon.rows, bound.rows, "byte-identical rows required");
+        assert_eq!(ids(&anon, 0), vec!["bob"]);
+    }
+
+    /// Hop-TARGET position (not the start node).
+    #[test]
+    fn anon_hop_target_propmap_matches_bound_form() {
+        let v = fixture();
+        let bound = exec_cypher(
+            &v,
+            "MATCH (a:Person)-[:KNOWS]->(b:Person {name:'Bob'}) RETURN a",
+        )
+        .unwrap();
+        let anon = exec_cypher(
+            &v,
+            "MATCH (a:Person)-[:KNOWS]->(:Person {name:'Bob'}) RETURN a",
+        )
+        .unwrap();
+        assert_eq!(anon.rows, bound.rows, "byte-identical rows required");
+        assert_eq!(ids(&anon, 0), vec!["alice"]);
+    }
+
+    /// Interior node of a multi-hop (2-hop) chain — neither the start nor the
+    /// final hop target.
+    #[test]
+    fn anon_multi_hop_interior_propmap_matches_bound_form() {
+        let v = fixture();
+        let bound = exec_cypher(
+            &v,
+            "MATCH (a:Person)-[:KNOWS]->(b:Person {name:'Bob'})-[:KNOWS]->(c:Person) RETURN c",
+        )
+        .unwrap();
+        let anon = exec_cypher(
+            &v,
+            "MATCH (a:Person)-[:KNOWS]->(:Person {name:'Bob'})-[:KNOWS]->(c:Person) RETURN c",
+        )
+        .unwrap();
+        assert_eq!(anon.rows, bound.rows, "byte-identical rows required");
+        assert_eq!(ids(&anon, 0), vec!["carol"]);
+    }
+
+    /// Fully anonymous: no var AND no label, just a propmap.
+    #[test]
+    fn anon_no_label_propmap_matches_bound_form() {
+        let v = fixture();
+        let bound = exec_cypher(&v, "MATCH (a {name:'Alice'})-[:KNOWS]->(b) RETURN b").unwrap();
+        let anon = exec_cypher(&v, "MATCH ({name:'Alice'})-[:KNOWS]->(b) RETURN b").unwrap();
+        assert_eq!(anon.rows, bound.rows, "byte-identical rows required");
+        assert_eq!(ids(&anon, 0), vec!["bob"]);
+    }
+
+    /// The EXACT real-world shape from `manager.py`/`agent_digital_twin.py`: a
+    /// RunTrace keyed by the VIRTUAL `id` property (the graph key, not a stored
+    /// field — `node_prop`'s special-cased branch), matched by a `$tid` param,
+    /// anonymously, then hopping over a typed relationship to a
+    /// differently-named ToolCall. A second graph fixture (distinct from
+    /// `fixture()`/`relationship_fixture()` above) purpose-built for this shape.
+    #[test]
+    fn anon_runtrace_shape_matches_bound_form() {
+        let core = GraphCore::new();
+        core.add_node(
+            "trace:pref_run_abc123".into(),
+            pbytes(serde_json::json!({"node_type":"RunTrace","status":"completed"})),
+        );
+        core.add_node(
+            "trace:pref_run_other".into(),
+            pbytes(serde_json::json!({"node_type":"RunTrace","status":"completed"})),
+        );
+        core.add_node(
+            "tc:1".into(),
+            pbytes(serde_json::json!({"node_type":"ToolCall","tool_name":"graph_query"})),
+        );
+        core.add_node(
+            "tc:2".into(),
+            pbytes(serde_json::json!({"node_type":"ToolCall","tool_name":"other_run_tool"})),
+        );
+        core.add_edge(
+            "trace:pref_run_abc123".into(),
+            "tc:1".into(),
+            pbytes(serde_json::json!({"relationship":"USED_TOOL"})),
+        )
+        .unwrap();
+        core.add_edge(
+            "trace:pref_run_other".into(),
+            "tc:2".into(),
+            pbytes(serde_json::json!({"relationship":"USED_TOOL"})),
+        )
+        .unwrap();
+        let v = core.analysis_snapshot();
+
+        let mut params = Params::new();
+        params.insert(
+            "tid".to_string(),
+            Value::String("trace:pref_run_abc123".to_string()),
+        );
+        let bound = exec_cypher_params(
+            &v,
+            "MATCH (t:RunTrace {id: $tid})-[:USED_TOOL]->(tc:ToolCall) RETURN tc.tool_name AS tool_name",
+            &params,
+        )
+        .unwrap();
+        let anon = exec_cypher_params(
+            &v,
+            "MATCH (:RunTrace {id: $tid})-[:USED_TOOL]->(tc:ToolCall) RETURN tc.tool_name AS tool_name",
+            &params,
+        )
+        .unwrap();
+        assert_eq!(anon.rows, bound.rows, "byte-identical rows required");
+        assert_eq!(
+            bound.rows.len(),
+            1,
+            "must find exactly the one matching ToolCall"
+        );
+        assert_eq!(cells_of(&anon, 0)[0], Value::String("graph_query".into()));
+    }
+
+    /// Combined with WHERE + multiple inline properties on the anonymous node.
+    #[test]
+    fn anon_multi_prop_and_where_matches_bound_form() {
+        let v = fixture();
+        let bound = exec_cypher(
+            &v,
+            "MATCH (a:Person {name:'Alice', node_type:'Person'})-[:KNOWS]->(b:Person) \
+             WHERE b.name = 'Bob' RETURN b",
+        )
+        .unwrap();
+        let anon = exec_cypher(
+            &v,
+            "MATCH (:Person {name:'Alice', node_type:'Person'})-[:KNOWS]->(b:Person) \
+             WHERE b.name = 'Bob' RETURN b",
+        )
+        .unwrap();
+        assert_eq!(anon.rows, bound.rows, "byte-identical rows required");
+        assert_eq!(ids(&anon, 0), vec!["bob"]);
+    }
+
+    /// Inside `OPTIONAL MATCH` — the anonymous propmap node matches nothing, so
+    /// both forms must degrade identically to the carried-forward binding with
+    /// the stage's new variables left unbound.
+    #[test]
+    fn anon_optional_match_propmap_matches_bound_form() {
+        let v = fixture();
+        let bound = exec_cypher(
+            &v,
+            "MATCH (p:Person) OPTIONAL MATCH (x:Person {name:'Nobody'})-[:KNOWS]->(p) RETURN p",
+        )
+        .unwrap();
+        let anon = exec_cypher(
+            &v,
+            "MATCH (p:Person) OPTIONAL MATCH (:Person {name:'Nobody'})-[:KNOWS]->(p) RETURN p",
+        )
+        .unwrap();
+        assert_eq!(anon.rows, bound.rows, "byte-identical rows required");
+        assert_eq!(ids(&anon, 0), vec!["alice", "bob", "carol"]);
+    }
+
+    /// Same start/hop-target/interior parity matrix over the SECOND fixture
+    /// (`relationship_fixture`, Server/PROVIDES/CallableResource) — "several
+    /// graph fixtures" per the acceptance bar, not just one shape repeated.
+    #[test]
+    fn anon_propmap_matches_bound_form_over_relationship_fixture() {
+        let v = relationship_fixture();
+        let bound = exec_cypher(
+            &v,
+            "MATCH (s:Server {name:'a-mcp'})-[:PROVIDES]->(r:CallableResource) RETURN r",
+        )
+        .unwrap();
+        let anon = exec_cypher(
+            &v,
+            "MATCH (:Server {name:'a-mcp'})-[:PROVIDES]->(r:CallableResource) RETURN r",
+        )
+        .unwrap();
+        assert_eq!(anon.rows, bound.rows, "byte-identical rows required");
+        assert_eq!(ids(&anon, 0), vec!["res:a1", "res:a2"]);
+    }
+
     /// A plain (non-var-length) undirected relationship also walks either direction
     /// — `bob` reaches `alice` only via the INCOMING alice->bob edge.
     #[test]

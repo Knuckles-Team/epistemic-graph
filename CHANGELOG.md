@@ -8,6 +8,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Fixed
+- **Cypher anonymous-node inline-property-map audit (W0.8, CONCEPT:EG-KG.query.anon-propmap-parity)** — investigated a
+  reported footgun where `MATCH (:Label {k: $v})` (an anonymous node pattern
+  carrying an inline property map) was believed to silently under-match relative
+  to the identical pattern with a bound-but-unused variable
+  (`MATCH (n:Label {k: $v})`), per defensive workaround comments in
+  agent-utilities' `orchestration/manager.py` and `agent_digital_twin.py`.
+  Diagnosis found `resolve_match`/`walk_hops`/`bind_target_node`/
+  `node_props_match` already apply label + inline-property constraints
+  uniformly regardless of `NodePat.var` — true since the read-side inline
+  prop-map's original introduction — so the differential does not reproduce
+  against this engine. Added a permanent parity test suite
+  (`crates/eg-query/src/cypher/exec.rs`) asserting byte-identical results
+  between the anonymous and bound-variable forms across every pattern position
+  (start/hop-target/multi-hop-interior), `$param` vs inline literal, multiple
+  properties, labels, WHERE, and `OPTIONAL MATCH`, over two graph fixtures —
+  as a permanent regression gate. Corrected a stale doc comment on `NodePat`
+  (`plan.rs`) that incorrectly claimed "the read parser always leaves
+  [`props`] `None`" (obsolete since inline read-side property matching was
+  added) and a stale `cypher/mod.rs` module doc describing an outdated
+  VF2-based execution strategy no longer used by the incremental-walk executor.
+
 ### Added
 - **Raft cluster-membership admin RPC** (CONCEPT:EG-KG.storage.kg-kg-2 —
   `cluster_deployment.md` §5 item 2). `MultiRaft::add_group_learner` /
