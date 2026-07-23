@@ -1,8 +1,8 @@
 //! GraphQL **subscription** execution (CONCEPT:EG-KG.query.mutation).
 //!
 //! A subscription is, structurally, a query whose result a client wants to keep watching
-//! as the graph changes. The streaming TRANSPORT (a WebSocket / SSE carrier pushing each
-//! delta) belongs to the server layer, not this pure-Rust, Pi-excludable surface — and
+//! as the graph changes. The streaming transport belongs to the server layer, not this
+//! pure-Rust execution surface — and
 //! eg-core exposes an OCC write-version (`GraphCore::version()`) that already turns "did
 //! anything change?" into a cheap atomic compare. So the cleanest execution path that
 //! compiles + tests here is a **poll**: resolve the subscription's selection over the
@@ -23,16 +23,22 @@
 //! against a FRESH snapshot every time the graph changes. eg-core (`GraphCore::changes()`)
 //! now emits a `ChangeEvent` on each committed write; the SERVER layer drives the loop —
 //! it subscribes a Tokio-channel sink to that change stream and, on each event, calls
-//! [`LiveQuery::resolve`] and pushes the `{"data": …}` frame down a WS/SSE carrier. This
-//! crate itself stays pure-Rust + runtime-free (NO tokio — the facade keeps it
-//! Pi-excludable); the async transport is entirely in the server. `resolve` runs the SAME
+//! [`LiveQuery::resolve`] and pushes the caller-visible `{"data": …}` frame through the
+//! server's authenticated SSE carrier. This crate itself stays pure-Rust + runtime-free
+//! (NO tokio); the async transport and its eg2/ACL/RLS policy are entirely in the server.
+//! `resolve` runs the SAME
 //! resolution as the poll path, so a live tick and a poll return identical shapes.
 
 use eg_core::graph::{GraphCore, GraphView};
 use serde_json::Value;
 
 use crate::parser::{parse_operation, Operation, Query};
+#[cfg(feature = "hardening")]
+use crate::parser::{Field, GqlValue};
 use crate::resolver::execute_query;
+
+#[cfg(feature = "hardening")]
+const MAX_LIVE_ROOT_ROWS: usize = 100;
 
 /// Parse + execute a GraphQL subscription string against a `GraphView` snapshot,
 /// returning the current matches as `{"data": …}` (the poll path). A parse error, a
@@ -55,9 +61,9 @@ pub fn poll_versioned(core: &GraphCore, src: &str) -> Result<(Value, u64), Strin
 
 /// A compiled **live query** (CONCEPT:EG-KG.compute.cdc-event-emit): a GraphQL subscription parsed once, then
 /// re-resolved against a fresh snapshot each time the graph changes. The STREAMING
-/// transport lives in the server layer (a WS/SSE carrier fed by `GraphCore::changes()`);
-/// this type is the pure-Rust, runtime-free execution the carrier drives per change —
-/// so the crate stays Pi-excludable (NO tokio here).
+/// transport lives in the server layer (the authenticated SSE carrier fed by
+/// `GraphCore::changes()`); this type is the pure-Rust, runtime-free execution the
+/// carrier drives per change (NO tokio here).
 ///
 /// Typical server loop:
 /// ```ignore
@@ -82,6 +88,19 @@ impl LiveQuery {
         })
     }
 
+    /// Parse a subscription and enforce the same depth/complexity/field policy as
+    /// hardened one-shot GraphQL reads before retaining the live query.
+    #[cfg(feature = "hardening")]
+    pub fn parse_with_policy(
+        src: &str,
+        policy: &crate::hardening::GraphQlPolicy,
+    ) -> Result<Self, String> {
+        let query = parse_subscription(src)?;
+        require_live_root_bounds(&query.roots)?;
+        crate::hardening::check_policy(&query.roots, policy)?;
+        Ok(LiveQuery { query })
+    }
+
     /// Re-resolve the current matches over a FRESH, point-in-time-consistent snapshot
     /// of `core`, returning the `{"data": …}` frame paired with the OCC `version` it
     /// reflects. A watcher pushes the frame only when `version` advances past the last
@@ -102,6 +121,38 @@ impl LiveQuery {
     pub fn resolve_view(&self, view: &GraphView) -> Result<Value, String> {
         execute_query(view, &self.query)
     }
+}
+
+#[cfg(feature = "hardening")]
+fn require_live_root_bounds(roots: &[Field]) -> Result<(), String> {
+    for root in roots {
+        if root.selection.is_empty() {
+            return Err(format!(
+                "GraphQL subscription root `{}` requires a selection set",
+                root.name
+            ));
+        }
+        let limit = root
+            .args
+            .iter()
+            .find_map(|(name, value)| match (name.as_str(), value) {
+                ("first" | "limit", GqlValue::Int(value)) if *value >= 0 => Some(*value as usize),
+                _ => None,
+            })
+            .ok_or_else(|| {
+                format!(
+                    "GraphQL subscription root `{}` requires an explicit first/limit bound",
+                    root.name
+                )
+            })?;
+        if limit > MAX_LIVE_ROOT_ROWS {
+            return Err(format!(
+                "GraphQL subscription root `{}` exceeds the live row limit of {MAX_LIVE_ROOT_ROWS}",
+                root.name
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// Parse `src` and require it to be a subscription, returning its selection as a

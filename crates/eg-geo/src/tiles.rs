@@ -996,7 +996,7 @@ mod tests {
             f(0.25, 0.5),
             f(0.25, 0.25),
         ]);
-        let mut feat = MvtFeature::new(3, Geometry::Polygon(Polygon::new(ring)));
+        let mut feat = MvtFeature::new(3, Geometry::Polygon(Polygon::new(ring, Vec::new())));
         feat.properties
             .push(("kind".into(), MvtValue::String("park".into())));
         feat.properties.push(("area".into(), MvtValue::Int(1200)));

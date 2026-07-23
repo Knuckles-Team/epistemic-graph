@@ -7,14 +7,14 @@
 //!
 //! It stands up a **live in-process multi-group cluster** (one in-process node running
 //! TWO independent openraft groups on a shared listener, over one redb-authoritative
-//! `graph.redb` — the SAME machinery the single-group failover + `xshard_harness` tests
+//! authoritative shard — the SAME machinery the single-group failover + `xshard_harness` tests
 //! use) and drives a **cross-shard transaction that spans TWO modalities across the two
 //! groups**:
 //!
 //!   * **Group A / `modalA`** — the **property-graph** modality (`Method::AddNode`).
 //!   * **Group B / `modalB`** — the **RDF / semantic-triple** modality
 //!     (`Method::AddTriples { turtle }`), which the Raft state-machine apply path
-//!     (`wal::apply` → `eg_rdf::mapping::load_triples`) projects into the group's graph.
+//!     (`mutation_apply::apply` → `eg_rdf::mapping::load_triples`) projects into the group's graph.
 //!
 //! Both modalities are replicated through their owning group's `client_write` and are
 //! durably captured in the 2PC PREPARE record (the serialized slice), so recovery
@@ -50,10 +50,10 @@
 //!     multi-node hardware for the live-cadence / cross-host soak AGENTS.md flags.
 //!   * **ANN vector + TSDB measurement modalities across shards.** The cross-shard 2PC
 //!     replicates GRAPH-CORE methods (property graph, RDF triples, broker, streaming —
-//!     everything `wal::apply` handles). ANN embeddings and time-series measurements are
+//!     everything `mutation_apply::apply` handles). ANN embeddings and time-series measurements are
 //!     a **single-graph** cross-modal barrier: they land atomically in ONE redb
 //!     `WriteTransaction` via `handlers::txn::commit_cross_modal` (they are NOT part of
-//!     a cross-shard slice's `write_set`/`extra_writes`, and `wal::apply` no-ops them).
+//!     a cross-shard slice's `write_set`/`extra_writes`, and `mutation_apply::apply` no-ops them).
 //!     So "no half-committed vector/measurement" is proven WITHIN a group; carrying
 //!     staged vector/measurement batches into the cross-shard slice apply + a per-group
 //!     cross-modal apply is the remaining engine work to span ANN/TSDB across shards.
@@ -71,13 +71,13 @@ use super::cross_shard_txn::{CrossShardCoordinator, CrossShardTxn, GraphSlice, T
 use super::multi::MultiRaft;
 use super::{AppCtx, NodeId};
 use crate::channels::ChannelManager;
+use crate::durability::DurabilityPolicy;
 use crate::isolation::IsolationLayer;
 use crate::protocol::{GraphType, Method};
 use crate::registry::GraphRegistry;
 use crate::server::persistence::redb_backend::RedbBackend;
 use crate::server::persistence::PersistenceBackend;
 use crate::server::ServerState;
-use crate::wal_service::FsyncPolicy;
 
 /// Group + graph names for the two modalities the cross-shard txn spans.
 const GROUP_A: u64 = 100;
@@ -103,15 +103,14 @@ async fn make_state(dir: &str, backend: Arc<dyn PersistenceBackend>) -> Arc<RwLo
         registry: GraphRegistry::new(),
         isolation: IsolationLayer::new(),
         channels: ChannelManager::new(),
-        auth_secret: "xshard-modality-test".to_string(), // # sanitizer:ignore
+        auth_secret: "test-xshard-modality-secret".to_string(),
         persist_dir: Some(dir.to_string()),
         persistence: Some(backend),
-        redb_authoritative: true,
         max_in_flight: Arc::new(tokio::sync::Semaphore::new(64)),
         read_admission: Arc::new(tokio::sync::Semaphore::new(64)),
         per_graph_inflight: Arc::new(dashmap::DashMap::new()),
         per_graph_inflight_limit: 16,
-        write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::from_env()),
+        write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
         open_txns: Arc::new(dashmap::DashMap::new()),
         txn_id_gen: Arc::new(crate::server::txn::TxnIdGen::default()),
         txn_ttl_secs: 300,
@@ -126,8 +125,6 @@ async fn make_state(dir: &str, backend: Arc<dyn PersistenceBackend>) -> Arc<RwLo
         multi_raft: None,
         #[cfg(feature = "tsdb")]
         tsdb_store: None,
-        #[cfg(feature = "rdf-redb")]
-        rdf_quads: None,
         #[cfg(feature = "streaming")]
         cdc: None,
         #[cfg(feature = "wasm-udf")]
@@ -140,6 +137,8 @@ async fn make_state(dir: &str, backend: Arc<dyn PersistenceBackend>) -> Arc<RwLo
         foreign_sources: std::sync::Arc::new(dashmap::DashMap::new()),
         #[cfg(feature = "kv")]
         kv: None,
+        #[cfg(feature = "lake")]
+        lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
     }))
 }
 
@@ -332,7 +331,7 @@ pub async fn prove_crossshard_modality_2pc_single_decision() -> Result<ProofRepo
 async fn scenario_happy() -> Result<bool, String> {
     let dir = fresh_dir("happy");
     let backend: Arc<dyn PersistenceBackend> = Arc::new(
-        RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).map_err(|e| e.to_string())?,
+        RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).map_err(|e| e.to_string())?,
     );
     let (multi, coord, state) = bring_up(&dir, backend.clone()).await;
 
@@ -367,7 +366,7 @@ async fn scenario_happy() -> Result<bool, String> {
 async fn scenario_participant_kill() -> Result<bool, String> {
     let dir = fresh_dir("killprep");
     let backend: Arc<dyn PersistenceBackend> = Arc::new(
-        RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).map_err(|e| e.to_string())?,
+        RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).map_err(|e| e.to_string())?,
     );
     let (multi, coord, state) = bring_up(&dir, backend.clone()).await;
 
@@ -403,7 +402,7 @@ async fn scenario_participant_kill() -> Result<bool, String> {
 async fn scenario_coord_kill_post_decision() -> Result<bool, String> {
     let dir = fresh_dir("recovercommit");
     let backend: Arc<dyn PersistenceBackend> = Arc::new(
-        RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).map_err(|e| e.to_string())?,
+        RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).map_err(|e| e.to_string())?,
     );
     let txn_id = "t-modal-recover-commit";
     {
@@ -429,7 +428,7 @@ async fn scenario_coord_kill_post_decision() -> Result<bool, String> {
 
     // Process restart: reopen a brand-new backend over the SAME files.
     let backend2: Arc<dyn PersistenceBackend> = Arc::new(
-        RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).map_err(|e| e.to_string())?,
+        RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).map_err(|e| e.to_string())?,
     );
     let (multi2, coord2, state2) = bring_up(&dir, backend2.clone()).await;
 
@@ -459,7 +458,7 @@ async fn scenario_coord_kill_post_decision() -> Result<bool, String> {
 async fn scenario_coord_kill_pre_decision() -> Result<bool, String> {
     let dir = fresh_dir("recoverabort");
     let backend: Arc<dyn PersistenceBackend> = Arc::new(
-        RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).map_err(|e| e.to_string())?,
+        RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).map_err(|e| e.to_string())?,
     );
     let txn_id = "t-modal-recover-abort";
     {
@@ -490,7 +489,7 @@ async fn scenario_coord_kill_pre_decision() -> Result<bool, String> {
     drop(backend);
 
     let backend2: Arc<dyn PersistenceBackend> = Arc::new(
-        RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).map_err(|e| e.to_string())?,
+        RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).map_err(|e| e.to_string())?,
     );
     let (multi2, coord2, state2) = bring_up(&dir, backend2.clone()).await;
 

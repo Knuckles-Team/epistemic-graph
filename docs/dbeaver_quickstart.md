@@ -27,22 +27,11 @@ Postgres on the same host.
 
 ---
 
-## 2. Pick an auth mode
+## 2. Derive the mandatory SCRAM password
 
-`EPISTEMIC_GRAPH_PGWIRE_AUTH` selects how clients authenticate. The **default is
-`scram`** when `GRAPH_SERVICE_AUTH_SECRET` is set (an authenticated deployment), else
-`trust`.
-
-### Option A — `trust` (dev / localhost only, no password)
-
-```bash
-export EPISTEMIC_GRAPH_PGWIRE_AUTH=trust
-```
-
-Then any user name connects with **no password**. Simplest for a laptop; never expose
-a trust listener beyond loopback.
-
-### Option B — `scram` (SCRAM-SHA-256, the modern-driver default)
+`EPISTEMIC_GRAPH_PGWIRE_AUTH` accepts only `scram`. A non-empty
+`GRAPH_SERVICE_AUTH_SECRET` is required; missing key material or any other mode fails
+startup.
 
 There is **no password table**. The per-user password is *derived* from the engine
 secret, so an authorized operator can compute it and no secret is ever persisted:
@@ -62,13 +51,6 @@ print(hmac.new(secret.encode(), b"pgwire:" + user.encode(), hashlib.sha256).hexd
 PY
 ```
 
-Worked example — with `GRAPH_SERVICE_AUTH_SECRET=example_secret_do_not_use` and
-`user=agent`, the password is:
-
-```
-f85c378d6bcd02bd1f98b872c9409c2612d57ce7685da97dadc165566b799cd9
-```
-
 The pg `user` you log in as becomes the engine's ACL actor (`AgentIdentity`), so
 Row-Level Security / access control applies to your session. Any user string works
 (e.g. `agent:planner`); its derived password is what you must present.
@@ -78,10 +60,7 @@ Row-Level Security / access control applies to your session. Any user string wor
 ## 3a. Connect with `psql`
 
 ```bash
-# trust mode — no password
-psql "host=127.0.0.1 port=5433 user=agent dbname=__commons__"
-
-# scram mode — supply the derived password
+# supply the derived SCRAM password
 export PGPASSWORD="$(python3 -c 'import hmac,hashlib,os;print(hmac.new(os.environ["GRAPH_SERVICE_AUTH_SECRET"].encode(),b"pgwire:agent",hashlib.sha256).hexdigest())')"
 psql "host=127.0.0.1 port=5433 user=agent dbname=__commons__"
 ```
@@ -100,13 +79,13 @@ psql "host=127.0.0.1 port=5433 user=agent dbname=__commons__"
    - **Port**: `5433`
    - **Database**: `__commons__` (or another graph name)
    - **Username**: `agent`
-   - **Password**: leave blank for `trust`; for `scram` paste the derived password
-     from step 2 (Option B). Tick **Save password**.
+   - **Password**: paste the derived password from step 2. Tick **Save password**.
 3. **Driver settings / connection properties** (recommended):
    - DBeaver may probe features some clients don't need. If the initial connection
      test complains, set **Show all databases = off** and keep the single database
      you entered. The engine serves a read-only `pg_catalog`/`information_schema`
-     shim, so metadata browsing of the `nodes`/`edges` and your user tables works,
+     shim, so metadata browsing of the `nodes`/`edges` and the authenticated
+     tenant+actor's user tables works,
      but it is not a full Postgres catalog.
 4. **Test Connection → Finish.** Open a SQL Editor on the connection and run the SQL
    below.
@@ -177,7 +156,7 @@ Notes (verified against [`docs/interfaces/sql.md`](interfaces/sql.md)):
 |---------|-----|
 | `Connection refused` on 5433 | The listener is opt-in — confirm `EPISTEMIC_GRAPH_PGWIRE_ADDR` is set and (Docker) the port is published. Check the server log for `pgwire: serving Postgres wire protocol on …`. |
 | `password authentication failed` | You're in `scram` mode. Recompute `hex(HMAC-SHA256(secret, "pgwire:"+user))` with the **exact** `user` you connect as and the **exact** running secret. |
-| Want no password for local dev | Set `EPISTEMIC_GRAPH_PGWIRE_AUTH=trust` and restart. |
+| Want no password for local dev | Use the embedded engine API; the direct pgwire listener always requires SCRAM. |
 | DBeaver metadata errors on connect | The `pg_catalog` is a read-only shim, not a full Postgres catalog. Point at a single database and disable "show all databases". |
 | `psql` prints `could not interpret result from server: INSERT 2` after an `INSERT` | Cosmetic. The engine's `INSERT` CommandComplete tag omits the always-`0` oid field libpq expects (`INSERT 0 2`); the rows **are** written (verify with a `SELECT`). `UPDATE`/`DELETE`/`SELECT`/`CREATE` tags are unaffected. DBeaver ignores it. |
 

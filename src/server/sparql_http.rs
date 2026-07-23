@@ -19,11 +19,9 @@
 //! `__commons__`); EVERY registry graph is exposed as a named graph so `GRAPH <name>{}`
 //! and `GRAPH ?g{}` work across the engine's graphs.
 //!
-//! Durability note: queries run off an off-lock snapshot (read-only). UPDATEs apply
-//! straight through the live graph cores (so they are visible immediately and persisted
-//! by the engine's checkpoint of dirty graphs) — they do NOT ride the per-op WAL; for
-//! crash-immediate durability use the wire methods (`AddTriples`/`RemoveTriples`/
-//! `ApplyMutation`). The endpoint is the interop convenience surface.
+//! Queries run off an off-lock snapshot. Every UPDATE and Graph Store write is
+//! reconstructed as an exact signed `ApplyMutation` request and enters the native
+//! multi-graph coordinator; the HTTP adapter never mutates a live graph core.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -33,7 +31,6 @@ use tokio::net::TcpListener;
 use tokio::sync::RwLock;
 
 use crate::graph::GraphCore;
-use crate::protocol::GraphType;
 use crate::server::ServerState;
 use eg_rdf::sparql::{Binding, Dataset, Projection, QueryOutcome, SparqlResult};
 use eg_rdf::update::GraphStore;
@@ -42,6 +39,8 @@ use eg_rdf::update::GraphStore;
 pub const DEFAULT_GRAPH_ENV: &str = "EPISTEMIC_GRAPH_SPARQL_DEFAULT_GRAPH";
 /// Env var carrying the bind address (`host:port`) when `--sparql-addr` is not passed.
 pub const SPARQL_ADDR_ENV: &str = "EPISTEMIC_GRAPH_SPARQL_ADDR";
+/// Current typed event carried by the signed `ApplyMutation` protocol method.
+pub const SPARQL_HTTP_UPDATE_EVENT: &str = "sparql_http_update_v1";
 /// SSRF allowlist for outbound `SERVICE` federation (CONCEPT:EG-KG.query.sparql-service-federation-client, feature
 /// `sparql-service`): a comma-separated set of allowed endpoint hosts / `scheme://host:port`
 /// origins. **Empty / unset ⇒ SERVICE is DISABLED (fail-closed)** — no remote client is
@@ -49,25 +48,33 @@ pub const SPARQL_ADDR_ENV: &str = "EPISTEMIC_GRAPH_SPARQL_ADDR";
 /// empty solution). A host resolving to a loopback/link-local/RFC-1918 address is refused
 /// unless the allowlist names that exact host literally.
 pub const SERVICE_ALLOW_ENV: &str = "EPISTEMIC_GRAPH_SPARQL_SERVICE_ALLOW";
+const MAX_HTTP_HEADER_BYTES: usize = 64 * 1024;
+const MAX_HTTP_BODY_BYTES: usize = 8 * 1024 * 1024;
+const HTTP_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 
 /// Serve the SPARQL 1.1 HTTP protocol on `listener`, backed by the engine `state`.
 pub async fn serve(listener: TcpListener, state: Arc<RwLock<ServerState>>) {
+    if let Err(error) = crate::server::require_loopback_listener(&listener) {
+        tracing::error!("SPARQL listener refused: {error}");
+        return;
+    }
     loop {
         let Ok((mut stream, _)) = listener.accept().await else {
             continue;
         };
         let state = state.clone();
         tokio::spawn(async move {
-            let (status, ctype, body) = match read_request(&mut stream).await {
-                Some(req) => handle(&state, req).await,
-                None => (
-                    "400 Bad Request",
-                    "text/plain",
-                    "malformed HTTP request".to_string(),
-                ),
-            };
+            let (status, ctype, body) =
+                match tokio::time::timeout(HTTP_READ_TIMEOUT, read_request(&mut stream)).await {
+                    Ok(Some(req)) => handle(&state, req).await,
+                    _ => (
+                        "400 Bad Request",
+                        "text/plain",
+                        "malformed HTTP request".to_string(),
+                    ),
+                };
             let resp = format!(
-                "HTTP/1.1 {status}\r\ncontent-type: {ctype}\r\ncontent-length: {}\r\naccess-control-allow-origin: *\r\naccess-control-allow-headers: content-type, accept\r\nconnection: close\r\n\r\n{body}",
+                "HTTP/1.1 {status}\r\ncontent-type: {ctype}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
                 body.len()
             );
             let _ = stream.write_all(resp.as_bytes()).await;
@@ -82,6 +89,9 @@ struct HttpRequest {
     target: String,
     content_type: String,
     accept: String,
+    origin: String,
+    authorization: String,
+    request_id: Option<u64>,
     body: String,
 }
 
@@ -99,7 +109,7 @@ async fn read_request(stream: &mut tokio::net::TcpStream) -> Option<HttpRequest>
             return None;
         }
         buf.extend_from_slice(&tmp[..n]);
-        if buf.len() > 16 * 1024 * 1024 {
+        if buf.len() > MAX_HTTP_HEADER_BYTES {
             return None; // header flood guard
         }
     };
@@ -109,25 +119,73 @@ async fn read_request(stream: &mut tokio::net::TcpStream) -> Option<HttpRequest>
     let mut parts = request_line.split_whitespace();
     let method = parts.next()?.to_string();
     let target = parts.next()?.to_string();
+    let version = parts.next()?;
+    if !version.starts_with("HTTP/1.") || parts.next().is_some() {
+        return None;
+    }
 
-    let mut content_length = 0usize;
+    let mut content_length: Option<usize> = None;
     let mut content_type = String::new();
     let mut accept = String::new();
+    let mut origin = String::new();
+    let mut authorization = String::new();
+    let mut request_id: Option<u64> = None;
+    let mut content_type_seen = false;
+    let mut accept_seen = false;
+    let mut origin_seen = false;
+    let mut authorization_seen = false;
+    let mut request_id_seen = false;
     for line in lines {
-        if let Some((k, v)) = line.split_once(':') {
-            let key = k.trim().to_ascii_lowercase();
-            let val = v.trim();
-            match key.as_str() {
-                "content-length" => content_length = val.parse().unwrap_or(0),
-                "content-type" => content_type = val.to_ascii_lowercase(),
-                "accept" => accept = val.to_string(),
-                _ => {}
-            }
+        let (k, v) = line.split_once(':')?;
+        let key = k.trim().to_ascii_lowercase();
+        let val = v.trim();
+        if key.is_empty() {
+            return None;
         }
+        match key.as_str() {
+            "content-length" => {
+                if content_length.is_some() {
+                    return None;
+                }
+                content_length = Some(val.parse().ok()?);
+            }
+            "transfer-encoding" => return None,
+            "content-type" if !content_type_seen => {
+                content_type_seen = true;
+                content_type = val.to_ascii_lowercase();
+            }
+            "accept" if !accept_seen => {
+                accept_seen = true;
+                accept = val.to_string();
+            }
+            "origin" if !origin_seen => {
+                origin_seen = true;
+                origin = val.to_string();
+            }
+            "authorization" if !authorization_seen => {
+                authorization_seen = true;
+                authorization = val.to_string();
+            }
+            "x-epistemic-request-id" if !request_id_seen => {
+                request_id_seen = true;
+                request_id = Some(val.parse().ok()?);
+            }
+            "content-type" | "accept" | "origin" | "authorization" | "x-epistemic-request-id" => {
+                return None
+            }
+            _ => {}
+        }
+    }
+    let content_length = content_length.unwrap_or(0);
+    if content_length > MAX_HTTP_BODY_BYTES {
+        return None;
     }
 
     // Body: whatever followed the header terminator, plus any remaining Content-Length.
     let mut body = buf[header_end + 4..].to_vec();
+    if body.len() > content_length || body.len() > MAX_HTTP_BODY_BYTES {
+        return None;
+    }
     while body.len() < content_length {
         let n = stream.read(&mut tmp).await.ok()?;
         if n == 0 {
@@ -135,15 +193,41 @@ async fn read_request(stream: &mut tokio::net::TcpStream) -> Option<HttpRequest>
         }
         body.extend_from_slice(&tmp[..n]);
     }
-    if content_length > 0 && body.len() > content_length {
-        body.truncate(content_length);
+    if body.len() != content_length {
+        return None;
     }
     Some(HttpRequest {
         method,
         target,
         content_type,
         accept,
+        origin,
+        authorization,
+        request_id,
         body: String::from_utf8_lossy(&body).to_string(),
+    })
+}
+
+fn signed_request(
+    req: &HttpRequest,
+    graph: String,
+    method: crate::protocol::Method,
+) -> Result<crate::protocol::Request, String> {
+    let id = req
+        .request_id
+        .ok_or_else(|| "missing X-Epistemic-Request-Id".to_string())?;
+    let auth_token = req
+        .authorization
+        .strip_prefix("Bearer ")
+        .filter(|token| token.starts_with("eg2."))
+        .ok_or_else(|| "Authorization must be Bearer eg2.<verified-envelope>".to_string())?
+        .to_string();
+    Ok(crate::protocol::Request {
+        id,
+        graph,
+        auth_token,
+        agent_id: None,
+        method,
     })
 }
 
@@ -152,6 +236,15 @@ async fn handle(
     state: &Arc<RwLock<ServerState>>,
     req: HttpRequest,
 ) -> (&'static str, &'static str, String) {
+    // Browser-originated requests are rejected at the data plane. CORS headers
+    // alone do not stop a cross-origin form POST from triggering an update.
+    if !req.origin.is_empty() {
+        return (
+            "403 Forbidden",
+            "text/plain",
+            "browser origin denied".to_string(),
+        );
+    }
     let (path, query_string) = match req.target.split_once('?') {
         Some((p, q)) => (p, q),
         None => (req.target.as_str(), ""),
@@ -160,6 +253,18 @@ async fn handle(
         && (path.starts_with("/sparql") || path.starts_with("/rdf-graphs") || path == "/nl")
     {
         return ("204 No Content", "text/plain", String::new());
+    }
+    let carrier_denied = {
+        let state = state.read().await;
+        crate::server::access::unauthenticated_carrier_denied(&state.isolation)
+    };
+    if carrier_denied {
+        crate::metrics::access_denied();
+        return (
+            "403 Forbidden",
+            "text/plain",
+            "SPARQL/Graph Store HTTP requires an authenticated request-context carrier".to_string(),
+        );
     }
     // Natural-language query facade route (CONCEPT:EG-KG.query.fence-stripper, feature `nl-query`): POST
     // `{text, graph}` → the NL planner → UQL → executed rows as JSON. Served on the SAME
@@ -223,9 +328,21 @@ async fn handle(
         .unwrap_or_else(|| "__commons__".to_string());
 
     if is_update {
-        match run_update(state, &text, &default_graph).await {
-            Ok(()) => ("204 No Content", "text/plain", String::new()),
-            Err(e) => ("400 Bad Request", "text/plain", e),
+        let method = crate::protocol::Method::ApplyMutation {
+            event_type: SPARQL_HTTP_UPDATE_EVENT.to_string(),
+            query: text,
+        };
+        let request = match signed_request(&req, default_graph, method) {
+            Ok(request) => request,
+            Err(error) => return ("401 Unauthorized", "text/plain", error),
+        };
+        let response = crate::server::dispatch::dispatch(state, request).await;
+        match response.error {
+            None => ("204 No Content", "text/plain", String::new()),
+            Some(error) if error.starts_with("ACCESS_DENIED") => {
+                ("403 Forbidden", "text/plain", error)
+            }
+            Some(error) => ("400 Bad Request", "text/plain", error),
         }
     } else {
         // `output=`/`format=` query-param override wins over the Accept header (EG-050).
@@ -285,19 +402,17 @@ async fn handle_nl(
         .or_else(|| std::env::var(DEFAULT_GRAPH_ENV).ok())
         .unwrap_or_else(|| "__commons__".to_string());
 
-    // Authenticated in-process dispatch — the `/nl` facade is a trusted local surface
-    // (like `/sparql`), so it mints a valid token for the engine's own secret rather than
-    // bypassing auth.
-    let secret = { state.read().await.auth_secret.clone() };
+    // The local adapter uses a fixed read-only service identity that must be
+    // provisioned in durable RBAC policy.
     let id = 1u64;
     let request = crate::protocol::Request {
         id,
         graph: graph.clone(),
-        auth_token: crate::server::compute_auth_token(&secret, id),
-        agent_id: None,
+        auth_token: String::new(),
+        agent_id: Some("service:local-query".to_string()),
         method: crate::protocol::Method::NlQuery { text, graph },
     };
-    let resp = crate::server::dispatch(state, request).await;
+    let resp = crate::server::dispatch::dispatch_authenticated_local_query(state, request).await;
     if let Some(err) = resp.error {
         return (
             "400 Bad Request",
@@ -408,11 +523,11 @@ fn run_dataset_query(ds: &Dataset, query: &str) -> Result<QueryOutcome, String> 
         let svc: Option<&dyn eg_rdf::sparql::RemoteSparql> = client
             .as_ref()
             .map(|c| c as &dyn eg_rdf::sparql::RemoteSparql);
-        eg_rdf::sparql::run_outcome_dataset_service(ds, query, &Projection::raw(), svc)
+        eg_rdf::sparql::execute(ds, query, &Projection::raw(), svc)
     }
     #[cfg(not(feature = "sparql-service"))]
     {
-        eg_rdf::sparql::run_outcome_dataset(ds, query, &Projection::raw())
+        eg_rdf::sparql::execute(ds, query, &Projection::raw(), None)
     }
 }
 
@@ -606,56 +721,122 @@ fn json_term_to_binding(term: &serde_json::Value) -> Option<Binding> {
     })
 }
 
-/// Execute a SPARQL UPDATE against the live registry graphs (creating any named graph
-/// the update references). True named-graph routing: each graph term hits its own core.
-async fn run_update(
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct PlannedGraphUpdate {
+    pub graph: String,
+    pub graph_type: crate::protocol::GraphType,
+    pub existed_before: bool,
+    pub before_msgpack: Vec<u8>,
+    pub after_msgpack: Vec<u8>,
+}
+
+/// Return the complete graph set an update may address. Lifecycle creation stays
+/// in dispatch so it uses the verified caller and durable graph coordinator.
+pub(crate) fn update_graphs(update_text: &str, default_graph: &str) -> Result<Vec<String>, String> {
+    let parsed = eg_rdf::update::parse_update(update_text)?;
+    let mut graphs = eg_rdf::update::referenced_named_graphs(&parsed);
+    graphs.push(default_graph.to_string());
+    graphs.sort();
+    graphs.dedup();
+    Ok(graphs)
+}
+
+pub(crate) fn update_uses_variable_graph(update_text: &str) -> bool {
+    let tokens = update_text.split_whitespace().collect::<Vec<_>>();
+    tokens.windows(2).any(|pair| {
+        pair[0].eq_ignore_ascii_case("graph")
+            && (pair[1].starts_with('?') || pair[1].starts_with('$'))
+    })
+}
+
+/// Plan a SPARQL UPDATE entirely on detached graph images. The returned before/
+/// after images are consumed by dispatch's per-graph MutationBatch coordinator;
+/// this function never exposes or mutates a live registry core.
+pub(crate) async fn plan_update(
     state: &Arc<RwLock<ServerState>>,
     update_text: &str,
     default_graph: &str,
-) -> Result<(), String> {
-    // Parse first (cheap) so we know which named graphs to ensure exist.
-    let parsed = eg_rdf::update::parse_update(update_text)?;
-    let referenced = eg_rdf::update::referenced_named_graphs(&parsed);
+    authorized_graphs: &[String],
+) -> Result<Vec<PlannedGraphUpdate>, String> {
+    #[cfg(not(feature = "shacl"))]
+    return Err("SPARQL UPDATE requires the shacl integrity-guard feature".to_string());
 
-    // Under the write lock: ensure the referenced named graphs exist, then clone every
-    // graph's `Arc<GraphCore>` (writing through the Arc mutates the live graph).
-    let mut graphs: HashMap<String, Arc<GraphCore>> = HashMap::new();
+    #[cfg(feature = "shacl")]
     {
-        let mut s = state.write().await;
-        for name in &referenced {
-            if !s.registry.exists(name) {
-                let _ = s.registry.create_graph(name, GraphType::Global, None);
+        let parsed = eg_rdf::update::parse_update(update_text)?;
+        let live = {
+            let s = state.read().await;
+            let mut values = Vec::new();
+            for name in authorized_graphs {
+                values.push((
+                    name.clone(),
+                    s.registry
+                        .get(name)
+                        .map(|entry| (entry.graph_type, entry.core.clone())),
+                ));
             }
-        }
-        // Default graph maps to the configured default; absent ⇒ create it.
-        if !s.registry.exists(default_graph) {
-            let _ = s
-                .registry
-                .create_graph(default_graph, GraphType::Global, None);
-        }
-        if let Some(e) = s.registry.get(default_graph) {
-            graphs.insert(String::new(), e.core.clone());
-        }
-        for (name, _) in s.registry.list() {
-            if let Some(e) = s.registry.get(&name) {
-                graphs.insert(name, e.core.clone());
+            values
+        };
+        let default_graph = default_graph.to_string();
+        tokio::task::spawn_blocking(move || -> Result<Vec<PlannedGraphUpdate>, String> {
+            let mut before = HashMap::new();
+            let mut staged_by_name = HashMap::new();
+            let mut existed = HashMap::new();
+            let mut graph_types = HashMap::new();
+            for (name, existing) in live {
+                let (graph_type, core, existed_before) = match existing {
+                    Some((graph_type, core)) => (graph_type, core, true),
+                    None => (
+                        crate::protocol::GraphType::Global,
+                        Arc::new(GraphCore::new()),
+                        false,
+                    ),
+                };
+                let bytes = core.to_msgpack()?;
+                let staged = Arc::new(GraphCore::from_snapshot(core.snapshot(), core.version())?);
+                before.insert(name.clone(), bytes);
+                existed.insert(name.clone(), existed_before);
+                graph_types.insert(name.clone(), graph_type);
+                staged_by_name.insert(name, staged);
             }
-        }
-    }
-
-    let store = EndpointStore { graphs };
-    let text = update_text.to_string();
-    let report = tokio::task::spawn_blocking(move || {
-        eg_rdf::update::execute_str(&text, &store, &Projection::raw()).inspect(|_r| {
-            // Mark touched graphs dirty so the checkpoint persists them.
-            for core in store.graphs.values() {
-                core.mark_dirty();
+            let default = staged_by_name
+                .get(&default_graph)
+                .cloned()
+                .ok_or_else(|| format!("Graph '{default_graph}' not found"))?;
+            let mut graphs = staged_by_name.clone();
+            graphs.insert(String::new(), default);
+            let store = EndpointStore { graphs };
+            let guard = crate::server::icv_guard::CoreIcvGuard::routed(&store.graphs);
+            eg_rdf::update::execute(&parsed, &store, &Projection::raw(), &guard)
+                .map_err(|error| error.to_string())?;
+            let mut planned = Vec::new();
+            for (graph, core) in staged_by_name {
+                let after_msgpack = core.to_msgpack()?;
+                let before_msgpack = before
+                    .remove(&graph)
+                    .ok_or_else(|| "SPARQL planner lost a graph pre-image".to_string())?;
+                let existed_before = existed
+                    .remove(&graph)
+                    .ok_or_else(|| "SPARQL planner lost graph existence state".to_string())?;
+                if !existed_before || before_msgpack != after_msgpack {
+                    planned.push(PlannedGraphUpdate {
+                        graph_type: graph_types
+                            .remove(&graph)
+                            .ok_or_else(|| "SPARQL planner lost graph type".to_string())?,
+                        graph,
+                        existed_before,
+                        before_msgpack,
+                        after_msgpack,
+                    });
+                }
             }
+            planned.sort_by(|left, right| left.graph.cmp(&right.graph));
+            Ok(planned)
         })
-    })
-    .await
-    .map_err(|e| format!("compute task failed: {e}"))?;
-    report.map(|_| ())
+        .await
+        .map_err(|error| format!("compute task failed: {error}"))?
+    }
 }
 
 // ── W3C SPARQL 1.1 Graph Store HTTP Protocol (CONCEPT:EG-KG.query.graph-store-http-protocol) ─────────────────────
@@ -673,8 +854,8 @@ async fn run_update(
 // `?default` for the default graph) and DIRECT `/rdf-graphs/<name>`. It reuses the SAME
 // registry, RDF parsers (`parse_turtle`/`parse_ntriples`), the merge-aware
 // `insert_triples` write op, and the `export_triples` + Turtle/N-Triples serializers the
-// query endpoint already uses. Like the endpoint UPDATE path, writes apply straight
-// through the live cores and are marked dirty for the next checkpoint.
+// query endpoint already uses. Writes use the same signed multi-graph coordinator
+// as `/sparql` UPDATE; this carrier owns no direct graph mutation path.
 async fn handle_graph_store(
     state: &Arc<RwLock<ServerState>>,
     req: &HttpRequest,
@@ -741,62 +922,58 @@ async fn handle_graph_store(
                     )
                 }
             };
-            let replace = req.method == "PUT";
-            // Ensure the graph exists (remember whether we created it ⇒ 201 vs 204).
-            let (core, created) = {
-                let mut s = state.write().await;
-                let created = !s.registry.exists(&graph);
-                if created {
-                    let _ = s.registry.create_graph(&graph, GraphType::Global, None);
-                }
-                match s.registry.get(&graph).map(|e| e.core.clone()) {
-                    Some(c) => (c, created),
-                    None => {
-                        return (
-                            "500 Internal Server Error",
-                            "text/plain",
-                            format!("could not open graph: {graph}"),
-                        )
-                    }
-                }
+            let ntriples = match eg_rdf::mapping::to_ntriples(&triples) {
+                Ok(value) => value,
+                Err(error) => return ("400 Bad Request", "text/plain", error),
             };
-            let applied = tokio::task::spawn_blocking(move || -> Result<(), String> {
-                if replace {
-                    core.clear(); // PUT replaces; POST merges.
+            let created = !state.read().await.registry.exists(&graph);
+            let query = if req.method == "PUT" {
+                format!("CLEAR DEFAULT; INSERT DATA {{\n{ntriples}}}")
+            } else {
+                format!("INSERT DATA {{\n{ntriples}}}")
+            };
+            let method = crate::protocol::Method::ApplyMutation {
+                event_type: SPARQL_HTTP_UPDATE_EVENT.to_string(),
+                query,
+            };
+            let request = match signed_request(req, graph, method) {
+                Ok(request) => request,
+                Err(error) => return ("401 Unauthorized", "text/plain", error),
+            };
+            let response = crate::server::dispatch::dispatch(state, request).await;
+            match response.error {
+                None if created => ("201 Created", "text/plain", String::new()),
+                None => ("204 No Content", "text/plain", String::new()),
+                Some(error) if error.starts_with("ACCESS_DENIED") => {
+                    ("403 Forbidden", "text/plain", error)
                 }
-                eg_rdf::update::insert_triples(&core, &triples)?;
-                core.mark_dirty();
-                Ok(())
-            })
-            .await;
-            match applied {
-                Ok(Ok(())) if created => ("201 Created", "text/plain", String::new()),
-                Ok(Ok(())) => ("204 No Content", "text/plain", String::new()),
-                Ok(Err(e)) => ("400 Bad Request", "text/plain", e),
-                Err(e) => (
-                    "500 Internal Server Error",
-                    "text/plain",
-                    format!("compute task failed: {e}"),
-                ),
+                Some(error) => ("400 Bad Request", "text/plain", error),
             }
         }
         "DELETE" => {
-            let core = {
-                let s = state.read().await;
-                s.registry.get(&graph).map(|e| e.core.clone())
-            };
-            let Some(core) = core else {
+            if !state.read().await.registry.exists(&graph) {
                 return (
                     "404 Not Found",
                     "text/plain",
                     format!("no such graph: {graph}"),
                 );
+            }
+            let method = crate::protocol::Method::ApplyMutation {
+                event_type: SPARQL_HTTP_UPDATE_EVENT.to_string(),
+                query: "CLEAR DEFAULT".to_string(),
             };
-            // Empty the graph (keeps the registry entry addressable — the same semantics
-            // the endpoint UPDATE `DROP`/`DropNamedGraph` op uses).
-            core.clear();
-            core.mark_dirty();
-            ("204 No Content", "text/plain", String::new())
+            let request = match signed_request(req, graph, method) {
+                Ok(request) => request,
+                Err(error) => return ("401 Unauthorized", "text/plain", error),
+            };
+            let response = crate::server::dispatch::dispatch(state, request).await;
+            match response.error {
+                None => ("204 No Content", "text/plain", String::new()),
+                Some(error) if error.starts_with("ACCESS_DENIED") => {
+                    ("403 Forbidden", "text/plain", error)
+                }
+                Some(error) => ("400 Bad Request", "text/plain", error),
+            }
         }
         _ => (
             "405 Method Not Allowed",
@@ -838,19 +1015,10 @@ fn parse_rdf_body(content_type: &str, body: &str) -> Result<Vec<eg_rdf::oxrdf::T
     }
 }
 
-/// Export a graph core to RDF triples for GSP `GET` — a cfg wrapper over the shared
-/// [`eg_rdf::mapping::export_triples`] inverse mapping (the multi-valued-literal quad
-/// store, present only under `rdf-redb`, is not unioned into this convenience read).
+/// Export a graph core to RDF triples for GSP `GET` through the single
+/// authoritative inverse mapping.
 fn export_graph(core: &GraphCore, name: &str) -> Result<Vec<eg_rdf::oxrdf::Triple>, String> {
-    #[cfg(feature = "rdf-redb")]
-    {
-        eg_rdf::mapping::export_triples(core, name, None)
-    }
-    #[cfg(not(feature = "rdf-redb"))]
-    {
-        let _ = name;
-        eg_rdf::mapping::export_triples(core, name)
-    }
+    eg_rdf::mapping::export_triples(core, name)
 }
 
 /// The registry-backed store the endpoint UPDATE writes through (pre-seeded cores).
@@ -1244,6 +1412,22 @@ fn hex_val(b: u8) -> Option<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn signed_update_inventory_is_deterministic_and_detects_variable_graphs() {
+        let graphs = update_graphs(
+            "INSERT DATA { GRAPH <urn:g2> { <urn:s> <urn:p> <urn:o> } }",
+            "urn:g1",
+        )
+        .unwrap();
+        assert_eq!(graphs, vec!["urn:g1".to_string(), "urn:g2".to_string()]);
+        assert!(update_uses_variable_graph(
+            "DELETE { GRAPH ?g { ?s ?p ?o } } WHERE { GRAPH ?g { ?s ?p ?o } }"
+        ));
+        assert!(!update_uses_variable_graph(
+            "INSERT DATA { GRAPH <urn:g> { <urn:s> <urn:p> <urn:o> } }"
+        ));
+    }
 
     #[test]
     fn percent_and_plus_decode() {

@@ -8,7 +8,7 @@
 //! (`content_ref`); the chunk bytes NEVER touch the inline node/edge KV.
 //!
 //! This is the DAG-low storage core. It is a self-contained redb database
-//! (`{persist_dir}/blob.redb`) SEPARATE from the graph store's `graph.redb` —
+//! (`{persist_dir}/blob.redb`) SEPARATE from the authoritative graph shards —
 //! redb takes an exclusive per-process file lock, so the CAS cannot share the
 //! graph DB; a separate file is the clean seam and keeps the manifest/chunk/
 //! refcount tables off the hot graph store.
@@ -32,6 +32,7 @@
 //! liveness set is recomputed from the surviving manifests at sweep time
 //! (mark-and-sweep), so a chunk shared by a live blob is always kept.
 
+use crate::mutation_batch::MutationBatch;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
@@ -42,63 +43,115 @@ use std::sync::Arc;
 /// ([`crate::server::blob::cdc`], CONCEPT:EG-KG.storage.backward-manifest-read) now targets this as its AVERAGE.
 /// Still the default chunk size of the wire upload cursor (`BlobBegin`).
 pub const DEFAULT_CHUNK_SIZE: usize = 2 * 1024 * 1024;
+pub(crate) const MAX_BLOB_CHUNK_BYTES: usize = 64 * 1024 * 1024;
+const MAX_BLOB_MANIFEST_BYTES: usize = 128 * 1024 * 1024;
+const MAX_BLOB_MANIFEST_ITEMS: usize = 3_000_000;
+const MAX_BLOB_CHUNKS: usize = 1_000_000;
+const MAX_BLOB_GC_TRACKED_DIGESTS: usize = 1_000_000;
 
-/// Manifest of a content-addressed blob: the ordered chunk digests + per-chunk
-/// lengths + total length. Serialized to MessagePack; the blob digest is the sha256
-/// of those bytes.
+pub(super) fn validate_digest(digest: &str) -> Result<(), String> {
+    if digest.len() == 64 && digest.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        Ok(())
+    } else {
+        Err("blob digest is invalid".to_string())
+    }
+}
+
+fn track_gc_digest(set: &mut HashSet<String>, digest: String) -> Result<(), String> {
+    set.insert(digest);
+    if set.len() > MAX_BLOB_GC_TRACKED_DIGESTS {
+        Err("blob garbage collection exceeds resource limits".to_string())
+    } else {
+        Ok(())
+    }
+}
+
+fn blob_msgpack_limits() -> eg_types::msgpack::MsgpackLimits {
+    eg_types::msgpack::MsgpackLimits::new(
+        MAX_BLOB_MANIFEST_BYTES,
+        MAX_BLOB_MANIFEST_ITEMS,
+        eg_types::msgpack::DEFAULT_MAX_DEPTH,
+    )
+}
+
+fn decode_blob_value<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Result<T, String> {
+    eg_types::msgpack::decode_bounded(bytes, blob_msgpack_limits())
+        .map_err(|_| "blob metadata is invalid or exceeds resource limits".to_string())
+}
+
+fn decode_manifest(bytes: &[u8]) -> Result<BlobManifest, String> {
+    let manifest: BlobManifest = decode_blob_value(bytes)?;
+    manifest.validate()?;
+    Ok(manifest)
+}
+
+/// Current manifest of a content-addressed blob: the ordered chunk digests,
+/// exact per-chunk lengths, total length, and opaque owner. Serialized to
+/// MessagePack; the blob digest is the SHA-256 of those bytes.
 ///
-/// ## On-disk format & backward read (CONCEPT:EG-KG.storage.backward-manifest-read)
-///
-/// EG-071 switched the splitter from a fixed 2 MiB stride to content-defined
-/// (Gear/FastCDC) chunking, so chunks are now VARIABLE length. `chunk_lens` records
-/// each chunk's byte length (offsets are its running prefix sum). It is
-/// `#[serde(default)]`, so a PRE-EG-071 manifest — written with only `chunks`/`len`/
-/// fixed `chunk_size` — still deserializes: it lands with an empty `chunk_lens`, and
-/// [`chunk_lengths`](Self::chunk_lengths) reconstructs the boundaries from the fixed
-/// `chunk_size`. We chose additive `#[serde(default)]` over a versioned envelope
-/// because reconstruction (concatenating the stored chunk bytes in order) never
-/// needs the lengths — the chunk bytes are self-describing — so OLD blobs remain
-/// byte-for-byte reconstructable with zero migration; the lengths are metadata for
-/// indexing/seeking and dedup observability. `chunk_size` is `0` for content-defined
-/// manifests and non-zero only for legacy fixed-stride ones (the reconstruction key).
+/// Only this explicitly versioned shape is accepted. Retired fixed-stride or
+/// unowned manifests must be migrated offline before the engine starts; the live
+/// serving path never guesses missing boundaries or authority.
+pub const BLOB_MANIFEST_VERSION: u16 = 2;
+pub const ENGINE_BLOB_OWNER_SCOPE: &str = "engine-internal";
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BlobManifest {
+    pub schema_version: u16,
+    /// Verified tenant+principal ownership, or the reserved engine-internal scope.
+    pub owner_scope: String,
     /// Hex sha256 chunk digests, in file order.
     pub chunks: Vec<String>,
-    /// Per-chunk byte length, parallel to `chunks` (CONCEPT:EG-KG.storage.backward-manifest-read). Empty in a
-    /// pre-EG-071 fixed-stride manifest — see [`chunk_lengths`](Self::chunk_lengths).
-    #[serde(default)]
+    /// Exact per-chunk byte length, parallel to `chunks`.
     pub chunk_lens: Vec<u32>,
     /// Total length of the assembled blob in bytes.
     pub len: u64,
-    /// Legacy fixed chunk size: `0` for content-defined (EG-071) manifests; the
-    /// fixed stride for pre-EG-071 manifests, where it reconstructs `chunk_lens`.
+    /// Requested upload/chunker size. Zero denotes the native content-defined
+    /// chunker default; boundaries are always read from `chunk_lens`.
     pub chunk_size: u32,
 }
 
 impl BlobManifest {
-    /// Per-chunk byte lengths, in file order. Returns the recorded `chunk_lens` for
-    /// content-defined (EG-071) manifests; for a legacy fixed-stride manifest (empty
-    /// `chunk_lens`, non-zero `chunk_size`) it RECONSTRUCTS them — every chunk is
-    /// `chunk_size` except a possibly-shorter final one. CONCEPT:EG-KG.storage.backward-manifest-read backward read.
+    pub(super) fn validate(&self) -> Result<(), String> {
+        if self.schema_version != BLOB_MANIFEST_VERSION
+            || self.owner_scope.is_empty()
+            || self.owner_scope.len() > 256
+            || self.chunks.len() > MAX_BLOB_CHUNKS
+            || self.chunks.iter().any(|digest| {
+                digest.len() != 64 || !digest.bytes().all(|byte| byte.is_ascii_hexdigit())
+            })
+        {
+            return Err("blob manifest is invalid or exceeds resource limits".to_string());
+        }
+        if self.chunks.is_empty() {
+            return if self.len == 0 && self.chunk_lens.is_empty() {
+                Ok(())
+            } else {
+                Err("blob manifest is inconsistent".to_string())
+            };
+        }
+        if self.chunk_lens.len() != self.chunks.len()
+            || self.chunk_size as usize > MAX_BLOB_CHUNK_BYTES
+            || self
+                .chunk_lens
+                .iter()
+                .any(|length| *length == 0 || *length as usize > MAX_BLOB_CHUNK_BYTES)
+        {
+            return Err("blob manifest is inconsistent".to_string());
+        }
+        let total = self
+            .chunk_lens
+            .iter()
+            .try_fold(0u64, |sum, length| sum.checked_add(*length as u64));
+        if total != Some(self.len) {
+            return Err("blob manifest is inconsistent".to_string());
+        }
+        Ok(())
+    }
+
+    /// Exact per-chunk byte lengths, in file order.
     pub fn chunk_lengths(&self) -> Vec<u32> {
-        if !self.chunk_lens.is_empty() || self.chunks.is_empty() {
-            return self.chunk_lens.clone();
-        }
-        // Legacy fixed-stride reconstruction.
-        let n = self.chunks.len();
-        let cs = self.chunk_size as u64;
-        if cs == 0 {
-            return Vec::new();
-        }
-        let mut lens = Vec::with_capacity(n);
-        let mut remaining = self.len;
-        for _ in 0..n {
-            let l = remaining.min(cs);
-            lens.push(l as u32);
-            remaining = remaining.saturating_sub(l);
-        }
-        lens
+        self.chunk_lens.clone()
     }
 
     /// Per-chunk `(offset, len)` boundaries, in file order — the running prefix sum
@@ -177,10 +230,107 @@ pub trait ChunkStore: Send + Sync {
 
     /// Total blobs (manifests) currently stored.
     fn blob_count(&self) -> Result<u64, String>;
+
+    /// Universal subordinate-domain version. Backends that cannot atomically
+    /// persist native state plus MutationBatch metadata fail closed.
+    fn mutation_version(&self, _tenant: &str, _graph: &str) -> Result<u64, String> {
+        Err("blob backend does not provide atomic MutationBatch coordination".to_string())
+    }
+
+    fn commit_cursor_batch(
+        &self,
+        _batch: &MutationBatch,
+        _cursor: u64,
+        _committed_at_ms: u64,
+    ) -> Result<u64, String> {
+        Err("blob backend does not provide atomic MutationBatch coordination".to_string())
+    }
+
+    fn put_chunk_batch(
+        &self,
+        _bytes: &[u8],
+        _batch: &MutationBatch,
+        _committed_at_ms: u64,
+    ) -> Result<(String, bool), String> {
+        Err("blob backend does not provide atomic MutationBatch coordination".to_string())
+    }
+
+    /// Atomically store one content-addressed chunk, acquire its reference, and
+    /// commit the native MutationBatch result in the same redb transaction.
+    fn put_chunk_ref_batch(
+        &self,
+        _bytes: &[u8],
+        _batch: &MutationBatch,
+        _committed_at_ms: u64,
+    ) -> Result<(String, bool, u64), String> {
+        Err("blob backend does not provide atomic chunk/reference coordination".to_string())
+    }
+
+    fn put_manifest_batch(
+        &self,
+        _blob_digest: &str,
+        _manifest: &BlobManifest,
+        _batch: &MutationBatch,
+        _committed_at_ms: u64,
+    ) -> Result<String, String> {
+        Err("blob backend does not provide atomic MutationBatch coordination".to_string())
+    }
+
+    fn adjust_ref_batch(
+        &self,
+        _blob_digest: &str,
+        _delta: i64,
+        _batch: &MutationBatch,
+        _committed_at_ms: u64,
+    ) -> Result<u64, String> {
+        Err("blob backend does not provide atomic MutationBatch coordination".to_string())
+    }
+
+    fn sweep_batch(
+        &self,
+        _batch: &MutationBatch,
+        _committed_at_ms: u64,
+    ) -> Result<SweepStats, String> {
+        Err("blob backend does not provide atomic MutationBatch coordination".to_string())
+    }
+
+    fn begin_upload_batch(
+        &self,
+        _cursor: u64,
+        _chunk_size: u32,
+        _owner_scope: &str,
+        _batch: &MutationBatch,
+        _committed_at_ms: u64,
+    ) -> Result<u64, String> {
+        Err("blob backend does not provide durable upload coordination".to_string())
+    }
+
+    fn put_upload_chunk_batch(
+        &self,
+        _cursor: u64,
+        _bytes: &[u8],
+        _batch: &MutationBatch,
+        _committed_at_ms: u64,
+    ) -> Result<(String, u32), String> {
+        Err("blob backend does not provide durable upload coordination".to_string())
+    }
+
+    fn load_upload(&self, _cursor: u64) -> Result<Option<BlobManifest>, String> {
+        Err("blob backend does not provide durable upload coordination".to_string())
+    }
+
+    fn commit_upload_batch(
+        &self,
+        _cursor: u64,
+        _batch: &MutationBatch,
+        _committed_at_ms: u64,
+    ) -> Result<String, String> {
+        Err("blob backend does not provide durable upload coordination".to_string())
+    }
 }
 
 /// What a [`ChunkStore::sweep`] reclaimed.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SweepStats {
     pub blobs_reclaimed: u64,
     pub chunks_reclaimed: u64,
@@ -199,6 +349,50 @@ use redb::{
 const CAS_CHUNKS: TableDefinition<&str, &[u8]> = TableDefinition::new("cas_chunks");
 const CAS_BLOBS: TableDefinition<&str, &[u8]> = TableDefinition::new("cas_blobs");
 const CAS_REFCOUNT: TableDefinition<&str, u64> = TableDefinition::new("cas_refcount");
+const CAS_UPLOADS: TableDefinition<u64, &[u8]> = TableDefinition::new("cas_uploads");
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct DurableUpload {
+    owner_scope: String,
+    chunk_digests: Vec<String>,
+    chunk_lens: Vec<u32>,
+    len: u64,
+    chunk_size: u32,
+    applied_batches: HashSet<String>,
+}
+
+impl DurableUpload {
+    fn manifest(&self) -> BlobManifest {
+        BlobManifest {
+            schema_version: BLOB_MANIFEST_VERSION,
+            owner_scope: self.owner_scope.clone(),
+            chunks: self.chunk_digests.clone(),
+            chunk_lens: self.chunk_lens.clone(),
+            len: self.len,
+            chunk_size: self.chunk_size,
+        }
+    }
+
+    fn validate(&self) -> Result<(), String> {
+        if self.chunk_size == 0
+            || self.chunk_size as usize > MAX_BLOB_CHUNK_BYTES
+            || self.applied_batches.len() > MAX_BLOB_CHUNKS
+            || self
+                .applied_batches
+                .iter()
+                .any(|batch_id| batch_id.is_empty() || batch_id.len() > 1024)
+        {
+            return Err("blob upload exceeds resource limits".to_string());
+        }
+        self.manifest().validate()
+    }
+}
+
+fn decode_upload(bytes: &[u8]) -> Result<DurableUpload, String> {
+    let upload: DurableUpload = decode_blob_value(bytes)?;
+    upload.validate()?;
+    Ok(upload)
+}
 
 /// Chunks to flush per group commit (CONCEPT:EG-KG.storage.bounded-blob-memory — bounded memory). At the
 /// 2 MiB default chunk size this is a ~64 MiB write window: redb buffers at most
@@ -262,7 +456,9 @@ impl RedbChunkStore {
         wtx.open_table(CAS_CHUNKS).map_err(|e| e.to_string())?;
         wtx.open_table(CAS_BLOBS).map_err(|e| e.to_string())?;
         wtx.open_table(CAS_REFCOUNT).map_err(|e| e.to_string())?;
+        wtx.open_table(CAS_UPLOADS).map_err(|e| e.to_string())?;
         wtx.commit().map_err(|e| e.to_string())?;
+        eg_mutation_store::initialize(&db)?;
         let group = std::env::var("EPISTEMIC_GRAPH_BLOB_GROUP_CHUNKS")
             .ok()
             .and_then(|v| v.parse().ok())
@@ -296,6 +492,9 @@ impl RedbChunkStore {
 
 impl ChunkStore for RedbChunkStore {
     fn put_chunk(&self, bytes: &[u8]) -> Result<(String, bool), String> {
+        if bytes.len() > MAX_BLOB_CHUNK_BYTES {
+            return Err("blob chunk exceeds resource limits".to_string());
+        }
         let digest = hex_digest(bytes);
         let mut batch = self.batch.lock();
         // Open the group's write txn lazily; reuse it across chunks in the window.
@@ -337,11 +536,19 @@ impl ChunkStore for RedbChunkStore {
         // just-uploaded chunk is durable + visible (redb reads don't see an
         // uncommitted write txn).
         self.flush_chunks()?;
+        validate_digest(digest)?;
         let rtx = self.db.begin_read().map_err(|e| e.to_string())?;
         let t = rtx.open_table(CAS_CHUNKS).map_err(|e| e.to_string())?;
-        Ok(t.get(digest)
+        t.get(digest)
             .map_err(|e| e.to_string())?
-            .map(|g| g.value().to_vec()))
+            .map(|g| {
+                if g.value().len() > MAX_BLOB_CHUNK_BYTES {
+                    Err("stored blob chunk exceeds resource limits".to_string())
+                } else {
+                    Ok(g.value().to_vec())
+                }
+            })
+            .transpose()
     }
 
     fn put_manifest(&self, blob_digest: &str, manifest: &BlobManifest) -> Result<(), String> {
@@ -349,7 +556,14 @@ impl ChunkStore for RedbChunkStore {
         // (the manifest's chunks must all be durable before the manifest references
         // them), then write the manifest in its own durable txn.
         self.flush_chunks()?;
+        manifest.validate()?;
         let bytes = rmp_serde::to_vec_named(manifest).map_err(|e| e.to_string())?;
+        eg_types::msgpack::validate_single_value(&bytes, blob_msgpack_limits())
+            .map_err(|_| "blob manifest exceeds resource limits".to_string())?;
+        validate_digest(blob_digest)?;
+        if blob_digest != hex_digest(&bytes) {
+            return Err("blob manifest digest does not match its content".to_string());
+        }
         let mut wtx = self.db.begin_write().map_err(|e| e.to_string())?;
         wtx.set_durability(Durability::Immediate)
             .map_err(|e| e.to_string())?;
@@ -364,12 +578,11 @@ impl ChunkStore for RedbChunkStore {
 
     fn get_manifest(&self, blob_digest: &str) -> Result<Option<BlobManifest>, String> {
         self.flush_chunks()?;
+        validate_digest(blob_digest)?;
         let rtx = self.db.begin_read().map_err(|e| e.to_string())?;
         let t = rtx.open_table(CAS_BLOBS).map_err(|e| e.to_string())?;
         match t.get(blob_digest).map_err(|e| e.to_string())? {
-            Some(g) => Ok(Some(
-                rmp_serde::from_slice(g.value()).map_err(|e| e.to_string())?,
-            )),
+            Some(g) => Ok(Some(decode_manifest(g.value())?)),
             None => Ok(None),
         }
     }
@@ -384,6 +597,7 @@ impl ChunkStore for RedbChunkStore {
 
     fn refcount(&self, blob_digest: &str) -> Result<u64, String> {
         self.flush_chunks()?;
+        validate_digest(blob_digest)?;
         let rtx = self.db.begin_read().map_err(|e| e.to_string())?;
         let t = rtx.open_table(CAS_REFCOUNT).map_err(|e| e.to_string())?;
         Ok(t.get(blob_digest)
@@ -397,104 +611,7 @@ impl ChunkStore for RedbChunkStore {
         let mut wtx = self.db.begin_write().map_err(|e| e.to_string())?;
         wtx.set_durability(Durability::Immediate)
             .map_err(|e| e.to_string())?;
-        let mut stats = SweepStats::default();
-        {
-            // Phase 1 (MARK dead): collect every blob with refcount 0.
-            let dead: Vec<String> = {
-                let refs = wtx.open_table(CAS_REFCOUNT).map_err(|e| e.to_string())?;
-                let mut dead = Vec::new();
-                for row in refs.iter().map_err(|e| e.to_string())? {
-                    let (k, v) = row.map_err(|e| e.to_string())?;
-                    if v.value() == 0 {
-                        dead.push(k.value().to_string());
-                    }
-                }
-                dead
-            };
-            // Also treat a manifest with NO refcount entry as dead (an
-            // uncommitted/abandoned upload that was never referenced).
-            let orphan_manifests: Vec<String> = {
-                let blobs = wtx.open_table(CAS_BLOBS).map_err(|e| e.to_string())?;
-                let refs = wtx.open_table(CAS_REFCOUNT).map_err(|e| e.to_string())?;
-                let mut orphans = Vec::new();
-                for row in blobs.iter().map_err(|e| e.to_string())? {
-                    let (k, _) = row.map_err(|e| e.to_string())?;
-                    let d = k.value();
-                    if refs.get(d).map_err(|e| e.to_string())?.is_none() {
-                        orphans.push(d.to_string());
-                    }
-                }
-                orphans
-            };
-            let mut to_delete: HashSet<String> = dead.into_iter().collect();
-            to_delete.extend(orphan_manifests);
-
-            // Phase 2 (SWEEP): recompute the LIVE chunk set from the manifests that
-            // SURVIVE (not in to_delete), so any chunk a live blob still lists is
-            // kept even if a dead blob also listed it.
-            let live_chunks: HashSet<String> = {
-                let blobs = wtx.open_table(CAS_BLOBS).map_err(|e| e.to_string())?;
-                let mut live = HashSet::new();
-                for row in blobs.iter().map_err(|e| e.to_string())? {
-                    let (k, v) = row.map_err(|e| e.to_string())?;
-                    if to_delete.contains(k.value()) {
-                        continue;
-                    }
-                    let m: BlobManifest =
-                        rmp_serde::from_slice(v.value()).map_err(|e| e.to_string())?;
-                    live.extend(m.chunks);
-                }
-                live
-            };
-
-            // Collect the chunks the dying blobs reference, minus the live set =
-            // the orphan chunks to reclaim.
-            let orphan_chunks: HashSet<String> = {
-                let blobs = wtx.open_table(CAS_BLOBS).map_err(|e| e.to_string())?;
-                let mut orphans = HashSet::new();
-                for digest in &to_delete {
-                    if let Some(v) = blobs.get(digest.as_str()).map_err(|e| e.to_string())? {
-                        let m: BlobManifest =
-                            rmp_serde::from_slice(v.value()).map_err(|e| e.to_string())?;
-                        for c in m.chunks {
-                            if !live_chunks.contains(&c) {
-                                orphans.insert(c);
-                            }
-                        }
-                    }
-                }
-                orphans
-            };
-
-            // Phase 3 (DELETE): remove dead manifests + their refcount entries +
-            // the orphan chunks.
-            {
-                let mut blobs = wtx.open_table(CAS_BLOBS).map_err(|e| e.to_string())?;
-                let mut refs = wtx.open_table(CAS_REFCOUNT).map_err(|e| e.to_string())?;
-                for digest in &to_delete {
-                    if blobs
-                        .remove(digest.as_str())
-                        .map_err(|e| e.to_string())?
-                        .is_some()
-                    {
-                        stats.blobs_reclaimed += 1;
-                    }
-                    refs.remove(digest.as_str()).map_err(|e| e.to_string())?;
-                }
-            }
-            {
-                let mut chunks = wtx.open_table(CAS_CHUNKS).map_err(|e| e.to_string())?;
-                for c in &orphan_chunks {
-                    if chunks
-                        .remove(c.as_str())
-                        .map_err(|e| e.to_string())?
-                        .is_some()
-                    {
-                        stats.chunks_reclaimed += 1;
-                    }
-                }
-            }
-        }
+        let stats = sweep_rows(&wtx)?;
         wtx.commit().map_err(|e| e.to_string())?;
         Ok(stats)
     }
@@ -512,6 +629,402 @@ impl ChunkStore for RedbChunkStore {
         let t = rtx.open_table(CAS_BLOBS).map_err(|e| e.to_string())?;
         t.len().map_err(|e| e.to_string())
     }
+
+    fn mutation_version(&self, tenant: &str, graph: &str) -> Result<u64, String> {
+        eg_mutation_store::version(&self.db, tenant, graph)
+    }
+
+    fn commit_cursor_batch(
+        &self,
+        batch: &MutationBatch,
+        cursor: u64,
+        committed_at_ms: u64,
+    ) -> Result<u64, String> {
+        self.commit_native_batch(batch, committed_at_ms, |_| Ok(cursor))
+    }
+
+    fn put_chunk_batch(
+        &self,
+        bytes: &[u8],
+        batch: &MutationBatch,
+        committed_at_ms: u64,
+    ) -> Result<(String, bool), String> {
+        self.flush_chunks()?;
+        if bytes.len() > MAX_BLOB_CHUNK_BYTES {
+            return Err("blob chunk exceeds resource limits".to_string());
+        }
+        let digest = hex_digest(bytes);
+        self.commit_native_batch(batch, committed_at_ms, |wtx| {
+            let mut table = wtx.open_table(CAS_CHUNKS).map_err(|e| e.to_string())?;
+            let was_new = table
+                .get(digest.as_str())
+                .map_err(|e| e.to_string())?
+                .is_none();
+            if was_new {
+                table
+                    .insert(digest.as_str(), bytes)
+                    .map_err(|e| e.to_string())?;
+            }
+            Ok((digest.clone(), was_new))
+        })
+    }
+
+    fn put_chunk_ref_batch(
+        &self,
+        bytes: &[u8],
+        batch: &MutationBatch,
+        committed_at_ms: u64,
+    ) -> Result<(String, bool, u64), String> {
+        self.flush_chunks()?;
+        if bytes.len() > MAX_BLOB_CHUNK_BYTES {
+            return Err("blob chunk exceeds resource limits".to_string());
+        }
+        let digest = hex_digest(bytes);
+        self.commit_native_batch(batch, committed_at_ms, |wtx| {
+            let was_new = {
+                let mut chunks = wtx.open_table(CAS_CHUNKS).map_err(|e| e.to_string())?;
+                let absent = chunks
+                    .get(digest.as_str())
+                    .map_err(|e| e.to_string())?
+                    .is_none();
+                if absent {
+                    chunks
+                        .insert(digest.as_str(), bytes)
+                        .map_err(|e| e.to_string())?;
+                }
+                absent
+            };
+            let refcount = {
+                let mut refs = wtx.open_table(CAS_REFCOUNT).map_err(|e| e.to_string())?;
+                let current = refs
+                    .get(digest.as_str())
+                    .map_err(|e| e.to_string())?
+                    .map(|value| value.value())
+                    .unwrap_or(0);
+                let next = current
+                    .checked_add(1)
+                    .ok_or_else(|| "blob reference count overflow".to_string())?;
+                refs.insert(digest.as_str(), next)
+                    .map_err(|e| e.to_string())?;
+                next
+            };
+            Ok((digest.clone(), was_new, refcount))
+        })
+    }
+
+    fn put_manifest_batch(
+        &self,
+        blob_digest: &str,
+        manifest: &BlobManifest,
+        batch: &MutationBatch,
+        committed_at_ms: u64,
+    ) -> Result<String, String> {
+        self.flush_chunks()?;
+        manifest.validate()?;
+        let bytes = rmp_serde::to_vec_named(manifest).map_err(|e| e.to_string())?;
+        eg_types::msgpack::validate_single_value(&bytes, blob_msgpack_limits())
+            .map_err(|_| "blob manifest exceeds resource limits".to_string())?;
+        validate_digest(blob_digest)?;
+        if blob_digest != hex_digest(&bytes) {
+            return Err("blob manifest digest does not match its content".to_string());
+        }
+        self.commit_native_batch(batch, committed_at_ms, |wtx| {
+            let mut table = wtx.open_table(CAS_BLOBS).map_err(|e| e.to_string())?;
+            table
+                .insert(blob_digest, bytes.as_slice())
+                .map_err(|e| e.to_string())?;
+            Ok(blob_digest.to_string())
+        })
+    }
+
+    fn adjust_ref_batch(
+        &self,
+        blob_digest: &str,
+        delta: i64,
+        batch: &MutationBatch,
+        committed_at_ms: u64,
+    ) -> Result<u64, String> {
+        self.flush_chunks()?;
+        validate_digest(blob_digest)?;
+        self.commit_native_batch(batch, committed_at_ms, |wtx| {
+            let mut table = wtx.open_table(CAS_REFCOUNT).map_err(|e| e.to_string())?;
+            let current = table
+                .get(blob_digest)
+                .map_err(|e| e.to_string())?
+                .map(|value| value.value())
+                .unwrap_or(0);
+            let next = if delta >= 0 {
+                current.saturating_add(delta as u64)
+            } else {
+                current.saturating_sub((-delta) as u64)
+            };
+            table.insert(blob_digest, next).map_err(|e| e.to_string())?;
+            Ok(next)
+        })
+    }
+
+    fn sweep_batch(
+        &self,
+        batch: &MutationBatch,
+        committed_at_ms: u64,
+    ) -> Result<SweepStats, String> {
+        self.flush_chunks()?;
+        self.commit_native_batch(batch, committed_at_ms, sweep_rows)
+    }
+
+    fn begin_upload_batch(
+        &self,
+        cursor: u64,
+        chunk_size: u32,
+        owner_scope: &str,
+        batch: &MutationBatch,
+        committed_at_ms: u64,
+    ) -> Result<u64, String> {
+        self.flush_chunks()?;
+        if chunk_size == 0 || chunk_size as usize > MAX_BLOB_CHUNK_BYTES {
+            return Err("blob chunk size exceeds resource limits".to_string());
+        }
+        self.commit_native_batch(batch, committed_at_ms, |wtx| {
+            let mut uploads = wtx.open_table(CAS_UPLOADS).map_err(|e| e.to_string())?;
+            if uploads.get(cursor).map_err(|e| e.to_string())?.is_none() {
+                let upload = DurableUpload {
+                    owner_scope: owner_scope.to_string(),
+                    chunk_digests: Vec::new(),
+                    chunk_lens: Vec::new(),
+                    len: 0,
+                    chunk_size,
+                    applied_batches: HashSet::new(),
+                };
+                upload.validate()?;
+                let bytes = rmp_serde::to_vec_named(&upload).map_err(|e| e.to_string())?;
+                eg_types::msgpack::validate_single_value(&bytes, blob_msgpack_limits())
+                    .map_err(|_| "blob upload exceeds resource limits".to_string())?;
+                uploads
+                    .insert(cursor, bytes.as_slice())
+                    .map_err(|e| e.to_string())?;
+            }
+            Ok(cursor)
+        })
+    }
+
+    fn put_upload_chunk_batch(
+        &self,
+        cursor: u64,
+        bytes: &[u8],
+        batch: &MutationBatch,
+        committed_at_ms: u64,
+    ) -> Result<(String, u32), String> {
+        self.flush_chunks()?;
+        if bytes.len() > MAX_BLOB_CHUNK_BYTES {
+            return Err("blob chunk exceeds resource limits".to_string());
+        }
+        let digest = hex_digest(bytes);
+        self.commit_native_batch(batch, committed_at_ms, |wtx| {
+            {
+                let mut chunks = wtx.open_table(CAS_CHUNKS).map_err(|e| e.to_string())?;
+                if chunks
+                    .get(digest.as_str())
+                    .map_err(|e| e.to_string())?
+                    .is_none()
+                {
+                    chunks
+                        .insert(digest.as_str(), bytes)
+                        .map_err(|e| e.to_string())?;
+                }
+            }
+            let mut uploads = wtx.open_table(CAS_UPLOADS).map_err(|e| e.to_string())?;
+            let row = uploads
+                .get(cursor)
+                .map_err(|e| e.to_string())?
+                .ok_or_else(|| "unknown durable upload cursor".to_string())?;
+            let mut upload = decode_upload(row.value())?;
+            drop(row);
+            if upload.applied_batches.insert(batch.batch_id.clone()) {
+                if upload.chunk_digests.len() >= MAX_BLOB_CHUNKS {
+                    return Err("blob upload exceeds resource limits".to_string());
+                }
+                upload.chunk_digests.push(digest.clone());
+                upload.chunk_lens.push(bytes.len() as u32);
+                upload.len = upload
+                    .len
+                    .checked_add(bytes.len() as u64)
+                    .ok_or_else(|| "blob upload exceeds resource limits".to_string())?;
+                upload.validate()?;
+                let encoded = rmp_serde::to_vec_named(&upload).map_err(|e| e.to_string())?;
+                eg_types::msgpack::validate_single_value(&encoded, blob_msgpack_limits())
+                    .map_err(|_| "blob upload exceeds resource limits".to_string())?;
+                uploads
+                    .insert(cursor, encoded.as_slice())
+                    .map_err(|e| e.to_string())?;
+            }
+            Ok((digest.clone(), upload.chunk_digests.len() as u32))
+        })
+    }
+
+    fn load_upload(&self, cursor: u64) -> Result<Option<BlobManifest>, String> {
+        self.flush_chunks()?;
+        let rtx = self.db.begin_read().map_err(|e| e.to_string())?;
+        let uploads = rtx.open_table(CAS_UPLOADS).map_err(|e| e.to_string())?;
+        let manifest = uploads
+            .get(cursor)
+            .map_err(|e| e.to_string())?
+            .map(|row| decode_upload(row.value()).map(|upload| upload.manifest()))
+            .transpose()?;
+        Ok(manifest)
+    }
+
+    fn commit_upload_batch(
+        &self,
+        cursor: u64,
+        batch: &MutationBatch,
+        committed_at_ms: u64,
+    ) -> Result<String, String> {
+        self.flush_chunks()?;
+        self.commit_native_batch(batch, committed_at_ms, |wtx| {
+            let upload = {
+                let uploads = wtx.open_table(CAS_UPLOADS).map_err(|e| e.to_string())?;
+                let row = uploads
+                    .get(cursor)
+                    .map_err(|e| e.to_string())?
+                    .ok_or_else(|| "unknown durable upload cursor".to_string())?;
+                decode_upload(row.value())?
+            };
+            let manifest = upload.manifest();
+            manifest.validate()?;
+            let encoded = rmp_serde::to_vec_named(&manifest).map_err(|e| e.to_string())?;
+            eg_types::msgpack::validate_single_value(&encoded, blob_msgpack_limits())
+                .map_err(|_| "blob manifest exceeds resource limits".to_string())?;
+            let digest = hex_digest(&encoded);
+            {
+                let mut blobs = wtx.open_table(CAS_BLOBS).map_err(|e| e.to_string())?;
+                blobs
+                    .insert(digest.as_str(), encoded.as_slice())
+                    .map_err(|e| e.to_string())?;
+            }
+            {
+                let mut uploads = wtx.open_table(CAS_UPLOADS).map_err(|e| e.to_string())?;
+                uploads.remove(cursor).map_err(|e| e.to_string())?;
+            }
+            Ok(digest)
+        })
+    }
+}
+
+fn sweep_rows(wtx: &redb::WriteTransaction) -> Result<SweepStats, String> {
+    let dead: Vec<String> = {
+        let refs = wtx.open_table(CAS_REFCOUNT).map_err(|e| e.to_string())?;
+        let mut dead = Vec::new();
+        for row in refs.iter().map_err(|e| e.to_string())? {
+            let (key, value) = row.map_err(|e| e.to_string())?;
+            validate_digest(key.value())?;
+            if value.value() == 0 {
+                if dead.len() >= MAX_BLOB_GC_TRACKED_DIGESTS {
+                    return Err("blob garbage collection exceeds resource limits".to_string());
+                }
+                dead.push(key.value().to_string());
+            }
+        }
+        dead
+    };
+    let orphan_manifests: Vec<String> = {
+        let blobs = wtx.open_table(CAS_BLOBS).map_err(|e| e.to_string())?;
+        let refs = wtx.open_table(CAS_REFCOUNT).map_err(|e| e.to_string())?;
+        let mut orphans = Vec::new();
+        for row in blobs.iter().map_err(|e| e.to_string())? {
+            let (key, _) = row.map_err(|e| e.to_string())?;
+            let digest = key.value();
+            validate_digest(digest)?;
+            if refs.get(digest).map_err(|e| e.to_string())?.is_none() {
+                if orphans.len() >= MAX_BLOB_GC_TRACKED_DIGESTS {
+                    return Err("blob garbage collection exceeds resource limits".to_string());
+                }
+                orphans.push(digest.to_string());
+            }
+        }
+        orphans
+    };
+    let mut to_delete: HashSet<String> = dead.into_iter().collect();
+    to_delete.extend(orphan_manifests);
+    if to_delete.len() > MAX_BLOB_GC_TRACKED_DIGESTS {
+        return Err("blob garbage collection exceeds resource limits".to_string());
+    }
+    let live_chunks: HashSet<String> = {
+        let blobs = wtx.open_table(CAS_BLOBS).map_err(|e| e.to_string())?;
+        let mut live = HashSet::new();
+        for row in blobs.iter().map_err(|e| e.to_string())? {
+            let (key, value) = row.map_err(|e| e.to_string())?;
+            if to_delete.contains(key.value()) {
+                continue;
+            }
+            let manifest = decode_manifest(value.value())?;
+            for chunk in manifest.chunks {
+                track_gc_digest(&mut live, chunk)?;
+            }
+        }
+        live
+    };
+    let mut orphan_chunks: HashSet<String> = {
+        let blobs = wtx.open_table(CAS_BLOBS).map_err(|e| e.to_string())?;
+        let mut orphans = HashSet::new();
+        for digest in &to_delete {
+            if let Some(value) = blobs.get(digest.as_str()).map_err(|e| e.to_string())? {
+                let manifest = decode_manifest(value.value())?;
+                for chunk in manifest.chunks {
+                    if !live_chunks.contains(&chunk) {
+                        track_gc_digest(&mut orphans, chunk)?;
+                    }
+                }
+            }
+        }
+        orphans
+    };
+    // `put_chunk_ref_batch` is the direct-artifact fast path: its refcount key is
+    // the chunk digest itself and deliberately has no manifest row. A zero-ref
+    // direct chunk therefore cannot be discovered by walking dead manifests.
+    // Reclaim it here unless a surviving manifest still names the same chunk.
+    // This keeps compensation + restart replay leak-free without endangering a
+    // deduplicated chunk that remains reachable from another live blob.
+    {
+        let chunks = wtx.open_table(CAS_CHUNKS).map_err(|e| e.to_string())?;
+        for digest in &to_delete {
+            if !live_chunks.contains(digest)
+                && chunks
+                    .get(digest.as_str())
+                    .map_err(|e| e.to_string())?
+                    .is_some()
+            {
+                track_gc_digest(&mut orphan_chunks, digest.clone())?;
+            }
+        }
+    }
+    let mut stats = SweepStats::default();
+    {
+        let mut blobs = wtx.open_table(CAS_BLOBS).map_err(|e| e.to_string())?;
+        let mut refs = wtx.open_table(CAS_REFCOUNT).map_err(|e| e.to_string())?;
+        for digest in &to_delete {
+            if blobs
+                .remove(digest.as_str())
+                .map_err(|e| e.to_string())?
+                .is_some()
+            {
+                stats.blobs_reclaimed += 1;
+            }
+            refs.remove(digest.as_str()).map_err(|e| e.to_string())?;
+        }
+    }
+    {
+        let mut chunks = wtx.open_table(CAS_CHUNKS).map_err(|e| e.to_string())?;
+        for digest in &orphan_chunks {
+            if chunks
+                .remove(digest.as_str())
+                .map_err(|e| e.to_string())?
+                .is_some()
+            {
+                stats.chunks_reclaimed += 1;
+            }
+        }
+    }
+    Ok(stats)
 }
 
 impl Drop for RedbChunkStore {
@@ -537,6 +1050,73 @@ impl RedbChunkStore {
         Ok(())
     }
 
+    fn commit_native_batch<T, F>(
+        &self,
+        batch: &MutationBatch,
+        committed_at_ms: u64,
+        apply: F,
+    ) -> Result<T, String>
+    where
+        T: serde::Serialize + serde::de::DeserializeOwned,
+        F: FnOnce(&redb::WriteTransaction) -> Result<T, String>,
+    {
+        let mut wtx = self.db.begin_write().map_err(|e| e.to_string())?;
+        wtx.set_durability(Durability::Immediate)
+            .map_err(|e| e.to_string())?;
+        match eg_mutation_store::begin(&wtx, batch)? {
+            eg_mutation_store::Begin::Replay(record) => {
+                let bytes = record
+                    .result_msgpack
+                    .as_deref()
+                    .ok_or_else(|| "committed blob MutationBatch has no result".to_string())?;
+                let result = decode_blob_value(bytes)?;
+                wtx.abort().map_err(|e| e.to_string())?;
+                Ok(result)
+            }
+            eg_mutation_store::Begin::Apply { source_version } => {
+                let result = apply(&wtx)?;
+                let encoded = rmp_serde::to_vec_named(&result).map_err(|e| e.to_string())?;
+                eg_mutation_store::finish(
+                    &wtx,
+                    batch,
+                    Some(encoded),
+                    committed_at_ms,
+                    source_version,
+                )?;
+                eg_mutation_store::commit(wtx, batch)?;
+                Ok(result)
+            }
+        }
+    }
+
+    #[cfg(feature = "blob-s3")]
+    pub(crate) fn record_native_batch_result<T>(
+        &self,
+        batch: &MutationBatch,
+        result: T,
+        committed_at_ms: u64,
+    ) -> Result<T, String>
+    where
+        T: serde::Serialize + serde::de::DeserializeOwned,
+    {
+        self.commit_native_batch(batch, committed_at_ms, |_| Ok(result))
+    }
+
+    #[cfg(feature = "blob-s3")]
+    pub(crate) fn sweep_batch_with_external_chunks(
+        &self,
+        batch: &MutationBatch,
+        committed_at_ms: u64,
+        external_chunks: u64,
+    ) -> Result<SweepStats, String> {
+        self.flush_chunks()?;
+        self.commit_native_batch(batch, committed_at_ms, |wtx| {
+            let mut stats = sweep_rows(wtx)?;
+            stats.chunks_reclaimed = external_chunks;
+            Ok(stats)
+        })
+    }
+
     /// Chunks that the NEXT [`sweep`](ChunkStore::sweep) would orphan: chunks
     /// referenced ONLY by dead blobs (refcount 0 or no refcount entry) and by no
     /// surviving manifest. Used by the S3 backend to delete the matching objects
@@ -551,13 +1131,14 @@ impl RedbChunkStore {
         for row in blobs.iter().map_err(|e| e.to_string())? {
             let (k, _) = row.map_err(|e| e.to_string())?;
             let d = k.value();
+            validate_digest(d)?;
             let dead = refs
                 .get(d)
                 .map_err(|e| e.to_string())?
                 .map(|g| g.value() == 0)
                 .unwrap_or(true);
             if dead {
-                to_delete.insert(d.to_string());
+                track_gc_digest(&mut to_delete, d.to_string())?;
             }
         }
         let mut live_chunks: HashSet<String> = HashSet::new();
@@ -566,17 +1147,18 @@ impl RedbChunkStore {
             if to_delete.contains(k.value()) {
                 continue;
             }
-            let m: BlobManifest = rmp_serde::from_slice(v.value()).map_err(|e| e.to_string())?;
-            live_chunks.extend(m.chunks);
+            let m = decode_manifest(v.value())?;
+            for chunk in m.chunks {
+                track_gc_digest(&mut live_chunks, chunk)?;
+            }
         }
         let mut orphans = HashSet::new();
         for digest in &to_delete {
             if let Some(v) = blobs.get(digest.as_str()).map_err(|e| e.to_string())? {
-                let m: BlobManifest =
-                    rmp_serde::from_slice(v.value()).map_err(|e| e.to_string())?;
+                let m = decode_manifest(v.value())?;
                 for c in m.chunks {
                     if !live_chunks.contains(&c) {
-                        orphans.insert(c);
+                        track_gc_digest(&mut orphans, c)?;
                     }
                 }
             }
@@ -594,8 +1176,10 @@ impl RedbChunkStore {
         let mut seen: HashSet<String> = HashSet::new();
         for row in blobs.iter().map_err(|e| e.to_string())? {
             let (_, v) = row.map_err(|e| e.to_string())?;
-            let m: BlobManifest = rmp_serde::from_slice(v.value()).map_err(|e| e.to_string())?;
-            seen.extend(m.chunks);
+            let m = decode_manifest(v.value())?;
+            for chunk in m.chunks {
+                track_gc_digest(&mut seen, chunk)?;
+            }
         }
         Ok(seen.len() as u64)
     }
@@ -603,6 +1187,7 @@ impl RedbChunkStore {
     /// Adjust a blob's refcount by `delta`, saturating at 0. Durable per call.
     fn adjust_ref(&self, blob_digest: &str, delta: i64) -> Result<u64, String> {
         self.flush_chunks()?;
+        validate_digest(blob_digest)?;
         let mut wtx = self.db.begin_write().map_err(|e| e.to_string())?;
         wtx.set_durability(Durability::Immediate)
             .map_err(|e| e.to_string())?;
@@ -630,6 +1215,103 @@ impl RedbChunkStore {
 mod tests {
     use super::*;
 
+    fn coordinator_batch(
+        id: &str,
+        request_id: u64,
+        expected: u64,
+        event_type: &str,
+    ) -> MutationBatch {
+        crate::server::mutation_batch::compile_opaque_method(
+            crate::server::mutation_batch::CompileBatch {
+                batch_id: id,
+                request_id,
+                principal: Some("system"),
+                tenant: "tenant-opaque",
+                graph: "scope-opaque",
+                placement_epoch: 0,
+                idempotency_key: id,
+                expected_graph_version: Some(expected),
+                fencing_token: None,
+                created_at_ms: request_id,
+                default_surface: crate::mutation_batch::MutationSurface::Other,
+                authoritative_state: None,
+            },
+            &crate::protocol::Method::ApplyMutation {
+                event_type: event_type.to_string(),
+                query: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                    .to_string(),
+            },
+            crate::mutation_batch::MutationSurface::Other,
+            crate::mutation_batch::MutationDomain::BlobStore,
+            "blob_coordinator_test",
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn direct_ref_acquire_compensation_and_gc_are_restart_replay_safe() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().to_string_lossy().to_string();
+        let body = b"opaque-result";
+        let digest = hex_digest(body);
+        {
+            let store = RedbChunkStore::open(&path).unwrap();
+            let acquire = coordinator_batch("acquire", 1, 0, "blob_direct_ref_acquire_v1");
+            assert_eq!(
+                store.put_chunk_ref_batch(body, &acquire, 1).unwrap(),
+                (digest.clone(), true, 1)
+            );
+            assert_eq!(
+                store.put_chunk_ref_batch(body, &acquire, 1).unwrap(),
+                (digest.clone(), true, 1),
+                "acknowledgement-lost acquire must replay without another ref"
+            );
+            let release = coordinator_batch("release", 2, 1, "blob_direct_ref_release_v1");
+            assert_eq!(store.adjust_ref_batch(&digest, -1, &release, 2).unwrap(), 0);
+            assert_eq!(
+                store.adjust_ref_batch(&digest, -1, &release, 2).unwrap(),
+                0,
+                "acknowledgement-lost compensation must not underflow"
+            );
+        }
+        let store = RedbChunkStore::open(&path).unwrap();
+        assert_eq!(store.refcount(&digest).unwrap(), 0);
+        let swept = store.sweep().unwrap();
+        assert_eq!(swept.chunks_reclaimed, 1);
+        assert!(store.get_chunk(&digest).unwrap().is_none());
+    }
+
+    #[test]
+    fn stored_manifest_decoder_rejects_allocation_bombs_and_inconsistent_metadata() {
+        let allocation_bomb = [0xdd, 0xff, 0xff, 0xff, 0xff];
+        assert!(decode_manifest(&allocation_bomb).is_err());
+
+        let inconsistent = BlobManifest {
+            schema_version: BLOB_MANIFEST_VERSION,
+            owner_scope: ENGINE_BLOB_OWNER_SCOPE.to_string(),
+            chunks: vec!["0".repeat(64)],
+            chunk_lens: vec![1],
+            len: 2,
+            chunk_size: 1,
+        };
+        let encoded = rmp_serde::to_vec_named(&inconsistent).unwrap();
+        assert!(decode_manifest(&encoded).is_err());
+    }
+
+    #[test]
+    fn manifest_key_must_match_content_digest() {
+        let store = RedbChunkStore::open_temp().unwrap();
+        let manifest = BlobManifest {
+            schema_version: BLOB_MANIFEST_VERSION,
+            owner_scope: ENGINE_BLOB_OWNER_SCOPE.to_string(),
+            chunks: Vec::new(),
+            chunk_lens: Vec::new(),
+            len: 0,
+            chunk_size: 0,
+        };
+        assert!(store.put_manifest(&"0".repeat(64), &manifest).is_err());
+    }
+
     fn chunked(store: &dyn ChunkStore, data: &[u8], chunk_size: usize) -> CommittedBlob {
         // Stream the data through the store one chunk at a time (bounded memory),
         // exactly as the protocol cursor does.
@@ -641,6 +1323,8 @@ mod tests {
             chunk_lens.push(part.len() as u32);
         }
         let manifest = BlobManifest {
+            schema_version: BLOB_MANIFEST_VERSION,
+            owner_scope: ENGINE_BLOB_OWNER_SCOPE.to_string(),
             chunks,
             chunk_lens,
             len: data.len() as u64,
@@ -823,6 +1507,8 @@ mod tests {
         }
         let chunk_lens = vec![chunk_size as u32; n_chunks as usize];
         let manifest = BlobManifest {
+            schema_version: BLOB_MANIFEST_VERSION,
+            owner_scope: ENGINE_BLOB_OWNER_SCOPE.to_string(),
             chunks: digests,
             chunk_lens,
             len: n_chunks * chunk_size as u64,
@@ -861,74 +1547,6 @@ mod tests {
              capped page cache (~128MiB), not the file size — an uncapped-cache or \
              per-chunk-None regression would track the file size"
         );
-    }
-
-    /// CONCEPT:EG-KG.storage.backward-manifest-read backward read — a PRE-EG-071 manifest (serialized with only
-    /// `chunks`/`len`/fixed `chunk_size`, no `chunk_lens`) still deserializes, its
-    /// chunk lengths reconstruct from the fixed stride, and the blob reassembles
-    /// byte-for-byte (the chunk bytes are self-describing, so no migration is needed).
-    #[test]
-    fn legacy_fixed_size_manifest_reads_back() {
-        let store = RedbChunkStore::open_temp().unwrap();
-        let data: Vec<u8> = (0u32..10_000).map(|i| (i % 251) as u8).collect();
-        let chunk_size = 4096usize;
-
-        // Store the chunks exactly as the old fixed splitter would have.
-        let mut chunks = Vec::new();
-        for part in data.chunks(chunk_size) {
-            chunks.push(store.put_chunk(part).unwrap().0);
-        }
-
-        // Serialize an OLD-SHAPE manifest (no `chunk_lens` field at all) and persist
-        // it under its own digest, exactly as a pre-EG-071 build wrote it.
-        #[derive(Serialize)]
-        struct LegacyManifest {
-            chunks: Vec<String>,
-            len: u64,
-            chunk_size: u32,
-        }
-        let legacy = LegacyManifest {
-            chunks: chunks.clone(),
-            len: data.len() as u64,
-            chunk_size: chunk_size as u32,
-        };
-        let bytes = rmp_serde::to_vec_named(&legacy).unwrap();
-        let blob_digest = hex_digest(&bytes);
-        {
-            // Flush the open group-commit chunk batch FIRST. `put_chunk` keeps the
-            // group's `WriteTransaction` open until `group` (32) chunks are buffered;
-            // this blob is only 3 chunks, so that txn is still open here. A raw
-            // `begin_write` below would then block forever — redb permits ONE writer
-            // at a time — which is exactly why every real `ChunkStore` method flushes
-            // before touching the db. The test bypasses the API, so it must flush too.
-            store.flush_chunks().unwrap();
-            // Write the legacy bytes straight into the CAS_BLOBS table.
-            let wtx = store.db.begin_write().unwrap();
-            {
-                let mut t = wtx.open_table(CAS_BLOBS).unwrap();
-                t.insert(blob_digest.as_str(), bytes.as_slice()).unwrap();
-            }
-            wtx.commit().unwrap();
-        }
-
-        // It deserializes into the new BlobManifest with an empty chunk_lens.
-        let m = store.get_manifest(&blob_digest).unwrap().unwrap();
-        assert!(m.chunk_lens.is_empty(), "legacy manifest has no chunk_lens");
-        assert_eq!(m.chunk_size, chunk_size as u32);
-
-        // Reconstructed lengths: full strides then a short final chunk.
-        let lens = m.chunk_lengths();
-        assert_eq!(
-            lens.iter().map(|&l| l as u64).sum::<u64>(),
-            data.len() as u64
-        );
-        assert_eq!(*lens.first().unwrap(), chunk_size as u32);
-        assert!(*lens.last().unwrap() <= chunk_size as u32);
-        // Offsets are the running prefix sum.
-        assert_eq!(m.chunk_offsets().first().unwrap().0, 0);
-
-        // And the blob still reassembles byte-for-byte.
-        assert_eq!(reassemble(&store, &m), data);
     }
 
     #[test]

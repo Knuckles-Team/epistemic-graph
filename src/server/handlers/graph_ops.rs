@@ -8,8 +8,10 @@
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use super::super::access::check_graph_access;
+use super::super::access::{check_graph_access, requires_write, GraphReadAuthority};
 use super::super::compute::{compute_off_lock, weight_semantic_results};
+use super::super::mutation::{self, GatewayAuthzCtx, MutationCtx, MutationPlan};
+use super::super::persistence::PersistenceBackend;
 use super::super::state::{max_response_nodes, ServerState, MAX_BATCH_IDS};
 use crate::graph::GraphCore;
 use crate::isolation::AccessLevel;
@@ -25,7 +27,7 @@ use crate::protocol::{Method, Response, ResultPayload};
 /// fails the whole union.
 async fn resolve_union_cores(
     state: &Arc<RwLock<ServerState>>,
-    caller: Option<&str>,
+    read_authority: &GraphReadAuthority,
     graphs: &[String],
 ) -> Result<Vec<Arc<GraphCore>>, String> {
     let s = state.read().await;
@@ -37,7 +39,7 @@ async fn resolve_union_cores(
         };
         check_graph_access(
             &s.isolation,
-            caller,
+            read_authority.actor(),
             name,
             entry.graph_type,
             entry.owner.as_deref(),
@@ -45,7 +47,11 @@ async fn resolve_union_cores(
         )?;
         cores.push(entry.core.clone());
     }
-    Ok(cores)
+    drop(s);
+    Ok(cores
+        .iter()
+        .map(|core| read_authority.project_core(core))
+        .collect())
 }
 
 /// Intelligent overload backstop for the `GetNodes` full-graph dump
@@ -53,12 +59,11 @@ async fn resolve_union_cores(
 /// returns `Some(error_message)` when the dump would exceed the cap (so the
 /// handler can refuse with a typed `RESULT_TOO_LARGE` error instead of building
 /// a gigabyte-scale frame that resets the client connection), or `None` when the
-/// dump is within bounds and safe to materialize. A `cap` of `0` disables the
-/// guard entirely (the unbounded legacy behavior, for an operator who opts in via
-/// `EPISTEMIC_GRAPH_MAX_RESPONSE_NODES=0`). Pure + side-effect-free so the
-/// threshold logic is unit-tested directly, independent of process-global env.
+/// dump is within bounds and safe to materialize. The cap is always positive in
+/// served state and cannot be disabled. Pure + side-effect-free so the threshold
+/// logic is unit-tested directly, independent of process-global env.
 fn oversize_dump_error(count: usize, cap: usize) -> Option<String> {
-    if cap != 0 && count > cap {
+    if count > cap {
         Some(format!(
             "RESULT_TOO_LARGE: GetNodes would return {count} nodes (> cap {cap}); \
              the full-graph dump is refused to protect the connection. Use a \
@@ -76,10 +81,23 @@ fn oversize_dump_error(count: usize, cap: usize) -> Option<String> {
 /// a caller may omit props entirely — the eg-core primitive injects the structural
 /// markers regardless. Mirrors the `CompareAndSetNodeFields` blob-decode discipline.
 fn decode_json_object(blob: &[u8]) -> serde_json::Map<String, serde_json::Value> {
-    match rmp_serde::from_slice::<serde_json::Value>(blob) {
-        Ok(serde_json::Value::Object(o)) => o,
-        _ => serde_json::Map::new(),
-    }
+    eg_types::msgpack::decode_property_object(blob).unwrap_or_default()
+}
+
+/// Keep the mutation kernel behind a heap indirection so this module's large
+/// gateway match does not embed one copy of the kernel future in every arm.
+/// Without this boundary the generated `try_handle_gateway` future exceeds
+/// Tokio's default worker-thread stack on ordinary mutation requests.
+async fn commit_gateway<F>(
+    ctx: &MutationCtx<'_>,
+    plan: &MutationPlan,
+    method: &Method,
+    apply: F,
+) -> Response
+where
+    F: FnOnce(&GraphCore) -> Result<ResultPayload, String>,
+{
+    Box::pin(mutation::commit_mutation(ctx, plan, method, apply)).await
 }
 
 /// Read a node's human-readable `(name, description, type)` triple from its
@@ -266,8 +284,1907 @@ fn discover(
 /// and scale to unit). Keeps the `eg-types` wire crate free of the eg-core scene
 /// dependency — the Pose lives only handler-side.
 fn decode_pose(blob: &[u8]) -> Option<eg_core::scene::Pose> {
-    let val = rmp_serde::from_slice::<serde_json::Value>(blob).ok()?;
+    let val = eg_types::msgpack::decode_property_value(blob).ok()?;
     eg_core::scene::Pose::from_json(&val)
+}
+
+/// Route a [`mutation::GATEWAY_ROUTED`] method through the single commit gateway
+/// (CONCEPT:EG-P0-2). Called from `dispatch_graph_op` AHEAD of both the write-
+/// coalescer and the terminal exhaustive match below, so a routed method NEVER falls
+/// through to `g.add_node(...)` etc. directly — the only path left for it is this
+/// one, which builds a [`MutationPlan`] straight from `eg_capabilities::policy` and
+/// calls [`mutation::commit_mutation`]. A method NOT in the routed set is handed
+/// straight back (`Err(method)`), unchanged, exactly like every other domain
+/// router in `dispatch.rs`'s routing chain.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn try_handle_gateway(
+    req_id: u64,
+    caller: Option<&str>,
+    tenant_scope: &str,
+    graph_name: &str,
+    core: &Arc<GraphCore>,
+    materialization_manifest: Option<
+        &Arc<std::sync::RwLock<crate::registry::MaterializationManifest>>,
+    >,
+    read_authority: Option<&GraphReadAuthority>,
+    persistence: Option<&Arc<dyn PersistenceBackend>>,
+    #[cfg(feature = "streaming")] cdc: Option<&Arc<crate::server::cdc::CdcHub>>,
+    write_coalescer: Option<&Arc<crate::write_coalescer::WriteCoalescerRegistry>>,
+    authz_ctx: Option<&GatewayAuthzCtx>,
+    method: Method,
+) -> Result<Response, Method> {
+    if !mutation::is_gateway_routed(&method) {
+        return Err(method);
+    }
+    // L11 batch 4: the query surface (`Sql`/`CypherQuery`/`GraphQl`) and the native
+    // RDF write surface (`AddTriples`/`RemoveTriples`/`DropNamedGraph`) ARE
+    // `GATEWAY_ROUTED`, but their execution is `async` and needs `state`/`rls` that this graph-ops entry point
+    // does not carry — so they are routed via `commit_conditional_mutation_async` at
+    // their OWN dispatch sites in `dispatch.rs`. Hand them back here so they reach
+    // those sites; the `record_method`/`cdc_*` gating in `dispatch.rs` already keys
+    // off the SAME `is_gateway_routed`, so nothing double-applies.
+    if mutation::is_query_gateway_method(&method) || mutation::is_rdf_gateway_method(&method) {
+        return Err(method);
+    }
+    // Runtime-conditional gateway methods may be reads (`writeback = false`).
+    // Give those closures a detached, row-filtered core; writes ignore any read
+    // authority and must keep operating on the authoritative graph. This is
+    // deliberately after both hand-back checks above, so SQL/RDF reads retain
+    // their existing snapshot-level RLS path without paying for a second copy.
+    let mutates = requires_write(&method);
+    let projected_core = if mutates {
+        None
+    } else {
+        read_authority.map(|authority| authority.project_core(core))
+    };
+    let selected_core = projected_core.as_ref().unwrap_or(core);
+    debug_assert!(
+        !mutates || Arc::ptr_eq(selected_core, core),
+        "mutation gateway must retain the authoritative serving projection"
+    );
+    let core = selected_core;
+    let (isolation, graph_type, owner) = authz_ctx.expect(
+        "dispatch_graph_op must capture a GatewayAuthzCtx for every mutation::is_gateway_routed method",
+    );
+    let plan = MutationPlan::for_method(&method);
+    let ctx = MutationCtx {
+        req_id,
+        caller,
+        tenant_scope,
+        graph_name,
+        graph_type: *graph_type,
+        owner: owner.as_deref(),
+        isolation,
+        core,
+        persistence,
+        #[cfg(feature = "streaming")]
+        cdc,
+        materialization_manifest,
+        write_coalescer,
+    };
+    let resp = match &method {
+        Method::AddNode {
+            node_id,
+            properties_msgpack,
+        } => {
+            let (node_id, properties_msgpack) = (node_id.clone(), properties_msgpack.clone());
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                core.add_node(node_id, properties_msgpack);
+                Ok(ResultPayload::String("ok".to_string()))
+            })
+            .await
+        }
+        Method::CreateNodeIfAbsent {
+            node_id,
+            properties_msgpack,
+        } => {
+            let (node_id, properties_msgpack) = (node_id.clone(), properties_msgpack.clone());
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                Ok(ResultPayload::Bool(
+                    core.create_node_if_absent(node_id, properties_msgpack),
+                ))
+            })
+            .await
+        }
+        Method::RemoveNode { node_id } => {
+            let node_id = node_id.clone();
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                core.remove_node(node_id);
+                Ok(ResultPayload::String("ok".to_string()))
+            })
+            .await
+        }
+        Method::AddEdge {
+            source_id,
+            target_id,
+            properties_msgpack,
+        } => {
+            let (source_id, target_id, properties_msgpack) = (
+                source_id.clone(),
+                target_id.clone(),
+                properties_msgpack.clone(),
+            );
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                core.add_edge(source_id, target_id, properties_msgpack)
+                    .map(|()| ResultPayload::String("ok".to_string()))
+                    .map_err(|e| e.to_string())
+            })
+            .await
+        }
+        Method::RemoveEdge {
+            source_id,
+            target_id,
+        } => {
+            let (source_id, target_id) = (source_id.clone(), target_id.clone());
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                core.remove_edge(source_id, target_id);
+                Ok(ResultPayload::String("ok".to_string()))
+            })
+            .await
+        }
+        Method::CreateSummaryNode {
+            level,
+            child_ids,
+            props_msgpack,
+        } => {
+            let (level, child_ids, props_msgpack) =
+                (*level, child_ids.clone(), props_msgpack.clone());
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                let props = decode_json_object(&props_msgpack);
+                let id = core.create_summary_node(level, &child_ids, props);
+                Ok(ResultPayload::String(id))
+            })
+            .await
+        }
+        Method::Consolidate {
+            episodic_ids,
+            semantic_props_msgpack,
+        } => {
+            let (episodic_ids, semantic_props_msgpack) =
+                (episodic_ids.clone(), semantic_props_msgpack.clone());
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                let props = decode_json_object(&semantic_props_msgpack);
+                let id = core.consolidate(&episodic_ids, props);
+                Ok(ResultPayload::String(id))
+            })
+            .await
+        }
+        Method::Reinforce {
+            node_id,
+            now_ms,
+            weight,
+        } => {
+            let (node_id, now_ms, weight) = (node_id.clone(), *now_ms, *weight);
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                let existed = core.reinforce(&node_id, now_ms, weight);
+                Ok(ResultPayload::Bool(existed))
+            })
+            .await
+        }
+        // ── L11 rollout batch 2 (EG-P0-2 continued): graph-core family ──
+        Method::CompareAndSetNodeFields {
+            node_id,
+            conditions_msgpack,
+            updates_msgpack,
+        } => {
+            let (node_id, conditions_msgpack, updates_msgpack) = (
+                node_id.clone(),
+                conditions_msgpack.clone(),
+                updates_msgpack.clone(),
+            );
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                let conditions =
+                    match eg_types::msgpack::decode_property_object(&conditions_msgpack) {
+                        Ok(m) => m,
+                        Err(_) => return Ok(ResultPayload::Bool(false)),
+                    };
+                let updates = match eg_types::msgpack::decode_property_object(&updates_msgpack) {
+                    Ok(m) => m,
+                    Err(_) => return Ok(ResultPayload::Bool(false)),
+                };
+                let ok = core.compare_and_set_fields(&node_id, &conditions, &updates);
+                Ok(ResultPayload::Bool(ok))
+            })
+            .await
+        }
+        Method::ClaimNext {
+            label,
+            updates_msgpack,
+        } => {
+            let (label, updates_msgpack) = (label.clone(), updates_msgpack.clone());
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                let updates = match eg_types::msgpack::decode_property_object(&updates_msgpack) {
+                    Ok(m) => m,
+                    Err(_) => {
+                        return Ok(ResultPayload::raw(
+                            &Option::<(String, serde_json::Value)>::None,
+                        ))
+                    }
+                };
+                let claimed = core.claim_next_fields(&label, &updates);
+                Ok(ResultPayload::raw(&claimed))
+            })
+            .await
+        }
+        Method::DecayNode {
+            node_id,
+            now_ms,
+            half_life_ms,
+        } => {
+            let (node_id, now_ms, half_life_ms) = (node_id.clone(), *now_ms, *half_life_ms);
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                let acted = core.decay_node(&node_id, now_ms, half_life_ms);
+                Ok(ResultPayload::Bool(acted))
+            })
+            .await
+        }
+        Method::DecayMemories {
+            now_ms,
+            half_life_ms,
+            ids,
+        } => {
+            let (now_ms, half_life_ms, ids) = (*now_ms, *half_life_ms, ids.clone());
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                let n = core.decay_memories(now_ms, half_life_ms, &ids);
+                Ok(ResultPayload::Count(n as u64))
+            })
+            .await
+        }
+        Method::EvictBelow {
+            ids,
+            threshold,
+            delete,
+        } => {
+            let (ids, threshold, delete) = (ids.clone(), *threshold, *delete);
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                let pruned = core.evict_below(&ids, threshold, delete);
+                Ok(ResultPayload::Ids(pruned))
+            })
+            .await
+        }
+        Method::Maintain {
+            ids,
+            now_ms,
+            half_life_ms,
+            evict_threshold,
+            delete,
+        } => {
+            let (ids, now_ms, half_life_ms, evict_threshold, delete) = (
+                ids.clone(),
+                *now_ms,
+                *half_life_ms,
+                *evict_threshold,
+                *delete,
+            );
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                let out = core.maintain(&ids, now_ms, half_life_ms, evict_threshold, delete);
+                Ok(ResultPayload::raw(&out))
+            })
+            .await
+        }
+        Method::AddSceneObject {
+            pose_msgpack,
+            parent,
+        } => {
+            let (pose_msgpack, parent) = (pose_msgpack.clone(), parent.clone());
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                let Some(pose) = decode_pose(&pose_msgpack) else {
+                    return Err("AddSceneObject: undecodable pose_msgpack".to_string());
+                };
+                let id = core.add_scene_object(&pose, parent.as_deref());
+                Ok(ResultPayload::String(id))
+            })
+            .await
+        }
+        Method::SetPose {
+            node_id,
+            pose_msgpack,
+        } => {
+            let (node_id, pose_msgpack) = (node_id.clone(), pose_msgpack.clone());
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                let Some(pose) = decode_pose(&pose_msgpack) else {
+                    return Err("SetPose: undecodable pose_msgpack".to_string());
+                };
+                let ok = core.set_pose(&node_id, &pose);
+                Ok(ResultPayload::Bool(ok))
+            })
+            .await
+        }
+        Method::Reparent {
+            node_id,
+            new_parent,
+        } => {
+            let (node_id, new_parent) = (node_id.clone(), new_parent.clone());
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                let ok = core.reparent(&node_id, new_parent.as_deref());
+                Ok(ResultPayload::Bool(ok))
+            })
+            .await
+        }
+        Method::StartTrajectory { props_msgpack } => {
+            let props_msgpack = props_msgpack.clone();
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                let props = decode_json_object(&props_msgpack);
+                let id = core.start_trajectory(props);
+                Ok(ResultPayload::String(id))
+            })
+            .await
+        }
+        Method::AppendStep {
+            traj_id,
+            action_msgpack,
+            reward,
+            state_ref,
+            next_state_ref,
+            t,
+        } => {
+            let (traj_id, action_msgpack, reward, state_ref, next_state_ref, t) = (
+                traj_id.clone(),
+                action_msgpack.clone(),
+                *reward,
+                state_ref.clone(),
+                next_state_ref.clone(),
+                *t,
+            );
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                let action = eg_types::msgpack::decode_property_value(&action_msgpack)
+                    .unwrap_or(serde_json::Value::Null);
+                let step_id = core.append_step(
+                    &traj_id,
+                    action,
+                    reward,
+                    state_ref.as_deref(),
+                    next_state_ref.as_deref(),
+                    t,
+                );
+                Ok(ResultPayload::raw(&step_id))
+            })
+            .await
+        }
+        Method::AddEmbedding { node_id, embedding } => {
+            let (node_id, embedding) = (node_id.clone(), embedding.clone());
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                let source_version = core.version();
+                core.semantic_store
+                    .write()
+                    .add_embedding(node_id, embedding);
+                // Content-derived indexes are unchanged by a vector-only
+                // mutation, but their completeness manifest must advance with
+                // the graph version that commit_finalize publishes.
+                core.maintain_indexes_at(
+                    &crate::index::ChangeSet::new(),
+                    source_version.saturating_add(1),
+                    core.node_count(),
+                    core.edge_count(),
+                );
+                Ok(ResultPayload::String("ok".to_string()))
+            })
+            .await
+        }
+        Method::InvalidateEdge {
+            source_id,
+            target_id,
+            relationship,
+            invalid_at,
+            tx_now,
+        } => {
+            let (source_id, target_id, relationship, invalid_at, tx_now) = (
+                source_id.clone(),
+                target_id.clone(),
+                relationship.clone(),
+                *invalid_at,
+                *tx_now,
+            );
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                let n =
+                    core.invalidate_edge(&source_id, &target_id, &relationship, invalid_at, tx_now);
+                Ok(ResultPayload::Count(n as u64))
+            })
+            .await
+        }
+        Method::SupersedeEdge {
+            source_id,
+            target_id,
+            properties_msgpack,
+            prior_source,
+            prior_target,
+            prior_relationship,
+            valid_at,
+            tx_now,
+        } => {
+            let (
+                source_id,
+                target_id,
+                properties_msgpack,
+                prior_source,
+                prior_target,
+                prior_relationship,
+                valid_at,
+                tx_now,
+            ) = (
+                source_id.clone(),
+                target_id.clone(),
+                properties_msgpack.clone(),
+                prior_source.clone(),
+                prior_target.clone(),
+                prior_relationship.clone(),
+                *valid_at,
+                *tx_now,
+            );
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                match core.supersede_edge(
+                    source_id,
+                    target_id,
+                    properties_msgpack,
+                    &prior_source,
+                    &prior_target,
+                    &prior_relationship,
+                    valid_at,
+                    tx_now,
+                ) {
+                    Ok(()) => Ok(ResultPayload::String("ok".to_string())),
+                    Err(e) => Err(e),
+                }
+            })
+            .await
+        }
+        Method::ClearGraph => {
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                core.clear();
+                Ok(ResultPayload::String("ok".to_string()))
+            })
+            .await
+        }
+        Method::EvictLRU { max_nodes } => {
+            let max_nodes = *max_nodes;
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                let evicted = core.evict_lru(max_nodes);
+                Ok(ResultPayload::Json(serde_json::json!(evicted)))
+            })
+            .await
+        }
+        Method::DecaySweep {
+            half_life_secs,
+            floor,
+            prune,
+        } => {
+            let (half_life_secs, floor, prune) = (*half_life_secs, *floor, *prune);
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs();
+                let stats = core.decay_sweep(now, half_life_secs, floor, prune);
+                serde_json::to_value(&stats)
+                    .map(ResultPayload::Json)
+                    .map_err(|e| e.to_string())
+            })
+            .await
+        }
+        Method::TouchNodes { node_ids } => {
+            let node_ids = node_ids.clone();
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs();
+                let touched = core.touch_nodes(&node_ids, now);
+                Ok(ResultPayload::Count(touched as u64))
+            })
+            .await
+        }
+        Method::FromMsgpack { msgpack } => {
+            let msgpack = msgpack.clone();
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                core.from_msgpack(&msgpack)
+                    .map(|()| ResultPayload::String("ok".to_string()))
+                    .map_err(|e| e.to_string())
+            })
+            .await
+        }
+        Method::Reconcile { msgpack, .. } => {
+            let msgpack = msgpack.clone();
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                core.from_msgpack(&msgpack)
+                    .map(|()| ResultPayload::String("reconciled".to_string()))
+                    .map_err(|e| e.to_string())
+            })
+            .await
+        }
+        Method::ApplyMutation { event_type, query } => {
+            let (event_type, query) = (event_type.clone(), query.clone());
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                #[cfg(feature = "sparql")]
+                {
+                    let _ = event_type;
+                    struct SingleCoreStore(std::sync::Arc<GraphCore>);
+                    impl eg_rdf::update::GraphStore for SingleCoreStore {
+                        fn core(&self, graph: Option<&str>) -> Option<std::sync::Arc<GraphCore>> {
+                            graph.is_none().then(|| self.0.clone())
+                        }
+                    }
+                    #[cfg(feature = "shacl")]
+                    {
+                        let update = eg_rdf::update::parse_update(&query)
+                            .map_err(|error| format!("ApplyMutation: {error}"))?;
+                        if !eg_rdf::update::referenced_named_graphs(&update).is_empty() {
+                            return Err(
+                                "ApplyMutation: graph-scoped updates cannot address a named RDF graph"
+                                    .to_string(),
+                            );
+                        }
+                        // GraphStore requires an owned Arc. Clone the isolated
+                        // gateway image, execute there, then copy the successful
+                        // result back into that same staged image. The live core is
+                        // never exposed before the authoritative commit succeeds.
+                        let update_core = std::sync::Arc::new(GraphCore::from_snapshot(
+                            core.snapshot(),
+                            core.version(),
+                        )?);
+                        let store = SingleCoreStore(update_core.clone());
+                        let guard =
+                            crate::server::icv_guard::CoreIcvGuard::single(update_core.as_ref());
+                        let report = eg_rdf::update::execute(
+                            &update,
+                            &store,
+                            &eg_rdf::sparql::Projection::raw(),
+                            &guard,
+                        )
+                        .map_err(|error| format!("ApplyMutation: {error}"))?;
+                        core.replace_snapshot(update_core.snapshot())?;
+                        serde_json::to_value(&report)
+                            .map(ResultPayload::Json)
+                            .map_err(|error| error.to_string())
+                    }
+                    #[cfg(not(feature = "shacl"))]
+                    {
+                        Err("ApplyMutation requires the shacl integrity-guard feature".to_string())
+                    }
+                }
+                #[cfg(not(feature = "sparql"))]
+                {
+                    let _ = (event_type, query, core);
+                    Err("ApplyMutation (SPARQL UPDATE) requires the `sparql` feature".to_string())
+                }
+            })
+            .await
+        }
+        // IcvConfigure is ordinary graph control state: validate and stage it on
+        // the authorized graph image so policy + rows share one commit/snapshot.
+        #[cfg(feature = "shacl")]
+        Method::IcvConfigure {
+            graph,
+            mode,
+            shapes,
+        } => {
+            let (graph, mode, shapes) = (graph.clone(), mode.clone(), shapes.clone());
+            let request_graph = ctx.graph_name.to_string();
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                crate::server::icv_guard::configure(
+                    core,
+                    &request_graph,
+                    graph.as_deref(),
+                    &mode,
+                    &shapes,
+                )
+                .map(|()| ResultPayload::Bool(true))
+            })
+            .await
+        }
+        #[cfg(feature = "reasoning")]
+        Method::RunDatalogReasoning {
+            subclass_relations,
+            subproperty_relations,
+            symmetric_properties,
+            transitive_properties,
+            inverse_properties,
+            domain_rules,
+            range_rules,
+            property_chains,
+        } => {
+            let (
+                subclass_relations,
+                subproperty_relations,
+                symmetric_properties,
+                transitive_properties,
+                inverse_properties,
+                domain_rules,
+                range_rules,
+                property_chains,
+            ) = (
+                subclass_relations.clone(),
+                subproperty_relations.clone(),
+                symmetric_properties.clone(),
+                transitive_properties.clone(),
+                inverse_properties.clone(),
+                domain_rules.clone(),
+                range_rules.clone(),
+                property_chains.clone(),
+            );
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                let mut all_inferred: Vec<std::collections::HashMap<String, String>> = Vec::new();
+                match crate::reasoning::run_datalog_reasoning(
+                    core,
+                    subclass_relations,
+                    subproperty_relations,
+                    symmetric_properties,
+                    transitive_properties,
+                    inverse_properties,
+                ) {
+                    Ok(triples) => all_inferred.extend(triples),
+                    Err(e) => return Err(e),
+                }
+                if !domain_rules.is_empty() || !range_rules.is_empty() {
+                    all_inferred.extend(crate::reasoning::infer_domain_range(
+                        core,
+                        domain_rules,
+                        range_rules,
+                    ));
+                }
+                if !property_chains.is_empty() {
+                    all_inferred.extend(crate::reasoning::infer_property_chains(
+                        core,
+                        property_chains,
+                    ));
+                }
+                Ok(ResultPayload::Json(serde_json::json!({
+                    "inferred_count": all_inferred.len(),
+                    "inferred_triples": all_inferred,
+                })))
+            })
+            .await
+        }
+        Method::PruneByLifecycle {
+            max_age_secs,
+            min_score,
+        } => {
+            let (max_age_secs, min_score) = (*max_age_secs, *min_score);
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                let stats = crate::algorithms::prune_by_lifecycle(core, max_age_secs, min_score);
+                serde_json::to_value(&stats)
+                    .map(ResultPayload::Json)
+                    .map_err(|e| e.to_string())
+            })
+            .await
+        }
+        Method::BatchUpdate { operations_msgpack } => {
+            let operations_msgpack = operations_msgpack.clone();
+            commit_gateway(
+                &ctx,
+                &plan,
+                &method,
+                move |core| match crate::algorithms::batch_update(core, &operations_msgpack) {
+                    Ok(res) => eg_types::msgpack::decode_property_value(&res)
+                        .map(ResultPayload::Json)
+                        .map_err(|_| "Invalid batch result".to_string()),
+                    Err(e) => Err(e),
+                },
+            )
+            .await
+        }
+        Method::ClearLedger => {
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                core.clear_ledger();
+                Ok(ResultPayload::String("ok".to_string()))
+            })
+            .await
+        }
+        Method::ApplyLedger { transactions } => {
+            let transactions = transactions.clone();
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                core.apply_ledger(transactions)
+                    .map(|()| ResultPayload::String("ok".to_string()))
+            })
+            .await
+        }
+        Method::CompactNodesByType {
+            node_type,
+            threshold,
+        } => {
+            let (node_type, threshold) = (node_type.clone(), *threshold);
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                let removed = core.compact_nodes_by_type(&node_type, threshold);
+                Ok(ResultPayload::Json(
+                    serde_json::json!({ "removed_nodes": removed }),
+                ))
+            })
+            .await
+        }
+        // ── L11 rollout batch 2: message-broker / stream family (Outbox
+        // durability domain), behind `feature = "broker"` — see the module docs. ──
+        #[cfg(feature = "broker")]
+        Method::DeclareExchange { exchange, kind } => {
+            let (exchange, kind) = (exchange.clone(), kind.clone());
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                let Some(k) = crate::broker::ExchangeKind::parse(&kind) else {
+                    return Err(format!(
+                        "unknown exchange kind '{kind}' (want direct/topic/fanout)"
+                    ));
+                };
+                crate::broker::declare_exchange(core, &exchange, k)
+                    .map(|()| ResultPayload::String("ok".to_string()))
+            })
+            .await
+        }
+        #[cfg(feature = "broker")]
+        Method::DeleteExchange { exchange } => {
+            let exchange = exchange.clone();
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                let existed = crate::broker::delete_exchange(core, &exchange);
+                Ok(ResultPayload::Bool(existed))
+            })
+            .await
+        }
+        #[cfg(feature = "broker")]
+        Method::BindQueue {
+            exchange,
+            queue,
+            routing_key,
+        } => {
+            let (exchange, queue, routing_key) =
+                (exchange.clone(), queue.clone(), routing_key.clone());
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                crate::broker::bind_queue(core, &exchange, &queue, &routing_key);
+                Ok(ResultPayload::String("ok".to_string()))
+            })
+            .await
+        }
+        #[cfg(feature = "broker")]
+        Method::UnbindQueue {
+            exchange,
+            queue,
+            routing_key,
+        } => {
+            let (exchange, queue, routing_key) =
+                (exchange.clone(), queue.clone(), routing_key.clone());
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                let existed = crate::broker::unbind_queue(core, &exchange, &queue, &routing_key);
+                Ok(ResultPayload::Bool(existed))
+            })
+            .await
+        }
+        #[cfg(feature = "broker")]
+        Method::Publish {
+            exchange,
+            routing_key,
+            payload,
+        } => {
+            let (exchange, routing_key, payload) =
+                (exchange.clone(), routing_key.clone(), payload.clone());
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                let delivered = crate::broker::publish(core, &exchange, &routing_key, &payload);
+                Ok(ResultPayload::Count(delivered as u64))
+            })
+            .await
+        }
+        #[cfg(feature = "broker")]
+        Method::DeclareQueue {
+            queue,
+            dl_exchange,
+            dl_routing_key,
+            max_delivery_count,
+            message_ttl_ms,
+            queue_expiry_ms,
+            max_priority,
+        } => {
+            let (
+                queue,
+                dl_exchange,
+                dl_routing_key,
+                max_delivery_count,
+                message_ttl_ms,
+                queue_expiry_ms,
+                max_priority,
+            ) = (
+                queue.clone(),
+                dl_exchange.clone(),
+                dl_routing_key.clone(),
+                *max_delivery_count,
+                *message_ttl_ms,
+                *queue_expiry_ms,
+                *max_priority,
+            );
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                let policy = crate::broker::QueuePolicy {
+                    dl_exchange,
+                    dl_routing_key,
+                    max_delivery_count,
+                    message_ttl_ms,
+                    queue_expiry_ms,
+                    max_priority,
+                };
+                crate::broker::declare_queue(core, &queue, &policy);
+                Ok(ResultPayload::String("ok".to_string()))
+            })
+            .await
+        }
+        #[cfg(feature = "broker")]
+        Method::PublishEx {
+            exchange,
+            routing_key,
+            payload,
+            priority,
+            delay_ms,
+            ttl_ms,
+            now_ms,
+        } => {
+            let (exchange, routing_key, payload, priority, delay_ms, ttl_ms, now_ms) = (
+                exchange.clone(),
+                routing_key.clone(),
+                payload.clone(),
+                *priority,
+                *delay_ms,
+                *ttl_ms,
+                *now_ms,
+            );
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                let delivered = crate::broker::publish_ex(
+                    core,
+                    &exchange,
+                    &routing_key,
+                    &payload,
+                    priority,
+                    delay_ms,
+                    ttl_ms,
+                    now_ms,
+                );
+                Ok(ResultPayload::Count(delivered as u64))
+            })
+            .await
+        }
+        #[cfg(feature = "broker")]
+        Method::BrokerConsume {
+            queue,
+            group,
+            consumer,
+            now_ms,
+            lease_ms,
+            prefetch,
+        } => {
+            let (queue, group, consumer, now_ms, lease_ms, prefetch) = (
+                queue.clone(),
+                group.clone(),
+                consumer.clone(),
+                *now_ms,
+                *lease_ms,
+                *prefetch,
+            );
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                let claimed = crate::broker::broker_consume(
+                    core, &queue, &group, &consumer, now_ms, lease_ms, prefetch,
+                );
+                Ok(ResultPayload::raw(&claimed))
+            })
+            .await
+        }
+        #[cfg(feature = "broker")]
+        Method::BrokerAck { queue, node_id } => {
+            let (queue, node_id) = (queue.clone(), node_id.clone());
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                let existed = crate::broker::broker_ack(core, &queue, &node_id);
+                Ok(ResultPayload::Bool(existed))
+            })
+            .await
+        }
+        #[cfg(feature = "broker")]
+        Method::BrokerReject {
+            queue,
+            node_id,
+            requeue,
+            now_ms,
+        } => {
+            let (queue, node_id, requeue, now_ms) =
+                (queue.clone(), node_id.clone(), *requeue, *now_ms);
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                let outcome = crate::broker::broker_reject(core, &queue, &node_id, requeue, now_ms);
+                Ok(ResultPayload::String(outcome))
+            })
+            .await
+        }
+        #[cfg(feature = "broker")]
+        Method::SweepExpired { now_ms } => {
+            let now_ms = *now_ms;
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                let acted = crate::broker::sweep_expired(core, now_ms);
+                Ok(ResultPayload::Count(acted as u64))
+            })
+            .await
+        }
+        #[cfg(feature = "broker")]
+        Method::StreamDeclare {
+            stream,
+            max_messages,
+            max_age_ms,
+        } => {
+            let (stream, max_messages, max_age_ms) = (stream.clone(), *max_messages, *max_age_ms);
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                let retention = crate::broker::StreamRetention {
+                    max_messages,
+                    max_age_ms,
+                };
+                crate::broker::declare_stream(core, &stream, &retention);
+                Ok(ResultPayload::String("ok".to_string()))
+            })
+            .await
+        }
+        #[cfg(feature = "broker")]
+        Method::StreamPublish {
+            stream,
+            payload,
+            now_ms,
+        } => {
+            let (stream, payload, now_ms) = (stream.clone(), payload.clone(), *now_ms);
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                let offset = crate::broker::stream_publish(core, &stream, &payload, now_ms);
+                Ok(ResultPayload::Count(offset as u64))
+            })
+            .await
+        }
+        #[cfg(feature = "broker")]
+        Method::StreamTrim { stream, now_ms } => {
+            let (stream, now_ms) = (stream.clone(), *now_ms);
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                let dropped = crate::broker::stream_trim(core, &stream, now_ms);
+                Ok(ResultPayload::Count(dropped as u64))
+            })
+            .await
+        }
+        #[cfg(feature = "broker")]
+        Method::StreamCommitOffset {
+            stream,
+            group,
+            offset,
+        } => {
+            let (stream, group, offset) = (stream.clone(), group.clone(), *offset);
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                crate::broker::commit_offset(core, &stream, &group, offset);
+                Ok(ResultPayload::String("ok".to_string()))
+            })
+            .await
+        }
+        #[cfg(feature = "broker")]
+        Method::PublishConfirmed {
+            exchange,
+            routing_key,
+            payload,
+            priority,
+            delay_ms,
+            ttl_ms,
+            now_ms,
+        } => {
+            let (exchange, routing_key, payload, priority, delay_ms, ttl_ms, now_ms) = (
+                exchange.clone(),
+                routing_key.clone(),
+                payload.clone(),
+                *priority,
+                *delay_ms,
+                *ttl_ms,
+                *now_ms,
+            );
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                let token = crate::broker::publish_confirmed(
+                    core,
+                    &exchange,
+                    &routing_key,
+                    &payload,
+                    priority,
+                    delay_ms,
+                    ttl_ms,
+                    now_ms,
+                );
+                Ok(ResultPayload::raw(&token))
+            })
+            .await
+        }
+        #[cfg(feature = "broker")]
+        Method::PublishIdempotent {
+            exchange,
+            routing_key,
+            payload,
+            producer_id,
+            seq,
+            priority,
+            delay_ms,
+            ttl_ms,
+            now_ms,
+        } => {
+            let (
+                exchange,
+                routing_key,
+                payload,
+                producer_id,
+                seq,
+                priority,
+                delay_ms,
+                ttl_ms,
+                now_ms,
+            ) = (
+                exchange.clone(),
+                routing_key.clone(),
+                payload.clone(),
+                producer_id.clone(),
+                *seq,
+                *priority,
+                *delay_ms,
+                *ttl_ms,
+                *now_ms,
+            );
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                let result = crate::broker::publish_idempotent(
+                    core,
+                    &exchange,
+                    &routing_key,
+                    &payload,
+                    producer_id.as_deref(),
+                    seq,
+                    priority,
+                    delay_ms,
+                    ttl_ms,
+                    now_ms,
+                );
+                Ok(ResultPayload::raw(&result))
+            })
+            .await
+        }
+        #[cfg(feature = "broker")]
+        Method::BrokerAckTag {
+            delivery_tag,
+            consumer,
+        } => {
+            let (delivery_tag, consumer) = (*delivery_tag, consumer.clone());
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                let existed = crate::broker::broker_ack_tag(core, delivery_tag, &consumer);
+                Ok(ResultPayload::Bool(existed))
+            })
+            .await
+        }
+        #[cfg(feature = "broker")]
+        Method::BrokerNackTag {
+            delivery_tag,
+            consumer,
+            requeue,
+            now_ms,
+        } => {
+            let (delivery_tag, consumer, requeue, now_ms) =
+                (*delivery_tag, consumer.clone(), *requeue, *now_ms);
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                let outcome =
+                    crate::broker::broker_nack_tag(core, delivery_tag, &consumer, requeue, now_ms);
+                Ok(ResultPayload::String(outcome))
+            })
+            .await
+        }
+        #[cfg(feature = "broker")]
+        Method::BrokerRenewTag {
+            delivery_tag,
+            consumer,
+            now_ms,
+            lease_ms,
+        } => {
+            let (delivery_tag, consumer, now_ms, lease_ms) =
+                (*delivery_tag, consumer.clone(), *now_ms, *lease_ms);
+            commit_gateway(&ctx, &plan, &method, move |core| {
+                Ok(ResultPayload::Bool(crate::broker::broker_renew_tag(
+                    core,
+                    delivery_tag,
+                    &consumer,
+                    now_ms,
+                    lease_ms,
+                )))
+            })
+            .await
+        }
+        // ── L11 rollout batch 3: RUNTIME-CONDITIONAL graph-learning family — the
+        // request's own `writeback` field decides whether THIS call mutates;
+        // `commit_conditional_mutation` only drives the write-authz/durability/
+        // audit/CDC gateway when it actually does (see the module docs' L11 note
+        // and `eg-capabilities`'s `RUNTIME_CONDITIONAL` divergence table). ──
+        #[cfg(feature = "graphlearn")]
+        Method::GraphLearnFit {
+            source,
+            params,
+            writeback,
+        } => {
+            let (source, params, writeback) = (source.clone(), params.clone(), *writeback);
+            let req_id = ctx.req_id;
+            mutation::commit_conditional_mutation(&ctx, &plan, &method, writeback, move |core| {
+                let resp = super::graphlearn::handle_fit(req_id, core, source, params, writeback);
+                match resp.error {
+                    Some(e) => Err(e),
+                    None => Ok(resp
+                        .result
+                        .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
+                }
+            })
+            .await
+        }
+        #[cfg(feature = "graphlearn")]
+        Method::GraphLearnPredict {
+            model,
+            source,
+            candidate_pairs,
+            top_k,
+            writeback,
+        } => {
+            let (model, source, candidate_pairs, top_k, writeback) = (
+                model.clone(),
+                source.clone(),
+                candidate_pairs.clone(),
+                *top_k,
+                *writeback,
+            );
+            let req_id = ctx.req_id;
+            mutation::commit_conditional_mutation(&ctx, &plan, &method, writeback, move |core| {
+                let resp = super::graphlearn::handle_predict(
+                    req_id,
+                    core,
+                    model,
+                    source,
+                    candidate_pairs,
+                    top_k,
+                    writeback,
+                );
+                match resp.error {
+                    Some(e) => Err(e),
+                    None => Ok(resp
+                        .result
+                        .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
+                }
+            })
+            .await
+        }
+        // ── L11 rollout batch 3: RUNTIME-CONDITIONAL data-mining family — same
+        // shape as GraphLearn* above (the request's own `writeback` field decides
+        // whether THIS call mutates). Each arm clones the whole `method` (cheap;
+        // `Method` derives `Clone`) and re-destructures the OWNED clone inside the
+        // `apply` closure via `let-else` — this keeps the field list a verbatim
+        // copy of `mining::try_handle`'s own destructuring (the single source of
+        // truth for each method's fields), rather than hand-cloning 10+ fields
+        // per arm. `MineClassifyFit` is NOT here (policy explicit-false: it never
+        // writes back) and keeps its ordinary read-only arm in `mining.rs`.
+        #[cfg(feature = "mining")]
+        Method::MineAssociate { writeback, .. } => {
+            let writeback = *writeback;
+            let method_owned = method.clone();
+            let req_id = ctx.req_id;
+            mutation::commit_conditional_mutation(&ctx, &plan, &method, writeback, move |core| {
+                let Method::MineAssociate {
+                    transactions,
+                    source,
+                    min_support,
+                    min_confidence,
+                    algorithm,
+                    writeback,
+                    #[cfg(feature = "epistemic")]
+                    as_claim,
+                } = method_owned
+                else {
+                    unreachable!()
+                };
+                let resp = super::mining::handle_associate(
+                    req_id,
+                    core,
+                    transactions,
+                    source,
+                    min_support,
+                    min_confidence,
+                    algorithm,
+                    writeback,
+                    #[cfg(feature = "epistemic")]
+                    as_claim,
+                );
+                match resp.error {
+                    Some(e) => Err(e),
+                    None => Ok(resp
+                        .result
+                        .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
+                }
+            })
+            .await
+        }
+        #[cfg(feature = "mining")]
+        Method::MineCluster { writeback, .. } => {
+            let writeback = *writeback;
+            let method_owned = method.clone();
+            let req_id = ctx.req_id;
+            let core_arc = ctx.core;
+            mutation::commit_conditional_mutation(&ctx, &plan, &method, writeback, move |_core| {
+                let Method::MineCluster {
+                    features,
+                    source,
+                    #[cfg(feature = "query")]
+                    plan,
+                    algorithm,
+                    eps,
+                    min_pts,
+                    k,
+                    linkage,
+                    max_iter,
+                    seed,
+                    writeback,
+                    #[cfg(feature = "epistemic")]
+                    as_claim,
+                } = method_owned
+                else {
+                    unreachable!()
+                };
+                let resp = super::mining::handle_cluster(
+                    req_id,
+                    core_arc,
+                    features,
+                    source,
+                    #[cfg(feature = "query")]
+                    plan,
+                    algorithm,
+                    eps,
+                    min_pts,
+                    k,
+                    linkage,
+                    max_iter,
+                    seed,
+                    writeback,
+                    #[cfg(feature = "epistemic")]
+                    as_claim,
+                );
+                match resp.error {
+                    Some(e) => Err(e),
+                    None => Ok(resp
+                        .result
+                        .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
+                }
+            })
+            .await
+        }
+        #[cfg(feature = "mining")]
+        Method::MineAnomaly { writeback, .. } => {
+            let writeback = *writeback;
+            let method_owned = method.clone();
+            let req_id = ctx.req_id;
+            let core_arc = ctx.core;
+            mutation::commit_conditional_mutation(&ctx, &plan, &method, writeback, move |_core| {
+                let Method::MineAnomaly {
+                    features,
+                    values,
+                    source,
+                    #[cfg(feature = "query")]
+                    plan,
+                    algorithm,
+                    k,
+                    n_trees,
+                    sample_size,
+                    seed,
+                    nu,
+                    gamma,
+                    kernel,
+                    threshold,
+                    writeback,
+                    #[cfg(feature = "epistemic")]
+                    as_claim,
+                } = method_owned
+                else {
+                    unreachable!()
+                };
+                let resp = super::mining::handle_anomaly(
+                    req_id,
+                    core_arc,
+                    features,
+                    values,
+                    source,
+                    #[cfg(feature = "query")]
+                    plan,
+                    algorithm,
+                    k,
+                    n_trees,
+                    sample_size,
+                    seed,
+                    nu,
+                    gamma,
+                    kernel,
+                    threshold,
+                    writeback,
+                    #[cfg(feature = "epistemic")]
+                    as_claim,
+                );
+                match resp.error {
+                    Some(e) => Err(e),
+                    None => Ok(resp
+                        .result
+                        .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
+                }
+            })
+            .await
+        }
+        #[cfg(feature = "mining")]
+        Method::MineClassifyPredict { writeback, .. } => {
+            let writeback = *writeback;
+            let method_owned = method.clone();
+            let req_id = ctx.req_id;
+            let core_arc = ctx.core;
+            mutation::commit_conditional_mutation(&ctx, &plan, &method, writeback, move |_core| {
+                let Method::MineClassifyPredict {
+                    model,
+                    x,
+                    source,
+                    #[cfg(feature = "query")]
+                    plan,
+                    writeback,
+                    #[cfg(feature = "epistemic")]
+                    as_claim,
+                } = method_owned
+                else {
+                    unreachable!()
+                };
+                let resp = super::mining::handle_classify_predict(
+                    req_id,
+                    core_arc,
+                    model,
+                    x,
+                    source,
+                    #[cfg(feature = "query")]
+                    plan,
+                    writeback,
+                    #[cfg(feature = "epistemic")]
+                    as_claim,
+                );
+                match resp.error {
+                    Some(e) => Err(e),
+                    None => Ok(resp
+                        .result
+                        .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
+                }
+            })
+            .await
+        }
+        #[cfg(feature = "mining")]
+        Method::MineReduce { writeback, .. } => {
+            let writeback = *writeback;
+            let method_owned = method.clone();
+            let req_id = ctx.req_id;
+            let core_arc = ctx.core;
+            mutation::commit_conditional_mutation(&ctx, &plan, &method, writeback, move |_core| {
+                let Method::MineReduce {
+                    x,
+                    source,
+                    #[cfg(feature = "query")]
+                    plan,
+                    labels,
+                    algorithm,
+                    n_components,
+                    n_neighbors,
+                    min_dist,
+                    perplexity,
+                    epochs,
+                    lr,
+                    seed,
+                    writeback,
+                    #[cfg(feature = "epistemic")]
+                    as_claim,
+                } = method_owned
+                else {
+                    unreachable!()
+                };
+                let resp = super::mining::handle_reduce(
+                    req_id,
+                    core_arc,
+                    x,
+                    source,
+                    #[cfg(feature = "query")]
+                    plan,
+                    labels,
+                    algorithm,
+                    n_components,
+                    n_neighbors,
+                    min_dist,
+                    perplexity,
+                    epochs,
+                    lr,
+                    seed,
+                    writeback,
+                    #[cfg(feature = "epistemic")]
+                    as_claim,
+                );
+                match resp.error {
+                    Some(e) => Err(e),
+                    None => Ok(resp
+                        .result
+                        .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
+                }
+            })
+            .await
+        }
+        #[cfg(feature = "mining")]
+        Method::MineSequence { writeback, .. } => {
+            let writeback = *writeback;
+            let method_owned = method.clone();
+            let req_id = ctx.req_id;
+            mutation::commit_conditional_mutation(&ctx, &plan, &method, writeback, move |core| {
+                let Method::MineSequence {
+                    sequences,
+                    source,
+                    min_support,
+                    algorithm,
+                    writeback,
+                    #[cfg(feature = "epistemic")]
+                    as_claim,
+                } = method_owned
+                else {
+                    unreachable!()
+                };
+                let resp = super::mining::handle_sequence(
+                    req_id,
+                    core,
+                    sequences,
+                    source,
+                    min_support,
+                    algorithm,
+                    writeback,
+                    #[cfg(feature = "epistemic")]
+                    as_claim,
+                );
+                match resp.error {
+                    Some(e) => Err(e),
+                    None => Ok(resp
+                        .result
+                        .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
+                }
+            })
+            .await
+        }
+        #[cfg(feature = "mining")]
+        Method::MineForecast { writeback, .. } => {
+            let writeback = *writeback;
+            let method_owned = method.clone();
+            let req_id = ctx.req_id;
+            mutation::commit_conditional_mutation(&ctx, &plan, &method, writeback, move |core| {
+                let Method::MineForecast {
+                    values,
+                    algorithm,
+                    horizon,
+                    p,
+                    d,
+                    q,
+                    period,
+                    alpha,
+                    beta,
+                    gamma,
+                    confidence,
+                    series_id,
+                    writeback,
+                    #[cfg(feature = "epistemic")]
+                    as_claim,
+                } = method_owned
+                else {
+                    unreachable!()
+                };
+                let resp = super::mining::handle_forecast(
+                    req_id,
+                    core,
+                    values,
+                    algorithm,
+                    horizon,
+                    p,
+                    d,
+                    q,
+                    period,
+                    alpha,
+                    beta,
+                    gamma,
+                    confidence,
+                    series_id,
+                    writeback,
+                    #[cfg(feature = "epistemic")]
+                    as_claim,
+                );
+                match resp.error {
+                    Some(e) => Err(e),
+                    None => Ok(resp
+                        .result
+                        .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
+                }
+            })
+            .await
+        }
+        #[cfg(feature = "mining")]
+        Method::MineText { writeback, .. } => {
+            let writeback = *writeback;
+            let method_owned = method.clone();
+            let req_id = ctx.req_id;
+            mutation::commit_conditional_mutation(&ctx, &plan, &method, writeback, move |core| {
+                let Method::MineText {
+                    docs,
+                    source,
+                    algorithm,
+                    k,
+                    alpha,
+                    beta,
+                    iterations,
+                    seed,
+                    top_n,
+                    writeback,
+                    #[cfg(feature = "epistemic")]
+                    as_claim,
+                } = method_owned
+                else {
+                    unreachable!()
+                };
+                let resp = super::mining::handle_text(
+                    req_id,
+                    core,
+                    docs,
+                    source,
+                    algorithm,
+                    k,
+                    alpha,
+                    beta,
+                    iterations,
+                    seed,
+                    top_n,
+                    writeback,
+                    #[cfg(feature = "epistemic")]
+                    as_claim,
+                );
+                match resp.error {
+                    Some(e) => Err(e),
+                    None => Ok(resp
+                        .result
+                        .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
+                }
+            })
+            .await
+        }
+        #[cfg(feature = "mining")]
+        Method::MineSubgraph { writeback, .. } => {
+            let writeback = *writeback;
+            let method_owned = method.clone();
+            let req_id = ctx.req_id;
+            mutation::commit_conditional_mutation(&ctx, &plan, &method, writeback, move |core| {
+                let Method::MineSubgraph {
+                    label,
+                    min_support,
+                    max_edges,
+                    algorithm,
+                    writeback,
+                    #[cfg(feature = "epistemic")]
+                    as_claim,
+                } = method_owned
+                else {
+                    unreachable!()
+                };
+                let resp = super::mining::handle_subgraph(
+                    req_id,
+                    core,
+                    label,
+                    min_support,
+                    max_edges,
+                    algorithm,
+                    writeback,
+                    #[cfg(feature = "epistemic")]
+                    as_claim,
+                );
+                match resp.error {
+                    Some(e) => Err(e),
+                    None => Ok(resp
+                        .result
+                        .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
+                }
+            })
+            .await
+        }
+        #[cfg(feature = "mining")]
+        Method::MineEntityResolve { writeback, .. } => {
+            let writeback = *writeback;
+            let method_owned = method.clone();
+            let req_id = ctx.req_id;
+            mutation::commit_conditional_mutation(&ctx, &plan, &method, writeback, move |core| {
+                let Method::MineEntityResolve {
+                    records,
+                    block_keys,
+                    vectors,
+                    source,
+                    ids,
+                    bucket_precision,
+                    threshold,
+                    writeback,
+                    #[cfg(feature = "epistemic")]
+                    as_claim,
+                } = method_owned
+                else {
+                    unreachable!()
+                };
+                let resp = super::mining::handle_entity_resolve(
+                    req_id,
+                    core,
+                    records,
+                    block_keys,
+                    vectors,
+                    source,
+                    ids,
+                    bucket_precision,
+                    threshold,
+                    writeback,
+                    #[cfg(feature = "epistemic")]
+                    as_claim,
+                );
+                match resp.error {
+                    Some(e) => Err(e),
+                    None => Ok(resp
+                        .result
+                        .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
+                }
+            })
+            .await
+        }
+        #[cfg(feature = "mining")]
+        Method::MineCausalImpact { writeback, .. } => {
+            let writeback = *writeback;
+            let method_owned = method.clone();
+            let req_id = ctx.req_id;
+            mutation::commit_conditional_mutation(&ctx, &plan, &method, writeback, move |core| {
+                let Method::MineCausalImpact {
+                    series,
+                    control,
+                    intervention_index,
+                    series_id,
+                    writeback,
+                    #[cfg(feature = "epistemic")]
+                    as_claim,
+                } = method_owned
+                else {
+                    unreachable!()
+                };
+                let resp = super::mining::handle_causal_impact(
+                    req_id,
+                    core,
+                    series,
+                    control,
+                    intervention_index,
+                    series_id,
+                    writeback,
+                    #[cfg(feature = "epistemic")]
+                    as_claim,
+                );
+                match resp.error {
+                    Some(e) => Err(e),
+                    None => Ok(resp
+                        .result
+                        .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
+                }
+            })
+            .await
+        }
+        #[cfg(feature = "mining")]
+        Method::MineProcess { writeback, .. } => {
+            let writeback = *writeback;
+            let method_owned = method.clone();
+            let req_id = ctx.req_id;
+            mutation::commit_conditional_mutation(&ctx, &plan, &method, writeback, move |core| {
+                let Method::MineProcess {
+                    traces,
+                    process_id,
+                    writeback,
+                    #[cfg(feature = "epistemic")]
+                    as_claim,
+                } = method_owned
+                else {
+                    unreachable!()
+                };
+                let resp = super::mining::handle_process(
+                    req_id,
+                    core,
+                    traces,
+                    process_id,
+                    writeback,
+                    #[cfg(feature = "epistemic")]
+                    as_claim,
+                );
+                match resp.error {
+                    Some(e) => Err(e),
+                    None => Ok(resp
+                        .result
+                        .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
+                }
+            })
+            .await
+        }
+        #[cfg(feature = "mining")]
+        Method::MineRootCause { writeback, .. } => {
+            let writeback = *writeback;
+            let method_owned = method.clone();
+            let req_id = ctx.req_id;
+            mutation::commit_conditional_mutation(&ctx, &plan, &method, writeback, move |core| {
+                let Method::MineRootCause {
+                    nodes,
+                    scores,
+                    edges,
+                    symptom,
+                    max_hops,
+                    decay,
+                    writeback,
+                    #[cfg(feature = "epistemic")]
+                    as_claim,
+                } = method_owned
+                else {
+                    unreachable!()
+                };
+                let resp = super::mining::handle_root_cause(
+                    req_id,
+                    core,
+                    nodes,
+                    scores,
+                    edges,
+                    symptom,
+                    max_hops,
+                    decay,
+                    writeback,
+                    #[cfg(feature = "epistemic")]
+                    as_claim,
+                );
+                match resp.error {
+                    Some(e) => Err(e),
+                    None => Ok(resp
+                        .result
+                        .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
+                }
+            })
+            .await
+        }
+        #[cfg(feature = "mining")]
+        Method::MineRiskPropagation { writeback, .. } => {
+            let writeback = *writeback;
+            let method_owned = method.clone();
+            let req_id = ctx.req_id;
+            mutation::commit_conditional_mutation(&ctx, &plan, &method, writeback, move |core| {
+                let Method::MineRiskPropagation {
+                    nodes,
+                    seed,
+                    edges,
+                    damping,
+                    tolerance,
+                    max_iterations,
+                    writeback,
+                    #[cfg(feature = "epistemic")]
+                    as_claim,
+                } = method_owned
+                else {
+                    unreachable!()
+                };
+                let resp = super::mining::handle_risk_propagation(
+                    req_id,
+                    core,
+                    nodes,
+                    seed,
+                    edges,
+                    damping,
+                    tolerance,
+                    max_iterations,
+                    writeback,
+                    #[cfg(feature = "epistemic")]
+                    as_claim,
+                );
+                match resp.error {
+                    Some(e) => Err(e),
+                    None => Ok(resp
+                        .result
+                        .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
+                }
+            })
+            .await
+        }
+        #[cfg(feature = "mining")]
+        Method::MineOntologyGap { writeback, .. } => {
+            let writeback = *writeback;
+            let method_owned = method.clone();
+            let req_id = ctx.req_id;
+            mutation::commit_conditional_mutation(&ctx, &plan, &method, writeback, move |core| {
+                let Method::MineOntologyGap {
+                    label,
+                    writeback,
+                    #[cfg(feature = "epistemic")]
+                    as_claim,
+                } = method_owned
+                else {
+                    unreachable!()
+                };
+                let resp = super::mining::handle_ontology_gap(
+                    req_id,
+                    core,
+                    label,
+                    writeback,
+                    #[cfg(feature = "epistemic")]
+                    as_claim,
+                );
+                match resp.error {
+                    Some(e) => Err(e),
+                    None => Ok(resp
+                        .result
+                        .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
+                }
+            })
+            .await
+        }
+        #[cfg(feature = "mining")]
+        Method::MineRetrievalQuality { writeback, .. } => {
+            let writeback = *writeback;
+            let method_owned = method.clone();
+            let req_id = ctx.req_id;
+            mutation::commit_conditional_mutation(&ctx, &plan, &method, writeback, move |core| {
+                let Method::MineRetrievalQuality {
+                    traces,
+                    k,
+                    query_id,
+                    writeback,
+                    #[cfg(feature = "epistemic")]
+                    as_claim,
+                } = method_owned
+                else {
+                    unreachable!()
+                };
+                let resp = super::mining::handle_retrieval_quality(
+                    req_id,
+                    core,
+                    traces,
+                    k,
+                    query_id,
+                    writeback,
+                    #[cfg(feature = "epistemic")]
+                    as_claim,
+                );
+                match resp.error {
+                    Some(e) => Err(e),
+                    None => Ok(resp
+                        .result
+                        .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
+                }
+            })
+            .await
+        }
+        #[cfg(feature = "mining")]
+        Method::MineCommunity { writeback, .. } => {
+            let writeback = *writeback;
+            let method_owned = method.clone();
+            let req_id = ctx.req_id;
+            mutation::commit_conditional_mutation(&ctx, &plan, &method, writeback, move |core| {
+                let Method::MineCommunity {
+                    label,
+                    algorithm,
+                    resolution,
+                    max_iterations,
+                    seed,
+                    weighted,
+                    writeback,
+                    #[cfg(feature = "epistemic")]
+                    as_claim,
+                } = method_owned
+                else {
+                    unreachable!()
+                };
+                let resp = super::mining::handle_community(
+                    req_id,
+                    core,
+                    label,
+                    algorithm,
+                    resolution,
+                    max_iterations,
+                    seed,
+                    weighted,
+                    writeback,
+                    #[cfg(feature = "epistemic")]
+                    as_claim,
+                );
+                match resp.error {
+                    Some(e) => Err(e),
+                    None => Ok(resp
+                        .result
+                        .unwrap_or(ResultPayload::Json(serde_json::Value::Null))),
+                }
+            })
+            .await
+        }
+        _ => unreachable!(
+            "mutation::is_gateway_routed guarantees method is one of the routed variants"
+        ),
+    };
+    Ok(resp)
 }
 
 /// Dispatch a graph-targeted method. This is the terminal handler in the routing
@@ -275,24 +2192,40 @@ fn decode_pose(blob: &[u8]) -> Option<eg_core::scene::Pose> {
 pub(crate) async fn try_handle(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
-    caller: Option<&str>,
+    _caller: Option<&str>,
+    read_authority: &GraphReadAuthority,
     core: Arc<GraphCore>,
     method: Method,
 ) -> Response {
+    // Keep the projection inside the terminal handler: any future internal caller
+    // must supply a GraphReadAuthority and receives the same pre-compute projection
+    // before the first primitive can inspect existence, counts, embeddings, or
+    // topology. Query/RDF handlers instead retain their snapshot-level filter.
+    let core = read_authority.project_core(&core);
     match method {
-        Method::AddNode {
-            node_id,
-            properties_msgpack,
-        } => {
-            let g = &*core;
-            g.add_node(node_id, properties_msgpack);
-            Response::ok(req_id, ResultPayload::String("ok".to_string()))
-        }
-        Method::RemoveNode { node_id } => {
-            let g = &*core;
-            g.remove_node(node_id);
-            Response::ok(req_id, ResultPayload::String("ok".to_string()))
-        }
+        // AddNode/RemoveNode (CONCEPT:EG-P0-2 bypass guard): these — along with
+        // AddEdge/RemoveEdge/CreateSummaryNode/Consolidate/Reinforce below — are
+        // GATEWAY_ROUTED. `dispatch_graph_op` calls `try_handle_gateway` BEFORE
+        // this terminal handler, so a routed method is intercepted and returns
+        // through `commit_mutation` long before reaching this `match` — this
+        // arm is structurally unreachable, not merely undocumented. Kept as an
+        // explicit `unreachable!()` (rather than deleting the arm and falling
+        // into the wildcard read-only-methods-only assumption below) so a
+        // regression in the dispatch-side routing — e.g. someone re-adding a
+        // direct call path that skips `try_handle_gateway` — fails LOUDLY here
+        // instead of silently re-mutating `eg-core` outside the gateway.
+        Method::AddNode { .. } => unreachable!(
+            "AddNode is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+             through try_handle_gateway before it ever reaches this terminal handler"
+        ),
+        Method::CreateNodeIfAbsent { .. } => unreachable!(
+            "CreateNodeIfAbsent is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+             through try_handle_gateway before it ever reaches this terminal handler"
+        ),
+        Method::RemoveNode { .. } => unreachable!(
+            "RemoveNode is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+             through try_handle_gateway before it ever reaches this terminal handler"
+        ),
         Method::HasNode { node_id } => {
             let g = &*core;
             Response::ok(req_id, ResultPayload::Bool(g.has_node(&node_id)))
@@ -305,8 +2238,8 @@ pub(crate) async fn try_handle(
             // properties into ONE response frame is a gigabyte-scale payload that
             // overruns/resets the client connection. Check the cheap topology count
             // BEFORE building the Vec, and return a typed, catchable error instead of
-            // the pathological frame. `cap == 0` disables the guard. The bounded
-            // reads (`GetNodesByLabel`, per-id) are intentionally unaffected.
+            // the pathological frame. The bounded reads (`GetNodesByLabel`, per-id)
+            // are intentionally unaffected.
             if let Some(msg) = oversize_dump_error(g.node_count(), max_response_nodes()) {
                 return Response::err(req_id, msg);
             }
@@ -314,20 +2247,24 @@ pub(crate) async fn try_handle(
                 .get_nodes()
                 .into_iter()
                 .map(|(k, p)| {
-                    let val = rmp_serde::from_slice::<serde_json::Value>(&p)
+                    let val = eg_types::msgpack::decode_property_value(&p)
                         .unwrap_or(serde_json::json!({}));
                     (k, val)
                 })
                 .collect();
             Response::ok(req_id, ResultPayload::NodeList(nodes))
         }
-        Method::GetNodesByLabel { label, limit } => {
+        Method::GetNodesByLabel {
+            label,
+            after,
+            limit,
+        } => {
             let g = &*core;
             let nodes: Vec<(String, serde_json::Value)> = g
-                .get_nodes_by_label(&label, limit)
+                .get_nodes_by_label_page(&label, after.as_deref(), limit)
                 .into_iter()
                 .map(|(k, p)| {
-                    let val = rmp_serde::from_slice::<serde_json::Value>(&p)
+                    let val = eg_types::msgpack::decode_property_value(&p)
                         .unwrap_or(serde_json::json!({}));
                     (k, val)
                 })
@@ -342,210 +2279,90 @@ pub(crate) async fn try_handle(
             };
             Response::ok(req_id, val)
         }
-        Method::CompareAndSetNodeFields {
-            node_id,
-            conditions_msgpack,
-            updates_msgpack,
-        } => {
-            // Decode the two msgpack blobs to JSON objects. A decode failure is a
-            // CAS failure (false), not a transport error — the node is untouched.
-            let conditions = match rmp_serde::from_slice::<serde_json::Map<String, serde_json::Value>>(
-                &conditions_msgpack,
-            ) {
-                Ok(m) => m,
-                Err(_) => return Response::ok(req_id, ResultPayload::Bool(false)),
-            };
-            let updates = match rmp_serde::from_slice::<serde_json::Map<String, serde_json::Value>>(
-                &updates_msgpack,
-            ) {
-                Ok(m) => m,
-                Err(_) => return Response::ok(req_id, ResultPayload::Bool(false)),
-            };
-            let g = &*core;
-            let ok = g.compare_and_set_fields(&node_id, &conditions, &updates);
-            Response::ok(req_id, ResultPayload::Bool(ok))
-        }
-        Method::ClaimNext {
-            label,
-            updates_msgpack,
-        } => {
-            // CONCEPT:EG-KG.compute.atomically-claim-oldest-pending — atomically claim the oldest pending node of `label`.
-            // A decode failure ⇒ nothing claimed (Raw None), never a transport error.
-            let updates = match rmp_serde::from_slice::<serde_json::Map<String, serde_json::Value>>(
-                &updates_msgpack,
-            ) {
-                Ok(m) => m,
-                Err(_) => {
-                    return Response::ok(
-                        req_id,
-                        ResultPayload::raw(&Option::<(String, serde_json::Value)>::None),
-                    )
-                }
-            };
-            let g = &*core;
-            let claimed = g.claim_next_fields(&label, &updates);
-            Response::ok(req_id, ResultPayload::raw(&claimed))
-        }
+        // CompareAndSetNodeFields/ClaimNext (CONCEPT:EG-P0-2 bypass guard, L11):
+        // GATEWAY_ROUTED — see the AddNode/RemoveNode comment above.
+        Method::CompareAndSetNodeFields { .. } => unreachable!(
+            "CompareAndSetNodeFields is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
+             route it through try_handle_gateway before it ever reaches this terminal handler"
+        ),
+        Method::ClaimNext { .. } => unreachable!(
+            "ClaimNext is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+             through try_handle_gateway before it ever reaches this terminal handler"
+        ),
         // ── Message broker admin + data (CONCEPT:EG-KG.compute.message-broker-exchanges) ─────────────────
         // Built on the KG-2.303 queue: exchanges/bindings are nodes on this target
         // graph; publish routes + enqueues; consume/ack REUSE ClaimNext + CAS above.
         // Same handler home + precedent as ClaimNext. Gated `broker`; a slim build
         // drops the variants (they fall to the catch-all "not available").
+        // Broker/stream admin+data family (CONCEPT:EG-P0-2 bypass guard, L11):
+        // GATEWAY_ROUTED — see the AddNode/RemoveNode comment above. `StreamRead`/
+        // `StreamCommittedOffset` are pure reads (not in GATEWAY_ROUTED) and keep
+        // their normal arms below.
         #[cfg(feature = "broker")]
-        Method::DeclareExchange { exchange, kind } => {
-            let Some(k) = crate::broker::ExchangeKind::parse(&kind) else {
-                return Response::err(
-                    req_id,
-                    format!("unknown exchange kind '{kind}' (want direct/topic/fanout)"),
-                );
-            };
-            match crate::broker::declare_exchange(&core, &exchange, k) {
-                Ok(()) => Response::ok(req_id, ResultPayload::String("ok".to_string())),
-                Err(e) => Response::err(req_id, e),
-            }
-        }
+        Method::DeclareExchange { .. } => unreachable!(
+            "DeclareExchange is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
+             route it through try_handle_gateway before it ever reaches this terminal handler"
+        ),
         #[cfg(feature = "broker")]
-        Method::DeleteExchange { exchange } => {
-            let existed = crate::broker::delete_exchange(&core, &exchange);
-            Response::ok(req_id, ResultPayload::Bool(existed))
-        }
+        Method::DeleteExchange { .. } => unreachable!(
+            "DeleteExchange is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
+             route it through try_handle_gateway before it ever reaches this terminal handler"
+        ),
         #[cfg(feature = "broker")]
-        Method::BindQueue {
-            exchange,
-            queue,
-            routing_key,
-        } => {
-            crate::broker::bind_queue(&core, &exchange, &queue, &routing_key);
-            Response::ok(req_id, ResultPayload::String("ok".to_string()))
-        }
+        Method::BindQueue { .. } => unreachable!(
+            "BindQueue is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+             through try_handle_gateway before it ever reaches this terminal handler"
+        ),
         #[cfg(feature = "broker")]
-        Method::UnbindQueue {
-            exchange,
-            queue,
-            routing_key,
-        } => {
-            let existed = crate::broker::unbind_queue(&core, &exchange, &queue, &routing_key);
-            Response::ok(req_id, ResultPayload::Bool(existed))
-        }
+        Method::UnbindQueue { .. } => unreachable!(
+            "UnbindQueue is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+             through try_handle_gateway before it ever reaches this terminal handler"
+        ),
         #[cfg(feature = "broker")]
-        Method::Publish {
-            exchange,
-            routing_key,
-            payload,
-        } => {
-            // Deterministic (routes over current bindings + monotonic seq); the same
-            // Method replays identically from the WAL (see `wal::apply`).
-            let delivered = crate::broker::publish(&core, &exchange, &routing_key, &payload);
-            Response::ok(req_id, ResultPayload::Count(delivered as u64))
-        }
-        // ── Broker policy extensions (CONCEPT:EG-KG.compute.dead-letter-queues..280) ───────────────
-        // Same handler home + durable/deterministic contract as EG-275: each mutates
-        // control-graph nodes from explicit args (caller-supplied `now_ms`), so
-        // `wal::apply` replays them identically. Consume/ack/reject reuse the CAS +
-        // claim primitives internally.
+        Method::Publish { .. } => unreachable!(
+            "Publish is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+             through try_handle_gateway before it ever reaches this terminal handler"
+        ),
         #[cfg(feature = "broker")]
-        Method::DeclareQueue {
-            queue,
-            dl_exchange,
-            dl_routing_key,
-            max_delivery_count,
-            message_ttl_ms,
-            queue_expiry_ms,
-            max_priority,
-        } => {
-            let policy = crate::broker::QueuePolicy {
-                dl_exchange,
-                dl_routing_key,
-                max_delivery_count,
-                message_ttl_ms,
-                queue_expiry_ms,
-                max_priority,
-            };
-            crate::broker::declare_queue(&core, &queue, &policy);
-            Response::ok(req_id, ResultPayload::String("ok".to_string()))
-        }
+        Method::DeclareQueue { .. } => unreachable!(
+            "DeclareQueue is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+             through try_handle_gateway before it ever reaches this terminal handler"
+        ),
         #[cfg(feature = "broker")]
-        Method::PublishEx {
-            exchange,
-            routing_key,
-            payload,
-            priority,
-            delay_ms,
-            ttl_ms,
-            now_ms,
-        } => {
-            let delivered = crate::broker::publish_ex(
-                &core,
-                &exchange,
-                &routing_key,
-                &payload,
-                priority,
-                delay_ms,
-                ttl_ms,
-                now_ms,
-            );
-            Response::ok(req_id, ResultPayload::Count(delivered as u64))
-        }
+        Method::PublishEx { .. } => unreachable!(
+            "PublishEx is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+             through try_handle_gateway before it ever reaches this terminal handler"
+        ),
         #[cfg(feature = "broker")]
-        Method::BrokerConsume {
-            queue,
-            group,
-            consumer,
-            now_ms,
-            lease_ms,
-            prefetch,
-        } => {
-            let claimed = crate::broker::broker_consume(
-                &core, &queue, &group, &consumer, now_ms, lease_ms, prefetch,
-            );
-            Response::ok(req_id, ResultPayload::raw(&claimed))
-        }
+        Method::BrokerConsume { .. } => unreachable!(
+            "BrokerConsume is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
+             route it through try_handle_gateway before it ever reaches this terminal handler"
+        ),
         #[cfg(feature = "broker")]
-        Method::BrokerAck { queue, node_id } => {
-            let existed = crate::broker::broker_ack(&core, &queue, &node_id);
-            Response::ok(req_id, ResultPayload::Bool(existed))
-        }
+        Method::BrokerAck { .. } => unreachable!(
+            "BrokerAck is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+             through try_handle_gateway before it ever reaches this terminal handler"
+        ),
         #[cfg(feature = "broker")]
-        Method::BrokerReject {
-            queue,
-            node_id,
-            requeue,
-            now_ms,
-        } => {
-            let outcome = crate::broker::broker_reject(&core, &queue, &node_id, requeue, now_ms);
-            Response::ok(req_id, ResultPayload::String(outcome))
-        }
+        Method::BrokerReject { .. } => unreachable!(
+            "BrokerReject is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+             through try_handle_gateway before it ever reaches this terminal handler"
+        ),
         #[cfg(feature = "broker")]
-        Method::SweepExpired { now_ms } => {
-            let acted = crate::broker::sweep_expired(&core, now_ms);
-            Response::ok(req_id, ResultPayload::Count(acted as u64))
-        }
-        // ── Replayable append-log streams (CONCEPT:EG-KG.compute.replayable-append-log) ───────────────
-        // Same handler home + durable/deterministic contract as EG-275/276..280: each
-        // mutation writes control-graph nodes from explicit args (caller `now_ms` +
-        // durable counters), so `wal::apply` replays them identically. Reads are pure.
+        Method::SweepExpired { .. } => unreachable!(
+            "SweepExpired is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+             through try_handle_gateway before it ever reaches this terminal handler"
+        ),
         #[cfg(feature = "broker")]
-        Method::StreamDeclare {
-            stream,
-            max_messages,
-            max_age_ms,
-        } => {
-            let retention = crate::broker::StreamRetention {
-                max_messages,
-                max_age_ms,
-            };
-            crate::broker::declare_stream(&core, &stream, &retention);
-            Response::ok(req_id, ResultPayload::String("ok".to_string()))
-        }
+        Method::StreamDeclare { .. } => unreachable!(
+            "StreamDeclare is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
+             route it through try_handle_gateway before it ever reaches this terminal handler"
+        ),
         #[cfg(feature = "broker")]
-        Method::StreamPublish {
-            stream,
-            payload,
-            now_ms,
-        } => {
-            let offset = crate::broker::stream_publish(&core, &stream, &payload, now_ms);
-            Response::ok(req_id, ResultPayload::Count(offset as u64))
-        }
+        Method::StreamPublish { .. } => unreachable!(
+            "StreamPublish is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
+             route it through try_handle_gateway before it ever reaches this terminal handler"
+        ),
         #[cfg(feature = "broker")]
         Method::StreamRead {
             stream,
@@ -557,188 +2374,105 @@ pub(crate) async fn try_handle(
             Response::ok(req_id, ResultPayload::raw(&msgs))
         }
         #[cfg(feature = "broker")]
-        Method::StreamTrim { stream, now_ms } => {
-            let dropped = crate::broker::stream_trim(&core, &stream, now_ms);
-            Response::ok(req_id, ResultPayload::Count(dropped as u64))
-        }
+        Method::StreamTrim { .. } => unreachable!(
+            "StreamTrim is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+             through try_handle_gateway before it ever reaches this terminal handler"
+        ),
         #[cfg(feature = "broker")]
-        Method::StreamCommitOffset {
-            stream,
-            group,
-            offset,
-        } => {
-            crate::broker::commit_offset(&core, &stream, &group, offset);
-            Response::ok(req_id, ResultPayload::String("ok".to_string()))
-        }
+        Method::StreamCommitOffset { .. } => unreachable!(
+            "StreamCommitOffset is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
+             route it through try_handle_gateway before it ever reaches this terminal handler"
+        ),
         #[cfg(feature = "broker")]
         Method::StreamCommittedOffset { stream, group } => {
             let committed = crate::broker::committed_offset(&core, &stream, &group);
             Response::ok(req_id, ResultPayload::raw(&committed))
         }
-        // ── Publisher confirms + consumer QoS acks (CONCEPT:EG-KG.compute.publisher-confirms-consumer-qos) ──────
         #[cfg(feature = "broker")]
-        Method::PublishConfirmed {
-            exchange,
-            routing_key,
-            payload,
-            priority,
-            delay_ms,
-            ttl_ms,
-            now_ms,
-        } => {
-            let token = crate::broker::publish_confirmed(
-                &core,
-                &exchange,
-                &routing_key,
-                &payload,
-                priority,
-                delay_ms,
-                ttl_ms,
-                now_ms,
-            );
-            Response::ok(req_id, ResultPayload::raw(&token))
-        }
-        // ── Idempotent producer / effectively-once (CONCEPT:EG-KG.ingest.broker-reject-publish) ──────
+        Method::PublishConfirmed { .. } => unreachable!(
+            "PublishConfirmed is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
+             route it through try_handle_gateway before it ever reaches this terminal handler"
+        ),
         #[cfg(feature = "broker")]
-        Method::PublishIdempotent {
-            exchange,
-            routing_key,
-            payload,
-            producer_id,
-            seq,
-            priority,
-            delay_ms,
-            ttl_ms,
-            now_ms,
-        } => {
-            let result = crate::broker::publish_idempotent(
-                &core,
-                &exchange,
-                &routing_key,
-                &payload,
-                producer_id.as_deref(),
-                seq,
-                priority,
-                delay_ms,
-                ttl_ms,
-                now_ms,
-            );
-            Response::ok(req_id, ResultPayload::raw(&result))
-        }
+        Method::PublishIdempotent { .. } => unreachable!(
+            "PublishIdempotent is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
+             route it through try_handle_gateway before it ever reaches this terminal handler"
+        ),
         #[cfg(feature = "broker")]
-        Method::BrokerAckTag { delivery_tag } => {
-            let existed = crate::broker::broker_ack_tag(&core, delivery_tag);
-            Response::ok(req_id, ResultPayload::Bool(existed))
-        }
+        Method::BrokerAckTag { .. } => unreachable!(
+            "BrokerAckTag is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+             through try_handle_gateway before it ever reaches this terminal handler"
+        ),
         #[cfg(feature = "broker")]
-        Method::BrokerNackTag {
-            delivery_tag,
-            requeue,
-            now_ms,
-        } => {
-            let outcome = crate::broker::broker_nack_tag(&core, delivery_tag, requeue, now_ms);
-            Response::ok(req_id, ResultPayload::String(outcome))
-        }
+        Method::BrokerNackTag { .. } => unreachable!(
+            "BrokerNackTag is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+             through try_handle_gateway before it ever reaches this terminal handler"
+        ),
+        #[cfg(feature = "broker")]
+        Method::BrokerRenewTag { .. } => unreachable!(
+            "BrokerRenewTag is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+             through try_handle_gateway before it ever reaches this terminal handler"
+        ),
         // ── Agent-memory / scene-graph / trajectory wire ops (CONCEPT:EG-KG.memory.eg-batch-decay-caller) ────
         // Route each Method to its eg-core `GraphCore` primitive. The mutating arms
         // share the SAME durable/deterministic contract as the broker precedent: the
-        // dispatch shell records them (via `is_durable_mutation`) and `wal::apply`
+        // dispatch shell records them (via `is_durable_mutation`) and `mutation_apply::apply`
         // re-runs the SAME primitive over the same pre-image, and every generated id
         // derives deterministically from sorted inputs / node-count / step ordinals,
         // so a replayed WAL record reproduces byte-identical state. Reads are pure.
-        Method::CreateSummaryNode {
-            level,
-            child_ids,
-            props_msgpack,
-        } => {
-            let props = decode_json_object(&props_msgpack);
-            let id = core.create_summary_node(level, &child_ids, props);
-            Response::ok(req_id, ResultPayload::String(id))
-        }
-        Method::Consolidate {
-            episodic_ids,
-            semantic_props_msgpack,
-        } => {
-            let props = decode_json_object(&semantic_props_msgpack);
-            let id = core.consolidate(&episodic_ids, props);
-            Response::ok(req_id, ResultPayload::String(id))
-        }
-        Method::Reinforce {
-            node_id,
-            now_ms,
-            weight,
-        } => {
-            let existed = core.reinforce(&node_id, now_ms, weight);
-            Response::ok(req_id, ResultPayload::Bool(existed))
-        }
-        Method::DecayNode {
-            node_id,
-            now_ms,
-            half_life_ms,
-        } => {
-            let acted = core.decay_node(&node_id, now_ms, half_life_ms);
-            Response::ok(req_id, ResultPayload::Bool(acted))
-        }
-        Method::DecayMemories {
-            now_ms,
-            half_life_ms,
-            ids,
-        } => {
-            let n = core.decay_memories(now_ms, half_life_ms, &ids);
-            Response::ok(req_id, ResultPayload::Count(n as u64))
-        }
-        Method::EvictBelow {
-            ids,
-            threshold,
-            delete,
-        } => {
-            let pruned = core.evict_below(&ids, threshold, delete);
-            Response::ok(req_id, ResultPayload::Ids(pruned))
-        }
-        Method::Maintain {
-            ids,
-            now_ms,
-            half_life_ms,
-            evict_threshold,
-            delete,
-        } => {
-            let out = core.maintain(&ids, now_ms, half_life_ms, evict_threshold, delete);
-            // (decayed_count, pruned_ids) — compact msgpack tuple.
-            Response::ok(req_id, ResultPayload::raw(&out))
-        }
+        // CreateSummaryNode/Consolidate/Reinforce (CONCEPT:EG-P0-2 bypass guard):
+        // GATEWAY_ROUTED — see the AddNode/RemoveNode comment above for why these
+        // are structurally unreachable here, not merely undocumented.
+        Method::CreateSummaryNode { .. } => unreachable!(
+            "CreateSummaryNode is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
+             route it through try_handle_gateway before it ever reaches this terminal handler"
+        ),
+        Method::Consolidate { .. } => unreachable!(
+            "Consolidate is mutation::GATEWAY_ROUTED; dispatch_graph_op must route \
+             it through try_handle_gateway before it ever reaches this terminal handler"
+        ),
+        Method::Reinforce { .. } => unreachable!(
+            "Reinforce is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+             through try_handle_gateway before it ever reaches this terminal handler"
+        ),
+        // DecayNode/DecayMemories/EvictBelow/Maintain (CONCEPT:EG-P0-2 bypass
+        // guard, L11): GATEWAY_ROUTED — see the AddNode/RemoveNode comment above.
+        Method::DecayNode { .. } => unreachable!(
+            "DecayNode is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+             through try_handle_gateway before it ever reaches this terminal handler"
+        ),
+        Method::DecayMemories { .. } => unreachable!(
+            "DecayMemories is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
+             route it through try_handle_gateway before it ever reaches this terminal handler"
+        ),
+        Method::EvictBelow { .. } => unreachable!(
+            "EvictBelow is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+             through try_handle_gateway before it ever reaches this terminal handler"
+        ),
+        Method::Maintain { .. } => unreachable!(
+            "Maintain is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+             through try_handle_gateway before it ever reaches this terminal handler"
+        ),
         Method::SummaryChildren { node_id } => {
             Response::ok(req_id, ResultPayload::Ids(core.summary_children(&node_id)))
         }
         Method::SummariesAtLevel { level } => {
             Response::ok(req_id, ResultPayload::Ids(core.summaries_at_level(level)))
         }
-        Method::AddSceneObject {
-            pose_msgpack,
-            parent,
-        } => {
-            let Some(pose) = decode_pose(&pose_msgpack) else {
-                return Response::err(req_id, "AddSceneObject: undecodable pose_msgpack");
-            };
-            let id = core.add_scene_object(&pose, parent.as_deref());
-            Response::ok(req_id, ResultPayload::String(id))
-        }
-        Method::SetPose {
-            node_id,
-            pose_msgpack,
-        } => {
-            let Some(pose) = decode_pose(&pose_msgpack) else {
-                return Response::err(req_id, "SetPose: undecodable pose_msgpack");
-            };
-            let ok = core.set_pose(&node_id, &pose);
-            Response::ok(req_id, ResultPayload::Bool(ok))
-        }
-        Method::Reparent {
-            node_id,
-            new_parent,
-        } => {
-            let ok = core.reparent(&node_id, new_parent.as_deref());
-            Response::ok(req_id, ResultPayload::Bool(ok))
-        }
+        // AddSceneObject/SetPose/Reparent (CONCEPT:EG-P0-2 bypass guard, L11):
+        // GATEWAY_ROUTED — see the AddNode/RemoveNode comment above.
+        Method::AddSceneObject { .. } => unreachable!(
+            "AddSceneObject is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
+             route it through try_handle_gateway before it ever reaches this terminal handler"
+        ),
+        Method::SetPose { .. } => unreachable!(
+            "SetPose is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+             through try_handle_gateway before it ever reaches this terminal handler"
+        ),
+        Method::Reparent { .. } => unreachable!(
+            "Reparent is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+             through try_handle_gateway before it ever reaches this terminal handler"
+        ),
         Method::WorldTransform { node_id } => {
             let payload = match core.world_transform(&node_id) {
                 Some(pose) => ResultPayload::Json(pose.to_json()),
@@ -749,32 +2483,16 @@ pub(crate) async fn try_handle(
         Method::SceneChildren { node_id } => {
             Response::ok(req_id, ResultPayload::Ids(core.scene_children(&node_id)))
         }
-        Method::StartTrajectory { props_msgpack } => {
-            let props = decode_json_object(&props_msgpack);
-            let id = core.start_trajectory(props);
-            Response::ok(req_id, ResultPayload::String(id))
-        }
-        Method::AppendStep {
-            traj_id,
-            action_msgpack,
-            reward,
-            state_ref,
-            next_state_ref,
-            t,
-        } => {
-            let action = rmp_serde::from_slice::<serde_json::Value>(&action_msgpack)
-                .unwrap_or(serde_json::Value::Null);
-            let step_id = core.append_step(
-                &traj_id,
-                action,
-                reward,
-                state_ref.as_deref(),
-                next_state_ref.as_deref(),
-                t,
-            );
-            // Option<String> — nil ⇒ the trajectory was absent (no partial write).
-            Response::ok(req_id, ResultPayload::raw(&step_id))
-        }
+        // StartTrajectory/AppendStep (CONCEPT:EG-P0-2 bypass guard, L11):
+        // GATEWAY_ROUTED — see the AddNode/RemoveNode comment above.
+        Method::StartTrajectory { .. } => unreachable!(
+            "StartTrajectory is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
+             route it through try_handle_gateway before it ever reaches this terminal handler"
+        ),
+        Method::AppendStep { .. } => unreachable!(
+            "AppendStep is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+             through try_handle_gateway before it ever reaches this terminal handler"
+        ),
         Method::DiscountedReturn { traj_id, gamma } => Response::ok(
             req_id,
             ResultPayload::Float(core.discounted_return(&traj_id, gamma)),
@@ -835,12 +2553,12 @@ pub(crate) async fn try_handle(
             let g = &*core;
             Response::ok(req_id, ResultPayload::raw(&g.match_ontology_terms(&query)))
         }
-        Method::AddEmbedding { node_id, embedding } => {
-            core.semantic_store
-                .write()
-                .add_embedding(node_id, embedding);
-            Response::ok(req_id, ResultPayload::String("ok".to_string()))
-        }
+        // AddEmbedding (CONCEPT:EG-P0-2 bypass guard, L11): GATEWAY_ROUTED — see
+        // the AddNode/RemoveNode comment above.
+        Method::AddEmbedding { .. } => unreachable!(
+            "AddEmbedding is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+             through try_handle_gateway before it ever reaches this terminal handler"
+        ),
         Method::SemanticSearch {
             query_embedding,
             n_results,
@@ -888,34 +2606,8 @@ pub(crate) async fn try_handle(
             query_embedding,
             k,
         } => discover(&core, &keywords, &query_embedding, k, req_id),
-        Method::SpectralCluster {
-            vectors: _,
-            max_k: _,
-            domain: _,
-        } => Response::err(
-            req_id,
-            "SpectralCluster is deprecated. Use datascience primitives.".to_string(),
-        ),
-        Method::HypergraphEncodeInteraction {
-            pos_a: _,
-            pos_b: _,
-            pos_dim: _,
-            hidden_dim: _,
-            out_dim: _,
-            seed: _,
-        } => Response::err(
-            req_id,
-            "HypergraphEncodeInteraction is deprecated. Use datascience primitives.".to_string(),
-        ),
-        Method::BatchCosineSimilarity {
-            query: _,
-            targets: _,
-        } => Response::err(
-            req_id,
-            "BatchCosineSimilarity is deprecated. Use datascience primitives.".to_string(),
-        ),
         // CONCEPT:EG-KG.compute.l2-normalize-batch-vectors — kernel-backed in-engine batch L2-normalize (compute-near-data).
-        // The `numeric` feature links the pure eg-numeric kernel (faer/ndarray, NO pyo3);
+        // The `numeric` feature links the pure eg-numeric kernel (faer/ndarray, no Python-extension FFI);
         // a no-numeric build (e.g. `pi`) has no eg-numeric, so the op reports it's absent.
         Method::BatchL2Normalize { vectors } => {
             #[cfg(feature = "numeric")]
@@ -933,61 +2625,27 @@ pub(crate) async fn try_handle(
                 )
             }
         }
-        Method::AddEdge {
-            source_id,
-            target_id,
-            properties_msgpack,
-        } => {
-            let g = &*core;
-            match g.add_edge(source_id, target_id, properties_msgpack) {
-                Ok(()) => Response::ok(req_id, ResultPayload::String("ok".to_string())),
-                Err(e) => Response::err(req_id, e.to_string()),
-            }
-        }
-        Method::RemoveEdge {
-            source_id,
-            target_id,
-        } => {
-            let g = &*core;
-            g.remove_edge(source_id, target_id);
-            Response::ok(req_id, ResultPayload::String("ok".to_string()))
-        }
-        Method::InvalidateEdge {
-            source_id,
-            target_id,
-            relationship,
-            invalid_at,
-            tx_now,
-        } => {
-            let g = &*core;
-            let n = g.invalidate_edge(&source_id, &target_id, &relationship, invalid_at, tx_now);
-            Response::ok(req_id, ResultPayload::Count(n as u64))
-        }
-        Method::SupersedeEdge {
-            source_id,
-            target_id,
-            properties_msgpack,
-            prior_source,
-            prior_target,
-            prior_relationship,
-            valid_at,
-            tx_now,
-        } => {
-            let g = &*core;
-            match g.supersede_edge(
-                source_id,
-                target_id,
-                properties_msgpack,
-                &prior_source,
-                &prior_target,
-                &prior_relationship,
-                valid_at,
-                tx_now,
-            ) {
-                Ok(()) => Response::ok(req_id, ResultPayload::String("ok".to_string())),
-                Err(e) => Response::err(req_id, e),
-            }
-        }
+        // AddEdge/RemoveEdge (CONCEPT:EG-P0-2 bypass guard): GATEWAY_ROUTED — see
+        // the AddNode/RemoveNode comment above for why these are structurally
+        // unreachable here, not merely undocumented.
+        Method::AddEdge { .. } => unreachable!(
+            "AddEdge is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+             through try_handle_gateway before it ever reaches this terminal handler"
+        ),
+        Method::RemoveEdge { .. } => unreachable!(
+            "RemoveEdge is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+             through try_handle_gateway before it ever reaches this terminal handler"
+        ),
+        // InvalidateEdge/SupersedeEdge (CONCEPT:EG-P0-2 bypass guard, L11):
+        // GATEWAY_ROUTED — see the AddNode/RemoveNode comment above.
+        Method::InvalidateEdge { .. } => unreachable!(
+            "InvalidateEdge is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
+             route it through try_handle_gateway before it ever reaches this terminal handler"
+        ),
+        Method::SupersedeEdge { .. } => unreachable!(
+            "SupersedeEdge is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
+             route it through try_handle_gateway before it ever reaches this terminal handler"
+        ),
         Method::HasEdge {
             source_id,
             target_id,
@@ -1002,51 +2660,6 @@ pub(crate) async fn try_handle(
             let g = &*core;
             Response::ok(req_id, ResultPayload::EdgeList(g.get_edges()))
         }
-        Method::GetTriples => {
-            // Bulk RDF-triple export for local SPARQL materialization
-            // (CONCEPT:AU-KG.query.vendor-agnostic-traversal). One call instead of per-node round-trips.
-            let g = &*core;
-            let mut triples: Vec<[String; 3]> = Vec::new();
-            // Edges → (subject, predicate=rel_type, object).
-            for (src, tgt, props) in g.get_edges() {
-                let v: serde_json::Value =
-                    rmp_serde::from_slice(&props).unwrap_or(serde_json::json!({}));
-                let rel = v
-                    .get("type")
-                    .and_then(|x| x.as_str())
-                    .or_else(|| v.get("rel_type").and_then(|x| x.as_str()))
-                    .unwrap_or("RELATED_TO")
-                    .to_string();
-                triples.push([src, rel, tgt]);
-            }
-            // Nodes → (id, rdf:type, node_type) + scalar properties as literals.
-            for (id, props) in g.get_nodes() {
-                let v: serde_json::Value =
-                    rmp_serde::from_slice(&props).unwrap_or(serde_json::json!({}));
-                if let Some(obj) = v.as_object() {
-                    if let Some(nt) = obj
-                        .get("type")
-                        .or_else(|| obj.get("node_type"))
-                        .and_then(|x| x.as_str())
-                    {
-                        triples.push([id.clone(), "rdf:type".to_string(), nt.to_string()]);
-                    }
-                    for (k, val) in obj {
-                        if k == "type" || k == "node_type" || k == "embedding" {
-                            continue;
-                        }
-                        let lit = match val {
-                            serde_json::Value::String(s) => s.clone(),
-                            serde_json::Value::Number(n) => n.to_string(),
-                            serde_json::Value::Bool(b) => b.to_string(),
-                            _ => continue, // skip arrays/objects/null
-                        };
-                        triples.push([id.clone(), k.clone(), lit]);
-                    }
-                }
-            }
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(triples)))
-        }
         Method::GetEdgeProperties {
             source_id,
             target_id,
@@ -1055,7 +2668,9 @@ pub(crate) async fn try_handle(
             let props = g.get_edge_properties(&source_id, &target_id);
             let val: Vec<serde_json::Value> = props
                 .into_iter()
-                .map(|p| rmp_serde::from_slice(&p).unwrap_or(serde_json::json!({})))
+                .map(|p| {
+                    eg_types::msgpack::decode_property_value(&p).unwrap_or(serde_json::json!({}))
+                })
                 .collect();
             Response::ok(req_id, ResultPayload::Json(serde_json::json!(val)))
         }
@@ -1085,11 +2700,12 @@ pub(crate) async fn try_handle(
                 .collect();
             Response::ok(req_id, ResultPayload::raw(&out))
         }
-        Method::ClearGraph => {
-            let g = &*core;
-            g.clear();
-            Response::ok(req_id, ResultPayload::String("ok".to_string()))
-        }
+        // ClearGraph (CONCEPT:EG-P0-2 bypass guard, L11): GATEWAY_ROUTED — see
+        // the AddNode/RemoveNode comment above.
+        Method::ClearGraph => unreachable!(
+            "ClearGraph is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+             through try_handle_gateway before it ever reaches this terminal handler"
+        ),
         Method::EdgeCount => {
             let g = &*core;
             Response::ok(req_id, ResultPayload::Count(g.edge_count() as u64))
@@ -1194,36 +2810,21 @@ pub(crate) async fn try_handle(
                 Err(e) => Response::err(req_id, e.to_string()),
             }
         }
-        Method::EvictLRU { max_nodes } => {
-            let g = &*core;
-            let evicted = g.evict_lru(max_nodes);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(evicted)))
-        }
-        Method::DecaySweep {
-            half_life_secs,
-            floor,
-            prune,
-        } => {
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs();
-            let g = &*core;
-            let stats = g.decay_sweep(now, half_life_secs, floor, prune);
-            match serde_json::to_value(&stats) {
-                Ok(v) => Response::ok(req_id, ResultPayload::Json(v)),
-                Err(e) => Response::err(req_id, e.to_string()),
-            }
-        }
-        Method::TouchNodes { node_ids } => {
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs();
-            let g = &*core;
-            let touched = g.touch_nodes(&node_ids, now);
-            Response::ok(req_id, ResultPayload::Count(touched as u64))
-        }
+        // EvictLRU/DecaySweep/TouchNodes/FromMsgpack/Reconcile (CONCEPT:EG-P0-2
+        // bypass guard, L11): GATEWAY_ROUTED — see the AddNode/RemoveNode
+        // comment above. `ToMsgpack` is a pure read and keeps its normal arm.
+        Method::EvictLRU { .. } => unreachable!(
+            "EvictLRU is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+             through try_handle_gateway before it ever reaches this terminal handler"
+        ),
+        Method::DecaySweep { .. } => unreachable!(
+            "DecaySweep is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+             through try_handle_gateway before it ever reaches this terminal handler"
+        ),
+        Method::TouchNodes { .. } => unreachable!(
+            "TouchNodes is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+             through try_handle_gateway before it ever reaches this terminal handler"
+        ),
         Method::ToMsgpack => {
             let g = &*core;
             match g.to_msgpack() {
@@ -1231,23 +2832,14 @@ pub(crate) async fn try_handle(
                 Err(e) => Response::err(req_id, e.to_string()),
             }
         }
-        Method::FromMsgpack { msgpack } => {
-            let g = &*core;
-            match g.from_msgpack(&msgpack) {
-                Ok(()) => Response::ok(req_id, ResultPayload::String("ok".to_string())),
-                Err(e) => Response::err(req_id, e.to_string()),
-            }
-        }
-        Method::Reconcile {
-            graph_name: _,
-            msgpack,
-        } => {
-            let g = &*core;
-            match g.from_msgpack(&msgpack) {
-                Ok(()) => Response::ok(req_id, ResultPayload::String("reconciled".to_string())),
-                Err(e) => Response::err(req_id, e.to_string()),
-            }
-        }
+        Method::FromMsgpack { .. } => unreachable!(
+            "FromMsgpack is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+             through try_handle_gateway before it ever reaches this terminal handler"
+        ),
+        Method::Reconcile { .. } => unreachable!(
+            "Reconcile is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+             through try_handle_gateway before it ever reaches this terminal handler"
+        ),
         // ApplyMutation carries a SPARQL UPDATE string (governance / CDC mutation).
         // Replaced the legacy naive `{ <s> <p> <o> }` string-split shim with the REAL
         // SPARQL 1.1 UPDATE executor (CONCEPT:EG-KG.query.named-graph-support): a full spargebra parse + the
@@ -1256,96 +2848,17 @@ pub(crate) async fn try_handle(
         // request graph's core (true named-graph routing lives on the /sparql endpoint,
         // which has the registry). `event_type` is now advisory (the query is
         // self-describing). Gated `sparql`; a non-sparql build rejects it explicitly.
-        Method::ApplyMutation { event_type, query } => {
-            #[cfg(feature = "sparql")]
-            {
-                let _ = event_type;
-                struct SingleCoreStore(Arc<GraphCore>);
-                impl eg_rdf::update::GraphStore for SingleCoreStore {
-                    fn core(&self, _graph: Option<&str>) -> Option<Arc<GraphCore>> {
-                        Some(self.0.clone())
-                    }
-                }
-                let store = SingleCoreStore(core.clone());
-                match eg_rdf::update::execute_str(
-                    &query,
-                    &store,
-                    &eg_rdf::sparql::Projection::raw(),
-                ) {
-                    Ok(report) => match serde_json::to_value(&report) {
-                        Ok(v) => Response::ok(req_id, ResultPayload::Json(v)),
-                        Err(e) => Response::err(req_id, e.to_string()),
-                    },
-                    Err(e) => Response::err(req_id, format!("ApplyMutation: {e}")),
-                }
-            }
-            #[cfg(not(feature = "sparql"))]
-            {
-                let _ = (event_type, query, &core);
-                Response::err(
-                    req_id,
-                    "ApplyMutation (SPARQL UPDATE) requires the `sparql` feature".to_string(),
-                )
-            }
-        }
-        // CONCEPT:EG-KG.compute.compiled-semantic-reasoner - Compiled Semantic Reasoner. Forward-chaining
-        // OWL/RDFS inference over the target graph. Runs Datalog reasoning
-        // (subclass / subproperty / symmetric / transitive / inverse) and,
-        // when supplied, domain/range and property-chain inference. All
-        // inferred edges and type annotations are materialised in-place and
-        // the inferred triples are returned to the caller.
-        //
-        // Intentionally under the write lock (KG-2.51): reasoning MUTATES the
-        // graph as it infers, so it cannot run on a snapshot — materialising
-        // on a clone and merging back would cost more than the inference.
-        // Feature-gated: excluded from a slim (no `reasoning`) build, where the
-        // variant falls to the catch-all "not available in this build" error.
+        // ApplyMutation/RunDatalogReasoning (CONCEPT:EG-P0-2 bypass guard, L11):
+        // GATEWAY_ROUTED — see the AddNode/RemoveNode comment above.
+        Method::ApplyMutation { .. } => unreachable!(
+            "ApplyMutation is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
+             route it through try_handle_gateway before it ever reaches this terminal handler"
+        ),
         #[cfg(feature = "reasoning")]
-        Method::RunDatalogReasoning {
-            subclass_relations,
-            subproperty_relations,
-            symmetric_properties,
-            transitive_properties,
-            inverse_properties,
-            domain_rules,
-            range_rules,
-            property_chains,
-        } => {
-            let g = &*core;
-            let mut all_inferred: Vec<std::collections::HashMap<String, String>> = Vec::new();
-
-            match crate::reasoning::run_datalog_reasoning(
-                g,
-                subclass_relations,
-                subproperty_relations,
-                symmetric_properties,
-                transitive_properties,
-                inverse_properties,
-            ) {
-                Ok(triples) => all_inferred.extend(triples),
-                Err(e) => return Response::err(req_id, e),
-            }
-
-            if !domain_rules.is_empty() || !range_rules.is_empty() {
-                all_inferred.extend(crate::reasoning::infer_domain_range(
-                    g,
-                    domain_rules,
-                    range_rules,
-                ));
-            }
-
-            if !property_chains.is_empty() {
-                all_inferred.extend(crate::reasoning::infer_property_chains(g, property_chains));
-            }
-
-            Response::ok(
-                req_id,
-                ResultPayload::Json(serde_json::json!({
-                    "inferred_count": all_inferred.len(),
-                    "inferred_triples": all_inferred,
-                })),
-            )
-        }
+        Method::RunDatalogReasoning { .. } => unreachable!(
+            "RunDatalogReasoning is mutation::GATEWAY_ROUTED; dispatch_graph_op \
+             must route it through try_handle_gateway before it ever reaches this terminal handler"
+        ),
         Method::InDegree { node_id } => {
             let g = &*core;
             match g.in_degree(&node_id) {
@@ -1522,16 +3035,12 @@ pub(crate) async fn try_handle(
                 Err(resp) => resp,
             }
         }
-        Method::PruneByLifecycle {
-            max_age_secs,
-            min_score,
-        } => {
-            let stats = crate::algorithms::prune_by_lifecycle(&core, max_age_secs, min_score);
-            match serde_json::to_value(&stats) {
-                Ok(v) => Response::ok(req_id, ResultPayload::Json(v)),
-                Err(e) => Response::err(req_id, e.to_string()),
-            }
-        }
+        // PruneByLifecycle (CONCEPT:EG-P0-2 bypass guard, L11): GATEWAY_ROUTED —
+        // see the AddNode/RemoveNode comment above.
+        Method::PruneByLifecycle { .. } => unreachable!(
+            "PruneByLifecycle is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
+             route it through try_handle_gateway before it ever reaches this terminal handler"
+        ),
         Method::GetContextView {
             agent_id,
             max_tokens,
@@ -1543,29 +3052,19 @@ pub(crate) async fn try_handle(
                 Err(e) => Response::err(req_id, e.to_string()),
             }
         }
-        Method::BatchUpdate { operations_msgpack } => {
-            match crate::algorithms::batch_update(&core, &operations_msgpack) {
-                Ok(res) => match rmp_serde::from_slice::<serde_json::Value>(&res) {
-                    Ok(val) => Response::ok(req_id, ResultPayload::Json(val)),
-                    Err(e) => Response::err(req_id, format!("Invalid batch result: {}", e)),
-                },
-                Err(e) => Response::err(req_id, e),
-            }
-        }
-        Method::ParseRepository { root_path } => {
-            let g = &*core;
-            match g.parse_repository(&root_path) {
-                Ok(_) => Response::ok(req_id, ResultPayload::String("ok".to_string())),
-                Err(e) => Response::err(req_id, e.to_string()),
-            }
-        }
+        // BatchUpdate (CONCEPT:EG-P0-2 bypass guard, L11):
+        // GATEWAY_ROUTED — see the AddNode/RemoveNode comment above.
+        Method::BatchUpdate { .. } => unreachable!(
+            "BatchUpdate is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+             through try_handle_gateway before it ever reaches this terminal handler"
+        ),
         Method::Vf2SubgraphMatch { pattern_graph_name } => {
             let s = state.read().await;
             // The pattern graph is read too — gate it like any other read.
             if let Some(entry) = s.registry.get(&pattern_graph_name) {
                 if let Err(denied) = check_graph_access(
                     &s.isolation,
-                    caller,
+                    read_authority.actor(),
                     &pattern_graph_name,
                     entry.graph_type,
                     entry.owner.as_deref(),
@@ -1583,6 +3082,7 @@ pub(crate) async fn try_handle(
                 // Exponential-worst-case matching never runs under either
                 // graph's lock: snapshot pattern then host SEQUENTIALLY (no
                 // nested cross-graph locks), compute off-lock (KG-2.51).
+                let p_core = read_authority.project_core(&p_core);
                 let p_snap = p_core.analysis_snapshot();
                 // vf2_subgraph_match snapshots the host internally, so the
                 // exponential-worst-case matching runs entirely off-lock.
@@ -1606,18 +3106,16 @@ pub(crate) async fn try_handle(
             )
         }
 
-        Method::ClearLedger => {
-            let g = &*core;
-            g.clear_ledger();
-            Response::ok(req_id, ResultPayload::String("ok".to_string()))
-        }
-        Method::ApplyLedger { transactions } => {
-            let g = &*core;
-            match g.apply_ledger(transactions) {
-                Ok(()) => Response::ok(req_id, ResultPayload::String("ok".to_string())),
-                Err(e) => Response::err(req_id, e),
-            }
-        }
+        // ClearLedger/ApplyLedger (CONCEPT:EG-P0-2 bypass guard, L11):
+        // GATEWAY_ROUTED — see the AddNode/RemoveNode comment above.
+        Method::ClearLedger => unreachable!(
+            "ClearLedger is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+             through try_handle_gateway before it ever reaches this terminal handler"
+        ),
+        Method::ApplyLedger { .. } => unreachable!(
+            "ApplyLedger is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it \
+             through try_handle_gateway before it ever reaches this terminal handler"
+        ),
         Method::GetSubgraph { node_ids } => {
             // Batched subgraph read: return the induced nodes (with DECODED
             // properties) and the edges among them in ONE round-trip, so callers
@@ -1627,15 +3125,15 @@ pub(crate) async fn try_handle(
             let sub = g.get_subgraph(&node_ids);
             let mut nodes = Vec::with_capacity(sub.node_properties.len());
             for (id, blob) in &sub.node_properties {
-                let props: serde_json::Value =
-                    rmp_serde::from_slice(blob).unwrap_or(serde_json::Value::Null);
+                let props = eg_types::msgpack::decode_property_value(blob)
+                    .unwrap_or(serde_json::Value::Null);
                 nodes.push(serde_json::json!({ "id": id, "properties": props }));
             }
             let mut edges = Vec::new();
             for ((src, tgt), blobs) in &sub.edge_properties {
                 for blob in blobs {
-                    let props: serde_json::Value =
-                        rmp_serde::from_slice(blob).unwrap_or(serde_json::Value::Null);
+                    let props = eg_types::msgpack::decode_property_value(blob)
+                        .unwrap_or(serde_json::Value::Null);
                     edges.push(serde_json::json!({
                         "source": src, "target": tgt, "properties": props
                     }));
@@ -1663,7 +3161,7 @@ pub(crate) async fn try_handle(
         Method::UnionGetNodeProperties { graphs, node_id } => {
             // First-found across the graph set (in order); point reads, no
             // snapshot. Registry lock released before any per-core read.
-            let cores = match resolve_union_cores(state, caller, &graphs).await {
+            let cores = match resolve_union_cores(state, read_authority, &graphs).await {
                 Ok(c) => c,
                 Err(denied) => return Response::err(req_id, denied),
             };
@@ -1679,7 +3177,7 @@ pub(crate) async fn try_handle(
             label,
             limit,
         } => {
-            let cores = match resolve_union_cores(state, caller, &graphs).await {
+            let cores = match resolve_union_cores(state, read_authority, &graphs).await {
                 Ok(c) => c,
                 Err(denied) => return Response::err(req_id, denied),
             };
@@ -1688,7 +3186,7 @@ pub(crate) async fn try_handle(
             'outer: for c in &cores {
                 for (k, p) in c.get_nodes_by_label(&label, limit) {
                     if seen.insert(k.clone()) {
-                        let val = rmp_serde::from_slice::<serde_json::Value>(&p)
+                        let val = eg_types::msgpack::decode_property_value(&p)
                             .unwrap_or(serde_json::json!({}));
                         nodes.push((k, val));
                         if limit != 0 && nodes.len() >= limit {
@@ -1700,7 +3198,7 @@ pub(crate) async fn try_handle(
             Response::ok(req_id, ResultPayload::NodeList(nodes))
         }
         Method::UnionGetNeighbors { graphs, node_id } => {
-            let cores = match resolve_union_cores(state, caller, &graphs).await {
+            let cores = match resolve_union_cores(state, read_authority, &graphs).await {
                 Ok(c) => c,
                 Err(denied) => return Response::err(req_id, denied),
             };
@@ -1731,7 +3229,7 @@ pub(crate) async fn try_handle(
             // Diffing reads the other graph's content — gate it as a read.
             if let Err(denied) = check_graph_access(
                 &s_lock.isolation,
-                caller,
+                read_authority.actor(),
                 &other_graph,
                 other_entry.graph_type,
                 other_entry.owner.as_deref(),
@@ -1747,6 +3245,7 @@ pub(crate) async fn try_handle(
             // concurrent opposite-direction diffs plus a queued writer can
             // deadlock a write-preferring RwLock). The diff itself is a
             // single O(V+E) comparison, so it stays under-lock (KG-2.51).
+            let other_core = read_authority.project_core(&other_core);
             let other_snap = { other_core.analysis_snapshot() };
             let g1 = &*core;
             let diff_str = g1.diff_against(&other_snap);
@@ -1755,17 +3254,12 @@ pub(crate) async fn try_handle(
                 Err(e) => Response::err(req_id, e.to_string()),
             }
         }
-        Method::CompactNodesByType {
-            node_type,
-            threshold,
-        } => {
-            let g = &*core;
-            let removed = g.compact_nodes_by_type(&node_type, threshold);
-            Response::ok(
-                req_id,
-                ResultPayload::Json(serde_json::json!({ "removed_nodes": removed })),
-            )
-        }
+        // CompactNodesByType (CONCEPT:EG-P0-2 bypass guard, L11): GATEWAY_ROUTED
+        // — see the AddNode/RemoveNode comment above.
+        Method::CompactNodesByType { .. } => unreachable!(
+            "CompactNodesByType is mutation::GATEWAY_ROUTED; dispatch_graph_op must \
+             route it through try_handle_gateway before it ever reaches this terminal handler"
+        ),
         // Catch-all: an unknown graph method, OR a feature-gated method whose
         // feature (finance / datascience / reasoning / query) was not built in.
         _ => Response::err(
@@ -1809,9 +3303,7 @@ mod tests {
     }
 
     #[test]
-    fn zero_cap_disables_the_guard() {
-        // An operator can opt back into the unbounded legacy behavior with
-        // EPISTEMIC_GRAPH_MAX_RESPONSE_NODES=0 — no error even for a huge graph.
-        assert_eq!(oversize_dump_error(10_000_000, 0), None);
+    fn zero_cap_fails_safe() {
+        assert!(oversize_dump_error(1, 0).is_some());
     }
 }

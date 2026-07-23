@@ -134,12 +134,6 @@ mod imp {
              after the global pool / per-graph cap was saturated by writes — each is an \
              interactive read that would otherwise have been shed BUSY behind ingestion",
         );
-        static ref WAL_APPEND_DROPPED: IntCounter = counter(
-            "epistemic_graph_wal_append_dropped_total",
-            "Durable mutations whose WAL append was dropped because the off-reactor \
-             WAL writer channel was saturated (data is still in memory + checkpointed; \
-             the crash-recovery window widened — investigate disk/throughput)",
-        );
         static ref GRAPH_OPS: IntCounterVec = counter_vec(
             "epistemic_graph_graph_ops_total",
             "Graph-targeted operations admitted past the ACL, by graph (bounded cardinality)",
@@ -172,6 +166,18 @@ mod imp {
         static ref CHECKPOINT_LAST_SUCCESS: IntGauge = gauge(
             "epistemic_graph_checkpoint_last_success_timestamp_seconds",
             "Unix timestamp of the last successful checkpoint",
+        );
+        static ref ANALYTICS_JOBS_READY: IntGauge = gauge(
+            "epistemic_graph_analytics_jobs_ready",
+            "Durable analytics jobs eligible for a remote worker lease",
+        );
+        static ref ANALYTICS_JOBS_ACTIVE: IntGauge = gauge(
+            "epistemic_graph_analytics_jobs_active",
+            "Durable analytics jobs with a currently live worker lease",
+        );
+        static ref ANALYTICS_JOBS_PUBLISHING: IntGauge = gauge(
+            "epistemic_graph_analytics_jobs_publishing",
+            "Durable analytics jobs with a staged result awaiting publication",
         );
         static ref AUTH_FAILURES: IntCounter = counter(
             "epistemic_graph_auth_failures_total",
@@ -248,6 +254,48 @@ mod imp {
             "epistemic_graph_slow_query_total",
             "Queries whose end-to-end execution met/exceeded EPISTEMIC_GRAPH_SLOW_QUERY_MS \
              (CONCEPT:EG-OS.observability.slow-query-descriptor). Zero unless the slow-query threshold is configured",
+        );
+        // ── Background interval-loop observability (daemon-consolidation design, Phase 2) ──
+        // The engine's own hardcoded `tokio::time::interval` sweeps (lake materialize,
+        // checkpoint, decay, memory-cap, memory-budget, cold-tenant offload, txn-TTL) each
+        // funnel their tick through ONE call (`loop_tick`) so they show up on the SAME
+        // telemetry plane as everything else, without touching any loop's cadence or logic.
+        // The `loop` label is a fixed, small set of hardcoded names (bounded cardinality —
+        // no `graph_label`-style overflow guard needed).
+        static ref LOOP_TICKS_TOTAL: IntCounterVec = counter_vec(
+            "epistemic_graph_background_loop_ticks_total",
+            "Ticks completed by an engine-native background interval loop, by loop name \
+             (CONCEPT:EG-OS.observability.background-loop-telemetry)",
+            &["loop"],
+        );
+        static ref LOOP_TICK_DURATION: HistogramVec = histogram_vec(
+            "epistemic_graph_background_loop_tick_duration_seconds",
+            "Wall-clock duration of one background interval-loop tick's own work \
+             (excludes the sleep between ticks), by loop name",
+            &["loop"],
+            vec![0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 15.0, 60.0, 300.0],
+        );
+        static ref LOOP_LAST_RUN: IntGaugeVec = gauge_vec(
+            "epistemic_graph_background_loop_last_run_timestamp_seconds",
+            "Unix timestamp of the last completed tick, by loop name",
+            &["loop"],
+        );
+        // CONCEPT:EG-KG.epistemic.truth-maintenance — the "give staleness a consumer"
+        // SURPASS gap-closure: a live gauge (the CURRENT stale count, refreshed from
+        // the durable per-graph reasoning projection after committed invalidations)
+        // plus a cumulative counter (how many staling EVENTS have fired, distinct from
+        // the gauge because a materialization can go stale, get recomputed back to
+        // fresh, and go stale again — the counter never decreases, the gauge does).
+        static ref EPISTEMIC_MATERIALIZATIONS_STALE: IntGauge = gauge(
+            "epistemic_graph_epistemic_materializations_stale",
+            "Current count of TruthMaintenance materializations in the Stale status \
+             (CONCEPT:EG-KG.epistemic.truth-maintenance)",
+        );
+        static ref EPISTEMIC_MATERIALIZATIONS_STALED_TOTAL: IntCounter = counter(
+            "epistemic_graph_epistemic_materializations_staled_total",
+            "Cumulative count of materialization-id staling events fed through the \
+             TruthMaintenance index's on_change (a ChangeEvent may stale several ids \
+             at once; each staled id counts once per event)",
         );
     }
 
@@ -345,16 +393,19 @@ mod imp {
         CHECKPOINT_LAST_SUCCESS.set(now as i64);
     }
 
+    /// Publish authoritative job-store queue state for autoscaling and SLOs.
+    pub fn set_analytics_job_counts(ready: i64, active: i64, publishing: i64) {
+        ANALYTICS_JOBS_READY.set(ready);
+        ANALYTICS_JOBS_ACTIVE.set(active);
+        ANALYTICS_JOBS_PUBLISHING.set(publishing);
+    }
+
     pub fn auth_failure() {
         AUTH_FAILURES.inc();
     }
 
     pub fn access_denied() {
         ACCESS_DENIED.inc();
-    }
-
-    pub fn wal_append_dropped() {
-        WAL_APPEND_DROPPED.inc();
     }
 
     /// Record one committed coalesced write batch of `ops` single-op writes against
@@ -382,6 +433,34 @@ mod imp {
         WRITE_LOCK_HOLD
             .with_label_values(&[&graph_label(graph)])
             .observe(seconds);
+    }
+
+    /// Record one completed tick of an engine-native background interval loop
+    /// (daemon-consolidation design, Phase 2): `name` is a fixed loop identifier
+    /// (e.g. `"cold_offload"`), `seconds` is the tick's own work duration (the sweep
+    /// body only, not the sleep between ticks). Pure observability — call this AFTER
+    /// a tick's existing logic runs, with zero change to what that logic does.
+    pub fn loop_tick(name: &str, seconds: f64) {
+        LOOP_TICKS_TOTAL.with_label_values(&[name]).inc();
+        LOOP_TICK_DURATION
+            .with_label_values(&[name])
+            .observe(seconds);
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        LOOP_LAST_RUN.with_label_values(&[name]).set(now as i64);
+    }
+
+    /// Set the `epistemic_graph_epistemic_materializations_stale` gauge to the
+    /// TruthMaintenance index's CURRENT stale count (CONCEPT:EG-KG.epistemic.truth-maintenance).
+    pub fn set_epistemic_materializations_stale(n: i64) {
+        EPISTEMIC_MATERIALIZATIONS_STALE.set(n);
+    }
+
+    /// Record `n` materialization ids staled by one `TruthMaintenance::on_change` call.
+    pub fn epistemic_materializations_staled(n: u64) {
+        EPISTEMIC_MATERIALIZATIONS_STALED_TOTAL.inc_by(n);
     }
 
     /// Render the full registry in Prometheus text exposition format.
@@ -416,12 +495,15 @@ mod imp {
     pub fn slow_query() {}
     pub fn drop_graph(_graph: &str) {}
     pub fn checkpoint_completed(_seconds: f64) {}
+    pub fn set_analytics_job_counts(_ready: i64, _active: i64, _publishing: i64) {}
     pub fn auth_failure() {}
     pub fn access_denied() {}
-    pub fn wal_append_dropped() {}
     pub fn write_batch_committed(_graph: &str, _ops: usize) {}
     pub fn observe_write_lock_wait(_graph: &str, _seconds: f64) {}
     pub fn observe_write_lock_hold(_graph: &str, _seconds: f64) {}
+    pub fn loop_tick(_name: &str, _seconds: f64) {}
+    pub fn set_epistemic_materializations_stale(_n: i64) {}
+    pub fn epistemic_materializations_staled(_n: u64) {}
     pub fn render() -> String {
         String::new()
     }

@@ -8,8 +8,8 @@
 //! only frames AMQP 0.9.1 on the wire and maps each method onto the broker primitives
 //! (`crate::broker`) THROUGH the engine dispatch (`crate::server::dispatch::dispatch`)
 //! — so an AMQP publish takes the SAME routing + atomic enqueue + WAL/CDC path a
-//! `Method::Publish` RPC does, and a consume rides the SAME `Method::ClaimNext`
-//! (CONCEPT:EG-KG.compute.atomically-claim-oldest-pending) an RPC consumer uses. No parallel mechanism.
+//! `Method::Publish` RPC does, and consumption uses the native
+//! `Method::BrokerConsume`/`BrokerAck` lifecycle. No parallel mechanism.
 //!
 //! It links NO AMQP crate — every byte layout is hand-rolled against the published
 //! AMQP 0.9.1 spec (the Pi-contract idiom pgwire / mysql-wire / sparql-http use), so a
@@ -20,9 +20,11 @@
 //! `open`/`open-ok`/`close`), `channel.open`/`close`, `exchange.declare`/`delete`,
 //! `queue.declare`/`bind`/`unbind`, `basic.publish` (+ content header/body frames),
 //! `basic.consume`/`deliver` (a poll-driven push pump), `basic.get`/`get-ok`/
-//! `get-empty`, and `basic.ack`. Auth is a localhost TRUST surface (PLAIN accepted
-//! unconditionally, like the SQL wires' trust mode); TLS, QoS prefetch, transactions,
-//! and heartbeats are DEFERRED — a client negotiating them degrades gracefully.
+//! `get-empty`, and `basic.ack`. SASL PLAIN authentication is mandatory: the password
+//! is a domain-separated HMAC derived from `GRAPH_SERVICE_AUTH_SECRET`, and the
+//! authenticated principal becomes a secret-keyed pseudonymous actor reference before
+//! every engine request. The direct listener is loopback-only; remote access must use
+//! a TLS/mTLS identity-binding gateway. Unsupported methods fail closed.
 //!
 //! ## Publisher confirms + idempotent publish (CONCEPT:EG-KG.ingest.broker-reject-publish / EG-284)
 //! `confirm.select` puts a channel into publisher-confirm mode: every subsequent
@@ -47,13 +49,14 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
+use hmac::{Hmac, Mac};
+use sha2::Sha256;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::RwLock;
 
 use crate::protocol::{Method, Request, ResultPayload};
-use crate::server::auth::compute_auth_token;
-use crate::server::dispatch::dispatch;
+use crate::server::dispatch::dispatch_authenticated_broker_actor;
 use crate::server::ServerState;
 
 /// Env var: when set (and the binary is built `--features amqp-wire`), the AMQP wire
@@ -80,27 +83,63 @@ const C_BASIC: u16 = 60;
 const C_CONFIRM: u16 = 85;
 
 static REQ_ID: AtomicU64 = AtomicU64::new(1);
+type HmacSha256 = Hmac<Sha256>;
 
 fn next_req_id() -> u64 {
     REQ_ID.fetch_add(1, Ordering::Relaxed)
 }
 
+/// Derive the SASL PLAIN password for an AMQP principal.
+pub fn derive_amqp_password(secret: &str, principal: &str) -> String {
+    let mut mac =
+        HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC accepts any key length");
+    mac.update(b"amqp:");
+    mac.update(principal.as_bytes());
+    hex::encode(mac.finalize().into_bytes())
+}
+
+fn verify_amqp_password(secret: &str, principal: &str, password: &str) -> bool {
+    if secret.is_empty()
+        || principal.is_empty()
+        || principal.len() > 4 * 1024
+        || password.len() != 64
+    {
+        return false;
+    }
+    let Ok(candidate) = hex::decode(password) else {
+        return false;
+    };
+    let mut mac =
+        HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC accepts any key length");
+    mac.update(b"amqp:");
+    mac.update(principal.as_bytes());
+    mac.verify_slice(&candidate).is_ok()
+}
+
+/// Fail closed before binding the plaintext AMQP listener.
+pub fn validate_startup_policy(addr: &str, secret: &str) -> std::io::Result<()> {
+    crate::server::validate_direct_wire_security(addr, "amqp-wire", !secret.is_empty())
+}
+
 /// Serve the AMQP 0.9.1 wire protocol on `addr` until the listener errors.
 pub async fn serve(addr: &str, state: Arc<RwLock<ServerState>>) -> std::io::Result<()> {
     let default_graph = std::env::var(AMQP_GRAPH_ENV).unwrap_or_else(|_| "__commons__".to_string());
+    let auth_secret = state.read().await.auth_secret.clone();
+    validate_startup_policy(addr, &auth_secret)?;
     let listener = TcpListener::bind(addr).await?;
     tracing::info!(
-        "amqp-wire: serving AMQP 0.9.1 on {} (broker graph '{}')",
-        addr,
+        "amqp-wire: serving authenticated AMQP 0.9.1 on loopback (broker graph '{}'; \
+         remote access requires a TLS identity-binding gateway)",
         default_graph
     );
     loop {
         let (socket, peer) = listener.accept().await?;
         let st = state.clone();
         let g = default_graph.clone();
+        let secret = auth_secret.clone();
         tokio::spawn(async move {
             let mut socket = socket;
-            if let Err(e) = handle_connection(&mut socket, st, g).await {
+            if let Err(e) = handle_connection(&mut socket, st, g, secret).await {
                 tracing::debug!("amqp-wire connection from {peer} ended: {e}");
             }
         });
@@ -114,46 +153,58 @@ pub async fn serve(addr: &str, state: Arc<RwLock<ServerState>>) -> std::io::Resu
 async fn engine_call(
     state: &Arc<RwLock<ServerState>>,
     graph: &str,
+    actor: &str,
     method: Method,
 ) -> ResultPayload {
     let id = next_req_id();
-    let secret = { state.read().await.auth_secret.clone() };
     let req = Request {
         id,
         graph: graph.to_string(),
-        auth_token: compute_auth_token(&secret, id),
+        auth_token: String::new(),
         agent_id: None,
         method,
     };
-    let resp = dispatch(state, req).await;
+    let resp = dispatch_authenticated_broker_actor(state, req, actor).await;
     resp.result.unwrap_or(ResultPayload::Bool(false))
 }
 
-fn obj(map: serde_json::Value) -> Vec<u8> {
-    rmp_serde::to_vec_named(map.as_object().unwrap()).unwrap_or_default()
+fn current_time_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+        .try_into()
+        .unwrap_or(u64::MAX)
 }
 
-/// Claim the oldest pending message from `queue` (CONCEPT:EG-KG.compute.atomically-claim-oldest-pending), marking it
-/// `claimed`. Returns `(node_id, routing_key, exchange, body)` or `None`.
+/// Claim one deliverable message through the native broker lifecycle. Returns
+/// `(node_id, routing_key, exchange, body)` or `None`.
 async fn claim_one(
     state: &Arc<RwLock<ServerState>>,
     graph: &str,
+    actor: &str,
     queue: &str,
+    consumer: &str,
+    prefetch: u32,
 ) -> Option<(String, String, String, Vec<u8>)> {
-    let updates = obj(serde_json::json!({ "status": "claimed" }));
     let payload = engine_call(
         state,
         graph,
-        Method::ClaimNext {
-            label: crate::broker::queue_msg_label(queue),
-            updates_msgpack: updates,
+        actor,
+        Method::BrokerConsume {
+            queue: queue.to_string(),
+            group: "amqp".to_string(),
+            consumer: consumer.to_string(),
+            now_ms: current_time_ms(),
+            lease_ms: BROKER_LEASE_MS,
+            prefetch,
         },
     )
     .await;
     let ResultPayload::Raw(bytes) = payload else {
         return None;
     };
-    let claimed: Option<(String, serde_json::Value)> = rmp_serde::from_slice(&bytes).ok()?;
+    let claimed: Option<(String, serde_json::Value)> = decode_broker_result(&bytes)?;
     let (id, props) = claimed?;
     let rk = props
         .get("routing_key")
@@ -173,18 +224,21 @@ async fn claim_one(
     Some((id, rk, ex, body))
 }
 
-/// Finalize a delivered message: CAS its status `claimed → acked` (CONCEPT:EG-KG.compute.atomically-claim-oldest-pending
-/// ack path). Best-effort — a lost ack simply leaves the node `claimed`.
-async fn ack_message(state: &Arc<RwLock<ServerState>>, graph: &str, node_id: &str) {
-    let conditions = obj(serde_json::json!({ "status": "claimed" }));
-    let updates = obj(serde_json::json!({ "status": "acked" }));
+/// Finalize a delivered message through the native broker acknowledgement path.
+async fn ack_message(
+    state: &Arc<RwLock<ServerState>>,
+    graph: &str,
+    actor: &str,
+    queue: &str,
+    node_id: &str,
+) {
     let _ = engine_call(
         state,
         graph,
-        Method::CompareAndSetNodeFields {
+        actor,
+        Method::BrokerAck {
+            queue: queue.to_string(),
             node_id: node_id.to_string(),
-            conditions_msgpack: conditions,
-            updates_msgpack: updates,
         },
     )
     .await;
@@ -200,10 +254,10 @@ struct Frame {
 }
 
 /// A raised AMQP method: class/method ids + the argument bytes.
-struct MethodCall {
+struct MethodCall<'a> {
     class: u16,
     method: u16,
-    args: Vec<u8>,
+    args: &'a [u8],
 }
 
 /// An active `basic.consume` subscription.
@@ -211,17 +265,48 @@ struct Consumer {
     channel: u16,
     tag: String,
     queue: String,
+    consumer_id: String,
+}
+
+/// Hard per-frame allocation ceiling for untrusted AMQP size prefixes.
+const MAX_AMQP_FRAME_BYTES: usize = 64 * 1024 * 1024;
+/// A content body is assembled from multiple frames, so it needs an independent
+/// aggregate cap rather than relying on the per-frame ceiling.
+const MAX_AMQP_CONTENT_BYTES: usize = 64 * 1024 * 1024;
+const MAX_AMQP_CONSUMERS: usize = 1_024;
+const MAX_AMQP_CHANNELS: usize = 4_096;
+const MAX_AMQP_UNACKED: usize = 65_536;
+const MAX_AMQP_HEADER_FIELDS: usize = 4_096;
+const MAX_BROKER_RESULT_ITEMS: usize = 1_000_000;
+const BROKER_LEASE_MS: u64 = 5 * 60 * 1_000;
+const BROKER_PREFETCH: u32 = 32;
+
+fn invalid_data(message: &'static str) -> std::io::Error {
+    std::io::Error::new(std::io::ErrorKind::InvalidData, message)
+}
+
+fn decode_broker_result<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Option<T> {
+    eg_types::msgpack::decode_bounded(
+        bytes,
+        eg_types::msgpack::MsgpackLimits::new(
+            MAX_AMQP_CONTENT_BYTES,
+            MAX_BROKER_RESULT_ITEMS,
+            eg_types::msgpack::DEFAULT_MAX_DEPTH,
+        ),
+    )
+    .ok()
 }
 
 async fn handle_connection(
     socket: &mut TcpStream,
     state: Arc<RwLock<ServerState>>,
     graph: String,
+    auth_secret: String,
 ) -> std::io::Result<()> {
     // ── Protocol header ──
     let mut hdr = [0u8; 8];
     socket.read_exact(&mut hdr).await?;
-    if &hdr[0..4] != b"AMQP" {
+    if &hdr != b"AMQP\x00\x00\x09\x01" {
         // Tell the client the version we speak, then close.
         socket.write_all(b"AMQP\x00\x00\x09\x01").await?;
         return Ok(());
@@ -230,9 +315,11 @@ async fn handle_connection(
     write_frame(socket, FRAME_METHOD, 0, &build_connection_start()).await?;
 
     let mut consumers: Vec<Consumer> = Vec::new();
+    let mut authenticated_actor: Option<String> = None;
     let mut delivery_tag: u64 = 0;
-    // delivery-tag → (queue graph node id) for ack finalization.
-    let mut unacked: std::collections::HashMap<u64, String> = std::collections::HashMap::new();
+    // delivery-tag → (queue, graph node id) for native broker acknowledgement.
+    let mut unacked: std::collections::HashMap<u64, (String, String)> =
+        std::collections::HashMap::new();
     // CONCEPT:EG-KG.ingest.broker-reject-publish publisher confirms: channels switched into confirm mode + their
     // per-channel 1-based publish sequence (the delivery-tag returned in basic.ack/nack).
     let mut confirm_channels: std::collections::HashSet<u16> = std::collections::HashSet::new();
@@ -254,11 +341,15 @@ async fn handle_connection(
                 Ok(Ok(None)) => break,
                 Ok(Err(e)) => return Err(e),
                 Err(_) => {
+                    let actor = authenticated_actor
+                        .as_deref()
+                        .ok_or_else(|| invalid_data("AMQP authentication required"))?;
                     // Poll timeout: pump deliveries to every active consumer.
                     pump_consumers(
                         socket,
                         &state,
                         &graph,
+                        actor,
                         &consumers,
                         &mut delivery_tag,
                         &mut unacked,
@@ -270,21 +361,30 @@ async fn handle_connection(
         };
 
         match frame.kind {
-            FRAME_HEARTBEAT => continue,
+            FRAME_HEARTBEAT => return Err(invalid_data("AMQP heartbeats are not negotiated")),
             FRAME_METHOD => {}
-            // A stray header/body outside a publish is ignored (spec-tolerant).
-            _ => continue,
+            _ => return Err(invalid_data("unsupported AMQP frame type")),
         }
         let Some(mc) = parse_method(&frame.payload) else {
             continue;
         };
         let ch = frame.channel;
 
-        match (mc.class, mc.method) {
-            // connection.start-ok → tune
-            (C_CONNECTION, 11) => {
-                write_frame(socket, FRAME_METHOD, 0, &build_connection_tune()).await?;
+        if (mc.class, mc.method) == (C_CONNECTION, 11) {
+            if authenticated_actor.is_some() {
+                return Err(invalid_data("duplicate AMQP authentication"));
             }
+            let actor = authenticate_start_ok(mc.args, &auth_secret)
+                .ok_or_else(|| invalid_data("AMQP authentication failed"))?;
+            authenticated_actor = Some(actor);
+            write_frame(socket, FRAME_METHOD, 0, &build_connection_tune()).await?;
+            continue;
+        }
+        let actor = authenticated_actor
+            .as_deref()
+            .ok_or_else(|| invalid_data("AMQP authentication required"))?;
+
+        match (mc.class, mc.method) {
             // connection.tune-ok → (await open)
             (C_CONNECTION, 31) => {}
             // connection.open → open-ok
@@ -310,32 +410,47 @@ async fn handle_connection(
             (C_CHANNEL, 41) => {} // channel.close-ok
             // exchange.declare
             (C_EXCHANGE, 10) => {
-                let mut c = Cursor::new(&mc.args);
+                let mut c = Cursor::new(mc.args);
                 c.u16(); // reserved-1
                 let exchange = c.shortstr();
                 let kind = c.shortstr();
+                if !c.valid {
+                    return Err(invalid_data("invalid AMQP exchange.declare arguments"));
+                }
                 let kind = if kind.is_empty() {
                     "direct".into()
                 } else {
                     kind
                 };
-                let _ =
-                    engine_call(&state, &graph, Method::DeclareExchange { exchange, kind }).await;
+                let _ = engine_call(
+                    &state,
+                    &graph,
+                    actor,
+                    Method::DeclareExchange { exchange, kind },
+                )
+                .await;
                 write_frame(socket, FRAME_METHOD, ch, &method_header(C_EXCHANGE, 11)).await?;
             }
             // exchange.delete
             (C_EXCHANGE, 20) => {
-                let mut c = Cursor::new(&mc.args);
+                let mut c = Cursor::new(mc.args);
                 c.u16();
                 let exchange = c.shortstr();
-                let _ = engine_call(&state, &graph, Method::DeleteExchange { exchange }).await;
+                if !c.valid {
+                    return Err(invalid_data("invalid AMQP exchange.delete arguments"));
+                }
+                let _ =
+                    engine_call(&state, &graph, actor, Method::DeleteExchange { exchange }).await;
                 write_frame(socket, FRAME_METHOD, ch, &method_header(C_EXCHANGE, 21)).await?;
             }
             // queue.declare
             (C_QUEUE, 10) => {
-                let mut c = Cursor::new(&mc.args);
+                let mut c = Cursor::new(mc.args);
                 c.u16();
                 let mut queue = c.shortstr();
+                if !c.valid {
+                    return Err(invalid_data("invalid AMQP queue.declare arguments"));
+                }
                 if queue.is_empty() {
                     queue = format!("amq.gen-{}", next_req_id());
                 }
@@ -343,6 +458,7 @@ async fn handle_connection(
                 let _ = engine_call(
                     &state,
                     &graph,
+                    actor,
                     Method::BindQueue {
                         exchange: String::new(),
                         queue: queue.clone(),
@@ -358,14 +474,18 @@ async fn handle_connection(
             }
             // queue.bind
             (C_QUEUE, 20) => {
-                let mut c = Cursor::new(&mc.args);
+                let mut c = Cursor::new(mc.args);
                 c.u16();
                 let queue = c.shortstr();
                 let exchange = c.shortstr();
                 let routing_key = c.shortstr();
+                if !c.valid {
+                    return Err(invalid_data("invalid AMQP queue.bind arguments"));
+                }
                 let _ = engine_call(
                     &state,
                     &graph,
+                    actor,
                     Method::BindQueue {
                         exchange,
                         queue,
@@ -377,14 +497,18 @@ async fn handle_connection(
             }
             // queue.unbind
             (C_QUEUE, 50) => {
-                let mut c = Cursor::new(&mc.args);
+                let mut c = Cursor::new(mc.args);
                 c.u16();
                 let queue = c.shortstr();
                 let exchange = c.shortstr();
                 let routing_key = c.shortstr();
+                if !c.valid {
+                    return Err(invalid_data("invalid AMQP queue.unbind arguments"));
+                }
                 let _ = engine_call(
                     &state,
                     &graph,
+                    actor,
                     Method::UnbindQueue {
                         exchange,
                         queue,
@@ -396,7 +520,14 @@ async fn handle_connection(
             }
             // confirm.select → confirm.select-ok (CONCEPT:EG-KG.ingest.broker-reject-publish): enter confirm mode.
             (C_CONFIRM, 10) => {
-                let nowait = mc.args.first().map(|b| b & 0x01 != 0).unwrap_or(false);
+                let nowait = mc
+                    .args
+                    .first()
+                    .map(|b| b & 0x01 != 0)
+                    .ok_or_else(|| invalid_data("invalid AMQP confirm.select arguments"))?;
+                if !confirm_channels.contains(&ch) && confirm_channels.len() >= MAX_AMQP_CHANNELS {
+                    return Err(invalid_data("AMQP channel limit exceeded"));
+                }
                 confirm_channels.insert(ch);
                 publish_seq.entry(ch).or_insert(0);
                 if !nowait {
@@ -406,16 +537,20 @@ async fn handle_connection(
             // basic.publish → read content header (+ idempotency headers) + body, then
             // publish; in confirm mode answer basic.ack / basic.nack (CONCEPT:EG-KG.ingest.broker-reject-publish).
             (C_BASIC, 40) => {
-                let mut c = Cursor::new(&mc.args);
+                let mut c = Cursor::new(mc.args);
                 c.u16(); // reserved-1
                 let exchange = c.shortstr();
                 let routing_key = c.shortstr();
-                let (props, body) = read_content(socket).await?;
+                if !c.valid {
+                    return Err(invalid_data("invalid AMQP basic.publish arguments"));
+                }
+                let (props, body) = read_content(socket, ch).await?;
                 // Route EVERY publish through the idempotent path — with no producer-id
                 // it is byte-identical to a plain publish; with one it dedups (EG-314).
                 let result = engine_call(
                     &state,
                     &graph,
+                    actor,
                     Method::PublishIdempotent {
                         exchange,
                         routing_key,
@@ -433,7 +568,9 @@ async fn handle_connection(
                     let confirmed = decode_confirmed(&result);
                     let tag = {
                         let e = publish_seq.entry(ch).or_insert(0);
-                        *e += 1;
+                        *e = (*e)
+                            .checked_add(1)
+                            .ok_or_else(|| invalid_data("AMQP publish sequence exhausted"))?;
                         *e
                     };
                     let frame = if confirmed {
@@ -446,10 +583,16 @@ async fn handle_connection(
             }
             // basic.consume → consume-ok, register subscription
             (C_BASIC, 20) => {
-                let mut c = Cursor::new(&mc.args);
+                if consumers.len() >= MAX_AMQP_CONSUMERS {
+                    return Err(invalid_data("AMQP consumer limit exceeded"));
+                }
+                let mut c = Cursor::new(mc.args);
                 c.u16();
                 let queue = c.shortstr();
                 let mut tag = c.shortstr();
+                if !c.valid {
+                    return Err(invalid_data("invalid AMQP basic.consume arguments"));
+                }
                 if tag.is_empty() {
                     tag = format!("ctag-{}", next_req_id());
                 }
@@ -460,17 +603,26 @@ async fn handle_connection(
                     channel: ch,
                     tag,
                     queue,
+                    consumer_id: format!("{actor}:{}", next_req_id()),
                 });
             }
             // basic.get → get-ok + content, or get-empty
             (C_BASIC, 70) => {
-                let mut c = Cursor::new(&mc.args);
+                if unacked.len() >= MAX_AMQP_UNACKED {
+                    return Err(invalid_data("AMQP unacknowledged delivery limit exceeded"));
+                }
+                let mut c = Cursor::new(mc.args);
                 c.u16();
                 let queue = c.shortstr();
-                match claim_one(&state, &graph, &queue).await {
+                if !c.valid {
+                    return Err(invalid_data("invalid AMQP basic.get arguments"));
+                }
+                match claim_one(&state, &graph, actor, &queue, actor, 1).await {
                     Some((node_id, rk, ex, body)) => {
-                        delivery_tag += 1;
-                        unacked.insert(delivery_tag, node_id);
+                        delivery_tag = delivery_tag
+                            .checked_add(1)
+                            .ok_or_else(|| invalid_data("AMQP delivery sequence exhausted"))?;
+                        unacked.insert(delivery_tag, (queue, node_id));
                         let mut p = method_header(C_BASIC, 71); // get-ok
                         put_u64(&mut p, delivery_tag);
                         p.push(0); // redelivered = false
@@ -489,14 +641,16 @@ async fn handle_connection(
             }
             // basic.ack
             (C_BASIC, 80) => {
-                let mut c = Cursor::new(&mc.args);
+                let mut c = Cursor::new(mc.args);
                 let tag = c.u64();
-                if let Some(node_id) = unacked.remove(&tag) {
-                    ack_message(&state, &graph, &node_id).await;
+                if !c.valid {
+                    return Err(invalid_data("invalid AMQP basic.ack arguments"));
+                }
+                if let Some((queue, node_id)) = unacked.remove(&tag) {
+                    ack_message(&state, &graph, actor, &queue, &node_id).await;
                 }
             }
-            // Unhandled method: acknowledge nothing (spec-tolerant no-op).
-            _ => {}
+            _ => return Err(invalid_data("unsupported AMQP method")),
         }
     }
     Ok(())
@@ -507,18 +661,33 @@ async fn pump_consumers(
     socket: &mut TcpStream,
     state: &Arc<RwLock<ServerState>>,
     graph: &str,
+    actor: &str,
     consumers: &[Consumer],
     delivery_tag: &mut u64,
-    unacked: &mut std::collections::HashMap<u64, String>,
+    unacked: &mut std::collections::HashMap<u64, (String, String)>,
 ) -> std::io::Result<()> {
     const MAX_PER_POLL: usize = 32;
     for cons in consumers {
         for _ in 0..MAX_PER_POLL {
-            let Some((node_id, rk, ex, body)) = claim_one(state, graph, &cons.queue).await else {
+            if unacked.len() >= MAX_AMQP_UNACKED {
+                return Ok(());
+            }
+            let Some((node_id, rk, ex, body)) = claim_one(
+                state,
+                graph,
+                actor,
+                &cons.queue,
+                &cons.consumer_id,
+                BROKER_PREFETCH,
+            )
+            .await
+            else {
                 break;
             };
-            *delivery_tag += 1;
-            unacked.insert(*delivery_tag, node_id);
+            *delivery_tag = (*delivery_tag)
+                .checked_add(1)
+                .ok_or_else(|| invalid_data("AMQP delivery sequence exhausted"))?;
+            unacked.insert(*delivery_tag, (cons.queue.clone(), node_id));
             let mut p = method_header(C_BASIC, 60); // basic.deliver
             put_shortstr(&mut p, cons.tag.as_bytes());
             put_u64(&mut p, *delivery_tag);
@@ -547,17 +716,26 @@ struct ContentProps {
 
 /// Read the content-header frame (body size + basic-properties) then accumulate body
 /// frames. Parses the idempotency application-headers + priority (CONCEPT:EG-KG.ingest.broker-reject-publish).
-async fn read_content(socket: &mut TcpStream) -> std::io::Result<(ContentProps, Vec<u8>)> {
+async fn read_content(
+    socket: &mut TcpStream,
+    expected_channel: u16,
+) -> std::io::Result<(ContentProps, Vec<u8>)> {
     // Content header frame.
     let header = match read_frame(socket).await? {
-        Some(f) if f.kind == FRAME_HEADER => f,
-        _ => return Ok((ContentProps::default(), Vec::new())),
+        Some(f) if f.kind == FRAME_HEADER && f.channel == expected_channel => f,
+        _ => return Err(invalid_data("invalid AMQP content header")),
     };
     // header payload: class(2) weight(2) body-size(8) property-flags(2) properties…
     if header.payload.len() < 12 {
-        return Ok((ContentProps::default(), Vec::new()));
+        return Err(invalid_data("invalid AMQP content header"));
     }
-    let body_size = u64::from_be_bytes([
+    if u16::from_be_bytes([header.payload[0], header.payload[1]]) != C_BASIC
+        || header.payload[2] != 0
+        || header.payload[3] != 0
+    {
+        return Err(invalid_data("invalid AMQP content header"));
+    }
+    let declared_body_size = u64::from_be_bytes([
         header.payload[4],
         header.payload[5],
         header.payload[6],
@@ -566,13 +744,32 @@ async fn read_content(socket: &mut TcpStream) -> std::io::Result<(ContentProps, 
         header.payload[9],
         header.payload[10],
         header.payload[11],
-    ]) as usize;
-    let props = parse_content_props(&header.payload);
-    let mut body = Vec::with_capacity(body_size);
+    ]);
+    let body_size = usize::try_from(declared_body_size)
+        .ok()
+        .filter(|size| *size <= MAX_AMQP_CONTENT_BYTES)
+        .ok_or_else(|| invalid_data("AMQP content body exceeds the resource limit"))?;
+    let props = parse_content_props(&header.payload)
+        .ok_or_else(|| invalid_data("invalid AMQP content properties"))?;
+    // Do not reserve the entire attacker-declared size before any body bytes
+    // arrive. Capacity grows only with frames that have actually been read.
+    let mut body = Vec::new();
     while body.len() < body_size {
         match read_frame(socket).await? {
-            Some(f) if f.kind == FRAME_BODY => body.extend_from_slice(&f.payload),
-            _ => break,
+            Some(f) if f.kind == FRAME_BODY && f.channel == expected_channel => {
+                if f.payload.is_empty() {
+                    return Err(invalid_data("empty AMQP content body frame"));
+                }
+                if f.payload.len() > body_size - body.len() {
+                    return Err(invalid_data("AMQP content body exceeds its declared size"));
+                }
+                if body.is_empty() {
+                    body = f.payload;
+                } else {
+                    body.extend_from_slice(&f.payload);
+                }
+            }
+            _ => return Err(invalid_data("incomplete AMQP content body")),
         }
     }
     Ok((props, body))
@@ -583,14 +780,14 @@ async fn read_content(socket: &mut TcpStream) -> std::io::Result<(ContentProps, 
 /// the application-`headers` table (bit `0x2000`) and the `priority` octet (`0x0800`).
 /// A multi-word property-flags preamble (continuation bit `0x0001`, vanishingly rare
 /// for a publish) is not decoded — extraction is skipped and the publish still lands.
-fn parse_content_props(payload: &[u8]) -> ContentProps {
+fn parse_content_props(payload: &[u8]) -> Option<ContentProps> {
     let mut props = ContentProps::default();
     if payload.len() < 14 {
-        return props;
+        return None;
     }
     let flags = u16::from_be_bytes([payload[12], payload[13]]);
     if flags & 0x0001 != 0 {
-        return props; // multi-word flags — skip extraction (safe: publish unaffected)
+        return None; // unsupported multi-word flags must not be partially accepted
     }
     let mut c = Cursor::new(&payload[14..]);
     if flags & 0x8000 != 0 {
@@ -600,8 +797,10 @@ fn parse_content_props(payload: &[u8]) -> ContentProps {
         let _content_encoding = c.shortstr();
     }
     if flags & 0x2000 != 0 {
-        let table = c.longstr_bytes();
-        parse_headers_table(&table, &mut props);
+        let table = c.longstr_slice();
+        if !parse_headers_table(table, &mut props) {
+            return None;
+        }
     }
     if flags & 0x1000 != 0 {
         let _delivery_mode = c.u8();
@@ -609,17 +808,51 @@ fn parse_content_props(payload: &[u8]) -> ContentProps {
     if flags & 0x0800 != 0 {
         props.priority = c.u8() as i64;
     }
-    props
+    if flags & 0x0400 != 0 {
+        let _correlation_id = c.shortstr();
+    }
+    if flags & 0x0200 != 0 {
+        let _reply_to = c.shortstr();
+    }
+    if flags & 0x0100 != 0 {
+        let _expiration = c.shortstr();
+    }
+    if flags & 0x0080 != 0 {
+        let _message_id = c.shortstr();
+    }
+    if flags & 0x0040 != 0 {
+        let _timestamp = c.u64();
+    }
+    if flags & 0x0020 != 0 {
+        let _message_type = c.shortstr();
+    }
+    if flags & 0x0010 != 0 {
+        let _user_id = c.shortstr();
+    }
+    if flags & 0x0008 != 0 {
+        let _app_id = c.shortstr();
+    }
+    if flags & 0x0004 != 0 {
+        let _cluster_id = c.shortstr();
+    }
+    (c.valid && c.remaining() == 0).then_some(props)
 }
 
 /// Scan an AMQP field-table for the idempotency headers (CONCEPT:EG-KG.ingest.broker-reject-publish): `x-producer-id`
 /// (a string value) and `x-producer-seq` (an int, or a numeric string). Unknown value
 /// types whose width can't be determined end the scan (the already-found keys stand).
-fn parse_headers_table(bytes: &[u8], props: &mut ContentProps) {
+fn parse_headers_table(bytes: &[u8], props: &mut ContentProps) -> bool {
     let mut c = Cursor::new(bytes);
+    let mut fields = 0usize;
     while c.remaining() > 0 {
+        fields += 1;
+        if fields > MAX_AMQP_HEADER_FIELDS {
+            return false;
+        }
         let name = c.shortstr();
-        let Some(val) = c.field_value() else { break };
+        let Some(val) = c.field_value() else {
+            return false;
+        };
         match name.as_str() {
             "x-producer-id" => {
                 if let FieldVal::Str(s) = val {
@@ -634,6 +867,7 @@ fn parse_headers_table(bytes: &[u8], props: &mut ContentProps) {
             _ => {}
         }
     }
+    c.valid
 }
 
 /// A decoded AMQP field-table value we care about (CONCEPT:EG-KG.ingest.broker-reject-publish) — a string, an
@@ -646,14 +880,14 @@ enum FieldVal {
 
 /// True when an engine publish result confirms the message was durably accepted
 /// (CONCEPT:EG-KG.ingest.broker-reject-publish / EG-284). Decodes the `IdempotentPublish.confirmed` flag; a
-/// non-`Raw` / undecodable result is treated optimistically as confirmed.
+/// non-`Raw` / undecodable result fails closed and is negatively acknowledged.
 fn decode_confirmed(result: &ResultPayload) -> bool {
     if let ResultPayload::Raw(bytes) = result {
-        if let Ok(ip) = rmp_serde::from_slice::<crate::broker::IdempotentPublish>(bytes) {
+        if let Some(ip) = decode_broker_result::<crate::broker::IdempotentPublish>(bytes) {
             return ip.confirmed;
         }
     }
-    true
+    false
 }
 
 /// Build a server `basic.ack` (class 60 / method 80): delivery-tag + `multiple` bit
@@ -709,6 +943,21 @@ async fn read_frame(socket: &mut TcpStream) -> std::io::Result<Option<Frame>> {
     let kind = head[0];
     let channel = u16::from_be_bytes([head[1], head[2]]);
     let size = u32::from_be_bytes([head[3], head[4], head[5], head[6]]) as usize;
+    if !matches!(
+        kind,
+        FRAME_METHOD | FRAME_HEADER | FRAME_BODY | FRAME_HEARTBEAT
+    ) {
+        return Err(invalid_data("invalid AMQP frame type"));
+    }
+    if kind == FRAME_HEARTBEAT && (channel != 0 || size != 0) {
+        return Err(invalid_data("invalid AMQP heartbeat frame"));
+    }
+    if size > MAX_AMQP_FRAME_BYTES {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "AMQP frame exceeds the resource limit",
+        ));
+    }
     let mut payload = vec![0u8; size];
     socket.read_exact(&mut payload).await?;
     let mut end = [0u8; 1];
@@ -732,7 +981,14 @@ async fn write_frame(
     channel: u16,
     payload: &[u8],
 ) -> std::io::Result<()> {
-    let mut buf = Vec::with_capacity(payload.len() + 8);
+    if payload.len() > MAX_AMQP_FRAME_BYTES || u32::try_from(payload.len()).is_err() {
+        return Err(invalid_data("AMQP output frame exceeds the resource limit"));
+    }
+    let capacity = payload
+        .len()
+        .checked_add(8)
+        .ok_or_else(|| invalid_data("AMQP output frame length overflow"))?;
+    let mut buf = Vec::with_capacity(capacity);
     buf.push(kind);
     put_u16(&mut buf, channel);
     put_u32(&mut buf, payload.len() as u32);
@@ -741,7 +997,7 @@ async fn write_frame(
     socket.write_all(&buf).await
 }
 
-fn parse_method(payload: &[u8]) -> Option<MethodCall> {
+fn parse_method(payload: &[u8]) -> Option<MethodCall<'_>> {
     if payload.len() < 4 {
         return None;
     }
@@ -750,7 +1006,7 @@ fn parse_method(payload: &[u8]) -> Option<MethodCall> {
     Some(MethodCall {
         class,
         method,
-        args: payload[4..].to_vec(),
+        args: &payload[4..],
     })
 }
 
@@ -763,6 +1019,34 @@ fn method_header(class: u16, method: u16) -> Vec<u8> {
 }
 
 // ── Handshake method builders ─────────────────────────────────────────────
+
+/// Parse and verify a `connection.start-ok` SASL PLAIN response. An optional authzid
+/// must be empty or equal the authenticated principal, preventing identity confusion.
+fn authenticate_start_ok(args: &[u8], secret: &str) -> Option<String> {
+    let mut c = Cursor::new(args);
+    let _client_properties = c.longstr_slice();
+    let mechanism = c.shortstr();
+    let response = c.longstr_slice();
+    let _locale = c.shortstr();
+    if !c.valid || c.remaining() != 0 || mechanism != "PLAIN" {
+        return None;
+    }
+    let mut parts = response.split(|byte| *byte == 0);
+    let authzid = parts.next()?;
+    let principal_bytes = parts.next()?;
+    let password_bytes = parts.next()?;
+    if parts.next().is_some() || principal_bytes.is_empty() {
+        return None;
+    }
+    let principal = std::str::from_utf8(principal_bytes).ok()?;
+    let password = std::str::from_utf8(password_bytes).ok()?;
+    if (!authzid.is_empty() && authzid != principal_bytes)
+        || !verify_amqp_password(secret, principal, password)
+    {
+        return None;
+    }
+    crate::server::pseudonymous_broker_actor(secret, principal).ok()
+}
 
 fn build_connection_start() -> Vec<u8> {
     let mut p = method_header(C_CONNECTION, 10);
@@ -812,14 +1096,20 @@ fn put_longstr(v: &mut Vec<u8>, s: &[u8]) {
 struct Cursor<'a> {
     b: &'a [u8],
     i: usize,
+    valid: bool,
 }
 
 impl<'a> Cursor<'a> {
     fn new(b: &'a [u8]) -> Self {
-        Self { b, i: 0 }
+        Self {
+            b,
+            i: 0,
+            valid: true,
+        }
     }
     fn u8(&mut self) -> u8 {
         if self.i >= self.b.len() {
+            self.valid = false;
             return 0;
         }
         let x = self.b[self.i];
@@ -827,39 +1117,56 @@ impl<'a> Cursor<'a> {
         x
     }
     fn u16(&mut self) -> u16 {
-        if self.i + 2 > self.b.len() {
+        let Some(end) = self.i.checked_add(2).filter(|end| *end <= self.b.len()) else {
+            self.valid = false;
+            self.i = self.b.len();
             return 0;
-        }
+        };
         let x = u16::from_be_bytes([self.b[self.i], self.b[self.i + 1]]);
-        self.i += 2;
+        self.i = end;
         x
     }
     fn u32(&mut self) -> u32 {
-        if self.i + 4 > self.b.len() {
+        let Some(end) = self.i.checked_add(4).filter(|end| *end <= self.b.len()) else {
+            self.valid = false;
+            self.i = self.b.len();
             return 0;
-        }
+        };
         let mut a = [0u8; 4];
-        a.copy_from_slice(&self.b[self.i..self.i + 4]);
-        self.i += 4;
+        a.copy_from_slice(&self.b[self.i..end]);
+        self.i = end;
         u32::from_be_bytes(a)
     }
     fn u64(&mut self) -> u64 {
-        if self.i + 8 > self.b.len() {
+        let Some(end) = self.i.checked_add(8).filter(|end| *end <= self.b.len()) else {
+            self.valid = false;
+            self.i = self.b.len();
             return 0;
-        }
+        };
         let mut a = [0u8; 8];
-        a.copy_from_slice(&self.b[self.i..self.i + 8]);
-        self.i += 8;
+        a.copy_from_slice(&self.b[self.i..end]);
+        self.i = end;
         u64::from_be_bytes(a)
     }
     fn shortstr(&mut self) -> String {
         if self.i >= self.b.len() {
+            self.valid = false;
             return String::new();
         }
         let len = self.b[self.i] as usize;
         self.i += 1;
-        let end = (self.i + len).min(self.b.len());
-        let s = String::from_utf8_lossy(&self.b[self.i..end]).into_owned();
+        let Some(end) = self.i.checked_add(len).filter(|end| *end <= self.b.len()) else {
+            self.valid = false;
+            self.i = self.b.len();
+            return String::new();
+        };
+        let s = match std::str::from_utf8(&self.b[self.i..end]) {
+            Ok(value) => value.to_owned(),
+            Err(_) => {
+                self.valid = false;
+                String::new()
+            }
+        };
         self.i = end;
         s
     }
@@ -867,17 +1174,21 @@ impl<'a> Cursor<'a> {
     fn remaining(&self) -> usize {
         self.b.len().saturating_sub(self.i)
     }
-    /// Read `n` bytes (clamped to the buffer), advancing the cursor.
+    /// Read exactly `n` bytes, failing the cursor on truncation.
     fn take(&mut self, n: usize) -> &'a [u8] {
-        let end = (self.i + n).min(self.b.len());
-        let out = &self.b[self.i.min(self.b.len())..end];
+        let Some(end) = self.i.checked_add(n).filter(|end| *end <= self.b.len()) else {
+            self.valid = false;
+            self.i = self.b.len();
+            return &[];
+        };
+        let out = &self.b[self.i..end];
         self.i = end;
         out
     }
     /// A `u32`-length-prefixed byte block (AMQP `longstr` / field-table framing).
-    fn longstr_bytes(&mut self) -> Vec<u8> {
+    fn longstr_slice(&mut self) -> &'a [u8] {
         let len = self.u32() as usize;
-        self.take(len).to_vec()
+        self.take(len)
     }
     /// Decode one AMQP field-table value by its 1-byte type tag (CONCEPT:EG-KG.ingest.broker-reject-publish). Returns
     /// `None` when the tag is unknown (its width is undeterminable → the caller stops).
@@ -916,17 +1227,24 @@ impl<'a> Cursor<'a> {
                 FieldVal::Skip
             }
             b'S' => {
-                let bytes = self.longstr_bytes();
-                FieldVal::Str(String::from_utf8_lossy(&bytes).into_owned())
+                let bytes = self.longstr_slice();
+                let value = match std::str::from_utf8(bytes) {
+                    Ok(value) if self.valid => value,
+                    _ => {
+                        self.valid = false;
+                        return None;
+                    }
+                };
+                FieldVal::Str(value.to_owned())
             }
             b'x' | b'F' | b'A' => {
-                let _ = self.longstr_bytes(); // byte-array / nested table / array
+                let _ = self.longstr_slice(); // byte-array / nested table / array
                 FieldVal::Skip
             }
             b'V' => FieldVal::Skip, // void
             _ => return None,       // unknown type — width unknown, stop the scan
         };
-        Some(v)
+        self.valid.then_some(v)
     }
 }
 
@@ -973,6 +1291,40 @@ mod tests {
         assert_eq!(p[5], 9); // minor
     }
 
+    #[test]
+    fn sasl_plain_authentication_is_verified_and_identity_bound() {
+        let principal = "agent:publisher";
+        let password = derive_amqp_password("test", principal);
+        let mut args = Vec::new();
+        put_u32(&mut args, 0); // empty client-properties table
+        put_shortstr(&mut args, b"PLAIN");
+        let response = [
+            b"".as_slice(),
+            b"\0",
+            principal.as_bytes(),
+            b"\0",
+            password.as_bytes(),
+        ]
+        .concat();
+        put_longstr(&mut args, &response);
+        put_shortstr(&mut args, b"en_US");
+        let actor = authenticate_start_ok(&args, "test").unwrap();
+        assert_eq!(
+            actor,
+            crate::server::pseudonymous_broker_actor("test", principal).unwrap()
+        );
+        assert!(!actor.contains(principal));
+        assert!(authenticate_start_ok(&args, "other").is_none());
+        assert!(authenticate_start_ok(&args, "").is_none());
+    }
+
+    #[test]
+    fn startup_policy_rejects_anonymous_or_remote_amqp() {
+        assert!(validate_startup_policy("127.0.0.1:5672", "").is_err());
+        assert!(validate_startup_policy("0.0.0.0:5672", "test").is_err());
+        assert!(validate_startup_policy("127.0.0.1:5672", "test").is_ok());
+    }
+
     // ── CONCEPT:EG-KG.ingest.broker-reject-publish publisher confirms + idempotent-publish headers ────
 
     /// Assemble a content-header payload carrying an application-`headers` table
@@ -1001,7 +1353,7 @@ mod tests {
     #[test]
     fn eg314_parse_content_props_extracts_producer_id_seq_and_priority() {
         let payload = content_header_with("prod-7", 42, 5);
-        let props = parse_content_props(&payload);
+        let props = parse_content_props(&payload).unwrap();
         assert_eq!(props.producer_id.as_deref(), Some("prod-7"));
         assert_eq!(props.producer_seq, Some(42));
         assert_eq!(props.priority, 5);
@@ -1016,7 +1368,7 @@ mod tests {
         put_u16(&mut p, 0);
         put_u64(&mut p, 0);
         put_u16(&mut p, 0x0000);
-        let props = parse_content_props(&p);
+        let props = parse_content_props(&p).unwrap();
         assert!(props.producer_id.is_none());
         assert!(props.producer_seq.is_none());
         assert_eq!(props.priority, 0);

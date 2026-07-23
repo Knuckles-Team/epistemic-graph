@@ -2,6 +2,18 @@
 # `docker compose -f docker/compose.yml up server` for a durable local instance.
 services:
   server:
+    init: true
+    user: "10001:10001"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    mem_limit: ${MCP_CONTAINER_MEMORY_LIMIT:-2g}
+    cpus: ${MCP_CONTAINER_CPU_LIMIT:-1.0}
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
     image: epistemic-graph:local
     build:
       context: ..
@@ -9,6 +21,17 @@ services:
     environment:
       # REQUIRED — the server refuses to start without an auth secret.
       - GRAPH_SERVICE_AUTH_SECRET=${GRAPH_SERVICE_AUTH_SECRET:?set a secret, e.g. openssl rand -hex 32}
+      # This recipe publishes the RPC port on host loopback only. Routable
+      # deployments must replace this compatibility acknowledgement with
+      # GRAPH_SERVICE_TLS_CERT / _KEY (and optional _CLIENT_CA).
+      - GRAPH_SERVICE_TCP_ADDR=0.0.0.0:9100
+      - EPISTEMIC_GRAPH_ALLOW_PLAINTEXT_TCP=true
+      # Metrics must bind the container interface for Docker publishing. Both
+      # auxiliary-listener keys acknowledge that the host publication below is
+      # loopback-only; do not reuse this pair with a routable host publication.
+      - GRAPH_SERVICE_METRICS_ADDR=0.0.0.0:9101
+      - EPISTEMIC_GRAPH_ALLOW_NONLOOPBACK_AUXILIARY=true
+      - EPISTEMIC_GRAPH_AUXILIARY_INGRESS_ACKNOWLEDGED=true
     ports:
       - "127.0.0.1:9100:9100"   # RPC (clients)
       - "127.0.0.1:9101:9101"   # Prometheus metrics
@@ -18,11 +41,23 @@ services:
 
   # Dev/test runner (pytest over the Python client) — separate Dockerfile.
   test-runner:
+    init: true
+    user: "10001:10001"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    mem_limit: ${MCP_CONTAINER_MEMORY_LIMIT:-2g}
+    cpus: ${MCP_CONTAINER_CPU_LIMIT:-1.0}
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
     build:
       context: ..
       dockerfile: docker/Dockerfile.test
     volumes:
-      - ../tests:/app/tests
+      - ../tests:/app/tests:ro
     environment:
       - PYTHONPATH=.
     command: pytest

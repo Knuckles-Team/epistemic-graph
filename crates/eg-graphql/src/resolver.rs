@@ -10,8 +10,8 @@
 //!     `type`/`node_type`/`label`/`labels` keys), filtered by the property-equality
 //!     `args`, capped by `first`/`limit`, then each node's selection resolved;
 //!   * a SCALAR field `prop` → that property from the node's blob (`null` if absent);
-//!   * an OBJECT field `rel { … }` → follow outgoing edges typed `rel` (the same edge
-//!     `type`/`relationship` check `rel_matches` uses) to the target nodes, each
+//!   * an OBJECT field `rel { … }` → follow outgoing edges whose canonical
+//!     `relationship` equals `rel` to the target nodes, each
 //!     recursively resolved → a LIST.
 
 use std::collections::{HashMap, HashSet};
@@ -23,7 +23,7 @@ use serde_json::{Map, Value};
 use crate::parser::{
     gql_to_json, parse_raw, Directive, Field, Fragment, GqlValue, Query, RawDocument, RawSelection,
 };
-use crate::schema::{decode, node_labels, Schema};
+use crate::schema::{decode, node_labels, relationship_name, Schema};
 
 /// Execution variables (CONCEPT:EG-KG.query.fragments-variables-directives): a map of `$name` → bound value, used to
 /// substitute variable references in arguments and evaluate `@skip`/`@include`.
@@ -32,6 +32,13 @@ pub(crate) type Variables = HashMap<String, GqlValue>;
 /// Default cap on root-field rows when no `first`/`limit` arg is given (mirrors the
 /// Cypher surface's implicit bound — one Response per Request).
 const MAX_ROOT_ROWS: usize = 50_000;
+/// Hard ceiling applied while expanding fragments/directives into the executable
+/// field tree. This is deliberately enforced during expansion (not after it) so a
+/// compact, exponentially-reused fragment document cannot allocate an unbounded AST.
+const MAX_DESUGARED_FIELDS: usize = 10_000;
+/// Fragment dependencies are not represented by selection-delimiter nesting. Bound
+/// that independent recursion axis before following the next spread.
+const MAX_FRAGMENT_EXPANSION_DEPTH: usize = 64;
 
 /// The split of a field's args: an optional `first`/`limit` cap + the property-equality
 /// filters (`(key, expected-value)` pairs).
@@ -79,7 +86,7 @@ pub fn execute_with_variables(
 /// Execute an already-parsed [`Query`], validating each root field against the schema
 /// derived from `view`.
 pub fn execute_query(view: &GraphView, q: &Query) -> Result<Value, String> {
-    let schema = Schema::from_view(view);
+    let schema = Schema::from_view(view)?;
     let mut data = Map::new();
     for root in &q.roots {
         if !schema.has_type(&root.name) {
@@ -136,6 +143,17 @@ pub(crate) fn flatten_selections(
     vars: &Variables,
     active: &mut HashSet<String>,
 ) -> Result<Vec<Field>, String> {
+    let mut expanded_fields = 0usize;
+    flatten_selections_bounded(items, frags, vars, active, &mut expanded_fields)
+}
+
+fn flatten_selections_bounded(
+    items: &[RawSelection],
+    frags: &HashMap<&str, &Fragment>,
+    vars: &Variables,
+    active: &mut HashSet<String>,
+    expanded_fields: &mut usize,
+) -> Result<Vec<Field>, String> {
     let mut out = Vec::new();
     for item in items {
         match item {
@@ -143,11 +161,23 @@ pub(crate) fn flatten_selections(
                 if !should_include(&rf.directives, vars)? {
                     continue;
                 }
+                *expanded_fields = expanded_fields.saturating_add(1);
+                if *expanded_fields > MAX_DESUGARED_FIELDS {
+                    return Err(format!(
+                        "GraphQL: expanded field count exceeds {MAX_DESUGARED_FIELDS}"
+                    ));
+                }
                 out.push(Field {
                     alias: rf.alias.clone(),
                     name: rf.name.clone(),
                     args: subst_args(&rf.args, vars),
-                    selection: flatten_selections(&rf.selections, frags, vars, active)?,
+                    selection: flatten_selections_bounded(
+                        &rf.selections,
+                        frags,
+                        vars,
+                        active,
+                        expanded_fields,
+                    )?,
                 });
             }
             RawSelection::Spread { name, directives } => {
@@ -160,7 +190,19 @@ pub(crate) fn flatten_selections(
                 if !active.insert(name.clone()) {
                     return Err(format!("GraphQL: fragment cycle through `{name}`"));
                 }
-                let inner = flatten_selections(&frag.selections, frags, vars, active)?;
+                if active.len() > MAX_FRAGMENT_EXPANSION_DEPTH {
+                    active.remove(name);
+                    return Err(format!(
+                        "GraphQL: fragment expansion depth exceeds {MAX_FRAGMENT_EXPANSION_DEPTH}"
+                    ));
+                }
+                let inner = flatten_selections_bounded(
+                    &frag.selections,
+                    frags,
+                    vars,
+                    active,
+                    expanded_fields,
+                )?;
                 active.remove(name);
                 out.extend(inner);
             }
@@ -174,7 +216,13 @@ pub(crate) fn flatten_selections(
                 if !should_include(directives, vars)? {
                     continue;
                 }
-                out.extend(flatten_selections(selections, frags, vars, active)?);
+                out.extend(flatten_selections_bounded(
+                    selections,
+                    frags,
+                    vars,
+                    active,
+                    expanded_fields,
+                )?);
             }
         }
     }
@@ -278,18 +326,13 @@ fn resolve_plain_root(view: &GraphView, field: &Field) -> Result<Vec<Value>, Str
 
     // Candidate node ids carrying this label, in a stable (sorted) order so the result
     // is deterministic across runs (matching a DB's stable scan order).
-    let mut candidates: Vec<String> = view
-        .node_properties
-        .iter()
-        .filter_map(|(id, blob)| {
-            let val = decode(blob)?;
-            if node_labels(&val).iter().any(|l| l == &field.name) {
-                Some(id.clone())
-            } else {
-                None
-            }
-        })
-        .collect();
+    let mut candidates = Vec::new();
+    for (id, blob) in &view.node_properties {
+        let val = decode(blob)?;
+        if node_labels(&val)?.iter().any(|label| label == &field.name) {
+            candidates.push(id.clone());
+        }
+    }
     candidates.sort();
 
     let mut out = Vec::new();
@@ -297,9 +340,11 @@ fn resolve_plain_root(view: &GraphView, field: &Field) -> Result<Vec<Value>, Str
         if out.len() >= cap {
             break;
         }
-        let Some(val) = view.node_properties.get(&id).and_then(|b| decode(b)) else {
-            continue;
-        };
+        let blob = view
+            .node_properties
+            .get(&id)
+            .ok_or_else(|| format!("GraphQL: selected node `{id}` has no properties"))?;
+        let val = decode(blob)?;
         // property-equality filters from the args.
         if !filters.iter().all(|(k, v)| prop_eq(&val, k, v)) {
             continue;
@@ -316,7 +361,7 @@ fn resolve_plain_root(view: &GraphView, field: &Field) -> Result<Vec<Value>, Str
 /// key), so they are stable across runs.
 fn resolve_connection(view: &GraphView, field: &Field) -> Result<Value, String> {
     let (relay, filters) = split_relay_args(&field.args)?;
-    let ordered = ordered_matches(view, &field.name, &filters);
+    let ordered = ordered_matches(view, &field.name, &filters)?;
     let total = ordered.len();
 
     // `after` / `before` carve a window out of the full ordered match set.
@@ -419,30 +464,30 @@ pub(crate) fn ordered_matches(
     view: &GraphView,
     label: &str,
     filters: &[(String, Value)],
-) -> Vec<(String, Value)> {
-    let mut ids: Vec<String> = view
-        .node_properties
-        .iter()
-        .filter_map(|(id, blob)| {
-            let val = decode(blob)?;
-            if node_labels(&val).iter().any(|l| l == label) {
-                Some(id.clone())
-            } else {
-                None
-            }
-        })
-        .collect();
+) -> Result<Vec<(String, Value)>, String> {
+    let mut ids = Vec::new();
+    for (id, blob) in &view.node_properties {
+        let val = decode(blob)?;
+        if node_labels(&val)?
+            .iter()
+            .any(|candidate| candidate == label)
+        {
+            ids.push(id.clone());
+        }
+    }
     ids.sort();
     let mut out = Vec::new();
     for id in ids {
-        let Some(val) = view.node_properties.get(&id).and_then(|b| decode(b)) else {
-            continue;
-        };
+        let blob = view
+            .node_properties
+            .get(&id)
+            .ok_or_else(|| format!("GraphQL: selected node `{id}` has no properties"))?;
+        let val = decode(blob)?;
         if filters.iter().all(|(k, v)| prop_eq(&val, k, v)) {
             out.push((id, val));
         }
     }
-    out
+    Ok(out)
 }
 
 /// The relay cursor args split off a field's arguments (CONCEPT:EG-KG.query.graphql-cursors).
@@ -576,7 +621,10 @@ pub(crate) fn resolve_selection(
         // (CONCEPT:EG-KG.query.apollo-federation-subgraph), which typically select `__typename` alongside an inline
         // fragment per entity type.
         if f.name == "__typename" && f.selection.is_empty() {
-            let tn = node_labels(val).into_iter().next().unwrap_or_default();
+            let tn = node_labels(val)?
+                .into_iter()
+                .next()
+                .ok_or_else(|| format!("GraphQL: node `{node_id}` has no object type"))?;
             obj.insert(f.alias.clone(), Value::String(tn));
             continue;
         }
@@ -604,7 +652,7 @@ fn resolve_edge(view: &GraphView, node_id: &str, field: &Field) -> Result<Vec<Va
     let (limit, filters) = split_args(&field.args)?;
     let cap = limit.unwrap_or(MAX_ROOT_ROWS).min(MAX_ROOT_ROWS);
 
-    let mut targets = outgoing_targets(view, node_id, &field.name);
+    let mut targets = outgoing_targets(view, node_id, &field.name)?;
     targets.sort();
     targets.dedup();
 
@@ -613,9 +661,11 @@ fn resolve_edge(view: &GraphView, node_id: &str, field: &Field) -> Result<Vec<Va
         if out.len() >= cap {
             break;
         }
-        let Some(val) = view.node_properties.get(&tid).and_then(|b| decode(b)) else {
-            continue;
-        };
+        let blob = view
+            .node_properties
+            .get(&tid)
+            .ok_or_else(|| format!("GraphQL: edge target `{tid}` has no properties"))?;
+        let val = decode(blob)?;
         if !filters.iter().all(|(k, v)| prop_eq(&val, k, v)) {
             continue;
         }
@@ -624,11 +674,10 @@ fn resolve_edge(view: &GraphView, node_id: &str, field: &Field) -> Result<Vec<Va
     Ok(out)
 }
 
-/// Target node ids of outgoing edges typed `rel` from `src` (the same edge `type`/
-/// `relationship` check eg-query/cypher's `rel_matches` uses).
-fn outgoing_targets(view: &GraphView, src: &str, rel: &str) -> Vec<String> {
+/// Target node ids of outgoing edges whose canonical `relationship` is `rel`.
+fn outgoing_targets(view: &GraphView, src: &str, rel: &str) -> Result<Vec<String>, String> {
     let Some(&src_idx) = view.node_map.get(src) else {
-        return Vec::new();
+        return Ok(Vec::new());
     };
     let mut out = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
@@ -637,37 +686,36 @@ fn outgoing_targets(view: &GraphView, src: &str, rel: &str) -> Vec<String> {
         .edges_directed(src_idx, petgraph::Direction::Outgoing)
     {
         let tgt = edge.target();
-        let Some(tid) = view.graph.node_weight(tgt) else {
-            continue;
-        };
-        if rel_matches(view, src, tid, rel) && seen.insert(tid.clone()) {
+        let tid = view
+            .graph
+            .node_weight(tgt)
+            .ok_or_else(|| "GraphQL: edge target is missing from the graph".to_string())?;
+        if rel_matches(view, src, tid, rel)? && seen.insert(tid.clone()) {
             out.push(tid.clone());
         }
     }
-    out
+    Ok(out)
 }
 
-/// Does the stored edge `(from→to)` carry relationship `rel`? Reads the edge blobs'
-/// `relationship`/`type` field — identical to eg-query/cypher's `rel_matches`.
-fn rel_matches(view: &GraphView, from: &str, to: &str, rel: &str) -> bool {
+/// Does the stored edge `(from→to)` carry relationship `rel`? Reads the edge blob's
+/// canonical `relationship` field.
+fn rel_matches(view: &GraphView, from: &str, to: &str, rel: &str) -> Result<bool, String> {
     let Some(blobs) = view
         .edge_properties
         .get(&(from.to_string(), to.to_string()))
     else {
-        return false;
+        return Ok(false);
     };
     for blob in blobs {
-        if let Some(Value::Object(m)) = decode(blob) {
-            let stored = m
-                .get("relationship")
-                .or_else(|| m.get("type"))
-                .and_then(|v| v.as_str());
-            if stored == Some(rel) {
-                return true;
-            }
+        let value = decode(blob)?;
+        let properties = value
+            .as_object()
+            .ok_or_else(|| "GraphQL: edge properties must be an object".to_string())?;
+        if relationship_name(properties)? == Some(rel) {
+            return Ok(true);
         }
     }
-    false
+    Ok(false)
 }
 
 /// Split a field's args into (the `first`/`limit` cap, the property-equality filters).

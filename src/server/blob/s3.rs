@@ -19,10 +19,11 @@
 
 use object_store::aws::AmazonS3Builder;
 use object_store::path::Path as ObjPath;
-use object_store::ObjectStore;
+use object_store::{ObjectStore, ObjectStoreExt};
 use tokio::runtime::Runtime;
 
 use super::store::{BlobManifest, ChunkStore, RedbChunkStore, SweepStats};
+use crate::mutation_batch::MutationBatch;
 
 /// Object-store-backed CAS. Chunk bytes live in S3/MinIO keyed by their digest;
 /// the manifests + refcounts live in a local redb sidecar (reusing
@@ -70,6 +71,9 @@ impl S3ChunkStore {
 
 impl ChunkStore for S3ChunkStore {
     fn put_chunk(&self, bytes: &[u8]) -> Result<(String, bool), String> {
+        if bytes.len() > super::store::MAX_BLOB_CHUNK_BYTES {
+            return Err("blob chunk exceeds resource limits".to_string());
+        }
         let digest = super::store::hex_digest(bytes);
         let path = self.chunk_path(&digest);
         self.rt.block_on(async {
@@ -89,11 +93,23 @@ impl ChunkStore for S3ChunkStore {
     }
 
     fn get_chunk(&self, digest: &str) -> Result<Option<Vec<u8>>, String> {
+        super::store::validate_digest(digest)?;
         let path = self.chunk_path(digest);
         self.rt.block_on(async {
+            match self.store.head(&path).await {
+                Ok(meta) if meta.size > super::store::MAX_BLOB_CHUNK_BYTES as u64 => {
+                    return Err("stored blob chunk exceeds resource limits".to_string());
+                }
+                Ok(_) => {}
+                Err(object_store::Error::NotFound { .. }) => return Ok(None),
+                Err(error) => return Err(error.to_string()),
+            }
             match self.store.get(&path).await {
                 Ok(r) => {
                     let bytes = r.bytes().await.map_err(|e| e.to_string())?;
+                    if bytes.len() > super::store::MAX_BLOB_CHUNK_BYTES {
+                        return Err("stored blob chunk exceeds resource limits".to_string());
+                    }
                     Ok(Some(bytes.to_vec()))
                 }
                 Err(object_store::Error::NotFound { .. }) => Ok(None),
@@ -153,5 +169,115 @@ impl ChunkStore for S3ChunkStore {
 
     fn blob_count(&self) -> Result<u64, String> {
         self.sidecar.blob_count()
+    }
+
+    fn mutation_version(&self, tenant: &str, graph: &str) -> Result<u64, String> {
+        self.sidecar.mutation_version(tenant, graph)
+    }
+
+    fn commit_cursor_batch(
+        &self,
+        batch: &MutationBatch,
+        cursor: u64,
+        committed_at_ms: u64,
+    ) -> Result<u64, String> {
+        self.sidecar
+            .commit_cursor_batch(batch, cursor, committed_at_ms)
+    }
+
+    fn put_chunk_batch(
+        &self,
+        bytes: &[u8],
+        batch: &MutationBatch,
+        committed_at_ms: u64,
+    ) -> Result<(String, bool), String> {
+        // Content-addressed PUT is intrinsically retry-idempotent. The sidecar's
+        // terminal batch/outbox record is the authority: a crash after PUT but
+        // before sidecar commit retries the same digest, then commits once.
+        let result = self.put_chunk(bytes)?;
+        self.sidecar
+            .record_native_batch_result(batch, result, committed_at_ms)
+    }
+
+    fn put_manifest_batch(
+        &self,
+        blob_digest: &str,
+        manifest: &BlobManifest,
+        batch: &MutationBatch,
+        committed_at_ms: u64,
+    ) -> Result<String, String> {
+        self.sidecar
+            .put_manifest_batch(blob_digest, manifest, batch, committed_at_ms)
+    }
+
+    fn adjust_ref_batch(
+        &self,
+        blob_digest: &str,
+        delta: i64,
+        batch: &MutationBatch,
+        committed_at_ms: u64,
+    ) -> Result<u64, String> {
+        self.sidecar
+            .adjust_ref_batch(blob_digest, delta, batch, committed_at_ms)
+    }
+
+    fn sweep_batch(
+        &self,
+        batch: &MutationBatch,
+        committed_at_ms: u64,
+    ) -> Result<SweepStats, String> {
+        let orphans = self.sidecar.orphan_chunks_preview()?;
+        for digest in &orphans {
+            let path = self.chunk_path(digest);
+            self.rt.block_on(async {
+                match self.store.delete(&path).await {
+                    Ok(_) | Err(object_store::Error::NotFound { .. }) => Ok(()),
+                    Err(error) => Err(error.to_string()),
+                }
+            })?;
+        }
+        self.sidecar
+            .sweep_batch_with_external_chunks(batch, committed_at_ms, orphans.len() as u64)
+    }
+
+    fn begin_upload_batch(
+        &self,
+        cursor: u64,
+        chunk_size: u32,
+        owner_scope: &str,
+        batch: &MutationBatch,
+        committed_at_ms: u64,
+    ) -> Result<u64, String> {
+        self.sidecar
+            .begin_upload_batch(cursor, chunk_size, owner_scope, batch, committed_at_ms)
+    }
+
+    fn put_upload_chunk_batch(
+        &self,
+        cursor: u64,
+        bytes: &[u8],
+        batch: &MutationBatch,
+        committed_at_ms: u64,
+    ) -> Result<(String, u32), String> {
+        // The local sidecar retains the authoritative chunk until the batch and
+        // durable upload cursor commit. S3 is an idempotent content-addressed
+        // projection, so a crash can only leave an extra recoverable object.
+        let _ = self.put_chunk(bytes)?;
+        self.sidecar
+            .put_upload_chunk_batch(cursor, bytes, batch, committed_at_ms)
+    }
+
+    fn load_upload(&self, cursor: u64) -> Result<Option<BlobManifest>, String> {
+        self.sidecar.load_upload(cursor)
+    }
+
+    fn commit_upload_batch(
+        &self,
+        cursor: u64,
+        batch: &MutationBatch,
+        committed_at_ms: u64,
+    ) -> Result<String, String> {
+        self.sidecar
+            .commit_upload_batch(cursor, batch, committed_at_ms)
     }
 }

@@ -37,6 +37,7 @@
 //! This is a **library API** (structs + traits + functions), NOT a wire `Op` — a
 //! caller composes it above the planner, the same way LeanRAG sits above a vector DB.
 
+use std::cmp::Ordering;
 use std::collections::HashSet;
 
 /// A node id paired with a relevance score (higher = more relevant to the query).
@@ -192,12 +193,7 @@ impl<'a> HierarchicalRetriever<'a> {
                 }
             }
         }
-        best.sort_by(|a, b| {
-            b.score
-                .partial_cmp(&a.score)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-        best.truncate(params.leaf_budget);
+        truncate_highest_scored(&mut best, params.leaf_budget);
         let leaves = best;
 
         // (c) The flattened relevance-ordered context: summaries then their chosen
@@ -244,12 +240,7 @@ impl<'a> HierarchicalRetriever<'a> {
                         Scored { id: c, score }
                     })
                     .collect();
-                kids.sort_by(|a, b| {
-                    b.score
-                        .partial_cmp(&a.score)
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                });
-                kids.truncate(breadth);
+                truncate_highest_scored(&mut kids, breadth);
                 for k in kids {
                     if seen.insert(k.id.clone()) {
                         next.push(k.id.clone());
@@ -273,6 +264,33 @@ impl<'a> HierarchicalRetriever<'a> {
             None => 0.0,
         }
     }
+}
+
+/// Keep the exact highest-scoring prefix under a deterministic total order:
+/// score descending, id ascending, NaN last. Expected O(N) selection plus
+/// O(k log k) to order only the retained context budget.
+#[inline]
+fn truncate_highest_scored(values: &mut Vec<Scored>, limit: usize) {
+    if limit == 0 {
+        values.clear();
+        return;
+    }
+    if values.len() > limit {
+        values.select_nth_unstable_by(limit, scored_cmp);
+        values.truncate(limit);
+    }
+    values.sort_unstable_by(scored_cmp);
+}
+
+#[inline]
+fn scored_cmp(left: &Scored, right: &Scored) -> Ordering {
+    let score_order = match (left.score.is_nan(), right.score.is_nan()) {
+        (true, false) => Ordering::Greater,
+        (false, true) => Ordering::Less,
+        (true, true) => left.score.to_bits().cmp(&right.score.to_bits()),
+        (false, false) => right.score.total_cmp(&left.score),
+    };
+    score_order.then_with(|| left.id.cmp(&right.id))
 }
 
 /// The NAIVE flat top-k baseline (CONCEPT:EG-KG.retrieval.bounded-drill): a single vector search over the
@@ -374,13 +392,7 @@ mod tests {
                     score: cosine(query, v),
                 })
                 .collect();
-            scored.sort_by(|a, b| {
-                b.score
-                    .partial_cmp(&a.score)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-                    .then_with(|| a.id.cmp(&b.id))
-            });
-            scored.truncate(k);
+            truncate_highest_scored(&mut scored, k);
             scored
         }
     }
@@ -430,6 +442,74 @@ mod tests {
             .map(|id| topic_of(id).to_string())
             .collect::<HashSet<_>>()
             .len()
+    }
+
+    #[test]
+    fn bounded_score_selection_matches_total_full_sort() {
+        let input = vec![
+            Scored {
+                id: "z".into(),
+                score: 0.5,
+            },
+            Scored {
+                id: "b".into(),
+                score: 1.0,
+            },
+            Scored {
+                id: "a".into(),
+                score: 1.0,
+            },
+            Scored {
+                id: "nan".into(),
+                score: f32::NAN,
+            },
+            Scored {
+                id: "m".into(),
+                score: 0.75,
+            },
+        ];
+        let mut expected = input.clone();
+        expected.sort_unstable_by(scored_cmp);
+        expected.truncate(3);
+
+        let mut selected = input;
+        truncate_highest_scored(&mut selected, 3);
+
+        assert_eq!(selected, expected);
+        assert_eq!(
+            selected
+                .iter()
+                .map(|row| row.id.as_str())
+                .collect::<Vec<_>>(),
+            ["a", "b", "m"]
+        );
+    }
+
+    #[test]
+    fn wide_drill_selects_the_exact_bounded_prefix() {
+        let mut fixture = Fixture::default();
+        fixture.node("summary", Some("SummaryNode"), vec![1.0, 0.0]);
+        for index in 0..257 {
+            let id = format!("leaf-{index:03}");
+            fixture.node(&id, None, vec![index as f32 + 1.0, 1.0]);
+            fixture.summarizes("summary", &id);
+        }
+        let retriever = HierarchicalRetriever::new(&fixture, &fixture);
+        let query = [0.0, 1.0];
+
+        let selected = retriever.drill(&query, "summary", 1, 7);
+        let mut expected: Vec<Scored> = fixture
+            .children("summary")
+            .into_iter()
+            .map(|id| Scored {
+                score: retriever.relevance(&query, &id),
+                id,
+            })
+            .collect();
+        expected.sort_unstable_by(scored_cmp);
+        expected.truncate(7);
+
+        assert_eq!(selected, expected);
     }
 
     /// CONCEPT:EG-KG.retrieval.bounded-drill — the retriever pulls the summary tier first, then drills to

@@ -15,7 +15,7 @@
 name = "eg-wasm"
 version = "0.1.0"
 edition = "2021"
-authors = ["Audel Rouhi <knucklessg1@gmail.com>"]
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
 description = "WASM-sandboxed UDF runtime (wasmtime, fuel + memory limits, no host capabilities) for the epistemic-graph engine"
 license = "MIT"
 
@@ -35,7 +35,7 @@ serde = { version = "1", features = ["derive"] }
 # disable default features we do not need (we keep `cranelift` — the compiling backend
 # — and `runtime`; we explicitly do NOT enable `wasi`, `component-model`, etc., so the
 # guest gets NO host syscalls). `wat` stays OFF in the lib; tests turn it on.
-wasmtime = { version = "27", optional = true, default-features = false, features = [
+wasmtime = { version = "46", optional = true, default-features = false, features = [
     "cranelift",
     "runtime",
 ] }

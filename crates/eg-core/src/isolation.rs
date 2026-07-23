@@ -23,12 +23,18 @@ pub enum AccessLevel {
 #[cfg(feature = "security")]
 #[derive(Debug, Clone, Default)]
 pub struct RowVisibility {
-    /// Owning agent_id (`_owner`); `None` ⇒ unowned ⇒ visible to all.
+    /// Owning agent_id (`_owner`); `None` requires both [`Self::tagged`] and
+    /// [`Self::public`] under the default-deny posture.
     pub owner: Option<String>,
     /// `true` when `_visibility` is absent OR `"public"`; `false` for `"private"`.
     pub public: bool,
     /// Agent_ids explicitly granted read (`_grants`, comma-separated).
     pub grants: Vec<String>,
+    /// Whether this row carried ANY explicit RLS metadata at all — i.e. the decoded
+    /// property blob contained at least one of `_owner` / `_visibility` / `_grants`.
+    /// `false` for an undecodable blob OR a blob that decoded fine but declares none
+    /// of the three keys. Untagged rows fail the default-deny decision.
+    pub tagged: bool,
 }
 
 /// Reserved RLS property keys.
@@ -39,14 +45,22 @@ pub const RLS_VISIBILITY_KEY: &str = "_visibility";
 #[cfg(feature = "security")]
 pub const RLS_GRANTS_KEY: &str = "_grants";
 
-/// Parse a node's msgpack property blob into its [`RowVisibility`]. A blob that
-/// can't be decoded as a string-keyed map (or lacks the keys) is treated as an
-/// unowned PUBLIC row — RLS only ever HIDES rows that explicitly mark themselves
-/// owned+private, so undecodable/legacy data is never accidentally hidden.
+/// Parse a node's msgpack property blob into its [`RowVisibility`].
+///
+/// A blob that cannot be decoded as a string-keyed map, or that declares none of
+/// the RLS keys, yields `tagged = false` and is denied. Explicit ownership,
+/// visibility, and grants remain the only row authorization inputs.
 #[cfg(feature = "security")]
 pub fn row_visibility(blob: &[u8]) -> RowVisibility {
     use serde_json::Value;
-    let map: std::collections::BTreeMap<String, Value> = match rmp_serde::from_slice(blob) {
+    let map: std::collections::BTreeMap<String, Value> = match eg_types::msgpack::decode_bounded(
+        blob,
+        eg_types::msgpack::MsgpackLimits::new(
+            eg_types::msgpack::MAX_PROPERTY_BYTES,
+            eg_types::msgpack::MAX_PROPERTY_ITEMS,
+            eg_types::msgpack::DEFAULT_MAX_DEPTH,
+        ),
+    ) {
         Ok(m) => m,
         Err(_) => return RowVisibility::default_public(),
     };
@@ -70,10 +84,14 @@ pub fn row_visibility(blob: &[u8]) -> RowVisibility {
                 .collect()
         })
         .unwrap_or_default();
+    let tagged = map.contains_key(RLS_OWNER_KEY)
+        || map.contains_key(RLS_VISIBILITY_KEY)
+        || map.contains_key(RLS_GRANTS_KEY);
     RowVisibility {
         owner,
         public,
         grants,
+        tagged,
     }
 }
 
@@ -84,6 +102,7 @@ impl RowVisibility {
             owner: None,
             public: true,
             grants: Vec::new(),
+            tagged: false,
         }
     }
 }
@@ -99,16 +118,20 @@ pub use crate::acl::{AgentIdentity, AgentRole};
 pub struct IsolationLayer {
     /// Known agent identities for ACL resolution.
     agents: HashMap<String, AgentIdentity>,
-    /// RBAC policy (CONCEPT:EG-KG.compute.feature): roles + grants layered on top of the per-agent
-    /// ACL/RLS. An EMPTY policy leaves every existing decision unchanged.
+    /// RBAC policy (CONCEPT:EG-KG.compute.feature): the mandatory authorization
+    /// decision for every non-System graph access. An empty policy denies all.
     #[cfg(feature = "security")]
     rbac: crate::rbac::RbacPolicy,
-    /// Durable RBAC/identity persistence handle (CONCEPT:EG-KG.compute.durable-rbac-identity-persistence). `None` ⇒ fully
-    /// in-memory (today's default): every write-through is a no-op. `Some` ⇒ the
-    /// policy + identities were LOADED from redb at boot and are written through on
-    /// every RBAC/identity mutation. `Arc` keeps [`IsolationLayer`] `Clone`.
+    /// Durable one-time bootstrap lifecycle. This is independent of the current
+    /// identity count so deleting identities can never reopen first-run authority.
     #[cfg(feature = "security")]
-    persist: Option<std::sync::Arc<crate::rbac_persist::RbacStore>>,
+    identity_bootstrap: crate::rbac_persist::IdentityBootstrapState,
+    /// RBAC/identity persistence handle
+    /// (CONCEPT:EG-KG.compute.durable-rbac-identity-persistence). Current layers always
+    /// carry a store: embedded layers use the atomic memory store and served layers
+    /// load redb. `Arc` keeps [`IsolationLayer`] `Clone`.
+    #[cfg(feature = "security")]
+    persist: Option<std::sync::Arc<dyn crate::rbac_persist::RbacPolicyStore>>,
 }
 
 impl Default for IsolationLayer {
@@ -124,7 +147,11 @@ impl IsolationLayer {
             #[cfg(feature = "security")]
             rbac: crate::rbac::RbacPolicy::new(),
             #[cfg(feature = "security")]
-            persist: None,
+            identity_bootstrap: crate::rbac_persist::IdentityBootstrapState::Pending,
+            #[cfg(feature = "security")]
+            persist: Some(std::sync::Arc::new(
+                crate::rbac_persist::MemoryRbacStore::new(),
+            )),
         }
     }
 
@@ -132,73 +159,137 @@ impl IsolationLayer {
     /// (CONCEPT:EG-KG.compute.durable-rbac-identity-persistence). Any previously-persisted RBAC policy + registered agent
     /// identities are LOADED at boot; every subsequent `add_role`/`remove_role`/
     /// `add_grant`/`remove_grant`/`register_agent`/`unregister_agent` mutation is
-    /// written through to redb. An EMPTY/absent store yields the exact in-memory
-    /// default — identical to [`IsolationLayer::new`] — so this is fully
-    /// backward-compatible; the only difference is that state now survives a restart.
+    /// written through to redb. A new store carries an explicit current empty,
+    /// default-deny bootstrap image; a partial image fails boot.
     #[cfg(feature = "security")]
     pub fn with_persist_dir<P: AsRef<std::path::Path>>(
         dir: P,
     ) -> Result<Self, crate::rbac_persist::RbacPersistError> {
         let store = crate::rbac_persist::RbacStore::open(dir)?;
-        let (rbac, identities) = store.load()?;
+        let (rbac, identities, identity_bootstrap) = store.load()?;
+        if identity_bootstrap == crate::rbac_persist::IdentityBootstrapState::Pending
+            && (!identities.is_empty()
+                || rbac.roles().next().is_some()
+                || !rbac.grants().is_empty())
+        {
+            return Err(crate::rbac_persist::RbacPersistError::IncompleteState(
+                "pending identity bootstrap requires an empty policy and identity map",
+            ));
+        }
         let agents: HashMap<String, AgentIdentity> = identities.into_iter().collect();
         Ok(IsolationLayer {
             agents,
             rbac,
+            identity_bootstrap,
             persist: Some(std::sync::Arc::new(store)),
         })
     }
 
-    /// Best-effort write-through of the FULL RBAC state (policy + identities) to the
-    /// durable store (CONCEPT:EG-KG.compute.durable-rbac-identity-persistence). A NO-OP when no persist dir is configured
-    /// (in-memory default). Errors are swallowed: [`with_persist_dir`] already
-    /// validated the store is writable at boot, and the mutation entry points
-    /// (`RbacAdmin`, `register_identity`) are infallible by contract.
+    /// Write through the FULL RBAC state (policy + identities) to the configured
+    /// store. Absence is an invalid internal state. Secure request handlers
+    /// use the fallible `try_*` mutation methods below and roll in-memory state
+    /// back if this save fails, so policy changes are never acknowledged unless
+    /// their durable representation committed.
     ///
     /// [`with_persist_dir`]: IsolationLayer::with_persist_dir
     #[cfg(feature = "security")]
-    fn persist_state(&self) {
-        if let Some(store) = &self.persist {
-            let identities: std::collections::BTreeMap<String, AgentIdentity> = self
-                .agents
-                .iter()
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect();
-            let _ = store.save(&self.rbac, &identities);
-        }
+    fn persist_state(&self) -> Result<(), String> {
+        let store = self
+            .persist
+            .as_ref()
+            .ok_or_else(|| "identity/RBAC policy store is not bound".to_string())?;
+        let identities: std::collections::BTreeMap<String, AgentIdentity> = self
+            .agents
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        store
+            .save(&self.rbac, &identities, self.identity_bootstrap)
+            .map_err(|e| format!("identity/RBAC policy save failed: {e}"))
     }
 
     /// Add/replace an RBAC role definition (CONCEPT:EG-KG.compute.feature); written through to the
     /// durable store when configured (CONCEPT:EG-KG.compute.durable-rbac-identity-persistence).
     #[cfg(feature = "security")]
     pub fn add_role(&mut self, role: crate::acl::Role) {
+        let _ = self.try_add_role(role);
+    }
+
+    #[cfg(feature = "security")]
+    pub fn try_add_role(&mut self, role: crate::acl::Role) -> Result<(), String> {
+        let previous = self.rbac.clone();
+        let previous_bootstrap = self.identity_bootstrap;
         self.rbac.add_role(role);
-        self.persist_state();
+        self.identity_bootstrap = crate::rbac_persist::IdentityBootstrapState::Consumed;
+        if let Err(error) = self.persist_state() {
+            self.rbac = previous;
+            self.identity_bootstrap = previous_bootstrap;
+            return Err(error);
+        }
+        Ok(())
     }
 
     /// Remove an RBAC role definition (CONCEPT:EG-KG.compute.feature); written through (EG-303).
     #[cfg(feature = "security")]
     pub fn remove_role(&mut self, name: &str) {
+        let _ = self.try_remove_role(name);
+    }
+
+    #[cfg(feature = "security")]
+    pub fn try_remove_role(&mut self, name: &str) -> Result<(), String> {
+        let previous = self.rbac.clone();
+        let previous_bootstrap = self.identity_bootstrap;
         self.rbac.remove_role(name);
-        self.persist_state();
+        self.identity_bootstrap = crate::rbac_persist::IdentityBootstrapState::Consumed;
+        if let Err(error) = self.persist_state() {
+            self.rbac = previous;
+            self.identity_bootstrap = previous_bootstrap;
+            return Err(error);
+        }
+        Ok(())
     }
 
     /// Add an RBAC grant (CONCEPT:EG-KG.compute.feature); written through (EG-303).
     #[cfg(feature = "security")]
     pub fn add_grant(&mut self, grant: crate::acl::Grant) {
+        let _ = self.try_add_grant(grant);
+    }
+
+    #[cfg(feature = "security")]
+    pub fn try_add_grant(&mut self, grant: crate::acl::Grant) -> Result<(), String> {
+        let previous = self.rbac.clone();
+        let previous_bootstrap = self.identity_bootstrap;
         self.rbac.add_grant(grant);
-        self.persist_state();
+        self.identity_bootstrap = crate::rbac_persist::IdentityBootstrapState::Consumed;
+        if let Err(error) = self.persist_state() {
+            self.rbac = previous;
+            self.identity_bootstrap = previous_bootstrap;
+            return Err(error);
+        }
+        Ok(())
     }
 
     /// Remove an RBAC grant (CONCEPT:EG-KG.compute.feature). Returns true when one was removed;
     /// written through (EG-303).
     #[cfg(feature = "security")]
     pub fn remove_grant(&mut self, grant: &crate::acl::Grant) -> bool {
+        self.try_remove_grant(grant).unwrap_or(false)
+    }
+
+    #[cfg(feature = "security")]
+    pub fn try_remove_grant(&mut self, grant: &crate::acl::Grant) -> Result<bool, String> {
+        let previous = self.rbac.clone();
+        let previous_bootstrap = self.identity_bootstrap;
         let removed = self.rbac.remove_grant(grant);
         if removed {
-            self.persist_state();
+            self.identity_bootstrap = crate::rbac_persist::IdentityBootstrapState::Consumed;
+            if let Err(error) = self.persist_state() {
+                self.rbac = previous;
+                self.identity_bootstrap = previous_bootstrap;
+                return Err(error);
+            }
         }
-        removed
+        Ok(removed)
     }
 
     /// Read-only access to the RBAC policy (for admin `List` / persistence).
@@ -207,28 +298,118 @@ impl IsolationLayer {
         &self.rbac
     }
 
+    /// Whether this layer still represents the exact pristine first-run image.
+    /// Bootstrap state is durable and independent from identity count, so an
+    /// administrator cannot recreate first-run authority by removing identities.
+    #[cfg(feature = "security")]
+    pub fn identity_bootstrap_pending(&self) -> bool {
+        self.identity_bootstrap == crate::rbac_persist::IdentityBootstrapState::Pending
+            && self.agents.is_empty()
+            && self.rbac.roles().next().is_none()
+            && self.rbac.grants().is_empty()
+    }
+
+    #[cfg(not(feature = "security"))]
+    pub fn identity_bootstrap_pending(&self) -> bool {
+        false
+    }
+
+    /// Atomically consume first-run authority and persist its sole System identity.
+    /// Request-envelope, graph, self-registration, and signature checks live at the
+    /// served boundary; this layer independently enforces the identity shape and
+    /// one-time durable transition while holding the caller's state write lock.
+    #[cfg(feature = "security")]
+    pub fn try_bootstrap_system_identity(&mut self, identity: AgentIdentity) -> Result<(), String> {
+        if !self.identity_bootstrap_pending() {
+            return Err("ACCESS_DENIED: identity bootstrap is not pending".to_string());
+        }
+        if identity.agent_id.trim().is_empty()
+            || !matches!(&identity.role, AgentRole::System)
+            || !identity.teams.is_empty()
+            || !identity.roles.is_empty()
+        {
+            return Err(
+                "ACCESS_DENIED: bootstrap requires a non-empty System identity with no teams or roles"
+                    .to_string(),
+            );
+        }
+
+        let agent_id = identity.agent_id.clone();
+        self.agents.insert(agent_id.clone(), identity);
+        self.identity_bootstrap = crate::rbac_persist::IdentityBootstrapState::Consumed;
+        if let Err(error) = self.persist_state() {
+            self.agents.remove(&agent_id);
+            self.identity_bootstrap = crate::rbac_persist::IdentityBootstrapState::Pending;
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    #[cfg(not(feature = "security"))]
+    pub fn try_bootstrap_system_identity(
+        &mut self,
+        _identity: AgentIdentity,
+    ) -> Result<(), String> {
+        Err("ACCESS_DENIED: identity bootstrap requires the security feature".to_string())
+    }
+
     /// Register or update an agent identity; written through to the durable store
     /// when configured (CONCEPT:EG-KG.compute.durable-rbac-identity-persistence).
     pub fn register_agent(&mut self, identity: AgentIdentity) {
-        self.agents.insert(identity.agent_id.clone(), identity);
+        let _ = self.try_register_agent(identity);
+    }
+
+    /// Fallible registration used by secure handlers. When a durable adapter is
+    /// configured, an unsuccessful commit restores the prior in-memory identity.
+    pub fn try_register_agent(&mut self, identity: AgentIdentity) -> Result<(), String> {
+        let agent_id = identity.agent_id.clone();
+        let previous = self.agents.insert(agent_id.clone(), identity);
         #[cfg(feature = "security")]
-        self.persist_state();
+        {
+            let previous_bootstrap = self.identity_bootstrap;
+            self.identity_bootstrap = crate::rbac_persist::IdentityBootstrapState::Consumed;
+            if let Err(error) = self.persist_state() {
+                match previous {
+                    Some(identity) => {
+                        self.agents.insert(agent_id, identity);
+                    }
+                    None => {
+                        self.agents.remove(&agent_id);
+                    }
+                }
+                self.identity_bootstrap = previous_bootstrap;
+                return Err(error);
+            }
+        }
+        #[cfg(not(feature = "security"))]
+        let _ = previous;
+        Ok(())
     }
 
     /// Remove an agent identity; written through (CONCEPT:EG-KG.compute.durable-rbac-identity-persistence).
     pub fn unregister_agent(&mut self, agent_id: &str) {
-        let removed = self.agents.remove(agent_id).is_some();
+        let _ = self.try_unregister_agent(agent_id);
+    }
+
+    pub fn try_unregister_agent(&mut self, agent_id: &str) -> Result<bool, String> {
+        let previous = self.agents.remove(agent_id);
+        let removed = previous.is_some();
         #[cfg(feature = "security")]
         if removed {
-            self.persist_state();
+            if let Err(error) = self.persist_state() {
+                if let Some(identity) = previous {
+                    self.agents.insert(agent_id.to_string(), identity);
+                }
+                return Err(error);
+            }
         }
         #[cfg(not(feature = "security"))]
         let _ = removed;
+        Ok(removed)
     }
 
-    /// True once any identity has been registered. While no rules exist the
-    /// server skips ACL checks entirely (single-tenant back-compat); the first
-    /// `RegisterIdentity` switches graph-targeted dispatch to enforcing mode.
+    /// True once any identity has been registered. Served graph access requires
+    /// provisioned identities; an empty policy is rejected at the boundary.
     pub fn has_rules(&self) -> bool {
         !self.agents.is_empty()
     }
@@ -242,37 +423,33 @@ impl IsolationLayer {
         graph_owner: Option<&str>,
         access: AccessLevel,
     ) -> bool {
-        // System agents bypass all checks.
-        if let Some(identity) = self.agents.get(agent_id) {
-            if identity.role == AgentRole::System {
-                return true;
-            }
+        // Served access is current-policy-only: an actor must resolve to a
+        // provisioned durable identity before any graph-type rule is evaluated.
+        let Some(identity) = self.agents.get(agent_id) else {
+            return false;
+        };
+        if identity.role == AgentRole::System {
+            return true;
         }
 
-        // RBAC (CONCEPT:EG-KG.compute.feature): consult roles/grants layered on top of the ACL.
-        // Backward-compatible: an EMPTY policy is skipped entirely, so the existing
-        // GraphType decision below is returned unchanged. When grants exist, an
-        // explicit Deny for the agent's roles wins (deny overrides), an explicit
-        // Allow grants access the base ACL would otherwise deny, and NO applicable
-        // grant falls through to the base ACL decision (additive, not a lockdown).
+        // RBAC (CONCEPT:EG-KG.compute.feature) is the mandatory current decision for
+        // non-System identities. Missing roles, an empty policy, or no matching grant
+        // are all default-deny; there is no pre-RBAC ACL fall-through.
         #[cfg(feature = "security")]
         {
-            if !self.rbac.is_empty() {
-                if let Some(identity) = self.agents.get(agent_id) {
-                    let ctx = crate::acl::ResourceContext::graph(graph_name);
-                    let action = match access {
-                        AccessLevel::Read => crate::acl::RbacAction::Read,
-                        AccessLevel::Write => crate::acl::RbacAction::Write,
-                    };
-                    match self.rbac.evaluate(&identity.roles, &ctx, action) {
-                        Some(crate::acl::GrantEffect::Deny) => return false,
-                        Some(crate::acl::GrantEffect::Allow) => return true,
-                        None => {}
-                    }
-                }
-            }
+            let _ = (graph_type, graph_owner);
+            let ctx = crate::acl::ResourceContext::graph(graph_name);
+            let action = match access {
+                AccessLevel::Read => crate::acl::RbacAction::Read,
+                AccessLevel::Write => crate::acl::RbacAction::Write,
+            };
+            return matches!(
+                self.rbac.evaluate(&identity.roles, &ctx, action),
+                Some(crate::acl::GrantEffect::Allow)
+            );
         }
 
+        #[cfg(not(feature = "security"))]
         match graph_type {
             // Bus: all authenticated agents have full access.
             GraphType::Commons => true,
@@ -336,14 +513,16 @@ impl IsolationLayer {
     ///
     /// Visibility convention (carried in the node's property blob; read by
     /// [`row_visibility`]):
-    /// * `_owner`      — the owning agent_id (absent ⇒ unowned/legacy ⇒ visible to all).
+    /// * `_owner`      — the owning agent_id (absent requires explicit public visibility).
     /// * `_visibility` — `"public"` (default when absent) or `"private"`.
     /// * `_grants`     — optional comma-separated agent_ids explicitly granted read.
     ///
-    /// Decision: an agent may see a row when ANY holds —
-    /// 1. it is unowned (no `_owner`), 2. it is public, 3. the agent IS the owner,
-    /// 4. the agent is explicitly granted, 5. the agent is a manager of the owner,
-    /// 6. the agent is a `System` role. Otherwise the row is hidden.
+    /// Default-deny decision (CONCEPT:EG-KG.sharding.row-level-security, EG-P0-6):
+    /// an unowned row is visible only when it explicitly carries
+    /// `_visibility: "public"` metadata
+    /// ([`RowVisibility::tagged`] `&&` [`RowVisibility::public`]); an unowned row
+    /// that is undecodable or declares no RLS metadata is denied. Owner, grant,
+    /// manager, and System rules remain explicit authorization paths.
     #[cfg(feature = "security")]
     pub fn can_see_row(&self, agent_id: &str, vis: &RowVisibility) -> bool {
         // System role sees everything.
@@ -353,8 +532,7 @@ impl IsolationLayer {
             }
         }
         let owner = match &vis.owner {
-            // Unowned row — visible to all (legacy/shared data).
-            None => return true,
+            None => return vis.tagged && vis.public,
             Some(o) => o.as_str(),
         };
         if vis.public {
@@ -380,19 +558,20 @@ impl IsolationLayer {
     /// can exfiltrate a forbidden row: a hidden node is removed from the view's
     /// topology, node-map, and property map, and every edge incident to a removed
     /// node is dropped too (an edge to an invisible node would otherwise leak its
-    /// existence). When the layer has no registered identities the filter is a
-    /// no-op (single-tenant back-compat, matching `check_access`).
+    /// existence). Default-deny remains active even before identities are provisioned.
     #[cfg(feature = "security")]
     pub fn filter_view(&self, agent_id: &str, view: &mut crate::graph::GraphView) {
-        if !self.has_rules() {
-            return;
-        }
-        // Decide visibility per node from its property blob.
+        // Decide visibility for EVERY topology node. A topology row with no
+        // property blob is untagged and must be hidden like an undecodable row.
         let hidden: HashSet<String> = view
-            .node_properties
-            .iter()
-            .filter_map(|(id, blob)| {
-                let vis = row_visibility(blob);
+            .node_map
+            .keys()
+            .filter_map(|id| {
+                let vis = view
+                    .node_properties
+                    .get(id)
+                    .map(|blob| row_visibility(blob))
+                    .unwrap_or_else(RowVisibility::default_public);
                 if self.can_see_row(agent_id, &vis) {
                     None
                 } else {
@@ -400,8 +579,8 @@ impl IsolationLayer {
                 }
             })
             .collect();
-        // A node present in topology but with NO property blob is unowned ⇒ visible;
-        // so `hidden` is exactly the set to drop.
+        // `hidden` includes topology-only rows under strict/default-deny, not just
+        // rows represented in the property map.
         if hidden.is_empty() {
             return;
         }
@@ -416,6 +595,41 @@ impl IsolationLayer {
         // Drop any edge touching a hidden endpoint (do not leak its existence).
         view.edge_properties
             .retain(|(s, t), _| !hidden.contains(s) && !hidden.contains(t));
+    }
+
+    /// Does `agent_id` hold ADMIN capability (CONCEPT:EG-KG.compute.feature, EG-P0-6)?
+    ///
+    /// Used to gate the system-wide administrative methods (`RegisterIdentity`,
+    /// `RbacAdmin`, `ApplyMultisigMutation`, the M3 reshard/rebalance/catalog
+    /// family, backup/restore) — see `server::access::require_admin_capability`,
+    /// which drives WHICH methods this applies to from `eg_capabilities::policy`'s
+    /// `authz_action` rather than a second hardcoded list.
+    ///
+    /// `System` role always qualifies. Otherwise, under the `security` feature, an
+    /// explicit RBAC grant of `RbacAction::Admin` for one of the agent's roles
+    /// (typically scoped `ResourceSelector::All`, since admin actions are not
+    /// graph-scoped) — evaluated against a fixed, non-graph resource context so a
+    /// grant written for a specific graph never accidentally satisfies a global
+    /// admin check. Without `security` compiled in there is no RBAC evaluator to
+    /// consult, so only `System` qualifies.
+    pub fn has_admin_capability(&self, agent_id: &str) -> bool {
+        if let Some(identity) = self.agents.get(agent_id) {
+            if identity.role == AgentRole::System {
+                return true;
+            }
+        }
+        #[cfg(feature = "security")]
+        {
+            if let Some(identity) = self.agents.get(agent_id) {
+                let ctx = crate::acl::ResourceContext::graph("__admin__");
+                return matches!(
+                    self.rbac
+                        .evaluate(&identity.roles, &ctx, crate::acl::RbacAction::Admin),
+                    Some(crate::acl::GrantEffect::Allow)
+                );
+            }
+        }
+        false
     }
 
     /// Get all agent IDs that a given agent can access.
@@ -474,6 +688,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(feature = "security"))]
     fn test_bus_access_for_all() {
         let layer = setup();
         assert!(layer.check_access(
@@ -493,6 +708,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(feature = "security"))]
     fn test_agent_graph_owner_access() {
         let layer = setup();
         assert!(layer.check_access(
@@ -517,6 +733,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(feature = "security"))]
     fn test_manager_access_to_subordinate() {
         let layer = setup();
         assert!(layer.check_access(
@@ -529,6 +746,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(feature = "security"))]
     fn test_team_member_read_only() {
         let layer = setup();
         assert!(layer.check_access(
@@ -548,6 +766,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(feature = "security"))]
     fn test_team_manager_can_write() {
         let layer = setup();
         assert!(layer.check_access(
@@ -560,6 +779,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(feature = "security"))]
     fn test_global_read_only() {
         let layer = setup();
         assert!(layer.check_access(
@@ -597,7 +817,7 @@ mod tests {
         /// unowned node. (Topology only carries the node ids; properties carry RLS.)
         fn view() -> GraphView {
             let mut v = GraphView::default();
-            for id in ["b_private", "shared_public", "legacy_unowned"] {
+            for id in ["b_private", "shared_public", "untagged"] {
                 let idx = v.graph.add_node(id.to_string());
                 v.node_map.insert(id.to_string(), idx);
             }
@@ -610,7 +830,7 @@ mod tests {
                 props(&[("_owner", "worker2"), ("_visibility", "public")]),
             );
             v.node_properties
-                .insert("legacy_unowned".to_string(), props(&[("name", "x")]));
+                .insert("untagged".to_string(), props(&[("name", "x")]));
             // An edge from B's private node to the public node — must be dropped for A.
             v.edge_properties
                 .insert(("b_private".into(), "shared_public".into()), vec![]);
@@ -622,10 +842,10 @@ mod tests {
             let layer = setup();
             let mut va = view();
             layer.filter_view("worker1", &mut va);
-            // worker1 sees the PUBLIC node + the UNOWNED node, NOT worker2's private one.
+            // worker1 sees the explicitly public node, not the private or untagged rows.
             assert!(!va.node_properties.contains_key("b_private"));
             assert!(va.node_properties.contains_key("shared_public"));
-            assert!(va.node_properties.contains_key("legacy_unowned"));
+            assert!(!va.node_properties.contains_key("untagged"));
             assert!(!va.node_map.contains_key("b_private"));
             // The edge touching the hidden node is dropped (no existence leak).
             assert!(!va
@@ -676,12 +896,113 @@ mod tests {
         }
 
         #[test]
-        fn no_rules_is_noop() {
+        fn no_identities_still_enforces_row_tags() {
             let layer = IsolationLayer::new(); // no identities
             let mut v = view();
-            let before = v.node_properties.len();
             layer.filter_view("anyone", &mut v);
-            assert_eq!(v.node_properties.len(), before);
+            assert_eq!(v.node_properties.len(), 1);
+            assert!(v.node_properties.contains_key("shared_public"));
+        }
+
+        // ── RLS default-deny posture (CONCEPT:EG-KG.sharding.row-level-security, EG-P0-6) ──
+        mod default_deny {
+            use super::*;
+
+            #[test]
+            fn untagged_unowned_row_is_hidden() {
+                let layer = setup();
+                let mut v = view();
+                layer.filter_view("worker1", &mut v);
+                assert!(
+                    !v.node_properties.contains_key("untagged"),
+                    "default-deny must hide an untagged row"
+                );
+            }
+
+            #[test]
+            fn no_identities_hides_topology_only_row() {
+                let layer = IsolationLayer::new();
+                assert!(!layer.has_rules());
+                let mut v = GraphView::default();
+                let idx = v.graph.add_node("topology_only".to_string());
+                v.node_map.insert("topology_only".to_string(), idx);
+
+                layer.filter_view("unregistered", &mut v);
+
+                assert!(!v.node_map.contains_key("topology_only"));
+                assert_eq!(v.graph.node_count(), 0);
+            }
+
+            #[test]
+            fn undecodable_blob_is_hidden() {
+                let layer = setup();
+                let mut v = GraphView::default();
+                let idx = v.graph.add_node("garbage".to_string());
+                v.node_map.insert("garbage".to_string(), idx);
+                v.node_properties.insert(
+                    "garbage".to_string(),
+                    std::sync::Arc::new(vec![0xFF, 0x00, 0x01]),
+                );
+                layer.filter_view("worker1", &mut v);
+                assert!(
+                    !v.node_properties.contains_key("garbage"),
+                    "default-deny must reject an undecodable blob"
+                );
+            }
+
+            #[test]
+            fn explicitly_public_unowned_row_is_visible() {
+                let layer = setup();
+                let mut v = GraphView::default();
+                let idx = v.graph.add_node("shared".to_string());
+                v.node_map.insert("shared".to_string(), idx);
+                v.node_properties
+                    .insert("shared".to_string(), props(&[("_visibility", "public")]));
+                layer.filter_view("worker1", &mut v);
+                assert!(
+                    v.node_properties.contains_key("shared"),
+                    "an explicitly public unowned row must remain visible"
+                );
+            }
+
+            #[test]
+            fn owner_and_manager_rules_remain_explicit() {
+                let layer = setup();
+                let mut vb = view();
+                layer.filter_view("worker2", &mut vb);
+                assert!(vb.node_properties.contains_key("b_private"));
+                assert!(vb.node_properties.contains_key("shared_public"));
+
+                let mut vm = view();
+                layer.filter_view("manager", &mut vm);
+                assert!(vm.node_properties.contains_key("b_private"));
+            }
+
+            #[test]
+            fn direct_row_decision_requires_explicit_public_tag() {
+                let layer = setup();
+                let untagged = RowVisibility {
+                    owner: None,
+                    public: true,
+                    grants: Vec::new(),
+                    tagged: false,
+                };
+                assert!(
+                    !layer.can_see_row("worker1", &untagged),
+                    "untagged rows remain denied even when decoded visibility defaults public"
+                );
+
+                let explicit_public = RowVisibility {
+                    owner: None,
+                    public: true,
+                    grants: Vec::new(),
+                    tagged: true,
+                };
+                assert!(
+                    layer.can_see_row("worker1", &explicit_public),
+                    "explicit public metadata grants visibility"
+                );
+            }
         }
     }
 
@@ -702,9 +1023,7 @@ mod tests {
         }
 
         #[test]
-        fn empty_policy_leaves_acl_unchanged() {
-            // No grants ⇒ the existing peer-isolation ACL result stands: worker2 may
-            // NOT read worker1's private agent graph.
+        fn empty_policy_is_default_deny() {
             let layer = setup();
             assert!(!layer.check_access(
                 "worker2",
@@ -781,9 +1100,7 @@ mod tests {
         }
 
         #[test]
-        fn rbac_no_applicable_grant_falls_through_to_acl() {
-            // Policy is non-empty but no grant matches THIS (resource,action) for the
-            // agent ⇒ the base ACL still decides (commons stays writable to all).
+        fn rbac_no_applicable_grant_is_denied() {
             let mut layer = setup();
             layer.add_grant(Grant {
                 role: "auditor".into(),
@@ -791,7 +1108,7 @@ mod tests {
                 action: RbacAction::Read,
                 effect: GrantEffect::Allow,
             });
-            assert!(layer.check_access(
+            assert!(!layer.check_access(
                 "worker1",
                 "__commons__",
                 GraphType::Commons,
@@ -831,6 +1148,38 @@ mod tests {
     mod eg303_persist {
         use super::*;
         use crate::acl::{Grant, GrantEffect, RbacAction, ResourceContext, ResourceSelector, Role};
+        use crate::rbac_persist::{RbacPersistError, RbacPolicyStore};
+        use std::collections::BTreeMap;
+
+        struct FailingPolicyStore;
+
+        impl RbacPolicyStore for FailingPolicyStore {
+            fn load(
+                &self,
+            ) -> Result<
+                (
+                    crate::rbac::RbacPolicy,
+                    BTreeMap<String, AgentIdentity>,
+                    crate::rbac_persist::IdentityBootstrapState,
+                ),
+                RbacPersistError,
+            > {
+                Ok((
+                    crate::rbac::RbacPolicy::new(),
+                    BTreeMap::new(),
+                    crate::rbac_persist::IdentityBootstrapState::Pending,
+                ))
+            }
+
+            fn save(
+                &self,
+                _policy: &crate::rbac::RbacPolicy,
+                _identities: &BTreeMap<String, AgentIdentity>,
+                _bootstrap: crate::rbac_persist::IdentityBootstrapState,
+            ) -> Result<(), RbacPersistError> {
+                Err(RbacPersistError::Redb("injected commit failure".into()))
+            }
+        }
 
         /// A unique temp dir per test invocation (no external dev-dep needed).
         fn tmp_dir(tag: &str) -> std::path::PathBuf {
@@ -922,15 +1271,37 @@ mod tests {
             let layer = IsolationLayer::with_persist_dir(&dir).unwrap();
             assert_eq!(layer.rbac().grants().len(), 0);
             assert!(!layer.has_rules());
+            assert!(!layer.identity_bootstrap_pending());
             let _ = std::fs::remove_dir_all(&dir);
         }
 
         #[test]
-        fn eg303_no_persist_dir_is_in_memory_no_op() {
-            // A default layer has NO store: mutations behave exactly as pre-EG-303
-            // (write-through is a no-op) and nothing is persisted anywhere.
+        fn exact_system_bootstrap_is_atomic_and_one_time() {
             let mut layer = IsolationLayer::new();
-            assert!(layer.persist.is_none());
+            assert!(layer.identity_bootstrap_pending());
+            layer
+                .try_bootstrap_system_identity(AgentIdentity {
+                    agent_id: "root".into(),
+                    role: AgentRole::System,
+                    teams: vec![],
+                    roles: vec![],
+                })
+                .unwrap();
+            assert!(!layer.identity_bootstrap_pending());
+            assert!(layer
+                .try_bootstrap_system_identity(AgentIdentity {
+                    agent_id: "second".into(),
+                    role: AgentRole::System,
+                    teams: vec![],
+                    roles: vec![],
+                })
+                .is_err());
+        }
+
+        #[test]
+        fn eg303_embedded_layer_uses_atomic_memory_policy_store() {
+            let mut layer = IsolationLayer::new();
+            assert!(layer.persist.is_some());
             layer.add_grant(Grant {
                 role: "r".into(),
                 resource: ResourceSelector::All,
@@ -943,10 +1314,35 @@ mod tests {
                 teams: vec![],
                 roles: vec!["r".into()],
             });
-            // Still no store; in-memory state is exactly what was set.
-            assert!(layer.persist.is_none());
+            assert!(layer.persist.is_some());
             assert_eq!(layer.rbac().grants().len(), 1);
             assert!(layer.has_rules());
+        }
+
+        #[test]
+        fn durable_policy_failure_rolls_back_identity_and_rbac_mutations() {
+            let mut layer = IsolationLayer::new();
+            layer.persist = Some(std::sync::Arc::new(FailingPolicyStore));
+
+            assert!(layer
+                .try_register_agent(AgentIdentity {
+                    agent_id: "not-committed".into(),
+                    role: AgentRole::Agent,
+                    teams: vec![],
+                    roles: vec![],
+                })
+                .is_err());
+            assert!(!layer.has_rules());
+
+            assert!(layer
+                .try_add_grant(Grant {
+                    role: "r".into(),
+                    resource: ResourceSelector::All,
+                    action: RbacAction::Admin,
+                    effect: GrantEffect::Allow,
+                })
+                .is_err());
+            assert!(layer.rbac().grants().is_empty());
         }
     }
 }

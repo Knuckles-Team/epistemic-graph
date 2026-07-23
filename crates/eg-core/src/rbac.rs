@@ -11,10 +11,9 @@
 //!    `Pattern`, beats `All` (see [`ResourceSelector::specificity`]);
 //! 3. **deny overrides allow** — at the winning specificity, any `Deny` wins.
 //!
-//! Pure-Rust, dep-free, unit-testable. The [`RbacPolicy`] is serde-serializable so it
-//! persists exactly like an `AgentIdentity` (in-memory in the `IsolationLayer`,
-//! replayable/serializable). An EMPTY policy has no grants, so the evaluator never
-//! fires and the existing RLS/ACL result is returned unchanged (backward-compatible).
+//! Pure-Rust, dep-free, unit-testable. The [`RbacPolicy`] is serde-serializable as the
+//! mandatory authorization layer used by `IsolationLayer`. An empty policy is a valid
+//! fail-closed bootstrap image: it grants no action to any non-System identity.
 
 use std::collections::{HashMap, HashSet};
 
@@ -33,12 +32,6 @@ pub struct RbacPolicy {
 impl RbacPolicy {
     pub fn new() -> Self {
         RbacPolicy::default()
-    }
-
-    /// True while no grants are configured. The `IsolationLayer` uses this to keep
-    /// the existing ACL/RLS path a NO-OP for single-tenant / pre-RBAC deployments.
-    pub fn is_empty(&self) -> bool {
-        self.grants.is_empty()
     }
 
     /// Add or replace a role definition.
@@ -270,13 +263,14 @@ mod tests {
     }
 
     #[test]
-    fn empty_policy_evaluates_to_none() {
+    fn empty_policy_denies_every_action() {
         let p = RbacPolicy::new();
-        assert!(p.is_empty());
+        assert!(p.grants().is_empty());
         assert_eq!(
             p.evaluate(&["anyone"], &ResourceContext::graph("g"), RbacAction::Read),
             None
         );
+        assert!(!p.is_allowed(&["anyone"], &ResourceContext::graph("g"), RbacAction::Read));
     }
 
     #[test]

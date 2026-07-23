@@ -2,13 +2,16 @@
 
 import ast
 import asyncio
-import hashlib
-import hmac
 import logging
 import os
 from typing import Any
 
-import msgpack
+from .client import (
+    EpistemicGraphClient,
+    RequestContextClaims,
+    _logical_source_name,
+    validate_request_context,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -18,13 +21,16 @@ class RustASTParser:
 
     Connects to the epistemic-graph Tokio service via Unix Domain Sockets using
     length-prefixed MessagePack. Performs AST parsing of target source files.
-    If the service is unavailable or errors out, falls back to Python's native `ast` parser.
+    If the service transport is unavailable, falls back to Python's native `ast`
+    parser. Authentication and authorization failures are returned to the caller.
     """
 
     def __init__(
         self,
         socket_path: str | None = None,
         auth_secret: str | None = None,
+        *,
+        verified_context: RequestContextClaims | dict[str, Any],
     ) -> None:
         self.socket_path = socket_path or os.environ.get(
             "GRAPH_SERVICE_SOCKET",
@@ -41,43 +47,33 @@ class RustASTParser:
         self.auth_secret = auth_secret or os.environ.get(
             "GRAPH_SERVICE_AUTH_SECRET", ""
         )
-        self._request_id = 0
-
-    def _next_id(self) -> int:
-        self._request_id += 1
-        return self._request_id
-
-    def _compute_token(self, request_id: int) -> str:
         if not self.auth_secret:
-            return ""
-        return hmac.new(
-            self.auth_secret.encode(),
-            str(request_id).encode(),
-            hashlib.sha256,
-        ).hexdigest()
+            raise ValueError("a non-empty authentication secret is required")
+        self.verified_context = validate_request_context(verified_context)
 
     async def parse_file(self, file_path: str, source: bytes) -> dict[str, Any]:
         """Parse source code of a file using the Rust AST service.
 
-        If the service socket is unavailable or the request fails, fall back to
-        Python's native ``ast`` parser (Python sources only).
+        ``file_path`` is a portable logical source name, not a host path. If the
+        service transport is unavailable, fall back to Python's native ``ast``
+        parser (Python sources only).
         """
+        source_name = _logical_source_name(file_path)
         try:
-            return await self._parse_file_via_service(file_path, source)
+            return await self._parse_file_via_service(source_name, source)
         except (
             FileNotFoundError,
             ConnectionRefusedError,
             ConnectionResetError,
             OSError,
-            RuntimeError,
             asyncio.IncompleteReadError,
         ) as exc:
             logger.warning(
                 "AST service unavailable (%s); falling back to native Python ast for %s",
                 exc,
-                file_path,
+                source_name,
             )
-            return self._parse_file_local(file_path, source)
+            return self._parse_file_local(source_name, source)
 
     def _parse_file_local(self, file_path: str, source: bytes) -> dict[str, Any]:
         """Native Python ``ast`` fallback — extracts class/function symbols.
@@ -126,37 +122,16 @@ class RustASTParser:
     async def _parse_file_via_service(
         self, file_path: str, source: bytes
     ) -> dict[str, Any]:
-        reader, writer = await asyncio.open_unix_connection(self.socket_path)
+        client = await EpistemicGraphClient.connect(
+            socket_path=self.socket_path,
+            auth_secret=self.auth_secret,
+            graph_name="__commons__",
+            verified_context=self.verified_context,
+        )
         try:
-            req_id = self._next_id()
-            # The ParseFile method expects source as a Vec<u8>. In msgpack serialization,
-            # bytes are serialized as binary bytes.
-            request = {
-                "id": req_id,
-                "graph": "__commons__",
-                "auth_token": self._compute_token(req_id),
-                "method": "ParseFile",
-                "params": {
-                    "file_path": file_path,
-                    "source": source,
-                },
-            }
-            payload = msgpack.packb(request, use_bin_type=True)
-            length_prefix = len(payload).to_bytes(4, byteorder="big")
-            writer.write(length_prefix)
-            writer.write(payload)
-            await writer.drain()
-
-            len_buf = await reader.readexactly(4)
-            msg_len = int.from_bytes(len_buf, byteorder="big")
-            resp_bytes = await reader.readexactly(msg_len)
-            resp = msgpack.unpackb(resp_bytes, raw=False)
-            if resp.get("error") is not None:
-                raise RuntimeError(resp.get("error"))
-            return resp.get("result", {})
+            result = await client._send(
+                "ParseFile", {"file_path": file_path, "source": source}
+            )
+            return result or {}
         finally:
-            writer.close()
-            try:
-                await writer.wait_closed()
-            except Exception:  # nosec B110 — best-effort close; errors on teardown are non-fatal
-                pass
+            await client.close()

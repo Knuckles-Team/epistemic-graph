@@ -44,8 +44,7 @@ use std::sync::Arc;
 use arrow::array::{Array, ArrayRef, BooleanArray, Float64Array, Int32Array, StringArray};
 use arrow::datatypes::{DataType, Field, Schema, SchemaRef};
 use arrow::record_batch::RecordBatch;
-use datafusion::catalog::SchemaProvider;
-use datafusion::catalog_common::memory::MemorySchemaProvider;
+use datafusion::catalog::{MemorySchemaProvider, SchemaProvider};
 use datafusion::datasource::MemTable;
 use datafusion::error::Result as DfResult;
 use datafusion::logical_expr::{
@@ -829,7 +828,7 @@ fn info_table_constraints_batch() -> Result<(SchemaRef, RecordBatch), String> {
 /// A zero-argument constant-string scalar function (`version()` / `current_schema()` /
 /// `current_database()` / `current_user`). Implemented as a `ScalarUDFImpl` so
 /// DataFusion's zero-arity call path returns the fixed value.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 struct ConstStringUdf {
     name: String,
     value: String,
@@ -847,9 +846,6 @@ impl ConstStringUdf {
 }
 
 impl ScalarUDFImpl for ConstStringUdf {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
     fn name(&self) -> &str {
         &self.name
     }
@@ -859,8 +855,11 @@ impl ScalarUDFImpl for ConstStringUdf {
     fn return_type(&self, _arg_types: &[DataType]) -> DfResult<DataType> {
         Ok(DataType::Utf8)
     }
-    fn invoke_batch(&self, _args: &[ColumnarValue], number_rows: usize) -> DfResult<ColumnarValue> {
-        let rows = number_rows.max(1);
+    fn invoke_with_args(
+        &self,
+        call: datafusion::logical_expr::ScalarFunctionArgs,
+    ) -> DfResult<ColumnarValue> {
+        let rows = call.number_rows.max(1);
         let arr: ArrayRef = Arc::new(StringArray::from(vec![self.value.clone(); rows]));
         Ok(ColumnarValue::Array(arr))
     }
@@ -876,7 +875,7 @@ fn const_string_udf(name: &str, value: &str) -> ScalarUDF {
 /// `pg_get_constraintdef`/`obj_description` and friends, whose full fidelity (real
 /// defaults/ACLs/comments) the engine does not model. Accepts any arg count/types so a
 /// 1- or 2-arg reflect call resolves (CONCEPT:EG-KG.query.route-create-view-create).
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 struct ConstTextUdf {
     name: String,
     /// `Some(s)` → return that string; `None` → return SQL NULL.
@@ -899,9 +898,6 @@ impl ConstTextUdf {
 }
 
 impl ScalarUDFImpl for ConstTextUdf {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
     fn name(&self) -> &str {
         &self.name
     }
@@ -911,7 +907,12 @@ impl ScalarUDFImpl for ConstTextUdf {
     fn return_type(&self, _arg_types: &[DataType]) -> DfResult<DataType> {
         Ok(DataType::Utf8)
     }
-    fn invoke_batch(&self, args: &[ColumnarValue], number_rows: usize) -> DfResult<ColumnarValue> {
+    fn invoke_with_args(
+        &self,
+        call: datafusion::logical_expr::ScalarFunctionArgs,
+    ) -> DfResult<ColumnarValue> {
+        let args = &call.args;
+        let number_rows = call.number_rows;
         let n = args
             .iter()
             .map(|a| match a {
@@ -929,7 +930,7 @@ impl ScalarUDFImpl for ConstTextUdf {
 /// `pg_catalog.pg_table_is_visible(oid) -> bool` (CONCEPT:EG-KG.query.route-create-view-create). psql's `\d` filters
 /// relations by search-path visibility; the engine has a single visible `public` schema,
 /// so every relation is visible → always `true`. Variadic-any so any oid arg type binds.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 struct PgTableIsVisibleUdf {
     signature: Signature,
 }
@@ -946,9 +947,6 @@ impl Default for PgTableIsVisibleUdf {
 }
 
 impl ScalarUDFImpl for PgTableIsVisibleUdf {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
     fn name(&self) -> &str {
         "pg_table_is_visible"
     }
@@ -958,7 +956,12 @@ impl ScalarUDFImpl for PgTableIsVisibleUdf {
     fn return_type(&self, _arg_types: &[DataType]) -> DfResult<DataType> {
         Ok(DataType::Boolean)
     }
-    fn invoke_batch(&self, args: &[ColumnarValue], number_rows: usize) -> DfResult<ColumnarValue> {
+    fn invoke_with_args(
+        &self,
+        call: datafusion::logical_expr::ScalarFunctionArgs,
+    ) -> DfResult<ColumnarValue> {
+        let args = &call.args;
+        let number_rows = call.number_rows;
         let n = args
             .iter()
             .map(|a| match a {
@@ -976,7 +979,7 @@ impl ScalarUDFImpl for PgTableIsVisibleUdf {
 /// `format_type(oid, typmod) -> text` (CONCEPT:EG-KG.query.route-create-view-create). Maps the type OID in the FIRST
 /// argument to its pg type name (ignoring `typmod`, whose length/precision detail the
 /// engine's coarse types don't carry). Variadic so a 1- or 2-arg call resolves.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 struct FormatTypeUdf {
     signature: Signature,
 }
@@ -990,9 +993,6 @@ impl Default for FormatTypeUdf {
 }
 
 impl ScalarUDFImpl for FormatTypeUdf {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
     fn name(&self) -> &str {
         "format_type"
     }
@@ -1002,7 +1002,12 @@ impl ScalarUDFImpl for FormatTypeUdf {
     fn return_type(&self, _arg_types: &[DataType]) -> DfResult<DataType> {
         Ok(DataType::Utf8)
     }
-    fn invoke_batch(&self, args: &[ColumnarValue], number_rows: usize) -> DfResult<ColumnarValue> {
+    fn invoke_with_args(
+        &self,
+        call: datafusion::logical_expr::ScalarFunctionArgs,
+    ) -> DfResult<ColumnarValue> {
+        let args = &call.args;
+        let number_rows = call.number_rows;
         use arrow::compute::cast;
         let arrays = ColumnarValue::values_to_arrays(args)?;
         let n = arrays

@@ -11,7 +11,7 @@
 //
 // Each `GraphCore` carries a monotonic OCC write-`version()` (CONCEPT:EG-KG.txn.multi-op-occ-acid)
 // bumped by `mark_dirty()` on EVERY committed write (single-op, coalesced batch,
-// txn commit, and — on a follower — a replicated `wal::apply`). The result cache is
+// txn commit, and — on a follower — a replicated `mutation_apply::apply`). The result cache is
 // keyed by `(query-hash, version)`:
 //
 //   * Same query, UNCHANGED graph ⇒ the version matches ⇒ a HIT serves the cached
@@ -26,14 +26,13 @@
 // ## Bounded LRU — pure-Rust, Pi-safe
 //
 // A fixed-capacity LRU keyed by a 128-bit query hash + the version. NO external
-// crate (no `lru`/`hashbrown`) — a `HashMap<Key, (bytes, tick)>` plus a monotonic
-// access tick; eviction drops the least-recently-used entry when at capacity. Pure
-// `std` + hash, so it folds into the lean Pi tier with no dep cost. Behind a
-// `parking_lot::Mutex` (already an eg-core dep): a lookup is a hash probe, an insert
-// a probe + at most one eviction scan — never the query work itself, which runs
-// off-lock on the blocking pool.
+// crate (no `lru`/`hashbrown`) — a `HashMap<Key, (bytes, tick)>` plus a bounded
+// `BTreeMap<tick, Key>` recency index. Eviction removes the first tree entry in
+// O(log capacity), rather than scanning every cached result. Pure `std` + hash, so
+// it folds into the lean Pi tier with no dep cost. Behind a `parking_lot::Mutex`
+// (already an eg-core dep); query execution itself always runs off-lock.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::hash::{Hash, Hasher};
 
 use parking_lot::Mutex;
@@ -59,7 +58,7 @@ fn cap_from_env() -> usize {
 /// row-visibility is NEVER served to a different actor. When security/RLS is off the
 /// scope is `0` for every caller, so the key collapses to the plain `(query_hash, version)`
 /// pair and single-tenant caching is byte-for-byte the pre-RLS behavior.
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 struct Key {
     query_hash: u128,
     version: u64,
@@ -68,7 +67,9 @@ struct Key {
 
 /// One cached result + its last-access tick (for LRU recency).
 struct Entry {
-    bytes: Vec<u8>,
+    /// Shared so a hit clones only a pointer while holding the cache mutex; the
+    /// caller-required owned `Vec` copy happens after recency bookkeeping unlocks.
+    bytes: std::sync::Arc<Vec<u8>>,
     tick: u64,
 }
 
@@ -84,6 +85,8 @@ pub struct ResultCache {
 
 struct Inner {
     map: HashMap<Key, Entry>,
+    /// Tick order contains exactly one entry for every key in `map`.
+    recency: BTreeMap<u64, Key>,
     /// Monotonic access counter; the entry with the smallest `tick` is the LRU.
     clock: u64,
 }
@@ -120,6 +123,7 @@ impl ResultCache {
         ResultCache {
             inner: Mutex::new(Inner {
                 map: HashMap::new(),
+                recency: BTreeMap::new(),
                 clock: 0,
             }),
             cap,
@@ -203,12 +207,19 @@ impl ResultCache {
         let mut inner = self.inner.lock();
         inner.clock += 1;
         let now = inner.clock;
-        if let Some(e) = inner.map.get_mut(&key) {
-            e.tick = now;
-            let bytes = e.bytes.clone();
+        if let Some((old_tick, bytes)) = inner.map.get_mut(&key).map(|entry| {
+            let old_tick = entry.tick;
+            entry.tick = now;
+            (old_tick, std::sync::Arc::clone(&entry.bytes))
+        }) {
+            inner.recency.remove(&old_tick);
+            inner.recency.insert(now, key);
             drop(inner);
             self.hits.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            Some(bytes)
+            // The API intentionally returns owned bytes. Perform that O(payload)
+            // copy off-lock so one large cached response cannot serialize unrelated
+            // cache hits behind the LRU mutex.
+            Some((*bytes).clone())
         } else {
             drop(inner);
             self.misses
@@ -244,18 +255,24 @@ impl ResultCache {
         let mut inner = self.inner.lock();
         inner.clock += 1;
         let now = inner.clock;
+        let old_tick = inner.map.get(&key).map(|entry| entry.tick);
         // Evict the LRU entry if inserting a NEW key would exceed capacity.
-        if !inner.map.contains_key(&key) && inner.map.len() >= self.cap {
-            if let Some(lru) = inner
-                .map
-                .iter()
-                .min_by_key(|(_, e)| e.tick)
-                .map(|(k, _)| *k)
-            {
-                inner.map.remove(&lru);
+        if old_tick.is_none() && inner.map.len() >= self.cap {
+            if let Some((&lru_tick, &lru_key)) = inner.recency.first_key_value() {
+                inner.recency.remove(&lru_tick);
+                inner.map.remove(&lru_key);
             }
+        } else if let Some(old_tick) = old_tick {
+            inner.recency.remove(&old_tick);
         }
-        inner.map.insert(key, Entry { bytes, tick: now });
+        inner.map.insert(
+            key,
+            Entry {
+                bytes: std::sync::Arc::new(bytes),
+                tick: now,
+            },
+        );
+        inner.recency.insert(now, key);
     }
 
     /// Drop every cached result. Called when the graph's whole in-RAM state is
@@ -264,6 +281,7 @@ impl ResultCache {
     pub fn invalidate_all(&self) {
         let mut inner = self.inner.lock();
         inner.map.clear();
+        inner.recency.clear();
     }
 
     /// `(hits, misses)` since construction — the proof counters a test reads to show
@@ -340,6 +358,31 @@ mod tests {
         assert!(c.get(q1, 0).is_some());
         assert!(c.get(q3, 0).is_some());
         assert!(c.get(q2, 0).is_none(), "q2 was the LRU and must be evicted");
+        let inner = c.inner.lock();
+        assert_eq!(inner.recency.len(), inner.map.len());
+        assert!(inner
+            .map
+            .iter()
+            .all(|(key, entry)| inner.recency.get(&entry.tick) == Some(key)));
+    }
+
+    #[test]
+    fn recency_index_stays_bounded_under_repeated_replacement() {
+        let c = ResultCache::with_cap(8);
+        for version in 0..1_024 {
+            let q = ResultCache::hash_query("sql", format!("q{}", version % 13).as_bytes());
+            c.put(q, version, version.to_le_bytes().to_vec());
+            if version % 3 == 0 {
+                let _ = c.get(q, version);
+            }
+        }
+        let inner = c.inner.lock();
+        assert_eq!(inner.map.len(), 8);
+        assert_eq!(inner.recency.len(), 8);
+        assert!(inner
+            .map
+            .iter()
+            .all(|(key, entry)| inner.recency.get(&entry.tick) == Some(key)));
     }
 
     #[test]

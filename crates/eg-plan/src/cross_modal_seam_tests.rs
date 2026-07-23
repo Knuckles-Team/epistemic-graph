@@ -61,8 +61,6 @@ ex:p4 a ex:Paper .
         &mut iris,
         "g",
         eg_rdf::mapping::parse_turtle(ttl).unwrap(),
-        #[cfg(feature = "rdf-redb")]
-        None,
     )
     .unwrap();
 
@@ -132,7 +130,7 @@ fn reason_then_traverse_then_rank_equals_separate() {
     let triples = eg_rdf::owl::tbox_triples_from_view(&view);
     let mut reasoner = eg_rdf::owl::Reasoner::from_triples(&triples);
     let cls = reasoner.classify();
-    let asserted = eg_rdf::owl::asserted_types_from_view(&view, None);
+    let asserted = eg_rdf::owl::asserted_types_from_view(&view, "http://example.org/").unwrap();
     let members: Vec<String> = eg_rdf::owl::instances_of(&cls, &asserted, target);
     let reached = crate::exec::bfs_reached(&view, &members, "CITES", 1, 1);
     let reached_set: HashSet<&str> = reached.iter().map(String::as_str).collect();
@@ -192,7 +190,7 @@ fn reason_seeded_reorder_picks_winner() {
     assert_eq!(CostModel::order(&selective), Order::FilterFirst);
     assert_eq!(CostModel::order(&broad), Order::VectorFirst);
 
-    let sel_plan = CostModel::reorder_filter_rank(plan.clone(), &selective);
+    let sel_plan = CostModel::place_narrower(plan.clone(), 1, 2, true);
     assert!(
         matches!(sel_plan[0], Op::Reason { .. }),
         "the Reason seed leg stays at the front"
@@ -202,7 +200,7 @@ fn reason_seeded_reorder_picks_winner() {
         "selective → filter-first behind the reasoning seed"
     );
 
-    let broad_plan = CostModel::reorder_filter_rank(plan, &broad);
+    let broad_plan = CostModel::place_narrower(plan, 1, 2, false);
     assert!(
         matches!(broad_plan[0], Op::Reason { .. }),
         "the Reason seed leg stays at the front"

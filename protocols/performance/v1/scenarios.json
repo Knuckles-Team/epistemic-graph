@@ -1,0 +1,367 @@
+{
+  "schema_version": "1",
+  "manifest_id": "g37-performance-scenarios-v1",
+  "ledger": {
+    "document": "docs/architecture/hot-path-complexity.md",
+    "registry_heading": "Implemented row identities",
+    "implemented_heading": "Implemented bounds",
+    "expected_rows": 54
+  },
+  "probe_protocol": "g37.performance-probe.v1",
+  "scenarios": [
+    {
+      "scenario_id": "g37-s01-modality-streaming",
+      "driver": "modality_streaming",
+      "scales": [64, 256, 1024],
+      "repetitions": 5,
+      "resource_bounds": {"maximum_elapsed_ms": 60000, "maximum_peak_rss_mib": 1024, "maximum_output_bytes": 1048576},
+      "implementation_refs": ["crates/eg-modality/src/served.rs::ServedModalityRuntime"],
+      "rows": [
+        {"row_id": "G37-HP-001", "equivalence_checks": ["stream_matches_sequential", "rollback_restores_snapshot"], "thresholds": {"maximum_work_units": 10000000, "maximum_work_growth_ratio": 24, "maximum_peak_memory_bytes": 1073741824, "maximum_memory_growth_ratio": 32, "maximum_latency_p99_ms": 30000, "maximum_latency_growth_ratio": 50}},
+        {"row_id": "G37-HP-002", "equivalence_checks": ["cursor_page_matches_reference"], "thresholds": {"maximum_work_units": 1000000, "maximum_work_growth_ratio": 8, "maximum_peak_memory_bytes": 1073741824, "maximum_memory_growth_ratio": 16, "maximum_latency_p99_ms": 30000, "maximum_latency_growth_ratio": 30}},
+        {"row_id": "G37-HP-003", "equivalence_checks": ["cdc_suffix_matches_reference"], "thresholds": {"maximum_work_units": 1000000, "maximum_work_growth_ratio": 3, "maximum_peak_memory_bytes": 1073741824, "maximum_memory_growth_ratio": 8, "maximum_latency_p99_ms": 30000, "maximum_latency_growth_ratio": 20}},
+        {"row_id": "G37-HP-004", "equivalence_checks": ["snapshot_roundtrip", "idempotency_outcomes_preserved"], "thresholds": {"maximum_work_units": 10000000, "maximum_work_growth_ratio": 24, "maximum_peak_memory_bytes": 1073741824, "maximum_memory_growth_ratio": 24, "maximum_latency_p99_ms": 30000, "maximum_latency_growth_ratio": 50}},
+        {"row_id": "G37-HP-005", "equivalence_checks": ["active_count_matches_scan"], "thresholds": {"maximum_work_units": 16, "maximum_work_growth_ratio": 2, "maximum_peak_memory_bytes": 1073741824, "maximum_memory_growth_ratio": 4, "maximum_latency_p99_ms": 30000, "maximum_latency_growth_ratio": 10}}
+      ]
+    },
+    {
+      "scenario_id": "g37-s02-analytics-restart-claim",
+      "driver": "analytics_restart_claim",
+      "scales": [64, 256, 1024],
+      "repetitions": 5,
+      "resource_bounds": {"maximum_elapsed_ms": 120000, "maximum_peak_rss_mib": 1024, "maximum_output_bytes": 1048576},
+      "implementation_refs": ["crates/eg-jobs/src/store.rs::JobStore"],
+      "rows": [
+        {"row_id": "G37-HP-006", "equivalence_checks": ["restart_next_id_monotonic", "scheduler_index_marker_valid"], "thresholds": {"maximum_work_units": 64, "maximum_work_growth_ratio": 3, "maximum_peak_memory_bytes": 1073741824, "maximum_memory_growth_ratio": 8, "maximum_latency_p99_ms": 30000, "maximum_latency_growth_ratio": 15}},
+        {"row_id": "G37-HP-007", "equivalence_checks": ["repeated_claim_same_fence", "worker_index_matches_job"], "thresholds": {"maximum_work_units": 128, "maximum_work_growth_ratio": 8, "maximum_peak_memory_bytes": 1073741824, "maximum_memory_growth_ratio": 8, "maximum_latency_p99_ms": 30000, "maximum_latency_growth_ratio": 20}}
+      ]
+    },
+    {
+      "scenario_id": "g37-s03-tms-retirement",
+      "driver": "tms_retirement",
+      "scales": [64, 256, 1024],
+      "repetitions": 5,
+      "resource_bounds": {"maximum_elapsed_ms": 60000, "maximum_peak_rss_mib": 1024, "maximum_output_bytes": 1048576},
+      "implementation_refs": ["crates/eg-epistemic/src/recompute.rs::TruthMaintenance"],
+      "rows": [
+        {"row_id": "G37-HP-008", "equivalence_checks": ["retired_generator_changes_exact_closure", "unrelated_materializations_unchanged"], "thresholds": {"maximum_work_units": 1000000, "maximum_work_growth_ratio": 8, "maximum_peak_memory_bytes": 1073741824, "maximum_memory_growth_ratio": 12, "maximum_latency_p99_ms": 30000, "maximum_latency_growth_ratio": 25}}
+      ]
+    },
+    {
+      "scenario_id": "g37-s04-generated-by-reconciliation",
+      "driver": "generated_by_reconciliation",
+      "scales": [64, 256, 1024],
+      "repetitions": 5,
+      "resource_bounds": {"maximum_elapsed_ms": 60000, "maximum_peak_rss_mib": 1024, "maximum_output_bytes": 1048576},
+      "implementation_refs": ["crates/eg-epistemic/src/incremental.rs::IncrementalReasoningIndex"],
+      "rows": [
+        {"row_id": "G37-HP-009", "equivalence_checks": ["canonical_target_order_independent", "mixed_provenance_ignored"], "thresholds": {"maximum_work_units": 1000000, "maximum_work_growth_ratio": 8, "maximum_peak_memory_bytes": 1073741824, "maximum_memory_growth_ratio": 12, "maximum_latency_p99_ms": 30000, "maximum_latency_growth_ratio": 25}}
+      ]
+    },
+    {
+      "scenario_id": "g37-s05-scheduler-placement-quota",
+      "driver": "scheduler_placement_quota",
+      "scales": [64, 256, 1024],
+      "repetitions": 5,
+      "resource_bounds": {"maximum_elapsed_ms": 120000, "maximum_peak_rss_mib": 1024, "maximum_output_bytes": 1048576},
+      "implementation_refs": ["crates/eg-jobs/src/store.rs::JobStore"],
+      "rows": [
+        {"row_id": "G37-HP-010", "equivalence_checks": ["selected_job_matches_full_reference", "unsatisfied_anchors_not_decoded"], "thresholds": {"maximum_work_units": 10000000, "maximum_work_growth_ratio": 24, "maximum_peak_memory_bytes": 1073741824, "maximum_memory_growth_ratio": 24, "maximum_latency_p99_ms": 30000, "maximum_latency_growth_ratio": 50}},
+        {"row_id": "G37-HP-011", "equivalence_checks": ["tenant_counters_match_active_jobs"], "thresholds": {"maximum_work_units": 256, "maximum_work_growth_ratio": 8, "maximum_peak_memory_bytes": 1073741824, "maximum_memory_growth_ratio": 8, "maximum_latency_p99_ms": 30000, "maximum_latency_growth_ratio": 20}},
+        {"row_id": "G37-HP-036", "equivalence_checks": ["placement_match_equivalent", "candidate_loop_allocation_free"], "thresholds": {"maximum_work_units": 1000000, "maximum_work_growth_ratio": 20, "maximum_peak_memory_bytes": 1073741824, "maximum_memory_growth_ratio": 8, "maximum_latency_p99_ms": 30000, "maximum_latency_growth_ratio": 30}}
+      ]
+    },
+    {
+      "scenario_id": "g37-s06-result-cache",
+      "driver": "result_cache",
+      "scales": [64, 256, 1024],
+      "repetitions": 7,
+      "resource_bounds": {"maximum_elapsed_ms": 60000, "maximum_peak_rss_mib": 1024, "maximum_output_bytes": 1048576},
+      "implementation_refs": ["crates/eg-core/src/result_cache.rs::ResultCache"],
+      "rows": [
+        {"row_id": "G37-HP-012", "equivalence_checks": ["lru_victim_matches_reference", "capacity_never_exceeded"], "thresholds": {"maximum_work_units": 256, "maximum_work_growth_ratio": 8, "maximum_peak_memory_bytes": 1073741824, "maximum_memory_growth_ratio": 20, "maximum_latency_p99_ms": 30000, "maximum_latency_growth_ratio": 25}},
+        {"row_id": "G37-HP-013", "equivalence_checks": ["hit_payload_exact", "payload_copy_outside_lock"], "thresholds": {"maximum_work_units": 256, "maximum_work_growth_ratio": 8, "maximum_peak_memory_bytes": 1073741824, "maximum_memory_growth_ratio": 20, "maximum_latency_p99_ms": 30000, "maximum_latency_growth_ratio": 25}}
+      ]
+    },
+    {
+      "scenario_id": "g37-s07-promql-predecessor",
+      "driver": "promql_predecessor",
+      "scales": [64, 256, 1024],
+      "repetitions": 7,
+      "resource_bounds": {"maximum_elapsed_ms": 60000, "maximum_peak_rss_mib": 1024, "maximum_output_bytes": 1048576},
+      "implementation_refs": ["crates/eg-tsdb/src/promql.rs::Evaluator"],
+      "rows": [
+        {"row_id": "G37-HP-014", "equivalence_checks": ["tail_matches_binary_search_reference", "defensive_wide_slice_matches"], "thresholds": {"maximum_work_units": 128, "maximum_work_growth_ratio": 8, "maximum_peak_memory_bytes": 1073741824, "maximum_memory_growth_ratio": 8, "maximum_latency_p99_ms": 30000, "maximum_latency_growth_ratio": 20}}
+      ]
+    },
+    {
+      "scenario_id": "g37-s08-edge-cardinality-delete",
+      "driver": "edge_cardinality_delete",
+      "scales": [64, 256, 1024],
+      "repetitions": 5,
+      "resource_bounds": {"maximum_elapsed_ms": 60000, "maximum_peak_rss_mib": 1024, "maximum_output_bytes": 1048576},
+      "implementation_refs": ["crates/eg-core/src/graph.rs::GraphCore"],
+      "rows": [
+        {"row_id": "G37-HP-015", "equivalence_checks": ["edge_count_matches_enumeration", "parallel_edges_counted"], "thresholds": {"maximum_work_units": 16, "maximum_work_growth_ratio": 2, "maximum_peak_memory_bytes": 1073741824, "maximum_memory_growth_ratio": 4, "maximum_latency_p99_ms": 30000, "maximum_latency_growth_ratio": 10}},
+        {"row_id": "G37-HP-016", "equivalence_checks": ["logical_delete_matches_reference", "unrelated_edges_preserved"], "thresholds": {"maximum_work_units": 100000, "maximum_work_growth_ratio": 8, "maximum_peak_memory_bytes": 1073741824, "maximum_memory_growth_ratio": 12, "maximum_latency_p99_ms": 30000, "maximum_latency_growth_ratio": 25}},
+        {"row_id": "G37-HP-017", "equivalence_checks": ["resident_evict_matches_reference", "logical_rows_preserved"], "thresholds": {"maximum_work_units": 1000000, "maximum_work_growth_ratio": 20, "maximum_peak_memory_bytes": 1073741824, "maximum_memory_growth_ratio": 20, "maximum_latency_p99_ms": 30000, "maximum_latency_growth_ratio": 35}}
+      ]
+    },
+    {
+      "scenario_id": "g37-s09-parallel-edge-removal",
+      "driver": "parallel_edge_removal",
+      "scales": [1, 100, 10000],
+      "repetitions": 5,
+      "resource_bounds": {"maximum_elapsed_ms": 60000, "maximum_peak_rss_mib": 1024, "maximum_output_bytes": 1048576},
+      "implementation_refs": ["crates/eg-core/src/graph.rs::GraphTxn"],
+      "rows": [
+        {"row_id": "G37-HP-018", "equivalence_checks": ["all_parallel_rows_removed_once", "adjacency_consistent"], "thresholds": {"maximum_work_units": 20000, "maximum_work_growth_ratio": 12000, "maximum_peak_memory_bytes": 1073741824, "maximum_memory_growth_ratio": 12000, "maximum_latency_p99_ms": 30000, "maximum_latency_growth_ratio": 12000}}
+      ]
+    },
+    {
+      "scenario_id": "g37-s10-subgraph-property-postings",
+      "driver": "subgraph_property_postings",
+      "scales": [64, 256, 1024],
+      "repetitions": 5,
+      "resource_bounds": {"maximum_elapsed_ms": 60000, "maximum_peak_rss_mib": 1024, "maximum_output_bytes": 1048576},
+      "implementation_refs": ["crates/eg-core/src/graph.rs::GraphCore", "crates/eg-core/src/index.rs::PropertyIndex"],
+      "rows": [
+        {"row_id": "G37-HP-019", "equivalence_checks": ["induced_nodes_edges_match_reference", "parallel_rows_preserved"], "thresholds": {"maximum_work_units": 1000000, "maximum_work_growth_ratio": 20, "maximum_peak_memory_bytes": 1073741824, "maximum_memory_growth_ratio": 20, "maximum_latency_p99_ms": 30000, "maximum_latency_growth_ratio": 35}},
+        {"row_id": "G37-HP-020", "equivalence_checks": ["posting_intersection_matches_hash_reference", "output_sorted_unique"], "thresholds": {"maximum_work_units": 10000000, "maximum_work_growth_ratio": 24, "maximum_peak_memory_bytes": 1073741824, "maximum_memory_growth_ratio": 24, "maximum_latency_p99_ms": 30000, "maximum_latency_growth_ratio": 40}}
+      ]
+    },
+    {
+      "scenario_id": "g37-s11-keyset-cache-invalidation",
+      "driver": "keyset_cache_invalidation",
+      "scales": [64, 256, 1024],
+      "repetitions": 5,
+      "resource_bounds": {"maximum_elapsed_ms": 60000, "maximum_peak_rss_mib": 1024, "maximum_output_bytes": 1048576},
+      "implementation_refs": ["crates/eg-core/src/graph.rs::GraphCore"],
+      "rows": [
+        {"row_id": "G37-HP-021", "equivalence_checks": ["warm_page_matches_cold_reference", "cursor_has_no_duplicates"], "thresholds": {"maximum_work_units": 1000000, "maximum_work_growth_ratio": 8, "maximum_peak_memory_bytes": 1073741824, "maximum_memory_growth_ratio": 20, "maximum_latency_p99_ms": 30000, "maximum_latency_growth_ratio": 25}},
+        {"row_id": "G37-HP-022", "equivalence_checks": ["edge_write_retains_node_caches", "field_write_invalidates_covering_only"], "thresholds": {"maximum_work_units": 10000, "maximum_work_growth_ratio": 8, "maximum_peak_memory_bytes": 1073741824, "maximum_memory_growth_ratio": 8, "maximum_latency_p99_ms": 30000, "maximum_latency_growth_ratio": 20}}
+      ]
+    },
+    {
+      "scenario_id": "g37-s12-flat-vector-directory",
+      "driver": "flat_vector_directory",
+      "scales": [1000, 4000, 16000],
+      "repetitions": 5,
+      "resource_bounds": {"maximum_elapsed_ms": 120000, "maximum_peak_rss_mib": 2048, "maximum_output_bytes": 1048576},
+      "implementation_refs": ["crates/eg-ann/src/flat.rs::FlatIndex", "benches/eg096_massive_scale_bench.rs"],
+      "rows": [
+        {"row_id": "G37-HP-023", "equivalence_checks": ["lookup_delete_matches_scan_reference", "rerank_matches_full_sort"], "thresholds": {"maximum_work_units": 10000000, "maximum_work_growth_ratio": 8, "maximum_peak_memory_bytes": 2147483648, "maximum_memory_growth_ratio": 24, "maximum_latency_p99_ms": 60000, "maximum_latency_growth_ratio": 30}}
+      ]
+    },
+    {
+      "scenario_id": "g37-s13-tsdb-append-range-bucket",
+      "driver": "tsdb_append_range_bucket",
+      "scales": [64, 256, 1024],
+      "repetitions": 5,
+      "resource_bounds": {"maximum_elapsed_ms": 120000, "maximum_peak_rss_mib": 2048, "maximum_output_bytes": 1048576},
+      "implementation_refs": ["crates/eg-tsdb/src/store.rs::SeriesStore", "crates/eg-tsdb/src/query.rs::time_bucket"],
+      "rows": [
+        {"row_id": "G37-HP-024", "equivalence_checks": ["reverse_append_matches_sorted_reference", "equal_timestamp_order_preserved"], "thresholds": {"maximum_work_units": 10000000, "maximum_work_growth_ratio": 32, "maximum_peak_memory_bytes": 2147483648, "maximum_memory_growth_ratio": 24, "maximum_latency_p99_ms": 60000, "maximum_latency_growth_ratio": 50}},
+        {"row_id": "G37-HP-025", "equivalence_checks": ["bounded_range_matches_filter_reference", "future_chunks_not_examined"], "thresholds": {"maximum_work_units": 10000000, "maximum_work_growth_ratio": 20, "maximum_peak_memory_bytes": 2147483648, "maximum_memory_growth_ratio": 20, "maximum_latency_p99_ms": 60000, "maximum_latency_growth_ratio": 40}},
+        {"row_id": "G37-HP-026", "equivalence_checks": ["all_aggregates_match_reference", "constant_scratch_bound"], "thresholds": {"maximum_work_units": 10000000, "maximum_work_growth_ratio": 20, "maximum_peak_memory_bytes": 2147483648, "maximum_memory_growth_ratio": 8, "maximum_latency_p99_ms": 60000, "maximum_latency_growth_ratio": 35}}
+      ]
+    },
+    {
+      "scenario_id": "g37-s14-sensor-fusion",
+      "driver": "sensor_fusion",
+      "scales": [8, 32, 128],
+      "repetitions": 5,
+      "resource_bounds": {"maximum_elapsed_ms": 60000, "maximum_peak_rss_mib": 1024, "maximum_output_bytes": 1048576},
+      "implementation_refs": ["crates/eg-tsdb/src/query.rs::sensor_fuse"],
+      "rows": [
+        {"row_id": "G37-HP-027", "equivalence_checks": ["fusion_matches_sort_asof_reference", "output_clock_sorted_unique"], "thresholds": {"maximum_work_units": 10000000, "maximum_work_growth_ratio": 32, "maximum_peak_memory_bytes": 1073741824, "maximum_memory_growth_ratio": 24, "maximum_latency_p99_ms": 30000, "maximum_latency_growth_ratio": 50}}
+      ]
+    },
+    {
+      "scenario_id": "g37-s15-flat-exact-vector",
+      "driver": "flat_exact_vector",
+      "scales": [1000, 4000, 16000],
+      "repetitions": 5,
+      "resource_bounds": {"maximum_elapsed_ms": 120000, "maximum_peak_rss_mib": 2048, "maximum_output_bytes": 1048576},
+      "implementation_refs": ["crates/eg-ann/src/flat.rs::FlatIndex", "crates/eg-ann/benches/recall.rs"],
+      "rows": [
+        {"row_id": "G37-HP-028", "equivalence_checks": ["topk_matches_full_total_order", "nan_last_order_preserved"], "thresholds": {"maximum_work_units": 100000000, "maximum_work_growth_ratio": 24, "maximum_peak_memory_bytes": 2147483648, "maximum_memory_growth_ratio": 24, "maximum_latency_p99_ms": 60000, "maximum_latency_growth_ratio": 45}}
+      ]
+    },
+    {
+      "scenario_id": "g37-s16-ivfpq-selection",
+      "driver": "ivfpq_selection",
+      "scales": [1000, 4000, 16000],
+      "repetitions": 5,
+      "resource_bounds": {"maximum_elapsed_ms": 180000, "maximum_peak_rss_mib": 4096, "maximum_output_bytes": 1048576},
+      "implementation_refs": ["crates/eg-ann/src/ivfpq.rs::IvfPq", "benches/eg096_massive_scale_bench.rs"],
+      "rows": [
+        {"row_id": "G37-HP-029", "equivalence_checks": ["selected_prefix_matches_full_total_order", "adc_and_refined_modes_covered"], "thresholds": {"maximum_work_units": 1000000000, "maximum_work_growth_ratio": 32, "maximum_peak_memory_bytes": 4294967296, "maximum_memory_growth_ratio": 32, "maximum_latency_p99_ms": 120000, "maximum_latency_growth_ratio": 60}}
+      ]
+    },
+    {
+      "scenario_id": "g37-s17-hnsw-selection",
+      "driver": "hnsw_selection",
+      "scales": [1000, 4000, 16000],
+      "repetitions": 5,
+      "resource_bounds": {"maximum_elapsed_ms": 180000, "maximum_peak_rss_mib": 4096, "maximum_output_bytes": 1048576},
+      "implementation_refs": ["crates/eg-ann/src/hnsw.rs::HnswIndex", "crates/eg-ann/benches/recall.rs"],
+      "rows": [
+        {"row_id": "G37-HP-030", "equivalence_checks": ["neighbor_prefix_matches_full_order", "result_prefix_matches_full_order"], "thresholds": {"maximum_work_units": 1000000000, "maximum_work_growth_ratio": 32, "maximum_peak_memory_bytes": 4294967296, "maximum_memory_growth_ratio": 32, "maximum_latency_p99_ms": 120000, "maximum_latency_growth_ratio": 60}},
+        {"row_id": "G37-HP-031", "equivalence_checks": ["small_set_exact_matches_reference", "cosine_order_deterministic"], "thresholds": {"maximum_work_units": 1000000000, "maximum_work_growth_ratio": 24, "maximum_peak_memory_bytes": 4294967296, "maximum_memory_growth_ratio": 24, "maximum_latency_p99_ms": 120000, "maximum_latency_growth_ratio": 50}}
+      ]
+    },
+    {
+      "scenario_id": "g37-s18-leanrag-ranking",
+      "driver": "leanrag_ranking",
+      "scales": [64, 256, 1024],
+      "repetitions": 5,
+      "resource_bounds": {"maximum_elapsed_ms": 120000, "maximum_peak_rss_mib": 2048, "maximum_output_bytes": 1048576},
+      "implementation_refs": ["crates/eg-plan/src/leanrag.rs"],
+      "rows": [
+        {"row_id": "G37-HP-032", "equivalence_checks": ["bounded_prefix_matches_full_order", "leaf_budget_respected"], "thresholds": {"maximum_work_units": 100000000, "maximum_work_growth_ratio": 24, "maximum_peak_memory_bytes": 2147483648, "maximum_memory_growth_ratio": 24, "maximum_latency_p99_ms": 60000, "maximum_latency_growth_ratio": 45}}
+      ]
+    },
+    {
+      "scenario_id": "g37-s19-redb-recovery-edge-ordinal",
+      "driver": "redb_recovery_edge_ordinal",
+      "scales": [256, 1024, 4096],
+      "repetitions": 5,
+      "resource_bounds": {"maximum_elapsed_ms": 180000, "maximum_peak_rss_mib": 4096, "maximum_output_bytes": 1048576},
+      "implementation_refs": ["src/redb_store.rs", "benches/cold_warm_reopen.rs"],
+      "rows": [
+        {"row_id": "G37-HP-033", "equivalence_checks": ["paged_recovery_matches_full_scan", "composite_cursor_no_revisit"], "thresholds": {"maximum_work_units": 100000000, "maximum_work_growth_ratio": 24, "maximum_peak_memory_bytes": 4294967296, "maximum_memory_growth_ratio": 24, "maximum_latency_p99_ms": 120000, "maximum_latency_growth_ratio": 50}},
+        {"row_id": "G37-HP-037", "equivalence_checks": ["cold_seed_returns_next_ordinal", "cache_invalidation_scope_exact"], "thresholds": {"maximum_work_units": 1000000, "maximum_work_growth_ratio": 8, "maximum_peak_memory_bytes": 4294967296, "maximum_memory_growth_ratio": 12, "maximum_latency_p99_ms": 120000, "maximum_latency_growth_ratio": 30}}
+      ]
+    },
+    {
+      "scenario_id": "g37-s20-mutation-batch",
+      "driver": "mutation_batch",
+      "scales": [1, 10, 1000],
+      "repetitions": 5,
+      "resource_bounds": {"maximum_elapsed_ms": 180000, "maximum_peak_rss_mib": 4096, "maximum_output_bytes": 1048576},
+      "implementation_refs": ["src/mutation_apply.rs", "src/redb_store.rs"],
+      "rows": [
+        {"row_id": "G37-HP-034", "equivalence_checks": ["delta_commit_matches_full_reference", "replay_idempotent", "untouched_rows_byte_stable"], "thresholds": {"maximum_work_units": 1000000000, "maximum_work_growth_ratio": 1200, "maximum_peak_memory_bytes": 4294967296, "maximum_memory_growth_ratio": 1200, "maximum_latency_p99_ms": 120000, "maximum_latency_growth_ratio": 1200}}
+      ]
+    },
+    {
+      "scenario_id": "g37-s21-qos-admission",
+      "driver": "qos_admission",
+      "scales": [64, 256, 1024],
+      "repetitions": 7,
+      "resource_bounds": {"maximum_elapsed_ms": 60000, "maximum_peak_rss_mib": 1024, "maximum_output_bytes": 1048576},
+      "implementation_refs": ["src/server/qos.rs::plan_admissions"],
+      "rows": [
+        {"row_id": "G37-HP-035", "equivalence_checks": ["winners_match_full_stable_sort", "priority_deadline_fifo_order"], "thresholds": {"maximum_work_units": 10000000, "maximum_work_growth_ratio": 24, "maximum_peak_memory_bytes": 1073741824, "maximum_memory_growth_ratio": 20, "maximum_latency_p99_ms": 30000, "maximum_latency_growth_ratio": 40}}
+      ]
+    },
+    {
+      "scenario_id": "g37-s22-trace-index-search",
+      "driver": "trace_index_search",
+      "scales": [64, 256, 1024],
+      "repetitions": 5,
+      "resource_bounds": {"maximum_elapsed_ms": 120000, "maximum_peak_rss_mib": 2048, "maximum_output_bytes": 1048576},
+      "implementation_refs": ["crates/eg-tsdb/src/traces.rs::SpanStore"],
+      "rows": [
+        {"row_id": "G37-HP-038", "equivalence_checks": ["newest_results_match_full_reference", "equal_time_order_deterministic", "assembled_traces_exact"], "thresholds": {"maximum_work_units": 100000000, "maximum_work_growth_ratio": 24, "maximum_peak_memory_bytes": 2147483648, "maximum_memory_growth_ratio": 24, "maximum_latency_p99_ms": 60000, "maximum_latency_growth_ratio": 45}}
+      ]
+    },
+    {
+      "scenario_id": "g37-s23-sql-conflict-schema",
+      "driver": "sql_conflict_schema",
+      "scales": [64, 256, 1024],
+      "repetitions": 5,
+      "resource_bounds": {"maximum_elapsed_ms": 120000, "maximum_peak_rss_mib": 2048, "maximum_output_bytes": 1048576},
+      "implementation_refs": ["crates/eg-query/src/sql/exec.rs", "crates/eg-query/src/sql/catalog.rs"],
+      "rows": [
+        {"row_id": "G37-HP-039", "equivalence_checks": ["conflict_outcomes_match_scan_reference", "rollback_preserves_table"], "thresholds": {"maximum_work_units": 100000000, "maximum_work_growth_ratio": 24, "maximum_peak_memory_bytes": 2147483648, "maximum_memory_growth_ratio": 24, "maximum_latency_p99_ms": 60000, "maximum_latency_growth_ratio": 45}},
+        {"row_id": "G37-HP-040", "equivalence_checks": ["warm_lookup_matches_linear_reference", "invalid_schema_rejected"], "thresholds": {"maximum_work_units": 100000, "maximum_work_growth_ratio": 3, "maximum_peak_memory_bytes": 2147483648, "maximum_memory_growth_ratio": 20, "maximum_latency_p99_ms": 60000, "maximum_latency_growth_ratio": 20}}
+      ]
+    },
+    {
+      "scenario_id": "g37-s24-change-notification",
+      "driver": "change_notification",
+      "scales": [1, 16, 256],
+      "repetitions": 7,
+      "resource_bounds": {"maximum_elapsed_ms": 60000, "maximum_peak_rss_mib": 1024, "maximum_output_bytes": 1048576},
+      "implementation_refs": ["crates/eg-core/src/graph.rs::ChangeNotifier"],
+      "rows": [
+        {"row_id": "G37-HP-041", "equivalence_checks": ["fanout_exactly_once", "reentrant_subscribe_no_deadlock", "slow_sink_does_not_hold_registry_lock"], "thresholds": {"maximum_work_units": 1000000, "maximum_work_growth_ratio": 300, "maximum_peak_memory_bytes": 1073741824, "maximum_memory_growth_ratio": 300, "maximum_latency_p99_ms": 30000, "maximum_latency_growth_ratio": 300}}
+      ]
+    },
+    {
+      "scenario_id": "g37-s25-knowledge-batch",
+      "driver": "knowledge_batch",
+      "scales": [64, 256, 1024],
+      "repetitions": 5,
+      "resource_bounds": {"maximum_elapsed_ms": 120000, "maximum_peak_rss_mib": 2048, "maximum_output_bytes": 1048576},
+      "implementation_refs": ["crates/eg-plan/src/knowledge_batch.rs", "scripts/certify_exact_knowledge_batch.py"],
+      "rows": [
+        {"row_id": "G37-HP-042", "equivalence_checks": ["projection_matches_name_reference", "missing_reordered_duplicate_cases_checked"], "thresholds": {"maximum_work_units": 100000000, "maximum_work_growth_ratio": 24, "maximum_peak_memory_bytes": 2147483648, "maximum_memory_growth_ratio": 24, "maximum_latency_p99_ms": 60000, "maximum_latency_growth_ratio": 45}}
+      ]
+    },
+    {
+      "scenario_id": "g37-s26-broker-topic-route",
+      "driver": "broker_topic_route",
+      "scales": [8, 32, 128],
+      "repetitions": 7,
+      "resource_bounds": {"maximum_elapsed_ms": 60000, "maximum_peak_rss_mib": 1024, "maximum_output_bytes": 1048576},
+      "implementation_refs": ["crates/eg-core/src/broker.rs::topic_matches", "crates/eg-core/src/broker.rs::route"],
+      "rows": [
+        {"row_id": "G37-HP-043", "equivalence_checks": ["wildcards_match_dynamic_reference", "adversarial_hash_chain_terminates"], "thresholds": {"maximum_work_units": 10000000, "maximum_work_growth_ratio": 300, "maximum_peak_memory_bytes": 1073741824, "maximum_memory_growth_ratio": 150, "maximum_latency_p99_ms": 30000, "maximum_latency_growth_ratio": 300}},
+        {"row_id": "G37-HP-044", "equivalence_checks": ["queue_set_matches_reference", "first_binding_order_preserved"], "thresholds": {"maximum_work_units": 1000000, "maximum_work_growth_ratio": 20, "maximum_peak_memory_bytes": 1073741824, "maximum_memory_growth_ratio": 20, "maximum_latency_p99_ms": 30000, "maximum_latency_growth_ratio": 35}}
+      ]
+    },
+    {
+      "scenario_id": "g37-s27-appendlog-retention",
+      "driver": "appendlog_retention",
+      "scales": [64, 256, 1024],
+      "repetitions": 5,
+      "resource_bounds": {"maximum_elapsed_ms": 120000, "maximum_peak_rss_mib": 2048, "maximum_output_bytes": 1048576},
+      "implementation_refs": ["crates/eg-stream/src"],
+      "rows": [
+        {"row_id": "G37-HP-045", "equivalence_checks": ["bounded_page_matches_full_order", "offset_limit_exact"], "thresholds": {"maximum_work_units": 100000000, "maximum_work_growth_ratio": 24, "maximum_peak_memory_bytes": 2147483648, "maximum_memory_growth_ratio": 24, "maximum_latency_p99_ms": 60000, "maximum_latency_growth_ratio": 45}},
+        {"row_id": "G37-HP-046", "equivalence_checks": ["retention_set_matches_reference", "deletion_order_deterministic"], "thresholds": {"maximum_work_units": 100000000, "maximum_work_growth_ratio": 24, "maximum_peak_memory_bytes": 2147483648, "maximum_memory_growth_ratio": 24, "maximum_latency_p99_ms": 60000, "maximum_latency_growth_ratio": 45}}
+      ]
+    },
+    {
+      "scenario_id": "g37-s28-redis-collections",
+      "driver": "redis_collections",
+      "scales": [64, 256, 1024],
+      "repetitions": 5,
+      "resource_bounds": {"maximum_elapsed_ms": 120000, "maximum_peak_rss_mib": 2048, "maximum_output_bytes": 1048576},
+      "implementation_refs": ["src/server/redis_wire/mod.rs"],
+      "rows": [
+        {"row_id": "G37-HP-047", "equivalence_checks": ["hash_set_zset_match_reference", "last_update_wins"], "thresholds": {"maximum_work_units": 100000000, "maximum_work_growth_ratio": 24, "maximum_peak_memory_bytes": 2147483648, "maximum_memory_growth_ratio": 24, "maximum_latency_p99_ms": 60000, "maximum_latency_growth_ratio": 45}},
+        {"row_id": "G37-HP-048", "equivalence_checks": ["lpush_order_matches_redis", "prior_tail_preserved"], "thresholds": {"maximum_work_units": 10000000, "maximum_work_growth_ratio": 20, "maximum_peak_memory_bytes": 2147483648, "maximum_memory_growth_ratio": 20, "maximum_latency_p99_ms": 60000, "maximum_latency_growth_ratio": 35}}
+      ]
+    },
+    {
+      "scenario_id": "g37-s29-mining-similarity-semantic",
+      "driver": "mining_similarity_semantic",
+      "scales": [64, 256, 1024],
+      "repetitions": 5,
+      "resource_bounds": {"maximum_elapsed_ms": 180000, "maximum_peak_rss_mib": 4096, "maximum_output_bytes": 1048576},
+      "implementation_refs": ["crates/eg-compute/src/mining/subgraph.rs", "crates/eg-compute/src/graph_algos/similarity.rs", "crates/eg-core/src/compute/semantic.rs"],
+      "rows": [
+        {"row_id": "G37-HP-049", "equivalence_checks": ["extensions_match_reference", "canonical_forms_stable"], "thresholds": {"maximum_work_units": 1000000000, "maximum_work_growth_ratio": 32, "maximum_peak_memory_bytes": 4294967296, "maximum_memory_growth_ratio": 32, "maximum_latency_p99_ms": 120000, "maximum_latency_growth_ratio": 60}},
+        {"row_id": "G37-HP-050", "equivalence_checks": ["prepared_neighbors_match_reference", "directed_and_undirected_covered"], "thresholds": {"maximum_work_units": 1000000000, "maximum_work_growth_ratio": 300, "maximum_peak_memory_bytes": 4294967296, "maximum_memory_growth_ratio": 300, "maximum_latency_p99_ms": 120000, "maximum_latency_growth_ratio": 300}},
+        {"row_id": "G37-HP-051", "equivalence_checks": ["similarity_prefix_matches_full_order"], "thresholds": {"maximum_work_units": 1000000000, "maximum_work_growth_ratio": 300, "maximum_peak_memory_bytes": 4294967296, "maximum_memory_growth_ratio": 300, "maximum_latency_p99_ms": 120000, "maximum_latency_growth_ratio": 300}},
+        {"row_id": "G37-HP-052", "equivalence_checks": ["semantic_prefix_matches_full_order", "stale_and_nonfinite_cases_checked"], "thresholds": {"maximum_work_units": 100000000, "maximum_work_growth_ratio": 24, "maximum_peak_memory_bytes": 4294967296, "maximum_memory_growth_ratio": 24, "maximum_latency_p99_ms": 120000, "maximum_latency_growth_ratio": 45}}
+      ]
+    },
+    {
+      "scenario_id": "g37-s30-observability-symbol",
+      "driver": "observability_symbol",
+      "scales": [64, 256, 1024],
+      "repetitions": 5,
+      "resource_bounds": {"maximum_elapsed_ms": 120000, "maximum_peak_rss_mib": 2048, "maximum_output_bytes": 1048576},
+      "implementation_refs": ["src/server/obs/search.rs", "crates/eg-compute/src/parser/tree_sitter.rs"],
+      "rows": [
+        {"row_id": "G37-HP-053", "equivalence_checks": ["observability_prefix_matches_full_order", "equal_timestamp_stability"], "thresholds": {"maximum_work_units": 100000000, "maximum_work_growth_ratio": 24, "maximum_peak_memory_bytes": 2147483648, "maximum_memory_growth_ratio": 24, "maximum_latency_p99_ms": 60000, "maximum_latency_growth_ratio": 45}},
+        {"row_id": "G37-HP-054", "equivalence_checks": ["callsite_prefix_matches_full_set", "deduplication_exact"], "thresholds": {"maximum_work_units": 10000000, "maximum_work_growth_ratio": 24, "maximum_peak_memory_bytes": 2147483648, "maximum_memory_growth_ratio": 8, "maximum_latency_p99_ms": 60000, "maximum_latency_growth_ratio": 35}}
+      ]
+    }
+  ]
+}

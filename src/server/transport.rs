@@ -24,8 +24,127 @@ use tokio::net::UnixListener;
 use tokio::sync::{Notify, RwLock, Semaphore};
 use tracing::{error, info};
 
+use super::dispatch::dispatch_verified_request;
 use super::{dispatch, ServerState};
 use crate::protocol::{Method, Request, Response};
+
+const DEFAULT_MAX_REQUEST_FRAME_BYTES: usize = 64 * 1024 * 1024;
+const HARD_MAX_REQUEST_FRAME_BYTES: usize = 384 * 1024 * 1024;
+const DEFAULT_MAX_RESPONSE_FRAME_BYTES: usize = 64 * 1024 * 1024;
+const HARD_MAX_RESPONSE_FRAME_BYTES: usize = 384 * 1024 * 1024;
+const DEFAULT_MAX_MSGPACK_ITEMS: usize = 1_000_000;
+const HARD_MAX_MSGPACK_ITEMS: usize = 4_000_000;
+const MAX_MSGPACK_NESTING_DEPTH: usize = 64;
+const DEFAULT_CONNECTION_IO_TIMEOUT_SECS: u64 = 120;
+const DEFAULT_TLS_HANDSHAKE_TIMEOUT_SECS: u64 = 10;
+
+/// Runtime-only TLS material for the native TCP service. Certificate contents
+/// are never copied into engine configuration or logs. Supplying
+/// `client_ca_path` enables mutual TLS and requires a valid client certificate.
+#[derive(Clone, Debug)]
+pub struct TcpTlsConfig {
+    pub cert_path: String,
+    pub key_path: String,
+    pub client_ca_path: Option<String>,
+}
+
+#[cfg(feature = "server-tls")]
+fn tls_acceptor(config: &TcpTlsConfig) -> std::io::Result<tokio_rustls::TlsAcceptor> {
+    use rustls::pki_types::{pem::PemObject, CertificateDer, PrivateKeyDer};
+    use std::io::{BufReader, Error, ErrorKind};
+    use std::sync::Arc;
+
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let cert_file = std::fs::File::open(&config.cert_path).map_err(|_| {
+        Error::new(
+            ErrorKind::InvalidInput,
+            "server TLS certificate unavailable",
+        )
+    })?;
+    let certs = CertificateDer::pem_reader_iter(BufReader::new(cert_file))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| Error::new(ErrorKind::InvalidInput, "server TLS certificate invalid"))?;
+    if certs.is_empty() {
+        return Err(Error::new(
+            ErrorKind::InvalidInput,
+            "server TLS certificate invalid",
+        ));
+    }
+    let key_file = std::fs::File::open(&config.key_path).map_err(|_| {
+        Error::new(
+            ErrorKind::InvalidInput,
+            "server TLS private key unavailable",
+        )
+    })?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = key_file
+            .metadata()
+            .map_err(|_| {
+                Error::new(
+                    ErrorKind::InvalidInput,
+                    "server TLS private key unavailable",
+                )
+            })?
+            .permissions()
+            .mode();
+        if mode & 0o077 != 0 {
+            return Err(Error::new(
+                ErrorKind::PermissionDenied,
+                "server TLS private key permissions are too broad",
+            ));
+        }
+    }
+    let key = PrivateKeyDer::from_pem_reader(BufReader::new(key_file))
+        .map_err(|_| Error::new(ErrorKind::InvalidInput, "server TLS private key invalid"))?;
+
+    let builder = rustls::ServerConfig::builder();
+    let server_config = if let Some(client_ca_path) = &config.client_ca_path {
+        let ca_file = std::fs::File::open(client_ca_path)
+            .map_err(|_| Error::new(ErrorKind::InvalidInput, "client CA bundle unavailable"))?;
+        let mut roots = rustls::RootCertStore::empty();
+        for cert in CertificateDer::pem_reader_iter(BufReader::new(ca_file)) {
+            let cert =
+                cert.map_err(|_| Error::new(ErrorKind::InvalidInput, "client CA bundle invalid"))?;
+            roots
+                .add(cert)
+                .map_err(|_| Error::new(ErrorKind::InvalidInput, "client CA bundle invalid"))?;
+        }
+        if roots.is_empty() {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "client CA bundle invalid",
+            ));
+        }
+        let verifier = rustls::server::WebPkiClientVerifier::builder(Arc::new(roots))
+            .build()
+            .map_err(|_| Error::new(ErrorKind::InvalidInput, "client CA bundle invalid"))?;
+        builder
+            .with_client_cert_verifier(verifier)
+            .with_single_cert(certs, key)
+    } else {
+        builder.with_no_client_auth().with_single_cert(certs, key)
+    }
+    .map_err(|_| Error::new(ErrorKind::InvalidInput, "server TLS identity invalid"))?;
+
+    Ok(tokio_rustls::TlsAcceptor::from(Arc::new(server_config)))
+}
+
+#[cfg(not(feature = "server-tls"))]
+fn tls_acceptor(_config: &TcpTlsConfig) -> std::io::Result<()> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "native TCP TLS is unavailable in this build",
+    ))
+}
+
+/// Validate configured native-TCP identity before background listeners spawn.
+/// This makes missing/invalid TLS material a startup failure rather than leaving
+/// an otherwise healthy UDS process with a silently absent remote listener.
+pub fn validate_tcp_tls_config(config: &TcpTlsConfig) -> std::io::Result<()> {
+    tls_acceptor(config).map(|_| ())
+}
 
 /// Coordinates reference-counted graceful shutdown across the listeners and the
 /// per-connection tasks. Shared via `Arc`. `active` is the live connection count
@@ -171,6 +290,17 @@ fn encode_frame(resp: &Response) -> Vec<u8> {
     frame
 }
 
+fn encode_bounded_frame(resp: &Response, max_frame_bytes: usize) -> Vec<u8> {
+    let frame = encode_frame(resp);
+    if frame.len().saturating_sub(4) <= max_frame_bytes {
+        return frame;
+    }
+    encode_frame(&Response::err(
+        resp.id,
+        "response frame exceeds the configured resource limit",
+    ))
+}
+
 /// Per-connection in-flight cap (CONCEPT:EG-KG.backend.framed-response). Bounds how many requests ONE
 /// connection may have dispatching CONCURRENTLY, so a single client cannot spawn
 /// unbounded server tasks/memory — the global `ServerState::max_in_flight`
@@ -182,6 +312,88 @@ fn per_connection_inflight_limit() -> usize {
         .map(|n| n.get())
         .unwrap_or(4);
     (cpus * 8).clamp(64, 1024)
+}
+
+/// Bound the allocation driven by an untrusted frame prefix. The hard ceiling is
+/// large enough for the modality service's separately capped source + bundle
+/// maximum, while the lower default protects ordinary deployments. Operators that
+/// raise a modality limit must explicitly raise this transport limit too.
+fn max_request_frame_bytes() -> usize {
+    std::env::var("EPISTEMIC_GRAPH_MAX_REQUEST_BYTES")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(DEFAULT_MAX_REQUEST_FRAME_BYTES)
+        .min(HARD_MAX_REQUEST_FRAME_BYTES)
+}
+
+fn max_response_frame_bytes() -> usize {
+    std::env::var("EPISTEMIC_GRAPH_MAX_RESPONSE_BYTES")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(DEFAULT_MAX_RESPONSE_FRAME_BYTES)
+        .min(HARD_MAX_RESPONSE_FRAME_BYTES)
+}
+
+/// Bound the number of values/collection slots a MessagePack request may ask the
+/// decoder to allocate. A frame-length cap alone is insufficient: a five-byte
+/// `array32` header can declare billions of entries and some serde visitors use
+/// that untrusted size hint for preallocation before noticing the body is absent.
+fn max_msgpack_items() -> usize {
+    std::env::var("EPISTEMIC_GRAPH_MAX_MSGPACK_ITEMS")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(DEFAULT_MAX_MSGPACK_ITEMS)
+        .min(HARD_MAX_MSGPACK_ITEMS)
+}
+
+fn validate_msgpack_frame(input: &[u8], max_items: usize) -> Result<(), ()> {
+    eg_types::msgpack::validate_single_value(
+        input,
+        eg_types::msgpack::MsgpackLimits::new(input.len(), max_items, MAX_MSGPACK_NESTING_DEPTH),
+    )
+    .map_err(|_| ())
+}
+
+/// Run the same allocation-free structural preflight over MessagePack embedded
+/// inside a request's binary field. The outer frame scanner deliberately treats
+/// `bin` as opaque bytes, so handlers must call this before nested deserialization.
+pub(crate) fn validate_nested_msgpack(
+    input: &[u8],
+    max_bytes: usize,
+    max_items: usize,
+) -> Result<(), &'static str> {
+    eg_types::msgpack::validate_single_value(
+        input,
+        eg_types::msgpack::MsgpackLimits::new(
+            max_bytes,
+            max_items.min(HARD_MAX_MSGPACK_ITEMS),
+            MAX_MSGPACK_NESTING_DEPTH,
+        ),
+    )
+    .map_err(|_| "invalid or over-complex nested MessagePack payload")
+}
+
+fn connection_io_timeout() -> std::time::Duration {
+    let seconds = std::env::var("EPISTEMIC_GRAPH_CONNECTION_IO_TIMEOUT_SECS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(DEFAULT_CONNECTION_IO_TIMEOUT_SECS)
+        .clamp(1, 3_600);
+    std::time::Duration::from_secs(seconds)
+}
+
+fn tls_handshake_timeout() -> std::time::Duration {
+    let seconds = std::env::var("EPISTEMIC_GRAPH_TLS_HANDSHAKE_TIMEOUT_SECS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(DEFAULT_TLS_HANDSHAKE_TIMEOUT_SECS)
+        .clamp(1, 120);
+    std::time::Duration::from_secs(seconds)
 }
 
 /// The admission permits a request was granted (held by the dispatch task and
@@ -310,6 +522,10 @@ where
 
     let conn_limit = per_connection_inflight_limit();
     let conn_sem = Arc::new(Semaphore::new(conn_limit));
+    let max_frame_bytes = max_request_frame_bytes();
+    let max_response_bytes = max_response_frame_bytes();
+    let max_items = max_msgpack_items();
+    let io_timeout = connection_io_timeout();
 
     // The writer task: drain framed responses in completion order and write them.
     // It exits when ALL senders (the read loop's `tx` + every spawned task's clone)
@@ -319,29 +535,54 @@ where
     let (tx, mut rx) = tokio::sync::mpsc::channel::<Vec<u8>>(conn_limit + 64);
     let writer = tokio::spawn(async move {
         while let Some(frame) = rx.recv().await {
-            if write_half.write_all(&frame).await.is_err() {
+            if !matches!(
+                tokio::time::timeout(io_timeout, write_half.write_all(&frame)).await,
+                Ok(Ok(()))
+            ) {
                 break;
             }
         }
-        let _ = write_half.flush().await;
+        let _ = tokio::time::timeout(io_timeout, write_half.flush()).await;
     });
 
     loop {
         let mut len_buf = [0u8; 4];
-        if read_half.read_exact(&mut len_buf).await.is_err() {
+        if !matches!(
+            tokio::time::timeout(io_timeout, read_half.read_exact(&mut len_buf)).await,
+            Ok(Ok(_))
+        ) {
             break;
         }
         let len = u32::from_be_bytes(len_buf) as usize;
 
-        let mut payload = vec![0u8; len];
-        if read_half.read_exact(&mut payload).await.is_err() {
+        if len == 0 || len > max_frame_bytes {
+            let resp = Response::err(0, "request frame exceeds the configured resource limit");
+            let _ = tx.send(encode_frame(&resp)).await;
+            // The unread oversized body makes this connection impossible to
+            // resynchronize safely; close it without allocating or draining it.
             break;
+        }
+
+        let mut payload = vec![0u8; len];
+        if !matches!(
+            tokio::time::timeout(io_timeout, read_half.read_exact(&mut payload)).await,
+            Ok(Ok(_))
+        ) {
+            break;
+        }
+
+        if validate_msgpack_frame(&payload, max_items).is_err() {
+            let resp = Response::err(0, "invalid or over-complex request encoding");
+            if tx.send(encode_frame(&resp)).await.is_err() {
+                break;
+            }
+            continue;
         }
 
         let req: Request = match rmp_serde::from_slice(&payload) {
             Ok(r) => r,
-            Err(e) => {
-                let resp = Response::err(0, format!("Invalid request MsgPack: {}", e));
+            Err(_) => {
+                let resp = Response::err(0, "invalid request encoding");
                 if tx.send(encode_frame(&resp)).await.is_err() {
                     break;
                 }
@@ -374,13 +615,46 @@ where
         // shed request returns a typed, retryable `BUSY:` signal; an admitted one yields a
         // RAII permit the dispatch task holds until it completes. Skipped entirely (and so
         // zero-overhead / behaviour-preserving) when QoS is not configured.
+        let mut verified_qos_context = None;
         let qos_permit = if let Some(sched) = qos.as_ref() {
-            let qreq = crate::server::qos::classify(
-                &req.method,
-                &req.graph,
-                req.agent_id.as_deref(),
-                is_write,
-            );
+            // QoS owns durable in-flight counters, so it must not key them from
+            // the unsigned request `agent_id`. Verify the current envelope first,
+            // derive its privacy-safe principal scope, and pass the same context
+            // into dispatch so replay acceptance occurs exactly once.
+            let context = {
+                let server = state.read().await;
+                crate::server::auth::verify_request_with_security_dir(
+                    &server.auth_secret,
+                    &req,
+                    server.persist_dir.as_deref(),
+                )
+            };
+            let context = match context {
+                Ok(context) => context,
+                Err(error) => {
+                    crate::metrics::auth_failure();
+                    let resp = Response::err(req.id, error);
+                    drop(conn_permit);
+                    if tx.send(encode_frame(&resp)).await.is_err() {
+                        break;
+                    }
+                    continue;
+                }
+            };
+            let principal_scope = context.principal_persistence_id();
+            let qreq = match crate::server::qos::classify(&req.method, &principal_scope, is_write) {
+                Ok(request) => request,
+                Err(error) => {
+                    crate::metrics::auth_failure();
+                    let resp = Response::err(req.id, error);
+                    drop(conn_permit);
+                    if tx.send(encode_frame(&resp)).await.is_err() {
+                        break;
+                    }
+                    continue;
+                }
+            };
+            verified_qos_context = Some(context);
             match sched.try_admit(&qreq) {
                 crate::server::qos::QosDecision::Admit(p) => Some(p),
                 crate::server::qos::QosDecision::Reject(why) => {
@@ -427,8 +701,13 @@ where
         let task_tx = tx.clone();
         let task_sem = sem.clone();
         tokio::spawn(async move {
-            let resp = dispatch(&task_state, req).await;
-            let _ = task_tx.send(encode_frame(&resp)).await;
+            let resp = match verified_qos_context {
+                Some(context) => dispatch_verified_request(&task_state, req, context).await,
+                None => dispatch(&task_state, req).await,
+            };
+            let _ = task_tx
+                .send(encode_bounded_frame(&resp, max_response_bytes))
+                .await;
             drop(read_permit);
             drop(pg_permit);
             drop(g_permit);
@@ -470,7 +749,9 @@ pub async fn serve_uds(
     // Remove stale socket file.
     let _ = std::fs::remove_file(socket_path);
     let listener = UnixListener::bind(socket_path)?;
-    info!("Listening on UDS: {}", socket_path);
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(socket_path, std::fs::Permissions::from_mode(0o600))?;
+    info!("Listening on a private Unix domain socket");
 
     loop {
         // Latch check at the TOP catches a trigger() that fired between iterations
@@ -499,7 +780,7 @@ pub async fn serve_uds(
                     });
                 }
                 Err(e) => {
-                    error!("Accept error: {}", e);
+                    error!("UDS accept error ({:?})", e.kind());
                 }
             }
         }
@@ -513,9 +794,31 @@ pub async fn serve_tcp(
     addr: &str,
     state: Arc<RwLock<ServerState>>,
     coord: Arc<ShutdownCoordinator>,
+    tls: Option<TcpTlsConfig>,
 ) -> std::io::Result<()> {
+    #[cfg(feature = "server-tls")]
+    let acceptor = tls.as_ref().map(tls_acceptor).transpose()?;
+    #[cfg(not(feature = "server-tls"))]
+    let acceptor = {
+        if let Some(config) = tls.as_ref() {
+            tls_acceptor(config)?;
+        }
+        None::<()>
+    };
     let listener = TcpListener::bind(addr).await?;
-    info!("Listening on TCP: {}", addr);
+    if !listener.local_addr()?.ip().is_loopback() && acceptor.is_none() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "non-loopback native TCP requires TLS",
+        ));
+    }
+    info!(
+        "Listening on native TCP (tls={}, mtls={})",
+        acceptor.is_some(),
+        tls.as_ref()
+            .and_then(|value| value.client_ca_path.as_ref())
+            .is_some()
+    );
 
     loop {
         if coord.is_requested() {
@@ -530,17 +833,28 @@ pub async fn serve_tcp(
                 break;
             }
             accepted = listener.accept() => match accepted {
-                Ok((stream, addr)) => {
-                    info!("TCP connection from {}", addr);
+                Ok((stream, _peer_addr)) => {
                     let state = state.clone();
                     let guard = ConnGuard::new(coord.clone());
+                    #[cfg(feature = "server-tls")]
+                    let connection_acceptor = acceptor.clone();
                     tokio::spawn(async move {
                         let _guard = guard; // dropped when the connection ends
+                        #[cfg(feature = "server-tls")]
+                        if let Some(connection_acceptor) = connection_acceptor {
+                            if let Ok(Ok(stream)) = tokio::time::timeout(
+                                tls_handshake_timeout(),
+                                connection_acceptor.accept(stream),
+                            ).await {
+                                handle_connection(stream, state).await;
+                            }
+                            return;
+                        }
                         handle_connection(stream, state).await;
                     });
                 }
                 Err(e) => {
-                    error!("Accept error: {}", e);
+                    error!("TCP accept error ({:?})", e.kind());
                 }
             }
         }
@@ -593,6 +907,42 @@ mod tests {
             (64..=1024).contains(&n),
             "per-conn cap {n} out of [64,1024]"
         );
+    }
+
+    #[test]
+    fn request_frame_allocation_has_a_hard_ceiling() {
+        let limit = max_request_frame_bytes();
+        assert!(limit > 0);
+        assert!(limit <= HARD_MAX_REQUEST_FRAME_BYTES);
+    }
+
+    #[test]
+    fn msgpack_preflight_rejects_declared_allocation_bombs() {
+        // array32 declares 2^32-1 values while carrying no body. The preflight
+        // rejects it without allocating from the untrusted hint.
+        assert!(validate_msgpack_frame(&[0xdd, 0xff, 0xff, 0xff, 0xff], 1_000).is_err());
+        assert!(validate_msgpack_frame(&[0xdc, 0x00, 0x02, 0xc0], 1_000).is_err());
+
+        let three_nils = [0x93, 0xc0, 0xc0, 0xc0];
+        assert!(validate_msgpack_frame(&three_nils, 3).is_err());
+        assert!(validate_msgpack_frame(&three_nils, 4).is_ok());
+    }
+
+    #[test]
+    fn msgpack_preflight_bounds_depth_and_requires_exact_frame() {
+        let mut nested = vec![0x91; MAX_MSGPACK_NESTING_DEPTH + 1];
+        nested.push(0xc0);
+        assert!(validate_msgpack_frame(&nested, 1_000).is_err());
+
+        let valid = rmp_serde::to_vec(&serde_json::json!({
+            "method": "Ping",
+            "values": [1, 2, 3]
+        }))
+        .unwrap();
+        assert!(validate_msgpack_frame(&valid, 1_000).is_ok());
+        let mut trailing = valid;
+        trailing.push(0xc0);
+        assert!(validate_msgpack_frame(&trailing, 1_000).is_err());
     }
 
     #[test]

@@ -31,8 +31,7 @@
 //! A new wire lives in its own module (e.g. `src/server/mysqlwire/`) and:
 //!   1. Holds an `Arc<WireSession>` (built with [`WireSession::new`]).
 //!   2. Runs its own listener + protocol handshake + auth, mapping the authenticated
-//!      identity to an engine actor (pass `auth_maps_actor = true` when the handshake
-//!      authenticated a real identity; `false` for a trust/dev path).
+//!      identity to an engine actor. A request cannot execute until that binding exists.
 //!   3. On each statement: (optionally) substitute its own parameter form into a
 //!      literal SQL string, then call [`WireProtocol::execute`] and encode the
 //!      returned [`WireOutcome`] / [`WireError`] into its own wire bytes.
@@ -55,6 +54,8 @@ use eg_query::{
 };
 
 use crate::isolation::AccessLevel;
+use crate::protocol::Request;
+use crate::server::access::CarrierAuthority;
 use crate::server::ServerState;
 
 // ── wire-neutral currency ────────────────────────────────────────────────────
@@ -140,12 +141,13 @@ pub trait WireProtocol: Send + Sync {
     fn current_graph(&self) -> String;
     /// Whether a multi-statement transaction is currently open.
     fn in_txn(&self) -> bool;
-    /// The authenticated actor (engine `agent_id`) for this connection, or `None`
-    /// for an anonymous (trust) connection.
+    /// The authenticated actor (engine `agent_id`) for this connection. `None`
+    /// is observable only while the transport object is still unbound; execution
+    /// rejects that state before admission, ACL evaluation, or data access.
     fn actor(&self) -> Option<String>;
-    /// One-time: latch the connection's startup identity (`user`) and target graph
-    /// (`database`) from the wire's handshake metadata (see
-    /// [`WireSession::resolve_startup`] for the priority rules). Idempotent.
+    /// One-time: latch the target graph (`database`) from handshake metadata.
+    /// Identity is bound separately, and only after the protocol's cryptographic
+    /// authentication succeeds. Idempotent.
     fn resolve_startup(&self, user: Option<String>, database: Option<String>);
     /// Execute one COMPLETE literal SQL statement (any wire-specific parameter form
     /// already substituted) through the shared classify → dispatch → exec pipeline,
@@ -173,16 +175,6 @@ pub(crate) fn aborted_txn_err() -> WireError {
         message: "current transaction is aborted, commands ignored until end of transaction block"
             .to_owned(),
     }
-}
-
-// ── shared user-table helpers ─────────────────────────────────────────────────
-
-/// The shared user-table store, opening it on first use (CONCEPT:EG-KG.query.register-user-tables-alongside). Delegates to
-/// the process-wide `crate::server::sql_tables` singleton (CONCEPT:EG-KG.query.mirrors-pgwire) so every
-/// wire and the wire `Method::Sql` DDL/DML path open the SAME redb file exactly once —
-/// redb permits one handle per file per process, so they MUST share.
-pub(crate) fn user_table_store() -> WireResult<TableStore> {
-    crate::server::sql_tables::user_table_store().map_err(user_err)
 }
 
 /// Resolve a classify `ColumnDef` (raw SQL type spelling) into a store [`Column`].
@@ -367,8 +359,7 @@ impl CopyState {
 }
 
 /// The buffered graph-node ops of an OPEN wire transaction (CONCEPT:EG-KG.compute.kg-transaction-is-pinned).
-/// Applied as ONE atomic in-memory batch (under a single `GraphCore::txn`) and
-/// recorded as ONE durable group at `COMMIT`; dropped on `ROLLBACK`.
+/// Compiled into one authoritative `MutationBatch` at `COMMIT`; dropped on `ROLLBACK`.
 #[derive(Default)]
 struct GraphTxnBuffer {
     ops: Vec<NodeOp>,
@@ -376,8 +367,8 @@ struct GraphTxnBuffer {
 
 /// One buffered graph-node mutation inside an open wire transaction
 /// (CONCEPT:EG-KG.compute.kg-transaction-is-pinned). Resolved (against a read-your-own-writes overlaid snapshot)
-/// at statement time and replayed at `COMMIT`. Carries exactly what both the
-/// in-memory replay (`GraphCore::txn`) and the durable `Method` need.
+/// at statement time and compiled at `COMMIT`. Carries exactly what the RYOW
+/// overlay and canonical durable `Method` need.
 enum NodeOp {
     /// `AddNode` — `blob` is the MessagePack-encoded property object.
     Add { id: String, blob: Vec<u8> },
@@ -439,26 +430,25 @@ pub struct WireSession {
     /// session `Send + Sync` without an async lock on the (synchronous) SET path.
     graph: parking_lot::Mutex<String>,
     /// False until the first query resolves the connection's target from the wire's
-    /// startup metadata (priority 1). The session is built before startup, so the
-    /// startup identity is only readable once the first query arrives — at which
-    /// point this latches the graph (unless an explicit `SET graph` already chose one).
+    /// startup metadata (priority 1). The session is built before startup, so this
+    /// latches the graph once metadata is available (unless an explicit `SET graph`
+    /// already chose one).
     startup_resolved: std::sync::atomic::AtomicBool,
     /// The authenticated actor (engine `agent_id`) for this connection
-    /// (CONCEPT:EG-KG.query.concept-13). `None` = anonymous (trust mode / no auth). Latched once
-    /// from the wire's startup `user` AFTER auth has succeeded. Every graph access
-    /// then enforces the engine ACL under this actor.
+    /// (CONCEPT:EG-KG.query.concept-13). `None` means no authenticated wire identity
+    /// has been mapped. Latched only from a verified request or the server-owned
+    /// authority produced after a native wire cryptographic proof succeeds.
     actor: parking_lot::Mutex<Option<String>>,
-    /// Whether the wire's handshake authenticated a real identity (so the startup
-    /// `user` should be adopted as the ACL actor). `false` for a trust/dev path,
-    /// where the actor stays anonymous (back-compat single-tenant behavior).
-    auth_maps_actor: bool,
+    /// Opaque tenant/principal authority derived from a current signed request or
+    /// from a server-owned native SQL proxy context after cryptographic login.
+    authority: parking_lot::Mutex<Option<CarrierAuthority>>,
     /// The OPEN multi-statement transaction's buffered user-table ops (CONCEPT:EG-KG.query.register-each-user-table),
     /// or `None` when no `BEGIN` is active. `COMMIT` applies the buffer in ONE redb
     /// write txn; `ROLLBACK` drops it. Scoped per connection.
     txn: parking_lot::Mutex<Option<TableTxn>>,
-    /// The OPEN transaction's buffered GRAPH-NODE ops (CONCEPT:EG-KG.compute.kg-transaction-is-pinned), applied as
-    /// ONE atomic in-memory batch at `COMMIT` (parallel to the user-table `txn`
-    /// buffer). Empty when no `BEGIN` is active or the txn touched no nodes.
+    /// The OPEN transaction's buffered GRAPH-NODE ops (CONCEPT:EG-KG.compute.kg-transaction-is-pinned), committed as
+    /// one authoritative MutationBatch before RAM publication. Empty when no
+    /// `BEGIN` is active or the txn touched no nodes.
     graph_txn: parking_lot::Mutex<GraphTxnBuffer>,
     /// The graph a mixed-store transaction is pinned to, captured at `BEGIN`
     /// (CONCEPT:EG-KG.compute.kg-transaction-is-pinned / KG-2.207): a txn stays within ONE graph / redb shard, so
@@ -483,20 +473,15 @@ pub struct WireSession {
 
 impl WireSession {
     /// Build a fresh per-connection session. `default_graph` is the graph a new
-    /// connection runs against until `SET graph`/startup override it; `auth_maps_actor`
-    /// is `true` when the wire's handshake authenticated a real identity (so the
-    /// startup `user` becomes the ACL actor).
-    pub fn new(
-        state: Arc<RwLock<ServerState>>,
-        default_graph: String,
-        auth_maps_actor: bool,
-    ) -> Self {
+    /// connection runs against until `SET graph`/startup overrides it. The session
+    /// remains unusable until the wire binds an authenticated actor.
+    pub fn new(state: Arc<RwLock<ServerState>>, default_graph: String) -> Self {
         Self {
             state,
             graph: parking_lot::Mutex::new(default_graph),
             startup_resolved: std::sync::atomic::AtomicBool::new(false),
             actor: parking_lot::Mutex::new(None),
-            auth_maps_actor,
+            authority: parking_lot::Mutex::new(None),
             txn: parking_lot::Mutex::new(None),
             graph_txn: parking_lot::Mutex::new(GraphTxnBuffer::default()),
             txn_graph: parking_lot::Mutex::new(None),
@@ -505,6 +490,186 @@ impl WireSession {
             #[cfg(feature = "query")]
             xmodal: parking_lot::Mutex::new(XmodalStaged::default()),
         }
+    }
+
+    /// Verify and bind a current signed request for an auxiliary SQL carrier.
+    /// The first request fixes the connection actor; later requests must carry
+    /// the same verified actor and current graph.
+    pub(crate) async fn authenticate_request(&self, request: &Request) -> WireResult<()> {
+        let (secret, persist_dir) = {
+            let state = self.state.read().await;
+            (state.auth_secret.clone(), state.persist_dir.clone())
+        };
+        let context = crate::server::auth::verify_request_with_security_dir(
+            &secret,
+            request,
+            persist_dir.as_deref(),
+        )
+        .map_err(|message| {
+            crate::metrics::auth_failure();
+            WireError {
+                code: "28000".to_string(),
+                message,
+            }
+        })?;
+        let verified_authority = CarrierAuthority::from_verified(&context).map_err(|message| {
+            crate::metrics::access_denied();
+            WireError {
+                code: "28000".to_string(),
+                message,
+            }
+        })?;
+
+        let policy = eg_capabilities::policy(&request.method);
+        if !context.allows_method(policy.authz_action, policy.mutates) {
+            crate::metrics::access_denied();
+            return Err(WireError {
+                code: "42501".to_string(),
+                message: format!(
+                    "verified request context lacks required scope '{}'",
+                    policy.authz_action
+                ),
+            });
+        }
+        if request.graph != self.current_graph() {
+            return Err(WireError {
+                code: "3D000".to_string(),
+                message: "signed request graph does not match the connection graph".to_string(),
+            });
+        }
+
+        let verified_actor = context.agent_id();
+        self.bind_authority(verified_authority, verified_actor)
+    }
+
+    /// Bind the server-owned carrier for a native SQL connection after its
+    /// protocol adapter has verified the mandatory SCRAM/HMAC password proof.
+    pub(crate) async fn bind_authenticated_sql_actor(
+        &self,
+        protocol: &str,
+        actor: &str,
+    ) -> WireResult<()> {
+        let secret = self.state.read().await.auth_secret.clone();
+        let context = crate::server::auth::VerifiedRequestContext::authenticated_sql_wire_actor(
+            &secret, protocol, actor,
+        )
+        .map_err(|message| WireError {
+            code: "28000".to_string(),
+            message,
+        })?;
+        let authority = CarrierAuthority::from_verified(&context).map_err(|message| WireError {
+            code: "28000".to_string(),
+            message,
+        })?;
+        self.bind_authority(authority, context.agent_id())
+    }
+
+    fn bind_authority(
+        &self,
+        verified_authority: CarrierAuthority,
+        verified_actor: &str,
+    ) -> WireResult<()> {
+        if verified_actor.trim().is_empty() {
+            crate::metrics::access_denied();
+            return Err(WireError {
+                code: "28000".to_string(),
+                message: "verified wire identity is required".to_string(),
+            });
+        }
+        {
+            let mut authority = self.authority.lock();
+            match authority.as_ref() {
+                Some(bound) if bound != &verified_authority => {
+                    return Err(WireError {
+                        code: "28000".to_string(),
+                        message: "verified authority cannot change within a connection".to_string(),
+                    })
+                }
+                Some(_) => {}
+                None => *authority = Some(verified_authority),
+            }
+        }
+        let mut actor = self.actor.lock();
+        match actor.as_deref() {
+            Some(bound) if bound != verified_actor => Err(WireError {
+                code: "28000".to_string(),
+                message: "verified actor cannot change within a connection".to_string(),
+            }),
+            Some(_) => Ok(()),
+            None => {
+                *actor = Some(verified_actor.to_string());
+                Ok(())
+            }
+        }
+    }
+
+    fn carrier_authority(&self) -> WireResult<CarrierAuthority> {
+        self.authority.lock().clone().ok_or_else(|| WireError {
+            code: "28000".to_string(),
+            message: "current signed tenant authority is required".to_string(),
+        })
+    }
+
+    /// Resolve the actor bound by the same verified authority as the carrier.
+    /// Transport sessions may exist before authentication, but no stateful
+    /// operation may turn that absence into an empty ACL identity.
+    fn verified_actor(&self) -> WireResult<String> {
+        self.carrier_authority()?;
+        self.actor
+            .lock()
+            .as_deref()
+            .filter(|actor| !actor.trim().is_empty())
+            .map(str::to_owned)
+            .ok_or_else(|| WireError {
+                code: "28000".to_string(),
+                message: "verified wire identity is required".to_string(),
+            })
+    }
+
+    #[cfg(feature = "security")]
+    async fn filter_view_for_verified_actor(
+        &self,
+        view: &mut crate::graph::GraphView,
+    ) -> WireResult<()> {
+        let actor = self.verified_actor()?;
+        self.state.read().await.isolation.filter_view(&actor, view);
+        Ok(())
+    }
+
+    /// Resolve this connection's owner-scoped SQL catalog.  A verified carrier and
+    /// the served engine's configured persistence directory are both mandatory.
+    pub(crate) async fn user_table_store(&self) -> WireResult<TableStore> {
+        let authority = self.carrier_authority()?;
+        let persist_dir = self.state.read().await.persist_dir.clone();
+        crate::server::sql_tables::user_table_store(
+            &authority,
+            persist_dir.as_deref().map(std::path::Path::new),
+        )
+        .map_err(user_err)
+    }
+
+    /// Commit a decoded native-wire COPY batch through the same owner-scoped
+    /// SQL MutationBatch kernel as ordinary table DML.
+    pub(crate) async fn commit_copy_rows(
+        &self,
+        table: String,
+        columns: Vec<String>,
+        rows: Vec<Vec<serde_json::Value>>,
+    ) -> WireResult<usize> {
+        let count = rows.len();
+        let operation = TxnOp::Insert {
+            table,
+            col_order: columns,
+            rows,
+        };
+        if self.in_txn() {
+            self.buffer(operation);
+            return Ok(count);
+        }
+        let mut txn = TableTxn::new();
+        txn.push(operation);
+        let graph = self.current_graph();
+        self.commit_table_txn(&graph, "COPY", txn).await
     }
 
     /// Buffer a user-table op into the open transaction (panics if none open — callers
@@ -618,31 +783,20 @@ impl WireSession {
         }
     }
 
-    /// Enforce the engine ACL for this connection's actor against `graph` at the
-    /// requested `access` level (CONCEPT:EG-KG.query.concept-13). Reuses the SAME
-    /// `IsolationLayer::check_access` the engine's MessagePack dispatch uses, with
-    /// the same back-compat invariant: while NO identities are registered the layer
-    /// has no rules and everything is allowed (single-tenant / trust deployments are
-    /// unchanged). Once rules exist, an authenticated user is mapped to its `agent_id`
-    /// and peer-graph isolation / team scoping / manager reach all apply exactly as
-    /// they do over the native protocol. An anonymous (trust) connection is treated as
-    /// the empty actor — denied any graph that has rules beyond the open
-    /// `__commons__`/global-read, matching native-anonymous behavior.
+    /// Enforce the engine ACL for this connection's authenticated actor against
+    /// `graph` at the requested `access` level (CONCEPT:EG-KG.query.concept-13).
+    /// Unbound and unprovisioned actors are denied.
     async fn check_access(&self, graph: &str, access: AccessLevel) -> WireResult<()> {
-        let actor = self.actor();
+        let actor = self.verified_actor()?;
         let s = self.state.read().await;
-        if !s.isolation.has_rules() {
-            return Ok(());
-        }
         let (graph_type, owner) = match s.registry.get(graph) {
             Some(e) => (e.graph_type, e.owner.clone()),
             // A missing graph is reported by the caller's own resolve; allow here so
             // the not-found error surfaces instead of a misleading ACCESS_DENIED.
             None => return Ok(()),
         };
-        let agent = actor.as_deref().unwrap_or("");
         if s.isolation
-            .check_access(agent, graph, graph_type, owner.as_deref(), access)
+            .check_access(&actor, graph, graph_type, owner.as_deref(), access)
         {
             Ok(())
         } else {
@@ -650,40 +804,79 @@ impl WireSession {
             Err(WireError {
                 // 42501 — insufficient_privilege (what a real pg ACL denial reports).
                 code: "42501".to_owned(),
-                message: format!(
-                    "permission denied for graph '{}' (agent '{}', {:?})",
-                    graph,
-                    if agent.is_empty() {
-                        "<anonymous>"
-                    } else {
-                        agent
-                    },
-                    access
-                ),
+                message: format!("permission denied for requested graph access ({access:?})"),
             })
         }
     }
 
     /// Execute a read (`SELECT`/`WITH`/…) over `graph` by reusing the EXACT
     /// DataFusion path `Method::Sql` uses: take the owned off-lock
-    /// `analysis_snapshot()` and run `eg_query::exec_sql_typed` on the blocking
-    /// pool (DataFusion's executor must not run on a reactor worker).
+    /// `analysis_snapshot()` and run the served, context-cached SQL exec on the
+    /// blocking pool (DataFusion's executor must not run on a reactor worker).
     pub(crate) async fn run_read(&self, graph: &str, sql: String) -> WireResult<TypedQueryResult> {
         let core = self.graph_core(graph).await?;
-        let mut snap = core.analysis_snapshot();
+        // `analysis_snapshot_versioned` (not the bare `analysis_snapshot`) so the OCC
+        // version keying the served context cache below is taken ATOMICALLY with the
+        // snapshot it describes.
+        let (mut snap, graph_version) = core.analysis_snapshot_versioned();
+        let in_txn = self.in_txn();
         // CONCEPT:EG-KG.compute.kg-transaction-is-pinned — read-your-own-writes: overlay this connection's buffered
         // graph-node ops onto the snapshot so a SELECT (or a candidate-id / RETURNING
         // read) issued INSIDE an open transaction observes the transaction's own
         // uncommitted inserts/updates/deletes. Off-txn reads are byte-for-byte
         // unchanged (the buffer is empty).
-        if self.in_txn() {
+        if in_txn {
             self.apply_node_buffer(&mut snap);
         }
+        #[cfg(feature = "security")]
+        self.filter_view_for_verified_actor(&mut snap).await?;
         // CONCEPT:EG-KG.query.register-user-tables-alongside: register the user tables alongside the graph projection so a
         // SELECT can read a user table, JOIN it to `nodes`/`edges`, or both in ONE plan.
-        let store = user_table_store()?;
+        let store = self.user_table_store().await?;
+
+        // An in-txn overlaid snapshot carries THIS connection's own buffered
+        // (uncommitted) writes — content [`SqlContextEpoch`] cannot see (staged
+        // writes don't bump `version()`), so it must never be served from, or land
+        // in, the shared served context cache. Mirrors the identical precedent
+        // `run_unified_overlaid`'s result-cache skip already sets: "no result cache
+        // on this path". Off-txn (the overwhelming common case) uses the amortized
+        // cached path below.
+        if in_txn {
+            return tokio::task::spawn_blocking(move || {
+                eg_query::exec_sql_typed_with_tables(&snap, &store, &sql)
+            })
+            .await
+            .map_err(|e| user_err(format!("query task failed: {e}")))?
+            .map_err(|msg| user_err(format!("SQL error: {msg}")));
+        }
+
+        // CONCEPT:EG-KG.query.served-context-cache — the whole-`SessionContext` cache (UDFs, durable
+        // views, synthesized system catalogs), amortized across every served SQL read
+        // for this owner. Same registry `sql_tables::sql_context_cache` resolves by
+        // as `user_table_store` above, so repeated reads from the SAME tenant+actor
+        // reuse the SAME instance.
+        let authority = self.carrier_authority()?;
+        let tenant_scope = authority.tenant_scope().to_string();
+        let caller = self.verified_actor()?;
+        let graph_owned = graph.to_string();
+        let persist_dir = self.state.read().await.persist_dir.clone();
+        let cache = crate::server::sql_tables::sql_context_cache(
+            &authority,
+            persist_dir.as_deref().map(std::path::Path::new),
+        )
+        .map_err(user_err)?;
         tokio::task::spawn_blocking(move || {
-            eg_query::exec_sql_typed_with_tables(&snap, &store, &sql)
+            eg_query::exec_sql_typed_with_tables_cached_cancellable(
+                &snap,
+                graph_version,
+                &tenant_scope,
+                &graph_owned,
+                &caller,
+                &store,
+                &cache,
+                &sql,
+                &eg_query::CancellationToken::new(),
+            )
         })
         .await
         .map_err(|e| user_err(format!("query task failed: {e}")))?
@@ -717,6 +910,8 @@ impl WireSession {
         let core = self.graph_core(graph).await?;
         let mut view = core.analysis_snapshot();
         self.apply_node_buffer(&mut view);
+        #[cfg(feature = "security")]
+        self.filter_view_for_verified_actor(&mut view).await?;
         Ok(view)
     }
 
@@ -747,15 +942,12 @@ impl WireSession {
             StatementKind::CreateTable(plan) if in_txn => {
                 let columns = to_store_columns(&plan.columns)?;
                 self.buffer(TxnOp::CreateTable {
-                    schema: TableSchema {
-                        name: plan.name,
-                        columns,
-                    },
+                    schema: TableSchema::new(plan.name, columns),
                     if_not_exists: plan.if_not_exists,
                 });
                 Ok(WireOutcome::command("CREATE TABLE"))
             }
-            StatementKind::CreateTable(plan) => self.run_create_table(plan).await,
+            StatementKind::CreateTable(plan) => self.run_create_table(graph, sql, plan).await,
             StatementKind::DropTable(plan) if in_txn => {
                 self.buffer(TxnOp::DropTable {
                     name: plan.name,
@@ -763,13 +955,13 @@ impl WireSession {
                 });
                 Ok(WireOutcome::command("DROP TABLE"))
             }
-            StatementKind::DropTable(plan) => self.run_drop_table(plan).await,
+            StatementKind::DropTable(plan) => self.run_drop_table(graph, sql, plan).await,
             // CONCEPT:EG-KG.query.register-user-tables-alongside ADD COLUMN + CONCEPT:EG-KG.query.rename-table-moves-catalog the rest — staged into the txn.
             StatementKind::AlterTable(plan) if in_txn => {
                 self.buffer(alter_txn_op(plan)?);
                 Ok(WireOutcome::command("ALTER TABLE"))
             }
-            StatementKind::AlterTable(plan) => self.run_alter_table(plan).await,
+            StatementKind::AlterTable(plan) => self.run_alter_table(graph, sql, plan).await,
             StatementKind::InsertTable(ins) if in_txn => {
                 let n = ins.rows.len();
                 self.buffer(TxnOp::Insert {
@@ -779,7 +971,7 @@ impl WireSession {
                 });
                 Ok(WireOutcome::command_rows("INSERT", n))
             }
-            StatementKind::InsertTable(ins) => self.run_insert_table(ins).await,
+            StatementKind::InsertTable(ins) => self.run_insert_table(graph, sql, ins).await,
             StatementKind::InsertSelect(ins) if in_txn => {
                 // The SELECT half is a read (runs immediately); only the INSERT is
                 // buffered into the transaction.
@@ -799,7 +991,7 @@ impl WireSession {
                 });
                 Ok(WireOutcome::command_rows("INSERT", n))
             }
-            StatementKind::InsertSelect(ins) => self.run_insert_select(graph, ins).await,
+            StatementKind::InsertSelect(ins) => self.run_insert_select(graph, sql, ins).await,
             StatementKind::UpdateTable(upd) if in_txn => {
                 self.buffer(TxnOp::Update {
                     table: upd.table,
@@ -808,7 +1000,7 @@ impl WireSession {
                 });
                 Ok(WireOutcome::command("UPDATE"))
             }
-            StatementKind::UpdateTable(upd) => self.run_update_table(upd).await,
+            StatementKind::UpdateTable(upd) => self.run_update_table(graph, sql, upd).await,
             StatementKind::DeleteTable(del) if in_txn => {
                 self.buffer(TxnOp::Delete {
                     table: del.table,
@@ -816,7 +1008,7 @@ impl WireSession {
                 });
                 Ok(WireOutcome::command("DELETE"))
             }
-            StatementKind::DeleteTable(del) => self.run_delete_table(del).await,
+            StatementKind::DeleteTable(del) => self.run_delete_table(graph, sql, del).await,
             // CONCEPT:EG-KG.query.insert-into-nodes-select — INSERT INTO nodes … SELECT (facade dispatch).
             StatementKind::InsertNodesSelect(ins) if in_txn => {
                 self.buffer_insert_nodes_select(graph, sql, ins).await
@@ -838,28 +1030,98 @@ impl WireSession {
                 self.run_delete_nodes_join(graph, sql, del).await
             }
             // CONCEPT:EG-KG.query.create-drop-view — CREATE/DROP VIEW over the durable view catalog.
-            StatementKind::CreateView(plan) => self.run_create_view(plan).await,
-            StatementKind::DropView(plan) => self.run_drop_view(plan).await,
+            StatementKind::CreateView(plan) if in_txn => {
+                self.buffer(TxnOp::CreateView {
+                    name: plan.name,
+                    select_sql: plan.select_sql,
+                    or_replace: plan.or_replace,
+                });
+                Ok(WireOutcome::command("CREATE VIEW"))
+            }
+            StatementKind::CreateView(plan) => self.run_create_view(graph, sql, plan).await,
+            StatementKind::DropView(plan) if in_txn => {
+                self.buffer(TxnOp::DropView {
+                    name: plan.name,
+                    if_exists: plan.if_exists,
+                });
+                Ok(WireOutcome::command("DROP VIEW"))
+            }
+            StatementKind::DropView(plan) => self.run_drop_view(graph, sql, plan).await,
             // CONCEPT:EG-KG.query.create-drop-extension-over — CREATE/DROP EXTENSION over the durable extension catalog.
             StatementKind::CreateExtension {
                 name,
                 if_not_exists,
-            } => self.run_create_extension(name, if_not_exists).await,
+            } if in_txn => {
+                self.buffer(TxnOp::CreateExtension {
+                    name,
+                    if_not_exists,
+                });
+                Ok(WireOutcome::command("CREATE EXTENSION"))
+            }
+            StatementKind::CreateExtension {
+                name,
+                if_not_exists,
+            } => {
+                self.run_create_extension(graph, sql, name, if_not_exists)
+                    .await
+            }
+            StatementKind::DropExtension { name, if_exists } if in_txn => {
+                self.buffer(TxnOp::DropExtension { name, if_exists });
+                Ok(WireOutcome::command("DROP EXTENSION"))
+            }
             StatementKind::DropExtension { name, if_exists } => {
-                self.run_drop_extension(name, if_exists).await
+                self.run_drop_extension(graph, sql, name, if_exists).await
             }
             // CONCEPT:EG-KG.query.create-drop-function — CREATE/DROP FUNCTION over the durable function catalog.
-            StatementKind::CreateFunction(plan) => self.run_create_function(plan).await,
-            StatementKind::DropFunction(plan) => self.run_drop_function(plan).await,
+            StatementKind::CreateFunction(plan) if in_txn => {
+                self.buffer(TxnOp::CreateFunction {
+                    function: plan.func,
+                    or_replace: plan.or_replace,
+                });
+                Ok(WireOutcome::command("CREATE FUNCTION"))
+            }
+            StatementKind::CreateFunction(plan) => self.run_create_function(graph, sql, plan).await,
+            StatementKind::DropFunction(plan) if in_txn => {
+                self.buffer(TxnOp::DropFunction {
+                    name: plan.name,
+                    if_exists: plan.if_exists,
+                });
+                Ok(WireOutcome::command("DROP FUNCTION"))
+            }
+            StatementKind::DropFunction(plan) => self.run_drop_function(graph, sql, plan).await,
             // ── Postgres-family extension parity (wave 19) ──────────────────────────
             // CONCEPT:EG-KG.query.postgres-family-extension-plan — Apache AGE cypher() set-returning function.
             StatementKind::CypherCall(plan) => self.run_cypher_call(graph, plan).await,
             // CONCEPT:EG-KG.query.real-ann-top-k — pgvector ANN index registration.
-            StatementKind::CreateAnnIndex(plan) => self.run_create_ann_index(plan).await,
+            StatementKind::CreateAnnIndex(plan) if in_txn => {
+                self.buffer(TxnOp::PutAnnIndex { plan });
+                Ok(WireOutcome::command("CREATE INDEX"))
+            }
+            StatementKind::CreateAnnIndex(plan) => {
+                self.run_create_ann_index(graph, sql, plan).await
+            }
             // CONCEPT:EG-KG.query.continuous-aggregate-lowering — TimescaleDB hypertable + continuous aggregate.
-            StatementKind::CreateHypertable(plan) => self.run_create_hypertable(plan).await,
+            StatementKind::CreateHypertable(plan) if in_txn => {
+                let text = format!("public.{}", plan.table);
+                self.buffer(TxnOp::PutHypertable { plan });
+                Ok(WireOutcome::Rows(single_text_result(
+                    "create_hypertable",
+                    &text,
+                )))
+            }
+            StatementKind::CreateHypertable(plan) => {
+                self.run_create_hypertable(graph, sql, plan).await
+            }
+            StatementKind::CreateContinuousAggregate(plan) if in_txn => {
+                self.buffer(TxnOp::CreateView {
+                    name: plan.name,
+                    select_sql: plan.select_sql,
+                    or_replace: true,
+                });
+                Ok(WireOutcome::command("CREATE MATERIALIZED VIEW"))
+            }
             StatementKind::CreateContinuousAggregate(plan) => {
-                self.run_create_continuous_aggregate(plan).await
+                self.run_create_continuous_aggregate(graph, sql, plan).await
             }
             // `COPY … FROM STDIN` (CONCEPT:EG-KG.query.register-each-user-table): switch into copy-in mode; the
             // streamed rows are ingested by the wire's copy-done hook.
@@ -871,22 +1133,12 @@ impl WireSession {
         }
     }
 
-    /// `COMMIT` a MIXED-STORE wire transaction (CONCEPT:EG-KG.compute.kg-transaction-is-pinned). The open txn may
-    /// have buffered BOTH graph-node ops (into `graph_txn`) and user-table ops (into
-    /// `txn`). This commits them best-effort ORDERED across the two stores (NOT 2PC):
-    ///
-    ///   (a) replay the buffered node ops as ONE atomic in-memory batch under a single
-    ///       `GraphCore::txn`, then record them as ONE durable group
-    ///       ([`WireSession::record_durable_batch`] — commit-before-ack under
-    ///       redb-authoritative, else folded into the write-behind writer's group
-    ///       commit), THEN
-    ///   (b) commit the user-table `TableTxn` in ONE redb write transaction.
-    ///
-    /// Each store commits atomically WITHIN itself. The two are SEQUENCED, so there is
-    /// a narrow cross-store partial-failure window: if (a) succeeds but (b) fails, the
-    /// graph ops are durable while the table ops are not (the error is returned and the
-    /// txn ends). This window is documented in `docs/service_mode.md` and the pgwire
-    /// module header. On any error the whole COMMIT returns an error.
+    /// `COMMIT` a wire transaction (CONCEPT:EG-KG.compute.kg-transaction-is-pinned).
+    /// A transaction belongs to exactly one authoritative durability domain: graph
+    /// and cross-modal operations commit through the graph MutationBatch kernel;
+    /// user-table/catalog operations commit through the SQL MutationBatch kernel.
+    /// A transaction that mixes those two independent redb authorities is rejected
+    /// before either commits, eliminating the former partial-commit window.
     ///
     /// An aborted transaction (a statement inside it errored, CONCEPT:EG-KG.compute.kg-transaction-is-pinned) commits
     /// as a ROLLBACK — nothing is applied. A `COMMIT` with no open transaction is a
@@ -914,6 +1166,15 @@ impl WireSession {
             return Ok(WireOutcome::TxnEnd { tag: "COMMIT" });
         }
 
+        let has_table_ops = table_txn
+            .as_ref()
+            .is_some_and(|transaction| !transaction.ops.is_empty());
+        if has_table_ops && (!node_ops.is_empty() || has_xmodal) {
+            return Err(user_err(
+                "one SQL transaction cannot mix graph and user-table durability domains",
+            ));
+        }
+
         // ── EG-372 cross-modal COMMIT: when the txn staged any cross-modal modality
         // (vector / measurement / OWL / CONSTRUCT), hand the WHOLE txn — graph nodes
         // PLUS every cross-modal modality — to the SHARED RPC cross-modal commit so all
@@ -930,83 +1191,40 @@ impl WireSession {
             let mut ts = self.new_txn_state(&graph).await?;
             ts.write_set = Self::node_ops_to_methods(&node_ops)?;
             ts.vectors = xmodal.vectors;
-            ts.measurements = xmodal.measurements;
+            #[cfg(feature = "tsdb")]
+            {
+                ts.measurements = xmodal
+                    .measurements
+                    .into_iter()
+                    .map(|measurement| self.scope_measurement(&graph, measurement))
+                    .collect::<WireResult<Vec<_>>>()?;
+            }
+            #[cfg(not(feature = "tsdb"))]
+            if !xmodal.measurements.is_empty() {
+                return Err(user_err(
+                    "time-series transaction requires the tsdb feature",
+                ));
+            }
             ts.axioms = xmodal.owl_methods;
             self.commit_txn_state(ts).await?;
-            // (b) User-table store — sequenced after the graph cross-modal commit.
-            if let Some(txn) = table_txn {
-                let store = user_table_store()?;
-                tokio::task::spawn_blocking(move || store.commit_txn(&txn))
-                    .await
-                    .map_err(|e| user_err(format!("commit task failed: {e}")))?
-                    .map_err(user_err)?;
-            }
             return Ok(WireOutcome::TxnEnd { tag: "COMMIT" });
         }
 
-        // (a) Graph store: replay the buffered node ops as ONE atomic in-memory batch
-        //     (single topology write guard), then record them as ONE durable group.
+        // Graph store: compile the buffered methods into one authoritative batch.
+        // The commit kernel writes durable state before publishing RAM.
         if !node_ops.is_empty() {
             let graph = graph
                 .clone()
                 .ok_or_else(|| user_err("transaction has node ops but no pinned graph"))?;
-            let core = self.graph_core(&graph).await?;
-            let methods = {
-                let mut txn = core.txn();
-                let mut methods: Vec<crate::protocol::Method> = Vec::with_capacity(node_ops.len());
-                for op in &node_ops {
-                    match op {
-                        NodeOp::Add { id, blob } => {
-                            txn.add_node(id.clone(), blob.clone());
-                            methods.push(crate::protocol::Method::AddNode {
-                                node_id: id.clone(),
-                                properties_msgpack: blob.clone(),
-                            });
-                        }
-                        NodeOp::Cas {
-                            id,
-                            conditions,
-                            updates,
-                        } => {
-                            if txn.compare_and_set_fields(id, conditions, updates) {
-                                let cond_blob = rmp_serde::to_vec_named(
-                                    &serde_json::Value::Object(conditions.clone()),
-                                )
-                                .map_err(|e| user_err(format!("encode CAS conditions: {e}")))?;
-                                let upd_blob = rmp_serde::to_vec_named(&serde_json::Value::Object(
-                                    updates.clone(),
-                                ))
-                                .map_err(|e| user_err(format!("encode CAS updates: {e}")))?;
-                                methods.push(crate::protocol::Method::CompareAndSetNodeFields {
-                                    node_id: id.clone(),
-                                    conditions_msgpack: cond_blob,
-                                    updates_msgpack: upd_blob,
-                                });
-                            }
-                        }
-                        NodeOp::Remove { id } => {
-                            txn.remove_node(id.clone());
-                            methods.push(crate::protocol::Method::RemoveNode {
-                                node_id: id.clone(),
-                            });
-                        }
-                    }
-                }
-                methods
-                // `txn` (the topology write guard) drops here — the whole batch is
-                // atomic w.r.t. other writers.
-            };
-            core.mark_dirty();
-            self.record_durable_batch(&graph, &methods).await?;
+            let methods = Self::node_ops_to_methods(&node_ops)?;
+            self.commit_graph_methods(&graph, methods).await?;
         }
 
-        // (b) User-table store: commit the buffered relational ops atomically.
-        if let Some(txn) = table_txn {
-            let store = user_table_store()?;
-            tokio::task::spawn_blocking(move || store.commit_txn(&txn))
-                .await
-                .map_err(|e| user_err(format!("commit task failed: {e}")))?
-                .map_err(user_err)?;
+        // SQL catalog/table store: rows, result, OCC/fence, idempotency, and outbox
+        // share one native redb transaction.
+        if let Some(txn) = table_txn.filter(|transaction| !transaction.ops.is_empty()) {
+            let graph = graph.unwrap_or_else(|| self.current_graph());
+            self.commit_table_txn(&graph, "transaction", txn).await?;
         }
         Ok(WireOutcome::TxnEnd { tag: "COMMIT" })
     }
@@ -1014,7 +1232,7 @@ impl WireSession {
     /// `COPY <table> [(cols…)] FROM STDIN` (CONCEPT:EG-KG.query.register-each-user-table): resolve the target schema,
     /// stash the copy state, and return a copy-in outcome so the wire streams rows.
     async fn start_copy(&self, plan: CopyPlan) -> WireResult<WireOutcome> {
-        let store = user_table_store()?;
+        let store = self.user_table_store().await?;
         let table = plan.table.clone();
         let schema = tokio::task::spawn_blocking(move || store.get_schema(&table))
             .await
@@ -1023,7 +1241,7 @@ impl WireSession {
             .ok_or_else(|| user_err(format!("table `{}` does not exist", plan.table)))?;
         // Resolve the insert column list: the COPY column list, or all columns in order.
         let columns: Vec<String> = if plan.columns.is_empty() {
-            schema.columns.iter().map(|c| c.name.clone()).collect()
+            schema.columns().iter().map(|c| c.name.clone()).collect()
         } else {
             plan.columns.clone()
         };
@@ -1050,51 +1268,69 @@ impl WireSession {
 
     /// `CREATE TABLE` (CONCEPT:EG-KG.query.register-user-tables-alongside): record the schema in the durable redb table
     /// catalog. The whole DDL commits (commit-before-ack) before the tag is returned.
-    async fn run_create_table(&self, plan: CreateTablePlan) -> WireResult<WireOutcome> {
+    async fn run_create_table(
+        &self,
+        graph: &str,
+        sql: &str,
+        plan: CreateTablePlan,
+    ) -> WireResult<WireOutcome> {
         let columns = to_store_columns(&plan.columns)?;
-        let schema = TableSchema {
-            name: plan.name,
-            columns,
-        };
-        let store = user_table_store()?;
-        let if_not_exists = plan.if_not_exists;
-        tokio::task::spawn_blocking(move || store.create_table(&schema, if_not_exists))
-            .await
-            .map_err(|e| user_err(format!("create table task failed: {e}")))?
-            .map_err(user_err)?;
+        let mut txn = TableTxn::new();
+        txn.push(TxnOp::CreateTable {
+            schema: TableSchema::new(plan.name, columns),
+            if_not_exists: plan.if_not_exists,
+        });
+        self.commit_table_txn(graph, sql, txn).await?;
         Ok(WireOutcome::command("CREATE TABLE"))
     }
 
     /// `DROP TABLE` (CONCEPT:EG-KG.query.register-user-tables-alongside): remove the catalog entry + every row.
-    async fn run_drop_table(&self, plan: DropTablePlan) -> WireResult<WireOutcome> {
-        let store = user_table_store()?;
-        tokio::task::spawn_blocking(move || store.drop_table(&plan.name, plan.if_exists))
-            .await
-            .map_err(|e| user_err(format!("drop table task failed: {e}")))?
-            .map_err(user_err)?;
+    async fn run_drop_table(
+        &self,
+        graph: &str,
+        sql: &str,
+        plan: DropTablePlan,
+    ) -> WireResult<WireOutcome> {
+        let mut txn = TableTxn::new();
+        txn.push(TxnOp::DropTable {
+            name: plan.name,
+            if_exists: plan.if_exists,
+        });
+        self.commit_table_txn(graph, sql, txn).await?;
         Ok(WireOutcome::command("DROP TABLE"))
     }
 
     /// CONCEPT:EG-KG.query.create-drop-view — `CREATE [OR REPLACE] VIEW name AS SELECT …`: persist the view
     /// text in the durable view catalog (commit-before-ack); `build_ctx` expands it on read.
-    async fn run_create_view(&self, plan: CreateViewPlan) -> WireResult<WireOutcome> {
-        let store = user_table_store()?;
-        tokio::task::spawn_blocking(move || {
-            store.create_view(&plan.name, &plan.select_sql, plan.or_replace)
-        })
-        .await
-        .map_err(|e| user_err(format!("create view task failed: {e}")))?
-        .map_err(user_err)?;
+    async fn run_create_view(
+        &self,
+        graph: &str,
+        sql: &str,
+        plan: CreateViewPlan,
+    ) -> WireResult<WireOutcome> {
+        let mut txn = TableTxn::new();
+        txn.push(TxnOp::CreateView {
+            name: plan.name,
+            select_sql: plan.select_sql,
+            or_replace: plan.or_replace,
+        });
+        self.commit_table_txn(graph, sql, txn).await?;
         Ok(WireOutcome::command("CREATE VIEW"))
     }
 
     /// CONCEPT:EG-KG.query.create-drop-view — `DROP VIEW [IF EXISTS] name`.
-    async fn run_drop_view(&self, plan: DropViewPlan) -> WireResult<WireOutcome> {
-        let store = user_table_store()?;
-        tokio::task::spawn_blocking(move || store.drop_view(&plan.name, plan.if_exists))
-            .await
-            .map_err(|e| user_err(format!("drop view task failed: {e}")))?
-            .map_err(user_err)?;
+    async fn run_drop_view(
+        &self,
+        graph: &str,
+        sql: &str,
+        plan: DropViewPlan,
+    ) -> WireResult<WireOutcome> {
+        let mut txn = TableTxn::new();
+        txn.push(TxnOp::DropView {
+            name: plan.name,
+            if_exists: plan.if_exists,
+        });
+        self.commit_table_txn(graph, sql, txn).await?;
         Ok(WireOutcome::command("DROP VIEW"))
     }
 
@@ -1103,46 +1339,65 @@ impl WireSession {
     /// proceeds; the extension's concrete surface lands in its own later item.
     async fn run_create_extension(
         &self,
+        graph: &str,
+        sql: &str,
         name: String,
         if_not_exists: bool,
     ) -> WireResult<WireOutcome> {
-        let store = user_table_store()?;
-        tokio::task::spawn_blocking(move || store.create_extension(&name, if_not_exists))
-            .await
-            .map_err(|e| user_err(format!("create extension task failed: {e}")))?
-            .map_err(user_err)?;
+        let mut txn = TableTxn::new();
+        txn.push(TxnOp::CreateExtension {
+            name,
+            if_not_exists,
+        });
+        self.commit_table_txn(graph, sql, txn).await?;
         Ok(WireOutcome::command("CREATE EXTENSION"))
     }
 
     /// CONCEPT:EG-KG.query.create-drop-extension-over — `DROP EXTENSION [IF EXISTS] name`.
-    async fn run_drop_extension(&self, name: String, if_exists: bool) -> WireResult<WireOutcome> {
-        let store = user_table_store()?;
-        tokio::task::spawn_blocking(move || store.drop_extension(&name, if_exists))
-            .await
-            .map_err(|e| user_err(format!("drop extension task failed: {e}")))?
-            .map_err(user_err)?;
+    async fn run_drop_extension(
+        &self,
+        graph: &str,
+        sql: &str,
+        name: String,
+        if_exists: bool,
+    ) -> WireResult<WireOutcome> {
+        let mut txn = TableTxn::new();
+        txn.push(TxnOp::DropExtension { name, if_exists });
+        self.commit_table_txn(graph, sql, txn).await?;
         Ok(WireOutcome::command("DROP EXTENSION"))
     }
 
     /// CONCEPT:EG-KG.query.create-drop-function — `CREATE [OR REPLACE] FUNCTION … LANGUAGE sql`: persist the SQL
     /// stored function in the durable function catalog (commit-before-ack). A later
     /// `SELECT fn(args)` / `FROM fn(args)` expands it during the read path.
-    async fn run_create_function(&self, plan: CreateFunctionPlan) -> WireResult<WireOutcome> {
-        let store = user_table_store()?;
-        tokio::task::spawn_blocking(move || store.create_function(&plan.func, plan.or_replace))
-            .await
-            .map_err(|e| user_err(format!("create function task failed: {e}")))?
-            .map_err(user_err)?;
+    async fn run_create_function(
+        &self,
+        graph: &str,
+        sql: &str,
+        plan: CreateFunctionPlan,
+    ) -> WireResult<WireOutcome> {
+        let mut txn = TableTxn::new();
+        txn.push(TxnOp::CreateFunction {
+            function: plan.func,
+            or_replace: plan.or_replace,
+        });
+        self.commit_table_txn(graph, sql, txn).await?;
         Ok(WireOutcome::command("CREATE FUNCTION"))
     }
 
     /// CONCEPT:EG-KG.query.create-drop-function — `DROP FUNCTION [IF EXISTS] name`.
-    async fn run_drop_function(&self, plan: DropFunctionPlan) -> WireResult<WireOutcome> {
-        let store = user_table_store()?;
-        tokio::task::spawn_blocking(move || store.drop_function(&plan.name, plan.if_exists))
-            .await
-            .map_err(|e| user_err(format!("drop function task failed: {e}")))?
-            .map_err(user_err)?;
+    async fn run_drop_function(
+        &self,
+        graph: &str,
+        sql: &str,
+        plan: DropFunctionPlan,
+    ) -> WireResult<WireOutcome> {
+        let mut txn = TableTxn::new();
+        txn.push(TxnOp::DropFunction {
+            name: plan.name,
+            if_exists: plan.if_exists,
+        });
+        self.commit_table_txn(graph, sql, txn).await?;
         Ok(WireOutcome::command("DROP FUNCTION"))
     }
 
@@ -1158,8 +1413,11 @@ impl WireSession {
             } else {
                 plan.graph.clone()
             };
+            self.check_access(&target, AccessLevel::Read).await?;
             let core = self.graph_core(&target).await?;
-            let snap = core.analysis_snapshot();
+            let mut snap = core.analysis_snapshot();
+            #[cfg(feature = "security")]
+            self.filter_view_for_verified_actor(&mut snap).await?;
             let cypher = plan.cypher.clone();
             let result = tokio::task::spawn_blocking(move || eg_query::exec_cypher(&snap, &cypher))
                 .await
@@ -1179,40 +1437,53 @@ impl WireSession {
         }
     }
 
-    /// CONCEPT:EG-KG.query.real-ann-top-k — `CREATE INDEX … USING hnsw|ivfflat (col opclass)`: acknowledge
-    /// the pgvector ANN index so a client's setup script proceeds. A matching
-    /// `ORDER BY col <-> $1 LIMIT k` query still returns correct results via the
-    /// EG-115 brute-force `vector_l2()` scan; a durable ANN-index catalog + the eg-ann
-    /// top-k pushdown execution (`plan_ann_search` → `eg-ann::search`) is a follow-up.
-    async fn run_create_ann_index(&self, plan: AnnIndexPlan) -> WireResult<WireOutcome> {
-        let _ = plan;
+    /// CONCEPT:EG-KG.query.real-ann-top-k — persist a pgvector ANN index definition
+    /// through the authoritative SQL MutationBatch kernel before acknowledging it.
+    async fn run_create_ann_index(
+        &self,
+        graph: &str,
+        sql: &str,
+        plan: AnnIndexPlan,
+    ) -> WireResult<WireOutcome> {
+        let mut txn = TableTxn::new();
+        txn.push(TxnOp::PutAnnIndex { plan });
+        self.commit_table_txn(graph, sql, txn).await?;
         Ok(WireOutcome::command("CREATE INDEX"))
     }
 
-    /// CONCEPT:EG-KG.query.continuous-aggregate-lowering — `SELECT create_hypertable('t','ts')`: accept the time-partition
-    /// declaration and return the TimescaleDB-shaped single-cell result so a client's
-    /// migration proceeds. Durable partition-metadata + chunk management is a follow-up.
-    async fn run_create_hypertable(&self, plan: HypertablePlan) -> WireResult<WireOutcome> {
+    /// CONCEPT:EG-KG.query.continuous-aggregate-lowering — persist native
+    /// hypertable metadata after validating the table and timestamp column.
+    async fn run_create_hypertable(
+        &self,
+        graph: &str,
+        sql: &str,
+        plan: HypertablePlan,
+    ) -> WireResult<WireOutcome> {
         let text = format!("public.{}", plan.table);
+        let mut txn = TableTxn::new();
+        txn.push(TxnOp::PutHypertable { plan });
+        self.commit_table_txn(graph, sql, txn).await?;
         Ok(WireOutcome::Rows(single_text_result(
             "create_hypertable",
             &text,
         )))
     }
 
-    /// CONCEPT:EG-KG.query.continuous-aggregate-lowering — `CREATE MATERIALIZED VIEW … WITH (timescaledb.continuous) AS
-    /// SELECT …`: lower the continuous aggregate onto the durable view catalog, so
-    /// `SELECT * FROM <name>` recomputes the `time_bucket` aggregate live. Incremental
-    /// materialized refresh (`refresh_continuous_aggregate`) is a documented follow-up.
+    /// CONCEPT:EG-KG.query.continuous-aggregate-lowering — lower a continuous
+    /// aggregate onto the authoritative durable view catalog.
     async fn run_create_continuous_aggregate(
         &self,
+        graph: &str,
+        sql: &str,
         plan: ContinuousAggPlan,
     ) -> WireResult<WireOutcome> {
-        let store = user_table_store()?;
-        tokio::task::spawn_blocking(move || store.create_view(&plan.name, &plan.select_sql, true))
-            .await
-            .map_err(|e| user_err(format!("continuous aggregate task failed: {e}")))?
-            .map_err(user_err)?;
+        let mut txn = TableTxn::new();
+        txn.push(TxnOp::CreateView {
+            name: plan.name,
+            select_sql: plan.select_sql,
+            or_replace: true,
+        });
+        self.commit_table_txn(graph, sql, txn).await?;
         Ok(WireOutcome::command("CREATE MATERIALIZED VIEW"))
     }
 
@@ -1249,11 +1520,17 @@ impl WireSession {
             .iter()
             .position(|c| c.eq_ignore_ascii_case("id"))
             .ok_or_else(|| user_err("INSERT INTO nodes … SELECT must include the `id` column"))?;
-        let core = self.graph_core(graph).await?;
+        let mut view = self.overlaid_snapshot(graph).await?;
         let empty = serde_json::Map::new();
         let cond_blob = rmp_serde::to_vec_named(&serde_json::Value::Object(empty.clone()))
             .map_err(|e| user_err(format!("encode CAS conditions: {e}")))?;
         let mut affected: Vec<(String, serde_json::Map<String, serde_json::Value>)> = Vec::new();
+        let returning = if ins.returning {
+            Some(self.returning_cols(graph, sql).await?)
+        } else {
+            None
+        };
+        let mut methods = Vec::with_capacity(result.rows.len());
         let mut n = 0usize;
         for row in result.rows {
             let node_id = Self::cell_to_node_id(&row[id_pos])?;
@@ -1264,20 +1541,19 @@ impl WireSession {
                 }
             }
             // ON CONFLICT — conflict key is the node id.
-            if core.has_node(&node_id) {
+            if view.has_node(&node_id) {
                 match ins.on_conflict.as_ref().map(|oc| &oc.action) {
                     Some(OnConflictAction::DoNothing) => continue,
                     Some(OnConflictAction::DoUpdate(set)) => {
-                        core.compare_and_set_fields(&node_id, &empty, set);
                         let upd_blob =
                             rmp_serde::to_vec_named(&serde_json::Value::Object(set.clone()))
                                 .map_err(|e| user_err(format!("encode CAS updates: {e}")))?;
-                        let method = crate::protocol::Method::CompareAndSetNodeFields {
+                        methods.push(crate::protocol::Method::CompareAndSetNodeFields {
                             node_id: node_id.clone(),
                             conditions_msgpack: cond_blob.clone(),
                             updates_msgpack: upd_blob,
-                        };
-                        self.record_durable_write(graph, &method).await?;
+                        });
+                        view.overlay_compare_and_set_fields(&node_id, &empty, set);
                         if ins.returning {
                             affected.push((node_id, set.clone()));
                         }
@@ -1289,20 +1565,18 @@ impl WireSession {
             }
             let blob = rmp_serde::to_vec_named(&serde_json::Value::Object(props.clone()))
                 .map_err(|e| user_err(format!("encode node properties: {e}")))?;
-            core.add_node(node_id.clone(), blob.clone());
-            let method = crate::protocol::Method::AddNode {
+            methods.push(crate::protocol::Method::AddNode {
                 node_id: node_id.clone(),
-                properties_msgpack: blob,
-            };
-            self.record_durable_write(graph, &method).await?;
+                properties_msgpack: blob.clone(),
+            });
+            view.overlay_add_node(node_id.clone(), blob);
             if ins.returning {
                 affected.push((node_id, props));
             }
             n += 1;
         }
-        core.mark_dirty();
-        if ins.returning {
-            let (cols, types) = self.returning_cols(graph, sql).await?;
+        self.commit_graph_methods(graph, methods).await?;
+        if let Some((cols, types)) = returning {
             Ok(WireOutcome::Rows(returning_result(
                 &affected, &cols, &types,
             )))
@@ -1328,11 +1602,16 @@ impl WireSession {
                 result.columns.len()
             )));
         }
-        let core = self.graph_core(graph).await?;
         let empty = serde_json::Map::new();
         let cond_blob = rmp_serde::to_vec_named(&serde_json::Value::Object(empty.clone()))
             .map_err(|e| user_err(format!("encode CAS conditions: {e}")))?;
         let mut affected: Vec<(String, serde_json::Map<String, serde_json::Value>)> = Vec::new();
+        let returning = if upd.returning {
+            Some(self.returning_cols(graph, sql).await?)
+        } else {
+            None
+        };
+        let mut methods = Vec::new();
         let mut seen = std::collections::HashSet::new();
         for row in result.rows {
             let id = Self::cell_to_node_id(&row[0])?;
@@ -1343,24 +1622,20 @@ impl WireSession {
             for (i, col) in upd.set_targets.iter().enumerate() {
                 updates.insert(col.clone(), row[i + 1].clone());
             }
-            if core.compare_and_set_fields(&id, &empty, &updates) {
-                let upd_blob = rmp_serde::to_vec_named(&serde_json::Value::Object(updates.clone()))
-                    .map_err(|e| user_err(format!("encode CAS updates: {e}")))?;
-                let method = crate::protocol::Method::CompareAndSetNodeFields {
-                    node_id: id.clone(),
-                    conditions_msgpack: cond_blob.clone(),
-                    updates_msgpack: upd_blob,
-                };
-                self.record_durable_write(graph, &method).await?;
-                if upd.returning {
-                    affected.push((id, updates));
-                }
+            let upd_blob = rmp_serde::to_vec_named(&serde_json::Value::Object(updates.clone()))
+                .map_err(|e| user_err(format!("encode CAS updates: {e}")))?;
+            methods.push(crate::protocol::Method::CompareAndSetNodeFields {
+                node_id: id.clone(),
+                conditions_msgpack: cond_blob.clone(),
+                updates_msgpack: upd_blob,
+            });
+            if upd.returning {
+                affected.push((id, updates));
             }
         }
-        core.mark_dirty();
-        let n = affected.len();
-        if upd.returning {
-            let (cols, types) = self.returning_cols(graph, sql).await?;
+        let n = methods.len();
+        self.commit_graph_methods(graph, methods).await?;
+        if let Some((cols, types)) = returning {
             Ok(WireOutcome::Rows(returning_result(
                 &affected, &cols, &types,
             )))
@@ -1378,10 +1653,14 @@ impl WireSession {
         del: DeleteNodesJoin,
     ) -> WireResult<WireOutcome> {
         let result = self.run_read(graph, del.resolve_sql).await?;
-        let core = self.graph_core(graph).await?;
         let mut affected: Vec<(String, serde_json::Map<String, serde_json::Value>)> = Vec::new();
+        let returning = if del.returning {
+            Some(self.returning_cols(graph, sql).await?)
+        } else {
+            None
+        };
         let mut seen = std::collections::HashSet::new();
-        let mut n = 0usize;
+        let mut methods = Vec::new();
         for row in result.rows {
             let id = Self::cell_to_node_id(&row[0])?;
             if !seen.insert(id.clone()) {
@@ -1391,16 +1670,13 @@ impl WireSession {
                 let props = self.node_props(graph, &id).await?;
                 affected.push((id.clone(), props));
             }
-            core.remove_node(id.clone());
-            let method = crate::protocol::Method::RemoveNode {
+            methods.push(crate::protocol::Method::RemoveNode {
                 node_id: id.clone(),
-            };
-            self.record_durable_write(graph, &method).await?;
-            n += 1;
+            });
         }
-        core.mark_dirty();
-        if del.returning {
-            let (cols, types) = self.returning_cols(graph, sql).await?;
+        let n = methods.len();
+        self.commit_graph_methods(graph, methods).await?;
+        if let Some((cols, types)) = returning {
             Ok(WireOutcome::Rows(returning_result(
                 &affected, &cols, &types,
             )))
@@ -1412,27 +1688,33 @@ impl WireSession {
     /// `ALTER TABLE …` (CONCEPT:EG-KG.query.register-user-tables-alongside ADD COLUMN + CONCEPT:EG-KG.query.rename-table-moves-catalog DROP/RENAME COLUMN,
     /// RENAME TABLE, ALTER COLUMN TYPE, DROP CONSTRAINT). Lowered to a single buffered
     /// [`TxnOp`] and applied in one redb write txn (atomic row migration).
-    async fn run_alter_table(&self, plan: AlterTablePlan) -> WireResult<WireOutcome> {
+    async fn run_alter_table(
+        &self,
+        graph: &str,
+        sql: &str,
+        plan: AlterTablePlan,
+    ) -> WireResult<WireOutcome> {
         let op = alter_txn_op(plan)?;
-        let store = user_table_store()?;
         let mut txn = TableTxn::new();
         txn.push(op);
-        tokio::task::spawn_blocking(move || store.commit_txn(&txn))
-            .await
-            .map_err(|e| user_err(format!("alter table task failed: {e}")))?
-            .map_err(user_err)?;
+        self.commit_table_txn(graph, sql, txn).await?;
         Ok(WireOutcome::command("ALTER TABLE"))
     }
 
     /// `INSERT INTO <user_table> … VALUES …` (CONCEPT:EG-KG.query.register-user-tables-alongside). Commit-before-ack.
-    async fn run_insert_table(&self, ins: InsertTable) -> WireResult<WireOutcome> {
-        let store = user_table_store()?;
-        let n = tokio::task::spawn_blocking(move || {
-            store.insert_rows(&ins.table, &ins.columns, &ins.rows)
-        })
-        .await
-        .map_err(|e| user_err(format!("insert task failed: {e}")))?
-        .map_err(user_err)?;
+    async fn run_insert_table(
+        &self,
+        graph: &str,
+        sql: &str,
+        ins: InsertTable,
+    ) -> WireResult<WireOutcome> {
+        let mut txn = TableTxn::new();
+        txn.push(TxnOp::Insert {
+            table: ins.table,
+            col_order: ins.columns,
+            rows: ins.rows,
+        });
+        let n = self.commit_table_txn(graph, sql, txn).await?;
         Ok(WireOutcome::command_rows("INSERT", n))
     }
 
@@ -1440,7 +1722,12 @@ impl WireSession {
     /// through the SAME DataFusion path (so it can JOIN user tables AND the graph),
     /// then durably inserts the projected rows. The SELECT result column COUNT must
     /// match the insert column list.
-    async fn run_insert_select(&self, graph: &str, ins: InsertSelect) -> WireResult<WireOutcome> {
+    async fn run_insert_select(
+        &self,
+        graph: &str,
+        sql: &str,
+        ins: InsertSelect,
+    ) -> WireResult<WireOutcome> {
         let result = self.run_read(graph, ins.select_sql).await?;
         if result.columns.len() != ins.columns.len() {
             return Err(user_err(format!(
@@ -1449,39 +1736,49 @@ impl WireSession {
                 result.columns.len()
             )));
         }
-        let store = user_table_store()?;
-        let rows = result.rows;
-        let n =
-            tokio::task::spawn_blocking(move || store.insert_rows(&ins.table, &ins.columns, &rows))
-                .await
-                .map_err(|e| user_err(format!("insert-select task failed: {e}")))?
-                .map_err(user_err)?;
+        let mut txn = TableTxn::new();
+        txn.push(TxnOp::Insert {
+            table: ins.table,
+            col_order: ins.columns,
+            rows: result.rows,
+        });
+        let n = self.commit_table_txn(graph, sql, txn).await?;
         Ok(WireOutcome::command_rows("INSERT", n))
     }
 
     /// `UPDATE <user_table> SET … WHERE <predicate>` (CONCEPT:EG-KG.query.register-user-tables-alongside, compound
     /// predicate CONCEPT:EG-KG.query.compound-predicate-decode). The store evaluates the predicate per row inside
     /// its redb write transaction (serializable).
-    async fn run_update_table(&self, upd: UpdateTable) -> WireResult<WireOutcome> {
-        let store = user_table_store()?;
-        let pred = upd.selector.pred;
-        let n =
-            tokio::task::spawn_blocking(move || store.update_where(&upd.table, &upd.set, &pred))
-                .await
-                .map_err(|e| user_err(format!("update task failed: {e}")))?
-                .map_err(user_err)?;
+    async fn run_update_table(
+        &self,
+        graph: &str,
+        sql: &str,
+        upd: UpdateTable,
+    ) -> WireResult<WireOutcome> {
+        let mut txn = TableTxn::new();
+        txn.push(TxnOp::Update {
+            table: upd.table,
+            set: upd.set,
+            selector: upd.selector.pred,
+        });
+        let n = self.commit_table_txn(graph, sql, txn).await?;
         Ok(WireOutcome::command_rows("UPDATE", n))
     }
 
     /// `DELETE FROM <user_table> WHERE <predicate>` (CONCEPT:EG-KG.query.register-user-tables-alongside, compound
     /// predicate CONCEPT:EG-KG.query.compound-predicate-decode).
-    async fn run_delete_table(&self, del: DeleteTable) -> WireResult<WireOutcome> {
-        let store = user_table_store()?;
-        let pred = del.selector.pred;
-        let n = tokio::task::spawn_blocking(move || store.delete_where(&del.table, &pred))
-            .await
-            .map_err(|e| user_err(format!("delete task failed: {e}")))?
-            .map_err(user_err)?;
+    async fn run_delete_table(
+        &self,
+        graph: &str,
+        sql: &str,
+        del: DeleteTable,
+    ) -> WireResult<WireOutcome> {
+        let mut txn = TableTxn::new();
+        txn.push(TxnOp::Delete {
+            table: del.table,
+            selector: del.selector.pred,
+        });
+        let n = self.commit_table_txn(graph, sql, txn).await?;
         Ok(WireOutcome::command_rows("DELETE", n))
     }
 
@@ -1496,8 +1793,8 @@ impl WireSession {
     async fn matched_ids(&self, graph: &str, selector: &WhereEq) -> WireResult<Vec<String>> {
         match selector {
             WhereEq::Id(id) => {
-                let core = self.graph_core(graph).await?;
-                Ok(if core.has_node(id) {
+                let view = self.overlaid_snapshot(graph).await?;
+                Ok(if view.has_node(id) {
                     vec![id.clone()]
                 } else {
                     Vec::new()
@@ -1533,10 +1830,7 @@ impl WireSession {
     ) -> WireResult<serde_json::Map<String, serde_json::Value>> {
         let core = self.graph_core(graph).await?;
         match core.get_node_properties(id) {
-            Some(blob) => match rmp_serde::from_slice::<serde_json::Value>(&blob) {
-                Ok(serde_json::Value::Object(o)) => Ok(o),
-                _ => Ok(serde_json::Map::new()),
-            },
+            Some(blob) => Ok(eg_types::msgpack::decode_property_object(&blob).unwrap_or_default()),
             None => Ok(serde_json::Map::new()),
         }
     }
@@ -1839,27 +2133,29 @@ impl WireSession {
         sql: &str,
         ins: InsertNodes,
     ) -> WireResult<WireOutcome> {
-        let core = self.graph_core(graph).await?;
         let mut affected: Vec<(String, serde_json::Map<String, serde_json::Value>)> = Vec::new();
-        let n = ins.rows.len();
+        let returning = if ins.returning {
+            Some(self.returning_cols(graph, sql).await?)
+        } else {
+            None
+        };
+        let mut methods = Vec::with_capacity(ins.rows.len());
         for node in ins.rows {
             let props = node.properties.clone();
             let blob = rmp_serde::to_vec_named(&serde_json::Value::Object(node.properties))
                 .map_err(|e| user_err(format!("encode node properties: {e}")))?;
             let node_id = node.node_id.clone();
-            core.add_node(node.node_id, blob.clone());
-            let method = crate::protocol::Method::AddNode {
+            methods.push(crate::protocol::Method::AddNode {
                 node_id: node_id.clone(),
                 properties_msgpack: blob,
-            };
-            self.record_durable_write(graph, &method).await?;
+            });
             if ins.returning {
                 affected.push((node_id, props));
             }
         }
-        core.mark_dirty();
-        if ins.returning {
-            let (cols, types) = self.returning_cols(graph, sql).await?;
+        let n = methods.len();
+        self.commit_graph_methods(graph, methods).await?;
+        if let Some((cols, types)) = returning {
             Ok(WireOutcome::Rows(returning_result(
                 &affected, &cols, &types,
             )))
@@ -1881,45 +2177,33 @@ impl WireSession {
         upd: UpdateNodes,
     ) -> WireResult<WireOutcome> {
         let ids = self.matched_ids(graph, &upd.selector).await?;
-        let core = self.graph_core(graph).await?;
         let conditions = serde_json::Map::new();
         let updates = upd.set;
         let cond_blob = rmp_serde::to_vec_named(&serde_json::Value::Object(conditions.clone()))
             .map_err(|e| user_err(format!("encode CAS conditions: {e}")))?;
         let upd_blob = rmp_serde::to_vec_named(&serde_json::Value::Object(updates.clone()))
             .map_err(|e| user_err(format!("encode CAS updates: {e}")))?;
-        // CONCEPT:EG-KG.query.compound-predicate-decode — when the WHERE is a compound predicate, re-check it under
-        // the write guard so a row that changed between candidate resolution and the
-        // write is skipped (serializable). The `id` fast path has no predicate.
-        let pred = match &upd.selector {
-            WhereEq::Predicate { pred, .. } => Some(pred.clone()),
-            WhereEq::Id(_) => None,
+        let returning = if upd.returning {
+            Some(self.returning_cols(graph, sql).await?)
+        } else {
+            None
         };
-        let mut affected_ids = Vec::new();
-        for id in ids {
-            let applied = match &pred {
-                Some(p) => core.compare_and_set_fields_if(&id, p, &conditions, &updates),
-                None => core.compare_and_set_fields(&id, &conditions, &updates),
-            };
-            if applied {
-                let method = crate::protocol::Method::CompareAndSetNodeFields {
-                    node_id: id.clone(),
-                    conditions_msgpack: cond_blob.clone(),
-                    updates_msgpack: upd_blob.clone(),
-                };
-                self.record_durable_write(graph, &method).await?;
-                affected_ids.push(id);
-            }
-        }
-        core.mark_dirty();
-        let n = affected_ids.len();
-        if upd.returning {
+        let methods = ids
+            .iter()
+            .map(|id| crate::protocol::Method::CompareAndSetNodeFields {
+                node_id: id.clone(),
+                conditions_msgpack: cond_blob.clone(),
+                updates_msgpack: upd_blob.clone(),
+            })
+            .collect();
+        let n = ids.len();
+        self.commit_graph_methods(graph, methods).await?;
+        if let Some((cols, types)) = returning {
             let mut affected = Vec::with_capacity(n);
-            for id in affected_ids {
+            for id in ids {
                 let props = self.node_props(graph, &id).await?;
                 affected.push((id, props));
             }
-            let (cols, types) = self.returning_cols(graph, sql).await?;
             Ok(WireOutcome::Rows(returning_result(
                 &affected, &cols, &types,
             )))
@@ -1952,37 +2236,15 @@ impl WireSession {
         } else {
             None
         };
-        // CONCEPT:EG-KG.query.compound-predicate-decode — re-check a compound predicate under the write guard so a
-        // row that changed between candidate resolution and removal is skipped
-        // (serializable). The `id` fast path has no predicate.
-        let pred = match &del.selector {
-            WhereEq::Predicate { pred, .. } => Some(pred.clone()),
-            WhereEq::Id(_) => None,
-        };
-        let core = self.graph_core(graph).await?;
-        let mut removed_ids = Vec::new();
-        for id in ids {
-            let removed = match &pred {
-                Some(p) => core.remove_node_if(&id, p),
-                None => {
-                    core.remove_node(id.clone());
-                    true
-                }
-            };
-            if removed {
-                let method = crate::protocol::Method::RemoveNode {
-                    node_id: id.clone(),
-                };
-                self.record_durable_write(graph, &method).await?;
-                removed_ids.push(id);
-            }
-        }
-        core.mark_dirty();
-        let n = removed_ids.len();
+        let methods = ids
+            .iter()
+            .map(|id| crate::protocol::Method::RemoveNode {
+                node_id: id.clone(),
+            })
+            .collect();
+        let n = ids.len();
+        self.commit_graph_methods(graph, methods).await?;
         if let Some((cols, types)) = returning_cols {
-            // Keep only the snapshots of rows actually removed (a gated predicate may
-            // have skipped some candidates).
-            affected.retain(|(id, _)| removed_ids.contains(id));
             Ok(WireOutcome::Rows(returning_result(
                 &affected, &cols, &types,
             )))
@@ -1991,119 +2253,139 @@ impl WireSession {
         }
     }
 
-    /// Record an applied wire DATA mutation durably — REPLICATES the post-write
-    /// durable-record block in `dispatch::dispatch_request` (the source of truth;
-    /// see `src/server/dispatch.rs`, the `record_method` / `redb_authoritative`
-    /// block). M8's original pgwire write path only did `add_node` + `mark_dirty`,
-    /// so under `EPISTEMIC_GRAPH_REDB_AUTHORITATIVE` a wire write was acked
-    /// before it durably committed → crash = silent loss. This closes that gap by
-    /// running the IDENTICAL two-regime logic dispatch uses:
-    ///
-    ///   * NOT authoritative (default): write-BEHIND — `record()` is fire-and-forget
-    ///     (hand to the off-reactor writer, no await). Byte-for-byte today's wire
-    ///     behavior plus the WAL/backend `record()` the M8 NOTE flagged as missing.
-    ///   * AUTHORITATIVE: commit-BEFORE-ACK — AWAIT `record_durable` (group-commit +
-    ///     fsync, coalescing with concurrent writers) BEFORE returning Ok. A durable
-    ///     commit FAILURE returns an error: the caller never gets a completion for a
-    ///     write that is not on disk.
-    ///
-    /// Reads `persistence` + `redb_authoritative` once under the same registry lock
-    /// dispatch reads them under. Applies to EVERY durable DML the wire path emits —
-    /// `AddNode` (INSERT), `CompareAndSetNodeFields` (UPDATE), `RemoveNode`
-    /// (DELETE) — all of which `is_durable_mutation`.
-    async fn record_durable_write(
+    /// Commit graph methods through the universal cross-modal MutationBatch kernel.
+    /// The kernel stages against authority, commits graph rows/result/outbox in one
+    /// redb transaction, and only then publishes the serving projection.
+    async fn commit_graph_methods(
         &self,
         graph: &str,
-        method: &crate::protocol::Method,
+        methods: Vec<crate::protocol::Method>,
     ) -> WireResult<()> {
-        let (persistence, redb_authoritative) = {
-            let s = self.state.read().await;
-            (s.persistence.clone(), s.redb_authoritative)
-        };
-        // No durable backend configured (no persist dir) → in-memory only, nothing
-        // to record. Matches dispatch (`record_method` is None when persistence is
-        // None), so the cache-only default path is unchanged.
-        let Some(p) = persistence else {
-            return Ok(());
-        };
-        // Only durable DATA mutations are recorded — the same guard dispatch applies
-        // via `is_durable_mutation`.
-        if !crate::wal::is_durable_mutation(method) {
+        if methods.is_empty() {
             return Ok(());
         }
-        let fname = crate::persist::sanitize(graph);
-        if redb_authoritative {
-            if let Err(e) = p.record_durable(&fname, method).await {
-                tracing::error!(
-                    "pgwire redb authoritative: durable commit FAILED for graph '{}': {} — \
-                     returning error (write not acked)",
-                    graph,
-                    e
-                );
-                return Err(user_err(format!(
-                    "durable commit failed (write not acknowledged): {e}"
-                )));
-            }
-        } else {
-            p.record(&fname, method);
+        if methods
+            .iter()
+            .any(|method| !crate::mutation_apply::is_durable_mutation(method))
+        {
+            return Err(user_err(
+                "wire graph batch contains a non-durable operation",
+            ));
         }
-        Ok(())
+        let core = self.graph_core(graph).await?;
+        let authority = self.carrier_authority()?;
+        let operation_id = uuid::Uuid::new_v4();
+        let request_id = u64::from_be_bytes(
+            operation_id.as_bytes()[..8]
+                .try_into()
+                .expect("UUID prefix is eight bytes"),
+        );
+        let mut txn = crate::server::txn::GraphTxnState::new(
+            &core,
+            graph.to_string(),
+            authority.tenant_scope().to_string(),
+            core.version(),
+            crate::server::txn::IsolationLevel::Snapshot,
+            None,
+            authority.owner_scope().to_string(),
+            crate::server::txn::now_ms(),
+        );
+        for method in methods {
+            txn.stage(&core, method, crate::server::txn::now_ms());
+        }
+        let coordinator_id = crate::server::mutation_batch::opaque_coordinator_key(
+            "wire-graph-owner",
+            authority.owner_scope(),
+            &operation_id.simple().to_string(),
+        );
+        match crate::server::handlers::txn::commit_cross_modal_txn(
+            &self.state,
+            request_id,
+            Some(authority.actor_scope()),
+            &coordinator_id,
+            txn,
+        )
+        .await
+        .map_err(user_err)?
+        {
+            true => Ok(()),
+            false => Err(WireError {
+                code: "40001".to_string(),
+                message: "wire graph transaction conflicted; retry the statement".to_string(),
+            }),
+        }
     }
 
-    /// Record a whole COMMIT's worth of graph-node mutations as ONE durable GROUP
-    /// (CONCEPT:EG-KG.compute.kg-transaction-is-pinned). Mirrors the two-regime logic of
-    /// [`WireSession::record_durable_write`] but for a batch:
-    ///
-    ///   * redb-AUTHORITATIVE → `commit_crossmodal` commits ALL methods in ONE
-    ///     `WriteTransaction` (commit-before-ack, one fsync): the group lands
-    ///     atomically or not at all, and the awaited failure is surfaced as an error
-    ///     (the COMMIT is not acked). This is the existing group-commit path — the
-    ///     redb writer already batches — reused for the wire-txn commit.
-    ///   * NOT authoritative (write-behind default) → each method is `record`'d
-    ///     fire-and-forget; they fold into the off-reactor writer's own group commit.
-    ///
-    /// A `None` persistence backend (cache-only) is a no-op, matching the per-op path.
-    async fn record_durable_batch(
+    /// Commit one user-table/catalog transaction through the SQL-native
+    /// MutationBatch kernel. The supplied operation descriptor is hashed by the
+    /// compiler and is never stored as plaintext coordinator metadata.
+    async fn commit_table_txn(
         &self,
         graph: &str,
-        methods: &[crate::protocol::Method],
-    ) -> WireResult<()> {
-        let (persistence, redb_authoritative) = {
-            let s = self.state.read().await;
-            (s.persistence.clone(), s.redb_authoritative)
-        };
-        let Some(p) = persistence else {
-            return Ok(());
-        };
-        // Only durable DATA mutations are recorded (the same guard the per-op path uses).
-        let durable: Vec<crate::protocol::Method> = methods
-            .iter()
-            .filter(|m| crate::wal::is_durable_mutation(m))
-            .cloned()
-            .collect();
-        if durable.is_empty() {
-            return Ok(());
+        operation: &str,
+        txn: TableTxn,
+    ) -> WireResult<usize> {
+        if txn.ops.is_empty() {
+            return Ok(0);
         }
-        let fname = crate::persist::sanitize(graph);
-        if redb_authoritative {
-            // ONE WriteTransaction for the whole group (atomic durable commit).
-            if let Err(e) = p.commit_crossmodal(&fname, &durable, &[], &[], &[]).await {
-                tracing::error!(
-                    "pgwire redb authoritative: durable GROUP commit FAILED for graph '{}': {} — \
-                     returning error (transaction not acked)",
-                    graph,
-                    e
-                );
-                return Err(user_err(format!(
-                    "durable commit failed (transaction not acknowledged): {e}"
-                )));
-            }
-        } else {
-            for m in &durable {
-                p.record(&fname, m);
-            }
-        }
-        Ok(())
+        let authority = self.carrier_authority()?;
+        let operation_id = uuid::Uuid::new_v4();
+        let request_id = u64::from_be_bytes(
+            operation_id.as_bytes()[..8]
+                .try_into()
+                .expect("UUID prefix is eight bytes"),
+        );
+        let batch_id = crate::server::mutation_batch::opaque_coordinator_key(
+            "wire-sql-owner",
+            authority.owner_scope(),
+            &operation_id.simple().to_string(),
+        );
+        let tenant = authority.tenant_scope().to_string();
+        let graph = graph.to_string();
+        let principal = authority.actor_scope().to_string();
+        let operation = crate::protocol::Method::Sql {
+            query: operation.to_string(),
+            params_msgpack: Vec::new(),
+        };
+        let store = self.user_table_store().await?;
+        tokio::task::spawn_blocking(move || {
+            let created_at_ms = crate::server::txn::now_ms();
+            let expected_version = store.mutation_version(&tenant, &graph)?;
+            let batch = crate::server::mutation_batch::compile_opaque_method(
+                crate::server::mutation_batch::CompileBatch {
+                    batch_id: &batch_id,
+                    request_id,
+                    principal: Some(&principal),
+                    tenant: &tenant,
+                    graph: &graph,
+                    placement_epoch: 0,
+                    idempotency_key: &batch_id,
+                    expected_graph_version: Some(expected_version),
+                    fencing_token: None,
+                    created_at_ms,
+                    default_surface: crate::mutation_batch::MutationSurface::Query,
+                    authoritative_state: None,
+                },
+                &operation,
+                crate::mutation_batch::MutationSurface::Query,
+                crate::mutation_batch::MutationDomain::SqlCatalog,
+                "sql_catalog_operation",
+            )?;
+            let committed = store.commit_txn_batch(&txn, &batch, created_at_ms)?;
+            let bytes = committed
+                .record
+                .result_msgpack
+                .as_deref()
+                .ok_or_else(|| "committed SQL MutationBatch has no result".to_string())?;
+            eg_types::msgpack::decode_bounded::<usize>(
+                bytes,
+                eg_types::msgpack::MsgpackLimits::new(64, 1, 1),
+            )
+            .map_err(|_| "committed SQL result is corrupt".to_string())
+        })
+        .await
+        .map_err(|error| user_err(format!("SQL MutationBatch task failed: {error}")))?
+        .map_err(user_err)
     }
 
     /// Build a `column name → PgColType` map for the current graph by sampling node
@@ -2121,9 +2403,7 @@ impl WireSession {
             std::collections::HashMap::new();
         map.insert("id".to_string(), PgColType::Text);
         for (_, blob) in core.get_nodes() {
-            let Ok(serde_json::Value::Object(obj)) =
-                rmp_serde::from_slice::<serde_json::Value>(&blob)
-            else {
+            let Ok(obj) = eg_types::msgpack::decode_property_object(&blob) else {
                 continue;
             };
             for (k, v) in obj {
@@ -2253,15 +2533,26 @@ impl WireSession {
                 }
             }
             XmodalStmt::InsertSeries(sql) => {
-                let m = parse_insert_series(&sql)?;
-                if in_txn {
-                    self.xmodal.lock().measurements.push(m);
-                    Ok(WireOutcome::command_rows("INSERT", 1))
-                } else {
-                    let mut ts = self.new_txn_state(graph).await?;
-                    ts.measurements.push(m);
-                    self.commit_txn_state(ts).await?;
-                    Ok(WireOutcome::command_rows("INSERT", 1))
+                #[cfg(not(feature = "tsdb"))]
+                {
+                    let _ = sql;
+                    Err(user_err("time-series operations require the tsdb feature"))
+                }
+                #[cfg(feature = "tsdb")]
+                {
+                    let m = parse_insert_series(&sql)?;
+                    if in_txn {
+                        // Keep the local series id for read-your-own-writes; commit
+                        // converts it once through the verified authority below.
+                        self.carrier_authority()?;
+                        self.xmodal.lock().measurements.push(m);
+                        Ok(WireOutcome::command_rows("INSERT", 1))
+                    } else {
+                        let mut ts = self.new_txn_state(graph).await?;
+                        ts.measurements.push(self.scope_measurement(graph, m)?);
+                        self.commit_txn_state(ts).await?;
+                        Ok(WireOutcome::command_rows("INSERT", 1))
+                    }
                 }
             }
             #[cfg(feature = "sparql")]
@@ -2273,8 +2564,21 @@ impl WireSession {
             #[cfg(feature = "sparql")]
             XmodalStmt::SparqlConstruct(query) => {
                 let core = self.graph_core(graph).await?;
-                let methods = crate::server::handlers::txn::construct_to_methods(&core, &query)
-                    .map_err(user_err)?;
+                let mut view = core.analysis_snapshot();
+                #[cfg(feature = "security")]
+                {
+                    let actor = self.actor().ok_or_else(|| {
+                        user_err("SPARQL transaction derivation requires an authenticated actor")
+                    })?;
+                    self.state
+                        .read()
+                        .await
+                        .isolation
+                        .filter_view(&actor, &mut view);
+                }
+                let methods =
+                    crate::server::handlers::txn::construct_view_to_methods(&view, &query)
+                        .map_err(user_err)?;
                 self.stage_or_commit_owl(graph, methods, in_txn).await
             }
         }
@@ -2311,9 +2615,18 @@ impl WireSession {
     #[cfg(feature = "query")]
     async fn exec_uql(&self, graph: &str, text: &str, in_txn: bool) -> WireResult<WireOutcome> {
         let plan = eg_plan::uql::parse(text).map_err(|e| user_err(e.render(text)))?;
+        #[cfg(feature = "tsdb")]
+        let tsdb_scope = if crate::server::handlers::query::plan_needs_tsdb(&plan.ops) {
+            let authority = self.carrier_authority()?;
+            Some((
+                authority.tenant_scope().to_string(),
+                authority.namespace("timeseries-graph", graph),
+            ))
+        } else {
+            None
+        };
         let core = self.graph_core(graph).await?;
         let mut view = core.analysis_snapshot();
-        let committed_semantic = core.semantic_store.read().clone();
         let (overlay_methods, vectors) = if in_txn {
             let mut methods = Self::node_ops_to_methods(&self.graph_txn.lock().ops)?;
             let xmodal = self.xmodal.lock();
@@ -2335,20 +2648,76 @@ impl WireSession {
             staged
         };
         crate::server::handlers::query::overlay_write_set(&mut view, &overlay_methods);
-        let semantic = eg_core::compute::semantic::semantic_overlay(committed_semantic, &vectors);
+        #[cfg(feature = "security")]
+        self.filter_view_for_verified_actor(&mut view).await?;
         #[cfg(feature = "tsdb")]
         let tsdb = self.state.read().await.tsdb_store.clone();
+        #[cfg(feature = "tsdb")]
+        let (tsdb_tenant, tsdb_graph) = match tsdb_scope {
+            Some((tenant, graph)) => (Some(tenant), Some(graph)),
+            None => (None, None),
+        };
+        // CONCEPT:EG-KG.query.served-vector-index-binding / served-text-index-binding — push the
+        // vector + lexical legs into the LIVE persistent indexes via a guard/adapter built
+        // INSIDE the off-lock closure, instead of pre-cloning the whole `SemanticStore` here
+        // (see `handlers::query`'s `UnifiedQuery` arm for the full rationale). The
+        // `semantic_overlay` clone is paid ONLY when the txn actually staged embeddings.
+        let core_for_ctx = core.clone();
         let rows = tokio::task::spawn_blocking(move || {
-            crate::server::handlers::query::run_unified(
-                plan,
-                None,
-                &view,
-                &semantic,
-                #[cfg(feature = "tsdb")]
-                tsdb.as_deref(),
-                #[cfg(feature = "tsdb")]
-                Some(&staged_series),
-            )
+            #[cfg(feature = "text")]
+            let served_text =
+                crate::server::secondary_indexes::ServedTextIndex::new(core_for_ctx.clone());
+            #[cfg(feature = "geo")]
+            let served_spatial =
+                crate::server::secondary_indexes::ServedSpatialIndex::new(core_for_ctx.clone());
+            if vectors.is_empty() {
+                let semantic_guard = core_for_ctx.semantic_store.read();
+                crate::server::handlers::query::run_unified(
+                    plan,
+                    &view,
+                    &semantic_guard,
+                    crate::server::handlers::query::ServedIndexes {
+                        #[cfg(feature = "text")]
+                        text: Some(&served_text),
+                        #[cfg(feature = "geo")]
+                        spatial: Some(&served_spatial),
+                        #[cfg(not(any(feature = "text", feature = "geo")))]
+                        _marker: std::marker::PhantomData,
+                    },
+                    #[cfg(feature = "tsdb")]
+                    tsdb.as_deref(),
+                    #[cfg(feature = "tsdb")]
+                    tsdb_tenant.as_deref(),
+                    #[cfg(feature = "tsdb")]
+                    tsdb_graph.as_deref(),
+                    #[cfg(feature = "tsdb")]
+                    Some(&staged_series),
+                )
+            } else {
+                let committed = core_for_ctx.semantic_store.read().clone();
+                let semantic = eg_core::compute::semantic::semantic_overlay(committed, &vectors);
+                crate::server::handlers::query::run_unified(
+                    plan,
+                    &view,
+                    &semantic,
+                    crate::server::handlers::query::ServedIndexes {
+                        #[cfg(feature = "text")]
+                        text: Some(&served_text),
+                        #[cfg(feature = "geo")]
+                        spatial: Some(&served_spatial),
+                        #[cfg(not(any(feature = "text", feature = "geo")))]
+                        _marker: std::marker::PhantomData,
+                    },
+                    #[cfg(feature = "tsdb")]
+                    tsdb.as_deref(),
+                    #[cfg(feature = "tsdb")]
+                    tsdb_tenant.as_deref(),
+                    #[cfg(feature = "tsdb")]
+                    tsdb_graph.as_deref(),
+                    #[cfg(feature = "tsdb")]
+                    Some(&staged_series),
+                )
+            }
         })
         .await
         .map_err(|e| user_err(format!("UQL task failed: {e}")))?
@@ -2361,27 +2730,53 @@ impl WireSession {
     #[cfg(feature = "query")]
     async fn new_txn_state(&self, graph: &str) -> WireResult<crate::server::txn::GraphTxnState> {
         let core = self.graph_core(graph).await?;
+        let authority = self.carrier_authority()?;
         Ok(crate::server::txn::GraphTxnState::new(
             &core,
             graph.to_string(),
+            authority.tenant_scope().to_string(),
             core.version(),
             crate::server::txn::IsolationLevel::Snapshot,
             None,
-            self.actor().unwrap_or_default(),
+            authority.owner_scope().to_string(),
             crate::server::txn::now_ms(),
         ))
+    }
+
+    #[cfg(all(feature = "query", feature = "tsdb"))]
+    fn scope_measurement(
+        &self,
+        graph: &str,
+        mut measurement: crate::server::txn::StagedMeasurement,
+    ) -> WireResult<crate::server::txn::StagedMeasurement> {
+        let authority = self.carrier_authority()?;
+        measurement.series = eg_tsdb::store::SeriesKey::new(
+            authority.tenant_scope(),
+            authority.namespace("timeseries-graph", graph),
+            measurement.series,
+        )
+        .encode();
+        Ok(measurement)
     }
 
     /// Commit an assembled [`crate::server::txn::GraphTxnState`] through the SHARED RPC
     /// cross-modal commit (CONCEPT:EG-KG.txn.isolation-ryow-begin-set) — the SAME `commit_cross_modal_txn` the RPC
     /// `Method::Commit` drives, so graph + vector + OWL modalities land atomically in ONE
-    /// redb `WriteTransaction` (in-memory-only on a no-persistence engine). Used by both
+    /// authoritative redb transaction. Used by both
     /// the off-txn auto-commit and the wire `COMMIT` of a cross-modal txn.
     #[cfg(feature = "query")]
     async fn commit_txn_state(&self, ts: crate::server::txn::GraphTxnState) -> WireResult<()> {
+        let authority = self.carrier_authority()?;
+        let coordinator_id = crate::server::mutation_batch::opaque_coordinator_key(
+            "wire-crossmodal-owner",
+            authority.owner_scope(),
+            &uuid::Uuid::new_v4().simple().to_string(),
+        );
         let committed = crate::server::handlers::txn::commit_cross_modal_txn(
             &self.state,
-            self.actor().as_deref(),
+            0,
+            Some(authority.actor_scope()),
+            &coordinator_id,
             ts,
         )
         .await
@@ -2567,28 +2962,19 @@ impl WireProtocol for WireSession {
         self.actor.lock().clone()
     }
 
-    /// One-time, on the first query: (1) adopt the wire's startup `database` as the
-    /// target graph (priority 1), and (2) latch the authenticated actor from the wire's
-    /// startup `user` (CONCEPT:EG-KG.query.concept-13). Both are only readable once the handshake
-    /// completes, so they latch on the first query.
+    /// One-time, on the first query: adopt the wire's startup `database` as the
+    /// target graph (priority 1). The startup `user` is used only to distinguish
+    /// libpq's implicit `database=user` default; it never establishes authority.
     ///
     /// The graph adoption is skipped if a `SET graph` already chose one, if the param
     /// is absent, or if it equals the user name (libpq's default when `dbname` is
-    /// unset — not a deliberate pick). The actor is set to the connecting `user` ONLY
-    /// when `auth_maps_actor` (an authenticated identity); otherwise it stays anonymous
-    /// (`None`) so the back-compat single-tenant path is unchanged. Idempotent.
+    /// unset — not a deliberate pick). Identity is established exclusively through
+    /// `authenticate_request` or `bind_authenticated_sql_actor`; execution rejects an
+    /// actor-only connection. Idempotent.
     fn resolve_startup(&self, user: Option<String>, database: Option<String>) {
         use std::sync::atomic::Ordering;
         if self.startup_resolved.swap(true, Ordering::AcqRel) {
             return;
-        }
-        // Under an authenticating wire the connection only reaches here authenticated,
-        // so the startup user IS the validated engine identity — adopt it as the ACL
-        // actor.
-        if self.auth_maps_actor {
-            if let Some(u) = user.as_ref().filter(|u| !u.is_empty()) {
-                *self.actor.lock() = Some(u.clone());
-            }
         }
         let db = match database {
             Some(ref d) if !d.is_empty() => d,
@@ -2611,6 +2997,10 @@ impl WireProtocol for WireSession {
     ///     set, otherwise a command tag.
     ///   * transaction control (`BEGIN`/`COMMIT`/`ROLLBACK`) → a txn-status change.
     async fn execute(&self, sql: &str) -> WireResult<WireOutcome> {
+        // No SQL statement, transaction-control command, graph switch, or catalog
+        // probe may touch state until a current signed request or a verified native
+        // SQL proxy handshake has bound tenant+actor authority to the connection.
+        self.carrier_authority()?;
         if let Some(res) = self.try_set_graph(sql) {
             return res;
         }
@@ -2668,7 +3058,7 @@ impl WireProtocol for WireSession {
 
         // Enforce the engine ACL under the connection's authenticated actor
         // (CONCEPT:EG-KG.query.concept-13) BEFORE touching the graph: a read needs Read access, any
-        // DML needs Write. A no-rules deployment is a no-op (back-compat).
+        // DML needs Write. The authenticated actor must exist in durable policy.
         let access = match kind {
             // CONCEPT:EG-KG.query.postgres-family-extension-plan — an AGE cypher() call is a read.
             StatementKind::Read | StatementKind::CypherCall(_) => AccessLevel::Read,

@@ -19,7 +19,8 @@
 //! `MAX` with `GROUP BY` — the `Group`+`Extend` algebra), the fuller property paths
 //! (`p+` / `p*` / `p?`, alternative `a|b`, inverse `^p`, and their nesting), and the
 //! `GRAPH ?g { … }` named-graph form (a single dataset here ⇒ `?g` binds the request
-//! graph). Sub-SELECT / SERVICE stay deferred (see the findings "SPARQL completeness").
+//! graph). Sub-selects lower into the same algebra, while `SERVICE` resolves through
+//! the injected, fail-closed remote SPARQL source.
 //!
 //! Performance note (carried from the spike): this evaluator does a full scan per
 //! triple pattern + a materialized join. That is the documented naive-evaluator gap
@@ -34,7 +35,7 @@ use spargebra::algebra::{
     PropertyPathExpression,
 };
 use spargebra::term::{GroundTerm, NamedNodePattern, TermPattern, TriplePattern, Variable};
-use spargebra::Query;
+use spargebra::{Query, SparqlParser};
 
 /// One solution: variable name → bound term (in our node-id / literal lexical form).
 pub type Solution = HashMap<String, Binding>;
@@ -211,12 +212,10 @@ impl SparqlResult {
 
 /// Parse a SPARQL 1.1 query string into the spargebra algebra.
 pub fn parse_query(q: &str) -> Result<Query, String> {
-    Query::parse(q, None).map_err(|e| format!("sparql parse: {e}"))
+    SparqlParser::new()
+        .parse_query(q)
+        .map_err(|e| format!("sparql parse: {e}"))
 }
-
-/// The bare IRI bound to `?g` (as `<…>`) for a `GRAPH ?g {}` over the single default
-/// dataset — the back-compat name a [`Dataset::single`] registers its view under.
-pub const DEFAULT_GRAPH_NAME: &str = "urn:eg:graph:default";
 
 /// An RDF dataset over live property-graph views (CONCEPT:EG-KG.query.named-graph-support — true named-graph
 /// semantics): a DEFAULT graph plus zero-or-more NAMED graphs, each a `GraphView`.
@@ -230,16 +229,6 @@ pub struct Dataset<'a> {
 }
 
 impl<'a> Dataset<'a> {
-    /// A single-graph dataset: `view` is the default graph AND is exposed as ONE named
-    /// graph under [`DEFAULT_GRAPH_NAME`], so a `GRAPH ?g { }` still resolves (`?g`
-    /// binds the default name) — the back-compatible single-dataset behavior.
-    pub fn single(view: &'a GraphView) -> Self {
-        Self {
-            default: view,
-            named: vec![(DEFAULT_GRAPH_NAME.to_string(), view)],
-        }
-    }
-
     /// A multi-graph dataset. `default` is the default graph; `named` is the set of
     /// named graphs keyed by their BARE graph IRI (no angle brackets).
     pub fn new(default: &'a GraphView, named: Vec<(String, &'a GraphView)>) -> Self {
@@ -319,71 +308,62 @@ pub enum QueryOutcome {
     Graph(Vec<oxrdf::Triple>),
 }
 
-/// Parse + evaluate a SPARQL SELECT over the GraphView in one call, using the IDENTITY
-/// LPG→RDF projection (verbatim keys). See [`run_projected`] to supply a vocabulary.
-pub fn run(view: &GraphView, query_str: &str) -> Result<SparqlResult, String> {
-    run_projected(view, query_str, &Projection::raw())
+impl QueryOutcome {
+    /// Convert the typed outcome to the flat row table used by tabular wire clients.
+    pub fn into_table(self) -> SparqlResult {
+        match self {
+            QueryOutcome::Solutions(result) => result,
+            QueryOutcome::Boolean(value) => {
+                let mut solution = Solution::new();
+                solution.insert("ask".to_string(), Binding::Literal(value.to_string()));
+                SparqlResult {
+                    vars: vec!["ask".to_string()],
+                    solutions: vec![solution],
+                }
+            }
+            #[cfg(feature = "rdf")]
+            QueryOutcome::Graph(triples) => {
+                let vars = vec![
+                    "subject".to_string(),
+                    "predicate".to_string(),
+                    "object".to_string(),
+                ];
+                let solutions = triples
+                    .iter()
+                    .map(|triple| {
+                        let mut solution = Solution::new();
+                        solution.insert(
+                            "subject".to_string(),
+                            Binding::Node(triple.subject.to_string()),
+                        );
+                        solution.insert(
+                            "predicate".to_string(),
+                            Binding::Node(triple.predicate.to_string()),
+                        );
+                        solution.insert(
+                            "object".to_string(),
+                            Binding::Literal(triple.object.to_string()),
+                        );
+                        solution
+                    })
+                    .collect();
+                SparqlResult { vars, solutions }
+            }
+        }
+    }
 }
 
-/// Parse + evaluate a SPARQL SELECT, projecting the live property graph into RDF terms
-/// under `proj` (CONCEPT:EG-KG.ontology.lpg-rdf-projection-vocabulary). With [`Projection::raw`] this equals [`run`].
-/// Non-SELECT forms are coerced to a row table (see [`run_outcome`] for the typed form).
-pub fn run_projected(
-    view: &GraphView,
-    query_str: &str,
-    proj: &Projection,
-) -> Result<SparqlResult, String> {
-    Ok(outcome_to_result(run_outcome(view, query_str, proj)?))
-}
-
-/// Parse + evaluate a SPARQL query of ANY form (SELECT/ASK/CONSTRUCT/DESCRIBE) over a
-/// single GraphView, returning the typed [`QueryOutcome`] (CONCEPT:EG-KG.query.named-graph-support).
-pub fn run_outcome(
-    view: &GraphView,
-    query_str: &str,
-    proj: &Projection,
-) -> Result<QueryOutcome, String> {
-    let q = parse_query(query_str)?;
-    let ds = Dataset::single(view);
-    evaluate_outcome(&ds, &q, proj)
-}
-
-/// Parse + evaluate a SPARQL query over a multi-graph [`Dataset`] (named-graph aware).
-pub fn run_outcome_dataset(
-    ds: &Dataset,
-    query_str: &str,
-    proj: &Projection,
-) -> Result<QueryOutcome, String> {
-    let q = parse_query(query_str)?;
-    evaluate_outcome(ds, &q, proj)
-}
-
-/// Parse + evaluate a SPARQL query over a [`Dataset`] with an OPTIONAL remote-`SERVICE`
-/// client bound (CONCEPT:EG-KG.query.sparql-service-federation-client). Identical to [`run_outcome_dataset`] except a
-/// `SERVICE <ep> { … }` clause dispatches through `service` (a `None` client makes every
-/// non-SILENT SERVICE an error — the fail-closed default). This is the ONE additive entry
-/// the facade calls; all existing entry points forward `service = None` (no behavior change).
-pub fn run_outcome_dataset_service(
+/// Parse and evaluate any SPARQL query form over a named-graph-aware [`Dataset`].
+/// This is the sole execution API. A configured remote `SERVICE` client is explicit;
+/// `None` rejects non-SILENT federation rather than selecting another execution path.
+pub fn execute(
     ds: &Dataset,
     query_str: &str,
     proj: &Projection,
     service: Option<&dyn RemoteSparql>,
 ) -> Result<QueryOutcome, String> {
     let q = parse_query(query_str)?;
-    evaluate_outcome_svc(ds, &q, proj, service)
-}
-
-/// Evaluate a parsed SELECT query over the GraphView (back-compat SELECT-only API).
-pub fn evaluate(
-    view: &GraphView,
-    query: &Query,
-    proj: &Projection,
-) -> Result<SparqlResult, String> {
-    let ds = Dataset::single(view);
-    match evaluate_outcome(&ds, query, proj)? {
-        QueryOutcome::Solutions(r) => Ok(r),
-        other => Ok(outcome_to_result(other)),
-    }
+    evaluate_query(ds, &q, proj, service)
 }
 
 /// Evaluate a parsed query of ANY form over a [`Dataset`] under projection `proj`.
@@ -393,18 +373,7 @@ pub fn evaluate(
 /// * `CONSTRUCT` → the WHERE solutions instantiated against the template triples.
 /// * `DESCRIBE`  → the triples describing each bound resource (subject- AND
 ///   object-position — a minimal concise bounded description over the active graph).
-pub fn evaluate_outcome(
-    ds: &Dataset,
-    query: &Query,
-    proj: &Projection,
-) -> Result<QueryOutcome, String> {
-    evaluate_outcome_svc(ds, query, proj, None)
-}
-
-/// Service-aware core of [`evaluate_outcome`] (CONCEPT:EG-KG.query.sparql-service-federation-client): identical, but threads an
-/// optional remote-`SERVICE` client into the evaluation `Ctx`. The public `evaluate_outcome`
-/// forwards `None` (no SERVICE), so no existing caller changes behavior.
-fn evaluate_outcome_svc(
+fn evaluate_query(
     ds: &Dataset,
     query: &Query,
     proj: &Projection,
@@ -495,45 +464,6 @@ pub fn eval_where(
     eval_pattern(&ctx, pattern)
 }
 
-/// Coerce any [`QueryOutcome`] to the flat wire [`SparqlResult`] row table: SELECT is
-/// passed through; ASK becomes a one-cell `?ask` table; a CONSTRUCT/DESCRIBE graph
-/// becomes an `?subject ?predicate ?object` table (N-Triples term lex:).
-fn outcome_to_result(outcome: QueryOutcome) -> SparqlResult {
-    match outcome {
-        QueryOutcome::Solutions(r) => r,
-        QueryOutcome::Boolean(b) => {
-            let mut sol = Solution::new();
-            sol.insert("ask".to_string(), Binding::Literal(b.to_string()));
-            SparqlResult {
-                vars: vec!["ask".to_string()],
-                solutions: vec![sol],
-            }
-        }
-        #[cfg(feature = "rdf")]
-        QueryOutcome::Graph(triples) => {
-            let vars = vec![
-                "subject".to_string(),
-                "predicate".to_string(),
-                "object".to_string(),
-            ];
-            let solutions = triples
-                .iter()
-                .map(|t| {
-                    let mut sol = Solution::new();
-                    sol.insert("subject".to_string(), Binding::Node(t.subject.to_string()));
-                    sol.insert(
-                        "predicate".to_string(),
-                        Binding::Node(t.predicate.to_string()),
-                    );
-                    sol.insert("object".to_string(), Binding::Literal(t.object.to_string()));
-                    sol
-                })
-                .collect();
-            SparqlResult { vars, solutions }
-        }
-    }
-}
-
 // ── CONSTRUCT / DESCRIBE (CONCEPT:EG-KG.query.named-graph-support) ───────────────────────────────────────
 
 /// Instantiate a CONSTRUCT template against each WHERE solution → the result graph.
@@ -561,11 +491,11 @@ fn construct_graph(template: &[TriplePattern], solutions: &[Solution]) -> Vec<ox
 /// so a bound literal becomes a simple literal — the documented projection limitation.
 #[cfg(feature = "rdf")]
 fn instantiate_triple(tp: &TriplePattern, sol: &Solution) -> Option<oxrdf::Triple> {
-    use oxrdf::{NamedNode, Subject, Term, Triple};
+    use oxrdf::{NamedNode, NamedOrBlankNode, Term, Triple};
 
-    let subject: Subject = match &tp.subject {
-        TermPattern::NamedNode(n) => Subject::NamedNode(n.clone()),
-        TermPattern::BlankNode(b) => Subject::BlankNode(b.clone()),
+    let subject: NamedOrBlankNode = match &tp.subject {
+        TermPattern::NamedNode(n) => NamedOrBlankNode::NamedNode(n.clone()),
+        TermPattern::BlankNode(b) => NamedOrBlankNode::BlankNode(b.clone()),
         TermPattern::Variable(v) => node_str_to_subject(sol.get(v.as_str())?.as_str())?,
         _ => return None,
     };
@@ -632,15 +562,15 @@ fn all_triples_terms(ctx: &Ctx) -> Vec<(String, String, String, bool)> {
     let mut out = Vec::new();
     for ((s, o), blobs) in &view.edge_properties {
         for blob in blobs {
-            if let Ok(v) = rmp_serde::from_slice::<serde_json::Value>(blob.as_slice()) {
-                if let Some(rel) = v.get("type").and_then(|x| x.as_str()) {
+            if let Ok(v) = eg_types::msgpack::decode_property_value(blob.as_slice()) {
+                if let Some(rel) = v.get("relationship").and_then(|x| x.as_str()) {
                     out.push((proj.node_iri(s), proj.pred_iri(rel), proj.node_iri(o), true));
                 }
             }
         }
     }
     for (id, blob) in &view.node_properties {
-        let Ok(v) = rmp_serde::from_slice::<serde_json::Value>(blob.as_slice()) else {
+        let Ok(v) = eg_types::msgpack::decode_property_value(blob.as_slice()) else {
             continue;
         };
         let Some(obj) = v.as_object() else { continue };
@@ -668,12 +598,12 @@ fn all_triples_terms(ctx: &Ctx) -> Vec<(String, String, String, bool)> {
 
 /// Parse a projected node-id string (`<iri>` / `_:b`) to an RDF subject; `None` else.
 #[cfg(feature = "rdf")]
-fn node_str_to_subject(id: &str) -> Option<oxrdf::Subject> {
-    use oxrdf::{BlankNode, NamedNode, Subject};
+fn node_str_to_subject(id: &str) -> Option<oxrdf::NamedOrBlankNode> {
+    use oxrdf::{BlankNode, NamedNode, NamedOrBlankNode};
     if let Some(iri) = id.strip_prefix('<').and_then(|s| s.strip_suffix('>')) {
-        Some(Subject::NamedNode(NamedNode::new(iri).ok()?))
+        Some(NamedOrBlankNode::NamedNode(NamedNode::new(iri).ok()?))
     } else if let Some(b) = id.strip_prefix("_:") {
-        Some(Subject::BlankNode(BlankNode::new(b).ok()?))
+        Some(NamedOrBlankNode::BlankNode(BlankNode::new(b).ok()?))
     } else {
         None
     }
@@ -694,8 +624,8 @@ fn binding_to_term(b: &Binding) -> oxrdf::Term {
     use oxrdf::{Literal, Term};
     match b {
         Binding::Node(id) => match node_str_to_subject(id) {
-            Some(oxrdf::Subject::NamedNode(n)) => Term::NamedNode(n),
-            Some(oxrdf::Subject::BlankNode(bn)) => Term::BlankNode(bn),
+            Some(oxrdf::NamedOrBlankNode::NamedNode(n)) => Term::NamedNode(n),
+            Some(oxrdf::NamedOrBlankNode::BlankNode(bn)) => Term::BlankNode(bn),
             _ => Term::Literal(Literal::new_simple_literal(b.as_str())),
         },
         Binding::Literal(v) => Term::Literal(Literal::new_simple_literal(v)),
@@ -711,8 +641,8 @@ fn build_triple(s: &str, p: &str, o: &str, object_is_node: bool) -> Option<oxrdf
     let pred = NamedNode::new(strip_iri(p)).ok()?;
     let obj = if object_is_node {
         match node_str_to_subject(o)? {
-            oxrdf::Subject::NamedNode(n) => Term::NamedNode(n),
-            oxrdf::Subject::BlankNode(b) => Term::BlankNode(b),
+            oxrdf::NamedOrBlankNode::NamedNode(n) => Term::NamedNode(n),
+            oxrdf::NamedOrBlankNode::BlankNode(b) => Term::BlankNode(b),
         }
     } else {
         Term::Literal(Literal::new_simple_literal(o))
@@ -821,8 +751,7 @@ fn eval_pattern(ctx: &Ctx, p: &GraphPattern) -> Result<Vec<Solution>, String> {
         // GRAPH … { … } — true named-graph scoping (CONCEPT:EG-KG.query.named-graph-support). A constant graph
         // IRI re-scopes evaluation to THAT named graph (empty if it is not in the
         // dataset). A variable `?g` ranges over EVERY named graph, evaluating the inner
-        // pattern against each and binding `?g` to its IRI (the union). This replaces
-        // the prior single-dataset collapse onto `DEFAULT_GRAPH_IRI`.
+        // pattern against each and binding `?g` to its IRI (the union).
         GraphPattern::Graph { name, inner } => match name {
             NamedNodePattern::NamedNode(n) => match ctx.ds.named_view(n.as_str()) {
                 Some(v) => eval_pattern(&ctx.with_active(v), inner),
@@ -1100,11 +1029,6 @@ fn canonical_solution(s: &Solution) -> String {
     format!("{kv:?}")
 }
 
-/// The IRI `?g` binds to in a `GRAPH ?g {}` over the single-graph dataset (the `<…>`
-/// wrapping of [`DEFAULT_GRAPH_NAME`]). Used by the named-graph back-compat test.
-#[cfg(test)]
-const DEFAULT_GRAPH_IRI: &str = "<urn:eg:graph:default>";
-
 // ── GROUP BY + aggregates (CONCEPT:EG-KG.query.sparql-completeness) ────────────────────────────────────
 
 /// Evaluate `GROUP BY group_vars` + the `aggregates` over `rows`. Returns one
@@ -1370,8 +1294,8 @@ fn negated_edge_pairs(
     let mut out = Vec::new();
     for ((s, o), blobs) in &ctx.active.edge_properties {
         for blob in blobs {
-            if let Ok(v) = rmp_serde::from_slice::<serde_json::Value>(blob.as_slice()) {
-                if let Some(rel) = v.get("type").and_then(|x| x.as_str()) {
+            if let Ok(v) = eg_types::msgpack::decode_property_value(blob.as_slice()) {
+                if let Some(rel) = v.get("relationship").and_then(|x| x.as_str()) {
                     if !negated.contains(&ctx.proj.pred_iri(rel)) {
                         out.push((ctx.proj.node_iri(s), ctx.proj.node_iri(o)));
                         break;
@@ -1390,8 +1314,8 @@ fn edge_pairs(ctx: &Ctx, pred: &str) -> Vec<(String, String)> {
     let mut out = Vec::new();
     for ((s, o), blobs) in &ctx.active.edge_properties {
         for blob in blobs {
-            if let Ok(v) = rmp_serde::from_slice::<serde_json::Value>(blob.as_slice()) {
-                if let Some(rel) = v.get("type").and_then(|x| x.as_str()) {
+            if let Ok(v) = eg_types::msgpack::decode_property_value(blob.as_slice()) {
+                if let Some(rel) = v.get("relationship").and_then(|x| x.as_str()) {
                     if ctx.proj.pred_iri(rel) == pred {
                         out.push((ctx.proj.node_iri(s), ctx.proj.node_iri(o)));
                         break;
@@ -1461,11 +1385,11 @@ fn match_triple_pattern(ctx: &Ctx, tp: &TriplePattern) -> Vec<Solution> {
     // EDGE patterns: object is a resource. Scan edges; project subject/predicate/object.
     for ((s, o), blobs) in &view.edge_properties {
         for blob in blobs {
-            let v: serde_json::Value = match rmp_serde::from_slice(blob.as_slice()) {
+            let v = match eg_types::msgpack::decode_property_value(blob.as_slice()) {
                 Ok(v) => v,
                 Err(_) => continue,
             };
-            let Some(rel) = v.get("type").and_then(|x| x.as_str()) else {
+            let Some(rel) = v.get("relationship").and_then(|x| x.as_str()) else {
                 continue;
             };
             let mut sol = Solution::new();
@@ -1484,7 +1408,7 @@ fn match_triple_pattern(ctx: &Ctx, tp: &TriplePattern) -> Vec<Solution> {
 
     // NODE patterns: scan node property cells.
     for (id, blob) in &view.node_properties {
-        let v: serde_json::Value = match rmp_serde::from_slice(blob.as_slice()) {
+        let v = match eg_types::msgpack::decode_property_value(blob.as_slice()) {
             Ok(v) => v,
             Err(_) => continue,
         };
@@ -2481,6 +2405,43 @@ mod tests {
     use super::*;
     use crate::mapping::{load_triples, parse_turtle, IriStore};
 
+    fn select(view: &GraphView, query: &str) -> Result<SparqlResult, String> {
+        select_projected(view, query, &Projection::raw())
+    }
+
+    fn select_projected(
+        view: &GraphView,
+        query: &str,
+        projection: &Projection,
+    ) -> Result<SparqlResult, String> {
+        Ok(query_graph(view, query, projection)?.into_table())
+    }
+
+    fn query_graph(
+        view: &GraphView,
+        query: &str,
+        projection: &Projection,
+    ) -> Result<QueryOutcome, String> {
+        execute(&Dataset::new(view, Vec::new()), query, projection, None)
+    }
+
+    fn query_dataset(
+        dataset: &Dataset,
+        query: &str,
+        projection: &Projection,
+    ) -> Result<QueryOutcome, String> {
+        execute(dataset, query, projection, None)
+    }
+
+    fn query_dataset_service(
+        dataset: &Dataset,
+        query: &str,
+        projection: &Projection,
+        service: Option<&dyn RemoteSparql>,
+    ) -> Result<QueryOutcome, String> {
+        execute(dataset, query, projection, service)
+    }
+
     fn loaded_view() -> GraphView {
         let ttl = r#"
 @prefix ex: <http://example.org/> .
@@ -2491,15 +2452,7 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
 "#;
         let core = eg_core::graph::GraphCore::new();
         let mut iris = IriStore::default();
-        load_triples(
-            &core,
-            &mut iris,
-            "g",
-            parse_turtle(ttl).unwrap(),
-            #[cfg(feature = "rdf-redb")]
-            None,
-        )
-        .unwrap();
+        load_triples(&core, &mut iris, "g", parse_turtle(ttl).unwrap()).unwrap();
         core.analysis_snapshot()
     }
 
@@ -2507,7 +2460,7 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
     #[test]
     fn bgp_two_patterns_plus_filter() {
         let view = loaded_view();
-        let res = run(
+        let res = select(
             &view,
             r#"
             PREFIX ex: <http://example.org/>
@@ -2536,7 +2489,7 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
     #[test]
     fn optional_left_join() {
         let view = loaded_view();
-        let res = run(
+        let res = select(
             &view,
             r#"
             PREFIX ex: <http://example.org/>
@@ -2569,7 +2522,7 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
     #[test]
     fn union_merges_branches() {
         let view = loaded_view();
-        let res = run(
+        let res = select(
             &view,
             r#"
             PREFIX ex: <http://example.org/>
@@ -2595,7 +2548,7 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
     fn sequence_property_path() {
         let view = loaded_view();
         // carol knows alice; alice's name is "Alice".
-        let res = run(
+        let res = select(
             &view,
             r#"
             PREFIX ex: <http://example.org/>
@@ -2614,7 +2567,7 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
     #[test]
     fn to_rows_projects_unbound_as_none() {
         let view = loaded_view();
-        let res = run(
+        let res = select(
             &view,
             r#"
             PREFIX ex: <http://example.org/>
@@ -2645,7 +2598,7 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
     #[test]
     fn aggregate_count_all() {
         let view = loaded_view();
-        let res = run(
+        let res = select(
             &view,
             r#"
             PREFIX ex: <http://example.org/>
@@ -2660,7 +2613,7 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
     #[test]
     fn aggregate_sum() {
         let view = loaded_view();
-        let res = run(
+        let res = select(
             &view,
             r#"
             PREFIX ex: <http://example.org/>
@@ -2675,7 +2628,7 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
     #[test]
     fn aggregate_group_by_count() {
         let view = loaded_view();
-        let res = run(
+        let res = select(
             &view,
             r#"
             PREFIX ex: <http://example.org/>
@@ -2698,7 +2651,7 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
     #[test]
     fn property_path_one_or_more() {
         let view = loaded_view();
-        let res = run(
+        let res = select(
             &view,
             r#"
             PREFIX ex: <http://example.org/>
@@ -2725,7 +2678,7 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
     #[test]
     fn property_path_inverse() {
         let view = loaded_view();
-        let res = run(
+        let res = select(
             &view,
             r#"
             PREFIX ex: <http://example.org/>
@@ -2749,7 +2702,7 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
     #[test]
     fn property_path_alternative() {
         let view = loaded_view();
-        let res = run(
+        let res = select(
             &view,
             r#"
             PREFIX ex: <http://example.org/>
@@ -2768,22 +2721,18 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
         );
     }
 
-    /// `GRAPH ?g { … }` — over the single dataset, the inner BGP resolves and `?g`
-    /// binds the request graph IRI.
+    /// A default graph is not implicitly exposed as a named graph.
     #[test]
-    fn graph_named_form_binds_g() {
+    fn graph_named_form_requires_explicit_named_member() {
         let view = loaded_view();
-        let res = run(
+        let res = select(
             &view,
             r#"
             PREFIX ex: <http://example.org/>
             SELECT ?g ?name WHERE { GRAPH ?g { ex:alice ex:name ?name . } }"#,
         )
         .unwrap();
-        assert_eq!(res.solutions.len(), 1, "got {res:?}");
-        let s = &res.solutions[0];
-        assert_eq!(s.get("name").unwrap().as_str(), "Alice");
-        assert_eq!(s.get("g").unwrap().as_str(), DEFAULT_GRAPH_IRI);
+        assert!(res.solutions.is_empty(), "got {res:?}");
     }
 
     // ── CONCEPT:EG-KG.ontology.lpg-rdf-projection-vocabulary — LPG→RDF projection vocabulary ────────────────────────
@@ -2813,7 +2762,7 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
         txn.add_edge(
             "alice".into(),
             "bob".into(),
-            rmp_serde::to_vec_named(&serde_json::json!({"type":"knows"})).unwrap(),
+            rmp_serde::to_vec_named(&serde_json::json!({"relationship":"knows"})).unwrap(),
         )
         .unwrap();
         drop(txn);
@@ -2827,7 +2776,7 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
     fn projection_rdf_type_by_class() {
         let view = native_view();
         let proj = au_proj();
-        let res = run_projected(
+        let res = select_projected(
             &view,
             "PREFIX au: <http://agent-utilities.dev/ontology#>\
              SELECT ?s WHERE { ?s a au:Agent }",
@@ -2846,7 +2795,7 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
         );
 
         // The multi-word type CamelCases: bob is an au:WorldModel.
-        let res2 = run_projected(
+        let res2 = select_projected(
             &view,
             "PREFIX au: <http://agent-utilities.dev/ontology#>\
              SELECT ?s WHERE { ?s a au:WorldModel }",
@@ -2866,7 +2815,7 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
     #[test]
     fn projection_by_property_literal() {
         let view = native_view();
-        let res = run_projected(
+        let res = select_projected(
             &view,
             "PREFIX au: <http://agent-utilities.dev/ontology#>\
              SELECT ?s WHERE { ?s au:name \"Alice\" }",
@@ -2885,7 +2834,7 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
     #[test]
     fn projection_edge() {
         let view = native_view();
-        let res = run_projected(
+        let res = select_projected(
             &view,
             "PREFIX au: <http://agent-utilities.dev/ontology#>\
              SELECT ?o WHERE { au:alice au:knows ?o }",
@@ -2907,7 +2856,8 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
     #[test]
     fn projection_full_triple_set_matches_au_convention() {
         let view = native_view();
-        let res = run_projected(&view, "SELECT ?s ?p ?o WHERE { ?s ?p ?o }", &au_proj()).unwrap();
+        let res =
+            select_projected(&view, "SELECT ?s ?p ?o WHERE { ?s ?p ?o }", &au_proj()).unwrap();
         let triples: std::collections::HashSet<(String, String, String)> = res
             .solutions
             .iter()
@@ -2962,7 +2912,7 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
     #[test]
     fn identity_projection_unchanged() {
         let view = native_view();
-        let res = run(&view, "SELECT ?s ?p ?o WHERE { ?s ?p ?o }").unwrap();
+        let res = select(&view, "SELECT ?s ?p ?o WHERE { ?s ?p ?o }").unwrap();
         let preds: std::collections::HashSet<String> = res
             .solutions
             .iter()
@@ -2988,14 +2938,14 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
     #[test]
     fn ask_true_and_false() {
         let view = loaded_view();
-        let t = run_outcome(
+        let t = query_graph(
             &view,
             "PREFIX ex: <http://example.org/> ASK { ex:alice ex:name \"Alice\" }",
             &Projection::raw(),
         )
         .unwrap();
         assert!(matches!(t, QueryOutcome::Boolean(true)), "got {t:?}");
-        let f = run_outcome(
+        let f = query_graph(
             &view,
             "PREFIX ex: <http://example.org/> ASK { ex:alice ex:name \"Zelda\" }",
             &Projection::raw(),
@@ -3008,7 +2958,7 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
     #[test]
     fn construct_returns_expected_triples() {
         let view = loaded_view();
-        let out = run_outcome(
+        let out = query_graph(
             &view,
             r#"PREFIX ex: <http://example.org/>
                CONSTRUCT { ?a ex:friend ?b } WHERE { ?a ex:knows ?b }"#,
@@ -3050,7 +3000,7 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
     #[test]
     fn describe_returns_resource_triples() {
         let view = loaded_view();
-        let out = run_outcome(
+        let out = query_graph(
             &view,
             "PREFIX ex: <http://example.org/> DESCRIBE ex:alice",
             &Projection::raw(),
@@ -3093,8 +3043,6 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
             &mut iris,
             "a",
             parse_turtle("@prefix ex: <http://ex/> . ex:a ex:p ex:b .").unwrap(),
-            #[cfg(feature = "rdf-redb")]
-            None,
         )
         .unwrap();
         let core_b = eg_core::graph::GraphCore::new();
@@ -3103,8 +3051,6 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
             &mut iris,
             "b",
             parse_turtle("@prefix ex: <http://ex/> . ex:c ex:p ex:d .").unwrap(),
-            #[cfg(feature = "rdf-redb")]
-            None,
         )
         .unwrap();
         let va = core_a.analysis_snapshot();
@@ -3118,7 +3064,7 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
             ],
         );
         // ex:a is in graph A only — scoping to B yields nothing.
-        let in_b = run_outcome_dataset(
+        let in_b = query_dataset(
             &ds,
             "SELECT ?o WHERE { GRAPH <http://g/b> { <http://ex/a> <http://ex/p> ?o } }",
             &Projection::raw(),
@@ -3129,7 +3075,7 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
         };
         assert!(rb.solutions.is_empty(), "ex:a not visible in graph B");
         // Scoping to A finds it.
-        let in_a = run_outcome_dataset(
+        let in_a = query_dataset(
             &ds,
             "SELECT ?o WHERE { GRAPH <http://g/a> { <http://ex/a> <http://ex/p> ?o } }",
             &Projection::raw(),
@@ -3151,7 +3097,7 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
     #[test]
     fn sub_select_restricts_to_projected_vars() {
         let view = loaded_view();
-        let res = run(
+        let res = select(
             &view,
             r#"
             PREFIX ex: <http://example.org/>
@@ -3176,7 +3122,7 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
     #[test]
     fn sub_select_count_star() {
         let view = loaded_view();
-        let res = run(
+        let res = select(
             &view,
             r#"
             PREFIX ex: <http://example.org/>
@@ -3197,7 +3143,7 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
     #[test]
     fn sub_select_top_level_unchanged() {
         let view = loaded_view();
-        let res = run(
+        let res = select(
             &view,
             r#"
             PREFIX ex: <http://example.org/>
@@ -3224,7 +3170,7 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
               FILTER ({filter})
             }}"#
         );
-        let res = run(view, &q).unwrap();
+        let res = select(view, &q).unwrap();
         let mut names: Vec<String> = res
             .solutions
             .iter()
@@ -3293,7 +3239,7 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
     #[test]
     fn minus_set_difference() {
         let view = loaded_view();
-        let res = run(
+        let res = select(
             &view,
             r#"
             PREFIX ex: <http://example.org/>
@@ -3322,17 +3268,9 @@ ex:alice ex:knows ex:bob ; ex:likes ex:carol .
 "#;
         let core = eg_core::graph::GraphCore::new();
         let mut iris = IriStore::default();
-        load_triples(
-            &core,
-            &mut iris,
-            "g",
-            parse_turtle(ttl).unwrap(),
-            #[cfg(feature = "rdf-redb")]
-            None,
-        )
-        .unwrap();
+        load_triples(&core, &mut iris, "g", parse_turtle(ttl).unwrap()).unwrap();
         let view = core.analysis_snapshot();
-        let res = run(
+        let res = select(
             &view,
             r#"
             PREFIX ex: <http://example.org/>
@@ -3364,7 +3302,7 @@ ex:alice ex:knows ex:bob ; ex:likes ex:carol .
             "PREFIX ex: <http://example.org/> \
              SELECT ?name WHERE {{ ?p ex:name ?name ; ex:age ?age }} {clause}"
         );
-        run(view, &q)
+        select(view, &q)
             .unwrap()
             .solutions
             .iter()
@@ -3406,7 +3344,7 @@ ex:alice ex:knows ex:bob ; ex:likes ex:carol .
     #[test]
     fn values_join_restricts() {
         let view = loaded_view();
-        let res = run(
+        let res = select(
             &view,
             r#"
             PREFIX ex: <http://example.org/>
@@ -3435,7 +3373,7 @@ ex:alice ex:knows ex:bob ; ex:likes ex:carol .
                 "PREFIX ex: <http://example.org/> \
                  SELECT ?name WHERE {{ ?p ex:name ?name . FILTER {clause} }}"
             );
-            let mut v: Vec<String> = run(&view, &q)
+            let mut v: Vec<String> = select(&view, &q)
                 .unwrap()
                 .solutions
                 .iter()
@@ -3470,20 +3408,12 @@ ex:c ex:dept "Sales" ; ex:name "Bob" ; ex:rank "1"^^xsd:integer .
 "#;
         let core = eg_core::graph::GraphCore::new();
         let mut iris = IriStore::default();
-        load_triples(
-            &core,
-            &mut iris,
-            "g",
-            parse_turtle(ttl).unwrap(),
-            #[cfg(feature = "rdf-redb")]
-            None,
-        )
-        .unwrap();
+        load_triples(&core, &mut iris, "g", parse_turtle(ttl).unwrap()).unwrap();
         core.analysis_snapshot()
     }
 
     fn ordered_col(view: &GraphView, q: &str, col: &str) -> Vec<String> {
-        run(view, q)
+        select(view, q)
             .unwrap()
             .solutions
             .iter()
@@ -3554,7 +3484,7 @@ ex:c ex:dept "Sales" ; ex:name "Bob" ; ex:rank "1"^^xsd:integer .
     #[test]
     fn values_join_extends_eg135() {
         let view = loaded_view();
-        let res = run(
+        let res = select(
             &view,
             r#"
             PREFIX ex: <http://example.org/>
@@ -3599,7 +3529,7 @@ ex:c ex:dept "Sales" ; ex:name "Bob" ; ex:rank "1"^^xsd:integer .
                 "PREFIX ex: <http://example.org/> \
                  SELECT ?name WHERE {{ ?p ex:name ?name . {where_clause} }}"
             );
-            let mut v: Vec<String> = run(&view, &q)
+            let mut v: Vec<String> = select(&view, &q)
                 .unwrap()
                 .solutions
                 .iter()
@@ -3636,8 +3566,6 @@ ex:c ex:dept "Sales" ; ex:name "Bob" ; ex:rank "1"^^xsd:integer .
             &mut iris,
             "a",
             parse_turtle("@prefix ex: <http://ex/> . ex:a ex:p ex:b .").unwrap(),
-            #[cfg(feature = "rdf-redb")]
-            None,
         )
         .unwrap();
         let core_b = eg_core::graph::GraphCore::new();
@@ -3646,8 +3574,6 @@ ex:c ex:dept "Sales" ; ex:name "Bob" ; ex:rank "1"^^xsd:integer .
             &mut iris,
             "b",
             parse_turtle("@prefix ex: <http://ex/> . ex:c ex:p ex:d .").unwrap(),
-            #[cfg(feature = "rdf-redb")]
-            None,
         )
         .unwrap();
         let va = core_a.analysis_snapshot();
@@ -3662,8 +3588,7 @@ ex:c ex:dept "Sales" ; ex:name "Bob" ; ex:rank "1"^^xsd:integer .
             ],
         );
         let subjects = |q: &str| -> Vec<String> {
-            let QueryOutcome::Solutions(r) =
-                run_outcome_dataset(&ds, q, &Projection::raw()).unwrap()
+            let QueryOutcome::Solutions(r) = query_dataset(&ds, q, &Projection::raw()).unwrap()
             else {
                 panic!()
             };
@@ -3679,7 +3604,7 @@ ex:c ex:dept "Sales" ; ex:name "Bob" ; ex:rank "1"^^xsd:integer .
         assert_eq!(subjects("SELECT ?s WHERE { ?s ?p ?o }").len(), 2);
         // FROM <g/a>: only graph A's subject (ex:a) is visible.
         let from_a = {
-            let QueryOutcome::Solutions(r) = run_outcome_dataset(
+            let QueryOutcome::Solutions(r) = query_dataset(
                 &ds,
                 "SELECT ?s FROM <http://g/a> WHERE { ?s ?p ?o }",
                 &Projection::raw(),
@@ -3716,7 +3641,7 @@ ex:c ex:dept "Sales" ; ex:name "Bob" ; ex:rank "1"^^xsd:integer .
     #[test]
     fn service_joins_local_bgp() {
         let view = loaded_view();
-        let ds = Dataset::single(&view);
+        let ds = Dataset::new(&view, Vec::new());
         let mut row = Solution::new();
         row.insert("name".to_string(), Binding::Literal("Alice".to_string()));
         row.insert("score".to_string(), Binding::Literal("100".to_string()));
@@ -3731,7 +3656,7 @@ ex:c ex:dept "Sales" ; ex:name "Bob" ; ex:rank "1"^^xsd:integer .
               SERVICE <http://remote/e> { ?name ex:score ?score }
             }"#;
         let QueryOutcome::Solutions(r) =
-            run_outcome_dataset_service(&ds, q, &Projection::raw(), Some(&svc)).unwrap()
+            query_dataset_service(&ds, q, &Projection::raw(), Some(&svc)).unwrap()
         else {
             panic!()
         };
@@ -3746,7 +3671,7 @@ ex:c ex:dept "Sales" ; ex:name "Bob" ; ex:rank "1"^^xsd:integer .
     #[test]
     fn service_silent_swallows_error() {
         let view = loaded_view();
-        let ds = Dataset::single(&view);
+        let ds = Dataset::new(&view, Vec::new());
         let svc = MockService(Err("remote down".to_string()));
         let q = r#"
             PREFIX ex: <http://example.org/>
@@ -3755,7 +3680,7 @@ ex:c ex:dept "Sales" ; ex:name "Bob" ; ex:rank "1"^^xsd:integer .
               SERVICE SILENT <http://remote/e> { ?name ex:score ?score }
             }"#;
         let QueryOutcome::Solutions(r) =
-            run_outcome_dataset_service(&ds, q, &Projection::raw(), Some(&svc)).unwrap()
+            query_dataset_service(&ds, q, &Projection::raw(), Some(&svc)).unwrap()
         else {
             panic!()
         };
@@ -3771,7 +3696,7 @@ ex:c ex:dept "Sales" ; ex:name "Bob" ; ex:rank "1"^^xsd:integer .
     #[test]
     fn service_error_propagates_without_silent() {
         let view = loaded_view();
-        let ds = Dataset::single(&view);
+        let ds = Dataset::new(&view, Vec::new());
         let svc = MockService(Err("remote down".to_string()));
         let q = r#"
             PREFIX ex: <http://example.org/>
@@ -3780,11 +3705,11 @@ ex:c ex:dept "Sales" ; ex:name "Bob" ; ex:rank "1"^^xsd:integer .
               SERVICE <http://remote/e> { ?name ex:score ?score }
             }"#;
         assert!(
-            run_outcome_dataset_service(&ds, q, &Projection::raw(), Some(&svc)).is_err(),
+            query_dataset_service(&ds, q, &Projection::raw(), Some(&svc)).is_err(),
             "non-SILENT SERVICE error must propagate"
         );
         assert!(
-            run_outcome_dataset_service(&ds, q, &Projection::raw(), None).is_err(),
+            query_dataset_service(&ds, q, &Projection::raw(), None).is_err(),
             "no client bound is fail-closed"
         );
     }
@@ -3829,7 +3754,7 @@ ex:c ex:dept "Sales" ; ex:name "Bob" ; ex:rank "1"^^xsd:integer .
     /// Evaluate a scalar expression via `BIND(<expr> AS ?x)` over an empty BGP.
     fn scalar(view: &GraphView, expr: &str) -> String {
         let q = format!("SELECT ?x WHERE {{ BIND({expr} AS ?x) }}");
-        let res = run(view, &q).unwrap_or_else(|e| panic!("run {expr}: {e}"));
+        let res = select(view, &q).unwrap_or_else(|e| panic!("run {expr}: {e}"));
         res.solutions
             .first()
             .and_then(|s| s.get("x"))
@@ -3978,15 +3903,7 @@ ex:gB    geo:asWKT "POINT(5 5)"^^geo:wktLiteral .
 "#;
         let core = eg_core::graph::GraphCore::new();
         let mut iris = IriStore::default();
-        load_triples(
-            &core,
-            &mut iris,
-            "g",
-            parse_turtle(ttl).unwrap(),
-            #[cfg(feature = "rdf-redb")]
-            None,
-        )
-        .unwrap();
+        load_triples(&core, &mut iris, "g", parse_turtle(ttl).unwrap()).unwrap();
         core.analysis_snapshot()
     }
 
@@ -3997,7 +3914,7 @@ ex:gB    geo:asWKT "POINT(5 5)"^^geo:wktLiteral .
     #[test]
     fn eg261_hasgeometry_aswkt_sfwithin_full_query() {
         let view = geo_view();
-        let res = run(
+        let res = select(
             &view,
             r#"
             PREFIX geo:  <http://www.opengis.net/ont/geosparql#>
@@ -4034,15 +3951,7 @@ ex:edge  geo:asWKT "POLYGON((0 0, 5 0, 5 5, 0 5, 0 0))"^^geo:wktLiteral .
 "#;
         let core = eg_core::graph::GraphCore::new();
         let mut iris = IriStore::default();
-        load_triples(
-            &core,
-            &mut iris,
-            "g",
-            parse_turtle(ttl).unwrap(),
-            #[cfg(feature = "rdf-redb")]
-            None,
-        )
-        .unwrap();
+        load_triples(&core, &mut iris, "g", parse_turtle(ttl).unwrap()).unwrap();
         core.analysis_snapshot()
     }
 
@@ -4054,7 +3963,7 @@ ex:edge  geo:asWKT "POLYGON((0 0, 5 0, 5 5, 0 5, 0 0))"^^geo:wktLiteral .
     #[test]
     fn eg155_sparql_filter_rcc8ntpp_full_query() {
         let view = rcc8_view();
-        let res = run(
+        let res = select(
             &view,
             r#"
             PREFIX geo:  <http://www.opengis.net/ont/geosparql#>

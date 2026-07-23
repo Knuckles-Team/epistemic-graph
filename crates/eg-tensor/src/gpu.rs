@@ -225,8 +225,8 @@ mod tests {
     /// GPU↔CPU parity (CONCEPT:EG-KG.compute.tensor-gpu-distance). When a CUDA device is present, the real CUDA
     /// elementwise kernel MUST match the CPU ground truth for every op; when no device is
     /// available `cuda::backend()` is `None` and the test SKIPS cleanly. So it is a no-op
-    /// in GPU-less CI yet auto-validates the EG-327 kernel wherever a GPU exists (e.g. the
-    /// GB10 box) without breaking CI. Only compiled under `--features gpu-cuda`. The
+    /// in GPU-less CI yet auto-validates the EG-327 kernel wherever a compatible CUDA
+    /// device exists without breaking CI. Only compiled under `--features gpu-cuda`. The
     /// per-element ops are single f64 add/sub/mul/div — each IEEE-754 correctly rounded on
     /// both devices with no accumulation — so parity is asserted BITWISE-exact.
     #[cfg(feature = "gpu-cuda")]

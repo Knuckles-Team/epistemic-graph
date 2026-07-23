@@ -13,7 +13,7 @@
 mod common;
 
 use common::{build_docs, ids_sorted, query_vec};
-use eg_plan::{execute, optimize, CostModel, Op, Plan, PlanCtx, Pred, Stats};
+use eg_plan::{execute, optimize, Op, Plan, PlanCtx, Pred};
 
 /// Render a plan's ops as a stable, reviewable multi-line string.
 fn render(ops: &[Op]) -> String {
@@ -152,50 +152,9 @@ fn curated_hybrid_plans_are_stable() {
     );
 }
 
-/// OPTIMIZER-quality regression: the cost model must PUSH a selective filter ahead of the
-/// vector RANK, and choose vector-first for a broad filter. Snapshot BOTH reordered plans
-/// so a silent optimizer regression (the selective filter stops being pushed) trips the
-/// diff, not just a hidden perf loss.
-#[test]
-fn cost_reordered_plans_are_stable() {
-    let plan = vec![
-        Op::Scan {
-            label: "Doc".into(),
-        },
-        Op::Filter {
-            preds: vec![Pred::GtNum {
-                prop: "year".into(),
-                n: 2022.0,
-            }],
-        },
-        Op::Rank {
-            query: vec![1.0, 0.0, 0.0, 0.0],
-        },
-    ];
-
-    let selective = Stats::estimate(10_000, 0.01, 10, 6);
-    let broad = Stats::estimate(10_000, 0.98, 10, 6);
-
-    let sel = CostModel::reorder_filter_rank(plan.clone(), &selective);
-    let brd = CostModel::reorder_filter_rank(plan, &broad);
-
-    // Guard the actual optimizer decision, not just the render: selective ⇒ filter pushed.
-    assert!(
-        matches!(sel[1], Op::Filter { .. }) && matches!(sel[2], Op::Rank { .. }),
-        "selective regime must push the filter ahead of RANK"
-    );
-    assert!(
-        matches!(brd[1], Op::Rank { .. }) && matches!(brd[2], Op::Filter { .. }),
-        "broad regime must run the vector RANK first"
-    );
-
-    insta::assert_snapshot!("optimizer_selective_filter_pushed", render(&sel));
-    insta::assert_snapshot!("optimizer_broad_vector_first", render(&brd));
-}
-
 /// END-TO-END optimizer-engine regression (CONCEPT:EG-KG.query.xmodal-cost-optimizer): the FULL
-/// rule engine `eg_plan::optimize` — not just the standalone `reorder_filter_rank` — reorders a
-/// real plan over the live docs fixture, and the rewrite is ANSWER-PRESERVING (the differential
+/// rule engine `eg_plan::optimize` reorders a real plan over the live docs fixture,
+/// and the rewrite is ANSWER-PRESERVING (the differential
 /// oracle: the optimized plan executes to the SAME id set as the original). Snapshot the
 /// reordered logical plan so a silent optimizer regression trips the diff.
 #[test]

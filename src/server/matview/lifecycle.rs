@@ -9,19 +9,25 @@ use eg_core::result_cache::ResultCache;
 
 use super::manager::PlanMatView;
 
+const MAX_MATVIEW_DEFINITION_BYTES: usize = 16 * 1024 * 1024;
+const MAX_MATVIEW_DEFINITION_ITEMS: usize = 100_000;
+
+fn limits() -> eg_types::msgpack::MsgpackLimits {
+    eg_types::msgpack::MsgpackLimits::new(
+        MAX_MATVIEW_DEFINITION_BYTES,
+        MAX_MATVIEW_DEFINITION_ITEMS,
+        64,
+    )
+}
+
 /// Derive the RESULT-cache key component for a plan-backed matview
-/// (CONCEPT:EG-KG.storage.plan-backed-matview). Hashes the serialized plan + the reorder
-/// hint under a dedicated `matview` kind, so define / get / refresh compute the IDENTICAL
+/// (CONCEPT:EG-KG.storage.plan-backed-matview). Hashes the serialized plan under a
+/// dedicated `matview` kind, so define / get / refresh compute the identical
 /// `query_hash` and share one cached result; the graph `version` (the cache's 2nd key
 /// dimension) makes a write retire it, and the `actor_scope_hash` (3rd dimension) keeps it
 /// out of a different RLS actor's lookups.
 pub fn plan_hash(def: &PlanMatView) -> u128 {
-    let mut payload = rmp_serde::to_vec_named(&def.plan).unwrap_or_default();
-    payload.extend(
-        def.reorder_filter_selectivity
-            .unwrap_or(f64::NAN)
-            .to_le_bytes(),
-    );
+    let payload = rmp_serde::to_vec_named(&def.plan).unwrap_or_default();
     ResultCache::hash_query("matview", &payload)
 }
 
@@ -42,10 +48,15 @@ pub fn materialize(
 
 /// Serialize a definition for the durable `plan_matviews` redb row.
 pub fn encode_def(def: &PlanMatView) -> Result<Vec<u8>, String> {
-    rmp_serde::to_vec_named(def).map_err(|e| format!("serialize plan matview: {e}"))
+    let bytes =
+        rmp_serde::to_vec_named(def).map_err(|_| "serialize plan matview failed".to_string())?;
+    eg_types::msgpack::validate_single_value(&bytes, limits())
+        .map_err(|_| "plan matview definition exceeds limits".to_string())?;
+    Ok(bytes)
 }
 
 /// Decode a durable `plan_matviews` row back into a definition.
 pub fn decode_def(blob: &[u8]) -> Result<PlanMatView, String> {
-    rmp_serde::from_slice(blob).map_err(|e| format!("deserialize plan matview: {e}"))
+    eg_types::msgpack::decode_bounded(blob, limits())
+        .map_err(|_| "stored plan matview definition is invalid".to_string())
 }

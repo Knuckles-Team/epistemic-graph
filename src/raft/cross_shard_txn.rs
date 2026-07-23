@@ -166,6 +166,45 @@ use crate::protocol::{GraphType, Method};
 use crate::server::persistence::redb_backend::RedbBackend;
 use crate::server::persistence::PersistenceBackend;
 
+const MAX_PREPARED_TXN_BYTES: usize = 256 * 1024 * 1024;
+const MAX_PREPARED_TXN_ITEMS: usize = 4_000_000;
+const MAX_PREPARED_SLICES: usize = 100_000;
+const MAX_PREPARED_METHODS: usize = 1_000_000;
+const MAX_PREPARED_GRAPH_NAME_BYTES: usize = 4_096;
+
+fn prepared_slices_exceed_limits(slices: &[GraphSlice]) -> bool {
+    slices.len() > MAX_PREPARED_SLICES
+        || slices.iter().any(|slice| {
+            slice.graph_name.is_empty()
+                || slice.graph_name.len() > MAX_PREPARED_GRAPH_NAME_BYTES
+                || slice.graph_fname.is_empty()
+                || slice.graph_fname.len() > MAX_PREPARED_GRAPH_NAME_BYTES
+        })
+        || slices
+            .iter()
+            .try_fold(0usize, |total, slice| {
+                total.checked_add(slice.methods.len())
+            })
+            .filter(|total| *total <= MAX_PREPARED_METHODS)
+            .is_none()
+}
+
+fn decode_prepared_slices(blob: &[u8]) -> Result<Vec<GraphSlice>, String> {
+    let slices: Vec<GraphSlice> = eg_types::msgpack::decode_bounded(
+        blob,
+        eg_types::msgpack::MsgpackLimits::new(
+            MAX_PREPARED_TXN_BYTES,
+            MAX_PREPARED_TXN_ITEMS,
+            eg_types::msgpack::DEFAULT_MAX_DEPTH,
+        ),
+    )
+    .map_err(|_| "invalid durable cross-shard prepare record".to_string())?;
+    if prepared_slices_exceed_limits(&slices) {
+        return Err("durable cross-shard prepare record exceeds limits".to_string());
+    }
+    Ok(slices)
+}
+
 /// One participant graph's slice of a cross-shard transaction: the staged write-set
 /// for that graph plus the metadata needed to apply it (the same fields a
 /// [`RaftRequest`] carries per op). The slice is the unit that is durably prepared.
@@ -184,14 +223,29 @@ pub struct GraphSlice {
 impl GraphSlice {
     /// The per-op [`RaftRequest`]s this slice applies in phase 2 (one per method,
     /// each routed through the owning group's Raft `client_write`).
-    fn to_requests(&self) -> Vec<RaftRequest> {
+    fn to_requests(&self, txn_id: &str, server_secret: &str) -> Result<Vec<RaftRequest>, String> {
         self.methods
             .iter()
-            .map(|m| RaftRequest {
-                graph_fname: self.graph_fname.clone(),
-                graph_name: self.graph_name.clone(),
-                graph_type: self.graph_type,
-                method: m.clone(),
+            .enumerate()
+            .map(|(ordinal, m)| {
+                Ok(RaftRequest {
+                    graph_fname: self.graph_fname.clone(),
+                    graph_name: self.graph_name.clone(),
+                    graph_type: self.graph_type,
+                    committed_at_ms: 0,
+                    // Phase 2 can be re-entered after its decision or parent ack is
+                    // lost.  A deterministic child authority makes every replicated
+                    // operation an exact MutationBatch replay rather than applying it
+                    // twice after the prepare/decision rows are eventually collected.
+                    mutation: super::RaftMutationContext::internal(
+                        "raft-xshard-child",
+                        &self.graph_name,
+                        &format!("{txn_id}:{ordinal}"),
+                        0,
+                        0,
+                    ),
+                    command: super::ReplicatedMutation::graph(m.clone(), server_secret)?,
+                })
             })
             .collect()
     }
@@ -271,6 +325,69 @@ impl CrossShardCoordinator {
     /// redb error) AFTER which the caller treats the txn as aborted (the decision is
     /// presumed-abort until a COMMIT record exists).
     pub async fn commit_cross_shard(&self, txn: &CrossShardTxn) -> Result<TxnOutcome, String> {
+        self.commit_cross_shard_inner(txn, false).await
+    }
+
+    /// Parent-receipt-aware 2PC.  The durable decision is retained after phase 2
+    /// until the caller has terminalized its MutationBatch parent.  A crash can
+    /// therefore recover the exact COMMIT/ABORT outcome even after every prepare
+    /// row was applied/cleared; [`Self::clear_recoverable_decision`] performs GC
+    /// only after that parent is durable.
+    pub async fn commit_cross_shard_recoverable(
+        &self,
+        txn: &CrossShardTxn,
+    ) -> Result<TxnOutcome, String> {
+        let redb = self.redb()?;
+        let mut prepared: BTreeMap<GroupId, Vec<GraphSlice>> = BTreeMap::new();
+        for (existing_txn, gid, blob) in redb.xshard_scan_prepares()? {
+            if existing_txn == txn.txn_id {
+                let slices = decode_prepared_slices(&blob)?;
+                prepared.insert(gid, slices);
+            }
+        }
+        if let Some(commit) = redb.xshard_decision_get(&txn.txn_id)? {
+            if commit {
+                self.apply_commit(redb, &txn.txn_id, &prepared, false)
+                    .await?;
+                return Ok(TxnOutcome::Committed);
+            }
+            let gids = prepared.keys().copied().collect::<Vec<_>>();
+            self.apply_abort(redb, &txn.txn_id, &gids, false).await?;
+            return Ok(TxnOutcome::Aborted);
+        }
+        if redb.xshard_decision_retain_get(&txn.txn_id)? {
+            // A durable protocol-start marker with no decision means the process
+            // failed before the atomic commit point.  Presumed abort is exact and
+            // remains retained for the parent even if phase 1 wrote no prepares.
+            redb.xshard_recoverable_decision_put(&txn.txn_id, false)
+                .await?;
+            let gids = prepared.keys().copied().collect::<Vec<_>>();
+            self.apply_abort(redb, &txn.txn_id, &gids, false).await?;
+            return Ok(TxnOutcome::Aborted);
+        }
+        if !prepared.is_empty() {
+            // Crash during phase 1, before the atomic decision: presumed abort.
+            // Record that exact terminal outcome before clearing the encrypted
+            // prepares so a subsequent parent retry cannot turn it into COMMIT.
+            redb.xshard_recoverable_decision_put(&txn.txn_id, false)
+                .await?;
+            let gids = prepared.keys().copied().collect::<Vec<_>>();
+            self.apply_abort(redb, &txn.txn_id, &gids, false).await?;
+            return Ok(TxnOutcome::Aborted);
+        }
+        self.commit_cross_shard_inner(txn, true).await
+    }
+
+    /// Garbage-collect a recoverable decision after its parent receipt is terminal.
+    pub async fn clear_recoverable_decision(&self, txn_id: &str) -> Result<(), String> {
+        self.redb()?.xshard_decision_clear(txn_id).await
+    }
+
+    async fn commit_cross_shard_inner(
+        &self,
+        txn: &CrossShardTxn,
+        retain_decision: bool,
+    ) -> Result<TxnOutcome, String> {
         let redb = self.redb()?;
         let participants = self.participants(txn);
         if participants.len() < 2 {
@@ -278,6 +395,11 @@ impl CrossShardCoordinator {
                 "commit_cross_shard called for a {}-group txn (use the single-group path)",
                 participants.len()
             ));
+        }
+        if retain_decision {
+            // This marker precedes every vote/result.  If the process dies before a
+            // decision, restart deterministically converts it to retained ABORT.
+            redb.xshard_recoverable_pending_put(&txn.txn_id).await?;
         }
 
         // ── EG-081 READ-ONLY-PARTICIPANT FAST PATH ──────────────────────────────
@@ -301,6 +423,10 @@ impl CrossShardCoordinator {
         // zero 2PC state to clear and nothing for recovery to find.
         for (gid, slices) in &read_only {
             if !self.validate_read_only_participant(*gid, slices).await? {
+                if retain_decision {
+                    redb.xshard_recoverable_decision_put(&txn.txn_id, false)
+                        .await?;
+                }
                 return Ok(TxnOutcome::Aborted);
             }
         }
@@ -309,6 +435,10 @@ impl CrossShardCoordinator {
         // durable decision/prepare record at all — there is nothing to make atomic or
         // to recover, since no participant applies anything.
         if writing.is_empty() {
+            if retain_decision {
+                redb.xshard_recoverable_decision_put(&txn.txn_id, true)
+                    .await?;
+            }
             return Ok(TxnOutcome::Committed);
         }
 
@@ -358,16 +488,22 @@ impl CrossShardCoordinator {
 
         // ── THE ATOMIC COMMIT POINT: durably record the decision ────────────────
         let commit = all_yes && prepared_groups.len() == writing.len();
-        redb.xshard_decision_put(&txn.txn_id, commit).await?;
+        if retain_decision {
+            redb.xshard_recoverable_decision_put(&txn.txn_id, commit)
+                .await?;
+        } else {
+            redb.xshard_decision_put(&txn.txn_id, commit).await?;
+        }
 
         // ── PHASE 2: apply the decision (writing participants only) ─────────────
         if commit {
-            self.apply_commit(redb, &txn.txn_id, &writing).await?;
+            self.apply_commit(redb, &txn.txn_id, &writing, !retain_decision)
+                .await?;
             Ok(TxnOutcome::Committed)
         } else {
             // ABORT: clear every prepared participant (only those that got a record),
             // then the decision record. Nothing was applied → a true rollback.
-            self.apply_abort(redb, &txn.txn_id, &prepared_groups)
+            self.apply_abort(redb, &txn.txn_id, &prepared_groups, !retain_decision)
                 .await?;
             Ok(TxnOutcome::Aborted)
         }
@@ -437,7 +573,14 @@ impl CrossShardCoordinator {
             return Ok(false);
         }
         // Commit-before-vote: persist the prepared slice durably, THEN vote YES.
-        let blob = rmp_serde::to_vec_named(slices).map_err(|e| e.to_string())?;
+        if prepared_slices_exceed_limits(slices) {
+            return Err("cross-shard prepare exceeds limits".to_string());
+        }
+        let blob = rmp_serde::to_vec_named(slices)
+            .map_err(|_| "unable to encode cross-shard prepare".to_string())?;
+        if blob.len() > MAX_PREPARED_TXN_BYTES {
+            return Err("cross-shard prepare exceeds limits".to_string());
+        }
         redb.xshard_prepare_put(txn_id, gid, blob).await?;
         Ok(true)
     }
@@ -494,19 +637,23 @@ impl CrossShardCoordinator {
         redb: &RedbBackend,
         txn_id: &str,
         participants: &BTreeMap<GroupId, Vec<GraphSlice>>,
+        clear_decision: bool,
     ) -> Result<(), String> {
+        let server_secret = self.multi.app_state().read().await.auth_secret.clone();
         for (gid, slices) in participants {
             let group = self.multi.group(*gid).await.ok_or_else(|| {
                 format!("xshard {txn_id}: participant group {gid} gone at commit")
             })?;
             for slice in slices {
-                for req in slice.to_requests() {
+                for req in slice.to_requests(txn_id, &server_secret)? {
                     group.client_write(req).await?;
                 }
             }
             redb.xshard_prepare_clear(txn_id, *gid).await?;
         }
-        redb.xshard_decision_clear(txn_id).await?;
+        if clear_decision {
+            redb.xshard_decision_clear(txn_id).await?;
+        }
         Ok(())
     }
 
@@ -516,11 +663,14 @@ impl CrossShardCoordinator {
         redb: &RedbBackend,
         txn_id: &str,
         prepared_groups: &[GroupId],
+        clear_decision: bool,
     ) -> Result<(), String> {
         for gid in prepared_groups {
             redb.xshard_prepare_clear(txn_id, *gid).await?;
         }
-        redb.xshard_decision_clear(txn_id).await?;
+        if clear_decision {
+            redb.xshard_decision_clear(txn_id).await?;
+        }
         Ok(())
     }
 
@@ -534,26 +684,66 @@ impl CrossShardCoordinator {
         // Group every durable prepare record by txn_id.
         let mut by_txn: BTreeMap<String, BTreeMap<GroupId, Vec<GraphSlice>>> = BTreeMap::new();
         for (txn_id, gid, blob) in redb.xshard_scan_prepares()? {
-            let slices: Vec<GraphSlice> =
-                rmp_serde::from_slice(&blob).map_err(|e| e.to_string())?;
+            let slices = decode_prepared_slices(&blob)?;
             by_txn.entry(txn_id).or_default().insert(gid, slices);
         }
         let mut resolved = 0usize;
         for (txn_id, participants) in by_txn {
+            let retain_for_parent = redb.xshard_decision_retain_get(&txn_id)?;
             match redb.xshard_decision_get(&txn_id)? {
                 // COMMIT was logged → re-run phase 2 commit (re-apply, then clear).
                 Some(true) => {
                     tracing::info!("xshard recovery: {txn_id} → COMMIT (re-applying)");
-                    self.apply_commit(redb, &txn_id, &participants).await?;
+                    self.apply_commit(redb, &txn_id, &participants, !retain_for_parent)
+                        .await?;
                 }
                 // ABORT logged, OR no decision at all (presumed-abort): clear prepares.
-                Some(false) | None => {
+                Some(false) => {
                     tracing::info!("xshard recovery: {txn_id} → ABORT (clearing prepares)");
                     let gids: Vec<GroupId> = participants.keys().copied().collect();
-                    self.apply_abort(redb, &txn_id, &gids).await?;
+                    self.apply_abort(redb, &txn_id, &gids, !retain_for_parent)
+                        .await?;
+                }
+                None => {
+                    tracing::info!("xshard recovery: {txn_id} → ABORT (presumed, no decision)");
+                    if retain_for_parent {
+                        redb.xshard_recoverable_decision_put(&txn_id, false).await?;
+                    }
+                    let gids: Vec<GroupId> = participants.keys().copied().collect();
+                    self.apply_abort(redb, &txn_id, &gids, !retain_for_parent)
+                        .await?;
                 }
             }
             resolved += 1;
+        }
+        // The server uses the SAME opaque digest as the admin parent batch id and
+        // the 2PC transaction id.  If a process died after terminalizing the parent
+        // but before decision GC, collect that retained marker on startup without
+        // ever persisting or reconstructing the raw transaction id.
+        for (parent_id, outcome, retain_for_parent) in redb.xshard_scan_decisions()? {
+            if !retain_for_parent {
+                continue;
+            }
+            let parent = eg_mutation_store::read_record(redb.admin_mutation_store(), &parent_id)?;
+            if let Some(record) = parent.as_ref().filter(|record| {
+                record.status == crate::mutation_batch::MutationBatchStatus::Committed
+            }) {
+                let bytes = record.result_msgpack.as_deref().ok_or_else(|| {
+                    "committed transaction parent has no terminal result".to_string()
+                })?;
+                let result: crate::protocol::ResultPayload = eg_types::msgpack::decode_bounded(
+                    bytes,
+                    eg_types::msgpack::MsgpackLimits::new(64 * 1024 * 1024, 1_000_000, 64),
+                )
+                .map_err(|_| "transaction parent has an invalid result".to_string())?;
+                let crate::protocol::ResultPayload::Bool(parent_outcome) = result else {
+                    return Err("transaction parent has the wrong result type".to_string());
+                };
+                if outcome != Some(parent_outcome) {
+                    return Err("transaction parent and retained 2PC decision disagree".to_string());
+                }
+                redb.xshard_decision_clear(&parent_id).await?;
+            }
         }
         Ok(resolved)
     }
@@ -686,9 +876,9 @@ impl CrossShardCoordinator {
 
         // ── PHASE 2: apply the (replicated) decision ────────────────────────────
         if commit {
-            self.apply_commit(redb, &txn.txn_id, &writing).await?;
+            self.apply_commit(redb, &txn.txn_id, &writing, true).await?;
         } else {
-            self.apply_abort(redb, &txn.txn_id, &prepared_groups)
+            self.apply_abort(redb, &txn.txn_id, &prepared_groups, true)
                 .await?;
         }
         // GC the resolved decision record from the replicated graph (idempotent; a
@@ -720,8 +910,7 @@ impl CrossShardCoordinator {
         let redb = self.redb()?;
         let mut by_txn: BTreeMap<String, BTreeMap<GroupId, Vec<GraphSlice>>> = BTreeMap::new();
         for (txn_id, gid, blob) in redb.xshard_scan_prepares()? {
-            let slices: Vec<GraphSlice> =
-                rmp_serde::from_slice(&blob).map_err(|e| e.to_string())?;
+            let slices = decode_prepared_slices(&blob)?;
             by_txn.entry(txn_id).or_default().insert(gid, slices);
         }
         let mut resolved = 0usize;
@@ -732,7 +921,8 @@ impl CrossShardCoordinator {
                 // GC the replicated decision.
                 Some(true) => {
                     tracing::info!("xshard-nb recovery: {txn_id} → COMMIT (re-applying)");
-                    self.apply_commit(redb, &txn_id, &participants).await?;
+                    self.apply_commit(redb, &txn_id, &participants, true)
+                        .await?;
                     self.clear_replicated_decision(decision_gid, &txn_id)
                         .await?;
                 }
@@ -740,7 +930,7 @@ impl CrossShardCoordinator {
                 Some(false) => {
                     tracing::info!("xshard-nb recovery: {txn_id} → ABORT (clearing prepares)");
                     let gids: Vec<GroupId> = participants.keys().copied().collect();
-                    self.apply_abort(redb, &txn_id, &gids).await?;
+                    self.apply_abort(redb, &txn_id, &gids, true).await?;
                     self.clear_replicated_decision(decision_gid, &txn_id)
                         .await?;
                 }
@@ -750,7 +940,7 @@ impl CrossShardCoordinator {
                 None => {
                     tracing::info!("xshard-nb recovery: {txn_id} → ABORT (presumed, no decision)");
                     let gids: Vec<GroupId> = participants.keys().copied().collect();
-                    self.apply_abort(redb, &txn_id, &gids).await?;
+                    self.apply_abort(redb, &txn_id, &gids, true).await?;
                 }
             }
             resolved += 1;
@@ -778,14 +968,26 @@ impl CrossShardCoordinator {
             "xshard_commit": commit,
         }))
         .map_err(|e| e.to_string())?;
+        let server_secret = self.multi.app_state().read().await.auth_secret.clone();
         let req = RaftRequest {
             graph_fname: crate::persist::sanitize(XSHARD_DECISION_GRAPH),
             graph_name: XSHARD_DECISION_GRAPH.to_string(),
             graph_type: GraphType::Global,
-            method: Method::AddNode {
-                node_id: txn_id.to_string(),
-                properties_msgpack,
-            },
+            committed_at_ms: 0,
+            mutation: super::RaftMutationContext::internal(
+                "raft-xshard-decision",
+                XSHARD_DECISION_GRAPH,
+                &format!("{txn_id}:decision:{commit}"),
+                0,
+                0,
+            ),
+            command: super::ReplicatedMutation::graph(
+                Method::AddNode {
+                    node_id: txn_id.to_string(),
+                    properties_msgpack,
+                },
+                &server_secret,
+            )?,
         };
         group.client_write(req).await?;
         Ok(())
@@ -803,13 +1005,25 @@ impl CrossShardCoordinator {
         let Some(group) = self.multi.group(decision_gid).await else {
             return Ok(());
         };
+        let server_secret = self.multi.app_state().read().await.auth_secret.clone();
         let req = RaftRequest {
             graph_fname: crate::persist::sanitize(XSHARD_DECISION_GRAPH),
             graph_name: XSHARD_DECISION_GRAPH.to_string(),
             graph_type: GraphType::Global,
-            method: Method::RemoveNode {
-                node_id: txn_id.to_string(),
-            },
+            committed_at_ms: 0,
+            mutation: super::RaftMutationContext::internal(
+                "raft-xshard-decision",
+                XSHARD_DECISION_GRAPH,
+                &format!("{txn_id}:clear"),
+                0,
+                0,
+            ),
+            command: super::ReplicatedMutation::graph(
+                Method::RemoveNode {
+                    node_id: txn_id.to_string(),
+                },
+                &server_secret,
+            )?,
         };
         group.client_write(req).await?;
         Ok(())
@@ -832,8 +1046,8 @@ impl CrossShardCoordinator {
         match core.get_node_properties(txn_id) {
             None => Ok(None),
             Some(blob) => {
-                let v: serde_json::Value =
-                    rmp_serde::from_slice(&blob).map_err(|e| e.to_string())?;
+                let v = eg_types::msgpack::decode_property_value(&blob)
+                    .map_err(|_| "invalid replicated cross-shard decision".to_string())?;
                 Ok(Some(
                     v.get("xshard_commit")
                         .and_then(|b| b.as_bool())
@@ -973,6 +1187,7 @@ impl CrossShardCoordinator {
         seq: GlobalSeq,
         writing: &BTreeMap<GroupId, Vec<GraphSlice>>,
     ) -> Result<(), String> {
+        let server_secret = self.multi.app_state().read().await.auth_secret.clone();
         for (gid, slices) in writing {
             let group = self.multi.group(*gid).await.ok_or_else(|| {
                 format!(
@@ -981,7 +1196,7 @@ impl CrossShardCoordinator {
                 )
             })?;
             for slice in slices {
-                for req in slice.to_requests() {
+                for req in slice.to_requests(txn_id, &server_secret)? {
                     group.client_write(req).await?;
                 }
             }
@@ -1010,14 +1225,26 @@ impl CrossShardCoordinator {
             "seq": seq.0,
         }))
         .map_err(|e| e.to_string())?;
+        let server_secret = self.multi.app_state().read().await.auth_secret.clone();
         let req = RaftRequest {
             graph_fname: crate::persist::sanitize(XSHARD_DECISION_GRAPH),
             graph_name: XSHARD_DECISION_GRAPH.to_string(),
             graph_type: GraphType::Global,
-            method: Method::AddNode {
-                node_id: txn_id.to_string(),
-                properties_msgpack,
-            },
+            committed_at_ms: 0,
+            mutation: super::RaftMutationContext::internal(
+                "raft-xshard-sequence",
+                XSHARD_DECISION_GRAPH,
+                &format!("{txn_id}:{}", seq.0),
+                0,
+                0,
+            ),
+            command: super::ReplicatedMutation::graph(
+                Method::AddNode {
+                    node_id: txn_id.to_string(),
+                    properties_msgpack,
+                },
+                &server_secret,
+            )?,
         };
         group.client_write(req).await?;
         Ok(())
@@ -1039,8 +1266,8 @@ impl CrossShardCoordinator {
         match core.get_node_properties(txn_id) {
             None => Ok(None),
             Some(blob) => {
-                let v: serde_json::Value =
-                    rmp_serde::from_slice(&blob).map_err(|e| e.to_string())?;
+                let v = eg_types::msgpack::decode_property_value(&blob)
+                    .map_err(|_| "invalid replicated cross-shard sequence".to_string())?;
                 Ok(v.get("seq").and_then(|s| s.as_u64()).map(GlobalSeq))
             }
         }
@@ -1244,6 +1471,119 @@ impl CrossShardCoordinator {
                 return Err(format!(
                     "EG-348: OLLP recon still stale after {attempts} attempt(s) \
                      (max_restarts={max_restarts}); aborting"
+                ));
+            }
+        }
+    }
+
+    /// EG-349 (CONCEPT:EG-KG.txn.concept-3): the MULTI-NODE generalization of
+    /// [`acquire_ollp_with_restart`] — the gap that function's doc comment left open
+    /// ("routing a restarted txn into a specific epoch of the multi-node fan-in").
+    ///
+    /// [`acquire_ollp_with_restart`] re-sequences a stale OLLP txn by drawing a fresh
+    /// [`GlobalSeq`] from a single-node [`CalvinSequencer`] — one ordering domain. This
+    /// version instead routes EVERY attempt (the original try and every restart) into a
+    /// specific epoch of the multi-node [`epoch_fan_in`]:
+    ///
+    ///   1. **Route.** [`epoch_for_restart`] maps `(base_epoch, attempts)` to the target
+    ///      epoch — a PURE function (no clock, no randomness): the original attempt
+    ///      targets `base_epoch`, each restart advances exactly one epoch. Any node
+    ///      computing the same `(base_epoch, attempts)` derives the identical target
+    ///      epoch.
+    ///   2. **Register.** This node's local input for the txn is registered into that
+    ///      epoch via `fan_in.register_local` — the same [`NodeInput`] shape
+    ///      [`epoch_fan_in`] merges. (A real deployment gossips/replicates each node's
+    ///      per-epoch batch to every other node before the epoch closes; `fan_in` here is
+    ///      the post-exchange view, exactly as the `xshard_harness` populates it —
+    ///      wiring the actual cross-node transport is the same open follow-up the 2PC
+    ///      cross-node participant path above documents, not a correctness gap in the
+    ///      merge itself.)
+    ///   3. **Derive the lock-phase seq.** `fan_in.packed_seq_for` runs the SAME pure
+    ///      [`epoch_fan_in`] merge every node runs over the (post-exchange) per-epoch
+    ///      batch and packs `(epoch, position-in-epoch)` into one globally-comparable
+    ///      [`GlobalSeq`] ([`epoch_packed_seq`]) — lexicographic by epoch first, so a
+    ///      later-epoch attempt can never sort before an earlier-epoch one, matching
+    ///      [`EpochBatch`]'s documented cross-epoch order. Every node that has the same
+    ///      exchanged batch computes the IDENTICAL packed seq.
+    ///   4. **Lock + re-validate** exactly as [`acquire_ollp_with_restart`]: register the
+    ///      predicted set at the packed seq, await the ordered locks, re-check the recon
+    ///      under the held lock. Stale ⇒ release and restart into the NEXT epoch; valid
+    ///      ⇒ return the acquisition for the caller's lock-free deterministic-execution
+    ///      phase.
+    ///
+    /// Bounded by `max_restarts`, identically to the single-domain path.
+    ///
+    /// **Determinism (honest scope, mirrors [`acquire_ollp_with_restart`]'s note).** The
+    /// restart decision (stale vs. valid) is a pure function of committed,
+    /// Raft-replicated state observed under the epoch-packed-seq-ordered lock — every
+    /// replica replaying the identical exchanged per-epoch batches observes the same
+    /// committed value at lock-grant time, so every replica makes the SAME decision, the
+    /// SAME number of restarts, lands in the SAME target epoch at each attempt
+    /// ([`epoch_for_restart`] is pure), and therefore the SAME final packed seq — the
+    /// gap this closes. What remains open (documented, not weakened): the real
+    /// cross-node gossip/replication transport that populates `fan_in` with every peer's
+    /// batch before an epoch closes (this increment proves the merge + routing are
+    /// deterministic GIVEN that exchange; wiring the transport itself is the cross-host
+    /// soak follow-up).
+    #[cfg(any(feature = "calvin", test, feature = "harness"))]
+    #[allow(clippy::too_many_arguments)]
+    pub async fn acquire_ollp_with_restart_epoch<F>(
+        &self,
+        fan_in: &Arc<EpochFanInRegistry>,
+        node: NodeId,
+        base_epoch: u64,
+        txn_id: &str,
+        lockmgr: &Arc<OrderedLockManager>,
+        seeds: &[RecordKey],
+        derive: F,
+        max_restarts: u32,
+    ) -> Result<EpochOllpAcquired, String>
+    where
+        F: Fn(&BTreeMap<RecordKey, Option<Vec<u8>>>) -> RwSet,
+    {
+        let mut attempts: u32 = 0;
+        loop {
+            attempts += 1;
+
+            // 1. RECON — read the seeds and derive the predicted set (retain snapshot).
+            let mut observed: BTreeMap<RecordKey, Option<Vec<u8>>> = BTreeMap::new();
+            for k in seeds {
+                observed.insert(k.clone(), self.reconnoiter(k).await?);
+            }
+            let rwset = derive(&observed);
+
+            // 2. ROUTE — pure function of (base_epoch, attempts): the original try stays
+            //    in `base_epoch`, each restart moves one epoch forward.
+            let epoch = epoch_for_restart(base_epoch, attempts);
+
+            // 3. Register this node's local input for the target epoch, then derive the
+            //    globally-comparable packed seq from the deterministic fan-in merge.
+            fan_in.register_local(node, epoch, txn_id);
+            let seq = fan_in.packed_seq_for(epoch, txn_id).ok_or_else(|| {
+                format!("EG-349: txn {txn_id} missing from its own epoch {epoch} fan-in")
+            })?;
+
+            // 4. LOCK — register + await the ordered locks at the epoch-packed seq.
+            let guard = lockmgr.acquire(seq, &rwset).await;
+
+            // 5. RE-VALIDATE under the held locks — identical semantics to the
+            //    single-domain path, just at a cross-epoch-comparable seq.
+            if self.recon_still_valid(&observed).await? {
+                return Ok(EpochOllpAcquired {
+                    epoch,
+                    seq,
+                    rwset,
+                    attempts,
+                    guard,
+                });
+            }
+
+            // STALE — drop the wrongly-predicted locks and restart into the NEXT epoch.
+            guard.release();
+            if attempts > max_restarts {
+                return Err(format!(
+                    "EG-349: OLLP recon still stale after {attempts} attempt(s) across \
+                     epochs {base_epoch}..={epoch} (max_restarts={max_restarts}); aborting"
                 ));
             }
         }
@@ -1737,6 +2077,145 @@ pub fn epoch_fan_in(epoch: u64, per_node: &BTreeMap<NodeId, Vec<NodeInput>>) -> 
     EpochBatch { epoch, inputs }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// EG-349: routing a restarted OLLP txn into a specific epoch of the multi-node
+// fan-in (CONCEPT:EG-KG.txn.concept-3) — the gap `acquire_ollp_with_restart`'s doc
+// comment documented but left open.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// EG-349 (CONCEPT:EG-KG.txn.concept-3): the epoch a restarted OLLP txn is routed into,
+/// given the epoch its ORIGINAL attempt targeted and how many attempts (including the
+/// original) have run so far. A PURE function of `(base_epoch, attempts)` — no
+/// node-local clock, no randomness — so every node computing the same two inputs derives
+/// the identical target epoch.
+///
+/// Attempt 1 (the original try, before any restart) targets `base_epoch` itself — the
+/// txn does not consume a fresh epoch just to make its first attempt. Attempt 2 (the
+/// first restart) targets `base_epoch + 1`; attempt N targets `base_epoch + (N - 1)`.
+/// This generalizes [`acquire_ollp_with_restart`]'s single-domain rule ("a restart draws
+/// a NEW, strictly-higher `GlobalSeq`") from "a fresh position in one sequencer's total
+/// order" to "the next not-yet-closed epoch of the multi-node fan-in": a restarted
+/// attempt can never land in an epoch that has already closed (every prior epoch it
+/// passed through), which is what lets [`epoch_packed_seq`] give it a seq that always
+/// sorts after every txn already folded into an earlier epoch's merged batch.
+#[cfg(any(feature = "calvin", test, feature = "harness"))]
+pub fn epoch_for_restart(base_epoch: u64, attempts: u32) -> u64 {
+    base_epoch + u64::from(attempts.saturating_sub(1))
+}
+
+/// EG-349 (CONCEPT:EG-KG.txn.concept-3): combine an epoch number + a txn's 1-based
+/// position within that epoch's [`epoch_fan_in`]-merged batch into ONE
+/// globally-comparable [`GlobalSeq`]. [`EpochBatch`]'s own docs state the cross-epoch
+/// total order is lexicographic `(epoch, global_seq)`; packing `epoch` into the high 32
+/// bits and `position_in_epoch` into the low 32 bits makes plain numeric `Ord` on the
+/// packed `u64` equal to that lexicographic order — so the SAME [`OrderedLockManager`]
+/// (which only ever compares `GlobalSeq: Ord`) enforces cross-epoch ordering with no
+/// changes to the lock manager itself. Both halves are asserted to fit 32 bits — an
+/// honest, documented capacity bound (ample for any one epoch's batch size or the
+/// number of epochs a deployment runs before GC), not a silent wraparound.
+#[cfg(any(feature = "calvin", test, feature = "harness"))]
+pub fn epoch_packed_seq(epoch: u64, position_in_epoch: u64) -> GlobalSeq {
+    assert!(
+        epoch <= u64::from(u32::MAX),
+        "EG-349: epoch {epoch} exceeds the 32-bit packing capacity"
+    );
+    assert!(
+        position_in_epoch <= u64::from(u32::MAX),
+        "EG-349: epoch position {position_in_epoch} exceeds the 32-bit packing capacity"
+    );
+    GlobalSeq((epoch << 32) | position_in_epoch)
+}
+
+/// EG-349 (CONCEPT:EG-KG.txn.concept-3): the multi-node epoch exchange point an OLLP
+/// restart routes into. Holds, per epoch, every node's locally-sequenced [`NodeInput`]s
+/// — the exact shape [`epoch_fan_in`] merges.
+///
+/// **Honest scope.** A real deployment populates this via gossip/replication of each
+/// node's per-epoch batch before the epoch closes — that transport is the same open
+/// cross-node follow-up the 2PC section above documents (participants are local groups
+/// on the coordinator node today), not wired here. The `xshard_harness` populates it
+/// directly to simulate the post-exchange view in-process (the throwaway loopback
+/// multi-node rig): that is sufficient to prove the fan-in merge + the restart's epoch
+/// routing are deterministic GIVEN the exchange, which is the property every node's
+/// vote-free execution relies on. A real cross-host soak of the actual gossip transport
+/// is the remaining validation step.
+#[cfg(any(feature = "calvin", test, feature = "harness"))]
+#[derive(Debug, Default)]
+pub struct EpochFanInRegistry {
+    per_epoch: std::sync::Mutex<BTreeMap<u64, BTreeMap<NodeId, Vec<NodeInput>>>>,
+}
+
+#[cfg(any(feature = "calvin", test, feature = "harness"))]
+impl EpochFanInRegistry {
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self::default())
+    }
+
+    /// Register `txn_id` as THIS node's next locally-sequenced input for `epoch`: the
+    /// `local_seq` is this node's count of prior registrations in that epoch, plus one —
+    /// a per-`(node, epoch)` monotone counter, exactly the [`NodeInput::local_seq`]
+    /// contract [`epoch_fan_in`] expects. Lock-scoped so concurrent registrations on one
+    /// node for one epoch still get distinct, strictly increasing `local_seq`s.
+    pub fn register_local(&self, node: NodeId, epoch: u64, txn_id: impl Into<String>) -> NodeInput {
+        let mut map = self.per_epoch.lock().unwrap();
+        let inputs = map.entry(epoch).or_default().entry(node).or_default();
+        let local_seq = inputs.len() as u64 + 1;
+        let input = NodeInput::new(node, local_seq, txn_id);
+        inputs.push(input.clone());
+        input
+    }
+
+    /// Snapshot every node's registered batch for `epoch` (CONCEPT:EG-KG.txn.concept-3) —
+    /// what a node would hold locally once the cross-node exchange for that epoch has
+    /// completed. Exposed so a test (or a peer node) can independently re-derive the
+    /// fan-in from the identical exchanged data and confirm it agrees byte-for-byte.
+    pub fn snapshot(&self, epoch: u64) -> BTreeMap<NodeId, Vec<NodeInput>> {
+        self.per_epoch
+            .lock()
+            .unwrap()
+            .get(&epoch)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    /// Run the SAME pure [`epoch_fan_in`] merge every node runs over `epoch`'s snapshot.
+    /// Deterministic given the snapshot; the snapshot itself is exactly what every node's
+    /// local registry holds once gossip completes for that epoch.
+    pub fn fan_in(&self, epoch: u64) -> EpochBatch {
+        epoch_fan_in(epoch, &self.snapshot(epoch))
+    }
+
+    /// This txn's globally-comparable packed seq within `epoch`'s merged batch (CONCEPT:
+    /// EG-KG.txn.concept-3) — `None` if it was never registered into that epoch by any
+    /// node.
+    pub fn packed_seq_for(&self, epoch: u64, txn_id: &str) -> Option<GlobalSeq> {
+        let batch = self.fan_in(epoch);
+        batch
+            .inputs
+            .iter()
+            .position(|si| si.txn_id == txn_id)
+            .map(|pos| epoch_packed_seq(epoch, pos as u64 + 1))
+    }
+}
+
+/// EG-349 (CONCEPT:EG-KG.txn.concept-3): a successful OLLP acquisition after
+/// [`CrossShardCoordinator::acquire_ollp_with_restart_epoch`]'s multi-node epoch-routing
+/// restart loop. Carries the `epoch` the txn ultimately validated in (a restart advances
+/// this past every failed attempt's epoch), the epoch-packed [`GlobalSeq`] it validated
+/// at, its now-fresh predicted [`RwSet`], the held [`LockGuard`] the caller runs the
+/// deterministic-execution phase under, and `attempts` (total tries incl. the successful
+/// one — `attempts > 1` iff at least one restart, hence at least one epoch advance,
+/// happened).
+#[cfg(any(feature = "calvin", test, feature = "harness"))]
+#[derive(Debug)]
+pub struct EpochOllpAcquired {
+    pub epoch: u64,
+    pub seq: GlobalSeq,
+    pub rwset: RwSet,
+    pub attempts: u32,
+    pub guard: LockGuard,
+}
+
 #[cfg(test)]
 mod calvin_tests {
     //! Pure unit tests for the CONCEPT:EG-KG.txn.calvin-deterministic-ordering Calvin deterministic-ordering layer
@@ -1750,6 +2229,38 @@ mod calvin_tests {
             txn_id: id.to_string(),
             slices: vec![],
         }
+    }
+
+    #[test]
+    fn phase_two_requests_have_replay_stable_private_child_authority() {
+        let slice = GraphSlice {
+            graph_name: "logical-graph".to_string(),
+            graph_fname: "logical-graph".to_string(),
+            graph_type: GraphType::Global,
+            methods: vec![
+                Method::RemoveNode {
+                    node_id: "one".to_string(),
+                },
+                Method::RemoveNode {
+                    node_id: "two".to_string(),
+                },
+            ],
+        };
+        let first = slice.to_requests("opaque-transaction", "test-key").unwrap();
+        let retry = slice.to_requests("opaque-transaction", "test-key").unwrap();
+        assert_eq!(first.len(), 2);
+        assert_eq!(first[0].mutation.batch_id, retry[0].mutation.batch_id);
+        assert_ne!(first[0].mutation.batch_id, first[1].mutation.batch_id);
+        assert!(first.iter().all(|request| {
+            request
+                .mutation
+                .principal_fingerprint
+                .starts_with("principal:sha256:")
+                && request
+                    .mutation
+                    .tenant_scope
+                    .starts_with("raft-internal-tenant:")
+        }));
     }
 
     #[test]
@@ -1917,5 +2428,72 @@ mod calvin_tests {
         b.insert(1, vec![NodeInput::new(1, 1, "a1")]);
         b.insert(2, vec![NodeInput::new(2, 1, "b1")]);
         assert_eq!(epoch_fan_in(3, &a), epoch_fan_in(3, &b));
+    }
+
+    // ── EG-349: restarted-OLLP multi-node epoch routing (pure-logic proofs) ───────
+
+    /// EG-349: the original attempt stays in `base_epoch`; each restart advances exactly
+    /// one epoch — a pure function of `(base_epoch, attempts)`.
+    #[test]
+    fn eg349_epoch_for_restart_advances_one_epoch_per_attempt() {
+        assert_eq!(epoch_for_restart(5, 1), 5, "original attempt: no advance");
+        assert_eq!(epoch_for_restart(5, 2), 6, "first restart: +1 epoch");
+        assert_eq!(epoch_for_restart(5, 3), 7, "second restart: +2 epochs");
+        // Same inputs ⇒ same output on any node (no clock/random involved).
+        assert_eq!(epoch_for_restart(5, 2), epoch_for_restart(5, 2));
+    }
+
+    /// EG-349: the packed seq orders strictly by epoch first, regardless of the
+    /// in-epoch position — a later epoch NEVER sorts before an earlier one.
+    #[test]
+    fn eg349_epoch_packed_seq_orders_lexicographically_by_epoch_first() {
+        let late_epoch_first_position = epoch_packed_seq(6, 1);
+        let early_epoch_last_position = epoch_packed_seq(5, 1_000_000);
+        assert!(
+            late_epoch_first_position > early_epoch_last_position,
+            "epoch 6 position 1 must sort after epoch 5 position 1_000_000"
+        );
+        // Within the SAME epoch, position still orders normally.
+        assert!(epoch_packed_seq(5, 1) < epoch_packed_seq(5, 2));
+    }
+
+    /// EG-349: two independent registries fed the IDENTICAL exchanged per-epoch batch
+    /// (simulating two different nodes after gossip) derive the byte-identical merged
+    /// order and therefore the identical packed seq for every txn — the core "any node
+    /// agrees" property the restart routing relies on.
+    #[test]
+    fn eg349_two_registries_over_identical_exchanged_batch_agree() {
+        let reg_node_view_1 = EpochFanInRegistry::new();
+        let reg_node_view_2 = EpochFanInRegistry::new();
+        for reg in [&reg_node_view_1, &reg_node_view_2] {
+            reg.register_local(1, 9, "n1-a");
+            reg.register_local(2, 9, "n2-a");
+        }
+        assert_eq!(
+            reg_node_view_1.fan_in(9),
+            reg_node_view_2.fan_in(9),
+            "two nodes over the identical exchanged batch derive the same merge"
+        );
+        assert_eq!(
+            reg_node_view_1.packed_seq_for(9, "n2-a"),
+            reg_node_view_2.packed_seq_for(9, "n2-a"),
+            "and therefore agree on any one txn's packed seq"
+        );
+    }
+
+    /// EG-349: registering the SAME txn into successive epochs (simulating restart
+    /// attempts 1 then 2) yields a strictly increasing packed seq — a restarted attempt
+    /// can never sort before its own earlier (stale, released) attempt.
+    #[test]
+    fn eg349_restart_into_next_epoch_strictly_increases_packed_seq() {
+        let reg = EpochFanInRegistry::new();
+        reg.register_local(1, 5, "t-ollp"); // attempt 1 → base_epoch 5
+        let attempt1_seq = reg.packed_seq_for(5, "t-ollp").unwrap();
+        reg.register_local(1, 6, "t-ollp"); // attempt 2 (restart) → epoch 6
+        let attempt2_seq = reg.packed_seq_for(6, "t-ollp").unwrap();
+        assert!(
+            attempt2_seq > attempt1_seq,
+            "the restarted attempt's epoch-packed seq must sort strictly after the stale one"
+        );
     }
 }

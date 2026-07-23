@@ -53,8 +53,7 @@ description is the **"Durability model" section of
 ### Authoritative durability (the floor)
 
 - **redb-authoritative by default** (`CONCEPT:AU-KG.backend.backend-modes`) — a stock build with a
-  persist dir is durable out of the box; the one-time `.mp`/`.wal` → redb migration
-  runs on first authoritative boot.
+  mandatory persist dir is durable out of the box; redb is the sole served persistence backend.
 - **Commit-before-ack** (`CONCEPT:EG-KG.backend.authoritative-dispatch`) — a durable mutation is group-commit
   fsynced to redb *before* its Response is acked; a commit failure is an ERROR
   response, so an acked write is always on disk.
@@ -87,8 +86,8 @@ into "K writers, batched fsyncs, parallel cores":
   its own writer thread / bounded channel / `Pending`. All of the above (micro-linger,
   audit cache, commit-before-ack, group-commit, backpressure) hold **per shard**, so
   K cores commit in parallel. A graph always routes to the same shard by
-  `FNV-1a(sanitized_name) % K`; K = `clamp(cpu/2, 1, 8)`. **K=1 is byte-for-byte the
-  old single-`graph.redb` path** (and forced to 1 under an active Raft node). →
+  `FNV-1a(sanitized_name) % K`; K = `clamp(cpu/2, 1, 8)`. **K=1 is the
+  constrained-host single-shard layout** (and is forced under an active Raft node). →
   [`engine.md` § Sharded K-way durable writer](engine.md).
 
 ### Reads that never block on the writer
@@ -180,12 +179,12 @@ split-storage API + native graceful leader transfer). Off ⇒ the write path is
 byte-for-byte the single-node path.
 
 - **Durable redb Raft log** (`CONCEPT:EG-KG.storage.one-fsync-covers-raft`) — the Raft log + vote + applied state
-  live in the SAME `graph.redb` as the graph data, so a log append and its mutation
+  live in the SAME authoritative shard as the graph data, so a log append and its mutation
   coalesce into **one** `WriteTransaction` / one fsync; a restarted node recovers its
   log tail locally. The separate `raft.redb` sidecar is gone.
 - **Multi-Raft scaffold** (`CONCEPT:EG-KG.sharding.raft-resharding`) — a `MultiRaft` manager holds N openraft
   groups keyed by `GroupId`, sharing ONE TCP listener per node (frames tagged + demuxed
-  by group id) and ONE shared `graph.redb`; a `GroupRouter` maps `graph_name → GroupId`.
+  by group id) and ONE shared authoritative shard; a `GroupRouter` maps `graph_name → GroupId`.
   Group = transaction boundary.
 - **M2 hardening** (`CONCEPT:AU-KG.ontology.manage-arbitrary/266/267/268/271`) — pooled per-peer connections,
   group-per-tenant-range routing ring, per-group snapshot scoping, multi-node membership
@@ -262,9 +261,9 @@ feature flags in [`AGENTS.md`](https://github.com/Knuckles-Team/epistemic-graph/
 | Variable | Layer | What to tune |
 |----------|-------|--------------|
 | `EPISTEMIC_GRAPH_REDB_SHARDS` | M1 | K independent writer files/threads. Default `clamp(cpu/2,1,8)`. **K=1 on a Pi**; raise toward cores on a many-core box. FIXED per persist-dir (changing it needs the `migrate-shards` tool). Forced to 1 under Raft. |
-| `EPISTEMIC_GRAPH_REDB_GROUP_LINGER_US` | M1 | Group-commit micro-linger (default 1000 µs; `0` = legacy commit-on-drain). |
+| `EPISTEMIC_GRAPH_REDB_GROUP_LINGER_US` | M1 | Positive group-commit micro-linger (default 1000 µs). |
 | `EPISTEMIC_GRAPH_REDB_GROUP_SHALLOW` | M1 | Shallow-batch op threshold the linger applies below (default 32). |
-| `EPISTEMIC_GRAPH_REDB_FLUSH_THRESHOLD` | M1 | Per-shard early-flush op threshold (auto ≈ half the WAL queue depth, clamped 256..16384). |
+| `EPISTEMIC_GRAPH_REDB_FLUSH_THRESHOLD` | M1 | Per-shard early-flush op threshold (auto ≈ half the durable-writer queue depth, clamped 256..16384). |
 | `EPISTEMIC_GRAPH_MAX_INFLIGHT` | M1 / resp. | Global admission cap (default `cpus*64`, 256 on a Pi / 4096 on 64-core). Excess → `BUSY`. |
 | `EPISTEMIC_GRAPH_READ_RESERVED` | resp. | Reserved read lane size (default `max_inflight/8` clamped 8..1024). |
 | `EPISTEMIC_GRAPH_COLD_OFFLOAD_SECS` | M3 | Idle-offload sweep window (`0`/absent = disabled). |

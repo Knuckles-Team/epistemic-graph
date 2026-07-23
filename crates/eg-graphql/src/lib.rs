@@ -19,7 +19,8 @@
 //!     re-render only on change.
 //!   * [`LiveQuery`] — the real PUSH path (CONCEPT:EG-KG.query.graphql-push-path): a subscription parsed once,
 //!     re-resolved per change event. The server layer subscribes to `GraphCore::changes()`
-//!     and drives it over a WS/SSE carrier; this crate stays runtime-free.
+//!     and drives it through the current authenticated SSE carrier; this crate stays
+//!     runtime-free.
 //!
 //! ## Why a hand-written parser (async-graphql evaluated, rejected)
 //! `async-graphql` is the standard Rust GraphQL crate, but it pulls ~80+ transitive
@@ -43,6 +44,20 @@
 //! are supported). A push subscription transport is now REAL (CONCEPT:EG-KG.query.graphql-push-path) — see
 //! [`LiveQuery`] + the server carrier; the change stream is `GraphCore::changes()`. A
 //! parse error names the unsupported construct.
+//!
+//! ## ModalityContract (CONCEPT:E4) — deliberately NOT retrofitted
+//! `eg-graphql` is a pure PROTOCOL/EXECUTOR surface: it derives a `Schema` from a live
+//! `GraphView` and compiles/executes GraphQL queries + mutations onto the SAME lower
+//! `eg-core`/`eg-plan`/`eg-rdf` primitives the other seams use — it owns no persisted
+//! modality VALUE type of its own. Its structs (`Schema`/`ObjectType`, `LiveQuery`,
+//! `CrossModalTxn`, `GraphQlPolicy`, `FederatedSchema`, …) are all transient
+//! request/schema/session state, none of which is a stored `{id -> value}` object a
+//! caller would `to_rowset`/`txn_stage`/CDC-observe. Per the `eg-modality` README's own
+//! retrofit-order note ("several of these are pure protocol/executor crates with no
+//! modality VALUE type of their own — `ModalityContract` may simply not apply, which is
+//! a legitimate outcome, not a gap"), this crate is a documented SKIP. The modalities a
+//! GraphQL cross-modal txn stages (graph/vector/tsdb) already carry the contract in
+//! THEIR crates (`eg-core::NodeChange`, `eg-tensor`, `eg-tsdb::SeriesMeta`).
 
 /// CONCEPT:EG-KG.query.eg-9/380/381 — the GraphQL CROSS-MODAL transaction seam: a multi-request
 /// `txnId` handle ([`crossmodal::CrossModalTxnRegistry`]) whose `beginTransaction` /
@@ -170,7 +185,7 @@ mod tests {
     #[test]
     fn schema_derived_from_graph() {
         let view = fixture();
-        let s = Schema::from_view(&view);
+        let s = Schema::from_view(&view).unwrap();
         assert!(s.has_type("Person") && s.has_type("Doc"));
         let person = &s.types["Person"];
         assert!(person.scalar_fields.contains("name"));
@@ -633,7 +648,7 @@ mod tests {
     #[test]
     fn mutation_sdl_renders() {
         let view = fixture();
-        let sdl = Schema::from_view(&view).to_mutation_sdl();
+        let sdl = Schema::from_view(&view).unwrap().to_mutation_sdl();
         assert!(sdl.contains("type Mutation"));
         assert!(sdl.contains("createNode(label: String!"));
         assert!(sdl.contains("addEdge(from: ID!"));

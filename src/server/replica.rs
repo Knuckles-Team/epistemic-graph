@@ -22,7 +22,7 @@
 //!   re-snapshot, reported as [`ReplicaLag::Behind`]).
 //! * **Follower side** — [`run_replica_follower`] periodically pulls the primary's tail
 //!   over HTTP (`/replicate?since=<lsn>`), applies each op through the SAME canonical
-//!   `crate::wal::apply` path Raft + WAL replay use (so a replicated op lands
+//!   `crate::mutation_apply::apply` path Raft + WAL replay use (so a replicated op lands
 //!   byte-identically), and advances its cursor. Reads on a follower are served from its
 //!   local registry — zero cross-region latency, bounded staleness.
 //!
@@ -65,7 +65,7 @@ pub struct ReplicationOp {
     pub graph_fname: String,
     /// Graph type (used if the follower must create the graph on apply).
     pub graph_type: GraphType,
-    /// The durable mutation, applied via the canonical `crate::wal::apply` path.
+    /// The durable mutation, applied via the canonical `crate::mutation_apply::apply` path.
     pub method: Method,
 }
 
@@ -475,7 +475,7 @@ impl ReplicaConfig {
 
 /// Apply a shipped replication batch into the local registry (CONCEPT:EG-KG.sharding.follower-pull-loop) — the
 /// follower's state-machine step. Each op creates its graph if absent, then applies the
-/// mutation through the canonical `crate::wal::apply` path (byte-identical to Raft/WAL
+/// mutation through the canonical `crate::mutation_apply::apply` path (byte-identical to Raft/WAL
 /// replay), so a follower converges to the primary's state. Returns the highest LSN
 /// applied (the new cursor), or the input cursor if the batch was empty.
 pub async fn apply_replicated_batch(
@@ -493,7 +493,7 @@ pub async fn apply_replicated_batch(
             s.registry.get(&op.graph_name).map(|e| e.core.clone())
         };
         if let Some(core) = core {
-            crate::wal::apply(&core, &op.method);
+            crate::mutation_apply::apply(&core, &op.method);
             core.mark_dirty();
             max_lsn = max_lsn.max(op.lsn);
         }

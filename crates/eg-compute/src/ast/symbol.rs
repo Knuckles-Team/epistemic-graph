@@ -45,7 +45,11 @@ impl std::fmt::Display for SymbolType {
 
 /// A code symbol extracted from AST parsing.
 /// Maps directly to a KG `Symbol` node.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+///
+/// `PartialEq` (CONCEPT:E4/X1) so `Symbol` can implement `eg_modality::ConformanceTestable`
+/// (the round-trip conformance test asserts `sample == restored`) — see
+/// `crate::contract`'s `impl ModalityContract for Symbol`.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Symbol {
     /// Unique ID: "sym:<file_hash>:<name>:<line>"
     pub id: String,

@@ -2,7 +2,7 @@
 name = "eg-core"
 version = "0.27.0"
 edition = "2021"
-authors = ["Audel Rouhi <knucklessg1@gmail.com>"]
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
 description = "Graph core (storage, registry, isolation, semantic search) for the epistemic-graph engine"
 license = "MIT"
 
@@ -18,14 +18,14 @@ default = []
 # `eg-types/broker` so the broker `Method` variants appear in lock step.
 broker = ["eg-types/broker"]
 # Use the native eg-ann IVF-PQ+OPQ+SQ8-refine index (CONCEPT:KG-2.207) as the
-# SemanticStore ANN backend instead of the rebuild-on-load hnsw_rs index. The
+# SemanticStore ANN backend used by the in-process semantic index. The
 # persisted index reopens WITHOUT rebuilding from raw vectors. OFF by default;
 # the facade folds it into the durable tiers. Pure-Rust, no GPU/native-ML deps.
 # `tracing` carries the CONCEPT:EG-013 warm/build-throughput spans (no-op without a
 # subscriber, so zero cost in the default build). `rayon` (CONCEPT:EG-014) drives
 # the all-core parallel brute-force fallback — the path EVERY semantic_search hits
 # until the ANN index warms (and after every restart).
-ann = ["dep:eg-ann", "dep:tracing", "dep:rayon"]
+ann = ["dep:tracing", "dep:rayon"]
 # Additionally persist the ANN codes into the engine's redb durable tier
 # (CONCEPT:KG-2.195) rather than only the mmap files.
 ann-redb = ["ann", "eg-ann/redb"]
@@ -41,7 +41,7 @@ ann-gpu-cuda = ["ann-gpu", "eg-ann/gpu-cuda"]
 # evaluators are pure-Rust; EG-303 links `redb` (same 4.1 as the durable tiers) to
 # persist the RbacPolicy + registered AgentIdentities across restarts. Gated so a
 # non-security build links neither. redb is Pi-safe; `pi` does NOT enable security.
-security = ["dep:redb"]
+security = ["dep:redb", "dep:eg-mutation-store", "dep:sha2"]
 # Version-keyed query-RESULT cache (CONCEPT:KG-2.233) on `GraphCore`. Pure-Rust
 # bounded LRU + 128-bit query hash — no new dep — so the facade folds it into the
 # lean Pi tier as well as node/cluster/full.
@@ -60,17 +60,22 @@ path-persist = ["dep:redb"]
 # (Pi-safe); the facade layers a redb/S3 impl on top. Folded into pi/node/cluster/
 # full alongside `result-cache`.
 cold-tier = []
+# ModalityContract retrofit (CONCEPT:E4): `impl ModalityContract for
+# index::NodeChange` + the `modality_conformance_tests!` battery. OFF by default,
+# deliberately NOT folded into any tier aggregate (pi/node/full) — it is a
+# capability-discovery/testing seam, not a serving feature. `cargo test -p eg-core
+# --features contract` runs the suite.
+contract = ["dep:eg-modality"]
 
 [dependencies]
 eg-types = { path = "../eg-types" }
-eg-ann = { path = "../eg-ann", optional = true }
+eg-ann = { path = "../eg-ann" }
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"
 rmp-serde = "1.3"
 petgraph = { version = "0.6.4", features = ["serde-1"] }
 parking_lot = "0.12"
 dashmap = "6.1"
-hnsw_rs = "0.3"
 hex = "0.4"
 aho-corasick = "1.1"
 # CONCEPT:EG-013 — semantic ANN build/warm tracing spans (only under `ann`).
@@ -82,3 +87,9 @@ rayon = { version = "1.10", optional = true }
 # identities survive a restart. Same redb 4.1 the durable tiers link; only pulled in
 # under `security` (Pi builds do not enable eg-core/security).
 redb = { version = "4.1", optional = true }
+eg-mutation-store = { path = "../eg-mutation-store", optional = true }
+sha2 = { version = "0.10", optional = true }
+# ModalityContract retrofit (CONCEPT:E4). Optional, only under `contract` (default
+# OFF) — a default/pi/node/full build links none of it and `index::NodeChange`
+# carries no new required trait. See `src/contract.rs`.
+eg-modality = { path = "../eg-modality", optional = true }

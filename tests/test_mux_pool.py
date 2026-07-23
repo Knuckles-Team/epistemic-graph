@@ -3,13 +3,11 @@
 Proves the client-side win: N INDEPENDENT operations dispatched over N pooled
 connections run CONCURRENTLY (wall-clock ≪ serial sum), the pool reuses warm
 connections and respects its cap, and order-dependent operations within a single
-caller stay serialized on ONE connection.
+caller remain sequentially awaited.
 
-The mock server mirrors the real engine's concurrency model: ``asyncio.start_server``
-spawns one handler task per connection (the engine ``tokio::spawn``s per connection),
-and each handler processes its connection's frames serially (the engine awaits
-``dispatch`` before reading the next frame). So parallelism comes ONLY from holding
-multiple connections — exactly what the pool multiplexes.
+The mock deliberately processes each connection serially so the tests isolate the
+additional physical-flow concurrency provided by the pool. Single-connection
+pipelining is covered separately by ``test_pipelining.py``.
 """
 
 import asyncio
@@ -18,6 +16,7 @@ import time
 
 import msgpack
 import pytest
+from conftest import request_context
 
 from epistemic_graph.pool import ConnectionPool, ShardRouter, _auto_pool_size
 
@@ -78,15 +77,30 @@ class WorkMockServer:
 
 def test_pool_auto_sizes_without_a_knob():
     # CONCEPT:EG-KG.backend.multiplexed-connections — no max_size given ⇒ auto-size to the box (no env knob).
-    pool = ConnectionPool("tcp://127.0.0.1:1")
+    pool = ConnectionPool(
+        "tcp://127.0.0.1:1", verified_context=request_context(), auth_secret="s"
+    )
     assert pool.max_size == _auto_pool_size()
     assert pool.max_size >= 8
     # ShardRouter pools inherit the auto-size.
-    router = ShardRouter(["tcp://127.0.0.1:1", "tcp://127.0.0.1:2"])
+    router = ShardRouter(
+        ["tcp://127.0.0.1:1", "tcp://127.0.0.1:2"],
+        verified_context=request_context(),
+        auth_secret="s",
+        route_resolver=lambda _graph: "tcp://127.0.0.1:1",
+    )
     for p in router.pools.values():
         assert p.max_size == _auto_pool_size()
     # An explicit cap is still honored.
-    assert ConnectionPool("tcp://127.0.0.1:1", max_size=3).max_size == 3
+    assert (
+        ConnectionPool(
+            "tcp://127.0.0.1:1",
+            verified_context=request_context(),
+            auth_secret="s",
+            max_size=3,
+        ).max_size
+        == 3
+    )
 
 
 @pytest.mark.asyncio
@@ -98,7 +112,12 @@ async def test_map_concurrent_parallelizes_the_wire():
     server = WorkMockServer(port=9301, work=work)
     await server.start()
     try:
-        pool = ConnectionPool("tcp://127.0.0.1:9301", max_size=n)
+        pool = ConnectionPool(
+            "tcp://127.0.0.1:9301",
+            verified_context=request_context(),
+            auth_secret="s",
+            max_size=n,
+        )
 
         async def op(client):
             return await client._send("Op")
@@ -124,22 +143,26 @@ async def test_map_concurrent_parallelizes_the_wire():
 
 
 @pytest.mark.asyncio
-async def test_serial_single_connection_is_the_baseline():
-    # Control: the SAME 8 ops on ONE connection serialize (max_inflight == 1) and
-    # take ~ the serial sum — the bottleneck the pool removes.
+async def test_sequential_awaits_are_the_baseline():
+    # Control: eight explicitly sequential awaits take roughly the serial sum.
     n = 8
     work = 0.05
     server = WorkMockServer(port=9302, work=work)
     await server.start()
     try:
-        pool = ConnectionPool("tcp://127.0.0.1:9302", max_size=n)
+        pool = ConnectionPool(
+            "tcp://127.0.0.1:9302",
+            verified_context=request_context(),
+            auth_secret="s",
+            max_size=n,
+        )
         async with pool.connection() as client:
             t0 = time.perf_counter()
             for _ in range(n):
                 assert await client._send("Op") == "pong"
             elapsed = time.perf_counter() - t0
 
-        assert server.max_inflight == 1, "one connection must serialize requests"
+        assert server.max_inflight == 1, "sequential awaits must not overlap"
         assert elapsed >= n * work * 0.8, "serial path should ~ sum the per-op work"
         await pool.close_all()
     finally:
@@ -153,7 +176,12 @@ async def test_pool_respects_cap_under_concurrency():
     server = WorkMockServer(port=9303, work=0.05)
     await server.start()
     try:
-        pool = ConnectionPool("tcp://127.0.0.1:9303", max_size=2)
+        pool = ConnectionPool(
+            "tcp://127.0.0.1:9303",
+            verified_context=request_context(),
+            auth_secret="s",
+            max_size=2,
+        )
 
         async def op(client):
             return await client._send("Op")
@@ -178,7 +206,12 @@ async def test_pool_reuses_warm_connections():
     server = WorkMockServer(port=9304, work=0.0)
     await server.start()
     try:
-        pool = ConnectionPool("tcp://127.0.0.1:9304", max_size=4)
+        pool = ConnectionPool(
+            "tcp://127.0.0.1:9304",
+            verified_context=request_context(),
+            auth_secret="s",
+            max_size=4,
+        )
         async with pool.connection() as c1:
             first = c1
             assert await c1._send("Op") == "pong"
@@ -192,12 +225,16 @@ async def test_pool_reuses_warm_connections():
 
 @pytest.mark.asyncio
 async def test_ordering_preserved_within_one_caller():
-    # CONCEPT:EG-KG.backend.multiplexed-connections — a single logical write (node-before-edge) runs on ONE
-    # connection inside one connection() block, so its ops keep wire order.
+    # A logical node-before-edge write awaits each dependency before issuing the next.
     server = WorkMockServer(port=9305, work=0.0)
     await server.start()
     try:
-        pool = ConnectionPool("tcp://127.0.0.1:9305", max_size=4)
+        pool = ConnectionPool(
+            "tcp://127.0.0.1:9305",
+            verified_context=request_context(),
+            auth_secret="s",
+            max_size=4,
+        )
         async with pool.connection() as client:
             await client._send("AddNode")
             await client._send("AddEdge")
@@ -217,7 +254,11 @@ async def test_shard_router_map_concurrent_parallelizes_one_graph():
     server = WorkMockServer(port=9306, work=work)
     await server.start()
     try:
-        router = ShardRouter(["tcp://127.0.0.1:9306"])
+        router = ShardRouter(
+            ["tcp://127.0.0.1:9306"],
+            verified_context=request_context(),
+            auth_secret="s",
+        )
 
         async def op(client):
             assert client._graph_name == "g:alpha"

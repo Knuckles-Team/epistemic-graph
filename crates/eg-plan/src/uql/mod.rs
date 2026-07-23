@@ -544,4 +544,139 @@ mod tests {
             e.msg
         );
     }
+
+    // ── CONCEPT:EG-KG.epistemic.epistemic-substrate — epistemic UQL surface (E2) ─────────
+
+    /// `EVIDENCE FOR <id>` lowers to `Op::EvidenceFor` (epistemic feature only).
+    #[cfg(feature = "epistemic")]
+    #[test]
+    fn evidence_for_clause_parses() {
+        let p = parse("MATCH (:Claim) |> EVIDENCE FOR \"c1\" |> LIMIT 5").unwrap();
+        assert_eq!(
+            p.ops[1],
+            Op::EvidenceFor {
+                claim_id: "c1".into()
+            }
+        );
+    }
+
+    /// `CONTRADICTS <id>` lowers to `Op::Contradicts`.
+    #[cfg(feature = "epistemic")]
+    #[test]
+    fn contradicts_clause_parses() {
+        let p = parse("MATCH (:Claim) |> CONTRADICTS \"c1\"").unwrap();
+        assert_eq!(
+            p.ops[1],
+            Op::Contradicts {
+                node_id: "c1".into()
+            }
+        );
+    }
+
+    /// `SUPPORTED BY <id>` lowers to `Op::SupportedBy`.
+    #[cfg(feature = "epistemic")]
+    #[test]
+    fn supported_by_clause_parses() {
+        let p = parse("MATCH (:Claim) |> SUPPORTED BY \"c1\"").unwrap();
+        assert_eq!(
+            p.ops[1],
+            Op::SupportedBy {
+                node_id: "c1".into()
+            }
+        );
+    }
+
+    /// `SOURCE RELIABILITY <id>` lowers to `Op::SourceReliability`.
+    #[cfg(feature = "epistemic")]
+    #[test]
+    fn source_reliability_clause_parses() {
+        let p = parse("MATCH (:Claim) |> SOURCE RELIABILITY \"s1\"").unwrap();
+        assert_eq!(
+            p.ops[1],
+            Op::SourceReliability {
+                source_id: "s1".into()
+            }
+        );
+    }
+
+    /// Bare `CONFIDENCE` (no argument) lowers to `Op::ConfidenceOp {}`.
+    #[cfg(feature = "epistemic")]
+    #[test]
+    fn confidence_clause_parses() {
+        let p = parse("MATCH (:Claim) |> CONFIDENCE |> LIMIT 5").unwrap();
+        assert_eq!(p.ops[1], Op::ConfidenceOp {});
+    }
+
+    /// `EXPLAIN BELIEF <id>` lowers to `Op::ExplainBelief`.
+    #[cfg(feature = "epistemic")]
+    #[test]
+    fn explain_belief_clause_parses() {
+        let p = parse("MATCH (:Claim) |> EXPLAIN BELIEF \"c1\"").unwrap();
+        assert_eq!(
+            p.ops[1],
+            Op::ExplainBelief {
+                node_id: "c1".into()
+            }
+        );
+    }
+
+    /// `BELIEF AS OF <ts>` lowers to `Op::BeliefAsOf`.
+    #[cfg(feature = "epistemic")]
+    #[test]
+    fn belief_as_of_clause_parses() {
+        let p = parse("MATCH (:Claim) |> BELIEF AS OF @1700000000").unwrap();
+        assert_eq!(
+            p.ops[1],
+            Op::BeliefAsOf {
+                ts: 1_700_000_000.0
+            }
+        );
+    }
+
+    /// THE PIN (CONCEPT:EG-KG.epistemic.epistemic-substrate): `VALID AS OF <ts>` is a pure
+    /// ALIAS for `Op::AsOf { axis: Valid }` — the SAME Op the bare `AS OF @ts` form
+    /// produces — and the bare form itself must stay BYTE-IDENTICAL (a strict superset,
+    /// never a behavior change to existing `AS OF` queries).
+    #[cfg(feature = "epistemic")]
+    #[test]
+    fn valid_as_of_alias_is_byte_identical_to_bare_as_of() {
+        let bare = parse("MATCH (:Event) |> AS OF @100 |> LIMIT 5").unwrap();
+        let valid = parse("MATCH (:Event) |> VALID AS OF @100 |> LIMIT 5").unwrap();
+        assert_eq!(
+            bare, valid,
+            "VALID AS OF must produce the byte-identical Plan to bare AS OF"
+        );
+        assert_eq!(
+            bare.ops[1],
+            Op::AsOf {
+                ts: 100.0,
+                axis: TimeAxis::Valid,
+            }
+        );
+    }
+
+    /// Without the `epistemic` feature each new clause is rejected with a clear message
+    /// (the `REASON`/`TEXT` not-in-this-build precedent) — never a phantom Op, never a
+    /// panic.
+    #[cfg(not(feature = "epistemic"))]
+    #[test]
+    fn epistemic_clauses_not_in_build() {
+        for q in [
+            "MATCH (:C) |> EVIDENCE FOR \"c1\"",
+            "MATCH (:C) |> CONTRADICTS \"c1\"",
+            "MATCH (:C) |> SUPPORTED BY \"c1\"",
+            "MATCH (:C) |> BELIEF AS OF @1",
+            "MATCH (:C) |> VALID AS OF @1",
+            "MATCH (:C) |> SOURCE RELIABILITY \"s1\"",
+            "MATCH (:C) |> CONFIDENCE",
+            "MATCH (:C) |> EXPLAIN BELIEF \"c1\"",
+        ] {
+            let e = parse(q).unwrap_err();
+            assert!(
+                e.msg.contains("epistemic") || e.msg.contains("not available"),
+                "got: {} for {q}",
+                e.msg
+            );
+        }
+    }
 }

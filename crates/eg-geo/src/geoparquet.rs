@@ -295,12 +295,15 @@ mod tests {
         let geoms = vec![
             Some(Geometry::Point(Point::new(1.0, 2.0))),
             None, // a null geometry cell
-            Some(Geometry::Polygon(Polygon::new(LineString::new(vec![
-                Point::new(0.0, 0.0),
-                Point::new(1.0, 0.0),
-                Point::new(1.0, 1.0),
-                Point::new(0.0, 0.0),
-            ])))),
+            Some(Geometry::Polygon(Polygon::new(
+                LineString::new(vec![
+                    Point::new(0.0, 0.0),
+                    Point::new(1.0, 0.0),
+                    Point::new(1.0, 1.0),
+                    Point::new(0.0, 0.0),
+                ]),
+                Vec::new(),
+            ))),
         ];
         let column = encode_wkb_column(&geoms);
         assert!(column[1].is_none(), "null geometry stays null");

@@ -27,6 +27,8 @@ fn embedded_roundtrip_nodes_edges_vector_algo_search() {
     let dir = tmp_dir("roundtrip");
     let eng = EmbeddedEngine::open(Some(&dir), EmbeddedOptions::durable()).unwrap();
     assert!(eng.is_durable(), "a persist dir + durable ⇒ durable engine");
+    assert!(dir.join("graph-0.redb").exists());
+    assert!(!dir.join("graph.redb").exists());
 
     eng.create_graph("g", GraphType::Global).unwrap();
     eng.add_node("g", "a", props(serde_json::json!({"label": "A"})))
@@ -61,6 +63,21 @@ fn embedded_roundtrip_nodes_edges_vector_algo_search() {
     // The query is closest to "a" (identical) then "c" (near).
     assert_eq!(hits[0].0, "a");
 
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn embedded_rejects_retired_single_file_layout() {
+    let dir = tmp_dir("retired-layout");
+    std::fs::create_dir_all(&dir).unwrap();
+    drop(redb::Database::create(dir.join("graph.redb")).unwrap());
+
+    let error = match EmbeddedEngine::open(Some(&dir), EmbeddedOptions::durable()) {
+        Ok(_) => panic!("embedded startup must reject the retired layout"),
+        Err(error) => error,
+    };
+    assert!(error.contains("retired redb layout"), "{error}");
+    assert!(!dir.join("graph-0.redb").exists());
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -136,9 +153,17 @@ fn embedded_per_mutation_durable_without_checkpoint() {
 #[test]
 fn embedded_delete_purges_durable_rows_across_reopen() {
     let dir = tmp_dir("delete-purge");
+    let recreated_incarnation;
     {
         let eng = EmbeddedEngine::open(Some(&dir), EmbeddedOptions::durable()).unwrap();
         eng.create_graph("g", GraphType::Global).unwrap();
+        let first_incarnation = eng
+            .inner
+            .registry
+            .read()
+            .catalog_record("g")
+            .unwrap()
+            .incarnation_id;
         eng.add_node("g", "n1", props(serde_json::json!({"v": 1})))
             .unwrap();
         eng.add_node("g", "stale", props(serde_json::json!({"v": 9})))
@@ -147,6 +172,18 @@ fn embedded_delete_purges_durable_rows_across_reopen() {
         eng.delete_graph("g").unwrap();
         // Recreate the SAME name; write ONLY n1={v:2} (never "stale").
         eng.create_graph("g", GraphType::Global).unwrap();
+        let second_incarnation = eng
+            .inner
+            .registry
+            .read()
+            .catalog_record("g")
+            .unwrap()
+            .incarnation_id;
+        assert_ne!(
+            first_incarnation, second_incarnation,
+            "same-name recreation must receive a fresh immutable incarnation"
+        );
+        recreated_incarnation = second_incarnation;
         eng.add_node("g", "n1", props(serde_json::json!({"v": 2})))
             .unwrap();
     }
@@ -154,6 +191,17 @@ fn embedded_delete_purges_durable_rows_across_reopen() {
     // Reopen (load_all): the deleted incarnation's "stale" node must NOT resurrect,
     // and n1 must be the NEW write {v:2}, not the stale {v:1}.
     let eng = EmbeddedEngine::open(Some(&dir), EmbeddedOptions::durable()).unwrap();
+    let recovered_incarnation = eng
+        .inner
+        .registry
+        .read()
+        .catalog_record("g")
+        .unwrap()
+        .incarnation_id;
+    assert_eq!(
+        recovered_incarnation, recreated_incarnation,
+        "durable recovery must preserve the recreated incarnation exactly"
+    );
     assert!(
         !eng.has_node("g", "stale").unwrap(),
         "deleted tenant's 'stale' node resurrected from redb on reopen after recreate"

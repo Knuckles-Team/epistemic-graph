@@ -10,7 +10,8 @@
     feature = "finance",
     feature = "datascience",
     feature = "query",
-    feature = "streaming"
+    feature = "streaming",
+    feature = "mining"
 ))]
 use serde::{Deserialize, Serialize};
 
@@ -308,18 +309,24 @@ pub enum ForeignSourceSpec {
     /// MessagePack + HMAC transport this engine speaks. The federation client
     /// connects to `endpoint` (a `host:port` TCP address), sends a `UnifiedQueryText`
     /// (UQL) — or, when `uql` is empty, a `CypherQuery` — against the remote `graph`,
-    /// and projects the result rows into a local RowSet. `secret` is the remote's
-    /// HMAC-SHA256 auth secret (empty ⇒ the remote runs insecure). This composes the
-    /// engine with ANOTHER engine without a Python round-trip — the cross-engine
-    /// federation seam.
+    /// and projects the result rows into a local RowSet. Every request is an `eg2.`
+    /// verified-context envelope; an empty secret or incomplete context fails before
+    /// dialing. This composes the engine with ANOTHER engine without a Python
+    /// round-trip — the cross-engine federation seam.
     RemoteEngine {
         /// `host:port` of the remote engine's TCP listener.
         endpoint: String,
         /// The remote graph to query (e.g. `__commons__`).
         graph: String,
-        /// HMAC-SHA256 secret of the remote (empty ⇒ remote is insecure).
+        /// HMAC-SHA256 secret used by the remote verified-context issuer. Empty is
+        /// invalid; native federation never downgrades to insecure or legacy auth.
         #[serde(default)]
         secret: String,
+        /// Identity, tenant, audience, capabilities, active policy version, and
+        /// delegation path signed into every remote request. The receiving engine
+        /// independently checks these claims against deployment policy and RBAC.
+        #[serde(default)]
+        context: crate::acl::RequestContextClaims,
         /// A UQL query run on the remote (its rows seed the RowSet). When empty, `cypher`
         /// is used instead.
         #[serde(default)]
@@ -544,12 +551,8 @@ pub enum Op {
     /// RowSet-narrowing temporal filter executed in `eg-plan` (dep-free blob scan, no
     /// DataFusion — Pi-safe). `axis` selects the timeline: `Valid` = "what was TRUE at
     /// ts" (`valid_from`/`valid_until`); `Transaction` = "what we BELIEVED at ts"
-    /// (`tx_from`/`tx_to`). `#[serde(default)]` keeps older plans (no axis) as valid-time.
-    AsOf {
-        ts: f64,
-        #[serde(default)]
-        axis: TimeAxis,
-    },
+    /// (`tx_from`/`tx_to`). The axis is explicit in the current plan contract.
+    AsOf { ts: f64, axis: TimeAxis },
     /// TIME (`WINDOW <dur>`, CONCEPT:EG-KG.query.sparql-completeness) — declare a trailing time window of
     /// `secs` seconds for the windowed time-series aggregate. A RowSet-preserving
     /// CONTEXT op paired with `AsOf`; passes the rows through unchanged today (the
@@ -572,13 +575,11 @@ pub enum Op {
     /// only wired under `timeseries`; a non-`timeseries` build passes the rows through, as
     /// `Window` does).
     WindowAgg { secs: f64, agg: String },
-    /// FEDERATION (`FOREIGN "<name>"`, CONCEPT:EG-KG.query.sparql-completeness) — mark the seed as drawn from
-    /// the named foreign source `name` (a registered federation peer). A RowSet
-    /// CONTEXT op: today it passes the rows through (the cross-source pull is the
-    /// federation seam) but gives the `FOREIGN "<name>"` UQL clause a plan AST to lower
-    /// to. Always available under `query`. The RESOLVED-source executor is the
-    /// `federation`-gated [`Op::ForeignScan`] above; see its note for why the UQL
-    /// name marker stays distinct from the resolved spec.
+    /// FEDERATION (`FOREIGN "<name>"`, CONCEPT:EG-KG.query.sparql-completeness) — replace the seed with rows from
+    /// the registered foreign source `name`. The plan fails when no registry/source is
+    /// bound; foreign intent is never ignored. Always available under `query`, while
+    /// execution requires the `federation` feature. The inline-spec counterpart is the
+    /// `federation`-gated [`Op::ForeignScan`] above.
     Foreign { name: String },
     /// SOURCE (spatial, CONCEPT:EG-KG.ontology.singles-concept) — seed the RowSet with every node in the spatial
     /// `layer` (a node label / `type`) whose geometry's bounding box intersects `bbox`
@@ -692,6 +693,64 @@ pub enum Op {
     /// seeded `Sample` is reproducible). Mirrors the `tensor`/`stream` gating precedent.
     #[cfg(feature = "probabilistic")]
     Probabilistic { query: ProbQuery },
+    /// SOURCE/FILTER (epistemic, CONCEPT:EG-KG.epistemic.epistemic-substrate, E2) — the evidence
+    /// FOR `claim_id`: nodes linked to it by an INCOMING `SUPPORTS`/`SUPPORTS_BELIEF`/
+    /// `HAS_EVIDENCE`/`CORROBORATES` edge (classified by `eg_epistemic::classify_relationship`).
+    /// As a SOURCE (empty input) it seeds the RowSet with the supporting ids; mid-pipeline it
+    /// narrows the candidate set to the ones that ALSO support `claim_id` — the same
+    /// seed-or-filter shape as `Op::AsOf`. Gated by `epistemic` (the belief-substrate model
+    /// lives in eg-epistemic behind eg-plan's own `epistemic` gate; this is the wire variant).
+    #[cfg(feature = "epistemic")]
+    EvidenceFor { claim_id: String },
+    /// FILTER/SOURCE (epistemic, CONCEPT:EG-KG.epistemic.epistemic-substrate, E2) — evidence
+    /// AGAINST `node_id`: nodes linked to it by an INCOMING `CONTRADICTS`/`CONTRADICTS_BELIEF`/
+    /// `REFUTES` OR `ATTACKS`/`DEFEATS`/`UNDERCUTS` edge (an attack is a stronger contradiction,
+    /// so both count). Same seed-or-filter shape as `EvidenceFor`. Gated by `epistemic`.
+    #[cfg(feature = "epistemic")]
+    Contradicts { node_id: String },
+    /// FILTER/SOURCE (epistemic, CONCEPT:EG-KG.epistemic.epistemic-substrate, E2) — the claims
+    /// `node_id` itself supports: nodes reached by an OUTGOING `SUPPORTS`/`SUPPORTS_BELIEF`/
+    /// `HAS_EVIDENCE`/`CORROBORATES` edge FROM `node_id` — the mirror direction of
+    /// `EvidenceFor`. Same seed-or-filter shape. Gated by `epistemic`.
+    #[cfg(feature = "epistemic")]
+    SupportedBy { node_id: String },
+    /// TIME+TRANSFORM (epistemic, CONCEPT:EG-KG.epistemic.epistemic-substrate, E2) — pin the
+    /// candidate set to what the engine BELIEVED at transaction-time `ts` (composes the
+    /// existing `Op::AsOf { ts, axis: Transaction }` bi-temporal filter) and then RE-SCORE
+    /// each surviving row by its propagated belief confidence at that instant
+    /// (`eg_epistemic::propagate_confidence`). The UQL sibling `VALID AS OF <ts>` is a pure
+    /// ALIAS for `Op::AsOf { axis: Valid }` (no belief propagation) — this op is the one that
+    /// actually walks the support/contradiction/attack graph. Gated by `epistemic`.
+    #[cfg(feature = "epistemic")]
+    BeliefAsOf { ts: f64 },
+    /// TRANSFORM (epistemic, CONCEPT:EG-KG.epistemic.epistemic-substrate, E2) — re-weight every
+    /// row currently in the RowSet by the propagated reliability (belief confidence) of the
+    /// named `source_id` node, via `eg_epistemic::propagate_confidence`. Represents "discount
+    /// this candidate set by how much I trust source X" — a uniform scalar multiplier over
+    /// existing scores (unscored rows are treated as score `1.0`). Gated by `epistemic`.
+    #[cfg(feature = "epistemic")]
+    SourceReliability { source_id: String },
+    /// TRANSFORM (epistemic, CONCEPT:EG-KG.epistemic.epistemic-substrate, E2) — re-score EACH
+    /// row in the current RowSet by ITS OWN propagated belief confidence
+    /// (`eg_epistemic::propagate_confidence` walking that row's own support/contradiction/
+    /// attack neighbourhood), re-ordering descending — the `CONFIDENCE` UQL keyword with no
+    /// argument. Mirrors `Op::Probabilistic`'s "score-then-rank" shape but over the belief
+    /// graph instead of a stored `Distribution`. Gated by `epistemic`.
+    #[cfg(feature = "epistemic")]
+    ConfidenceOp {},
+    /// TRANSFORM (epistemic, CONCEPT:EG-KG.epistemic.epistemic-substrate, E2) — the answer to
+    /// `EXPLAIN BELIEF <node_id>`: build the recursive justification tree
+    /// (`eg_epistemic::explain_belief`) rooted at `node_id`, flatten it (pre-order, deduped) to
+    /// `(claim_id, confidence)` pairs, and either SEED the RowSet with them (empty input) or
+    /// narrow+re-score the current candidate set to the ones that appear in the tree (mirrors
+    /// the `EvidenceFor`/`Contradicts` seed-or-filter shape). The FULL nested proof tree
+    /// (rule names, premise structure) is NOT representable in the flat `RowSet` currency —
+    /// this plan-Op surface is the queryable (composes-with-`Traverse`/`Rank`/`Limit`)
+    /// projection of it; a standalone `Method::ExplainBelief` returning the tree verbatim
+    /// (mirroring `Method::OwlExplain`'s `ProofNodeWire`) is a documented follow-up, not
+    /// built here (E2 scope is the wire+UQL plan surface). Gated by `epistemic`.
+    #[cfg(feature = "epistemic")]
+    ExplainBelief { node_id: String },
     /// LIMIT — top-k, respecting the current order.
     Limit { k: usize },
 }
@@ -843,6 +902,47 @@ pub enum FittedModel {
         intercept: f64,
         kernel: String,
         gamma: f64,
+    },
+}
+
+// ── mining: classification (CONCEPT:EG-KG.mining.naive-bayes) ─────────────────────
+
+/// Serializable fitted classifier returned by `mining::classify::fit` and consumed
+/// back by `mining::classify::predict` (the PREDICTIVE fit→blob→predict pair). Lives
+/// in eg-types so `Method::MineClassifyPredict` can embed the model over the wire —
+/// exactly like `FittedModel` carries the datascience regressors. `classes` is the
+/// sorted set of integer labels; every score/proba vector is column-ordered by it.
+#[cfg(feature = "mining")]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "kind", content = "model")]
+pub enum FittedClassifier {
+    /// Gaussian Naive Bayes — per-class prior + per-feature (mean, variance).
+    GaussianNb {
+        classes: Vec<i64>,
+        priors: Vec<f64>,
+        means: Vec<Vec<f64>>,
+        vars: Vec<Vec<f64>>,
+    },
+    /// Multinomial Naive Bayes — per-class log-prior + Laplace-smoothed feature log-probs.
+    MultinomialNb {
+        classes: Vec<i64>,
+        class_log_prior: Vec<f64>,
+        feature_log_prob: Vec<Vec<f64>>,
+    },
+    /// k-NN — the lazy classifier stores its training rows + labels for the vote.
+    Knn {
+        k: usize,
+        classes: Vec<i64>,
+        x: Vec<Vec<f64>>,
+        y: Vec<i64>,
+    },
+    /// One-vs-rest linear classifier (`kind` = `logistic` | `svc`): a weight vector +
+    /// bias per class. Prediction is argmax of the per-class score.
+    LinearOvr {
+        kind: String,
+        classes: Vec<i64>,
+        weights: Vec<Vec<f64>>,
+        biases: Vec<f64>,
     },
 }
 
@@ -1152,6 +1252,46 @@ mod probabilistic_tests {
             },
             Op::Probabilistic {
                 query: ProbQuery::Sample { seed: 42 },
+            },
+            Op::Limit { k: 5 },
+        ]);
+        let bytes = rmp_serde::to_vec_named(&plan).unwrap();
+        let back: Plan = rmp_serde::from_slice(&bytes).unwrap();
+        assert_eq!(plan, back);
+    }
+}
+
+// ── epistemic wire-variant round-trip (CONCEPT:EG-KG.epistemic.epistemic-substrate, E2) ─────────────────
+#[cfg(all(test, feature = "epistemic"))]
+mod epistemic_tests {
+    use super::*;
+
+    /// The seven `Op::{EvidenceFor,Contradicts,SupportedBy,BeliefAsOf,SourceReliability,
+    /// ConfidenceOp,ExplainBelief}` variants are pure-serde and round-trip through
+    /// MessagePack (the wire format) unchanged — the proof `Method::UnifiedQuery { plan }`
+    /// can carry an epistemic plan (CONCEPT:EG-KG.epistemic.epistemic-substrate).
+    #[test]
+    fn epistemic_variants_round_trip() {
+        let plan = Plan::new(vec![
+            Op::Scan {
+                label: "Claim".into(),
+            },
+            Op::EvidenceFor {
+                claim_id: "c1".into(),
+            },
+            Op::Contradicts {
+                node_id: "c1".into(),
+            },
+            Op::SupportedBy {
+                node_id: "c1".into(),
+            },
+            Op::BeliefAsOf { ts: 100.0 },
+            Op::SourceReliability {
+                source_id: "src1".into(),
+            },
+            Op::ConfidenceOp {},
+            Op::ExplainBelief {
+                node_id: "c1".into(),
             },
             Op::Limit { k: 5 },
         ]);

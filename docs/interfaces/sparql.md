@@ -22,9 +22,10 @@ data** — a triple is a node, an edge, or a property depending on its object.
 | `rdf:type` | folded into the node `type` property **and** kept as an explicit typing edge |
 | named graph | a `GraphCore` in the registry with a `:NamedGraph` marker |
 
-Multi-valued literals for the same predicate (which a key-unique property map can't hold) go to an
-opt-in lossless `quads` redb table under the `rdf-redb` feature; without it, extras are **counted** in
-`LoadReport.dropped_multivalue`, never silently lost. Export round-trips to N-Triples by set-equality.
+Multi-valued literals for the same predicate are stored under the reserved
+`__rdf_multivalue_literals` typed property in the authoritative node image. `LoadReport.multivalue`
+counts the additional values, and export round-trips them to N-Triples by set equality without a
+secondary store.
 
 ## SPARQL SELECT
 
@@ -69,7 +70,18 @@ intentionally unsupported (the write path does no HTTP fetch).
 The same matrix is available on ingest (parse) and via the W3C SPARQL 1.1 **Graph Store Protocol**
 (GET/PUT/POST/DELETE on `/rdf-graphs/…?graph=`, EG-134) for direct RDF-tooling read/write.
 
-## GeoSPARQL — spatial SPARQL (EG-KG.ontology.concept-10/155, feature `geosparql`)
+SPARQL UPDATE and Graph Store PUT/POST/DELETE require an exact current request envelope:
+`Authorization: Bearer eg2.<envelope>` and `X-Epistemic-Request-Id`. The adapter dispatches
+that signed request into the native multi-graph coordinator. It checks every addressed graph
+before detached planning and creates missing graphs only with `graph:admin`. Before changing
+graph or lifecycle state, it durably prepares an authenticated, encrypted recovery plan that
+contains complete before/after graph images. Cross-shard spans commit through retained-decision
+2PC; local and single-group spans use deterministic child `MutationBatch` records. A failure
+durably selects compensation, replays the complete preimages, and removes graphs created by the
+update. Restart always resumes the recorded direction before an acknowledgement is returned.
+The HTTP adapter has no direct live-core write path.
+
+## GeoSPARQL — spatial SPARQL (EG-KG.ontology.concept-10/155, feature `geosparql`) {#geosparql}
 
 The `geo:`/`geof:` vocabulary, WKT/GML geometry literals, and topological FILTER functions lower onto the
 eg-geo spatial predicates (see [gis](gis.md)):

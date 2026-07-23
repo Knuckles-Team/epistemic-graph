@@ -2,7 +2,7 @@
 //!
 //! The nemesis harness for the cross-shard distributed transaction: it spins a live
 //! two-group cluster (one in-process node, two Raft groups on the shared listener,
-//! one shared `graph.redb`) — the SAME machinery the single-group failover test uses
+//! one shared authoritative shard) — the SAME machinery the single-group failover test uses
 //! — and proves the atomicity invariant under fault injection:
 //!
 //!   * **No partial commit.** A cross-shard txn either commits on EVERY participant
@@ -29,13 +29,13 @@ use super::cross_shard_txn::{CrossShardCoordinator, CrossShardTxn, GraphSlice, T
 use super::multi::MultiRaft;
 use super::{AppCtx, NodeId};
 use crate::channels::ChannelManager;
+use crate::durability::DurabilityPolicy;
 use crate::isolation::IsolationLayer;
 use crate::protocol::{GraphType, Method};
 use crate::registry::GraphRegistry;
 use crate::server::persistence::redb_backend::RedbBackend;
 use crate::server::persistence::PersistenceBackend;
 use crate::server::ServerState;
-use crate::wal_service::FsyncPolicy;
 
 const GROUP_A: u64 = 100;
 const GROUP_B: u64 = 200;
@@ -57,12 +57,11 @@ async fn make_state(dir: &str, backend: Arc<dyn PersistenceBackend>) -> Arc<RwLo
         auth_secret: "xshard-test".to_string(),
         persist_dir: Some(dir.to_string()),
         persistence: Some(backend),
-        redb_authoritative: true,
         max_in_flight: Arc::new(tokio::sync::Semaphore::new(64)),
         read_admission: Arc::new(tokio::sync::Semaphore::new(64)),
         per_graph_inflight: Arc::new(dashmap::DashMap::new()),
         per_graph_inflight_limit: 16,
-        write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::from_env()),
+        write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
         open_txns: Arc::new(dashmap::DashMap::new()),
         txn_id_gen: Arc::new(crate::server::txn::TxnIdGen::default()),
         txn_ttl_secs: 300,
@@ -77,8 +76,6 @@ async fn make_state(dir: &str, backend: Arc<dyn PersistenceBackend>) -> Arc<RwLo
         multi_raft: None,
         #[cfg(feature = "tsdb")]
         tsdb_store: None,
-        #[cfg(feature = "rdf-redb")]
-        rdf_quads: None,
         #[cfg(feature = "streaming")]
         cdc: None,
         #[cfg(feature = "wasm-udf")]
@@ -91,6 +88,8 @@ async fn make_state(dir: &str, backend: Arc<dyn PersistenceBackend>) -> Arc<RwLo
         foreign_sources: std::sync::Arc::new(dashmap::DashMap::new()),
         #[cfg(feature = "kv")]
         kv: None,
+        #[cfg(feature = "lake")]
+        lake: std::sync::Arc::new(crate::server::lake::LakeManager::new()),
     }))
 }
 
@@ -231,7 +230,7 @@ where
 async fn span_detection_routes_single_group_to_fast_path() {
     let dir = fresh_dir("span");
     let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
     let (multi, coord, _state) = bring_up(&dir, backend.clone()).await;
 
     let router = multi.router();
@@ -264,7 +263,7 @@ async fn span_detection_routes_single_group_to_fast_path() {
 async fn cross_shard_commit_is_atomic_on_all_participants() {
     let dir = fresh_dir("happy");
     let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
     let (multi, coord, state) = bring_up(&dir, backend.clone()).await;
 
     let txn = two_shard_txn("t-happy", "a1", "b1");
@@ -304,7 +303,7 @@ async fn cross_shard_commit_is_atomic_on_all_participants() {
 async fn killed_participant_during_prepare_aborts_with_no_partial_commit() {
     let dir = fresh_dir("killprep");
     let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
     let (multi, coord, state) = bring_up(&dir, backend.clone()).await;
 
     // KILL participant B (close group 200) — it is now unreachable to prepare.
@@ -359,7 +358,7 @@ async fn killed_participant_during_prepare_aborts_with_no_partial_commit() {
 async fn recovery_commits_in_doubt_txn_after_crash_post_decision() {
     let dir = fresh_dir("recovercommit");
     let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
     let txn_id = "t-recover-commit";
     {
         let (multi, coord, state) = bring_up(&dir, backend.clone()).await;
@@ -381,8 +380,9 @@ async fn recovery_commits_in_doubt_txn_after_crash_post_decision() {
     backend.shutdown();
     drop(backend);
 
-    let backend2: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("reopen redb"));
+    let backend2: Arc<dyn PersistenceBackend> = Arc::new(
+        RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("reopen redb"),
+    );
     let (multi2, coord2, state2) = bring_up(&dir, backend2.clone()).await;
 
     // RECOVERY: the in-doubt txn's decision is COMMIT → re-apply both slices.
@@ -421,7 +421,7 @@ async fn recovery_commits_in_doubt_txn_after_crash_post_decision() {
 async fn recovery_aborts_in_doubt_txn_with_no_decision_record() {
     let dir = fresh_dir("recoverabort");
     let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
     let txn_id = "t-recover-abort";
     {
         let (multi, coord, _state) = bring_up(&dir, backend.clone()).await;
@@ -447,8 +447,9 @@ async fn recovery_aborts_in_doubt_txn_with_no_decision_record() {
     backend.shutdown();
     drop(backend);
 
-    let backend2: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("reopen redb"));
+    let backend2: Arc<dyn PersistenceBackend> = Arc::new(
+        RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("reopen redb"),
+    );
     let (multi2, coord2, state2) = bring_up(&dir, backend2.clone()).await;
 
     let resolved = coord2.recover_in_doubt().await.expect("recover");
@@ -557,7 +558,7 @@ async fn begin_two_graph_txn(
 async fn user_multigraph_txn_commits_atomically_across_groups() {
     let dir = fresh_dir("userhappy");
     let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
     let (multi, _coord, state) = bring_up(&dir, backend.clone()).await;
     wire_user_graphs(&state, &multi).await;
 
@@ -592,7 +593,7 @@ async fn user_multigraph_txn_commits_atomically_across_groups() {
 async fn user_multigraph_txn_atomic_under_participant_kill() {
     let dir = fresh_dir("userkill");
     let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
     let (multi, _coord, state) = bring_up(&dir, backend.clone()).await;
     wire_user_graphs(&state, &multi).await;
 
@@ -637,7 +638,7 @@ async fn user_multigraph_txn_atomic_under_participant_kill() {
 async fn read_only_participant_skips_prepare_and_phase2() {
     let dir = fresh_dir("readonly");
     let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
     let (multi, coord, state) = bring_up(&dir, backend.clone()).await;
 
     // shardA writes, shardB is read-only (empty slice). Still a 2-group span → the
@@ -725,7 +726,7 @@ fn three_writer_txn(txn_id: &str, a: &str, b: &str, c: &str) -> CrossShardTxn {
 async fn parallel_prepare_multi_writer_commits_atomically() {
     let dir = fresh_dir("parcommit");
     let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
     let (multi, coord, state) = bring_up(&dir, backend.clone()).await;
     add_third_group(&multi).await;
 
@@ -765,7 +766,7 @@ async fn parallel_prepare_multi_writer_commits_atomically() {
 async fn parallel_prepare_multi_writer_recovers_after_post_decision_crash() {
     let dir = fresh_dir("parrecover");
     let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
     let txn_id = "t-par-recover";
     {
         let (multi, coord, state) = bring_up(&dir, backend.clone()).await;
@@ -785,8 +786,9 @@ async fn parallel_prepare_multi_writer_recovers_after_post_decision_crash() {
     backend.shutdown();
     drop(backend);
 
-    let backend2: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("reopen redb"));
+    let backend2: Arc<dyn PersistenceBackend> = Arc::new(
+        RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("reopen redb"),
+    );
     let (multi2, coord2, state2) = bring_up(&dir, backend2.clone()).await;
     add_third_group(&multi2).await;
 
@@ -853,7 +855,7 @@ async fn add_decision_group(multi: &Arc<MultiRaft>) {
 async fn nonblocking_commit_is_atomic_via_replicated_decision() {
     let dir = fresh_dir("nbhappy");
     let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
     let (multi, coord, state) = bring_up(&dir, backend.clone()).await;
     add_decision_group(&multi).await;
 
@@ -902,7 +904,7 @@ async fn nonblocking_commit_is_atomic_via_replicated_decision() {
 async fn nonblocking_coordinator_crash_between_decision_and_apply_does_not_block() {
     let dir = fresh_dir("nblive");
     let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
     let (multi, coord, state) = bring_up(&dir, backend.clone()).await;
     add_decision_group(&multi).await;
 
@@ -970,7 +972,7 @@ async fn nonblocking_coordinator_crash_between_decision_and_apply_does_not_block
 async fn nonblocking_aborts_like_2pc_on_killed_participant() {
     let dir = fresh_dir("nbabort");
     let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
     let (multi, coord, state) = bring_up(&dir, backend.clone()).await;
     add_decision_group(&multi).await;
 
@@ -1020,7 +1022,7 @@ async fn nonblocking_aborts_like_2pc_on_killed_participant() {
 async fn nonblocking_recovery_presumed_abort_with_no_replicated_decision() {
     let dir = fresh_dir("nbpresumed");
     let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
     let (multi, coord, state) = bring_up(&dir, backend.clone()).await;
     add_decision_group(&multi).await;
 
@@ -1067,7 +1069,7 @@ async fn calvin_deterministic_commit_is_atomic_and_vote_free() {
     use super::cross_shard_txn::{CalvinSequencer, GlobalSeq};
     let dir = fresh_dir("calvinhappy");
     let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
     let (multi, coord, state) = bring_up(&dir, backend.clone()).await;
     add_decision_group(&multi).await;
     let seq = CalvinSequencer::new();
@@ -1118,7 +1120,7 @@ async fn calvin_crash_after_sequencing_is_resolved_by_replay() {
     use super::cross_shard_txn::CalvinSequencer;
     let dir = fresh_dir("calvinreplay");
     let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
     let (multi, coord, state) = bring_up(&dir, backend.clone()).await;
     add_decision_group(&multi).await;
     let seq = CalvinSequencer::new();
@@ -1188,10 +1190,22 @@ async fn write_node(
         graph_fname: crate::persist::sanitize(graph),
         graph_name: graph.to_string(),
         graph_type: GraphType::Global,
-        method: Method::AddNode {
-            node_id: node.to_string(),
-            properties_msgpack: rmp_serde::to_vec_named(&props).unwrap(),
-        },
+        committed_at_ms: 0,
+        mutation: super::RaftMutationContext::internal(
+            "raft-xshard-harness",
+            graph,
+            &format!("{node}:{props}"),
+            0,
+            0,
+        ),
+        command: super::ReplicatedMutation::graph(
+            Method::AddNode {
+                node_id: node.to_string(),
+                properties_msgpack: rmp_serde::to_vec_named(&props).unwrap(),
+            },
+            "xshard-test",
+        )
+        .unwrap(),
     };
     g.client_write(req).await.expect("client_write");
 }
@@ -1223,7 +1237,7 @@ async fn calvin_ollp_ordered_readlock_serializes_conflicting_txns() {
 
     let dir = fresh_dir("calvinollp");
     let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
     let (multi, coord, _state) = bring_up(&dir, backend.clone()).await;
     let coord = Arc::new(coord);
 
@@ -1382,7 +1396,7 @@ async fn calvin_ollp_stale_recon_is_restarted_and_commits_serializably() {
 
     let dir = fresh_dir("calvinrestart");
     let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), FsyncPolicy::Each, 4096).expect("open redb"));
+        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
     let (multi, coord, _state) = bring_up(&dir, backend.clone()).await;
     let coord = Arc::new(coord);
 
@@ -1577,4 +1591,254 @@ async fn calvin_two_node_epoch_fan_in_derives_identical_order() {
     assert_eq!(order_on_node_1.inputs[0].global_seq, GlobalSeq(1));
     assert_eq!(order_on_node_1.inputs.len(), 4);
     assert_eq!(order_on_node_1.epoch, 9);
+}
+
+/// EG-349: a Calvin OLLP txn whose reconnaissance goes stale is restarted (as in
+/// [`calvin_ollp_stale_recon_is_restarted_and_commits_serializably`]) but this time the
+/// restart is routed into a SPECIFIC epoch of the MULTI-NODE `epoch_fan_in` rather than a
+/// fresh `GlobalSeq` in one sequencer's ordering domain — closing the gap
+/// `acquire_ollp_with_restart`'s doc comment left open. Proves:
+///
+///   1. The txn's first attempt is placed in the base epoch ALONGSIDE another node's
+///      (NODE_2) unrelated txn — a genuine multi-node epoch batch, not a single-node one.
+///   2. The stale-recon restart routes the SECOND attempt into `base_epoch + 1`
+///      (`epoch_for_restart`), and the txn ultimately commits with the SAME serializable
+///      outcome as the single-domain test (it observed the writer's committed write).
+///   3. ANY node re-deriving the merge from the identical exchanged per-epoch batches —
+///      simulated here by an independent [`EpochFanInRegistry`] fed the same
+///      registrations in a DIFFERENT order — computes the byte-identical [`EpochBatch`]
+///      for both epochs the txn touched, and in particular the SAME final packed seq for
+///      the restarted txn. That is "all nodes agree on the final serializable order."
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn calvin_ollp_epoch_routing_restart_agrees_across_nodes() {
+    use super::cross_shard_txn::{
+        epoch_fan_in, EpochFanInRegistry, OrderedLockManager, RecordKey, RwSet,
+    };
+    use std::collections::BTreeSet;
+
+    const NODE_1: u64 = 1; // home of the writer + the restarting OLLP txn
+    const NODE_2: u64 = 2; // a peer node contributing an unrelated txn to the same epoch
+    const BASE_EPOCH: u64 = 5;
+
+    let dir = fresh_dir("calvinepochrt");
+    let backend: Arc<dyn PersistenceBackend> =
+        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
+    let (multi, coord, _state) = bring_up(&dir, backend.clone()).await;
+    let coord = Arc::new(coord);
+
+    // Seed the directory + both candidate targets — identical setup to the single-domain
+    // stale-recon test: `dir` starts pointing at `k1` (old); the writer flips it to `k2`.
+    write_node(
+        &multi,
+        GROUP_A,
+        GRAPH_A,
+        "dir",
+        serde_json::json!({ "target": "k1" }),
+    )
+    .await;
+    write_node(
+        &multi,
+        GROUP_A,
+        GRAPH_A,
+        "k1",
+        serde_json::json!({ "v": "old" }),
+    )
+    .await;
+    write_node(
+        &multi,
+        GROUP_A,
+        GRAPH_A,
+        "k2",
+        serde_json::json!({ "v": "new" }),
+    )
+    .await;
+
+    let fan_in = EpochFanInRegistry::new();
+    let lockmgr = OrderedLockManager::new();
+    let dir_key = RecordKey::new(GRAPH_A, "dir");
+
+    // ── A genuine MULTI-NODE base epoch: NODE_2 contributes an unrelated txn, NODE_1
+    //    contributes the writer — both land in BASE_EPOCH before the OLLP txn registers. ─
+    fan_in.register_local(NODE_2, BASE_EPOCH, "t-peer");
+    fan_in.register_local(NODE_1, BASE_EPOCH, "t-writer");
+    let writer_seq = fan_in
+        .packed_seq_for(BASE_EPOCH, "t-writer")
+        .expect("t-writer registered in the base epoch");
+
+    // ── T_writer: register the exclusive lock on `dir` SYNCHRONOUSLY FIRST at its
+    //    epoch-packed seq, so the OLLP txn's later registration is strictly behind it. ──
+    let rw_writer = RwSet {
+        reads: BTreeSet::new(),
+        writes: [dir_key.clone()].into_iter().collect(),
+    };
+    let tw = lockmgr.register(writer_seq, &rw_writer);
+
+    let (lm_w, mu_w, dk_w) = (lockmgr.clone(), multi.clone(), dir_key.clone());
+    let writer = tokio::spawn(async move {
+        let g = lm_w.granted(tw).await; // granted immediately (front of the queue)
+                                        // Wait until the OLLP txn's first attempt has registered behind us on `dir` (a
+                                        // lock-manager fact — its recon has already read the OLD `dir`).
+        wait_until(Duration::from_secs(5), || async {
+            lm_w.queue_depth(&dk_w) >= 2
+        })
+        .await
+        .expect("ollp txn registers behind the writer on dir");
+        // NOW mutate the directory the OLLP recon depended on, then release.
+        write_node(
+            &mu_w,
+            GROUP_A,
+            GRAPH_A,
+            "dir",
+            serde_json::json!({ "target": "k2" }),
+        )
+        .await;
+        g.release();
+    });
+
+    // ── T_ollp: drive the multi-node epoch-routing OLLP restart loop. ──────────────────
+    let derive_dir = dir_key.clone();
+    let acquired = coord
+        .acquire_ollp_with_restart_epoch(
+            &fan_in,
+            NODE_1,
+            BASE_EPOCH,
+            "t-ollp",
+            &lockmgr,
+            std::slice::from_ref(&dir_key),
+            move |observed| {
+                let dv =
+                    decode_props(observed.get(&derive_dir).cloned().flatten()).expect("dir seeded");
+                let target = dv
+                    .get("target")
+                    .and_then(|t| t.as_str())
+                    .expect("dir.target")
+                    .to_string();
+                RwSet {
+                    reads: [derive_dir.clone(), RecordKey::new(GRAPH_A, &target)]
+                        .into_iter()
+                        .collect(),
+                    writes: [RecordKey::new(GRAPH_B, "r")].into_iter().collect(),
+                }
+            },
+            5,
+        )
+        .await
+        .expect("OLLP acquisition ultimately succeeds after the epoch restart");
+
+    // The first recon (in BASE_EPOCH) went stale (dir k1→k2) → exactly one restart, into
+    // the NEXT epoch.
+    assert_eq!(
+        acquired.attempts, 2,
+        "stale first recon forces exactly one epoch restart"
+    );
+    assert_eq!(
+        acquired.epoch,
+        BASE_EPOCH + 1,
+        "the restart routed the txn into the NEXT epoch of the multi-node fan-in"
+    );
+    assert!(
+        acquired
+            .rwset
+            .reads
+            .contains(&RecordKey::new(GRAPH_A, "k2")),
+        "the restarted recon discovered the post-mutation target k2"
+    );
+
+    // Deterministic execution under the held (fresh, epoch-routed) lock.
+    let k2_val = decode_props(
+        coord
+            .reconnoiter(&RecordKey::new(GRAPH_A, "k2"))
+            .await
+            .unwrap(),
+    )
+    .expect("k2 present");
+    let seen = k2_val
+        .get("v")
+        .and_then(|v| v.as_str())
+        .unwrap()
+        .to_string();
+    write_node(
+        &multi,
+        GROUP_B,
+        GRAPH_B,
+        "r",
+        serde_json::json!({ "saw": seen }),
+    )
+    .await;
+    acquired.guard.release();
+
+    writer.await.unwrap();
+
+    // SERIALIZABLE OUTCOME: identical to the single-domain test — the OLLP txn restarted
+    // and read the post-writer committed state.
+    let r_val = decode_props(
+        coord
+            .reconnoiter(&RecordKey::new(GRAPH_B, "r"))
+            .await
+            .unwrap(),
+    )
+    .expect("r written by the restarted OLLP txn");
+    assert_eq!(
+        r_val.get("saw").and_then(|s| s.as_str()),
+        Some("new"),
+        "the restarted OLLP txn read k2's committed value (serializable: T_writer then T_ollp)"
+    );
+
+    // ── ALL NODES AGREE ─────────────────────────────────────────────────────────────
+    // A peer node receives the SAME per-node gossiped input tuples for every epoch the
+    // txn touched. `local_seq` is AUTHORITATIVE from the origin node's local sequencer —
+    // a peer replays the tuples verbatim, it never re-sequences them — so a faithful peer
+    // preserves each node's per-epoch order and only the CROSS-node arrival interleave may
+    // differ. Crucially the OLLP txn's STALE FIRST attempt is part of BASE_EPOCH's input
+    // log (append-only, replayed as an abort in that epoch), so it is present on every
+    // node's view of BASE_EPOCH too — the origin registered it there on attempt 1 before
+    // the recon went stale and the txn restarted into BASE_EPOCH+1.
+    let fan_in_peer = EpochFanInRegistry::new();
+    // Base epoch — DIFFERENT cross-node interleave than the origin (all of NODE_1 first),
+    // but the SAME per-node order (t-writer then the phantom t-ollp), so local_seqs match.
+    fan_in_peer.register_local(NODE_1, BASE_EPOCH, "t-writer");
+    fan_in_peer.register_local(NODE_1, BASE_EPOCH, "t-ollp"); // phantom stale attempt (ls=2)
+    fan_in_peer.register_local(NODE_2, BASE_EPOCH, "t-peer");
+    // Restart epoch — the committed attempt.
+    fan_in_peer.register_local(NODE_1, BASE_EPOCH + 1, "t-ollp");
+
+    assert_eq!(
+        fan_in_peer.fan_in(BASE_EPOCH),
+        fan_in.fan_in(BASE_EPOCH),
+        "a peer node holding the same base-epoch input tuples (incl. the OLLP txn's \
+         stale first attempt) derives the identical merged order despite a different \
+         cross-node arrival interleave"
+    );
+    assert_eq!(
+        fan_in_peer.fan_in(BASE_EPOCH + 1),
+        fan_in.fan_in(BASE_EPOCH + 1),
+        "...and the identical merged restart-epoch order"
+    );
+    assert_eq!(
+        fan_in_peer.packed_seq_for(BASE_EPOCH + 1, "t-ollp"),
+        Some(acquired.seq),
+        "every node derives the SAME final packed seq for the restarted txn"
+    );
+
+    // And prove the merge itself is order-INDEPENDENT over a fixed tuple set: feeding the
+    // origin's OWN per-epoch snapshot back through `epoch_fan_in` with every node's
+    // arrival order REVERSED yields the byte-identical merged order. The merge is a pure
+    // total sort by (local_seq, node, txn_id), so no arrival/insertion order can affect
+    // its result — the property Calvin's vote-free execution depends on.
+    for ep in [BASE_EPOCH, BASE_EPOCH + 1] {
+        let mut reordered = fan_in.snapshot(ep);
+        for inputs in reordered.values_mut() {
+            inputs.reverse();
+        }
+        assert_eq!(
+            epoch_fan_in(ep, &reordered),
+            fan_in.fan_in(ep),
+            "the epoch fan-in merge is a pure total sort — reversing each node's arrival \
+             order of the SAME tuple set cannot change the merged global order"
+        );
+    }
+
+    multi.stop_listener();
+    backend.shutdown();
+    let _ = std::fs::remove_dir_all(&dir);
 }

@@ -6,7 +6,7 @@
 //! cheapest, most-selective operator first regardless of which modality it belongs
 //! to. A caller stitching three surfaces in Python is locked into whatever fixed
 //! order it hand-coded; the planner is not. The decision is real, with two
-//! contrasting regimes the spike proved (`~/workspace/reports/spike-unified-findings.md`):
+//! contrasting regimes documented in `repo://reports/spike-unified-findings.md`:
 //!
 //! * **filter-first** when the relational predicate is highly selective — it slashes
 //!   the candidate set cheaply, so the expensive brute-force vector scoring runs over
@@ -111,8 +111,22 @@ impl CostModel {
     /// A SELECTIVE filter forces a huge over-fetch → vector-first loses; a BROAD
     /// filter barely over-fetches → vector-first wins.
     pub fn vector_first_cost(s: &Stats) -> f64 {
-        let fetch = (s.top_k as f64) / s.filter_selectivity.max(1e-9);
+        let fetch = Self::overfetch_pool_size(s.top_k, s.filter_selectivity) as f64;
         s.cost_vector_topk + fetch * (s.cost_vector_per_row + s.cost_filter_per_row)
+    }
+
+    /// How many candidates a `top_k`-target index probe must OVER-FETCH to survive a
+    /// downstream narrower of `selectivity` (CONCEPT:EG-KG.query.index-method-seam) — the
+    /// `top_k/selectivity` formula [`Self::vector_first_cost`] used inline, extracted so a
+    /// PHYSICAL executor (not just this plan-time cost estimate) can size a real
+    /// candidate-set-intersection over-fetch pool with the SAME canonical formula instead
+    /// of a hand-rolled duplicate (the seam [`IndexMethod`] and its registered methods
+    /// share). Used by ANY index-backed rerank that must coexist with an already-applied
+    /// filter — e.g. the BM25 `RankText` leg (`crate::exec::rank_text`) sizing its
+    /// over-fetch against the current candidate set's selectivity, mirroring the vector
+    /// `Rank` leg's (now allowlist-during-probe, no over-fetch needed) prior approach.
+    pub fn overfetch_pool_size(top_k: usize, selectivity: f64) -> usize {
+        ((top_k as f64) / selectivity.max(1e-9)).ceil() as usize
     }
 
     /// Choose the cheaper order for a (FILTER, RANK) pair over the same set.
@@ -124,37 +138,8 @@ impl CostModel {
         }
     }
 
-    /// Reorder an adjacent `Filter`/`Rank` pair (in either input order) into the
-    /// cost-optimal sequence. Other ops pass through untouched — this is the single,
-    /// focused reordering rule this increment needs to demonstrate the principle.
-    ///
-    /// Only an ADJACENT pair is reordered: adjacency is the structural proof the two
-    /// commute over the same id-set (a `Traverse` between them would change the seed
-    /// either operates on, so they no longer commute). A real optimizer would prove
-    /// commutativity structurally across longer spans; that generalization is later
-    /// optimizer work (predicate-pushdown-through-traversal).
-    ///
-    /// As of the cross-modal optimizer (CONCEPT:EG-KG.query.filter-pushdown-rule) this is the
-    /// low-level swap PRIMITIVE the engine's `FilterAsOfBeforeRank` rule folds in: the rule
-    /// derives its [`Stats`] from the plan-time [`crate::cost::Cardinality`] estimators and
-    /// then calls the SAME [`Self::order`] decision + [`Self::place_narrower`] swap this fn
-    /// uses, so there is ONE reorder implementation (No-Legacy). Kept `pub` for the
-    /// facade/server caller that passes an already-built `Stats`.
-    pub fn reorder_filter_rank(plan: Vec<Op>, s: &Stats) -> Vec<Op> {
-        let filter_idx = plan.iter().position(|o| matches!(o, Op::Filter { .. }));
-        let rank_idx = plan.iter().position(|o| matches!(o, Op::Rank { .. }));
-        let (Some(fi), Some(ri)) = (filter_idx, rank_idx) else {
-            return plan; // nothing to reorder
-        };
-        if fi.abs_diff(ri) != 1 {
-            return plan; // not an adjacent (provably commuting) pair
-        }
-        let want = Self::order(s);
-        Self::place_narrower(plan, fi, ri, want == Order::FilterFirst)
-    }
-
-    /// The adjacent-pair SWAP primitive shared by [`Self::reorder_filter_rank`] and the
-    /// cross-modal optimizer's reorder rules (CONCEPT:EG-KG.query.filter-pushdown-rule). Given the
+    /// The adjacent-pair swap primitive used by the cross-modal optimizer's reorder
+    /// rules (CONCEPT:EG-KG.query.filter-pushdown-rule). Given the
     /// index of the id-set NARROWER (`Filter`/`AsOf`/`Reason`) and the index of the `Rank`
     /// it is adjacent to, place the narrower first iff `narrower_first`. Pure list surgery —
     /// no cost logic — so both callers agree byte-for-byte on the mechanical rewrite while
@@ -174,16 +159,254 @@ impl CostModel {
     }
 }
 
+// ── Pluggable index-method cost seam: ANN + BM25 unified (CONCEPT:EG-KG.query.index-method-seam) ──
+//
+// eg's ANN (`Rank`/`RankEmbed`) and BM25 (`RankText`) rerankers were each hand-costed as
+// their own inline match arm below — ANN got a real brute-force-vs-index-topk cost model,
+// but BM25 fell through the wildcard pass-through (`_ => in_card`, ZERO cost reasoning),
+// so the reorder rules (`crate::optimizer::is_rank`) never even considered reordering a
+// narrower against a lexical rerank the way they already did for a vector one — one
+// unified planner argument (cross-modal reordering), enforced for only ONE of its two
+// index-backed rerankers. This trait — mirroring turso's `IndexMethod`/
+// `IndexMethodCostEstimate` seam that unifies its IVF-vector and FTS pushdowns — closes
+// that: both modalities' "index vs brute-force" cost now flows through ONE registered
+// seam instead of two independently (and unevenly) hand-costed special cases.
+#[cfg(feature = "query")]
+mod index_method {
+    use super::{ModalityCardinality, DEFAULT_TOP_K};
+    use crate::algebra::Op;
+
+    /// The seam's shared COST OUTPUT — mirrors turso's
+    /// `IndexMethodCostEstimate{estimated_cost, estimated_rows}`. `estimated_cost` is the
+    /// SAME abstract-unit currency [`super::CostEstimate::weight`] compares;
+    /// `estimated_rows` is what [`super::Cardinality::rows_out`] returns for this op.
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct IndexMethodCostEstimate {
+        pub estimated_cost: f64,
+        pub estimated_rows: f64,
+    }
+
+    /// One pluggable index-backed reranker — the trait ANN and BM25 both implement so
+    /// the optimizer costs them through ONE seam instead of two independently hand-costed
+    /// special cases. A future geo nearest-neighbor pushdown (the finding this closes
+    /// names it explicitly as the natural third) registers the SAME way.
+    pub trait IndexMethod: Send + Sync {
+        /// A stable name (EXPLAIN / test introspection).
+        fn name(&self) -> &'static str;
+        /// Does this method drive `op`?
+        fn matches(&self, op: &Op) -> bool;
+        /// Cost + output cardinality of running `op` over `in_card` candidate rows.
+        /// `in_card == 0` ⇒ this op is the plan's SOURCE (a pure index top-k); `in_card >
+        /// 0` ⇒ it reranks/narrows an existing candidate set — brute-force per survivor,
+        /// since neither index natively accepts an arbitrary caller-supplied id-set as
+        /// its scan domain. Mirrors the SAME regime split
+        /// [`ModalityCardinality::cost_of`]'s `Rank` arm already drew for ANN alone.
+        fn estimate(&self, in_card: f64, card: &ModalityCardinality) -> IndexMethodCostEstimate;
+    }
+
+    /// ANN vector rerank (`Rank`/`RankEmbed`) as an [`IndexMethod`] — the SAME formulas
+    /// [`ModalityCardinality`]'s per-row/top-k constants already used inline. Registered
+    /// so [`is_index_method_op`] recognizes it uniformly alongside BM25 (the seam
+    /// [`crate::optimizer::is_rank`] now dispatches through); `ModalityCardinality::
+    /// cost_of`/`rows_out`'s pre-existing `Rank`/`RankEmbed` arms are deliberately left
+    /// calling their own inline formula rather than this method (zero regression risk
+    /// to the already-proven, extensively-tested vector leg) — this impl exists so the
+    /// REGISTRY recognizes ANN uniformly with BM25 today, and is the drop-in body a
+    /// follow-up can point `cost_of`/`rows_out` at once the vector arm is ready to be
+    /// re-verified against it.
+    pub(super) struct AnnIndexMethod;
+
+    impl IndexMethod for AnnIndexMethod {
+        fn name(&self) -> &'static str {
+            "ann-vector"
+        }
+        fn matches(&self, op: &Op) -> bool {
+            matches!(op, Op::Rank { .. } | Op::RankEmbed { .. })
+        }
+        fn estimate(&self, in_card: f64, card: &ModalityCardinality) -> IndexMethodCostEstimate {
+            if in_card > 0.0 {
+                IndexMethodCostEstimate {
+                    estimated_cost: in_card * ModalityCardinality::COST_VECTOR_PER_ROW,
+                    estimated_rows: in_card * card.embed_coverage(),
+                }
+            } else {
+                IndexMethodCostEstimate {
+                    estimated_cost: card.ann_topk_cost(),
+                    estimated_rows: (card.stats.embedding_count as f64).min(DEFAULT_TOP_K as f64),
+                }
+            }
+        }
+    }
+
+    /// BM25 lexical rerank (`RankText`) as an [`IndexMethod`] — the counterpart ANN
+    /// already had and BM25 never did: a real cost for BOTH regimes (candidate-restricted
+    /// brute force vs. a SOURCE top-k postings probe), instead of the wildcard
+    /// pass-through every other unrecognized op falls to.
+    #[cfg(feature = "text")]
+    pub(super) struct Bm25IndexMethod;
+
+    #[cfg(feature = "text")]
+    impl IndexMethod for Bm25IndexMethod {
+        fn name(&self) -> &'static str {
+            "bm25-text"
+        }
+        fn matches(&self, op: &Op) -> bool {
+            matches!(op, Op::RankText { .. })
+        }
+        fn estimate(&self, in_card: f64, card: &ModalityCardinality) -> IndexMethodCostEstimate {
+            // A postings-list hit check is cheaper than a full vector distance (no
+            // dot-product over an embedding dimension — a term-frequency lookup) but
+            // pricier than a bare relational predicate eval; calibrated conservatively
+            // between the two rather than duplicating either exactly.
+            const COST_TEXT_PER_ROW: f64 = 5.0;
+            const EF: f64 = 64.0;
+            if in_card > 0.0 {
+                IndexMethodCostEstimate {
+                    estimated_cost: in_card * COST_TEXT_PER_ROW,
+                    // No per-doc "missing embedding" analogue is modeled for text (every
+                    // resident node is either indexed or not, uniformly) — unlike ANN's
+                    // `embed_coverage`, a BM25 rerank is assumed to cover the full
+                    // candidate set.
+                    estimated_rows: in_card,
+                }
+            } else {
+                let n = (card.stats.node_count.max(2) as f64).log2();
+                IndexMethodCostEstimate {
+                    estimated_cost: n * EF,
+                    estimated_rows: (card.stats.node_count as f64).min(DEFAULT_TOP_K as f64),
+                }
+            }
+        }
+    }
+
+    /// Every registered [`IndexMethod`] — ANN always, BM25 only under `text` (its wire
+    /// `Op::RankText` variant does not exist otherwise).
+    fn methods() -> Vec<Box<dyn IndexMethod>> {
+        let mut m: Vec<Box<dyn IndexMethod>> = vec![Box::new(AnnIndexMethod)];
+        #[cfg(feature = "text")]
+        m.push(Box::new(Bm25IndexMethod));
+        m
+    }
+
+    /// Is `op` driven by a registered [`IndexMethod`] — the generalized
+    /// [`crate::optimizer::is_rank`] check spanning EVERY registered index-backed
+    /// reranker, not just the vector one.
+    pub fn is_index_method_op(op: &Op) -> bool {
+        methods().iter().any(|m| m.matches(op))
+    }
+
+    /// The registered [`IndexMethod`]'s cost estimate for `op`, or `None` if no method
+    /// claims it (a caller falls back to its own default costing).
+    pub fn estimate(op: &Op, in_card: f64, card: &ModalityCardinality) -> Option<IndexMethodCostEstimate> {
+        methods()
+            .into_iter()
+            .find(|m| m.matches(op))
+            .map(|m| m.estimate(in_card, card))
+    }
+}
+
+#[cfg(feature = "query")]
+pub use index_method::{IndexMethod, IndexMethodCostEstimate};
+#[cfg(feature = "query")]
+pub(crate) use index_method::{estimate as index_method_estimate, is_index_method_op};
+
+// ── A tiny Bloom filter for cross-modal candidate-set join probes ────────────────
+// (CONCEPT:EG-KG.query.bloom-gate) — pairs with the index-method seam above: when an
+// over-fetched index candidate pool (ANN or BM25) must be intersected against an
+// already-narrowed candidate set, a compact bit-array membership PRE-check rejects the
+// (usually large majority of) non-candidate hits before paying for the exact `HashSet`
+// lookup — the SAME heuristic turso's `join.rs` `use_bloom_filter` applies to its build
+// side of a join. Dep-free (two salted `DefaultHasher` passes, Kirsch-Mitzenmacher double
+// hashing — no external crate), so it ships in every tier that already links `std`.
+#[cfg(feature = "text")]
+pub(crate) struct BloomFilter {
+    bits: Vec<u64>,
+    num_bits: usize,
+    num_hashes: u32,
+}
+
+#[cfg(feature = "text")]
+impl BloomFilter {
+    /// Size a filter for `expected_items` at a target false-positive rate `fp_rate`
+    /// (standard formulas: `m = -n·ln(p)/ln(2)²` bits, `k = (m/n)·ln(2)` hash rounds).
+    /// `expected_items == 0` still yields a small, usable (if maximally conservative)
+    /// filter rather than a degenerate zero-bit one.
+    pub fn new(expected_items: usize, fp_rate: f64) -> Self {
+        let n = (expected_items.max(1)) as f64;
+        let p = fp_rate.clamp(1e-6, 0.5);
+        let m = ((-(n * p.ln())) / std::f64::consts::LN_2.powi(2))
+            .ceil()
+            .max(64.0);
+        let k = ((m / n) * std::f64::consts::LN_2).round().clamp(1.0, 16.0);
+        let num_bits = m as usize;
+        let num_words = num_bits.div_ceil(64);
+        Self {
+            bits: vec![0u64; num_words],
+            num_bits: num_words * 64,
+            num_hashes: k as u32,
+        }
+    }
+
+    /// Build a populated filter directly from an id iterator, sized off `count_hint`
+    /// (the caller's already-known candidate-set cardinality — avoids a second pass).
+    pub fn from_ids<'a, I: IntoIterator<Item = &'a str>>(ids: I, count_hint: usize) -> Self {
+        let mut f = Self::new(count_hint, 0.01);
+        for id in ids {
+            f.insert(id);
+        }
+        f
+    }
+
+    /// Two independent hashes of `item`, salted so they are NOT the same value —
+    /// Kirsch-Mitzenmacher then derives all `k` probe positions from this one pair
+    /// without `k` separate hash passes.
+    fn hashes(item: &str) -> (u64, u64) {
+        use std::hash::{Hash, Hasher};
+        let mut h1 = std::collections::hash_map::DefaultHasher::new();
+        item.hash(&mut h1);
+        let a = h1.finish();
+        let mut h2 = std::collections::hash_map::DefaultHasher::new();
+        item.hash(&mut h2);
+        0x9E37_79B9_7F4A_7C15u64.hash(&mut h2); // salt so h2 != h1
+        let b = h2.finish();
+        (a, b)
+    }
+
+    fn bit_index(&self, round: u32, h1: u64, h2: u64) -> usize {
+        // g_i(x) = h1 + i*h2 (mod m) — the standard double-hashing derivation that
+        // simulates `k` independent hash functions from just two (Kirsch & Mitzenmacher).
+        (h1.wrapping_add((round as u64).wrapping_mul(h2)) as usize) % self.num_bits
+    }
+
+    pub fn insert(&mut self, item: &str) {
+        let (h1, h2) = Self::hashes(item);
+        for i in 0..self.num_hashes {
+            let idx = self.bit_index(i, h1, h2);
+            self.bits[idx / 64] |= 1u64 << (idx % 64);
+        }
+    }
+
+    /// `false` ⇒ DEFINITELY absent (no false negatives, ever); `true` ⇒ probably
+    /// present (bounded false-positive rate — the caller must still confirm with an
+    /// exact check, exactly like turso's gate: a bloom filter narrows, never decides).
+    pub fn might_contain(&self, item: &str) -> bool {
+        let (h1, h2) = Self::hashes(item);
+        (0..self.num_hashes).all(|i| {
+            let idx = self.bit_index(i, h1, h2);
+            self.bits[idx / 64] & (1u64 << (idx % 64)) != 0
+        })
+    }
+}
+
 // ── Cross-modal cost/cardinality catalog + per-modality estimators ───────────────
 // (CONCEPT:EG-KG.query.cardinality-estimators) — the plan-time inputs Lane A's optimizer
 // reads. Everything here stays in eg-plan (Rule R1): NOTHING is added to the wire `Op`.
 
-/// Cheap, O(1) catalog statistics collected ONCE per `plan_optimize` call
-/// (CONCEPT:EG-KG.query.cardinality-estimators). Deliberately derived from `.len()` on the
-/// snapshot's maps — NEVER a per-node blob scan — so optimizing a plan costs O(1), not O(N):
-/// the estimators trade a little accuracy for a cost that never scales with graph size. A
-/// real catalog (histograms / per-label counts) can later feed richer numbers through the
-/// SAME [`Cardinality`] interface without touching the rules.
+/// Snapshot-scoped catalog statistics collected once per `plan_optimize` call
+/// (CONCEPT:EG-KG.query.cardinality-estimators). Scalar counts come from O(1) map lengths.
+/// Numeric column histograms require one O(N * F) property pass on a cold snapshot, then
+/// are memoized on that immutable snapshot; a warm collection clones O(K) column records.
+/// `N` is resident nodes, `F` top-level properties examined and `K` numeric columns.
 #[cfg(feature = "query")]
 #[derive(Clone, Debug, Default)]
 pub struct PlanStats {
@@ -196,11 +419,20 @@ pub struct PlanStats {
     pub embedding_count: usize,
     /// Mean out-degree `edge_count / node_count` — the graph `Traverse` fan-out factor.
     pub avg_out_degree: f64,
+    /// Per-numeric-column min/max + equi-width histogram (CONCEPT:EG-KG.query.column-range-stats).
+    /// The non-O(1) member: derived from a single pass over the resident node
+    /// property blobs so a `GtNum`/`LtNum` range predicate's selectivity is estimated from the
+    /// REAL data distribution instead of a fixed heuristic. A fixed bucket count and capped
+    /// sample bound memory per numeric column.
+    pub column_stats: ColumnStats,
 }
 
 #[cfg(feature = "query")]
 impl PlanStats {
-    /// Collect the O(1) catalog from a [`crate::exec::PlanCtx`] snapshot.
+    /// Collect the catalog from a [`crate::exec::PlanCtx`] snapshot. The scalar counts are
+    /// O(1) (`.len()` on the snapshot maps); [`ColumnStats::collect`] performs an O(N * F)
+    /// property pass once on a cold snapshot and an O(K) clone from the snapshot memo when
+    /// warm. The range-selectivity estimate itself does not rescan nodes per predicate.
     pub fn collect(ctx: &crate::exec::PlanCtx) -> Self {
         let node_count = ctx.view.node_properties.len();
         let edge_count = ctx.view.edge_properties.len();
@@ -215,7 +447,217 @@ impl PlanStats {
             edge_count,
             embedding_count,
             avg_out_degree,
+            column_stats: ColumnStats::collect(ctx.view),
         }
+    }
+}
+
+/// Number of equi-width buckets per numeric column histogram (CONCEPT:EG-KG.query.column-range-stats)
+/// — a small fixed constant: enough resolution to distinguish a selective tail from a broad
+/// range, cheap to build and store.
+#[cfg(feature = "query")]
+const HIST_BUCKETS: usize = 16;
+
+/// Cap on the per-column value sample the histogram is built from
+/// (CONCEPT:EG-KG.query.column-range-stats). The running min/max always see EVERY value (so the
+/// range bounds are exact); only the bucket SHAPE is sampled, which bounds collection memory
+/// to `O(HIST_BUCKETS + SAMPLE_CAP)` per column regardless of graph size.
+#[cfg(feature = "query")]
+const SAMPLE_CAP: usize = 8_192;
+
+/// Per-numeric-column distribution statistics (CONCEPT:EG-KG.query.column-range-stats) the optimizer
+/// consults to estimate a NUMERIC-RANGE predicate's true selectivity, instead of the fixed
+/// per-predicate heuristic (the T-E1 ablation gap: a `GtNum`/`LtNum` range was NEVER pushed
+/// filter-first regardless of how selective it actually was). Derived from ONE cheap pass
+/// over the resident node property blobs during [`PlanStats::collect`] — the same snapshot the
+/// plan runs over, so no extra I/O and no config flag.
+///
+/// Representation: per column an EXACT min/max plus a fixed-width equi-width histogram over
+/// `[min, max]`. A histogram beats bare min/max on skewed data — the fraction above a
+/// threshold reads off the bucket counts (with linear interpolation inside the boundary
+/// bucket) rather than assuming a uniform spread; min/max alone is the histogram's degenerate
+/// 1-bucket case. Bounded ([`HIST_BUCKETS`] buckets + a [`SAMPLE_CAP`]-capped sample), so the
+/// stats stay O(1) in memory while collection is a single O(N) blob pass.
+#[cfg(feature = "query")]
+#[derive(Clone, Debug, Default)]
+pub struct ColumnStats {
+    cols: std::collections::HashMap<String, NumericColumn>,
+}
+
+/// One numeric column's exact `[min, max]` range and an equi-width histogram over it
+/// (CONCEPT:EG-KG.query.column-range-stats). `buckets[i]` counts sampled values in
+/// `[min + i·w, min + (i+1)·w)` with `w = (max-min)/HIST_BUCKETS`; `total` is the sampled
+/// count the fractions are taken over.
+#[cfg(feature = "query")]
+#[derive(Clone, Debug)]
+struct NumericColumn {
+    min: f64,
+    max: f64,
+    buckets: Vec<u32>,
+    total: u64,
+}
+
+#[cfg(feature = "query")]
+impl ColumnStats {
+    /// Per-column stats for `view`, MEMOIZED on the snapshot so repeated `optimize()` calls
+    /// over the SAME snapshot pay the O(N) blob-decode pass ONCE (CONCEPT:EG-KG.query.column-range-stats).
+    ///
+    /// Correctness invariant (never serves stale stats): a [`eg_core::graph::GraphView`] is an
+    /// IMMUTABLE point-in-time snapshot produced by `GraphCore::*_snapshot` at one OCC
+    /// `version()`; its `node_properties` never change after construction. The memo is stored
+    /// INSIDE that view (`GraphView::plan_stats_memo`, an interior-mutable [`std::sync::OnceLock`]),
+    /// so it is physically bound to exactly the data it summarizes. A committed write produces a
+    /// brand-NEW snapshot — a fresh `GraphView` whose memo starts empty — so the next `collect`
+    /// recomputes from the new data. There is no version/identity key to get wrong and no ABA
+    /// window: a stale hit is structurally impossible because the cache and the data it describes
+    /// share one lifetime. The stored value is [`ColumnStats`] itself (type-erased through `dyn
+    /// Any` so `eg-core` need not depend on `eg-plan`); we downcast and clone it (an O(#columns)
+    /// copy — never the O(N) blob scan) to keep the returned `ColumnStats` byte-identical to the
+    /// recompute path.
+    pub fn collect(view: &eg_core::graph::GraphView) -> Self {
+        let memo = view
+            .plan_stats_memo
+            .get_or_init(|| std::sync::Arc::new(Self::compute(view)));
+        memo.downcast_ref::<Self>()
+            .expect("plan_stats_memo holds ColumnStats")
+            .clone()
+    }
+
+    /// Build the per-column stats in ONE pass over the resident node property blobs — the
+    /// uncached computation [`Self::collect`] memoizes. Each blob is decoded to JSON; every
+    /// TOP-LEVEL numeric property accumulates into its column's running min/max/count plus a
+    /// capped value sample. After the pass each column's sample is bucketed into a
+    /// [`HIST_BUCKETS`]-wide equi-width histogram over the exact `[min,max]`.
+    fn compute(view: &eg_core::graph::GraphView) -> Self {
+        use std::collections::HashMap;
+        struct Acc {
+            min: f64,
+            max: f64,
+            count: u64,
+            sample: Vec<f64>,
+        }
+        let mut acc: HashMap<String, Acc> = HashMap::new();
+        for blob in view.node_properties.values() {
+            let Ok(v) = eg_types::msgpack::decode_property_value(blob.as_slice()) else {
+                continue;
+            };
+            let Some(obj) = v.as_object() else {
+                continue;
+            };
+            for (k, val) in obj {
+                let Some(x) = val.as_f64() else {
+                    continue; // non-numeric (string `type`, arrays, …) — skip.
+                };
+                if !x.is_finite() {
+                    continue;
+                }
+                let e = acc.entry(k.clone()).or_insert(Acc {
+                    min: x,
+                    max: x,
+                    count: 0,
+                    sample: Vec::new(),
+                });
+                e.min = e.min.min(x);
+                e.max = e.max.max(x);
+                e.count += 1;
+                if e.sample.len() < SAMPLE_CAP {
+                    e.sample.push(x);
+                }
+            }
+        }
+        let cols = acc
+            .into_iter()
+            .filter_map(|(k, a)| {
+                if a.count == 0 || !a.min.is_finite() || !a.max.is_finite() {
+                    return None;
+                }
+                let mut buckets = vec![0u32; HIST_BUCKETS];
+                let span = a.max - a.min;
+                if span <= 0.0 {
+                    // A single-value column: all mass in the first bucket.
+                    buckets[0] = a.sample.len() as u32;
+                } else {
+                    for &x in &a.sample {
+                        let mut b = (((x - a.min) / span) * HIST_BUCKETS as f64) as usize;
+                        if b >= HIST_BUCKETS {
+                            b = HIST_BUCKETS - 1;
+                        }
+                        buckets[b] += 1;
+                    }
+                }
+                Some((
+                    k,
+                    NumericColumn {
+                        min: a.min,
+                        max: a.max,
+                        buckets,
+                        total: a.sample.len() as u64,
+                    },
+                ))
+            })
+            .collect();
+        Self { cols }
+    }
+
+    /// Estimated fraction of `column`'s values strictly GREATER than `n` — a `GtNum{prop:column,
+    /// n}` predicate's selectivity. `None` when the column has no numeric stats (unknown /
+    /// non-numeric key), so the caller falls back to the fixed heuristic.
+    pub fn frac_gt(&self, column: &str, n: f64) -> Option<f64> {
+        self.cols.get(column).map(|c| c.frac_gt(n))
+    }
+
+    /// Estimated fraction of `column`'s values LESS than `n` — a `LtNum{prop:column, n}`
+    /// predicate's selectivity. `None` when the column has no numeric stats.
+    pub fn frac_lt(&self, column: &str, n: f64) -> Option<f64> {
+        self.cols.get(column).map(|c| c.frac_lt(n))
+    }
+
+    /// Number of numeric columns with collected stats (introspection / tests).
+    pub fn len(&self) -> usize {
+        self.cols.len()
+    }
+
+    /// Whether any numeric column stats were collected.
+    pub fn is_empty(&self) -> bool {
+        self.cols.is_empty()
+    }
+}
+
+#[cfg(feature = "query")]
+impl NumericColumn {
+    /// Fraction of the sampled values `> n`, read off the equi-width histogram with linear
+    /// interpolation inside the boundary bucket. Clamped to a threshold at/below `min`
+    /// (⇒ 1.0 — everything passes) or at/above `max` (⇒ 0.0 — nothing passes).
+    fn frac_gt(&self, n: f64) -> f64 {
+        if self.total == 0 {
+            return 0.0;
+        }
+        if n <= self.min {
+            return 1.0;
+        }
+        if n >= self.max {
+            return 0.0;
+        }
+        let span = self.max - self.min;
+        if span <= 0.0 {
+            return 0.0; // degenerate single value, and n is inside (min,max) is impossible
+        }
+        let w = span / self.buckets.len() as f64;
+        let bidx = (((n - self.min) / w).floor() as usize).min(self.buckets.len() - 1);
+        // Linear share of the boundary bucket lying above n, plus every fuller bucket above.
+        let bucket_hi = self.min + (bidx as f64 + 1.0) * w;
+        let frac_above_in_bucket = ((bucket_hi - n) / w).clamp(0.0, 1.0);
+        let mut above = frac_above_in_bucket * self.buckets[bidx] as f64;
+        for b in (bidx + 1)..self.buckets.len() {
+            above += self.buckets[b] as f64;
+        }
+        (above / self.total as f64).clamp(0.0, 1.0)
+    }
+
+    /// Fraction of the sampled values `< n` — the complement of `> n` (the interpolated point
+    /// mass exactly at `n` is negligible for a plan-time estimate).
+    fn frac_lt(&self, n: f64) -> f64 {
+        (1.0 - self.frac_gt(n)).clamp(0.0, 1.0)
     }
 }
 
@@ -232,7 +674,7 @@ pub const DEFAULT_TOP_K: usize = 10;
 ///  * bi-temporal `AsOf` — temporal range selectivity;
 ///  * relational `Filter` — per-predicate selectivity product.
 ///
-/// Holds the O(1) [`PlanStats`] catalog; `rows_out` sizes an op's output and `cost_of`
+/// Holds a snapshot-memoized [`PlanStats`] catalog; `rows_out` sizes an op's output and `cost_of`
 /// budgets its work as a [`CostEstimate`]. All numbers are estimates in abstract units —
 /// only their RELATIVE magnitudes drive a plan choice, exactly as with [`Stats`].
 #[cfg(feature = "query")]
@@ -259,12 +701,18 @@ impl ModalityCardinality {
     const REL_SEL: f64 = 0.5; // fraction of edges whose relationship matches a `Traverse`.
     const DEDUP_DAMP: f64 = 0.7; // path expansion re-visits nodes → damp the raw fan-out.
     const TEMPORAL_SEL: f64 = 0.8; // most facts are live at a queried instant (`AsOf`).
+                                   // Only read from the `Op::Reason` arms below, which are themselves `owl`-gated — a
+                                   // build with `query` but without `owl` (e.g. eg-graphql's default feature set) never
+                                   // reads them, so they must be gated too or clippy's dead-code lint fires.
+    #[cfg(feature = "owl")]
     const REASON_MEMBERSHIP_SEL: f64 = 0.5; // fraction of a candidate set inferred into the class.
+    #[cfg(feature = "owl")]
     const REASON_CONF_RETENTION: f64 = 0.9; // confidence-decay attrition of inferred members.
     const COST_FILTER_PER_ROW: f64 = 1.0;
     const COST_VECTOR_PER_ROW: f64 = 20.0;
     const COST_TRAVERSE_PER_EDGE: f64 = 2.0;
     const COST_ASOF_PER_ROW: f64 = 2.0;
+    #[cfg(feature = "owl")]
     const REASON_FIXED_COST: f64 = 500.0; // EL⁺ classification is a fixed up-front closure cost.
 
     /// One ANN index top-k ≈ log2(N)·ef heap pushes (independent of the candidate count).
@@ -293,10 +741,17 @@ impl ModalityCardinality {
     }
 
     /// Combined per-predicate selectivity of a relational `Filter` (independent-predicate
-    /// product): equality is highly selective, a numeric range moderately, JSONPath / spatial
-    /// broadly. Estimates only — a real catalog would use histograms.
-    fn filter_selectivity(preds: &[crate::algebra::Pred]) -> f64 {
+    /// product): equality is highly selective, JSONPath / spatial broad. A numeric RANGE
+    /// (`GtNum`/`LtNum`) is estimated from the REAL column distribution via the collected
+    /// [`ColumnStats`] histogram (CONCEPT:EG-KG.query.column-range-stats) — so a genuinely selective
+    /// range (`year > 2028` in a 2000..2029 column) reads as selective and reorders
+    /// filter-first, while a broad one (`year > 2001`) stays; only when the column has NO
+    /// numeric stats does it fall back to the fixed `RANGE_SEL_FALLBACK` heuristic. Equality /
+    /// JSONPath / spatial estimates are unchanged.
+    fn filter_selectivity(&self, preds: &[crate::algebra::Pred]) -> f64 {
         use crate::algebra::Pred;
+        /// Conservative range estimate used only when the column has no statistics.
+        const RANGE_SEL_FALLBACK: f64 = 0.33;
         let mut sel = 1.0f64;
         for p in preds {
             // The wildcard catches the `geo` spatial `Pred` variants (and any future kind);
@@ -306,7 +761,17 @@ impl ModalityCardinality {
             #[allow(unreachable_patterns)]
             let s = match p {
                 Pred::Eq { .. } => 0.1,
-                Pred::GtNum { .. } | Pred::LtNum { .. } => 0.33,
+                // Numeric range: consult the column histogram, else the fixed fallback.
+                Pred::GtNum { prop, n } => self
+                    .stats
+                    .column_stats
+                    .frac_gt(prop, *n)
+                    .unwrap_or(RANGE_SEL_FALLBACK),
+                Pred::LtNum { prop, n } => self
+                    .stats
+                    .column_stats
+                    .frac_lt(prop, *n)
+                    .unwrap_or(RANGE_SEL_FALLBACK),
                 Pred::JsonPath { .. } => 0.4,
                 // Spatial preds (geo) and any future kind: a broad default.
                 _ => 0.25,
@@ -351,10 +816,87 @@ impl ModalityCardinality {
             // OWL EL⁺ classification: a fixed up-front closure cost + a per-candidate check.
             #[cfg(feature = "owl")]
             Op::Reason { .. } => (Self::REASON_FIXED_COST + in_card, in_card * 0.2),
+            // Lexical BM25 rerank, through the SAME `IndexMethod` seam ANN uses just
+            // above (CONCEPT:EG-KG.query.index-method-seam) — previously fell through the
+            // wildcard pass-through below with NO cost reasoning at all.
+            #[cfg(feature = "text")]
+            Op::RankText { .. } => {
+                let est = index_method_estimate(op, in_card, self)
+                    .expect("RankText is a registered IndexMethod");
+                (est.estimated_cost, est.estimated_rows.max(1.0) * 0.1)
+            }
             // Everything else: a linear pass over the input (a rerank / narrow / source).
             _ => (in_card.max(1.0), in_card * 0.1),
         };
         CostEstimate { rows, cpu, io }
+    }
+
+    /// The plan-time cost of one candidate PERMUTATION of a reorderable segment — a
+    /// contiguous run of `Filter`/`AsOf`/`Reason`/`Rank`(`Embed`) ops all drawing candidates
+    /// from the SAME id-set (CONCEPT:EG-KG.query.global-plan-cost). This is the N-ARY
+    /// generalization of the two-op [`CostModel::filter_first_cost`]/[`vector_first_cost`]
+    /// asymmetry [`crate::optimizer`]'s pairwise rules draw on for a single `(narrower, Rank)`
+    /// pair — the win it unlocks: a caller-written chain of 3+ narrowers/`Rank` can be
+    /// reordered as ONE decision instead of two independent adjacent swaps, which structurally
+    /// cannot see past their own pair (e.g. `[Rank, broad_filter, selective_filter]` — the
+    /// pairwise rule commits `(Rank, broad_filter)` first and never revisits `selective_filter`
+    /// against either).
+    ///
+    /// A `Rank`/`RankEmbed` placed FIRST in `perm` (`i == 0`) is costed exactly like the
+    /// pairwise "vector-first" leg: one ANN top-k probe ([`Self::ann_topk_cost`]) that must
+    /// OVER-FETCH enough candidates to survive EVERY narrower still ahead in this permutation
+    /// — their COMBINED selectivity (the product), generalizing the pairwise
+    /// [`CostModel::vector_first_cost`]'s single trailing narrower to the whole remaining
+    /// chain — via [`CostModel::vector_first_cost`] (the SAME formula, called through
+    /// [`Stats::estimate`] so the currency matches the pairwise decision byte-for-byte in the
+    /// 2-element case). A `Rank` anywhere else, and every `Filter`/`AsOf`/`Reason`, costs+narrows
+    /// via [`Self::cost_of`]/[`Self::rows_out`], folding the running cardinality through the
+    /// chain — the SAME per-op interaction model [`crate::optimizer`]'s branch-cost folds use.
+    ///
+    /// Returns `None` when the permutation is UNSAFE under the EG-405 guard (CONCEPT:EG-405):
+    /// some intermediate would drop below 1 row, which could flip a downstream op into SOURCE
+    /// mode and change the answer — generalizing the pairwise rules' "both candidate
+    /// intermediates stay ≥ 1 row" check to every step of an N-ary chain. The caller must skip
+    /// an unsafe permutation, never treat it as free/cheapest.
+    pub(crate) fn permutation_cost(
+        &self,
+        perm: &[&Op],
+        seed: f64,
+        top_k: usize,
+        ctx: &crate::exec::PlanCtx,
+    ) -> Option<f64> {
+        let mut running = seed;
+        let mut total = 0.0;
+        for (i, op) in perm.iter().enumerate() {
+            if running < 1.0 {
+                return None; // EG-405 guard: an emptied intermediate must not be reordered past.
+            }
+            let is_rank = matches!(op, Op::Rank { .. } | Op::RankEmbed { .. });
+            if is_rank && i == 0 {
+                // Segment-source Rank: an ANN top-k that must over-fetch to survive every
+                // narrower still ahead — their combined (product) selectivity.
+                let remaining_sel: f64 = perm[1..]
+                    .iter()
+                    .map(|o| self.selectivity(o, running, ctx))
+                    .product::<f64>()
+                    .max(1e-6);
+                let stats = Stats::estimate(
+                    running.round().max(1.0) as usize,
+                    remaining_sel,
+                    top_k,
+                    self.stats.embedding_count,
+                );
+                total += CostModel::vector_first_cost(&stats);
+                running = ((top_k as f64) / remaining_sel).min(running);
+            } else {
+                total += self.cost_of(op, running, ctx).weight();
+                running = self.rows_out(op, running, ctx);
+            }
+        }
+        if running < 1.0 {
+            return None; // the permutation's own final narrowing also mustn't go empty.
+        }
+        Some(total)
     }
 }
 
@@ -379,7 +921,7 @@ impl Cardinality for ModalityCardinality {
             // SOURCE: a label selects a fraction of the graph (no per-label catalog).
             Op::Scan { .. } => (n * Self::LABEL_SEL).max(0.0),
             // FILTER: input × per-predicate selectivity product.
-            Op::Filter { preds } => in_card * Self::filter_selectivity(preds),
+            Op::Filter { preds } => in_card * self.filter_selectivity(preds),
             // TRAVERSE: degree histogram × path length, deduped, capped at the graph size.
             Op::Traverse { min, max, .. } => {
                 if in_card <= 0.0 {
@@ -422,6 +964,13 @@ impl Cardinality for ModalityCardinality {
             // FUSE (RRF): the union of the branch rankings — bounded by the seed.
             #[cfg(feature = "text")]
             Op::FuseRrf { .. } => in_card.max(1.0),
+            // RANK (lexical, BM25), through the SAME `IndexMethod` seam as vector `Rank`
+            // above (CONCEPT:EG-KG.query.index-method-seam) — previously the wildcard
+            // pass-through below (`in_card` unchanged) gave it NO real narrowing model.
+            #[cfg(feature = "text")]
+            Op::RankText { .. } => index_method_estimate(op, in_card, self)
+                .map(|e| e.estimated_rows)
+                .unwrap_or(in_card),
             // Rerankers / context / other sources: preserve the row count (pass-through).
             _ => in_card,
         }
@@ -457,8 +1006,8 @@ pub struct CostEstimate {
 /// returns the estimated number of rows the op emits, so per-modality estimators (graph
 /// degree/path, ANN recall@k / over-fetch, OWL closure + decay, `AsOf` selectivity, …) plug
 /// in behind ONE interface without baking any estimate into the wire [`Op`] (Rule R1). Gated
-/// on `query` because it borrows the `query`-tier [`PlanCtx`]; the dep-free [`CostModel`] /
-/// [`Stats`] / [`reorder_filter_rank`] stay available in the Pi tier, unchanged.
+/// on `query` because it borrows the `query`-tier [`PlanCtx`]; the dep-free
+/// [`CostModel`] / [`Stats`] remain available in the Pi tier.
 #[cfg(feature = "query")]
 pub trait Cardinality {
     /// Estimated rows OUT of `op` given `in_card` rows flowing in, over `ctx`.
@@ -498,7 +1047,7 @@ mod tests {
         };
         assert_eq!(CostModel::order(&broad), Order::VectorFirst);
 
-        // The reorder rewrites the plan to the winner in each regime.
+        // The optimizer's one swap primitive places the pair according to the winner.
         let plan = vec![
             Op::Filter {
                 preds: vec![Pred::Eq {
@@ -510,12 +1059,12 @@ mod tests {
                 query: vec![1.0, 0.0],
             },
         ];
-        let reordered = CostModel::reorder_filter_rank(plan.clone(), &broad);
+        let reordered = CostModel::place_narrower(plan.clone(), 0, 1, false);
         assert!(
             matches!(reordered[0], Op::Rank { .. }),
             "broad filter → vector-first puts Rank at the front"
         );
-        let kept = CostModel::reorder_filter_rank(plan, &selective);
+        let kept = CostModel::place_narrower(plan, 0, 1, true);
         assert!(
             matches!(kept[0], Op::Filter { .. }),
             "selective filter → filter-first keeps Filter at the front"
@@ -594,5 +1143,214 @@ mod tests {
             card.cost_of(&rank, 1_000.0, &ctx).weight() > card.cost_of(&eq, 1_000.0, &ctx).weight(),
             "a brute-force vector Rank is the expensive leg"
         );
+    }
+
+    /// The per-column histogram catalog is MEMOIZED on the snapshot (CONCEPT:EG-KG.query.column-range-stats):
+    /// (a) the memoized `collect` is byte-identical to a fresh `compute` over the SAME snapshot,
+    ///     and the identity carries through to the estimator's selectivity; (b) a write produces
+    ///     a FRESH snapshot whose memo starts empty, so its stats are recomputed over the new
+    ///     data — a stale hit is structurally impossible because the memo shares the snapshot's
+    ///     lifetime. Proves both halves of the memo's correctness contract.
+    #[cfg(feature = "query")]
+    #[test]
+    fn column_stats_memoized_and_snapshot_scoped() {
+        use eg_core::compute::semantic::SemanticStore;
+        use eg_core::graph::GraphCore;
+        fn blob(v: serde_json::Value) -> Vec<u8> {
+            rmp_serde::to_vec_named(&v).unwrap()
+        }
+
+        let core = GraphCore::new();
+        for (id, year) in [("d1", 2020.0), ("d2", 2024.0), ("d3", 2028.0)] {
+            core.add_node(
+                id.into(),
+                blob(serde_json::json!({ "type": "Doc", "year": year })),
+            );
+        }
+        let v1 = core.analysis_snapshot();
+
+        // (a) The memo is COLD before the first collect and WARM after — and the memoized
+        //     result equals a fresh recompute over the same snapshot, bucket-for-bucket.
+        assert!(
+            v1.plan_stats_memo.get().is_none(),
+            "a fresh snapshot's memo is empty"
+        );
+        let fresh = ColumnStats::compute(&v1);
+        let memoized = ColumnStats::collect(&v1);
+        assert!(
+            v1.plan_stats_memo.get().is_some(),
+            "collect populated the snapshot's memo"
+        );
+        assert_eq!(fresh.len(), memoized.len());
+        let n = 2025.0;
+        assert_eq!(fresh.frac_gt("year", n), memoized.frac_gt("year", n));
+        assert_eq!(fresh.frac_lt("year", n), memoized.frac_lt("year", n));
+        // A second collect returns the SAME (now cached) value — no rescan, same answer.
+        assert_eq!(
+            ColumnStats::collect(&v1).frac_gt("year", n),
+            memoized.frac_gt("year", n)
+        );
+
+        // The identity carries through the live estimator: the range-filter selectivity is
+        // the same whether the column stats came from the memo or a forced recompute.
+        let sem = SemanticStore::new();
+        let ctx = crate::exec::PlanCtx::new(&v1, &sem);
+        let range = Op::Filter {
+            preds: vec![Pred::GtNum {
+                prop: "year".into(),
+                n,
+            }],
+        };
+        let card_memo = ModalityCardinality::new(PlanStats::collect(&ctx));
+        let mut ps_fresh = PlanStats::collect(&ctx);
+        ps_fresh.column_stats = ColumnStats::compute(&v1); // bypass the memo
+        let card_fresh = ModalityCardinality::new(ps_fresh);
+        assert_eq!(
+            card_memo.selectivity(&range, 100.0, &ctx),
+            card_fresh.selectivity(&range, 100.0, &ctx),
+            "memoized and recomputed stats yield identical selectivity"
+        );
+
+        // (b) A write → a FRESH snapshot with an empty memo → stats recomputed over the new
+        //     data. Adding a far-larger `year` extends the column range, so frac_gt shifts.
+        core.add_node(
+            "d4".into(),
+            blob(serde_json::json!({ "type": "Doc", "year": 9000.0 })),
+        );
+        let v2 = core.analysis_snapshot();
+        assert!(
+            v2.plan_stats_memo.get().is_none(),
+            "the post-write snapshot is a new GraphView with an empty memo"
+        );
+        let s2 = ColumnStats::collect(&v2);
+        assert_ne!(
+            s2.frac_gt("year", n),
+            memoized.frac_gt("year", n),
+            "the fresh snapshot recomputes over the new data — never a stale memo hit"
+        );
+        // The original snapshot's memo is untouched and still describes the ORIGINAL data.
+        assert_eq!(
+            ColumnStats::collect(&v1).frac_gt("year", n),
+            memoized.frac_gt("year", n),
+            "an old snapshot keeps its own stats — snapshots are independent"
+        );
+    }
+
+    // ── RANK 2: the pluggable IndexMethod seam ────────────────────────────────────
+
+    /// Both registered index methods claim exactly the `Op` variants they should, and
+    /// nothing else — the dispatch [`crate::optimizer::is_rank`] now delegates to.
+    #[test]
+    fn index_method_registry_dispatches_ann_and_bm25() {
+        let rank = Op::Rank {
+            query: vec![1.0, 0.0],
+        };
+        let rank_embed = Op::RankEmbed { text: "q".into() };
+        let filter = Op::Filter { preds: vec![] };
+        assert!(is_index_method_op(&rank), "vector Rank is registered");
+        assert!(
+            is_index_method_op(&rank_embed),
+            "RankEmbed is registered under the same ANN method"
+        );
+        assert!(
+            !is_index_method_op(&filter),
+            "Filter is not an index-backed reranker"
+        );
+
+        #[cfg(feature = "text")]
+        {
+            let rank_text = Op::RankText { query: "q".into() };
+            assert!(
+                is_index_method_op(&rank_text),
+                "RankText is now registered under the BM25 IndexMethod"
+            );
+        }
+    }
+
+    /// Before this increment `Op::RankText` fell through `cost_of`/`rows_out`'s wildcard
+    /// pass-through (`in_card` unchanged, no cost at all). It now gets a REAL cost model
+    /// through the same [`IndexMethod`] seam ANN uses: as a SOURCE it is bounded by
+    /// [`DEFAULT_TOP_K`] (not the raw node count), and a candidate-restricted rerank
+    /// costs strictly more than a bare pass-through would.
+    #[cfg(feature = "text")]
+    #[test]
+    fn bm25_rank_text_gets_a_real_cost_model() {
+        let fx = crate::fixture::build();
+        let ctx = crate::exec::PlanCtx::new(&fx.view, &fx.semantic);
+        let card = ModalityCardinality::new(PlanStats::collect(&ctx));
+        let rank_text = Op::RankText {
+            query: "q".into(),
+        };
+
+        // As a SOURCE (empty input): bounded by DEFAULT_TOP_K, not a pass-through zero.
+        let source_rows = card.rows_out(&rank_text, 0.0, &ctx);
+        assert!(
+            source_rows > 0.0 && source_rows <= DEFAULT_TOP_K as f64,
+            "a SOURCE RankText is a bounded top-k probe, got {source_rows}"
+        );
+
+        // Candidate-restricted: the estimated cost is strictly positive and scales with
+        // in_card (a real per-row cost), unlike the old wildcard `(in_card.max(1.0), ..)`
+        // pass-through, which this now overrides with its own arm.
+        let cost_10 = card.cost_of(&rank_text, 10.0, &ctx).weight();
+        let cost_100 = card.cost_of(&rank_text, 100.0, &ctx).weight();
+        assert!(
+            cost_100 > cost_10,
+            "BM25 rerank cost must scale with the candidate count: {cost_10} vs {cost_100}"
+        );
+    }
+
+    /// [`CostModel::overfetch_pool_size`] reproduces the `top_k/selectivity` formula
+    /// [`CostModel::vector_first_cost`] computes inline — the extraction changed
+    /// nothing about the existing vector-leg numbers.
+    #[test]
+    fn overfetch_pool_size_matches_the_vector_first_cost_formula() {
+        assert_eq!(CostModel::overfetch_pool_size(10, 0.1), 100);
+        assert_eq!(CostModel::overfetch_pool_size(10, 1.0), 10);
+        // A near-zero selectivity is clamped, never divides by zero / overflows.
+        assert!(CostModel::overfetch_pool_size(10, 0.0) > 0);
+    }
+
+    // ── RANK 11: the Bloom filter join-probe gate ─────────────────────────────────
+
+    #[cfg(feature = "text")]
+    #[test]
+    fn bloom_filter_never_false_negatives() {
+        let ids: Vec<String> = (0..500).map(|i| format!("id-{i}")).collect();
+        let filter = BloomFilter::from_ids(ids.iter().map(String::as_str), ids.len());
+        for id in &ids {
+            assert!(
+                filter.might_contain(id),
+                "every INSERTED id must test as present: {id}"
+            );
+        }
+    }
+
+    #[cfg(feature = "text")]
+    #[test]
+    fn bloom_filter_bounded_false_positive_rate() {
+        let members: Vec<String> = (0..1_000).map(|i| format!("member-{i}")).collect();
+        let filter = BloomFilter::from_ids(members.iter().map(String::as_str), members.len());
+        let non_members: Vec<String> = (0..5_000).map(|i| format!("absent-{i}")).collect();
+        let false_positives = non_members
+            .iter()
+            .filter(|id| filter.might_contain(id))
+            .count();
+        let rate = false_positives as f64 / non_members.len() as f64;
+        // Sized at the default 1% target; a generous 10% ceiling keeps this robust to
+        // hash-distribution noise while still catching a badly broken implementation
+        // (e.g. one that degenerates to "always true").
+        assert!(
+            rate < 0.10,
+            "false-positive rate too high: {rate} ({false_positives}/{})",
+            non_members.len()
+        );
+    }
+
+    #[cfg(feature = "text")]
+    #[test]
+    fn bloom_filter_empty_never_panics_and_rejects_everything_absent() {
+        let filter = BloomFilter::from_ids(std::iter::empty(), 0);
+        assert!(!filter.might_contain("anything"));
     }
 }

@@ -42,7 +42,12 @@ fn rows(r: &QueryResult) -> Vec<Vec<serde_json::Value>> {
 #[test]
 fn edges_table_exposes_topology() {
     let snap = graph().analysis_snapshot();
-    let r = exec_sql(&snap, "SELECT src, dst, rel FROM edges ORDER BY src, dst").unwrap();
+    let r = exec_sql(
+        &snap,
+        "SELECT src, dst, rel FROM edges ORDER BY src, dst",
+        &eg_query::CancellationToken::new(),
+    )
+    .unwrap();
     assert_eq!(
         r.columns,
         vec!["src".to_string(), "dst".to_string(), "rel".to_string()]
@@ -63,6 +68,7 @@ fn join_nodes_to_edges() {
         &snap,
         "SELECT nodes.id, edges.dst FROM nodes JOIN edges ON nodes.id = edges.src \
          ORDER BY nodes.id, edges.dst",
+        &eg_query::CancellationToken::new(),
     )
     .unwrap();
     let v = rows(&r);
@@ -81,6 +87,7 @@ fn join_reaches_edge_props_via_json_get() {
         "SELECT edges.src, json_get_f64(edges.props, 'weight') AS w \
          FROM nodes JOIN edges ON nodes.id = edges.src WHERE edges.dst = 'n3' \
          ORDER BY edges.src",
+        &eg_query::CancellationToken::new(),
     )
     .unwrap();
     let v = rows(&r);
@@ -101,6 +108,7 @@ fn epistemic_decay_scalar() {
             "SELECT epistemic_decay(1.0, 0.0, {}) AS half, epistemic_decay(0.8, 100.0, 100.0) AS same",
             30.0 * day
         ),
+        &eg_query::CancellationToken::new(),
     )
     .unwrap();
     let v = rows(&r);
@@ -116,6 +124,7 @@ fn pagerank_table_function_joins_against_nodes() {
         &snap,
         "SELECT n.id, p.score FROM nodes n JOIN pagerank() p ON n.id = p.id \
          ORDER BY p.score DESC",
+        &eg_query::CancellationToken::new(),
     )
     .unwrap();
     let v = rows(&r);
@@ -134,7 +143,12 @@ fn pagerank_table_function_joins_against_nodes() {
 #[test]
 fn betweenness_table_function() {
     let snap = graph().analysis_snapshot();
-    let r = exec_sql(&snap, "SELECT id, score FROM betweenness() ORDER BY id").unwrap();
+    let r = exec_sql(
+        &snap,
+        "SELECT id, score FROM betweenness() ORDER BY id",
+        &eg_query::CancellationToken::new(),
+    )
+    .unwrap();
     let v = rows(&r);
     assert_eq!(v.len(), 3);
     // every node id appears exactly once with a numeric score.
@@ -201,7 +215,12 @@ fn var_cvar_finance_aggregates() {
         );
     }
     let snap = core.analysis_snapshot();
-    let r = exec_sql(&snap, "SELECT var(ret) AS v, cvar(ret) AS cv FROM nodes").unwrap();
+    let r = exec_sql(
+        &snap,
+        "SELECT var(ret) AS v, cvar(ret) AS cv FROM nodes",
+        &eg_query::CancellationToken::new(),
+    )
+    .unwrap();
     let v = rows(&r);
     let var = v[0][0].as_f64().unwrap();
     let cvar = v[0][1].as_f64().unwrap();

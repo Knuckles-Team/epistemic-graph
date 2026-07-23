@@ -1,5 +1,5 @@
 //! Surface-B numeric analytics UDFs/UDAFs (CONCEPT:EG-KG.query.surface-b-numeric-operators) — the Analytics-Program
-//! numeric kernel (`eg-numeric`: faer + ndarray, BLAS/LAPACK-free) exposed as DataFusion
+//! numeric kernel (`eg-numeric`: nalgebra + ndarray, BLAS/LAPACK-free) exposed as DataFusion
 //! SQL operators so analytics run IN-ENGINE over resident columns (compute-near-data, no
 //! fetch-to-Python, no FFI). Gated behind the `numeric` cargo feature (out of `pi`).
 //!
@@ -47,7 +47,7 @@ use std::sync::Arc;
 use arrow::array::{
     Array, ArrayRef, Float32Builder, Float64Array, Int64Array, ListArray, ListBuilder,
 };
-use arrow::datatypes::{DataType, Field};
+use arrow::datatypes::{DataType, Field, FieldRef};
 use datafusion::error::Result as DfResult;
 use datafusion::logical_expr::function::{AccumulatorArgs, StateFieldsArgs};
 use datafusion::logical_expr::{
@@ -70,15 +70,12 @@ fn to_f64(v: &[f32]) -> Array1<f64> {
 /// `cosine_sim(a, b)` — kernel-backed cosine similarity (CONCEPT:EG-KG.query.surface-b-numeric-operators). Complements the
 /// EG-115 `vector_cosine` DISTANCE UDF (`1 - sim`); this returns the raw similarity, the
 /// value clustering/ranking wants. Backed by `eg_numeric::linalg::{dot, norm}`.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 struct CosineSimUdf {
     signature: Signature,
 }
 
 impl ScalarUDFImpl for CosineSimUdf {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
     fn name(&self) -> &str {
         "cosine_sim"
     }
@@ -88,7 +85,11 @@ impl ScalarUDFImpl for CosineSimUdf {
     fn return_type(&self, _: &[DataType]) -> DfResult<DataType> {
         Ok(DataType::Float64)
     }
-    fn invoke(&self, args: &[ColumnarValue]) -> DfResult<ColumnarValue> {
+    fn invoke_with_args(
+        &self,
+        call: datafusion::logical_expr::ScalarFunctionArgs,
+    ) -> DfResult<ColumnarValue> {
+        let args = &call.args;
         let arrays = ColumnarValue::values_to_arrays(args)?;
         if arrays.len() != 2 {
             return Err(datafusion::error::DataFusionError::Execution(
@@ -129,15 +130,12 @@ pub(crate) fn cosine_sim_udf() -> ScalarUDF {
 /// `List<Float32>` (the engine's native pgvector `vector` type) so the normalized vector
 /// can feed a subsequent `cosine_sim`/ANN op in-query and render as pgvector text. A
 /// zero-norm vector is returned unchanged (all-zero, matching a safe divide).
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 struct L2NormalizeUdf {
     signature: Signature,
 }
 
 impl ScalarUDFImpl for L2NormalizeUdf {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
     fn name(&self) -> &str {
         "l2_normalize"
     }
@@ -151,7 +149,11 @@ impl ScalarUDFImpl for L2NormalizeUdf {
             true,
         ))))
     }
-    fn invoke(&self, args: &[ColumnarValue]) -> DfResult<ColumnarValue> {
+    fn invoke_with_args(
+        &self,
+        call: datafusion::logical_expr::ScalarFunctionArgs,
+    ) -> DfResult<ColumnarValue> {
+        let args = &call.args;
         let arrays = ColumnarValue::values_to_arrays(args)?;
         if arrays.len() != 1 {
             return Err(datafusion::error::DataFusionError::Execution(
@@ -192,15 +194,12 @@ pub(crate) fn l2_normalize_udf() -> ScalarUDF {
 /// `zscore(col)` — standardize a numeric column `(x - mean)/std` (CONCEPT:EG-KG.query.surface-b-numeric-operators) with the
 /// batch mean/std from [`eg_numeric::reductions`] (population `ddof=0`, matching
 /// `scipy.stats.zscore`'s default). See the module docs on the single-batch semantics.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 struct ZScoreUdf {
     signature: Signature,
 }
 
 impl ScalarUDFImpl for ZScoreUdf {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
     fn name(&self) -> &str {
         "zscore"
     }
@@ -210,7 +209,11 @@ impl ScalarUDFImpl for ZScoreUdf {
     fn return_type(&self, _: &[DataType]) -> DfResult<DataType> {
         Ok(DataType::Float64)
     }
-    fn invoke(&self, args: &[ColumnarValue]) -> DfResult<ColumnarValue> {
+    fn invoke_with_args(
+        &self,
+        call: datafusion::logical_expr::ScalarFunctionArgs,
+    ) -> DfResult<ColumnarValue> {
+        let args = &call.args;
         let arrays = ColumnarValue::values_to_arrays(args)?;
         // Cast the argument column to Float64 so integer columns standardize too.
         let col = arrow::compute::cast(arrays[0].as_ref(), &DataType::Float64)
@@ -381,16 +384,16 @@ pub(crate) fn covariance_udaf() -> AggregateUDF {
 
 // ── svd(vec_col) / pca(vec_col, k) — column→Array2 marshalling UDAFs ─────────
 //
-// Both aggregate a COLUMN OF VECTORS into a dense matrix, then run a faer kernel. The
+// Both aggregate a COLUMN OF VECTORS into a dense matrix, then run a nalgebra kernel. The
 // deferred-in-P4 bridge is exactly this columnar↔matrix pivot: each ingested row decodes
 // (via `row_to_vector`, same operand forms as `cosine_sim`) into one matrix ROW, buffered
 // row-major into a flat `Vec<f64>` alongside the fixed `dim`; `evaluate()` reshapes to an
 // `ndarray::Array2` and calls the kernel. State is the flat buffer as a `List<Float64>`
 // plus `dim` (+ `k` for pca) as `Int64`, so partial-aggregate merge is lossless.
 
-/// Which faer/eg-numeric kernel a [`MatrixAcc`] runs at `evaluate()` over the marshalled
+/// Which nalgebra/eg-numeric kernel a [`MatrixAcc`] runs at `evaluate()` over the marshalled
 /// matrix.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum MatrixOp {
     /// `svd` — singular values (descending) as `List<Float64>` (CONCEPT:EG-KG.query.svd-eg-pca-column).
     Svd,
@@ -650,7 +653,7 @@ fn kmeans_result(m: Option<&Array2<f64>>, k: usize) -> ScalarValue {
 /// Shared `AggregateUDFImpl` for the two column→matrix operators. `Signature::any` accepts
 /// the vector operand in any of `row_to_vector`'s forms (List / text) without coercion —
 /// the same flexibility `cosine_sim` relies on.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 struct MatrixAggUdf {
     op: MatrixOp,
     name: &'static str,
@@ -658,9 +661,6 @@ struct MatrixAggUdf {
 }
 
 impl AggregateUDFImpl for MatrixAggUdf {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
     fn name(&self) -> &str {
         self.name
     }
@@ -680,7 +680,7 @@ impl AggregateUDFImpl for MatrixAggUdf {
     fn accumulator(&self, _: AccumulatorArgs) -> DfResult<Box<dyn Accumulator>> {
         Ok(Box::new(MatrixAcc::new(self.op)))
     }
-    fn state_fields(&self, args: StateFieldsArgs) -> DfResult<Vec<Field>> {
+    fn state_fields(&self, args: StateFieldsArgs) -> DfResult<Vec<FieldRef>> {
         let float_list = DataType::List(Arc::new(Field::new("item", DataType::Float64, true)));
         let mut fields = vec![
             Field::new(format!("{}__flat", args.name), float_list, true),
@@ -693,7 +693,7 @@ impl AggregateUDFImpl for MatrixAggUdf {
                 true,
             ));
         }
-        Ok(fields)
+        Ok(fields.into_iter().map(Arc::new).collect())
     }
 }
 

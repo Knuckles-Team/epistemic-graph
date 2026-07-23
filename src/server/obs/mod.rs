@@ -49,7 +49,7 @@ pub mod remote_write;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use parking_lot::Mutex;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -74,6 +74,14 @@ pub const OBS_FLUSH_RECORDS_ENV: &str = "EPISTEMIC_GRAPH_OBS_FLUSH_RECORDS";
 pub const DEFAULT_FLUSH_RECORDS: usize = 1024;
 /// TSDB time-partition width for a log series: 1 hour of wall-clock per chunk.
 const SERIES_BUCKET_NS: u64 = 3_600_000_000_000;
+/// Hard network bounds for the dependency-free observability HTTP listener.
+const MAX_HTTP_HEADER_BYTES: usize = 64 * 1024;
+const MAX_HTTP_HEADER_LINE_BYTES: usize = 16 * 1024;
+const MAX_HTTP_HEADERS: usize = 128;
+const MAX_HTTP_TARGET_BYTES: usize = 8 * 1024;
+const MAX_HTTP_BODY_BYTES: usize = 16 * 1024 * 1024;
+const MAX_HTTP_CONNECTIONS: usize = 256;
+const HTTP_READ_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// One normalized log record — the common shape every wire format is parsed into.
 /// `attrs` is a dynamic string map (schema-on-read); the fixed fields are the ones
@@ -665,38 +673,111 @@ async fn read_request(stream: &mut tokio::net::TcpStream) -> Option<HttpRequest>
             return None;
         }
         buf.extend_from_slice(&tmp[..n]);
-        if buf.len() > 16 * 1024 * 1024 {
+        if buf.len() > MAX_HTTP_HEADER_BYTES {
             return None;
         }
     };
-    let head = String::from_utf8_lossy(&buf[..header_end]).to_string();
+    if header_end > MAX_HTTP_HEADER_BYTES {
+        return None;
+    }
+    let head = std::str::from_utf8(&buf[..header_end]).ok()?;
     let mut lines = head.split("\r\n");
     let request_line = lines.next()?;
+    if request_line.len() > MAX_HTTP_TARGET_BYTES + 32 {
+        return None;
+    }
     let mut parts = request_line.split_whitespace();
     let method = parts.next()?.to_string();
     let target = parts.next()?.to_string();
+    let version = parts.next()?;
+    if parts.next().is_some()
+        || !matches!(version, "HTTP/1.0" | "HTTP/1.1")
+        || !matches!(method.as_str(), "GET" | "POST" | "OPTIONS")
+        || target.len() > MAX_HTTP_TARGET_BYTES
+        || !target.starts_with('/')
+        || target.bytes().any(|byte| byte.is_ascii_control())
+    {
+        return None;
+    }
 
-    let mut content_length = 0usize;
+    let mut content_length: Option<usize> = None;
     let mut content_type = String::new();
-    for line in lines {
-        if let Some((k, v)) = line.split_once(':') {
-            match k.trim().to_ascii_lowercase().as_str() {
-                "content-length" => content_length = v.trim().parse().unwrap_or(0),
-                "content-type" => content_type = v.trim().to_ascii_lowercase(),
-                _ => {}
+    let mut host_count = 0usize;
+    for (index, line) in lines.enumerate() {
+        if index >= MAX_HTTP_HEADERS || line.len() > MAX_HTTP_HEADER_LINE_BYTES {
+            return None;
+        }
+        let (key, value) = line.split_once(':')?;
+        if key.is_empty()
+            || !key.bytes().all(|byte| {
+                byte.is_ascii_alphanumeric()
+                    || matches!(
+                        byte,
+                        b'!' | b'#'
+                            | b'$'
+                            | b'%'
+                            | b'&'
+                            | b'\''
+                            | b'*'
+                            | b'+'
+                            | b'-'
+                            | b'.'
+                            | b'^'
+                            | b'_'
+                            | b'`'
+                            | b'|'
+                            | b'~'
+                    )
+            })
+            || value
+                .bytes()
+                .any(|byte| byte.is_ascii_control() && byte != b'\t')
+        {
+            return None;
+        }
+        match key.to_ascii_lowercase().as_str() {
+            "content-length" => {
+                if content_length.is_some() {
+                    return None;
+                }
+                let parsed = value.trim().parse::<usize>().ok()?;
+                if parsed > MAX_HTTP_BODY_BYTES {
+                    return None;
+                }
+                content_length = Some(parsed);
             }
+            "content-type" => content_type = value.trim().to_ascii_lowercase(),
+            "host" => {
+                host_count += 1;
+                if host_count > 1 || value.trim().is_empty() {
+                    return None;
+                }
+            }
+            // Chunked framing is intentionally unsupported. Accepting it as an
+            // empty body would create request-smuggling ambiguity.
+            "transfer-encoding" => return None,
+            _ => {}
         }
     }
+    if version == "HTTP/1.1" && host_count != 1 {
+        return None;
+    }
+    let content_length = content_length.unwrap_or(0);
     let mut body = buf[header_end + 4..].to_vec();
+    if body.len() > content_length || body.len() > MAX_HTTP_BODY_BYTES {
+        return None;
+    }
     while body.len() < content_length {
         let n = stream.read(&mut tmp).await.ok()?;
         if n == 0 {
-            break;
+            return None;
+        }
+        if body.len().saturating_add(n) > content_length
+            || body.len().saturating_add(n) > MAX_HTTP_BODY_BYTES
+        {
+            return None;
         }
         body.extend_from_slice(&tmp[..n]);
-    }
-    if content_length > 0 && body.len() > content_length {
-        body.truncate(content_length);
     }
     Some(HttpRequest {
         method,
@@ -712,20 +793,54 @@ async fn read_request(stream: &mut tokio::net::TcpStream) -> Option<HttpRequest>
 /// `state`. One task per connection, one response per request, connection: close —
 /// the SAME dependency-free idiom as the SPARQL / metrics listeners.
 pub async fn serve(listener: TcpListener, state: Arc<ObsState>) {
+    serve_inner(listener, state, None).await;
+}
+
+/// Production observability listener linked to the engine's live isolation
+/// policy. The PromQL, trace and log-search routes have no verified request
+/// envelope, so they can be failed closed as soon as secure/RLS policy activates.
+pub async fn serve_with_security(
+    listener: TcpListener,
+    state: Arc<ObsState>,
+    security_state: Arc<tokio::sync::RwLock<crate::server::ServerState>>,
+) {
+    serve_inner(listener, state, Some(security_state)).await;
+}
+
+async fn serve_inner(
+    listener: TcpListener,
+    state: Arc<ObsState>,
+    security_state: Option<Arc<tokio::sync::RwLock<crate::server::ServerState>>>,
+) {
+    let connections = Arc::new(tokio::sync::Semaphore::new(MAX_HTTP_CONNECTIONS));
     loop {
         let Ok((mut stream, _)) = listener.accept().await else {
             continue;
         };
+        let Ok(connection_permit) = connections.clone().try_acquire_owned() else {
+            // Drop excess sockets immediately. Spawning a rejection task here
+            // would recreate the same unbounded-task resource exhaustion.
+            drop(stream);
+            continue;
+        };
         let state = state.clone();
+        let security_state = security_state.clone();
         tokio::spawn(async move {
-            let (status, ctype, body) = match read_request(&mut stream).await {
-                Some(req) => handle(&state, req).await,
-                None => (
-                    "400 Bad Request",
-                    "text/plain",
-                    "malformed HTTP request".to_string(),
-                ),
-            };
+            let _connection_permit = connection_permit;
+            let (status, ctype, body) =
+                match tokio::time::timeout(HTTP_READ_TIMEOUT, read_request(&mut stream)).await {
+                    Ok(Some(req)) => handle(&state, security_state.as_ref(), req).await,
+                    Ok(None) => (
+                        "400 Bad Request",
+                        "text/plain",
+                        "malformed HTTP request".to_string(),
+                    ),
+                    Err(_) => (
+                        "408 Request Timeout",
+                        "text/plain",
+                        "request read timeout".to_string(),
+                    ),
+                };
             let resp = format!(
                 "HTTP/1.1 {status}\r\ncontent-type: {ctype}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
                 body.len()
@@ -736,8 +851,37 @@ pub async fn serve(listener: TcpListener, state: Arc<ObsState>) {
     }
 }
 
+fn is_observability_read_carrier(method: &str, path: &str) -> bool {
+    method == "GET"
+        || path.starts_with("/api/v1/query")
+        || path == "/api/v1/labels"
+        || path.starts_with("/api/v1/label/")
+        || path == "/api/_search"
+        || path == "/_search"
+        || path.ends_with("/_search")
+        || ((path == "/api/traces"
+            || path.starts_with("/api/traces/")
+            || path == "/api/dependencies"
+            || path == "/api/services/dependencies")
+            && !(method == "POST" && path == "/v1/traces"))
+}
+
+async fn observability_read_denied(
+    security_state: Option<&Arc<tokio::sync::RwLock<crate::server::ServerState>>>,
+) -> bool {
+    let Some(security_state) = security_state else {
+        return false;
+    };
+    let state = security_state.read().await;
+    crate::server::access::unauthenticated_carrier_denied(&state.isolation)
+}
+
 /// Route + execute an ingest request → `(status, content_type, body)`.
-async fn handle(state: &Arc<ObsState>, req: HttpRequest) -> (&'static str, &'static str, String) {
+async fn handle(
+    state: &Arc<ObsState>,
+    security_state: Option<&Arc<tokio::sync::RwLock<crate::server::ServerState>>>,
+    req: HttpRequest,
+) -> (&'static str, &'static str, String) {
     let (path, query) = match req.target.split_once('?') {
         Some((p, q)) => (p, q),
         None => (req.target.as_str(), ""),
@@ -748,6 +892,16 @@ async fn handle(state: &Arc<ObsState>, req: HttpRequest) -> (&'static str, &'sta
     // Health probe.
     if path == "/healthz" || path == "/" && req.method == "GET" {
         return ("200 OK", "text/plain", "ok".to_string());
+    }
+    if is_observability_read_carrier(&req.method, path)
+        && observability_read_denied(security_state).await
+    {
+        return (
+            "403 Forbidden",
+            "text/plain",
+            "ACCESS_DENIED: observability read carriers require verified tenant ownership"
+                .to_string(),
+        );
     }
 
     // CONCEPT:EG-KG.query.prometheus-http-query-api — the Prometheus HTTP query API (GET or POST), routed BEFORE the
@@ -1386,6 +1540,46 @@ mod tests {
         let mut resp = Vec::new();
         sock.read_to_end(&mut resp).await.unwrap();
         String::from_utf8_lossy(&resp).to_string()
+    }
+
+    #[tokio::test]
+    async fn http_preflight_rejects_ambiguous_or_oversized_framing() {
+        let obs = Arc::new(ObsState::in_memory(1024).unwrap());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { serve(listener, obs).await });
+
+        async fn raw(addr: std::net::SocketAddr, request: &str) -> String {
+            let mut sock = tokio::net::TcpStream::connect(addr).await.unwrap();
+            sock.write_all(request.as_bytes()).await.unwrap();
+            let mut response = Vec::new();
+            sock.read_to_end(&mut response).await.unwrap();
+            String::from_utf8_lossy(&response).to_string()
+        }
+
+        let duplicate = raw(
+            addr,
+            "POST /v1/logs HTTP/1.1\r\nHost: x\r\nContent-Length: 0\r\nContent-Length: 0\r\n\r\n",
+        )
+        .await;
+        assert!(duplicate.starts_with("HTTP/1.1 400 Bad Request"));
+
+        let chunked = raw(
+            addr,
+            "POST /v1/logs HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n",
+        )
+        .await;
+        assert!(chunked.starts_with("HTTP/1.1 400 Bad Request"));
+
+        let oversized = raw(
+            addr,
+            &format!(
+                "POST /v1/logs HTTP/1.1\r\nHost: x\r\nContent-Length: {}\r\n\r\n",
+                MAX_HTTP_BODY_BYTES + 1
+            ),
+        )
+        .await;
+        assert!(oversized.starts_with("HTTP/1.1 400 Bad Request"));
     }
 
     /// The `_search` HTTP surface: a structured search returns ES-shaped hits, and a

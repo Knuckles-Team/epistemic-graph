@@ -1,316 +1,278 @@
-//! LAPACK-class linalg — the "hard 6" numpy surface: `norm/dot/matmul/solve/svd/
-//! eigh/pinv/lstsq/qr/cholesky/det/matrix_power`. Backed by **faer** (pure Rust,
-//! NO system BLAS/LAPACK). Parity-tested exact vs numpy (PoC-validated).
+//! LAPACK-class linear algebra for the NumPy-compatible surface. Backed by
+//! `nalgebra`'s pure-Rust decompositions; no system BLAS/LAPACK or native toolchain
+//! is required.
 
 use crate::error::{NumericError, Result};
-use faer::prelude::*;
-use faer::Side;
+use nalgebra::{DMatrix, DVector, SymmetricEigen};
 use ndarray::{Array1, Array2, ArrayView1, ArrayView2};
 
-// ---- ndarray <-> faer bridges ----
-
-fn nd_to_faer(a: ArrayView2<f64>) -> Mat<f64> {
-    let (m, n) = a.dim();
-    Mat::from_fn(m, n, |i, j| a[[i, j]])
+fn nd_to_na(a: ArrayView2<'_, f64>) -> DMatrix<f64> {
+    let (rows, cols) = a.dim();
+    DMatrix::from_fn(rows, cols, |row, col| a[[row, col]])
 }
 
-fn faer_to_nd(m: MatRef<f64>) -> Array2<f64> {
-    let (r, c) = (m.nrows(), m.ncols());
-    Array2::from_shape_fn((r, c), |(i, j)| m[(i, j)])
+fn na_to_nd(matrix: &DMatrix<f64>) -> Array2<f64> {
+    Array2::from_shape_fn((matrix.nrows(), matrix.ncols()), |(row, col)| {
+        matrix[(row, col)]
+    })
 }
 
-// ---- vector ops ----
+fn require_square(a: ArrayView2<'_, f64>, operation: &str) -> Result<usize> {
+    let (rows, cols) = a.dim();
+    if rows != cols {
+        return Err(NumericError::linalg(format!(
+            "{operation}: matrix must be square"
+        )));
+    }
+    Ok(rows)
+}
 
-/// numpy `linalg.norm(v)` — vector L2 norm.
-pub fn norm(v: ArrayView1<f64>) -> f64 {
+/// NumPy `linalg.norm(v)` — vector L2 norm.
+pub fn norm(v: ArrayView1<'_, f64>) -> f64 {
     v.dot(&v).sqrt()
 }
 
-/// numpy `linalg.norm(v, ord)` for the common vector orders (1, 2, inf).
-pub fn norm_ord(v: ArrayView1<f64>, ord: f64) -> f64 {
+/// NumPy `linalg.norm(v, ord)` for the common vector orders.
+pub fn norm_ord(v: ArrayView1<'_, f64>, ord: f64) -> f64 {
     if ord.is_infinite() {
         if ord > 0.0 {
-            v.iter().fold(0.0f64, |a, &x| a.max(x.abs()))
+            v.iter().fold(0.0f64, |acc, &value| acc.max(value.abs()))
         } else {
-            v.iter().fold(f64::INFINITY, |a, &x| a.min(x.abs()))
+            v.iter()
+                .fold(f64::INFINITY, |acc, &value| acc.min(value.abs()))
         }
     } else if ord == 1.0 {
-        v.iter().map(|x| x.abs()).sum()
+        v.iter().map(|value| value.abs()).sum()
     } else if ord == 2.0 {
         norm(v)
     } else {
         v.iter()
-            .map(|x| x.abs().powf(ord))
+            .map(|value| value.abs().powf(ord))
             .sum::<f64>()
             .powf(1.0 / ord)
     }
 }
 
-/// L2-normalize a single vector to its unit direction `v/‖v‖` (CONCEPT:EG-KG.compute.l2-normalize-batch-vectors). A
-/// slice-in/`Vec`-out API so an engine caller WITHOUT `ndarray` in scope (e.g. the
-/// server `Method` handler) can normalize a resident vector set through the kernel. A
-/// zero-norm vector is returned unchanged (all-zero) — a safe divide, no NaN.
+/// L2-normalize one vector. A zero vector is returned unchanged.
 pub fn l2_normalize_slice(v: &[f64]) -> Vec<f64> {
-    let n = norm(ArrayView1::from(v));
-    if n == 0.0 {
+    let magnitude = norm(ArrayView1::from(v));
+    if magnitude == 0.0 {
         v.to_vec()
     } else {
-        v.iter().map(|x| x / n).collect()
+        v.iter().map(|value| value / magnitude).collect()
     }
 }
 
-/// L2-normalize every row of a batch (CONCEPT:EG-KG.compute.l2-normalize-batch-vectors) — the kernel behind the engine's
-/// `BatchL2Normalize` Method (compute-near-data over a resident vector set). Each row is
-/// unit-normalized by [`l2_normalize_slice`].
+/// L2-normalize every row in a batch.
 pub fn batch_l2_normalize(vectors: &[Vec<f64>]) -> Vec<Vec<f64>> {
-    vectors.iter().map(|v| l2_normalize_slice(v)).collect()
+    vectors
+        .iter()
+        .map(|vector| l2_normalize_slice(vector))
+        .collect()
 }
 
-/// numpy `dot` for 1-D vectors → scalar.
-pub fn dot(a: ArrayView1<f64>, b: ArrayView1<f64>) -> Result<f64> {
+/// NumPy `dot` for 1-D vectors.
+pub fn dot(a: ArrayView1<'_, f64>, b: ArrayView1<'_, f64>) -> Result<f64> {
     if a.len() != b.len() {
         return Err(NumericError::shape("dot: shape mismatch"));
     }
     Ok(a.dot(&b))
 }
 
-/// numpy `matmul`/`dot` for 2-D matrices.
-pub fn matmul(a: ArrayView2<f64>, b: ArrayView2<f64>) -> Result<Array2<f64>> {
+/// NumPy `matmul` for 2-D matrices.
+pub fn matmul(a: ArrayView2<'_, f64>, b: ArrayView2<'_, f64>) -> Result<Array2<f64>> {
     if a.ncols() != b.nrows() {
         return Err(NumericError::shape("matmul: shape mismatch"));
     }
-    let out = nd_to_faer(a) * nd_to_faer(b);
-    Ok(faer_to_nd(out.as_ref()))
+    Ok(na_to_nd(&(nd_to_na(a) * nd_to_na(b))))
 }
 
-// ---- decompositions / solves ----
-
-fn require_square(a: ArrayView2<f64>, what: &str) -> Result<usize> {
-    let (m, n) = a.dim();
-    if m != n {
-        return Err(NumericError::linalg(format!(
-            "{what}: matrix must be square"
-        )));
-    }
-    Ok(m)
-}
-
-/// numpy `linalg.solve(A, b)` — square system, partial-pivot LU. Raises
-/// LinAlgError on a singular matrix.
-pub fn solve(a: ArrayView2<f64>, b: ArrayView1<f64>) -> Result<Array1<f64>> {
-    let n = require_square(a, "solve")?;
-    if b.len() != n {
+/// NumPy `linalg.solve(A, b)` using partial-pivot LU.
+pub fn solve(a: ArrayView2<'_, f64>, b: ArrayView1<'_, f64>) -> Result<Array1<f64>> {
+    let order = require_square(a, "solve")?;
+    if b.len() != order {
         return Err(NumericError::shape("solve: b length mismatch"));
     }
-    let af = nd_to_faer(a);
-    // Detect singularity via the SVD condition (faer LU does not error on singular).
-    let svals = af.singular_values();
-    if svals
-        .last()
-        .map(|s| *s <= 1e-12 * svals[0].max(1.0))
-        .unwrap_or(true)
-    {
-        return Err(NumericError::linalg("Singular matrix"));
+    let rhs = DVector::from_iterator(order, b.iter().copied());
+    let solution = nd_to_na(a)
+        .lu()
+        .solve(&rhs)
+        .ok_or_else(|| NumericError::linalg("Singular matrix"))?;
+    Ok(Array1::from_iter(solution.iter().copied()))
+}
+
+/// Singular values in descending order.
+pub fn svdvals(a: ArrayView2<'_, f64>) -> Vec<f64> {
+    nd_to_na(a)
+        .svd(false, false)
+        .singular_values
+        .iter()
+        .copied()
+        .collect()
+}
+
+/// Full SVD `(U, s, Vt)`, matching NumPy's default `full_matrices=True` shapes.
+pub fn svd(a: ArrayView2<'_, f64>) -> Result<(Array2<f64>, Array1<f64>, Array2<f64>)> {
+    let (rows, cols) = a.dim();
+    let decomposition = nd_to_na(a).svd(true, true);
+    let u_thin = decomposition
+        .u
+        .ok_or_else(|| NumericError::linalg("SVD did not produce U"))?;
+    let vt_thin = decomposition
+        .v_t
+        .ok_or_else(|| NumericError::linalg("SVD did not produce Vt"))?;
+    let u = complete_orthonormal_basis(&u_thin, rows);
+    let v = complete_orthonormal_basis(&vt_thin.transpose(), cols);
+    Ok((
+        na_to_nd(&u),
+        Array1::from_iter(decomposition.singular_values.iter().copied()),
+        na_to_nd(&v.transpose()),
+    ))
+}
+
+/// Complete a thin orthonormal column basis with deterministic standard-basis
+/// vectors. Modified Gram-Schmidt keeps the public full-SVD shape contract.
+fn complete_orthonormal_basis(thin: &DMatrix<f64>, size: usize) -> DMatrix<f64> {
+    if thin.ncols() == size {
+        return thin.clone();
     }
-    let rhs = Mat::from_fn(n, 1, |i, _| b[i]);
-    let x = af.partial_piv_lu().solve(&rhs);
-    Ok(Array1::from_shape_fn(n, |i| x[(i, 0)]))
+    let mut columns: Vec<DVector<f64>> = thin
+        .column_iter()
+        .map(|column| column.into_owned())
+        .collect();
+    for axis in 0..size {
+        if columns.len() == size {
+            break;
+        }
+        let mut candidate = DVector::zeros(size);
+        candidate[axis] = 1.0;
+        for column in &columns {
+            candidate -= column * column.dot(&candidate);
+        }
+        let magnitude = candidate.norm();
+        if magnitude > 64.0 * f64::EPSILON {
+            columns.push(candidate / magnitude);
+        }
+    }
+    DMatrix::from_columns(&columns)
 }
 
-/// Singular values (descending) — numpy `linalg.svd(A, compute_uv=False)`.
-pub fn svdvals(a: ArrayView2<f64>) -> Vec<f64> {
-    nd_to_faer(a).singular_values()
+/// NumPy `linalg.eigh(A)` for a symmetric matrix. Results are sorted ascending.
+pub fn eigh(a: ArrayView2<'_, f64>) -> Result<(Array1<f64>, Array2<f64>)> {
+    let order = require_square(a, "eigh")?;
+    let decomposition = SymmetricEigen::new(nd_to_na(a));
+    let mut indices: Vec<usize> = (0..order).collect();
+    indices.sort_by(|&left, &right| {
+        decomposition.eigenvalues[left].total_cmp(&decomposition.eigenvalues[right])
+    });
+    let values = Array1::from_shape_fn(order, |index| decomposition.eigenvalues[indices[index]]);
+    let vectors = Array2::from_shape_fn((order, order), |(row, col)| {
+        decomposition.eigenvectors[(row, indices[col])]
+    });
+    Ok((values, vectors))
 }
 
-/// Full SVD → (U, s, Vt) matching numpy `linalg.svd(A)` (Vt is V transposed).
-pub fn svd(a: ArrayView2<f64>) -> Result<(Array2<f64>, Array1<f64>, Array2<f64>)> {
-    let af = nd_to_faer(a);
-    let svd = af.svd();
-    let u = faer_to_nd(svd.u());
-    let v = faer_to_nd(svd.v());
-    let s_diag = svd.s_diagonal();
-    let s = Array1::from_shape_fn(s_diag.nrows(), |i| s_diag[i]);
-    // numpy returns Vt = V^H; V is real here so plain transpose.
-    let vt = v.reversed_axes().to_owned();
-    Ok((u, s, vt))
-}
-
-/// numpy `linalg.eigh(A)` for a symmetric matrix → (eigenvalues ascending,
-/// eigenvectors as columns).
-pub fn eigh(a: ArrayView2<f64>) -> Result<(Array1<f64>, Array2<f64>)> {
-    let n = require_square(a, "eigh")?;
-    let af = nd_to_faer(a);
-    let eig = af.selfadjoint_eigendecomposition(Side::Lower);
-    let s = eig.s().column_vector();
-    let w = Array1::from_shape_fn(n, |i| s[i]);
-    let v = faer_to_nd(eig.u());
-    // faer returns ascending eigenvalues, matching numpy's eigh.
-    Ok((w, v))
-}
-
-/// Partial symmetric eigensolver (CONCEPT:EG-KG.compute.concept-5) — the `k` smallest-**magnitude**
-/// eigenpairs of a symmetric matrix, matching
-/// `scipy.sparse.linalg.eigsh(A, k, which="SM")`. For a graph Laplacian (PSD) this
-/// is the `k` lowest eigenvalues (the Fiedler / spectral-embedding directions),
-/// which is exactly what `spectral_navigator.py` consumes.
-///
-/// **First-cut implementation (documented O(n³)):** densify + a full `faer`
-/// self-adjoint eigendecomposition, then select the `k` eigenpairs of smallest
-/// `|λ|` and return them sorted **ascending by algebraic eigenvalue** (scipy
-/// returns `eigsh` results in ascending order). A sparse Lanczos iteration is the
-/// follow-up for large sparse Laplacians; for the current problem sizes the dense
-/// path is correct and matches scipy within tolerance. Eigenvector **sign** is
-/// arbitrary (as in scipy/LAPACK): compare up to sign / by subspace.
-pub fn eigsh_smallest(a: ArrayView2<f64>, k: usize) -> Result<(Array1<f64>, Array2<f64>)> {
-    let n = require_square(a, "eigsh")?;
+/// The `k` smallest-magnitude eigenpairs of a symmetric matrix.
+pub fn eigsh_smallest(a: ArrayView2<'_, f64>, k: usize) -> Result<(Array1<f64>, Array2<f64>)> {
+    let order = require_square(a, "eigsh")?;
     if k == 0 {
         return Err(NumericError::shape("eigsh: k must be >= 1"));
     }
-    if k > n {
+    if k > order {
         return Err(NumericError::shape(
             "eigsh: k must be <= n (the matrix order)",
         ));
     }
-    let (w, v) = eigh(a)?; // ascending algebraic order, eigenvectors as columns
-                           // pick the k indices of smallest |eigenvalue|
-    let mut order: Vec<usize> = (0..n).collect();
-    order.sort_by(|&i, &j| {
-        w[i].abs()
-            .partial_cmp(&w[j].abs())
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-    let mut sel: Vec<usize> = order.into_iter().take(k).collect();
-    // scipy returns the selected pairs in ascending algebraic-eigenvalue order
-    sel.sort_by(|&i, &j| w[i].partial_cmp(&w[j]).unwrap_or(std::cmp::Ordering::Equal));
-    let wk = Array1::from_shape_fn(k, |t| w[sel[t]]);
-    let vk = Array2::from_shape_fn((n, k), |(r, t)| v[[r, sel[t]]]);
-    Ok((wk, vk))
+    let (values, vectors) = eigh(a)?;
+    let mut indices: Vec<usize> = (0..order).collect();
+    indices.sort_by(|&left, &right| values[left].abs().total_cmp(&values[right].abs()));
+    indices.truncate(k);
+    indices.sort_by(|&left, &right| values[left].total_cmp(&values[right]));
+    Ok((
+        Array1::from_shape_fn(k, |index| values[indices[index]]),
+        Array2::from_shape_fn((order, k), |(row, col)| vectors[[row, indices[col]]]),
+    ))
 }
 
-/// numpy `linalg.pinv(A)` — Moore-Penrose pseudoinverse via SVD.
-pub fn pinv(a: ArrayView2<f64>) -> Result<Array2<f64>> {
-    let af = nd_to_faer(a);
-    // THIN svd → U is (m, k), V is (n, k) with k = min(m, n), so the
-    // reconstruction V·diag(1/s)·Uᵀ is dimensionally correct for non-square A.
-    let svd = af.thin_svd();
-    let u = svd.u(); // (m, k)
-    let v = svd.v(); // (n, k)
-    let s = svd.s_diagonal();
-    let k = s.nrows();
-    let smax = (0..k).map(|i| s[i]).fold(0.0f64, f64::max);
-    // numpy rcond default = max(M,N)*eps
-    let (m, n) = a.dim();
-    let rcond = (m.max(n) as f64) * f64::EPSILON;
-    let tol = rcond * smax;
-    // pinv = V * diag(1/s) * U^T (only s > tol)
-    let sinv = Mat::from_fn(k, k, |i, j| {
-        if i == j && s[i] > tol {
-            1.0 / s[i]
-        } else {
-            0.0
-        }
-    });
-    let vmat = v.to_owned();
-    let umat = u.to_owned();
-    let out = vmat * sinv * umat.transpose();
-    Ok(faer_to_nd(out.as_ref()))
+/// NumPy `linalg.pinv(A)` via SVD.
+pub fn pinv(a: ArrayView2<'_, f64>) -> Result<Array2<f64>> {
+    let (rows, cols) = a.dim();
+    let decomposition = nd_to_na(a).svd(true, true);
+    let largest = decomposition
+        .singular_values
+        .iter()
+        .copied()
+        .fold(0.0f64, f64::max);
+    let tolerance = (rows.max(cols) as f64) * f64::EPSILON * largest;
+    let inverse = decomposition
+        .pseudo_inverse(tolerance)
+        .map_err(|error| NumericError::linalg(error))?;
+    Ok(na_to_nd(&inverse))
 }
 
-/// numpy `linalg.lstsq(A, b)` least-squares solution (returns x only).
-pub fn lstsq(a: ArrayView2<f64>, b: ArrayView1<f64>) -> Result<Array1<f64>> {
-    let (m, _n) = a.dim();
-    if b.len() != m {
+/// NumPy `linalg.lstsq(A, b)` minimum-norm solution.
+pub fn lstsq(a: ArrayView2<'_, f64>, b: ArrayView1<'_, f64>) -> Result<Array1<f64>> {
+    if b.len() != a.nrows() {
         return Err(NumericError::shape("lstsq: b length mismatch"));
     }
-    // x = pinv(A) @ b — SVD-based least squares (matches numpy's lstsq minimum-norm).
-    let p = pinv(a)?;
-    let mut out = Array1::zeros(p.nrows());
-    for i in 0..p.nrows() {
-        let mut acc = 0.0;
-        for j in 0..p.ncols() {
-            acc += p[[i, j]] * b[j];
-        }
-        out[i] = acc;
-    }
-    Ok(out)
+    let inverse = pinv(a)?;
+    let rhs = b.to_owned();
+    Ok(inverse.dot(&rhs))
 }
 
-/// numpy `linalg.qr(A)` → (Q, R) reduced.
-pub fn qr(a: ArrayView2<f64>) -> Result<(Array2<f64>, Array2<f64>)> {
-    let af = nd_to_faer(a);
-    let qr = af.qr();
-    let q = faer_to_nd(qr.compute_thin_q().as_ref());
-    let r = faer_to_nd(qr.compute_thin_r().as_ref());
-    Ok((q, r))
+/// NumPy reduced QR decomposition.
+pub fn qr(a: ArrayView2<'_, f64>) -> Result<(Array2<f64>, Array2<f64>)> {
+    let decomposition = nd_to_na(a).qr();
+    Ok((na_to_nd(&decomposition.q()), na_to_nd(&decomposition.r())))
 }
 
-/// numpy `linalg.cholesky(A)` → lower-triangular L (A = L Lᵀ). LinAlgError if not PD.
-pub fn cholesky(a: ArrayView2<f64>) -> Result<Array2<f64>> {
-    let _n = require_square(a, "cholesky")?;
-    let af = nd_to_faer(a);
-    match af.cholesky(Side::Lower) {
-        Ok(ch) => {
-            let l = ch.compute_l();
-            Ok(faer_to_nd(l.as_ref()))
-        }
-        Err(_) => Err(NumericError::linalg("Matrix is not positive definite")),
-    }
+/// NumPy lower-triangular Cholesky factor.
+pub fn cholesky(a: ArrayView2<'_, f64>) -> Result<Array2<f64>> {
+    require_square(a, "cholesky")?;
+    let decomposition = nalgebra::linalg::Cholesky::new(nd_to_na(a))
+        .ok_or_else(|| NumericError::linalg("Matrix is not positive definite"))?;
+    Ok(na_to_nd(&decomposition.l()))
 }
 
-/// numpy `linalg.det(A)`.
-pub fn det(a: ArrayView2<f64>) -> Result<f64> {
-    let n = require_square(a, "det")?;
-    if n == 0 {
+/// NumPy `linalg.det(A)`.
+pub fn det(a: ArrayView2<'_, f64>) -> Result<f64> {
+    let order = require_square(a, "det")?;
+    if order == 0 {
         return Ok(1.0);
     }
-    Ok(nd_to_faer(a).determinant())
+    Ok(nd_to_na(a).lu().determinant())
 }
 
-/// numpy `linalg.matrix_power(A, n)` for integer n (including negatives via inverse).
-pub fn matrix_power(a: ArrayView2<f64>, p: i64) -> Result<Array2<f64>> {
-    let n = require_square(a, "matrix_power")?;
-    let identity = Array2::<f64>::eye(n);
+/// NumPy `linalg.matrix_power(A, p)`, including negative powers.
+pub fn matrix_power(a: ArrayView2<'_, f64>, p: i64) -> Result<Array2<f64>> {
+    let order = require_square(a, "matrix_power")?;
     if p == 0 {
-        return Ok(identity);
+        return Ok(Array2::eye(order));
     }
-    let (base, mut exp) = if p < 0 {
-        // A^-k = (A^-1)^k ; invert via solve against identity.
-        (inverse(a)?, (-p) as u64)
+    let (mut base, mut exponent) = if p < 0 {
+        (inverse(a)?, p.unsigned_abs())
     } else {
         (a.to_owned(), p as u64)
     };
-    // Exponentiation by squaring.
-    let mut result = identity;
-    let mut b = base;
-    while exp > 0 {
-        if exp & 1 == 1 {
-            result = mm(result.view(), b.view());
+    let mut result = Array2::eye(order);
+    while exponent > 0 {
+        if exponent & 1 == 1 {
+            result = result.dot(&base);
         }
-        exp >>= 1;
-        if exp > 0 {
-            b = mm(b.view(), b.view());
+        exponent >>= 1;
+        if exponent > 0 {
+            base = base.dot(&base);
         }
     }
     Ok(result)
 }
 
-fn mm(a: ArrayView2<f64>, b: ArrayView2<f64>) -> Array2<f64> {
-    faer_to_nd((nd_to_faer(a) * nd_to_faer(b)).as_ref())
-}
-
-/// numpy `linalg.inv(A)`.
-pub fn inverse(a: ArrayView2<f64>) -> Result<Array2<f64>> {
-    let n = require_square(a, "inv")?;
-    let af = nd_to_faer(a);
-    let svals = af.singular_values();
-    if svals
-        .last()
-        .map(|s| *s <= 1e-12 * svals[0].max(1.0))
-        .unwrap_or(true)
-    {
-        return Err(NumericError::linalg("Singular matrix"));
-    }
-    let identity = Mat::from_fn(n, n, |i, j| if i == j { 1.0 } else { 0.0 });
-    let inv = af.partial_piv_lu().solve(&identity);
-    Ok(faer_to_nd(inv.as_ref()))
+/// NumPy `linalg.inv(A)`.
+pub fn inverse(a: ArrayView2<'_, f64>) -> Result<Array2<f64>> {
+    require_square(a, "inv")?;
+    let inverse = nd_to_na(a)
+        .lu()
+        .try_inverse()
+        .ok_or_else(|| NumericError::linalg("Singular matrix"))?;
+    Ok(na_to_nd(&inverse))
 }

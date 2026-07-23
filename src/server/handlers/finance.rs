@@ -628,18 +628,6 @@ pub(crate) fn try_handle(req_id: u64, method: Method) -> Result<Response, Method
             let v = crate::finance::derivatives::sabr_calibrate(f, t, &strikes, &market_vols, beta);
             Response::ok(req_id, ResultPayload::raw(&v))
         }
-        Method::FindSimilarPairs {
-            embeddings: _,
-            ids: _,
-            threshold: _,
-            use_lsh: _,
-            lsh_num_tables: _,
-            lsh_hash_size: _,
-            seed: _,
-        } => Response::err(
-            req_id,
-            "FindSimilarPairs is deprecated. Use datascience primitives.".to_string(),
-        ),
         other => return Err(other),
     };
     Ok(resp)

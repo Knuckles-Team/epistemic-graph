@@ -8,7 +8,7 @@
 //! ## The easy-vs-native split this path makes concrete
 //! * `time_bucket` windowed aggregate is **trivial in DataFusion** — it's
 //!   `SELECT (ts/w)*w AS bucket, avg(value) … GROUP BY 1`. Run for real below.
-//! * ASOF join + gap-fill are **NOT expressible** in DataFusion 43 SQL → they stay
+//! * ASOF join + gap-fill are **NOT expressible** in the DataFusion 54 SQL path → they stay
 //!   native (`query.rs`).
 //!
 //! The redb chunk store (`store.rs`) is the durable/append tier; an Arrow segment is

@@ -316,8 +316,9 @@ fn cost_reorder_is_answer_preserving() {
     assert_eq!(CostModel::order(&selective), Order::FilterFirst);
     assert_eq!(CostModel::order(&broad), Order::VectorFirst);
 
-    let sel = CostModel::reorder_filter_rank(plan.clone(), &selective);
-    let brd = CostModel::reorder_filter_rank(plan, &broad);
+    let sel = plan.clone();
+    let mut brd = plan;
+    brd.swap(1, 2);
     let a = ids_sorted(&execute(&Plan::new(sel), &ctx).unwrap());
     let b = ids_sorted(&execute(&Plan::new(brd), &ctx).unwrap());
     assert_eq!(

@@ -2,7 +2,7 @@
 //!
 //! This is the wire-SPECIFIC half of the MySQL adapter: the length-prefixed packet
 //! framing, the length-encoded integer/string primitives, the handshake v10 +
-//! handshake-response codecs, and the OK / ERR / EOF / column-count / column-definition
+//! handshake-response codecs, and the OK / ERR / column-count / column-definition
 //! / text-row encoders. It links NO mysql protocol crate — every byte layout is written
 //! by hand against the documented MySQL protocol (matching the pgwire/sparql_http
 //! Pi-contract idiom of framing directly over `tokio::net`).
@@ -232,13 +232,16 @@ pub fn build_err(code: u16, sqlstate: &str, message: &str) -> Vec<u8> {
     p
 }
 
-/// Build an EOF packet payload (the deprecated-but-universal form used when
-/// CLIENT_DEPRECATE_EOF was NOT negotiated). Carries warnings + status flags.
-pub fn build_eof(status: u16) -> Vec<u8> {
-    let mut p = Vec::with_capacity(5);
-    p.push(0xfe); // EOF header
-    p.extend_from_slice(&0u16.to_le_bytes()); // warnings
+/// Build the result-set terminator required when `CLIENT_DEPRECATE_EOF` is
+/// negotiated. This is the protocol-41 OK shape with the `0xfe` result-set header,
+/// two zero length-encoded counters, status flags, and warning count.
+pub fn build_resultset_end(status: u16) -> Vec<u8> {
+    let mut p = Vec::with_capacity(7);
+    p.push(0xfe); // OK/result-set terminator header
+    put_lenenc_int(&mut p, 0); // affected rows
+    put_lenenc_int(&mut p, 0); // last insert id
     p.extend_from_slice(&status.to_le_bytes());
+    p.extend_from_slice(&0u16.to_le_bytes()); // warnings
     p
 }
 
@@ -442,6 +445,15 @@ mod tests {
     }
 
     #[test]
+    fn resultset_end_uses_current_ok_shape() {
+        let p = build_resultset_end(SERVER_STATUS_AUTOCOMMIT);
+        assert_eq!(p[0], 0xfe);
+        assert_eq!(&p[1..3], &[0, 0]);
+        assert_eq!(&p[3..5], &SERVER_STATUS_AUTOCOMMIT.to_le_bytes());
+        assert_eq!(&p[5..7], &[0, 0]);
+    }
+
+    #[test]
     fn err_packet_carries_code_and_sqlstate() {
         let p = build_err(1064, "42000", "boom");
         assert_eq!(p[0], 0xff);
@@ -499,7 +511,8 @@ mod tests {
         let caps = CLIENT_PROTOCOL_41
             | CLIENT_SECURE_CONNECTION
             | CLIENT_PLUGIN_AUTH
-            | CLIENT_CONNECT_WITH_DB;
+            | CLIENT_CONNECT_WITH_DB
+            | CLIENT_DEPRECATE_EOF;
         let hs = build_handshake(7, &seed, caps, "8.0.0-epistemic-graph");
         assert_eq!(hs[0], 10, "protocol version 10");
 

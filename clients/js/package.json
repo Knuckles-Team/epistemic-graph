@@ -7,6 +7,9 @@
   "exports": {
     ".": "./index.mjs"
   },
+  "scripts": {
+    "test": "node --test"
+  },
   "engines": {
     "node": ">=18"
   },

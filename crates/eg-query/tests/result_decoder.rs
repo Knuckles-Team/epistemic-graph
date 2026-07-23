@@ -1,4 +1,4 @@
-//! Result-cell decoder coverage (CONCEPT:EG-KG.query.concept-11). DataFusion 43 already EXECUTES
+//! Result-cell decoder coverage (CONCEPT:EG-KG.query.concept-11). DataFusion 54 already EXECUTES
 //! aggregates / GROUP BY / HAVING, window functions, CTEs, subqueries, set ops
 //! (UNION/INTERSECT/EXCEPT) and DISTINCT — but their results often materialize as
 //! Arrow types the old `cell_to_json` rejected with a hard `Err` (Int32/UInt32,
@@ -36,7 +36,8 @@ fn sample_view() -> GraphView {
 }
 
 fn run(sql: &str) -> eg_query::QueryResult {
-    exec_sql(&sample_view(), sql).expect("sql executed and decoded")
+    exec_sql(&sample_view(), sql, &eg_query::CancellationToken::new())
+        .expect("sql executed and decoded")
 }
 
 fn rows(r: &eg_query::QueryResult) -> Vec<Vec<serde_json::Value>> {
@@ -94,7 +95,7 @@ fn group_by_having() {
 }
 
 /// `ROW_NUMBER() OVER (...)` — a window function. The window output materializes as
-/// UInt64 in DataFusion 43, which the OLD decoder handled, but partitioned windows
+/// UInt64 in DataFusion 54, which the OLD decoder handled, but partitioned windows
 /// and the surrounding projection types are part of the newly-validated surface.
 #[test]
 fn window_row_number() {
@@ -157,7 +158,7 @@ fn select_distinct() {
 
 /// Explicit casts forcing Float32 / Int32 / Decimal128 / Timestamp result cells —
 /// EXACTLY the Arrow types the OLD `cell_to_json` rejected with a hard error. The
-/// query computes fine in DataFusion 43; this asserts the broadened decoder
+/// query computes fine in DataFusion 54; this asserts the broadened decoder
 /// materializes each (numbers for the numeric widths, ISO-8601 string for the
 /// timestamp, lossless decimal string for Decimal128) instead of erroring.
 #[test]

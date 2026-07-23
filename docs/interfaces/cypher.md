@@ -1,7 +1,11 @@
 # Cypher interface
 
 The `cypher` feature gives a Cypher surface over the engine's native graph primitives (label index, VF2
-subgraph matching, petgraph BFS) — not DataFusion. Reads run over a snapshot; writes mutate the graph.
+subgraph matching, petgraph BFS) — not DataFusion. Reads run over an authority-filtered snapshot. Writes
+run against a detached graph and publish only after the authoritative MutationBatch commit succeeds.
+Native clients use separate `query.cypher_read(...)` and `query.cypher_write(...)` methods. Each request
+carries a required mode, and the engine's complete Cypher parser rejects a declared-mode mismatch before
+execution. Authorization never depends on a client-side keyword scan.
 
 > Status snapshot: `MATCH … WHERE … RETURN … LIMIT` reads and writes (`CREATE`/`MERGE`/`SET`/`DELETE`
 > +`DETACH`/`REMOVE`) are supported, along with `ORDER BY`/`SKIP`/`WITH`/`OPTIONAL MATCH`/`UNWIND`, the
@@ -22,10 +26,26 @@ LIMIT 100
 - **Patterns**: linear `node (edge node)*`. Nodes `(var:Label)` — both the variable and the label are
   optional. Edges `-[:REL]->`, `<-[:REL]-`, and variable-length `-[:REL*m..n]->` (now combinable with
   surrounding fixed hops + path-variable binding, EG-KG.query.concept-2).
+- **Quantified path patterns (Cypher 25, EG-KG.query.quantified-path-pattern)**: `((a)-[:REL]->(b)){m,n}`
+  repeats a WHOLE inner sub-pattern — not just one relationship — `m..n` times, e.g.
+  `MATCH (x)((a)-[r:LIKES]->()-[:KNOWS]->(b)){1,3}(y) RETURN a, b, type(r), y`.
+  A single-hop group generalizes `-[:REL*m..n]->`; multi-hop and recursively nested inner patterns use
+  the same walker. Variables declared inside the group are projected as ordered per-repetition lists
+  (node variables, relationship variables, property access, and `type(r)`); a valid `{0}` match exposes
+  empty lists. Distinct paths ending at the same node remain distinct when their group bindings differ.
+  `WITH` and `RETURN *` preserve those group variables. Expansion fails at the same 50,000-row bound as
+  ordinary Cypher results rather than exhausting memory.
+- **QPP in `CREATE`**: the group is materialized natively, including multi-hop/nested groups and returned
+  per-iteration variable lists. An exact `{n}` creates `n` repetitions. A bounded range `{m,n}`
+  deterministically creates its inclusive upper bound `n`; the open upper form uses the parser's finite
+  bound of 16. Descending bounds are rejected.
 - **WHERE** (EG-KG.query.eg-extend-read-side): `AND`/`OR`, `var.prop <op> literal` with `= <> != < <= > >=`, plus `IN`,
   `STARTS WITH`, `CONTAINS`, `IS NULL`.
 - **RETURN**: `var`, `var.prop`, `*`, `DISTINCT`, comma-separated; aggregation
-  (`count`/`collect`/`sum`/`avg`/`min`/`max`).
+  (`count`/`collect`/`sum`/`avg`/`min`/`max`). A bare node variable materializes as
+  a property map with authoritative virtual `id` and canonical `node_type`; it is
+  never returned as an implementation-level node-id string. `var.id` reads the
+  authoritative graph key even if an input payload attempted to shadow `id`.
 - **Pipeline**: `WITH`, `ORDER BY`, `SKIP`, `OPTIONAL MATCH`, and `UNWIND expr AS var` (EG-KG.query.param-list-drives-unwind) compose as
   chained stages.
 - **LIMIT**: integer (an implicit cap of 50,000 rows protects the engine).
@@ -43,6 +63,12 @@ DELETE a            // DETACH DELETE to also drop incident edges; edge-var DELET
 eg-core mutations (`add_node`/`add_edge`/`compare_and_set_fields`/`remove_node`/`remove_edge`). MERGE is
 idempotent (create-if-absent via the label index).
 
+Cypher has one primary-label field: `node_type`. `CREATE (n:Agent ...)` persists
+`node_type: "Agent"`; `MATCH (n:Agent)`, `n.node_type`, `REMOVE n:Agent`, and
+`db.labels()` read that same field (plus the explicit secondary `labels` array where
+applicable). Ordinary payload properties named `type` or `label` are not structural
+aliases. A conflicting explicit `node_type` on a labelled `CREATE` is rejected.
+
 ## Procedures — `CALL` + GDS (EG-KG.query.cypher-planning/143/144)
 
 `CALL { subquery }` and `CALL proc(args) YIELD …` invoke a procedure registry that dispatches to native
@@ -54,16 +80,39 @@ CALL gds.pageRank.stream('social') YIELD nodeId, score
 RETURN nodeId, score ORDER BY score DESC LIMIT 10;
 ```
 
-Available `gds.*`: PageRank, weakly/strongly-connected components, Louvain community detection,
-betweenness + degree centrality, single-source weighted shortest path (Dijkstra), and node similarity
-(Jaccard/cosine over neighborhoods).
+Available `gds.*`: PageRank, weakly/strongly-connected components, Louvain community detection, Label
+Propagation, betweenness + degree centrality, single-source weighted shortest path (Dijkstra), node
+similarity (Jaccard/cosine over neighborhoods, all-pairs `gds.nodeSimilarity` + per-node top-`k`
+`gds.knn`), density clustering (`gds.dbscan`, feature `cypher-mining`), and link prediction
+(`gds.linkPrediction`, a KAN classifier over structural pair features, feature `cypher-graphlearn`) —
+CONCEPT:EG-KG.query.gds-procedure-routing.
 
 ## Remote drivers — Bolt v4.4 (EG-KG.query.bolt-wire-protocol, feature `bolt-wire`)
 
 A native Bolt v4.4 listener (`src/server/bolt_wire/`, PackStream v2 chunked framing,
-HELLO/LOGON/RUN/PULL/DISCARD/BEGIN/COMMIT/ROLLBACK) lets Neo4j drivers (neo4j-python/js/go, `cypher-shell`)
+HELLO/LOGON/RUN/PULL/DISCARD/BEGIN/COMMIT/ROLLBACK) lets Neo4j drivers with custom auth-token support
 connect directly — `RUN`'s Cypher goes straight to this engine, no SQL layer. Set
-`EPISTEMIC_GRAPH_BOLT_ADDR` (default `127.0.0.1:7687`); see [connecting](connecting.md#neo4j--cypher-shell--bolt-driver-bolt-wire).
+`EPISTEMIC_GRAPH_BOLT_ADDR` (default `127.0.0.1:7687`); see [connecting](connecting.md#neo4j-bolt-drivers).
+
+The direct listener is plaintext and unconditionally loopback-only. HELLO/LOGON accepts only the
+`epistemic` scheme. Its credentials are a fresh hex-MessagePack `Health` request carrying the current
+`eg2.` envelope. The shared verifier durably consumes the nonce, verifies tenant/audience/policy and
+derives `CarrierAuthority` plus row authority; the request's signed graph becomes immutable for that
+connection. A `db` value on BEGIN/RUN is accepted only when it equals that signed graph. The display
+`principal` is ignored as authority.
+
+Every RUN rechecks `query:cypher` scope and graph ACL. Reads use the common RLS projection. Auto-commit
+writes and explicit COMMIT use the same detached Cypher → row delta → authoritative MutationBatch
+barrier as native Cypher. An explicit transaction captures a versioned snapshot, replays buffered writes
+under the same RLS projection, rejects a version conflict, and publishes all writes once; ROLLBACK,
+RESET, disconnect, and failed execution discard the detached state. Durable receipts store an opaque
+transaction digest rather than query text or bound values.
+
+There is no Bolt auth-mode or default-graph environment variable and no basic-password fallback.
+Clients must mint a fresh token for each physical connection; the Python native client exposes
+`fresh_bolt_auth_token(graph=...)` for auth-manager callbacks. A basic-only `cypher-shell` cannot use
+this current contract. Remote clients require an authenticated TLS/mTLS gateway into the loopback
+backend and still must complete signed-session verification.
 
 ## Relationship to the other surfaces
 

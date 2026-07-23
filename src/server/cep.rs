@@ -58,6 +58,7 @@ use eg_stream::{AttrPredicate, CepPattern, Event, EventMatcher, Match, Window};
 
 use super::state::ServerState;
 use crate::protocol::{Method, Response, ResultPayload};
+use crate::server::access::CarrierAuthority;
 use crate::wire::{CdcEvent, CdcKind, CepMatcherSpec, CepNodeSpec, CepPatternSpec, CepWindowSpec};
 
 /// Bounded capacity of the CDC → CEP event bus. A CEP engine that falls this far behind
@@ -286,24 +287,29 @@ async fn surface_of(
 /// Handle the live CEP standing-query methods (CONCEPT:EG-KG.query.protocol-types). Returns `Err(method)` for
 /// any non-CEP method so the dispatch chain falls through — though dispatch only routes the
 /// `Cep*` methods here.
-pub async fn try_handle(
+pub(crate) async fn try_handle(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
+    authority: &CarrierAuthority,
     method: Method,
 ) -> Result<Response, Method> {
+    // CEP patterns have no mandatory graph in the wire contract, so they cannot
+    // be row-projected safely. Preserve the protocol only for an explicitly
+    // verified cluster administrator; ordinary tenants fail closed.
+    if let Err(error) = authority.require_admin("CEP subscriptions") {
+        return Ok(Response::err(req_id, error));
+    }
     match method {
         Method::CepSubscribe {
             pattern_msgpack,
             buffer,
         } => {
-            let spec: CepPatternSpec = match rmp_serde::from_slice(&pattern_msgpack) {
+            let spec: CepPatternSpec = match eg_types::msgpack::decode_bounded(
+                &pattern_msgpack,
+                eg_types::msgpack::MsgpackLimits::new(1024 * 1024, 50_000, 64),
+            ) {
                 Ok(s) => s,
-                Err(e) => {
-                    return Ok(Response::err(
-                        req_id,
-                        format!("invalid pattern_msgpack: {e}"),
-                    ))
-                }
+                Err(_) => return Ok(Response::err(req_id, "invalid or over-complex CEP pattern")),
             };
             let surface = match surface_of(state, req_id).await {
                 Ok(s) => s,

@@ -72,6 +72,61 @@ fn spatial_scan_tight_bbox() {
     assert_eq!(run(&plan, &view), vec!["A", "B"]);
 }
 
+/// A stub [`crate::exec::SpatialSource`] that returns a FIXED, made-up id set unrelated
+/// to `cities()`'s real geometries — used to prove `Op::SpatialScan` genuinely consults a
+/// bound `PlanCtx::spatial` INSTEAD of falling back to the per-call ephemeral R-tree
+/// (CONCEPT:EG-KG.storage.incremental-spatial, L37).
+struct StubSpatial(Vec<String>);
+
+impl crate::exec::SpatialSource for StubSpatial {
+    fn query_bbox(&self, _layer: &str, _bbox: [f64; 4]) -> Vec<String> {
+        self.0.clone()
+    }
+}
+
+/// L37 — a bound `PlanCtx::spatial` is consulted INSTEAD OF the ephemeral R-tree
+/// fallback. The stub returns synthetic ids that do not exist in `cities()`'s real node
+/// set at all; if the executor silently fell back to the snapshot-derived R-tree, the
+/// result would instead be the REAL bbox hits (a subset of A/B/C/D/E, per
+/// `spatial_scan_bbox_selects_layer`) — never the stub's ids.
+#[test]
+fn spatial_scan_pushes_down_into_bound_spatial_source() {
+    let view = cities();
+    let sem = SemanticStore::new();
+    let stub = StubSpatial(vec!["synthetic-1".into(), "synthetic-2".into()]);
+    let ctx = PlanCtx::new(&view, &sem).with_spatial(&stub);
+    let plan = Plan::new(vec![Op::SpatialScan {
+        layer: "City".into(),
+        bbox: [0.0, 0.0, 10.0, 10.0],
+    }]);
+    let mut ids = plan.execute(&ctx).unwrap().ids();
+    ids.sort();
+    assert_eq!(
+        ids,
+        vec!["synthetic-1".to_string(), "synthetic-2".to_string()],
+        "a bound SpatialSource must be consulted instead of the ephemeral R-tree fallback: {ids:?}"
+    );
+}
+
+/// L37 — with NO bound `PlanCtx::spatial` (`None`, `PlanCtx::new`'s default), a served
+/// `Op::SpatialScan` keeps the EXACT prior v1 fallback behavior: byte-for-byte
+/// `spatial_scan_bbox_selects_layer` above, re-run through an EXPLICITLY constructed ctx
+/// (rather than `run`'s helper) to lock in that `with_spatial` is opt-in, never a
+/// silent behavior change for a caller that never binds one.
+#[test]
+fn spatial_scan_without_bound_source_keeps_ephemeral_fallback() {
+    let view = cities();
+    let sem = SemanticStore::new();
+    let ctx = PlanCtx::new(&view, &sem); // spatial: None
+    let plan = Plan::new(vec![Op::SpatialScan {
+        layer: "City".into(),
+        bbox: [0.0, 0.0, 10.0, 10.0],
+    }]);
+    let mut ids = plan.execute(&ctx).unwrap().ids();
+    ids.sort();
+    assert_eq!(ids, vec!["A", "B", "C", "D"]);
+}
+
 #[test]
 fn spatial_within_polygon_filter() {
     let view = cities();

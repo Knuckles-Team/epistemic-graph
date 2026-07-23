@@ -2,7 +2,7 @@
 
 Runs a tiny in-process HTTP server implementing the EG-187 ``/kv`` surface
 (``GET|PUT|HEAD /kv/<hash>``, ``GET /kv/<hash>/exists``, ``GET /kv/stats``) with
-optional bearer-token enforcement, and exercises the driver end-to-end over a
+mandatory bearer-token enforcement, and exercises the driver end-to-end over a
 real socket — no mocking of the HTTP layer, no third-party test deps.
 
 Run standalone (bypass the slow engine-build conftest fixture)::
@@ -13,6 +13,7 @@ Run standalone (bypass the slow engine-build conftest fixture)::
 from __future__ import annotations
 
 import json
+import ssl
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import unquote
@@ -20,11 +21,16 @@ from urllib.parse import unquote
 import pytest
 
 from epistemic_graph.kvcache import (
+    HTTPX_AVAILABLE,
+    HttpxTransport,
     KvCacheConfig,
     KvCacheStats,
     RemoteKVConnector,
     RemoteKVL2Connector,
+    UrllibTransport,
 )
+
+_TEST_TOKEN = "test-kvcache-token"
 
 
 class _KvState:
@@ -35,7 +41,7 @@ class _KvState:
         self.get_hits = 0
         self.get_misses = 0
         self.dedup_hits = 0
-        self.require_token: str | None = None
+        self.require_token = _TEST_TOKEN
 
 
 def _make_handler(state: _KvState):
@@ -45,8 +51,6 @@ def _make_handler(state: _KvState):
 
         # -- auth ---------------------------------------------------------
         def _authed(self) -> bool:
-            if state.require_token is None:
-                return True
             got = self.headers.get("Authorization", "")
             if got == f"Bearer {state.require_token}":
                 return True
@@ -106,6 +110,10 @@ def _make_handler(state: _KvState):
             if not self._authed():
                 return
             key = self._key()
+            if key is None:
+                self.send_response(400)
+                self.end_headers()
+                return
             length = int(self.headers.get("Content-Length", 0))
             data = self.rfile.read(length)
             new = key not in state.blocks
@@ -133,7 +141,12 @@ def kv_server():
     server = ThreadingHTTPServer(("127.0.0.1", 0), _make_handler(state))
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
-    host, port = server.server_address
+    # `server_address` is typed as an IPv4-or-IPv6 socket address (2- or 4-tuple, host
+    # possibly `bytes`); this server always binds IPv4 (`"127.0.0.1"`), so normalize to
+    # a plain str/int pair instead of unpacking the whole (union-typed) tuple.
+    addr = server.server_address
+    host = addr[0].decode() if isinstance(addr[0], bytes) else addr[0]
+    port = addr[1]
     base_url = f"http://{host}:{port}"
     try:
         yield base_url, state
@@ -142,7 +155,7 @@ def kv_server():
         server.server_close()
 
 
-def _connector(base_url: str, token: str | None = None) -> RemoteKVConnector:
+def _connector(base_url: str, token: str = _TEST_TOKEN) -> RemoteKVConnector:
     return RemoteKVConnector(
         KvCacheConfig(base_url=base_url, token=token, timeout_s=5.0)
     )
@@ -208,11 +221,11 @@ def test_content_addressed_keys_with_special_chars(kv_server):
 def test_token_header_enforced(kv_server):
     base_url, state = kv_server
     state.require_token = "s3cr3t"
-    # Without the token → 401 → graceful miss.
-    with _connector(base_url) as anon:
-        assert anon.put("k", b"v") is False
-        assert anon.get("k") is None
-        assert anon.contains("k") is False
+    # A wrong token → 401 → graceful miss.
+    with _connector(base_url, token="wrong") as rejected:
+        assert rejected.put("k", b"v") is False
+        assert rejected.get("k") is None
+        assert rejected.contains("k") is False
     # With the right token → success.
     with _connector(base_url, token="s3cr3t") as authed:
         assert authed.put("k", b"v") is True
@@ -222,7 +235,7 @@ def test_token_header_enforced(kv_server):
 def test_graceful_degradation_when_engine_down():
     # Nothing listening → every op degrades to a miss, never raises.
     conn = RemoteKVConnector(
-        KvCacheConfig(base_url="http://127.0.0.1:1", timeout_s=0.25)
+        KvCacheConfig(base_url="http://127.0.0.1:1", token=_TEST_TOKEN, timeout_s=0.25)
     )
     try:
         assert conn.get("x") is None
@@ -242,14 +255,62 @@ def test_config_from_env(monkeypatch):
     monkeypatch.setenv("EPISTEMIC_GRAPH_KVCACHE_TOKEN", "tok")
     monkeypatch.delenv("EPISTEMIC_GRAPH_KVCACHE_URL", raising=False)
     cfg = KvCacheConfig.from_env()
-    assert cfg.base_url == "http://10.0.0.5:9130"
+    assert cfg.base_url == "https://10.0.0.5:9130"
     assert cfg.token == "tok"
 
 
 def test_config_from_env_bare_port(monkeypatch):
+    monkeypatch.setenv("EPISTEMIC_GRAPH_KVCACHE_TOKEN", _TEST_TOKEN)
     monkeypatch.delenv("EPISTEMIC_GRAPH_KVCACHE_URL", raising=False)
     monkeypatch.setenv("EPISTEMIC_GRAPH_KVCACHE_ADDR", "9200")
     assert KvCacheConfig.from_env().base_url == "http://127.0.0.1:9200"
+
+
+def test_tls_profile_uses_standard_ca_bundle_environment(monkeypatch):
+    monkeypatch.setenv("EPISTEMIC_GRAPH_KVCACHE_TOKEN", _TEST_TOKEN)
+    monkeypatch.delenv("SSL_CERT_FILE", raising=False)
+    monkeypatch.setenv("REQUESTS_CA_BUNDLE", "runtime-ca-bundle.pem")
+    config = KvCacheConfig.from_env()
+    assert config.ca_bundle == "runtime-ca-bundle.pem"
+
+
+def test_mtls_identity_must_be_a_pair():
+    with pytest.raises(ValueError, match="configured together"):
+        KvCacheConfig(token=_TEST_TOKEN, client_cert="runtime-client.pem")
+
+
+def test_bearer_or_jwt_token_is_mandatory(monkeypatch):
+    monkeypatch.delenv("EPISTEMIC_GRAPH_KVCACHE_TOKEN", raising=False)
+    with pytest.raises(ValueError, match="token must be configured"):
+        KvCacheConfig.from_env()
+    with pytest.raises(ValueError, match="token must be configured"):
+        KvCacheConfig(token="  ")
+
+
+def test_non_loopback_plain_http_is_rejected():
+    with pytest.raises(ValueError, match="require HTTPS"):
+        KvCacheConfig(base_url="http://cache.example:9130", token=_TEST_TOKEN)
+    config = KvCacheConfig(base_url="https://cache.example:9130", token=_TEST_TOKEN)
+    assert config.base_url == "https://cache.example:9130"
+
+
+@pytest.mark.skipif(not HTTPX_AVAILABLE, reason="httpx extra is not installed")
+def test_httpx_transport_cannot_disable_peer_verification():
+    with pytest.raises(ValueError, match="cannot be disabled"):
+        HttpxTransport(
+            base_url="https://cache.example:9130",
+            timeout_s=1.0,
+            tls_context=False,
+            max_connections=1,
+        )
+
+
+def test_urllib_transport_rejects_unverified_context():
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE
+    with pytest.raises(ValueError, match="cannot be disabled"):
+        UrllibTransport(timeout_s=1.0, tls_context=context)
 
 
 # --------------------------------------------------------------------------- #
@@ -268,7 +329,9 @@ def _drain(l2: RemoteKVL2Connector, future_id: int):
 
 def test_l2_native_plugin_batch_roundtrip(kv_server):
     base_url, _ = kv_server
-    l2 = RemoteKVL2Connector(base_url=base_url, num_workers=2, timeout_s=5.0)
+    l2 = RemoteKVL2Connector(
+        base_url=base_url, token=_TEST_TOKEN, num_workers=2, timeout_s=5.0
+    )
     try:
         # submit_batch_set → PUT
         fid = l2.submit_batch_set(
@@ -295,7 +358,9 @@ def test_l2_native_plugin_batch_roundtrip(kv_server):
 
 def test_l2_size_mismatch_is_miss(kv_server):
     base_url, _ = kv_server
-    l2 = RemoteKVL2Connector(base_url=base_url, num_workers=1, timeout_s=5.0)
+    l2 = RemoteKVL2Connector(
+        base_url=base_url, token=_TEST_TOKEN, num_workers=1, timeout_s=5.0
+    )
     try:
         fid = l2.submit_batch_set(["big"], [memoryview(b"12345678")])
         _drain(l2, fid)

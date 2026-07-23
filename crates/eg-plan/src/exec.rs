@@ -34,12 +34,17 @@ use eg_types::wire::TimeAxis;
 pub struct PlanCtx<'a> {
     pub view: &'a GraphView,
     pub semantic: &'a SemanticStore,
-    /// The lexical BM25 index for the `RankText` / `FuseRrf` ops (CONCEPT:AU-KG.query.text-spatial-time).
-    /// `None` when no text index is configured — a `RankText` then yields no hits
-    /// (the plan degrades, never errs), exactly as an absent embedding does for
-    /// `Rank`. Gated behind `text`, so a non-text build's `PlanCtx` is unchanged.
+    /// The lexical BM25 search surface for the `RankText` / `FuseRrf` ops
+    /// (CONCEPT:AU-KG.query.text-spatial-time / CONCEPT:EG-KG.query.served-text-index-binding). `None` when no text
+    /// index is configured — a `RankText` then yields no hits (the plan degrades,
+    /// never errs), exactly as an absent embedding does for `Rank`. A TRAIT OBJECT
+    /// (not a concrete `eg_text::TextIndex`) so a facade can bind EITHER a
+    /// snapshot-derived index built straight from the queried `GraphView` OR an
+    /// adapter that reaches the server's MAINTAINED persistent index behind a lock
+    /// (see [`TextSource`]'s docs) — the planner does not care which. Gated behind
+    /// `text`, so a non-text build's `PlanCtx` is unchanged.
     #[cfg(feature = "text")]
-    pub text: Option<&'a eg_text::TextIndex>,
+    pub text: Option<&'a dyn TextSource>,
     /// The WASM UDF registry for the `Udf { id }` op (CONCEPT:EG-KG.query.rowset-execution). `None` when no
     /// registry is attached — a `Udf` op then errs (a UDF must be registered to run).
     /// Gated behind `wasm-udf`, so a non-wasm build's `PlanCtx` is unchanged.
@@ -47,18 +52,15 @@ pub struct PlanCtx<'a> {
     pub udf: Option<&'a eg_wasm::UdfRegistry>,
     /// The federation foreign-source registry backing `Op::Foreign` (the UQL
     /// `FOREIGN "<name>"` marker) and a `Named` `Op::ForeignScan` (CONCEPT:EG-KG.query.closure-backed-source).
-    /// `None` when no foreign sources are registered — the name-resolving ops then keep
-    /// their prior behavior (`Op::Foreign` passes its input through unchanged), so a
-    /// default ctx is byte-for-byte the old one. Gated behind `federation`, so a
-    /// non-federation build's `PlanCtx` is unchanged.
+    /// `None` when no foreign sources are registered; a name-resolving op then fails
+    /// rather than silently preserving its input. Gated behind `federation`.
     #[cfg(feature = "federation")]
     pub foreign: Option<&'a crate::federation::ForeignSourceRegistry>,
     /// CONCEPT:EG-KG.storage.derived-tensor-writeback-sink — the content-addressed [`eg_tensor::TensorStore`] into which the
     /// tensor executor WRITES BACK every derived tensor an `Op::TensorOp` produces, so a
     /// derived tensor becomes a durable, dedup-shared CAS blob addressable by its
-    /// deterministic content hash — the EG-085 CAS-write-back follow-up that v1 left
-    /// documented-but-unbuilt. `None` (the default) preserves today's validate-only
-    /// behavior byte-for-byte: no write-back, fully backward-compatible. Held behind a
+    /// deterministic content hash. A `TensorOp` requires this binding and fails when it
+    /// is absent; derived tensors are never computed and discarded. Held behind a
     /// [`std::sync::Mutex`] so the write-back is interior-mutable through the shared
     /// `&PlanCtx` the executor threads, while `PlanCtx` itself stays `Send + Sync`. An
     /// identical derived tensor content-addresses to the SAME blob, so re-running a plan
@@ -77,6 +79,14 @@ pub struct PlanCtx<'a> {
     /// `PlanCtx` is unchanged.
     #[cfg(feature = "timeseries")]
     pub tsdb: Option<&'a eg_tsdb::store::SeriesStore>,
+    /// Verified tenant scope paired with [`Self::tsdb_graph`]. Both must be set by
+    /// served callers before committed TsScan data can be addressed.
+    #[cfg(feature = "timeseries")]
+    pub tsdb_tenant: Option<&'a str>,
+    /// Graph scope paired with a verified tenant for committed `TsScan` reads.
+    /// A graph string alone never grants access to a raw SeriesStore namespace.
+    #[cfg(feature = "timeseries")]
+    pub tsdb_graph: Option<&'a str>,
     /// CONCEPT:EG-KG.query.txn-tsdb-read-your — an in-memory STAGED-series overlay consulted by `Op::TsScan`
     /// BEFORE the committed [`Self::tsdb`] store, so an in-txn UQL reading a series sees
     /// the transaction's OWN uncommitted staged points (read-your-own-writes). `None` (the
@@ -110,6 +120,89 @@ pub struct PlanCtx<'a> {
     /// `last_access`/`valid_from` use); a per-node `half_life` blob field overrides the default.
     #[cfg(feature = "owl")]
     pub decay: Option<(u64, f64)>,
+    /// CONCEPT:EG-KG.epistemic.epistemic-substrate — the confidence-weighting
+    /// [`eg_epistemic::AuthorityPolicy`] the `Op::{ConfidenceOp,SourceReliability,BeliefAsOf,
+    /// ExplainBelief}` ops apply during propagation (source reliability multiplier / attack
+    /// discount / prior strength). `None` (the default) uses `AuthorityPolicy::default()`, so
+    /// a default ctx behaves exactly as an explicit default policy would. A tenant-specific
+    /// policy is never persisted on the graph — the facade threads one in per request via
+    /// [`Self::with_belief_policy`]. Gated behind `epistemic`, so a non-epistemic build's
+    /// `PlanCtx` is unchanged.
+    #[cfg(feature = "epistemic")]
+    pub belief_policy: Option<eg_epistemic::AuthorityPolicy>,
+    /// The persistent spatial-index search surface for `Op::SpatialScan` (CONCEPT:EG-KG.storage.incremental-spatial,
+    /// L37 — mirrors [`Self::text`]'s served-index-binding shape). `None` (the default)
+    /// makes `Op::SpatialScan` fall back to its prior v1 behavior: build an ephemeral
+    /// packed Hilbert R-tree from the queried snapshot on EVERY call (see
+    /// [`spatial_scan`]). `Some` pushes the bbox query DOWN into a facade adapter that
+    /// reaches a MAINTAINED index living behind a lock elsewhere (e.g. the server's
+    /// per-graph `GraphSpatialIndex`, kept incrementally up to date by the write
+    /// coalescer), so a served spatial scan does not rebuild the tree per query. A TRAIT
+    /// OBJECT (not a concrete type) for the SAME reason `text` is: the planner does not
+    /// care whether the bound index is snapshot-derived or server-maintained. Gated
+    /// behind `geo`, so a non-geo build's `PlanCtx` is unchanged.
+    #[cfg(feature = "geo")]
+    pub spatial: Option<&'a dyn SpatialSource>,
+}
+
+/// The lexical BM25 search surface [`PlanCtx::text`] binds (CONCEPT:EG-KG.query.served-text-index-binding) —
+/// abstracts OVER a concrete `eg_text::TextIndex` so the executor's `RankText`/`FuseRrf`
+/// legs work identically whether the bound index is:
+///   * a plain `eg_text::TextIndex` (an ephemeral snapshot-derived index, or an
+///     in-process test fixture) — searched directly, `&self`, no locking needed; or
+///   * a facade adapter that reaches a MAINTAINED, persistent index living behind a
+///     lock/`Arc` elsewhere (e.g. the server's per-graph `GraphTextIndex`, which is
+///     kept incrementally up to date by the write-coalescer) — the adapter takes
+///     its own lock internally, per call, and returns owned hits.
+///
+/// This is what lets a served query push the lexical leg DOWN into the already-
+/// maintained index instead of paying a snapshot-rebuild on every request — the
+/// same shape [`crate::knowledge_batch`]'s Arrow projection and the vector `Rank`
+/// leg's `SemanticStore` guard-borrow use elsewhere in this workstream (bind the
+/// LIVE structure, don't clone/rebuild it per query).
+#[cfg(feature = "text")]
+pub trait TextSource: Send + Sync {
+    /// BM25 top-`k` for `query` — same contract as `eg_text::TextIndex::search`:
+    /// `(id, bm25_score)` descending, empty on an empty/unparsable query.
+    fn search(&self, query: &str, k: usize) -> Vec<eg_text::TextHit>;
+
+    /// The (live) document count backing this index (CONCEPT:EG-KG.query.index-method-seam) —
+    /// lets a candidate-restricted `RankText` size its over-fetch pool from the ACTUAL
+    /// selectivity of the current candidate set against the real corpus, the same way
+    /// [`crate::cost::CostModel::vector_first_cost`] already does for the vector leg,
+    /// instead of a blind fixed multiplier. Defaults to `u64::MAX` (a "cardinality
+    /// unknown" sentinel any implementor need not override) so an adapter that cannot
+    /// cheaply report its size degrades to the prior fixed-heuristic over-fetch rather
+    /// than mis-sizing one off a fabricated count.
+    fn doc_count(&self) -> u64 {
+        u64::MAX
+    }
+}
+
+#[cfg(feature = "text")]
+impl TextSource for eg_text::TextIndex {
+    fn search(&self, query: &str, k: usize) -> Vec<eg_text::TextHit> {
+        eg_text::TextIndex::search(self, query, k)
+    }
+
+    fn doc_count(&self) -> u64 {
+        eg_text::TextIndex::num_docs(self)
+    }
+}
+
+/// The spatial bbox search surface [`PlanCtx::spatial`] binds (CONCEPT:EG-KG.storage.incremental-spatial, L37) —
+/// mirrors [`TextSource`]'s shape: abstracts OVER the concrete backing so `Op::SpatialScan`
+/// works identically whether the bound index is a facade adapter over the server's
+/// MAINTAINED per-graph `GraphSpatialIndex` (kept incrementally up to date by the write
+/// coalescer, never rebuilt per query) or — via `spatial_scan`'s OWN fallback when
+/// `PlanCtx::spatial` is `None` — an ephemeral snapshot-derived R-tree.
+#[cfg(feature = "geo")]
+pub trait SpatialSource: Send + Sync {
+    /// Every node id in `layer` (the conventional `type` property, matching
+    /// [`scan_label`]'s convention) whose maintained bounding box intersects `bbox`.
+    /// Empty when `layer` is unknown to this index (never an error — degrades exactly
+    /// like an absent index would).
+    fn query_bbox(&self, layer: &str, bbox: [f64; 4]) -> Vec<String>;
 }
 
 /// A server-side text→vector embedder (CONCEPT:EG-KG.compute.no-embedder-bound-op) — the seam that resolves a UQL
@@ -247,10 +340,18 @@ impl<'a> PlanCtx<'a> {
             #[cfg(feature = "timeseries")]
             tsdb: None,
             #[cfg(feature = "timeseries")]
+            tsdb_tenant: None,
+            #[cfg(feature = "timeseries")]
+            tsdb_graph: None,
+            #[cfg(feature = "timeseries")]
             staged_series: None,
             embedder: None,
             #[cfg(feature = "owl")]
             decay: None,
+            #[cfg(feature = "epistemic")]
+            belief_policy: None,
+            #[cfg(feature = "geo")]
+            spatial: None,
         }
     }
 
@@ -263,10 +364,22 @@ impl<'a> PlanCtx<'a> {
         self
     }
 
-    /// Attach a lexical BM25 index so `RankText` / `FuseRrf` ops can run.
+    /// Attach a lexical BM25 [`TextSource`] so `RankText` / `FuseRrf` ops can run —
+    /// either a plain `eg_text::TextIndex` or a facade adapter over a maintained
+    /// persistent index (CONCEPT:EG-KG.query.served-text-index-binding).
     #[cfg(feature = "text")]
-    pub fn with_text(mut self, text: &'a eg_text::TextIndex) -> Self {
+    pub fn with_text(mut self, text: &'a dyn TextSource) -> Self {
         self.text = Some(text);
+        self
+    }
+
+    /// Attach a persistent [`SpatialSource`] so `Op::SpatialScan` pushes its bbox query
+    /// down into a MAINTAINED index (CONCEPT:EG-KG.storage.incremental-spatial, L37) instead of
+    /// `spatial_scan`'s per-call ephemeral R-tree build. Without this call a `SpatialScan`
+    /// keeps that prior behavior, so a default ctx is byte-for-byte the old one.
+    #[cfg(feature = "geo")]
+    pub fn with_spatial(mut self, spatial: &'a dyn SpatialSource) -> Self {
+        self.spatial = Some(spatial);
         self
     }
 
@@ -281,6 +394,15 @@ impl<'a> PlanCtx<'a> {
     #[cfg(feature = "owl")]
     pub fn with_decay(mut self, now: u64, default_half_life: f64) -> Self {
         self.decay = Some((now, default_half_life));
+        self
+    }
+
+    /// Attach a tenant-specific [`eg_epistemic::AuthorityPolicy`] for the epistemic ops
+    /// (CONCEPT:EG-KG.epistemic.epistemic-substrate). Without this call they run under
+    /// `AuthorityPolicy::default()`, so a default ctx is byte-for-byte the old one.
+    #[cfg(feature = "epistemic")]
+    pub fn with_belief_policy(mut self, policy: eg_epistemic::AuthorityPolicy) -> Self {
+        self.belief_policy = Some(policy);
         self
     }
 
@@ -304,9 +426,8 @@ impl<'a> PlanCtx<'a> {
     /// Attach a content-addressed [`eg_tensor::TensorStore`] so the tensor executor
     /// WRITES BACK each derived tensor an `Op::TensorOp` produces into the CAS
     /// (CONCEPT:EG-KG.storage.derived-tensor-writeback-sink). A server/facade owns the store (behind a [`std::sync::Mutex`])
-    /// and can later `persist` it to disk for durability; without this call the executor
-    /// keeps its prior validate-only behavior (no write-back), so a default ctx is
-    /// byte-for-byte the old one.
+    /// and can later `persist` it to disk for durability. `Op::TensorOp` requires this
+    /// binding.
     #[cfg(feature = "tensor")]
     pub fn with_tensor_store(
         mut self,
@@ -325,6 +446,15 @@ impl<'a> PlanCtx<'a> {
     #[cfg(feature = "timeseries")]
     pub fn with_tsdb(mut self, store: &'a eg_tsdb::store::SeriesStore) -> Self {
         self.tsdb = Some(store);
+        self
+    }
+
+    /// Bind the verified `(tenant, graph)` storage scope for committed `TsScan`
+    /// reads. Tenant ownership is never inferred from a caller-controlled graph string.
+    #[cfg(feature = "timeseries")]
+    pub fn with_tsdb_scope(mut self, tenant: &'a str, graph: &'a str) -> Self {
+        self.tsdb_tenant = Some(tenant);
+        self.tsdb_graph = Some(graph);
         self
     }
 
@@ -391,19 +521,103 @@ pub trait Driver {
 }
 
 /// The serial driver (CONCEPT:EG-KG.query.exec-driver-seam) — reproduces today's execution
-/// EXACTLY: a left fold that seeds an empty [`RowSet`] and applies each op in order via
-/// [`apply`]. This is the behavior [`execute`] had inline before the seam was carved, so
-/// the oracle + snapshot suites are unchanged.
+/// EXACTLY when the runtime feedback loop finds nothing to correct: a left fold that seeds
+/// an empty [`RowSet`] and applies each op in order via [`apply`].
+///
+/// **Adaptive re-optimization is auto-wired here (CONCEPT:EG-KG.query.adaptive-reoptimization), not
+/// opt-in.** After EVERY op the driver compares the RowSet's ACTUAL output length against
+/// the plan-time [`crate::cost::ModalityCardinality`] estimate for that op, and — when they
+/// diverge by more than [`crate::optimizer::ADAPTIVE_REOPT_THRESHOLD`] — hands the
+/// not-yet-executed tail to [`crate::optimizer::reoptimize_remaining`], which re-costs (and,
+/// if beneficial, re-orders) it from the CORRECTED actual cardinality before it runs. Below
+/// the threshold `reoptimize_remaining` is a no-op clone, so ordinary execution (the common
+/// case — plan-time estimates are usually close enough) is byte-for-byte the prior left
+/// fold; the differential oracle (`tests/differential_oracle.rs`) covers this driver, so the
+/// existing answer-preserving proof applies to the auto-wired path too (`reoptimize_remaining`
+/// reuses the SAME `best_permutation`/EG-405-safe machinery `optimize()` already used at
+/// plan time — see that fn's docs).
+///
+/// Gating: like `plan_optimize` itself, this is active by default and driven off the SAME
+/// `EPISTEMIC_GRAPH_COST_OPT` kill-switch ([`crate::optimizer::enabled`]) — a caller who
+/// disabled the plan-time cost optimizer gets its runtime-feedback half disabled too
+/// (`EPISTEMIC_GRAPH_COST_OPT=0` ⇒ the plain left fold, no per-op cardinality bookkeeping).
+/// [`crate::runtime::ParallelDriver`] (the opt-in `par-runtime` feature) runs this SAME loop
+/// too (CONCEPT:EG-KG.query.adaptive-reoptimization, L35 — both drivers now call
+/// [`run_with_adaptive_reopt`], differing only in how ONE op is applied: this driver's `step`
+/// is the plain serial [`apply`]; the parallel driver's morsel-splits a row-parallel op's
+/// input across the rayon pool first (`crate::runtime::exec_op`) and memory-accounts the
+/// result (`crate::runtime::spill_if_needed`) — see that module's docs for why "the actual
+/// cardinality after op i" is still a single scalar there (the loop iterates over WHOLE ops,
+/// never morsels, regardless of which driver runs them).
 pub struct SerialDriver;
 
 impl Driver for SerialDriver {
     fn run(&self, ops: &[Op], ctx: &PlanCtx) -> Result<RowSet, String> {
+        run_with_adaptive_reopt(ops, ctx, apply)
+    }
+}
+
+/// The adaptive-reoptimization runtime-feedback loop (CONCEPT:EG-KG.query.adaptive-reoptimization) —
+/// factored out of [`SerialDriver::run`] so [`crate::runtime::ParallelDriver`]'s physical
+/// driver (L35, `par-runtime`) runs the IDENTICAL policy instead of a re-implemented copy.
+/// `step` applies ONE op to the current [`RowSet`] — the only thing that differs between the
+/// two physical drivers (a plain serial [`apply`] here, vs the parallel driver's
+/// morsel-aware `exec_op` + spill accounting) — everything else (the divergence check, the
+/// `reoptimize_remaining` tail-splice, the kill-switch fallback) is shared verbatim, so the
+/// two drivers can never drift out of sync on WHEN/HOW re-optimization triggers.
+///
+/// Gated off the SAME `EPISTEMIC_GRAPH_COST_OPT` kill-switch ([`crate::optimizer::enabled`])
+/// as `plan_optimize`: disabled ⇒ a plain left fold over `step`, byte-for-byte the pre-
+/// optimizer behavior for BOTH drivers.
+pub(crate) fn run_with_adaptive_reopt<F>(
+    ops: &[Op],
+    ctx: &PlanCtx,
+    mut step: F,
+) -> Result<RowSet, String>
+where
+    F: FnMut(&Op, RowSet, &PlanCtx) -> Result<RowSet, String>,
+{
+    if !crate::optimizer::enabled() {
+        // The global cost-optimizer kill-switch also disables the runtime feedback
+        // loop below — byte-for-byte the pre-optimizer left fold.
         let mut cur = RowSet::new();
         for op in ops {
-            cur = apply(op, cur, ctx)?;
+            cur = step(op, cur, ctx)?;
         }
-        Ok(cur)
+        return Ok(cur);
     }
+
+    use crate::cost::{Cardinality, ModalityCardinality, PlanStats};
+
+    let card = ModalityCardinality::new(PlanStats::collect(ctx));
+    let mut cur = RowSet::new();
+    let mut estimated_in = 0.0_f64;
+    // The not-yet-executed op list — `reoptimize_remaining` may replace its TAIL
+    // (everything after the op about to run) each iteration, so this can grow/shrink
+    // in content (never in a way that changes correctness — see the doc above) across
+    // the loop, unlike the plain `ops` slice.
+    let mut remaining: Vec<Op> = ops.to_vec();
+    let mut i = 0;
+    while i < remaining.len() {
+        let op = remaining[i].clone();
+        let estimated_out = card.rows_out(&op, estimated_in, ctx);
+        cur = step(&op, cur, ctx)?;
+        let actual_out = cur.len() as f64;
+
+        if i + 1 < remaining.len() {
+            let tail = crate::optimizer::reoptimize_remaining(
+                &remaining[i + 1..],
+                estimated_out,
+                actual_out,
+                &card,
+                ctx,
+            );
+            remaining.splice(i + 1.., tail);
+        }
+        estimated_in = actual_out;
+        i += 1;
+    }
+    Ok(cur)
 }
 
 /// Ergonomic `plan.execute(&ctx)` over the foreign [`Plan`] wire DTO (the orphan
@@ -427,7 +641,7 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
 
         Op::Traverse { rel, min, max } => Ok(traverse_op(ctx, rel, *min, *max, input)),
 
-        Op::Rank { query } => Ok(rank_op(ctx, query, input)),
+        Op::Rank { query } => rank_op(ctx, query, input),
 
         Op::RankEmbed { text } => rank_embed_op(ctx, text, input),
 
@@ -447,13 +661,7 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
         Op::Reason {
             target_class,
             ontology,
-        } => Ok(reason_op(
-            ctx.view,
-            ctx.decay,
-            input,
-            target_class,
-            ontology,
-        )),
+        } => reason_op(ctx.view, ctx.decay, input, target_class, ontology),
 
         #[cfg(feature = "owl")]
         Op::SparqlBgp { query, var } => sparql_source(ctx.view, query, var),
@@ -487,8 +695,8 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
         // the UQL clause lowers to. With a `ForeignSourceRegistry` attached to the ctx
         // (`federation` build) it now RESOLVES the name → rows through the registry (a
         // source op: the foreign rows replace the input); an unbound name is a clean
-        // error. With NO registry attached — or a non-federation build — it passes the
-        // rows through unchanged, exactly as before (existing behavior preserved).
+        // error. A missing registry or a build without federation is also an error;
+        // foreign-source intent is never silently discarded.
         Op::Foreign { name } => foreign_named(name, input, ctx),
 
         // SOURCE (spatial, CONCEPT:EG-KG.ontology.singles-concept) — an eg-geo packed-Hilbert-R-tree bbox scan
@@ -496,7 +704,7 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
         // eg-types/geo is on (pulled by eg-plan/geo), so a non-geo build has neither the
         // variant nor this arm (the ForeignScan gating precedent).
         #[cfg(feature = "geo")]
-        Op::SpatialScan { layer, bbox } => Ok(spatial_scan(ctx.view, layer, *bbox)),
+        Op::SpatialScan { layer, bbox } => Ok(spatial_scan(ctx, layer, *bbox)),
 
         // TRANSFORM (spatial CRS, CONCEPT:EG-KG.domains.coordinate-reference-system) — reproject each row's geometry into
         // `to_epsg`; TRANSFORM (constructive, CONCEPT:EG-KG.ontology.concept-9) — derive a geometry per row
@@ -517,7 +725,7 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
         #[cfg(feature = "tensor")]
         Op::TensorScan { layer } => Ok(tensor_scan(ctx.view, layer)),
         #[cfg(feature = "tensor")]
-        Op::TensorOp { kind } => Ok(tensor_op(ctx, input, kind)),
+        Op::TensorOp { kind } => tensor_op(ctx, input, kind),
 
         // TRANSFORM (probabilistic, CONCEPT:EG-KG.compute.uncertainty-values) — score each row by a closed-form
         // probabilistic query (expectation / marginal / conditional posterior / seeded
@@ -528,6 +736,39 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
         // without it has neither the variant nor this arm (the tensor/stream precedent).
         #[cfg(feature = "probabilistic")]
         Op::Probabilistic { query } => Ok(probabilistic_op(ctx.view, input, query)),
+
+        // SOURCE/FILTER (epistemic, CONCEPT:EG-KG.epistemic.epistemic-substrate, E2) — the
+        // evidence FOR/AGAINST a claim, or the claims a node itself supports. Gated behind
+        // `epistemic`; the variants only exist when eg-types/epistemic is on (pulled by
+        // eg-plan/epistemic), so a non-epistemic build has neither the variants nor these arms
+        // (the tensor/geo/probabilistic gating precedent).
+        #[cfg(feature = "epistemic")]
+        Op::EvidenceFor { claim_id } => Ok(evidence_for_op(ctx.view, input, claim_id)),
+        #[cfg(feature = "epistemic")]
+        Op::Contradicts { node_id } => Ok(contradicts_op(ctx.view, input, node_id)),
+        #[cfg(feature = "epistemic")]
+        Op::SupportedBy { node_id } => Ok(supported_by_op(ctx.view, input, node_id)),
+
+        // TIME+TRANSFORM (epistemic, CONCEPT:EG-KG.epistemic.epistemic-substrate, E2) —
+        // `BELIEF AS OF <ts>`: pin the transaction-time axis (reuses `as_of_filter`) then
+        // re-score the survivors by their propagated belief confidence at that instant.
+        #[cfg(feature = "epistemic")]
+        Op::BeliefAsOf { ts } => Ok(belief_as_of_op(ctx, input, *ts)),
+
+        // TRANSFORM (epistemic, CONCEPT:EG-KG.epistemic.epistemic-substrate, E2) — re-weight
+        // the current RowSet by one named source's propagated reliability.
+        #[cfg(feature = "epistemic")]
+        Op::SourceReliability { source_id } => Ok(source_reliability_op(ctx, input, source_id)),
+
+        // TRANSFORM (epistemic, CONCEPT:EG-KG.epistemic.epistemic-substrate, E2) — re-score
+        // EACH row by its OWN propagated belief confidence, ranked descending.
+        #[cfg(feature = "epistemic")]
+        Op::ConfidenceOp {} => Ok(confidence_op(ctx, input)),
+
+        // TRANSFORM (epistemic, CONCEPT:EG-KG.epistemic.epistemic-substrate, E2) —
+        // `EXPLAIN BELIEF <id>`: flatten the recursive justification tree to scored rows.
+        #[cfg(feature = "epistemic")]
+        Op::ExplainBelief { node_id } => Ok(explain_belief_op(ctx, input, node_id)),
 
         // TRANSFORM (stream, CONCEPT:EG-KG.query.pipelined-execution) — interpret the input RowSet as a
         // time-ordered event stream and run the eg-stream bounded NFA CEP engine over it,
@@ -560,6 +801,8 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
         #[cfg(feature = "timeseries")]
         Op::TsScan { series, from, to } => Ok(tsdb_scan_op(
             ctx.tsdb,
+            ctx.tsdb_tenant,
+            ctx.tsdb_graph,
             ctx.staged_series,
             series,
             *from,
@@ -586,13 +829,37 @@ fn traverse_op(ctx: &PlanCtx, rel: &str, min: usize, max: usize, input: RowSet) 
 /// set the allowlist rejects everything (a source `Rank` yields no rows, exactly as the
 /// prior over-fetch-then-intersect did). The behavior-identical extraction of the `Op::Rank`
 /// arm (Lane 0 de-conflict) so [`apply`] is a thin dispatch table.
-fn rank_op(ctx: &PlanCtx, query: &[f32], input: RowSet) -> RowSet {
+///
+/// F4 (CONCEPT:EG-KG.compute.rank-dim-mismatch-guard): an inline query vector whose dimension
+/// doesn't match the store's embedding dimension is rejected with a typed error
+/// BEFORE it reaches the ANN/brute-force scan — but only when there is an actual
+/// candidate to rank against (an empty candidate set still yields an empty `RowSet`,
+/// unchanged, exactly like a source `Rank`'s existing empty-allowlist behavior — a
+/// dimension check against a query nobody will run isn't a real error). Without this
+/// guard a live mismatch was silent — `dot_product` zips to the shorter slice, so a
+/// wrong-width query either scored against truncated/misaligned dimensions or came
+/// back as an empty `RowSet` indistinguishable from "no matches" — never surfacing
+/// that the query itself was malformed.
+fn rank_op(ctx: &PlanCtx, query: &[f32], input: RowSet) -> Result<RowSet, String> {
     let candidates = input.id_set();
+    if candidates.is_empty() {
+        return Ok(RowSet::new());
+    }
+    let store_dim = ctx.semantic.dim();
+    if store_dim != 0 && query.len() != store_dim {
+        return Err(format!(
+            "RANK BY ~{:?}: query vector dimension mismatch — expected {} (the store's \
+             embedding dimension), got {}",
+            query,
+            store_dim,
+            query.len()
+        ));
+    }
     let k = candidates.len().max(1);
     let scored = ctx
         .semantic
         .semantic_search_filtered(query, k, |id| candidates.contains(id));
-    RowSet::from_scored(scored)
+    Ok(RowSet::from_scored(scored))
 }
 
 /// RANK (vector-from-text, CONCEPT:EG-KG.compute.no-embedder-bound-op) — the UQL `RANK BY ~ "text"`
@@ -646,23 +913,20 @@ fn foreign_scan(
 }
 
 /// FEDERATION (`FOREIGN "<name>"`, CONCEPT:EG-KG.query.closure-backed-source) — resolve the named foreign source
-/// through the registry on the ctx. With a registry attached the named source's rows
-/// REPLACE the input (a source op) and an unbound name is a clean typed error; with NO
-/// registry attached the op passes its input through unchanged (the prior behavior — so
-/// existing plans are untouched).
+/// through the registry on the ctx. The named source's rows REPLACE the input (a source
+/// op); an unbound name or registry is a typed error.
 #[cfg(feature = "federation")]
-fn foreign_named(name: &str, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, String> {
-    match ctx.foreign {
-        Some(registry) => registry.resolve(name),
-        None => Ok(input),
-    }
+fn foreign_named(name: &str, _input: RowSet, ctx: &PlanCtx) -> Result<RowSet, String> {
+    let registry = ctx
+        .foreign
+        .ok_or_else(|| "FOREIGN requires a bound foreign-source registry".to_string())?;
+    registry.resolve(name)
 }
 
-/// Without `federation` there is no registry and no foreign machinery, so the
-/// `FOREIGN "<name>"` marker keeps its pass-through behavior (CONCEPT:EG-KG.query.closure-backed-source).
+/// Without `federation` there is no registry or foreign-source execution machinery.
 #[cfg(not(feature = "federation"))]
-fn foreign_named(_name: &str, input: RowSet, _ctx: &PlanCtx) -> Result<RowSet, String> {
-    Ok(input)
+fn foreign_named(_name: &str, _input: RowSet, _ctx: &PlanCtx) -> Result<RowSet, String> {
+    Err("FOREIGN requires federation support in this build".to_string())
 }
 
 /// Fuse a foreign RowSet with the local candidate set the SAME way for EVERY foreign
@@ -699,27 +963,72 @@ fn udf_transform(ctx: &PlanCtx, input: &RowSet, id: &str) -> Result<RowSet, Stri
         .collect();
     let payload = rmp_serde::to_vec_named(&rows).map_err(|e| format!("udf input encode: {e}"))?;
     let out = registry.run(id, &payload).map_err(|e| e.to_string())?;
-    let out_rows: Vec<(String, Option<f32>)> =
-        rmp_serde::from_slice(&out).map_err(|e| format!("udf output decode: {e}"))?;
+    let out_rows: Vec<(String, Option<f32>)> = eg_types::msgpack::decode_bounded(
+        &out,
+        eg_types::msgpack::MsgpackLimits::new(
+            eg_types::msgpack::MAX_PROPERTY_BYTES,
+            eg_types::msgpack::MAX_PROPERTY_ITEMS,
+            eg_types::msgpack::DEFAULT_MAX_DEPTH,
+        ),
+    )
+    .map_err(|_| "udf output decode failed".to_string())?;
     Ok(RowSet::from_rows(out_rows))
 }
 
 /// RANK (lexical, BM25): re-order the candidate set by BM25 relevance to `query`.
-/// Symmetric to the vector `Rank` — BM25 top-k over the FULL index (over-fetch),
-/// then keep only the current candidates, in BM25-score order. With no text index
-/// configured the result is empty (degrade, never err), mirroring `Rank` over an
-/// empty embedding store.
+/// Symmetric to the vector `Rank` — BM25 top-k over the FULL index, intersected with
+/// the current candidates, in BM25-score order. With no text index configured the
+/// result is empty (degrade, never err), mirroring `Rank` over an empty embedding
+/// store.
+///
+/// **The over-fetch pool is SELECTIVITY-AWARE** (CONCEPT:EG-KG.query.index-method-seam /
+/// RANK-3+RANK-11 assimilation), not the fixed `k*4` multiplier this used to be: `want`
+/// is sized off the current candidate set's actual fraction of the live corpus via
+/// [`crate::cost::CostModel::overfetch_pool_size`] — the SAME `top_k/selectivity`
+/// formula the vector leg's cost model already uses to reason about this exact
+/// coexist-with-a-filter case. A fixed `k*4` can silently under-fetch: if a preceding
+/// FILTER already narrowed to a SMALL, highly selective candidate set out of a LARGE
+/// corpus, none of those candidates may fall inside the naive global top-`k*4` BM25
+/// hits even though several would legitimately rank within their own subset — dropping
+/// otherwise-correct matches. Falls back to the prior fixed heuristic when the index
+/// can't report its size ([`TextSource::doc_count`]'s `u64::MAX` sentinel).
+///
+/// **Bloom-gated probe** (CONCEPT:EG-KG.query.bloom-gate, pairs with the sizing above): once
+/// `want` grows large, most fetched hits are NOT in the (comparatively small) candidate
+/// set — a cheap bit-array pre-check on each hit rejects the common non-member case
+/// before paying for the exact `HashSet` lookup, mirroring turso's `join.rs`
+/// `use_bloom_filter` heuristic on the smaller side of a join.
 #[cfg(feature = "text")]
 fn rank_text(ctx: &PlanCtx, input: &RowSet, query: &str) -> RowSet {
     let Some(index) = ctx.text else {
         return RowSet::new();
     };
     let candidates = input.id_set();
-    let k = candidates.len().max(1);
-    let want = (k * 4).max(k + 32);
+    if candidates.is_empty() {
+        return RowSet::new();
+    }
+    let k = candidates.len();
+    let doc_count = index.doc_count();
+    let want = if doc_count == 0 || doc_count == u64::MAX {
+        // Cardinality unknown (or the index reports itself empty): keep the prior
+        // fixed-heuristic behavior rather than divide by an unusable corpus size.
+        (k * 4).max(k + 32)
+    } else {
+        let selectivity = (k as f64 / doc_count as f64).clamp(1e-9, 1.0);
+        crate::cost::CostModel::overfetch_pool_size(k, selectivity).min(doc_count as usize)
+    };
     let hits = index.search(query, want);
+
+    // RANK-11 bloom gate: only worth building for a pool large enough that most probes
+    // will miss — a tiny `hits` list is cheaper to just linear-filter through the exact
+    // HashSet directly.
+    const BLOOM_GATE_MIN_HITS: usize = 256;
+    let gate = (hits.len() >= BLOOM_GATE_MIN_HITS)
+        .then(|| crate::cost::BloomFilter::from_ids(candidates.iter().copied(), candidates.len()));
+
     let scored: Vec<(String, f32)> = hits
         .into_iter()
+        .filter(|h| gate.as_ref().is_none_or(|g| g.might_contain(&h.id)))
         .filter(|h| candidates.contains(h.id.as_str()))
         .map(|h| (h.id, h.score))
         .collect();
@@ -769,13 +1078,13 @@ fn reason_op(
     input: RowSet,
     target_class: &str,
     ontology: &str,
-) -> RowSet {
+) -> Result<RowSet, String> {
     if input.is_empty() {
         return reason_source(view, decay, target_class, ontology);
     }
-    let inferred = reason_source(view, decay, target_class, ontology);
+    let inferred = reason_source(view, decay, target_class, ontology)?;
     let keep = inferred.id_set();
-    input.intersect_keep_order(&keep)
+    Ok(input.intersect_keep_order(&keep))
 }
 
 /// SOURCE (OWL): the individuals the native OWL 2 reasoner INFERS to be members of
@@ -791,14 +1100,14 @@ fn reason_source(
     decay: Option<(u64, f64)>,
     target_class: &str,
     ontology: &str,
-) -> RowSet {
+) -> Result<RowSet, String> {
     use eg_rdf::owl::{asserted_types_with_confidence_from_view, instances_of_weighted, Reasoner};
 
     // Axioms: an explicit ontology document, else the triples already in the graph.
     let triples = if ontology.trim().is_empty() {
         eg_rdf::owl::tbox_triples_from_view(view)
     } else {
-        eg_rdf::mapping::parse_turtle(ontology).unwrap_or_default()
+        eg_rdf::mapping::parse_turtle(ontology)?
     };
     let mut reasoner = Reasoner::from_triples(&triples);
     // Confidence-weighted (CONCEPT:EG-KG.ontology.concept-13): each inferred member carries its
@@ -812,8 +1121,10 @@ fn reason_source(
     // REASON target IRI's namespace, so a node with a BARE string `type` (e.g.
     // `{"type":"Sensor"}`) is resolved as `<base/Sensor>` and — through the TBox subclass
     // closure — becomes a member of `REASON <base/Device>` when `<base/Sensor> ⊑
-    // <base/Device>`. A bare (non-IRI) target yields `None` ⇒ the prior bare-match path.
-    let class_base = eg_rdf::owl::class_namespace(&target);
+    // <base/Device>`. The target must carry the current absolute class namespace.
+    let class_base = eg_rdf::owl::class_namespace(&target).ok_or_else(|| {
+        "Reason requires an absolute target class with a current class namespace".to_string()
+    })?;
     // Asserted instance→class assignments + their per-fact confidence. CONCEPT:EG-KG.query.reason-decay-in-plan:
     // when a `(now, half_life)` decay context is bound on the `PlanCtx` (via `with_decay`), the
     // fact confidences are Ebbinghaus-decayed by each node's age relative to `now` RIGHT HERE,
@@ -822,13 +1133,12 @@ fn reason_source(
     // `Reason` stays a stable, deterministic source/leaf (byte-for-byte the prior behavior). The
     // AXIOM confidence still flows through into the score either way.
     let (now, half_life) = decay.unwrap_or((0, 0.0));
-    let asserted =
-        asserted_types_with_confidence_from_view(view, now, half_life, class_base.as_deref());
+    let asserted = asserted_types_with_confidence_from_view(view, now, half_life, &class_base)?;
     let scored: Vec<(String, f32)> = instances_of_weighted(&cls, &asserted, &target, 0.0)
         .into_iter()
         .map(|(id, conf)| (id, conf as f32))
         .collect();
-    RowSet::from_scored(scored)
+    Ok(RowSet::from_scored(scored))
 }
 
 /// SOURCE (SPARQL): the node bindings of `var` in the SPARQL `query` over the view
@@ -836,7 +1146,13 @@ fn reason_source(
 /// (node) bindings become ids; literal bindings are skipped (an id set is node ids).
 #[cfg(feature = "owl")]
 fn sparql_source(view: &GraphView, query: &str, var: &str) -> Result<RowSet, String> {
-    let res = eg_rdf::sparql::run(view, query)?;
+    let res = eg_rdf::sparql::execute(
+        &eg_rdf::sparql::Dataset::new(view, Vec::new()),
+        query,
+        &eg_rdf::sparql::Projection::raw(),
+        None,
+    )?
+    .into_table();
     let ids = res.solutions.iter().filter_map(|sol| {
         sol.get(var).and_then(|b| match b {
             eg_rdf::sparql::Binding::Node(n) => Some(n.clone()),
@@ -861,7 +1177,7 @@ fn normalize_class(c: &str) -> String {
 /// SOURCE: all node ids whose `type` property equals `label`.
 fn scan_label(view: &GraphView, label: &str) -> RowSet {
     let ids = view.node_properties.iter().filter_map(|(id, blob)| {
-        let v: serde_json::Value = rmp_serde::from_slice(blob.as_slice()).ok()?;
+        let v = eg_types::msgpack::decode_property_value(blob.as_slice()).ok()?;
         (v.get("type").and_then(|t| t.as_str()) == Some(label)).then(|| id.clone())
     });
     RowSet::from_ids(ids)
@@ -874,7 +1190,7 @@ fn scan_label(view: &GraphView, label: &str) -> RowSet {
 /// "has always been" (0); a missing `until` means "still current" (open). Decodes
 /// the SAME blob `scan_label` reads — dep-free, so the time path runs in the Pi tier.
 fn live_at(blob: &[u8], ts: u64, from_key: &str, until_key: &str) -> bool {
-    let Ok(v) = rmp_serde::from_slice::<serde_json::Value>(blob) else {
+    let Ok(v) = eg_types::msgpack::decode_property_value(blob) else {
         return false;
     };
     let from = v.get(from_key).and_then(|x| x.as_u64()).unwrap_or(0);
@@ -990,7 +1306,7 @@ fn window_aggregate(
             // Byte-for-byte the prior behavior (a present node without a valid ts/value is
             // still dropped here, never reinterpreted as a ts).
             Some(blob) => {
-                let v: serde_json::Value = rmp_serde::from_slice(blob.as_slice()).ok()?;
+                let v = eg_types::msgpack::decode_property_value(blob.as_slice()).ok()?;
                 let ts = v.get("valid_from").and_then(|x| x.as_i64())?;
                 let value = r
                     .score
@@ -1062,7 +1378,7 @@ fn sensor_fuse_op(view: &GraphView, streams: &[String], tolerance_ns: u64) -> Ro
         .map(|name| {
             let mut samples: Vec<Sample> = Vec::new();
             for blob in view.node_properties.values() {
-                let Ok(v) = rmp_serde::from_slice::<serde_json::Value>(blob.as_slice()) else {
+                let Ok(v) = eg_types::msgpack::decode_property_value(blob.as_slice()) else {
                     continue;
                 };
                 if v.get("type").and_then(|t| t.as_str()) != Some(name.as_str()) {
@@ -1128,6 +1444,8 @@ fn sensor_fuse_op(view: &GraphView, streams: &[String], tolerance_ns: u64) -> Ro
 #[cfg(feature = "timeseries")]
 fn tsdb_scan_op(
     store: Option<&eg_tsdb::store::SeriesStore>,
+    tenant: Option<&str>,
+    graph: Option<&str>,
     staged: Option<&StagedSeries>,
     series: &[String],
     from: f64,
@@ -1147,7 +1465,15 @@ fn tsdb_scan_op(
     });
     let committed_rows = store.into_iter().flat_map(|st| {
         series.iter().flat_map(move |sid| {
-            st.range(sid, from_ns, to_ns)
+            let points = match (tenant, graph) {
+                (Some(tenant), Some(graph)) => st.range_scoped(
+                    &eg_tsdb::store::SeriesKey::new(tenant, graph, sid),
+                    from_ns,
+                    to_ns,
+                ),
+                _ => Ok(Vec::new()),
+            };
+            points
                 .unwrap_or_default()
                 .into_iter()
                 .filter_map(|p| p.values.first().map(|&v| (p.ts.to_string(), v as f32)))
@@ -1354,7 +1680,20 @@ fn filter_op(ctx: &PlanCtx, preds: &[Pred], input: RowSet) -> Result<RowSet, Str
     } else {
         Some(input.ids())
     };
-    let passed = sql_filter_ids(ctx.view, &relational, restrict.as_deref())?;
+    // ID/POINT-LOOKUP FAST PATH (CONCEPT:EG-KG.query.point-lookup-fast-path, RANK-10
+    // assimilation): a lone equality on the graph's own reserved `id` column is exactly
+    // what `sql_filter_ids` below would build as `SELECT id FROM nodes WHERE id =
+    // '<value>' [AND id IN (restrict)]` — a full DataFusion parse/plan/execute round
+    // trip for what is, structurally, an O(1) `HashMap` membership check. Bypass
+    // DataFusion entirely for this exact shape; every other predicate shape (including
+    // an equality on a SAME-NAMED ordinary JSON property, which this must never
+    // misfire on) still goes through the real SQL leg unchanged.
+    let passed: Vec<String> = match relational.as_slice() {
+        [Pred::Eq { prop, value }] if prop == "id" => {
+            point_lookup_ids(ctx.view, value, restrict.as_deref())
+        }
+        _ => sql_filter_ids(ctx.view, &relational, restrict.as_deref())?,
+    };
     // Preserve the input's order (so a vector-first plan stays ranked); if there was no
     // input (Filter is the source), the SQL order is the order.
     let mut out = if input.is_empty() {
@@ -1415,25 +1754,34 @@ fn jsonpath_filter(view: &GraphView, input: RowSet, pred: &Pred) -> Result<RowSe
 /// the JSON leg's counterpart to `row_geometry`.
 fn row_json(view: &GraphView, id: &str) -> Option<serde_json::Value> {
     let blob = view.node_properties.get(id)?;
-    rmp_serde::from_slice(blob.as_slice()).ok()
+    eg_types::msgpack::decode_property_value(blob.as_slice()).ok()
 }
 
 // ── the spatial leg — eg-geo geometry / R-tree over the GraphView blobs (EG-083) ─
 
 /// SOURCE (spatial): every node in `layer` (matched on the `type` property, exactly as
 /// [`scan_label`]) whose stored geometry's bounding box intersects `bbox`, found via
-/// eg-geo's packed Hilbert R-tree (CONCEPT:EG-KG.ontology.singles-concept). Each node's geometry is read as a
-/// WKT string from a conventional `geometry` (or `geom`) property — a dep-free view
-/// scan, mirroring how `scan_label`/`as_of_filter` decode the blob. The R-tree is built
-/// over the layer's geometries and queried once; the matching ids seed the RowSet.
-/// (A durable R-tree persisted beside the shard — per the concept row — is a follow-up;
-/// v1 builds the index over the live snapshot.)
+/// eg-geo's packed Hilbert R-tree (CONCEPT:EG-KG.ontology.singles-concept).
+///
+/// L37 (CONCEPT:EG-KG.storage.incremental-spatial) — when `ctx.spatial` is bound (a served
+/// query with a `ServerIndexFactory`-installed `GraphSpatialIndex`, via the
+/// `ServedSpatialIndex` adapter), the bbox query pushes straight down into that
+/// MAINTAINED persistent index — no per-call rebuild. Otherwise (`ctx.spatial` is
+/// `None` — a bare test harness, or a graph created before the factory was wired) this
+/// keeps the prior v1 behavior: each node's geometry is read as a WKT string from a
+/// conventional `geometry` (or `geom`) property — a dep-free view scan, mirroring how
+/// `scan_label`/`as_of_filter` decode the blob — and an EPHEMERAL R-tree is built over
+/// the layer's geometries and queried once, exactly as before this fix.
 #[cfg(feature = "geo")]
-fn spatial_scan(view: &GraphView, layer: &str, bbox: [f64; 4]) -> RowSet {
+fn spatial_scan(ctx: &PlanCtx, layer: &str, bbox: [f64; 4]) -> RowSet {
+    if let Some(src) = ctx.spatial {
+        return RowSet::from_ids(src.query_bbox(layer, bbox));
+    }
+    let view = ctx.view;
     let mut ids: Vec<String> = Vec::new();
     let mut boxes: Vec<(usize, eg_geo::Bbox)> = Vec::new();
     for (id, blob) in view.node_properties.iter() {
-        let Ok(v) = rmp_serde::from_slice::<serde_json::Value>(blob.as_slice()) else {
+        let Ok(v) = eg_types::msgpack::decode_property_value(blob.as_slice()) else {
             continue;
         };
         if v.get("type").and_then(|t| t.as_str()) != Some(layer) {
@@ -1605,7 +1953,7 @@ fn apply_spatial_op(
 #[cfg(feature = "geo")]
 fn row_geometry(view: &GraphView, id: &str, column: &str) -> Option<eg_geo::Geometry> {
     let blob = view.node_properties.get(id)?;
-    let v: serde_json::Value = rmp_serde::from_slice(blob.as_slice()).ok()?;
+    let v = eg_types::msgpack::decode_property_value(blob.as_slice()).ok()?;
     let wkt = v.get(column)?.as_str()?;
     eg_geo::parse_wkt(wkt).ok()
 }
@@ -1623,7 +1971,7 @@ fn geometry_from_value(v: &serde_json::Value) -> Option<eg_geo::Geometry> {
 #[cfg(feature = "geo")]
 fn row_geometry_conv(view: &GraphView, id: &str) -> Option<eg_geo::Geometry> {
     let blob = view.node_properties.get(id)?;
-    let v: serde_json::Value = rmp_serde::from_slice(blob.as_slice()).ok()?;
+    let v = eg_types::msgpack::decode_property_value(blob.as_slice()).ok()?;
     geometry_from_value(&v)
 }
 
@@ -1633,7 +1981,7 @@ fn row_geometry_conv(view: &GraphView, id: &str) -> Option<eg_geo::Geometry> {
 #[cfg(feature = "geo")]
 fn row_geometry_srid(view: &GraphView, id: &str) -> Option<(Option<u32>, eg_geo::Geometry)> {
     let blob = view.node_properties.get(id)?;
-    let v: serde_json::Value = rmp_serde::from_slice(blob.as_slice()).ok()?;
+    let v = eg_types::msgpack::decode_property_value(blob.as_slice()).ok()?;
     let wkt = v.get("geometry").or_else(|| v.get("geom"))?.as_str()?;
     eg_geo::parse_with_srid(wkt).ok()
 }
@@ -1651,7 +1999,7 @@ fn row_geometry_srid(view: &GraphView, id: &str) -> Option<(Option<u32>, eg_geo:
 fn tensor_scan(view: &GraphView, layer: &str) -> RowSet {
     let mut ids: Vec<String> = Vec::new();
     for (id, blob) in view.node_properties.iter() {
-        let Ok(v) = rmp_serde::from_slice::<serde_json::Value>(blob.as_slice()) else {
+        let Ok(v) = eg_types::msgpack::decode_property_value(blob.as_slice()) else {
             continue;
         };
         if v.get("type").and_then(|t| t.as_str()) != Some(layer) {
@@ -1670,35 +2018,39 @@ fn tensor_scan(view: &GraphView, layer: &str) -> RowSet {
 /// via [`RowSet::intersect_keep_order`], exactly as the spatial `Filter` leg drops rows
 /// with no geometry.
 ///
-/// CONCEPT:EG-KG.storage.derived-tensor-writeback-sink — CAS write-back: when a [`PlanCtx::tensor_store`] is attached, each
-/// derived tensor that the op successfully produces is WRITTEN BACK into that
+/// CONCEPT:EG-KG.storage.derived-tensor-writeback-sink — CAS write-back: each derived
+/// tensor that the op successfully produces is WRITTEN BACK into the required
 /// content-addressed [`eg_tensor::TensorStore`] (via [`eg_tensor::TensorStore::put`]),
 /// so the result becomes a durable, dedup-shared blob addressable by its deterministic
-/// content hash — closing the EG-085 follow-up. The write-back is additive and does NOT
-/// change which rows survive: a row is kept iff the op succeeds, exactly as before, so a
-/// `None` store yields byte-for-byte the prior (validate-only) behavior. Deterministic:
+/// content hash. The write-back is additive and does NOT change which rows survive: a
+/// row is kept iff the op succeeds. Deterministic:
 /// identical derived tensors content-address to one blob (idempotent dedup) regardless of
 /// row order or how many times the plan runs.
 #[cfg(feature = "tensor")]
-fn tensor_op(ctx: &PlanCtx, input: RowSet, kind: &eg_types::wire::TensorOpKind) -> RowSet {
+fn tensor_op(
+    ctx: &PlanCtx,
+    input: RowSet,
+    kind: &eg_types::wire::TensorOpKind,
+) -> Result<RowSet, String> {
+    let store = ctx
+        .tensor_store
+        .ok_or_else(|| "TensorOp requires a bound tensor store".to_string())?;
     let keep: HashSet<&str> = input
         .rows()
         .iter()
         .filter(|r| {
-            // Compute the derived tensor to VALIDATE the op per row; on success, write it
-            // back to the CAS (CONCEPT:EG-KG.storage.derived-tensor-writeback-sink) when a store is attached.
+            // Compute the derived tensor and write every successful result back to the
+            // CAS (CONCEPT:EG-KG.storage.derived-tensor-writeback-sink).
             match row_tensor(ctx.view, &r.id) {
                 Some(t) => match apply_tensor_op(&t, kind) {
                     Ok(derived) => {
-                        if let Some(store) = ctx.tensor_store {
-                            // Recover from a poisoned lock: `put` is infallible, so the
-                            // guard is never left in a bad state; keep the write-back
-                            // durable rather than propagating a poison panic.
-                            store
-                                .lock()
-                                .unwrap_or_else(|p| p.into_inner())
-                                .put(&derived);
-                        }
+                        // Recover from a poisoned lock: `put` is infallible, so the
+                        // guard is never left in a bad state; keep the write-back
+                        // durable rather than propagating a poison panic.
+                        store
+                            .lock()
+                            .unwrap_or_else(|p| p.into_inner())
+                            .put(&derived);
                         true
                     }
                     Err(_) => false,
@@ -1708,7 +2060,7 @@ fn tensor_op(ctx: &PlanCtx, input: RowSet, kind: &eg_types::wire::TensorOpKind) 
         })
         .map(|r| r.id.as_str())
         .collect();
-    input.intersect_keep_order(&keep)
+    Ok(input.intersect_keep_order(&keep))
 }
 
 /// Read node `id`'s tensor from the conventional `tensor` property of its blob
@@ -1716,7 +2068,7 @@ fn tensor_op(ctx: &PlanCtx, input: RowSet, kind: &eg_types::wire::TensorOpKind) 
 #[cfg(feature = "tensor")]
 fn row_tensor(view: &GraphView, id: &str) -> Option<eg_tensor::Tensor> {
     let blob = view.node_properties.get(id)?;
-    let v: serde_json::Value = rmp_serde::from_slice(blob.as_slice()).ok()?;
+    let v = eg_types::msgpack::decode_property_value(blob.as_slice()).ok()?;
     tensor_from_value(&v)
 }
 
@@ -1787,7 +2139,7 @@ fn probabilistic_op(view: &GraphView, input: RowSet, query: &eg_types::wire::Pro
 #[cfg(feature = "probabilistic")]
 fn row_distribution(view: &GraphView, id: &str) -> Option<eg_types::Distribution> {
     let blob = view.node_properties.get(id)?;
-    let v: serde_json::Value = rmp_serde::from_slice(blob.as_slice()).ok()?;
+    let v = eg_types::msgpack::decode_property_value(blob.as_slice()).ok()?;
     serde_json::from_value::<eg_types::Distribution>(v.get("distribution")?.clone()).ok()
 }
 
@@ -1830,6 +2182,240 @@ fn eval_prob_query(
                 .map(|post| post.mean())
         }
         ProbQuery::Sample { seed } => Some(dist.sample(*seed)),
+    }
+}
+
+// ── the epistemic leg — belief/evidence over the support/contradiction/attack graph
+// (CONCEPT:EG-KG.epistemic.epistemic-substrate, E2) ────────────────────────────────
+
+/// The [`eg_epistemic::AuthorityPolicy`] an epistemic op runs under: the ctx-attached
+/// policy (`PlanCtx::with_belief_policy`) or `AuthorityPolicy::default()`.
+#[cfg(feature = "epistemic")]
+fn belief_policy(ctx: &PlanCtx) -> eg_epistemic::AuthorityPolicy {
+    ctx.belief_policy.unwrap_or_default()
+}
+
+/// Which direction an epistemic edge-lookup reads (CONCEPT:EG-KG.epistemic.epistemic-substrate):
+/// `Incoming` — edges pointing AT `id` (evidence bearing ON it, `EvidenceFor`/`Contradicts`);
+/// `Outgoing` — edges pointing FROM `id` (what `id` itself supports, `SupportedBy`).
+/// [`eg_epistemic::BeliefGraph`] only indexes incoming edges (the propagation walk only
+/// ever needs a node's OWN evidence), so the outgoing direction is a linear scan over
+/// every target's incoming list — cheap at plan scale (the belief substrate is a thin
+/// projection, not a full traversal index).
+#[cfg(feature = "epistemic")]
+enum EdgeDir {
+    Incoming,
+    Outgoing,
+}
+
+/// Collect the ids linked to `id` by an edge classified as one of `kinds`, in `dir`
+/// (CONCEPT:EG-KG.epistemic.epistemic-substrate). The shared lookup behind `EvidenceFor`/
+/// `Contradicts` (incoming) and `SupportedBy` (outgoing).
+#[cfg(feature = "epistemic")]
+fn linked_ids(
+    bg: &eg_epistemic::BeliefGraph,
+    id: &str,
+    kinds: &[eg_epistemic::EdgeKind],
+    dir: EdgeDir,
+) -> HashSet<String> {
+    match dir {
+        EdgeDir::Incoming => bg
+            .in_edges
+            .get(id)
+            .into_iter()
+            .flatten()
+            .filter(|(_, k)| kinds.contains(k))
+            .map(|(src, _)| src.clone())
+            .collect(),
+        EdgeDir::Outgoing => bg
+            .in_edges
+            .iter()
+            .flat_map(|(target, edges)| {
+                edges
+                    .iter()
+                    .filter(|(src, k)| src == id && kinds.contains(k))
+                    .map(move |_| target.clone())
+            })
+            .collect(),
+    }
+}
+
+/// SOURCE/FILTER shape shared by `EvidenceFor`/`Contradicts`/`SupportedBy`/`ExplainBelief`
+/// (CONCEPT:EG-KG.epistemic.epistemic-substrate): an empty `input` (leaf position) SEEDS the
+/// RowSet with `matches`; a non-empty `input` (mid-pipeline) narrows it to the rows that are
+/// ALSO in `matches`, preserving `input`'s order — the same seed-or-filter shape
+/// `as_of_filter` already uses.
+#[cfg(feature = "epistemic")]
+fn seed_or_filter(input: RowSet, matches: &HashSet<String>) -> RowSet {
+    if input.is_empty() {
+        return RowSet::from_ids(matches.iter().cloned());
+    }
+    let keep: HashSet<&str> = matches.iter().map(|s| s.as_str()).collect();
+    input.intersect_keep_order(&keep)
+}
+
+/// `EvidenceFor { claim_id }` — the nodes with an INCOMING `Supports` edge into
+/// `claim_id` (CONCEPT:EG-KG.epistemic.epistemic-substrate).
+#[cfg(feature = "epistemic")]
+fn evidence_for_op(view: &GraphView, input: RowSet, claim_id: &str) -> RowSet {
+    let bg = eg_epistemic::BeliefGraph::from_graph_view(view);
+    let matches = linked_ids(
+        &bg,
+        claim_id,
+        &[eg_epistemic::EdgeKind::Supports],
+        EdgeDir::Incoming,
+    );
+    seed_or_filter(input, &matches)
+}
+
+/// `Contradicts { node_id }` — the nodes with an INCOMING `Contradicts` OR `Attacks` edge
+/// into `node_id` (an attack is a stronger contradiction, so both count,
+/// CONCEPT:EG-KG.epistemic.epistemic-substrate).
+#[cfg(feature = "epistemic")]
+fn contradicts_op(view: &GraphView, input: RowSet, node_id: &str) -> RowSet {
+    let bg = eg_epistemic::BeliefGraph::from_graph_view(view);
+    let matches = linked_ids(
+        &bg,
+        node_id,
+        &[
+            eg_epistemic::EdgeKind::Contradicts,
+            eg_epistemic::EdgeKind::Attacks,
+        ],
+        EdgeDir::Incoming,
+    );
+    seed_or_filter(input, &matches)
+}
+
+/// `SupportedBy { node_id }` — the nodes reached by an OUTGOING `Supports` edge FROM
+/// `node_id` (the mirror direction of `EvidenceFor`, CONCEPT:EG-KG.epistemic.epistemic-substrate).
+#[cfg(feature = "epistemic")]
+fn supported_by_op(view: &GraphView, input: RowSet, node_id: &str) -> RowSet {
+    let bg = eg_epistemic::BeliefGraph::from_graph_view(view);
+    let matches = linked_ids(
+        &bg,
+        node_id,
+        &[eg_epistemic::EdgeKind::Supports],
+        EdgeDir::Outgoing,
+    );
+    seed_or_filter(input, &matches)
+}
+
+/// `BELIEF AS OF <ts>` (`Op::BeliefAsOf`) — pin the TRANSACTION-time axis (reuses
+/// [`as_of_filter`]) then RE-SCORE every surviving row by its propagated belief confidence
+/// at that instant (CONCEPT:EG-KG.epistemic.epistemic-substrate). The `BeliefGraph` is built
+/// once over the WHOLE snapshot (propagation may need to walk beyond the post-filter
+/// candidate set to reach a supporting/contradicting node not itself live at `ts`) and
+/// pinned via [`eg_epistemic::BeliefGraph::pinned_at`] for provenance.
+#[cfg(feature = "epistemic")]
+fn belief_as_of_op(ctx: &PlanCtx, input: RowSet, ts: f64) -> RowSet {
+    let filtered = as_of_filter(ctx.view, input, ts, TimeAxis::Transaction);
+    let bg = eg_epistemic::BeliefGraph::from_graph_view(ctx.view)
+        .pinned_at(eg_epistemic::TimeAxis::Transaction, ts.max(0.0) as u64);
+    let policy = belief_policy(ctx);
+    rescore_by_confidence(&bg, filtered, &policy)
+}
+
+/// `SourceReliability { source_id }` — re-weight every row currently in `input` by the
+/// propagated reliability of `source_id` (CONCEPT:EG-KG.epistemic.epistemic-substrate): a
+/// uniform scalar multiplier over existing scores (an unscored row is treated as `1.0`).
+#[cfg(feature = "epistemic")]
+fn source_reliability_op(ctx: &PlanCtx, input: RowSet, source_id: &str) -> RowSet {
+    let bg = eg_epistemic::BeliefGraph::from_graph_view(ctx.view);
+    let policy = belief_policy(ctx);
+    let r = eg_epistemic::propagate_confidence(&bg, source_id, &policy).confidence as f32;
+    let scored = input
+        .rows()
+        .iter()
+        .map(|row| (row.id.clone(), row.score.unwrap_or(1.0) * r));
+    RowSet::from_scored(scored)
+}
+
+/// `CONFIDENCE` (`Op::ConfidenceOp`) — re-score EACH row in `input` by its OWN propagated
+/// belief confidence, ranked descending (CONCEPT:EG-KG.epistemic.epistemic-substrate).
+#[cfg(feature = "epistemic")]
+fn confidence_op(ctx: &PlanCtx, input: RowSet) -> RowSet {
+    let bg = eg_epistemic::BeliefGraph::from_graph_view(ctx.view);
+    let policy = belief_policy(ctx);
+    rescore_by_confidence(&bg, input, &policy)
+}
+
+/// Re-score every row in `input` by its own propagated belief confidence, ranked
+/// descending — the shared scoring pass `BeliefAsOf` and `ConfidenceOp` both reduce to.
+#[cfg(feature = "epistemic")]
+fn rescore_by_confidence(
+    bg: &eg_epistemic::BeliefGraph,
+    input: RowSet,
+    policy: &eg_epistemic::AuthorityPolicy,
+) -> RowSet {
+    let mut scored: Vec<(String, f32)> = input
+        .rows()
+        .iter()
+        .map(|row| {
+            let c = eg_epistemic::propagate_confidence(bg, &row.id, policy).confidence;
+            (row.id.clone(), c as f32)
+        })
+        .collect();
+    scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    RowSet::from_scored(scored)
+}
+
+/// The FULL recursive [`eg_epistemic::JustificationGraph`] rooted at `node_id`
+/// (CONCEPT:EG-KG.epistemic.epistemic-substrate, E1) — the un-flattened tree
+/// `Op::ExplainBelief` (E2) projects down into the flat `RowSet` currency via
+/// [`flatten_proof`]. A standalone `Method::ExplainBelief` (E5 phase 4, mirroring
+/// `Method::OwlExplain`'s `ProofNodeWire`) wants the verbatim tree — rule names, premise
+/// structure, per-node confidence — which the plan-`Op` surface cannot carry (E2's
+/// documented scope boundary). Public so the facade handler can build the wire
+/// projection directly, reusing the SAME [`belief_policy`] resolution `explain_belief_op`
+/// uses.
+#[cfg(feature = "epistemic")]
+pub fn explain_belief_tree(ctx: &PlanCtx, node_id: &str) -> eg_epistemic::JustificationGraph {
+    let bg = eg_epistemic::BeliefGraph::from_graph_view(ctx.view);
+    let policy = belief_policy(ctx);
+    eg_epistemic::explain_belief(&bg, node_id, &policy)
+}
+
+/// `EXPLAIN BELIEF <node_id>` (`Op::ExplainBelief`) — build the recursive justification
+/// tree ([`eg_epistemic::explain_belief`]) rooted at `node_id`, flatten it pre-order
+/// (deduped) to `(claim_id, confidence)` pairs, and seed-or-filter the RowSet exactly like
+/// `EvidenceFor`/`Contradicts` (CONCEPT:EG-KG.epistemic.epistemic-substrate). The FULL nested
+/// tree (rule names, premise structure) does not fit the flat `RowSet` currency — this is
+/// the queryable, composes-in-plan projection of it; [`explain_belief_tree`] above returns
+/// the verbatim tree for the standalone `Method::ExplainBelief` wire surface.
+#[cfg(feature = "epistemic")]
+fn explain_belief_op(ctx: &PlanCtx, input: RowSet, node_id: &str) -> RowSet {
+    let bg = eg_epistemic::BeliefGraph::from_graph_view(ctx.view);
+    let policy = belief_policy(ctx);
+    let jg = eg_epistemic::explain_belief(&bg, node_id, &policy);
+    let mut flat: Vec<(String, f32)> = Vec::new();
+    let mut seen = HashSet::new();
+    flatten_proof(&jg.root, &mut flat, &mut seen);
+    if input.is_empty() {
+        return RowSet::from_scored(flat);
+    }
+    let scores: std::collections::HashMap<&str, f32> =
+        flat.iter().map(|(id, s)| (id.as_str(), *s)).collect();
+    let scored = input
+        .rows()
+        .iter()
+        .filter_map(|r| scores.get(r.id.as_str()).map(|s| (r.id.clone(), *s)));
+    RowSet::from_scored(scored)
+}
+
+/// Pre-order flatten of a [`eg_epistemic::ProofNode`] tree into `(claim_id, confidence)`
+/// pairs, deduped by first occurrence (CONCEPT:EG-KG.epistemic.epistemic-substrate) — the
+/// RowSet-currency projection of `ExplainBelief`'s justification tree.
+#[cfg(feature = "epistemic")]
+fn flatten_proof(
+    node: &eg_epistemic::ProofNode,
+    out: &mut Vec<(String, f32)>,
+    seen: &mut HashSet<String>,
+) {
+    if seen.insert(node.claim.clone()) {
+        out.push((node.claim.clone(), node.confidence as f32));
+    }
+    for premise in &node.premises {
+        flatten_proof(premise, out, seen);
     }
 }
 
@@ -1885,7 +2471,7 @@ fn cep_op(view: &GraphView, input: RowSet, spec: &eg_types::wire::CepPatternSpec
 #[cfg(feature = "stream")]
 fn row_event(view: &GraphView, id: &str) -> Option<eg_stream::Event> {
     let blob = view.node_properties.get(id)?;
-    let v: serde_json::Value = rmp_serde::from_slice(blob.as_slice()).ok()?;
+    let v = eg_types::msgpack::decode_property_value(blob.as_slice()).ok()?;
     let ts = v.get("ts").and_then(|t| t.as_u64())?;
     let key = v
         .get("key")
@@ -1969,38 +2555,125 @@ fn cep_pattern_from_spec(p: &eg_types::wire::CepNodeSpec) -> eg_stream::CepPatte
 /// string equality is single-quote-escaped. (The planner could equally hand
 /// DataFusion a pre-built `LogicalPlan`; a string keeps the leg legible and reuses
 /// `eg_query::exec_sql` verbatim — DataFusion as the relational sub-engine.)
-fn where_clause(preds: &[Pred]) -> String {
-    if preds.is_empty() {
-        return "1=1".into();
+const MAX_FILTER_PREDICATES: usize = 256;
+const MAX_FILTER_IDENTIFIER_BYTES: usize = 256;
+const MAX_FILTER_LITERAL_BYTES: usize = 1024 * 1024;
+
+fn sql_identifier(value: &str) -> Result<String, String> {
+    if value.is_empty()
+        || value.len() > MAX_FILTER_IDENTIFIER_BYTES
+        || value.chars().any(char::is_control)
+    {
+        return Err("filter property name is invalid or exceeds its safety bound".into());
     }
-    preds
+    Ok(format!("\"{}\"", value.replace('"', "\"\"")))
+}
+
+fn sql_literal(value: &str) -> Result<String, String> {
+    if value.len() > MAX_FILTER_LITERAL_BYTES || value.contains('\0') {
+        return Err("filter literal is invalid or exceeds its safety bound".into());
+    }
+    Ok(format!("'{}'", value.replace('\'', "''")))
+}
+
+pub(crate) fn where_clause(preds: &[Pred]) -> Result<String, String> {
+    if preds.len() > MAX_FILTER_PREDICATES {
+        return Err("filter predicate count exceeds its safety bound".into());
+    }
+    if preds.is_empty() {
+        return Ok("1=1".into());
+    }
+    let clauses = preds
         .iter()
-        .map(|p| match p {
-            Pred::Eq { prop, value } => {
-                format!("{prop} = '{}'", value.replace('\'', "''"))
-            }
-            Pred::GtNum { prop, n } => format!("{prop} > {n}"),
-            Pred::LtNum { prop, n } => format!("{prop} < {n}"),
-            // JSONPath preds (CONCEPT:EG-KG.compute.json-deep-indexing) are NOT lowered to SQL — `filter_op` splits
-            // them out and applies them per-row via `eg_core::jsonpath`, so they never
-            // reach here. This defensive arm keeps the match exhaustive: a no-op `1=1`.
-            Pred::JsonPath { .. } => "1=1".into(),
-            // Spatial preds (CONCEPT:EG-KG.ontology.singles-concept / EG-258) are NOT lowered to SQL — `filter_op`
-            // splits them out and applies them per-row via eg-geo, so they never reach here.
-            // This defensive arm keeps the match exhaustive under `geo`: a no-op `1=1`.
-            #[cfg(feature = "geo")]
-            Pred::SpatialWithin { .. }
-            | Pred::SpatialDWithin { .. }
-            | Pred::SpatialContains { .. }
-            | Pred::SpatialCovers { .. }
-            | Pred::SpatialTouches { .. }
-            | Pred::SpatialCrosses { .. }
-            | Pred::SpatialOverlaps { .. }
-            | Pred::SpatialEquals { .. }
-            | Pred::SpatialDisjoint { .. } => "1=1".into(),
+        .map(|p| -> Result<String, String> {
+            Ok(match p {
+                Pred::Eq { prop, value } => {
+                    format!("{} = {}", sql_identifier(prop)?, sql_literal(value)?)
+                }
+                Pred::GtNum { prop, n } => {
+                    if !n.is_finite() {
+                        return Err("filter numeric literal must be finite".into());
+                    }
+                    format!("{} > {n}", sql_identifier(prop)?)
+                }
+                Pred::LtNum { prop, n } => {
+                    if !n.is_finite() {
+                        return Err("filter numeric literal must be finite".into());
+                    }
+                    format!("{} < {n}", sql_identifier(prop)?)
+                }
+                // JSONPath predicates are evaluated per row and never reach SQL.
+                Pred::JsonPath { .. } => "1=1".into(),
+                // Spatial predicates are likewise evaluated outside this SQL leg.
+                #[cfg(feature = "geo")]
+                Pred::SpatialWithin { .. }
+                | Pred::SpatialDWithin { .. }
+                | Pred::SpatialContains { .. }
+                | Pred::SpatialCovers { .. }
+                | Pred::SpatialTouches { .. }
+                | Pred::SpatialCrosses { .. }
+                | Pred::SpatialOverlaps { .. }
+                | Pred::SpatialEquals { .. }
+                | Pred::SpatialDisjoint { .. } => "1=1".into(),
+            })
         })
-        .collect::<Vec<_>>()
-        .join(" AND ")
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(clauses.join(" AND "))
+}
+
+#[cfg(test)]
+mod filter_security_tests {
+    use super::*;
+
+    #[test]
+    fn wire_supplied_identifiers_and_literals_cannot_escape_sql() {
+        let clause = where_clause(&[Pred::Eq {
+            prop: "name\" OR 1=1 --".into(),
+            value: "x' OR '1'='1".into(),
+        }])
+        .unwrap();
+        assert_eq!(clause, "\"name\"\" OR 1=1 --\" = 'x'' OR ''1''=''1'");
+    }
+
+    #[test]
+    fn invalid_or_unbounded_wire_predicates_fail_closed() {
+        assert!(where_clause(&[Pred::GtNum {
+            prop: "score".into(),
+            n: f64::NAN,
+        }])
+        .is_err());
+        assert!(where_clause(&[Pred::Eq {
+            prop: "bad\nname".into(),
+            value: String::new(),
+        }])
+        .is_err());
+        let too_many = (0..=MAX_FILTER_PREDICATES)
+            .map(|_| Pred::Eq {
+                prop: "type".into(),
+                value: "Document".into(),
+            })
+            .collect::<Vec<_>>();
+        assert!(where_clause(&too_many).is_err());
+    }
+}
+
+/// The O(1) fast-path RESULT for a lone `id = <id>` equality predicate
+/// (CONCEPT:EG-KG.query.point-lookup-fast-path) — BYTE-IDENTICAL to what
+/// `sql_filter_ids(view, &[Pred::Eq{prop:"id", value:id.into()}], restrict_to)` would
+/// return (a single-element `Vec` iff `id` both exists AND — when `restrict_to`
+/// narrows to a prior candidate set — is a member of it), computed via a direct
+/// `HashMap` lookup instead of DataFusion's parse/plan/execute round trip.
+fn point_lookup_ids(view: &GraphView, id: &str, restrict_to: Option<&[String]>) -> Vec<String> {
+    if let Some(ids) = restrict_to {
+        if !ids.iter().any(|i| i == id) {
+            return Vec::new();
+        }
+    }
+    if view.node_properties.contains_key(id) {
+        vec![id.to_string()]
+    } else {
+        Vec::new()
+    }
 }
 
 /// Run the FILTER leg through real DataFusion (`eg_query::exec_sql`) over the
@@ -2015,28 +2688,35 @@ fn sql_filter_ids(
     preds: &[Pred],
     restrict_to: Option<&[String]>,
 ) -> Result<Vec<String>, String> {
-    let mut sql = format!("SELECT id FROM nodes WHERE {}", where_clause(preds));
+    let mut sql = format!("SELECT id FROM nodes WHERE {}", where_clause(preds)?);
     if let Some(ids) = restrict_to {
         if ids.is_empty() {
             return Ok(Vec::new());
         }
         let in_list = ids
             .iter()
-            .map(|i| format!("'{}'", i.replace('\'', "''")))
-            .collect::<Vec<_>>()
+            .map(|id| sql_literal(id))
+            .collect::<Result<Vec<_>, _>>()?
             .join(",");
         sql.push_str(&format!(" AND id IN ({in_list})"));
     }
 
     // `exec_sql` builds its own current-thread runtime to drive DataFusion's async
     // collect (safe to call inside spawn_blocking, exactly as the Sql handler does).
-    let result = eg_query::exec_sql(view, &sql)?;
+    let result = eg_query::exec_sql(view, &sql, &eg_query::CancellationToken::new())?;
     // `result.rows[i]` is a MessagePack-encoded `Vec<serde_json::Value>` aligned to
     // `result.columns` (here a single `id` column). Decode the id cell of each row.
     let mut out = Vec::with_capacity(result.rows.len());
     for row in &result.rows {
-        let cells: Vec<serde_json::Value> =
-            rmp_serde::from_slice(row).map_err(|e| format!("decode filter row: {e}"))?;
+        let cells: Vec<serde_json::Value> = eg_types::msgpack::decode_bounded(
+            row,
+            eg_types::msgpack::MsgpackLimits::new(
+                eg_types::msgpack::MAX_PROPERTY_BYTES,
+                eg_types::msgpack::MAX_PROPERTY_ITEMS,
+                eg_types::msgpack::DEFAULT_MAX_DEPTH,
+            ),
+        )
+        .map_err(|_| "decode filter row failed".to_string())?;
         match cells.first().and_then(|v| v.as_str()) {
             Some(id) => out.push(id.to_string()),
             None => return Err("filter result row had no string id cell".into()),
@@ -2053,9 +2733,20 @@ fn sql_filter_ids(
 ///
 /// IMPORTANT (a real data-model detail): the petgraph edge *weight* is the synthetic
 /// `"{src}:{tgt}"` string (`GraphCore::add_edge`), NOT the relationship type — the
-/// relationship lives in the edge's property blob (`relationship`/`type` field),
-/// exactly as eg-query/cypher's `rel_matches` reads it. So the BFS matches on the
-/// blob, not the weight.
+/// relationship lives in the edge's canonical `relationship` property
+/// (CONCEPT:EG-KG.query.rel-type-projection), exactly as eg-query/cypher's `rel_matches` reads
+/// it. So the BFS matches on the blob, not the weight.
+///
+/// Direction is always OUTGOING — UQL's `TRAVERSE -[:REL]->{m,n}` has no `<-`/undirected
+/// form (unlike Cypher's `-[..]->`/`<-[..]-`/`-[..]-`), so a typed traversal only
+/// reaches neighbors the seed has an OUTGOING `rel`-typed edge to. If a seed's only
+/// `rel`-typed edge to a neighbor is stored in the REVERSE direction (neighbor→seed —
+/// an ingest-side convention question, not an engine bug: eg-query/cypher's `<-[r]-`
+/// already reaches such an edge, so the topology is queryable, just not via this
+/// one-directional TRAVERSE), this returns `[]` for that neighbor. Widening TRAVERSE
+/// to accept a direction/undirected form is a language change, not a matcher bug —
+/// out of scope here; see the AU ingest writer for whether edge direction should be
+/// normalized at write time instead.
 pub(crate) fn bfs_reached(
     view: &GraphView,
     seeds: &[String],
@@ -2105,7 +2796,8 @@ pub(crate) fn bfs_reached(
 }
 
 /// Does the stored edge `(from→to)` carry relationship `rel`? Reads the edge's
-/// property blobs (`relationship` or `type` field) — mirrors eg-query/cypher.
+/// canonical `relationship` property. An ordinary `type` property is payload and
+/// is never reinterpreted as edge identity.
 fn rel_matches(view: &GraphView, from: &str, to: &str, rel: &str) -> bool {
     let Some(blobs) = view
         .edge_properties
@@ -2114,12 +2806,9 @@ fn rel_matches(view: &GraphView, from: &str, to: &str, rel: &str) -> bool {
         return false;
     };
     blobs.iter().any(|b| {
-        rmp_serde::from_slice::<serde_json::Value>(b.as_slice())
+        eg_types::msgpack::decode_property_value(b.as_slice())
             .ok()
-            .map(|v| {
-                let r = v.get("relationship").or_else(|| v.get("type"));
-                r.and_then(|x| x.as_str()) == Some(rel)
-            })
+            .map(|v| v.get("relationship").and_then(|x| x.as_str()) == Some(rel))
             .unwrap_or(false)
     })
 }

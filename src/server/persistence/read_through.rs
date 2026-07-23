@@ -7,7 +7,7 @@
 //! object, so the dependency points the correct way (facade → eg-core, facade →
 //! backend) and no facade type leaks down into eg-core.
 //!
-//! Installed once at startup, only under redb-authoritative mode, via
+//! Installed once at startup via
 //! `GraphRegistry::set_read_through_factory`. On a RAM miss, `GraphCore` calls
 //! `ReadThrough::read_node_blob`, which routes to the backend's SYNC point-read.
 
@@ -74,5 +74,67 @@ impl ReadThroughFactory for BackendReadThroughFactory {
             backend: self.backend.clone(),
             graph_fname: sanitize(graph_name),
         })
+    }
+}
+
+/// A [`eg_core::registry::GraphMaterializer`] over a [`PersistenceBackend`]
+/// (CONCEPT:EG-KG.sharding.lazy-graph-catalog, DIST-P2-3): fetches ONE graph's durable material
+/// (nodes/edges/semantic store) on lazy first-open by calling
+/// [`PersistenceBackend::read_graph_material_blocking`]. Installed once at
+/// startup when lazy startup is enabled, mirroring
+/// [`BackendReadThroughFactory`] above.
+pub struct BackendGraphMaterializer {
+    backend: Arc<dyn PersistenceBackend>,
+}
+
+impl BackendGraphMaterializer {
+    pub fn new(backend: Arc<dyn PersistenceBackend>) -> Self {
+        Self { backend }
+    }
+}
+
+impl eg_core::registry::GraphMaterializer for BackendGraphMaterializer {
+    fn materialize(&self, graph_name: &str) -> Option<eg_core::registry::GraphMaterial> {
+        let fname = sanitize(graph_name);
+        match self.backend.read_graph_material_blocking(&fname) {
+            Ok(material) => material,
+            Err(e) => {
+                tracing::warn!(
+                    "lazy-open materialize failed for graph '{}': {}",
+                    graph_name,
+                    e
+                );
+                None
+            }
+        }
+    }
+
+    /// Bounded-page override (CONCEPT:EG-KG.sharding.paged-lazy-open, L38 "paged adjacency") — routes to
+    /// [`PersistenceBackend::read_graph_material_page_blocking`] instead of
+    /// inheriting the trait's own default (which would call [`materialize`](Self::materialize)
+    /// above and slice in memory). Only the redb backend gives this a genuinely
+    /// bounded SOURCE fetch today; any other backend still gets a correct — just
+    /// not SOURCE-bounded — page via that method's own default fallback.
+    fn materialize_page(
+        &self,
+        graph_name: &str,
+        cursor: Option<eg_core::registry::MaterializeCursor>,
+        page_size: usize,
+    ) -> Option<eg_core::registry::MaterialPage> {
+        let fname = sanitize(graph_name);
+        match self
+            .backend
+            .read_graph_material_page_blocking(&fname, cursor, page_size)
+        {
+            Ok(page) => page,
+            Err(e) => {
+                tracing::warn!(
+                    "paged lazy-open materialize_page failed for graph '{}': {}",
+                    graph_name,
+                    e
+                );
+                None
+            }
+        }
     }
 }

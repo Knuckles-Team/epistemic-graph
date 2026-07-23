@@ -17,8 +17,8 @@
 //!  1. [`FilterAsOfBeforeRank`] (CONCEPT:EG-KG.query.filter-pushdown-rule) — push a SELECTIVE
 //!     id-set narrower (`Filter` / `AsOf`) ahead of an adjacent expensive vector `Rank` when
 //!     the cost model says filter-first wins; keep the `Rank` first when the narrower is
-//!     broad (vector-first). Folds the legacy [`crate::cost::CostModel::reorder_filter_rank`]
-//!     into the engine as one rule, sharing its decision + swap primitive (No-Legacy).
+//!     broad (vector-first). This is the sole filter/rank reorder authority and shares
+//!     the cost model's decision and swap primitive.
 //!  2. [`ReorderReasonRank`] (CONCEPT:EG-KG.query.reason-rank-reorder-rule) — order an adjacent
 //!     mid-pipeline OWL `Reason` (a confidence-preserving FILTER) vs a vector `Rank` by which
 //!     shrinks the candidate set more, so the second leg runs over fewer rows.
@@ -52,7 +52,7 @@
 //! (byte-for-byte the pre-optimizer fold). The `cost-opt` cargo feature (implies `query`) is
 //! the facade tier selector — default-on in `full`.
 
-use crate::algebra::{Op, Plan};
+use crate::algebra::{Op, Plan, Pred};
 use crate::cost::{Cardinality, CostModel, ModalityCardinality, PlanStats, Stats, DEFAULT_TOP_K};
 use crate::exec::PlanCtx;
 
@@ -67,16 +67,45 @@ pub fn enabled() -> bool {
 }
 
 /// Rewrite `plan` into a cheaper-but-equivalent plan (CONCEPT:EG-KG.query.xmodal-cost-optimizer).
-/// Collects the O(1) [`PlanStats`] catalog once, binds the [`ModalityCardinality`] estimators,
+/// Collects the snapshot-memoized [`PlanStats`] catalog once, binds the
+/// [`ModalityCardinality`] estimators,
 /// and folds every rule over the op list in order. A no-op (identity clone) whenever no rule
 /// finds a beneficial, provably-safe rewrite.
 pub fn optimize(plan: &Plan, ctx: &PlanCtx) -> Plan {
+    // ID/POINT-LOOKUP FAST PATH (CONCEPT:EG-KG.query.point-lookup-fast-path): a
+    // `Scan{label} -> Filter{single Eq(id)}` (optionally + `Limit`) shape — what
+    // UQL/Cypher `WHERE id = ...` and SQL `WHERE id = ?` all lower to — has NO adjacent
+    // `Rank` to reorder against, so every rule below is structurally a no-op on it. The
+    // cost-based machinery still has to pay for `PlanStats::collect`'s O(N) column-
+    // histogram pass on a COLD snapshot (the first call against it) to discover that,
+    // which buys a trivial single-key lookup nothing. Skip straight to the identity —
+    // a syntactic, zero-cost-model short-circuit ahead of the optimizer, mirroring
+    // GraniteDB's `choose_strategy`'s `_id`-equality check ahead of its own (cheap but
+    // real) index-matching loop.
+    if is_point_lookup(&plan.ops) {
+        return plan.clone();
+    }
     let card = ModalityCardinality::new(PlanStats::collect(ctx));
     let mut ops = plan.ops.clone();
     for rule in rules() {
         ops = rule.apply(ops, &card, ctx);
     }
     Plan::new(ops)
+}
+
+/// The trivial ID/point-lookup shape [`optimize`] short-circuits on
+/// (CONCEPT:EG-KG.query.point-lookup-fast-path): a leading `Scan`, then a `Filter` whose
+/// ONLY predicate is an equality on the graph's own reserved `id` column (the exact
+/// column [`crate::exec::sql_filter_ids`]'s `SELECT id FROM nodes WHERE id = ...`
+/// resolves — never a same-named JSON property, which would be a different, unrelated
+/// predicate this must NOT misfire on), followed by zero or more `Limit`s and nothing
+/// else. There is no `Rank`/`AsOf`/`Reason` for any rule to place this pair against.
+fn is_point_lookup(ops: &[Op]) -> bool {
+    let [Op::Scan { .. }, Op::Filter { preds }, rest @ ..] = ops else {
+        return false;
+    };
+    let is_id_eq = matches!(preds.as_slice(), [Pred::Eq { prop, .. }] if prop == "id");
+    is_id_eq && rest.iter().all(|op| matches!(op, Op::Limit { .. }))
 }
 
 /// The ordered rule set the engine folds over a plan. `Reason`↔`Rank` and the `FuseRrf`
@@ -88,6 +117,11 @@ fn rules() -> Vec<Box<dyn Rule>> {
     rs.push(Box::new(ReorderReasonRank));
     #[cfg(feature = "text")]
     rs.push(Box::new(ReorderFuseBranches));
+    // Runs LAST: it re-scans the (possibly pairwise-touched) op list for runs of 3+
+    // reorderable ops and replaces them with the true cost-minimal permutation, so it
+    // always has the final say regardless of what the pairwise rules above already did
+    // (CONCEPT:EG-KG.query.global-plan-cost).
+    rs.push(Box::new(GlobalChainCost));
     rs
 }
 
@@ -97,6 +131,109 @@ fn rules() -> Vec<Box<dyn Rule>> {
 /// `fuse-rrf-branch-reorder` needs `text`.
 pub fn rule_names() -> Vec<&'static str> {
     rules().iter().map(|r| r.name()).collect()
+}
+
+// ── DAG-aware optimizer (CONCEPT:EG-KG.query.dag-optimizer, E5 phase 3) ──────────
+
+/// The DAG generalization of [`optimize`] (CONCEPT:EG-KG.query.dag-optimizer): reorder ops
+/// WITHIN each maximal LINEAR CHAIN SEGMENT of `dag` — [`chain_segments`] — by splicing the
+/// segment's op sequence through the UNCHANGED linear engine above (the SAME `rules()` over
+/// the SAME [`Cardinality`]/[`crate::cost::CostEstimate`] contracts every existing plan
+/// already reorders through; nothing here duplicates a cost formula).
+///
+/// **The EG-405 adjacency guard, reimplemented as a DAG narrowing.** The linear engine's
+/// invariant — reorder only an ADJACENT run, never past an intermediate that could go empty
+/// and re-seed a downstream op as a SOURCE — assumed a `Vec<Op>` has exactly one predecessor
+/// per position. A DAG breaks that assumption at a BRANCH (a node with 2+ inputs) or a
+/// FAN-OUT (a node whose output feeds 2+ others): reordering an op across such a boundary
+/// could change what the OTHER branch/consumer observes, which the linear engine never had to
+/// reason about. [`chain_segments`] computes exactly the runs where that risk is ABSENT — a
+/// node extends its predecessor's segment iff it is that predecessor's ONLY consumer AND that
+/// predecessor is its ONLY input — so a rewrite NEVER crosses a branch/fan-out boundary. This
+/// is a STRICT NARROWING of the linear rule: a degenerate chain dag (every `From<Plan>`
+/// conversion) has no branches at all, so `chain_segments` returns ONE segment spanning every
+/// node and `optimize_dag` is IDENTICAL to `optimize` (proved by
+/// `dag_optimize_matches_linear_optimize_for_a_chain` below); a genuine multi-branch dag gets
+/// the SAME per-segment reorder, just never applied across a join — proved not to cross a
+/// branch by `optimizer_never_reorders_across_a_branch_boundary`.
+///
+/// A branch/join node's own `op` position never moves (only nodes WITHIN a segment can swap
+/// with each other); the multi-branch JOIN itself (combining 2+ parents) is `dag_exec`'s
+/// capability, not a cost decision this optimizer makes.
+pub fn optimize_dag(dag: &crate::dag::PlanDag, ctx: &PlanCtx) -> crate::dag::PlanDag {
+    if dag.nodes.is_empty() {
+        return dag.clone();
+    }
+    let card = ModalityCardinality::new(PlanStats::collect(ctx));
+    let mut nodes = dag.nodes.clone();
+    for segment in chain_segments(dag) {
+        if segment.len() < 2 {
+            continue; // nothing to reorder in a length-1 segment
+        }
+        let ops: Vec<Op> = segment.iter().map(|&id| nodes[id].op.clone()).collect();
+        let mut rewritten = ops.clone();
+        for rule in rules() {
+            rewritten = rule.apply(rewritten, &card, ctx);
+        }
+        // Defensive: a `Rule` must never change the op count (it only reorders). Skip the
+        // splice rather than risk mis-mapping ids onto the wrong node if one ever did.
+        if rewritten.len() != segment.len() {
+            continue;
+        }
+        for (&id, op) in segment.iter().zip(rewritten) {
+            nodes[id].op = op;
+        }
+    }
+    crate::dag::PlanDag::new(nodes)
+}
+
+/// Every maximal LINEAR CHAIN SEGMENT of `dag` (CONCEPT:EG-KG.query.dag-optimizer) — a run of
+/// node ids, in dependency order, where each node past the first has EXACTLY the previous
+/// node as its sole input, AND the previous node has EXACTLY this node as its sole consumer.
+/// A branch point (2+ inputs) or a fan-out point (a node consumed by 2+ others) starts a NEW
+/// segment — [`optimize_dag`]'s reorder never crosses that boundary. Every node appears in
+/// EXACTLY ONE segment (singleton segments included), so the returned segments partition
+/// `dag.nodes`. Falls back to a per-node partition (every node its own segment — a safe no-op
+/// for the optimizer) on a malformed dag (`topo_order` errors) rather than panicking.
+fn chain_segments(dag: &crate::dag::PlanDag) -> Vec<Vec<crate::dag::NodeId>> {
+    let n = dag.nodes.len();
+    let mut out_degree = vec![0usize; n];
+    for node in &dag.nodes {
+        for &input in &node.inputs {
+            if input < n {
+                out_degree[input] += 1;
+            }
+        }
+    }
+    let Ok(order) = dag.topo_order() else {
+        return (0..n).map(|i| vec![i]).collect();
+    };
+
+    let mut segment_of: Vec<Option<usize>> = vec![None; n];
+    let mut segments: Vec<Vec<crate::dag::NodeId>> = Vec::new();
+    for id in order {
+        let sole_parent = match dag.nodes[id].inputs.as_slice() {
+            [only] => Some(*only),
+            _ => None,
+        };
+        // Extend the parent's segment iff the seam is a clean 1:1 edge (this node's ONLY
+        // input is the parent, AND the parent's ONLY consumer is this node) — topo order
+        // guarantees the parent was already assigned a segment.
+        let extend = sole_parent
+            .filter(|&p| out_degree[p] == 1)
+            .and_then(|p| segment_of[p]);
+        match extend {
+            Some(seg_idx) => {
+                segments[seg_idx].push(id);
+                segment_of[id] = Some(seg_idx);
+            }
+            None => {
+                segment_of[id] = Some(segments.len());
+                segments.push(vec![id]);
+            }
+        }
+    }
+    segments
 }
 
 /// One cost-based rewrite over a logical op list (CONCEPT:EG-KG.query.xmodal-cost-optimizer). Each
@@ -137,13 +274,20 @@ fn trailing_top_k(ops: &[Op], rank_idx: usize) -> usize {
 }
 
 /// Is `op` a vector `Rank` (the expensive reranker a narrower is ordered against)?
+/// Is `op` an index-backed reranker the reorder rules place a narrower against
+/// (CONCEPT:EG-KG.query.index-method-seam)? Both registered [`crate::cost::IndexMethod`]s —
+/// vector `Rank`/`RankEmbed` (ANN) AND, under `text`, lexical `RankText` (BM25) — so a
+/// selective/broad narrower is placed by the SAME cost-based seam regardless of which
+/// index the rerank is backed by; before this, only the vector leg was ever recognized
+/// here, so a `[Filter, RankText]` pair was NEVER reordered no matter how selective the
+/// filter was.
 fn is_rank(op: &Op) -> bool {
-    matches!(op, Op::Rank { .. } | Op::RankEmbed { .. })
+    crate::cost::is_index_method_op(op)
 }
 
 /// Reorder EVERY adjacent `(narrower, Rank)` pair (in either order) where `is_narrower` holds,
-/// by the cost model, sharing [`CostModel::order`] + [`CostModel::place_narrower`] with the
-/// legacy `reorder_filter_rank` (CONCEPT:EG-KG.query.filter-pushdown-rule). Guarded to the proven
+/// by the cost model, using [`CostModel::order`] + [`CostModel::place_narrower`]
+/// (CONCEPT:EG-KG.query.filter-pushdown-rule). Guarded to the proven
 /// EG-405-safe regime: the pair must sit AFTER a source (index ≥ 1) and BOTH candidate
 /// intermediates must stay ≥ 1 row, else the pair is left untouched.
 fn reorder_narrower_rank_pairs(
@@ -181,11 +325,22 @@ fn reorder_narrower_rank_pairs(
         }
 
         let top_k = trailing_top_k(&ops, rank_idx);
+        // The "index size" `Stats::estimate` uses to price a SOURCE top-k probe is
+        // modality-specific (CONCEPT:EG-KG.query.index-method-seam): the embedding store for a
+        // vector `Rank`/`RankEmbed`, but the resident node count (the BM25 corpus) for a
+        // lexical `RankText` — using the embedding count for BOTH (as before `is_rank`
+        // recognized `RankText` at all) would size a text reorder off an unrelated
+        // catalog number.
+        let index_size = match &ops[rank_idx] {
+            #[cfg(feature = "text")]
+            Op::RankText { .. } => card.stats().node_count,
+            _ => card.stats().embedding_count,
+        };
         let stats = Stats::estimate(
             in_card.round().max(1.0) as usize,
             narrower_sel,
             top_k,
-            card.stats().embedding_count,
+            index_size,
         );
         let want_narrower_first = CostModel::order(&stats) == crate::cost::Order::FilterFirst;
         ops = CostModel::place_narrower(ops, narrower_idx, rank_idx, want_narrower_first);
@@ -198,7 +353,7 @@ fn reorder_narrower_rank_pairs(
 
 /// Push a SELECTIVE relational `Filter` or bi-temporal `AsOf` ahead of an adjacent vector
 /// `Rank` when the cost model says filter-first wins; keep `Rank` first for a BROAD narrower
-/// (CONCEPT:EG-KG.query.filter-pushdown-rule). Folds the legacy `reorder_filter_rank` in as one rule.
+/// (CONCEPT:EG-KG.query.filter-pushdown-rule). This rule is the only execution path.
 struct FilterAsOfBeforeRank;
 
 impl Rule for FilterAsOfBeforeRank {
@@ -324,6 +479,219 @@ fn branch_cost(branch: &[Op], seed: f64, card: &ModalityCardinality, ctx: &PlanC
     total
 }
 
+// ── Rule 4: global cost-minimal reordering of a WHOLE reorderable chain ──────────
+
+/// Is `op` a `Filter`/`AsOf`/`Reason`/`Rank`(`Embed`) — one of the kinds
+/// [`GlobalChainCost`] (CONCEPT:EG-KG.query.global-plan-cost) may reorder because they all draw
+/// candidates from the SAME id-set (the EG-405 commuting family the module doc defines).
+/// `Traverse`/`Scan`/`FuseRrf`/time-series/etc. are BARRIERS: they change the seed (a fresh
+/// candidate set), so a run never crosses one — mirrors the pairwise rules' adjacency rule,
+/// generalized from "the next op" to "every op in this maximal run".
+fn is_reorderable(op: &Op) -> bool {
+    if matches!(op, Op::Filter { .. } | Op::AsOf { .. }) || is_rank(op) {
+        return true;
+    }
+    #[cfg(feature = "owl")]
+    if matches!(op, Op::Reason { .. }) {
+        return true;
+    }
+    // EG-405 EXCLUSION (CONCEPT:EG-KG.epistemic.epistemic-substrate, E2): the epistemic ops do
+    // NOT draw candidates from the same id-set the `Filter`/`AsOf`/`Reason`/`Rank` commuting
+    // family shares — `EvidenceFor`/`Contradicts`/`SupportedBy` seed from a DIFFERENT edge-kind
+    // projection than the graph's own topology, `BeliefAsOf`/`ConfidenceOp`/`SourceReliability`
+    // re-score by a stateful belief-propagation walk (not a stateless per-row predicate), and
+    // `ExplainBelief`'s flattened output depends on tree DEPTH/order — none of these commute
+    // freely with a reorder the way a pure narrowing predicate does. Excluded EXPLICITLY (not
+    // by omission) so a future edit to this match can't silently make them reorder-eligible.
+    #[cfg(feature = "epistemic")]
+    if matches!(
+        op,
+        Op::EvidenceFor { .. }
+            | Op::Contradicts { .. }
+            | Op::SupportedBy { .. }
+            | Op::BeliefAsOf { .. }
+            | Op::SourceReliability { .. }
+            | Op::ConfidenceOp {}
+            | Op::ExplainBelief { .. }
+    ) {
+        return false;
+    }
+    false
+}
+
+/// The bound on a single reorderable run's length before [`GlobalChainCost`] gives up on an
+/// exhaustive permutation search (CONCEPT:EG-KG.query.global-plan-cost). `5! = 120` candidate
+/// orderings is a bounded plan-time cost beside the snapshot-memoized stats collection; a
+/// run longer than this is vanishingly rare in practice (it would mean 6+
+/// `Filter`/`AsOf`/`Reason`/`Rank` ops chained with no `Traverse`/`Scan`/`Limit` between them) and
+/// is left untouched rather than risk a combinatorial blowup.
+const MAX_CHAIN_SEGMENT: usize = 5;
+
+/// Reorder every maximal run of 3+ consecutive [`is_reorderable`] ops into its cost-minimal
+/// permutation (CONCEPT:EG-KG.query.global-plan-cost) — the generalization of the pairwise
+/// [`FilterAsOfBeforeRank`]/[`ReorderReasonRank`] rules from "one adjacent pair" to "the WHOLE
+/// chain at once". A run of exactly 2 is left to those two rules (they already solve the pair
+/// case optimally); this rule only fires where the pairwise mechanism structurally cannot see
+/// far enough — 3 or more chained ops, where advancing by adjacent, non-overlapping pairs can
+/// permanently strand a later op behind an already-decided pair (the module-level example: given
+/// `[Rank, broad_filter, selective_filter]`, a pairwise pass commits `(Rank, broad_filter)` and
+/// then jumps past `selective_filter` without ever comparing it to either). Runs never start at
+/// index 0 (that op is the plan's SOURCE, not a narrower — same invariant the pairwise rules
+/// enforce) and longer than [`MAX_CHAIN_SEGMENT`] are left untouched (see its doc).
+struct GlobalChainCost;
+
+impl Rule for GlobalChainCost {
+    fn name(&self) -> &'static str {
+        "global-chain-cost"
+    }
+    fn apply(&self, ops: Vec<Op>, card: &ModalityCardinality, ctx: &PlanCtx) -> Vec<Op> {
+        reorder_chain_segments(ops, card, ctx)
+    }
+}
+
+fn reorder_chain_segments(mut ops: Vec<Op>, card: &ModalityCardinality, ctx: &PlanCtx) -> Vec<Op> {
+    let mut i = 1; // index 0 is always the source; never part of a reorderable run.
+    while i < ops.len() {
+        if !is_reorderable(&ops[i]) {
+            i += 1;
+            continue;
+        }
+        let start = i;
+        let mut end = i + 1;
+        while end < ops.len() && is_reorderable(&ops[end]) {
+            end += 1;
+        }
+        let len = end - start;
+        // Pairs are already optimal via the dedicated pairwise rules; only 3+ chains need
+        // the exhaustive search, and only up to the bounded cap.
+        if !(3..=MAX_CHAIN_SEGMENT).contains(&len) {
+            i = end;
+            continue;
+        }
+        let seed = card_before(&ops, start, card, ctx);
+        let top_k = trailing_top_k(&ops, end - 1);
+        let segment = &ops[start..end];
+        if let Some(best) = best_permutation(segment, seed, top_k, card, ctx) {
+            ops.splice(start..end, best);
+        }
+        i = end;
+    }
+    ops
+}
+
+/// Every permutation of `0..n`, depth-first, starting with the IDENTITY order — so a caller
+/// that only replaces on a STRICTLY cheaper cost (see [`best_permutation`]) keeps the original
+/// order on a tie (determinism, and "don't reorder for a wash"). `n` is bounded by
+/// [`MAX_CHAIN_SEGMENT`], so the `O(n!)` blowup never exceeds 120 permutations.
+fn permutations(indices: &[usize]) -> Vec<Vec<usize>> {
+    if indices.is_empty() {
+        return vec![vec![]];
+    }
+    let mut out = Vec::new();
+    for (pos, &val) in indices.iter().enumerate() {
+        let mut rest = indices.to_vec();
+        rest.remove(pos);
+        for mut tail in permutations(&rest) {
+            let mut perm = Vec::with_capacity(tail.len() + 1);
+            perm.push(val);
+            perm.append(&mut tail);
+            out.push(perm);
+        }
+    }
+    out
+}
+
+/// The cost-minimal reordering of `segment` over `seed` input rows (CONCEPT:EG-KG.query.global-plan-cost)
+/// — exhaustively costs every permutation via [`ModalityCardinality::permutation_cost`] and
+/// returns the cheapest one that is EG-405-safe (skipping any permutation
+/// [`ModalityCardinality::permutation_cost`] rejects). Returns `None` when every permutation is
+/// unsafe (leaves `segment` untouched) or when the cheapest found is not STRICTLY cheaper than
+/// the original (`permutations` yields the identity order first, so a tie keeps it).
+fn best_permutation(
+    segment: &[Op],
+    seed: f64,
+    top_k: usize,
+    card: &ModalityCardinality,
+    ctx: &PlanCtx,
+) -> Option<Vec<Op>> {
+    let n = segment.len();
+    let mut best: Option<(f64, Vec<usize>)> = None;
+    for perm in permutations(&(0..n).collect::<Vec<_>>()) {
+        let refs: Vec<&Op> = perm.iter().map(|&idx| &segment[idx]).collect();
+        let Some(cost) = card.permutation_cost(&refs, seed, top_k, ctx) else {
+            continue;
+        };
+        let better = match &best {
+            None => true,
+            Some((best_cost, _)) => cost < *best_cost - 1e-9,
+        };
+        if better {
+            best = Some((cost, perm));
+        }
+    }
+    best.map(|(_, order)| order.into_iter().map(|idx| segment[idx].clone()).collect())
+}
+
+// ── adaptive re-optimization (CONCEPT:EG-KG.query.adaptive-reoptimization) ───────────────────
+
+/// How far an ACTUAL cardinality may diverge from what the plan-time estimate predicted before
+/// [`reoptimize_remaining`] bothers re-costing the remaining chain (CONCEPT:EG-KG.query.adaptive-reoptimization)
+/// — a relative error threshold, so a small, ordinary estimation miss (histograms/degree
+/// averages are approximations) doesn't cause needless plan churn. `0.5` ⇒ the actual must be
+/// less than half or more than 1.5× the estimate.
+pub const ADAPTIVE_REOPT_THRESHOLD: f64 = 0.5;
+
+/// Re-cost and, if beneficial, RE-ORDER the not-yet-executed tail of a plan after an earlier op
+/// reports its ACTUAL output cardinality (CONCEPT:EG-KG.query.adaptive-reoptimization) — the runtime
+/// feedback loop beyond pure plan-time estimation: `optimize()` picks an order from the
+/// [`ModalityCardinality`] estimates before ANY op has run, but a histogram/degree-average
+/// estimate can be wrong, and a wrong estimate can pick the wrong order. This closes that loop
+/// WITHOUT re-running the whole optimizer: given `remaining_ops` (the ops still to execute),
+/// the `estimated` cardinality flowing into them (what `optimize()` assumed) and the `actual`
+/// cardinality really observed, it re-applies [`reorder_chain_segments`] (plus the pairwise
+/// rules) seeded from `actual` instead of `estimated` whenever they diverge by more than
+/// [`ADAPTIVE_REOPT_THRESHOLD`] (relative). Below the threshold — or when `remaining_ops` has no
+/// reorderable run — this is a no-op clone, so a caller can invoke it unconditionally after every
+/// op without extra cost in the common (estimate was fine) case.
+///
+/// Opt-in-by-default-ON (no env flag): a caller decides WHEN to call it (after which op, with
+/// what actual count) — this fn is pure re-costing logic, not a scheduler. Wiring it into
+/// [`crate::exec::execute`]'s per-op loop so every `apply()` call reports its real `RowSet::len()`
+/// and triggers this automatically is the documented follow-up (CONCEPT:EG-KG.query.adaptive-reoptimization) —
+/// today a caller (or a future `Driver` impl) invokes it explicitly between ops.
+pub fn reoptimize_remaining(
+    remaining_ops: &[Op],
+    estimated: f64,
+    actual: f64,
+    card: &ModalityCardinality,
+    ctx: &PlanCtx,
+) -> Vec<Op> {
+    let mut ops = remaining_ops.to_vec();
+    let denom = estimated.max(1.0);
+    let rel_err = (actual - estimated).abs() / denom;
+    if rel_err <= ADAPTIVE_REOPT_THRESHOLD {
+        return ops; // the estimate was close enough — no churn.
+    }
+    // Unlike a fresh plan (where index 0 is always a real SOURCE op the reorder rules must
+    // never move), `remaining_ops` has NO leading source of its own — the op that already ran
+    // and produced `actual` rows isn't part of this slice — so the leading run is reorderable
+    // from index 0. Find it directly and re-cost it from the CORRECTED `actual` seed via the
+    // same [`best_permutation`] exhaustive search [`GlobalChainCost`] uses, capped at
+    // [`MAX_CHAIN_SEGMENT`] exactly like the plan-time pass.
+    let mut end = 0;
+    while end < ops.len() && is_reorderable(&ops[end]) {
+        end += 1;
+    }
+    let end = end.min(MAX_CHAIN_SEGMENT);
+    if end >= 2 {
+        let top_k = trailing_top_k(&ops, end - 1);
+        if let Some(best) = best_permutation(&ops[..end], actual, top_k, card, ctx) {
+            ops.splice(0..end, best);
+        }
+    }
+    ops
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -384,6 +752,96 @@ mod tests {
         );
     }
 
+    // ── RANK 10: the ID/point-lookup fast path ────────────────────────────────────
+
+    #[test]
+    fn point_lookup_shape_is_recognized() {
+        let scan = Op::Scan {
+            label: "Doc".into(),
+        };
+        let id_eq = Op::Filter {
+            preds: vec![Pred::Eq {
+                prop: "id".into(),
+                value: "d1".into(),
+            }],
+        };
+        assert!(
+            is_point_lookup(&[scan.clone(), id_eq.clone()]),
+            "Scan -> Filter{{id = X}} is the trivial point-lookup shape"
+        );
+        assert!(
+            is_point_lookup(&[scan.clone(), id_eq.clone(), Op::Limit { k: 1 }]),
+            "a trailing Limit is still a point lookup"
+        );
+
+        // Near-miss shapes must NOT be misrecognized.
+        assert!(
+            !is_point_lookup(&[scan.clone()]),
+            "no Filter at all is not a point lookup"
+        );
+        let non_id_eq = Op::Filter {
+            preds: vec![Pred::Eq {
+                prop: "type".into(),
+                value: "Doc".into(),
+            }],
+        };
+        assert!(
+            !is_point_lookup(&[scan.clone(), non_id_eq]),
+            "an equality on a property OTHER than id is a normal filter, not a point lookup"
+        );
+        let multi_pred = Op::Filter {
+            preds: vec![
+                Pred::Eq {
+                    prop: "id".into(),
+                    value: "d1".into(),
+                },
+                Pred::Eq {
+                    prop: "type".into(),
+                    value: "Doc".into(),
+                },
+            ],
+        };
+        assert!(
+            !is_point_lookup(&[scan.clone(), multi_pred]),
+            "a SECOND predicate alongside id= is not the trivial single-key shape"
+        );
+        assert!(
+            !is_point_lookup(&[
+                scan,
+                id_eq.clone(),
+                Op::Rank {
+                    query: vec![1.0, 0.0]
+                }
+            ]),
+            "a trailing Rank means there IS something to reorder — not a bare point lookup"
+        );
+    }
+
+    /// `optimize()` returns a point-lookup plan byte-identical (the fast path bypasses
+    /// the whole cost-based rule engine, not just leaves it a no-op).
+    #[test]
+    fn optimize_short_circuits_point_lookup_plans() {
+        let fx = crate::fixture::build();
+        let ctx = PlanCtx::new(&fx.view, &fx.semantic);
+        let plan = Plan::new(vec![
+            Op::Scan {
+                label: "Doc".into(),
+            },
+            Op::Filter {
+                preds: vec![Pred::Eq {
+                    prop: "id".into(),
+                    value: "d2".into(),
+                }],
+            },
+        ]);
+        let out = optimize(&plan, &ctx);
+        assert_eq!(out, plan, "a point-lookup plan is returned unchanged");
+        // And it still executes to the single matching node — the fast path is a
+        // planning-time shortcut only, never a behavior change.
+        let rs = execute(&plan, &ctx).unwrap();
+        assert_eq!(rs.ids(), vec!["d2".to_string()]);
+    }
+
     /// A selective `Filter` behind a `Rank` is pushed AHEAD of it, and the rewrite is
     /// answer-preserving (the in-crate differential proof).
     #[test]
@@ -408,6 +866,67 @@ mod tests {
         assert!(
             matches!(opt.ops[1], Op::Filter { .. }) && matches!(opt.ops[2], Op::Rank { .. }),
             "selective filter pushed before Rank, got {:?}",
+            opt.ops
+        );
+        assert_eq!(
+            sorted_ids(&execute(&original, &ctx).unwrap()),
+            sorted_ids(&execute(&opt, &ctx).unwrap()),
+            "reorder must preserve the result set"
+        );
+    }
+
+    // ── RANK 2: BM25 `RankText` joins the SAME cost-based reorder seam as vector `Rank` ──
+
+    /// Before this fix `is_rank` recognized ONLY `Op::Rank`/`Op::RankEmbed` — a
+    /// `[RankText, Filter]` pair was NEVER reordered, no matter how selective the filter,
+    /// because the pairwise rule's adjacency scan never even considered `RankText` a
+    /// "Rank" to place a narrower against. This proves the SAME `FilterAsOfBeforeRank`
+    /// rule the ANN test above exercises now fires for the lexical leg too, through the
+    /// [`crate::cost::IndexMethod`] seam, and that the rewrite is still answer-preserving.
+    #[cfg(feature = "text")]
+    #[test]
+    fn selective_filter_pushed_ahead_of_rank_text_and_preserves_result() {
+        use eg_core::compute::semantic::SemanticStore;
+        use eg_core::graph::GraphCore;
+        use eg_text::TextIndex;
+
+        fn blob(v: serde_json::Value) -> Vec<u8> {
+            rmp_serde::to_vec_named(&v).unwrap()
+        }
+
+        // A wider fixture than the 7-node graph default: the EG-405 non-empty guard
+        // requires `in_card * selectivity >= 1`, and `Filter{Eq}`'s fixed 0.1 selectivity
+        // needs enough seed rows to clear that bar.
+        let core = GraphCore::new();
+        let mut text = TextIndex::in_memory().unwrap();
+        for i in 0..40 {
+            let id = format!("d{i}");
+            core.add_node(id.clone(), blob(serde_json::json!({ "type": "Doc" })));
+            text.upsert(&id, "graph database text retrieval engine");
+        }
+        text.commit().unwrap();
+        let view = core.analysis_snapshot();
+        let semantic = SemanticStore::new();
+        let ctx = PlanCtx::new(&view, &semantic).with_text(&text);
+
+        let original = Plan::new(vec![
+            Op::Scan {
+                label: "Doc".into(),
+            },
+            Op::RankText {
+                query: "graph database".into(),
+            },
+            Op::Filter {
+                preds: vec![Pred::Eq {
+                    prop: "type".into(),
+                    value: "Doc".into(),
+                }],
+            },
+        ]);
+        let opt = optimize(&original, &ctx);
+        assert!(
+            matches!(opt.ops[1], Op::Filter { .. }) && matches!(opt.ops[2], Op::RankText { .. }),
+            "a selective Filter is now pushed AHEAD of an adjacent RankText, got {:?}",
             opt.ops
         );
         assert_eq!(
@@ -449,6 +968,142 @@ mod tests {
         );
     }
 
+    /// A GENUINELY selective NUMERIC-RANGE filter (`year > 980` over a 0..999 column) now
+    /// reorders FILTER-FIRST because the optimizer reads the real column distribution from the
+    /// collected [`crate::cost::ColumnStats`] histogram — while a BROAD range (`year > 20`) over
+    /// the same column stays vector-first. Proves the T-E1 gap is closed: before, `GtNum` used
+    /// a fixed 0.33 heuristic and NEVER pushed at this scale (asserted via `Stats::estimate`);
+    /// after, the stats-derived selectivity flips the selective case to filter-first. Both
+    /// reorders are result-set-preserving (the optimizer's invariant), asserted per case.
+    #[test]
+    fn selective_numeric_range_pushed_but_broad_range_stays() {
+        use crate::cost::{CostModel, Order, PlanStats, Stats};
+        use eg_core::compute::semantic::SemanticStore;
+        use eg_core::graph::GraphCore;
+        use serde_json::json;
+
+        // 1000 `Doc` nodes with year = 0..999 (a WIDE spread so a high threshold is very
+        // selective and a low one very broad) — each with an embedding so the vector `Rank`
+        // has a real cost. The scale matters: at 1000 nodes the fixed-0.33 heuristic sits
+        // ABOVE the filter-first/vector-first crossover, so only a stats-derived selectivity
+        // can push a range filter (that is exactly the ablation's finding).
+        const N: usize = 1_000;
+        let core = GraphCore::new();
+        let mut semantic = SemanticStore::new();
+        for k in 0..N {
+            let id = format!("d{k}");
+            core.add_node(
+                id.clone(),
+                rmp_serde::to_vec_named(&json!({ "type": "Doc", "year": k as i64 })).unwrap(),
+            );
+            // A trivially separable embedding (all mass on one of 4 axes by k) — enough for
+            // the `Rank` leg to score every node; the exact order is irrelevant to the SET.
+            let mut v = vec![0.0f32; 4];
+            v[k % 4] = 1.0;
+            semantic.add_embedding(id, v);
+        }
+        let view = core.analysis_snapshot();
+        let ctx = PlanCtx::new(&view, &semantic);
+
+        // The seed size the pair's cost model reasons over: rows out of the leading `Scan`.
+        let card = ModalityCardinality::new(PlanStats::collect(&ctx));
+        let seed = card.rows_out(
+            &Op::Scan {
+                label: "Doc".into(),
+            },
+            0.0,
+            &ctx,
+        );
+
+        // ── the SELECTIVE range: year > 980 (≈ 1.9% of 0..999) ──────────────────────────
+        let selective = Plan::new(vec![
+            Op::Scan {
+                label: "Doc".into(),
+            },
+            Op::Rank {
+                query: crate::fixture::query_vec(),
+            },
+            Op::Filter {
+                preds: vec![Pred::GtNum {
+                    prop: "year".into(),
+                    n: 980.0,
+                }],
+            },
+        ]);
+        // BEFORE (the fixed 0.33 heuristic): at this seed the range would NOT be pushed.
+        assert_eq!(
+            CostModel::order(&Stats::estimate(
+                seed.round().max(1.0) as usize,
+                0.33,
+                crate::cost::DEFAULT_TOP_K,
+                card.stats().embedding_count,
+            )),
+            Order::VectorFirst,
+            "with the OLD fixed 0.33 range heuristic the filter stays behind the Rank"
+        );
+        // AFTER (stats-derived): the real selectivity is ~2%, well below the crossover.
+        let sel_est = card.selectivity(&selective.ops[2], seed, &ctx);
+        assert!(
+            sel_est < 0.1,
+            "the histogram estimates year>980 as selective, got {sel_est}"
+        );
+        assert_eq!(
+            CostModel::order(&Stats::estimate(
+                seed.round().max(1.0) as usize,
+                sel_est,
+                crate::cost::DEFAULT_TOP_K,
+                card.stats().embedding_count,
+            )),
+            Order::FilterFirst,
+            "stats-derived selectivity flips the selective range to filter-first"
+        );
+        let opt_sel = optimize(&selective, &ctx);
+        assert!(
+            matches!(opt_sel.ops[1], Op::Filter { .. })
+                && matches!(opt_sel.ops[2], Op::Rank { .. }),
+            "selective range pushed AHEAD of Rank, got {:?}",
+            opt_sel.ops
+        );
+        assert_eq!(
+            sorted_ids(&execute(&selective, &ctx).unwrap()),
+            sorted_ids(&execute(&opt_sel, &ctx).unwrap()),
+            "the selective-range reorder must preserve the result set"
+        );
+
+        // ── the BROAD range: year > 20 (≈ 98% of 0..999) — must NOT be pushed ───────────
+        let broad = Plan::new(vec![
+            Op::Scan {
+                label: "Doc".into(),
+            },
+            Op::Rank {
+                query: crate::fixture::query_vec(),
+            },
+            Op::Filter {
+                preds: vec![Pred::GtNum {
+                    prop: "year".into(),
+                    n: 20.0,
+                }],
+            },
+        ]);
+        let broad_sel = card.selectivity(&broad.ops[2], seed, &ctx);
+        assert!(
+            broad_sel > 0.9,
+            "the histogram estimates year>20 as broad, got {broad_sel}"
+        );
+        let opt_broad = optimize(&broad, &ctx);
+        assert!(
+            matches!(opt_broad.ops[1], Op::Rank { .. })
+                && matches!(opt_broad.ops[2], Op::Filter { .. }),
+            "broad range stays BEHIND the Rank (vector-first), got {:?}",
+            opt_broad.ops
+        );
+        assert_eq!(
+            sorted_ids(&execute(&broad, &ctx).unwrap()),
+            sorted_ids(&execute(&opt_broad, &ctx).unwrap()),
+            "even the untouched (broad) plan is result-equivalent"
+        );
+    }
+
     /// The `FuseRrf` branch-reorder puts the CHEAPER branch first (a graph-native rerank
     /// before a brute-force vector `Rank`) — a change that RRF makes result-invariant.
     #[cfg(feature = "text")]
@@ -465,5 +1120,439 @@ mod tests {
             sort_branches_by_cost(vec![expensive.clone(), cheap.clone()], 100.0, &card, &ctx);
         assert_eq!(sorted[0], cheap, "cheapest branch runs first");
         assert_eq!(sorted[1], expensive);
+    }
+
+    // ── Track H: global N-ary chain reorder + adaptive re-optimization ──────────────
+
+    /// A THREE-op reorderable run `[Rank, broad_filter, selective_filter]` where the
+    /// PAIRWISE rule alone is structurally stuck: it commits `(Rank, broad_filter)` first
+    /// (broad → stays vector-first) and then advances PAST `selective_filter` without ever
+    /// comparing it to anything — exactly the module-level gap [`GlobalChainCost`] closes.
+    /// The full optimizer (which runs [`GlobalChainCost`] after the pairwise pass) finds the
+    /// TRUE global minimum over all `3!` orderings and pushes the selective filter ahead of
+    /// the Rank, a DIFFERENT (and cheaper) order than naive left-to-right. Result-set
+    /// equivalence is asserted via the differential execute() proof, same as every other
+    /// reorder test in this module.
+    #[test]
+    fn global_chain_reorders_three_op_segment_beyond_pairwise_reach() {
+        use eg_core::compute::semantic::SemanticStore;
+        use eg_core::graph::GraphCore;
+        use serde_json::json;
+
+        // 1000 `Doc` nodes with TWO independent wide numeric columns (mirrors
+        // `selective_numeric_range_pushed_but_broad_range_stays`'s fixture) + an embedding
+        // each so the `Rank` leg has real cost.
+        const N: usize = 1_000;
+        let core = GraphCore::new();
+        let mut semantic = SemanticStore::new();
+        for k in 0..N {
+            let id = format!("d{k}");
+            core.add_node(
+                id.clone(),
+                rmp_serde::to_vec_named(
+                    &json!({ "type": "Doc", "year": k as i64, "score": k as i64 }),
+                )
+                .unwrap(),
+            );
+            let mut v = vec![0.0f32; 4];
+            v[k % 4] = 1.0;
+            semantic.add_embedding(id, v);
+        }
+        let view = core.analysis_snapshot();
+        let ctx = PlanCtx::new(&view, &semantic);
+        let card = ModalityCardinality::new(PlanStats::collect(&ctx));
+
+        // `year > 20` is BROAD (~98% pass); `score > 980` is SELECTIVE (~2% pass) — the same
+        // column-histogram-driven pair the range-pushdown ablation uses, just on two
+        // independent columns so both can sit in ONE reorderable run.
+        let broad_filter = Op::Filter {
+            preds: vec![Pred::GtNum {
+                prop: "year".into(),
+                n: 20.0,
+            }],
+        };
+        let selective_filter = Op::Filter {
+            preds: vec![Pred::GtNum {
+                prop: "score".into(),
+                n: 980.0,
+            }],
+        };
+        let rank = Op::Rank {
+            query: crate::fixture::query_vec(),
+        };
+
+        // Naive, as a caller might write it: rank first, broad filter next, the selective
+        // one tacked on last.
+        let naive = Plan::new(vec![
+            Op::Scan {
+                label: "Doc".into(),
+            },
+            rank.clone(),
+            broad_filter.clone(),
+            selective_filter.clone(),
+            Op::Limit { k: 20 },
+        ]);
+
+        // The OLD pairwise-only mechanism cannot reach `selective_filter` at all: it commits
+        // `(Rank, broad_filter)` — broad stays vector-first, no swap — then jumps past
+        // `selective_filter` (its non-overlapping `j += 2` advance never re-examines it).
+        let pairwise_only = FilterAsOfBeforeRank.apply(naive.ops.clone(), &card, &ctx);
+        assert_eq!(
+            pairwise_only, naive.ops,
+            "the pairwise rule alone cannot reach the stranded selective filter"
+        );
+
+        // The FULL optimizer (pairwise passes + GlobalChainCost) finds the true minimum over
+        // all 3! orderings of the run and pushes the selective filter ahead of the Rank.
+        let opt = optimize(&naive, &ctx);
+        let rank_pos = opt.ops.iter().position(|o| *o == rank).unwrap();
+        let sel_pos = opt.ops.iter().position(|o| *o == selective_filter).unwrap();
+        assert!(
+            sel_pos < rank_pos,
+            "the selective filter must be pushed ahead of Rank, got {:?}",
+            opt.ops
+        );
+        assert_ne!(
+            opt.ops, naive.ops,
+            "GlobalChainCost must find a DIFFERENT order than naive left-to-right"
+        );
+
+        // Result-set equivalence: the SAME differential proof every other reorder test uses.
+        let sorted_ids = |rs: &RowSet| {
+            let mut v = rs.ids();
+            v.sort();
+            v
+        };
+        assert_eq!(
+            sorted_ids(&execute(&naive, &ctx).unwrap()),
+            sorted_ids(&execute(&opt, &ctx).unwrap()),
+            "the 3-op global reorder must preserve the result set"
+        );
+    }
+
+    /// The cross-modal case: `[Reason, Filter, Rank]` (an OWL confidence-filter, a relational
+    /// predicate, and a vector rerank all drawing off the SAME candidate set). `optimize()`'s
+    /// chosen order for the run must match the SAME cost-minimal permutation
+    /// [`best_permutation`] computes directly — the white-box oracle this suite already uses
+    /// for the numeric-range case — and that minimum must be a genuinely DIFFERENT (cheaper)
+    /// order than the naive `[Reason, Filter, Rank]` a caller who reasons-then-filters would
+    /// write. Proven result-preserving via the mid-pipeline `Reason` pattern
+    /// [`crate::tsdb_scan_tests::reason_mid_pipeline`] establishes.
+    #[cfg(feature = "owl")]
+    #[test]
+    fn global_chain_reorders_cross_modal_reason_filter_rank() {
+        use eg_core::compute::semantic::SemanticStore;
+        use eg_core::graph::GraphCore;
+        use serde_json::json;
+
+        let ttl = r#"
+@prefix ex:  <http://example.org/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs:<http://www.w3.org/2000/01/rdf-schema#> .
+ex:Paper rdfs:subClassOf [ a owl:Restriction ; owl:onProperty ex:about ; owl:someValuesFrom ex:Topic ] .
+[ a owl:Restriction ; owl:onProperty ex:about ; owl:someValuesFrom ex:Topic ] rdfs:subClassOf ex:ScholarlyWork .
+ex:Article rdfs:subClassOf ex:Paper .
+ex:p1 a ex:Paper .
+ex:p2 a ex:Article .
+ex:p3 a ex:Topic .
+ex:p4 a ex:Paper .
+"#;
+        let core = GraphCore::new();
+        let mut iris = eg_rdf::mapping::IriStore::default();
+        eg_rdf::mapping::load_triples(
+            &core,
+            &mut iris,
+            "g",
+            eg_rdf::mapping::parse_turtle(ttl).unwrap(),
+        )
+        .unwrap();
+
+        let blob = |v: serde_json::Value| rmp_serde::to_vec_named(&v).unwrap();
+        // The 4 OWL individuals ALSO carry a `type`/`lang` property blob (the LPG property
+        // store the DataFusion `Filter` leg reads is separate from the RDF quads the
+        // reasoner reads, so this does not disturb the OWL classification below). p4 is
+        // the ONLY `lang: fr` — a real, meaningful `Filter` split.
+        for (p, lang) in [("p1", "en"), ("p2", "en"), ("p3", "en"), ("p4", "fr")] {
+            core.add_node(
+                format!("<http://example.org/{p}>"),
+                blob(json!({ "type": "Doc", "lang": lang })),
+            );
+        }
+        // Filler `Doc` nodes (no OWL membership) so the plan-time Scan estimate is a
+        // realistic size — real execution still excludes them (`Reason` drops every
+        // non-member regardless of position), so result-set equivalence is unaffected.
+        for k in 0..200 {
+            core.add_node(
+                format!("filler{k}"),
+                blob(json!({ "type": "Doc", "lang": if k % 2 == 0 { "en" } else { "fr" } })),
+            );
+        }
+
+        let mut semantic = SemanticStore::new();
+        semantic.add_embedding("<http://example.org/p1>".into(), vec![0.90, 0.44, 0.0, 0.0]);
+        semantic.add_embedding("<http://example.org/p2>".into(), vec![0.99, 0.10, 0.0, 0.0]);
+        semantic.add_embedding("<http://example.org/p3>".into(), vec![1.00, 0.00, 0.0, 0.0]);
+        semantic.add_embedding("<http://example.org/p4>".into(), vec![0.20, 0.97, 0.0, 0.0]);
+
+        let view = core.analysis_snapshot();
+        let ctx = PlanCtx::new(&view, &semantic);
+        let card = ModalityCardinality::new(PlanStats::collect(&ctx));
+
+        let reason = Op::Reason {
+            target_class: "<http://example.org/ScholarlyWork>".into(),
+            ontology: String::new(),
+        };
+        let filter = Op::Filter {
+            preds: vec![Pred::Eq {
+                prop: "lang".into(),
+                value: "en".into(),
+            }],
+        };
+        let rank = Op::Rank {
+            query: vec![1.0, 0.0, 0.0, 0.0],
+        };
+        let naive = Plan::new(vec![
+            Op::Scan {
+                label: "Doc".into(),
+            },
+            reason.clone(),
+            filter.clone(),
+            rank.clone(),
+        ]);
+
+        // The white-box oracle: the SAME cost-minimal permutation search `optimize()` drives.
+        let seed = card_before(&naive.ops, 1, &card, &ctx);
+        let top_k = trailing_top_k(&naive.ops, 3);
+        let expected = best_permutation(&naive.ops[1..4], seed, top_k, &card, &ctx)
+            .unwrap_or_else(|| naive.ops[1..4].to_vec());
+        assert_ne!(
+            expected,
+            naive.ops[1..4],
+            "the cost-minimal cross-modal order must differ from naive Reason-then-Filter"
+        );
+
+        let opt = optimize(&naive, &ctx);
+        assert_eq!(
+            &opt.ops[1..4],
+            expected.as_slice(),
+            "optimize() must pick the SAME cross-modal order the cost model computes, got {:?}",
+            opt.ops
+        );
+
+        // Result-set equivalence: p3 (Topic, not ScholarlyWork) and p4 (fr) are excluded
+        // either way; p1/p2 survive, ranked p2 then p1.
+        let sorted_ids = |rs: &RowSet| {
+            let mut v = rs.ids();
+            v.sort();
+            v
+        };
+        assert_eq!(
+            sorted_ids(&execute(&naive, &ctx).unwrap()),
+            sorted_ids(&execute(&opt, &ctx).unwrap()),
+            "the cross-modal reorder must preserve the result set"
+        );
+    }
+
+    /// The adaptive hook: given a corrected ACTUAL cardinality wildly different from what was
+    /// estimated, [`reoptimize_remaining`] re-costs the remaining chain and flips the order —
+    /// the runtime-feedback half of Track H. `Eq` selectivity is a FIXED 0.1 regardless of
+    /// scale, so the crossover lever here is pure SEED SIZE: `filter_first_cost` grows
+    /// linearly with the input while `vector_first_cost`'s over-fetch is capped at
+    /// `top_k/selectivity` (independent of the seed once the seed exceeds it) — so a small
+    /// seed favors filter-first and a huge one favors vector-first, a real, derivable flip
+    /// (not a hardcoded answer).
+    #[test]
+    fn adaptive_reopt_flips_order_on_a_wildly_corrected_cardinality() {
+        let fx = crate::fixture::build();
+        let ctx = PlanCtx::new(&fx.view, &fx.semantic);
+        let card = ModalityCardinality::new(PlanStats::collect(&ctx));
+
+        let filter = Op::Filter {
+            preds: vec![Pred::Eq {
+                prop: "type".into(),
+                value: "Doc".into(),
+            }],
+        };
+        let rank = Op::Rank {
+            query: crate::fixture::query_vec(),
+        };
+
+        // What the plan-time optimizer picked at the (small) ESTIMATED seed: filter-first.
+        let remaining = vec![filter.clone(), rank.clone()];
+
+        // Below the divergence threshold — no reorder, even though a reorder might in
+        // principle help; the whole point is bounded, needless-churn-free re-costing.
+        let unchanged = reoptimize_remaining(&remaining, 100.0, 120.0, &card, &ctx);
+        assert_eq!(
+            unchanged, remaining,
+            "a mere 20% miss is within ADAPTIVE_REOPT_THRESHOLD — no churn"
+        );
+
+        // A WILDLY corrected actual (the upstream op emitted 50,000x more rows than assumed)
+        // blows past the threshold and flips the regime to vector-first.
+        let flipped = reoptimize_remaining(&remaining, 100.0, 5_000_000.0, &card, &ctx);
+        assert_ne!(
+            flipped, remaining,
+            "a wildly corrected actual cardinality must re-cost and change the order"
+        );
+        assert_eq!(
+            flipped[0], rank,
+            "at this corrected scale vector-first is cheaper, so Rank must lead, got {:?}",
+            flipped
+        );
+    }
+
+    // ── DAG-aware optimizer (CONCEPT:EG-KG.query.dag-optimizer, E5 phase 3) ──────
+
+    use crate::dag::{PlanDag, PlanNode};
+
+    /// `optimize_dag` over a DEGENERATE chain dag (every `From<Plan>` conversion) is
+    /// IDENTICAL to `optimize` over the equivalent linear `Plan` — the zero-behavior-change
+    /// half of the DAG-optimizer narrowing (a chain dag has exactly one segment spanning the
+    /// whole plan, so nothing is narrowed away relative to today).
+    #[test]
+    fn dag_optimize_matches_linear_optimize_for_a_chain() {
+        let fx = crate::fixture::build();
+        let ctx = PlanCtx::new(&fx.view, &fx.semantic);
+        let plan = Plan::new(vec![
+            Op::Scan {
+                label: "Doc".into(),
+            },
+            Op::Rank {
+                query: crate::fixture::query_vec(),
+            },
+            Op::Filter {
+                preds: vec![Pred::GtNum {
+                    prop: "year".into(),
+                    n: 2022.0,
+                }],
+            },
+        ]);
+
+        let linear_opt = optimize(&plan, &ctx);
+
+        let dag = PlanDag::from(plan);
+        let dag_opt = optimize_dag(&dag, &ctx);
+        let recovered = dag_opt
+            .as_linear_plan()
+            .expect("optimize_dag must not change the dag's edges — still a linear chain");
+
+        assert_eq!(
+            recovered.ops, linear_opt.ops,
+            "optimize_dag over a chain must reorder IDENTICALLY to optimize over the Plan"
+        );
+    }
+
+    /// THE EG-405-AS-DAG-NARROWING PROOF: two INDEPENDENT chain segments (one with a
+    /// selective range filter that MUST reorder ahead of its Rank, one with a broad range
+    /// filter that MUST stay put) feed a join node. `optimize_dag` must reorder EACH segment
+    /// on its OWN merits — proving no rewrite crosses the branch boundary between them (the
+    /// selective segment's cardinality context never leaks into the broad one or vice versa),
+    /// and the join node's own op is never touched.
+    #[test]
+    fn optimizer_never_reorders_across_a_branch_boundary() {
+        use eg_core::compute::semantic::SemanticStore;
+        use eg_core::graph::GraphCore;
+        use serde_json::json;
+
+        // The SAME 1000-node/0..999-year fixture the linear ablation test above uses, so
+        // `year > 980` is genuinely selective (~2%) and `year > 20` genuinely broad (~98%).
+        const N: usize = 1_000;
+        let core = GraphCore::new();
+        let mut semantic = SemanticStore::new();
+        for k in 0..N {
+            let id = format!("d{k}");
+            core.add_node(
+                id.clone(),
+                rmp_serde::to_vec_named(&json!({ "type": "Doc", "year": k as i64 })).unwrap(),
+            );
+            let mut v = vec![0.0f32; 4];
+            v[k % 4] = 1.0;
+            semantic.add_embedding(id, v);
+        }
+        let view = core.analysis_snapshot();
+        let ctx = PlanCtx::new(&view, &semantic);
+
+        let scan_doc = || Op::Scan {
+            label: "Doc".into(),
+        };
+        let rank = || Op::Rank {
+            query: crate::fixture::query_vec(),
+        };
+        let selective_filter = Op::Filter {
+            preds: vec![Pred::GtNum {
+                prop: "year".into(),
+                n: 980.0,
+            }],
+        };
+        let broad_filter = Op::Filter {
+            preds: vec![Pred::GtNum {
+                prop: "year".into(),
+                n: 20.0,
+            }],
+        };
+
+        // Segment A: [Scan, Rank, Filter{selective}] — ids 0,1,2.
+        // Segment B: [Scan, Rank, Filter{broad}]     — ids 3,4,5.
+        // Join:      Limit joining both branch outputs — id 6.
+        let dag = PlanDag::new(vec![
+            PlanNode::new(scan_doc(), vec![]),
+            PlanNode::new(rank(), vec![0]),
+            PlanNode::new(selective_filter.clone(), vec![1]),
+            PlanNode::new(scan_doc(), vec![]),
+            PlanNode::new(rank(), vec![3]),
+            PlanNode::new(broad_filter.clone(), vec![4]),
+            PlanNode::new(Op::Limit { k: 5 }, vec![2, 5]),
+        ]);
+
+        let opt = optimize_dag(&dag, &ctx);
+
+        // Segment A reordered filter-first (the selective range wins ahead of Rank).
+        assert!(
+            matches!(opt.nodes[0].op, Op::Scan { .. }),
+            "segment A's source position never moves"
+        );
+        assert_eq!(
+            opt.nodes[1].op, selective_filter,
+            "segment A: the selective filter must be pushed AHEAD of Rank, got {:?}",
+            opt.nodes[1].op
+        );
+        assert!(
+            matches!(opt.nodes[2].op, Op::Rank { .. }),
+            "segment A: Rank pushed behind the selective filter, got {:?}",
+            opt.nodes[2].op
+        );
+
+        // Segment B is UNCHANGED (the broad filter stays vector-first) — proving segment A's
+        // reorder decision never leaked across the join boundary into segment B.
+        assert!(
+            matches!(opt.nodes[3].op, Op::Scan { .. }),
+            "segment B's source position never moves"
+        );
+        assert!(
+            matches!(opt.nodes[4].op, Op::Rank { .. }),
+            "segment B: broad filter stays BEHIND Rank (vector-first), got {:?}",
+            opt.nodes[4].op
+        );
+        assert_eq!(
+            opt.nodes[5].op, broad_filter,
+            "segment B: the broad filter must stay untouched, got {:?}",
+            opt.nodes[5].op
+        );
+
+        // The join node's own op and edges are completely untouched.
+        assert_eq!(opt.nodes[6].op, Op::Limit { k: 5 });
+        assert_eq!(opt.nodes[6].inputs, vec![2, 5]);
+
+        // `chain_segments` partitions exactly as designed: two 3-node chains + one singleton
+        // join — the structural proof the narrowing never merges across the branch.
+        let segments = chain_segments(&dag);
+        let mut sizes: Vec<usize> = segments.iter().map(|s| s.len()).collect();
+        sizes.sort_unstable();
+        assert_eq!(
+            sizes,
+            vec![1, 3, 3],
+            "expected two independent 3-op chains plus the singleton join, got {segments:?}"
+        );
     }
 }

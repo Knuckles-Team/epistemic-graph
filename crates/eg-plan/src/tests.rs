@@ -130,8 +130,8 @@ fn reorder_preserves_result_set_both_regimes() {
 }
 
 /// The cost model picks filter-first for a selective predicate and vector-first for a
-/// broad one, and `reorder_filter_rank` rewrites a real plan to the winner — over the
-/// fixture, both resulting plans still produce the SAME result set.
+/// broad one. The optimizer's sole swap primitive places a real plan according to
+/// that decision; both resulting plans still produce the SAME result set.
 #[test]
 fn cost_reorder_picks_winner_same_result() {
     let fx = build();
@@ -158,8 +158,8 @@ fn cost_reorder_picks_winner_same_result() {
     assert_eq!(CostModel::order(&broad), Order::VectorFirst);
 
     // The (Filter, Rank) pair is at indices 1,2 (adjacent) — the reorder swaps them.
-    let sel_plan = CostModel::reorder_filter_rank(plan.clone(), &selective);
-    let broad_plan = CostModel::reorder_filter_rank(plan, &broad);
+    let sel_plan = CostModel::place_narrower(plan.clone(), 1, 2, true);
+    let broad_plan = CostModel::place_narrower(plan, 1, 2, false);
     assert!(
         matches!(sel_plan[1], Op::Filter { .. }) && matches!(sel_plan[2], Op::Rank { .. }),
         "selective → filter-first"
@@ -175,6 +175,142 @@ fn cost_reorder_picks_winner_same_result() {
     a.sort();
     b.sort();
     assert_eq!(a, b, "cost reorder must not change the result set");
+}
+
+/// CONCEPT:EG-KG.query.adaptive-reoptimization — auto-wiring proof: `SerialDriver::run`
+/// (the ordinary, default execution path — no opt-in flag) runs the SAME divergent-
+/// cardinality scenario `optimizer::reoptimize_remaining`'s own unit test proves the
+/// primitive handles, but end-to-end through a REAL graph + `execute()`, not hand-fed
+/// numbers. `Traverse`'s cardinality estimator uses the graph's GLOBAL average
+/// out-degree (`PlanStats::avg_out_degree`) — a single hub node whose real out-degree
+/// is far above that average makes the plan-time ESTIMATE for the traversal wildly
+/// wrong (near-zero) while the ACTUAL reached set is large, so this is a genuine,
+/// not contrived-via-raw-numbers, trigger for the runtime feedback loop.
+#[test]
+fn adaptive_reopt_auto_wires_into_ordinary_execution() {
+    use crate::cost::{Cardinality, ModalityCardinality, PlanStats};
+    use crate::optimizer::{self, ADAPTIVE_REOPT_THRESHOLD};
+    use eg_core::compute::semantic::SemanticStore;
+    use eg_core::graph::GraphCore;
+    use serde_json::json;
+
+    fn blob(v: serde_json::Value) -> Vec<u8> {
+        rmp_serde::to_vec_named(&v).unwrap()
+    }
+
+    // 1 hub (label "Hub") -LINK-> 500 "Reached" nodes; 499 unrelated filler nodes with
+    // no edges at all. node_count = 1000, edge_count = 500 ⇒ avg_out_degree = 0.5 — the
+    // hub's REAL out-degree (500) is 1000x the graph average.
+    let core = GraphCore::new();
+    core.add_node("hub".into(), blob(json!({"type": "Hub"})));
+    for i in 0..500 {
+        let id = format!("r{i}");
+        core.add_node(id.clone(), blob(json!({"type": "Reached", "keep": "yes"})));
+        core.add_edge("hub".into(), id, blob(json!({"relationship": "LINK"})))
+            .unwrap();
+    }
+    for i in 0..499 {
+        core.add_node(format!("filler{i}"), blob(json!({"type": "Filler"})));
+    }
+    let view = core.analysis_snapshot();
+    let mut semantic = SemanticStore::new();
+    // A handful of reached nodes get real embeddings so the Rank leg has candidates.
+    for i in 0..20 {
+        semantic.add_embedding(format!("r{i}"), vec![1.0, (i as f32) * 0.01, 0.0, 0.0]);
+    }
+    let ctx = PlanCtx::new(&view, &semantic);
+    let card = ModalityCardinality::new(PlanStats::collect(&ctx));
+
+    let traverse = Op::Traverse {
+        rel: "LINK".into(),
+        min: 1,
+        max: 1,
+    };
+    // The plan-time ESTIMATE flowing into `traverse` (seeded from the 1-row Hub scan) —
+    // near-zero because the GLOBAL avg_out_degree (0.5) is nothing like the hub's real
+    // 500-edge fan-out.
+    let estimated_traverse_out = card.rows_out(&traverse, 1.0, &ctx);
+    assert!(
+        estimated_traverse_out < 1.0,
+        "the degree-average estimator must badly UNDER-estimate this hub's fan-out \
+         (got {estimated_traverse_out}) — otherwise this fixture doesn't exercise a real \
+         divergence"
+    );
+
+    let plan_ops = vec![
+        Op::Scan {
+            label: "Hub".into(),
+        },
+        traverse.clone(),
+        Op::Filter {
+            preds: vec![Pred::Eq {
+                prop: "keep".into(),
+                value: "yes".into(),
+            }],
+        },
+        Op::Rank {
+            query: vec![1.0, 0.0, 0.0, 0.0],
+        },
+        Op::Limit { k: 5 },
+    ];
+
+    // The ACTUAL post-Traverse cardinality — the real BFS reach, not the estimate —
+    // diverges from `estimated_traverse_out` by far more than the threshold, so
+    // `reoptimize_remaining` (the exact primitive `SerialDriver::run` now calls after
+    // EVERY op) does NOT take its below-threshold no-op path for this step.
+    let actual_traverse_out = 500.0_f64;
+    let rel_err =
+        (actual_traverse_out - estimated_traverse_out).abs() / estimated_traverse_out.max(1.0);
+    assert!(
+        rel_err > ADAPTIVE_REOPT_THRESHOLD,
+        "fixture must exceed the adaptive-reopt divergence threshold: rel_err={rel_err}"
+    );
+
+    // The primitive itself, fed these exact real numbers, is safe: it returns a
+    // REORDERING of the SAME two ops (never drops/duplicates/invents one) — proven
+    // generically here so the auto-wired driver below is provably not corrupting the
+    // op list regardless of which permutation the cost model prefers at this scale.
+    let remaining = vec![plan_ops[2].clone(), plan_ops[3].clone()];
+    let recost = optimizer::reoptimize_remaining(
+        &remaining,
+        estimated_traverse_out,
+        actual_traverse_out,
+        &card,
+        &ctx,
+    );
+    let mut recost_kinds: Vec<&str> = recost
+        .iter()
+        .map(|o| match o {
+            Op::Filter { .. } => "Filter",
+            Op::Rank { .. } => "Rank",
+            other => panic!("unexpected op in reoptimized tail: {other:?}"),
+        })
+        .collect();
+    recost_kinds.sort_unstable();
+    assert_eq!(
+        recost_kinds,
+        vec!["Filter", "Rank"],
+        "reoptimize_remaining must return exactly one Filter + one Rank, just possibly \
+         reordered: {recost:?}"
+    );
+
+    // End-to-end: running the ORIGINAL plan (as literally written above) through the
+    // AUTO-WIRED `execute()` — no explicit reopt call, no opt-in flag — must still land
+    // the CORRECT rows: the 20 embedded reached nodes ranked by similarity to the query
+    // (all of them pass the `keep` filter), top 5.
+    let got = Plan::new(plan_ops).execute(&ctx).unwrap().ids();
+    assert_eq!(got.len(), 5, "Limit{{k:5}} caps the result: {got:?}");
+    assert!(
+        got.iter().all(|id| id.starts_with('r')),
+        "every returned id must be a reached, embedded node: {got:?}"
+    );
+    // Highest-similarity-to-[1,0,0,0] embedded reached node is r0 ([1.0, 0.0, 0,0]).
+    assert_eq!(
+        got.first().map(String::as_str),
+        Some("r0"),
+        "the fused plan must still rank correctly despite the internal adaptive \
+         reorder: {got:?}"
+    );
 }
 
 /// The WASM `Udf` op (CONCEPT:EG-KG.query.rowset-execution): a registered, sandboxed wasm function runs as
@@ -252,6 +388,126 @@ fn udf_op_without_registry_errs() {
         .execute(&ctx)
         .expect_err("Udf without a registry must err");
     assert!(err.contains("registry"), "got: {err}");
+}
+
+/// UQL `TRAVERSE -[:REL]->{m,n}` consumes the canonical `relationship` field.
+#[cfg(test)]
+mod relationship_traverse_tests {
+    use crate::algebra::{Op, Plan};
+    use crate::exec::{PlanCtx, PlanExt};
+    use eg_core::compute::semantic::SemanticStore;
+    use eg_core::graph::GraphCore;
+    use serde_json::json;
+
+    fn blob(v: serde_json::Value) -> Vec<u8> {
+        rmp_serde::to_vec_named(&v).unwrap()
+    }
+
+    #[test]
+    fn traverse_matches_canonical_relationship() {
+        let core = GraphCore::new();
+        core.add_node("concept:src".into(), blob(json!({"type":"Concept"})));
+        core.add_node("concept:nbr".into(), blob(json!({"type":"Concept"})));
+        // Stored src -> nbr (the direction a forward TRAVERSE from the source expects).
+        core.add_edge(
+            "concept:src".into(),
+            "concept:nbr".into(),
+            blob(json!({"relationship":"RELATED_TO"})),
+        )
+        .unwrap();
+        let view = core.analysis_snapshot();
+        let sem = SemanticStore::new();
+        let ctx = PlanCtx::new(&view, &sem);
+
+        // Scan seeds both Concept nodes; TRAVERSE from `src` must reach `nbr` via the
+        // canonical edge (from `nbr` there is no outgoing edge, so it contributes
+        // nothing) — before the fix this silently returned `[]`.
+        let out = Plan::new(vec![
+            Op::Scan {
+                label: "Concept".into(),
+            },
+            Op::Traverse {
+                rel: "RELATED_TO".into(),
+                min: 1,
+                max: 2,
+            },
+        ])
+        .execute(&ctx)
+        .unwrap();
+
+        assert_eq!(
+            out.ids(),
+            vec!["concept:nbr".to_string()],
+            "TRAVERSE must reach the canonical-relationship neighbor, not return []"
+        );
+    }
+}
+
+/// F4 regression (CONCEPT:EG-KG.compute.rank-dim-mismatch-guard): an inline `RANK BY ~[…]` query
+/// vector whose dimension doesn't match the store's embedding dimension must be a
+/// clean typed error, not a silently empty (or, pre-fix, silently WRONG — `dot_product`
+/// zips to the shorter slice) result.
+#[cfg(test)]
+mod rank_dim_mismatch_tests {
+    use crate::algebra::{Op, Plan};
+    use crate::exec::{PlanCtx, PlanExt};
+    use eg_core::compute::semantic::SemanticStore;
+    use eg_core::graph::GraphCore;
+    use serde_json::json;
+
+    fn blob(v: serde_json::Value) -> Vec<u8> {
+        rmp_serde::to_vec_named(&v).unwrap()
+    }
+
+    #[test]
+    fn rank_with_mismatched_query_dim_is_typed_error() {
+        let core = GraphCore::new();
+        core.add_node("d1".into(), blob(json!({"type":"Doc"})));
+        let view = core.analysis_snapshot();
+        let mut semantic = SemanticStore::new();
+        // Stored embeddings are 8-dim.
+        semantic.add_embedding("d1".into(), vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8]);
+        let ctx = PlanCtx::new(&view, &semantic);
+
+        // The query vector is 4-dim — a real dimension mismatch.
+        let plan = Plan::new(vec![
+            Op::Scan {
+                label: "Doc".into(),
+            },
+            Op::Rank {
+                query: vec![1.0, 0.0, 0.0, 0.0],
+            },
+        ]);
+        let err = plan
+            .execute(&ctx)
+            .expect_err("a query-vector/store dimension mismatch must be a typed error");
+        assert!(
+            err.contains("dimension mismatch") && err.contains('8') && err.contains('4'),
+            "error must name both dimensions, got: {err}"
+        );
+    }
+
+    /// The matching-dimension case is unaffected: RANK still returns the ranked row.
+    #[test]
+    fn rank_with_matching_query_dim_still_ranks() {
+        let core = GraphCore::new();
+        core.add_node("d1".into(), blob(json!({"type":"Doc"})));
+        let view = core.analysis_snapshot();
+        let mut semantic = SemanticStore::new();
+        semantic.add_embedding("d1".into(), vec![1.0, 0.0, 0.0, 0.0]);
+        let ctx = PlanCtx::new(&view, &semantic);
+
+        let plan = Plan::new(vec![
+            Op::Scan {
+                label: "Doc".into(),
+            },
+            Op::Rank {
+                query: vec![1.0, 0.0, 0.0, 0.0],
+            },
+        ]);
+        let out = plan.execute(&ctx).unwrap();
+        assert_eq!(out.ids(), vec!["d1".to_string()]);
+    }
 }
 
 /// Bi-temporal `AS OF` execution proofs (CONCEPT:AU-KG.compute.kg-2). The planner now filters
@@ -805,5 +1061,171 @@ mod timeseries_tests {
             vec![15.0, 35.0],
             "each bucket carries its mean value"
         );
+    }
+}
+
+/// RANK 10 — the ID/point-lookup fast path (`crate::exec::point_lookup_ids`, wired into
+/// `filter_op`): a lone `id = <id>` equality bypasses `sql_filter_ids`'s DataFusion round
+/// trip for an O(1) `HashMap` check, byte-identical in RESULT to the SQL path it replaces.
+mod point_lookup_tests {
+    use crate::algebra::{Op, Plan, Pred};
+    use crate::exec::{PlanCtx, PlanExt};
+    use eg_core::compute::semantic::SemanticStore;
+    use eg_core::graph::{GraphCore, GraphView};
+    use serde_json::json;
+
+    fn blob(v: serde_json::Value) -> Vec<u8> {
+        rmp_serde::to_vec_named(&v).unwrap()
+    }
+
+    fn fixture() -> (GraphView, SemanticStore) {
+        let core = GraphCore::new();
+        core.add_node("d1".into(), blob(json!({"type":"Doc","year":2025})));
+        core.add_node("d2".into(), blob(json!({"type":"Doc","year":2024})));
+        (core.analysis_snapshot(), SemanticStore::new())
+    }
+
+    /// A lone `id = <id>` equality resolves to exactly one row, same as any other
+    /// Filter, and misses cleanly (empty, never an error) for a nonexistent id.
+    #[test]
+    fn id_equality_resolves_the_single_node() {
+        let (view, sem) = fixture();
+        let ctx = PlanCtx::new(&view, &sem);
+
+        let hit = Plan::new(vec![
+            Op::Scan {
+                label: "Doc".into(),
+            },
+            Op::Filter {
+                preds: vec![Pred::Eq {
+                    prop: "id".into(),
+                    value: "d1".into(),
+                }],
+            },
+        ])
+        .execute(&ctx)
+        .unwrap();
+        assert_eq!(hit.ids(), vec!["d1".to_string()]);
+
+        let miss = Plan::new(vec![
+            Op::Scan {
+                label: "Doc".into(),
+            },
+            Op::Filter {
+                preds: vec![Pred::Eq {
+                    prop: "id".into(),
+                    value: "nope".into(),
+                }],
+            },
+        ])
+        .execute(&ctx)
+        .unwrap();
+        assert!(miss.is_empty());
+    }
+
+    /// The fast path composes correctly with a PRIOR candidate-set restriction: an id
+    /// that exists in the graph but was narrowed OUT by an upstream Filter must still
+    /// miss — the fast path must not silently resurrect it via the reserved-id lookup.
+    #[test]
+    fn id_equality_respects_a_prior_candidate_restriction() {
+        let (view, sem) = fixture();
+        let ctx = PlanCtx::new(&view, &sem);
+
+        // d2 exists but is excluded once the upstream Filter narrows to year>2024.5 (d1 only).
+        let excluded = Plan::new(vec![
+            Op::Scan {
+                label: "Doc".into(),
+            },
+            Op::Filter {
+                preds: vec![Pred::GtNum {
+                    prop: "year".into(),
+                    n: 2024.5,
+                }],
+            },
+            Op::Filter {
+                preds: vec![Pred::Eq {
+                    prop: "id".into(),
+                    value: "d2".into(),
+                }],
+            },
+        ])
+        .execute(&ctx)
+        .unwrap();
+        assert!(
+            excluded.is_empty(),
+            "d2 was narrowed out upstream; the id lookup must not resurrect it"
+        );
+
+        let included = Plan::new(vec![
+            Op::Scan {
+                label: "Doc".into(),
+            },
+            Op::Filter {
+                preds: vec![Pred::GtNum {
+                    prop: "year".into(),
+                    n: 2024.5,
+                }],
+            },
+            Op::Filter {
+                preds: vec![Pred::Eq {
+                    prop: "id".into(),
+                    value: "d1".into(),
+                }],
+            },
+        ])
+        .execute(&ctx)
+        .unwrap();
+        assert_eq!(included.ids(), vec!["d1".to_string()]);
+    }
+
+    /// The fast path's RESULT is byte-identical to the ordinary SQL leg it replaces —
+    /// proven by forcing the SAME id-equality predicate through the full
+    /// `sql_filter_ids`/DataFusion path (a second, always-true predicate alongside it
+    /// makes the pred count 2, so `filter_op` cannot take the length-1 fast-path match).
+    #[test]
+    fn fast_path_agrees_with_the_full_sql_leg_it_replaces() {
+        let (view, sem) = fixture();
+        let ctx = PlanCtx::new(&view, &sem);
+        for probe in ["d1", "d2", "nope"] {
+            let via_fast_path = Plan::new(vec![
+                Op::Scan {
+                    label: "Doc".into(),
+                },
+                Op::Filter {
+                    preds: vec![Pred::Eq {
+                        prop: "id".into(),
+                        value: probe.into(),
+                    }],
+                },
+            ])
+            .execute(&ctx)
+            .unwrap();
+
+            let via_sql_leg = Plan::new(vec![
+                Op::Scan {
+                    label: "Doc".into(),
+                },
+                Op::Filter {
+                    preds: vec![
+                        Pred::GtNum {
+                            prop: "year".into(),
+                            n: -1.0,
+                        },
+                        Pred::Eq {
+                            prop: "id".into(),
+                            value: probe.into(),
+                        },
+                    ],
+                },
+            ])
+            .execute(&ctx)
+            .unwrap();
+
+            assert_eq!(
+                via_fast_path.ids(),
+                via_sql_leg.ids(),
+                "probe={probe}: fast path and SQL leg must agree byte-for-byte"
+            );
+        }
     }
 }

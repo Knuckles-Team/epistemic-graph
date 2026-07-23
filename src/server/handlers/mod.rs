@@ -12,6 +12,20 @@ pub(crate) mod datascience;
 #[cfg(feature = "finance")]
 pub(crate) mod finance;
 pub(crate) mod graph_ops;
+// Data-mining domain (CONCEPT:EG-KG.mining.frequent-itemset-mining, feature `mining`).
+// Association-rule mining. GRAPH-SCOPED (unlike finance/datascience): the
+// graph-derived source + write-back need the live graph core, so the handler takes
+// it like query/rdf. A build without `mining` omits the module and the
+// `MineAssociate` variant falls to the graph_ops "not available" catch-all.
+#[cfg(feature = "mining")]
+pub(crate) mod mining;
+// Graph-learning / neuro-symbolic domain (CONCEPT:EG-KG.graphlearn.link-predictor,
+// feature `graphlearn`). A KAN link-predictor learned over a graph-derived subgraph;
+// GRAPH-SCOPED (like mining) — the source + `:PredictedEdge`/`:EdgeFunction`
+// write-back need the live core. A build without `graphlearn` omits the module and
+// the `GraphLearn*` variants fall to the graph_ops "not available" catch-all.
+#[cfg(feature = "graphlearn")]
+pub(crate) mod graphlearn;
 // M3 catalog-driven resharding admin (CONCEPT:EG-KG.backend.m3-admin-dispatch): the wire surface that DRIVES online
 // resharding (EG-032), the tenant catalog (EG-031) and the rebalance planner (EG-035) +
 // its execution (EG-039). Always declared; the real logic is `redb`-gated (the only build
@@ -61,7 +75,10 @@ pub(crate) mod wasm_udf;
 // DistributedCompute/*MatView methods drive the cross-shard Pregel engine + the
 // matview store on ServerState; a non-cluster build omits the module and the variants
 // fall to the graph_ops not-available catch-all.
-#[cfg(feature = "compute-dist")]
+// Present under EITHER `compute-dist` (the algo-only Pregel matview + DistributedCompute)
+// OR `matview` (the plan-backed, single-node incremental matview) — the two families share
+// this dispatch module but NOT a feature dependency (the plan-backed path uses no raft).
+#[cfg(any(feature = "compute-dist", feature = "matview"))]
 pub(crate) mod dist_compute;
 // Query federation / foreign sources (CONCEPT:EG-KG.query.query-federation, feature `federation`).
 // RegisterForeignSource records a named foreign source on ServerState (the inline-spec
@@ -72,8 +89,49 @@ pub(crate) mod dist_compute;
 pub(crate) mod federation;
 // SQLite `.db` FILE import/export (CONCEPT:EG-KG.query.eg-feature/EG-332, feature `sqlite-file`). The
 // ImportSqliteFile/ExportSqliteFile methods move rows between an on-disk `sqlite3` `.db`
-// file and the process-global `eg_query::TableStore` (behind `query`), via the bundled
-// C `rusqlite` (kept OUT of pi). NOT graph-scoped; a build without `sqlite-file` omits
+// file and the verified caller's owner-scoped `eg_query::TableStore` (behind `query`), via the pure-Rust
+// `eg-sqlite-format` (no C sqlite). NOT graph-scoped; a build without `sqlite-file` omits
 // the module and the variants aren't in the enum (so the dispatch chain never routes them).
 #[cfg(feature = "sqlite-file")]
 pub(crate) mod sqlite_file;
+// Durable analytics-job plane (CONCEPT:INT-P2-1, feature `jobs`). The
+// `Method::AnalyticsJob { op }` surface (submit/status/cancel/resume) over
+// `eg-jobs`'s redb-backed `AnalyticsJob` state machine; a submitted job runs
+// asynchronously (spawned off the request) and its success commits a provenance'd
+// `:Claim`/`:Evidence` pair via `eg_jobs::claim::commit_result_claim`. NOT
+// graph-scoped (own `jobs.redb`, like `TsAppend`/`Kv*`) — self-routes in
+// `dispatch.rs` before the per-graph chain, so it needs `state` directly rather
+// than a resolved `GraphCore`.
+#[cfg(feature = "jobs")]
+pub(crate) mod jobs;
+// Native finite-state-machine / statechart engine (CONCEPT:INT-P2-2, feature
+// `statechart`). The `Method::Statechart { op }` surface (define/instantiate/
+// send_event/get_state/list) over `eg-statechart`'s redb-backed `StatechartDef` +
+// `MachineInstance` store; a durable machine instance is just a `(state, context)`
+// row, rehydrated on the next event. NOT graph-scoped (own `statecharts.redb`, like
+// `AnalyticsJob`/`TsAppend`/`Kv*`) — self-routes in `dispatch.rs` before the per-graph
+// chain, so it needs `state` directly (only for `persist_dir`) rather than a resolved
+// `GraphCore`.
+#[cfg(feature = "statechart")]
+pub(crate) mod statechart;
+// Governed document/image/audio/video serving. The wire carries an ephemeral
+// source body, while this handler persists only an encrypted, opaque runtime
+// snapshot through the graph mutation gateway.
+#[cfg(feature = "modality-serving")]
+pub(crate) mod modality;
+// One governed, bounded Arrow KnowledgeBatch result plane for graph, SQL, RDF,
+// vector, time-series, analytics jobs, and cross-modal plans.
+#[cfg(feature = "knowledge-batch")]
+pub(crate) mod knowledge_stream;
+// Placement-catalog wire RPC (CONCEPT:EG-KG.sharding.placement-route-rpc, DIST-P2-4): exposes the
+// DIST-P2-1 `PlacementCatalog` (raft/placement.rs) over `Method::PlacementRoute`. Always
+// declared (like `admin`); the real answer is `raft`-gated (the only build where
+// `MultiRaft`/the catalog exist), and a non-raft build (or a raft build with no live
+// cluster) answers a well-formed "no explicit placement" JSON rather than an error.
+pub(crate) mod placement;
+// Raft cluster-membership ADMIN RPC (CONCEPT:EG-KG.storage.kg-kg-2 — cluster_deployment.md
+// §5 item 2): exposes `MultiRaft::add_group_learner`/`change_group_voters`
+// (raft/multi.rs) over `Method::RaftAddLearner`/`Method::RaftChangeMembership`. Always
+// declared (like `placement`); the real answer is `raft`-gated, and a non-raft build
+// answers a clean typed error.
+pub(crate) mod raft_admin;

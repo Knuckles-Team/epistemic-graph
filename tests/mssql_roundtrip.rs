@@ -2,7 +2,7 @@
 //!
 //! Starts the real hand-rolled TDS listener over an in-process `ServerState`, then
 //! drives the raw protocol from a plain `TcpStream` (no `tiberius` — the server side
-//! is hand-rolled, so the test hand-rolls the client too): PRELOGIN → LOGIN7 (trust)
+//! is hand-rolled, so the test hand-rolls the client too): PRELOGIN → authenticated LOGIN7
 //! → a hand-built `SQLBatch` (`SELECT id FROM nodes …`), and asserts a correct
 //! COLMETADATA + ROW* + DONE token stream comes back over the seeded graph — proving
 //! the adapter reuses the SAME eg-query DataFusion path the shared `WireSession` runs.
@@ -22,7 +22,7 @@ use tokio::sync::{RwLock, Semaphore};
 use epistemic_graph::channels::ChannelManager;
 use epistemic_graph::isolation::IsolationLayer;
 use epistemic_graph::registry::GraphRegistry;
-use epistemic_graph::server::mssql_wire::{self, protocol};
+use epistemic_graph::server::mssql_wire::{self, derive_mssql_password, protocol};
 use epistemic_graph::server::txn::TxnIdGen;
 use epistemic_graph::server::ServerState;
 
@@ -32,7 +32,25 @@ use protocol::{
     TYPE_INTN, TYPE_NVARCHAR,
 };
 
-/// Build a minimal TRUST-mode `ServerState` (empty auth secret) seeded with three
+const TEST_SECRET: &str = "test";
+const TEST_USER: &str = "tester";
+
+fn sql_test_persist_dir() -> String {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    std::env::set_var("EPISTEMIC_GRAPH_AUDIENCE", "epistemic-graph-test");
+    std::env::set_var("EPISTEMIC_GRAPH_TENANT", "tenant-test");
+    std::env::set_var("EPISTEMIC_GRAPH_POLICY_VERSION", "policy-test");
+    std::env::temp_dir()
+        .join(format!(
+            "epistemic-graph-mssql-test-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ))
+        .to_string_lossy()
+        .into_owned()
+}
+
+/// Build a minimal authenticated `ServerState` seeded with three
 /// nodes so a wire SELECT returns rows. `__commons__` is pre-created by the registry.
 fn seeded_state() -> Arc<RwLock<ServerState>> {
     let registry = GraphRegistry::new();
@@ -52,19 +70,16 @@ fn seeded_state() -> Arc<RwLock<ServerState>> {
         registry,
         isolation: IsolationLayer::new(),
         channels: ChannelManager::new(),
-        auth_secret: String::new(), // trust mode
+        auth_secret: TEST_SECRET.to_string(),
         #[cfg(feature = "kv")]
         kv: None,
-        persist_dir: None,
+        persist_dir: Some(sql_test_persist_dir()),
         persistence: None,
-        redb_authoritative: false,
         max_in_flight: Arc::new(Semaphore::new(16)),
         read_admission: Arc::new(Semaphore::new(16)),
         per_graph_inflight: Arc::new(DashMap::new()),
         per_graph_inflight_limit: 8,
-        write_coalescer: Arc::new(
-            epistemic_graph::write_coalescer::WriteCoalescerRegistry::from_env(),
-        ),
+        write_coalescer: Arc::new(epistemic_graph::write_coalescer::WriteCoalescerRegistry::new()),
         open_txns: Arc::new(DashMap::new()),
         txn_id_gen: Arc::new(TxnIdGen::default()),
         txn_ttl_secs: 300,
@@ -80,8 +95,6 @@ fn seeded_state() -> Arc<RwLock<ServerState>> {
         multi_raft: None,
         #[cfg(feature = "tsdb")]
         tsdb_store: None,
-        #[cfg(feature = "rdf-redb")]
-        rdf_quads: None,
         #[cfg(feature = "streaming")]
         cdc: Some(Arc::new(epistemic_graph::server::cdc::CdcHub::new())),
         #[cfg(feature = "wasm-udf")]
@@ -92,6 +105,8 @@ fn seeded_state() -> Arc<RwLock<ServerState>> {
         )),
         #[cfg(feature = "federation")]
         foreign_sources: Arc::new(DashMap::new()),
+        #[cfg(feature = "lake")]
+        lake: std::sync::Arc::new(epistemic_graph::server::lake::LakeManager::new()),
     }))
 }
 
@@ -114,10 +129,33 @@ async fn spawn_listener(state: Arc<RwLock<ServerState>>) -> String {
     addr
 }
 
-/// Build a minimal LOGIN7 record: the 94-byte fixed header with all variable fields
-/// empty (offset/length zero) — trust mode needs no credentials.
-fn empty_login7() -> Vec<u8> {
-    let mut rec = vec![0u8; 94];
+/// Build a minimal authenticated LOGIN7 record with user/password/database fields.
+fn login7(user: &str, password: &str, database: &str) -> Vec<u8> {
+    const FIXED_LEN: usize = 94;
+    let user_b = utf16le_bytes(user);
+    let pw_enc: Vec<u8> = utf16le_bytes(password)
+        .into_iter()
+        .map(|b| (b ^ 0xA5).rotate_left(4))
+        .collect();
+    let db_b = utf16le_bytes(database);
+
+    let mut rec = vec![0u8; FIXED_LEN];
+    let mut data = Vec::new();
+    let put = |rec: &mut Vec<u8>,
+               data: &mut Vec<u8>,
+               offset_pos: usize,
+               count_pos: usize,
+               bytes: &[u8]| {
+        let offset = (FIXED_LEN + data.len()) as u16;
+        let units = (bytes.len() / 2) as u16;
+        rec[offset_pos..offset_pos + 2].copy_from_slice(&offset.to_le_bytes());
+        rec[count_pos..count_pos + 2].copy_from_slice(&units.to_le_bytes());
+        data.extend_from_slice(bytes);
+    };
+    put(&mut rec, &mut data, 40, 42, &user_b);
+    put(&mut rec, &mut data, 44, 46, &pw_enc);
+    put(&mut rec, &mut data, 68, 70, &db_b);
+    rec.extend_from_slice(&data);
     let len = rec.len() as u32;
     rec[0..4].copy_from_slice(&len.to_le_bytes());
     rec
@@ -230,9 +268,13 @@ async fn tds_select_returns_colmetadata_rows_done() {
         .unwrap();
     let _prelogin_reply = read_message(&mut stream).await;
 
-    // 2. LOGIN7 (trust — empty credentials). Server replies LOGINACK + DONE.
+    // 2. Authenticated LOGIN7. Server replies LOGINACK + DONE.
+    let password = derive_mssql_password(TEST_SECRET, TEST_USER);
     stream
-        .write_all(&frame_message(PKT_LOGIN7, &empty_login7()))
+        .write_all(&frame_message(
+            PKT_LOGIN7,
+            &login7(TEST_USER, &password, "__commons__"),
+        ))
         .await
         .unwrap();
     let login_reply = read_message(&mut stream).await;
@@ -286,7 +328,7 @@ async fn tds_select_returns_colmetadata_rows_done() {
 //     a SECOND connection sees NONE of them until COMMIT.
 // ───────────────────────────────────────────────────────────────────────────
 
-/// Complete PRELOGIN + LOGIN7 (trust) and return the connected stream ready for the
+/// Complete PRELOGIN + authenticated LOGIN7 and return the connected stream ready for the
 /// command phase. Panics if the login is not acknowledged.
 async fn connect(addr: &str) -> TcpStream {
     let mut stream = TcpStream::connect(addr).await.unwrap();
@@ -295,8 +337,12 @@ async fn connect(addr: &str) -> TcpStream {
         .await
         .unwrap();
     let _ = read_message(&mut stream).await;
+    let password = derive_mssql_password(TEST_SECRET, TEST_USER);
     stream
-        .write_all(&frame_message(PKT_LOGIN7, &empty_login7()))
+        .write_all(&frame_message(
+            PKT_LOGIN7,
+            &login7(TEST_USER, &password, "__commons__"),
+        ))
         .await
         .unwrap();
     let login_reply = read_message(&mut stream).await;

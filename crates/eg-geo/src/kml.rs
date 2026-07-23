@@ -170,7 +170,7 @@ fn parse_polygon(node: &XmlNode) -> Result<Polygon, String> {
             interiors.push(LineString::new(coords_of(c)?));
         }
     }
-    Ok(Polygon::with_interiors(exterior, interiors))
+    Ok(Polygon::new(exterior, interiors))
 }
 
 /// Find the first `<coordinates>` element in `node`'s subtree and parse its text.
@@ -527,7 +527,7 @@ mod tests {
             "line",
         );
         round_trip(
-            Geometry::Polygon(Polygon::with_interiors(
+            Geometry::Polygon(Polygon::new(
                 LineString::new(vec![
                     Point::new(0.0, 0.0),
                     Point::new(10.0, 0.0),
@@ -557,12 +557,15 @@ mod tests {
             "mline",
         );
         round_trip(
-            Geometry::MultiPolygon(vec![Polygon::new(LineString::new(vec![
-                Point::new(0.0, 0.0),
-                Point::new(1.0, 0.0),
-                Point::new(1.0, 1.0),
-                Point::new(0.0, 0.0),
-            ]))]),
+            Geometry::MultiPolygon(vec![Polygon::new(
+                LineString::new(vec![
+                    Point::new(0.0, 0.0),
+                    Point::new(1.0, 0.0),
+                    Point::new(1.0, 1.0),
+                    Point::new(0.0, 0.0),
+                ]),
+                Vec::new(),
+            )]),
             "mpoly",
         );
     }

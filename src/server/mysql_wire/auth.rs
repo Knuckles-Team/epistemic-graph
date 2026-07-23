@@ -10,12 +10,15 @@
 //! set to `user`, so every subsequent query runs under that `AgentIdentity` against the
 //! engine ACL (`IsolationLayer::check_access`).
 //!
-//! ## Modes (`EPISTEMIC_GRAPH_MYSQL_AUTH`)
-//!   * `trust` — no authentication; the zero-infra/dev path. DEFAULT only when no
-//!     engine secret is configured (the auth-plugin-data is still sent, but any client
-//!     response is accepted and the connection stays anonymous).
+//! ## Mode (`EPISTEMIC_GRAPH_MYSQL_AUTH`)
 //!   * `native` — `mysql_native_password` (what mysql/mariadb clients negotiate by
-//!     default). The DEFAULT when a non-empty `GRAPH_SERVICE_AUTH_SECRET` is set.
+//!     default). This is the only accepted mode and requires a non-empty
+//!     `GRAPH_SERVICE_AUTH_SECRET`; there is no anonymous/trust fallback.
+//!
+//! The direct listener never terminates TLS and is therefore always loopback-only.
+//! A remote client must traverse an authenticated TLS/mTLS gateway whose backend is
+//! this loopback socket; the native-password proof still binds the user to the ACL
+//! actor.
 //!
 //! ## The `mysql_native_password` exchange
 //! The server sends a 20-byte random scramble (`seed`) in the handshake. The client
@@ -28,8 +31,8 @@ use hmac::{Hmac, Mac};
 use sha1::{Digest, Sha1};
 use sha2::Sha256;
 
-/// Env var selecting the MySQL wire auth mode: `trust` | `native`. Unset ⇒ the safe
-/// default (native when an engine secret is configured, else trust).
+/// Env var selecting the MySQL wire auth mode. Only `native` is accepted; unset
+/// also selects native authentication.
 pub const MYSQL_AUTH_ENV: &str = "EPISTEMIC_GRAPH_MYSQL_AUTH";
 
 /// The name of the auth plugin the server advertises + validates.
@@ -40,42 +43,41 @@ type HmacSha256 = Hmac<Sha256>;
 /// The resolved MySQL wire auth mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MysqlAuthMode {
-    /// No authentication (dev / zero-infra) — any client response is accepted and the
-    /// connection stays anonymous (no ACL actor).
-    Trust,
     /// `mysql_native_password` bridged to the engine secret.
     Native,
 }
 
 impl MysqlAuthMode {
-    /// Resolve the mode from `EPISTEMIC_GRAPH_MYSQL_AUTH` and the engine secret.
-    /// Explicit env wins; otherwise default to NATIVE when a non-empty secret is
-    /// present (an authenticated deployment), else TRUST (a bare dev run). Mirrors
-    /// `PgWireAuthMode::resolve`.
-    pub fn resolve(auth_secret: &str) -> Self {
-        match std::env::var(MYSQL_AUTH_ENV)
-            .ok()
-            .map(|s| s.trim().to_ascii_lowercase())
-            .as_deref()
-        {
-            Some("native") => MysqlAuthMode::Native,
-            Some("trust") => MysqlAuthMode::Trust,
-            _ if !auth_secret.is_empty() => MysqlAuthMode::Native,
-            _ => MysqlAuthMode::Trust,
+    /// Resolve the sole secure mode. Empty key material and every legacy or
+    /// unknown value are startup errors rather than compatibility fallbacks.
+    pub fn resolve(auth_secret: &str) -> std::io::Result<Self> {
+        if auth_secret.is_empty() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "mysql-wire requires non-empty authentication key material",
+            ));
+        }
+        match std::env::var(MYSQL_AUTH_ENV) {
+            Err(std::env::VarError::NotPresent) => Ok(Self::Native),
+            Ok(value) if value.trim().eq_ignore_ascii_case("native") => Ok(Self::Native),
+            Ok(_) | Err(std::env::VarError::NotUnicode(_)) => Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "mysql-wire authentication mode must be native",
+            )),
         }
     }
 
     pub fn as_str(&self) -> &'static str {
         match self {
-            MysqlAuthMode::Trust => "trust",
             MysqlAuthMode::Native => "native",
         }
     }
 
-    /// Whether an authenticated login under this mode maps the connecting `user` to the
-    /// engine ACL actor (CONCEPT:EG-KG.query.concept-13). True for NATIVE; false for TRUST (anonymous).
-    pub fn maps_actor(&self) -> bool {
-        matches!(self, MysqlAuthMode::Native)
+    /// Whether this mode and secret cryptographically bind a successful login's
+    /// user to the ACL actor. Native auth with an empty root secret is not a
+    /// verified deployment.
+    pub fn verified_identity_binding(self, auth_secret: &str) -> bool {
+        matches!(self, MysqlAuthMode::Native) && !auth_secret.is_empty()
     }
 }
 
@@ -203,16 +205,26 @@ mod tests {
     }
 
     #[test]
-    fn mode_resolution_default_is_secret_driven() {
+    fn mode_resolution_is_native_only_and_fail_closed() {
         std::env::remove_var(MYSQL_AUTH_ENV);
-        assert_eq!(MysqlAuthMode::resolve("s3cret"), MysqlAuthMode::Native);
-        assert_eq!(MysqlAuthMode::resolve(""), MysqlAuthMode::Trust);
+        assert_eq!(
+            MysqlAuthMode::resolve("s3cret").unwrap(),
+            MysqlAuthMode::Native
+        );
+        assert!(MysqlAuthMode::resolve("").is_err());
         std::env::set_var(MYSQL_AUTH_ENV, "trust");
-        assert_eq!(MysqlAuthMode::resolve("s3cret"), MysqlAuthMode::Trust);
+        assert!(MysqlAuthMode::resolve("s3cret").is_err());
         std::env::set_var(MYSQL_AUTH_ENV, "native");
-        assert_eq!(MysqlAuthMode::resolve(""), MysqlAuthMode::Native);
+        assert_eq!(
+            MysqlAuthMode::resolve("s3cret").unwrap(),
+            MysqlAuthMode::Native
+        );
         std::env::remove_var(MYSQL_AUTH_ENV);
-        assert!(MysqlAuthMode::Native.maps_actor());
-        assert!(!MysqlAuthMode::Trust.maps_actor());
+    }
+
+    #[test]
+    fn only_native_with_nonempty_secret_is_verified_identity_binding() {
+        assert!(MysqlAuthMode::Native.verified_identity_binding("secret"));
+        assert!(!MysqlAuthMode::Native.verified_identity_binding(""));
     }
 }

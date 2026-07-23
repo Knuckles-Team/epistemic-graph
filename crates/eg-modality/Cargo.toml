@@ -1,0 +1,50 @@
+[package]
+name = "eg-modality"
+version = "0.1.0"
+edition = "2021"
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
+description = "ModalityContract trait + conformance harness (CONCEPT:E4) — the shared seam every eg-* modality crate (tensor/geo/tsdb/rdf/…) can converge on: a DAG-safe RowSet projection, a transaction-staging shape, an optional CDC topic, and default-empty provenance/evidence/policy/analytics hooks. A tiny leaf crate, deliberately BELOW eg-plan/eg-core in the DAG (deps = eg-types only) so no modality crate has to move to depend on it."
+license = "MIT"
+
+[lib]
+name = "eg_modality"
+
+# A leaf crate like eg-ann/eg-geo/eg-tensor, but ONE step further down: it depends on
+# eg-types ONLY (no eg-core, no eg-plan). This is deliberate — eg-plan already defines
+# the REAL cross-modal RowSet/exec currency and sits ABOVE eg-core; if eg-modality
+# depended on eg-plan (to reuse its `RowSet`), every modality crate implementing this
+# trait would transitively pull eg-plan/eg-core, INVERTING the DAG
+# (eg-types -> eg-core -> eg-compute -> epistemic-graph, modalities sit at/near the
+# bottom). So `RowSetShape` here is a small, DAG-safe `{id, score}` dup of
+# `eg_plan::rowset::Row` (see `src/rowset.rs` for the full rationale) — never a
+# re-export of the real type.
+[dependencies]
+eg-types = { path = "../eg-types" }
+serde = { version = "1.0", features = ["derive"] }
+# Only used to encode/decode a `StagedWrite` payload for the conformance round-trip
+# test (`decode_staged`/`encode_staged`). Already linked workspace-wide (eg-types
+# itself depends on it), so this adds no new dependency to the tree.
+serde_json = "1.0"
+sha2 = "0.10"
+
+# EG-P1-1 fleet aggregator (`tests/fleet_tck.rs`): pull the pilot modality crates in
+# (each with its own `contract` feature on) so their TCK reports can be collected into
+# ONE cross-crate parity table within a single test process — the `registered_
+# modalities()` registry is process-scoped, so a whole-fleet view needs every modality
+# registered in the SAME process, which only something ABOVE the modality crates (like
+# this test harness) can arrange.
+#
+# This is a DEV-DEPENDENCY CYCLE: eg-tensor/eg-geo depend on eg-modality (optionally,
+# under their `contract` feature), and here eg-modality dev-depends back on them. Cargo
+# EXPLICITLY permits cycles through dev-dependencies (they are compiled only for
+# eg-modality's own tests, are not part of the normal build graph, and never propagate
+# to the ~17 crates that depend on eg-modality). `cargo build -p eg-modality` and every
+# downstream crate are entirely unaffected; only `cargo test -p eg-modality` pays the
+# cost of building the two pilots. See `tests/fleet_tck.rs` for the mechanism writeup.
+[dev-dependencies]
+eg-tensor = { path = "../eg-tensor", features = ["contract"] }
+eg-geo = { path = "../eg-geo", features = ["contract"] }
+eg-document = { path = "../eg-document", features = ["contract", "serving"] }
+eg-image = { path = "../eg-image", features = ["contract", "serving", "runtime"] }
+eg-audio = { path = "../eg-audio", features = ["contract", "serving", "runtime"] }
+eg-video = { path = "../eg-video", features = ["contract", "serving", "runtime"] }

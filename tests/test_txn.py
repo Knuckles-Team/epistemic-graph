@@ -47,6 +47,7 @@ async def test_txn_stage_commit_round_trip() -> None:
 
     txn_id = await txns.begin()
     assert txn_id == "txn-0000000000000001"
+    assert fake.sent[0] == ("BeginTxn", {"graph": None, "isolation": None})
 
     assert await txns.add_node(txn_id, "a", {"type": "Doc"}) is True
     assert await txns.add_node(txn_id, "b") is True
@@ -63,11 +64,13 @@ async def test_txn_stage_commit_round_trip() -> None:
     # Property blobs are msgpack-packed lists.
     _, add_a = fake.sent[1]
     assert add_a is not None
+    assert add_a["graph"] is None
     assert msgpack.unpackb(bytes(add_a["properties_msgpack"]), raw=False) == {
         "type": "Doc"
     }
     _, add_edge = fake.sent[3]
     assert add_edge is not None
+    assert add_edge["graph"] is None
     assert add_edge["source_id"] == "a" and add_edge["target_id"] == "b"
 
 

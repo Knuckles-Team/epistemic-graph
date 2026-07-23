@@ -21,10 +21,30 @@ pub mod graph_algos;
 pub mod parser;
 pub mod screen;
 
+// ModalityContract retrofit (CONCEPT:E4): `impl ModalityContract for MergeProposal`,
+// behind the crate's own opt-in `contract` feature (default OFF). See `src/contract.rs`.
+#[cfg(feature = "contract")]
+mod contract;
+
 #[cfg(feature = "datascience")]
 pub mod datascience;
 #[cfg(feature = "finance")]
 pub mod finance;
+// CONCEPT:EG-KG.mining.frequent-itemset-mining — descriptive data-mining domain
+// (frequent itemsets + association rules). Pure-Rust, dependency-light, batch;
+// graph-agnostic (works over interned item ids), so it is unit-testable in
+// isolation. Feature-gated like finance/datascience so a slim build drops it.
+#[cfg(feature = "mining")]
+pub mod mining;
+// CONCEPT:EG-KG.graphlearn.link-predictor — graph-learning / neuro-symbolic domain.
+// A pure-Rust KAN (Kolmogorov-Arnold) link-predictor over the resident graph: a
+// polynomial-basis learnable edge function (`edge_fn`), a 1–2 layer KAN link-scorer
+// over structural features (`link_predict`), and 1-hop neighbor aggregation
+// (`neighbor_aggregate`). Graph-agnostic (works over `graph_algos::AdjacencyGraph`),
+// so it is unit-testable in isolation. Feature-gated like mining; implies
+// `datascience` for the shared Adam/SGD training kernels.
+#[cfg(feature = "graphlearn")]
+pub mod graphlearn;
 // CONCEPT:EG-KG.compute.bayesian-fusion-helpers — Bayesian-update / mixture / fusion helpers over the
 // `eg_types::Distribution` value. Conjugate posteriors are closed-form (no
 // sampling), so this rides the pure `reasoning` feature (no heavy dep).
@@ -32,3 +52,9 @@ pub mod finance;
 pub mod probabilistic;
 #[cfg(feature = "reasoning")]
 pub mod reasoning;
+// CONCEPT:EG-KG.compute.reasoning-closure-gpu — semi-naive integer-interned rewrite of
+// the `reasoning` fixpoint, with the transitive-closure join factored behind a
+// `ClosureBackend` seam (CPU always-on + feature-gated CUDA kernel). Rides `reasoning`;
+// the CUDA leg is further gated by `gpu-cuda`.
+#[cfg(feature = "reasoning")]
+pub mod reasoning_closure;

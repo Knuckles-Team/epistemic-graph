@@ -13,7 +13,7 @@
 name = "eg-shacl"
 version = "0.1.0"
 edition = "2021"
-authors = ["Audel Rouhi <knucklessg1@gmail.com>"]
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
 description = "Pure-Rust SHACL Core validation engine for the epistemic-graph engine (CONCEPT:EG-132) — parses an RDF shapes graph (node/property shapes, targets, predicate paths, cardinality/datatype/class/nodeKind/range/string/in/hasValue/logical/node constraints) and validates an RDF data graph, producing a serde-serializable sh:ValidationReport. Reuses eg-rdf's oxrdf term/graph model; NO C/native deps."
 license = "MIT"
 
@@ -31,6 +31,18 @@ serde_json = "1"
 # `sh:pattern` regex. Pure-Rust, already pulled by eg-rdf's `sparql` feature (EG-053),
 # so this pins the SAME crate — no new dependency in a `full` build.
 regex = "1"
+# ModalityContract retrofit (CONCEPT:E4). Optional, only under `contract` (default
+# OFF) — a default/pi/node/full build links none of it and `ValidationResult`
+# carries no new required trait. See `src/contract.rs`.
+eg-modality = { path = "../eg-modality", optional = true }
+
+[features]
+default = []
+# ModalityContract retrofit (CONCEPT:E4): `impl ModalityContract for ValidationResult`
+# + the `modality_conformance_tests!` battery. OFF by default, deliberately NOT folded
+# into any tier aggregate (pi/node/full) — it is a capability-discovery/testing seam,
+# not a serving feature. `cargo test -p eg-shacl --features contract` runs the suite.
+contract = ["dep:eg-modality"]
 
 [dev-dependencies]
 serde_json = "1"

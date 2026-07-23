@@ -49,6 +49,11 @@ pub mod iceberg;
 pub mod schema;
 pub mod snapshot;
 
+// ModalityContract retrofit (CONCEPT:E4): `impl ModalityContract for LakeBatch`,
+// behind the crate's own opt-in `contract` feature (default OFF). See `src/contract.rs`.
+#[cfg(feature = "contract")]
+mod contract;
+
 #[cfg(feature = "lake")]
 pub mod parquet_io;
 
@@ -97,6 +102,19 @@ pub struct LakeTable {
     pub location: String,
     pub snapshot: SnapshotLog,
     table_id: String,
+    /// The Iceberg schema-id CURRENTLY in effect for future writes (CONCEPT:EG-KG.storage.iceberg-per-file-schema-id,
+    /// INT-P2-4). Starts at `0`; [`Self::evolve_add_column`] bumps it by one per
+    /// additive schema change. Threaded onto every [`FileEntry`] recorded from this
+    /// point on (`record_file`/`materialize`), so a rewrite that later lands new
+    /// files under a NEWER schema never relabels the older, already-live files'
+    /// recorded schema-id.
+    schema_id: i32,
+    /// Every schema version this table has ever used, in id order (CONCEPT:EG-KG.storage.iceberg-per-file-schema-id) —
+    /// seeded with `(0, schema)` at construction, appended to on each
+    /// `evolve_add_column`. Rendered into `metadata.json`'s `schemas` array so an
+    /// external Iceberg reader sees the FULL schema-evolution history, not just
+    /// whatever shape the table happens to be today.
+    schema_versions: Vec<(i32, LakeSchema)>,
 }
 
 impl LakeTable {
@@ -110,6 +128,7 @@ impl LakeTable {
     ) -> Self {
         let name = name.into();
         let table_id = stable_table_id(&name);
+        let schema_versions = vec![(0, schema.clone())];
         LakeTable {
             namespace: namespace.into(),
             name,
@@ -117,7 +136,38 @@ impl LakeTable {
             location: location.into(),
             snapshot: SnapshotLog::new(),
             table_id,
+            schema_id: 0,
+            schema_versions,
         }
+    }
+
+    /// The Iceberg schema-id currently in effect for future writes (CONCEPT:EG-KG.storage.iceberg-per-file-schema-id).
+    pub fn schema_id(&self) -> i32 {
+        self.schema_id
+    }
+
+    /// Every schema version this table has used, oldest first (CONCEPT:EG-KG.storage.iceberg-per-file-schema-id) —
+    /// `(schema_id, schema)` pairs, seeded with `(0, <original schema>)`.
+    pub fn schema_versions(&self) -> &[(i32, LakeSchema)] {
+        &self.schema_versions
+    }
+
+    /// Additive-only schema evolution (CONCEPT:EG-KG.storage.iceberg-per-file-schema-id, INT-P2-4): append a new
+    /// column to the table's CURRENT schema and bump [`Self::schema_id`] so every
+    /// file recorded from this point on (`record_file`/`materialize`) carries the
+    /// NEW id, while files already recorded keep their OLDER id — the per-file
+    /// schema-id tracking across a rewrite `iceberg.rs`'s module docs used to flag
+    /// as an honest gap. Returns `false` (no-op) if a column of that name already
+    /// exists; `true` once the field is added and the schema-id bumped.
+    pub fn evolve_add_column(&mut self, field: LakeField) -> bool {
+        if self.schema.index_of(&field.name).is_some() {
+            return false;
+        }
+        self.schema.fields.push(field);
+        self.schema_id += 1;
+        self.schema_versions
+            .push((self.schema_id, self.schema.clone()));
+        true
     }
 
     /// The engine LSN of the latest committed materialization (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns) — what
@@ -137,7 +187,8 @@ impl LakeTable {
         num_rows: u64,
         lsn: Lsn,
     ) {
-        self.snapshot.add_file(path, size_bytes, num_rows, lsn);
+        self.snapshot
+            .add_file(path, size_bytes, num_rows, lsn, self.schema_id);
     }
 
     /// Render the full Delta `_delta_log` for the current snapshot (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns).
@@ -154,7 +205,8 @@ impl LakeTable {
     /// (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns).
     pub fn iceberg(&self, timestamp_ms: i64) -> IcebergTable {
         iceberg::build_iceberg(
-            &self.schema,
+            &self.schema_versions,
+            self.schema_id,
             &self.snapshot,
             &self.table_id,
             &self.location,
@@ -170,7 +222,12 @@ impl LakeTable {
     /// feature (needs the Avro codec).
     #[cfg(feature = "lake")]
     pub fn iceberg_manifests(&self) -> Result<iceberg_avro::IcebergManifests, String> {
-        iceberg_avro::build_iceberg_manifests(&self.schema, &self.snapshot, &self.location)
+        iceberg_avro::build_iceberg_manifests(
+            &self.schema,
+            self.schema_id,
+            &self.snapshot,
+            &self.location,
+        )
     }
 
     /// Register this table's current Iceberg metadata into a REST catalog
@@ -205,6 +262,7 @@ impl LakeTable {
             stats.size_bytes,
             stats.num_rows,
             lsn,
+            self.schema_id,
             Some(column_stats),
         );
         Ok((path, bytes))

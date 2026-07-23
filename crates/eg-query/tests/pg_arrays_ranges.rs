@@ -1,7 +1,7 @@
 //! CONCEPT:EG-KG.query.greatest-least-int4range-tsrange — Postgres array/range types + common scalar/table functions.
 //!
 //! Verifies the drop-in surface ORMs/BI tools emit: the common scalar functions (which
-//! are already in DataFusion 43 vs the `greatest`/`least`/`EXTRACT` gaps EG-104 fills),
+//! are already in DataFusion 54 vs the `greatest`/`least`/`EXTRACT` gaps EG-104 fills),
 //! `generate_series`, DataFusion's native array handling (enabled via `nested_expressions`)
 //! and the pragmatic range UDFs.
 #![cfg(feature = "sql")]
@@ -31,12 +31,13 @@ fn rows(r: &QueryResult) -> Vec<Vec<serde_json::Value>> {
 
 fn one(sql: &str) -> serde_json::Value {
     let snap = graph().analysis_snapshot();
-    let r = exec_sql(&snap, sql).unwrap_or_else(|e| panic!("query failed: {sql}\n{e}"));
+    let r = exec_sql(&snap, sql, &eg_query::CancellationToken::new())
+        .unwrap_or_else(|e| panic!("query failed: {sql}\n{e}"));
     let v = rows(&r);
     v[0][0].clone()
 }
 
-// ── common scalar functions already provided by DataFusion 43 (verify) ───────
+// ── common scalar functions already provided by DataFusion 54 (verify) ───────
 
 #[test]
 fn eg104_split_part_native() {
@@ -114,6 +115,7 @@ fn eg104_generate_series_ascending() {
     let r = exec_sql(
         &snap,
         "SELECT value FROM generate_series(1, 3) ORDER BY value",
+        &eg_query::CancellationToken::new(),
     )
     .unwrap();
     let v = rows(&r);
@@ -123,12 +125,22 @@ fn eg104_generate_series_ascending() {
 #[test]
 fn eg104_generate_series_step_and_descending() {
     let snap = graph().analysis_snapshot();
-    let r = exec_sql(&snap, "SELECT value FROM generate_series(0, 10, 5)").unwrap();
+    let r = exec_sql(
+        &snap,
+        "SELECT value FROM generate_series(0, 10, 5)",
+        &eg_query::CancellationToken::new(),
+    )
+    .unwrap();
     assert_eq!(
         rows(&r),
         vec![vec![json!(0)], vec![json!(5)], vec![json!(10)]]
     );
-    let r = exec_sql(&snap, "SELECT value FROM generate_series(3, 1, -1)").unwrap();
+    let r = exec_sql(
+        &snap,
+        "SELECT value FROM generate_series(3, 1, -1)",
+        &eg_query::CancellationToken::new(),
+    )
+    .unwrap();
     assert_eq!(
         rows(&r),
         vec![vec![json!(3)], vec![json!(2)], vec![json!(1)]]
@@ -140,7 +152,12 @@ fn eg104_generate_series_step_and_descending() {
 #[test]
 fn eg104_unnest_expands_array() {
     let snap = graph().analysis_snapshot();
-    let r = exec_sql(&snap, "SELECT unnest(array[1,2,3]) AS x").unwrap();
+    let r = exec_sql(
+        &snap,
+        "SELECT unnest(array[1,2,3]) AS x",
+        &eg_query::CancellationToken::new(),
+    )
+    .unwrap();
     let v = rows(&r);
     assert_eq!(v, vec![vec![json!(1)], vec![json!(2)], vec![json!(3)]]);
 }
@@ -168,6 +185,7 @@ fn eg104_any_operator_in_where() {
     let r = exec_sql(
         &snap,
         "SELECT id FROM nodes WHERE 20 = ANY(array[v]) ORDER BY id",
+        &eg_query::CancellationToken::new(),
     )
     .unwrap();
     assert_eq!(rows(&r), vec![vec![json!("n2")]]);

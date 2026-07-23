@@ -65,7 +65,7 @@ pub fn simplify(g: &Geometry, tol: f64) -> Geometry {
         LineString::new(pts)
     };
     let simp_poly = |pg: &Polygon| {
-        Polygon::with_interiors(
+        Polygon::new(
             simp_ring(&pg.exterior),
             pg.interiors.iter().map(simp_ring).collect(),
         )
@@ -247,7 +247,7 @@ fn hull_geometry(mut ring: Vec<Point>) -> Geometry {
         2 => Geometry::LineString(LineString::new(ring)),
         _ => {
             ring.push(ring[0]); // close
-            Geometry::Polygon(Polygon::new(LineString::new(ring)))
+            Geometry::Polygon(Polygon::new(LineString::new(ring), Vec::new()))
         }
     }
 }
@@ -344,7 +344,7 @@ fn closed_polygon(mut ring: Vec<Point>) -> Geometry {
             ring.push(f);
         }
     }
-    Geometry::Polygon(Polygon::new(LineString::new(ring)))
+    Geometry::Polygon(Polygon::new(LineString::new(ring), Vec::new()))
 }
 
 /// Sutherland–Hodgman polygon clipping: clip `subject` (unclosed) against the convex,
@@ -474,13 +474,16 @@ mod tests {
 
     #[test]
     fn centroid_of_square() {
-        let sq = Geometry::Polygon(Polygon::new(LineString::new(pts(&[
-            (0.0, 0.0),
-            (4.0, 0.0),
-            (4.0, 4.0),
-            (0.0, 4.0),
-            (0.0, 0.0),
-        ]))));
+        let sq = Geometry::Polygon(Polygon::new(
+            LineString::new(pts(&[
+                (0.0, 0.0),
+                (4.0, 0.0),
+                (4.0, 4.0),
+                (0.0, 4.0),
+                (0.0, 0.0),
+            ])),
+            Vec::new(),
+        ));
         let c = centroid(&sq).unwrap();
         assert!(
             (c.x - 2.0).abs() < 1e-9 && (c.y - 2.0).abs() < 1e-9,
@@ -496,20 +499,26 @@ mod tests {
     #[test]
     fn polygon_intersection_overlap() {
         // Square [0,0]-[4,4] intersected with (convex) clip [2,2]-[6,6] ⇒ [2,2]-[4,4].
-        let a = Geometry::Polygon(Polygon::new(LineString::new(pts(&[
-            (0.0, 0.0),
-            (4.0, 0.0),
-            (4.0, 4.0),
-            (0.0, 4.0),
-            (0.0, 0.0),
-        ]))));
-        let b = Geometry::Polygon(Polygon::new(LineString::new(pts(&[
-            (2.0, 2.0),
-            (6.0, 2.0),
-            (6.0, 6.0),
-            (2.0, 6.0),
-            (2.0, 2.0),
-        ]))));
+        let a = Geometry::Polygon(Polygon::new(
+            LineString::new(pts(&[
+                (0.0, 0.0),
+                (4.0, 0.0),
+                (4.0, 4.0),
+                (0.0, 4.0),
+                (0.0, 0.0),
+            ])),
+            Vec::new(),
+        ));
+        let b = Geometry::Polygon(Polygon::new(
+            LineString::new(pts(&[
+                (2.0, 2.0),
+                (6.0, 2.0),
+                (6.0, 6.0),
+                (2.0, 6.0),
+                (2.0, 2.0),
+            ])),
+            Vec::new(),
+        ));
         let inter = intersection(&a, &b).expect("non-empty intersection");
         let bb = inter.bbox().unwrap();
         assert!((bb.minx - 2.0).abs() < 1e-9, "minx {bb:?}");
@@ -527,19 +536,25 @@ mod tests {
 
     #[test]
     fn union_and_difference_subset() {
-        let a = Geometry::Polygon(Polygon::new(LineString::new(pts(&[
-            (0.0, 0.0),
-            (2.0, 0.0),
-            (2.0, 2.0),
-            (0.0, 2.0),
-            (0.0, 0.0),
-        ]))));
-        let far = Geometry::Polygon(Polygon::new(LineString::new(pts(&[
-            (10.0, 10.0),
-            (12.0, 10.0),
-            (12.0, 12.0),
-            (10.0, 10.0),
-        ]))));
+        let a = Geometry::Polygon(Polygon::new(
+            LineString::new(pts(&[
+                (0.0, 0.0),
+                (2.0, 0.0),
+                (2.0, 2.0),
+                (0.0, 2.0),
+                (0.0, 0.0),
+            ])),
+            Vec::new(),
+        ));
+        let far = Geometry::Polygon(Polygon::new(
+            LineString::new(pts(&[
+                (10.0, 10.0),
+                (12.0, 10.0),
+                (12.0, 12.0),
+                (10.0, 10.0),
+            ])),
+            Vec::new(),
+        ));
         // Convex union of two disjoint boxes spans both (hull bbox 0..12).
         let u = union(&a, &far);
         let ub = u.bbox().unwrap();
@@ -549,13 +564,16 @@ mod tests {
         );
         // Disjoint difference returns the subject; covered difference is empty.
         assert!(difference(&a, &far).is_some());
-        let big = Geometry::Polygon(Polygon::new(LineString::new(pts(&[
-            (-1.0, -1.0),
-            (5.0, -1.0),
-            (5.0, 5.0),
-            (-1.0, 5.0),
-            (-1.0, -1.0),
-        ]))));
+        let big = Geometry::Polygon(Polygon::new(
+            LineString::new(pts(&[
+                (-1.0, -1.0),
+                (5.0, -1.0),
+                (5.0, 5.0),
+                (-1.0, 5.0),
+                (-1.0, -1.0),
+            ])),
+            Vec::new(),
+        ));
         assert!(difference(&a, &big).is_none(), "a fully within big ⇒ empty");
     }
 }

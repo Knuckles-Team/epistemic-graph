@@ -20,7 +20,10 @@
 //! source     = "MATCH" "(" [ ":" ] label ")" [ "WHERE" pred_list ]
 //!            | "REASON" class | "FOREIGN" string ;
 //! stage      = filter | traverse | rank | text | fuse | rerank
-//!            | asof | window | foreign | reason | limit ;
+//!            | asof | window | foreign | reason | limit
+//!            | evidence_for | contradicts | supported_by
+//!            | belief_asof | valid_asof | source_reliability
+//!            | confidence | explain_belief ;                 (* epistemic, E2 *)
 //! filter     = "WHERE" pred_list ;                         (* a later-stage filter *)
 //! traverse   = "TRAVERSE" edge ;
 //! edge       = "-" "[" ":" rel "]" "->" [ hop_range ]
@@ -43,6 +46,15 @@
 //! value      = num | string | ident ;
 //! id         = ident | string ;     (* QUOTE ids with `-` `.` `:` `@` — the lexer
 //!                                       splits `-`, so `kg-2.0` must be `"kg-2.0"` *)
+//! (* ── epistemic (E2, CONCEPT:EG-KG.epistemic.epistemic-substrate) ── *)
+//! evidence_for        = "EVIDENCE" "FOR" id ;
+//! contradicts         = "CONTRADICTS" id ;
+//! supported_by        = "SUPPORTED" "BY" id ;
+//! belief_asof         = "BELIEF" "AS" "OF" "@" num ;
+//! valid_asof          = "VALID" "AS" "OF" "@" num ;         (* alias → AsOf{Valid}   *)
+//! source_reliability  = "SOURCE" "RELIABILITY" id ;
+//! confidence          = "CONFIDENCE" ;                       (* no argument           *)
+//! explain_belief      = "EXPLAIN" "BELIEF" id ;
 //! ```
 //!
 //! ### Op mapping (each grammar production → one `wire::Op`)
@@ -59,10 +71,18 @@
 //! | `RERANK MENTIONS`                    | `RankMentions {}`                      |
 //! | `RERANK MMR 0.5 10`                  | `RankMmr { lambda: 0.5, k: 10 }`       |
 //! | `AS OF @t` / `AS OF TX @t`           | `AsOf { ts, axis: Valid|Transaction }` |
+//! | `VALID AS OF @t`                     | `AsOf { ts, axis: Valid }` (ALIAS)      |
 //! | `WINDOW 1 h`                         | `Window { secs: 3600 }`                |
 //! | `WINDOW 60 s SUM`                    | `WindowAgg { secs: 60, agg: "sum" }`   |
 //! | `FOREIGN "peer"`                     | `Foreign { name: "peer" }`             |
 //! | `REASON Mammal`                      | `Reason { target_class: "Mammal" }`    |
+//! | `EVIDENCE FOR "c1"`                  | `EvidenceFor { claim_id: "c1" }`       |
+//! | `CONTRADICTS "c1"`                   | `Contradicts { node_id: "c1" }`        |
+//! | `SUPPORTED BY "c1"`                  | `SupportedBy { node_id: "c1" }`        |
+//! | `BELIEF AS OF @100`                  | `BeliefAsOf { ts: 100.0 }`             |
+//! | `SOURCE RELIABILITY "s1"`            | `SourceReliability { source_id: "s1" }`|
+//! | `CONFIDENCE`                         | `ConfidenceOp {}`                       |
+//! | `EXPLAIN BELIEF "c1"`                | `ExplainBelief { node_id: "c1" }`      |
 //! | `LIMIT 10`                           | `Limit { k: 10 }`                      |
 //!
 //! ### Feature gating (on EXECUTION, not parsing)
@@ -83,6 +103,14 @@
 //!    windowed MEAN over `(ts,value)` rows (e.g. from a `TsScan`); `WINDOW <dur> <agg>`
 //!    selects the aggregate (`Op::WindowAgg`). The eg-tsdb aggregate is wired under
 //!    `timeseries`; a non-`timeseries` build passes the rows through.
+//!  * **epistemic** (CONCEPT:EG-KG.epistemic.epistemic-substrate, E2) — `EVIDENCE FOR`/
+//!    `CONTRADICTS`/`SUPPORTED BY`/`BELIEF AS OF`/`VALID AS OF`/`SOURCE RELIABILITY`/
+//!    `CONFIDENCE`/`EXPLAIN BELIEF` all gated to `epistemic`; a non-`epistemic` build
+//!    parses them but errors with a clear "not in this build" message (the `TEXT`/`REASON`
+//!    precedent). `VALID AS OF <ts>` is a pure ALIAS lowering to the SAME `Op::AsOf { axis:
+//!    Valid }` the bare `AS OF @ts` / `AS OF VALID @ts` forms already produce — it is a
+//!    STRICT SUPERSET (new leading-keyword surface only), so it does not change what `AS
+//!    OF` byte-identically parses to.
 
 use eg_types::wire::{Op, Plan, Pred, TimeAxis};
 
@@ -232,10 +260,36 @@ impl<'a> Parser<'a> {
         } else if self.peek_kw("REASON") {
             self.bump();
             ops.push(self.parse_reason()?);
+        } else if self.peek_kw("EVIDENCE") {
+            self.bump();
+            ops.push(self.parse_evidence_for()?);
+        } else if self.peek_kw("CONTRADICTS") {
+            self.bump();
+            ops.push(self.parse_contradicts()?);
+        } else if self.peek_kw("SUPPORTED") {
+            self.bump();
+            ops.push(self.parse_supported_by()?);
+        } else if self.peek_kw("BELIEF") {
+            self.bump();
+            ops.push(self.parse_belief_asof()?);
+        } else if self.peek_kw("VALID") {
+            self.bump();
+            ops.push(self.parse_valid_asof()?);
+        } else if self.peek_kw("SOURCE") {
+            self.bump();
+            ops.push(self.parse_source_reliability()?);
+        } else if self.peek_kw("CONFIDENCE") {
+            self.bump();
+            ops.push(self.parse_confidence()?);
+        } else if self.peek_kw("EXPLAIN") {
+            self.bump();
+            ops.push(self.parse_explain_belief()?);
         } else {
             return Err(self.err_here(
                 "expected a pipeline stage (`TRAVERSE`, `RANK`, `TEXT`, `FUSE`, `LIMIT`, \
-                 `WHERE`, `AS OF`, `WINDOW`, `FOREIGN`, or `REASON`)",
+                 `WHERE`, `AS OF`, `WINDOW`, `FOREIGN`, `REASON`, `EVIDENCE FOR`, \
+                 `CONTRADICTS`, `SUPPORTED BY`, `BELIEF AS OF`, `VALID AS OF`, \
+                 `SOURCE RELIABILITY`, `CONFIDENCE`, or `EXPLAIN BELIEF`)",
             ));
         }
         Ok(())
@@ -512,6 +566,253 @@ impl<'a> Parser<'a> {
             self.prev_start(),
             "`REASON` requires the OWL reasoner (build feature `owl`/`owl-plan`); \
              not available in this build",
+        ))
+    }
+
+    // ── epistemic stage keywords (E2, CONCEPT:EG-KG.epistemic.epistemic-substrate) ──────
+    //
+    // Each keyword is ALWAYS recognized by `parse_stage` (so a build without `epistemic`
+    // still gives a specific "not in this build" error rather than a generic "unexpected
+    // token" one — the `REASON`/`TEXT` precedent above); only the resulting `Op` variant
+    // is feature-gated.
+
+    /// Parse a bare `<id>` argument (a quoted string or identifier) — the shared shape
+    /// `EVIDENCE FOR <id>` / `CONTRADICTS <id>` / `SUPPORTED BY <id>` / `SOURCE
+    /// RELIABILITY <id>` / `EXPLAIN BELIEF <id>` all take.
+    #[cfg(feature = "epistemic")]
+    fn expect_epistemic_id(&mut self, what: &str) -> Result<String, UqlError> {
+        match self.peek_kind() {
+            Some(Tok::Str(s)) | Some(Tok::Ident(s)) => {
+                let s = s.clone();
+                self.bump();
+                Ok(s)
+            }
+            _ => Err(self.err_here(&format!("expected {what}"))),
+        }
+    }
+
+    /// The shared `"AS" "OF" "@" num` tail `BELIEF AS OF <ts>` and `VALID AS OF <ts>`
+    /// both parse (their leading keyword already fixed the axis, so — unlike the general
+    /// `AS OF [TX|VALID] @ts` — there is no axis modifier here).
+    #[cfg(feature = "epistemic")]
+    fn expect_as_of_ts(&mut self) -> Result<f64, UqlError> {
+        self.expect_kw("AS")?;
+        self.expect_kw("OF")?;
+        self.expect(&Tok::At, "`@` before the AS-OF timestamp")?;
+        self.expect_num("an AS-OF timestamp (unix seconds)")
+    }
+
+    /// `evidence_for = "EVIDENCE" "FOR" id` → `Op::EvidenceFor { claim_id }`
+    /// (CONCEPT:EG-KG.epistemic.epistemic-substrate). The evidence FOR the named claim —
+    /// nodes linked to it by an incoming SUPPORTS-classified edge. Feature-gated to
+    /// `epistemic` — the feature that compiles the `Op::EvidenceFor` variant + executor.
+    #[cfg(feature = "epistemic")]
+    fn parse_evidence_for(&mut self) -> Result<Op, UqlError> {
+        self.expect_kw("FOR")?;
+        let claim_id = self.expect_epistemic_id("a claim id (`EVIDENCE FOR <id>`)")?;
+        Ok(Op::EvidenceFor { claim_id })
+    }
+
+    /// `EVIDENCE` in a build WITHOUT `epistemic`: the `Op::EvidenceFor` variant is cfg'd
+    /// out, so the clause is accepted lexically but rejected with a clear message.
+    #[cfg(not(feature = "epistemic"))]
+    fn parse_evidence_for(&mut self) -> Result<Op, UqlError> {
+        if self.peek_kw("FOR") {
+            self.bump();
+        }
+        if matches!(self.peek_kind(), Some(Tok::Str(_)) | Some(Tok::Ident(_))) {
+            self.bump();
+        }
+        Err(self.err_at(
+            self.prev_start(),
+            "`EVIDENCE FOR` requires the epistemic belief substrate (build feature \
+             `epistemic`); not available in this build",
+        ))
+    }
+
+    /// `contradicts = "CONTRADICTS" id` → `Op::Contradicts { node_id }`
+    /// (CONCEPT:EG-KG.epistemic.epistemic-substrate). Evidence AGAINST the named node —
+    /// nodes linked to it by an incoming CONTRADICTS- or ATTACKS-classified edge.
+    #[cfg(feature = "epistemic")]
+    fn parse_contradicts(&mut self) -> Result<Op, UqlError> {
+        let node_id = self.expect_epistemic_id("a node id (`CONTRADICTS <id>`)")?;
+        Ok(Op::Contradicts { node_id })
+    }
+
+    /// `CONTRADICTS` in a build WITHOUT `epistemic`: mirrors `parse_evidence_for`.
+    #[cfg(not(feature = "epistemic"))]
+    fn parse_contradicts(&mut self) -> Result<Op, UqlError> {
+        if matches!(self.peek_kind(), Some(Tok::Str(_)) | Some(Tok::Ident(_))) {
+            self.bump();
+        }
+        Err(self.err_at(
+            self.prev_start(),
+            "`CONTRADICTS` requires the epistemic belief substrate (build feature \
+             `epistemic`); not available in this build",
+        ))
+    }
+
+    /// `supported_by = "SUPPORTED" "BY" id` → `Op::SupportedBy { node_id }`
+    /// (CONCEPT:EG-KG.epistemic.epistemic-substrate). The claims the named node itself
+    /// supports — the mirror direction of `EVIDENCE FOR`.
+    #[cfg(feature = "epistemic")]
+    fn parse_supported_by(&mut self) -> Result<Op, UqlError> {
+        self.expect_kw("BY")?;
+        let node_id = self.expect_epistemic_id("a node id (`SUPPORTED BY <id>`)")?;
+        Ok(Op::SupportedBy { node_id })
+    }
+
+    /// `SUPPORTED` in a build WITHOUT `epistemic`: mirrors `parse_evidence_for`.
+    #[cfg(not(feature = "epistemic"))]
+    fn parse_supported_by(&mut self) -> Result<Op, UqlError> {
+        if self.peek_kw("BY") {
+            self.bump();
+        }
+        if matches!(self.peek_kind(), Some(Tok::Str(_)) | Some(Tok::Ident(_))) {
+            self.bump();
+        }
+        Err(self.err_at(
+            self.prev_start(),
+            "`SUPPORTED BY` requires the epistemic belief substrate (build feature \
+             `epistemic`); not available in this build",
+        ))
+    }
+
+    /// `belief_asof = "BELIEF" "AS" "OF" "@" num` → `Op::BeliefAsOf { ts }`
+    /// (CONCEPT:EG-KG.epistemic.epistemic-substrate). Pins the TRANSACTION-time axis
+    /// (what the engine BELIEVED at `ts`) and re-scores by propagated confidence — the
+    /// belief-propagating sibling of the pure-alias `VALID AS OF`.
+    #[cfg(feature = "epistemic")]
+    fn parse_belief_asof(&mut self) -> Result<Op, UqlError> {
+        let ts = self.expect_as_of_ts()?;
+        Ok(Op::BeliefAsOf { ts })
+    }
+
+    /// `BELIEF` in a build WITHOUT `epistemic`: mirrors `parse_evidence_for`; best-effort
+    /// consumes an `AS OF @<ts>` tail if present so the caret still lands sensibly.
+    #[cfg(not(feature = "epistemic"))]
+    fn parse_belief_asof(&mut self) -> Result<Op, UqlError> {
+        if self.peek_kw("AS") {
+            self.bump();
+        }
+        if self.peek_kw("OF") {
+            self.bump();
+        }
+        let _ = self.eat(&Tok::At);
+        if matches!(self.peek_kind(), Some(Tok::Num(_))) {
+            self.bump();
+        }
+        Err(self.err_at(
+            self.prev_start(),
+            "`BELIEF AS OF` requires the epistemic belief substrate (build feature \
+             `epistemic`); not available in this build",
+        ))
+    }
+
+    /// `valid_asof = "VALID" "AS" "OF" "@" num` → `Op::AsOf { ts, axis: Valid }`
+    /// (CONCEPT:EG-KG.epistemic.epistemic-substrate). A PURE ALIAS for the axis the bare
+    /// `AS OF @ts` / `AS OF VALID @ts` forms already produce — a strict superset (new
+    /// leading-keyword surface only); it never changes what `AS OF` itself parses to
+    /// (pinned by `asof_valid_alias_is_byte_identical_to_bare_as_of` in `tests`).
+    #[cfg(feature = "epistemic")]
+    fn parse_valid_asof(&mut self) -> Result<Op, UqlError> {
+        let ts = self.expect_as_of_ts()?;
+        Ok(Op::AsOf {
+            ts,
+            axis: TimeAxis::Valid,
+        })
+    }
+
+    /// `VALID` in a build WITHOUT `epistemic`: mirrors `parse_belief_asof`'s fallback.
+    /// (The plain `AS OF VALID @ts` trailing-modifier form is UNAFFECTED — it lives in
+    /// `parse_asof`, gated only on base `query`.)
+    #[cfg(not(feature = "epistemic"))]
+    fn parse_valid_asof(&mut self) -> Result<Op, UqlError> {
+        if self.peek_kw("AS") {
+            self.bump();
+        }
+        if self.peek_kw("OF") {
+            self.bump();
+        }
+        let _ = self.eat(&Tok::At);
+        if matches!(self.peek_kind(), Some(Tok::Num(_))) {
+            self.bump();
+        }
+        Err(self.err_at(
+            self.prev_start(),
+            "`VALID AS OF` requires the epistemic belief substrate (build feature \
+             `epistemic`); not available in this build",
+        ))
+    }
+
+    /// `source_reliability = "SOURCE" "RELIABILITY" id` → `Op::SourceReliability
+    /// { source_id }` (CONCEPT:EG-KG.epistemic.epistemic-substrate). Re-weights the
+    /// current candidate set by the named source's propagated reliability.
+    #[cfg(feature = "epistemic")]
+    fn parse_source_reliability(&mut self) -> Result<Op, UqlError> {
+        self.expect_kw("RELIABILITY")?;
+        let source_id = self.expect_epistemic_id("a source id (`SOURCE RELIABILITY <id>`)")?;
+        Ok(Op::SourceReliability { source_id })
+    }
+
+    /// `SOURCE` in a build WITHOUT `epistemic`: mirrors `parse_evidence_for`.
+    #[cfg(not(feature = "epistemic"))]
+    fn parse_source_reliability(&mut self) -> Result<Op, UqlError> {
+        if self.peek_kw("RELIABILITY") {
+            self.bump();
+        }
+        if matches!(self.peek_kind(), Some(Tok::Str(_)) | Some(Tok::Ident(_))) {
+            self.bump();
+        }
+        Err(self.err_at(
+            self.prev_start(),
+            "`SOURCE RELIABILITY` requires the epistemic belief substrate (build feature \
+             `epistemic`); not available in this build",
+        ))
+    }
+
+    /// `confidence = "CONFIDENCE"` → `Op::ConfidenceOp {}` (CONCEPT:EG-KG.epistemic.epistemic-substrate).
+    /// No argument — re-scores each row already in the RowSet by its own propagated
+    /// belief confidence.
+    #[cfg(feature = "epistemic")]
+    fn parse_confidence(&mut self) -> Result<Op, UqlError> {
+        Ok(Op::ConfidenceOp {})
+    }
+
+    /// `CONFIDENCE` in a build WITHOUT `epistemic`: the `Op::ConfidenceOp` variant is
+    /// cfg'd out, so the (argument-less) clause is rejected with a clear message.
+    #[cfg(not(feature = "epistemic"))]
+    fn parse_confidence(&mut self) -> Result<Op, UqlError> {
+        Err(self.err_at(
+            self.prev_start(),
+            "`CONFIDENCE` requires the epistemic belief substrate (build feature \
+             `epistemic`); not available in this build",
+        ))
+    }
+
+    /// `explain_belief = "EXPLAIN" "BELIEF" id` → `Op::ExplainBelief { node_id }`
+    /// (CONCEPT:EG-KG.epistemic.epistemic-substrate). Flattens the recursive
+    /// justification tree (`eg_epistemic::explain_belief`) into scored RowSet rows.
+    #[cfg(feature = "epistemic")]
+    fn parse_explain_belief(&mut self) -> Result<Op, UqlError> {
+        self.expect_kw("BELIEF")?;
+        let node_id = self.expect_epistemic_id("a node id (`EXPLAIN BELIEF <id>`)")?;
+        Ok(Op::ExplainBelief { node_id })
+    }
+
+    /// `EXPLAIN` in a build WITHOUT `epistemic`: mirrors `parse_evidence_for`.
+    #[cfg(not(feature = "epistemic"))]
+    fn parse_explain_belief(&mut self) -> Result<Op, UqlError> {
+        if self.peek_kw("BELIEF") {
+            self.bump();
+        }
+        if matches!(self.peek_kind(), Some(Tok::Str(_)) | Some(Tok::Ident(_))) {
+            self.bump();
+        }
+        Err(self.err_at(
+            self.prev_start(),
+            "`EXPLAIN BELIEF` requires the epistemic belief substrate (build feature \
+             `epistemic`); not available in this build",
         ))
     }
 

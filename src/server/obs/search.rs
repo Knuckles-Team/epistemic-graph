@@ -144,14 +144,30 @@ impl ObsState {
             candidates.retain(|r| r.attrs.get(k).map(|x| x == v).unwrap_or(false));
         }
 
-        candidates.sort_by_key(|r| r.ts);
         let size = if q.size == 0 {
             DEFAULT_SEARCH_SIZE
         } else {
             q.size
         };
-        candidates.truncate(size);
-        Ok(candidates)
+        if candidates.len() <= size {
+            candidates.sort_by_key(|record| record.ts);
+            return Ok(candidates);
+        }
+
+        // The query returns the earliest bounded prefix, so ordering every later
+        // record is wasted work. Carry the original ordinal to retain stable-sort
+        // semantics when multiple tiers contain the same timestamp.
+        let mut indexed: Vec<(usize, LogRecord)> = candidates.into_iter().enumerate().collect();
+        let compare = |left: &(usize, LogRecord), right: &(usize, LogRecord)| {
+            left.1
+                .ts
+                .cmp(&right.1.ts)
+                .then_with(|| left.0.cmp(&right.0))
+        };
+        indexed.select_nth_unstable_by(size, compare);
+        indexed.truncate(size);
+        indexed.sort_by(compare);
+        Ok(indexed.into_iter().map(|(_, record)| record).collect())
     }
 
     /// Run read-only `sql` over ALL log records — the cold Parquet segments (scanned
@@ -240,6 +256,27 @@ mod tests {
         q3.from = 0;
         q3.to = 50;
         assert!(obs.search_logs(&q3).unwrap().is_empty());
+    }
+
+    #[test]
+    fn bounded_search_selects_earliest_prefix_and_preserves_equal_time_order() {
+        let obs = ObsState::in_memory(1000).unwrap();
+        obs.ingest(vec![
+            rec(30, "app", "INFO", "late"),
+            rec(10, "app", "INFO", "first equal"),
+            rec(20, "app", "INFO", "middle"),
+            rec(10, "app", "INFO", "second equal"),
+        ])
+        .unwrap();
+        let mut query = LogQuery::all("app");
+        query.size = 2;
+        let hits = obs.search_logs(&query).unwrap();
+        assert_eq!(
+            hits.iter()
+                .map(|record| record.body.as_str())
+                .collect::<Vec<_>>(),
+            vec!["first equal", "second equal"]
+        );
     }
 
     /// A full-text term search consults the BM25 index and returns the matching record.

@@ -4,7 +4,7 @@
 //! over the SAME off-lock snapshot in a single execution — instead of three siloed
 //! surfaces (DataFusion SQL, petgraph BFS, vector kNN) stitched together by the
 //! caller across three round-trips. This is the production increment of the Wave-7
-//! feasibility spike (`~/workspace/reports/spike-unified-findings.md`).
+//! feasibility spike (`repo://reports/spike-unified-findings.md`).
 //!
 //! ## The closed algebra
 //!
@@ -72,8 +72,51 @@ pub mod leanrag;
 /// Plan is `query`-gated.
 pub mod uql;
 
+/// The typed DAG plan representation (CONCEPT:EG-KG.query.plan-dag, E5 phase 1): [`dag::PlanDag`]
+/// generalizes the linear [`Plan`] into a real graph of operators (a node's `inputs` name
+/// its dependency nodes), with a lossless conversion from every existing linear `Plan` (a
+/// degenerate chain). `Op` is unchanged; execution over a `PlanDag` lives in
+/// [`dag_exec`]. Sits beside `exec`/`knowledge` under the same `query` gate (a `PlanNode`
+/// carries an optional `knowledge::ProjectionSchema`).
+#[cfg(feature = "query")]
+pub mod dag;
+/// DBSP-style INCREMENTAL materialized-view maintenance (CONCEPT:EG-KG.storage.incremental-matview):
+/// a dep-free Z-set delta model + a circuit compiler for the LINEAR operator subset
+/// (`Scan`/`Filter`/`AsOf`/`WindowAgg`(linear)/`Limit`), generalizing `src/server/cdc.rs`'s
+/// hand-rolled `ContinuousQuery`/`maintain()` mini-DBSP to an arbitrary supported `Plan`.
+/// An unsupported op returns [`incremental::UnsupportedOp`] so the server keeps that view
+/// on the recompute path — a per-view fallback, never a silently-wrong incremental result.
+#[cfg(feature = "query")]
+pub mod incremental;
+/// Physical execution of a [`dag::PlanDag`] (CONCEPT:EG-KG.query.plan-dag-exec, E5 phase 2) —
+/// [`dag_exec::execute_dag`] runs ALONGSIDE the untouched [`exec::execute`]; for a
+/// degenerate linear-chain dag it is byte-identical to it (the differential oracle proves
+/// this over the whole fixture suite).
+#[cfg(feature = "query")]
+pub mod dag_exec;
 #[cfg(feature = "query")]
 pub mod exec;
+/// RowSet v2, additive (CONCEPT:EG-KG.query.knowledge-set): [`knowledge::KnowledgeSet`] is the
+/// enriched shape (kind/confidence/bitemporal window/column-projection/provenance+policy
+/// frames) a caller builds from a FINISHED `RowSet` + the `GraphView` it ran over — a
+/// terminal step above the op loop, exactly like `leanrag`. `RowSet` and `Op::execute`
+/// are unchanged; this module is only exercised when a caller explicitly asks for it.
+/// Sits under the existing `query` feature (no new cargo feature) because it borrows
+/// `GraphView::node_row_object`'s decode.
+#[cfg(feature = "query")]
+pub mod knowledge;
+/// The Arrow-columnar `KnowledgeBatch` (CONCEPT:EG-P1-2, P1 roadmap feedback) — a
+/// RecordBatch-backed columnar projection of `KnowledgeSet`: entity/artifact id,
+/// N named score columns, calibrated confidence, typed evidence-ref columns,
+/// bitemporal valid/tx-time, provenance/policy-label list columns, lazy
+/// blob-handle columns and native bounded result streams. Behind the
+/// `knowledge-batch` feature (implies `query` and is enabled by facade `full`) so a
+/// default/Pi build still links no Arrow. Family adapters cover graph, SQL, RDF,
+/// vector, time-series, jobs, and cross-modal results.
+#[cfg(feature = "knowledge-batch")]
+pub mod knowledge_batch;
+#[cfg(feature = "knowledge-batch")]
+pub mod result_stream;
 /// The physical EXECUTION runtime (CONCEPT:EG-KG.query.parallel-runtime) — Lane B. The
 /// `execute_ops` driver-dispatch `execute` routes through + the rayon-morsel, memory-accounted,
 /// spilling `ParallelDriver` (feature `par-runtime`). Gated on `query` (it schedules the
@@ -127,6 +170,38 @@ pub use exec::StagedSeries;
 #[cfg(feature = "query")]
 pub use exec::{execute, PlanCtx, PlanExt};
 
+/// The typed DAG plan surface (CONCEPT:EG-KG.query.plan-dag, E5): the node/edge shape plus
+/// its physical executor, so a caller building a genuine multi-branch plan names them
+/// through `eg_plan` directly (mirroring how `Op`/`Plan` are re-exported from `algebra`).
+#[cfg(feature = "query")]
+pub use dag::{NodeId, PlanDag, PlanNode};
+
+/// The incremental-matview surface (CONCEPT:EG-KG.storage.incremental-matview): the Z-set
+/// delta model + the circuit a caller compiles a `Plan` into and folds CDC deltas through.
+#[cfg(feature = "query")]
+pub use incremental::{Circuit, Delta, UnsupportedOp, ZRow};
+#[cfg(feature = "query")]
+pub use dag_exec::{execute_dag, execute_dag_with};
+
+/// The RowSet v2 surface (CONCEPT:EG-KG.query.knowledge-set): the enriched, ready-to-consume
+/// row/set shape a caller builds from a finished `RowSet` + the `GraphView` it ran over.
+#[cfg(feature = "query")]
+pub use knowledge::{
+    KnowledgeRow, KnowledgeSet, PayloadRef, PolicyFrame, ProjectionSchema, ProvenanceFrame,
+};
+
+/// The Arrow-columnar `KnowledgeBatch` surface (CONCEPT:EG-P1-2): the RecordBatch-
+/// backed columnar projection of a `KnowledgeSet` and its row type.
+#[cfg(feature = "knowledge-batch")]
+pub use knowledge_batch::{KnowledgeBatch, KnowledgeBatchRow};
+#[cfg(feature = "knowledge-batch")]
+pub use result_stream::{
+    cross_modal_result_stream, graph_result_stream, job_result_stream, rdf_result_stream,
+    sql_result_stream, time_series_result_stream, validate_native_batch, vector_result_stream,
+    KnowledgeBatchEnvelope, KnowledgeBatchStream, KnowledgeRowResult, KnowledgeStreamContext,
+    KnowledgeStreamCursor, KnowledgeStreamError, ServedResultFamily,
+};
+
 /// The Lane-0 foundation seams the follow-on lanes hang off (append-only): the logical-plan
 /// optimization hook `plan_optimize` (CONCEPT:EG-KG.query.plan-optimize-seam — Lane A's cost
 /// optimizer fills its body) and the physical `Driver` execution trait + its `SerialDriver`
@@ -149,11 +224,25 @@ pub use runtime::{ParallelDriver, RuntimeConfig};
 /// Lane A's cross-modal optimizer surface (CONCEPT:EG-KG.query.xmodal-cost-optimizer): the
 /// `optimize(plan, ctx) -> Plan` rule-engine entry point `plan_optimize` drives, its
 /// `enabled()` runtime kill-switch, and the plan-time cardinality/cost estimators the rules
-/// read (`ModalityCardinality` + the O(1) `PlanStats` catalog).
+/// read (`ModalityCardinality` + the snapshot-memoized `PlanStats` catalog).
 #[cfg(feature = "query")]
 pub use cost::{ModalityCardinality, PlanStats};
+/// The DAG-aware optimizer (CONCEPT:EG-KG.query.dag-optimizer, E5 phase 3) — [`optimizer::optimize_dag`]
+/// reorders ops within each maximal linear chain segment of a [`dag::PlanDag`] through the
+/// SAME rule engine `optimize` drives, never crossing a branch/fan-out boundary (the DAG
+/// generalization of the EG-405 adjacency guard).
+#[cfg(feature = "query")]
+pub use optimizer::optimize_dag;
 #[cfg(feature = "query")]
 pub use optimizer::{enabled as cost_opt_enabled, optimize, rule_names as cost_opt_rule_names};
+/// The adaptive re-optimization hook (CONCEPT:EG-KG.query.adaptive-reoptimization): re-cost and,
+/// if warranted, re-order the not-yet-executed tail of a plan once an earlier op's ACTUAL
+/// output cardinality diverges from what plan-time estimation predicted — the runtime feedback
+/// loop beyond the static, once-per-`optimize()` cost decision. See
+/// [`optimizer::reoptimize_remaining`] for the divergence threshold and today's caller-driven
+/// wiring (a future `Driver` can call it automatically between ops).
+#[cfg(feature = "query")]
+pub use optimizer::{reoptimize_remaining, ADAPTIVE_REOPT_THRESHOLD};
 
 /// The server-side text→vector embedder seam (CONCEPT:EG-KG.compute.no-embedder-bound-op): the `TextEmbedder` trait
 /// backing the UQL `RANK BY ~ "text"` (`Op::RankEmbed`) NL→vector resolver, plus the
@@ -162,10 +251,20 @@ pub use optimizer::{enabled as cost_opt_enabled, optimize, rule_names as cost_op
 #[cfg(feature = "query")]
 pub use exec::{HashEmbedder, TextEmbedder};
 
+/// The full, un-flattened E1 justification tree behind `EXPLAIN BELIEF` (E5 phase 4,
+/// CONCEPT:EG-KG.epistemic.epistemic-substrate) — mirrors `Op::ExplainBelief`'s RowSet
+/// projection but returns the verbatim `eg_epistemic::JustificationGraph` a standalone
+/// `Method::ExplainBelief` wire-projects (mirroring `Method::OwlExplain`'s `ProofNodeWire`).
+#[cfg(feature = "epistemic")]
+pub use exec::explain_belief_tree;
+
 // The NL→query seam surface (CONCEPT:EG-KG.query.core-query-input/EG-080): the trait + the LLM-optional
 // `Option<&dyn NlPlanner>` entry point, and the concrete `UreqNlPlanner`.
 #[cfg(feature = "nl-query")]
-pub use nl::{plan_and_execute, plan_and_execute_opt, NlPlanner, UreqNlPlanner};
+pub use nl::{
+    plan_and_execute, plan_and_execute_opt, NlPlanner, OAuth2ClientCredentials, TokenAuthStyle,
+    UreqNlPlanner,
+};
 
 // Re-export the federation surface so a caller naming a foreign source goes through
 // eg-plan: the trait + the spec-dispatcher.
@@ -185,6 +284,16 @@ pub use federation::{
 // names them through eg-plan: the BM25 index, the hit row, and the RRF helper.
 #[cfg(feature = "text")]
 pub use eg_text::{rrf_fuse, TextHit, TextIndex, RRF_K};
+// The `PlanCtx::with_text` search-surface trait (CONCEPT:EG-KG.query.served-text-index-binding) — a facade
+// implements this over its OWN maintained persistent index (rather than a plain
+// `eg_text::TextIndex`) to push a served `RankText`/`FuseRrf` leg down into it.
+#[cfg(feature = "text")]
+pub use exec::TextSource;
+// The `PlanCtx::with_spatial` search-surface trait (CONCEPT:EG-KG.storage.incremental-spatial, L37) — mirrors
+// `TextSource`: a facade implements this over its OWN maintained persistent spatial
+// index to push a served `Op::SpatialScan` down into it.
+#[cfg(feature = "geo")]
+pub use exec::SpatialSource;
 
 #[cfg(all(test, feature = "query"))]
 mod fixture;
@@ -276,6 +385,15 @@ mod vector_reasoning_tests;
 // `Distribution`, composing uncertainty with the graph/vector legs in ONE plan.
 #[cfg(all(test, feature = "probabilistic"))]
 mod probabilistic_tests;
+
+// The epistemic belief/evidence executor proofs (CONCEPT:EG-KG.epistemic.epistemic-substrate,
+// E2): `EvidenceFor`/`Contradicts`/`SupportedBy` seed-or-filter by classified edge kind,
+// `ConfidenceOp`/`SourceReliability` re-score by propagated belief, `BeliefAsOf` composes the
+// bitemporal filter with propagation (diverging from the pure-alias `VALID AS OF` on a
+// bitemporal fixture), and `ExplainBelief` flattens the justification tree — composing with
+// the graph/vector legs in ONE plan (`[Scan, EvidenceFor, Rank]`).
+#[cfg(all(test, feature = "epistemic"))]
+mod epistemic_tests;
 
 // Lane C proofs (CONCEPT:EG-KG.query.native-time-series): mid-pipeline OWL `Op::Reason` (a confidence-preserving
 // FILTER, not only a leaf source — `Rank → Reason → Traverse`) + the native eg-tsdb

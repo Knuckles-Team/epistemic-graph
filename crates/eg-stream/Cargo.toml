@@ -2,7 +2,7 @@
 name = "eg-stream"
 version = "0.1.0"
 edition = "2021"
-authors = ["Audel Rouhi <knucklessg1@gmail.com>"]
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
 description = "Pure-Rust event-stream + complex-event-processing (CEP) modality for the epistemic-graph engine (CONCEPT:EG-088) — a bounded NFA CEP engine over a time-ordered event stream with Sequence / Within / Absence operators + per-event attribute predicates, run over sliding / tumbling windows. Sync + runtime-free (NO tokio) so the engine is trivially unit-testable; the live standing-query loop fed by the EG-064 CDC bus is a documented follow-up. EG-067 `Op::Window` is the windowing primitive."
 license = "MIT"
 
@@ -27,6 +27,11 @@ default = []
 # feature (`eg-plan/stream → eg-stream/stream`), so `node`/`full` get the live engine while
 # a default / Pi build (which never turns `stream` on) links no tokio.
 stream = ["dep:tokio"]
+# ModalityContract retrofit (CONCEPT:E4): `impl ModalityContract for Event` + the
+# `modality_conformance_tests!` battery. OFF by default, deliberately NOT folded into
+# any tier aggregate (pi/node/full) — it is a capability-discovery/testing seam, not
+# a serving feature. `cargo test -p eg-stream --features contract` runs the suite.
+contract = ["dep:eg-modality"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
@@ -36,3 +41,7 @@ serde_json = "1.0"
 # task. Optional + referenced only under #[cfg(feature = "stream")], so a default / Pi
 # build links none of it. `sync` = channels, `rt` + `macros` = spawn + `#[tokio::test]`.
 tokio = { version = "1.38", features = ["sync", "rt", "macros"], optional = true }
+# ModalityContract retrofit (CONCEPT:E4). Optional, only under `contract` (default
+# OFF) — a default/node/full build links none of it and `Event` carries no new
+# required trait. See `src/contract.rs`.
+eg-modality = { path = "../eg-modality", optional = true }

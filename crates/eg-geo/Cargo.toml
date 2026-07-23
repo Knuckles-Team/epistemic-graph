@@ -2,7 +2,7 @@
 name = "eg-geo"
 version = "0.1.0"
 edition = "2021"
-authors = ["Audel Rouhi <knucklessg1@gmail.com>"]
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
 description = "Pure-Rust spatial / geospatial modality for the epistemic-graph engine (CONCEPT:EG-083) — geometry (point/line/polygon), WKT parse/serialize, planar spatial predicates, and an in-house packed Hilbert R-tree bbox index. NO GEOS/PROJ/C deps (the Pi contract)."
 license = "MIT"
 
@@ -24,6 +24,10 @@ serde = { version = "1.0", features = ["derive"] }
 # the Raspberry-Pi build. Optional so a serde_json-free consumer can still get geometry +
 # WKT + WKB + GPX + CRS + R-trees.
 serde_json = { version = "1.0", optional = true }
+# ModalityContract PILOT retrofit (CONCEPT:E4). Optional, only under `contract`
+# (default OFF) — a default/pi/node/full build links none of it and `Geometry`
+# carries no new required trait. See `src/contract.rs`.
+eg-modality = { path = "../eg-modality", optional = true }
 
 [features]
 # `geo-io` (CONCEPT:EG-264) turns on the GeoJSON codec (serde_json). It is a DEFAULT
@@ -33,6 +37,11 @@ serde_json = { version = "1.0", optional = true }
 # NOT add `eg-geo/geo-io` to any tier aggregate — it rides in on default features.
 default = ["geo-io"]
 geo-io = ["dep:serde_json"]
+# ModalityContract PILOT retrofit (CONCEPT:E4): `impl ModalityContract for Geometry` +
+# the `modality_conformance_tests!` battery. OFF by default, deliberately NOT folded
+# into any tier aggregate (pi/node/full) — it is a capability-discovery/testing seam,
+# not a serving feature. `cargo test -p eg-geo --features contract` runs the suite.
+contract = ["dep:eg-modality"]
 
 [dev-dependencies]
 # The R-tree correctness tests cross-check query results against a brute-force scan over

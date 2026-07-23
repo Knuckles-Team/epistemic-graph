@@ -10,6 +10,10 @@
 //!
 //! Variable-length generalization (CONCEPT:EG-KG.query.concept-2): a pattern may combine fixed
 //! hops with a single variable-length hop, and bind a path variable (`p = (…)`).
+//!
+//! Quantified path patterns (CONCEPT:EG-KG.query.quantified-path-pattern, Cypher 25):
+//! `((a)-[:REL]->(b)){1,3}` repeats a whole inner sub-pattern (not just one
+//! relationship) `min..max` times; see [`QuantifiedGroup`].
 
 use serde_json::Value;
 
@@ -124,13 +128,44 @@ pub struct EdgePat {
     pub rel_type: Option<String>,
     pub direction: Direction,
     /// `Some((min,max))` for a `*min..max` variable-length path; `None` ⇒ a single
-    /// fixed hop.
+    /// fixed hop (or, when `group` is `Some`, this field is unused — the group
+    /// carries its own quantifier).
     pub var_len: Option<(usize, usize)>,
     /// The edge variable (`-[r:REL]->`), if named — used by `DELETE r` (CONCEPT:EG-KG.query.register-each-user-table).
     pub var: Option<String>,
     /// Inline edge properties for a write pattern. `None` on reads. Values may
     /// reference params/bound vars (CONCEPT:EG-KG.query.param-list-drives-unwind).
     pub props: Option<Vec<(String, PropVal)>>,
+    /// Cypher 25 quantified path pattern (CONCEPT:EG-KG.query.quantified-path-pattern):
+    /// `((a)-[:REL]->(b)){min,max}`. When `Some`, this hop is a synthetic
+    /// placeholder standing in for a whole repeated sub-pattern — `rel_type`/
+    /// `direction`/`var_len` above are ignored and the group's own `hops` +
+    /// `quantifier` drive matching (`quantified_group_matches` in `exec.rs`), which
+    /// generalizes the single-relationship `bfs_reachable` to repeated
+    /// whole-subpattern expansion. `None` for every ordinary hop (the common
+    /// case, unaffected).
+    pub group: Option<Box<QuantifiedGroup>>,
+}
+
+/// The inner sub-pattern + repetition bounds of a Cypher 25 quantified path
+/// pattern `((start)(hop)*){min,max}` (CONCEPT:EG-KG.query.quantified-path-pattern).
+/// Matched by repeating whole-pattern expansion `min..=max` times (BFS over
+/// "meta-edges", each meta-edge being one full application of `hops` starting
+/// from `start`'s position) — see `quantified_group_matches`/
+/// `expand_group_once` in `exec.rs`. Variables declared inside the group are
+/// group variables: each result binding carries their per-repetition node or
+/// relationship values as ordered lists, including an empty list for a valid
+/// zero-repetition match.
+#[derive(Debug, Clone, PartialEq)]
+pub struct QuantifiedGroup {
+    /// The group's own start-position constraint (label/props/var), re-applied
+    /// at the start of every repetition. Its variable, when named, is captured
+    /// into the ordered node group-variable list exposed to the outer scope.
+    pub start: NodePat,
+    /// The repeated hop sequence (one or more), applied once per repetition.
+    pub hops: Vec<(EdgePat, NodePat)>,
+    /// `(min, max)` repetitions, both inclusive, `min` may be `0`.
+    pub quantifier: (usize, usize),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -139,6 +174,10 @@ pub enum Direction {
     Right,
     /// `<-[..]-`
     Left,
+    /// `-[..]-` — undirected: matches an edge in EITHER direction between the two
+    /// endpoints. Read-only (MATCH); `CREATE`/`MERGE` reject it since an undirected
+    /// hop names no concrete direction to realize (CONCEPT:EG-KG.query.undirected-relationship-pattern).
+    Both,
 }
 
 /// `a.prop <op> <literal>`.
@@ -233,6 +272,11 @@ pub enum Expr {
     CountStar,
     /// An aggregation over a variable or `var.prop` (CONCEPT:EG-KG.query.eg-extend-read-side).
     Aggregate(AggFunc, AggArg),
+    /// `type(r)` — the relationship-type accessor over a bound edge variable
+    /// (CONCEPT:EG-KG.query.rel-type-projection). Reads the SAME canonical `relationship`
+    /// property `rel_matches` matches on, so `type(r)` is never null for an
+    /// edge a typed `-[:REL]->` pattern could have matched.
+    RelType(String),
 }
 
 impl Expr {
@@ -243,6 +287,7 @@ impl Expr {
             Expr::Prop(v, p) => format!("{v}.{p}"),
             Expr::CountStar => "count(*)".to_string(),
             Expr::Aggregate(f, a) => format!("{}({})", f.name(), a.text()),
+            Expr::RelType(v) => format!("type({v})"),
         }
     }
 }

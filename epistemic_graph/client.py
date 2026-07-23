@@ -2,24 +2,1178 @@
 #
 # Async Python client for the Tokio-based epistemic-graph service.
 # Communicates over UDS or TCP using Length-prefixed MessagePack framing
-# with HMAC-SHA256 authentication.
+# with a signed, replay-protected request-context envelope.
 
 from __future__ import annotations
 
 import asyncio
 import builtins
 import contextlib
+import contextvars
+import copy
 import hashlib
 import hmac
 import inspect
+import json
 import logging
+import math
 import os
+import secrets
+import ssl
+import struct
 import threading
-from typing import Any
+import time
+from pathlib import PurePosixPath, PureWindowsPath
+from typing import Any, Literal, TypedDict, cast
 
 import msgpack
 
 logger = logging.getLogger(__name__)
+
+
+class RequestContextClaims(TypedDict):
+    """Authority claims bound to every request by the current wire signer."""
+
+    principal: str
+    tenant: str
+    audience: str
+    agent_id: str
+    roles: list[str]
+    scopes: list[str]
+    policy_version: str
+    delegation: list[str]
+
+
+_REQUEST_CONTEXT_FIELDS = frozenset(RequestContextClaims.__required_keys__)
+
+
+def validate_request_context(
+    context: RequestContextClaims | dict[str, Any],
+) -> RequestContextClaims:
+    """Validate and detach request authority before it reaches the signer.
+
+    The validation mirrors the engine gate: every field is explicit, scalar
+    claims and list entries are non-empty, list entries are unique, and a
+    delegation chain must connect the authenticated principal to the effective
+    agent. Unknown fields are rejected so deployment-specific identity data is
+    not accidentally copied into the wire envelope.
+    """
+
+    if not isinstance(context, dict):
+        raise TypeError("verified_context must be a mapping")
+    present = set(context)
+    missing = sorted(_REQUEST_CONTEXT_FIELDS - present)
+    if missing:
+        raise ValueError(
+            "verified_context is missing required claims: " + ", ".join(missing)
+        )
+    unexpected = sorted(present - _REQUEST_CONTEXT_FIELDS)
+    if unexpected:
+        raise ValueError(
+            "verified_context contains unsupported claims: " + ", ".join(unexpected)
+        )
+
+    value = copy.deepcopy(context)
+    for name in ("principal", "tenant", "audience", "agent_id", "policy_version"):
+        claim = value[name]
+        if not isinstance(claim, str) or not claim.strip():
+            raise ValueError(f"verified_context.{name} must be a non-empty string")
+
+    for name in ("roles", "scopes", "delegation"):
+        claims = value[name]
+        if not isinstance(claims, list):
+            raise TypeError(f"verified_context.{name} must be a list of strings")
+        seen: set[str] = set()
+        for claim in claims:
+            if not isinstance(claim, str) or not claim.strip():
+                raise ValueError(
+                    f"verified_context.{name} entries must be non-empty strings"
+                )
+            if claim in seen:
+                raise ValueError(
+                    f"verified_context.{name} contains duplicate entry {claim!r}"
+                )
+            seen.add(claim)
+
+    principal = value["principal"]
+    agent_id = value["agent_id"]
+    delegation = value["delegation"]
+    if principal == agent_id:
+        if delegation:
+            raise ValueError(
+                "verified_context.delegation must be empty when principal is the agent"
+            )
+    elif (
+        len(delegation) < 2 or delegation[0] != principal or delegation[-1] != agent_id
+    ):
+        raise ValueError(
+            "verified_context.delegation must run from principal to effective agent"
+        )
+    return cast(RequestContextClaims, value)
+
+
+_DEFAULT_MAX_RESPONSE_BYTES = 64 * 1024 * 1024
+_HARD_MAX_RESPONSE_BYTES = 384 * 1024 * 1024
+
+
+def _bounded_env_int(name: str, default: int, hard_max: int) -> int:
+    try:
+        value = int(os.environ.get(name, "") or default)
+    except (TypeError, ValueError):
+        value = default
+    return min(max(1, value), hard_max)
+
+
+_MAX_RESPONSE_BYTES = _bounded_env_int(
+    "EPISTEMIC_GRAPH_MAX_RESPONSE_BYTES",
+    _DEFAULT_MAX_RESPONSE_BYTES,
+    _HARD_MAX_RESPONSE_BYTES,
+)
+
+
+_CANONICAL_BINARY_FIELDS = frozenset(
+    {
+        "properties_msgpack",
+        "conditions_msgpack",
+        "updates_msgpack",
+        "props_msgpack",
+        "semantic_props_msgpack",
+        "pose_msgpack",
+        "action_msgpack",
+        "operations_msgpack",
+        "batches_msgpack",
+        "msgpack",
+        "files_msgpack",
+        "obs_msgpack",
+        "value_msgpack",
+        "locus_msgpack",
+        "points_msgpack",
+        "left_ts_msgpack",
+        "spec_msgpack",
+        "pattern_msgpack",
+        "wasm",
+        "input",
+        "data",
+        "value",
+    }
+)
+_BINARY_PAYLOAD_METHODS = frozenset(
+    {
+        "Publish",
+        "PublishEx",
+        "PublishConfirmed",
+        "PublishIdempotent",
+        "StreamPublish",
+    }
+)
+
+_DIRECT_F32_VECTOR_FIELDS = {
+    "CloseChannel": frozenset({"summary_embedding"}),
+    "AddEmbedding": frozenset({"embedding"}),
+    "SemanticSearch": frozenset({"query_embedding"}),
+    "Discover": frozenset({"query_embedding"}),
+    "TxnAddEmbedding": frozenset({"embedding"}),
+}
+_PLAN_F32_METHODS = frozenset(
+    {
+        "UnifiedQuery",
+        "ExplainPlan",
+        "ExplainProvenance",
+        "ExplainPolicy",
+        "PlanMatViewDefine",
+        "TxnPlanWriteback",
+        "TxnUnifiedQuery",
+        "MineCluster",
+        "MineAnomaly",
+        "MineClassifyFit",
+        "MineClassifyPredict",
+        "MineReduce",
+    }
+)
+
+
+class _CanonicalF32:
+    """One schema-declared Rust ``f32`` in the signed method body.
+
+    Python's msgpack encoder represents every ordinary ``float`` as MessagePack
+    float64. Rust deserializes the wire value into the method DTO first and then
+    hashes ``rmp_serde::to_vec_named(Method)``, which represents ``f32`` fields as
+    MessagePack float32. Retaining this marker only in the canonical signing copy
+    lets both sides hash the same typed DTO without changing the transport value.
+    """
+
+    __slots__ = ("encoded",)
+
+    def __init__(self, value: Any, *, field: str) -> None:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise TypeError(f"{field} must contain finite f32 values")
+        try:
+            encoded = struct.pack(">f", float(value))
+        except (OverflowError, struct.error, ValueError) as error:
+            raise ValueError(f"{field} must contain finite f32 values") from error
+        if not math.isfinite(struct.unpack(">f", encoded)[0]):
+            raise ValueError(f"{field} must contain finite f32 values")
+        self.encoded = encoded
+
+
+def _mark_f32_vector(container: dict[str, Any], field: str, *, path: str) -> None:
+    value = container.get(field)
+    if value is None:
+        return
+    if not isinstance(value, list | tuple):
+        raise TypeError(f"{path} must be a list of finite f32 values")
+    container[field] = [
+        item
+        if isinstance(item, _CanonicalF32)
+        else _CanonicalF32(item, field=f"{path}[{index}]")
+        for index, item in enumerate(value)
+    ]
+
+
+def _mark_f32_scalar(container: dict[str, Any], field: str, *, path: str) -> None:
+    if field in container and not isinstance(container[field], _CanonicalF32):
+        container[field] = _CanonicalF32(container[field], field=path)
+
+
+def _mark_plan_f32(plan: Any, *, path: str) -> None:
+    """Apply the current ``wire::Op`` f32 schema recursively to one Plan."""
+
+    if not isinstance(plan, dict) or not isinstance(plan.get("ops"), list):
+        return
+
+    def mark_ops(ops: list[Any], *, ops_path: str) -> None:
+        for index, op in enumerate(ops):
+            if not isinstance(op, dict) or len(op) != 1:
+                continue
+            tag, payload = next(iter(op.items()))
+            if not isinstance(payload, dict):
+                continue
+            current = f"{ops_path}[{index}].{tag}"
+            if tag == "Rank":
+                _mark_f32_vector(payload, "query", path=f"{current}.query")
+            elif tag == "RankMmr":
+                _mark_f32_scalar(payload, "lambda", path=f"{current}.lambda")
+            elif tag == "FuseRrf":
+                _mark_f32_scalar(payload, "k", path=f"{current}.k")
+                branches = payload.get("branches")
+                if isinstance(branches, list):
+                    for branch_index, branch in enumerate(branches):
+                        if isinstance(branch, list):
+                            mark_ops(
+                                branch,
+                                ops_path=f"{current}.branches[{branch_index}]",
+                            )
+
+    mark_ops(plan["ops"], ops_path=f"{path}.ops")
+
+
+def _mark_method_f32(method_wire: dict[str, Any], *, path: str = "method") -> None:
+    """Mark current Rust ``f32`` fields only at typed ``Method`` schema paths."""
+
+    method = method_wire.get("method")
+    params = method_wire.get("params")
+    if not isinstance(method, str) or not isinstance(params, dict):
+        return
+
+    for field in _DIRECT_F32_VECTOR_FIELDS.get(method, ()):
+        _mark_f32_vector(params, field, path=f"{path}.{method}.{field}")
+
+    if method in _PLAN_F32_METHODS:
+        _mark_plan_f32(
+            params.get("plan"),
+            path=f"{path}.{method}.params.plan",
+        )
+
+    if method == "KnowledgeStream":
+        request = params.get("request")
+        query = request.get("query") if isinstance(request, dict) else None
+        if isinstance(query, dict) and query.get("family") == "vector":
+            _mark_f32_vector(
+                query,
+                "query_embedding",
+                path=f"{path}.KnowledgeStream.request.query.query_embedding",
+            )
+    elif method == "ServedModality":
+        operation = params.get("op")
+        predicate = (
+            operation.get("predicate") if isinstance(operation, dict) else None
+        )
+        if (
+            isinstance(predicate, dict)
+            and predicate.get("predicate") == "audio_window"
+        ):
+            _mark_f32_scalar(
+                predicate,
+                "minimum_rms",
+                path=f"{path}.ServedModality.op.predicate.minimum_rms",
+            )
+    elif method == "ApplyChangeEnvelope":
+        # The sole typed nested-Method carrier is
+        # ChangeEnvelope.mutation.operations[].method. Do not recursively inspect
+        # arbitrary maps: GraphQl.variables and GraphLearnPredict.model are
+        # serde_json::Value and keys named ``method``/``plan`` remain ordinary JSON.
+        envelope = params.get("envelope")
+        mutation = envelope.get("mutation") if isinstance(envelope, dict) else None
+        operations = mutation.get("operations") if isinstance(mutation, dict) else None
+        if isinstance(operations, list):
+            for index, operation in enumerate(operations):
+                nested_method = (
+                    operation.get("method") if isinstance(operation, dict) else None
+                )
+                if isinstance(nested_method, dict):
+                    _mark_method_f32(
+                        nested_method,
+                        path=(
+                            f"{path}.ApplyChangeEnvelope.params.envelope.mutation"
+                            f".operations[{index}].method"
+                        ),
+                    )
+
+
+def _pack_canonical_msgpack(value: Any) -> bytes:
+    """Pack canonical method data with per-field f32/f64 width preserved."""
+
+    packer = msgpack.Packer(use_bin_type=True)
+    output = bytearray()
+
+    def pack(item: Any) -> None:
+        if isinstance(item, _CanonicalF32):
+            output.append(0xCA)
+            output.extend(item.encoded)
+        elif isinstance(item, dict):
+            output.extend(packer.pack_map_header(len(item)))
+            for key, child in item.items():
+                pack(key)
+                pack(child)
+        elif isinstance(item, list | tuple):
+            output.extend(packer.pack_array_header(len(item)))
+            for child in item:
+                pack(child)
+        else:
+            output.extend(packer.pack(item))
+
+    pack(value)
+    return bytes(output)
+
+
+def _canonical_method_body(method: str, params: dict[str, Any] | None = None) -> bytes:
+    method_wire: dict[str, Any] = {"method": method}
+    if params is not None:
+        method_wire["params"] = _canonicalize_method_value(params, method=method)
+    _mark_method_f32(method_wire)
+    return _pack_canonical_msgpack(method_wire)
+
+
+def _canonicalize_method_value(value: Any, *, method: str, field: str = "") -> Any:
+    """Mirror serde's binary representation for v2 method-body signatures."""
+    if isinstance(value, bytearray):
+        return bytes(value)
+    if isinstance(value, dict):
+        return {
+            key: _canonicalize_method_value(item, method=method, field=key)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        if field in _CANONICAL_BINARY_FIELDS or (
+            field == "payload" and method in _BINARY_PAYLOAD_METHODS
+        ):
+            if all(isinstance(item, int) and 0 <= item <= 255 for item in value):
+                return bytes(value)
+        return [
+            _canonicalize_method_value(item, method=method, field=field)
+            for item in value
+        ]
+    return value
+
+
+def _put_v2_text(buffer: bytearray, value: str) -> None:
+    encoded = value.encode("utf-8")
+    buffer.extend(len(encoded).to_bytes(4, "big"))
+    buffer.extend(encoded)
+
+
+def _put_v2_list(buffer: bytearray, values: list[str]) -> None:
+    buffer.extend(len(values).to_bytes(4, "big"))
+    for value in values:
+        _put_v2_text(buffer, value)
+
+
+def _put_operation_bytes(buffer: bytearray, value: bytes) -> None:
+    buffer.extend(len(value).to_bytes(8, "big"))
+    buffer.extend(value)
+
+
+def _put_operation_list(buffer: bytearray, values: list[str]) -> None:
+    _put_operation_bytes(buffer, len(values).to_bytes(8, "big"))
+    for value in values:
+        _put_operation_bytes(buffer, value.encode("utf-8"))
+
+
+def _validate_explicit_string_list(name: str, values: Any) -> list[str]:
+    if not isinstance(values, list):
+        raise TypeError(f"{name} must be an explicit list of strings")
+    seen: set[str] = set()
+    detached: list[str] = []
+    for value in values:
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"{name} entries must be non-empty strings")
+        if value in seen:
+            raise ValueError(f"{name} contains a duplicate entry")
+        seen.add(value)
+        detached.append(value)
+    return detached
+
+
+def _logical_source_name(value: Any) -> str:
+    """Return a portable source identifier that cannot expose a host path."""
+
+    if not isinstance(value, str) or not value.strip() or value != value.strip():
+        raise ValueError("source name must be a non-empty logical identifier")
+    if "\x00" in value or value.startswith("~") or value.casefold().startswith("file:"):
+        raise ValueError("source name must not identify a host filesystem location")
+    windows_path = PureWindowsPath(value)
+    if (
+        PurePosixPath(value).is_absolute()
+        or windows_path.is_absolute()
+        or bool(windows_path.drive)
+    ):
+        raise ValueError("source name must not identify a host filesystem location")
+    normalized = value.replace("\\", "/")
+    if any(part in {".", ".."} for part in normalized.split("/")):
+        raise ValueError("source name must not contain filesystem traversal segments")
+    return normalized
+
+
+class KnowledgeGraphQuery(TypedDict):
+    family: Literal["graph"]
+    label: str
+    limit: int
+
+
+class KnowledgeSqlQuery(TypedDict):
+    family: Literal["sql"]
+    query: str
+    params_msgpack: bytes
+
+
+class KnowledgeRdfQuery(TypedDict):
+    family: Literal["rdf"]
+    query: str
+    base_iri: str
+    type_convention: str
+
+
+class KnowledgeVectorQuery(TypedDict):
+    family: Literal["vector"]
+    keywords: list[str]
+    query_embedding: list[float]
+    k: int
+
+
+KnowledgeTimeSeriesQuery = TypedDict(
+    "KnowledgeTimeSeriesQuery",
+    {
+        "family": Literal["time_series"],
+        "series_id": str,
+        "from": int,
+        "to": int,
+    },
+)
+
+
+class KnowledgeJobQuery(TypedDict):
+    family: Literal["job"]
+    job_id: str
+
+
+class KnowledgeCrossModalQuery(TypedDict):
+    family: Literal["cross_modal"]
+    text: str
+
+
+KnowledgeStreamQuery = (
+    KnowledgeGraphQuery
+    | KnowledgeSqlQuery
+    | KnowledgeRdfQuery
+    | KnowledgeVectorQuery
+    | KnowledgeTimeSeriesQuery
+    | KnowledgeJobQuery
+    | KnowledgeCrossModalQuery
+)
+
+
+class KnowledgeStreamCursor(TypedDict):
+    schema_version: Literal[1]
+    family: Literal[
+        "graph", "sql", "rdf", "vector", "time_series", "job", "cross_modal"
+    ]
+    integrity_ref: str
+    tenant_ref: str
+    access_policy_ref: str
+    placement_ref: str
+    snapshot_ref: str
+    query_ref: str
+    derivation_ref: str
+    evidence_set_ref: str
+    batch_size: int
+    row_offset: int
+    batch_index: int
+    exhausted: bool
+
+
+class KnowledgeStreamBatch(TypedDict):
+    schema_version: Literal[1]
+    family: Literal[
+        "graph", "sql", "rdf", "vector", "time_series", "job", "cross_modal"
+    ]
+    projection: Literal["arrow_ipc_v1"]
+    cursor: KnowledgeStreamCursor
+    payload: bytes
+
+
+class ModalityAuthority(TypedDict):
+    tenant_ref: str
+    access_policy_ref: str
+    purpose_ref: str
+    maximum_classification: Literal["public", "internal", "confidential", "restricted"]
+
+
+class ModalityApplyOutcome(TypedDict):
+    disposition: Literal["Applied", "IdempotentReplay"]
+    observation_version: int
+    event_sequence: int
+
+
+class ServedModalityRecord(TypedDict):
+    occurrence_id: str
+    observation_version: int
+    lifecycle: Literal["active", "cold"]
+    bundle: dict[str, Any]
+    value: dict[str, Any]
+
+
+class ServedModalityPage(TypedDict):
+    records: list[ServedModalityRecord]
+    next: str | None
+
+
+class ServedModalityEvent(TypedDict):
+    sequence: int
+    occurrence_id: str
+    observation_version: int
+    kind: Literal[
+        "ingested", "updated", "deleted", "moved_to_cold", "restored", "reindexed"
+    ]
+    tenant_ref: str
+    access_policy_ref: str
+
+
+class ServedModalityStats(TypedDict):
+    active_records: int
+    total_records: int
+    tombstoned_records: int
+    modality_index_postings: int
+    segment_index_postings: int
+    native_index_keys: int
+    native_index_postings: int
+    events: int
+    snapshot_bytes: int
+
+
+class ServedModalityCapabilities(TypedDict):
+    component_ready: Literal[True]
+    component_pass: int
+    component_not_applicable: int
+    component_total: int
+
+
+_KNOWLEDGE_FAMILIES = frozenset(
+    {"graph", "sql", "rdf", "vector", "time_series", "job", "cross_modal"}
+)
+_SERVED_MODALITIES = frozenset({"document", "image", "audio", "video"})
+_SERVED_SEGMENTS = frozenset(
+    {
+        "page",
+        "paragraph",
+        "table",
+        "row",
+        "region",
+        "audio_range",
+        "video_shot",
+        "frame_range",
+        "time_window",
+        "code_symbol",
+        "trace_span",
+    }
+)
+_MAX_NATIVE_TEMPORAL_BUCKETS = 4_096
+_ARTIFACT_BUNDLE_FIELDS = frozenset(
+    {
+        "protocol_version",
+        "privacy",
+        "artifacts",
+        "occurrences",
+        "renditions",
+        "segments",
+        "features",
+        "evidence_loci",
+    }
+)
+
+
+def _exact_mapping(name: str, value: Any, fields: frozenset[str]) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise TypeError(f"{name} must be a mapping")
+    present = set(value)
+    missing = sorted(fields - present)
+    if missing:
+        raise ValueError(f"{name} is missing required fields: {', '.join(missing)}")
+    unexpected = sorted(present - fields)
+    if unexpected:
+        raise ValueError(f"{name} contains unsupported fields: {', '.join(unexpected)}")
+    return dict(value)
+
+
+def _closed_mapping(
+    name: str,
+    value: Any,
+    required: frozenset[str],
+    optional: frozenset[str] = frozenset(),
+) -> dict[str, Any]:
+    """Validate a closed current schema whose optional fields are still explicit."""
+
+    if not isinstance(value, dict):
+        raise TypeError(f"{name} must be a mapping")
+    present = set(value)
+    missing = sorted(required - present)
+    if missing:
+        raise ValueError(f"{name} is missing required fields: {', '.join(missing)}")
+    unexpected = sorted(present - required - optional)
+    if unexpected:
+        raise ValueError(f"{name} contains unsupported fields: {', '.join(unexpected)}")
+    return dict(value)
+
+
+def _string(name: str, value: Any, *, allow_empty: bool = False) -> str:
+    if not isinstance(value, str):
+        raise TypeError(f"{name} must be a string")
+    if not allow_empty and (not value or value != value.strip()):
+        raise ValueError(f"{name} must be a non-empty trimmed string")
+    return value
+
+
+def _integer(
+    name: str,
+    value: Any,
+    *,
+    minimum: int = 0,
+    maximum: int = (1 << 64) - 1,
+) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TypeError(f"{name} must be an integer")
+    if value < minimum or value > maximum:
+        raise ValueError(f"{name} must be between {minimum} and {maximum}")
+    return value
+
+
+def _boolean(name: str, value: Any) -> bool:
+    if not isinstance(value, bool):
+        raise TypeError(f"{name} must be a boolean")
+    return value
+
+
+def _evidence_bundle(value: Any) -> dict[str, Any]:
+    """Validate the current schema-generated evidence response projection."""
+    bundle = _exact_mapping(
+        "EvidenceBundle",
+        value,
+        frozenset(
+            {
+                "schema_version",
+                "bundle_id",
+                "resolved",
+                "answer_ref",
+                "claims",
+                "policy_exclusions",
+                "next_action_refs",
+            }
+        ),
+    )
+    if bundle["schema_version"] != "1":
+        raise ValueError("EvidenceBundle schema_version must be 1")
+    _string("EvidenceBundle.bundle_id", bundle["bundle_id"])
+    _boolean("EvidenceBundle.resolved", bundle["resolved"])
+    claims = bundle["claims"]
+    if not isinstance(claims, list):
+        raise TypeError("EvidenceBundle.claims must be a list")
+    for index, claim in enumerate(claims):
+        item = _exact_mapping(
+            f"EvidenceBundle.claims[{index}]",
+            claim,
+            frozenset(
+                {
+                    "claim_ref",
+                    "kind",
+                    "score",
+                    "confidence",
+                    "valid_time",
+                    "transaction_time",
+                    "source_refs",
+                    "evidence_locus_refs",
+                    "contradiction_refs",
+                    "proof_refs",
+                    "policy_labels",
+                }
+            ),
+        )
+        _string(f"EvidenceBundle.claims[{index}].claim_ref", item["claim_ref"])
+        _string(
+            f"EvidenceBundle.claims[{index}].kind",
+            item["kind"],
+            allow_empty=True,
+        )
+        for field in ("valid_time", "transaction_time"):
+            _exact_mapping(
+                f"EvidenceBundle.claims[{index}].{field}",
+                item[field],
+                frozenset({"start_ms", "end_ms"}),
+            )
+    return bundle
+
+
+def _bytes(name: str, value: Any, *, allow_empty: bool = True) -> bytes:
+    if not isinstance(value, bytes):
+        raise TypeError(f"{name} must be bytes")
+    if not allow_empty and not value:
+        raise ValueError(f"{name} must not be empty")
+    return value
+
+
+def _opaque_ref(name: str, value: Any, *, namespace: str | None = None) -> str:
+    reference = _string(name, value)
+    parts = reference.split(":")
+    valid = (
+        3 <= len(parts) <= 6
+        and parts[0] == "eg"
+        and all(
+            part
+            and len(part) <= 32
+            and all(
+                char.isascii() and (char.islower() or char.isdigit() or char in "_-")
+                for char in part
+            )
+            for part in parts[1:-1]
+        )
+        and 16 <= len(parts[-1]) <= 128
+        and all(char in "0123456789abcdef" for char in parts[-1])
+    )
+    if not valid or (namespace is not None and parts[1] != namespace):
+        expected = f" in the {namespace!r} namespace" if namespace else ""
+        raise ValueError(f"{name} must be a valid opaque reference{expected}")
+    return reference
+
+
+_KNOWLEDGE_CURSOR_FIELDS = frozenset(
+    {
+        "schema_version",
+        "family",
+        "integrity_ref",
+        "tenant_ref",
+        "access_policy_ref",
+        "placement_ref",
+        "snapshot_ref",
+        "query_ref",
+        "derivation_ref",
+        "evidence_set_ref",
+        "batch_size",
+        "row_offset",
+        "batch_index",
+        "exhausted",
+    }
+)
+
+
+def _knowledge_cursor(value: Any) -> KnowledgeStreamCursor:
+    cursor = _exact_mapping("KnowledgeStream cursor", value, _KNOWLEDGE_CURSOR_FIELDS)
+    if _integer("cursor.schema_version", cursor["schema_version"], maximum=1) != 1:
+        raise ValueError("cursor.schema_version must be 1")
+    family = _string("cursor.family", cursor["family"])
+    if family not in _KNOWLEDGE_FAMILIES:
+        raise ValueError("cursor.family is not a current KnowledgeStream family")
+    for field in (
+        "integrity_ref",
+        "tenant_ref",
+        "access_policy_ref",
+        "placement_ref",
+        "snapshot_ref",
+        "query_ref",
+        "derivation_ref",
+        "evidence_set_ref",
+    ):
+        cursor[field] = _opaque_ref(f"cursor.{field}", cursor[field])
+    cursor["batch_size"] = _integer(
+        "cursor.batch_size", cursor["batch_size"], minimum=1, maximum=65_536
+    )
+    cursor["row_offset"] = _integer("cursor.row_offset", cursor["row_offset"])
+    cursor["batch_index"] = _integer("cursor.batch_index", cursor["batch_index"])
+    cursor["exhausted"] = _boolean("cursor.exhausted", cursor["exhausted"])
+    return cast(KnowledgeStreamCursor, cursor)
+
+
+def _knowledge_query(value: Any) -> tuple[KnowledgeStreamQuery, str]:
+    if not isinstance(value, dict):
+        raise TypeError("KnowledgeStream query must be a mapping")
+    family = _string("query.family", value.get("family"))
+    if family not in _KNOWLEDGE_FAMILIES:
+        raise ValueError("query.family is not a current KnowledgeStream family")
+
+    if family == "graph":
+        query = _exact_mapping(
+            "graph KnowledgeStream query",
+            value,
+            frozenset({"family", "label", "limit"}),
+        )
+        query["label"] = _string("query.label", query["label"], allow_empty=True)
+        query["limit"] = _integer("query.limit", query["limit"])
+    elif family == "sql":
+        query = _exact_mapping(
+            "SQL KnowledgeStream query",
+            value,
+            frozenset({"family", "query", "params_msgpack"}),
+        )
+        query["query"] = _string("query.query", query["query"])
+        query["params_msgpack"] = _bytes(
+            "query.params_msgpack", query["params_msgpack"]
+        )
+    elif family == "rdf":
+        query = _exact_mapping(
+            "RDF KnowledgeStream query",
+            value,
+            frozenset({"family", "query", "base_iri", "type_convention"}),
+        )
+        query["query"] = _string("query.query", query["query"])
+        query["base_iri"] = _string(
+            "query.base_iri", query["base_iri"], allow_empty=True
+        )
+        query["type_convention"] = _string(
+            "query.type_convention", query["type_convention"], allow_empty=True
+        )
+    elif family == "vector":
+        query = _exact_mapping(
+            "vector KnowledgeStream query",
+            value,
+            frozenset({"family", "keywords", "query_embedding", "k"}),
+        )
+        keywords = query["keywords"]
+        if not isinstance(keywords, list):
+            raise TypeError("query.keywords must be a list of strings")
+        query["keywords"] = [
+            _string("query.keywords entry", keyword) for keyword in keywords
+        ]
+        embedding = query["query_embedding"]
+        if not isinstance(embedding, list):
+            raise TypeError("query.query_embedding must be a list of finite numbers")
+        normalized: list[float] = []
+        for component in embedding:
+            if isinstance(component, bool) or not isinstance(component, (int, float)):
+                raise TypeError(
+                    "query.query_embedding must be a list of finite numbers"
+                )
+            component = float(component)
+            if not math.isfinite(component) or abs(component) > 3.4028235e38:
+                raise ValueError("query.query_embedding contains an invalid f32 value")
+            normalized.append(component)
+        query["query_embedding"] = normalized
+        query["k"] = _integer("query.k", query["k"], minimum=1)
+    elif family == "time_series":
+        query = _exact_mapping(
+            "time-series KnowledgeStream query",
+            value,
+            frozenset({"family", "series_id", "from", "to"}),
+        )
+        query["series_id"] = _string("query.series_id", query["series_id"])
+        query["from"] = _integer(
+            "query.from", query["from"], minimum=-(1 << 63), maximum=(1 << 63) - 1
+        )
+        query["to"] = _integer(
+            "query.to", query["to"], minimum=-(1 << 63), maximum=(1 << 63) - 1
+        )
+        if query["from"] > query["to"]:
+            raise ValueError("query.from must not be greater than query.to")
+    elif family == "job":
+        query = _exact_mapping(
+            "job KnowledgeStream query", value, frozenset({"family", "job_id"})
+        )
+        query["job_id"] = _string("query.job_id", query["job_id"])
+    else:
+        query = _exact_mapping(
+            "cross-modal KnowledgeStream query", value, frozenset({"family", "text"})
+        )
+        query["text"] = _string("query.text", query["text"])
+    return cast(KnowledgeStreamQuery, query), family
+
+
+def _knowledge_batch(
+    value: Any, *, family: str, batch_size: int
+) -> KnowledgeStreamBatch:
+    batch = _exact_mapping(
+        "KnowledgeStream batch",
+        value,
+        frozenset({"schema_version", "family", "projection", "cursor", "payload"}),
+    )
+    if _integer("batch.schema_version", batch["schema_version"], maximum=1) != 1:
+        raise ValueError("batch.schema_version must be 1")
+    if batch["family"] != family:
+        raise ValueError("KnowledgeStream response family does not match its query")
+    if batch["projection"] != "arrow_ipc_v1":
+        raise ValueError("KnowledgeStream response must use arrow_ipc_v1")
+    cursor = _knowledge_cursor(batch["cursor"])
+    if cursor["family"] != family or cursor["batch_size"] != batch_size:
+        raise ValueError("KnowledgeStream response cursor does not match its request")
+    batch["cursor"] = cursor
+    batch["payload"] = _bytes("batch.payload", batch["payload"], allow_empty=False)
+    return cast(KnowledgeStreamBatch, batch)
+
+
+def _served_modality(name: str, value: Any) -> str:
+    modality = _string(name, value)
+    if modality not in _SERVED_MODALITIES:
+        raise ValueError(f"{name} must be document, image, audio, or video")
+    return modality
+
+
+def _finite_f32(name: str, value: Any, *, minimum: float, maximum: float) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise TypeError(f"{name} must be a finite number")
+    normalized = float(value)
+    if not math.isfinite(normalized) or not minimum <= normalized <= maximum:
+        raise ValueError(f"{name} is outside the current bounded range")
+    return normalized
+
+
+def _native_temporal_window(start_ms: Any, end_ms: Any) -> tuple[int, int]:
+    start = _integer("start_ms", start_ms)
+    end = _integer("end_ms", end_ms)
+    if end <= start:
+        raise ValueError("end_ms must be greater than start_ms")
+    first_bucket = start // 1_000
+    last_bucket = (end - 1) // 1_000
+    if last_bucket - first_bucket + 1 > _MAX_NATIVE_TEMPORAL_BUCKETS:
+        raise ValueError("native temporal query exceeds 4096 index buckets")
+    return start, end
+
+
+def _modality_authority(value: Any) -> ModalityAuthority:
+    authority = _exact_mapping(
+        "served modality authority",
+        value,
+        frozenset(
+            {
+                "tenant_ref",
+                "access_policy_ref",
+                "purpose_ref",
+                "maximum_classification",
+            }
+        ),
+    )
+    for field in ("tenant_ref", "access_policy_ref", "purpose_ref"):
+        authority[field] = _opaque_ref(f"authority.{field}", authority[field])
+    if authority["maximum_classification"] not in {
+        "public",
+        "internal",
+        "confidential",
+        "restricted",
+    }:
+        raise ValueError("authority.maximum_classification is invalid")
+    return cast(ModalityAuthority, authority)
+
+
+def _modality_outcome(value: Any) -> ModalityApplyOutcome:
+    outcome = _exact_mapping(
+        "served modality outcome",
+        value,
+        frozenset({"disposition", "observation_version", "event_sequence"}),
+    )
+    if outcome["disposition"] not in {"Applied", "IdempotentReplay"}:
+        raise ValueError("served modality outcome disposition is invalid")
+    outcome["observation_version"] = _integer(
+        "outcome.observation_version", outcome["observation_version"], minimum=1
+    )
+    outcome["event_sequence"] = _integer(
+        "outcome.event_sequence", outcome["event_sequence"], minimum=1
+    )
+    return cast(ModalityApplyOutcome, outcome)
+
+
+def _modality_outcomes(value: Any, expected: int) -> list[ModalityApplyOutcome]:
+    if not isinstance(value, list) or len(value) != expected:
+        raise ValueError("served modality stream outcome cardinality mismatch")
+    return [_modality_outcome(item) for item in value]
+
+
+def _artifact_bundle(value: Any) -> dict[str, Any]:
+    bundle = _exact_mapping("served modality bundle", value, _ARTIFACT_BUNDLE_FIELDS)
+    if _integer("bundle.protocol_version", bundle["protocol_version"], maximum=1) != 1:
+        raise ValueError("bundle.protocol_version must be 1")
+    if not isinstance(bundle["privacy"], dict):
+        raise TypeError("bundle.privacy must be a mapping")
+    for field in (
+        "artifacts",
+        "occurrences",
+        "renditions",
+        "segments",
+        "features",
+        "evidence_loci",
+    ):
+        if not isinstance(bundle[field], list):
+            raise TypeError(f"bundle.{field} must be a list")
+    return bundle
+
+
+def _modality_page(value: Any) -> ServedModalityPage:
+    page = _exact_mapping("served modality page", value, frozenset({"records", "next"}))
+    if not isinstance(page["records"], list):
+        raise TypeError("served modality page.records must be a list")
+    records: list[ServedModalityRecord] = []
+    for raw_record in page["records"]:
+        record = _exact_mapping(
+            "served modality record",
+            raw_record,
+            frozenset(
+                {
+                    "occurrence_id",
+                    "observation_version",
+                    "lifecycle",
+                    "bundle",
+                    "value",
+                }
+            ),
+        )
+        record["occurrence_id"] = _opaque_ref(
+            "record.occurrence_id", record["occurrence_id"], namespace="occurrence"
+        )
+        record["observation_version"] = _integer(
+            "record.observation_version", record["observation_version"], minimum=1
+        )
+        if record["lifecycle"] not in {"active", "cold"}:
+            raise ValueError("query returned a non-visible modality lifecycle")
+        record["bundle"] = _artifact_bundle(record["bundle"])
+        if not isinstance(record["value"], dict):
+            raise TypeError("visible modality record.value must be a mapping")
+        records.append(cast(ServedModalityRecord, record))
+    next_occurrence = page["next"]
+    if next_occurrence is not None:
+        next_occurrence = _opaque_ref(
+            "page.next", next_occurrence, namespace="occurrence"
+        )
+    expected_next = records[-1]["occurrence_id"] if records else None
+    if next_occurrence != expected_next:
+        raise ValueError("served modality page cursor does not match its final record")
+    return {"records": records, "next": next_occurrence}
+
+
+def _modality_events(value: Any) -> list[ServedModalityEvent]:
+    if not isinstance(value, list):
+        raise TypeError("served modality events result must be a list")
+    events: list[ServedModalityEvent] = []
+    previous_sequence = 0
+    for raw_event in value:
+        event = _exact_mapping(
+            "served modality event",
+            raw_event,
+            frozenset(
+                {
+                    "sequence",
+                    "occurrence_id",
+                    "observation_version",
+                    "kind",
+                    "tenant_ref",
+                    "access_policy_ref",
+                }
+            ),
+        )
+        event["sequence"] = _integer("event.sequence", event["sequence"], minimum=1)
+        if event["sequence"] <= previous_sequence:
+            raise ValueError("served modality events must be strictly ordered")
+        previous_sequence = event["sequence"]
+        event["occurrence_id"] = _opaque_ref(
+            "event.occurrence_id", event["occurrence_id"], namespace="occurrence"
+        )
+        event["observation_version"] = _integer(
+            "event.observation_version", event["observation_version"], minimum=1
+        )
+        if event["kind"] not in {
+            "ingested",
+            "updated",
+            "deleted",
+            "moved_to_cold",
+            "restored",
+            "reindexed",
+        }:
+            raise ValueError("served modality event kind is invalid")
+        event["tenant_ref"] = _opaque_ref("event.tenant_ref", event["tenant_ref"])
+        event["access_policy_ref"] = _opaque_ref(
+            "event.access_policy_ref", event["access_policy_ref"]
+        )
+        events.append(cast(ServedModalityEvent, event))
+    return events
+
+
+def _modality_capabilities(value: Any) -> ServedModalityCapabilities:
+    capabilities = _exact_mapping(
+        "served modality capabilities",
+        value,
+        frozenset(
+            {
+                "component_ready",
+                "component_pass",
+                "component_not_applicable",
+                "component_total",
+            }
+        ),
+    )
+    certified = (
+        capabilities["component_ready"] is True
+        and _integer("capabilities.component_pass", capabilities["component_pass"]) == 12
+        and _integer(
+            "capabilities.component_not_applicable",
+            capabilities["component_not_applicable"],
+        )
+        == 0
+        and _integer(
+            "capabilities.component_total", capabilities["component_total"]
+        )
+        == 12
+    )
+    if not certified:
+        raise ValueError(
+            "served modality component is not certified at 12 PASS / 0 N/A"
+        )
+    return cast(ServedModalityCapabilities, capabilities)
+
+
+def _modality_stats(value: Any) -> ServedModalityStats:
+    fields = frozenset(
+        {
+            "active_records",
+            "total_records",
+            "tombstoned_records",
+            "modality_index_postings",
+            "segment_index_postings",
+            "native_index_keys",
+            "native_index_postings",
+            "events",
+            "snapshot_bytes",
+        }
+    )
+    stats = _exact_mapping("served modality stats", value, fields)
+    for field in fields:
+        stats[field] = _integer(
+            f"stats.{field}", stats[field], minimum=1 if field == "snapshot_bytes" else 0
+        )
+    if stats["active_records"] + stats["tombstoned_records"] != stats["total_records"]:
+        raise ValueError("served modality stats record totals are inconsistent")
+    return cast(ServedModalityStats, stats)
 
 
 class ResultTooLargeError(RuntimeError):
@@ -35,6 +1189,25 @@ class ResultTooLargeError(RuntimeError):
     """
 
 
+class StaleRouteError(RuntimeError):
+    """The contacted engine cannot serve the graph's current placement route.
+
+    ``route`` is the engine-authored structured redirect containing the target,
+    Raft group, catalog epoch, fencing token, and (when known) leader node.  It
+    is deliberately kept as data so a topology-aware caller can refresh its
+    placement catalog and retry without parsing an error string.
+    """
+
+    def __init__(self, message: str, route: dict[str, Any] | None = None) -> None:
+        super().__init__(message)
+        self.route = dict(route or {})
+        self.target_ref = str(self.route.get("target_ref") or "")
+        self.group = self.route.get("group")
+        self.epoch = int(self.route.get("epoch") or 0)
+        self.fencing_token = self.route.get("fencing_token")
+        self.leader_ref = self.route.get("leader_ref")
+
+
 class NodeClient:
     """CONCEPT:AU-KG.query.object-graph-mapper — Topology Node Namespace"""
 
@@ -44,6 +1217,23 @@ class NodeClient:
     async def add(self, node_id: str, properties: dict[str, Any] | None = None) -> None:
         await self._client._send(
             "AddNode",
+            {
+                "node_id": node_id,
+                "properties_msgpack": list(msgpack.packb(properties or {})),
+            },
+        )
+
+    async def create_if_absent(
+        self, node_id: str, properties: dict[str, Any] | None = None
+    ) -> bool:
+        """Atomically create ``node_id`` without overwriting an existing node.
+
+        Returns ``True`` only to the writer that inserted the node. Concurrent
+        callers execute one durable server-side membership-test-and-insert operation;
+        losers return ``False`` and leave the winning properties untouched.
+        """
+        return await self._client._send(
+            "CreateNodeIfAbsent",
             {
                 "node_id": node_id,
                 "properties_msgpack": list(msgpack.packb(properties or {})),
@@ -109,13 +1299,17 @@ class NodeClient:
         return await self._client._send("GetNodes")
 
     async def list_by_label(
-        self, label: str, limit: int = 0
+        self, label: str, limit: int = 0, *, after: str | None = None
     ) -> builtins.list[tuple[str, Any]]:
-        """At most ``limit`` ``(id, properties)`` whose type/label matches ``label``
-        (``limit=0`` ⇒ no cap). Bounded-payload alternative to ``list()`` so a
-        ``MATCH (n:Label) … LIMIT k`` does not materialize the whole graph."""
+        """Return one deterministic keyset page of matching nodes.
+
+        ``after`` is an exclusive node-id cursor. Advance it to the last id in
+        each non-empty page. ``limit=0`` is uncapped and intended only for small
+        graphs.
+        """
         return await self._client._send(
-            "GetNodesByLabel", {"label": label, "limit": int(limit)}
+            "GetNodesByLabel",
+            {"label": label, "after": after, "limit": int(limit)},
         )
 
     async def properties(self, node_id: str) -> dict[str, Any] | None:
@@ -208,6 +1402,606 @@ class NodeClient:
         """Neighbour ids unioned + deduped across every graph that holds the anchor."""
         return await self._client._send(
             "UnionGetNeighbors", {"graphs": list(graphs), "node_id": node_id}
+        )
+
+
+class StatechartClient:
+    """CONCEPT:INT-P2-2 — the native finite-state-machine / statechart engine namespace:
+    define/instantiate/send_event/get_state/list over ``Method::Statechart { op }``
+    (``eg_statechart::StatechartDef`` + a durable, rehydratable ``MachineInstance``).
+
+    Definitions are content-addressed data (a dict shaped like
+    ``{"name", "schema_version", "states", "alphabet", "transitions", "initial",
+    "finals", "meta"}`` — see the Rust ``eg_statechart::model::StatechartDef`` this
+    mirrors 1:1) — ``define()`` MessagePack-encodes it (named/map form, matching
+    ``rmp_serde::to_vec_named``) and returns the server-computed, deterministic
+    ``def_id``; re-defining a byte-identical chart is idempotent (same id, no new row).
+    Instances are NOT graph-scoped (their own ``statecharts.redb``, like
+    :class:`JobsClient`'s jobs), owner-scoped to the caller's ``(tenant, actor)``::
+
+        def_id = await client.statechart.define(LOOP_STATECHART_DEF)
+        instance = await client.statechart.instantiate(def_id, context={})
+        out = await client.statechart.send_event(
+            instance["instance_id"], "claim"
+        )
+        state = await client.statechart.get_state(instance["instance_id"])
+
+    ``send_event``'s response includes ``fired`` (``False`` on a well-defined no-op —
+    an undefined edge or every guard false — never an error) and the resulting
+    ``instance["configuration"]["active"]`` (the new active state(s)).
+    """
+
+    def __init__(self, client: EpistemicGraphClient) -> None:
+        self._client = client
+
+    async def define(self, definition: dict[str, Any]) -> str:
+        """Register a ``StatechartDef`` (a plain dict — see the class docstring for
+        its shape). Returns the content-addressed ``def_id``."""
+        if not isinstance(definition, dict):
+            raise TypeError("definition must be a dict shaped like StatechartDef")
+        blob = msgpack.packb(definition, use_bin_type=True)
+        resp = await self._client._send(
+            "Statechart", {"op": {"Define": {"def_msgpack": list(blob)}}}
+        )
+        return str(resp["def_id"])
+
+    async def instantiate(
+        self, def_id: str, context: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """Create a running instance of ``def_id`` in its initial state, seeded with
+        ``context`` (a JSON object; empty/``None`` for no initial extended state).
+        Returns the freshly durable ``MachineInstance`` record (including its
+        server-issued ``instance_id``)."""
+        return await self._client._send(
+            "Statechart",
+            {"op": {"Instantiate": {"def_id": def_id, "context": context or {}}}},
+        )
+
+    async def send_event(
+        self,
+        instance_id: str,
+        event: str,
+        payload: dict[str, Any] | None = None,
+        *,
+        expected_version: int | None = None,
+    ) -> dict[str, Any]:
+        """Deliver ``event`` (with optional structured ``payload`` guards/actions may
+        read) to ``instance_id``. ``expected_version``, when given, is an OCC token —
+        the send is rejected if the stored instance has moved on. Returns
+        ``{"instance", "fired", "no_op_reason", "fired_label", "actions", "effects"}``."""
+        return await self._client._send(
+            "Statechart",
+            {
+                "op": {
+                    "SendEvent": {
+                        "instance_id": instance_id,
+                        "event": event,
+                        "payload": payload if payload is not None else {},
+                        "expected_version": expected_version,
+                    }
+                }
+            },
+        )
+
+    async def get_state(self, instance_id: str) -> dict[str, Any]:
+        """Fetch (rehydrate) ``instance_id``'s current durable ``(state, context)`` +
+        version. Read-only, owner-scoped."""
+        return await self._client._send(
+            "Statechart", {"op": {"GetState": {"instance_id": instance_id}}}
+        )
+
+    async def list(self, def_id: str | None = None) -> dict[str, Any]:
+        """List instance ids owned by the caller, optionally filtered to one
+        definition. Returns ``{"instance_ids", "count"}``."""
+        return await self._client._send(
+            "Statechart", {"op": {"List": {"def_id": def_id}}}
+        )
+
+
+class WorkItemClient:
+    """Engine-native durable WorkItem claim, lease, and result namespace."""
+
+    def __init__(self, client: EpistemicGraphClient) -> None:
+        self._client = client
+
+    async def claim(self, request: dict[str, Any]) -> dict[str, Any]:
+        """Return the authoritative claim result.
+
+        ``{"claimed": false, "reason": "empty"|"tenant_quota"}`` is final;
+        callers must not fall back to a second claim implementation. The tenant
+        limit is required and bounded by the current wire contract (1..=4096).
+        """
+        value = _exact_mapping(
+            "ClaimWorkItem request",
+            request,
+            frozenset(
+                {
+                    "schema_version",
+                    "tenant_ref",
+                    "work_item_id",
+                    "queue_ref",
+                    "resource_class",
+                    "fairness_group",
+                    "worker_ref",
+                    "now_ms",
+                    "lease_ms",
+                    "max_tenant_in_flight",
+                }
+            ),
+        )
+        if value["schema_version"] != "1":
+            raise ValueError("ClaimWorkItem schema_version must be 1")
+        _string("ClaimWorkItem.tenant_ref", value["tenant_ref"])
+        _string("ClaimWorkItem.worker_ref", value["worker_ref"])
+        for field in (
+            "work_item_id",
+            "queue_ref",
+            "resource_class",
+            "fairness_group",
+        ):
+            if value[field] is not None:
+                _string(f"ClaimWorkItem.{field}", value[field])
+        _integer("ClaimWorkItem.now_ms", value["now_ms"])
+        _integer("ClaimWorkItem.lease_ms", value["lease_ms"], minimum=1)
+        tenant_limit = _integer(
+            "max_tenant_in_flight", value["max_tenant_in_flight"]
+        )
+        if not 1 <= tenant_limit <= 4096:
+            raise ValueError("max_tenant_in_flight must be between 1 and 4096")
+        result = await self._client._send(
+            "ClaimWorkItem", {"request": value}
+        )
+        answer = _exact_mapping(
+            "ClaimWorkItem result",
+            result,
+            frozenset(
+                {
+                    "schema_version",
+                    "claimed",
+                    "reason",
+                    "work_item_id",
+                    "kind",
+                    "payload_ref",
+                    "lease_holder_ref",
+                    "lease_epoch",
+                    "fencing_token",
+                    "lease_expires_at_ms",
+                    "attempt",
+                    "max_attempts",
+                    "tenant_in_flight",
+                    "changed_work_item_ids",
+                }
+            ),
+        )
+        if answer["schema_version"] != "1":
+            raise ValueError("ClaimWorkItem result schema_version must be 1")
+        claimed = _boolean("ClaimWorkItem result.claimed", answer["claimed"])
+        reason = answer["reason"]
+        if reason not in {"claimed", "empty", "tenant_quota"}:
+            raise ValueError("ClaimWorkItem result reason is invalid")
+        if claimed != (reason == "claimed"):
+            raise ValueError("ClaimWorkItem result claim state is inconsistent")
+        if claimed:
+            for field in ("work_item_id", "lease_holder_ref"):
+                _string(f"ClaimWorkItem result.{field}", answer[field])
+            for field in (
+                "lease_epoch",
+                "fencing_token",
+                "lease_expires_at_ms",
+                "attempt",
+                "max_attempts",
+            ):
+                _integer(
+                    f"ClaimWorkItem result.{field}",
+                    answer[field],
+                    minimum=1 if field == "max_attempts" else 0,
+                )
+            changed = answer["changed_work_item_ids"]
+            if not isinstance(changed, list) or answer["work_item_id"] not in changed:
+                raise ValueError("ClaimWorkItem result changed ids are invalid")
+        elif any(
+            answer[field] is not None
+            for field in (
+                "work_item_id",
+                "kind",
+                "payload_ref",
+                "lease_holder_ref",
+                "lease_epoch",
+                "fencing_token",
+                "lease_expires_at_ms",
+                "attempt",
+                "max_attempts",
+            )
+        ) or answer["changed_work_item_ids"] != []:
+            raise ValueError("negative ClaimWorkItem result carries lease state")
+        return answer
+
+    async def renew(
+        self,
+        *,
+        tenant: str,
+        work_item_id: str,
+        worker_id: str,
+        lease_epoch: int,
+        fencing_token: int,
+        now_ms: int,
+        lease_ms: int,
+    ) -> dict[str, Any]:
+        return await self._client._send(
+            "RenewWorkItemLease",
+            {
+                "tenant": tenant,
+                "work_item_id": work_item_id,
+                "worker_id": worker_id,
+                "lease_epoch": int(lease_epoch),
+                "fencing_token": int(fencing_token),
+                "now_ms": int(now_ms),
+                "lease_ms": int(lease_ms),
+            },
+        )
+
+    async def commit_result(
+        self,
+        *,
+        tenant: str,
+        work_item_id: str,
+        worker_id: str,
+        lease_epoch: int,
+        fencing_token: int,
+        idempotency_key: str,
+        outcome: str,
+        now_ms: int,
+        result_ref: str | None = None,
+        error_ref: str | None = None,
+        retryable: bool = False,
+    ) -> dict[str, Any]:
+        return await self._client._send(
+            "CommitWorkItemResult",
+            {
+                "tenant": tenant,
+                "work_item_id": work_item_id,
+                "worker_id": worker_id,
+                "lease_epoch": int(lease_epoch),
+                "fencing_token": int(fencing_token),
+                "idempotency_key": idempotency_key,
+                "outcome": outcome,
+                "result_ref": result_ref,
+                "error_ref": error_ref,
+                "retryable": bool(retryable),
+                "now_ms": int(now_ms),
+            },
+        )
+
+    async def cancel(
+        self,
+        *,
+        tenant: str,
+        work_item_id: str,
+        idempotency_key: str,
+        now_ms: int,
+        reason_ref: str | None = None,
+    ) -> dict[str, Any]:
+        """Cancel a submitted/ready item without acquiring a synthetic lease.
+
+        An active lease is preserved and returns ``status="in_flight"``. Only
+        an opaque ``reason_ref`` is transmitted; free-form reason bodies are not
+        retained by the engine.
+        """
+        return await self._client._send(
+            "CancelWorkItem",
+            {
+                "tenant": tenant,
+                "work_item_id": work_item_id,
+                "idempotency_key": idempotency_key,
+                "reason_ref": reason_ref,
+                "now_ms": int(now_ms),
+            },
+        )
+
+    async def defer(
+        self,
+        *,
+        tenant: str,
+        work_item_id: str,
+        worker_id: str,
+        lease_epoch: int,
+        fencing_token: int,
+        idempotency_key: str,
+        next_retry_at_ms: int,
+        now_ms: int,
+        reason_ref: str | None = None,
+    ) -> dict[str, Any]:
+        """Release a fenced lease for later polling without using an attempt."""
+        return await self._client._send(
+            "DeferWorkItem",
+            {
+                "tenant": tenant,
+                "work_item_id": work_item_id,
+                "worker_id": worker_id,
+                "lease_epoch": int(lease_epoch),
+                "fencing_token": int(fencing_token),
+                "idempotency_key": idempotency_key,
+                "next_retry_at_ms": int(next_retry_at_ms),
+                "reason_ref": reason_ref,
+                "now_ms": int(now_ms),
+            },
+        )
+
+
+class ChangeEnvelopeClient:
+    """Governed engine-native external-change namespace.
+
+    The namespace emits the exact ordered wire contract the Rust signer verifies;
+    verified tenant/principal/policy/request fields are bound by the client at send
+    time and cannot be supplied as persisted caller identity.
+    """
+
+    def __init__(self, client: EpistemicGraphClient) -> None:
+        self._client = client
+
+    @staticmethod
+    def _position(value: dict[str, Any]) -> dict[str, Any]:
+        kind = value["kind"]
+        position = value["value"]
+        if kind == "opaque":
+            position = {
+                "cursor_type": position.get(
+                    "cursor_type", position.get("version_type")
+                ),
+                "value": position["value"],
+            }
+            # Content versions name the opaque discriminator differently from
+            # source cursors. Preserve the caller's declared wire field while
+            # still fixing its order for the verified v2 signature.
+            if "version_type" in value["value"]:
+                position = {
+                    "version_type": value["value"]["version_type"],
+                    "value": value["value"]["value"],
+                }
+        return {"kind": kind, "value": position}
+
+    @classmethod
+    def _canonical(cls, source: dict[str, Any]) -> dict[str, Any]:
+        envelope = copy.deepcopy(source)
+        mutation_in = _closed_mapping(
+            "mutation",
+            envelope["mutation"],
+            frozenset(
+                {
+                    "schema_version",
+                    "batch_id",
+                    "context",
+                    "tenant",
+                    "graph",
+                    "placement_epoch",
+                    "idempotency_key",
+                    "operations",
+                    "outbox",
+                    "created_at_ms",
+                }
+            ),
+            frozenset(
+                {"expected_graph_version", "fencing_token", "authoritative_state"}
+            ),
+        )
+        if _integer("mutation.schema_version", mutation_in["schema_version"]) != 2:
+            raise ValueError("mutation.schema_version must be 2")
+        context_in = _closed_mapping(
+            "mutation.context",
+            mutation_in["context"],
+            frozenset({"request_id", "principal"}),
+            frozenset({"purpose", "policy_fingerprint", "trace_id"}),
+        )
+        context: dict[str, Any] = {
+            "request_id": int(context_in["request_id"]),
+            "principal": str(context_in["principal"]),
+        }
+        for key in ("purpose", "policy_fingerprint", "trace_id"):
+            if context_in.get(key) is not None:
+                context[key] = context_in[key]
+
+        operations: list[dict[str, Any]] = []
+        for index, operation_value in enumerate(mutation_in["operations"]):
+            operation_in = _exact_mapping(
+                f"mutation.operations[{index}]",
+                operation_value,
+                frozenset({"ordinal", "surface", "domain", "method"}),
+            )
+            method_in = _closed_mapping(
+                f"mutation.operations[{index}].method",
+                operation_in["method"],
+                frozenset({"method"}),
+                frozenset({"params"}),
+            )
+            method_name = method_in["method"]
+            method: dict[str, Any] = {"method": method_name}
+            if "params" in method_in:
+                method["params"] = _canonicalize_method_value(
+                    method_in["params"], method=method_name
+                )
+            operations.append(
+                {
+                    "ordinal": int(operation_in["ordinal"]),
+                    "surface": operation_in["surface"],
+                    "domain": operation_in["domain"],
+                    "method": method,
+                }
+            )
+
+        mutation: dict[str, Any] = {
+            "schema_version": 2,
+            "batch_id": mutation_in["batch_id"],
+            "context": context,
+            "tenant": mutation_in["tenant"],
+            "graph": mutation_in["graph"],
+            "placement_epoch": int(mutation_in["placement_epoch"]),
+            "idempotency_key": mutation_in["idempotency_key"],
+        }
+        for key in ("expected_graph_version", "fencing_token"):
+            if mutation_in.get(key) is not None:
+                mutation[key] = int(mutation_in[key])
+        if mutation_in.get("authoritative_state") is not None:
+            state = _exact_mapping(
+                "mutation.authoritative_state",
+                mutation_in["authoritative_state"],
+                frozenset(
+                    {
+                        "algorithm",
+                        "digest",
+                        "source_graph_version",
+                        "target_graph_version",
+                    }
+                ),
+            )
+            mutation["authoritative_state"] = {
+                "algorithm": state["algorithm"],
+                "digest": state["digest"],
+                "source_graph_version": int(state["source_graph_version"]),
+                "target_graph_version": int(state["target_graph_version"]),
+            }
+        mutation["operations"] = operations
+        outbox: list[dict[str, Any]] = []
+        for index, intent_value in enumerate(mutation_in["outbox"]):
+            intent = _exact_mapping(
+                f"mutation.outbox[{index}]",
+                intent_value,
+                frozenset({"topic", "key", "payload", "headers"}),
+            )
+            row: dict[str, Any] = {
+                "topic": intent["topic"],
+                "key": intent["key"],
+                "payload": bytes(intent["payload"]),
+                "headers": {
+                    key: intent["headers"][key] for key in sorted(intent["headers"])
+                },
+            }
+            outbox.append(row)
+        mutation["outbox"] = outbox
+        mutation["created_at_ms"] = int(mutation_in["created_at_ms"])
+
+        version_in = envelope["content_version"]
+        version: dict[str, Any] = {
+            "object_id": version_in["object_id"],
+            "digest_algorithm": version_in.get("digest_algorithm", "sha256"),
+            "digest": version_in["digest"],
+        }
+        if version_in.get("previous_digest") is not None:
+            version["previous_digest"] = version_in["previous_digest"]
+        version["source_version"] = cls._position(version_in["source_version"])
+
+        result: dict[str, Any] = {
+            "schema_version": int(envelope["schema_version"]),
+            "envelope_id": envelope["envelope_id"],
+            "mutation": mutation,
+            "content_version": version,
+        }
+        if envelope.get("cursor") is not None:
+            cursor_in = envelope["cursor"]
+            cursor: dict[str, Any] = {
+                "source": cursor_in["source"],
+                "partition": cursor_in.get("partition", ""),
+                "position": cls._position(cursor_in["position"]),
+            }
+            if cursor_in.get("expected_previous") is not None:
+                cursor["expected_previous"] = cls._position(
+                    cursor_in["expected_previous"]
+                )
+            result["cursor"] = cursor
+
+        result["blobs"] = [
+            {
+                "blob_id": row["blob_id"],
+                "operation": row["operation"],
+                "digest_algorithm": row.get("digest_algorithm", "sha256"),
+                "digest": row["digest"],
+                "media_type": row["media_type"],
+                "length": int(row["length"]),
+            }
+            for row in envelope.get("blobs", [])
+        ]
+        result["features"] = [
+            {
+                "feature_id": row["feature_id"],
+                "operation": row["operation"],
+                "object_id": row["object_id"],
+                "kind": row["kind"],
+                "value_msgpack": bytes(row["value_msgpack"]),
+                "model_version": row["model_version"],
+            }
+            for row in envelope.get("features", [])
+        ]
+        result["evidence"] = [
+            {
+                "evidence_id": row["evidence_id"],
+                "operation": row["operation"],
+                "object_id": row["object_id"],
+                "modality": row["modality"],
+                "locus_msgpack": bytes(row["locus_msgpack"]),
+                "content_digest": row["content_digest"],
+            }
+            for row in envelope.get("evidence", [])
+        ]
+        result["policies"] = [
+            {
+                "policy_id": row["policy_id"],
+                "operation": row["operation"],
+                "object_id": row["object_id"],
+                "tenant": row.get("tenant", ""),
+                "classification": row["classification"],
+                "policy_version": row["policy_version"],
+                "subject_set_digest": row["subject_set_digest"],
+                "retention_policy": row.get("retention_policy", ""),
+                "legal_hold": bool(row.get("legal_hold", False)),
+            }
+            for row in envelope.get("policies", [])
+        ]
+        result["lineage"] = [
+            {
+                "lineage_id": row["lineage_id"],
+                "operation": row["operation"],
+                "object_id": row["object_id"],
+                "source_artifact_digest": row["source_artifact_digest"],
+                "transform_name": row["transform_name"],
+                "transform_version": row["transform_version"],
+                "parent_content_digests": list(row.get("parent_content_digests", [])),
+            }
+            for row in envelope.get("lineage", [])
+        ]
+        privacy = envelope["privacy"]
+        result["privacy"] = {
+            "policy_version": privacy["policy_version"],
+            "sanitizer_version": privacy["sanitizer_version"],
+            "sanitized_payload_digest": privacy["sanitized_payload_digest"],
+        }
+        return result
+
+    async def apply(self, envelope: dict[str, Any]) -> dict[str, Any]:
+        canonical = self._canonical(envelope)
+        mutation = canonical["mutation"]
+        return await self._client._send(
+            "ApplyChangeEnvelope",
+            {"envelope": canonical},
+            graph=mutation["graph"],
+            idempotency_key=mutation["idempotency_key"],
+        )
+
+    async def get(self, envelope_id: str) -> dict[str, Any] | None:
+        tenant = self._client._verified_tenant()
+        return await self._client._send(
+            "GetChangeEnvelope", {"envelope_id": envelope_id, "tenant": tenant}
+        )
+
+    async def content_version(self, object_id: str) -> dict[str, Any] | None:
+        tenant = self._client._verified_tenant()
+        return await self._client._send(
+            "GetContentVersion", {"object_id": object_id, "tenant": tenant}
+        )
+
+    async def cursor(self, source: str, partition: str = "") -> dict[str, Any] | None:
+        tenant = self._client._verified_tenant()
+        return await self._client._send(
+            "GetChangeCursor",
+            {"source": source, "partition": partition, "tenant": tenant},
         )
 
 
@@ -346,12 +2140,10 @@ class GraphOperationsClient:
     async def clear(self) -> None:
         await self._client._send("ClearGraph")
 
-    async def parse_repository(self, root_path: str) -> None:
-        await self._client._send("ParseRepository", {"root_path": root_path})
-
     async def parse_file(self, file_path: str, source: bytes) -> dict[str, Any]:
         return await self._client._send(
-            "ParseFile", {"file_path": file_path, "source": source}
+            "ParseFile",
+            {"file_path": _logical_source_name(file_path), "source": source},
         )
 
     async def parse_files(self, files: list[tuple[str, bytes]]) -> list[dict[str, Any]]:
@@ -362,7 +2154,10 @@ class GraphOperationsClient:
         :meth:`parse_file`. The payload mirrors the ``BatchUpdate`` convention: a
         single MessagePack blob (``Vec<(String, bytes)>`` engine-side).
         """
-        blob = msgpack.packb([[fp, src] for fp, src in files])
+        blob = msgpack.packb(
+            [[_logical_source_name(fp), src] for fp, src in files],
+            use_bin_type=True,
+        )
         return await self._client._send("ParseFiles", {"files_msgpack": blob})
 
     async def index_repository(self, files: list[tuple[str, bytes]]) -> dict[str, Any]:
@@ -385,7 +2180,10 @@ class GraphOperationsClient:
         repository's symbol graph; use :meth:`parse_files` only when per-file raw
         results are wanted.
         """
-        blob = msgpack.packb([[fp, src] for fp, src in files])
+        blob = msgpack.packb(
+            [[_logical_source_name(fp), src] for fp, src in files],
+            use_bin_type=True,
+        )
         return await self._client._send("IndexRepository", {"files_msgpack": blob})
 
     async def observe_screen(
@@ -481,69 +2279,11 @@ class GraphOperationsClient:
             {"query": query},
         )
 
-    async def spectral_cluster(
-        self, vectors: list[list[float]], max_k: int, domain: str
-    ) -> list[dict[str, Any]]:
-        return await self._client._send(
-            "SpectralCluster", {"vectors": vectors, "max_k": max_k, "domain": domain}
-        )
-
-    async def hypergraph_encode_interaction(
-        self,
-        pos_a: int,
-        pos_b: int,
-        pos_dim: int,
-        hidden_dim: int,
-        out_dim: int,
-        seed: int,
-    ) -> list[float]:
-        return await self._client._send(
-            "HypergraphEncodeInteraction",
-            {
-                "pos_a": pos_a,
-                "pos_b": pos_b,
-                "pos_dim": pos_dim,
-                "hidden_dim": hidden_dim,
-                "out_dim": out_dim,
-                "seed": seed,
-            },
-        )
-
-    async def batch_cosine_similarity(
-        self, query: list[float], targets: list[list[float]]
-    ) -> list[float]:
-        return await self._client._send(
-            "BatchCosineSimilarity", {"query": query, "targets": targets}
-        )
-
     async def batch_l2_normalize(self, vectors: list[list[float]]) -> list[list[float]]:
         """L2-normalize a batch of vectors IN-ENGINE via the eg-numeric kernel
         (CONCEPT:EG-KG.compute.l2-normalize-batch-vectors, compute-near-data). Returns each row's unit vector `v/‖v‖`
         (a zero vector is returned unchanged). Requires the engine's `numeric` feature."""
         return await self._client._send("BatchL2Normalize", {"vectors": vectors})
-
-    async def find_similar_pairs(
-        self,
-        embeddings: list[list[float]],
-        ids: list[str],
-        threshold: float,
-        use_lsh: bool,
-        lsh_num_tables: int,
-        lsh_hash_size: int,
-        seed: int,
-    ) -> list[tuple[str, str, float]]:
-        return await self._client._send(
-            "FindSimilarPairs",
-            {
-                "embeddings": embeddings,
-                "ids": ids,
-                "threshold": threshold,
-                "use_lsh": use_lsh,
-                "lsh_num_tables": lsh_num_tables,
-                "lsh_hash_size": lsh_hash_size,
-                "seed": seed,
-            },
-        )
 
     async def vf2_subgraph_match(
         self, pattern: EpistemicGraphClient
@@ -696,8 +2436,48 @@ class LifecycleClient:
         )
 
     async def batch_update(self, operations: list[dict[str, Any]]) -> Any:
+        """Atomically apply validated graph/vector operations to the bound graph.
+
+        Supported shapes use ``id`` for nodes/vectors and ``source``/``target``
+        for edges: ``add_node``, ``upsert_node``, ``remove_node``, ``add_edge``,
+        ``upsert_edge``, ``remove_edge``, and ``add_embedding``. Node/edge
+        ``properties`` must be a mapping; ``embedding`` must be a non-empty finite
+        number list. ``upsert_edge`` replaces every parallel edge for that ordered
+        pair with one row. Removing a node also removes all incident edges and its
+        embedding.
+
+        The engine validates the complete list before changing RAM and commits
+        graph rows plus semantic-vector changes in one durable transaction. An
+        unknown or malformed operation fails the whole batch; no partial-success
+        rows are retained.
+        """
         return await self._client._send(
             "BatchUpdate", {"operations_msgpack": list(msgpack.packb(operations))}
+        )
+
+    async def multi_graph_batch_update(
+        self, batches: dict[str, list[dict[str, Any]]]
+    ) -> dict[str, Any]:
+        """Batched CROSS-GRAPH write in ONE round-trip (CONCEPT:EG-KG.storage.multi-graph-batch-write).
+
+        ``batches`` maps ``graph_name → operations`` where each ``operations`` list
+        is exactly a :meth:`batch_update` op list. The server applies each graph's
+        sub-batch through the normal per-graph write path CONCURRENTLY, so N
+        distinct graphs commit across N of the K redb shard writers in parallel —
+        instead of the caller serializing N round-trips that each re-acquire one
+        write lock. Reuses the existing ``BatchUpdate`` primitive server-side.
+
+        Returns ``{"results": {graph: <batch_result>}, "errors": {graph: msg}}``;
+        one graph's failure never aborts the others (partial-success). Encodes as
+        ``Vec<(graph_name, operations_msgpack)>`` so the ordering is deterministic.
+        """
+        encoded = [
+            (str(graph), list(msgpack.packb(list(ops))))
+            for graph, ops in batches.items()
+        ]
+        return await self._client._send(
+            "MultiGraphBatchUpdate",
+            {"batches_msgpack": list(msgpack.packb(encoded))},
         )
 
     async def metrics(self) -> dict[str, Any]:
@@ -893,8 +2673,8 @@ class ReshardingClient:
 
     Drives, over the wire, the M3 ops the engine has building blocks for: online
     single-node resharding (EG-032), the durable tenant catalog (EG-031), and the
-    rebalancing planner (EG-035) + its execution (EG-039). All require a durable redb
-    engine; a non-redb build returns a "not available in this build" error.
+    rebalancing planner (EG-035) + its execution (EG-039). The mandatory main build
+    includes the durable redb engine these operations require.
     """
 
     def __init__(self, client: EpistemicGraphClient) -> None:
@@ -924,7 +2704,7 @@ class ReshardingClient:
         )
 
     async def catalog_remove(self, graph: str) -> bool:
-        """Drop ``graph``'s explicit placement — it reverts to EG-026 FNV-1a routing."""
+        """Drop ``graph``'s catalog row; the engine chooses its unplaced policy."""
         return await self._client._send("CatalogRemove", {"graph": graph})
 
     async def catalog_list(self) -> dict[str, Any]:
@@ -950,6 +2730,178 @@ class ReshardingClient:
         )
 
 
+class PlacementClient:
+    """CONCEPT:EG-KG.sharding.placement-route-rpc / EG-KG.sharding.placement-catalog-admin-rpc —
+    DIST-P2-4/DIST-P2-5 placement-catalog wire consumer + admin namespace.
+
+    Exposes the engine's ``raft::placement::PlacementCatalog`` (DIST-P2-1's ONE
+    placement authority for virtual partitions — durable, versioned, spans-multiple-
+    groups routing with a fenced-cutover epoch) over the wire: :meth:`route` (a read,
+    ``Method::PlacementRoute``) plus the admin mutation trio :meth:`assign` /
+    :meth:`move` / :meth:`abort_move` (DIST-P2-5, ``Method::PlacementAdmin``'s
+    ``assign``/``move``/``abort_move`` ops). Before the admin trio existed, the
+    catalog's assign/split/merge/online-move machinery was reachable only from
+    in-process Rust — even on a real multi-node Raft cluster there was no way for an
+    external caller to trigger a placement decision or drive an online move. All four
+    methods require a `raft`/`cluster`-feature engine build with `MultiRaft` running;
+    a single-node build answers `route` with the authoritative unplaced policy and
+    the three admin methods with a typed "not available" error.
+    """
+
+    def __init__(self, client: EpistemicGraphClient) -> None:
+        self._client = client
+
+    async def route(
+        self, tenant: str, sub_key: str, client_epoch: int = 0
+    ) -> dict[str, Any]:
+        """Resolve ``(tenant, sub_key)``'s current placement.
+
+        ``client_epoch`` is the caller's last-known routing epoch for this
+        partition (``0`` if it never resolved one before). Every success is a
+        complete engine-authored ``PlacementRoute``. Unplaced/single-node policy is
+        still complete (`placed=False`, normally group/epoch 0); callers never
+        hash. A durable placement must have a non-zero epoch and its numeric fence
+        must match the returned group.
+        """
+        answer = await self._client._send(
+            "PlacementRoute",
+            {
+                "request": {
+                    "schema_version": "1",
+                    "tenant_ref": tenant,
+                    "partition_ref": sub_key,
+                    "client_epoch": client_epoch,
+                }
+            },
+        )
+        answer = _exact_mapping(
+            "PlacementRoute",
+            answer,
+            frozenset(
+                {
+                    "schema_version",
+                    "route_id",
+                    "tenant_ref",
+                    "partition_ref",
+                    "authoritative",
+                    "placed",
+                    "group",
+                    "epoch",
+                    "fencing_token",
+                    "stale",
+                    "leader_ref",
+                }
+            ),
+        )
+        if answer["schema_version"] != "1" or answer["authoritative"] is not True:
+            raise ValueError("engine returned a non-authoritative placement route")
+        _string("PlacementRoute.route_id", answer["route_id"])
+        if answer["tenant_ref"] != tenant or answer["partition_ref"] != sub_key:
+            raise ValueError("engine returned a route for a different partition")
+        group = _integer("PlacementRoute.group", answer["group"])
+        epoch = _integer("PlacementRoute.epoch", answer["epoch"])
+        fence = _integer("PlacementRoute.fencing_token", answer["fencing_token"])
+        placed = _boolean("PlacementRoute.placed", answer["placed"])
+        _boolean("PlacementRoute.stale", answer["stale"])
+        if (
+            not isinstance(placed, bool)
+            or group < 0
+            or epoch < 0
+            or fence != group
+            or (placed and epoch == 0)
+        ):
+            raise ValueError("engine returned an invalid placement fence")
+        return answer
+
+    async def assign(self, tenant: str, group: int) -> int:
+        """Assign the WHOLE keyspace of ``tenant`` to ``group`` (the placement
+        DECISION leg, DIST-P2-5, ``Method::PlacementAdmin`` op ``assign``). Collapses
+        any prior split. Raft/cluster-only. Returns the new routing epoch — every
+        subsequent :meth:`route` call observes it immediately."""
+        result = await self._client._send(
+            "PlacementAdmin",
+            {"op": {"operation": "assign", "tenant": tenant, "group": group}},
+        )
+        return _integer("PlacementAdmin.assign.epoch", result["epoch"])
+
+    async def move(
+        self, tenant: str, range_start: int, range_end: int, target: int
+    ) -> dict[str, Any]:
+        """Online-move ``tenant``'s partition ``[range_start, range_end]`` to
+        ``target`` (DIST-P2-5, ``Method::PlacementAdmin`` op ``move``) — the full PLAN
+        -> EXECUTE -> CATALOG-UPDATE leg: snapshot, per-graph durability-barrier
+        catch-up, then a fenced cutover, reusing the engine's already-proven
+        ``TenantManager::move_partition`` state machine (crash-safe via its durable
+        move journal). Raft/cluster-only. Returns the engine's
+        ``PlacementMoveReport``: ``{tenant, range: [start, end], target, epoch,
+        graphs: [{graph, from_group, to_group, nodes_transferred}, ...]}``."""
+        return await self._client._send(
+            "PlacementAdmin",
+            {
+                "op": {
+                    "operation": "move",
+                    "tenant": tenant,
+                    "range_start": range_start,
+                    "range_end": range_end,
+                    "target": target,
+                }
+            },
+        )
+
+    async def abort_move(self, move_id: str) -> bool:
+        """Abort an in-flight online move identified by ``move_id`` before its
+        cutover fence (DIST-P2-5, ``Method::PlacementAdmin`` op ``abort_move``). A
+        move already past its epoch fence is rejected — recovery is roll-forward
+        only. Raft/cluster-only."""
+        return await self._client._send(
+            "PlacementAdmin", {"op": {"operation": "abort_move", "move_id": move_id}}
+        )
+
+
+class RaftAdminClient:
+    """CONCEPT:EG-KG.storage.kg-kg-2 — Raft cluster-membership admin namespace
+    (``cluster_deployment.md`` §5 item 2).
+
+    Drives ``MultiRaft::add_group_learner``/``change_group_voters`` (raft/multi.rs)
+    over the wire via ``Method::RaftAddLearner``/``Method::RaftChangeMembership``,
+    the missing "attach a node to a live cluster" entrypoint the M2 soak flagged.
+    Both ops are leader-only; a follower answers ``OPERATION_REDIRECTED`` naming the
+    current leader (the same shape ``PlacementRoute``'s stale route uses), and an
+    engine with no live ``MultiRaft`` raises a clean error.
+    """
+
+    def __init__(self, client: EpistemicGraphClient) -> None:
+        self._client = client
+
+    async def add_learner(
+        self, node_id: int, addr: str, *, group: int | None = None
+    ) -> bool:
+        """Attach ``node_id`` (reachable at ``addr``) to ``group`` (default: the
+        single-group deployment's group 0) as a NON-VOTING LEARNER. Starts
+        replication immediately and blocks until the learner's log is caught up,
+        but does NOT change the voter set — quorum size and fault tolerance are
+        unaffected. MUST be issued against the group's current leader. The safe
+        first step before optionally promoting the node with
+        :meth:`change_membership`."""
+        return await self._client._send(
+            "RaftAddLearner",
+            {"group": group, "node_id": node_id, "addr": addr},
+        )
+
+    async def change_membership(
+        self, voters: list[int], *, group: int | None = None
+    ) -> bool:
+        """Set ``group``'s (default: group 0) VOTER set to exactly ``voters``. The
+        usual way to PROMOTE one or more learners added via :meth:`add_learner`:
+        pass the full desired voter set (existing voters plus the learner(s) being
+        promoted). Refuses to produce an empty voter set. MUST be issued against
+        the group's current leader."""
+        return await self._client._send(
+            "RaftChangeMembership",
+            {"group": group, "voters": voters},
+        )
+
+
 class ConsensusClient:
     """CONCEPT:AU-KG.research.research-pipeline-runner — Zero-Trust Consensus Namespace"""
 
@@ -957,29 +2909,147 @@ class ConsensusClient:
         self._client = client
 
     async def register_identity(
-        self, agent_id: str, role: str, teams: list[str], signature: str
+        self,
+        agent_id: str,
+        role: str | dict[str, Any],
+        teams: list[str],
+        roles: list[str],
+        *,
+        signer_id: str,
+        signer_key: str,
     ) -> str:
+        """Register an identity with a detached current-context signature.
+
+        ``signer_id`` and ``agent_id`` are explicit opaque identifiers. The
+        signer key is used only for this call and is never added to request
+        parameters or retained by the client.
+        """
+
+        if not isinstance(agent_id, str) or not agent_id.strip():
+            raise ValueError("agent_id must be a non-empty opaque identifier")
+        teams = _validate_explicit_string_list("teams", teams)
+        roles = _validate_explicit_string_list("roles", roles)
+        if isinstance(role, str):
+            if role not in {"System", "Agent"}:
+                raise ValueError("role must be System, Agent, or a Manager value")
+        elif isinstance(role, dict):
+            manager = role.get("Manager") if set(role) == {"Manager"} else None
+            if not isinstance(manager, dict) or set(manager) != {"subordinates"}:
+                raise ValueError("Manager role must contain only subordinates")
+            role = {
+                "Manager": {
+                    "subordinates": _validate_explicit_string_list(
+                        "Manager.subordinates", manager["subordinates"]
+                    )
+                }
+            }
+        else:
+            raise TypeError("role must be System, Agent, or a Manager value")
+        idempotency_key = self._client._new_operation_idempotency_key()
+        params: dict[str, Any] = {
+            "agent_id": agent_id,
+            "role": role,
+            "teams": teams,
+            "signature": "",
+            "roles": roles,
+        }
+        params["signature"] = self._client._sign_context_operation(
+            domain="eg-register-identity-v2",
+            method="RegisterIdentity",
+            params=params,
+            graph="__commons__",
+            idempotency_key=idempotency_key,
+            signer_id=signer_id,
+            signer_key=signer_key,
+        )
         return await self._client._send(
             "RegisterIdentity",
-            {
-                "agent_id": agent_id,
-                "role": role,
-                "teams": teams,
-                "signature": signature,
-            },
+            params,
+            graph="__commons__",
+            idempotency_key=idempotency_key,
+        )
+
+    async def bootstrap_system_identity(
+        self, *, agent_id: str, signer_id: str, signer_key: str
+    ) -> str:
+        """Create the first system identity through the current bootstrap gate."""
+
+        context = self._client._effective_verified_context()
+        if (
+            context["principal"] != agent_id
+            or context["agent_id"] != agent_id
+            or signer_id != agent_id
+            or context["roles"]
+            or context["scopes"] != ["security:bootstrap"]
+            or context["delegation"]
+        ):
+            raise ValueError(
+                "bootstrap requires matching explicit identities and only security:bootstrap authority"
+            )
+        return await self.register_identity(
+            agent_id,
+            "System",
+            [],
+            [],
+            signer_id=signer_id,
+            signer_key=signer_key,
         )
 
     async def apply_multisig_mutation(
-        self, signatures: list[str], threshold: int, mutation_type: str, query: str
+        self,
+        signer_keys: dict[str, str],
+        threshold: int,
+        mutation_type: str,
+        query: str,
     ) -> str:
+        """Apply an administrative mutation signed by explicit trusted signers."""
+
+        if (
+            not isinstance(signer_keys, dict)
+            or not isinstance(threshold, int)
+            or isinstance(threshold, bool)
+            or threshold <= 0
+            or len(signer_keys) < threshold
+        ):
+            raise ValueError("threshold requires at least that many explicit signers")
+        if not isinstance(mutation_type, str) or not mutation_type.strip():
+            raise ValueError("mutation_type and query must be non-empty strings")
+        if not isinstance(query, str) or not query.strip():
+            raise ValueError("mutation_type and query must be non-empty strings")
+        if any(
+            not isinstance(signer_id, str)
+            or not signer_id.strip()
+            or not isinstance(signer_key, str)
+            or not signer_key
+            for signer_id, signer_key in signer_keys.items()
+        ):
+            raise ValueError("operation signer ids and keys must be non-empty strings")
+        idempotency_key = self._client._new_operation_idempotency_key()
+        params: dict[str, Any] = {
+            "signatures": [],
+            "threshold": threshold,
+            "mutation_type": mutation_type,
+            "query": query,
+        }
+        signatures = [
+            self._client._sign_context_operation(
+                domain="eg-multisig-mutation-v2",
+                method="ApplyMultisigMutation",
+                params=params,
+                graph="__commons__",
+                idempotency_key=idempotency_key,
+                signer_id=signer_id,
+                signer_key=signer_keys[signer_id],
+                require_context_principal=False,
+            )
+            for signer_id in sorted(signer_keys)
+        ]
+        params["signatures"] = signatures
         return await self._client._send(
             "ApplyMultisigMutation",
-            {
-                "signatures": signatures,
-                "threshold": threshold,
-                "mutation_type": mutation_type,
-                "query": query,
-            },
+            params,
+            graph="__commons__",
+            idempotency_key=idempotency_key,
         )
 
 
@@ -2024,6 +4094,775 @@ class DataScienceClient:
         )
 
 
+class MiningClient:
+    """CONCEPT:EG-KG.mining.frequent-itemset-mining — Data-mining Namespace.
+
+    Descriptive, pattern-oriented mining that runs compute-near-data over the
+    resident graph. Phase 1 exposes association-rule mining; later phases add
+    ``cluster``/``anomaly``/``sequence``/``forecast``/``subgraph`` onto this same
+    subclient. Mirrors the ``graph_mine`` MCP verb + the ``/api/mining/*`` REST twin.
+    """
+
+    def __init__(self, client: EpistemicGraphClient) -> None:
+        self._client = client
+
+    async def associate(
+        self,
+        transactions: list[list[str]] | None = None,
+        *,
+        source: dict[str, Any] | None = None,
+        min_support: float = 0.1,
+        min_confidence: float = 0.5,
+        algorithm: str = "fpgrowth",
+        writeback: bool = False,
+    ) -> dict[str, Any]:
+        """Mine association rules (support / confidence / lift).
+
+        Provide EITHER explicit ``transactions`` (each a set of item labels) OR a
+        graph-derived ``source`` spec — ``{"node_label", "direction", "item_field",
+        "relation", "limit"}`` — that turns node neighborhoods into transactions
+        (mine directly over resident graph data). ``algorithm`` is one of
+        ``fpgrowth`` (default) / ``apriori`` / ``eclat`` (all agree). With
+        ``writeback=True`` each rule is materialized as a typed ``:AssociationRule``
+        node linked to its item nodes. Returns
+        ``{rules: [{antecedent, consequent, support, confidence, lift}], ...}``.
+        """
+        params: dict[str, Any] = {
+            "min_support": min_support,
+            "min_confidence": min_confidence,
+            "algorithm": algorithm,
+            "writeback": writeback,
+        }
+        if transactions is not None:
+            params["transactions"] = transactions
+        if source is not None:
+            params["source"] = source
+        return await self._client._send("MineAssociate", params)
+
+    async def cluster(
+        self,
+        features: list[list[float]] | None = None,
+        *,
+        source: dict[str, Any] | None = None,
+        plan: list[dict[str, Any]] | None = None,
+        algorithm: str = "dbscan",
+        eps: float = 0.5,
+        min_pts: int = 5,
+        k: int = 3,
+        linkage: str = "average",
+        max_iter: int = 100,
+        seed: int = 0,
+        writeback: bool = False,
+    ) -> dict[str, Any]:
+        """Cluster a feature matrix (CONCEPT:EG-KG.mining.dbscan-density).
+
+        Provide explicit ``features``, a graph-derived ``source`` spec —
+        ``{"node_label", "limit"}`` — that gathers the stored embeddings of a node
+        label as the rows (the cross-modal "cluster the vectors of these nodes"
+        hook), OR a fused upstream retrieval ``plan`` (CONCEPT:EG-KG.mining.fused-plan-source
+        — the SAME externally-tagged ``Op`` list :meth:`unified_query` takes, e.g.
+        ``[{"Scan": {"label": "Doc"}}, {"Rank": {"query": [...]}}, {"Limit":
+        {"k": 50}}]``): the plan runs FIRST over the resident graph/vector/SQL/time
+        modalities, compute-near-data, and each resulting row's stored embedding
+        becomes a feature row — so ``retrieve → cluster → writeback`` is ONE round
+        trip, no client marshalling between retrieve and mine. Precedence:
+        ``features`` > ``plan`` > ``source``. ``algorithm`` is one of ``dbscan``
+        (default) / ``hierarchical`` / ``gmm`` / ``kmedoids``; DBSCAN uses
+        ``eps``/``min_pts``, the rest use ``k`` (hierarchical also ``linkage`` ∈
+        ``single|complete|average``; GMM/k-medoids use ``max_iter``, GMM also
+        ``seed``). With ``writeback=True`` each non-noise cluster is materialized as
+        a typed ``:Cluster`` node linked to its member nodes. Returns
+        ``{clusters: [{cluster_id, members, centroid, score}], labels, ...}`` (GMM
+        also returns ``responsibilities``).
+        """
+        params: dict[str, Any] = {
+            "algorithm": algorithm,
+            "eps": eps,
+            "min_pts": min_pts,
+            "k": k,
+            "linkage": linkage,
+            "max_iter": max_iter,
+            "seed": seed,
+            "writeback": writeback,
+        }
+        if features is not None:
+            params["features"] = features
+        if plan is not None:
+            params["plan"] = {"ops": plan}
+        if source is not None:
+            params["source"] = source
+        return await self._client._send("MineCluster", params)
+
+    async def anomaly(
+        self,
+        features: list[list[float]] | None = None,
+        *,
+        values: list[float] | None = None,
+        source: dict[str, Any] | None = None,
+        plan: list[dict[str, Any]] | None = None,
+        algorithm: str = "zscore",
+        k: int = 20,
+        n_trees: int = 100,
+        sample_size: int = 256,
+        seed: int = 0,
+        nu: float = 0.1,
+        gamma: float = 0.0,
+        kernel: str = "rbf",
+        threshold: float | None = None,
+        writeback: bool = False,
+    ) -> dict[str, Any]:
+        """Detect anomalies / outliers in a feature matrix (CONCEPT:EG-KG.mining.isolation-forest).
+
+        Provide an explicit ``features`` matrix, a 1-D ``values`` series (each
+        scalar becomes one row — the tsdb root-cause path), a graph-derived
+        ``source`` (node embeddings), OR a fused upstream retrieval ``plan``
+        (CONCEPT:EG-KG.mining.fused-plan-source, same shape as :meth:`unified_query`'s —
+        e.g. TsScan/Traverse/Rank a candidate set, then anomaly-detect it in one
+        round trip). Precedence: ``features`` > ``values`` > ``plan`` > ``source``.
+        ``algorithm`` is one of ``zscore`` (default,
+        robust MAD) / ``isoforest`` (Isolation Forest — ``n_trees``, ``sample_size``,
+        ``seed``) / ``lof`` (Local Outlier Factor — ``k`` neighbors) / ``ocsvm``
+        (One-Class SVM — ``nu``, ``kernel`` ∈ ``rbf|linear``, ``gamma``). Rows over
+        ``threshold`` (per-algorithm default when ``None``) are flagged. With
+        ``writeback=True`` each flagged row is materialized as a typed ``:Anomaly``
+        node linked to its source node. Returns
+        ``{rows: [{id, anomaly_score, is_anomaly}], n_anomalies, threshold, ...}``.
+        """
+        params: dict[str, Any] = {
+            "algorithm": algorithm,
+            "k": k,
+            "n_trees": n_trees,
+            "sample_size": sample_size,
+            "seed": seed,
+            "nu": nu,
+            "gamma": gamma,
+            "kernel": kernel,
+            "writeback": writeback,
+        }
+        if threshold is not None:
+            params["threshold"] = threshold
+        if features is not None:
+            params["features"] = features
+        if values is not None:
+            params["values"] = values
+        if plan is not None:
+            params["plan"] = {"ops": plan}
+        if source is not None:
+            params["source"] = source
+        return await self._client._send("MineAnomaly", params)
+
+    async def classify_fit(
+        self,
+        x: list[list[float]] | None = None,
+        y: list[int] | None = None,
+        *,
+        source: dict[str, Any] | None = None,
+        plan: list[dict[str, Any]] | None = None,
+        algorithm: str = "gaussiannb",
+        k: int = 5,
+        alpha: float = 1.0,
+        lr: float = 0.1,
+        epochs: int = 300,
+        l2: float = 0.0,
+        c: float = 1.0,
+    ) -> dict[str, Any]:
+        """Fit a classifier (PREDICTIVE) → a serializable model blob (CONCEPT:EG-KG.mining.naive-bayes).
+
+        Provide an explicit ``x`` feature matrix, a graph-derived ``source`` spec —
+        ``{"node_label", "limit"}`` — (node embeddings + ontology features), OR a
+        fused upstream retrieval ``plan`` (CONCEPT:EG-KG.mining.fused-plan-source, same
+        shape as :meth:`unified_query`'s), plus integer ``y`` labels (one per row —
+        must align by position with the plan's resulting row order). ``algorithm``
+        is one of ``gaussiannb`` (default) / ``multinomialnb`` / ``knn`` (``k``
+        neighbors) / ``logistic`` (``lr``, ``epochs``, ``l2``) / ``svc`` (``c``,
+        ``epochs``, ``lr``). Returns ``{model, classes, n_samples, ...}``; pass the
+        returned ``model`` back to :meth:`classify_predict`. Read-only (no graph
+        mutation).
+        """
+        params: dict[str, Any] = {
+            "y": y or [],
+            "algorithm": algorithm,
+            "k": k,
+            "alpha": alpha,
+            "lr": lr,
+            "epochs": epochs,
+            "l2": l2,
+            "c": c,
+        }
+        if x is not None:
+            params["x"] = x
+        if plan is not None:
+            params["plan"] = {"ops": plan}
+        if source is not None:
+            params["source"] = source
+        return await self._client._send("MineClassifyFit", params)
+
+    async def classify_predict(
+        self,
+        model: dict[str, Any],
+        x: list[list[float]] | None = None,
+        *,
+        source: dict[str, Any] | None = None,
+        plan: list[dict[str, Any]] | None = None,
+        writeback: bool = False,
+    ) -> dict[str, Any]:
+        """Predict labels + probabilities from a fitted ``model`` (CONCEPT:EG-KG.mining.naive-bayes).
+
+        ``model`` is the blob returned by :meth:`classify_fit`. Rows come from an
+        explicit ``x`` matrix, a graph-derived ``source`` (node embeddings — the
+        cross-modal "classify these nodes" hook), OR a fused upstream retrieval
+        ``plan`` (CONCEPT:EG-KG.mining.fused-plan-source). With ``writeback=True`` each
+        prediction is materialized as a typed ``:Classification`` node linked to its
+        source node. Returns ``{rows: [{id, label, proba}], classes, ...}``.
+        """
+        params: dict[str, Any] = {"model": model, "writeback": writeback}
+        if x is not None:
+            params["x"] = x
+        if plan is not None:
+            params["plan"] = {"ops": plan}
+        if source is not None:
+            params["source"] = source
+        return await self._client._send("MineClassifyPredict", params)
+
+    async def reduce(
+        self,
+        x: list[list[float]] | None = None,
+        *,
+        source: dict[str, Any] | None = None,
+        plan: list[dict[str, Any]] | None = None,
+        labels: list[int] | None = None,
+        algorithm: str = "svd",
+        n_components: int = 2,
+        n_neighbors: int = 15,
+        min_dist: float = 0.1,
+        perplexity: float = 30.0,
+        epochs: int = 300,
+        lr: float = 100.0,
+        seed: int = 0,
+        writeback: bool = False,
+    ) -> dict[str, Any]:
+        """Reduce a feature matrix to low-D coords (DESCRIPTIVE, CONCEPT:EG-KG.mining.truncated-svd).
+
+        Provide an explicit ``x`` matrix, a graph-derived ``source`` (node
+        embeddings — "reduce these node vectors for the graphviz"), OR a fused
+        upstream retrieval ``plan`` (CONCEPT:EG-KG.mining.fused-plan-source, same shape
+        as :meth:`unified_query`'s — e.g. vector-``Rank`` a neighborhood, then
+        reduce it for the graphviz in one round trip). ``algorithm`` is
+        one of ``svd`` (default, truncated SVD) / ``lda`` (supervised — needs
+        ``labels``) / ``umap`` (``n_neighbors``, ``min_dist``, ``epochs``, ``seed``) /
+        ``tsne`` (``perplexity``, ``epochs``, ``lr``, ``seed``); ``n_components`` sets
+        the target dimensionality. With ``writeback=True`` each row's reduced vector is
+        materialized as a typed ``:Embedding2D`` node linked to its source node.
+        Returns ``{rows: [{id, coords}], n_components, ...}`` (svd also returns
+        ``singular_values``). UMAP/t-SNE are approximate + small-N by design.
+        """
+        params: dict[str, Any] = {
+            "algorithm": algorithm,
+            "n_components": n_components,
+            "n_neighbors": n_neighbors,
+            "min_dist": min_dist,
+            "perplexity": perplexity,
+            "epochs": epochs,
+            "lr": lr,
+            "seed": seed,
+            "writeback": writeback,
+        }
+        if x is not None:
+            params["x"] = x
+        if plan is not None:
+            params["plan"] = {"ops": plan}
+        if source is not None:
+            params["source"] = source
+        if labels is not None:
+            params["labels"] = labels
+        return await self._client._send("MineReduce", params)
+
+    async def sequence(
+        self,
+        sequences: list[list[str]] | None = None,
+        *,
+        source: dict[str, Any] | None = None,
+        min_support: float = 0.1,
+        algorithm: str = "prefixspan",
+        writeback: bool = False,
+    ) -> dict[str, Any]:
+        """Mine frequent sequential patterns (CONCEPT:EG-KG.mining.prefixspan — Phase 4).
+
+        Provide EITHER explicit ``sequences`` (each a time-ordered list of item
+        labels — an item may repeat) OR a graph-derived ``source`` spec —
+        ``{"node_label", "direction", "item_field", "relation", "limit"}`` —
+        that turns each node's ordered neighbor list (chronological edge order)
+        into one sequence (the "what reliably follows what" hook: evolution/
+        commit timelines, event streams). ``algorithm`` is one of ``prefixspan``
+        (default) / ``gsp`` (both agree — GSP is the sequence analog of Apriori,
+        PrefixSpan a projection-based no-candidate-generation engine). With
+        ``writeback=True`` each pattern is materialized as a typed
+        ``:SequentialPattern`` node linked to its resident item nodes. Returns
+        ``{patterns: [{items, support, count}], n_sequences, n_patterns, ...}``.
+        """
+        params: dict[str, Any] = {
+            "min_support": min_support,
+            "algorithm": algorithm,
+            "writeback": writeback,
+        }
+        if sequences is not None:
+            params["sequences"] = sequences
+        if source is not None:
+            params["source"] = source
+        return await self._client._send("MineSequence", params)
+
+    async def forecast(
+        self,
+        values: list[float],
+        *,
+        algorithm: str = "arima",
+        horizon: int = 10,
+        p: int = 1,
+        d: int = 1,
+        q: int = 0,
+        period: int = 0,
+        alpha: float = 0.3,
+        beta: float = 0.1,
+        gamma: float = 0.1,
+        confidence: float = 0.95,
+        series_id: str = "",
+        writeback: bool = False,
+    ) -> dict[str, Any]:
+        """Forecast `horizon` future points from a 1-D series (CONCEPT:EG-KG.mining.arima — Phase 4).
+
+        `values` is a tsdb window handed in by the caller (mirrors
+        :meth:`anomaly`'s client-supplied ``values`` cut). ``algorithm`` is one
+        of ``arima`` (default — Hannan-Rissanen AR(``p``)/MA(``q``) after
+        ``d``-order differencing) / ``holtwinters`` (additive level/trend/
+        seasonal exponential smoothing — ``alpha``/``beta``/``gamma``,
+        seasonal ``period``; degrades to Holt linear-trend when ``period`` is
+        0) / ``stl`` (classical decomposition + trend/seasonal extrapolation,
+        also returns ``trend``/``seasonal``/``residual``). ``confidence`` sets
+        the two-sided forecast-band level (e.g. ``0.95``). With
+        ``writeback=True`` the forecast is materialized as a typed
+        ``:Forecast`` node — linked to a resident node named ``series_id``
+        when one exists. Returns ``{forecast, lower, upper, horizon, ...}``.
+        """
+        params: dict[str, Any] = {
+            "values": values,
+            "algorithm": algorithm,
+            "horizon": horizon,
+            "p": p,
+            "d": d,
+            "q": q,
+            "period": period,
+            "alpha": alpha,
+            "beta": beta,
+            "gamma": gamma,
+            "confidence": confidence,
+            "series_id": series_id,
+            "writeback": writeback,
+        }
+        return await self._client._send("MineForecast", params)
+
+    async def text(
+        self,
+        docs: list[list[str]] | None = None,
+        *,
+        source: dict[str, Any] | None = None,
+        algorithm: str = "tfidf",
+        k: int = 3,
+        alpha: float = 0.1,
+        beta: float = 0.01,
+        iterations: int = 200,
+        seed: int = 0,
+        top_n: int = 10,
+        writeback: bool = False,
+    ) -> dict[str, Any]:
+        """Mine a text corpus: TF-IDF or topic modeling (CONCEPT:EG-KG.mining.tfidf — Phase 4).
+
+        Provide EITHER explicit `docs` (each a pre-tokenized ``list[str]`` —
+        e.g. lowercased words) OR a graph-derived ``source`` spec —
+        ``{"node_label", "field", "limit"}`` — that tokenizes a text property
+        off a node label (compute-near-data, no Tantivy/eg-text dependency).
+        ``algorithm`` is one of ``tfidf`` (default — descriptive per-document
+        term weights, read-only) / ``lda`` (Latent Dirichlet Allocation via
+        collapsed Gibbs sampling — ``alpha``/``beta`` priors, ``iterations``
+        sweeps) / ``nmf`` (Non-negative Matrix Factorization by multiplicative
+        updates on the TF-IDF matrix). ``k`` sets the topic count for
+        ``lda``/``nmf``; ``top_n`` caps how many terms are kept per
+        document/topic row. With ``writeback=True`` (``lda``/``nmf`` only)
+        each topic is materialized as a typed ``:Topic`` node, linked
+        ``HAS_TOPIC`` from every resident document whose DOMINANT topic it is.
+        Returns ``{doc_terms: [...]}`` (tfidf) or ``{topics: [...],
+        doc_topics: [...]}`` (lda/nmf).
+        """
+        params: dict[str, Any] = {
+            "algorithm": algorithm,
+            "k": k,
+            "alpha": alpha,
+            "beta": beta,
+            "iterations": iterations,
+            "seed": seed,
+            "top_n": top_n,
+            "writeback": writeback,
+        }
+        if docs is not None:
+            params["docs"] = docs
+        if source is not None:
+            params["source"] = source
+        return await self._client._send("MineText", params)
+
+    async def subgraph(
+        self,
+        *,
+        label: str | None = None,
+        min_support: float = 0.1,
+        max_edges: int = 3,
+        algorithm: str = "gspan",
+        writeback: bool = False,
+    ) -> dict[str, Any]:
+        """Frequent subgraph mining + motif counting (CONCEPT:EG-KG.mining.gspan-frequent-subgraph — Phase 4).
+
+        UNLIKE every other ``mining`` method, this one mines the RESIDENT
+        GRAPH's own topology directly — no rows/vectors to pass in. ``label``,
+        when given, restricts the scanned host graph to nodes of that ONE
+        type (``None`` scans the whole resident graph heterogeneously).
+        ``algorithm`` is one of ``gspan`` (default — level-wise frequent
+        connected-subgraph pattern growth up to ``max_edges`` edges,
+        canonicalized + exactly re-counted; ``min_support`` is a fraction of
+        the host's total edge count) or ``motif`` (a label-agnostic
+        topological census: open wedges, triangles, directed 3-cycles — reads
+        ``min_support``/``max_edges`` are ignored). With ``writeback=True``
+        (``gspan`` only) each frequent pattern is materialized as a typed
+        ``:FrequentSubgraph`` node linked to every host node in any of its
+        embeddings. Returns ``{patterns: [{nodes, edges, support, count}],
+        ...}`` (gspan) or ``{motifs: {wedge, triangle, directed_cycle3}, ...}``
+        (motif).
+        """
+        params: dict[str, Any] = {
+            "min_support": min_support,
+            "max_edges": max_edges,
+            "algorithm": algorithm,
+            "writeback": writeback,
+        }
+        if label is not None:
+            params["label"] = label
+        return await self._client._send("MineSubgraph", params)
+
+    async def entity_resolve(
+        self,
+        records: list[list[str]] | None = None,
+        *,
+        block_keys: list[str] | None = None,
+        vectors: list[list[float]] | None = None,
+        source: dict[str, Any] | None = None,
+        ids: list[str] | None = None,
+        bucket_precision: int = 1,
+        threshold: float = 0.5,
+        writeback: bool = False,
+    ) -> dict[str, Any]:
+        """Entity resolution / record linkage (CONCEPT:EG-KG.mining.entity-resolution).
+
+        Provide EITHER ``records`` (token-attribute rows for Jaccard record linkage,
+        blocked by the parallel ``block_keys``) OR embedding rows — explicit
+        ``vectors`` or a graph-derived ``source`` spec (``{"node_label", "limit"}``,
+        same shape as :meth:`cluster`'s ``source``) — for cosine entity resolution,
+        blocked by a ``bucket_precision``-rounded grid. ``ids`` optionally names the
+        explicit rows (``records``/``vectors``); a graph-derived ``source`` supplies
+        its own resident node ids. ``threshold`` is the minimum similarity (Jaccard or
+        cosine, ``[0,1]``) to emit a match. With ``writeback=True`` each match is
+        materialized as a typed ``:EntityMatch`` node linked to both members (when
+        resident node ids). Returns ``{matches: [{left, right, score}], ...}``.
+        """
+        params: dict[str, Any] = {
+            "bucket_precision": bucket_precision,
+            "threshold": threshold,
+            "writeback": writeback,
+        }
+        if records is not None:
+            params["records"] = records
+        if block_keys is not None:
+            params["block_keys"] = block_keys
+        if vectors is not None:
+            params["vectors"] = vectors
+        if source is not None:
+            params["source"] = source
+        if ids is not None:
+            params["ids"] = ids
+        return await self._client._send("MineEntityResolve", params)
+
+    async def causal_impact(
+        self,
+        series: list[float],
+        *,
+        control: list[float] | None = None,
+        intervention_index: int = 0,
+        series_id: str | None = None,
+        writeback: bool = False,
+    ) -> dict[str, Any]:
+        """Causal impact estimation (CONCEPT:EG-KG.mining.causal-impact): interrupted
+        time series (``series`` alone) or difference-in-differences (``series`` +
+        non-empty ``control``), split at ``intervention_index`` (the first
+        post-intervention observation, in BOTH series for DiD). With
+        ``writeback=True`` materializes the estimate as a typed ``:CausalEffect``
+        node (``series_id`` names it; empty ⇒ derived from the input)."""
+        params: dict[str, Any] = {
+            "series": series,
+            "intervention_index": intervention_index,
+            "writeback": writeback,
+        }
+        if control is not None:
+            params["control"] = control
+        if series_id is not None:
+            params["series_id"] = series_id
+        return await self._client._send("MineCausalImpact", params)
+
+    async def process(
+        self,
+        traces: list[list[str]],
+        *,
+        process_id: str | None = None,
+        writeback: bool = False,
+    ) -> dict[str, Any]:
+        """Process mining (CONCEPT:EG-KG.mining.process-mining): directly-follows graph
+        + alpha-miner-lite footprint (causal/parallel/choice relations, start/end
+        activity sets) over ordered event ``traces`` (each a time-ordered activity
+        sequence; an activity may repeat within a trace). With ``writeback=True``
+        materializes the footprint as a typed ``:ProcessModel`` node (``process_id``
+        names it; empty ⇒ derived from the mined footprint's own shape)."""
+        params: dict[str, Any] = {"traces": traces, "writeback": writeback}
+        if process_id is not None:
+            params["process_id"] = process_id
+        return await self._client._send("MineProcess", params)
+
+    async def root_cause(
+        self,
+        nodes: list[str],
+        scores: list[float],
+        edges: list[tuple[str, str, float]],
+        symptom: str,
+        *,
+        max_hops: int = 5,
+        decay: float = 0.85,
+        writeback: bool = False,
+    ) -> dict[str, Any]:
+        """Root-cause propagation (CONCEPT:EG-KG.mining.root-cause): given a directed
+        weighted dependency graph ``edges`` (``(cause_id, effect_id, weight)``) and a
+        per-node anomaly ``scores`` vector (index-aligned with ``nodes`` — e.g.
+        :meth:`anomaly`'s own output), find the most-likely upstream root cause of the
+        already-flagged ``symptom`` node. ``max_hops`` caps search depth; ``decay`` is
+        the per-hop score decay ``(0,1]`` (mirrors PageRank's damping). With
+        ``writeback=True`` materializes the top candidate as a typed ``:RootCause``
+        node linked to the symptom."""
+        params: dict[str, Any] = {
+            "nodes": nodes,
+            "scores": scores,
+            "edges": [list(e) for e in edges],
+            "symptom": symptom,
+            "max_hops": max_hops,
+            "decay": decay,
+            "writeback": writeback,
+        }
+        return await self._client._send("MineRootCause", params)
+
+    async def risk_propagation(
+        self,
+        nodes: list[str],
+        seed: list[float],
+        edges: list[tuple[str, str, float]],
+        *,
+        damping: float = 0.85,
+        tolerance: float = 1e-9,
+        max_iterations: int = 100,
+        writeback: bool = False,
+    ) -> dict[str, Any]:
+        """Seeded risk propagation (CONCEPT:EG-KG.mining.risk-propagation): personalized
+        PageRank over a directed weighted graph ``edges`` (``(from_id, to_id,
+        weight)``), restarting to the ``seed`` risk distribution (index-aligned with
+        ``nodes``; any non-negative scale, normalized internally) instead of
+        teleporting uniformly. With ``writeback=True`` materializes each node's
+        propagated score as a typed ``:RiskScore`` node."""
+        params: dict[str, Any] = {
+            "nodes": nodes,
+            "seed": seed,
+            "edges": [list(e) for e in edges],
+            "damping": damping,
+            "tolerance": tolerance,
+            "max_iterations": max_iterations,
+            "writeback": writeback,
+        }
+        return await self._client._send("MineRiskPropagation", params)
+
+    async def ontology_gap(
+        self,
+        *,
+        label: str | None = None,
+        writeback: bool = False,
+    ) -> dict[str, Any]:
+        """Ontology-gap detection (CONCEPT:EG-KG.mining.ontology-gap): scans the
+        resident graph's own type/relation-tagged class nodes (graph-native — no
+        ``rdf``/OWL-reasoner dependency) for completeness gaps: no declared
+        properties, an unresolved ``subClassOf`` parent (an orphan subclass), or a
+        fully disconnected class. ``label`` restricts the scan to class nodes of that
+        one type (``None`` ⇒ every node whose type is ``Class``/``OwlClass``). With
+        ``writeback=True`` materializes each gap as a typed ``:OntologyGap`` node
+        linked to its class."""
+        params: dict[str, Any] = {"writeback": writeback}
+        if label is not None:
+            params["label"] = label
+        return await self._client._send("MineOntologyGap", params)
+
+    async def retrieval_quality(
+        self,
+        traces: list[dict[str, Any]],
+        *,
+        k: int = 0,
+        query_id: str | None = None,
+        writeback: bool = False,
+    ) -> dict[str, Any]:
+        """Retrieval-quality evaluation (CONCEPT:EG-KG.mining.retrieval-quality):
+        precision@k / recall@k / MRR over stored retrieval ``traces`` (each
+        ``{"retrieved": [id, ...], "relevant": [id, ...]}``). ``k`` is the cutoff
+        (``0`` ⇒ each trace's full retrieved list). With ``writeback=True``
+        materializes the aggregate report as a typed ``:RetrievalQuality`` node
+        (``query_id`` names it; empty ⇒ derived from the input traces)."""
+        params: dict[str, Any] = {"traces": traces, "k": k, "writeback": writeback}
+        if query_id is not None:
+            params["query_id"] = query_id
+        return await self._client._send("MineRetrievalQuality", params)
+
+    async def community(
+        self,
+        *,
+        label: str | None = None,
+        algorithm: str = "louvain",
+        resolution: float = 1.0,
+        max_iterations: int = 100,
+        seed: int = 0,
+        weighted: bool = True,
+        writeback: bool = False,
+    ) -> dict[str, Any]:
+        """Community detection as a mining family (CONCEPT:EG-KG.mining.community-writeback):
+        wraps the EXISTING GDS Louvain / label-propagation kernels (no new
+        algorithm, only the epistemic writeback). Runs over the resident graph,
+        optionally restricted to one node ``label`` (like :meth:`subgraph`).
+        ``algorithm`` is ``"louvain"`` (default, uses ``resolution`` + a
+        ``seed``-ed deterministic shuffle) or ``"labelprop"`` (uses ``weighted``
+        to weight neighbor votes by edge weight); both use ``max_iterations`` as
+        their sweep cap. With ``writeback=True`` materializes each community as a
+        typed ``:Community`` node linked to its members."""
+        params: dict[str, Any] = {
+            "algorithm": algorithm,
+            "resolution": resolution,
+            "max_iterations": max_iterations,
+            "seed": seed,
+            "weighted": weighted,
+            "writeback": writeback,
+        }
+        if label is not None:
+            params["label"] = label
+        return await self._client._send("MineCommunity", params)
+
+
+class GraphLearnClient:
+    """CONCEPT:EG-KG.graphlearn.link-predictor — Graph-learning / neuro-symbolic Namespace.
+
+    A pure-Rust KAN (Kolmogorov-Arnold) link-predictor learned over the resident
+    graph. Unlike a black-box scorer, its learned per-feature edge functions ARE
+    queryable KG artifacts (``:EdgeFunction`` nodes), so *why* two nodes are predicted
+    linked is answerable from Cypher/SQL. Mirrors the ``graph_learn`` MCP verb + the
+    ``/api/graphlearn/*`` REST twin. Heavy multi-layer KAN-GNN training stays a
+    data-science-mcp/torch job whose distilled outputs flow back through this seam.
+    """
+
+    def __init__(self, client: EpistemicGraphClient) -> None:
+        self._client = client
+
+    async def fit(
+        self,
+        node_label: str,
+        *,
+        direction: str = "any",
+        relation: str | None = None,
+        limit: int = 0,
+        basis: str = "chebyshev",
+        degree: int = 4,
+        hidden: int = 0,
+        epochs: int = 200,
+        lr: float = 0.05,
+        neg_ratio: float = 1.0,
+        seed: int = 42,
+        alpha: float = 0.5,
+        writeback: bool = False,
+    ) -> dict[str, Any]:
+        """Fit a KAN link-predictor over a graph-derived subgraph (CONCEPT:EG-KG.graphlearn.link-predictor).
+
+        The subgraph is every node carrying ``node_label``; edges among them (following
+        ``direction`` ∈ ``any|out|in``, optionally filtered to ``relation``) are the
+        positive links; non-edges are sampled negatives. ``basis`` is ``chebyshev``
+        (default) or ``jacobi``; ``degree`` is the polynomial degree per edge function;
+        ``hidden=0`` (default) gives a single interpretable layer (one ``KanEdgeFn`` per
+        structural feature). With ``writeback=True`` each learned per-feature curve is
+        materialized as a typed ``:EdgeFunction`` node. Returns
+        ``{model, n_nodes, n_edges, train_auc, edge_functions: [{feature, coefficients}], ...}``.
+        The returned ``model`` blob is passed back to :meth:`predict`.
+        """
+        params: dict[str, Any] = {
+            "basis": basis,
+            "degree": degree,
+            "hidden": hidden,
+            "epochs": epochs,
+            "lr": lr,
+            "neg_ratio": neg_ratio,
+            "seed": seed,
+            "alpha": alpha,
+        }
+        source: dict[str, Any] = {
+            "node_label": node_label,
+            "direction": direction,
+            "limit": limit,
+        }
+        if relation is not None:
+            source["relation"] = relation
+        return await self._client._send(
+            "GraphLearnFit",
+            {"source": source, "params": params, "writeback": writeback},
+        )
+
+    async def predict(
+        self,
+        model: dict[str, Any],
+        node_label: str,
+        *,
+        direction: str = "any",
+        relation: str | None = None,
+        limit: int = 0,
+        candidate_pairs: list[tuple[str, str]] | list[list[str]] | None = None,
+        top_k: int = 50,
+        writeback: bool = False,
+    ) -> dict[str, Any]:
+        """Score candidate links with a fitted model (CONCEPT:EG-KG.graphlearn.predicted-edge-writeback).
+
+        Provide the ``model`` blob returned by :meth:`fit`. Score either explicit
+        ``candidate_pairs`` (``[(src, dst), ...]``) or — when omitted — the ``top_k``
+        highest-probability MISSING links across the subgraph. With ``writeback=True``
+        each scored pair is materialized as a typed ``:PredictedEdge`` node linked to its
+        endpoints. Returns ``{predicted: [{src, dst, score}], n_predicted, model, ...}``.
+        """
+        source: dict[str, Any] = {
+            "node_label": node_label,
+            "direction": direction,
+            "limit": limit,
+        }
+        if relation is not None:
+            source["relation"] = relation
+        params: dict[str, Any] = {
+            "model": model,
+            "source": source,
+            "top_k": top_k,
+            "writeback": writeback,
+        }
+        if candidate_pairs is not None:
+            params["candidate_pairs"] = [list(p) for p in candidate_pairs]
+        return await self._client._send("GraphLearnPredict", params)
+
+
 # Per-RPC timeouts (CONCEPT:EG-KG.query.wire-protocol). A wedged or overloaded engine must never
 # hang a caller forever — every request is bounded. Normal CRUD uses the short
 # default; known-heavy ops (full-graph parse/scan/algorithms) get a generous
@@ -2048,28 +4887,26 @@ _HEAVY_RPC_METHODS = frozenset(
         "ParseFile",
         "ParseFiles",
         "IndexRepository",
-        "ParseRepository",
         "CommunityDetection",
         "CommunityDetectEphemeral",
         "ComputeSimilarityEdges",
         "ResolveCandidates",
-        "BatchCosineSimilarity",
         "BatchL2Normalize",
-        "FindSimilarPairs",
-        "SpectralCluster",
         "Vf2SubgraphMatch",
         "BetweennessCentrality",
         "PageRank",
         "PersonalizedPagerank",
         "BatchUpdate",
+        "MultiGraphBatchUpdate",
         "FromMsgpack",
         "ToMsgpack",
-        "GetTriples",
         "Reconcile",
         "RunDatalogReasoning",
         "GetSubgraph",
         "GetNodes",
         "GetEdges",
+        "KnowledgeStream",
+        "ServedModality",
         # SQL scans the whole node set (CONCEPT:EG-KG.query.read-only-sql-query) — give it the heavy budget.
         "Sql",
         # Cypher MATCH/BFS scans the node set too (CONCEPT:EG-KG.query.dep-free-behind).
@@ -2089,8 +4926,8 @@ class QueryClient:
     """CONCEPT:EG-KG.query.read-only-sql-query — Read-only SQL Query Namespace.
 
     ``SELECT ... FROM nodes WHERE ... LIMIT ...`` over the connection's graph,
-    served by the engine's DataFusion surface (requires a server built with the
-    ``query`` feature). Schema-on-read: node property keys become columns; a raw
+    served by the DataFusion surface included in the mandatory main build.
+    Schema-on-read: node property keys become columns; a raw
     ``props`` blob column plus ``json_get(props, key)`` /
     ``json_get_f64`` / ``json_get_i64`` UDFs reach fields the inferred schema
     widened or dropped.
@@ -2110,14 +4947,14 @@ class QueryClient:
         result = await self._client._send("Sql", {"query": query})
         return self._rows_to_dicts(result)
 
-    async def cypher(self, query: str) -> list[dict[str, Any]]:
+    async def cypher_read(self, query: str) -> list[dict[str, Any]]:
         """Run a Cypher-subset ``query`` and return a list of row dicts keyed by
         RETURN column.
 
         ``MATCH (a:Label)-[:REL]->(b:Label2) WHERE a.prop = 'x' RETURN a, b LIMIT
-        k`` over the connection's graph (CONCEPT:EG-KG.query.dep-free-behind). DEP-FREE on the engine
-        side — compiled to the label index / VF2 / BFS, NO DataFusion — so it works
-        against a server built with only the ``cypher`` feature (the lean Pi build).
+        k`` over the connection's graph (CONCEPT:EG-KG.query.dep-free-behind). On the
+        engine side it compiles to the label index / VF2 / BFS and does not invoke
+        DataFusion; Cypher is included in the mandatory main build.
 
         Supports: node ``:Label`` predicates, typed directed edges
         (``-[:REL]->`` / ``<-[:REL]-``), variable-length paths (``-[:REL*1..3]->``),
@@ -2127,10 +4964,26 @@ class QueryClient:
         ``Raw`` payload the transport already double-unpacks); each row blob is a
         list of cell values aligned to ``columns``.
         """
-        result = await self._client._send("CypherQuery", {"query": query})
+        result = await self._client._send(
+            "CypherQuery", {"query": query, "mode": "read"}
+        )
         return self._rows_to_dicts(result)
 
-    async def graphql(self, query: str) -> dict[str, Any]:
+    async def cypher_write(self, query: str) -> list[dict[str, Any]]:
+        """Execute an explicitly authorized Cypher mutation.
+
+        The engine parses the complete statement and rejects read/write mode
+        mismatches before execution. Callers should prefer typed mutation APIs;
+        this surface exists for governed query-language mutations.
+        """
+        result = await self._client._send(
+            "CypherQuery", {"query": query, "mode": "write"}
+        )
+        return self._rows_to_dicts(result)
+
+    async def graphql(
+        self, query: str, variables: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         """Run a GraphQL READ ``query`` and return the GraphQL ``{"data": …}`` dict
         (CONCEPT:EG-KG.query.sparql-completeness).
 
@@ -2142,40 +4995,41 @@ class QueryClient:
         On the engine side it is compiled to scans + BFS over the SAME ``GraphView``
         the Cypher executor reads (DEP-FREE — no async-graphql / DataFusion), so a
         GraphQL query returns the SAME nodes/fields as the equivalent Cypher query.
-        Requires a server built with the ``graphql`` feature. Returns the parsed
-        GraphQL JSON (a ``Raw`` payload the transport already double-unpacks).
+        GraphQL is included in the mandatory main build. Returns the parsed GraphQL
+        JSON (a ``Raw`` payload the transport already double-unpacks).
 
         Mutations / subscriptions / fragments are not supported (read-only surface);
         the engine returns a clear parse error for them.
         """
-        return await self._client._send("GraphQl", {"query": query})
+        return await self._client._send(
+            "GraphQl", {"query": query, "variables": variables}
+        )
 
     async def import_sqlite_file(self, path: str) -> dict[str, Any]:
-        """Import every user table (+ rows) from an on-disk ``sqlite3`` ``.db`` file at
-        ``path`` into the engine's user-table store (CONCEPT:EG-KG.query.eg-feature).
+        """Import every user table (+ rows) from logical ``.db`` filename ``path``
+        under the configured private transfer root (CONCEPT:EG-KG.query.eg-feature).
 
-        The file is read via the bundled C sqlite3 (server built ``--features
-        sqlite-file``, folded into ``full``/``node``; a ``pi`` build returns "not
-        available"). Each table is REPLACED if a same-name table already exists, so the
-        import mirrors the file; an imported table is immediately visible to
-        :meth:`sql` (``SELECT … FROM <table>``). ONE round-trip reads the whole file.
+        The file is read via the bundled C sqlite3. The ``sqlite-file`` feature is part
+        of the mandatory main build. Each table is REPLACED if a same-name table already
+        exists, so the import mirrors the file; an imported table is immediately visible
+        to :meth:`sql` (``SELECT … FROM <table>``). ONE round-trip reads the whole file.
 
-        Returns a report dict ``{"path", "imported_tables": [{"table", "rows"}, …]}``.
+        Returns aggregate table counts without exposing a host path.
         """
         return await self._client._send("ImportSqliteFile", {"path": path})
 
     async def export_sqlite_file(
         self, path: str, tables: list[str] | None = None
     ) -> dict[str, Any]:
-        """Export user tables OUT to a fresh, valid ``sqlite3`` ``.db`` file at ``path``
-        that a ``sqlite3`` CLI can open (CONCEPT:EG-KG.query.full-protocol).
+        """Export user tables to logical ``.db`` filename ``path`` under the configured
+        private transfer root (CONCEPT:EG-KG.query.full-protocol).
 
         ``tables`` ``None``/empty ⇒ every user table; else exactly the named tables (each
-        must exist). Any pre-existing file at ``path`` is overwritten. Written via the
-        bundled C sqlite3 (server built ``--features sqlite-file``). ONE round-trip per
+        must exist). Publication is private and atomic. Written via the
+        bundled C sqlite3 included in the mandatory main build. ONE round-trip per
         table (a single ``scan``), then a bulk sqlite transaction.
 
-        Returns a report dict ``{"path", "exported_tables": [{"table", "rows"}, …]}``.
+        Returns aggregate table counts without exposing a host path.
         """
         return await self._client._send(
             "ExportSqliteFile", {"path": path, "tables": list(tables or [])}
@@ -2184,7 +5038,6 @@ class QueryClient:
     async def unified(
         self,
         plan: list[dict[str, Any]],
-        reorder_filter_selectivity: float | None = None,
     ) -> list[dict[str, Any]]:
         """Run ONE cross-modal plan (CONCEPT:AU-KG.compute.vector/209) and return ranked rows.
 
@@ -2203,25 +5056,19 @@ class QueryClient:
         The engine sequences the EXISTING legs over one off-lock snapshot —
         ``Filter`` via real DataFusion, ``Traverse`` via petgraph BFS, ``Rank`` via
         the vector kNN — instead of three siloed round-trips (requires a server
-        built with the ``query`` feature). When ``reorder_filter_selectivity`` is
-        given (a fraction in ``[0,1]``), the cost model reorders an adjacent
-        ``(Filter, Rank)`` pair filter-first vs vector-first by that selectivity
-        (CONCEPT:EG-KG.query.concept-14) — the result set is unchanged, only the work differs.
+        built with the ``query`` feature). The full cost optimizer derives its
+        own selectivity and ordering from the plan and current statistics.
 
         Returns a list of ``{"id": str, "score": float | None}`` rows, in the plan's
         final order (descending score after a ``Rank``).
         """
-        params: dict[str, Any] = {"plan": {"ops": plan}}
-        if reorder_filter_selectivity is not None:
-            params["reorder_filter_selectivity"] = reorder_filter_selectivity
-        result = await self._client._send("UnifiedQuery", params)
+        result = await self._client._send("UnifiedQuery", {"plan": {"ops": plan}})
         rows = result or []
         return [{"id": id_, "score": score} for id_, score in rows]
 
     async def uql(
         self,
         text: str,
-        reorder_filter_selectivity: float | None = None,
     ) -> list[dict[str, Any]]:
         """Run a UQL TEXT query (CONCEPT:AU-KG.query.top-nodes-by-degree) — the human/agent-writable
         front-end over :meth:`unified`.
@@ -2242,22 +5089,293 @@ class QueryClient:
         ``{n}`` = exactly n hops, absent = 1 hop), ``RANK BY ~[v0, v1, …]`` (an inline
         literal query vector), ``LIMIT k``, and a later-stage ``WHERE``. Predicates are
         ``prop > num`` / ``prop < num`` / ``prop = value`` joined by ``AND``; keywords
-        are case-insensitive. Requires a server built with the ``query`` feature.
-
-        ``reorder_filter_selectivity`` behaves exactly as in :meth:`unified` — a
-        ``[0,1]`` fraction triggering the cost-based (Filter, Rank) reorder
-        (CONCEPT:EG-KG.query.concept-14), which never changes the result set.
+        are case-insensitive. The query surface is included in the mandatory main build.
 
         On a syntax error the engine returns a clear, caret-annotated parse error
         (raised as the transport's error). Returns the same
         ``{"id": str, "score": float | None}`` rows as :meth:`unified`.
         """
-        params: dict[str, Any] = {"text": text}
-        if reorder_filter_selectivity is not None:
-            params["reorder_filter_selectivity"] = reorder_filter_selectivity
-        result = await self._client._send("UnifiedQueryText", params)
+        result = await self._client._send("UnifiedQueryText", {"text": text})
         rows = result or []
         return [{"id": id_, "score": score} for id_, score in rows]
+
+    async def explain_plan(self, plan: list[dict[str, Any]]) -> dict[str, Any]:
+        """``EXPLAIN PLAN`` (CONCEPT:EG-KG.query.plan-dag) — serialize ``plan`` (the SAME
+        externally-tagged ``Op`` list :meth:`unified` takes) as a `PlanDag` both BEFORE
+        and AFTER the DAG-aware cost optimizer, plus the active optimizer rule set. No
+        execution occurs beyond planning. Returns ``{"before": [{"id", "op", "inputs"},
+        ...], "after": [...], "applied_rules": [str, ...]}``.
+        """
+        return await self._client._send("ExplainPlan", {"plan": {"ops": plan}})
+
+    async def explain_provenance(self, plan: list[dict[str, Any]]) -> dict[str, Any]:
+        """``EXPLAIN PROVENANCE`` — run ``plan`` (the SAME plan :meth:`unified` takes)
+        and resolve its EVIDENCE-FOR provenance into the schema-generated
+        ``EvidenceBundle``. The mandatory main build includes the epistemic resolver;
+        ``score``/``confidence``/``valid_time``/``tx_time`` are populated alongside
+        any resolved evidence (CONCEPT:EG-KB-CURRENCY).
+        """
+        return _evidence_bundle(
+            await self._client._send("ExplainProvenance", {"plan": {"ops": plan}})
+        )
+
+    async def explain_provenance_by_ids(self, ids: list[str]) -> dict[str, Any]:
+        """``EXPLAIN PROVENANCE BY IDS`` (CONCEPT:EG-KB-CURRENCY) — the ID-seeded sibling
+        of :meth:`explain_provenance`: resolve the SAME per-row epistemic columns
+        directly for ``ids``, with no ``Op`` plan needed. This is the seam a caller
+        with ids from ANY other read path (a Cypher ``MATCH``, a SQL ``SELECT``, a
+        prior :meth:`unified`) uses to "currency-upgrade" a plain id list into
+        calibrated, cited, time-versioned claims. Returns the IDENTICAL shape
+        :meth:`explain_provenance` does."""
+        return _evidence_bundle(
+            await self._client._send("ExplainProvenanceByIds", {"ids": ids})
+        )
+
+    async def explain_policy(self, plan: list[dict[str, Any]]) -> dict[str, Any]:
+        """``EXPLAIN POLICY`` (CONCEPT:EG-KG.sharding.row-level-security) — run ``plan``
+        against BOTH the caller's RLS-filtered snapshot and the unfiltered snapshot,
+        reporting which rows the policy denied. Returns ``{"visible_ids": [str, ...],
+        "policy_denied_ids": [str, ...]}`` — ``policy_denied_ids`` is empty when no
+        caller/RLS filtering applies on this connection. Security and query support
+        are included in the mandatory main build."""
+        return await self._client._send("ExplainPolicy", {"plan": {"ops": plan}})
+
+    async def explain_belief(
+        self, node_id: str, disclosure_level: str | None = None
+    ) -> dict[str, Any]:
+        """``EXPLAIN BELIEF <node_id>`` — the justification tree
+        (``eg_epistemic::JustificationGraph``) rooted at ``node_id``.
+
+        With ``disclosure_level=None`` (the default — byte-for-byte the classic
+        path), returns the FULL un-flattened tree: ``{"root": {"claim", "rule",
+        "confidence", "premises": [<same shape>, ...]}}`` — ``rule`` is one of
+        ``"Asserted"``/``"DerivedSupport"``/``"DerivedContradiction"``/
+        ``"BayesianUpdate"``.
+
+        ``disclosure_level`` (EPI-P3-4, L51) opts INTO a policy-aware, RLS-redacted
+        proof instead — one of ``"Full"``/``"Skeleton"``/``"ExistenceOnly"`` (least to
+        most redacted). It is a CAP, never a grant: it can only make the response MORE
+        redacted than the caller's own RLS access would already produce, never less
+        (e.g. always request ``"ExistenceOnly"`` for a privacy-conscious display
+        regardless of who is asking). When set, the response shape changes to
+        ``{"level", "existence", "root"}`` — ``existence`` is one of
+        ``"Supported"``/``"Contradicted"``/``"Uncertain"``, and ``root`` is the
+        (possibly redacted — ``claim: None`` + a ``redaction_label`` for a hidden
+        node) tree, or ``None`` entirely at ``"ExistenceOnly"``. The mandatory main
+        build includes epistemic reasoning, query, and policy-aware redaction.
+
+        Read-only."""
+        params: dict[str, Any] = {"node_id": node_id}
+        if disclosure_level is not None:
+            params["disclosure_level"] = disclosure_level
+        return await self._client._send("ExplainBelief", params)
+
+    async def explain_evidence(self, node_id: str) -> dict[str, Any]:
+        """CONCEPT:EG-X1 — resolve ``node_id``'s cited multimodal evidence: walk the
+        SAME support/contradiction/attack topology :meth:`explain_belief` walks and
+        return every transitively-reachable node that carries a located evidence
+        locus (PDF page+box, audio/video interval, SQL row version, code range,
+        trace span, …). Returns ``{"citations": [{"evidence_id", "kind", "locus",
+        "resolved"}, ...]}`` — ``kind`` is one of ``"Supports"``/``"Contradicts"``/
+        ``"Attacks"``. Each ``locus`` contains opaque ``id``/``subject``/policy/
+        derivation references plus a tagged numeric or opaque ``address``; it is
+        never absent on a returned citation. The evidence graph is included in the
+        mandatory main build. Read-only."""
+        return await self._client._send("ExplainEvidence", {"node_id": node_id})
+
+    async def epistemic_status(self, node_id: str) -> dict[str, Any]:
+        """CONCEPT:EPI-P3-5 — the acceptance-query capstone: for ``node_id`` return
+        "what do we believe, why, on exactly which evidence, under whose authority,
+        at what time, with what uncertainty, and what would invalidate it" in one
+        typed call (``eg_epistemic::epistemic_status``). Returns an
+        ``EpistemicStatusResult`` (belief + evidence + authority + valid/tx time +
+        uncertainty + proof + minimal-flip invalidation set). The epistemic TMS is
+        included in the mandatory main build. Read-only."""
+        return await self._client._send("EpistemicStatus", {"node_id": node_id})
+
+    async def what_changed(self, tx_from: int, tx_to: int) -> dict[str, Any]:
+        """CONCEPT:EPI-P3-5 — between two transaction times, which beliefs changed and
+        why (``eg_epistemic::what_changed``) — a whole-graph temporal DIFF, distinct
+        from :meth:`epistemic_status`'s single-claim view. Returns a
+        ``WhatChangedResult``. The epistemic TMS is included in the mandatory main
+        build. Read-only."""
+        return await self._client._send(
+            "WhatChanged", {"tx_from": tx_from, "tx_to": tx_to}
+        )
+
+    async def recompute_materialization(
+        self, derived_id: str, expected_source_graph_version: int
+    ) -> dict[str, Any]:
+        """Fenced recompute/writeback for a stale materialization. The expected
+        version must match the durable per-graph reasoning projection watermark.
+        Provenance is resolved from the authoritative graph post-image and the
+        refreshed projection is fsync'd before this call returns."""
+        return await self._client._send(
+            "RecomputeMaterialization",
+            {
+                "derived_id": derived_id,
+                "expected_source_graph_version": expected_source_graph_version,
+            },
+        )
+
+    async def materialization_status(self, id: str) -> dict[str, Any]:
+        """Seam 3 — the current status (``"Fresh"``/``"Stale"``/``"Retracted"``, or
+        ``None`` if absent) from the durable per-graph reasoning authority. The
+        result also carries its source graph version."""
+        return await self._client._send("MaterializationStatus", {"id": id})
+
+    async def stale_materializations(self) -> dict[str, Any]:
+        """Seam 3 follow-up (SURPASS gap-closure: "give staleness a consumer") --
+        every opaque materialization reference CURRENTLY ``Stale`` in this graph's
+        durable projection, plus the projection source graph version."""
+        return await self._client._send("StaleMaterializations", {})
+
+    async def resolve_conflict(
+        self, node_ids: list[str], semantics: str = "grounded"
+    ) -> dict[str, Any]:
+        """EPI-P3-7 (gap-fill) — standalone Dung abstract-argumentation conflict
+        resolution: for each id in ``node_ids``, is it justified (survives), defeated,
+        or stuck UNDECIDED (an unresolved/paraconsistent conflict), given the
+        support/contradiction/attack topology around it? This is the SAME
+        grounded/preferred/stable extension machinery :meth:`epistemic_status` already
+        composes internally for one claim's acceptance — reachable here directly,
+        across multiple claims, with the semantics you choose.
+
+        ``semantics`` is one of:
+
+        * ``"grounded"`` (default) — the unique, always-defined SKEPTICAL extension.
+          A claim ``survives`` iff every one of its attackers is itself defeated;
+          ``defeated`` iff attacked by a surviving claim; otherwise ``undecided``
+          (e.g. two claims that directly contradict each other with no other
+          evidence — the textbook non-explosive paraconsistent case: neither is
+          accepted NOR rejected).
+        * ``"preferred"`` / ``"stable"`` — CREDULOUS: potentially several admissible
+          "sides" (extensions) resolving the same conflict differently. A claim
+          ``survives`` iff it is accepted in EVERY computed extension (unanimous);
+          ``defeated`` iff accepted in NONE; otherwise ``undecided`` (accepted under
+          only some resolutions — contested). ``"stable"`` may legitimately compute
+          NO extension at all (e.g. an odd attack cycle) — every requested id then
+          reports ``undecided`` rather than a fabricated verdict.
+
+        Returns ``{"semantics", "surviving": [id, ...], "defeated": [id, ...],
+        "undecided": [id, ...], "extension_sets": [[id, ...], ...]}`` — every id in
+        ``node_ids`` appears in exactly one of the first three lists;
+        ``extension_sets`` is the raw extension(s) (over the WHOLE graph, not just
+        ``node_ids``) the verdict was computed from: exactly one for ``"grounded"``,
+        zero-or-more for ``"preferred"``/``"stable"``. The epistemic TMS is included
+        in the mandatory main build. Read-only — no graph node is written."""
+        return await self._client._send(
+            "ResolveConflict", {"node_ids": node_ids, "semantics": semantics}
+        )
+
+    async def causal_estimate(
+        self,
+        variables: list[dict[str, Any]],
+        do_values: dict[str, float],
+        mode: str = "Intervene",
+    ) -> dict[str, Any]:
+        """EPI-P3-3/P3-6 — a calibrated query over a request-carried linear-Gaussian
+        structural causal model. ``mode`` selects which of the crate's two
+        non-counterfactual queries ``do_values`` feeds:
+
+        * ``"Intervene"`` — a **do-calculus intervention**
+          ``P(· | do(X₁=x₁, X₂=x₂, …))``:
+          genuine graph surgery (Pearl, *Causality* ch. 3) — the named variables'
+          incoming edges are CUT, not conditioned on, so no information flows
+          backward through them (this is what distinguishes it from a naive
+          conditional/regression estimate under confounding).
+        * ``"Observe"`` — the **observational** query ``P(· | X₁=x₁, X₂=x₂, …)``:
+          ordinary multivariate-Gaussian conditioning on the UNMUTILATED joint.
+          Unlike ``"Intervene"``, evidence propagates BACKWARD to ancestors too
+          (e.g. a confounder) — exactly what distinguishes "seeing X=x" from
+          "doing X=x", and why the two modes can (and under confounding, will)
+          disagree on the very same ``do_values``/evidence input.
+
+        ``variables`` defines the DAG in topological (parents-before-children)
+        order, one dict per variable::
+
+            {"id": "z", "parents": [], "bias": 0.0, "noise_var": 1.0}
+            {"id": "x", "parents": [["z", 1.0]], "bias": 0.0, "noise_var": 0.25}
+            {"id": "y", "parents": [["z", 1.0], ["x", 0.5]], "bias": 0.0, "noise_var": 0.25}
+
+        ``parents`` is a list of ``[parent_id, weight]`` pairs, each of which MUST
+        already appear as an earlier entry in ``variables``. ``do_values`` fixes the
+        named variables (``"Intervene"``) or supplies their evidence
+        (``"Observe"``), e.g. ``{"x": 2.0}``.
+
+        Returns ``{"estimates": [[var_id, {"mean", "variance", "interval":
+        [lo, hi], "level"}], ...]}``, one calibrated estimate per variable in the
+        SAME order as ``variables``. A pure function over the request — no graph
+        node is read. Epistemic-causal support is included in the mandatory main build."""
+        params: dict[str, Any] = {
+            "variables": variables,
+            "do_values": do_values,
+            "mode": mode,
+        }
+        return await self._client._send("CausalEstimate", params)
+
+    async def causal_counterfactual(
+        self,
+        variables: list[dict[str, Any]],
+        actual: dict[str, float],
+        do_values: dict[str, float],
+    ) -> dict[str, Any]:
+        """EPI-P3-6 — Pearl's point-**counterfactual** recipe (*Causality* ch. 7)
+        over the SAME linear-Gaussian SCM shape :meth:`causal_estimate` takes:
+        "given that unit ``actual`` (a FULLY-observed assignment of every variable
+        in ``variables``) really happened, what would its variables have been had
+        ``do_values`` held instead?" — abduction (infer each variable's realized
+        exogenous noise from ``actual``), action (apply ``do_values`` via the same
+        graph surgery :meth:`causal_estimate`'s ``"Intervene"`` mode uses), then
+        prediction (replay forward with the SAME inferred noise).
+
+        DETERMINISTIC given ``actual`` — not a calibrated distribution like
+        :meth:`causal_estimate` — so a variable NOT downstream of any ``do_values``
+        name reproduces its ``actual`` value exactly, while a downstream variable
+        gets its counterfactual value.
+
+        ``variables``/``do_values`` are the same shapes :meth:`causal_estimate`
+        takes; ``actual`` is a fully-observed unit — every variable named in
+        ``variables`` MUST have an entry (an engine error otherwise, since the
+        recipe needs to abduce every variable's noise).
+
+        Returns ``{"values": [[var_id, point_value], ...]}``, in the SAME order as
+        ``variables``. A pure function over the request — no graph node is read.
+        Epistemic-causal support is included in the mandatory main build."""
+        return await self._client._send(
+            "CausalCounterfactual",
+            {"variables": variables, "actual": actual, "do_values": do_values},
+        )
+
+    async def rank_by_provenance(
+        self,
+        candidates: list[dict[str, Any]],
+        weights: dict[str, float] | None = None,
+    ) -> dict[str, Any]:
+        """EPI-P3-3 — provenance-aware retrieval ranking: order request-carried
+        ``candidates`` by a weighted blend of similarity AND evidence quality/
+        provenance (source reliability, corroboration, calibration precision,
+        freshness) rather than similarity alone — a well-sourced, well-corroborated
+        result should not be outranked by a merely-more-similar, unsourced one.
+
+        Each candidate dict is::
+
+            {"id": "doc-1", "similarity": 0.7, "source_reliability": 0.95,
+             "freshness": 0.9,
+             "calibration": {"interval": [0.85, 0.95], "level": 0.95, "evidence_count": 5}}
+
+        ``calibration`` is optional (``None``/omitted for a candidate with no
+        evidence-graph backing — it then ranks on similarity/reliability/freshness
+        alone). ``weights`` is ``{"similarity": w1, "evidence_quality": w2}``,
+        defaulting to ``{0.5, 0.5}`` (equal-weighted) when omitted.
+
+        Returns ``{"ranked": [{"id", "score", "similarity", "evidence_quality"},
+        ...]}``, highest score first. A pure function over the request — no graph
+        node is read. Epistemic-causal support is included in the mandatory main build."""
+        params: dict[str, Any] = {"candidates": candidates}
+        if weights is not None:
+            params["weights"] = weights
+        return await self._client._send("RankByProvenance", params)
 
     async def register_foreign_source(self, name: str, source: dict[str, Any]) -> str:
         """Register a named EXTERNAL source for query federation (CONCEPT:EG-KG.query.query-federation,
@@ -2283,7 +5401,7 @@ class QueryClient:
         or an EXTERNAL relational-SQL database — Postgres/MySQL (CONCEPT:EG-KG.query.feature); the
         engine runs the SQL OUT to the foreign RDBMS over a pure-Rust/rustls ``sqlx``
         client and fuses the rows in-plan (the "engine federates external SQL" half that
-        sql-mcp alone cannot give). Requires a server built with ``federation-sql``::
+        sql-mcp alone cannot give). Federation SQL is included in the mandatory main build::
 
             {"Sql": {
                 "dsn": "postgres://user:pw@host:5432/papers",
@@ -2307,8 +5425,8 @@ class QueryClient:
 
         A ``ForeignScan`` with ``join`` true intersects the foreign rows with the
         current candidate set (foreign∩local, keyed on id); ``join`` false makes it a
-        pure SOURCE that REPLACES the input (like ``Scan``). Requires a server built
-        with the ``federation`` feature.
+        pure SOURCE that REPLACES the input (like ``Scan``). Federation is included in
+        the mandatory main build.
         """
         return await self._client._send(
             "RegisterForeignSource", {"name": name, "source": source}
@@ -2323,13 +5441,16 @@ class QueryClient:
         ``NlPlanner`` (an OpenAI-compatible endpoint, e.g. agent-utilities' LLM, set via
         config or ``EPISTEMIC_GRAPH_NL_ENDPOINT``) turns it into a UQL query STRING which then
         rides the IDENTICAL deterministic :meth:`uql` pipeline (no LLM in the engine core, no
-        new execution path). Requires a server built with the ``nl-query`` feature AND a
-        configured planner — a build/deploy without either returns a clear error (never a
-        panic). ``graph`` defaults to the connection's graph.
+        new execution path). NL-query support is included in the mandatory main build;
+        the deployment must also configure a planner, otherwise this call returns a clear
+        error (never a panic). ``graph`` defaults to the connection's graph.
 
         Returns the query's result rows (a ``Raw`` payload the transport already
         double-unpacks) — a list of row dicts, exactly as the produced UQL yields."""
-        result = await self._client._send("NlQuery", {"text": text}, graph=graph)
+        target_graph = graph or self._client._graph_name
+        result = await self._client._send(
+            "NlQuery", {"text": text, "graph": target_graph}, graph=target_graph
+        )
         return result or []
 
     @staticmethod
@@ -2369,9 +5490,7 @@ class TxnClient:
     async def begin(self, graph: str | None = None) -> str:
         """Open a transaction and return its server-issued ``txn_id``. The target
         graph defaults to the connection's graph; pass ``graph`` to override."""
-        params: dict[str, Any] = {}
-        if graph is not None:
-            params["graph"] = graph
+        params: dict[str, Any] = {"graph": graph, "isolation": None}
         return await self._client._send("BeginTxn", params, graph=graph)
 
     async def add_node(
@@ -2388,17 +5507,18 @@ class TxnClient:
             "txn_id": txn_id,
             "node_id": node_id,
             "properties_msgpack": list(msgpack.packb(properties or {})),
+            "graph": graph,
         }
-        if graph is not None:
-            params["graph"] = graph
         return await self._client._send("TxnAddNode", params)
 
     async def remove_node(
         self, txn_id: str, node_id: str, graph: str | None = None
     ) -> bool:
-        params: dict[str, Any] = {"txn_id": txn_id, "node_id": node_id}
-        if graph is not None:
-            params["graph"] = graph
+        params: dict[str, Any] = {
+            "txn_id": txn_id,
+            "node_id": node_id,
+            "graph": graph,
+        }
         return await self._client._send("TxnRemoveNode", params)
 
     async def add_edge(
@@ -2414,9 +5534,8 @@ class TxnClient:
             "source_id": source_id,
             "target_id": target_id,
             "properties_msgpack": list(msgpack.packb(properties or {})),
+            "graph": graph,
         }
-        if graph is not None:
-            params["graph"] = graph
         return await self._client._send("TxnAddEdge", params)
 
     async def remove_edge(
@@ -2426,9 +5545,8 @@ class TxnClient:
             "txn_id": txn_id,
             "source_id": source_id,
             "target_id": target_id,
+            "graph": graph,
         }
-        if graph is not None:
-            params["graph"] = graph
         return await self._client._send("TxnRemoveEdge", params)
 
     async def cas(
@@ -2445,29 +5563,48 @@ class TxnClient:
             "node_id": node_id,
             "conditions_msgpack": list(msgpack.packb(conditions)),
             "updates_msgpack": list(msgpack.packb(updates)),
+            "graph": graph,
         }
-        if graph is not None:
-            params["graph"] = graph
         return await self._client._send("TxnCas", params)
 
     async def add_embedding(
-        self, txn_id: str, node_id: str, embedding: list[float]
+        self,
+        txn_id: str,
+        node_id: str,
+        embedding: list[float],
+        graph: str | None = None,
     ) -> bool:
         """Stage a VECTOR upsert (CONCEPT:EG-KG.txn.reader-never-sees-node — cross-modal ACID). The embedding
         lands atomically WITH the txn's graph/property/blob-ref writes in ONE redb
         WriteTransaction at commit (requires the redb persistence backend)."""
         return await self._client._send(
             "TxnAddEmbedding",
-            {"txn_id": txn_id, "node_id": node_id, "embedding": embedding},
+            {
+                "txn_id": txn_id,
+                "node_id": node_id,
+                "embedding": embedding,
+                "graph": graph,
+            },
         )
 
-    async def blob_ref(self, txn_id: str, node_id: str, digest: str) -> bool:
+    async def blob_ref(
+        self,
+        txn_id: str,
+        node_id: str,
+        digest: str,
+        graph: str | None = None,
+    ) -> bool:
         """Stage a BLOB REFERENCE (CONCEPT:EG-KG.txn.reader-never-sees-node). Records a durable graph-side
         ``__blob__`` link to an already-stored content-addressed blob; lands
         atomically with the node/vector/property at commit."""
         return await self._client._send(
             "TxnBlobRef",
-            {"txn_id": txn_id, "node_id": node_id, "digest": digest},
+            {
+                "txn_id": txn_id,
+                "node_id": node_id,
+                "digest": digest,
+                "graph": graph,
+            },
         )
 
     async def add_measurement(
@@ -2481,26 +5618,27 @@ class TxnClient:
         staging). The points land atomically WITH the txn's graph/property/vector/blob
         writes in ONE redb ``WriteTransaction`` at commit. ``points`` are
         ``(ts_ns, [values])`` — the SAME shape :meth:`TimeSeriesClient.append` carries.
-        Requires a server built with the ``tsdb`` feature."""
+        Time-series support is included in the mandatory main build."""
         params: dict[str, Any] = {
             "txn_id": txn_id,
             "series": series,
             "points": msgpack.packb(
                 [[int(ts), [float(v) for v in vals]] for ts, vals in points]
             ),
+            "graph": graph,
         }
-        if graph is not None:
-            params["graph"] = graph
         return await self._client._send("TxnAddMeasurement", params)
 
     async def axiom(self, txn_id: str, turtle: str, graph: str | None = None) -> bool:
         """Stage OWL AXIOMS as Turtle (CONCEPT:EG-KG.txn.extended-cross-modal). At commit they lower to graph
         node/edge writes in the SAME atomic ``WriteTransaction`` so the OWL reasoner
-        sees them consistently with the txn's other staged modalities. Requires a
-        server built with the ``owl`` feature."""
-        params: dict[str, Any] = {"txn_id": txn_id, "turtle": turtle}
-        if graph is not None:
-            params["graph"] = graph
+        sees them consistently with the txn's other staged modalities. OWL support is
+        included in the mandatory main build."""
+        params: dict[str, Any] = {
+            "txn_id": txn_id,
+            "turtle": turtle,
+            "graph": graph,
+        }
         return await self._client._send("TxnAxiom", params)
 
     async def construct(
@@ -2508,29 +5646,72 @@ class TxnClient:
     ) -> bool:
         """Stage a SPARQL CONSTRUCT (CONCEPT:EG-KG.query.extended-cross-modal). At commit the produced triples
         lower to graph node/edge writes in the SAME atomic ``WriteTransaction``.
-        Requires a server built with the ``sparql`` feature."""
-        params: dict[str, Any] = {"txn_id": txn_id, "sparql": sparql}
-        if graph is not None:
-            params["graph"] = graph
+        SPARQL support is included in the mandatory main build."""
+        params: dict[str, Any] = {
+            "txn_id": txn_id,
+            "sparql": sparql,
+            "graph": graph,
+        }
         return await self._client._send("TxnConstruct", params)
+
+    async def plan_writeback(
+        self,
+        txn_id: str,
+        plan: list[dict[str, Any]],
+        anchor_id: str,
+        relationship: str,
+        graph: str | None = None,
+    ) -> bool:
+        """Stage a PLANNER WRITEBACK into the txn (CONCEPT:EG-KG.query.plan-dag, D7 —
+        the planner-writeback ACID seam). ``plan`` (the SAME ``Op`` list :meth:`
+        QueryClient.unified` takes) runs READ-ONLY against the txn's committed
+        snapshot; each id in its result row set becomes an ``AddEdge`` from
+        ``anchor_id`` to that id carrying ``relationship`` — e.g. materializing a
+        Reason/Traverse-inferred edge set — staged into the SAME atomic write
+        transaction as the txn's other modalities (mirrors :meth:`axiom`/
+        :meth:`construct`). Query support is included in the mandatory main build."""
+        params: dict[str, Any] = {
+            "txn_id": txn_id,
+            "plan": {"ops": plan},
+            "anchor_id": anchor_id,
+            "relationship": relationship,
+            "graph": graph,
+        }
+        return await self._client._send("TxnPlanWriteback", params)
+
+    async def materialize_belief(
+        self, txn_id: str, node_id: str, graph: str | None = None
+    ) -> bool:
+        """Stage a MATERIALIZE-BELIEF op into the txn (CONCEPT:EG-KG.epistemic.epistemic-substrate,
+        D5 — the explicit, AUDITED "materialize belief" op). Computes the propagated
+        belief for ``node_id`` over the graph's SUPPORTS/CONTRADICTS/ATTACKS evidence
+        topology (read from the txn's committed snapshot) and stages an unconditional
+        compare-and-set that writes it onto that node's stored confidence, landing
+        atomically with the txn's other staged modalities at commit — the ONLY path
+        that ever writes a derived belief back onto stored confidence. Epistemic
+        support is included in the mandatory main build."""
+        params: dict[str, Any] = {
+            "txn_id": txn_id,
+            "node_id": node_id,
+            "graph": graph,
+        }
+        return await self._client._send("TxnMaterializeBelief", params)
 
     async def unified_query(
         self,
         txn_id: str,
         text: str,
-        reorder_filter_selectivity: float | None = None,
     ) -> list[dict[str, Any]]:
         """Run a UNIFIED cross-modal UQL read INSIDE the txn with read-your-own-writes
         (CONCEPT:EG-KG.query.txn-cross-modal-ryow — in-txn cross-modal RYOW). ``text`` is the SAME UQL surface
         :meth:`QueryClient.unified_query_text` parses; the read runs over a snapshot
         OVERLAID with THIS txn's staged (uncommitted) write-set, so a staged
         node/edge/embedding is visible before commit and invisible off-txn until
-        commit. Returns the same ``{"id", "score"}`` rows as ``unified``. Requires a
-        server built with the ``query`` feature."""
-        params: dict[str, Any] = {"txn_id": txn_id, "text": text}
-        if reorder_filter_selectivity is not None:
-            params["reorder_filter_selectivity"] = reorder_filter_selectivity
-        result = await self._client._send("TxnUnifiedQueryText", params)
+        commit. Returns the same ``{"id", "score"}`` rows as ``unified``. Query
+        support is included in the mandatory main build."""
+        result = await self._client._send(
+            "TxnUnifiedQueryText", {"txn_id": txn_id, "text": text}
+        )
         rows = result or []
         return [{"id": id_, "score": score} for id_, score in rows]
 
@@ -2538,17 +5719,16 @@ class TxnClient:
         self,
         txn_id: str,
         plan: list[dict[str, Any]],
-        reorder_filter_selectivity: float | None = None,
     ) -> list[dict[str, Any]]:
         """In-txn cross-modal RYOW read from a pre-built ``Op`` plan (CONCEPT:EG-KG.query.txn-cross-modal-ryow) —
         the AST counterpart of :meth:`unified_query`, mirroring :meth:`QueryClient.unified`.
         ``plan`` is the SAME ordered list of externally-tagged operator dicts ``unified``
         carries; the read runs over a snapshot OVERLAID with THIS txn's staged writes.
-        Returns the same ``{"id", "score"}`` rows. Requires a ``query`` server."""
-        params: dict[str, Any] = {"txn_id": txn_id, "plan": {"ops": plan}}
-        if reorder_filter_selectivity is not None:
-            params["reorder_filter_selectivity"] = reorder_filter_selectivity
-        result = await self._client._send("TxnUnifiedQuery", params)
+        Returns the same ``{"id", "score"}`` rows. Query support is included in the
+        mandatory main build."""
+        result = await self._client._send(
+            "TxnUnifiedQuery", {"txn_id": txn_id, "plan": {"ops": plan}}
+        )
         rows = result or []
         return [{"id": id_, "score": score} for id_, score in rows]
 
@@ -2566,11 +5746,12 @@ class TimeSeriesClient:
     """CONCEPT:AU-KG.retrieval.god-nodes-communities/211 — Native Time-Series Namespace.
 
     Append/scan/query time-partitioned series stored beside the graph (their own
-    ``series.redb``), served by a server built with the ``tsdb`` feature. Series are
+    ``series.redb``), using the time-series surface included in the mandatory main build. Series are
     keyed by ``series_id`` (independent of the connection's graph). Points are
     ``(ts_ns, [field0, field1, ...])`` — a scalar series is one field per point;
     OHLCV is several. The native primitives (ASOF / gap-fill / windowed aggregate)
-    need NO DataFusion, so they work on the lean / Pi build.
+    do not invoke DataFusion; the time-series surface is included in the mandatory
+    main build.
 
     Usage::
 
@@ -2636,20 +5817,48 @@ class TimeSeriesClient:
         """Append a batch of ``(ts_ns, [values])`` points in ONE round-trip. Returns
         the number of points appended. ``bucket_ns``/``field_names`` are used only
         when the series is NEW (default bucket = 1h); ``n_fields`` defaults to the
-        width of the first point. Out-of-order / late points are handled."""
+        width of the first point. A scalar series defaults to the field name
+        ``"value"``; multi-field series require explicit names. Out-of-order / late
+        points are handled."""
         if not points:
             return 0
         nf = n_fields if n_fields is not None else len(points[0][1])
-        blob = msgpack.packb(
-            [[int(ts), [float(v) for v in vals]] for ts, vals in points]
-        )
+        if isinstance(nf, bool) or not isinstance(nf, int) or nf <= 0:
+            raise ValueError("n_fields must be a positive integer")
+
+        normalized_points: list[list[Any]] = []
+        for index, (ts, values) in enumerate(points):
+            if not isinstance(values, list | tuple) or len(values) != nf:
+                raise ValueError(
+                    f"points[{index}] must contain exactly {nf} field values"
+                )
+            normalized_points.append(
+                [int(ts), [float(value) for value in values]]
+            )
+
+        if field_names is None:
+            if nf != 1:
+                raise ValueError(
+                    "field_names must be explicit for a multi-field series"
+                )
+            names = ["value"]
+        else:
+            if not isinstance(field_names, list):
+                raise TypeError("field_names must be a list of strings")
+            if len(field_names) != nf:
+                raise ValueError(f"field_names must contain exactly {nf} names")
+            if not all(isinstance(name, str) for name in field_names):
+                raise TypeError("field_names must be a list of strings")
+            names = list(field_names)
+
+        blob = msgpack.packb(normalized_points)
         return await self._client._send(
             "TsAppend",
             {
                 "series_id": series_id,
                 "n_fields": nf,
                 "bucket_ns": int(bucket_ns),
-                "field_names": field_names or [],
+                "field_names": names,
                 "points_msgpack": blob,
             },
         )
@@ -2729,12 +5938,29 @@ class RdfClient:
     The RDF dataset maps onto the SAME property-graph the rest of the engine uses
     (a resource object becomes a typed edge, a literal object a typed property cell
     preserving xsd datatype + ``@lang``, ``rdf:type`` the engine ``type`` label, a
-    named graph the connection's graph). Requires a server built with the ``rdf``
-    feature (``sparql`` for :meth:`sparql`).
+    named graph the connection's graph). RDF and SPARQL are included in the mandatory
+    main build.
     """
 
     def __init__(self, client: EpistemicGraphClient) -> None:
         self._client = client
+
+    async def validate_shacl(
+        self,
+        shapes: str,
+        data_graph: str,
+    ) -> dict[str, Any]:
+        """Validate inline Turtle data against inline Turtle SHACL shapes.
+
+        Validation runs in the engine's native Rust SHACL implementation and
+        returns its structured validation report.  Supplying the data graph
+        explicitly keeps connector admission independent from any graph state
+        that may already be materialized.
+        """
+        return await self._client._send(
+            "ShaclValidate",
+            {"shapes": shapes, "data_graph": data_graph},
+        )
 
     async def add_triples(
         self,
@@ -2757,7 +5983,7 @@ class RdfClient:
             {"turtle": turtle or "", "ntriples": ntriples or ""},
         )
 
-    async def get_triples(self) -> str:
+    async def get_rdf(self) -> str:
         """Serialize the connection's graph back OUT to N-Triples (datatype/lang
         faithful — the inverse of :meth:`add_triples`)."""
         return await self._client._send("GetRdf")
@@ -2772,7 +5998,8 @@ class RdfClient:
         The inverse of :meth:`add_triples`: parses the document and surgically removes
         each triple (a literal triple drops the property cell; a resource triple removes
         the one matching typed edge). Durable. Returns a count dict. The retract op the
-        ontology UNLOAD path + SPARQL ``DELETE DATA`` build on. Requires the ``rdf`` feature.
+        ontology UNLOAD path + SPARQL ``DELETE DATA`` build on. RDF support is included
+        in the mandatory main build.
         """
         if (turtle is None) == (ntriples is None):
             raise ValueError(
@@ -2789,7 +6016,7 @@ class RdfClient:
         rows) in one op. Durable. The coarse-grained retract used when an ontology owns
         a dedicated named graph; the SPARQL ``DROP/CLEAR GRAPH`` op routes here. The op
         targets the request's graph, so ``graph`` is sent via the request envelope.
-        Requires the ``rdf`` feature.
+        RDF support is included in the mandatory main build.
         """
         return await self._client._send("DropNamedGraph", graph=graph)
 
@@ -2801,7 +6028,7 @@ class RdfClient:
     ) -> list[dict[str, str | None]]:
         """Run a SPARQL 1.1 ``SELECT`` over the connection's graph and return a list
         of row dicts keyed by projected variable (``None`` for an unbound OPTIONAL
-        variable). Requires a server built with the ``sparql`` feature.
+        variable). SPARQL is included in the mandatory main build.
 
         ``base_iri`` + ``type_convention`` select the LPG→RDF projection vocabulary
         (CONCEPT:EG-KG.ontology.lpg-rdf-projection-vocabulary). Both default to empty ⇒ the IDENTITY projection (node-type
@@ -2858,7 +6085,7 @@ class RdfClient:
         them — a derived entailment's confidence is ``axiom_conf x product(premise_conf)``
         (max over alternative derivations). ``min_confidence`` (tau) drops entailments
         below the threshold. ``target_class`` restricts ``instances`` to that class's
-        inferred members. Read-only. Requires a server built with the ``owl`` feature.
+        inferred members. OWL is included in the mandatory main build. Read-only.
         """
         return await self._client._send(
             "OwlReason",
@@ -2881,7 +6108,8 @@ class RdfClient:
         confidence type facts, runs ONE weighted EL⁺/RL closure over the union (the
         cross-shard union-read seam), and returns the SAME shape as :meth:`owl_reason` —
         provably identical to reasoning over the same axioms in a single graph. The
-        single-shard fast path stays :meth:`owl_reason`. Read-only; ``owl`` feature.
+        single-shard fast path stays :meth:`owl_reason`. OWL is included in the mandatory
+        main build. Read-only.
         """
         return await self._client._send(
             "OwlReasonDistributed",
@@ -2892,6 +6120,96 @@ class RdfClient:
                 "min_confidence": float(min_confidence),
             },
         )
+
+    async def explain(
+        self,
+        sub: str,
+        sup: str,
+        ontology: str | None = None,
+    ) -> dict[str, Any]:
+        """OWL proof-tree EXPLANATION (CONCEPT:EG-KG.ontology.owl-proof-tree-explanation) — Stardog's
+        flagship "explanation" feature, native here. Classifies the connection's graph
+        (its own TBox axioms, loaded via :meth:`add_triples`, plus any extra ``ontology``
+        Turtle) with confidence propagation, then reconstructs the FULL recursive proof
+        tree for the named-class subsumption ``sub`` ⊑ ``sup`` — WHICH axiom(s) and
+        WHICH premise subsumption(s) derived it, recursively down to the asserted/
+        reflexive leaves (CONCEPT:EG-KG.ontology.justification-tracking). Returns::
+
+            {
+                "found": bool,       # sub ⊑ sup holds under the classification
+                "tree": {            # None when not found
+                    "sub": str, "sup": str,
+                    "rule": str,      # "asserted" at a LEAF, else a completion rule
+                                      # name ("CR-sub", "CR-some+", ...)
+                    "axioms": [str, ...],   # axiom label(s) this node's rule cited
+                    "confidence": float,    # this node's own confidence in [0,1]
+                    "premises": [<same shape>, ...],  # recursive — empty at a leaf
+                },
+                "consistent": bool,
+                "unsatisfiable": [class, ...],
+            }
+
+        ``sub``/``sup`` accept a bare IRI or the canonical ``<iri>`` form (both are
+        canonicalized the same way ``target_class`` is elsewhere). OWL is included in
+        the mandatory main build. Read-only.
+        """
+        return await self._client._send(
+            "OwlExplain",
+            {
+                "ontology": ontology or "",
+                "sub": sub,
+                "sup": sup,
+            },
+        )
+
+    async def sparql_virtual(
+        self,
+        query: str,
+        mapping: str,
+        tables: list[str],
+    ) -> list[dict[str, str | None]]:
+        """OBDA / R2RML VIRTUAL GRAPH query (CONCEPT:EG-KG.query.r2rml-virtual-graph /
+        CONCEPT:EG-KG.query.obda-query-rewrite) — Ontology-Based Data Access: run a
+        SPARQL query against the engine's OWN SQL user table(s) (created via
+        :class:`QueryClient`/``Method.Sql`` DDL or :meth:`import_sqlite_file`)
+        EXPOSED AS RDF through an R2RML-style ``mapping``, WITHOUT ever materializing
+        the whole table.
+
+        ``tables`` names the user table(s) the mapping's ``TriplesMap``\\ s reference as
+        their ``logical_source`` — each is registered as a foreign source under its own
+        table name before the mapping is parsed and the query runs. ``mapping`` is
+        either a standard R2RML Turtle document (``@prefix rr: <http://www.w3.org/ns/
+        r2rml#> .`` ...) or the compact textual form::
+
+            SOURCE  <table_name>
+            SUBJECT http://example.org/person/{id}
+            CLASS   http://example.org/Person
+            COLUMN  http://example.org/name  name
+            REF     http://example.org/knows http://example.org/person/{friend_id}
+
+        The query rewrites to a projection-pushed scan of ONLY the query-relevant
+        table columns, materializes ONLY the query-relevant triples into a transient
+        view, and evaluates the SAME SPARQL engine over it — a real query-rewrite OBDA
+        path, not an ETL/materialize step; the user table is never mutated and nothing
+        is persisted into any graph. Returns the same row-dict shape as :meth:`sparql`.
+        OBDA, SPARQL, and query support are included in the mandatory main build.
+        Read-only.
+        """
+        result = await self._client._send(
+            "SparqlVirtual",
+            {
+                "query": query,
+                "mapping": mapping,
+                "tables": list(tables),
+            },
+        )
+        if not result:
+            return []
+        vars_: list[str] = result.get("vars", [])
+        rows: list[dict[str, str | None]] = []
+        for row in result.get("rows", []):
+            rows.append(dict(zip(vars_, row, strict=False)))
+        return rows
 
 
 class StreamingClient:
@@ -2911,8 +6229,8 @@ class StreamingClient:
         — a LISTEN/NOTIFY-style long-poll over a graph/label cursor, plus
         condition→action triggers whose firings are pollable.
 
-    Requires a server built with the ``streaming`` feature (folded into
-    pi/node/cluster/full).
+    The ``streaming`` feature is part of the mandatory main build and remains present in
+    the source-built ``cluster`` and ``full-extras`` layers.
     """
 
     def __init__(self, client: EpistemicGraphClient) -> None:
@@ -3037,8 +6355,8 @@ class BlobClient:
     server-side cursor (each chunk hashed + stored on arrival), a commit assembles
     the manifest → a stable blob digest; a fetch mirrors it (open cursor → pull
     chunks → reassemble). Identical bytes ⇒ identical digest ⇒ ZERO new chunks
-    (dedup). Requires a server built with the ``blob`` feature (folded into
-    ``node``/``pi-max``/``full``) AND a persist dir.
+    (dedup). The ``blob`` feature is part of the mandatory main build and requires a
+    persist dir.
 
     The CONTENT lives here keyed by digest (graph-independent); a caller links it
     into the graph with a ``:MediaAsset``/``:Media`` node + a ``blob_ref`` (the
@@ -3153,10 +6471,9 @@ class BrokerClient:
     clock — so WAL/Raft replay reproduces byte-identical state), exactly as the engine
     contract requires.
 
-    Requires a server built with the ``broker`` feature; a build without it returns the
-    "not available in this build" error (the same catch-all as EG-090 on a non-redb
-    build). The AMQP/MQTT/STOMP wire adapters + ``graph_bus`` reach the SAME ops — this
-    is the in-process Python surface for them.
+    Broker support is included in the mandatory main build. The AMQP/MQTT/STOMP wire
+    adapters + ``graph_bus`` reach the SAME ops — this is the in-process Python surface
+    for them.
 
     Usage::
 
@@ -3347,7 +6664,8 @@ class BrokerClient:
         """Consume one message from ``queue`` for consumer-group member
         ``(group, consumer)`` (EG-280), honoring TTL/priority/delay. Claims the
         highest-priority, oldest, DUE, non-expired message, enforcing ``prefetch``
-        (0 ⇒ unlimited) and taking a ``lease_ms`` visibility lease (0 ⇒ none). Lazily
+        (0 ⇒ unlimited) and taking a ``lease_ms`` visibility lease (0 ⇒ non-expiring;
+        explicit ack/nack required). Lazily
         dead-letters expired messages it steps over. Returns ``(node_id, properties)`` or
         ``None`` if nothing is deliverable."""
         claimed = await self._client._send(
@@ -3390,22 +6708,58 @@ class BrokerClient:
             },
         )
 
-    async def ack_tag(self, delivery_tag: int) -> bool:
+    async def ack_tag(self, delivery_tag: int, *, consumer: str) -> bool:
         """Acknowledge a claimed message by its consumer ``delivery_tag`` (EG-284) — the
-        tag-addressed sibling of :meth:`ack`. Returns ``True`` if it existed."""
+        tag-addressed sibling of :meth:`ack`. Status, tag, and current owner are
+        fenced atomically; stale or foreign deliveries return ``False``."""
         return await self._client._send(
-            "BrokerAckTag", {"delivery_tag": int(delivery_tag)}
+            "BrokerAckTag",
+            {"delivery_tag": int(delivery_tag), "consumer": consumer},
         )
 
-    async def nack_tag(self, delivery_tag: int, *, requeue: bool, now_ms: int) -> str:
+    async def nack_tag(
+        self,
+        delivery_tag: int,
+        *,
+        consumer: str,
+        requeue: bool,
+        now_ms: int,
+    ) -> str:
         """Nack a claimed message by its consumer ``delivery_tag`` (EG-284) — the
-        tag-addressed sibling of :meth:`reject`. Returns the outcome string."""
+        tag-addressed sibling of :meth:`reject`. Only the current owner can end the
+        current tag generation. Returns the outcome string."""
         return await self._client._send(
             "BrokerNackTag",
             {
                 "delivery_tag": int(delivery_tag),
+                "consumer": consumer,
                 "requeue": bool(requeue),
                 "now_ms": int(now_ms),
+            },
+        )
+
+    async def renew_tag(
+        self,
+        delivery_tag: int,
+        *,
+        consumer: str,
+        now_ms: int,
+        lease_ms: int,
+    ) -> bool:
+        """Extend a still-live delivery lease for its current owning consumer.
+
+        ``now_ms`` is explicit for deterministic durable replay. The requested
+        deadline must move the current deadline forward. Missing, expired, stale,
+        foreign-owner, non-extending, and zero-duration renewals return ``False``.
+        A failed renewal never retires an otherwise-current ack/nack generation.
+        """
+        return await self._client._send(
+            "BrokerRenewTag",
+            {
+                "delivery_tag": int(delivery_tag),
+                "consumer": consumer,
+                "now_ms": int(now_ms),
+                "lease_ms": int(lease_ms),
             },
         )
 
@@ -3485,9 +6839,8 @@ class RbacClient:
 
     A thin binding over ``Method::RbacAdmin`` (an admin/governance op, not a
     graph call): manage durable roles + a role hierarchy + resource/action grants that
-    the engine's read/plan-path ``GraphView`` filter enforces. Unconditional on the wire;
-    the HANDLER is gated behind the server's ``security`` feature — a non-security build
-    returns the "not available in this build" error.
+    the engine's read/plan-path ``GraphView`` filter enforces. Security and the handler
+    are included in the mandatory main build.
 
     Grants bind a role to a ``(resource, action, effect)`` triple. ``resource`` is a
     :class:`ResourceSelector` dict (``"All"`` / ``{"Pattern": s}`` / ``{"Label": s}`` /
@@ -3557,12 +6910,787 @@ class RbacClient:
         return await self._client._send("RbacAdmin", {"op": "List"})
 
 
+class JobsClient:
+    """CONCEPT:INT-P2-1 — the durable analytics-job plane: async submit/status/
+    cancel/resume over a redb-backed ``AnalyticsJob`` state machine (``eg-jobs``),
+    reached over ONE ``Method::AnalyticsJob { op }`` wrapping an internal ``JobOp``
+    (mirrors :class:`RbacClient`'s ``RbacAdmin { op }`` shape). Jobs are NOT
+    graph-scoped (keyed by their own ``job_id`` in ``jobs.redb``), so a submitted job
+    outlives this connection and can be polled/resumed from any client pointed at the
+    same engine.
+
+    A job runs ASYNCHRONOUSLY off the request: :meth:`submit` returns as soon as the
+    job is durably recorded ``Submitted`` (not once it finishes) — poll :meth:`status`
+    for progress/results. On success the engine ALSO commits the result as a
+    provenance'd ``:Claim``/``:Evidence`` pair in the target graph (the same
+    ``eg-epistemic`` convention every other belief/evidence write uses), so a
+    finished job's output is queryable through the ordinary graph/belief surface too,
+    not just :meth:`status`.
+
+    The job plane includes association-rule mining and, when the server is built
+    with ``program-optimization``, graph-native LM-program optimization::
+
+        job = await client.jobs.submit(
+            "agent:planner",
+            {"MineAssociate": {"transactions": [["a", "b"], ["a", "c"]]}},
+        )
+        status = await client.jobs.status(job["job_id"])
+        await client.jobs.cancel(job["job_id"])   # if still running
+        await client.jobs.resume(job["job_id"])   # after a crash-orphaned run
+
+        program_job = await client.jobs.submit_program_optimization(
+            "agent:planner", request_msgpack
+        )
+
+    A program job returns uniform typed rows. ``kind == "program_candidate"`` rows
+    describe deterministic candidates; ``kind ==
+    "program_optimization_plan_step"`` rows form a dependency-ordered, bounded
+    plan for an existing engine similarity/model/evaluator/trainer runtime. Durable
+    rows contain opaque references and fixed labels, never prompt or response bodies.
+
+    Every method returns the durable ``AnalyticsJob`` record as a dict (``job_id``,
+    ``input_snapshot``, ``algo``, ``policy``, ``cancel_requested``, ``state``, …).
+    ``state`` mirrors the Rust ``JobState`` enum's own externally-tagged shape:
+    the bare string ``"Submitted"`` for that one unit variant, or
+    ``{"Running": {"checkpoint": ...}}`` / ``{"Succeeded": {"result_ref", "checkpoint"}}``
+    / ``{"Failed": {"reason", "checkpoint"}}`` / ``{"Cancelled": {"checkpoint"}}`` for
+    the rest — check ``isinstance(state, str)`` first, else take the dict's one key
+    as the state name. Authenticated standalone executors use the fenced
+    ``worker_*`` methods below; they never open ``jobs.redb`` directly. Durable jobs
+    are included in the mandatory main build.
+    """
+
+    def __init__(self, client: EpistemicGraphClient) -> None:
+        self._client = client
+
+    async def submit(
+        self,
+        graph: str,
+        kind: dict[str, Any],
+        *,
+        tenant: str = "",
+        actor: str = "",
+        purpose: str = "",
+        priority: int = 0,
+        deadline_unix_ms: int | None = None,
+        quota_cpu_ms: int | None = None,
+        memory_bytes: int | None = None,
+        io_bytes: int | None = None,
+        output_bytes: int | None = None,
+        worker_pool: str = "",
+        worker_region: str = "",
+        required_capabilities: list[str] | None = None,
+        max_attempts: int = 1,
+        backoff_ms: int = 0,
+    ) -> dict[str, Any]:
+        """Submit a new job against ``graph`` (both the tenancy anchor for the
+        eventual result claim AND the input-snapshot handle's graph — the engine
+        stamps in the graph's live version at submit time; it is never
+        client-supplied). ``kind`` is the externally-tagged ``JobKind`` payload,
+        e.g. ``{"MineAssociate": {"transactions": [...], "min_support": 0.1,
+        "min_confidence": 0.5, "algorithm": "fpgrowth"}}``. Returns the freshly
+        durable ``Submitted`` job record (including its server-issued ``job_id``),
+        not the eventual result — the job itself keeps running after this returns.
+        CPU/memory/IO/output reservations and pool/region/capability placement are
+        optional; admission and matching remain coordinator-owned."""
+        spec: dict[str, Any] = {
+            "graph": graph,
+            "tenant": tenant,
+            "actor": actor,
+            "purpose": purpose,
+            "priority": priority,
+            "deadline_unix_ms": deadline_unix_ms,
+            "quota_cpu_ms": quota_cpu_ms,
+            "memory_bytes": memory_bytes,
+            "io_bytes": io_bytes,
+            "output_bytes": output_bytes,
+            "worker_pool": worker_pool,
+            "worker_region": worker_region,
+            "required_capabilities": list(required_capabilities or ()),
+            "max_attempts": max_attempts,
+            "backoff_ms": backoff_ms,
+            "kind": kind,
+        }
+        return await self._client._send("AnalyticsJob", {"op": {"Submit": spec}})
+
+    async def submit_program_optimization(
+        self,
+        graph: str,
+        request_msgpack: bytes | bytearray | memoryview,
+        **job_options: Any,
+    ) -> dict[str, Any]:
+        """Submit a versioned ``eg_program::OptimizationRequest``.
+
+        ``request_msgpack`` must be named-field MessagePack. The engine performs
+        bounded decoding, replaces caller policy scope with verified authority,
+        injects the ``program.optimization`` worker capability, and persists only
+        the governed reference-only request. Poll :meth:`status`; on success,
+        inspect ``output.rows`` by ``kind``. Provider-dependent optimizers return
+        executable plan-step rows and are resubmitted with governed
+        ``optimizer_artifacts`` after the named engine runtime materializes them.
+        """
+        if not isinstance(request_msgpack, (bytes, bytearray, memoryview)):
+            raise TypeError("request_msgpack must be bytes-like")
+        payload = bytes(request_msgpack)
+        if not payload or len(payload) > 16 * 1024 * 1024:
+            raise ValueError("request_msgpack must be non-empty and at most 16 MiB")
+        return await self.submit(
+            graph,
+            {"ProgramOptimize": {"request_msgpack": payload}},
+            **job_options,
+        )
+
+    async def status(self, job_id: str) -> dict[str, Any]:
+        """Fetch ``job_id``'s current durable state, including its checkpoint/
+        progress. Read-only."""
+        return await self._client._send(
+            "AnalyticsJob", {"op": {"Status": {"job_id": job_id}}}
+        )
+
+    async def cancel(self, job_id: str) -> dict[str, Any]:
+        """Cooperatively cancel ``job_id`` — immediate (transitions straight to
+        ``Cancelled``) if it is still ``Submitted``; otherwise sets
+        ``cancel_requested`` and the running executor observes it at its next
+        checkpoint and stops. Raises ``RuntimeError`` if ``job_id`` is already in a
+        TERMINAL state (``Succeeded``/``Failed``/``Cancelled``) — cancelling a
+        finished job is an explicit invalid-transition error, not a silent no-op (an
+        already-finished job's result is not retroactively discarded). Distinct from
+        :meth:`EpistemicGraphClient.cancel_request`, which cancels an in-flight RPC on
+        this connection (and IS a harmless no-op if that request already finished),
+        not a durable job."""
+        return await self._client._send(
+            "AnalyticsJob", {"op": {"Cancel": {"job_id": job_id}}}
+        )
+
+    async def resume(self, job_id: str) -> dict[str, Any]:
+        """Resume ``job_id`` from its last checkpoint — either a ``Failed`` job with
+        retries remaining, or a ``Running`` job orphaned by a crashed/restarted
+        engine process (same checkpoint, cleared cancel flag). Raises
+        ``RuntimeError`` for any other state — a ``Cancelled`` job is a deliberate
+        terminal stop (resubmit instead), a ``Succeeded`` job is already done (fetch
+        its ``result_ref`` instead), and a ``Failed`` job with no retries remaining
+        cannot be resumed either."""
+        return await self._client._send(
+            "AnalyticsJob", {"op": {"Resume": {"job_id": job_id}}}
+        )
+
+    async def worker_claim(
+        self,
+        worker_instance: str,
+        capabilities: list[str],
+        *,
+        lease_ms: int = 60_000,
+    ) -> dict[str, Any] | None:
+        """Claim one governed analytics job using verified worker identity.
+
+        ``worker_instance`` is an opaque process-slot nonce.  The server hashes it
+        with the authenticated principal before persistence and returns ``None``
+        when no compatible job is ready.
+        """
+        return await self._client._send(
+            "AnalyticsJob",
+            {
+                "op": {
+                    "WorkerClaim": {
+                        "worker_instance": worker_instance,
+                        "capabilities": capabilities,
+                        "lease_ms": lease_ms,
+                    }
+                }
+            },
+        )
+
+    async def worker_renew(
+        self,
+        job_id: str,
+        worker_instance: str,
+        lease_epoch: int,
+        *,
+        lease_ms: int = 60_000,
+    ) -> dict[str, Any]:
+        """Renew one exact fenced worker lease."""
+        return await self._client._send(
+            "AnalyticsJob",
+            {
+                "op": {
+                    "WorkerRenew": {
+                        "job_id": job_id,
+                        "worker_instance": worker_instance,
+                        "lease_epoch": lease_epoch,
+                        "lease_ms": lease_ms,
+                    }
+                }
+            },
+        )
+
+    async def worker_checkpoint(
+        self,
+        job_id: str,
+        worker_instance: str,
+        lease_epoch: int,
+        *,
+        progress: float,
+        stage: str,
+        state_ref: str | None = None,
+    ) -> dict[str, Any]:
+        """Persist a bounded, opaque checkpoint under the current lease epoch."""
+        return await self._client._send(
+            "AnalyticsJob",
+            {
+                "op": {
+                    "WorkerCheckpoint": {
+                        "job_id": job_id,
+                        "worker_instance": worker_instance,
+                        "lease_epoch": lease_epoch,
+                        "progress": progress,
+                        "stage": stage,
+                        "state_ref": state_ref,
+                    }
+                }
+            },
+        )
+
+    async def worker_stage(
+        self,
+        job_id: str,
+        worker_instance: str,
+        lease_epoch: int,
+        result: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Durably stage a complete typed KnowledgeBatch-shaped result."""
+        return await self._client._send(
+            "AnalyticsJob",
+            {
+                "op": {
+                    "WorkerStage": {
+                        "job_id": job_id,
+                        "worker_instance": worker_instance,
+                        "lease_epoch": lease_epoch,
+                        "result": result,
+                    }
+                }
+            },
+        )
+
+    async def worker_publish(
+        self, job_id: str, worker_instance: str, lease_epoch: int
+    ) -> dict[str, Any]:
+        """Publish a staged result through the authoritative graph gateway."""
+        return await self._client._send(
+            "AnalyticsJob",
+            {
+                "op": {
+                    "WorkerPublish": {
+                        "job_id": job_id,
+                        "worker_instance": worker_instance,
+                        "lease_epoch": lease_epoch,
+                    }
+                }
+            },
+        )
+
+    async def worker_fail(
+        self,
+        job_id: str,
+        worker_instance: str,
+        lease_epoch: int,
+        reason_code: str,
+    ) -> dict[str, Any]:
+        """Release a failed attempt using a bounded server-governed reason code."""
+        return await self._client._send(
+            "AnalyticsJob",
+            {
+                "op": {
+                    "WorkerFail": {
+                        "job_id": job_id,
+                        "worker_instance": worker_instance,
+                        "lease_epoch": lease_epoch,
+                        "reason_code": reason_code,
+                    }
+                }
+            },
+        )
+
+    async def worker_cancel(
+        self, job_id: str, worker_instance: str, lease_epoch: int
+    ) -> dict[str, Any]:
+        """Confirm cooperative cancellation for the exact fenced lease."""
+        return await self._client._send(
+            "AnalyticsJob",
+            {
+                "op": {
+                    "WorkerCancel": {
+                        "job_id": job_id,
+                        "worker_instance": worker_instance,
+                        "lease_epoch": lease_epoch,
+                    }
+                }
+            },
+        )
+
+
+class KnowledgeStreamClient:
+    """Current native Arrow result stream for every served query family.
+
+    The client exposes exactly one pull operation because the engine exposes one
+    authority-, placement-, query-, and snapshot-bound stream contract. Alternate
+    projections and direct-family aliases are intentionally absent.
+    """
+
+    def __init__(self, client: EpistemicGraphClient) -> None:
+        self._client = client
+
+    async def pull(
+        self,
+        query: KnowledgeStreamQuery,
+        *,
+        batch_size: int,
+        cursor: KnowledgeStreamCursor | None = None,
+    ) -> KnowledgeStreamBatch:
+        """Pull one bounded Arrow IPC batch and its integrity-bound resume cursor."""
+
+        current_query, family = _knowledge_query(query)
+        current_batch_size = _integer(
+            "batch_size", batch_size, minimum=1, maximum=65_536
+        )
+        request: dict[str, Any] = {
+            "schema_version": 1,
+            "query": current_query,
+            "batch_size": current_batch_size,
+            "projection": "arrow_ipc_v1",
+        }
+        if cursor is not None:
+            current_cursor = _knowledge_cursor(cursor)
+            if (
+                current_cursor["family"] != family
+                or current_cursor["batch_size"] != current_batch_size
+            ):
+                raise ValueError("cursor family and batch size must match the request")
+            request["cursor"] = current_cursor
+        result = await self._client._send("KnowledgeStream", {"request": request})
+        return _knowledge_batch(result, family=family, batch_size=current_batch_size)
+
+
+class ServedModalityClient:
+    """Governed document, image, audio, and video serving operations.
+
+    Every method emits one current ``ServedModalityOp`` shape. Authority always
+    comes from the signed request context; callers cannot add tenant, policy,
+    purpose, classification, or deployment fields to an operation.
+    """
+
+    def __init__(self, client: EpistemicGraphClient) -> None:
+        self._client = client
+
+    async def authority(self) -> ModalityAuthority:
+        """Return the opaque policy references required to certify a bundle."""
+
+        result = await self._client._send(
+            "ServedModality", {"op": {"operation": "authority"}}
+        )
+        return _modality_authority(result)
+
+    async def ingest(
+        self,
+        modality: str,
+        *,
+        idempotency_ref: str,
+        target_occurrence_id: str,
+        bundle_msgpack: bytes,
+        source_bytes: bytes,
+        expected_version: int | None = None,
+    ) -> ModalityApplyOutcome:
+        """Decode and atomically create or version-update one certified occurrence."""
+
+        operation: dict[str, Any] = {
+            "operation": "ingest",
+            "modality": _served_modality("modality", modality),
+            "idempotency_ref": _opaque_ref("idempotency_ref", idempotency_ref),
+            "target_occurrence_id": _opaque_ref(
+                "target_occurrence_id",
+                target_occurrence_id,
+                namespace="occurrence",
+            ),
+            "expected_version": (
+                None
+                if expected_version is None
+                else _integer("expected_version", expected_version, minimum=1)
+            ),
+            "bundle_msgpack": _bytes(
+                "bundle_msgpack", bundle_msgpack, allow_empty=False
+            ),
+            "source_bytes": _bytes("source_bytes", source_bytes, allow_empty=False),
+        }
+        result = await self._client._send("ServedModality", {"op": operation})
+        return _modality_outcome(result)
+
+    async def ingest_stream(
+        self,
+        modality: str,
+        items: list[dict[str, Any]],
+    ) -> list[ModalityApplyOutcome]:
+        """Atomically decode and apply a bounded stream of two to 64 records."""
+
+        if not isinstance(items, list) or not 2 <= len(items) <= 64:
+            raise ValueError("items must contain between two and 64 ingest records")
+        encoded: list[dict[str, Any]] = []
+        fields = {
+            "idempotency_ref",
+            "target_occurrence_id",
+            "expected_version",
+            "bundle_msgpack",
+            "source_bytes",
+        }
+        for index, raw in enumerate(items):
+            if not isinstance(raw, dict) or set(raw) != fields:
+                raise ValueError(f"items[{index}] must contain the exact ingest fields")
+            expected = raw["expected_version"]
+            encoded.append(
+                {
+                    "idempotency_ref": _opaque_ref(
+                        f"items[{index}].idempotency_ref", raw["idempotency_ref"]
+                    ),
+                    "target_occurrence_id": _opaque_ref(
+                        f"items[{index}].target_occurrence_id",
+                        raw["target_occurrence_id"],
+                        namespace="occurrence",
+                    ),
+                    "expected_version": (
+                        None
+                        if expected is None
+                        else _integer(
+                            f"items[{index}].expected_version", expected, minimum=1
+                        )
+                    ),
+                    "bundle_msgpack": _bytes(
+                        f"items[{index}].bundle_msgpack",
+                        raw["bundle_msgpack"],
+                        allow_empty=False,
+                    ),
+                    "source_bytes": _bytes(
+                        f"items[{index}].source_bytes",
+                        raw["source_bytes"],
+                        allow_empty=False,
+                    ),
+                }
+            )
+        operation = {
+            "operation": "ingest_stream",
+            "modality": _served_modality("modality", modality),
+            "items": encoded,
+        }
+        result = await self._client._send("ServedModality", {"op": operation})
+        return _modality_outcomes(result, len(encoded))
+
+    async def query(
+        self,
+        modality: str,
+        *,
+        segment_kind: str | None = None,
+        after_occurrence_id: str | None = None,
+        limit: int = 100,
+        include_cold: bool = False,
+    ) -> ServedModalityPage:
+        """Return one stable, authority-filtered page of visible served records."""
+
+        if segment_kind is not None:
+            segment_kind = _string("segment_kind", segment_kind)
+            if segment_kind not in _SERVED_SEGMENTS:
+                raise ValueError("segment_kind is not a current served segment kind")
+        if after_occurrence_id is not None:
+            after_occurrence_id = _opaque_ref(
+                "after_occurrence_id",
+                after_occurrence_id,
+                namespace="occurrence",
+            )
+        operation = {
+            "operation": "query",
+            "modality": _served_modality("modality", modality),
+            "segment_kind": segment_kind,
+            "after_occurrence_id": after_occurrence_id,
+            "limit": _integer("limit", limit, minimum=1, maximum=1_000),
+            "include_cold": _boolean("include_cold", include_cold),
+        }
+        result = await self._client._send("ServedModality", {"op": operation})
+        return _modality_page(result)
+
+    async def _native_query(
+        self,
+        predicate: dict[str, Any],
+        *,
+        after_occurrence_id: str | None,
+        limit: int,
+        include_cold: bool,
+    ) -> ServedModalityPage:
+        if after_occurrence_id is not None:
+            after_occurrence_id = _opaque_ref(
+                "after_occurrence_id",
+                after_occurrence_id,
+                namespace="occurrence",
+            )
+        operation = {
+            "operation": "native_query",
+            "predicate": predicate,
+            "after_occurrence_id": after_occurrence_id,
+            "limit": _integer("limit", limit, minimum=1, maximum=1_000),
+            "include_cold": _boolean("include_cold", include_cold),
+        }
+        result = await self._client._send("ServedModality", {"op": operation})
+        return _modality_page(result)
+
+    async def search_documents(
+        self,
+        term: str,
+        *,
+        page: int | None = None,
+        after_occurrence_id: str | None = None,
+        limit: int = 100,
+        include_cold: bool = False,
+    ) -> ServedModalityPage:
+        """Run an authority-keyed lexical lookup without persisting query text."""
+
+        term = _string("term", term).strip()
+        if len(term.encode("utf-8")) > 128 or not term.isalnum():
+            raise ValueError("term must be one bounded alphanumeric lexeme")
+        normalized_page = (
+            None
+            if page is None
+            else _integer("page", page, minimum=1, maximum=(1 << 32) - 1)
+        )
+        return await self._native_query(
+            {"predicate": "document_lexical", "term": term, "page": normalized_page},
+            after_occurrence_id=after_occurrence_id,
+            limit=limit,
+            include_cold=include_cold,
+        )
+
+    async def query_image_region(
+        self,
+        *,
+        x: float,
+        y: float,
+        width: float,
+        height: float,
+        after_occurrence_id: str | None = None,
+        limit: int = 100,
+        include_cold: bool = False,
+    ) -> ServedModalityPage:
+        """Query normalized image-space regions through the native grid index."""
+
+        x = _finite_f32("x", x, minimum=0.0, maximum=1.0)
+        y = _finite_f32("y", y, minimum=0.0, maximum=1.0)
+        width = _finite_f32("width", width, minimum=0.0, maximum=1.0)
+        height = _finite_f32("height", height, minimum=0.0, maximum=1.0)
+        if width == 0.0 or height == 0.0 or x + width > 1.0 or y + height > 1.0:
+            raise ValueError("image region must be a non-empty normalized rectangle")
+        return await self._native_query(
+            {
+                "predicate": "image_region",
+                "x": x,
+                "y": y,
+                "width": width,
+                "height": height,
+            },
+            after_occurrence_id=after_occurrence_id,
+            limit=limit,
+            include_cold=include_cold,
+        )
+
+    async def query_similar_images(
+        self,
+        perceptual_hash: int,
+        *,
+        maximum_distance: int = 8,
+        after_occurrence_id: str | None = None,
+        limit: int = 100,
+        include_cold: bool = False,
+    ) -> ServedModalityPage:
+        """Query bounded multi-probe pHash postings with exact Hamming filtering."""
+
+        predicate = {
+            "predicate": "image_perceptual_hash",
+            "hash": _integer("perceptual_hash", perceptual_hash, maximum=(1 << 64) - 1),
+            "maximum_distance": _integer(
+                "maximum_distance", maximum_distance, maximum=15
+            ),
+        }
+        return await self._native_query(
+            predicate,
+            after_occurrence_id=after_occurrence_id,
+            limit=limit,
+            include_cold=include_cold,
+        )
+
+    async def query_audio_window(
+        self,
+        *,
+        start_ms: int,
+        end_ms: int,
+        minimum_rms: float = 0.0,
+        after_occurrence_id: str | None = None,
+        limit: int = 100,
+        include_cold: bool = False,
+    ) -> ServedModalityPage:
+        """Query indexed native waveform windows by time and RMS energy."""
+
+        start_ms, end_ms = _native_temporal_window(start_ms, end_ms)
+        return await self._native_query(
+            {
+                "predicate": "audio_window",
+                "start_ms": start_ms,
+                "end_ms": end_ms,
+                "minimum_rms": _finite_f32(
+                    "minimum_rms", minimum_rms, minimum=0.0, maximum=1.0
+                ),
+            },
+            after_occurrence_id=after_occurrence_id,
+            limit=limit,
+            include_cold=include_cold,
+        )
+
+    async def query_video_window(
+        self,
+        *,
+        start_ms: int,
+        end_ms: int,
+        keyframes_only: bool = False,
+        after_occurrence_id: str | None = None,
+        limit: int = 100,
+        include_cold: bool = False,
+    ) -> ServedModalityPage:
+        """Query native frame timing and keyframe indexes."""
+
+        start_ms, end_ms = _native_temporal_window(start_ms, end_ms)
+        return await self._native_query(
+            {
+                "predicate": "video_window",
+                "start_ms": start_ms,
+                "end_ms": end_ms,
+                "keyframes_only": _boolean("keyframes_only", keyframes_only),
+            },
+            after_occurrence_id=after_occurrence_id,
+            limit=limit,
+            include_cold=include_cold,
+        )
+
+    async def delete(
+        self,
+        modality: str,
+        *,
+        idempotency_ref: str,
+        occurrence_id: str,
+        expected_version: int,
+    ) -> ModalityApplyOutcome:
+        """Apply the governed OCC delete and payload-erasure transition."""
+
+        operation = {
+            "operation": "delete",
+            "modality": _served_modality("modality", modality),
+            "idempotency_ref": _opaque_ref("idempotency_ref", idempotency_ref),
+            "occurrence_id": _opaque_ref(
+                "occurrence_id", occurrence_id, namespace="occurrence"
+            ),
+            "expected_version": _integer(
+                "expected_version", expected_version, minimum=1
+            ),
+        }
+        result = await self._client._send("ServedModality", {"op": operation})
+        return _modality_outcome(result)
+
+    async def move_to_cold(
+        self, modality: str, *, occurrence_id: str
+    ) -> ModalityApplyOutcome:
+        """Move one authorized active occurrence to governed cold state."""
+
+        operation = {
+            "operation": "move_to_cold",
+            "modality": _served_modality("modality", modality),
+            "occurrence_id": _opaque_ref(
+                "occurrence_id", occurrence_id, namespace="occurrence"
+            ),
+        }
+        result = await self._client._send("ServedModality", {"op": operation})
+        return _modality_outcome(result)
+
+    async def restore(
+        self, modality: str, *, occurrence_id: str
+    ) -> ModalityApplyOutcome:
+        """Restore one authorized cold occurrence to active state."""
+
+        operation = {
+            "operation": "restore",
+            "modality": _served_modality("modality", modality),
+            "occurrence_id": _opaque_ref(
+                "occurrence_id", occurrence_id, namespace="occurrence"
+            ),
+        }
+        result = await self._client._send("ServedModality", {"op": operation})
+        return _modality_outcome(result)
+
+    async def events(
+        self,
+        modality: str,
+        *,
+        after_sequence: int = 0,
+        limit: int = 100,
+    ) -> list[ServedModalityEvent]:
+        """Read a bounded, monotonic, authority-filtered event page."""
+
+        operation = {
+            "operation": "events",
+            "modality": _served_modality("modality", modality),
+            "after_sequence": _integer("after_sequence", after_sequence),
+            "limit": _integer("limit", limit, minimum=1, maximum=10_000),
+        }
+        result = await self._client._send("ServedModality", {"op": operation})
+        return _modality_events(result)
+
+    async def stats(self, modality: str) -> ServedModalityStats:
+        """Return privacy-safe live record, index, event, and snapshot cardinalities."""
+
+        operation = {
+            "operation": "stats",
+            "modality": _served_modality("modality", modality),
+        }
+        result = await self._client._send("ServedModality", {"op": operation})
+        return _modality_stats(result)
+
+    async def collect_tombstones(
+        self, modality: str, *, through_event_sequence: int
+    ) -> int:
+        """Collect tombstones through an observed durable delete-event fence."""
+
+        operation = {
+            "operation": "collect_tombstones",
+            "modality": _served_modality("modality", modality),
+            "through_event_sequence": _integer(
+                "through_event_sequence", through_event_sequence, minimum=1
+            ),
+        }
+        result = await self._client._send("ServedModality", {"op": operation})
+        value = _exact_mapping(
+            "served modality collection", result, frozenset({"collected"})
+        )
+        return _integer("collected", value["collected"])
+
+    async def capabilities(self, modality: str) -> ServedModalityCapabilities:
+        """Require the concrete modality component to report 12 PASS and zero N/A."""
+
+        operation = {
+            "operation": "capabilities",
+            "modality": _served_modality("modality", modality),
+        }
+        result = await self._client._send("ServedModality", {"op": operation})
+        return _modality_capabilities(result)
+
+
 class AdminClient:
     """CONCEPT:EG-KG.ingest.broker-streams-namespaces — Ops / maintenance namespace: online backup + restore (EG-090).
 
     A thin binding over the ``Method::Backup`` / ``Method::Restore`` admin RPCs.
     :meth:`backup` takes an ONLINE consistent snapshot (per-shard ``begin_read()`` MVCC,
-    no quiesce) into a portable bundle directory. :meth:`restore` STAGES a rebuilt copy in
+    no quiesce) into an operator-provisioned private backup root. The methods accept
+    logical bundle names, never host paths. :meth:`restore` STAGES a rebuilt copy in
     a sibling dir (the running engine holds an exclusive lock on its live store) for the
     operator to swap in after stopping the engine — an in-place restore uses the offline
     ``restore`` CLI. Redb-only; a non-redb build returns "not available".
@@ -3574,20 +7702,26 @@ class AdminClient:
     async def backup(
         self, destination: str, label: str | None = None
     ) -> dict[str, Any]:
-        """Take an online consistent backup into ``destination`` (a bundle directory),
-        tagged with ``label`` (EG-090). Returns a ``BackupReport`` dict (destination,
-        label, timestamp, engine_version, per-shard/graph/node/edge/ledger/semantic/audit
-        counts)."""
+        """Take an online consistent backup named ``destination`` under the configured
+        private backup root, tagged with ``label`` (EG-090). Returns aggregate counts;
+        no local path or raw label is returned or persisted."""
         return await self._client._send(
             "Backup", {"destination": destination, "label": label}
         )
 
-    async def restore(self, source: str) -> dict[str, Any]:
-        """Restore from a backup bundle at ``source`` (EG-090). Stages the rebuilt copy in a
-        sibling dir (returned as ``staged_dir``) for an offline swap-in. Returns a
-        ``RestoreReport`` dict (source, staged_dir, note, restored_shards, bundle
-        engine_version/timestamp/label, graphs)."""
-        return await self._client._send("Restore", {"source": source})
+    async def restore(self, source: str, *, target_shards: int) -> dict[str, Any]:
+        """Restore the logical bundle name ``source`` from the configured private root
+        (EG-090). Stages an engine-owned copy for an offline swap-in and returns only an
+        opaque stage reference plus aggregate counts."""
+        return await self._client._send(
+            "Restore",
+            {
+                "source": source,
+                "target_shards": _integer(
+                    "target_shards", target_shards, minimum=1, maximum=64
+                ),
+            },
+        )
 
 
 class EpistemicGraphClient:
@@ -3597,9 +7731,20 @@ class EpistemicGraphClient:
 
     Usage::
 
+        context: RequestContextClaims = {
+            "principal": "service:planner",
+            "tenant": "tenant:default",
+            "audience": "epistemic-graph",
+            "agent_id": "service:planner",
+            "roles": ["graph-client"],
+            "scopes": ["graph:read", "graph:write"],
+            "policy_version": "policy:current",
+            "delegation": [],
+        }
         client = await EpistemicGraphClient.connect(
-            socket_path="/tmp/epistemic-graph.sock",
-            auth_secret="my-secret",
+            socket_path=os.environ["GRAPH_SERVICE_SOCKET"],
+            auth_secret=os.environ["GRAPH_SERVICE_AUTH_SECRET"],
+            verified_context=context,
             graph_name="agent:planner",
         )
         await client.nodes.add("node1", {"type": "Agent"})
@@ -3613,10 +7758,13 @@ class EpistemicGraphClient:
         writer: asyncio.StreamWriter,
         auth_secret: str,
         graph_name: str,
-        agent_id: str | None = None,
+        *,
+        verified_context: RequestContextClaims | dict[str, Any],
         timeout: float | None = _DEFAULT_RPC_TIMEOUT,
         heavy_timeout: float | None = _HEAVY_RPC_TIMEOUT,
     ) -> None:
+        if not isinstance(auth_secret, str) or not auth_secret:
+            raise ValueError("a non-empty authentication secret is required")
         self._reader = reader
         self._writer = writer
         self._auth_secret = auth_secret
@@ -3624,10 +7772,10 @@ class EpistemicGraphClient:
         # Per-RPC read timeouts (0/None disables). Heavy ops use heavy_timeout.
         self._timeout = timeout if timeout else None
         self._heavy_timeout = heavy_timeout if heavy_timeout else None
-        # Caller identity for server-side ACL enforcement (isolation layer).
-        # Optional: single-tenant deployments never need it; once identities
-        # are registered server-side, requests carry it for check_access().
-        self._agent_id = agent_id
+        self._verified_context = validate_request_context(verified_context)
+        self._verified_context_override: contextvars.ContextVar[
+            dict[str, Any] | None
+        ] = contextvars.ContextVar("eg_verified_context_override", default=None)
         self._request_id = 0
         self._closed = False
         # ── CONCEPT:EG-KG.backend.framed-response — single-connection request PIPELINING (demux) ──
@@ -3652,12 +7800,16 @@ class EpistemicGraphClient:
         self._socket_path: str | None = None
         self._tcp_addr: str | None = None
         self._connect_timeout: float | None = _CONNECT_TIMEOUT
+        self._tls_context: ssl.SSLContext | None = None
+        self._tls_server_hostname: str | None = None
         # Server capability set, negotiated lazily on first use (see supports());
         # reset on reconnect so a fresh connection re-negotiates.
         self._server_ops: set[str] | None = None
 
         # Namespaced Sub-Clients (Composition)
         self.nodes = NodeClient(self)
+        self.work_items = WorkItemClient(self)
+        self.changes = ChangeEnvelopeClient(self)
         self.edges = EdgeClient(self)
         self.graph = GraphOperationsClient(self)
         self.analytics = AnalyticsClient(self)
@@ -3667,10 +7819,16 @@ class EpistemicGraphClient:
         self.channels = ChannelsClient(self)
         self.tenants = MultiTenantClient(self)
         self.resharding = ReshardingClient(self)
+        self.placement = PlacementClient(self)
+        self.raft_admin = RaftAdminClient(self)
         self.consensus = ConsensusClient(self)
         self.finance = FinanceClient(self)
         self.datascience = DataScienceClient(self)
+        self.mining = MiningClient(self)
+        self.graphlearn = GraphLearnClient(self)
         self.query = QueryClient(self)
+        self.knowledge = KnowledgeStreamClient(self)
+        self.modalities = ServedModalityClient(self)
         self.txn = TxnClient(self)
         self.timeseries = TimeSeriesClient(self)
         self.rdf = RdfClient(self)
@@ -3681,12 +7839,92 @@ class EpistemicGraphClient:
         self.broker = BrokerClient(self)
         self.rbac = RbacClient(self)
         self.admin = AdminClient(self)
+        self.jobs = JobsClient(self)
+        self.statechart = StatechartClient(self)
+
+    @staticmethod
+    def _resolve_tls(
+        tls: bool | ssl.SSLContext | None,
+        *,
+        client_cert: str | None,
+        client_key: str | None,
+    ) -> ssl.SSLContext | None:
+        if isinstance(tls, ssl.SSLContext):
+            if client_cert or client_key:
+                raise ValueError(
+                    "client certificate paths cannot be combined with an injected TLS context"
+                )
+            return tls
+        configured = str(os.environ.get("GRAPH_SERVICE_TLS", "")).strip().lower()
+        env_client_cert = str(
+            os.environ.get("GRAPH_SERVICE_TLS_CLIENT_CERT", "") or ""
+        ).strip()
+        env_client_key = str(
+            os.environ.get("GRAPH_SERVICE_TLS_CLIENT_KEY", "") or ""
+        ).strip()
+        enabled = tls is True or (
+            tls is None
+            and (
+                configured in {"1", "true", "yes", "on"}
+                or any(
+                    os.environ.get(name)
+                    for name in (
+                        "GRAPH_SERVICE_TLS_CA",
+                        "SSL_CERT_FILE",
+                        "REQUESTS_CA_BUNDLE",
+                    )
+                )
+                or bool(client_cert or client_key or env_client_cert or env_client_key)
+            )
+        )
+        if not enabled:
+            return None
+        ca_bundle = str(
+            os.environ.get("GRAPH_SERVICE_TLS_CA")
+            or os.environ.get("SSL_CERT_FILE")
+            or os.environ.get("REQUESTS_CA_BUNDLE")
+            or ""
+        ).strip()
+        ca_directory = str(
+            os.environ.get("GRAPH_SERVICE_TLS_CA_DIRECTORY")
+            or os.environ.get("SSL_CERT_DIR")
+            or ""
+        ).strip()
+        try:
+            context = ssl.create_default_context(
+                cafile=ca_bundle or None,
+                capath=ca_directory or None,
+            )
+            context.minimum_version = ssl.TLSVersion.TLSv1_2
+        except (OSError, ssl.SSLError, ValueError):
+            raise ValueError(
+                "native TCP TLS trust material is unavailable or invalid"
+            ) from None
+        cert = str(client_cert or env_client_cert).strip()
+        key = str(client_key or env_client_key).strip()
+        if bool(cert) != bool(key):
+            raise ValueError("native TCP mTLS requires both client certificate and key")
+        if cert and key:
+            key_password = os.environ.get("GRAPH_SERVICE_TLS_CLIENT_KEY_PASSWORD")
+            try:
+                context.load_cert_chain(
+                    certfile=cert,
+                    keyfile=key,
+                    password=key_password or None,
+                )
+            except (OSError, ssl.SSLError, ValueError):
+                raise ValueError(
+                    "native TCP mTLS identity is unavailable or invalid"
+                ) from None
+        return context
 
     @staticmethod
     async def _open_streams(
         socket_path: str | None,
         tcp_addr: str | None,
         connect_timeout: float | None,
+        tls_context: ssl.SSLContext | None,
+        tls_server_hostname: str | None,
     ) -> tuple[asyncio.StreamReader, asyncio.StreamWriter, str]:
         """Dial a fresh reader/writer pair to the engine.
 
@@ -3696,16 +7934,33 @@ class EpistemicGraphClient:
         """
         _conn_to = connect_timeout if connect_timeout else None
         if tcp_addr:
-            host, port_str = tcp_addr.rsplit(":", 1)
+            if tcp_addr.startswith("[") and "]:" in tcp_addr:
+                host, port_str = tcp_addr[1:].split("]:", 1)
+            else:
+                host, port_str = tcp_addr.rsplit(":", 1)
             try:
                 reader, writer = await asyncio.wait_for(
-                    asyncio.open_connection(host, int(port_str)), _conn_to
+                    asyncio.open_connection(
+                        host,
+                        int(port_str),
+                        ssl=tls_context,
+                        server_hostname=(
+                            (tls_server_hostname or host)
+                            if tls_context is not None
+                            else None
+                        ),
+                        ssl_handshake_timeout=(
+                            10.0 if tls_context is not None else None
+                        ),
+                    ),
+                    _conn_to,
                 )
             except (asyncio.TimeoutError, TimeoutError) as e:
-                raise TimeoutError(
-                    f"epistemic-graph connect to {tcp_addr} timed out after {_conn_to}s"
-                ) from e
-            logger.info("Connected to epistemic-graph service via TCP: %s", tcp_addr)
+                raise TimeoutError("epistemic-graph TCP connection timed out") from e
+            logger.info(
+                "Connected to epistemic-graph via native TCP (tls=%s)",
+                tls_context is not None,
+            )
             return reader, writer, ""
 
         _socket = socket_path or os.environ.get(
@@ -3724,10 +7979,8 @@ class EpistemicGraphClient:
                 asyncio.open_unix_connection(_socket), _conn_to
             )
         except (asyncio.TimeoutError, TimeoutError) as e:
-            raise TimeoutError(
-                f"epistemic-graph connect to {_socket} timed out after {_conn_to}s"
-            ) from e
-        logger.info("Connected to epistemic-graph service via UDS: %s", _socket)
+            raise TimeoutError("epistemic-graph local connection timed out") from e
+        logger.info("Connected to epistemic-graph via a private local socket")
         return reader, writer, _socket
 
     @classmethod
@@ -3737,15 +7990,40 @@ class EpistemicGraphClient:
         tcp_addr: str | None = None,
         auth_secret: str | None = None,
         graph_name: str = "__commons__",
-        agent_id: str | None = None,
+        *,
+        verified_context: RequestContextClaims | dict[str, Any],
         timeout: float | None = _DEFAULT_RPC_TIMEOUT,
         heavy_timeout: float | None = _HEAVY_RPC_TIMEOUT,
         connect_timeout: float | None = _CONNECT_TIMEOUT,
+        tls: bool | ssl.SSLContext | None = None,
+        tls_server_hostname: str | None = None,
+        tls_client_cert: str | None = None,
+        tls_client_key: str | None = None,
     ) -> EpistemicGraphClient:
         _secret = auth_secret or os.environ.get("GRAPH_SERVICE_AUTH_SECRET", "")
+        if not _secret:
+            raise ValueError("a non-empty authentication secret is required")
+        context = validate_request_context(verified_context)
+        tls_context = cls._resolve_tls(
+            tls,
+            client_cert=tls_client_cert,
+            client_key=tls_client_key,
+        )
+        resolved_tls_server_hostname = (
+            str(
+                tls_server_hostname
+                or os.environ.get("GRAPH_SERVICE_TLS_SERVER_NAME", "")
+                or ""
+            ).strip()
+            or None
+        )
 
         reader, writer, resolved_socket = await cls._open_streams(
-            socket_path, tcp_addr, connect_timeout
+            socket_path,
+            tcp_addr,
+            connect_timeout,
+            tls_context,
+            resolved_tls_server_hostname,
         )
 
         client = cls(
@@ -3753,7 +8031,7 @@ class EpistemicGraphClient:
             writer,
             _secret,
             graph_name,
-            agent_id=agent_id,
+            verified_context=context,
             timeout=timeout,
             heavy_timeout=heavy_timeout,
         )
@@ -3761,6 +8039,8 @@ class EpistemicGraphClient:
         client._socket_path = resolved_socket or socket_path
         client._tcp_addr = tcp_addr
         client._connect_timeout = connect_timeout
+        client._tls_context = tls_context
+        client._tls_server_hostname = resolved_tls_server_hostname
         return client
 
     async def _reconnect(self) -> None:
@@ -3779,7 +8059,11 @@ class EpistemicGraphClient:
         with contextlib.suppress(Exception):  # discard the poisoned stream
             self._writer.close()
         self._reader, self._writer, _ = await self._open_streams(
-            self._socket_path, self._tcp_addr, self._connect_timeout
+            self._socket_path,
+            self._tcp_addr,
+            self._connect_timeout,
+            self._tls_context,
+            self._tls_server_hostname,
         )
         self._closed = False
         # Re-negotiate capabilities against the fresh connection.
@@ -3791,14 +8075,206 @@ class EpistemicGraphClient:
         self._request_id += 1
         return self._request_id
 
-    def _compute_token(self, request_id: int) -> str:
-        if not self._auth_secret:
-            return ""
-        return hmac.new(
-            self._auth_secret.encode(),
-            str(request_id).encode(),
-            hashlib.sha256,
+    def fresh_bolt_auth_token(self, graph: str | None = None) -> dict[str, str]:
+        """Return one current signed auth-token map for a new Bolt connection.
+
+        The credential is a hex-encoded MessagePack ``Health`` request carrying
+        the same ``eg2.`` context envelope as the native protocol. Its nonce is
+        consumed when Bolt accepts the connection, so callers must invoke this
+        method once per physical connection instead of caching the result. The
+        display principal is an opaque digest and is never an authority claim.
+        """
+
+        target_graph = graph or self._graph_name
+        request: dict[str, Any] = {
+            "id": self._next_id(),
+            "graph": target_graph,
+            "auth_token": "",
+            "method": "Health",
+            "agent_id": str(self._effective_verified_context()["agent_id"]),
+        }
+        request["auth_token"] = self._compute_verified_token(request, None)
+        principal = str(self._effective_verified_context()["principal"])
+        return {
+            "scheme": "epistemic",
+            "principal": "principal:sha256:"
+            + hashlib.sha256(principal.encode("utf-8")).hexdigest(),
+            "credentials": msgpack.packb(request, use_bin_type=True).hex(),
+        }
+
+    def _effective_verified_context(self) -> dict[str, Any]:
+        return self._verified_context_override.get() or self._verified_context
+
+    @contextlib.contextmanager
+    def use_verified_context(self, context: RequestContextClaims | dict[str, Any]):
+        """Bind current claims for this task without mutating a shared client.
+
+        ``ContextVar`` isolation makes this safe when one long-lived client is
+        shared by concurrent GraphSessions.  The prior task-local binding is
+        restored even when the routed operation raises.
+        """
+
+        value = validate_request_context(context)
+        token = self._verified_context_override.set(value)
+        try:
+            yield self
+        finally:
+            self._verified_context_override.reset(token)
+
+    def _verified_tenant(self) -> str:
+        context = self._effective_verified_context()
+        return str(context["tenant"])
+
+    @staticmethod
+    def _new_operation_idempotency_key() -> str:
+        return "operation:sha256:" + hashlib.sha256(secrets.token_bytes(32)).hexdigest()
+
+    def _sign_context_operation(
+        self,
+        *,
+        domain: str,
+        method: str,
+        params: dict[str, Any],
+        graph: str,
+        idempotency_key: str,
+        signer_id: str,
+        signer_key: str,
+        require_context_principal: bool = True,
+    ) -> str:
+        context = self._effective_verified_context()
+        if (
+            not isinstance(signer_id, str)
+            or not signer_id.strip()
+            or not isinstance(signer_key, str)
+            or not signer_key
+        ):
+            raise ValueError("operation signer id and key must be non-empty")
+        if require_context_principal and signer_id != context["principal"]:
+            raise ValueError("identity signer must match the verified principal")
+        unsigned_params = copy.deepcopy(params)
+        if method == "RegisterIdentity":
+            unsigned_params["signature"] = ""
+        elif method == "ApplyMultisigMutation":
+            unsigned_params["signatures"] = []
+        else:
+            raise ValueError("unsupported detached-signature operation")
+        method_body = _canonical_method_body(method, unsigned_params)
+        canonical = bytearray()
+        for value in (
+            domain,
+            context["principal"],
+            context["tenant"],
+            context["audience"],
+            context["agent_id"],
+        ):
+            _put_operation_bytes(canonical, value.encode("utf-8"))
+        _put_operation_list(canonical, context["roles"])
+        _put_operation_list(canonical, context["scopes"])
+        _put_operation_bytes(canonical, context["policy_version"].encode("utf-8"))
+        _put_operation_list(canonical, context["delegation"])
+        _put_operation_bytes(canonical, idempotency_key.encode("utf-8"))
+        _put_operation_bytes(canonical, graph.encode("utf-8"))
+        _put_operation_bytes(canonical, method_body)
+        digest = hashlib.sha256(canonical).digest()
+        tag = hmac.new(signer_key.encode("utf-8"), digest, hashlib.sha256).hexdigest()
+        return f"{signer_id}:{tag}"
+
+    def _bind_change_envelope(
+        self,
+        params: dict[str, Any],
+        *,
+        request_id: int,
+        graph: str,
+    ) -> dict[str, Any]:
+        verified_context = self._effective_verified_context()
+        bound = copy.deepcopy(params)
+        envelope = bound["envelope"]
+        mutation = envelope["mutation"]
+        if mutation["graph"] != graph:
+            raise ValueError(
+                "ChangeEnvelope mutation graph does not match the request graph"
+            )
+        tenant = str(verified_context["tenant"])
+        mutation["tenant"] = tenant
+        context_in = mutation["context"]
+        context: dict[str, Any] = {
+            "request_id": int(request_id),
+            "principal": "principal:sha256:"
+            + hashlib.sha256(
+                str(verified_context["principal"]).encode("utf-8")
+            ).hexdigest(),
+        }
+        if context_in.get("purpose") is not None:
+            context["purpose"] = context_in["purpose"]
+        context["policy_fingerprint"] = str(verified_context["policy_version"])
+        if context_in.get("trace_id") is not None:
+            context["trace_id"] = context_in["trace_id"]
+        mutation["context"] = context
+        for policy in envelope.get("policies", []):
+            policy["tenant"] = tenant
+        return bound
+
+    def _compute_verified_token(
+        self, request: dict[str, Any], idempotency_key: str | None
+    ) -> str:
+        context = self._effective_verified_context()
+        method_name = str(request["method"])
+        body = _canonical_method_body(
+            method_name,
+            request["params"] if "params" in request else None,
+        )
+        body_hash = hashlib.sha256(body).hexdigest()
+        if not idempotency_key:
+            material = (
+                f"{request['id']}\0{request['graph']}\0{method_name}\0{body_hash}"
+            ).encode()
+            idempotency_key = "rpc:sha256:" + hashlib.sha256(material).hexdigest()
+        timestamp = int(time.time())
+        nonce = secrets.token_hex(24)
+        roles = [str(value) for value in context.get("roles", [])]
+        scopes = [str(value) for value in context.get("scopes", [])]
+        delegation = [str(value) for value in context.get("delegation", [])]
+
+        canonical = bytearray()
+        _put_v2_text(canonical, "eg-envelope-v2")
+        canonical.extend(int(request["id"]).to_bytes(8, "big"))
+        _put_v2_text(canonical, str(request["graph"]))
+        _put_v2_text(canonical, method_name)
+        _put_v2_text(canonical, body_hash)
+        _put_v2_text(canonical, str(context["principal"]))
+        _put_v2_text(canonical, str(context["tenant"]))
+        _put_v2_text(canonical, str(context["audience"]))
+        _put_v2_text(canonical, str(context["agent_id"]))
+        _put_v2_list(canonical, roles)
+        _put_v2_list(canonical, scopes)
+        _put_v2_text(canonical, str(context["policy_version"]))
+        _put_v2_list(canonical, delegation)
+        canonical.extend(timestamp.to_bytes(8, "big"))
+        _put_v2_text(canonical, nonce)
+        _put_v2_text(canonical, idempotency_key)
+        mac = hmac.new(
+            self._auth_secret.encode("utf-8"), bytes(canonical), hashlib.sha256
         ).hexdigest()
+        envelope = {
+            "context": {
+                "principal": str(context["principal"]),
+                "tenant": str(context["tenant"]),
+                "audience": str(context["audience"]),
+                "agent_id": str(context["agent_id"]),
+                "roles": roles,
+                "scopes": scopes,
+                "policy_version": str(context["policy_version"]),
+                "delegation": delegation,
+            },
+            "timestamp": timestamp,
+            "nonce": nonce,
+            "idempotency_key": idempotency_key,
+            "mac": mac,
+        }
+        payload = json.dumps(
+            envelope, ensure_ascii=False, separators=(",", ":")
+        ).encode("utf-8")
+        return "eg2." + payload.hex()
 
     # ── CONCEPT:EG-KG.backend.framed-response — pipelined connection: reader/demux internals ──────────
 
@@ -3849,22 +8325,22 @@ class EpistemicGraphClient:
             while True:
                 len_buf = await reader.readexactly(4)
                 msg_len = int.from_bytes(len_buf, byteorder="big")
+                if msg_len <= 0 or msg_len > _MAX_RESPONSE_BYTES:
+                    raise ConnectionError(
+                        "epistemic-graph response exceeded the configured resource limit"
+                    )
                 body = await reader.readexactly(msg_len)
                 resp = msgpack.unpackb(body, raw=False)
-                fut = self._pending.pop(resp.get("id"), None)
-                if fut is None and len(self._pending) == 1:
-                    # Single-in-flight fallback (behaves EXACTLY as the pre-pipeline
-                    # serial path): a response that doesn't carry a matching id
-                    # resolves the sole pending call. With ≥2 calls in flight the
-                    # engine's ``Response.id`` is REQUIRED to demux — and the engine
-                    # always sends it — so this only ever affects the one-in-flight
-                    # case (and tolerant of peers that omit the id).
-                    _, fut = self._pending.popitem()
+                if not isinstance(resp, dict) or not isinstance(resp.get("id"), int):
+                    raise ConnectionError(
+                        "epistemic-graph response is missing its correlation id"
+                    )
+                fut = self._pending.pop(resp["id"], None)
                 if fut is not None and not fut.done():
                     fut.set_result(resp)
-                # A response with no matching pending future and ≠1 in flight (e.g. a
-                # late reply for a timed-out call) is simply dropped — the demux keeps
-                # the stream in sync regardless, which is exactly why one
+                # A response with no matching pending future (e.g. a late reply
+                # for a timed-out call) is dropped — the demux keeps the stream
+                # in sync regardless, which is exactly why one
                 # slow/timed-out call no longer desyncs the others.
         except asyncio.CancelledError:
             raise
@@ -3873,7 +8349,9 @@ class EpistemicGraphClient:
             self._fail_pending(ConnectionError("Connection closed by server"))
         except Exception as e:  # noqa: BLE001 — surface any decode error to callers
             self._closed = True
-            self._fail_pending(e)
+            self._fail_pending(
+                ConnectionError(f"epistemic-graph response failed ({type(e).__name__})")
+            )
 
     async def _ensure_connection(self) -> None:
         """Ensure a live stream + a running reader task (lifecycle lock held)."""
@@ -3891,20 +8369,30 @@ class EpistemicGraphClient:
         method: str,
         params: dict[str, Any] | None = None,
         graph: str | None = None,
+        *,
+        idempotency_key: str | None = None,
     ) -> Any:
         req_id = self._next_id()
+        target_graph = graph or self._graph_name
+        if method == "ApplyChangeEnvelope":
+            if params is None:
+                raise ValueError("ApplyChangeEnvelope requires an envelope")
+            params = self._bind_change_envelope(
+                params, request_id=req_id, graph=target_graph
+            )
         request: dict[str, Any] = {
             "id": req_id,
-            "graph": graph or self._graph_name,
-            "auth_token": self._compute_token(req_id),
+            "graph": target_graph,
+            "auth_token": "",
             "method": method,
         }
-        if self._agent_id is not None:
-            request["agent_id"] = self._agent_id
+        verified_context = self._effective_verified_context()
+        request["agent_id"] = str(verified_context["agent_id"])
         if params:
             request["params"] = params
+        request["auth_token"] = self._compute_verified_token(request, idempotency_key)
 
-        payload = msgpack.packb(request)
+        payload = msgpack.packb(request, use_bin_type=True)
         length_prefix = len(payload).to_bytes(4, byteorder="big")
 
         # Heavy ops (full-graph parse/scan/algorithms) get the longer read budget.
@@ -3961,6 +8449,48 @@ class EpistemicGraphClient:
 
         if resp.get("error") is not None:
             err_msg = resp.get("error", "Unknown error")
+            detail = resp.get("result")
+            if isinstance(detail, (bytes, bytearray)):
+                with contextlib.suppress(Exception):
+                    detail = msgpack.unpackb(detail, raw=False)
+            if not isinstance(detail, dict) and isinstance(err_msg, str):
+                with contextlib.suppress(json.JSONDecodeError, TypeError):
+                    parsed = json.loads(err_msg)
+                    if isinstance(parsed, dict):
+                        detail = parsed
+            if isinstance(detail, dict) and detail.get("status") == "redirected":
+                operation = _exact_mapping(
+                    "OperationResult",
+                    detail,
+                    frozenset(
+                        {
+                            "schema_version",
+                            "operation_id",
+                            "status",
+                            "result_kind",
+                            "result_ref",
+                            "error",
+                            "redirect",
+                        }
+                    ),
+                )
+                route = _exact_mapping(
+                    "OperationRedirect",
+                    operation["redirect"],
+                    frozenset(
+                        {
+                            "kind",
+                            "target_ref",
+                            "group",
+                            "epoch",
+                            "fencing_token",
+                            "leader_ref",
+                        }
+                    ),
+                )
+                if operation["schema_version"] != "1" or route["kind"] != "placement":
+                    raise RuntimeError("invalid operation redirect")
+                raise StaleRouteError("placement route redirected", route)
             # The engine's overload backstop (CONCEPT:EG-KG.ingest.resets-socket-so-assimilation) returns a typed
             # RESULT_TOO_LARGE error for an oversize full-graph dump. Surface it as
             # a dedicated, catchable exception (still a RuntimeError subclass) so a
@@ -3972,9 +8502,8 @@ class EpistemicGraphClient:
         # Compact result encoding (engine Phase C-D): heavy algorithm results and
         # node/edge property blobs come back as a top-level MessagePack `bin` (the
         # `Raw`/`PropertiesMsgpack` payloads) — the server skips building a JSON
-        # tree. Decode that second layer here so callers get the same structure the
-        # old JSON path produced. (Per-call sites that already self-decoded bytes
-        # now receive the decoded value and pass it straight through.)
+        # tree. Decode that second layer here so every caller receives the method's
+        # declared result structure.
         if isinstance(result, (bytes, bytearray)):
             result = msgpack.unpackb(result, raw=False)
         return result
@@ -4004,6 +8533,22 @@ class EpistemicGraphClient:
     async def health(self) -> dict[str, Any]:
         return await self._send("Health")
 
+    async def cancel_request(self, target_req_id: int) -> bool:
+        """Cooperatively cancel an IN-FLIGHT request by its ``target_req_id`` (L36) —
+        e.g. a long-running :meth:`QueryClient.sql`/:meth:`~JobsClient.status` call
+        still in flight on this SAME connection. Trips the target's
+        ``CancellationToken`` if one is still registered; a streaming SQL read
+        observes it at the next batch boundary and stops short.
+
+        Returns ``True`` iff a live cancellable request was found and cancelled,
+        ``False`` when it already finished, was never cancellable, or never
+        existed — never an error (cancelling an already-completed request is a
+        harmless no-op). Unconditional — no feature gate. Distinct from
+        :meth:`JobsClient.cancel`, which cancels a DURABLE ``AnalyticsJob`` (a
+        server-orchestrated background job, not an in-flight RPC on this
+        connection)."""
+        return await self._send("CancelRequest", {"target_req_id": target_req_id})
+
     async def resource_stats(self) -> dict[str, Any]:
         """Return the per-tenant / per-graph resource snapshot (CONCEPT:EG-KG.compute.lane-v).
 
@@ -4011,31 +8556,32 @@ class EpistemicGraphClient:
         consumes in ONE round-trip: per-graph + per-tenant resident memory, node/edge
         counts, in-flight admission depth, hibernated-vs-resident counts, and the
         cumulative budget eviction/hibernation totals, plus a process aggregate.
-        Requires an engine built ``--features cost`` (pi/node/cluster/full); an engine
-        without it returns the "not available in this build" error.
+        The ``cost`` feature is part of the mandatory main build and remains present in
+        the source-built ``cluster`` and ``full-extras`` layers.
         """
         return await self._send("ResourceStats")
 
     async def supports(self, op: str) -> bool:
         """True if the connected engine advertises protocol op ``op``.
 
-        Capability negotiation (CONCEPT:EG-KG.query.wire-protocol): the server's ``Health`` response
-        carries an ``ops`` list. The probe is cached for the connection's life. An
-        older engine that doesn't advertise ``ops`` reports no extra ops, so newer
-        callers (e.g. ``ParseFiles``) gracefully fall back to per-item paths.
+        Capability negotiation (CONCEPT:EG-KG.query.wire-protocol): the current
+        server's ``Health`` response carries a required string ``ops`` list. The
+        probe is cached for the connection's life; an incomplete response is a
+        protocol error.
         """
         ops = getattr(self, "_server_ops", None)
         if ops is None:
-            try:
-                h = await self.health()
-                ops = set(h.get("ops", []) or []) if isinstance(h, dict) else set()
-            except Exception:
-                ops = set()
+            health = await self.health()
+            advertised = health.get("ops") if isinstance(health, dict) else None
+            if not isinstance(advertised, list) or not all(
+                isinstance(value, str) and value for value in advertised
+            ):
+                raise RuntimeError(
+                    "current protocol Health response must include a string ops list"
+                )
+            ops = set(advertised)
             self._server_ops = ops
         return op in ops
-
-    async def checkpoint(self) -> str:
-        return await self._send("Checkpoint")
 
     async def reconcile(self, graph_name: str, json_str: str) -> str:
         return await self._send(
@@ -4052,11 +8598,7 @@ class EpistemicGraphClient:
 
 
 class SyncEpistemicGraphClient:
-    """Synchronous wrapper around the async client.
-
-    Warning: If you are upgrading from the legacy flat API, you must update
-    your calls to use the namespaced API (e.g. client.nodes.add instead of client.add_node).
-    """
+    """Synchronous wrapper around the namespaced async client."""
 
     def __init__(
         self,
@@ -4070,6 +8612,8 @@ class SyncEpistemicGraphClient:
 
         # We need to wrap the namespaces synchronously as well
         self.nodes = self._SyncWrapper(self._client.nodes, self._loop)
+        self.work_items = self._SyncWrapper(self._client.work_items, self._loop)
+        self.changes = self._SyncWrapper(self._client.changes, self._loop)
         self.edges = self._SyncWrapper(self._client.edges, self._loop)
         self.graph = self._SyncWrapper(self._client.graph, self._loop)
         self.analytics = self._SyncWrapper(self._client.analytics, self._loop)
@@ -4079,10 +8623,16 @@ class SyncEpistemicGraphClient:
         self.channels = self._SyncWrapper(self._client.channels, self._loop)
         self.tenants = self._SyncWrapper(self._client.tenants, self._loop)
         self.resharding = self._SyncWrapper(self._client.resharding, self._loop)
+        self.placement = self._SyncWrapper(self._client.placement, self._loop)
+        self.raft_admin = self._SyncWrapper(self._client.raft_admin, self._loop)
         self.consensus = self._SyncWrapper(self._client.consensus, self._loop)
         self.finance = self._SyncWrapper(self._client.finance, self._loop)
         self.datascience = self._SyncWrapper(self._client.datascience, self._loop)
+        self.mining = self._SyncWrapper(self._client.mining, self._loop)
+        self.graphlearn = self._SyncWrapper(self._client.graphlearn, self._loop)
         self.query = self._SyncWrapper(self._client.query, self._loop)
+        self.knowledge = self._SyncWrapper(self._client.knowledge, self._loop)
+        self.modalities = self._SyncWrapper(self._client.modalities, self._loop)
         self.txn = self._SyncWrapper(self._client.txn, self._loop)
         self.timeseries = self._SyncWrapper(self._client.timeseries, self._loop)
         self.rdf = self._SyncWrapper(self._client.rdf, self._loop)
@@ -4092,6 +8642,8 @@ class SyncEpistemicGraphClient:
         self.broker = self._SyncWrapper(self._client.broker, self._loop)
         self.rbac = self._SyncWrapper(self._client.rbac, self._loop)
         self.admin = self._SyncWrapper(self._client.admin, self._loop)
+        self.jobs = self._SyncWrapper(self._client.jobs, self._loop)
+        self.statechart = self._SyncWrapper(self._client.statechart, self._loop)
 
     def clear(self) -> None:
         """Synchronously clear the graph (used primarily by the test suite teardown)."""
@@ -4145,7 +8697,7 @@ class SyncEpistemicGraphClient:
         try:
             future.result(timeout=5)
         except Exception as e:
-            logger.debug("Error closing client: %s", e)
+            logger.debug("Error closing client (%s)", type(e).__name__)
         self._loop.call_soon_threadsafe(self._loop.stop)
         self._thread.join(timeout=2)
 

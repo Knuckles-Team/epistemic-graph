@@ -27,9 +27,15 @@
 //! `eg-core` already links (the Pi contract holds; the AMQP socket adapter lives in the
 //! server crate behind the `amqp-wire` feature).
 
+use std::collections::HashSet;
+
 use serde::{Deserialize, Serialize};
 
 use crate::graph::GraphCore;
+
+fn decode_property(bytes: &[u8]) -> Result<serde_json::Value, ()> {
+    eg_types::msgpack::decode_property_value(bytes).map_err(|_| ())
+}
 
 // ── Node-id + label conventions (single source of truth) ─────────────────
 
@@ -133,28 +139,71 @@ pub fn topic_matches(pattern: &str, key: &str) -> bool {
     topic_matches_words(&p, &k)
 }
 
-/// Recursive word-list matcher backing [`topic_matches`]. Kept private + total.
+/// Iterative NFA-style matcher backing [`topic_matches`].
+///
+/// Every reachable pattern position is represented at most once for each key
+/// word. That makes ambiguous chains of `#` polynomial (`O(P * K)` worst case,
+/// `O(P)` memory) instead of recursively enumerating exponentially many ways to
+/// partition the key. In the common case the frontier is small, so work is
+/// proportional to the states that are actually reachable. It also avoids a
+/// caller-controlled recursion depth on the MQTT/AMQP ingress path.
 fn topic_matches_words(pattern: &[&str], key: &[&str]) -> bool {
-    match pattern.split_first() {
-        // Pattern exhausted: match iff the key is also exhausted.
-        None => key.is_empty(),
-        Some((&"#", rest)) => {
-            // `#` matches zero words (advance the pattern past it) …
-            if topic_matches_words(rest, key) {
-                return true;
+    fn push_epsilon_closure(
+        pattern: &[&str],
+        start: usize,
+        generation: usize,
+        seen: &mut [usize],
+        out: &mut Vec<usize>,
+    ) {
+        let mut state = start;
+        loop {
+            // A prior seed already walked this state's complete consecutive-`#`
+            // closure during the current generation.
+            if seen[state] == generation {
+                return;
             }
-            // … or one-or-more words (consume a key word, keep the `#`).
-            !key.is_empty() && topic_matches_words(pattern, &key[1..])
-        }
-        Some((&"*", rest)) => {
-            // `*` matches exactly one word.
-            !key.is_empty() && topic_matches_words(rest, &key[1..])
-        }
-        Some((&word, rest)) => {
-            // A literal word must match the head key word exactly.
-            !key.is_empty() && word == key[0] && topic_matches_words(rest, &key[1..])
+            seen[state] = generation;
+            out.push(state);
+            if state == pattern.len() || pattern[state] != "#" {
+                return;
+            }
+            // `#` may consume zero words, so the following state is reachable
+            // before the next input word is consumed.
+            state += 1;
         }
     }
+
+    let mut seen = vec![0usize; pattern.len() + 1];
+    let mut generation = 1usize;
+    let mut active = Vec::with_capacity(pattern.len() + 1);
+    let mut next = Vec::with_capacity(pattern.len() + 1);
+    push_epsilon_closure(pattern, 0, generation, &mut seen, &mut active);
+
+    for word in key {
+        generation += 1;
+        next.clear();
+        for &state in &active {
+            if state == pattern.len() {
+                continue;
+            }
+            match pattern[state] {
+                // Consume one word while remaining at `#`; its epsilon closure
+                // also makes every following consecutive `#` reachable.
+                "#" => push_epsilon_closure(pattern, state, generation, &mut seen, &mut next),
+                "*" => push_epsilon_closure(pattern, state + 1, generation, &mut seen, &mut next),
+                literal if literal == *word => {
+                    push_epsilon_closure(pattern, state + 1, generation, &mut seen, &mut next)
+                }
+                _ => {}
+            }
+        }
+        if next.is_empty() {
+            return false;
+        }
+        std::mem::swap(&mut active, &mut next);
+    }
+
+    active.contains(&pattern.len())
 }
 
 /// Resolve a published `routing_key` against an exchange's `kind` + `bindings` to the
@@ -162,13 +211,14 @@ fn topic_matches_words(pattern: &[&str], key: &[&str]) -> bool {
 /// (bindings order) and de-duplicated (a queue bound twice is enqueued once).
 pub fn route(kind: ExchangeKind, bindings: &[Binding], routing_key: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
+    let mut seen_queues: HashSet<&str> = HashSet::with_capacity(bindings.len());
     for b in bindings {
         let hit = match kind {
             ExchangeKind::Fanout => true,
             ExchangeKind::Direct => b.routing_key == routing_key,
             ExchangeKind::Topic => topic_matches(&b.routing_key, routing_key),
         };
-        if hit && !out.contains(&b.queue) {
+        if hit && seen_queues.insert(b.queue.as_str()) {
             out.push(b.queue.clone());
         }
     }
@@ -218,7 +268,7 @@ pub fn hex_decode(s: &str) -> Option<Vec<u8>> {
 
 fn node_object(core: &GraphCore, id: &str) -> Option<serde_json::Map<String, serde_json::Value>> {
     let blob = core.get_node_properties(id)?;
-    match rmp_serde::from_slice::<serde_json::Value>(&blob) {
+    match decode_property(&blob) {
         Ok(serde_json::Value::Object(o)) => Some(o),
         _ => None,
     }
@@ -303,7 +353,7 @@ pub fn load_bindings(core: &GraphCore, exchange: &str) -> Vec<Binding> {
     core.get_nodes_by_label(BINDING_TYPE, 0)
         .into_iter()
         .filter_map(|(_, blob)| {
-            let v = rmp_serde::from_slice::<serde_json::Value>(&blob).ok()?;
+            let v = decode_property(&blob).ok()?;
             let o = v.as_object()?;
             if o.get("exchange").and_then(|x| x.as_str()) != Some(exchange) {
                 return None;
@@ -523,7 +573,6 @@ struct Candidate {
     id: String,
     priority: i64,
     seq: i64,
-    delivery_count: i64,
     status: String,
     lease_until: Option<u64>,
 }
@@ -554,7 +603,8 @@ fn prefer(a: Option<Candidate>, b: Candidate) -> Option<Candidate> {
 /// that is either `pending` or a `claimed` message whose visibility lease has expired
 /// (EG-280 lease-return / redelivery). Enforces per-consumer `prefetch` (0 ⇒ unlimited)
 /// by counting the consumer's in-flight (unexpired-lease) messages. Takes a visibility
-/// lease of `lease_ms` (0 ⇒ none) and bumps `delivery_count`. Lazily dead-letters any
+/// lease of `lease_ms` (0 ⇒ no expiry; explicit ack/nack is required) and bumps
+/// `delivery_count`. Lazily dead-letters any
 /// expired messages it steps over (CONCEPT:EG-KG.compute.message-ttl-expiry). Returns the claimed `(id, props)`
 /// or `None` (nothing due / prefetch full). Deterministic in its explicit args.
 pub fn broker_consume(
@@ -575,7 +625,7 @@ pub fn broker_consume(
         let mut best: Option<Candidate> = None;
         let mut expired: Vec<String> = Vec::new();
         for (id, blob) in &rows {
-            let Ok(v) = rmp_serde::from_slice::<serde_json::Value>(blob) else {
+            let Ok(v) = decode_property(blob) else {
                 continue;
             };
             let Some(obj) = v.as_object() else { continue };
@@ -615,7 +665,6 @@ pub fn broker_consume(
                 id: id.clone(),
                 priority: f_i64(obj, "priority", 0),
                 seq: f_i64(obj, "seq", i64::MAX),
-                delivery_count: f_i64(obj, "delivery_count", 0),
                 status: if reclaimable {
                     "claimed".into()
                 } else {
@@ -631,7 +680,7 @@ pub fn broker_consume(
             expired.sort();
             for id in expired {
                 if let Some(props) = core.get_node_properties(&id) {
-                    if let Ok(v) = rmp_serde::from_slice::<serde_json::Value>(&props) {
+                    if let Ok(v) = decode_property(&props) {
                         dead_letter(core, queue, &id, &v, "expired", now_ms);
                     }
                 }
@@ -643,66 +692,22 @@ pub fn broker_consume(
             return None;
         }
         let cand = best?;
-        // Atomic claim: condition on the scanned status (+ the exact expired lease for a
-        // reclaim, so a concurrent re-lease loses the race) then stamp ownership/lease.
-        let mut conditions = serde_json::Map::new();
-        conditions.insert(
-            "status".into(),
-            serde_json::Value::String(cand.status.clone()),
-        );
-        if cand.status == "claimed" {
-            conditions.insert(
-                "lease_until".into(),
-                match cand.lease_until {
-                    Some(l) => serde_json::Value::from(l),
-                    None => serde_json::Value::Null,
-                },
-            );
+        // The scan is advisory. The core revalidates it and performs reclaim-tag
+        // retirement, counter allocation, message stamping, and lookup creation in
+        // one topology transaction, so no stale delivery generation is observable.
+        if let Some(properties) = core.broker_claim_delivery(
+            &cand.id,
+            queue,
+            group,
+            consumer,
+            &cand.status,
+            cand.lease_until,
+            now_ms,
+            lease_ms,
+        ) {
+            return Some((cand.id, properties));
         }
-        let mut updates = serde_json::Map::new();
-        updates.insert("status".into(), serde_json::Value::String("claimed".into()));
-        updates.insert(
-            "owner_group".into(),
-            serde_json::Value::String(group.into()),
-        );
-        updates.insert(
-            "owner_consumer".into(),
-            serde_json::Value::String(consumer.into()),
-        );
-        updates.insert(
-            "delivery_count".into(),
-            serde_json::Value::from(cand.delivery_count + 1),
-        );
-        updates.insert("claimed_at".into(), serde_json::Value::from(now_ms));
-        updates.insert(
-            "lease_until".into(),
-            if lease_ms > 0 {
-                serde_json::Value::from(now_ms.saturating_add(lease_ms))
-            } else {
-                serde_json::Value::Null
-            },
-        );
-        if core.compare_and_set_fields(&cand.id, &conditions, &updates) {
-            // EG-284 at-least-once: on a successful claim allocate a broker-wide
-            // monotonic consumer delivery-tag, stamp it on the message, and write a
-            // reverse-lookup node so the consumer can ack/nack by tag without the id.
-            // Allocated AFTER the CAS so only genuinely-claimed messages consume a tag
-            // (deterministic: the tag counter is durable + replay re-runs this claim).
-            let tag = core.broker_next_counter(&dtag_seq_node_id(), BROKER_COUNTER_TYPE);
-            let mut tag_update = serde_json::Map::new();
-            tag_update.insert("delivery_tag".into(), serde_json::Value::from(tag));
-            core.compare_and_set_fields(&cand.id, &serde_json::Map::new(), &tag_update);
-            let lookup = serde_json::json!({
-                "type": DTAG_LOOKUP_TYPE,
-                "node_id": cand.id,
-                "queue": queue,
-            });
-            core.add_node(dtag_lookup_node_id(tag), to_msgpack(&lookup));
-            let blob = core.get_node_properties(&cand.id)?;
-            let val = rmp_serde::from_slice::<serde_json::Value>(&blob).ok()?;
-            return Some((cand.id, val));
-        }
-        // CAS lost a race — re-scan and retry.
+        // The candidate changed after the scan — re-scan and retry.
     }
     None
 }
@@ -739,7 +744,7 @@ pub fn broker_reject(
     let Some(blob) = core.get_node_properties(node_id) else {
         return "absent".into();
     };
-    let Ok(v) = rmp_serde::from_slice::<serde_json::Value>(&blob) else {
+    let Ok(v) = decode_property(&blob) else {
         return "absent".into();
     };
     let Some(obj) = v.as_object() else {
@@ -857,7 +862,7 @@ pub fn sweep_expired(core: &GraphCore, now_ms: u64) -> usize {
         .get_nodes_by_label(QUEUE_SEQ_TYPE, 0)
         .into_iter()
         .filter_map(|(_, blob)| {
-            let v = rmp_serde::from_slice::<serde_json::Value>(&blob).ok()?;
+            let v = decode_property(&blob).ok()?;
             v.as_object()?.get("queue")?.as_str().map(String::from)
         })
         .collect();
@@ -871,7 +876,7 @@ pub fn sweep_expired(core: &GraphCore, now_ms: u64) -> usize {
         let mut rows = core.get_nodes_by_label(&label, 0);
         rows.sort_by(|a, b| a.0.cmp(&b.0));
         for (id, blob) in rows {
-            let Ok(v) = rmp_serde::from_slice::<serde_json::Value>(&blob) else {
+            let Ok(v) = decode_property(&blob) else {
                 continue;
             };
             let Some(obj) = v.as_object() else { continue };
@@ -882,7 +887,7 @@ pub fn sweep_expired(core: &GraphCore, now_ms: u64) -> usize {
             let lease_expired = status == "claimed"
                 && f_u64(obj, "lease_until")
                     .map(|l| l <= now_ms)
-                    .unwrap_or(true);
+                    .unwrap_or(false);
             // EG-277: TTL expiry (a live-lease claimed message is left to its holder).
             if let Some(ea) = f_u64(obj, "expires_at") {
                 if ea <= now_ms && (status == "pending" || lease_expired) {
@@ -893,20 +898,7 @@ pub fn sweep_expired(core: &GraphCore, now_ms: u64) -> usize {
             }
             // EG-280: proactively return an expired lease to the claimable pool.
             if lease_expired {
-                let mut conditions = serde_json::Map::new();
-                conditions.insert("status".into(), serde_json::Value::String("claimed".into()));
-                conditions.insert(
-                    "lease_until".into(),
-                    match f_u64(obj, "lease_until") {
-                        Some(l) => serde_json::Value::from(l),
-                        None => serde_json::Value::Null,
-                    },
-                );
-                let mut updates = serde_json::Map::new();
-                updates.insert("status".into(), serde_json::Value::String("pending".into()));
-                updates.insert("lease_until".into(), serde_json::Value::Null);
-                updates.insert("owner_consumer".into(), serde_json::Value::Null);
-                if core.compare_and_set_fields(&id, &conditions, &updates) {
+                if core.broker_release_expired_delivery(&id, f_u64(obj, "lease_until"), now_ms) {
                     acted += 1;
                 }
             }
@@ -942,7 +934,7 @@ pub fn sweep_expired(core: &GraphCore, now_ms: u64) -> usize {
 
 const STREAM_CONFIG_TYPE: &str = "BrokerStream";
 const STREAM_COMMIT_TYPE: &str = "BrokerStreamCommit";
-const DTAG_LOOKUP_TYPE: &str = "BrokerDeliveryTag";
+pub const DTAG_LOOKUP_TYPE: &str = "BrokerDeliveryTag";
 /// Type carried by the two broker-wide monotonic counter nodes (confirm + dtag).
 pub const BROKER_COUNTER_TYPE: &str = "BrokerCounter";
 /// Type carried by a stream's durable monotonic offset counter node.
@@ -1127,7 +1119,7 @@ pub fn stream_read(
         .get_nodes_by_label(&label, 0)
         .into_iter()
         .filter_map(|(_, blob)| {
-            let v = rmp_serde::from_slice::<serde_json::Value>(&blob).ok()?;
+            let v = decode_property(&blob).ok()?;
             let o = v.as_object()?;
             let offset = o.get("offset")?.as_i64()?;
             if offset < start {
@@ -1137,10 +1129,14 @@ pub fn stream_read(
             Some((offset, payload))
         })
         .collect();
-    out.sort_by_key(|(off, _)| *off);
     if max > 0 && out.len() > max {
+        // Offsets are unique and monotonic by the stream contract. Partitioning
+        // retains exactly the earliest `max` rows without ordering the discarded
+        // tail, then only the bounded result prefix needs a full sort.
+        out.select_nth_unstable_by_key(max, |(off, _)| *off);
         out.truncate(max);
     }
+    out.sort_by_key(|(off, _)| *off);
     out
 }
 
@@ -1161,37 +1157,43 @@ pub fn stream_trim(core: &GraphCore, stream: &str, now_ms: u64) -> usize {
         .get_nodes_by_label(&stream_msg_label(stream), 0)
         .into_iter()
         .filter_map(|(id, blob)| {
-            let v = rmp_serde::from_slice::<serde_json::Value>(&blob).ok()?;
+            let v = decode_property(&blob).ok()?;
             let o = v.as_object()?;
             let offset = o.get("offset")?.as_i64()?;
             let ts = f_u64(o, "ts").unwrap_or(0);
             Some((offset, ts, id))
         })
         .collect();
-    msgs.sort_by_key(|(off, _, _)| *off);
     let n = msgs.len();
-    let mut drop_ids: Vec<String> = Vec::new();
+    let mut drop_ids: HashSet<String> = HashSet::new();
     // Count bound: the oldest `n - max_messages` overflow.
     if let Some(maxc) = ret.max_messages {
         let maxc = maxc as usize;
         if n > maxc {
-            for (_, _, id) in &msgs[0..(n - maxc)] {
-                drop_ids.push(id.clone());
+            let drop_count = n - maxc;
+            if drop_count < n {
+                // Retention needs the set of oldest rows, not a fully ordered
+                // image. Partial selection avoids an `O(N log N)` full sort.
+                msgs.select_nth_unstable_by_key(drop_count, |(off, _, _)| *off);
+            }
+            for (_, _, id) in &msgs[..drop_count] {
+                drop_ids.insert(id.clone());
             }
         }
     }
     // Age bound: anything older than the horizon (union with the count overflow).
     if let Some(maxa) = ret.max_age_ms {
         for (_, ts, id) in &msgs {
-            if now_ms.saturating_sub(*ts) > maxa && !drop_ids.contains(id) {
-                drop_ids.push(id.clone());
+            if now_ms.saturating_sub(*ts) > maxa {
+                drop_ids.insert(id.clone());
             }
         }
     }
     if drop_ids.is_empty() {
         return 0;
     }
-    drop_ids.sort();
+    let mut drop_ids: Vec<String> = drop_ids.into_iter().collect();
+    drop_ids.sort_unstable();
     core.stream_trim_nodes(&drop_ids)
 }
 
@@ -1256,30 +1258,27 @@ pub fn publish_confirmed(
     }
 }
 
-/// Resolve a consumer `delivery_tag` to its `(node_id, queue)` via the reverse-lookup
-/// node (CONCEPT:EG-KG.compute.publisher-confirms-consumer-qos). `None` if the tag was never issued / already acked.
-fn resolve_delivery_tag(core: &GraphCore, tag: i64) -> Option<(String, String)> {
-    let o = node_object(core, &dtag_lookup_node_id(tag))?;
-    Some((
-        f_str(&o, "node_id").to_string(),
-        f_str(&o, "queue").to_string(),
-    ))
-}
-
 /// Acknowledge (remove) a claimed message by its consumer `delivery_tag` (CONCEPT:
 /// EG-284) — the tag-addressed sibling of [`broker_ack`], for a consumer that tracks
-/// tags instead of node ids. Frees the in-flight slot + drops the reverse-lookup node.
-/// Returns whether the message existed.
-pub fn broker_ack_tag(core: &GraphCore, delivery_tag: i64) -> bool {
-    let Some((node_id, _queue)) = resolve_delivery_tag(core, delivery_tag) else {
-        return false;
-    };
-    core.remove_node(dtag_lookup_node_id(delivery_tag));
-    let existed = core.has_node(&node_id);
-    if existed {
-        core.remove_node(node_id);
-    }
-    existed
+/// tags instead of node ids. The caller must name the current owner; status, tag,
+/// and owner are fenced atomically before either lookup or message is removed.
+pub fn broker_ack_tag(core: &GraphCore, delivery_tag: i64, consumer: &str) -> bool {
+    core.broker_ack_delivery_tag(delivery_tag, consumer)
+}
+
+/// Renew a current delivery tag's live visibility lease for its owning consumer.
+/// Returns `false` for an absent/stale tag, owner mismatch, expired/no lease, empty
+/// owner, zero lease duration, or a deadline that does not move forward. Time is
+/// explicit for deterministic replay. A failed renewal of an otherwise-current
+/// generation does not retire its lookup or prevent an owner-fenced ack/nack.
+pub fn broker_renew_tag(
+    core: &GraphCore,
+    delivery_tag: i64,
+    consumer: &str,
+    now_ms: u64,
+    lease_ms: u64,
+) -> bool {
+    core.broker_renew_delivery_tag(delivery_tag, consumer, now_ms, lease_ms)
 }
 
 /// Nack a claimed message by its consumer `delivery_tag` (CONCEPT:EG-KG.compute.publisher-confirms-consumer-qos) — the
@@ -1288,12 +1287,36 @@ pub fn broker_ack_tag(core: &GraphCore, delivery_tag: i64) -> bool {
 /// budget, in which case it is dead-lettered; without `requeue` it is dead-lettered /
 /// dropped. Drops the reverse-lookup node and returns the reject outcome (`requeued` /
 /// `dead-lettered` / `dropped` / `absent`).
-pub fn broker_nack_tag(core: &GraphCore, delivery_tag: i64, requeue: bool, now_ms: u64) -> String {
-    let Some((node_id, queue)) = resolve_delivery_tag(core, delivery_tag) else {
-        return "absent".into();
-    };
-    core.remove_node(dtag_lookup_node_id(delivery_tag));
-    broker_reject(core, &queue, &node_id, requeue, now_ms)
+pub fn broker_nack_tag(
+    core: &GraphCore,
+    delivery_tag: i64,
+    consumer: &str,
+    requeue: bool,
+    now_ms: u64,
+) -> String {
+    match core.broker_nack_delivery_tag(delivery_tag, consumer, requeue) {
+        crate::graph::BrokerNackTransition::Absent => "absent".into(),
+        crate::graph::BrokerNackTransition::Requeued => "requeued".into(),
+        crate::graph::BrokerNackTransition::Terminal {
+            node_id,
+            queue,
+            properties,
+        } => {
+            let policy = load_queue_policy(core, &queue);
+            let reason = if requeue {
+                "max-delivery-exceeded"
+            } else {
+                "rejected"
+            };
+            let had_dlx = policy.dl_exchange.is_some();
+            dead_letter(core, &queue, &node_id, &properties, reason, now_ms);
+            if had_dlx {
+                "dead-lettered".into()
+            } else {
+                "dropped".into()
+            }
+        }
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -1470,6 +1493,22 @@ mod tests {
         assert!(topic_matches("*.#", "a.b.c"));
         assert!(topic_matches("*.#", "a"));
         assert!(!topic_matches("*.#", "")); // * still needs one word
+    }
+
+    #[test]
+    fn eg275_topic_ambiguous_hash_chain_is_bounded_and_exact() {
+        // A recursive backtracker explores exponentially many partitions for this
+        // near miss. The iterative frontier visits each (pattern,key) state at
+        // most once and therefore returns without recursion or combinatorial work.
+        let mut pieces = vec!["#"; 32];
+        pieces.push("never");
+        let pattern = pieces.join(".");
+        let key = vec!["word"; 32].join(".");
+        assert!(!topic_matches(&pattern, &key));
+
+        pieces.pop();
+        pieces.push("word");
+        assert!(topic_matches(&pieces.join("."), &key));
     }
 
     // ── CONCEPT:EG-KG.compute.message-broker-exchanges pure route() over kinds ────────────────────────────
@@ -2050,6 +2089,29 @@ mod tests {
     }
 
     #[test]
+    fn eg283_stream_trim_unions_overlapping_bounds_once() {
+        let core = GraphCore::new();
+        declare_stream(
+            &core,
+            "s",
+            &StreamRetention {
+                max_messages: Some(2),
+                max_age_ms: Some(50),
+            },
+        );
+        for (payload, timestamp) in [(b"a".as_ref(), 100), (b"b", 160), (b"c", 190)] {
+            stream_publish(&core, "s", payload, timestamp);
+        }
+        // Count retention selects offset 0; age retention selects that same row.
+        // The set union must report and remove it exactly once.
+        assert_eq!(stream_trim(&core, "s", 200), 1);
+        assert_eq!(
+            stream_read(&core, "s", ReadFrom::Earliest, 0),
+            vec![(1, b"b".to_vec()), (2, b"c".to_vec())]
+        );
+    }
+
+    #[test]
     fn eg283_commit_and_resume_offset() {
         let core = GraphCore::new();
         for (i, m) in [b"0".as_ref(), b"1", b"2", b"3"].iter().enumerate() {
@@ -2118,11 +2180,11 @@ mod tests {
         let tag = p.get("delivery_tag").and_then(|v| v.as_i64()).unwrap();
         assert_eq!(tag, 1);
         // Ack BY TAG removes the message + its reverse-lookup node.
-        assert!(broker_ack_tag(&core, tag));
+        assert!(broker_ack_tag(&core, tag, "c"));
         assert!(!core.has_node(&id));
         assert!(!core.has_node(&dtag_lookup_node_id(tag)));
         // A second ack of the same tag is a no-op.
-        assert!(!broker_ack_tag(&core, tag));
+        assert!(!broker_ack_tag(&core, tag, "c"));
     }
 
     #[test]
@@ -2132,7 +2194,7 @@ mod tests {
         // Deliver #1 → nack/requeue by tag → back to claimable.
         let (id, p1) = broker_consume(&core, "q", "g", "c", 1, 0, 0).unwrap();
         let tag1 = p1.get("delivery_tag").and_then(|v| v.as_i64()).unwrap();
-        assert_eq!(broker_nack_tag(&core, tag1, true, 1), "requeued");
+        assert_eq!(broker_nack_tag(&core, tag1, "c", true, 1), "requeued");
         // The old tag no longer resolves; the message is redelivered with a NEW tag.
         assert!(!core.has_node(&dtag_lookup_node_id(tag1)));
         let (id2, p2) = broker_consume(&core, "q", "g", "c", 2, 0, 0).unwrap();
@@ -2141,7 +2203,7 @@ mod tests {
         let tag2 = p2.get("delivery_tag").and_then(|v| v.as_i64()).unwrap();
         assert_eq!(tag2, 2, "a fresh delivery-tag is issued on re-claim");
         // Ack the redelivery to finish.
-        assert!(broker_ack_tag(&core, tag2));
+        assert!(broker_ack_tag(&core, tag2, "c"));
         assert!(!core.has_node(&id));
     }
 
@@ -2152,11 +2214,107 @@ mod tests {
         assert_eq!(publish(&core, "ex", "k", b"bye"), 1);
         let (_id, p) = broker_consume(&core, "q", "g", "c", 5, 0, 0).unwrap();
         let tag = p.get("delivery_tag").and_then(|v| v.as_i64()).unwrap();
-        assert_eq!(broker_nack_tag(&core, tag, false, 5), "dead-lettered");
+        assert_eq!(broker_nack_tag(&core, tag, "c", false, 5), "dead-lettered");
         // Present on the DLQ, absent from the source queue.
         assert!(broker_consume(&core, "q", "g", "c", 6, 0, 0).is_none());
         let (_, dl) = consume_dlq(&core, 7).expect("nacked message dead-lettered");
         assert_eq!(payload_of(&dl), b"bye".to_vec());
+    }
+
+    #[test]
+    fn stale_tag_cannot_ack_or_nack_a_reclaimed_delivery() {
+        let core = rig();
+        assert_eq!(publish(&core, "ex", "k", b"fenced"), 1);
+        let (node_id, first) = broker_consume(&core, "q", "g", "consumer-a", 100, 10, 0).unwrap();
+        let stale_tag = first
+            .get("delivery_tag")
+            .and_then(serde_json::Value::as_i64)
+            .unwrap();
+
+        let (reclaimed_id, second) =
+            broker_consume(&core, "q", "g", "consumer-b", 111, 100, 0).unwrap();
+        let current_tag = second
+            .get("delivery_tag")
+            .and_then(serde_json::Value::as_i64)
+            .unwrap();
+        assert_eq!(reclaimed_id, node_id);
+        assert!(stale_tag > 0 && current_tag > stale_tag);
+        assert!(!core.has_node(&dtag_lookup_node_id(stale_tag)));
+
+        assert!(!broker_ack_tag(&core, stale_tag, "consumer-a"));
+        assert_eq!(
+            broker_nack_tag(&core, stale_tag, "consumer-a", true, 112),
+            "absent"
+        );
+        assert!(
+            core.has_node(&node_id),
+            "stale generation must not remove current"
+        );
+        assert_eq!(
+            core.get_node_properties(&node_id)
+                .and_then(|bytes| decode_property(&bytes).ok())
+                .and_then(|value| value
+                    .get("delivery_tag")
+                    .and_then(serde_json::Value::as_i64)),
+            Some(current_tag)
+        );
+
+        assert!(!broker_ack_tag(&core, current_tag, "consumer-a"));
+        assert!(core.has_node(&dtag_lookup_node_id(current_tag)));
+        assert!(broker_ack_tag(&core, current_tag, "consumer-b"));
+    }
+
+    #[test]
+    fn renew_tag_requires_current_owner_and_live_lease() {
+        let core = rig();
+        assert_eq!(publish(&core, "ex", "k", b"renew"), 1);
+        let (node_id, claimed) =
+            broker_consume(&core, "q", "g", "consumer-a", 1_000, 100, 0).unwrap();
+        let tag = claimed
+            .get("delivery_tag")
+            .and_then(serde_json::Value::as_i64)
+            .unwrap();
+
+        assert!(!broker_renew_tag(&core, tag, "consumer-b", 1_050, 200));
+        assert!(!broker_renew_tag(&core, tag, "consumer-a", 1_050, 25));
+        assert!(core.has_node(&dtag_lookup_node_id(tag)));
+        assert!(broker_renew_tag(&core, tag, "consumer-a", 1_050, 200));
+        let renewed = core
+            .get_node_properties(&node_id)
+            .and_then(|bytes| decode_property(&bytes).ok())
+            .unwrap();
+        assert_eq!(
+            renewed
+                .get("lease_until")
+                .and_then(serde_json::Value::as_u64),
+            Some(1_250)
+        );
+        assert!(!broker_renew_tag(&core, tag, "consumer-a", 1_250, 200));
+        assert!(core.has_node(&node_id));
+        assert!(core.has_node(&dtag_lookup_node_id(tag)));
+        assert!(broker_ack_tag(&core, tag, "consumer-a"));
+    }
+
+    #[test]
+    fn zero_duration_claim_has_no_expiring_lease() {
+        let core = rig();
+        assert_eq!(publish(&core, "ex", "k", b"manual-ack"), 1);
+        let (node_id, claimed) =
+            broker_consume(&core, "q", "g", "consumer-a", 1_000, 0, 0).unwrap();
+        let tag = claimed
+            .get("delivery_tag")
+            .and_then(serde_json::Value::as_i64)
+            .unwrap();
+
+        assert!(claimed
+            .get("lease_until")
+            .is_some_and(serde_json::Value::is_null));
+        assert_eq!(sweep_expired(&core, u64::MAX), 0);
+        assert!(core.has_node(&node_id));
+        assert!(core.has_node(&dtag_lookup_node_id(tag)));
+        assert!(!broker_renew_tag(&core, tag, "consumer-a", 2_000, 100));
+        assert!(core.has_node(&dtag_lookup_node_id(tag)));
+        assert!(broker_ack_tag(&core, tag, "consumer-a"));
     }
 
     // ══════════════════════════════════════════════════════════════════════

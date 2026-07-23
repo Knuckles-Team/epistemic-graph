@@ -35,7 +35,7 @@
 Builds on EG-KG.backend.sharded-k-way-durable (sharded K-way durable writer) — see
 [`engine.md` § Sharded K-way durable writer](engine.md). The whole point of EG-KG.backend.sharded-k-way-durable is that
 a graph routes to `graph-<FNV-1a(name) % K>.redb` and the on-disk layout is HONORED at open
-(`reconcile_shard_layout`, `src/server/persistence/redb_backend.rs:472`). That makes K
+(`reconcile_shard_layout`, `src/redb_layout.rs`). That makes K
 immutable per persist-dir without a migration — which is exactly what M3 removes.
 
 ---
@@ -51,12 +51,13 @@ tests pass.
 - `src/server/persistence/shard_migrate.rs` — the engine.
 - `src/bin/migrate_shards.rs` — the `migrate-shards` CLI (`[[bin]]` gated
   `required-features = ["redb", "server"]` in `Cargo.toml`).
-- Routing helpers made `pub(crate)`: `shard_index` / `shard_filename` / `RAFT_META`
-  in `src/server/persistence/redb_backend.rs`.
+- Shared layout helpers live in server-independent `src/redb_layout.rs`; routing and
+  Raft metadata stay in `src/server/persistence/redb_backend.rs`.
 
-**What it does.** OFFLINE (engine stopped — redb holds an exclusive per-file lock), reads an
-existing shard set (`graph.redb` for K=1, or a `graph-<n>.redb` set) and rewrites every
-durable row into `graph-<n>.redb` for a NEW K, routing each graph with the **same** EG-KG.backend.sharded-k-way-durable
+**What it does.** OFFLINE (engine stopped — redb holds an exclusive per-file lock), reads a
+contiguous current `graph-<n>.redb` set or the retired unindexed K=1 `graph.redb`, then
+rewrites every durable row into canonical `graph-<n>.redb` files for the requested K,
+routing each graph with the **same** EG-KG.backend.sharded-k-way-durable
 `shard_index`, so every graph lands in exactly the shard the running engine will look for it
 in. Rows are copied **verbatim** (no decode/unseal/re-derive):
 
@@ -69,10 +70,10 @@ in. Rows are copied **verbatim** (no decode/unseal/re-derive):
   the NEW shard 0 (EG-KG.backend.sharded-k-way-durable's `shard0()` home), regardless of graph.
 
 **Public API** (`shard_migrate`):
-- `migrate_shards(src_dir, dst_dir, new_k) -> MigrationReport` — out-of-place; refuses to
-  clobber an existing destination shard file.
+- `migrate_shards(src_dir, dst_dir, new_k) -> MigrationReport` — out-of-place for
+  `new_k` in `1..=64`; refuses to clobber any destination shard file.
 - `migrate_in_place(persist_dir, new_k) -> MigrationReport` — writes to a temp subdir, moves
-  the OLD files aside to a timestamped `.shard-migrate-backup-<ts>` dir (recoverable if
+  the source files aside to a timestamped `.shard-migrate-backup-<ts>` dir (recoverable if
   interrupted), swaps the new files in.
 - `discover_source_shards(dir)`, `MigrationReport { source_shards, dest_shards, graphs, nodes,
   edges, ledger, semantic, audit, global }`.
@@ -80,19 +81,25 @@ in. Rows are copied **verbatim** (no decode/unseal/re-derive):
 **How to run.** Engine STOPPED, then:
 ```text
 # In-place (default): swap shard files, leave a recoverable backup.
-migrate-shards --persist-dir /var/lib/epistemic-graph --shards 4
+migrate-shards --persist-dir "${GRAPH_SERVICE_PERSIST_DIR:?}" --shards 4
+
+# One-time retired K=1 filename migration; normal startup rejects graph.redb.
+migrate-shards --persist-dir "${GRAPH_SERVICE_PERSIST_DIR:?}" --shards 1
 
 # Out-of-place: write the new K into a fresh dir, swap manually after verifying.
-migrate-shards --persist-dir /var/lib/eg --shards 4 --dest-dir /var/lib/eg-k4
+migrate-shards --persist-dir "${GRAPH_SERVICE_PERSIST_DIR:?}" --shards 4 --dest-dir "${TARGET_PERSIST_DIR:?}"
 ```
 (`--persist-dir` also reads `GRAPH_SERVICE_PERSIST_DIR`.) On success prints per-table counts.
 
-**Round-trip proof.** `roundtrip_k1_to_k4_preserves_all_graphs`
+**Round-trip proof.** `retired_k1_layout_migrates_to_canonical_k1` proves the retired
+file is readable only by the offline tool and becomes `graph-0.redb` before startup.
+`roundtrip_k1_to_k4_preserves_all_graphs`
 (`src/server/persistence/shard_migrate.rs`, `#[tokio::test]`): seeds 7 graphs (each 2 nodes +
 1 edge) through a real K=1 `RedbBackend`, migrates K=1→K=4, reopens at K=4
 (`shard_count() == 4`), and asserts every graph reads back with its exact nodes/edges AND the
 graph-tagged node proves no cross-graph mixing. Also `in_place_migration_swaps_and_backs_up`
-(verifies the file swap + backup dir) and `refuses_existing_destination` (clobber guard).
+(verifies the file swap + backup dir), `migration_discovery_rejects_mixed_and_sparse_layouts`,
+and `refuses_existing_destination` (clobber guard).
 
 ### 2. Tenant catalog core (`CONCEPT:EG-KG.sharding.empty-catalog-routing`)
 

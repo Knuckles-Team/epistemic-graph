@@ -1,0 +1,36 @@
+[package]
+name = "eg-video"
+version = "0.1.0"
+edition = "2021"
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
+description = "Pure-Rust governed ISOBMFF sample indexing, 24-bit raw RGB frame decode, and video evidence for epistemic-graph."
+license = "MIT"
+
+[lib]
+name = "eg_video"
+
+# Pure-Rust leaf. serde persists normalized source-free facts, SHA-256 binds source
+# identity, and the runtime parses bounded ISOBMFF sample tables and current 24-bit raw RGB
+# frames without a native multimedia toolchain.
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+sha2 = "0.10"
+# ModalityContract implementation (CONCEPT:E4), mirroring eg-tensor/eg-geo.
+# Optional, only under `contract` (default OFF) — a default/pi/node/full build links
+# none of it and `VideoData` carries no new required trait. See `src/contract.rs`.
+eg-modality = { path = "../eg-modality", optional = true }
+
+[features]
+default = []
+# `impl ModalityContract for VideoData` + the conformance battery. OFF by default;
+# `serving` promotes it to the governed runtime and is enabled by the facade's
+# production epistemic surface.
+contract = ["dep:eg-modality"]
+serving = ["contract"]
+# Dependency-light native runtime (CONCEPT:EG-P1-3): ISOBMFF brand/track inspection,
+# sample-table/frame indexing, 24-bit raw-RGB frame decode, governed keyframe loci, and
+# temporal signatures.
+runtime = ["serving"]
+
+[dev-dependencies]
+serde_json = "1.0"

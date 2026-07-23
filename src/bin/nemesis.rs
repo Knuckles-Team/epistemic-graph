@@ -1,3 +1,5 @@
+#![recursion_limit = "256"]
+
 //! `nemesis` — the longer fault-injection SOAK runner (CONCEPT:AU-KG.ontology.emits-database-ontology-entities).
 //!
 //! The `cargo test --features raft harness::` gauntlet is bounded + deterministic for

@@ -337,10 +337,23 @@ impl FieldDef {
 /// A struct-of-arrays batch of rows: one [`Column`] per field + a shared row count
 /// (CONCEPT:EG-KG.temporal.columnar-schema-inference). Serde-serializable so it persists via the store's `rmp-serde`
 /// chunk codec.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ColumnarSegment {
     pub columns: Vec<Column>,
     pub n_rows: usize,
+    /// Derived name-to-offset directory.  It is deliberately excluded from the
+    /// persisted wire shape: old segments deserialize with an empty cell and the
+    /// first named projection builds it once.  Keeping the first offset preserves
+    /// the historical `iter().find(...)` behaviour for malformed schemas that
+    /// contain duplicate names.
+    #[serde(skip)]
+    column_offsets: std::sync::OnceLock<std::collections::HashMap<String, usize>>,
+}
+
+impl PartialEq for ColumnarSegment {
+    fn eq(&self, other: &Self) -> bool {
+        self.n_rows == other.n_rows && self.columns == other.columns
+    }
 }
 
 impl ColumnarSegment {
@@ -383,7 +396,11 @@ impl ColumnarSegment {
                 nulls,
             })
             .collect();
-        Ok(ColumnarSegment { columns, n_rows })
+        Ok(ColumnarSegment {
+            columns,
+            n_rows,
+            column_offsets: std::sync::OnceLock::new(),
+        })
     }
 
     /// Infer a schema from the FIRST non-null cell of each column of `rows`, then build.
@@ -455,8 +472,19 @@ impl ColumnarSegment {
 
     /// Borrow a column by name — the analytical entry point (a scan projects ONE
     /// column and iterates it, never materializing a row) (CONCEPT:EG-KG.temporal.columnar-schema-inference).
+    /// The first lookup builds an `O(W)` derived directory; every subsequent
+    /// lookup is expected `O(1)` instead of repeating a schema-width scan.
     pub fn column(&self, name: &str) -> Option<&Column> {
-        self.columns.iter().find(|c| c.name == name)
+        let offsets = self.column_offsets.get_or_init(|| {
+            let mut offsets = std::collections::HashMap::with_capacity(self.columns.len());
+            for (offset, column) in self.columns.iter().enumerate() {
+                offsets.entry(column.name.clone()).or_insert(offset);
+            }
+            offsets
+        });
+        offsets
+            .get(name)
+            .and_then(|&offset| self.columns.get(offset))
     }
 
     /// The schema (name + type per column).
@@ -558,9 +586,28 @@ mod tests {
     #[test]
     fn eg_089_columnar_persist_round_trip() {
         let seg = ColumnarSegment::from_rows(&schema(), &rows()).unwrap();
+        // Populate the derived cache before encoding: it must affect neither
+        // equality nor the durable wire shape.
+        assert!(seg.column("value").is_some());
         let bytes = seg.to_bytes().unwrap();
         let back = ColumnarSegment::from_bytes(&bytes).unwrap();
         assert_eq!(seg, back);
+        assert!(back.column("value").is_some());
+        assert!(back.column("missing").is_none());
+    }
+
+    #[test]
+    fn column_directory_preserves_first_duplicate_name() {
+        let seg = ColumnarSegment::from_rows(
+            &[
+                FieldDef::new("dup", ColType::I64),
+                FieldDef::new("dup", ColType::Str),
+            ],
+            &[vec![CellValue::I64(7), CellValue::Str("later".into())]],
+        )
+        .unwrap();
+        assert_eq!(seg.column("dup").unwrap().col_type(), ColType::I64);
+        assert!(seg.column("absent").is_none());
     }
 
     /// CONCEPT:EG-KG.temporal.columnar-schema-inference — build a columnar segment straight from stored `Point`s: a

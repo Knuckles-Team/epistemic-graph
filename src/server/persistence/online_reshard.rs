@@ -14,7 +14,9 @@
 //! Like the offline tool, the per-graph copy is **verbatim** (stored bytes are NOT
 //! decoded / unsealed / re-derived):
 //!
-//! * Per-graph data (`NODES`/`EDGES`/`LEDGER`/`SEMANTIC`/`GRAPH_META`) is moved row for
+//! * Per-graph data (`NODES`/`EDGES`/`LEDGER`/`SEMANTIC`/`GRAPH_META`) plus
+//!   MutationBatch replay/outbox/fence rows and governed ChangeEnvelope content,
+//!   cursor, policy, evidence, feature, blob, and lineage rows are moved row for
 //!   row, value blob unchanged — so encryption-at-rest blobs survive WITHOUT the key.
 //! * The tamper-evident hash-chained `AUDIT` log (CONCEPT:EG-KG.sharding.row-level-security) is copied verbatim
 //!   `(graph, seq) -> blob`, so the chain stays verifiable (re-deriving would break it).
@@ -34,24 +36,83 @@
 //! on `dst` where `import` already landed the data; the `src` GC is the last, idempotent
 //! step. See `RedbBackend::reshard_graph` for the quiesce wiring and the round-trip tests.
 
+use std::collections::BTreeSet;
 use std::sync::mpsc::SyncSender;
 
-use redb::{Database, Durability, ReadableDatabase};
+use redb::{Database, Durability, ReadableDatabase, ReadableTable};
 
 use super::redb_backend::Cmd;
 use super::tenant_catalog::TenantCatalog;
+use crate::protocol::GraphType;
 #[cfg(feature = "security")]
 use crate::redb_store::AUDIT;
-use crate::redb_store::{EDGES, GRAPH_META, LEDGER, NODES, SEMANTIC};
+use crate::redb_store::{
+    clear_change_material_rows, clear_graph_rows, decode_graph_meta_identity, sanitize,
+    CHANGE_BLOBS, CHANGE_CURSORS, CHANGE_ENVELOPES, CHANGE_EVIDENCE, CHANGE_FEATURES,
+    CHANGE_LINEAGE, CHANGE_POLICIES, CONTENT_VERSIONS, EDGES, GRAPH_META, LEDGER, MUTATION_BATCHES,
+    MUTATION_FENCE, MUTATION_GRAPH_VERSION, MUTATION_IDEMPOTENCY, MUTATION_LIFECYCLE_HEAD,
+    MUTATION_OUTBOX, MUTATION_OUTBOX_DELIVERY, MUTATION_PROJECTION_CURSOR, NODES, SEMANTIC,
+};
+
+/// Deserialize an explicitly present nullable field in the current raw-row
+/// snapshot contract. Serde's intrinsic `Option<T>` handling otherwise accepts
+/// an omitted field as `None`, masking an older snapshot schema.
+fn deserialize_required_option<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::Deserialize<'de>,
+{
+    <Option<T> as serde::Deserialize>::deserialize(deserializer)
+}
+
+/// Raw graph-scoped MutationBatch authority. Batch/outbox tables use batch ids
+/// as their first key, so export discovers those ids through the graph-scoped
+/// idempotency index and then copies the referenced rows verbatim.
+#[derive(Debug, Default, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RawMutationRows {
+    pub idempotency: Vec<(String, String, String)>,
+    pub batches: Vec<(String, Vec<u8>)>,
+    pub outbox: Vec<(String, u32, Vec<u8>)>,
+    pub deliveries: Vec<(String, u32, String, Vec<u8>)>,
+    pub projection_cursors: Vec<(String, String, Vec<u8>)>,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub graph_version: Option<u64>,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub fence: Option<Vec<u8>>,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub lifecycle_head: Option<String>,
+}
+
+/// Raw governed ChangeEnvelope material; every key is graph-first on disk.
+#[derive(Debug, Default, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RawChangeRows {
+    pub envelopes: Vec<(String, Vec<u8>)>,
+    pub content_versions: Vec<(String, String, Vec<u8>)>,
+    pub cursors: Vec<(String, String, String, Vec<u8>)>,
+    pub blobs: Vec<(String, String, Vec<u8>)>,
+    pub features: Vec<(String, String, Vec<u8>)>,
+    pub evidence: Vec<(String, String, Vec<u8>)>,
+    pub policies: Vec<(String, String, Vec<u8>)>,
+    pub lineage: Vec<(String, String, Vec<u8>)>,
+}
 
 /// One graph's durable rows captured VERBATIM for an online shard move (CONCEPT:EG-KG.backend.catalog-shard-resolve).
 /// Value blobs are the raw on-disk bytes (encrypted if encryption-at-rest is on, the
 /// audit chain untouched) so re-inserting them on the destination shard preserves both
 /// encryption and audit-chain verifiability — exactly as EG-030's offline copy does.
-#[derive(Default, Clone)]
+pub(crate) const RAW_GRAPH_ROWS_SCHEMA_VERSION: u16 = 1;
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct RawGraphRows {
+    /// Exact current raw-row contract. Missing or unsupported versions are
+    /// rejected before an import transaction starts.
+    pub schema_version: u16,
     /// `graph_meta` identity blob (`{name, graph_type}`), or `None` if the graph has no
     /// durable identity (nothing to move — the reshard becomes a pure route flip).
+    #[serde(deserialize_with = "deserialize_required_option")]
     pub meta: Option<Vec<u8>>,
     /// `(node_id, raw_value_blob)`.
     pub nodes: Vec<(String, Vec<u8>)>,
@@ -60,10 +121,77 @@ pub(crate) struct RawGraphRows {
     /// `(seq, ledger_line)`.
     pub ledger: Vec<(u64, String)>,
     /// The semantic-store blob, if any.
+    #[serde(deserialize_with = "deserialize_required_option")]
     pub semantic: Option<Vec<u8>>,
     /// `(seq, chained_audit_blob)` — copied verbatim to keep the hash chain valid.
     #[cfg(feature = "security")]
     pub audit: Vec<(u64, Vec<u8>)>,
+    /// Mutation status/idempotency/outbox rows needed for replay after the move.
+    pub mutation: RawMutationRows,
+    /// Governed external-change material and typed version/cursor rows.
+    pub change: RawChangeRows,
+}
+
+impl Default for RawGraphRows {
+    fn default() -> Self {
+        Self {
+            schema_version: RAW_GRAPH_ROWS_SCHEMA_VERSION,
+            meta: None,
+            nodes: Vec::new(),
+            edges: Vec::new(),
+            ledger: Vec::new(),
+            semantic: None,
+            #[cfg(feature = "security")]
+            audit: Vec::new(),
+            mutation: RawMutationRows::default(),
+            change: RawChangeRows::default(),
+        }
+    }
+}
+
+impl RawGraphRows {
+    pub(crate) fn validate_schema(&self) -> Result<(), String> {
+        if self.schema_version != RAW_GRAPH_ROWS_SCHEMA_VERSION {
+            return Err(format!(
+                "unsupported raw graph rows schema {} (expected {})",
+                self.schema_version, RAW_GRAPH_ROWS_SCHEMA_VERSION
+            ));
+        }
+        Ok(())
+    }
+
+    /// Validate the raw row set and derive its identity from `graph_meta`.
+    /// A raw image may be completely empty during a route-only reshard, but it
+    /// may never carry graph-scoped authority without the identity that owns it.
+    pub(crate) fn durable_identity(
+        &self,
+        graph: &str,
+    ) -> Result<Option<(String, GraphType, String)>, String> {
+        self.validate_schema()?;
+        if let Some(meta) = self.meta.as_deref() {
+            let identity = decode_graph_meta_identity(graph, meta)?;
+            if sanitize(&identity.0) != graph {
+                return Err("raw graph rows durable identity does not match its key".to_string());
+            }
+            return Ok(Some(identity));
+        }
+
+        #[cfg(feature = "security")]
+        let has_audit = !self.audit.is_empty();
+        #[cfg(not(feature = "security"))]
+        let has_audit = false;
+        let has_authority = !self.nodes.is_empty()
+            || !self.edges.is_empty()
+            || !self.ledger.is_empty()
+            || self.semantic.is_some()
+            || has_audit
+            || self.mutation != RawMutationRows::default()
+            || self.change != RawChangeRows::default();
+        if has_authority {
+            return Err("raw graph rows contain authority without durable identity".to_string());
+        }
+        Ok(None)
+    }
 }
 
 /// Per-table counts of a completed online reshard (CONCEPT:EG-KG.backend.catalog-shard-resolve).
@@ -141,6 +269,10 @@ pub(crate) struct RawGraphDelta {
     pub semantic: Option<Option<Vec<u8>>>,
     #[cfg(feature = "security")]
     pub upsert_audit: Vec<(u64, Vec<u8>)>,
+    /// Auxiliary authority changes are rare and small relative to graph rows;
+    /// when any changed during bulk copy, replace the graph's set atomically.
+    pub replace_mutation: Option<Box<RawMutationRows>>,
+    pub replace_change: Option<Box<RawChangeRows>>,
 }
 
 impl RawGraphDelta {
@@ -229,7 +361,293 @@ pub(crate) fn compute_delta(bulk: &RawGraphRows, latest: &RawGraphRows) -> RawGr
         }
     }
 
+    if bulk.mutation != latest.mutation {
+        delta.replace_mutation = Some(Box::new(latest.mutation.clone()));
+    }
+    if bulk.change != latest.change {
+        delta.replace_change = Some(Box::new(latest.change.clone()));
+    }
+
     delta
+}
+
+fn clear_mutation_rows(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
+    let batch_ids: Vec<String> = {
+        let table = wtx
+            .open_table(MUTATION_IDEMPOTENCY)
+            .map_err(|e| e.to_string())?;
+        table
+            .iter()
+            .map_err(|e| e.to_string())?
+            .filter_map(|row| row.ok())
+            .filter_map(|(key, value)| {
+                let (_, row_graph, _) = key.value();
+                (row_graph == graph).then(|| value.value().to_string())
+            })
+            .collect()
+    };
+    {
+        let mut table = wtx
+            .open_table(MUTATION_IDEMPOTENCY)
+            .map_err(|e| e.to_string())?;
+        let keys: Vec<(String, String)> = table
+            .iter()
+            .map_err(|e| e.to_string())?
+            .filter_map(|row| row.ok())
+            .filter_map(|(key, _)| {
+                let (tenant, row_graph, idempotency) = key.value();
+                (row_graph == graph).then(|| (tenant.to_string(), idempotency.to_string()))
+            })
+            .collect();
+        for (tenant, idempotency) in keys {
+            table
+                .remove((tenant.as_str(), graph, idempotency.as_str()))
+                .map_err(|e| e.to_string())?;
+        }
+    }
+    for batch_id in &batch_ids {
+        {
+            let mut table = wtx
+                .open_table(MUTATION_BATCHES)
+                .map_err(|e| e.to_string())?;
+            table.remove(batch_id.as_str()).map_err(|e| e.to_string())?;
+        }
+        {
+            let mut table = wtx.open_table(MUTATION_OUTBOX).map_err(|e| e.to_string())?;
+            let keys: Vec<u32> = table
+                .range((batch_id.as_str(), 0u32)..)
+                .map_err(|e| e.to_string())?
+                .filter_map(|row| row.ok())
+                .take_while(|(key, _)| key.value().0 == batch_id.as_str())
+                .map(|(key, _)| key.value().1)
+                .collect();
+            for ordinal in keys {
+                table
+                    .remove((batch_id.as_str(), ordinal))
+                    .map_err(|e| e.to_string())?;
+            }
+        }
+        {
+            let mut table = wtx
+                .open_table(MUTATION_OUTBOX_DELIVERY)
+                .map_err(|e| e.to_string())?;
+            let keys: Vec<(u32, String)> = table
+                .range((batch_id.as_str(), 0u32, "")..)
+                .map_err(|e| e.to_string())?
+                .filter_map(|row| row.ok())
+                .take_while(|(key, _)| key.value().0 == batch_id.as_str())
+                .map(|(key, _)| {
+                    let (_, ordinal, consumer) = key.value();
+                    (ordinal, consumer.to_string())
+                })
+                .collect();
+            for (ordinal, consumer) in keys {
+                table
+                    .remove((batch_id.as_str(), ordinal, consumer.as_str()))
+                    .map_err(|e| e.to_string())?;
+            }
+        }
+    }
+    {
+        let mut table = wtx
+            .open_table(MUTATION_PROJECTION_CURSOR)
+            .map_err(|e| e.to_string())?;
+        let keys: Vec<(String, String)> = table
+            .iter()
+            .map_err(|e| e.to_string())?
+            .filter_map(|row| row.ok())
+            .filter_map(|(key, _)| {
+                let (tenant, row_graph, projection) = key.value();
+                (row_graph == graph).then(|| (tenant.to_string(), projection.to_string()))
+            })
+            .collect();
+        for (tenant, projection) in keys {
+            table
+                .remove((tenant.as_str(), graph, projection.as_str()))
+                .map_err(|e| e.to_string())?;
+        }
+    }
+    {
+        let mut table = wtx
+            .open_table(MUTATION_GRAPH_VERSION)
+            .map_err(|e| e.to_string())?;
+        table.remove(graph).map_err(|e| e.to_string())?;
+    }
+    {
+        let mut table = wtx.open_table(MUTATION_FENCE).map_err(|e| e.to_string())?;
+        table.remove(graph).map_err(|e| e.to_string())?;
+    }
+    {
+        let mut table = wtx
+            .open_table(MUTATION_LIFECYCLE_HEAD)
+            .map_err(|e| e.to_string())?;
+        table.remove(graph).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[cfg(feature = "security")]
+fn clear_audit_rows(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
+    let mut audit = wtx.open_table(AUDIT).map_err(|e| e.to_string())?;
+    let sequences: Vec<u64> = audit
+        .range((graph, 0u64)..)
+        .map_err(|e| e.to_string())?
+        .filter_map(|row| row.ok())
+        .take_while(|(key, _)| key.value().0 == graph)
+        .map(|(key, _)| key.value().1)
+        .collect();
+    for sequence in sequences {
+        audit.remove((graph, sequence)).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn import_mutation_rows(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+    rows: &RawMutationRows,
+) -> Result<(), String> {
+    clear_mutation_rows(wtx, graph)?;
+    {
+        let mut table = wtx
+            .open_table(MUTATION_IDEMPOTENCY)
+            .map_err(|e| e.to_string())?;
+        for (tenant, idempotency, batch_id) in &rows.idempotency {
+            table
+                .insert(
+                    (tenant.as_str(), graph, idempotency.as_str()),
+                    batch_id.as_str(),
+                )
+                .map_err(|e| e.to_string())?;
+        }
+    }
+    {
+        let mut table = wtx
+            .open_table(MUTATION_BATCHES)
+            .map_err(|e| e.to_string())?;
+        for (batch_id, blob) in &rows.batches {
+            table
+                .insert(batch_id.as_str(), blob.as_slice())
+                .map_err(|e| e.to_string())?;
+        }
+    }
+    {
+        let mut table = wtx.open_table(MUTATION_OUTBOX).map_err(|e| e.to_string())?;
+        for (batch_id, ordinal, blob) in &rows.outbox {
+            table
+                .insert((batch_id.as_str(), *ordinal), blob.as_slice())
+                .map_err(|e| e.to_string())?;
+        }
+    }
+    {
+        let mut table = wtx
+            .open_table(MUTATION_OUTBOX_DELIVERY)
+            .map_err(|e| e.to_string())?;
+        for (batch_id, ordinal, consumer, blob) in &rows.deliveries {
+            table
+                .insert(
+                    (batch_id.as_str(), *ordinal, consumer.as_str()),
+                    blob.as_slice(),
+                )
+                .map_err(|e| e.to_string())?;
+        }
+    }
+    {
+        let mut table = wtx
+            .open_table(MUTATION_PROJECTION_CURSOR)
+            .map_err(|e| e.to_string())?;
+        for (tenant, projection, blob) in &rows.projection_cursors {
+            table
+                .insert(
+                    (tenant.as_str(), graph, projection.as_str()),
+                    blob.as_slice(),
+                )
+                .map_err(|e| e.to_string())?;
+        }
+    }
+    if let Some(version) = rows.graph_version {
+        let mut table = wtx
+            .open_table(MUTATION_GRAPH_VERSION)
+            .map_err(|e| e.to_string())?;
+        table.insert(graph, version).map_err(|e| e.to_string())?;
+    }
+    if let Some(fence) = &rows.fence {
+        let mut table = wtx.open_table(MUTATION_FENCE).map_err(|e| e.to_string())?;
+        table
+            .insert(graph, fence.as_slice())
+            .map_err(|e| e.to_string())?;
+    }
+    if let Some(head) = &rows.lifecycle_head {
+        let mut table = wtx
+            .open_table(MUTATION_LIFECYCLE_HEAD)
+            .map_err(|e| e.to_string())?;
+        table
+            .insert(graph, head.as_str())
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn import_change_rows(
+    wtx: &redb::WriteTransaction,
+    graph: &str,
+    rows: &RawChangeRows,
+) -> Result<(), String> {
+    clear_change_material_rows(wtx, graph)?;
+    {
+        let mut table = wtx
+            .open_table(CHANGE_ENVELOPES)
+            .map_err(|e| e.to_string())?;
+        for (id, blob) in &rows.envelopes {
+            table
+                .insert((graph, id.as_str()), blob.as_slice())
+                .map_err(|e| e.to_string())?;
+        }
+    }
+    macro_rules! import_three_part {
+        ($definition:expr, $values:expr) => {{
+            let mut table = wtx.open_table($definition).map_err(|e| e.to_string())?;
+            for (tenant, id, blob) in $values {
+                table
+                    .insert((graph, tenant.as_str(), id.as_str()), blob.as_slice())
+                    .map_err(|e| e.to_string())?;
+            }
+        }};
+    }
+    import_three_part!(CONTENT_VERSIONS, &rows.content_versions);
+    import_three_part!(CHANGE_BLOBS, &rows.blobs);
+    import_three_part!(CHANGE_FEATURES, &rows.features);
+    import_three_part!(CHANGE_EVIDENCE, &rows.evidence);
+    import_three_part!(CHANGE_POLICIES, &rows.policies);
+    import_three_part!(CHANGE_LINEAGE, &rows.lineage);
+    {
+        let mut table = wtx.open_table(CHANGE_CURSORS).map_err(|e| e.to_string())?;
+        for (tenant, source, partition, blob) in &rows.cursors {
+            table
+                .insert(
+                    (graph, tenant.as_str(), source.as_str(), partition.as_str()),
+                    blob.as_slice(),
+                )
+                .map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
+}
+
+/// Remove the source-side replay/outbox and audit authority after an online route flip.
+/// Graph/material rows are purged by the ordinary helper; mutation rows need
+/// this explicit second pass because tenant deletion intentionally retains its
+/// terminal history while shard movement must transfer, then remove, it. The
+/// audit chain follows the same rule under the `security` feature: tenant deletion
+/// retains it, but a successful shard move must leave exactly one authoritative copy.
+pub(crate) fn purge_moved_mutation_rows(db: &Database, graph: &str) -> Result<(), String> {
+    let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
+    wtx.set_durability(Durability::Immediate)
+        .map_err(|e| e.to_string())?;
+    clear_mutation_rows(&wtx, graph)?;
+    #[cfg(feature = "security")]
+    clear_audit_rows(&wtx, graph)?;
+    wtx.commit().map_err(|e| e.to_string())
 }
 
 /// Apply a [`RawGraphDelta`] to the destination `Database` in ONE durable transaction
@@ -300,6 +718,12 @@ pub(crate) fn import_graph_delta(
                     .insert((graph, *seq), blob.as_slice())
                     .map_err(|e| e.to_string())?;
             }
+        }
+        if let Some(rows) = &delta.replace_mutation {
+            import_mutation_rows(&wtx, graph, rows)?;
+        }
+        if let Some(rows) = &delta.replace_change {
+            import_change_rows(&wtx, graph, rows)?;
         }
     }
     wtx.commit().map_err(|e| e.to_string())?;
@@ -382,6 +806,151 @@ pub(crate) fn export_graph_raw(db: &Database, graph: &str) -> Result<RawGraphRow
         }
     }
 
+    let mut batch_ids = BTreeSet::new();
+    if let Ok(table) = rtx.open_table(MUTATION_IDEMPOTENCY) {
+        for row in table.iter().map_err(|e| e.to_string())? {
+            let (key, value) = row.map_err(|e| e.to_string())?;
+            let (tenant, row_graph, idempotency) = key.value();
+            if row_graph == graph {
+                let batch_id = value.value().to_string();
+                batch_ids.insert(batch_id.clone());
+                out.mutation.idempotency.push((
+                    tenant.to_string(),
+                    idempotency.to_string(),
+                    batch_id,
+                ));
+            }
+        }
+    }
+    if let Ok(table) = rtx.open_table(MUTATION_BATCHES) {
+        for batch_id in &batch_ids {
+            if let Some(value) = table.get(batch_id.as_str()).map_err(|e| e.to_string())? {
+                out.mutation
+                    .batches
+                    .push((batch_id.clone(), value.value().to_vec()));
+            }
+        }
+    }
+    if let Ok(table) = rtx.open_table(MUTATION_OUTBOX) {
+        for batch_id in &batch_ids {
+            for row in table
+                .range((batch_id.as_str(), 0u32)..)
+                .map_err(|e| e.to_string())?
+            {
+                let (key, value) = row.map_err(|e| e.to_string())?;
+                let (row_batch, ordinal) = key.value();
+                if row_batch != batch_id.as_str() {
+                    break;
+                }
+                out.mutation
+                    .outbox
+                    .push((batch_id.clone(), ordinal, value.value().to_vec()));
+            }
+        }
+    }
+    if let Ok(table) = rtx.open_table(MUTATION_OUTBOX_DELIVERY) {
+        for batch_id in &batch_ids {
+            for row in table
+                .range((batch_id.as_str(), 0u32, "")..)
+                .map_err(|e| e.to_string())?
+            {
+                let (key, value) = row.map_err(|e| e.to_string())?;
+                let (row_batch, ordinal, consumer) = key.value();
+                if row_batch != batch_id.as_str() {
+                    break;
+                }
+                out.mutation.deliveries.push((
+                    batch_id.clone(),
+                    ordinal,
+                    consumer.to_string(),
+                    value.value().to_vec(),
+                ));
+            }
+        }
+    }
+    if let Ok(table) = rtx.open_table(MUTATION_PROJECTION_CURSOR) {
+        for row in table.iter().map_err(|e| e.to_string())? {
+            let (key, value) = row.map_err(|e| e.to_string())?;
+            let (tenant, row_graph, projection) = key.value();
+            if row_graph == graph {
+                out.mutation.projection_cursors.push((
+                    tenant.to_string(),
+                    projection.to_string(),
+                    value.value().to_vec(),
+                ));
+            }
+        }
+    }
+    if let Ok(table) = rtx.open_table(MUTATION_GRAPH_VERSION) {
+        out.mutation.graph_version = table
+            .get(graph)
+            .map_err(|e| e.to_string())?
+            .map(|row| row.value());
+    }
+    if let Ok(table) = rtx.open_table(MUTATION_FENCE) {
+        out.mutation.fence = table
+            .get(graph)
+            .map_err(|e| e.to_string())?
+            .map(|row| row.value().to_vec());
+    }
+    if let Ok(table) = rtx.open_table(MUTATION_LIFECYCLE_HEAD) {
+        out.mutation.lifecycle_head = table
+            .get(graph)
+            .map_err(|e| e.to_string())?
+            .map(|row| row.value().to_string());
+    }
+
+    if let Ok(table) = rtx.open_table(CHANGE_ENVELOPES) {
+        for row in table.range((graph, "")..).map_err(|e| e.to_string())? {
+            let (key, value) = row.map_err(|e| e.to_string())?;
+            let (row_graph, id) = key.value();
+            if row_graph != graph {
+                break;
+            }
+            out.change
+                .envelopes
+                .push((id.to_string(), value.value().to_vec()));
+        }
+    }
+    macro_rules! export_three_part {
+        ($definition:expr, $destination:expr) => {
+            if let Ok(table) = rtx.open_table($definition) {
+                for row in table.range((graph, "", "")..).map_err(|e| e.to_string())? {
+                    let (key, value) = row.map_err(|e| e.to_string())?;
+                    let (row_graph, tenant, id) = key.value();
+                    if row_graph != graph {
+                        break;
+                    }
+                    $destination.push((tenant.to_string(), id.to_string(), value.value().to_vec()));
+                }
+            }
+        };
+    }
+    export_three_part!(CONTENT_VERSIONS, out.change.content_versions);
+    export_three_part!(CHANGE_BLOBS, out.change.blobs);
+    export_three_part!(CHANGE_FEATURES, out.change.features);
+    export_three_part!(CHANGE_EVIDENCE, out.change.evidence);
+    export_three_part!(CHANGE_POLICIES, out.change.policies);
+    export_three_part!(CHANGE_LINEAGE, out.change.lineage);
+    if let Ok(table) = rtx.open_table(CHANGE_CURSORS) {
+        for row in table
+            .range((graph, "", "", "")..)
+            .map_err(|e| e.to_string())?
+        {
+            let (key, value) = row.map_err(|e| e.to_string())?;
+            let (row_graph, tenant, source, partition) = key.value();
+            if row_graph != graph {
+                break;
+            }
+            out.change.cursors.push((
+                tenant.to_string(),
+                source.to_string(),
+                partition.to_string(),
+                value.value().to_vec(),
+            ));
+        }
+    }
+
     Ok(out)
 }
 
@@ -395,10 +964,36 @@ pub(crate) fn import_graph_raw(
     graph: &str,
     rows: &RawGraphRows,
 ) -> Result<(), String> {
+    rows.durable_identity(graph)?;
     let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
     wtx.set_durability(Durability::Immediate)
         .map_err(|e| e.to_string())?;
     {
+        // Replace, do not merely upsert, the graph projection. This makes a
+        // retried online copy and a Raft snapshot install remove rows that are no
+        // longer present in the source image.
+        {
+            let mut nodes = wtx.open_table(NODES).map_err(|e| e.to_string())?;
+            let mut edges = wtx.open_table(EDGES).map_err(|e| e.to_string())?;
+            let mut ledger = wtx.open_table(LEDGER).map_err(|e| e.to_string())?;
+            clear_graph_rows(graph, &mut nodes, &mut edges, &mut ledger)?;
+        }
+        {
+            let mut semantic = wtx.open_table(SEMANTIC).map_err(|e| e.to_string())?;
+            semantic.remove(graph).map_err(|e| e.to_string())?;
+        }
+        {
+            let mut meta = wtx.open_table(GRAPH_META).map_err(|e| e.to_string())?;
+            meta.remove(graph).map_err(|e| e.to_string())?;
+        }
+        #[cfg(feature = "security")]
+        {
+            // Snapshot install/retried reshard is an exact replacement. Remove any
+            // destination audit tail that is absent from the incoming image before
+            // copying the source chain verbatim.
+            clear_audit_rows(&wtx, graph)?;
+        }
+
         let mut meta = wtx.open_table(GRAPH_META).map_err(|e| e.to_string())?;
         if let Some(blob) = &rows.meta {
             meta.insert(graph, blob.as_slice())
@@ -437,6 +1032,8 @@ pub(crate) fn import_graph_raw(
                     .map_err(|e| e.to_string())?;
             }
         }
+        import_mutation_rows(&wtx, graph, &rows.mutation)?;
+        import_change_rows(&wtx, graph, &rows.change)?;
     }
     wtx.commit().map_err(|e| e.to_string())?;
     Ok(())
@@ -535,6 +1132,17 @@ pub(crate) fn delta_flip_purge(
     done_rx
         .blocking_recv()
         .map_err(|_| "redb writer dropped purge reply".to_string())??;
+
+    let (history_tx, history_rx) = std::sync::mpsc::channel();
+    src_tx
+        .send(Cmd::PurgeMovedMutationRows {
+            graph: graph.to_string(),
+            reply: history_tx,
+        })
+        .map_err(|_| gone())?;
+    history_rx
+        .recv()
+        .map_err(|_| "redb writer dropped moved-history purge reply".to_string())??;
 
     Ok(report)
 }

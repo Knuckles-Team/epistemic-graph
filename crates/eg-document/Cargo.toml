@@ -1,0 +1,36 @@
+[package]
+name = "eg-document"
+version = "0.1.0"
+edition = "2021"
+authors = ["Repository Maintainers <maintainers@example.invalid>"]
+description = "Pure-Rust document modality for the epistemic-graph engine (CONCEPT:EG-P1-3): typed pages, layout blocks, tables, spans, and an EvidenceAddress::CharacterRange contract without heavyweight PDF/OCR dependencies."
+license = "MIT"
+
+[lib]
+name = "eg_document"
+
+# Pure-Rust leaf: serde persists the source-free normalized value and SHA-256 binds it
+# to the request-local source. The native UTF-8 decoder extracts bounded pages, layout,
+# exact spans, table shape, and opaque authority-keyed lexical postings.
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+sha2 = "0.10"
+# ModalityContract retrofit (CONCEPT:EG-P1-3, mirroring eg-image/eg-audio/eg-video's
+# CONCEPT:E4). Optional, only under `contract` (default OFF) — a default
+# build links none of it and `DocumentData` carries no new required trait. See
+# `src/contract.rs`.
+eg-modality = { path = "../eg-modality", optional = true }
+
+[features]
+default = []
+# ModalityContract retrofit (CONCEPT:EG-P1-3): `impl ModalityContract for
+# DocumentData` + the `modality_conformance_tests!` battery. OFF by default; the
+# separate `serving` feature promotes it to the governed runtime and the facade's
+# production feature surface. `cargo test -p eg-document --features serving` runs it.
+contract = ["dep:eg-modality"]
+# Production served state machine: governed batch/stream ingest, OCC update,
+# delete/replay, policy-filtered paging, lifecycle, indexes, and restart recovery.
+# Dependency-light: this reuses eg-modality + serde only.
+serving = ["contract"]
+[dev-dependencies]
+serde_json = "1.0"

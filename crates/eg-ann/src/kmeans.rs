@@ -128,12 +128,20 @@ pub fn kmeans(
     }
     let mut centroids = kmeanspp_init(data, dim, k, rng);
 
+    // Flattened once (data does not change across iterations — only `centroids` does),
+    // for the GPU batch-assign dispatch seam (CONCEPT:EG-KG.compute.gpu-distance-seam / EG-327). On a build
+    // without `gpu-cuda` (or with no device) `crate::kmeans_gpu::CpuBackend` delegates
+    // straight back to `nearest_centroid` below, so behavior is unchanged.
+    let data_flat: Vec<f32> = data.iter().flat_map(|v| v.iter().copied()).collect();
+
     for _ in 0..iters {
-        // Assign every point to its nearest centroid (parallel).
-        let assign: Vec<usize> = data
-            .par_iter()
-            .map(|v| nearest_centroid(v, &centroids, dim, k))
-            .collect();
+        // Assign every point to its nearest centroid — the hot loop, offloaded to the
+        // active `AssignBackend` (CUDA when built + a device is present, else CPU).
+        let assign: Vec<usize> =
+            crate::kmeans_gpu::batch_assign_dispatch(&data_flat, n, &centroids, k, dim)
+                .into_iter()
+                .map(|x| x as usize)
+                .collect();
 
         // Accumulate sums + counts. CONCEPT:EG-KG.compute.kmeans-accumulation — the per-iteration accumulation
         // is O(n*dim) (the coarse quantizer at dim=1024, n≈16k is ~16M adds/iter);

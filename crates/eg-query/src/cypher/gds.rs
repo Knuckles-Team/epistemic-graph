@@ -20,11 +20,9 @@
 //! tie-break falls back to sorted node-id order, so a given graph + config always
 //! yields the same rows.
 //!
-//! Backward-compatibility (CONCEPT:EG-KG.query.gds-call-procedures): these procedures REPLACE the earlier
-//! EG-143 GDS stubs (which ran over the live `GraphView` with no config), and they
-//! keep yielding the legacy `node` / `score` / `communityId` / `componentId`
-//! columns *in addition to* the GDS-canonical `nodeId` column, so existing
-//! `YIELD node, score` queries keep working unchanged.
+//! The procedure schema is current-only: node-valued results expose `nodeId` and
+//! the algorithm-specific value column. Alternate node-column aliases are rejected
+//! by normal `YIELD` validation.
 
 use std::collections::HashMap;
 
@@ -33,17 +31,23 @@ use petgraph::visit::{EdgeRef, IntoEdgeReferences};
 use serde_json::Value;
 
 use eg_compute::graph_algos::{
-    all_pairs_similarity, betweenness_centrality, degree_centrality, dijkstra, louvain, pagerank,
-    strongly_connected_components, weakly_connected_components, AdjacencyGraph, DegreeKind,
-    Direction, LouvainConfig, Metric, PageRankConfig,
+    all_pairs_similarity, betweenness_centrality, degree_centrality, dijkstra, knn_similarity,
+    label_propagation, louvain, pagerank, strongly_connected_components,
+    weakly_connected_components, AdjacencyGraph, DegreeKind, Direction, LabelPropagationConfig,
+    LouvainConfig, Metric, PageRankConfig,
 };
 
 use super::proc::{CypherProcedure, ProcRow, YieldValue};
 
-/// Every EG-298 GDS procedure, ready to fold into the procedure registry
-/// (CONCEPT:EG-KG.query.gds-call-procedures). Consumed by `proc::build_registry`.
+/// Every GDS procedure, ready to fold into the procedure registry
+/// (CONCEPT:EG-KG.query.gds-call-procedures / CONCEPT:EG-KG.query.gds-procedure-routing). Consumed
+/// by `proc::build_registry`. The base 10 (EG-298 + `labelPropagation`/`knn`)
+/// always route to always-on `graph_algos` kernels; `gds.dbscan` and
+/// `gds.linkPrediction` are gated behind the `cypher-mining`/`cypher-graphlearn`
+/// features (they route to heavier eg-compute domains — see `Cargo.toml`).
 pub fn gds_procedures() -> Vec<Box<dyn CypherProcedure>> {
-    vec![
+    #[allow(unused_mut)]
+    let mut v: Vec<Box<dyn CypherProcedure>> = vec![
         Box::new(PageRank),
         Box::new(Betweenness),
         Box::new(Degree),
@@ -52,7 +56,14 @@ pub fn gds_procedures() -> Vec<Box<dyn CypherProcedure>> {
         Box::new(Scc),
         Box::new(Dijkstra),
         Box::new(NodeSimilarity),
-    ]
+        Box::new(LabelPropagation),
+        Box::new(Knn),
+    ];
+    #[cfg(feature = "cypher-mining")]
+    v.push(Box::new(Dbscan));
+    #[cfg(feature = "cypher-graphlearn")]
+    v.push(Box::new(LinkPrediction));
+    v
 }
 
 // ── projection + config helpers (CONCEPT:EG-KG.query.gds-call-procedures) ────────────────────────────────
@@ -85,7 +96,7 @@ fn project(view: &GraphView, weight_prop: Option<&str>) -> AdjacencyGraph<String
 fn edge_weight(view: &GraphView, s: &str, t: &str, prop: &str) -> Option<f64> {
     let blobs = view.edge_properties.get(&(s.to_string(), t.to_string()))?;
     for blob in blobs {
-        if let Ok(Value::Object(m)) = rmp_serde::from_slice::<Value>(blob) {
+        if let Ok(Value::Object(m)) = eg_types::msgpack::decode_property_value(blob) {
             if let Some(w) = m.get(prop).and_then(|v| v.as_f64()) {
                 return Some(w);
             }
@@ -141,17 +152,15 @@ fn num(x: f64) -> Value {
     }
 }
 
-/// One `(node, nodeId, <score-col>)` row: the id is bound twice — as the legacy
-/// anchorable `node` column and as the GDS-canonical `nodeId` column (CONCEPT:EG-KG.query.gds-call-procedures).
+/// One `(nodeId, <score-col>)` result row (CONCEPT:EG-KG.query.gds-call-procedures).
 fn scored_row(id: String, col: &str, score: f64) -> ProcRow {
     vec![
-        ("node".to_string(), YieldValue::Node(id.clone())),
         ("nodeId".to_string(), YieldValue::Node(id)),
         (col.to_string(), YieldValue::Scalar(num(score))),
     ]
 }
 
-/// `(node, nodeId, <score-col>)` rows from a `Vec<(id, f64)>` kernel result.
+/// `(nodeId, <score-col>)` rows from a `Vec<(id, f64)>` kernel result.
 fn scored_rows(scored: Vec<(String, f64)>, col: &str) -> Vec<ProcRow> {
     scored
         .into_iter()
@@ -159,14 +168,13 @@ fn scored_rows(scored: Vec<(String, f64)>, col: &str) -> Vec<ProcRow> {
         .collect()
 }
 
-/// `(node, nodeId, <group-col>)` rows from a partition (`Vec<Vec<id>>`): every node
+/// `(nodeId, <group-col>)` rows from a partition (`Vec<Vec<id>>`): every node
 /// tagged with its 0-based group index (CONCEPT:EG-KG.query.gds-call-procedures).
 fn partition_rows(groups: Vec<Vec<String>>, col: &str) -> Vec<ProcRow> {
     let mut out = Vec::new();
     for (gid, members) in groups.into_iter().enumerate() {
         for id in members {
             out.push(vec![
-                ("node".to_string(), YieldValue::Node(id.clone())),
                 ("nodeId".to_string(), YieldValue::Node(id)),
                 (
                     col.to_string(),
@@ -189,7 +197,7 @@ impl CypherProcedure for PageRank {
         "gds.pageRank"
     }
     fn columns(&self) -> &'static [&'static str] {
-        &["nodeId", "node", "score"]
+        &["nodeId", "score"]
     }
     fn call(&self, args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
         let cfg = Config::of(args);
@@ -213,7 +221,7 @@ impl CypherProcedure for Betweenness {
         "gds.betweenness"
     }
     fn columns(&self) -> &'static [&'static str] {
-        &["nodeId", "node", "score"]
+        &["nodeId", "score"]
     }
     fn call(&self, args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
         let cfg = Config::of(args);
@@ -235,7 +243,7 @@ impl CypherProcedure for Degree {
         "gds.degree"
     }
     fn columns(&self) -> &'static [&'static str] {
-        &["nodeId", "node", "score"]
+        &["nodeId", "score"]
     }
     fn call(&self, args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
         let cfg = Config::of(args);
@@ -260,7 +268,7 @@ impl CypherProcedure for Louvain {
         "gds.louvain"
     }
     fn columns(&self) -> &'static [&'static str] {
-        &["nodeId", "node", "communityId"]
+        &["nodeId", "communityId"]
     }
     fn call(&self, args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
         let cfg = Config::of(args);
@@ -275,6 +283,35 @@ impl CypherProcedure for Louvain {
     }
 }
 
+/// `gds.labelPropagation(config)` — synchronous Label Propagation (LPA) community
+/// detection (CONCEPT:EG-KG.query.gds-procedure-routing). Config: `maxIterations` (10),
+/// `relationshipWeightProperty` (edge-weighted neighbour voting; unweighted votes
+/// when absent). Yields `nodeId` / `node`, `communityId`. Routes to
+/// `eg_compute::graph_algos::label_propagation` (CONCEPT:EG-KG.compute.label-propagation) —
+/// no algorithm reimplementation here.
+struct LabelPropagation;
+impl CypherProcedure for LabelPropagation {
+    fn name(&self) -> &'static str {
+        "gds.labelPropagation"
+    }
+    fn columns(&self) -> &'static [&'static str] {
+        &["nodeId", "communityId"]
+    }
+    fn call(&self, args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
+        let cfg = Config::of(args);
+        let weight_prop = cfg.string("relationshipWeightProperty");
+        let g = project(view, weight_prop.as_deref());
+        let lpc = LabelPropagationConfig {
+            max_iterations: cfg.usize("maxIterations", 10),
+            weighted: weight_prop.is_some(),
+        };
+        Ok(partition_rows(
+            label_propagation(&g, &lpc).communities,
+            "communityId",
+        ))
+    }
+}
+
 /// `gds.wcc(config)` — weakly-connected components (CONCEPT:EG-KG.query.gds-call-procedures).
 /// Config: `relationshipWeightProperty` (topology only). Yields `nodeId` / `node`,
 /// `componentId`.
@@ -284,7 +321,7 @@ impl CypherProcedure for Wcc {
         "gds.wcc"
     }
     fn columns(&self) -> &'static [&'static str] {
-        &["nodeId", "node", "componentId"]
+        &["nodeId", "componentId"]
     }
     fn call(&self, args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
         let cfg = Config::of(args);
@@ -305,7 +342,7 @@ impl CypherProcedure for Scc {
         "gds.scc"
     }
     fn columns(&self) -> &'static [&'static str] {
-        &["nodeId", "node", "componentId"]
+        &["nodeId", "componentId"]
     }
     fn call(&self, args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
         let cfg = Config::of(args);
@@ -331,7 +368,7 @@ impl CypherProcedure for Dijkstra {
         "gds.dijkstra"
     }
     fn columns(&self) -> &'static [&'static str] {
-        &["nodeId", "node", "cost"]
+        &["nodeId", "cost"]
     }
     fn call(&self, args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
         let cfg = Config::of(args);
@@ -405,6 +442,188 @@ impl CypherProcedure for NodeSimilarity {
     }
 }
 
+/// `gds.knn(config)` — per-node top-`k` nearest-neighbour similarity
+/// (CONCEPT:EG-KG.query.gds-procedure-routing). Distinct from `gds.nodeSimilarity`'s global
+/// all-pairs cutoff sweep: each node independently keeps its `topK` best-scoring
+/// matches. Config: `similarityMetric` (`JACCARD` [default] / `COSINE`),
+/// `similarityCutoff` (0.0), `topK` (10), `relationshipWeightProperty`. Yields
+/// `node1`, `node2`, `similarity`. Routes to
+/// `eg_compute::graph_algos::knn_similarity` (CONCEPT:EG-KG.compute.node-similarity) — exact
+/// top-`k` via a full sweep, not Neo4j's approximate KNN-descent sampling.
+struct Knn;
+impl CypherProcedure for Knn {
+    fn name(&self) -> &'static str {
+        "gds.knn"
+    }
+    fn columns(&self) -> &'static [&'static str] {
+        &["node1", "node2", "similarity"]
+    }
+    fn call(&self, args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
+        let cfg = Config::of(args);
+        let g = project(view, cfg.string("relationshipWeightProperty").as_deref());
+        let metric = match cfg.string("similarityMetric").as_deref() {
+            Some(m) if m.eq_ignore_ascii_case("COSINE") => Metric::Cosine,
+            _ => Metric::Jaccard,
+        };
+        let cutoff = cfg.f64("similarityCutoff", 0.0);
+        let top_k = cfg.usize("topK", 10);
+        let pairs = knn_similarity(&g, metric, Direction::Out, top_k, cutoff);
+        Ok(pairs
+            .into_iter()
+            .map(|p| {
+                vec![
+                    ("node1".to_string(), YieldValue::Node(p.a)),
+                    ("node2".to_string(), YieldValue::Node(p.b)),
+                    ("similarity".to_string(), YieldValue::Scalar(num(p.score))),
+                ]
+            })
+            .collect())
+    }
+}
+
+// ── density clustering (CONCEPT:EG-KG.query.gds-procedure-routing) ───────────────────────────────
+
+/// `gds.dbscan(config)` — density-based clustering over a node feature vector
+/// (CONCEPT:EG-KG.query.gds-procedure-routing). Config: `nodeProperty` (REQUIRED — the node
+/// property holding the feature vector: a JSON array of numbers, or a single
+/// number treated as a 1-dim vector), `eps` (0.5), `minPts` (2). Nodes whose
+/// `nodeProperty` is absent or non-numeric are skipped (not assigned a
+/// `clusterId` row) — GDS's own `gds.dbscan` likewise only scores nodes that
+/// carry the configured property. Yields `nodeId` / `node`, `clusterId` (`-1` =
+/// DBSCAN noise). Routes to `eg_compute::mining::cluster::dbscan`
+/// (CONCEPT:EG-KG.mining.dbscan-density) — no algorithm reimplementation; gated behind the
+/// `cypher-mining` feature (routes to the `mining` eg-compute domain).
+#[cfg(feature = "cypher-mining")]
+struct Dbscan;
+#[cfg(feature = "cypher-mining")]
+impl CypherProcedure for Dbscan {
+    fn name(&self) -> &'static str {
+        "gds.dbscan"
+    }
+    fn columns(&self) -> &'static [&'static str] {
+        &["nodeId", "clusterId"]
+    }
+    fn call(&self, args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
+        let cfg = Config::of(args);
+        let prop = cfg
+            .string("nodeProperty")
+            .ok_or_else(|| "gds.dbscan requires a `nodeProperty` config key".to_string())?;
+        let eps = cfg.f64("eps", 0.5);
+        let min_pts = cfg.usize("minPts", 2);
+
+        let mut ids: Vec<String> = view.node_map.keys().cloned().collect();
+        ids.sort();
+        let mut points: Vec<eg_compute::mining::cluster::Point> = Vec::new();
+        let mut kept_ids: Vec<String> = Vec::new();
+        for id in ids {
+            if let Some(v) = node_feature_vector(view, &id, &prop) {
+                points.push(v);
+                kept_ids.push(id);
+            }
+        }
+        if points.is_empty() {
+            return Ok(Vec::new());
+        }
+        let labels = eg_compute::mining::cluster::dbscan(&points, eps, min_pts);
+        Ok(kept_ids
+            .into_iter()
+            .zip(labels)
+            .map(|(id, lbl)| {
+                vec![
+                    ("nodeId".to_string(), YieldValue::Node(id)),
+                    (
+                        "clusterId".to_string(),
+                        YieldValue::Scalar(Value::Number((lbl).into())),
+                    ),
+                ]
+            })
+            .collect())
+    }
+}
+
+/// Read a node's `prop` as a feature vector: a JSON array of numbers (used
+/// as-is) or a bare number (a 1-dim vector). Any other shape (absent, string,
+/// bool, non-numeric array element) ⇒ `None`, meaning the node is skipped by
+/// `gds.dbscan` (CONCEPT:EG-KG.query.gds-procedure-routing).
+#[cfg(feature = "cypher-mining")]
+fn node_feature_vector(view: &GraphView, id: &str, prop: &str) -> Option<Vec<f64>> {
+    let blob = view.node_properties.get(id)?;
+    let v = eg_types::msgpack::decode_property_value(blob).ok()?;
+    let field = v.as_object()?.get(prop)?;
+    match field {
+        Value::Array(arr) => arr.iter().map(|x| x.as_f64()).collect(),
+        Value::Number(_) => field.as_f64().map(|f| vec![f]),
+        _ => None,
+    }
+}
+
+// ── link prediction (CONCEPT:EG-KG.query.gds-procedure-routing) ──────────────────────────────────
+
+/// `gds.linkPrediction(config)` — fit a KAN link-predictor over the graph's
+/// existing edges (as positives, vs sampled non-edges) then score the top-`k`
+/// missing links (CONCEPT:EG-KG.query.gds-procedure-routing). Unlike every other GDS
+/// procedure here (project → run → YIELD), this is a fit-THEN-predict workflow,
+/// both folded into one `CALL`. Config: `topK` (50), `epochs` (200, KAN training
+/// rounds), `alpha` (0.5, 1-hop neighbour-aggregation self-retention). Yields
+/// `node1`, `node2`, `probability`. Routes to
+/// `eg_compute::graphlearn::link_predict` (CONCEPT:EG-KG.graphlearn.link-predictor) — no
+/// model reimplementation; gated behind the `cypher-graphlearn` feature (implies
+/// `datascience` in eg-compute for the shared Adam kernels).
+#[cfg(feature = "cypher-graphlearn")]
+struct LinkPrediction;
+#[cfg(feature = "cypher-graphlearn")]
+impl CypherProcedure for LinkPrediction {
+    fn name(&self) -> &'static str {
+        "gds.linkPrediction"
+    }
+    fn columns(&self) -> &'static [&'static str] {
+        &["node1", "node2", "probability"]
+    }
+    fn call(&self, args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
+        use eg_compute::graphlearn::link_predict::{
+            fit_link_predictor, predict_missing_links, FeatureCtx, KanLinkConfig,
+        };
+        use std::collections::HashSet;
+
+        let cfg = Config::of(args);
+        let g = project(view, None);
+        if g.node_count() < 2 {
+            return Ok(Vec::new());
+        }
+        let top_k = cfg.usize("topK", 50);
+        let mut kcfg = KanLinkConfig::default();
+        kcfg.epochs = cfg.usize("epochs", kcfg.epochs);
+        kcfg.alpha = cfg.f64("alpha", kcfg.alpha);
+
+        // Undirected positive edges, canonicalised + deduped by compact index.
+        let mut existing: HashSet<(usize, usize)> = HashSet::new();
+        for a in 0..g.node_count() {
+            for &(b, _) in g.out_edges(a) {
+                if a != b {
+                    existing.insert(if a < b { (a, b) } else { (b, a) });
+                }
+            }
+        }
+        if existing.is_empty() {
+            return Ok(Vec::new());
+        }
+        let positives: Vec<(usize, usize)> = existing.iter().copied().collect();
+        let ctx = FeatureCtx::build(&g, kcfg.alpha);
+        let model = fit_link_predictor(&ctx, &positives, &kcfg);
+        let preds = predict_missing_links(&model, &ctx, &existing, top_k);
+        Ok(preds
+            .into_iter()
+            .map(|(a, b, prob)| {
+                vec![
+                    ("node1".to_string(), YieldValue::Node(g.node_at(a).clone())),
+                    ("node2".to_string(), YieldValue::Node(g.node_at(b).clone())),
+                    ("probability".to_string(), YieldValue::Scalar(num(prob))),
+                ]
+            })
+            .collect())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -421,7 +640,10 @@ mod tests {
     fn fixture() -> GraphView {
         let core = GraphCore::new();
         for id in ["alice", "bob", "carol", "d1"] {
-            core.add_node(id.into(), pbytes(serde_json::json!({"type": "Person"})));
+            core.add_node(
+                id.into(),
+                pbytes(serde_json::json!({"node_type": "Person"})),
+            );
         }
         core.add_edge(
             "alice".into(),
@@ -443,6 +665,13 @@ mod tests {
             .iter()
             .map(|b| rmp_serde::from_slice(b).unwrap())
             .collect()
+    }
+
+    fn node_id(value: &Value) -> &str {
+        value
+            .as_str()
+            .or_else(|| value.get("id").and_then(Value::as_str))
+            .expect("node-valued GDS projection")
     }
 
     // ── CONCEPT:EG-KG.query.gds-call-procedures — projection + config helpers ────────────────────────────
@@ -490,7 +719,7 @@ mod tests {
         assert_eq!(qr.columns, vec!["nodeId", "score"]);
         let mut by_node: HashMap<String, f64> = HashMap::new();
         for r in rows(&qr) {
-            by_node.insert(r[0].as_str().unwrap().to_string(), r[1].as_f64().unwrap());
+            by_node.insert(node_id(&r[0]).to_string(), r[1].as_f64().unwrap());
         }
         assert_eq!(by_node.len(), 4);
         // carol is the chain sink ⇒ outranks alice (chain source).
@@ -498,11 +727,11 @@ mod tests {
     }
 
     #[test]
-    fn eg298_call_gds_pagerank_legacy_node_column_still_yields() {
-        // Backward-compat: the pre-EG-298 `YIELD node, score` shape keeps working.
+    fn gds_rejects_noncanonical_node_column() {
         let v = fixture();
-        let qr = exec_cypher(&v, "CALL gds.pageRank() YIELD node, score RETURN node").unwrap();
-        assert_eq!(rows(&qr).len(), 4);
+        let error =
+            exec_cypher(&v, "CALL gds.pageRank() YIELD node, score RETURN node").unwrap_err();
+        assert!(error.contains("node"), "{error}");
     }
 
     #[test]
@@ -516,7 +745,7 @@ mod tests {
         .unwrap();
         let mut comm: HashMap<String, i64> = HashMap::new();
         for r in rows(&qr) {
-            comm.insert(r[0].as_str().unwrap().to_string(), r[1].as_i64().unwrap());
+            comm.insert(node_id(&r[0]).to_string(), r[1].as_i64().unwrap());
         }
         // The connected chain alice-bob-carol shares one community.
         assert_eq!(comm["alice"], comm["bob"]);
@@ -534,7 +763,7 @@ mod tests {
         .unwrap();
         let mut w: HashMap<String, i64> = HashMap::new();
         for r in rows(&wcc) {
-            w.insert(r[0].as_str().unwrap().to_string(), r[1].as_i64().unwrap());
+            w.insert(node_id(&r[0]).to_string(), r[1].as_i64().unwrap());
         }
         assert_eq!(w["alice"], w["carol"]);
         assert_ne!(w["alice"], w["d1"]);
@@ -563,7 +792,7 @@ mod tests {
         .unwrap();
         let mut bc: HashMap<String, f64> = HashMap::new();
         for r in rows(&qr) {
-            bc.insert(r[0].as_str().unwrap().to_string(), r[1].as_f64().unwrap());
+            bc.insert(node_id(&r[0]).to_string(), r[1].as_f64().unwrap());
         }
         // On the undirected path alice-bob-carol, bob sits on the only shortest
         // path between the endpoints ⇒ strictly highest betweenness.
@@ -581,7 +810,7 @@ mod tests {
         .unwrap();
         let mut cost: HashMap<String, f64> = HashMap::new();
         for r in rows(&qr) {
-            cost.insert(r[0].as_str().unwrap().to_string(), r[1].as_f64().unwrap());
+            cost.insert(node_id(&r[0]).to_string(), r[1].as_f64().unwrap());
         }
         // Unweighted chain: alice=0, bob=1, carol=2; d1 unreachable (absent).
         assert_eq!(cost["alice"], 0.0);
@@ -602,7 +831,7 @@ mod tests {
         .unwrap();
         let r = rows(&qr);
         assert_eq!(r.len(), 1);
-        assert_eq!(r[0][0].as_str().unwrap(), "carol");
+        assert_eq!(node_id(&r[0][0]), "carol");
         assert!((r[0][1].as_f64().unwrap() - 6.0).abs() < 1e-9);
     }
 
@@ -611,7 +840,7 @@ mod tests {
         // Two nodes sharing all out-neighbours score similarity 1.0.
         let core = GraphCore::new();
         for id in ["a", "b", "x", "y"] {
-            core.add_node(id.into(), pbytes(serde_json::json!({"type": "N"})));
+            core.add_node(id.into(), pbytes(serde_json::json!({"node_type": "N"})));
         }
         for (s, t) in [("a", "x"), ("a", "y"), ("b", "x"), ("b", "y")] {
             core.add_edge(s.into(), t.into(), pbytes(serde_json::json!({})))
@@ -625,8 +854,177 @@ mod tests {
         )
         .unwrap();
         let r = rows(&qr);
-        assert_eq!(r[0][0].as_str().unwrap(), "a");
-        assert_eq!(r[0][1].as_str().unwrap(), "b");
+        assert_eq!(node_id(&r[0][0]), "a");
+        assert_eq!(node_id(&r[0][1]), "b");
         assert!((r[0][2].as_f64().unwrap() - 1.0).abs() < 1e-9);
+    }
+
+    // ── CONCEPT:EG-KG.query.gds-procedure-routing — GDS breadth (Track I) ──────────────────────────────
+
+    #[test]
+    fn call_gds_label_propagation_splits_two_weighted_clusters() {
+        // Two 4-cliques bridged by one NEAR-ZERO-weight edge (the realistic way a
+        // caller signals "this link is weak" to LPA's raw-majority-vote
+        // criterion — an equal-weight bridge is a documented general LPA
+        // ambiguity, not specific to this routing; see
+        // `eg_compute::graph_algos::label_propagation`'s module doc).
+        let core = GraphCore::new();
+        let clique1 = ["a", "b", "c", "d"];
+        let clique2 = ["w", "x", "y", "z"];
+        for id in clique1.iter().chain(clique2.iter()) {
+            core.add_node((*id).into(), pbytes(serde_json::json!({"node_type": "N"})));
+        }
+        for c in [&clique1, &clique2] {
+            for i in 0..c.len() {
+                for j in (i + 1)..c.len() {
+                    core.add_edge(
+                        c[i].into(),
+                        c[j].into(),
+                        pbytes(serde_json::json!({"weight": 1.0})),
+                    )
+                    .unwrap();
+                }
+            }
+        }
+        core.add_edge(
+            "d".into(),
+            "w".into(),
+            pbytes(serde_json::json!({"weight": 0.001})),
+        )
+        .unwrap();
+        let v = core.analysis_snapshot();
+        let qr = exec_cypher(
+            &v,
+            "CALL gds.labelPropagation({relationshipWeightProperty: 'weight'}) \
+             YIELD nodeId, communityId RETURN nodeId, communityId",
+        )
+        .unwrap();
+        let mut comm: HashMap<String, i64> = HashMap::new();
+        for r in rows(&qr) {
+            comm.insert(node_id(&r[0]).to_string(), r[1].as_i64().unwrap());
+        }
+        assert_eq!(comm.len(), 8);
+        for id in clique1 {
+            assert_eq!(comm[id], comm["a"], "clique1 member {id} split off");
+        }
+        for id in clique2 {
+            assert_eq!(comm[id], comm["w"], "clique2 member {id} split off");
+        }
+        assert_ne!(comm["a"], comm["w"]);
+    }
+
+    #[test]
+    fn call_gds_knn_keeps_top_k_per_node() {
+        // Two nodes sharing all out-neighbours (a,b) plus a third (c) sharing
+        // fewer — same fixture shape as the nodeSimilarity test.
+        let core = GraphCore::new();
+        for id in ["a", "b", "c", "x", "y"] {
+            core.add_node(id.into(), pbytes(serde_json::json!({"node_type": "N"})));
+        }
+        for (s, t) in [("a", "x"), ("a", "y"), ("b", "x"), ("b", "y"), ("c", "x")] {
+            core.add_edge(s.into(), t.into(), pbytes(serde_json::json!({})))
+                .unwrap();
+        }
+        let v = core.analysis_snapshot();
+        let qr = exec_cypher(
+            &v,
+            "CALL gds.knn({topK: 1}) YIELD node1, node2, similarity \
+             RETURN node1, node2, similarity",
+        )
+        .unwrap();
+        let r = rows(&qr);
+        assert!(r.iter().any(|row| node_id(&row[0]) == "a"
+            && node_id(&row[1]) == "b"
+            && (row[2].as_f64().unwrap() - 1.0).abs() < 1e-9));
+        // b's own top-1 is a (score 1.0, beats c's 0.5) ⇒ (b, c) never appears.
+        assert!(!r.iter().any(|row| {
+            let ids = [node_id(&row[0]), node_id(&row[1])];
+            ids.contains(&"b") && ids.contains(&"c")
+        }));
+    }
+
+    #[cfg(feature = "cypher-mining")]
+    #[test]
+    fn call_gds_dbscan_clusters_by_node_property() {
+        let core = GraphCore::new();
+        // Two dense 2D clusters far apart; dbscan(eps=1.5, minPts=2) should
+        // separate them (and no isolated singleton).
+        let pts: [(&str, f64, f64); 6] = [
+            ("a1", 0.0, 0.0),
+            ("a2", 0.5, 0.5),
+            ("a3", 0.2, 0.8),
+            ("b1", 20.0, 20.0),
+            ("b2", 20.5, 20.5),
+            ("b3", 20.2, 20.8),
+        ];
+        for (id, x, y) in pts {
+            core.add_node(
+                id.into(),
+                pbytes(serde_json::json!({"node_type": "Point", "loc": [x, y]})),
+            );
+        }
+        let v = core.analysis_snapshot();
+        let qr = exec_cypher(
+            &v,
+            "CALL gds.dbscan({nodeProperty: 'loc', eps: 2.0, minPts: 2}) \
+             YIELD nodeId, clusterId RETURN nodeId, clusterId",
+        )
+        .unwrap();
+        let mut cluster: HashMap<String, i64> = HashMap::new();
+        for r in rows(&qr) {
+            cluster.insert(node_id(&r[0]).to_string(), r[1].as_i64().unwrap());
+        }
+        assert_eq!(cluster.len(), 6);
+        assert_eq!(cluster["a1"], cluster["a2"]);
+        assert_eq!(cluster["a2"], cluster["a3"]);
+        assert_eq!(cluster["b1"], cluster["b2"]);
+        assert_ne!(cluster["a1"], cluster["b1"]);
+        assert!(cluster["a1"] >= 0, "core points must not be noise");
+    }
+
+    #[cfg(feature = "cypher-mining")]
+    #[test]
+    fn call_gds_dbscan_requires_node_property_config() {
+        let v = fixture();
+        let err = exec_cypher(
+            &v,
+            "CALL gds.dbscan() YIELD nodeId, clusterId RETURN nodeId",
+        )
+        .unwrap_err();
+        assert!(err.contains("nodeProperty"), "{err}");
+    }
+
+    #[cfg(feature = "cypher-graphlearn")]
+    #[test]
+    fn call_gds_link_prediction_scores_missing_links_over_a_planted_structure() {
+        // Two triangles {a,b,c} and {x,y,z} bridged by one edge (c-x): the
+        // predictor should learn that "shares neighbours" ⇒ likely-linked, and
+        // score the missing intra-triangle-adjacent pairs above unrelated ones.
+        let core = GraphCore::new();
+        for id in ["a", "b", "c", "x", "y", "z"] {
+            core.add_node(id.into(), pbytes(serde_json::json!({"node_type": "N"})));
+        }
+        for (s, t) in [("a", "b"), ("b", "c"), ("x", "y"), ("y", "z"), ("c", "x")] {
+            core.add_edge(s.into(), t.into(), pbytes(serde_json::json!({})))
+                .unwrap();
+            core.add_edge(t.into(), s.into(), pbytes(serde_json::json!({})))
+                .unwrap();
+        }
+        let v = core.analysis_snapshot();
+        let qr = exec_cypher(
+            &v,
+            "CALL gds.linkPrediction({topK: 5, epochs: 50}) \
+             YIELD node1, node2, probability RETURN node1, node2, probability",
+        )
+        .unwrap();
+        let r = rows(&qr);
+        // There are 15 possible pairs over 6 nodes minus 5 existing edges = 10
+        // missing candidates; topK=5 caps the result, never exceeds it.
+        assert!(!r.is_empty());
+        assert!(r.len() <= 5);
+        for row in &r {
+            let p = row[2].as_f64().unwrap();
+            assert!((0.0..=1.0).contains(&p), "probability out of range: {p}");
+        }
     }
 }

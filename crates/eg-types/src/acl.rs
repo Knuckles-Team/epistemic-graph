@@ -5,6 +5,35 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Identity and policy claims carried by a verified request-context envelope.
+///
+/// This is the wire representation only.  Callers must not treat a deserialized
+/// value as trusted until the server has verified the envelope MAC, deployment
+/// audience/tenant/policy version, request binding, and delegation chain.  The
+/// server exposes a separate, non-constructible `VerifiedRequestContext` wrapper
+/// after those checks succeed.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RequestContextClaims {
+    /// Authenticated subject that originated the request.
+    pub principal: String,
+    /// Tenant security boundary selected by the deployment.
+    pub tenant: String,
+    /// Intended service audience.
+    pub audience: String,
+    /// Effective agent identity used for ACL/RBAC decisions.
+    pub agent_id: String,
+    /// Identity-provider roles asserted for policy evaluation/audit.
+    pub roles: Vec<String>,
+    /// Fine-grained capabilities asserted for policy evaluation/audit.
+    pub scopes: Vec<String>,
+    /// Exact policy bundle/version under which the context was issued.
+    pub policy_version: String,
+    /// Ordered delegation path from `principal` to `agent_id` (inclusive).
+    /// Empty means no delegation and therefore requires principal == agent_id.
+    pub delegation: Vec<String>,
+}
+
 /// Role of an agent in the system hierarchy.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AgentRole {
@@ -24,11 +53,9 @@ pub struct AgentIdentity {
     /// Teams this agent belongs to.
     pub teams: Vec<String>,
     /// RBAC role names this agent holds (CONCEPT:EG-KG.compute.feature). Expanded transitively
-    /// through the role hierarchy by the policy evaluator. `#[serde(default)]`
-    /// keeps the wire/record layout backward-compatible — an identity persisted or
-    /// sent before RBAC simply carries an empty set (⇒ no RBAC grants apply, so the
-    /// existing RLS/ACL behavior is unchanged).
-    #[serde(default)]
+    /// through the role hierarchy by the policy evaluator. The field is mandatory in
+    /// every current wire and durable identity image; an omitted authorization claim
+    /// is rejected during deserialization instead of being synthesized as no roles.
     pub roles: Vec<String>,
 }
 
@@ -216,11 +243,23 @@ mod tests {
     }
 
     #[test]
-    fn agent_identity_roles_default_on_deserialize() {
-        // A JSON payload written before RBAC (no `roles`) deserializes with an empty set.
+    fn agent_identity_requires_roles_on_deserialize() {
         let json = r#"{"agent_id":"a","role":"Agent","teams":[]}"#;
-        let id: AgentIdentity = serde_json::from_str(json).unwrap();
-        assert!(id.roles.is_empty());
+        assert!(serde_json::from_str::<AgentIdentity>(json).is_err());
+    }
+
+    #[test]
+    fn request_context_requires_roles_on_deserialize() {
+        let json = r#"{
+            "principal":"principal:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "tenant":"tenant:sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "audience":"graph-os",
+            "agent_id":"agent:sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "scopes":[],
+            "policy_version":"current",
+            "delegation":[]
+        }"#;
+        assert!(serde_json::from_str::<RequestContextClaims>(json).is_err());
     }
 
     #[test]

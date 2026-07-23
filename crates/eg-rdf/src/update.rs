@@ -6,9 +6,10 @@
 //! engine's `add_node` / `add_edge` / `remove_*` primitives via the SAME RDF ⇄
 //! property-graph mapping the loader uses ([`crate::mapping`]):
 //!
-//!   * a triple with a **resource object** → a typed edge `s --p--> o` (`{type:p}`);
+//!   * a triple with a **resource object** → a typed edge `s --p--> o`
+//!     (`{relationship:p}`);
 //!   * a triple with a **literal object** → a typed property cell on `s`;
-//!   * `rdf:type` → folded into the node `type` label AND kept as an explicit edge.
+//!   * `rdf:type` → folded into the canonical node `node_type` label AND kept as an explicit edge.
 //!
 //! Crucially the inserts are **incremental + merge-aware**: a single literal insert
 //! merges into the subject's existing property blob instead of overwriting it (the
@@ -34,9 +35,10 @@ use spargebra::term::{
     GraphName, GraphNamePattern, GroundQuad, GroundQuadPattern, GroundTerm, GroundTermPattern,
     NamedNodePattern, Quad, QuadPattern, TermPattern,
 };
+use spargebra::SparqlParser;
 use spargebra::{GraphUpdateOperation, Update};
 
-use crate::mapping::literal_to_cell;
+use crate::mapping::{literal_to_cell, RDF_MULTI_VALUE_KEY};
 use crate::sparql::{Binding, Dataset, Projection, Solution};
 
 const RDF_TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
@@ -92,7 +94,9 @@ pub struct UpdateReport {
 
 /// Parse a SPARQL 1.1 UPDATE string into the spargebra model.
 pub fn parse_update(update_str: &str) -> Result<Update, String> {
-    Update::parse(update_str, None).map_err(|e| format!("sparql update parse: {e}"))
+    SparqlParser::new()
+        .parse_update(update_str)
+        .map_err(|e| format!("sparql update parse: {e}"))
 }
 
 /// Extract the ground triples an `INSERT DATA { … }` update inserts (CONCEPT:EG-KG.txn.isolation-ryow-begin-set), so
@@ -174,20 +178,20 @@ pub fn referenced_named_graphs(update: &Update) -> Vec<String> {
     out.into_iter().collect()
 }
 
-/// Parse + execute a SPARQL 1.1 UPDATE string against `store`. `LOAD` from a remote URL
-/// is the one deferred op (it needs an HTTP fetch the engine intentionally does not do
-/// from the write path) — it is reported via the returned error unless `silent`.
+/// Parse + execute a SPARQL 1.1 UPDATE under the mandatory write guard.
 pub fn execute_str(
     update_str: &str,
     store: &dyn GraphStore,
     proj: &Projection,
-) -> Result<UpdateReport, String> {
-    let update = parse_update(update_str)?;
-    execute(&update, store, proj)
+    guard: &dyn WriteGuard,
+) -> Result<UpdateReport, UpdateError> {
+    let update = parse_update(update_str).map_err(UpdateError::Exec)?;
+    execute(&update, store, proj, guard)
 }
 
-/// Execute a parsed SPARQL UPDATE against `store`.
-pub fn execute(
+/// Apply an already-authorized update to a store. This primitive is private so no
+/// external caller can bypass the simulate/diff/guard transaction.
+fn apply_update(
     update: &Update,
     store: &dyn GraphStore,
     proj: &Projection,
@@ -267,20 +271,9 @@ impl std::fmt::Display for UpdateError {
 
 impl std::error::Error for UpdateError {}
 
-/// Parse + execute a SPARQL UPDATE string under a [`WriteGuard`] (CONCEPT:EG-KG.ontology.rdf-update-guard).
-pub fn execute_guarded_str(
-    update_str: &str,
-    store: &dyn GraphStore,
-    proj: &Projection,
-    guard: &dyn WriteGuard,
-) -> Result<UpdateReport, UpdateError> {
-    let update = parse_update(update_str).map_err(UpdateError::Exec)?;
-    execute_guarded(&update, store, proj, guard)
-}
-
 /// Execute a parsed SPARQL UPDATE as a **constraint-enforced transaction** (CONCEPT:EG-KG.ontology.rdf-update-guard).
 ///
-/// The whole change set is the transaction boundary. When the guard is [`WriteGuard::active`]:
+/// The whole change set is the transaction boundary:
 ///
 ///  1. snapshot the store's graphs (`base`);
 ///  2. replay the update on a throwaway *shadow* store seeded from `base` (so the REAL
@@ -291,20 +284,14 @@ pub fn execute_guarded_str(
 ///     left UNCHANGED (nothing was committed);
 ///  5. otherwise replay the update on the real store and return its [`UpdateReport`].
 ///
-/// When the guard is inactive this is byte-for-byte [`execute`] (zero simulate/diff cost),
-/// so an `Off` policy is fully backward-compatible. Deterministic: the shadow replay and
-/// the real replay start from the identical `base`, so `DELETE/INSERT … WHERE` binds the
-/// same solutions in both.
-pub fn execute_guarded(
+/// Deterministic: the shadow replay and the real replay start from the identical
+/// `base`, so `DELETE/INSERT … WHERE` binds the same solutions in both.
+pub fn execute(
     update: &Update,
     store: &dyn GraphStore,
     proj: &Projection,
     guard: &dyn WriteGuard,
 ) -> Result<UpdateReport, UpdateError> {
-    if !guard.active() {
-        return execute(update, store, proj).map_err(UpdateError::Exec);
-    }
-
     // (1) snapshot base — the default graph plus every named graph currently in the store.
     let base = snapshot_store(store).map_err(UpdateError::Exec)?;
 
@@ -315,7 +302,7 @@ pub fn execute_guarded(
             insert_triples(&core, triples).map_err(UpdateError::Exec)?;
         }
     }
-    execute(update, &shadow, proj).map_err(UpdateError::Exec)?;
+    apply_update(update, &shadow, proj).map_err(UpdateError::Exec)?;
     let after = snapshot_store(&shadow).map_err(UpdateError::Exec)?;
 
     // (3) per graph, diff and ask the guard (over the union of base + after graph names).
@@ -327,7 +314,7 @@ pub fn execute_guarded(
         let a = after.get(&name).unwrap_or(&empty);
         let (additions, removals) = triple_diff(b, a);
         if additions.is_empty() && removals.is_empty() {
-            continue; // this graph is unchanged — nothing to validate.
+            continue;
         }
         let base_graph = triples_to_graph(b);
         guard
@@ -336,7 +323,7 @@ pub fn execute_guarded(
     }
 
     // (4/5) accepted — commit to the real store (same base ⇒ same result).
-    execute(update, store, proj).map_err(UpdateError::Exec)
+    apply_update(update, store, proj).map_err(UpdateError::Exec)
 }
 
 /// Snapshot every graph of a store to RDF triples: the default graph (key `None`) plus
@@ -503,18 +490,10 @@ fn whole_graph_copy(
     Some((from, to))
 }
 
-/// Export a graph core back to RDF triples for a whole-graph copy — a thin cfg wrapper
-/// over [`crate::mapping::export_triples`] (the multi-valued-literal quad store, present
-/// only under `rdf-redb`, is not wired into a copy: extras are a documented edge case).
+/// Export a graph core back to RDF triples for a whole-graph copy. Embedded
+/// multi-valued literals are part of the graph image and therefore copy with it.
 fn export_graph_triples(core: &GraphCore, graph_name: &str) -> Result<Vec<oxrdf::Triple>, String> {
-    #[cfg(feature = "rdf-redb")]
-    {
-        crate::mapping::export_triples(core, graph_name, None)
-    }
-    #[cfg(not(feature = "rdf-redb"))]
-    {
-        crate::mapping::export_triples(core, graph_name)
-    }
+    crate::mapping::export_triples(core, graph_name)
 }
 
 // ── ground-data ops (INSERT DATA / DELETE DATA) ─────────────────────────────────
@@ -791,10 +770,10 @@ pub fn insert_triples(core: &GraphCore, triples: &[oxrdf::Triple]) -> Result<usi
 }
 
 /// Canonical node id for an oxrdf subject (`<iri>` / `_:b`).
-fn subject_id_of(s: &oxrdf::Subject) -> String {
+fn subject_id_of(s: &oxrdf::NamedOrBlankNode) -> String {
     match s {
-        oxrdf::Subject::NamedNode(n) => format!("<{}>", n.as_str()),
-        oxrdf::Subject::BlankNode(b) => format!("_:{}", b.as_str()),
+        oxrdf::NamedOrBlankNode::NamedNode(n) => format!("<{}>", n.as_str()),
+        oxrdf::NamedOrBlankNode::BlankNode(b) => format!("_:{}", b.as_str()),
         #[allow(unreachable_patterns)]
         _ => String::new(),
     }
@@ -844,7 +823,7 @@ fn delete_triple(core: &GraphCore, s: &str, p: &str, obj: &ObjTerm) -> bool {
 
 fn read_node_obj(core: &GraphCore, id: &str) -> serde_json::Map<String, serde_json::Value> {
     core.get_node_properties(id)
-        .and_then(|b| rmp_serde::from_slice::<serde_json::Value>(&b).ok())
+        .and_then(|b| eg_types::msgpack::decode_property_value(&b).ok())
         .and_then(|v| match v {
             serde_json::Value::Object(m) => Some(m),
             _ => None,
@@ -869,7 +848,26 @@ fn merge_property(core: &GraphCore, id: &str, key: &str, cell: serde_json::Value
     if map.get(key) == Some(&cell) {
         return false;
     }
-    map.insert(key.to_string(), cell);
+    if map.contains_key(key) {
+        let extras = map
+            .entry(RDF_MULTI_VALUE_KEY.to_string())
+            .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
+        let Some(extras) = extras.as_object_mut() else {
+            return false;
+        };
+        let values = extras
+            .entry(key.to_string())
+            .or_insert_with(|| serde_json::Value::Array(Vec::new()));
+        let Some(values) = values.as_array_mut() else {
+            return false;
+        };
+        if values.contains(&cell) {
+            return false;
+        }
+        values.push(cell);
+    } else {
+        map.insert(key.to_string(), cell);
+    }
     write_node_obj(core, id, map);
     true
 }
@@ -877,15 +875,61 @@ fn merge_property(core: &GraphCore, id: &str, key: &str, cell: serde_json::Value
 /// Remove a literal property `key` whose lexical value matches. Returns `true` if dropped.
 fn delete_property(core: &GraphCore, id: &str, key: &str, value: &str) -> bool {
     let mut map = read_node_obj(core, id);
-    let matches = map
+    let primary_matches = map
         .get(key)
-        .map(|cell| cell_lexical(cell) == Some(value.to_string()));
-    if matches == Some(true) {
-        map.remove(key);
+        .is_some_and(|cell| cell_lexical(cell).as_deref() == Some(value));
+    if primary_matches {
+        let promoted = map
+            .get_mut(RDF_MULTI_VALUE_KEY)
+            .and_then(serde_json::Value::as_object_mut)
+            .and_then(|by_predicate| by_predicate.get_mut(key))
+            .and_then(serde_json::Value::as_array_mut)
+            .and_then(|values| (!values.is_empty()).then(|| values.remove(0)));
+        if let Some(promoted) = promoted {
+            map.insert(key.to_string(), promoted);
+        } else {
+            map.remove(key);
+        }
+        prune_empty_multivalue(&mut map, key);
         write_node_obj(core, id, map);
-        true
-    } else {
-        false
+        return true;
+    }
+    let removed_extra = map
+        .get_mut(RDF_MULTI_VALUE_KEY)
+        .and_then(serde_json::Value::as_object_mut)
+        .and_then(|by_predicate| by_predicate.get_mut(key))
+        .and_then(serde_json::Value::as_array_mut)
+        .and_then(|values| {
+            values
+                .iter()
+                .position(|cell| cell_lexical(cell).as_deref() == Some(value))
+                .map(|position| values.remove(position))
+        })
+        .is_some();
+    if removed_extra {
+        prune_empty_multivalue(&mut map, key);
+        write_node_obj(core, id, map);
+    }
+    removed_extra
+}
+
+fn prune_empty_multivalue(map: &mut serde_json::Map<String, serde_json::Value>, predicate: &str) {
+    let mut remove_container = false;
+    if let Some(by_predicate) = map
+        .get_mut(RDF_MULTI_VALUE_KEY)
+        .and_then(serde_json::Value::as_object_mut)
+    {
+        if by_predicate
+            .get(predicate)
+            .and_then(serde_json::Value::as_array)
+            .is_some_and(Vec::is_empty)
+        {
+            by_predicate.remove(predicate);
+        }
+        remove_container = by_predicate.is_empty();
+    }
+    if remove_container {
+        map.remove(RDF_MULTI_VALUE_KEY);
     }
 }
 
@@ -912,9 +956,13 @@ fn clear_type_property(core: &GraphCore, id: &str, type_iri: &str) -> bool {
 }
 
 fn edge_rel(blob: &[u8]) -> Option<String> {
-    rmp_serde::from_slice::<serde_json::Value>(blob)
+    eg_types::msgpack::decode_property_value(blob)
         .ok()
-        .and_then(|v| v.get("type").and_then(|x| x.as_str()).map(String::from))
+        .and_then(|v| {
+            v.get("relationship")
+                .and_then(|x| x.as_str())
+                .map(String::from)
+        })
 }
 
 /// Add a typed edge `s --p--> o` unless one already exists. Returns `true` if added.
@@ -926,7 +974,7 @@ fn add_edge_if_absent(core: &GraphCore, s: &str, o: &str, p: &str) -> Result<boo
     if exists {
         return Ok(false);
     }
-    let blob = rmp_serde::to_vec_named(&serde_json::json!({ "type": p }))
+    let blob = rmp_serde::to_vec_named(&serde_json::json!({ "relationship": p }))
         .map_err(|e| format!("encode edge: {e}"))?;
     core.add_edge(s.to_string(), o.to_string(), blob)?;
     Ok(true)
@@ -1021,11 +1069,40 @@ impl GraphStore for MapStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sparql::{run_outcome, QueryOutcome};
+    use crate::sparql::{execute, Dataset, QueryOutcome};
+
+    struct TestWriteGuard;
+
+    impl WriteGuard for TestWriteGuard {
+        fn check_graph(
+            &self,
+            _graph: Option<&str>,
+            _base: &Graph,
+            _additions: &[Triple],
+            _removals: &[Triple],
+        ) -> Result<(), GuardRejection> {
+            Ok(())
+        }
+    }
+
+    fn execute_str(
+        update_str: &str,
+        store: &dyn GraphStore,
+        projection: &Projection,
+    ) -> Result<UpdateReport, UpdateError> {
+        super::execute_str(update_str, store, projection, &TestWriteGuard)
+    }
 
     fn count(store: &MapStore, graph: Option<&str>, query: &str) -> usize {
         let view = store.core_of(graph).analysis_snapshot();
-        match run_outcome(&view, query, &Projection::raw()).unwrap() {
+        match execute(
+            &Dataset::new(&view, Vec::new()),
+            query,
+            &Projection::raw(),
+            None,
+        )
+        .unwrap()
+        {
             QueryOutcome::Solutions(r) => r.solutions.len(),
             _ => panic!("expected solutions"),
         }
@@ -1351,10 +1428,11 @@ mod tests {
                 ("http://g/2".to_string(), &v2),
             ],
         );
-        let out = crate::sparql::run_outcome_dataset(
+        let out = crate::sparql::execute(
             &ds,
             "SELECT ?g WHERE { GRAPH ?g { <http://ex/a> <http://ex/p> <http://ex/b> } }",
             &Projection::raw(),
+            None,
         )
         .unwrap();
         let QueryOutcome::Solutions(r) = out else {

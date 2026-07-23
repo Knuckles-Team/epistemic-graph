@@ -1,4 +1,4 @@
-"""QueryClient.cypher sends the CypherQuery RPC and zips Raw(QueryResult) rows
+"""QueryClient Cypher methods send explicit-mode RPCs and decode result rows
 into dicts (CONCEPT:EG-KG.query.dep-free-behind) — mirroring the SQL path, since both return the
 identical wire shape."""
 
@@ -38,11 +38,11 @@ async def test_cypher_sends_rpc_and_zips_rows() -> None:
     )
     qc = QueryClient(fake)  # type: ignore[arg-type]
     query = "MATCH (a:Person)-[:KNOWS]->(b:Person) RETURN a, b"
-    out = await qc.cypher(query)
+    out = await qc.cypher_read(query)
 
     # RPC name + params are exactly what the engine expects (the CypherQuery
     # variant carries a single `query` string).
-    assert fake.sent == [("CypherQuery", {"query": query})]
+    assert fake.sent == [("CypherQuery", {"query": query, "mode": "read"})]
     # Rows zipped into RETURN-column-keyed dicts.
     assert out == [
         {"a": "alice", "b": "bob"},
@@ -55,8 +55,8 @@ async def test_cypher_property_projection_and_limit() -> None:
     fake = _FakeClient(columns=["a.name"], rows=[["Alice"]])
     qc = QueryClient(fake)  # type: ignore[arg-type]
     query = "MATCH (a:Person) WHERE a.name = 'Alice' RETURN a.name LIMIT 1"
-    out = await qc.cypher(query)
-    assert fake.sent == [("CypherQuery", {"query": query})]
+    out = await qc.cypher_read(query)
+    assert fake.sent == [("CypherQuery", {"query": query, "mode": "read"})]
     assert out == [{"a.name": "Alice"}]
 
 
@@ -64,6 +64,26 @@ async def test_cypher_property_projection_and_limit() -> None:
 async def test_cypher_empty_result() -> None:
     fake = _FakeClient(columns=["a"], rows=[])
     qc = QueryClient(fake)  # type: ignore[arg-type]
-    out = await qc.cypher("MATCH (a:Nonexistent) RETURN a")
+    out = await qc.cypher_read("MATCH (a:Nonexistent) RETURN a")
     assert out == []
-    assert fake.sent == [("CypherQuery", {"query": "MATCH (a:Nonexistent) RETURN a"})]
+    assert fake.sent == [
+        (
+            "CypherQuery",
+            {"query": "MATCH (a:Nonexistent) RETURN a", "mode": "read"},
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_cypher_write_declares_write_mode() -> None:
+    fake = _FakeClient(columns=[], rows=[])
+    qc = QueryClient(fake)  # type: ignore[arg-type]
+
+    await qc.cypher_write("MATCH (n) SET n.active = true")
+
+    assert fake.sent == [
+        (
+            "CypherQuery",
+            {"query": "MATCH (n) SET n.active = true", "mode": "write"},
+        )
+    ]

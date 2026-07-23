@@ -12,8 +12,8 @@
 //! ## Honest scope of the native leg
 //!
 //! The native impl ([`NativeDdsTransport`], feature `ros2-dds`) is backed by
-//! [`rustdds`](https://docs.rs/rustdds) — a **pure-Rust** DDS + RTPS implementation
-//! (mio/pnet/speedy/cdr-encoding). It links **no CycloneDDS/rmw/`ros` C toolchain**, so —
+//! [Dust DDS](https://docs.rs/dust_dds) — a **pure-Rust** DDS + RTPS implementation.
+//! It links **no CycloneDDS/rmw/`ros` C toolchain**, so —
 //! unlike a `cyclonedds-rs`/`rmw` leg — it genuinely **builds in CI everywhere** and is
 //! exercised by a real loopback pub/sub test below. It publishes/subscribes CDR-encoded
 //! `std_msgs/String` messages over RTPS, which is a real DDS wire.
@@ -25,7 +25,7 @@
 //! discoverable/subscribable by a real `ros2` daemon with **zero config** — see
 //! [`mangle_topic_name`] / [`mangle_type_name`]. A ROS topic `/chatter` is put on the DDS
 //! wire as `rt/chatter`, and the ROS type `std_msgs/String` as
-//! `std_msgs::msg::dds_::String_`; rustdds' `CDRSerializerAdapter` emits exactly the 4-byte
+//! `std_msgs::msg::dds_::String_`; Dust DDS emits exactly the 4-byte
 //! CDR encapsulation header ([`CDR_LE_ENCAPSULATION_HEADER`]) `ros2 topic echo` decodes.
 //! The `DdsTransport` interface stays ROS-topic-oriented (callers pass `/chatter`); the
 //! mangling is applied internally at DDS-`Topic` creation, so the writer/reader map keys and
@@ -34,14 +34,25 @@
 //! **Residual (deferred):** the ROS 2 Iron/Jazzy **type-hash / typesupport descriptor**
 //! (the `RIHS01_…` type hash distributed in endpoint discovery `TypeInformation`) is NOT
 //! emitted — Humble matches endpoints by mangled type *name* only, which this leg satisfies;
-//! richer type-hash negotiation stays a documented follow-on. The alternative
-//! CycloneDDS-C-backed `rmw` leg also remains a toolchain-gated future option and is
-//! deliberately NOT wired here (it cannot be CI-built without the C toolchain).
+//! richer type-hash negotiation stays a documented follow-on.
 //!
-//! Feature-gated: the [`DdsTransport`] trait compiles under either `ros2-bridge` or
-//! `ros2-dds`; [`NativeDdsTransport`] + its deps compile only under `ros2-dds`. Kept OUT of
+//! ## The THIRD leg: CycloneDDS-C `rmw` (S5, feature `ros2-rmw`)
+//!
+//! [`CycloneDdsTransport`] (module `cyclone`, feature `ros2-rmw`) implements the SAME
+//! [`DdsTransport`] trait a THIRD way: it links the REAL `rmw_cyclonedds`/CycloneDDS-C
+//! stack (via the safe `cyclonedds` Rust crate over vendored, cmake-built C sources — see
+//! the dependency doc in `Cargo.toml`), so it is genuine zero-config live-`ros2` interop
+//! (a real `ros2` node discovers/pubs/subs with no bridge), not merely wire-compatible.
+//! It reuses the SAME [`mangle_topic_name`]/[`mangle_type_name`] rmw mangling defined
+//! above — no forked shaping — and the SAME `std_msgs/String` payload convention. This
+//! leg needs a C toolchain (`cc`/`cmake`) to build, so it stays toolchain-gated behind
+//! `ros2-rmw` (`full-extras`-only, never `default`/`full`), same as `ros2-dds`.
+//!
+//! Feature-gated: the [`DdsTransport`] trait compiles under `ros2-bridge`, `ros2-dds`, or
+//! `ros2-rmw`; [`NativeDdsTransport`] + its deps compile only under `ros2-dds`;
+//! [`CycloneDdsTransport`] + its deps compile only under `ros2-rmw`. Kept OUT of
 //! `pi`/`default`/`node`/`full` (only the `full-extras` bundle) — the Pi contract holds
-//! (a `pi`/`full` build links no rustdds).
+//! (a `pi`/`full` build links no Dust DDS/CycloneDDS).
 
 use serde_json::Value;
 
@@ -88,7 +99,7 @@ pub trait DdsTransport: Send + Sync {
 
 /// Map an inbound DDS/ROS2 message to an engine [`Method`] (CONCEPT:EG-KG.ingest.dds-transport). This is the
 /// SAME EG-325 [`publish_to_method`] mapping, so inbound DDS and inbound rosbridge converge
-/// on one ingest path (an `AddNode` applied via `crate::wal::apply`).
+/// on one ingest path (an `AddNode` applied via `crate::mutation_apply::apply`).
 pub fn inbound_to_method(msg: &Value) -> Option<Method> {
     publish_to_method(msg)
 }
@@ -108,9 +119,8 @@ pub const RMW_ROS_TOPIC_PREFIX: &str = "rt";
 
 /// The 4-byte CDR **encapsulation header** ROS 2 (rmw) prepends to every serialized sample
 /// (CONCEPT:EG-KG.ingest.rmw-topic-prefix): representation id `CDR_LE` (`0x00 0x01`, little-endian — the rmw
-/// default on little-endian hosts) followed by two zero options bytes. rustdds'
-/// `CDRSerializerAdapter` reports `RepresentationIdentifier::CDR_LE` as its output encoding
-/// and the RTPS `SerializedPayload` frames it with exactly these bytes, so a sample written
+/// default on little-endian hosts) followed by two zero options bytes. Dust DDS's
+/// XCDR1 little-endian serializer frames its RTPS payload with exactly these bytes, so a sample written
 /// by this leg is byte-compatible with what `ros2 topic echo` decodes.
 pub const CDR_LE_ENCAPSULATION_HEADER: [u8; 4] = [0x00, 0x01, 0x00, 0x00];
 
@@ -146,38 +156,57 @@ pub fn mangle_type_name(ros_type: &str) -> String {
     format!("{pkg}::{namespace}::dds_::{msg}_")
 }
 
-// ── Native DDS/RTPS transport via pure-Rust rustdds (CONCEPT:EG-KG.ingest.dds-transport) ──────────
+// ── Native DDS/RTPS transport via pure-Rust Dust DDS (CONCEPT:EG-KG.ingest.dds-transport) ────────
 #[cfg(feature = "ros2-dds")]
 mod native {
     use super::*;
     use std::collections::HashMap;
     use std::sync::Mutex;
 
-    use rustdds::no_key::{DataReader, DataWriter};
-    use rustdds::*;
-    use serde::{Deserialize, Serialize};
+    use dust_dds::{
+        domain::{
+            domain_participant::DomainParticipant,
+            domain_participant_factory::DomainParticipantFactory,
+        },
+        infrastructure::{
+            error::DdsError,
+            qos::{DataReaderQos, DataWriterQos, QosKind},
+            qos_policy::{
+                HistoryQosPolicy, HistoryQosPolicyKind, ReliabilityQosPolicy,
+                ReliabilityQosPolicyKind,
+            },
+            status::NO_STATUS,
+            time::{Duration, DurationKind},
+            type_support::DdsType,
+        },
+        listener::NO_LISTENER,
+        publication::{data_writer::DataWriter, publisher::Publisher},
+        subscription::{data_reader::DataReader, subscriber::Subscriber},
+        topic_definition::topic_description::TopicDescription,
+    };
 
     use super::super::ros2_bridge::ROS_STRING_TYPE;
 
     /// CDR message mirroring ROS2 `std_msgs/String` — a single `data` string field. The
     /// engine carries the change/node payload as a JSON string in `data`, exactly as the
     /// rosbridge leg does, so the two transports are payload-identical.
-    #[derive(Serialize, Deserialize, Clone, Debug)]
+    #[derive(DdsType, Clone, Debug)]
     struct Ros2String {
         data: String,
     }
 
-    type Writer = DataWriter<Ros2String, CDRSerializerAdapter<Ros2String>>;
-    type Reader = DataReader<Ros2String, CDRDeserializerAdapter<Ros2String>>;
+    type Writer = DataWriter<Ros2String>;
+    type Reader = DataReader<Ros2String>;
 
-    /// Native DDS/RTPS [`DdsTransport`] (CONCEPT:EG-KG.ingest.dds-transport) over pure-Rust `rustdds`. Owns one
+    /// Native DDS/RTPS [`DdsTransport`] (CONCEPT:EG-KG.ingest.dds-transport) over pure-Rust Dust DDS. Owns one
     /// DDS `DomainParticipant` + a publisher/subscriber pair, and a per-topic writer/reader
     /// map. NO CycloneDDS/rmw/C toolchain — 100% Rust on the wire.
     pub struct NativeDdsTransport {
         participant: DomainParticipant,
         publisher: Publisher,
         subscriber: Subscriber,
-        qos: QosPolicies,
+        writer_qos: DataWriterQos,
+        reader_qos: DataReaderQos,
         writers: Mutex<HashMap<String, Writer>>,
         readers: Mutex<HashMap<String, Reader>>,
     }
@@ -187,25 +216,36 @@ mod native {
         /// `KeepLast(16)` QoS — a small, bounded history so a late-joining reader still
         /// receives recent changes.
         pub fn new(domain_id: u16) -> Result<Self, String> {
-            let participant =
-                DomainParticipant::new(domain_id).map_err(|e| format!("dds participant: {e:?}"))?;
-            let qos = QosPolicyBuilder::new()
-                .reliability(policy::Reliability::Reliable {
-                    max_blocking_time: rustdds::Duration::from_millis(100),
-                })
-                .history(policy::History::KeepLast { depth: 16 })
-                .build();
+            let participant = DomainParticipantFactory::get_instance()
+                .create_participant(domain_id.into(), QosKind::Default, NO_LISTENER, NO_STATUS)
+                .map_err(|e| format!("dds participant: {e}"))?;
             let publisher = participant
-                .create_publisher(&qos)
-                .map_err(|e| format!("dds publisher: {e:?}"))?;
+                .create_publisher(QosKind::Default, NO_LISTENER, NO_STATUS)
+                .map_err(|e| format!("dds publisher: {e}"))?;
             let subscriber = participant
-                .create_subscriber(&qos)
-                .map_err(|e| format!("dds subscriber: {e:?}"))?;
+                .create_subscriber(QosKind::Default, NO_LISTENER, NO_STATUS)
+                .map_err(|e| format!("dds subscriber: {e}"))?;
+            let reliability = ReliabilityQosPolicy {
+                kind: ReliabilityQosPolicyKind::Reliable,
+                max_blocking_time: DurationKind::Finite(Duration::new(0, 100_000_000)),
+            };
+            let history = HistoryQosPolicy {
+                kind: HistoryQosPolicyKind::KeepLast(16),
+            };
             Ok(Self {
                 participant,
                 publisher,
                 subscriber,
-                qos,
+                writer_qos: DataWriterQos {
+                    reliability: reliability.clone(),
+                    history: history.clone(),
+                    ..Default::default()
+                },
+                reader_qos: DataReaderQos {
+                    reliability,
+                    history,
+                    ..Default::default()
+                },
                 writers: Mutex::new(HashMap::new()),
                 readers: Mutex::new(HashMap::new()),
             })
@@ -224,12 +264,18 @@ mod native {
         /// the ROS name `name` is put on the wire as [`mangle_topic_name`] (`rt/…`) and the
         /// ROS type `type_name` as [`mangle_type_name`] (`<pkg>::<ns>::dds_::<Msg>_`). The
         /// caller-facing writer/reader map still keys on the un-mangled ROS `name`.
-        fn topic(&self, name: &str, type_name: &str) -> Result<Topic, String> {
+        fn topic(&self, name: &str, type_name: &str) -> Result<TopicDescription, String> {
             let dds_name = mangle_topic_name(name);
             let dds_type = mangle_type_name(type_name);
             self.participant
-                .create_topic(dds_name, dds_type, &self.qos, TopicKind::NoKey)
-                .map_err(|e| format!("dds topic {name}: {e:?}"))
+                .create_topic::<Ros2String>(
+                    &dds_name,
+                    &dds_type,
+                    QosKind::Default,
+                    NO_LISTENER,
+                    NO_STATUS,
+                )
+                .map_err(|e| format!("dds topic {name}: {e}"))
         }
     }
 
@@ -242,8 +288,13 @@ mod native {
             let t = self.topic(topic, msg_type)?;
             let writer: Writer = self
                 .publisher
-                .create_datawriter_no_key(&t, None)
-                .map_err(|e| format!("dds writer {topic}: {e:?}"))?;
+                .create_datawriter(
+                    &t,
+                    QosKind::Specific(self.writer_qos.clone()),
+                    NO_LISTENER,
+                    NO_STATUS,
+                )
+                .map_err(|e| format!("dds writer {topic}: {e}"))?;
             self.writers
                 .lock()
                 .unwrap()
@@ -264,7 +315,7 @@ mod native {
                 .ok_or_else(|| format!("no dds writer for {topic}"))?;
             writer
                 .write(Ros2String { data }, None)
-                .map_err(|e| format!("dds write {topic}: {e:?}"))
+                .map_err(|e| format!("dds write {topic}: {e}"))
         }
 
         async fn subscribe(&self, topic: &str) -> Result<(), String> {
@@ -274,8 +325,13 @@ mod native {
             let t = self.topic(topic, ROS_STRING_TYPE)?;
             let reader: Reader = self
                 .subscriber
-                .create_datareader_no_key(&t, None)
-                .map_err(|e| format!("dds reader {topic}: {e:?}"))?;
+                .create_datareader(
+                    &t,
+                    QosKind::Specific(self.reader_qos.clone()),
+                    NO_LISTENER,
+                    NO_STATUS,
+                )
+                .map_err(|e| format!("dds reader {topic}: {e}"))?;
             self.readers
                 .lock()
                 .unwrap()
@@ -287,8 +343,294 @@ mod native {
             let mut readers = self.readers.lock().unwrap();
             for (topic, reader) in readers.iter_mut() {
                 match reader.take_next_sample() {
+                    Ok(sample) => {
+                        if let Some(sample) = sample.data {
+                            let msg = serde_json::json!({ "data": sample.data });
+                            return Ok(Some((topic.clone(), msg)));
+                        }
+                    }
+                    Err(DdsError::NoData) => {}
+                    Err(e) => return Err(format!("dds read {topic}: {e}")),
+                }
+            }
+            Ok(None)
+        }
+    }
+
+    #[cfg(test)]
+    mod cdr_tests {
+        use super::*;
+        use dust_dds::{
+            infrastructure::type_support::TypeSupport, xtypes::serializer::Cdr1LeSerializer,
+        };
+
+        /// EG-349: prove the native leg serializes a `std_msgs/String`-shaped sample with
+        /// EXACTLY the CDR encapsulation `ros2 topic echo` expects — the RTPS
+        /// `SerializedPayload` framed by Dust DDS must begin with the
+        /// 4-byte `CDR_LE` header (`00 01 00 00`). No live daemon needed: this checks the
+        /// on-wire encapsulation bytes against the rmw/CDR spec directly.
+        #[test]
+        fn eg349_ros2_cdr_le_encapsulation_header() {
+            let dynamic = Ros2String {
+                data: "eg349".to_string(),
+            }
+            .create_dynamic_sample();
+            let payload = Cdr1LeSerializer::serialize(&dynamic).expect("cdr serialize");
+            assert_eq!(
+                &payload[..4],
+                &CDR_LE_ENCAPSULATION_HEADER,
+                "EG-349: on-wire CDR encapsulation header must match what ros2 decodes",
+            );
+        }
+    }
+}
+
+#[cfg(feature = "ros2-dds")]
+pub use native::NativeDdsTransport;
+
+// ── S5: CycloneDDS-C-backed `rmw` transport (CONCEPT:EG-347 follow-on) ──────────────
+//
+// The SECOND native leg of the `DdsTransport` seam: where [`native::NativeDdsTransport`]
+// (feature `ros2-dds`) is pure-Rust Dust DDS (wire-COMPATIBLE with rmw's mangled
+// names/CDR framing, but not the C stack itself), this leg links the REAL
+// `rmw_cyclonedds`/CycloneDDS-C stack via the safe `cyclonedds` Rust crate — so it is
+// genuine zero-config live-`ros2` interop, not merely wire-compatible. It implements the
+// IDENTICAL [`DdsTransport`] trait and reuses the SAME [`mangle_topic_name`] /
+// [`mangle_type_name`] rmw mangling defined above (no forked shaping).
+#[cfg(feature = "ros2-rmw")]
+mod cyclone {
+    use super::*;
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+
+    use cyclonedds::{
+        adr, DataReader, DataWriter, DdsEntity, DdsString, DdsType, DomainParticipant, History,
+        Publisher, Qos, QosBuilder, Reliability, Subscriber, Topic, TYPE_STR,
+    };
+
+    use super::super::ros2_bridge::ROS_STRING_TYPE;
+
+    /// The rmw-mangled `std_msgs/String` type name this leg advertises with
+    /// (CONCEPT:EG-KG.ingest.rmw-topic-prefix) — MUST match [`mangle_type_name`] applied to
+    /// [`ROS_STRING_TYPE`]; asserted by [`cyclone_tests::eg347_cyclone_type_name_matches_mangling`].
+    const CYCLONE_ROS_STRING_TYPE_NAME: &str = "std_msgs::msg::dds_::String_";
+
+    /// CycloneDDS sample type mirroring ROS2 `std_msgs/String` — a single `data` field.
+    /// `#[repr(C)]` + [`DdsString`] (a `#[repr(transparent)]` `char*` wrapper) so the Rust
+    /// layout matches the C `dds_topic_descriptor_t` this hand-written [`DdsType`] impl
+    /// declares: one ADR opcode, a bare string, at offset 0. No IDL compiler / codegen is
+    /// involved — the descriptor is small enough (one field) to hand-roll directly against
+    /// the crate's public `topic::{adr, TYPE_STR}` ops-array API.
+    #[repr(C)]
+    struct CycloneRos2String {
+        data: DdsString,
+    }
+
+    impl DdsType for CycloneRos2String {
+        fn type_name() -> &'static str {
+            CYCLONE_ROS_STRING_TYPE_NAME
+        }
+
+        fn ops() -> Vec<u32> {
+            adr(
+                TYPE_STR,
+                std::mem::offset_of!(CycloneRos2String, data) as u32,
+            )
+        }
+
+        // The default `clone_out` does a raw `ptr::read` (a bitwise copy of the `char*`),
+        // which would alias the SAME allocation the CycloneDDS loan owns — freed once by
+        // this clone's `Drop` and once more when the loan is returned, a double-free. This
+        // override does a proper `DdsString::clone` (a `dds_string_dup`), so the returned
+        // value owns an INDEPENDENT allocation and outlives the loan return, satisfying the
+        // `DdsType::clone_out` safety contract (see its doc comment).
+        //
+        // SAFETY: `ptr` is a CycloneDDS-owned loaned sample of `Self` for the current topic
+        // descriptor (the `DdsType::clone_out` contract guarantees the loan is live for the
+        // duration of this borrow — the caller in `DataReader::take_next`/`read_impl` holds
+        // the loan until `dds_return_loan`, strictly after this returns). So `&*ptr` is a
+        // valid shared borrow of an initialized `CycloneRos2String`, and cloning its
+        // `DdsString` field (`dds_string_dup`) yields an owned copy with an independent C
+        // allocation that outlives the loan. This is the C-FFI exception the repo's
+        // `#![deny(unsafe_code)]` (src/lib.rs:6) allows only via a scoped `#[allow]` + note;
+        // it is gated to the `ros2-rmw` cyclonedds leg, not a blanket crate-level allow.
+        #[allow(unsafe_code)]
+        unsafe fn clone_out(ptr: *const Self) -> Self {
+            let loaned = unsafe { &*ptr };
+            CycloneRos2String {
+                data: loaned.data.clone(),
+            }
+        }
+    }
+
+    type Writer = DataWriter<CycloneRos2String>;
+    type Reader = DataReader<CycloneRos2String>;
+
+    /// CycloneDDS-C-backed [`DdsTransport`] (CONCEPT:EG-347 follow-on). Owns one DDS
+    /// `DomainParticipant` + a publisher/subscriber pair, a per-ROS-topic cache of the
+    /// underlying DDS `Topic` entity id, and a per-topic writer/reader map. Links the REAL
+    /// CycloneDDS C stack (vendored + cmake-built — see the `cyclonedds` dependency doc in
+    /// `Cargo.toml`).
+    ///
+    /// **One DDS `Topic` per name, shared by the writer and reader.** The writer (from
+    /// `advertise`) and the reader (from `subscribe`) for a given ROS topic are created from
+    /// the SAME underlying DDS `Topic` entity — created ONCE, on first use, by
+    /// [`Self::topic_entity`] and cached in [`Self::topics`]. Creating a SECOND DDS `Topic`
+    /// with the same mangled name on one participant makes this CycloneDDS build spin
+    /// indefinitely inside `dds_stream_minimum_xcdr_version` (observed under `ros2-rmw`), so
+    /// the cache guarantees `dds_create_topic` is called at most once per name — matching the
+    /// crate's own examples (turtlesim etc.), which share one `Topic` between writer/reader.
+    ///
+    /// The DDS `Topic<T>` wrapper is intentionally NOT retained after its entity id is
+    /// cached: the crate's `Topic<T>` holds an `Rc` (so keeping it would make this struct
+    /// `!Send`/`!Sync`, breaking the `DdsTransport: Send + Sync` bound), and — as with any
+    /// DDS DCPS entity tree — the topic's underlying C entity (the plain `dds_entity_t`
+    /// `i32` we cache) stays valid for as long as its owning `DomainParticipant` is alive,
+    /// independent of whether the local Rust `Topic<T>` handle was dropped early.
+    /// [`Self::topic_entity`] therefore `std::mem::forget`s the `Topic<T>` right after
+    /// reading its entity id, so the topic is torn down only transitively when `participant`
+    /// drops (cascading `dds_delete`), never explicitly early.
+    ///
+    /// `Qos` is likewise NOT retained as a field: it wraps a raw `*mut dds_qos_t` with no
+    /// `Send`/`Sync` impl in the crate (unlike `participant`/`publisher`/`subscriber` +
+    /// the `dds_entity_t`/writer/reader handles, which are `Send`/`Sync`), so storing one
+    /// would make this struct `!Send`/`!Sync` too. [`Self::build_qos`] builds a fresh,
+    /// cheap, short-lived `Qos` wherever one is needed instead.
+    pub struct CycloneDdsTransport {
+        participant: DomainParticipant,
+        publisher: Publisher,
+        subscriber: Subscriber,
+        /// ROS topic name → the shared underlying DDS `Topic` entity id (`dds_entity_t`,
+        /// an `i32`), created at most ONCE per name (see the struct doc).
+        topics: Mutex<HashMap<String, i32>>,
+        writers: Mutex<HashMap<String, Writer>>,
+        readers: Mutex<HashMap<String, Reader>>,
+    }
+
+    impl CycloneDdsTransport {
+        /// The SAME `Reliable` + `KeepLast(16)` QoS policy
+        /// [`native::NativeDdsTransport::new`] uses, so the two legs behave identically
+        /// from the CDC↔ROS2 path's point of view.
+        fn build_qos() -> Result<Qos, String> {
+            QosBuilder::new()
+                .reliability(Reliability::Reliable, 100_000_000)
+                .history(History::KeepLast(16))
+                .build()
+                .map_err(|e| format!("dds qos: {e:?}"))
+        }
+
+        /// Join DDS domain `domain_id` and build the participant + pub/sub.
+        pub fn new(domain_id: u32) -> Result<Self, String> {
+            let participant =
+                DomainParticipant::new(domain_id).map_err(|e| format!("dds participant: {e:?}"))?;
+            let qos = Self::build_qos()?;
+            let publisher = Publisher::with_qos(participant.entity(), Some(&qos))
+                .map_err(|e| format!("dds publisher: {e:?}"))?;
+            let subscriber = Subscriber::with_qos(participant.entity(), Some(&qos))
+                .map_err(|e| format!("dds subscriber: {e:?}"))?;
+            Ok(Self {
+                participant,
+                publisher,
+                subscriber,
+                topics: Mutex::new(HashMap::new()),
+                writers: Mutex::new(HashMap::new()),
+                readers: Mutex::new(HashMap::new()),
+            })
+        }
+
+        /// Read the DDS domain id from `EPISTEMIC_GRAPH_ROS_DDS_DOMAIN` (default `0`) — the
+        /// SAME env var [`native::NativeDdsTransport::domain_from_env`] reads, so switching
+        /// legs needs no config change.
+        pub fn domain_from_env() -> u32 {
+            std::env::var("EPISTEMIC_GRAPH_ROS_DDS_DOMAIN")
+                .ok()
+                .and_then(|v| v.trim().parse::<u32>().ok())
+                .unwrap_or(0)
+        }
+
+        /// Return the shared DDS `Topic` entity id for ROS topic `name`, creating it ONCE
+        /// (on first use) with the rmw-mangled name and caching it. The ROS name `name` is
+        /// put on the wire as [`mangle_topic_name`] (`rt/…`, the fixed `std_msgs/String`
+        /// descriptor), matching what a live `ros2` daemon's SPDP/SEDP discovery looks for.
+        /// Both the writer (`advertise`) and reader (`subscribe`) for a name share this one
+        /// entity — a SECOND `dds_create_topic` with the same name hangs this CycloneDDS
+        /// build (see the struct doc), which the cache prevents.
+        fn topic_entity(&self, name: &str) -> Result<i32, String> {
+            let mut topics = self.topics.lock().unwrap();
+            if let Some(entity) = topics.get(name) {
+                return Ok(*entity);
+            }
+            let dds_name = mangle_topic_name(name);
+            let qos = Self::build_qos()?;
+            let topic: Topic<CycloneRos2String> =
+                Topic::with_qos(self.participant.entity(), &dds_name, Some(&qos))
+                    .map_err(|e| format!("dds topic {name}: {e:?}"))?;
+            let entity = topic.entity();
+            // See the struct doc: the topic's C entity outlives the wrapper via the
+            // participant; we keep only the entity id (a Send/Sync `i32`).
+            std::mem::forget(topic);
+            topics.insert(name.to_string(), entity);
+            Ok(entity)
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl DdsTransport for CycloneDdsTransport {
+        async fn advertise(&self, topic: &str, _msg_type: &str) -> Result<(), String> {
+            if self.writers.lock().unwrap().contains_key(topic) {
+                return Ok(());
+            }
+            let topic_entity = self.topic_entity(topic)?;
+            let qos = Self::build_qos()?;
+            let writer = DataWriter::with_qos(self.publisher.entity(), topic_entity, Some(&qos))
+                .map_err(|e| format!("dds writer {topic}: {e:?}"))?;
+            self.writers
+                .lock()
+                .unwrap()
+                .insert(topic.to_string(), writer);
+            Ok(())
+        }
+
+        async fn publish(&self, topic: &str, msg: &Value) -> Result<(), String> {
+            // Ensure the topic is advertised (idempotent) before the first write.
+            self.advertise(topic, ROS_STRING_TYPE).await?;
+            let data = match msg.get("data") {
+                Some(Value::String(s)) => s.clone(),
+                _ => msg.to_string(),
+            };
+            let sample = CycloneRos2String {
+                data: DdsString::new(&data).map_err(|e| format!("dds string {topic}: {e:?}"))?,
+            };
+            let writers = self.writers.lock().unwrap();
+            let writer = writers
+                .get(topic)
+                .ok_or_else(|| format!("no dds writer for {topic}"))?;
+            writer
+                .write(&sample)
+                .map_err(|e| format!("dds write {topic}: {e:?}"))
+        }
+
+        async fn subscribe(&self, topic: &str) -> Result<(), String> {
+            if self.readers.lock().unwrap().contains_key(topic) {
+                return Ok(());
+            }
+            let topic_entity = self.topic_entity(topic)?;
+            let qos = Self::build_qos()?;
+            let reader = DataReader::with_qos(self.subscriber.entity(), topic_entity, Some(&qos))
+                .map_err(|e| format!("dds reader {topic}: {e:?}"))?;
+            self.readers
+                .lock()
+                .unwrap()
+                .insert(topic.to_string(), reader);
+            Ok(())
+        }
+
+        async fn poll_inbound(&self) -> Result<Option<(String, Value)>, String> {
+            let mut readers = self.readers.lock().unwrap();
+            for (topic, reader) in readers.iter_mut() {
+                match reader.take_next() {
                     Ok(Some(sample)) => {
-                        let msg = serde_json::json!({ "data": sample.value().data.clone() });
+                        let msg = serde_json::json!({ "data": sample.data.data.to_string_lossy() });
                         return Ok(Some((topic.clone(), msg)));
                     }
                     Ok(None) => {}
@@ -300,43 +642,76 @@ mod native {
     }
 
     #[cfg(test)]
-    mod cdr_tests {
+    mod cyclone_tests {
         use super::*;
-        use rustdds::no_key::SerializerAdapter;
-        use rustdds::{RepresentationIdentifier, SerializedPayload};
 
-        /// EG-349: prove the native leg serializes a `std_msgs/String`-shaped sample with
-        /// EXACTLY the CDR encapsulation `ros2 topic echo` expects — the RTPS
-        /// `SerializedPayload` framed by rustdds' `CDRSerializerAdapter` must begin with the
-        /// 4-byte `CDR_LE` header (`00 01 00 00`). No live daemon needed: this checks the
-        /// on-wire encapsulation bytes against the rmw/CDR spec directly.
+        /// EG-347 (S5): the type name this leg advertises with MUST equal
+        /// [`mangle_type_name`] applied to the shared [`ROS_STRING_TYPE`] constant — kept
+        /// as a `&'static str` on [`CycloneRos2String`] (the `DdsType` trait requires a
+        /// compile-time constant) rather than computed, so this test guards against drift
+        /// between the two.
         #[test]
-        fn eg349_ros2_cdr_le_encapsulation_header() {
-            // The adapter reports CDR_LE as its output encoding (rmw default on LE hosts).
+        fn eg347_cyclone_type_name_matches_mangling() {
             assert_eq!(
-                CDRSerializerAdapter::<Ros2String>::output_encoding(),
-                RepresentationIdentifier::CDR_LE,
-                "EG-349: rmw requires the CDR_LE representation id for std_msgs/String",
+                mangle_type_name(ROS_STRING_TYPE),
+                CYCLONE_ROS_STRING_TYPE_NAME,
             );
-            // Serialize the real Ros2String and frame it as the RTPS SerializedPayload the
-            // writer puts on the wire; its first 4 bytes are the encapsulation header.
-            let body = CDRSerializerAdapter::<Ros2String>::to_bytes(&Ros2String {
-                data: "eg349".to_string(),
-            })
-            .expect("cdr serialize");
-            let payload = SerializedPayload::new(RepresentationIdentifier::CDR_LE, body.to_vec());
-            let header = payload.bytes_slice(0, 4);
+            assert_eq!(CycloneRos2String::type_name(), CYCLONE_ROS_STRING_TYPE_NAME,);
+        }
+
+        /// EG-347 (S5): a REAL RTPS loopback over the CycloneDDS-C `rmw` stack — publish a
+        /// `std_msgs/String`-shaped message on a topic, subscribe to the same topic, and
+        /// prove the round-trip over an actual CycloneDDS-C wire (with real DDS discovery),
+        /// then map the inbound message back to an engine `AddNode` via the shared EG-325
+        /// [`inbound_to_method`] path — mirroring
+        /// [`native::tests::eg347_native_dds_loopback_pub_sub_roundtrip`] so both legs are
+        /// exercised identically.
+        #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+        async fn eg347_cyclone_dds_loopback_pub_sub_roundtrip() {
+            let topic = "/epistemic_graph/eg347_cyclone_test";
+
             assert_eq!(
-                &header[..],
-                &CDR_LE_ENCAPSULATION_HEADER,
-                "EG-349: on-wire CDR encapsulation header must match what ros2 decodes",
+                mangle_topic_name(topic),
+                "rt/epistemic_graph/eg347_cyclone_test"
             );
+
+            let transport = CycloneDdsTransport::new(0).expect("dds transport");
+            transport.subscribe(topic).await.expect("subscribe");
+            transport
+                .advertise(topic, ROS_STRING_TYPE)
+                .await
+                .expect("advertise");
+
+            // Let DDS SPDP/SEDP discovery match the writer and reader on this participant.
+            tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+
+            let payload = serde_json::json!({ "node_id": "robot_1", "properties": { "x": 1.5 } });
+            let msg = serde_json::json!({ "data": payload.to_string() });
+            transport.publish(topic, &msg).await.expect("publish");
+
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+            loop {
+                if let Some((got_topic, got)) = transport.poll_inbound().await.expect("poll") {
+                    assert_eq!(got_topic, topic);
+                    let method = inbound_to_method(&got).expect("maps to a method");
+                    match method {
+                        Method::AddNode { node_id, .. } => assert_eq!(node_id, "robot_1"),
+                        _ => panic!("expected AddNode from the DDS round-trip"),
+                    }
+                    return;
+                }
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "EG-347: timed out waiting for the CycloneDDS/RTPS loopback sample"
+                );
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
         }
     }
 }
 
-#[cfg(feature = "ros2-dds")]
-pub use native::NativeDdsTransport;
+#[cfg(feature = "ros2-rmw")]
+pub use cyclone::CycloneDdsTransport;
 
 #[cfg(all(test, feature = "ros2-dds"))]
 mod tests {
@@ -386,7 +761,7 @@ mod tests {
     }
 
     /// EG-347/EG-349: a REAL DDS/RTPS loopback — publish a `std_msgs/String`-shaped message
-    /// on a topic through the native `rustdds` transport, subscribe to the same topic, and
+    /// on a topic through the native Dust DDS transport, subscribe to the same topic, and
     /// prove the round-trip (over an actual RTPS wire, with DDS discovery), then map the
     /// inbound message back to an engine `AddNode` via the shared EG-325
     /// [`inbound_to_method`] path. The DDS wire now carries the **rmw-mangled** names

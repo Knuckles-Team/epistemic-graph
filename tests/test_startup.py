@@ -1,4 +1,5 @@
 import pytest
+
 import epistemic_graph
 
 

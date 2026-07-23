@@ -31,6 +31,24 @@ The SQL surface exposes the graph as two synthetic tables:
 
 `pg_catalog` and `information_schema` are registered so introspection-driven tools work (see below).
 
+### Tenant and actor isolation
+
+Arbitrary SQL tables, views, functions, extensions, indexes, and their transaction
+metadata belong to the verified tenant+effective actor. The engine stores each
+owner's catalog in an opaque file below the configured
+`GRAPH_SERVICE_PERSIST_DIR/sql-catalog/` directory. Filenames contain only a
+one-way digest, and catalog-open errors do not expose identities or local paths.
+There is no process-wide catalog, custom path override, unsigned reader, or
+temporary-store fallback. On Unix the catalog directory/file are restricted to
+`0700`/`0600`, and symlinked catalog directories or files are rejected.
+
+`Method::Sql`, pgwire, MySQL, MSSQL, SQLite import/export, and OBDA all resolve the
+same catalog for the same verified tenant+actor. A different actor or tenant cannot
+discover its names, schema, rows, or catalog metadata. Native SQL adapters bind this
+authority only after their mandatory SCRAM/HMAC login succeeds; the authenticated
+adapter supplies the deployment's configured tenant, audience, and policy context.
+An actor-only startup parameter never grants catalog access.
+
 ## SELECT — full DataFusion 43
 
 Joins, aggregates, `GROUP BY`/`HAVING`, window functions, CTEs, subqueries, and set operations all run:
@@ -45,7 +63,7 @@ ORDER BY n DESC;
 JSON accessors (`json_get*`) and `epistemic_decay` are registered as UDFs; `pagerank` and `betweenness`
 are table-valued functions; under the `finance` feature `var`/`cvar` are aggregate UDFs.
 
-### Window functions & columnar scans (EG-089)
+### Window functions & columnar scans (EG-089) {#window-functions}
 
 Full SQL window frames run over the table/tsdb store, which keeps a columnar (struct-of-arrays) segment
 layout for analytical scans:
@@ -101,6 +119,8 @@ and `CREATE VIEW` / `DROP VIEW` (EG-072 — a referenced view expands to its sto
 durable redb catalog (`crates/eg-query/src/tables/`, EG-KG.query.register-user-tables-alongside/EG-KG.query.register-each-user-table). User-table DML
 (`INSERT`/`UPDATE`/`DELETE`, `INSERT … SELECT`, `RETURNING`) executes against it, and user tables are
 JOINable to the graph `nodes`/`edges` in a single query. Reserved names `nodes`/`edges` are rejected for DDL.
+`COPY … FROM STDIN` accepts the current `WITH (FORMAT …, DELIMITER …, HEADER …)`
+option grammar; positional option forms are rejected.
 
 ### `ALTER TABLE` (EG-KG.query.rename-table-moves-catalog)
 
@@ -137,7 +157,7 @@ execute, along with the common scalar functions ORMs/BI emit: `string_agg`, `spl
 `to_char`/`to_timestamp`, `date_trunc`, `extract`, `greatest`/`least`, `generate_series`,
 `coalesce`/`nullif`.
 
-## Postgres extensions — `CREATE EXTENSION` (EG-KG.query.create-drop-extension-over)
+## Postgres extensions — `CREATE EXTENSION` (EG-KG.query.create-drop-extension-over) {#create-extension}
 
 An unmodified Postgres client/ORM can `CREATE EXTENSION` to light up a family surface; enabled extensions
 are recorded in a durable catalog:
@@ -176,8 +196,14 @@ EPISTEMIC_GRAPH_PGWIRE_ADDR=127.0.0.1:5433 \
 psql -h 127.0.0.1 -p 5433 -U agent -d epistemic
 ```
 
-- **Auth**: SCRAM-SHA-256 when `GRAPH_SERVICE_AUTH_SECRET` is set, else trust (dev). The pg `user`
-  becomes the engine ACL actor, so Row-Level Security applies to every wire query.
+- **Auth**: mandatory SCRAM-SHA-256 with non-empty
+  `GRAPH_SERVICE_AUTH_SECRET`. Only a successful proof maps the pg `user` to the
+  engine ACL actor, so Row-Level Security applies to every wire query. There is no
+  authentication bypass.
+- **Transport boundary**: the direct PGWire listener is plaintext and therefore
+  unconditionally loopback-only. For remote clients, terminate authenticated TLS/mTLS
+  in an identity-aware gateway and forward to the loopback listener; the gateway does
+  not replace the SCRAM actor proof.
 - **Protocols**: both simple and extended/prepared (`$N` parameters) are implemented.
 - **Connection switch**: `SET graph = '<name>'` selects the graph for the session.
 </content>

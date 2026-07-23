@@ -13,8 +13,24 @@ on:
       - 'crates/**'
       - 'tests/**'
       - 'epistemic_graph/**'
+      - 'protocols/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
+      - 'scripts/check_epistemic_operations_protocol.py'
+      - 'scripts/check_wheel_privacy.py'
+      - 'scripts/configure_rust_path_remap.py'
+      - 'scripts/normalize_wheel_build_paths.py'
+      - 'scripts/normalize_wheel_sbom.py'
+      - 'scripts/check_p2_modality_architecture.py'
+      - 'scripts/check_p2_analytics_reasoning_architecture.py'
+      - 'scripts/check_lazy_lifecycle_architecture.py'
+      - 'scripts/check_universal_read_rls.py'
+      - 'scripts/certify_exact_*.py'
+      - 'scripts/check_exact_release_campaigns.py'
+      - 'scripts/check_documentation_contract.py'
+      - 'scripts/check_canonical_property_schema.py'
+      - 'docs/**'
+      - 'mkdocs.yml'
       - '.github/workflows/rust-ci.yml'
   pull_request:
     paths:
@@ -22,8 +38,24 @@ on:
       - 'crates/**'
       - 'tests/**'
       - 'epistemic_graph/**'
+      - 'protocols/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
+      - 'scripts/check_epistemic_operations_protocol.py'
+      - 'scripts/check_wheel_privacy.py'
+      - 'scripts/configure_rust_path_remap.py'
+      - 'scripts/normalize_wheel_build_paths.py'
+      - 'scripts/normalize_wheel_sbom.py'
+      - 'scripts/check_p2_modality_architecture.py'
+      - 'scripts/check_p2_analytics_reasoning_architecture.py'
+      - 'scripts/check_lazy_lifecycle_architecture.py'
+      - 'scripts/check_universal_read_rls.py'
+      - 'scripts/certify_exact_*.py'
+      - 'scripts/check_exact_release_campaigns.py'
+      - 'scripts/check_documentation_contract.py'
+      - 'scripts/check_canonical_property_schema.py'
+      - 'docs/**'
+      - 'mkdocs.yml'
       - '.github/workflows/rust-ci.yml'
 
 concurrency:
@@ -34,15 +66,35 @@ env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
 
+permissions:
+  contents: read
+
 jobs:
   lint-and-test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
+          persist-credentials: false
+      - name: P2 modality architecture gate
+        run: python3 scripts/check_p2_modality_architecture.py
+      - name: P2 analytics and reasoning architecture gate
+        run: python3 scripts/check_p2_analytics_reasoning_architecture.py
+      - name: Bounded lazy lifecycle architecture gate
+        run: python3 scripts/check_lazy_lifecycle_architecture.py
+      - name: Universal served-read RLS and carrier-ownership architecture gate
+        run: python3 scripts/check_universal_read_rls.py
+      - name: Exact protocol, multimodal, KnowledgeBatch, and reasoning campaign architecture gate
+        run: python3 scripts/check_exact_release_campaigns.py
+      - name: Documentation feature, ledger, and MkDocs contract
+        run: python3 scripts/check_documentation_contract.py
+      - name: Canonical structural property schema
+        run: python3 scripts/check_canonical_property_schema.py
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
+        with:
+          toolchain: stable
           components: clippy, rustfmt
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
       - name: Format check (workspace)
         run: cargo fmt --all --check
@@ -80,12 +132,16 @@ jobs:
     # skips the package-importing conftest).
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.12'
       - name: Install pytest
         run: pip install pytest
+      - name: Epistemic Operations manifest ⇄ Rust DTO parity
+        run: python3 scripts/check_epistemic_operations_protocol.py
       - name: Protocol parity (Python client ⇄ Rust Method enum)
         run: python -m pytest tests/test_protocol_parity.py --noconftest -q
 
@@ -101,18 +157,30 @@ jobs:
     # (that flag is only required on interpreters newer than pyo3's max, e.g. 3.14).
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           key: numeric-parity
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.12'
       - name: Install maturin + parity deps
         run: pip install 'maturin>=1,<2' numpy pytest
+      - name: Configure identity-neutral Rust source paths
+        run: python scripts/configure_rust_path_remap.py --github-env "$GITHUB_ENV"
       - name: Build eg-numeric Surface-A wheel (feature python)
         run: maturin build --release -m crates/eg-numeric/Cargo.toml --features python --out target/wheels
+      - name: Normalize build-local SBOM references
+        run: python scripts/normalize_wheel_sbom.py target/wheels/*.whl
+      - name: Normalize retained native build paths
+        run: python scripts/normalize_wheel_build_paths.py target/wheels/*.whl
+      - name: Audit numeric wheel for retained build identity
+        run: python scripts/check_wheel_privacy.py target/wheels/*.whl
       - name: Install the wheel
         run: pip install --no-index --find-links target/wheels eg-numeric
       - name: numpy-parity gate (compiled kernel vs numpy)
@@ -141,9 +209,13 @@ jobs:
           - { name: 'cluster',          flags: '--no-default-features --features cluster' }
           - { name: 'full-extras',      flags: '--no-default-features --features full-extras' }
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           key: ${{ matrix.target.name }}
       - name: Build ${{ matrix.target.name }}
@@ -160,12 +232,16 @@ jobs:
     # caught in the same job.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           key: benchmarks
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.12'
       # The fuzz + concurrency-chaos proptest suite (long random valid pipelines,

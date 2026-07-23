@@ -1,19 +1,22 @@
 ---
 name: kg-modality-consensus
+skill_type: skill
 description: >-
   Operate the engine's distributed substrate — openraft consensus with automatic failover,
   multi-Raft groups, online resharding (ownership move / hibernate / rehydrate), cross-shard
-  2PC, and the per-tenant catalog. Use when scaling the engine across nodes, moving shards,
-  inspecting Raft/cluster health, or provisioning/routing tenants; via the engine_consensus,
-  engine_resharding, and engine_tenants MCP tools.
+  2PC, and the per-tenant catalog — plus the scope-gated ADMIN tier: RBAC policy
+  administration and ops backup/restore. Use when scaling the engine across nodes, moving
+  shards, inspecting Raft/cluster health, provisioning/routing tenants, managing RBAC
+  policies, or running an admin backup/restore; via the engine_consensus, engine_resharding,
+  engine_tenants, engine_rbac, and engine_admin MCP tools.
 domain: modality
 license: MIT
-tags: [epistemic-graph, engine, consensus, raft, resharding, tenants, cluster, modality]
+tags: [epistemic-graph, engine, consensus, raft, resharding, tenants, cluster, rbac, admin, modality]
 tier: modality
-wraps: [engine_consensus, engine_resharding, engine_tenants]
+wraps: [engine_consensus, engine_resharding, engine_tenants, engine_rbac, engine_admin]
 metadata:
   author: Genius
-  version: '0.1.0'
+  version: '0.2.0'
 ---
 
 # kg-modality-consensus — distributed consensus, resharding & tenants
@@ -29,12 +32,25 @@ backpressure guardrails rounds it out. See `docs/capabilities.md` → *Durabilit
 
 ## The MCP way (through graph-os)
 ```
-load_tools(tools=["engine_consensus", "engine_resharding", "engine_tenants"])
+load_tools(tools=["engine_consensus", "engine_resharding", "engine_tenants",
+                  "engine_rbac", "engine_admin"])
 # engine_consensus   — Raft membership / leadership / cluster health / failover
 # engine_resharding  — multi-Raft group ring, online ownership move, hibernate/rehydrate
 # engine_tenants     — per-tenant catalog: provision, list, route
+# engine_rbac        — RBAC policy administration: roles + resource/action grants
+# engine_admin       — ops/maintenance: online backup + restore
 ```
 or the REST twins graph-os exposes for these engine domains.
+
+## Admin tier (scope-gated)
+All five domains above are classified **ADMIN** (`agent_utilities.mcp.tools.engine_tools.
+ADMIN_DOMAINS`): every action they expose is denied fail-closed to an acting identity
+that lacks the `kg:admin` scope/role (`_enforce_action_scope`), never merely hidden.
+`engine_rbac`/`engine_admin` complete that ADMIN set — RBAC policy administration
+(roles + resource/action grants) and the ops backup/restore surface — so use this
+skill whenever you need to grant/revoke a role, inspect a resource's ACL, or run an
+online backup/restore, exactly like reaching for `engine_consensus`/`engine_tenants`
+for cluster/tenant admin.
 
 ## The wire way
 Consensus is cluster control, not a query wire — the `cluster` prebuilt tier adds `pgwire` so

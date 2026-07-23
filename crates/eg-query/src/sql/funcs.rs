@@ -213,7 +213,12 @@ fn rewrite_table_factor(tf: &mut TableFactor, tables: &[&StoredFunction], change
             alias,
             ..
         } => {
-            let leaf = name.0.last().map(|i| i.value.clone()).unwrap_or_default();
+            let leaf = name
+                .0
+                .last()
+                .and_then(|part| part.as_ident())
+                .map(|ident| ident.value.clone())
+                .unwrap_or_default();
             let Some(f) = tables.iter().find(|f| f.name.eq_ignore_ascii_case(&leaf)) else {
                 return;
             };
@@ -235,14 +240,17 @@ fn rewrite_table_factor(tf: &mut TableFactor, tables: &[&StoredFunction], change
             };
             let alias = alias.clone().or_else(|| {
                 Some(TableAlias {
+                    explicit: false,
                     name: Ident::new(f.name.clone()),
                     columns: Vec::new(),
+                    at: None,
                 })
             });
             *tf = TableFactor::Derived {
                 lateral: false,
                 subquery,
                 alias,
+                sample: None,
             };
             *changed = true;
         }

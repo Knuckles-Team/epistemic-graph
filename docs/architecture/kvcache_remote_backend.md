@@ -10,7 +10,7 @@ LMCache / prefix-cache win, but pooled across the whole fleet through one engine
 It is a hand-rolled HTTP/1.1 listener (`src/server/kvcache_http/`), the same
 dependency-free `tokio::net` idiom as the s3 (`EG-KG.ontology.object-put-get-head`) and obs listeners — no
 axum/hyper, so no new HTTP dep enters the tree. It is in the one main build (a network listener +
-the shared backend crate); default/pi builds link none of it.
+the shared backend crate); an explicitly minimal no-default-feature build can omit it.
 
 ## Endpoints
 
@@ -48,22 +48,26 @@ that computed the same token-prefix send the same `<hash>` and share one residen
 
 ## Auth
 
-A bearer-token guard mirroring the s3 SigV4-lite posture:
+A mandatory bearer/JWT guard protects every request:
 
-- Unset `EPISTEMIC_GRAPH_KVCACHE_TOKEN` ⇒ **anonymous** access (loopback default).
-- Set ⇒ every request must carry `Authorization: Bearer <token>` or it is refused `401`.
+- JWT validation or a runtime-injected `EPISTEMIC_GRAPH_KVCACHE_TOKEN` is mandatory;
+  the listener fails closed when neither is configured.
+- Every request must carry `Authorization: Bearer <token>` or it is refused `401`.
 
 ## Configuration
 
 | Env var                          | Effect |
 |----------------------------------|--------|
 | `EPISTEMIC_GRAPH_KVCACHE_ADDR`   | Bind address. A bare enable token binds the localhost default `127.0.0.1:9130`; a bare port binds `127.0.0.1:<port>`; a full `host:port` is used verbatim. Unset ⇒ no listener. |
-| `EPISTEMIC_GRAPH_KVCACHE_TOKEN`  | Arms the bearer-token guard when set. |
+| `EPISTEMIC_GRAPH_KVCACHE_TOKEN`  | Runtime-injected bearer secret used when JWT validation is not configured. |
+| `EPISTEMIC_GRAPH_KVCACHE_URL` | Connector URL. Plain HTTP is accepted only for an explicit loopback host; every non-loopback endpoint requires HTTPS. |
+| `SSL_CERT_FILE` / `REQUESTS_CA_BUNDLE` / `SSL_CERT_DIR` | Standard runtime trust-anchor configuration. Peer verification is mandatory. |
+| `EPISTEMIC_GRAPH_KVCACHE_CLIENT_CERT` / `..._CLIENT_KEY` | Optional mTLS identity pair. `..._CLIENT_KEY_PASSWORD` is supported for encrypted keys. |
 
 Built `--features kvcache-server` (or any tier that folds it in) AND with
 `EPISTEMIC_GRAPH_KVCACHE_ADDR` set, the listener spawns from `main.rs`.
 
-## The vLLM / LMCache connector contract (follow-up)
+## The vLLM / LMCache connector contract
 
 LMCache supports a **remote backend** to which it offloads/loads KV blocks keyed by a
 per-block hash. A connector maps that onto these endpoints 1:1:
@@ -79,9 +83,8 @@ per-block hash. A connector maps that onto these endpoints 1:1:
   `TieredCache`/`SharedKvIndex` L1, falling through to the network only on a local miss
   — the standard LMCache L1→remote hierarchy.
 
-A **networked eviction / ref-count coordination** protocol across multiple engine nodes
-(so a block is freed only when the last node releases it) is a further follow-up — today
-the shared index is per-engine-process.
+The shared index and its ref counts are scoped to one engine process. Deployments
+that need one cache authority route workers to that engine endpoint.
 
 ## The shipped Python driver (`epistemic_graph.kvcache`, CONCEPT:EG-KG.backend.shipped-pip-installable-python)
 
@@ -98,7 +101,8 @@ Two entry points:
   `exists(key) -> bool` / `stats() -> KvCacheStats` shape over the endpoints above. Every
   transport/protocol error degrades to a cache **miss** (never raises on the hot path).
   Build it from the engine's EG-KG.backend.is-configured-so-co environment with `RemoteKVConnector.from_env()`
-  (reads `EPISTEMIC_GRAPH_KVCACHE_URL` / `_ADDR` / `_TOKEN` / `_TIMEOUT_S` / `_TLS_VERIFY`).
+  (reads `EPISTEMIC_GRAPH_KVCACHE_URL` / `_ADDR` / `_TOKEN` / `_TIMEOUT_S` plus
+  the verified TLS/mTLS settings above).
 
 - **`RemoteKVL2Connector`** — the LMCache **`native_plugin`** L2-adapter *native client*
   (`event_fd()` / `submit_batch_set` / `submit_batch_get` / `submit_batch_exists` /
@@ -117,9 +121,12 @@ Wire it into the decoupled `lmcache server` via its `--l2-adapter` config — th
  "adapter_params": {"base_url": "http://localhost:9130"}}
 ```
 
-`adapter_params` are spread as keyword arguments to the constructor (all optional:
-`base_url`, `addr`, `token`, `timeout_s`, `num_workers`, `max_connections`, `verify_tls`);
-anything omitted falls back to the EG-KG.backend.is-configured-so-co environment via `KvCacheConfig.from_env()`.
+`adapter_params` are spread as keyword arguments to the constructor (accepted keys:
+`base_url`, `addr`, `token`, `timeout_s`, `num_workers`, `max_connections`). The
+effective configuration must contain a non-empty bearer/JWT token. Anything
+omitted falls back to the EG-KG.backend.is-configured-so-co environment via
+`KvCacheConfig.from_env()`; trust material remains in the standard CA environment
+rather than being copied into adapter JSON.
 
 Direct use (custom L1→remote hierarchy) is equally supported:
 

@@ -38,6 +38,9 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  # Resource-constrained release builders must never fan native compilation out.
+  CARGO_BUILD_JOBS: "1"
+  CARGO_INCREMENTAL: "0"
   # The ONE main build (CONCEPT:EG-371): `full` = all MAIN features that build without an
   # external GPU/robotics toolchain, plus `ast-extended` for the complete code-parsing
   # grammar tier. `cluster` (raft HA) and `full-extras` (GPU/ROS2) are opt-in build layers,
@@ -45,13 +48,17 @@ env:
   MATURIN_FEATURES: "full,ast-extended"
 
 jobs:
-  # ── The ONE main wheel (CONCEPT:EG-371): linux x86_64 + aarch64, the full-featured
-  #    `default`/`full` build. ONE tier ⇒ ONE wheel per platform (no more per-tier legs).
+  # ── The ONE main wheel (CONCEPT:EG-371), built for every supported native target.
+  #    Each is the `default`/`full` build. ONE tier ⇒ ONE wheel per platform.
   wheels:
     name: wheel ${{ matrix.name }}
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
+      # Each leg performs two independent full+numeric native builds. Keep the
+      # platform legs serial as well so release certification has one compiler
+      # workload at a time.
+      max-parallel: 1
       matrix:
         include:
           - name: linux-x86_64
@@ -62,57 +69,191 @@ jobs:
             runner: ubuntu-latest
             target: aarch64-unknown-linux-gnu
             maturin_args: ""   # manylinux is set via the action's `manylinux:` input below — do NOT also pass --manylinux here (maturin rejects two platform tags)
+          - name: windows-x86_64
+            runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            maturin_args: ""
+          - name: macos-aarch64
+            runner: macos-14
+            target: aarch64-apple-darwin
+            maturin_args: ""
+          - name: macos-x86_64
+            runner: macos-15-intel
+            target: x86_64-apple-darwin
+            maturin_args: ""
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
-          targets: ${{ matrix.target }}
+          persist-credentials: false
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.12'
 
-      # Native + cross wheels via maturin-action (uses zig/cross for linux-aarch64,
-      # so no manual cross-linker setup is needed in CI).
-      - name: Build wheel (${{ matrix.name }})
-        uses: PyO3/maturin-action@v1
+      - name: Read tracked Rust toolchain pin
+        id: rust-toolchain
+        shell: bash
+        run: >-
+          python -c "import os,re,tomllib;
+          channel=tomllib.load(open('rust-toolchain.toml','rb'))['toolchain']['channel'];
+          assert re.fullmatch(r'[0-9]+[.][0-9]+[.][0-9]+', channel);
+          open(os.environ['GITHUB_OUTPUT'],'a',encoding='utf-8').write(f'channel={channel}\n')"
+
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
+        with:
+          toolchain: ${{ steps.rust-toolchain.outputs.channel }}
+          targets: ${{ matrix.target }}
+
+      - name: Bind build time to the source revision
+        shell: bash
+        run: |
+          SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
+          case "$SOURCE_DATE_EPOCH" in
+            ''|*[!0-9]*) exit 1 ;;
+          esac
+          echo "SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH" >> "$GITHUB_ENV"
+
+      # Release binaries must not retain checkout, build-user, Cargo, or toolchain
+      # roots. The helper preserves existing flags using Cargo's encoded form and
+      # reports counts only (never the concrete prefixes).
+      - name: Configure identity-neutral Rust source paths
+        shell: bash
+        run: python scripts/configure_rust_path_remap.py --github-env "$GITHUB_ENV"
+
+      # Two independent native builds prove the complete folded wheel is byte-for-byte
+      # reproducible. Each pass starts from empty Cargo state at the same neutral path
+      # and writes to a separate wheel output root; the numeric kernel is compiled,
+      # injected, normalized, and privacy-audited before the digests are compared.
+      # Steps remain deliberately serial.
+      - name: Build primary wheel (${{ matrix.name }})
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
         continue-on-error: ${{ matrix.experimental == true }}
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/epistemic-graph-release-target
         with:
           target: ${{ matrix.target }}
           args: >-
             --release
-            --out dist
-            --no-default-features
+            --out dist-primary
             --features ${{ env.MATURIN_FEATURES }}
             ${{ matrix.maturin_args }}
           # zig gives reproducible glibc-pinned linux cross-builds.
           manylinux: ${{ startsWith(matrix.target, 'x86_64-unknown-linux') && '2_28' || (startsWith(matrix.target, 'aarch64-unknown-linux') && '2_28' || 'auto') }}
-          sccache: 'true'
+          sccache: 'false'
 
       # ── Fold the eg-numeric Surface-A kernel INTO this same wheel (CONCEPT:EG-346).
       #    Build the pyo3 cdylib kernel (`crates/eg-numeric --features python`) for the
-      #    SAME target, then inject its compiled `.so` into the server wheel as
-      #    `epistemic_graph/numeric.abi3.so`. Result: ONE published `epistemic-graph`
+      #    SAME target, then inject its compiled extension (`.so`/`.pyd`) into the
+      #    server wheel as `epistemic_graph.numeric`. Result: ONE published `epistemic-graph`
       #    wheel that ships BOTH the server binary AND the numeric kernel — no separate
       #    `eg-numeric` package on PyPI. The kernel is a distinct maturin target (a pyo3
       #    cdylib), so the engine binary's no-pyo3 / Pi contract is untouched.
-      - name: Build eg-numeric kernel (same target)
-        uses: PyO3/maturin-action@v1
+      - name: Build primary eg-numeric kernel (same target)
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/epistemic-graph-release-target
         with:
           target: ${{ matrix.target }}
           args: >-
             --release
-            --out numdist
+            --out numdist-primary
             -m crates/eg-numeric/Cargo.toml
             --features python
           manylinux: ${{ startsWith(matrix.target, 'x86_64-unknown-linux') && '2_28' || (startsWith(matrix.target, 'aarch64-unknown-linux') && '2_28' || 'auto') }}
-          sccache: 'true'
+          sccache: 'false'
 
-      - name: Fold numeric kernel into the epistemic-graph wheel
+      - name: Fold primary numeric kernel into the epistemic-graph wheel
         shell: bash
         run: |
-          python scripts/inject_numeric_kernel.py "$(ls dist/epistemic_graph-*.whl)" "$(ls numdist/*.whl)"
+          python scripts/inject_numeric_kernel.py "$(ls dist-primary/epistemic_graph-*.whl)" "$(ls numdist-primary/*.whl)"
+
+      - name: Normalize and audit primary wheel
+        shell: bash
+        run: |
+          python scripts/normalize_wheel_sbom.py dist-primary/*.whl
+          python scripts/normalize_wheel_build_paths.py dist-primary/*.whl
+          python scripts/check_wheel_privacy.py dist-primary/*.whl
+
+      # Assert the artifact is COMPLETE after every step that rewrites it (inject,
+      # sbom, build-path normalization). Published 2.14.0-2.23.0 wheels shipped with
+      # NO numeric kernel because nothing here ever inspected the payload — the graft
+      # is silent when it fails. Running the gate on the build leg localizes such a
+      # regression to the platform that produced it; `publish-pypi` re-runs it on the
+      # downloaded artifacts as the actual publish boundary.
+      - name: Require a complete primary wheel (kernel + executable binary + RECORD)
+        shell: bash
+        run: python scripts/check_wheel_completeness.py dist-primary/*.whl
+
+      - name: Remove primary native build state
+        shell: bash
+        run: >-
+          python -c "import os,shutil; from pathlib import Path;
+          root=Path(os.environ['RUNNER_TEMP']).resolve();
+          target=(root/'epistemic-graph-release-target').resolve();
+          assert target.parent==root and target.name=='epistemic-graph-release-target';
+          shutil.rmtree(target)"
+
+      - name: Build reproduction wheel (${{ matrix.name }})
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
+        continue-on-error: ${{ matrix.experimental == true }}
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/epistemic-graph-release-target
+        with:
+          target: ${{ matrix.target }}
+          args: >-
+            --release
+            --out dist-reproduction
+            --features ${{ env.MATURIN_FEATURES }}
+            ${{ matrix.maturin_args }}
+          manylinux: ${{ startsWith(matrix.target, 'x86_64-unknown-linux') && '2_28' || (startsWith(matrix.target, 'aarch64-unknown-linux') && '2_28' || 'auto') }}
+          sccache: 'false'
+
+      - name: Build reproduction eg-numeric kernel (same target)
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/epistemic-graph-release-target
+        with:
+          target: ${{ matrix.target }}
+          args: >-
+            --release
+            --out numdist-reproduction
+            -m crates/eg-numeric/Cargo.toml
+            --features python
+          manylinux: ${{ startsWith(matrix.target, 'x86_64-unknown-linux') && '2_28' || (startsWith(matrix.target, 'aarch64-unknown-linux') && '2_28' || 'auto') }}
+          sccache: 'false'
+
+      - name: Fold reproduction numeric kernel into the epistemic-graph wheel
+        shell: bash
+        run: |
+          python scripts/inject_numeric_kernel.py "$(ls dist-reproduction/epistemic_graph-*.whl)" "$(ls numdist-reproduction/*.whl)"
+
+      - name: Normalize and audit reproduction wheel
+        shell: bash
+        run: |
+          python scripts/normalize_wheel_sbom.py dist-reproduction/*.whl
+          python scripts/normalize_wheel_build_paths.py dist-reproduction/*.whl
+          python scripts/check_wheel_privacy.py dist-reproduction/*.whl
+
+      - name: Require a complete reproduction wheel
+        shell: bash
+        run: python scripts/check_wheel_completeness.py dist-reproduction/*.whl
+
+      - name: Require byte-identical folded wheels
+        shell: bash
+        run: >-
+          python -c "from hashlib import sha256; from pathlib import Path;
+          primary=sorted(Path('dist-primary').glob('epistemic_graph-*.whl'));
+          reproduction=sorted(Path('dist-reproduction').glob('epistemic_graph-*.whl'));
+          assert len(primary)==len(reproduction)==1, 'release wheel cardinality mismatch';
+          assert primary[0].name==reproduction[0].name, 'release wheel filename mismatch';
+          assert sha256(primary[0].read_bytes()).digest()==sha256(reproduction[0].read_bytes()).digest(), 'release wheel digest mismatch';
+          print('release_wheel_reproducibility=passed')"
+
+      - name: Stage sole publish candidate
+        shell: bash
+        run: |
+          mkdir dist
+          cp dist-primary/epistemic_graph-*.whl dist/
 
       # Smoke test: install the wheel, run the server `--help`, AND prove the folded-in
       # kernel imports AND computes (`epistemic_graph.numeric`). Skipped for the
@@ -144,7 +285,7 @@ jobs:
 
       - name: Upload wheel artifact
         if: ${{ matrix.experimental != true }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: wheel-${{ matrix.name }}
           path: dist/*.whl
@@ -155,20 +296,6 @@ jobs:
   # the SAME wheel filename (`epistemic_graph-<ver>-py3-none-<platform>`), so only one
   # could ever publish. The tiers are collapsed into ONE main build (the `wheels` job
   # above), which is what publishes — no more per-tier legs, no more filename collision.
-
-  # ── sdist (source distribution) for pip fallback builds
-  sdist:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: PyO3/maturin-action@v1
-        with:
-          command: sdist
-          args: --out dist
-      - uses: actions/upload-artifact@v4
-        with:
-          name: sdist
-          path: dist/*.tar.gz
 
   # NOTE: the eg-numeric kernel is NO LONGER a separately-published package. Its
   # Surface-A pyo3 `.so` is FOLDED INTO the `epistemic-graph` main wheel in the
@@ -200,22 +327,24 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
       - name: Derive package version from tag
         run: echo "EG_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
       # Pull the CI-built wheels into docker/wheels/ so the Dockerfile installs the LOCAL
       # per-arch wheel (EG_WHEEL_DIR) instead of round-tripping PyPI (same as publish-image).
       - name: Download wheel (amd64)
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: wheel-linux-x86_64
           path: docker/wheels
       - name: Download wheel (arm64)
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: wheel-linux-aarch64
           path: docker/wheels
@@ -224,7 +353,7 @@ jobs:
       # Dockerfile picks the per-arch wheel, no PyPI. push:false = build + in-image
       # `--help` smoke only; publish-image below pushes.
       - name: Build multi-arch image (install CI-built wheel; no PyPI)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           file: docker/Dockerfile
@@ -242,44 +371,74 @@ jobs:
   publish-pypi:
     name: Publish wheels to PyPI (release only)
     # ONE published package (CONCEPT:EG-371): the single main `epistemic-graph` wheel per
-    # platform (x86_64 + aarch64, carrying the folded-in numeric kernel) + the sdist. Now
-    # that the pi/pi-max/node/full-tiny tier legs are gone, there is exactly ONE wheel per
+    # platform (Linux x86_64/aarch64, Windows x86_64, macOS arm64/x86_64), each
+    # carrying the folded-in numeric kernel. No sdist is published: a generic source
+    # archive cannot contain the per-platform kernel and would violate the full-wheel
+    # invariant by silently producing a server-only installation. Now that the
+    # pi/pi-max/node/full-tiny tier legs are gone, there is exactly ONE wheel per
     # platform — the old wheel-filename collision (every tier shared
     # `epistemic_graph-<ver>-py3-none-<platform>`, so only one could publish) is moot. The
     # old `eg-numeric` publish legs are also gone — their re-upload of an existing
     # `eg-numeric==0.1.0` used to abort the whole `twine upload dist/*` batch.
-    needs: [wheels, sdist]
+    needs: [wheels]
     runs-on: ubuntu-latest
     # GATE: tag push only. A branch push / PR does NOT publish.
     if: ${{ startsWith(github.ref, 'refs/tags/v') }}
     permissions:
       contents: read
     steps:
-      # Download the main wheels (x86_64 + aarch64) — they carry the folded numeric
-      # kernel. With the tiers collapsed there is exactly ONE wheel per platform, so
+      # The completeness gate below runs from the repo's `scripts/`, so this job
+      # needs the checkout it previously did without.
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      # Download every supported wheel — each carries the folded numeric kernel.
+      # With the tiers collapsed there is exactly ONE wheel per platform, so
       # there is no longer any filename-shadowing risk between tier wheels.
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: wheel-linux-x86_64
           path: dist
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: wheel-linux-aarch64
           path: dist
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: sdist
+          name: wheel-windows-x86_64
           path: dist
-      - uses: actions/setup-python@v5
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: wheel-macos-aarch64
+          path: dist
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: wheel-macos-x86_64
+          path: dist
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.12'
       # Token-based upload — the SAME mechanism the rest of the fleet publishes with
       # (agents/*, agent-webui) via the org `PYPI_API_TOKEN`. ONE robust upload of
-      # EVERYTHING in dist/ (every epistemic-graph wheel + sdist), matching
+      # EVERYTHING in dist/ (every supported epistemic-graph wheel), matching
       # agent-webui's `twine upload dist/*`. A single `dist/*` avoids the previous
       # failure mode where a per-name glob (`dist/epistemic_graph-*`) combined with
       # `--skip-existing` could silently no-op if a dist was mis-named/mis-versioned
       # and the step would still pass green having published nothing.
+      # ── THE PUBLISH BOUNDARY GATE. Every wheel about to be uploaded must carry the
+      #    folded numeric kernel, an EXECUTABLE server binary, the full python surface,
+      #    and a self-consistent RECORD. This runs on the DOWNLOADED artifacts, so it
+      #    catches an incomplete wheel no matter which upstream step regressed — a
+      #    skipped inject, a reordered job, a renamed artifact, a re-added tier leg.
+      #    Published 2.14.0-2.23.0 all shipped kernel-less through a green pipeline
+      #    precisely because no step ever inspected what it was about to publish.
+      - name: Require every distribution to be complete before upload
+        run: |
+          python -m pip install --upgrade pip
+          echo "Distributions staged for upload:"
+          ls -1 dist/
+          python scripts/check_wheel_completeness.py dist/*.whl
+
       - name: Publish to PyPI (token)
         env:
           TWINE_USERNAME: __token__
@@ -295,7 +454,7 @@ jobs:
       # upload step pass without publishing the tag version; this step asserts the
       # exact tag version is now queryable on PyPI, retrying for CDN propagation lag.
       # VER is derived from the tag (`vX.Y.Z` -> `X.Y.Z`); it MUST equal the built
-      # wheel/sdist version (Cargo.toml, sourced via pyproject `dynamic = ["version"]`).
+      # wheel version (Cargo.toml, sourced via pyproject `dynamic = ["version"]`).
       # If epistemic-graph is owned by a different PyPI account than PYPI_API_TOKEN,
       # the upload is skipped/denied and THIS step fails loudly (correct) — the token
       # must be granted maintainer access to the `epistemic-graph` project.
@@ -308,6 +467,14 @@ jobs:
             code=$(curl -s -o /dev/null -w '%{http_code}' "$url" || echo 000)
             if [ "$code" = "200" ]; then
               echo "OK: epistemic-graph ${VER} is published (PyPI returned 200)."
+              # A 200 proves the version is queryable, NOT that it is usable. Pull the
+              # wheel PyPI actually serves and re-run the completeness gate on it — the
+              # only check that can see what a `pip install` will really get. Without
+              # this, a kernel-less release (2.14.0-2.23.0) passes every gate green.
+              python -m pip download --no-deps --only-binary :all: \
+                "epistemic-graph==${VER}" -d pypi-verify
+              python scripts/check_wheel_completeness.py pypi-verify/*.whl
+              echo "OK: the wheel PyPI serves for ${VER} is complete."
               exit 0
             fi
             echo "Attempt ${i}: PyPI returned HTTP ${code} for ${VER} — retrying in 20s (CDN lag)…"
@@ -332,20 +499,22 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
       - name: Derive package version from tag
         run: echo "EG_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
       # Pull the same main wheels into the context so the pushed image is built
       # from the CI artifact (no PyPI round-trip), matching docker-image.
       - name: Download main wheel (amd64)
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: wheel-linux-x86_64
           path: docker/wheels
       - name: Download main wheel (arm64)
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: wheel-linux-aarch64
           path: docker/wheels
@@ -354,13 +523,13 @@ jobs:
       # the fleet: DOCKER_REGISTRY / DOCKER_USERNAME / DOCKER_PASSWORD. (Do NOT use
       # DOCKERHUB_USERNAME/DOCKERHUB_TOKEN — those are unset in this org.)
       - name: Log in to registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ${{ secrets.DOCKER_REGISTRY }}
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
       - name: Build & push multi-arch image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           file: docker/Dockerfile

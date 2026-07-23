@@ -122,12 +122,6 @@ fn source_times_transform_matrix_base_query() {
             },
         ),
         ("Window", Op::Window { secs: 3600.0 }),
-        (
-            "Foreign",
-            Op::Foreign {
-                name: "peer".into(),
-            },
-        ),
         ("Limit", Op::Limit { k: 3 }),
     ];
 
@@ -174,7 +168,6 @@ fn empty_source_every_transform_is_safe() {
         Op::RankMentions {},
         Op::RankMmr { lambda: 0.3, k: 5 },
         Op::Window { secs: 60.0 },
-        Op::Foreign { name: "p".into() },
         Op::Limit { k: 10 },
     ];
     for t in transforms {

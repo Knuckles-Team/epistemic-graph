@@ -47,24 +47,6 @@ use parking_lot::RwLock;
 
 use crate::graph::GraphCore;
 
-/// Is incremental heavy-index maintenance enabled process-wide? Read ONCE from
-/// `EPISTEMIC_GRAPH_INCREMENTAL_INDEX` and cached, so the write hot path pays a
-/// single relaxed atomic load rather than an env lookup per batch. Default ON; the
-/// kill-switch values `0|false|off|no` select the legacy invalidate-and-rebuild
-/// path (CONCEPT:EG-KG.storage.write-changeset).
-pub fn incremental_index_enabled() -> bool {
-    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ENABLED.get_or_init(|| {
-        !matches!(
-            std::env::var("EPISTEMIC_GRAPH_INCREMENTAL_INDEX")
-                .ok()
-                .map(|v| v.trim().to_ascii_lowercase())
-                .as_deref(),
-            Some("0") | Some("false") | Some("off") | Some("no")
-        )
-    })
-}
-
 /// One node touched by a committed write batch (CONCEPT:EG-KG.storage.write-changeset). Carries
 /// the node id and — for adds/updates — OPTIONALLY the new property blob, so a
 /// content-derived index (text / temporal) can compute its own delta without
@@ -75,10 +57,15 @@ pub fn incremental_index_enabled() -> bool {
 /// it stays `None` and the hot path pays no per-op blob clone (the vector store keys off
 /// removals alone). For an ADD the blob is the full property map; for a CAS update it is
 /// the `updates` map (a field-scoped content index reads only its own field from it).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct NodeChange {
     pub id: String,
     pub properties_msgpack: Option<Vec<u8>>,
+    /// Exact top-level fields changed by a partial update. `None` means the
+    /// complete node image may have changed (add/upsert/remove semantics), so a
+    /// cache that cannot apply a delta must invalidate conservatively.
+    #[serde(default)]
+    pub changed_fields: Option<Vec<String>>,
 }
 
 impl NodeChange {
@@ -86,12 +73,34 @@ impl NodeChange {
         Self {
             id,
             properties_msgpack: None,
+            changed_fields: None,
         }
     }
     pub fn with_properties(id: String, properties_msgpack: Vec<u8>) -> Self {
         Self {
             id,
             properties_msgpack: Some(properties_msgpack),
+            changed_fields: None,
+        }
+    }
+
+    pub fn with_properties_and_fields(
+        id: String,
+        properties_msgpack: Vec<u8>,
+        changed_fields: Vec<String>,
+    ) -> Self {
+        Self {
+            id,
+            properties_msgpack: Some(properties_msgpack),
+            changed_fields: Some(changed_fields),
+        }
+    }
+
+    pub fn with_fields(id: String, changed_fields: Vec<String>) -> Self {
+        Self {
+            id,
+            properties_msgpack: None,
+            changed_fields: Some(changed_fields),
         }
     }
 }
@@ -132,6 +141,14 @@ impl ChangeSet {
             && self.removed_edges.is_empty()
     }
 
+    /// Whether this batch can change a node-derived label/property/JSON-path
+    /// posting. Pure edge deltas leave those caches byte-for-byte valid.
+    pub fn has_node_changes(&self) -> bool {
+        !self.added_nodes.is_empty()
+            || !self.updated_nodes.is_empty()
+            || !self.removed_nodes.is_empty()
+    }
+
     /// Total number of recorded node + edge changes.
     pub fn len(&self) -> usize {
         self.added_nodes.len()
@@ -161,18 +178,14 @@ impl ChangeSet {
 /// Why a secondary index could not maintain a delta (CONCEPT:EG-KG.storage.index-manager-seam).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum IndexError {
-    /// This index has no incremental path for the given change shape — the
-    /// [`IndexManager`] falls back to [`SecondaryIndex::full_rebuild`]. This is the
-    /// DEFAULT for the lazy label/property/ontology indexes in D1.
-    DeltaUnsupported,
-    /// The incremental apply itself failed; the manager falls back to a full rebuild.
+    /// Incremental maintenance failed. The index is marked stale and excluded from
+    /// planner selection until explicit recovery rebuilds it.
     Failed(String),
 }
 
 impl std::fmt::Display for IndexError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            IndexError::DeltaUnsupported => write!(f, "index delta unsupported"),
             IndexError::Failed(e) => write!(f, "index delta failed: {e}"),
         }
     }
@@ -181,12 +194,12 @@ impl std::fmt::Display for IndexError {
 impl std::error::Error for IndexError {}
 
 /// Per-batch maintenance tally returned by [`IndexManager::commit_batch`] — how
-/// many registered indexes applied their delta incrementally vs fell back to a
-/// full rebuild. Mainly for the seam's tests / in-process diagnostics.
+/// many registered indexes applied their delta vs became stale. Mainly for the
+/// seam's tests / in-process diagnostics.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct BatchMaintenance {
     pub deltas_applied: usize,
-    pub rebuilds: usize,
+    pub failures: usize,
 }
 
 /// The kind of a secondary index. New index types (text, spatial, time) add a
@@ -214,8 +227,82 @@ pub enum IndexKind {
     /// (CONCEPT:EG-KG.storage.incremental-derived-owl). Differentially materialized by the
     /// reasoner on-demand; its `apply_delta` is a documented no-op (see the adapter).
     DerivedOwl,
+    /// Server-layer eg-geo maintained spatial index (CONCEPT:EG-KG.storage.incremental-spatial, L37):
+    /// a per-layer item set (`node_id -> bbox`) maintained incrementally by the committed
+    /// write batch, backing a lazily-(re)built packed Hilbert R-tree — the persistent
+    /// counterpart to `Op::SpatialScan`'s prior per-query ephemeral R-tree rebuild.
+    /// Content-derived; served through its own bbox-query surface, not equality lookup.
+    Spatial,
     // Future index kinds register here (CONCEPT:AU-KG.query.text-spatial-time text / spatial / time)
     // with their own `SecondaryIndex` impl — the manager core does not change.
+}
+
+/// Lifecycle state of a maintained index build.  Merely registering an index
+/// never makes it planner-visible; only `Valid` with a completeness cursor that
+/// covers the source snapshot may be advertised.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IndexValidity {
+    Building,
+    Valid,
+    Stale,
+    Failed,
+}
+
+/// Explicit source coverage for a maintained index.  The cursor is row-count
+/// based because node/edge materialization is paged independently.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct IndexCompletenessCursor {
+    pub nodes: u64,
+    pub edges: u64,
+    pub complete: bool,
+}
+
+/// Manifest published by every server-maintained index.  `build_version` is the
+/// manifest schema/algorithm generation, not a filesystem or host identifier.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct IndexManifest {
+    pub source_snapshot_version: u64,
+    pub build_version: u32,
+    pub completeness: IndexCompletenessCursor,
+    pub validity: IndexValidity,
+}
+
+impl IndexManifest {
+    pub const BUILD_VERSION: u32 = 1;
+
+    pub fn building(source_snapshot_version: u64, completeness: IndexCompletenessCursor) -> Self {
+        Self {
+            source_snapshot_version,
+            build_version: Self::BUILD_VERSION,
+            completeness,
+            validity: IndexValidity::Building,
+        }
+    }
+
+    pub fn valid(source_snapshot_version: u64, nodes: u64, edges: u64) -> Self {
+        Self {
+            source_snapshot_version,
+            build_version: Self::BUILD_VERSION,
+            completeness: IndexCompletenessCursor {
+                nodes,
+                edges,
+                complete: true,
+            },
+            validity: IndexValidity::Valid,
+        }
+    }
+
+    pub fn covers(&self, source_snapshot_version: u64) -> bool {
+        self.validity == IndexValidity::Valid
+            && self.completeness.complete
+            && self.source_snapshot_version >= source_snapshot_version
+    }
+}
+
+impl Default for IndexManifest {
+    fn default() -> Self {
+        Self::building(0, IndexCompletenessCursor::default())
+    }
 }
 
 /// A structural predicate a planner can ask the manager to resolve. Equality-only
@@ -266,7 +353,13 @@ pub const LABEL_COLUMN: &str = "__label__";
 
 /// One secondary index behind the manager. Implementers keep their own cache
 /// (lazy-built, `version()`/`mark_dirty`-invalidated) — the manager only routes.
-pub trait SecondaryIndex: Send + Sync {
+/// `'static` (every impl in this codebase already is — owned server-lifetime
+/// state, never a borrowed index) so [`Self::as_any`] can downcast a trait object
+/// back to its concrete type (CONCEPT:EG-KG.query.served-text-index-binding — the planner
+/// pushdown seam uses this to recover the server's concrete `GraphTextIndex`/
+/// vector index from behind the generic registry instead of rebuilding a
+/// throwaway snapshot index per query).
+pub trait SecondaryIndex: Send + Sync + 'static {
     /// This index's kind.
     fn kind(&self) -> IndexKind;
 
@@ -299,27 +392,39 @@ pub trait SecondaryIndex: Send + Sync {
         false
     }
 
+    /// Current build/completeness manifest.  Core-owned lazy descriptors do not
+    /// persist a separate maintained store and therefore use the conservative
+    /// default. Server-maintained indexes override both this and
+    /// [`Self::publish_manifest`].
+    fn manifest(&self) -> IndexManifest {
+        IndexManifest::default()
+    }
+
+    /// Publish a lifecycle transition for a maintained index.  The registry calls
+    /// this before/after recovery rebuilds; the write path advances it after a
+    /// successful delta.  Default is a no-op for core-owned descriptors.
+    fn publish_manifest(&self, _manifest: IndexManifest) {}
+
+    /// Whether this implementation owns and enforces a persisted completeness
+    /// manifest. Lightweight/custom indexes written before manifests existed keep
+    /// the default `false`; server-maintained planner indexes override it.
+    fn maintains_manifest(&self) -> bool {
+        false
+    }
+
     // ── Write-path maintenance seam (CONCEPT:EG-KG.storage.index-manager-seam) ─────────────
     //
-    // These give the ONE registry a write side to match its read side: on a
-    // committed write batch the [`IndexManager`] calls `apply_delta` on each
-    // registered index, falling back to `full_rebuild` when a delta can't be
-    // applied. Both default to the lazy-index behavior (no incremental path,
-    // rebuild-on-read), so the label/property/ontology descriptors inherit the
-    // exact pre-seam semantics; an index with real incremental state (the vector
-    // store) overrides `apply_delta`.
+    // These give the ONE registry a write side to match its read side. Every
+    // registered index has one current incremental behavior. A failure marks the
+    // maintained index stale; recovery rebuild is explicit and never runs as a
+    // hidden write-path fallback.
 
     /// Incrementally apply a committed batch's `change` to this index's state.
     ///
-    /// The DEFAULT returns [`IndexError::DeltaUnsupported`], which tells the manager
-    /// to fall back to [`full_rebuild`](Self::full_rebuild) — the behavior the lazy
-    /// label / property / path / ontology indexes keep (they rebuild on read). A
-    /// concrete incremental index (the vector `SemanticStore`) overrides this to
-    /// upsert / tombstone in place with NO full rebuild.
-    fn apply_delta(&self, core: &GraphCore, change: &ChangeSet) -> Result<(), IndexError> {
-        let _ = (core, change);
-        Err(IndexError::DeltaUnsupported)
-    }
+    /// Core-owned lazy descriptors return `Ok(())` because their exact field-aware
+    /// invalidation is performed once by `GraphCore` after this registry pass.
+    /// Stateful indexes update their resident structures directly.
+    fn apply_delta(&self, core: &GraphCore, change: &ChangeSet) -> Result<(), IndexError>;
 
     /// Rebuild — or, for a lazy index, invalidate for rebuild-on-read — this index
     /// over `core`. The manager's fallback when `apply_delta` can't maintain a delta.
@@ -331,6 +436,21 @@ pub trait SecondaryIndex: Send + Sync {
         let _ = core;
         Ok(())
     }
+
+    /// Downcast hook (CONCEPT:EG-KG.query.served-text-index-binding): recover the CONCRETE type behind this
+    /// trait object. A REQUIRED method (not a default) — the `&Self -> &dyn Any`
+    /// unsizing coercion needs `Self: Sized` at the impl site, which a default
+    /// body typechecked generically over the trait's abstract `Self` cannot
+    /// assume (that would exclude the method from the vtable, making it
+    /// uncallable through `&dyn SecondaryIndex` — exactly the shape a caller
+    /// needs). Every impl's body is the same one-liner: `fn as_any(&self) -> &dyn
+    /// std::any::Any { self }`. A caller holding `&dyn SecondaryIndex` (e.g. via
+    /// [`IndexManager::with_server_index`]) calls
+    /// `.as_any().downcast_ref::<ConcreteType>()` to recover it — the seam a
+    /// planner pushdown uses to reach the server-layer `GraphTextIndex` (or a
+    /// future spatial/vector server index) directly, instead of rebuilding an
+    /// equivalent index from a snapshot on every query.
+    fn as_any(&self) -> &dyn std::any::Any;
 }
 
 /// The label index descriptor (CONCEPT:EG-KG.compute.consult-lazy). Holds no state — it routes to
@@ -341,6 +461,10 @@ pub struct LabelIndex;
 impl SecondaryIndex for LabelIndex {
     fn kind(&self) -> IndexKind {
         IndexKind::Label
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
     }
 
     fn descriptor(&self) -> IndexDescriptor {
@@ -368,6 +492,10 @@ impl SecondaryIndex for LabelIndex {
             .collect();
         Some(ids)
     }
+
+    fn apply_delta(&self, _core: &GraphCore, _change: &ChangeSet) -> Result<(), IndexError> {
+        Ok(())
+    }
 }
 
 /// The property equality index descriptor (CONCEPT:EG-KG.query.concept-12). Holds no state — it
@@ -379,6 +507,10 @@ pub struct PropertyEqIndex;
 impl SecondaryIndex for PropertyEqIndex {
     fn kind(&self) -> IndexKind {
         IndexKind::Property
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
     }
 
     fn descriptor(&self) -> IndexDescriptor {
@@ -401,6 +533,10 @@ impl SecondaryIndex for PropertyEqIndex {
         // is not (and cannot be) indexed under the cap — the caller full-scans.
         core.nodes_by_property(key, value)
     }
+
+    fn apply_delta(&self, _core: &GraphCore, _change: &ChangeSet) -> Result<(), IndexError> {
+        Ok(())
+    }
 }
 
 /// Discoverable-only descriptor for the aho-corasick ontology term index
@@ -413,6 +549,10 @@ pub struct OntologyIndexDescriptor;
 impl SecondaryIndex for OntologyIndexDescriptor {
     fn kind(&self) -> IndexKind {
         IndexKind::Ontology
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
     }
 
     fn descriptor(&self) -> IndexDescriptor {
@@ -430,6 +570,10 @@ impl SecondaryIndex for OntologyIndexDescriptor {
     fn lookup(&self, _core: &GraphCore, _predicate: &Predicate) -> Option<Vec<String>> {
         None
     }
+
+    fn apply_delta(&self, _core: &GraphCore, _change: &ChangeSet) -> Result<(), IndexError> {
+        Ok(())
+    }
 }
 
 /// Discoverable-only descriptor for the vector index (the `SemanticStore`: HNSW or,
@@ -443,6 +587,10 @@ pub struct VectorIndexDescriptor;
 impl SecondaryIndex for VectorIndexDescriptor {
     fn kind(&self) -> IndexKind {
         IndexKind::Vector
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
     }
 
     fn descriptor(&self) -> IndexDescriptor {
@@ -464,7 +612,7 @@ impl SecondaryIndex for VectorIndexDescriptor {
     /// Incremental vector-store maintenance for a committed batch
     /// (CONCEPT:EG-KG.storage.incremental-ann). A REMOVED node's embedding must be
     /// tombstoned so kNN never returns a dead node — the `SemanticStore`
-    /// (hnsw_rs default / eg-ann IVF-PQ under `ann`) already inserts/overwrites
+    /// (the native `eg-ann` backend) already inserts/overwrites
     /// incrementally via `add_embedding`, and now removes incrementally via
     /// `remove_embedding` (arena swap-remove + index tombstone, no full rebuild).
     ///
@@ -483,10 +631,8 @@ impl SecondaryIndex for VectorIndexDescriptor {
         Ok(())
     }
 
-    /// Fallback for the vector store. `apply_delta` never errors (a removal always
-    /// succeeds or is absent), so this is only reachable via
-    /// [`IndexManager::rebuild_all`]. A clean compaction drops any tombstones so the
-    /// resident index reflects exactly the live embedding set.
+    /// Explicit recovery compaction for the vector store. A clean compaction drops
+    /// tombstones so the resident index reflects exactly the live embedding set.
     fn full_rebuild(&self, core: &GraphCore) -> Result<(), IndexError> {
         core.semantic_store.read().force_compact();
         Ok(())
@@ -623,6 +769,27 @@ impl IndexManager {
         self.content_capture.load(Ordering::Relaxed)
     }
 
+    /// Look up a registered SERVER-LAYER index (text/temporal/derived-OWL,
+    /// CONCEPT:EG-KG.query.served-text-index-binding) by `kind` and run `f` against it WHILE holding the
+    /// read lock, returning `f`'s result. This is the planner-pushdown seam: a
+    /// caller ABOVE `eg-core` (which cannot name the concrete server-side index
+    /// types — they live above it in the crate DAG) recovers one via
+    /// `idx.as_any().downcast_ref::<ConcreteType>()` inside `f`, searches/reads it
+    /// directly, and returns an OWNED result — so no reference to the index (or
+    /// the lock guard) ever escapes this call, keeping the seam lifetime-simple.
+    /// `None` when no server-layer index of `kind` is registered on this graph
+    /// (the caller falls back to its own snapshot-derived equivalent).
+    pub fn with_server_index<F, R>(&self, kind: IndexKind, f: F) -> Option<R>
+    where
+        F: FnOnce(&dyn SecondaryIndex) -> R,
+    {
+        self.server_indexes
+            .read()
+            .iter()
+            .find(|idx| idx.kind() == kind)
+            .map(|idx| f(idx.as_ref()))
+    }
+
     /// The pushdown registry's core question: the first registered index that
     /// covers `predicate`, or `None` if no index does (the caller full-scans). One
     /// seam — eg-query's `supports_filters_pushdown` and eg-plan's Filter leg ask
@@ -675,63 +842,131 @@ impl IndexManager {
     }
 
     /// Maintain every registered index for a committed write batch
-    /// (CONCEPT:EG-KG.storage.write-changeset): for each index try the incremental
-    /// [`SecondaryIndex::apply_delta`]; on any error fall back to
-    /// [`SecondaryIndex::full_rebuild`]. Called by [`GraphCore::maintain_indexes`]
+    /// (CONCEPT:EG-KG.storage.write-changeset) through
+    /// [`SecondaryIndex::apply_delta`]. Called by [`GraphCore::maintain_indexes`]
     /// inside the coalescer's topology lock so topology + index moves publish
     /// together. Returns a [`BatchMaintenance`] tally (deltas applied vs rebuilt).
     ///
-    /// An empty change short-circuits (a no-op batch touches nothing). The lazy
-    /// label/property/path caches are invalidated separately by the caller via
-    /// [`GraphCore::invalidate_indexes`]; their descriptors here take the default
-    /// `DeltaUnsupported` → no-op `full_rebuild`, so they cost nothing in this loop.
+    /// This convenience form is for callers that do not hold the topology lock.
+    /// Lock-owning mutation paths use [`Self::commit_batch_at`] and supply their
+    /// already-observed counts, avoiding a recursive graph-lock acquisition.
     pub fn commit_batch(&self, core: &GraphCore, change: &ChangeSet) -> BatchMaintenance {
+        self.commit_batch_at(
+            core,
+            change,
+            core.version().saturating_add(change.len() as u64),
+            core.node_count() as u64,
+            core.edge_count() as u64,
+        )
+    }
+
+    /// Maintain indexes and publish an explicit target-version/completeness tuple.
+    /// Compound operations such as public `BatchUpdate` advance the graph version
+    /// once even when they contain many row mutations, while the write coalescer
+    /// advances it once per independently acknowledged write.
+    pub fn commit_batch_at(
+        &self,
+        core: &GraphCore,
+        change: &ChangeSet,
+        target_version: u64,
+        node_count: u64,
+        edge_count: u64,
+    ) -> BatchMaintenance {
         let mut tally = BatchMaintenance::default();
-        if change.is_empty() {
-            return tally;
-        }
-        for idx in &self.indexes {
-            match idx.apply_delta(core, change) {
-                Ok(()) => tally.deltas_applied += 1,
-                Err(_) => {
-                    // Best-effort fallback: a failed rebuild is logged by the index
-                    // and leaves it to rebuild-on-read; never poisons the batch.
-                    let _ = idx.full_rebuild(core);
-                    tally.rebuilds += 1;
+        if !change.is_empty() {
+            for idx in &self.indexes {
+                match idx.apply_delta(core, change) {
+                    Ok(()) => tally.deltas_applied += 1,
+                    Err(_) => tally.failures += 1,
                 }
             }
         }
         // Server-layer indexes (text/temporal/derived-OWL) — driven by the SAME batch
         // delta so text/tsdb/reason stay in step with the topology under one lock
         // (CONCEPT:EG-KG.storage.incremental-text / .incremental-temporal / .incremental-derived-owl).
-        // Their `apply_delta` is infallible-in-practice (it reads ONLY the ChangeSet's
-        // captured blobs — NEVER `core`'s topology lock, which this batch already holds
-        // — so it can't deadlock); an Err therefore falls back to `full_rebuild` on the
-        // out-of-lock maintenance path, never here.
+        // Their `apply_delta` reads ONLY the ChangeSet's captured blobs — NEVER
+        // `core`'s topology lock, which this batch already holds. A failure marks
+        // the manifest stale and excludes the index from planner selection.
         for idx in self.server_indexes.read().iter() {
+            let prior = idx.manifest();
+            // A delta is safe only over an index that completely covers the
+            // pre-mutation source. Never let one later delta bless a stale or
+            // partially materialized index as complete.
+            if idx.maintains_manifest() && !prior.covers(core.version()) {
+                let mut stale = prior;
+                stale.validity = IndexValidity::Stale;
+                stale.completeness.complete = false;
+                idx.publish_manifest(stale);
+                tally.failures += 1;
+                continue;
+            }
+            if change.is_empty() {
+                // Vector-only batches leave server-derived content unchanged but
+                // still advance the graph version. Carry forward known-complete
+                // coverage without rebuilding or applying a phantom delta.
+                idx.publish_manifest(IndexManifest::valid(target_version, node_count, edge_count));
+                continue;
+            }
             match idx.apply_delta(core, change) {
-                Ok(()) => tally.deltas_applied += 1,
-                Err(_) => tally.rebuilds += 1,
+                Ok(()) => {
+                    idx.publish_manifest(IndexManifest::valid(
+                        target_version,
+                        node_count,
+                        edge_count,
+                    ));
+                    tally.deltas_applied += 1;
+                }
+                Err(_) => {
+                    let mut manifest = idx.manifest();
+                    manifest.validity = IndexValidity::Stale;
+                    manifest.completeness.complete = false;
+                    idx.publish_manifest(manifest);
+                    tally.failures += 1;
+                }
             }
         }
         tally
     }
 
-    /// Full-rebuild every registered index over `core` (the maintenance / kill-switch
-    /// escape hatch). Ignores per-index errors — a stateful index that can't rebuild
-    /// falls back to its own rebuild-on-read.
-    ///
-    /// **Not lock-safe under a held topology lock.** A server index's `full_rebuild`
-    /// re-reads every live node from `core`, so this is the OUT-OF-LOCK path only
-    /// (the `EPISTEMIC_GRAPH_INCREMENTAL_INDEX=0` kill-switch + explicit maintenance),
-    /// never called from inside the coalescer's batch txn.
-    pub fn rebuild_all(&self, core: &GraphCore) {
-        for idx in &self.indexes {
-            let _ = idx.full_rebuild(core);
-        }
+    /// Rebuild every server-maintained index against one stable source snapshot,
+    /// publishing `Valid` only after the build succeeds.  Failure remains
+    /// explicit and planner-ineligible.
+    pub fn rebuild_server_indexes(&self, core: &GraphCore) {
+        let source_snapshot_version = core.version();
+        let nodes = core.node_count() as u64;
+        let edges = core.edge_count() as u64;
         for idx in self.server_indexes.read().iter() {
-            let _ = idx.full_rebuild(core);
+            idx.publish_manifest(IndexManifest::building(
+                source_snapshot_version,
+                IndexCompletenessCursor {
+                    nodes: 0,
+                    edges: 0,
+                    complete: false,
+                },
+            ));
+            match idx.full_rebuild(core) {
+                Ok(()) => idx.publish_manifest(IndexManifest::valid(
+                    source_snapshot_version,
+                    nodes,
+                    edges,
+                )),
+                Err(_) => {
+                    let mut manifest = idx.manifest();
+                    manifest.validity = IndexValidity::Failed;
+                    manifest.completeness.complete = false;
+                    idx.publish_manifest(manifest);
+                }
+            }
         }
+    }
+
+    /// Snapshot of every server index manifest for health/readiness reporting.
+    pub fn server_manifests(&self) -> Vec<(IndexKind, IndexManifest)> {
+        self.server_indexes
+            .read()
+            .iter()
+            .map(|index| (index.kind(), index.manifest()))
+            .collect()
     }
 }
 
@@ -877,12 +1112,13 @@ mod tests {
         for d in mgr.descriptors() {
             match d.kind {
                 IndexKind::Label | IndexKind::Property => assert!(d.serves_lookup),
-                // Non-lookup surfaces (kNN / lexical / range / on-demand reason).
+                // Non-lookup surfaces (kNN / lexical / range / on-demand reason / bbox).
                 IndexKind::Vector
                 | IndexKind::Ontology
                 | IndexKind::Text
                 | IndexKind::Temporal
-                | IndexKind::DerivedOwl => assert!(!d.serves_lookup),
+                | IndexKind::DerivedOwl
+                | IndexKind::Spatial => assert!(!d.serves_lookup),
             }
         }
     }
@@ -914,17 +1150,8 @@ mod tests {
         assert_eq!(cs.removed_edges[0].target, "a");
     }
 
-    /// The kill-switch defaults to incremental ON when the env var is unset.
-    #[test]
-    fn incremental_index_enabled_defaults_on_when_unset() {
-        if std::env::var_os("EPISTEMIC_GRAPH_INCREMENTAL_INDEX").is_none() {
-            assert!(incremental_index_enabled());
-        }
-    }
-
-    /// `commit_batch` invokes `apply_delta` on every registered index: the vector
-    /// index applies a real delta (removes the embedding), the lazy/discoverable
-    /// descriptors fall back (default `DeltaUnsupported` → no-op rebuild).
+    /// `commit_batch` invokes the one current incremental behavior on every
+    /// registered index; the vector index removes the embedding in-place.
     #[test]
     fn commit_batch_invokes_apply_delta_and_removes_embedding() {
         let g = GraphCore::new();
@@ -938,14 +1165,14 @@ mod tests {
         cs.record_remove_node("b".into());
 
         let tally = g.indexes().commit_batch(&g, &cs);
-        // The vector descriptor applied a delta; the label/property/ontology ones
-        // returned DeltaUnsupported and fell back (their lazy caches invalidate
-        // separately via GraphCore::invalidate_indexes).
         assert!(
             tally.deltas_applied >= 1,
             "vector apply_delta must run: {tally:?}"
         );
-        assert!(tally.rebuilds >= 1, "lazy descriptors fall back: {tally:?}");
+        assert_eq!(
+            tally.failures, 0,
+            "all current deltas must succeed: {tally:?}"
+        );
 
         let s = g.semantic_store.read();
         assert!(
@@ -966,6 +1193,9 @@ mod tests {
     impl SecondaryIndex for RecordingServerIndex {
         fn kind(&self) -> IndexKind {
             IndexKind::Text
+        }
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
         }
         fn descriptor(&self) -> IndexDescriptor {
             IndexDescriptor {
@@ -1014,6 +1244,9 @@ mod tests {
         impl SecondaryIndex for Shared {
             fn kind(&self) -> IndexKind {
                 self.0.kind()
+            }
+            fn as_any(&self) -> &dyn std::any::Any {
+                self
             }
             fn descriptor(&self) -> IndexDescriptor {
                 self.0.descriptor()
@@ -1130,6 +1363,89 @@ mod tests {
         assert_eq!(
             inc, baseline,
             "incremental delete result set must equal a full rebuild baseline"
+        );
+    }
+
+    // ── `with_server_index` downcast seam (CONCEPT:EG-KG.query.served-text-index-binding) ────────────
+
+    /// A tiny concrete server-layer index the downcast test recovers by type.
+    #[derive(Default)]
+    struct ProbeIndex {
+        tag: std::sync::Mutex<String>,
+    }
+    impl SecondaryIndex for ProbeIndex {
+        fn kind(&self) -> IndexKind {
+            IndexKind::Text
+        }
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
+        fn descriptor(&self) -> IndexDescriptor {
+            IndexDescriptor {
+                kind: IndexKind::Text,
+                columns: IndexColumns::NonColumnar,
+                serves_lookup: false,
+            }
+        }
+        fn covers(&self, _p: &Predicate) -> bool {
+            false
+        }
+        fn lookup(&self, _c: &GraphCore, _p: &Predicate) -> Option<Vec<String>> {
+            None
+        }
+        fn apply_delta(&self, _c: &GraphCore, _change: &ChangeSet) -> Result<(), IndexError> {
+            Ok(())
+        }
+    }
+
+    /// `with_server_index` finds a registered server-layer index by [`IndexKind`] and
+    /// hands it to the closure as `&dyn SecondaryIndex`, which downcasts it back to its
+    /// CONCRETE type via `as_any` — the exact seam the planner pushdown uses to reach a
+    /// server-layer text/vector/spatial index instead of rebuilding an equivalent one
+    /// from a snapshot per query.
+    #[test]
+    fn with_server_index_finds_and_downcasts_a_registered_index() {
+        let g = GraphCore::new();
+        g.register_index(Box::new(ProbeIndex {
+            tag: std::sync::Mutex::new("hello".to_string()),
+        }));
+
+        let seen = g.indexes().with_server_index(IndexKind::Text, |idx| {
+            idx.as_any()
+                .downcast_ref::<ProbeIndex>()
+                .map(|p| p.tag.lock().unwrap().clone())
+        });
+        assert_eq!(
+            seen,
+            Some(Some("hello".to_string())),
+            "with_server_index must find the registered Text index and downcast it back \
+             to ProbeIndex"
+        );
+    }
+
+    /// No registered server index of that kind ⇒ `None` (the caller falls back to its
+    /// own snapshot-derived equivalent).
+    #[test]
+    fn with_server_index_is_none_when_nothing_registered() {
+        let g = GraphCore::new();
+        let seen = g
+            .indexes()
+            .with_server_index(IndexKind::Text, |_idx| "unreachable");
+        assert!(seen.is_none());
+    }
+
+    /// A registered index of the WRONG kind is never matched — `with_server_index` is
+    /// keyed by `kind()`, not just "any server index".
+    #[test]
+    fn with_server_index_does_not_match_the_wrong_kind() {
+        let g = GraphCore::new();
+        g.register_index(Box::new(ProbeIndex::default())); // kind() == Text
+        let seen = g
+            .indexes()
+            .with_server_index(IndexKind::Temporal, |_idx| "unreachable");
+        assert!(
+            seen.is_none(),
+            "Temporal lookup must not match a Text index"
         );
     }
 }
