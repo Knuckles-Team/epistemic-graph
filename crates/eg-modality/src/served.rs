@@ -296,9 +296,10 @@ where
         let tenant_ref = occurrence.policy.tenant_ref.clone();
         let access_policy_ref = occurrence.policy.access_policy_ref.clone();
         self.ensure_active_count();
-        let activates_record = self.records.get(&occurrence_id).map_or(true, |record| {
-            record.lifecycle == LifecycleState::Tombstoned
-        });
+        let activates_record = self
+            .records
+            .get(&occurrence_id)
+            .is_none_or(|record| record.lifecycle == LifecycleState::Tombstoned);
         let record = ServedRecord {
             occurrence_id: occurrence_id.clone(),
             observation_version,
@@ -615,14 +616,14 @@ where
         let collected: Vec<OccurrenceId> = self
             .records
             .iter()
-            .filter_map(|(id, record)| {
-                (record.lifecycle == LifecycleState::Tombstoned
-                    && eligible.contains(id)
+            .filter(|(id, record)| {
+                record.lifecycle == LifecycleState::Tombstoned
+                    && eligible.contains(*id)
                     && record
                         .occurrence()
-                        .is_some_and(|occurrence| scope.authorizes_occurrence(occurrence)))
-                .then(|| id.clone())
+                        .is_some_and(|occurrence| scope.authorizes_occurrence(occurrence))
             })
+            .map(|(id, _record)| id.clone())
             .collect();
         for id in &collected {
             self.remove_from_indexes(id);

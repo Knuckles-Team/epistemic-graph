@@ -34,9 +34,15 @@ pub enum Guard {
     /// The context key is absent or JSON `null`.
     Missing { key: String },
     /// The context key equals `value` (structural JSON equality).
-    Eq { key: String, value: serde_json::Value },
+    Eq {
+        key: String,
+        value: serde_json::Value,
+    },
     /// The context key is present and does NOT equal `value`.
-    Ne { key: String, value: serde_json::Value },
+    Ne {
+        key: String,
+        value: serde_json::Value,
+    },
     /// The context key is a number strictly greater than `value`.
     Gt { key: String, value: f64 },
     /// The context key is a number greater than or equal to `value`.
@@ -46,7 +52,10 @@ pub enum Guard {
     /// The context key is a number less than or equal to `value`.
     Le { key: String, value: f64 },
     /// A field of the (object) event payload equals `value`.
-    EventEq { key: String, value: serde_json::Value },
+    EventEq {
+        key: String,
+        value: serde_json::Value,
+    },
     /// Conjunction — true iff every child holds (empty ⇒ true).
     All { guards: Vec<Guard> },
     /// Disjunction — true iff any child holds (empty ⇒ false).
@@ -111,13 +120,33 @@ mod tests {
     fn comparison_guards_require_a_number() {
         let c = ctx(&[("n", serde_json::json!(5))]);
         let e = EventInput::new("tick");
-        assert!(Guard::Gt { key: "n".into(), value: 4.0 }.eval(&c, &e));
-        assert!(!Guard::Gt { key: "n".into(), value: 5.0 }.eval(&c, &e));
-        assert!(Guard::Ge { key: "n".into(), value: 5.0 }.eval(&c, &e));
+        assert!(Guard::Gt {
+            key: "n".into(),
+            value: 4.0
+        }
+        .eval(&c, &e));
+        assert!(!Guard::Gt {
+            key: "n".into(),
+            value: 5.0
+        }
+        .eval(&c, &e));
+        assert!(Guard::Ge {
+            key: "n".into(),
+            value: 5.0
+        }
+        .eval(&c, &e));
         // A missing / non-numeric key never satisfies an ordering guard.
-        assert!(!Guard::Lt { key: "missing".into(), value: 9.0 }.eval(&c, &e));
+        assert!(!Guard::Lt {
+            key: "missing".into(),
+            value: 9.0
+        }
+        .eval(&c, &e));
         let s = ctx(&[("n", serde_json::json!("five"))]);
-        assert!(!Guard::Gt { key: "n".into(), value: 0.0 }.eval(&s, &e));
+        assert!(!Guard::Gt {
+            key: "n".into(),
+            value: 0.0
+        }
+        .eval(&s, &e));
     }
 
     #[test]
@@ -126,17 +155,26 @@ mod tests {
         let e = EventInput::with_payload("go", serde_json::json!({"force": true}));
         let g = Guard::All {
             guards: vec![
-                Guard::Eq { key: "ready".into(), value: serde_json::json!(true) },
+                Guard::Eq {
+                    key: "ready".into(),
+                    value: serde_json::json!(true),
+                },
                 Guard::Any {
                     guards: vec![
-                        Guard::EventEq { key: "force".into(), value: serde_json::json!(true) },
+                        Guard::EventEq {
+                            key: "force".into(),
+                            value: serde_json::json!(true),
+                        },
                         Guard::Never,
                     ],
                 },
             ],
         };
         assert!(g.eval(&c, &e));
-        assert!(Guard::Not { guard: Box::new(Guard::Never) }.eval(&c, &e));
+        assert!(Guard::Not {
+            guard: Box::new(Guard::Never)
+        }
+        .eval(&c, &e));
         // Empty All ⇒ true, empty Any ⇒ false (identity elements).
         assert!(Guard::All { guards: vec![] }.eval(&c, &e));
         assert!(!Guard::Any { guards: vec![] }.eval(&c, &e));

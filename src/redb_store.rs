@@ -533,30 +533,37 @@ pub(crate) fn commit_mutation_batch(
 /// equivalent `eg_capabilities::policy(method).audited`) for the ORIGINAL,
 /// pre-opaque-wrapped method -- see the doc comment on `commit_mutation_batch_inner`
 /// for why this cannot be re-derived downstream once the operation is compiled.
+/// Borrowed carrier for [`commit_mutation_batch_state`]'s graph-identifying and
+/// coordinator-record inputs, bundled so the function stays under the clippy
+/// argument-count ceiling.
+pub(crate) struct StateCommitInput<'a> {
+    pub(crate) graph_fname: &'a str,
+    pub(crate) batch: &'a MutationBatch,
+    pub(crate) authoritative_state_msgpack: &'a [u8],
+    pub(crate) result_msgpack: Option<&'a [u8]>,
+    pub(crate) committed_at_ms: u64,
+    pub(crate) audited: bool,
+}
+
 pub(crate) fn commit_mutation_batch_state(
     db: &Database,
-    graph_fname: &str,
-    batch: &MutationBatch,
-    authoritative_state_msgpack: &[u8],
-    result_msgpack: Option<&[u8]>,
-    committed_at_ms: u64,
+    input: StateCommitInput<'_>,
     crypto: DurableCrypto<'_>,
     #[cfg(feature = "security")] audit_tail: &mut AuditTailCache,
-    audited: bool,
 ) -> Result<MutationBatchCommit, String> {
     commit_mutation_batch_inner(
         db,
-        graph_fname,
-        batch,
+        input.graph_fname,
+        input.batch,
         None,
-        Some(authoritative_state_msgpack),
+        Some(input.authoritative_state_msgpack),
         None,
-        result_msgpack,
-        committed_at_ms,
+        input.result_msgpack,
+        input.committed_at_ms,
         crypto,
         #[cfg(feature = "security")]
         audit_tail,
-        audited,
+        input.audited,
         None,
     )
 }
@@ -612,18 +619,29 @@ pub(crate) fn commit_change_envelope(
 /// [`MutationBatch`] commit. The coordinator metadata, graph rows, semantic/blob
 /// projections, time-series batches, result and outbox are written by the same redb
 /// transaction; this borrowed carrier is never serialized as a second authority.
-struct CrossModalBatchRows<'a> {
-    methods: &'a [Method],
-    vectors: &'a [VectorUpsert],
-    blob_refs: &'a [BlobRefRow],
-    measurements: &'a [crate::MeasurementBatch],
+pub(crate) struct CrossModalBatchRows<'a> {
+    pub(crate) methods: &'a [Method],
+    pub(crate) vectors: &'a [VectorUpsert],
+    pub(crate) blob_refs: &'a [BlobRefRow],
+    pub(crate) measurements: &'a [crate::MeasurementBatch],
 }
 
 /// Authenticated graph material supplied by a complex MutationBatch. Callers may
 /// provide a complete snapshot or persist only the affected rows.
 enum AuthoritativeGraphState {
-    Snapshot(crate::graph::GraphSnapshot),
+    Snapshot(Box<crate::graph::GraphSnapshot>),
     RowDelta(crate::graph_delta::GraphRowDelta),
+}
+
+/// Borrowed carrier for [`commit_mutation_batch_crossmodal`]'s graph-identifying
+/// and coordinator-record inputs, bundled alongside the row material so the
+/// function itself stays under the clippy argument-count ceiling.
+pub(crate) struct CrossModalCommitInput<'a> {
+    pub(crate) graph_fname: &'a str,
+    pub(crate) batch: &'a MutationBatch,
+    pub(crate) rows: CrossModalBatchRows<'a>,
+    pub(crate) result_msgpack: Option<&'a [u8]>,
+    pub(crate) committed_at_ms: u64,
 }
 
 /// Commit a canonical cross-modal batch through the universal status/fence/
@@ -631,31 +649,19 @@ enum AuthoritativeGraphState {
 /// [`commit_crossmodal`] remains the low-level atomic projection primitive.
 pub(crate) fn commit_mutation_batch_crossmodal(
     db: &Database,
-    graph_fname: &str,
-    batch: &MutationBatch,
-    methods: &[Method],
-    vectors: &[VectorUpsert],
-    blob_refs: &[BlobRefRow],
-    measurements: &[crate::MeasurementBatch],
-    result_msgpack: Option<&[u8]>,
-    committed_at_ms: u64,
+    input: CrossModalCommitInput<'_>,
     crypto: DurableCrypto<'_>,
     #[cfg(feature = "security")] audit_tail: &mut AuditTailCache,
 ) -> Result<MutationBatchCommit, String> {
     commit_mutation_batch_inner(
         db,
-        graph_fname,
-        batch,
+        input.graph_fname,
+        input.batch,
         None,
         None,
-        Some(CrossModalBatchRows {
-            methods,
-            vectors,
-            blob_refs,
-            measurements,
-        }),
-        result_msgpack,
-        committed_at_ms,
+        Some(input.rows),
+        input.result_msgpack,
+        input.committed_at_ms,
         crypto,
         #[cfg(feature = "security")]
         audit_tail,
@@ -729,12 +735,12 @@ fn commit_mutation_batch_inner(
                 return Err("authoritative state digest does not match MutationBatch".to_string());
             }
             let state = match descriptor.algorithm.as_str() {
-                "sha256" => AuthoritativeGraphState::Snapshot(
+                "sha256" => AuthoritativeGraphState::Snapshot(Box::new(
                     decode_durable::<crate::graph::GraphSnapshot>(bytes).map_err(|_| {
                         "authoritative graph state is invalid or exceeds resource limits"
                             .to_string()
                     })?,
-                ),
+                )),
                 crate::graph_delta::ROW_DELTA_ALGORITHM => {
                     let delta = decode_durable::<crate::graph_delta::GraphRowDelta>(bytes)
                         .map_err(|_| {
@@ -3612,6 +3618,10 @@ pub(crate) fn verify_audit(
 // Because the counter is seeded at the true `max+1` and only ever increments within
 // the sole writer, an assigned ordinal can never collide with an existing row and is
 // strictly monotonic per (graph,src,tgt).
+/// `graph -> source -> target -> next ordinal to assign`, the shape of
+/// [`EDGE_ORD_CACHE`]'s thread-local map.
+type EdgeOrdCache = HashMap<String, HashMap<String, HashMap<String, u64>>>;
+
 thread_local! {
     /// True iff this thread is a dedicated redb group-commit writer (`eg-redb-writer`
     /// / `eg-redb-writer-<i>`, CONCEPT:EG-KG.backend.sharded-k-way-durable). Computed once per thread; gates whether
@@ -3627,8 +3637,7 @@ thread_local! {
     /// The hierarchy keeps
     /// hot pair lookup expected O(1) while making whole-graph and whole-source
     /// invalidation O(1), rather than retaining over every cached pair.
-    static EDGE_ORD_CACHE: RefCell<HashMap<String, HashMap<String, HashMap<String, u64>>>> =
-        RefCell::new(HashMap::new());
+    static EDGE_ORD_CACHE: RefCell<EdgeOrdCache> = RefCell::new(HashMap::new());
 }
 
 /// Next free edge ordinal for a (src,tgt) pair in this graph.
@@ -4184,7 +4193,7 @@ pub(crate) fn get_xshard_decision_retain(db: &Database, txn_id: &str) -> Result<
     let retain = table
         .get(txn_id)
         .map_err(|e| e.to_string())?
-        .map(|value| matches!(value.value(), 2 | 3 | 4))
+        .map(|value| matches!(value.value(), 2..=4))
         .unwrap_or(false);
     Ok(retain)
 }
@@ -4206,11 +4215,7 @@ pub(crate) fn scan_xshard_decisions(db: &Database) -> XshardDecisionScan {
             4 => None,
             _ => return Err("corrupt cross-shard decision value".to_string()),
         };
-        rows.push((
-            key.value().to_string(),
-            outcome,
-            matches!(encoded, 2 | 3 | 4),
-        ));
+        rows.push((key.value().to_string(), outcome, matches!(encoded, 2..=4)));
     }
     Ok(rows)
 }
@@ -4538,16 +4543,31 @@ pub(crate) struct GraphDumpPage {
     pub source_snapshot_version: u64,
 }
 
+/// A bounded page cursor for [`read_graph_dump_page`] — every argument except
+/// the routing `db`/`graph`/`crypto`, borrowed so the caller's owned
+/// [`crate::server::persistence::redb_backend::PageQuery`] (or a test literal)
+/// need not be cloned just to make this call.
+pub(crate) struct PageCursorRef<'a> {
+    pub node_offset: usize,
+    pub edge_offset: usize,
+    pub node_after: Option<&'a str>,
+    pub edge_after: Option<(&'a str, &'a str, u32)>,
+    pub page_size: usize,
+}
+
 pub(crate) fn read_graph_dump_page(
     db: &Database,
     graph: &str,
     crypto: DurableCrypto<'_>,
-    _node_offset: usize,
-    _edge_offset: usize,
-    node_after: Option<&str>,
-    edge_after: Option<(&str, &str, u32)>,
-    page_size: usize,
+    cursor: PageCursorRef<'_>,
 ) -> Result<Option<GraphDumpPage>, String> {
+    let PageCursorRef {
+        node_offset: _node_offset,
+        edge_offset: _edge_offset,
+        node_after,
+        edge_after,
+        page_size,
+    } = cursor;
     let page_size = page_size.max(1);
     let rtx = db.begin_read().map_err(|e| e.to_string())?;
     let meta_table = rtx.open_table(GRAPH_META).map_err(|e| e.to_string())?;
@@ -4819,11 +4839,13 @@ mod keyset_page_tests {
                 &db,
                 "graph",
                 DurableCrypto::none(),
-                offset,
-                offset,
-                node_after.as_deref(),
-                edge_cursor,
-                3,
+                PageCursorRef {
+                    node_offset: offset,
+                    edge_offset: offset,
+                    node_after: node_after.as_deref(),
+                    edge_after: edge_cursor,
+                    page_size: 3,
+                },
             )
             .unwrap()
             .unwrap();
@@ -6647,15 +6669,17 @@ mod mutation_batch_tests {
         let mut audit = AuditTailCache::new();
         let committed = commit_mutation_batch_state(
             &db,
-            "graph-a",
-            &mutation,
-            &state,
-            Some(&[0x81, 0xa2, b'o', b'k']),
-            101,
+            StateCommitInput {
+                graph_fname: "graph-a",
+                batch: &mutation,
+                authoritative_state_msgpack: &state,
+                result_msgpack: Some(&[0x81, 0xa2, b'o', b'k']),
+                committed_at_ms: 101,
+                audited: true,
+            },
             DurableCrypto::none(),
             #[cfg(feature = "security")]
             &mut audit,
-            true,
         )
         .unwrap();
         assert!(!committed.replayed);
@@ -6674,15 +6698,17 @@ mod mutation_batch_tests {
 
         let replay = commit_mutation_batch_state(
             &db,
-            "graph-a",
-            &mutation,
-            &state,
-            Some(&[0x81, 0xa2, b'o', b'k']),
-            101,
+            StateCommitInput {
+                graph_fname: "graph-a",
+                batch: &mutation,
+                authoritative_state_msgpack: &state,
+                result_msgpack: Some(&[0x81, 0xa2, b'o', b'k']),
+                committed_at_ms: 101,
+                audited: true,
+            },
             DurableCrypto::none(),
             #[cfg(feature = "security")]
             &mut audit,
-            true,
         )
         .unwrap();
         assert!(replay.replayed);
@@ -6754,15 +6780,17 @@ mod mutation_batch_tests {
         let mut audit = AuditTailCache::new();
         commit_mutation_batch_state(
             &db,
-            "graph-a",
-            &mutation,
-            &state,
-            None,
-            102,
+            StateCommitInput {
+                graph_fname: "graph-a",
+                batch: &mutation,
+                authoritative_state_msgpack: &state,
+                result_msgpack: None,
+                committed_at_ms: 102,
+                audited: true,
+            },
             DurableCrypto::none(),
             #[cfg(feature = "security")]
             &mut audit,
-            true,
         )
         .unwrap();
 

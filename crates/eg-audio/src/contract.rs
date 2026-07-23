@@ -143,7 +143,7 @@ impl GovernedModality for AudioData {
             && self.segments.iter().all(|segment| {
                 segment.end_ms > segment.start_ms
                     && segment.end_ms <= self.duration_ms
-                    && segment.label.as_deref().map_or(true, opaque)
+                    && segment.label.as_deref().is_none_or(opaque)
             })
             && !self.feature_windows.is_empty()
             && self.feature_windows.len() <= MAX_FEATURE_WINDOWS

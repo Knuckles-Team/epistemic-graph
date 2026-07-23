@@ -78,7 +78,7 @@ impl Configuration {
     pub fn leaves<'a>(&'a self, def: &'a StatechartDef) -> Vec<&'a str> {
         self.active
             .iter()
-            .filter(|id| def.state(id.as_str()).map_or(true, |s| s.children.is_empty()))
+            .filter(|id| def.state(id.as_str()).is_none_or(|s| s.children.is_empty()))
             .map(|s| s.as_str())
             .collect()
     }

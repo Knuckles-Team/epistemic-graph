@@ -387,10 +387,12 @@ pub(crate) async fn handle(
             lease_ms,
         } => handle_worker_renew(
             &store,
-            req_id,
-            caller,
-            verified_worker_context,
-            &worker_instance,
+            WorkerRequestCtx {
+                req_id,
+                caller,
+                verified_worker_context,
+                worker_instance: &worker_instance,
+            },
             &job_id,
             lease_epoch,
             lease_ms,
@@ -437,10 +439,12 @@ pub(crate) async fn handle(
             handle_worker_publish(
                 state,
                 &store,
-                req_id,
-                caller,
-                verified_worker_context,
-                &worker_instance,
+                WorkerRequestCtx {
+                    req_id,
+                    caller,
+                    verified_worker_context,
+                    worker_instance: &worker_instance,
+                },
                 &job_id,
                 lease_epoch,
             )
@@ -574,6 +578,17 @@ pub(crate) fn knowledge_stream_result(
     Ok((job, result))
 }
 
+/// The verified worker-identity fields shared by the `handle_worker_*` request
+/// handlers, bundled so functions with several additional parameters of their
+/// own (e.g. `handle_worker_renew`, `handle_worker_publish`) stay under the
+/// clippy argument-count ceiling.
+struct WorkerRequestCtx<'a> {
+    req_id: u64,
+    caller: Option<&'a str>,
+    verified_worker_context: bool,
+    worker_instance: &'a str,
+}
+
 fn worker_ref(
     caller: Option<&str>,
     verified_worker_context: bool,
@@ -667,14 +682,17 @@ fn handle_worker_claim(
 
 fn handle_worker_renew(
     store: &JobStore,
-    req_id: u64,
-    caller: Option<&str>,
-    verified_worker_context: bool,
-    worker_instance: &str,
+    ctx: WorkerRequestCtx<'_>,
     job_id: &str,
     lease_epoch: u64,
     lease_ms: u64,
 ) -> Response {
+    let WorkerRequestCtx {
+        req_id,
+        caller,
+        verified_worker_context,
+        worker_instance,
+    } = ctx;
     let worker_ref = match worker_ref(caller, verified_worker_context, worker_instance) {
         Ok(value) => value,
         Err(error) => return Response::err(req_id, error),
@@ -717,7 +735,7 @@ fn handle_worker_checkpoint(
     );
     let valid_state = state_ref
         .as_ref()
-        .map_or(true, |value| is_opaque_result_ref(value));
+        .is_none_or(|value| is_opaque_result_ref(value));
     if !progress.is_finite() || !valid_stage || !valid_state {
         return Response::err(req_id, "analytics worker checkpoint is invalid");
     }
@@ -975,13 +993,16 @@ fn handle_worker_stage(
 async fn handle_worker_publish(
     state: &Arc<RwLock<ServerState>>,
     store: &Arc<JobStore>,
-    req_id: u64,
-    caller: Option<&str>,
-    verified_worker_context: bool,
-    worker_instance: &str,
+    ctx: WorkerRequestCtx<'_>,
     job_id: &str,
     lease_epoch: u64,
 ) -> Response {
+    let WorkerRequestCtx {
+        req_id,
+        caller,
+        verified_worker_context,
+        worker_instance,
+    } = ctx;
     let worker_ref = match worker_ref(caller, verified_worker_context, worker_instance) {
         Ok(value) => value,
         Err(error) => return Response::err(req_id, error),
@@ -1228,7 +1249,9 @@ mod resolve_core_ref_tests {
     fn a_warm_cache_hit_still_returns_the_live_registry_entry() {
         let mut registry = GraphRegistry::new();
         let name = unique_name("warm");
-        registry.create_graph(&name, GraphType::Agent, None).unwrap();
+        registry
+            .create_graph(&name, GraphType::Agent, None)
+            .unwrap();
         let graph_ref = native_opaque_ref("graph", &name);
 
         // Cold lookup: falls back to the full scan and populates the index.
@@ -1272,7 +1295,9 @@ mod resolve_core_ref_tests {
     fn a_deleted_graphs_stale_cache_entry_resolves_to_none_not_a_wrong_graph() {
         let mut registry = GraphRegistry::new();
         let name = unique_name("deleted");
-        registry.create_graph(&name, GraphType::Agent, None).unwrap();
+        registry
+            .create_graph(&name, GraphType::Agent, None)
+            .unwrap();
         let graph_ref = native_opaque_ref("graph", &name);
 
         // Populate the cache while the graph is still live.

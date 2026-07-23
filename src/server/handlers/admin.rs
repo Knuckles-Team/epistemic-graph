@@ -135,9 +135,9 @@ fn create_private_directory(path: &std::path::Path) -> Result<(), String> {
         use std::os::unix::fs::DirBuilderExt;
         let mut builder = std::fs::DirBuilder::new();
         builder.mode(0o700);
-        return builder
+        builder
             .create(path)
-            .map_err(|_| "create private engine directory failed".to_string());
+            .map_err(|_| "create private engine directory failed".to_string())
     }
     #[cfg(not(unix))]
     {
@@ -632,17 +632,31 @@ pub(crate) fn begin_named_admin_saga(
 /// recovery bytes.  The caller must supply authenticated ciphertext whose plaintext
 /// SHA-256 is `payload_digest`; neither the canonical batch nor its outbox contains
 /// the private body.
+/// The sealed private-payload fields for [`begin_named_admin_saga_with_private_payload`],
+/// bundled so the function stays under the clippy argument-count ceiling.
+#[cfg(feature = "redb")]
+pub(crate) struct AdminSagaPayload<'a> {
+    pub(crate) domain: MutationDomain,
+    pub(crate) batch_id: &'a str,
+    pub(crate) event_type: &'a str,
+    pub(crate) payload_digest: &'a str,
+    pub(crate) encrypted_payload: &'a [u8],
+}
+
 #[cfg(feature = "redb")]
 pub(crate) fn begin_named_admin_saga_with_private_payload(
     backend: &crate::server::persistence::redb_backend::RedbBackend,
     req_id: u64,
     caller: Option<&str>,
-    domain: MutationDomain,
-    batch_id: &str,
-    event_type: &str,
-    payload_digest: &str,
-    encrypted_payload: &[u8],
+    payload: AdminSagaPayload<'_>,
 ) -> Result<AdminSaga, String> {
+    let AdminSagaPayload {
+        domain,
+        batch_id,
+        event_type,
+        payload_digest,
+        encrypted_payload,
+    } = payload;
     let db = backend.admin_mutation_store();
     let expected = eg_mutation_store::version(db, "native", "cluster-admin")?;
     let now = crate::server::dispatch::authoritative_now_ms();

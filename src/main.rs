@@ -9,14 +9,22 @@
 
 use clap::Parser;
 use std::net::SocketAddr;
+#[cfg(feature = "security")]
 use std::sync::Arc;
+#[cfg(feature = "security")]
 use tokio::sync::RwLock;
+#[cfg(feature = "security")]
 use tracing::info;
 
+#[cfg(feature = "security")]
 use epistemic_graph::channels::ChannelManager;
+#[cfg(feature = "security")]
 use epistemic_graph::isolation::IsolationLayer;
+#[cfg(feature = "security")]
 use epistemic_graph::registry::GraphRegistry;
-use epistemic_graph::server::{self, ServerState};
+#[cfg(feature = "security")]
+use epistemic_graph::server::ServerState;
+use epistemic_graph::server;
 
 #[cfg(feature = "full")]
 mod performance_probe;
@@ -237,9 +245,7 @@ fn resolve_listener_addr(value: Option<&str>, default_addr: &str) -> Option<Stri
         _ if v.chars().all(|c| c.is_ascii_digit()) => Some(format!("127.0.0.1:{v}")),
         _ => Some(v.to_string()),
     };
-    let Some(addr) = resolved else {
-        return None;
-    };
+    let addr = resolved?;
     let is_loopback = addr
         .parse::<SocketAddr>()
         .map(|socket| socket.ip().is_loopback())
@@ -257,27 +263,6 @@ fn resolve_listener_addr(value: Option<&str>, default_addr: &str) -> Option<Stri
         return None;
     }
     Some(addr)
-}
-
-#[cfg(test)]
-mod listener_policy_tests {
-    use super::resolve_listener_addr;
-
-    #[test]
-    fn listener_resolution_stays_loopback_by_default() {
-        assert_eq!(
-            resolve_listener_addr(Some("on"), "127.0.0.1:9101"),
-            Some("127.0.0.1:9101".to_string())
-        );
-        assert_eq!(
-            resolve_listener_addr(Some("5433"), "127.0.0.1:9101"),
-            Some("127.0.0.1:5433".to_string())
-        );
-        assert_eq!(
-            resolve_listener_addr(Some("0.0.0.0:9101"), "127.0.0.1:9101"),
-            None
-        );
-    }
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -322,7 +307,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 }
 
+/// Served requests require a verified tenant context resolved through provisioned
+/// durable identity/RBAC policy, so a build without `security` cannot serve at all.
+/// This thin wrapper refuses that build BEFORE any of [`run_inner`]'s setup runs,
+/// instead of diverging partway through it — the latter shape made every
+/// subsequent statement in the (very long) real body unreachable-by-construction
+/// for a `not(feature = "security"))` compile, cascading into unused-variable
+/// noise across the whole function rather than one clean refusal.
 async fn run() -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(not(feature = "security"))]
+    {
+        eprintln!("error: server deployment requires a build with the security feature");
+        std::process::exit(1);
+    }
+    #[cfg(feature = "security")]
+    {
+        run_inner().await
+    }
+}
+
+#[cfg(feature = "security")]
+async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
 
     if args.exact_performance_probe {
@@ -473,7 +478,12 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     // The served engine has one durability implementation: authoritative redb.
     // Every acknowledged mutation crosses the commit barrier, and bounded writer
-    // queues apply backpressure rather than dropping work.
+    // queues apply backpressure rather than dropping work. `RedbBackend` (and its
+    // owning module) is gated behind the `redb` feature, so a build without it
+    // (e.g. the slim `server`-only feature set) cannot reference the concrete
+    // type — fail loudly at boot on an attempted `--persist-dir` rather than
+    // silently downgrading to in-memory.
+    #[cfg(feature = "redb")]
     let persistence: Option<Arc<dyn epistemic_graph::server::persistence::PersistenceBackend>> =
         args.persist_dir.as_ref().map(|dir| {
             let policy = epistemic_graph::durability::DurabilityPolicy::from_env(
@@ -505,6 +515,16 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             });
             Arc::new(backend) as Arc<dyn epistemic_graph::server::persistence::PersistenceBackend>
         });
+    #[cfg(not(feature = "redb"))]
+    let persistence: Option<Arc<dyn epistemic_graph::server::persistence::PersistenceBackend>> = {
+        if args.persist_dir.is_some() {
+            eprintln!(
+                "error: --persist-dir requires a redb-enabled build (the `redb` feature is not compiled in)"
+            );
+            std::process::exit(2);
+        }
+        None
+    };
     let persistence_shutdown = persistence.clone();
 
     // OCC ACID transaction limits (CONCEPT:EG-KG.txn.multi-op-occ-acid).
@@ -606,58 +626,51 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(feature = "obs")]
     let obs_persist_dir = args.persist_dir.clone();
 
+    // RLS is unconditionally default-deny. Every served request carries a verified
+    // tenant context and resolves through provisioned durable identity/RBAC policy
+    // before any row is exposed. `run_inner` exists only under `security` (see
+    // `run`'s doc comment), so this path is always reachable here.
+    let isolation = {
+        info!(
+            "RLS default-deny ACTIVE: rows require explicit public visibility or an owner grant"
+        );
+        let isolation = match args.persist_dir.as_deref() {
+            Some(dir) => match IsolationLayer::with_persist_dir(dir) {
+                Ok(layer) => layer,
+                Err(error) => {
+                    eprintln!("error: could not open durable identity/RBAC policy: {error}");
+                    std::process::exit(1);
+                }
+            },
+            None => {
+                eprintln!(
+                    "error: secure request context requires --persist-dir / GRAPH_SERVICE_PERSIST_DIR for durable identity policy and replay state"
+                );
+                std::process::exit(1);
+            }
+        };
+        if let Err(error) = server::validate_verified_request_context_startup(
+            &args.auth_secret,
+            args.persist_dir.as_deref(),
+        ) {
+            eprintln!("error: invalid verified request-context configuration: {error}");
+            std::process::exit(1);
+        }
+        if isolation.identity_bootstrap_pending() {
+            info!(
+                "Identity policy is empty: only a signer-backed current-envelope System identity bootstrap is admitted"
+            );
+        }
+        isolation
+    };
+
     let state = Arc::new(RwLock::new(ServerState {
         #[cfg(feature = "redb")]
         cold_tracker: std::sync::Arc::new(
             epistemic_graph::server::persistence::cold_offload::ColdTenantTracker::new(),
         ),
         registry: GraphRegistry::new(),
-        isolation: {
-            // RLS is unconditionally default-deny. Every served request carries
-            // a verified tenant context and resolves through provisioned durable
-            // identity/RBAC policy before any row is exposed.
-            #[cfg(feature = "security")]
-            {
-                info!(
-                    "RLS default-deny ACTIVE: rows require explicit public visibility or an owner grant"
-                );
-                let isolation = match args.persist_dir.as_deref() {
-                    Some(dir) => match IsolationLayer::with_persist_dir(dir) {
-                        Ok(layer) => layer,
-                        Err(error) => {
-                            eprintln!(
-                                "error: could not open durable identity/RBAC policy: {error}"
-                            );
-                            std::process::exit(1);
-                        }
-                    },
-                    None => {
-                        eprintln!(
-                            "error: secure request context requires --persist-dir / GRAPH_SERVICE_PERSIST_DIR for durable identity policy and replay state"
-                        );
-                        std::process::exit(1);
-                    }
-                };
-                if let Err(error) = server::validate_verified_request_context_startup(
-                    &args.auth_secret,
-                    args.persist_dir.as_deref(),
-                ) {
-                    eprintln!("error: invalid verified request-context configuration: {error}");
-                    std::process::exit(1);
-                }
-                if isolation.identity_bootstrap_pending() {
-                    info!(
-                        "Identity policy is empty: only a signer-backed current-envelope System identity bootstrap is admitted"
-                    );
-                }
-                isolation
-            }
-            #[cfg(not(feature = "security"))]
-            {
-                eprintln!("error: server deployment requires a build with the security feature");
-                std::process::exit(1);
-            }
-        },
+        isolation,
         channels: ChannelManager::new(),
         auth_secret: args.auth_secret,
         persist_dir: args.persist_dir,
@@ -670,7 +683,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             epistemic_graph::write_coalescer::WriteCoalescerRegistry::new(),
         ),
         open_txns: std::sync::Arc::new(dashmap::DashMap::new()),
-        txn_id_gen: std::sync::Arc::new(epistemic_graph::server::txn::TxnIdGen::default()),
+        txn_id_gen: std::sync::Arc::new(epistemic_graph::server::txn::TxnIdGen),
         txn_ttl_secs,
         txn_max_per_graph,
         txn_max_per_agent,
@@ -1959,4 +1972,25 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
     info!("Shutdown complete");
     Ok(())
+}
+
+#[cfg(test)]
+mod listener_policy_tests {
+    use super::resolve_listener_addr;
+
+    #[test]
+    fn listener_resolution_stays_loopback_by_default() {
+        assert_eq!(
+            resolve_listener_addr(Some("on"), "127.0.0.1:9101"),
+            Some("127.0.0.1:9101".to_string())
+        );
+        assert_eq!(
+            resolve_listener_addr(Some("5433"), "127.0.0.1:9101"),
+            Some("127.0.0.1:5433".to_string())
+        );
+        assert_eq!(
+            resolve_listener_addr(Some("0.0.0.0:9101"), "127.0.0.1:9101"),
+            None
+        );
+    }
 }

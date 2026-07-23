@@ -42,7 +42,9 @@ use sha2::{Digest, Sha256};
 #[cfg(test)]
 use std::collections::HashMap;
 use std::collections::{BTreeMap, HashSet};
-use std::sync::{Mutex, OnceLock};
+#[cfg(any(test, feature = "security"))]
+use std::sync::Mutex;
+use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 type HmacSha256 = Hmac<Sha256>;
@@ -1666,7 +1668,11 @@ mod tests {
         }
         for truthy in ["true", "1", "yes", "on", "TRUE"] {
             std::env::set_var(PROBE, truthy);
-            assert_eq!(env_flag_explicit(PROBE), Some(true), "{truthy:?} must be truthy");
+            assert_eq!(
+                env_flag_explicit(PROBE),
+                Some(true),
+                "{truthy:?} must be truthy"
+            );
         }
 
         std::env::remove_var(PROBE);
@@ -1816,7 +1822,6 @@ mod tests {
             TEST_OIDC_VALIDATOR.with(|cell| cell.set(Some(validator)));
             OidcTestGuard
         }
-
 
         fn sign(claims: &serde_json::Value) -> String {
             let mut header = Header::new(JwtAlgorithm::RS256);
@@ -2063,10 +2068,7 @@ mod tests {
             let req = envelope_request(710, "oidc-require-unconfigured", matching_claims(), None);
             let error = verify_envelope_v2_with(SECRET, &req, &verified_policy(), &memory_replay())
                 .unwrap_err();
-            assert!(
-                error.contains("EPISTEMIC_GRAPH_REQUIRE_OIDC"),
-                "{error}"
-            );
+            assert!(error.contains("EPISTEMIC_GRAPH_REQUIRE_OIDC"), "{error}");
         }
 
         #[test]
@@ -2089,10 +2091,7 @@ mod tests {
             );
             let error = verify_envelope_v2_with(SECRET, &req, &verified_policy(), &memory_replay())
                 .unwrap_err();
-            assert!(
-                error.contains("EPISTEMIC_GRAPH_REQUIRE_OIDC"),
-                "{error}"
-            );
+            assert!(error.contains("EPISTEMIC_GRAPH_REQUIRE_OIDC"), "{error}");
         }
 
         #[test]

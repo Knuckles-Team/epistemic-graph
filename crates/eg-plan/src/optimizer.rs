@@ -776,7 +776,7 @@ mod tests {
 
         // Near-miss shapes must NOT be misrecognized.
         assert!(
-            !is_point_lookup(&[scan.clone()]),
+            !is_point_lookup(std::slice::from_ref(&scan)),
             "no Filter at all is not a point lookup"
         );
         let non_id_eq = Op::Filter {

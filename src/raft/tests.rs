@@ -66,7 +66,7 @@ async fn make_state_with_backend(
         per_graph_inflight_limit: 16,
         write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
         open_txns: Arc::new(dashmap::DashMap::new()),
-        txn_id_gen: Arc::new(crate::server::txn::TxnIdGen::default()),
+        txn_id_gen: Arc::new(crate::server::txn::TxnIdGen),
         txn_ttl_secs: 300,
         txn_max_per_graph: 256,
         txn_max_per_agent: 256,
@@ -585,7 +585,11 @@ mod placement_admin_wire_rpc {
             },
         );
         let resp = dispatch(state, req).await;
-        assert!(resp.error.is_none(), "GetNodeProperties failed: {:?}", resp.error);
+        assert!(
+            resp.error.is_none(),
+            "GetNodeProperties failed: {:?}",
+            resp.error
+        );
         match resp.result {
             Some(ResultPayload::PropertiesMsgpack(bytes)) => {
                 Some(rmp_serde::from_slice(&bytes).expect("typed node properties"))
@@ -631,7 +635,9 @@ mod placement_admin_wire_rpc {
                 .enable_all()
                 .build()
                 .expect("build engine-contract runtime");
-            runtime.block_on(placement_admin_wire_rpcs_move_data_across_a_real_three_node_cluster_body());
+            runtime.block_on(
+                placement_admin_wire_rpcs_move_data_across_a_real_three_node_cluster_body(),
+            );
         });
         driver
             .expect("spawn the engine test driver thread")
@@ -643,10 +649,8 @@ mod placement_admin_wire_rpc {
         use super::super::DEFAULT_GROUP;
         const TARGET_GROUP: super::super::GroupId = 1;
 
-        let tmp = std::env::temp_dir().join(format!(
-            "eg-placement-wire-test-{}",
-            std::process::id()
-        ));
+        let tmp =
+            std::env::temp_dir().join(format!("eg-placement-wire-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         let dirs: Vec<String> = (1..=3)
             .map(|i| {
@@ -701,7 +705,11 @@ mod placement_admin_wire_rpc {
             ),
         )
         .await;
-        assert!(assign_resp.error.is_none(), "PlacementAdmin assign failed: {:?}", assign_resp.error);
+        assert!(
+            assign_resp.error.is_none(),
+            "PlacementAdmin assign failed: {:?}",
+            assign_resp.error
+        );
         let epoch0 = match assign_resp.result {
             Some(ResultPayload::Json(v)) => v["epoch"].as_u64().expect("epoch in response"),
             other => panic!("expected a JSON epoch payload, got {other:?}"),
@@ -721,11 +729,19 @@ mod placement_admin_wire_rpc {
             ),
         )
         .await;
-        assert!(create_resp.error.is_none(), "CreateGraph failed: {:?}", create_resp.error);
+        assert!(
+            create_resp.error.is_none(),
+            "CreateGraph failed: {:?}",
+            create_resp.error
+        );
         let n_nodes = 6usize;
         for k in 0..n_nodes {
             let resp = add_node_via(&control_state, 10 + k as u64, &graph, &format!("m{k}")).await;
-            assert!(resp.error.is_none(), "AddNode m{k} failed: {:?}", resp.error);
+            assert!(
+                resp.error.is_none(),
+                "AddNode m{k} failed: {:?}",
+                resp.error
+            );
         }
         // Pick a node that is NOT the one we wrote through, to prove real
         // cross-node replication (not a same-process shortcut).
@@ -761,7 +777,11 @@ mod placement_admin_wire_rpc {
             ),
         )
         .await;
-        assert!(move_resp.error.is_none(), "PlacementAdmin move failed: {:?}", move_resp.error);
+        assert!(
+            move_resp.error.is_none(),
+            "PlacementAdmin move failed: {:?}",
+            move_resp.error
+        );
         let (moved_epoch, moved_nodes_transferred) = match move_resp.result {
             Some(ResultPayload::Json(v)) => (
                 v["epoch"].as_u64().expect("epoch in move report"),
@@ -771,7 +791,10 @@ mod placement_admin_wire_rpc {
             ),
             other => panic!("expected a JSON PlacementMoveReport payload, got {other:?}"),
         };
-        assert!(moved_epoch > epoch0, "the fenced cutover strictly bumps the epoch");
+        assert!(
+            moved_epoch > epoch0,
+            "the fenced cutover strictly bumps the epoch"
+        );
         assert_eq!(
             moved_nodes_transferred, n_nodes as u64,
             "the move report must account for every pre-move node"
@@ -815,39 +838,50 @@ mod placement_admin_wire_rpc {
         // ── 4b. PlacementRoute from the ACTUAL placement-control leader,
         //      presenting the PRE-move epoch, must be flagged stale and
         //      redirected to the new group. ──
-        let route_resp = dispatch(&control_state, signed_request(4, placement_route_request(epoch0)))
-            .await;
-        assert!(route_resp.error.is_none(), "PlacementRoute failed: {:?}", route_resp.error);
+        let route_resp = dispatch(
+            &control_state,
+            signed_request(4, placement_route_request(epoch0)),
+        )
+        .await;
+        assert!(
+            route_resp.error.is_none(),
+            "PlacementRoute failed: {:?}",
+            route_resp.error
+        );
         let route: crate::epistemic_operations::PlacementRoute = match route_resp.result {
             Some(ResultPayload::Raw(bytes)) => rmp_serde::from_slice(&bytes).unwrap(),
             other => panic!("expected a typed PlacementRoute, got {other:?}"),
         };
         assert!(route.placed);
-        assert_eq!(route.group, TARGET_GROUP, "the cutover is visible cluster-wide");
+        assert_eq!(
+            route.group, TARGET_GROUP,
+            "the cutover is visible cluster-wide"
+        );
         assert_eq!(route.epoch, moved_epoch);
-        assert!(route.stale, "a caller on the pre-move epoch must be redirected");
+        assert!(
+            route.stale,
+            "a caller on the pre-move epoch must be redirected"
+        );
 
         // ── 5. Post-move: the SAME data is still wire-readable, and a NEW
         //      write through the target group's leader lands. Data is placed
         //      AND readable after the reshard — not merely `Ok`. ──
-        let post_move_leader =
-            wait_for_group_leader(&nodes, TARGET_GROUP, Duration::from_secs(10))
-                .await
-                .expect("the target group must have a leader after cutover");
+        let post_move_leader = wait_for_group_leader(&nodes, TARGET_GROUP, Duration::from_secs(10))
+            .await
+            .expect("the target group must have a leader after cutover");
         let post_move_state = node_state(post_move_leader);
         for k in 0..n_nodes {
-            let val = read_node_via(
-                &post_move_state,
-                200 + k as u64,
-                &graph,
-                &format!("m{k}"),
-            )
-            .await
-            .unwrap_or_else(|| panic!("m{k} must survive the move and be wire-readable"));
+            let val = read_node_via(&post_move_state, 200 + k as u64, &graph, &format!("m{k}"))
+                .await
+                .unwrap_or_else(|| panic!("m{k} must survive the move and be wire-readable"));
             assert_eq!(val["id"], serde_json::json!(format!("m{k}")));
         }
         let post_resp = add_node_via(&post_move_state, 300, &graph, "post-move").await;
-        assert!(post_resp.error.is_none(), "post-move AddNode failed: {:?}", post_resp.error);
+        assert!(
+            post_resp.error.is_none(),
+            "post-move AddNode failed: {:?}",
+            post_resp.error
+        );
         // Read the post-move write back from yet another node to prove it
         // replicated on the NEW owning group, not merely landed locally.
         let final_reader = node_state(reader_id);
@@ -2002,16 +2036,12 @@ async fn wire_raft_add_learner_and_change_membership_resolve_through_dispatch() 
             RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"),
         );
         let state = make_state_with_backend(&dir, backend.clone()).await;
-        state
-            .write()
-            .await
-            .isolation
-            .register_agent(AgentIdentity {
-                agent_id: TEST_AGENT.to_string(),
-                role: AgentRole::System,
-                teams: Vec::new(),
-                roles: Vec::new(),
-            });
+        state.write().await.isolation.register_agent(AgentIdentity {
+            agent_id: TEST_AGENT.to_string(),
+            role: AgentRole::System,
+            teams: Vec::new(),
+            roles: Vec::new(),
+        });
         let ctx = super::AppCtx {
             state: state.clone(),
             router: None,
@@ -2146,9 +2176,11 @@ async fn wire_raft_add_learner_and_change_membership_resolve_through_dispatch() 
         )
         .expect("open redb"),
     );
-    let unclustered_state =
-        make_state_with_backend(&unclustered_dir.to_string_lossy(), unclustered_backend.clone())
-            .await;
+    let unclustered_state = make_state_with_backend(
+        &unclustered_dir.to_string_lossy(),
+        unclustered_backend.clone(),
+    )
+    .await;
     unclustered_state
         .write()
         .await

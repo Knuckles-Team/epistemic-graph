@@ -67,14 +67,14 @@ pub mod store;
 pub mod transition;
 
 pub use action::{Action, ActionValue};
-pub use check::{coverage, coverage_matrix, validate, Coverage, CompletenessReport, DefError, DefWarning};
+pub use check::{
+    coverage, coverage_matrix, validate, CompletenessReport, Coverage, DefError, DefWarning,
+};
 pub use context::{Context, EventInput};
 pub use guard::Guard;
 pub use instance::{Configuration, InstanceId, InstanceStatus, MachineInstance};
 pub use kg::{project, KgEdge, KgNode, KgProjection};
-pub use model::{
-    DefId, EventName, HistoryKind, State, StateId, StatechartDef, Transition,
-};
+pub use model::{DefId, EventName, HistoryKind, State, StateId, StatechartDef, Transition};
 pub use store::{SendOutcome, StatechartError, StatechartStore};
 pub use transition::{
     initial_configuration, step, transition, NoOpReason, StepOutcome, TransitionError,

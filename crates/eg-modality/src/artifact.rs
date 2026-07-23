@@ -112,12 +112,14 @@ macro_rules! opaque_id {
                 Ok(Self(reference))
             }
 
-            pub fn as_ref(&self) -> &OpaqueRef {
-                &self.0
-            }
-
             pub fn into_opaque(self) -> OpaqueRef {
                 self.0
+            }
+        }
+
+        impl AsRef<OpaqueRef> for $name {
+            fn as_ref(&self) -> &OpaqueRef {
+                &self.0
             }
         }
 

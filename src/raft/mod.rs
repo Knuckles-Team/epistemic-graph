@@ -971,13 +971,16 @@ fn native_domain(method: &Method) -> Option<NativeMutationDomain> {
 impl NativeMutationCommand {
     /// Convert only an explicitly inventoried public mutation into its bounded,
     /// encrypted native consensus domain. There is no raw public-method variant.
-    pub(crate) fn from_public_method(method: Method, server_secret: &str) -> Result<Self, Method> {
+    pub(crate) fn from_public_method(
+        method: Method,
+        server_secret: &str,
+    ) -> Result<Self, Box<Method>> {
         let Some(domain) = native_domain(&method) else {
-            return Err(method);
+            return Err(Box::new(method));
         };
         let sealed_method = match SealedNativeMethod::new(server_secret, &method) {
             Ok(value) => value,
-            Err(_) => return Err(method),
+            Err(_) => return Err(Box::new(method)),
         };
         Ok(match domain {
             NativeMutationDomain::GraphState => Self::GraphState { sealed_method },
@@ -1279,7 +1282,7 @@ impl ReplicatedMutation {
         }
     }
 
-    pub(crate) fn native_method(method: Method, server_secret: &str) -> Result<Self, Method> {
+    pub(crate) fn native_method(method: Method, server_secret: &str) -> Result<Self, Box<Method>> {
         NativeMutationCommand::from_public_method(method, server_secret)
             .map(|command| Self::Native { command })
     }

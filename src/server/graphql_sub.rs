@@ -640,7 +640,7 @@ async fn read_request(stream: &mut TcpStream) -> Result<HttpRequest, String> {
             return Err("duplicate header".into());
         }
     }
-    if !headers.get("host").is_some_and(|host| !host.is_empty())
+    if headers.get("host").is_none_or(|host| host.is_empty())
         || headers.contains_key("transfer-encoding")
         || headers
             .get("content-length")

@@ -1272,7 +1272,7 @@ async fn serve_conn(
             RaftFrame::One(rpc) => {
                 let gid = rpc.group_id();
                 let raft = groups.read().await.get(&gid).cloned();
-                RaftFrameReply::One(network::dispatch_group(raft, gid, rpc, &read_service).await)
+                RaftFrameReply::One(network::dispatch_group(raft, gid, *rpc, &read_service).await)
             }
             RaftFrame::Batch(rpcs) => {
                 if rpcs.is_empty()

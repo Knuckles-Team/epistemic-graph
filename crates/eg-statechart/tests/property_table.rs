@@ -24,7 +24,10 @@ use eg_statechart::{transition, Context, EventInput};
 struct Lcg(u64);
 impl Lcg {
     fn next(&mut self) -> u64 {
-        self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        self.0 = self
+            .0
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         self.0 >> 33
     }
     fn pick<'a, T>(&mut self, items: &'a [T]) -> &'a T {
@@ -43,22 +46,36 @@ fn counter_chart() -> StatechartDef {
             State::new("counting"),
             State::new("done"),
         ],
-        alphabet: vec!["start".into(), "inc".into(), "finish".into(), "reset".into()],
+        alphabet: vec![
+            "start".into(),
+            "inc".into(),
+            "finish".into(),
+            "reset".into(),
+        ],
         transitions: vec![
             Transition::new("idle", "start", "counting").with_actions(vec![Action::Assign {
                 key: "n".into(),
-                value: ActionValue::Const { value: serde_json::json!(0) },
+                value: ActionValue::Const {
+                    value: serde_json::json!(0),
+                },
             }]),
             // inc while below threshold: self-transition bumping n (guard reads context)
             Transition::new("counting", "inc", "counting")
-                .with_guard(Guard::Lt { key: "n".into(), value: 3.0 })
+                .with_guard(Guard::Lt {
+                    key: "n".into(),
+                    value: 3.0,
+                })
                 .with_actions(vec![Action::Assign {
                     key: "n".into(),
-                    value: ActionValue::Event { key: "n_next".into() },
+                    value: ActionValue::Event {
+                        key: "n_next".into(),
+                    },
                 }]),
             // finish only when n has reached the threshold
-            Transition::new("counting", "finish", "done")
-                .with_guard(Guard::Ge { key: "n".into(), value: 3.0 }),
+            Transition::new("counting", "finish", "done").with_guard(Guard::Ge {
+                key: "n".into(),
+                value: 3.0,
+            }),
             Transition::new("counting", "reset", "idle"),
         ],
         initial: "idle".into(),
@@ -83,16 +100,18 @@ fn walk(def: &StatechartDef, seed: u64, steps: usize) -> Vec<(String, Context)> 
         let event_name = lcg.pick(&def.alphabet).clone();
         // supply an incrementing candidate so the counter chart can make progress
         let n_now = context.get("n").and_then(|v| v.as_f64()).unwrap_or(0.0);
-        let event = EventInput::with_payload(
-            event_name,
-            serde_json::json!({"n_next": n_now + 1.0}),
-        );
+        let event =
+            EventInput::with_payload(event_name, serde_json::json!({"n_next": n_now + 1.0}));
 
         let before = (state.clone(), context.clone());
         let outcome = transition(def, &state, &context, &event).expect("event is in Σ");
 
         // INVARIANT: next_state is always a declared state.
-        assert!(states.contains(&outcome.next_state), "escaped S: {}", outcome.next_state);
+        assert!(
+            states.contains(&outcome.next_state),
+            "escaped S: {}",
+            outcome.next_state
+        );
 
         if !outcome.fired {
             // INVARIANT: a no-op leaves (state, context) exactly as they were.
@@ -121,12 +140,18 @@ fn coverage_matrix_pins_the_exact_shape() {
     // A representative slice of the grid — an accidentally-deleted edge changes a cell.
     assert_eq!(
         coverage(&def, "idle", "start"),
-        Coverage::Defined { to: "counting".into(), guarded: false }
+        Coverage::Defined {
+            to: "counting".into(),
+            guarded: false
+        }
     );
     assert_eq!(coverage(&def, "idle", "inc"), Coverage::NoOp);
     assert_eq!(
         coverage(&def, "counting", "inc"),
-        Coverage::Defined { to: "counting".into(), guarded: true }
+        Coverage::Defined {
+            to: "counting".into(),
+            guarded: true
+        }
     );
     // 'done' is final: nothing is defined out of it — every symbol is a no-op.
     for symbol in &def.alphabet {

@@ -38,10 +38,10 @@ enum Mutation {
 /// A generated node's property values (the fields the supported ops read).
 #[derive(Clone, Debug)]
 struct NodeSpec {
-    kind: String,   // -> "type"
-    year: i64,      // -> "year"  (Filter GtNum/LtNum/Eq)
-    ts: i64,        // -> "ts"    (WindowAgg bucketing)
-    value: i64,     // -> "value" (WindowAgg sum/mean); integers keep sums EXACT
+    kind: String, // -> "type"
+    year: i64,    // -> "year"  (Filter GtNum/LtNum/Eq)
+    ts: i64,      // -> "ts"    (WindowAgg bucketing)
+    value: i64,   // -> "value" (WindowAgg sum/mean); integers keep sums EXACT
     valid_from: i64,
     valid_until: i64,
 }
@@ -124,45 +124,87 @@ fn arb_mutation() -> impl Strategy<Value = Mutation> {
 fn arb_supported_plan() -> impl Strategy<Value = Plan> {
     prop_oneof![
         // Scan
-        Just(vec![Op::Scan { label: "Doc".into() }]),
+        Just(vec![Op::Scan {
+            label: "Doc".into()
+        }]),
         // Scan + Filter(GtNum)
         Just(vec![
-            Op::Scan { label: "Doc".into() },
-            Op::Filter { preds: vec![Pred::GtNum { prop: "year".into(), n: 2000.0 }] },
+            Op::Scan {
+                label: "Doc".into()
+            },
+            Op::Filter {
+                preds: vec![Pred::GtNum {
+                    prop: "year".into(),
+                    n: 2000.0
+                }]
+            },
         ]),
         // Scan + Filter(Eq + LtNum) + Limit
         Just(vec![
-            Op::Scan { label: "Note".into() },
+            Op::Scan {
+                label: "Note".into()
+            },
             Op::Filter {
                 preds: vec![
-                    Pred::Eq { prop: "type".into(), value: "Note".into() },
-                    Pred::LtNum { prop: "year".into(), n: 2005.0 },
+                    Pred::Eq {
+                        prop: "type".into(),
+                        value: "Note".into()
+                    },
+                    Pred::LtNum {
+                        prop: "year".into(),
+                        n: 2005.0
+                    },
                 ],
             },
             Op::Limit { k: 3 },
         ]),
         // Scan + AsOf + Limit
         Just(vec![
-            Op::Scan { label: "Doc".into() },
-            Op::AsOf { ts: 40.0, axis: TimeAxis::Valid },
+            Op::Scan {
+                label: "Doc".into()
+            },
+            Op::AsOf {
+                ts: 40.0,
+                axis: TimeAxis::Valid
+            },
             Op::Limit { k: 4 },
         ]),
         // Scan + WindowAgg(sum)
         Just(vec![
-            Op::Scan { label: "Doc".into() },
-            Op::WindowAgg { secs: 10.0, agg: "sum".into() },
+            Op::Scan {
+                label: "Doc".into()
+            },
+            Op::WindowAgg {
+                secs: 10.0,
+                agg: "sum".into()
+            },
         ]),
         // Scan + Filter + WindowAgg(count) + Limit
         Just(vec![
-            Op::Scan { label: "Doc".into() },
-            Op::Filter { preds: vec![Pred::GtNum { prop: "year".into(), n: 1995.0 }] },
-            Op::WindowAgg { secs: 15.0, agg: "count".into() },
+            Op::Scan {
+                label: "Doc".into()
+            },
+            Op::Filter {
+                preds: vec![Pred::GtNum {
+                    prop: "year".into(),
+                    n: 1995.0
+                }]
+            },
+            Op::WindowAgg {
+                secs: 15.0,
+                agg: "count".into()
+            },
             Op::Limit { k: 2 },
         ]),
         // Scan + WindowAgg(mean)
         Just(vec![
-            Op::Scan { label: "Doc".into() },
-            Op::WindowAgg { secs: 8.0, agg: "mean".into() },
+            Op::Scan {
+                label: "Doc".into()
+            },
+            Op::WindowAgg {
+                secs: 8.0,
+                agg: "mean".into()
+            },
         ]),
     ]
     .prop_map(Plan::new)

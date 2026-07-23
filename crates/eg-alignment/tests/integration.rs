@@ -10,7 +10,13 @@
 
 use eg_alignment::{AlignmentGraph, AlignmentNode, AlignmentRelation, InMemoryResolver};
 use eg_audio::AudioData;
-use eg_document::{DocumentDecoder, PlainTextDecoder};
+use eg_document::{content_hash, DocumentDecoder, NativeTextDecoder};
+
+/// A minimal `LexemeEncoder` for the fixture decodes below — the alignment test
+/// only needs a document to decode successfully, not any particular lexeme scheme.
+fn lexeme(value: &str) -> Option<String> {
+    Some(format!("eg:lexeme:{}", content_hash(value.as_bytes())))
+}
 use eg_modality::{
     ArtifactId, DerivationId, EvidenceAddress, EvidenceLocus, EvidenceLocusId, ModalityContract,
     OpaqueRef, ResourceId,
@@ -35,9 +41,9 @@ fn locus(address: EvidenceAddress, suffix: u8) -> EvidenceLocus {
 
 #[test]
 fn document_bytes_to_pages_to_spans() {
-    let decoder = PlainTextDecoder;
+    let decoder = NativeTextDecoder;
     let doc = decoder
-        .decode(b"the quick brown fox")
+        .decode(b"the quick brown fox", &lexeme)
         .expect("plain text decodes");
     assert_eq!(doc.pages.len(), 1);
     let span = doc.first_span().expect("a decoded document has a span");
@@ -75,9 +81,9 @@ fn video_artifact_via_the_modality_contract_trait() {
 /// image region hop.
 #[test]
 fn alignment_links_a_document_span_to_an_image_region_to_a_claim_and_resolves() {
-    let decoder = PlainTextDecoder;
+    let decoder = NativeTextDecoder;
     let doc = decoder
-        .decode(b"a fox jumps over the fence")
+        .decode(b"a fox jumps over the fence", &lexeme)
         .expect("plain text decodes");
     let doc_locus = locus(
         ModalityContract::evidence_address(&doc).expect("document has a span"),

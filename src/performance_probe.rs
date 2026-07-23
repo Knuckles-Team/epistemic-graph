@@ -1177,8 +1177,8 @@ fn probe_promql(scale: usize) -> Result<Observation, ProbeError> {
 
 fn property_blob(index: usize) -> Vec<u8> {
     rmp_serde::to_vec_named(&serde_json::json!({
-        "type": if index % 2 == 0 { "even" } else { "odd" },
-        "team": if index % 3 == 0 { "blue" } else { "red" },
+        "type": if index.is_multiple_of(2) { "even" } else { "odd" },
+        "team": if index.is_multiple_of(3) { "blue" } else { "red" },
         "index": index,
     }))
     .expect("bounded probe property encoding")
@@ -1412,7 +1412,7 @@ fn probe_flat_vector(row_id: &str, scale: usize) -> Result<Observation, ProbeErr
                 equivalent: selected
                     .iter()
                     .map(|hit| (hit.id, hit.distance))
-                    .eq(reference.into_iter()),
+                    .eq(reference),
             })
         }
         _ => Err("invalid flat-vector probe row".into()),
@@ -1515,10 +1515,7 @@ fn probe_time(row_id: &str, scale: usize) -> Result<Observation, ProbeError> {
                     allocation_bytes::<Option<Cell>>(fused.len().saturating_mul(scale)),
                 ),
                 latency_ns: latency,
-                equivalent: fused
-                    .iter()
-                    .map(|row| row.ts)
-                    .eq(expected_clock.into_iter())
+                equivalent: fused.iter().map(|row| row.ts).eq(expected_clock)
                     && fused.iter().all(|row| row.channels.len() == scale),
             })
         }

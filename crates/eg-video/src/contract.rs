@@ -143,12 +143,12 @@ impl GovernedModality for VideoData {
             && content_address(&self.blob_ref)
             && self
                 .frame_rate
-                .map_or(true, |rate| rate.is_finite() && rate > 0.0)
+                .is_none_or(|rate| rate.is_finite() && rate > 0.0)
             && self.shots.len() <= MAX_SHOTS
             && self.shots.iter().all(|shot| {
                 shot.end_ms > shot.start_ms
                     && shot.end_ms <= self.duration_ms
-                    && shot.label.as_deref().map_or(true, opaque)
+                    && shot.label.as_deref().is_none_or(opaque)
             })
             && !self.tracks.is_empty()
             && self.tracks.len() <= MAX_TRACKS

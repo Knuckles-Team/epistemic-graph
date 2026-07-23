@@ -236,7 +236,7 @@ fn federation_sparql_local_vector_foreign_sql_one_plan_eg385() {
             }],
         },
         Op::ForeignScan {
-            source: foreign,
+            source: Box::new(foreign),
             join: true,
         },
         Op::Rank {
@@ -275,9 +275,9 @@ fn federation_named_source_fails_closed_eg385() {
     use eg_types::wire::ForeignSourceSpec;
     let fx = crate::fixture::build();
     let plan = Plan::new(vec![Op::ForeignScan {
-        source: ForeignSourceSpec::Named {
+        source: Box::new(ForeignSourceSpec::Named {
             name: "untrusted-peer".into(),
-        },
+        }),
         join: false,
     }]);
     // No `.with_foreign(...)` on the ctx ⇒ the named source cannot resolve ⇒ error.

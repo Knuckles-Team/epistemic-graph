@@ -356,7 +356,8 @@ fn native_query_uses_rebuilt_posting_lists_and_exact_policy() {
     assert_eq!(stats.candidates, 1);
     assert_eq!(stats.examined, 1);
 
-    let recovered = ServedModalityRuntime::recover(&runtime.snapshot().unwrap()).unwrap();
+    let recovered =
+        ServedModalityRuntime::<TestDocument>::recover(&runtime.snapshot().unwrap()).unwrap();
     assert!(recovered.native_index_key_count() > 0);
     assert_eq!(recovered.query_native(&query).unwrap().0.records.len(), 1);
 }
@@ -384,7 +385,8 @@ fn selective_native_query_remains_bounded_at_scale() {
     assert_eq!(stats.examined, 64);
     assert!(stats.examined * 32 < RECORDS as usize);
 
-    let recovered = ServedModalityRuntime::recover(&runtime.snapshot().unwrap()).unwrap();
+    let recovered =
+        ServedModalityRuntime::<TestDocument>::recover(&runtime.snapshot().unwrap()).unwrap();
     let (_, recovered_stats) = recovered.query_native(&query).unwrap();
     assert_eq!(recovered_stats, stats);
 }

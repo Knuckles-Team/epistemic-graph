@@ -94,8 +94,13 @@ fn translate_pragma(sql: &str) -> Translated {
     };
     let rest = rest.trim_end_matches(';').trim();
     let (name_and_schema, arg) = split_pragma_call(rest);
-    let name = name_and_schema.rsplit('.').next().unwrap_or(name_and_schema);
-    let arg = arg.map(|a| unquote_ident(a.trim())).filter(|a| !a.is_empty());
+    let name = name_and_schema
+        .rsplit('.')
+        .next()
+        .unwrap_or(name_and_schema);
+    let arg = arg
+        .map(|a| unquote_ident(a.trim()))
+        .filter(|a| !a.is_empty());
 
     match name.to_ascii_lowercase().as_str() {
         "table_info" => match arg {
@@ -347,9 +352,10 @@ fn rewrite_regexp(sql: &str) -> String {
             scan_from = end;
             continue;
         }
-        let (Some(left_start), Some(right_end)) =
-            (scan_operand_backward(sql, start), scan_operand_forward(sql, end))
-        else {
+        let (Some(left_start), Some(right_end)) = (
+            scan_operand_backward(sql, start),
+            scan_operand_forward(sql, end),
+        ) else {
             scan_from = end;
             continue;
         };
@@ -591,7 +597,10 @@ mod tests {
         assert!(sql.contains("information_schema.columns"), "{sql}");
         assert!(sql.contains("table_name = 'users'"), "{sql}");
         assert!(sql.contains("AS cid") && sql.contains("AS pk"), "{sql}");
-        assert!(!sql.contains("hidden"), "table_info has no hidden column: {sql}");
+        assert!(
+            !sql.contains("hidden"),
+            "table_info has no hidden column: {sql}"
+        );
     }
 
     #[test]
@@ -683,7 +692,10 @@ mod tests {
             other => panic!("expected SQL: {other:?}"),
         };
         assert!(sql.starts_with("insert INTO users (id, name)"), "{sql}");
-        assert!(sql.contains("ON CONFLICT DO UPDATE SET name = EXCLUDED.name"), "{sql}");
+        assert!(
+            sql.contains("ON CONFLICT DO UPDATE SET name = EXCLUDED.name"),
+            "{sql}"
+        );
         // The `id` column is never reassigned (the engine forbids it).
         assert!(!sql.contains("id = EXCLUDED.id"), "{sql}");
     }
@@ -709,13 +721,15 @@ mod tests {
 
     #[test]
     fn without_rowid_is_stripped() {
-        let sql = match translate_sqlite_sql("CREATE TABLE t (id TEXT PRIMARY KEY) WITHOUT ROWID")
-        {
+        let sql = match translate_sqlite_sql("CREATE TABLE t (id TEXT PRIMARY KEY) WITHOUT ROWID") {
             Translated::Sql(s) => s,
             other => panic!("expected SQL: {other:?}"),
         };
         assert!(!sql.to_ascii_lowercase().contains("without rowid"), "{sql}");
-        assert!(sql.contains("CREATE TABLE t (id TEXT PRIMARY KEY)"), "{sql}");
+        assert!(
+            sql.contains("CREATE TABLE t (id TEXT PRIMARY KEY)"),
+            "{sql}"
+        );
     }
 
     #[test]
@@ -724,10 +738,7 @@ mod tests {
             Translated::Sql(s) => s,
             other => panic!("expected SQL: {other:?}"),
         };
-        assert_eq!(
-            sql,
-            "SELECT * FROM t WHERE regexp_match(name, '^a.*z$')"
-        );
+        assert_eq!(sql, "SELECT * FROM t WHERE regexp_match(name, '^a.*z$')");
     }
 
     #[test]

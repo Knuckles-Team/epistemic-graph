@@ -44,19 +44,6 @@ pub fn annidx_dir(persist_dir: &str, name: &str) -> std::path::PathBuf {
     Path::new(persist_dir).join(format!("{}.annidx", sanitize(name)))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::sanitize;
-
-    #[test]
-    fn durable_keys_are_path_safe_bounded_and_non_aliasing() {
-        assert_eq!(sanitize("graph-a"), "graph-a");
-        assert_ne!(sanitize("a:b"), sanitize("a/b"));
-        assert!(!sanitize("a/b").contains('/'));
-        assert!(sanitize(&"x".repeat(4_096)).len() <= 66);
-    }
-}
-
 /// Apply an Ebbinghaus decay sweep across every registered graph.
 pub async fn decay_all(
     state: &Arc<RwLock<ServerState>>,
@@ -137,4 +124,17 @@ pub async fn evict_oversized_all(state: &Arc<RwLock<ServerState>>, max_nodes: us
         );
     }
     evicted
+}
+
+#[cfg(test)]
+mod tests {
+    use super::sanitize;
+
+    #[test]
+    fn durable_keys_are_path_safe_bounded_and_non_aliasing() {
+        assert_eq!(sanitize("graph-a"), "graph-a");
+        assert_ne!(sanitize("a:b"), sanitize("a/b"));
+        assert!(!sanitize("a/b").contains('/'));
+        assert!(sanitize(&"x".repeat(4_096)).len() <= 66);
+    }
 }

@@ -235,8 +235,15 @@ mod tests {
     }
 
     /// A node-add CdcEvent carrying a `type`/`year` msgpack property blob.
-    fn add_node_event(seq: u64, graph: &str, id: &str, ty: &str, year: i64) -> eg_types::wire::CdcEvent {
-        let after = rmp_serde::to_vec_named(&serde_json::json!({"type": ty, "year": year})).unwrap();
+    fn add_node_event(
+        seq: u64,
+        graph: &str,
+        id: &str,
+        ty: &str,
+        year: i64,
+    ) -> eg_types::wire::CdcEvent {
+        let after =
+            rmp_serde::to_vec_named(&serde_json::json!({"type": ty, "year": year})).unwrap();
         eg_types::wire::CdcEvent {
             seq,
             graph: graph.into(),
@@ -251,8 +258,15 @@ mod tests {
         }
     }
 
-    fn remove_node_event(seq: u64, graph: &str, id: &str, ty: &str, year: i64) -> eg_types::wire::CdcEvent {
-        let before = rmp_serde::to_vec_named(&serde_json::json!({"type": ty, "year": year})).unwrap();
+    fn remove_node_event(
+        seq: u64,
+        graph: &str,
+        id: &str,
+        ty: &str,
+        year: i64,
+    ) -> eg_types::wire::CdcEvent {
+        let before =
+            rmp_serde::to_vec_named(&serde_json::json!({"type": ty, "year": year})).unwrap();
         eg_types::wire::CdcEvent {
             seq,
             graph: graph.into(),
@@ -272,36 +286,71 @@ mod tests {
         use eg_types::wire::{Op, Plan, Pred};
         // Scan{Doc} |> Filter year > 2000 — an Incremental-mode view.
         let plan = Plan::new(vec![
-            Op::Scan { label: "Doc".into() },
-            Op::Filter { preds: vec![Pred::GtNum { prop: "year".into(), n: 2000.0 }] },
+            Op::Scan {
+                label: "Doc".into(),
+            },
+            Op::Filter {
+                preds: vec![Pred::GtNum {
+                    prop: "year".into(),
+                    n: 2000.0,
+                }],
+            },
         ]);
         let circuit = Circuit::compile(&plan).unwrap();
-        let d = PlanMatView { name: "v".into(), graph: "g".into(), plan };
+        let d = PlanMatView {
+            name: "v".into(),
+            graph: "g".into(),
+            plan,
+        };
 
         let m = PlanMatViewManager::default();
         m.install_incremental(d, circuit, RowSet::new(), 0);
         assert_eq!(m.mode("v"), Some(Mode::Incremental));
 
         // add a passing Doc (2005), a filtered-out Doc (1999), a non-Doc — via CDC events.
-        assert_eq!(m.apply_delta("g", &add_node_event(0, "g", "a", "Doc", 2005)), 1);
-        assert_eq!(m.apply_delta("g", &add_node_event(1, "g", "b", "Doc", 1999)), 1);
-        assert_eq!(m.apply_delta("g", &add_node_event(2, "g", "x", "Other", 2010)), 1);
+        assert_eq!(
+            m.apply_delta("g", &add_node_event(0, "g", "a", "Doc", 2005)),
+            1
+        );
+        assert_eq!(
+            m.apply_delta("g", &add_node_event(1, "g", "b", "Doc", 1999)),
+            1
+        );
+        assert_eq!(
+            m.apply_delta("g", &add_node_event(2, "g", "x", "Other", 2010)),
+            1
+        );
         let rows = m.incremental_rows("v").unwrap();
-        assert_eq!(rows.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>(), vec!["a"]);
+        assert_eq!(
+            rows.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>(),
+            vec!["a"]
+        );
 
         // a change to a DIFFERENT graph maintains nothing.
-        assert_eq!(m.apply_delta("other", &add_node_event(3, "other", "c", "Doc", 2005)), 0);
+        assert_eq!(
+            m.apply_delta("other", &add_node_event(3, "other", "c", "Doc", 2005)),
+            0
+        );
 
         // remove the passing node → view empties.
-        assert_eq!(m.apply_delta("g", &remove_node_event(3, "g", "a", "Doc", 2005)), 1);
+        assert_eq!(
+            m.apply_delta("g", &remove_node_event(3, "g", "a", "Doc", 2005)),
+            1
+        );
         assert!(m.incremental_rows("v").unwrap().is_empty());
 
         // note_change does NOT flag an Incremental view stale (it's maintained, not retired).
         assert_eq!(m.note_change("g"), 0);
 
         // a delta below the watermark is skipped (idempotent replay guard): not maintained.
-        assert_eq!(m.apply_delta("g", &add_node_event(0, "g", "z", "Doc", 2005)), 0);
-        assert!(m.incremental_rows("v").unwrap().is_empty(), "stale seq is not folded");
+        assert_eq!(
+            m.apply_delta("g", &add_node_event(0, "g", "z", "Doc", 2005)),
+            0
+        );
+        assert!(
+            m.incremental_rows("v").unwrap().is_empty(),
+            "stale seq is not folded"
+        );
     }
 
     #[test]
@@ -309,9 +358,19 @@ mod tests {
         let m = PlanMatViewManager::default();
         m.define(def("r", "g")); // Recompute mode (empty plan)
         assert_eq!(m.mode("r"), Some(Mode::Recompute));
-        assert_eq!(m.apply_delta("g", &add_node_event(0, "g", "a", "Doc", 2005)), 0);
-        assert!(m.incremental_rows("r").is_none(), "recompute views expose no incremental rows");
-        assert_eq!(m.note_change("g"), 1, "recompute views still flag stale on CDC");
+        assert_eq!(
+            m.apply_delta("g", &add_node_event(0, "g", "a", "Doc", 2005)),
+            0
+        );
+        assert!(
+            m.incremental_rows("r").is_none(),
+            "recompute views expose no incremental rows"
+        );
+        assert_eq!(
+            m.note_change("g"),
+            1,
+            "recompute views still flag stale on CDC"
+        );
     }
 
     #[test]

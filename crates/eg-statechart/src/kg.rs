@@ -75,7 +75,10 @@ pub fn project(def: &StatechartDef) -> KgProjection {
     root_props.insert("name".into(), serde_json::json!(def.name));
     root_props.insert("initial".into(), serde_json::json!(def.initial));
     root_props.insert("finals".into(), serde_json::json!(def.finals));
-    root_props.insert("schema_version".into(), serde_json::json!(def.schema_version));
+    root_props.insert(
+        "schema_version".into(),
+        serde_json::json!(def.schema_version),
+    );
     root_props.insert("alphabet".into(), serde_json::json!(def.alphabet));
     projection.nodes.push(KgNode {
         id: def_id.clone(),
@@ -148,7 +151,10 @@ pub fn project(def: &StatechartDef) -> KgProjection {
         if let Some(guard) = &t.guard {
             let guard_id = format!("{node_id}/guard");
             let mut gprops = BTreeMap::new();
-            gprops.insert("spec".into(), serde_json::to_value(guard).unwrap_or_default());
+            gprops.insert(
+                "spec".into(),
+                serde_json::to_value(guard).unwrap_or_default(),
+            );
             gprops.insert("depth".into(), serde_json::json!(guard.depth()));
             projection.nodes.push(KgNode {
                 id: guard_id.clone(),
@@ -182,7 +188,10 @@ fn emit_action(
         "context_mutation".into(),
         serde_json::json!(action.is_context_mutation()),
     );
-    props.insert("spec".into(), serde_json::to_value(action).unwrap_or_default());
+    props.insert(
+        "spec".into(),
+        serde_json::to_value(action).unwrap_or_default(),
+    );
     projection.nodes.push(KgNode {
         id: action_id.clone(),
         labels: vec!["Action".into()],
@@ -210,7 +219,9 @@ mod tests {
                 State::new("open"),
                 State::new("closed").with_entry(vec![Action::Assign {
                     key: "shut".into(),
-                    value: ActionValue::Const { value: serde_json::json!(true) },
+                    value: ActionValue::Const {
+                        value: serde_json::json!(true),
+                    },
                 }]),
             ],
             alphabet: vec!["shut".into(), "open".into()],
@@ -228,11 +239,41 @@ mod tests {
     fn projects_root_states_and_transitions() {
         let p = project(&def());
         // 1 root + 2 states + 1 entry action + 2 transitions + 1 guard = 7 nodes.
-        assert_eq!(p.nodes.iter().filter(|n| n.labels.contains(&"StatechartDef".to_string())).count(), 1);
-        assert_eq!(p.nodes.iter().filter(|n| n.labels.contains(&"State".to_string())).count(), 2);
-        assert_eq!(p.nodes.iter().filter(|n| n.labels.contains(&"Transition".to_string())).count(), 2);
-        assert_eq!(p.nodes.iter().filter(|n| n.labels.contains(&"Guard".to_string())).count(), 1);
-        assert_eq!(p.nodes.iter().filter(|n| n.labels.contains(&"Action".to_string())).count(), 1);
+        assert_eq!(
+            p.nodes
+                .iter()
+                .filter(|n| n.labels.contains(&"StatechartDef".to_string()))
+                .count(),
+            1
+        );
+        assert_eq!(
+            p.nodes
+                .iter()
+                .filter(|n| n.labels.contains(&"State".to_string()))
+                .count(),
+            2
+        );
+        assert_eq!(
+            p.nodes
+                .iter()
+                .filter(|n| n.labels.contains(&"Transition".to_string()))
+                .count(),
+            2
+        );
+        assert_eq!(
+            p.nodes
+                .iter()
+                .filter(|n| n.labels.contains(&"Guard".to_string()))
+                .count(),
+            1
+        );
+        assert_eq!(
+            p.nodes
+                .iter()
+                .filter(|n| n.labels.contains(&"Action".to_string()))
+                .count(),
+            1
+        );
     }
 
     #[test]
@@ -240,8 +281,16 @@ mod tests {
         let p = project(&def());
         let ids: std::collections::BTreeSet<&str> = p.nodes.iter().map(|n| n.id.as_str()).collect();
         for edge in &p.edges {
-            assert!(ids.contains(edge.from.as_str()), "dangling edge source {}", edge.from);
-            assert!(ids.contains(edge.to.as_str()), "dangling edge target {}", edge.to);
+            assert!(
+                ids.contains(edge.from.as_str()),
+                "dangling edge source {}",
+                edge.from
+            );
+            assert!(
+                ids.contains(edge.to.as_str()),
+                "dangling edge target {}",
+                edge.to
+            );
         }
     }
 

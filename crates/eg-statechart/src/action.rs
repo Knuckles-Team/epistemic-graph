@@ -37,9 +37,10 @@ impl ActionValue {
     fn resolve(&self, context: &Context, event: &EventInput) -> serde_json::Value {
         match self {
             ActionValue::Const { value } => value.clone(),
-            ActionValue::Event { key } => {
-                event.payload_field(key).cloned().unwrap_or(serde_json::Value::Null)
-            }
+            ActionValue::Event { key } => event
+                .payload_field(key)
+                .cloned()
+                .unwrap_or(serde_json::Value::Null),
             ActionValue::Context { key } => {
                 context.get(key).cloned().unwrap_or(serde_json::Value::Null)
             }
@@ -62,7 +63,10 @@ pub enum Action {
     Log { message: String },
     /// A named, arbitrary effect the interpreter knows how to perform. Never touches
     /// context (the engine has no idea what it does — that is the interpreter's job).
-    Custom { name: String, args: serde_json::Value },
+    Custom {
+        name: String,
+        args: serde_json::Value,
+    },
 }
 
 impl Action {
@@ -109,10 +113,28 @@ mod tests {
         let event = EventInput::with_payload("e", serde_json::json!({"amount": 42}));
 
         let actions = vec![
-            Action::Assign { key: "a".into(), value: ActionValue::Const { value: serde_json::json!("x") } },
-            Action::Assign { key: "b".into(), value: ActionValue::Event { key: "amount".into() } },
-            Action::Assign { key: "c".into(), value: ActionValue::Context { key: "carry".into() } },
-            Action::Assign { key: "missing".into(), value: ActionValue::Event { key: "nope".into() } },
+            Action::Assign {
+                key: "a".into(),
+                value: ActionValue::Const {
+                    value: serde_json::json!("x"),
+                },
+            },
+            Action::Assign {
+                key: "b".into(),
+                value: ActionValue::Event {
+                    key: "amount".into(),
+                },
+            },
+            Action::Assign {
+                key: "c".into(),
+                value: ActionValue::Context {
+                    key: "carry".into(),
+                },
+            },
+            Action::Assign {
+                key: "missing".into(),
+                value: ActionValue::Event { key: "nope".into() },
+            },
         ];
         let out = apply_all(ctx, &actions, &event);
         assert_eq!(out.get("a"), Some(&serde_json::json!("x")));
@@ -128,9 +150,16 @@ mod tests {
         let event = EventInput::new("e");
         let actions = vec![
             Action::Remove { key: "gone".into() },
-            Action::Emit { signal: "beep".into() },
-            Action::Log { message: "hi".into() },
-            Action::Custom { name: "http".into(), args: serde_json::json!({"url": "x"}) },
+            Action::Emit {
+                signal: "beep".into(),
+            },
+            Action::Log {
+                message: "hi".into(),
+            },
+            Action::Custom {
+                name: "http".into(),
+                args: serde_json::json!({"url": "x"}),
+            },
         ];
         assert!(!actions[1].is_context_mutation());
         let out = apply_all(ctx, &actions, &event);

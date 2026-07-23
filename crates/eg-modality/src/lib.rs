@@ -158,16 +158,16 @@ mod harness_selftest {
                 Ok(rt) if &rt == self => ModalitySelfTest::Passed,
                 _ => ModalitySelfTest::Failed,
             };
-            let streaming = [encoded]
-                .into_iter()
-                .all(|item| {
-                    matches!(
-                        serde_json::from_slice::<SmokeValue>(&item),
-                        Ok(ref round_trip) if round_trip == self
-                    )
-                })
-                .then_some(ModalitySelfTest::Passed)
-                .unwrap_or(ModalitySelfTest::Failed);
+            let streaming = if [encoded].into_iter().all(|item| {
+                matches!(
+                    serde_json::from_slice::<SmokeValue>(&item),
+                    Ok(ref round_trip) if round_trip == self
+                )
+            }) {
+                ModalitySelfTest::Passed
+            } else {
+                ModalitySelfTest::Failed
+            };
             IngestReport { batch, streaming }
         }
         fn storage_stats(&self, _id: &str) -> Option<StorageStats> {

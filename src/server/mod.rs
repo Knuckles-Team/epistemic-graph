@@ -465,7 +465,7 @@ pub(crate) use dispatch::{
 pub(crate) use dispatch::{
     apply_replicated_native, apply_replicated_transaction_decision,
     apply_replicated_transaction_finalize, apply_replicated_transaction_participant,
-    apply_replicated_transaction_prepare,
+    apply_replicated_transaction_prepare, ReplicatedParticipantRef,
 };
 /// Public binary-facing policy hook for auxiliary carriers that cannot parse the
 /// verified RPC request envelope.
@@ -538,7 +538,7 @@ mod tests {
             per_graph_inflight_limit: 8,
             write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
             open_txns: Arc::new(DashMap::new()),
-            txn_id_gen: Arc::new(crate::server::txn::TxnIdGen::default()),
+            txn_id_gen: Arc::new(crate::server::txn::TxnIdGen),
             txn_ttl_secs: 300,
             txn_max_per_graph: 256,
             txn_max_per_agent: 256,
@@ -1198,7 +1198,7 @@ mod tests {
             endpoint: remote_addr,
             graph: "__commons__".into(),
             secret: SECRET.into(),
-            context: eg_types::acl::RequestContextClaims {
+            context: Box::new(eg_types::acl::RequestContextClaims {
                 principal: "agent:federation-test".into(),
                 tenant: "tenant-shared".into(),
                 audience: "epistemic-graph-test".into(),
@@ -1207,7 +1207,7 @@ mod tests {
                 scopes: vec!["kg:read".into()],
                 policy_version: "policy-test".into(),
                 delegation: vec![],
-            },
+            }),
             uql: "MATCH (:Doc) WHERE year > 2024 |> TRAVERSE -[:CITES]->{1,2}".into(),
             cypher: String::new(),
             id_field: String::new(),
@@ -1225,7 +1225,7 @@ mod tests {
                 }],
             },
             Op::ForeignScan {
-                source: foreign,
+                source: Box::new(foreign),
                 join: true,
             },
             Op::Rank {
@@ -1853,7 +1853,7 @@ mod tests {
             per_graph_inflight_limit: 1, // any one graph: a single slot
             write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
             open_txns: Arc::new(DashMap::new()),
-            txn_id_gen: Arc::new(crate::server::txn::TxnIdGen::default()),
+            txn_id_gen: Arc::new(crate::server::txn::TxnIdGen),
             txn_ttl_secs: 300,
             txn_max_per_graph: 256,
             txn_max_per_agent: 256,

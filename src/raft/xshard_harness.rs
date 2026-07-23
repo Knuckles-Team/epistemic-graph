@@ -63,7 +63,7 @@ async fn make_state(dir: &str, backend: Arc<dyn PersistenceBackend>) -> Arc<RwLo
         per_graph_inflight_limit: 16,
         write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
         open_txns: Arc::new(dashmap::DashMap::new()),
-        txn_id_gen: Arc::new(crate::server::txn::TxnIdGen::default()),
+        txn_id_gen: Arc::new(crate::server::txn::TxnIdGen),
         txn_ttl_secs: 300,
         txn_max_per_graph: 256,
         txn_max_per_agent: 256,
@@ -475,7 +475,31 @@ async fn recovery_aborts_in_doubt_txn_with_no_decision_record() {
 // ─────────────────────────────────────────────────────────────────────────
 
 use crate::protocol::{Response, ResultPayload};
-use crate::server::handlers::txn::try_handle as txn_handle;
+
+const XSHARD_HARNESS_TEST_AGENT: &str = "xshard-harness-agent";
+
+/// Thin wrapper over `handlers::txn::try_handle` binding the harness's fixed test
+/// identity to a `VerifiedRequestContext` (CONCEPT:EG-KG.txn.routes-cross-shard-txn drift fix
+/// cbde3e3: `try_handle` gained a mandatory `caller`/`verified_context` pair that this
+/// harness's call sites never picked up). Mirrors the identical pattern in
+/// `server/persistence/redb_backend.rs`'s cross-modal ACID test module.
+async fn txn_handle(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+    _caller: Option<&str>,
+    method: Method,
+) -> Result<Response, Method> {
+    let context =
+        crate::server::auth::VerifiedRequestContext::verified_for_test(XSHARD_HARNESS_TEST_AGENT);
+    crate::server::handlers::txn::try_handle(
+        state,
+        req_id,
+        XSHARD_HARNESS_TEST_AGENT,
+        &context,
+        method,
+    )
+    .await
+}
 
 /// Register `shardA`/`shardB` in the registry + wire `state.multi_raft` so the
 /// user-facing commit path can resolve the cross-shard span (CONCEPT:EG-KG.txn.routes-cross-shard-txn).

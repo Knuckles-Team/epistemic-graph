@@ -2282,13 +2282,15 @@ impl WireSession {
         );
         let mut txn = crate::server::txn::GraphTxnState::new(
             &core,
-            graph.to_string(),
-            authority.tenant_scope().to_string(),
-            core.version(),
-            crate::server::txn::IsolationLevel::Snapshot,
-            None,
-            authority.owner_scope().to_string(),
-            crate::server::txn::now_ms(),
+            crate::server::txn::NewTxnArgs {
+                graph: graph.to_string(),
+                tenant_scope: authority.tenant_scope().to_string(),
+                begin_version: core.version(),
+                isolation: crate::server::txn::IsolationLevel::Snapshot,
+                predicate: None,
+                agent: authority.owner_scope().to_string(),
+                now_ms: crate::server::txn::now_ms(),
+            },
         );
         for method in methods {
             txn.stage(&core, method, crate::server::txn::now_ms());
@@ -2685,13 +2687,12 @@ impl WireSession {
                         _marker: std::marker::PhantomData,
                     },
                     #[cfg(feature = "tsdb")]
-                    tsdb.as_deref(),
-                    #[cfg(feature = "tsdb")]
-                    tsdb_tenant.as_deref(),
-                    #[cfg(feature = "tsdb")]
-                    tsdb_graph.as_deref(),
-                    #[cfg(feature = "tsdb")]
-                    Some(&staged_series),
+                    crate::server::handlers::query::TsdbLegBind {
+                        tsdb: tsdb.as_deref(),
+                        tsdb_tenant: tsdb_tenant.as_deref(),
+                        tsdb_graph: tsdb_graph.as_deref(),
+                        staged_series: Some(&staged_series),
+                    },
                 )
             } else {
                 let committed = core_for_ctx.semantic_store.read().clone();
@@ -2709,13 +2710,12 @@ impl WireSession {
                         _marker: std::marker::PhantomData,
                     },
                     #[cfg(feature = "tsdb")]
-                    tsdb.as_deref(),
-                    #[cfg(feature = "tsdb")]
-                    tsdb_tenant.as_deref(),
-                    #[cfg(feature = "tsdb")]
-                    tsdb_graph.as_deref(),
-                    #[cfg(feature = "tsdb")]
-                    Some(&staged_series),
+                    crate::server::handlers::query::TsdbLegBind {
+                        tsdb: tsdb.as_deref(),
+                        tsdb_tenant: tsdb_tenant.as_deref(),
+                        tsdb_graph: tsdb_graph.as_deref(),
+                        staged_series: Some(&staged_series),
+                    },
                 )
             }
         })
@@ -2733,13 +2733,15 @@ impl WireSession {
         let authority = self.carrier_authority()?;
         Ok(crate::server::txn::GraphTxnState::new(
             &core,
-            graph.to_string(),
-            authority.tenant_scope().to_string(),
-            core.version(),
-            crate::server::txn::IsolationLevel::Snapshot,
-            None,
-            authority.owner_scope().to_string(),
-            crate::server::txn::now_ms(),
+            crate::server::txn::NewTxnArgs {
+                graph: graph.to_string(),
+                tenant_scope: authority.tenant_scope().to_string(),
+                begin_version: core.version(),
+                isolation: crate::server::txn::IsolationLevel::Snapshot,
+                predicate: None,
+                agent: authority.owner_scope().to_string(),
+                now_ms: crate::server::txn::now_ms(),
+            },
         ))
     }
 

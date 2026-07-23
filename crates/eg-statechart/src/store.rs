@@ -68,9 +68,16 @@ pub enum StatechartError {
     InvalidDefinition(Vec<crate::check::DefError>),
     /// A `send_event` request was itself malformed (unknown state/event, …). Distinct
     /// from a legitimate no-op, which is NOT an error.
-    InvalidTransition { instance_id: String, reason: String },
+    InvalidTransition {
+        instance_id: String,
+        reason: String,
+    },
     /// OCC conflict: the caller's `expected_version` did not match the stored version.
-    VersionConflict { instance_id: String, expected: u64, actual: u64 },
+    VersionConflict {
+        instance_id: String,
+        expected: u64,
+        actual: u64,
+    },
 }
 
 impl std::fmt::Display for StatechartError {
@@ -140,12 +147,18 @@ fn encode_def(def: &StatechartDef) -> Result<Vec<u8>> {
 
 fn encode_instance(instance: &MachineInstance) -> Result<Vec<u8>> {
     let states_valid = !instance.configuration.active.is_empty()
-        && instance.configuration.active.iter().all(|s| valid_identifier(s));
+        && instance
+            .configuration
+            .active
+            .iter()
+            .all(|s| valid_identifier(s));
     if instance.instance_id.len() > MAX_ID_BYTES
         || !valid_identifier(&instance.def_id)
         || !states_valid
     {
-        return Err(codec_err("statechart instance record exceeds storage limits"));
+        return Err(codec_err(
+            "statechart instance record exceeds storage limits",
+        ));
     }
     let bytes = rmp_serde::to_vec_named(instance).map_err(codec_err)?;
     if bytes.len() > MAX_STORED_BYTES {
@@ -222,7 +235,9 @@ impl StatechartStore {
         let wtx = self.db.begin_write().map_err(redb_err)?;
         {
             let mut table = wtx.open_table(DEFS).map_err(redb_err)?;
-            table.insert(def_id.as_str(), blob.as_slice()).map_err(redb_err)?;
+            table
+                .insert(def_id.as_str(), blob.as_slice())
+                .map_err(redb_err)?;
         }
         wtx.commit().map_err(redb_err)?;
         Ok(def_id)
@@ -250,7 +265,9 @@ impl StatechartStore {
         for entry in table.iter().map_err(redb_err)? {
             let (k, _) = entry.map_err(redb_err)?;
             if out.len() >= MAX_LIST_ITEMS {
-                return Err(codec_err("statechart definition list exceeds response limits"));
+                return Err(codec_err(
+                    "statechart definition list exceeds response limits",
+                ));
             }
             out.push(k.value().to_string());
         }
@@ -331,8 +348,14 @@ impl StatechartStore {
                         .insert(instance.instance_id.as_str(), blob.as_slice())
                         .map_err(redb_err)?;
                 }
-                eg_mutation_store::finish(&wtx, &batch, Some(blob), committed_at_ms, source_version)
-                    .map_err(redb_err)?;
+                eg_mutation_store::finish(
+                    &wtx,
+                    &batch,
+                    Some(blob),
+                    committed_at_ms,
+                    source_version,
+                )
+                .map_err(redb_err)?;
                 eg_mutation_store::commit(wtx, &batch).map_err(redb_err)?;
                 Ok(())
             }
@@ -428,7 +451,10 @@ impl StatechartStore {
                 // replay of a re-proposed transition); the instance is already at
                 // `next`. Report it without writing again.
                 wtx.abort().map_err(redb_err)?;
-                Ok(SendOutcome { instance: next, outcome })
+                Ok(SendOutcome {
+                    instance: next,
+                    outcome,
+                })
             }
             eg_mutation_store::Begin::Apply { source_version } => {
                 // Re-open the row inside the write txn and re-check the OCC version.
@@ -450,7 +476,9 @@ impl StatechartStore {
                         // Someone advanced the instance between our read and our write.
                         Err(current.version)
                     } else {
-                        table.insert(instance_id, blob.as_slice()).map_err(redb_err)?;
+                        table
+                            .insert(instance_id, blob.as_slice())
+                            .map_err(redb_err)?;
                         Ok(())
                     }
                 };
@@ -465,7 +493,10 @@ impl StatechartStore {
                         )
                         .map_err(redb_err)?;
                         eg_mutation_store::commit(wtx, &batch).map_err(redb_err)?;
-                        Ok(SendOutcome { instance: next, outcome })
+                        Ok(SendOutcome {
+                            instance: next,
+                            outcome,
+                        })
                     }
                     Err(actual) => {
                         wtx.abort().map_err(redb_err)?;
@@ -498,7 +529,9 @@ impl StatechartStore {
         for entry in table.iter().map_err(redb_err)? {
             let (k, v) = entry.map_err(redb_err)?;
             if out.len() >= MAX_LIST_ITEMS {
-                return Err(codec_err("statechart instance list exceeds response limits"));
+                return Err(codec_err(
+                    "statechart instance list exceeds response limits",
+                ));
             }
             match def_id {
                 None => out.push(k.value().to_string()),
@@ -527,11 +560,13 @@ impl StatechartStore {
         for entry in table.iter().map_err(redb_err)? {
             let (_, v) = entry.map_err(redb_err)?;
             if out.len() >= MAX_LIST_ITEMS {
-                return Err(codec_err("statechart instance list exceeds response limits"));
+                return Err(codec_err(
+                    "statechart instance list exceeds response limits",
+                ));
             }
             let instance: MachineInstance = decode_stored(v.value())?;
             let owned = instance.tenant == tenant && instance.actor == actor;
-            let matches_def = def_id.map_or(true, |want| instance.def_id == want);
+            let matches_def = def_id.is_none_or(|want| instance.def_id == want);
             if owned && matches_def {
                 out.push(instance);
             }
@@ -738,9 +773,19 @@ mod tests {
         let err = store
             .send_event(&instance.instance_id, &EventInput::new("coin"), Some(5))
             .unwrap_err();
-        assert!(matches!(err, StatechartError::VersionConflict { expected: 5, actual: 0, .. }));
+        assert!(matches!(
+            err,
+            StatechartError::VersionConflict {
+                expected: 5,
+                actual: 0,
+                ..
+            }
+        ));
         // and the instance did not advance
-        assert_eq!(store.get_instance(&instance.instance_id).unwrap().version, 0);
+        assert_eq!(
+            store.get_instance(&instance.instance_id).unwrap().version,
+            0
+        );
     }
 
     #[test]
@@ -763,7 +808,9 @@ mod tests {
 
         // instantiate itself is an authoritative instance write: it must land one
         // durable batch through the gateway, advancing the mutation-domain version.
-        let instance = store.instantiate(&def_id, Context::new(), "t", "a").unwrap();
+        let instance = store
+            .instantiate(&def_id, Context::new(), "t", "a")
+            .unwrap();
         let v_after_instantiate = store.mutation_version().unwrap();
         assert_eq!(
             v_after_instantiate, 1,
@@ -799,7 +846,10 @@ mod tests {
         assert_eq!(committed_image, out.instance);
         let outbox = eg_mutation_store::read_outbox(&store.db, &batch.batch_id).unwrap();
         assert_eq!(outbox.len(), 1);
-        assert_eq!(outbox[0].intent.topic, "engine.statechart-instance.transitioned");
+        assert_eq!(
+            outbox[0].intent.topic,
+            "engine.statechart-instance.transitioned"
+        );
 
         // A well-defined NO-OP must NOT open a batch: the gateway version is unchanged.
         // 'coin' from 'unlocked' is undefined ⇒ no-op.
@@ -829,13 +879,28 @@ mod tests {
     fn ownership_listing_filters_by_tenant_actor_and_def() {
         let (store, _dir) = store();
         let def_id = store.define(&turnstile()).unwrap();
-        store.instantiate(&def_id, Context::new(), "t1", "a1").unwrap();
-        store.instantiate(&def_id, Context::new(), "t1", "a1").unwrap();
-        store.instantiate(&def_id, Context::new(), "t2", "a2").unwrap();
-        assert_eq!(store.list_owned_instances("t1", "a1", None).unwrap().len(), 2);
-        assert_eq!(store.list_owned_instances("t2", "a2", None).unwrap().len(), 1);
+        store
+            .instantiate(&def_id, Context::new(), "t1", "a1")
+            .unwrap();
+        store
+            .instantiate(&def_id, Context::new(), "t1", "a1")
+            .unwrap();
+        store
+            .instantiate(&def_id, Context::new(), "t2", "a2")
+            .unwrap();
         assert_eq!(
-            store.list_owned_instances("t1", "a1", Some(&def_id)).unwrap().len(),
+            store.list_owned_instances("t1", "a1", None).unwrap().len(),
+            2
+        );
+        assert_eq!(
+            store.list_owned_instances("t2", "a2", None).unwrap().len(),
+            1
+        );
+        assert_eq!(
+            store
+                .list_owned_instances("t1", "a1", Some(&def_id))
+                .unwrap()
+                .len(),
             2
         );
         assert!(store
@@ -854,7 +919,12 @@ mod tests {
         StatechartDef {
             name: "nested".into(),
             schema_version: 1,
-            states: vec![active, State::new("idle"), State::new("running"), State::new("off")],
+            states: vec![
+                active,
+                State::new("idle"),
+                State::new("running"),
+                State::new("off"),
+            ],
             alphabet: vec!["start".into(), "kill".into()],
             transitions: vec![
                 Transition::new("idle", "start", "running"),
@@ -873,7 +943,9 @@ mod tests {
         {
             let store = StatechartStore::open_in_dir(dir.path()).unwrap();
             let def_id = store.define(&nested()).unwrap();
-            let inst = store.instantiate(&def_id, Context::new(), "t", "a").unwrap();
+            let inst = store
+                .instantiate(&def_id, Context::new(), "t", "a")
+                .unwrap();
             instance_id = inst.instance_id.clone();
             // Initial configuration descended into the default child.
             assert!(inst.in_state("active") && inst.in_state("idle"));

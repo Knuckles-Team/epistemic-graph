@@ -163,7 +163,7 @@ fn decode_png(bytes: &[u8]) -> Option<DecodedImage> {
                     && !seen_palette
                     && !seen_idat
                     && length >= 3
-                    && length % 3 == 0
+                    && length.is_multiple_of(3)
                     && length <= 768 =>
             {
                 seen_palette = true;

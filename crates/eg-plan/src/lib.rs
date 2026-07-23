@@ -80,14 +80,6 @@ pub mod uql;
 /// carries an optional `knowledge::ProjectionSchema`).
 #[cfg(feature = "query")]
 pub mod dag;
-/// DBSP-style INCREMENTAL materialized-view maintenance (CONCEPT:EG-KG.storage.incremental-matview):
-/// a dep-free Z-set delta model + a circuit compiler for the LINEAR operator subset
-/// (`Scan`/`Filter`/`AsOf`/`WindowAgg`(linear)/`Limit`), generalizing `src/server/cdc.rs`'s
-/// hand-rolled `ContinuousQuery`/`maintain()` mini-DBSP to an arbitrary supported `Plan`.
-/// An unsupported op returns [`incremental::UnsupportedOp`] so the server keeps that view
-/// on the recompute path — a per-view fallback, never a silently-wrong incremental result.
-#[cfg(feature = "query")]
-pub mod incremental;
 /// Physical execution of a [`dag::PlanDag`] (CONCEPT:EG-KG.query.plan-dag-exec, E5 phase 2) —
 /// [`dag_exec::execute_dag`] runs ALONGSIDE the untouched [`exec::execute`]; for a
 /// degenerate linear-chain dag it is byte-identical to it (the differential oracle proves
@@ -96,6 +88,14 @@ pub mod incremental;
 pub mod dag_exec;
 #[cfg(feature = "query")]
 pub mod exec;
+/// DBSP-style INCREMENTAL materialized-view maintenance (CONCEPT:EG-KG.storage.incremental-matview):
+/// a dep-free Z-set delta model + a circuit compiler for the LINEAR operator subset
+/// (`Scan`/`Filter`/`AsOf`/`WindowAgg`(linear)/`Limit`), generalizing `src/server/cdc.rs`'s
+/// hand-rolled `ContinuousQuery`/`maintain()` mini-DBSP to an arbitrary supported `Plan`.
+/// An unsupported op returns [`incremental::UnsupportedOp`] so the server keeps that view
+/// on the recompute path — a per-view fallback, never a silently-wrong incremental result.
+#[cfg(feature = "query")]
+pub mod incremental;
 /// RowSet v2, additive (CONCEPT:EG-KG.query.knowledge-set): [`knowledge::KnowledgeSet`] is the
 /// enriched shape (kind/confidence/bitemporal window/column-projection/provenance+policy
 /// frames) a caller builds from a FINISHED `RowSet` + the `GraphView` it ran over — a
@@ -176,12 +176,12 @@ pub use exec::{execute, PlanCtx, PlanExt};
 #[cfg(feature = "query")]
 pub use dag::{NodeId, PlanDag, PlanNode};
 
+#[cfg(feature = "query")]
+pub use dag_exec::{execute_dag, execute_dag_with};
 /// The incremental-matview surface (CONCEPT:EG-KG.storage.incremental-matview): the Z-set
 /// delta model + the circuit a caller compiles a `Plan` into and folds CDC deltas through.
 #[cfg(feature = "query")]
 pub use incremental::{Circuit, Delta, UnsupportedOp, ZRow};
-#[cfg(feature = "query")]
-pub use dag_exec::{execute_dag, execute_dag_with};
 
 /// The RowSet v2 surface (CONCEPT:EG-KG.query.knowledge-set): the enriched, ready-to-consume
 /// row/set shape a caller builds from a finished `RowSet` + the `GraphView` it ran over.

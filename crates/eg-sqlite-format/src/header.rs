@@ -43,7 +43,9 @@ impl DatabaseHeader {
             raw_page_size as u32
         };
         if page_size < 512 || !page_size.is_power_of_two() {
-            return Err(Error::corrupt("page size not a power of two in [512,65536]"));
+            return Err(Error::corrupt(
+                "page size not a power of two in [512,65536]",
+            ));
         }
         let text_encoding = u32::from_be_bytes([buf[56], buf[57], buf[58], buf[59]]);
         if text_encoding != 1 {

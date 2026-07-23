@@ -420,6 +420,18 @@ pub struct SeriesStore {
     db: Database,
 }
 
+/// The scoped-append request for [`SeriesStore::append_scoped_batch`], bundled into
+/// one type so the entry point stays under clippy's `too_many_arguments` threshold
+/// without dropping any of the fields the append + terminal MutationBatch commit need.
+pub struct ScopedAppendBatch<'a> {
+    pub n_fields: usize,
+    pub bucket_ns: u64,
+    pub field_names: &'a [String],
+    pub points: &'a [Point],
+    pub batch: &'a MutationBatch,
+    pub committed_at_ms: u64,
+}
+
 impl SeriesStore {
     /// Open (or create) the series store at `path`, materializing the schema so an
     /// empty DB is queryable.
@@ -515,13 +527,16 @@ impl SeriesStore {
     pub fn append_scoped_batch(
         &self,
         key: &SeriesKey,
-        n_fields: usize,
-        bucket_ns: u64,
-        field_names: &[String],
-        points: &[Point],
-        batch: &MutationBatch,
-        committed_at_ms: u64,
+        request: ScopedAppendBatch<'_>,
     ) -> Result<u64> {
+        let ScopedAppendBatch {
+            n_fields,
+            bucket_ns,
+            field_names,
+            points,
+            batch,
+            committed_at_ms,
+        } = request;
         let storage_key = key.encode();
         let wtx = self.db.begin_write().map_err(redb_err)?;
         match eg_mutation_store::begin(&wtx, batch).map_err(redb_err)? {
@@ -1150,7 +1165,7 @@ mod ordered_chunk_tests {
             ts: vec![10, 20],
             vals: vec![10.0, 10.5, 20.0, 20.5],
         };
-        let incoming = vec![
+        let incoming = [
             Point {
                 ts: 20,
                 values: vec![21.0, 21.5],

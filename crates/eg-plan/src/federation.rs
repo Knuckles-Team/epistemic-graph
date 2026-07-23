@@ -688,7 +688,7 @@ fn validate_http_json_target(url: &str) -> Result<ValidatedHttpJsonTarget, Strin
     if has_sensitive_address && !allowlisted {
         return Err("federation: HTTP JSON destination is not allowed".to_string());
     }
-    if !is_https && !(has_sensitive_address && allowlisted) {
+    if !(is_https || has_sensitive_address && allowlisted) {
         return Err("federation: HTTP JSON source requires HTTPS".to_string());
     }
 
@@ -928,7 +928,7 @@ mod http_json_security_tests {
     #[test]
     fn json_preflight_rejects_excessive_nesting() {
         let mut body = vec![b'['; MAX_HTTP_JSON_DEPTH + 1];
-        body.extend(std::iter::repeat(b']').take(MAX_HTTP_JSON_DEPTH + 1));
+        body.extend(std::iter::repeat_n(b']', MAX_HTTP_JSON_DEPTH + 1));
         assert!(validate_json_shape(&body).is_err());
     }
 
@@ -1483,9 +1483,9 @@ mod symmetric_scan_oracle {
         }];
         internal_ops.extend(downstream());
         let mut foreign_ops = vec![Op::ForeignScan {
-            source: ForeignSourceSpec::Named {
+            source: Box::new(ForeignSourceSpec::Named {
                 name: "mirror-doc".into(),
-            },
+            }),
             join: false,
         }];
         foreign_ops.extend(downstream());

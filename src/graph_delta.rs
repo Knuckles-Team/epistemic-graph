@@ -101,7 +101,7 @@ impl GraphRowDelta {
             .filter_map(|(node_id, properties)| {
                 let changed = before_nodes
                     .get(node_id)
-                    .map_or(true, |previous| *previous != *properties);
+                    .is_none_or(|previous| *previous != *properties);
                 (changed || forced_node_replacements.contains(*node_id)).then_some(*node_id)
             })
             .collect();
@@ -153,7 +153,7 @@ impl GraphRowDelta {
             .filter_map(|(node_id, embedding)| {
                 before_embeddings
                     .get(node_id)
-                    .map_or(true, |previous| !same_embedding(previous, embedding))
+                    .is_none_or(|previous| !same_embedding(previous, embedding))
                     .then_some(node_id.as_str())
             })
             .collect();
@@ -210,7 +210,7 @@ impl GraphRowDelta {
             .operations
             .len()
             .checked_add(ledger_operations)
-            .map_or(true, |count| count > MAX_DELTA_OPERATIONS)
+            .is_none_or(|count| count > MAX_DELTA_OPERATIONS)
         {
             return Err("graph row delta exceeds the operation limit".to_string());
         }

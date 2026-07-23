@@ -164,7 +164,10 @@ pub fn audit_line(method: &Method) -> Option<String> {
             "FROM_MSGPACK|sha256:{}",
             hex::encode(Sha256::digest(msgpack))
         ),
-        Method::Reconcile { graph_name, msgpack } => format!(
+        Method::Reconcile {
+            graph_name,
+            msgpack,
+        } => format!(
             "RECONCILE|{graph_name}|sha256:{}",
             hex::encode(Sha256::digest(msgpack))
         ),

@@ -49,9 +49,11 @@ const MAX_DEF_ITEMS: usize = 500_000;
 /// there is no process-temp store that can vanish across a restart.
 fn statechart_store(persist_dir: Option<&str>) -> Result<Arc<StatechartStore>, String> {
     static STORE: OnceLock<Result<Arc<StatechartStore>, String>> = OnceLock::new();
-    let persist_dir = persist_dir.filter(|value| !value.is_empty()).ok_or_else(|| {
-        "statechart engine requires a configured durable persistence directory".to_string()
-    })?;
+    let persist_dir = persist_dir
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            "statechart engine requires a configured durable persistence directory".to_string()
+        })?;
     STORE
         .get_or_init(|| {
             StatechartStore::open_in_dir(Path::new(persist_dir))
@@ -97,9 +99,7 @@ pub(crate) async fn handle(
             payload,
             expected_version,
         ),
-        StatechartOp::GetState { instance_id } => {
-            op_get_state(&store, tenant, actor, &instance_id)
-        }
+        StatechartOp::GetState { instance_id } => op_get_state(&store, tenant, actor, &instance_id),
         StatechartOp::List { def_id } => op_list(&store, tenant, actor, def_id.as_deref()),
     };
 
@@ -202,10 +202,12 @@ fn owned_instance(
     instance_id: &str,
 ) -> Result<eg_statechart::MachineInstance, String> {
     let not_found = || "statechart instance not found or not owned by caller".to_string();
-    let instance = store.get_instance(instance_id).map_err(|error| match error {
-        StatechartError::NotFound(_) => not_found(),
-        other => other.to_string(),
-    })?;
+    let instance = store
+        .get_instance(instance_id)
+        .map_err(|error| match error {
+            StatechartError::NotFound(_) => not_found(),
+            other => other.to_string(),
+        })?;
     if instance.tenant == tenant && instance.actor == actor {
         Ok(instance)
     } else {
@@ -261,7 +263,10 @@ mod tests {
 
         let inst = op_instantiate(&store, &def_id, serde_json::Value::Null, "t1", "a1").unwrap();
         let instance_id = inst["instance_id"].as_str().unwrap().to_string();
-        assert_eq!(inst["configuration"]["active"], serde_json::json!(["locked"]));
+        assert_eq!(
+            inst["configuration"]["active"],
+            serde_json::json!(["locked"])
+        );
 
         // fire coin -> unlocked
         let sent = op_send_event(
@@ -275,7 +280,10 @@ mod tests {
         )
         .unwrap();
         assert_eq!(sent["fired"], serde_json::json!(true));
-        assert_eq!(sent["instance"]["configuration"]["active"], serde_json::json!(["unlocked"]));
+        assert_eq!(
+            sent["instance"]["configuration"]["active"],
+            serde_json::json!(["unlocked"])
+        );
         assert_eq!(sent["instance"]["version"], serde_json::json!(1));
 
         // undefined edge (coin from unlocked) is a no-op, not an error
@@ -293,7 +301,10 @@ mod tests {
 
         // get + list are owner-scoped
         let got = op_get_state(&store, "t1", "a1", &instance_id).unwrap();
-        assert_eq!(got["configuration"]["active"], serde_json::json!(["unlocked"]));
+        assert_eq!(
+            got["configuration"]["active"],
+            serde_json::json!(["unlocked"])
+        );
         let listed = op_list(&store, "t1", "a1", None).unwrap();
         assert_eq!(listed["count"], serde_json::json!(1));
     }
@@ -323,7 +334,10 @@ mod tests {
         )
         .is_err());
         // ...and does not see it in their listing.
-        assert_eq!(op_list(&store, "intruder", "a", None).unwrap()["count"], serde_json::json!(0));
+        assert_eq!(
+            op_list(&store, "intruder", "a", None).unwrap()["count"],
+            serde_json::json!(0)
+        );
     }
 
     #[test]

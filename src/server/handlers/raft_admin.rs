@@ -13,7 +13,9 @@ use std::sync::Arc;
 
 use tokio::sync::RwLock;
 
-use crate::protocol::{Method, Response, ResultPayload};
+#[cfg(feature = "raft")]
+use crate::protocol::ResultPayload;
+use crate::protocol::{Method, Response};
 use crate::server::state::ServerState;
 
 #[cfg(feature = "raft")]

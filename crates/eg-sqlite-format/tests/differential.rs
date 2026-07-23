@@ -145,7 +145,12 @@ fn writer_passes_sqlite3_integrity_check() {
     let mut w = Writer::create(&db, 4096).unwrap();
     w.add_table(
         "people",
-        &[cd("id", "INTEGER"), cd("name", "TEXT"), cd("score", "REAL"), cd("data", "BLOB")],
+        &[
+            cd("id", "INTEGER"),
+            cd("name", "TEXT"),
+            cd("score", "REAL"),
+            cd("data", "BLOB"),
+        ],
     )
     .unwrap();
     w.insert_rows(
@@ -157,19 +162,29 @@ fn writer_passes_sqlite3_integrity_check() {
                 Value::Real(9.5),
                 Value::Blob(vec![1, 2]),
             ],
-            vec![Value::Integer(2), Value::Text("bob".into()), Value::Null, Value::Null],
+            vec![
+                Value::Integer(2),
+                Value::Text("bob".into()),
+                Value::Null,
+                Value::Null,
+            ],
         ],
     )
     .unwrap();
 
     // Overflow-forcing table.
-    w.add_table("big", &[cd("id", "INTEGER"), cd("txt", "TEXT")]).unwrap();
-    let big_text = "x".repeat(20_000);
-    w.insert_rows("big", &[vec![Value::Integer(1), Value::Text(big_text.clone())]])
+    w.add_table("big", &[cd("id", "INTEGER"), cd("txt", "TEXT")])
         .unwrap();
+    let big_text = "x".repeat(20_000);
+    w.insert_rows(
+        "big",
+        &[vec![Value::Integer(1), Value::Text(big_text.clone())]],
+    )
+    .unwrap();
 
     // Multi-leaf + interior-level table.
-    w.add_table("nums", &[cd("n", "INTEGER"), cd("label", "TEXT")]).unwrap();
+    w.add_table("nums", &[cd("n", "INTEGER"), cd("label", "TEXT")])
+        .unwrap();
     let many: Vec<Row> = (1..=5000)
         .map(|i| vec![Value::Integer(i), Value::Text(format!("row{i}"))])
         .collect();
@@ -190,12 +205,18 @@ fn writer_passes_sqlite3_integrity_check() {
         run_sqlite(&db, "SELECT sql FROM sqlite_master WHERE name='people';").trim(),
         "CREATE TABLE \"people\" (\"id\" INTEGER, \"name\" TEXT, \"score\" REAL, \"data\" BLOB)"
     );
-    let people = run_sqlite(&db, "SELECT id,name,ifnull(score,'NULL'),quote(data) FROM people ORDER BY id;");
+    let people = run_sqlite(
+        &db,
+        "SELECT id,name,ifnull(score,'NULL'),quote(data) FROM people ORDER BY id;",
+    );
     let people: Vec<&str> = people.lines().collect();
     assert_eq!(people[0], "1|alice|9.5|X'0102'");
     assert_eq!(people[1], "2|bob|NULL|NULL");
 
-    assert_eq!(run_sqlite(&db, "SELECT length(txt) FROM big;").trim(), "20000");
+    assert_eq!(
+        run_sqlite(&db, "SELECT length(txt) FROM big;").trim(),
+        "20000"
+    );
     assert_eq!(
         run_sqlite(&db, "SELECT count(*),min(n),max(n) FROM nums;").trim(),
         "5000|1|5000"
@@ -224,7 +245,8 @@ fn writer_empty_table_and_single_row() {
     let db = dir.path().join("edge.db");
     let mut w = Writer::create(&db, 4096).unwrap();
     w.add_table("empty", &[cd("a", "INTEGER")]).unwrap();
-    w.add_table("one", &[cd("a", "INTEGER"), cd("b", "TEXT")]).unwrap();
+    w.add_table("one", &[cd("a", "INTEGER"), cd("b", "TEXT")])
+        .unwrap();
     w.insert_rows("one", &[vec![Value::Integer(42), Value::Text("hi".into())]])
         .unwrap();
     w.finish().unwrap();

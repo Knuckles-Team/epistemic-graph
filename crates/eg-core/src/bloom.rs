@@ -48,7 +48,7 @@ impl NodeBloomFilter {
         let ln2 = std::f64::consts::LN_2;
         let m_bits = (-(n * p.ln()) / (ln2 * ln2)).ceil().max(64.0);
         let k = ((m_bits / n) * ln2).round().clamp(1.0, 16.0) as u32;
-        let num_words = ((m_bits as u64) + WORD_BITS - 1) / WORD_BITS;
+        let num_words = (m_bits as u64).div_ceil(WORD_BITS);
         let mut bits = Vec::with_capacity(num_words as usize);
         bits.resize_with(num_words as usize, || AtomicU64::new(0));
         NodeBloomFilter {

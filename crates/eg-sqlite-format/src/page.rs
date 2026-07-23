@@ -118,6 +118,12 @@ pub fn write_interior_header(
     cell_content_area: usize,
     rightmost_ptr: u32,
 ) {
-    write_leaf_header(page, header_offset, page_type, cell_count, cell_content_area);
+    write_leaf_header(
+        page,
+        header_offset,
+        page_type,
+        cell_count,
+        cell_content_area,
+    );
     page[header_offset + 8..header_offset + 12].copy_from_slice(&rightmost_ptr.to_be_bytes());
 }

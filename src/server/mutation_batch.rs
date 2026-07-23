@@ -83,9 +83,13 @@ pub(crate) fn compile_methods(
             })
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let mut batch = finish_batch(ctx, operations)?;
+    let batch = finish_batch(ctx, operations)?;
     #[cfg(feature = "epistemic-tms")]
-    install_reasoning_wakeup(&mut batch, reasoning_events)?;
+    let batch = {
+        let mut batch = batch;
+        install_reasoning_wakeup(&mut batch, reasoning_events)?;
+        batch
+    };
     Ok(batch)
 }
 
@@ -111,12 +115,16 @@ pub(crate) fn compile_opaque_method(
             query: format!("sha256:{}", hex::encode(Sha256::digest(encoded))),
         },
     };
-    let mut batch = finish_batch(ctx, vec![operation])?;
+    let batch = finish_batch(ctx, vec![operation])?;
     #[cfg(feature = "epistemic-tms")]
-    install_reasoning_wakeup(
-        &mut batch,
-        vec![eg_epistemic::IncrementalReasoningEvent::InvalidateAll],
-    )?;
+    let batch = {
+        let mut batch = batch;
+        install_reasoning_wakeup(
+            &mut batch,
+            vec![eg_epistemic::IncrementalReasoningEvent::InvalidateAll],
+        )?;
+        batch
+    };
     Ok(batch)
 }
 
@@ -145,12 +153,16 @@ pub(crate) fn compile_opaque_digest(
             query: format!("sha256:{}", digest.to_ascii_lowercase()),
         },
     };
-    let mut batch = finish_batch(ctx, vec![operation])?;
+    let batch = finish_batch(ctx, vec![operation])?;
     #[cfg(feature = "epistemic-tms")]
-    install_reasoning_wakeup(
-        &mut batch,
-        vec![eg_epistemic::IncrementalReasoningEvent::InvalidateAll],
-    )?;
+    let batch = {
+        let mut batch = batch;
+        install_reasoning_wakeup(
+            &mut batch,
+            vec![eg_epistemic::IncrementalReasoningEvent::InvalidateAll],
+        )?;
+        batch
+    };
     Ok(batch)
 }
 
@@ -231,11 +243,10 @@ fn finish_batch(
     operations: Vec<MutationOperation>,
 ) -> Result<MutationBatch, String> {
     #[cfg(feature = "raft")]
-    let replicated_placement = crate::server::dispatch::replicated_placement_authority();
+    let (placement_epoch, fencing_token) = crate::server::dispatch::replicated_placement_authority()
+        .unwrap_or((ctx.placement_epoch, ctx.fencing_token));
     #[cfg(not(feature = "raft"))]
-    let replicated_placement: Option<(u64, Option<u64>)> = None;
-    let (placement_epoch, fencing_token) =
-        replicated_placement.unwrap_or((ctx.placement_epoch, ctx.fencing_token));
+    let (placement_epoch, fencing_token) = (ctx.placement_epoch, ctx.fencing_token);
     // Projection wake-ups need correlation and integrity, not a second copy of node
     // properties, query text, document bodies, or identifiers. Bind the outbox row to
     // the canonical operation list with a digest-only manifest; the authoritative

@@ -726,7 +726,7 @@ pub enum GroupRpcReply {
     Snapshot(Result<SnapshotResponse<TypeConfig>, String>),
     /// Best-effort transfer-leader ack — `Ok(())` accepted, `Err(msg)` rejected/failed.
     TransferLeader(Result<(), String>),
-    ClientWrite(Result<super::RaftResponse, String>),
+    ClientWrite(Box<Result<super::RaftResponse, String>>),
     ReadBarrier(Result<u64, super::xread::ReadPageError>),
     ReadPage(Result<super::xread::ReadPageReply, super::xread::ReadPageError>),
 }
@@ -738,7 +738,7 @@ pub enum GroupRpcReply {
 #[derive(Serialize, Deserialize)]
 #[serde(bound = "")]
 pub enum RaftFrame {
-    One(GroupRpc),
+    One(Box<GroupRpc>),
     Batch(Vec<GroupRpc>),
 }
 
@@ -916,7 +916,7 @@ impl GroupNetworkClient {
         }
         // A per-group RPC goes out as a single-RPC frame (CONCEPT:EG-KG.storage.concept-2); coalesced
         // heartbeats use `RaftFrame::Batch` via `HeartbeatCoalescer::send_batch`.
-        let body = rmp_serde::to_vec_named(&RaftFrame::One(rpc))
+        let body = rmp_serde::to_vec_named(&RaftFrame::One(Box::new(rpc)))
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
         let resp = self.pool.round_trip(&self.addr, &body).await?;
         match decode_wire::<RaftFrameReply>(&resp)? {
@@ -1022,7 +1022,7 @@ pub(crate) async fn dispatch_group(
                 GroupRpcReply::TransferLeader(Err(format!("no group {gid} here")))
             }
             GroupRpc::ClientWrite(..) => {
-                GroupRpcReply::ClientWrite(Err(format!("no group {gid} here")))
+                GroupRpcReply::ClientWrite(Box::new(Err(format!("no group {gid} here"))))
             }
             GroupRpc::ReadBarrier(..) => GroupRpcReply::ReadBarrier(Err(
                 super::xread::ReadPageError::new(super::xread::ReadPageErrorCode::GroupUnavailable),
@@ -1073,7 +1073,7 @@ pub(crate) async fn dispatch_group(
                         .map_err(|error| error.to_string()),
                     Err(error) => Err(error),
                 };
-                GroupRpcReply::ClientWrite(reply)
+                GroupRpcReply::ClientWrite(Box::new(reply))
             }
             GroupRpc::ReadBarrier(_) => {
                 GroupRpcReply::ReadBarrier(super::xread::linearizable_barrier(&raft).await)
@@ -1095,8 +1095,10 @@ pub(crate) async fn forward_client_write(
     request: super::RaftRequest,
 ) -> Result<super::RaftResponse, String> {
     request.validate()?;
-    let body = rmp_serde::to_vec_named(&RaftFrame::One(GroupRpc::ClientWrite(group_id, request)))
-        .map_err(|_| "unable to encode internal Raft client write".to_string())?;
+    let body = rmp_serde::to_vec_named(&RaftFrame::One(Box::new(GroupRpc::ClientWrite(
+        group_id, request,
+    ))))
+    .map_err(|_| "unable to encode internal Raft client write".to_string())?;
     let response = pool
         .round_trip(addr, &body)
         .await
@@ -1104,11 +1106,13 @@ pub(crate) async fn forward_client_write(
     match decode_wire::<RaftFrameReply>(&response)
         .map_err(|error| format!("internal Raft client write reply is invalid: {error}"))?
     {
-        RaftFrameReply::One(GroupRpcReply::ClientWrite(Ok(response))) => {
-            response.validate()?;
-            Ok(response)
-        }
-        RaftFrameReply::One(GroupRpcReply::ClientWrite(Err(error))) => Err(error),
+        RaftFrameReply::One(GroupRpcReply::ClientWrite(reply)) => match *reply {
+            Ok(response) => {
+                response.validate()?;
+                Ok(response)
+            }
+            Err(error) => Err(error),
+        },
         _ => Err("internal Raft client write returned an unexpected reply".to_string()),
     }
 }
@@ -1119,9 +1123,10 @@ pub(crate) async fn forward_read_barrier(
     addr: &str,
     group_id: GroupId,
 ) -> Result<u64, super::xread::ReadPageError> {
-    let body = rmp_serde::to_vec_named(&RaftFrame::One(GroupRpc::ReadBarrier(group_id))).map_err(
-        |_| super::xread::ReadPageError::new(super::xread::ReadPageErrorCode::InvalidRequest),
-    )?;
+    let body = rmp_serde::to_vec_named(&RaftFrame::One(Box::new(GroupRpc::ReadBarrier(group_id))))
+        .map_err(|_| {
+            super::xread::ReadPageError::new(super::xread::ReadPageErrorCode::InvalidRequest)
+        })?;
     let response = pool.round_trip(addr, &body).await.map_err(|_| {
         super::xread::ReadPageError::new(super::xread::ReadPageErrorCode::TransportFailed)
     })?;
@@ -1142,10 +1147,12 @@ pub(crate) async fn forward_read_page(
 ) -> Result<super::xread::ReadPageReply, super::xread::ReadPageError> {
     request.validate(group_id)?;
     let expected = request.clone();
-    let body = rmp_serde::to_vec_named(&RaftFrame::One(GroupRpc::ReadPage(group_id, request)))
-        .map_err(|_| {
-            super::xread::ReadPageError::new(super::xread::ReadPageErrorCode::InvalidRequest)
-        })?;
+    let body = rmp_serde::to_vec_named(&RaftFrame::One(Box::new(GroupRpc::ReadPage(
+        group_id, request,
+    ))))
+    .map_err(|_| {
+        super::xread::ReadPageError::new(super::xread::ReadPageErrorCode::InvalidRequest)
+    })?;
     let response = pool.round_trip(addr, &body).await.map_err(|_| {
         super::xread::ReadPageError::new(super::xread::ReadPageErrorCode::TransportFailed)
     })?;

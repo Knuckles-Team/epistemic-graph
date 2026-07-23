@@ -179,7 +179,7 @@ pub fn protocol_policy_inventory() -> Vec<ProtocolPolicyInventoryEntry> {
                 .split_once(':')
                 .expect("MethodPolicy.authz_action must be primitive:verb");
             ProtocolPolicyInventoryEntry {
-                method: *method,
+                method,
                 primitive,
                 verb,
                 access: if policy.mutates {

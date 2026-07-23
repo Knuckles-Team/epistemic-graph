@@ -27,8 +27,6 @@ pub mod jobs;
 // `statechart`. Lives here (not in `eg-statechart`, which sits ABOVE this crate in the
 // DAG) for the SAME reason `jobs` does: `protocol::Method::Statechart` carries it over
 // the wire, and `protocol` is bottom-of-DAG. Pure serde — no dep.
-#[cfg(feature = "statechart")]
-pub mod statechart;
 #[cfg(feature = "knowledge-batch")]
 pub mod knowledge_stream;
 #[cfg(feature = "modality-serving")]
@@ -37,6 +35,8 @@ pub mod msgpack;
 pub mod mutation_batch;
 pub mod protocol;
 pub mod row_predicate;
+#[cfg(feature = "statechart")]
+pub mod statechart;
 pub mod types;
 pub mod wire;
 

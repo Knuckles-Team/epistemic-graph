@@ -1059,7 +1059,7 @@ pub enum Method {
     /// mutation authority; blob/feature/evidence/policy/lineage, content version,
     /// typed cursor, durable status, and outbox share its commit point.
     ApplyChangeEnvelope {
-        envelope: crate::change_envelope::ChangeEnvelope,
+        envelope: Box<crate::change_envelope::ChangeEnvelope>,
     },
     /// Read a committed envelope by stable identity for retry reconciliation.
     GetChangeEnvelope {
@@ -4942,7 +4942,7 @@ impl EvidenceLocusWire {
         let parts: Vec<&str> = value.split(':').collect();
         (3..=6).contains(&parts.len())
             && parts.first() == Some(&"eg")
-            && namespace.map_or(true, |expected| parts.get(1) == Some(&expected))
+            && namespace.is_none_or(|expected| parts.get(1) == Some(&expected))
             && parts[1..parts.len() - 1].iter().all(|part| {
                 !part.is_empty()
                     && part.len() <= 32

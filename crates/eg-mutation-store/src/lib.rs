@@ -103,7 +103,7 @@ struct Fence {
 #[derive(Debug, Clone)]
 pub enum Begin {
     Apply { source_version: u64 },
-    Replay(MutationBatchRecord),
+    Replay(Box<MutationBatchRecord>),
 }
 
 #[derive(Debug, Clone)]
@@ -462,7 +462,7 @@ pub fn begin(wtx: &WriteTransaction, batch: &MutationBatch) -> Result<Begin, Str
                 record.batch.batch_id
             ));
         }
-        return Ok(Begin::Replay(record));
+        return Ok(Begin::Replay(Box::new(record)));
     }
     if let Some(record) = read_record_in_wtx(wtx, &batch.batch_id)? {
         verify_replay_identity(batch, &record.batch)?;
@@ -745,7 +745,7 @@ pub fn prepare_saga_with_private_payload(
     match begin(&wtx, batch)? {
         Begin::Replay(record) => {
             wtx.abort().map_err(|error| error.to_string())?;
-            return Ok(SagaBegin::Committed(record));
+            return Ok(SagaBegin::Committed(*record));
         }
         Begin::Apply { .. } => {}
     }

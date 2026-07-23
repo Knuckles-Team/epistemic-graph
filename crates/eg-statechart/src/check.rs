@@ -78,27 +78,47 @@ impl std::fmt::Display for DefError {
             DefError::InitialNotDeclared(s) => write!(f, "initial state '{s}' is not declared"),
             DefError::FinalNotDeclared(s) => write!(f, "final state '{s}' is not declared"),
             DefError::TransitionFromUndeclared { transition, from } => {
-                write!(f, "transition {transition} starts from undeclared state '{from}'")
+                write!(
+                    f,
+                    "transition {transition} starts from undeclared state '{from}'"
+                )
             }
             DefError::TransitionToUndeclared { transition, to } => {
                 write!(f, "transition {transition} targets undeclared state '{to}'")
             }
             DefError::EventNotInAlphabet { transition, event } => {
-                write!(f, "transition {transition} uses event '{event}' not in the alphabet")
+                write!(
+                    f,
+                    "transition {transition} uses event '{event}' not in the alphabet"
+                )
             }
-            DefError::UnreachableState(s) => write!(f, "state '{s}' is unreachable from the initial state"),
+            DefError::UnreachableState(s) => {
+                write!(f, "state '{s}' is unreachable from the initial state")
+            }
             DefError::FinalHasOutgoing { state, transition } => {
-                write!(f, "final state '{state}' has an outgoing transition {transition}")
+                write!(
+                    f,
+                    "final state '{state}' has an outgoing transition {transition}"
+                )
             }
             DefError::CompositeUnsupported(s) => {
-                write!(f, "state '{s}' is composite/parallel/history (unsupported in phase-1)")
+                write!(
+                    f,
+                    "state '{s}' is composite/parallel/history (unsupported in phase-1)"
+                )
             }
             DefError::DuplicateAlphabetSymbol(s) => write!(f, "duplicate alphabet symbol '{s}'"),
             DefError::ChildNotDeclared { parent, child } => {
-                write!(f, "composite state '{parent}' lists undeclared child '{child}'")
+                write!(
+                    f,
+                    "composite state '{parent}' lists undeclared child '{child}'"
+                )
             }
             DefError::InitialChildNotInChildren { parent, child } => {
-                write!(f, "state '{parent}' initial_child '{child}' is not one of its children")
+                write!(
+                    f,
+                    "state '{parent}' initial_child '{child}' is not one of its children"
+                )
             }
             DefError::MultipleParents(s) => {
                 write!(f, "state '{s}' is a child of more than one composite state")
@@ -107,7 +127,10 @@ impl std::fmt::Display for DefError {
                 write!(f, "state '{s}' is part of a containment cycle")
             }
             DefError::HistoryOnAtomic(s) => {
-                write!(f, "atomic state '{s}' carries a history marker but has no children")
+                write!(
+                    f,
+                    "atomic state '{s}' carries a history marker but has no children"
+                )
             }
         }
     }
@@ -118,7 +141,11 @@ impl std::fmt::Display for DefError {
 pub enum DefWarning {
     /// Two or more unguarded transitions share a `(state, event)`; only the first can
     /// ever fire (the rest are dead). Deterministic, but almost certainly a mistake.
-    NondeterministicPair { state: StateId, event: EventName, count: usize },
+    NondeterministicPair {
+        state: StateId,
+        event: EventName,
+        count: usize,
+    },
     /// An alphabet symbol never appears on any transition.
     UnusedAlphabetSymbol(EventName),
 }
@@ -152,7 +179,9 @@ pub fn validate(def: &StatechartDef) -> Result<CompletenessReport, CompletenessR
     let mut seen_states = BTreeSet::new();
     for state in &def.states {
         if !seen_states.insert(state.id.as_str()) {
-            report.errors.push(DefError::DuplicateState(state.id.clone()));
+            report
+                .errors
+                .push(DefError::DuplicateState(state.id.clone()));
         }
     }
 
@@ -181,12 +210,16 @@ pub fn validate(def: &StatechartDef) -> Result<CompletenessReport, CompletenessR
             }
         }
         if state.history.is_some() && state.children.is_empty() {
-            report.errors.push(DefError::HistoryOnAtomic(state.id.clone()));
+            report
+                .errors
+                .push(DefError::HistoryOnAtomic(state.id.clone()));
         }
     }
     for (child, count) in &parents_of {
         if *count > 1 {
-            report.errors.push(DefError::MultipleParents(child.to_string()));
+            report
+                .errors
+                .push(DefError::MultipleParents(child.to_string()));
         }
     }
     // Cycle guard: walk each state up its (single-parent) containment chain; a revisit of
@@ -202,7 +235,9 @@ pub fn validate(def: &StatechartDef) -> Result<CompletenessReport, CompletenessR
         let mut steps = 0usize;
         while let Some(ancestor) = cur {
             if ancestor == state.id.as_str() || steps > def.states.len() {
-                report.errors.push(DefError::CompositeCycle(state.id.clone()));
+                report
+                    .errors
+                    .push(DefError::CompositeCycle(state.id.clone()));
                 break;
             }
             steps += 1;
@@ -214,17 +249,23 @@ pub fn validate(def: &StatechartDef) -> Result<CompletenessReport, CompletenessR
     let mut seen_symbols = BTreeSet::new();
     for symbol in &def.alphabet {
         if !seen_symbols.insert(symbol.as_str()) {
-            report.errors.push(DefError::DuplicateAlphabetSymbol(symbol.clone()));
+            report
+                .errors
+                .push(DefError::DuplicateAlphabetSymbol(symbol.clone()));
         }
     }
 
     // ── s₀ ∈ S, F ⊆ S ────────────────────────────────────────────────────────────
     if !def.has_state(&def.initial) {
-        report.errors.push(DefError::InitialNotDeclared(def.initial.clone()));
+        report
+            .errors
+            .push(DefError::InitialNotDeclared(def.initial.clone()));
     }
     for final_id in &def.finals {
         if !def.has_state(final_id) {
-            report.errors.push(DefError::FinalNotDeclared(final_id.clone()));
+            report
+                .errors
+                .push(DefError::FinalNotDeclared(final_id.clone()));
         }
     }
 
@@ -263,7 +304,9 @@ pub fn validate(def: &StatechartDef) -> Result<CompletenessReport, CompletenessR
     }
     for symbol in &def.alphabet {
         if !used_symbols.contains(symbol.as_str()) {
-            report.warnings.push(DefWarning::UnusedAlphabetSymbol(symbol.clone()));
+            report
+                .warnings
+                .push(DefWarning::UnusedAlphabetSymbol(symbol.clone()));
         }
     }
 
@@ -274,7 +317,9 @@ pub fn validate(def: &StatechartDef) -> Result<CompletenessReport, CompletenessR
         let reachable = reachable_from(def, &def.initial);
         for state in &def.states {
             if !reachable.contains(state.id.as_str()) {
-                report.errors.push(DefError::UnreachableState(state.id.clone()));
+                report
+                    .errors
+                    .push(DefError::UnreachableState(state.id.clone()));
             }
         }
     }
@@ -283,7 +328,9 @@ pub fn validate(def: &StatechartDef) -> Result<CompletenessReport, CompletenessR
     let mut unguarded: BTreeMap<(&str, &str), usize> = BTreeMap::new();
     for t in &def.transitions {
         if t.guard.is_none() {
-            *unguarded.entry((t.from.as_str(), t.event.as_str())).or_default() += 1;
+            *unguarded
+                .entry((t.from.as_str(), t.event.as_str()))
+                .or_default() += 1;
         }
     }
     for ((state, event), count) in unguarded {
@@ -461,7 +508,9 @@ mod tests {
         let mut def = base();
         def.states.push(State::new("island"));
         let err = validate(&def).unwrap_err();
-        assert!(err.errors.contains(&DefError::UnreachableState("island".into())));
+        assert!(err
+            .errors
+            .contains(&DefError::UnreachableState("island".into())));
     }
 
     #[test]
@@ -555,17 +604,26 @@ mod tests {
         // `a` has a direct `go` edge...
         assert_eq!(
             coverage(&def, "a", "go"),
-            Coverage::Defined { to: "b".into(), guarded: false }
+            Coverage::Defined {
+                to: "b".into(),
+                guarded: false
+            }
         );
         // ...but no direct `fin` edge — it INHERITS the parent's `fin` edge to `done`.
         assert_eq!(
             coverage(&def, "a", "fin"),
-            Coverage::Inherited { from: "parent".into(), to: "done".into() }
+            Coverage::Inherited {
+                from: "parent".into(),
+                to: "done".into()
+            }
         );
         // and `b` inherits it too.
         assert_eq!(
             coverage(&def, "b", "fin"),
-            Coverage::Inherited { from: "parent".into(), to: "done".into() }
+            Coverage::Inherited {
+                from: "parent".into(),
+                to: "done".into()
+            }
         );
         assert!(assert_total(&def).is_ok());
     }
@@ -580,7 +638,10 @@ mod tests {
         // Exact shape: (a,go)=Defined->b, (a,back)=NoOp, (b,go)=NoOp, (b,back)=Defined->a.
         assert_eq!(
             coverage(&def, "a", "go"),
-            Coverage::Defined { to: "b".into(), guarded: false }
+            Coverage::Defined {
+                to: "b".into(),
+                guarded: false
+            }
         );
         assert_eq!(coverage(&def, "a", "back"), Coverage::NoOp);
         assert_eq!(coverage(&def, "b", "go"), Coverage::NoOp);

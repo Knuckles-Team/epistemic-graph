@@ -235,7 +235,12 @@ impl Reader {
         Ok((rowid as i64, payload))
     }
 
-    fn read_overflow_chain(&self, first: u32, mut remaining: usize, out: &mut Vec<u8>) -> Result<()> {
+    fn read_overflow_chain(
+        &self,
+        first: u32,
+        mut remaining: usize,
+        out: &mut Vec<u8>,
+    ) -> Result<()> {
         let chunk = self.usable() - 4;
         let mut page_no = first;
         while remaining > 0 {
