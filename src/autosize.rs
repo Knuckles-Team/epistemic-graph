@@ -85,18 +85,24 @@ pub fn detect_capacity() -> Capacity {
 }
 
 /// Translate total RAM into a per-graph node cap (the default for
-/// `EPISTEMIC_GRAPH_MAX_NODES_PER_GRAPH`). `0` RAM (undetectable) ⇒ `0` (unbounded —
-/// never OOM-cap a host whose RAM we cannot read; a real Pi always reads
-/// `/proc/meminfo`). Otherwise half of RAM divided by the per-node estimate, clamped
-/// to a sane window so a tiny box still serves a usable graph and a huge box is
-/// effectively unbounded.
+/// `EPISTEMIC_GRAPH_MAX_NODES_PER_GRAPH`). `0` RAM (undetectable — non-Linux or a
+/// restricted `/proc`) ⇒ the SAME conservative cap a real 1 GiB Pi gets, NOT
+/// unbounded: a real Pi always reads `/proc/meminfo` successfully, so this branch
+/// only fires on a host we genuinely cannot measure, and defaulting an unmeasurable
+/// host to unbounded risks exactly the OOM this module exists to prevent (worse,
+/// downstream `GraphCore::lru_eviction_candidates` treats a cap of literal `0` as
+/// "evict every resident node", not "no cap" — so the old unbounded default was a
+/// full-eviction-storm trap on an undetectable-RAM host, not merely a missing
+/// safety net). Otherwise half of RAM divided by the per-node estimate, clamped to a
+/// sane window so a tiny box still serves a usable graph and a huge box is
+/// effectively unbounded. Overridable via `EPISTEMIC_GRAPH_MAX_NODES_PER_GRAPH`.
 ///
 /// Pi-safe because eviction is read-through (CONCEPT:EG-KG.storage.read-through-seam-exercised): a node evicted past
 /// the cap still serves from the durable redb tier — the cap bounds RESIDENT RAM with
 /// ZERO data loss, which is exactly what stops a 1 GiB Pi from OOM-killing by default.
 pub fn default_node_cap(total_ram_bytes: u64) -> usize {
     if total_ram_bytes == 0 {
-        return 0;
+        return default_node_cap(GIB);
     }
     let raw = total_ram_bytes / 2 / BYTES_PER_NODE_EST;
     raw.clamp(50_000, 100_000_000) as usize
@@ -172,11 +178,33 @@ mod tests {
     }
 
     #[test]
-    fn unknown_ram_does_not_oom_cap() {
-        // RAM we cannot read ⇒ no cap (0 = unbounded). Better to not cap a box we
-        // cannot measure than to wrongly bound a big one; a real Pi always reads
-        // /proc/meminfo so it never lands here.
-        assert_eq!(default_node_cap(0), 0);
+    fn unknown_ram_gets_the_conservative_pi_cap_not_unbounded() {
+        // RAM we cannot read (0 = undetectable) must NOT default to unbounded: an
+        // undetectable host could genuinely be RAM-starved, and downstream
+        // `GraphCore::lru_eviction_candidates` treats a literal `0` cap as "evict
+        // every resident node" (not "no cap") — so the old unbounded default was a
+        // full-eviction-storm trap on such a host, not merely a missing safety net.
+        // It must fall back to EXACTLY the cap a real 1 GiB Pi gets — a real Pi
+        // always reads `/proc/meminfo` so it never actually lands on this branch.
+        assert_eq!(default_node_cap(0), default_node_cap(GIB));
+        assert!(default_node_cap(0) > 0, "must be bounded, not unbounded");
+    }
+
+    #[test]
+    fn capacity_with_undetectable_ram_gets_conservative_node_cap() {
+        // Simulates the 0 path end to end through `Capacity` (not just the free
+        // function) — the seam is the struct's own public fields, already
+        // exercised the same way by `inflight_scales_with_cpus_pi_vs_bigbox` below.
+        let c = Capacity {
+            cpus: 4,
+            total_ram_bytes: 0,
+            tier: Tier::Node,
+        };
+        assert_eq!(c.node_cap(), default_node_cap(GIB));
+        assert!(
+            c.node_cap() > 0,
+            "undetectable RAM must not disable the cap"
+        );
     }
 
     #[test]
