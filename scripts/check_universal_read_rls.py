@@ -197,6 +197,7 @@ def main() -> None:
         "Discover",
         "HasEdge",
         "GetEdges",
+        "GetEdgesPage",
         "GetEdgeProperties",
         "GetEdgePropertiesBatch",
         "EdgeCount",

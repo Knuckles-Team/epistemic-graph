@@ -843,6 +843,21 @@ pub enum Method {
         target_id: String,
     },
     GetEdges,
+    /// Keyset-bounded edge fetch — the edge sibling of `GetNodesByLabel`. Return
+    /// at most `limit` edges ordered by `(source, target, ordinal)`; `ordinal`
+    /// distinguishes parallel edges stored under the same `(source, target)`
+    /// pair (CONCEPT:EG-KG.ingest.resets-socket-so-assimilation). `after` is an exclusive `(source, target,
+    /// ordinal)` cursor (`None` starts at the first edge); callers advance it to
+    /// the last row returned. `limit == 0` means no cap. Unlike `GetEdges`
+    /// (which materializes the WHOLE graph), this bounds the wire payload to
+    /// `limit`, so a full edge walk no longer trips the `RESULT_TOO_LARGE`
+    /// overload guard. Returns a `Raw`-encoded `Vec<(String, String, u32,
+    /// Vec<u8>)>` (source, target, ordinal, properties_msgpack).
+    GetEdgesPage {
+        #[serde(default)]
+        after: Option<(String, String, u32)>,
+        limit: usize,
+    },
     ClearGraph,
     GetEdgeProperties {
         source_id: String,
@@ -1311,8 +1326,19 @@ pub enum Method {
         event_type: String,
         query: String,
     },
+    /// VF2 subgraph isomorphism match of `pattern_graph_name` against this graph
+    /// (CONCEPT:EG-KG.mining.gspan-frequent-subgraph). The backtracking search is NP-hard with no bound
+    /// otherwise, so it stops early once it collects `max_results` matches or spends
+    /// `max_steps` candidate-pair attempts (whichever first). `0` for either ⇒ the
+    /// engine's conservative built-in default (`eg_core::graph::DEFAULT_VF2_MAX_RESULTS`/
+    /// `DEFAULT_VF2_MAX_STEPS`) — a caller wanting more must ask for it explicitly.
+    /// Returns a `Raw`-encoded [`Vf2MatchResult`].
     Vf2SubgraphMatch {
         pattern_graph_name: String,
+        #[serde(default)]
+        max_results: usize,
+        #[serde(default)]
+        max_steps: usize,
     },
 
     // ── AST Parsing ──────────────────────────────────────────────────
@@ -4729,6 +4755,20 @@ pub struct AuditReport {
     pub entries: u64,
     pub first_broken_seq: Option<u64>,
     pub detail: String,
+}
+
+/// Materialized result of a `Method::Vf2SubgraphMatch` run (CONCEPT:EG-KG.mining.gspan-frequent-subgraph). Returned via
+/// `ResultPayload::raw`. VF2 subgraph isomorphism is NP-hard with no bound
+/// otherwise, so the backtracking search stops early once it hits `max_results`
+/// collected matches or `max_steps` candidate-pair attempts (whichever first);
+/// `truncated` is `true` when it stopped for either reason — the caller is seeing
+/// a PARTIAL result, not proof no further match exists, and must raise
+/// `max_results`/`max_steps` explicitly on the request to see more. The matcher
+/// and its budget live in eg-core; this is the wire projection.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Vf2MatchResult {
+    pub matches: Vec<std::collections::HashMap<String, String>>,
+    pub truncated: bool,
 }
 
 /// Materialized result of a `Method::Sql` query (CONCEPT:EG-KG.query.read-only-sql-query). Returned via
