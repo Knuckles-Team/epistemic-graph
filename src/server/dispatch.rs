@@ -5055,6 +5055,12 @@ async fn dispatch_graph_op_inner(
         not(any(feature = "query", feature = "cypher", feature = "rdf"))
     ))]
     let _ = &rls;
+    // CONCEPT:EG-KG.mining.tsdb-typed-absent — clone the committed tsdb store handle under
+    // the same registry lock so a plan-sourced mining `Op::TsScan` leg (`handlers::mining`,
+    // both the gateway-routed `Mine*` methods and `MineClassifyFit`) can bind the REAL store
+    // instead of the old hardcoded `None`. Gated on `mining` too: it is unused otherwise.
+    #[cfg(all(feature = "mining", feature = "query", feature = "tsdb"))]
+    let tsdb_store = s.tsdb_store.clone();
     drop(s); // Release registry lock before graph lock.
 
     #[cfg(feature = "raft")]
@@ -5664,6 +5670,8 @@ async fn dispatch_graph_op_inner(
             cdc.as_ref(),
             Some(&write_coalescer),
             gateway_authz_ctx.as_ref(),
+            #[cfg(all(feature = "mining", feature = "query", feature = "tsdb"))]
+            tsdb_store.as_ref(),
             method,
         )
         .await
@@ -5708,6 +5716,10 @@ async fn dispatch_graph_op_inner(
             req_id,
             core.clone(),
             read_authority.as_ref(),
+            #[cfg(all(feature = "query", feature = "tsdb"))]
+            graph_name,
+            #[cfg(all(feature = "query", feature = "tsdb"))]
+            tsdb_store.as_ref(),
             method,
         ) {
             Ok(r) => break 'dispatch r,

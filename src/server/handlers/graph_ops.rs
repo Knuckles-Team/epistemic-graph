@@ -311,6 +311,12 @@ pub(crate) async fn try_handle_gateway(
     #[cfg(feature = "streaming")] cdc: Option<&Arc<crate::server::cdc::CdcHub>>,
     write_coalescer: Option<&Arc<crate::write_coalescer::WriteCoalescerRegistry>>,
     authz_ctx: Option<&GatewayAuthzCtx>,
+    // CONCEPT:EG-KG.mining.tsdb-typed-absent — the server's live tsdb store, needed ONLY by
+    // the gateway-routed `Mine*` arms below to bind a plan-sourced `Op::TsScan` leg (mirrors
+    // `mining::try_handle`'s own binding for the one Mine* method NOT gateway-routed).
+    #[cfg(all(feature = "mining", feature = "query", feature = "tsdb"))] tsdb_store: Option<
+        &Arc<eg_tsdb::store::SeriesStore>,
+    >,
     method: Method,
 ) -> Result<Response, Method> {
     if !mutation::is_gateway_routed(&method) {
@@ -1488,6 +1494,12 @@ pub(crate) async fn try_handle_gateway(
             let method_owned = method.clone();
             let req_id = ctx.req_id;
             let core_arc = ctx.core;
+            #[cfg(all(feature = "query", feature = "tsdb"))]
+            let tsdb_bind = super::mining::MiningTsdbBind {
+                graph_name,
+                read_authority,
+                tsdb_store,
+            };
             mutation::commit_conditional_mutation(&ctx, &plan, &method, writeback, move |_core| {
                 let Method::MineCluster {
                     features,
@@ -1525,6 +1537,8 @@ pub(crate) async fn try_handle_gateway(
                     writeback,
                     #[cfg(feature = "epistemic")]
                     as_claim,
+                    #[cfg(all(feature = "query", feature = "tsdb"))]
+                    tsdb_bind,
                 );
                 match resp.error {
                     Some(e) => Err(e),
@@ -1541,6 +1555,12 @@ pub(crate) async fn try_handle_gateway(
             let method_owned = method.clone();
             let req_id = ctx.req_id;
             let core_arc = ctx.core;
+            #[cfg(all(feature = "query", feature = "tsdb"))]
+            let tsdb_bind = super::mining::MiningTsdbBind {
+                graph_name,
+                read_authority,
+                tsdb_store,
+            };
             mutation::commit_conditional_mutation(&ctx, &plan, &method, writeback, move |_core| {
                 let Method::MineAnomaly {
                     features,
@@ -1584,6 +1604,8 @@ pub(crate) async fn try_handle_gateway(
                     writeback,
                     #[cfg(feature = "epistemic")]
                     as_claim,
+                    #[cfg(all(feature = "query", feature = "tsdb"))]
+                    tsdb_bind,
                 );
                 match resp.error {
                     Some(e) => Err(e),
@@ -1600,6 +1622,12 @@ pub(crate) async fn try_handle_gateway(
             let method_owned = method.clone();
             let req_id = ctx.req_id;
             let core_arc = ctx.core;
+            #[cfg(all(feature = "query", feature = "tsdb"))]
+            let tsdb_bind = super::mining::MiningTsdbBind {
+                graph_name,
+                read_authority,
+                tsdb_store,
+            };
             mutation::commit_conditional_mutation(&ctx, &plan, &method, writeback, move |_core| {
                 let Method::MineClassifyPredict {
                     model,
@@ -1625,6 +1653,8 @@ pub(crate) async fn try_handle_gateway(
                     writeback,
                     #[cfg(feature = "epistemic")]
                     as_claim,
+                    #[cfg(all(feature = "query", feature = "tsdb"))]
+                    tsdb_bind,
                 );
                 match resp.error {
                     Some(e) => Err(e),
@@ -1641,6 +1671,12 @@ pub(crate) async fn try_handle_gateway(
             let method_owned = method.clone();
             let req_id = ctx.req_id;
             let core_arc = ctx.core;
+            #[cfg(all(feature = "query", feature = "tsdb"))]
+            let tsdb_bind = super::mining::MiningTsdbBind {
+                graph_name,
+                read_authority,
+                tsdb_store,
+            };
             mutation::commit_conditional_mutation(&ctx, &plan, &method, writeback, move |_core| {
                 let Method::MineReduce {
                     x,
@@ -1682,6 +1718,8 @@ pub(crate) async fn try_handle_gateway(
                     writeback,
                     #[cfg(feature = "epistemic")]
                     as_claim,
+                    #[cfg(all(feature = "query", feature = "tsdb"))]
+                    tsdb_bind,
                 );
                 match resp.error {
                     Some(e) => Err(e),
