@@ -158,6 +158,21 @@ repos:
     pass_filenames: false
     always_run: true
     stages: [pre-push, manual]
+  # W0.12 — Rust dependency CVE gate: fail-closed `cargo deny check advisories`
+  # against `deny.toml`, mirroring the Python side's fail-closed OSV gate
+  # (`dependency-audit` hook / `scripts/audit_dependencies.py` +
+  # `.security-audit-allow.txt`). The wrapper cross-validates deny.toml's
+  # `[advisories].ignore` list against the justified, <=90-day-expiring
+  # `.cargo-audit-allow.txt` ledger before running the real check, and fails
+  # closed (with install instructions) if cargo-deny itself isn't installed —
+  # never a silent pass. Not yet mirrored into rust-ci.yml (pre-commit-only per
+  # the W0.12 spec); scoped to when the dependency surface actually changes.
+  - id: cargo-deny-advisories
+    name: cargo deny check advisories (Rust dependency CVE gate)
+    entry: scripts/check_cargo_advisories.sh
+    language: system
+    files: ^(Cargo\.lock|Cargo\.toml|crates/.*/Cargo\.toml|deny\.toml|\.cargo-audit-allow\.txt)$
+    pass_filenames: false
   # release-build.yml parity — build the ONE main wheel (CONCEPT:EG-359: `full`, the
   # default MATURIN_FEATURES) through the real maturin bin-binding wheel path:
   #   * --locked        → catches Cargo.lock drift, the class of blocker that broke

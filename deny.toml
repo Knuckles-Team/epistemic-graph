@@ -1,0 +1,92 @@
+# cargo-deny configuration (CONCEPT:EG-KG.storage.cargo-dependency-cve-gate — W0.12).
+#
+# Mirrors, on the Rust side, the fail-closed OSV gate the Python side already runs
+# (`scripts/audit_dependencies.py` + `.security-audit-allow.txt`): every dependency
+# advisory is a hard failure unless it has a justified, expiring risk acceptance.
+#
+#   * [advisories] — FAIL-CLOSED. cargo-deny denies on ANY matched RUSTSEC advisory
+#     by default; the `ignore` list below is the ONLY escape hatch, and it must stay
+#     empty in normal operation. A new entry here requires a matching, justified,
+#     <=90-day-expiring line in `.cargo-audit-allow.txt` at the repo root (the exact
+#     convention `scripts/audit_dependencies.py` uses for `.security-audit-allow.txt`)
+#     — `scripts/check_cargo_advisories.sh` cross-validates the two files so an
+#     ignore can never exist without a live, dated justification, and a justification
+#     can never go stale without failing the gate. See that script + file for the
+#     format and enforcement.
+#   * [licenses] / [bans] / [sources] — deliberately MINIMAL and PERMISSIVE for now
+#     (broad allow-list, warn-not-deny on duplicates/wildcards/unknown sources).
+#     Tightening these is a separate, later pass; this gate's job today is the
+#     advisories check.
+#
+# Run locally:  cargo deny check advisories
+# Full schema:  https://embarkstudios.github.io/cargo-deny/
+
+[graph]
+# Resolve the dependency graph under every optional feature (not just the default
+# `full` build) so an advisory in a default-off leg (e.g. `gpu-cuda`, `ros2-*`)
+# still fails the gate instead of hiding behind a feature flag.
+all-features = true
+
+[output]
+feature-depth = 1
+
+# ─────────────────────────────────────────────────────────────────────────────
+# advisories — FAIL-CLOSED (RUSTSEC / OSV advisory database)
+# ─────────────────────────────────────────────────────────────────────────────
+[advisories]
+ignore = [
+    # Format (kept in lockstep with `.cargo-audit-allow.txt` — see that file):
+    #   "RUSTSEC-YYYY-NNNN",  # justification; ledger entry expires=YYYY-MM-DD
+    # Do NOT add an entry here without a matching justified, unexpired line in
+    # `.cargo-audit-allow.txt` — `scripts/check_cargo_advisories.sh` fails the
+    # build if the two drift apart in either direction.
+]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# licenses — minimal/permissive for now (broad OSI-permissive allow-list)
+# ─────────────────────────────────────────────────────────────────────────────
+[licenses]
+allow = [
+    "MIT",
+    "MIT-0",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "zlib-acknowledgement",
+    "Unicode-3.0",
+    "CC0-1.0",
+    "MPL-2.0",
+    "0BSD",
+    "BSL-1.0",
+    "Unlicense",
+    "CDLA-Permissive-2.0",
+]
+confidence-threshold = 0.8
+
+[licenses.private]
+# eg-* workspace crates are internal-only (never published) but not all of them
+# set `publish = false`; the license field itself is what's checked above (every
+# workspace crate now carries one, matching the root package's MIT), so this can
+# stay false -- kept explicit rather than relying on the tool default.
+ignore = false
+
+# ─────────────────────────────────────────────────────────────────────────────
+# bans — minimal/permissive for now (warn, don't block, on duplicates/wildcards)
+# ─────────────────────────────────────────────────────────────────────────────
+[bans]
+multiple-versions = "warn"
+wildcards = "allow"
+workspace-default-features = "allow"
+external-default-features = "allow"
+allow-workspace = true
+
+# ─────────────────────────────────────────────────────────────────────────────
+# sources — minimal/permissive for now (warn on unrecognized registries/git)
+# ─────────────────────────────────────────────────────────────────────────────
+[sources]
+unknown-registry = "warn"
+unknown-git = "warn"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

@@ -3,6 +3,7 @@ name = "eg-sqlite-format"
 version = "0.1.0"
 edition = "2021"
 description = "Pure-Rust SQLite .db file-format reader + bulk-load writer (no C, no libsqlite3)"
+license = "MIT"
 
 [lib]
 name = "eg_sqlite_format"
