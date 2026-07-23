@@ -143,8 +143,8 @@ repos:
   # `full` is a strict subset of `--all-features`, so this everyday leg can only be a
   # subset of the lints CI/pre-push still enforce (rust-ci.yml gate 1 is unchanged).
   - id: cargo-clippy
-    name: cargo clippy -D warnings (shipped `full` build + 2 slim variants)
-    entry: bash -c 'if [ -f "Cargo.toml" ]; then set -e; cargo clippy --no-default-features --features full --all-targets -- -D warnings; cargo clippy --no-default-features --features graph,algorithms -- -D warnings; cargo clippy --no-default-features --features server --all-targets -- -D warnings; fi'
+    name: cargo clippy -D warnings (shipped `full` build — the slimmest profile, incl. Raspberry Pi)
+    entry: bash -c 'if [ -f "Cargo.toml" ]; then set -e; cargo clippy --no-default-features --features full --all-targets -- -D warnings; fi'
     language: system
     pass_filenames: false
     always_run: true
@@ -164,8 +164,8 @@ repos:
   # slim-server feature-gating guard row). Replaces the old weak `cargo test
   # --quiet`. Gate 6 (facade full) is heavy → its own pre-push/manual hook below.
   - id: cargo-test
-    name: cargo test (lower crates all-features + slim server)
-    entry: bash -c 'if [ -f "Cargo.toml" ]; then set -e; cargo test -p eg-types -p eg-core -p eg-compute --all-features; cargo test -p epistemic-graph --no-default-features --features server; fi'
+    name: cargo test (lower crates all-features)
+    entry: bash -c 'if [ -f "Cargo.toml" ]; then set -e; cargo test -p eg-types -p eg-core -p eg-compute --all-features; fi'
     language: system
     pass_filenames: false
     always_run: true
