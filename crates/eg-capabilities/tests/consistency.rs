@@ -830,7 +830,9 @@ fn all_methods_table_has_the_expected_variant_count() {
     // DIST-P2-5: three flat Placement* variants consolidated into one) = 357.
     // Plus `GetEdgesPage` (CONCEPT:EG-KG.ingest.resets-socket-so-assimilation — the keyset-paginated sibling of
     // `GetEdges`, unconditional): 357 + 1 = 358.
-    let expected = 358
+    // Plus W1.4 `ApplyChangeEnvelopes` (the batch sibling of `ApplyChangeEnvelope`,
+    // unconditional): 358 + 1 = 359.
+    let expected = 359
         + usize::from(cfg!(feature = "jobs"))
         + usize::from(cfg!(feature = "statechart"))
         + usize::from(cfg!(feature = "modality-serving"))

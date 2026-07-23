@@ -2523,7 +2523,9 @@ mod smoke_tests {
         // Net: 354 base + 2 (raft-admin) + 1 (PlacementAdmin) = 357.
         // Plus `GetEdgesPage` (CONCEPT:EG-KG.ingest.resets-socket-so-assimilation — the keyset-paginated
         // sibling of `GetEdges`, unconditional): 357 + 1 = 358.
-        let expected = 358
+        // Plus W1.4 `ApplyChangeEnvelopes` (the batch sibling of `ApplyChangeEnvelope`,
+        // unconditional): 358 + 1 = 359.
+        let expected = 359
             + usize::from(cfg!(feature = "jobs"))
             + usize::from(cfg!(feature = "statechart"))
             + usize::from(cfg!(feature = "modality-serving"))
