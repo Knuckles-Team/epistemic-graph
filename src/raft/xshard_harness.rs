@@ -28,6 +28,7 @@ use tokio::sync::RwLock;
 use super::cross_shard_txn::{CrossShardCoordinator, CrossShardTxn, GraphSlice, TxnOutcome};
 use super::multi::MultiRaft;
 use super::{AppCtx, NodeId};
+use crate::acl::{AgentIdentity, AgentRole};
 use crate::channels::ChannelManager;
 use crate::durability::DurabilityPolicy;
 use crate::isolation::IsolationLayer;
@@ -42,6 +43,23 @@ const GROUP_B: u64 = 200;
 const GRAPH_A: &str = "shardA";
 const GRAPH_B: &str = "shardB";
 
+/// The harness's isolation layer: one System-role identity for the harness's fixed test
+/// agent. The user-facing `BeginTxn`/`Commit` handler enforces a fail-closed graph ACL
+/// (`check_graph_access` requires `isolation.has_rules()` AND a provisioned identity), so a
+/// bare `IsolationLayer::new()` denies every handler-driven transaction. This mirrors the
+/// `current_isolation` fixture the `redb_backend` cross-modal ACID test module uses to drive
+/// the same handler; the coordinator-path tests never touch the ACL, so they are unaffected.
+fn harness_isolation() -> IsolationLayer {
+    let mut isolation = IsolationLayer::new();
+    isolation.register_agent(AgentIdentity {
+        agent_id: XSHARD_HARNESS_TEST_AGENT.to_string(),
+        role: AgentRole::System,
+        teams: Vec::new(),
+        roles: Vec::new(),
+    });
+    isolation
+}
+
 /// Build a redb-AUTHORITATIVE ServerState over an already-open backend (redb is
 /// single-handle-per-process, so a test that needs the concrete handle must SHARE it
 /// with the state, never open a second over the same dir).
@@ -52,7 +70,7 @@ async fn make_state(dir: &str, backend: Arc<dyn PersistenceBackend>) -> Arc<RwLo
             crate::server::persistence::cold_offload::ColdTenantTracker::new(),
         ),
         registry: GraphRegistry::new(),
-        isolation: IsolationLayer::new(),
+        isolation: harness_isolation(),
         channels: ChannelManager::new(),
         auth_secret: "xshard-test".to_string(),
         persist_dir: Some(dir.to_string()),
@@ -94,6 +112,17 @@ async fn make_state(dir: &str, backend: Arc<dyn PersistenceBackend>) -> Arc<RwLo
 }
 
 fn fresh_dir(tag: &str) -> String {
+    // The user-facing `Commit` handler seals a durable transaction recovery plan
+    // (`begin_txn_receipt` → `seal_txn_recovery_plan`) through the value cipher, which the
+    // `security` feature resolves ONCE per process from this key at backend open. Provision
+    // it before any backend opens so the multi-graph Commit path can persist its recovery
+    // plan. Encryption is symmetric and transparent to every durable round-trip these tests
+    // make (2PC prepare slices seal+unseal; the decision is a raw state byte), so the
+    // coordinator-path tests behave identically with it set.
+    static ENCRYPTION_KEY: std::sync::Once = std::sync::Once::new();
+    ENCRYPTION_KEY.call_once(|| {
+        std::env::set_var(crate::crypto::ENCRYPTION_KEY_ENV, "xshard-harness-recovery-key")
+    });
     let d = std::env::temp_dir().join(format!("eg-xshard-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&d);
     std::fs::create_dir_all(&d).unwrap();
