@@ -131,7 +131,11 @@ fn louvain_partition(
 }
 
 /// One level of local moving. Returns `(community_of_node, improved, n_comms)`.
-fn local_moving(
+///
+/// `pub(crate)` (not `pub`) — reused as-is by [`super::leiden`]'s outer per-level
+/// pass (identical unconstrained local-moving), which layers its own restricted
+/// refinement phase on top rather than re-deriving this routine.
+pub(crate) fn local_moving(
     adj: &[Vec<(usize, f64)>],
     resolution: f64,
     m2: f64,
@@ -208,7 +212,12 @@ fn local_moving(
 }
 
 /// Aggregate communities into super-nodes; edge weights between communities sum.
-fn aggregate(adj: &[Vec<(usize, f64)>], comm: &[usize], n_comms: usize) -> Vec<Vec<(usize, f64)>> {
+/// `pub(crate)` — reused by [`super::leiden`] to aggregate by its refined partition.
+pub(crate) fn aggregate(
+    adj: &[Vec<(usize, f64)>],
+    comm: &[usize],
+    n_comms: usize,
+) -> Vec<Vec<(usize, f64)>> {
     let mut maps: Vec<HashMap<usize, f64>> = vec![HashMap::new(); n_comms];
     for (i, row) in adj.iter().enumerate() {
         let ci = comm[i];
@@ -226,8 +235,14 @@ fn aggregate(adj: &[Vec<(usize, f64)>], comm: &[usize], n_comms: usize) -> Vec<V
         .collect()
 }
 
-/// Modularity `Q = Σ_c [ in_c/2m − γ (Σtot_c/2m)² ]`.
-fn modularity_of(adj: &[Vec<(usize, f64)>], membership: &[usize], resolution: f64) -> f64 {
+/// Modularity `Q = Σ_c [ in_c/2m − γ (Σtot_c/2m)² ]`. `pub(crate)` — reused by
+/// [`super::leiden`] to report its own final partition's modularity with the
+/// SAME formula, so the two algorithms' `Q` values are directly comparable.
+pub(crate) fn modularity_of(
+    adj: &[Vec<(usize, f64)>],
+    membership: &[usize],
+    resolution: f64,
+) -> f64 {
     let m2: f64 = adj.iter().flat_map(|row| row.iter().map(|(_, w)| *w)).sum();
     if m2 <= 0.0 {
         return 0.0;
