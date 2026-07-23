@@ -186,6 +186,56 @@ pub struct SignedRegisterIdentity<'a> {
     pub roles: Vec<String>,
 }
 
+/// A unique tempdir-backed authoritative redb persistence handle for served-dispatch
+/// tests whose mutations must reach the durable `MutationBatch` gateway. Since the
+/// assimilation of the gateway persistence requirement, a `persistence: None` state
+/// makes the gateway reject every routed mutation, so a served test that stages a
+/// write then reads it back never reaches its assertions. This mirrors
+/// `src/raft/xshard_harness.rs`'s setup: open one authoritative `RedbBackend` over a
+/// per-call unique dir (so parallel tests never contend redb's exclusive per-file
+/// lock) and hand back the `(persist_dir, persistence)` pair the `ServerState` literal
+/// needs. On a build without `redb` the durable gateway does not exist, so this yields
+/// the pre-existing `(None, None)` and the caller compiles unchanged.
+#[cfg(feature = "redb")]
+#[allow(dead_code)]
+pub fn tempdir_persistence() -> (
+    Option<String>,
+    Option<std::sync::Arc<dyn epistemic_graph::server::persistence::PersistenceBackend>>,
+) {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+    let seq = SEQ.fetch_add(1, Ordering::Relaxed);
+    let dir = std::env::temp_dir().join(format!(
+        "eg-test-persist-{}-{seq}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("create test persist dir");
+    let dir_s = dir.to_string_lossy().into_owned();
+    let backend: std::sync::Arc<dyn epistemic_graph::server::persistence::PersistenceBackend> =
+        std::sync::Arc::new(
+            epistemic_graph::server::persistence::redb_backend::RedbBackend::open(
+                dir_s.clone(),
+                epistemic_graph::durability::DurabilityPolicy::Each,
+                4096,
+            )
+            .expect("open tempdir redb backend"),
+        );
+    (Some(dir_s), Some(backend))
+}
+
+/// `redb`-off fallback: no durable gateway exists, so served tests keep the
+/// pre-existing behavior (they cannot reach the durable-write assertions, but they
+/// compile). See the `redb`-on variant above.
+#[cfg(not(feature = "redb"))]
+#[allow(dead_code)]
+pub fn tempdir_persistence() -> (
+    Option<String>,
+    Option<std::sync::Arc<dyn epistemic_graph::server::persistence::PersistenceBackend>>,
+) {
+    (None, None)
+}
+
 #[allow(dead_code)]
 pub fn signed_register_identity_request(args: SignedRegisterIdentity<'_>) -> Request {
     let SignedRegisterIdentity {

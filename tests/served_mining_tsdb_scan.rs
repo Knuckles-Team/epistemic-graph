@@ -51,6 +51,7 @@ fn tmp_series() -> Arc<SeriesStore> {
 }
 
 fn state(tsdb_store: Option<Arc<SeriesStore>>) -> Arc<RwLock<ServerState>> {
+    let (persist_dir, persistence) = common::tempdir_persistence();
     Arc::new(RwLock::new(ServerState {
         #[cfg(feature = "redb")]
         cold_tracker: std::sync::Arc::new(
@@ -60,8 +61,8 @@ fn state(tsdb_store: Option<Arc<SeriesStore>>) -> Arc<RwLock<ServerState>> {
         isolation: common::current_isolation(),
         channels: ChannelManager::new(),
         auth_secret: SECRET.to_string(),
-        persist_dir: None,
-        persistence: None,
+        persist_dir,
+        persistence,
         max_in_flight: Arc::new(Semaphore::new(16)),
         read_admission: Arc::new(Semaphore::new(16)),
         per_graph_inflight: Arc::new(DashMap::new()),
