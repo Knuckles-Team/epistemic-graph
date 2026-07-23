@@ -4364,6 +4364,21 @@ mod coordinator_restart_tests {
 /// graphs); within a graph the commit is atomic. Per-envelope results are reassembled
 /// into REQUEST order under `{"results": [...]}` so a caller can advance a watermark
 /// through the contiguous success prefix.
+#[cfg(not(feature = "redb"))]
+async fn dispatch_change_envelopes(
+    _state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+    _caller: Option<&str>,
+    _verified_context: &VerifiedRequestContext,
+    _envelopes: Vec<crate::change_envelope::ChangeEnvelope>,
+) -> Response {
+    Response::err(
+        req_id,
+        "batch change-envelope commit requires a build with durable redb support",
+    )
+}
+
+#[cfg(feature = "redb")]
 async fn dispatch_change_envelopes(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
@@ -4478,6 +4493,7 @@ async fn dispatch_change_envelopes(
     )
 }
 
+#[cfg(feature = "redb")]
 async fn multi_graph_batch_update(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
