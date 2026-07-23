@@ -45,6 +45,12 @@ fn security_state_dir() -> &'static str {
 }
 
 pub fn configure_authority() {
+    // Integration-test crates link the library without cfg(test), so they get
+    // require_oidc()'s production fail-closed default instead of the library
+    // unit tests' thread-local shield. These tests exercise the HMAC envelope
+    // path deliberately; OIDC-enforcement coverage lives in the library's own
+    // auth tests.
+    std::env::set_var("EPISTEMIC_GRAPH_REQUIRE_OIDC", "false");
     std::env::set_var("EPISTEMIC_GRAPH_AUDIENCE", TEST_AUDIENCE);
     std::env::set_var("EPISTEMIC_GRAPH_TENANT", TEST_TENANT);
     std::env::set_var("EPISTEMIC_GRAPH_POLICY_VERSION", TEST_POLICY_VERSION);
