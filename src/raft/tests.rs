@@ -522,6 +522,7 @@ mod placement_admin_wire_rpc {
             scopes: vec!["*".to_string()],
             policy_version: "policy-test".to_string(),
             delegation: Vec::new(),
+            node: None,
         };
         let mut request = crate::protocol::Request {
             id,
@@ -1990,6 +1991,7 @@ async fn wire_raft_add_learner_and_change_membership_resolve_through_dispatch() 
             scopes: vec!["*".to_string()],
             policy_version: "policy-test".to_string(),
             delegation: Vec::new(),
+            node: None,
         };
         let mut request = Request {
             id,

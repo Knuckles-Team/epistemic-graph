@@ -100,6 +100,7 @@ impl VerifiedRequestContext {
                 scopes: vec!["*".to_string()],
                 policy_version: policy.expected_policy_version.clone(),
                 delegation: Vec::new(),
+                node: None,
             },
             authority.batch_id.clone(),
         ))
@@ -237,6 +238,7 @@ impl VerifiedRequestContext {
                 scopes: vec!["broker:*".to_string()],
                 policy_version: policy.expected_policy_version.clone(),
                 delegation: Vec::new(),
+                node: None,
             },
             format!("broker-request:{request_id}"),
         ))
@@ -258,6 +260,7 @@ impl VerifiedRequestContext {
                 scopes: vec!["kg:read".to_string()],
                 policy_version: policy.expected_policy_version.clone(),
                 delegation: Vec::new(),
+                node: None,
             },
             format!("local-query:{request_id}"),
         ))
@@ -306,6 +309,7 @@ impl VerifiedRequestContext {
                 scopes: vec!["kg:read".to_string(), "kg:write".to_string()],
                 policy_version: policy.expected_policy_version.clone(),
                 delegation: Vec::new(),
+                node: None,
             },
             idempotency_key,
         ))
@@ -392,6 +396,149 @@ fn now_secs() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0)
+}
+
+// ── Node-bound envelopes (ADR-3 / W1.9, `reports/wave1/ADR-scale-trio.md`) ──
+//
+// Replay protection today is a per-node local ledger (see `RedbReplayLedger`
+// below): in a cluster, a captured envelope can be replayed once per node
+// within the clock-skew window, because each node's `seen`-nonce set is
+// disjoint. Routing verification through Raft consensus would close that at
+// an unacceptable per-request cost. Instead the envelope binds itself to the
+// specific node the client minted it for: a replay presented to any OTHER
+// node fails the exact-match check below before it ever reaches the nonce
+// ledger, at zero consensus/replication cost. Same-node replay is unaffected
+// and still caught by the existing ledger.
+
+/// This node's own stable identity for envelope node-binding.
+///
+/// Clustered (built `--features raft` AND `EPISTEMIC_GRAPH_RAFT_NODE_ID`
+/// set): the raft node id -- the SAME integer identifying this node in
+/// `EPISTEMIC_GRAPH_RAFT_PEERS`, and (once ADR-1 lands) in
+/// `ClusterMembers`/`PlacementRoute` endpoints, so a client that learns its
+/// target node id from either of those mints a claim this function matches.
+///
+/// Otherwise (single-node, or a build without the `raft` feature): the
+/// explicit `EPISTEMIC_GRAPH_NODE_ID` override, defaulting to the stable
+/// literal `"single"` -- so a single-node deployment's node claim, if a
+/// client ever bothers to mint one, always matches with zero operator
+/// configuration (ADR-3: "claim optional forever... zero friction for the
+/// published wheel's default profile").
+#[cfg(not(test))]
+fn node_identity() -> &'static str {
+    static IDENTITY: OnceLock<String> = OnceLock::new();
+    IDENTITY
+        .get_or_init(|| {
+            #[cfg(feature = "raft")]
+            {
+                if let Ok(raft_id) = std::env::var("EPISTEMIC_GRAPH_RAFT_NODE_ID") {
+                    let trimmed = raft_id.trim();
+                    if !trimmed.is_empty() {
+                        return trimmed.to_string();
+                    }
+                }
+            }
+            std::env::var("EPISTEMIC_GRAPH_NODE_ID")
+                .ok()
+                .map(|v| v.trim().to_string())
+                .filter(|v| !v.is_empty())
+                .unwrap_or_else(|| "single".to_string())
+        })
+        .as_str()
+}
+
+/// Test-only fixed identity: real env/OnceLock resolution is intentionally
+/// untested here (mirrors `envelope_skew_secs`/`RequestContextPolicy`'s own
+/// `#[cfg(test)]` overrides elsewhere in this file) -- unit tests instead
+/// vary the CLAIM's node value between a match (`"node-a"`) and a mismatch
+/// (any other string).
+#[cfg(test)]
+fn node_identity() -> &'static str {
+    "node-a"
+}
+
+/// Rollout posture for the node-binding claim
+/// (`EPISTEMIC_GRAPH_REQUIRE_NODE_BINDING`). Tri-state, unlike the boolean
+/// [`env_flag_explicit`] flags elsewhere in this module, because the safe
+/// migration path needs a distinguishable "accept but log" middle state
+/// between "ignore" and "enforce": a deployment can watch its `warn`-mode
+/// logs for still-unmigrated clients before flipping to `on`.
+///
+/// A PRESENT claim is always exact-matched against [`node_identity`] in
+/// EVERY mode -- only an ABSENT claim's handling varies by mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NodeBindingMode {
+    /// Absent claim accepted silently.
+    Off,
+    /// Absent claim accepted, but logged once per principal so an operator
+    /// can find not-yet-migrated clients before flipping to `On`. The
+    /// shipped default.
+    Warn,
+    /// Absent claim rejected (fail closed) -- the W5.2 cluster-cutover
+    /// posture.
+    On,
+}
+
+/// Parse `EPISTEMIC_GRAPH_REQUIRE_NODE_BINDING` (`off`/`warn`/`on`, case
+/// insensitive, trimmed). Unset or unrecognized ⇒ `Warn` -- permissive
+/// enough that an un-migrated client keeps working, but visible enough that
+/// an operator preparing for the W5.2 cluster cutover can see it coming.
+#[cfg(not(test))]
+fn require_node_binding_mode() -> NodeBindingMode {
+    static MODE: OnceLock<NodeBindingMode> = OnceLock::new();
+    *MODE.get_or_init(|| {
+        std::env::var("EPISTEMIC_GRAPH_REQUIRE_NODE_BINDING")
+            .ok()
+            .map(|v| v.trim().to_ascii_lowercase())
+            .and_then(|v| match v.as_str() {
+                "off" => Some(NodeBindingMode::Off),
+                "warn" => Some(NodeBindingMode::Warn),
+                "on" => Some(NodeBindingMode::On),
+                _ => None,
+            })
+            .unwrap_or(NodeBindingMode::Warn)
+    })
+}
+
+// Test-only override, exactly like `TEST_REQUIRE_OIDC` above it: env vars are
+// process-global and would race across parallel `libtest` threads, so the
+// posture is a per-thread cell each `#[test]` sets explicitly via the guard
+// functions below. Default matches production's shipped default (`Warn`).
+#[cfg(test)]
+thread_local! {
+    static TEST_NODE_BINDING_MODE: std::cell::Cell<NodeBindingMode> =
+        const { std::cell::Cell::new(NodeBindingMode::Warn) };
+}
+
+#[cfg(test)]
+fn require_node_binding_mode() -> NodeBindingMode {
+    TEST_NODE_BINDING_MODE.with(std::cell::Cell::get)
+}
+
+/// Bounded best-effort de-duplication so `warn` mode logs an absent
+/// node-binding claim once per principal rather than once per request.
+/// Bounded like `ReplayCache` bounds nonces: an operator running many
+/// distinct never-upgraded principals should not grow this unboundedly --
+/// past the cap the set is cleared and warnings resume (a duplicate warning
+/// is harmless, just noisier).
+const MAX_WARNED_NODE_BINDING_PRINCIPALS: usize = 10_000;
+
+fn warn_absent_node_claim_once(principal: &str) {
+    static WARNED: OnceLock<std::sync::Mutex<HashSet<String>>> = OnceLock::new();
+    let warned = WARNED.get_or_init(|| std::sync::Mutex::new(HashSet::new()));
+    let mut warned = warned.lock().unwrap_or_else(|e| e.into_inner());
+    if warned.len() >= MAX_WARNED_NODE_BINDING_PRINCIPALS {
+        warned.clear();
+    }
+    if warned.insert(principal.to_string()) {
+        tracing::warn!(
+            principal,
+            "eg2. request context is missing the node-binding claim \
+             (EPISTEMIC_GRAPH_REQUIRE_NODE_BINDING=warn); accepted for \
+             compatibility, but this principal's client should be upgraded \
+             before the deployment flips to `on`"
+        );
+    }
 }
 
 // ── Verified request context envelope ──────────────────────────────────────
@@ -508,6 +655,7 @@ pub(crate) fn sign_current_test_request(secret: &str, mut request: Request) -> R
         }],
         policy_version: "policy-test".to_string(),
         delegation: Vec::new(),
+        node: None,
     };
     let nonce = format!(
         "rust-unit-{}-{}",
@@ -624,6 +772,38 @@ fn validate_context_claims(
     if claims.policy_version != policy.expected_policy_version {
         return Err("request context policy version is not active".to_string());
     }
+
+    // ── ADR-3 / W1.9: node-bound envelopes ──────────────────────────────
+    // A present claim is ALWAYS exact-matched against this node's own
+    // identity, in every posture -- only an ABSENT claim's handling varies
+    // by `EPISTEMIC_GRAPH_REQUIRE_NODE_BINDING`. Checked here (inside the
+    // same pre-dispatch claims check `verify_envelope_v2_with` runs BEFORE
+    // its nonce/replay lookup) so a captured envelope replayed against a
+    // DIFFERENT node fails fast, at zero consensus/replication cost, before
+    // ever touching the replay ledger.
+    match claims.node.as_deref() {
+        Some(claimed) if claimed.trim().is_empty() => {
+            return Err("request context node claim must not be empty when present".to_string());
+        }
+        Some(claimed) => {
+            if claimed != node_identity() {
+                return Err(format!(
+                    "NODE_MISMATCH: request context is bound to node '{claimed}', \
+                     which does not match this node's identity"
+                ));
+            }
+        }
+        None => match require_node_binding_mode() {
+            NodeBindingMode::Off => {}
+            NodeBindingMode::Warn => warn_absent_node_claim_once(&claims.principal),
+            NodeBindingMode::On => {
+                return Err("NODE_MISMATCH: request context is missing the required \
+                     node-binding claim (EPISTEMIC_GRAPH_REQUIRE_NODE_BINDING=on)"
+                    .to_string());
+            }
+        },
+    }
+
     Ok(())
 }
 
@@ -1400,6 +1580,23 @@ mod tests {
         RequireOidcGuard
     }
 
+    /// Resets `TEST_NODE_BINDING_MODE` to its default (`Warn`) when dropped,
+    /// same rationale as `RequireOidcGuard` above it: a posture override must
+    /// never leak into a later test that happens to reuse the same pooled
+    /// libtest thread.
+    struct NodeBindingModeGuard;
+
+    impl Drop for NodeBindingModeGuard {
+        fn drop(&mut self) {
+            TEST_NODE_BINDING_MODE.with(|cell| cell.set(NodeBindingMode::Warn));
+        }
+    }
+
+    fn node_binding_mode(mode: NodeBindingMode) -> NodeBindingModeGuard {
+        TEST_NODE_BINDING_MODE.with(|cell| cell.set(mode));
+        NodeBindingModeGuard
+    }
+
     fn ping_request(id: u64, graph: &str, auth_token: String) -> Request {
         Request {
             id,
@@ -1420,6 +1617,7 @@ mod tests {
             scopes: vec!["graph:read".into()],
             policy_version: "policy-7".into(),
             delegation: vec![],
+            node: None,
         }
     }
 
@@ -1621,6 +1819,110 @@ mod tests {
         verify_envelope_v2_with(SECRET, &req, &verified_policy(), &replay).unwrap();
         let error = verify_envelope_v2_with(SECRET, &req, &verified_policy(), &replay).unwrap_err();
         assert!(error.contains("replay"));
+    }
+
+    // ── ADR-3 / W1.9: node-bound envelopes ──────────────────────────────────
+
+    #[test]
+    fn v2_rejects_envelope_bound_to_a_different_node_before_nonce_check() {
+        // `node_identity()` in test builds is the fixed constant "node-a".
+        let _opt_out = require_oidc_off();
+        let _mode = node_binding_mode(NodeBindingMode::Warn);
+        let mut claims = verified_claims();
+        claims.node = Some("node-b".into());
+        let req = signed_v2_with_claims(520, "v2-node-mismatch", claims);
+        let replay = memory_replay();
+        let error = verify_envelope_v2_with(SECRET, &req, &verified_policy(), &replay).unwrap_err();
+        assert!(error.starts_with("NODE_MISMATCH"), "got: {error}");
+        // The nonce must NOT have been consumed by the rejected attempt --
+        // replaying the EXACT same envelope produces the SAME node-mismatch
+        // error again, not "replay". That is the proof this check runs
+        // before the nonce/replay ledger, exactly as ADR-3 requires.
+        let error_again =
+            verify_envelope_v2_with(SECRET, &req, &verified_policy(), &replay).unwrap_err();
+        assert!(
+            error_again.starts_with("NODE_MISMATCH"),
+            "got: {error_again}"
+        );
+    }
+
+    #[test]
+    fn v2_same_node_replay_is_still_rejected_by_the_ledger() {
+        let _opt_out = require_oidc_off();
+        let _mode = node_binding_mode(NodeBindingMode::Warn);
+        let mut claims = verified_claims();
+        claims.node = Some("node-a".into()); // matches node_identity() in tests
+        let req = signed_v2_with_claims(521, "v2-node-match-replay", claims);
+        let replay = memory_replay();
+        verify_envelope_v2_with(SECRET, &req, &verified_policy(), &replay).unwrap();
+        let error = verify_envelope_v2_with(SECRET, &req, &verified_policy(), &replay).unwrap_err();
+        assert!(error.contains("replay"), "got: {error}");
+    }
+
+    #[test]
+    fn v2_old_client_without_node_claim_is_accepted_under_warn_mode() {
+        let _opt_out = require_oidc_off();
+        let _mode = node_binding_mode(NodeBindingMode::Warn);
+        let claims = verified_claims(); // node: None -- an old, node-unaware client
+        let req = signed_v2_with_claims(522, "v2-old-client-warn", claims);
+        let context =
+            verify_envelope_v2_with(SECRET, &req, &verified_policy(), &memory_replay()).unwrap();
+        assert_eq!(context.agent_id(), "agent:planner");
+    }
+
+    #[test]
+    fn absent_node_claim_behavior_matches_require_node_binding_mode() {
+        let request = ping_request(599, "tenant-a-graph", String::new());
+        let policy = verified_policy();
+
+        {
+            let _mode = node_binding_mode(NodeBindingMode::Off);
+            validate_context_claims(&request, &verified_claims(), &policy)
+                .expect("off must accept an absent claim silently");
+        }
+        {
+            let _mode = node_binding_mode(NodeBindingMode::Warn);
+            validate_context_claims(&request, &verified_claims(), &policy)
+                .expect("warn must accept an absent claim (logged once per principal)");
+        }
+        {
+            let _mode = node_binding_mode(NodeBindingMode::On);
+            let error = validate_context_claims(&request, &verified_claims(), &policy)
+                .expect_err("on must reject an absent claim (fail closed)");
+            assert!(error.starts_with("NODE_MISMATCH"), "got: {error}");
+        }
+    }
+
+    #[test]
+    fn present_node_claim_is_exact_matched_regardless_of_binding_mode() {
+        let request = ping_request(600, "tenant-a-graph", String::new());
+        let policy = verified_policy();
+        let mut matching = verified_claims();
+        matching.node = Some("node-a".into());
+        let mut mismatched = verified_claims();
+        mismatched.node = Some("node-b".into());
+
+        for mode in [
+            NodeBindingMode::Off,
+            NodeBindingMode::Warn,
+            NodeBindingMode::On,
+        ] {
+            let _mode = node_binding_mode(mode);
+            validate_context_claims(&request, &matching, &policy)
+                .unwrap_or_else(|e| panic!("{mode:?}: a matching node claim must pass: {e}"));
+            let error = validate_context_claims(&request, &mismatched, &policy)
+                .expect_err("a wrong node claim must be rejected in every mode");
+            assert!(error.starts_with("NODE_MISMATCH"), "{mode:?}: got: {error}");
+        }
+    }
+
+    #[test]
+    fn empty_node_claim_is_rejected() {
+        let request = ping_request(601, "tenant-a-graph", String::new());
+        let mut claims = verified_claims();
+        claims.node = Some(String::new());
+        let error = validate_context_claims(&request, &claims, &verified_policy()).unwrap_err();
+        assert!(error.contains("node claim must not be empty"));
     }
 
     #[test]
@@ -1886,6 +2188,7 @@ mod tests {
                 scopes: vec!["kg:read".into()],
                 policy_version: "policy-7".into(),
                 delegation: vec![],
+                node: None,
             }
         }
 

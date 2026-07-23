@@ -1318,6 +1318,7 @@ mod tests {
             scopes: vec!["query:cypher".to_string()],
             policy_version: "policy-test".to_string(),
             delegation: Vec::new(),
+            node: None,
         };
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

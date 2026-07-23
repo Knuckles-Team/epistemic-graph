@@ -33,6 +33,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   VF2-based execution strategy no longer used by the incremental-walk executor.
 
 ### Added
+- **Node-bound envelopes — replay protection under replication** (W1.9, ADR-3 of
+  `reports/wave1/ADR-scale-trio.md`). The `eg2.` envelope's `RequestContextClaims`
+  gains an optional `node` claim naming the target cluster node a client minted the
+  envelope for; `validate_context_claims` exact-matches a present claim against the
+  receiving node's own identity (`server::auth::node_identity` — the `raft` feature's
+  `EPISTEMIC_GRAPH_RAFT_NODE_ID` when clustered, else `EPISTEMIC_GRAPH_NODE_ID`
+  defaulting to `single`) BEFORE the nonce/replay check, so an envelope captured and
+  replayed against a different node fails fast (`NODE_MISMATCH`) at zero
+  consensus/replication cost — same-node replay is still caught by the existing
+  ledger. New tri-state `EPISTEMIC_GRAPH_REQUIRE_NODE_BINDING` (`off`/`warn`/`on`,
+  default `warn`) governs an ABSENT claim only; a present claim is always
+  exact-matched regardless of mode. The wire change is genuinely additive — the
+  node-claim bytes are appended to the MAC-covered canonical encoding only when
+  present, so an envelope from a client that predates node binding (or the
+  untouched `clients/js`/`clients/go` bindings) encodes byte-for-byte identically to
+  before. Python client/pool gain `node_id` connection metadata
+  (`EpistemicGraphClient.connect(..., node_id=...)`,
+  `ConnectionPool`/`ShardRouter(..., node_id=/node_ids=)`) so the minted envelope
+  carries it automatically once known; a caller can still override per-task via
+  `use_verified_context`.
 - **Raft cluster-membership admin RPC** (CONCEPT:EG-KG.storage.kg-kg-2 —
   `cluster_deployment.md` §5 item 2). `MultiRaft::add_group_learner` /
   `change_group_voters` (the openraft add-learner / change-membership primitives,

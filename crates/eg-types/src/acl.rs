@@ -32,6 +32,18 @@ pub struct RequestContextClaims {
     /// Ordered delegation path from `principal` to `agent_id` (inclusive).
     /// Empty means no delegation and therefore requires principal == agent_id.
     pub delegation: Vec<String>,
+    /// Target node id this envelope was minted for (ADR-3 / W1.9 node-bound
+    /// envelopes — ``reports/wave1/ADR-scale-trio.md``). `None` for a client
+    /// that predates node binding, or one that has not yet learned a target
+    /// node id; a single-node deployment never needs to set this. When
+    /// `Some(id)`, the server exact-matches it against the receiving node's
+    /// own identity before dispatch (`server::auth::validate_context_claims`)
+    /// — a mismatch means the envelope was captured and replayed against a
+    /// different cluster member. `#[serde(default)]` so an envelope minted by
+    /// a client that has never heard of this claim deserializes exactly as
+    /// before (absent, not a hard error).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub node: Option<String>,
 }
 
 /// Role of an agent in the system hierarchy.
@@ -260,6 +272,43 @@ mod tests {
             "delegation":[]
         }"#;
         assert!(serde_json::from_str::<RequestContextClaims>(json).is_err());
+    }
+
+    #[test]
+    fn absent_node_claim_deserializes_as_none_for_pre_binding_clients() {
+        // ADR-3 / W1.9: a client that predates node binding (or one of the
+        // non-Python `clients/{js,go}` bindings this change deliberately
+        // leaves untouched) never sends a `node` key at all. `deny_unknown_fields`
+        // must not reject that shape, and the field must come back `None`.
+        let json = r#"{
+            "principal":"principal:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "tenant":"tenant:sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "audience":"graph-os",
+            "agent_id":"agent:sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "roles":[],
+            "scopes":[],
+            "policy_version":"current",
+            "delegation":[]
+        }"#;
+        let claims: RequestContextClaims = serde_json::from_str(json).unwrap();
+        assert_eq!(claims.node, None);
+    }
+
+    #[test]
+    fn present_node_claim_roundtrips() {
+        let json = r#"{
+            "principal":"p",
+            "tenant":"t",
+            "audience":"a",
+            "agent_id":"p",
+            "roles":[],
+            "scopes":[],
+            "policy_version":"v",
+            "delegation":[],
+            "node":"node-a"
+        }"#;
+        let claims: RequestContextClaims = serde_json::from_str(json).unwrap();
+        assert_eq!(claims.node.as_deref(), Some("node-a"));
     }
 
     #[test]

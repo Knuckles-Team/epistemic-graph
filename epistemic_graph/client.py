@@ -31,7 +31,7 @@ import msgpack
 logger = logging.getLogger(__name__)
 
 
-class RequestContextClaims(TypedDict):
+class _RequiredRequestContextClaims(TypedDict):
     """Authority claims bound to every request by the current wire signer."""
 
     principal: str
@@ -44,7 +44,23 @@ class RequestContextClaims(TypedDict):
     delegation: list[str]
 
 
-_REQUEST_CONTEXT_FIELDS = frozenset(RequestContextClaims.__required_keys__)
+class RequestContextClaims(_RequiredRequestContextClaims, total=False):
+    """``_RequiredRequestContextClaims`` plus the optional node-binding claim.
+
+    ``node`` (ADR-3 / W1.9 node-bound envelopes) is the target node id this
+    envelope is minted for. It is normally supplied by the connection layer
+    (``EpistemicGraphClient``/``ConnectionPool``'s ``node_id``), not by the
+    caller's identity claims, so it stays optional here rather than joining
+    the required base class -- most callers never set it directly.
+    """
+
+    node: str
+
+
+_REQUIRED_REQUEST_CONTEXT_FIELDS = frozenset(
+    _RequiredRequestContextClaims.__required_keys__
+)
+_ALLOWED_REQUEST_CONTEXT_FIELDS = frozenset(RequestContextClaims.__annotations__)
 
 
 def validate_request_context(
@@ -56,22 +72,28 @@ def validate_request_context(
     claims and list entries are non-empty, list entries are unique, and a
     delegation chain must connect the authenticated principal to the effective
     agent. Unknown fields are rejected so deployment-specific identity data is
-    not accidentally copied into the wire envelope.
+    not accidentally copied into the wire envelope. ``node`` is the one
+    optional claim (ADR-3 / W1.9) -- present only when the caller (or the
+    connection layer) knows the target node.
     """
 
     if not isinstance(context, dict):
         raise TypeError("verified_context must be a mapping")
     present = set(context)
-    missing = sorted(_REQUEST_CONTEXT_FIELDS - present)
+    missing = sorted(_REQUIRED_REQUEST_CONTEXT_FIELDS - present)
     if missing:
         raise ValueError(
             "verified_context is missing required claims: " + ", ".join(missing)
         )
-    unexpected = sorted(present - _REQUEST_CONTEXT_FIELDS)
+    unexpected = sorted(present - _ALLOWED_REQUEST_CONTEXT_FIELDS)
     if unexpected:
         raise ValueError(
             "verified_context contains unsupported claims: " + ", ".join(unexpected)
         )
+    if "node" in context:
+        node = context["node"]
+        if not isinstance(node, str) or not node.strip():
+            raise ValueError("verified_context.node must be a non-empty string when present")
 
     value = copy.deepcopy(context)
     for name in ("principal", "tenant", "audience", "agent_id", "policy_version"):
@@ -7815,6 +7837,7 @@ class EpistemicGraphClient:
         verified_context: RequestContextClaims | dict[str, Any],
         timeout: float | None = _DEFAULT_RPC_TIMEOUT,
         heavy_timeout: float | None = _HEAVY_RPC_TIMEOUT,
+        node_id: str | None = None,
     ) -> None:
         if not isinstance(auth_secret, str) or not auth_secret:
             raise ValueError("a non-empty authentication secret is required")
@@ -7825,6 +7848,13 @@ class EpistemicGraphClient:
         # Per-RPC read timeouts (0/None disables). Heavy ops use heavy_timeout.
         self._timeout = timeout if timeout else None
         self._heavy_timeout = heavy_timeout if heavy_timeout else None
+        # ADR-3 / W1.9 node-bound envelopes: which cluster node THIS connection
+        # talks to, if known -- connection/endpoint metadata, not an identity
+        # claim, so it lives here rather than in ``verified_context``. `None`
+        # (the default) means "unknown" and the minted envelope omits the
+        # `node` claim entirely, exactly like a client built before node
+        # binding existed. See `_compute_verified_token`.
+        self._node_id = node_id
         self._verified_context = validate_request_context(verified_context)
         self._verified_context_override: contextvars.ContextVar[
             dict[str, Any] | None
@@ -8052,6 +8082,7 @@ class EpistemicGraphClient:
         tls_server_hostname: str | None = None,
         tls_client_cert: str | None = None,
         tls_client_key: str | None = None,
+        node_id: str | None = None,
     ) -> EpistemicGraphClient:
         _secret = auth_secret or os.environ.get("GRAPH_SERVICE_AUTH_SECRET", "")
         if not _secret:
@@ -8087,6 +8118,7 @@ class EpistemicGraphClient:
             verified_context=context,
             timeout=timeout,
             heavy_timeout=heavy_timeout,
+            node_id=node_id,
         )
         # Remember the endpoint so a dropped connection self-heals (KG-2.19).
         client._socket_path = resolved_socket or socket_path
@@ -8287,6 +8319,17 @@ class EpistemicGraphClient:
         roles = [str(value) for value in context.get("roles", [])]
         scopes = [str(value) for value in context.get("scopes", [])]
         delegation = [str(value) for value in context.get("delegation", [])]
+        # ADR-3 / W1.9 node-bound envelopes: an explicit `node` claim on the
+        # effective verified_context wins (a caller deliberately overrode it,
+        # e.g. via `use_verified_context`); otherwise fall back to this
+        # CONNECTION's own `node_id` (set by `connect()`/`ConnectionPool`,
+        # i.e. which endpoint this client actually talks to). `None` when
+        # neither is known -- the common case today, absent any topology
+        # discovery -- and the claim is omitted entirely, exactly like a
+        # client built before node binding existed.
+        node_id = context.get("node")
+        if not isinstance(node_id, str) or not node_id.strip():
+            node_id = self._node_id
 
         canonical = bytearray()
         _put_v2_text(canonical, "eg-envelope-v2")
@@ -8305,20 +8348,29 @@ class EpistemicGraphClient:
         canonical.extend(timestamp.to_bytes(8, "big"))
         _put_v2_text(canonical, nonce)
         _put_v2_text(canonical, idempotency_key)
+        # Appended ONLY when a node id is known -- see `build_envelope_v2_bytes`
+        # (crates/eg-types/src/protocol.rs) for the matching Rust encoding and
+        # why this must stay byte-for-byte additive.
+        if node_id:
+            canonical.append(1)
+            _put_v2_text(canonical, node_id)
         mac = hmac.new(
             self._auth_secret.encode("utf-8"), bytes(canonical), hashlib.sha256
         ).hexdigest()
+        context_payload: dict[str, Any] = {
+            "principal": str(context["principal"]),
+            "tenant": str(context["tenant"]),
+            "audience": str(context["audience"]),
+            "agent_id": str(context["agent_id"]),
+            "roles": roles,
+            "scopes": scopes,
+            "policy_version": str(context["policy_version"]),
+            "delegation": delegation,
+        }
+        if node_id:
+            context_payload["node"] = node_id
         envelope = {
-            "context": {
-                "principal": str(context["principal"]),
-                "tenant": str(context["tenant"]),
-                "audience": str(context["audience"]),
-                "agent_id": str(context["agent_id"]),
-                "roles": roles,
-                "scopes": scopes,
-                "policy_version": str(context["policy_version"]),
-                "delegation": delegation,
-            },
+            "context": context_payload,
             "timestamp": timestamp,
             "nonce": nonce,
             "idempotency_key": idempotency_key,
