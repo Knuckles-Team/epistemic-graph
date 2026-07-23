@@ -22,9 +22,9 @@ use epistemic_graph::channels::ChannelManager;
 use epistemic_graph::isolation::IsolationLayer;
 #[cfg(feature = "security")]
 use epistemic_graph::registry::GraphRegistry;
+use epistemic_graph::server;
 #[cfg(feature = "security")]
 use epistemic_graph::server::ServerState;
-use epistemic_graph::server;
 
 #[cfg(feature = "full")]
 mod performance_probe;
@@ -631,9 +631,7 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
     // before any row is exposed. `run_inner` exists only under `security` (see
     // `run`'s doc comment), so this path is always reachable here.
     let isolation = {
-        info!(
-            "RLS default-deny ACTIVE: rows require explicit public visibility or an owner grant"
-        );
+        info!("RLS default-deny ACTIVE: rows require explicit public visibility or an owner grant");
         let isolation = match args.persist_dir.as_deref() {
             Some(dir) => match IsolationLayer::with_persist_dir(dir) {
                 Ok(layer) => layer,
