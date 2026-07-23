@@ -31,12 +31,13 @@ use petgraph::visit::{EdgeRef, IntoEdgeReferences};
 use serde_json::Value;
 
 use eg_compute::graph_algos::{
-    all_pairs_similarity, article_rank, betweenness_centrality, closeness_centrality,
-    degree_centrality, dijkstra, eigenvector_centrality, harmonic_centrality, k1_coloring, k_core,
-    knn_similarity, label_propagation, leiden, local_clustering_coefficient, louvain, pagerank,
-    strongly_connected_components, triangle_count, weakly_connected_components, AdjacencyGraph,
-    ArticleRankConfig, ClosenessConfig, DegreeKind, Direction, EigenvectorConfig,
-    LabelPropagationConfig, LeidenConfig, LouvainConfig, Metric, PageRankConfig,
+    a_star, all_pairs_similarity, article_rank, betweenness_centrality, closeness_centrality,
+    degree_centrality, dijkstra, eigenvector_centrality, harmonic_centrality, haversine_km,
+    k1_coloring, k_core, knn_similarity, label_propagation, leiden, local_clustering_coefficient,
+    louvain, pagerank, random_walk, steiner_tree, strongly_connected_components, triangle_count,
+    weakly_connected_components, yen_k_shortest_paths, AdjacencyGraph, ArticleRankConfig,
+    ClosenessConfig, DegreeKind, Direction, EigenvectorConfig, LabelPropagationConfig,
+    LeidenConfig, LouvainConfig, Metric, PageRankConfig, RandomWalkConfig,
 };
 
 use super::proc::{CypherProcedure, ProcRow, YieldValue};
@@ -46,10 +47,11 @@ use super::proc::{CypherProcedure, ProcRow, YieldValue};
 /// by `proc::build_registry`. The always-on base (EG-298 + `labelPropagation`/
 /// `knn` + the W4.1 GDS-parity expansion — Leiden/triangle-count/
 /// local-clustering-coefficient/k-core/k1-coloring community family,
-/// eigenvector/ArticleRank/closeness/harmonic centrality) all route to
-/// always-on `graph_algos` kernels; `gds.dbscan` and `gds.linkPrediction` are
-/// gated behind the `cypher-mining`/`cypher-graphlearn` features (they route
-/// to heavier eg-compute domains — see `Cargo.toml`).
+/// eigenvector/ArticleRank/closeness/harmonic centrality, and
+/// A*/Yen's-k/Steiner-tree/random-walk paths) all route to always-on
+/// `graph_algos` kernels; `gds.dbscan` and `gds.linkPrediction` are gated
+/// behind the `cypher-mining`/`cypher-graphlearn` features (they route to
+/// heavier eg-compute domains — see `Cargo.toml`).
 pub fn gds_procedures() -> Vec<Box<dyn CypherProcedure>> {
     #[allow(unused_mut)]
     let mut v: Vec<Box<dyn CypherProcedure>> = vec![
@@ -69,6 +71,10 @@ pub fn gds_procedures() -> Vec<Box<dyn CypherProcedure>> {
         Box::new(KCore),
         Box::new(K1Coloring),
         Box::new(Dijkstra),
+        Box::new(AStar),
+        Box::new(Yens),
+        Box::new(SteinerTree),
+        Box::new(RandomWalk),
         Box::new(NodeSimilarity),
         Box::new(LabelPropagation),
         Box::new(Knn),
@@ -103,6 +109,17 @@ fn project(view: &GraphView, weight_prop: Option<&str>) -> AdjacencyGraph<String
         by_src.entry(s).or_default().push((t, w));
     }
     AdjacencyGraph::from_adjacency(by_src)
+}
+
+/// A node's numeric property `prop`, if present and numeric
+/// (CONCEPT:EG-KG.query.gds-call-procedures) — used by `gds.shortestPath.astar`'s
+/// lat/lon heuristic. The ungated counterpart of the `cypher-mining`-gated
+/// `node_feature_vector` helper below (same shape, one scalar instead of a
+/// vector).
+fn node_number_prop(view: &GraphView, id: &str, prop: &str) -> Option<f64> {
+    let blob = view.node_properties.get(id)?;
+    let v = eg_types::msgpack::decode_property_value(blob).ok()?;
+    v.as_object()?.get(prop)?.as_f64()
 }
 
 /// The numeric `prop` on the first `(s, t)` edge property record carrying it, if
@@ -629,6 +646,228 @@ impl CypherProcedure for Dijkstra {
         } else {
             Ok(scored_rows(res.distances(), "cost"))
         }
+    }
+}
+
+/// `gds.shortestPath.astar(source, target [, config])` — A* shortest path
+/// guided by a haversine heuristic over a node lat/lon property pair
+/// (CONCEPT:EG-KG.query.gds-call-procedures). String args are source and target node ids.
+/// Config: `latitudeProperty` (`"latitude"`), `longitudeProperty`
+/// (`"longitude"`), `relationshipWeightProperty`. A node missing either
+/// coordinate property falls back to heuristic `0.0` (never an error —
+/// degrades toward plain Dijkstra for that node, never wrong, just less
+/// informed). Yields a SINGLE row (the same shape `gds.dijkstra` uses when a
+/// target is given): `nodeId` / `node` = target, `cost` = total path cost;
+/// empty when unreachable. Routes to `eg_compute::graph_algos::a_star`
+/// (CONCEPT:EG-KG.compute.astar-search).
+struct AStar;
+impl CypherProcedure for AStar {
+    fn name(&self) -> &'static str {
+        "gds.shortestPath.astar"
+    }
+    fn columns(&self) -> &'static [&'static str] {
+        &["nodeId", "cost"]
+    }
+    fn call(&self, args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
+        let cfg = Config::of(args);
+        let ids: Vec<String> = args
+            .iter()
+            .filter_map(|v| v.as_str().map(str::to_string))
+            .collect();
+        let source = ids.first().ok_or_else(|| {
+            "gds.shortestPath.astar requires a source node id argument".to_string()
+        })?;
+        let target = ids.get(1).ok_or_else(|| {
+            "gds.shortestPath.astar requires a target node id argument".to_string()
+        })?;
+        let g = project(view, cfg.string("relationshipWeightProperty").as_deref());
+        let si = g
+            .index_of(source)
+            .ok_or_else(|| format!("source node `{source}` not in graph"))?;
+        let ti = g
+            .index_of(target)
+            .ok_or_else(|| format!("target node `{target}` not in graph"))?;
+
+        let lat_prop = cfg
+            .string("latitudeProperty")
+            .unwrap_or_else(|| "latitude".to_string());
+        let lon_prop = cfg
+            .string("longitudeProperty")
+            .unwrap_or_else(|| "longitude".to_string());
+        let target_coord = node_number_prop(view, target, &lat_prop)
+            .zip(node_number_prop(view, target, &lon_prop));
+        let heuristic = |idx: usize| -> f64 {
+            let Some((t_lat, t_lon)) = target_coord else {
+                return 0.0;
+            };
+            let id = g.node_at(idx);
+            match node_number_prop(view, id, &lat_prop).zip(node_number_prop(view, id, &lon_prop)) {
+                Some((lat, lon)) => haversine_km(lat, lon, t_lat, t_lon),
+                None => 0.0,
+            }
+        };
+
+        Ok(match a_star(&g, si, ti, heuristic) {
+            Some((_path, total_cost)) => vec![scored_row(target.clone(), "cost", total_cost)],
+            None => Vec::new(),
+        })
+    }
+}
+
+/// `gds.shortestPath.yens(source, target [, config])` — the `k` shortest
+/// LOOPLESS paths (CONCEPT:EG-KG.query.gds-call-procedures). Config: `k` (3),
+/// `relationshipWeightProperty`. Yields `index` (0-based rank, ascending
+/// cost), `nodeIds` (the path as a JSON array of node id strings — a scalar
+/// LIST column, like GDS's own `nodeIds`; not individually bindable node
+/// references), `cost`. Routes to
+/// `eg_compute::graph_algos::yen_k_shortest_paths` (CONCEPT:EG-KG.compute.yens-k-shortest-paths).
+struct Yens;
+impl CypherProcedure for Yens {
+    fn name(&self) -> &'static str {
+        "gds.shortestPath.yens"
+    }
+    fn columns(&self) -> &'static [&'static str] {
+        &["index", "nodeIds", "cost"]
+    }
+    fn call(&self, args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
+        let cfg = Config::of(args);
+        let ids: Vec<String> = args
+            .iter()
+            .filter_map(|v| v.as_str().map(str::to_string))
+            .collect();
+        let source = ids.first().ok_or_else(|| {
+            "gds.shortestPath.yens requires a source node id argument".to_string()
+        })?;
+        let target = ids.get(1).ok_or_else(|| {
+            "gds.shortestPath.yens requires a target node id argument".to_string()
+        })?;
+        let g = project(view, cfg.string("relationshipWeightProperty").as_deref());
+        let si = g
+            .index_of(source)
+            .ok_or_else(|| format!("source node `{source}` not in graph"))?;
+        let ti = g
+            .index_of(target)
+            .ok_or_else(|| format!("target node `{target}` not in graph"))?;
+        let k = cfg.usize("k", 3);
+
+        Ok(yen_k_shortest_paths(&g, si, ti, k)
+            .into_iter()
+            .enumerate()
+            .map(|(idx, p)| {
+                vec![
+                    (
+                        "index".to_string(),
+                        YieldValue::Scalar(Value::Number((idx as u64).into())),
+                    ),
+                    (
+                        "nodeIds".to_string(),
+                        YieldValue::Scalar(Value::Array(
+                            p.nodes.into_iter().map(Value::String).collect(),
+                        )),
+                    ),
+                    ("cost".to_string(), YieldValue::Scalar(num(p.cost))),
+                ]
+            })
+            .collect())
+    }
+}
+
+/// `gds.steinerTree(root, terminal1, terminal2, … [, config])` — Steiner tree
+/// connecting `root` and every reachable terminal (CONCEPT:EG-KG.query.gds-call-procedures).
+/// Config: `relationshipWeightProperty`. Yields `nodeId` / `node`, `parentId`
+/// (`null` for `root`, a scalar id reference like GDS's own — not an
+/// anchorable node), `weight` (the parent-edge weight, `null` for `root`). An
+/// unreachable terminal is silently omitted from the tree, never an error.
+/// Routes to `eg_compute::graph_algos::steiner_tree` (CONCEPT:EG-KG.compute.steiner-tree) —
+/// see that kernel's doc for the 2-approximation ratio and its one documented gap.
+struct SteinerTree;
+impl CypherProcedure for SteinerTree {
+    fn name(&self) -> &'static str {
+        "gds.steinerTree"
+    }
+    fn columns(&self) -> &'static [&'static str] {
+        &["nodeId", "parentId", "weight"]
+    }
+    fn call(&self, args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
+        let cfg = Config::of(args);
+        let ids: Vec<String> = args
+            .iter()
+            .filter_map(|v| v.as_str().map(str::to_string))
+            .collect();
+        let root = ids
+            .first()
+            .ok_or_else(|| "gds.steinerTree requires a root node id argument".to_string())?;
+        let g = project(view, cfg.string("relationshipWeightProperty").as_deref());
+        let ri = g
+            .index_of(root)
+            .ok_or_else(|| format!("root node `{root}` not in graph"))?;
+        let terminals: Vec<usize> = ids[1..].iter().filter_map(|t| g.index_of(t)).collect();
+
+        Ok(steiner_tree(&g, ri, &terminals)
+            .nodes
+            .into_iter()
+            .map(|(id, parent, weight)| {
+                vec![
+                    ("nodeId".to_string(), YieldValue::Node(id)),
+                    (
+                        "parentId".to_string(),
+                        YieldValue::Scalar(parent.map(Value::String).unwrap_or(Value::Null)),
+                    ),
+                    (
+                        "weight".to_string(),
+                        YieldValue::Scalar(weight.map(num).unwrap_or(Value::Null)),
+                    ),
+                ]
+            })
+            .collect())
+    }
+}
+
+/// `gds.randomWalk(start [, config])` — weighted random walk with restart
+/// (CONCEPT:EG-KG.query.gds-call-procedures). Config: `steps` (10), `restartProbability`
+/// (0.0), `seed` (0), `relationshipWeightProperty`. Yields `index` (0-based
+/// step position), `nodeId` / `node` (the node visited at that step). Routes
+/// to `eg_compute::graph_algos::random_walk` (CONCEPT:EG-KG.compute.random-walk).
+struct RandomWalk;
+impl CypherProcedure for RandomWalk {
+    fn name(&self) -> &'static str {
+        "gds.randomWalk"
+    }
+    fn columns(&self) -> &'static [&'static str] {
+        &["index", "nodeId"]
+    }
+    fn call(&self, args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
+        let cfg = Config::of(args);
+        let ids: Vec<String> = args
+            .iter()
+            .filter_map(|v| v.as_str().map(str::to_string))
+            .collect();
+        let start = ids
+            .first()
+            .ok_or_else(|| "gds.randomWalk requires a start node id argument".to_string())?;
+        let g = project(view, cfg.string("relationshipWeightProperty").as_deref());
+        let si = g
+            .index_of(start)
+            .ok_or_else(|| format!("start node `{start}` not in graph"))?;
+        let rc = RandomWalkConfig {
+            steps: cfg.usize("steps", 10),
+            restart_probability: cfg.f64("restartProbability", 0.0),
+            seed: cfg.get("seed").and_then(Value::as_u64).unwrap_or(0),
+        };
+
+        Ok(random_walk(&g, si, &rc)
+            .into_iter()
+            .enumerate()
+            .map(|(idx, id)| {
+                vec![
+                    (
+                        "index".to_string(),
+                        YieldValue::Scalar(Value::Number((idx as u64).into())),
+                    ),
+                    ("nodeId".to_string(), YieldValue::Node(id)),
+                ]
+            })
+            .collect())
     }
 }
 
@@ -1295,6 +1534,147 @@ mod tests {
         assert_eq!(r.len(), 1);
         assert_eq!(node_id(&r[0][0]), "carol");
         assert!((r[0][1].as_f64().unwrap() - 6.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn call_gds_astar_matches_dijkstra_with_haversine_heuristic() {
+        // Same admissible-heuristic fixture as the eg-compute a_star tests:
+        // an equator chain (150 each hop) plus a 400-cost direct shortcut.
+        let core = GraphCore::new();
+        let coords: [(&str, f64, f64); 4] = [
+            ("a", 0.0, 0.0),
+            ("b", 0.0, 1.0),
+            ("c", 0.0, 2.0),
+            ("d", 0.0, 3.0),
+        ];
+        for (id, lat, lon) in coords {
+            core.add_node(
+                id.into(),
+                pbytes(serde_json::json!({"node_type": "N", "latitude": lat, "longitude": lon})),
+            );
+        }
+        for (s, t, w) in [
+            ("a", "b", 150.0),
+            ("b", "c", 150.0),
+            ("c", "d", 150.0),
+            ("a", "d", 400.0),
+        ] {
+            core.add_edge(s.into(), t.into(), pbytes(serde_json::json!({"weight": w})))
+                .unwrap();
+        }
+        let v = core.analysis_snapshot();
+
+        let astar = exec_cypher(
+            &v,
+            "CALL gds.shortestPath.astar('a', 'd', {relationshipWeightProperty: 'weight'}) \
+             YIELD nodeId, cost RETURN nodeId, cost",
+        )
+        .unwrap();
+        let ra = rows(&astar);
+        assert_eq!(ra.len(), 1);
+        assert_eq!(node_id(&ra[0][0]), "d");
+        assert!((ra[0][1].as_f64().unwrap() - 400.0).abs() < 1e-9);
+
+        let dijkstra = exec_cypher(
+            &v,
+            "CALL gds.dijkstra('a', 'd', {relationshipWeightProperty: 'weight'}) \
+             YIELD nodeId, cost RETURN nodeId, cost",
+        )
+        .unwrap();
+        let rd = rows(&dijkstra);
+        assert!((rd[0][1].as_f64().unwrap() - ra[0][1].as_f64().unwrap()).abs() < 1e-9);
+    }
+
+    #[test]
+    fn call_gds_yens_ranks_three_known_paths() {
+        let core = GraphCore::new();
+        for id in ["a", "b", "c", "d"] {
+            core.add_node(id.into(), pbytes(serde_json::json!({"node_type": "N"})));
+        }
+        for (s, t, w) in [
+            ("a", "b", 1.0),
+            ("b", "d", 1.0),
+            ("a", "c", 2.0),
+            ("c", "d", 1.0),
+            ("a", "d", 5.0),
+        ] {
+            core.add_edge(s.into(), t.into(), pbytes(serde_json::json!({"weight": w})))
+                .unwrap();
+        }
+        let v = core.analysis_snapshot();
+        let qr = exec_cypher(
+            &v,
+            "CALL gds.shortestPath.yens('a', 'd', {k: 3, relationshipWeightProperty: 'weight'}) \
+             YIELD index, nodeIds, cost RETURN index, nodeIds, cost",
+        )
+        .unwrap();
+        let r = rows(&qr);
+        assert_eq!(r.len(), 3);
+        assert!((r[0][2].as_f64().unwrap() - 2.0).abs() < 1e-9);
+        assert!((r[1][2].as_f64().unwrap() - 3.0).abs() < 1e-9);
+        assert!((r[2][2].as_f64().unwrap() - 5.0).abs() < 1e-9);
+        let path0: Vec<String> = r[0][1]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(path0, vec!["a", "b", "d"]);
+    }
+
+    #[test]
+    fn call_gds_steiner_tree_connects_the_three_spokes() {
+        let core = GraphCore::new();
+        for id in ["h", "t1", "t2", "t3"] {
+            core.add_node(id.into(), pbytes(serde_json::json!({"node_type": "N"})));
+        }
+        for (s, t, w) in [("h", "t1", 3.0), ("h", "t2", 4.0), ("h", "t3", 5.0)] {
+            core.add_edge(s.into(), t.into(), pbytes(serde_json::json!({"weight": w})))
+                .unwrap();
+        }
+        let v = core.analysis_snapshot();
+        let qr = exec_cypher(
+            &v,
+            "CALL gds.steinerTree('h', 't1', 't2', 't3', {relationshipWeightProperty: 'weight'}) \
+             YIELD nodeId, parentId, weight RETURN nodeId, parentId, weight",
+        )
+        .unwrap();
+        let r = rows(&qr);
+        assert_eq!(r.len(), 4);
+        let mut by_id: HashMap<String, (Option<String>, Option<f64>)> = HashMap::new();
+        for row in &r {
+            let id = node_id(&row[0]).to_string();
+            by_id.insert(id, (row[1].as_str().map(str::to_string), row[2].as_f64()));
+        }
+        assert_eq!(by_id["h"], (None, None));
+        assert_eq!(by_id["t1"], (Some("h".to_string()), Some(3.0)));
+        assert_eq!(by_id["t2"], (Some("h".to_string()), Some(4.0)));
+        assert_eq!(by_id["t3"], (Some("h".to_string()), Some(5.0)));
+    }
+
+    #[test]
+    fn call_gds_random_walk_restart_probability_one_always_returns_to_start() {
+        let core = GraphCore::new();
+        for id in ["a", "b", "c"] {
+            core.add_node(id.into(), pbytes(serde_json::json!({"node_type": "N"})));
+        }
+        for (s, t) in [("a", "b"), ("b", "c"), ("c", "a")] {
+            core.add_edge(s.into(), t.into(), pbytes(serde_json::json!({})))
+                .unwrap();
+        }
+        let v = core.analysis_snapshot();
+        let qr = exec_cypher(
+            &v,
+            "CALL gds.randomWalk('a', {steps: 4, restartProbability: 1.0, seed: 7}) \
+             YIELD index, nodeId RETURN index, nodeId",
+        )
+        .unwrap();
+        let r = rows(&qr);
+        assert_eq!(r.len(), 5);
+        for row in &r {
+            // RETURN index, nodeId ⇒ row[0]=index, row[1]=nodeId.
+            assert_eq!(node_id(&row[1]), "a");
+        }
     }
 
     #[test]

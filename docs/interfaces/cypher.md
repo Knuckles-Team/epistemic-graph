@@ -87,6 +87,18 @@ similarity (Jaccard/cosine over neighborhoods, all-pairs `gds.nodeSimilarity` + 
 (`gds.linkPrediction`, a KAN classifier over structural pair features, feature `cypher-graphlearn`) —
 CONCEPT:EG-KG.query.gds-procedure-routing.
 
+**W4.1 GDS-parity expansion** (12→26 procedures, all always-on — no new feature): **community** —
+`gds.leiden` (a refinement phase makes every returned community's induced subgraph CONNECTED by
+construction, the defect Traag/Waltman/van Eck 2019 prove plain Louvain does not avoid),
+`gds.triangleCount`/`gds.localClusteringCoefficient`, `gds.kcore` (degeneracy/coreness), `gds.k1coloring`
+(Welsh–Powell greedy proper coloring); **centrality** — `gds.eigenvector` (power iteration),
+`gds.articleRank` (a PageRank variant discounting low-out-degree sources), `gds.closeness` (optional
+Wasserman–Faust `useWassermanFaust` correction), `gds.harmonic`; **paths** — `gds.shortestPath.astar`
+(caller-supplied heuristic, e.g. haversine over a lat/lon property pair), `gds.shortestPath.yens` (the
+`k` shortest loopless paths), `gds.steinerTree` (the classical Kou–Markowsky–Berman MST-based
+2-approximation), `gds.randomWalk` (weighted, with restart probability, seeded and deterministic given
+the seed).
+
 ## Remote drivers — Bolt v4.4 (EG-KG.query.bolt-wire-protocol, feature `bolt-wire`)
 
 A native Bolt v4.4 listener (`src/server/bolt_wire/`, PackStream v2 chunked framing,

@@ -181,6 +181,7 @@ See [Atomic Batch Updates](interfaces/batch_update.md) for the complete operatio
 | `CALL { subquery }` + `CALL proc(args) YIELD …` procedure framework | ✅ | invocation registry → native/WASM procedures (CONCEPT:EG-KG.query.cypher-planning) |
 | APOC-equivalent + GDS surface via `CALL gds.*` (PageRank, WCC/SCC, Louvain, Label Propagation, betweenness/degree centrality, Dijkstra, node similarity + top-k KNN) | ✅ | pure-Rust eg-compute (CONCEPT:EG-KG.query.eg-2 / EG-144); `CALL gds.<algo>(…) YIELD …` projects the live graph into the eg-compute adjacency + streams results as Cypher rows (CONCEPT:EG-KG.query.gds-call-procedures) |
 | `gds.dbscan` (density clustering) + `gds.linkPrediction` (KAN link-predictor) | ✅ | routes to `mining::cluster::dbscan` / `graphlearn::link_predict` behind the `cypher-mining`/`cypher-graphlearn` features included by Cargo `full` (CONCEPT:EG-KG.query.gds-procedure-routing) |
+| W4.1 GDS-parity expansion: `gds.leiden` (connectivity-guaranteed community detection), `gds.triangleCount`/`gds.localClusteringCoefficient`, `gds.kcore`, `gds.k1coloring`, `gds.eigenvector`, `gds.articleRank`, `gds.closeness` (+ Wasserman-Faust)/`gds.harmonic`, `gds.shortestPath.astar` (caller-supplied heuristic), `gds.shortestPath.yens` (k shortest loopless paths), `gds.steinerTree` (2-approximation), `gds.randomWalk` (seeded, with restart) | ✅ | pure-Rust `eg-compute::graph_algos`, always-on (no new feature); 12→26 total `gds.*` procedures (CONCEPT:EG-KG.query.gds-call-procedures) |
 
 ## GraphQL (`eg-graphql`)
 
