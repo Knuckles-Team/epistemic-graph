@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+> **Documentation clarification (2026-07-23):** The `epistemic-tms` (paraconsistent truth-maintenance + Dung argumentation) and `epistemic-causal` (Pearl do-calculus) features are **included in the default `full` build as of 2.23.1** (EG-P0-6). Both features are unconditionally present in any served deployment; there is no configuration or flag to disable them.
+
 ### Fixed
 - **Cypher anonymous-node inline-property-map audit (W0.8, CONCEPT:EG-KG.query.anon-propmap-parity)** — investigated a
   reported footgun where `MATCH (:Label {k: $v})` (an anonymous node pattern
