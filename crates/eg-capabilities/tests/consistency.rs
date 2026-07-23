@@ -75,6 +75,7 @@ const ACCESS_RS_MUTATES_UNCONDITIONAL: &[&str] = &[
     "AddTriples",
     "AppendStep",
     "ApplyChangeEnvelope",
+    "ApplyChangeEnvelopes",
     "ApplyLedger",
     "ApplyMultisigMutation",
     "ApplyMutation",
@@ -237,6 +238,7 @@ const MUTATION_APPLY_DURABLE_GRAPHREDB: &[&str] = &[
 /// outside the per-method graph mutation-applier classifier.
 const NATIVE_GRAPHREDB_DURABLE: &[&str] = &[
     "ApplyChangeEnvelope",
+    "ApplyChangeEnvelopes",
     "ApplyLedger",
     "ApplyMultisigMutation",
     "ApplyMutation",
@@ -298,6 +300,7 @@ const AUDIT_RS_AUDITED: &[&str] = &[
     "AddTriples",
     "AppendStep",
     "ApplyChangeEnvelope",
+    "ApplyChangeEnvelopes",
     "ApplyLedger",
     "ApplyMultisigMutation",
     "ApplyMutation",
@@ -387,6 +390,7 @@ const CDC_RS_EMITS_CDC: &[&str] = &[
     "AddEdge",
     "AddNode",
     "ApplyChangeEnvelope",
+    "ApplyChangeEnvelopes",
     "ApplyLedger",
     "ApplyMultisigMutation",
     "ApplyMutation",

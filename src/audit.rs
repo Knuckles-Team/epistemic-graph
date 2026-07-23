@@ -109,6 +109,12 @@ pub fn audit_line(method: &Method) -> Option<String> {
             "APPLY_CHANGE_ENVELOPE|{}|{}|{}",
             envelope.envelope_id, envelope.mutation.batch_id, envelope.content_version.digest
         ),
+        // The batch coordinator's per-envelope rows are audited individually inside the
+        // shared transaction (one `audit_line` per envelope operation); this method-level
+        // line keeps policy `audited: true` consistent for the coordinator itself.
+        Method::ApplyChangeEnvelopes { envelopes } => {
+            format!("APPLY_CHANGE_ENVELOPES|{}", envelopes.len())
+        }
         #[cfg(feature = "modality-serving")]
         Method::ServedModality { op } if op.mutates() => {
             use eg_types::{ServedModalityKind, ServedModalityOp};

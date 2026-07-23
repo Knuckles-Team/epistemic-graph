@@ -437,7 +437,7 @@ pub(crate) const MAX_NATIVE_COORDINATOR_PAYLOAD_BYTES: usize = 128 * 1024 * 1024
 
 /// Public coordinator commands that decompose into independently placed,
 /// typed consensus graph commands before any local mutation executes.
-pub const CONSENSUS_FANOUT_METHODS: &[&str] = &["MultiGraphBatchUpdate"];
+pub const CONSENSUS_FANOUT_METHODS: &[&str] = &["MultiGraphBatchUpdate", "ApplyChangeEnvelopes"];
 
 /// Mutating, cluster-wide (non-graph-scoped) admin methods that are NOT routed
 /// through the generic `NativeMutationCommand` proposal path
@@ -538,6 +538,12 @@ pub fn cluster_mutation_route(method: &Method) -> ClusterMutationRoute {
     }
     if matches!(method, Method::ApplyChangeEnvelope { .. }) {
         return ClusterMutationRoute::ConsensusNative;
+    }
+    // The batch coordinator decomposes into per-graph `ApplyChangeEnvelope`-shaped
+    // sub-batches (each an independently-placed native consensus commit) before any
+    // local mutation — the same shape as `MultiGraphBatchUpdate`.
+    if matches!(method, Method::ApplyChangeEnvelopes { .. }) {
+        return ClusterMutationRoute::ConsensusFanout;
     }
     #[cfg(feature = "sparql-http")]
     if is_sparql_http_update(method) {
@@ -3438,6 +3444,7 @@ mod tests {
         ("DeleteGraph", "native lifecycle MutationBatch commits purge before registry eviction"),
         ("MultiGraphBatchUpdate", "cluster placement fanout emits one typed graph command per child; standalone mode uses a durable parent saga"),
         ("ApplyChangeEnvelope", "governed envelope coordinator commits typed graph/object/provenance rows, cursor, version, and outbox through one native MutationBatch"),
+        ("ApplyChangeEnvelopes", "batch envelope coordinator groups envelopes by graph and commits each graph's page as one coalesced native MutationBatch transaction; fans out per graph like MultiGraphBatchUpdate"),
         ("RecomputeMaterialization", "fenced reasoning-projection coordinator resolves authoritative graph provenance and fsyncs its projection watermark"),
         // ── Server lifecycle: TxnParticipation::None, not a graph mutation. ──
         ("Shutdown", "server-lifecycle control-plane action, not a graph mutation"),

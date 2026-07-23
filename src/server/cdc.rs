@@ -739,6 +739,21 @@ pub fn emit_for_method(hub: &CdcHub, core: &GraphCore, graph: &str, method: &Met
                 None,
             );
         }
+        // The batch coordinator emits one change event per envelope (mirroring the
+        // single method) so policy `emits_cdc: true` stays consistent; at runtime the
+        // per-envelope durable outbox is the authoritative change feed.
+        (Method::ApplyChangeEnvelopes { envelopes }, _) => {
+            for envelope in envelopes {
+                hub.emit(
+                    graph,
+                    CdcKind::UpdateNode,
+                    envelope.content_version.object_id.clone(),
+                    String::new(),
+                    None,
+                    None,
+                );
+            }
+        }
         #[cfg(feature = "modality-serving")]
         (Method::ServedModality { op }, _) if op.mutates() => {
             use eg_types::ServedModalityOp;

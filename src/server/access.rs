@@ -511,6 +511,7 @@ pub(crate) fn requires_write(method: &Method) -> bool {
             | Method::CompactNodesByType { .. }
             | Method::RunDatalogReasoning { .. }
             | Method::ApplyChangeEnvelope { .. }
+            | Method::ApplyChangeEnvelopes { .. }
             | Method::Reconcile { .. }
             | Method::ApplyMutation { .. }
             | Method::ApplyMultisigMutation { .. }
