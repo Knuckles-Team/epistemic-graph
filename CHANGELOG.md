@@ -61,6 +61,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   carries a `truncated: bool` reporting whether the search stopped early against
   either budget. Python: `client.graph.vf2_subgraph_match(pattern, max_results=,
   max_steps=)` now returns `{"matches": [...], "truncated": bool}`.
+- **Cypher AST/plan cache** (W1.8, CONCEPT:EG-KG.query.dep-free-behind). `exec_cypher_params`
+  reparsed the identical query TEXT on every call even though parsing is
+  schema-independent — `parser::parse` takes no graph/view argument, and a
+  `$param` stays a symbolic `PropVal::Param`/`ListExpr::Param` node in the AST,
+  never inlined at parse time. Added a bounded, process-wide LRU plan cache
+  (`crates/eg-query/src/cypher/plan_cache.rs`, the same hand-rolled
+  `HashMap`+`BTreeMap` recency idiom as `eg-core::result_cache` — no new
+  dependency) keyed on the exact query text, caching an `Arc<CypherQuery>` so a
+  hit is a refcount bump, never a tree clone. Schema-independence means the
+  cache NEVER invalidates on a graph write — there is nothing for a write to
+  invalidate — so ONE instance safely serves every graph/tenant/caller. Sized
+  by `EPISTEMIC_GRAPH_CYPHER_PLAN_CACHE` (default 256 entries, `0` disables).
 
 ### Fixed
 - **Audit-chain cold-seed tail lookup is now a bounded seek, not a forward scan**
@@ -71,6 +83,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   pattern `scan_next_edge_ordinal` already used for edge ordinals) — one B-tree
   seek, O(log chain length), regardless of how long-lived the graph's audit
   chain is.
+- **Non-Linux / restricted-`/proc` RAM-cap default is no longer unbounded** (W1.8,
+  CONCEPT:AU-KG.backend.b-auto-size). `autosize::default_node_cap` returned `0`
+  (unbounded) whenever `total_ram_bytes()` could not read `/proc/meminfo`
+  (non-Linux, or a restricted/sandboxed `/proc`). That default was worse than
+  merely unbounded: `GraphCore::lru_eviction_candidates` treats a cap of literal
+  `0` as "evict every resident node," not "no cap," so an undetectable-RAM host
+  would have swept every graph down to empty on every memcap sweep. Now falls
+  back to the SAME conservative cap a real 1 GiB Pi gets (a real Pi always reads
+  `/proc/meminfo` successfully, so this branch only fires on a genuinely
+  unmeasurable host); a startup `tracing::warn!` now states RAM was undetectable
+  and which cap was chosen. Override remains `EPISTEMIC_GRAPH_MAX_NODES_PER_GRAPH`.
 
 ---
 

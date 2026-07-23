@@ -35,6 +35,7 @@ use super::plan::{
     NodePat, Pattern, PropVal, QuantifiedGroup, ReadStage, RemoveItem, ReturnItem, ReturnSpec,
     SetItem, Statement, Test, WhereExpr, WithItem, WriteOp, WriteQuery, YieldItem,
 };
+use super::plan_cache;
 use super::proc::{registry, YieldValue};
 
 /// Implicit max rows (mirrors the SQL surface): one Response per Request, so an
@@ -62,12 +63,17 @@ pub fn exec_cypher(view: &GraphView, cypher: &str) -> Result<QueryResult, String
 /// Parse + run `cypher` over `view` with `$name` query parameters (CONCEPT:EG-KG.query.param-list-drives-unwind) —
 /// e.g. `UNWIND $ids AS x MATCH (n {id: x}) RETURN n`. `exec_cypher` is the
 /// zero-parameter form.
+///
+/// Parsing is served from the process-wide, schema-independent [`plan_cache`] —
+/// a repeat call with IDENTICAL query text (any `$params`, any graph) reuses the
+/// already-parsed AST instead of re-parsing (see that module's doc for why a plan
+/// never needs to invalidate). Sized by `EPISTEMIC_GRAPH_CYPHER_PLAN_CACHE`.
 pub fn exec_cypher_params(
     view: &GraphView,
     cypher: &str,
     params: &Params,
 ) -> Result<QueryResult, String> {
-    let query = parser::parse(cypher)?;
+    let query = plan_cache::global().get_or_parse(cypher)?;
     let bindings = run_stages(view, &query.stages, params)?;
     finalize(view, &query, bindings)
 }
@@ -3427,5 +3433,62 @@ mod tests {
         let admins = exec_cypher_write(&core2, "MATCH (n:Admin) RETURN n").unwrap();
         assert!(admins.rows.is_empty(), "array label removed");
         let _ = core; // silence unused in this combined test
+    }
+
+    // ── plan cache (CONCEPT:EG-KG.query.dep-free-behind) — cached vs uncached parity ──────
+
+    /// A representative sample of the corpus's shapes above (label scan, WHERE,
+    /// fixed + variable-length hop, OPTIONAL MATCH, WITH + filter, ORDER BY/SKIP/
+    /// LIMIT, aggregation, DISTINCT, `RETURN *`, UNWIND, CALL subquery, path
+    /// variable, undirected edge, quantified group) — every string here is copied
+    /// from an already-passing test above, so this only exercises the plan-cache
+    /// wiring, not new query semantics.
+    const PLAN_CACHE_COVERAGE_QUERIES: &[&str] = &[
+        "MATCH (a:Person) RETURN a",
+        "MATCH (a:Person) WHERE a.name = 'Alice' RETURN a, a.id, a.node_type",
+        "MATCH (a:Person)-[:KNOWS]->(b:Person) RETURN a, b",
+        "MATCH (a:Person)-[:KNOWS*1..3]->(b:Person) WHERE a.name = 'Alice' RETURN b",
+        "MATCH (p:Person) OPTIONAL MATCH (x:Person {name:'Nobody'})-[:KNOWS]->(p) RETURN p",
+        "MATCH (a:Person)-[:KNOWS]->(b:Person) WITH b WHERE b.name = 'Carol' RETURN b",
+        "MATCH (a:Person) RETURN a.name ORDER BY a.name SKIP 1 LIMIT 1",
+        "MATCH (a:Person) RETURN count(a), collect(a.name)",
+        "MATCH (a:Person) RETURN DISTINCT a.node_type",
+        "MATCH (a:Person) WHERE a.name = 'Alice' RETURN *",
+        "UNWIND [1, 2, 3] AS x RETURN x",
+        "CALL { MATCH (a:Person) RETURN a } RETURN a",
+        "MATCH p = (a:Person)-[:KNOWS*1..1]->(b:Person) WHERE a.name = 'Alice' RETURN p",
+        "MATCH (a:Person)-[:KNOWS]-(b:Person) WHERE a.name = 'Bob' RETURN b",
+        "MATCH (a:Person)((x)-[:KNOWS]->(y)){1,3}(b:Person) WHERE a.name = 'Alice' RETURN b",
+    ];
+
+    #[test]
+    fn plan_cache_hit_path_is_byte_identical_to_the_uncached_first_call() {
+        let v = fixture();
+        for text in PLAN_CACHE_COVERAGE_QUERIES {
+            // First call: a miss (or a hit left over from another test/parallel run
+            // using the same text — either way harmless, see plan_cache's module
+            // doc) always parses+executes correctly. Second call is guaranteed a
+            // HIT (the first call just populated the cache for this exact text).
+            let first = exec_cypher(&v, text).unwrap_or_else(|e| panic!("{text}: {e}"));
+            let second = exec_cypher(&v, text).unwrap_or_else(|e| panic!("{text}: {e}"));
+            assert_eq!(first.columns, second.columns, "columns diverged for {text}");
+            assert_eq!(first.rows, second.rows, "rows diverged for {text}");
+        }
+    }
+
+    #[test]
+    fn plan_cache_hit_path_is_byte_identical_with_query_parameters() {
+        // Same parity proof, but through the `$params` form — the AST caches on
+        // TEXT alone, so a parameter binding must still resolve identically on a
+        // cache hit as it did on the miss that populated the entry.
+        let v = fixture();
+        let text = "MATCH (t:Person {name: $tid})-[:KNOWS]->(tc:Person) RETURN tc";
+        let mut params = Params::new();
+        params.insert("tid".into(), Value::String("Alice".into()));
+
+        let first = exec_cypher_params(&v, text, &params).unwrap();
+        let second = exec_cypher_params(&v, text, &params).unwrap();
+        assert_eq!(first.columns, second.columns);
+        assert_eq!(first.rows, second.rows);
     }
 }
