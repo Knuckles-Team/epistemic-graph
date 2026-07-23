@@ -30,6 +30,7 @@ mod exec;
 mod gds;
 mod parser;
 mod plan;
+mod plan_cache;
 mod proc;
 
 pub use exec::{

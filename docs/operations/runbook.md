@@ -94,6 +94,7 @@ Every listener is opt-in (feature **and** address must be set). Full connect exa
 | `EPISTEMIC_GRAPH_MAX_INFLIGHT` / `…_MAX_INFLIGHT_PER_GRAPH` | Admission control / back-pressure. |
 | `EPISTEMIC_GRAPH_READ_RESERVED` | Reserved read-admission lane (EG-KG.coordination.reserved-read-lane) — keep reads fast under a write firehose. |
 | `EPISTEMIC_GRAPH_RESULT_CACHE_CAP` | Version-keyed result-cache capacity (KG-2.233). |
+| `EPISTEMIC_GRAPH_CYPHER_PLAN_CACHE` | Process-wide Cypher AST/plan-cache capacity, keyed on query text (`0` disables). Schema-independent — never invalidated by a write. |
 | `EPISTEMIC_GRAPH_SLOW_QUERY_MS` | Slow-query log threshold. |
 | `EPISTEMIC_GRAPH_INDEXED_PROPERTIES` / `…_INDEXED_JSON_PATHS` | Secondary index hints (+ `…_MAX_*` caps). |
 | `EPISTEMIC_GRAPH_MEMORY_BUDGET` / `…_TENANT_BUDGET` / `…_MEMCAP_INTERVAL` / `…_BUDGET_INTERVAL` | Per-tenant memory budget + autoscale signals (EG-KG.compute.lane-v, `cost`). |

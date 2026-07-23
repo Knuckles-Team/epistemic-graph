@@ -409,6 +409,14 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
         host_capacity.total_ram_bytes / (1024 * 1024),
         host_capacity.tier
     );
+    if host_capacity.total_ram_bytes == 0 {
+        tracing::warn!(
+            "  RAM undetectable (non-Linux or a restricted /proc) — defaulting the \
+             per-graph node cap to a conservative {} (the same cap a real 1 GiB Pi \
+             gets); override with EPISTEMIC_GRAPH_MAX_NODES_PER_GRAPH",
+            host_capacity.node_cap()
+        );
+    }
     if args.tcp_addr.is_some() {
         info!(
             "  TCP: configured (tls={}, mtls={})",
