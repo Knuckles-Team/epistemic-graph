@@ -235,11 +235,11 @@ mod tests {
         out
     }
 
+    /// (train, test) edge partitions produced by `split_edges`.
+    type EdgeSplit = (Vec<(usize, usize)>, Vec<(usize, usize)>);
+
     /// 80/20 train/test split of the edge set, seeded.
-    fn split_edges(
-        edges: &[(usize, usize)],
-        seed: u64,
-    ) -> (Vec<(usize, usize)>, Vec<(usize, usize)>) {
+    fn split_edges(edges: &[(usize, usize)], seed: u64) -> EdgeSplit {
         let mut rng = SplitMix64::new(seed);
         let (mut train, mut test) = (Vec::new(), Vec::new());
         for &e in edges {
