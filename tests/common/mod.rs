@@ -205,10 +205,7 @@ pub fn tempdir_persistence() -> (
     use std::sync::atomic::{AtomicU64, Ordering};
     static SEQ: AtomicU64 = AtomicU64::new(0);
     let seq = SEQ.fetch_add(1, Ordering::Relaxed);
-    let dir = std::env::temp_dir().join(format!(
-        "eg-test-persist-{}-{seq}",
-        std::process::id()
-    ));
+    let dir = std::env::temp_dir().join(format!("eg-test-persist-{}-{seq}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("create test persist dir");
     let dir_s = dir.to_string_lossy().into_owned();

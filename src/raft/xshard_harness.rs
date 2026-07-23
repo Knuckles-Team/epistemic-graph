@@ -121,7 +121,10 @@ fn fresh_dir(tag: &str) -> String {
     // coordinator-path tests behave identically with it set.
     static ENCRYPTION_KEY: std::sync::Once = std::sync::Once::new();
     ENCRYPTION_KEY.call_once(|| {
-        std::env::set_var(crate::crypto::ENCRYPTION_KEY_ENV, "xshard-harness-recovery-key")
+        std::env::set_var(
+            crate::crypto::ENCRYPTION_KEY_ENV,
+            "xshard-harness-recovery-key",
+        )
     });
     let d = std::env::temp_dir().join(format!("eg-xshard-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&d);

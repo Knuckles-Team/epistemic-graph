@@ -5254,7 +5254,10 @@ mod tests {
         // tests filtered rather than mixed with the plaintext-on-disk assertions.
         static ENCRYPTION_KEY: std::sync::Once = std::sync::Once::new();
         ENCRYPTION_KEY.call_once(|| {
-            std::env::set_var(crate::crypto::ENCRYPTION_KEY_ENV, "crossmodal-test-recovery-key")
+            std::env::set_var(
+                crate::crypto::ENCRYPTION_KEY_ENV,
+                "crossmodal-test-recovery-key",
+            )
         });
         let d = std::env::temp_dir().join(format!("eg-crossmodal-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
