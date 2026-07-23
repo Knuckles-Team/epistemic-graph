@@ -22,5 +22,10 @@
 // data-science-mcp job whose distilled outputs flow back through this write-back seam.
 
 pub mod edge_fn;
+// CONCEPT:EG-KG.graphlearn.structural-embeddings — native structural node embeddings
+// (FastRP + Node2Vec) over the resident graph. Feed the `SemanticStore` (kNN/vector
+// search), the `link_predict` feature builder (embedding dot/cosine), and the
+// `CALL gds.fastRP`/`gds.node2vec` Cypher procs. Pure-Rust, deterministic, no heavy dep.
+pub mod embeddings;
 pub mod link_predict;
 pub mod neighbor_aggregate;

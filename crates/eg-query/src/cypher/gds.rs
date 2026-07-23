@@ -83,6 +83,14 @@ pub fn gds_procedures() -> Vec<Box<dyn CypherProcedure>> {
     v.push(Box::new(Dbscan));
     #[cfg(feature = "cypher-graphlearn")]
     v.push(Box::new(LinkPrediction));
+    // ── W4.2 structural embeddings (CONCEPT:EG-KG.graphlearn.structural-embeddings) ──
+    // Appended at the END of the registration list to keep the merge-conflict surface
+    // minimal with concurrent gds.rs edits. Both route to the `eg_compute::graphlearn::
+    // embeddings` FastRP / Node2Vec kernels, so they share `cypher-graphlearn`.
+    #[cfg(feature = "cypher-graphlearn")]
+    v.push(Box::new(FastRp));
+    #[cfg(feature = "cypher-graphlearn")]
+    v.push(Box::new(Node2Vec));
     v
 }
 
@@ -1096,6 +1104,100 @@ impl CypherProcedure for LinkPrediction {
     }
 }
 
+// ── structural embeddings (CONCEPT:EG-KG.graphlearn.structural-embeddings, W4.2) ──────────────────
+//
+// Two stream procedures over `eg_compute::graphlearn::embeddings` that turn graph
+// topology into per-node vectors (Neo4j `gds.fastRP.stream` / `gds.node2Vec.stream`
+// shape). Both project the current view, run the deterministic kernel, and YIELD
+// `(nodeId, embedding)` where `embedding` is a numeric list. Gated behind
+// `cypher-graphlearn` (routes to the heavier eg-compute graphlearn domain). Appended at
+// the END of this file to minimize merge-conflict surface with concurrent edits.
+
+/// `(nodeId, embedding)` rows from index-ordered embedding vectors + the projected graph.
+#[cfg(feature = "cypher-graphlearn")]
+fn embedding_rows(g: &AdjacencyGraph<String>, rows: Vec<Vec<f32>>) -> Vec<ProcRow> {
+    g.nodes()
+        .iter()
+        .cloned()
+        .zip(rows)
+        .map(|(id, row)| {
+            let arr = Value::Array(row.into_iter().map(|x| num(x as f64)).collect());
+            vec![
+                ("nodeId".to_string(), YieldValue::Node(id)),
+                ("embedding".to_string(), YieldValue::Scalar(arr)),
+            ]
+        })
+        .collect()
+}
+
+/// `gds.fastRP(config)` — FastRP structural embeddings
+/// (CONCEPT:EG-KG.graphlearn.fastrp). Config: `embeddingDimension` (128), `iterations`
+/// (3), `normalizationStrength` (0.5), `randomSeed` (42), `relationshipWeightProperty`.
+/// Yields `nodeId`, `embedding` (a numeric list). Routes to
+/// `eg_compute::graphlearn::embeddings::fastrp` — deterministic given the seed.
+#[cfg(feature = "cypher-graphlearn")]
+struct FastRp;
+#[cfg(feature = "cypher-graphlearn")]
+impl CypherProcedure for FastRp {
+    fn name(&self) -> &'static str {
+        "gds.fastRP"
+    }
+    fn columns(&self) -> &'static [&'static str] {
+        &["nodeId", "embedding"]
+    }
+    fn call(&self, args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
+        use eg_compute::graphlearn::embeddings::{fastrp, FastRpConfig};
+        let cfg = Config::of(args);
+        let g = project(view, cfg.string("relationshipWeightProperty").as_deref());
+        let def = FastRpConfig::default();
+        let fcfg = FastRpConfig {
+            dim: cfg.usize("embeddingDimension", def.dim),
+            iterations: cfg.usize("iterations", def.iterations),
+            normalization_strength: cfg.f64("normalizationStrength", def.normalization_strength),
+            seed: cfg.usize("randomSeed", def.seed as usize) as u64,
+            ..def
+        };
+        Ok(embedding_rows(&g, fastrp(&g, &fcfg)))
+    }
+}
+
+/// `gds.node2vec(config)` — Node2Vec biased-walk + SGNS structural embeddings
+/// (CONCEPT:EG-KG.graphlearn.node2vec). Config: `embeddingDimension` (128), `walkLength`
+/// (40), `walksPerNode` (10), `windowSize` (5), `returnFactor` p (1.0), `inOutFactor` q
+/// (1.0), `negativeSamplingRate` (5), `iterations` (training epochs, 10), `randomSeed`
+/// (42), `relationshipWeightProperty`. Yields `nodeId`, `embedding`. Routes to
+/// `eg_compute::graphlearn::embeddings::node2vec` — deterministic given the seed.
+#[cfg(feature = "cypher-graphlearn")]
+struct Node2Vec;
+#[cfg(feature = "cypher-graphlearn")]
+impl CypherProcedure for Node2Vec {
+    fn name(&self) -> &'static str {
+        "gds.node2vec"
+    }
+    fn columns(&self) -> &'static [&'static str] {
+        &["nodeId", "embedding"]
+    }
+    fn call(&self, args: &[Value], view: &GraphView) -> Result<Vec<ProcRow>, String> {
+        use eg_compute::graphlearn::embeddings::{node2vec, Node2VecConfig};
+        let cfg = Config::of(args);
+        let g = project(view, cfg.string("relationshipWeightProperty").as_deref());
+        let def = Node2VecConfig::default();
+        let ncfg = Node2VecConfig {
+            dim: cfg.usize("embeddingDimension", def.dim),
+            walk_length: cfg.usize("walkLength", def.walk_length),
+            walks_per_node: cfg.usize("walksPerNode", def.walks_per_node),
+            window: cfg.usize("windowSize", def.window),
+            p: cfg.f64("returnFactor", def.p),
+            q: cfg.f64("inOutFactor", def.q),
+            negatives: cfg.usize("negativeSamplingRate", def.negatives),
+            epochs: cfg.usize("iterations", def.epochs),
+            seed: cfg.usize("randomSeed", def.seed as usize) as u64,
+            ..def
+        };
+        Ok(embedding_rows(&g, node2vec(&g, &ncfg)))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1867,6 +1969,112 @@ mod tests {
         for row in &r {
             let p = row[2].as_f64().unwrap();
             assert!((0.0..=1.0).contains(&p), "probability out of range: {p}");
+        }
+    }
+
+    // ── W4.2 structural embeddings (CONCEPT:EG-KG.graphlearn.structural-embeddings) ──
+
+    /// Two disjoint triangles: `CALL gds.fastRP` streams one `dim`-length embedding per
+    /// node, and same-triangle nodes are more cosine-similar than across triangles.
+    #[cfg(feature = "cypher-graphlearn")]
+    #[test]
+    fn call_gds_fastrp_streams_structural_embeddings() {
+        let core = GraphCore::new();
+        for id in ["a", "b", "c", "x", "y", "z"] {
+            core.add_node(id.into(), pbytes(serde_json::json!({"node_type": "N"})));
+        }
+        for (s, t) in [
+            ("a", "b"),
+            ("b", "c"),
+            ("c", "a"),
+            ("x", "y"),
+            ("y", "z"),
+            ("z", "x"),
+        ] {
+            core.add_edge(s.into(), t.into(), pbytes(serde_json::json!({})))
+                .unwrap();
+        }
+        let v = core.analysis_snapshot();
+        let qr = exec_cypher(
+            &v,
+            "CALL gds.fastRP({embeddingDimension: 32, iterations: 3, randomSeed: 7}) \
+             YIELD nodeId, embedding RETURN nodeId, embedding",
+        )
+        .unwrap();
+        let r = rows(&qr);
+        assert_eq!(r.len(), 6, "one embedding row per node");
+        let mut emb: HashMap<String, Vec<f64>> = HashMap::new();
+        for row in &r {
+            let vec: Vec<f64> = row[1]
+                .as_array()
+                .expect("embedding is a list")
+                .iter()
+                .map(|x| x.as_f64().unwrap())
+                .collect();
+            assert_eq!(vec.len(), 32, "embedding has the configured dimension");
+            emb.insert(node_id(&row[0]).to_string(), vec);
+        }
+        let cos = |a: &[f64], b: &[f64]| {
+            let dot: f64 = a.iter().zip(b).map(|(x, y)| x * y).sum();
+            let na: f64 = a.iter().map(|x| x * x).sum::<f64>().sqrt();
+            let nb: f64 = b.iter().map(|x| x * x).sum::<f64>().sqrt();
+            if na * nb > 0.0 {
+                dot / (na * nb)
+            } else {
+                0.0
+            }
+        };
+        let intra = cos(&emb["a"], &emb["b"]);
+        let inter = cos(&emb["a"], &emb["x"]);
+        assert!(
+            intra > inter,
+            "same-triangle {intra} should exceed cross {inter}"
+        );
+    }
+
+    /// `CALL gds.fastRP` is deterministic given the seed (same rows twice).
+    #[cfg(feature = "cypher-graphlearn")]
+    #[test]
+    fn call_gds_fastrp_is_deterministic() {
+        let v = fixture();
+        let q = "CALL gds.fastRP({embeddingDimension: 16, randomSeed: 3}) \
+                 YIELD nodeId, embedding RETURN nodeId, embedding";
+        let a = rows(&exec_cypher(&v, q).unwrap());
+        let b = rows(&exec_cypher(&v, q).unwrap());
+        assert_eq!(a, b);
+    }
+
+    /// `CALL gds.node2vec` streams one `dim`-length embedding per node.
+    #[cfg(feature = "cypher-graphlearn")]
+    #[test]
+    fn call_gds_node2vec_streams_structural_embeddings() {
+        let core = GraphCore::new();
+        for id in ["a", "b", "c", "x", "y", "z"] {
+            core.add_node(id.into(), pbytes(serde_json::json!({"node_type": "N"})));
+        }
+        for (s, t) in [
+            ("a", "b"),
+            ("b", "c"),
+            ("c", "a"),
+            ("x", "y"),
+            ("y", "z"),
+            ("z", "x"),
+        ] {
+            core.add_edge(s.into(), t.into(), pbytes(serde_json::json!({})))
+                .unwrap();
+        }
+        let v = core.analysis_snapshot();
+        let qr = exec_cypher(
+            &v,
+            "CALL gds.node2vec({embeddingDimension: 16, walkLength: 20, walksPerNode: 10, \
+             iterations: 5, randomSeed: 7}) YIELD nodeId, embedding RETURN nodeId, embedding",
+        )
+        .unwrap();
+        let r = rows(&qr);
+        assert_eq!(r.len(), 6);
+        for row in &r {
+            let len = row[1].as_array().expect("embedding is a list").len();
+            assert_eq!(len, 16);
         }
     }
 }

@@ -70,6 +70,8 @@ target/
 # shared global CARGO_TARGET_DIR both serializes and corrupts concurrent
 # worktree builds, so every worktree build uses its own isolated target dir.
 target-isolated/
+# Worktree-local isolated build dirs (per-worktree cargo target-dir; see AGENTS.md)
+target-*/
 debug/
 **/*.rs.bk
 *.pdb

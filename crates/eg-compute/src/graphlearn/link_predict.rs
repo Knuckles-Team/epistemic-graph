@@ -44,6 +44,12 @@ pub const FEATURE_NAMES: [&str; 7] = [
 /// Number of per-pair structural features.
 pub const N_FEATURES: usize = FEATURE_NAMES.len();
 
+/// The two extra features contributed when a structural EMBEDDING channel is present
+/// (CONCEPT:EG-KG.graphlearn.structural-embeddings): the dot product and cosine of the
+/// candidate pair's embedding vectors. Appended after [`FEATURE_NAMES`] so the base
+/// 7-feature model is byte-for-byte unchanged when no embeddings are supplied.
+pub const EMBEDDING_FEATURE_NAMES: [&str; 2] = ["embedding_dot", "embedding_cosine"];
+
 // ─────────────────────────── The model ───────────────────────────
 
 /// One KAN layer: `out_dim` outputs, each `output[j] = bias[j] + Σ_i fns[j][i](x_i)`.
@@ -184,6 +190,10 @@ pub struct FeatureCtx {
     pr: Vec<f64>,
     /// 1-hop-aggregated node feature rows (parallel to node index).
     node_feats: Vec<Vec<f64>>,
+    /// Optional per-node structural embedding rows (FastRP/Node2Vec). When present,
+    /// `pair_features` appends the pair's embedding dot + cosine (2 extra features).
+    /// CONCEPT:EG-KG.graphlearn.structural-embeddings
+    embeddings: Option<Vec<Vec<f64>>>,
     n: usize,
 }
 
@@ -209,8 +219,48 @@ impl FeatureCtx {
             degree,
             pr,
             node_feats,
+            embeddings: None,
             n,
         }
+    }
+
+    /// Build the feature context AND fold in a structural embedding channel: each
+    /// pair additionally contributes its embedding dot + cosine (2 extra features).
+    /// `embeddings` must be parallel to the graph's compact index order (one row per
+    /// node). CONCEPT:EG-KG.graphlearn.structural-embeddings
+    pub fn build_with_embeddings<N>(
+        graph: &AdjacencyGraph<N>,
+        alpha: f64,
+        embeddings: Vec<Vec<f64>>,
+    ) -> Self
+    where
+        N: Clone + Eq + Hash + Ord,
+    {
+        let mut ctx = Self::build(graph, alpha);
+        if embeddings.len() == ctx.n {
+            ctx.embeddings = Some(embeddings);
+        }
+        ctx
+    }
+
+    /// Number of per-pair features this context produces: 7 structural, or 9 when a
+    /// structural embedding channel is present. CONCEPT:EG-KG.graphlearn.structural-embeddings
+    pub fn n_features(&self) -> usize {
+        if self.embeddings.is_some() {
+            N_FEATURES + EMBEDDING_FEATURE_NAMES.len()
+        } else {
+            N_FEATURES
+        }
+    }
+
+    /// The feature names in `pair_features` order (7 structural, + 2 embedding when a
+    /// structural embedding channel is present).
+    pub fn feature_names(&self) -> Vec<String> {
+        let mut names: Vec<String> = FEATURE_NAMES.iter().map(|s| s.to_string()).collect();
+        if self.embeddings.is_some() {
+            names.extend(EMBEDDING_FEATURE_NAMES.iter().map(|s| s.to_string()));
+        }
+        names
     }
 
     /// The raw structural feature vector for the pair `(a, b)` (compact indices),
@@ -251,7 +301,7 @@ impl FeatureCtx {
             .zip(self.node_feats[b].iter())
             .map(|(x, y)| x * y)
             .sum();
-        vec![
+        let mut feats = vec![
             common_cnt,
             jaccard,
             adamic_adar,
@@ -259,7 +309,19 @@ impl FeatureCtx {
             pagerank_product,
             neighbor_cosine,
             node_feature_dot,
-        ]
+        ];
+        // Structural-embedding channel (CONCEPT:EG-KG.graphlearn.structural-embeddings):
+        // the pair's embedding dot + cosine, appended after the 7 structural features.
+        if let Some(emb) = &self.embeddings {
+            let (ea, eb) = (&emb[a], &emb[b]);
+            let dot: f64 = ea.iter().zip(eb.iter()).map(|(x, y)| x * y).sum();
+            let na: f64 = ea.iter().map(|x| x * x).sum::<f64>().sqrt();
+            let nb: f64 = eb.iter().map(|x| x * x).sum::<f64>().sqrt();
+            let cos = if na * nb > 0.0 { dot / (na * nb) } else { 0.0 };
+            feats.push(dot);
+            feats.push(cos);
+        }
+        feats
     }
 
     /// Node count of the underlying graph.
@@ -307,7 +369,7 @@ pub fn fit_link_predictor(
     }
 
     // Standardisation stats.
-    let (feat_mean, feat_std) = standardize_stats(&raw);
+    let (feat_mean, feat_std) = standardize_stats(&raw, ctx.n_features());
     let x_std: Vec<Vec<f64>> = raw
         .iter()
         .map(|r| {
@@ -318,8 +380,8 @@ pub fn fit_link_predictor(
         })
         .collect();
 
-    // Build & init the layer stack.
-    let mut layers = build_layers(N_FEATURES, config);
+    // Build & init the layer stack (7 structural features, or 9 with embeddings).
+    let mut layers = build_layers(ctx.n_features(), config);
     init_layers(&mut layers, config.seed);
 
     // Adam optimiser state over the flattened parameters.
@@ -359,7 +421,7 @@ pub fn fit_link_predictor(
     let mut model = KanLinkModel {
         basis: config.basis,
         degree: config.degree,
-        feature_names: FEATURE_NAMES.iter().map(|s| s.to_string()).collect(),
+        feature_names: ctx.feature_names(),
         layers,
         feat_mean,
         feat_std,
@@ -597,10 +659,11 @@ fn intersect_union(a: &[usize], b: &[usize]) -> (Vec<usize>, usize) {
     (inter, union)
 }
 
-/// Per-column mean and std (floored at 1e-9) of a feature matrix.
-fn standardize_stats(rows: &[Vec<f64>]) -> (Vec<f64>, Vec<f64>) {
+/// Per-column mean and std (floored at 1e-9) of a feature matrix. `n_features` is the
+/// expected column count, used only for the empty-input fallback.
+fn standardize_stats(rows: &[Vec<f64>], n_features: usize) -> (Vec<f64>, Vec<f64>) {
     if rows.is_empty() {
-        return (vec![0.0; N_FEATURES], vec![1.0; N_FEATURES]);
+        return (vec![0.0; n_features], vec![1.0; n_features]);
     }
     let d = rows[0].len();
     let n = rows.len() as f64;
